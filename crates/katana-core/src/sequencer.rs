@@ -2,9 +2,10 @@ use crate::{block_context::Base, state::DictStateReader};
 use blockifier::{
     abi::abi_utils::get_storage_var_address,
     block_context::BlockContext,
+    execution::contract_class::ContractClass,
     state::{
         cached_state::CachedState,
-        state_api::{State, StateReader},
+        state_api::{State, StateReader, StateResult},
     },
     transaction::{account_transaction::AccountTransaction, transactions::ExecutableTransaction},
 };
@@ -18,6 +19,7 @@ use starknet_api::{
         TransactionSignature, TransactionVersion,
     },
 };
+use std::sync::Arc;
 use std::sync::Mutex;
 
 pub struct KatanaSequencer {
@@ -119,6 +121,13 @@ impl KatanaSequencer {
             .lock()
             .unwrap()
             .get_storage_at(contract_address, storage_key)
+    }
+
+    pub async fn starknet_get_contract_class(
+        &self,
+        class_hash: &ClassHash,
+    ) -> StateResult<Arc<ContractClass>> {
+        self.state.lock().unwrap().get_contract_class(class_hash)
     }
 }
 

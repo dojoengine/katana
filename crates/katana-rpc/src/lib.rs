@@ -5,7 +5,6 @@ use jsonrpsee::{
     types::error::CallError,
 };
 use katana_core::sequencer::KatanaSequencer;
-use starknet::{core::types::FieldElement, providers::jsonrpc::models::DeployTransactionResult};
 use starknet_api::{
     core::{ClassHash, ContractAddress, PatriciaKey},
     hash::StarkFelt,
@@ -20,6 +19,16 @@ use util::to_trimmed_hex_string;
 use crate::api::{KatanaApiError, KatanaApiServer};
 pub mod api;
 mod util;
+
+use starknet::{
+    core::types::FieldElement,
+    providers::jsonrpc::models::{
+        BlockHashAndNumber, BlockId, BroadcastedInvokeTransaction, ContractClass,
+        DeclareTransactionResult, DeployTransactionResult, EventFilter, EventsPage, FeeEstimate,
+        FunctionCall, InvokeTransactionResult, MaybePendingBlockWithTxHashes,
+        MaybePendingBlockWithTxs, MaybePendingTransactionReceipt, StateUpdate, Transaction,
+    },
+};
 
 pub struct KatanaRpc {
     sequencer: Arc<KatanaSequencer>,
@@ -115,6 +124,24 @@ impl KatanaApiServer for KatanaRpc {
 
         FieldElement::from_byte_slice_be(storage.bytes())
             .map_err(|_| Error::from(KatanaApiError::InternalServerError))
+    }
+
+    async fn get_class(
+        &self,
+        _block_id: BlockId,
+        _class_hash: String,
+    ) -> Result<ContractClass, Error> {
+        // get block
+
+        let state_number = self.block_number();
+
+        self.sequencer
+            .starknet_get_contract_class(&ClassHash(
+                StarkFelt::try_from(_class_hash.as_str()).unwrap(),
+            ))
+            .await
+            .map_err(|_| Error::from(KatanaApiError::ContractError))
+            .unwrap();
     }
 }
 
