@@ -21,5 +21,11 @@ log = "0.4.17"
 serde = "1.0.156"
 thiserror = "1.0.32"
 tokio = { version = "1.16", features = ["full"] }
-starknet = { git = "https://github.com/xJonathanLEI/starknet-rs", rev = "e72cc0a4b3ea67c7691ebec58300da3c21f0abb2" }
-starknet_api = { git = "https://github.com/starkware-libs/starknet-api", rev = "0029ffe" }
+starknet = { git = "https://github.com/xJonathanLEI/starknet-rs", rev = "5d3f9d7cc6df0d01a299f0fb0ebc00ec2f28b983" }
+starknet_api = { git = "https://github.com/starkware-libs/starknet-api" }
+
+[patch."https://github.com/starkware-libs/blockifier"]
+blockifier = { git = "https://github.com/dojoengine/blockifier", rev = "0b2e2f0800d68372888496ea0db989555681f2e8" }
+
+[patch."https://github.com/starkware-libs/starknet-api"]
+starknet_api = { git = "https://github.com/dojoengine/starknet-api", rev = "07432d6acd1afc83d341a01ffd49c55ef06146cd" }

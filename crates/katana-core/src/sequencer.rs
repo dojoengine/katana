@@ -9,6 +9,7 @@ use blockifier::{
     },
     transaction::{account_transaction::AccountTransaction, transactions::ExecutableTransaction},
 };
+use starknet::providers::jsonrpc::models::BlockId;
 use starknet_api::{
     core::{calculate_contract_address, ClassHash, ContractAddress, Nonce},
     hash::StarkFelt,
@@ -57,7 +58,7 @@ impl KatanaSequencer {
         self.state.lock().unwrap().set_storage_at(
             self.block_context.fee_token_address,
             deployed_account_balance_key,
-            stark_felt!(Fee(u128::from(balance)).0 as u64),
+            stark_felt!(balance),
         );
 
         self.deploy_account(
@@ -93,11 +94,10 @@ impl KatanaSequencer {
             .unwrap()
             .get_storage_at(self.block_context.fee_token_address, account_balance_key)?;
 
-        let max_fee_b16 = &max_fee.bytes()[..16];
         // TODO: Compute txn hash
         let tx_hash = TransactionHash::default();
         let tx = AccountTransaction::DeployAccount(DeployAccountTransaction {
-            max_fee: Fee(u128::from_be_bytes(max_fee_b16.try_into().unwrap())),
+            max_fee: Fee(max_fee.try_into().unwrap()),
             version,
             class_hash,
             contract_address,
@@ -112,7 +112,18 @@ impl KatanaSequencer {
         Ok((tx_hash, contract_address))
     }
 
-    pub async fn starknet_get_storage_at(
+    pub async fn class_hash_at(
+        &self,
+        _block_id: BlockId,
+        contract_address: ContractAddress,
+    ) -> Result<ClassHash, blockifier::state::errors::StateError> {
+        self.state
+            .lock()
+            .unwrap()
+            .get_class_hash_at(contract_address)
+    }
+
+    pub async fn get_storage_at(
         &self,
         contract_address: ContractAddress,
         storage_key: StorageKey,
@@ -123,7 +134,10 @@ impl KatanaSequencer {
             .get_storage_at(contract_address, storage_key)
     }
 
-    pub async fn contract_class(&self, class_hash: &ClassHash) -> StateResult<Arc<ContractClass>> {
+    pub async fn get_contract_class(
+        &self,
+        class_hash: &ClassHash,
+    ) -> StateResult<Arc<ContractClass>> {
         self.state.lock().unwrap().get_contract_class(class_hash)
     }
 }

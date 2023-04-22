@@ -1,16 +1,16 @@
+use blockifier::execution::contract_class::ContractClass;
 use jsonrpsee::{
     core::Error,
     proc_macros::rpc,
     types::error::{CallError, ErrorObject},
 };
-
 use starknet::{
     core::types::FieldElement,
     providers::jsonrpc::models::{
-        BlockHashAndNumber, BlockId, BroadcastedInvokeTransaction, ContractClass,
-        DeclareTransactionResult, DeployTransactionResult, EventFilter, EventsPage, FeeEstimate,
-        FunctionCall, InvokeTransactionResult, MaybePendingBlockWithTxHashes,
-        MaybePendingBlockWithTxs, MaybePendingTransactionReceipt, StateUpdate, Transaction,
+        BlockHashAndNumber, BlockId, BroadcastedInvokeTransaction, DeclareTransactionResult,
+        DeployTransactionResult, EventFilter, EventsPage, FeeEstimate, FunctionCall,
+        InvokeTransactionResult, MaybePendingBlockWithTxHashes, MaybePendingBlockWithTxs,
+        MaybePendingTransactionReceipt, StateUpdate, Transaction,
     },
 };
 
