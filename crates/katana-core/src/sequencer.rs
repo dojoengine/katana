@@ -123,10 +123,7 @@ impl KatanaSequencer {
             .get_storage_at(contract_address, storage_key)
     }
 
-    pub async fn starknet_get_contract_class(
-        &self,
-        class_hash: &ClassHash,
-    ) -> StateResult<Arc<ContractClass>> {
+    pub async fn contract_class(&self, class_hash: &ClassHash) -> StateResult<Arc<ContractClass>> {
         self.state.lock().unwrap().get_contract_class(class_hash)
     }
 }

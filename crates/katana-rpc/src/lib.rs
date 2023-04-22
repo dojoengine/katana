@@ -1,3 +1,4 @@
+use anyhow::Ok;
 use blockifier::state::state_api::StateReader;
 use jsonrpsee::{
     core::{async_trait, Error},
@@ -128,20 +129,19 @@ impl KatanaApiServer for KatanaRpc {
 
     async fn get_class(
         &self,
-        _block_id: BlockId,
-        _class_hash: String,
+        block_id: BlockId,
+        class_hash: String,
     ) -> Result<ContractClass, Error> {
-        // get block
-
-        let state_number = self.block_number();
-
-        self.sequencer
-            .starknet_get_contract_class(&ClassHash(
-                StarkFelt::try_from(_class_hash.as_str()).unwrap(),
+        let class = self
+            .sequencer
+            .contract_class(&ClassHash(
+                StarkFelt::try_from(class_hash.as_str()).unwrap(),
             ))
             .await
             .map_err(|_| Error::from(KatanaApiError::ContractError))
             .unwrap();
+
+        Ok(class)
     }
 }
 

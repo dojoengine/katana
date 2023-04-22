@@ -161,8 +161,8 @@ pub trait KatanaApi {
     #[method(name = "getClass")]
     async fn get_class(
         &self,
-        _block_id: BlockId,
-        _class_hash: String,
+        block_id: BlockId,
+        class_hash: String,
     ) -> Result<ContractClass, Error> {
         unimplemented!("get_class");
     }
