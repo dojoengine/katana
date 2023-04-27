@@ -1,7 +1,10 @@
 use std::{collections::HashMap, vec};
 
-use blockifier::transaction::objects::TransactionExecutionInfo;
-use starknet::providers::jsonrpc::models::TransactionStatus;
+use anyhow::anyhow;
+use blockifier::transaction::{
+    errors::TransactionExecutionError, objects::TransactionExecutionInfo,
+};
+use starknet::core::types::TransactionStatus;
 use starknet_api::{
     block::{BlockHash, BlockNumber},
     hash::StarkFelt,
@@ -19,10 +22,31 @@ pub struct StarknetTransaction {
     pub status: TransactionStatus,
     pub block_hash: Option<BlockHash>,
     pub block_number: Option<BlockNumber>,
-    pub execution_info: TransactionExecutionInfo,
+    pub execution_info: Option<TransactionExecutionInfo>,
+    pub execution_error: Option<TransactionExecutionError>,
 }
 
 impl StarknetTransaction {
+    pub fn new(
+        inner: Transaction,
+        status: TransactionStatus,
+        execution_info: Option<TransactionExecutionInfo>,
+        execution_error: Option<TransactionExecutionError>,
+    ) -> Self {
+        if status == TransactionStatus::Rejected && execution_error.is_none() {
+            anyhow!("rejected transaction must have an execution error");
+        };
+
+        Self {
+            inner,
+            status,
+            execution_info,
+            execution_error,
+            block_hash: None,
+            block_number: None,
+        }
+    }
+
     pub fn get_receipt(&self) -> TransactionReceipt {
         TransactionReceipt {
             output: self.get_output(),

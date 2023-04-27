@@ -40,6 +40,10 @@ impl StarknetBlock {
         })
     }
 
+    pub fn insert_transaction(&self, transaction: Transaction) {
+        self.0.body.transactions.push(transaction);
+    }
+
     pub fn transactions(&self) -> &[Transaction] {
         &self.0.body.transactions
     }
@@ -60,8 +64,8 @@ impl StarknetBlock {
         self.0.header.parent_hash
     }
 
-    pub fn compute_block_hash(&self) -> StarkFelt {
-        pedersen_hash_array(&[
+    pub fn compute_block_hash(&self) -> BlockHash {
+        BlockHash(pedersen_hash_array(&[
             stark_felt!(self.0.header.block_number.0), // block number
             stark_felt!(0),                            // global_state_root
             self.0.header.state_root.0,                // sequencer_address
@@ -73,7 +77,7 @@ impl StarknetBlock {
             stark_felt!(0),                            // protocol_version
             stark_felt!(0),                            // extra_data
             stark_felt!(self.parent_hash().0),         // parent_block_hash
-        ])
+        ]))
     }
 }
 
@@ -84,6 +88,12 @@ pub struct StarknetBlocks {
     pub pending_block: Option<StarknetBlock>,
 }
 impl StarknetBlocks {
+    pub fn append_block(&self, block: StarknetBlock) {
+        let block_number = block.block_number();
+        self.num_to_blocks.insert(block_number, block);
+        self.hash_to_num.insert(block.block_hash(), block_number);
+    }
+
     pub fn get_last_block(&self) -> Option<StarknetBlock> {
         let last_block_number = self.current_height.0 - 1;
         self.get_by_number(last_block_number)

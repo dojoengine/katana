@@ -1,6 +1,6 @@
 use anyhow::Result;
 
-use crate::starknet::{Config, StarknetBlock, StarknetWrapper};
+use crate::starknet::{Config, StarknetWrapper};
 
 use blockifier::{
     abi::abi_utils::get_storage_var_address,
@@ -24,9 +24,9 @@ pub struct KatanaSequencer {
 }
 
 impl KatanaSequencer {
-    pub fn new(origin: StarknetBlock, config: Config) -> Self {
+    pub fn new(config: Config) -> Self {
         Self {
-            starknet: StarknetWrapper::new(origin, config),
+            starknet: StarknetWrapper::new(config),
         }
     }
 

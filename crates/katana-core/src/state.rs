@@ -13,8 +13,8 @@ use starknet_api::{
 use std::collections::HashMap;
 use std::sync::Arc;
 
+use crate::constants::{FEE_ERC20_CONTRACT_ADDRESS, UNIVERSAL_DEPLOYER_CONTRACT_ADDRESS};
 use crate::util::get_contract_class;
-use crate::{FEE_ERC20_CONTRACT_ADDRESS, UNIVERSAL_DEPLOYER_CONTRACT_ADDRESS};
 
 pub const ACCOUNT_CONTRACT_CLASS_HASH: &str = "0x100";
 pub const ERC20_CONTRACT_CLASS_HASH: &str = "0x200";
@@ -33,7 +33,8 @@ pub struct DictStateReader {
 }
 
 impl DictStateReader {
-    pub fn new() -> Self {
+    // create a new state with default values (eg. prefunded accounts)
+    pub fn new_with_sensible_defaults() -> Self {
         // Declare all the needed contracts.
         let account_class_hash = ClassHash(stark_felt!(ACCOUNT_CONTRACT_CLASS_HASH));
         let erc20_class_hash = ClassHash(stark_felt!(ERC20_CONTRACT_CLASS_HASH));
@@ -51,7 +52,18 @@ impl DictStateReader {
             ),
         ]);
 
-        let address_to_class_hash = HashMap::from([
+        let prefunded_accounts = [
+            (
+                ContractAddress(patricia_key!(0x222222222)),
+                account_class_hash,
+            ),
+            (
+                ContractAddress(patricia_key!(0x111111111)),
+                account_class_hash,
+            ),
+        ];
+
+        let mut address_to_class_hash = HashMap::from([
             (
                 ContractAddress(patricia_key!(FEE_ERC20_CONTRACT_ADDRESS)),
                 erc20_class_hash,
@@ -61,10 +73,23 @@ impl DictStateReader {
                 universal_deployer_class_hash,
             ),
         ]);
+        address_to_class_hash.extend(prefunded_accounts);
+
+        let mut storage_view = HashMap::new();
+        storage_view.insert(
+            (
+                ContractAddress(patricia_key!(FEE_ERC20_CONTRACT_ADDRESS)),
+                StorageKey(patricia_key!(
+                    "this should be the balance storage key for the account you want to fund"
+                )),
+            ),
+            stark_felt!(0x10000000000000),
+        );
 
         Self {
-            address_to_class_hash,
+            storage_view,
             class_hash_to_class,
+            address_to_class_hash,
             ..Default::default()
         }
     }
