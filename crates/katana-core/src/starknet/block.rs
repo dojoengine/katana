@@ -103,4 +103,16 @@ impl StarknetBlocks {
     pub fn get_by_number(&self, number: u64) -> Option<StarknetBlock> {
         self.num_to_blocks.get(&BlockNumber(number)).cloned()
     }
+
+    pub fn get_transaction_by_block_num_and_index(
+        &self,
+        number: BlockNumber,
+        index: usize,
+    ) -> Option<Transaction> {
+        if let Some(block) = self.num_to_blocks.get(&number) {
+            block.get_transaction_by_index(index)
+        } else {
+            None
+        }
+    }
 }
