@@ -4,7 +4,7 @@ use blockifier::transaction::{
     account_transaction::AccountTransaction, transaction_execution::Transaction,
 };
 use starknet::core::{
-    types::{CallFunction, FieldElement},
+    types::{CallFunction, FieldElement, TransactionStatus},
     utils::get_selector_from_name,
 };
 use starknet_api::{
@@ -61,6 +61,14 @@ fn test_sensible_default_state() {
 #[test]
 fn test_creating_blocks() {
     let mut starknet = StarknetWrapper::new(Config);
+    starknet.generate_pending_block();
+
+    assert_eq!(
+        starknet.blocks.current_height,
+        BlockNumber(0),
+        "pending block should not be added to the chain"
+    );
+
     starknet.generate_latest_block();
     starknet.generate_latest_block();
     starknet.generate_latest_block();
@@ -80,24 +88,33 @@ fn test_creating_blocks() {
 }
 
 #[test]
-fn test_add_transaction() {
+fn test_add_reverted_transaction() {
     let mut starknet = StarknetWrapper::new(Config);
     starknet.generate_pending_block();
 
-    let tx_hash = TransactionHash(stark_felt!("0x1234"));
+    let transaction_hash = TransactionHash(stark_felt!("0x1234"));
     let transaction =
         Transaction::AccountTransaction(AccountTransaction::Invoke(InvokeTransactionV1 {
+            transaction_hash,
             ..Default::default()
         }));
 
-    starknet
-        .handle_transaction(transaction)
-        .expect("must execute succesfully");
+    starknet.handle_transaction(transaction);
 
-    assert!(
-        starknet.transactions.transactions.get(&tx_hash).is_some(),
-        "tx with hash 0x1234 doesn't exist"
+    let block = starknet.generate_latest_block();
+
+    assert_eq!(block.transactions().len(), 0);
+
+    let tx = starknet.transactions.transactions.get(&transaction_hash);
+
+    assert_eq!(
+        starknet.transactions.transactions.len(),
+        1,
+        "transaction must be stored even if execution fail"
     );
+    assert_eq!(tx.unwrap().block_hash, None);
+    assert_eq!(tx.unwrap().block_number, None);
+    assert_eq!(tx.unwrap().status, TransactionStatus::Rejected);
 }
 
 #[test]
