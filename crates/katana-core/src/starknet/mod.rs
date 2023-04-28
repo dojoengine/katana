@@ -1,28 +1,21 @@
-use std::{
-    collections::HashMap,
-    sync::{Arc, Mutex},
-    time::SystemTime,
-};
+use std::{collections::HashMap, sync::Mutex, time::SystemTime};
 
 use anyhow::Result;
 use blockifier::{
     block_context::BlockContext,
-    execution::entry_point::{
-        CallEntryPoint, CallInfo, ExecutionContext, ExecutionResources, Retdata,
-    },
+    execution::entry_point::{CallEntryPoint, CallInfo, ExecutionContext, ExecutionResources},
     state::cached_state::{CachedState, MutRefState},
     transaction::{
         objects::AccountTransactionContext, transaction_execution::Transaction,
         transactions::ExecutableTransaction,
     },
 };
-use starknet::core::types::{CallFunction, TransactionStatus};
+use starknet::core::types::TransactionStatus;
 use starknet_api::{
     block::{BlockHash, BlockNumber, BlockTimestamp, GasPrice},
-    core::{ContractAddress, EntryPointSelector, GlobalRoot, PatriciaKey},
-    hash::{StarkFelt, StarkHash},
-    patricia_key, stark_felt,
-    transaction::Calldata,
+    core::GlobalRoot,
+    hash::StarkFelt,
+    stark_felt,
 };
 
 pub mod block;
@@ -33,6 +26,8 @@ use crate::{
 };
 use block::{StarknetBlock, StarknetBlocks};
 use transaction::{StarknetTransaction, StarknetTransactions};
+
+use self::transaction::FunctionCall;
 
 pub struct Config;
 
@@ -156,28 +151,25 @@ impl StarknetWrapper {
     }
 
     // TODO: perform call based on specific block state
-    pub fn call(&self, call: CallFunction) -> Result<Retdata> {
+    pub fn call(&self, call: FunctionCall) -> Result<CallInfo> {
         let mut state = CachedState::new(self.state.lock().unwrap().state.clone());
         let mut state = CachedState::new(MutRefState::new(&mut state));
 
         let call = CallEntryPoint {
-            entry_point_selector: EntryPointSelector(StarkFelt::from(call.entry_point_selector)),
-            storage_address: ContractAddress(patricia_key!(StarkHash::from(call.contract_address))),
-
-            calldata: Calldata(Arc::new(
-                call.calldata.iter().map(|f| StarkFelt::from(*f)).collect(),
-            )),
+            calldata: call.calldata,
+            storage_address: call.contract_address,
+            entry_point_selector: call.entry_point_selector,
             ..Default::default()
         };
 
-        let CallInfo { execution, .. } = call.execute(
+        call.execute(
             &mut state,
             &mut ExecutionResources::default(),
             &mut ExecutionContext::default(),
             &self.block_context,
             &AccountTransactionContext::default(),
-        )?;
-        Ok(execution.retdata)
+        )
+        .map_err(|e| e.into())
     }
 
     // Returns the StarknetState of the underlying Starknet instance.

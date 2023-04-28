@@ -1,4 +1,4 @@
-use std::str::FromStr;
+use std::{str::FromStr, sync::Arc};
 
 use blockifier::transaction::{
     account_transaction::AccountTransaction, transaction_execution::Transaction,
@@ -10,16 +10,16 @@ use starknet::core::{
 use starknet_api::{
     block::BlockNumber,
     core::ContractAddress,
-    core::PatriciaKey,
+    core::{EntryPointSelector, PatriciaKey},
     hash::{StarkFelt, StarkHash},
     patricia_key, stark_felt,
     state::StorageKey,
-    transaction::{InvokeTransactionV1, TransactionHash},
+    transaction::{Calldata, InvokeTransactionV1, TransactionHash},
 };
 
 use crate::{
     constants::FEE_ERC20_CONTRACT_ADDRESS,
-    starknet::{Config, StarknetWrapper},
+    starknet::{transaction::FunctionCall, Config, StarknetWrapper},
 };
 
 #[test]
@@ -104,13 +104,20 @@ fn test_add_transaction() {
 fn test_function_call() {
     let starknet = StarknetWrapper::new(Config);
 
-    let call = CallFunction {
-        calldata: vec![FieldElement::from_str("0x111111111").unwrap()],
-        entry_point_selector: get_selector_from_name("balanceOf").unwrap(),
-        contract_address: FieldElement::from_str(FEE_ERC20_CONTRACT_ADDRESS).unwrap(),
+    let call = FunctionCall {
+        calldata: Calldata(Arc::new(vec![stark_felt!("0x111111111")])),
+        contract_address: ContractAddress(patricia_key!(FEE_ERC20_CONTRACT_ADDRESS)),
+        entry_point_selector: EntryPointSelector(StarkFelt::from(
+            get_selector_from_name("balanceOf").unwrap(),
+        )),
     };
 
     let res = starknet.call(call);
 
-    assert_eq!(res.unwrap().0[0], stark_felt!("0x10000000000000"));
+    assert!(res.is_ok(), "call must succeed");
+    assert_eq!(
+        res.unwrap().execution.retdata.0[0],
+        stark_felt!("0x10000000000000"),
+        "user must have balance of 0x10000000000000"
+    );
 }

@@ -6,14 +6,21 @@ use blockifier::transaction::{
 use starknet::core::types::TransactionStatus;
 use starknet_api::{
     block::{BlockHash, BlockNumber},
+    core::{ContractAddress, EntryPointSelector},
     hash::StarkFelt,
     stark_felt,
     transaction::{
-        DeclareTransactionOutput, DeployAccountTransactionOutput, DeployTransactionOutput, Event,
-        Fee, InvokeTransactionOutput, L1HandlerTransactionOutput, MessageToL1, Transaction,
-        TransactionHash, TransactionOutput, TransactionReceipt,
+        Calldata, DeclareTransactionOutput, DeployAccountTransactionOutput,
+        DeployTransactionOutput, Event, Fee, InvokeTransactionOutput, L1HandlerTransactionOutput,
+        MessageToL1, Transaction, TransactionHash, TransactionOutput, TransactionReceipt,
     },
 };
+
+pub struct FunctionCall {
+    pub calldata: Calldata,
+    pub contract_address: ContractAddress,
+    pub entry_point_selector: EntryPointSelector,
+}
 
 #[derive(Debug)]
 pub struct StarknetTransaction {
