@@ -40,7 +40,7 @@ impl StarknetBlock {
         })
     }
 
-    pub fn insert_transaction(&self, transaction: Transaction) {
+    pub fn insert_transaction(&mut self, transaction: Transaction) {
         self.0.body.transactions.push(transaction);
     }
 
@@ -88,10 +88,10 @@ pub struct StarknetBlocks {
     pub pending_block: Option<StarknetBlock>,
 }
 impl StarknetBlocks {
-    pub fn append_block(&self, block: StarknetBlock) {
+    pub fn append_block(&mut self, block: StarknetBlock) {
         let block_number = block.block_number();
-        self.num_to_blocks.insert(block_number, block);
         self.hash_to_num.insert(block.block_hash(), block_number);
+        self.num_to_blocks.insert(block_number, block);
     }
 
     pub fn get_last_block(&self) -> Option<StarknetBlock> {

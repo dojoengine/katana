@@ -1,6 +1,5 @@
 use std::{collections::HashMap, vec};
 
-use anyhow::anyhow;
 use blockifier::transaction::{
     errors::TransactionExecutionError, objects::TransactionExecutionInfo,
 };
@@ -34,7 +33,7 @@ impl StarknetTransaction {
         execution_error: Option<TransactionExecutionError>,
     ) -> Self {
         if status == TransactionStatus::Rejected && execution_error.is_none() {
-            anyhow!("rejected transaction must have an execution error");
+            panic!("rejected transaction must have an execution error");
         };
 
         Self {
@@ -48,7 +47,9 @@ impl StarknetTransaction {
     }
 
     pub fn actual_fee(&self) -> Fee {
-        self.execution_info.map_or(Fee(0), |info| info.actual_fee)
+        self.execution_info
+            .as_ref()
+            .map_or(Fee(0), |info| info.actual_fee)
     }
 
     pub fn get_receipt(&self) -> TransactionReceipt {
@@ -63,28 +64,28 @@ impl StarknetTransaction {
     pub fn get_emitted_events(&self) -> Vec<Event> {
         let mut events: Vec<Event> = vec![];
 
-        let Some(execution_info) = self.execution_info else {
+        let Some(ref execution_info) = self.execution_info else {
             return events;
         };
 
-        if let Some(info) = execution_info.validate_call_info {
+        if let Some(ref info) = execution_info.validate_call_info {
             events.extend(info.execution.events.iter().map(|e| Event {
+                content: e.event.clone(),
                 from_address: info.call.caller_address,
-                content: e.event,
             }))
         }
 
-        if let Some(info) = execution_info.execute_call_info {
+        if let Some(ref info) = execution_info.execute_call_info {
             events.extend(info.execution.events.iter().map(|e| Event {
+                content: e.event.clone(),
                 from_address: info.call.caller_address,
-                content: e.event,
             }))
         }
 
-        if let Some(info) = execution_info.fee_transfer_call_info {
+        if let Some(ref info) = execution_info.fee_transfer_call_info {
             events.extend(info.execution.events.iter().map(|e| Event {
+                content: e.event.clone(),
                 from_address: info.call.caller_address,
-                content: e.event,
             }))
         }
 
@@ -94,44 +95,44 @@ impl StarknetTransaction {
     pub fn get_l2_to_l1_messages(&self) -> Vec<MessageToL1> {
         let mut messages: Vec<MessageToL1> = vec![];
 
-        let Some(execution_info) = self.execution_info else {
+        let Some(ref execution_info) = self.execution_info else {
             return messages;
         };
 
-        if let Some(info) = execution_info.validate_call_info {
+        if let Some(ref info) = execution_info.validate_call_info {
             messages.extend(
                 info.execution
                     .l2_to_l1_messages
                     .iter()
                     .map(|m| MessageToL1 {
-                        payload: m.message.payload,
                         to_address: m.message.to_address,
+                        payload: m.message.payload.clone(),
                         from_address: info.call.caller_address,
                     }),
             )
         }
 
-        if let Some(info) = execution_info.execute_call_info {
+        if let Some(ref info) = execution_info.execute_call_info {
             messages.extend(
                 info.execution
                     .l2_to_l1_messages
                     .iter()
                     .map(|m| MessageToL1 {
-                        payload: m.message.payload,
                         to_address: m.message.to_address,
+                        payload: m.message.payload.clone(),
                         from_address: info.call.caller_address,
                     }),
             )
         }
 
-        if let Some(info) = execution_info.fee_transfer_call_info {
+        if let Some(ref info) = execution_info.fee_transfer_call_info {
             messages.extend(
                 info.execution
                     .l2_to_l1_messages
                     .iter()
                     .map(|m| MessageToL1 {
-                        payload: m.message.payload,
                         to_address: m.message.to_address,
+                        payload: m.message.payload.clone(),
                         from_address: info.call.caller_address,
                     }),
             )

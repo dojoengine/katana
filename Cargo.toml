@@ -23,6 +23,7 @@ thiserror = "1.0.32"
 tokio = { version = "1.16", features = ["full"] }
 starknet = { git = "https://github.com/xJonathanLEI/starknet-rs", rev = "5d3f9d7cc6df0d01a299f0fb0ebc00ec2f28b983" }
 starknet_api = { git = "https://github.com/starkware-libs/starknet-api" }
+cairo-lang-starknet = { git = "https://github.com/starkware-libs/cairo", rev = "b16a151" }
 
 [patch."https://github.com/starkware-libs/blockifier"]
 blockifier = { git = "https://github.com/dojoengine/blockifier", rev = "0b2e2f0800d68372888496ea0db989555681f2e8" }

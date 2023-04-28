@@ -17,3 +17,4 @@ thiserror.workspace = true
 serde.workspace = true
 serde_json = "1.0.70"
 patricia-merkle-tree = { git = "https://github.com/lambdaclass/merkle_patricia_tree"}
+cairo-lang-starknet.workspace = true

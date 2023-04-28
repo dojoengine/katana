@@ -4,12 +4,9 @@ use anyhow::Result;
 use blockifier::{
     block_context::BlockContext,
     state::cached_state::CachedState,
-    transaction::{
-        objects::TransactionExecutionInfo, transaction_execution::Transaction,
-        transactions::ExecutableTransaction,
-    },
+    transaction::{transaction_execution::Transaction, transactions::ExecutableTransaction},
 };
-use starknet::providers::jsonrpc::models::TransactionStatus;
+use starknet::core::types::TransactionStatus;
 use starknet_api::{
     block::{BlockHash, BlockNumber, BlockTimestamp, GasPrice},
     core::GlobalRoot,
@@ -20,7 +17,9 @@ use starknet_api::{
 pub mod block;
 pub mod transaction;
 
-use crate::{block_context::Base, state::DictStateReader};
+use crate::{
+    block_context::Base, state::DictStateReader, util::convert_blockifier_tx_to_starknet_api_tx,
+};
 use block::{StarknetBlock, StarknetBlocks};
 use transaction::{StarknetTransaction, StarknetTransactions};
 
@@ -64,7 +63,9 @@ impl StarknetWrapper {
     }
 
     // execute the tx
-    pub fn handle_transaction(&self, transaction: Transaction) -> Result<()> {
+    pub fn handle_transaction(&mut self, transaction: Transaction) -> Result<()> {
+        let api_tx = convert_blockifier_tx_to_starknet_api_tx(&transaction);
+
         let res = match transaction {
             Transaction::AccountTransaction(tx) => {
                 tx.execute(&mut self.state.lock().unwrap(), &self.block_context)
@@ -74,63 +75,72 @@ impl StarknetWrapper {
             }
         };
 
-        let status: TransactionStatus;
-        let execution_info: Option<TransactionExecutionInfo> = None;
+        match res {
+            Ok(exec_info) => {
+                let starknet_tx = StarknetTransaction::new(
+                    api_tx.clone(),
+                    TransactionStatus::Pending,
+                    Some(exec_info),
+                    None,
+                );
 
-        if let Ok(tx_info) = res {
-            status = TransactionStatus::Pending;
-            execution_info = Some(tx_info);
+                //  append successful tx to pending block
+                self.blocks
+                    .pending_block
+                    .as_mut()
+                    .expect("no pending block")
+                    .insert_transaction(api_tx);
 
-            //  append successful tx to pending block
-            self.blocks
-                .pending_block
-                .unwrap()
-                // convert blockifier tx -> starknet api tx
-                .insert_transaction(transaction);
-        } else {
-            status = TransactionStatus::Rejected;
+                self.store_transaction(starknet_tx);
+                self.generate_latest_block();
+
+                self.generate_pending_block();
+            }
+
+            Err(exec_err) => {
+                let tx = StarknetTransaction::new(
+                    api_tx,
+                    TransactionStatus::Rejected,
+                    None,
+                    Some(exec_err),
+                );
+
+                self.store_transaction(tx);
+            }
         }
-
-        // convert blockifier tx -> starknet tx
-        let tx = StarknetTransaction::new(transaction, status, execution_info);
-
-        // store tx anyway even if it failed
-        self.store_transaction(tx);
-
-        self.blocks.append_block(self.generate_latest_block());
-
-        self.update_block_context();
-
-        self.generate_pending_block();
 
         Ok(())
     }
 
     // creates a new block that contains all the pending txs
-    pub fn generate_latest_block(&self) -> StarknetBlock {
-        if let Some(mut pending) = self.blocks.pending_block {
-            for pending_tx in pending.transactions() {
-                if let Some(tx) = self
-                    .transactions
-                    .transactions
-                    .get_mut(&pending_tx.transaction_hash())
-                {
-                    let block_hash = pending.compute_block_hash();
-                    pending.0.header.block_hash = block_hash;
+    // will update the txs status to accepted
+    pub fn generate_latest_block(&mut self) -> StarknetBlock {
+        let latest_block = if let Some(ref mut pending) = self.blocks.pending_block {
+            let block_hash = pending.compute_block_hash();
+            pending.0.header.block_hash = block_hash;
 
+            for pending_tx in pending.transactions() {
+                let tx_hash = pending_tx.transaction_hash();
+
+                if let Some(tx) = self.transactions.transactions.get_mut(&tx_hash) {
                     tx.block_hash = Some(block_hash);
                     tx.status = TransactionStatus::AcceptedOnL2;
                     tx.block_number = Some(pending.block_number());
                 }
             }
 
-            pending
+            pending.clone()
         } else {
             self.create_empty_block()
-        }
+        };
+
+        self.blocks.append_block(latest_block.clone());
+        self.update_block_context();
+
+        latest_block
     }
 
-    pub fn generate_pending_block(&self) {
+    pub fn generate_pending_block(&mut self) {
         self.blocks.pending_block = Some(self.create_empty_block());
     }
 
@@ -164,13 +174,16 @@ impl StarknetWrapper {
     }
 
     // store the tx doesnt matter if its successfully executed or not
-    fn store_transaction(&self, transaction: StarknetTransaction) -> Option<StarknetTransaction> {
+    fn store_transaction(
+        &mut self,
+        transaction: StarknetTransaction,
+    ) -> Option<StarknetTransaction> {
         self.transactions
             .transactions
             .insert(transaction.inner.transaction_hash(), transaction)
     }
 
-    fn update_block_context(&self) {
+    fn update_block_context(&mut self) {
         let current_height = self.blocks.current_height;
         let timestamp = SystemTime::now()
             .duration_since(SystemTime::UNIX_EPOCH)

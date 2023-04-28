@@ -54,11 +54,11 @@ impl DictStateReader {
 
         let prefunded_accounts = [
             (
-                ContractAddress(patricia_key!(0x222222222)),
+                ContractAddress(patricia_key!("0x222222222")),
                 account_class_hash,
             ),
             (
-                ContractAddress(patricia_key!(0x111111111)),
+                ContractAddress(patricia_key!("0x111111111")),
                 account_class_hash,
             ),
         ];
@@ -83,7 +83,7 @@ impl DictStateReader {
                     "this should be the balance storage key for the account you want to fund"
                 )),
             ),
-            stark_felt!(0x10000000000000),
+            stark_felt!("0x10000000000000"),
         );
 
         Self {
