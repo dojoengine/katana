@@ -190,7 +190,7 @@ impl StarknetWrapper {
             BlockHash(stark_felt!(0))
         } else {
             self.blocks
-                .get_last_block()
+                .get_lastest()
                 .map(|last_block| last_block.block_hash())
                 .unwrap()
         };

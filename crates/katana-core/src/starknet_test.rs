@@ -1,12 +1,10 @@
-use std::{str::FromStr, sync::Arc};
+#![cfg(test)]
+use std::sync::Arc;
 
 use blockifier::transaction::{
     account_transaction::AccountTransaction, transaction_execution::Transaction,
 };
-use starknet::core::{
-    types::{CallFunction, FieldElement, TransactionStatus},
-    utils::get_selector_from_name,
-};
+use starknet::core::{types::TransactionStatus, utils::get_selector_from_name};
 use starknet_api::{
     block::BlockNumber,
     core::ContractAddress,
@@ -77,14 +75,19 @@ fn test_creating_blocks() {
     assert_eq!(starknet.blocks.num_to_blocks.len(), 3);
     assert_eq!(starknet.blocks.current_height, BlockNumber(3));
 
-    let block0 = starknet.blocks.get_by_number(0).unwrap();
-    let block1 = starknet.blocks.get_by_number(1).unwrap();
-    let last_block = starknet.blocks.get_last_block().unwrap();
+    let block0 = starknet.blocks.get_by_number(BlockNumber(0)).unwrap();
+    let block1 = starknet.blocks.get_by_number(BlockNumber(1)).unwrap();
+    let last_block = starknet.blocks.get_lastest().unwrap();
 
     assert_eq!(block0.transactions(), &[]);
     assert_eq!(block0.block_number(), BlockNumber(0));
     assert_eq!(block1.block_number(), BlockNumber(1));
     assert_eq!(last_block.block_number(), BlockNumber(2));
+}
+
+#[test]
+fn test_add_transaction() {
+    unimplemented!("TODO: implement test for adding transaction");
 }
 
 #[test]

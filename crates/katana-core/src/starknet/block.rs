@@ -95,13 +95,20 @@ impl StarknetBlocks {
         self.num_to_blocks.insert(block_number, block);
     }
 
-    pub fn get_last_block(&self) -> Option<StarknetBlock> {
-        let last_block_number = self.current_height.0 - 1;
-        self.get_by_number(last_block_number)
+    pub fn get_lastest(&self) -> Option<StarknetBlock> {
+        self.current_height
+            .prev()
+            .and_then(|block_number| self.num_to_blocks.get(&block_number).cloned())
     }
 
-    pub fn get_by_number(&self, number: u64) -> Option<StarknetBlock> {
-        self.num_to_blocks.get(&BlockNumber(number)).cloned()
+    pub fn get_by_hash(&self, block_hash: BlockHash) -> Option<StarknetBlock> {
+        self.hash_to_num
+            .get(&block_hash)
+            .and_then(|block_number| self.get_by_number(*block_number))
+    }
+
+    pub fn get_by_number(&self, block_number: BlockNumber) -> Option<StarknetBlock> {
+        self.num_to_blocks.get(&block_number).cloned()
     }
 
     pub fn get_transaction_by_block_num_and_index(
@@ -109,10 +116,8 @@ impl StarknetBlocks {
         number: BlockNumber,
         index: usize,
     ) -> Option<Transaction> {
-        if let Some(block) = self.num_to_blocks.get(&number) {
-            block.get_transaction_by_index(index)
-        } else {
-            None
-        }
+        self.num_to_blocks
+            .get(&number)
+            .and_then(|block| block.get_transaction_by_index(index))
     }
 }
