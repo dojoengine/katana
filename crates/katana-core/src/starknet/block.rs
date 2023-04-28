@@ -8,7 +8,7 @@ use starknet_api::{
     transaction::{Transaction, TransactionOutput},
 };
 
-#[derive(Debug, Default, Clone)]
+#[derive(Debug, Default, Clone, PartialEq, Eq)]
 pub struct StarknetBlock(pub Block);
 
 impl StarknetBlock {
@@ -81,6 +81,7 @@ impl StarknetBlock {
     }
 }
 
+// TODO: add state archive
 pub struct StarknetBlocks {
     pub current_height: BlockNumber,
     pub hash_to_num: HashMap<BlockHash, BlockNumber>,

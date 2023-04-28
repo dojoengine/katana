@@ -76,11 +76,13 @@ impl DictStateReader {
         address_to_class_hash.extend(prefunded_accounts);
 
         let mut storage_view = HashMap::new();
+
+        //  fund account 0x111111111 with 1000 tokens
         storage_view.insert(
             (
                 ContractAddress(patricia_key!(FEE_ERC20_CONTRACT_ADDRESS)),
                 StorageKey(patricia_key!(
-                    "this should be the balance storage key for the account you want to fund"
+                    "0x6037c05be3813c2957296d06b53f340b87a97b1cf38aa2966fda3d6f4a9e50a"
                 )),
             ),
             stark_felt!("0x10000000000000"),

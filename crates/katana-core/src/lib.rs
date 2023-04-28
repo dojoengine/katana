@@ -4,3 +4,5 @@ pub mod sequencer;
 pub mod starknet;
 pub mod state;
 mod util;
+
+mod starknet_test;
