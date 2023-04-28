@@ -115,24 +115,24 @@ impl StarknetWrapper {
     // creates a new block that contains all the pending txs
     // will update the txs status to accepted
     pub fn generate_latest_block(&mut self) -> StarknetBlock {
-        let latest_block = if let Some(ref mut pending) = self.blocks.pending_block {
-            let block_hash = pending.compute_block_hash();
-            pending.0.header.block_hash = block_hash;
-
-            for pending_tx in pending.transactions() {
-                let tx_hash = pending_tx.transaction_hash();
-
-                if let Some(tx) = self.transactions.transactions.get_mut(&tx_hash) {
-                    tx.block_hash = Some(block_hash);
-                    tx.status = TransactionStatus::AcceptedOnL2;
-                    tx.block_number = Some(pending.block_number());
-                }
-            }
-
+        let mut latest_block = if let Some(ref mut pending) = self.blocks.pending_block {
             pending.clone()
         } else {
             self.create_empty_block()
         };
+
+        let block_hash = latest_block.compute_block_hash();
+        latest_block.0.header.block_hash = block_hash;
+
+        for pending_tx in latest_block.transactions() {
+            let tx_hash = pending_tx.transaction_hash();
+
+            if let Some(tx) = self.transactions.transactions.get_mut(&tx_hash) {
+                tx.block_hash = Some(block_hash);
+                tx.status = TransactionStatus::AcceptedOnL2;
+                tx.block_number = Some(latest_block.block_number());
+            }
+        }
 
         self.blocks.append_block(latest_block.clone());
         self.update_block_context();
@@ -144,7 +144,7 @@ impl StarknetWrapper {
         self.blocks.pending_block = Some(self.create_empty_block());
     }
 
-    pub fn create_empty_block(&self) -> StarknetBlock {
+    fn create_empty_block(&self) -> StarknetBlock {
         let timestamp = SystemTime::now()
             .duration_since(SystemTime::UNIX_EPOCH)
             .map(|t| BlockTimestamp(t.as_secs()))
