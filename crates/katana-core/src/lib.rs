@@ -1,3 +1,4 @@
+mod accounts;
 mod block_context;
 mod constants;
 pub mod sequencer;

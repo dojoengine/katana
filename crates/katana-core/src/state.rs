@@ -13,12 +13,11 @@ use starknet_api::{
 use std::collections::HashMap;
 use std::sync::Arc;
 
+use crate::constants::ACCOUNT_CONTRACT_CLASS_HASH;
+use crate::constants::ERC20_CONTRACT_CLASS_HASH;
+use crate::constants::UNIVERSAL_DEPLOYER_CLASS_HASH;
 use crate::constants::{FEE_ERC20_CONTRACT_ADDRESS, UNIVERSAL_DEPLOYER_CONTRACT_ADDRESS};
 use crate::util::get_contract_class;
-
-pub const ACCOUNT_CONTRACT_CLASS_HASH: &str = "0x100";
-pub const ERC20_CONTRACT_CLASS_HASH: &str = "0x200";
-pub const UNIVERSAL_DEPLOYER_CLASS_HASH: &str = "0x300";
 
 pub const ACCOUNT_CONTRACT_PATH: &str = "contracts/compiled/account.json";
 pub const ERC20_CONTRACT_PATH: &str = "./contracts/compiled/erc20.json";
