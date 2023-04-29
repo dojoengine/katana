@@ -3,25 +3,13 @@ use blockifier::state::cached_state::ContractStorageKey;
 use blockifier::state::errors::StateError;
 use blockifier::state::state_api::StateReader;
 use blockifier::state::state_api::StateResult;
-use starknet_api::patricia_key;
-use starknet_api::stark_felt;
 use starknet_api::state::StorageKey;
 use starknet_api::{
-    core::{ClassHash, ContractAddress, Nonce, PatriciaKey},
-    hash::{StarkFelt, StarkHash},
+    core::{ClassHash, ContractAddress, Nonce},
+    hash::StarkFelt,
 };
 use std::collections::HashMap;
 use std::sync::Arc;
-
-use crate::constants::ACCOUNT_CONTRACT_CLASS_HASH;
-use crate::constants::ERC20_CONTRACT_CLASS_HASH;
-use crate::constants::UNIVERSAL_DEPLOYER_CLASS_HASH;
-use crate::constants::{FEE_ERC20_CONTRACT_ADDRESS, UNIVERSAL_DEPLOYER_CONTRACT_ADDRESS};
-use crate::util::get_contract_class;
-
-pub const ACCOUNT_CONTRACT_PATH: &str = "contracts/compiled/account.json";
-pub const ERC20_CONTRACT_PATH: &str = "./contracts/compiled/erc20.json";
-pub const UNIVERSAL_DEPLOYER_CONTRACT_PATH: &str = "./contracts/compiled/universal_deployer.json";
 
 #[derive(Clone, Debug, Default)]
 pub struct DictStateReader {
@@ -29,71 +17,6 @@ pub struct DictStateReader {
     pub address_to_nonce: HashMap<ContractAddress, Nonce>,
     pub address_to_class_hash: HashMap<ContractAddress, ClassHash>,
     pub class_hash_to_class: HashMap<ClassHash, ContractClass>,
-}
-
-impl DictStateReader {
-    // create a new state with default values (eg. prefunded accounts)
-    pub fn new_with_sensible_defaults() -> Self {
-        // Declare all the needed contracts.
-        let account_class_hash = ClassHash(stark_felt!(ACCOUNT_CONTRACT_CLASS_HASH));
-        let erc20_class_hash = ClassHash(stark_felt!(ERC20_CONTRACT_CLASS_HASH));
-        let universal_deployer_class_hash = ClassHash(stark_felt!(UNIVERSAL_DEPLOYER_CLASS_HASH));
-
-        let class_hash_to_class: HashMap<ClassHash, ContractClass> = HashMap::from([
-            (
-                account_class_hash,
-                get_contract_class(ACCOUNT_CONTRACT_PATH),
-            ),
-            (erc20_class_hash, get_contract_class(ERC20_CONTRACT_PATH)),
-            (
-                universal_deployer_class_hash,
-                get_contract_class(UNIVERSAL_DEPLOYER_CONTRACT_PATH),
-            ),
-        ]);
-
-        let prefunded_accounts = [
-            (
-                ContractAddress(patricia_key!("0x222222222")),
-                account_class_hash,
-            ),
-            (
-                ContractAddress(patricia_key!("0x111111111")),
-                account_class_hash,
-            ),
-        ];
-
-        let mut address_to_class_hash = HashMap::from([
-            (
-                ContractAddress(patricia_key!(FEE_ERC20_CONTRACT_ADDRESS)),
-                erc20_class_hash,
-            ),
-            (
-                ContractAddress(patricia_key!(UNIVERSAL_DEPLOYER_CONTRACT_ADDRESS)),
-                universal_deployer_class_hash,
-            ),
-        ]);
-        address_to_class_hash.extend(prefunded_accounts);
-
-        let mut storage_view = HashMap::new();
-
-        //  fund account 0x111111111 with 1000 tokens
-        storage_view.insert(
-            (
-                ContractAddress(patricia_key!(FEE_ERC20_CONTRACT_ADDRESS)),
-                StorageKey(patricia_key!(
-                    "0x6037c05be3813c2957296d06b53f340b87a97b1cf38aa2966fda3d6f4a9e50a"
-                )),
-            ),
-            stark_felt!("0x10000000000000"),
-        );
-
-        Self {
-            storage_view,
-            class_hash_to_class,
-            address_to_class_hash,
-            ..Default::default()
-        }
-    }
 }
 
 impl StateReader for DictStateReader {

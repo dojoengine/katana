@@ -11,7 +11,9 @@ use starknet_api::{
     transaction::{Calldata, ContractAddressSalt},
 };
 
-use crate::constants::{ACCOUNT_CONTRACT_CLASS_HASH, FEE_ERC20_CONTRACT_ADDRESS};
+use crate::constants::{
+    ACCOUNT_CONTRACT_CLASS_HASH, DEFAULT_PREFUNDED_ACCOUNT_BALANCE, FEE_ERC20_CONTRACT_ADDRESS,
+};
 
 #[derive(Debug)]
 pub struct Account {
@@ -73,8 +75,7 @@ pub struct PredeployedAccounts {
 }
 
 impl PredeployedAccounts {
-    pub fn new(total: usize, seed: Option<u64>, initial_balance: StarkFelt) -> Self {
-        let seed = seed.unwrap_or(0);
+    pub fn new(total: usize, seed: u64, initial_balance: StarkFelt) -> Self {
         let accounts = Self::generate_accounts(total, seed, initial_balance);
 
         Self {
@@ -137,6 +138,12 @@ Public key      | {}",
         }
 
         accounts
+    }
+}
+
+impl Default for PredeployedAccounts {
+    fn default() -> Self {
+        Self::new(10, 0, stark_felt!(DEFAULT_PREFUNDED_ACCOUNT_BALANCE))
     }
 }
 

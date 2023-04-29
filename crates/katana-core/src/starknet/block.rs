@@ -82,12 +82,14 @@ impl StarknetBlock {
 }
 
 // TODO: add state archive
+#[derive(Debug, Default)]
 pub struct StarknetBlocks {
     pub current_height: BlockNumber,
     pub hash_to_num: HashMap<BlockHash, BlockNumber>,
     pub num_to_blocks: HashMap<BlockNumber, StarknetBlock>,
     pub pending_block: Option<StarknetBlock>,
 }
+
 impl StarknetBlocks {
     pub fn append_block(&mut self, block: StarknetBlock) {
         let block_number = block.block_number();

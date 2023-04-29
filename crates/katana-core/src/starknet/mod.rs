@@ -1,4 +1,4 @@
-use std::{collections::HashMap, sync::Mutex, time::SystemTime};
+use std::{sync::Mutex, time::SystemTime};
 
 use anyhow::Result;
 use blockifier::{
@@ -22,7 +22,8 @@ pub mod block;
 pub mod transaction;
 
 use crate::{
-    block_context::Base, state::DictStateReader, util::convert_blockifier_tx_to_starknet_api_tx,
+    block_context::Base, default_state::KatanaDefaultState, state::DictStateReader,
+    util::convert_blockifier_tx_to_starknet_api_tx,
 };
 use block::{StarknetBlock, StarknetBlocks};
 use transaction::{StarknetTransaction, StarknetTransactions};
@@ -41,30 +42,20 @@ pub struct StarknetWrapper {
 
 impl StarknetWrapper {
     pub fn new(config: Config) -> Self {
-        let hash_to_num = HashMap::new();
-        let num_to_blocks = HashMap::new();
+        let blocks = StarknetBlocks::default();
         let block_context = BlockContext::base();
-        let state = Mutex::new(CachedState::new(
-            DictStateReader::new_with_sensible_defaults(),
-        ));
+        let transactions = StarknetTransactions::default();
+        let mut state = CachedState::new(DictStateReader::default());
 
-        let blocks = StarknetBlocks {
-            hash_to_num,
-            num_to_blocks,
-            pending_block: None,
-            current_height: BlockNumber(0),
-        };
-
-        let transactions = StarknetTransactions {
-            transactions: HashMap::new(),
-        };
+        KatanaDefaultState::initialize_state(&mut state)
+            .expect("should be able to initialize default state");
 
         Self {
-            state,
             config,
             blocks,
             transactions,
             block_context,
+            state: Mutex::new(state),
         }
     }
 

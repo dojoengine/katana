@@ -185,6 +185,7 @@ impl StarknetTransaction {
     }
 }
 
+#[derive(Debug, Default)]
 pub struct StarknetTransactions {
     pub transactions: HashMap<TransactionHash, StarknetTransaction>,
 }
