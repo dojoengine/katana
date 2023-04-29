@@ -7,4 +7,5 @@ pub mod starknet;
 pub mod state;
 mod util;
 
+#[cfg(test)]
 mod starknet_test;

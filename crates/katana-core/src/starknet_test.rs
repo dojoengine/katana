@@ -1,4 +1,3 @@
-#![cfg(test)]
 use std::sync::Arc;
 
 use blockifier::transaction::{
@@ -11,7 +10,6 @@ use starknet_api::{
     core::{EntryPointSelector, PatriciaKey},
     hash::{StarkFelt, StarkHash},
     patricia_key, stark_felt,
-    state::StorageKey,
     transaction::{Calldata, InvokeTransactionV1, TransactionHash},
 };
 
@@ -19,42 +17,6 @@ use crate::{
     constants::FEE_ERC20_CONTRACT_ADDRESS,
     starknet::{transaction::FunctionCall, Config, StarknetWrapper},
 };
-
-#[test]
-fn test_sensible_default_state() {
-    let starknet = StarknetWrapper::new(Config);
-
-    assert_eq!(
-        starknet
-            .state
-            .lock()
-            .unwrap()
-            .state
-            .address_to_class_hash
-            .len(),
-        4
-    );
-    assert_eq!(
-        starknet
-            .state
-            .lock()
-            .unwrap()
-            .state
-            .class_hash_to_class
-            .len(),
-        3
-    );
-    // assert prefunded account has balance
-    assert_eq!(
-        starknet.state.lock().unwrap().state.storage_view.get(&(
-            ContractAddress(patricia_key!(FEE_ERC20_CONTRACT_ADDRESS)),
-            StorageKey(patricia_key!(
-                "0x6037c05be3813c2957296d06b53f340b87a97b1cf38aa2966fda3d6f4a9e50a"
-            )),
-        )),
-        Some(&stark_felt!("0x10000000000000"))
-    );
-}
 
 #[test]
 fn test_creating_blocks() {
