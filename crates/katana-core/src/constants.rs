@@ -2,7 +2,8 @@ pub const DEFAULT_GAS_PRICE: u128 = 100 * u128::pow(10, 9); // Given in units of
 
 pub const SEQUENCER_ADDRESS: &str = "0x69";
 
-pub const FEE_ERC20_CONTRACT_ADDRESS: &str = "0x420";
+pub const FEE_ERC20_CONTRACT_ADDRESS: &str =
+    "0x049d36570d4e46f48e99674bd3fcc84644ddd6b96f7c741b1562b82f9e004dc7";
 
 pub const UNIVERSAL_DEPLOYER_CONTRACT_ADDRESS: &str =
     "0x041a78e741e5af2fec34b695679bc6891742439f7afb8484ecd7766661ad02bf";

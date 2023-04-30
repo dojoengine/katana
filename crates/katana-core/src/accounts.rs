@@ -102,9 +102,9 @@ impl PredeployedAccounts {
         fn print_account(account: &Account) -> String {
             format!(
                 r"
-Account address | {} 
-Private key     | {}
-Public key      | {}",
+| Account address |  {} 
+| Private key     |  {}
+| Public key      |  {}",
                 account.account_address.0.key(),
                 account.private_key,
                 account.public_key
@@ -112,12 +112,12 @@ Public key      | {}",
         }
 
         format!(
-            "{}",
+            "### PREFUNDED ACCOUNTS\n{}",
             self.accounts
                 .iter()
                 .map(print_account)
                 .collect::<Vec<String>>()
-                .join("")
+                .join("\n")
         )
     }
 
@@ -125,7 +125,7 @@ Public key      | {}",
         let mut seed = seed;
         let mut accounts = vec![];
 
-        for i in 0..total {
+        for _ in 0..total {
             let mut rng = SmallRng::from_seed(seed);
             let mut private_key_bytes = [0u8; 32];
 

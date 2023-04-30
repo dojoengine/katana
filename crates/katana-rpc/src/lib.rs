@@ -1,3 +1,4 @@
+use config::RpcConfig;
 use jsonrpsee::{
     core::{async_trait, Error},
     server::{ServerBuilder, ServerHandle},
@@ -24,22 +25,25 @@ use std::{net::SocketAddr, sync::Arc};
 use util::stark_felt_to_field_element;
 
 pub mod api;
-mod util;
+pub mod config;
+pub mod util;
 
-use api::{KatanaApiError, KatanaApiServer};
+use api::{KatanaApiError, KatanaApiServer, KatanaRpcLogger};
 
 pub struct KatanaRpc {
+    pub config: RpcConfig,
     pub sequencer: Arc<KatanaSequencer>,
 }
 
 impl KatanaRpc {
-    pub fn new(sequencer: Arc<KatanaSequencer>) -> Self {
-        Self { sequencer }
+    pub fn new(sequencer: Arc<KatanaSequencer>, config: RpcConfig) -> Self {
+        Self { config, sequencer }
     }
 
     pub async fn run(self) -> Result<(SocketAddr, ServerHandle), Error> {
         let server = ServerBuilder::new()
-            .build("127.0.0.1:5050")
+            .set_logger(KatanaRpcLogger)
+            .build(format!("127.0.0.1:{}", self.config.port))
             .await
             .map_err(|_| Error::from(KatanaApiError::InternalServerError))?;
 
@@ -261,18 +265,25 @@ mod tests {
     use starknet::{core::types::FieldElement, providers::jsonrpc::models::BlockId};
     use starknet_api::core::ChainId;
 
-    use crate::{api::KatanaApiServer, KatanaRpc};
+    use crate::{api::KatanaApiServer, config::RpcConfig, KatanaRpc};
+
+    fn get_rpc() -> KatanaRpc {
+        KatanaRpc::new(
+            Arc::new(KatanaSequencer::new(Config)),
+            RpcConfig { port: 5050 },
+        )
+    }
 
     #[tokio::test]
     async fn chain_id_is_ok() {
-        let rpc = KatanaRpc::new(Arc::new(KatanaSequencer::new(Config)));
+        let rpc = get_rpc();
         let chain_id = rpc.chain_id().await.unwrap();
         assert_eq!(chain_id, ChainId("KATANA".to_string()).as_hex());
     }
 
     #[tokio::test]
     async fn nonce_is_ok() {
-        let rpc = KatanaRpc::new(Arc::new(KatanaSequencer::new(Config)));
+        let rpc = get_rpc();
         let nonce = rpc
             .get_nonce(
                 BlockId::Number(0),
@@ -285,7 +296,7 @@ mod tests {
 
     #[tokio::test]
     async fn block_number_is_ok() {
-        let rpc = KatanaRpc::new(Arc::new(KatanaSequencer::new(Config)));
+        let rpc = get_rpc();
         let block_number = rpc.block_number().await.unwrap();
         assert_eq!(block_number, 0);
     }

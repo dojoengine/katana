@@ -23,7 +23,7 @@ use starknet_api::{
 };
 
 pub struct KatanaSequencer {
-    starknet: RwLock<StarknetWrapper>,
+    pub starknet: RwLock<StarknetWrapper>,
 }
 
 impl KatanaSequencer {
