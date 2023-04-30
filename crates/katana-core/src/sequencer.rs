@@ -1,3 +1,5 @@
+use std::sync::RwLock;
+
 use anyhow::Result;
 
 use crate::starknet::{Config, StarknetWrapper};
@@ -9,7 +11,8 @@ use blockifier::{
 };
 use starknet::providers::jsonrpc::models::BlockId;
 use starknet_api::{
-    core::{calculate_contract_address, ClassHash, ContractAddress, Nonce},
+    block::BlockNumber,
+    core::{calculate_contract_address, ChainId, ClassHash, ContractAddress, Nonce},
     hash::StarkFelt,
     stark_felt,
     state::StorageKey,
@@ -20,13 +23,13 @@ use starknet_api::{
 };
 
 pub struct KatanaSequencer {
-    pub starknet: StarknetWrapper,
+    starknet: RwLock<StarknetWrapper>,
 }
 
 impl KatanaSequencer {
     pub fn new(config: Config) -> Self {
         Self {
-            starknet: StarknetWrapper::new(config),
+            starknet: RwLock::new(StarknetWrapper::new(config)),
         }
     }
 
@@ -49,8 +52,12 @@ impl KatanaSequencer {
 
         let deployed_account_balance_key =
             get_storage_var_address("ERC20_balances", &[*contract_address.0.key()]).unwrap();
-        self.starknet.state.lock().unwrap().set_storage_at(
-            self.starknet.block_context.fee_token_address,
+        self.starknet.write().unwrap().state.set_storage_at(
+            self.starknet
+                .read()
+                .unwrap()
+                .block_context
+                .fee_token_address,
             deployed_account_balance_key,
             stark_felt!(balance),
         );
@@ -82,11 +89,16 @@ impl KatanaSequencer {
 
         let account_balance_key =
             get_storage_var_address("ERC20_balances", &[*contract_address.0.key()]).unwrap();
-        let max_fee = self.starknet.state.lock().unwrap().get_storage_at(
-            self.starknet.block_context.fee_token_address,
-            account_balance_key,
-        )?;
-
+        let max_fee = {
+            self.starknet.write().unwrap().state.get_storage_at(
+                self.starknet
+                    .read()
+                    .unwrap()
+                    .block_context
+                    .fee_token_address,
+                account_balance_key,
+            )?
+        };
         // TODO: Compute txn hash
         let tx_hash = TransactionHash::default();
         let tx = AccountTransaction::DeployAccount(DeployAccountTransaction {
@@ -100,35 +112,61 @@ impl KatanaSequencer {
             signature,
             transaction_hash: tx_hash,
         });
+
         tx.execute(
-            &mut self.starknet.state.lock().unwrap(),
-            &self.starknet.block_context,
+            &mut self.starknet.write().unwrap().state,
+            &self.starknet.read().unwrap().block_context,
         )?;
 
         Ok((tx_hash, contract_address))
     }
 
-    pub async fn class_hash_at(
+    pub fn class_hash_at(
         &self,
         _block_id: BlockId,
         contract_address: ContractAddress,
     ) -> Result<ClassHash, blockifier::state::errors::StateError> {
         self.starknet
-            .state
-            .lock()
+            .write()
             .unwrap()
+            .state
             .get_class_hash_at(contract_address)
     }
 
-    pub async fn get_storage_at(
+    pub fn get_storage_at(
         &self,
         contract_address: ContractAddress,
         storage_key: StorageKey,
     ) -> Result<StarkFelt, blockifier::state::errors::StateError> {
         self.starknet
-            .state
-            .lock()
+            .write()
             .unwrap()
+            .state
             .get_storage_at(contract_address, storage_key)
+    }
+
+    pub fn chain_id(&self) -> ChainId {
+        self.starknet.read().unwrap().block_context.chain_id.clone()
+    }
+
+    pub fn block_number(&self) -> BlockNumber {
+        self.starknet
+            .read()
+            .unwrap()
+            .block_context
+            .block_number
+            .clone()
+    }
+
+    pub fn get_nonce_at(
+        &self,
+        _block_id: BlockId,
+        contract_address: ContractAddress,
+    ) -> Result<Nonce, blockifier::state::errors::StateError> {
+        self.starknet
+            .write()
+            .unwrap()
+            .state
+            .get_nonce_at(contract_address)
     }
 }
