@@ -1,4 +1,4 @@
-use std::{sync::Mutex, time::SystemTime};
+use std::time::SystemTime;
 
 use anyhow::Result;
 use blockifier::{
@@ -22,7 +22,7 @@ pub mod block;
 pub mod transaction;
 
 use crate::{
-    block_context::Base, default_state::KatanaDefaultState, state::DictStateReader,
+    accounts::PredeployedAccounts, block_context::Base, state::DictStateReader,
     util::convert_blockifier_tx_to_starknet_api_tx,
 };
 use block::{StarknetBlock, StarknetBlocks};
@@ -37,7 +37,8 @@ pub struct StarknetWrapper {
     pub blocks: StarknetBlocks,
     pub block_context: BlockContext,
     pub transactions: StarknetTransactions,
-    pub state: Mutex<CachedState<DictStateReader>>,
+    pub state: CachedState<DictStateReader>,
+    pub predeployed_accounts: PredeployedAccounts,
 }
 
 impl StarknetWrapper {
@@ -45,17 +46,18 @@ impl StarknetWrapper {
         let blocks = StarknetBlocks::default();
         let block_context = BlockContext::base();
         let transactions = StarknetTransactions::default();
-        let mut state = CachedState::new(DictStateReader::default());
+        let mut state = CachedState::new(DictStateReader::get_default());
 
-        KatanaDefaultState::initialize_state(&mut state)
-            .expect("should be able to initialize default state");
+        let predeployed_accounts = PredeployedAccounts::default();
+        predeployed_accounts.deploy_accounts(&mut state.state);
 
         Self {
+            state,
             config,
             blocks,
             transactions,
             block_context,
-            state: Mutex::new(state),
+            predeployed_accounts,
         }
     }
 
@@ -64,11 +66,9 @@ impl StarknetWrapper {
         let api_tx = convert_blockifier_tx_to_starknet_api_tx(&transaction);
 
         let res = match transaction {
-            Transaction::AccountTransaction(tx) => {
-                tx.execute(&mut self.state.lock().unwrap(), &self.block_context)
-            }
+            Transaction::AccountTransaction(tx) => tx.execute(&mut self.state, &self.block_context),
             Transaction::L1HandlerTransaction(tx) => {
-                tx.execute(&mut self.state.lock().unwrap(), &self.block_context)
+                tx.execute(&mut self.state, &self.block_context)
             }
         };
 
@@ -145,7 +145,7 @@ impl StarknetWrapper {
 
     // TODO: perform call based on specific block state
     pub fn call(&self, call: FunctionCall) -> Result<CallInfo> {
-        let mut state = CachedState::new(self.state.lock().unwrap().state.clone());
+        let mut state = CachedState::new(self.state.state.clone());
         let mut state = CachedState::new(MutRefState::new(&mut state));
 
         let call = CallEntryPoint {

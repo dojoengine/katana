@@ -1,5 +1,3 @@
-use anyhow::Result;
-use blockifier::state::state_api::State;
 use starknet_api::{
     core::{ClassHash, ContractAddress, PatriciaKey},
     hash::{StarkFelt, StarkHash},
@@ -7,66 +5,52 @@ use starknet_api::{
 };
 
 use crate::{
-    accounts::PredeployedAccounts,
     constants::{
         ACCOUNT_CONTRACT_CLASS_HASH, ACCOUNT_CONTRACT_PATH, ERC20_CONTRACT_CLASS_HASH,
         ERC20_CONTRACT_PATH, FEE_ERC20_CONTRACT_ADDRESS, UNIVERSAL_DEPLOYER_CLASS_HASH,
         UNIVERSAL_DEPLOYER_CONTRACT_ADDRESS, UNIVERSAL_DEPLOYER_CONTRACT_PATH,
     },
+    state::DictStateReader,
     util::get_contract_class,
 };
 
 pub struct KatanaDefaultState;
 
 impl KatanaDefaultState {
-    pub fn initialize_state(state: &mut dyn State) -> Result<()> {
-        Self::deploy_fee_contract(state)?;
-        Self::deploy_default_account_contract(state)?;
-        Self::deploy_universal_deployer_contract(state)?;
-        Self::deploy_rich_accounts(state, &PredeployedAccounts::default())?;
-        Ok(())
+    pub fn initialize_state(state: &mut DictStateReader) {
+        Self::deploy_fee_contract(state);
+        Self::deploy_default_account_contract(state);
+        Self::deploy_universal_deployer_contract(state);
     }
 
-    fn deploy_fee_contract(state: &mut dyn State) -> Result<()> {
+    fn deploy_fee_contract(state: &mut DictStateReader) {
         let erc20_class_hash = ClassHash(stark_felt!(ERC20_CONTRACT_CLASS_HASH));
-
-        state.set_contract_class(&erc20_class_hash, get_contract_class(ERC20_CONTRACT_PATH))?;
-        state.set_class_hash_at(
+        state
+            .class_hash_to_class
+            .insert(erc20_class_hash, get_contract_class(ERC20_CONTRACT_PATH));
+        state.address_to_class_hash.insert(
             ContractAddress(patricia_key!(FEE_ERC20_CONTRACT_ADDRESS)),
             erc20_class_hash,
-        )?;
-
-        Ok(())
+        );
     }
 
-    fn deploy_universal_deployer_contract(state: &mut dyn State) -> Result<()> {
+    fn deploy_universal_deployer_contract(state: &mut DictStateReader) {
         let universal_deployer_class_hash = ClassHash(stark_felt!(UNIVERSAL_DEPLOYER_CLASS_HASH));
-
-        state.set_contract_class(
-            &universal_deployer_class_hash,
+        state.class_hash_to_class.insert(
+            universal_deployer_class_hash,
             get_contract_class(UNIVERSAL_DEPLOYER_CONTRACT_PATH),
-        )?;
-        state.set_class_hash_at(
+        );
+        state.address_to_class_hash.insert(
             ContractAddress(patricia_key!(UNIVERSAL_DEPLOYER_CONTRACT_ADDRESS)),
             universal_deployer_class_hash,
-        )?;
-
-        Ok(())
+        );
     }
 
-    fn deploy_default_account_contract(state: &mut dyn State) -> Result<()> {
+    fn deploy_default_account_contract(state: &mut DictStateReader) {
         let account_class_hash = ClassHash(stark_felt!(ACCOUNT_CONTRACT_CLASS_HASH));
-
-        state.set_contract_class(
-            &account_class_hash,
+        state.class_hash_to_class.insert(
+            account_class_hash,
             get_contract_class(ACCOUNT_CONTRACT_PATH),
-        )?;
-
-        Ok(())
-    }
-
-    fn deploy_rich_accounts(state: &mut dyn State, accounts: &PredeployedAccounts) -> Result<()> {
-        accounts.deploy_accounts(state)?;
-        Ok(())
+        );
     }
 }

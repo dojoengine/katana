@@ -1,4 +1,5 @@
 use blockifier::execution::contract_class::ContractClass;
+use blockifier::state::cached_state::CachedState;
 use blockifier::state::cached_state::ContractStorageKey;
 use blockifier::state::errors::StateError;
 use blockifier::state::state_api::StateReader;
@@ -11,12 +12,22 @@ use starknet_api::{
 use std::collections::HashMap;
 use std::sync::Arc;
 
+use crate::default_state::KatanaDefaultState;
+
 #[derive(Clone, Debug, Default)]
 pub struct DictStateReader {
     pub storage_view: HashMap<ContractStorageKey, StarkFelt>,
     pub address_to_nonce: HashMap<ContractAddress, Nonce>,
     pub address_to_class_hash: HashMap<ContractAddress, ClassHash>,
     pub class_hash_to_class: HashMap<ClassHash, ContractClass>,
+}
+
+impl DictStateReader {
+    pub fn get_default() -> Self {
+        let mut state = DictStateReader::default();
+        KatanaDefaultState::initialize_state(&mut state);
+        state
+    }
 }
 
 impl StateReader for DictStateReader {

@@ -14,7 +14,7 @@ use starknet_api::{
 };
 
 use crate::{
-    constants::FEE_ERC20_CONTRACT_ADDRESS,
+    constants::{DEFAULT_PREFUNDED_ACCOUNT_BALANCE, FEE_ERC20_CONTRACT_ADDRESS},
     starknet::{transaction::FunctionCall, Config, StarknetWrapper},
 };
 
@@ -85,9 +85,13 @@ fn test_add_reverted_transaction() {
 #[test]
 fn test_function_call() {
     let starknet = StarknetWrapper::new(Config);
+    let account = &starknet.predeployed_accounts.accounts[0]
+        .account_address
+        .0
+        .key();
 
     let call = FunctionCall {
-        calldata: Calldata(Arc::new(vec![stark_felt!("0x111111111")])),
+        calldata: Calldata(Arc::new(vec![**account])),
         contract_address: ContractAddress(patricia_key!(FEE_ERC20_CONTRACT_ADDRESS)),
         entry_point_selector: EntryPointSelector(StarkFelt::from(
             get_selector_from_name("balanceOf").unwrap(),
@@ -99,7 +103,6 @@ fn test_function_call() {
     assert!(res.is_ok(), "call must succeed");
     assert_eq!(
         res.unwrap().execution.retdata.0[0],
-        stark_felt!("0x10000000000000"),
-        "user must have balance of 0x10000000000000"
+        stark_felt!(DEFAULT_PREFUNDED_ACCOUNT_BALANCE),
     );
 }

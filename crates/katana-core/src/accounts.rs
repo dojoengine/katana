@@ -1,7 +1,6 @@
 use std::sync::Arc;
 
-use anyhow::Result;
-use blockifier::{abi::abi_utils::get_storage_var_address, state::state_api::State};
+use blockifier::abi::abi_utils::get_storage_var_address;
 use rand::{rngs::SmallRng, RngCore, SeedableRng};
 use starknet::{core::types::FieldElement, signers::SigningKey};
 use starknet_api::{
@@ -11,8 +10,11 @@ use starknet_api::{
     transaction::{Calldata, ContractAddressSalt},
 };
 
-use crate::constants::{
-    ACCOUNT_CONTRACT_CLASS_HASH, DEFAULT_PREFUNDED_ACCOUNT_BALANCE, FEE_ERC20_CONTRACT_ADDRESS,
+use crate::{
+    constants::{
+        ACCOUNT_CONTRACT_CLASS_HASH, DEFAULT_PREFUNDED_ACCOUNT_BALANCE, FEE_ERC20_CONTRACT_ADDRESS,
+    },
+    state::DictStateReader,
 };
 
 #[derive(Debug)]
@@ -48,49 +50,52 @@ impl Account {
         }
     }
 
-    pub fn deploy(&self, state: &mut dyn State) -> Result<()> {
+    pub fn deploy(&self, state: &mut DictStateReader) {
         // set the contract
-        state.set_class_hash_at(self.account_address, self.class_hash)?;
+        state
+            .address_to_class_hash
+            .insert(self.account_address, self.class_hash);
         // set the balance in the FEE CONTRACT
-        state.set_storage_at(
-            ContractAddress(patricia_key!(FEE_ERC20_CONTRACT_ADDRESS)),
-            get_storage_var_address("ERC20_balances", &[*self.account_address.0.key()])?,
+        state.storage_view.insert(
+            (
+                ContractAddress(patricia_key!(FEE_ERC20_CONTRACT_ADDRESS)),
+                get_storage_var_address("ERC20_balances", &[*self.account_address.0.key()])
+                    .unwrap(),
+            ),
             self.balance,
         );
         // set the public key in the account contract
-        state.set_storage_at(
-            self.account_address,
-            get_storage_var_address("Account_public_key", &[])?,
+        state.storage_view.insert(
+            (
+                self.account_address,
+                get_storage_var_address("Account_public_key", &[]).unwrap(),
+            ),
             self.public_key,
         );
-        Ok(())
     }
 }
 
 pub struct PredeployedAccounts {
-    seed: u64,
-    total: usize,
-    accounts: Vec<Account>,
-    initial_balance: StarkFelt,
+    pub seed: [u8; 32],
+    pub accounts: Vec<Account>,
+    pub initial_balance: StarkFelt,
 }
 
 impl PredeployedAccounts {
-    pub fn new(total: usize, seed: u64, initial_balance: StarkFelt) -> Self {
+    pub fn new(total: usize, seed: [u8; 32], initial_balance: StarkFelt) -> Self {
         let accounts = Self::generate_accounts(total, seed, initial_balance);
 
         Self {
             seed,
-            total,
             accounts,
             initial_balance,
         }
     }
 
-    pub fn deploy_accounts(&self, state: &mut dyn State) -> Result<()> {
+    pub fn deploy_accounts(&self, state: &mut DictStateReader) {
         for account in &self.accounts {
-            account.deploy(state)?;
+            account.deploy(state);
         }
-        Ok(())
     }
 
     pub fn display(&self) -> String {
@@ -116,15 +121,17 @@ Public key      | {}",
         )
     }
 
-    fn generate_accounts(total: usize, seed: u64, balance: StarkFelt) -> Vec<Account> {
+    fn generate_accounts(total: usize, seed: [u8; 32], balance: StarkFelt) -> Vec<Account> {
+        let mut seed = seed;
         let mut accounts = vec![];
 
-        for _ in 0..total {
-            let mut rng = SmallRng::seed_from_u64(seed);
+        for i in 0..total {
+            let mut rng = SmallRng::from_seed(seed);
             let mut private_key_bytes = [0u8; 32];
 
             rng.fill_bytes(&mut private_key_bytes);
-            private_key_bytes[0] = private_key_bytes[0] % 0x10;
+            private_key_bytes[0] = 0;
+            seed = private_key_bytes;
 
             let private_key =
                 StarkFelt::new(private_key_bytes).expect("should create StarkFelt from bytes");
@@ -143,7 +150,11 @@ Public key      | {}",
 
 impl Default for PredeployedAccounts {
     fn default() -> Self {
-        Self::new(10, 0, stark_felt!(DEFAULT_PREFUNDED_ACCOUNT_BALANCE))
+        Self::new(
+            10,
+            [0u8; 32],
+            stark_felt!(DEFAULT_PREFUNDED_ACCOUNT_BALANCE),
+        )
     }
 }
 
