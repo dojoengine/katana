@@ -16,7 +16,7 @@ use starknet_api::{
     },
 };
 
-pub struct FunctionCall {
+pub struct ExternalFunctionCall {
     pub calldata: Calldata,
     pub contract_address: ContractAddress,
     pub entry_point_selector: EntryPointSelector,

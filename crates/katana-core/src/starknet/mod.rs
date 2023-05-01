@@ -28,7 +28,7 @@ use crate::{
 use block::{StarknetBlock, StarknetBlocks};
 use transaction::{StarknetTransaction, StarknetTransactions};
 
-use self::transaction::FunctionCall;
+use self::transaction::ExternalFunctionCall;
 
 pub struct StarknetConfig {
     pub total_accounts: u8,
@@ -147,7 +147,7 @@ impl StarknetWrapper {
     }
 
     // TODO: perform call based on specific block state
-    pub fn call(&self, call: FunctionCall) -> Result<CallInfo> {
+    pub fn call(&self, call: ExternalFunctionCall) -> Result<CallInfo> {
         let mut state = CachedState::new(self.state.state.clone());
         let mut state = CachedState::new(MutRefState::new(&mut state));
 

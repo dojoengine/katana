@@ -4,7 +4,7 @@ use jsonrpsee::{
     server::{ServerBuilder, ServerHandle},
     types::error::CallError,
 };
-use katana_core::sequencer::KatanaSequencer;
+use katana_core::{sequencer::KatanaSequencer, starknet::transaction::ExternalFunctionCall};
 use starknet::core::types::FieldElement;
 use starknet::providers::jsonrpc::models::{
     BlockHashAndNumber, BlockId, BroadcastedDeclareTransaction,
@@ -13,8 +13,8 @@ use starknet::providers::jsonrpc::models::{
     EventsPage, FeeEstimate, FunctionCall, InvokeTransactionResult, MaybePendingBlockWithTxHashes,
     MaybePendingBlockWithTxs, MaybePendingTransactionReceipt, StateUpdate, Transaction,
 };
-use starknet_api::patricia_key;
 use starknet_api::state::StorageKey;
+use starknet_api::{core::EntryPointSelector, patricia_key};
 use starknet_api::{
     core::{ClassHash, ContractAddress, PatriciaKey},
     hash::StarkFelt,
@@ -183,7 +183,29 @@ impl KatanaApiServer for KatanaRpc {
         request: FunctionCall,
         block_id: BlockId,
     ) -> Result<Vec<FieldElement>, Error> {
-        unimplemented!("KatanaRpc::call")
+        let call = ExternalFunctionCall {
+            contract_address: ContractAddress(patricia_key!(request.contract_address)),
+            calldata: Calldata(Arc::new(
+                request.calldata.into_iter().map(StarkFelt::from).collect(),
+            )),
+            entry_point_selector: EntryPointSelector(StarkFelt::from(request.entry_point_selector)),
+        };
+
+        let res = self
+            .sequencer
+            .call(block_id, call)
+            .map_err(|_| Error::from(KatanaApiError::ContractError))?;
+
+        let mut values = vec![];
+
+        for f in res.into_iter() {
+            values.push(
+                stark_felt_to_field_element(f)
+                    .map_err(|_| Error::from(KatanaApiError::InternalServerError))?,
+            );
+        }
+
+        Ok(values)
     }
 
     async fn get_storage_at(

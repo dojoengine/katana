@@ -2,7 +2,7 @@ use std::sync::RwLock;
 
 use anyhow::Result;
 
-use crate::starknet::{StarknetConfig, StarknetWrapper};
+use crate::starknet::{transaction::ExternalFunctionCall, StarknetConfig, StarknetWrapper};
 
 use blockifier::{
     abi::abi_utils::get_storage_var_address,
@@ -163,5 +163,14 @@ impl KatanaSequencer {
             .unwrap()
             .state
             .get_nonce_at(contract_address)
+    }
+
+    pub fn call(
+        &self,
+        _block_id: BlockId,
+        function_call: ExternalFunctionCall,
+    ) -> Result<Vec<StarkFelt>> {
+        let execution_info = self.starknet.read().unwrap().call(function_call)?;
+        Ok(execution_info.execution.retdata.0)
     }
 }
