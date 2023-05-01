@@ -150,12 +150,7 @@ impl KatanaSequencer {
     }
 
     pub fn block_number(&self) -> BlockNumber {
-        self.starknet
-            .read()
-            .unwrap()
-            .block_context
-            .block_number
-            .clone()
+        self.starknet.read().unwrap().block_context.block_number
     }
 
     pub fn get_nonce_at(

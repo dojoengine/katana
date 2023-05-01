@@ -166,6 +166,7 @@ impl StarknetWrapper {
     }
 
     // Returns the StarknetState of the underlying Starknet instance.
+    #[allow(unused)]
     fn get_state(&self) -> &DictStateReader {
         unimplemented!("StarknetWrapper::get_state")
     }

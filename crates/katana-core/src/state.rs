@@ -1,5 +1,4 @@
 use blockifier::execution::contract_class::ContractClass;
-use blockifier::state::cached_state::CachedState;
 use blockifier::state::cached_state::ContractStorageKey;
 use blockifier::state::errors::StateError;
 use blockifier::state::state_api::StateReader;

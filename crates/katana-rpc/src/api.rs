@@ -212,29 +212,35 @@ impl Logger for KatanaRpcLogger {
     ) {
     }
 
-    fn on_request(&self, transport: TransportProtocol) -> Self::Instant {
+    fn on_request(&self, _transport: TransportProtocol) -> Self::Instant {
         Instant::now()
     }
 
     fn on_call(
         &self,
         method_name: &str,
-        params: Params,
-        kind: MethodKind,
-        transport: TransportProtocol,
+        _params: Params<'_>,
+        _kind: MethodKind,
+        _transport: TransportProtocol,
     ) {
         info!("method: '{}'", method_name);
     }
 
     fn on_result(
         &self,
-        method_name: &str,
-        success: bool,
-        started_at: Self::Instant,
-        transport: TransportProtocol,
+        _method_name: &str,
+        _success: bool,
+        _started_at: Self::Instant,
+        _transport: TransportProtocol,
     ) {
     }
 
-    fn on_response(&self, result: &str, started_at: Self::Instant, transport: TransportProtocol) {}
-    fn on_disconnect(&self, _remote_addr: std::net::SocketAddr, transport: TransportProtocol) {}
+    fn on_response(
+        &self,
+        _result: &str,
+        _started_at: Self::Instant,
+        _transport: TransportProtocol,
+    ) {
+    }
+    fn on_disconnect(&self, _remote_addr: std::net::SocketAddr, _transport: TransportProtocol) {}
 }

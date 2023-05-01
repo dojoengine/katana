@@ -12,6 +12,7 @@ use starknet_api::{
 pub struct StarknetBlock(pub Block);
 
 impl StarknetBlock {
+    #[allow(clippy::too_many_arguments)]
     pub fn new(
         block_hash: BlockHash,
         parent_hash: BlockHash,

@@ -13,5 +13,5 @@ pub fn to_trimmed_hex_string(bytes: &[u8]) -> String {
 }
 
 pub fn stark_felt_to_field_element(felt: StarkFelt) -> Result<FieldElement> {
-    Ok(FieldElement::from_byte_slice_be(&felt.bytes())?)
+    Ok(FieldElement::from_byte_slice_be(felt.bytes())?)
 }
