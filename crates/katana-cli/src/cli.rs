@@ -2,7 +2,7 @@ use std::{process::exit, sync::Arc};
 
 use clap::Parser;
 use env_logger::Env;
-use katana_core::{sequencer::KatanaSequencer, starknet::Config};
+use katana_core::{sequencer::KatanaSequencer, starknet::StarknetConfig};
 use katana_rpc::{config::RpcConfig, KatanaRpc};
 use log::error;
 use yansi::Paint;
@@ -13,7 +13,9 @@ async fn main() {
 
     let config = Cli::parse();
     let rpc_config = config.get_rpc_config();
-    let sequencer = Arc::new(KatanaSequencer::new(Config));
+    let starknet_config = config.get_starknet_config();
+
+    let sequencer = Arc::new(KatanaSequencer::new(starknet_config));
     let predeployed_accounts = sequencer
         .starknet
         .read()
@@ -23,13 +25,12 @@ async fn main() {
 
     match KatanaRpc::new(sequencer, rpc_config).run().await {
         Ok((addr, server_handle)) => {
-            print_title();
-
-            println!("{predeployed_accounts}");
-
-            println!(
-                "\n\n🚀 JSON-RPC server started: {}\n",
-                Paint::red(format!("http://{addr}"))
+            print_intro(
+                predeployed_accounts,
+                format!(
+                    "🚀 JSON-RPC server started: {}",
+                    Paint::red(format!("http://{addr}"))
+                ),
             );
 
             server_handle.stopped().await;
@@ -47,15 +48,26 @@ struct Cli {
     #[arg(default_value = "5050")]
     #[arg(help = "Port number to listen on.")]
     port: u16,
+
+    #[arg(long)]
+    #[arg(default_value = "10")]
+    #[arg(help = "Number of pre-funded accounts to generate.")]
+    accounts: u8,
 }
 
 impl Cli {
     fn get_rpc_config(&self) -> RpcConfig {
         RpcConfig { port: self.port }
     }
+
+    fn get_starknet_config(&self) -> StarknetConfig {
+        StarknetConfig {
+            total_accounts: self.accounts,
+        }
+    }
 }
 
-fn print_title() {
+fn print_intro(accounts: String, address: String) {
     println!(
         "{}",
         Paint::red(
@@ -72,4 +84,12 @@ fn print_title() {
 "
         )
     );
+    println!(
+        r"        
+PREFUNDED ACCOUNTS
+==================
+{accounts}
+"
+    );
+    println!("\n{address}\n\n");
 }

@@ -30,10 +30,12 @@ use transaction::{StarknetTransaction, StarknetTransactions};
 
 use self::transaction::FunctionCall;
 
-pub struct Config;
+pub struct StarknetConfig {
+    pub total_accounts: u8,
+}
 
 pub struct StarknetWrapper {
-    pub config: Config,
+    pub config: StarknetConfig,
     pub blocks: StarknetBlocks,
     pub block_context: BlockContext,
     pub transactions: StarknetTransactions,
@@ -42,13 +44,14 @@ pub struct StarknetWrapper {
 }
 
 impl StarknetWrapper {
-    pub fn new(config: Config) -> Self {
+    pub fn new(config: StarknetConfig) -> Self {
         let blocks = StarknetBlocks::default();
         let block_context = BlockContext::base();
         let transactions = StarknetTransactions::default();
         let mut state = CachedState::new(DictStateReader::get_default());
 
-        let predeployed_accounts = PredeployedAccounts::default();
+        let predeployed_accounts =
+            PredeployedAccounts::generate(Some(config.total_accounts), None, None);
         predeployed_accounts.deploy_accounts(&mut state.state);
 
         Self {

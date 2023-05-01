@@ -17,7 +17,7 @@ use crate::{
     state::DictStateReader,
 };
 
-#[derive(Debug)]
+#[derive(Debug, Clone)]
 pub struct Account {
     pub balance: StarkFelt,
     pub class_hash: ClassHash,
@@ -75,6 +75,7 @@ impl Account {
     }
 }
 
+#[derive(Debug, Clone)]
 pub struct PredeployedAccounts {
     pub seed: [u8; 32],
     pub accounts: Vec<Account>,
@@ -82,7 +83,16 @@ pub struct PredeployedAccounts {
 }
 
 impl PredeployedAccounts {
-    pub fn new(total: usize, seed: [u8; 32], initial_balance: StarkFelt) -> Self {
+    pub fn generate(
+        total: Option<u8>,
+        seed: Option<[u8; 32]>,
+        initial_balance: Option<StarkFelt>,
+    ) -> Self {
+        let total = total.unwrap_or(10);
+        let seed = seed.unwrap_or_default();
+        let initial_balance =
+            initial_balance.unwrap_or(stark_felt!(DEFAULT_PREFUNDED_ACCOUNT_BALANCE));
+
         let accounts = Self::generate_accounts(total, seed, initial_balance);
 
         Self {
@@ -111,17 +121,14 @@ impl PredeployedAccounts {
             )
         }
 
-        format!(
-            "### PREFUNDED ACCOUNTS\n{}",
-            self.accounts
-                .iter()
-                .map(print_account)
-                .collect::<Vec<String>>()
-                .join("\n")
-        )
+        self.accounts
+            .iter()
+            .map(print_account)
+            .collect::<Vec<String>>()
+            .join("\n")
     }
 
-    fn generate_accounts(total: usize, seed: [u8; 32], balance: StarkFelt) -> Vec<Account> {
+    fn generate_accounts(total: u8, seed: [u8; 32], balance: StarkFelt) -> Vec<Account> {
         let mut seed = seed;
         let mut accounts = vec![];
 
@@ -145,16 +152,6 @@ impl PredeployedAccounts {
         }
 
         accounts
-    }
-}
-
-impl Default for PredeployedAccounts {
-    fn default() -> Self {
-        Self::new(
-            10,
-            [0u8; 32],
-            stark_felt!(DEFAULT_PREFUNDED_ACCOUNT_BALANCE),
-        )
     }
 }
 

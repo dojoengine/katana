@@ -2,7 +2,7 @@ use std::sync::RwLock;
 
 use anyhow::Result;
 
-use crate::starknet::{Config, StarknetWrapper};
+use crate::starknet::{StarknetConfig, StarknetWrapper};
 
 use blockifier::{
     abi::abi_utils::get_storage_var_address,
@@ -27,7 +27,7 @@ pub struct KatanaSequencer {
 }
 
 impl KatanaSequencer {
-    pub fn new(config: Config) -> Self {
+    pub fn new(config: StarknetConfig) -> Self {
         Self {
             starknet: RwLock::new(StarknetWrapper::new(config)),
         }

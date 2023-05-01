@@ -261,7 +261,7 @@ impl KatanaApiServer for KatanaRpc {
 mod tests {
     use std::sync::Arc;
 
-    use katana_core::{sequencer::KatanaSequencer, starknet::Config};
+    use katana_core::{sequencer::KatanaSequencer, starknet::StarknetConfig};
     use starknet::{core::types::FieldElement, providers::jsonrpc::models::BlockId};
     use starknet_api::core::ChainId;
 
@@ -269,7 +269,7 @@ mod tests {
 
     fn get_rpc() -> KatanaRpc {
         KatanaRpc::new(
-            Arc::new(KatanaSequencer::new(Config)),
+            Arc::new(KatanaSequencer::new(StarknetConfig { total_accounts: 5 })),
             RpcConfig { port: 5050 },
         )
     }
