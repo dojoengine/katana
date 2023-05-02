@@ -16,6 +16,8 @@ async fn main() {
     let starknet_config = config.get_starknet_config();
 
     let sequencer = Arc::new(KatanaSequencer::new(starknet_config));
+    sequencer.start();
+
     let predeployed_accounts = sequencer
         .starknet
         .read()
