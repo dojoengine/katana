@@ -1,6 +1,13 @@
-# Katana
+<pre style="color:#e05561;background:none;">
+██╗  ██╗ █████╗ ████████╗ █████╗ ███╗   ██╗ █████╗ 
+██║ ██╔╝██╔══██╗╚══██╔══╝██╔══██╗████╗  ██║██╔══██╗
+█████╔╝ ███████║   ██║   ███████║██╔██╗ ██║███████║
+██╔═██╗ ██╔══██║   ██║   ██╔══██║██║╚██╗██║██╔══██║
+██║  ██╗██║  ██║   ██║   ██║  ██║██║ ╚████║██║  ██║
+╚═╝  ╚═╝╚═╝  ╚═╝   ╚═╝   ╚═╝  ╚═╝╚═╝  ╚═══╝╚═╝  ╚═╝
+</pre>
 
-Katana is light weight, ephermeral Starknet sequencer designed to support rapid developement of Dojo games. It simply wraps the Starknet Blockifier with a Starknet RPC.
+Katana is blazing fast Starknet devnet designed to support rapid local developement.
 
 ## Debug
 To launch the project run `cargo run` in the root directory.
