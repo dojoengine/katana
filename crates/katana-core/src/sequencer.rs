@@ -1,4 +1,4 @@
-use std::sync::RwLock;
+use std::sync::{Arc, RwLock};
 
 use anyhow::Result;
 
@@ -23,14 +23,20 @@ use starknet_api::{
 };
 
 pub struct KatanaSequencer {
-    pub starknet: RwLock<StarknetWrapper>,
+    pub starknet: Arc<RwLock<StarknetWrapper>>,
 }
 
 impl KatanaSequencer {
     pub fn new(config: StarknetConfig) -> Self {
         Self {
-            starknet: RwLock::new(StarknetWrapper::new(config)),
+            starknet: Arc::new(RwLock::new(StarknetWrapper::new(config))),
         }
+    }
+
+    // The starting point of the sequencer
+    // Once we add support periodic block generation, the logic should be here.
+    pub fn start(&self) {
+        self.starknet.write().unwrap().generate_pending_block();
     }
 
     pub fn drip_and_deploy_account(

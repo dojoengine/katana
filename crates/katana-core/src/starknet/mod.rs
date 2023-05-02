@@ -214,14 +214,14 @@ impl StarknetWrapper {
     }
 
     fn update_block_context(&mut self) {
-        let current_height = self.blocks.current_height;
+        let next_block_number = BlockNumber(self.blocks.current_height.0 + 1);
         let timestamp = SystemTime::now()
             .duration_since(SystemTime::UNIX_EPOCH)
             .unwrap()
             .as_secs();
 
-        self.block_context.block_number = current_height;
+        self.blocks.current_height = next_block_number;
+        self.block_context.block_number = next_block_number;
         self.block_context.block_timestamp = BlockTimestamp(timestamp);
-        self.blocks.current_height = BlockNumber(self.blocks.current_height.0 + 1);
     }
 }
