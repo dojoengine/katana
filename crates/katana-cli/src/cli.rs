@@ -1,4 +1,4 @@
-use std::{process::exit, sync::Arc};
+use std::{path::PathBuf, process::exit, sync::Arc};
 
 use clap::Parser;
 use env_logger::Env;
@@ -53,6 +53,9 @@ struct Cli {
     #[arg(default_value = "10")]
     #[arg(help = "Number of pre-funded accounts to generate.")]
     accounts: u8,
+
+    #[arg(long)]
+    account_path: Option<PathBuf>,
 }
 
 impl Cli {
@@ -63,6 +66,7 @@ impl Cli {
     fn get_starknet_config(&self) -> StarknetConfig {
         StarknetConfig {
             total_accounts: self.accounts,
+            account_path: self.account_path.clone(),
         }
     }
 }

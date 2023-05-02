@@ -1,11 +1,8 @@
-mod accounts;
-mod block_context;
-mod constants;
-mod default_state;
+pub mod accounts;
+pub mod block_context;
+pub mod constants;
+pub mod default_state;
 pub mod sequencer;
 pub mod starknet;
 pub mod state;
-mod util;
-
-#[cfg(test)]
-mod starknet_test;
+pub mod util;

@@ -16,7 +16,9 @@ pub const UNIVERSAL_DEPLOYER_CLASS_HASH: &str = "0x300";
 
 pub const DEFAULT_PREFUNDED_ACCOUNT_BALANCE: &str = "0x3635c9adc5dea00000"; // 10^21
 
-pub const ACCOUNT_CONTRACT_PATH: &str = "contracts/compiled/account.json";
+pub const ACCOUNT_CONTRACT_PATH: &str = "./contracts/compiled/account.json";
+
+pub const TEST_ACCOUNT_CONTRACT_PATH: &str = "./contracts/compiled/account_without_validation.json";
 
 pub const ERC20_CONTRACT_PATH: &str = "./contracts/compiled/erc20.json";
 

@@ -1,5 +1,6 @@
 use std::{fs, path::PathBuf};
 
+use anyhow::Result;
 use blockifier::{
     execution::contract_class::ContractClass,
     transaction::{
@@ -7,9 +8,14 @@ use blockifier::{
         transaction_execution::Transaction as BlockifierTransaction,
     },
 };
-use starknet_api::transaction::{
-    DeclareTransaction, DeclareTransactionV0V1, DeclareTransactionV2, DeployAccountTransaction,
-    InvokeTransaction, InvokeTransactionV1, L1HandlerTransaction, Transaction,
+use starknet::core::types::contract::legacy::LegacyContractClass;
+use starknet_api::{
+    core::ClassHash,
+    hash::StarkFelt,
+    transaction::{
+        DeclareTransaction, DeclareTransactionV0V1, DeclareTransactionV2, DeployAccountTransaction,
+        InvokeTransaction, InvokeTransactionV1, L1HandlerTransaction, Transaction,
+    },
 };
 
 pub fn get_contract_class(contract_path: &str) -> ContractClass {
@@ -93,4 +99,10 @@ pub fn convert_blockifier_tx_to_starknet_api_tx(
             })
         }
     }
+}
+
+pub fn compute_legacy_class_hash(contract_class_str: &str) -> Result<ClassHash> {
+    let contract_class: LegacyContractClass = ::serde_json::from_str(contract_class_str)?;
+    let seirra_class_hash = contract_class.class_hash()?;
+    Ok(ClassHash(StarkFelt::from(seirra_class_hash)))
 }

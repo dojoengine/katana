@@ -1,6 +1,9 @@
-use std::sync::Arc;
+use std::{fs, path::PathBuf, sync::Arc};
 
-use blockifier::abi::abi_utils::get_storage_var_address;
+use anyhow::Result;
+use blockifier::{
+    abi::abi_utils::get_storage_var_address, execution::contract_class::ContractClass,
+};
 use rand::{rngs::SmallRng, RngCore, SeedableRng};
 use starknet::{core::types::FieldElement, signers::SigningKey};
 use starknet_api::{
@@ -11,10 +14,9 @@ use starknet_api::{
 };
 
 use crate::{
-    constants::{
-        ACCOUNT_CONTRACT_CLASS_HASH, DEFAULT_PREFUNDED_ACCOUNT_BALANCE, FEE_ERC20_CONTRACT_ADDRESS,
-    },
+    constants::{FEE_ERC20_CONTRACT_ADDRESS, TEST_ACCOUNT_CONTRACT_PATH},
     state::DictStateReader,
+    util::compute_legacy_class_hash,
 };
 
 #[derive(Debug, Clone)]
@@ -23,6 +25,7 @@ pub struct Account {
     pub class_hash: ClassHash,
     pub public_key: StarkFelt,
     pub private_key: StarkFelt,
+    pub contract_class: ContractClass,
     pub account_address: ContractAddress,
 }
 
@@ -32,6 +35,7 @@ impl Account {
         public_key: StarkFelt,
         private_key: StarkFelt,
         class_hash: ClassHash,
+        contract_class: ContractClass,
     ) -> Self {
         let account_address = calculate_contract_address(
             ContractAddressSalt(stark_felt!(666)),
@@ -46,11 +50,14 @@ impl Account {
             public_key,
             private_key,
             class_hash,
+            contract_class,
             account_address,
         }
     }
 
     pub fn deploy(&self, state: &mut DictStateReader) {
+        self.declare(state);
+
         // set the contract
         state
             .address_to_class_hash
@@ -73,6 +80,12 @@ impl Account {
             self.public_key,
         );
     }
+
+    fn declare(&self, state: &mut DictStateReader) {
+        state
+            .class_hash_to_class
+            .insert(self.class_hash, self.contract_class.clone());
+    }
 }
 
 #[derive(Debug, Clone)]
@@ -80,26 +93,31 @@ pub struct PredeployedAccounts {
     pub seed: [u8; 32],
     pub accounts: Vec<Account>,
     pub initial_balance: StarkFelt,
+    pub contract_class_path: PathBuf,
 }
 
 impl PredeployedAccounts {
     pub fn generate(
-        total: Option<u8>,
-        seed: Option<[u8; 32]>,
-        initial_balance: Option<StarkFelt>,
-    ) -> Self {
-        let total = total.unwrap_or(10);
-        let seed = seed.unwrap_or_default();
-        let initial_balance =
-            initial_balance.unwrap_or(stark_felt!(DEFAULT_PREFUNDED_ACCOUNT_BALANCE));
+        total: u8,
+        seed: [u8; 32],
+        initial_balance: StarkFelt,
+        contract_class_path: PathBuf,
+    ) -> Result<Self> {
+        let contract_class_str = fs::read_to_string(&contract_class_path)?;
+        let contract_class = serde_json::from_str::<ContractClass>(&contract_class_str)
+            .expect("can deserialize contract class");
+        let class_hash = compute_legacy_class_hash(&contract_class_str)
+            .expect("can compute legacy contract class hash");
 
-        let accounts = Self::generate_accounts(total, seed, initial_balance);
+        let accounts =
+            Self::generate_accounts(total, seed, initial_balance, class_hash, contract_class);
 
-        Self {
+        Ok(Self {
             seed,
             accounts,
             initial_balance,
-        }
+            contract_class_path,
+        })
     }
 
     pub fn deploy_accounts(&self, state: &mut DictStateReader) {
@@ -128,7 +146,13 @@ impl PredeployedAccounts {
             .join("\n")
     }
 
-    fn generate_accounts(total: u8, seed: [u8; 32], balance: StarkFelt) -> Vec<Account> {
+    fn generate_accounts(
+        total: u8,
+        seed: [u8; 32],
+        balance: StarkFelt,
+        class_hash: ClassHash,
+        contract_class: ContractClass,
+    ) -> Vec<Account> {
         let mut seed = seed;
         let mut accounts = vec![];
 
@@ -147,11 +171,18 @@ impl PredeployedAccounts {
                 balance,
                 compute_public_key_from_private_key(&private_key),
                 private_key,
-                ClassHash(stark_felt!(ACCOUNT_CONTRACT_CLASS_HASH)),
+                class_hash,
+                contract_class.clone(),
             ));
         }
 
         accounts
+    }
+
+    pub fn default_account_class_path() -> PathBuf {
+        [env!("CARGO_MANIFEST_DIR"), TEST_ACCOUNT_CONTRACT_PATH]
+            .iter()
+            .collect()
     }
 }
 

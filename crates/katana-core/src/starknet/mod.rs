@@ -1,4 +1,4 @@
-use std::time::SystemTime;
+use std::{path::PathBuf, time::SystemTime};
 
 use anyhow::Result;
 use blockifier::{
@@ -22,7 +22,8 @@ pub mod block;
 pub mod transaction;
 
 use crate::{
-    accounts::PredeployedAccounts, block_context::Base, state::DictStateReader,
+    accounts::PredeployedAccounts, block_context::Base,
+    constants::DEFAULT_PREFUNDED_ACCOUNT_BALANCE, state::DictStateReader,
     util::convert_blockifier_tx_to_starknet_api_tx,
 };
 use block::{StarknetBlock, StarknetBlocks};
@@ -32,6 +33,7 @@ use self::transaction::ExternalFunctionCall;
 
 pub struct StarknetConfig {
     pub total_accounts: u8,
+    pub account_path: Option<PathBuf>,
 }
 
 pub struct StarknetWrapper {
@@ -50,8 +52,16 @@ impl StarknetWrapper {
         let transactions = StarknetTransactions::default();
         let mut state = CachedState::new(DictStateReader::get_default());
 
-        let predeployed_accounts =
-            PredeployedAccounts::generate(Some(config.total_accounts), None, None);
+        let predeployed_accounts = PredeployedAccounts::generate(
+            config.total_accounts,
+            [0u8; 32],
+            stark_felt!(DEFAULT_PREFUNDED_ACCOUNT_BALANCE),
+            config
+                .account_path
+                .clone()
+                .unwrap_or(PredeployedAccounts::default_account_class_path()),
+        )
+        .expect("should be able to generate accounts");
         predeployed_accounts.deploy_accounts(&mut state.state);
 
         Self {
