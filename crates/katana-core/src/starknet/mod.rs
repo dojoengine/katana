@@ -4,7 +4,10 @@ use anyhow::Result;
 use blockifier::{
     block_context::BlockContext,
     execution::entry_point::{CallEntryPoint, CallInfo, ExecutionContext, ExecutionResources},
-    state::cached_state::{CachedState, MutRefState},
+    state::{
+        cached_state::{CachedState, MutRefState},
+        state_api::State,
+    },
     transaction::{
         objects::AccountTransactionContext, transaction_execution::Transaction,
         transactions::ExecutableTransaction,
@@ -17,6 +20,7 @@ use starknet_api::{
     hash::StarkFelt,
     stark_felt,
 };
+use tracing::{debug, info};
 
 pub mod block;
 pub mod transaction;
@@ -85,6 +89,8 @@ impl StarknetWrapper {
             }
         };
 
+        println!("{:#?}", self.state.to_state_diff());
+
         match res {
             Ok(exec_info) => {
                 let starknet_tx = StarknetTransaction::new(
@@ -148,6 +154,7 @@ impl StarknetWrapper {
         self.blocks.pending_block = None;
         self.blocks.append_block(latest_block.clone());
         self.update_block_context();
+        self.update_latest_state();
 
         latest_block
     }
@@ -233,5 +240,55 @@ impl StarknetWrapper {
         self.blocks.current_height = next_block_number;
         self.block_context.block_number = next_block_number;
         self.block_context.block_timestamp = BlockTimestamp(timestamp);
+    }
+
+    fn update_latest_state(&mut self) {
+        let state_diff = self.state.to_state_diff();
+
+        println!("");
+
+        let state = &mut self.state.state;
+
+        // update contract storages
+
+        println!("applying state updaet");
+        state_diff
+            .storage_diffs
+            .into_iter()
+            .for_each(|(contract_address, storages)| {
+                println!("contract {} ", contract_address.0.key());
+                storages.into_iter().for_each(|(key, value)| {
+                    println!("key {} ", value);
+                    state.storage_view.insert((contract_address, key), value);
+                })
+            });
+
+        // update declared contracts
+
+        // for (class_hash, (_, contract_class)) in state_diff.declared_classes {
+        //     state.class_hash_to_class.insert(class_hash, contract_class);
+        // }
+
+        // update deployed contracts
+
+        state_diff
+            .deployed_contracts
+            .into_iter()
+            .for_each(|(contract_address, class_hash)| {
+                state
+                    .address_to_class_hash
+                    .insert(contract_address, class_hash);
+            });
+
+        // update accounst nonce
+
+        state_diff
+            .nonces
+            .into_iter()
+            .for_each(|(contract_address, nonce)| {
+                state.address_to_nonce.insert(contract_address, nonce);
+            });
+
+        info!("Updated latest state");
     }
 }
