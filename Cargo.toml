@@ -21,12 +21,12 @@ log = "0.4.17"
 serde = "1.0.156"
 thiserror = "1.0.32"
 tokio = { version = "1.16", features = ["full"] }
-starknet = { git = "https://github.com/xJonathanLEI/starknet-rs", rev = "5d3f9d7cc6df0d01a299f0fb0ebc00ec2f28b983" }
+starknet = { git = "https://github.com/xJonathanLEI/starknet-rs", rev = "91425ad" }
 starknet_api = { git = "https://github.com/starkware-libs/starknet-api" }
-cairo-lang-starknet = { git = "https://github.com/starkware-libs/cairo", rev = "b16a151" }
+cairo-lang-starknet = { git = "https://github.com/starkware-libs/cairo", version = "1.0.0-rc0" }
 
 [patch."https://github.com/starkware-libs/blockifier"]
-blockifier = { git = "https://github.com/dojoengine/blockifier", rev = "0b2e2f0800d68372888496ea0db989555681f2e8" }
+blockifier = { git = "https://github.com/dojoengine/blockifier", rev = "535725a5db32103654c54c12c2b8cb2c1d06ad55" }
 
 [patch."https://github.com/starkware-libs/starknet-api"]
-starknet_api = { git = "https://github.com/dojoengine/starknet-api", rev = "07432d6acd1afc83d341a01ffd49c55ef06146cd" }
+starknet_api = { git = "https://github.com/dojoengine/starknet-api", rev = "bc9dc6c24fdcef25771e9547885064116b7b7643" }
