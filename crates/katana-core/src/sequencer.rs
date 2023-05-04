@@ -79,8 +79,10 @@ impl KatanaSequencer {
             signature,
         )
     }
+}
 
-    pub fn deploy_account(
+impl Sequencer for KatanaSequencer {
+    fn deploy_account(
         &self,
         class_hash: ClassHash,
         version: TransactionVersion,
@@ -130,7 +132,7 @@ impl KatanaSequencer {
         Ok((tx_hash, contract_address))
     }
 
-    pub fn add_invoke_transaction(&self, transaction: InvokeTransactionV1) {
+    fn add_invoke_transaction(&self, transaction: InvokeTransactionV1) {
         self.starknet
             .write()
             .unwrap()
@@ -139,7 +141,7 @@ impl KatanaSequencer {
             )));
     }
 
-    pub fn class_hash_at(
+    fn class_hash_at(
         &self,
         _block_id: BlockId,
         contract_address: ContractAddress,
@@ -151,7 +153,7 @@ impl KatanaSequencer {
             .get_class_hash_at(contract_address)
     }
 
-    pub fn get_storage_at(
+    fn get_storage_at(
         &self,
         contract_address: ContractAddress,
         storage_key: StorageKey,
@@ -163,15 +165,15 @@ impl KatanaSequencer {
             .get_storage_at(contract_address, storage_key)
     }
 
-    pub fn chain_id(&self) -> ChainId {
+    fn chain_id(&self) -> ChainId {
         self.starknet.read().unwrap().block_context.chain_id.clone()
     }
 
-    pub fn block_number(&self) -> BlockNumber {
+    fn block_number(&self) -> BlockNumber {
         self.starknet.read().unwrap().block_context.block_number
     }
 
-    pub fn get_nonce_at(
+    fn get_nonce_at(
         &self,
         _block_id: BlockId,
         contract_address: ContractAddress,
@@ -183,7 +185,7 @@ impl KatanaSequencer {
             .get_nonce_at(contract_address)
     }
 
-    pub fn call(
+    fn call(
         &self,
         _block_id: BlockId,
         function_call: ExternalFunctionCall,
@@ -191,4 +193,51 @@ impl KatanaSequencer {
         let execution_info = self.starknet.read().unwrap().call(function_call)?;
         Ok(execution_info.execution.retdata.0)
     }
+
+    fn transaction(
+        &self,
+        hash: &TransactionHash,
+    ) -> Option<starknet_api::transaction::Transaction> {
+        self.starknet
+            .read()
+            .unwrap()
+            .transactions
+            .get_transaction(hash)
+    }
+}
+
+pub trait Sequencer {
+    fn chain_id(&self) -> ChainId;
+    fn get_nonce_at(
+        &self,
+        block_id: BlockId,
+        contract_address: ContractAddress,
+    ) -> Result<Nonce, blockifier::state::errors::StateError>;
+    fn block_number(&self) -> BlockNumber;
+    fn transaction(&self, hash: &TransactionHash)
+        -> Option<starknet_api::transaction::Transaction>;
+    fn class_hash_at(
+        &self,
+        block_id: BlockId,
+        contract_address: ContractAddress,
+    ) -> Result<ClassHash, blockifier::state::errors::StateError>;
+    fn call(
+        &self,
+        _block_id: BlockId,
+        function_call: ExternalFunctionCall,
+    ) -> Result<Vec<StarkFelt>>;
+    fn get_storage_at(
+        &self,
+        contract_address: ContractAddress,
+        storage_key: StorageKey,
+    ) -> Result<StarkFelt, blockifier::state::errors::StateError>;
+    fn deploy_account(
+        &self,
+        class_hash: ClassHash,
+        version: TransactionVersion,
+        contract_address_salt: ContractAddressSalt,
+        constructor_calldata: Calldata,
+        signature: TransactionSignature,
+    ) -> anyhow::Result<(TransactionHash, ContractAddress)>;
+    fn add_invoke_transaction(&self, transaction: InvokeTransactionV1);
 }

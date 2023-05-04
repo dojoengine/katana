@@ -1,4 +1,4 @@
-use std::{path::PathBuf, process::exit, sync::Arc};
+use std::{path::PathBuf, process::exit};
 
 use clap::Parser;
 use env_logger::Env;
@@ -15,7 +15,7 @@ async fn main() {
     let rpc_config = config.get_rpc_config();
     let starknet_config = config.get_starknet_config();
 
-    let sequencer = Arc::new(KatanaSequencer::new(starknet_config));
+    let sequencer = KatanaSequencer::new(starknet_config);
     sequencer.start();
 
     let predeployed_accounts = sequencer

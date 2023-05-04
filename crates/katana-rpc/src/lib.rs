@@ -4,7 +4,7 @@ use jsonrpsee::{
     server::{ServerBuilder, ServerHandle},
     types::error::CallError,
 };
-use katana_core::{sequencer::KatanaSequencer, starknet::transaction::ExternalFunctionCall};
+use katana_core::{sequencer::Sequencer, starknet::transaction::ExternalFunctionCall};
 use starknet::core::types::FieldElement;
 use starknet::providers::jsonrpc::models::{
     BlockHashAndNumber, BlockId, BroadcastedDeclareTransaction,
@@ -36,14 +36,17 @@ pub mod util;
 
 use api::{KatanaApiError, KatanaApiServer, KatanaRpcLogger};
 
-pub struct KatanaRpc {
+pub struct KatanaRpc<S: Sequencer + Send + Sync + 'static> {
     pub config: RpcConfig,
-    pub sequencer: Arc<KatanaSequencer>,
+    pub sequencer: Arc<S>,
 }
 
-impl KatanaRpc {
-    pub fn new(sequencer: Arc<KatanaSequencer>, config: RpcConfig) -> Self {
-        Self { config, sequencer }
+impl<S: Sequencer + Send + Sync + 'static> KatanaRpc<S> {
+    pub fn new(sequencer: S, config: RpcConfig) -> Self {
+        Self {
+            config,
+            sequencer: Arc::new(sequencer),
+        }
     }
 
     pub async fn run(self) -> Result<(SocketAddr, ServerHandle), Error> {
@@ -62,7 +65,7 @@ impl KatanaRpc {
 
 #[allow(unused)]
 #[async_trait]
-impl KatanaApiServer for KatanaRpc {
+impl<S: Sequencer + Send + Sync + 'static> KatanaApiServer for KatanaRpc<S> {
     async fn chain_id(&self) -> Result<String, Error> {
         Ok(self.sequencer.chain_id().as_hex())
     }
@@ -89,10 +92,9 @@ impl KatanaApiServer for KatanaRpc {
         &self,
         transaction_hash: FieldElement,
     ) -> Result<Transaction, Error> {
-        let starknet = self.sequencer.starknet.read().unwrap();
-        let tx = starknet
-            .transactions
-            .get_transaction(&TransactionHash(StarkFelt::from(transaction_hash)))
+        let tx = self
+            .sequencer
+            .transaction(&TransactionHash(StarkFelt::from(transaction_hash)))
             .ok_or(Error::from(KatanaApiError::TxnHashNotFound))?;
 
         convert_inner_to_rpc_tx(tx).map_err(|_| Error::from(KatanaApiError::InternalServerError))
