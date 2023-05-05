@@ -1,8 +1,9 @@
-use std::sync::{Arc, RwLock};
-
 use anyhow::Result;
 
-use crate::starknet::{transaction::ExternalFunctionCall, StarknetConfig, StarknetWrapper};
+use crate::{
+    starknet::{transaction::ExternalFunctionCall, StarknetConfig, StarknetWrapper},
+    util::starkfelt_to_u128,
+};
 
 use blockifier::{
     abi::abi_utils::get_storage_var_address,
@@ -20,30 +21,30 @@ use starknet_api::{
     stark_felt,
     state::StorageKey,
     transaction::{
-        Calldata, ContractAddressSalt, DeployAccountTransaction, Fee, InvokeTransactionV1,
-        TransactionHash, TransactionSignature, TransactionVersion,
+        Calldata, ContractAddressSalt, DeployAccountTransaction, Fee, InvokeTransaction,
+        InvokeTransactionV1, TransactionHash, TransactionSignature, TransactionVersion,
     },
 };
 
 pub struct KatanaSequencer {
-    pub starknet: Arc<RwLock<StarknetWrapper>>,
+    pub starknet: StarknetWrapper,
 }
 
 impl KatanaSequencer {
     pub fn new(config: StarknetConfig) -> Self {
         Self {
-            starknet: Arc::new(RwLock::new(StarknetWrapper::new(config))),
+            starknet: StarknetWrapper::new(config),
         }
     }
 
     // The starting point of the sequencer
     // Once we add support periodic block generation, the logic should be here.
-    pub fn start(&self) {
-        self.starknet.write().unwrap().generate_pending_block();
+    pub fn start(&mut self) {
+        self.starknet.generate_pending_block();
     }
 
     pub fn drip_and_deploy_account(
-        &self,
+        &mut self,
         class_hash: ClassHash,
         version: TransactionVersion,
         contract_address_salt: ContractAddressSalt,
@@ -61,12 +62,8 @@ impl KatanaSequencer {
 
         let deployed_account_balance_key =
             get_storage_var_address("ERC20_balances", &[*contract_address.0.key()]).unwrap();
-        self.starknet.write().unwrap().state.set_storage_at(
-            self.starknet
-                .read()
-                .unwrap()
-                .block_context
-                .fee_token_address,
+        self.starknet.state.set_storage_at(
+            self.starknet.block_context.fee_token_address,
             deployed_account_balance_key,
             stark_felt!(balance),
         );
@@ -83,7 +80,7 @@ impl KatanaSequencer {
 
 impl Sequencer for KatanaSequencer {
     fn deploy_account(
-        &self,
+        &mut self,
         class_hash: ClassHash,
         version: TransactionVersion,
         contract_address_salt: ContractAddressSalt,
@@ -101,19 +98,15 @@ impl Sequencer for KatanaSequencer {
         let account_balance_key =
             get_storage_var_address("ERC20_balances", &[*contract_address.0.key()]).unwrap();
         let max_fee = {
-            self.starknet.write().unwrap().state.get_storage_at(
-                self.starknet
-                    .read()
-                    .unwrap()
-                    .block_context
-                    .fee_token_address,
+            self.starknet.state.get_storage_at(
+                self.starknet.block_context.fee_token_address,
                 account_balance_key,
             )?
         };
         // TODO: Compute txn hash
         let tx_hash = TransactionHash::default();
         let tx = AccountTransaction::DeployAccount(DeployAccountTransaction {
-            max_fee: Fee(max_fee.try_into().unwrap()),
+            max_fee: Fee(starkfelt_to_u128(max_fee)?),
             version,
             class_hash,
             contract_address,
@@ -124,65 +117,50 @@ impl Sequencer for KatanaSequencer {
             transaction_hash: tx_hash,
         });
 
-        tx.execute(
-            &mut self.starknet.write().unwrap().state,
-            &self.starknet.read().unwrap().block_context,
-        )?;
+        tx.execute(&mut self.starknet.state, &self.starknet.block_context)?;
 
         Ok((tx_hash, contract_address))
     }
 
-    fn add_invoke_transaction(&self, transaction: InvokeTransactionV1) {
+    pub fn add_invoke_transaction(&mut self, transaction: InvokeTransactionV1) {
         self.starknet
-            .write()
-            .unwrap()
             .handle_transaction(Transaction::AccountTransaction(AccountTransaction::Invoke(
-                transaction,
+                InvokeTransaction::V1(transaction),
             )));
     }
 
-    fn class_hash_at(
-        &self,
+    pub fn class_hash_at(
+        &mut self,
         _block_id: BlockId,
         contract_address: ContractAddress,
     ) -> Result<ClassHash, blockifier::state::errors::StateError> {
-        self.starknet
-            .write()
-            .unwrap()
-            .state
-            .get_class_hash_at(contract_address)
+        self.starknet.state.get_class_hash_at(contract_address)
     }
 
-    fn get_storage_at(
-        &self,
+    pub fn get_storage_at(
+        &mut self,
         contract_address: ContractAddress,
         storage_key: StorageKey,
     ) -> Result<StarkFelt, blockifier::state::errors::StateError> {
         self.starknet
-            .write()
-            .unwrap()
             .state
             .get_storage_at(contract_address, storage_key)
     }
 
-    fn chain_id(&self) -> ChainId {
-        self.starknet.read().unwrap().block_context.chain_id.clone()
+    pub fn chain_id(&self) -> ChainId {
+        self.starknet.block_context.chain_id.clone()
     }
 
-    fn block_number(&self) -> BlockNumber {
-        self.starknet.read().unwrap().block_context.block_number
+    pub fn block_number(&self) -> BlockNumber {
+        self.starknet.block_context.block_number
     }
 
-    fn get_nonce_at(
-        &self,
+    pub fn get_nonce_at(
+        &mut self,
         _block_id: BlockId,
         contract_address: ContractAddress,
     ) -> Result<Nonce, blockifier::state::errors::StateError> {
-        self.starknet
-            .write()
-            .unwrap()
-            .state
-            .get_nonce_at(contract_address)
+        self.starknet.state.get_nonce_at(contract_address)
     }
 
     fn call(
@@ -190,7 +168,7 @@ impl Sequencer for KatanaSequencer {
         _block_id: BlockId,
         function_call: ExternalFunctionCall,
     ) -> Result<Vec<StarkFelt>> {
-        let execution_info = self.starknet.read().unwrap().call(function_call)?;
+        let execution_info = self.starknet.call(function_call)?;
         Ok(execution_info.execution.retdata.0)
     }
 
