@@ -5,7 +5,7 @@ use jsonrpsee::{
     types::error::CallError,
 };
 use katana_core::{
-    sequencer::KatanaSequencer,
+    sequencer::Sequencer,
     starknet::transaction::ExternalFunctionCall,
     util::{field_element_to_starkfelt, starkfelt_to_u128},
 };
@@ -41,12 +41,15 @@ pub mod util;
 
 use api::{KatanaApiError, KatanaApiServer, KatanaRpcLogger};
 
-pub struct KatanaRpc<S: Sequencer + Send + Sync + 'static> {
+pub struct KatanaRpc<S> {
     pub config: RpcConfig,
     pub sequencer: Arc<RwLock<S>>,
 }
 
-impl KatanaRpc {
+impl<S> KatanaRpc<S>
+where
+    S: Sequencer + Send + Sync + 'static,
+{
     pub fn new(sequencer: Arc<RwLock<S>>, config: RpcConfig) -> Self {
         Self { config, sequencer }
     }
@@ -103,9 +106,7 @@ impl<S: Sequencer + Send + Sync + 'static> KatanaApiServer for KatanaRpc<S> {
             .sequencer
             .write()
             .await
-            .starknet
-            .transactions
-            .get_transaction(&TransactionHash(field_element_to_starkfelt(
+            .transaction(&TransactionHash(field_element_to_starkfelt(
                 &transaction_hash,
             )))
             .ok_or(Error::from(KatanaApiError::TxnHashNotFound))?;
