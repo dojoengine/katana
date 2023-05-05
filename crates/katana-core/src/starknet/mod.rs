@@ -46,6 +46,7 @@ pub struct StarknetWrapper {
     pub block_context: BlockContext,
     pub transactions: StarknetTransactions,
     pub state: CachedState<DictStateReader>,
+
     pub predeployed_accounts: PredeployedAccounts,
 }
 
@@ -162,6 +163,7 @@ impl StarknetWrapper {
         // reset the pending block
         self.blocks.pending_block = None;
         self.blocks.append_block(latest_block.clone());
+
         self.update_block_context();
         self.update_latest_state();
 
@@ -172,7 +174,6 @@ impl StarknetWrapper {
         self.blocks.pending_block = Some(self.create_empty_block());
     }
 
-    // TODO: perform call based on specific block state
     pub fn call(&self, call: ExternalFunctionCall) -> Result<CallInfo> {
         let mut state = CachedState::new(self.state.state.clone());
         let mut state = CachedState::new(MutRefState::new(&mut state));
@@ -195,9 +196,12 @@ impl StarknetWrapper {
     }
 
     // Returns the StarknetState of the underlying Starknet instance.
-    #[allow(unused)]
-    fn get_state(&self) -> &DictStateReader {
-        unimplemented!("StarknetWrapper::get_state")
+    fn get_state(&self, block_number: Option<BlockNumber>) -> Option<&DictStateReader> {
+        if let Some(block_num) = block_number {
+            self.blocks.get_state(&block_num)
+        } else {
+            Some(&self.state.state)
+        }
     }
 
     fn create_empty_block(&self) -> StarknetBlock {
@@ -298,5 +302,9 @@ impl StarknetWrapper {
             .for_each(|(contract_address, nonce)| {
                 state.address_to_nonce.insert(contract_address, nonce);
             });
+
+        // Store the block state
+        self.blocks
+            .store_state(self.block_context.block_number, state.clone());
     }
 }
