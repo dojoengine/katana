@@ -1,23 +1,16 @@
-use std::sync::Arc;
-
 use blockifier::abi::abi_utils::selector_from_name;
-use blockifier::state::state_api::State;
 use blockifier::transaction::{
     account_transaction::AccountTransaction, transaction_execution::Transaction,
 };
-use katana_core::constants::{
-    DEFAULT_PREFUNDED_ACCOUNT_BALANCE, FEE_ERC20_CONTRACT_ADDRESS, TEST_ACCOUNT_CONTRACT_PATH,
-};
-use katana_core::starknet::{transaction::ExternalFunctionCall, StarknetConfig, StarknetWrapper};
-use starknet::core::{types::TransactionStatus, utils::get_selector_from_name};
+use katana_core::constants::{FEE_ERC20_CONTRACT_ADDRESS, TEST_ACCOUNT_CONTRACT_PATH};
+use katana_core::starknet::{StarknetConfig, StarknetWrapper};
+use starknet::core::types::TransactionStatus;
 use starknet_api::calldata;
 use starknet_api::transaction::InvokeTransaction;
 use starknet_api::{
     block::BlockNumber,
-    core::ContractAddress,
-    core::{EntryPointSelector, PatriciaKey},
-    hash::{StarkFelt, StarkHash},
-    patricia_key, stark_felt,
+    hash::StarkFelt,
+    stark_felt,
     transaction::{Calldata, InvokeTransactionV1, TransactionHash},
 };
 
