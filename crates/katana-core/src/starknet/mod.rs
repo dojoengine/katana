@@ -20,7 +20,7 @@ use starknet_api::{
     hash::StarkFelt,
     stark_felt,
 };
-use tracing::{debug, info};
+use tracing::info;
 
 pub mod block;
 pub mod transaction;
@@ -82,6 +82,8 @@ impl StarknetWrapper {
     pub fn handle_transaction(&mut self, transaction: Transaction) {
         let api_tx = convert_blockifier_tx_to_starknet_api_tx(&transaction);
 
+        info!("Transaction received | Hash: {}", api_tx.transaction_hash());
+
         let res = match transaction {
             Transaction::AccountTransaction(tx) => tx.execute(&mut self.state, &self.block_context),
             Transaction::L1HandlerTransaction(tx) => {
@@ -89,16 +91,12 @@ impl StarknetWrapper {
             }
         };
 
-        println!("{:#?}", self.state.to_state_diff());
+        let mut tx =
+            StarknetTransaction::new(api_tx.clone(), TransactionStatus::Pending, None, None);
 
         match res {
             Ok(exec_info) => {
-                let starknet_tx = StarknetTransaction::new(
-                    api_tx.clone(),
-                    TransactionStatus::Pending,
-                    Some(exec_info),
-                    None,
-                );
+                tx.execution_info = Some(exec_info);
 
                 //  append successful tx to pending block
                 self.blocks
@@ -107,23 +105,17 @@ impl StarknetWrapper {
                     .expect("no pending block")
                     .insert_transaction(api_tx);
 
-                self.store_transaction(starknet_tx);
                 self.generate_latest_block();
-
                 self.generate_pending_block();
             }
 
             Err(exec_err) => {
-                let tx = StarknetTransaction::new(
-                    api_tx,
-                    TransactionStatus::Rejected,
-                    None,
-                    Some(exec_err),
-                );
-
-                self.store_transaction(tx);
+                tx.status = TransactionStatus::Rejected;
+                tx.execution_error = Some(exec_err);
             }
         }
+
+        self.store_transaction(tx);
     }
 
     // Creates a new block that contains all the pending txs
@@ -149,6 +141,12 @@ impl StarknetWrapper {
                 tx.block_number = Some(latest_block.block_number());
             }
         }
+
+        info!(
+            "Generated block number {} | Hash: {}",
+            latest_block.block_number(),
+            latest_block.block_hash()
+        );
 
         // reset the pending block
         self.blocks.pending_block = None;
@@ -244,30 +242,31 @@ impl StarknetWrapper {
 
     fn update_latest_state(&mut self) {
         let state_diff = self.state.to_state_diff();
-
-        println!("");
-
         let state = &mut self.state.state;
 
         // update contract storages
 
-        println!("applying state updaet");
         state_diff
             .storage_diffs
             .into_iter()
             .for_each(|(contract_address, storages)| {
-                println!("contract {} ", contract_address.0.key());
                 storages.into_iter().for_each(|(key, value)| {
-                    println!("key {} ", value);
                     state.storage_view.insert((contract_address, key), value);
                 })
             });
 
         // update declared contracts
 
-        // for (class_hash, (_, contract_class)) in state_diff.declared_classes {
-        //     state.class_hash_to_class.insert(class_hash, contract_class);
-        // }
+        state_diff.declared_classes.into_iter().for_each(
+            |(class_hash, (compiled_class_hash, _contract_class))| {
+                // TODO: convert `ContractClass` to `ContractClass`
+                // state.class_hash_to_class.insert(class_hash, _contract_class);
+
+                state
+                    .class_hash_to_compiled_class_hash
+                    .insert(class_hash, compiled_class_hash);
+            },
+        );
 
         // update deployed contracts
 
@@ -280,7 +279,7 @@ impl StarknetWrapper {
                     .insert(contract_address, class_hash);
             });
 
-        // update accounst nonce
+        // update accounts nonce
 
         state_diff
             .nonces
@@ -288,7 +287,5 @@ impl StarknetWrapper {
             .for_each(|(contract_address, nonce)| {
                 state.address_to_nonce.insert(contract_address, nonce);
             });
-
-        info!("Updated latest state");
     }
 }
