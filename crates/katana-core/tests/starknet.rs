@@ -1,5 +1,4 @@
 use blockifier::abi::abi_utils::{get_storage_var_address, selector_from_name};
-use blockifier::state::state_api::State;
 use blockifier::transaction::{
     account_transaction::AccountTransaction, transaction_execution::Transaction,
 };
@@ -125,11 +124,6 @@ fn test_add_transaction() {
             .unwrap()
             .0
             .key()
-    );
-
-    println!(
-        "State diff {:#?}",
-        starknet.state.to_state_diff().storage_diffs
     );
 
     // println!(

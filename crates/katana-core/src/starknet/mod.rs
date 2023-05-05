@@ -82,7 +82,10 @@ impl StarknetWrapper {
     pub fn handle_transaction(&mut self, transaction: Transaction) {
         let api_tx = convert_blockifier_tx_to_starknet_api_tx(&transaction);
 
-        info!("Transaction received | Hash: {}", api_tx.transaction_hash());
+        info!(
+            "Transaction received | Transaction hash: {}",
+            api_tx.transaction_hash()
+        );
 
         let res = match transaction {
             Transaction::AccountTransaction(tx) => tx.execute(&mut self.state, &self.block_context),
@@ -91,12 +94,14 @@ impl StarknetWrapper {
             }
         };
 
-        let mut tx =
-            StarknetTransaction::new(api_tx.clone(), TransactionStatus::Pending, None, None);
-
         match res {
             Ok(exec_info) => {
-                tx.execution_info = Some(exec_info);
+                let starknet_tx = StarknetTransaction::new(
+                    api_tx.clone(),
+                    TransactionStatus::Pending,
+                    Some(exec_info),
+                    None,
+                );
 
                 //  append successful tx to pending block
                 self.blocks
@@ -105,17 +110,23 @@ impl StarknetWrapper {
                     .expect("no pending block")
                     .insert_transaction(api_tx);
 
+                self.store_transaction(starknet_tx);
                 self.generate_latest_block();
+
                 self.generate_pending_block();
             }
 
             Err(exec_err) => {
-                tx.status = TransactionStatus::Rejected;
-                tx.execution_error = Some(exec_err);
+                let tx = StarknetTransaction::new(
+                    api_tx,
+                    TransactionStatus::Rejected,
+                    None,
+                    Some(exec_err),
+                );
+
+                self.store_transaction(tx);
             }
         }
-
-        self.store_transaction(tx);
     }
 
     // Creates a new block that contains all the pending txs
@@ -143,9 +154,9 @@ impl StarknetWrapper {
         }
 
         info!(
-            "Generated block number {} | Hash: {}",
-            latest_block.block_number(),
-            latest_block.block_hash()
+            "New block generated | Block hash: {} | Block number: {}",
+            latest_block.block_hash(),
+            latest_block.block_number()
         );
 
         // reset the pending block
