@@ -2271,6 +2271,7 @@ dependencies = [
  "starknet",
  "starknet_api",
  "thiserror",
+ "tokio",
  "tracing",
 ]
 
