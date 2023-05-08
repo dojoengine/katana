@@ -9,8 +9,10 @@ use blockifier::{
         state_api::State,
     },
     transaction::{
-        objects::AccountTransactionContext, transaction_execution::Transaction,
-        transactions::ExecutableTransaction,
+        account_transaction::AccountTransaction,
+        objects::AccountTransactionContext,
+        transaction_execution::Transaction,
+        transactions::{DeclareTransaction, ExecutableTransaction},
     },
 };
 use starknet::core::types::TransactionStatus;
@@ -37,6 +39,7 @@ use self::transaction::ExternalFunctionCall;
 
 pub struct StarknetConfig {
     pub total_accounts: u8,
+    pub allow_zero_max_fee: bool,
     pub account_path: Option<PathBuf>,
 }
 
@@ -88,7 +91,10 @@ impl StarknetWrapper {
         );
 
         let res = match transaction {
-            Transaction::AccountTransaction(tx) => tx.execute(&mut self.state, &self.block_context),
+            Transaction::AccountTransaction(tx) => {
+                self.check_tx_fee(&tx);
+                tx.execute(&mut self.state, &self.block_context)
+            }
             Transaction::L1HandlerTransaction(tx) => {
                 tx.execute(&mut self.state, &self.block_context)
             }
@@ -198,6 +204,22 @@ impl StarknetWrapper {
     #[allow(unused)]
     fn get_state(&self) -> &DictStateReader {
         unimplemented!("StarknetWrapper::get_state")
+    }
+
+    fn check_tx_fee(&self, transaction: &AccountTransaction) {
+        let max_fee = match transaction {
+            AccountTransaction::Invoke(tx) => tx.max_fee(),
+            AccountTransaction::DeployAccount(tx) => tx.max_fee,
+            AccountTransaction::Declare(DeclareTransaction { tx, .. }) => match tx {
+                starknet_api::transaction::DeclareTransaction::V0(tx) => tx.max_fee,
+                starknet_api::transaction::DeclareTransaction::V1(tx) => tx.max_fee,
+                starknet_api::transaction::DeclareTransaction::V2(tx) => tx.max_fee,
+            },
+        };
+
+        if !self.config.allow_zero_max_fee && max_fee.0 == 0 {
+            panic!("max fee == 0 is not supported")
+        }
     }
 
     fn create_empty_block(&self) -> StarknetBlock {

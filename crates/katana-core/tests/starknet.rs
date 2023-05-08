@@ -21,6 +21,7 @@ fn create_test_starknet() -> StarknetWrapper {
 
     StarknetWrapper::new(StarknetConfig {
         total_accounts: 2,
+        allow_zero_max_fee: true,
         account_path: Some(test_account_path),
     })
 }

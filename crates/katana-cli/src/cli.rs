@@ -53,6 +53,10 @@ struct Cli {
     port: u16,
 
     #[arg(long)]
+    #[arg(help = "Allow transaction max fee to be zero")]
+    allow_max_fee_zero: bool,
+
+    #[arg(long)]
     #[arg(default_value = "10")]
     #[arg(help = "Number of pre-funded accounts to generate.")]
     accounts: u8,
@@ -70,6 +74,7 @@ impl Cli {
         StarknetConfig {
             total_accounts: self.accounts,
             account_path: self.account_path.clone(),
+            allow_zero_max_fee: self.allow_max_fee_zero,
         }
     }
 }
