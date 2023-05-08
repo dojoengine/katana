@@ -2292,6 +2292,7 @@ dependencies = [
  "starknet_api",
  "thiserror",
  "tokio",
+ "url",
 ]
 
 [[package]]
