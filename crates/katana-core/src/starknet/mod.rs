@@ -33,8 +33,8 @@ use crate::{
     constants::DEFAULT_PREFUNDED_ACCOUNT_BALANCE,
     state::DictStateReader,
     util::{
+        blockifier_contract_class_from_flattened_sierra_class,
         convert_blockifier_tx_to_starknet_api_tx,
-        get_blockifier_contract_class_from_flattened_sierra_class,
     },
 };
 use block::{StarknetBlock, StarknetBlocks};
@@ -62,7 +62,7 @@ impl StarknetWrapper {
         let blocks = StarknetBlocks::default();
         let block_context = BlockContext::base();
         let transactions = StarknetTransactions::default();
-        let mut state = CachedState::new(DictStateReader::get_default());
+        let mut state = CachedState::new(DictStateReader::default());
 
         let predeployed_accounts = PredeployedAccounts::generate(
             config.total_accounts,
@@ -207,8 +207,8 @@ impl StarknetWrapper {
 
     // Returns the StarknetState of the underlying Starknet instance.
     #[allow(unused)]
-    fn get_state(&self) -> &DictStateReader {
-        unimplemented!("StarknetWrapper::get_state")
+    fn state(&self) -> &DictStateReader {
+        unimplemented!("StarknetWrapper::state")
     }
 
     fn check_tx_fee(&self, transaction: &AccountTransaction) {
@@ -238,7 +238,7 @@ impl StarknetWrapper {
             BlockHash(stark_felt!(0))
         } else {
             self.blocks
-                .get_lastest()
+                .lastest()
                 .map(|last_block| last_block.block_hash())
                 .unwrap()
         };
@@ -299,7 +299,7 @@ impl StarknetWrapper {
             |(class_hash, (compiled_class_hash, contract_class))| {
                 let raw_contract_class = serde_json::to_string(&contract_class).unwrap();
                 let contract_class =
-                    get_blockifier_contract_class_from_flattened_sierra_class(&raw_contract_class)
+                    blockifier_contract_class_from_flattened_sierra_class(&raw_contract_class)
                         .expect("get_blockifier_contract_class_from_flattened_sierra_class");
 
                 state.class_hash_to_class.insert(class_hash, contract_class);
