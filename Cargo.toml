@@ -2,11 +2,7 @@
 
 resolver = "2"
 
-members = [
-    "crates/katana-cli",
-    "crates/katana-core",
-    "crates/katana-rpc"
-]
+members = ["crates/katana-cli", "crates/katana-core", "crates/katana-rpc"]
 
 [workspace.package]
 version = "0.1.0"
