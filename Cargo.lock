@@ -360,7 +360,7 @@ checksum = "8d696c370c750c948ada61c69a0ee2cbbb9c50b1019ddb86d9317157a99c2cae"
 [[package]]
 name = "blockifier"
 version = "0.1.0"
-source = "git+https://github.com/dojoengine/blockifier?rev=535725a5db32103654c54c12c2b8cb2c1d06ad55#535725a5db32103654c54c12c2b8cb2c1d06ad55"
+source = "git+https://github.com/dojoengine/blockifier?branch=declare-v2#7b029c9ec5b0574802215adbaa83331150c6908f"
 dependencies = [
  "cairo-lang-starknet",
  "cairo-vm",
@@ -2264,6 +2264,7 @@ version = "0.1.0"
 dependencies = [
  "anyhow",
  "blockifier",
+ "cairo-lang-starknet",
  "futures",
  "rand",
  "serde",
