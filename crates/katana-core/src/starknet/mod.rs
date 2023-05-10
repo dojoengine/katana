@@ -43,6 +43,7 @@ use transaction::{StarknetTransaction, StarknetTransactions};
 use self::transaction::ExternalFunctionCall;
 
 pub struct StarknetConfig {
+    pub seed: [u8; 32],
     pub total_accounts: u8,
     pub allow_zero_max_fee: bool,
     pub account_path: Option<PathBuf>,
@@ -66,7 +67,7 @@ impl StarknetWrapper {
 
         let predeployed_accounts = PredeployedAccounts::generate(
             config.total_accounts,
-            [0u8; 32],
+            config.seed,
             stark_felt!(DEFAULT_PREFUNDED_ACCOUNT_BALANCE),
             config
                 .account_path

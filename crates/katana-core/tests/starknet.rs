@@ -20,6 +20,7 @@ fn create_test_starknet() -> StarknetWrapper {
         .collect();
 
     StarknetWrapper::new(StarknetConfig {
+        seed: [0u8; 32],
         total_accounts: 2,
         allow_zero_max_fee: true,
         account_path: Some(test_account_path),
