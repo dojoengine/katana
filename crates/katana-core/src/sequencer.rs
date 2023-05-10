@@ -2,7 +2,9 @@ use anyhow::Result;
 use starknet::providers::jsonrpc::models::{BlockId, BlockTag};
 
 use crate::{
-    starknet::{transaction::ExternalFunctionCall, StarknetConfig, StarknetWrapper},
+    starknet::{
+        block::StarknetBlock, transaction::ExternalFunctionCall, StarknetConfig, StarknetWrapper,
+    },
     util::{field_element_to_starkfelt, starkfelt_to_u128},
 };
 
@@ -123,9 +125,10 @@ impl Sequencer for KatanaSequencer {
         Ok((tx_hash, contract_address))
     }
 
-    fn add_account_transaction(&mut self, transaction: AccountTransaction) {
+    fn add_account_transaction(&mut self, transaction: AccountTransaction) -> Result<()> {
         self.starknet
-            .handle_transaction(Transaction::AccountTransaction(transaction));
+            .handle_transaction(Transaction::AccountTransaction(transaction))
+            .map_err(|e| e.into())
     }
 
     fn class_hash_at(
@@ -154,31 +157,27 @@ impl Sequencer for KatanaSequencer {
         self.starknet.block_context.block_number
     }
 
-    fn block(&self, block_id: BlockId) -> Result<Block, blockifier::state::errors::StateError> {
-        let block_number = match block_id {
-            BlockId::Number(number) => BlockNumber(number),
-            BlockId::Hash(hash) => *self
+    fn block(&self, block_id: BlockId) -> Option<StarknetBlock> {
+        match block_id {
+            BlockId::Number(number) => self
+                .starknet
+                .blocks
+                .num_to_block
+                .get(&BlockNumber(number))
+                .cloned(),
+
+            BlockId::Hash(hash) => self
                 .starknet
                 .blocks
                 .hash_to_num
                 .get(&BlockHash(field_element_to_starkfelt(&hash)))
-                .ok_or(blockifier::state::errors::StateError::StateReadError(
-                    "block not found".to_string(),
-                ))?,
-            BlockId::Tag(tag) => {
-                let current_height = self.starknet.blocks.current_height;
-                match tag {
-                    BlockTag::Latest => current_height.prev().unwrap(),
-                    BlockTag::Pending => current_height,
-                }
-            }
-        };
+                .and_then(|n| self.starknet.blocks.num_to_block.get(n).cloned()),
 
-        let block = self.starknet.blocks.num_to_block.get(&block_number).ok_or(
-            blockifier::state::errors::StateError::StateReadError("block not found".to_string()),
-        )?;
-
-        Ok(block.clone().0)
+            BlockId::Tag(tag) => match tag {
+                BlockTag::Latest => self.starknet.blocks.latest(),
+                BlockTag::Pending => self.starknet.blocks.pending_block.clone(),
+            },
+        }
     }
 
     fn nonce_at(
@@ -217,7 +216,7 @@ pub trait Sequencer {
 
     fn block_number(&self) -> BlockNumber;
 
-    fn block(&self, block_id: BlockId) -> Result<Block, blockifier::state::errors::StateError>;
+    fn block(&self, block_id: BlockId) -> Option<StarknetBlock>;
 
     fn transaction(&self, hash: &TransactionHash)
         -> Option<starknet_api::transaction::Transaction>;
@@ -249,5 +248,5 @@ pub trait Sequencer {
         signature: TransactionSignature,
     ) -> anyhow::Result<(TransactionHash, ContractAddress)>;
 
-    fn add_account_transaction(&mut self, transaction: AccountTransaction);
+    fn add_account_transaction(&mut self, transaction: AccountTransaction) -> Result<()>;
 }

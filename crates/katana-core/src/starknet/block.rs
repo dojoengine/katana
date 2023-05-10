@@ -61,6 +61,10 @@ impl StarknetBlock {
         }
     }
 
+    pub fn header(&self) -> &BlockHeader {
+        &self.inner.header
+    }
+
     pub fn insert_transaction(&mut self, transaction: Transaction) {
         self.inner.body.transactions.push(transaction);
     }
@@ -112,7 +116,7 @@ pub struct StarknetBlocks {
 }
 
 impl StarknetBlocks {
-    pub fn append_block(&mut self, mut block: StarknetBlock) -> Result<()> {
+    pub fn append_block(&mut self, block: StarknetBlock) -> Result<()> {
         let block_number = block.block_number();
         let expected_block_number = BlockNumber(self.num_to_block.len() as u64);
 

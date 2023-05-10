@@ -84,7 +84,7 @@ impl StarknetWrapper {
     }
 
     // execute the tx
-    pub fn handle_transaction(&mut self, transaction: Transaction) {
+    pub fn handle_transaction(&mut self, transaction: Transaction) -> Result<()> {
         let api_tx = convert_blockifier_tx_to_starknet_api_tx(&transaction);
 
         info!(
@@ -116,7 +116,7 @@ impl StarknetWrapper {
                     .insert_transaction(api_tx);
 
                 self.store_transaction(starknet_tx);
-                self.generate_latest_block();
+                self.generate_latest_block()?;
 
                 self.generate_pending_block();
             }
@@ -132,13 +132,15 @@ impl StarknetWrapper {
                 self.store_transaction(tx);
             }
         }
+
+        Ok(())
     }
 
     // Creates a new block that contains all the pending txs
     // Will update the txs status to accepted
     // Append the block to the chain
     // Update the block context
-    pub fn generate_latest_block(&mut self) -> StarknetBlock {
+    pub fn generate_latest_block(&mut self) -> Result<StarknetBlock> {
         let mut new_block = if let Some(ref pending) = self.blocks.pending_block {
             pending.clone()
         } else {
@@ -168,11 +170,11 @@ impl StarknetWrapper {
 
         // reset the pending block
         self.blocks.pending_block = None;
-        self.blocks.append_block(new_block.clone());
+        self.blocks.append_block(new_block.clone())?;
         self.update_block_context();
         self.update_latest_state();
 
-        new_block
+        Ok(new_block)
     }
 
     pub fn generate_pending_block(&mut self) {
