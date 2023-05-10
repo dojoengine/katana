@@ -1,8 +1,9 @@
 use anyhow::Result;
+use starknet::providers::jsonrpc::models::{BlockId, BlockTag};
 
 use crate::{
     starknet::{transaction::ExternalFunctionCall, StarknetConfig, StarknetWrapper},
-    util::starkfelt_to_u128,
+    util::{field_element_to_starkfelt, starkfelt_to_u128},
 };
 
 use blockifier::{
@@ -13,9 +14,9 @@ use blockifier::{
         transactions::ExecutableTransaction,
     },
 };
-use starknet::providers::jsonrpc::models::BlockId;
+// use starknet::providers::jsonrpc::models::BlockId;
 use starknet_api::{
-    block::BlockNumber,
+    block::{Block, BlockHash, BlockNumber},
     core::{calculate_contract_address, ChainId, ClassHash, ContractAddress, Nonce},
     hash::StarkFelt,
     stark_felt,
@@ -135,7 +136,7 @@ impl Sequencer for KatanaSequencer {
         self.starknet.state.get_class_hash_at(contract_address)
     }
 
-    fn get_storage_at(
+    fn storage_at(
         &mut self,
         contract_address: ContractAddress,
         storage_key: StorageKey,
@@ -153,7 +154,34 @@ impl Sequencer for KatanaSequencer {
         self.starknet.block_context.block_number
     }
 
-    fn get_nonce_at(
+    fn block(&self, block_id: BlockId) -> Result<Block, blockifier::state::errors::StateError> {
+        let block_number = match block_id {
+            BlockId::Number(number) => BlockNumber(number),
+            BlockId::Hash(hash) => *self
+                .starknet
+                .blocks
+                .hash_to_num
+                .get(&BlockHash(field_element_to_starkfelt(&hash)))
+                .ok_or(blockifier::state::errors::StateError::StateReadError(
+                    "block not found".to_string(),
+                ))?,
+            BlockId::Tag(tag) => {
+                let current_height = self.starknet.blocks.current_height;
+                match tag {
+                    BlockTag::Latest => current_height.prev().unwrap(),
+                    BlockTag::Pending => current_height,
+                }
+            }
+        };
+
+        let block = self.starknet.blocks.num_to_block.get(&block_number).ok_or(
+            blockifier::state::errors::StateError::StateReadError("block not found".to_string()),
+        )?;
+
+        Ok(block.clone().0)
+    }
+
+    fn nonce_at(
         &mut self,
         _block_id: BlockId,
         contract_address: ContractAddress,
@@ -181,13 +209,15 @@ impl Sequencer for KatanaSequencer {
 pub trait Sequencer {
     fn chain_id(&self) -> ChainId;
 
-    fn get_nonce_at(
+    fn nonce_at(
         &mut self,
         block_id: BlockId,
         contract_address: ContractAddress,
     ) -> Result<Nonce, blockifier::state::errors::StateError>;
 
     fn block_number(&self) -> BlockNumber;
+
+    fn block(&self, block_id: BlockId) -> Result<Block, blockifier::state::errors::StateError>;
 
     fn transaction(&self, hash: &TransactionHash)
         -> Option<starknet_api::transaction::Transaction>;
@@ -204,7 +234,7 @@ pub trait Sequencer {
         function_call: ExternalFunctionCall,
     ) -> Result<Vec<StarkFelt>>;
 
-    fn get_storage_at(
+    fn storage_at(
         &mut self,
         contract_address: ContractAddress,
         storage_key: StorageKey,
