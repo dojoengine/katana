@@ -46,7 +46,7 @@ fn test_creating_blocks() {
 
     let block0 = starknet.blocks.by_number(BlockNumber(0)).unwrap();
     let block1 = starknet.blocks.by_number(BlockNumber(1)).unwrap();
-    let last_block = starknet.blocks.lastest().unwrap();
+    let last_block = starknet.blocks.latest().unwrap();
 
     assert_eq!(block0.transactions(), &[]);
     assert_eq!(block0.block_number(), BlockNumber(0));

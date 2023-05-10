@@ -32,7 +32,7 @@ use crate::{
     state::DictStateReader,
     util::{
         blockifier_contract_class_from_flattened_sierra_class,
-        convert_blockifier_tx_to_starknet_api_tx,
+        convert_blockifier_tx_to_starknet_api_tx, get_current_timestamp,
     },
 };
 use block::{StarknetBlock, StarknetBlocks};
@@ -139,42 +139,44 @@ impl StarknetWrapper {
     // Append the block to the chain
     // Update the block context
     pub fn generate_latest_block(&mut self) -> StarknetBlock {
-        let mut latest_block = if let Some(ref pending) = self.blocks.pending_block {
+        let mut new_block = if let Some(ref pending) = self.blocks.pending_block {
             pending.clone()
         } else {
-            self.create_empty_block()
+            self.create_new_empty_block()
         };
 
-        let block_hash = latest_block.compute_block_hash();
-        latest_block.0.header.block_hash = block_hash;
+        let block_hash = new_block.compute_block_hash();
+        new_block.inner.header.block_hash = block_hash;
 
-        for pending_tx in latest_block.transactions() {
+        for pending_tx in new_block.transactions() {
             let tx_hash = pending_tx.transaction_hash();
+
+            // Update the tx block hash and number in the tx store //
 
             if let Some(tx) = self.transactions.transactions.get_mut(&tx_hash) {
                 tx.block_hash = Some(block_hash);
                 tx.status = TransactionStatus::AcceptedOnL2;
-                tx.block_number = Some(latest_block.block_number());
+                tx.block_number = Some(new_block.block_number());
             }
         }
 
         info!(
-            "New block generated | Block hash: {} | Block number: {}",
-            latest_block.block_hash(),
-            latest_block.block_number()
+            "⛏️ New block generated | Block hash: {} | Block number: {}",
+            new_block.block_hash(),
+            new_block.block_number()
         );
 
         // reset the pending block
         self.blocks.pending_block = None;
-        self.blocks.append_block(latest_block.clone());
+        self.blocks.append_block(new_block.clone());
         self.update_block_context();
         self.update_latest_state();
 
-        latest_block
+        new_block
     }
 
     pub fn generate_pending_block(&mut self) {
-        self.blocks.pending_block = Some(self.create_empty_block());
+        self.blocks.pending_block = Some(self.create_new_empty_block());
     }
 
     // TODO: perform call based on specific block state
@@ -205,18 +207,14 @@ impl StarknetWrapper {
         unimplemented!("StarknetWrapper::state")
     }
 
-    fn create_empty_block(&self) -> StarknetBlock {
-        let timestamp = SystemTime::now()
-            .duration_since(SystemTime::UNIX_EPOCH)
-            .map(|t| BlockTimestamp(t.as_secs()))
-            .expect("should get unix timestamp");
+    fn create_new_empty_block(&self) -> StarknetBlock {
+        let block_number = self.block_context.block_number;
 
-        let block_number = self.blocks.current_height;
         let parent_hash = if block_number.0 == 0 {
             BlockHash(stark_felt!(0))
         } else {
             self.blocks
-                .lastest()
+                .latest()
                 .map(|last_block| last_block.block_hash())
                 .unwrap()
         };
@@ -228,9 +226,10 @@ impl StarknetWrapper {
             GasPrice(self.block_context.gas_price),
             GlobalRoot(stark_felt!(0)),
             self.block_context.sequencer_address,
-            timestamp,
+            BlockTimestamp(get_current_timestamp().as_secs()),
             vec![],
             vec![],
+            None,
         )
     }
 
@@ -245,15 +244,8 @@ impl StarknetWrapper {
     }
 
     fn update_block_context(&mut self) {
-        let next_block_number = BlockNumber(self.blocks.current_height.0 + 1);
-        let timestamp = SystemTime::now()
-            .duration_since(SystemTime::UNIX_EPOCH)
-            .unwrap()
-            .as_secs();
-
-        self.blocks.current_height = next_block_number;
-        self.block_context.block_number = next_block_number;
-        self.block_context.block_timestamp = BlockTimestamp(timestamp);
+        self.block_context.block_number = self.block_context.block_number.next();
+        self.block_context.block_timestamp = BlockTimestamp(get_current_timestamp().as_secs());
     }
 
     fn update_latest_state(&mut self) {
