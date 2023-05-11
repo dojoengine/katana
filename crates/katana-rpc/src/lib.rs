@@ -17,11 +17,12 @@ use katana_core::{
     },
 };
 use starknet::providers::jsonrpc::models::{
-    BlockHashAndNumber, BlockId, BlockStatus, BlockWithTxHashes, BroadcastedDeclareTransaction,
-    BroadcastedDeployAccountTransaction, BroadcastedInvokeTransaction, BroadcastedTransaction,
-    ContractClass, DeclareTransactionResult, DeployAccountTransactionResult, EventFilter,
-    EventsPage, FeeEstimate, FunctionCall, InvokeTransactionResult, MaybePendingBlockWithTxHashes,
-    MaybePendingBlockWithTxs, MaybePendingTransactionReceipt, StateUpdate, Transaction,
+    BlockHashAndNumber, BlockId, BlockStatus, BlockWithTxHashes, BlockWithTxs,
+    BroadcastedDeclareTransaction, BroadcastedDeployAccountTransaction,
+    BroadcastedInvokeTransaction, BroadcastedTransaction, ContractClass, DeclareTransactionResult,
+    DeployAccountTransactionResult, EmittedEvent, EventFilter, EventsPage, FeeEstimate,
+    FunctionCall, InvokeTransactionResult, MaybePendingBlockWithTxHashes, MaybePendingBlockWithTxs,
+    MaybePendingTransactionReceipt, PendingBlockWithTxs, StateUpdate, Transaction,
 };
 use starknet::{core::types::contract::FlattenedSierraClass, providers::jsonrpc::models::BlockTag};
 use starknet::{core::types::FieldElement, providers::jsonrpc::models::PendingBlockWithTxHashes};
@@ -132,11 +133,10 @@ impl<S: Sequencer + Send + Sync + 'static> KatanaApiServer for KatanaRpc<S> {
             .read()
             .await
             .block(block_id.clone())
-            .map_err(|_| Error::from(KatanaApiError::BlockNotFound))?;
+            .ok_or(Error::from(KatanaApiError::BlockNotFound))?;
 
         block
-            .body
-            .transactions
+            .transactions()
             .len()
             .try_into()
             .map_err(|_| Error::from(KatanaApiError::InternalServerError))
@@ -163,17 +163,17 @@ impl<S: Sequencer + Send + Sync + 'static> KatanaApiServer for KatanaRpc<S> {
             .read()
             .await
             .block(block_id.clone())
-            .map_err(|_| Error::from(KatanaApiError::BlockNotFound))?;
+            .ok_or(Error::from(KatanaApiError::BlockNotFound))?;
 
         let sequencer_address = FieldElement::from_hex_be(SEQUENCER_ADDRESS).unwrap();
         let transactions = block
-            .body
-            .transactions
+            .transactions()
             .iter()
             .map(|tx| stark_felt_to_field_element(tx.transaction_hash().0).unwrap())
             .collect::<Vec<_>>();
-        let timestamp = block.header.timestamp.0;
-        let parent_hash = stark_felt_to_field_element(block.header.parent_hash.0).unwrap();
+
+        let timestamp = block.header().timestamp.0;
+        let parent_hash = stark_felt_to_field_element(block.header().parent_hash.0).unwrap();
 
         if BlockId::Tag(BlockTag::Pending) == block_id {
             return Ok(MaybePendingBlockWithTxHashes::PendingBlock(
@@ -187,9 +187,9 @@ impl<S: Sequencer + Send + Sync + 'static> KatanaApiServer for KatanaRpc<S> {
         }
 
         Ok(MaybePendingBlockWithTxHashes::Block(BlockWithTxHashes {
-            new_root: stark_felt_to_field_element(block.header.state_root.0).unwrap(),
-            block_hash: stark_felt_to_field_element(block.header.block_hash.0).unwrap(),
-            block_number: block.header.block_number.0,
+            new_root: stark_felt_to_field_element(block.header().state_root.0).unwrap(),
+            block_hash: stark_felt_to_field_element(block.header().block_hash.0).unwrap(),
+            block_number: block.header().block_number.0,
             status: BlockStatus::AcceptedOnL2,
             transactions,
             sequencer_address,
@@ -208,11 +208,10 @@ impl<S: Sequencer + Send + Sync + 'static> KatanaApiServer for KatanaRpc<S> {
             .read()
             .await
             .block(block_id.clone())
-            .map_err(|_| Error::from(KatanaApiError::BlockNotFound))?;
+            .ok_or(Error::from(KatanaApiError::BlockNotFound))?;
 
         let transaction = block
-            .body
-            .transactions
+            .transactions()
             .get(index)
             .ok_or(Error::from(KatanaApiError::InvalidTxnIndex))?;
 
@@ -221,11 +220,51 @@ impl<S: Sequencer + Send + Sync + 'static> KatanaApiServer for KatanaRpc<S> {
     }
 
     async fn block_with_txs(&self, block_id: BlockId) -> Result<MaybePendingBlockWithTxs, Error> {
-        unimplemented!("KatanaRpc::block_with_txs")
+        let block = self
+            .sequencer
+            .read()
+            .await
+            .block(block_id.clone())
+            .ok_or(Error::from(KatanaApiError::BlockNotFound))?;
+
+        let sequencer_address = FieldElement::from_hex_be(SEQUENCER_ADDRESS).unwrap();
+        let transactions = block
+            .transactions()
+            .iter()
+            .map(|tx| convert_inner_to_rpc_tx(tx.clone()).unwrap())
+            .collect::<Vec<_>>();
+        let timestamp = block.header().timestamp.0;
+        let parent_hash = stark_felt_to_field_element(block.header().parent_hash.0).unwrap();
+
+        if BlockId::Tag(BlockTag::Pending) == block_id {
+            return Ok(MaybePendingBlockWithTxs::PendingBlock(
+                PendingBlockWithTxs {
+                    transactions,
+                    sequencer_address,
+                    timestamp,
+                    parent_hash,
+                },
+            ));
+        }
+
+        Ok(MaybePendingBlockWithTxs::Block(BlockWithTxs {
+            new_root: stark_felt_to_field_element(block.header().state_root.0).unwrap(),
+            block_hash: stark_felt_to_field_element(block.block_hash().0).unwrap(),
+            block_number: block.block_number().0,
+            status: BlockStatus::AcceptedOnL2,
+            transactions,
+            sequencer_address,
+            timestamp,
+            parent_hash,
+        }))
     }
 
     async fn state_update(&self, block_id: BlockId) -> Result<StateUpdate, Error> {
-        unimplemented!("KatanaRpc::state_update")
+        self.sequencer
+            .read()
+            .await
+            .state_update(block_id)
+            .map_err(|_| Error::from(KatanaApiError::BlockNotFound))
     }
 
     async fn transaction_receipt(
@@ -268,7 +307,53 @@ impl<S: Sequencer + Send + Sync + 'static> KatanaApiServer for KatanaRpc<S> {
         continuation_token: Option<String>,
         chunk_size: u64,
     ) -> Result<EventsPage, Error> {
-        unimplemented!("KatanaRpc::events")
+        let from_block = filter.from_block.unwrap_or(BlockId::Number(0));
+        let to_block = filter.to_block.unwrap_or(BlockId::Tag(BlockTag::Latest));
+
+        let events = self
+            .sequencer
+            .read()
+            .await
+            .events(
+                from_block,
+                to_block,
+                filter.address.map(|fe| field_element_to_starkfelt(&fe)),
+                filter
+                    .keys
+                    .map(|keys| keys.iter().map(field_element_to_starkfelt).collect()),
+                continuation_token,
+                chunk_size,
+            )
+            .map_err(|_| Error::from(KatanaApiError::InternalServerError))?;
+
+        Ok(EventsPage {
+            events: events
+                .iter()
+                .map(|e| EmittedEvent {
+                    block_number: e.block_number.0,
+                    block_hash: stark_felt_to_field_element(e.block_hash.0).unwrap(),
+                    transaction_hash: stark_felt_to_field_element(e.transaction_hash.0).unwrap(),
+                    from_address: stark_felt_to_field_element(*e.inner.from_address.0.key())
+                        .unwrap(),
+                    keys: e
+                        .inner
+                        .content
+                        .keys
+                        .iter()
+                        .map(|key| stark_felt_to_field_element(key.0).unwrap())
+                        .collect(),
+                    data: e
+                        .inner
+                        .content
+                        .data
+                        .0
+                        .iter()
+                        .map(|fe| stark_felt_to_field_element(*fe).unwrap())
+                        .collect(),
+                })
+                .collect(),
+            continuation_token: None,
+        })
     }
 
     async fn pending_transactions(&self) -> Result<Vec<Transaction>, Error> {
