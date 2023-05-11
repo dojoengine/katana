@@ -23,7 +23,7 @@ use starknet::{
 };
 
 #[derive(thiserror::Error, Clone, Copy, Debug)]
-pub enum KatanaApiError {
+pub enum StarknetApiError {
     #[error("Failed to write transaction")]
     FailedToReceiveTxn = 1,
     #[error("Contract not found")]
@@ -60,8 +60,8 @@ pub enum KatanaApiError {
     FailedToFetchPendingTransactions = 38,
 }
 
-impl From<KatanaApiError> for Error {
-    fn from(err: KatanaApiError) -> Self {
+impl From<StarknetApiError> for Error {
+    fn from(err: StarknetApiError) -> Self {
         Error::Call(CallError::Custom(ErrorObject::owned(
             err as i32,
             err.to_string(),
@@ -71,7 +71,7 @@ impl From<KatanaApiError> for Error {
 }
 
 #[rpc(server, client, namespace = "starknet")]
-pub trait KatanaApi {
+pub trait StarknetApi {
     #[method(name = "chainId")]
     async fn chain_id(&self) -> Result<String, Error>;
 

@@ -52,7 +52,7 @@ pub mod api;
 pub mod config;
 pub mod utils;
 
-use api::{KatanaApiError, KatanaApiServer, KatanaRpcLogger};
+use api::starknet::{KatanaRpcLogger, StarknetApiError, StarknetApiServer};
 
 pub struct KatanaRpc<S> {
     pub config: RpcConfig,
@@ -72,7 +72,7 @@ where
             .set_logger(KatanaRpcLogger)
             .build(format!("127.0.0.1:{}", self.config.port))
             .await
-            .map_err(|_| Error::from(KatanaApiError::InternalServerError))?;
+            .map_err(|_| Error::from(StarknetApiError::InternalServerError))?;
 
         let addr = server.local_addr()?;
         let handle = server.start(self.into_rpc())?;
@@ -83,7 +83,7 @@ where
 
 #[allow(unused)]
 #[async_trait]
-impl<S: Sequencer + Send + Sync + 'static> KatanaApiServer for KatanaRpc<S> {
+impl<S: Sequencer + Send + Sync + 'static> StarknetApiServer for KatanaRpc<S> {
     async fn chain_id(&self) -> Result<String, Error> {
         Ok(self.sequencer.read().await.chain_id().as_hex())
     }
@@ -101,10 +101,10 @@ impl<S: Sequencer + Send + Sync + 'static> KatanaApiServer for KatanaRpc<S> {
                 block_id,
                 ContractAddress(patricia_key!(field_element_to_starkfelt(&contract_address))),
             )
-            .map_err(|_| Error::from(KatanaApiError::ContractError))?;
+            .map_err(|_| Error::from(StarknetApiError::ContractError))?;
 
         stark_felt_to_field_element(nonce.0)
-            .map_err(|_| Error::from(KatanaApiError::InternalServerError))
+            .map_err(|_| Error::from(StarknetApiError::InternalServerError))
     }
 
     async fn block_number(&self) -> Result<u64, Error> {
@@ -122,9 +122,9 @@ impl<S: Sequencer + Send + Sync + 'static> KatanaApiServer for KatanaRpc<S> {
             .transaction(&TransactionHash(field_element_to_starkfelt(
                 &transaction_hash,
             )))
-            .ok_or(Error::from(KatanaApiError::TxnHashNotFound))?;
+            .ok_or(Error::from(StarknetApiError::TxnHashNotFound))?;
 
-        convert_inner_to_rpc_tx(tx).map_err(|_| Error::from(KatanaApiError::InternalServerError))
+        convert_inner_to_rpc_tx(tx).map_err(|_| Error::from(StarknetApiError::InternalServerError))
     }
 
     async fn block_transaction_count(&self, block_id: BlockId) -> Result<u64, Error> {
@@ -133,13 +133,13 @@ impl<S: Sequencer + Send + Sync + 'static> KatanaApiServer for KatanaRpc<S> {
             .read()
             .await
             .block(block_id.clone())
-            .ok_or(Error::from(KatanaApiError::BlockNotFound))?;
+            .ok_or(Error::from(StarknetApiError::BlockNotFound))?;
 
         block
             .transactions()
             .len()
             .try_into()
-            .map_err(|_| Error::from(KatanaApiError::InternalServerError))
+            .map_err(|_| Error::from(StarknetApiError::InternalServerError))
     }
 
     async fn class_at(
@@ -163,7 +163,7 @@ impl<S: Sequencer + Send + Sync + 'static> KatanaApiServer for KatanaRpc<S> {
             .read()
             .await
             .block(block_id.clone())
-            .ok_or(Error::from(KatanaApiError::BlockNotFound))?;
+            .ok_or(Error::from(StarknetApiError::BlockNotFound))?;
 
         let sequencer_address = FieldElement::from_hex_be(SEQUENCER_ADDRESS).unwrap();
         let transactions = block
@@ -208,15 +208,15 @@ impl<S: Sequencer + Send + Sync + 'static> KatanaApiServer for KatanaRpc<S> {
             .read()
             .await
             .block(block_id.clone())
-            .ok_or(Error::from(KatanaApiError::BlockNotFound))?;
+            .ok_or(Error::from(StarknetApiError::BlockNotFound))?;
 
         let transaction = block
             .transactions()
             .get(index)
-            .ok_or(Error::from(KatanaApiError::InvalidTxnIndex))?;
+            .ok_or(Error::from(StarknetApiError::InvalidTxnIndex))?;
 
         convert_inner_to_rpc_tx(transaction.clone())
-            .map_err(|_| Error::from(KatanaApiError::InternalServerError))
+            .map_err(|_| Error::from(StarknetApiError::InternalServerError))
     }
 
     async fn block_with_txs(&self, block_id: BlockId) -> Result<MaybePendingBlockWithTxs, Error> {
@@ -225,7 +225,7 @@ impl<S: Sequencer + Send + Sync + 'static> KatanaApiServer for KatanaRpc<S> {
             .read()
             .await
             .block(block_id.clone())
-            .ok_or(Error::from(KatanaApiError::BlockNotFound))?;
+            .ok_or(Error::from(StarknetApiError::BlockNotFound))?;
 
         let sequencer_address = FieldElement::from_hex_be(SEQUENCER_ADDRESS).unwrap();
         let transactions = block
@@ -264,7 +264,7 @@ impl<S: Sequencer + Send + Sync + 'static> KatanaApiServer for KatanaRpc<S> {
             .read()
             .await
             .state_update(block_id)
-            .map_err(|_| Error::from(KatanaApiError::BlockNotFound))
+            .map_err(|_| Error::from(StarknetApiError::BlockNotFound))
     }
 
     async fn transaction_receipt(
@@ -287,10 +287,10 @@ impl<S: Sequencer + Send + Sync + 'static> KatanaApiServer for KatanaRpc<S> {
                 block_id,
                 ContractAddress(patricia_key!(field_element_to_starkfelt(&contract_address))),
             )
-            .map_err(|_| Error::from(KatanaApiError::ContractError))?;
+            .map_err(|_| Error::from(StarknetApiError::ContractError))?;
 
         stark_felt_to_field_element(class_hash.0)
-            .map_err(|_| Error::from(KatanaApiError::InternalServerError))
+            .map_err(|_| Error::from(StarknetApiError::InternalServerError))
     }
 
     async fn class(
@@ -324,7 +324,7 @@ impl<S: Sequencer + Send + Sync + 'static> KatanaApiServer for KatanaRpc<S> {
                 continuation_token,
                 chunk_size,
             )
-            .map_err(|_| Error::from(KatanaApiError::InternalServerError))?;
+            .map_err(|_| Error::from(StarknetApiError::InternalServerError))?;
 
         Ok(EventsPage {
             events: events
@@ -394,14 +394,14 @@ impl<S: Sequencer + Send + Sync + 'static> KatanaApiServer for KatanaRpc<S> {
             .read()
             .await
             .call(block_id, call)
-            .map_err(|_| Error::from(KatanaApiError::ContractError))?;
+            .map_err(|_| Error::from(StarknetApiError::ContractError))?;
 
         let mut values = vec![];
 
         for f in res.into_iter() {
             values.push(
                 stark_felt_to_field_element(f)
-                    .map_err(|_| Error::from(KatanaApiError::InternalServerError))?,
+                    .map_err(|_| Error::from(StarknetApiError::InternalServerError))?,
             );
         }
 
@@ -422,10 +422,10 @@ impl<S: Sequencer + Send + Sync + 'static> KatanaApiServer for KatanaRpc<S> {
                 ContractAddress(patricia_key!(field_element_to_starkfelt(&contract_address))),
                 StorageKey(patricia_key!(field_element_to_starkfelt(&key))),
             )
-            .map_err(|_| Error::from(KatanaApiError::ContractError))?;
+            .map_err(|_| Error::from(StarknetApiError::ContractError))?;
 
         stark_felt_to_field_element(value)
-            .map_err(|_| Error::from(KatanaApiError::InternalServerError))
+            .map_err(|_| Error::from(StarknetApiError::InternalServerError))
     }
 
     async fn add_deploy_account_transaction(
@@ -462,9 +462,9 @@ impl<S: Sequencer + Send + Sync + 'static> KatanaApiServer for KatanaRpc<S> {
 
         Ok(DeployAccountTransactionResult {
             transaction_hash: FieldElement::from_byte_slice_be(transaction_hash.0.bytes())
-                .map_err(|_| Error::from(KatanaApiError::InternalServerError))?,
+                .map_err(|_| Error::from(StarknetApiError::InternalServerError))?,
             contract_address: FieldElement::from_byte_slice_be(contract_address.0.key().bytes())
-                .map_err(|_| Error::from(KatanaApiError::InternalServerError))?,
+                .map_err(|_| Error::from(StarknetApiError::InternalServerError))?,
         })
     }
 
@@ -473,7 +473,7 @@ impl<S: Sequencer + Send + Sync + 'static> KatanaApiServer for KatanaRpc<S> {
         transaction: BroadcastedDeclareTransaction,
     ) -> Result<DeclareTransactionResult, Error> {
         let chain_id = FieldElement::from_hex_be(&self.sequencer.read().await.chain_id().as_hex())
-            .map_err(|_| Error::from(KatanaApiError::InternalServerError))?;
+            .map_err(|_| Error::from(StarknetApiError::InternalServerError))?;
 
         let (transaction_hash, class_hash, transaction) = match transaction {
             BroadcastedDeclareTransaction::V1(_) => {
@@ -482,11 +482,11 @@ impl<S: Sequencer + Send + Sync + 'static> KatanaApiServer for KatanaRpc<S> {
             BroadcastedDeclareTransaction::V2(tx) => {
                 let raw_class_str = serde_json::to_string(&tx.contract_class)?;
                 let class_hash = serde_json::from_str::<FlattenedSierraClass>(&raw_class_str)
-                    .map_err(|_| Error::from(KatanaApiError::InvalidContractClass))?
+                    .map_err(|_| Error::from(StarknetApiError::InvalidContractClass))?
                     .class_hash();
                 let contract_class =
                     blockifier_contract_class_from_flattened_sierra_class(&raw_class_str)
-                        .map_err(|_| Error::from(KatanaApiError::InternalServerError))?;
+                        .map_err(|_| Error::from(StarknetApiError::InternalServerError))?;
 
                 let transaction_hash = compute_declare_v2_transaction_hash(
                     tx.sender_address,
@@ -507,7 +507,7 @@ impl<S: Sequencer + Send + Sync + 'static> KatanaApiServer for KatanaRpc<S> {
                     ))),
                     nonce: Nonce(field_element_to_starkfelt(&tx.nonce)),
                     max_fee: Fee(starkfelt_to_u128(field_element_to_starkfelt(&tx.max_fee))
-                        .map_err(|_| Error::from(KatanaApiError::InternalServerError))?),
+                        .map_err(|_| Error::from(StarknetApiError::InternalServerError))?),
                     signature: TransactionSignature(
                         tx.signature
                             .iter()
@@ -549,7 +549,7 @@ impl<S: Sequencer + Send + Sync + 'static> KatanaApiServer for KatanaRpc<S> {
             BroadcastedInvokeTransaction::V1(transaction) => {
                 let chain_id =
                     FieldElement::from_hex_be(&self.sequencer.read().await.chain_id().as_hex())
-                        .map_err(|_| Error::from(KatanaApiError::InternalServerError))?;
+                        .map_err(|_| Error::from(StarknetApiError::InternalServerError))?;
 
                 let transaction_hash = compute_invoke_v1_transaction_hash(
                     transaction.sender_address,
@@ -577,7 +577,7 @@ impl<S: Sequencer + Send + Sync + 'static> KatanaApiServer for KatanaRpc<S> {
                     max_fee: Fee(starkfelt_to_u128(field_element_to_starkfelt(
                         &transaction.max_fee,
                     ))
-                    .map_err(|_| Error::from(KatanaApiError::InternalServerError))?),
+                    .map_err(|_| Error::from(StarknetApiError::InternalServerError))?),
                     signature: TransactionSignature(
                         transaction
                             .signature
@@ -597,7 +597,7 @@ impl<S: Sequencer + Send + Sync + 'static> KatanaApiServer for KatanaRpc<S> {
                 Ok(InvokeTransactionResult { transaction_hash })
             }
 
-            _ => Err(Error::from(KatanaApiError::InternalServerError)),
+            _ => Err(Error::from(StarknetApiError::InternalServerError)),
         }
     }
 }
