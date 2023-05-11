@@ -20,7 +20,7 @@ blockifier = { git = "https://github.com/starkware-libs/blockifier" }
 tokio = { version = "1.16", features = ["full"] }
 starknet = { git = "https://github.com/xJonathanLEI/starknet-rs", rev = "91425ad" }
 starknet_api = { git = "https://github.com/starkware-libs/starknet-api" }
-cairo-lang-starknet = { git = "https://github.com/starkware-libs/cairo", version = "1.0.0-rc0" }
+cairo-lang-starknet = { git = "https://github.com/starkware-libs/cairo", rev = "a0ead7c0b8e297d281c7213151cd43ac11de5042" }
 
 [patch."https://github.com/starkware-libs/blockifier"]
 blockifier = { git = "https://github.com/dojoengine/blockifier", branch = "dev" }
