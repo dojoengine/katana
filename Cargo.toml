@@ -23,7 +23,10 @@ starknet_api = { git = "https://github.com/starkware-libs/starknet-api" }
 cairo-lang-starknet = { git = "https://github.com/starkware-libs/cairo", version = "1.0.0-rc0" }
 
 [patch."https://github.com/starkware-libs/blockifier"]
-blockifier = { git = "https://github.com/dojoengine/blockifier", branch = "declare-v2" }
+blockifier = { git = "https://github.com/dojoengine/blockifier", branch = "dev" }
 
 [patch."https://github.com/starkware-libs/starknet-api"]
-starknet_api = { git = "https://github.com/dojoengine/starknet-api", rev = "bc9dc6c24fdcef25771e9547885064116b7b7643" }
+starknet_api = { git = "https://github.com/dojoengine/starknet-api", branch = "dev" }
+
+[patch.crates-io]
+starknet-crypto = { git = "https://github.com/xJonathanLEI/starknet-rs", rev = "91425ad" }

@@ -1,6 +1,7 @@
 use std::collections::HashMap;
 
 use anyhow::{ensure, Result};
+use starknet::providers::jsonrpc::models::StateUpdate;
 use starknet_api::{
     block::{
         Block, BlockBody, BlockHash, BlockHeader, BlockNumber, BlockStatus, BlockTimestamp,
@@ -65,6 +66,10 @@ impl StarknetBlock {
         &self.inner.header
     }
 
+    pub fn body(&self) -> &BlockBody {
+        &self.inner.body
+    }
+
     pub fn insert_transaction(&mut self, transaction: Transaction) {
         self.inner.body.transactions.push(transaction);
     }
@@ -109,10 +114,10 @@ impl StarknetBlock {
 // TODO: add state archive
 #[derive(Debug, Default)]
 pub struct StarknetBlocks {
-    // pub current_height: BlockNumber,
     pub hash_to_num: HashMap<BlockHash, BlockNumber>,
     pub num_to_block: HashMap<BlockNumber, StarknetBlock>,
     pub pending_block: Option<StarknetBlock>,
+    pub num_to_state_update: HashMap<BlockNumber, StateUpdate>,
 }
 
 impl StarknetBlocks {
@@ -129,6 +134,10 @@ impl StarknetBlocks {
         self.num_to_block.insert(block_number, block);
 
         Ok(())
+    }
+
+    pub fn current_block_number(&self) -> BlockNumber {
+        BlockNumber(self.total_blocks() as u64 - 1)
     }
 
     pub fn latest(&self) -> Option<StarknetBlock> {
@@ -159,5 +168,9 @@ impl StarknetBlocks {
 
     pub fn total_blocks(&self) -> usize {
         self.num_to_block.len()
+    }
+
+    pub fn get_state_update(&self, block_number: BlockNumber) -> Option<StateUpdate> {
+        self.num_to_state_update.get(&block_number).cloned()
     }
 }
