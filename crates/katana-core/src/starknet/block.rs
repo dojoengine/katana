@@ -13,19 +13,10 @@ use starknet_api::{
     transaction::{Transaction, TransactionOutput},
 };
 
-#[derive(Debug, Clone, PartialEq, Eq)]
+#[derive(Debug, Clone, PartialEq, Eq, Default)]
 pub struct StarknetBlock {
     pub inner: Block,
     pub status: Option<BlockStatus>,
-}
-
-impl Default for StarknetBlock {
-    fn default() -> Self {
-        Self {
-            status: None,
-            inner: Default::default(),
-        }
-    }
 }
 
 impl StarknetBlock {

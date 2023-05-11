@@ -96,10 +96,10 @@ impl KatanaSequencer {
             BlockId::Tag(tag) => {
                 let current_height = self.starknet.blocks.current_block_number();
 
-                Some(match tag {
-                    BlockTag::Latest => current_height,
-                    BlockTag::Pending => current_height.next(),
-                })
+                match tag {
+                    BlockTag::Pending => None,
+                    BlockTag::Latest => Some(current_height),
+                }
             }
         }
     }
@@ -152,7 +152,6 @@ impl Sequencer for KatanaSequencer {
     fn add_account_transaction(&mut self, transaction: AccountTransaction) -> Result<()> {
         self.starknet
             .handle_transaction(Transaction::AccountTransaction(transaction))
-            .map_err(|e| e.into())
     }
 
     fn class_hash_at(
@@ -183,24 +182,11 @@ impl Sequencer for KatanaSequencer {
 
     fn block(&self, block_id: BlockId) -> Option<StarknetBlock> {
         match block_id {
-            BlockId::Number(number) => self
-                .starknet
-                .blocks
-                .num_to_block
-                .get(&BlockNumber(number))
-                .cloned(),
+            BlockId::Tag(BlockTag::Pending) => self.starknet.blocks.pending_block.clone(),
 
-            BlockId::Hash(hash) => self
-                .starknet
-                .blocks
-                .hash_to_num
-                .get(&BlockHash(field_element_to_starkfelt(&hash)))
-                .and_then(|n| self.starknet.blocks.num_to_block.get(n).cloned()),
-
-            BlockId::Tag(tag) => match tag {
-                BlockTag::Latest => self.starknet.blocks.latest(),
-                BlockTag::Pending => self.starknet.blocks.pending_block.clone(),
-            },
+            id => self
+                .block_number_from_block_id(id)
+                .and_then(|n| self.starknet.blocks.by_number(n)),
         }
     }
 

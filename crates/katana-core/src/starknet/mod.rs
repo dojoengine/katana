@@ -1,4 +1,4 @@
-use std::{path::PathBuf, time::SystemTime};
+use std::path::PathBuf;
 
 use anyhow::Result;
 use blockifier::{
@@ -35,7 +35,6 @@ use crate::{
     constants::DEFAULT_PREFUNDED_ACCOUNT_BALANCE,
     state::DictStateReader,
     util::{
-        blockifier_contract_class_from_flattened_sierra_class,
         convert_blockifier_tx_to_starknet_api_tx, convert_state_diff_to_rpc_state_diff,
         get_current_timestamp,
     },
