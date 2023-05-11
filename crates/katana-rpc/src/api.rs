@@ -16,7 +16,7 @@ use starknet::{
         BlockHashAndNumber, BlockId, BroadcastedDeclareTransaction,
         BroadcastedDeployAccountTransaction, BroadcastedInvokeTransaction, BroadcastedTransaction,
         ContractClass, DeclareTransactionResult, DeployAccountTransactionResult, EventFilter,
-        EventsPage, FeeEstimate, FunctionCall, InvokeTransactionResult,
+        EventsPage, FeeEstimate, FunctionCall, GetNonceRequest, InvokeTransactionResult,
         MaybePendingBlockWithTxHashes, MaybePendingBlockWithTxs, MaybePendingTransactionReceipt,
         StateUpdate, Transaction,
     },
@@ -76,11 +76,7 @@ pub trait KatanaApi {
     async fn chain_id(&self) -> Result<String, Error>;
 
     #[method(name = "getNonce")]
-    async fn nonce(
-        &self,
-        block_id: BlockId,
-        contract_address: FieldElement,
-    ) -> Result<FieldElement, Error>;
+    async fn nonce(&self, req: GetNonceRequest) -> Result<FieldElement, Error>;
 
     #[method(name = "blockNumber")]
     async fn block_number(&self) -> Result<u64, Error>;

@@ -21,8 +21,9 @@ use starknet::providers::jsonrpc::models::{
     BroadcastedDeclareTransaction, BroadcastedDeployAccountTransaction,
     BroadcastedInvokeTransaction, BroadcastedTransaction, ContractClass, DeclareTransactionResult,
     DeployAccountTransactionResult, EmittedEvent, EventFilter, EventsPage, FeeEstimate,
-    FunctionCall, InvokeTransactionResult, MaybePendingBlockWithTxHashes, MaybePendingBlockWithTxs,
-    MaybePendingTransactionReceipt, PendingBlockWithTxs, StateUpdate, Transaction,
+    FunctionCall, GetNonceRequest, InvokeTransactionResult, MaybePendingBlockWithTxHashes,
+    MaybePendingBlockWithTxs, MaybePendingTransactionReceipt, PendingBlockWithTxs, StateUpdate,
+    Transaction,
 };
 use starknet::{core::types::contract::FlattenedSierraClass, providers::jsonrpc::models::BlockTag};
 use starknet::{core::types::FieldElement, providers::jsonrpc::models::PendingBlockWithTxHashes};
@@ -88,18 +89,16 @@ impl<S: Sequencer + Send + Sync + 'static> KatanaApiServer for KatanaRpc<S> {
         Ok(self.sequencer.read().await.chain_id().as_hex())
     }
 
-    async fn nonce(
-        &self,
-        block_id: BlockId,
-        contract_address: FieldElement,
-    ) -> Result<FieldElement, Error> {
+    async fn nonce(&self, req: GetNonceRequest) -> Result<FieldElement, Error> {
         let nonce = self
             .sequencer
             .write()
             .await
             .nonce_at(
-                block_id,
-                ContractAddress(patricia_key!(field_element_to_starkfelt(&contract_address))),
+                req.block_id,
+                ContractAddress(patricia_key!(<FieldElement as Into<StarkFelt>>::into(
+                    req.contract_address
+                ))),
             )
             .map_err(|_| Error::from(KatanaApiError::ContractError))?;
 
