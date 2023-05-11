@@ -225,17 +225,16 @@ impl<S: Sequencer + Send + Sync + 'static> KatanaApiServer for KatanaRpc<S> {
             .read()
             .await
             .block(block_id.clone())
-            .map_err(|_| Error::from(KatanaApiError::BlockNotFound))?;
+            .ok_or(Error::from(KatanaApiError::BlockNotFound))?;
 
         let sequencer_address = FieldElement::from_hex_be(SEQUENCER_ADDRESS).unwrap();
         let transactions = block
-            .body
-            .transactions
+            .transactions()
             .iter()
             .map(|tx| convert_inner_to_rpc_tx(tx.clone()).unwrap())
             .collect::<Vec<_>>();
-        let timestamp = block.header.timestamp.0;
-        let parent_hash = stark_felt_to_field_element(block.header.parent_hash.0).unwrap();
+        let timestamp = block.header().timestamp.0;
+        let parent_hash = stark_felt_to_field_element(block.header().parent_hash.0).unwrap();
 
         if BlockId::Tag(BlockTag::Pending) == block_id {
             return Ok(MaybePendingBlockWithTxs::PendingBlock(
@@ -249,9 +248,9 @@ impl<S: Sequencer + Send + Sync + 'static> KatanaApiServer for KatanaRpc<S> {
         }
 
         Ok(MaybePendingBlockWithTxs::Block(BlockWithTxs {
-            new_root: stark_felt_to_field_element(block.header.state_root.0).unwrap(),
-            block_hash: stark_felt_to_field_element(block.header.block_hash.0).unwrap(),
-            block_number: block.header.block_number.0,
+            new_root: stark_felt_to_field_element(block.header().state_root.0).unwrap(),
+            block_hash: stark_felt_to_field_element(block.block_hash().0).unwrap(),
+            block_number: block.block_number().0,
             status: BlockStatus::AcceptedOnL2,
             transactions,
             sequencer_address,
