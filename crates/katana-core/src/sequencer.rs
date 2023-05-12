@@ -102,12 +102,12 @@ impl KatanaSequencer {
 
     fn state_from_block_id(&self, block_id: BlockId) -> Option<DictStateReader> {
         match block_id {
-            BlockId::Tag(BlockTag::Latest) => Some(self.starknet.get_latest_state()),
-            BlockId::Tag(BlockTag::Pending) => Some(self.starknet.get_pending_state()),
+            BlockId::Tag(BlockTag::Latest) => Some(self.starknet.latest_state()),
+            BlockId::Tag(BlockTag::Pending) => Some(self.starknet.pending_state()),
 
             id => self
                 .block_number_from_block_id(id)
-                .and_then(|n| self.starknet.get_state(n)),
+                .and_then(|n| self.starknet.state(n)),
         }
     }
 }

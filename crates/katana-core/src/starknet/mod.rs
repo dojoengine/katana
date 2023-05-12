@@ -232,8 +232,8 @@ impl StarknetWrapper {
         block_number: Option<BlockNumber>,
     ) -> Result<CallInfo> {
         let state = match block_number {
-            Some(num) => self.get_state(num).ok_or(anyhow!("block not found"))?,
-            None => self.get_pending_state(),
+            Some(num) => self.state(num).ok_or(anyhow!("block not found"))?,
+            None => self.pending_state(),
         };
 
         let mut state = CachedState::new(state);
@@ -256,17 +256,17 @@ impl StarknetWrapper {
         .map_err(|e| e.into())
     }
 
-    pub fn get_state(&self, block_number: BlockNumber) -> Option<DictStateReader> {
+    pub fn state(&self, block_number: BlockNumber) -> Option<DictStateReader> {
         self.blocks.get_state(&block_number).cloned()
     }
 
-    pub fn get_pending_state(&self) -> DictStateReader {
+    pub fn pending_state(&self) -> DictStateReader {
         let mut state = self.pending_state.state.clone();
         apply_state_diff(&mut state, self.pending_state.to_state_diff());
         state
     }
 
-    pub fn get_latest_state(&self) -> DictStateReader {
+    pub fn latest_state(&self) -> DictStateReader {
         self.state.clone()
     }
 
