@@ -6,7 +6,7 @@ use std::{
 
 use anyhow::{anyhow, Result};
 use blockifier::{
-    execution::contract_class::ContractClass,
+    execution::contract_class::{ContractClass, ContractClassV0},
     state::cached_state::CommitmentStateDiff,
     transaction::{
         account_transaction::AccountTransaction,
@@ -17,7 +17,8 @@ use blockifier::{
 use starknet::{
     core::types::{contract::legacy::LegacyContractClass, FieldElement},
     providers::jsonrpc::models::{
-        ContractStorageDiffItem, DeployedContractItem, NonceUpdate, StateDiff, StorageEntry,
+        ContractStorageDiffItem, DeclaredClassItem, DeployedContractItem, NonceUpdate, StateDiff,
+        StorageEntry,
     },
 };
 use starknet_api::{
@@ -30,9 +31,7 @@ use starknet_api::{
     StarknetApiError,
 };
 
-use blockifier::execution::contract_class::{
-    casm_contract_into_contract_class, ContractClass as BlockifierContractClass,
-};
+use blockifier::execution::contract_class::ContractClassV1 as BlockifierContractClass;
 use cairo_lang_starknet::casm_contract_class::CasmContractClass;
 
 pub fn get_current_timestamp() -> Duration {
@@ -44,7 +43,8 @@ pub fn get_current_timestamp() -> Duration {
 pub fn get_contract_class(contract_path: &str) -> ContractClass {
     let path: PathBuf = [env!("CARGO_MANIFEST_DIR"), contract_path].iter().collect();
     let raw_contract_class = fs::read_to_string(path).unwrap();
-    serde_json::from_str(&raw_contract_class).unwrap()
+    let legacy_contract_class: ContractClassV0 = serde_json::from_str(&raw_contract_class).unwrap();
+    ContractClass::V0(legacy_contract_class)
 }
 
 pub fn convert_blockifier_tx_to_starknet_api_tx(
@@ -175,7 +175,7 @@ pub fn blockifier_contract_class_from_flattened_sierra_class(
     };
 
     let casm_contract = CasmContractClass::from_contract_class(contract_class, true)?;
-    Ok(casm_contract_into_contract_class(casm_contract)?)
+    Ok(casm_contract.try_into()?)
 }
 
 pub fn convert_state_diff_to_rpc_state_diff(state_diff: CommitmentStateDiff) -> StateDiff {
@@ -194,11 +194,15 @@ pub fn convert_state_diff_to_rpc_state_diff(state_diff: CommitmentStateDiff) -> 
                     .collect(),
             })
             .collect(),
+        deprecated_declared_classes: vec![],
         // TODO: This will change with RPC spec v3.0.0. Also, are we supposed to return the class hash or the compiled class hash?
-        declared_contract_hashes: state_diff
+        declared_classes: state_diff
             .class_hash_to_compiled_class_hash
             .iter()
-            .map(|class_hash| class_hash.0 .0.into())
+            .map(|(class_hash, compiled_class_hash)| DeclaredClassItem {
+                class_hash: class_hash.0.into(),
+                compiled_class_hash: compiled_class_hash.0.into(),
+            })
             .collect(),
         deployed_contracts: state_diff
             .address_to_class_hash
@@ -208,6 +212,7 @@ pub fn convert_state_diff_to_rpc_state_diff(state_diff: CommitmentStateDiff) -> 
                 class_hash: class_hash.0.into(),
             })
             .collect(),
+        replaced_classes: vec![],
         nonces: state_diff
             .address_to_nonce
             .iter()

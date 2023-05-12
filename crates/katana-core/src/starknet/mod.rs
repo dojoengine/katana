@@ -3,7 +3,7 @@ use std::path::PathBuf;
 use anyhow::Result;
 use blockifier::{
     block_context::BlockContext,
-    execution::entry_point::{CallEntryPoint, CallInfo, ExecutionContext, ExecutionResources},
+    execution::entry_point::{CallEntryPoint, CallInfo, ExecutionContext},
     state::{
         cached_state::{CachedState, CommitmentStateDiff, MutRefState},
         state_api::State,
@@ -17,7 +17,7 @@ use blockifier::{
 };
 use starknet::{
     core::types::{FieldElement, TransactionStatus},
-    providers::jsonrpc::models::StateUpdate,
+    providers::jsonrpc::models::{PendingStateUpdate, StateUpdate},
 };
 use starknet_api::{
     block::{BlockHash, BlockNumber, BlockTimestamp, GasPrice},
@@ -190,15 +190,17 @@ impl StarknetWrapper {
             StateUpdate {
                 block_hash: block_hash.0.into(),
                 new_root: new_block.header().state_root.0.into(),
-                old_root: if new_block.block_number() == BlockNumber(0) {
-                    FieldElement::ZERO
-                } else {
-                    self.blocks
-                        .latest()
-                        .map(|last_block| last_block.header().state_root.0.into())
-                        .unwrap()
+                pending_state_update: PendingStateUpdate {
+                    old_root: if new_block.block_number() == BlockNumber(0) {
+                        FieldElement::ZERO
+                    } else {
+                        self.blocks
+                            .latest()
+                            .map(|last_block| last_block.header().state_root.0.into())
+                            .unwrap()
+                    },
+                    state_diff: convert_state_diff_to_rpc_state_diff(state_diff.clone()),
                 },
-                state_diff: convert_state_diff_to_rpc_state_diff(state_diff.clone()),
             },
         );
 
@@ -230,10 +232,10 @@ impl StarknetWrapper {
 
         call.execute(
             &mut state,
-            &mut ExecutionResources::default(),
-            &mut ExecutionContext::default(),
-            &self.block_context,
-            &AccountTransactionContext::default(),
+            &mut ExecutionContext::new(
+                self.block_context.clone(),
+                AccountTransactionContext::default(),
+            ),
         )
         .map_err(|e| e.into())
     }
