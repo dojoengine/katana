@@ -129,8 +129,13 @@ impl StarknetBlocks {
         Ok(())
     }
 
-    pub fn current_block_number(&self) -> BlockNumber {
-        BlockNumber(self.total_blocks() as u64 - 1)
+    pub fn current_block_number(&self) -> Option<BlockNumber> {
+        let block_len = self.total_blocks();
+        if block_len == 0 {
+            None
+        } else {
+            Some(BlockNumber(block_len as u64 - 1))
+        }
     }
 
     pub fn latest(&self) -> Option<StarknetBlock> {
@@ -168,7 +173,7 @@ impl StarknetBlocks {
     }
 
     pub fn get_state(&self, block_number: &BlockNumber) -> Option<&DictStateReader> {
-        self.state_archive.get(&block_number)
+        self.state_archive.get(block_number)
     }
 
     pub fn store_state(&mut self, block_number: BlockNumber, state: DictStateReader) {
