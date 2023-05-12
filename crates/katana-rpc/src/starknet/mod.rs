@@ -44,7 +44,7 @@ use std::sync::Arc;
 use tokio::sync::RwLock;
 use utils::transaction::{
     compute_declare_v2_transaction_hash, compute_invoke_v1_transaction_hash,
-    convert_inner_to_rpc_tx, stark_felt_to_field_element,
+    convert_inner_to_rpc_tx,
 };
 
 use crate::utils;
@@ -62,7 +62,6 @@ impl<S: Sequencer + Send + Sync + 'static> StarknetRpc<S> {
         Self { sequencer }
     }
 }
-
 #[allow(unused)]
 #[async_trait]
 impl<S: Sequencer + Send + Sync + 'static> StarknetApiServer for StarknetRpc<S> {
@@ -85,8 +84,7 @@ impl<S: Sequencer + Send + Sync + 'static> StarknetApiServer for StarknetRpc<S> 
             )
             .map_err(|_| Error::from(StarknetApiError::ContractError))?;
 
-        stark_felt_to_field_element(nonce.0)
-            .map_err(|_| Error::from(StarknetApiError::InternalServerError))
+        Ok(nonce.0.into())
     }
 
     async fn block_number(&self) -> Result<u64, Error> {
@@ -114,7 +112,7 @@ impl<S: Sequencer + Send + Sync + 'static> StarknetApiServer for StarknetRpc<S> 
             .sequencer
             .read()
             .await
-            .block(block_id.clone())
+            .block(block_id)
             .ok_or(Error::from(StarknetApiError::BlockNotFound))?;
 
         block
@@ -144,18 +142,18 @@ impl<S: Sequencer + Send + Sync + 'static> StarknetApiServer for StarknetRpc<S> 
             .sequencer
             .read()
             .await
-            .block(block_id.clone())
+            .block(block_id)
             .ok_or(Error::from(StarknetApiError::BlockNotFound))?;
 
         let sequencer_address = FieldElement::from_hex_be(SEQUENCER_ADDRESS).unwrap();
         let transactions = block
             .transactions()
             .iter()
-            .map(|tx| stark_felt_to_field_element(tx.transaction_hash().0).unwrap())
+            .map(|tx| tx.transaction_hash().0.into())
             .collect::<Vec<_>>();
 
         let timestamp = block.header().timestamp.0;
-        let parent_hash = stark_felt_to_field_element(block.header().parent_hash.0).unwrap();
+        let parent_hash = block.header().parent_hash.0.into();
 
         if BlockId::Tag(BlockTag::Pending) == block_id {
             return Ok(MaybePendingBlockWithTxHashes::PendingBlock(
@@ -169,8 +167,8 @@ impl<S: Sequencer + Send + Sync + 'static> StarknetApiServer for StarknetRpc<S> 
         }
 
         Ok(MaybePendingBlockWithTxHashes::Block(BlockWithTxHashes {
-            new_root: stark_felt_to_field_element(block.header().state_root.0).unwrap(),
-            block_hash: stark_felt_to_field_element(block.header().block_hash.0).unwrap(),
+            new_root: block.header().state_root.0.into(),
+            block_hash: block.header().block_hash.0.into(),
             block_number: block.header().block_number.0,
             status: BlockStatus::AcceptedOnL2,
             transactions,
@@ -189,7 +187,7 @@ impl<S: Sequencer + Send + Sync + 'static> StarknetApiServer for StarknetRpc<S> 
             .sequencer
             .read()
             .await
-            .block(block_id.clone())
+            .block(block_id)
             .ok_or(Error::from(StarknetApiError::BlockNotFound))?;
 
         let transaction = block
@@ -206,7 +204,7 @@ impl<S: Sequencer + Send + Sync + 'static> StarknetApiServer for StarknetRpc<S> 
             .sequencer
             .read()
             .await
-            .block(block_id.clone())
+            .block(block_id)
             .ok_or(Error::from(StarknetApiError::BlockNotFound))?;
 
         let sequencer_address = FieldElement::from_hex_be(SEQUENCER_ADDRESS).unwrap();
@@ -216,7 +214,7 @@ impl<S: Sequencer + Send + Sync + 'static> StarknetApiServer for StarknetRpc<S> 
             .map(|tx| convert_inner_to_rpc_tx(tx.clone()).unwrap())
             .collect::<Vec<_>>();
         let timestamp = block.header().timestamp.0;
-        let parent_hash = stark_felt_to_field_element(block.header().parent_hash.0).unwrap();
+        let parent_hash = block.header().parent_hash.0.into();
 
         if BlockId::Tag(BlockTag::Pending) == block_id {
             return Ok(MaybePendingBlockWithTxs::PendingBlock(
@@ -230,8 +228,8 @@ impl<S: Sequencer + Send + Sync + 'static> StarknetApiServer for StarknetRpc<S> 
         }
 
         Ok(MaybePendingBlockWithTxs::Block(BlockWithTxs {
-            new_root: stark_felt_to_field_element(block.header().state_root.0).unwrap(),
-            block_hash: stark_felt_to_field_element(block.block_hash().0).unwrap(),
+            new_root: block.header().state_root.0.into(),
+            block_hash: block.block_hash().0.into(),
             block_number: block.block_number().0,
             status: BlockStatus::AcceptedOnL2,
             transactions,
@@ -271,8 +269,7 @@ impl<S: Sequencer + Send + Sync + 'static> StarknetApiServer for StarknetRpc<S> 
             )
             .map_err(|_| Error::from(StarknetApiError::ContractError))?;
 
-        stark_felt_to_field_element(class_hash.0)
-            .map_err(|_| Error::from(StarknetApiError::InternalServerError))
+        Ok(class_hash.0.into())
     }
 
     async fn class(
@@ -300,9 +297,11 @@ impl<S: Sequencer + Send + Sync + 'static> StarknetApiServer for StarknetRpc<S> 
                 from_block,
                 to_block,
                 filter.address.map(|fe| field_element_to_starkfelt(&fe)),
-                filter
-                    .keys
-                    .map(|keys| keys.iter().map(field_element_to_starkfelt).collect()),
+                filter.keys.map(|keys| {
+                    keys.iter()
+                        .map(|key| key.iter().map(|key| (*key).into()).collect())
+                        .collect()
+                }),
                 continuation_token,
                 chunk_size,
             )
@@ -313,16 +312,15 @@ impl<S: Sequencer + Send + Sync + 'static> StarknetApiServer for StarknetRpc<S> 
                 .iter()
                 .map(|e| EmittedEvent {
                     block_number: e.block_number.0,
-                    block_hash: stark_felt_to_field_element(e.block_hash.0).unwrap(),
-                    transaction_hash: stark_felt_to_field_element(e.transaction_hash.0).unwrap(),
-                    from_address: stark_felt_to_field_element(*e.inner.from_address.0.key())
-                        .unwrap(),
+                    block_hash: (e.block_hash.0).into(),
+                    transaction_hash: (e.transaction_hash.0).into(),
+                    from_address: (*e.inner.from_address.0.key()).into(),
                     keys: e
                         .inner
                         .content
                         .keys
                         .iter()
-                        .map(|key| stark_felt_to_field_element(key.0).unwrap())
+                        .map(|key| (key.0).into())
                         .collect(),
                     data: e
                         .inner
@@ -330,7 +328,7 @@ impl<S: Sequencer + Send + Sync + 'static> StarknetApiServer for StarknetRpc<S> 
                         .data
                         .0
                         .iter()
-                        .map(|fe| stark_felt_to_field_element(*fe).unwrap())
+                        .map(|fe| (*fe).into())
                         .collect(),
                 })
                 .collect(),
@@ -381,10 +379,7 @@ impl<S: Sequencer + Send + Sync + 'static> StarknetApiServer for StarknetRpc<S> 
         let mut values = vec![];
 
         for f in res.into_iter() {
-            values.push(
-                stark_felt_to_field_element(f)
-                    .map_err(|_| Error::from(StarknetApiError::InternalServerError))?,
-            );
+            values.push(f.into());
         }
 
         Ok(values)
@@ -406,8 +401,7 @@ impl<S: Sequencer + Send + Sync + 'static> StarknetApiServer for StarknetRpc<S> 
             )
             .map_err(|_| Error::from(StarknetApiError::ContractError))?;
 
-        stark_felt_to_field_element(value)
-            .map_err(|_| Error::from(StarknetApiError::InternalServerError))
+        Ok(value.into())
     }
 
     async fn add_deploy_account_transaction(
@@ -506,7 +500,9 @@ impl<S: Sequencer + Send + Sync + 'static> StarknetApiServer for StarknetRpc<S> 
                     class_hash,
                     AccountTransaction::Declare(DeclareTransaction {
                         tx: starknet_api::transaction::DeclareTransaction::V2(transaction),
-                        contract_class,
+                        contract_class: blockifier::execution::contract_class::ContractClass::V1(
+                            contract_class,
+                        ),
                     }),
                 )
             }
