@@ -50,6 +50,7 @@ impl Cli {
         StarknetConfig {
             total_accounts: self.accounts,
             seed: parse_seed(self.seed.clone()),
+            block_on_demand: self.blocks_on_demand,
             account_path: self.account_class.clone(),
             allow_zero_max_fee: self.allow_max_fee_zero,
         }

@@ -3,7 +3,7 @@ use std::{process::exit, sync::Arc};
 use clap::Parser;
 use env_logger::Env;
 use katana_core::sequencer::KatanaSequencer;
-use katana_rpc::KatanaRpc;
+use katana_rpc::KatanaNodeRpc;
 use log::error;
 use tokio::sync::RwLock;
 use yansi::Paint;
@@ -36,7 +36,10 @@ async fn main() {
         )
     };
 
-    match KatanaRpc::new(sequencer.clone(), rpc_config).run().await {
+    match KatanaNodeRpc::new(sequencer.clone(), rpc_config)
+        .run()
+        .await
+    {
         Ok((addr, server_handle)) => {
             print_intro(
                 predeployed_accounts,

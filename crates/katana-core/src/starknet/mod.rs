@@ -49,6 +49,7 @@ use self::transaction::ExternalFunctionCall;
 pub struct StarknetConfig {
     pub seed: [u8; 32],
     pub total_accounts: u8,
+    pub block_on_demand: bool,
     pub allow_zero_max_fee: bool,
     pub account_path: Option<PathBuf>,
 }
@@ -127,9 +128,11 @@ impl StarknetWrapper {
                     .insert_transaction(api_tx);
 
                 self.store_transaction(starknet_tx);
-                self.generate_latest_block()?;
 
-                self.generate_pending_block();
+                if !self.config.block_on_demand {
+                    self.generate_latest_block()?;
+                    self.generate_pending_block();
+                }
             }
 
             Err(exec_err) => {

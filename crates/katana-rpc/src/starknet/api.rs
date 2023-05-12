@@ -1,14 +1,8 @@
 use jsonrpsee::{
     core::Error,
     proc_macros::rpc,
-    server::logger::{Logger, MethodKind, TransportProtocol},
-    tracing::info,
-    types::{
-        error::{CallError, ErrorObject},
-        Params,
-    },
+    types::error::{CallError, ErrorObject},
 };
-use std::time::Instant;
 
 use starknet::{
     core::types::FieldElement,
@@ -193,51 +187,4 @@ pub trait StarknetApi {
         &self,
         invoke_transaction: BroadcastedInvokeTransaction,
     ) -> Result<InvokeTransactionResult, Error>;
-}
-
-#[derive(Debug, Clone)]
-pub struct KatanaRpcLogger;
-
-impl Logger for KatanaRpcLogger {
-    type Instant = std::time::Instant;
-
-    fn on_connect(
-        &self,
-        _remote_addr: std::net::SocketAddr,
-        _request: &jsonrpsee::server::logger::HttpRequest,
-        _t: TransportProtocol,
-    ) {
-    }
-
-    fn on_request(&self, _transport: TransportProtocol) -> Self::Instant {
-        Instant::now()
-    }
-
-    fn on_call(
-        &self,
-        method_name: &str,
-        _params: Params<'_>,
-        _kind: MethodKind,
-        _transport: TransportProtocol,
-    ) {
-        info!("method: '{}'", method_name);
-    }
-
-    fn on_result(
-        &self,
-        _method_name: &str,
-        _success: bool,
-        _started_at: Self::Instant,
-        _transport: TransportProtocol,
-    ) {
-    }
-
-    fn on_response(
-        &self,
-        _result: &str,
-        _started_at: Self::Instant,
-        _transport: TransportProtocol,
-    ) {
-    }
-    fn on_disconnect(&self, _remote_addr: std::net::SocketAddr, _transport: TransportProtocol) {}
 }
