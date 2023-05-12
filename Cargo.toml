@@ -2,11 +2,7 @@
 
 resolver = "2"
 
-members = [
-    "crates/katana-cli",
-    "crates/katana-core",
-    "crates/katana-rpc"
-]
+members = ["crates/katana-cli", "crates/katana-core", "crates/katana-rpc"]
 
 [workspace.package]
 version = "0.1.0"
@@ -22,12 +18,15 @@ serde = "1.0.156"
 thiserror = "1.0.32"
 blockifier = { git = "https://github.com/starkware-libs/blockifier" }
 tokio = { version = "1.16", features = ["full"] }
-starknet = { git = "https://github.com/xJonathanLEI/starknet-rs", rev = "91425ad" }
+starknet = { git = "https://github.com/xJonathanLEI/starknet-rs", branch = "dev/jsonrpc_0_3_0" }
 starknet_api = { git = "https://github.com/starkware-libs/starknet-api" }
-cairo-lang-starknet = { git = "https://github.com/starkware-libs/cairo", version = "1.0.0-rc0" }
+cairo-lang-starknet = { git = "https://github.com/starkware-libs/cairo", rev = "a0ead7c0b8e297d281c7213151cd43ac11de5042" }
 
 [patch."https://github.com/starkware-libs/blockifier"]
-blockifier = { git = "https://github.com/dojoengine/blockifier", rev = "535725a5db32103654c54c12c2b8cb2c1d06ad55" }
+blockifier = { git = "https://github.com/dojoengine/blockifier", branch = "dev" }
 
 [patch."https://github.com/starkware-libs/starknet-api"]
-starknet_api = { git = "https://github.com/dojoengine/starknet-api", rev = "bc9dc6c24fdcef25771e9547885064116b7b7643" }
+starknet_api = { git = "https://github.com/dojoengine/starknet-api", branch = "dev" }
+
+[patch.crates-io]
+starknet-crypto = { git = "https://github.com/xJonathanLEI/starknet-rs", branch = "dev/jsonrpc_0_3_0" }

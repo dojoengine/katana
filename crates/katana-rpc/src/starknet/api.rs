@@ -1,14 +1,8 @@
 use jsonrpsee::{
     core::Error,
     proc_macros::rpc,
-    server::logger::{Logger, MethodKind, TransportProtocol},
-    tracing::info,
-    types::{
-        error::{CallError, ErrorObject},
-        Params,
-    },
+    types::error::{CallError, ErrorObject},
 };
-use std::time::Instant;
 
 use starknet::{
     core::types::FieldElement,
@@ -23,7 +17,7 @@ use starknet::{
 };
 
 #[derive(thiserror::Error, Clone, Copy, Debug)]
-pub enum KatanaApiError {
+pub enum StarknetApiError {
     #[error("Failed to write transaction")]
     FailedToReceiveTxn = 1,
     #[error("Contract not found")]
@@ -60,8 +54,8 @@ pub enum KatanaApiError {
     FailedToFetchPendingTransactions = 38,
 }
 
-impl From<KatanaApiError> for Error {
-    fn from(err: KatanaApiError) -> Self {
+impl From<StarknetApiError> for Error {
+    fn from(err: StarknetApiError) -> Self {
         Error::Call(CallError::Custom(ErrorObject::owned(
             err as i32,
             err.to_string(),
@@ -71,12 +65,12 @@ impl From<KatanaApiError> for Error {
 }
 
 #[rpc(server, client, namespace = "starknet")]
-pub trait KatanaApi {
+pub trait StarknetApi {
     #[method(name = "chainId")]
     async fn chain_id(&self) -> Result<String, Error>;
 
     #[method(name = "getNonce")]
-    async fn get_nonce(
+    async fn nonce(
         &self,
         block_id: BlockId,
         contract_address: FieldElement,
@@ -86,16 +80,16 @@ pub trait KatanaApi {
     async fn block_number(&self) -> Result<u64, Error>;
 
     #[method(name = "getTransactionByHash")]
-    async fn get_transaction_by_hash(
+    async fn transaction_by_hash(
         &self,
         transaction_hash: FieldElement,
     ) -> Result<Transaction, Error>;
 
     #[method(name = "getBlockTransactionCount")]
-    async fn get_block_transaction_count(&self, block_id: BlockId) -> Result<u64, Error>;
+    async fn block_transaction_count(&self, block_id: BlockId) -> Result<u64, Error>;
 
     #[method(name = "getClassAt")]
-    async fn get_class_at(
+    async fn class_at(
         &self,
         block_id: BlockId,
         contract_address: FieldElement,
@@ -105,49 +99,46 @@ pub trait KatanaApi {
     async fn block_hash_and_number(&self) -> Result<BlockHashAndNumber, Error>;
 
     #[method(name = "getBlockWithTxHashes")]
-    async fn get_block_with_tx_hashes(
+    async fn block_with_tx_hashes(
         &self,
         block_id: BlockId,
     ) -> Result<MaybePendingBlockWithTxHashes, Error>;
 
     #[method(name = "getTransactionByBlockIdAndIndex")]
-    async fn get_transaction_by_block_id_and_index(
+    async fn transaction_by_block_id_and_index(
         &self,
         block_id: BlockId,
         index: usize,
     ) -> Result<Transaction, Error>;
 
     #[method(name = "getBlockWithTxs")]
-    async fn get_block_with_txs(
-        &self,
-        block_id: BlockId,
-    ) -> Result<MaybePendingBlockWithTxs, Error>;
+    async fn block_with_txs(&self, block_id: BlockId) -> Result<MaybePendingBlockWithTxs, Error>;
 
     #[method(name = "getStateUpdate")]
-    async fn get_state_update(&self, block_id: BlockId) -> Result<StateUpdate, Error>;
+    async fn state_update(&self, block_id: BlockId) -> Result<StateUpdate, Error>;
 
     #[method(name = "getTransactionReceipt")]
-    async fn get_transaction_receipt(
+    async fn transaction_receipt(
         &self,
         transaction_hash: FieldElement,
     ) -> Result<MaybePendingTransactionReceipt, Error>;
 
     #[method(name = "getClassHashAt")]
-    async fn get_class_hash_at(
+    async fn class_hash_at(
         &self,
         block_id: BlockId,
         contract_address: FieldElement,
     ) -> Result<FieldElement, Error>;
 
     #[method(name = "getClass")]
-    async fn get_class(
+    async fn class(
         &self,
         block_id: BlockId,
         class_hash: FieldElement,
     ) -> Result<ContractClass, Error>;
 
     #[method(name = "getEvents")]
-    async fn get_events(
+    async fn events(
         &self,
         filter: EventFilter,
         continuation_token: Option<String>,
@@ -172,7 +163,7 @@ pub trait KatanaApi {
     ) -> Result<Vec<FieldElement>, Error>;
 
     #[method(name = "getStorageAt")]
-    async fn get_storage_at(
+    async fn storage_at(
         &self,
         contract_address: FieldElement,
         key: FieldElement,
@@ -196,51 +187,4 @@ pub trait KatanaApi {
         &self,
         invoke_transaction: BroadcastedInvokeTransaction,
     ) -> Result<InvokeTransactionResult, Error>;
-}
-
-#[derive(Debug, Clone)]
-pub struct KatanaRpcLogger;
-
-impl Logger for KatanaRpcLogger {
-    type Instant = std::time::Instant;
-
-    fn on_connect(
-        &self,
-        _remote_addr: std::net::SocketAddr,
-        _request: &jsonrpsee::server::logger::HttpRequest,
-        _t: TransportProtocol,
-    ) {
-    }
-
-    fn on_request(&self, _transport: TransportProtocol) -> Self::Instant {
-        Instant::now()
-    }
-
-    fn on_call(
-        &self,
-        method_name: &str,
-        _params: Params<'_>,
-        _kind: MethodKind,
-        _transport: TransportProtocol,
-    ) {
-        info!("method: '{}'", method_name);
-    }
-
-    fn on_result(
-        &self,
-        _method_name: &str,
-        _success: bool,
-        _started_at: Self::Instant,
-        _transport: TransportProtocol,
-    ) {
-    }
-
-    fn on_response(
-        &self,
-        _result: &str,
-        _started_at: Self::Instant,
-        _transport: TransportProtocol,
-    ) {
-    }
-    fn on_disconnect(&self, _remote_addr: std::net::SocketAddr, _transport: TransportProtocol) {}
 }

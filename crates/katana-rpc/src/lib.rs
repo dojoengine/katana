@@ -1,52 +1,30 @@
 use config::RpcConfig;
 use jsonrpsee::{
-    core::{async_trait, Error},
+    core::Error,
     server::{ServerBuilder, ServerHandle},
-    types::error::CallError,
 };
-use katana_core::{
-    sequencer::Sequencer,
-    starknet::transaction::ExternalFunctionCall,
-    util::{field_element_to_starkfelt, starkfelt_to_u128},
-};
-use starknet::core::types::FieldElement;
-use starknet::providers::jsonrpc::models::{
-    BlockHashAndNumber, BlockId, BroadcastedDeclareTransaction,
-    BroadcastedDeployAccountTransaction, BroadcastedInvokeTransaction, BroadcastedTransaction,
-    ContractClass, DeclareTransactionResult, DeployAccountTransactionResult, EventFilter,
-    EventsPage, FeeEstimate, FunctionCall, InvokeTransactionResult, MaybePendingBlockWithTxHashes,
-    MaybePendingBlockWithTxs, MaybePendingTransactionReceipt, StateUpdate, Transaction,
-};
-use starknet_api::{
-    core::{ClassHash, ContractAddress, PatriciaKey},
-    hash::StarkFelt,
-    transaction::{Calldata, ContractAddressSalt, Fee, TransactionVersion},
-};
-use starknet_api::{
-    core::{EntryPointSelector, Nonce},
-    patricia_key,
-    transaction::TransactionHash,
-};
-use starknet_api::{hash::StarkHash, transaction::TransactionSignature};
-use starknet_api::{state::StorageKey, transaction::InvokeTransactionV1};
+use katana::{api::KatanaApiServer, KatanaRpc};
+use katana_core::sequencer::Sequencer;
 use std::{net::SocketAddr, sync::Arc};
 use tokio::sync::RwLock;
-use util::{
-    compute_invoke_v1_transaction_hash, convert_inner_to_rpc_tx, stark_felt_to_field_element,
+
+pub mod config;
+mod katana;
+mod starknet;
+mod utils;
+
+use self::starknet::{
+    api::{StarknetApiError, StarknetApiServer},
+    StarknetRpc,
 };
 
-pub mod api;
-pub mod config;
-pub mod util;
-
-use api::{KatanaApiError, KatanaApiServer, KatanaRpcLogger};
-
-pub struct KatanaRpc<S> {
+#[derive(Debug, Clone)]
+pub struct KatanaNodeRpc<S> {
     pub config: RpcConfig,
     pub sequencer: Arc<RwLock<S>>,
 }
 
-impl<S> KatanaRpc<S>
+impl<S> KatanaNodeRpc<S>
 where
     S: Sequencer + Send + Sync + 'static,
 {
@@ -55,324 +33,73 @@ where
     }
 
     pub async fn run(self) -> Result<(SocketAddr, ServerHandle), Error> {
+        let mut methods = KatanaRpc::new(self.sequencer.clone()).into_rpc();
+        methods.merge(StarknetRpc::new(self.sequencer.clone()).into_rpc())?;
+
         let server = ServerBuilder::new()
-            .set_logger(KatanaRpcLogger)
+            .set_logger(KatanaNodeRpcLogger)
             .build(format!("127.0.0.1:{}", self.config.port))
             .await
-            .map_err(|_| Error::from(KatanaApiError::InternalServerError))?;
+            .map_err(|_| Error::from(StarknetApiError::InternalServerError))?;
 
         let addr = server.local_addr()?;
-        let handle = server.start(self.into_rpc())?;
+        let handle = server.start(methods)?;
 
         Ok((addr, handle))
     }
 }
 
-#[allow(unused)]
-#[async_trait]
-impl<S: Sequencer + Send + Sync + 'static> KatanaApiServer for KatanaRpc<S> {
-    async fn chain_id(&self) -> Result<String, Error> {
-        Ok(self.sequencer.read().await.chain_id().as_hex())
-    }
+use std::time::Instant;
 
-    async fn get_nonce(
+use jsonrpsee::{
+    server::logger::{Logger, MethodKind, TransportProtocol},
+    tracing::info,
+    types::Params,
+};
+
+#[derive(Debug, Clone)]
+pub struct KatanaNodeRpcLogger;
+
+impl Logger for KatanaNodeRpcLogger {
+    type Instant = std::time::Instant;
+
+    fn on_connect(
         &self,
-        block_id: BlockId,
-        contract_address: FieldElement,
-    ) -> Result<FieldElement, Error> {
-        let nonce = self
-            .sequencer
-            .write()
-            .await
-            .get_nonce_at(
-                block_id,
-                ContractAddress(patricia_key!(field_element_to_starkfelt(&contract_address))),
-            )
-            .map_err(|_| Error::from(KatanaApiError::ContractError))?;
-
-        stark_felt_to_field_element(nonce.0)
-            .map_err(|_| Error::from(KatanaApiError::InternalServerError))
+        _remote_addr: std::net::SocketAddr,
+        _request: &jsonrpsee::server::logger::HttpRequest,
+        _t: TransportProtocol,
+    ) {
     }
 
-    async fn block_number(&self) -> Result<u64, Error> {
-        Ok(self.sequencer.read().await.block_number().0)
+    fn on_request(&self, _transport: TransportProtocol) -> Self::Instant {
+        Instant::now()
     }
 
-    async fn get_transaction_by_hash(
+    fn on_call(
         &self,
-        transaction_hash: FieldElement,
-    ) -> Result<Transaction, Error> {
-        let tx = self
-            .sequencer
-            .write()
-            .await
-            .transaction(&TransactionHash(field_element_to_starkfelt(
-                &transaction_hash,
-            )))
-            .ok_or(Error::from(KatanaApiError::TxnHashNotFound))?;
-
-        convert_inner_to_rpc_tx(tx).map_err(|_| Error::from(KatanaApiError::InternalServerError))
+        method_name: &str,
+        _params: Params<'_>,
+        _kind: MethodKind,
+        _transport: TransportProtocol,
+    ) {
+        info!("method: '{}'", method_name);
     }
 
-    async fn get_block_transaction_count(&self, block_id: BlockId) -> Result<u64, Error> {
-        unimplemented!("KatanaRpc::get_block_transaction_count")
-    }
-
-    async fn get_class_at(
+    fn on_result(
         &self,
-        block_id: BlockId,
-        contract_address: FieldElement,
-    ) -> Result<ContractClass, Error> {
-        unimplemented!("KatanaRpc::get_class_at")
+        _method_name: &str,
+        _success: bool,
+        _started_at: Self::Instant,
+        _transport: TransportProtocol,
+    ) {
     }
 
-    async fn block_hash_and_number(&self) -> Result<BlockHashAndNumber, Error> {
-        unimplemented!("KatanaRpc::block_hash_and_number")
-    }
-
-    async fn get_block_with_tx_hashes(
+    fn on_response(
         &self,
-        block_id: BlockId,
-    ) -> Result<MaybePendingBlockWithTxHashes, Error> {
-        unimplemented!("KatanaRpc::get_block_with_tx_hashes")
+        _result: &str,
+        _started_at: Self::Instant,
+        _transport: TransportProtocol,
+    ) {
     }
-
-    async fn get_transaction_by_block_id_and_index(
-        &self,
-        block_id: BlockId,
-        index: usize,
-    ) -> Result<Transaction, Error> {
-        unimplemented!("KatanaRpc::get_transaction_by_block_id_and_index")
-    }
-
-    async fn get_block_with_txs(
-        &self,
-        block_id: BlockId,
-    ) -> Result<MaybePendingBlockWithTxs, Error> {
-        unimplemented!("KatanaRpc::get_block_with_txs")
-    }
-
-    async fn get_state_update(&self, block_id: BlockId) -> Result<StateUpdate, Error> {
-        unimplemented!("KatanaRpc::get_state_update")
-    }
-
-    async fn get_transaction_receipt(
-        &self,
-        transaction_hash: FieldElement,
-    ) -> Result<MaybePendingTransactionReceipt, Error> {
-        unimplemented!("KatanaRpc::get_transaction_receipt")
-    }
-
-    async fn get_class_hash_at(
-        &self,
-        block_id: BlockId,
-        contract_address: FieldElement,
-    ) -> Result<FieldElement, Error> {
-        let class_hash = self
-            .sequencer
-            .write()
-            .await
-            .class_hash_at(
-                block_id,
-                ContractAddress(patricia_key!(field_element_to_starkfelt(&contract_address))),
-            )
-            .map_err(|_| Error::from(KatanaApiError::ContractError))?;
-
-        stark_felt_to_field_element(class_hash.0)
-            .map_err(|_| Error::from(KatanaApiError::InternalServerError))
-    }
-
-    async fn get_class(
-        &self,
-        block_id: BlockId,
-        class_hash: FieldElement,
-    ) -> Result<ContractClass, Error> {
-        unimplemented!("KatanaRpc::get_class")
-    }
-
-    async fn get_events(
-        &self,
-        filter: EventFilter,
-        continuation_token: Option<String>,
-        chunk_size: u64,
-    ) -> Result<EventsPage, Error> {
-        unimplemented!("KatanaRpc::get_events")
-    }
-
-    async fn pending_transactions(&self) -> Result<Vec<Transaction>, Error> {
-        unimplemented!("KatanaRpc::pending_transactions")
-    }
-
-    async fn estimate_fee(
-        &self,
-        request: BroadcastedTransaction,
-        block_id: BlockId,
-    ) -> Result<FeeEstimate, Error> {
-        unimplemented!("KatanaRpc::estimate_fee")
-    }
-
-    async fn call(
-        &self,
-        request: FunctionCall,
-        block_id: BlockId,
-    ) -> Result<Vec<FieldElement>, Error> {
-        let call = ExternalFunctionCall {
-            contract_address: ContractAddress(patricia_key!(field_element_to_starkfelt(
-                &request.contract_address
-            ))),
-            calldata: Calldata(Arc::new(
-                request
-                    .calldata
-                    .iter()
-                    .map(field_element_to_starkfelt)
-                    .collect(),
-            )),
-            entry_point_selector: EntryPointSelector(field_element_to_starkfelt(
-                &request.entry_point_selector,
-            )),
-        };
-
-        let res = self
-            .sequencer
-            .read()
-            .await
-            .call(block_id, call)
-            .map_err(|_| Error::from(KatanaApiError::ContractError))?;
-
-        let mut values = vec![];
-
-        for f in res.into_iter() {
-            values.push(
-                stark_felt_to_field_element(f)
-                    .map_err(|_| Error::from(KatanaApiError::InternalServerError))?,
-            );
-        }
-
-        Ok(values)
-    }
-
-    async fn get_storage_at(
-        &self,
-        contract_address: FieldElement,
-        key: FieldElement,
-        _block_id: BlockId,
-    ) -> Result<FieldElement, Error> {
-        let value = self
-            .sequencer
-            .write()
-            .await
-            .get_storage_at(
-                ContractAddress(patricia_key!(field_element_to_starkfelt(&contract_address))),
-                StorageKey(patricia_key!(field_element_to_starkfelt(&key))),
-            )
-            .map_err(|_| Error::from(KatanaApiError::ContractError))?;
-
-        stark_felt_to_field_element(value)
-            .map_err(|_| Error::from(KatanaApiError::InternalServerError))
-    }
-
-    async fn add_deploy_account_transaction(
-        &self,
-        deploy_account_transaction: BroadcastedDeployAccountTransaction,
-    ) -> Result<DeployAccountTransactionResult, Error> {
-        let BroadcastedDeployAccountTransaction {
-            max_fee,
-            version,
-            signature,
-            nonce,
-            contract_address_salt,
-            constructor_calldata,
-            class_hash,
-        } = deploy_account_transaction;
-
-        let (transaction_hash, contract_address) = self
-            .sequencer
-            .write()
-            .await
-            .deploy_account(
-                ClassHash(field_element_to_starkfelt(&class_hash)),
-                TransactionVersion(StarkFelt::from(version)),
-                ContractAddressSalt(field_element_to_starkfelt(&contract_address_salt)),
-                Calldata(Arc::new(
-                    constructor_calldata
-                        .iter()
-                        .map(field_element_to_starkfelt)
-                        .collect(),
-                )),
-                TransactionSignature(signature.iter().map(field_element_to_starkfelt).collect()),
-            )
-            .map_err(|e| Error::Call(CallError::Failed(anyhow::anyhow!(e.to_string()))))?;
-
-        Ok(DeployAccountTransactionResult {
-            transaction_hash: FieldElement::from_byte_slice_be(transaction_hash.0.bytes())
-                .map_err(|_| Error::from(KatanaApiError::InternalServerError))?,
-            contract_address: FieldElement::from_byte_slice_be(contract_address.0.key().bytes())
-                .map_err(|_| Error::from(KatanaApiError::InternalServerError))?,
-        })
-    }
-
-    async fn add_declare_transaction(
-        &self,
-        transaction: BroadcastedDeclareTransaction,
-    ) -> Result<DeclareTransactionResult, Error> {
-        unimplemented!("KatanaRpc::add_declare_transaction")
-    }
-
-    async fn add_invoke_transaction(
-        &self,
-        invoke_transaction: BroadcastedInvokeTransaction,
-    ) -> Result<InvokeTransactionResult, Error> {
-        match invoke_transaction {
-            BroadcastedInvokeTransaction::V1(transaction) => {
-                let chain_id =
-                    FieldElement::from_hex_be(&self.sequencer.read().await.chain_id().as_hex())
-                        .map_err(|_| Error::from(KatanaApiError::InternalServerError))?;
-
-                let transaction_hash = compute_invoke_v1_transaction_hash(
-                    transaction.sender_address,
-                    &transaction.calldata,
-                    transaction.max_fee,
-                    chain_id,
-                    transaction.nonce,
-                );
-
-                let transaction = InvokeTransactionV1 {
-                    transaction_hash: TransactionHash(field_element_to_starkfelt(
-                        &transaction_hash,
-                    )),
-                    sender_address: ContractAddress(patricia_key!(field_element_to_starkfelt(
-                        &transaction.sender_address
-                    ))),
-                    nonce: Nonce(field_element_to_starkfelt(&transaction.nonce)),
-                    calldata: Calldata(Arc::new(
-                        transaction
-                            .calldata
-                            .iter()
-                            .map(field_element_to_starkfelt)
-                            .collect(),
-                    )),
-                    max_fee: Fee(starkfelt_to_u128(field_element_to_starkfelt(
-                        &transaction.max_fee,
-                    ))
-                    .map_err(|_| Error::from(KatanaApiError::InternalServerError))?),
-                    signature: TransactionSignature(
-                        transaction
-                            .signature
-                            .iter()
-                            .map(field_element_to_starkfelt)
-                            .collect(),
-                    ),
-                };
-
-                self.sequencer
-                    .write()
-                    .await
-                    .add_invoke_transaction(transaction);
-
-                Ok(InvokeTransactionResult { transaction_hash })
-            }
-
-            _ => Err(Error::from(KatanaApiError::InternalServerError)),
-        }
-    }
+    fn on_disconnect(&self, _remote_addr: std::net::SocketAddr, _transport: TransportProtocol) {}
 }

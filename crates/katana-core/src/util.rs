@@ -1,15 +1,26 @@
-use std::{fs, path::PathBuf};
+use std::{
+    fs,
+    path::PathBuf,
+    time::{Duration, SystemTime},
+};
 
 use anyhow::{anyhow, Result};
 use blockifier::{
-    execution::contract_class::ContractClass,
+    execution::contract_class::{ContractClass, ContractClassV0},
+    state::cached_state::CommitmentStateDiff,
     transaction::{
         account_transaction::AccountTransaction,
         transaction_execution::Transaction as BlockifierTransaction,
         transactions::DeclareTransaction,
     },
 };
-use starknet::core::types::{contract::legacy::LegacyContractClass, FieldElement};
+use starknet::{
+    core::types::{contract::legacy::LegacyContractClass, FieldElement},
+    providers::jsonrpc::models::{
+        ContractStorageDiffItem, DeclaredClassItem, DeployedContractItem, NonceUpdate, StateDiff,
+        StorageEntry,
+    },
+};
 use starknet_api::{
     core::ClassHash,
     hash::StarkFelt,
@@ -20,10 +31,20 @@ use starknet_api::{
     StarknetApiError,
 };
 
+use blockifier::execution::contract_class::ContractClassV1 as BlockifierContractClass;
+use cairo_lang_starknet::casm_contract_class::CasmContractClass;
+
+pub fn get_current_timestamp() -> Duration {
+    SystemTime::now()
+        .duration_since(SystemTime::UNIX_EPOCH)
+        .expect("should get current UNIX timestamp")
+}
+
 pub fn get_contract_class(contract_path: &str) -> ContractClass {
     let path: PathBuf = [env!("CARGO_MANIFEST_DIR"), contract_path].iter().collect();
     let raw_contract_class = fs::read_to_string(path).unwrap();
-    serde_json::from_str(&raw_contract_class).unwrap()
+    let legacy_contract_class: ContractClassV0 = serde_json::from_str(&raw_contract_class).unwrap();
+    ContractClass::V0(legacy_contract_class)
 }
 
 pub fn convert_blockifier_tx_to_starknet_api_tx(
@@ -135,5 +156,70 @@ pub fn starkfelt_to_u128(felt: StarkFelt) -> Result<u128> {
                 .try_into()
                 .expect("u128_bytes should be of size usize."),
         ))
+    }
+}
+
+pub fn blockifier_contract_class_from_flattened_sierra_class(
+    raw_contract_class: &str,
+) -> Result<BlockifierContractClass> {
+    let value = serde_json::from_str::<serde_json::Value>(raw_contract_class)?;
+    let contract_class = cairo_lang_starknet::contract_class::ContractClass {
+        abi: serde_json::from_value(value["abi"].clone()).ok(),
+        sierra_program: serde_json::from_value(value["sierra_program"].clone())?,
+        entry_points_by_type: serde_json::from_value(value["entry_points_by_type"].clone())?,
+        contract_class_version: serde_json::from_value(value["contract_class_version"].clone())?,
+        sierra_program_debug_info: serde_json::from_value(
+            value["sierra_program_debug_info"].clone(),
+        )
+        .ok(),
+    };
+
+    let casm_contract = CasmContractClass::from_contract_class(contract_class, true)?;
+    Ok(casm_contract.try_into()?)
+}
+
+pub fn convert_state_diff_to_rpc_state_diff(state_diff: CommitmentStateDiff) -> StateDiff {
+    StateDiff {
+        storage_diffs: state_diff
+            .storage_updates
+            .iter()
+            .map(|(address, entries)| ContractStorageDiffItem {
+                address: (*address.0.key()).into(),
+                storage_entries: entries
+                    .iter()
+                    .map(|(key, value)| StorageEntry {
+                        key: (*key.0.key()).into(),
+                        value: (*value).into(),
+                    })
+                    .collect(),
+            })
+            .collect(),
+        deprecated_declared_classes: vec![],
+        // TODO: This will change with RPC spec v3.0.0. Also, are we supposed to return the class hash or the compiled class hash?
+        declared_classes: state_diff
+            .class_hash_to_compiled_class_hash
+            .iter()
+            .map(|(class_hash, compiled_class_hash)| DeclaredClassItem {
+                class_hash: class_hash.0.into(),
+                compiled_class_hash: compiled_class_hash.0.into(),
+            })
+            .collect(),
+        deployed_contracts: state_diff
+            .address_to_class_hash
+            .iter()
+            .map(|(address, class_hash)| DeployedContractItem {
+                address: (*address.0.key()).into(),
+                class_hash: class_hash.0.into(),
+            })
+            .collect(),
+        replaced_classes: vec![],
+        nonces: state_diff
+            .address_to_nonce
+            .iter()
+            .map(|(address, nonce)| NonceUpdate {
+                contract_address: (*address.0.key()).into(),
+                nonce: nonce.0.into(),
+            })
+            .collect(),
     }
 }

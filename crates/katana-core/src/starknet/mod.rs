@@ -1,19 +1,24 @@
-use std::{path::PathBuf, time::SystemTime};
+use std::path::PathBuf;
 
 use anyhow::Result;
 use blockifier::{
     block_context::BlockContext,
-    execution::entry_point::{CallEntryPoint, CallInfo, ExecutionContext, ExecutionResources},
+    execution::entry_point::{CallEntryPoint, CallInfo, ExecutionContext},
     state::{
-        cached_state::{CachedState, MutRefState},
+        cached_state::{CachedState, CommitmentStateDiff, MutRefState},
         state_api::State,
     },
     transaction::{
-        objects::AccountTransactionContext, transaction_execution::Transaction,
-        transactions::ExecutableTransaction,
+        account_transaction::AccountTransaction,
+        objects::AccountTransactionContext,
+        transaction_execution::Transaction,
+        transactions::{DeclareTransaction, ExecutableTransaction},
     },
 };
-use starknet::core::types::TransactionStatus;
+use starknet::{
+    core::types::{FieldElement, TransactionStatus},
+    providers::jsonrpc::models::{PendingStateUpdate, StateUpdate},
+};
 use starknet_api::{
     block::{BlockHash, BlockNumber, BlockTimestamp, GasPrice},
     core::GlobalRoot,
@@ -23,12 +28,18 @@ use starknet_api::{
 use tracing::info;
 
 pub mod block;
+pub mod event;
 pub mod transaction;
 
 use crate::{
-    accounts::PredeployedAccounts, block_context::Base,
-    constants::DEFAULT_PREFUNDED_ACCOUNT_BALANCE, state::DictStateReader,
-    util::convert_blockifier_tx_to_starknet_api_tx,
+    accounts::PredeployedAccounts,
+    block_context::Base,
+    constants::DEFAULT_PREFUNDED_ACCOUNT_BALANCE,
+    state::DictStateReader,
+    util::{
+        convert_blockifier_tx_to_starknet_api_tx, convert_state_diff_to_rpc_state_diff,
+        get_current_timestamp,
+    },
 };
 use block::{StarknetBlock, StarknetBlocks};
 use transaction::{StarknetTransaction, StarknetTransactions};
@@ -36,7 +47,10 @@ use transaction::{StarknetTransaction, StarknetTransactions};
 use self::transaction::ExternalFunctionCall;
 
 pub struct StarknetConfig {
+    pub seed: [u8; 32],
     pub total_accounts: u8,
+    pub block_on_demand: bool,
+    pub allow_zero_max_fee: bool,
     pub account_path: Option<PathBuf>,
 }
 
@@ -55,11 +69,11 @@ impl StarknetWrapper {
         let blocks = StarknetBlocks::default();
         let block_context = BlockContext::base();
         let transactions = StarknetTransactions::default();
-        let mut state = CachedState::new(DictStateReader::get_default());
+        let mut state = CachedState::new(DictStateReader::default());
 
         let predeployed_accounts = PredeployedAccounts::generate(
             config.total_accounts,
-            [0u8; 32],
+            config.seed,
             stark_felt!(DEFAULT_PREFUNDED_ACCOUNT_BALANCE),
             config
                 .account_path
@@ -80,7 +94,7 @@ impl StarknetWrapper {
     }
 
     // execute the tx
-    pub fn handle_transaction(&mut self, transaction: Transaction) {
+    pub fn handle_transaction(&mut self, transaction: Transaction) -> Result<()> {
         let api_tx = convert_blockifier_tx_to_starknet_api_tx(&transaction);
 
         info!(
@@ -89,7 +103,10 @@ impl StarknetWrapper {
         );
 
         let res = match transaction {
-            Transaction::AccountTransaction(tx) => tx.execute(&mut self.state, &self.block_context),
+            Transaction::AccountTransaction(tx) => {
+                self.check_tx_fee(&tx);
+                tx.execute(&mut self.state, &self.block_context)
+            }
             Transaction::L1HandlerTransaction(tx) => {
                 tx.execute(&mut self.state, &self.block_context)
             }
@@ -112,9 +129,11 @@ impl StarknetWrapper {
                     .insert_transaction(api_tx);
 
                 self.store_transaction(starknet_tx);
-                self.generate_latest_block();
 
-                self.generate_pending_block();
+                if !self.config.block_on_demand {
+                    self.generate_latest_block()?;
+                    self.generate_pending_block();
+                }
             }
 
             Err(exec_err) => {
@@ -128,50 +147,76 @@ impl StarknetWrapper {
                 self.store_transaction(tx);
             }
         }
+
+        Ok(())
     }
 
     // Creates a new block that contains all the pending txs
     // Will update the txs status to accepted
     // Append the block to the chain
     // Update the block context
-    pub fn generate_latest_block(&mut self) -> StarknetBlock {
-        let mut latest_block = if let Some(ref pending) = self.blocks.pending_block {
+    pub fn generate_latest_block(&mut self) -> Result<StarknetBlock> {
+        let mut new_block = if let Some(ref pending) = self.blocks.pending_block {
             pending.clone()
         } else {
-            self.create_empty_block()
+            self.create_new_empty_block()
         };
 
-        let block_hash = latest_block.compute_block_hash();
-        latest_block.0.header.block_hash = block_hash;
+        let block_hash = new_block.compute_block_hash();
+        new_block.inner.header.block_hash = block_hash;
 
-        for pending_tx in latest_block.transactions() {
+        for pending_tx in new_block.transactions() {
             let tx_hash = pending_tx.transaction_hash();
+
+            // Update the tx block hash and number in the tx store //
 
             if let Some(tx) = self.transactions.transactions.get_mut(&tx_hash) {
                 tx.block_hash = Some(block_hash);
                 tx.status = TransactionStatus::AcceptedOnL2;
-                tx.block_number = Some(latest_block.block_number());
+                tx.block_number = Some(new_block.block_number());
             }
         }
 
         info!(
-            "New block generated | Block hash: {} | Block number: {}",
-            latest_block.block_hash(),
-            latest_block.block_number()
+            "⛏️ New block generated | Block hash: {} | Block number: {}",
+            new_block.block_hash(),
+            new_block.block_number()
+        );
+
+        // apply state diff
+        let state_diff = self.state.to_state_diff();
+
+        self.blocks.num_to_state_update.insert(
+            new_block.block_number(),
+            StateUpdate {
+                block_hash: block_hash.0.into(),
+                new_root: new_block.header().state_root.0.into(),
+                pending_state_update: PendingStateUpdate {
+                    old_root: if new_block.block_number() == BlockNumber(0) {
+                        FieldElement::ZERO
+                    } else {
+                        self.blocks
+                            .latest()
+                            .map(|last_block| last_block.header().state_root.0.into())
+                            .unwrap()
+                    },
+                    state_diff: convert_state_diff_to_rpc_state_diff(state_diff.clone()),
+                },
+            },
         );
 
         // reset the pending block
         self.blocks.pending_block = None;
-        self.blocks.append_block(latest_block.clone());
-
+        self.blocks.append_block(new_block.clone())?;
         self.update_block_context();
-        self.update_latest_state();
+        // TODO: Compute state root
+        self.apply_state_diff(state_diff);
 
-        latest_block
+        Ok(new_block)
     }
 
     pub fn generate_pending_block(&mut self) {
-        self.blocks.pending_block = Some(self.create_empty_block());
+        self.blocks.pending_block = Some(self.create_new_empty_block());
     }
 
     pub fn call(&self, call: ExternalFunctionCall) -> Result<CallInfo> {
@@ -187,10 +232,10 @@ impl StarknetWrapper {
 
         call.execute(
             &mut state,
-            &mut ExecutionResources::default(),
-            &mut ExecutionContext::default(),
-            &self.block_context,
-            &AccountTransactionContext::default(),
+            &mut ExecutionContext::new(
+                self.block_context.clone(),
+                AccountTransactionContext::default(),
+            ),
         )
         .map_err(|e| e.into())
     }
@@ -204,18 +249,30 @@ impl StarknetWrapper {
         }
     }
 
-    fn create_empty_block(&self) -> StarknetBlock {
-        let timestamp = SystemTime::now()
-            .duration_since(SystemTime::UNIX_EPOCH)
-            .map(|t| BlockTimestamp(t.as_secs()))
-            .expect("should get unix timestamp");
+    fn check_tx_fee(&self, transaction: &AccountTransaction) {
+        let max_fee = match transaction {
+            AccountTransaction::Invoke(tx) => tx.max_fee(),
+            AccountTransaction::DeployAccount(tx) => tx.max_fee,
+            AccountTransaction::Declare(DeclareTransaction { tx, .. }) => match tx {
+                starknet_api::transaction::DeclareTransaction::V0(tx) => tx.max_fee,
+                starknet_api::transaction::DeclareTransaction::V1(tx) => tx.max_fee,
+                starknet_api::transaction::DeclareTransaction::V2(tx) => tx.max_fee,
+            },
+        };
 
-        let block_number = self.blocks.current_height;
+        if !self.config.allow_zero_max_fee && max_fee.0 == 0 {
+            panic!("max fee == 0 is not supported")
+        }
+    }
+
+    fn create_new_empty_block(&self) -> StarknetBlock {
+        let block_number = self.block_context.block_number;
+
         let parent_hash = if block_number.0 == 0 {
             BlockHash(stark_felt!(0))
         } else {
             self.blocks
-                .get_lastest()
+                .latest()
                 .map(|last_block| last_block.block_hash())
                 .unwrap()
         };
@@ -227,9 +284,10 @@ impl StarknetWrapper {
             GasPrice(self.block_context.gas_price),
             GlobalRoot(stark_felt!(0)),
             self.block_context.sequencer_address,
-            timestamp,
+            BlockTimestamp(get_current_timestamp().as_secs()),
             vec![],
             vec![],
+            None,
         )
     }
 
@@ -244,25 +302,16 @@ impl StarknetWrapper {
     }
 
     fn update_block_context(&mut self) {
-        let next_block_number = BlockNumber(self.blocks.current_height.0 + 1);
-        let timestamp = SystemTime::now()
-            .duration_since(SystemTime::UNIX_EPOCH)
-            .unwrap()
-            .as_secs();
-
-        self.blocks.current_height = next_block_number;
-        self.block_context.block_number = next_block_number;
-        self.block_context.block_timestamp = BlockTimestamp(timestamp);
+        self.block_context.block_number = self.block_context.block_number.next();
+        self.block_context.block_timestamp = BlockTimestamp(get_current_timestamp().as_secs());
     }
 
-    fn update_latest_state(&mut self) {
-        let state_diff = self.state.to_state_diff();
+    fn apply_state_diff(&mut self, state_diff: CommitmentStateDiff) {
         let state = &mut self.state.state;
 
         // update contract storages
-
         state_diff
-            .storage_diffs
+            .storage_updates
             .into_iter()
             .for_each(|(contract_address, storages)| {
                 storages.into_iter().for_each(|(key, value)| {
@@ -271,22 +320,18 @@ impl StarknetWrapper {
             });
 
         // update declared contracts
-
-        state_diff.declared_classes.into_iter().for_each(
-            |(class_hash, (compiled_class_hash, _contract_class))| {
-                // TODO: convert `ContractClass` to `ContractClass`
-                // state.class_hash_to_class.insert(class_hash, _contract_class);
-
+        state_diff
+            .class_hash_to_compiled_class_hash
+            .into_iter()
+            .for_each(|(class_hash, compiled_class_hash)| {
                 state
                     .class_hash_to_compiled_class_hash
                     .insert(class_hash, compiled_class_hash);
-            },
-        );
+            });
 
         // update deployed contracts
-
         state_diff
-            .deployed_contracts
+            .address_to_class_hash
             .into_iter()
             .for_each(|(contract_address, class_hash)| {
                 state
@@ -295,9 +340,8 @@ impl StarknetWrapper {
             });
 
         // update accounts nonce
-
         state_diff
-            .nonces
+            .address_to_nonce
             .into_iter()
             .for_each(|(contract_address, nonce)| {
                 state.address_to_nonce.insert(contract_address, nonce);
