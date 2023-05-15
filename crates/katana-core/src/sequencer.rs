@@ -83,33 +83,6 @@ impl KatanaSequencer {
             signature,
         )
     }
-
-    fn block_number_from_block_id(&self, block_id: BlockId) -> Option<BlockNumber> {
-        match block_id {
-            BlockId::Number(number) => Some(BlockNumber(number)),
-
-            BlockId::Hash(hash) => self
-                .starknet
-                .blocks
-                .hash_to_num
-                .get(&BlockHash(field_element_to_starkfelt(&hash)))
-                .cloned(),
-
-            BlockId::Tag(BlockTag::Pending) => None,
-            BlockId::Tag(BlockTag::Latest) => self.starknet.blocks.current_block_number(),
-        }
-    }
-
-    fn state_from_block_id(&self, block_id: BlockId) -> Option<DictStateReader> {
-        match block_id {
-            BlockId::Tag(BlockTag::Latest) => Some(self.starknet.latest_state()),
-            BlockId::Tag(BlockTag::Pending) => Some(self.starknet.pending_state()),
-
-            id => self
-                .block_number_from_block_id(id)
-                .and_then(|n| self.starknet.state(n)),
-        }
-    }
 }
 
 impl Sequencer for KatanaSequencer {
@@ -183,12 +156,9 @@ impl Sequencer for KatanaSequencer {
         storage_key: StorageKey,
         block_id: BlockId,
     ) -> Result<StarkFelt, blockifier::state::errors::StateError> {
-        let block_number = self.block_number_from_block_id(block_id);
-
-        let mut state = self.state_from_block_id(block_id).ok_or(
+        let mut state = self.starknet.state_from_block_id(block_id).ok_or(
             blockifier::state::errors::StateError::StateReadError(format!(
-                "State not found for block number {:?}",
-                block_number
+                "block {block_id:?} not found",
             )),
         )?;
 
@@ -208,6 +178,7 @@ impl Sequencer for KatanaSequencer {
             BlockId::Tag(BlockTag::Pending) => self.starknet.blocks.pending_block.clone(),
 
             id => self
+                .starknet
                 .block_number_from_block_id(id)
                 .and_then(|n| self.starknet.blocks.by_number(n)),
         }
@@ -226,7 +197,7 @@ impl Sequencer for KatanaSequencer {
         block_id: BlockId,
         function_call: ExternalFunctionCall,
     ) -> Result<Vec<StarkFelt>> {
-        let block_number = self.block_number_from_block_id(block_id);
+        let block_number = self.starknet.block_number_from_block_id(block_id);
         let execution_info = self.starknet.call(function_call, block_number)?;
         Ok(execution_info.execution.retdata.0)
     }
@@ -247,12 +218,12 @@ impl Sequencer for KatanaSequencer {
         _continuation_token: Option<String>,
         _chunk_size: u64,
     ) -> Result<Vec<EmittedEvent>, blockifier::state::errors::StateError> {
-        let from_block = self.block_number_from_block_id(from_block).ok_or(
+        let from_block = self.starknet.block_number_from_block_id(from_block).ok_or(
             blockifier::state::errors::StateError::StateReadError(
                 "invalid `from_block`; block not found".into(),
             ),
         )?;
-        let to_block = self.block_number_from_block_id(to_block).ok_or(
+        let to_block = self.starknet.block_number_from_block_id(to_block).ok_or(
             blockifier::state::errors::StateError::StateReadError(
                 "invalid `to_block`; block not found".into(),
             ),
@@ -332,7 +303,7 @@ impl Sequencer for KatanaSequencer {
         &self,
         block_id: BlockId,
     ) -> Result<StateUpdate, blockifier::state::errors::StateError> {
-        let block_number = self.block_number_from_block_id(block_id).ok_or(
+        let block_number = self.starknet.block_number_from_block_id(block_id).ok_or(
             blockifier::state::errors::StateError::StateReadError(format!(
                 "block id {block_id:?} not found",
             )),

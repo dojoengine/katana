@@ -95,6 +95,32 @@ impl StarknetWrapper {
         }
     }
 
+    pub fn state_from_block_id(&self, block_id: BlockId) -> Option<DictStateReader> {
+        match block_id {
+            BlockId::Tag(BlockTag::Latest) => Some(self.latest_state()),
+            BlockId::Tag(BlockTag::Pending) => Some(self.pending_state()),
+
+            id => self
+                .block_number_from_block_id(id)
+                .and_then(|n| self.state(n)),
+        }
+    }
+
+    pub fn block_number_from_block_id(&self, block_id: BlockId) -> Option<BlockNumber> {
+        match block_id {
+            BlockId::Number(number) => Some(BlockNumber(number)),
+
+            BlockId::Hash(hash) => self
+                .blocks
+                .hash_to_num
+                .get(&BlockHash(field_element_to_starkfelt(&hash)))
+                .cloned(),
+
+            BlockId::Tag(BlockTag::Pending) => None,
+            BlockId::Tag(BlockTag::Latest) => self.blocks.current_block_number(),
+        }
+    }
+
     // execute the tx
     pub fn handle_transaction(&mut self, transaction: Transaction) -> Result<()> {
         let api_tx = convert_blockifier_tx_to_starknet_api_tx(&transaction);
