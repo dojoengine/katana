@@ -10,14 +10,15 @@ use blockifier::{
     },
     transaction::{
         account_transaction::AccountTransaction,
-        objects::AccountTransactionContext,
+        errors::TransactionExecutionError,
+        objects::{AccountTransactionContext, TransactionExecutionInfo},
         transaction_execution::Transaction,
         transactions::{DeclareTransaction, ExecutableTransaction},
     },
 };
 use starknet::{
     core::types::{FieldElement, TransactionStatus},
-    providers::jsonrpc::models::{PendingStateUpdate, StateUpdate},
+    providers::jsonrpc::models::{BlockId, BlockTag, PendingStateUpdate, StateUpdate},
 };
 use starknet_api::{
     block::{BlockHash, BlockNumber, BlockTimestamp, GasPrice},
@@ -38,7 +39,7 @@ use crate::{
     state::DictStateReader,
     util::{
         convert_blockifier_tx_to_starknet_api_tx, convert_state_diff_to_rpc_state_diff,
-        get_current_timestamp,
+        field_element_to_starkfelt, get_current_timestamp,
     },
 };
 use block::{StarknetBlock, StarknetBlocks};
@@ -119,6 +120,16 @@ impl StarknetWrapper {
             BlockId::Tag(BlockTag::Pending) => None,
             BlockId::Tag(BlockTag::Latest) => self.blocks.current_block_number(),
         }
+    }
+
+    // Simulate a transaction without modifying the state
+    pub fn simulate_transaction(
+        &self,
+        transaction: AccountTransaction,
+        state: Option<DictStateReader>,
+    ) -> Result<TransactionExecutionInfo, TransactionExecutionError> {
+        let mut state = CachedState::new(state.unwrap_or(self.pending_state()));
+        transaction.execute(&mut state, &self.block_context)
     }
 
     // execute the tx

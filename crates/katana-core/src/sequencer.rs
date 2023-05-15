@@ -1,17 +1,20 @@
 use anyhow::Result;
-use starknet::providers::jsonrpc::models::{BlockId, BlockTag, StateUpdate};
+use starknet::{
+    core::types::{FeeEstimate, FeeUnit},
+    providers::jsonrpc::models::{BlockId, BlockTag, StateUpdate},
+};
 
 use crate::{
     starknet::{
         block::StarknetBlock, event::EmittedEvent, transaction::ExternalFunctionCall,
         StarknetConfig, StarknetWrapper,
     },
-    state::DictStateReader,
-    util::{field_element_to_starkfelt, starkfelt_to_u128},
+    util::starkfelt_to_u128,
 };
 
 use blockifier::{
     abi::abi_utils::get_storage_var_address,
+    fee::fee_utils::{calculate_l1_gas_by_vm_usage, extract_l1_gas_and_vm_usage},
     state::state_api::{State, StateReader},
     transaction::{
         account_transaction::AccountTransaction, transaction_execution::Transaction,
@@ -135,6 +138,36 @@ impl Sequencer for KatanaSequencer {
     fn add_account_transaction(&mut self, transaction: AccountTransaction) -> Result<()> {
         self.starknet
             .handle_transaction(Transaction::AccountTransaction(transaction))
+    }
+
+    fn estimate_fee(
+        &self,
+        account_transaction: AccountTransaction,
+        block_id: BlockId,
+    ) -> Result<FeeEstimate> {
+        let state = self.starknet.state_from_block_id(block_id).ok_or(
+            blockifier::state::errors::StateError::StateReadError(format!(
+                "block {block_id:?} not found",
+            )),
+        )?;
+
+        let exec_info = self
+            .starknet
+            .simulate_transaction(account_transaction, Some(state))?;
+
+        let (l1_gas_usage, vm_resources) = extract_l1_gas_and_vm_usage(&exec_info.actual_resources);
+        let l1_gas_by_vm_usage =
+            calculate_l1_gas_by_vm_usage(&self.starknet.block_context, &vm_resources)?;
+
+        let total_l1_gas_usage = l1_gas_usage as f64 + l1_gas_by_vm_usage;
+
+        Ok(FeeEstimate {
+            unit: FeeUnit::Wei,
+            overall_fee: total_l1_gas_usage.ceil() as u64
+                * self.starknet.block_context.gas_price as u64,
+            gas_usage: total_l1_gas_usage.ceil() as u64,
+            gas_price: self.starknet.block_context.gas_price as u64,
+        })
     }
 
     fn block_hash_and_number(&self) -> Option<(BlockHash, BlockNumber)> {
@@ -372,6 +405,12 @@ pub trait Sequencer {
     ) -> anyhow::Result<(TransactionHash, ContractAddress)>;
 
     fn add_account_transaction(&mut self, transaction: AccountTransaction) -> Result<()>;
+
+    fn estimate_fee(
+        &self,
+        account_transaction: AccountTransaction,
+        block_id: BlockId,
+    ) -> Result<FeeEstimate>;
 
     fn events(
         &self,
