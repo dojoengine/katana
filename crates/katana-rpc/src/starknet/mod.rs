@@ -465,7 +465,17 @@ impl<S: Sequencer + Send + Sync + 'static> StarknetApiServer for StarknetRpc<S> 
                     blockifier_contract_class_from_flattened_sierra_class(&raw_class_str)
                         .map_err(|_| Error::from(StarknetApiError::InternalServerError))?;
 
+                let transaction_hash = compute_declare_v2_transaction_hash(
+                    tx.sender_address,
+                    class_hash,
+                    tx.max_fee,
+                    chain_id,
+                    tx.nonce,
+                    tx.compiled_class_hash,
+                );
+
                 let transaction = DeclareTransactionV2 {
+                    transaction_hash: TransactionHash(StarkFelt::from(transaction_hash)),
                     class_hash: ClassHash(StarkFelt::from(class_hash)),
                     sender_address: ContractAddress(patricia_key!(tx.sender_address)),
                     nonce: Nonce(StarkFelt::from(tx.nonce)),
@@ -475,7 +485,6 @@ impl<S: Sequencer + Send + Sync + 'static> StarknetApiServer for StarknetRpc<S> 
                         tx.signature.into_iter().map(StarkFelt::from).collect(),
                     ),
                     compiled_class_hash: CompiledClassHash(StarkFelt::from(tx.compiled_class_hash)),
-                    ..Default::default()
                 };
 
                 AccountTransaction::Declare(DeclareTransaction {
@@ -487,7 +496,16 @@ impl<S: Sequencer + Send + Sync + 'static> StarknetApiServer for StarknetRpc<S> 
             }
 
             BroadcastedTransaction::Invoke(BroadcastedInvokeTransaction::V1(transaction)) => {
+                let transaction_hash = compute_invoke_v1_transaction_hash(
+                    transaction.sender_address,
+                    &transaction.calldata,
+                    transaction.max_fee,
+                    chain_id,
+                    transaction.nonce,
+                );
+
                 let transaction = InvokeTransactionV1 {
+                    transaction_hash: TransactionHash(StarkFelt::from(transaction_hash)),
                     sender_address: ContractAddress(patricia_key!(transaction.sender_address)),
                     nonce: Nonce(StarkFelt::from(transaction.nonce)),
                     calldata: Calldata(Arc::new(
@@ -506,8 +524,6 @@ impl<S: Sequencer + Send + Sync + 'static> StarknetApiServer for StarknetRpc<S> 
                             .map(StarkFelt::from)
                             .collect(),
                     ),
-
-                    ..Default::default()
                 };
 
                 AccountTransaction::Invoke(InvokeTransaction::V1(transaction))
