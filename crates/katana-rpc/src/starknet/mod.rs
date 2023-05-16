@@ -529,7 +529,7 @@ impl<S: Sequencer + Send + Sync + 'static> StarknetApiServer for StarknetRpc<S> 
                 AccountTransaction::Invoke(InvokeTransaction::V1(transaction))
             }
 
-            _ => unimplemented!("KatanaRpc::estimate_fee"),
+            _ => return Err(Error::from(StarknetApiError::InternalServerError)),
         };
 
         let fee_estimate = self
