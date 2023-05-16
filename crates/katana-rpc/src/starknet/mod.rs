@@ -4,7 +4,6 @@ use blockifier::transaction::{
 
 use jsonrpsee::{
     core::{async_trait, Error},
-    tracing::log::warn,
     types::error::CallError,
 };
 use katana_core::{
@@ -128,7 +127,7 @@ impl<S: Sequencer + Send + Sync + 'static> StarknetApiServer for StarknetRpc<S> 
         block_id: BlockId,
         contract_address: FieldElement,
     ) -> Result<ContractClass, Error> {
-        unimplemented!("KatanaRpc::class_at")
+        Err(Error::from(StarknetApiError::InternalServerError))
     }
 
     async fn block_hash_and_number(&self) -> Result<BlockHashAndNumber, Error> {
@@ -262,7 +261,7 @@ impl<S: Sequencer + Send + Sync + 'static> StarknetApiServer for StarknetRpc<S> 
         &self,
         transaction_hash: FieldElement,
     ) -> Result<MaybePendingTransactionReceipt, Error> {
-        unimplemented!("KatanaRpc::transaction_receipt")
+        Err(Error::from(StarknetApiError::InternalServerError))
     }
 
     async fn class_hash_at(
@@ -288,7 +287,7 @@ impl<S: Sequencer + Send + Sync + 'static> StarknetApiServer for StarknetRpc<S> 
         block_id: BlockId,
         class_hash: FieldElement,
     ) -> Result<ContractClass, Error> {
-        unimplemented!("KatanaRpc::class")
+        Err(Error::from(StarknetApiError::InternalServerError))
     }
 
     async fn events(
@@ -348,15 +347,7 @@ impl<S: Sequencer + Send + Sync + 'static> StarknetApiServer for StarknetRpc<S> 
     }
 
     async fn pending_transactions(&self) -> Result<Vec<Transaction>, Error> {
-        unimplemented!("KatanaRpc::pending_transactions")
-    }
-
-    async fn estimate_fee(
-        &self,
-        request: BroadcastedTransaction,
-        block_id: BlockId,
-    ) -> Result<FeeEstimate, Error> {
-        unimplemented!("KatanaRpc::estimate_fee")
+        Err(Error::from(StarknetApiError::InternalServerError))
     }
 
     async fn call(
@@ -411,10 +402,7 @@ impl<S: Sequencer + Send + Sync + 'static> StarknetApiServer for StarknetRpc<S> 
                 StorageKey(patricia_key!(field_element_to_starkfelt(&key))),
                 block_id,
             )
-            .map_err(|e| {
-                warn!("{e}");
-                Error::from(StarknetApiError::ContractError)
-            })?;
+            .map_err(|e| Error::from(StarknetApiError::ContractError))?;
 
         Ok(value.into())
     }
@@ -459,6 +447,105 @@ impl<S: Sequencer + Send + Sync + 'static> StarknetApiServer for StarknetRpc<S> 
         })
     }
 
+    async fn estimate_fee(
+        &self,
+        request: BroadcastedTransaction,
+        block_id: BlockId,
+    ) -> Result<FeeEstimate, Error> {
+        let chain_id = FieldElement::from_hex_be(&self.sequencer.read().await.chain_id().as_hex())
+            .map_err(|_| Error::from(StarknetApiError::InternalServerError))?;
+
+        let transaction = match request {
+            BroadcastedTransaction::Declare(BroadcastedDeclareTransaction::V2(tx)) => {
+                let raw_class_str = serde_json::to_string(&tx.contract_class)?;
+                let class_hash = serde_json::from_str::<FlattenedSierraClass>(&raw_class_str)
+                    .map_err(|_| Error::from(StarknetApiError::InvalidContractClass))?
+                    .class_hash();
+                let contract_class =
+                    blockifier_contract_class_from_flattened_sierra_class(&raw_class_str)
+                        .map_err(|_| Error::from(StarknetApiError::InternalServerError))?;
+
+                let transaction_hash = compute_declare_v2_transaction_hash(
+                    tx.sender_address,
+                    class_hash,
+                    tx.max_fee,
+                    chain_id,
+                    tx.nonce,
+                    tx.compiled_class_hash,
+                );
+
+                let transaction = DeclareTransactionV2 {
+                    transaction_hash: TransactionHash(StarkFelt::from(transaction_hash)),
+                    class_hash: ClassHash(StarkFelt::from(class_hash)),
+                    sender_address: ContractAddress(patricia_key!(tx.sender_address)),
+                    nonce: Nonce(StarkFelt::from(tx.nonce)),
+                    max_fee: Fee(starkfelt_to_u128(StarkFelt::from(tx.max_fee))
+                        .map_err(|_| Error::from(StarknetApiError::InternalServerError))?),
+                    signature: TransactionSignature(
+                        tx.signature.into_iter().map(StarkFelt::from).collect(),
+                    ),
+                    compiled_class_hash: CompiledClassHash(StarkFelt::from(tx.compiled_class_hash)),
+                };
+
+                AccountTransaction::Declare(DeclareTransaction {
+                    tx: starknet_api::transaction::DeclareTransaction::V2(transaction),
+                    contract_class: blockifier::execution::contract_class::ContractClass::V1(
+                        contract_class,
+                    ),
+                })
+            }
+
+            BroadcastedTransaction::Invoke(BroadcastedInvokeTransaction::V1(transaction)) => {
+                let transaction_hash = compute_invoke_v1_transaction_hash(
+                    transaction.sender_address,
+                    &transaction.calldata,
+                    transaction.max_fee,
+                    chain_id,
+                    transaction.nonce,
+                );
+
+                let transaction = InvokeTransactionV1 {
+                    transaction_hash: TransactionHash(StarkFelt::from(transaction_hash)),
+                    sender_address: ContractAddress(patricia_key!(transaction.sender_address)),
+                    nonce: Nonce(StarkFelt::from(transaction.nonce)),
+                    calldata: Calldata(Arc::new(
+                        transaction
+                            .calldata
+                            .into_iter()
+                            .map(StarkFelt::from)
+                            .collect(),
+                    )),
+                    max_fee: Fee(starkfelt_to_u128(StarkFelt::from(transaction.max_fee))
+                        .map_err(|_| Error::from(StarknetApiError::InternalServerError))?),
+                    signature: TransactionSignature(
+                        transaction
+                            .signature
+                            .into_iter()
+                            .map(StarkFelt::from)
+                            .collect(),
+                    ),
+                };
+
+                AccountTransaction::Invoke(InvokeTransaction::V1(transaction))
+            }
+
+            _ => return Err(Error::from(StarknetApiError::InternalServerError)),
+        };
+
+        let fee_estimate = self
+            .sequencer
+            .read()
+            .await
+            .estimate_fee(transaction, block_id)
+            .map_err(|e| Error::from(StarknetApiError::InternalServerError))?;
+
+        Ok(FeeEstimate {
+            gas_price: fee_estimate.gas_price,
+            gas_consumed: fee_estimate.gas_usage,
+            overall_fee: fee_estimate.overall_fee,
+        })
+    }
+
     async fn add_declare_transaction(
         &self,
         transaction: BroadcastedDeclareTransaction,
@@ -468,7 +555,7 @@ impl<S: Sequencer + Send + Sync + 'static> StarknetApiServer for StarknetRpc<S> 
 
         let (transaction_hash, class_hash, transaction) = match transaction {
             BroadcastedDeclareTransaction::V1(_) => {
-                unimplemented!("KatanaRpc::add_declare_transaction v1")
+                return Err(Error::from(StarknetApiError::InternalServerError))
             }
             BroadcastedDeclareTransaction::V2(tx) => {
                 let raw_class_str = serde_json::to_string(&tx.contract_class)?;
