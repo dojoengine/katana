@@ -2693,6 +2693,7 @@ dependencies = [
  "blockifier",
  "cairo-lang-starknet 1.0.0-rc0",
  "futures",
+ "lazy_static",
  "rand",
  "serde",
  "serde_json",
