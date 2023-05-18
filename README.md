@@ -1,3 +1,5 @@
+> :warning: **Katana has moved to the Dojo repo**
+
 ![katana](.github/mark.svg)
 
 Katana is blazing fast Starknet devnet designed to support rapid local developement.
