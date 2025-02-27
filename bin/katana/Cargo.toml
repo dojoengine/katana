@@ -1,4 +1,3 @@
-
 [package]
 description = "A fast and lightweight local Starknet development sequencer."
 edition.workspace = true
@@ -46,3 +45,4 @@ default = [ "init-slot", "jemalloc", "katana-cli/slot" ]
 init-custom-settlement-chain = [  ]
 init-slot = [  ]
 jemalloc = [  ]
+native = [ "katana-node/native" ]
