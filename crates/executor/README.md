@@ -1,17 +1,8 @@
 ## katana-executor
 
-This crate provides a set of abstractions for performing transaction executions in Katana. It includes [implementations](./src/implementation/) for the different execution engines that Katana supports:
-
-1. [blockifier](https://github.com/dojoengine/blockifier) by StarkWare
-2. [starknet_in_rust](https://github.com/dojoengine/starknet_in_rust) by LambdaClass.
-
-They are feature-gated under `blockifier` and `sir` features respectively and enabled by **default**.
-
-This crate also includes a [_noop_](./src/implementation/noop.rs) implementation for testing purposes.
-
 ### Cairo Native support
 
-The [starknet_in_rust](./src/implementation/sir/) executor can be integrated with Cairo Native, which makes the execution of sierra programs possible through native machine code. To use it, you must enable the `native` feature when using this crate as a dependency,
+Cairo Native makes the execution of Sierra programs possible through native machine code. To use it, you must enable the `native` feature when using this crate as a dependency,
 
 ```toml
 [dependencies]
@@ -20,20 +11,46 @@ katana-executor = { .., features = [ "native" ] }
 
 and the following needs to be setup:
 
-LLVM 17 needs to be installed and the `MLIR_SYS_170_PREFIX` and `TABLEGEN_170_PREFIX` environment variable needs to point to said installation.
+#### Dependencies
+- Linux or macOS (aarch64 included) only for now
+- LLVM 19 with MLIR: On debian you can use [apt.llvm.org](https://apt.llvm.org/), on macOS you can use brew
 
-In macOS, run
-
-```console
-brew install llvm@17
-```
-
-and export the following environment variables:
+For Debian/Ubuntu:
 
 ```bash
-export MLIR_SYS_170_PREFIX=/opt/homebrew/opt/llvm@17
-export LLVM_SYS_170_PREFIX=/opt/homebrew/opt/llvm@17
-export TABLEGEN_170_PREFIX=/opt/homebrew/opt/llvm@17
+sudo apt-get install llvm-19 llvm-19-dev llvm-19-runtime clang-19 clang-tools-19 lld-19 libpolly-19-dev libmlir-19-dev mlir-19-tools
 ```
 
-and you're set.
+You can automatically set environment variables by sourcing `cairo-native.env.sh`:
+```bash
+source cairo-native.env.sh
+```
+
+Alternatively, manually set them:
+
+```bash
+# For Debian/Ubuntu using the repository, the path will be /usr/lib/llvm-19
+export MLIR_SYS_190_PREFIX=/usr/lib/llvm-19
+export LLVM_SYS_191_PREFIX=/usr/lib/llvm-19
+export TABLEGEN_190_PREFIX=/usr/lib/llvm-19
+```
+
+For macOS:
+
+```console
+brew install llvm@19
+```
+
+Source environment script:
+```bash
+source cairo-native.env.sh
+```
+
+Alternatively, manually set:
+```bash
+# If installed with brew
+export LIBRARY_PATH=/opt/homebrew/lib
+export MLIR_SYS_190_PREFIX="$(brew --prefix llvm@19)"
+export LLVM_SYS_191_PREFIX="$(brew --prefix llvm@19)"
+export TABLEGEN_190_PREFIX="$(brew --prefix llvm@19)"
+```
