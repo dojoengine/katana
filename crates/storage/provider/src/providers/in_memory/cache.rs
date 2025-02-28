@@ -141,14 +141,3 @@ impl<Db> std::ops::Deref for CacheDb<Db> {
         &self.db
     }
 }
-
-impl<Db: Clone> CacheStateDb<Db> {
-    pub(crate) fn create_snapshot_without_classes(&self) -> CacheSnapshotWithoutClasses<Db> {
-        CacheSnapshotWithoutClasses {
-            db: self.db.clone(),
-            storage: self.storage.read().clone(),
-            contract_state: self.contract_state.read().clone(),
-            compiled_class_hashes: self.compiled_class_hashes.read().clone(),
-        }
-    }
-}

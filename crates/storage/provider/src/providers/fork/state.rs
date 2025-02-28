@@ -1,193 +1,77 @@
-use std::sync::Arc;
+use std::cmp::Ordering;
+use std::fmt;
 
+use katana_db::abstraction::{Database, DbTxMut};
+use katana_db::models::contract::{ContractClassChange, ContractNonceChange};
+use katana_db::models::storage::{ContractStorageEntry, ContractStorageKey, StorageEntry};
+use katana_db::tables;
+use katana_fork::BackendClient;
+use katana_primitives::block::{BlockHashOrNumber, BlockNumber};
 use katana_primitives::class::{ClassHash, CompiledClassHash, ContractClass};
-use katana_primitives::contract::{ContractAddress, Nonce, StorageKey, StorageValue};
+use katana_primitives::contract::{GenericContractInfo, Nonce, StorageKey, StorageValue};
+use katana_primitives::{ContractAddress, Felt};
 
-use super::backend::SharedStateProvider;
-use crate::providers::in_memory::cache::CacheStateDb;
-use crate::providers::in_memory::state::StateSnapshot;
-use crate::traits::contract::ContractClassProvider;
-use crate::traits::state::{StateProofProvider, StateProvider, StateRootProvider};
+use super::db::{self};
+use super::ForkedProvider;
+use crate::error::ProviderError;
+use crate::traits::block::BlockNumberProvider;
+use crate::traits::contract::{ContractClassProvider, ContractClassWriter};
+use crate::traits::state::{
+    StateFactoryProvider, StateProofProvider, StateProvider, StateRootProvider, StateWriter,
+};
 use crate::ProviderResult;
 
-pub type ForkedStateDb = CacheStateDb<SharedStateProvider>;
-pub type ForkedSnapshot = StateSnapshot<SharedStateProvider>;
+impl<Db: Database> StateFactoryProvider for ForkedProvider<Db> {
+    fn latest(&self) -> ProviderResult<Box<dyn StateProvider>> {
+        let tx = self.db().tx_mut()?;
+        let provider = db::state::LatestStateProvider::new(tx);
+        Ok(Box::new(LatestStateProvider { backend: self.backend.clone(), provider }))
+    }
 
-impl ForkedStateDb {
-    pub(crate) fn create_snapshot(&self) -> ForkedSnapshot {
-        ForkedSnapshot {
-            inner: self.create_snapshot_without_classes(),
-            classes: Arc::clone(&self.shared_contract_classes),
-        }
+    fn historical(
+        &self,
+        block_id: BlockHashOrNumber,
+    ) -> ProviderResult<Option<Box<dyn StateProvider>>> {
+        let block_number = match block_id {
+            BlockHashOrNumber::Hash(hash) => self.provider.block_number_by_hash(hash)?,
+
+            BlockHashOrNumber::Num(num) => {
+                let latest_num = self.provider.latest_number()?;
+
+                match num.cmp(&latest_num) {
+                    Ordering::Less => Some(num),
+                    Ordering::Greater => return Ok(None),
+                    Ordering::Equal => return self.latest().map(Some),
+                }
+            }
+        };
+
+        let Some(block) = block_number else { return Ok(None) };
+        let tx = self.db().tx_mut()?;
+        let client = self.backend.clone();
+
+        Ok(Some(Box::new(HistoricalStateProvider::new(tx, block, client))))
     }
 }
-
-impl StateProvider for ForkedStateDb {
-    fn class_hash_of_contract(
-        &self,
-        address: ContractAddress,
-    ) -> ProviderResult<Option<ClassHash>> {
-        if let hash @ Some(_) = self
-            .contract_state
-            .read()
-            .get(&address)
-            .map(|i| i.class_hash)
-            .filter(|h| h != &ClassHash::ZERO)
-        {
-            return Ok(hash);
-        }
-        StateProvider::class_hash_of_contract(&self.db, address)
-    }
-
-    // When reading from local storage, we only consider entries that have non-zero nonce
-    // values OR non-zero class hashes.
-    //
-    // Nonce == 0 && ClassHash == 0
-    // - Contract does not exist locally (so try find from remote state)
-    // Nonce != 0 && ClassHash == 0
-    // - Contract exists and was deployed remotely but new nonce was set locally (so no need to read
-    //   from remote state anymore)
-    // Nonce == 0 && ClassHash != 0
-    // - Contract exists and was deployed locally (always read from local state)
-    fn nonce(&self, address: ContractAddress) -> ProviderResult<Option<Nonce>> {
-        if let nonce @ Some(_) = self
-            .contract_state
-            .read()
-            .get(&address)
-            .filter(|c| c.nonce != Nonce::default() || c.class_hash != ClassHash::default())
-            .map(|c| c.nonce)
-        {
-            return Ok(nonce);
-        }
-        StateProvider::nonce(&self.db, address)
-    }
-
-    fn storage(
-        &self,
-        address: ContractAddress,
-        storage_key: StorageKey,
-    ) -> ProviderResult<Option<StorageValue>> {
-        if let value @ Some(_) =
-            self.storage.read().get(&address).and_then(|s| s.get(&storage_key)).copied()
-        {
-            return Ok(value);
-        }
-        StateProvider::storage(&self.db, address, storage_key)
-    }
-}
-
-impl ContractClassProvider for ForkedStateDb {
-    fn class(&self, hash: ClassHash) -> ProviderResult<Option<ContractClass>> {
-        if let class @ Some(_) = self.shared_contract_classes.classes.read().get(&hash) {
-            return Ok(class.cloned());
-        }
-        ContractClassProvider::class(&self.db, hash)
-    }
-
-    fn compiled_class_hash_of_class_hash(
-        &self,
-        hash: ClassHash,
-    ) -> ProviderResult<Option<CompiledClassHash>> {
-        if let hash @ Some(_) = self.compiled_class_hashes.read().get(&hash) {
-            return Ok(hash.cloned());
-        }
-        ContractClassProvider::compiled_class_hash_of_class_hash(&self.db, hash)
-    }
-}
-
-impl StateProofProvider for ForkedStateDb {}
-impl StateRootProvider for ForkedStateDb {}
 
 #[derive(Debug)]
-pub(super) struct LatestStateProvider(pub(super) Arc<ForkedStateDb>);
-
-impl StateProvider for LatestStateProvider {
-    fn nonce(&self, address: ContractAddress) -> ProviderResult<Option<Nonce>> {
-        StateProvider::nonce(&self.0, address)
-    }
-
-    fn storage(
-        &self,
-        address: ContractAddress,
-        storage_key: StorageKey,
-    ) -> ProviderResult<Option<StorageValue>> {
-        StateProvider::storage(&self.0, address, storage_key)
-    }
-
-    fn class_hash_of_contract(
-        &self,
-        address: ContractAddress,
-    ) -> ProviderResult<Option<ClassHash>> {
-        StateProvider::class_hash_of_contract(&self.0, address)
-    }
+struct LatestStateProvider<Tx: DbTxMut> {
+    backend: BackendClient,
+    provider: db::state::LatestStateProvider<Tx>,
 }
 
-impl ContractClassProvider for LatestStateProvider {
+impl<Tx> ContractClassProvider for LatestStateProvider<Tx>
+where
+    Tx: DbTxMut + Send + Sync,
+{
     fn class(&self, hash: ClassHash) -> ProviderResult<Option<ContractClass>> {
-        ContractClassProvider::class(&self.0, hash)
-    }
-
-    fn compiled_class_hash_of_class_hash(
-        &self,
-        hash: ClassHash,
-    ) -> ProviderResult<Option<CompiledClassHash>> {
-        ContractClassProvider::compiled_class_hash_of_class_hash(&self.0, hash)
-    }
-}
-
-impl StateProofProvider for LatestStateProvider {}
-impl StateRootProvider for LatestStateProvider {}
-
-impl StateProvider for ForkedSnapshot {
-    fn nonce(&self, address: ContractAddress) -> ProviderResult<Option<Nonce>> {
-        if let nonce @ Some(_) = self
-            .inner
-            .contract_state
-            .get(&address)
-            .filter(|c| c.nonce != Nonce::default() || c.class_hash != ClassHash::default())
-            .map(|c| c.nonce)
-        {
-            return Ok(nonce);
-        }
-        StateProvider::nonce(&self.inner.db, address)
-    }
-
-    fn storage(
-        &self,
-        address: ContractAddress,
-        storage_key: StorageKey,
-    ) -> ProviderResult<Option<StorageValue>> {
-        if let value @ Some(_) =
-            self.inner.storage.get(&address).and_then(|s| s.get(&storage_key)).copied()
-        {
-            return Ok(value);
-        }
-        StateProvider::storage(&self.inner.db, address, storage_key)
-    }
-
-    fn class_hash_of_contract(
-        &self,
-        address: ContractAddress,
-    ) -> ProviderResult<Option<ClassHash>> {
-        if let class_hash @ Some(_) = self
-            .inner
-            .contract_state
-            .get(&address)
-            .map(|info| info.class_hash)
-            .filter(|h| h != &ClassHash::ZERO)
-        {
-            return Ok(class_hash);
-        }
-        StateProvider::class_hash_of_contract(&self.inner.db, address)
-    }
-}
-
-impl ContractClassProvider for ForkedSnapshot {
-    fn class(&self, hash: ClassHash) -> ProviderResult<Option<ContractClass>> {
-        if self.inner.compiled_class_hashes.contains_key(&hash) {
-            Ok(self.classes.classes.read().get(&hash).cloned())
+        if let Some(class) = self.provider.class(hash)? {
+            Ok(Some(class))
+        } else if let Some(class) = self.backend.get_class_at(hash)? {
+            self.provider.tx().put::<tables::Classes>(hash, class.clone())?;
+            Ok(Some(class))
         } else {
-            ContractClassProvider::class(&self.inner.db, hash)
+            Ok(None)
         }
     }
 
@@ -195,145 +79,296 @@ impl ContractClassProvider for ForkedSnapshot {
         &self,
         hash: ClassHash,
     ) -> ProviderResult<Option<CompiledClassHash>> {
-        if let hash @ Some(_) = self.inner.compiled_class_hashes.get(&hash).cloned() {
-            return Ok(hash);
+        if let Some(compiled_hash) = self.provider.compiled_class_hash_of_class_hash(hash)? {
+            Ok(Some(compiled_hash))
+        } else if let Some(compiled_hash) = self.backend.get_compiled_class_hash(hash)? {
+            self.provider.tx().put::<tables::CompiledClassHashes>(hash, compiled_hash)?;
+            Ok(Some(compiled_hash))
+        } else {
+            Ok(None)
         }
-        ContractClassProvider::compiled_class_hash_of_class_hash(&self.inner.db, hash)
     }
 }
 
-impl StateProofProvider for ForkedSnapshot {}
-impl StateRootProvider for ForkedSnapshot {}
+impl<Tx> StateProvider for LatestStateProvider<Tx>
+where
+    Tx: DbTxMut + fmt::Debug + Send + Sync,
+{
+    fn nonce(&self, address: ContractAddress) -> ProviderResult<Option<Nonce>> {
+        if let Some(nonce) = self.provider.nonce(address)? {
+            Ok(Some(nonce))
+        } else if let Some(nonce) = self.backend.get_nonce(address)? {
+            let class_hash = self
+                .backend
+                .get_class_hash_at(address)?
+                .ok_or(ProviderError::MissingContractClassHash { address })?;
 
-#[cfg(test)]
-mod tests {
-    use std::collections::BTreeMap;
+            let entry = GenericContractInfo { nonce, class_hash };
+            self.provider.tx().put::<tables::ContractInfo>(address, entry)?;
 
-    use katana_primitives::address;
-    use katana_primitives::state::{StateUpdates, StateUpdatesWithClasses};
-    use starknet::macros::felt;
-
-    use super::*;
-    use crate::providers::fork::backend::test_utils::create_forked_backend;
-
-    #[test]
-    fn test_get_nonce() {
-        let backend = create_forked_backend("http://localhost:8080", 1);
-
-        let address = address!("1");
-        let class_hash = felt!("11");
-        let remote_nonce = felt!("111");
-        let local_nonce = felt!("1111");
-
-        // Case: contract doesn't exist at all
-        {
-            let remote = SharedStateProvider::new_with_backend(backend.clone());
-            let local = ForkedStateDb::new(remote.clone());
-
-            // asserts that its error for now
-            assert!(local.nonce(address).is_err());
-            assert!(remote.nonce(address).is_err());
-
-            // make sure the snapshot maintains the same behavior
-            let snapshot = local.create_snapshot();
-            assert!(snapshot.nonce(address).is_err());
+            Ok(Some(nonce))
+        } else {
+            Ok(None)
         }
+    }
 
-        // Case: contract exist remotely
-        {
-            let remote = SharedStateProvider::new_with_backend(backend.clone());
-            let local = ForkedStateDb::new(remote.clone());
+    fn class_hash_of_contract(
+        &self,
+        address: ContractAddress,
+    ) -> ProviderResult<Option<ClassHash>> {
+        if let Some(class_hash) = self.provider.class_hash_of_contract(address)? {
+            Ok(Some(class_hash))
+        } else if let Some(class_hash) = self.backend.get_class_hash_at(address)? {
+            let nonce = self
+                .backend
+                .get_nonce(address)?
+                .ok_or(ProviderError::MissingContractNonce { address })?;
 
-            let nonce_updates = BTreeMap::from([(address, remote_nonce)]);
-            let updates = StateUpdatesWithClasses {
-                state_updates: StateUpdates { nonce_updates, ..Default::default() },
-                ..Default::default()
-            };
-            remote.0.insert_updates(updates);
+            let entry = GenericContractInfo { class_hash, nonce };
+            self.provider.tx().put::<tables::ContractInfo>(address, entry)?;
 
-            assert_eq!(local.nonce(address).unwrap(), Some(remote_nonce));
-            assert_eq!(remote.nonce(address).unwrap(), Some(remote_nonce));
-
-            // make sure the snapshot maintains the same behavior
-            let snapshot = local.create_snapshot();
-            assert_eq!(snapshot.nonce(address).unwrap(), Some(remote_nonce));
+            Ok(Some(class_hash))
+        } else {
+            Ok(None)
         }
+    }
 
-        // Case: contract exist remotely but nonce was updated locally
-        {
-            let remote = SharedStateProvider::new_with_backend(backend.clone());
-            let local = ForkedStateDb::new(remote.clone());
-
-            let nonce_updates = BTreeMap::from([(address, remote_nonce)]);
-            let deployed_contracts = BTreeMap::from([(address, class_hash)]);
-            let updates = StateUpdatesWithClasses {
-                state_updates: StateUpdates {
-                    nonce_updates,
-                    deployed_contracts,
-                    ..Default::default()
-                },
-                ..Default::default()
-            };
-            remote.0.insert_updates(updates);
-
-            let nonce_updates = BTreeMap::from([(address, local_nonce)]);
-            let updates = StateUpdatesWithClasses {
-                state_updates: StateUpdates { nonce_updates, ..Default::default() },
-                ..Default::default()
-            };
-            local.insert_updates(updates);
-
-            assert_eq!(local.nonce(address).unwrap(), Some(local_nonce));
-            assert_eq!(remote.nonce(address).unwrap(), Some(remote_nonce));
-
-            // make sure the snapshot maintains the same behavior
-            let snapshot = local.create_snapshot();
-            assert_eq!(snapshot.nonce(address).unwrap(), Some(local_nonce));
+    fn storage(
+        &self,
+        address: ContractAddress,
+        key: StorageKey,
+    ) -> ProviderResult<Option<StorageValue>> {
+        if let Some(value) = self.provider.storage(address, key)? {
+            Ok(Some(value))
+        } else if let Some(value) = self.backend.get_storage(address, key)? {
+            let entry = StorageEntry { key, value };
+            self.provider.tx().put::<tables::ContractStorage>(address, entry)?;
+            Ok(Some(value))
+        } else {
+            Ok(None)
         }
+    }
+}
 
-        // Case: contract was deployed locally only and has non-zero nonce
-        {
-            let remote = SharedStateProvider::new_with_backend(backend.clone());
-            let local = ForkedStateDb::new(remote.clone());
+impl<Tx> StateProofProvider for LatestStateProvider<Tx>
+where
+    Tx: DbTxMut + fmt::Debug + Send + Sync,
+{
+    fn class_multiproof(&self, classes: Vec<ClassHash>) -> ProviderResult<katana_trie::MultiProof> {
+        self.provider.class_multiproof(classes)
+    }
 
-            let deployed_contracts = BTreeMap::from([(address, class_hash)]);
-            let nonce_updates = BTreeMap::from([(address, local_nonce)]);
-            let updates = StateUpdatesWithClasses {
-                state_updates: StateUpdates {
-                    nonce_updates,
-                    deployed_contracts,
-                    ..Default::default()
-                },
-                ..Default::default()
-            };
-            local.insert_updates(updates);
+    fn contract_multiproof(
+        &self,
+        addresses: Vec<ContractAddress>,
+    ) -> ProviderResult<katana_trie::MultiProof> {
+        self.provider.contract_multiproof(addresses)
+    }
 
-            assert_eq!(local.nonce(address).unwrap(), Some(local_nonce));
-            assert!(remote.nonce(address).is_err());
+    fn storage_multiproof(
+        &self,
+        address: ContractAddress,
+        storage_keys: Vec<StorageKey>,
+    ) -> ProviderResult<katana_trie::MultiProof> {
+        self.provider.storage_multiproof(address, storage_keys)
+    }
+}
 
-            // make sure the snapshot maintains the same behavior
-            let snapshot = local.create_snapshot();
-            assert_eq!(snapshot.nonce(address).unwrap(), Some(local_nonce));
+impl<Tx> StateRootProvider for LatestStateProvider<Tx>
+where
+    Tx: DbTxMut + fmt::Debug + Send + Sync,
+{
+    fn classes_root(&self) -> ProviderResult<Felt> {
+        self.provider.classes_root()
+    }
+
+    fn contracts_root(&self) -> ProviderResult<Felt> {
+        self.provider.contracts_root()
+    }
+
+    fn storage_root(&self, contract: ContractAddress) -> ProviderResult<Option<Felt>> {
+        self.provider.storage_root(contract)
+    }
+}
+
+#[derive(Debug)]
+struct HistoricalStateProvider<Tx: DbTxMut> {
+    backend: BackendClient,
+    provider: db::state::HistoricalStateProvider<Tx>,
+}
+
+impl<Tx: DbTxMut> HistoricalStateProvider<Tx> {
+    pub fn new(tx: Tx, block: BlockNumber, backend: BackendClient) -> Self {
+        let provider = db::state::HistoricalStateProvider::new(tx, block);
+        Self { backend, provider }
+    }
+}
+
+impl<Tx> ContractClassProvider for HistoricalStateProvider<Tx>
+where
+    Tx: DbTxMut + Send + Sync,
+{
+    fn class(&self, hash: ClassHash) -> ProviderResult<Option<ContractClass>> {
+        if let Some(class) = self.provider.class(hash)? {
+            Ok(Some(class))
+        } else if let Some(class) = self.backend.get_class_at(hash)? {
+            self.provider.tx().put::<tables::Classes>(hash, class.clone())?;
+            Ok(Some(class))
+        } else {
+            Ok(None)
         }
+    }
 
-        // Case: contract was deployed locally only and has zero nonce
-        {
-            let remote = SharedStateProvider::new_with_backend(backend.clone());
-            let local = ForkedStateDb::new(remote.clone());
-
-            let deployed_contracts = BTreeMap::from([(address, class_hash)]);
-            let updates = StateUpdatesWithClasses {
-                state_updates: StateUpdates { deployed_contracts, ..Default::default() },
-                ..Default::default()
-            };
-            local.insert_updates(updates);
-
-            assert_eq!(local.nonce(address).unwrap(), Some(Default::default()));
-            assert!(remote.nonce(address).is_err());
-
-            // make sure the snapshot maintains the same behavior
-            let snapshot = local.create_snapshot();
-            assert_eq!(snapshot.nonce(address).unwrap(), Some(Default::default()));
+    fn compiled_class_hash_of_class_hash(
+        &self,
+        hash: ClassHash,
+    ) -> ProviderResult<Option<CompiledClassHash>> {
+        if let Some(compiled_hash) = self.provider.compiled_class_hash_of_class_hash(hash)? {
+            Ok(Some(compiled_hash))
+        } else if let Some(compiled_hash) = self.backend.get_compiled_class_hash(hash)? {
+            self.provider.tx().put::<tables::CompiledClassHashes>(hash, compiled_hash)?;
+            Ok(Some(compiled_hash))
+        } else {
+            Ok(None)
         }
+    }
+}
+
+impl<Tx> StateProvider for HistoricalStateProvider<Tx>
+where
+    Tx: DbTxMut + fmt::Debug + Send + Sync,
+{
+    fn nonce(&self, address: ContractAddress) -> ProviderResult<Option<Nonce>> {
+        if let Some(nonce) = self.provider.nonce(address)? {
+            Ok(Some(nonce))
+        } else if let Some(nonce) = self.backend.get_nonce(address)? {
+            let block = self.provider.block();
+            let entry = ContractNonceChange { contract_address: address, nonce };
+
+            self.provider.tx().put::<tables::NonceChangeHistory>(block, entry)?;
+            Ok(Some(nonce))
+        } else {
+            Ok(None)
+        }
+    }
+
+    fn class_hash_of_contract(
+        &self,
+        address: ContractAddress,
+    ) -> ProviderResult<Option<ClassHash>> {
+        if let Some(class_hash) = self.provider.class_hash_of_contract(address)? {
+            Ok(Some(class_hash))
+        } else if let Some(class_hash) = self.backend.get_class_hash_at(address)? {
+            let block = self.provider.block();
+            let entry = ContractClassChange { contract_address: address, class_hash };
+
+            self.provider.tx().put::<tables::ClassChangeHistory>(block, entry)?;
+            Ok(Some(class_hash))
+        } else {
+            Ok(None)
+        }
+    }
+
+    fn storage(
+        &self,
+        address: ContractAddress,
+        key: StorageKey,
+    ) -> ProviderResult<Option<StorageValue>> {
+        if let Some(value) = self.provider.storage(address, key)? {
+            Ok(Some(value))
+        } else if let Some(value) = self.backend.get_storage(address, key)? {
+            let key = ContractStorageKey { contract_address: address, key };
+            let block = self.provider.block();
+
+            let block_list = self.provider.tx().get::<tables::StorageChangeSet>(key.clone())?;
+            let mut block_list = block_list.unwrap_or_default();
+            block_list.insert(block);
+
+            self.provider.tx().put::<tables::StorageChangeSet>(key.clone(), block_list)?;
+            let change_entry = ContractStorageEntry { key, value };
+            self.provider.tx().put::<tables::StorageChangeHistory>(block, change_entry)?;
+
+            Ok(Some(value))
+        } else {
+            Ok(None)
+        }
+    }
+}
+
+impl<Tx> StateProofProvider for HistoricalStateProvider<Tx>
+where
+    Tx: DbTxMut + fmt::Debug + Send + Sync,
+{
+    fn class_multiproof(&self, classes: Vec<ClassHash>) -> ProviderResult<katana_trie::MultiProof> {
+        self.provider.class_multiproof(classes)
+    }
+
+    fn contract_multiproof(
+        &self,
+        addresses: Vec<ContractAddress>,
+    ) -> ProviderResult<katana_trie::MultiProof> {
+        self.provider.contract_multiproof(addresses)
+    }
+
+    fn storage_multiproof(
+        &self,
+        address: ContractAddress,
+        storage_keys: Vec<StorageKey>,
+    ) -> ProviderResult<katana_trie::MultiProof> {
+        self.provider.storage_multiproof(address, storage_keys)
+    }
+}
+
+impl<Tx> StateRootProvider for HistoricalStateProvider<Tx>
+where
+    Tx: DbTxMut + fmt::Debug + Send + Sync,
+{
+    fn classes_root(&self) -> ProviderResult<Felt> {
+        self.provider.classes_root()
+    }
+
+    fn contracts_root(&self) -> ProviderResult<Felt> {
+        self.provider.contracts_root()
+    }
+
+    fn storage_root(&self, contract: ContractAddress) -> ProviderResult<Option<Felt>> {
+        self.provider.storage_root(contract)
+    }
+}
+
+impl<Db: Database> StateWriter for ForkedProvider<Db> {
+    fn set_class_hash_of_contract(
+        &self,
+        address: ContractAddress,
+        class_hash: ClassHash,
+    ) -> ProviderResult<()> {
+        self.provider.set_class_hash_of_contract(address, class_hash)
+    }
+
+    fn set_nonce(&self, address: ContractAddress, nonce: Nonce) -> ProviderResult<()> {
+        self.provider.set_nonce(address, nonce)
+    }
+
+    fn set_storage(
+        &self,
+        address: ContractAddress,
+        storage_key: StorageKey,
+        storage_value: StorageValue,
+    ) -> ProviderResult<()> {
+        self.provider.set_storage(address, storage_key, storage_value)
+    }
+}
+
+impl<Db: Database> ContractClassWriter for ForkedProvider<Db> {
+    fn set_class(&self, hash: ClassHash, class: ContractClass) -> ProviderResult<()> {
+        self.provider.set_class(hash, class)
+    }
+
+    fn set_compiled_class_hash_of_class_hash(
+        &self,
+        hash: ClassHash,
+        compiled_hash: CompiledClassHash,
+    ) -> ProviderResult<()> {
+        self.provider.set_compiled_class_hash_of_class_hash(hash, compiled_hash)
     }
 }

@@ -71,7 +71,7 @@ impl<Db: Database> StateWriter for DbProvider<Db> {
     }
 }
 
-impl ContractClassWriter for DbProvider {
+impl<Db: Database> ContractClassWriter for DbProvider<Db> {
     fn set_class(&self, hash: ClassHash, class: ContractClass) -> ProviderResult<()> {
         self.0.update(move |db_tx| -> ProviderResult<()> {
             db_tx.put::<tables::Classes>(hash, class)?;
@@ -210,16 +210,21 @@ pub(crate) struct HistoricalStateProvider<Tx: DbTx> {
     /// The database transaction used to read the database.
     tx: Tx,
     /// The block number of the state.
-    block_number: u64,
+    block_number: BlockNumber,
 }
 
 impl<Tx: DbTx> HistoricalStateProvider<Tx> {
-    pub fn new(tx: Tx, block_number: u64) -> Self {
+    pub fn new(tx: Tx, block_number: BlockNumber) -> Self {
         Self { tx, block_number }
     }
 
     pub fn tx(&self) -> &Tx {
         &self.tx
+    }
+
+    /// The block number this state provider is pinned to.
+    pub fn block(&self) -> BlockNumber {
+        self.block_number
     }
 
     /// Check if the class was declared before the pinned block number.

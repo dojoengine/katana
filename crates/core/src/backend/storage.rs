@@ -91,6 +91,7 @@ impl Blockchain {
 
     /// Builds a new blockchain with a forked block.
     pub async fn new_from_forked(
+        db: DbEnv,
         fork_url: Url,
         fork_block: Option<BlockHashOrNumber>,
         chain: &mut katana_chain_spec::dev::ChainSpec,
@@ -143,7 +144,7 @@ impl Blockchain {
 
         // TODO: convert this to block number instead of BlockHashOrNumber so that it is easier to
         // check if the requested block is within the supported range or not.
-        let database = ForkedProvider::new(Arc::new(provider), block_id)?;
+        let database = ForkedProvider::new(db, block_id, Arc::new(provider));
 
         // update the genesis block with the forked block's data
         // we dont update the `l1_gas_price` bcs its already done when we set the `gas_prices` in

@@ -55,7 +55,7 @@ use crate::exit::NodeStoppedFuture;
 pub struct Node {
     config: Arc<Config>,
     pool: TxPool,
-    db: Option<DbEnv>,
+    db: DbEnv,
     rpc_server: RpcServer,
     task_manager: TaskManager,
     backend: Arc<Backend<BlockifierFactory>>,
@@ -119,20 +119,22 @@ impl Node {
                 return Err(anyhow::anyhow!("Forking is only supported in dev mode for now"));
             };
 
+            let db = katana_db::init_ephemeral_db()?;
             let (bc, block_num) =
-                Blockchain::new_from_forked(cfg.url.clone(), cfg.block, chain_spec).await?;
+                Blockchain::new_from_forked(db.clone(), cfg.url.clone(), cfg.block, chain_spec)
+                    .await?;
 
             // TODO: it'd bee nice if the client can be shared on both the rpc and forked backend
             // side
             let forked_client = ForkedClient::new_http(cfg.url.clone(), block_num);
 
-            (bc, None, Some(forked_client))
+            (bc, db, Some(forked_client))
         } else if let Some(db_path) = &config.db.dir {
             let db = katana_db::init_db(db_path)?;
-            (Blockchain::new_with_db(db.clone()), Some(db), None)
+            (Blockchain::new_with_db(db.clone()), db, None)
         } else {
             let db = katana_db::init_ephemeral_db()?;
-            (Blockchain::new_with_db(db.clone()), Some(db), None)
+            (Blockchain::new_with_db(db.clone()), db, None)
         };
 
         // --- build l1 gas oracle
@@ -249,11 +251,8 @@ impl Node {
         // TODO: maybe move this to the build stage
         if let Some(ref cfg) = self.config.metrics {
             let addr = cfg.socket_addr();
-            let mut reports: Vec<Box<dyn Report>> = Vec::new();
-
-            if let Some(ref db) = self.db {
-                reports.push(Box::new(db.clone()) as Box<dyn Report>);
-            }
+            let db = self.db.clone();
+            let reports: Vec<Box<dyn Report>> = vec![Box::new(db) as Box<dyn Report>];
 
             let exporter = PrometheusRecorder::current().expect("qed; should exist at this point");
             let server = MetricsServer::new(exporter).with_process_metrics().with_reports(reports);
@@ -295,8 +294,8 @@ impl Node {
     }
 
     /// Returns a reference to the node's database environment (if any).
-    pub fn db(&self) -> Option<&DbEnv> {
-        self.db.as_ref()
+    pub fn db(&self) -> &DbEnv {
+        &self.db
     }
 
     pub fn backend(&self) -> &Arc<Backend<BlockifierFactory>> {
