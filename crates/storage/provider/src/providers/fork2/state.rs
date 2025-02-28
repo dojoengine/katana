@@ -10,14 +10,14 @@ use katana_primitives::class::{ClassHash, CompiledClassHash, ContractClass};
 use katana_primitives::contract::{GenericContractInfo, Nonce, StorageKey, StorageValue};
 use katana_primitives::{ContractAddress, Felt};
 
-use super::ForkedProvider;
 use super::db::{self};
-use crate::ProviderResult;
+use super::ForkedProvider;
 use crate::traits::block::BlockNumberProvider;
 use crate::traits::contract::ContractClassProvider;
 use crate::traits::state::{
     StateFactoryProvider, StateProofProvider, StateProvider, StateRootProvider,
 };
+use crate::ProviderResult;
 
 impl<Db: Database> StateFactoryProvider for ForkedProvider<Db> {
     fn latest(&self) -> ProviderResult<Box<dyn StateProvider>> {
