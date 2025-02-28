@@ -1,3 +1,5 @@
+#![cfg_attr(not(test), warn(unused_crate_dependencies))]
+
 //! Types used in the Katana JSON-RPC API.
 //!
 //! Most of the types defined in this crate are simple wrappers around types imported from
@@ -6,7 +8,6 @@
 pub mod account;
 pub mod block;
 pub mod class;
-pub mod error;
 pub mod event;
 pub mod message;
 pub mod receipt;

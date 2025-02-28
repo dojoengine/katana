@@ -2,8 +2,8 @@ use jsonrpsee::core::{async_trait, RpcResult};
 use katana_executor::ExecutorFactory;
 use katana_pool::TransactionPool;
 use katana_primitives::transaction::{ExecutableTx, ExecutableTxWithHash};
+use katana_rpc_api::error::starknet::StarknetApiError;
 use katana_rpc_api::starknet::StarknetWriteApiServer;
-use katana_rpc_types::error::starknet::StarknetApiError;
 use katana_rpc_types::transaction::{
     BroadcastedDeclareTx, BroadcastedDeployAccountTx, BroadcastedInvokeTx, DeclareTxResult,
     DeployAccountTxResult, InvokeTxResult,

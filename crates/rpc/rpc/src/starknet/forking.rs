@@ -2,10 +2,10 @@ use katana_primitives::block::{BlockHash, BlockIdOrTag, BlockNumber};
 use katana_primitives::contract::ContractAddress;
 use katana_primitives::transaction::TxHash;
 use katana_primitives::Felt;
+use katana_rpc_api::error::starknet::StarknetApiError;
 use katana_rpc_types::block::{
     MaybePendingBlockWithReceipts, MaybePendingBlockWithTxHashes, MaybePendingBlockWithTxs,
 };
-use katana_rpc_types::error::starknet::StarknetApiError;
 use katana_rpc_types::event::EventsPage;
 use katana_rpc_types::receipt::TxReceiptWithBlockInfo;
 use katana_rpc_types::state_update::MaybePendingStateUpdate;

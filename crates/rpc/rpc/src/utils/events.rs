@@ -12,7 +12,7 @@ use katana_primitives::Felt;
 use katana_provider::error::ProviderError;
 use katana_provider::traits::block::BlockProvider;
 use katana_provider::traits::transaction::ReceiptProvider;
-use katana_rpc_types::error::starknet::StarknetApiError;
+use katana_rpc_api::error::starknet::StarknetApiError;
 use starknet::core::types::EmittedEvent;
 
 pub type EventQueryResult<T> = Result<T, Error>;

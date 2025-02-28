@@ -4,13 +4,13 @@ use katana_primitives::block::BlockIdOrTag;
 use katana_primitives::class::ClassHash;
 use katana_primitives::transaction::{ExecutableTx, ExecutableTxWithHash, TxHash};
 use katana_primitives::{ContractAddress, Felt};
+use katana_rpc_api::error::starknet::StarknetApiError;
 use katana_rpc_api::starknet::StarknetApiServer;
 use katana_rpc_types::block::{
     BlockHashAndNumber, MaybePendingBlockWithReceipts, MaybePendingBlockWithTxHashes,
     MaybePendingBlockWithTxs,
 };
 use katana_rpc_types::class::RpcContractClass;
-use katana_rpc_types::error::starknet::StarknetApiError;
 use katana_rpc_types::event::{EventFilterWithPage, EventsPage};
 use katana_rpc_types::message::MsgFromL1;
 use katana_rpc_types::receipt::TxReceiptWithBlockInfo;

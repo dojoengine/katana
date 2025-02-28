@@ -26,12 +26,12 @@ use katana_provider::traits::state::{StateFactoryProvider, StateProvider, StateR
 use katana_provider::traits::transaction::{
     ReceiptProvider, TransactionProvider, TransactionStatusProvider,
 };
+use katana_rpc_api::error::starknet::StarknetApiError;
 use katana_rpc_types::block::{
     MaybePendingBlockWithReceipts, MaybePendingBlockWithTxHashes, MaybePendingBlockWithTxs,
     PendingBlockWithReceipts, PendingBlockWithTxHashes, PendingBlockWithTxs,
 };
 use katana_rpc_types::class::RpcContractClass;
-use katana_rpc_types::error::starknet::StarknetApiError;
 use katana_rpc_types::event::{EventFilterWithPage, EventsPage};
 use katana_rpc_types::receipt::{ReceiptBlock, TxReceiptWithBlockInfo};
 use katana_rpc_types::state_update::MaybePendingStateUpdate;
