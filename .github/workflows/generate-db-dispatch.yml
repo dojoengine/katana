@@ -7,18 +7,22 @@ jobs:
     permissions:
       pull-requests: write
       contents: write
-    runs-on: ubuntu-22.04
+    runs-on: ubuntu-latest
     container:
-      image: ghcr.io/dojoengine/dojo-dev:v1.2.2
+      image: ghcr.io/dojoengine/dojo-dev:v1.1.0
     steps:
       # Workaround described here: https://github.com/actions/checkout/issues/760
       - uses: actions/checkout@v3
       - run: git config --global --add safe.directory "$GITHUB_WORKSPACE"
 
+      - name: Build Katana
+        run: |
+          cargo build -r -p katana
+
       - name: Start Katana
         run: |
           mkdir -p /tmp/katana_db
-          katana --db-dir /tmp/katana_db --chain tests/fixtures/test-chain &
+          /target/release/katana --db-dir /tmp/katana_db --chain tests/fixtures/test-chain &
           # Give some time for Katana to start
           sleep 5
 
