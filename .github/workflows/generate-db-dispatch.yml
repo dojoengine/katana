@@ -1,0 +1,58 @@
+name: generate-test-db-dispatch
+on:
+  workflow_dispatch:
+
+jobs:
+  generate-database:
+    permissions:
+      pull-requests: write
+      contents: write
+    runs-on: ubuntu-latest
+    container:
+      image: ghcr.io/dojoengine/dojo-dev:v1.2.2
+    steps:
+      # Workaround described here: https://github.com/actions/checkout/issues/760
+      - uses: actions/checkout@v3
+      - run: git config --global --add safe.directory "$GITHUB_WORKSPACE"
+
+      - name: Start Katana
+        run: |
+          mkdir -p /tmp/katana_db
+          katana --db-dir /tmp/katana_db &
+          # Give some time for Katana to start
+          sleep 5
+
+      - name: Clone Dojo repository
+        run: |
+          git clone https://github.com/dojoengine/dojo.git /tmp/dojo
+
+      - name: Build and migrate example project
+        working-directory: /tmp/dojo/examples/spawn-and-move
+        run: |
+          sozo build
+          sozo migrate
+
+      # 4. Compress the Katana database directory
+      - name: Compress database
+        run: |
+          mkdir -p fixtures
+          tar -czvf fixtures/katana_db.tar.gz -C /tmp katana_db
+
+      # 5. Create a version for the PR
+      - id: version_info
+        run: |
+          DATE=$(date +%Y%m%d%H%M%S)
+          echo "version=db-update-${DATE}" >> $GITHUB_OUTPUT
+
+      # 6. Create PR with the compressed database
+      - name: Create Pull Request
+        uses: peter-evans/create-pull-request@v5
+        with:
+          token: ${{ secrets.CREATE_PR_TOKEN }}
+          add-paths: |
+            fixtures/katana_db.tar.gz
+          title: "Update test database: ${{ steps.version_info.outputs.version }}"
+          commit-message: "Update test database from Dojo project: ${{ steps.version_info.outputs.version }}"
+          branch: db-update-${{ steps.version_info.outputs.version }}
+          base: main
+          delete-branch: true
