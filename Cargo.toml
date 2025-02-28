@@ -32,6 +32,7 @@ members = [
 	"crates/tasks",
 	"crates/trie",
 	"crates/utils",
+	"tests/snos",
 ]
 
 [workspace.package]

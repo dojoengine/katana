@@ -1,0 +1,22 @@
+[package]
+edition.workspace = true
+license.workspace = true
+name = "snos-prove-block"
+repository.workspace = true
+version.workspace = true
+
+[dependencies]
+# snos branch: kariy/0.13.4
+snos = { package = "prove_block", git = "https://github.com/cartridge-gg/snos", rev = "8e6c229" }
+starknet-os = { git = "https://github.com/cartridge-gg/snos", rev = "8e6c229" }
+# SNOS-compatible cairo-vm
+cairo-vm = { package = "cairo-vm", git = "https://github.com/kariy/cairo-vm", branch = "kariy/1.0.2_clear-cell" }
+
+katana-chain-spec.workspace = true
+katana-node.workspace = true
+katana-primitives.workspace = true
+katana-provider.workspace = true
+
+anyhow.workspace = true
+starknet.workspace = true
+tokio = { version = "1.39.2", features = [ "full" ] }
