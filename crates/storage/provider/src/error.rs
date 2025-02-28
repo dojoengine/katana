@@ -115,6 +115,12 @@ pub enum ProviderError {
     #[error(transparent)]
     ForkedBackend(#[from] crate::providers::fork::backend::BackendError),
 
+    /// Error returned by a [ForkedBackend](crate::providers::fork::backend::ForkedBackend) used by
+    /// [ForkedProvider](crate::providers::fork::ForkedProvider).
+    #[cfg(feature = "fork")]
+    #[error(transparent)]
+    ForkedBackend1(#[from] katana_fork::BackendClientError),
+
     /// Any error that is not covered by the other variants.
     #[error("Something went wrong: {0}")]
     Other(String),

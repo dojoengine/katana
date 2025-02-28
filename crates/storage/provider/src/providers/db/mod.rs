@@ -50,7 +50,7 @@ use crate::ProviderResult;
 /// A provider implementation that uses a persistent database as the backend.
 // TODO: remove the default generic type
 #[derive(Debug, Clone)]
-pub struct DbProvider<Db: Database = DbEnv>(Db);
+pub struct DbProvider<Db: Database = DbEnv>(pub(crate) Db);
 
 impl<Db: Database> DbProvider<Db> {
     /// Creates a new [`DbProvider`] from the given [`DbEnv`].

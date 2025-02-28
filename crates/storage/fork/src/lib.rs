@@ -23,8 +23,8 @@ use katana_primitives::contract::{ContractAddress, Nonce, StorageKey, StorageVal
 use katana_primitives::Felt;
 use katana_rpc_types::class::RpcContractClass;
 use parking_lot::Mutex;
-use starknet::core::types::{BlockId, ContractClass as StarknetRsClass};
-use starknet::providers::Provider;
+use starknet::core::types::{BlockId, ContractClass as StarknetRsClass, StarknetError};
+use starknet::providers::{Provider, ProviderError as StarknetProviderError};
 use tracing::{error, trace};
 
 const LOG_TARGET: &str = "forking::backend";
@@ -421,12 +421,12 @@ impl Clone for BackendClient {
 /////////////////////////////////////////////////////////////////
 
 impl BackendClient {
-    pub fn get_nonce(&self, address: ContractAddress) -> Result<Nonce, BackendClientError> {
+    pub fn get_nonce(&self, address: ContractAddress) -> Result<Option<Nonce>, BackendClientError> {
         trace!(target: LOG_TARGET, %address, "Requesting contract nonce.");
         let (req, rx) = BackendRequest::nonce(address);
         self.request(req)?;
         match rx.recv()? {
-            BackendResponse::Nonce(res) => Ok(res?),
+            BackendResponse::Nonce(res) => handle_not_found_err(res),
             response => Err(BackendClientError::UnexpectedResponse(anyhow!("{response:?}"))),
         }
     }
@@ -435,12 +435,12 @@ impl BackendClient {
         &self,
         address: ContractAddress,
         key: StorageKey,
-    ) -> Result<StorageValue, BackendClientError> {
+    ) -> Result<Option<StorageValue>, BackendClientError> {
         trace!(target: LOG_TARGET, %address, key = %format!("{key:#x}"), "Requesting contract storage.");
         let (req, rx) = BackendRequest::storage(address, key);
         self.request(req)?;
         match rx.recv()? {
-            BackendResponse::Storage(res) => Ok(res?),
+            BackendResponse::Storage(res) => handle_not_found_err(res),
             response => Err(BackendClientError::UnexpectedResponse(anyhow!("{response:?}"))),
         }
     }
@@ -448,23 +448,31 @@ impl BackendClient {
     pub fn get_class_hash_at(
         &self,
         address: ContractAddress,
-    ) -> Result<ClassHash, BackendClientError> {
+    ) -> Result<Option<ClassHash>, BackendClientError> {
         trace!(target: LOG_TARGET, %address, "Requesting contract class hash.");
         let (req, rx) = BackendRequest::class_hash(address);
         self.request(req)?;
         match rx.recv()? {
-            BackendResponse::ClassHashAt(res) => Ok(res?),
+            BackendResponse::ClassHashAt(res) => handle_not_found_err(res),
             response => Err(BackendClientError::UnexpectedResponse(anyhow!("{response:?}"))),
         }
     }
 
-    pub fn get_class_at(&self, class_hash: ClassHash) -> Result<ContractClass, BackendClientError> {
+    pub fn get_class_at(
+        &self,
+        class_hash: ClassHash,
+    ) -> Result<Option<ContractClass>, BackendClientError> {
         trace!(target: LOG_TARGET, class_hash = %format!("{class_hash:#x}"), "Requesting class.");
         let (req, rx) = BackendRequest::class(class_hash);
         self.request(req)?;
         match rx.recv()? {
             BackendResponse::ClassAt(res) => {
-                Ok(RpcContractClass::try_from(res?).and_then(ContractClass::try_from)?)
+                if let Some(class) = handle_not_found_err(res)? {
+                    let class = RpcContractClass::try_from(class)?;
+                    Ok(Some(ContractClass::try_from(class)?))
+                } else {
+                    Ok(None)
+                }
             }
             response => Err(BackendClientError::UnexpectedResponse(anyhow!("{response:?}"))),
         }
@@ -473,11 +481,14 @@ impl BackendClient {
     pub fn get_compiled_class_hash(
         &self,
         class_hash: ClassHash,
-    ) -> Result<CompiledClassHash, BackendClientError> {
+    ) -> Result<Option<CompiledClassHash>, BackendClientError> {
         trace!(target: LOG_TARGET, class_hash = %format!("{class_hash:#x}"), "Requesting compiled class hash.");
-        let class = self.get_class_at(class_hash)?;
-        let class = class.compile()?;
-        Ok(class.class_hash()?)
+        if let Some(class) = self.get_class_at(class_hash)? {
+            let class = class.compile()?;
+            Ok(Some(class.class_hash()?))
+        } else {
+            Ok(None)
+        }
     }
 
     /// Send a request to the backend thread.
@@ -491,6 +502,27 @@ impl BackendClient {
         let (req, rx) = BackendRequest::stats();
         self.request(req)?;
         Ok(rx.recv()?)
+    }
+}
+
+/// A helper function to convert a contract/class not found error returned by the RPC provider into
+/// a `Option::None`.
+///
+/// This is to follow the Katana's provider APIs convention where 'not found'/'non-existent' should
+/// be represented as `Option::None`.
+fn handle_not_found_err<T>(
+    result: Result<T, BackendError>,
+) -> Result<Option<T>, BackendClientError> {
+    match result {
+        Ok(value) => Ok(Some(value)),
+
+        Err(BackendError::StarknetProvider(err)) => match err.as_ref() {
+            StarknetProviderError::StarknetError(StarknetError::ContractNotFound) => Ok(None),
+            StarknetProviderError::StarknetError(StarknetError::ClassHashNotFound) => Ok(None),
+            _ => Err(BackendClientError::BackendError(BackendError::StarknetProvider(err))),
+        },
+
+        Err(err) => Err(BackendClientError::BackendError(err)),
     }
 }
 
@@ -951,8 +983,8 @@ mod tests {
         let addr = ContractAddress(felt!("0x1"));
 
         // Collect results from multiple identical nonce requests
-        let results: Arc<Mutex<Vec<Result<Nonce, BackendClientError>>>> =
-            Arc::new(Mutex::new(Vec::new()));
+        let results: Arc<Mutex<Vec<_>>> = Arc::new(Mutex::new(Vec::new()));
+
         let handles: Vec<_> = (0..5)
             .map(|_| {
                 let h = handle.clone();
@@ -982,7 +1014,7 @@ mod tests {
         for result in results.iter() {
             assert_eq!(
                 "0x123",
-                format!("{:#x}", result.as_ref().unwrap()),
+                format!("{:#x?}", result.as_ref().unwrap()),
                 "All deduplicated nonce requests should return the same result"
             );
         }
