@@ -5920,6 +5920,23 @@ dependencies = [
 ]
 
 [[package]]
+name = "katana-fork"
+version = "1.2.2"
+dependencies = [
+ "anyhow",
+ "futures",
+ "katana-primitives",
+ "katana-rpc-types",
+ "katana-tasks",
+ "parking_lot",
+ "starknet",
+ "thiserror 1.0.69",
+ "tokio",
+ "tracing",
+ "url",
+]
+
+[[package]]
 name = "katana-grpc"
 version = "1.2.2"
 dependencies = [
