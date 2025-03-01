@@ -1,4 +1,6 @@
 **/target
+# Ignore temporary Docker files
+.docker-tmp/
 workspace
 .idea/
 dojo.iml

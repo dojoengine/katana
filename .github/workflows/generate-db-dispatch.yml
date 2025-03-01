@@ -4,42 +4,22 @@ on:
 
 jobs:
   generate-database:
-    permissions:
-      pull-requests: write
-      contents: write
     runs-on: ubuntu-latest
-    container:
-      image: ghcr.io/dojoengine/dojo-dev:v1.1.0
-    steps:
-      # Workaround described here: https://github.com/actions/checkout/issues/760
-      - uses: actions/checkout@v3
-      - run: git config --global --add safe.directory "$GITHUB_WORKSPACE"
 
-      - name: Build Katana
-        run: |
-          cargo build -r -p katana
+    container:
+      image: ghcr.io/dojoengine/dojo-dev:v1.2.2
+
+    permissions:
+      contents: write
+      pull-requests: write
+
+    steps:
+      - name: checkout repo
+        uses: actions/checkout@v4
 
       - name: Start Katana
         run: |
-          mkdir -p /tmp/katana_db
-          /target/release/katana --db-dir /tmp/katana_db --chain tests/fixtures/test-chain &
-          # Give some time for Katana to start
-          sleep 5
-
-      - name: Clone Dojo repository
-        run: |
-          git clone https://github.com/dojoengine/dojo.git /tmp/dojo
-
-      - name: Build and migrate example project
-        working-directory: /tmp/dojo/examples/spawn-and-move
-        run: |
-          sozo build
-          sozo migrate --account-address 0x1f401c745d3dba9b9da11921d1fb006c96f571e9039a0ece3f3b0dc14f04c3d --private-key 0x7230b49615d175307d580c33d6fda61fc7b9aec91df0f5c1a5ebe3b8cbfee02
-
-      - name: Compress database
-        run: |
-          mkdir -p fixtures
-          tar -czvf fixtures/katana_db.tar.gz -C /tmp katana_db
+          ./scripts/generate-test-db.sh
 
       - id: version_info
         run: |
@@ -51,7 +31,7 @@ jobs:
         with:
           token: ${{ secrets.CREATE_PR_TOKEN }}
           add-paths: |
-            fixtures/katana_db.tar.gz
+            tests/fixtures/katana_db.tar.gz
           title: "Update test database: ${{ steps.version_info.outputs.version }}"
           commit-message: "Update test database from Dojo project: ${{ steps.version_info.outputs.version }}"
           branch: db-update-${{ steps.version_info.outputs.version }}
