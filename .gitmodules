@@ -7,3 +7,4 @@
 [submodule "tests/snos/snos"]
 	path = tests/snos/snos
 	url = https://github.com/cartridge-gg/snos
+	branch = kariy/0.13.4

@@ -24,6 +24,6 @@ pub struct SequencingConfig {
 
 impl SequencingConfig {
     pub fn block_limits(&self) -> BlockLimits {
-        BlockLimits { cairo_steps: self.block_cairo_steps_limit.unwrap_or(u64::MAX) }
+        BlockLimits { cairo_steps: self.block_cairo_steps_limit.unwrap_or(50_000_000) }
     }
 }

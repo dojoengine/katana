@@ -29,3 +29,4 @@ artifacts/
 tests/snos/snos
 .python-version
 snos-env
+tests/fixtures/katana_db

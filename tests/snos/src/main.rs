@@ -4,26 +4,30 @@ use anyhow::Result;
 use cairo_vm::types::layout_name::LayoutName;
 use katana_chain_spec::rollup::{self, ChainConfigDir};
 use katana_chain_spec::ChainSpec;
+use katana_messaging::MessagingConfig;
 use katana_node::config::db::DbConfig;
 use katana_node::config::Config;
 use katana_node::{LaunchedNode, Node};
 use katana_primitives::block::BlockNumber;
-use katana_primitives::Felt;
+use katana_primitives::{address, ContractAddress, Felt};
 use katana_provider::traits::block::BlockNumberProvider;
 
 #[tokio::main]
 async fn main() {
-    let node = node().await.expect("failed to start node");
+    let node = node().await;
+
     let provider = node.node().backend().blockchain.provider();
     let url = format!("http://{}", node.rpc().addr());
 
     let latest_block = provider.latest_number().expect("failed to get latest block number");
-    println!("Proving blocks from 0 to {latest_block}");
+    println!("Processing {latest_block} blocks");
 
     for block in 0..latest_block {
         println!("Processing block {block}");
         run_snos(block, &url).await.expect("Failed to run snos for block {i}");
     }
+
+    println!("Finished processing {latest_block} blocks")
 }
 
 async fn run_snos(block: BlockNumber, rpc_url: &str) -> Result<()> {
@@ -43,12 +47,28 @@ async fn run_snos(block: BlockNumber, rpc_url: &str) -> Result<()> {
     Ok(())
 }
 
-async fn node() -> Result<LaunchedNode> {
-    let chain = rollup::read(&ChainConfigDir::open("../fixtures/test-chain")?)?;
+async fn node() -> LaunchedNode {
+    const TEST_CHAIN_CONFIG: &str = "../../fixtures/test-chain";
+    const TEST_DB_DIR: &str = "../../fixtures/katana_db";
+
+    let config_dir = ChainConfigDir::open(TEST_CHAIN_CONFIG).unwrap();
+    let mut chain = rollup::read(&config_dir).expect("failed to read chain config");
+    chain.genesis.sequencer_address = address!("0x1"); // this is so stupid
+
+    let messaging = MessagingConfig::from_chain_spec(&chain);
     let chain = ChainSpec::Rollup(chain);
 
-    let db = DbConfig { dir: Some(PathBuf::from(".")) };
-    let config = Config { chain: chain.into(), db, ..Default::default() };
+    let config = Config {
+        chain: chain.into(),
+        messaging: Some(messaging),
+        db: DbConfig { dir: Some(PathBuf::from(TEST_DB_DIR)) },
+        ..Default::default()
+    };
 
-    Node::build(config).await?.launch().await
+    Node::build(config)
+        .await
+        .expect("failed to build node")
+        .launch()
+        .await
+        .expect("failed to launch node")
 }

@@ -25,11 +25,14 @@ cleanup() {
 # Set trap to call cleanup function on script exit
 trap cleanup EXIT
 
+# Build katana
+cargo build --release -p katana
+
 echo "Creating database directory at $KATANA_DB_PATH"
 mkdir -p $KATANA_DB_PATH
 
 echo "Starting katana with database at $KATANA_DB_PATH"
-katana --db-dir "$KATANA_DB_PATH" --chain "$KATANA_CHAIN_CONFIG_DIR" &
+./target/release/katana --db-dir "$KATANA_DB_PATH" --chain "$KATANA_CHAIN_CONFIG_DIR" &
 KATANA_PID=$!
 sleep 5
 

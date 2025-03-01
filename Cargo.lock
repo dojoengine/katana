@@ -9553,6 +9553,7 @@ dependencies = [
  "anyhow",
  "cairo-vm 1.0.2 (git+https://github.com/kariy/cairo-vm?branch=kariy%2F1.0.2_clear-cell)",
  "katana-chain-spec",
+ "katana-messaging",
  "katana-node",
  "katana-primitives",
  "katana-provider",
