@@ -14,5 +14,5 @@ run_clippy() {
 run_clippy -p katana
 run_clippy -p katana-executor --all
 
-source ./crates/executor/cairo-native.env.sh
+source ./scripts/cairo-native.env.sh
 run_clippy -p katana --features native

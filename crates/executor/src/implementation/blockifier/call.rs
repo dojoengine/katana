@@ -126,19 +126,17 @@ mod tests {
             entry_point_selector: selector!("bounded_call"),
         };
 
-        // all the values for the calldata are handpicked as it's difficult to write a function that
-        // consumes a specific number of gas
-
         let max_gas_1 = 1_000_000;
         {
             // ~900,000 gas
             req.calldata = vec![felt!("460")];
             let info = execute_call_inner(req.clone(), &mut state, &ctx, max_gas_1).unwrap();
+            assert!(!info.execution.failed);
             assert!(max_gas_1 >= info.execution.gas_consumed);
 
             req.calldata = vec![felt!("600")];
-            let result = execute_call_inner(req.clone(), &mut state, &ctx, max_gas_1);
-            assert!(result.is_err(), "should fail due to out of run resources")
+            let info = execute_call_inner(req.clone(), &mut state, &ctx, max_gas_1).unwrap();
+            assert!(info.execution.failed, "should fail due to out of run resources");
         }
 
         let max_gas_2 = 10_000_000;
@@ -146,24 +144,26 @@ mod tests {
             // rougly equivalent to 9,000,000 gas
             req.calldata = vec![felt!("4600")];
             let info = execute_call_inner(req.clone(), &mut state, &ctx, max_gas_2).unwrap();
+            assert!(!info.execution.failed);
             assert!(max_gas_2 >= info.execution.gas_consumed);
             assert!(max_gas_1 < info.execution.gas_consumed);
 
             req.calldata = vec![felt!("5000")];
-            let result = execute_call_inner(req.clone(), &mut state, &ctx, max_gas_2);
-            assert!(result.is_err(), "should fail due to out of run resources")
+            let info = execute_call_inner(req.clone(), &mut state, &ctx, max_gas_2).unwrap();
+            assert!(info.execution.failed, "should fail due to out of run resources");
         }
 
         let max_gas_3 = 100_000_000;
         {
             req.calldata = vec![felt!("47000")];
             let info = execute_call_inner(req.clone(), &mut state, &ctx, max_gas_3).unwrap();
+            assert!(!info.execution.failed);
             assert!(max_gas_3 >= info.execution.gas_consumed);
             assert!(max_gas_2 < info.execution.gas_consumed);
 
             req.calldata = vec![felt!("60000")];
-            let result = execute_call_inner(req.clone(), &mut state, &ctx, max_gas_3);
-            assert!(result.is_err(), "should fail due to out of run resources")
+            let info = execute_call_inner(req.clone(), &mut state, &ctx, max_gas_3).unwrap();
+            assert!(info.execution.failed, "should fail due to out of run resources");
         }
 
         // Check that 'call' isn't bounded by the block context max invoke steps
