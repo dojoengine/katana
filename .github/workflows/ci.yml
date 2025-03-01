@@ -34,11 +34,11 @@ jobs:
       - run: |
           cargo build -r --bin katana
           mkdir -p bins
-          cp ./target/release/katana bin/
+          cp ./target/release/katana bins
       - uses: actions/upload-artifact@v4
         with:
           name: katana-bin
-          path: bin
+          path: bins
 
   # This job is used to ensure the built katana image doesn't depend on any
   # libraries that don't exist in the base docker image we use for distribution
@@ -73,10 +73,10 @@ jobs:
       - uses: actions/download-artifact@v4
         with:
           name: katana-bin
-          path: /tmp/bin
+          path: /tmp/bins
       - run: |
-          export PATH=/tmp/bin:$PATH
-          chmod +x /tmp/bin/katana
+          export PATH=/tmp/bins:$PATH
+          chmod +x /tmp/bins/katana
           tar -xzf tests/fixtures/katana_db.tar.gz -C /tmp/
           cargo llvm-cov nextest --no-report --all-features --workspace
           cargo llvm-cov report --lcov --output-path lcov.info
