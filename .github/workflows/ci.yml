@@ -32,10 +32,18 @@ jobs:
     steps:
       - uses: actions/checkout@v3
       - uses: Swatinem/rust-cache@v2
+      - name: Add LLVM deb repository
+        uses: myci-actions/add-deb-repo@11
+        with:
+          repo-name: llvm-repo
+          keys-asc: https://apt.llvm.org/llvm-snapshot.gpg.key
+          repo: deb http://apt.llvm.org/jammy/ llvm-toolchain-jammy-19 main
+      - run: apt-get update && apt-get upgrade -y
       - name: Install Cairo native dependencies
         run: |
-          make native-deps-ci-linux
-      - run: |
+          apt-get install llvm-19 llvm-19-dev llvm-19-runtime clang-19 clang-tools-19 lld-19 libpolly-19-dev libmlir-19-dev mlir-19-tools
+      - name: Run tests
+        run: |
           cargo llvm-cov nextest --no-report --all-features --workspace
           cargo llvm-cov report --lcov --output-path lcov.info
       - uses: codecov/codecov-action@v4
