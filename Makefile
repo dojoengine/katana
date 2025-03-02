@@ -33,20 +33,19 @@ ifndef TABLEGEN_190_PREFIX
 endif
 	@echo "LLVM is correctly set at $(MLIR_SYS_190_PREFIX)."
 
+.PHONY: native-deps
+native-deps:
+ifeq ($(UNAME), Darwin)
+native-deps: native-deps-macos
+else ifeq ($(UNAME), Linux)
+native-deps: native-deps-linux
+endif
+	@echo "Run  \`source scripts/cairo-native.env.sh\` to setup the needed environment variables for cairo-native."
+
 .PHONY: native-deps-macos
 native-deps-macos:
 	-brew install llvm@19 --quiet
-	@echo "Run  \`source scripts/cairo-native.env.sh\` to setup the needed environment variables for cairo-native."
 
 .PHONY: native-deps-linux
 native-deps-linux:
 	sudo apt-get install llvm-19 llvm-19-dev llvm-19-runtime clang-19 clang-tools-19 lld-19 libpolly-19-dev libmlir-19-dev mlir-19-tools
-	@echo "Run  \`source scripts/cairo-native.env.sh\` to setup the needed environment variables for cairo-native."
-
-.PHONY: native-deps
-native-deps:
-ifeq ($(UNAME), Darwin)
-	native-deps-macos
-else ifeq ($(UNAME), Linux)
-	native-deps-linux
-endif
