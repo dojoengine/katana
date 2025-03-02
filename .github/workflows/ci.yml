@@ -38,7 +38,7 @@ jobs:
           repo-name: llvm-repo
           keys-asc: https://apt.llvm.org/llvm-snapshot.gpg.key
           repo: deb http://apt.llvm.org/jammy/ llvm-toolchain-jammy-19 main
-      - run: sudo apt-get update && sudo apt-get upgrade -y
+      - run: apt-get update && apt-get upgrade -y
       - name: Install Cairo native dependencies
         run: |
           make native-deps
