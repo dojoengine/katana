@@ -63,29 +63,6 @@ jobs:
           fi
           kill $KATANA_PID
 
-  test:
-    needs: build
-    runs-on: ubuntu-latest
-    container:
-      image: ghcr.io/dojoengine/dojo-dev:v1.2.2
-    steps:
-      - uses: actions/checkout@v3
-      - uses: Swatinem/rust-cache@v2
-      - uses: actions/download-artifact@v4
-        with:
-          name: katana-bin
-          path: /tmp/bins
-      - run: |
-          export PATH=/tmp/bins:$PATH
-          chmod +x /tmp/bins/katana
-          tar -xzf tests/fixtures/katana_db.tar.gz -C /tmp/
-          cargo llvm-cov nextest --no-report --all-features --workspace
-          cargo llvm-cov report --lcov --output-path lcov.info
-      - uses: codecov/codecov-action@v4
-        with:
-          token: ${{ secrets.CODECOV_TOKEN }}
-          files: lcov.info
-
   test-cairo-native:
     needs: build
     runs-on: ubuntu-latest
