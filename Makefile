@@ -9,6 +9,7 @@ usage:
 	@echo "    prepare-snos-test:         Prepare the tests environment."
 	@echo "    extract-test-db:           Extract the test database file."
 	@echo "    native-deps-macos:         Install cairo-native dependencies for macOS."
+	@echo "    native-deps-linux:         Install cairo-native dependencies for Linux."
 
 .PHONY: prepare-snos-test
 prepare-snos-test: extract-test-db
@@ -36,3 +37,16 @@ endif
 native-deps-macos:
 	-brew install llvm@19 --quiet
 	@echo "Run  \`source scripts/cairo-native.env.sh\` to setup the needed environment variables for cairo-native."
+
+.PHONY: native-deps-linux
+native-deps-linux:
+	sudo apt-get install llvm-19 llvm-19-dev llvm-19-runtime clang-19 clang-tools-19 lld-19 libpolly-19-dev libmlir-19-dev mlir-19-tools
+	@echo "Run  \`source scripts/cairo-native.env.sh\` to setup the needed environment variables for cairo-native."
+
+.PHONY: native-deps
+native-deps:
+ifeq ($(UNAME), Darwin)
+	native-deps-macos
+else ifeq ($(UNAME), Linux)
+	native-deps-linux
+endif
