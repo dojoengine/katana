@@ -49,3 +49,10 @@ native-deps-macos:
 .PHONY: native-deps-linux
 native-deps-linux:
 	sudo apt-get install llvm-19 llvm-19-dev llvm-19-runtime clang-19 clang-tools-19 lld-19 libpolly-19-dev libmlir-19-dev mlir-19-tools
+
+# CI use only
+.PHONY: native-deps-ci-linux
+native-deps-ci-linux:
+ifeq ($(UNAME), Linux)
+	-wget https://apt.llvm.org/llvm.sh && chmod +x llvm.sh && sudo ./llvm.sh 19
+endif
