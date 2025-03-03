@@ -45,6 +45,11 @@ jobs:
         run: |
           apt-get install g++ llvm-19 llvm-19-dev llvm-19-runtime clang-19 clang-tools-19 lld-19 libpolly-19-dev libmlir-19-dev mlir-19-tools -y
 
+      - name: Build Katana binary
+        run: |
+          cargo build --release --bin katana
+          export PATH=$PWD/target/release:$PATH
+
       - name: Run tests
         run: |
           cargo llvm-cov nextest --no-report --all-features --workspace --exclude snos-integration-test --build-jobs 20
