@@ -1,10 +1,9 @@
 mod fixtures;
 
 use anyhow::Result;
-use fixtures::{fork_provider_with_spawned_fork_network, provider_with_states};
+use fixtures::provider_with_states;
 use katana_primitives::block::{BlockHashOrNumber, BlockNumber};
 use katana_primitives::contract::{ContractAddress, StorageKey, StorageValue};
-use katana_provider::providers::fork::ForkedProvider;
 use katana_provider::traits::state::{StateFactoryProvider, StateProvider};
 use katana_provider::BlockchainProvider;
 use rstest_reuse::{self, *};
@@ -52,14 +51,22 @@ mod latest {
     ) {
     }
 
-    #[apply(test_latest_storage_read)]
-    fn read_storage_from_fork_provider_with_spawned_fork_network(
-        #[with(fork_provider_with_spawned_fork_network::default())] provider: BlockchainProvider<
-            ForkedProvider,
-        >,
-        #[case] expected_storage_entry: Vec<(ContractAddress, StorageKey, Option<StorageValue>)>,
-    ) -> Result<()> {
-        assert_latest_storage_value(provider, expected_storage_entry)
+    #[cfg(feature = "fork")]
+    mod fork {
+        use katana_provider::providers::fork::ForkedProvider;
+
+        #[apply(test_latest_storage_read)]
+        fn read_storage_from_fork_provider_with_spawned_fork_network(
+            #[with(fork_provider_with_spawned_fork_network::default())]
+            provider: BlockchainProvider<ForkedProvider>,
+            #[case] expected_storage_entry: Vec<(
+                ContractAddress,
+                StorageKey,
+                Option<StorageValue>,
+            )>,
+        ) -> Result<()> {
+            assert_latest_storage_value(provider, expected_storage_entry)
+        }
     }
 
     #[apply(test_latest_storage_read)]
@@ -136,15 +143,23 @@ mod historical {
     ) {
     }
 
-    #[apply(test_historical_storage_read)]
-    fn read_storage_from_fork_provider_with_spawned_fork_network(
-        #[with(fork_provider_with_spawned_fork_network::default())] provider: BlockchainProvider<
-            ForkedProvider,
-        >,
-        #[case] block_num: BlockNumber,
-        #[case] expected_storage_entry: Vec<(ContractAddress, StorageKey, Option<StorageValue>)>,
-    ) -> Result<()> {
-        assert_historical_storage_value(provider, block_num, expected_storage_entry)
+    #[cfg(feature = "fork")]
+    mod fork {
+        use fixtures::fork_provider_with_spawned_fork_network;
+
+        #[apply(test_historical_storage_read)]
+        fn read_storage_from_fork_provider_with_spawned_fork_network(
+            #[with(fork_provider_with_spawned_fork_network::default())]
+            provider: BlockchainProvider<ForkedProvider>,
+            #[case] block_num: BlockNumber,
+            #[case] expected_storage_entry: Vec<(
+                ContractAddress,
+                StorageKey,
+                Option<StorageValue>,
+            )>,
+        ) -> Result<()> {
+            assert_historical_storage_value(provider, block_num, expected_storage_entry)
+        }
     }
 
     #[apply(test_historical_storage_read)]

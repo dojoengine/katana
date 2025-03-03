@@ -1,13 +1,10 @@
 mod fixtures;
 
 use anyhow::Result;
-use fixtures::{
-    fork_provider_with_spawned_fork_network, provider_with_states, DOJO_WORLD_SIERRA_CLASS,
-};
+use fixtures::{provider_with_states, DOJO_WORLD_SIERRA_CLASS};
 use katana_primitives::block::{BlockHashOrNumber, BlockNumber};
 use katana_primitives::class::{ClassHash, CompiledClassHash, ContractClass};
 use katana_primitives::genesis::constant::{DEFAULT_LEGACY_ERC20_CLASS, DEFAULT_LEGACY_UDC_CLASS};
-use katana_provider::providers::fork::ForkedProvider;
 use katana_provider::traits::contract::ContractClassProviderExt;
 use katana_provider::traits::state::{StateFactoryProvider, StateProvider};
 use katana_provider::BlockchainProvider;
@@ -65,14 +62,21 @@ mod latest {
     ) {
     }
 
-    #[apply(test_latest_class_read)]
-    fn read_class_from_fork_provider(
-        #[with(fork_provider_with_spawned_fork_network::default())] provider: BlockchainProvider<
-            ForkedProvider,
-        >,
-        #[case] expected_classes: Vec<ClassHashAndClasses>,
-    ) -> Result<()> {
-        assert_latest_class(provider, expected_classes)
+    #[cfg(feature = "fork")]
+    mod fork {
+        use fixtures::fork::fork_provider_with_spawned_fork_network;
+        use katana_provider::providers::fork::ForkedProvider;
+
+        use super::*;
+
+        #[apply(test_latest_class_read)]
+        fn read_class_from_fork_provider(
+            #[with(fork_provider_with_spawned_fork_network::default())]
+            provider: BlockchainProvider<ForkedProvider>,
+            #[case] expected_classes: Vec<ClassHashAndClasses>,
+        ) -> Result<()> {
+            assert_latest_class(provider, expected_classes)
+        }
     }
 
     #[apply(test_latest_class_read)]
@@ -144,15 +148,22 @@ mod historical {
     ) {
     }
 
-    #[apply(test_historical_class_read)]
-    fn read_class_from_fork_provider(
-        #[with(fork_provider_with_spawned_fork_network::default())] provider: BlockchainProvider<
-            ForkedProvider,
-        >,
-        #[case] block_num: BlockNumber,
-        #[case] expected_classes: Vec<ClassHashAndClasses>,
-    ) -> Result<()> {
-        assert_historical_class(provider, block_num, expected_classes)
+    #[cfg(feature = "fork")]
+    mod fork {
+        use fixtures::fork_provider_with_spawned_fork_network;
+        use katana_provider::providers::fork::ForkedProvider;
+
+        use super::*;
+
+        #[apply(test_historical_class_read)]
+        fn read_class_from_fork_provider(
+            #[with(fork_provider_with_spawned_fork_network::default())]
+            provider: BlockchainProvider<ForkedProvider>,
+            #[case] block_num: BlockNumber,
+            #[case] expected_classes: Vec<ClassHashAndClasses>,
+        ) -> Result<()> {
+            assert_historical_class(provider, block_num, expected_classes)
+        }
     }
 
     #[apply(test_historical_class_read)]

@@ -1,64 +1,64 @@
 use std::collections::BTreeMap;
-use std::sync::Arc;
 
 use katana_db::mdbx;
 use katana_primitives::address;
 use katana_primitives::block::{
     BlockHashOrNumber, FinalityStatus, Header, SealedBlock, SealedBlockWithStatus,
 };
-use katana_primitives::class::{CompiledClass, ContractClass, SierraContractClass};
+use katana_primitives::class::{ContractClass, SierraContractClass};
 use katana_primitives::contract::ContractAddress;
 use katana_primitives::genesis::constant::{DEFAULT_LEGACY_ERC20_CLASS, DEFAULT_LEGACY_UDC_CLASS};
 use katana_primitives::state::{StateUpdates, StateUpdatesWithClasses};
-use katana_primitives::utils::class::parse_compiled_class;
 use katana_provider::providers::db::DbProvider;
-use katana_provider::providers::fork::ForkedProvider;
 use katana_provider::traits::block::BlockWriter;
 use katana_provider::traits::state::StateFactoryProvider;
 use katana_provider::BlockchainProvider;
-use katana_runner::KatanaRunner;
 use lazy_static::lazy_static;
 use starknet::macros::felt;
-use starknet::providers::jsonrpc::HttpTransport;
-use starknet::providers::JsonRpcClient;
-use url::Url;
 
 lazy_static! {
-    pub static ref FORKED_PROVIDER: (KatanaRunner, Arc<JsonRpcClient<HttpTransport>>) = {
-        let runner = katana_runner::KatanaRunner::new().unwrap();
-        let provider = runner.starknet_provider();
-        (runner, Arc::new(provider))
-    };
-    pub static ref DOJO_WORLD_COMPILED_CLASS: CompiledClass = {
-        let json =
-            serde_json::from_str(include_str!("../../db/benches/artifacts/dojo_world_240.json"))
-                .unwrap();
-        parse_compiled_class(json).unwrap()
-    };
-    pub static ref DOJO_WORLD_SIERRA_CLASS: SierraContractClass = {
-        serde_json::from_str(include_str!("../../db/benches/artifacts/dojo_world_240.json"))
-            .unwrap()
-    };
+    pub static ref DOJO_WORLD_SIERRA_CLASS: SierraContractClass =
+        serde_json::from_str(include_str!("./fixtures/dojo_world_240.json")).unwrap();
 }
 
-#[rstest::fixture]
-pub fn fork_provider(
-    #[default("http://127.0.0.1:5050")] rpc: &str,
-    #[default(0)] block_num: u64,
-) -> BlockchainProvider<ForkedProvider> {
-    let provider = JsonRpcClient::new(HttpTransport::new(Url::parse(rpc).unwrap()));
-    let provider =
-        ForkedProvider::new_ephemeral(BlockHashOrNumber::Num(block_num), Arc::new(provider));
-    BlockchainProvider::new(provider)
-}
+#[cfg(feature = "fork")]
+mod fork {
+    use katana_provider::providers::fork::ForkedProvider;
+    use katana_runner::KatanaRunner;
+    use lazy_static::lazy_static;
+    use starknet::providers::jsonrpc::HttpTransport;
+    use starknet::providers::JsonRpcClient;
+    use url::Url;
 
-#[rstest::fixture]
-pub fn fork_provider_with_spawned_fork_network(
-    #[default(0)] block_num: u64,
-) -> BlockchainProvider<ForkedProvider> {
-    let provider =
-        ForkedProvider::new_ephemeral(BlockHashOrNumber::Num(block_num), FORKED_PROVIDER.1.clone());
-    BlockchainProvider::new(provider)
+    lazy_static! {
+        pub static ref FORKED_PROVIDER: (KatanaRunner, Arc<JsonRpcClient<HttpTransport>>) = {
+            let runner = katana_runner::KatanaRunner::new().unwrap();
+            let provider = runner.starknet_provider();
+            (runner, Arc::new(provider))
+        };
+    }
+
+    #[rstest::fixture]
+    pub fn fork_provider(
+        #[default("http://127.0.0.1:5050")] rpc: &str,
+        #[default(0)] block_num: u64,
+    ) -> BlockchainProvider<ForkedProvider> {
+        let provider = JsonRpcClient::new(HttpTransport::new(Url::parse(rpc).unwrap()));
+        let provider =
+            ForkedProvider::new_ephemeral(BlockHashOrNumber::Num(block_num), Arc::new(provider));
+        BlockchainProvider::new(provider)
+    }
+
+    #[rstest::fixture]
+    pub fn fork_provider_with_spawned_fork_network(
+        #[default(0)] block_num: u64,
+    ) -> BlockchainProvider<ForkedProvider> {
+        let provider = ForkedProvider::new_ephemeral(
+            BlockHashOrNumber::Num(block_num),
+            FORKED_PROVIDER.1.clone(),
+        );
+        BlockchainProvider::new(provider)
+    }
 }
 
 #[rstest::fixture]

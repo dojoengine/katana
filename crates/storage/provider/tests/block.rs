@@ -6,7 +6,6 @@ use katana_primitives::env::BlockEnv;
 use katana_primitives::state::StateUpdatesWithClasses;
 use katana_primitives::transaction::TxWithHash;
 use katana_provider::providers::db::DbProvider;
-use katana_provider::providers::fork::ForkedProvider;
 use katana_provider::traits::block::{
     BlockHashProvider, BlockNumberProvider, BlockProvider, BlockStatusProvider, BlockWriter,
 };
@@ -22,20 +21,8 @@ use rstest_reuse::{self, *};
 mod fixtures;
 mod utils;
 
-use fixtures::{
-    db_provider, fork_provider, fork_provider_with_spawned_fork_network, mock_state_updates,
-    provider_with_states,
-};
+use fixtures::{db_provider, mock_state_updates, provider_with_states};
 use katana_primitives::Felt;
-
-#[apply(insert_block_cases)]
-#[ignore = "trie computation not supported yet for forked mode yet"]
-fn insert_block_with_fork_provider(
-    #[from(fork_provider)] provider: BlockchainProvider<ForkedProvider>,
-    #[case] block_count: u64,
-) -> Result<()> {
-    insert_block_test_impl(provider, block_count)
-}
 
 #[apply(insert_block_cases)]
 fn insert_block_with_db_provider(
@@ -43,15 +30,6 @@ fn insert_block_with_db_provider(
     #[case] block_count: u64,
 ) -> Result<()> {
     insert_block_test_impl(provider, block_count)
-}
-
-#[apply(insert_block_cases)]
-#[ignore = "trie computation not supported yet for forked mode yet"]
-fn insert_block_empty_with_fork_provider(
-    #[from(fork_provider)] provider: BlockchainProvider<ForkedProvider>,
-    #[case] block_count: u64,
-) -> Result<()> {
-    insert_block_empty_test_impl(provider, block_count)
 }
 
 #[apply(insert_block_cases)]
@@ -277,17 +255,6 @@ where
 }
 
 #[apply(test_read_state_update)]
-fn test_read_state_update_with_fork_provider(
-    #[with(fork_provider_with_spawned_fork_network::default())] provider: BlockchainProvider<
-        ForkedProvider,
-    >,
-    #[case] block_num: BlockNumber,
-    #[case] expected_state_update: StateUpdatesWithClasses,
-) -> Result<()> {
-    test_read_state_update_impl(provider, block_num, expected_state_update)
-}
-
-#[apply(test_read_state_update)]
 fn test_read_state_update_with_db_provider(
     #[with(db_provider())] provider: BlockchainProvider<DbProvider>,
     #[case] block_num: BlockNumber,
@@ -328,4 +295,41 @@ fn test_read_state_update<Db>(
     #[case] block_num: BlockNumber,
     #[case] expected_state_update: StateUpdatesWithClasses,
 ) {
+}
+
+#[cfg(feature = "fork")]
+mod fork {
+    use fixtures::fork::{fork_provider, fork_provider_with_spawned_fork_network};
+    use katana_provider::providers::fork::ForkedProvider;
+
+    use super::*;
+
+    #[apply(insert_block_cases)]
+    #[ignore = "trie computation not supported yet for forked mode yet"]
+    fn insert_block_with_fork_provider(
+        #[from(fork_provider)] provider: BlockchainProvider<ForkedProvider>,
+        #[case] block_count: u64,
+    ) -> Result<()> {
+        insert_block_test_impl(provider, block_count)
+    }
+
+    #[apply(insert_block_cases)]
+    #[ignore = "trie computation not supported yet for forked mode yet"]
+    fn insert_block_empty_with_fork_provider(
+        #[from(fork_provider)] provider: BlockchainProvider<ForkedProvider>,
+        #[case] block_count: u64,
+    ) -> Result<()> {
+        insert_block_empty_test_impl(provider, block_count)
+    }
+
+    #[apply(test_read_state_update)]
+    fn test_read_state_update_with_fork_provider(
+        #[with(fork_provider_with_spawned_fork_network::default())] provider: BlockchainProvider<
+            ForkedProvider,
+        >,
+        #[case] block_num: BlockNumber,
+        #[case] expected_state_update: StateUpdatesWithClasses,
+    ) -> Result<()> {
+        test_read_state_update_impl(provider, block_num, expected_state_update)
+    }
 }
