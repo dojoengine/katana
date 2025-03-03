@@ -1013,8 +1013,8 @@ mod tests {
         let results = results.lock().unwrap();
         for result in results.iter() {
             assert_eq!(
-                "0x123",
-                format!("{:#x?}", result.as_ref().unwrap()),
+                &Some(felt!("0x123")),
+                result.as_ref().unwrap(),
                 "All deduplicated nonce requests should return the same result"
             );
         }

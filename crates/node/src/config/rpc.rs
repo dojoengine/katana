@@ -155,7 +155,7 @@ mod tests {
 
     #[test]
     fn test_parse_multiple() {
-        let list = RpcModulesList::parse("starnet,dev").unwrap();
+        let list = RpcModulesList::parse("starknet,dev").unwrap();
         assert!(list.contains(&RpcModuleKind::Starknet));
         assert!(list.contains(&RpcModuleKind::Dev));
     }
