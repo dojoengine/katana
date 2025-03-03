@@ -22,13 +22,18 @@ lazy_static! {
 }
 
 #[cfg(feature = "fork")]
-mod fork {
+pub mod fork {
+
+    use std::sync::Arc;
+
     use katana_provider::providers::fork::ForkedProvider;
     use katana_runner::KatanaRunner;
     use lazy_static::lazy_static;
     use starknet::providers::jsonrpc::HttpTransport;
     use starknet::providers::JsonRpcClient;
     use url::Url;
+
+    use super::*;
 
     lazy_static! {
         pub static ref FORKED_PROVIDER: (KatanaRunner, Arc<JsonRpcClient<HttpTransport>>) = {
