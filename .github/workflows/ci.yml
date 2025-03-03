@@ -22,7 +22,7 @@ jobs:
 
   test:
     needs: fmt
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-latest-4-cores
     container:
       image: ghcr.io/dojoengine/dojo-dev:v1.2.2
     env:
@@ -32,26 +32,6 @@ jobs:
     steps:
       - uses: actions/checkout@v3
       - uses: Swatinem/rust-cache@v2
-
-      - name: Check and free HDD space left
-        run: |
-          echo "Listing 20 largest packages"
-          dpkg-query -Wf '${Installed-Size}\t${Package}\n' | sort -n | tail -n 20
-          df -h
-          apt-get update
-          apt-get remove -y '^llvm-.*'
-          apt-get remove -y 'php.*'
-          apt-get remove -y '^dotnet-.*'
-          apt-get remove -y '^temurin-.*'
-          apt-get remove -y azure-cli microsoft-edge-stable google-chrome-stable firefox mono-devel
-          apt-get autoremove -y
-          apt-get clean
-          df -h
-          echo "Removing large directories"
-          # deleting 15GB
-          rm -rf /usr/share/dotnet/
-          rm -rf /usr/local/lib/android
-          df -h
 
       - name: Add LLVM deb repository
         uses: myci-actions/add-deb-repo@11
@@ -76,7 +56,7 @@ jobs:
 
   snos-integration-test:
     needs: test
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-latest-4-cores
     container:
       image: ghcr.io/dojoengine/dojo-dev:v1.2.2
     env:
@@ -86,26 +66,6 @@ jobs:
     steps:
       - uses: actions/checkout@v3
       - uses: Swatinem/rust-cache@v2
-
-      - name: Check and free HDD space left
-        run: |
-          echo "Listing 20 largest packages"
-          dpkg-query -Wf '${Installed-Size}\t${Package}\n' | sort -n | tail -n 20
-          df -h
-          sudo apt-get update
-          sudo apt-get remove -y '^llvm-.*'
-          sudo apt-get remove -y 'php.*'
-          sudo apt-get remove -y '^dotnet-.*'
-          sudo apt-get remove -y '^temurin-.*'
-          sudo apt-get remove -y azure-cli microsoft-edge-stable google-chrome-stable firefox mono-devel
-          sudo apt-get autoremove -y
-          sudo apt-get clean
-          df -h
-          echo "Removing large directories"
-          # deleting 15GB
-          sudo rm -rf /usr/share/dotnet/
-          sudo rm -rf /usr/local/lib/android
-          df -h
 
       - name: Add LLVM deb repository
         uses: myci-actions/add-deb-repo@11
