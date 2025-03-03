@@ -118,11 +118,16 @@ impl RpcModulesList {
         }
 
         let mut modules = HashSet::new();
-        for module_str in value.split(',') {
-            let module: RpcModuleKind = module_str
-                .trim()
+        for module_name in value.split(',') {
+            let trimmed_module_name = module_name.trim();
+
+            if trimmed_module_name.is_empty() {
+                continue;
+            }
+
+            let module: RpcModuleKind = trimmed_module_name
                 .parse()
-                .map_err(|_| InvalidRpcModuleError(module_str.to_string()))?;
+                .map_err(|_| InvalidRpcModuleError(trimmed_module_name.to_string()))?;
 
             modules.insert(module);
         }
@@ -162,7 +167,7 @@ mod tests {
 
     #[test]
     fn test_parse_with_spaces() {
-        let list = RpcModulesList::parse(" dev , ").unwrap();
+        let list = RpcModulesList::parse(" dev ,   ").unwrap();
         assert!(list.contains(&RpcModuleKind::Dev));
     }
 
