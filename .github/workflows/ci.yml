@@ -32,6 +32,7 @@ jobs:
     steps:
       - uses: actions/checkout@v3
       - uses: Swatinem/rust-cache@v2
+
       - name: Add LLVM deb repository
         uses: myci-actions/add-deb-repo@11
         with:
@@ -39,9 +40,11 @@ jobs:
           keys-asc: https://apt.llvm.org/llvm-snapshot.gpg.key
           repo: deb http://apt.llvm.org/jammy/ llvm-toolchain-jammy-19 main
       - run: apt-get update && apt-get upgrade -y
+
       - name: Install Cairo native dependencies
         run: |
           apt-get install g++ llvm-19 llvm-19-dev llvm-19-runtime clang-19 clang-tools-19 lld-19 libpolly-19-dev libmlir-19-dev mlir-19-tools -y
+
       - name: Run tests
         run: |
           cargo llvm-cov nextest --no-report --all-features --workspace
@@ -59,6 +62,7 @@ jobs:
     steps:
       - uses: actions/checkout@v3
       - uses: Swatinem/rust-cache@v2
+
       - name: Add LLVM deb repository
         uses: myci-actions/add-deb-repo@11
         with:
@@ -66,8 +70,14 @@ jobs:
           keys-asc: https://apt.llvm.org/llvm-snapshot.gpg.key
           repo: deb http://apt.llvm.org/jammy/ llvm-toolchain-jammy-19 main
       - run: apt-get update && apt-get upgrade -y
+
       - name: Install Cairo native dependencies
         run: |
           apt-get install g++ llvm-19 llvm-19-dev llvm-19-runtime clang-19 clang-tools-19 lld-19 libpolly-19-dev libmlir-19-dev mlir-19-tools -y
+
+      - name: Prepare SNOS test environment
+        run: |
+          make prepare-snos-test
+
       - run: |
           cargo run -p snos-integration-test
