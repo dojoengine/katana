@@ -1,12 +1,13 @@
 use std::sync::Arc;
 
-use anyhow::{anyhow, bail, Context, Result};
+use anyhow::{Context, Result, anyhow, bail};
 use katana_db::mdbx::DbEnv;
 use katana_primitives::block::{
     BlockHashOrNumber, BlockIdOrTag, BlockNumber, FinalityStatus, SealedBlockWithStatus,
 };
 use katana_primitives::da::L1DataAvailabilityMode;
 use katana_primitives::hash::{self, StarkHash};
+use katana_provider::BlockchainProvider;
 use katana_provider::providers::db::DbProvider;
 use katana_provider::providers::fork::ForkedProvider;
 use katana_provider::traits::block::{BlockProvider, BlockWriter};
@@ -20,7 +21,6 @@ use katana_provider::traits::transaction::{
     TransactionsProviderExt,
 };
 use katana_provider::traits::trie::TrieWriter;
-use katana_provider::BlockchainProvider;
 use num_traits::ToPrimitive;
 use starknet::core::types::MaybePendingBlockWithTxHashes;
 use starknet::core::utils::parse_cairo_short_string;
@@ -161,6 +161,8 @@ impl Blockchain {
                 L1DataAvailabilityMode::Calldata
             }
         };
+
+        println!("created backend fork");
 
         Ok((Self::new(database), block_num))
     }

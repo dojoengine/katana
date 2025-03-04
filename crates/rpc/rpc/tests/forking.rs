@@ -7,7 +7,7 @@ use katana_primitives::chain::NamedChainId;
 use katana_primitives::event::MaybeForkedContinuationToken;
 use katana_primitives::genesis::constant::DEFAULT_ETH_FEE_TOKEN_ADDRESS;
 use katana_primitives::transaction::TxHash;
-use katana_primitives::{felt, Felt};
+use katana_primitives::{Felt, felt};
 use katana_utils::TestNode;
 use starknet::core::types::{EventFilter, MaybePendingBlockWithTxHashes, StarknetError};
 use starknet::providers::jsonrpc::HttpTransport;
@@ -44,16 +44,19 @@ async fn setup_test_inner(no_mining: bool) -> (TestNode, impl Provider, LocalTes
     let sequencer = TestNode::new_with_config(config).await;
     let provider = sequencer.starknet_provider();
 
+    println!("katana started");
+
     let mut txs_vector: LocalTestVector = Vec::new();
 
     // create some emtpy blocks and dummy transactions
     abigen_legacy!(FeeToken, "crates/rpc/rpc/tests/test_data/erc20.json");
     let contract = FeeToken::new(DEFAULT_ETH_FEE_TOKEN_ADDRESS.into(), sequencer.account());
 
-    if no_mining {
+    if dbg!(no_mining) {
         // In no mining mode, bcs we're not producing any blocks, the transactions that we send
         // will all be included in the same block (pending).
         for _ in 1..=10 {
+            println!("ohayo");
             let amount = Uint256 { low: Felt::ONE, high: Felt::ZERO };
             let res = contract.transfer(&Felt::ONE, &amount).send().await.unwrap();
             dojo_utils::TransactionWaiter::new(res.transaction_hash, &provider).await.unwrap();
@@ -61,12 +64,16 @@ async fn setup_test_inner(no_mining: bool) -> (TestNode, impl Provider, LocalTes
             // events in pending block doesn't have block hash and number, so we can safely put
             // dummy values here.
             txs_vector.push(((0, Felt::ZERO), res.transaction_hash));
+
+            println!("finish tx");
         }
+        println!("finish all");
     } else {
         // We're in auto mining, each transaction will create a new block
         for i in 1..=10 {
+            println!("boon");
             let amount = Uint256 { low: Felt::ONE, high: Felt::ZERO };
-            let res = contract.transfer(&Felt::ONE, &amount).send().await.unwrap();
+            let res = dbg!(contract.transfer(&Felt::ONE, &amount).send().await.unwrap());
             let _ =
                 dojo_utils::TransactionWaiter::new(res.transaction_hash, &provider).await.unwrap();
 
@@ -80,6 +87,7 @@ async fn setup_test_inner(no_mining: bool) -> (TestNode, impl Provider, LocalTes
             };
 
             txs_vector.push(((FORK_BLOCK_NUMBER + i, block_hash), res.transaction_hash));
+            println!("bruh");
         }
     }
 
@@ -97,6 +105,7 @@ async fn setup_test_pending() -> (TestNode, impl Provider, LocalTestVector) {
 #[tokio::test]
 async fn can_fork() -> Result<()> {
     let (_sequencer, provider, _) = setup_test().await;
+    println!("im here");
 
     let block = provider.block_number().await?;
     let chain = provider.chain_id().await?;

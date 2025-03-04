@@ -6,6 +6,7 @@ use katana_core::backend::Backend;
 use katana_core::service::block_producer::{BlockProducer, BlockProducerMode, PendingExecutor};
 use katana_executor::{ExecutionResult, ExecutorFactory};
 use katana_pool::{TransactionPool, TxPool};
+use katana_primitives::Felt;
 use katana_primitives::block::{
     BlockHash, BlockHashOrNumber, BlockIdOrTag, BlockNumber, BlockTag, FinalityStatus,
     PartialHeader,
@@ -17,7 +18,6 @@ use katana_primitives::env::BlockEnv;
 use katana_primitives::event::MaybeForkedContinuationToken;
 use katana_primitives::transaction::{ExecutableTxWithHash, TxHash, TxWithHash};
 use katana_primitives::version::CURRENT_STARKNET_VERSION;
-use katana_primitives::Felt;
 use katana_provider::error::ProviderError;
 use katana_provider::traits::block::{BlockHashProvider, BlockIdReader, BlockNumberProvider};
 use katana_provider::traits::contract::ContractClassProvider;
@@ -27,6 +27,7 @@ use katana_provider::traits::transaction::{
     ReceiptProvider, TransactionProvider, TransactionStatusProvider,
 };
 use katana_rpc_api::error::starknet::StarknetApiError;
+use katana_rpc_types::FeeEstimate;
 use katana_rpc_types::block::{
     MaybePendingBlockWithReceipts, MaybePendingBlockWithTxHashes, MaybePendingBlockWithTxs,
     PendingBlockWithReceipts, PendingBlockWithTxHashes, PendingBlockWithTxs,
@@ -40,7 +41,6 @@ use katana_rpc_types::trie::{
     ClassesProof, ContractLeafData, ContractStorageKeys, ContractStorageProofs, ContractsProof,
     GetStorageProofResponse, GlobalRoots, Nodes,
 };
-use katana_rpc_types::FeeEstimate;
 use katana_rpc_types_builder::ReceiptBuilder;
 use katana_tasks::{BlockingTaskPool, TokioTaskSpawner};
 use starknet::core::types::{
@@ -156,13 +156,17 @@ where
         block_id: BlockIdOrTag,
         flags: katana_executor::ExecutionFlags,
     ) -> StarknetApiResult<Vec<FeeEstimate>> {
+        println!("estimating");
         // get the state and block env at the specified block for execution
         let state = self.state(&block_id)?;
+        println!("geting block env");
         let env = self.block_env_at(&block_id)?;
 
         // create the executor
         let executor = self.inner.backend.executor_factory.with_state_and_block_env(state, env);
+        println!("hehhh");
         let results = executor.estimate_fee(transactions, flags);
+        println!("estaimting ettest");
 
         let mut estimates = Vec::with_capacity(results.len());
         for (i, res) in results.into_iter().enumerate() {
@@ -188,6 +192,7 @@ where
             }
         }
 
+        println!("finish estimation");
         Ok(estimates)
     }
 
@@ -209,6 +214,7 @@ where
                 if let Some(exec) = self.pending_executor() {
                     Some(exec.read().state())
                 } else {
+                    println!("getting state here");
                     Some(provider.latest()?)
                 }
             }
@@ -223,7 +229,7 @@ where
     fn block_env_at(&self, block_id: &BlockIdOrTag) -> StarknetApiResult<BlockEnv> {
         let provider = self.inner.backend.blockchain.provider();
 
-        let env = match block_id {
+        let env = match dbg!(block_id) {
             BlockIdOrTag::Tag(BlockTag::Pending) => {
                 // If there is a pending block, use the block env of the pending block.
                 if let Some(exec) = self.pending_executor() {
@@ -247,6 +253,8 @@ where
             BlockIdOrTag::Hash(hash) => provider.block_env_at((*hash).into())?,
             BlockIdOrTag::Number(num) => provider.block_env_at((*num).into())?,
         };
+
+        dbg!(&env);
 
         env.ok_or(StarknetApiError::BlockNotFound)
     }

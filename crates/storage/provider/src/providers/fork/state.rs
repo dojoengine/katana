@@ -11,19 +11,21 @@ use katana_primitives::class::{ClassHash, CompiledClassHash, ContractClass};
 use katana_primitives::contract::{GenericContractInfo, Nonce, StorageKey, StorageValue};
 use katana_primitives::{ContractAddress, Felt};
 
-use super::db::{self};
 use super::ForkedProvider;
+use super::db::{self};
+use crate::ProviderResult;
 use crate::error::ProviderError;
 use crate::traits::block::BlockNumberProvider;
 use crate::traits::contract::{ContractClassProvider, ContractClassWriter};
 use crate::traits::state::{
     StateFactoryProvider, StateProofProvider, StateProvider, StateRootProvider, StateWriter,
 };
-use crate::ProviderResult;
 
 impl<Db: Database> StateFactoryProvider for ForkedProvider<Db> {
     fn latest(&self) -> ProviderResult<Box<dyn StateProvider>> {
+        println!("latest statee");
         let tx = self.db().tx_mut()?;
+        println!("got tx");
         let provider = db::state::LatestStateProvider::new(tx);
         Ok(Box::new(LatestStateProvider { backend: self.backend.clone(), provider }))
     }
@@ -32,6 +34,7 @@ impl<Db: Database> StateFactoryProvider for ForkedProvider<Db> {
         &self,
         block_id: BlockHashOrNumber,
     ) -> ProviderResult<Option<Box<dyn StateProvider>>> {
+        println!("historical statee");
         let block_number = match block_id {
             BlockHashOrNumber::Hash(hash) => self.provider.block_number_by_hash(hash)?,
 
@@ -65,6 +68,7 @@ where
     Tx: DbTxMut + Send + Sync,
 {
     fn class(&self, hash: ClassHash) -> ProviderResult<Option<ContractClass>> {
+        println!("class");
         if let Some(class) = self.provider.class(hash)? {
             Ok(Some(class))
         } else if let Some(class) = self.backend.get_class_at(hash)? {
@@ -79,8 +83,9 @@ where
         &self,
         hash: ClassHash,
     ) -> ProviderResult<Option<CompiledClassHash>> {
-        if let Some(compiled_hash) = self.provider.compiled_class_hash_of_class_hash(hash)? {
-            Ok(Some(compiled_hash))
+        println!("compiled hash");
+        if let res @ Some(..) = self.provider.compiled_class_hash_of_class_hash(hash)? {
+            Ok(res)
         } else if let Some(compiled_hash) = self.backend.get_compiled_class_hash(hash)? {
             self.provider.tx().put::<tables::CompiledClassHashes>(hash, compiled_hash)?;
             Ok(Some(compiled_hash))
@@ -95,8 +100,9 @@ where
     Tx: DbTxMut + fmt::Debug + Send + Sync,
 {
     fn nonce(&self, address: ContractAddress) -> ProviderResult<Option<Nonce>> {
-        if let Some(nonce) = self.provider.nonce(address)? {
-            Ok(Some(nonce))
+        println!("nonce");
+        if let res @ Some(..) = dbg!(self.provider.nonce(dbg!(address))?) {
+            Ok(res)
         } else if let Some(nonce) = self.backend.get_nonce(address)? {
             let class_hash = self
                 .backend
@@ -116,8 +122,9 @@ where
         &self,
         address: ContractAddress,
     ) -> ProviderResult<Option<ClassHash>> {
-        if let Some(class_hash) = self.provider.class_hash_of_contract(address)? {
-            Ok(Some(class_hash))
+        println!("class hash");
+        if let res @ Some(..) = self.provider.class_hash_of_contract(address)? {
+            Ok(res)
         } else if let Some(class_hash) = self.backend.get_class_hash_at(address)? {
             let nonce = self
                 .backend
@@ -138,8 +145,9 @@ where
         address: ContractAddress,
         key: StorageKey,
     ) -> ProviderResult<Option<StorageValue>> {
-        if let Some(value) = self.provider.storage(address, key)? {
-            Ok(Some(value))
+        println!("storage");
+        if let res @ Some(..) = self.provider.storage(address, key)? {
+            Ok(res)
         } else if let Some(value) = self.backend.get_storage(address, key)? {
             let entry = StorageEntry { key, value };
             self.provider.tx().put::<tables::ContractStorage>(address, entry)?;
@@ -155,6 +163,7 @@ where
     Tx: DbTxMut + fmt::Debug + Send + Sync,
 {
     fn class_multiproof(&self, classes: Vec<ClassHash>) -> ProviderResult<katana_trie::MultiProof> {
+        println!("class proof");
         self.provider.class_multiproof(classes)
     }
 
@@ -162,6 +171,7 @@ where
         &self,
         addresses: Vec<ContractAddress>,
     ) -> ProviderResult<katana_trie::MultiProof> {
+        println!("contract proof");
         self.provider.contract_multiproof(addresses)
     }
 
@@ -170,6 +180,7 @@ where
         address: ContractAddress,
         storage_keys: Vec<StorageKey>,
     ) -> ProviderResult<katana_trie::MultiProof> {
+        println!("storage proof");
         self.provider.storage_multiproof(address, storage_keys)
     }
 }
@@ -179,14 +190,17 @@ where
     Tx: DbTxMut + fmt::Debug + Send + Sync,
 {
     fn classes_root(&self) -> ProviderResult<Felt> {
+        println!("classes root");
         self.provider.classes_root()
     }
 
     fn contracts_root(&self) -> ProviderResult<Felt> {
+        println!("contracts root");
         self.provider.contracts_root()
     }
 
     fn storage_root(&self, contract: ContractAddress) -> ProviderResult<Option<Felt>> {
+        println!("storage root");
         self.provider.storage_root(contract)
     }
 }

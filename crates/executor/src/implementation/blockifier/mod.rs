@@ -1,6 +1,7 @@
 // Re-export the blockifier crate.
 pub use blockifier;
-use blockifier::bouncer::{n_steps_to_sierra_gas, Bouncer, BouncerConfig, BouncerWeights};
+use blockifier::bouncer::{Bouncer, BouncerConfig, BouncerWeights, n_steps_to_sierra_gas};
+use blockifier::fee::eth_gas_constants::DATA_GAS_PER_FIELD_ELEMENT;
 use cache::COMPILED_CLASS_CACHE;
 
 pub mod cache;
@@ -12,11 +13,11 @@ pub mod utils;
 use blockifier::context::BlockContext;
 use blockifier::state::cached_state::{self, MutRefState};
 use blockifier::state::state_api::StateReader;
+use katana_primitives::Felt;
 use katana_primitives::block::{ExecutableBlock, GasPrices as KatanaGasPrices, PartialHeader};
 use katana_primitives::env::{BlockEnv, CfgEnv};
 use katana_primitives::fee::TxFeeInfo;
 use katana_primitives::transaction::{ExecutableTx, ExecutableTxWithHash, TxWithHash};
-use katana_primitives::Felt;
 use katana_provider::traits::state::StateProvider;
 use starknet_api::block::{
     BlockInfo, BlockNumber, BlockTimestamp, GasPriceVector, GasPrices, NonzeroGasPrice,
@@ -355,6 +356,7 @@ impl ExecutorExt for StarknetVMProcessor<'_> {
         transactions: Vec<ExecutableTxWithHash>,
         flags: ExecutionFlags,
     ) -> Vec<Result<TxFeeInfo, ExecutionError>> {
+        println!("abotu to estiamte i htink");
         self.simulate_with(transactions, &flags, |_, (_, res)| match res {
             ExecutionResult::Success { receipt, .. } => {
                 // if the transaction was reverted, return as error
