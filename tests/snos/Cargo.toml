@@ -7,8 +7,8 @@ version.workspace = true
 
 [dependencies]
 # snos branch: kariy/0.13.4
-snos = { package = "prove_block", git = "https://github.com/cartridge-gg/snos", rev = "8e6c229" }
-starknet-os = { git = "https://github.com/cartridge-gg/snos", rev = "8e6c229" }
+snos = { package = "prove_block", git = "https://github.com/cartridge-gg/snos", rev = "798ec19" }
+starknet-os = { git = "https://github.com/cartridge-gg/snos", rev = "798ec19" }
 # SNOS-compatible cairo-vm
 cairo-vm = { package = "cairo-vm", git = "https://github.com/kariy/cairo-vm", branch = "kariy/1.0.2_clear-cell" }
 
