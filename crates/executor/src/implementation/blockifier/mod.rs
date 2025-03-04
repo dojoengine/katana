@@ -355,7 +355,6 @@ impl ExecutorExt for StarknetVMProcessor<'_> {
         transactions: Vec<ExecutableTxWithHash>,
         flags: ExecutionFlags,
     ) -> Vec<Result<TxFeeInfo, ExecutionError>> {
-        println!("abotu to estiamte i htink");
         self.simulate_with(transactions, &flags, |_, (_, res)| match res {
             ExecutionResult::Success { receipt, .. } => {
                 // if the transaction was reverted, return as error

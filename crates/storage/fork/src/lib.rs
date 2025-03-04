@@ -198,7 +198,6 @@ where
     /// This method is responsible for transforming the incoming request
     /// sent from a [BackendHandle] into a RPC request to the remote network.
     fn handle_requests(&mut self, request: BackendRequest) {
-        println!("requesting");
         let block = self.block;
         let provider = self.provider.clone();
 

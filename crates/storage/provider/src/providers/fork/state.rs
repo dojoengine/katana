@@ -37,7 +37,6 @@ where
         &self,
         block_id: BlockHashOrNumber,
     ) -> ProviderResult<Option<Box<dyn StateProvider>>> {
-        println!("historical statee");
         let block_number = match block_id {
             BlockHashOrNumber::Hash(hash) => self.provider.block_number_by_hash(hash)?,
 
@@ -74,7 +73,6 @@ where
     Db: Database,
 {
     fn class(&self, hash: ClassHash) -> ProviderResult<Option<ContractClass>> {
-        println!("class");
         if let Some(class) = self.provider.class(hash)? {
             Ok(Some(class))
         } else if let Some(class) = self.backend.get_class_at(hash)? {
@@ -89,7 +87,6 @@ where
         &self,
         hash: ClassHash,
     ) -> ProviderResult<Option<CompiledClassHash>> {
-        println!("compiled hash");
         if let res @ Some(..) = self.provider.compiled_class_hash_of_class_hash(hash)? {
             Ok(res)
         } else if let Some(compiled_hash) = self.backend.get_compiled_class_hash(hash)? {
@@ -106,8 +103,7 @@ where
     Db: Database,
 {
     fn nonce(&self, address: ContractAddress) -> ProviderResult<Option<Nonce>> {
-        println!("nonce");
-        if let res @ Some(..) = dbg!(self.provider.nonce(dbg!(address))?) {
+        if let res @ Some(..) = self.provider.nonce(address)? {
             Ok(res)
         } else if let Some(nonce) = self.backend.get_nonce(address)? {
             let class_hash = self
@@ -128,7 +124,6 @@ where
         &self,
         address: ContractAddress,
     ) -> ProviderResult<Option<ClassHash>> {
-        println!("class hash");
         if let res @ Some(..) = self.provider.class_hash_of_contract(address)? {
             Ok(res)
         } else if let Some(class_hash) = self.backend.get_class_hash_at(address)? {
@@ -151,7 +146,6 @@ where
         address: ContractAddress,
         key: StorageKey,
     ) -> ProviderResult<Option<StorageValue>> {
-        println!("storage");
         if let res @ Some(..) = self.provider.storage(address, key)? {
             Ok(res)
         } else if let Some(value) = self.backend.get_storage(address, key)? {
@@ -169,7 +163,6 @@ where
     Db: Database,
 {
     fn class_multiproof(&self, classes: Vec<ClassHash>) -> ProviderResult<katana_trie::MultiProof> {
-        println!("class proof");
         self.provider.class_multiproof(classes)
     }
 
@@ -177,7 +170,6 @@ where
         &self,
         addresses: Vec<ContractAddress>,
     ) -> ProviderResult<katana_trie::MultiProof> {
-        println!("contract proof");
         self.provider.contract_multiproof(addresses)
     }
 
@@ -186,7 +178,6 @@ where
         address: ContractAddress,
         storage_keys: Vec<StorageKey>,
     ) -> ProviderResult<katana_trie::MultiProof> {
-        println!("storage proof");
         self.provider.storage_multiproof(address, storage_keys)
     }
 }
@@ -196,17 +187,14 @@ where
     Db: Database,
 {
     fn classes_root(&self) -> ProviderResult<Felt> {
-        println!("classes root");
         self.provider.classes_root()
     }
 
     fn contracts_root(&self) -> ProviderResult<Felt> {
-        println!("contracts root");
         self.provider.contracts_root()
     }
 
     fn storage_root(&self, contract: ContractAddress) -> ProviderResult<Option<Felt>> {
-        println!("storage root");
         self.provider.storage_root(contract)
     }
 }

@@ -1203,8 +1203,19 @@ async fn call_contract() {
 
     abigen!(
         AccountContract,
-        "[{\"type\":\"function\",\"name\":\"get_public_key\",\"inputs\":[],\"outputs\":[{\"type\":\
-         \"core::felt252\"}],\"state_mutability\":\"view\"}]"
+        [
+          {
+            "type": "function",
+            "name": "get_public_key",
+            "inputs": [],
+            "outputs": [
+              {
+                "type": "core::felt252"
+              }
+            ],
+            "state_mutability": "view"
+          }
+        ]
     );
 
     // setup contract to interact with (can be any existing contract that can be interacted with)

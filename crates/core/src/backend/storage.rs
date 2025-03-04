@@ -162,8 +162,6 @@ impl Blockchain {
             }
         };
 
-        println!("created backend fork");
-
         Ok((Self::new(database), block_num))
     }
 

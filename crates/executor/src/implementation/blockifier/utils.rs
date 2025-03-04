@@ -76,14 +76,11 @@ pub fn transact<S: StateReader>(
         tx: Transaction,
     ) -> Result<(TransactionExecutionInfo, TxFeeInfo), ExecutionError> {
         let fee_type = get_fee_type_from_tx(&tx);
-        println!("executing");
 
         let info = match tx {
             Transaction::Account(tx) => tx.execute(state, block_context),
             Transaction::L1Handler(tx) => tx.execute(state, block_context),
         }?;
-
-        println!("Executed");
 
         // There are a few case where the `actual_fee` field of the transaction info is not set
         // where the fee is skipped and thus not charged for the transaction (e.g. when the
@@ -112,8 +109,6 @@ pub fn transact<S: StateReader>(
 
         Ok((info, fee_info))
     }
-
-    println!("abot to executeE");
 
     let transaction = to_executor_tx(tx.clone(), simulation_flags.clone());
     let mut tx_state = TransactionalState::create_transactional(state);

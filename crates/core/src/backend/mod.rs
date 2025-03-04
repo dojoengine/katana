@@ -230,7 +230,6 @@ impl<EF: ExecutorFactory> Backend<EF> {
 
             info!("Genesis initialized");
         }
-        println!("gensis intiialized");
 
         Ok(())
     }
