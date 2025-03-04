@@ -637,7 +637,8 @@ async fn get_events_no_pending() -> Result<()> {
     let sequencer = TestNode::new_with_config(config).await;
 
     // create a json rpc client to interact with the dev api.
-    let client = HttpClientBuilder::default().build(sequencer.rpc_addr().to_string()).unwrap();
+    let url = format!("http://{}", sequencer.rpc_addr());
+    let client = HttpClientBuilder::default().build(url).unwrap();
 
     let provider = sequencer.starknet_provider();
     let account = sequencer.account();
@@ -723,7 +724,8 @@ async fn get_events_with_pending() -> Result<()> {
     let sequencer = TestNode::new_with_config(config).await;
 
     // create a json rpc client to interact with the dev api.
-    let client = HttpClientBuilder::default().build(sequencer.rpc_addr().to_string()).unwrap();
+    let url = format!("http://{}", sequencer.rpc_addr());
+    let client = HttpClientBuilder::default().build(url).unwrap();
 
     let provider = sequencer.starknet_provider();
     let account = sequencer.account();
@@ -814,7 +816,8 @@ async fn trace() -> Result<()> {
 
     let provider = sequencer.starknet_provider();
     let account = sequencer.account();
-    let rpc_client = HttpClientBuilder::default().build(sequencer.rpc_addr().to_string())?;
+    let url = format!("http://{}", sequencer.rpc_addr());
+    let rpc_client = HttpClientBuilder::default().build(url).unwrap();
 
     // setup contract to interact with (can be any existing contract that can be interacted with)
     let contract = Erc20Contract::new(DEFAULT_ETH_FEE_TOKEN_ADDRESS.into(), &account);
@@ -985,7 +988,8 @@ async fn fetch_pending_blocks() {
     let sequencer = TestNode::new_with_config(config).await;
 
     // create a json rpc client to interact with the dev api.
-    let dev_client = HttpClientBuilder::default().build(sequencer.rpc_addr().to_string()).unwrap();
+    let url = format!("http://{}", sequencer.rpc_addr());
+    let dev_client = HttpClientBuilder::default().build(url).unwrap();
     let provider = sequencer.starknet_provider();
     let account = sequencer.account();
 
@@ -1086,7 +1090,8 @@ async fn fetch_pending_blocks_in_instant_mode() {
     let sequencer = TestNode::new().await;
 
     // create a json rpc client to interact with the dev api.
-    let dev_client = HttpClientBuilder::default().build(sequencer.rpc_addr().to_string()).unwrap();
+    let url = format!("http://{}", sequencer.rpc_addr());
+    let dev_client = HttpClientBuilder::default().build(url).unwrap();
     let provider = sequencer.starknet_provider();
     let account = sequencer.account();
 
