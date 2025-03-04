@@ -1,7 +1,7 @@
 use std::collections::{BTreeMap, HashMap};
 use std::sync::Arc;
 
-use anyhow::{Context, anyhow};
+use anyhow::{anyhow, Context};
 use gas_oracle::GasOracle;
 use katana_chain_spec::ChainSpec;
 use katana_executor::{ExecutionOutput, ExecutionResult, ExecutorFactory};
@@ -13,18 +13,18 @@ use katana_primitives::class::{ClassHash, CompiledClassHash};
 use katana_primitives::da::L1DataAvailabilityMode;
 use katana_primitives::env::BlockEnv;
 use katana_primitives::receipt::{Event, Receipt, ReceiptWithTxHash};
-use katana_primitives::state::{StateUpdates, StateUpdatesWithClasses, compute_state_diff_hash};
+use katana_primitives::state::{compute_state_diff_hash, StateUpdates, StateUpdatesWithClasses};
 use katana_primitives::trace::TxExecInfo;
 use katana_primitives::transaction::{TxHash, TxWithHash};
 use katana_primitives::version::CURRENT_STARKNET_VERSION;
-use katana_primitives::{ContractAddress, Felt, address};
+use katana_primitives::{address, ContractAddress, Felt};
 use katana_provider::providers::in_memory::state::EmptyStateProvider;
 use katana_provider::traits::block::{BlockHashProvider, BlockWriter};
 use katana_provider::traits::trie::TrieWriter;
 use katana_trie::bonsai::databases::HashMapDb;
 use katana_trie::{
-    ClassesTrie, CommitId, ContractLeaf, ContractsTrie, StoragesTrie, compute_contract_state_hash,
-    compute_merkle_root,
+    compute_contract_state_hash, compute_merkle_root, ClassesTrie, CommitId, ContractLeaf,
+    ContractsTrie, StoragesTrie,
 };
 use parking_lot::RwLock;
 use rayon::prelude::*;

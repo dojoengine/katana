@@ -2,25 +2,25 @@ use std::collections::hash_map::Entry;
 use std::collections::{HashMap, VecDeque};
 use std::fmt::Debug;
 use std::pin::Pin;
-use std::sync::Arc;
 use std::sync::mpsc::{
-    Receiver as OneshotReceiver, RecvError, Sender as OneshotSender, channel as oneshot,
+    channel as oneshot, Receiver as OneshotReceiver, RecvError, Sender as OneshotSender,
 };
+use std::sync::Arc;
 use std::task::{Context, Poll};
 use std::{io, thread};
 
 use anyhow::anyhow;
-use futures::channel::mpsc::{Receiver, SendError, Sender, channel as async_channel};
+use futures::channel::mpsc::{channel as async_channel, Receiver, SendError, Sender};
 use futures::future::BoxFuture;
 use futures::stream::Stream;
 use futures::{Future, FutureExt};
-use katana_primitives::Felt;
 use katana_primitives::block::BlockHashOrNumber;
 use katana_primitives::class::{
     ClassHash, CompiledClassHash, ComputeClassHashError, ContractClass,
     ContractClassCompilationError,
 };
 use katana_primitives::contract::{ContractAddress, Nonce, StorageKey, StorageValue};
+use katana_primitives::Felt;
 use katana_rpc_types::class::RpcContractClass;
 use parking_lot::Mutex;
 use starknet::core::types::{BlockId, ContractClass as StarknetRsClass, StarknetError};
@@ -530,11 +530,11 @@ fn handle_not_found_err<T>(
 #[cfg(test)]
 pub(crate) mod test_utils {
 
-    use std::sync::mpsc::{SyncSender, sync_channel};
+    use std::sync::mpsc::{sync_channel, SyncSender};
 
     use katana_primitives::block::BlockNumber;
-    use starknet::providers::JsonRpcClient;
     use starknet::providers::jsonrpc::HttpTransport;
+    use starknet::providers::JsonRpcClient;
     use tokio::io::{AsyncReadExt, AsyncWriteExt};
     use tokio::net::TcpListener;
     use url::Url;

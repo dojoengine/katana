@@ -11,9 +11,8 @@ use katana_primitives::class::{ClassHash, CompiledClassHash, ContractClass};
 use katana_primitives::contract::{GenericContractInfo, Nonce, StorageKey, StorageValue};
 use katana_primitives::{ContractAddress, Felt};
 
-use super::ForkedProvider;
 use super::db::{self};
-use crate::ProviderResult;
+use super::ForkedProvider;
 use crate::error::ProviderError;
 use crate::providers::db::DbProvider;
 use crate::traits::block::BlockNumberProvider;
@@ -21,6 +20,7 @@ use crate::traits::contract::{ContractClassProvider, ContractClassWriter};
 use crate::traits::state::{
     StateFactoryProvider, StateProofProvider, StateProvider, StateRootProvider, StateWriter,
 };
+use crate::ProviderResult;
 
 impl<Db> StateFactoryProvider for ForkedProvider<Db>
 where

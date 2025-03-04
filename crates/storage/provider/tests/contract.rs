@@ -145,8 +145,6 @@ mod historical {
 
         use super::*;
 
-        use super::*;
-
         #[apply(test_historical_storage_read)]
         fn read_storage_from_fork_provider(
             #[with(fork_provider_with_spawned_fork_network::default())]
