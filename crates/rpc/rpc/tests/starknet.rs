@@ -864,7 +864,9 @@ async fn block_traces() -> Result<()> {
 
     let provider = sequencer.starknet_provider();
     let account = sequencer.account();
-    let rpc_client = HttpClientBuilder::default().build(sequencer.rpc_addr().to_string())?;
+
+    let url = format!("http://{}", sequencer.rpc_addr());
+    let rpc_client = HttpClientBuilder::default().build(url)?;
 
     // setup contract to interact with (can be any existing contract that can be interacted with)
     let contract = Erc20Contract::new(DEFAULT_ETH_FEE_TOKEN_ADDRESS.into(), &account);

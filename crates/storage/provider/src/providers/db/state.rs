@@ -97,11 +97,6 @@ impl<Tx: DbTx> LatestStateProvider<Tx> {
     pub fn new(tx: Tx) -> Self {
         Self(tx)
     }
-
-    /// Returns a reference to the underlying transaction.
-    pub fn tx(&self) -> &Tx {
-        &self.0
-    }
 }
 
 impl<Tx> ContractClassProvider for LatestStateProvider<Tx>
