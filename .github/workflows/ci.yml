@@ -50,7 +50,7 @@ jobs:
         run: scripts/clippy.sh
 
   test:
-    needs: fmt
+    needs: [fmt, clippy]
     runs-on: ubuntu-latest-32-cores
     container:
       image: ghcr.io/dojoengine/dojo-dev:v1.2.2
@@ -91,7 +91,7 @@ jobs:
           files: lcov.info
 
   snos-integration-test:
-    needs: test
+    needs: [fmt, clippy]
     runs-on: ubuntu-latest-32-cores
     container:
       image: ghcr.io/dojoengine/dojo-dev:v1.2.2
