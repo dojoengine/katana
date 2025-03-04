@@ -1,4 +1,5 @@
 use std::collections::HashMap;
+use std::fmt::Debug;
 use std::sync::Arc;
 
 use katana_executor::implementation::blockifier::blockifier::blockifier::stateful_validator::{
@@ -32,14 +33,12 @@ pub struct TxValidator {
     permit: Arc<Mutex<()>>,
 }
 
-#[derive(Debug)]
 struct Inner {
     // execution context
     cfg_env: CfgEnv,
     block_env: BlockEnv,
     execution_flags: ExecutionFlags,
     state: Arc<Box<dyn StateProvider>>,
-
     pool_nonces: HashMap<ContractAddress, Nonce>,
 }
 
@@ -80,6 +79,18 @@ impl TxValidator {
             Some(nonce) => Ok(Some(*nonce)),
             None => Ok(this.state.nonce(address)?),
         }
+    }
+}
+
+impl Debug for Inner {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.debug_struct("Inner")
+            .field("cfg_env", &self.cfg_env)
+            .field("block_env", &self.block_env)
+            .field("execution_flags", &self.execution_flags)
+            .field("state", &"..")
+            .field("pool_nonces", &self.pool_nonces)
+            .finish()
     }
 }
 

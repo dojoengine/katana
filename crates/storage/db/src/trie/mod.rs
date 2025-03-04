@@ -55,7 +55,7 @@ pub struct GlobalTrie<'a, Tx: DbTxRef<'a>> {
 
 impl<'a, Tx> GlobalTrie<'a, Tx>
 where
-    Tx: DbTxRef<'a> + Debug,
+    Tx: DbTxRef<'a>,
 {
     /// Returns the contracts trie.
     pub fn contracts_trie(
@@ -91,7 +91,7 @@ pub struct HistoricalGlobalTrie<'a, Tx: DbTxRef<'a>> {
 
 impl<'a, Tx> HistoricalGlobalTrie<'a, Tx>
 where
-    Tx: DbTxRef<'a> + Debug,
+    Tx: DbTxRef<'a>,
 {
     /// Returns the historical contracts trie.
     pub fn contracts_trie(
@@ -135,10 +135,10 @@ where
 impl<'a, Tb, Tx> fmt::Debug for TrieDb<'a, Tb, Tx>
 where
     Tb: Trie,
-    Tx: DbTxRef<'a> + fmt::Debug,
+    Tx: DbTxRef<'a>,
 {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
-        f.debug_struct("TrieDbMut").field("tx", &self.tx).finish()
+        f.debug_struct("TrieDbMut").field("tx", &"..").finish()
     }
 }
 
@@ -155,7 +155,7 @@ where
 impl<'a, Tb, Tx> BonsaiDatabase for TrieDb<'a, Tb, Tx>
 where
     Tb: Trie,
-    Tx: DbTxRef<'a> + fmt::Debug,
+    Tx: DbTxRef<'a>,
 {
     type Batch = ();
     type DatabaseError = Error;
@@ -223,10 +223,10 @@ where
 impl<'tx, Tb, Tx> fmt::Debug for TrieDbMut<'tx, Tb, Tx>
 where
     Tb: Trie,
-    Tx: DbTxMutRef<'tx> + fmt::Debug,
+    Tx: DbTxMutRef<'tx>,
 {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
-        f.debug_struct("TrieDbMut").field("tx", &self.tx).finish()
+        f.debug_struct("TrieDbMut").field("tx", &"..").finish()
     }
 }
 
@@ -243,7 +243,7 @@ where
 impl<'tx, Tb, Tx> BonsaiDatabase for TrieDbMut<'tx, Tb, Tx>
 where
     Tb: Trie,
-    Tx: DbTxMutRef<'tx> + fmt::Debug,
+    Tx: DbTxMutRef<'tx>,
 {
     type Batch = ();
     type DatabaseError = Error;
@@ -328,10 +328,13 @@ where
 impl<'tx, Tb, Tx> BonsaiPersistentDatabase<CommitId> for TrieDbMut<'tx, Tb, Tx>
 where
     Tb: Trie,
-    Tx: DbTxMutRef<'tx> + fmt::Debug + 'tx,
+    Tx: DbTxMutRef<'tx> + 'tx,
 {
     type DatabaseError = Error;
-    type Transaction<'a> = SnapshotTrieDb<'tx, Tb, Tx>  where Self: 'a;
+    type Transaction<'a>
+        = SnapshotTrieDb<'tx, Tb, Tx>
+    where
+        Self: 'a;
 
     fn snapshot(&mut self, id: CommitId) {
         let block_number: BlockNumber = id.into();

@@ -40,9 +40,7 @@ pub trait StateRootProvider: Send + Sync {
 }
 
 #[auto_impl::auto_impl(&, Box, Arc)]
-pub trait StateProvider:
-    ContractClassProvider + StateProofProvider + StateRootProvider + std::fmt::Debug
-{
+pub trait StateProvider: ContractClassProvider + StateProofProvider + StateRootProvider {
     /// Returns the nonce of a contract.
     fn nonce(&self, address: ContractAddress) -> ProviderResult<Option<Nonce>>;
 

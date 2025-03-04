@@ -31,7 +31,8 @@ async fn proofs_limit() {
     let sequencer = TestNode::new().await;
 
     // We need to use the jsonrpsee client because `starknet-rs` doesn't yet support RPC 0
-    let client = HttpClientBuilder::default().build(sequencer.rpc_addr().to_string()).unwrap();
+    let url = format!("http://{}", sequencer.rpc_addr());
+    let client = HttpClientBuilder::default().build(url).unwrap();
 
     // Because we're using the default configuration for instantiating the node, the RPC limit is
     // set to 100. The total keys is 35 + 35 + 35 = 105.
@@ -83,7 +84,8 @@ async fn genesis_states() {
     let genesis_states = chain_spec.state_updates();
 
     // We need to use the jsonrpsee client because `starknet-rs` doesn't yet support RPC 0.8.0
-    let client = HttpClientBuilder::default().build(sequencer.rpc_addr().to_string()).unwrap();
+    let url = format!("http://{}", sequencer.rpc_addr());
+    let client = HttpClientBuilder::default().build(url).unwrap();
 
     // Check class declarations
     let genesis_classes =
@@ -197,7 +199,8 @@ async fn classes_proofs() {
         declare(&account, "tests/test_data/test_sierra_contract.json").await;
 
     // We need to use the jsonrpsee client because `starknet-rs` doesn't yet support RPC 0.8.0
-    let client = HttpClientBuilder::default().build(sequencer.rpc_addr().to_string()).unwrap();
+    let url = format!("http://{}", sequencer.rpc_addr());
+    let client = HttpClientBuilder::default().build(url).unwrap();
 
     {
         let class_hash = class_hash1;
