@@ -10,7 +10,7 @@ version.workspace = true
 katana-primitives.workspace = true
 katana-provider.workspace = true
 
-blockifier = { git = "https://github.com/dojoengine/sequencer", rev = "03bfb736", features = [ "testing" ], optional = true }
+blockifier = { git = "https://github.com/dojoengine/sequencer", rev = "58aacaf4", features = [ "testing" ], optional = true }
 quick_cache = "0.6.10"
 starknet = { workspace = true, optional = true }
 thiserror.workspace = true
