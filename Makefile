@@ -6,17 +6,21 @@ UNAME := $(shell uname)
 .PHONY: usage
 usage:
 	@echo "Usage:"
-	@echo "    prepare-snos-test:         Prepare the tests environment."
+	@echo "    test-artifacts:            Prepare tests artifacts."
+	@echo "    snos-artifacts:            Prepare SNOS tests artifacts."
 	@echo "    extract-test-db:           Extract the test database file."
 	@echo "    native-deps-macos:         Install cairo-native dependencies for macOS."
 	@echo "    native-deps-linux:         Install cairo-native dependencies for Linux."
 
-.PHONY: prepare-snos-test
-prepare-snos-test: extract-test-db
+.PHONY: snos-artifacts
+snos-artifacts: extract-test-db
 	git submodule update --init --recursive
 	cd tests/snos/snos && \
 		source ./setup-scripts/setup-cairo.sh && \
 		source ./setup-scripts/setup-tests.sh
+
+.PHONY: test-artifacts
+test-artifacts: snos-artifacts
 
 .PHONY: extract-test-db
 extract-test-db:
