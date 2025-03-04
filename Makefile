@@ -15,8 +15,8 @@ usage:
 prepare-snos-test: extract-test-db
 	git submodule update --init --recursive
 	cd tests/snos/snos && \
-		./setup-scripts/setup-cairo.sh && \
-		./setup-scripts/setup-tests.sh
+		source ./setup-scripts/setup-cairo.sh && \
+		source ./setup-scripts/setup-tests.sh
 
 .PHONY: extract-test-db
 extract-test-db:
