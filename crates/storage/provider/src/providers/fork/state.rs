@@ -87,8 +87,8 @@ where
         &self,
         hash: ClassHash,
     ) -> ProviderResult<Option<CompiledClassHash>> {
-        if let Some(compiled_hash) = self.provider.compiled_class_hash_of_class_hash(hash)? {
-            Ok(Some(compiled_hash))
+        if let res @ Some(..) = self.provider.compiled_class_hash_of_class_hash(hash)? {
+            Ok(res)
         } else if let Some(compiled_hash) = self.backend.get_compiled_class_hash(hash)? {
             self.db.db().tx_mut()?.put::<tables::CompiledClassHashes>(hash, compiled_hash)?;
             Ok(Some(compiled_hash))
@@ -103,8 +103,8 @@ where
     Db: Database,
 {
     fn nonce(&self, address: ContractAddress) -> ProviderResult<Option<Nonce>> {
-        if let Some(nonce) = self.provider.nonce(address)? {
-            Ok(Some(nonce))
+        if let res @ Some(..) = self.provider.nonce(address)? {
+            Ok(res)
         } else if let Some(nonce) = self.backend.get_nonce(address)? {
             let class_hash = self
                 .backend
@@ -124,8 +124,8 @@ where
         &self,
         address: ContractAddress,
     ) -> ProviderResult<Option<ClassHash>> {
-        if let Some(class_hash) = self.provider.class_hash_of_contract(address)? {
-            Ok(Some(class_hash))
+        if let res @ Some(..) = self.provider.class_hash_of_contract(address)? {
+            Ok(res)
         } else if let Some(class_hash) = self.backend.get_class_hash_at(address)? {
             let nonce = self
                 .backend
@@ -146,8 +146,8 @@ where
         address: ContractAddress,
         key: StorageKey,
     ) -> ProviderResult<Option<StorageValue>> {
-        if let Some(value) = self.provider.storage(address, key)? {
-            Ok(Some(value))
+        if let res @ Some(..) = self.provider.storage(address, key)? {
+            Ok(res)
         } else if let Some(value) = self.backend.get_storage(address, key)? {
             let entry = StorageEntry { key, value };
             self.db.db().tx_mut()?.put::<tables::ContractStorage>(address, entry)?;

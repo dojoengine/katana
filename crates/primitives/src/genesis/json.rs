@@ -712,15 +712,16 @@ mod tests {
             json.classes,
             vec![
                 GenesisClassJson {
-                    class: PathBuf::from("../../../contracts/build/erc20.json").into(),
+                    class: PathBuf::from("../../../../contracts/build/erc20.json").into(),
                     name: Some("MyErc20".to_string()),
                 },
                 GenesisClassJson {
-                    class: PathBuf::from("../../../contracts/build/universal_deployer.json").into(),
+                    class: PathBuf::from("../../../../contracts/build/universal_deployer.json")
+                        .into(),
                     name: Some("Foo".to_string()),
                 },
                 GenesisClassJson {
-                    class: PathBuf::from("../../../contracts/build/default_account.json").into(),
+                    class: PathBuf::from("../../../../contracts/build/default_account.json").into(),
                     name: Some("MyClass".to_string()),
                 },
             ]
@@ -735,11 +736,12 @@ mod tests {
             genesis.classes,
             vec![
                 GenesisClassJson {
-                    class: PathBuf::from("../../../contracts/build/erc20.json").into(),
+                    class: PathBuf::from("../../../../contracts/build/erc20.json").into(),
                     name: Some("MyErc20".to_string()),
                 },
                 GenesisClassJson {
-                    class: PathBuf::from("../../../contracts/build/universal_deployer.json").into(),
+                    class: PathBuf::from("../../../../contracts/build/universal_deployer.json")
+                        .into(),
                     name: Some("Foo".to_string()),
                 },
                 GenesisClassJson {

@@ -12,7 +12,7 @@ fn decompress_contract(compressed: &[u8]) -> CompiledClass {
 }
 
 fn compress_contract_with_main_codec(c: &mut Criterion) {
-    let json = serde_json::from_str(include_str!("./artifacts/dojo_world_240.json")).unwrap();
+    let json = serde_json::from_str(include_str!("./fixtures/dojo_world_240.json")).unwrap();
     let class = parse_compiled_class(json).unwrap();
 
     c.bench_function("compress world contract", |b| {
@@ -21,7 +21,7 @@ fn compress_contract_with_main_codec(c: &mut Criterion) {
 }
 
 fn decompress_contract_with_main_codec(c: &mut Criterion) {
-    let json = serde_json::from_str(include_str!("./artifacts/dojo_world_240.json")).unwrap();
+    let json = serde_json::from_str(include_str!("./fixtures/dojo_world_240.json")).unwrap();
     let class = parse_compiled_class(json).unwrap();
     let compressed = compress_contract(class);
 

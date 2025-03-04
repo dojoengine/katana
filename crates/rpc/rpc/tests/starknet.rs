@@ -363,7 +363,15 @@ async fn concurrent_transactions_submissions(
         let handle = tokio::spawn(async move {
             let mut nonce = nonce.lock().await;
             let contract = Erc20Contract::new(DEFAULT_ETH_FEE_TOKEN_ADDRESS.into(), account);
-            let res = contract.transfer(&recipient, &amount).nonce(*nonce).send().await.unwrap();
+
+            let res = contract
+                .transfer(&recipient, &amount)
+                .nonce(*nonce)
+                .max_fee(Felt::ZERO)
+                .send()
+                .await
+                .unwrap();
+
             txs.lock().await.insert(res.transaction_hash);
             *nonce += Felt::ONE;
         });
@@ -1195,8 +1203,19 @@ async fn call_contract() {
 
     abigen!(
         AccountContract,
-        "[{\"type\":\"function\",\"name\":\"get_public_key\",\"inputs\":[],\"outputs\":[{\"type\":\
-         \"core::felt252\"}],\"state_mutability\":\"view\"}]"
+        [
+          {
+            "type": "function",
+            "name": "get_public_key",
+            "inputs": [],
+            "outputs": [
+              {
+                "type": "core::felt252"
+              }
+            ],
+            "state_mutability": "view"
+          }
+        ]
     );
 
     // setup contract to interact with (can be any existing contract that can be interacted with)

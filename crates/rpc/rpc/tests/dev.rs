@@ -60,6 +60,7 @@ async fn test_set_next_block_timestamp_in_future() {
 
     assert_eq!(block2_timestamp, block1_timestamp + 1000, "timestamp should be updated");
 }
+
 #[tokio::test]
 async fn test_increase_next_block_timestamp() {
     let sequencer = TestNode::new().await;
