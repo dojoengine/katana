@@ -31,6 +31,9 @@ jobs:
       TABLEGEN_190_PREFIX: /usr/lib/llvm-19/
     steps:
       - uses: actions/checkout@v3
+        with:
+          submodules: recursive
+          set-safe-directory: "*"
       - uses: Swatinem/rust-cache@v2
 
       - name: Add LLVM deb repository
@@ -102,6 +105,9 @@ jobs:
       TABLEGEN_190_PREFIX: /usr/lib/llvm-19/
     steps:
       - uses: actions/checkout@v3
+        with:
+          submodules: recursive
+          set-safe-directory: "*"
       - uses: Swatinem/rust-cache@v2
 
       - name: Add LLVM deb repository
