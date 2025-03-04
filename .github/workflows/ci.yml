@@ -20,6 +20,35 @@ jobs:
       - uses: Swatinem/rust-cache@v2
       - run: scripts/rust_fmt.sh --check
 
+  clippy:
+    needs: fmt
+    runs-on: ubuntu-latest-4-cores
+    container:
+      image: ghcr.io/dojoengine/dojo-dev:v1.2.2
+    env:
+      MLIR_SYS_190_PREFIX: /usr/lib/llvm-19/
+      LLVM_SYS_191_PREFIX: /usr/lib/llvm-19/
+      TABLEGEN_190_PREFIX: /usr/lib/llvm-19/
+      NEXTEST_PROFILE: ci
+    steps:
+      - uses: actions/checkout@v3
+      - uses: Swatinem/rust-cache@v2
+
+      - name: Add LLVM deb repository
+        uses: myci-actions/add-deb-repo@11
+        with:
+          repo-name: llvm-repo
+          keys-asc: https://apt.llvm.org/llvm-snapshot.gpg.key
+          repo: deb http://apt.llvm.org/jammy/ llvm-toolchain-jammy-19 main
+      - run: apt-get update && apt-get upgrade -y
+
+      - name: Install Cairo native dependencies
+        run: |
+          apt-get install g++ llvm-19 llvm-19-dev llvm-19-runtime clang-19 clang-tools-19 lld-19 libpolly-19-dev libmlir-19-dev mlir-19-tools -y
+
+      - name: Run Clippy
+        run: scripts/clippy.sh
+
   test:
     needs: fmt
     runs-on: ubuntu-latest-32-cores
