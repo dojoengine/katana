@@ -48,12 +48,13 @@ jobs:
       - name: Build Katana binary
         run: |
           cargo build --release --bin katana
-          export PATH=$PWD/target/release:$PATH
+          echo "$PWD/target/release" >> $GITHUB_PATH
 
       - name: Run tests
         run: |
           cargo llvm-cov nextest --no-report --all-features --workspace --exclude snos-integration-test --build-jobs 20
           cargo llvm-cov report --lcov --output-path lcov.info
+
       - uses: codecov/codecov-action@v4
         with:
           token: ${{ secrets.CODECOV_TOKEN }}
