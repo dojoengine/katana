@@ -20,8 +20,34 @@ jobs:
       - uses: Swatinem/rust-cache@v2
       - run: scripts/rust_fmt.sh --check
 
-  clippy:
+  build-explorer:
     needs: fmt
+    runs-on: ubuntu-latest
+    container:
+      image: ghcr.io/dojoengine/katana-runner:latest
+    steps:
+      - uses: actions/checkout@v3
+        with:
+          submodules: recursive
+          fetch-depth: 0
+
+      - uses: oven-sh/setup-bun@v1
+        with:
+          bun-version: latest
+
+      - name: Build Explorer
+        run: |
+          cd crates/explorer/ui
+          bun install
+          bun run build
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: explorer-dist
+          path: crates/explorer/ui/dist
+
+  clippy:
+    needs: [fmt, build-explorer]
     runs-on: ubuntu-latest-4-cores
     container:
       image: ghcr.io/dojoengine/katana-runner:latest
@@ -36,13 +62,18 @@ jobs:
       # Workaround for https://github.com/actions/runner-images/issues/6775
       - run: git config --global --add safe.directory "*"
 
+      - uses: actions/download-artifact@v4
+        with:
+          name: explorer-dist
+          path: crates/explorer/ui/dist
+
       - name: Run Clippy
         run: |
           make test-artifacts
           ./scripts/clippy.sh
 
   test:
-    needs: [fmt, clippy]
+    needs: [fmt, clippy, build-explorer]
     runs-on: ubuntu-latest-32-cores
     container:
       image: ghcr.io/dojoengine/katana-runner:latest
@@ -54,6 +85,11 @@ jobs:
     steps:
       - uses: actions/checkout@v3
       - uses: Swatinem/rust-cache@v2
+
+      - uses: actions/download-artifact@v4
+        with:
+          name: explorer-dist
+          path: crates/explorer/ui/dist
 
       - name: Build Katana binary
         run: |

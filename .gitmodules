@@ -8,3 +8,7 @@
 	path = tests/snos/snos
 	url = https://github.com/cartridge-gg/snos
 	branch = kariy/0.13.4
+[submodule "crates/explorer/ui"]
+	path = crates/explorer/ui
+	url = https://github.com/cartridge-gg/explorer
+	branch = main

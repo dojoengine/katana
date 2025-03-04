@@ -1,5 +1,6 @@
 //! Katana node CLI options and configuration.
 
+use std::net::SocketAddr;
 use std::path::PathBuf;
 use std::sync::Arc;
 
@@ -11,6 +12,7 @@ use clap::Parser;
 use katana_chain_spec::rollup::ChainConfigDir;
 use katana_chain_spec::ChainSpec;
 use katana_core::constants::DEFAULT_SEQUENCER_ADDRESS;
+use katana_explorer::Explorer;
 use katana_messaging::MessagingConfig;
 use katana_node::config::db::DbConfig;
 use katana_node::config::dev::{DevConfig, FixedL1GasPriceConfig};
@@ -30,6 +32,7 @@ use tracing::{info, Subscriber};
 use tracing_log::LogTracer;
 use tracing_subscriber::{fmt, EnvFilter};
 use url::Url;
+use katana_rpc::cors::HeaderValue;
 
 use crate::file::NodeArgsConfig;
 use crate::options::*;
@@ -116,6 +119,9 @@ pub struct NodeArgs {
     #[cfg(feature = "slot")]
     #[command(flatten)]
     pub slot: SlotOptions,
+
+    #[command(flatten)]
+    pub explorer: ExplorerOptions,
 }
 
 impl NodeArgs {
@@ -135,6 +141,13 @@ impl NodeArgs {
 
         // Launch the node
         let handle = node.launch().await.context("failed to launch node")?;
+
+        if self.explorer.explorer {
+            let rpc_url = format!("http://{}", handle.rpc().addr());
+            let rpc_url = Url::parse(&rpc_url).context("failed to parse node url")?;
+            let addr = SocketAddr::new(self.explorer.explorer_addr, self.explorer.explorer_port);
+            let _ = Explorer::new(rpc_url)?.start(addr)?;
+        }
 
         // Wait until an OS signal (ie SIGINT, SIGTERM) is received or the node is shutdown.
         tokio::select! {
@@ -231,6 +244,28 @@ impl NodeArgs {
                 modules
             };
 
+            let mut cors_origins = self.server.http_cors_origins.clone();
+
+            // Add explorer URL to CORS origins if explorer is enabled
+            if self.explorer.explorer {
+                // Add both http://127.0.0.1:PORT and http://localhost:PORT
+                cors_origins.push(
+                    HeaderValue::from_str(&format!(
+                        "http://127.0.0.1:{}",
+                        self.explorer.explorer_port
+                    ))
+                    .context("Failed to create CORS header")?,
+                );
+                cors_origins.push(
+                    HeaderValue::from_str(&format!(
+                        "http://localhost:{}",
+                        self.explorer.explorer_port
+                    ))
+                    .context("Failed to create CORS header")?,
+                );
+            }            
+
+
             Ok(RpcConfig {
                 apis: modules,
                 port: self.server.http_port,
@@ -238,7 +273,7 @@ impl NodeArgs {
                 max_connections: self.server.max_connections,
                 max_request_body_size: None,
                 max_response_body_size: None,
-                cors_origins: self.server.http_cors_origins.clone(),
+                cors_origins,
                 max_event_page_size: Some(self.server.max_event_page_size),
                 max_proof_keys: Some(self.server.max_proof_keys),
                 max_call_gas: Some(self.server.max_call_gas),
