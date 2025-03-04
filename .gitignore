@@ -31,5 +31,5 @@ tests/snos/snos
 snos-env
 tests/fixtures/katana_db
 
-crates/katana/explorer/ui
+crates/explorer/ui
 
