@@ -139,6 +139,7 @@ mod historical {
     mod fork {
         use fixtures::fork_provider_with_spawned_fork_network;
         use katana_provider::providers::fork::ForkedProvider;
+        use katana_provider::BlockchainProvider;
 
         #[apply(test_historical_storage_read)]
         fn read_storage_from_fork_provider(

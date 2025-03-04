@@ -39,8 +39,8 @@ mod trie;
 
 #[derive(Debug)]
 pub struct ForkedProvider<Db: Database = DbEnv> {
-    provider: DbProvider<Db>,
     backend: BackendClient,
+    provider: Arc<DbProvider<Db>>,
 }
 
 impl<Db: Database> ForkedProvider<Db> {
@@ -50,11 +50,8 @@ impl<Db: Database> ForkedProvider<Db> {
         provider: Arc<JsonRpcClient<HttpTransport>>,
     ) -> Self {
         let backend = Backend::new(provider, block_id).expect("failed to create backend");
-        Self { provider: DbProvider::new(db), backend }
-    }
-
-    pub fn db(&self) -> &Db {
-        &self.provider.0
+        let provider = Arc::new(DbProvider::new(db));
+        Self { provider, backend }
     }
 
     pub fn backend(&self) -> &BackendClient {
@@ -69,7 +66,8 @@ impl ForkedProvider<DbEnv> {
         provider: Arc<JsonRpcClient<HttpTransport>>,
     ) -> Self {
         let backend = Backend::new(provider, block_id).expect("failed to create backend");
-        Self { provider: DbProvider::new_ephemeral(), backend }
+        let provider = Arc::new(DbProvider::new_ephemeral());
+        Self { provider, backend }
     }
 }
 

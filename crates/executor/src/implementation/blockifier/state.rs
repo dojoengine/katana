@@ -1,4 +1,5 @@
 use std::collections::HashMap;
+use std::fmt::Debug;
 use std::ops::Deref;
 use std::sync::Arc;
 
@@ -121,10 +122,18 @@ impl<'a> StateProvider for CachedState<'a> {
 impl<'a> StateProofProvider for CachedState<'a> {}
 impl<'a> StateRootProvider for CachedState<'a> {}
 
-#[derive(Debug)]
 pub struct StateProviderDb<'a> {
     provider: Box<dyn StateProvider + 'a>,
     compiled_class_cache: ClassCache,
+}
+
+impl<'a> Debug for StateProviderDb<'a> {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.debug_struct("StateProviderDb")
+            .field("provider", &"..")
+            .field("compiled_class_cache", &self.compiled_class_cache)
+            .finish()
+    }
 }
 
 impl<'a> Deref for StateProviderDb<'a> {

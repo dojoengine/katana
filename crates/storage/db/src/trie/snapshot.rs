@@ -25,10 +25,10 @@ where
 impl<'a, Tb, Tx> fmt::Debug for SnapshotTrieDb<'a, Tb, Tx>
 where
     Tb: Trie,
-    Tx: DbTxRef<'a> + fmt::Debug,
+    Tx: DbTxRef<'a>,
 {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
-        f.debug_struct("SnapshotTrieDb").field("tx", &self.tx).finish()
+        f.debug_struct("SnapshotTrieDb").field("tx", &"..").finish()
     }
 }
 
@@ -59,7 +59,7 @@ where
 impl<'tx, Tb, Tx> BonsaiDatabase for SnapshotTrieDb<'tx, Tb, Tx>
 where
     Tb: Trie,
-    Tx: DbTxRef<'tx> + fmt::Debug,
+    Tx: DbTxRef<'tx>,
 {
     type Batch = ();
     type DatabaseError = Error;

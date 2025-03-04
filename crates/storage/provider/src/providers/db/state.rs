@@ -1,5 +1,3 @@
-use core::fmt;
-
 use katana_db::abstraction::{Database, DbCursorMut, DbDupSortCursor, DbTx, DbTxMut};
 use katana_db::models::contract::ContractInfoChangeList;
 use katana_db::models::list::BlockList;
@@ -125,7 +123,7 @@ where
 
 impl<Tx> StateProvider for LatestStateProvider<Tx>
 where
-    Tx: DbTx + fmt::Debug + Send + Sync,
+    Tx: DbTx + Send + Sync,
 {
     fn nonce(&self, address: ContractAddress) -> ProviderResult<Option<Nonce>> {
         let info = self.0.get::<tables::ContractInfo>(address)?;
@@ -156,7 +154,7 @@ where
 
 impl<Tx> StateProofProvider for LatestStateProvider<Tx>
 where
-    Tx: DbTx + fmt::Debug + Send + Sync,
+    Tx: DbTx + Send + Sync,
 {
     fn class_multiproof(&self, classes: Vec<ClassHash>) -> ProviderResult<katana_trie::MultiProof> {
         let mut trie = TrieDbFactory::new(&self.0).latest().classes_trie();
@@ -186,7 +184,7 @@ where
 
 impl<Tx> StateRootProvider for LatestStateProvider<Tx>
 where
-    Tx: DbTx + fmt::Debug + Send + Sync,
+    Tx: DbTx + Send + Sync,
 {
     fn classes_root(&self) -> ProviderResult<Felt> {
         let trie = TrieDbFactory::new(&self.0).latest().classes_trie();
@@ -261,7 +259,7 @@ where
 
 impl<Tx> StateProvider for HistoricalStateProvider<Tx>
 where
-    Tx: DbTx + fmt::Debug + Send + Sync,
+    Tx: DbTx + Send + Sync,
 {
     fn nonce(&self, address: ContractAddress) -> ProviderResult<Option<Nonce>> {
         let change_list = self.tx.get::<tables::ContractInfoChangeSet>(address)?;
@@ -342,7 +340,7 @@ where
 
 impl<Tx> StateProofProvider for HistoricalStateProvider<Tx>
 where
-    Tx: DbTx + fmt::Debug + Send + Sync,
+    Tx: DbTx + Send + Sync,
 {
     fn class_multiproof(&self, classes: Vec<ClassHash>) -> ProviderResult<katana_trie::MultiProof> {
         let proofs = TrieDbFactory::new(&self.tx)
@@ -381,7 +379,7 @@ where
 
 impl<Tx> StateRootProvider for HistoricalStateProvider<Tx>
 where
-    Tx: DbTx + fmt::Debug + Send + Sync,
+    Tx: DbTx + Send + Sync,
 {
     fn classes_root(&self) -> ProviderResult<katana_primitives::Felt> {
         let root = TrieDbFactory::new(&self.tx)

@@ -57,6 +57,11 @@ impl<Db: Database> DbProvider<Db> {
     pub fn new(db: Db) -> Self {
         Self(db)
     }
+
+    /// Returns a reference to the underlying [`Database`] implementation.
+    pub fn db(&self) -> &Db {
+        &self.0
+    }
 }
 
 impl DbProvider<DbEnv> {
