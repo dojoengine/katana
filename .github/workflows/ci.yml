@@ -29,6 +29,7 @@ jobs:
       MLIR_SYS_190_PREFIX: /usr/lib/llvm-19/
       LLVM_SYS_191_PREFIX: /usr/lib/llvm-19/
       TABLEGEN_190_PREFIX: /usr/lib/llvm-19/
+      NEXTEST_PROFILE: ci
     steps:
       - uses: actions/checkout@v3
       - uses: Swatinem/rust-cache@v2
