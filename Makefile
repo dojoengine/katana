@@ -16,8 +16,8 @@ usage:
 snos-artifacts: extract-test-db
 	git submodule update --init --recursive
 	cd tests/snos/snos && \
-		source ./setup-scripts/setup-cairo.sh && \
-		source ./setup-scripts/setup-tests.sh
+		. ./setup-scripts/setup-cairo.sh && \
+		. ./setup-scripts/setup-tests.sh
 
 .PHONY: test-artifacts
 test-artifacts: snos-artifacts
