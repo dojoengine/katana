@@ -17,7 +17,13 @@ RUN apt-get install -y \
 	libmlir-19-dev \
 	mlir-19-tools
 
-# Install pyenv for SNOS artifact build script
-RUN curl https://pyenv.run | bash
-# Workaround for https://github.com/actions/runner-images/issues/6775
-RUN git config --global --add safe.directory "*"
+ENV PYENV_ROOT="/root/.pyenv"
+ENV PATH="/root/.pyenv/bin:$PATH"
+RUN curl -fsSL https://pyenv.run | bash
+RUN echo 'export PYENV_ROOT="/root/.pyenv"' >> /root/.bashrc && \
+	echo 'export PATH="$PYENV_ROOT/bin:$PATH"' >> /root/.bashrc && \
+	echo 'eval "$(pyenv init -)"' >> /root/.bashrc && \
+	echo 'eval "$(pyenv virtualenv-init -)"' >> /root/.bashrc
+
+# Add shims to PATH for non-login shell usage
+ENV PATH="/root/.pyenv/shims:$PATH"
