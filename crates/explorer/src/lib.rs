@@ -1,7 +1,7 @@
 use std::net::SocketAddr;
 use std::thread;
 
-use anyhow::{anyhow, Result};
+use anyhow::{Result, anyhow};
 use rust_embed::RustEmbed;
 use tiny_http::{Response, Server};
 use tracing::{info, warn};
@@ -160,6 +160,18 @@ fn setup_env(html: &str, rpc_url: &Url, chain_id: &str) -> String {
     let escaped_url = rpc_url.replace("\"", "\\\"").replace("<", "&lt;").replace(">", "&gt;");
     let escaped_chain_id = chain_id.replace("\"", "\\\"").replace("<", "&lt;").replace(">", "&gt;");
 
+    // We inject the RPC URL and chain ID into the HTML for the controller to use.
+    // The chain rpc and chain id are required params to initialize the controller <https://github.com/cartridge-gg/controller/blob/main/packages/controller/src/controller.ts#L32>.
+    // The parameters are consumed by the explorer here <https://github.com/cartridge-gg/explorer/blob/68ac4ea9500a90abc0d7c558440a99587cb77585/src/constants/rpc.ts#L14-L15>.
+
+    // NOTE: ENABLE_CONTROLLER feature flag is a temporary solution to handle the controller.
+    // The controller expects to have a `defaultChainId` but we don't have a way
+    // to set it in the explorer yet in development mode (locally running katana instance).
+    // The temporary solution is to disable the controller by setting the ENABLE_CONTROLLER flag to
+    // false for these explorers. Once we have an updated controller JS SDK which can handle the
+    // chain ID of local katana instances then we can remove this flag value. (ref - https://github.com/cartridge-gg/controller/blob/main/packages/controller/src/controller.ts#L57)
+    // TODO: remove the ENABLE_CONTROLLER flag once we have a proper way to handle the chain ID for
+    // local katana instances.
     let script = format!(
         r#"<script>
             window.RPC_URL = "{}";
