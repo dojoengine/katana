@@ -1,7 +1,7 @@
 use std::net::SocketAddr;
 use std::thread;
 
-use anyhow::{Result, anyhow};
+use anyhow::{anyhow, Result};
 use rust_embed::RustEmbed;
 use tiny_http::{Response, Server};
 use tracing::{info, warn};
