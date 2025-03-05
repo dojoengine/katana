@@ -32,7 +32,6 @@ use url::Url;
 #[cfg(feature = "server")]
 use crate::utils::{deserialize_cors_origins, serialize_cors_origins};
 use crate::utils::{parse_block_hash_or_number, parse_genesis, LogFormat};
-use std::path::PathBuf;
 
 const DEFAULT_DEV_SEED: &str = "0";
 const DEFAULT_DEV_ACCOUNTS: u16 = 10;

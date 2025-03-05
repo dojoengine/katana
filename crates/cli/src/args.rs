@@ -27,12 +27,12 @@ use katana_node::config::Config;
 use katana_node::Node;
 use katana_primitives::genesis::allocation::DevAllocationsGenerator;
 use katana_primitives::genesis::constant::DEFAULT_PREFUNDED_ACCOUNT_BALANCE;
+use katana_rpc::cors::HeaderValue;
 use serde::{Deserialize, Serialize};
 use tracing::{info, Subscriber};
 use tracing_log::LogTracer;
 use tracing_subscriber::{fmt, EnvFilter};
 use url::Url;
-use katana_rpc::cors::HeaderValue;
 
 use crate::file::NodeArgsConfig;
 use crate::options::*;
@@ -266,8 +266,7 @@ impl NodeArgs {
                     ))
                     .context("Failed to create CORS header")?,
                 );
-            }            
-
+            }
 
             Ok(RpcConfig {
                 apis: modules,
