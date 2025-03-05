@@ -1,6 +1,9 @@
 # Environment detection and variable definitions
 UNAME := $(shell uname)
 
+EXPLORER_UI_DIR ?= crates/explorer/ui/src
+EXPLORER_UI_DIST ?= crates/explorer/ui/dist
+
 SNOS_OUTPUT ?= tests/snos/snos/build/
 FIXTURES_DIR ?= tests/fixtures
 TEST_DB_TAR ?= $(FIXTURES_DIR)/katana_db.tar.gz
@@ -8,13 +11,14 @@ KATANA_DB_DIR := $(FIXTURES_DIR)/katana_db
 
 .DEFAULT_GOAL := usage
 .SILENT: clean
-.PHONY: usage help check-llvm native-deps native-deps-macos native-deps-linux clean
+.PHONY: usage help check-llvm native-deps native-deps-macos native-deps-linux build-explorer clean
 
 # Virtual targets that map to actual file outputs
 .PHONY: test-artifacts snos-artifacts extract-test-db
 
 usage help:
 	@echo "Usage:"
+	@echo "    build-explorer:            Build the explorer."
 	@echo "    test-artifacts:            Prepare tests artifacts."
 	@echo "    snos-artifacts:            Prepare SNOS tests artifacts."
 	@echo "    extract-test-db:           Extract the test database file."
@@ -27,6 +31,21 @@ usage help:
 snos-artifacts: $(SNOS_OUTPUT)
 extract-test-db: $(KATANA_DB_DIR)
 test-artifacts: $(SNOS_OUTPUT)
+
+build-explorer:
+	@which bun >/dev/null 2>&1 || { echo "Error: bun is required but not installed. Please install bun first."; exit 1; }
+	@$(MAKE) $(EXPLORER_UI_DIST)
+
+$(EXPLORER_UI_DIR):
+	@echo "Initializing Explorer UI submodule..."
+	@git submodule update --init --recursive --force crates/explorer/ui
+
+$(EXPLORER_UI_DIST): $(EXPLORER_UI_DIR)
+	@echo "Building Explorer..."
+	@cd crates/explorer/ui && \
+		bun install && \
+		bun run build || { echo "Explorer build failed!"; exit 1; }
+	@echo "Explorer build complete."
 
 $(SNOS_OUTPUT): $(KATANA_DB_DIR)
 	@echo "Initializing submodules..."
@@ -71,5 +90,5 @@ native-deps-linux:
 
 clean:
 	echo "Cleaning up generated files..."
-	-rm -rf $(KATANA_DB_DIR) $(SNOS_OUTPUT)
+	-rm -rf $(KATANA_DB_DIR) $(SNOS_OUTPUT) $(EXPLORER_UI_DIST)
 	echo "Clean complete."
