@@ -7,6 +7,7 @@ ENV TABLEGEN_190_PREFIX=/usr/lib/llvm-19
 
 # Install LLVM and Cairo native dependencies
 RUN apt-get install -y \
+	g++ \
 	llvm-19 \
 	llvm-19-dev \
 	llvm-19-runtime \
