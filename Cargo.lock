@@ -6185,6 +6185,8 @@ dependencies = [
 name = "katana-node-bindings"
 version = "1.2.2"
 dependencies = [
+ "criterion",
+ "pprof",
  "regex",
  "serde",
  "serde_json",
