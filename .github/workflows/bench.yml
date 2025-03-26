@@ -3,6 +3,9 @@ name: benchmark
 on:
   push:
     branches: [main]
+    paths:
+      - "bin/katana/**"
+      - "crates/**"
 
 permissions:
   # deployments permission to deploy GitHub pages website
