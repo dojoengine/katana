@@ -16,7 +16,6 @@ use std::sync::Arc;
 use std::task::{Context, Poll};
 use std::time::Duration;
 
-use futures::channel::mpsc::{channel, Receiver, Sender};
 use futures::stream::{Stream, StreamExt};
 use futures::FutureExt;
 use katana_executor::{BlockExecutor, ExecutionResult, ExecutionStats, ExecutorFactory};
@@ -35,7 +34,7 @@ use katana_tasks::{BlockingTaskPool, BlockingTaskResult};
 use parking_lot::lock_api::RawMutex;
 use parking_lot::{Mutex, RwLock};
 use tokio::time::{interval_at, Instant, Interval};
-use tracing::{error, info, trace, warn};
+use tracing::{error, info, trace};
 
 use crate::backend::Backend;
 
@@ -226,8 +225,6 @@ pub struct IntervalBlockProducer<EF: ExecutorFactory> {
     executor: PendingExecutor,
     blocking_task_spawner: BlockingTaskPool,
     ongoing_execution: Option<TxExecutionFuture>,
-    /// Listeners notified when a new executed tx is added.
-    tx_execution_listeners: RwLock<Vec<Sender<Vec<TxWithOutcome>>>>,
 
     // Usage with `validator`
     permit: Arc<Mutex<()>>,
@@ -275,7 +272,6 @@ impl<EF: ExecutorFactory> IntervalBlockProducer<EF> {
             ongoing_execution: None,
             queued: VecDeque::default(),
             executor: PendingExecutor::new(executor),
-            tx_execution_listeners: RwLock::new(vec![]),
             blocking_task_spawner: BlockingTaskPool::new().unwrap(),
         }
     }
@@ -381,39 +377,6 @@ impl<EF: ExecutorFactory> IntervalBlockProducer<EF> {
         let executor = backend.executor_factory.with_state_and_block_env(updated_state, block_env);
         Ok(PendingExecutor::new(executor))
     }
-
-    pub fn add_listener(&self) -> Receiver<Vec<TxWithOutcome>> {
-        const TX_LISTENER_BUFFER_SIZE: usize = 2048;
-        let (tx, rx) = channel(TX_LISTENER_BUFFER_SIZE);
-        self.tx_execution_listeners.write().push(tx);
-        rx
-    }
-
-    /// notifies all listeners about the transaction
-    fn notify_listener(&self, txs: Vec<TxWithOutcome>) {
-        let mut listener = self.tx_execution_listeners.write();
-        // this is basically a retain but with mut reference
-        for n in (0..listener.len()).rev() {
-            let mut listener_tx = listener.swap_remove(n);
-            let retain = match listener_tx.try_send(txs.clone()) {
-                Ok(()) => true,
-                Err(e) => {
-                    if e.is_full() {
-                        warn!(
-                            target: LOG_TARGET,
-                            "Unable to send new txs notification because channel is full.",
-                        );
-                        true
-                    } else {
-                        false
-                    }
-                }
-            };
-            if retain {
-                listener.push(listener_tx)
-            }
-        }
-    }
 }
 
 impl<EF: ExecutorFactory> Stream for IntervalBlockProducer<EF> {
@@ -492,7 +455,7 @@ impl<EF: ExecutorFactory> Stream for IntervalBlockProducer<EF> {
             if let Some(mut execution) = pin.ongoing_execution.take() {
                 if let Poll::Ready(executor) = execution.poll_unpin(cx) {
                     match executor {
-                        Ok(Ok((txs, leftovers))) => {
+                        Ok(Ok((_txs, leftovers))) => {
                             if let Some(leftovers) = leftovers {
                                 pin.is_block_full = true;
 
@@ -504,7 +467,6 @@ impl<EF: ExecutorFactory> Stream for IntervalBlockProducer<EF> {
                                 break;
                             }
 
-                            pin.notify_listener(txs);
                             continue;
                         }
 
@@ -581,8 +543,6 @@ pub struct InstantBlockProducer<EF: ExecutorFactory> {
     queued: VecDeque<Vec<ExecutableTxWithHash>>,
 
     blocking_task_pool: BlockingTaskPool,
-    /// Listeners notified when a new executed tx is added.
-    tx_execution_listeners: RwLock<Vec<Sender<Vec<TxWithOutcome>>>>,
 
     permit: Arc<Mutex<()>>,
 
@@ -617,7 +577,6 @@ impl<EF: ExecutorFactory> InstantBlockProducer<EF> {
             block_mining: None,
             queued: VecDeque::default(),
             blocking_task_pool: BlockingTaskPool::new().unwrap(),
-            tx_execution_listeners: RwLock::new(vec![]),
         }
     }
 
@@ -705,39 +664,6 @@ impl<EF: ExecutorFactory> InstantBlockProducer<EF> {
 
         Ok((outcome, txs_outcomes))
     }
-
-    pub fn add_listener(&self) -> Receiver<Vec<TxWithOutcome>> {
-        const TX_LISTENER_BUFFER_SIZE: usize = 2048;
-        let (tx, rx) = channel(TX_LISTENER_BUFFER_SIZE);
-        self.tx_execution_listeners.write().push(tx);
-        rx
-    }
-
-    /// notifies all listeners about the transaction
-    fn notify_listener(&self, txs: Vec<TxWithOutcome>) {
-        let mut listener = self.tx_execution_listeners.write();
-        // this is basically a retain but with mut reference
-        for n in (0..listener.len()).rev() {
-            let mut listener_tx = listener.swap_remove(n);
-            let retain = match listener_tx.try_send(txs.clone()) {
-                Ok(()) => true,
-                Err(e) => {
-                    if e.is_full() {
-                        warn!(
-                            target: LOG_TARGET,
-                            "Unable to send new txs notification because channel is full.",
-                        );
-                        true
-                    } else {
-                        false
-                    }
-                }
-            };
-            if retain {
-                listener.push(listener_tx)
-            }
-        }
-    }
 }
 
 impl<EF: ExecutorFactory> Stream for InstantBlockProducer<EF> {
@@ -764,8 +690,7 @@ impl<EF: ExecutorFactory> Stream for InstantBlockProducer<EF> {
         if let Some(mut mining) = pin.block_mining.take() {
             if let Poll::Ready(outcome) = mining.poll_unpin(cx) {
                 match outcome {
-                    Ok(Ok((outcome, txs))) => {
-                        pin.notify_listener(txs);
+                    Ok(Ok((outcome, _txs))) => {
                         return Poll::Ready(Some(Ok(outcome)));
                     }
 
