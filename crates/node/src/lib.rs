@@ -228,7 +228,12 @@ impl Node {
             rpc_modules.merge(api.into_rpc())?;
         }
 
-        let rpc_server = RpcServer::new().metrics().health_check().cors(cors).module(rpc_modules);
+        let rpc_server = RpcServer::new()
+            .metrics(true)
+            .health_check(true)
+            .explorer(config.rpc.explorer)
+            .cors(cors)
+            .module(rpc_modules)?;
 
         Ok(Node {
             db,
@@ -305,6 +310,11 @@ impl Node {
     /// Returns a reference to the node's transaction pool.
     pub fn pool(&self) -> &TxPool {
         &self.pool
+    }
+
+    /// Returns a reference to the node's JSON-RPC server.
+    pub fn rpc(&self) -> &RpcServer {
+        &self.rpc_server
     }
 
     /// Returns a reference to the node's configuration.

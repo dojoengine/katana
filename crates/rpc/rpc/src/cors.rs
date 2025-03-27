@@ -1,4 +1,5 @@
 pub use http::HeaderValue;
+pub use jsonrpsee;
 use tower::Layer;
 use tower_http::cors::{self, Any};
 pub use tower_http::cors::{AllowHeaders, AllowMethods};

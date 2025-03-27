@@ -9,6 +9,7 @@ use std::time::Duration;
 use jsonrpsee::core::TEN_MB_SIZE_BYTES;
 use jsonrpsee::server::{AllowHosts, ServerBuilder, ServerHandle};
 use jsonrpsee::RpcModule;
+use katana_explorer::ExplorerLayer;
 use tower::ServiceBuilder;
 use tracing::info;
 
@@ -70,6 +71,7 @@ pub struct RpcServer {
     metrics: bool,
     cors: Option<Cors>,
     health_check: bool,
+    explorer: bool,
     module: RpcModule<()>,
     max_connections: u32,
     max_request_body_size: u32,
@@ -81,6 +83,7 @@ impl RpcServer {
         Self {
             cors: None,
             metrics: false,
+            explorer: false,
             health_check: false,
             module: RpcModule::new(()),
             max_connections: 100,
@@ -110,14 +113,20 @@ impl RpcServer {
     /// Collect metrics about the RPC server.
     ///
     /// See top level module of [`crate::metrics`] to see what metrics are collected.
-    pub fn metrics(mut self) -> Self {
-        self.metrics = true;
+    pub fn metrics(mut self, enable: bool) -> Self {
+        self.metrics = enable;
         self
     }
 
     /// Enables health checking endpoint via HTTP `GET /health`
-    pub fn health_check(mut self) -> Self {
-        self.health_check = true;
+    pub fn health_check(mut self, enable: bool) -> Self {
+        self.health_check = enable;
+        self
+    }
+
+    /// Enables explorer.
+    pub fn explorer(mut self, enable: bool) -> Self {
+        self.explorer = enable;
         self
     }
 
@@ -126,9 +135,18 @@ impl RpcServer {
         self
     }
 
-    pub fn module(mut self, module: RpcModule<()>) -> Self {
-        self.module = module;
-        self
+    /// Adds a new RPC module to the server.
+    ///
+    /// This can be chained with other calls to `module` to add multiple modules.
+    ///
+    /// # Example
+    ///
+    /// ```rust
+    /// let server = RpcServer::new().module(module_a()).unwrap().module(module_b()).unwrap();
+    /// ```
+    pub fn module(mut self, module: RpcModule<()>) -> Result<Self, Error> {
+        self.module.merge(module)?;
+        Ok(self)
     }
 
     pub async fn start(&self, addr: SocketAddr) -> Result<RpcServerHandle, Error> {
@@ -141,9 +159,17 @@ impl RpcServer {
             None
         };
 
+        let explorer_layer = if self.explorer {
+            let layer = ExplorerLayer::new(String::new()).unwrap();
+            Some(layer)
+        } else {
+            None
+        };
+
         let middleware = ServiceBuilder::new()
             .option_layer(self.cors.clone())
             .option_layer(health_check_proxy)
+            .option_layer(explorer_layer)
             .timeout(Duration::from_secs(200));
 
         let builder = ServerBuilder::new()
@@ -175,6 +201,11 @@ impl RpcServer {
         // a free port during the call to `ServerBuilder::build(addr)`.
 
         info!(target: "rpc", addr = %handle.addr, "RPC server started.");
+
+        if self.explorer {
+            let addr = format!("{}{}", handle.addr, katana_explorer::APP_BASE_PATH);
+            info!(target: "explorer", %addr, "Explorer started.");
+        }
 
         Ok(handle)
     }

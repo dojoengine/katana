@@ -8,6 +8,7 @@ members = [
 	"crates/controller",
 	"crates/core",
 	"crates/executor",
+	"crates/explorer",
 	"crates/feeder-gateway",
 	"crates/grpc",
 	"crates/messaging",
@@ -19,7 +20,6 @@ members = [
 	"crates/rpc/rpc",
 	"crates/rpc/rpc-api",
 	"crates/rpc/rpc-types",
-	"crates/explorer",
 	"crates/rpc/rpc-types-builder",
 	"crates/runner",
 	"crates/runner/macro",
@@ -69,6 +69,7 @@ katana-codecs-derive = { path = "crates/storage/codecs/derive" }
 katana-core = { path = "crates/core", default-features = false }
 katana-db = { path = "crates/storage/db" }
 katana-executor = { path = "crates/executor" }
+katana-explorer = { path = "crates/explorer" }
 katana-feeder-gateway = { path = "crates/feeder-gateway" }
 katana-fork = { path = "crates/storage/fork" }
 katana-messaging = { path = "crates/messaging" }
@@ -88,7 +89,6 @@ katana-stage = { path = "crates/sync/stage" }
 katana-tasks = { path = "crates/tasks" }
 katana-trie = { path = "crates/trie" }
 katana-utils = { path = "crates/utils" }
-katana-explorer = { path = "crates/explorer" }
 
 # cairo
 cairo-lang-casm = "2.10.0"

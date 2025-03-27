@@ -9,6 +9,7 @@ version.workspace = true
 [dependencies]
 katana-core.workspace = true
 katana-executor.workspace = true
+katana-explorer = { workspace = true, features = [ "jsonrpsee" ] }
 katana-pool.workspace = true
 katana-primitives.workspace = true
 katana-provider.workspace = true

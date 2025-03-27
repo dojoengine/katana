@@ -1,6 +1,8 @@
 use std::path::Path;
 use std::process::Command;
 
+const BASE_PATH: &str = "/explorer";
+
 fn main() {
     println!("cargo:rerun-if-changed=ui/");
 
@@ -33,23 +35,22 @@ fn main() {
 
         // Install dependencies if node_modules doesn't exist
         // $CARGO_MANIFEST_DIR/ui/node_modules
-        if !Path::new(&ui_dir).join("node_modules").exists() {
-            println!("Installing UI dependencies...");
+        println!("Installing UI dependencies...");
 
-            let status = Command::new("bun")
-                .current_dir(&ui_dir)
-                .arg("install")
-                .status()
-                .expect("Failed to install UI dependencies");
+        let status = Command::new("bun")
+            .current_dir(&ui_dir)
+            .arg("install")
+            .status()
+            .expect("Failed to install UI dependencies");
 
-            if !status.success() {
-                panic!("Failed to install UI dependencies");
-            }
+        if !status.success() {
+            panic!("Failed to install UI dependencies");
         }
 
         println!("Building UI...");
         let status = Command::new("bun")
             .current_dir(&ui_dir)
+            .env("BASE_PATH", BASE_PATH)
             .arg("run")
             .arg("build")
             .status()
@@ -58,5 +59,7 @@ fn main() {
         if !status.success() {
             panic!("Failed to build UI");
         }
+
+        println!("cargo:rustc-env=APP_BASE_PATH={BASE_PATH}");
     }
 }

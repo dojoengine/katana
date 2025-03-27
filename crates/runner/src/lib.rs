@@ -2,6 +2,7 @@
 
 mod utils;
 
+use std::net::SocketAddr;
 use std::path::PathBuf;
 use std::thread;
 
@@ -24,6 +25,10 @@ pub struct RunnerCtx(KatanaRunner);
 impl RunnerCtx {
     pub fn new(runner: KatanaRunner) -> Self {
         Self(runner)
+    }
+
+    pub fn rpc_addr(&self) -> SocketAddr {
+        self.instance.rpc_addr()
     }
 }
 

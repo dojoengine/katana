@@ -1,22 +1,25 @@
-use std::net::SocketAddr;
-use std::thread;
+use std::future::Future;
+use std::pin::Pin;
+use std::task::{Context, Poll};
 
-use anyhow::{anyhow, Result};
+use anyhow::{Result, anyhow};
+use axum::body::Body;
+use axum::http::{HeaderValue, Response};
+use http::{Request, StatusCode};
 use rust_embed::RustEmbed;
-use tiny_http::{Response, Server};
-use tracing::{info, warn};
-use url::Url;
+use tower::{Layer, Service};
+
+/// The base path at which the explorer is served.
+pub const APP_BASE_PATH: &str = env!("APP_BASE_PATH");
 
 #[derive(Debug)]
-pub struct Explorer {
-    /// The JSON-RPC url of the chain that the explorer will connect to.
-    rpc_url: Url,
+pub struct ExplorerLayer {
     /// The chain ID of the network
     chain_id: String,
 }
 
-impl Explorer {
-    pub fn new(rpc_url: Url, chain_id: String) -> Result<Self> {
+impl ExplorerLayer {
+    pub fn new(chain_id: String) -> Result<Self> {
         // Validate that the embedded assets are available
         if ExplorerAssets::get("index.html").is_none() {
             return Err(anyhow!(
@@ -25,125 +28,86 @@ impl Explorer {
             ));
         }
 
-        Ok(Self { rpc_url, chain_id })
+        Ok(Self { chain_id })
+    }
+}
+
+impl<S> Layer<S> for ExplorerLayer {
+    type Service = ExplorerService<S>;
+
+    fn layer(&self, inner: S) -> Self::Service {
+        ExplorerService { inner, chain_id: self.chain_id.clone(), base_path: APP_BASE_PATH }
+    }
+}
+
+#[derive(Debug)]
+pub struct ExplorerService<S> {
+    inner: S,
+    chain_id: String,
+    base_path: &'static str,
+}
+
+impl<S> Service<Request<Body>> for ExplorerService<S>
+where
+    S: Service<Request<Body>, Response = Response<Body>> + Send + 'static,
+    S::Future: Send + 'static,
+{
+    type Response = S::Response;
+    type Error = S::Error;
+    type Future = Pin<Box<dyn Future<Output = Result<Self::Response, Self::Error>> + Send>>;
+
+    fn poll_ready(&mut self, cx: &mut Context<'_>) -> Poll<Result<(), Self::Error>> {
+        self.inner.poll_ready(cx)
     }
 
-    /// Start the explorer server at the given address.
-    pub fn start(&self, addr: SocketAddr) -> Result<ExplorerHandle> {
-        let server =
-            Server::http(addr).map_err(|e| anyhow!("Failed to start explorer server: {}", e))?;
+    fn call(&mut self, req: Request<Body>) -> Self::Future {
+        // If the path does not start with the base path, pass the request to the inner service.
+        let Some(path) = req.uri().path().strip_prefix(self.base_path) else {
+            return Box::pin(self.inner.call(req));
+        };
 
-        let addr = server.server_addr().to_ip().expect("must be ip");
-        let rpc_url = self.rpc_url.clone();
         let chain_id = self.chain_id.clone();
 
-        // TODO: handle cancellation
-        let _handle = thread::spawn(move || {
-            for request in server.incoming_requests() {
-                // Special handling for OPTIONS requests (CORS preflight)
-                if request.method() == &tiny_http::Method::Options {
-                    let response = Response::empty(204)
-                        .with_header(tiny_http::Header {
-                            field: "Access-Control-Allow-Origin".parse().unwrap(),
-                            value: "*".parse().unwrap(),
-                        })
-                        .with_header(tiny_http::Header {
-                            field: "Access-Control-Allow-Methods".parse().unwrap(),
-                            value: "GET, POST, OPTIONS".parse().unwrap(),
-                        })
-                        .with_header(tiny_http::Header {
-                            field: "Access-Control-Allow-Headers".parse().unwrap(),
-                            value: "Content-Type, Authorization".parse().unwrap(),
-                        })
-                        .with_header(tiny_http::Header {
-                            field: "Access-Control-Max-Age".parse().unwrap(),
-                            value: "86400".parse().unwrap(),
-                        });
-                    let _ = request.respond(response);
-                    continue;
-                }
+        // Check if the request is for a static asset that actually exists
+        let file_path = path.trim_start_matches('/');
+        let is_static_asset = is_static_asset_path(file_path);
 
-                // Decode URL and sanitize path to prevent directory traversal
-                let path = {
-                    let url_path = request.url().to_string();
-                    let decoded_path = urlencoding::decode(&url_path)
-                        .map(|s| s.into_owned())
-                        .unwrap_or_else(|_| url_path);
+        // If it's a static asset, try to find the exact file.
+        // Otherwise, serve `index.html` since it's a SPA route.
+        let asset_path = if is_static_asset && ExplorerAssets::get(file_path).is_some() {
+            file_path.to_string()
+        } else {
+            "index.html".to_string()
+        };
 
-                    let p = decoded_path.trim_start_matches('/');
-                    let components: Vec<&str> = p
-                        .split('/')
-                        .filter(|s| !s.is_empty() && *s != "." && *s != ".." && !s.contains('\\'))
-                        .collect();
+        let response = if let Some(asset) = ExplorerAssets::get(&asset_path) {
+            let content_type = get_content_type(&format!("/{asset_path}"));
+            let content = asset.data;
 
-                    if components.is_empty() {
-                        "/index.html".to_string()
-                    } else {
-                        format!("/{}", components.join("/"))
-                    }
-                };
+            let body = if content_type == "text/html" {
+                let html = String::from_utf8_lossy(&content).to_string();
+                let html = setup_env(&html, &chain_id);
+                Body::from(html)
+            } else {
+                Body::from(content.to_vec())
+            };
 
-                // Try to serve from embedded assets
-                let content = if let Some(asset) = ExplorerAssets::get(&path[1..]) {
-                    let content_type = get_content_type(&path);
-                    let content = asset.data;
+            let mut response = Response::builder().body(body).unwrap();
 
-                    // If it's HTML, inject the RPC URL and chain ID
-                    if content_type == "text/html" {
-                        let html = String::from_utf8_lossy(&content).to_string();
-                        let html = setup_env(&html, &rpc_url, &chain_id);
-                        Response::from_string(html).with_header(tiny_http::Header {
-                            field: "Content-Type".parse().unwrap(),
-                            value: content_type.parse().unwrap(),
-                        })
-                    } else {
-                        Response::from_data(content.to_vec()).with_header(tiny_http::Header {
-                            field: "Content-Type".parse().unwrap(),
-                            value: content_type.parse().unwrap(),
-                        })
-                    }
-                } else {
-                    // Not found
-                    Response::from_string("Not found").with_status_code(404)
-                };
+            let mut headers = req.headers().clone();
+            let content_type = HeaderValue::from_str(content_type).unwrap();
+            headers.insert("Content-Type", content_type);
+            response.headers_mut().extend(headers);
 
-                // Add CORS headers
-                let response = content
-                    .with_header(tiny_http::Header {
-                        field: "Access-Control-Allow-Origin".parse().unwrap(),
-                        value: "*".parse().unwrap(),
-                    })
-                    .with_header(tiny_http::Header {
-                        field: "Access-Control-Allow-Methods".parse().unwrap(),
-                        value: "GET, POST, OPTIONS".parse().unwrap(),
-                    })
-                    .with_header(tiny_http::Header {
-                        field: "Access-Control-Allow-Headers".parse().unwrap(),
-                        value: "Content-Type".parse().unwrap(),
-                    });
+            response
+        } else {
+            Response::builder()
+                .status(StatusCode::NOT_FOUND)
+                .body(Body::from("Not found"))
+                .expect("good data; qed")
+        };
 
-                if let Err(e) = request.respond(response) {
-                    warn!(target: "katana", "Error sending response: {}", e);
-                }
-            }
-        });
-
-        info!(target: "katana", %addr, "Explorer started.");
-
-        Ok(ExplorerHandle { addr })
-    }
-}
-
-/// Handle to the explorer server.
-#[derive(Debug)]
-pub struct ExplorerHandle {
-    addr: SocketAddr,
-}
-
-impl ExplorerHandle {
-    /// Returns the socket address of the explorer.
-    pub fn addr(&self) -> &SocketAddr {
-        &self.addr
+        Box::pin(async { Ok(response) })
     }
 }
 
@@ -154,14 +118,11 @@ struct ExplorerAssets;
 
 /// This function adds a script tag to the HTML that sets up environment variables
 /// for the explorer to use.
-fn setup_env(html: &str, rpc_url: &Url, chain_id: &str) -> String {
-    // Escape special characters to prevent XSS
-    let rpc_url = rpc_url.to_string();
-    let escaped_url = rpc_url.replace("\"", "\\\"").replace("<", "&lt;").replace(">", "&gt;");
+fn setup_env(html: &str, chain_id: &str) -> String {
     let escaped_chain_id = chain_id.replace("\"", "\\\"").replace("<", "&lt;").replace(">", "&gt;");
 
-    // We inject the RPC URL and chain ID into the HTML for the controller to use.
-    // The chain rpc and chain id are required params to initialize the controller <https://github.com/cartridge-gg/controller/blob/main/packages/controller/src/controller.ts#L32>.
+    // We inject the chain ID into the HTML for the controller to use.
+    // The chain id is a required param to initialize the controller <https://github.com/cartridge-gg/controller/blob/main/packages/controller/src/controller.ts#L32>.
     // The parameters are consumed by the explorer here <https://github.com/cartridge-gg/explorer/blob/68ac4ea9500a90abc0d7c558440a99587cb77585/src/constants/rpc.ts#L14-L15>.
 
     // NOTE: ENABLE_CONTROLLER feature flag is a temporary solution to handle the controller.
@@ -174,11 +135,11 @@ fn setup_env(html: &str, rpc_url: &Url, chain_id: &str) -> String {
     // local katana instances.
     let script = format!(
         r#"<script>
-            window.RPC_URL = "{}";
-            window.CHAIN_ID = "{}";
-            window.ENABLE_CONTROLLER = false;
-        </script>"#,
-        escaped_url, escaped_chain_id
+                window.CHAIN_ID = "{}";
+                window.ENABLE_CONTROLLER = false;
+                window.IS_EMBEDDED = true;
+            </script>"#,
+        escaped_chain_id
     );
 
     if let Some(head_pos) = html.find("<head>") {
@@ -205,4 +166,19 @@ fn get_content_type(path: &str) -> &'static str {
         Some("eot") => "application/vnd.ms-fontobject",
         _ => "application/octet-stream",
     }
+}
+
+/// Checks if the given path is a path to a static asset.
+fn is_static_asset_path(path: &str) -> bool {
+    !path.is_empty()
+        && (path.ends_with(".js")
+            || path.ends_with(".css")
+            || path.ends_with(".png")
+            || path.ends_with(".svg")
+            || path.ends_with(".json")
+            || path.ends_with(".ico")
+            || path.ends_with(".woff")
+            || path.ends_with(".woff2")
+            || path.ends_with(".ttf")
+            || path.ends_with(".eot"))
 }
