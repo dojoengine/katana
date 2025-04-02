@@ -67,7 +67,7 @@ jobs:
         name: Rust Toolchain Setup
         with:
           targets: ${{ matrix.job.target }}
-          toolchain: "nightly-2024-12-16"
+          toolchain: "1.83.0"
 
       - uses: Swatinem/rust-cache@v2
         with:
