@@ -1,0 +1,2 @@
+[alias]
+generate-starknet-rpc-types = "run --manifest-path ./xtasks/generate-starknet-rpc-types/Cargo.toml --"

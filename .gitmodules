@@ -12,3 +12,6 @@
 	path = crates/explorer/ui
 	url = https://github.com/cartridge-gg/explorer
 	branch = main
+[submodule "starknet-specs"]
+	path = starknet-specs
+	url = https://github.com/starkware-libs/starknet-specs

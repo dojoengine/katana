@@ -4545,6 +4545,16 @@ dependencies = [
 ]
 
 [[package]]
+name = "generate-starknet-rpc-types"
+version = "1.2.2"
+dependencies = [
+ "heck 0.5.0",
+ "regex",
+ "serde",
+ "serde_json",
+]
+
+[[package]]
 name = "generic-array"
 version = "0.14.7"
 source = "registry+https://github.com/rust-lang/crates.io-index"
