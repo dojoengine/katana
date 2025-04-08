@@ -34,6 +34,9 @@ jobs:
       PLATFORM_NAME: ${{ matrix.job.platform }}
       TARGET: ${{ matrix.job.target }}
       ARCH: ${{ matrix.job.arch }}
+      MLIR_SYS_190_PREFIX: /usr/lib/llvm-19/
+      LLVM_SYS_191_PREFIX: /usr/lib/llvm-19/
+      TABLEGEN_190_PREFIX: /usr/lib/llvm-19/
     strategy:
       matrix:
         job:
@@ -73,6 +76,17 @@ jobs:
         with:
           cache-on-failure: true
 
+      - name: Install LLVM dependencies for Linux
+        if: ${{ matrix.job.platform == 'linux' }}
+        run: |
+          sudo apt-get update -y
+          sudo apt-get install -y g++ llvm-19 llvm-19-dev llvm-19-runtime clang-19 clang-tools-19 lld-19 libpolly-19-dev libmlir-19-dev mlir-19-tools
+
+      - name: Install LLVM dependencies for macOS
+        if: ${{ matrix.job.platform == 'darwin' }}
+        run: |
+          brew install llvm@19 --quiet
+
       - name: Apple M1 setup
         if: ${{ matrix.job.target == 'aarch64-apple-darwin' }}
         run: |
@@ -91,7 +105,7 @@ jobs:
       - name: Build binaries
         run: |
           cargo --version
-          cargo build --release --workspace --all-features --exclude snos-integration-test  --target ${{ matrix.job.target }}
+          cargo build -p katana --features native --target ${{ matrix.job.target }}
 
       - name: Archive binaries
         id: artifacts
