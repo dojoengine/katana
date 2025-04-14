@@ -1,39 +1,34 @@
-FROM ghcr.io/dojoengine/dojo-dev:v1.2.2
+FROM ubuntu:24.04 as builder
 
-# Install Katana's Rust version
-ARG RUST_VERSION=1.83.0
-RUN rustup toolchain install ${RUST_VERSION} --profile minimal && \
-	rustup default ${RUST_VERSION}
+RUN apt-get update && apt install -y git libtool automake autoconf make tini ca-certificates curl
 
-# Set environment variables for LLVM
-ENV MLIR_SYS_190_PREFIX=/usr/lib/llvm-19
-ENV	LLVM_SYS_191_PREFIX=/usr/lib/llvm-19
-ENV TABLEGEN_190_PREFIX=/usr/lib/llvm-19
+RUN git clone https://github.com/Comcast/Infinite-File-Curtailer.git curtailer \
+	&& cd curtailer \
+	&& libtoolize \
+	&& aclocal \
+	&& autoheader \
+	&& autoconf \
+	&& automake --add-missing \
+	&& ./configure \
+	&& make \
+	&& make install \
+	&& curtail --version
 
-# Install LLVM and Cairo native dependencies
-RUN apt-get install -y \
-	g++ \
-	llvm-19 \
-	llvm-19-dev \
-	llvm-19-runtime \
-	clang-19 \
-	clang-tools-19 \
-	lld-19 \
-	libpolly-19-dev \
-	libmlir-19-dev \
-	mlir-19-tools
+FROM ubuntu:24.04 as base
 
-# Install bun for Explorer
-RUN apt-get install -y unzip
-RUN curl -fsSL https://bun.sh/install | bash
+COPY --from=builder /etc/ssl/certs /etc/ssl/certs
+COPY --from=builder /usr/bin/curl /usr/bin/curl
 
-ENV PYENV_ROOT="/root/.pyenv"
-ENV PATH="/root/.pyenv/bin:$PATH"
-RUN curl -fsSL https://pyenv.run | bash
-RUN echo 'export PYENV_ROOT="/root/.pyenv"' >> /root/.bashrc && \
-	echo 'export PATH="$PYENV_ROOT/bin:$PATH"' >> /root/.bashrc && \
-	echo 'eval "$(pyenv init -)"' >> /root/.bashrc && \
-	echo 'eval "$(pyenv virtualenv-init -)"' >> /root/.bashrc
+COPY --from=builder /usr/bin/tini /tini
+ENTRYPOINT ["/tini", "--"]
 
-# Add shims to PATH for non-login shell usage
-ENV PATH="/root/.pyenv/shims:$PATH"
+ARG TARGETPLATFORM
+
+LABEL description="Dojo is a provable game engine and toolchain for building onchain games and autonomous worlds with Cairo" \
+	authors="Ammar Arif <evergreenkary@gmail.com>" \
+	source="https://github.com/dojoengine/katana" \
+	documentation="https://book.dojoengine.org/"
+
+COPY --from=artifacts --chmod=755 $TARGETPLATFORM/katana /usr/local/bin/
+
+COPY --from=builder /usr/local/bin/curtail /usr/local/bin/curtail

@@ -11,6 +11,7 @@ members = [
 	"crates/explorer",
 	"crates/feeder-gateway",
 	"crates/grpc",
+	"crates/log",
 	"crates/messaging",
 	"crates/metrics",
 	"crates/node",
@@ -41,7 +42,7 @@ edition = "2021"
 license = "Apache-2.0"
 license-file = "LICENSE"
 repository = "https://github.com/dojoengine/katana/"
-version = "1.2.2"
+version = "1.2.3"
 
 [profile.performance]
 codegen-units = 1
@@ -72,6 +73,7 @@ katana-executor = { path = "crates/executor" }
 katana-explorer = { path = "crates/explorer" }
 katana-feeder-gateway = { path = "crates/feeder-gateway" }
 katana-fork = { path = "crates/storage/fork" }
+katana-log = { path = "crates/log" }
 katana-messaging = { path = "crates/messaging" }
 katana-node = { path = "crates/node", default-features = false }
 katana-node-bindings = { path = "crates/node-bindings" }

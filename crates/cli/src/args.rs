@@ -26,14 +26,12 @@ use katana_node::Node;
 use katana_primitives::genesis::allocation::DevAllocationsGenerator;
 use katana_primitives::genesis::constant::DEFAULT_PREFUNDED_ACCOUNT_BALANCE;
 use serde::{Deserialize, Serialize};
-use tracing::{info, Subscriber};
-use tracing_log::LogTracer;
-use tracing_subscriber::{fmt, EnvFilter};
+use tracing::info;
 use url::Url;
 
 use crate::file::NodeArgsConfig;
 use crate::options::*;
-use crate::utils::{self, parse_chain_config_dir, parse_seed, LogFormat};
+use crate::utils::{self, parse_chain_config_dir, parse_seed};
 
 pub(crate) const LOG_TARGET: &str = "katana::cli";
 
@@ -123,7 +121,7 @@ pub struct NodeArgs {
 
 impl NodeArgs {
     pub async fn execute(&self) -> Result<()> {
-        self.init_logging()?;
+        katana_log::init(self.logging.log_format, self.development.dev)?;
         self.start_node().await
     }
 
@@ -134,18 +132,6 @@ impl NodeArgs {
 
         if !self.silent {
             utils::print_intro(self, &node.backend().chain_spec);
-        }
-
-        if self.explorer.explorer {
-            // let rpc_url = format!("http://{}", handle.rpc().addr());
-            // let rpc_url = Url::parse(&rpc_url).context("failed to parse node url")?;
-            // let addr = SocketAddr::new(self.explorer.explorer_addr, self.explorer.explorer_port);
-            // let _ = Explorer::new(rpc_url, chain_id)?.start(addr).await?;
-
-            // Get chain ID before launching the node
-            // let chain_id = node.backend().chain_spec.id().to_string();
-            // node.rpc_server.module.merge(Explorer::new_embedded(chain_id)?)?;
-            // println!("Explorer initialized");
         }
 
         // Launch the node
@@ -164,34 +150,6 @@ impl NodeArgs {
         info!("Shutting down.");
 
         Ok(())
-    }
-
-    fn init_logging(&self) -> Result<()> {
-        const DEFAULT_LOG_FILTER: &str = "cairo_native::compiler=off,pipeline=debug,stage=debug,\
-                                          info,tasks=debug,executor=trace,forking::backend=trace,\
-                                          blockifier=off,jsonrpsee_server=off,hyper=off,\
-                                          messaging=debug,node=error,explorer=info";
-
-        let filter = if self.development.dev {
-            &format!("{DEFAULT_LOG_FILTER},server=debug")
-        } else {
-            DEFAULT_LOG_FILTER
-        };
-
-        LogTracer::init()?;
-
-        // If the user has set the `RUST_LOG` environment variable, then we prioritize it.
-        // Otherwise, we use the default log filter.
-        // TODO: change env var to `KATANA_LOG`.
-        let filter = EnvFilter::try_from_default_env().or(EnvFilter::try_new(filter))?;
-        let builder = fmt::Subscriber::builder().with_env_filter(filter);
-
-        let subscriber: Box<dyn Subscriber + Send + Sync> = match self.logging.log_format {
-            LogFormat::Full => Box::new(builder.finish()),
-            LogFormat::Json => Box::new(builder.json().finish()),
-        };
-
-        Ok(tracing::subscriber::set_global_default(subscriber)?)
     }
 
     pub fn config(&self) -> Result<katana_node::config::Config> {

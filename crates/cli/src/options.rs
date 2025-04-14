@@ -9,10 +9,10 @@
 
 #[cfg(feature = "server")]
 use std::net::IpAddr;
-use std::net::Ipv4Addr;
 use std::num::NonZeroU128;
 
 use clap::Args;
+use katana_log::LogFormat;
 use katana_node::config::execution::{DEFAULT_INVOCATION_MAX_STEPS, DEFAULT_VALIDATION_MAX_STEPS};
 #[cfg(feature = "server")]
 use katana_node::config::metrics::{DEFAULT_METRICS_ADDR, DEFAULT_METRICS_PORT};
@@ -32,7 +32,7 @@ use url::Url;
 
 #[cfg(feature = "server")]
 use crate::utils::{deserialize_cors_origins, serialize_cors_origins};
-use crate::utils::{parse_block_hash_or_number, parse_genesis, LogFormat};
+use crate::utils::{parse_block_hash_or_number, parse_genesis};
 
 const DEFAULT_DEV_SEED: &str = "0";
 const DEFAULT_DEV_ACCOUNTS: u16 = 10;
@@ -421,45 +421,19 @@ pub struct SlotOptions {
     pub controller: bool,
 }
 
-const DEFAULT_EXPLORER_ADDR: IpAddr = IpAddr::V4(Ipv4Addr::LOCALHOST);
-const DEFAULT_EXPLORER_PORT: u16 = 3001;
-
-#[derive(Debug, Args, Clone, Serialize, Deserialize, PartialEq)]
+#[derive(Debug, Default, Args, Clone, Serialize, Deserialize, PartialEq)]
 #[command(next_help_heading = "Explorer options")]
 pub struct ExplorerOptions {
     /// Enable and launch the explorer frontend
     ///
     /// This will start a web server that serves the explorer UI.
+    /// The explorer will be accessible at the `/explorer` path relative to the RPC server URL.
+    ///
+    /// For example, if the RPC server is running at `localhost:5050`, the explorer will be
+    /// available at `localhost:5050/explorer`.
     #[arg(long)]
     #[serde(default)]
     pub explorer: bool,
-
-    /// The address to run the explorer frontend on.
-    #[arg(long = "explorer.addr", value_name = "ADDRESS")]
-    #[arg(default_value_t = DEFAULT_EXPLORER_ADDR)]
-    pub explorer_addr: IpAddr,
-
-    /// The port to run the explorer frontend on.
-    ///
-    /// NOTE(@kariy):
-    // Right now we prevent the port from being 0 because that would mean the actual port would only
-    // be available after the server has been started. And due to some limitations with how the
-    // explorer requires that the node is started first (to get the actual socket address) and
-    // that we also need to pass the explorer address as CORS to the node server.
-    #[arg(long = "explorer.port", value_name = "PORT")]
-    #[arg(default_value_t = DEFAULT_EXPLORER_PORT)]
-    #[arg(value_parser = clap::value_parser!(u16).range(1..))]
-    pub explorer_port: u16,
-}
-
-impl Default for ExplorerOptions {
-    fn default() -> Self {
-        Self {
-            explorer: false,
-            explorer_addr: DEFAULT_EXPLORER_ADDR,
-            explorer_port: DEFAULT_EXPLORER_PORT,
-        }
-    }
 }
 
 // ** Default functions to setup serde of the configuration file **
