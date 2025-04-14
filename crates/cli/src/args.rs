@@ -310,22 +310,22 @@ impl NodeArgs {
     fn dev_config(&self) -> DevConfig {
         let mut fixed_gas_prices = None;
 
-        if self.gpo.l1_eth_gas_price > 0 {
+        if self.gpo.l1_eth_gas_price.get() > 0 {
             let prices = fixed_gas_prices.get_or_insert(FixedL1GasPriceConfig::default());
             prices.gas_price.eth = self.gpo.l1_eth_gas_price;
         }
 
-        if self.gpo.l1_strk_gas_price > 0 {
+        if self.gpo.l1_strk_gas_price.get() > 0 {
             let prices = fixed_gas_prices.get_or_insert(FixedL1GasPriceConfig::default());
             prices.gas_price.strk = self.gpo.l1_strk_gas_price;
         }
 
-        if self.gpo.l1_eth_data_gas_price > 0 {
+        if self.gpo.l1_eth_data_gas_price.get() > 0 {
             let prices = fixed_gas_prices.get_or_insert(FixedL1GasPriceConfig::default());
             prices.data_gas_price.eth = self.gpo.l1_eth_data_gas_price;
         }
 
-        if self.gpo.l1_strk_data_gas_price > 0 {
+        if self.gpo.l1_strk_data_gas_price.get() > 0 {
             let prices = fixed_gas_prices.get_or_insert(FixedL1GasPriceConfig::default());
             prices.data_gas_price.strk = self.gpo.l1_strk_data_gas_price;
         }
@@ -503,7 +503,7 @@ mod test {
         let config =
             NodeArgs::parse_from(["katana", "--gpo.l1-eth-gas-price", "10"]).config().unwrap();
         assert_matches!(config.dev.fixed_gas_prices, Some(prices) => {
-            assert_eq!(prices.gas_price.eth, 10);
+            assert_eq!(prices.gas_price.eth.get(), 10);
             assert_eq!(prices.gas_price.strk, DEFAULT_STRK_L1_GAS_PRICE);
             assert_eq!(prices.data_gas_price.eth, DEFAULT_ETH_L1_DATA_GAS_PRICE);
             assert_eq!(prices.data_gas_price.strk, DEFAULT_STRK_L1_DATA_GAS_PRICE);
@@ -513,7 +513,7 @@ mod test {
             NodeArgs::parse_from(["katana", "--gpo.l1-strk-gas-price", "20"]).config().unwrap();
         assert_matches!(config.dev.fixed_gas_prices, Some(prices) => {
             assert_eq!(prices.gas_price.eth, DEFAULT_ETH_L1_GAS_PRICE);
-            assert_eq!(prices.gas_price.strk, 20);
+            assert_eq!(prices.gas_price.strk.get(), 20);
             assert_eq!(prices.data_gas_price.eth, DEFAULT_ETH_L1_DATA_GAS_PRICE);
             assert_eq!(prices.data_gas_price.strk, DEFAULT_STRK_L1_DATA_GAS_PRICE);
         });
@@ -523,7 +523,7 @@ mod test {
         assert_matches!(config.dev.fixed_gas_prices, Some(prices) => {
             assert_eq!(prices.gas_price.eth, DEFAULT_ETH_L1_GAS_PRICE);
             assert_eq!(prices.gas_price.strk, DEFAULT_STRK_L1_GAS_PRICE);
-            assert_eq!(prices.data_gas_price.eth, 1);
+            assert_eq!(prices.data_gas_price.eth.get(), 1);
             assert_eq!(prices.data_gas_price.strk, DEFAULT_STRK_L1_DATA_GAS_PRICE);
         });
 
@@ -533,7 +533,7 @@ mod test {
             assert_eq!(prices.gas_price.eth, DEFAULT_ETH_L1_GAS_PRICE);
             assert_eq!(prices.gas_price.strk, DEFAULT_STRK_L1_GAS_PRICE);
             assert_eq!(prices.data_gas_price.eth, DEFAULT_ETH_L1_DATA_GAS_PRICE);
-            assert_eq!(prices.data_gas_price.strk, 2);
+            assert_eq!(prices.data_gas_price.strk.get(), 2);
         });
 
         let config = NodeArgs::parse_from([
@@ -547,10 +547,10 @@ mod test {
         .unwrap();
 
         assert_matches!(config.dev.fixed_gas_prices, Some(prices) => {
-            assert_eq!(prices.gas_price.eth, 10);
+            assert_eq!(prices.gas_price.eth.get(), 10);
             assert_eq!(prices.gas_price.strk, DEFAULT_STRK_L1_GAS_PRICE);
             assert_eq!(prices.data_gas_price.eth, DEFAULT_ETH_L1_DATA_GAS_PRICE);
-            assert_eq!(prices.data_gas_price.strk, 2);
+            assert_eq!(prices.data_gas_price.strk.get(), 2);
         });
 
         // Set all the gas prices options
@@ -570,10 +570,10 @@ mod test {
         .unwrap();
 
         assert_matches!(config.dev.fixed_gas_prices, Some(prices) => {
-            assert_eq!(prices.gas_price.eth, 10);
-            assert_eq!(prices.gas_price.strk, 20);
-            assert_eq!(prices.data_gas_price.eth, 1);
-            assert_eq!(prices.data_gas_price.strk, 2);
+            assert_eq!(prices.gas_price.eth.get(), 10);
+            assert_eq!(prices.gas_price.strk.get(), 20);
+            assert_eq!(prices.data_gas_price.eth.get(), 1);
+            assert_eq!(prices.data_gas_price.strk.get(), 2);
         })
     }
 
@@ -600,13 +600,13 @@ mod test {
         assert_eq!(config.chain.genesis().timestamp, 5123512314);
         assert_eq!(config.chain.genesis().state_root, felt!("0x99"));
         assert_eq!(config.chain.genesis().sequencer_address, address!("0x100"));
-        assert_eq!(config.chain.genesis().gas_prices.eth, 9999);
-        assert_eq!(config.chain.genesis().gas_prices.strk, 8888);
+        assert_eq!(config.chain.genesis().gas_prices.eth.get(), 9999);
+        assert_eq!(config.chain.genesis().gas_prices.strk.get(), 8888);
         assert_matches!(config.dev.fixed_gas_prices, Some(prices) => {
-            assert_eq!(prices.gas_price.eth, 100);
-            assert_eq!(prices.gas_price.strk, 200);
-            assert_eq!(prices.data_gas_price.eth, 111);
-            assert_eq!(prices.data_gas_price.strk, 222);
+            assert_eq!(prices.gas_price.eth.get(), 100);
+            assert_eq!(prices.gas_price.strk.get(), 200);
+            assert_eq!(prices.data_gas_price.eth.get(), 111);
+            assert_eq!(prices.data_gas_price.strk.get(), 222);
         })
     }
 
@@ -654,18 +654,18 @@ chain_id.Named = "Mainnet"
         assert_eq!(config.execution.invocation_max_steps, 9988);
         assert!(!config.dev.fee);
         assert_matches!(config.dev.fixed_gas_prices, Some(prices) => {
-            assert_eq!(prices.gas_price.eth, 254);
-            assert_eq!(prices.gas_price.strk, 200);
-            assert_eq!(prices.data_gas_price.eth, 111);
-            assert_eq!(prices.data_gas_price.strk, 222);
+            assert_eq!(prices.gas_price.eth.get(), 254);
+            assert_eq!(prices.gas_price.strk.get(), 200);
+            assert_eq!(prices.data_gas_price.eth.get(), 111);
+            assert_eq!(prices.data_gas_price.strk.get(), 222);
         });
         assert_eq!(config.chain.genesis().number, 0);
         assert_eq!(config.chain.genesis().parent_hash, felt!("0x999"));
         assert_eq!(config.chain.genesis().timestamp, 5123512314);
         assert_eq!(config.chain.genesis().state_root, felt!("0x99"));
         assert_eq!(config.chain.genesis().sequencer_address, address!("0x100"));
-        assert_eq!(config.chain.genesis().gas_prices.eth, 9999);
-        assert_eq!(config.chain.genesis().gas_prices.strk, 8888);
+        assert_eq!(config.chain.genesis().gas_prices.eth.get(), 9999);
+        assert_eq!(config.chain.genesis().gas_prices.strk.get(), 8888);
         assert_eq!(config.chain.id(), ChainId::Id(Felt::from_str("0x123").unwrap()));
     }
 

@@ -3,7 +3,7 @@ mod fixtures;
 use fixtures::transaction::executable_tx;
 use fixtures::{executor_factory, state_provider};
 use katana_executor::{ExecutionFlags, ExecutionOutput, ExecutorFactory};
-use katana_primitives::block::GasPrices;
+use katana_primitives::block::GasPrice;
 use katana_primitives::env::BlockEnv;
 use katana_primitives::fee::PriceUnit;
 use katana_primitives::transaction::ExecutableTxWithHash;
@@ -13,7 +13,7 @@ use starknet::macros::felt;
 
 #[rstest::fixture]
 fn block_env() -> BlockEnv {
-    let l1_gas_prices = GasPrices { eth: 1000, strk: 1000 };
+    let l1_gas_prices = unsafe { GasPrice::new_unchecked(1000, 1000) };
     BlockEnv { l1_gas_prices, sequencer_address: felt!("0x1").into(), ..Default::default() }
 }
 

@@ -1,4 +1,4 @@
-use katana_primitives::block::{ExecutableBlock, PartialHeader};
+use katana_primitives::block::{ExecutableBlock, GasPrice, PartialHeader};
 use katana_primitives::chain::ChainId;
 use katana_primitives::contract::ContractAddress;
 use katana_primitives::da::L1DataAvailabilityMode;
@@ -43,6 +43,7 @@ impl ChainSpec {
             timestamp: self.genesis.timestamp,
             parent_hash: self.genesis.parent_hash,
             l1_da_mode: L1DataAvailabilityMode::Calldata,
+            l2_gas_prices: GasPrice::MIN,
             l1_gas_prices: self.genesis.gas_prices.clone(),
             l1_data_gas_prices: self.genesis.gas_prices.clone(),
             sequencer_address: self.genesis.sequencer_address,

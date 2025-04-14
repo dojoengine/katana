@@ -20,13 +20,13 @@ pub struct BlockWithTxs(starknet::core::types::BlockWithTxs);
 impl BlockWithTxs {
     pub fn new(block_hash: BlockHash, block: Block, finality_status: FinalityStatus) -> Self {
         let l1_gas_price = ResourcePrice {
-            price_in_wei: block.header.l1_gas_prices.eth.into(),
-            price_in_fri: block.header.l1_gas_prices.strk.into(),
+            price_in_wei: block.header.l1_gas_prices.eth.get().into(),
+            price_in_fri: block.header.l1_gas_prices.strk.get().into(),
         };
 
         let l1_data_gas_price = ResourcePrice {
-            price_in_wei: block.header.l1_data_gas_prices.eth.into(),
-            price_in_fri: block.header.l1_data_gas_prices.strk.into(),
+            price_in_wei: block.header.l1_data_gas_prices.eth.get().into(),
+            price_in_fri: block.header.l1_data_gas_prices.strk.get().into(),
         };
 
         let transactions =
@@ -67,8 +67,8 @@ impl PendingBlockWithTxs {
             transactions.into_iter().map(|tx| crate::transaction::Tx::from(tx).0).collect();
 
         let l1_gas_price = ResourcePrice {
-            price_in_wei: header.l1_gas_prices.eth.into(),
-            price_in_fri: header.l1_gas_prices.strk.into(),
+            price_in_wei: header.l1_gas_prices.eth.get().into(),
+            price_in_fri: header.l1_gas_prices.strk.get().into(),
         };
 
         Self(starknet::core::types::PendingBlockWithTxs {
@@ -119,13 +119,13 @@ impl BlockWithTxHashes {
         finality_status: FinalityStatus,
     ) -> Self {
         let l1_gas_price = ResourcePrice {
-            price_in_wei: block.header.l1_gas_prices.eth.into(),
-            price_in_fri: block.header.l1_gas_prices.strk.into(),
+            price_in_wei: block.header.l1_gas_prices.eth.get().into(),
+            price_in_fri: block.header.l1_gas_prices.strk.get().into(),
         };
 
         let l1_data_gas_price = ResourcePrice {
-            price_in_wei: block.header.l1_data_gas_prices.eth.into(),
-            price_in_fri: block.header.l1_data_gas_prices.strk.into(),
+            price_in_wei: block.header.l1_data_gas_prices.eth.get().into(),
+            price_in_fri: block.header.l1_data_gas_prices.strk.get().into(),
         };
 
         Self(starknet::core::types::BlockWithTxHashes {
@@ -160,13 +160,13 @@ pub struct PendingBlockWithTxHashes(starknet::core::types::PendingBlockWithTxHas
 impl PendingBlockWithTxHashes {
     pub fn new(header: PartialHeader, transactions: Vec<TxHash>) -> Self {
         let l1_gas_price = ResourcePrice {
-            price_in_wei: header.l1_gas_prices.eth.into(),
-            price_in_fri: header.l1_gas_prices.strk.into(),
+            price_in_wei: header.l1_gas_prices.eth.get().into(),
+            price_in_fri: header.l1_gas_prices.strk.get().into(),
         };
 
         let l1_data_gas_price = ResourcePrice {
-            price_in_wei: header.l1_data_gas_prices.eth.into(),
-            price_in_fri: header.l1_data_gas_prices.strk.into(),
+            price_in_wei: header.l1_data_gas_prices.eth.get().into(),
+            price_in_fri: header.l1_data_gas_prices.strk.get().into(),
         };
 
         Self(starknet::core::types::PendingBlockWithTxHashes {
@@ -235,13 +235,13 @@ impl BlockWithReceipts {
         receipts: impl Iterator<Item = (TxWithHash, Receipt)>,
     ) -> Self {
         let l1_gas_price = ResourcePrice {
-            price_in_wei: header.l1_gas_prices.eth.into(),
-            price_in_fri: header.l1_gas_prices.strk.into(),
+            price_in_wei: header.l1_gas_prices.eth.get().into(),
+            price_in_fri: header.l1_gas_prices.strk.get().into(),
         };
 
         let l1_data_gas_price = ResourcePrice {
-            price_in_wei: header.l1_data_gas_prices.eth.into(),
-            price_in_fri: header.l1_data_gas_prices.strk.into(),
+            price_in_wei: header.l1_data_gas_prices.eth.get().into(),
+            price_in_fri: header.l1_data_gas_prices.strk.get().into(),
         };
 
         let transactions = receipts
@@ -282,13 +282,13 @@ impl PendingBlockWithReceipts {
         receipts: impl Iterator<Item = (TxWithHash, Receipt)>,
     ) -> Self {
         let l1_gas_price = ResourcePrice {
-            price_in_wei: header.l1_gas_prices.eth.into(),
-            price_in_fri: header.l1_gas_prices.strk.into(),
+            price_in_wei: header.l1_gas_prices.eth.get().into(),
+            price_in_fri: header.l1_gas_prices.strk.get().into(),
         };
 
         let l1_data_gas_price = ResourcePrice {
-            price_in_wei: header.l1_data_gas_prices.eth.into(),
-            price_in_fri: header.l1_data_gas_prices.strk.into(),
+            price_in_wei: header.l1_data_gas_prices.eth.get().into(),
+            price_in_fri: header.l1_data_gas_prices.strk.get().into(),
         };
 
         let transactions = receipts

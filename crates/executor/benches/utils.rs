@@ -1,4 +1,4 @@
-use katana_primitives::block::GasPrices;
+use katana_primitives::block::GasPrice;
 use katana_primitives::env::{BlockEnv, CfgEnv, FeeTokenAddressses};
 use katana_primitives::genesis::constant::DEFAULT_ETH_FEE_TOKEN_ADDRESS;
 use katana_primitives::transaction::{ExecutableTxWithHash, InvokeTx, InvokeTxV1};
@@ -25,7 +25,7 @@ pub fn tx() -> ExecutableTxWithHash {
 
 pub fn envs() -> (BlockEnv, CfgEnv) {
     let block = BlockEnv {
-        l1_gas_prices: GasPrices { eth: 1, strk: 1 },
+        l1_gas_prices: GasPrice::MIN,
         sequencer_address: felt!("0x1337").into(),
         ..Default::default()
     };

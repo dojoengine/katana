@@ -26,7 +26,7 @@ use super::allocation::{
 use super::constant::{CONTROLLER_ACCOUNT_CLASS, CONTROLLER_CLASS_HASH};
 use super::constant::{DEFAULT_ACCOUNT_CLASS, DEFAULT_ACCOUNT_CLASS_HASH};
 use super::{Genesis, GenesisAllocation};
-use crate::block::{BlockHash, BlockNumber, GasPrices};
+use crate::block::{BlockHash, BlockNumber, GasPrice};
 use crate::class::{
     ClassHash, ComputeClassHashError, ContractClass, ContractClassCompilationError,
     LegacyContractClass, SierraContractClass,
@@ -222,7 +222,7 @@ pub struct GenesisJson {
     pub number: BlockNumber,
     pub timestamp: u64,
     pub sequencer_address: ContractAddress,
-    pub gas_prices: GasPrices,
+    pub gas_prices: GasPrice,
     #[serde(default)]
     pub classes: Vec<GenesisClassJson>,
     #[serde(default)]
@@ -619,8 +619,8 @@ mod tests {
         assert_eq!(json.parent_hash, felt!("0x999"));
         assert_eq!(json.timestamp, 5123512314u64);
         assert_eq!(json.state_root, felt!("0x99"));
-        assert_eq!(json.gas_prices.eth, 1111);
-        assert_eq!(json.gas_prices.strk, 2222);
+        assert_eq!(json.gas_prices.eth.get(), 1111);
+        assert_eq!(json.gas_prices.strk.get(), 2222);
 
         let acc_1 = address!("0x66efb28ac62686966ae85095ff3a772e014e7fbf56d4c5f6fac5606d4dde23a");
         let acc_2 = address!("0x6b86e40118f29ebe393a75469b4d926c7a44c2e2681b6d319520b7c1156d114");
@@ -872,7 +872,7 @@ mod tests {
             sequencer_address: address!("0x100"),
             state_root: felt!("0x99"),
             parent_hash: felt!("0x999"),
-            gas_prices: GasPrices { eth: 1111, strk: 2222 },
+            gas_prices: unsafe { GasPrice::new_unchecked(1111, 2222) },
         };
 
         assert_eq!(actual_genesis.number, expected_genesis.number);
@@ -970,7 +970,7 @@ mod tests {
             state_root: felt!("0x99"),
             parent_hash: felt!("0x999"),
             sequencer_address: address!("0x100"),
-            gas_prices: GasPrices { eth: 1111, strk: 2222 },
+            gas_prices: unsafe { GasPrice::new_unchecked(1111, 2222) },
         };
 
         assert_eq!(actual_genesis.allocations.len(), expected_genesis.allocations.len());

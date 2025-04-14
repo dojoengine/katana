@@ -1,3 +1,5 @@
+use std::num::NonZeroU128;
+
 use starknet::core::utils::cairo_short_string_to_felt;
 use starknet::macros::short_string;
 
@@ -49,8 +51,9 @@ pub struct PartialHeader {
     pub number: BlockNumber,
     pub timestamp: u64,
     pub sequencer_address: ContractAddress,
-    pub l1_gas_prices: GasPrices,
-    pub l1_data_gas_prices: GasPrices,
+    pub l1_gas_prices: GasPrice,
+    pub l1_data_gas_prices: GasPrice,
+    pub l2_gas_prices: GasPrice,
     pub l1_da_mode: L1DataAvailabilityMode,
     pub protocol_version: ProtocolVersion,
 }
@@ -62,23 +65,36 @@ pub struct PartialHeader {
 #[cfg_attr(feature = "arbitrary", derive(::arbitrary::Arbitrary))]
 #[cfg_attr(feature = "serde", derive(serde::Serialize, serde::Deserialize))]
 #[cfg_attr(feature = "serde", serde(rename_all = "UPPERCASE"))]
-pub struct GasPrices {
+pub struct GasPrice {
     /// The price of one unit of the given resource, denominated in wei
-    pub eth: u128,
+    pub eth: NonZeroU128,
     /// The price of one unit of the given resource, denominated in fri (the smallest unit of STRK,
     /// equivalent to 10^-18 STRK)
-    pub strk: u128,
+    pub strk: NonZeroU128,
 }
 
-impl GasPrices {
-    pub fn new(wei_gas_price: u128, fri_gas_price: u128) -> Self {
-        Self { eth: wei_gas_price, strk: fri_gas_price }
+impl GasPrice {
+    pub const MIN: Self = Self::new(NonZeroU128::MIN, NonZeroU128::MIN);
+    pub const MAX: Self = Self::new(NonZeroU128::MAX, NonZeroU128::MAX);
+
+    pub const fn new(eth: NonZeroU128, strk: NonZeroU128) -> Self {
+        Self { eth, strk }
+    }
+
+    /// Creates a non-zero gas price without checking whether the value is non-zero.
+    /// This may results in undefined behaviour if the value is zero.
+    ///
+    /// # Safety
+    ///
+    /// The value must not be zero.
+    pub const unsafe fn new_unchecked(eth: u128, strk: u128) -> Self {
+        Self { eth: NonZeroU128::new_unchecked(eth), strk: NonZeroU128::new_unchecked(strk) }
     }
 }
 
-impl Default for GasPrices {
+impl Default for GasPrice {
     fn default() -> Self {
-        Self { eth: 1, strk: 1 }
+        Self::MIN
     }
 }
 
@@ -101,8 +117,9 @@ pub struct Header {
     pub state_diff_length: u32,
     pub timestamp: u64,
     pub sequencer_address: ContractAddress,
-    pub l1_gas_prices: GasPrices,
-    pub l1_data_gas_prices: GasPrices,
+    pub l1_gas_prices: GasPrice,
+    pub l1_data_gas_prices: GasPrice,
+    pub l2_gas_prices: GasPrice,
     pub l1_da_mode: L1DataAvailabilityMode,
     pub protocol_version: ProtocolVersion,
 }
@@ -156,10 +173,10 @@ impl Header {
             self.transactions_commitment,
             self.events_commitment,
             self.receipts_commitment,
-            self.l1_gas_prices.eth.into(),
-            self.l1_gas_prices.strk.into(),
-            self.l1_data_gas_prices.eth.into(),
-            self.l1_data_gas_prices.strk.into(),
+            self.l1_gas_prices.eth.get().into(),
+            self.l1_gas_prices.strk.get().into(),
+            self.l1_data_gas_prices.eth.get().into(),
+            self.l1_data_gas_prices.strk.get().into(),
             cairo_short_string_to_felt(&self.protocol_version.to_string()).unwrap(),
             Felt::ZERO,
             self.parent_hash,
@@ -220,9 +237,10 @@ impl Default for Header {
             receipts_commitment: Felt::ZERO,
             state_diff_commitment: Felt::ZERO,
             parent_hash: BlockHash::default(),
-            l1_gas_prices: GasPrices::default(),
+            l2_gas_prices: GasPrice::default(),
+            l1_gas_prices: GasPrice::default(),
             transactions_commitment: Felt::ZERO,
-            l1_data_gas_prices: GasPrices::default(),
+            l1_data_gas_prices: GasPrice::default(),
             sequencer_address: ContractAddress::default(),
             l1_da_mode: L1DataAvailabilityMode::Calldata,
             protocol_version: ProtocolVersion::default(),

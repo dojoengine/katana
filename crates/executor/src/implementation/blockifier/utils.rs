@@ -381,14 +381,15 @@ pub fn block_context_from_envs(block_env: &BlockEnv, cfg_env: &CfgEnv) -> BlockC
         strk_fee_token_address: to_blk_address(cfg_env.fee_token_addresses.strk),
     };
 
-    let eth_l1_gas_price =
-        NonzeroGasPrice::new(block_env.l1_gas_prices.eth.into()).unwrap_or(NonzeroGasPrice::MIN);
-    let strk_l1_gas_price =
-        NonzeroGasPrice::new(block_env.l1_gas_prices.strk.into()).unwrap_or(NonzeroGasPrice::MIN);
-    let eth_l1_data_gas_price = NonzeroGasPrice::new(block_env.l1_data_gas_prices.eth.into())
+    let eth_l1_gas_price = NonzeroGasPrice::new(block_env.l1_gas_prices.eth.get().into())
         .unwrap_or(NonzeroGasPrice::MIN);
-    let strk_l1_data_gas_price = NonzeroGasPrice::new(block_env.l1_data_gas_prices.strk.into())
+    let strk_l1_gas_price = NonzeroGasPrice::new(block_env.l1_gas_prices.strk.get().into())
         .unwrap_or(NonzeroGasPrice::MIN);
+    let eth_l1_data_gas_price = NonzeroGasPrice::new(block_env.l1_data_gas_prices.eth.get().into())
+        .unwrap_or(NonzeroGasPrice::MIN);
+    let strk_l1_data_gas_price =
+        NonzeroGasPrice::new(block_env.l1_data_gas_prices.strk.get().into())
+            .unwrap_or(NonzeroGasPrice::MIN);
 
     let gas_prices = GasPrices {
         eth_gas_prices: GasPriceVector {

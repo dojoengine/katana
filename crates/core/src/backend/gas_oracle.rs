@@ -5,7 +5,7 @@ use std::sync::Arc;
 use alloy_provider::{Provider, ProviderBuilder};
 use alloy_rpc_types_eth::{BlockNumberOrTag, FeeHistory};
 use anyhow::{Context, Ok};
-use katana_primitives::block::GasPrices;
+use katana_primitives::block::GasPrice;
 use katana_tasks::TaskSpawner;
 use parking_lot::Mutex;
 use tokio::time::Duration;
@@ -24,8 +24,8 @@ pub enum GasOracle {
 
 #[derive(Debug)]
 pub struct FixedGasOracle {
-    gas_prices: GasPrices,
-    data_gas_prices: GasPrices,
+    gas_prices: GasPrice,
+    data_gas_prices: GasPrice,
 }
 
 #[derive(Debug, Clone)]
@@ -36,8 +36,8 @@ pub struct EthereumSampledGasOracle {
 
 #[derive(Debug, Default)]
 pub struct SampledPrices {
-    gas_prices: GasPrices,
-    data_gas_prices: GasPrices,
+    gas_prices: GasPrice,
+    data_gas_prices: GasPrice,
 }
 
 #[derive(Debug, Clone)]
@@ -49,7 +49,7 @@ pub struct GasOracleWorker {
 }
 
 impl GasOracle {
-    pub fn fixed(gas_prices: GasPrices, data_gas_prices: GasPrices) -> Self {
+    pub fn fixed(gas_prices: GasPrice, data_gas_prices: GasPrice) -> Self {
         GasOracle::Fixed(FixedGasOracle { gas_prices, data_gas_prices })
     }
 
@@ -65,11 +65,11 @@ impl GasOracle {
     ///
     /// The result of this is the same as running the node with fee disabled.
     pub fn sampled_starknet() -> Self {
-        Self::fixed(GasPrices { eth: 1, strk: 1 }, GasPrices { eth: 1, strk: 1 })
+        Self::fixed(GasPrice::MIN, GasPrice::MIN)
     }
 
     /// Returns the current gas prices.
-    pub fn current_gas_prices(&self) -> GasPrices {
+    pub fn current_gas_prices(&self) -> GasPrice {
         match self {
             GasOracle::Fixed(fixed) => fixed.current_gas_prices(),
             GasOracle::Sampled(sampled) => sampled.prices.lock().gas_prices.clone(),
@@ -77,7 +77,7 @@ impl GasOracle {
     }
 
     /// Returns the current data gas prices.
-    pub fn current_data_gas_prices(&self) -> GasPrices {
+    pub fn current_data_gas_prices(&self) -> GasPrice {
         match self {
             GasOracle::Fixed(fixed) => fixed.current_data_gas_prices(),
             GasOracle::Sampled(sampled) => sampled.prices.lock().data_gas_prices.clone(),
@@ -106,21 +106,21 @@ impl GasOracle {
 }
 
 impl EthereumSampledGasOracle {
-    pub fn current_data_gas_prices(&self) -> GasPrices {
+    pub fn current_data_gas_prices(&self) -> GasPrice {
         self.prices.lock().data_gas_prices.clone()
     }
 
-    pub fn current_gas_prices(&self) -> GasPrices {
+    pub fn current_gas_prices(&self) -> GasPrice {
         self.prices.lock().gas_prices.clone()
     }
 }
 
 impl FixedGasOracle {
-    pub fn current_data_gas_prices(&self) -> GasPrices {
+    pub fn current_data_gas_prices(&self) -> GasPrice {
         self.data_gas_prices.clone()
     }
 
-    pub fn current_gas_prices(&self) -> GasPrices {
+    pub fn current_gas_prices(&self) -> GasPrice {
         self.gas_prices.clone()
     }
 }
@@ -141,14 +141,17 @@ pub fn update_gas_price(
     data_gas_price_buffer.add_sample(*avg_blob_base_fee);
     // The price of gas on Starknet is set to the average of the last 60 gas price samples, plus 1
     // gwei.
-    let avg_gas_price = GasPrices {
-        eth: gas_price_buffer.average() + ONE_GWEI,
-        strk: gas_price_buffer.average() + ONE_GWEI,
+    let avg_gas_price = unsafe {
+        GasPrice::new_unchecked(
+            gas_price_buffer.average() + ONE_GWEI,
+            gas_price_buffer.average() + ONE_GWEI,
+        )
     };
     // The price of data gas on Starknet is set to the average of the last 60 data gas price
     // samples.
-    let avg_blob_price =
-        GasPrices { eth: data_gas_price_buffer.average(), strk: data_gas_price_buffer.average() };
+    let avg_blob_price = unsafe {
+        GasPrice::new_unchecked(data_gas_price_buffer.average(), data_gas_price_buffer.average())
+    };
 
     l1_oracle.gas_prices = avg_gas_price;
     l1_oracle.data_gas_prices = avg_blob_price;
@@ -313,7 +316,7 @@ mod tests {
             if i == 0 {
                 assert_eq!(
                     initial_gas_prices,
-                    GasPrices { eth: 0, strk: 0 },
+                    GasPrice::MIN,
                     "First iteration should start with zero prices"
                 );
             }
@@ -324,14 +327,14 @@ mod tests {
             let updated_data_gas_prices = oracle.current_data_gas_prices();
 
             // Verify gas prices
-            assert!(updated_gas_prices.eth > 0, "ETH gas price should be non-zero");
+            assert!(updated_gas_prices.eth.get() > 1, "ETH gas price should be non-zero");
 
-            assert!(updated_data_gas_prices.eth > 0, "ETH data gas price should be non-zero");
+            assert!(updated_data_gas_prices.eth.get() > 1, "ETH data gas price should be non-zero");
 
             // For iterations after the first, verify that prices have been updated
             if i > 0 {
                 // Give some flexibility for price changes
-                if initial_gas_prices.eth != 0 {
+                if initial_gas_prices.eth.get() != 1 {
                     assert!(
                         initial_gas_prices.eth != updated_gas_prices.eth
                             || initial_gas_prices.strk != updated_gas_prices.strk,

@@ -7,8 +7,7 @@ use katana_feeder_gateway::client;
 use katana_feeder_gateway::client::SequencerGateway;
 use katana_feeder_gateway::types::StateUpdateWithBlock;
 use katana_primitives::block::{
-    BlockIdOrTag, BlockNumber, FinalityStatus, GasPrices, Header, SealedBlock,
-    SealedBlockWithStatus,
+    BlockIdOrTag, BlockNumber, FinalityStatus, GasPrice, Header, SealedBlock, SealedBlockWithStatus,
 };
 use katana_primitives::fee::{PriceUnit, TxFeeInfo};
 use katana_primitives::receipt::{
@@ -158,11 +157,10 @@ impl Downloader {
 fn extract_block_data(
     data: StateUpdateWithBlock,
 ) -> Result<(SealedBlockWithStatus, Vec<Receipt>, StateUpdatesWithClasses)> {
-    fn to_gas_prices(prices: ResourcePrice) -> GasPrices {
-        GasPrices {
-            eth: prices.price_in_fri.to_u128().expect("valid u128"),
-            strk: prices.price_in_fri.to_u128().expect("valid u128"),
-        }
+    fn to_gas_prices(prices: ResourcePrice) -> GasPrice {
+        let eth = prices.price_in_fri.to_u128().expect("valid u128");
+        let strk = prices.price_in_fri.to_u128().expect("valid u128");
+        unsafe { GasPrice::new_unchecked(eth, strk) }
     }
 
     let status = match data.block.status {
@@ -258,6 +256,7 @@ fn extract_block_data(
             protocol_version: data.block.starknet_version.unwrap_or_default(),
             events_commitment: data.block.event_commitment.unwrap_or_default(),
             sequencer_address: data.block.sequencer_address.unwrap_or_default(),
+            l2_gas_prices: data.block.l2_gas_price.map(to_gas_prices).unwrap_or_default(),
             transactions_commitment: data.block.transaction_commitment.unwrap_or_default(),
         },
     };

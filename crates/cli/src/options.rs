@@ -10,6 +10,7 @@
 #[cfg(feature = "server")]
 use std::net::IpAddr;
 use std::net::Ipv4Addr;
+use std::num::NonZeroU128;
 
 use clap::Args;
 use katana_node::config::execution::{DEFAULT_INVOCATION_MAX_STEPS, DEFAULT_VALIDATION_MAX_STEPS};
@@ -368,37 +369,47 @@ pub struct LoggingOptions {
     #[arg(default_value_t = LogFormat::Full)]
     pub log_format: LogFormat,
 }
-
-#[derive(Debug, Args, Clone, Serialize, Deserialize, Default, PartialEq)]
+#[derive(Debug, Args, Clone, Serialize, Deserialize, PartialEq)]
 #[command(next_help_heading = "Gas Price Oracle Options")]
 pub struct GasPriceOracleOptions {
     /// The L1 ETH gas price. (denominated in wei)
     #[arg(long = "gpo.l1-eth-gas-price", value_name = "WEI")]
-    #[arg(default_value_t = 0)]
+    #[arg(default_value_t = NonZeroU128::MIN)]
     #[serde(serialize_with = "cainome_cairo_serde::serialize_as_hex")]
-    #[serde(deserialize_with = "cainome_cairo_serde::deserialize_from_hex")]
-    pub l1_eth_gas_price: u128,
+    #[serde(deserialize_with = "deserialize_nonzero_u128")]
+    pub l1_eth_gas_price: NonZeroU128,
 
     /// The L1 STRK gas price. (denominated in fri)
     #[arg(long = "gpo.l1-strk-gas-price", value_name = "FRI")]
-    #[arg(default_value_t = 0)]
+    #[arg(default_value_t = NonZeroU128::MIN)]
     #[serde(serialize_with = "cainome_cairo_serde::serialize_as_hex")]
-    #[serde(deserialize_with = "cainome_cairo_serde::deserialize_from_hex")]
-    pub l1_strk_gas_price: u128,
+    #[serde(deserialize_with = "deserialize_nonzero_u128")]
+    pub l1_strk_gas_price: NonZeroU128,
 
     /// The L1 ETH data gas price. (denominated in wei)
     #[arg(long = "gpo.l1-eth-data-gas-price", value_name = "WEI")]
-    #[arg(default_value_t = 0)]
+    #[arg(default_value_t = NonZeroU128::MIN)]
     #[serde(serialize_with = "cainome_cairo_serde::serialize_as_hex")]
-    #[serde(deserialize_with = "cainome_cairo_serde::deserialize_from_hex")]
-    pub l1_eth_data_gas_price: u128,
+    #[serde(deserialize_with = "deserialize_nonzero_u128")]
+    pub l1_eth_data_gas_price: NonZeroU128,
 
     /// The L1 STRK data gas price. (denominated in fri)
     #[arg(long = "gpo.l1-strk-data-gas-price", value_name = "FRI")]
-    #[arg(default_value_t = 0)]
+    #[arg(default_value_t = NonZeroU128::MIN)]
     #[serde(serialize_with = "cainome_cairo_serde::serialize_as_hex")]
-    #[serde(deserialize_with = "cainome_cairo_serde::deserialize_from_hex")]
-    pub l1_strk_data_gas_price: u128,
+    #[serde(deserialize_with = "deserialize_nonzero_u128")]
+    pub l1_strk_data_gas_price: NonZeroU128,
+}
+
+impl Default for GasPriceOracleOptions {
+    fn default() -> Self {
+        Self {
+            l1_eth_gas_price: NonZeroU128::MIN,
+            l1_strk_gas_price: NonZeroU128::MIN,
+            l1_eth_data_gas_price: NonZeroU128::MIN,
+            l1_strk_data_gas_price: NonZeroU128::MIN,
+        }
+    }
 }
 
 #[cfg(feature = "slot")]
@@ -501,4 +512,26 @@ fn default_metrics_port() -> u16 {
 #[cfg(feature = "server")]
 fn default_max_call_gas() -> u64 {
     DEFAULT_RPC_MAX_CALL_GAS
+}
+
+/// Deserialize a string (hex or decimal) into a [`NonZeroU128`]
+fn deserialize_nonzero_u128<'de, D>(deserializer: D) -> Result<NonZeroU128, D::Error>
+where
+    D: serde::Deserializer<'de>,
+{
+    use std::str::FromStr;
+
+    use serde::de::Error;
+
+    let s = String::deserialize(deserializer)?;
+
+    // Parse the string as u128 first, handling both hex and decimal formats
+    let value = if let Some(s) = s.strip_prefix("0x") {
+        u128::from_str_radix(s, 16).map_err(D::Error::custom)?
+    } else {
+        u128::from_str(&s).map_err(D::Error::custom)?
+    };
+
+    // Convert to NonZeroU128
+    NonZeroU128::new(value).ok_or_else(|| D::Error::custom("value cannot be zero"))
 }

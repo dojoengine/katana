@@ -95,6 +95,7 @@ pub struct Block {
     pub event_commitment: Option<Felt>,
     pub status: BlockStatus,
     pub l1_da_mode: L1DataAvailabilityMode,
+    pub l2_gas_price: Option<ResourcePrice>,
     pub l1_gas_price: ResourcePrice,
     pub l1_data_gas_price: ResourcePrice,
     pub transactions: Vec<ConfirmedTransaction>,

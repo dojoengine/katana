@@ -613,11 +613,13 @@ where
                         let block_env = executor.read().block_env();
                         let latest_hash = provider.latest_hash().map_err(StarknetApiError::from)?;
 
+                        let l2_gas_prices = block_env.l2_gas_prices.clone();
                         let l1_gas_prices = block_env.l1_gas_prices.clone();
                         let l1_data_gas_prices = block_env.l1_data_gas_prices.clone();
 
                         let header = PartialHeader {
                             l1_da_mode: L1DataAvailabilityMode::Calldata,
+                            l2_gas_prices,
                             l1_gas_prices,
                             l1_data_gas_prices,
                             number: block_env.number,
@@ -679,10 +681,12 @@ where
                         let block_env = executor.read().block_env();
                         let latest_hash = provider.latest_hash()?;
 
+                        let l2_gas_prices = block_env.l2_gas_prices.clone();
                         let l1_gas_prices = block_env.l1_gas_prices.clone();
                         let l1_data_gas_prices = block_env.l1_data_gas_prices.clone();
 
                         let header = PartialHeader {
+                            l2_gas_prices,
                             l1_gas_prices,
                             l1_data_gas_prices,
                             number: block_env.number,
@@ -744,12 +748,14 @@ where
                         let block_env = executor.read().block_env();
                         let latest_hash = provider.latest_hash().map_err(StarknetApiError::from)?;
 
+                        let l2_gas_prices = block_env.l2_gas_prices.clone();
                         let l1_gas_prices = block_env.l1_gas_prices.clone();
                         let l1_data_gas_prices = block_env.l1_data_gas_prices.clone();
 
                         let header = PartialHeader {
                             l1_da_mode: L1DataAvailabilityMode::Calldata,
                             l1_data_gas_prices,
+                            l2_gas_prices,
                             l1_gas_prices,
                             number: block_env.number,
                             parent_hash: latest_hash,

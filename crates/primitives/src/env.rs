@@ -1,23 +1,25 @@
-use crate::block::{BlockNumber, GasPrices};
+use crate::block::{BlockNumber, GasPrice};
 use crate::chain::ChainId;
 use crate::contract::ContractAddress;
 
 /// Block environment values.
 #[derive(Debug, Clone, Default, PartialEq, Eq)]
 pub struct BlockEnv {
-    /// The block height.
+    /// The current block height.
     pub number: BlockNumber,
     /// The timestamp in seconds since the UNIX epoch.
     pub timestamp: u64,
-    /// The L1 gas prices at this particular block.
-    pub l1_gas_prices: GasPrices,
-    /// The L1 data gas prices at this particular block.
-    pub l1_data_gas_prices: GasPrices,
+    /// The L2 gas prices.
+    pub l2_gas_prices: GasPrice,
+    /// The L1 gas prices.
+    pub l1_gas_prices: GasPrice,
+    /// The L1 data gas prices.
+    pub l1_data_gas_prices: GasPrice,
     /// The contract address of the sequencer.
     pub sequencer_address: ContractAddress,
 }
 
-/// The chain block execution configuration values.
+/// The chain configuration values.
 #[derive(Debug, Clone, Default)]
 pub struct CfgEnv {
     /// The chain id.

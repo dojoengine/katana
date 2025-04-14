@@ -5,7 +5,7 @@ use katana_chain_spec::ChainSpec;
 use katana_executor::implementation::noop::NoopExecutorFactory;
 use katana_executor::{ExecutionFlags, ExecutorFactory};
 use katana_primitives::block::{
-    Block, ExecutableBlock, FinalityStatus, GasPrices, PartialHeader, SealedBlockWithStatus,
+    Block, ExecutableBlock, FinalityStatus, GasPrice, PartialHeader, SealedBlockWithStatus,
 };
 use katana_primitives::chain::ChainId;
 use katana_primitives::class::{CompiledClass, ContractClass};
@@ -100,7 +100,9 @@ pub fn valid_blocks() -> [ExecutableBlock; 3] {
     let sender_address =
         address!("0x2af9427c5a277474c079a1283c880ee8a6f0f8fbf73ce969c08d88befec1bba");
 
-    let gas_prices = GasPrices { eth: 100 * u128::pow(10, 9), strk: 100 * u128::pow(10, 9) };
+    let eth = 100 * u128::pow(10, 9);
+    let strk = 100 * u128::pow(10, 9);
+    let gas_prices = unsafe { GasPrice::new_unchecked(eth, strk) };
 
     [
         ExecutableBlock {
@@ -110,6 +112,7 @@ pub fn valid_blocks() -> [ExecutableBlock; 3] {
                 timestamp: 100,
                 sequencer_address,
                 parent_hash: 123u64.into(),
+                l2_gas_prices: GasPrice::MIN,
                 l1_gas_prices: gas_prices.clone(),
                 l1_data_gas_prices: gas_prices.clone(),
                 l1_da_mode: L1DataAvailabilityMode::Calldata,
@@ -159,6 +162,7 @@ pub fn valid_blocks() -> [ExecutableBlock; 3] {
                 timestamp: 200,
                 sequencer_address,
                 parent_hash: 1234u64.into(),
+                l2_gas_prices: GasPrice::MIN,
                 l1_gas_prices: gas_prices.clone(),
                 l1_data_gas_prices: gas_prices.clone(),
                 l1_da_mode: L1DataAvailabilityMode::Calldata,
@@ -192,6 +196,7 @@ pub fn valid_blocks() -> [ExecutableBlock; 3] {
                 timestamp: 300,
                 sequencer_address,
                 parent_hash: 12345u64.into(),
+                l2_gas_prices: GasPrice::MIN,
                 l1_gas_prices: gas_prices.clone(),
                 l1_data_gas_prices: gas_prices.clone(),
                 l1_da_mode: L1DataAvailabilityMode::Calldata,

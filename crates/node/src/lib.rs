@@ -32,7 +32,7 @@ use katana_executor::implementation::blockifier::BlockifierFactory;
 use katana_executor::ExecutionFlags;
 use katana_pool::ordering::FiFo;
 use katana_pool::TxPool;
-use katana_primitives::block::GasPrices;
+use katana_primitives::block::GasPrice;
 use katana_primitives::env::{CfgEnv, FeeTokenAddressses};
 use katana_rpc::cors::Cors;
 use katana_rpc::dev::DevApi;
@@ -153,8 +153,8 @@ impl Node {
         } else {
             // Use default fixed gas prices if no url and if no fixed prices are provided
             GasOracle::fixed(
-                GasPrices { eth: DEFAULT_ETH_L1_GAS_PRICE, strk: DEFAULT_STRK_L1_GAS_PRICE },
-                GasPrices {
+                GasPrice { eth: DEFAULT_ETH_L1_GAS_PRICE, strk: DEFAULT_STRK_L1_GAS_PRICE },
+                GasPrice {
                     eth: DEFAULT_ETH_L1_DATA_GAS_PRICE,
                     strk: DEFAULT_STRK_L1_DATA_GAS_PRICE,
                 },
