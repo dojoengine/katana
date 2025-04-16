@@ -6103,7 +6103,6 @@ dependencies = [
  "async-trait",
  "byte-unit",
  "cainome 0.5.1",
- "cainome-cairo-serde 0.1.0 (registry+https://github.com/rust-lang/crates.io-index)",
  "clap",
  "clap_complete",
  "comfy-table",
