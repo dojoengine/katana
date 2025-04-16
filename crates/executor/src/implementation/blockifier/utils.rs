@@ -21,7 +21,7 @@ use cairo_vm::types::errors::program_errors::ProgramError;
 use katana_primitives::chain::NamedChainId;
 use katana_primitives::class;
 use katana_primitives::env::{BlockEnv, CfgEnv};
-use katana_primitives::fee::{PriceUnit, TxFeeInfo};
+use katana_primitives::fee::{FeeInfo, PriceUnit};
 use katana_primitives::state::{StateUpdates, StateUpdatesWithClasses};
 use katana_primitives::transaction::{
     DeclareTx, DeployAccountTx, ExecutableTx, ExecutableTxWithHash, InvokeTx,
@@ -68,7 +68,7 @@ pub fn transact<S: StateReader>(
         state: &mut U,
         block_context: &BlockContext,
         tx: Transaction,
-    ) -> Result<(TransactionExecutionInfo, TxFeeInfo), ExecutionError> {
+    ) -> Result<(TransactionExecutionInfo, FeeInfo), ExecutionError> {
         let fee_type = get_fee_type_from_tx(&tx);
 
         let info = match tx {
@@ -80,30 +80,34 @@ pub fn transact<S: StateReader>(
         // where the fee is skipped and thus not charged for the transaction (e.g. when the
         // `skip_fee_transfer` is explicitly set, or when the transaction `max_fee` is set to 0). In
         // these cases, we still want to calculate the fee.
-        let fee = if info.receipt.fee == Fee(0) {
+        let overall_fee = if info.receipt.fee == Fee(0) {
             get_fee_by_gas_vector(block_context.block_info(), info.receipt.gas, &fee_type, Tip(0))
         } else {
             info.receipt.fee
         };
 
-        let gas_consumed = (info.receipt.gas.l1_gas.0
-            + info.receipt.gas.l2_gas.0
-            + info.receipt.gas.l1_data_gas.0) as u128;
+        let prices = &block_context.block_info().gas_prices;
 
-        let (unit, gas_price) = match fee_type {
-            FeeType::Eth => (
-                PriceUnit::Wei,
-                block_context.block_info().gas_prices.eth_gas_prices.l1_gas_price.get().0,
-            ),
-            FeeType::Strk => (
-                PriceUnit::Fri,
-                block_context.block_info().gas_prices.strk_gas_prices.l1_gas_price.get().0,
-            ),
+        let fee = match fee_type {
+            FeeType::Eth => {
+                let unit = PriceUnit::Wei;
+                let overall_fee = overall_fee.0;
+                let l1_gas_price = prices.eth_gas_prices.l1_gas_price.get().0;
+                let l2_gas_price = prices.eth_gas_prices.l2_gas_price.get().0;
+                let l1_data_gas_price = prices.eth_gas_prices.l1_data_gas_price.get().0;
+                FeeInfo { unit, overall_fee, l1_gas_price, l2_gas_price, l1_data_gas_price }
+            }
+            FeeType::Strk => {
+                let unit = PriceUnit::Fri;
+                let overall_fee = overall_fee.0;
+                let l1_gas_price = prices.strk_gas_prices.l1_gas_price.get().0;
+                let l2_gas_price = prices.strk_gas_prices.l2_gas_price.get().0;
+                let l1_data_gas_price = prices.strk_gas_prices.l1_data_gas_price.get().0;
+                FeeInfo { unit, overall_fee, l1_gas_price, l2_gas_price, l1_data_gas_price }
+            }
         };
 
-        let fee_info = TxFeeInfo { gas_consumed, gas_price, unit, overall_fee: fee.0 };
-
-        Ok((info, fee_info))
+        Ok((info, fee))
     }
 
     let transaction = to_executor_tx(tx.clone(), simulation_flags.clone());

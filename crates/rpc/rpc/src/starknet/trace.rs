@@ -88,7 +88,8 @@ impl<EF: ExecutorFactory> StarknetApi<EF> {
                     let trace = TypedTransactionExecutionInfo::new(receipt.r#type(), trace);
 
                     let transaction_trace = to_rpc_trace(trace);
-                    let fee_estimation = to_rpc_fee_estimate(receipt.fee().clone());
+                    let fee_estimation =
+                        to_rpc_fee_estimate(receipt.resources_used(), receipt.fee());
                     let value = SimulatedTransaction { transaction_trace, fee_estimation };
 
                     simulated.push(value)

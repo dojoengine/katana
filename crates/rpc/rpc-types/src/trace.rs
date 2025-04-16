@@ -1,17 +1,17 @@
-use std::collections::HashMap;
 use std::sync::Arc;
 
 use katana_primitives::execution::{
-    self, BuiltinName, CallInfo, GasVector, TransactionExecutionInfo, TypedTransactionExecutionInfo,
+    self, CallInfo, TrackedResource, TransactionExecutionInfo, TypedTransactionExecutionInfo,
 };
-use katana_primitives::fee::TxFeeInfo;
+use katana_primitives::fee::{self, FeeInfo};
+use katana_primitives::receipt;
 use katana_primitives::transaction::{TxHash, TxType};
 use serde::{Deserialize, Serialize};
 use starknet::core::types::{
-    CallType, ComputationResources, DataAvailabilityResources, DataResources,
-    DeclareTransactionTrace, DeployAccountTransactionTrace, EntryPointType, ExecuteInvocation,
-    ExecutionResources, FunctionInvocation, InvokeTransactionTrace, L1HandlerTransactionTrace,
-    OrderedEvent, OrderedMessage, PriceUnit, RevertedInvocation, TransactionTrace,
+    CallType, DeclareTransactionTrace, DeployAccountTransactionTrace, EntryPointType,
+    ExecuteInvocation, ExecutionResources, FunctionInvocation, InnerCallExecutionResources,
+    InvokeTransactionTrace, L1HandlerTransactionTrace, OrderedEvent, OrderedMessage, PriceUnit,
+    RevertedInvocation, TransactionTrace,
 };
 
 use crate::FeeEstimate;
@@ -88,41 +88,30 @@ pub fn to_rpc_trace(trace: TypedTransactionExecutionInfo) -> TransactionTrace {
     }
 }
 
-pub fn to_rpc_computation_resources(resources: execution::VmResources) -> ComputationResources {
-    let builtins = &resources.builtin_instance_counter;
-    ComputationResources {
-        steps: resources.n_steps as u64,
-        memory_holes: Some(resources.n_memory_holes as u64),
-        ecdsa_builtin_applications: get_builtin_count(builtins, BuiltinName::ecdsa),
-        ec_op_builtin_applications: get_builtin_count(builtins, BuiltinName::ec_op),
-        keccak_builtin_applications: get_builtin_count(builtins, BuiltinName::keccak),
-        segment_arena_builtin: get_builtin_count(builtins, BuiltinName::segment_arena),
-        bitwise_builtin_applications: get_builtin_count(builtins, BuiltinName::bitwise),
-        pedersen_builtin_applications: get_builtin_count(builtins, BuiltinName::pedersen),
-        poseidon_builtin_applications: get_builtin_count(builtins, BuiltinName::poseidon),
-        range_check_builtin_applications: get_builtin_count(builtins, BuiltinName::range_check),
-    }
-}
+pub fn to_rpc_fee_estimate(resources: receipt::ExecutionResources, fee: &FeeInfo) -> FeeEstimate {
+    let unit = match fee.unit {
+        fee::PriceUnit::Wei => PriceUnit::Wei,
+        fee::PriceUnit::Fri => PriceUnit::Fri,
+    };
 
-pub fn to_rpc_fee_estimate(fee: TxFeeInfo) -> FeeEstimate {
     FeeEstimate {
-        unit: match fee.unit {
-            katana_primitives::fee::PriceUnit::Wei => PriceUnit::Wei,
-            katana_primitives::fee::PriceUnit::Fri => PriceUnit::Fri,
-        },
-        gas_price: fee.gas_price.into(),
+        unit,
         overall_fee: fee.overall_fee.into(),
-        gas_consumed: fee.gas_consumed.into(),
-        data_gas_price: Default::default(),
-        data_gas_consumed: Default::default(),
+        l2_gas_price: fee.l2_gas_price.into(),
+        l1_gas_price: fee.l1_gas_price.into(),
+        l1_data_gas_price: fee.l1_data_gas_price.into(),
+        l1_gas_consumed: resources.gas.l1_gas.into(),
+        l2_gas_consumed: resources.gas.l2_gas.into(),
+        l1_data_gas_consumed: resources.gas.l1_data_gas.into(),
     }
 }
 
 fn to_rpc_resources(receipt: execution::TransactionReceipt) -> ExecutionResources {
-    let data_resources = to_rpc_data_resources(receipt.da_gas);
-    let computation_resources = receipt.resources.computation.vm_resources;
-    let computation_resources = to_rpc_computation_resources(computation_resources);
-    ExecutionResources { data_resources, computation_resources }
+    ExecutionResources {
+        l2_gas: receipt.gas.l2_gas.0,
+        l1_gas: receipt.gas.l1_gas.0,
+        l1_data_gas: receipt.gas.l1_data_gas.0,
+    }
 }
 
 fn to_function_invocation(info: CallInfo) -> FunctionInvocation {
@@ -163,7 +152,8 @@ fn to_function_invocation(info: CallInfo) -> FunctionInvocation {
         })
         .collect();
 
-    let execution_resources = to_rpc_computation_resources(info.resources);
+    let execution_resources =
+        to_inner_execution_resources(info.tracked_resource, info.execution.gas_consumed);
 
     FunctionInvocation {
         calls,
@@ -173,6 +163,7 @@ fn to_function_invocation(info: CallInfo) -> FunctionInvocation {
         entry_point_type,
         execution_resources,
         result: info.execution.retdata.0,
+        is_reverted: info.execution.failed,
         caller_address: info.call.caller_address.into(),
         contract_address: info.call.storage_address.into(),
         calldata: Arc::unwrap_or_clone(info.call.calldata.0),
@@ -182,15 +173,18 @@ fn to_function_invocation(info: CallInfo) -> FunctionInvocation {
     }
 }
 
-fn to_rpc_data_resources(da_gas: GasVector) -> DataResources {
-    let l1_gas = da_gas.l1_gas.0;
-    let l1_data_gas = da_gas.l1_data_gas.0;
-    DataResources { data_availability: DataAvailabilityResources { l1_gas, l1_data_gas } }
-}
-
-fn get_builtin_count(
-    builtins: &HashMap<BuiltinName, usize>,
-    builtin_name: BuiltinName,
-) -> Option<u64> {
-    builtins.get(&builtin_name).map(|&x| x as u64)
+fn to_inner_execution_resources(
+    resources: TrackedResource,
+    gas_consumed: u64,
+) -> InnerCallExecutionResources {
+    match resources {
+        TrackedResource::CairoSteps => {
+            let l1_gas = gas_consumed;
+            InnerCallExecutionResources { l1_gas, l2_gas: 0 }
+        }
+        TrackedResource::SierraGas => {
+            let l2_gas = gas_consumed;
+            InnerCallExecutionResources { l2_gas, l1_gas: 0 }
+        }
+    }
 }

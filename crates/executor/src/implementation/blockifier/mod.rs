@@ -15,7 +15,7 @@ use blockifier::state::cached_state::{self, MutRefState};
 use blockifier::state::state_api::StateReader;
 use katana_primitives::block::{ExecutableBlock, GasPrice as KatanaGasPrices, PartialHeader};
 use katana_primitives::env::{BlockEnv, CfgEnv};
-use katana_primitives::fee::TxFeeInfo;
+use katana_primitives::fee::FeeInfo;
 use katana_primitives::transaction::{ExecutableTx, ExecutableTxWithHash, TxWithHash};
 use katana_primitives::Felt;
 use katana_provider::traits::state::StateProvider;
@@ -285,7 +285,7 @@ impl<'a> BlockExecutor<'a> for StarknetVMProcessor<'a> {
                 Ok(exec_result) => {
                     match &exec_result {
                         ExecutionResult::Success { receipt, trace } => {
-                            self.stats.l1_gas_used += receipt.fee().gas_consumed;
+                            self.stats.l1_gas_used += receipt.resources_used().gas.l1_gas as u128;
                             self.stats.cairo_steps_used +=
                                 receipt.resources_used().computation_resources.n_steps as u128;
 
@@ -387,7 +387,7 @@ impl ExecutorExt for StarknetVMProcessor<'_> {
         &self,
         transactions: Vec<ExecutableTxWithHash>,
         flags: ExecutionFlags,
-    ) -> Vec<Result<TxFeeInfo, ExecutionError>> {
+    ) -> Vec<Result<FeeInfo, ExecutionError>> {
         self.simulate_with(transactions, &flags, |_, (_, res)| match res {
             ExecutionResult::Success { receipt, .. } => {
                 // if the transaction was reverted, return as error

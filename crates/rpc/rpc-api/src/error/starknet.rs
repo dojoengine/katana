@@ -63,7 +63,7 @@ pub enum StarknetApiError {
     #[error("Account validation failed")]
     ValidationFailure { reason: String },
     #[error("Compilation failed")]
-    CompilationFailed,
+    CompilationFailed { reason: String },
     #[error("Contract class size is too large")]
     ContractClassSizeIsTooLarge,
     #[error("Sender address in not an account contract")]
@@ -123,7 +123,7 @@ impl StarknetApiError {
             StarknetApiError::InsufficientMaxFee => 53,
             StarknetApiError::InsufficientAccountBalance => 54,
             StarknetApiError::ValidationFailure { .. } => 55,
-            StarknetApiError::CompilationFailed => 56,
+            StarknetApiError::CompilationFailed { .. } => 56,
             StarknetApiError::ContractClassSizeIsTooLarge => 57,
             StarknetApiError::NonAccount => 58,
             StarknetApiError::DuplicateTransaction => 59,
@@ -227,9 +227,7 @@ impl From<StarknetRsError> for StarknetApiError {
             }
             StarknetRsError::DuplicateTx => Self::DuplicateTransaction,
             StarknetRsError::ContractNotFound => Self::ContractNotFound,
-            StarknetRsError::CompilationFailed => Self::CompilationFailed,
             StarknetRsError::ClassHashNotFound => Self::ClassHashNotFound,
-            StarknetRsError::InsufficientMaxFee => Self::InsufficientMaxFee,
             StarknetRsError::TooManyKeysInFilter => Self::TooManyKeysInFilter,
             StarknetRsError::InvalidTransactionIndex => Self::InvalidTxnIndex,
             StarknetRsError::TransactionHashNotFound => Self::TxnHashNotFound,
@@ -238,6 +236,7 @@ impl From<StarknetRsError> for StarknetApiError {
             StarknetRsError::InvalidContinuationToken => Self::InvalidContinuationToken,
             StarknetRsError::UnsupportedTxVersion => Self::UnsupportedTransactionVersion,
             StarknetRsError::CompiledClassHashMismatch => Self::CompiledClassHashMismatch,
+            StarknetRsError::CompilationFailed(reason) => Self::CompilationFailed { reason },
             StarknetRsError::InsufficientAccountBalance => Self::InsufficientAccountBalance,
             StarknetRsError::ValidationFailure(reason) => Self::ValidationFailure { reason },
             StarknetRsError::ContractClassSizeIsTooLarge => Self::ContractClassSizeIsTooLarge,
@@ -291,7 +290,6 @@ mod tests {
     #[case(StarknetApiError::BlockNotFound, 24, "Block not found")]
     #[case(StarknetApiError::InvalidCallData, 22, "Invalid call data")]
     #[case(StarknetApiError::ContractNotFound, 20, "Contract not found")]
-    #[case(StarknetApiError::CompilationFailed, 56, "Compilation failed")]
     #[case(StarknetApiError::ClassHashNotFound, 28, "Class hash not found")]
     #[case(StarknetApiError::TxnHashNotFound, 29, "Transaction hash not found")]
     #[case(StarknetApiError::ClassAlreadyDeclared, 51, "Class already declared")]
@@ -366,6 +364,14 @@ mod tests {
      	52,
       	"Invalid transaction nonce",
        	Value::String("Wrong nonce".to_string())
+    )]
+    #[case(
+    	StarknetApiError::CompilationFailed {
+     		reason: "Failed to compile".to_string()
+      	},
+     	52,
+      	"Compilation failed",
+       	Value::String("Failed to compile".to_string())
     )]
     #[case(
     	StarknetApiError::ValidationFailure {

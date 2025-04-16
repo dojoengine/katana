@@ -1,6 +1,6 @@
 use katana_primitives::block::ExecutableBlock;
 use katana_primitives::env::{BlockEnv, CfgEnv};
-use katana_primitives::fee::TxFeeInfo;
+use katana_primitives::fee::FeeInfo;
 use katana_primitives::transaction::{ExecutableTxWithHash, TxWithHash};
 use katana_primitives::Felt;
 use katana_provider::traits::state::StateProvider;
@@ -71,7 +71,7 @@ pub trait ExecutorExt {
         &self,
         transactions: Vec<ExecutableTxWithHash>,
         flags: ExecutionFlags,
-    ) -> Vec<Result<TxFeeInfo, ExecutionError>>;
+    ) -> Vec<Result<FeeInfo, ExecutionError>>;
 
     /// Perform a contract entry point call and return the output.
     fn call(&self, call: EntryPointCall) -> Result<Vec<Felt>, ExecutionError>;

@@ -9,9 +9,7 @@ use katana_primitives::utils::transaction::compute_invoke_v1_tx_hash;
 use katana_primitives::Felt;
 use num_traits::ToPrimitive;
 use starknet::accounts::{Account, ExecutionEncoder, ExecutionEncoding, SingleOwnerAccount};
-use starknet::core::types::{
-    BlockId, BlockTag, BroadcastedInvokeTransaction, BroadcastedInvokeTransactionV1, Call,
-};
+use starknet::core::types::{BlockId, BlockTag, BroadcastedInvokeTransaction, Call};
 use starknet::macros::{felt, selector};
 use starknet::providers::jsonrpc::HttpTransport;
 use starknet::providers::{JsonRpcClient, Url};

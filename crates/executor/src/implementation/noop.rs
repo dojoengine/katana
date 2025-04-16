@@ -2,7 +2,7 @@ use katana_primitives::block::ExecutableBlock;
 use katana_primitives::class::{ClassHash, CompiledClassHash, ContractClass};
 use katana_primitives::contract::{ContractAddress, Nonce, StorageKey, StorageValue};
 use katana_primitives::env::{BlockEnv, CfgEnv};
-use katana_primitives::fee::TxFeeInfo;
+use katana_primitives::fee::FeeInfo;
 use katana_primitives::transaction::{ExecutableTxWithHash, TxWithHash};
 use katana_primitives::Felt;
 use katana_provider::traits::contract::ContractClassProvider;
@@ -80,7 +80,7 @@ impl ExecutorExt for NoopExecutor {
         &self,
         transactions: Vec<ExecutableTxWithHash>,
         flags: ExecutionFlags,
-    ) -> Vec<Result<TxFeeInfo, ExecutionError>> {
+    ) -> Vec<Result<FeeInfo, ExecutionError>> {
         let _ = transactions;
         let _ = flags;
         vec![]
