@@ -559,10 +559,11 @@ impl<EF: ExecutorFactory> InstantBlockProducer<EF> {
         let permit = Arc::new(Mutex::new(()));
 
         let latest_num = provider.latest_number().expect("latest block num");
-        let block_env = provider
+        let mut block_env = provider
             .block_env_at(latest_num.into())
             .expect("provider error")
             .expect("latest block env");
+        backend.update_block_env(&mut block_env);
 
         let state = provider.latest().expect("latest state");
         let cfg = backend.executor_factory.cfg();

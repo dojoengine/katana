@@ -15,6 +15,7 @@ katana-rpc-types.workspace = true
 
 anyhow.workspace = true
 jsonrpsee = { workspace = true, features = [ "macros", "server" ] }
+account_sdk = { workspace = true, optional = true }
 rstest.workspace = true
 serde.workspace = true
 serde_json.workspace = true
@@ -23,3 +24,4 @@ thiserror.workspace = true
 
 [features]
 client = [ "jsonrpsee/client" ]
+cartridge = [ "account_sdk", "katana-primitives/cartridge" ]

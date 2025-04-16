@@ -34,11 +34,17 @@ use katana_pool::ordering::FiFo;
 use katana_pool::TxPool;
 use katana_primitives::block::GasPrice;
 use katana_primitives::env::{CfgEnv, FeeTokenAddressses};
+#[cfg(feature = "cartridge")]
+use katana_rpc::cartridge::CartridgeApi;
 use katana_rpc::cors::Cors;
 use katana_rpc::dev::DevApi;
 use katana_rpc::starknet::forking::ForkedClient;
+#[cfg(feature = "cartridge")]
+use katana_rpc::starknet::PaymasterConfig;
 use katana_rpc::starknet::{StarknetApi, StarknetApiConfig};
 use katana_rpc::{RpcServer, RpcServerHandle};
+#[cfg(feature = "cartridge")]
+use katana_rpc_api::cartridge::CartridgeApiServer;
 use katana_rpc_api::dev::DevApiServer;
 use katana_rpc_api::starknet::{StarknetApiServer, StarknetTraceApiServer, StarknetWriteApiServer};
 use katana_stage::Sequencing;
@@ -200,10 +206,32 @@ impl Node {
         .allow_methods([Method::POST, Method::GET])
         .allow_headers([hyper::header::CONTENT_TYPE, "argent-client".parse().unwrap(), "argent-version".parse().unwrap()]);
 
+        #[cfg(feature = "cartridge")]
+        let paymaster = if let Some(paymaster) = &config.paymaster {
+            anyhow::ensure!(
+                config.rpc.apis.contains(&RpcModuleKind::Cartridge),
+                "Cartridge API should be enabled when paymaster is set"
+            );
+
+            let api = CartridgeApi::new(
+                backend.clone(),
+                block_producer.clone(),
+                pool.clone(),
+                paymaster.cartridge_api_url.clone(),
+            );
+            rpc_modules.merge(CartridgeApiServer::into_rpc(api))?;
+
+            Some(PaymasterConfig { cartridge_api_url: paymaster.cartridge_api_url.clone() })
+        } else {
+            None
+        };
+
         if config.rpc.apis.contains(&RpcModuleKind::Starknet) {
             let cfg = StarknetApiConfig {
                 max_event_page_size: config.rpc.max_event_page_size,
                 max_proof_keys: config.rpc.max_proof_keys,
+                #[cfg(feature = "cartridge")]
+                paymaster,
             };
 
             let api = if let Some(client) = forked_client {
@@ -225,7 +253,7 @@ impl Node {
 
         if config.rpc.apis.contains(&RpcModuleKind::Dev) {
             let api = DevApi::new(backend.clone(), block_producer.clone());
-            rpc_modules.merge(api.into_rpc())?;
+            rpc_modules.merge(DevApiServer::into_rpc(api))?;
         }
 
         let rpc_server = RpcServer::new()

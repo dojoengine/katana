@@ -8,6 +8,7 @@ version.workspace = true
 
 [dependencies]
 anyhow.workspace = true
+account_sdk = { workspace = true, optional = true }
 arbitrary = { workspace = true, optional = true }
 base64.workspace = true
 cairo-lang-starknet-classes.workspace = true
@@ -49,6 +50,7 @@ arbitrary = [ "alloy-primitives/arbitrary", "dep:arbitrary" ]
 controller = [  ]
 serde = [ "alloy-primitives/serde" ]
 slot = [ "controller" ]
+cartridge = [ "account_sdk" ]
 
 [[bench]]
 harness = false

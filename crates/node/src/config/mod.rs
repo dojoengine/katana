@@ -5,6 +5,8 @@ pub mod dev;
 pub mod execution;
 pub mod fork;
 pub mod metrics;
+#[cfg(feature = "cartridge")]
+pub mod paymaster;
 pub mod rpc;
 pub mod sequencing;
 
@@ -49,4 +51,8 @@ pub struct Config {
 
     /// Development options.
     pub dev: DevConfig,
+
+    /// Cartridge paymaster options.
+    #[cfg(feature = "cartridge")]
+    pub paymaster: Option<paymaster::PaymasterConfig>,
 }

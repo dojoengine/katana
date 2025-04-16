@@ -31,6 +31,8 @@ pub const DEFAULT_RPC_MAX_CALL_GAS: u64 = 1_000_000_000;
 pub enum RpcModuleKind {
     Starknet,
     Dev,
+    #[cfg(feature = "cartridge")]
+    Cartridge,
 }
 
 /// Configuration for the RPC server.
@@ -90,7 +92,12 @@ impl RpcModulesList {
 
     /// Creates a list with all the possible modules.
     pub fn all() -> Self {
-        Self(HashSet::from([RpcModuleKind::Starknet, RpcModuleKind::Dev]))
+        Self(HashSet::from([
+            RpcModuleKind::Starknet,
+            RpcModuleKind::Dev,
+            #[cfg(feature = "cartridge")]
+            RpcModuleKind::Cartridge,
+        ]))
     }
 
     /// Adds a `module` to the list.
