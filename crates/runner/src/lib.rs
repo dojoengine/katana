@@ -13,7 +13,7 @@ pub use katana_runner_macro::test;
 use starknet::accounts::{ExecutionEncoding, SingleOwnerAccount};
 use starknet::core::types::{BlockId, BlockTag, Felt};
 use starknet::providers::jsonrpc::HttpTransport;
-use starknet::providers::JsonRpcClient;
+use starknet::providers::{JsonRpcClient, Url};
 use starknet::signers::LocalWallet;
 use tokio::sync::Mutex;
 use utils::find_free_port;
@@ -178,6 +178,10 @@ impl KatanaRunner {
 
     pub fn log_file_path(&self) -> &PathBuf {
         &self.log_file_path
+    }
+
+    pub fn url(&self) -> Url {
+        Url::parse(&format!("http://localhost:{}", self.instance.port())).unwrap()
     }
 
     pub fn provider(&self) -> &JsonRpcClient<HttpTransport> {
