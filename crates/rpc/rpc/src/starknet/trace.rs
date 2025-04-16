@@ -1,4 +1,4 @@
-use jsonrpsee::core::{async_trait, RpcResult};
+use jsonrpsee::core::{RpcResult, async_trait};
 use katana_executor::{ExecutionResult, ExecutorFactory, ResultAndStates};
 use katana_primitives::block::{BlockHashOrNumber, BlockIdOrTag};
 use katana_primitives::execution::TypedTransactionExecutionInfo;

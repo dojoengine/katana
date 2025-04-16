@@ -71,6 +71,11 @@ pub fn transact<S: StateReader>(
     ) -> Result<(TransactionExecutionInfo, FeeInfo), ExecutionError> {
         let fee_type = get_fee_type_from_tx(&tx);
 
+        let tip = match &tx {
+            Transaction::Account(tx) => tx.tip(),
+            Transaction::L1Handler(..) => Tip(0),
+        };
+
         let info = match tx {
             Transaction::Account(tx) => tx.execute(state, block_context),
             Transaction::L1Handler(tx) => tx.execute(state, block_context),

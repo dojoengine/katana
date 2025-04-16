@@ -1,8 +1,8 @@
 use std::sync::Arc;
 
-use katana_primitives::{felt, Felt};
-use starknet::providers::jsonrpc::HttpTransport;
+use katana_primitives::{Felt, felt};
 use starknet::providers::JsonRpcClient;
+use starknet::providers::jsonrpc::HttpTransport;
 use url::Url;
 
 /// The contract address that handles fact verification.
@@ -68,17 +68,49 @@ mod provider {
     use starknet::core::types::{
         BlockHashAndNumber, BlockId, BroadcastedDeclareTransaction,
         BroadcastedDeployAccountTransaction, BroadcastedInvokeTransaction, BroadcastedTransaction,
-        ContractClass, DeclareTransactionResult, DeployAccountTransactionResult, EventFilter,
-        EventsPage, FeeEstimate, Felt, FunctionCall, InvokeTransactionResult,
-        MaybePendingBlockWithReceipts, MaybePendingBlockWithTxHashes, MaybePendingBlockWithTxs,
-        MaybePendingStateUpdate, MsgFromL1, SimulatedTransaction, SimulationFlag,
-        SimulationFlagForEstimateFee, SyncStatusType, Transaction, TransactionReceiptWithBlockInfo,
-        TransactionStatus, TransactionTrace, TransactionTraceWithHash,
+        ConfirmedBlockId, ContractClass, ContractStorageKeys, DeclareTransactionResult,
+        DeployAccountTransactionResult, EventFilter, EventsPage, FeeEstimate, Felt, FunctionCall,
+        Hash256, InvokeTransactionResult, MaybePendingBlockWithReceipts,
+        MaybePendingBlockWithTxHashes, MaybePendingBlockWithTxs, MaybePendingStateUpdate,
+        MessageWithStatus, MsgFromL1, SimulatedTransaction, SimulationFlag,
+        SimulationFlagForEstimateFee, StorageProof, SyncStatusType, Transaction,
+        TransactionReceiptWithBlockInfo, TransactionStatus, TransactionTrace,
+        TransactionTraceWithHash,
     };
     use starknet::providers::{Provider, ProviderError, ProviderRequestData, ProviderResponseData};
 
     #[async_trait::async_trait]
     impl Provider for super::SettlementChainProvider {
+        async fn get_messages_status(
+            &self,
+            transaction_hash: Hash256,
+        ) -> Result<Vec<MessageWithStatus>, ProviderError> {
+            self.client.get_messages_status(transaction_hash).await
+        }
+
+        async fn get_storage_proof<B, H, A, K>(
+            &self,
+            block_id: B,
+            class_hashes: H,
+            contract_addresses: A,
+            contracts_storage_keys: K,
+        ) -> Result<StorageProof, ProviderError>
+        where
+            B: AsRef<ConfirmedBlockId> + Send + Sync,
+            H: AsRef<[Felt]> + Send + Sync,
+            A: AsRef<[Felt]> + Send + Sync,
+            K: AsRef<[ContractStorageKeys]> + Send + Sync,
+        {
+            self.client
+                .get_storage_proof(
+                    block_id,
+                    class_hashes,
+                    contract_addresses,
+                    contracts_storage_keys,
+                )
+                .await
+        }
+
         async fn spec_version(&self) -> Result<String, ProviderError> {
             self.client.spec_version().await
         }

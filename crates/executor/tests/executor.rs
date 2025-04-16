@@ -11,11 +11,11 @@ use katana_primitives::genesis::constant::{
     DEFAULT_PREFUNDED_ACCOUNT_BALANCE, DEFAULT_UDC_ADDRESS,
 };
 use katana_primitives::transaction::TxWithHash;
-use katana_primitives::{address, Felt};
+use katana_primitives::{Felt, address};
 use katana_provider::traits::contract::ContractClassProviderExt;
 use katana_provider::traits::state::StateProvider;
 use starknet::core::utils::{
-    get_storage_var_address, get_udc_deployed_address, UdcUniqueSettings, UdcUniqueness,
+    UdcUniqueSettings, UdcUniqueness, get_storage_var_address, get_udc_deployed_address,
 };
 use starknet::macros::felt;
 
@@ -273,8 +273,9 @@ fn test_executor_with_valid_blocks_impl<EF: ExecutorFactory>(
     let actual_txs: Vec<TxWithHash> = transactions
         .iter()
         .map(|(tx, res)| {
-            if let Some(fee) = res.receipt().map(|r| r.fee()) {
-                actual_total_gas += fee.gas_consumed;
+            if let Some(receipt) = res.receipt() {
+                let resources = receipt.resources_used();
+                actual_total_gas += resources.gas.l1_gas as u128;
             }
             if let Some(rec) = res.receipt() {
                 actual_total_steps += rec.resources_used().computation_resources.n_steps as u128;

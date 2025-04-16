@@ -20,8 +20,6 @@ pub enum StarknetApiError {
     FailedToReceiveTxn,
     #[error("Contract not found")]
     ContractNotFound,
-    #[error("Invalid message selector")]
-    InvalidMessageSelector,
     #[error("Invalid call data")]
     InvalidCallData,
     #[error("Block not found")]
@@ -56,8 +54,6 @@ pub enum StarknetApiError {
     // message. but this doesn't break compatibility with the spec.
     #[error("Invalid transaction nonce")]
     InvalidTransactionNonce { reason: String },
-    #[error("Max fee is smaller than the minimal transaction cost (validation plus fee transfer)")]
-    InsufficientMaxFee,
     #[error("Account balance is smaller than the transaction's max_fee")]
     InsufficientAccountBalance,
     #[error("Account validation failed")]
@@ -96,6 +92,10 @@ pub enum StarknetApiError {
         /// The total number of keys that is being requested.
         total: u64,
     },
+    #[error("Requested entrypoint does not exist in the contract")]
+    EntrypointNotFound,
+    #[error("The transaction's resources don't cover validation or the minimal transaction fee")]
+    InsufficientResourcesForValidate,
 }
 
 impl StarknetApiError {
@@ -103,7 +103,7 @@ impl StarknetApiError {
         match self {
             StarknetApiError::FailedToReceiveTxn => 1,
             StarknetApiError::ContractNotFound => 20,
-            StarknetApiError::InvalidMessageSelector => 21,
+            StarknetApiError::EntrypointNotFound => 21,
             StarknetApiError::InvalidCallData => 22,
             StarknetApiError::BlockNotFound => 24,
             StarknetApiError::InvalidTxnIndex => 27,
@@ -120,7 +120,7 @@ impl StarknetApiError {
             StarknetApiError::InvalidContractClass => 50,
             StarknetApiError::ClassAlreadyDeclared => 51,
             StarknetApiError::InvalidTransactionNonce { .. } => 52,
-            StarknetApiError::InsufficientMaxFee => 53,
+            StarknetApiError::InsufficientResourcesForValidate => 53,
             StarknetApiError::InsufficientAccountBalance => 54,
             StarknetApiError::ValidationFailure { .. } => 55,
             StarknetApiError::CompilationFailed { .. } => 56,
@@ -201,7 +201,9 @@ impl From<Box<InvalidTransactionError>> for StarknetApiError {
         match error.as_ref() {
             InvalidTransactionError::InsufficientFunds { .. } => Self::InsufficientAccountBalance,
             InvalidTransactionError::ClassAlreadyDeclared { .. } => Self::ClassAlreadyDeclared,
-            InvalidTransactionError::IntrinsicFeeTooLow { .. } => Self::InsufficientMaxFee,
+            InvalidTransactionError::IntrinsicFeeTooLow { .. } => {
+                Self::InsufficientResourcesForValidate
+            }
             InvalidTransactionError::NonAccount { .. } => Self::NonAccount,
             InvalidTransactionError::InvalidNonce { .. } => {
                 Self::InvalidTransactionNonce { reason: error.to_string() }
@@ -240,11 +242,12 @@ impl From<StarknetRsError> for StarknetApiError {
             StarknetRsError::InsufficientAccountBalance => Self::InsufficientAccountBalance,
             StarknetRsError::ValidationFailure(reason) => Self::ValidationFailure { reason },
             StarknetRsError::ContractClassSizeIsTooLarge => Self::ContractClassSizeIsTooLarge,
-            StarknetRsError::ContractError(data) => {
-                Self::ContractError { revert_error: data.revert_error }
+            StarknetRsError::EntrypointNotFound => Self::EntrypointNotFound,
+            StarknetRsError::ContractError(..) => {
+                Self::ContractError { revert_error: String::new() }
             }
             StarknetRsError::TransactionExecutionError(data) => Self::TransactionExecutionError {
-                execution_error: data.execution_error,
+                execution_error: String::new(),
                 transaction_index: data.transaction_index,
             },
             StarknetRsError::InvalidTransactionNonce => {
@@ -255,6 +258,12 @@ impl From<StarknetRsError> for StarknetApiError {
             }
             StarknetRsError::NoTraceAvailable(_) => {
                 Self::UnexpectedError { reason: "No trace available".to_string() }
+            }
+            StarknetRsError::StorageProofNotSupported => {
+                Self::StorageProofNotSupported { oldest_block: 0, requested_block: 0 }
+            }
+            StarknetRsError::InsufficientResourcesForValidate => {
+                Self::InsufficientResourcesForValidate
             }
         }
     }
@@ -295,7 +304,7 @@ mod tests {
     #[case(StarknetApiError::ClassAlreadyDeclared, 51, "Class already declared")]
     #[case(StarknetApiError::InvalidContractClass, 50, "Invalid contract class")]
     #[case(StarknetApiError::FailedToReceiveTxn, 1, "Failed to write transaction")]
-    #[case(StarknetApiError::InvalidMessageSelector, 21, "Invalid message selector")]
+    #[case(StarknetApiError::EntrypointNotFound, 21, "Requested entrypoint does not exist in the contract")]
     #[case(StarknetApiError::NonAccount, 58, "Sender address in not an account contract")]
     #[case(StarknetApiError::InvalidTxnIndex, 27, "Invalid transaction index in a block")]
     #[case(StarknetApiError::TooManyKeysInFilter, 34, "Too many keys provided in a filter")]
@@ -307,7 +316,7 @@ mod tests {
     #[case(StarknetApiError::DuplicateTransaction, 59, "A transaction with the same hash already exists in the mempool")]
     #[case(StarknetApiError::InsufficientAccountBalance, 54, "Account balance is smaller than the transaction's max_fee")]
     #[case(StarknetApiError::CompiledClassHashMismatch, 60, "The compiled class hash did not match the one supplied in the transaction")]
-    #[case(StarknetApiError::InsufficientMaxFee, 53, "Max fee is smaller than the minimal transaction cost (validation plus fee transfer)")]
+    #[case(StarknetApiError::InsufficientResourcesForValidate, 53, "The transaction's resources don't cover validation or the minimal transaction fee")]
     fn test_starknet_api_error_to_error_conversion_data_none(
         #[case] starknet_error: StarknetApiError,
         #[case] expected_code: i32,
