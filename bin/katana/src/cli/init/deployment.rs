@@ -288,8 +288,8 @@ pub async fn check_program_info(
     let (program_info_res, facts_registry_res) =
         tokio::join!(appchain.get_program_info().call(), appchain.get_facts_registry().call());
 
-    let actual_program_info = program_info_res?;
-    let facts_registry = facts_registry_res?;
+    let actual_program_info = program_info_res.map_err(|e| ContractInitError::Other(anyhow!(e)))?;
+    let facts_registry = facts_registry_res.map_err(|e| ContractInitError::Other(anyhow!(e)))?;
 
     if actual_program_info.layout_bridge_program_hash != LAYOUT_BRIDGE_PROGRAM_HASH {
         return Err(ContractInitError::InvalidLayoutBridgeProgramHash {
