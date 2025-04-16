@@ -1,4 +1,5 @@
 use katana_chain_spec::ChainSpec;
+use katana_primitives::Felt;
 use katana_primitives::chain::ChainId;
 use katana_primitives::contract::{ContractAddress, Nonce};
 use katana_primitives::env::CfgEnv;
@@ -6,12 +7,9 @@ use katana_primitives::genesis::allocation::GenesisAllocation;
 use katana_primitives::genesis::constant::DEFAULT_ETH_FEE_TOKEN_ADDRESS;
 use katana_primitives::transaction::ExecutableTxWithHash;
 use katana_primitives::utils::transaction::compute_invoke_v1_tx_hash;
-use katana_primitives::Felt;
 use num_traits::ToPrimitive;
 use starknet::accounts::{Account, ExecutionEncoder, ExecutionEncoding, SingleOwnerAccount};
-use starknet::core::types::{
-    BlockId, BlockTag, BroadcastedInvokeTransaction, BroadcastedInvokeTransactionV1, Call,
-};
+use starknet::core::types::{BlockId, BlockTag, BroadcastedInvokeTransaction, Call};
 use starknet::macros::{felt, selector};
 use starknet::providers::jsonrpc::HttpTransport;
 use starknet::providers::{JsonRpcClient, Url};

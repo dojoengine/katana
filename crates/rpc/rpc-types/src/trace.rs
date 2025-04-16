@@ -2,7 +2,7 @@ use katana_primitives::trace::{CallInfo, TxExecInfo};
 use katana_primitives::transaction::TxHash;
 use serde::{Deserialize, Serialize};
 use starknet::core::types::{
-    CallType, ComputationResources, EntryPointType, OrderedEvent, OrderedMessage,
+    CallType, EntryPointType, InnerCallExecutionResources, OrderedEvent, OrderedMessage,
 };
 
 #[derive(Debug)]
@@ -40,22 +40,23 @@ impl From<CallInfo> for FunctionInvocation {
             })
             .collect();
 
-        let resources = info.execution_resources;
+        let execution_resources = InnerCallExecutionResources { l1_gas: 0, l2_gas: 0 };
 
-        // TODO: replace execution resources type in primitive CallInfo with an already defined
-        // `TxExecutionResources`
-        let execution_resources = ComputationResources {
-            steps: resources.n_steps as u64,
-            memory_holes: Some(resources.n_memory_holes as u64),
-            range_check_builtin_applications: resources.builtin_instance_counter.range_check(),
-            pedersen_builtin_applications: resources.builtin_instance_counter.pedersen(),
-            poseidon_builtin_applications: resources.builtin_instance_counter.poseidon(),
-            ec_op_builtin_applications: resources.builtin_instance_counter.ec_op(),
-            ecdsa_builtin_applications: resources.builtin_instance_counter.ecdsa(),
-            bitwise_builtin_applications: resources.builtin_instance_counter.bitwise(),
-            keccak_builtin_applications: resources.builtin_instance_counter.keccak(),
-            segment_arena_builtin: resources.builtin_instance_counter.segment_arena(),
-        };
+        // let resources = info.execution_resources;
+        // // TODO: replace execution resources type in primitive CallInfo with an already defined
+        // // `TxExecutionResources`
+        // let execution_resources = ComputationResources {
+        //     steps: resources.n_steps as u64,
+        //     memory_holes: Some(resources.n_memory_holes as u64),
+        //     range_check_builtin_applications: resources.builtin_instance_counter.range_check(),
+        //     pedersen_builtin_applications: resources.builtin_instance_counter.pedersen(),
+        //     poseidon_builtin_applications: resources.builtin_instance_counter.poseidon(),
+        //     ec_op_builtin_applications: resources.builtin_instance_counter.ec_op(),
+        //     ecdsa_builtin_applications: resources.builtin_instance_counter.ecdsa(),
+        //     bitwise_builtin_applications: resources.builtin_instance_counter.bitwise(),
+        //     keccak_builtin_applications: resources.builtin_instance_counter.keccak(),
+        //     segment_arena_builtin: resources.builtin_instance_counter.segment_arena(),
+        // };
 
         Self(starknet::core::types::FunctionInvocation {
             calls,
@@ -66,6 +67,7 @@ impl From<CallInfo> for FunctionInvocation {
             execution_resources,
             result: info.retdata,
             calldata: info.calldata,
+            is_reverted: info.failed,
             caller_address: info.caller_address.into(),
             contract_address: info.contract_address.into(),
             entry_point_selector: info.entry_point_selector,
