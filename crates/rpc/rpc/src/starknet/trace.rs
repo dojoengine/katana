@@ -1,4 +1,4 @@
-use jsonrpsee::core::{async_trait, RpcResult};
+use jsonrpsee::core::{RpcResult, async_trait};
 use katana_executor::{ExecutionResult, ExecutorFactory, ResultAndStates};
 use katana_primitives::block::{BlockHashOrNumber, BlockIdOrTag};
 use katana_primitives::fee::TxFeeInfo;
@@ -12,10 +12,9 @@ use katana_rpc_types::trace::FunctionInvocation;
 use katana_rpc_types::transaction::BroadcastedTx;
 use katana_rpc_types::{FeeEstimate, SimulationFlag};
 use starknet::core::types::{
-    BlockTag, ComputationResources, DataAvailabilityResources, DataResources,
-    DeclareTransactionTrace, DeployAccountTransactionTrace, ExecuteInvocation, ExecutionResources,
-    InvokeTransactionTrace, L1HandlerTransactionTrace, PriceUnit, RevertedInvocation,
-    SimulatedTransaction, TransactionTrace, TransactionTraceWithHash,
+    BlockTag, DeclareTransactionTrace, DeployAccountTransactionTrace, ExecuteInvocation,
+    ExecutionResources, InvokeTransactionTrace, L1HandlerTransactionTrace, PriceUnit,
+    RevertedInvocation, SimulatedTransaction, TransactionTrace, TransactionTraceWithHash,
 };
 
 use super::StarknetApi;
@@ -272,39 +271,21 @@ fn to_rpc_trace(trace: TxExecInfo) -> TransactionTrace {
 }
 
 fn to_rpc_resources(resources: katana_primitives::trace::ExecutionResources) -> ExecutionResources {
-    let steps = resources.n_steps as u64;
-    let memory_holes = resources.n_memory_holes as u64;
-    let builtins = resources.builtin_instance_counter;
-
-    let data_availability = DataAvailabilityResources { l1_gas: 0, l1_data_gas: 0 };
-    let data_resources = DataResources { data_availability };
-
-    let computation_resources = ComputationResources {
-        steps,
-        memory_holes: Some(memory_holes),
-        ecdsa_builtin_applications: builtins.ecdsa(),
-        ec_op_builtin_applications: builtins.ec_op(),
-        keccak_builtin_applications: builtins.keccak(),
-        segment_arena_builtin: builtins.segment_arena(),
-        bitwise_builtin_applications: builtins.bitwise(),
-        pedersen_builtin_applications: builtins.pedersen(),
-        poseidon_builtin_applications: builtins.poseidon(),
-        range_check_builtin_applications: builtins.range_check(),
-    };
-
-    ExecutionResources { data_resources, computation_resources }
+    ExecutionResources { l1_data_gas: 0, l1_gas: 0, l2_gas: 0 }
 }
 
 fn to_rpc_fee_estimate(fee: TxFeeInfo) -> FeeEstimate {
     FeeEstimate {
+        l1_gas_price: fee.l1_gas_price.into(),
+        l2_gas_price: fee.l2_gas_price.into(),
+        l1_gas_consumed: fee.l1_gas_consumed.into(),
+        l2_gas_consumed: fee.l1_gas_consumed.into(),
+        l1_data_gas_price: Default::default(),
+        l1_data_gas_consumed: Default::default(),
+        overall_fee: fee.overall_fee.into(),
         unit: match fee.unit {
             katana_primitives::fee::PriceUnit::Wei => PriceUnit::Wei,
             katana_primitives::fee::PriceUnit::Fri => PriceUnit::Fri,
         },
-        gas_price: fee.gas_price.into(),
-        overall_fee: fee.overall_fee.into(),
-        gas_consumed: fee.gas_consumed.into(),
-        data_gas_price: Default::default(),
-        data_gas_consumed: Default::default(),
     }
 }

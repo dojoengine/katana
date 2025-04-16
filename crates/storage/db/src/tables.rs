@@ -446,7 +446,7 @@ mod tests {
                 events: Vec::new(),
                 messages_sent: Vec::new(),
                 execution_resources: Default::default(),
-                fee: TxFeeInfo { gas_consumed: 0, gas_price: 0, overall_fee: 0, unit: PriceUnit::Wei },
+                fee: TxFeeInfo::default(),
             })),
             (TrieDatabaseValue, TrieDatabaseValue::default()),
             (TrieHistoryEntry, TrieHistoryEntry {

@@ -1,9 +1,9 @@
+use katana_primitives::Felt;
 use katana_primitives::block::{Block, BlockHash, FinalityStatus, Header, SealedBlockWithStatus};
-use katana_primitives::fee::{PriceUnit, TxFeeInfo};
+use katana_primitives::fee::TxFeeInfo;
 use katana_primitives::receipt::{InvokeTxReceipt, Receipt};
 use katana_primitives::trace::TxExecInfo;
 use katana_primitives::transaction::{InvokeTx, Tx, TxHash, TxWithHash};
-use katana_primitives::Felt;
 
 pub fn generate_dummy_txs_and_receipts(
     count: usize,
@@ -23,8 +23,8 @@ pub fn generate_dummy_txs_and_receipts(
             revert_error: None,
             events: Vec::new(),
             messages_sent: Vec::new(),
+            fee: TxFeeInfo::default(),
             execution_resources: Default::default(),
-            fee: TxFeeInfo { gas_consumed: 0, gas_price: 0, overall_fee: 0, unit: PriceUnit::Wei },
         }));
         executions.push(TxExecInfo::default());
     }

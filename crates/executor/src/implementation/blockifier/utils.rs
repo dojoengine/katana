@@ -77,6 +77,11 @@ pub fn transact<S: StateReader>(
     ) -> Result<(TransactionExecutionInfo, TxFeeInfo), ExecutionError> {
         let fee_type = get_fee_type_from_tx(&tx);
 
+        let tip = match &tx {
+            Transaction::Account(tx) => tx.tip(),
+            Transaction::L1Handler(..) => Tip(0),
+        };
+
         let info = match tx {
             Transaction::Account(tx) => tx.execute(state, block_context),
             Transaction::L1Handler(tx) => tx.execute(state, block_context),
@@ -87,25 +92,40 @@ pub fn transact<S: StateReader>(
         // `skip_fee_transfer` is explicitly set, or when the transaction `max_fee` is set to 0). In
         // these cases, we still want to calculate the fee.
         let fee = if info.receipt.fee == Fee(0) {
-            get_fee_by_gas_vector(block_context.block_info(), info.receipt.gas, &fee_type, Tip(0))
+            get_fee_by_gas_vector(block_context.block_info(), info.receipt.gas, &fee_type, tip)
         } else {
             info.receipt.fee
         };
 
-        let gas_consumed = info.receipt.gas.l1_gas.0 as u128;
+        let l1_gas_consumed = info.receipt.gas.l1_gas.0 as u128;
+        let l2_gas_consumed = info.receipt.gas.l2_gas.0 as u128;
+        let l1_data_gas_consumed = info.receipt.gas.l1_data_gas.0 as u128;
 
-        let (unit, gas_price) = match fee_type {
+        let (unit, l1_gas_price, l2_gas_price, l1_data_gas_price) = match fee_type {
             FeeType::Eth => (
                 PriceUnit::Wei,
                 block_context.block_info().gas_prices.eth_gas_prices.l1_gas_price.get().0,
+                block_context.block_info().gas_prices.eth_gas_prices.l2_gas_price.get().0,
+                block_context.block_info().gas_prices.eth_gas_prices.l1_data_gas_price.get().0,
             ),
             FeeType::Strk => (
                 PriceUnit::Fri,
                 block_context.block_info().gas_prices.strk_gas_prices.l1_gas_price.get().0,
+                block_context.block_info().gas_prices.strk_gas_prices.l2_gas_price.get().0,
+                block_context.block_info().gas_prices.strk_gas_prices.l1_data_gas_price.get().0,
             ),
         };
 
-        let fee_info = TxFeeInfo { gas_consumed, gas_price, unit, overall_fee: fee.0 };
+        let fee_info = TxFeeInfo {
+            unit,
+            l1_gas_price,
+            l2_gas_price,
+            l1_data_gas_price,
+            l1_gas_consumed,
+            l2_gas_consumed,
+            l1_data_gas_consumed,
+            overall_fee: fee.0,
+        };
 
         Ok((info, fee_info))
     }

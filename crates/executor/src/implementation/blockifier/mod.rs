@@ -2,7 +2,7 @@ use std::sync::Arc;
 
 // Re-export the blockifier crate.
 pub use blockifier;
-use blockifier::bouncer::{n_steps_to_sierra_gas, Bouncer, BouncerConfig, BouncerWeights};
+use blockifier::bouncer::{Bouncer, BouncerConfig, BouncerWeights, n_steps_to_sierra_gas};
 use cache::COMPILED_CLASS_CACHE;
 
 pub mod cache;
@@ -14,11 +14,11 @@ pub mod utils;
 use blockifier::context::BlockContext;
 use blockifier::state::cached_state::{self, MutRefState};
 use blockifier::state::state_api::StateReader;
+use katana_primitives::Felt;
 use katana_primitives::block::{ExecutableBlock, GasPrice as KatanaGasPrices, PartialHeader};
 use katana_primitives::env::{BlockEnv, CfgEnv};
 use katana_primitives::fee::TxFeeInfo;
 use katana_primitives::transaction::{ExecutableTx, ExecutableTxWithHash, TxWithHash};
-use katana_primitives::Felt;
 use katana_provider::traits::state::StateProvider;
 use starknet_api::block::{
     BlockInfo, BlockNumber, BlockTimestamp, GasPriceVector, GasPrices, NonzeroGasPrice,
@@ -261,7 +261,7 @@ impl<'a> BlockExecutor<'a> for StarknetVMProcessor<'a> {
                 Ok(exec_result) => {
                     match &exec_result {
                         ExecutionResult::Success { receipt, trace } => {
-                            self.stats.l1_gas_used += receipt.fee().gas_consumed;
+                            self.stats.l1_gas_used += receipt.fee().l1_gas_consumed;
                             self.stats.cairo_steps_used +=
                                 receipt.resources_used().vm_resources.n_steps as u128;
 

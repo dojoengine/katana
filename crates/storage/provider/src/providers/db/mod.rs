@@ -32,6 +32,7 @@ use katana_primitives::state::{StateUpdates, StateUpdatesWithClasses};
 use katana_primitives::trace::TxExecInfo;
 use katana_primitives::transaction::{TxHash, TxNumber, TxWithHash};
 
+use crate::ProviderResult;
 use crate::error::ProviderError;
 use crate::traits::block::{
     BlockHashProvider, BlockNumberProvider, BlockProvider, BlockStatusProvider, BlockWriter,
@@ -45,7 +46,6 @@ use crate::traits::transaction::{
     ReceiptProvider, TransactionProvider, TransactionStatusProvider, TransactionTraceProvider,
     TransactionsProviderExt,
 };
-use crate::ProviderResult;
 
 /// A provider implementation that uses a persistent database as the backend.
 // TODO: remove the default generic type
@@ -859,7 +859,7 @@ mod tests {
         Block, BlockHashOrNumber, FinalityStatus, Header, SealedBlockWithStatus,
     };
     use katana_primitives::contract::ContractAddress;
-    use katana_primitives::fee::{PriceUnit, TxFeeInfo};
+    use katana_primitives::fee::TxFeeInfo;
     use katana_primitives::receipt::{InvokeTxReceipt, Receipt};
     use katana_primitives::state::{StateUpdates, StateUpdatesWithClasses};
     use katana_primitives::trace::TxExecInfo;
@@ -951,13 +951,8 @@ mod tests {
                 revert_error: None,
                 events: Vec::new(),
                 messages_sent: Vec::new(),
+                fee: TxFeeInfo::default(),
                 execution_resources: Default::default(),
-                fee: TxFeeInfo {
-                    gas_consumed: 0,
-                    gas_price: 0,
-                    overall_fee: 0,
-                    unit: PriceUnit::Wei,
-                },
             })],
             vec![TxExecInfo::default()],
         )
@@ -1038,13 +1033,8 @@ mod tests {
                 revert_error: None,
                 events: Vec::new(),
                 messages_sent: Vec::new(),
+                fee: TxFeeInfo::default(),
                 execution_resources: Default::default(),
-                fee: TxFeeInfo {
-                    gas_consumed: 0,
-                    gas_price: 0,
-                    overall_fee: 0,
-                    unit: PriceUnit::Wei,
-                },
             })],
             vec![TxExecInfo::default()],
         )
@@ -1059,13 +1049,8 @@ mod tests {
                 revert_error: None,
                 events: Vec::new(),
                 messages_sent: Vec::new(),
+                fee: TxFeeInfo::default(),
                 execution_resources: Default::default(),
-                fee: TxFeeInfo {
-                    gas_consumed: 0,
-                    gas_price: 0,
-                    overall_fee: 0,
-                    unit: PriceUnit::Wei,
-                },
             })],
             vec![TxExecInfo::default()],
         )

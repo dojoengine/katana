@@ -5,11 +5,11 @@ use derive_more::{AsRef, Deref};
 use starknet::core::utils::starknet_keccak;
 use starknet_types_core::hash::{self, StarkHash};
 
+use crate::Felt;
 use crate::contract::ContractAddress;
 use crate::fee::TxFeeInfo;
 use crate::trace::TxResources;
 use crate::transaction::TxHash;
-use crate::Felt;
 
 #[derive(Debug, Clone, PartialEq, Eq)]
 #[cfg_attr(feature = "arbitrary", derive(arbitrary::Arbitrary))]
@@ -213,7 +213,7 @@ impl ReceiptWithTxHash {
             messages_hash,
             revert_reason_hash,
             Felt::ZERO, // L2 gas consumption.
-            self.receipt.fee().gas_consumed.into(),
+            self.receipt.fee().l1_gas_consumed.into(),
             // self.receipt.fee().l1_data_gas.into(),
         ])
     }
