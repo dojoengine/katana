@@ -169,8 +169,10 @@ impl From<katana_primitives::trace::TxResources> for ExecutionResources {
         //         memory_holes: Some(value.vm_resources.n_memory_holes as u64),
         //         ec_op_builtin_applications: value.vm_resources.builtin_instance_counter.ec_op(),
         //         ecdsa_builtin_applications: value.vm_resources.builtin_instance_counter.ecdsa(),
-        //         keccak_builtin_applications: value.vm_resources.builtin_instance_counter.keccak(),
-        //         bitwise_builtin_applications: value.vm_resources.builtin_instance_counter.bitwise(),
+        //         keccak_builtin_applications:
+        // value.vm_resources.builtin_instance_counter.keccak(),
+        //         bitwise_builtin_applications:
+        // value.vm_resources.builtin_instance_counter.bitwise(),
         //         pedersen_builtin_applications: value
         //             .vm_resources
         //             .builtin_instance_counter
@@ -183,8 +185,8 @@ impl From<katana_primitives::trace::TxResources> for ExecutionResources {
         //             .vm_resources
         //             .builtin_instance_counter
         //             .range_check(),
-        //         segment_arena_builtin: value.vm_resources.builtin_instance_counter.segment_arena(),
-        //     },
+        //         segment_arena_builtin:
+        // value.vm_resources.builtin_instance_counter.segment_arena(),     },
         //     data_resources: DataResources {
         //         data_availability: DataAvailabilityResources {
         //             l1_gas: value.data_availability.l1_gas as u64,

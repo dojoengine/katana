@@ -2,7 +2,6 @@ use std::sync::Arc;
 
 use anyhow::Result;
 use derive_more::Deref;
-use katana_primitives::Felt;
 use katana_primitives::chain::ChainId;
 use katana_primitives::class::{ClassHash, ContractClass};
 use katana_primitives::contract::ContractAddress;
@@ -12,6 +11,7 @@ use katana_primitives::transaction::{
     DeclareTx, DeclareTxV3, DeclareTxWithClass, DeployAccountTx, DeployAccountTxV3, InvokeTx,
     InvokeTxV3, TxHash, TxWithHash,
 };
+use katana_primitives::Felt;
 use num_traits::ToPrimitive;
 use serde::{Deserialize, Serialize};
 use starknet::core::types::{

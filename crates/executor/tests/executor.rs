@@ -11,11 +11,11 @@ use katana_primitives::genesis::constant::{
     DEFAULT_PREFUNDED_ACCOUNT_BALANCE, DEFAULT_UDC_ADDRESS,
 };
 use katana_primitives::transaction::TxWithHash;
-use katana_primitives::{Felt, address};
+use katana_primitives::{address, Felt};
 use katana_provider::traits::contract::ContractClassProviderExt;
 use katana_provider::traits::state::StateProvider;
 use starknet::core::utils::{
-    UdcUniqueSettings, UdcUniqueness, get_storage_var_address, get_udc_deployed_address,
+    get_storage_var_address, get_udc_deployed_address, UdcUniqueSettings, UdcUniqueness,
 };
 use starknet::macros::felt;
 

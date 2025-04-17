@@ -304,7 +304,6 @@ fn finality_status_from_receipt(receipt: &TransactionReceipt) -> TransactionFina
 
 #[cfg(test)]
 mod tests {
-    use crate::TestNode;
     use assert_matches::assert_matches;
     use starknet::core::types::ExecutionResult::{Reverted, Succeeded};
     use starknet::core::types::TransactionFinalityStatus::{self, AcceptedOnL1, AcceptedOnL2};
@@ -313,11 +312,11 @@ mod tests {
         ReceiptBlock, TransactionReceipt, TransactionReceiptWithBlockInfo,
     };
     use starknet::macros::felt;
-    use starknet::providers::JsonRpcClient;
     use starknet::providers::jsonrpc::HttpTransport;
+    use starknet::providers::JsonRpcClient;
 
     use super::{Duration, TxWaiter};
-    use crate::TransactionWaitingError;
+    use crate::{TestNode, TransactionWaitingError};
 
     async fn create_test_sequencer() -> (TestNode, JsonRpcClient<HttpTransport>) {
         let sequencer = TestNode::new().await;

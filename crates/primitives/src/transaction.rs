@@ -13,7 +13,7 @@ use crate::utils::transaction::{
     compute_declare_v3_tx_hash, compute_deploy_account_v1_tx_hash,
     compute_deploy_account_v3_tx_hash, compute_invoke_v1_tx_hash, compute_l1_handler_tx_hash,
 };
-use crate::{Felt, utils};
+use crate::{utils, Felt};
 
 /// The hash of a transaction.
 pub type TxHash = Felt;

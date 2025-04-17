@@ -1,17 +1,17 @@
 use std::str::FromStr;
 
-use anyhow::{Result, anyhow};
+use anyhow::{anyhow, Result};
 use cainome::cairo_serde;
 use katana_primitives::block::{BlockHash, BlockNumber};
 use katana_primitives::class::{
     CompiledClassHash, ComputeClassHashError, ContractClass, ContractClassCompilationError,
     ContractClassFromStrError,
 };
-use katana_primitives::{ContractAddress, Felt, felt};
+use katana_primitives::{felt, ContractAddress, Felt};
 use katana_rpc_types::class::RpcContractClass;
 use katana_utils::{TransactionWaitingError, TxWaiter};
 use piltover::{AppchainContract, AppchainContractReader, ProgramInfo};
-use spinoff::{Color, Spinner, spinners};
+use spinoff::{spinners, Color, Spinner};
 use starknet::accounts::{Account, AccountError, ConnectedAccount, SingleOwnerAccount};
 use starknet::contract::ContractFactory;
 use starknet::core::crypto::compute_hash_on_elements;
@@ -431,7 +431,7 @@ fn compute_starknet_os_config_hash(
 
 #[cfg(test)]
 mod tests {
-    use katana_primitives::{Felt, felt};
+    use katana_primitives::{felt, Felt};
     use starknet::core::chain_id::{MAINNET, SEPOLIA};
 
     use super::compute_starknet_os_config_hash;

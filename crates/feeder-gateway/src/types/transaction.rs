@@ -9,7 +9,7 @@ use katana_primitives::{ContractAddress, Felt};
 use serde::Deserialize;
 
 use super::serde_utils::{
-    deserialize_optional_u64, deserialize_optional_u128, deserialize_u64, deserialize_u128,
+    deserialize_optional_u128, deserialize_optional_u64, deserialize_u128, deserialize_u64,
 };
 
 #[derive(Debug, PartialEq, Eq, Deserialize)]

@@ -2,7 +2,7 @@ use std::path::PathBuf;
 use std::str::FromStr;
 use std::time::Duration;
 
-use alloy::primitives::{U256, Uint};
+use alloy::primitives::{Uint, U256};
 use alloy::providers::ProviderBuilder;
 use alloy::sol;
 use anyhow::Result;
@@ -13,8 +13,7 @@ use katana_primitives::utils::transaction::{
     compute_l1_handler_tx_hash, compute_l1_to_l2_message_hash,
 };
 use katana_rpc_types::receipt::ReceiptBlock;
-use katana_utils::TestNode;
-use katana_utils::TxWaiter;
+use katana_utils::{TestNode, TxWaiter};
 use rand::Rng;
 use starknet::accounts::{Account, ConnectedAccount};
 use starknet::contract::ContractFactory;

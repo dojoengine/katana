@@ -1,8 +1,8 @@
 use jsonrpsee::core::Error;
-use jsonrpsee::types::ErrorObject;
 use jsonrpsee::types::error::CallError;
-use katana_pool::PoolError;
+use jsonrpsee::types::ErrorObject;
 use katana_pool::validation::error::InvalidTransactionError;
+use katana_pool::PoolError;
 use katana_primitives::block::BlockNumber;
 use katana_primitives::event::ContinuationTokenError;
 use katana_provider::error::ProviderError;
