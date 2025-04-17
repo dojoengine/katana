@@ -9,7 +9,7 @@ use starknet::core::types::{
 };
 
 use crate::receipt::TxReceipt;
-use crate::transaction::{Tx, TxContent};
+use crate::transaction::TxContent;
 
 pub type BlockTxCount = u64;
 
