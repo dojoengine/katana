@@ -193,12 +193,7 @@ fn extract_block_data(
                 PriceUnit::Wei
             };
 
-            let fee = TxFeeInfo {
-                unit,
-                overall_fee,
-                gas_price: Default::default(),
-                gas_consumed: Default::default(),
-            };
+            let fee = TxFeeInfo { unit, overall_fee, ..Default::default() };
 
             match tx.transaction {
                 Tx::Invoke(_) => Receipt::Invoke(InvokeTxReceipt {

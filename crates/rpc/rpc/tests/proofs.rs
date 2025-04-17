@@ -281,12 +281,12 @@ async fn declare(
 
     let class_hash = contract.class_hash();
     let res = account
-        .declare_v2(contract.into(), compiled_class_hash)
+        .declare_v3(contract.into(), compiled_class_hash)
         .send()
         .await
         .expect("failed to send declare tx");
 
-    dojo_utils::TransactionWaiter::new(res.transaction_hash, account.provider())
+    katana_utils::TxWaiter::new(res.transaction_hash, account.provider())
         .await
         .expect("failed to wait on tx");
 

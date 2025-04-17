@@ -43,9 +43,7 @@ use katana_rpc_types::trie::{
 use katana_rpc_types::FeeEstimate;
 use katana_rpc_types_builder::ReceiptBuilder;
 use katana_tasks::{BlockingTaskPool, TokioTaskSpawner};
-use starknet::core::types::{
-    PriceUnit, ResultPageRequest, TransactionExecutionStatus, TransactionStatus,
-};
+use starknet::core::types::{PriceUnit, ResultPageRequest, TransactionStatus};
 
 use crate::utils;
 use crate::utils::events::{Cursor, EventBlockId};
@@ -168,11 +166,13 @@ where
         for (i, res) in results.into_iter().enumerate() {
             match res {
                 Ok(fee) => estimates.push(FeeEstimate {
-                    gas_price: fee.gas_price.into(),
-                    gas_consumed: fee.gas_consumed.into(),
+                    l1_gas_price: fee.l1_gas_price.into(),
+                    l1_gas_consumed: fee.l1_gas_consumed.into(),
+                    l2_gas_consumed: fee.l2_gas_consumed.into(),
+                    l2_gas_price: fee.l2_gas_price.into(),
                     overall_fee: fee.overall_fee.into(),
-                    data_gas_price: Default::default(),
-                    data_gas_consumed: Default::default(),
+                    l1_data_gas_price: Default::default(),
+                    l1_data_gas_consumed: Default::default(),
                     unit: match fee.unit {
                         katana_primitives::fee::PriceUnit::Wei => PriceUnit::Wei,
                         katana_primitives::fee::PriceUnit::Fri => PriceUnit::Fri,
@@ -539,10 +539,12 @@ where
                         });
                     };
 
-                    let exec_status = if receipt.is_reverted() {
-                        TransactionExecutionStatus::Reverted
+                    let exec_status = if let Some(reason) = receipt.revert_reason() {
+                        starknet::core::types::ExecutionResult::Reverted {
+                            reason: reason.to_string(),
+                        }
                     } else {
-                        TransactionExecutionStatus::Succeeded
+                        starknet::core::types::ExecutionResult::Succeeded
                     };
 
                     let status = match status {
@@ -570,13 +572,15 @@ where
                     let status = match res {
                         ExecutionResult::Failed { .. } => TransactionStatus::Rejected,
                         ExecutionResult::Success { receipt, .. } => {
-                            if receipt.is_reverted() {
+                            if let Some(reason) = receipt.revert_reason() {
                                 TransactionStatus::AcceptedOnL2(
-                                    TransactionExecutionStatus::Reverted,
+                                    starknet::core::types::ExecutionResult::Reverted {
+                                        reason: reason.to_string(),
+                                    },
                                 )
                             } else {
                                 TransactionStatus::AcceptedOnL2(
-                                    TransactionExecutionStatus::Succeeded,
+                                    starknet::core::types::ExecutionResult::Succeeded,
                                 )
                             }
                         }

@@ -359,7 +359,7 @@ mod tests {
     use katana_primitives::block::{BlockHash, BlockNumber, FinalityStatus, Header};
     use katana_primitives::class::{ClassHash, CompiledClass, CompiledClassHash};
     use katana_primitives::contract::{ContractAddress, GenericContractInfo};
-    use katana_primitives::fee::{PriceUnit, TxFeeInfo};
+    use katana_primitives::fee::TxFeeInfo;
     use katana_primitives::receipt::{InvokeTxReceipt, Receipt};
     use katana_primitives::trace::TxExecInfo;
     use katana_primitives::transaction::{InvokeTx, Tx, TxHash, TxNumber};
@@ -446,7 +446,7 @@ mod tests {
                 events: Vec::new(),
                 messages_sent: Vec::new(),
                 execution_resources: Default::default(),
-                fee: TxFeeInfo { gas_consumed: 0, gas_price: 0, overall_fee: 0, unit: PriceUnit::Wei },
+                fee: TxFeeInfo::default(),
             })),
             (TrieDatabaseValue, TrieDatabaseValue::default()),
             (TrieHistoryEntry, TrieHistoryEntry {

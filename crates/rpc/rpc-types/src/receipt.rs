@@ -5,9 +5,8 @@ use katana_primitives::transaction::TxHash;
 use serde::{Deserialize, Serialize};
 pub use starknet::core::types::ReceiptBlock;
 use starknet::core::types::{
-    ComputationResources, DataAvailabilityResources, DataResources, DeclareTransactionReceipt,
-    DeployAccountTransactionReceipt, ExecutionResult, FeePayment, Hash256,
-    InvokeTransactionReceipt, L1HandlerTransactionReceipt, TransactionFinalityStatus,
+    DeclareTransactionReceipt, DeployAccountTransactionReceipt, ExecutionResult, FeePayment,
+    Hash256, InvokeTransactionReceipt, L1HandlerTransactionReceipt, TransactionFinalityStatus,
     TransactionReceipt, TransactionReceiptWithBlockInfo,
 };
 
@@ -164,34 +163,42 @@ struct ExecutionResources(starknet::core::types::ExecutionResources);
 
 impl From<katana_primitives::trace::TxResources> for ExecutionResources {
     fn from(value: katana_primitives::trace::TxResources) -> Self {
+        // ExecutionResources(starknet::core::types::ExecutionResources {
+        //     computation_resources: ComputationResources {
+        //         steps: value.vm_resources.n_steps as u64,
+        //         memory_holes: Some(value.vm_resources.n_memory_holes as u64),
+        //         ec_op_builtin_applications: value.vm_resources.builtin_instance_counter.ec_op(),
+        //         ecdsa_builtin_applications: value.vm_resources.builtin_instance_counter.ecdsa(),
+        //         keccak_builtin_applications:
+        // value.vm_resources.builtin_instance_counter.keccak(),
+        //         bitwise_builtin_applications:
+        // value.vm_resources.builtin_instance_counter.bitwise(),
+        //         pedersen_builtin_applications: value
+        //             .vm_resources
+        //             .builtin_instance_counter
+        //             .pedersen(),
+        //         poseidon_builtin_applications: value
+        //             .vm_resources
+        //             .builtin_instance_counter
+        //             .poseidon(),
+        //         range_check_builtin_applications: value
+        //             .vm_resources
+        //             .builtin_instance_counter
+        //             .range_check(),
+        //         segment_arena_builtin:
+        // value.vm_resources.builtin_instance_counter.segment_arena(),     },
+        //     data_resources: DataResources {
+        //         data_availability: DataAvailabilityResources {
+        //             l1_gas: value.data_availability.l1_gas as u64,
+        //             l1_data_gas: value.data_availability.l1_data_gas as u64,
+        //         },
+        //     },
+        // })
+        //
         ExecutionResources(starknet::core::types::ExecutionResources {
-            computation_resources: ComputationResources {
-                steps: value.vm_resources.n_steps as u64,
-                memory_holes: Some(value.vm_resources.n_memory_holes as u64),
-                ec_op_builtin_applications: value.vm_resources.builtin_instance_counter.ec_op(),
-                ecdsa_builtin_applications: value.vm_resources.builtin_instance_counter.ecdsa(),
-                keccak_builtin_applications: value.vm_resources.builtin_instance_counter.keccak(),
-                bitwise_builtin_applications: value.vm_resources.builtin_instance_counter.bitwise(),
-                pedersen_builtin_applications: value
-                    .vm_resources
-                    .builtin_instance_counter
-                    .pedersen(),
-                poseidon_builtin_applications: value
-                    .vm_resources
-                    .builtin_instance_counter
-                    .poseidon(),
-                range_check_builtin_applications: value
-                    .vm_resources
-                    .builtin_instance_counter
-                    .range_check(),
-                segment_arena_builtin: value.vm_resources.builtin_instance_counter.segment_arena(),
-            },
-            data_resources: DataResources {
-                data_availability: DataAvailabilityResources {
-                    l1_gas: value.data_availability.l1_gas as u64,
-                    l1_data_gas: value.data_availability.l1_data_gas as u64,
-                },
-            },
+            l1_gas: 0,
+            l2_gas: 0,
+            l1_data_gas: 0,
         })
     }
 }

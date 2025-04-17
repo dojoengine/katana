@@ -270,7 +270,7 @@ fn test_executor_with_valid_blocks_impl<EF: ExecutorFactory>(
         .iter()
         .map(|(tx, res)| {
             if let Some(fee) = res.receipt().map(|r| r.fee()) {
-                actual_total_gas += fee.gas_consumed;
+                actual_total_gas += fee.l1_gas_consumed;
             }
             if let Some(rec) = res.receipt() {
                 actual_total_steps += rec.resources_used().vm_resources.n_steps as u128;

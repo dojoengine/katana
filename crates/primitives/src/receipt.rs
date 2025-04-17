@@ -213,7 +213,7 @@ impl ReceiptWithTxHash {
             messages_hash,
             revert_reason_hash,
             Felt::ZERO, // L2 gas consumption.
-            self.receipt.fee().gas_consumed.into(),
+            self.receipt.fee().l1_gas_consumed.into(),
             // self.receipt.fee().l1_data_gas.into(),
         ])
     }
