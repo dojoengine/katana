@@ -342,7 +342,6 @@ impl From<TxWithHash> for TxContent {
     fn from(value: TxWithHash) -> Self {
         use katana_primitives::transaction::Tx as InternalTx;
 
-        let transaction_hash = value.hash;
         let tx = match value.transaction {
             InternalTx::Invoke(invoke) => match invoke {
                 InvokeTx::V0(tx) => TransactionContent::Invoke(InvokeTransactionContent::V0(
@@ -628,6 +627,10 @@ fn from_rpc_resource_bounds(
             max_amount: rpc_bounds.l2_gas.max_amount,
             max_price_per_unit: rpc_bounds.l2_gas.max_price_per_unit,
         },
+        l1_data_gas: ResourceBounds {
+            max_amount: rpc_bounds.l1_data_gas.max_amount,
+            max_price_per_unit: rpc_bounds.l1_data_gas.max_price_per_unit,
+        },
     }
 }
 
@@ -644,8 +647,8 @@ fn to_rpc_resource_bounds(
             max_price_per_unit: bounds.l2_gas.max_price_per_unit,
         },
         l1_data_gas: starknet::core::types::ResourceBounds {
-            max_amount: bounds.l2_gas.max_amount,
-            max_price_per_unit: bounds.l2_gas.max_price_per_unit,
+            max_amount: bounds.l1_data_gas.max_amount,
+            max_price_per_unit: bounds.l1_data_gas.max_price_per_unit,
         },
     }
 }

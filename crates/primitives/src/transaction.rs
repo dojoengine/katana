@@ -13,7 +13,7 @@ use crate::utils::transaction::{
     compute_declare_v3_tx_hash, compute_deploy_account_v1_tx_hash,
     compute_deploy_account_v3_tx_hash, compute_invoke_v1_tx_hash, compute_l1_handler_tx_hash,
 };
-use crate::{utils, Felt};
+use crate::{Felt, utils};
 
 /// The hash of a transaction.
 pub type TxHash = Felt;
@@ -298,6 +298,7 @@ impl InvokeTx {
                 tx.tip,
                 &tx.resource_bounds.l1_gas,
                 &tx.resource_bounds.l2_gas,
+                &tx.resource_bounds.l1_data_gas,
                 &tx.paymaster_data,
                 tx.chain_id.into(),
                 tx.nonce,
@@ -473,6 +474,7 @@ impl DeclareTx {
                 tx.tip,
                 &tx.resource_bounds.l1_gas,
                 &tx.resource_bounds.l2_gas,
+                &tx.resource_bounds.l1_data_gas,
                 &tx.paymaster_data,
                 tx.chain_id.into(),
                 tx.nonce,
@@ -623,6 +625,7 @@ impl DeployAccountTx {
                 tx.tip,
                 &tx.resource_bounds.l1_gas,
                 &tx.resource_bounds.l2_gas,
+                &tx.resource_bounds.l1_data_gas,
                 &tx.paymaster_data,
                 tx.chain_id.into(),
                 tx.nonce,

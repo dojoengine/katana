@@ -3,9 +3,9 @@ use starknet::core::crypto::compute_hash_on_elements;
 use starknet::core::types::{EthAddress, MsgToL1, MsgToL2};
 use starknet_crypto::poseidon_hash_many;
 
+use crate::Felt;
 use crate::da::DataAvailabilityMode;
 use crate::fee::ResourceBounds;
-use crate::Felt;
 
 /// 2^ 128
 const QUERY_VERSION_OFFSET: Felt =
@@ -334,7 +334,7 @@ fn hash_fee_fields(
         tip.into(),
         encode_gas_bound(b"L1_GAS", l1_gas_bounds),
         encode_gas_bound(b"L2_GAS", l2_gas_bounds),
-        encode_gas_bound(b"L1_DATA_GAS", l1_data_gas_bounds),
+        encode_gas_bound(b"L1_DATA", l1_data_gas_bounds),
     ])
 }
 

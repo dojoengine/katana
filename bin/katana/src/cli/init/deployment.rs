@@ -1,17 +1,17 @@
 use std::str::FromStr;
 
-use anyhow::{anyhow, Result};
+use anyhow::{Result, anyhow};
 use cainome::cairo_serde;
-use dojo_utils::{TransactionWaiter, TransactionWaitingError};
 use katana_primitives::block::{BlockHash, BlockNumber};
 use katana_primitives::class::{
     CompiledClassHash, ComputeClassHashError, ContractClass, ContractClassCompilationError,
     ContractClassFromStrError,
 };
-use katana_primitives::{felt, ContractAddress, Felt};
+use katana_primitives::{ContractAddress, Felt, felt};
 use katana_rpc_types::class::RpcContractClass;
+use katana_utils::{TransactionWaitingError, TxWaiter};
 use piltover::{AppchainContract, AppchainContractReader, ProgramInfo};
-use spinoff::{spinners, Color, Spinner};
+use spinoff::{Color, Spinner, spinners};
 use starknet::accounts::{Account, AccountError, ConnectedAccount, SingleOwnerAccount};
 use starknet::contract::ContractFactory;
 use starknet::core::crypto::compute_hash_on_elements;
@@ -111,7 +111,7 @@ pub async fn deploy_settlement_contract(
                     })
                     .map_err(ContractInitError::DeclarationError)?;
 
-                TransactionWaiter::new(res.transaction_hash, account.provider()).await?;
+                TxWaiter::new(res.transaction_hash, account.provider()).await?;
             }
 
             Err(err) => return Err(ContractInitError::Provider(err)),
@@ -163,7 +163,7 @@ pub async fn deploy_settlement_contract(
         // between the block info returned by the receipt. so we query both at the same time
         // to minimize the chance of a mismatch.
         let (deployment_receipt_res, block_number_res) = tokio::join!(
-            TransactionWaiter::new(res.transaction_hash, account.provider()),
+            TxWaiter::new(res.transaction_hash, account.provider()),
             account.provider().block_number()
         );
 
@@ -218,7 +218,7 @@ pub async fn deploy_settlement_contract(
             })
             .map_err(ContractInitError::Initialization)?;
 
-        TransactionWaiter::new(res.transaction_hash, account.provider()).await?;
+        TxWaiter::new(res.transaction_hash, account.provider()).await?;
 
         // 2. Fact Registry
 
@@ -235,7 +235,7 @@ pub async fn deploy_settlement_contract(
             })
             .map_err(ContractInitError::Initialization)?;
 
-        TransactionWaiter::new(res.transaction_hash, account.provider()).await?;
+        TxWaiter::new(res.transaction_hash, account.provider()).await?;
 
         // -----------------------------------------------------------------------
         // FINAL CHECKS
@@ -431,7 +431,7 @@ fn compute_starknet_os_config_hash(
 
 #[cfg(test)]
 mod tests {
-    use katana_primitives::{felt, Felt};
+    use katana_primitives::{Felt, felt};
     use starknet::core::chain_id::{MAINNET, SEPOLIA};
 
     use super::compute_starknet_os_config_hash;

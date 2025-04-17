@@ -2,12 +2,11 @@ use std::path::PathBuf;
 use std::str::FromStr;
 use std::time::Duration;
 
-use alloy::primitives::{Uint, U256};
+use alloy::primitives::{U256, Uint};
 use alloy::providers::ProviderBuilder;
 use alloy::sol;
 use anyhow::Result;
 use cainome::rs::abigen;
-use dojo_utils::TransactionWaiter;
 use katana_messaging::MessagingConfig;
 use katana_primitives::felt;
 use katana_primitives::utils::transaction::{
@@ -15,6 +14,7 @@ use katana_primitives::utils::transaction::{
 };
 use katana_rpc_types::receipt::ReceiptBlock;
 use katana_utils::TestNode;
+use katana_utils::TxWaiter;
 use rand::Rng;
 use starknet::accounts::{Account, ConnectedAccount};
 use starknet::contract::ContractFactory;
@@ -81,10 +81,10 @@ async fn test_messaging() {
 
         // Declare the contract
         let class_hash = contract.class_hash();
-        let res = katana_account.declare_v2(contract.into(), compiled_hash).send().await.unwrap();
+        let res = katana_account.declare_v3(contract.into(), compiled_hash).send().await.unwrap();
 
         // The waiter already checks that the transaction is accepted and succeeded on L2.
-        TransactionWaiter::new(res.transaction_hash, katana_account.provider())
+        TxWaiter::new(res.transaction_hash, katana_account.provider())
             .await
             .expect("declare tx failed");
 
@@ -100,13 +100,13 @@ async fn test_messaging() {
 
         // Deploy the contract using UDC
         let res = ContractFactory::new(class_hash, &katana_account)
-            .deploy_v1(Vec::new(), Felt::ZERO, false)
+            .deploy_v3(Vec::new(), Felt::ZERO, false)
             .send()
             .await
             .expect("Unable to deploy contract");
 
         // The waiter already checks that the transaction is accepted and succeeded on L2.
-        TransactionWaiter::new(res.transaction_hash, katana_account.provider())
+        TxWaiter::new(res.transaction_hash, katana_account.provider())
             .await
             .expect("deploy tx failed");
 
@@ -242,16 +242,16 @@ async fn estimate_message_fee() -> Result<()> {
     let (contract, compiled_hash) = common::prepare_contract_declaration_params(&path)?;
     let class_hash = contract.class_hash();
 
-    let res = account.declare_v2(contract.into(), compiled_hash).send().await?;
-    TransactionWaiter::new(res.transaction_hash, account.provider()).await?;
+    let res = account.declare_v3(contract.into(), compiled_hash).send().await?;
+    TxWaiter::new(res.transaction_hash, account.provider()).await?;
 
     // Deploy the contract using UDC
     let res = ContractFactory::new(class_hash, &account)
-        .deploy_v1(Vec::new(), Felt::ZERO, false)
+        .deploy_v3(Vec::new(), Felt::ZERO, false)
         .send()
         .await?;
 
-    TransactionWaiter::new(res.transaction_hash, account.provider()).await?;
+    TxWaiter::new(res.transaction_hash, account.provider()).await?;
 
     // Compute the contract address of the l1 handler contract
     let l1handler_address = get_contract_address(Felt::ZERO, class_hash, &[], Felt::ZERO);

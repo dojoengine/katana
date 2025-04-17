@@ -7,17 +7,17 @@ use katana_node::config::rpc::DEFAULT_RPC_MAX_PROOF_KEYS;
 use katana_primitives::block::BlockIdOrTag;
 use katana_primitives::class::{ClassHash, CompiledClassHash};
 use katana_primitives::contract::{StorageKey, StorageValue};
-use katana_primitives::{hash, ContractAddress, Felt};
+use katana_primitives::{ContractAddress, Felt, hash};
 use katana_rpc_api::starknet::StarknetApiClient;
 use katana_rpc_types::trie::ContractStorageKeys;
 use katana_trie::{
-    compute_classes_trie_value, compute_contract_state_hash, ClassesMultiProof, MultiProof,
+    ClassesMultiProof, MultiProof, compute_classes_trie_value, compute_contract_state_hash,
 };
 use katana_utils::TestNode;
 use starknet::accounts::{Account, ConnectedAccount, SingleOwnerAccount};
 use starknet::core::types::BlockTag;
-use starknet::providers::jsonrpc::HttpTransport;
 use starknet::providers::JsonRpcClient;
+use starknet::providers::jsonrpc::HttpTransport;
 use starknet::signers::LocalWallet;
 
 mod common;
@@ -281,12 +281,12 @@ async fn declare(
 
     let class_hash = contract.class_hash();
     let res = account
-        .declare_v2(contract.into(), compiled_class_hash)
+        .declare_v3(contract.into(), compiled_class_hash)
         .send()
         .await
         .expect("failed to send declare tx");
 
-    dojo_utils::TransactionWaiter::new(res.transaction_hash, account.provider())
+    katana_utils::TxWaiter::new(res.transaction_hash, account.provider())
         .await
         .expect("failed to wait on tx");
 
