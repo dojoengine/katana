@@ -7,7 +7,7 @@ use katana_primitives::chain::NamedChainId;
 use katana_primitives::event::MaybeForkedContinuationToken;
 use katana_primitives::genesis::constant::DEFAULT_ETH_FEE_TOKEN_ADDRESS;
 use katana_primitives::transaction::TxHash;
-use katana_primitives::{felt, Felt};
+use katana_primitives::{Felt, felt};
 use katana_utils::TestNode;
 use starknet::core::types::{EventFilter, MaybePendingBlockWithTxHashes, StarknetError};
 use starknet::providers::jsonrpc::HttpTransport;
@@ -17,7 +17,7 @@ use url::Url;
 mod common;
 
 const SEPOLIA_CHAIN_ID: Felt = NamedChainId::SN_SEPOLIA;
-const SEPOLIA_URL: &str = "https://api.cartridge.gg/x/starknet/sepolia";
+const SEPOLIA_URL: &str = "https://api.cartridge.gg/x/starknet/sepolia/rpc/v0_8";
 const FORK_BLOCK_NUMBER: BlockNumber = 268_471;
 const FORK_BLOCK_HASH: BlockHash =
     felt!("0x208950cfcbba73ecbda1c14e4d58d66a8d60655ea1b9dcf07c16014ae8a93cd");
@@ -48,7 +48,7 @@ async fn setup_test_inner(no_mining: bool) -> (TestNode, impl Provider, LocalTes
 
     // create some emtpy blocks and dummy transactions
     abigen_legacy!(FeeToken, "crates/rpc/rpc/tests/test_data/erc20.json");
-    let contract = FeeToken::new(DEFAULT_ETH_FEE_TOKEN_ADDRESS.into(), sequencer.account());
+    let contract = FeeToken::new(DEFAULT_STRK_FEE_TOKEN_ADDRESS.into(), sequencer.account());
 
     if no_mining {
         // In no mining mode, bcs we're not producing any blocks, the transactions that we send

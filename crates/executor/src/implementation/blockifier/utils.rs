@@ -41,8 +41,8 @@ use starknet_api::executable_transaction::{
     DeclareTransaction, DeployAccountTransaction, InvokeTransaction, L1HandlerTransaction,
 };
 use starknet_api::transaction::fields::{
-    AccountDeploymentData, Calldata, ContractAddressSalt, Fee, PaymasterData, ResourceBounds, Tip,
-    TransactionSignature, ValidResourceBounds,
+    AccountDeploymentData, AllResourceBounds, Calldata, ContractAddressSalt, Fee, PaymasterData,
+    ResourceBounds, Tip, TransactionSignature, ValidResourceBounds,
 };
 use starknet_api::transaction::{
     DeclareTransaction as ApiDeclareTransaction, DeclareTransactionV0V1, DeclareTransactionV2,
@@ -525,11 +525,22 @@ fn to_api_da_mode(mode: katana_primitives::da::DataAvailabilityMode) -> DataAvai
 fn to_api_resource_bounds(
     resource_bounds: katana_primitives::fee::ResourceBoundsMapping,
 ) -> ValidResourceBounds {
-    // Pre 0.13.3. Only L1 gas. L2 bounds are signed but never used.
-    ValidResourceBounds::L1Gas(ResourceBounds {
+    let l1_gas = ResourceBounds {
         max_amount: resource_bounds.l1_gas.max_amount.into(),
         max_price_per_unit: resource_bounds.l1_gas.max_price_per_unit.into(),
-    })
+    };
+
+    let l2_gas = ResourceBounds {
+        max_amount: resource_bounds.l2_gas.max_amount.into(),
+        max_price_per_unit: resource_bounds.l2_gas.max_price_per_unit.into(),
+    };
+
+    let l1_data_gas = ResourceBounds {
+        max_amount: resource_bounds.l1_data_gas.max_amount.into(),
+        max_price_per_unit: resource_bounds.l1_data_gas.max_price_per_unit.into(),
+    };
+
+    ValidResourceBounds::AllResources(AllResourceBounds { l1_gas, l2_gas, l1_data_gas })
 }
 
 /// Get the fee type of a transaction. The fee type determines the token used to pay for the

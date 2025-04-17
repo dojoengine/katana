@@ -18,9 +18,8 @@ use katana_utils::TestNode;
 use num_traits::ToPrimitive;
 use starknet::accounts::{
     Account, AccountError, AccountFactory, ConnectedAccount, ExecutionEncoding,
-    OpenZeppelinAccountFactory, SingleOwnerAccount,
+    OpenZeppelinAccountFactory as OZAccountFactory, SingleOwnerAccount,
 };
-use starknet::core::types::contract::legacy::LegacyContractClass;
 use starknet::core::types::{
     BlockId, BlockTag, Call, DeclareTransactionReceipt, DeployAccountTransactionReceipt,
     EventFilter, EventsPage, ExecutionResult, Felt, MaybePendingBlockWithReceipts,
@@ -31,7 +30,7 @@ use starknet::core::types::{
 use starknet::core::utils::get_contract_address;
 use starknet::macros::{felt, selector};
 use starknet::providers::{Provider, ProviderError};
-use starknet::signers::{LocalWallet, Signer, SigningKey};
+use starknet::signers::{LocalWallet, SigningKey};
 use tokio::sync::Mutex;
 
 mod common;
@@ -150,7 +149,7 @@ async fn declaring_already_existing_class() -> Result<()> {
 async fn deploy_account(
     #[values(true, false)] disable_fee: bool,
     #[values(None, Some(1000))] block_time: Option<u64>,
-) -> Result<()> {
+) {
     // setup test sequencer with the given configuration
     let mut config = katana_utils::node::test_config();
     config.dev.fee = !disable_fee;
@@ -160,44 +159,45 @@ async fn deploy_account(
 
     let provider = sequencer.starknet_provider();
     let funding_account = sequencer.account();
-    let chain_id = provider.chain_id().await?;
+    let chain_id = provider.chain_id().await.unwrap();
 
-    // Precompute the contract address of the new account with the given parameters:
     let signer = LocalWallet::from(SigningKey::from_random());
-    let class_hash = DEFAULT_ACCOUNT_CLASS_HASH;
+    let class = DEFAULT_ACCOUNT_CLASS_HASH;
     let salt = felt!("0x123");
-    let ctor_args = [signer.get_public_key().await?.scalar()];
-    let computed_address = get_contract_address(salt, class_hash, &ctor_args, Felt::ZERO);
+
+    // starknet-rs's utility for deploying an OpenZeppelin account
+    let factory = OZAccountFactory::new(class, chain_id, &signer, &provider).await.unwrap();
+    let deploy_account_tx = factory.deploy_v3(salt);
+    let account_address = deploy_account_tx.address();
 
     // Fund the new account
     abigen_legacy!(FeeToken, "crates/rpc/rpc/tests/test_data/erc20.json");
-    let contract = FeeToken::new(DEFAULT_ETH_FEE_TOKEN_ADDRESS.into(), &funding_account);
+    let contract = FeeToken::new(DEFAULT_STRK_FEE_TOKEN_ADDRESS.into(), &funding_account);
 
     // send enough tokens to the new_account's address just to send the deploy account tx
     let amount = Uint256 { low: felt!("0x1ba32524a3000"), high: Felt::ZERO };
-    let recipient = computed_address;
-    let res = contract.transfer(&recipient, &amount).send().await?;
-    katana_utils::TxWaiter::new(res.transaction_hash, &provider).await?;
+    let res = contract.transfer(&account_address, &amount).send().await.unwrap();
+    katana_utils::TxWaiter::new(res.transaction_hash, &provider).await.unwrap();
 
-    // starknet-rs's utility for deploying an OpenZeppelin account
-    let factory = OpenZeppelinAccountFactory::new(class_hash, chain_id, &signer, &provider).await?;
-    let res = factory.deploy_v3(salt).send().await?;
+    // send the deploy account transaction
+    let res = deploy_account_tx.send().await.unwrap();
     // the contract address in the send tx result must be the same as the computed one
-    assert_eq!(res.contract_address, computed_address);
+    assert_eq!(res.contract_address, account_address);
 
-    let receipt = katana_utils::TxWaiter::new(res.transaction_hash, &provider).await?;
+    let receipt = katana_utils::TxWaiter::new(res.transaction_hash, &provider).await.unwrap();
     assert_matches!(
         receipt.receipt,
         TransactionReceipt::DeployAccount(DeployAccountTransactionReceipt { contract_address, .. })  => {
             // the contract address in the receipt must be the same as the computed one
-            assert_eq!(contract_address, computed_address)
+            assert_eq!(contract_address, account_address)
         }
     );
 
     // Verify the `getClassHashAt` returns the same class hash that we use for the account
     // deployment
-    let res = provider.get_class_hash_at(BlockId::Tag(BlockTag::Pending), computed_address).await?;
-    assert_eq!(res, class_hash);
+    let res =
+        provider.get_class_hash_at(BlockId::Tag(BlockTag::Pending), account_address).await.unwrap();
+    assert_eq!(res, class);
 
     // deploy from empty balance,
     // need to test this case because of how blockifier's StatefulValidator works.
@@ -206,32 +206,31 @@ async fn deploy_account(
         let salt = felt!("0x456");
 
         // starknet-rs's utility for deploying an OpenZeppelin account
-        let factory =
-            OpenZeppelinAccountFactory::new(class_hash, chain_id, &signer, &provider).await?;
-        let res = factory.deploy_v3(salt).send().await?;
-        let ctor_args = [signer.get_public_key().await?.scalar()];
-        let computed_address = get_contract_address(salt, class_hash, &ctor_args, Felt::ZERO);
+        let deploy_account_tx = factory.deploy_v3(salt);
+        let account_address = deploy_account_tx.address();
 
+        // send the tx
+        let res = deploy_account_tx.send().await.unwrap();
         // the contract address in the send tx result must be the same as the computed one
-        assert_eq!(res.contract_address, computed_address);
+        assert_eq!(res.contract_address, account_address);
 
-        let receipt = katana_utils::TxWaiter::new(res.transaction_hash, &provider).await?;
+        let receipt = katana_utils::TxWaiter::new(res.transaction_hash, &provider).await.unwrap();
         assert_matches!(
             receipt.receipt,
             TransactionReceipt::DeployAccount(DeployAccountTransactionReceipt { contract_address, .. })  => {
                 // the contract address in the receipt must be the same as the computed one
-                assert_eq!(contract_address, computed_address)
+                assert_eq!(contract_address, account_address)
             }
         );
 
         // Verify the `getClassHashAt` returns the same class hash that we use for the account
         // deployment
-        let res =
-            provider.get_class_hash_at(BlockId::Tag(BlockTag::Pending), computed_address).await?;
-        assert_eq!(res, class_hash);
+        let res = provider
+            .get_class_hash_at(BlockId::Tag(BlockTag::Pending), account_address)
+            .await
+            .unwrap();
+        assert_eq!(res, class);
     }
-
-    Ok(())
 }
 
 abigen_legacy!(Erc20Contract, "crates/rpc/rpc/tests/test_data/erc20.json", derives(Clone));
@@ -478,7 +477,7 @@ async fn send_txs_with_invalid_signature(
     );
 
     // setup test contract to interact with.
-    let contract = Erc20Contract::new(DEFAULT_ETH_FEE_TOKEN_ADDRESS.into(), &account);
+    let contract = Erc20Contract::new(DEFAULT_STRK_FEE_TOKEN_ADDRESS.into(), &account);
 
     // function call params
     let recipient = Felt::ONE;
