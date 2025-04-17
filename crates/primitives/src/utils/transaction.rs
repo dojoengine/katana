@@ -334,7 +334,7 @@ fn hash_fee_fields(
         tip.into(),
         encode_gas_bound(b"L1_GAS", l1_gas_bounds),
         encode_gas_bound(b"L2_GAS", l2_gas_bounds),
-        encode_gas_bound(b"L1_DATA_GAS", l1_data_gas_bounds),
+        encode_gas_bound(b"L1_DATA", l1_data_gas_bounds),
     ])
 }
 

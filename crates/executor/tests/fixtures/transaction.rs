@@ -10,9 +10,7 @@ use katana_primitives::transaction::ExecutableTxWithHash;
 use katana_primitives::utils::transaction::compute_invoke_v3_tx_hash;
 use katana_primitives::Felt;
 use starknet::accounts::{Account, ExecutionEncoder, ExecutionEncoding, SingleOwnerAccount};
-use starknet::core::types::{
-    BlockId, BlockTag,  BroadcastedInvokeTransactionV3, Call,
-};
+use starknet::core::types::{BlockId, BlockTag, BroadcastedInvokeTransactionV3, Call};
 use starknet::macros::{felt, selector};
 use starknet::providers::jsonrpc::HttpTransport;
 use starknet::providers::{JsonRpcClient, Url};
@@ -51,10 +49,10 @@ pub fn invoke_executable_tx(
 
     let tip = 0;
     let l1_gas = ResourceBounds { max_amount: 0, max_price_per_unit: 0 };
-    let l1_data_gas = ResourceBounds { max_amount: 0, max_price_per_unit: 0 };
     let l2_gas = ResourceBounds { max_amount: 0, max_price_per_unit: 0 };
+    let l1_data_gas = ResourceBounds { max_amount: 0, max_price_per_unit: 0 };
+    let resource_bounds = ResourceBoundsMapping { l1_gas, l2_gas, l1_data_gas };
 
-    let resource_bounds = ResourceBoundsMapping { l1_gas, l2_gas };
     let nonce_da_mode = DataAvailabilityMode::L1;
     let fee_da_mode = DataAvailabilityMode::L1;
     let calldata = account.encode_calls(&calls);
@@ -65,6 +63,7 @@ pub fn invoke_executable_tx(
         tip,
         &resource_bounds.l1_gas,
         &resource_bounds.l2_gas,
+        &resource_bounds.l1_data_gas,
         &[],
         chain_id.into(),
         nonce,
@@ -93,8 +92,8 @@ pub fn invoke_executable_tx(
             max_price_per_unit: resource_bounds.l1_gas.max_price_per_unit,
         },
         l1_data_gas: starknet::core::types::ResourceBounds {
-            max_amount: l1_data_gas.max_amount,
-            max_price_per_unit: l1_data_gas.max_price_per_unit,
+            max_amount: resource_bounds.l1_data_gas.max_amount,
+            max_price_per_unit: resource_bounds.l1_data_gas.max_price_per_unit,
         },
         l2_gas: starknet::core::types::ResourceBounds {
             max_amount: resource_bounds.l2_gas.max_amount,

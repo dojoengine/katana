@@ -88,7 +88,7 @@ pub fn to_rpc_trace(trace: TypedTransactionExecutionInfo) -> TransactionTrace {
     }
 }
 
-pub fn to_rpc_fee_estimate(resources: receipt::ExecutionResources, fee: &FeeInfo) -> FeeEstimate {
+pub fn to_rpc_fee_estimate(resources: &receipt::ExecutionResources, fee: &FeeInfo) -> FeeEstimate {
     let unit = match fee.unit {
         fee::PriceUnit::Wei => PriceUnit::Wei,
         fee::PriceUnit::Fri => PriceUnit::Fri,

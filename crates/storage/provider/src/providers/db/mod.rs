@@ -32,7 +32,6 @@ use katana_primitives::receipt::Receipt;
 use katana_primitives::state::{StateUpdates, StateUpdatesWithClasses};
 use katana_primitives::transaction::{TxHash, TxNumber, TxWithHash};
 
-use crate::ProviderResult;
 use crate::error::ProviderError;
 use crate::traits::block::{
     BlockHashProvider, BlockNumberProvider, BlockProvider, BlockStatusProvider, BlockWriter,
@@ -46,6 +45,7 @@ use crate::traits::transaction::{
     ReceiptProvider, TransactionProvider, TransactionStatusProvider, TransactionTraceProvider,
     TransactionsProviderExt,
 };
+use crate::ProviderResult;
 
 /// A provider implementation that uses a persistent database as the backend.
 // TODO: remove the default generic type

@@ -6,7 +6,6 @@ use backon::{ExponentialBuilder, Retryable};
 use katana_feeder_gateway::client;
 use katana_feeder_gateway::client::SequencerGateway;
 use katana_feeder_gateway::types::StateUpdateWithBlock;
-use katana_primitives::Felt;
 use katana_primitives::block::{
     BlockIdOrTag, BlockNumber, FinalityStatus, GasPrice, Header, SealedBlock, SealedBlockWithStatus,
 };
@@ -16,6 +15,7 @@ use katana_primitives::receipt::{
 };
 use katana_primitives::state::{StateUpdates, StateUpdatesWithClasses};
 use katana_primitives::transaction::{Tx, TxWithHash};
+use katana_primitives::Felt;
 use katana_provider::traits::block::BlockWriter;
 use num_traits::ToPrimitive;
 use starknet::core::types::ResourcePrice;

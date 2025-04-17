@@ -17,6 +17,8 @@ pub struct ResourceBoundsMapping {
     pub l1_gas: ResourceBounds,
     #[serde(alias = "L2_GAS")]
     pub l2_gas: ResourceBounds,
+    #[serde(alias = "L1_DATA_GAS")]
+    pub l1_data_gas: ResourceBounds,
 }
 
 #[derive(Debug, Default, Clone, Copy, PartialEq, Eq)]

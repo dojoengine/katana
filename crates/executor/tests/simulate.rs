@@ -52,9 +52,10 @@ fn test_simulate_tx_impl<EF: ExecutorFactory>(
         match res {
             // makes sure that the fee is non-zero
             Ok(fee) => {
-                fee.l1_gas_price != 0
-                    && fee.overall_fee != 0
-                    && fee.unit == PriceUnit::Wei // TODO: add a tx that use STRK
+                fee.l1_gas_price != 0 && fee.overall_fee != 0 && fee.unit == PriceUnit::Wei // TODO:
+                                                                                            // add a
+                                                                                            // tx that
+                                                                                            // use STRK
             }
             Err(_) => false,
         }

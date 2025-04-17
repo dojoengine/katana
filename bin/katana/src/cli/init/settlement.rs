@@ -1,8 +1,8 @@
 use std::sync::Arc;
 
-use katana_primitives::{Felt, felt};
-use starknet::providers::JsonRpcClient;
+use katana_primitives::{felt, Felt};
 use starknet::providers::jsonrpc::HttpTransport;
+use starknet::providers::JsonRpcClient;
 use url::Url;
 
 /// The contract address that handles fact verification.
