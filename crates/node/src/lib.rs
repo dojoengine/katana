@@ -256,12 +256,28 @@ impl Node {
             rpc_modules.merge(DevApiServer::into_rpc(api))?;
         }
 
-        let rpc_server = RpcServer::new()
+        let mut rpc_server = RpcServer::new()
             .metrics(true)
             .health_check(true)
             .explorer(config.rpc.explorer)
             .cors(cors)
             .module(rpc_modules)?;
+
+        if let Some(timeout_ms) = config.rpc.timeout_ms {
+            rpc_server = rpc_server.timeout_ms(timeout_ms);
+        };
+
+        if let Some(max_connections) = config.rpc.max_connections {
+            rpc_server = rpc_server.max_connections(max_connections);
+        }
+
+        if let Some(max_request_body_size) = config.rpc.max_request_body_size {
+            rpc_server = rpc_server.max_request_body_size(max_request_body_size);
+        }
+
+        if let Some(max_response_body_size) = config.rpc.max_response_body_size {
+            rpc_server = rpc_server.max_response_body_size(max_response_body_size);
+        }
 
         Ok(Node {
             db,

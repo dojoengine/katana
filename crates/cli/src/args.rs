@@ -246,6 +246,7 @@ impl NodeArgs {
                 max_connections: self.server.max_connections,
                 max_request_body_size: None,
                 max_response_body_size: None,
+                timeout_ms: self.server.timeout_ms,
                 cors_origins,
                 explorer: self.explorer.explorer,
                 max_event_page_size: Some(self.server.max_event_page_size),
