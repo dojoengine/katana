@@ -142,7 +142,7 @@ jobs:
       - name: Build binary
         run: |
           cargo --version
-          cargo build -p katana --features native --profile ${CARGO_PROFILE} --target ${{ matrix.job.target }}
+          cargo build --bin katana --features native --profile performance --target ${{ matrix.job.target }}
 
       - name: Archive binaries
         id: artifacts
