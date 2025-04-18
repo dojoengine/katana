@@ -142,7 +142,7 @@ jobs:
       - name: Build binary
         run: |
           cargo --version
-          CARGO_PROFILE_PERFORMANCE_BUILD_OVERRIDE_DEBUG=true cargo build --bin katana --features native --profile ${CARGO_PROFILE} --target ${{ matrix.job.target }}
+          cargo build --bin katana --features native --profile ${CARGO_PROFILE} --target ${{ matrix.job.target }}
 
       - name: Archive binaries
         id: artifacts
