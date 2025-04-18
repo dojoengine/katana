@@ -5,7 +5,6 @@ use derive_more::Deref;
 use katana_primitives::chain::ChainId;
 use katana_primitives::class::{ClassHash, ContractClass};
 use katana_primitives::contract::ContractAddress;
-use katana_primitives::conversion::rpc::compiled_class_hash_from_flattened_sierra_class;
 use katana_primitives::da::DataAvailabilityMode;
 use katana_primitives::fee::{ResourceBounds, ResourceBoundsMapping};
 use katana_primitives::transaction::{
@@ -24,6 +23,7 @@ use starknet::core::utils::get_contract_address;
 
 use crate::class::{RpcContractClass, RpcLegacyContractClass, RpcSierraContractClass};
 use crate::receipt::TxReceiptWithBlockInfo;
+use crate::utils::compiled_class_hash_from_flattened_sierra_class;
 
 pub const CHUNK_SIZE_DEFAULT: u64 = 100;
 

@@ -6,7 +6,7 @@ use std::path::PathBuf;
 use anyhow::{anyhow, Result};
 use cairo_lang_starknet_classes::casm_contract_class::CasmContractClass;
 use cairo_lang_starknet_classes::contract_class::ContractClass;
-use katana_primitives::conversion::rpc::CompiledClass;
+use katana_primitives::class::CompiledClass;
 use starknet::core::types::contract::SierraClass;
 use starknet::core::types::{Call, Felt, FlattenedSierraClass};
 use starknet::core::utils::get_selector_from_name;

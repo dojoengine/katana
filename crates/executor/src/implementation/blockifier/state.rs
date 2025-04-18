@@ -178,7 +178,8 @@ impl<'a> StateReader for StateProviderDb<'a> {
 
     fn get_compiled_class(&self, class_hash: ClassHash) -> StateResult<RunnableCompiledClass> {
         if let Some(class) = self.compiled_class_cache.get(&class_hash.0) {
-            trace!(target: "executor", class = format!("{}", class_hash.to_hex_string()), "Class cache hit");
+            // trace!(target: "executor", class = format!("{}", class_hash.to_hex_string()), "Class
+            // cache hit");
             return Ok(class);
         }
 

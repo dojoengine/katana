@@ -374,40 +374,36 @@ pub struct LoggingOptions {
 pub struct GasPriceOracleOptions {
     /// The L1 ETH gas price. (denominated in wei)
     #[arg(long = "gpo.l1-eth-gas-price", value_name = "WEI")]
-    #[arg(default_value_t = NonZeroU128::MIN)]
-    #[serde(serialize_with = "cainome_cairo_serde::serialize_as_hex")]
-    #[serde(deserialize_with = "deserialize_nonzero_u128")]
-    pub l1_eth_gas_price: NonZeroU128,
+    #[serde(serialize_with = "serialize_option_as_hex")]
+    #[serde(deserialize_with = "deserialize_nonzero_gas_price")]
+    pub l1_eth_gas_price: Option<NonZeroU128>,
 
     /// The L1 STRK gas price. (denominated in fri)
     #[arg(long = "gpo.l1-strk-gas-price", value_name = "FRI")]
-    #[arg(default_value_t = NonZeroU128::MIN)]
-    #[serde(serialize_with = "cainome_cairo_serde::serialize_as_hex")]
-    #[serde(deserialize_with = "deserialize_nonzero_u128")]
-    pub l1_strk_gas_price: NonZeroU128,
+    #[serde(serialize_with = "serialize_option_as_hex")]
+    #[serde(deserialize_with = "deserialize_nonzero_gas_price")]
+    pub l1_strk_gas_price: Option<NonZeroU128>,
 
     /// The L1 ETH data gas price. (denominated in wei)
     #[arg(long = "gpo.l1-eth-data-gas-price", value_name = "WEI")]
-    #[arg(default_value_t = NonZeroU128::MIN)]
-    #[serde(serialize_with = "cainome_cairo_serde::serialize_as_hex")]
-    #[serde(deserialize_with = "deserialize_nonzero_u128")]
-    pub l1_eth_data_gas_price: NonZeroU128,
+    #[serde(serialize_with = "serialize_option_as_hex")]
+    #[serde(deserialize_with = "deserialize_nonzero_gas_price")]
+    pub l1_eth_data_gas_price: Option<NonZeroU128>,
 
     /// The L1 STRK data gas price. (denominated in fri)
     #[arg(long = "gpo.l1-strk-data-gas-price", value_name = "FRI")]
-    #[arg(default_value_t = NonZeroU128::MIN)]
-    #[serde(serialize_with = "cainome_cairo_serde::serialize_as_hex")]
-    #[serde(deserialize_with = "deserialize_nonzero_u128")]
-    pub l1_strk_data_gas_price: NonZeroU128,
+    #[serde(serialize_with = "serialize_option_as_hex")]
+    #[serde(deserialize_with = "deserialize_nonzero_gas_price")]
+    pub l1_strk_data_gas_price: Option<NonZeroU128>,
 }
 
 impl Default for GasPriceOracleOptions {
     fn default() -> Self {
         Self {
-            l1_eth_gas_price: NonZeroU128::MIN,
-            l1_strk_gas_price: NonZeroU128::MIN,
-            l1_eth_data_gas_price: NonZeroU128::MIN,
-            l1_strk_data_gas_price: NonZeroU128::MIN,
+            l1_eth_gas_price: None,
+            l1_strk_gas_price: None,
+            l1_eth_data_gas_price: None,
+            l1_strk_data_gas_price: None,
         }
     }
 }
@@ -537,7 +533,7 @@ fn default_max_call_gas() -> u64 {
 }
 
 /// Deserialize a string (hex or decimal) into a [`NonZeroU128`]
-fn deserialize_nonzero_u128<'de, D>(deserializer: D) -> Result<NonZeroU128, D::Error>
+fn deserialize_nonzero_gas_price<'de, D>(deserializer: D) -> Result<Option<NonZeroU128>, D::Error>
 where
     D: serde::Deserializer<'de>,
 {
@@ -555,7 +551,21 @@ where
     };
 
     // Convert to NonZeroU128
-    NonZeroU128::new(value).ok_or_else(|| D::Error::custom("value cannot be zero"))
+    NonZeroU128::new(value).map(Some).ok_or_else(|| D::Error::custom("value cannot be zero"))
+}
+
+fn serialize_option_as_hex<S, T>(
+    value: &Option<T>,
+    serializer: S,
+) -> std::result::Result<S::Ok, S::Error>
+where
+    S: serde::Serializer,
+    T: serde::Serialize + std::fmt::LowerHex,
+{
+    match value {
+        Some(value) => serializer.serialize_str(&format!("{value:#x}")),
+        None => serializer.serialize_none(),
+    }
 }
 
 fn default_paymaster() -> bool {

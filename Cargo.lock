@@ -1078,7 +1078,23 @@ name = "apollo_config"
 version = "0.0.0"
 source = "git+https://github.com/dojoengine/sequencer?rev=4b1587c5e#4b1587c5e3effc4cfbbb8551cdcab6454a2dbe30"
 dependencies = [
- "apollo_infra_utils",
+ "apollo_infra_utils 0.0.0 (git+https://github.com/dojoengine/sequencer?rev=4b1587c5e)",
+ "clap",
+ "itertools 0.12.1",
+ "serde",
+ "serde_json",
+ "strum_macros 0.25.3",
+ "thiserror 1.0.69",
+ "tracing",
+ "validator",
+]
+
+[[package]]
+name = "apollo_config"
+version = "0.0.0"
+source = "git+https://github.com/dojoengine/sequencer?rev=5d737b9c9#5d737b9c90a14bdf4483d759d1a1d4ce64aa9fd2"
+dependencies = [
+ "apollo_infra_utils 0.0.0 (git+https://github.com/dojoengine/sequencer?rev=5d737b9c9)",
  "clap",
  "itertools 0.12.1",
  "serde",
@@ -1094,15 +1110,38 @@ name = "apollo_infra"
 version = "0.0.0"
 source = "git+https://github.com/dojoengine/sequencer?rev=4b1587c5e#4b1587c5e3effc4cfbbb8551cdcab6454a2dbe30"
 dependencies = [
- "apollo_config",
- "apollo_infra_utils",
- "apollo_metrics",
+ "apollo_config 0.0.0 (git+https://github.com/dojoengine/sequencer?rev=4b1587c5e)",
+ "apollo_infra_utils 0.0.0 (git+https://github.com/dojoengine/sequencer?rev=4b1587c5e)",
+ "apollo_metrics 0.0.0 (git+https://github.com/dojoengine/sequencer?rev=4b1587c5e)",
  "async-trait",
  "hyper 0.14.32",
  "rstest 0.17.0",
  "serde",
  "serde_json",
- "starknet_api",
+ "starknet_api 0.0.0 (git+https://github.com/dojoengine/sequencer?rev=4b1587c5e)",
+ "thiserror 1.0.69",
+ "time",
+ "tokio",
+ "tower 0.4.13",
+ "tracing",
+ "tracing-subscriber",
+ "validator",
+]
+
+[[package]]
+name = "apollo_infra"
+version = "0.0.0"
+source = "git+https://github.com/dojoengine/sequencer?rev=5d737b9c9#5d737b9c90a14bdf4483d759d1a1d4ce64aa9fd2"
+dependencies = [
+ "apollo_config 0.0.0 (git+https://github.com/dojoengine/sequencer?rev=5d737b9c9)",
+ "apollo_infra_utils 0.0.0 (git+https://github.com/dojoengine/sequencer?rev=5d737b9c9)",
+ "apollo_metrics 0.0.0 (git+https://github.com/dojoengine/sequencer?rev=5d737b9c9)",
+ "async-trait",
+ "hyper 0.14.32",
+ "rstest 0.17.0",
+ "serde",
+ "serde_json",
+ "starknet_api 0.0.0 (git+https://github.com/dojoengine/sequencer?rev=5d737b9c9)",
  "thiserror 1.0.69",
  "time",
  "tokio",
@@ -1129,9 +1168,37 @@ dependencies = [
 ]
 
 [[package]]
+name = "apollo_infra_utils"
+version = "0.0.0"
+source = "git+https://github.com/dojoengine/sequencer?rev=5d737b9c9#5d737b9c90a14bdf4483d759d1a1d4ce64aa9fd2"
+dependencies = [
+ "assert-json-diff",
+ "cached",
+ "colored 3.0.0",
+ "serde",
+ "serde_json",
+ "socket2",
+ "tokio",
+ "toml",
+ "tracing",
+]
+
+[[package]]
 name = "apollo_metrics"
 version = "0.0.0"
 source = "git+https://github.com/dojoengine/sequencer?rev=4b1587c5e#4b1587c5e3effc4cfbbb8551cdcab6454a2dbe30"
+dependencies = [
+ "indexmap 2.7.1",
+ "metrics 0.24.1",
+ "num-traits",
+ "paste",
+ "regex",
+]
+
+[[package]]
+name = "apollo_metrics"
+version = "0.0.0"
+source = "git+https://github.com/dojoengine/sequencer?rev=5d737b9c9#5d737b9c90a14bdf4483d759d1a1d4ce64aa9fd2"
 dependencies = [
  "indexmap 2.7.1",
  "metrics 0.24.1",
@@ -1150,14 +1217,47 @@ dependencies = [
 ]
 
 [[package]]
+name = "apollo_proc_macros"
+version = "0.0.0"
+source = "git+https://github.com/dojoengine/sequencer?rev=5d737b9c9#5d737b9c90a14bdf4483d759d1a1d4ce64aa9fd2"
+dependencies = [
+ "quote",
+ "syn 2.0.98",
+]
+
+[[package]]
 name = "apollo_sierra_multicompile"
 version = "0.0.0"
 source = "git+https://github.com/dojoengine/sequencer?rev=4b1587c5e#4b1587c5e3effc4cfbbb8551cdcab6454a2dbe30"
 dependencies = [
- "apollo_config",
- "apollo_infra",
- "apollo_infra_utils",
- "apollo_sierra_multicompile_types",
+ "apollo_config 0.0.0 (git+https://github.com/dojoengine/sequencer?rev=4b1587c5e)",
+ "apollo_infra 0.0.0 (git+https://github.com/dojoengine/sequencer?rev=4b1587c5e)",
+ "apollo_infra_utils 0.0.0 (git+https://github.com/dojoengine/sequencer?rev=4b1587c5e)",
+ "apollo_sierra_multicompile_types 0.0.0 (git+https://github.com/dojoengine/sequencer?rev=4b1587c5e)",
+ "async-trait",
+ "cairo-lang-sierra",
+ "cairo-lang-starknet-classes",
+ "cairo-lang-utils",
+ "rlimit",
+ "serde",
+ "serde_json",
+ "starknet-types-core",
+ "starknet_api 0.0.0 (git+https://github.com/dojoengine/sequencer?rev=4b1587c5e)",
+ "tempfile",
+ "thiserror 1.0.69",
+ "tracing",
+ "validator",
+]
+
+[[package]]
+name = "apollo_sierra_multicompile"
+version = "0.0.0"
+source = "git+https://github.com/dojoengine/sequencer?rev=5d737b9c9#5d737b9c90a14bdf4483d759d1a1d4ce64aa9fd2"
+dependencies = [
+ "apollo_config 0.0.0 (git+https://github.com/dojoengine/sequencer?rev=5d737b9c9)",
+ "apollo_infra 0.0.0 (git+https://github.com/dojoengine/sequencer?rev=5d737b9c9)",
+ "apollo_infra_utils 0.0.0 (git+https://github.com/dojoengine/sequencer?rev=5d737b9c9)",
+ "apollo_sierra_multicompile_types 0.0.0 (git+https://github.com/dojoengine/sequencer?rev=5d737b9c9)",
  "async-trait",
  "cairo-lang-sierra",
  "cairo-lang-starknet-classes",
@@ -1167,7 +1267,7 @@ dependencies = [
  "serde",
  "serde_json",
  "starknet-types-core",
- "starknet_api",
+ "starknet_api 0.0.0 (git+https://github.com/dojoengine/sequencer?rev=5d737b9c9)",
  "tempfile",
  "thiserror 1.0.69",
  "tracing",
@@ -1179,12 +1279,26 @@ name = "apollo_sierra_multicompile_types"
 version = "0.0.0"
 source = "git+https://github.com/dojoengine/sequencer?rev=4b1587c5e#4b1587c5e3effc4cfbbb8551cdcab6454a2dbe30"
 dependencies = [
- "apollo_infra",
- "apollo_proc_macros",
+ "apollo_infra 0.0.0 (git+https://github.com/dojoengine/sequencer?rev=4b1587c5e)",
+ "apollo_proc_macros 0.0.0 (git+https://github.com/dojoengine/sequencer?rev=4b1587c5e)",
  "async-trait",
  "serde",
  "serde_json",
- "starknet_api",
+ "starknet_api 0.0.0 (git+https://github.com/dojoengine/sequencer?rev=4b1587c5e)",
+ "thiserror 1.0.69",
+]
+
+[[package]]
+name = "apollo_sierra_multicompile_types"
+version = "0.0.0"
+source = "git+https://github.com/dojoengine/sequencer?rev=5d737b9c9#5d737b9c90a14bdf4483d759d1a1d4ce64aa9fd2"
+dependencies = [
+ "apollo_infra 0.0.0 (git+https://github.com/dojoengine/sequencer?rev=5d737b9c9)",
+ "apollo_proc_macros 0.0.0 (git+https://github.com/dojoengine/sequencer?rev=5d737b9c9)",
+ "async-trait",
+ "serde",
+ "serde_json",
+ "starknet_api 0.0.0 (git+https://github.com/dojoengine/sequencer?rev=5d737b9c9)",
  "thiserror 1.0.69",
 ]
 
@@ -2037,14 +2151,59 @@ version = "0.0.0"
 source = "git+https://github.com/dojoengine/sequencer?rev=4b1587c5e#4b1587c5e3effc4cfbbb8551cdcab6454a2dbe30"
 dependencies = [
  "anyhow",
- "apollo_config",
- "apollo_infra_utils",
- "apollo_sierra_multicompile",
+ "apollo_config 0.0.0 (git+https://github.com/dojoengine/sequencer?rev=4b1587c5e)",
+ "apollo_infra_utils 0.0.0 (git+https://github.com/dojoengine/sequencer?rev=4b1587c5e)",
+ "apollo_sierra_multicompile 0.0.0 (git+https://github.com/dojoengine/sequencer?rev=4b1587c5e)",
  "ark-ec 0.4.2",
  "ark-ff 0.4.2",
  "ark-secp256k1 0.4.0",
  "ark-secp256r1 0.4.0",
- "blockifier_test_utils",
+ "blockifier_test_utils 0.0.0 (git+https://github.com/dojoengine/sequencer?rev=4b1587c5e)",
+ "cached",
+ "cairo-lang-casm",
+ "cairo-lang-runner",
+ "cairo-lang-starknet-classes",
+ "cairo-vm 1.0.2 (registry+https://github.com/rust-lang/crates.io-index)",
+ "derive_more 0.99.19",
+ "indexmap 2.7.1",
+ "itertools 0.12.1",
+ "keccak",
+ "log",
+ "mockall",
+ "num-bigint",
+ "num-integer",
+ "num-rational",
+ "num-traits",
+ "paste",
+ "phf",
+ "rand 0.8.5",
+ "rstest 0.17.0",
+ "rstest_reuse 0.7.0",
+ "semver 1.0.25",
+ "serde",
+ "serde_json",
+ "sha2",
+ "starknet-types-core",
+ "starknet_api 0.0.0 (git+https://github.com/dojoengine/sequencer?rev=4b1587c5e)",
+ "strum 0.25.0",
+ "strum_macros 0.25.3",
+ "thiserror 1.0.69",
+]
+
+[[package]]
+name = "blockifier"
+version = "0.0.0"
+source = "git+https://github.com/dojoengine/sequencer?rev=5d737b9c9#5d737b9c90a14bdf4483d759d1a1d4ce64aa9fd2"
+dependencies = [
+ "anyhow",
+ "apollo_config 0.0.0 (git+https://github.com/dojoengine/sequencer?rev=5d737b9c9)",
+ "apollo_infra_utils 0.0.0 (git+https://github.com/dojoengine/sequencer?rev=5d737b9c9)",
+ "apollo_sierra_multicompile 0.0.0 (git+https://github.com/dojoengine/sequencer?rev=5d737b9c9)",
+ "ark-ec 0.4.2",
+ "ark-ff 0.4.2",
+ "ark-secp256k1 0.4.0",
+ "ark-secp256r1 0.4.0",
+ "blockifier_test_utils 0.0.0 (git+https://github.com/dojoengine/sequencer?rev=5d737b9c9)",
  "cached",
  "cairo-lang-casm",
  "cairo-lang-runner",
@@ -2071,7 +2230,7 @@ dependencies = [
  "serde_json",
  "sha2",
  "starknet-types-core",
- "starknet_api",
+ "starknet_api 0.0.0 (git+https://github.com/dojoengine/sequencer?rev=5d737b9c9)",
  "strum 0.25.0",
  "strum_macros 0.25.3",
  "thiserror 1.0.69",
@@ -2082,14 +2241,35 @@ name = "blockifier_test_utils"
 version = "0.0.0"
 source = "git+https://github.com/dojoengine/sequencer?rev=4b1587c5e#4b1587c5e3effc4cfbbb8551cdcab6454a2dbe30"
 dependencies = [
- "apollo_infra_utils",
+ "apollo_infra_utils 0.0.0 (git+https://github.com/dojoengine/sequencer?rev=4b1587c5e)",
  "cairo-lang-starknet-classes",
  "itertools 0.12.1",
  "pretty_assertions",
  "rstest 0.17.0",
  "serde_json",
  "starknet-types-core",
- "starknet_api",
+ "starknet_api 0.0.0 (git+https://github.com/dojoengine/sequencer?rev=4b1587c5e)",
+ "strum 0.25.0",
+ "strum_macros 0.25.3",
+ "tempfile",
+ "tokio",
+ "tracing",
+ "tracing-test",
+]
+
+[[package]]
+name = "blockifier_test_utils"
+version = "0.0.0"
+source = "git+https://github.com/dojoengine/sequencer?rev=5d737b9c9#5d737b9c90a14bdf4483d759d1a1d4ce64aa9fd2"
+dependencies = [
+ "apollo_infra_utils 0.0.0 (git+https://github.com/dojoengine/sequencer?rev=5d737b9c9)",
+ "cairo-lang-starknet-classes",
+ "itertools 0.12.1",
+ "pretty_assertions",
+ "rstest 0.17.0",
+ "serde_json",
+ "starknet-types-core",
+ "starknet_api 0.0.0 (git+https://github.com/dojoengine/sequencer?rev=5d737b9c9)",
  "strum 0.25.0",
  "strum_macros 0.25.3",
  "tempfile",
@@ -2113,7 +2293,7 @@ dependencies = [
 [[package]]
 name = "bonsai-trie"
 version = "0.1.0"
-source = "git+https://github.com/dojoengine/bonsai-trie/?branch=kariy%2Findexmap#d5004578af21bfe9025f316e886a31e4d80622bb"
+source = "git+https://github.com/dojoengine/bonsai-trie/?rev=8b509fd#8b509fdf2c22fb7386acc6c00f179ac1cd099243"
 dependencies = [
  "bitvec",
  "derive_more 0.99.19",
@@ -6157,7 +6337,6 @@ dependencies = [
  "alloy-primitives",
  "anyhow",
  "assert_matches",
- "cainome-cairo-serde 0.1.0 (registry+https://github.com/rust-lang/crates.io-index)",
  "clap",
  "console",
  "dojo-utils",
@@ -6270,7 +6449,7 @@ version = "1.2.3"
 dependencies = [
  "alloy-primitives",
  "anyhow",
- "blockifier",
+ "blockifier 0.0.0 (git+https://github.com/dojoengine/sequencer?rev=5d737b9c9)",
  "cairo-native",
  "cairo-vm 1.0.2 (registry+https://github.com/rust-lang/crates.io-index)",
  "criterion",
@@ -6289,7 +6468,7 @@ dependencies = [
  "serde_json",
  "similar-asserts",
  "starknet 0.12.0",
- "starknet_api",
+ "starknet_api 0.0.0 (git+https://github.com/dojoengine/sequencer?rev=5d737b9c9)",
  "thiserror 1.0.69",
  "tokio",
  "tracing",
@@ -6504,7 +6683,6 @@ dependencies = [
  "cairo-vm 1.0.2 (registry+https://github.com/rust-lang/crates.io-index)",
  "criterion",
  "derive_more 0.99.19",
- "flate2",
  "heapless",
  "lazy_static",
  "num-bigint",
@@ -6521,7 +6699,7 @@ dependencies = [
  "starknet 0.12.0",
  "starknet-crypto 0.7.4",
  "starknet-types-core",
- "starknet_api",
+ "starknet_api 0.0.0 (git+https://github.com/dojoengine/sequencer?rev=5d737b9c9)",
  "strum 0.25.0",
  "strum_macros 0.25.3",
  "thiserror 1.0.69",
@@ -6646,7 +6824,7 @@ dependencies = [
  "serde_with 3.12.0",
  "similar-asserts",
  "starknet 0.12.0",
- "starknet_api",
+ "starknet_api 0.0.0 (git+https://github.com/dojoengine/sequencer?rev=5d737b9c9)",
  "thiserror 1.0.69",
 ]
 
@@ -8327,7 +8505,7 @@ version = "0.1.0"
 source = "git+https://github.com/cartridge-gg/snos?rev=962c263#962c263d9af5d68945874cc2d5b39ccf604d61bd"
 dependencies = [
  "anyhow",
- "blockifier",
+ "blockifier 0.0.0 (git+https://github.com/dojoengine/sequencer?rev=4b1587c5e)",
  "cairo-lang-starknet-classes",
  "cairo-lang-utils",
  "cairo-vm 1.0.2 (git+https://github.com/kariy/cairo-vm?branch=kariy%2F1.0.2_clear-cell)",
@@ -8349,7 +8527,7 @@ dependencies = [
  "starknet-os",
  "starknet-os-types",
  "starknet-types-core",
- "starknet_api",
+ "starknet_api 0.0.0 (git+https://github.com/dojoengine/sequencer?rev=4b1587c5e)",
  "thiserror 1.0.69",
  "tokio",
 ]
@@ -8940,14 +9118,14 @@ name = "rpc-replay"
 version = "0.1.0"
 source = "git+https://github.com/cartridge-gg/snos?rev=962c263#962c263d9af5d68945874cc2d5b39ccf604d61bd"
 dependencies = [
- "blockifier",
+ "blockifier 0.0.0 (git+https://github.com/dojoengine/sequencer?rev=4b1587c5e)",
  "cairo-lang-starknet-classes",
  "rpc-client",
  "serde",
  "serde_json",
  "starknet 0.11.0",
  "starknet-os-types",
- "starknet_api",
+ "starknet_api 0.0.0 (git+https://github.com/dojoengine/sequencer?rev=4b1587c5e)",
  "thiserror 1.0.69",
  "tokio",
 ]
@@ -10355,7 +10533,7 @@ dependencies = [
  "ark-secp256r1 0.4.0",
  "base64 0.21.7",
  "bitvec",
- "blockifier",
+ "blockifier 0.0.0 (git+https://github.com/dojoengine/sequencer?rev=4b1587c5e)",
  "c-kzg",
  "cairo-lang-casm",
  "cairo-lang-starknet",
@@ -10386,7 +10564,7 @@ dependencies = [
  "starknet-gateway-types",
  "starknet-os-types",
  "starknet-types-core",
- "starknet_api",
+ "starknet_api 0.0.0 (git+https://github.com/dojoengine/sequencer?rev=4b1587c5e)",
  "thiserror 1.0.69",
  "tokio",
  "uuid 1.15.1",
@@ -10398,7 +10576,7 @@ name = "starknet-os-types"
 version = "0.1.0"
 source = "git+https://github.com/cartridge-gg/snos?rev=962c263#962c263d9af5d68945874cc2d5b39ccf604d61bd"
 dependencies = [
- "blockifier",
+ "blockifier 0.0.0 (git+https://github.com/dojoengine/sequencer?rev=4b1587c5e)",
  "cairo-lang-starknet-classes",
  "cairo-vm 1.0.2 (git+https://github.com/kariy/cairo-vm?branch=kariy%2F1.0.2_clear-cell)",
  "flate2",
@@ -10411,7 +10589,7 @@ dependencies = [
  "starknet-crypto 0.7.4",
  "starknet-gateway-types",
  "starknet-types-core",
- "starknet_api",
+ "starknet_api 0.0.0 (git+https://github.com/dojoengine/sequencer?rev=4b1587c5e)",
  "thiserror 1.0.69",
  "tokio",
 ]
@@ -10516,7 +10694,40 @@ name = "starknet_api"
 version = "0.0.0"
 source = "git+https://github.com/dojoengine/sequencer?rev=4b1587c5e#4b1587c5e3effc4cfbbb8551cdcab6454a2dbe30"
 dependencies = [
- "apollo_infra_utils",
+ "apollo_infra_utils 0.0.0 (git+https://github.com/dojoengine/sequencer?rev=4b1587c5e)",
+ "base64 0.13.1",
+ "bitvec",
+ "cached",
+ "cairo-lang-runner",
+ "cairo-lang-starknet-classes",
+ "derive_more 0.99.19",
+ "flate2",
+ "hex",
+ "indexmap 2.7.1",
+ "itertools 0.12.1",
+ "num-bigint",
+ "num-traits",
+ "pretty_assertions",
+ "primitive-types",
+ "rand 0.8.5",
+ "semver 1.0.25",
+ "serde",
+ "serde_json",
+ "sha3",
+ "size-of",
+ "starknet-crypto 0.7.4",
+ "starknet-types-core",
+ "strum 0.25.0",
+ "strum_macros 0.25.3",
+ "thiserror 1.0.69",
+]
+
+[[package]]
+name = "starknet_api"
+version = "0.0.0"
+source = "git+https://github.com/dojoengine/sequencer?rev=5d737b9c9#5d737b9c90a14bdf4483d759d1a1d4ce64aa9fd2"
+dependencies = [
+ "apollo_infra_utils 0.0.0 (git+https://github.com/dojoengine/sequencer?rev=5d737b9c9)",
  "base64 0.13.1",
  "bitvec",
  "cached",

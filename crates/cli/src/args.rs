@@ -302,24 +302,24 @@ impl NodeArgs {
     fn dev_config(&self) -> DevConfig {
         let mut fixed_gas_prices = None;
 
-        if self.gpo.l1_eth_gas_price.get() > 0 {
+        if let Some(eth_gas_price) = self.gpo.l1_eth_gas_price {
             let prices = fixed_gas_prices.get_or_insert(FixedL1GasPriceConfig::default());
-            prices.gas_price.eth = self.gpo.l1_eth_gas_price;
+            prices.gas_price.eth = eth_gas_price;
         }
 
-        if self.gpo.l1_strk_gas_price.get() > 0 {
+        if let Some(strk_gas_price) = self.gpo.l1_strk_gas_price {
             let prices = fixed_gas_prices.get_or_insert(FixedL1GasPriceConfig::default());
-            prices.gas_price.strk = self.gpo.l1_strk_gas_price;
+            prices.gas_price.strk = strk_gas_price;
         }
 
-        if self.gpo.l1_eth_data_gas_price.get() > 0 {
+        if let Some(eth_data_gas_price) = self.gpo.l1_eth_data_gas_price {
             let prices = fixed_gas_prices.get_or_insert(FixedL1GasPriceConfig::default());
-            prices.data_gas_price.eth = self.gpo.l1_eth_data_gas_price;
+            prices.data_gas_price.eth = eth_data_gas_price;
         }
 
-        if self.gpo.l1_strk_data_gas_price.get() > 0 {
+        if let Some(strk_data_gas_price) = self.gpo.l1_strk_data_gas_price {
             let prices = fixed_gas_prices.get_or_insert(FixedL1GasPriceConfig::default());
-            prices.data_gas_price.strk = self.gpo.l1_strk_data_gas_price;
+            prices.data_gas_price.strk = strk_data_gas_price;
         }
 
         DevConfig {
@@ -524,11 +524,11 @@ mod test {
         });
 
         let config =
-            NodeArgs::parse_from(["katana", "--gpo.l1-eth-data-gas-price", "1"]).config().unwrap();
+            NodeArgs::parse_from(["katana", "--gpo.l1-eth-data-gas-price", "2"]).config().unwrap();
         assert_matches!(config.dev.fixed_gas_prices, Some(prices) => {
             assert_eq!(prices.gas_price.eth, DEFAULT_ETH_L1_GAS_PRICE);
             assert_eq!(prices.gas_price.strk, DEFAULT_STRK_L1_GAS_PRICE);
-            assert_eq!(prices.data_gas_price.eth.get(), 1);
+            assert_eq!(prices.data_gas_price.eth.get(), 2);
             assert_eq!(prices.data_gas_price.strk, DEFAULT_STRK_L1_DATA_GAS_PRICE);
         });
 

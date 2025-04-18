@@ -17,7 +17,6 @@ katana-slot-controller = { workspace = true, optional = true }
 
 alloy-primitives.workspace = true
 anyhow.workspace = true
-cainome-cairo-serde.workspace = true
 clap.workspace = true
 console.workspace = true
 dojo-utils.workspace = true
