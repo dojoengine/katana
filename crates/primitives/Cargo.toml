@@ -27,7 +27,6 @@ starknet_api.workspace = true
 thiserror.workspace = true
 
 alloy-primitives = { workspace = true, features = [ "arbitrary" ] }
-flate2.workspace = true
 num-bigint = "0.4.6"
 serde_json_pythonic = "0.1.2"
 strum.workspace = true
@@ -46,9 +45,7 @@ pprof.workspace = true
 default = [ "serde" ]
 
 arbitrary = [ "alloy-primitives/arbitrary", "dep:arbitrary" ]
-controller = [  ]
 serde = [ "alloy-primitives/serde" ]
-slot = [ "controller" ]
 
 [[bench]]
 harness = false

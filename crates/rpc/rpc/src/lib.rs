@@ -13,6 +13,9 @@ use katana_explorer::ExplorerLayer;
 use tower::ServiceBuilder;
 use tracing::info;
 
+#[cfg(feature = "cartridge")]
+pub mod cartridge;
+
 pub mod cors;
 pub mod dev;
 pub mod health;

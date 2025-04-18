@@ -7,8 +7,6 @@ use std::fmt::Debug;
 use std::sync::Arc;
 
 use constant::DEFAULT_ACCOUNT_CLASS;
-#[cfg(feature = "controller")]
-use constant::{CONTROLLER_ACCOUNT_CLASS, CONTROLLER_CLASS_HASH};
 use serde::{Deserialize, Serialize};
 
 use self::allocation::{GenesisAccountAlloc, GenesisAllocation, GenesisContractAlloc};
@@ -80,16 +78,16 @@ impl Default for Genesis {
     /// classes are a legacy ERC20 class for the fee token, a legacy UDC class for the
     /// universal deployer, and an OpenZeppelin account contract class.
     fn default() -> Self {
-        let classes = BTreeMap::from([
+        let mut classes = BTreeMap::new();
+
+        classes.extend(BTreeMap::from([
             // Fee token class
             (DEFAULT_LEGACY_ERC20_CLASS_HASH, DEFAULT_LEGACY_ERC20_CLASS.clone().into()),
             // universal depoyer contract class
             (DEFAULT_LEGACY_UDC_CLASS_HASH, DEFAULT_LEGACY_UDC_CLASS.clone().into()),
             // predeployed account class
             (DEFAULT_ACCOUNT_CLASS_HASH, DEFAULT_ACCOUNT_CLASS.clone().into()),
-            #[cfg(feature = "controller")]
-            (CONTROLLER_CLASS_HASH, CONTROLLER_ACCOUNT_CLASS.clone().into()),
-        ]);
+        ]));
 
         Self {
             parent_hash: Felt::ZERO,

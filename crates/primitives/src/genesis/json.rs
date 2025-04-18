@@ -22,8 +22,6 @@ use starknet::core::types::contract::JsonError;
 use super::allocation::{
     DevGenesisAccount, GenesisAccount, GenesisAccountAlloc, GenesisContractAlloc,
 };
-#[cfg(feature = "controller")]
-use super::constant::{CONTROLLER_ACCOUNT_CLASS, CONTROLLER_CLASS_HASH};
 use super::constant::{DEFAULT_ACCOUNT_CLASS, DEFAULT_ACCOUNT_CLASS_HASH};
 use super::{Genesis, GenesisAllocation};
 use crate::block::{BlockHash, BlockNumber, GasPrice};
@@ -279,12 +277,6 @@ impl TryFrom<GenesisJson> for Genesis {
         // a lookup table for classes that is assigned a name
         let mut class_names: HashMap<String, Felt> = HashMap::new();
         let mut classes: BTreeMap<ClassHash, Arc<ContractClass>> = BTreeMap::new();
-
-        #[cfg(feature = "controller")]
-        // Merely a band aid fix for now.
-        // Adding this by default so that we can support mounting the genesis file from k8s
-        // ConfigMap when we embed the Controller class, and its capacity is only limited to 1MiB.
-        classes.insert(CONTROLLER_CLASS_HASH, CONTROLLER_ACCOUNT_CLASS.clone().into());
 
         for entry in value.classes {
             let GenesisClassJson { class, name } = entry;
@@ -761,13 +753,13 @@ mod tests {
         let json = GenesisJson::load(path).unwrap();
         let actual_genesis = Genesis::try_from(json).unwrap();
 
-        let expected_classes = BTreeMap::from([
-            (DEFAULT_LEGACY_ERC20_CLASS_HASH, DEFAULT_LEGACY_ERC20_CLASS.clone().into()),
-            (DEFAULT_LEGACY_UDC_CLASS_HASH, DEFAULT_LEGACY_UDC_CLASS.clone().into()),
-            (DEFAULT_ACCOUNT_CLASS_HASH, DEFAULT_ACCOUNT_CLASS.clone().into()),
-            #[cfg(feature = "controller")]
-            (CONTROLLER_CLASS_HASH, CONTROLLER_ACCOUNT_CLASS.clone().into()),
-        ]);
+        let mut expected_classes = BTreeMap::new();
+
+        expected_classes
+            .insert(DEFAULT_LEGACY_ERC20_CLASS_HASH, DEFAULT_LEGACY_ERC20_CLASS.clone().into());
+        expected_classes
+            .insert(DEFAULT_LEGACY_UDC_CLASS_HASH, DEFAULT_LEGACY_UDC_CLASS.clone().into());
+        expected_classes.insert(DEFAULT_ACCOUNT_CLASS_HASH, DEFAULT_ACCOUNT_CLASS.clone().into());
 
         let acc_1 = address!("0x66efb28ac62686966ae85095ff3a772e014e7fbf56d4c5f6fac5606d4dde23a");
         let acc_2 = address!("0x6b86e40118f29ebe393a75469b4d926c7a44c2e2681b6d319520b7c1156d114");
@@ -944,11 +936,8 @@ mod tests {
         let genesis_json: GenesisJson = GenesisJson::from_str(json).unwrap();
         let actual_genesis = Genesis::try_from(genesis_json).unwrap();
 
-        let classes = BTreeMap::from([
-            (DEFAULT_ACCOUNT_CLASS_HASH, DEFAULT_ACCOUNT_CLASS.clone().into()),
-            #[cfg(feature = "controller")]
-            (CONTROLLER_CLASS_HASH, CONTROLLER_ACCOUNT_CLASS.clone().into()),
-        ]);
+        let mut classes = BTreeMap::new();
+        classes.insert(DEFAULT_ACCOUNT_CLASS_HASH, DEFAULT_ACCOUNT_CLASS.clone().into());
 
         let allocations = BTreeMap::from([(
             address!("0x66efb28ac62686966ae85095ff3a772e014e7fbf56d4c5f6fac5606d4dde23a"),

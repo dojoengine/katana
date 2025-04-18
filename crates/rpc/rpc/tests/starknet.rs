@@ -1222,3 +1222,34 @@ async fn call_contract() {
     let contract = AccountContractReader::new(account, &provider);
     let _ = contract.get_public_key().call().await.unwrap();
 }
+
+#[tokio::test]
+#[rstest::rstest]
+#[case::lower_than_current_nonce(Felt::ZERO, false)]
+#[case::is_current_nonce(Felt::ONE, true)]
+#[case::higher_than_current_nonce_1(felt!("0x1337"), true)]
+#[case::higher_than_current_nonce_2(Felt::MAX, true)]
+async fn simulate_should_skip_strict_nonce_check(#[case] nonce: Felt, #[case] should_ok: bool) {
+    let sequencer = TestNode::new().await;
+
+    let account = sequencer.account();
+    let provider = sequencer.starknet_provider();
+
+    // setup contract to interact with (can be any existing contract that can be interacted with)
+    let contract = Erc20Contract::new(DEFAULT_ETH_FEE_TOKEN_ADDRESS.into(), &account);
+    // setup contract function params
+    let recipient = felt!("0x1");
+    let amount = Uint256 { low: felt!("0x1"), high: Felt::ZERO };
+
+    // send a valid transaction first to increment the nonce (so that we can test nonce < current
+    // nonce later)
+    let res = contract.transfer(&recipient, &amount).send().await.expect("failed to send tx");
+    dojo_utils::TransactionWaiter::new(res.transaction_hash, &provider)
+        .await
+        .expect("failed to execute tx");
+
+    // send a valid transaction first to increment the nonce (so that we can test nonce < current
+    // nonce later)
+    let res = contract.transfer(&recipient, &amount).nonce(nonce).simulate(false, false).await;
+    assert_eq!(res.is_ok(), should_ok)
+}

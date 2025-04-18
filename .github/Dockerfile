@@ -2,7 +2,6 @@
 
 ARG RUST_VERSION=1.85.0
 FROM rust:${RUST_VERSION}-slim
-ARG RUST_VERSION
 
 # Install additional packages
 RUN apt-get update && export DEBIAN_FRONTEND=noninteractive \

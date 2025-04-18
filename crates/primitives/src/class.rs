@@ -119,7 +119,7 @@ impl FromStr for ContractClass {
 /// [Starknet docs]: https://docs.starknet.io/architecture-and-concepts/smart-contracts/cairo-and-sierra/#why_do_we_need_casm
 #[allow(clippy::large_enum_variant)]
 #[derive(Debug, Clone, Eq, PartialEq, derive_more::From)]
-#[cfg_attr(feature = "serde", derive(::serde::Serialize, ::serde::Deserialize))]
+#[cfg_attr(feature = "serde", derive(::serde::Serialize, ::serde::Deserialize), serde(untagged))]
 pub enum CompiledClass {
     /// The compiled Sierra contract class ie CASM.
     Class(CasmContractClass),

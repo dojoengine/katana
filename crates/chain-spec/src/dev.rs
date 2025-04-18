@@ -269,8 +269,6 @@ mod tests {
     use katana_primitives::genesis::allocation::{
         GenesisAccount, GenesisAccountAlloc, GenesisContractAlloc,
     };
-    #[cfg(feature = "controller")]
-    use katana_primitives::genesis::constant::{CONTROLLER_ACCOUNT_CLASS, CONTROLLER_CLASS_HASH};
     use katana_primitives::genesis::constant::{
         DEFAULT_ACCOUNT_CLASS, DEFAULT_ACCOUNT_CLASS_HASH,
         DEFAULT_ACCOUNT_CLASS_PUBKEY_STORAGE_SLOT, DEFAULT_ACCOUNT_COMPILED_CLASS_HASH,
@@ -290,8 +288,6 @@ mod tests {
             (DEFAULT_LEGACY_UDC_CLASS_HASH, DEFAULT_LEGACY_UDC_CLASS.clone().into()),
             (DEFAULT_LEGACY_ERC20_CLASS_HASH, DEFAULT_LEGACY_ERC20_CLASS.clone().into()),
             (DEFAULT_ACCOUNT_CLASS_HASH, DEFAULT_ACCOUNT_CLASS.clone().into()),
-            #[cfg(feature = "controller")]
-            (CONTROLLER_CLASS_HASH, CONTROLLER_ACCOUNT_CLASS.clone().into()),
         ]);
 
         let allocations = [
@@ -383,11 +379,7 @@ mod tests {
 
         similar_asserts::assert_eq!(actual_block, expected_block);
 
-        if cfg!(feature = "controller") {
-            assert!(actual_state_updates.classes.len() == 4);
-        } else {
-            assert!(actual_state_updates.classes.len() == 3);
-        }
+        assert!(actual_state_updates.classes.len() == 3);
 
         assert_eq!(
             actual_state_updates
@@ -459,21 +451,6 @@ mod tests {
             Some(&*DEFAULT_ACCOUNT_CLASS),
             "The default oz account contract sierra class should be declared"
         );
-
-        #[cfg(feature = "controller")]
-        {
-            assert_eq!(
-                actual_state_updates.state_updates.declared_classes.get(&CONTROLLER_CLASS_HASH),
-                Some(&CONTROLLER_ACCOUNT_CLASS.clone().compile().unwrap().class_hash().unwrap()),
-                "The controller account class should be declared"
-            );
-
-            assert_eq!(
-                actual_state_updates.classes.get(&CONTROLLER_CLASS_HASH),
-                Some(&*CONTROLLER_ACCOUNT_CLASS),
-                "The controller account contract sierra class should be declared"
-            );
-        }
 
         // check that all contract allocations exist in the state updates
 

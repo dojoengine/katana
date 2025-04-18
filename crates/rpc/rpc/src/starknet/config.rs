@@ -9,4 +9,14 @@ pub struct StarknetApiConfig {
     ///
     /// If `None`, the maximum keys size is bounded by [`u64::MAX`].
     pub max_proof_keys: Option<u64>,
+
+    #[cfg(feature = "cartridge")]
+    pub paymaster: Option<PaymasterConfig>,
+}
+
+#[cfg(feature = "cartridge")]
+#[derive(Debug, Clone)]
+pub struct PaymasterConfig {
+    /// The root URL for the Cartridge API.
+    pub cartridge_api_url: url::Url,
 }
