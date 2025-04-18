@@ -93,7 +93,7 @@ jobs:
         with:
           bun-version: latest
 
-      - name: Install LLVM dependencies for Linux
+      - name: Install LLVM dependencies ( Linux )
         if: ${{ matrix.job.platform == 'linux' }}
         run: |
           wget https://apt.llvm.org/llvm.sh
@@ -105,7 +105,7 @@ jobs:
           echo "LLVM_SYS_191_PREFIX=/usr/lib/llvm-19" >> $GITHUB_ENV
           echo "TABLEGEN_190_PREFIX=/usr/lib/llvm-19" >> $GITHUB_ENV
 
-      - name: Install LLVM dependencies for macOS
+      - name: Install LLVM dependencies ( macOS )
         if: ${{ matrix.job.platform == 'darwin' }}
         run: |
           brew install llvm@19 --quiet
@@ -116,7 +116,7 @@ jobs:
           echo "LIBRARY_PATH=$(brew --prefix zstd)/lib:$LIBRARY_PATH" >> $GITHUB_ENV
           echo "CPATH=$(brew --prefix zstd)/include:$CPATH" >> $GITHUB_ENV
 
-      - name: Install LLVM dependencies for Windows
+      - name: Install LLVM dependencies ( Windows )
         if: ${{ matrix.job.platform == 'win32' }}
         run: |
           choco install llvm --version 19.1.7 -y
