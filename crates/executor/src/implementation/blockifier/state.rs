@@ -7,12 +7,12 @@ use blockifier::execution::contract_class::RunnableCompiledClass;
 use blockifier::state::cached_state;
 use blockifier::state::errors::StateError;
 use blockifier::state::state_api::{StateReader, StateResult};
-use katana_primitives::class::{self, ContractClass};
 use katana_primitives::Felt;
+use katana_primitives::class::{self, ContractClass};
+use katana_provider::ProviderResult;
 use katana_provider::error::ProviderError;
 use katana_provider::traits::contract::ContractClassProvider;
 use katana_provider::traits::state::{StateProofProvider, StateProvider, StateRootProvider};
-use katana_provider::ProviderResult;
 use parking_lot::Mutex;
 use starknet_api::core::{ClassHash, CompiledClassHash, Nonce};
 use starknet_api::state::StorageKey;
@@ -185,7 +185,7 @@ impl StateReader for StateProviderDb<'_> {
 
     fn get_compiled_class(&self, class_hash: ClassHash) -> StateResult<RunnableCompiledClass> {
         if let Some(class) = self.compiled_class_cache.get(&class_hash.0) {
-            // trace!(target: "executor", class = format!("{}", class_hash.to_hex_string()), "Class
+            // // trace!(target: "executor", class = format!("{}", class_hash.to_hex_string()), "Class
             // cache hit");
             return Ok(class);
         }

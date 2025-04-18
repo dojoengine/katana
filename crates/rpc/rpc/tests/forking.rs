@@ -5,7 +5,9 @@ use katana_node::config::fork::ForkingConfig;
 use katana_primitives::block::{BlockHash, BlockHashOrNumber, BlockIdOrTag, BlockNumber, BlockTag};
 use katana_primitives::chain::NamedChainId;
 use katana_primitives::event::MaybeForkedContinuationToken;
-use katana_primitives::genesis::constant::DEFAULT_ETH_FEE_TOKEN_ADDRESS;
+use katana_primitives::genesis::constant::{
+    DEFAULT_ETH_FEE_TOKEN_ADDRESS, DEFAULT_STRK_FEE_TOKEN_ADDRESS,
+};
 use katana_primitives::transaction::TxHash;
 use katana_primitives::{Felt, felt};
 use katana_utils::TestNode;
