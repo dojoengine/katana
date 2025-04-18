@@ -290,9 +290,9 @@ impl NodeArgs {
 
             chain_spec.genesis.extend_allocations(accounts.into_iter().map(|(k, v)| (k, v.into())));
 
-            #[cfg(feature = "slot")]
-            if self.slot.controller {
-                katana_slot_controller::add_controller_account(&mut chain_spec.genesis)?;
+            #[cfg(feature = "cartridge")]
+            if self.cartridge.controllers || self.cartridge.paymaster {
+                katana_slot_controller::add_controller_classes(&mut chain_spec.genesis);
             }
 
             Ok((Arc::new(ChainSpec::Dev(chain_spec)), None))
@@ -362,6 +362,7 @@ impl NodeArgs {
         None
     }
 
+    #[cfg(feature = "cartridge")]
     fn cartridge_config(&self) -> Option<PaymasterConfig> {
         if self.cartridge.paymaster {
             Some(PaymasterConfig { cartridge_api_url: self.cartridge.api.clone() })
@@ -735,12 +736,17 @@ chain_id.Named = "Mainnet"
 
         // Test with paymaster explicitly specified in RPC modules
         let args =
-            NodeArgs::parse_from(["katana", "--cartridge.paymaster", "--rpc.api", "starknet"]);
+            NodeArgs::parse_from(["katana", "--cartridge.paymaster", "--http.api", "starknet"]);
         let config = args.config().unwrap();
 
         // Verify cartridge module is still enabled even when not in explicit RPC list
         assert!(config.rpc.apis.contains(&RpcModuleKind::Cartridge));
         assert!(config.rpc.apis.contains(&RpcModuleKind::Starknet));
+
+        // Verify that all the Controller classes are added to the genesis
+        for (_, class) in katana_slot_controller::CONTROLLERS.iter() {
+            assert!(config.chain.genesis().classes.get(&class.hash).is_some());
+        }
 
         // Test without paymaster enabled
         let args = NodeArgs::parse_from(["katana"]);
@@ -748,5 +754,9 @@ chain_id.Named = "Mainnet"
 
         // Verify cartridge module is not enabled by default
         assert!(!config.rpc.apis.contains(&RpcModuleKind::Cartridge));
+
+        for (_, class) in katana_slot_controller::CONTROLLERS.iter() {
+            assert!(config.chain.genesis().classes.get(&class.hash).is_none());
+        }
     }
 }

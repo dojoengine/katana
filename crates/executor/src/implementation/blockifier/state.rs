@@ -16,7 +16,6 @@ use katana_provider::ProviderResult;
 use parking_lot::Mutex;
 use starknet_api::core::{ClassHash, CompiledClassHash, Nonce};
 use starknet_api::state::StorageKey;
-use tracing::trace;
 
 use super::cache::ClassCache;
 use super::utils::{self};

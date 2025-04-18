@@ -10,8 +10,6 @@ use std::path::{Path, PathBuf};
 use std::str::FromStr;
 use std::sync::Arc;
 
-#[cfg(feature = "cartridge")]
-use account_sdk::artifacts::{Version as ControllerVersion, CONTROLLERS};
 use alloy_primitives::U256;
 use base64::prelude::*;
 use cairo_vm::types::errors::program_errors::ProgramError;
@@ -24,8 +22,6 @@ use starknet::core::types::contract::JsonError;
 use super::allocation::{
     DevGenesisAccount, GenesisAccount, GenesisAccountAlloc, GenesisContractAlloc,
 };
-#[cfg(feature = "controller")]
-use super::constant::{CONTROLLER_ACCOUNT_CLASS, CONTROLLER_CLASS_HASH};
 use super::constant::{DEFAULT_ACCOUNT_CLASS, DEFAULT_ACCOUNT_CLASS_HASH};
 use super::{Genesis, GenesisAllocation};
 use crate::block::{BlockHash, BlockNumber, GasPrice};
@@ -34,8 +30,6 @@ use crate::class::{
     LegacyContractClass, SierraContractClass,
 };
 use crate::contract::{ContractAddress, StorageKey, StorageValue};
-#[cfg(feature = "cartridge")]
-use crate::utils::class::parse_sierra_class;
 use crate::Felt;
 
 type Object = Map<String, Value>;
@@ -283,31 +277,6 @@ impl TryFrom<GenesisJson> for Genesis {
         // a lookup table for classes that is assigned a name
         let mut class_names: HashMap<String, Felt> = HashMap::new();
         let mut classes: BTreeMap<ClassHash, Arc<ContractClass>> = BTreeMap::new();
-
-        #[cfg(feature = "controller")]
-        // Merely a band aid fix for now.
-        // Adding this by default so that we can support mounting the genesis file from k8s
-        // ConfigMap when we embed the Controller class, and its capacity is only limited to 1MiB.
-        classes.insert(CONTROLLER_CLASS_HASH, CONTROLLER_ACCOUNT_CLASS.clone().into());
-
-        #[cfg(feature = "cartridge")]
-        {
-            #[cfg(feature = "cartridge")]
-            classes.extend(
-                // Filter out the `1.0.4` already included and
-                // LATEST which is a duplicate of `1.0.9`.
-                CONTROLLERS
-                    .iter()
-                    .filter(|(v, _)| {
-                        **v == ControllerVersion::V1_0_5
-                            || **v == ControllerVersion::V1_0_6
-                            || **v == ControllerVersion::V1_0_7
-                            || **v == ControllerVersion::V1_0_8
-                            || **v == ControllerVersion::V1_0_9
-                    })
-                    .map(|(_, v)| (v.hash, parse_sierra_class(v.content).unwrap().into())),
-            );
-        }
 
         for entry in value.classes {
             let GenesisClassJson { class, name } = entry;
@@ -792,28 +761,6 @@ mod tests {
             .insert(DEFAULT_LEGACY_UDC_CLASS_HASH, DEFAULT_LEGACY_UDC_CLASS.clone().into());
         expected_classes.insert(DEFAULT_ACCOUNT_CLASS_HASH, DEFAULT_ACCOUNT_CLASS.clone().into());
 
-        #[cfg(feature = "controller")]
-        expected_classes.insert(CONTROLLER_CLASS_HASH, CONTROLLER_ACCOUNT_CLASS.clone().into());
-
-        #[cfg(feature = "cartridge")]
-        {
-            #[cfg(feature = "cartridge")]
-            expected_classes.extend(
-                // Filter out the `1.0.4` already included and
-                // LATEST which is a duplicate of `1.0.9`.
-                CONTROLLERS
-                    .iter()
-                    .filter(|(v, _)| {
-                        **v == ControllerVersion::V1_0_5
-                            || **v == ControllerVersion::V1_0_6
-                            || **v == ControllerVersion::V1_0_7
-                            || **v == ControllerVersion::V1_0_8
-                            || **v == ControllerVersion::V1_0_9
-                    })
-                    .map(|(_, v)| (v.hash, parse_sierra_class(v.content).unwrap().into())),
-            );
-        }
-
         let acc_1 = address!("0x66efb28ac62686966ae85095ff3a772e014e7fbf56d4c5f6fac5606d4dde23a");
         let acc_2 = address!("0x6b86e40118f29ebe393a75469b4d926c7a44c2e2681b6d319520b7c1156d114");
         let acc_3 = address!("0x79156ecb3d8f084001bb498c95e37fa1c4b40dbb35a3ae47b77b1ad535edcb9");
@@ -991,31 +938,6 @@ mod tests {
 
         let mut classes = BTreeMap::new();
         classes.insert(DEFAULT_ACCOUNT_CLASS_HASH, DEFAULT_ACCOUNT_CLASS.clone().into());
-
-        #[cfg(feature = "controller")]
-        // Merely a band aid fix for now.
-        // Adding this by default so that we can support mounting the genesis file from k8s
-        // ConfigMap when we embed the Controller class, and its capacity is only limited to 1MiB.
-        classes.insert(CONTROLLER_CLASS_HASH, CONTROLLER_ACCOUNT_CLASS.clone().into());
-
-        #[cfg(feature = "cartridge")]
-        {
-            #[cfg(feature = "cartridge")]
-            classes.extend(
-                // Filter out the `1.0.4` already included and
-                // LATEST which is a duplicate of `1.0.9`.
-                CONTROLLERS
-                    .iter()
-                    .filter(|(v, _)| {
-                        **v == ControllerVersion::V1_0_5
-                            || **v == ControllerVersion::V1_0_6
-                            || **v == ControllerVersion::V1_0_7
-                            || **v == ControllerVersion::V1_0_8
-                            || **v == ControllerVersion::V1_0_9
-                    })
-                    .map(|(_, v)| (v.hash, parse_sierra_class(v.content).unwrap().into())),
-            );
-        }
 
         let allocations = BTreeMap::from([(
             address!("0x66efb28ac62686966ae85095ff3a772e014e7fbf56d4c5f6fac5606d4dde23a"),

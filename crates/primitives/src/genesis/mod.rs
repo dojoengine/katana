@@ -6,11 +6,7 @@ use std::collections::BTreeMap;
 use std::fmt::Debug;
 use std::sync::Arc;
 
-#[cfg(feature = "cartridge")]
-use account_sdk::artifacts::{Version as ControllerVersion, CONTROLLERS};
 use constant::DEFAULT_ACCOUNT_CLASS;
-#[cfg(feature = "controller")]
-use constant::{CONTROLLER_ACCOUNT_CLASS, CONTROLLER_CLASS_HASH};
 use serde::{Deserialize, Serialize};
 
 use self::allocation::{GenesisAccountAlloc, GenesisAllocation, GenesisContractAlloc};
@@ -21,8 +17,6 @@ use self::constant::{
 use crate::block::{BlockHash, BlockNumber, GasPrice};
 use crate::class::{ClassHash, ContractClass};
 use crate::contract::ContractAddress;
-#[cfg(feature = "cartridge")]
-use crate::utils::class::parse_sierra_class;
 use crate::Felt;
 
 /// Genesis block configuration.
@@ -93,26 +87,7 @@ impl Default for Genesis {
             (DEFAULT_LEGACY_UDC_CLASS_HASH, DEFAULT_LEGACY_UDC_CLASS.clone().into()),
             // predeployed account class
             (DEFAULT_ACCOUNT_CLASS_HASH, DEFAULT_ACCOUNT_CLASS.clone().into()),
-            // This is controller `1.0.4`.
-            #[cfg(feature = "controller")]
-            (CONTROLLER_CLASS_HASH, CONTROLLER_ACCOUNT_CLASS.clone().into()),
         ]));
-
-        #[cfg(feature = "cartridge")]
-        classes.extend(
-            // Filter out the `1.0.4` already included and
-            // LATEST which is a duplicate of `1.0.9`.
-            CONTROLLERS
-                .iter()
-                .filter(|(v, _)| {
-                    **v == ControllerVersion::V1_0_5
-                        || **v == ControllerVersion::V1_0_6
-                        || **v == ControllerVersion::V1_0_7
-                        || **v == ControllerVersion::V1_0_8
-                        || **v == ControllerVersion::V1_0_9
-                })
-                .map(|(_, v)| (v.hash, parse_sierra_class(v.content).unwrap().into())),
-        );
 
         Self {
             parent_hash: Felt::ZERO,

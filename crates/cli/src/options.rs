@@ -421,6 +421,11 @@ pub struct SlotOptions {
 #[derive(Debug, Args, Clone, Serialize, Deserialize, PartialEq)]
 #[command(next_help_heading = "Cartridge options")]
 pub struct CartridgeOptions {
+    /// Declare all versions of the Controller class at genesis. This is implictly enabled if
+    /// `--cartridge.paymaster` is provided.
+    #[arg(long = "cartridge.controllers")]
+    pub controllers: bool,
+
     /// Whether to use the Cartridge paymaster.
     /// This has the cost to call the Cartridge API to check
     /// if a controller account exists on each estimate fee call.
@@ -429,7 +434,7 @@ pub struct CartridgeOptions {
     /// disabled for slot deployments.
     #[arg(long = "cartridge.paymaster")]
     #[arg(default_value_t = false)]
-    #[serde(default = "default_paymaster")]
+    #[serde(default)]
     pub paymaster: bool,
 
     /// The root URL for the Cartridge API.
@@ -461,7 +466,11 @@ impl CartridgeOptions {
 #[cfg(feature = "cartridge")]
 impl Default for CartridgeOptions {
     fn default() -> Self {
-        CartridgeOptions { paymaster: default_paymaster(), api: default_api_url() }
+        CartridgeOptions {
+            controllers: false,
+            paymaster: default_paymaster(),
+            api: default_api_url(),
+        }
     }
 }
 

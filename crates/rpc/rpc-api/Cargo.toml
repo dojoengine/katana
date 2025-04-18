@@ -13,9 +13,9 @@ katana-primitives.workspace = true
 katana-provider.workspace = true
 katana-rpc-types.workspace = true
 
+account_sdk = { workspace = true, optional = true }
 anyhow.workspace = true
 jsonrpsee = { workspace = true, features = [ "macros", "server" ] }
-account_sdk = { workspace = true, optional = true }
 rstest.workspace = true
 serde.workspace = true
 serde_json.workspace = true
@@ -23,5 +23,5 @@ starknet.workspace = true
 thiserror.workspace = true
 
 [features]
+cartridge = [ "dep:account_sdk" ]
 client = [ "jsonrpsee/client" ]
-cartridge = [ "account_sdk", "katana-primitives/cartridge" ]
