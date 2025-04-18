@@ -369,7 +369,7 @@ pub struct LoggingOptions {
     #[arg(default_value_t = LogFormat::Full)]
     pub log_format: LogFormat,
 }
-#[derive(Debug, Args, Clone, Serialize, Deserialize, PartialEq)]
+#[derive(Debug, Args, Default, Clone, Serialize, Deserialize, PartialEq)]
 #[command(next_help_heading = "Gas Price Oracle Options")]
 pub struct GasPriceOracleOptions {
     /// The L1 ETH gas price. (denominated in wei)
@@ -395,17 +395,6 @@ pub struct GasPriceOracleOptions {
     #[serde(serialize_with = "serialize_option_as_hex")]
     #[serde(deserialize_with = "deserialize_nonzero_gas_price")]
     pub l1_strk_data_gas_price: Option<NonZeroU128>,
-}
-
-impl Default for GasPriceOracleOptions {
-    fn default() -> Self {
-        Self {
-            l1_eth_gas_price: None,
-            l1_strk_gas_price: None,
-            l1_eth_data_gas_price: None,
-            l1_strk_data_gas_price: None,
-        }
-    }
 }
 
 #[cfg(feature = "slot")]
