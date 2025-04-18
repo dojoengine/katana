@@ -119,9 +119,9 @@ jobs:
         if: ${{ matrix.job.platform == 'win32' }}
         run: |
           choco install llvm --version 19.1.7 -y
-          echo "MLIR_SYS_190_PREFIX=C:\Program Files (x86)\LLVM" >> $GITHUB_ENV
-          echo "LLVM_SYS_191_PREFIX=C:\Program Files (x86)\LLVM" >> $GITHUB_ENV
-          echo "TABLEGEN_190_PREFIX=C:\Program Files (x86)\LLVM" >> $GITHUB_ENV
+          echo "MLIR_SYS_190_PREFIX=C:\Program Files (x86)\LLVM" >> $env:GITHUB_ENV
+          echo "LLVM_SYS_191_PREFIX=C:\Program Files (x86)\LLVM" >> $env:GITHUB_ENV
+          echo "TABLEGEN_190_PREFIX=C:\Program Files (x86)\LLVM" >> $env:GITHUB_ENV
 
       - name: Apple M1 setup
         if: ${{ matrix.job.target == 'aarch64-apple-darwin' }}
