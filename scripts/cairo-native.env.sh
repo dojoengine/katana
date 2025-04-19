@@ -1,8 +1,6 @@
 #!/bin/sh
 
-# Taken from `lambdaclass/cairo_native`.
-#
-# It sets the LLVM environment variables.
+# Sets the LLVM environment variables.
 #
 # You can copy this file to .envrc/.env and adapt it for your environment.
 

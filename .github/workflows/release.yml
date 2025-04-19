@@ -47,32 +47,35 @@ jobs:
       PLATFORM_NAME: ${{ matrix.job.platform }}
       TARGET: ${{ matrix.job.target }}
       ARCH: ${{ matrix.job.arch }}
-      CARGO_PROFILE: performance
     strategy:
       matrix:
         job:
-          # The OS is used for the runner
-          # The platform is a generic platform name
-          # The target is used by Cargo
-          # The arch is either 386, arm64 or amd64
-          # The svm target platform to use for the binary https://github.com/roynalnaruto/svm-rs/blob/84cbe0ac705becabdc13168bae28a45ad2299749/svm-builds/build.rs#L4-L24
-          - os: ubuntu-latest-8-cores
-            platform: linux
-            target: x86_64-unknown-linux-gnu
+          # # The OS is used for the runner
+          # # The platform is a generic platform name
+          # # The target is used by Cargo
+          # # The arch is either 386, arm64 or amd64
+          # # The svm target platform to use for the binary https://github.com/roynalnaruto/svm-rs/blob/84cbe0ac705becabdc13168bae28a45ad2299749/svm-builds/build.rs#L4-L24
+          # - os: ubuntu-latest-8-cores
+          #   platform: linux
+          #   target: x86_64-unknown-linux-gnu
+          #   arch: amd64
+          # - os: ubuntu-latest-8-cores-arm64
+          #   platform: linux
+          #   target: aarch64-unknown-linux-gnu
+          #   arch: arm64
+          #   svm_target_platform: linux-aarch64
+          # - os: macos-13
+          #   platform: darwin
+          #   target: x86_64-apple-darwin
+          #   arch: amd64
+          # - os: macos-latest-xlarge
+          #   platform: darwin
+          #   target: aarch64-apple-darwin
+          #   arch: arm64
+          - os: windows-latest
+            platform: win32
+            target: x86_64-pc-windows-msvc
             arch: amd64
-          - os: ubuntu-latest-8-cores-arm64
-            platform: linux
-            target: aarch64-unknown-linux-gnu
-            arch: arm64
-            svm_target_platform: linux-aarch64
-          - os: macos-13
-            platform: darwin
-            target: x86_64-apple-darwin
-            arch: amd64
-          - os: macos-latest-xlarge
-            platform: darwin
-            target: aarch64-apple-darwin
-            arch: arm64
 
     steps:
       - uses: actions/checkout@v4
@@ -89,7 +92,7 @@ jobs:
         with:
           bun-version: latest
 
-      - name: Install LLVM dependencies for Linux
+      - name: Install LLVM dependencies ( Linux )
         if: ${{ matrix.job.platform == 'linux' }}
         run: |
           wget https://apt.llvm.org/llvm.sh
@@ -101,7 +104,7 @@ jobs:
           echo "LLVM_SYS_191_PREFIX=/usr/lib/llvm-19" >> $GITHUB_ENV
           echo "TABLEGEN_190_PREFIX=/usr/lib/llvm-19" >> $GITHUB_ENV
 
-      - name: Install LLVM dependencies for macOS
+      - name: Install LLVM dependencies ( macOS )
         if: ${{ matrix.job.platform == 'darwin' }}
         run: |
           brew install llvm@19 --quiet
@@ -111,6 +114,14 @@ jobs:
           echo "TABLEGEN_190_PREFIX=$(brew --prefix llvm@19)" >> $GITHUB_ENV
           echo "LIBRARY_PATH=$(brew --prefix zstd)/lib:$LIBRARY_PATH" >> $GITHUB_ENV
           echo "CPATH=$(brew --prefix zstd)/include:$CPATH" >> $GITHUB_ENV
+
+      - name: Install LLVM dependencies ( Windows )
+        if: ${{ matrix.job.platform == 'win32' }}
+        run: |
+          choco install llvm --version 19.1.7 -y
+          echo "MLIR_SYS_190_PREFIX=C:\Program Files (x86)\LLVM" >> $env:GITHUB_ENV
+          echo "LLVM_SYS_191_PREFIX=C:\Program Files (x86)\LLVM" >> $env:GITHUB_ENV
+          echo "TABLEGEN_190_PREFIX=C:\Program Files (x86)\LLVM" >> $env:GITHUB_ENV
 
       - name: Apple M1 setup
         if: ${{ matrix.job.target == 'aarch64-apple-darwin' }}
@@ -130,7 +141,7 @@ jobs:
       - name: Build binary
         run: |
           cargo --version
-          cargo build -p katana --features native --profile ${CARGO_PROFILE} --target ${{ matrix.job.target }}
+          cargo build --bin katana --features native --profile performance --target ${{ matrix.job.target }}
 
       - name: Archive binaries
         id: artifacts
@@ -138,13 +149,18 @@ jobs:
           VERSION_NAME: ${{ needs.prepare.outputs.tag_name }}
         run: |
           if [ "$PLATFORM_NAME" == "linux" ]; then
-            tar -czvf "katana_${VERSION_NAME}_${PLATFORM_NAME}_${ARCH}.tar.gz" -C ./target/${TARGET}/${CARGO_PROFILE} katana
+            tar -czvf "katana_${VERSION_NAME}_${PLATFORM_NAME}_${ARCH}.tar.gz" -C ./target/${TARGET}/performance katana
             echo "file_name=katana_${VERSION_NAME}_${PLATFORM_NAME}_${ARCH}.tar.gz" >> $GITHUB_OUTPUT
           elif [ "$PLATFORM_NAME" == "darwin" ]; then
             # We need to use gtar here otherwise the archive is corrupt.
             # See: https://github.com/actions/virtual-environments/issues/2619
-            gtar -czvf "katana_${VERSION_NAME}_${PLATFORM_NAME}_${ARCH}.tar.gz" -C ./target/${TARGET}/${CARGO_PROFILE} katana
+            gtar -czvf "katana_${VERSION_NAME}_${PLATFORM_NAME}_${ARCH}.tar.gz" -C ./target/${TARGET}/performance katana
             echo "file_name=katana_${VERSION_NAME}_${PLATFORM_NAME}_${ARCH}.tar.gz" >> $GITHUB_OUTPUT
+          elif [ "$PLATFORM_NAME" == "win32" ]; then
+            cd ./target/${TARGET}/release
+            7z a -tzip "dojo_${VERSION_NAME}_${PLATFORM_NAME}_${ARCH}.zip" katana.exe
+            mv "dojo_${VERSION_NAME}_${PLATFORM_NAME}_${ARCH}.zip" ../../../
+            echo "file_name=katana_${VERSION_NAME}_${PLATFORM_NAME}_${ARCH}.zip" >> $GITHUB_OUTPUT
           fi
         shell: bash
 
@@ -153,7 +169,7 @@ jobs:
         if: ${{ env.PLATFORM_NAME == 'linux' }}
         run: |
           mkdir -p $PLATFORM_NAME/$ARCH
-          mv target/${TARGET}/${CARGO_PROFILE}/katana $PLATFORM_NAME/$ARCH
+          mv target/${TARGET}/performance/katana $PLATFORM_NAME/$ARCH
         shell: bash
 
       - name: Upload docker binaries
