@@ -117,16 +117,27 @@ jobs:
 
       - name: Install LLVM ( Windows )
         if: ${{ matrix.job.platform == 'win32' }}
-        uses: KyleMayes/install-llvm-action@v2.0.6
-        with:
-          version: "19"
+        run: |
+          $llvmUrl = "https://github.com/llvm/llvm-project/releases/download/llvmorg-19.1.7/clang+llvm-19.1.7-x86_64-pc-windows-msvc.tar.xz"
+          $llvmDir = "C:\llvm"
+
+          Write-Host "Downloading LLVM from $llvmUrl"
+          Invoke-WebRequest -Uri $llvmUrl -OutFile llvm.tar.xz
+
+          Write-Host "Creating LLVM directory"
+          New-Item -ItemType Directory -Path $llvmDir -Force
+
+          Write-Host "Extracting LLVM"
+          tar -xf llvm.tar.xz -C $llvmDir --strip-components=1
+
+          Write-Host "LLVM installed successfully to $llvmDir"
 
       - name: Set cairo-native LLVM environment variables ( Windows )
         if: ${{ matrix.job.platform == 'win32' }}
         run: |
-          echo "MLIR_SYS_190_PREFIX=C:\Program Files (x86)\LLVM" >> $env:GITHUB_ENV
-          echo "LLVM_SYS_191_PREFIX=C:\Program Files (x86)\LLVM" >> $env:GITHUB_ENV
-          echo "TABLEGEN_190_PREFIX=C:\Program Files (x86)\LLVM" >> $env:GITHUB_ENV
+          echo "MLIR_SYS_190_PREFIX=C:\llvm" >> $env:GITHUB_ENV
+          echo "LLVM_SYS_191_PREFIX=C:\llvm" >> $env:GITHUB_ENV
+          echo "TABLEGEN_190_PREFIX=C:\llvm" >> $env:GITHUB_ENV
 
       - name: Apple M1 setup
         if: ${{ matrix.job.target == 'aarch64-apple-darwin' }}
