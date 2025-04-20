@@ -119,7 +119,7 @@ jobs:
         if: ${{ matrix.job.platform == 'win32' }}
         uses: KyleMayes/install-llvm-action@v2
         with:
-          version: "19"
+          version: "19.1.7"
 
       - name: Set cairo-native LLVM environment variables ( Windows )
         if: ${{ matrix.job.platform == 'win32' }}
