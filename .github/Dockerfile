@@ -4,6 +4,7 @@ ARG RUST_VERSION
 ARG CLIPPY_VERSION
 FROM rust:${RUST_VERSION}-slim
 
+# https://docs.docker.com/build/building/variables/#scoping
 # Consume the build arguments in the build stage
 ARG RUST_VERSION
 ARG CLIPPY_VERSION
