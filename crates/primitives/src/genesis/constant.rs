@@ -95,12 +95,6 @@ lazy_static! {
     pub static ref GENESIS_ACCOUNT_CLASS: ContractClass = read_legacy_class_artifact(include_str!("../../../../contracts/build/account.json"));
 }
 
-#[cfg(feature = "controller")]
-lazy_static! {
-    // Cartridge Controller account
-    pub static ref CONTROLLER_ACCOUNT_CLASS: ContractClass = parse_sierra_class(include_str!("../../../../contracts/build/controller_CartridgeAccount.contract_class.json")).unwrap();
-}
-
 /// A helper function to get the base storage address for the fee token balance of a given account.
 ///
 /// This is to compute the base storage address of the balance because the fee token balance is
@@ -118,17 +112,4 @@ fn read_legacy_class_artifact(artifact: &str) -> ContractClass {
     let value = serde_json::from_str(artifact).unwrap();
     let class = parse_deprecated_compiled_class(value).unwrap();
     ContractClass::Legacy(class)
-}
-
-#[cfg(test)]
-mod tests {
-
-    #[cfg(feature = "controller")]
-    #[test]
-    fn controller_class_hash() {
-        use super::{CONTROLLER_ACCOUNT_CLASS, CONTROLLER_CLASS_HASH};
-
-        let hash = CONTROLLER_ACCOUNT_CLASS.class_hash().unwrap();
-        assert_eq!(hash, CONTROLLER_CLASS_HASH)
-    }
 }

@@ -92,7 +92,9 @@ pub fn transact<S: StateReader>(
             info.receipt.fee
         };
 
-        let gas_consumed = info.receipt.gas.l1_gas.0 as u128;
+        let gas_consumed = (info.receipt.gas.l1_gas.0
+            + info.receipt.gas.l2_gas.0
+            + info.receipt.gas.l1_data_gas.0) as u128;
 
         let (unit, gas_price) = match fee_type {
             FeeType::Eth => (

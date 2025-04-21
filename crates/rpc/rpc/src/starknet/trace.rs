@@ -74,7 +74,8 @@ impl<EF: ExecutorFactory> StarknetApi<EF> {
 
         let flags = katana_executor::ExecutionFlags::new()
             .with_account_validation(should_validate)
-            .with_fee(!should_skip_fee);
+            .with_fee(!should_skip_fee)
+            .with_nonce_check(false);
 
         // get the state and block env at the specified block for execution
         let state = self.state(&block_id)?;

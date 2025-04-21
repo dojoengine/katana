@@ -17,8 +17,6 @@ pub mod trace;
 pub mod transaction;
 pub mod version;
 
-pub mod conversion;
-
 pub mod state;
 pub mod utils;
 

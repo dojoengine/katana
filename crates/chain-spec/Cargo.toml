@@ -26,6 +26,3 @@ katana-provider = { workspace = true, features = [ "test-utils" ] }
 rstest.workspace = true
 similar-asserts.workspace = true
 tempfile.workspace = true
-
-[features]
-controller = [ "katana-primitives/controller" ]

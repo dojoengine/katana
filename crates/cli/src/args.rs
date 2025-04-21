@@ -17,6 +17,7 @@ use katana_node::config::dev::{DevConfig, FixedL1GasPriceConfig};
 use katana_node::config::execution::ExecutionConfig;
 use katana_node::config::fork::ForkingConfig;
 use katana_node::config::metrics::MetricsConfig;
+use katana_node::config::paymaster::PaymasterConfig;
 use katana_node::config::rpc::RpcConfig;
 #[cfg(feature = "server")]
 use katana_node::config::rpc::{RpcModuleKind, RpcModulesList};
@@ -117,6 +118,10 @@ pub struct NodeArgs {
 
     #[command(flatten)]
     pub explorer: ExplorerOptions,
+
+    #[cfg(feature = "cartridge")]
+    #[command(flatten)]
+    pub cartridge: CartridgeOptions,
 }
 
 impl NodeArgs {
@@ -167,6 +172,25 @@ impl NodeArgs {
         // the messagign config will eventually be removed slowly.
         let messaging = if cs_messaging.is_some() { cs_messaging } else { self.messaging.clone() };
 
+        #[cfg(feature = "cartridge")]
+        {
+            let paymaster = self.cartridge_config();
+
+            Ok(Config {
+                db,
+                dev,
+                rpc,
+                chain,
+                metrics,
+                forking,
+                execution,
+                messaging,
+                paymaster,
+                sequencing,
+            })
+        }
+
+        #[cfg(not(feature = "cartridge"))]
         Ok(Config { metrics, db, dev, rpc, chain, execution, sequencing, messaging, forking })
     }
 
@@ -181,7 +205,8 @@ impl NodeArgs {
     fn rpc_config(&self) -> Result<RpcConfig> {
         #[cfg(feature = "server")]
         {
-            let modules = if let Some(modules) = &self.server.http_modules {
+            #[allow(unused_mut)]
+            let mut modules = if let Some(modules) = &self.server.http_modules {
                 // TODO: This check should be handled in the `katana-node` level. Right now if you
                 // instantiate katana programmatically, you can still add the dev module without
                 // enabling dev mode.
@@ -203,6 +228,14 @@ impl NodeArgs {
 
                 modules
             };
+
+            // The cartridge rpc must be enabled if the paymaster is enabled.
+            // We put it here so that even when the individual api are explicitly specified
+            // (ie `--rpc.api`) we guarantee that the cartridge rpc is enabled.
+            #[cfg(feature = "cartridge")]
+            if self.cartridge.paymaster {
+                modules.add(RpcModuleKind::Cartridge);
+            }
 
             let cors_origins = self.server.http_cors_origins.clone();
 
@@ -248,7 +281,8 @@ impl NodeArgs {
                 chain_spec.genesis.sequencer_address = *DEFAULT_SEQUENCER_ADDRESS;
             }
 
-            // generate dev accounts
+            // Generate dev accounts.
+            // If `cartridge` is enabled, the first account will be the paymaster.
             let accounts = DevAllocationsGenerator::new(self.development.total_accounts)
                 .with_seed(parse_seed(&self.development.seed))
                 .with_balance(U256::from(DEFAULT_PREFUNDED_ACCOUNT_BALANCE))
@@ -256,9 +290,9 @@ impl NodeArgs {
 
             chain_spec.genesis.extend_allocations(accounts.into_iter().map(|(k, v)| (k, v.into())));
 
-            #[cfg(feature = "slot")]
-            if self.slot.controller {
-                katana_slot_controller::add_controller_account(&mut chain_spec.genesis)?;
+            #[cfg(feature = "cartridge")]
+            if self.cartridge.controllers || self.cartridge.paymaster {
+                katana_slot_controller::add_controller_classes(&mut chain_spec.genesis);
             }
 
             Ok((Arc::new(ChainSpec::Dev(chain_spec)), None))
@@ -268,24 +302,24 @@ impl NodeArgs {
     fn dev_config(&self) -> DevConfig {
         let mut fixed_gas_prices = None;
 
-        if self.gpo.l1_eth_gas_price.get() > 0 {
+        if let Some(eth_gas_price) = self.gpo.l1_eth_gas_price {
             let prices = fixed_gas_prices.get_or_insert(FixedL1GasPriceConfig::default());
-            prices.gas_price.eth = self.gpo.l1_eth_gas_price;
+            prices.gas_price.eth = eth_gas_price;
         }
 
-        if self.gpo.l1_strk_gas_price.get() > 0 {
+        if let Some(strk_gas_price) = self.gpo.l1_strk_gas_price {
             let prices = fixed_gas_prices.get_or_insert(FixedL1GasPriceConfig::default());
-            prices.gas_price.strk = self.gpo.l1_strk_gas_price;
+            prices.gas_price.strk = strk_gas_price;
         }
 
-        if self.gpo.l1_eth_data_gas_price.get() > 0 {
+        if let Some(eth_data_gas_price) = self.gpo.l1_eth_data_gas_price {
             let prices = fixed_gas_prices.get_or_insert(FixedL1GasPriceConfig::default());
-            prices.data_gas_price.eth = self.gpo.l1_eth_data_gas_price;
+            prices.data_gas_price.eth = eth_data_gas_price;
         }
 
-        if self.gpo.l1_strk_data_gas_price.get() > 0 {
+        if let Some(strk_data_gas_price) = self.gpo.l1_strk_data_gas_price {
             let prices = fixed_gas_prices.get_or_insert(FixedL1GasPriceConfig::default());
-            prices.data_gas_price.strk = self.gpo.l1_strk_data_gas_price;
+            prices.data_gas_price.strk = strk_data_gas_price;
         }
 
         DevConfig {
@@ -326,6 +360,15 @@ impl NodeArgs {
 
         #[cfg(not(feature = "server"))]
         None
+    }
+
+    #[cfg(feature = "cartridge")]
+    fn cartridge_config(&self) -> Option<PaymasterConfig> {
+        if self.cartridge.paymaster {
+            Some(PaymasterConfig { cartridge_api_url: self.cartridge.api.clone() })
+        } else {
+            None
+        }
     }
 
     /// Parse the node config from the command line arguments and the config file,
@@ -387,6 +430,11 @@ impl NodeArgs {
             if let Some(forking) = config.forking {
                 self.forking = forking;
             }
+        }
+
+        #[cfg(feature = "cartridge")]
+        {
+            self.cartridge.merge(config.cartridge.as_ref());
         }
 
         Ok(self)
@@ -477,11 +525,11 @@ mod test {
         });
 
         let config =
-            NodeArgs::parse_from(["katana", "--gpo.l1-eth-data-gas-price", "1"]).config().unwrap();
+            NodeArgs::parse_from(["katana", "--gpo.l1-eth-data-gas-price", "2"]).config().unwrap();
         assert_matches!(config.dev.fixed_gas_prices, Some(prices) => {
             assert_eq!(prices.gas_price.eth, DEFAULT_ETH_L1_GAS_PRICE);
             assert_eq!(prices.gas_price.strk, DEFAULT_STRK_L1_GAS_PRICE);
-            assert_eq!(prices.data_gas_price.eth.get(), 1);
+            assert_eq!(prices.data_gas_price.eth.get(), 2);
             assert_eq!(prices.data_gas_price.strk, DEFAULT_STRK_L1_DATA_GAS_PRICE);
         });
 
@@ -675,5 +723,40 @@ chain_id.Named = "Mainnet"
         let config = args.config().unwrap();
 
         assert!(config.rpc.apis.contains(&RpcModuleKind::Dev));
+    }
+
+    #[cfg(feature = "cartridge")]
+    #[test]
+    fn cartridge_paymaster() {
+        let args = NodeArgs::parse_from(["katana", "--cartridge.paymaster"]);
+        let config = args.config().unwrap();
+
+        // Verify cartridge module is automatically enabled
+        assert!(config.rpc.apis.contains(&RpcModuleKind::Cartridge));
+
+        // Test with paymaster explicitly specified in RPC modules
+        let args =
+            NodeArgs::parse_from(["katana", "--cartridge.paymaster", "--http.api", "starknet"]);
+        let config = args.config().unwrap();
+
+        // Verify cartridge module is still enabled even when not in explicit RPC list
+        assert!(config.rpc.apis.contains(&RpcModuleKind::Cartridge));
+        assert!(config.rpc.apis.contains(&RpcModuleKind::Starknet));
+
+        // Verify that all the Controller classes are added to the genesis
+        for (_, class) in katana_slot_controller::CONTROLLERS.iter() {
+            assert!(config.chain.genesis().classes.get(&class.hash).is_some());
+        }
+
+        // Test without paymaster enabled
+        let args = NodeArgs::parse_from(["katana"]);
+        let config = args.config().unwrap();
+
+        // Verify cartridge module is not enabled by default
+        assert!(!config.rpc.apis.contains(&RpcModuleKind::Cartridge));
+
+        for (_, class) in katana_slot_controller::CONTROLLERS.iter() {
+            assert!(config.chain.genesis().classes.get(&class.hash).is_none());
+        }
     }
 }
