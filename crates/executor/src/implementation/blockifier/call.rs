@@ -1,3 +1,4 @@
+use std::str::FromStr;
 use std::sync::Arc;
 
 use blockifier::context::{BlockContext, TransactionContext};
@@ -5,6 +6,11 @@ use blockifier::execution::call_info::CallInfo;
 use blockifier::execution::entry_point::{
     CallEntryPoint, EntryPointExecutionContext, EntryPointExecutionResult, SierraGasRevertTracker,
 };
+use blockifier::execution::errors::{EntryPointExecutionError, PreExecutionError};
+use blockifier::execution::stack_trace::{
+    extract_trailing_cairo1_revert_trace, Cairo1RevertHeader,
+};
+use blockifier::execution::syscalls::hint_processor::ENTRYPOINT_NOT_FOUND_ERROR;
 use blockifier::state::cached_state::CachedState;
 use blockifier::state::state_api::StateReader;
 use blockifier::transaction::objects::{DeprecatedTransactionInfo, TransactionInfo};
@@ -25,8 +31,8 @@ pub fn execute_call<S: StateReader>(
     max_gas: u64,
 ) -> Result<Vec<Felt>, ExecutionError> {
     let mut state = CachedState::new(state);
-    let res = execute_call_inner(request, &mut state, block_context, max_gas)?;
-    Ok(res.execution.retdata.0)
+    let call_info = execute_call_inner(request.clone(), &mut state, block_context, max_gas)?;
+    Ok(call_info.execution.retdata.0)
 }
 
 fn execute_call_inner<S: StateReader>(
@@ -72,7 +78,28 @@ fn execute_call_inner<S: StateReader>(
     // If `initial_gas` can't fit in a usize, use the maximum.
     ctx.vm_run_resources = RunResources::new(max_gas.try_into().unwrap_or(usize::MAX));
     let mut remaining_gas = call.initial_gas;
-    call.execute(state, &mut ctx, &mut remaining_gas)
+    let call_info = call.execute(state, &mut ctx, &mut remaining_gas)?;
+
+    // In Starknet 0.13.4 calls return error as return data (Ok variant) instead of returning as an
+    // Err. Refer to: https://github.com/dojoengine/sequencer/blob/5d737b9c90a14bdf4483d759d1a1d4ce64aa9fd2/crates/blockifier/src/execution/execution_utils.rs#L74
+    if call_info.execution.failed {
+        match call_info.execution.retdata.0.as_slice() {
+            [error_code] if *error_code == Felt::from_str(&ENTRYPOINT_NOT_FOUND_ERROR).unwrap() => {
+                let error = PreExecutionError::EntryPointNotFound(EntryPointSelector(
+                    request.entry_point_selector,
+                ));
+
+                return Err(EntryPointExecutionError::PreExecutionError(error));
+            }
+            _ => {
+                let error_trace =
+                    extract_trailing_cairo1_revert_trace(&call_info, Cairo1RevertHeader::Execution);
+                return Err(EntryPointExecutionError::ExecutionFailed { error_trace });
+            }
+        }
+    }
+
+    Ok(call_info)
 }
 
 #[cfg(test)]
@@ -81,6 +108,7 @@ mod tests {
     use std::sync::Arc;
 
     use blockifier::context::BlockContext;
+    use blockifier::execution::errors::EntryPointExecutionError;
     use blockifier::state::cached_state::{self};
     use katana_primitives::class::ContractClass;
     use katana_primitives::{address, felt, ContractAddress};
@@ -136,8 +164,8 @@ mod tests {
             assert!(max_gas_1 >= info.execution.gas_consumed);
 
             req.calldata = vec![felt!("600")];
-            let info = execute_call_inner(req.clone(), &mut state, ctx.clone(), max_gas_1).unwrap();
-            assert!(info.execution.failed, "should fail due to out of run resources");
+            let result = execute_call_inner(req.clone(), &mut state, ctx.clone(), max_gas_1);
+            assert!(result.is_err(), "should fail due to out of run resources")
         }
 
         let max_gas_2 = 10_000_000;
@@ -150,8 +178,8 @@ mod tests {
             assert!(max_gas_1 < info.execution.gas_consumed);
 
             req.calldata = vec![felt!("5000")];
-            let info = execute_call_inner(req.clone(), &mut state, ctx.clone(), max_gas_2).unwrap();
-            assert!(info.execution.failed, "should fail due to out of run resources");
+            let result = execute_call_inner(req.clone(), &mut state, ctx.clone(), max_gas_2);
+            assert!(result.is_err(), "should fail due to out of run resources")
         }
 
         let max_gas_3 = 100_000_000;
@@ -163,11 +191,50 @@ mod tests {
             assert!(max_gas_2 < info.execution.gas_consumed);
 
             req.calldata = vec![felt!("60000")];
-            let info = execute_call_inner(req.clone(), &mut state, ctx.clone(), max_gas_3).unwrap();
-            assert!(info.execution.failed, "should fail due to out of run resources");
+            let result = execute_call_inner(req.clone(), &mut state, ctx.clone(), max_gas_3);
+            assert!(result.is_err(), "should fail due to out of run resources")
         }
 
         // Check that 'call' isn't bounded by the block context max invoke steps
         assert!(max_gas_3 > ctx.versioned_constants().invoke_tx_max_n_steps as u64);
+    }
+
+    #[test]
+    fn call_with_panic() {
+        // -------------------- Preparations -------------------------------
+
+        let json = include_str!("../../../tests/fixtures/call_test.json");
+        let class = ContractClass::from_str(json).unwrap();
+        let class_hash = class.class_hash().unwrap();
+        let casm_hash = class.clone().compile().unwrap().class_hash().unwrap();
+
+        // Initialize provider with the test contract
+        let provider = test_utils::test_provider();
+        // Declare test contract
+        provider.set_class(class_hash, class).unwrap();
+        provider.set_compiled_class_hash_of_class_hash(class_hash, casm_hash).unwrap();
+        // Deploy test contract
+        let address = address!("0x1337");
+        provider.set_class_hash_of_contract(address, class_hash).unwrap();
+
+        let state = provider.latest().unwrap();
+        let cache = ClassCache::new().expect("failed to create ClassCache");
+        let state = StateProviderDb::new(state, cache);
+
+        // ---------------------------------------------------------------
+
+        let mut state = cached_state::CachedState::new(state);
+        let ctx = Arc::new(BlockContext::create_for_testing());
+
+        let req = EntryPointCall {
+            calldata: Vec::new(),
+            contract_address: address,
+            entry_point_selector: selector!("call_with_panic"),
+        };
+
+        let err = execute_call_inner(req.clone(), &mut state, ctx.clone(), u64::MAX).unwrap_err();
+        if let EntryPointExecutionError::ExecutionFailed { error_trace } = err {
+            assert!(error_trace.to_string().contains("fail"));
+        }
     }
 }
