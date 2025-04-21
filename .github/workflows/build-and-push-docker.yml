@@ -65,5 +65,5 @@ jobs:
           tags: ghcr.io/${{ github.repository }}-dev:latest,ghcr.io/${{ github.repository }}-dev:${{ env.DOCKER_TAG }}
           build-args: |
             RUST_VERSION=1.85.0
-          platforms: linux/amd64,linux/arm64
+          platforms: linux/amd64
           cache-from: type=registry,ref=ghcr.io/${{ github.repository }}-dev:latest
