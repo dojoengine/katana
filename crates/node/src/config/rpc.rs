@@ -1,5 +1,6 @@
 use std::collections::HashSet;
 use std::net::{IpAddr, Ipv4Addr, SocketAddr};
+use std::time::Duration;
 
 use katana_rpc::cors::HeaderValue;
 use serde::{Deserialize, Serialize};
@@ -46,7 +47,7 @@ pub struct RpcConfig {
     pub max_connections: Option<u32>,
     pub max_request_body_size: Option<u32>,
     pub max_response_body_size: Option<u32>,
-    pub timeout_ms: Option<u64>,
+    pub timeout: Option<Duration>,
     pub max_proof_keys: Option<u64>,
     pub max_event_page_size: Option<u64>,
     pub max_call_gas: Option<u64>,
@@ -69,7 +70,7 @@ impl Default for RpcConfig {
             max_connections: None,
             max_request_body_size: None,
             max_response_body_size: None,
-            timeout_ms: None,
+            timeout: None,
             apis: RpcModulesList::default(),
             max_event_page_size: Some(DEFAULT_RPC_MAX_EVENT_PAGE_SIZE),
             max_proof_keys: Some(DEFAULT_RPC_MAX_PROOF_KEYS),

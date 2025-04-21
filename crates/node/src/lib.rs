@@ -263,8 +263,8 @@ impl Node {
             .cors(cors)
             .module(rpc_modules)?;
 
-        if let Some(timeout_ms) = config.rpc.timeout_ms {
-            rpc_server = rpc_server.timeout_ms(timeout_ms);
+        if let Some(timeout) = config.rpc.timeout {
+            rpc_server = rpc_server.timeout(timeout);
         };
 
         if let Some(max_connections) = config.rpc.max_connections {

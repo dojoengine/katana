@@ -34,7 +34,7 @@ pub const DEFAULT_MAX_REQUEST_BODY_SIZE: u32 = TEN_MB_SIZE_BYTES;
 /// The default maximum size in bytes for an RPC response body.
 pub const DEFAULT_MAX_RESPONSE_BODY_SIZE: u32 = TEN_MB_SIZE_BYTES;
 /// The default timeout for an RPC request.
-pub const DEFAULT_TIMEOUT_MS: u64 = 20_000;
+pub const DEFAULT_TIMEOUT: Duration = Duration::from_secs(20);
 
 #[derive(Debug, thiserror::Error)]
 pub enum Error {
@@ -81,7 +81,7 @@ pub struct RpcServer {
     max_connections: u32,
     max_request_body_size: u32,
     max_response_body_size: u32,
-    timeout_ms: u64,
+    timeout: Duration,
 }
 
 impl RpcServer {
@@ -95,7 +95,7 @@ impl RpcServer {
             max_connections: 100,
             max_request_body_size: TEN_MB_SIZE_BYTES,
             max_response_body_size: TEN_MB_SIZE_BYTES,
-            timeout_ms: DEFAULT_TIMEOUT_MS,
+            timeout: DEFAULT_TIMEOUT,
         }
     }
 
@@ -118,8 +118,8 @@ impl RpcServer {
     }
 
     /// Set the timeout for the server. Default is 20 seconds.
-    pub fn timeout_ms(mut self, timeout_ms: u64) -> Self {
-        self.timeout_ms = timeout_ms;
+    pub fn timeout(mut self, timeout: Duration) -> Self {
+        self.timeout = timeout;
         self
     }
 
@@ -183,7 +183,7 @@ impl RpcServer {
             .option_layer(self.cors.clone())
             .option_layer(health_check_proxy)
             .option_layer(explorer_layer)
-            .timeout(Duration::from_millis(self.timeout_ms));
+            .timeout(self.timeout);
 
         let builder = ServerBuilder::new()
             .set_middleware(middleware)
