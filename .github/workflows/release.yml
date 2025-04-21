@@ -132,6 +132,9 @@ jobs:
 
           Write-Host "LLVM installed successfully to $llvmDir"
 
+          Write-Host "Listing files in LLVM directory"
+          Get-ChildItem -Path "$llvmDir" | ForEach-Object { Write-Host $_.Name }
+
       - name: Set cairo-native LLVM environment variables ( Windows )
         if: ${{ matrix.job.platform == 'win32' }}
         run: |
