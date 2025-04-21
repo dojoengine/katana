@@ -137,7 +137,7 @@ struct RequestBuilder<'a> {
     url: Url,
 }
 
-impl<'a> RequestBuilder<'a> {
+impl RequestBuilder<'_> {
     fn with_block_id(self, block_id: BlockIdOrTag) -> Self {
         match block_id {
             // latest block is implied, if no block id specified

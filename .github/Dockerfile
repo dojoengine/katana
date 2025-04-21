@@ -1,6 +1,7 @@
 # See here for image contents: https://hub.docker.com/layers/library/rust/1.81.0-slim/images/sha256-ba4ee661bb466ab49f6ceb8c6d9e9f9784bba7c6e45225187cd3c7fb1fbc12ce
 
 ARG RUST_VERSION=1.85.0
+ARG CLIPPY_VERSION=nightly-2025-02-20
 FROM rust:${RUST_VERSION}-slim
 
 # Install additional packages
@@ -15,7 +16,7 @@ ENV PATH="${PATH}:/root/.foundry/bin"
 # To allow independent workflow of the container, the rust-toolchain is explicitely given.
 RUN echo ${RUST_VERSION} > rust_toolchain_version
 # Make sure to sync the nightly version with the scripts in ./scripts
-RUN echo "nightly-2024-08-28" > nightly_rust_toolchain_version
+RUN echo ${CLIPPY_VERSION} > nightly_rust_toolchain_version
 
 # Install cargo-binstall
 RUN curl -L --proto '=https' --tlsv1.2 -sSf https://raw.githubusercontent.com/cargo-bins/cargo-binstall/main/install-from-binstall-release.sh | bash

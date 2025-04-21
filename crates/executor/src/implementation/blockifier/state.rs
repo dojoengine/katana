@@ -43,7 +43,7 @@ impl<'a> CachedState<'a> {
     }
 }
 
-impl<'a> ContractClassProvider for CachedState<'a> {
+impl ContractClassProvider for CachedState<'_> {
     fn class(
         &self,
         hash: katana_primitives::class::ClassHash,
@@ -69,7 +69,7 @@ impl<'a> ContractClassProvider for CachedState<'a> {
     }
 }
 
-impl<'a> StateProvider for CachedState<'a> {
+impl StateProvider for CachedState<'_> {
     fn class_hash_of_contract(
         &self,
         address: katana_primitives::contract::ContractAddress,
@@ -118,15 +118,15 @@ impl<'a> StateProvider for CachedState<'a> {
     }
 }
 
-impl<'a> StateProofProvider for CachedState<'a> {}
-impl<'a> StateRootProvider for CachedState<'a> {}
+impl StateProofProvider for CachedState<'_> {}
+impl StateRootProvider for CachedState<'_> {}
 
 pub struct StateProviderDb<'a> {
     provider: Box<dyn StateProvider + 'a>,
     compiled_class_cache: ClassCache,
 }
 
-impl<'a> Debug for StateProviderDb<'a> {
+impl Debug for StateProviderDb<'_> {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         f.debug_struct("StateProviderDb")
             .field("provider", &"..")
@@ -149,7 +149,7 @@ impl<'a> StateProviderDb<'a> {
     }
 }
 
-impl<'a> StateReader for StateProviderDb<'a> {
+impl StateReader for StateProviderDb<'_> {
     fn get_class_hash_at(
         &self,
         contract_address: starknet_api::core::ContractAddress,
