@@ -31,8 +31,8 @@ pub fn execute_call<S: StateReader>(
     max_gas: u64,
 ) -> Result<Vec<Felt>, ExecutionError> {
     let mut state = CachedState::new(state);
-    let call_info = execute_call_inner(request.clone(), &mut state, block_context, max_gas)?;
-    Ok(call_info.execution.retdata.0)
+    let res = execute_call_inner(request, &mut state, block_context, max_gas)?;
+    Ok(res.execution.retdata.0)
 }
 
 fn execute_call_inner<S: StateReader>(
