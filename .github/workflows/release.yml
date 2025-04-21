@@ -120,6 +120,7 @@ jobs:
         run: |
           $llvmUrl = "https://github.com/llvm/llvm-project/releases/download/llvmorg-19.1.7/clang+llvm-19.1.7-x86_64-pc-windows-msvc.tar.xz"
           $llvmDir = "C:\Program Files (x86)\LLVM"
+          $llvmDirBin = "C:\Program Files (x86)\LLVM\bin"
 
           Write-Host "Downloading LLVM from $llvmUrl"
           Invoke-WebRequest -Uri $llvmUrl -OutFile llvm.tar.xz
@@ -133,7 +134,7 @@ jobs:
           Write-Host "LLVM installed successfully to $llvmDir"
 
           Write-Host "Listing files in LLVM directory"
-          Get-ChildItem -Path "$llvmDir" | ForEach-Object { Write-Host $_.Name }
+          Get-ChildItem -Path "$llvmDirBin" | ForEach-Object { Write-Host $_.Name }
 
       - name: Set cairo-native LLVM environment variables ( Windows )
         if: ${{ matrix.job.platform == 'win32' }}
