@@ -354,7 +354,7 @@ mod tests {
             reason: "Unexpected error reason".to_string(),
         },
         63,
-        "An unexpected error occured",
+        "An unexpected error occurred",
         json!({
             "reason": "Unexpected error reason".to_string()
         }),
