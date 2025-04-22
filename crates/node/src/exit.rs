@@ -25,7 +25,7 @@ impl<'a> NodeStoppedFuture<'a> {
     }
 }
 
-impl<'a> Future for NodeStoppedFuture<'a> {
+impl Future for NodeStoppedFuture<'_> {
     type Output = Result<()>;
 
     fn poll(self: Pin<&mut Self>, cx: &mut Context<'_>) -> Poll<Self::Output> {
@@ -34,7 +34,7 @@ impl<'a> Future for NodeStoppedFuture<'a> {
     }
 }
 
-impl<'a> core::fmt::Debug for NodeStoppedFuture<'a> {
+impl core::fmt::Debug for NodeStoppedFuture<'_> {
     fn fmt(&self, f: &mut core::fmt::Formatter<'_>) -> core::fmt::Result {
         f.debug_struct("NodeStoppedFuture").field("fut", &"...").finish()
     }

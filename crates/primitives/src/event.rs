@@ -72,8 +72,8 @@ pub enum MaybeForkedContinuationToken {
     ///
     /// It's a string because there is no a guarantee format.
     Forked(String),
-    /// A Katana specific continuation token. Used to tell Katana the next events to fetch is in the
-    /// local blocks and not in the forked provider.
+    /// A Katana specific continuation token. Used to tell Katana the next events to fetch is in
+    /// the local blocks and not in the forked provider.
     Token(ContinuationToken),
 }
 

@@ -114,7 +114,7 @@ impl<'de> Deserialize<'de> for ClassNameOrHash {
     fn deserialize<D: serde::Deserializer<'de>>(deserializer: D) -> Result<Self, D::Error> {
         struct _Visitor;
 
-        impl<'de> Visitor<'de> for _Visitor {
+        impl Visitor<'_> for _Visitor {
             type Value = ClassNameOrHash;
 
             fn expecting(&self, formatter: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {

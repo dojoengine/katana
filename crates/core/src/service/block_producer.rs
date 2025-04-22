@@ -193,7 +193,6 @@ impl<EF: ExecutorFactory> std::fmt::Debug for BlockProducer<EF> {
 /// block producer will execute all the transactions in the mempool and mine a new block with the
 /// resulting state. The block context is only updated every time a new block is mined as opposed to
 /// updating it when the block is opened (in _interval_ mode).
-
 #[allow(missing_debug_implementations)]
 pub enum BlockProducerMode<EF: ExecutorFactory> {
     Interval(IntervalBlockProducer<EF>),
