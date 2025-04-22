@@ -59,12 +59,10 @@ cainome = { version = "0.5.0", features = [ "abigen-rs" ] }
 cainome-cairo-serde = { version = "0.1.0" }
 dojo-utils = { git = "https://github.com/dojoengine/dojo", tag = "v1.2.2" }
 
-# metrics
-dojo-metrics = { path = "crates/metrics" }
-
 # katana
 katana-chain-spec = { path = "crates/chain-spec" }
 katana-cli = { path = "crates/cli" }
+katana-metrics = { path = "crates/metrics" }
 katana-codecs = { path = "crates/storage/codecs" }
 katana-codecs-derive = { path = "crates/storage/codecs/derive" }
 katana-core = { path = "crates/core", default-features = false }

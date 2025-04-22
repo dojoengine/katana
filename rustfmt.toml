@@ -16,13 +16,13 @@ imports_granularity = "Module"
 normalize_comments = true
 normalize_doc_attributes = true
 unstable_features = true
-version = "Two"
+style_edition = "2021"
 wrap_comments = true
 
 # To use these settings in vscode, add the following line to your settings.json file:
-# 
+#
 # "rust-analyzer.rustfmt.extraArgs": [
 #         "+nightly"
 #     ],
-# 
+#
 # and run "rustup toolchain install nightly".

@@ -177,7 +177,7 @@ pub struct ShutdownFuture<'a> {
     fut: BoxFuture<'a, ()>,
 }
 
-impl<'a> Future for ShutdownFuture<'a> {
+impl Future for ShutdownFuture<'_> {
     type Output = ();
 
     fn poll(self: Pin<&mut Self>, cx: &mut Context<'_>) -> Poll<Self::Output> {
@@ -185,7 +185,7 @@ impl<'a> Future for ShutdownFuture<'a> {
     }
 }
 
-impl<'a> core::fmt::Debug for ShutdownFuture<'a> {
+impl core::fmt::Debug for ShutdownFuture<'_> {
     fn fmt(&self, f: &mut core::fmt::Formatter<'_>) -> core::fmt::Result {
         f.debug_struct("ShutdownFuture").field("fut", &"...").finish()
     }

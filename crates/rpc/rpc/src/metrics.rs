@@ -25,10 +25,10 @@ use std::net::SocketAddr;
 use std::sync::Arc;
 use std::time::Instant;
 
-use dojo_metrics::metrics::{Counter, Histogram};
-use dojo_metrics::Metrics;
 use jsonrpsee::server::logger::{HttpRequest, Logger, MethodKind, Params, TransportProtocol};
 use jsonrpsee::RpcModule;
+use katana_metrics::metrics::{Counter, Histogram};
+use katana_metrics::Metrics;
 use tracing::debug;
 
 /// Metrics for the RPC server.

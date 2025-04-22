@@ -268,10 +268,10 @@ impl From<StarknetRsProviderError> for StarknetApiError {
             StarknetRsProviderError::Other(error) => {
                 Self::UnexpectedError { reason: error.to_string() }
             }
-            StarknetRsProviderError::ArrayLengthMismatch { .. } => Self::UnexpectedError {
+            StarknetRsProviderError::ArrayLengthMismatch => Self::UnexpectedError {
                 reason: "Forking client: Array length mismatch".to_string(),
             },
-            StarknetRsProviderError::RateLimited { .. } => {
+            StarknetRsProviderError::RateLimited => {
                 Self::UnexpectedError { reason: "Forking client: Rate limited".to_string() }
             }
         }
@@ -354,7 +354,7 @@ mod tests {
             reason: "Unexpected error reason".to_string(),
         },
         63,
-        "An unexpected error occured",
+        "An unexpected error occurred",
         json!({
             "reason": "Unexpected error reason".to_string()
         }),

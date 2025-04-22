@@ -15,10 +15,10 @@ katana-primitives = { workspace = true, features = [ "arbitrary" ] }
 katana-provider = { workspace = true, features = [ "fork", "in-memory" ] }
 katana-tasks.workspace = true
 katana-trie.workspace = true
+katana-metrics.workspace = true
 
 anyhow.workspace = true
 derive_more.workspace = true
-dojo-metrics.workspace = true
 futures.workspace = true
 lazy_static.workspace = true
 metrics.workspace = true
