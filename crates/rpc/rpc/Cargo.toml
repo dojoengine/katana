@@ -63,5 +63,4 @@ tempfile.workspace = true
 tokio.workspace = true
 
 [features]
-default = [ "cartridge" ]
 cartridge = [ "katana-rpc-api/cartridge", "dep:reqwest", "dep:cainome", "dep:account_sdk", "dep:serde" ]

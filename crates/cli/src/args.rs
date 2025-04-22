@@ -113,10 +113,6 @@ pub struct NodeArgs {
     #[command(flatten)]
     pub development: DevOptions,
 
-    #[cfg(feature = "slot")]
-    #[command(flatten)]
-    pub slot: SlotOptions,
-
     #[command(flatten)]
     pub explorer: ExplorerOptions,
 

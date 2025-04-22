@@ -38,6 +38,5 @@ cartridge = [
 	"katana-node/cartridge",
 	"katana-rpc/cartridge",
 ]
-default = [ "cartridge", "server", "slot" ]
+default = [ "cartridge", "server" ]
 server = [  ]
-slot = [  ]
