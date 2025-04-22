@@ -161,7 +161,7 @@ jobs:
           echo "JEMALLOC_SYS_WITH_LG_PAGE=16" >> $GITHUB_ENV
 
       - name: Build binary ( Windows )
-        if: ${{ ! matrix.job.platform == 'win32' }}
+        if: ${{ matrix.job.platform == 'win32' }}
         run: |
           cargo build --bin katana --profile performance --target ${{ matrix.job.target }}
 
