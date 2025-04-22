@@ -405,15 +405,6 @@ pub struct GasPriceOracleOptions {
     pub l1_strk_data_gas_price: Option<NonZeroU128>,
 }
 
-#[cfg(feature = "slot")]
-#[derive(Debug, Args, Clone, Serialize, Deserialize, Default, PartialEq)]
-#[command(next_help_heading = "Slot options")]
-pub struct SlotOptions {
-    #[arg(hide = true)]
-    #[arg(long = "slot.controller")]
-    pub controller: bool,
-}
-
 #[cfg(feature = "cartridge")]
 #[derive(Debug, Args, Clone, Serialize, Deserialize, PartialEq)]
 #[command(next_help_heading = "Cartridge options")]
