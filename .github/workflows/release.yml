@@ -115,35 +115,35 @@ jobs:
           echo "LIBRARY_PATH=$(brew --prefix zstd)/lib:$LIBRARY_PATH" >> $GITHUB_ENV
           echo "CPATH=$(brew --prefix zstd)/include:$CPATH" >> $GITHUB_ENV
 
-      - name: Install LLVM ( Windows )
-        if: ${{ matrix.job.platform == 'win32' }}
-        run: |
-          $llvmUrl = "https://github.com/llvm/llvm-project/releases/download/llvmorg-19.1.7/clang+llvm-19.1.7-x86_64-pc-windows-msvc.tar.xz"
-          $llvmDir = "C:\Program Files (x86)\LLVM"
-          $llvmDirBin = "C:\Program Files (x86)\LLVM\bin"
+      # - name: Install LLVM ( Windows )
+      #   if: ${{ matrix.job.platform == 'win32' }}
+      #   run: |
+      #     $llvmUrl = "https://github.com/llvm/llvm-project/releases/download/llvmorg-19.1.7/clang+llvm-19.1.7-x86_64-pc-windows-msvc.tar.xz"
+      #     $llvmDir = "C:\Program Files (x86)\LLVM"
+      #     $llvmDirBin = "C:\Program Files (x86)\LLVM\bin"
 
-          Write-Host "Downloading LLVM from $llvmUrl"
-          Invoke-WebRequest -Uri $llvmUrl -OutFile llvm.tar.xz
+      #     Write-Host "Downloading LLVM from $llvmUrl"
+      #     Invoke-WebRequest -Uri $llvmUrl -OutFile llvm.tar.xz
 
-          Write-Host "Creating LLVM directory"
-          New-Item -ItemType Directory -Path $llvmDir -Force
+      #     Write-Host "Creating LLVM directory"
+      #     New-Item -ItemType Directory -Path $llvmDir -Force
 
-          Write-Host "Extracting LLVM"
-          tar -xf llvm.tar.xz -C $llvmDir --strip-components=1
+      #     Write-Host "Extracting LLVM"
+      #     tar -xf llvm.tar.xz -C $llvmDir --strip-components=1
 
-          Write-Host "LLVM installed successfully to $llvmDir"
+      #     Write-Host "LLVM installed successfully to $llvmDir"
 
-          Write-Host "Listing files in LLVM directory"
-          Get-ChildItem -Path "$llvmDirBin" | ForEach-Object { Write-Host $_.Name }
+      #     Write-Host "Listing files in LLVM directory"
+      #     Get-ChildItem -Path "$llvmDirBin" | ForEach-Object { Write-Host $_.Name }
 
-      # On Windows, use powershell syntax to write the env var to the file.
-      # https://github.com/actions/runner/issues/1636#issuecomment-1024531638
-      - name: Set cairo-native LLVM environment variables ( Windows )
-        if: ${{ matrix.job.platform == 'win32' }}
-        run: |
-          echo "MLIR_SYS_190_PREFIX=C:\Program Files (x86)\LLVM" | Out-File -FilePath $env:GITHUB_ENV -Append
-          echo "LLVM_SYS_191_PREFIX=C:\Program Files (x86)\LLVM" | Out-File -FilePath $env:GITHUB_ENV -Append
-          echo "TABLEGEN_190_PREFIX=C:\Program Files (x86)\LLVM" | Out-File -FilePath $env:GITHUB_ENV -Append
+      # # On Windows, use powershell syntax to write the env var to the file.
+      # # https://github.com/actions/runner/issues/1636#issuecomment-1024531638
+      # - name: Set cairo-native LLVM environment variables ( Windows )
+      #   if: ${{ matrix.job.platform == 'win32' }}
+      #   run: |
+      #     echo "MLIR_SYS_190_PREFIX=C:\Program Files (x86)\LLVM" | Out-File -FilePath $env:GITHUB_ENV -Append
+      #     echo "LLVM_SYS_191_PREFIX=C:\Program Files (x86)\LLVM" | Out-File -FilePath $env:GITHUB_ENV -Append
+      #     echo "TABLEGEN_190_PREFIX=C:\Program Files (x86)\LLVM" | Out-File -FilePath $env:GITHUB_ENV -Append
 
       - name: Apple M1 setup
         if: ${{ matrix.job.target == 'aarch64-apple-darwin' }}
@@ -160,9 +160,14 @@ jobs:
           # See: https://github.com/jemalloc/jemalloc/issues/467
           echo "JEMALLOC_SYS_WITH_LG_PAGE=16" >> $GITHUB_ENV
 
-      - name: Build binary
+      - name: Build binary ( Windows )
+        if: ${{ ! matrix.job.platform == 'win32' }}
         run: |
-          cargo --version
+          cargo build --bin katana --profile performance --target ${{ matrix.job.target }}
+
+      - name: Build binary ( Linux & macOS )
+        if: ${{ ! matrix.job.platform == 'win32' }}
+        run: |
           cargo build --bin katana --features native --profile performance --target ${{ matrix.job.target }}
 
       - name: Archive binaries
