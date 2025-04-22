@@ -136,12 +136,14 @@ jobs:
           Write-Host "Listing files in LLVM directory"
           Get-ChildItem -Path "$llvmDirBin" | ForEach-Object { Write-Host $_.Name }
 
+      # On Windows, use powershell syntax to write the env var to the file.
+      # https://github.com/actions/runner/issues/1636#issuecomment-1024531638
       - name: Set cairo-native LLVM environment variables ( Windows )
         if: ${{ matrix.job.platform == 'win32' }}
         run: |
-          echo "MLIR_SYS_190_PREFIX=C:\Program Files (x86)\LLVM" >> $env:GITHUB_ENV
-          echo "LLVM_SYS_191_PREFIX=C:\Program Files (x86)\LLVM" >> $env:GITHUB_ENV
-          echo "TABLEGEN_190_PREFIX=C:\Program Files (x86)\LLVM" >> $env:GITHUB_ENV
+          echo "MLIR_SYS_190_PREFIX=C:\Program Files (x86)\LLVM" | Out-File -FilePath $env:GITHUB_ENV -Append
+          echo "LLVM_SYS_191_PREFIX=C:\Program Files (x86)\LLVM" | Out-File -FilePath $env:GITHUB_ENV -Append
+          echo "TABLEGEN_190_PREFIX=C:\Program Files (x86)\LLVM" | Out-File -FilePath $env:GITHUB_ENV -Append
 
       - name: Apple M1 setup
         if: ${{ matrix.job.target == 'aarch64-apple-darwin' }}
