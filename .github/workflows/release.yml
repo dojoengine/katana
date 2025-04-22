@@ -184,9 +184,9 @@ jobs:
             gtar -czvf "katana_${VERSION_NAME}_${PLATFORM_NAME}_${ARCH}.tar.gz" -C ./target/${TARGET}/performance katana
             echo "file_name=katana_${VERSION_NAME}_${PLATFORM_NAME}_${ARCH}.tar.gz" >> $GITHUB_OUTPUT
           elif [ "$PLATFORM_NAME" == "win32" ]; then
-            cd ./target/${TARGET}/release
-            7z a -tzip "dojo_${VERSION_NAME}_${PLATFORM_NAME}_${ARCH}.zip" katana.exe
-            mv "dojo_${VERSION_NAME}_${PLATFORM_NAME}_${ARCH}.zip" ../../../
+            cd ./target/${TARGET}/performance
+            7z a -tzip "katana_${VERSION_NAME}_${PLATFORM_NAME}_${ARCH}.zip" katana.exe
+            mv "katana_${VERSION_NAME}_${PLATFORM_NAME}_${ARCH}.zip" ../../../
             echo "file_name=katana_${VERSION_NAME}_${PLATFORM_NAME}_${ARCH}.zip" >> $GITHUB_OUTPUT
           fi
         shell: bash
