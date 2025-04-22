@@ -6,6 +6,12 @@ on:
       - main
   pull_request:
 
+# Cancel in progress workflow when a new one is triggered by running in a concurrency group
+# https://docs.github.com/en/actions/writing-workflows/choosing-what-your-workflow-does/control-the-concurrency-of-workflows-and-jobs
+concurrency:
+  group: ${{ github.workflow }}-${{ github.event.pull_request.number || github.ref }}
+  cancel-in-progress: true
+
 env:
   CARGO_TERM_COLOR: always
   RUST_VERSION: 1.85.0
@@ -36,10 +42,19 @@ jobs:
       # Workaround for https://github.com/actions/runner-images/issues/6775
       - run: git config --global --add safe.directory "*"
 
+      - name: Generate test artifacts
+        run: make test-artifacts
+
+      - name: Cache test artifacts
+        id: test-artifacts-cache
+        uses: actions/cache@v3
+        with:
+          path: |
+            ./tests/snos/snos/build
+          key: snos-test-artifacts-${{ github.sha }}
+
       - name: Run Clippy
-        run: |
-          make test-artifacts
-          ./scripts/clippy.sh
+        run: ./scripts/clippy.sh
 
   test:
     needs: [fmt, clippy]
@@ -53,6 +68,11 @@ jobs:
       NEXTEST_PROFILE: ci
     steps:
       - uses: actions/checkout@v3
+        with:
+          submodules: recursive
+      # Workaround for https://github.com/actions/runner-images/issues/6775
+      - run: git config --global --add safe.directory "*"
+
       - uses: Swatinem/rust-cache@v2
 
       - name: Run tests
@@ -83,9 +103,19 @@ jobs:
 
       - uses: Swatinem/rust-cache@v2
 
+      - name: Restore test artifacts from clippy job
+        id: restore-test-artifacts
+        uses: actions/cache@v3
+        with:
+          path: |
+            ./tests/snos/snos/build
+          key: snos-test-artifacts-${{ github.sha }}
+
       - name: Prepare SNOS test environment
         run: |
-          make snos-artifacts
+          if [ ! -d "./tests/snos/snos/build" ]; then
+            make snos-artifacts
+          fi
 
       - run: |
           cargo run -p snos-integration-test
