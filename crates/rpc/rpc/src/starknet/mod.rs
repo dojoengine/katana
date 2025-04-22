@@ -56,7 +56,9 @@ mod read;
 mod trace;
 mod write;
 
-pub use config::{PaymasterConfig, StarknetApiConfig};
+#[cfg(feature = "cartridge")]
+pub use config::PaymasterConfig;
+pub use config::StarknetApiConfig;
 use forking::ForkedClient;
 
 type StarknetApiResult<T> = Result<T, StarknetApiError>;

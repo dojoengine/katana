@@ -40,8 +40,9 @@ rstest.workspace = true
 starknet.workspace = true
 
 [features]
-default = [ "init-slot", "jemalloc", "katana-cli/slot" ]
+default = [ "init-slot", "jemalloc", "cartridge" ]
 
+cartridge = [ "katana-cli/cartridge"]
 init-custom-settlement-chain = [  ]
 init-slot = [  ]
 jemalloc = [  ]

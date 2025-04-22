@@ -65,7 +65,7 @@ katana-cli = { path = "crates/cli" }
 katana-metrics = { path = "crates/metrics" }
 katana-codecs = { path = "crates/storage/codecs" }
 katana-codecs-derive = { path = "crates/storage/codecs/derive" }
-katana-core = { path = "crates/core", default-features = false }
+katana-core = { path = "crates/core" }
 katana-db = { path = "crates/storage/db" }
 katana-executor = { path = "crates/executor" }
 katana-explorer = { path = "crates/explorer" }
@@ -73,14 +73,14 @@ katana-feeder-gateway = { path = "crates/feeder-gateway" }
 katana-fork = { path = "crates/storage/fork" }
 katana-log = { path = "crates/log" }
 katana-messaging = { path = "crates/messaging" }
-katana-node = { path = "crates/node", default-features = false }
+katana-node = { path = "crates/node" }
 katana-node-bindings = { path = "crates/node-bindings" }
 katana-pipeline = { path = "crates/sync/pipeline" }
 katana-pool = { path = "crates/pool" }
 katana-primitives = { path = "crates/primitives" }
-katana-provider = { path = "crates/storage/provider", default-features = false }
+katana-provider = { path = "crates/storage/provider" }
 katana-rpc = { path = "crates/rpc/rpc" }
-katana-rpc-api = { path = "crates/rpc/rpc-api", default-features = false }
+katana-rpc-api = { path = "crates/rpc/rpc-api" }
 katana-rpc-types = { path = "crates/rpc/rpc-types" }
 katana-rpc-types-builder = { path = "crates/rpc/rpc-types-builder" }
 katana-runner = { path = "crates/runner" }

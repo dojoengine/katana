@@ -69,11 +69,6 @@ jobs:
 
       - uses: Swatinem/rust-cache@v2
 
-      - name: Build Katana binary
-        run: |
-          cargo build --release --bin katana
-          echo "$PWD/target/release" >> $GITHUB_PATH
-
       - name: Run tests
         run: |
           cargo llvm-cov nextest --no-report --all-features --workspace --exclude snos-integration-test --build-jobs 20
