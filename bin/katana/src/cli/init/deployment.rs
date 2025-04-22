@@ -360,7 +360,9 @@ pub enum ContractInitError {
     )]
     InvalidSnosProgramHash { expected: Felt, actual: Felt },
 
-    #[error("invalid program info: config hash mismatch - expected {expected:#x}, got {actual:#x}")]
+    #[error(
+        "invalid program info: config hash mismatch - expected {expected:#x}, got {actual:#x}"
+    )]
     InvalidConfigHash { expected: Felt, actual: Felt },
 
     #[error("invalid program state: fact registry mismatch - expected {expected:}, got {actual}")]

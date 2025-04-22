@@ -6,7 +6,7 @@ use std::process::ChildStdout;
 
 pub fn find_free_port() -> u16 {
     TcpListener::bind("127.0.0.1:0").unwrap().local_addr().unwrap().port() // This might need to me
-    // mutexed
+                                                                           // mutexed
 }
 
 pub fn listen_to_stdout(log_file: &Path, stdout: ChildStdout) {

@@ -142,7 +142,11 @@ where
 {
     type Item = Result<KeyValue<T>, DatabaseError>;
     fn next(&mut self) -> Option<Self::Item> {
-        if let value @ Some(_) = self.start.take() { value } else { self.cursor.next().transpose() }
+        if let value @ Some(_) = self.start.take() {
+            value
+        } else {
+            self.cursor.next().transpose()
+        }
     }
 }
 

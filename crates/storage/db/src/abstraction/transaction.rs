@@ -61,7 +61,7 @@ pub trait DbTxMut: DbTx {
     ///
     /// Returns `true` if the key/value pair was present.
     fn delete<T: Table>(&self, key: T::Key, value: Option<T::Value>)
-    -> Result<bool, DatabaseError>;
+        -> Result<bool, DatabaseError>;
 
     /// Clears all entries in the given database. This will empty the database.
     fn clear<T: Table>(&self) -> Result<(), DatabaseError>;
@@ -121,7 +121,7 @@ pub trait DbTxMutRef<'a>: DbTxRef<'a> {
     ///
     /// Returns `true` if the key/value pair was present.
     fn delete<T: Table>(&self, key: T::Key, value: Option<T::Value>)
-    -> Result<bool, DatabaseError>;
+        -> Result<bool, DatabaseError>;
 
     /// Clears all entries in the given database. This will empty the database.
     fn clear<T: Table>(&self) -> Result<(), DatabaseError>;

@@ -53,7 +53,7 @@ pub trait StateProvider: ContractClassProvider + StateProofProvider + StateRootP
 
     /// Returns the class hash of a contract.
     fn class_hash_of_contract(&self, address: ContractAddress)
-    -> ProviderResult<Option<ClassHash>>;
+        -> ProviderResult<Option<ClassHash>>;
 }
 
 /// A type which can create [`StateProvider`] for states at a particular block.
