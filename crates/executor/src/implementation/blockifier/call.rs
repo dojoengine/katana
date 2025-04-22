@@ -84,7 +84,7 @@ fn execute_call_inner<S: StateReader>(
     // Err. Refer to: https://github.com/dojoengine/sequencer/blob/5d737b9c90a14bdf4483d759d1a1d4ce64aa9fd2/crates/blockifier/src/execution/execution_utils.rs#L74
     if call_info.execution.failed {
         match call_info.execution.retdata.0.as_slice() {
-            [error_code] if *error_code == Felt::from_str(&ENTRYPOINT_NOT_FOUND_ERROR).unwrap() => {
+            [error_code] if *error_code == Felt::from_str(ENTRYPOINT_NOT_FOUND_ERROR).unwrap() => {
                 let error = PreExecutionError::EntryPointNotFound(EntryPointSelector(
                     request.entry_point_selector,
                 ));

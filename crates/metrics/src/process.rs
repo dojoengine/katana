@@ -1,3 +1,4 @@
+#[cfg(all(feature = "jemalloc", unix))]
 use metrics::{describe_gauge, gauge};
 
 const LOG_TARGET: &str = "metrics";

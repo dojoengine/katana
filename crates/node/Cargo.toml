@@ -19,9 +19,9 @@ katana-rpc.workspace = true
 katana-rpc-api.workspace = true
 katana-stage.workspace = true
 katana-tasks.workspace = true
+katana-metrics.workspace = true
 
 anyhow.workspace = true
-dojo-metrics.workspace = true
 futures.workspace = true
 hyper.workspace = true
 jsonrpsee.workspace = true

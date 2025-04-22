@@ -10,7 +10,7 @@ use std::collections::HashMap;
 use std::path::{Path, PathBuf};
 use std::sync::Arc;
 
-use dojo_metrics::metrics::gauge;
+use katana_metrics::metrics::gauge;
 pub use libmdbx;
 use libmdbx::{DatabaseFlags, EnvironmentFlags, Geometry, Mode, PageSize, SyncMode, RO, RW};
 use metrics::{describe_gauge, Label};
@@ -188,7 +188,7 @@ impl Database for DbEnv {
     }
 }
 
-impl dojo_metrics::Report for DbEnv {
+impl katana_metrics::Report for DbEnv {
     fn report(&self) {
         match self.stats() {
             Ok(stats) => {
