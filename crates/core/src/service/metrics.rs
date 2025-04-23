@@ -1,4 +1,4 @@
-use dojo_metrics::Metrics;
+use katana_metrics::Metrics;
 use metrics::Counter;
 
 #[derive(Metrics)]

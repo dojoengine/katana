@@ -13,8 +13,6 @@ use std::sync::Arc;
 use anyhow::{Context, Result};
 use config::rpc::RpcModuleKind;
 use config::Config;
-use dojo_metrics::exporters::prometheus::PrometheusRecorder;
-use dojo_metrics::{Report, Server as MetricsServer};
 use hyper::Method;
 use jsonrpsee::RpcModule;
 use katana_chain_spec::{ChainSpec, SettlementLayer};
@@ -30,6 +28,8 @@ use katana_core::service::block_producer::BlockProducer;
 use katana_db::mdbx::DbEnv;
 use katana_executor::implementation::blockifier::BlockifierFactory;
 use katana_executor::ExecutionFlags;
+use katana_metrics::exporters::prometheus::PrometheusRecorder;
+use katana_metrics::{Report, Server as MetricsServer};
 use katana_pool::ordering::FiFo;
 use katana_pool::TxPool;
 use katana_primitives::block::GasPrice;
@@ -256,12 +256,28 @@ impl Node {
             rpc_modules.merge(DevApiServer::into_rpc(api))?;
         }
 
-        let rpc_server = RpcServer::new()
+        let mut rpc_server = RpcServer::new()
             .metrics(true)
             .health_check(true)
             .explorer(config.rpc.explorer)
             .cors(cors)
             .module(rpc_modules)?;
+
+        if let Some(timeout) = config.rpc.timeout {
+            rpc_server = rpc_server.timeout(timeout);
+        };
+
+        if let Some(max_connections) = config.rpc.max_connections {
+            rpc_server = rpc_server.max_connections(max_connections);
+        }
+
+        if let Some(max_request_body_size) = config.rpc.max_request_body_size {
+            rpc_server = rpc_server.max_request_body_size(max_request_body_size);
+        }
+
+        if let Some(max_response_body_size) = config.rpc.max_response_body_size {
+            rpc_server = rpc_server.max_response_body_size(max_response_body_size);
+        }
 
         Ok(Node {
             db,

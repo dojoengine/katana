@@ -7,7 +7,7 @@ where
 {
     struct U64HexVisitor;
 
-    impl<'de> Visitor<'de> for U64HexVisitor {
+    impl Visitor<'_> for U64HexVisitor {
         type Value = u64;
 
         fn expecting(&self, formatter: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
@@ -35,7 +35,7 @@ where
 {
     struct U128HexVisitor;
 
-    impl<'de> Visitor<'de> for U128HexVisitor {
+    impl Visitor<'_> for U128HexVisitor {
         type Value = u128;
 
         fn expecting(&self, formatter: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {

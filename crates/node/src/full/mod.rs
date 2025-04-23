@@ -7,11 +7,11 @@ use std::future::IntoFuture;
 use std::sync::Arc;
 
 use anyhow::Result;
-use dojo_metrics::exporters::prometheus::PrometheusRecorder;
-use dojo_metrics::{Report, Server as MetricsServer};
 use exit::NodeStoppedFuture;
 use katana_db::mdbx::DbEnv;
 use katana_feeder_gateway::client::SequencerGateway;
+use katana_metrics::exporters::prometheus::PrometheusRecorder;
+use katana_metrics::{Report, Server as MetricsServer};
 use katana_pipeline::{Pipeline, PipelineHandle};
 use katana_pool::ordering::FiFo;
 use katana_pool::pool::Pool;

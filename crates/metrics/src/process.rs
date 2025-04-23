@@ -1,10 +1,11 @@
-use metrics::{describe_gauge, gauge};
+#![allow(dead_code)]
 
 const LOG_TARGET: &str = "metrics";
 
 #[cfg(all(feature = "jemalloc", unix))]
 pub fn collect_memory_stats() {
     use jemalloc_ctl::{epoch, stats};
+    use metrics::gauge;
 
     if epoch::advance()
         .map_err(|error| {
@@ -82,6 +83,8 @@ pub fn collect_memory_stats() {
 
 #[cfg(all(feature = "jemalloc", unix))]
 pub fn describe_memory_stats() {
+    use metrics::describe_gauge;
+
     describe_gauge!(
         "jemalloc.active",
         metrics::Unit::Bytes,

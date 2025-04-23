@@ -4165,22 +4165,6 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "fea41bba32d969b513997752735605054bc0dfa92b4c56bf1189f2e174be7a10"
 
 [[package]]
-name = "dojo-metrics"
-version = "1.5.0-alpha.2"
-dependencies = [
- "hyper 0.14.32",
- "jemalloc-ctl",
- "jemallocator",
- "metrics 0.23.0",
- "metrics-derive",
- "metrics-exporter-prometheus",
- "metrics-process",
- "metrics-util",
- "thiserror 1.0.69",
- "tracing",
-]
-
-[[package]]
 name = "dojo-utils"
 version = "1.2.2"
 source = "git+https://github.com/dojoengine/dojo?tag=v1.2.2#aafa6669b750cec99aed145640dd6c9a9a946562"
@@ -5945,7 +5929,7 @@ dependencies = [
 
 [[package]]
 name = "katana"
-version = "1.5.0-alpha.2"
+version = "1.5.0-alpha.4"
 dependencies = [
  "anyhow",
  "assert_matches",
@@ -5978,7 +5962,7 @@ dependencies = [
 
 [[package]]
 name = "katana-chain-spec"
-version = "1.5.0-alpha.2"
+version = "1.5.0-alpha.4"
 dependencies = [
  "alloy-primitives",
  "anyhow",
@@ -6001,7 +5985,7 @@ dependencies = [
 
 [[package]]
 name = "katana-cli"
-version = "1.5.0-alpha.2"
+version = "1.5.0-alpha.4"
 dependencies = [
  "alloy-primitives",
  "anyhow",
@@ -6029,7 +6013,7 @@ dependencies = [
 
 [[package]]
 name = "katana-codecs"
-version = "1.5.0-alpha.2"
+version = "1.5.0-alpha.4"
 dependencies = [
  "bytes",
  "katana-primitives",
@@ -6037,7 +6021,7 @@ dependencies = [
 
 [[package]]
 name = "katana-codecs-derive"
-version = "1.5.0-alpha.2"
+version = "1.5.0-alpha.4"
 dependencies = [
  "proc-macro2",
  "quote",
@@ -6047,7 +6031,7 @@ dependencies = [
 
 [[package]]
 name = "katana-core"
-version = "1.5.0-alpha.2"
+version = "1.5.0-alpha.4"
 dependencies = [
  "alloy-primitives",
  "alloy-provider 0.4.2",
@@ -6057,12 +6041,12 @@ dependencies = [
  "assert_matches",
  "criterion",
  "derive_more 0.99.19",
- "dojo-metrics",
  "futures",
  "hex",
  "katana-chain-spec",
  "katana-db",
  "katana-executor",
+ "katana-metrics",
  "katana-pool",
  "katana-primitives",
  "katana-provider",
@@ -6087,12 +6071,12 @@ dependencies = [
 
 [[package]]
 name = "katana-db"
-version = "1.5.0-alpha.2"
+version = "1.5.0-alpha.4"
 dependencies = [
  "anyhow",
  "arbitrary",
  "criterion",
- "dojo-metrics",
+ "katana-metrics",
  "katana-primitives",
  "katana-trie",
  "metrics 0.23.0",
@@ -6114,7 +6098,7 @@ dependencies = [
 
 [[package]]
 name = "katana-executor"
-version = "1.5.0-alpha.2"
+version = "1.5.0-alpha.4"
 dependencies = [
  "alloy-primitives",
  "anyhow",
@@ -6145,7 +6129,7 @@ dependencies = [
 
 [[package]]
 name = "katana-explorer"
-version = "1.5.0-alpha.2"
+version = "1.5.0-alpha.4"
 dependencies = [
  "anyhow",
  "axum",
@@ -6166,7 +6150,7 @@ dependencies = [
 
 [[package]]
 name = "katana-feeder-gateway"
-version = "1.5.0-alpha.2"
+version = "1.5.0-alpha.4"
 dependencies = [
  "katana-primitives",
  "katana-rpc-types",
@@ -6184,7 +6168,7 @@ dependencies = [
 
 [[package]]
 name = "katana-fork"
-version = "1.5.0-alpha.2"
+version = "1.5.0-alpha.4"
 dependencies = [
  "anyhow",
  "futures",
@@ -6201,7 +6185,7 @@ dependencies = [
 
 [[package]]
 name = "katana-grpc"
-version = "1.5.0-alpha.2"
+version = "1.5.0-alpha.4"
 dependencies = [
  "tonic",
  "tonic-build",
@@ -6209,7 +6193,7 @@ dependencies = [
 
 [[package]]
 name = "katana-log"
-version = "1.5.0-alpha.2"
+version = "1.5.0-alpha.4"
 dependencies = [
  "clap",
  "serde",
@@ -6221,7 +6205,7 @@ dependencies = [
 
 [[package]]
 name = "katana-messaging"
-version = "1.5.0-alpha.2"
+version = "1.5.0-alpha.4"
 dependencies = [
  "alloy-contract 0.4.2",
  "alloy-network 0.4.2",
@@ -6248,13 +6232,28 @@ dependencies = [
 ]
 
 [[package]]
+name = "katana-metrics"
+version = "1.5.0-alpha.4"
+dependencies = [
+ "hyper 0.14.32",
+ "jemalloc-ctl",
+ "jemallocator",
+ "metrics 0.23.0",
+ "metrics-derive",
+ "metrics-exporter-prometheus",
+ "metrics-process",
+ "metrics-util",
+ "thiserror 1.0.69",
+ "tracing",
+]
+
+[[package]]
 name = "katana-node"
-version = "1.5.0-alpha.2"
+version = "1.5.0-alpha.4"
 dependencies = [
  "anyhow",
  "clap",
  "const_format",
- "dojo-metrics",
  "dojo-utils",
  "futures",
  "hyper 0.14.32",
@@ -6265,6 +6264,7 @@ dependencies = [
  "katana-executor",
  "katana-feeder-gateway",
  "katana-messaging",
+ "katana-metrics",
  "katana-pipeline",
  "katana-pool",
  "katana-primitives",
@@ -6293,7 +6293,7 @@ dependencies = [
 
 [[package]]
 name = "katana-node-bindings"
-version = "1.5.0-alpha.2"
+version = "1.5.0-alpha.4"
 dependencies = [
  "criterion",
  "pprof",
@@ -6310,7 +6310,7 @@ dependencies = [
 
 [[package]]
 name = "katana-pipeline"
-version = "1.5.0-alpha.2"
+version = "1.5.0-alpha.4"
 dependencies = [
  "async-trait",
  "futures",
@@ -6324,7 +6324,7 @@ dependencies = [
 
 [[package]]
 name = "katana-pool"
-version = "1.5.0-alpha.2"
+version = "1.5.0-alpha.4"
 dependencies = [
  "futures",
  "futures-util",
@@ -6340,7 +6340,7 @@ dependencies = [
 
 [[package]]
 name = "katana-primitives"
-version = "1.5.0-alpha.2"
+version = "1.5.0-alpha.4"
 dependencies = [
  "alloy-primitives",
  "anyhow",
@@ -6375,7 +6375,7 @@ dependencies = [
 
 [[package]]
 name = "katana-provider"
-version = "1.5.0-alpha.2"
+version = "1.5.0-alpha.4"
 dependencies = [
  "alloy-primitives",
  "anyhow",
@@ -6405,7 +6405,7 @@ dependencies = [
 
 [[package]]
 name = "katana-rpc"
-version = "1.5.0-alpha.2"
+version = "1.5.0-alpha.4"
 dependencies = [
  "account_sdk",
  "alloy",
@@ -6414,7 +6414,6 @@ dependencies = [
  "assert_matches",
  "cainome 0.5.1",
  "cairo-lang-starknet-classes",
- "dojo-metrics",
  "dojo-utils",
  "futures",
  "http 0.2.12",
@@ -6425,6 +6424,7 @@ dependencies = [
  "katana-executor",
  "katana-explorer",
  "katana-messaging",
+ "katana-metrics",
  "katana-node",
  "katana-pool",
  "katana-primitives",
@@ -6455,7 +6455,7 @@ dependencies = [
 
 [[package]]
 name = "katana-rpc-api"
-version = "1.5.0-alpha.2"
+version = "1.5.0-alpha.4"
 dependencies = [
  "account_sdk",
  "anyhow",
@@ -6474,7 +6474,7 @@ dependencies = [
 
 [[package]]
 name = "katana-rpc-types"
-version = "1.5.0-alpha.2"
+version = "1.5.0-alpha.4"
 dependencies = [
  "alloy-primitives",
  "anyhow",
@@ -6498,7 +6498,7 @@ dependencies = [
 
 [[package]]
 name = "katana-rpc-types-builder"
-version = "1.5.0-alpha.2"
+version = "1.5.0-alpha.4"
 dependencies = [
  "anyhow",
  "katana-executor",
@@ -6510,7 +6510,7 @@ dependencies = [
 
 [[package]]
 name = "katana-runner"
-version = "1.5.0-alpha.2"
+version = "1.5.0-alpha.4"
 dependencies = [
  "anyhow",
  "assert_fs",
@@ -6522,7 +6522,7 @@ dependencies = [
 
 [[package]]
 name = "katana-runner-macro"
-version = "1.5.0-alpha.2"
+version = "1.5.0-alpha.4"
 dependencies = [
  "proc-macro2",
  "quote",
@@ -6531,7 +6531,7 @@ dependencies = [
 
 [[package]]
 name = "katana-slot-controller"
-version = "1.5.0-alpha.2"
+version = "1.5.0-alpha.4"
 dependencies = [
  "account_sdk",
  "katana-primitives",
@@ -6539,7 +6539,7 @@ dependencies = [
 
 [[package]]
 name = "katana-stage"
-version = "1.5.0-alpha.2"
+version = "1.5.0-alpha.4"
 dependencies = [
  "anyhow",
  "async-trait",
@@ -6563,7 +6563,7 @@ dependencies = [
 
 [[package]]
 name = "katana-tasks"
-version = "1.5.0-alpha.2"
+version = "1.5.0-alpha.4"
 dependencies = [
  "futures",
  "rayon",
@@ -6576,7 +6576,7 @@ dependencies = [
 
 [[package]]
 name = "katana-trie"
-version = "1.5.0-alpha.2"
+version = "1.5.0-alpha.4"
 dependencies = [
  "anyhow",
  "bitvec",
@@ -6591,7 +6591,7 @@ dependencies = [
 
 [[package]]
 name = "katana-utils"
-version = "1.5.0-alpha.2"
+version = "1.5.0-alpha.4"
 dependencies = [
  "anyhow",
  "katana-chain-spec",
@@ -9696,7 +9696,7 @@ dependencies = [
 
 [[package]]
 name = "snos-integration-test"
-version = "1.5.0-alpha.2"
+version = "1.5.0-alpha.4"
 dependencies = [
  "anyhow",
  "cairo-vm 1.0.2 (git+https://github.com/kariy/cairo-vm?branch=kariy%2F1.0.2_clear-cell)",

@@ -13,4 +13,9 @@ pub mod CallTest {
             i += 1;
         }
     }
+
+    #[external(v0)]
+    fn call_with_panic(self: @ContractState) {
+	    assert(1 != 1, 'fail');
+    }
 }

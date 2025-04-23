@@ -42,7 +42,7 @@ edition = "2021"
 license = "Apache-2.0"
 license-file = "LICENSE"
 repository = "https://github.com/dojoengine/katana/"
-version = "1.5.0-alpha.2"
+version = "1.5.0-alpha.4"
 
 [profile.performance]
 codegen-units = 1
@@ -59,15 +59,13 @@ cainome = { version = "0.5.0", features = [ "abigen-rs" ] }
 cainome-cairo-serde = { version = "0.1.0" }
 dojo-utils = { git = "https://github.com/dojoengine/dojo", tag = "v1.2.2" }
 
-# metrics
-dojo-metrics = { path = "crates/metrics" }
-
 # katana
 katana-chain-spec = { path = "crates/chain-spec" }
 katana-cli = { path = "crates/cli" }
+katana-metrics = { path = "crates/metrics" }
 katana-codecs = { path = "crates/storage/codecs" }
 katana-codecs-derive = { path = "crates/storage/codecs/derive" }
-katana-core = { path = "crates/core", default-features = false }
+katana-core = { path = "crates/core" }
 katana-db = { path = "crates/storage/db" }
 katana-executor = { path = "crates/executor" }
 katana-explorer = { path = "crates/explorer" }
@@ -75,14 +73,14 @@ katana-feeder-gateway = { path = "crates/feeder-gateway" }
 katana-fork = { path = "crates/storage/fork" }
 katana-log = { path = "crates/log" }
 katana-messaging = { path = "crates/messaging" }
-katana-node = { path = "crates/node", default-features = false }
+katana-node = { path = "crates/node" }
 katana-node-bindings = { path = "crates/node-bindings" }
 katana-pipeline = { path = "crates/sync/pipeline" }
 katana-pool = { path = "crates/pool" }
 katana-primitives = { path = "crates/primitives" }
-katana-provider = { path = "crates/storage/provider", default-features = false }
+katana-provider = { path = "crates/storage/provider" }
 katana-rpc = { path = "crates/rpc/rpc" }
-katana-rpc-api = { path = "crates/rpc/rpc-api", default-features = false }
+katana-rpc-api = { path = "crates/rpc/rpc-api" }
 katana-rpc-types = { path = "crates/rpc/rpc-types" }
 katana-rpc-types-builder = { path = "crates/rpc/rpc-types-builder" }
 katana-runner = { path = "crates/runner" }

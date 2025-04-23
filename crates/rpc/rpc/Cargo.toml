@@ -17,9 +17,9 @@ katana-rpc-api.workspace = true
 katana-rpc-types.workspace = true
 katana-rpc-types-builder.workspace = true
 katana-tasks.workspace = true
+katana-metrics.workspace = true
 
 anyhow.workspace = true
-dojo-metrics.workspace = true
 futures.workspace = true
 http.workspace = true
 jsonrpsee = { workspace = true, features = [ "server" ] }
@@ -63,5 +63,4 @@ tempfile.workspace = true
 tokio.workspace = true
 
 [features]
-default = [ "cartridge" ]
 cartridge = [ "katana-rpc-api/cartridge", "dep:reqwest", "dep:cainome", "dep:account_sdk", "dep:serde" ]

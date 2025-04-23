@@ -111,7 +111,7 @@ pub struct CriticalTaskBuilder<'a> {
     builder: TaskBuilder<'a>,
 }
 
-impl<'a> CriticalTaskBuilder<'a> {
+impl CriticalTaskBuilder<'_> {
     pub fn name(mut self, name: &str) -> Self {
         self.builder.name = Some(name.to_string());
         self

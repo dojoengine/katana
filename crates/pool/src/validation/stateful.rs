@@ -180,8 +180,10 @@ fn validate(
     skip_validate: bool,
     skip_fee_check: bool,
 ) -> ValidationResult<ExecutableTxWithHash> {
-    let flags =
-        ExecutionFlags::new().with_account_validation(!skip_validate).with_fee(!skip_fee_check);
+    let flags = ExecutionFlags::new()
+        .with_account_validation(!skip_validate)
+        .with_fee(!skip_fee_check)
+        .with_nonce_check(false);
 
     match to_executor_tx(pool_tx.clone(), flags) {
         Transaction::Account(tx) => match validator.perform_validations(tx) {

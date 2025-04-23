@@ -31,7 +31,11 @@ pub trait ContractClassWriter {
 pub trait ContractClassProviderExt: ContractClassProvider {
     /// Returns the compiled class definition of a contract class given its class hash.
     fn compiled_class(&self, hash: ClassHash) -> ProviderResult<Option<CompiledClass>> {
-        if let Some(class) = self.class(hash)? { Ok(Some(class.compile()?)) } else { Ok(None) }
+        if let Some(class) = self.class(hash)? {
+            Ok(Some(class.compile()?))
+        } else {
+            Ok(None)
+        }
     }
 }
 

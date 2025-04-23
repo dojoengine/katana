@@ -5,16 +5,12 @@ use lazy_static::lazy_static;
 use starknet::macros::felt;
 
 // Default gas prices
-pub const DEFAULT_ETH_L1_GAS_PRICE: NonZeroU128 =
-    unsafe { NonZeroU128::new_unchecked(20 * u128::pow(10, 9)) }; // Given in units of Wei.
-pub const DEFAULT_STRK_L1_GAS_PRICE: NonZeroU128 =
-    unsafe { NonZeroU128::new_unchecked(20 * u128::pow(10, 9)) }; // Given in units of STRK.
+pub const DEFAULT_ETH_L1_GAS_PRICE: NonZeroU128 = NonZeroU128::new(20 * u128::pow(10, 9)).unwrap(); // Given in units of Wei.
+pub const DEFAULT_STRK_L1_GAS_PRICE: NonZeroU128 = NonZeroU128::new(20 * u128::pow(10, 9)).unwrap(); // Given in units of STRK.
 
 // Default data gas prices
-pub const DEFAULT_ETH_L1_DATA_GAS_PRICE: NonZeroU128 =
-    unsafe { NonZeroU128::new_unchecked(u128::pow(10, 6)) }; // Given in units of Wei.
-pub const DEFAULT_STRK_L1_DATA_GAS_PRICE: NonZeroU128 =
-    unsafe { NonZeroU128::new_unchecked(u128::pow(10, 6)) }; // Given in units of STRK.
+pub const DEFAULT_ETH_L1_DATA_GAS_PRICE: NonZeroU128 = NonZeroU128::new(u128::pow(10, 6)).unwrap(); // Given in units of Wei.
+pub const DEFAULT_STRK_L1_DATA_GAS_PRICE: NonZeroU128 = NonZeroU128::new(u128::pow(10, 6)).unwrap(); // Given in units of STRK.
 
 lazy_static! {
 

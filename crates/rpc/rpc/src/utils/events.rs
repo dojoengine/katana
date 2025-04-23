@@ -238,8 +238,9 @@ impl<'a, I: Iterator<Item = &'a Event>> Iterator for FilteredEvents<'a, I> {
 
     fn next(&mut self) -> Option<Self::Item> {
         for event in self.iter.by_ref() {
-            // Check if the event matches the address filter
-            if !self.filter.address.map_or(true, |addr| addr == event.from_address) {
+            // Skip this event if there is an address filter but doesn't match the address of the
+            // event.
+            if self.filter.address.is_some_and(|addr| addr != event.from_address) {
                 continue;
             }
 

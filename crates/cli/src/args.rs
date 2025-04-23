@@ -2,6 +2,7 @@
 
 use std::path::PathBuf;
 use std::sync::Arc;
+use std::time::Duration;
 
 use alloy_primitives::U256;
 #[cfg(feature = "server")]
@@ -111,10 +112,6 @@ pub struct NodeArgs {
 
     #[command(flatten)]
     pub development: DevOptions,
-
-    #[cfg(feature = "slot")]
-    #[command(flatten)]
-    pub slot: SlotOptions,
 
     #[command(flatten)]
     pub explorer: ExplorerOptions,
@@ -246,6 +243,7 @@ impl NodeArgs {
                 max_connections: self.server.max_connections,
                 max_request_body_size: None,
                 max_response_body_size: None,
+                timeout: self.server.timeout.map(Duration::from_secs),
                 cors_origins,
                 explorer: self.explorer.explorer,
                 max_event_page_size: Some(self.server.max_event_page_size),
@@ -711,10 +709,9 @@ chain_id.Named = "Mainnet"
         // Specifiying the dev module without enabling dev mode is forbidden.
         let err =
             NodeArgs::parse_from(["katana", "--http.api", "starknet,dev"]).config().unwrap_err();
-        assert!(
-            err.to_string()
-                .contains("The `dev` module can only be enabled in dev mode (ie `--dev` flag)")
-        );
+        assert!(err
+            .to_string()
+            .contains("The `dev` module can only be enabled in dev mode (ie `--dev` flag)"));
     }
 
     #[test]
