@@ -16,6 +16,9 @@ RUN git clone https://github.com/Comcast/Infinite-File-Curtailer.git curtailer \
 
 FROM ubuntu:24.04 as base
 
+# Required by cairo-native 
+RUN apt-get update && apt install -y binutils clang-19
+
 COPY --from=builder /etc/ssl/certs /etc/ssl/certs
 COPY --from=builder /usr/bin/curl /usr/bin/curl
 
