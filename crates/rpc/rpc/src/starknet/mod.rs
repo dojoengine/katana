@@ -981,6 +981,7 @@ where
                     &mut events,
                 )?;
 
+                // Only return a continuation token if there are more events to fetch
                 let continuation_token = cursor.map(|c| c.into_rpc_cursor().to_string());
                 let events_page = EventsPage { events, continuation_token };
 
@@ -1056,34 +1057,70 @@ where
                     &mut events,
                 )?;
 
-                // if the internal cursor is Some, meaning the buffer is full and we havent
+                // if the internal cursor is Some, meaning the buffer is full and we haven't
                 // reached the latest block.
                 if let Some(c) = int_cursor {
                     let continuation_token = Some(c.into_rpc_cursor().to_string());
                     return Ok(EventsPage { events, continuation_token });
                 }
 
+                // If we've reached here, we've processed all events up to the latest block.
+                // Now we need to check if there are events in the pending block.
                 if let Some(executor) = self.pending_executor() {
-                    let cursor = utils::events::fetch_pending_events(
-                        &executor,
-                        &filter,
-                        chunk_size,
-                        cursor,
-                        &mut events,
-                    )?;
-
-                    let continuation_token = Some(cursor.into_rpc_cursor().to_string());
-                    Ok(EventsPage { events, continuation_token })
+                    // Check if we have any transactions in the pending executor
+                    let pending_block = executor.read();
+                    let txs = pending_block.transactions();
+                    
+                    // If pending block is empty, don't return a continuation token
+                    if txs.is_empty() {
+                        return Ok(EventsPage { events, continuation_token: None });
+                    }
+                    
+                    // Check if we still have room for more events in our buffer
+                    if events.len() < chunk_size as usize {
+                        // Try to fetch pending events
+                        let new_cursor = utils::events::fetch_pending_events(
+                            &executor,
+                            &filter,
+                            chunk_size,
+                            cursor,
+                            &mut events,
+                        )?;
+                        
+                        // Create a token for the RPC response if we're not at the end yet
+                        // Convert cursor to a token only if there might be more events to fetch
+                        let has_more_events = !txs.is_empty() && events.len() == chunk_size as usize;
+                        let continuation_token = if has_more_events {
+                            Some(new_cursor.into_rpc_cursor().to_string())
+                        } else {
+                            None
+                        };
+                        
+                        Ok(EventsPage { events, continuation_token })
+                    } else {
+                        // Buffer is full, there might be more events in the pending block
+                        let continuation_token = Some(Cursor::new_block(latest + 1).into_rpc_cursor().to_string());
+                        Ok(EventsPage { events, continuation_token })
+                    }
                 } else {
-                    let cursor = Cursor::new_block(latest + 1);
-                    let continuation_token = Some(cursor.into_rpc_cursor().to_string());
-                    Ok(EventsPage { events, continuation_token })
+                    // No pending executor, and we've processed all events up to the latest block
+                    Ok(EventsPage { events, continuation_token: None })
                 }
             }
 
             (EventBlockId::Pending, EventBlockId::Pending) => {
                 if let Some(executor) = self.pending_executor() {
                     let cursor = continuation_token.and_then(|t| t.to_token().map(|t| t.into()));
+                    
+                    // Check if pending block has any transactions
+                    let pending_block = executor.read();
+                    let txs = pending_block.transactions();
+                    
+                    // If pending block is empty, don't return a continuation token
+                    if txs.is_empty() {
+                        return Ok(EventsPage { events, continuation_token: None });
+                    }
+                    
                     let new_cursor = utils::events::fetch_pending_events(
                         &executor,
                         &filter,
@@ -1092,14 +1129,19 @@ where
                         &mut events,
                     )?;
 
-                    let continuation_token = Some(new_cursor.into_rpc_cursor().to_string());
+                    // Only return a continuation token if we filled the buffer completely
+                    // and there might be more events to fetch
+                    let has_more_events = !txs.is_empty() && events.len() == chunk_size as usize;
+                    let continuation_token = if has_more_events {
+                        Some(new_cursor.into_rpc_cursor().to_string())
+                    } else {
+                        None
+                    };
+                    
                     Ok(EventsPage { events, continuation_token })
                 } else {
-                    let latest = provider.latest_number()?;
-                    let new_cursor = Cursor::new_block(latest);
-
-                    let continuation_token = Some(new_cursor.into_rpc_cursor().to_string());
-                    Ok(EventsPage { events, continuation_token })
+                    // No pending executor, so no events in pending block
+                    Ok(EventsPage { events, continuation_token: None })
                 }
             }
 
