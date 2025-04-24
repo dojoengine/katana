@@ -41,7 +41,7 @@ jobs:
       - name: Check if test artifacts need to be generated 
         id: check-files
         run: |
-          if git diff --name-only HEAD^ | grep -q "^tests/snos/snos/"; then
+          if [[ $(git diff --name-only HEAD^ | grep -q "^tests/snos/snos/") ]]; then
             echo "files_changed=true" >> $GITHUB_OUTPUT
           else
             echo "files_changed=false" >> $GITHUB_OUTPUT
