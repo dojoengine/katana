@@ -26,8 +26,48 @@ jobs:
       - uses: Swatinem/rust-cache@v2
       - run: scripts/rust_fmt.sh --check
 
-  clippy:
+  generate-test-artifacts:
     needs: [fmt]
+    runs-on: ubuntu-latest
+    container:
+      image: ghcr.io/dojoengine/katana-dev:latest
+    steps:
+      - uses: actions/checkout@v3
+        with:
+          fetch-depth: 0
+
+      - name: Check if test artifacts need to be generated 
+        id: check-files
+        run: |
+          if git diff --name-only ${{ github.event.before }} ${{ github.sha }} | grep -q "^tests/snos/snos/"; then
+            echo "files_changed=true" >> $GITHUB_OUTPUT
+          else
+            echo "files_changed=false" >> $GITHUB_OUTPUT
+          fi
+
+      - name: Try to restore cached test artifacts
+        id: cache-artifacts
+        uses: actions/cache@v3
+        with:
+          lookup-only: true
+          path: |
+            ./tests/snos/snos/build
+          key: snos-test-artifacts
+
+      - name: Generate test artifacts
+        if: steps.check-files.outputs.files_changed == 'true' || steps.cache-artifacts.outputs.cache-hit != 'true'
+        run: make test-artifacts
+
+      - name: Cache test artifacts
+        if: steps.check-files.outputs.files_changed == 'true' || steps.cache-artifacts.outputs.cache-hit != 'true'
+        uses: actions/cache@v3
+        with:
+          path: |
+            ./tests/snos/snos/build
+          key: snos-test-artifacts
+
+  clippy:
+    needs: [generate-test-artifacts]
     runs-on: ubuntu-latest-4-cores
     container:
       image: ghcr.io/dojoengine/katana-dev:latest
@@ -44,16 +84,12 @@ jobs:
 
       - uses: Swatinem/rust-cache@v2
 
-      - name: Generate test artifacts
-        run: make test-artifacts
-
-      - name: Cache test artifacts
-        id: test-artifacts-cache
+      - name: Restore test artifacts
         uses: actions/cache@v3
         with:
           path: |
             ./tests/snos/snos/build
-          key: snos-test-artifacts-${{ github.sha }}
+          key: snos-test-artifacts
 
       - name: Run Clippy
         run: ./scripts/clippy.sh
@@ -111,7 +147,7 @@ jobs:
         with:
           path: |
             ./tests/snos/snos/build
-          key: snos-test-artifacts-${{ github.sha }}
+          key: snos-test-artifacts
 
       - name: Prepare SNOS test environment
         run: |
