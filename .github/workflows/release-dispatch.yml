@@ -13,6 +13,8 @@ jobs:
       pull-requests: write
       contents: write
     runs-on: ubuntu-latest
+    container:
+      image: ghcr.io/dojoengine/katana-dev:latest
     env:
       VERSION: ""
     steps:
@@ -26,12 +28,10 @@ jobs:
       - run: |
           VERSION=${{ inputs.version }}
           VERSION=${VERSION#v}
-          cargo install cargo-release
           cargo release version $VERSION --execute --no-confirm && cargo release replace --execute --no-confirm
 
       - id: version_info
         run: |
-          cargo install cargo-get
           echo "version=$(cargo get workspace.package.version)" >> $GITHUB_OUTPUT
 
       - uses: peter-evans/create-pull-request@v7

@@ -27,12 +27,13 @@ RUN rustup toolchain install ${RUST_VERSION} && \
 	rustup component add rustfmt
 
 RUN rustup toolchain install ${CLIPPY_VERSION} && \
-	rustup component add rustfmt clippy --toolchain ${CLIPPY_VERSION}
+	rustup component add rustfmt clippy --toolchain ${CLIPPY_VERSION} \
+	rustup component add llvm-tools-preview
 
 RUN rustup target add x86_64-pc-windows-msvc && \
 	rustup target add wasm32-unknown-unknown
 
-RUN cargo binstall cargo-get cargo-nextest cargo-llvm-cov cargo-release --secure -y
+RUN cargo install cargo-get cargo-nextest cargo-llvm-cov cargo-release --secure -y
 
 # Platform specific tooling
 ARG TARGETPLATFORM
