@@ -1070,12 +1070,12 @@ where
                     // Check if we have any transactions in the pending executor
                     let pending_block = executor.read();
                     let txs = pending_block.transactions();
-                    
+
                     // If pending block is empty, don't return a continuation token
                     if txs.is_empty() {
                         return Ok(EventsPage { events, continuation_token: None });
                     }
-                    
+
                     // Check if we still have room for more events in our buffer
                     if events.len() < chunk_size as usize {
                         // Try to fetch pending events
@@ -1086,20 +1086,22 @@ where
                             cursor,
                             &mut events,
                         )?;
-                        
+
                         // Create a token for the RPC response if we're not at the end yet
                         // Convert cursor to a token only if there might be more events to fetch
-                        let has_more_events = !txs.is_empty() && events.len() == chunk_size as usize;
+                        let has_more_events =
+                            !txs.is_empty() && events.len() == chunk_size as usize;
                         let continuation_token = if has_more_events {
                             Some(new_cursor.into_rpc_cursor().to_string())
                         } else {
                             None
                         };
-                        
+
                         Ok(EventsPage { events, continuation_token })
                     } else {
                         // Buffer is full, there might be more events in the pending block
-                        let continuation_token = Some(Cursor::new_block(latest + 1).into_rpc_cursor().to_string());
+                        let continuation_token =
+                            Some(Cursor::new_block(latest + 1).into_rpc_cursor().to_string());
                         Ok(EventsPage { events, continuation_token })
                     }
                 } else {
@@ -1111,16 +1113,16 @@ where
             (EventBlockId::Pending, EventBlockId::Pending) => {
                 if let Some(executor) = self.pending_executor() {
                     let cursor = continuation_token.and_then(|t| t.to_token().map(|t| t.into()));
-                    
+
                     // Check if pending block has any transactions
                     let pending_block = executor.read();
                     let txs = pending_block.transactions();
-                    
+
                     // If pending block is empty, don't return a continuation token
                     if txs.is_empty() {
                         return Ok(EventsPage { events, continuation_token: None });
                     }
-                    
+
                     let new_cursor = utils::events::fetch_pending_events(
                         &executor,
                         &filter,
@@ -1137,7 +1139,7 @@ where
                     } else {
                         None
                     };
-                    
+
                     Ok(EventsPage { events, continuation_token })
                 } else {
                     // No pending executor, so no events in pending block
