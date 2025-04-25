@@ -14,15 +14,10 @@ on:
       - ".github/Dockerfile"
 
 jobs:
-  build-and-push:
+  setup:
     runs-on: ubuntu-latest-8-cores
-
-    env:
-      DOCKER_TAG: latest
-
     outputs:
       tag_name: ${{ steps.release_info.outputs.tag_name }}
-
     steps:
       - name: Checkout repository
         uses: actions/checkout@v2
@@ -59,14 +54,53 @@ jobs:
         run: |
           echo "tag_name=${{ env.DOCKER_TAG }}" >> $GITHUB_OUTPUT
 
-      - name: Build and push Docker image
+  build-and-push-amd64:
+    runs-on: ubuntu-latest-8-cores
+    needs: setup
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v2
+
+      - name: Build and push Docker image for amd64
         uses: docker/build-push-action@v2
         with:
           push: ${{ (github.event_name == 'push' && github.ref == 'refs/heads/main') || (github.event_name == 'release' && startsWith(github.ref, 'refs/tags/')) || github.event_name == 'workflow_dispatch' }}
           file: .github/Dockerfile
-          tags: ghcr.io/${{ github.repository }}-dev:latest,ghcr.io/${{ github.repository }}-dev:${{ env.DOCKER_TAG }}
+          tags: ghcr.io/${{ github.repository }}-dev:latest-amd64,ghcr.io/${{ github.repository }}-dev:${{ needs.setup.outputs.tag_name }}-amd64
           build-args: |
             RUST_VERSION=1.85.0
             CLIPPY_VERSION=nightly-2025-02-20
+          platforms: linux/amd64
+          cache-from: type=registry,ref=ghcr.io/${{ github.repository }}-dev:latest-amd64
+
+  build-and-push-arm64:
+    runs-on: ubuntu-latest-8-cores
+    needs: setup
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v2
+
+      - name: Build and push Docker image for arm64
+        uses: docker/build-push-action@v2
+        with:
+          push: ${{ (github.event_name == 'push' && github.ref == 'refs/heads/main') || (github.event_name == 'release' && startsWith(github.ref, 'refs/tags/')) || github.event_name == 'workflow_dispatch' }}
+          file: .github/Dockerfile
+          tags: ghcr.io/${{ github.repository }}-dev:latest-arm64,ghcr.io/${{ github.repository }}-dev:${{ needs.setup.outputs.tag_name }}-arm64
+          build-args: |
+            RUST_VERSION=1.85.0
+            CLIPPY_VERSION=nightly-2025-02-20
+          platforms: linux/arm64
+          cache-from: type=registry,ref=ghcr.io/${{ github.repository }}-dev:latest-arm64
+
+  create-manifest:
+    runs-on: ubuntu-latest-8-cores
+    needs: [build-and-push-amd64, build-and-push-arm64]
+    steps:
+      - name: Create and push Docker manifest
+        uses: docker/build-push-action@v2
+        with:
+          push: true
+          cache-to: type=inline
           platforms: linux/amd64,linux/arm64
           cache-from: type=registry,ref=ghcr.io/${{ github.repository }}-dev:latest
+          tags: ghcr.io/${{ github.repository }}-dev:latest,ghcr.io/${{ github.repository }}-dev:${{ needs.setup.outputs.tag_name }}
