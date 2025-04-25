@@ -64,7 +64,7 @@ jobs:
           cache-from: type=registry,ref=ghcr.io/${{ github.repository }}-dev:latest-amd64
 
   build-and-push-arm64:
-    runs-on: ubuntu-latest-8-cores
+    runs-on: ubuntu-latest-8-cores-arm64
     needs: setup
     steps:
       - name: Checkout repository
