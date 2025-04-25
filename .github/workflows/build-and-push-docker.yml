@@ -103,7 +103,5 @@ jobs:
       - name: Create and push Docker manifest
         uses: Noelware/docker-manifest-action@1.0.0-beta.2
         with:
-          inputs: ghcr.io/${{ github.repository }}-dev:${{ needs.setup.outputs.tag_name }}-amd64
-          # inputs: ghcr.io/${{ github.repository }}-dev:${{ needs.setup.outputs.tag_name }}-amd64,ghcr.io/${{ github.repository }}-dev:${{ needs.setup.outputs.tag_name }}-arm64
+          inputs: ghcr.io/${{ github.repository }}-dev:${{ needs.setup.outputs.tag_name }}-amd64,ghcr.io/${{ github.repository }}-dev:${{ needs.setup.outputs.tag_name }}-arm64
           tags: ghcr.io/${{ github.repository }}-dev:latest,ghcr.io/${{ github.repository }}-dev:${{ needs.setup.outputs.tag_name }}
-          push: true
