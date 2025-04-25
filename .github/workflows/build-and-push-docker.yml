@@ -17,7 +17,7 @@ jobs:
   setup:
     runs-on: ubuntu-latest-8-cores
     outputs:
-      tag_name: ${{ steps.release_info.outputs.tag_name }}
+      tag_name: ${{ steps.docker_tag.outputs.tag_name }}
     steps:
       - name: Checkout repository
         uses: actions/checkout@v2
@@ -25,21 +25,17 @@ jobs:
       - name: Set up Docker Buildx
         uses: docker/setup-buildx-action@v1
 
-      - name: Set Docker tag ( push ) 
-        if: github.event_name == 'push'
+      - name: Set Docker tag
+        id: docker_tag
         run: |
-          SHORT_SHA=$(echo "${{ github.sha }}" | cut -c 1-7)
-          echo "tag_name=$SHORT_SHA" >> $GITHUB_OUTPUT
-
-      - name: Set Docker tag ( release )
-        if: github.event_name == 'release'
-        run: |
-          echo "tag_name=${{ github.event.release.tag_name }}" >> $GITHUB_OUTPUT
-
-      - name: Set Docker tag ( workflow_dispatch )
-        if: github.event_name == 'workflow_dispatch'
-        run: |
-          echo "tag_name=${{ inputs.docker_tag }}" >> $GITHUB_OUTPUT
+          if [ "${{ github.event_name }}" == "push" ]; then
+            SHORT_SHA=$(echo "${{ github.sha }}" | cut -c 1-7)
+            echo "tag_name=$SHORT_SHA" >> $GITHUB_OUTPUT
+          elif [ "${{ github.event_name }}" == "release" ]; then
+            echo "tag_name=${{ github.event.release.tag_name }}" >> $GITHUB_OUTPUT
+          elif [ "${{ github.event_name }}" == "workflow_dispatch" ]; then
+            echo "tag_name=${{ inputs.docker_tag }}" >> $GITHUB_OUTPUT
+          fi
 
   build-and-push-amd64:
     runs-on: ubuntu-latest-8-cores
