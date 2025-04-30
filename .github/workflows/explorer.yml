@@ -1,0 +1,101 @@
+name: explorer
+
+on:
+  push:
+    branches:
+      - main
+  pull_request:
+
+# Cancel in progress workflow when a new one is triggered
+concurrency:
+  group: ${{ github.workflow }}-${{ github.event.pull_request.number || github.ref }}
+  cancel-in-progress: true
+
+env:
+  CARGO_TERM_COLOR: always
+  RUST_VERSION: 1.85.0 # Note: This env var isn't used unless you add actions/setup-rust
+  KATANA_PORT: 5050
+  CADDY_PORT: 8080 # Use a different port for Caddy to proxy requests to Katana
+
+jobs:
+  test:
+    runs-on: ubuntu-latest
+    container:
+      image: ghcr.io/dojoengine/katana-dev:latest
+    steps:
+      - uses: actions/checkout@v3
+        with:
+          submodules: recursive
+
+      # Git safe directory workaround (if needed outside container)
+      - run: git config --global --add safe.directory "$GITHUB_WORKSPACE"
+
+      # Setup Rust environment (needed if not using a pre-built container with Rust)
+      - uses: dtolnay/rust-toolchain@stable
+        with:
+          toolchain: stable # Or specify your desired version if needed
+
+      - uses: Swatinem/rust-cache@v2
+
+      - name: Build Katana
+        run: cargo install --path bin/katana --locked
+
+      - name: Run Katana in background
+        run: |
+          katana --explorer --http.cors_origins "*" --port ${{ env.KATANA_PORT }} &
+          echo "Started Katana in background"
+
+      - name: Install Caddy
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y debian-keyring debian-archive-keyring apt-transport-https
+          curl -1sLf 'https://dl.cloudsmith.io/public/caddy/stable/gpg.key' | sudo gpg --dearmor -o /usr/share/keyrings/caddy-stable-archive-keyring.gpg
+          curl -1sLf 'https://dl.cloudsmith.io/public/caddy/stable/debian.deb.txt' | sudo tee /etc/apt/sources.list.d/caddy-stable.list
+          sudo apt-get update
+          sudo apt-get install -y caddy
+
+      - name: Run Caddy in background
+        run: |
+          caddy run --config ./.github/workflows/fixtures/Caddyfile &
+          echo "Started Caddy in background"
+
+      - name: Wait for services to be ready
+        run: |
+          echo "Waiting for Katana (Port ${{ env.KATANA_PORT }})..."
+          timeout 30s bash -c 'until curl -sSf http://localhost:${{ env.KATANA_PORT }}/explorer > /dev/null; do echo -n "."; sleep 1; done'
+          echo "Katana is up!"
+          echo "Waiting for Caddy (Port ${{ env.CADDY_PORT }} and proxy route)..."
+          # Test the specific proxied route Caddy should handle
+          timeout 30s bash -c 'until curl -sSf http://localhost:${{ env.CADDY_PORT }}/x/foo/katana/explorer > /dev/null; do echo -n "."; sleep 1; done'
+          echo "Caddy proxy is up!"
+
+      - name: Install Go (for pup)
+        uses: actions/setup-go@v4
+
+      - name: Install pup
+        run: go install github.com/ericchiang/pup@latest
+
+      - name: Test Endpoints with pup
+        run: |
+          CSS_SELECTOR='#explorer-app-root'
+
+          # Add pup to PATH
+          export PATH=$PATH:$(go env GOPATH)/bin
+
+          echo "Checking for selector '${CSS_SELECTOR}' in direct response (Katana)..."
+          if curl --fail --silent http://localhost:${{ env.KATANA_PORT }}/explorer | pup "${CSS_SELECTOR}" --exit-code; then
+             echo "Selector found in direct response. OK."
+          else
+             echo "Selector NOT found in direct response!"
+             exit 1
+          fi
+
+          echo "Checking for selector '${CSS_SELECTOR}' in proxied response (Caddy)..."
+          if curl --fail --silent http://localhost:${{ env.CADDY_PORT }}/x/foo/katana/explorer | pup "${CSS_SELECTOR}" --exit-code; then
+             echo "Selector found in proxied response. OK."
+          else
+             echo "Selector NOT found in proxied response!"
+             exit 1
+          fi
+
+          echo "HTML element selector checks passed for both endpoints."
