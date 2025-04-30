@@ -42,7 +42,7 @@ jobs:
 
       - name: Run Katana in background
         run: |
-          katana --explorer --http.cors_origins "*" --port ${{ env.KATANA_PORT }} &
+          katana --explorer --http.cors_origins "*" &
           echo "Started Katana in background"
 
       - name: Install Caddy
