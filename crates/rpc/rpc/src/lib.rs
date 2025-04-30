@@ -216,7 +216,7 @@ impl RpcServer {
         info!(target: "rpc", addr = %handle.addr, "RPC server started.");
 
         if self.explorer {
-            let addr = format!("{}{}", handle.addr, katana_explorer::APP_BASE_PATH);
+            let addr = format!("{}/explorer", handle.addr);
             info!(target: "explorer", %addr, "Explorer started.");
         }
 

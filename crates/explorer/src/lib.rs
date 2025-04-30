@@ -9,10 +9,7 @@ use http::{Request, StatusCode};
 use rust_embed::RustEmbed;
 use tower::{Layer, Service};
 
-/// The base path at which the explorer is served.
-pub const APP_BASE_PATH: &str = env!("APP_BASE_PATH");
-
-#[derive(Debug)]
+#[derive(Debug, Clone)]
 pub struct ExplorerLayer {
     /// The chain ID of the network
     chain_id: String,
@@ -36,7 +33,7 @@ impl<S> Layer<S> for ExplorerLayer {
     type Service = ExplorerService<S>;
 
     fn layer(&self, inner: S) -> Self::Service {
-        ExplorerService { inner, chain_id: self.chain_id.clone(), base_path: APP_BASE_PATH }
+        ExplorerService { inner, chain_id: self.chain_id.clone() }
     }
 }
 
@@ -44,7 +41,6 @@ impl<S> Layer<S> for ExplorerLayer {
 pub struct ExplorerService<S> {
     inner: S,
     chain_id: String,
-    base_path: &'static str,
 }
 
 impl<S> Service<Request<Body>> for ExplorerService<S>
@@ -62,14 +58,12 @@ where
 
     fn call(&mut self, req: Request<Body>) -> Self::Future {
         // If the path does not start with the base path, pass the request to the inner service.
-        let Some(path) = req.uri().path().strip_prefix(self.base_path) else {
+        let Some(rel_path) = req.uri().path().strip_prefix("/explorer") else {
             return Box::pin(self.inner.call(req));
         };
 
-        let chain_id = self.chain_id.clone();
-
         // Check if the request is for a static asset that actually exists
-        let file_path = path.trim_start_matches('/');
+        let file_path = rel_path.trim_start_matches('/');
         let is_static_asset = is_static_asset_path(file_path);
 
         // If it's a static asset, try to find the exact file.
@@ -86,7 +80,7 @@ where
 
             let body = if content_type == "text/html" {
                 let html = String::from_utf8_lossy(&content).to_string();
-                let html = setup_env(&html, &chain_id);
+                let html = setup_env(&html, &self.chain_id);
                 Body::from(html)
             } else {
                 Body::from(content.to_vec())
@@ -137,9 +131,8 @@ fn setup_env(html: &str, chain_id: &str) -> String {
         r#"<script>
                 window.CHAIN_ID = "{}";
                 window.ENABLE_CONTROLLER = false;
-                window.IS_EMBEDDED = true;
             </script>"#,
-        escaped_chain_id
+        escaped_chain_id,
     );
 
     if let Some(head_pos) = html.find("<head>") {

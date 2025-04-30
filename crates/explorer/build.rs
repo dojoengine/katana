@@ -1,8 +1,6 @@
 use std::path::Path;
 use std::process::Command;
 
-const BASE_PATH: &str = "/explorer";
-
 fn main() {
     println!("cargo:rerun-if-changed=ui/");
 
@@ -50,7 +48,7 @@ fn main() {
         println!("Building UI...");
         let status = Command::new("bun")
             .current_dir(&ui_dir)
-            .env("BASE_PATH", BASE_PATH)
+            .env("IS_EMBEDDED", "true")
             .arg("run")
             .arg("build")
             .status()
@@ -59,7 +57,5 @@ fn main() {
         if !status.success() {
             panic!("Failed to build UI");
         }
-
-        println!("cargo:rustc-env=APP_BASE_PATH={BASE_PATH}");
     }
 }

@@ -62,7 +62,6 @@ dojo-utils = { git = "https://github.com/dojoengine/dojo", tag = "v1.2.2" }
 # katana
 katana-chain-spec = { path = "crates/chain-spec" }
 katana-cli = { path = "crates/cli" }
-katana-metrics = { path = "crates/metrics" }
 katana-codecs = { path = "crates/storage/codecs" }
 katana-codecs-derive = { path = "crates/storage/codecs/derive" }
 katana-core = { path = "crates/core" }
@@ -73,6 +72,7 @@ katana-feeder-gateway = { path = "crates/feeder-gateway" }
 katana-fork = { path = "crates/storage/fork" }
 katana-log = { path = "crates/log" }
 katana-messaging = { path = "crates/messaging" }
+katana-metrics = { path = "crates/metrics" }
 katana-node = { path = "crates/node" }
 katana-node-bindings = { path = "crates/node-bindings" }
 katana-pipeline = { path = "crates/sync/pipeline" }
