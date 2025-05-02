@@ -41,6 +41,7 @@ jobs:
 
       - name: Generate binary size report
         id: size-report
+        shell: bash
         run: |
           REPORT=$(./scripts/generate-binary-size-report.sh ${{ steps.binary-size-base.outputs.size }} ${{ steps.binary-size-pr.outputs.size }})
           # Convert report to a single line for GitHub output
@@ -54,10 +55,10 @@ jobs:
         with:
           github-token: ${{secrets.GITHUB_TOKEN}}
           script: |
-            const report = '${{ steps.size-report.outputs.report }}';
+            const body = '${{ steps.size-report.outputs.report }}';
             github.rest.issues.createComment({
               issue_number: context.issue.number,
               owner: context.repo.owner,
               repo: context.repo.repo,
-              body: report
+              body: body
             })
