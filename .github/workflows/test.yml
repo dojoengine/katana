@@ -38,7 +38,7 @@ jobs:
       # Workaround for https://github.com/actions/runner-images/issues/6775
       - run: git config --global --add safe.directory "*"
 
-      - name: Check if test artifacts need to be generated 
+      - name: Check if test artifacts need to be generated
         id: check-files
         run: |
           if [[ $(git diff --name-only HEAD^ | grep -q "^tests/snos/snos/") ]]; then
@@ -159,3 +159,19 @@ jobs:
 
       - run: |
           cargo run -p snos-integration-test
+
+  explorer-reverse-proxy:
+    needs: [fmt, clippy]
+    runs-on: ubuntu-latest
+    container:
+      image: ghcr.io/dojoengine/katana-dev:latest
+    steps:
+      - uses: actions/checkout@v3
+        with:
+          submodules: recursive
+      # Workaround for https://github.com/actions/runner-images/issues/6775
+      - run: git config --global --add safe.directory "*"
+      - uses: Swatinem/rust-cache@v2
+      - uses: browser-actions/setup-chrome@v1
+      - run: |
+          cargo run -p reverse-proxy-test
