@@ -23,15 +23,8 @@ jobs:
       - run: git config --global --add safe.directory "*"
       - uses: swatinem/rust-cache@v2
 
-      # See test.yml
-      - name: Restore cached test artifacts
-        uses: actions/cache@v3
-        with:
-          path: ./tests/snos/snos/build
-          key: snos-test-artifacts
-
       - name: Build release binary
-        run: cargo build --release
+        run: cargo build --release --bin katana
 
       - name: Get PR binary size
         id: pr-size
@@ -44,7 +37,7 @@ jobs:
         run: |
           git fetch origin ${{ github.base_ref }}
           git checkout origin/${{ github.base_ref }}
-          cargo build --release
+          cargo build --release --bin katana
           BASE_SIZE=$(du -h ./target/release/katana | cut -f1)
           echo "size=$BASE_SIZE" >> $GITHUB_OUTPUT
           git checkout ${{ github.sha }}
