@@ -1,0 +1,95 @@
+name: Binary Size Check
+
+on:
+  pull_request:
+    branches: [main]
+    paths:
+      - "crates/**/*.rs"
+      - "Cargo.toml"
+      - "Cargo.lock"
+
+jobs:
+  check-binary-size:
+    name: Check binary size
+    runs-on: ubuntu-latest
+    container:
+      image: ghcr.io/dojoengine/katana-dev:latest
+
+    steps:
+      - uses: actions/checkout@v4
+      - uses: swatinem/rust-cache@v2
+
+      - name: Build release binary
+        run: cargo build --release
+
+      - name: Get PR binary size
+        id: pr-size
+        run: |
+          PR_SIZE=$(du -h ./target/release/katana | cut -f1)
+          echo "size=$PR_SIZE" >> $GITHUB_OUTPUT
+
+      - name: Get base branch binary size
+        id: base-size
+        run: |
+          git fetch origin ${{ github.base_ref }}
+          git checkout origin/${{ github.base_ref }}
+          cargo build --release
+          BASE_SIZE=$(du -h ./target/release/katana | cut -f1)
+          echo "size=$BASE_SIZE" >> $GITHUB_OUTPUT
+          git checkout ${{ github.sha }}
+
+      - name: Get binary sizes in bytes
+        id: sizes-bytes
+        run: |
+          git checkout origin/${{ github.base_ref }}
+          BASE_SIZE_BYTES=$(stat -c %s ./target/release/katana)
+          git checkout ${{ github.sha }}
+          PR_SIZE_BYTES=$(stat -c %s ./target/release/katana)
+          DIFF_BYTES=$((PR_SIZE_BYTES - BASE_SIZE_BYTES))
+          DIFF_PERCENT=$(awk "BEGIN {printf \"%.2f\", ($DIFF_BYTES/$BASE_SIZE_BYTES)*100}")
+          echo "base=$BASE_SIZE_BYTES" >> $GITHUB_OUTPUT
+          echo "pr=$PR_SIZE_BYTES" >> $GITHUB_OUTPUT
+          echo "diff=$DIFF_BYTES" >> $GITHUB_OUTPUT
+          echo "diff_percent=$DIFF_PERCENT" >> $GITHUB_OUTPUT
+
+      - name: Comment binary size
+        uses: actions/github-script@v7
+        with:
+          github-token: ${{secrets.GITHUB_TOKEN}}
+          script: |
+            const baseSize = '${{ steps.base-size.outputs.size }}';
+            const prSize = '${{ steps.pr-size.outputs.size }}';
+            const diffBytes = parseInt('${{ steps.sizes-bytes.outputs.diff }}');
+            const diffPercent = parseFloat('${{ steps.sizes-bytes.outputs.diff_percent }}');
+
+            let changeIndicator = '';
+            let changeDescription = '';
+
+            if (diffBytes > 0) {
+              changeIndicator = '📈 Increased';
+              changeDescription = `\`+${diffBytes.toLocaleString()} bytes (${diffPercent}%)\``;
+            } else if (diffBytes < 0) {
+              changeIndicator = '📉 Decreased';
+              changeDescription = `\`${diffBytes.toLocaleString()} bytes (${diffPercent}%)\``;
+            } else {
+              changeIndicator = '🟰 Unchanged';
+              changeDescription = '`No change`';
+            }
+
+            // Add warning for significant size increase (>5%)
+            let warning = '';
+            if (diffPercent > 5) {
+              warning = '⚠️ **Warning:** Binary size increased by more than 5%';
+            }
+
+            github.rest.issues.createComment({
+              issue_number: context.issue.number,
+              owner: context.repo.owner,
+              repo: context.repo.repo,
+              body: `## Binary Size Check 📊
+            **Base branch:** \`${baseSize}\`
+            **PR branch:** \`${prSize}\`
+            **Change:** ${changeIndicator} by ${changeDescription}
+
+            ${warning}`
+                        })
