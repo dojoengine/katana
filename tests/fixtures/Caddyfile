@@ -1,0 +1,13 @@
+{
+    local_certs
+}
+
+localhost:9090 {
+	handle_path /x/foo/katana* {
+		reverse_proxy localhost:6060
+	}
+
+	handle_path /health-check {
+		respond "Hello" 200
+	}
+}

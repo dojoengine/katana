@@ -1,0 +1,14 @@
+[package]
+edition.workspace = true
+license.workspace = true
+name = "reverse-proxy-test"
+repository.workspace = true
+version.workspace = true
+
+[dependencies]
+katana-utils.workspace = true
+
+anyhow.workspace = true
+headless_chrome = { version = "1.0.17", features = [ "rustls" ] }
+reqwest = { workspace = true, features = [ "blocking", "rustls-tls" ] }
+tokio = { workspace = true, features = [ "full" ] }

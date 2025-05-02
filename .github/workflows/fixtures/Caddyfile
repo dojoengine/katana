@@ -1,5 +1,0 @@
-localhost:5050 {
-    handle_path /x/foo/katana* {
-        reverse_proxy localhost:5050
-    }
-}
