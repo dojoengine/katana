@@ -4,6 +4,12 @@ on:
   pull_request:
     branches: [main]
 
+# Cancel in progress workflow when a new one is triggered by running in a concurrency group
+# https://docs.github.com/en/actions/writing-workflows/choosing-what-your-workflow-does/control-the-concurrency-of-workflows-and-jobs
+concurrency:
+  group: ${{ github.workflow }}-${{ github.event.pull_request.number || github.ref }}
+  cancel-in-progress: true
+
 jobs:
   check-binary-size:
     name: Check binary size
