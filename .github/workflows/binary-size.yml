@@ -1,4 +1,4 @@
-name: Binary Size Check
+name: info
 
 on:
   pull_request:
@@ -11,8 +11,7 @@ concurrency:
   cancel-in-progress: true
 
 jobs:
-  check-binary-size:
-    name: Check binary size
+  binary-size:
     runs-on: ubuntu-latest
     container:
       image: ghcr.io/dojoengine/katana-dev:latest
