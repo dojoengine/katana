@@ -23,6 +23,13 @@ jobs:
       - run: git config --global --add safe.directory "*"
       - uses: swatinem/rust-cache@v2
 
+      # See test.yml
+      - name: Restore cached test artifacts
+        uses: actions/cache@v3
+        with:
+          path: ./tests/snos/snos/build
+          key: snos-test-artifacts
+
       - name: Build release binary
         run: cargo build --release
 
