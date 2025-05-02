@@ -11,7 +11,53 @@ ARG CLIPPY_VERSION
 
 # Install additional packages
 RUN apt-get update && export DEBIAN_FRONTEND=noninteractive \
-	&& apt-get -y install --no-install-recommends protobuf-compiler libprotobuf-dev libclang-dev libzstd-dev make pkg-config libssl-dev
+	&& apt-get -y install --no-install-recommends \
+	protobuf-compiler \
+	libprotobuf-dev \
+	libclang-dev \
+	libzstd-dev \
+	make \
+	pkg-config \
+	libssl-dev
+
+# Headless chromium shared libs (for running caddy)
+RUN apt-get -y install \
+	ca-certificates \
+	fonts-liberation \
+	libasound2 \
+	libatk-bridge2.0-0 \
+	libatk1.0-0 \
+	libc6 \
+	libcairo2 \
+	libcups2 \
+	libdbus-1-3 \
+	libexpat1 \
+	libfontconfig1 \
+	libgbm1 \
+	libgcc1 \
+	libglib2.0-0 \
+	libgtk-3-0 \
+	libnspr4 \
+	libnss3 \
+	libpango-1.0-0 \
+	libpangocairo-1.0-0 \
+	libstdc++6 \
+	libx11-6 \
+	libx11-xcb1 \
+	libxcb1 \
+	libxcomposite1 \
+	libxcursor1 \
+	libxdamage1 \
+	libxext6 \
+	libxfixes3 \
+	libxi6 \
+	libxrandr2 \
+	libxrender1 \
+	libxss1 \
+	libxtst6 \
+	lsb-release \
+	wget \
+	xdg-utils
 
 RUN apt-get install -y gh libgmp3-dev software-properties-common curl git unzip
 
@@ -89,6 +135,13 @@ RUN echo 'export PYENV_ROOT="/root/.pyenv"' >> /root/.bashrc && \
 	echo 'export PATH="$PYENV_ROOT/bin:$PATH"' >> /root/.bashrc && \
 	echo 'eval "$(pyenv init -)"' >> /root/.bashrc && \
 	echo 'eval "$(pyenv virtualenv-init -)"' >> /root/.bashrc
+
+# Install caddy
+RUN apt install -y debian-keyring debian-archive-keyring apt-transport-https curl && \
+	curl -1sLf 'https://dl.cloudsmith.io/public/caddy/stable/gpg.key' | gpg --dearmor -o /usr/share/keyrings/caddy-stable-archive-keyring.gpg && \
+	curl -1sLf 'https://dl.cloudsmith.io/public/caddy/stable/debian.deb.txt' | tee /etc/apt/sources.list.d/caddy-stable.list && \
+	apt update && \
+	apt install caddy
 
 # Add shims to PATH for non-login shell usage
 ENV PATH="/root/.pyenv/shims:$PATH"
