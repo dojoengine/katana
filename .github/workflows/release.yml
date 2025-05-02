@@ -223,6 +223,8 @@ jobs:
       GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
     steps:
       - uses: actions/checkout@v4
+      - run: git config --global --add safe.directory "*"
+
       - uses: actions/download-artifact@v4
         with:
           pattern: artifacts-*
