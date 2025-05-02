@@ -3,11 +3,6 @@ name: Binary Size Check
 on:
   pull_request:
     branches: [main]
-    paths:
-      - "bin/**/*.rs"
-      - "crates/**/*.rs"
-      - "Cargo.toml"
-      - "Cargo.lock"
 
 jobs:
   check-binary-size:
