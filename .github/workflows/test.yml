@@ -162,7 +162,7 @@ jobs:
 
   explorer-reverse-proxy:
     needs: [fmt, clippy]
-    runs-on: ubuntu-latest-32-cores
+    runs-on: ubuntu-latest
     container:
       image: ghcr.io/dojoengine/katana-dev:latest
     steps:
@@ -172,7 +172,6 @@ jobs:
       # Workaround for https://github.com/actions/runner-images/issues/6775
       - run: git config --global --add safe.directory "*"
       - uses: Swatinem/rust-cache@v2
-      - run: apt install -y libnss3-dev libxss1
       - uses: browser-actions/setup-chrome@v1
       - run: |
           cargo run -p reverse-proxy-test
