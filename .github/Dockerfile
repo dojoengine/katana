@@ -123,6 +123,8 @@ RUN apt-get install -y \
 	libmlir-19-dev \
 	mlir-19-tools
 
+RUN apt-get install -y bc
+
 # Install bun for Explorer
 RUN apt-get install -y unzip
 RUN curl -fsSL https://bun.sh/install | bash
