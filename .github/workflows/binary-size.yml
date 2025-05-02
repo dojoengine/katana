@@ -29,7 +29,7 @@ jobs:
           git fetch origin ${{ github.base_ref }}
           git checkout origin/${{ github.base_ref }}
           cargo build --release --bin katana
-          BINARY_SIZE=$(stat -f %z ./target/release/katana)
+          BINARY_SIZE=$(stat --format %s ./target/release/katana)
           echo "size=$BINARY_SIZE" >> $GITHUB_OUTPUT
 
       - name: Get binary size ( PR )
@@ -37,7 +37,7 @@ jobs:
         run: |
           git checkout ${{ github.sha }}
           cargo build --release --bin katana
-          BINARY_SIZE=$(stat -f %z ./target/release/katana)
+          BINARY_SIZE=$(stat --format %s ./target/release/katana)
           echo "size=$BINARY_SIZE" >> $GITHUB_OUTPUT
 
       - name: Generate binary size report
