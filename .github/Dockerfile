@@ -11,7 +11,16 @@ ARG CLIPPY_VERSION
 
 # Install additional packages
 RUN apt-get update && export DEBIAN_FRONTEND=noninteractive \
-	&& apt-get -y install --no-install-recommends protobuf-compiler libprotobuf-dev libclang-dev libzstd-dev make pkg-config libssl-dev
+	&& apt-get -y install --no-install-recommends \
+	protobuf-compiler \
+	libprotobuf-dev \
+	libclang-dev \
+	libzstd-dev \
+	make \
+	pkg-config \
+	libssl-dev \
+	libnss3-dev \
+	libxss1
 
 RUN apt-get install -y gh libgmp3-dev software-properties-common curl git unzip
 
