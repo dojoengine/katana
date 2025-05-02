@@ -42,7 +42,7 @@ jobs:
       - name: Generate binary size report
         id: size-report
         run: |
-          REPORT=$(./scripts/generate-binary-size-report.sh ${{ steps.binary-size-base.outputs.base }} ${{ steps.binary-size-pr.outputs.pr }})
+          REPORT=$(./scripts/generate-binary-size-report.sh ${{ steps.binary-size-base.outputs.size }} ${{ steps.binary-size-pr.outputs.size }})
           # Convert report to a single line for GitHub output
           REPORT="${REPORT//'%'/'%25'}"
           REPORT="${REPORT//$'\n'/'%0A'}"
