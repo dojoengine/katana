@@ -5,7 +5,8 @@ use std::thread::{self, JoinHandle};
 use std::time::Duration;
 
 use anyhow::Result;
-use headless_chrome::Browser;
+use headless_chrome::browser::default_executable;
+use headless_chrome::{Browser, LaunchOptionsBuilder};
 use katana_utils::node::test_config;
 use katana_utils::TestNode;
 
@@ -37,8 +38,7 @@ const ROUTES: [(&str, &str, Option<&str>, &str); 5] = [
 async fn main() {
     let _node = start_katana().await;
     let rp_handle = start_reverse_proxy().await;
-
-    let browser = Browser::default().expect("failed to create browser");
+    let browser = browser();
 
     // Test both direct and proxied endpoints
     let url = format!("http://localhost:{PORT}/explorer");
@@ -152,4 +152,17 @@ async fn start_reverse_proxy() -> JoinHandle<Child> {
 
 fn get_caddy_config_file_path() -> PathBuf {
     Path::new(env!("CARGO_MANIFEST_DIR")).join("../fixtures/Caddyfile").canonicalize().unwrap()
+}
+
+fn browser() -> Browser {
+    let mut builder = LaunchOptionsBuilder::default();
+    builder.path(Some(default_executable().expect("no chrome executable found")));
+
+    // Chrome disallows running in no-sandbox (the default) mode as root (when run in ci)
+    if nix::unistd::geteuid().is_root() {
+        builder.sandbox(false);
+    }
+
+    let opts = builder.build().unwrap();
+    Browser::new(opts).expect("failed to create browser")
 }
