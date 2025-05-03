@@ -48,9 +48,9 @@ jobs:
           # REPORT=$(./scripts/generate-binary-size-report.sh ${{ steps.binary-size-base.outputs.branch }} ${{ steps.binary-size-base.outputs.size }} ${{ steps.binary-size-pr.outputs.branch }} ${{ steps.binary-size-pr.outputs.size }})
           REPORT=$(./scripts/generate-binary-size-report.sh main 125123123 binary-size 2151231)
           # Convert report to a single line for GitHub output
-          REPORT="${REPORT//'%'/'%25'}"
-          REPORT="${REPORT//$'\n'/'%0A'}"
-          REPORT="${REPORT//$'\r'/'%0D'}"
+          # REPORT="${REPORT//'%'/'%25'}"
+          # REPORT="${REPORT//$'\n'/'%0A'}"
+          # REPORT="${REPORT//$'\r'/'%0D'}"
           echo "report=$REPORT" >> $GITHUB_OUTPUT
 
       - name: Comment binary size
