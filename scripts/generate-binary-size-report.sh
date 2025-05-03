@@ -46,8 +46,8 @@ if [ -n "$WARNING" ]; then
 
 | Branch | Size |
 |--------|------|
-| \`$BASE_BRANCH\` | $BASE_SIZE_HUMAN   |
-| \`$PR_BRANCH\` | $PR_SIZE_HUMAN $CHANGE_TEXT |
+| \\\`$BASE_BRANCH\\\` | $BASE_SIZE_HUMAN   |
+| \\\`$PR_BRANCH\\\` | $PR_SIZE_HUMAN $CHANGE_TEXT |
 
 $WARNING
 EOF
@@ -57,7 +57,7 @@ else
 
 | Branch | Size |
 |--------|------|
-| \`$BASE_BRANCH\` | $BASE_SIZE_HUMAN   |
-| \`$PR_BRANCH\` | $PR_SIZE_HUMAN $CHANGE_TEXT |
+| \\\`$BASE_BRANCH\\\` | $BASE_SIZE_HUMAN   |
+| \\\`$PR_BRANCH\\\` | $PR_SIZE_HUMAN $CHANGE_TEXT |
 EOF
 fi
