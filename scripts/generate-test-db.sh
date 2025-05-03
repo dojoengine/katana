@@ -26,7 +26,7 @@ cleanup() {
 trap cleanup EXIT
 
 # Build katana
-cargo build --release -p katana
+cargo build --release --bin katana
 
 echo "Creating database directory at $KATANA_DB_PATH"
 mkdir -p $KATANA_DB_PATH

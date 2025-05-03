@@ -7,19 +7,18 @@ jobs:
     runs-on: ubuntu-latest
 
     container:
-      image: ghcr.io/dojoengine/dojo-dev:v1.2.2
+      image: ghcr.io/dojoengine/dojo-dev:v1.5.0
 
     permissions:
       contents: write
       pull-requests: write
 
     steps:
-      - name: checkout repo
-        uses: actions/checkout@v4
+      - uses: actions/checkout@v4
+      - uses: Swatinem/rust-cache@v2
 
-      - name: Start Katana
-        run: |
-          ./scripts/generate-test-db.sh
+      - name: Generate test database
+        run: ./scripts/generate-test-db.sh
 
       - id: version_info
         run: |
@@ -32,7 +31,7 @@ jobs:
           token: ${{ secrets.CREATE_PR_TOKEN }}
           add-paths: |
             tests/fixtures/katana_db.tar.gz
-          title: "Update test database: ${{ steps.version_info.outputs.version }}"
+          title: "chore(test): update test database: ${{ steps.version_info.outputs.version }}"
           commit-message: "Update test database from Dojo project: ${{ steps.version_info.outputs.version }}"
           branch: db-update-${{ steps.version_info.outputs.version }}
           base: main
