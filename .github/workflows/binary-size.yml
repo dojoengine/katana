@@ -20,30 +20,33 @@ jobs:
       - uses: actions/checkout@v4
       # Workaround for https://github.com/actions/runner-images/issues/6775
       - run: git config --global --add safe.directory "*"
-      - uses: swatinem/rust-cache@v2
+      # - uses: swatinem/rust-cache@v2
 
-      - name: Get binary size ( base )
-        id: binary-size-base
-        run: |
-          git fetch origin ${{ github.base_ref }}
-          git checkout origin/${{ github.base_ref }}
-          cargo build --release --bin katana
-          BINARY_SIZE=$(stat --format %s ./target/release/katana)
-          echo "size=$BINARY_SIZE" >> $GITHUB_OUTPUT
+      # - name: Get binary size ( base )
+      #   id: binary-size-base
+      #   run: |
+      #     git fetch origin ${{ github.base_ref }}
+      #     git checkout origin/${{ github.base_ref }}
+      #     cargo build --release --bin katana
+      #     BINARY_SIZE=$(stat --format %s ./target/release/katana)
+      #     echo "size=$BINARY_SIZE" >> $GITHUB_OUTPUT
+      #     echo "branch=${{ github.base_ref }}" >> $GITHUB_OUTPUT
 
-      - name: Get binary size ( PR )
-        id: binary-size-pr
-        run: |
-          git checkout ${{ github.sha }}
-          cargo build --release --bin katana
-          BINARY_SIZE=$(stat --format %s ./target/release/katana)
-          echo "size=$BINARY_SIZE" >> $GITHUB_OUTPUT
+      # - name: Get binary size ( PR )
+      #   id: binary-size-pr
+      #   run: |
+      #     git checkout ${{ github.sha }}
+      #     cargo build --release --bin katana
+      #     BINARY_SIZE=$(stat --format %s ./target/release/katana)
+      #     echo "size=$BINARY_SIZE" >> $GITHUB_OUTPUT
+      #     echo "branch=${{ github.head_ref }}" >> $GITHUB_OUTPUT
 
       - name: Generate binary size report
         id: size-report
         shell: bash
         run: |
-          REPORT=$(./scripts/generate-binary-size-report.sh ${{ steps.binary-size-base.outputs.size }} ${{ steps.binary-size-pr.outputs.size }})
+          # REPORT=$(./scripts/generate-binary-size-report.sh ${{ steps.binary-size-base.outputs.branch }} ${{ steps.binary-size-base.outputs.size }} ${{ steps.binary-size-pr.outputs.branch }} ${{ steps.binary-size-pr.outputs.size }})
+          REPORT=$(./scripts/generate-binary-size-report.sh main 125123123 binary-size 2151231)
           # Convert report to a single line for GitHub output
           REPORT="${REPORT//'%'/'%25'}"
           REPORT="${REPORT//$'\n'/'%0A'}"
