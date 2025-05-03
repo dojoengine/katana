@@ -2,7 +2,13 @@ name: info
 
 on:
   pull_request:
-    branches: [main]
+    branches:
+      - main
+    paths:
+      - "bin/**/*.rs"
+      - "**/Cargo.toml"
+      - "crates/**/*.rs"
+      - ".github/workflows/binary-size.yml"
 
 # Cancel in progress workflow when a new one is triggered by running in a concurrency group
 # https://docs.github.com/en/actions/writing-workflows/choosing-what-your-workflow-does/control-the-concurrency-of-workflows-and-jobs
