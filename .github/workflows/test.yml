@@ -4,7 +4,15 @@ on:
   push:
     branches:
       - main
+    paths:
+      - "bin/**/*.rs"
+      - "crates/**/*.rs"
+      - ".github/workflows/test.yml"
   pull_request:
+    paths:
+      - "bin/**/*.rs"
+      - "crates/**/*.rs"
+      - ".github/workflows/test.yml"
 
 # Cancel in progress workflow when a new one is triggered by running in a concurrency group
 # https://docs.github.com/en/actions/writing-workflows/choosing-what-your-workflow-does/control-the-concurrency-of-workflows-and-jobs
