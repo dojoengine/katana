@@ -40,25 +40,22 @@ jobs:
       #     BINARY_SIZE=$(stat --format %s ./target/release/katana)
       #     echo "size=$BINARY_SIZE" >> $GITHUB_OUTPUT
       #     echo "branch=${{ github.head_ref }}" >> $GITHUB_OUTPUT
-
       - name: Generate binary size report
         id: size-report
         shell: bash
         run: |
           # REPORT=$(./scripts/generate-binary-size-report.sh ${{ steps.binary-size-base.outputs.branch }} ${{ steps.binary-size-base.outputs.size }} ${{ steps.binary-size-pr.outputs.branch }} ${{ steps.binary-size-pr.outputs.size }})
           REPORT=$(./scripts/generate-binary-size-report.sh main 125123123 binary-size 2151231)
-          # Convert report to a single line for GitHub output
-          # REPORT="${REPORT//'%'/'%25'}"
-          # REPORT="${REPORT//$'\n'/'%0A'}"
-          # REPORT="${REPORT//$'\r'/'%0D'}"
-          echo "report=$REPORT" >> $GITHUB_OUTPUT
+          echo "report<<EOF" >> $GITHUB_OUTPUT
+          echo "$REPORT" >> $GITHUB_OUTPUT
+          echo "EOF" >> $GITHUB_OUTPUT
 
       - name: Comment binary size
         uses: actions/github-script@v7
         with:
           github-token: ${{secrets.GITHUB_TOKEN}}
           script: |
-            const body = '${{ steps.size-report.outputs.report }}';
+            const body = `${{ steps.size-report.outputs.report }}`;
             github.rest.issues.createComment({
               issue_number: context.issue.number,
               owner: context.repo.owner,
