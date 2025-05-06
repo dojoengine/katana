@@ -27,9 +27,13 @@ async fn simulate() {
     assert!(result.is_ok(), "simulate should succeed");
 }
 
+#[rstest::rstest]
 #[tokio::test]
-async fn simulate_nonce_validation() {
-    let sequencer = TestNode::new().await;
+async fn simulate_nonce_validation(#[values(None, Some(1000))] block_time: Option<u64>) {
+    // setup test sequencer with the given configuration
+    let mut config = katana_utils::node::test_config();
+    config.sequencing.block_time = block_time;
+    let sequencer = TestNode::new_with_config(config).await;
     let provider = sequencer.starknet_provider();
     let account = sequencer.account();
 
