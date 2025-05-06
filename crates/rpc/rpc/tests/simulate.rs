@@ -54,12 +54,12 @@ async fn simulate_nonce_validation() {
     // here we're essentially simulating a transaction with a nonce that has already been
     // used, so it should fail.
     let nonce = nonce - 1;
-    let result = contract.transfer(&recipient, &amount).nonce(nonce).estimate_fee().await;
+    let result = contract.transfer(&recipient, &amount).nonce(nonce).simulate(false, false).await;
     assert!(result.is_err(), "estimate should fail with nonce < current nonce");
 
     // simulate with arbitrary nonce >= current nonce
     let nonce = felt!("0x1337");
-    let result = contract.transfer(&recipient, &amount).nonce(nonce).estimate_fee().await;
+    let result = contract.transfer(&recipient, &amount).nonce(nonce).simulate(false, false).await;
     assert!(result.is_ok(), "estimate should succeed with nonce >= current nonce");
 }
 
