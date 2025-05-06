@@ -83,14 +83,18 @@ async fn simulate_with_insufficient_fee(
     // -----------------------------------------------------------------------
     //  transaction with low max fee (underpriced).
 
-    let res =
-        contract.transfer(&recipient, &amount).max_fee(Felt::TWO).simulate(false, false).await;
+    let fee = Felt::TWO;
+    let res = contract.transfer(&recipient, &amount).max_fee(fee).simulate(false, false).await;
 
     if disable_node_fee {
         assert!(res.is_ok(), "should succeed when fee is disabled");
     } else {
         assert!(res.is_err(), "should fail when fee is enabled");
     }
+
+    // simulate with 'skip fee charge' flag
+    let result = contract.transfer(&recipient, &amount).max_fee(fee).simulate(false, true).await;
+    assert!(result.is_ok(), "should succeed no matter");
 
     // -----------------------------------------------------------------------
     //  transaction with insufficient balance.
@@ -106,8 +110,7 @@ async fn simulate_with_insufficient_fee(
 
     // simulate with 'skip fee charge' flag
     let result = contract.transfer(&recipient, &amount).max_fee(fee).simulate(false, true).await;
-    assert!(result.is_ok(), "should succeed no matter"); // bcs we explicitly skip fee charge in the
-                                                         // simulate request itself
+    assert!(result.is_ok(), "should succeed no matter");
 }
 
 #[rstest::rstest]
@@ -147,6 +150,5 @@ async fn simulate_with_invalid_signature(
 
     // simulate with 'skip validate' flag
     let result = contract.transfer(&recipient, &amount).simulate(true, false).await;
-    assert!(result.is_ok(), "should succeed no matter"); // bcs we explicitly skip validate in the
-                                                         // simulate request itself
+    assert!(result.is_ok(), "should succeed no matter");
 }
