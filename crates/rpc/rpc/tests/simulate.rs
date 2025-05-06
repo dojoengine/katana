@@ -1,4 +1,3 @@
-use anyhow::Result;
 use cainome::rs::abigen_legacy;
 use katana_primitives::genesis::constant::{
     DEFAULT_ETH_FEE_TOKEN_ADDRESS, DEFAULT_PREFUNDED_ACCOUNT_BALANCE,
@@ -19,15 +18,11 @@ async fn simulate() {
     let sequencer = TestNode::new().await;
     let account = sequencer.account();
 
-    // setup contract to interact with (can be any existing contract that can be interacted with)
     let contract = Erc20Contract::new(DEFAULT_ETH_FEE_TOKEN_ADDRESS.into(), &account);
 
-    // setup contract function params
     let recipient = felt!("0x1");
     let amount = Uint256 { low: felt!("0x1"), high: Felt::ZERO };
 
-    // send a valid transaction first to increment the nonce (so that we can test nonce < current
-    // nonce later)
     let result = contract.transfer(&recipient, &amount).simulate(false, false).await;
     assert!(result.is_ok(), "simulate should succeed");
 }
@@ -35,14 +30,11 @@ async fn simulate() {
 #[tokio::test]
 async fn simulate_nonce_validation() {
     let sequencer = TestNode::new().await;
-
     let provider = sequencer.starknet_provider();
     let account = sequencer.account();
 
-    // setup contract to interact with (can be any existing contract that can be interacted with)
     let contract = Erc20Contract::new(DEFAULT_ETH_FEE_TOKEN_ADDRESS.into(), &account);
 
-    // setup contract function params
     let recipient = felt!("0x1");
     let amount = Uint256 { low: felt!("0x1"), high: Felt::ZERO };
 
@@ -83,10 +75,8 @@ async fn simulate_with_insufficient_fee(
     config.sequencing.block_time = block_time;
     let sequencer = TestNode::new_with_config(config).await;
 
-    // setup test contract to interact with.
     let contract = Erc20Contract::new(DEFAULT_ETH_FEE_TOKEN_ADDRESS.into(), sequencer.account());
 
-    // function call params
     let recipient = Felt::ONE;
     let amount = Uint256 { low: Felt::ONE, high: Felt::ZERO };
 
@@ -125,7 +115,7 @@ async fn simulate_with_insufficient_fee(
 async fn simulate_with_invalid_signature(
     #[values(true, false)] disable_node_validate: bool,
     #[values(None, Some(1000))] block_time: Option<u64>,
-) -> Result<()> {
+) {
     // setup test sequencer with the given configuration
     let mut config = katana_utils::node::test_config();
     config.dev.account_validation = !disable_node_validate;
@@ -139,14 +129,12 @@ async fn simulate_with_invalid_signature(
         sequencer.starknet_provider(),
         LocalWallet::from(SigningKey::from_random()),
         sequencer.account().address(),
-        sequencer.starknet_provider().chain_id().await?,
+        sequencer.starknet_provider().chain_id().await.unwrap(),
         ExecutionEncoding::New,
     );
 
-    // setup test contract to interact with.
     let contract = Erc20Contract::new(DEFAULT_ETH_FEE_TOKEN_ADDRESS.into(), &account);
 
-    // function call params
     let recipient = Felt::ONE;
     let amount = Uint256 { low: Felt::ONE, high: Felt::ZERO };
     let result = contract.transfer(&recipient, &amount).simulate(false, false).await;
@@ -159,7 +147,6 @@ async fn simulate_with_invalid_signature(
 
     // simulate with 'skip validate' flag
     let result = contract.transfer(&recipient, &amount).simulate(true, false).await;
-    assert!(result.is_ok(), "should succeed no matter"); // bcs we explicitly skip validate in the simulate request itself
-
-    Ok(())
+    assert!(result.is_ok(), "should succeed no matter"); // bcs we explicitly skip validate in the
+                                                         // simulate request itself
 }
