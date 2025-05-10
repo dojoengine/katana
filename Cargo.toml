@@ -15,7 +15,7 @@ members = [
 	"crates/messaging",
 	"crates/metrics",
 	"crates/node",
-	"crates/node-bindings",
+	"crates/node-bindings", "crates/optimistic",
 	"crates/pool",
 	"crates/primitives",
 	"crates/rpc/rpc",

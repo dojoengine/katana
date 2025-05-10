@@ -1,13 +1,3 @@
-// #![cfg_attr(not(test), warn(unused_crate_dependencies))]
-
-#[cfg(feature = "full-node")]
-pub mod full;
-
-pub mod config;
-pub mod exit;
-pub mod optimistic;
-pub mod version;
-
 use std::future::IntoFuture;
 use std::sync::Arc;
 
@@ -30,23 +20,16 @@ use katana_db::mdbx::DbEnv;
 use katana_executor::implementation::blockifier::BlockifierFactory;
 use katana_executor::ExecutionFlags;
 use katana_metrics::exporters::prometheus::PrometheusRecorder;
-use katana_metrics::sys::DiskReporter;
 use katana_metrics::{Report, Server as MetricsServer};
 use katana_pool::ordering::FiFo;
 use katana_pool::TxPool;
 use katana_primitives::block::GasPrice;
 use katana_primitives::env::{CfgEnv, FeeTokenAddressses};
-#[cfg(feature = "cartridge")]
-use katana_rpc::cartridge::CartridgeApi;
 use katana_rpc::cors::Cors;
 use katana_rpc::dev::DevApi;
 use katana_rpc::starknet::forking::ForkedClient;
-#[cfg(feature = "cartridge")]
-use katana_rpc::starknet::PaymasterConfig;
 use katana_rpc::starknet::{StarknetApi, StarknetApiConfig};
 use katana_rpc::{RpcServer, RpcServerHandle};
-#[cfg(feature = "cartridge")]
-use katana_rpc_api::cartridge::CartridgeApiServer;
 use katana_rpc_api::dev::DevApiServer;
 use katana_rpc_api::starknet::{StarknetApiServer, StarknetTraceApiServer, StarknetWriteApiServer};
 use katana_stage::Sequencing;
@@ -113,12 +96,6 @@ impl Node {
 
             if let Some(max_call_gas) = config.rpc.max_call_gas {
                 factory.set_max_call_gas(max_call_gas);
-            }
-
-            #[cfg(feature = "native")]
-            {
-                info!(enabled = config.execution.compile_native, "Cairo native compilation");
-                factory.cairo_native(config.execution.compile_native);
             }
 
             Arc::new(factory)
@@ -221,32 +198,10 @@ impl Node {
         .allow_methods([Method::POST, Method::GET])
         .allow_headers([hyper::header::CONTENT_TYPE, "argent-client".parse().unwrap(), "argent-version".parse().unwrap()]);
 
-        #[cfg(feature = "cartridge")]
-        let paymaster = if let Some(paymaster) = &config.paymaster {
-            anyhow::ensure!(
-                config.rpc.apis.contains(&RpcModuleKind::Cartridge),
-                "Cartridge API should be enabled when paymaster is set"
-            );
-
-            let api = CartridgeApi::new(
-                backend.clone(),
-                block_producer.clone(),
-                pool.clone(),
-                paymaster.cartridge_api_url.clone(),
-            );
-            rpc_modules.merge(CartridgeApiServer::into_rpc(api))?;
-
-            Some(PaymasterConfig { cartridge_api_url: paymaster.cartridge_api_url.clone() })
-        } else {
-            None
-        };
-
         if config.rpc.apis.contains(&RpcModuleKind::Starknet) {
             let cfg = StarknetApiConfig {
                 max_event_page_size: config.rpc.max_event_page_size,
                 max_proof_keys: config.rpc.max_proof_keys,
-                #[cfg(feature = "cartridge")]
-                paymaster,
             };
 
             let api = if let Some(client) = forked_client {
@@ -314,14 +269,13 @@ impl Node {
 
         // TODO: maybe move this to the build stage
         if let Some(ref cfg) = self.config.metrics {
-            let db_metrics = Box::new(self.db.clone()) as Box<dyn Report>;
-            let disk_metrics = Box::new(DiskReporter::new(self.db.path())?) as Box<dyn Report>;
-            let reports: Vec<Box<dyn Report>> = vec![db_metrics, disk_metrics];
+            let addr = cfg.socket_addr();
+            let db = self.db.clone();
+            let reports: Vec<Box<dyn Report>> = vec![Box::new(db) as Box<dyn Report>];
 
             let exporter = PrometheusRecorder::current().expect("qed; should exist at this point");
             let server = MetricsServer::new(exporter).with_process_metrics().with_reports(reports);
 
-            let addr = cfg.socket_addr();
             self.task_manager.task_spawner().build_task().spawn(server.start(addr));
             info!(%addr, "Metrics server started.");
         }
