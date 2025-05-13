@@ -251,6 +251,11 @@ pub struct EnvironmentOptions {
     #[arg(default_value_t = DEFAULT_INVOCATION_MAX_STEPS)]
     #[serde(default = "default_invoke_max_steps")]
     pub invoke_max_steps: u32,
+
+    /// Enable cairo-native compilation for improved performance.
+    #[arg(long)]
+    #[serde(default)]
+    pub use_native: bool,
 }
 
 impl Default for EnvironmentOptions {
@@ -259,6 +264,7 @@ impl Default for EnvironmentOptions {
             validate_max_steps: DEFAULT_VALIDATION_MAX_STEPS,
             invoke_max_steps: DEFAULT_INVOCATION_MAX_STEPS,
             chain_id: None,
+            use_native: false,
         }
     }
 }
@@ -272,6 +278,10 @@ impl EnvironmentOptions {
 
             if self.invoke_max_steps == DEFAULT_INVOCATION_MAX_STEPS {
                 self.invoke_max_steps = other.invoke_max_steps;
+            }
+
+            if !self.use_native {
+                self.use_native = other.use_native;
             }
         }
     }
