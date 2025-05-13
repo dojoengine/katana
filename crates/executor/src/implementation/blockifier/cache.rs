@@ -115,6 +115,7 @@ impl ClassCacheBuilder {
                 #[cfg(feature = "native")]
                 pool,
             }),
+            use_native: false,
         })
     }
 }
@@ -146,6 +147,7 @@ impl Default for ClassCacheBuilder {
 #[derive(Debug, Clone)]
 pub struct ClassCache {
     inner: Arc<Inner>,
+    use_native: bool,
 }
 
 #[derive(Debug)]
@@ -168,6 +170,11 @@ impl ClassCache {
     /// Returns a new [`ClassCacheBuilder`] for configuring a `ClassCache` instance.
     pub fn builder() -> ClassCacheBuilder {
         ClassCacheBuilder::new()
+    }
+    
+    pub fn with_native_flag(mut self, use_native: bool) -> Self {
+        self.use_native = use_native;
+        self
     }
 
     pub fn get(&self, hash: &ClassHash) -> Option<RunnableCompiledClass> {
@@ -205,23 +212,23 @@ impl ClassCache {
                 let compiled = CompiledClassV1::try_from((casm, version.clone())).unwrap();
 
                 #[cfg(feature = "native")]
-                let inner = self.inner.clone();
-                #[cfg(feature = "native")]
-                let compiled_clone = compiled.clone();
+                if self.use_native {
+                    let inner = self.inner.clone();
+                    let compiled_clone = compiled.clone();
 
-                #[cfg(feature = "native")]
-                self.inner.pool.spawn(move || {
-                    tracing::trace!(target: "class_cache", class = format!("{hash:#x}"), "Compiling native class");
+                    self.inner.pool.spawn(move || {
+                        tracing::trace!(target: "class_cache", class = format!("{hash:#x}"), "Compiling native class");
 
-                    let executor =
-                        AotContractExecutor::new(&program, &entry_points, version.into(), OptLevel::Default)
-                            .unwrap();
+                        let executor =
+                            AotContractExecutor::new(&program, &entry_points, version.into(), OptLevel::Default)
+                                .unwrap();
 
-                    let native = NativeCompiledClassV1::new(executor, compiled_clone);
-                    inner.cache.insert(hash, RunnableCompiledClass::V1Native(native));
+                        let native = NativeCompiledClassV1::new(executor, compiled_clone);
+                        inner.cache.insert(hash, RunnableCompiledClass::V1Native(native));
 
-                    tracing::trace!(target: "class_cache", class = format!("{hash:#x}"), "Native class compiled")
-                });
+                        tracing::trace!(target: "class_cache", class = format!("{hash:#x}"), "Native class compiled")
+                    });
+                }
 
                 let class = RunnableCompiledClass::V1(compiled);
                 self.inner.cache.insert(hash, class.clone());

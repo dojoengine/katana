@@ -112,6 +112,8 @@ impl Node {
             if let Some(max_call_gas) = config.rpc.max_call_gas {
                 factory.set_max_call_gas(max_call_gas);
             }
+            
+            factory.with_native(config.execution.use_native);
 
             Arc::new(factory)
         };
