@@ -39,17 +39,26 @@ pub struct BlockifierFactory {
     flags: ExecutionFlags,
     limits: BlockLimits,
     max_call_gas: u64,
-    use_native: bool,
+    #[cfg(feature = "native")]
+    use_cairo_native: bool,
 }
 
 impl BlockifierFactory {
     /// Create a new factory with the given configuration and simulation flags.
     pub fn new(cfg: CfgEnv, flags: ExecutionFlags, limits: BlockLimits) -> Self {
-        Self { cfg, flags, limits, max_call_gas: 1_000_000_000, use_native: false }
+        Self {
+            cfg,
+            flags,
+            limits,
+            #[cfg(feature = "native")]
+            use_cairo_native: false,
+            max_call_gas: 1_000_000_000,
+        }
     }
 
-    pub fn with_native(&mut self, use_native: bool) -> &mut Self {
-        self.use_native = use_native;
+    #[cfg(feature = "native")]
+    pub fn cairo_native(&mut self, enable: bool) -> &mut Self {
+        self.use_cairo_native = enable;
         self
     }
 
@@ -84,7 +93,8 @@ impl ExecutorFactory for BlockifierFactory {
             flags,
             limits,
             self.max_call_gas,
-            self.use_native,
+            #[cfg(feature = "native")]
+            self.use_cairo_native,
         ))
     }
 
@@ -117,19 +127,17 @@ impl<'a> StarknetVMProcessor<'a> {
         simulation_flags: ExecutionFlags,
         limits: BlockLimits,
         max_call_gas: u64,
-        compile_native: bool,
+        #[cfg(feature = "native")] cairo_native: bool,
     ) -> Self {
         let transactions = Vec::new();
         let block_context = Arc::new(utils::block_context_from_envs(&block_env, &cfg_env));
-        #[cfg(feature = "native")]
-        let compiled_class_cache = {
-            let builder = cache::ClassCache::builder();
-            let builder = builder.compile_native(compile_native);
-            builder.build().unwrap()
-        };
-        
+        let cache_builder = cache::ClassCache::builder();
+
         #[cfg(not(feature = "native"))]
-        let compiled_class_cache = cache::ClassCache::builder().build().unwrap();
+        let compiled_class_cache = cache_builder.build().unwrap();
+        #[cfg(feature = "native")]
+        let compiled_class_cache = cache_builder.compile_native(cairo_native).build().unwrap();
+
         let state = state::CachedState::new(state, compiled_class_cache);
 
         let mut block_max_capacity = BouncerWeights::max();

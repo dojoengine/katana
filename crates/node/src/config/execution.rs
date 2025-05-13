@@ -3,6 +3,9 @@ pub const MAX_RECURSION_DEPTH: usize = 1000;
 pub const DEFAULT_INVOCATION_MAX_STEPS: u32 = 10_000_000;
 pub const DEFAULT_VALIDATION_MAX_STEPS: u32 = 1_000_000;
 
+#[cfg(feature = "native")]
+pub const DEFAULT_ENABLE_NATIVE_COMPILATION: bool = false;
+
 #[derive(Debug, Clone)]
 pub struct ExecutionConfig {
     pub invocation_max_steps: u32,
@@ -19,7 +22,7 @@ impl std::default::Default for ExecutionConfig {
             invocation_max_steps: DEFAULT_INVOCATION_MAX_STEPS,
             validation_max_steps: DEFAULT_VALIDATION_MAX_STEPS,
             #[cfg(feature = "native")]
-            compile_native: false,
+            compile_native: DEFAULT_ENABLE_NATIVE_COMPILATION,
         }
     }
 }

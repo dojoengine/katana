@@ -114,7 +114,7 @@ impl Node {
             }
 
             #[cfg(feature = "native")]
-            factory.with_native(config.execution.compile_native);
+            factory.cairo_native(config.execution.compile_native);
 
             Arc::new(factory)
         };
