@@ -114,7 +114,10 @@ impl Node {
             }
 
             #[cfg(feature = "native")]
-            factory.cairo_native(config.execution.compile_native);
+            {
+                info!(enabled = config.execution.compile_native, "Cairo native compilation");
+                factory.cairo_native(config.execution.compile_native);
+            }
 
             Arc::new(factory)
         };
