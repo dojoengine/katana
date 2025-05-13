@@ -3,7 +3,6 @@ use std::sync::Arc;
 // Re-export the blockifier crate.
 pub use blockifier;
 use blockifier::bouncer::{n_steps_to_sierra_gas, Bouncer, BouncerConfig, BouncerWeights};
-use cache::COMPILED_CLASS_CACHE;
 
 pub mod cache;
 pub mod call;
@@ -122,7 +121,7 @@ impl<'a> StarknetVMProcessor<'a> {
     ) -> Self {
         let transactions = Vec::new();
         let block_context = Arc::new(utils::block_context_from_envs(&block_env, &cfg_env));
-        let compiled_class_cache = COMPILED_CLASS_CACHE.clone().with_native_flag(use_native);
+        let compiled_class_cache = cache::ClassCache::builder().use_native(use_native).build().unwrap();
         let state = state::CachedState::new(state, compiled_class_cache);
 
         let mut block_max_capacity = BouncerWeights::max();

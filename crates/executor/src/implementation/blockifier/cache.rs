@@ -24,6 +24,7 @@ pub enum Error {
 /// such as the cache size and thread pool settings (when the "native" feature is enabled).
 pub struct ClassCacheBuilder {
     size: usize,
+    use_native: bool,
     #[cfg(feature = "native")]
     thread_count: usize,
     #[cfg(feature = "native")]
@@ -43,6 +44,7 @@ impl ClassCacheBuilder {
     pub fn new() -> Self {
         Self {
             size: 100,
+            use_native: false,
             #[cfg(feature = "native")]
             thread_count: 3,
             #[cfg(feature = "native")]
@@ -91,6 +93,16 @@ impl ClassCacheBuilder {
         self.thread_name = Some(Box::new(name_fn));
         self
     }
+    
+    /// Enables or disables native compilation.
+    ///
+    /// # Arguments
+    ///
+    /// * `enable` - Whether to enable native compilation.
+    pub fn use_native(mut self, enable: bool) -> Self {
+        self.use_native = enable;
+        self
+    }
 
     /// Builds a new `ClassCache` instance with the configured settings.
     ///
@@ -115,7 +127,7 @@ impl ClassCacheBuilder {
                 #[cfg(feature = "native")]
                 pool,
             }),
-            use_native: false,
+            use_native: self.use_native,
         })
     }
 }
@@ -124,13 +136,17 @@ impl std::fmt::Debug for ClassCacheBuilder {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         #[cfg(not(feature = "native"))]
         {
-            f.debug_struct("ClassCacheBuilder").field("size", &self.size).finish()
+            f.debug_struct("ClassCacheBuilder")
+                .field("size", &self.size)
+                .field("use_native", &self.use_native)
+                .finish()
         }
 
         #[cfg(feature = "native")]
         {
             f.debug_struct("ClassCacheBuilder")
                 .field("size", &self.size)
+                .field("use_native", &self.use_native)
                 .field("thread_count", &self.thread_count)
                 .field("thread_name", &"..")
                 .finish()
@@ -172,10 +188,6 @@ impl ClassCache {
         ClassCacheBuilder::new()
     }
     
-    pub fn with_native_flag(mut self, use_native: bool) -> Self {
-        self.use_native = use_native;
-        self
-    }
 
     pub fn get(&self, hash: &ClassHash) -> Option<RunnableCompiledClass> {
         self.inner.cache.get(hash)
