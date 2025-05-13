@@ -101,14 +101,17 @@ impl ClassCacheBuilder {
     pub fn build(self) -> Result<ClassCache, Error> {
         let cache = Cache::new(self.size);
 
+
         #[cfg(feature = "native")]
         let pool = {
             let mut builder = rayon::ThreadPoolBuilder::new().num_threads(self.thread_count);
-            if let Some(namer) = self.thread_name {
-                builder = builder.thread_name(namer);
-            }
+            builder = builder.thread_name(self.thread_name.as_ref().map_or_else(
+                || |i| format!("cache-native-compiler-{i}"),
+                |f| f
+            ));
             builder.build()?
         };
+
 
         Ok(ClassCache {
             inner: Arc::new(Inner {
