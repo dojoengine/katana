@@ -60,12 +60,22 @@ impl ClassCacheBuilder {
         self
     }
 
+    /// Enables or disables native compilation. Default is disabled.
+    #[cfg(feature = "native")]
+    pub fn compile_native(mut self, enable: bool) -> Self {
+        self.compile_native = enable;
+        self
+    }
+
     /// Sets the number of threads in the thread pool for native compilation. Default is 3.
     ///
     /// If `count` is zero, the thread pool will choose the number of threads
     /// automatically. This is typically based on the number of logical CPUs
     /// available to the process. However, the exact behavior depends on the
     /// underlying Rayon's [`ThreadPool`](rayon::ThreadPool) implementation.
+    ///
+    /// If native compilation is not enabled via [`ClassCacheBuilder::compile_native`],
+    /// configuring the thread pool is a no-op.
     #[cfg(feature = "native")]
     pub fn thread_count(mut self, count: usize) -> Self {
         self.thread_count = count;
@@ -73,6 +83,9 @@ impl ClassCacheBuilder {
     }
 
     /// Sets the thread name for the native compilation thread pool.
+    ///
+    /// If native compilation is not enabled via [`ClassCacheBuilder::compile_native`],
+    /// configuring the thread pool is a no-op.
     ///
     /// # Arguments
     ///
@@ -86,13 +99,6 @@ impl ClassCacheBuilder {
         self
     }
 
-    /// Enables or disables native compilation. Default is disabled.
-    #[cfg(feature = "native")]
-    pub fn compile_native(mut self, enable: bool) -> Self {
-        self.compile_native = enable;
-        self
-    }
-
     /// Builds a new `ClassCache` instance with the configured settings.
     ///
     /// # Returns
@@ -103,11 +109,13 @@ impl ClassCacheBuilder {
         let cache = Cache::new(self.size);
 
         #[cfg(feature = "native")]
-        let pool = {
+        let pool = if self.compile_native {
             let builder = rayon::ThreadPoolBuilder::new().num_threads(self.thread_count);
             let default_thread_name = Box::new(|i| format!("cache-native-compiler-{i}")) as _;
             let thread_name = self.thread_name.unwrap_or(default_thread_name);
-            builder.thread_name(thread_name).build()?
+            Some(builder.thread_name(thread_name).build()?)
+        } else {
+            None
         };
 
         Ok(ClassCache {
@@ -116,8 +124,6 @@ impl ClassCacheBuilder {
                 #[cfg(feature = "native")]
                 pool,
             }),
-            #[cfg(feature = "native")]
-            compile_native: self.compile_native,
         })
     }
 }
@@ -150,14 +156,12 @@ impl Default for ClassCacheBuilder {
 #[derive(Debug, Clone)]
 pub struct ClassCache {
     inner: Arc<Inner>,
-    #[cfg(feature = "native")]
-    compile_native: bool,
 }
 
 #[derive(Debug)]
 struct Inner {
     #[cfg(feature = "native")]
-    pool: rayon::ThreadPool,
+    pool: Option<rayon::ThreadPool>,
     cache: Cache<ClassHash, RunnableCompiledClass>,
 }
 
@@ -211,11 +215,11 @@ impl ClassCache {
                 let compiled = CompiledClassV1::try_from((casm, version.clone())).unwrap();
 
                 #[cfg(feature = "native")]
-                if self.compile_native {
+                if let Some(pool) = self.inner.pool.as_ref() {
                     let inner = self.inner.clone();
                     let compiled_clone = compiled.clone();
 
-                    self.inner.pool.spawn(move || {
+                    pool.spawn(move || {
                         tracing::trace!(target: "class_cache", class = format!("{hash:#x}"), "Compiling native class");
 
                         let executor =
