@@ -121,14 +121,18 @@ impl ClassCacheBuilder {
 
 impl std::fmt::Debug for ClassCacheBuilder {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        if cfg!(feature = "native") {
+        #[cfg(not(feature = "native"))]
+        {
+            f.debug_struct("ClassCacheBuilder").field("size", &self.size).finish()
+        }
+
+        #[cfg(feature = "native")]
+        {
             f.debug_struct("ClassCacheBuilder")
                 .field("size", &self.size)
                 .field("thread_count", &self.thread_count)
                 .field("thread_name", &"..")
                 .finish()
-        } else {
-            f.debug_struct("ClassCacheBuilder").field("size", &self.size).finish()
         }
     }
 }
