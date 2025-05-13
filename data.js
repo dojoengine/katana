@@ -1,5 +1,5 @@
 window.BENCHMARK_DATA = {
-  "lastUpdate": 1746547388151,
+  "lastUpdate": 1747148447331,
   "repoUrl": "https://github.com/dojoengine/katana",
   "entries": {
     "Benchmark": [
@@ -107,6 +107,60 @@ window.BENCHMARK_DATA = {
             "name": "Katana.Startup",
             "value": 126269137,
             "range": "± 1562887",
+            "unit": "ns/iter"
+          }
+        ]
+      },
+      {
+        "commit": {
+          "author": {
+            "email": "158243242+devin-ai-integration[bot]@users.noreply.github.com",
+            "name": "devin-ai-integration[bot]",
+            "username": "devin-ai-integration[bot]"
+          },
+          "committer": {
+            "email": "noreply@github.com",
+            "name": "GitHub",
+            "username": "web-flow"
+          },
+          "distinct": true,
+          "id": "cda10db92078795b402cf79a5fe93ad6685519af",
+          "message": "feat(executor): implement builder for `ClassCache` (#70)\n\n* feat: implement builder pattern for ClassCache\n\nCo-Authored-By: karii@cartridge.gg <evergreenkary@gmail.com>\n\n* docs: add documentation comments for ClassCacheBuilder\n\nCo-Authored-By: karii@cartridge.gg <evergreenkary@gmail.com>\n\n* refactor\n\n* Preserve the default naming behavior\n\nCo-authored-by: graphite-app[bot] <96075541+graphite-app[bot]@users.noreply.github.com>\n\n* fix\n\n* fix cfg\n\n---------\n\nCo-authored-by: karii@cartridge.gg <evergreenkary@gmail.com>\nCo-authored-by: Devin AI <158243242+devin-ai-integration[bot]@users.noreply.github.com>\nCo-authored-by: graphite-app[bot] <96075541+graphite-app[bot]@users.noreply.github.com>",
+          "timestamp": "2025-05-13T22:40:29+08:00",
+          "tree_id": "ac0d7c0d313406595295a2a3462eb9832783284f",
+          "url": "https://github.com/dojoengine/katana/commit/cda10db92078795b402cf79a5fe93ad6685519af"
+        },
+        "date": 1747148445730,
+        "tool": "cargo",
+        "benches": [
+          {
+            "name": "decompress world contract",
+            "value": 2970850,
+            "range": "± 40999",
+            "unit": "ns/iter"
+          },
+          {
+            "name": "Concurrent.Simulate/Blockifier.1",
+            "value": 395058,
+            "range": "± 2897",
+            "unit": "ns/iter"
+          },
+          {
+            "name": "Concurrent.Simulate/Blockifier.1000",
+            "value": 2849394585,
+            "range": "± 255971622",
+            "unit": "ns/iter"
+          },
+          {
+            "name": "Invoke.ERC20.transfer/Blockifier.Cold",
+            "value": 17112829,
+            "range": "± 483291",
+            "unit": "ns/iter"
+          },
+          {
+            "name": "Katana.Startup",
+            "value": 127885778,
+            "range": "± 744532",
             "unit": "ns/iter"
           }
         ]
