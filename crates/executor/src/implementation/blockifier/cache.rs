@@ -9,7 +9,7 @@ use starknet_api::contract_class::SierraVersion;
 use super::utils::to_class;
 
 pub static COMPILED_CLASS_CACHE: LazyLock<ClassCache> =
-    LazyLock::new(|| ClassCache::new().unwrap());
+    LazyLock::new(|| ClassCache::builder().build().unwrap());
 
 #[derive(Debug, thiserror::Error)]
 pub enum Error {
@@ -30,24 +30,76 @@ struct Inner {
     cache: Cache<ClassHash, RunnableCompiledClass>,
 }
 
-impl ClassCache {
-    pub fn new() -> Result<Self, Error> {
-        const CACHE_SIZE: usize = 100;
-        let cache = Cache::new(CACHE_SIZE);
+#[derive(Debug, Clone)]
+pub struct ClassCacheBuilder {
+    cache_size: usize,
+    #[cfg(feature = "native")]
+    thread_count: usize,
+    #[cfg(feature = "native")]
+    thread_name_pattern: String,
+}
+
+impl Default for ClassCacheBuilder {
+    fn default() -> Self {
+        Self::new()
+    }
+}
+
+impl ClassCacheBuilder {
+    pub fn new() -> Self {
+        Self {
+            cache_size: 100,
+            #[cfg(feature = "native")]
+            thread_count: 3,
+            #[cfg(feature = "native")]
+            thread_name_pattern: "cache-native-compiler-{i}".to_string(),
+        }
+    }
+
+    pub fn with_cache_size(mut self, size: usize) -> Self {
+        self.cache_size = size;
+        self
+    }
+
+    #[cfg(feature = "native")]
+    pub fn with_thread_count(mut self, count: usize) -> Self {
+        self.thread_count = count;
+        self
+    }
+
+    #[cfg(feature = "native")]
+    pub fn with_thread_name_pattern(mut self, pattern: impl Into<String>) -> Self {
+        self.thread_name_pattern = pattern.into();
+        self
+    }
+
+    pub fn build(self) -> Result<ClassCache, Error> {
+        let cache = Cache::new(self.cache_size);
 
         #[cfg(feature = "native")]
+        let thread_name_pattern = self.thread_name_pattern.clone();
         let pool = rayon::ThreadPoolBuilder::new()
-            .num_threads(3)
-            .thread_name(|i| format!("cache-native-compiler-{i}"))
+            .num_threads(self.thread_count)
+            .thread_name(move |i| thread_name_pattern.replace("{i}", &i.to_string()))
             .build()?;
 
-        Ok(Self {
+        Ok(ClassCache {
             inner: Arc::new(Inner {
                 cache,
                 #[cfg(feature = "native")]
                 pool,
             }),
         })
+    }
+}
+
+impl ClassCache {
+    pub fn new() -> Result<Self, Error> {
+        Self::builder().build()
+    }
+
+    pub fn builder() -> ClassCacheBuilder {
+        ClassCacheBuilder::new()
     }
 
     pub fn get(&self, hash: &ClassHash) -> Option<RunnableCompiledClass> {
