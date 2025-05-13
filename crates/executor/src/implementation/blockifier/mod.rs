@@ -121,8 +121,15 @@ impl<'a> StarknetVMProcessor<'a> {
     ) -> Self {
         let transactions = Vec::new();
         let block_context = Arc::new(utils::block_context_from_envs(&block_env, &cfg_env));
-        let compiled_class_cache =
-            cache::ClassCache::builder().compile_native(use_native).build().unwrap();
+        #[cfg(feature = "native")]
+        let compiled_class_cache = {
+            let builder = cache::ClassCache::builder();
+            let builder = builder.compile_native(compile_native);
+            builder.build().unwrap()
+        };
+        
+        #[cfg(not(feature = "native"))]
+        let compiled_class_cache = cache::ClassCache::builder().build().unwrap();
         let state = state::CachedState::new(state, compiled_class_cache);
 
         let mut block_max_capacity = BouncerWeights::max();

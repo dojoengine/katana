@@ -117,7 +117,7 @@ impl ClassCacheBuilder {
                 pool,
             }),
             #[cfg(feature = "native")]
-            use_native: self.compile_native,
+            compile_native: self.compile_native,
         })
     }
 }

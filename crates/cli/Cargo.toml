@@ -39,4 +39,5 @@ cartridge = [
 	"katana-rpc/cartridge",
 ]
 default = [ "cartridge", "server" ]
+native = [ "katana-node/native" ]
 server = [  ]

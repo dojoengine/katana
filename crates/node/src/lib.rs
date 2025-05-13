@@ -113,7 +113,8 @@ impl Node {
                 factory.set_max_call_gas(max_call_gas);
             }
 
-            factory.with_native(config.execution.use_native);
+            #[cfg(feature = "native")]
+            factory.with_native(config.execution.compile_native);
 
             Arc::new(factory)
         };
