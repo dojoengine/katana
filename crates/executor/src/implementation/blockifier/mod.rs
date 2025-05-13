@@ -47,7 +47,7 @@ impl BlockifierFactory {
     pub fn new(cfg: CfgEnv, flags: ExecutionFlags, limits: BlockLimits) -> Self {
         Self { cfg, flags, limits, max_call_gas: 1_000_000_000, use_native: false }
     }
-    
+
     pub fn with_native(&mut self, use_native: bool) -> &mut Self {
         self.use_native = use_native;
         self
@@ -117,11 +117,12 @@ impl<'a> StarknetVMProcessor<'a> {
         simulation_flags: ExecutionFlags,
         limits: BlockLimits,
         max_call_gas: u64,
-        use_native: bool,
+        compile_native: bool,
     ) -> Self {
         let transactions = Vec::new();
         let block_context = Arc::new(utils::block_context_from_envs(&block_env, &cfg_env));
-        let compiled_class_cache = cache::ClassCache::builder().use_native(use_native).build().unwrap();
+        let compiled_class_cache =
+            cache::ClassCache::builder().compile_native(use_native).build().unwrap();
         let state = state::CachedState::new(state, compiled_class_cache);
 
         let mut block_max_capacity = BouncerWeights::max();

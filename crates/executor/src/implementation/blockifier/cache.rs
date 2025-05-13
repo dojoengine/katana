@@ -24,7 +24,8 @@ pub enum Error {
 /// such as the cache size and thread pool settings (when the "native" feature is enabled).
 pub struct ClassCacheBuilder {
     size: usize,
-    use_native: bool,
+    #[cfg(feature = "native")]
+    compile_native: bool,
     #[cfg(feature = "native")]
     thread_count: usize,
     #[cfg(feature = "native")]
@@ -37,14 +38,11 @@ pub struct ClassCacheBuilder {
 
 impl ClassCacheBuilder {
     /// Creates a new `ClassCacheBuilder` with default settings.
-    ///
-    /// Default values:
-    /// - Cache size: 100 entries
-    /// - Thread count: 3 threads (when "native" feature is enabled)
     pub fn new() -> Self {
         Self {
             size: 100,
-            use_native: false,
+            #[cfg(feature = "native")]
+            compile_native: false,
             #[cfg(feature = "native")]
             thread_count: 3,
             #[cfg(feature = "native")]
@@ -52,7 +50,7 @@ impl ClassCacheBuilder {
         }
     }
 
-    /// Sets the maximum number of entries in the class cache.
+    /// Sets the maximum number of entries in the class cache. Default is 100.
     ///
     /// # Arguments
     ///
@@ -62,13 +60,7 @@ impl ClassCacheBuilder {
         self
     }
 
-    /// Sets the number of threads in the thread pool for native compilation.
-    ///
-    /// # Arguments
-    ///
-    /// * `count` - The number of threads to use for native compilation.
-    ///
-    /// # Notes
+    /// Sets the number of threads in the thread pool for native compilation. Default is 3.
     ///
     /// If `count` is zero, the thread pool will choose the number of threads
     /// automatically. This is typically based on the number of logical CPUs
@@ -93,14 +85,11 @@ impl ClassCacheBuilder {
         self.thread_name = Some(Box::new(name_fn));
         self
     }
-    
-    /// Enables or disables native compilation.
-    ///
-    /// # Arguments
-    ///
-    /// * `enable` - Whether to enable native compilation.
-    pub fn use_native(mut self, enable: bool) -> Self {
-        self.use_native = enable;
+
+    /// Enables or disables native compilation. Default is disabled.
+    #[cfg(feature = "native")]
+    pub fn compile_native(mut self, enable: bool) -> Self {
+        self.compile_native = enable;
         self
     }
 
@@ -127,7 +116,8 @@ impl ClassCacheBuilder {
                 #[cfg(feature = "native")]
                 pool,
             }),
-            use_native: self.use_native,
+            #[cfg(feature = "native")]
+            use_native: self.compile_native,
         })
     }
 }
@@ -136,17 +126,14 @@ impl std::fmt::Debug for ClassCacheBuilder {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         #[cfg(not(feature = "native"))]
         {
-            f.debug_struct("ClassCacheBuilder")
-                .field("size", &self.size)
-                .field("use_native", &self.use_native)
-                .finish()
+            f.debug_struct("ClassCacheBuilder").field("size", &self.size).finish()
         }
 
         #[cfg(feature = "native")]
         {
             f.debug_struct("ClassCacheBuilder")
                 .field("size", &self.size)
-                .field("use_native", &self.use_native)
+                .field("compile_native", &self.compile_native)
                 .field("thread_count", &self.thread_count)
                 .field("thread_name", &"..")
                 .finish()
@@ -163,7 +150,8 @@ impl Default for ClassCacheBuilder {
 #[derive(Debug, Clone)]
 pub struct ClassCache {
     inner: Arc<Inner>,
-    use_native: bool,
+    #[cfg(feature = "native")]
+    compile_native: bool,
 }
 
 #[derive(Debug)]
@@ -187,7 +175,6 @@ impl ClassCache {
     pub fn builder() -> ClassCacheBuilder {
         ClassCacheBuilder::new()
     }
-    
 
     pub fn get(&self, hash: &ClassHash) -> Option<RunnableCompiledClass> {
         self.inner.cache.get(hash)
@@ -224,7 +211,7 @@ impl ClassCache {
                 let compiled = CompiledClassV1::try_from((casm, version.clone())).unwrap();
 
                 #[cfg(feature = "native")]
-                if self.use_native {
+                if self.compile_native {
                     let inner = self.inner.clone();
                     let compiled_clone = compiled.clone();
 
