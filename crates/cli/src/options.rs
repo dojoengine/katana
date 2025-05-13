@@ -254,7 +254,7 @@ pub struct EnvironmentOptions {
 
     /// Enable cairo-native compilation for improved performance.
     #[cfg(feature = "native")]
-    #[arg(long = "use-native")]
+    #[arg(long = "enable-native-compilation")]
     #[serde(default)]
     pub compile_native: bool,
 }
