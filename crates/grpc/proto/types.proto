@@ -365,13 +365,6 @@ message DeprecatedCairoEntryPoint {
     Felt selector = 2;
 }
 
-message BroadcastedInvokeTxn {
-    oneof version {
-        BroadcastedInvokeTxnV1 v1 = 1;
-        BroadcastedInvokeTxnV3 v3 = 2;
-    }
-}
-
 message BroadcastedInvokeTxnV1 {
     Felt sender_address = 1 [json_name = "sender_address"];
     repeated Felt calldata = 2 [json_name = "calldata"];
@@ -393,14 +386,6 @@ message BroadcastedInvokeTxnV3 {
     repeated Felt account_deployment_data = 9 [json_name = "account_deployment_data"];
     string fee_data_availability_mode = 10 [json_name = "fee_data_availability_mode"];
     string nonce_data_availability_mode = 11 [json_name = "nonce_data_availability_mode"];
-}
-
-message BroadcastedDeclareTxn {
-    oneof version {
-        BroadcastedDeclareTxnV1 v1 = 1;
-        BroadcastedDeclareTxnV2 v2 = 2;
-        BroadcastedDeclareTxnV3 v3 = 3;
-    }
 }
 
 message BroadcastedDeclareTxnV1 {
@@ -435,13 +420,6 @@ message BroadcastedDeclareTxnV3 {
     repeated Felt account_deployment_data = 10 [json_name = "account_deployment_data"];
     string fee_data_availability_mode = 11 [json_name = "fee_data_availability_mode"];
     string nonce_data_availability_mode = 12 [json_name = "nonce_data_availability_mode"];
-}
-
-message BroadcastedDeployAccountTxn {
-    oneof version {
-        BroadcastedDeployAccountTxnV1 v1 = 1;
-        BroadcastedDeployAccountTxnV3 v3 = 2;
-    }
 }
 
 message BroadcastedDeployAccountTxnV1 {

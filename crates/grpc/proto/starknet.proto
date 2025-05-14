@@ -277,7 +277,10 @@ message GetNonceResponse {
 }
 
 message AddInvokeTransactionRequest {
-    types.BroadcastedInvokeTxn invoke_transaction = 1;
+    oneof invoke_transaction {
+        types.BroadcastedInvokeTxnV1 v1 = 1;
+        types.BroadcastedInvokeTxnV3 v3 = 2;
+    }
 }
 
 message AddInvokeTransactionResponse {
@@ -285,7 +288,11 @@ message AddInvokeTransactionResponse {
 }
 
 message AddDeclareTransactionRequest {
-    types.BroadcastedDeclareTxn declare_transaction = 1;
+    oneof declare_transaction {
+        types.BroadcastedDeclareTxnV1 v1 = 1;
+        types.BroadcastedDeclareTxnV2 v2 = 2;
+        types.BroadcastedDeclareTxnV3 v3 = 3;
+    }
 }
 
 message AddDeclareTransactionResponse {
@@ -294,7 +301,10 @@ message AddDeclareTransactionResponse {
 }
 
 message AddDeployAccountTransactionRequest {
-    types.BroadcastedDeployAccountTxn deploy_account_transaction = 1;
+    oneof deploy_account_transaction {
+        types.BroadcastedDeployAccountTxnV1 v1 = 1;
+        types.BroadcastedDeployAccountTxnV3 v3 = 2;
+    }
 }
 
 message AddDeployAccountTransactionResponse {
