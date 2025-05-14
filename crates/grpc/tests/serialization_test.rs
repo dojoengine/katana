@@ -1,5 +1,11 @@
 use prost::Message;
 use serde_json::{json, Value};
+use starknet::core::types::{
+    BroadcastedDeclareTransactionV1, BroadcastedDeclareTransactionV2, BroadcastedDeclareTransactionV3,
+    BroadcastedDeployAccountTransactionV1, BroadcastedDeployAccountTransactionV3,
+    BroadcastedInvokeTransactionV1, BroadcastedInvokeTransactionV3,
+    FieldElement,
+};
 
 pub mod types {
     include!(concat!(env!("OUT_DIR"), "/types.rs"));
@@ -7,6 +13,11 @@ pub mod types {
 
 pub mod starknet {
     include!(concat!(env!("OUT_DIR"), "/starknet.rs"));
+}
+
+fn bytes_to_felt(bytes: &[u8]) -> FieldElement {
+    let hex_string = format!("0x{}", hex::encode(bytes));
+    FieldElement::from_hex_be(&hex_string).unwrap()
 }
 
 #[test]
@@ -20,6 +31,16 @@ fn test_invoke_transaction_serialization() {
         version: "0x1".to_string(),
         signature: vec![types::Felt { value: vec![10, 11, 12] }],
         nonce: Some(types::Felt { value: vec![13, 14, 15] }),
+        is_query: false,
+    };
+
+    let starknet_invoke_v1 = BroadcastedInvokeTransactionV1 {
+        sender_address: bytes_to_felt(&[1, 2, 3]),
+        calldata: vec![bytes_to_felt(&[4, 5, 6])],
+        max_fee: bytes_to_felt(&[7, 8, 9]),
+        version: FieldElement::ONE,
+        signature: vec![bytes_to_felt(&[10, 11, 12])],
+        nonce: bytes_to_felt(&[13, 14, 15]),
         is_query: false,
     };
 
@@ -43,17 +64,10 @@ fn test_invoke_transaction_serialization() {
         _ => panic!("Expected V1 transaction"),
     }
 
-    let expected_json = json!({
-        "sender_address": "0x010203",
-        "calldata": ["0x040506"],
-        "max_fee": "0x070809",
-        "version": "0x1",
-        "signature": ["0x0a0b0c"],
-        "nonce": "0x0d0e0f"
-    });
+    let starknet_json = serde_json::to_value(&starknet_invoke_v1).unwrap();
     
-    assert!(expected_json.is_object());
-    let obj = expected_json.as_object().unwrap();
+    assert!(starknet_json.is_object());
+    let obj = starknet_json.as_object().unwrap();
     
     assert!(obj.contains_key("sender_address"));
     assert!(obj.contains_key("calldata"));
@@ -63,6 +77,19 @@ fn test_invoke_transaction_serialization() {
     assert!(obj.contains_key("nonce"));
     
     assert!(!obj.contains_key("is_query"));
+    
+    let expected_json = json!({
+        "sender_address": "0x010203",
+        "calldata": ["0x040506"],
+        "max_fee": "0x070809",
+        "version": "0x1",
+        "signature": ["0x0a0b0c"],
+        "nonce": "0x0d0e0f"
+    });
+    
+    for (key, value) in expected_json.as_object().unwrap() {
+        assert!(obj.contains_key(key));
+    }
 }
 
 #[test]
@@ -77,6 +104,20 @@ fn test_declare_transaction_serialization() {
         signature: vec![types::Felt { value: vec![10, 11, 12] }],
         nonce: Some(types::Felt { value: vec![13, 14, 15] }),
         contract_class: vec![16, 17, 18],
+        is_query: false,
+    };
+
+    // Note: We're using a simplified contract_class for testing
+    let starknet_declare_v2 = BroadcastedDeclareTransactionV2 {
+        sender_address: bytes_to_felt(&[1, 2, 3]),
+        compiled_class_hash: bytes_to_felt(&[4, 5, 6]),
+        max_fee: bytes_to_felt(&[7, 8, 9]),
+        version: FieldElement::from_hex_be("0x2").unwrap(),
+        signature: vec![bytes_to_felt(&[10, 11, 12])],
+        nonce: bytes_to_felt(&[13, 14, 15]),
+        contract_class: starknet::core::types::ContractClass::Sierra(
+            starknet::core::types::SierraClass::default()
+        ),
         is_query: false,
     };
 
@@ -101,18 +142,10 @@ fn test_declare_transaction_serialization() {
         _ => panic!("Expected V2 transaction"),
     }
 
-    let expected_json = json!({
-        "sender_address": "0x010203",
-        "compiled_class_hash": "0x040506",
-        "max_fee": "0x070809",
-        "version": "0x2",
-        "signature": ["0x0a0b0c"],
-        "nonce": "0x0d0e0f",
-        "contract_class": "0x101112" // Simplified representation for testing
-    });
+    let starknet_json = serde_json::to_value(&starknet_declare_v2).unwrap();
     
-    assert!(expected_json.is_object());
-    let obj = expected_json.as_object().unwrap();
+    assert!(starknet_json.is_object());
+    let obj = starknet_json.as_object().unwrap();
     
     assert!(obj.contains_key("sender_address"));
     assert!(obj.contains_key("compiled_class_hash"));
@@ -140,6 +173,17 @@ fn test_deploy_account_transaction_serialization() {
         is_query: false,
     };
 
+    let starknet_deploy_account_v1 = BroadcastedDeployAccountTransactionV1 {
+        class_hash: bytes_to_felt(&[1, 2, 3]),
+        contract_address_salt: bytes_to_felt(&[4, 5, 6]),
+        constructor_calldata: vec![bytes_to_felt(&[7, 8, 9])],
+        max_fee: bytes_to_felt(&[10, 11, 12]),
+        version: FieldElement::ONE,
+        signature: vec![bytes_to_felt(&[13, 14, 15])],
+        nonce: bytes_to_felt(&[16, 17, 18]),
+        is_query: false,
+    };
+
     let request = AddDeployAccountTransactionRequest {
         deploy_account_transaction: Some(starknet::add_deploy_account_transaction_request::DeployAccountTransaction::V1(deploy_account_v1.clone())),
     };
@@ -161,18 +205,10 @@ fn test_deploy_account_transaction_serialization() {
         _ => panic!("Expected V1 transaction"),
     }
 
-    let expected_json = json!({
-        "class_hash": "0x010203",
-        "contract_address_salt": "0x040506",
-        "constructor_calldata": ["0x070809"],
-        "max_fee": "0x0a0b0c",
-        "version": "0x1",
-        "signature": ["0x0d0e0f"],
-        "nonce": "0x101112"
-    });
+    let starknet_json = serde_json::to_value(&starknet_deploy_account_v1).unwrap();
     
-    assert!(expected_json.is_object());
-    let obj = expected_json.as_object().unwrap();
+    assert!(starknet_json.is_object());
+    let obj = starknet_json.as_object().unwrap();
     
     assert!(obj.contains_key("class_hash"));
     assert!(obj.contains_key("contract_address_salt"));
