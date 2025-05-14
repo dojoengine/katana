@@ -43,11 +43,10 @@ jobs:
     steps:
       - name: Checkout repository
         uses: actions/checkout@v2
-        
+
       - uses: Swatinem/rust-cache@v2
         with:
           key: docker
-          shared-key: katana-docker-cache
 
       - name: Login to GitHub Container Registry
         uses: docker/login-action@v1
@@ -74,11 +73,10 @@ jobs:
     steps:
       - name: Checkout repository
         uses: actions/checkout@v2
-        
+
       - uses: Swatinem/rust-cache@v2
         with:
           key: docker
-          shared-key: katana-docker-cache
 
       - name: Login to GitHub Container Registry
         uses: docker/login-action@v1
