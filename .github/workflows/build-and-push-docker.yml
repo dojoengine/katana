@@ -46,7 +46,7 @@ jobs:
         
       - uses: Swatinem/rust-cache@v2
         with:
-          key: docker-${{ runner.os }}
+          key: docker
           shared-key: katana-docker-cache
 
       - name: Login to GitHub Container Registry
@@ -77,7 +77,7 @@ jobs:
         
       - uses: Swatinem/rust-cache@v2
         with:
-          key: docker-${{ runner.os }}
+          key: docker
           shared-key: katana-docker-cache
 
       - name: Login to GitHub Container Registry

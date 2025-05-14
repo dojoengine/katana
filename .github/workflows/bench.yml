@@ -24,7 +24,7 @@ jobs:
       
       - uses: Swatinem/rust-cache@v2
         with:
-          key: bench-${{ runner.os }}
+          key: bench
 
       - name: Running benchmarks
         run: cargo bench --bench codec --bench execution --bench concurrent --bench startup -- --output-format bencher | sed 1d | tee output.txt

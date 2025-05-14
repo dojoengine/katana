@@ -31,7 +31,7 @@ jobs:
       - uses: Swatinem/rust-cache@v2
         with:
           # Use a shared cache key for both base and PR builds
-          key: binary-size-${{ runner.os }}
+          key: binary-size
           shared-key: katana-binary-size-cache
 
       - name: Get binary size ( base )
