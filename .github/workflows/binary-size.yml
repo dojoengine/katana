@@ -69,19 +69,28 @@ jobs:
         with:
           github-token: ${{secrets.GITHUB_TOKEN}}
           script: |
-            const body = `${{ steps.size-report.outputs.report }}`;
-            if(${{ steps.find-comment.outputs.comment-id }}) {
-              github.rest.issues.updateComment({
-                comment_id: ${{ steps.find-comment.outputs.comment-id }},
-                owner: context.repo.owner,
-                repo: context.repo.repo,
-                body: body
-              });
-            } else {
-              github.rest.issues.createComment({
-                issue_number: context.issue.number,
-                owner: context.repo.owner,
-                repo: context.repo.repo,
-                body: body
-              });
+            try {
+              const body = `${{ steps.size-report.outputs.report }}`;
+              const commentId = '${{ steps.find-comment.outputs.comment-id }}';
+              
+              if (commentId && commentId.trim() !== '') {
+                await github.rest.issues.updateComment({
+                  comment_id: parseInt(commentId),
+                  owner: context.repo.owner,
+                  repo: context.repo.repo,
+                  body: body
+                });
+                console.log('Updated existing comment with binary size report');
+              } else {
+                await github.rest.issues.createComment({
+                  issue_number: context.issue.number,
+                  owner: context.repo.owner,
+                  repo: context.repo.repo,
+                  body: body
+                });
+                console.log('Created new comment with binary size report');
+              }
+            } catch (error) {
+              console.error('Error posting binary size comment:', error);
+              core.setFailed(`Failed to post binary size comment: ${error.message}`);
             }
