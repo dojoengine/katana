@@ -1,4 +1,5 @@
 use prost::Message;
+use serde_json::Value;
 
 pub mod types {
     include!(concat!(env!("OUT_DIR"), "/types.rs"));
@@ -19,10 +20,11 @@ fn test_invoke_transaction_serialization() {
         version: "0x1".to_string(),
         signature: vec![types::Felt { value: vec![10, 11, 12] }],
         nonce: Some(types::Felt { value: vec![13, 14, 15] }),
+        is_query: false,
     };
 
     let request = AddInvokeTransactionRequest {
-        invoke_transaction: Some(starknet::add_invoke_transaction_request::InvokeTransaction::V1(invoke_v1)),
+        invoke_transaction: Some(starknet::add_invoke_transaction_request::InvokeTransaction::V1(invoke_v1.clone())),
     };
 
     let bytes = request.encode_to_vec();
@@ -36,9 +38,24 @@ fn test_invoke_transaction_serialization() {
             assert_eq!(v1.version, "0x1");
             assert_eq!(v1.signature[0].value, vec![10, 11, 12]);
             assert_eq!(v1.nonce.as_ref().unwrap().value, vec![13, 14, 15]);
+            assert_eq!(v1.is_query, false);
         },
         _ => panic!("Expected V1 transaction"),
     }
+
+    let json_value = serde_json::to_value(&invoke_v1).unwrap();
+    
+    assert!(json_value.is_object());
+    let obj = json_value.as_object().unwrap();
+    
+    assert!(obj.contains_key("sender_address"));
+    assert!(obj.contains_key("calldata"));
+    assert!(obj.contains_key("max_fee"));
+    assert!(obj.contains_key("version"));
+    assert!(obj.contains_key("signature"));
+    assert!(obj.contains_key("nonce"));
+    
+    assert!(!obj.contains_key("is_query"));
 }
 
 #[test]
@@ -53,10 +70,11 @@ fn test_declare_transaction_serialization() {
         signature: vec![types::Felt { value: vec![10, 11, 12] }],
         nonce: Some(types::Felt { value: vec![13, 14, 15] }),
         contract_class: vec![16, 17, 18],
+        is_query: false,
     };
 
     let request = AddDeclareTransactionRequest {
-        declare_transaction: Some(starknet::add_declare_transaction_request::DeclareTransaction::V2(declare_v2)),
+        declare_transaction: Some(starknet::add_declare_transaction_request::DeclareTransaction::V2(declare_v2.clone())),
     };
 
     let bytes = request.encode_to_vec();
@@ -71,9 +89,25 @@ fn test_declare_transaction_serialization() {
             assert_eq!(v2.signature[0].value, vec![10, 11, 12]);
             assert_eq!(v2.nonce.as_ref().unwrap().value, vec![13, 14, 15]);
             assert_eq!(v2.contract_class, vec![16, 17, 18]);
+            assert_eq!(v2.is_query, false);
         },
         _ => panic!("Expected V2 transaction"),
     }
+
+    let json_value = serde_json::to_value(&declare_v2).unwrap();
+    
+    assert!(json_value.is_object());
+    let obj = json_value.as_object().unwrap();
+    
+    assert!(obj.contains_key("sender_address"));
+    assert!(obj.contains_key("compiled_class_hash"));
+    assert!(obj.contains_key("max_fee"));
+    assert!(obj.contains_key("version"));
+    assert!(obj.contains_key("signature"));
+    assert!(obj.contains_key("nonce"));
+    assert!(obj.contains_key("contract_class"));
+    
+    assert!(!obj.contains_key("is_query"));
 }
 
 #[test]
@@ -88,10 +122,11 @@ fn test_deploy_account_transaction_serialization() {
         version: "0x1".to_string(),
         signature: vec![types::Felt { value: vec![13, 14, 15] }],
         nonce: Some(types::Felt { value: vec![16, 17, 18] }),
+        is_query: false,
     };
 
     let request = AddDeployAccountTransactionRequest {
-        deploy_account_transaction: Some(starknet::add_deploy_account_transaction_request::DeployAccountTransaction::V1(deploy_account_v1)),
+        deploy_account_transaction: Some(starknet::add_deploy_account_transaction_request::DeployAccountTransaction::V1(deploy_account_v1.clone())),
     };
 
     let bytes = request.encode_to_vec();
@@ -106,7 +141,23 @@ fn test_deploy_account_transaction_serialization() {
             assert_eq!(v1.version, "0x1");
             assert_eq!(v1.signature[0].value, vec![13, 14, 15]);
             assert_eq!(v1.nonce.as_ref().unwrap().value, vec![16, 17, 18]);
+            assert_eq!(v1.is_query, false);
         },
         _ => panic!("Expected V1 transaction"),
     }
+
+    let json_value = serde_json::to_value(&deploy_account_v1).unwrap();
+    
+    assert!(json_value.is_object());
+    let obj = json_value.as_object().unwrap();
+    
+    assert!(obj.contains_key("class_hash"));
+    assert!(obj.contains_key("contract_address_salt"));
+    assert!(obj.contains_key("constructor_calldata"));
+    assert!(obj.contains_key("max_fee"));
+    assert!(obj.contains_key("version"));
+    assert!(obj.contains_key("signature"));
+    assert!(obj.contains_key("nonce"));
+    
+    assert!(!obj.contains_key("is_query"));
 }
