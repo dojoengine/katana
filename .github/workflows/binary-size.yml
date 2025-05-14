@@ -30,14 +30,12 @@ jobs:
       - uses: actions/checkout@v4
       # Workaround for https://github.com/actions/runner-images/issues/6775
       - run: git config --global --add safe.directory "*"
-      
+
       - uses: Swatinem/rust-cache@v2
         with:
           key: binary-size-base
-          shared-key: katana-binary-size-cache
 
       - name: Get binary size (base)
-        id: binary-size
         run: |
           git fetch origin ${{ github.base_ref }}
           git checkout origin/${{ github.base_ref }}
@@ -59,14 +57,12 @@ jobs:
       - uses: actions/checkout@v4
       # Workaround for https://github.com/actions/runner-images/issues/6775
       - run: git config --global --add safe.directory "*"
-      
+
       - uses: Swatinem/rust-cache@v2
         with:
           key: binary-size-pr
-          shared-key: katana-binary-size-cache
 
       - name: Get binary size (PR)
-        id: binary-size
         run: |
           git checkout ${{ github.sha }}
           cargo build --release --bin katana
@@ -80,11 +76,11 @@ jobs:
     runs-on: ubuntu-latest
     container:
       image: ghcr.io/dojoengine/katana-dev:latest
-    
+
     steps:
       - uses: actions/checkout@v4
       - run: git config --global --add safe.directory "*"
-      
+
       - name: Generate binary size report
         id: size-report
         shell: bash
@@ -107,11 +103,10 @@ jobs:
         with:
           github-token: ${{secrets.GITHUB_TOKEN}}
           script: |
-            const core = require('@actions/core');
             try {
               const body = `${{ steps.size-report.outputs.report }}`;
               const commentId = '${{ steps.find-comment.outputs.comment-id }}';
-              
+
               if (commentId && commentId.trim() !== '') {
                 await github.rest.issues.updateComment({
                   comment_id: parseInt(commentId),

@@ -113,11 +113,8 @@ jobs:
         with:
           toolchain: "1.85.0"
           target: ${{ matrix.job.target }}
-          
-      - uses: Swatinem/rust-cache@v2
-        with:
-          key: release-${{ matrix.job.target }}-${{ matrix.job.native_build }}-${{ runner.os }}
-          shared-key: katana-release-cache
+          cache-on-failure: true
+          cache-key: ${{ matrix.job.target }}
 
       - uses: oven-sh/setup-bun@v2
         with:

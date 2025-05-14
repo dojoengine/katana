@@ -31,10 +31,6 @@ jobs:
       image: ghcr.io/dojoengine/katana-dev:latest
     steps:
       - uses: actions/checkout@v3
-      - uses: Swatinem/rust-cache@v2
-        with:
-          key: ci-${{ github.job }}
-          shared-key: katana-ci-cache
       - run: scripts/rust_fmt.sh --check
 
   generate-test-artifacts:
