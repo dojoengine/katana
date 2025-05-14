@@ -153,6 +153,15 @@ impl Default for ClassCacheBuilder {
     }
 }
 
+/// Cache for compiled contract classes.
+///
+/// ## Cairo Native
+///
+/// When native compilation is enabled, every (non-legacy) class that gets inserted into the cache
+/// will trigger an asynchronous compilation process for compiling the class into native
+/// code using `cairo-native`. Once the compilation is done, the current cache entry for the class
+/// will be replaced with the native-compiled variant. This process won't block the cache
+/// operations.
 #[derive(Debug, Clone)]
 pub struct ClassCache {
     inner: Arc<Inner>,
@@ -160,6 +169,10 @@ pub struct ClassCache {
 
 #[derive(Debug)]
 struct Inner {
+    /// Threadpool for compiling the contract classes into native machine code.
+    ///
+    /// The threadpool would ONLY ever be present if native compilation is enabled when
+    /// building the cache via [`ClassCacheBuilder::compile_native`].
     #[cfg(feature = "native")]
     pool: Option<rayon::ThreadPool>,
     cache: Cache<ClassHash, RunnableCompiledClass>,
