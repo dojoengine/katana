@@ -1,5 +1,5 @@
 window.BENCHMARK_DATA = {
-  "lastUpdate": 1747148447331,
+  "lastUpdate": 1747219684653,
   "repoUrl": "https://github.com/dojoengine/katana",
   "entries": {
     "Benchmark": [
@@ -161,6 +161,60 @@ window.BENCHMARK_DATA = {
             "name": "Katana.Startup",
             "value": 127885778,
             "range": "± 744532",
+            "unit": "ns/iter"
+          }
+        ]
+      },
+      {
+        "commit": {
+          "author": {
+            "email": "158243242+devin-ai-integration[bot]@users.noreply.github.com",
+            "name": "devin-ai-integration[bot]",
+            "username": "devin-ai-integration[bot]"
+          },
+          "committer": {
+            "email": "noreply@github.com",
+            "name": "GitHub",
+            "username": "web-flow"
+          },
+          "distinct": true,
+          "id": "8053f2c550a41f854572014eedef3819b8e26463",
+          "message": "feat: add CLI flag for enabling/disabling cairo-native compilation (#69)\n\n* feat: add CLI flag for enabling/disabling cairo-native compilation\n\nCo-Authored-By: karii@cartridge.gg <evergreenkary@gmail.com>\n\n* feat: connect CLI flag to native compilation in executor\n\nCo-Authored-By: karii@cartridge.gg <evergreenkary@gmail.com>\n\n* refactor: move use_native flag to ClassCacheBuilder\n\nCo-Authored-By: karii@cartridge.gg <evergreenkary@gmail.com>\n\n* rename flag\n\n* refactor: put native flag behind feature flag\n\nCo-Authored-By: karii@cartridge.gg <evergreenkary@gmail.com>\n\n* refactor: rename CLI flag to --enable-native-compilation\n\nCo-Authored-By: karii@cartridge.gg <evergreenkary@gmail.com>\n\n* rename variables\n\n* add a log on cairo native compilation mode\n\n* compile based on the threadpool presence\n\n* docs: cache doc comments\n\n---------\n\nCo-authored-by: Devin AI <158243242+devin-ai-integration[bot]@users.noreply.github.com>\nCo-authored-by: karii@cartridge.gg <evergreenkary@gmail.com>",
+          "timestamp": "2025-05-14T18:28:26+08:00",
+          "tree_id": "80bd27301c463a6bbfc3ac210b64bc5655ac4fe6",
+          "url": "https://github.com/dojoengine/katana/commit/8053f2c550a41f854572014eedef3819b8e26463"
+        },
+        "date": 1747219682895,
+        "tool": "cargo",
+        "benches": [
+          {
+            "name": "decompress world contract",
+            "value": 2960415,
+            "range": "± 28120",
+            "unit": "ns/iter"
+          },
+          {
+            "name": "Concurrent.Simulate/Blockifier.1",
+            "value": 16373154,
+            "range": "± 133837",
+            "unit": "ns/iter"
+          },
+          {
+            "name": "Concurrent.Simulate/Blockifier.1000",
+            "value": 2685552610,
+            "range": "± 255564330",
+            "unit": "ns/iter"
+          },
+          {
+            "name": "Invoke.ERC20.transfer/Blockifier.Cold",
+            "value": 16481024,
+            "range": "± 222170",
+            "unit": "ns/iter"
+          },
+          {
+            "name": "Katana.Startup",
+            "value": 124505358,
+            "range": "± 312986",
             "unit": "ns/iter"
           }
         ]
