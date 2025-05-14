@@ -1,7 +1,5 @@
 # Katana
 
-Katana is a Rust-based blockchain project with a focus on Starknet compatibility.
-
 ## Table of Contents
 
 - [Development Setup](#development-setup)
