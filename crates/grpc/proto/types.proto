@@ -364,3 +364,113 @@ message DeprecatedCairoEntryPoint {
     string offset = 1;
     Felt selector = 2;
 }
+
+message BroadcastedInvokeTxn {
+    oneof version {
+        BroadcastedInvokeTxnV1 v1 = 1;
+        BroadcastedInvokeTxnV3 v3 = 2;
+    }
+}
+
+message BroadcastedInvokeTxnV1 {
+    Felt sender_address = 1 [json_name = "sender_address"];
+    repeated Felt calldata = 2 [json_name = "calldata"];
+    Felt max_fee = 3 [json_name = "max_fee"];
+    string version = 4 [json_name = "version"];
+    repeated Felt signature = 5 [json_name = "signature"];
+    Felt nonce = 6 [json_name = "nonce"];
+    bool is_query = 7 [json_name = "is_query"];
+}
+
+message BroadcastedInvokeTxnV3 {
+    Felt sender_address = 1 [json_name = "sender_address"];
+    repeated Felt calldata = 2 [json_name = "calldata"];
+    string version = 3 [json_name = "version"];
+    repeated Felt signature = 4 [json_name = "signature"];
+    Felt nonce = 5 [json_name = "nonce"];
+    ResourceBoundsMapping resource_bounds = 6 [json_name = "resource_bounds"];
+    Felt tip = 7 [json_name = "tip"];
+    repeated Felt paymaster_data = 8 [json_name = "paymaster_data"];
+    repeated Felt account_deployment_data = 9 [json_name = "account_deployment_data"];
+    string fee_data_availability_mode = 10 [json_name = "fee_data_availability_mode"];
+    string nonce_data_availability_mode = 11 [json_name = "nonce_data_availability_mode"];
+    bool is_query = 12 [json_name = "is_query"];
+}
+
+message BroadcastedDeclareTxn {
+    oneof version {
+        BroadcastedDeclareTxnV1 v1 = 1;
+        BroadcastedDeclareTxnV2 v2 = 2;
+        BroadcastedDeclareTxnV3 v3 = 3;
+    }
+}
+
+message BroadcastedDeclareTxnV1 {
+    Felt sender_address = 1 [json_name = "sender_address"];
+    Felt max_fee = 2 [json_name = "max_fee"];
+    string version = 3 [json_name = "version"];
+    repeated Felt signature = 4 [json_name = "signature"];
+    Felt nonce = 5 [json_name = "nonce"];
+    bytes contract_class = 6 [json_name = "contract_class"];
+    bool is_query = 7 [json_name = "is_query"];
+}
+
+message BroadcastedDeclareTxnV2 {
+    Felt sender_address = 1 [json_name = "sender_address"];
+    Felt compiled_class_hash = 2 [json_name = "compiled_class_hash"];
+    Felt max_fee = 3 [json_name = "max_fee"];
+    string version = 4 [json_name = "version"];
+    repeated Felt signature = 5 [json_name = "signature"];
+    Felt nonce = 6 [json_name = "nonce"];
+    bytes contract_class = 7 [json_name = "contract_class"];
+    bool is_query = 8 [json_name = "is_query"];
+}
+
+message BroadcastedDeclareTxnV3 {
+    Felt sender_address = 1 [json_name = "sender_address"];
+    Felt compiled_class_hash = 2 [json_name = "compiled_class_hash"];
+    string version = 3 [json_name = "version"];
+    repeated Felt signature = 4 [json_name = "signature"];
+    Felt nonce = 5 [json_name = "nonce"];
+    bytes contract_class = 6 [json_name = "contract_class"];
+    ResourceBoundsMapping resource_bounds = 7 [json_name = "resource_bounds"];
+    Felt tip = 8 [json_name = "tip"];
+    repeated Felt paymaster_data = 9 [json_name = "paymaster_data"];
+    repeated Felt account_deployment_data = 10 [json_name = "account_deployment_data"];
+    string fee_data_availability_mode = 11 [json_name = "fee_data_availability_mode"];
+    string nonce_data_availability_mode = 12 [json_name = "nonce_data_availability_mode"];
+    bool is_query = 13 [json_name = "is_query"];
+}
+
+message BroadcastedDeployAccountTxn {
+    oneof version {
+        BroadcastedDeployAccountTxnV1 v1 = 1;
+        BroadcastedDeployAccountTxnV3 v3 = 2;
+    }
+}
+
+message BroadcastedDeployAccountTxnV1 {
+    Felt class_hash = 1 [json_name = "class_hash"];
+    Felt contract_address_salt = 2 [json_name = "contract_address_salt"];
+    repeated Felt constructor_calldata = 3 [json_name = "constructor_calldata"];
+    Felt max_fee = 4 [json_name = "max_fee"];
+    string version = 5 [json_name = "version"];
+    repeated Felt signature = 6 [json_name = "signature"];
+    Felt nonce = 7 [json_name = "nonce"];
+    bool is_query = 8 [json_name = "is_query"];
+}
+
+message BroadcastedDeployAccountTxnV3 {
+    Felt class_hash = 1 [json_name = "class_hash"];
+    Felt contract_address_salt = 2 [json_name = "contract_address_salt"];
+    repeated Felt constructor_calldata = 3 [json_name = "constructor_calldata"];
+    string version = 4 [json_name = "version"];
+    repeated Felt signature = 5 [json_name = "signature"];
+    Felt nonce = 6 [json_name = "nonce"];
+    ResourceBoundsMapping resource_bounds = 7 [json_name = "resource_bounds"];
+    Felt tip = 8 [json_name = "tip"];
+    repeated Felt paymaster_data = 9 [json_name = "paymaster_data"];
+    string fee_data_availability_mode = 10 [json_name = "fee_data_availability_mode"];
+    string nonce_data_availability_mode = 11 [json_name = "nonce_data_availability_mode"];
+    bool is_query = 12 [json_name = "is_query"];
+}

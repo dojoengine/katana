@@ -74,6 +74,15 @@ service Starknet {
 
     // Get the nonce associated with the given address in the given block
     rpc GetNonce(GetNonceRequest) returns (GetNonceResponse);
+
+    // Submit a new transaction to be added to the chain
+    rpc AddInvokeTransaction(AddInvokeTransactionRequest) returns (AddInvokeTransactionResponse);
+
+    // Submit a new class declaration transaction
+    rpc AddDeclareTransaction(AddDeclareTransactionRequest) returns (AddDeclareTransactionResponse);
+
+    // Submit a new deploy account transaction
+    rpc AddDeployAccountTransaction(AddDeployAccountTransactionRequest) returns (AddDeployAccountTransactionResponse);
 }
 
 message SpecVersionRequest {}
@@ -265,4 +274,30 @@ message GetNonceRequest {
 
 message GetNonceResponse {
     types.Felt nonce = 1;
+}
+
+message AddInvokeTransactionRequest {
+    types.BroadcastedInvokeTxn invoke_transaction = 1;
+}
+
+message AddInvokeTransactionResponse {
+    types.Felt transaction_hash = 1;
+}
+
+message AddDeclareTransactionRequest {
+    types.BroadcastedDeclareTxn declare_transaction = 1;
+}
+
+message AddDeclareTransactionResponse {
+    types.Felt transaction_hash = 1;
+    types.Felt class_hash = 2;
+}
+
+message AddDeployAccountTransactionRequest {
+    types.BroadcastedDeployAccountTxn deploy_account_transaction = 1;
+}
+
+message AddDeployAccountTransactionResponse {
+    types.Felt transaction_hash = 1;
+    types.Felt contract_address = 2;
 }
