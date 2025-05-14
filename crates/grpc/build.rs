@@ -10,6 +10,7 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
         .build_server(feature_server.is_ok())
         .build_client(feature_client.is_ok())
         .file_descriptor_set_path(out_dir.join("starknet_descriptor.bin"))
+        .extern_path(".types", "crate::types")
         .compile(&["proto/starknet.proto"], &["proto"])?;
 
     println!("cargo:rerun-if-changed=proto");
