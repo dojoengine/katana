@@ -26,7 +26,13 @@ jobs:
       - uses: actions/checkout@v4
       # Workaround for https://github.com/actions/runner-images/issues/6775
       - run: git config --global --add safe.directory "*"
-      - uses: swatinem/rust-cache@v2
+      
+      # Cache for both base and PR builds
+      - uses: Swatinem/rust-cache@v2
+        with:
+          # Use a shared cache key for both base and PR builds
+          key: binary-size-${{ runner.os }}
+          shared-key: katana-binary-size-cache
 
       - name: Get binary size ( base )
         id: binary-size-base
