@@ -17,25 +17,27 @@ concurrency:
   cancel-in-progress: true
 
 jobs:
-  binary-size:
+  binary-size-base:
+    name: Base Branch Binary Size
     runs-on: ubuntu-latest
     container:
       image: ghcr.io/dojoengine/katana-dev:latest
+    outputs:
+      size: ${{ steps.binary-size.outputs.size }}
+      branch: ${{ steps.binary-size.outputs.branch }}
 
     steps:
       - uses: actions/checkout@v4
       # Workaround for https://github.com/actions/runner-images/issues/6775
       - run: git config --global --add safe.directory "*"
       
-      # Cache for both base and PR builds
       - uses: Swatinem/rust-cache@v2
         with:
-          # Use a shared cache key for both base and PR builds
-          key: binary-size
+          key: binary-size-base
           shared-key: katana-binary-size-cache
 
-      - name: Get binary size ( base )
-        id: binary-size-base
+      - name: Get binary size (base)
+        id: binary-size
         run: |
           git fetch origin ${{ github.base_ref }}
           git checkout origin/${{ github.base_ref }}
@@ -44,8 +46,27 @@ jobs:
           echo "size=$BINARY_SIZE" >> $GITHUB_OUTPUT
           echo "branch=${{ github.base_ref }}" >> $GITHUB_OUTPUT
 
-      - name: Get binary size ( PR )
-        id: binary-size-pr
+  binary-size-pr:
+    name: PR Branch Binary Size
+    runs-on: ubuntu-latest
+    container:
+      image: ghcr.io/dojoengine/katana-dev:latest
+    outputs:
+      size: ${{ steps.binary-size.outputs.size }}
+      branch: ${{ steps.binary-size.outputs.branch }}
+
+    steps:
+      - uses: actions/checkout@v4
+      # Workaround for https://github.com/actions/runner-images/issues/6775
+      - run: git config --global --add safe.directory "*"
+      
+      - uses: Swatinem/rust-cache@v2
+        with:
+          key: binary-size-pr
+          shared-key: katana-binary-size-cache
+
+      - name: Get binary size (PR)
+        id: binary-size
         run: |
           git checkout ${{ github.sha }}
           cargo build --release --bin katana
@@ -53,11 +74,22 @@ jobs:
           echo "size=$BINARY_SIZE" >> $GITHUB_OUTPUT
           echo "branch=${{ github.head_ref }}" >> $GITHUB_OUTPUT
 
+  generate-report:
+    name: Generate Binary Size Report
+    needs: [binary-size-base, binary-size-pr]
+    runs-on: ubuntu-latest
+    container:
+      image: ghcr.io/dojoengine/katana-dev:latest
+    
+    steps:
+      - uses: actions/checkout@v4
+      - run: git config --global --add safe.directory "*"
+      
       - name: Generate binary size report
         id: size-report
         shell: bash
         run: |
-          REPORT=$(./scripts/generate-binary-size-report.sh ${{ steps.binary-size-base.outputs.branch }} ${{ steps.binary-size-base.outputs.size }} ${{ steps.binary-size-pr.outputs.branch }} ${{ steps.binary-size-pr.outputs.size }})
+          REPORT=$(./scripts/generate-binary-size-report.sh ${{ needs.binary-size-base.outputs.branch }} ${{ needs.binary-size-base.outputs.size }} ${{ needs.binary-size-pr.outputs.branch }} ${{ needs.binary-size-pr.outputs.size }})
           echo "report<<EOF" >> $GITHUB_OUTPUT
           echo "$REPORT" >> $GITHUB_OUTPUT
           echo "EOF" >> $GITHUB_OUTPUT
