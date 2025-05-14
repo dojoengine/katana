@@ -69,6 +69,7 @@ jobs:
         with:
           github-token: ${{secrets.GITHUB_TOKEN}}
           script: |
+            const core = require('@actions/core');
             try {
               const body = `${{ steps.size-report.outputs.report }}`;
               const commentId = '${{ steps.find-comment.outputs.comment-id }}';
