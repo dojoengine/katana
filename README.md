@@ -46,10 +46,10 @@ make build-explorer
 
 ### Setting Up the Test Environment
 
-Before running tests, you need to set up the test environment by generating all necessary artifacts. The project includes a convenient `make` target that handles this process for you:
+Before running tests, you need to set up the test environment by generating all necessary artifacts:
 
 ```bash
-make test-setup
+make test-artifacts
 ```
 
 Once setup is complete, you can run the tests using:
