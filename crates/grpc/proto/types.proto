@@ -379,7 +379,6 @@ message BroadcastedInvokeTxnV1 {
     string version = 4 [json_name = "version"];
     repeated Felt signature = 5 [json_name = "signature"];
     Felt nonce = 6 [json_name = "nonce"];
-    bool is_query = 7 [json_name = "is_query"];
 }
 
 message BroadcastedInvokeTxnV3 {
@@ -394,7 +393,6 @@ message BroadcastedInvokeTxnV3 {
     repeated Felt account_deployment_data = 9 [json_name = "account_deployment_data"];
     string fee_data_availability_mode = 10 [json_name = "fee_data_availability_mode"];
     string nonce_data_availability_mode = 11 [json_name = "nonce_data_availability_mode"];
-    bool is_query = 12 [json_name = "is_query"];
 }
 
 message BroadcastedDeclareTxn {
@@ -412,7 +410,6 @@ message BroadcastedDeclareTxnV1 {
     repeated Felt signature = 4 [json_name = "signature"];
     Felt nonce = 5 [json_name = "nonce"];
     bytes contract_class = 6 [json_name = "contract_class"];
-    bool is_query = 7 [json_name = "is_query"];
 }
 
 message BroadcastedDeclareTxnV2 {
@@ -423,7 +420,6 @@ message BroadcastedDeclareTxnV2 {
     repeated Felt signature = 5 [json_name = "signature"];
     Felt nonce = 6 [json_name = "nonce"];
     bytes contract_class = 7 [json_name = "contract_class"];
-    bool is_query = 8 [json_name = "is_query"];
 }
 
 message BroadcastedDeclareTxnV3 {
@@ -439,7 +435,6 @@ message BroadcastedDeclareTxnV3 {
     repeated Felt account_deployment_data = 10 [json_name = "account_deployment_data"];
     string fee_data_availability_mode = 11 [json_name = "fee_data_availability_mode"];
     string nonce_data_availability_mode = 12 [json_name = "nonce_data_availability_mode"];
-    bool is_query = 13 [json_name = "is_query"];
 }
 
 message BroadcastedDeployAccountTxn {
@@ -457,7 +452,6 @@ message BroadcastedDeployAccountTxnV1 {
     string version = 5 [json_name = "version"];
     repeated Felt signature = 6 [json_name = "signature"];
     Felt nonce = 7 [json_name = "nonce"];
-    bool is_query = 8 [json_name = "is_query"];
 }
 
 message BroadcastedDeployAccountTxnV3 {
@@ -472,5 +466,4 @@ message BroadcastedDeployAccountTxnV3 {
     repeated Felt paymaster_data = 9 [json_name = "paymaster_data"];
     string fee_data_availability_mode = 10 [json_name = "fee_data_availability_mode"];
     string nonce_data_availability_mode = 11 [json_name = "nonce_data_availability_mode"];
-    bool is_query = 12 [json_name = "is_query"];
 }
