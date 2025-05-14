@@ -6272,6 +6272,9 @@ dependencies = [
 name = "katana-grpc"
 version = "1.5.1"
 dependencies = [
+ "prost",
+ "prost-types",
+ "serde_json",
  "tonic",
  "tonic-build",
 ]
