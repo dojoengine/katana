@@ -17,14 +17,13 @@ KATANA_DB_DIR := $(FIXTURES_DIR)/katana_db
 .PHONY: usage help check-llvm native-deps native-deps-macos native-deps-linux native-deps-windows build-explorer clean
 
 # Virtual targets that map to actual file outputs
-.PHONY: test-artifacts snos-artifacts extract-test-db
+.PHONY: test-artifacts snos-artifacts
 
 usage help:
 	@echo "Usage:"
 	@echo "    build-explorer:            Build the explorer."
-	@echo "    test-artifacts:            Prepare tests artifacts."
+	@echo "    test-artifacts:            Prepare tests artifacts (including test database)."
 	@echo "    snos-artifacts:            Prepare SNOS tests artifacts."
-	@echo "    extract-test-db:           Extract the test database file."
 	@echo "    native-deps-macos:         Install cairo-native dependencies for macOS."
 	@echo "    native-deps-linux:         Install cairo-native dependencies for Linux."
 	@echo "    native-deps-windows:       Install cairo-native dependencies for Windows."
@@ -33,8 +32,8 @@ usage help:
 	@echo "    help:                      Show this help message."
 
 snos-artifacts: $(SNOS_OUTPUT)
-extract-test-db: $(KATANA_DB_DIR)
-test-artifacts: $(SNOS_OUTPUT)
+test-artifacts: $(KATANA_DB_DIR) $(SNOS_OUTPUT)
+	@echo "All test artifacts prepared successfully."
 
 build-explorer:
 	@which bun >/dev/null 2>&1 || { echo "Error: bun is required but not installed. Please install bun first."; exit 1; }
