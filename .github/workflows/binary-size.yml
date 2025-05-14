@@ -36,6 +36,7 @@ jobs:
           key: binary-size-base
 
       - name: Get binary size (base)
+        id: binary-size
         run: |
           git fetch origin ${{ github.base_ref }}
           git checkout origin/${{ github.base_ref }}
@@ -63,6 +64,7 @@ jobs:
           key: binary-size-pr
 
       - name: Get binary size (PR)
+        id: binary-size
         run: |
           git checkout ${{ github.sha }}
           cargo build --release --bin katana
