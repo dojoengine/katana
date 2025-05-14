@@ -7,7 +7,6 @@ version.workspace = true
 
 [dependencies]
 prost = "0.12"
-serde = { version = "1.0", features = ["derive"] }
 tonic.workspace = true
 
 [dev-dependencies]
