@@ -61,20 +61,30 @@ impl Decompress for TxExecInfo {
             return Err(CodecError::Decompress("Empty input".to_string()));
         }
 
-        let (indicator, data) = (bytes_ref[0], &bytes_ref[1..]);
+        if bytes_ref.len() > 1 {
+            let (indicator, data) = (bytes_ref[0], &bytes_ref[1..]);
 
-        let decompressed = if indicator == 1 {
-            match zstd::decode_all(data) {
-                Ok(d) => d,
-                Err(e) => {
-                    return Err(CodecError::Decompress(format!("zstd decompression error: {}", e)))
+            let decompressed = if indicator == 1 {
+                match zstd::decode_all(data) {
+                    Ok(d) => d,
+                    Err(_) => {
+                        return postcard::from_bytes(bytes_ref)
+                            .map_err(|e| CodecError::Decompress(e.to_string()));
+                    }
                 }
-            }
-        } else {
-            data.to_vec()
-        };
+            } else if indicator == 0 {
+                data.to_vec()
+            } else {
+                return postcard::from_bytes(bytes_ref)
+                    .map_err(|e| CodecError::Decompress(e.to_string()));
+            };
 
-        postcard::from_bytes(&decompressed).map_err(|e| CodecError::Decompress(e.to_string()))
+            if let Ok(result) = postcard::from_bytes(&decompressed) {
+                return Ok(result);
+            }
+        }
+
+        postcard::from_bytes(bytes_ref).map_err(|e| CodecError::Decompress(e.to_string()))
     }
 }
 
