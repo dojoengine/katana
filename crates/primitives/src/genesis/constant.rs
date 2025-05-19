@@ -28,6 +28,13 @@ pub const DEFAULT_STRK_FEE_TOKEN_ADDRESS: ContractAddress =
 pub const DEFAULT_ACCOUNT_CLASS_PUBKEY_STORAGE_SLOT: StorageKey =
     felt!("0x1379ac0624b939ceb9dede92211d7db5ee174fe28be72245b0a1a2abd81c98f");
 
+/// The storage address for `SRC5_supported_interfaces` with key SRC5_ACCOUNT_INTERFACE_ID
+/// (0x2ceccef7f994940b3962a6c67e0ba4fcd37df7d131417c604f91e03caecc1cd) Corresponds to
+/// pedersen(keccak("SRC5_supported_interfaces"),
+/// 0x2ceccef7f994940b3962a6c67e0ba4fcd37df7d131417c604f91e03caecc1cd)
+pub const DEFAULT_ACCOUNT_CLASS_SRC5_ACCOUNT_INTERFACE_ID_STORAGE_SLOT: StorageKey =
+    felt!("0x7e79bbb6be5d418acd50c88b675e697f6f7094e203c9d7e29c6ad6731f931dd");
+
 /// The standard storage address for `ERC20_name` in ERC20 contract.
 /// Corresponds to keccak("ERC20_name")
 pub const ERC20_NAME_STORAGE_SLOT: StorageKey =
@@ -68,11 +75,11 @@ pub const DEFAULT_LEGACY_UDC_COMPILED_CLASS_HASH: CompiledClassHash = DEFAULT_LE
 
 /// The class hash of [`DEFAULT_ACCOUNT_CLASS`].
 pub const DEFAULT_ACCOUNT_CLASS_HASH: ClassHash =
-    felt!("0x07dc7899aa655b0aae51eadff6d801a58e97dd99cf4666ee59e704249e51adf2");
+    felt!("0x077543067eefc479829f59547bf12fd53572d2115ec7110501f5df96f73b2f7f");
 
 /// The compiled class hash of [`DEFAULT_ACCOUNT_CLASS`].
 pub const DEFAULT_ACCOUNT_COMPILED_CLASS_HASH: CompiledClassHash =
-    felt!("0x01b97e0ef7f5c2f2b7483cda252a3accc7f917773fb69d4bd290f92770069aec");
+    felt!("0x07dc21fed65641e65f215ba3be9131de41fa577ddd01afaa27f614b2bdb15706");
 
 /// Cartridge Controller account class hash.
 pub const CONTROLLER_CLASS_HASH: ClassHash =
