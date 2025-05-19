@@ -15,7 +15,8 @@ members = [
 	"crates/messaging",
 	"crates/metrics",
 	"crates/node",
-	"crates/node-bindings", "crates/optimistic",
+	"crates/node-bindings",
+	"crates/optimistic",
 	"crates/pool",
 	"crates/primitives",
 	"crates/rpc/rpc",
@@ -234,3 +235,5 @@ bitvec = "1.0.1"
 proc-macro2 = "1.0"
 quote = "1.0"
 syn = { version = "2.0", default-features = false }
+
+backon = { version = "1.3.0", features = [ "tokio-sleep" ] }

@@ -2,8 +2,6 @@ use std::future::IntoFuture;
 use std::sync::Arc;
 
 use anyhow::{Context, Result};
-use config::rpc::RpcModuleKind;
-use config::Config;
 use hyper::Method;
 use jsonrpsee::RpcModule;
 use katana_chain_spec::{ChainSpec, SettlementLayer};
@@ -36,6 +34,7 @@ use katana_stage::Sequencing;
 use katana_tasks::TaskManager;
 use tracing::info;
 
+use crate::config::Config;
 use crate::exit::NodeStoppedFuture;
 
 /// A node instance.
@@ -50,7 +49,6 @@ pub struct Node {
     rpc_server: RpcServer,
     task_manager: TaskManager,
     backend: Arc<Backend<BlockifierFactory>>,
-    block_producer: BlockProducer<BlockifierFactory>,
 }
 
 impl Node {
@@ -198,33 +196,28 @@ impl Node {
         .allow_methods([Method::POST, Method::GET])
         .allow_headers([hyper::header::CONTENT_TYPE, "argent-client".parse().unwrap(), "argent-version".parse().unwrap()]);
 
-        if config.rpc.apis.contains(&RpcModuleKind::Starknet) {
-            let cfg = StarknetApiConfig {
-                max_event_page_size: config.rpc.max_event_page_size,
-                max_proof_keys: config.rpc.max_proof_keys,
-            };
+        let cfg = StarknetApiConfig {
+            max_event_page_size: config.rpc.max_event_page_size,
+            max_proof_keys: config.rpc.max_proof_keys,
+            #[cfg(feature = "cartridge")]
+            paymaster: None,
+        };
 
-            let api = if let Some(client) = forked_client {
-                StarknetApi::new_forked(
-                    backend.clone(),
-                    pool.clone(),
-                    block_producer.clone(),
-                    client,
-                    cfg,
-                )
-            } else {
-                StarknetApi::new(backend.clone(), pool.clone(), Some(block_producer.clone()), cfg)
-            };
+        let api = if let Some(client) = forked_client {
+            StarknetApi::new_forked(
+                backend.clone(),
+                pool.clone(),
+                block_producer.clone(),
+                client,
+                cfg,
+            )
+        } else {
+            StarknetApi::new(backend.clone(), pool.clone(), Some(block_producer.clone()), cfg)
+        };
 
-            rpc_modules.merge(StarknetApiServer::into_rpc(api.clone()))?;
-            rpc_modules.merge(StarknetWriteApiServer::into_rpc(api.clone()))?;
-            rpc_modules.merge(StarknetTraceApiServer::into_rpc(api))?;
-        }
-
-        if config.rpc.apis.contains(&RpcModuleKind::Dev) {
-            let api = DevApi::new(backend.clone(), block_producer.clone());
-            rpc_modules.merge(DevApiServer::into_rpc(api))?;
-        }
+        rpc_modules.merge(StarknetApiServer::into_rpc(api.clone()))?;
+        rpc_modules.merge(StarknetWriteApiServer::into_rpc(api.clone()))?;
+        rpc_modules.merge(StarknetTraceApiServer::into_rpc(api))?;
 
         let mut rpc_server = RpcServer::new()
             .metrics(true)
@@ -254,7 +247,6 @@ impl Node {
             pool,
             backend,
             rpc_server,
-            block_producer,
             config: Arc::new(config),
             task_manager: TaskManager::current(),
         })
@@ -282,24 +274,6 @@ impl Node {
 
         let pool = self.pool.clone();
         let backend = self.backend.clone();
-        let block_producer = self.block_producer.clone();
-
-        // --- build and run sequencing task
-
-        let sequencing = Sequencing::new(
-            pool.clone(),
-            backend.clone(),
-            self.task_manager.task_spawner(),
-            block_producer.clone(),
-            self.config.messaging.clone(),
-        );
-
-        self.task_manager
-            .task_spawner()
-            .build_task()
-            .critical()
-            .name("Sequencing")
-            .spawn(sequencing.into_future());
 
         // --- start the rpc server
 
@@ -364,10 +338,5 @@ impl LaunchedNode {
         self.rpc.stop()?;
         self.node.task_manager.shutdown().await;
         Ok(())
-    }
-
-    /// Returns a future which resolves only when the node has stopped.
-    pub fn stopped(&self) -> NodeStoppedFuture<'_> {
-        NodeStoppedFuture::new(self)
     }
 }
