@@ -4,7 +4,7 @@ use katana_primitives::receipt::Receipt;
 use katana_primitives::trace::TxExecInfo;
 use katana_primitives::transaction::Tx;
 use katana_primitives::Felt;
-use postcard;
+use {postcard, zstd};
 
 use super::{Compress, Decompress};
 use crate::error::CodecError;
@@ -33,10 +33,32 @@ macro_rules! impl_compress_and_decompress_for_table_values {
     }
 }
 
+// TxExecInfo gets special handling with zstd compression
+impl Compress for TxExecInfo {
+    type Compressed = Vec<u8>;
+    fn compress(self) -> Self::Compressed {
+        let serialized = postcard::to_stdvec(&self).unwrap();
+
+        zstd::encode_all(serialized.as_slice(), 0).unwrap_or(serialized)
+    }
+}
+
+impl Decompress for TxExecInfo {
+    fn decompress<B: AsRef<[u8]>>(bytes: B) -> Result<Self, crate::error::CodecError> {
+        let decompressed = match zstd::decode_all(bytes.as_ref()) {
+            Ok(d) => d,
+            Err(e) => {
+                return Err(CodecError::Decompress(format!("zstd decompression error: {}", e)))
+            }
+        };
+
+        postcard::from_bytes(&decompressed).map_err(|e| CodecError::Decompress(e.to_string()))
+    }
+}
+
 impl_compress_and_decompress_for_table_values!(
     u64,
     Tx,
-    TxExecInfo,
     Header,
     Receipt,
     Felt,
