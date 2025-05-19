@@ -39,17 +39,39 @@ impl Compress for TxExecInfo {
     fn compress(self) -> Self::Compressed {
         let serialized = postcard::to_stdvec(&self).unwrap();
 
-        zstd::encode_all(serialized.as_slice(), 0).unwrap_or(serialized)
+        match zstd::encode_all(serialized.as_slice(), 0) {
+            Ok(compressed) => {
+                let mut result = vec![1]; // 1 = compressed
+                result.extend(compressed);
+                result
+            }
+            Err(_) => {
+                let mut result = vec![0]; // 0 = uncompressed
+                result.extend(serialized);
+                result
+            }
+        }
     }
 }
 
 impl Decompress for TxExecInfo {
     fn decompress<B: AsRef<[u8]>>(bytes: B) -> Result<Self, crate::error::CodecError> {
-        let decompressed = match zstd::decode_all(bytes.as_ref()) {
-            Ok(d) => d,
-            Err(e) => {
-                return Err(CodecError::Decompress(format!("zstd decompression error: {}", e)))
+        let bytes_ref = bytes.as_ref();
+        if bytes_ref.is_empty() {
+            return Err(CodecError::Decompress("Empty input".to_string()));
+        }
+
+        let (indicator, data) = (bytes_ref[0], &bytes_ref[1..]);
+
+        let decompressed = if indicator == 1 {
+            match zstd::decode_all(data) {
+                Ok(d) => d,
+                Err(e) => {
+                    return Err(CodecError::Decompress(format!("zstd decompression error: {}", e)))
+                }
             }
+        } else {
+            data.to_vec()
         };
 
         postcard::from_bytes(&decompressed).map_err(|e| CodecError::Decompress(e.to_string()))
