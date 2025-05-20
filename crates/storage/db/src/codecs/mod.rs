@@ -21,7 +21,7 @@ pub trait Decode: Sized {
 /// A trait for compressing data that are stored in the db.
 pub trait Compress {
     type Compressed: AsRef<[u8]>;
-    fn compress(self) -> Self::Compressed;
+    fn compress(self) -> Result<Self::Compressed, CodecError>;
 }
 
 /// A trait for decompressing data that are read from the db.
@@ -87,8 +87,8 @@ impl Decode for String {
 
 impl Compress for ContractClass {
     type Compressed = Vec<u8>;
-    fn compress(self) -> Self::Compressed {
-        serde_json::to_vec(&self).unwrap()
+    fn compress(self) -> Result<Self::Compressed, CodecError> {
+        serde_json::to_vec(&self).map_err(|e| CodecError::Compress(e.to_string()))
     }
 }
 
@@ -100,8 +100,8 @@ impl Decompress for ContractClass {
 
 impl Compress for FinalityStatus {
     type Compressed = [u8; 1];
-    fn compress(self) -> Self::Compressed {
-        [self as u8]
+    fn compress(self) -> Result<Self::Compressed, CodecError> {
+        Ok([self as u8])
     }
 }
 

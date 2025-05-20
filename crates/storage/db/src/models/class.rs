@@ -5,8 +5,8 @@ use crate::error::CodecError;
 
 impl Compress for CompiledClass {
     type Compressed = Vec<u8>;
-    fn compress(self) -> Self::Compressed {
-        serde_json::to_vec(&self).unwrap()
+    fn compress(self) -> Result<Self::Compressed, CodecError> {
+        serde_json::to_vec(&self).map_err(|e| CodecError::Compress(e.to_string()))
     }
 }
 

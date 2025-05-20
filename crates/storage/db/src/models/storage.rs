@@ -17,11 +17,11 @@ pub struct StorageEntry {
 
 impl Compress for StorageEntry {
     type Compressed = Vec<u8>;
-    fn compress(self) -> Self::Compressed {
+    fn compress(self) -> Result<Self::Compressed, CodecError> {
         let mut buf = Vec::new();
         buf.extend_from_slice(&self.key.to_bytes_be());
-        buf.extend_from_slice(&self.value.compress());
-        buf
+        buf.extend_from_slice(&self.value.compress()?);
+        Ok(buf)
     }
 }
 
@@ -69,11 +69,11 @@ pub struct ContractStorageEntry {
 
 impl Compress for ContractStorageEntry {
     type Compressed = Vec<u8>;
-    fn compress(self) -> Self::Compressed {
+    fn compress(self) -> Result<Self::Compressed, CodecError> {
         let mut buf = Vec::with_capacity(64);
         buf.extend_from_slice(self.key.encode().as_ref());
-        buf.extend_from_slice(self.value.compress().as_ref());
-        buf
+        buf.extend_from_slice(self.value.compress()?.as_ref());
+        Ok(buf)
     }
 }
 
