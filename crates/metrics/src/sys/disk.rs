@@ -19,7 +19,7 @@ pub struct DiskReporter {
 }
 
 impl DiskReporter {
-    /// Creates a new [`StorageMetrics`] reporter for the disk containing the given path.
+    /// Creates a new [`DiskReporter`] reporter for the disk containing the given path.
     pub fn new<P: AsRef<Path>>(path: P) -> Result<Self, DiskNotFoundError> {
         let path = path.as_ref();
 
