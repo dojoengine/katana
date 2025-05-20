@@ -173,7 +173,7 @@ where
     #[tracing::instrument(level = "trace", name = "cursor_upsert", skip_all, fields(table = T::NAME))]
     fn upsert(&mut self, key: T::Key, value: T::Value) -> Result<(), DatabaseError> {
         let key = Encode::encode(key);
-        let value = Compress::compress(value);
+        let value = Compress::compress(value)?;
 
         libmdbx::Cursor::put(&mut self.inner, key.as_ref(), value.as_ref(), WriteFlags::UPSERT)
             .map_err(|error| DatabaseError::Write {
@@ -186,7 +186,7 @@ where
     #[tracing::instrument(level = "trace", name = "cursor_insert", skip_all, fields(table = T::NAME))]
     fn insert(&mut self, key: T::Key, value: T::Value) -> Result<(), DatabaseError> {
         let key = Encode::encode(key);
-        let value = Compress::compress(value);
+        let value = Compress::compress(value)?;
 
         libmdbx::Cursor::put(
             &mut self.inner,
@@ -203,7 +203,7 @@ where
 
     fn append(&mut self, key: T::Key, value: T::Value) -> Result<(), DatabaseError> {
         let key = Encode::encode(key);
-        let value = Compress::compress(value);
+        let value = Compress::compress(value)?;
 
         libmdbx::Cursor::put(&mut self.inner, key.as_ref(), value.as_ref(), WriteFlags::APPEND)
             .map_err(|error| DatabaseError::Write {
@@ -230,7 +230,7 @@ where
 
     fn append_dup(&mut self, key: T::Key, value: T::Value) -> Result<(), DatabaseError> {
         let key = Encode::encode(key);
-        let value = Compress::compress(value);
+        let value = Compress::compress(value)?;
 
         libmdbx::Cursor::put(&mut self.inner, key.as_ref(), value.as_ref(), WriteFlags::APPEND_DUP)
             .map_err(|error| DatabaseError::Write {
