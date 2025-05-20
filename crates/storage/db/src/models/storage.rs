@@ -102,7 +102,7 @@ mod tests {
             value: felt!("0x99"),
         };
 
-        let compressed = account_storage_entry.clone().compress();
+        let compressed = account_storage_entry.clone().compress().unwrap();
         let actual_value = super::ContractStorageEntry::decompress(compressed).unwrap();
 
         assert_eq!(account_storage_entry, actual_value);
