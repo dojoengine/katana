@@ -19,8 +19,9 @@ macro_rules! impl_compress_and_decompress_for_table_values {
         $(
             impl Compress for $name {
                 type Compressed = Vec<u8>;
-                fn compress(self) -> Self::Compressed {
-                    postcard::to_stdvec(&self).unwrap()
+                fn compress(self) -> Result<Self::Compressed, crate::error::CodecError> {
+                    postcard::to_stdvec(&self)
+                        .map_err(|e| CodecError::Compress(e.to_string()))
                 }
             }
 

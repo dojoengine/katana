@@ -4,6 +4,7 @@ use serde::{Deserialize, Serialize};
 
 use super::list::BlockList;
 use crate::codecs::{Compress, Decode, Decompress, Encode};
+use crate::error::CodecError;
 
 #[derive(Debug, Default, Serialize, Deserialize, PartialEq)]
 pub struct ContractInfoChangeList {
@@ -21,11 +22,11 @@ pub struct ContractClassChange {
 
 impl Compress for ContractClassChange {
     type Compressed = Vec<u8>;
-    fn compress(self) -> Self::Compressed {
+    fn compress(self) -> Result<Self::Compressed, CodecError> {
         let mut buf = Vec::new();
         buf.extend_from_slice(self.contract_address.encode().as_ref());
-        buf.extend_from_slice(self.class_hash.compress().as_ref());
-        buf
+        buf.extend_from_slice(self.class_hash.compress()?.as_ref());
+        Ok(buf)
     }
 }
 
@@ -48,11 +49,11 @@ pub struct ContractNonceChange {
 
 impl Compress for ContractNonceChange {
     type Compressed = Vec<u8>;
-    fn compress(self) -> Self::Compressed {
+    fn compress(self) -> Result<Self::Compressed, CodecError> {
         let mut buf = Vec::new();
         buf.extend_from_slice(&self.contract_address.encode());
-        buf.extend_from_slice(&self.nonce.compress());
-        buf
+        buf.extend_from_slice(&self.nonce.compress()?);
+        Ok(buf)
     }
 }
 

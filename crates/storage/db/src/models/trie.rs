@@ -13,11 +13,11 @@ pub struct TrieHistoryEntry {
 impl Compress for TrieHistoryEntry {
     type Compressed = Vec<u8>;
 
-    fn compress(self) -> Self::Compressed {
+    fn compress(self) -> Result<Self::Compressed, CodecError> {
         let mut buf = Vec::new();
         buf.extend(self.key.encode());
-        buf.extend(self.value.compress());
-        buf
+        buf.extend(self.value.compress()?);
+        Ok(buf)
     }
 }
 

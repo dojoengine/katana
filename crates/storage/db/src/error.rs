@@ -50,4 +50,7 @@ pub enum CodecError {
 
     #[error("failed to decompress data: {0}")]
     Decompress(String),
+
+    #[error("failed to compress data: {0}")]
+    Compress(String),
 }

@@ -394,7 +394,7 @@ mod tests {
 			$(
 				{
 					let value: $name = $value;
-					let compressed = value.compress();
+					let compressed = value.compress().unwrap();
 					let decompressed = <$name as Decompress>::decompress(compressed.as_slice()).expect("decode failed");
 					assert_eq!($value, decompressed);
 				}
