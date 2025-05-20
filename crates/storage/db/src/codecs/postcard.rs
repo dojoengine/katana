@@ -33,58 +33,21 @@ macro_rules! impl_compress_and_decompress_for_table_values {
     }
 }
 
-// TxExecInfo gets special handling with zstd compression
 impl Compress for TxExecInfo {
     type Compressed = Vec<u8>;
     fn compress(self) -> Self::Compressed {
         let serialized = postcard::to_stdvec(&self).unwrap();
-
-        match zstd::encode_all(serialized.as_slice(), 0) {
-            Ok(compressed) => {
-                let mut result = vec![1]; // 1 = compressed
-                result.extend(compressed);
-                result
-            }
-            Err(_) => {
-                let mut result = vec![0]; // 0 = uncompressed
-                result.extend(serialized);
-                result
-            }
-        }
+        let compressed = zstd::encode_all(serialized.as_slice(), 0).unwrap();
+        compressed
     }
 }
 
 impl Decompress for TxExecInfo {
     fn decompress<B: AsRef<[u8]>>(bytes: B) -> Result<Self, crate::error::CodecError> {
-        let bytes_ref = bytes.as_ref();
-        if bytes_ref.is_empty() {
-            return Err(CodecError::Decompress("Empty input".to_string()));
-        }
-
-        if bytes_ref.len() > 1 {
-            let (indicator, data) = (bytes_ref[0], &bytes_ref[1..]);
-
-            let decompressed = if indicator == 1 {
-                match zstd::decode_all(data) {
-                    Ok(d) => d,
-                    Err(_) => {
-                        return postcard::from_bytes(bytes_ref)
-                            .map_err(|e| CodecError::Decompress(e.to_string()));
-                    }
-                }
-            } else if indicator == 0 {
-                data.to_vec()
-            } else {
-                return postcard::from_bytes(bytes_ref)
-                    .map_err(|e| CodecError::Decompress(e.to_string()));
-            };
-
-            if let Ok(result) = postcard::from_bytes(&decompressed) {
-                return Ok(result);
-            }
-        }
-
-        postcard::from_bytes(bytes_ref).map_err(|e| CodecError::Decompress(e.to_string()))
+        let compressed = bytes.as_ref();
+        let serialized =
+            zstd::decode_all(compressed).map_err(|e| CodecError::Decompress(e.to_string()))?;
+        postcard::from_bytes(&serialized).map_err(|e| CodecError::Decompress(e.to_string()))
     }
 }
 
