@@ -6,13 +6,15 @@ repository.workspace = true
 version.workspace = true
 
 [dependencies]
-katana-executor.workspace = true
+katana-executor = { workspace = true, features = [ "blockifier" ] }
+katana-pool.workspace = true
 katana-primitives.workspace = true
 katana-provider.workspace = true
 katana-tasks.workspace = true
 
 anyhow.workspace = true
 backon.workspace = true
+futures.workspace = true
 parking_lot.workspace = true
 starknet.workspace = true
 tokio.workspace = true

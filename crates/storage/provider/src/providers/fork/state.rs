@@ -9,6 +9,7 @@ use katana_fork::BackendClient;
 use katana_primitives::block::{BlockHashOrNumber, BlockNumber};
 use katana_primitives::class::{ClassHash, CompiledClassHash, ContractClass};
 use katana_primitives::contract::{GenericContractInfo, Nonce, StorageKey, StorageValue};
+use katana_primitives::state::StateUpdatesWithClasses;
 use katana_primitives::{ContractAddress, Felt};
 
 use super::db::{self};
@@ -358,6 +359,14 @@ impl<Db: Database> StateWriter for ForkedProvider<Db> {
         storage_value: StorageValue,
     ) -> ProviderResult<()> {
         self.provider.set_storage(address, storage_key, storage_value)
+    }
+
+    fn insert_state_updates(
+        &self,
+        block_number: BlockNumber,
+        updates: StateUpdatesWithClasses,
+    ) -> ProviderResult<()> {
+        self.provider.insert_state_updates(block_number, updates)
     }
 }
 

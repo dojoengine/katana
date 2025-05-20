@@ -1,6 +1,8 @@
+use alloy_primitives::BlockNumber;
 use katana_primitives::block::BlockHashOrNumber;
 use katana_primitives::class::ClassHash;
 use katana_primitives::contract::{ContractAddress, Nonce, StorageKey, StorageValue};
+use katana_primitives::state::{StateUpdates, StateUpdatesWithClasses};
 use katana_primitives::Felt;
 use katana_trie::MultiProof;
 use starknet::macros::short_string;
@@ -88,6 +90,12 @@ pub trait StateWriter: Send + Sync {
         &self,
         address: ContractAddress,
         class_hash: ClassHash,
+    ) -> ProviderResult<()>;
+
+    fn insert_state_updates(
+        &self,
+        block_number: BlockNumber,
+        updates: StateUpdatesWithClasses,
     ) -> ProviderResult<()>;
 }
 

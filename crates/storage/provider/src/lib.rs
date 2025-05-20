@@ -330,6 +330,14 @@ where
     ) -> ProviderResult<()> {
         self.provider.set_nonce(address, nonce)
     }
+
+    fn insert_state_updates(
+        &self,
+        block: BlockNumber,
+        states: StateUpdatesWithClasses,
+    ) -> ProviderResult<()> {
+        self.provider.insert_state_updates(block, states)
+    }
 }
 
 impl<Db> BlockEnvProvider for BlockchainProvider<Db>

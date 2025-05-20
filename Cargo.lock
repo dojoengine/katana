@@ -6401,7 +6401,9 @@ version = "1.5.1"
 dependencies = [
  "anyhow",
  "backon",
+ "futures",
  "katana-executor",
+ "katana-pool",
  "katana-primitives",
  "katana-provider",
  "katana-tasks",

@@ -49,7 +49,7 @@ impl BlockListener {
         })
     }
 
-    pub fn start_background_sync(&self) -> Result<()> {
+    pub fn start_background_sync(&self) {
         let client = self.client.clone();
         let sender = self.sender.clone();
         let task_spawner = self.task_spawner.clone();
@@ -96,7 +96,5 @@ impl BlockListener {
             #[allow(unreachable_code)]
             Result::<(), ProviderError>::Ok(())
         });
-
-        Ok(())
     }
 }
