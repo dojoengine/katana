@@ -1,7 +1,11 @@
+pub mod execution;
+pub mod pool;
+pub mod storage;
+
 use std::sync::Arc;
 use std::time::Duration;
 
-use anyhow::Result;
+use anyhow::{anyhow, Result};
 use backon::{ExponentialBuilder, Retryable};
 use katana_primitives::env::BlockEnv;
 use katana_tasks::TaskSpawner;
@@ -9,78 +13,46 @@ use parking_lot::Mutex;
 use starknet::core::types::{BlockId, BlockTag, MaybePendingBlockWithTxs};
 use starknet::providers::{jsonrpc::HttpTransport, JsonRpcClient};
 use starknet::providers::{Provider, ProviderError};
-
-/// global block context used by the execution engine for executing proxied transactions
-#[derive(Debug, Clone)]
-pub struct UpstreamBlockContext {
-    inner: Arc<Mutex<BlockEnv>>,
-}
+use tokio::sync::watch::{self, Receiver, Sender};
 
 #[derive(Debug)]
-pub struct BlockSyncer {
+pub struct BlockListener {
+    // (prev, new)
+    sender: Sender<Option<BlockEnv>>,
     task_spawner: TaskSpawner,
     client: Arc<JsonRpcClient<HttpTransport>>,
-    current_block_context: UpstreamBlockContext,
 }
 
-impl BlockSyncer {
-    pub async fn initialize(&self) -> Result<()> {
-        let client = self.client.clone();
-        let current_block_ctx = self.current_block_context.clone();
+impl BlockListener {
+    pub fn new(
+        rpc_client: JsonRpcClient<HttpTransport>,
+        task_spawner: TaskSpawner,
+    ) -> (Self, Receiver<Option<BlockEnv>>) {
+        let client = Arc::new(rpc_client);
+        let (tx, rx) = watch::channel(None);
+        (Self { client, task_spawner, sender: tx }, rx)
+    }
 
-        // Fetch the latest confirmed block to get the base number.
-        let latest_req =
-            || async { client.get_block_with_txs(BlockId::Tag(BlockTag::Latest)).await };
-        let latest_block = latest_req.retry(ExponentialBuilder::default()).await?;
+    pub async fn initial_block_env(&self) -> Result<BlockEnv> {
+        let latest_block = self.client.block_hash_and_number().await?;
+        let current_block = self.client.get_block_with_txs(BlockId::Tag(BlockTag::Pending)).await?;
 
-        let latest_confirmed_number = match latest_block {
-            MaybePendingBlockWithTxs::Block(b) => b.block_number,
-            // According to Starknet spec, BlockTag::Latest should return a Block, not PendingBlock.
-            // If it does return PendingBlock, it's an unexpected state from the provider.
-            MaybePendingBlockWithTxs::PendingBlock(_) => {
-                return Err(anyhow::anyhow!("Provider returned PendingBlock for BlockTag::Latest"));
-            }
+        let MaybePendingBlockWithTxs::PendingBlock(block) = current_block else {
+            return Err(anyhow!("Expected pending block"));
         };
 
-        // Fetch the pending block information to get the sequencer address and other pending details.
-        let pending_req =
-            || async { client.get_block_with_txs(BlockId::Tag(BlockTag::Pending)).await };
-        let pending_block = pending_req.retry(ExponentialBuilder::default()).await?;
-
-        // Lock the mutex and update the block context.
-        let mut block_ctx = current_block_ctx.inner.lock();
-
-        // The context should represent the state of the *next* block or the current pending one.
-        // If `Pending` returns a `PendingBlock`, its number is `latest_confirmed_number + 1`.
-        // If `Pending` returns a `Block(N)`, it means block N was just confirmed.
-        // The original loop logic when getting a `Block` sets the context number to `block.block_number`.
-        // Let's follow that pattern here for consistency with how the loop *might* behave later.
-        match pending_block {
-            MaybePendingBlockWithTxs::Block(block) => {
-                // If Pending returns a Block (e.g., N), context is for this confirmed block or N+1?
-                // Original loop logic: block_ctx.number = block.block_number;
-                // Let's follow this pattern: context number is the number of the confirmed block.
-                block_ctx.number = block.block_number;
-                block_ctx.sequencer_address = block.sequencer_address.into();
-                block_ctx.timestamp = block.timestamp;
-                // block_ctx.l1_gas_prices = block.l1_gas_prices.into();
-            }
-            MaybePendingBlockWithTxs::PendingBlock(pending) => {
-                // If Pending returns a PendingBlock, the context is for the next block, which is latest_confirmed + 1.
-                block_ctx.number = latest_confirmed_number + 1;
-                block_ctx.sequencer_address = pending.sequencer_address.into();
-                block_ctx.timestamp = pending.timestamp;
-                // block_ctx.l1_gas_prices = pending.l1_gas_prices.into(); / Assuming BlockEnv needs gas prices
-            }
-        }
-
-        Ok(())
+        Ok(BlockEnv {
+            timestamp: block.timestamp,
+            number: latest_block.block_number + 1,
+            sequencer_address: block.sequencer_address.into(),
+            ..Default::default() // set gas prices also
+        })
     }
 
     pub fn start_background_sync(&self) -> Result<()> {
         let client = self.client.clone();
+        let sender = self.sender.clone();
         let task_spawner = self.task_spawner.clone();
-        let current_block_ctx = self.current_block_context.clone();
 
         task_spawner.build_task().spawn(async move {
             // This loop continues syncing the block context periodically.
@@ -94,22 +66,26 @@ impl BlockSyncer {
 
                 match block {
                     MaybePendingBlockWithTxs::Block(block) => {
-                        let mut block_ctx = current_block_ctx.inner.lock();
-                        block_ctx.number = block.block_number;
-                        block_ctx.timestamp = block.timestamp; // Assuming BlockEnv needs timestamp
-                        block_ctx.sequencer_address = block.sequencer_address.into();
-                        // block_ctx.l1_gas_prices = block.l1_gas_prices.into(); // Assuming BlockEnv needs gas prices
+                        let block_env = BlockEnv {
+                            number: block.block_number,
+                            timestamp: block.timestamp,
+                            sequencer_address: block.sequencer_address.into(),
+                            ..Default::default() // set gas prices also
+                        };
+
+                        sender.send(Some(block_env)).expect("failed to notify");
                     }
 
-                    MaybePendingBlockWithTxs::PendingBlock(pending) => {
-                        let mut block_ctx = current_block_ctx.inner.lock();
-                        // Original logic: increments from the *current* context number.
-                        // This logic might be questionable depending on the exact state
-                        // held by `block_ctx.number`, but is kept as per the original snippet.
-                        block_ctx.number += 1;
-                        block_ctx.timestamp = pending.timestamp; // Assuming BlockEnv needs timestamp
-                        block_ctx.sequencer_address = pending.sequencer_address.into();
-                        // block_ctx.l1_gas_prices = pending.l1_gas_prices.into(); // Assuming BlockEnv needs gas prices
+                    MaybePendingBlockWithTxs::PendingBlock(block) => {
+                        let latest_block = client.block_hash_and_number().await?;
+                        let block_env = BlockEnv {
+                            timestamp: block.timestamp,
+                            number: latest_block.block_number + 1,
+                            sequencer_address: block.sequencer_address.into(),
+                            ..Default::default() // set gas prices also
+                        };
+
+                        sender.send(Some(block_env)).expect("failed to notify");
                     }
                 }
 
