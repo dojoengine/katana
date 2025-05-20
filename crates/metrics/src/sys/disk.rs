@@ -77,9 +77,9 @@ impl Report for DiskReporter {
         let available_space = self.disk.available_space();
         let used_space = total_space - available_space;
 
-        gauge!("system.storage_total_bytes", self.labels.clone()).set(total_space as f64);
-        gauge!("system.storage_available_bytes", self.labels.clone()).set(available_space as f64);
-        gauge!("system.storage_used_bytes", self.labels.clone()).set(used_space as f64);
+        gauge!("system.storage.total_bytes", self.labels.clone()).set(total_space as f64);
+        gauge!("system.storage.available_bytes", self.labels.clone()).set(available_space as f64);
+        gauge!("system.storage.used_bytes", self.labels.clone()).set(used_space as f64);
     }
 }
 
@@ -88,13 +88,18 @@ pub fn describe_storage_metrics() {
     use metrics::describe_gauge;
 
     describe_gauge!(
-        "system.storage.total_space_bytes",
+        "system.storage.total_bytes",
         metrics::Unit::Bytes,
         "Total storage space on the disk."
     );
     describe_gauge!(
-        "system.storage.available_space_bytes",
+        "system.storage.available_bytes",
         metrics::Unit::Bytes,
         "Available storage space on the disk."
+    );
+    describe_gauge!(
+        "system.storage.used_bytes",
+        metrics::Unit::Bytes,
+        "Used storage space on the disk."
     );
 }
