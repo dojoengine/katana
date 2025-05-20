@@ -1815,6 +1815,95 @@
       ],
       "title": "File Descriptors",
       "type": "timeseries"
+    },
+    {
+      "id": 128,
+      "type": "piechart",
+      "title": "Disk Usage",
+      "description": "Usage percentage of the disk where the node data directory is stored at.",
+      "gridPos": {
+        "x": 0,
+        "y": 60,
+        "h": 8,
+        "w": 12
+      },
+      "fieldConfig": {
+        "defaults": {
+          "custom": {
+            "hideFrom": {
+              "tooltip": false,
+              "viz": false,
+              "legend": false
+            }
+          },
+          "color": {
+            "mode": "palette-classic"
+          },
+          "mappings": [],
+          "fieldMinMax": false,
+          "max": 100,
+          "min": 0,
+          "unit": "decbytes"
+        },
+        "overrides": []
+      },
+      "pluginVersion": "11.4.0",
+      "targets": [
+        {
+          "datasource": {
+            "type": "prometheus",
+            "uid": "Prometheus"
+          },
+          "disableTextWrap": false,
+          "editorMode": "builder",
+          "expr": "katana_system_storage_available_bytes",
+          "fullMetaSearch": false,
+          "hide": false,
+          "includeNullMetadata": true,
+          "instant": false,
+          "legendFormat": "Available",
+          "range": true,
+          "refId": "A",
+          "useBackend": false
+        },
+        {
+          "datasource": {
+            "type": "prometheus",
+            "uid": "Prometheus"
+          },
+          "disableTextWrap": false,
+          "editorMode": "builder",
+          "expr": "katana_system_storage_used_bytes",
+          "fullMetaSearch": false,
+          "hide": false,
+          "includeNullMetadata": true,
+          "instant": false,
+          "legendFormat": "Used",
+          "range": true,
+          "refId": "B",
+          "useBackend": false
+        }
+      ],
+      "datasource": "Prometheus",
+      "options": {
+        "reduceOptions": {
+          "values": false,
+          "calcs": ["lastNotNull"],
+          "fields": ""
+        },
+        "pieType": "donut",
+        "tooltip": {
+          "mode": "single",
+          "sort": "none"
+        },
+        "legend": {
+          "showLegend": true,
+          "displayMode": "list",
+          "placement": "right",
+          "values": ["value"]
+        },
+        "displayLabels": ["percent"]
+      }
     }
   ],
   "refresh": "30s",
