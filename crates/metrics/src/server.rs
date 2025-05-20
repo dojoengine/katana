@@ -53,7 +53,7 @@ where
     }
 
     pub fn with_process_metrics(mut self) -> Self {
-        use crate::process::{collect_memory_stats, describe_memory_stats};
+        use crate::sys::process::{collect_memory_stats, describe_memory_stats};
 
         let process = metrics_process::Collector::default();
         process.describe();

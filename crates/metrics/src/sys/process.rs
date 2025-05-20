@@ -1,5 +1,3 @@
-#![allow(dead_code)]
-
 const LOG_TARGET: &str = "metrics";
 
 #[cfg(all(feature = "jemalloc", unix))]

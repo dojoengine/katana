@@ -29,6 +29,7 @@ use katana_db::mdbx::DbEnv;
 use katana_executor::implementation::blockifier::BlockifierFactory;
 use katana_executor::ExecutionFlags;
 use katana_metrics::exporters::prometheus::PrometheusRecorder;
+use katana_metrics::sys::DiskReporter;
 use katana_metrics::{Report, Server as MetricsServer};
 use katana_pool::ordering::FiFo;
 use katana_pool::TxPool;
@@ -312,13 +313,14 @@ impl Node {
 
         // TODO: maybe move this to the build stage
         if let Some(ref cfg) = self.config.metrics {
-            let addr = cfg.socket_addr();
-            let db = self.db.clone();
-            let reports: Vec<Box<dyn Report>> = vec![Box::new(db) as Box<dyn Report>];
+            let db_metrics = Box::new(self.db.clone()) as Box<dyn Report>;
+            let disk_metrics = Box::new(DiskReporter::new(self.db.path())?) as Box<dyn Report>;
+            let reports: Vec<Box<dyn Report>> = vec![db_metrics, disk_metrics];
 
             let exporter = PrometheusRecorder::current().expect("qed; should exist at this point");
             let server = MetricsServer::new(exporter).with_process_metrics().with_reports(reports);
 
+            let addr = cfg.socket_addr();
             self.task_manager.task_spawner().build_task().spawn(server.start(addr));
             info!(%addr, "Metrics server started.");
         }
