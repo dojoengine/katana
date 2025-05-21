@@ -1854,8 +1854,8 @@
             "include": {
               "names": [
                 "Available",
-                "Used",
-                "total_db_size {__name__=\"katana_db_freelist\", instance=\"host.docker.internal:9001\", job=\"katana\"}"
+                "total_db_size {__name__=\"katana_db_freelist\", instance=\"host.docker.internal:9001\", job=\"katana\"}",
+                "used_other"
               ]
             }
           }
@@ -1864,7 +1864,14 @@
           "id": "renameByRegex",
           "options": {
             "regex": "total_db_size (.*)",
-            "renamePattern": "Database"
+            "renamePattern": "Used (Database)"
+          }
+        },
+        {
+          "id": "renameByRegex",
+          "options": {
+            "regex": "used_other",
+            "renamePattern": "Used (Others)"
           }
         }
       ],
@@ -1899,10 +1906,12 @@
           "hide": false,
           "includeNullMetadata": true,
           "instant": false,
-          "legendFormat": "Used",
+          "legendFormat": "__auto",
           "range": true,
           "refId": "B",
-          "useBackend": false
+          "useBackend": false,
+          "exemplar": false,
+          "format": "table"
         },
         {
           "datasource": {
@@ -1948,6 +1957,17 @@
           "hide": false,
           "refId": "total_db_size",
           "type": "math"
+        },
+        {
+          "refId": "used_other",
+          "datasource": {
+            "type": "__expr__",
+            "uid": "__expr__",
+            "name": "Expression"
+          },
+          "type": "math",
+          "hide": false,
+          "expression": "$B - $total_db_size"
         }
       ],
       "datasource": "Prometheus",
