@@ -9,7 +9,7 @@ use std::time::Duration;
 use jsonrpsee::core::TEN_MB_SIZE_BYTES;
 use jsonrpsee::server::{AllowHosts, ServerBuilder, ServerHandle};
 use jsonrpsee::RpcModule;
-use katana_explorer::ExplorerLayer;
+//use katana_explorer::ExplorerLayer;
 use tower::ServiceBuilder;
 use tracing::info;
 
@@ -172,17 +172,9 @@ impl RpcServer {
             None
         };
 
-        let explorer_layer = if self.explorer {
-            let layer = ExplorerLayer::new(String::new()).unwrap();
-            Some(layer)
-        } else {
-            None
-        };
-
         let middleware = ServiceBuilder::new()
             .option_layer(self.cors.clone())
             .option_layer(health_check_proxy)
-            .option_layer(explorer_layer)
             .timeout(self.timeout);
 
         let builder = ServerBuilder::new()
