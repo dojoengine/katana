@@ -67,6 +67,8 @@ pub struct Node {
     task_manager: TaskManager,
     backend: Arc<Backend<BlockifierFactory>>,
     block_producer: BlockProducer<BlockifierFactory>,
+    #[cfg(feature = "cartridge")]
+    vrf_cache: Arc<RwLock<HashMap<Felt, Felt>>>,
 }
 
 impl Node {
@@ -230,6 +232,9 @@ impl Node {
         .allow_headers([hyper::header::CONTENT_TYPE, "argent-client".parse().unwrap(), "argent-version".parse().unwrap()]);
 
         #[cfg(feature = "cartridge")]
+        let vrf_cache = Arc::new(RwLock::new(HashMap::new()));
+
+        #[cfg(feature = "cartridge")]
         let paymaster = if let Some(paymaster) = &config.paymaster {
             anyhow::ensure!(
                 config.rpc.apis.contains(&RpcModuleKind::Cartridge),
@@ -241,6 +246,7 @@ impl Node {
                 block_producer.clone(),
                 pool.clone(),
                 paymaster.cartridge_api_url.clone(),
+                vrf_cache.clone(),
             );
             rpc_modules.merge(CartridgeApiServer::into_rpc(api))?;
 
@@ -310,6 +316,8 @@ impl Node {
             block_producer,
             config: Arc::new(config),
             task_manager: TaskManager::current(),
+            #[cfg(feature = "cartridge")]
+            vrf_cache,
         })
     }
 
