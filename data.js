@@ -1,5 +1,5 @@
 window.BENCHMARK_DATA = {
-  "lastUpdate": 1747219684653,
+  "lastUpdate": 1747814337515,
   "repoUrl": "https://github.com/dojoengine/katana",
   "entries": {
     "Benchmark": [
@@ -215,6 +215,60 @@ window.BENCHMARK_DATA = {
             "name": "Katana.Startup",
             "value": 124505358,
             "range": "± 312986",
+            "unit": "ns/iter"
+          }
+        ]
+      },
+      {
+        "commit": {
+          "author": {
+            "email": "evergreenkary@gmail.com",
+            "name": "Ammar Arif",
+            "username": "kariy"
+          },
+          "committer": {
+            "email": "noreply@github.com",
+            "name": "GitHub",
+            "username": "web-flow"
+          },
+          "distinct": true,
+          "id": "54c9c4a290f03c353bf8902f38a4caeecd78dda3",
+          "message": "feat(metrics): disk capacity (#80)\n\n* feat: disk capacity metrics\n\n* add grafana disk usage panel\n\n* Update crates/metrics/src/sys/disk.rs\n\nCo-authored-by: graphite-app[bot] <96075541+graphite-app[bot]@users.noreply.github.com>\n\n* fix inconsistent name\n\n* upadte panel\n\n* update panel\n\n---------\n\nCo-authored-by: graphite-app[bot] <96075541+graphite-app[bot]@users.noreply.github.com>",
+          "timestamp": "2025-05-21T15:39:29+08:00",
+          "tree_id": "66d0718736a2adf971e8dd56070e50824fd57a16",
+          "url": "https://github.com/dojoengine/katana/commit/54c9c4a290f03c353bf8902f38a4caeecd78dda3"
+        },
+        "date": 1747814335625,
+        "tool": "cargo",
+        "benches": [
+          {
+            "name": "decompress world contract",
+            "value": 2996312,
+            "range": "± 22076",
+            "unit": "ns/iter"
+          },
+          {
+            "name": "Concurrent.Simulate/Blockifier.1",
+            "value": 16030926,
+            "range": "± 71700",
+            "unit": "ns/iter"
+          },
+          {
+            "name": "Concurrent.Simulate/Blockifier.1000",
+            "value": 2553660137,
+            "range": "± 261706632",
+            "unit": "ns/iter"
+          },
+          {
+            "name": "Invoke.ERC20.transfer/Blockifier.Cold",
+            "value": 16213390,
+            "range": "± 132726",
+            "unit": "ns/iter"
+          },
+          {
+            "name": "Katana.Startup",
+            "value": 125927039,
+            "range": "± 369796",
             "unit": "ns/iter"
           }
         ]
