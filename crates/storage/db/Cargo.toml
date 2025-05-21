@@ -25,6 +25,7 @@ tracing.workspace = true
 # codecs
 postcard = { workspace = true, optional = true }
 smallvec = "1.13.2"
+zstd = "0.13.3"
 
 [dependencies.libmdbx]
 git = "https://github.com/paradigmxyz/reth.git"
