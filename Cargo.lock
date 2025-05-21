@@ -6356,7 +6356,6 @@ dependencies = [
  "katana-core",
  "katana-db",
  "katana-executor",
- "katana-explorer",
  "katana-feeder-gateway",
  "katana-messaging",
  "katana-metrics",
