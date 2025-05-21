@@ -1847,6 +1847,27 @@
         },
         "overrides": []
       },
+      "transformations": [
+        {
+          "id": "filterFieldsByName",
+          "options": {
+            "include": {
+              "names": [
+                "Available",
+                "Used",
+                "total_db_size {__name__=\"katana_db_freelist\", instance=\"host.docker.internal:9001\", job=\"katana\"}"
+              ]
+            }
+          }
+        },
+        {
+          "id": "renameByRegex",
+          "options": {
+            "regex": "total_db_size (.*)",
+            "renamePattern": "Database"
+          }
+        }
+      ],
       "pluginVersion": "11.4.0",
       "targets": [
         {
@@ -1882,6 +1903,51 @@
           "range": true,
           "refId": "B",
           "useBackend": false
+        },
+        {
+          "datasource": {
+            "type": "prometheus",
+            "uid": "Prometheus"
+          },
+          "disableTextWrap": false,
+          "editorMode": "builder",
+          "expr": "katana_db_freelist",
+          "fullMetaSearch": false,
+          "hide": false,
+          "includeNullMetadata": true,
+          "instant": false,
+          "legendFormat": "__auto",
+          "range": true,
+          "refId": "C",
+          "useBackend": false
+        },
+        {
+          "datasource": {
+            "type": "prometheus",
+            "uid": "Prometheus"
+          },
+          "disableTextWrap": false,
+          "editorMode": "builder",
+          "expr": "sum(katana_db_table_size)",
+          "fullMetaSearch": false,
+          "hide": false,
+          "includeNullMetadata": true,
+          "instant": false,
+          "legendFormat": "__auto",
+          "range": true,
+          "refId": "D",
+          "useBackend": false
+        },
+        {
+          "datasource": {
+            "name": "Expression",
+            "type": "__expr__",
+            "uid": "__expr__"
+          },
+          "expression": "$C + $D",
+          "hide": false,
+          "refId": "total_db_size",
+          "type": "math"
         }
       ],
       "datasource": "Prometheus",
@@ -1894,11 +1960,11 @@
         "pieType": "donut",
         "tooltip": {
           "mode": "single",
-          "sort": "none"
+          "sort": "asc"
         },
         "legend": {
           "showLegend": true,
-          "displayMode": "list",
+          "displayMode": "table",
           "placement": "right",
           "values": ["value"]
         },
