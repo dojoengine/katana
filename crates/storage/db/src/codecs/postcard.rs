@@ -4,7 +4,7 @@ use katana_primitives::receipt::Receipt;
 use katana_primitives::trace::TxExecInfo;
 use katana_primitives::transaction::Tx;
 use katana_primitives::Felt;
-use postcard;
+use {postcard, zstd};
 
 use super::{Compress, Decompress};
 use crate::error::CodecError;
@@ -34,10 +34,27 @@ macro_rules! impl_compress_and_decompress_for_table_values {
     }
 }
 
+impl Compress for TxExecInfo {
+    type Compressed = Vec<u8>;
+    fn compress(self) -> Self::Compressed {
+        let serialized = postcard::to_stdvec(&self).unwrap();
+        let compressed = zstd::encode_all(serialized.as_slice(), 0).unwrap();
+        compressed
+    }
+}
+
+impl Decompress for TxExecInfo {
+    fn decompress<B: AsRef<[u8]>>(bytes: B) -> Result<Self, crate::error::CodecError> {
+        let compressed = bytes.as_ref();
+        let serialized =
+            zstd::decode_all(compressed).map_err(|e| CodecError::Decompress(e.to_string()))?;
+        postcard::from_bytes(&serialized).map_err(|e| CodecError::Decompress(e.to_string()))
+    }
+}
+
 impl_compress_and_decompress_for_table_values!(
     u64,
     Tx,
-    TxExecInfo,
     Header,
     Receipt,
     Felt,
