@@ -8,7 +8,7 @@ members = [
 	"crates/controller",
 	"crates/core",
 	"crates/executor",
-	"crates/explorer",
+#	"crates/explorer",
 	"crates/feeder-gateway",
 	"crates/grpc",
 	"crates/log",
@@ -68,7 +68,7 @@ katana-codecs-derive = { path = "crates/storage/codecs/derive" }
 katana-core = { path = "crates/core" }
 katana-db = { path = "crates/storage/db" }
 katana-executor = { path = "crates/executor" }
-katana-explorer = { path = "crates/explorer" }
+#katana-explorer = { path = "crates/explorer" }
 katana-feeder-gateway = { path = "crates/feeder-gateway" }
 katana-fork = { path = "crates/storage/fork" }
 katana-log = { path = "crates/log" }
