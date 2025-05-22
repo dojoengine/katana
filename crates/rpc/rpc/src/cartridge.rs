@@ -45,6 +45,7 @@ use std::sync::{Arc, RwLock};
 
 use account_sdk::account::outside_execution::OutsideExecution;
 use anyhow::anyhow;
+use ark_ec::short_weierstrass::Affine;
 use cainome::cairo_serde::CairoSerde;
 use jsonrpsee::core::{async_trait, RpcResult};
 use katana_core::backend::Backend;
@@ -66,7 +67,7 @@ use katana_rpc_types::transaction::InvokeTxResult;
 use katana_tasks::TokioTaskSpawner;
 use num_bigint::BigInt;
 use serde::Deserialize;
-use stark_vrf::{generate_public_key, BaseField, StarkVRF};
+use stark_vrf::{generate_public_key, BaseField, StarkCurve, StarkVRF};
 use starknet::core::types::Call;
 use starknet::core::utils::get_contract_address;
 use starknet::macros::{felt, selector};
@@ -98,24 +99,49 @@ pub struct StarkVrfProof {
 pub struct VrfContext {
     pub cache: Arc<RwLock<HashMap<Felt, Felt>>>,
     pub private_key: Felt,
+    public_key: Affine<StarkCurve>,
+    contract_address: ContractAddress,
 }
 
 impl VrfContext {
-    /// Get the public key x and y coordinates from the private key.
-    pub fn get_public_key_xy(&self) -> (Felt, Felt) {
-        let pk_str = self.private_key.to_string();
+    /// Create a new VRF context.
+    pub fn new(
+        private_key: Felt,
+        cache: Arc<RwLock<HashMap<Felt, Felt>>>,
+        pm_address: ContractAddress,
+    ) -> Self {
+        let pk_str = private_key.to_string();
         let public_key = generate_public_key(pk_str.parse().unwrap());
 
-        let x = Felt::from_str(&public_key.x.to_string()).unwrap();
-        let y = Felt::from_str(&public_key.y.to_string()).unwrap();
+        let contract_address = Self::compute_vrf_address(
+            pm_address,
+            Felt::from_str(&public_key.x.to_string()).unwrap(),
+            Felt::from_str(&public_key.y.to_string()).unwrap(),
+        );
+
+        Self { cache, private_key, public_key, contract_address }
+    }
+
+    /// Get the public key x and y coordinates as Felt values.
+    pub fn get_public_key_xy_felts(&self) -> (Felt, Felt) {
+        let x = Felt::from_str(&self.public_key.x.to_string()).unwrap();
+        let y = Felt::from_str(&self.public_key.y.to_string()).unwrap();
 
         (x, y)
     }
 
-    /// Get the VRF contract address from the paymaster address and the public key coordinates.
-    pub fn get_vrf_address(&self, pm_address: ContractAddress) -> ContractAddress {
-        let (public_key_x, public_key_y) = self.get_public_key_xy();
+    /// Get the VRF contract address.
+    pub fn get_vrf_address(&self) -> ContractAddress {
+        self.contract_address
+    }
 
+    /// Computes the deterministic VRF contract address from the paymaster address and the public
+    /// key coordinates.
+    fn compute_vrf_address(
+        pm_address: ContractAddress,
+        public_key_x: Felt,
+        public_key_y: Felt,
+    ) -> ContractAddress {
         get_contract_address(
             CARTIDGE_VRF_SALT,
             CARTIDGE_VRF_CLASS_HASH,
@@ -159,9 +185,6 @@ impl<EF: ExecutorFactory> CartridgeApi<EF> {
         api_url: Url,
         vrf_cache: Arc<RwLock<HashMap<Felt, Felt>>>,
     ) -> Self {
-        let vrf_ctx =
-            VrfContext { cache: vrf_cache, private_key: CARTRIDGE_VRF_DEFAULT_PRIVATE_KEY };
-
         // Pulling the paymaster address merely to print the VRF contract address.
         let (pm_address, _) = backend
             .chain_spec
@@ -170,11 +193,11 @@ impl<EF: ExecutorFactory> CartridgeApi<EF> {
             .nth(0)
             .expect("Cartridge paymaster account should exist");
 
-        let vrf_contract_address = vrf_ctx.get_vrf_address(*pm_address);
+        let vrf_ctx = VrfContext::new(CARTRIDGE_VRF_DEFAULT_PRIVATE_KEY, vrf_cache, *pm_address);
 
         // Info to ensure this is visible to the user without changing the default logging level.
         // The use can still use `rpc::cartridge` in debug to see the random value and the seed.
-        info!(target: "rpc::cartridge", paymaster_address = %pm_address, vrf_address = %vrf_contract_address, "Cartridge API initialized.");
+        info!(target: "rpc::cartridge", paymaster_address = %pm_address, vrf_address = %vrf_ctx.get_vrf_address(), "Cartridge API initialized.");
 
         Self { backend, block_producer, pool, api_url, vrf_ctx }
     }
@@ -274,8 +297,8 @@ impl<EF: ExecutorFactory> CartridgeApi<EF> {
 
             let state = this.backend.blockchain.provider().latest().map(Arc::new)?;
 
-            let (public_key_x, public_key_y) = this.vrf_ctx.get_public_key_xy();
-            let vrf_address = this.vrf_ctx.get_vrf_address(*pm_address);
+            let (public_key_x, public_key_y) = this.vrf_ctx.get_public_key_xy_felts();
+            let vrf_address = this.vrf_ctx.get_vrf_address();
 
             let class_hash = state.class_hash_of_contract(vrf_address)?;
             if class_hash.is_none() {
