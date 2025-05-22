@@ -16,7 +16,7 @@ impl<EF: ExecutorFactory> StarknetApi<EF> {
         &self,
         tx: BroadcastedInvokeTx,
     ) -> Result<InvokeTxResult, StarknetApiError> {
-        self.on_io_blocking_task(move |this| {
+        self.on_cpu_blocking_task(move |this| {
             if tx.is_query() {
                 return Err(StarknetApiError::UnsupportedTransactionVersion);
             }
@@ -34,7 +34,7 @@ impl<EF: ExecutorFactory> StarknetApi<EF> {
         &self,
         tx: BroadcastedDeclareTx,
     ) -> Result<DeclareTxResult, StarknetApiError> {
-        self.on_io_blocking_task(move |this| {
+        self.on_cpu_blocking_task(move |this| {
             if tx.is_query() {
                 return Err(StarknetApiError::UnsupportedTransactionVersion);
             }
@@ -56,7 +56,7 @@ impl<EF: ExecutorFactory> StarknetApi<EF> {
         &self,
         tx: BroadcastedDeployAccountTx,
     ) -> Result<DeployAccountTxResult, StarknetApiError> {
-        self.on_io_blocking_task(move |this| {
+        self.on_cpu_blocking_task(move |this| {
             if tx.is_query() {
                 return Err(StarknetApiError::UnsupportedTransactionVersion);
             }
