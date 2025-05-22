@@ -119,7 +119,7 @@ impl VrfContext {
         get_contract_address(
             CARTIDGE_VRF_SALT,
             CARTIDGE_VRF_CLASS_HASH,
-            &[(*pm_address).into(), public_key_x, public_key_y],
+            &[*pm_address, public_key_x, public_key_y],
             Felt::ZERO,
         )
         .into()
@@ -295,9 +295,7 @@ impl<EF: ExecutorFactory> CartridgeApi<EF> {
                 nonce += Nonce::ONE;
             }
 
-            let private_key = this.vrf_ctx.private_key.clone();
-            let cache = this.vrf_ctx.cache.clone();
-            let vrf_calls = futures::executor::block_on(handle_vrf_calls(&outside_execution, chain_id, vrf_address, private_key, cache))?;
+            let vrf_calls = futures::executor::block_on(handle_vrf_calls(&outside_execution, chain_id, vrf_address, this.vrf_ctx.private_key, this.vrf_ctx.cache.clone()))?;
 
             let calls = if vrf_calls.is_empty() {
                 vec![execute_from_outside_call]
@@ -645,7 +643,7 @@ async fn handle_vrf_calls(
 
     let seed = if salt_or_nonce_selector == Felt::ZERO {
         let contract_address = salt_or_nonce;
-        let nonce = vrf_cache.read().unwrap().get(&contract_address).unwrap_or(&Felt::ZERO).clone();
+        let nonce = *vrf_cache.read().unwrap().get(&contract_address).unwrap_or(&Felt::ZERO);
         vrf_cache.write().unwrap().insert(contract_address, nonce + Felt::ONE);
         starknet_crypto::poseidon_hash_many(vec![&nonce, &caller, &chain_id.id()])
     } else if salt_or_nonce_selector == Felt::ONE {
@@ -660,9 +658,7 @@ async fn handle_vrf_calls(
 
     let proof = stark_vrf(seed, vrf_private_key)?;
 
-    let mut vrf_calls = vec![];
-
-    vrf_calls.push(Call {
+    let submit_random_call = Call {
         to: *vrf_address,
         selector: selector!("submit_random"),
         calldata: vec![
@@ -673,13 +669,10 @@ async fn handle_vrf_calls(
             Felt::from_hex_unchecked(&proof.s),
             Felt::from_hex_unchecked(&proof.sqrt_ratio),
         ],
-    });
+    };
 
-    vrf_calls.push(Call {
-        to: *vrf_address,
-        selector: selector!("assert_consumed"),
-        calldata: vec![seed],
-    });
+    let assert_consumed_call =
+        Call { to: *vrf_address, selector: selector!("assert_consumed"), calldata: vec![seed] };
 
-    Ok(vrf_calls)
+    Ok(vec![submit_random_call, assert_consumed_call])
 }
