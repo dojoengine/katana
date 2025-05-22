@@ -6512,6 +6512,7 @@ dependencies = [
  "alloy",
  "alloy-primitives",
  "anyhow",
+ "ark-ec 0.4.2",
  "assert_matches",
  "cainome 0.5.1",
  "cairo-lang-starknet-classes",
