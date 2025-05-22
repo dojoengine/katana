@@ -8,6 +8,8 @@ pub mod exit;
 
 use std::future::IntoFuture;
 use std::sync::Arc;
+#[cfg(feature = "cartridge")]
+use std::{collections::HashMap, sync::RwLock};
 
 use anyhow::{Context, Result};
 use config::rpc::RpcModuleKind;
@@ -67,8 +69,6 @@ pub struct Node {
     task_manager: TaskManager,
     backend: Arc<Backend<BlockifierFactory>>,
     block_producer: BlockProducer<BlockifierFactory>,
-    #[cfg(feature = "cartridge")]
-    vrf_cache: Arc<RwLock<HashMap<Felt, Felt>>>,
 }
 
 impl Node {
@@ -248,6 +248,7 @@ impl Node {
                 paymaster.cartridge_api_url.clone(),
                 vrf_cache.clone(),
             );
+
             rpc_modules.merge(CartridgeApiServer::into_rpc(api))?;
 
             Some(PaymasterConfig { cartridge_api_url: paymaster.cartridge_api_url.clone() })
@@ -316,8 +317,6 @@ impl Node {
             block_producer,
             config: Arc::new(config),
             task_manager: TaskManager::current(),
-            #[cfg(feature = "cartridge")]
-            vrf_cache,
         })
     }
 
