@@ -79,10 +79,10 @@ use url::Url;
 // returns 0 for the fees): <https://github.com/cartridge-gg/vrf/blob/38d71385f939a19829113c122f1ab12dbbe0f877/src/vrf_provider/vrf_provider_component.cairo#L124>
 // The contract is compiled in
 // `crates/controller/artifacts/cartridge_vrf_VrfProvider.contract_class.json`
-pub const CARTIDGE_VRF_CLASS_HASH: Felt =
+pub const CARTRIDGE_VRF_CLASS_HASH: Felt =
     felt!("0x07007ea60938ff539f1c0772a9e0f39b4314cfea276d2c22c29a8b64f2a87a58");
 // Short string for `cartridge_vrf`.
-pub const CARTIDGE_VRF_SALT: Felt = felt!("0x6361727472696467655f767266");
+pub const CARTRIDGE_VRF_SALT: Felt = felt!("0x6361727472696467655f767266");
 pub const CARTRIDGE_VRF_DEFAULT_PRIVATE_KEY: Felt = felt!("0x01");
 
 #[derive(Debug, Default, Clone)]
@@ -143,8 +143,8 @@ impl VrfContext {
         public_key_y: Felt,
     ) -> ContractAddress {
         get_contract_address(
-            CARTIDGE_VRF_SALT,
-            CARTIDGE_VRF_CLASS_HASH,
+            CARTRIDGE_VRF_SALT,
+            CARTRIDGE_VRF_CLASS_HASH,
             &[*pm_address, public_key_x, public_key_y],
             Felt::ZERO,
         )
@@ -547,8 +547,8 @@ pub async fn craft_deploy_cartridge_vrf_tx(
     public_key_y: Felt,
 ) -> anyhow::Result<ExecutableTxWithHash> {
     let calldata = vec![
-        CARTIDGE_VRF_CLASS_HASH,
-        CARTIDGE_VRF_SALT,
+        CARTRIDGE_VRF_CLASS_HASH,
+        CARTRIDGE_VRF_SALT,
         // from zero
         Felt::ZERO,
         // Calldata len
