@@ -9,7 +9,11 @@ pub fn add_controller_classes(genesis: &mut Genesis) {
 }
 
 pub fn add_vrf_provider_class(genesis: &mut Genesis) {
-    let vrf_provider_class = include_str!("../artifacts/cartridge_vrf_VrfProvider.contract_class.json");
+    let vrf_provider_class =
+        include_str!("../artifacts/cartridge_vrf_VrfProvider.contract_class.json");
     let class = parse_sierra_class(vrf_provider_class).unwrap();
-    genesis.classes.insert(class.class_hash().expect("Failed to compute class hash for VRF provider class"), class.into());
+    genesis.classes.insert(
+        class.class_hash().expect("Failed to compute class hash for VRF provider class"),
+        class.into(),
+    );
 }

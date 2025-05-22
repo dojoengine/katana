@@ -6497,6 +6497,7 @@ dependencies = [
  "katana-trie",
  "katana-utils",
  "metrics 0.23.0",
+ "num-bigint",
  "num-traits",
  "rand 0.8.5",
  "reqwest 0.11.27",
