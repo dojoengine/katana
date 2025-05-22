@@ -24,7 +24,21 @@
 //!    the associated transaction to be executed in order to deploy the controller account. See the
 //!    fee estimate RPC method of [StarknetApi](crate::starknet::StarknetApi) to see how the
 //!    Controller deployment is handled during fee estimation.
-
+//!
+//!
+//! For the VRF, the inegration works as follows (if an execution from outside is targetting the
+//! VRF provider contract):
+//!
+//! 1. The VRF provider contract is deployed (if not already deployed).
+//! 2. The Stark VRF proof is generated using the `Source` provided in the call. Since one of the
+//!    `Source` is a nonce for a given address, Katana keeps an in-memory cache of the nonces for
+//!    each address. WARNING: Restarting Katana will reset the cache, hence reset the VRF sequence.
+//! 3. The original execution from outside call is then sandwitched between two VRF calls, one for
+//!    submitting the randomness, and one to assert the correct consumption of the randomness.
+//!
+//! In the current implementation, the VRF contract is deployed with a default private key, or read
+//! from environment variable `KATANA_VRF_PRIVATE_KEY`. It is important to note that changing the
+//! private key will result in a different VRF provider contract address.
 use std::collections::HashMap;
 use std::str::FromStr;
 use std::sync::{Arc, RwLock};
@@ -35,7 +49,6 @@ use cainome::cairo_serde::CairoSerde;
 use jsonrpsee::core::{async_trait, RpcResult};
 use katana_core::backend::Backend;
 use katana_core::service::block_producer::{BlockProducer, BlockProducerMode, PendingExecutor};
-use katana_executor::implementation::blockifier::blockifier::execution::execution_utils::poseidon_hash_many_cost;
 use katana_executor::ExecutorFactory;
 use katana_pool::{TransactionPool, TxPool};
 use katana_primitives::chain::ChainId;
@@ -58,13 +71,18 @@ use starknet::core::types::Call;
 use starknet::core::utils::get_contract_address;
 use starknet::macros::{felt, selector};
 use starknet::signers::{LocalWallet, Signer, SigningKey};
-use tracing::debug;
+use tracing::{debug, info};
 use url::Url;
 
-// Class hash of the VRF provider contract (without the fee estimation attack code).
+// Class hash of the VRF provider contract (fee estimation code commented, since currently Katana
+// returns 0 for the fees): <https://github.com/cartridge-gg/vrf/blob/38d71385f939a19829113c122f1ab12dbbe0f877/src/vrf_provider/vrf_provider_component.cairo#L124>
+// The contract is compiled in
+// `crates/controller/artifacts/cartridge_vrf_VrfProvider.contract_class.json`
 pub const CARTIDGE_VRF_CLASS_HASH: Felt =
     felt!("0x07007ea60938ff539f1c0772a9e0f39b4314cfea276d2c22c29a8b64f2a87a58");
+// Short string for `cartridge_vrf`.
 pub const CARTIDGE_VRF_SALT: Felt = felt!("0x6361727472696467655f767266");
+pub const CARTRIDGE_VRF_DEFAULT_PRIVATE_KEY: Felt = felt!("0x01");
 
 #[derive(Debug, Default, Clone)]
 pub struct StarkVrfProof {
@@ -80,6 +98,32 @@ pub struct StarkVrfProof {
 pub struct VrfContext {
     pub cache: Arc<RwLock<HashMap<Felt, Felt>>>,
     pub private_key: Felt,
+}
+
+impl VrfContext {
+    /// Get the public key x and y coordinates from the private key.
+    pub fn get_public_key_xy(&self) -> (Felt, Felt) {
+        let pk_str = self.private_key.to_string();
+        let public_key = generate_public_key(pk_str.parse().unwrap());
+
+        let x = Felt::from_str(&public_key.x.to_string()).unwrap();
+        let y = Felt::from_str(&public_key.y.to_string()).unwrap();
+
+        (x, y)
+    }
+
+    /// Get the VRF contract address from the paymaster address and the public key coordinates.
+    pub fn get_vrf_address(&self, pm_address: ContractAddress) -> ContractAddress {
+        let (public_key_x, public_key_y) = self.get_public_key_xy();
+
+        get_contract_address(
+            CARTIDGE_VRF_SALT,
+            CARTIDGE_VRF_CLASS_HASH,
+            &[(*pm_address).into(), public_key_x, public_key_y],
+            Felt::ZERO,
+        )
+        .into()
+    }
 }
 
 #[allow(missing_debug_implementations)]
@@ -115,9 +159,23 @@ impl<EF: ExecutorFactory> CartridgeApi<EF> {
         api_url: Url,
         vrf_cache: Arc<RwLock<HashMap<Felt, Felt>>>,
     ) -> Self {
-        // Load from env or default to 1, TODO: better default value?
-        let vrf_private_key = Felt::ONE;
-        let vrf_ctx = VrfContext { cache: vrf_cache, private_key: vrf_private_key };
+        let vrf_ctx =
+            VrfContext { cache: vrf_cache, private_key: CARTRIDGE_VRF_DEFAULT_PRIVATE_KEY };
+
+        // Pulling the paymaster address merely to print the VRF contract address.
+        let (pm_address, _) = backend
+            .chain_spec
+            .genesis()
+            .accounts()
+            .nth(0)
+            .expect("Cartridge paymaster account should exist");
+
+        let vrf_contract_address = vrf_ctx.get_vrf_address(*pm_address);
+
+        // Info to ensure this is visible to the user without changing the default logging level.
+        // The use can still use `rpc::cartridge` in debug to see the random value and the seed.
+        info!(target: "rpc::cartridge", paymaster_address = %pm_address, vrf_address = %vrf_contract_address, "Cartridge API initialized.");
+
         Self { backend, block_producer, pool, api_url, vrf_ctx }
     }
 
@@ -157,7 +215,6 @@ impl<EF: ExecutorFactory> CartridgeApi<EF> {
                 let reason = "Paymaster is not a dev account".to_string();
                 return Err(StarknetApiError::UnexpectedError { reason });
             };
-
 
             // Contract function selector for
             let entrypoint = match outside_execution {
@@ -215,26 +272,10 @@ impl<EF: ExecutorFactory> CartridgeApi<EF> {
 
             // ======= VRF checks =======
 
-            println!("vrf_ctx: {:?}", this.vrf_ctx);
-
-            let pk_str = this.vrf_ctx.private_key.to_string();
-            let public_key = generate_public_key(pk_str.parse().unwrap());
-
-            println!("public key: {:?}", public_key);
-            println!("public key x: {:?}", public_key.x.to_string());
-            println!("public key y: {:?}", public_key.y.to_string());
-
-            let public_key_x = Felt::from_str(&public_key.x.to_string()).unwrap();
-            let public_key_y = Felt::from_str(&public_key.y.to_string()).unwrap();
-
             let state = this.backend.blockchain.provider().latest().map(Arc::new)?;
 
-            let vrf_address: ContractAddress = get_contract_address(
-                CARTIDGE_VRF_SALT,
-                CARTIDGE_VRF_CLASS_HASH,
-                &[(*pm_address).into(), public_key_x, public_key_y],
-                Felt::ZERO,
-            ).into();
+            let (public_key_x, public_key_y) = this.vrf_ctx.get_public_key_xy();
+            let vrf_address = this.vrf_ctx.get_vrf_address(*pm_address);
 
             let class_hash = state.class_hash_of_contract(vrf_address)?;
             if class_hash.is_none() {
@@ -247,23 +288,22 @@ impl<EF: ExecutorFactory> CartridgeApi<EF> {
                     public_key_y,
                 ))?;
 
-                debug!(target: "rpc::cartridge", controller = %address, tx = format!("{:#x}", tx.hash),  "Inserting Cartridge VRF deployment transaction");
+                debug!(target: "rpc::cartridge", controller = %address, tx = format!("{:#x}", tx.hash),  "Inserting Cartridge VRF deployment transaction.");
                 this.pool.add_transaction(tx)?;
 
                 // Ensure the nonce is increment for execution from outside.
                 nonce += Nonce::ONE;
             }
 
-            debug!(target: "rpc::cartridge", vrf_address = %vrf_address, "VRF contract address");
-
             let private_key = this.vrf_ctx.private_key.clone();
             let cache = this.vrf_ctx.cache.clone();
-            let vrf_calls = futures::executor::block_on(handle_vrf_calls(&outside_execution, *pm_address, pm_private_key, chain_id, nonce, vrf_address, private_key, cache))?;
+            let vrf_calls = futures::executor::block_on(handle_vrf_calls(&outside_execution, chain_id, vrf_address, private_key, cache))?;
 
             let calls = if vrf_calls.is_empty() {
                 vec![execute_from_outside_call]
             } else {
                 assert!(vrf_calls.len() == 2);
+                // First call to submit randomness, execution from outside must consume it, and final call to assert consumption.
                 vec![vrf_calls[0].clone(), execute_from_outside_call, vrf_calls[1].clone()]
             };
 
@@ -476,6 +516,7 @@ pub async fn craft_deploy_cartridge_controller_tx(
     }
 }
 
+/// Crafts a deploy of the VRF provider contract transaction.
 pub async fn craft_deploy_cartridge_vrf_tx(
     paymaster_address: ContractAddress,
     paymaster_private_key: Felt,
@@ -484,8 +525,6 @@ pub async fn craft_deploy_cartridge_vrf_tx(
     public_key_x: Felt,
     public_key_y: Felt,
 ) -> anyhow::Result<ExecutableTxWithHash> {
-    // UDC arguments:
-    // class hash, salt, unique, calldata_len, ctor calldata.
     let calldata = vec![
         CARTIDGE_VRF_CLASS_HASH,
         CARTIDGE_VRF_SALT,
@@ -536,11 +575,7 @@ fn stark_vrf(seed: Felt, vrf_private_key: Felt) -> anyhow::Result<StarkVrfProof>
     let private_key = vrf_private_key.to_string();
     let public_key = generate_public_key(private_key.parse().unwrap());
 
-    println!("public key {public_key}");
-    println!("seed {:?}", seed);
-
     let seed = vec![BaseField::from_str(&format!("{seed}")).unwrap()];
-    println!("SEED {}", format(seed[0]));
 
     let ecvrf = StarkVRF::new(public_key).unwrap();
     let proof = ecvrf.prove(&private_key.parse().unwrap(), seed.as_slice()).unwrap();
@@ -549,11 +584,7 @@ fn stark_vrf(seed: Felt, vrf_private_key: Felt) -> anyhow::Result<StarkVrfProof>
 
     let beta = ecvrf.proof_to_hash(&proof).unwrap();
 
-    /* println!("proof gamma: {}", proof.0);
-    println!("proof c: {}", proof.1);
-    println!("proof s: {}", proof.2);
-    println!("proof verify hint: {}", sqrt_ratio_hint); */
-    println!("random value: {}", format(beta));
+    debug!(target: "rpc::cartridge", seed = ?seed[0], random_value = %format(beta), "Computing VRF proof.");
 
     Ok(StarkVrfProof {
         gamma_x: format(proof.0.x),
@@ -565,6 +596,7 @@ fn stark_vrf(seed: Felt, vrf_private_key: Felt) -> anyhow::Result<StarkVrfProof>
     })
 }
 
+/// Formats the given value as a hexadecimal string.
 fn format<T: std::fmt::Display>(v: T) -> String {
     let int = BigInt::from_str(&format!("{v}")).unwrap();
     format!("0x{}", int.to_str_radix(16))
@@ -573,19 +605,14 @@ fn format<T: std::fmt::Display>(v: T) -> String {
 /// Inspects the [`OutsideExecution`] to search for `request_random` call sent to the VRF contract
 /// as the first call.
 ///
-/// If it's a VRF call, other VRF calls are added to the execution to ensure correct
-/// VRF results.
-/// Since the VRF supports two `Source`, one being an explicit salt, the other one being a
-/// `ContractAddress` bound source, Katana has to keep a cache of such nonces.
+/// If it's a VRF call, the calls to submit randomness and assert consumption are returned.
+/// Otherwise, an empty vector is returned.
 ///
 /// In the current implementation, Katana doesn't store the cached nonces into the database, so any
 /// restart of Katana would result in a reset of this nonce (hence predictible VRF).
 async fn handle_vrf_calls(
     outside_execution: &OutsideExecution,
-    paymaster_address: ContractAddress,
-    paymaster_private_key: Felt,
     chain_id: ChainId,
-    paymaster_nonce: Felt,
     vrf_address: ContractAddress,
     vrf_private_key: Felt,
     vrf_cache: Arc<RwLock<HashMap<Felt, Felt>>>,
@@ -595,17 +622,20 @@ async fn handle_vrf_calls(
         OutsideExecution::V3(v3) => &v3.calls,
     };
 
-    let first_call = calls.first().expect("No calls in outside execution");
+    if calls.is_empty() {
+        anyhow::bail!("No calls in outside execution.");
+    }
 
-    if first_call.selector != selector!("request_random") && first_call.to != (*vrf_address).into() {
+    let first_call = calls.first().unwrap();
+
+    if first_call.selector != selector!("request_random") && first_call.to != (*vrf_address).into()
+    {
         return Ok(vec![]);
     }
 
     if first_call.calldata.len() != 3 {
-        return anyhow::bail!("Invalid calldata for request_random: {:?}", first_call.calldata);
+        anyhow::bail!("Invalid calldata for request_random: {:?}", first_call.calldata);
     }
-
-    println!("first_call: {:?}", first_call);
 
     let caller = first_call.calldata[0];
     let salt_or_nonce_selector = first_call.calldata[1];
@@ -615,15 +645,14 @@ async fn handle_vrf_calls(
 
     let seed = if salt_or_nonce_selector == Felt::ZERO {
         let contract_address = salt_or_nonce;
-        let nonce =
-            vrf_cache.read().unwrap().get(&contract_address).unwrap_or(&Felt::ZERO).clone();
+        let nonce = vrf_cache.read().unwrap().get(&contract_address).unwrap_or(&Felt::ZERO).clone();
         vrf_cache.write().unwrap().insert(contract_address, nonce + Felt::ONE);
         starknet_crypto::poseidon_hash_many(vec![&nonce, &caller, &chain_id.id()])
     } else if salt_or_nonce_selector == Felt::ONE {
         let salt = salt_or_nonce;
         starknet_crypto::poseidon_hash_many(vec![&salt, &caller, &chain_id.id()])
     } else {
-        return anyhow::bail!(
+        anyhow::bail!(
             "Invalid salt or nonce for VRF request, expecting 0 or 1, got {}",
             salt_or_nonce_selector
         );
