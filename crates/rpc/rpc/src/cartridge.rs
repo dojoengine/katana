@@ -26,7 +26,7 @@
 //!    Controller deployment is handled during fee estimation.
 //!
 //!
-//! For the VRF, the inegration works as follows (if an execution from outside is targetting the
+//! For the VRF, the integration works as follows (if an execution from outside is targetting the
 //! VRF provider contract):
 //!
 //! 1. The VRF provider contract is deployed (if not already deployed).
