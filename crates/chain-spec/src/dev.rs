@@ -470,6 +470,8 @@ mod tests {
             DEFAULT_ACCOUNT_CLASS_PUBKEY_STORAGE_SLOT,
             felt!("0x01ef15c18599971b7beced415a40f0c7deacfd9b0d1819e03d723d8bc943cfca"),
         );
+        account_allocation_storage
+            .insert(DEFAULT_ACCOUNT_CLASS_SRC5_ACCOUNT_INTERFACE_ID_STORAGE_SLOT, felt!("0x1"));
 
         assert_eq!(
             actual_state_updates.state_updates.deployed_contracts.get(&alloc_1_addr),
