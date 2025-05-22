@@ -10,7 +10,7 @@ katana-chain-spec.workspace = true
 katana-core.workspace = true
 katana-db.workspace = true
 katana-executor = { workspace = true, features = [ "blockifier" ] }
-#katana-explorer.workspace = true
+katana-explorer.workspace = true
 katana-messaging.workspace = true
 katana-metrics.workspace = true
 katana-pipeline.workspace = true
