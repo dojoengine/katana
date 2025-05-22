@@ -1,5 +1,5 @@
 window.BENCHMARK_DATA = {
-  "lastUpdate": 1747814337515,
+  "lastUpdate": 1747945831080,
   "repoUrl": "https://github.com/dojoengine/katana",
   "entries": {
     "Benchmark": [
@@ -269,6 +269,60 @@ window.BENCHMARK_DATA = {
             "name": "Katana.Startup",
             "value": 125927039,
             "range": "± 369796",
+            "unit": "ns/iter"
+          }
+        ]
+      },
+      {
+        "commit": {
+          "author": {
+            "email": "evergreenkary@gmail.com",
+            "name": "Ammar Arif",
+            "username": "kariy"
+          },
+          "committer": {
+            "email": "noreply@github.com",
+            "name": "GitHub",
+            "username": "web-flow"
+          },
+          "distinct": true,
+          "id": "b5d41153a570501775a2609b9ff238f4e0c45122",
+          "message": "refactor(rpc): run add transaction methods on CPU blocking pool (#81)",
+          "timestamp": "2025-05-23T04:11:16+08:00",
+          "tree_id": "a2f7af7e576db53eb8f95191b3eb76fdf98a6207",
+          "url": "https://github.com/dojoengine/katana/commit/b5d41153a570501775a2609b9ff238f4e0c45122"
+        },
+        "date": 1747945830054,
+        "tool": "cargo",
+        "benches": [
+          {
+            "name": "decompress world contract",
+            "value": 3007445,
+            "range": "± 25710",
+            "unit": "ns/iter"
+          },
+          {
+            "name": "Concurrent.Simulate/Blockifier.1",
+            "value": 16222088,
+            "range": "± 494998",
+            "unit": "ns/iter"
+          },
+          {
+            "name": "Concurrent.Simulate/Blockifier.1000",
+            "value": 2570386731,
+            "range": "± 240622292",
+            "unit": "ns/iter"
+          },
+          {
+            "name": "Invoke.ERC20.transfer/Blockifier.Cold",
+            "value": 16475315,
+            "range": "± 310048",
+            "unit": "ns/iter"
+          },
+          {
+            "name": "Katana.Startup",
+            "value": 123500283,
+            "range": "± 545252",
             "unit": "ns/iter"
           }
         ]
