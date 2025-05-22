@@ -61,8 +61,9 @@ use starknet::signers::{LocalWallet, Signer, SigningKey};
 use tracing::debug;
 use url::Url;
 
+// Class hash of the VRF provider contract (without the fee estimation attack code).
 pub const CARTIDGE_VRF_CLASS_HASH: Felt =
-    felt!("0x065254cdbc934350bdf40dab1795a32902be743734ace3abc63d28c7c1c005eb");
+    felt!("0x07007ea60938ff539f1c0772a9e0f39b4314cfea276d2c22c29a8b64f2a87a58");
 pub const CARTIDGE_VRF_SALT: Felt = felt!("0x6361727472696467655f767266");
 
 #[derive(Debug, Default, Clone)]
@@ -208,7 +209,7 @@ impl<EF: ExecutorFactory> CartridgeApi<EF> {
                 <OutsideExecution as CairoSerde>::cairo_serialize(&outside_execution);
             inner_calldata.extend(<Vec<Felt> as CairoSerde>::cairo_serialize(&signature));
 
-            let call = Call { to: address.into(), selector: entrypoint, calldata: inner_calldata };
+            let execute_from_outside_call = Call { to: address.into(), selector: entrypoint, calldata: inner_calldata };
 
             let chain_id = this.backend.chain_spec.id();
 
@@ -257,11 +258,14 @@ impl<EF: ExecutorFactory> CartridgeApi<EF> {
 
             let private_key = this.vrf_ctx.private_key.clone();
             let cache = this.vrf_ctx.cache.clone();
-            let calls = futures::executor::block_on(handle_vrf_calls(&outside_execution, *pm_address, pm_private_key, chain_id, nonce, vrf_address, private_key, cache))?;
+            let vrf_calls = futures::executor::block_on(handle_vrf_calls(&outside_execution, *pm_address, pm_private_key, chain_id, nonce, vrf_address, private_key, cache))?;
 
-            for (i, c) in calls.iter().enumerate() {
-                println!("vrf call {}: {:?}", i, c);
-            }
+            let calls = if vrf_calls.is_empty() {
+                vec![execute_from_outside_call]
+            } else {
+                assert!(vrf_calls.len() == 2);
+                vec![vrf_calls[0].clone(), execute_from_outside_call, vrf_calls[1].clone()]
+            };
 
             let mut tx = InvokeTxV3 {
                 nonce,
@@ -593,8 +597,8 @@ async fn handle_vrf_calls(
 
     let first_call = calls.first().expect("No calls in outside execution");
 
-    if first_call.selector != selector!("request_random") {
-        return Ok(calls.iter().map(|call| call.clone().into()).collect());
+    if first_call.selector != selector!("request_random") && first_call.to != (*vrf_address).into() {
+        return Ok(vec![]);
     }
 
     if first_call.calldata.len() != 3 {
@@ -612,8 +616,8 @@ async fn handle_vrf_calls(
     let seed = if salt_or_nonce_selector == Felt::ZERO {
         let contract_address = salt_or_nonce;
         let nonce =
-            vrf_cache.read().unwrap().get(&contract_address).unwrap_or(&Felt::ZERO) + Felt::ONE;
-        vrf_cache.write().unwrap().insert(contract_address, nonce);
+            vrf_cache.read().unwrap().get(&contract_address).unwrap_or(&Felt::ZERO).clone();
+        vrf_cache.write().unwrap().insert(contract_address, nonce + Felt::ONE);
         starknet_crypto::poseidon_hash_many(vec![&nonce, &caller, &chain_id.id()])
     } else if salt_or_nonce_selector == Felt::ONE {
         let salt = salt_or_nonce;
@@ -641,11 +645,6 @@ async fn handle_vrf_calls(
             Felt::from_hex_unchecked(&proof.sqrt_ratio),
         ],
     });
-
-    // Ignore request_random call.
-    for call in &calls[1..] {
-        vrf_calls.push(call.clone().into());
-    }
 
     vrf_calls.push(Call {
         to: *vrf_address,
