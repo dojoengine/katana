@@ -630,7 +630,7 @@ fn format<T: std::fmt::Display>(v: T) -> String {
 /// Otherwise, an empty vector is returned.
 ///
 /// In the current implementation, Katana doesn't store the cached nonces into the database, so any
-/// restart of Katana would result in a reset of this nonce (hence predictible VRF).
+/// restart of Katana would result in a reset of this nonce (hence predictable VRF).
 async fn handle_vrf_calls(
     outside_execution: &OutsideExecution,
     chain_id: ChainId,
