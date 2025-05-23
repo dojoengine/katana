@@ -19,3 +19,4 @@ tracing.workspace = true
 [dev-dependencies]
 futures-util.workspace = true
 rand.workspace = true
+starknet.workspace = true

@@ -30,6 +30,10 @@ impl<T> FiFo<T> {
     pub fn new() -> Self {
         Self { nonce: AtomicU64::new(0), _tx: PhantomData }
     }
+
+    pub fn assign(&self) -> u64 {
+        self.nonce.fetch_add(1, AtomicOrdering::Relaxed)
+    }
 }
 
 impl<T: PoolTransaction> PoolOrd for FiFo<T> {
@@ -37,7 +41,7 @@ impl<T: PoolTransaction> PoolOrd for FiFo<T> {
     type PriorityValue = TxSubmissionNonce;
 
     fn priority(&self, _: &Self::Transaction) -> Self::PriorityValue {
-        TxSubmissionNonce(self.nonce.fetch_add(1, AtomicOrdering::Relaxed))
+        TxSubmissionNonce(self.assign())
     }
 }
 
@@ -49,6 +53,12 @@ impl<T> Default for FiFo<T> {
 
 #[derive(Debug, Default, Clone, Copy)]
 pub struct TxSubmissionNonce(u64);
+
+impl From<u64> for TxSubmissionNonce {
+    fn from(value: u64) -> Self {
+        TxSubmissionNonce(value)
+    }
+}
 
 impl Ord for TxSubmissionNonce {
     fn cmp(&self, other: &Self) -> std::cmp::Ordering {
