@@ -232,6 +232,7 @@ impl Node {
                 pool.clone(),
                 paymaster.cartridge_api_url.clone(),
             );
+
             rpc_modules.merge(CartridgeApiServer::into_rpc(api))?;
 
             Some(PaymasterConfig { cartridge_api_url: paymaster.cartridge_api_url.clone() })

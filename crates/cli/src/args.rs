@@ -291,6 +291,7 @@ impl NodeArgs {
             #[cfg(feature = "cartridge")]
             if self.cartridge.controllers || self.cartridge.paymaster {
                 katana_slot_controller::add_controller_classes(&mut chain_spec.genesis);
+                katana_slot_controller::add_vrf_provider_class(&mut chain_spec.genesis);
             }
 
             Ok((Arc::new(ChainSpec::Dev(chain_spec)), None))

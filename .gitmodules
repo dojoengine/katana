@@ -12,3 +12,6 @@
 	path = crates/explorer/ui
 	url = https://github.com/cartridge-gg/explorer
 	branch = main
+[submodule "contracts/vrf"]
+	path = contracts/vrf
+	url = https://github.com/cartridge-gg/vrf
