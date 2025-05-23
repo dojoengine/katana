@@ -10011,7 +10011,7 @@ checksum = "a8f112729512f8e442d81f95a8a7ddf2b7c6b8a1a6f509a95864142b30cab2d3"
 [[package]]
 name = "stark-vrf"
 version = "0.1.0"
-source = "git+https://github.com/dojoengine/stark-vrf.git#96d6d2a88b1ef46c4a285d0ccc334237205edae3"
+source = "git+https://github.com/dojoengine/stark-vrf.git?rev=96d6d2a#96d6d2a88b1ef46c4a285d0ccc334237205edae3"
 dependencies = [
  "ark-ec 0.4.2",
  "ark-ff 0.4.2",
