@@ -5,14 +5,22 @@
 ///
 /// OpenZeppelin's upgradeable account which can change its public key and declare, deploy, or call
 /// contracts.
+/// 
+
+
 #[starknet::contract(account)]
 pub mod Account {
     use openzeppelin_account::AccountComponent;
     use openzeppelin_introspection::src5::SRC5Component;
+    use openzeppelin_introspection::src5::SRC5Component::{
+        InternalTrait as SRC5InternalTrait, SRC5Impl,
+    };
     use openzeppelin_upgrades::UpgradeableComponent;
     use openzeppelin_upgrades::interface::IUpgradeable;
     use starknet::ClassHash;
 
+    const SRC5_ACCOUNT_INTERFACE_ID: felt252 = 0x2ceccef7f994940b3962a6c67e0ba4fcd37df7d131417c604f91e03caecc1cd;
+   
     component!(path: AccountComponent, storage: account, event: AccountEvent);
     component!(path: SRC5Component, storage: src5, event: SRC5Event);
     component!(path: UpgradeableComponent, storage: upgradeable, event: UpgradeableEvent);
@@ -50,6 +58,7 @@ pub mod Account {
     #[constructor]
     pub fn constructor(ref self: ContractState, public_key: felt252) {
         self.account.initializer(public_key);
+        self.src5.register_interface(SRC5_ACCOUNT_INTERFACE_ID);
     }
 
     #[abi(embed_v0)]
