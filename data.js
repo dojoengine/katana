@@ -1,5 +1,5 @@
 window.BENCHMARK_DATA = {
-  "lastUpdate": 1747945831080,
+  "lastUpdate": 1747981612512,
   "repoUrl": "https://github.com/dojoengine/katana",
   "entries": {
     "Benchmark": [
@@ -323,6 +323,60 @@ window.BENCHMARK_DATA = {
             "name": "Katana.Startup",
             "value": 123500283,
             "range": "± 545252",
+            "unit": "ns/iter"
+          }
+        ]
+      },
+      {
+        "commit": {
+          "author": {
+            "email": "evergreenkary@gmail.com",
+            "name": "Ammar Arif",
+            "username": "kariy"
+          },
+          "committer": {
+            "email": "noreply@github.com",
+            "name": "GitHub",
+            "username": "web-flow"
+          },
+          "distinct": true,
+          "id": "d9e4b908c4c473bf3ca3dad4820a1bebf3c43d6b",
+          "message": "feat(pool): order same sender txs based on their nonce values (#83)\n\n* feat(pool): order same sender txs based on their nonce values\n\n* Fix invalid comments\n\nCo-authored-by: graphite-app[bot] <96075541+graphite-app[bot]@users.noreply.github.com>\n\n---------\n\nCo-authored-by: graphite-app[bot] <96075541+graphite-app[bot]@users.noreply.github.com>",
+          "timestamp": "2025-05-23T14:15:21+08:00",
+          "tree_id": "5dff890eed9ab27974cca2f3b3a945ed19db16f3",
+          "url": "https://github.com/dojoengine/katana/commit/d9e4b908c4c473bf3ca3dad4820a1bebf3c43d6b"
+        },
+        "date": 1747981611232,
+        "tool": "cargo",
+        "benches": [
+          {
+            "name": "decompress world contract",
+            "value": 3034225,
+            "range": "± 49114",
+            "unit": "ns/iter"
+          },
+          {
+            "name": "Concurrent.Simulate/Blockifier.1",
+            "value": 16255674,
+            "range": "± 259235",
+            "unit": "ns/iter"
+          },
+          {
+            "name": "Concurrent.Simulate/Blockifier.1000",
+            "value": 2700261357,
+            "range": "± 243176947",
+            "unit": "ns/iter"
+          },
+          {
+            "name": "Invoke.ERC20.transfer/Blockifier.Cold",
+            "value": 17502949,
+            "range": "± 541514",
+            "unit": "ns/iter"
+          },
+          {
+            "name": "Katana.Startup",
+            "value": 127983285,
+            "range": "± 629533",
             "unit": "ns/iter"
           }
         ]
