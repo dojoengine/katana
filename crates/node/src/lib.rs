@@ -8,8 +8,6 @@ pub mod exit;
 
 use std::future::IntoFuture;
 use std::sync::Arc;
-#[cfg(feature = "cartridge")]
-use std::{collections::HashMap, sync::RwLock};
 
 use anyhow::{Context, Result};
 use config::rpc::RpcModuleKind;
@@ -222,9 +220,6 @@ impl Node {
         .allow_headers([hyper::header::CONTENT_TYPE, "argent-client".parse().unwrap(), "argent-version".parse().unwrap()]);
 
         #[cfg(feature = "cartridge")]
-        let vrf_cache = Arc::new(RwLock::new(HashMap::new()));
-
-        #[cfg(feature = "cartridge")]
         let paymaster = if let Some(paymaster) = &config.paymaster {
             anyhow::ensure!(
                 config.rpc.apis.contains(&RpcModuleKind::Cartridge),
@@ -236,7 +231,6 @@ impl Node {
                 block_producer.clone(),
                 pool.clone(),
                 paymaster.cartridge_api_url.clone(),
-                vrf_cache.clone(),
             );
 
             rpc_modules.merge(CartridgeApiServer::into_rpc(api))?;
