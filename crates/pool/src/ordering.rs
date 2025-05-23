@@ -32,7 +32,7 @@ impl<T> FiFo<T> {
     }
 
     pub fn assign(&self) -> u64 {
-        self.nonce.fetch_add(1, AtomicOrdering::Relaxed)
+        self.nonce.fetch_add(1, AtomicOrdering::SeqCst)
     }
 }
 
