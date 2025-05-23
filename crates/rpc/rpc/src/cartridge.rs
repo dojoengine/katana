@@ -111,11 +111,12 @@ impl VrfContext {
     /// Create a new VRF context.
     pub fn new(
         private_key: Felt,
-        cache: Arc<RwLock<HashMap<Felt, Felt>>>,
         pm_address: ContractAddress,
     ) -> Self {
         let pk_str = private_key.to_string();
         let public_key = generate_public_key(pk_str.parse().unwrap());
+
+        let cache = Arc::new(RwLock::new(HashMap::new()));
 
         let contract_address = Self::compute_vrf_address(
             pm_address,
@@ -187,7 +188,6 @@ impl<EF: ExecutorFactory> CartridgeApi<EF> {
         block_producer: BlockProducer<EF>,
         pool: TxPool,
         api_url: Url,
-        vrf_cache: Arc<RwLock<HashMap<Felt, Felt>>>,
     ) -> Self {
         // Pulling the paymaster address merely to print the VRF contract address.
         let (pm_address, _) = backend
@@ -197,7 +197,7 @@ impl<EF: ExecutorFactory> CartridgeApi<EF> {
             .nth(0)
             .expect("Cartridge paymaster account should exist");
 
-        let vrf_ctx = VrfContext::new(CARTRIDGE_VRF_DEFAULT_PRIVATE_KEY, vrf_cache, *pm_address);
+        let vrf_ctx = VrfContext::new(CARTRIDGE_VRF_DEFAULT_PRIVATE_KEY, *pm_address);
 
         // Info to ensure this is visible to the user without changing the default logging level.
         // The use can still use `rpc::cartridge` in debug to see the random value and the seed.
