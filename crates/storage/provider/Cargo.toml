@@ -30,7 +30,7 @@ alloy-primitives = { workspace = true, optional = true }
 serde_json.workspace = true
 
 [features]
-fork = [ "dep:futures", "dep:tokio", "in-memory" ]
+fork = [ "dep:futures", "dep:tokio" ]
 in-memory = [  ]
 test-utils = [ "dep:alloy-primitives", "dep:katana-chain-spec" ]
 

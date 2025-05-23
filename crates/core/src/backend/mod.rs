@@ -18,7 +18,7 @@ use katana_primitives::trace::TxExecInfo;
 use katana_primitives::transaction::{TxHash, TxWithHash};
 use katana_primitives::version::CURRENT_STARKNET_VERSION;
 use katana_primitives::{address, ContractAddress, Felt};
-use katana_provider::providers::in_memory::state::EmptyStateProvider;
+use katana_provider::providers::EmptyStateProvider;
 use katana_provider::traits::block::{BlockHashProvider, BlockWriter};
 use katana_provider::traits::trie::TrieWriter;
 use katana_trie::bonsai::databases::HashMapDb;
