@@ -1,5 +1,5 @@
 window.BENCHMARK_DATA = {
-  "lastUpdate": 1747993677119,
+  "lastUpdate": 1748005181983,
   "repoUrl": "https://github.com/dojoengine/katana",
   "entries": {
     "Benchmark": [
@@ -431,6 +431,60 @@ window.BENCHMARK_DATA = {
             "name": "Katana.Startup",
             "value": 125190022,
             "range": "± 1410212",
+            "unit": "ns/iter"
+          }
+        ]
+      },
+      {
+        "commit": {
+          "author": {
+            "email": "evergreenkary@gmail.com",
+            "name": "Ammar Arif",
+            "username": "kariy"
+          },
+          "committer": {
+            "email": "noreply@github.com",
+            "name": "GitHub",
+            "username": "web-flow"
+          },
+          "distinct": true,
+          "id": "27dcef72bc9f67728d3b591230d0d81b57fc72f3",
+          "message": "fix(pool): use `SeqCst` when assigning priority in fifo ordering (#85)",
+          "timestamp": "2025-05-23T20:48:05+08:00",
+          "tree_id": "6ddd75c7c52dd6931b2150eb48c3b2728118bb68",
+          "url": "https://github.com/dojoengine/katana/commit/27dcef72bc9f67728d3b591230d0d81b57fc72f3"
+        },
+        "date": 1748005180556,
+        "tool": "cargo",
+        "benches": [
+          {
+            "name": "decompress world contract",
+            "value": 3009239,
+            "range": "± 47486",
+            "unit": "ns/iter"
+          },
+          {
+            "name": "Concurrent.Simulate/Blockifier.1",
+            "value": 17308270,
+            "range": "± 399833",
+            "unit": "ns/iter"
+          },
+          {
+            "name": "Concurrent.Simulate/Blockifier.1000",
+            "value": 2662722032,
+            "range": "± 186767219",
+            "unit": "ns/iter"
+          },
+          {
+            "name": "Invoke.ERC20.transfer/Blockifier.Cold",
+            "value": 17043152,
+            "range": "± 557623",
+            "unit": "ns/iter"
+          },
+          {
+            "name": "Katana.Startup",
+            "value": 127674987,
+            "range": "± 627395",
             "unit": "ns/iter"
           }
         ]
