@@ -109,10 +109,7 @@ pub struct VrfContext {
 
 impl VrfContext {
     /// Create a new VRF context.
-    pub fn new(
-        private_key: Felt,
-        pm_address: ContractAddress,
-    ) -> Self {
+    pub fn new(private_key: Felt, pm_address: ContractAddress) -> Self {
         let pk_str = private_key.to_string();
         let public_key = generate_public_key(pk_str.parse().unwrap());
 
