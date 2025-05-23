@@ -253,7 +253,7 @@ mod tests {
         let tx_b1_p15 = create_pending_tx(sender_b, 1, 15); // Sender B, nonce 1, prio 15
         let tx_a1_p30 = create_pending_tx(sender_a, 1, 30); // Sender A, nonce 1, prio 30
         let tx_b0_p10_later = create_pending_tx(sender_b, 0, 10); // Sender B, nonce 0, prio 10
-        let tx_b2_p40_later = create_pending_tx(sender_b, 2, 40); // Sender B, nonce 0, prio 40
+        let tx_b2_p40_later = create_pending_tx(sender_b, 2, 40); // Sender B, nonce 2, prio 40
         let tx_a0_p12_later = create_pending_tx(sender_a, 0, 12); // Sender A, nonce 0, prio 12
 
         let mut tx_set = BTreeSet::new();
