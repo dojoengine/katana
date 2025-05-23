@@ -10,7 +10,6 @@ version.workspace = true
 katana-chain-spec.workspace = true
 katana-cli.workspace = true
 katana-db.workspace = true
-katana-node.workspace = true
 katana-primitives.workspace = true
 katana-rpc-types.workspace = true
 
@@ -21,6 +20,7 @@ cainome.workspace = true
 clap.workspace = true
 clap_complete.workspace = true
 comfy-table = "7.1.1"
+const_format = "0.2.33"
 dojo-utils.workspace = true
 inquire = "0.7.5"
 piltover = { git = "https://github.com/keep-starknet-strange/piltover.git", rev = "161cb3f" }
@@ -33,6 +33,10 @@ thiserror.workspace = true
 tokio.workspace = true
 tracing.workspace = true
 url.workspace = true
+
+[build-dependencies]
+vergen = { version = "9.0.0", features = [ "build", "cargo", "emit_and_set" ] }
+vergen-gitcl = { version = "1.0.0", features = [ "build", "cargo", "rustc", "si" ] }
 
 [dev-dependencies]
 assert_matches.workspace = true

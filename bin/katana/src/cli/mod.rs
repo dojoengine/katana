@@ -4,15 +4,17 @@ use anyhow::{Context, Result};
 use clap::{Args, CommandFactory, Parser, Subcommand};
 use clap_complete::Shell;
 use katana_cli::NodeArgs;
-use katana_node::version::VERSION;
 use tokio::runtime::Runtime;
 
 mod config;
 mod db;
 mod init;
+mod version;
+
+use version::{generate_long, generate_short};
 
 #[derive(Parser)]
-#[command(name = "katana", author, version = VERSION, about, long_about = None)]
+#[command(name = "katana", author, version = generate_short(), long_version = generate_long() ,about, long_about = None)]
 pub struct Cli {
     #[command(subcommand)]
     commands: Option<Commands>,

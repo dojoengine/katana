@@ -3315,9 +3315,9 @@ dependencies = [
 
 [[package]]
 name = "cargo_metadata"
-version = "0.19.1"
+version = "0.19.2"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "8769706aad5d996120af43197bf46ef6ad0fda35216b4505f926a365a232d924"
+checksum = "dd5eb614ed4c27c5d706420e4320fbe3216ab31fa1c33cd8246ac36dae4479ba"
 dependencies = [
  "camino",
  "cargo-platform",
@@ -6024,12 +6024,12 @@ dependencies = [
  "clap",
  "clap_complete",
  "comfy-table",
+ "const_format",
  "dojo-utils",
  "inquire",
  "katana-chain-spec",
  "katana-cli",
  "katana-db",
- "katana-node",
  "katana-primitives",
  "katana-rpc-types",
  "piltover",
@@ -6043,6 +6043,8 @@ dependencies = [
  "tokio",
  "tracing",
  "url",
+ "vergen 9.0.6",
+ "vergen-gitcl",
 ]
 
 [[package]]
@@ -6339,7 +6341,6 @@ version = "1.5.1"
 dependencies = [
  "anyhow",
  "clap",
- "const_format",
  "dojo-utils",
  "futures",
  "hyper 0.14.32",
@@ -6374,8 +6375,6 @@ dependencies = [
  "tracing-log 0.1.4",
  "tracing-subscriber",
  "url",
- "vergen 9.0.4",
- "vergen-gitcl",
 ]
 
 [[package]]
@@ -10698,15 +10697,14 @@ dependencies = [
 
 [[package]]
 name = "sysinfo"
-version = "0.33.1"
+version = "0.34.2"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "4fc858248ea01b66f19d8e8a6d55f41deaf91e9d495246fd01368d99935c6c01"
+checksum = "a4b93974b3d3aeaa036504b8eefd4c039dced109171c1ae973f1dc63b2c7e4b2"
 dependencies = [
- "core-foundation-sys",
  "libc",
  "memchr",
  "ntapi",
- "rayon",
+ "objc2-core-foundation",
  "windows 0.57.0",
 ]
 
@@ -11758,9 +11756,9 @@ dependencies = [
 
 [[package]]
 name = "vergen"
-version = "9.0.4"
+version = "9.0.6"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "e0d2f179f8075b805a43a2a21728a46f0cc2921b3c58695b28fa8817e103cd9a"
+checksum = "6b2bf58be11fc9414104c6d3a2e464163db5ef74b12296bda593cac37b6e4777"
 dependencies = [
  "anyhow",
  "cargo_metadata",
@@ -11768,22 +11766,22 @@ dependencies = [
  "regex",
  "rustc_version 0.4.1",
  "rustversion",
- "sysinfo 0.33.1",
+ "sysinfo 0.34.2",
  "time",
  "vergen-lib",
 ]
 
 [[package]]
 name = "vergen-gitcl"
-version = "1.0.5"
+version = "1.0.8"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "b2f89d70a58a4506a6079cedf575c64cf51649ccbb4e02a63dac539b264b7711"
+checksum = "b9dfc1de6eb2e08a4ddf152f1b179529638bedc0ea95e6d667c014506377aefe"
 dependencies = [
  "anyhow",
  "derive_builder",
  "rustversion",
  "time",
- "vergen 9.0.4",
+ "vergen 9.0.6",
  "vergen-lib",
 ]
 
