@@ -80,7 +80,8 @@ use starknet::signers::{LocalWallet, Signer, SigningKey};
 use tracing::{debug, info};
 use url::Url;
 use vrf::{
-    craft_deploy_cartridge_vrf_tx, StarkVrfProof, VrfContext, CARTRIDGE_VRF_DEFAULT_PRIVATE_KEY,
+    StarkVrfProof, VrfContext, CARTRIDGE_VRF_CLASS_HASH, CARTRIDGE_VRF_DEFAULT_PRIVATE_KEY,
+    CARTRIDGE_VRF_SALT,
 };
 
 #[allow(missing_debug_implementations)]
@@ -576,4 +577,58 @@ async fn handle_vrf_calls(
         Call { to: *vrf_address, selector: selector!("assert_consumed"), calldata: vec![seed] };
 
     Ok(vec![submit_random_call, assert_consumed_call])
+}
+
+/// Crafts a deploy of the VRF provider contract transaction.
+pub async fn craft_deploy_cartridge_vrf_tx(
+    paymaster_address: ContractAddress,
+    paymaster_private_key: Felt,
+    chain_id: ChainId,
+    paymaster_nonce: Felt,
+    public_key_x: Felt,
+    public_key_y: Felt,
+) -> anyhow::Result<ExecutableTxWithHash> {
+    let calldata = vec![
+        CARTRIDGE_VRF_CLASS_HASH,
+        CARTRIDGE_VRF_SALT,
+        // from zero
+        Felt::ZERO,
+        // Calldata len
+        Felt::THREE,
+        // owner
+        paymaster_address.into(),
+        // public key
+        public_key_x,
+        public_key_y,
+    ];
+
+    let call =
+        Call { to: DEFAULT_UDC_ADDRESS.into(), selector: selector!("deployContract"), calldata };
+
+    let mut tx = InvokeTxV3 {
+        chain_id,
+        tip: 0_u64,
+        signature: vec![],
+        paymaster_data: vec![],
+        account_deployment_data: vec![],
+        sender_address: paymaster_address,
+        calldata: encode_calls(vec![call]),
+        nonce: paymaster_nonce,
+        resource_bounds: ResourceBoundsMapping::default(),
+        nonce_data_availability_mode: katana_primitives::da::DataAvailabilityMode::L1,
+        fee_data_availability_mode: katana_primitives::da::DataAvailabilityMode::L1,
+    };
+
+    let tx_hash = InvokeTx::V3(tx.clone()).calculate_hash(false);
+
+    let signer = LocalWallet::from(SigningKey::from_secret_scalar(paymaster_private_key));
+    let signature = signer
+        .sign_hash(&tx_hash)
+        .await
+        .map_err(|e| anyhow!("failed to sign hash with paymaster: {e}"))?;
+    tx.signature = vec![signature.r, signature.s];
+
+    let tx = ExecutableTxWithHash::new(ExecutableTx::Invoke(InvokeTx::V3(tx)));
+
+    Ok(tx)
 }
