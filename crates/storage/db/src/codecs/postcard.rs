@@ -36,10 +36,9 @@ macro_rules! impl_compress_and_decompress_for_table_values {
 
 impl Compress for TxExecInfo {
     type Compressed = Vec<u8>;
-    fn compress(self) -> Self::Compressed {
+    fn compress(self) -> Result<Self::Compressed, crate::error::CodecError> {
         let serialized = postcard::to_stdvec(&self).unwrap();
-        let compressed = zstd::encode_all(serialized.as_slice(), 0).unwrap();
-        compressed
+        zstd::encode_all(serialized.as_slice(), 0).map_err(|e| CodecError::Compress(e.to_string()))
     }
 }
 
