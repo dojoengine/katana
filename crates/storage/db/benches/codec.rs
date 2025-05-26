@@ -4,7 +4,7 @@ use katana_primitives::class::CompiledClass;
 use katana_primitives::utils::class::parse_compiled_class;
 
 fn compress_contract(contract: CompiledClass) -> Vec<u8> {
-    Compress::compress(contract)
+    Compress::compress(contract).expect("failed to compress class")
 }
 
 fn decompress_contract(compressed: &[u8]) -> CompiledClass {
