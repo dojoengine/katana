@@ -48,7 +48,6 @@ pub mod vrf;
 
 use std::sync::Arc;
 
-use account_sdk::account::outside_execution::OutsideExecution;
 use anyhow::anyhow;
 use cainome::cairo_serde::CairoSerde;
 use jsonrpsee::core::{async_trait, RpcResult};
@@ -67,6 +66,7 @@ use katana_primitives::{ContractAddress, Felt};
 use katana_provider::traits::state::{StateFactoryProvider, StateProvider};
 use katana_rpc_api::cartridge::CartridgeApiServer;
 use katana_rpc_api::error::starknet::StarknetApiError;
+use katana_rpc_types::outside_execution::OutsideExecution;
 use katana_rpc_types::transaction::InvokeTxResult;
 use katana_tasks::TokioTaskSpawner;
 use serde::Deserialize;
@@ -212,8 +212,8 @@ impl<EF: ExecutorFactory> CartridgeApi<EF> {
             }
 
             let mut inner_calldata =
-                <OutsideExecution as CairoSerde>::cairo_serialize(&outside_execution);
-            inner_calldata.extend(<Vec<Felt> as CairoSerde>::cairo_serialize(&signature));
+                OutsideExecution::cairo_serialize(&outside_execution);
+            inner_calldata.extend(Vec::<Felt>::cairo_serialize(&signature));
 
             let execute_from_outside_call = Call { to: address.into(), selector: entrypoint, calldata: inner_calldata };
 

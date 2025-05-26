@@ -6448,6 +6448,7 @@ dependencies = [
  "arbitrary",
  "assert_matches",
  "base64 0.21.7",
+ "cainome-cairo-serde 0.1.0 (registry+https://github.com/rust-lang/crates.io-index)",
  "cairo-lang-starknet-classes",
  "cairo-vm 1.0.2 (registry+https://github.com/rust-lang/crates.io-index)",
  "criterion",
@@ -6508,7 +6509,6 @@ dependencies = [
 name = "katana-rpc"
 version = "1.5.3"
 dependencies = [
- "account_sdk",
  "alloy",
  "alloy-primitives",
  "anyhow",
@@ -6563,7 +6563,6 @@ dependencies = [
 name = "katana-rpc-api"
 version = "1.5.3"
 dependencies = [
- "account_sdk",
  "anyhow",
  "jsonrpsee",
  "katana-core",
@@ -6584,6 +6583,8 @@ version = "1.5.3"
 dependencies = [
  "alloy-primitives",
  "anyhow",
+ "cainome 0.5.1",
+ "cainome-cairo-serde 0.1.0 (registry+https://github.com/rust-lang/crates.io-index)",
  "cairo-lang-starknet-classes",
  "cairo-lang-utils",
  "derive_more 0.99.19",
