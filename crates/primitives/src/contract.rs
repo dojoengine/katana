@@ -84,6 +84,21 @@ impl From<BigUint> for ContractAddress {
     }
 }
 
+impl cainome_cairo_serde::CairoSerde for ContractAddress {
+    type RustType = Self;
+
+    fn cairo_serialize(rust: &Self::RustType) -> Vec<Felt> {
+        vec![rust.0]
+    }
+
+    fn cairo_deserialize(
+        felts: &[Felt],
+        offset: usize,
+    ) -> cainome_cairo_serde::Result<Self::RustType> {
+        Ok(Self::from(<Felt as cainome_cairo_serde::CairoSerde>::cairo_deserialize(felts, offset)?))
+    }
+}
+
 #[macro_export]
 macro_rules! address {
     ($value:expr) => {
