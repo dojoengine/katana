@@ -1,9 +1,11 @@
 use std::collections::HashMap;
-use std::sync::{Arc, RwLock};
+use std::sync::Arc;
 
 use ark_ec::short_weierstrass::Affine;
+use katana_primitives::contract::Nonce;
 use katana_primitives::{ContractAddress, Felt};
 use num_bigint::BigUint;
+use parking_lot::RwLock;
 use stark_vrf::{generate_public_key, StarkCurve};
 use starknet::core::utils::get_contract_address;
 use starknet::macros::{felt, short_string};
@@ -32,7 +34,7 @@ pub struct VrfContext {
     private_key: Felt,
     public_key: Affine<StarkCurve>,
     contract_address: ContractAddress,
-    pub cache: Arc<RwLock<HashMap<Felt, Felt>>>,
+    pub cache: Arc<RwLock<HashMap<ContractAddress, Nonce>>>,
 }
 
 impl VrfContext {
@@ -65,6 +67,18 @@ impl VrfContext {
     /// Returns the private key of the VRF.
     pub fn private_key(&self) -> Felt {
         self.private_key
+    }
+
+    /// Returns the current internal nonce of the `address` and consume it. Consuming the nonce will
+    /// increment it by one - ensuring the generated VRF seed will always be unique.
+    ///
+    /// This is when the VRF is requested with nonce as the source of randomness.
+    ///
+    /// Refer to <https://docs.cartridge.gg/vrf/overview#using-the-vrf-provider> for further information.
+    pub fn consume_nonce(&self, address: ContractAddress) -> Nonce {
+        let nonce = self.cache.read().get(&address).unwrap_or(&Felt::ZERO).to_owned();
+        self.cache.write().insert(address, nonce + Felt::ONE);
+        nonce
     }
 }
 
