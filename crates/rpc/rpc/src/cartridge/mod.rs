@@ -46,9 +46,8 @@
 
 pub mod vrf;
 
-use std::collections::HashMap;
 use std::str::FromStr;
-use std::sync::{Arc, RwLock};
+use std::sync::Arc;
 
 use account_sdk::account::outside_execution::OutsideExecution;
 use anyhow::anyhow;
@@ -249,7 +248,7 @@ impl<EF: ExecutorFactory> CartridgeApi<EF> {
                 nonce += Nonce::ONE;
             }
 
-            let vrf_calls = futures::executor::block_on(handle_vrf_calls(&outside_execution, chain_id, vrf_address, this.vrf_ctx.private_key(), this.vrf_ctx.cache.clone()))?;
+            let vrf_calls = futures::executor::block_on(handle_vrf_calls(&outside_execution, chain_id, &this.vrf_ctx))?;
 
             let calls = if vrf_calls.is_empty() {
                 vec![execute_from_outside_call]
@@ -511,9 +510,7 @@ fn format<T: std::fmt::Display>(v: T) -> String {
 async fn handle_vrf_calls(
     outside_execution: &OutsideExecution,
     chain_id: ChainId,
-    vrf_address: ContractAddress,
-    vrf_private_key: Felt,
-    vrf_cache: Arc<RwLock<HashMap<Felt, Felt>>>,
+    vrf_ctx: &VrfContext,
 ) -> anyhow::Result<Vec<Call>> {
     let calls = match outside_execution {
         OutsideExecution::V2(v2) => &v2.calls,
@@ -528,9 +525,10 @@ async fn handle_vrf_calls(
     // cartridge documentation for more details: <https://docs.cartridge.gg/vrf/overview#executing-vrf-transactions>.
     let first_call = calls.first().unwrap();
 
-    if first_call.selector != selector!("request_random") && first_call.to != (*vrf_address).into()
+    if first_call.selector != selector!("request_random")
+        && first_call.to != (*vrf_ctx.address()).into()
     {
-        return Ok(vec![]);
+        return Ok(Vec::new());
     }
 
     if first_call.calldata.len() != 3 {
@@ -545,8 +543,7 @@ async fn handle_vrf_calls(
 
     let seed = if salt_or_nonce_selector == Felt::ZERO {
         let contract_address = salt_or_nonce;
-        let nonce = *vrf_cache.read().unwrap().get(&contract_address).unwrap_or(&Felt::ZERO);
-        vrf_cache.write().unwrap().insert(contract_address, nonce + Felt::ONE);
+        let nonce = vrf_ctx.consume_nonce(contract_address.into());
         starknet_crypto::poseidon_hash_many(vec![&nonce, &caller, &chain_id.id()])
     } else if salt_or_nonce_selector == Felt::ONE {
         let salt = salt_or_nonce;
@@ -558,10 +555,10 @@ async fn handle_vrf_calls(
         );
     };
 
-    let proof = stark_vrf(seed, vrf_private_key)?;
+    let proof = stark_vrf(seed, vrf_ctx.private_key())?;
 
     let submit_random_call = Call {
-        to: *vrf_address,
+        to: vrf_ctx.address().into(),
         selector: selector!("submit_random"),
         calldata: vec![
             seed,
@@ -573,8 +570,11 @@ async fn handle_vrf_calls(
         ],
     };
 
-    let assert_consumed_call =
-        Call { to: *vrf_address, selector: selector!("assert_consumed"), calldata: vec![seed] };
+    let assert_consumed_call = Call {
+        selector: selector!("assert_consumed"),
+        to: vrf_ctx.address().into(),
+        calldata: vec![seed],
+    };
 
     Ok(vec![submit_random_call, assert_consumed_call])
 }
