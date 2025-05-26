@@ -46,7 +46,6 @@
 
 pub mod vrf;
 
-use std::str::FromStr;
 use std::sync::Arc;
 
 use account_sdk::account::outside_execution::OutsideExecution;
@@ -70,16 +69,14 @@ use katana_rpc_api::cartridge::CartridgeApiServer;
 use katana_rpc_api::error::starknet::StarknetApiError;
 use katana_rpc_types::transaction::InvokeTxResult;
 use katana_tasks::TokioTaskSpawner;
-use num_bigint::BigInt;
 use serde::Deserialize;
-use stark_vrf::{generate_public_key, BaseField, StarkVRF};
 use starknet::core::types::Call;
 use starknet::macros::selector;
 use starknet::signers::{LocalWallet, Signer, SigningKey};
 use tracing::{debug, info};
 use url::Url;
 use vrf::{
-    StarkVrfProof, VrfContext, CARTRIDGE_VRF_CLASS_HASH, CARTRIDGE_VRF_DEFAULT_PRIVATE_KEY,
+    stark_vrf, VrfContext, CARTRIDGE_VRF_CLASS_HASH, CARTRIDGE_VRF_DEFAULT_PRIVATE_KEY,
     CARTRIDGE_VRF_SALT,
 };
 
@@ -465,38 +462,6 @@ pub async fn craft_deploy_cartridge_controller_tx(
     } else {
         Ok(None)
     }
-}
-
-/// Computes a VRF proof for the given seed.
-fn stark_vrf(seed: Felt, vrf_private_key: Felt) -> anyhow::Result<StarkVrfProof> {
-    let private_key = vrf_private_key.to_string();
-    let public_key = generate_public_key(private_key.parse().unwrap());
-
-    let seed = vec![BaseField::from_str(&format!("{seed}")).unwrap()];
-
-    let ecvrf = StarkVRF::new(public_key).unwrap();
-    let proof = ecvrf.prove(&private_key.parse().unwrap(), seed.as_slice()).unwrap();
-    let sqrt_ratio_hint = ecvrf.hash_to_sqrt_ratio_hint(seed.as_slice());
-    let rnd = ecvrf.proof_to_hash(&proof).unwrap();
-
-    let beta = ecvrf.proof_to_hash(&proof).unwrap();
-
-    debug!(target: "rpc::cartridge", seed = ?seed[0], random_value = %format(beta), "Computing VRF proof.");
-
-    Ok(StarkVrfProof {
-        gamma_x: format(proof.0.x),
-        gamma_y: format(proof.0.y),
-        c: format(proof.1),
-        s: format(proof.2),
-        sqrt_ratio: format(sqrt_ratio_hint),
-        rnd: format(rnd),
-    })
-}
-
-/// Formats the given value as a hexadecimal string.
-fn format<T: std::fmt::Display>(v: T) -> String {
-    let int = BigInt::from_str(&format!("{v}")).unwrap();
-    format!("0x{}", int.to_str_radix(16))
 }
 
 /// Inspects the [`OutsideExecution`] to search for `request_random` call sent to the VRF contract
