@@ -1,14 +1,16 @@
 use std::collections::HashMap;
+use std::str::FromStr;
 use std::sync::Arc;
 
 use ark_ec::short_weierstrass::Affine;
 use katana_primitives::contract::Nonce;
 use katana_primitives::{ContractAddress, Felt};
-use num_bigint::BigUint;
+use num_bigint::{BigInt, BigUint};
 use parking_lot::Mutex;
-use stark_vrf::{generate_public_key, StarkCurve};
+use stark_vrf::{generate_public_key, BaseField, StarkCurve, StarkVRF};
 use starknet::core::utils::get_contract_address;
 use starknet::macros::{felt, short_string};
+use tracing::trace;
 
 // Class hash of the VRF provider contract (fee estimation code commented, since currently Katana
 // returns 0 for the fees): <https://github.com/cartridge-gg/vrf/blob/38d71385f939a19829113c122f1ab12dbbe0f877/src/vrf_provider/vrf_provider_component.cairo#L124>
@@ -34,7 +36,7 @@ pub struct VrfContext {
     private_key: Felt,
     public_key: Affine<StarkCurve>,
     contract_address: ContractAddress,
-    pub cache: Arc<Mutex<HashMap<ContractAddress, Nonce>>>,
+    cache: Arc<Mutex<HashMap<ContractAddress, Nonce>>>,
 }
 
 impl VrfContext {
@@ -83,18 +85,50 @@ impl VrfContext {
     }
 }
 
-/// Computes the deterministic VRF contract address from the paymaster address and the public
+/// Computes a VRF proof for the given seed.
+pub fn stark_vrf(seed: Felt, vrf_private_key: Felt) -> anyhow::Result<StarkVrfProof> {
+    let private_key = vrf_private_key.to_string();
+    let public_key = generate_public_key(private_key.parse().unwrap());
+
+    let seed = vec![BaseField::from_str(&format!("{seed}")).unwrap()];
+
+    let ecvrf = StarkVRF::new(public_key).unwrap();
+    let proof = ecvrf.prove(&private_key.parse().unwrap(), seed.as_slice()).unwrap();
+    let sqrt_ratio_hint = ecvrf.hash_to_sqrt_ratio_hint(seed.as_slice());
+    let rnd = ecvrf.proof_to_hash(&proof).unwrap();
+
+    let beta = ecvrf.proof_to_hash(&proof).unwrap();
+
+    trace!(target: "rpc::cartridge", seed = ?seed[0], random_value = %format(beta), "Computing VRF proof.");
+
+    Ok(StarkVrfProof {
+        gamma_x: format(proof.0.x),
+        gamma_y: format(proof.0.y),
+        c: format(proof.1),
+        s: format(proof.2),
+        sqrt_ratio: format(sqrt_ratio_hint),
+        rnd: format(rnd),
+    })
+}
+
+/// Computes the deterministic VRF contract address from the provider address and the public
 /// key coordinates.
 fn compute_vrf_address(
-    pm_address: ContractAddress,
+    provider_addrss: ContractAddress,
     public_key_x: Felt,
     public_key_y: Felt,
 ) -> ContractAddress {
     get_contract_address(
         CARTRIDGE_VRF_SALT,
         CARTRIDGE_VRF_CLASS_HASH,
-        &[*pm_address, public_key_x, public_key_y],
+        &[*provider_addrss, public_key_x, public_key_y],
         Felt::ZERO,
     )
     .into()
+}
+
+/// Formats the given value as a hexadecimal string.
+fn format<T: std::fmt::Display>(v: T) -> String {
+    let int = BigInt::from_str(&format!("{v}")).unwrap();
+    format!("0x{}", int.to_str_radix(16))
 }
