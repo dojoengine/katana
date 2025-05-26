@@ -103,9 +103,6 @@ cairo-lang-utils = "2.11.2"
 # only under the `test_utils` feature. So we expose through this feature.
 cairo-vm = { version = "1.0.2", features = [ "test_utils" ] }
 
-# Controller PR revision until merged.
-# https://github.com/cartridge-gg/controller/pull/1454
-account_sdk = { git = "https://github.com/cartridge-gg/controller", rev = "dbbe0353d64de743739d425f8aab91ca3ac0e16f" }
 anyhow = "1.0.89"
 arbitrary = { version = "1.3.2", features = [ "derive" ] }
 assert_fs = "1.1"
@@ -208,7 +205,6 @@ wasm-tonic-build = { version = "0.12", default-features = false, features = [ "p
 criterion = "0.5.1"
 pprof = { version = "0.13.0", features = [ "criterion", "flamegraph" ] }
 
-# Slot integration. Dojo don't need to manually include `account_sdk` as dependency as `slot` already re-exports it.
 slot = { git = "https://github.com/cartridge-gg/slot", rev = "1298a30" }
 
 # alloy core
