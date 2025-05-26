@@ -20,6 +20,7 @@ jobs:
   binary-size-base:
     name: Base Branch Binary Size
     runs-on: ubuntu-latest
+    if: github.event.pull_request.draft == false
     container:
       image: ghcr.io/dojoengine/katana-dev:latest
     outputs:
@@ -48,6 +49,7 @@ jobs:
   binary-size-pr:
     name: PR Branch Binary Size
     runs-on: ubuntu-latest
+    if: github.event.pull_request.draft == false
     container:
       image: ghcr.io/dojoengine/katana-dev:latest
     outputs:
@@ -76,6 +78,7 @@ jobs:
     name: Generate Binary Size Report
     needs: [binary-size-base, binary-size-pr]
     runs-on: ubuntu-latest
+    if: github.event.pull_request.draft == false
     container:
       image: ghcr.io/dojoengine/katana-dev:latest
 

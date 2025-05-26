@@ -27,6 +27,7 @@ env:
 jobs:
   fmt:
     runs-on: ubuntu-latest
+    if: github.event_name == 'push' || (github.event_name == 'pull_request' && github.event.pull_request.draft == false)
     container:
       image: ghcr.io/dojoengine/katana-dev:latest
     steps:
@@ -36,6 +37,7 @@ jobs:
   generate-test-artifacts:
     needs: [fmt]
     runs-on: ubuntu-latest
+    if: github.event_name == 'push' || (github.event_name == 'pull_request' && github.event.pull_request.draft == false)
     container:
       image: ghcr.io/dojoengine/katana-dev:latest
     steps:
@@ -78,6 +80,7 @@ jobs:
   clippy:
     needs: [generate-test-artifacts]
     runs-on: ubuntu-latest-4-cores
+    if: github.event_name == 'push' || (github.event_name == 'pull_request' && github.event.pull_request.draft == false)
     container:
       image: ghcr.io/dojoengine/katana-dev:latest
     env:
@@ -109,6 +112,7 @@ jobs:
   test:
     needs: [fmt, clippy]
     runs-on: ubuntu-latest-32-cores
+    if: github.event_name == 'push' || (github.event_name == 'pull_request' && github.event.pull_request.draft == false)
     container:
       image: ghcr.io/dojoengine/katana-dev:latest
     env:
@@ -141,6 +145,7 @@ jobs:
   snos-integration-test:
     needs: [fmt, clippy]
     runs-on: ubuntu-latest-32-cores
+    if: github.event_name == 'push' || (github.event_name == 'pull_request' && github.event.pull_request.draft == false)
     container:
       image: ghcr.io/dojoengine/katana-dev:latest
     env:
@@ -179,6 +184,7 @@ jobs:
   explorer-reverse-proxy:
     needs: [fmt, clippy]
     runs-on: ubuntu-latest
+    if: github.event_name == 'push' || (github.event_name == 'pull_request' && github.event.pull_request.draft == false)
     container:
       image: ghcr.io/dojoengine/katana-dev:latest
     steps:
