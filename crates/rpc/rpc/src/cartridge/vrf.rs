@@ -71,6 +71,11 @@ impl VrfContext {
         self.private_key
     }
 
+    /// Returns the public key of the VRF.
+    pub fn public_key(&self) -> &Affine<StarkCurve> {
+        &self.public_key
+    }
+
     /// Returns the current internal nonce of the `address` and consume it. Consuming the nonce will
     /// increment it by one - ensuring the generated VRF seed will always be unique.
     ///
@@ -83,32 +88,32 @@ impl VrfContext {
         cache.insert(address, nonce + Felt::ONE);
         nonce
     }
-}
 
-/// Computes a VRF proof for the given seed.
-pub fn stark_vrf(seed: Felt, vrf_private_key: Felt) -> anyhow::Result<StarkVrfProof> {
-    let private_key = vrf_private_key.to_string();
-    let public_key = generate_public_key(private_key.parse().unwrap());
+    /// Computes a VRF proof for the given seed.
+    pub fn stark_vrf(&self, seed: Felt) -> anyhow::Result<StarkVrfProof> {
+        let private_key = self.private_key.to_string();
+        let public_key = self.public_key;
 
-    let seed = vec![BaseField::from_str(&format!("{seed}")).unwrap()];
+        let seed = vec![BaseField::from(seed.to_biguint())];
 
-    let ecvrf = StarkVRF::new(public_key).unwrap();
-    let proof = ecvrf.prove(&private_key.parse().unwrap(), seed.as_slice()).unwrap();
-    let sqrt_ratio_hint = ecvrf.hash_to_sqrt_ratio_hint(seed.as_slice());
-    let rnd = ecvrf.proof_to_hash(&proof).unwrap();
+        let ecvrf = StarkVRF::new(public_key)?;
+        let proof = ecvrf.prove(&private_key.parse().unwrap(), seed.as_slice())?;
+        let sqrt_ratio_hint = ecvrf.hash_to_sqrt_ratio_hint(seed.as_slice());
+        let rnd = ecvrf.proof_to_hash(&proof)?;
 
-    let beta = ecvrf.proof_to_hash(&proof).unwrap();
+        let beta = ecvrf.proof_to_hash(&proof)?;
 
-    trace!(target: "rpc::cartridge", seed = ?seed[0], random_value = %format(beta), "Computing VRF proof.");
+        trace!(target: "rpc::cartridge", seed = ?seed[0], random_value = %format(beta), "Computing VRF proof.");
 
-    Ok(StarkVrfProof {
-        gamma_x: format(proof.0.x),
-        gamma_y: format(proof.0.y),
-        c: format(proof.1),
-        s: format(proof.2),
-        sqrt_ratio: format(sqrt_ratio_hint),
-        rnd: format(rnd),
-    })
+        Ok(StarkVrfProof {
+            gamma_x: format(proof.0.x),
+            gamma_y: format(proof.0.y),
+            c: format(proof.1),
+            s: format(proof.2),
+            sqrt_ratio: format(sqrt_ratio_hint),
+            rnd: format(rnd),
+        })
+    }
 }
 
 /// Computes the deterministic VRF contract address from the provider address and the public
