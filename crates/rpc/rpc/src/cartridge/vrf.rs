@@ -5,7 +5,7 @@ use ark_ec::short_weierstrass::Affine;
 use katana_primitives::contract::Nonce;
 use katana_primitives::{ContractAddress, Felt};
 use num_bigint::BigUint;
-use parking_lot::RwLock;
+use parking_lot::Mutex;
 use stark_vrf::{generate_public_key, StarkCurve};
 use starknet::core::utils::get_contract_address;
 use starknet::macros::{felt, short_string};
@@ -34,13 +34,13 @@ pub struct VrfContext {
     private_key: Felt,
     public_key: Affine<StarkCurve>,
     contract_address: ContractAddress,
-    pub cache: Arc<RwLock<HashMap<ContractAddress, Nonce>>>,
+    pub cache: Arc<Mutex<HashMap<ContractAddress, Nonce>>>,
 }
 
 impl VrfContext {
     /// Creates a new [`VrfContext`] with the given private key and provider address.
     pub fn new(private_key: Felt, provider: ContractAddress) -> Self {
-        let cache = Arc::new(RwLock::new(HashMap::new()));
+        let cache = Arc::new(Mutex::new(HashMap::new()));
         let public_key = generate_public_key(private_key.to_biguint().into());
 
         let contract_address = compute_vrf_address(
@@ -76,8 +76,9 @@ impl VrfContext {
     ///
     /// Refer to <https://docs.cartridge.gg/vrf/overview#using-the-vrf-provider> for further information.
     pub fn consume_nonce(&self, address: ContractAddress) -> Nonce {
-        let nonce = self.cache.read().get(&address).unwrap_or(&Felt::ZERO).to_owned();
-        self.cache.write().insert(address, nonce + Felt::ONE);
+        let mut cache = self.cache.lock();
+        let nonce = cache.get(&address).unwrap_or(&Felt::ZERO).to_owned();
+        cache.insert(address, nonce + Felt::ONE);
         nonce
     }
 }
