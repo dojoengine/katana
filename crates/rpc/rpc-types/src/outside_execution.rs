@@ -7,8 +7,7 @@
 //! Based on [SNIP-9](https://github.com/starknet-io/SNIPs/blob/main/SNIPS/snip-9.md).
 
 use cainome::cairo_serde_derive::CairoSerde;
-use katana_primitives::ContractAddress;
-use katana_primitives::Felt;
+use katana_primitives::{ContractAddress, Felt};
 use serde::{Deserialize, Serialize};
 
 /// A single call to be executed as part of an outside execution.
