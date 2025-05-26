@@ -82,3 +82,4 @@ cartridge = [
 	"katana-rpc-api/cartridge",
 ]
 explorer = [ "dep:katana-explorer" ]
+client = [ "jsonrpsee/client", "katana-rpc-api/client" ]

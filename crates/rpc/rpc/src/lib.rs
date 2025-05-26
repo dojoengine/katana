@@ -29,6 +29,9 @@ mod logger;
 mod utils;
 use cors::Cors;
 use health::HealthCheck;
+#[cfg(feature = "client")]
+pub use jsonrpsee::http_client::HttpClient;
+pub use katana_rpc_api as api;
 use metrics::RpcServerMetricsLayer;
 
 /// The default maximum number of concurrent RPC connections.
@@ -45,9 +48,6 @@ pub const DEFAULT_TIMEOUT: Duration = Duration::from_secs(20);
 #[derive(Debug, thiserror::Error)]
 pub enum Error {
     #[error(transparent)]
-    Jsonrpsee(#[from] jsonrpsee::types::ErrorObjectOwned),
-
-    #[error(transparent)]
     Io(#[from] std::io::Error),
 
     #[error(transparent)]
@@ -55,6 +55,9 @@ pub enum Error {
 
     #[error("RPC server has already been stopped")]
     AlreadyStopped,
+
+    #[error(transparent)]
+    Client(#[from] jsonrpsee::core::ClientError),
 }
 
 /// The RPC server handle.
@@ -80,6 +83,14 @@ impl RpcServerHandle {
     /// Returns the socket address the server is listening on.
     pub fn addr(&self) -> &SocketAddr {
         &self.addr
+    }
+
+    /// Returns a HTTP client associated with the server.
+    #[cfg(feature = "client")]
+    pub fn http_client(&self) -> Result<HttpClient, Error> {
+        use jsonrpsee::http_client::HttpClientBuilder;
+        let url = format!("http://{}", self.addr);
+        Ok(HttpClientBuilder::default().build(url)?)
     }
 }
 

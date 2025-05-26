@@ -1,7 +1,6 @@
-use jsonrpsee::http_client::HttpClientBuilder;
 use katana_provider::traits::block::{BlockNumberProvider, BlockProvider};
 use katana_provider::traits::env::BlockEnvProvider;
-use katana_rpc_api::dev::DevApiClient;
+use katana_rpc::api::dev::DevApiClient;
 use katana_utils::TestNode;
 
 #[tokio::test]
@@ -11,8 +10,7 @@ async fn test_next_block_timestamp_in_past() {
     let provider = backend.blockchain.provider();
 
     // Create a jsonrpsee client for the DevApi
-    let url = format!("http://{}", sequencer.rpc_addr());
-    let client = HttpClientBuilder::default().build(url).unwrap();
+    let client = sequencer.rpc_http_client();
 
     let block_num = provider.latest_number().unwrap();
     let mut block_env = provider.block_env_at(block_num.into()).unwrap().unwrap();
@@ -39,8 +37,7 @@ async fn test_set_next_block_timestamp_in_future() {
     let provider = backend.blockchain.provider();
 
     // Create a jsonrpsee client for the DevApi
-    let url = format!("http://{}", sequencer.rpc_addr());
-    let client = HttpClientBuilder::default().build(url).unwrap();
+    let client = sequencer.rpc_http_client();
 
     let block_num = provider.latest_number().unwrap();
     let mut block_env = provider.block_env_at(block_num.into()).unwrap().unwrap();
@@ -68,8 +65,7 @@ async fn test_increase_next_block_timestamp() {
     let provider = backend.blockchain.provider();
 
     // Create a jsonrpsee client for the DevApi
-    let url = format!("http://{}", sequencer.rpc_addr());
-    let client = HttpClientBuilder::default().build(url).unwrap();
+    let client = sequencer.rpc_http_client();
 
     let block_num = provider.latest_number().unwrap();
     let mut block_env = provider.block_env_at(block_num.into()).unwrap().unwrap();
@@ -101,8 +97,7 @@ async fn test_increase_next_block_timestamp() {
 async fn test_dev_api_enabled() {
     let sequencer = TestNode::new().await;
 
-    let url = format!("http://{}", sequencer.rpc_addr());
-    let client = HttpClientBuilder::default().build(url).unwrap();
+    let client = sequencer.rpc_http_client();
 
     let accounts = client.predeployed_accounts().await.unwrap();
     assert!(!accounts.is_empty(), "predeployed accounts should not be empty");

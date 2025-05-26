@@ -12,6 +12,7 @@ katana-executor.workspace = true
 katana-node = { workspace = true, features = [ "explorer" ] }
 katana-primitives.workspace = true
 katana-provider.workspace = true
+katana-rpc = { workspace = true, features = [ "client" ] }
 
 anyhow.workspace = true
 assert_matches.workspace = true
