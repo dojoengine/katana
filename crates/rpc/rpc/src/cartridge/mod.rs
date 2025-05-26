@@ -76,8 +76,7 @@ use starknet::signers::{LocalWallet, Signer, SigningKey};
 use tracing::{debug, info};
 use url::Url;
 use vrf::{
-    stark_vrf, VrfContext, CARTRIDGE_VRF_CLASS_HASH, CARTRIDGE_VRF_DEFAULT_PRIVATE_KEY,
-    CARTRIDGE_VRF_SALT,
+    VrfContext, CARTRIDGE_VRF_CLASS_HASH, CARTRIDGE_VRF_DEFAULT_PRIVATE_KEY, CARTRIDGE_VRF_SALT,
 };
 
 #[allow(missing_debug_implementations)]
@@ -520,7 +519,7 @@ async fn handle_vrf_calls(
         );
     };
 
-    let proof = stark_vrf(seed, vrf_ctx.private_key())?;
+    let proof = vrf_ctx.stark_vrf(seed)?;
 
     let submit_random_call = Call {
         to: vrf_ctx.address().into(),
