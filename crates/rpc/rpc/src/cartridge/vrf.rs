@@ -1,21 +1,12 @@
 use std::collections::HashMap;
 use std::sync::{Arc, RwLock};
 
-use anyhow::anyhow;
 use ark_ec::short_weierstrass::Affine;
-use katana_primitives::chain::ChainId;
-use katana_primitives::fee::ResourceBoundsMapping;
-use katana_primitives::genesis::constant::DEFAULT_UDC_ADDRESS;
-use katana_primitives::transaction::{ExecutableTx, ExecutableTxWithHash, InvokeTx, InvokeTxV3};
 use katana_primitives::{ContractAddress, Felt};
 use num_bigint::BigUint;
 use stark_vrf::{generate_public_key, StarkCurve};
-use starknet::core::types::Call;
 use starknet::core::utils::get_contract_address;
-use starknet::macros::{felt, selector, short_string};
-use starknet::signers::{LocalWallet, Signer, SigningKey};
-
-use super::encode_calls;
+use starknet::macros::{felt, short_string};
 
 // Class hash of the VRF provider contract (fee estimation code commented, since currently Katana
 // returns 0 for the fees): <https://github.com/cartridge-gg/vrf/blob/38d71385f939a19829113c122f1ab12dbbe0f877/src/vrf_provider/vrf_provider_component.cairo#L124>
@@ -75,60 +66,6 @@ impl VrfContext {
     pub fn private_key(&self) -> Felt {
         self.private_key
     }
-}
-
-/// Crafts a deploy of the VRF provider contract transaction.
-pub async fn craft_deploy_cartridge_vrf_tx(
-    paymaster_address: ContractAddress,
-    paymaster_private_key: Felt,
-    chain_id: ChainId,
-    paymaster_nonce: Felt,
-    public_key_x: Felt,
-    public_key_y: Felt,
-) -> anyhow::Result<ExecutableTxWithHash> {
-    let calldata = vec![
-        CARTRIDGE_VRF_CLASS_HASH,
-        CARTRIDGE_VRF_SALT,
-        // from zero
-        Felt::ZERO,
-        // Calldata len
-        Felt::THREE,
-        // owner
-        paymaster_address.into(),
-        // public key
-        public_key_x,
-        public_key_y,
-    ];
-
-    let call =
-        Call { to: DEFAULT_UDC_ADDRESS.into(), selector: selector!("deployContract"), calldata };
-
-    let mut tx = InvokeTxV3 {
-        chain_id,
-        tip: 0_u64,
-        signature: vec![],
-        paymaster_data: vec![],
-        account_deployment_data: vec![],
-        sender_address: paymaster_address,
-        calldata: encode_calls(vec![call]),
-        nonce: paymaster_nonce,
-        resource_bounds: ResourceBoundsMapping::default(),
-        nonce_data_availability_mode: katana_primitives::da::DataAvailabilityMode::L1,
-        fee_data_availability_mode: katana_primitives::da::DataAvailabilityMode::L1,
-    };
-
-    let tx_hash = InvokeTx::V3(tx.clone()).calculate_hash(false);
-
-    let signer = LocalWallet::from(SigningKey::from_secret_scalar(paymaster_private_key));
-    let signature = signer
-        .sign_hash(&tx_hash)
-        .await
-        .map_err(|e| anyhow!("failed to sign hash with paymaster: {e}"))?;
-    tx.signature = vec![signature.r, signature.s];
-
-    let tx = ExecutableTxWithHash::new(ExecutableTx::Invoke(InvokeTx::V3(tx)));
-
-    Ok(tx)
 }
 
 /// Computes the deterministic VRF contract address from the paymaster address and the public
