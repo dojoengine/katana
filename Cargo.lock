@@ -6508,7 +6508,6 @@ dependencies = [
 name = "katana-rpc"
 version = "1.5.2"
 dependencies = [
- "account_sdk",
  "alloy",
  "alloy-primitives",
  "anyhow",
