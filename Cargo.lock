@@ -6687,6 +6687,7 @@ dependencies = [
  "katana-node",
  "katana-primitives",
  "katana-provider",
+ "katana-rpc",
  "starknet 0.12.0",
 ]
 
