@@ -10,6 +10,7 @@ version.workspace = true
 katana-core.workspace = true
 katana-executor.workspace = true
 katana-explorer = { workspace = true, features = [ "jsonrpsee" ] }
+katana-metrics.workspace = true
 katana-pool.workspace = true
 katana-primitives.workspace = true
 katana-provider.workspace = true
@@ -17,25 +18,30 @@ katana-rpc-api.workspace = true
 katana-rpc-types.workspace = true
 katana-rpc-types-builder.workspace = true
 katana-tasks.workspace = true
-katana-metrics.workspace = true
 
 anyhow.workspace = true
+ark-ec = { version = "0.4.2", optional = true }
 futures.workspace = true
 http.workspace = true
 jsonrpsee = { workspace = true, features = [ "server" ] }
-reqwest = { workspace = true, optional = true }
 metrics.workspace = true
+num-bigint = { workspace = true, optional = true }
+parking_lot.workspace = true
+reqwest = { workspace = true, optional = true }
 serde = { workspace = true, optional = true }
 serde_json.workspace = true
 starknet.workspace = true
+starknet-crypto.workspace = true
+# Use a specific revision of stark-vrf to avoid unwanted breaking changes.
+account_sdk = { workspace = true, optional = true }
+cainome = { workspace = true, optional = true }
+stark-vrf = { git = "https://github.com/dojoengine/stark-vrf.git", rev = "96d6d2a", optional = true }
 thiserror.workspace = true
 tokio.workspace = true
 tower.workspace = true
 tower-http.workspace = true
 tracing.workspace = true
 url.workspace = true
-cainome = { workspace = true, optional = true }
-account_sdk = { workspace = true, optional = true }
 
 [dev-dependencies]
 katana-chain-spec.workspace = true
@@ -63,4 +69,13 @@ tempfile.workspace = true
 tokio.workspace = true
 
 [features]
-cartridge = [ "katana-rpc-api/cartridge", "dep:reqwest", "dep:cainome", "dep:account_sdk", "dep:serde" ]
+cartridge = [
+	"dep:account_sdk",
+	"dep:ark-ec",
+	"dep:cainome",
+	"dep:num-bigint",
+	"dep:reqwest",
+	"dep:serde",
+	"dep:stark-vrf",
+	"katana-rpc-api/cartridge",
+]

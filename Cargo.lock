@@ -1891,6 +1891,18 @@ dependencies = [
 ]
 
 [[package]]
+name = "bigdecimal"
+version = "0.3.1"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "a6773ddc0eafc0e509fb60e48dff7f450f8e674a0686ae8605e8d9901bd5eefa"
+dependencies = [
+ "num-bigint",
+ "num-integer",
+ "num-traits",
+ "serde",
+]
+
+[[package]]
 name = "bincode"
 version = "1.3.3"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -6499,6 +6511,7 @@ dependencies = [
  "alloy",
  "alloy-primitives",
  "anyhow",
+ "ark-ec 0.4.2",
  "assert_matches",
  "cainome 0.5.1",
  "cairo-lang-starknet-classes",
@@ -6524,14 +6537,18 @@ dependencies = [
  "katana-trie",
  "katana-utils",
  "metrics 0.23.0",
+ "num-bigint",
  "num-traits",
+ "parking_lot",
  "rand 0.8.5",
  "reqwest 0.11.27",
  "rstest 0.18.2",
  "serde",
  "serde_json",
  "similar-asserts",
+ "stark-vrf",
  "starknet 0.12.0",
+ "starknet-crypto 0.7.4",
  "tempfile",
  "thiserror 1.0.69",
  "tokio",
@@ -9558,9 +9575,9 @@ dependencies = [
 
 [[package]]
 name = "serde_path_to_error"
-version = "0.1.16"
+version = "0.1.17"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "af99884400da37c88f5e9146b7f1fd0fbcae8f6eec4e9da38b67d05486f814a6"
+checksum = "59fab13f937fa393d08645bf3a84bdfe86e296747b506ada67bb15f10f218b2a"
 dependencies = [
  "itoa",
  "serde",
@@ -9987,6 +10004,18 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "a8f112729512f8e442d81f95a8a7ddf2b7c6b8a1a6f509a95864142b30cab2d3"
 
 [[package]]
+name = "stark-vrf"
+version = "0.1.0"
+source = "git+https://github.com/dojoengine/stark-vrf.git?rev=96d6d2a#96d6d2a88b1ef46c4a285d0ccc334237205edae3"
+dependencies = [
+ "ark-ec 0.4.2",
+ "ark-ff 0.4.2",
+ "starknet-crypto 0.6.2",
+ "starknet-ff",
+ "thiserror 1.0.69",
+]
+
+[[package]]
 name = "starknet"
 version = "0.11.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -10250,9 +10279,11 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "7abf1b44ec5b18d87c1ae5f54590ca9d0699ef4dd5b2ffa66fc97f24613ec585"
 dependencies = [
  "ark-ff 0.4.2",
+ "bigdecimal",
  "crypto-bigint",
  "getrandom 0.2.15",
  "hex",
+ "serde",
 ]
 
 [[package]]
