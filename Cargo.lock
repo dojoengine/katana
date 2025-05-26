@@ -6562,7 +6562,6 @@ dependencies = [
 name = "katana-rpc-api"
 version = "1.5.2"
 dependencies = [
- "account_sdk",
  "anyhow",
  "jsonrpsee",
  "katana-core",
