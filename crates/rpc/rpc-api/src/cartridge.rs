@@ -1,8 +1,7 @@
-use account_sdk::account::outside_execution::OutsideExecution;
 use jsonrpsee::core::RpcResult;
 use jsonrpsee::proc_macros::rpc;
 use katana_primitives::{ContractAddress, Felt};
-use katana_rpc_types::transaction::InvokeTxResult;
+use katana_rpc_types::{outside_execution::OutsideExecution, transaction::InvokeTxResult};
 
 /// Cartridge API to support paymaster in local Katana development.
 /// This API is not aimed to be used in slot.

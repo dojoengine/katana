@@ -6447,6 +6447,7 @@ dependencies = [
  "arbitrary",
  "assert_matches",
  "base64 0.21.7",
+ "cainome-cairo-serde 0.1.0 (registry+https://github.com/rust-lang/crates.io-index)",
  "cairo-lang-starknet-classes",
  "cairo-vm 1.0.2 (registry+https://github.com/rust-lang/crates.io-index)",
  "criterion",
@@ -6583,6 +6584,8 @@ version = "1.5.2"
 dependencies = [
  "alloy-primitives",
  "anyhow",
+ "cainome 0.5.1",
+ "cainome-cairo-serde 0.1.0 (registry+https://github.com/rust-lang/crates.io-index)",
  "cairo-lang-starknet-classes",
  "cairo-lang-utils",
  "derive_more 0.99.19",

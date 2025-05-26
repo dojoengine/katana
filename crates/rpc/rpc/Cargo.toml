@@ -21,6 +21,7 @@ katana-tasks.workspace = true
 
 anyhow.workspace = true
 ark-ec = { version = "0.4.2", optional = true }
+cainome = { workspace = true, optional = true }
 futures.workspace = true
 http.workspace = true
 jsonrpsee = { workspace = true, features = [ "server" ] }
@@ -34,7 +35,6 @@ starknet.workspace = true
 starknet-crypto.workspace = true
 # Use a specific revision of stark-vrf to avoid unwanted breaking changes.
 account_sdk = { workspace = true, optional = true }
-cainome = { workspace = true, optional = true }
 stark-vrf = { git = "https://github.com/dojoengine/stark-vrf.git", rev = "96d6d2a", optional = true }
 thiserror.workspace = true
 tokio.workspace = true
@@ -54,7 +54,6 @@ katana-utils.workspace = true
 alloy = { git = "https://github.com/alloy-rs/alloy", features = [ "contract", "network", "node-bindings", "provider-http", "providers", "signer-local" ] }
 alloy-primitives = { workspace = true, features = [ "serde" ] }
 assert_matches.workspace = true
-cainome.workspace = true
 cairo-lang-starknet-classes.workspace = true
 dojo-utils.workspace = true
 indexmap.workspace = true
@@ -70,7 +69,6 @@ tokio.workspace = true
 
 [features]
 cartridge = [
-	"dep:account_sdk",
 	"dep:ark-ec",
 	"dep:cainome",
 	"dep:num-bigint",

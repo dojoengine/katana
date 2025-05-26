@@ -11,6 +11,8 @@ katana-primitives.workspace = true
 katana-trie.workspace = true
 
 anyhow.workspace = true
+cainome.workspace = true
+cainome-cairo-serde.workspace = true
 cairo-lang-starknet-classes.workspace = true
 cairo-lang-utils.workspace = true
 derive_more.workspace = true
