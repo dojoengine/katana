@@ -29,6 +29,8 @@ use metrics::RpcServerMetrics;
 
 /// The default maximum number of concurrent RPC connections.
 pub const DEFAULT_RPC_MAX_CONNECTIONS: u32 = 100;
+/// The default maximum number of concurrent estimate_fee requests.
+pub const DEFAULT_ESTIMATE_FEE_MAX_CONCURRENT_REQUESTS: u32 = 10;
 /// The default maximum size in bytes for an RPC request body.
 pub const DEFAULT_MAX_REQUEST_BODY_SIZE: u32 = TEN_MB_SIZE_BYTES;
 /// The default maximum size in bytes for an RPC response body.
