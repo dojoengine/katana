@@ -134,9 +134,9 @@ pub fn transact<S: StateReader>(
             tx_state.commit();
 
             // get the trace and receipt from the execution info
-            let trace = to_exec_info(info, tx.r#type());
+            let trace = to_exec_info(info.clone(), tx.r#type());
             let receipt = build_receipt(tx.tx_ref(), fee, &trace);
-            Ok(ExecutionResult::new_success(receipt, trace))
+            Ok(ExecutionResult::new_success(receipt, info))
         }
 
         Err(e) => {

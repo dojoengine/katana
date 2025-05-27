@@ -1,25 +1,27 @@
+use katana_primitives::execution::TransactionResources;
 use katana_primitives::fee::TxFeeInfo;
 use katana_primitives::receipt::{
     DeclareTxReceipt, DeployAccountTxReceipt, Event, InvokeTxReceipt, L1HandlerTxReceipt,
     MessageToL1, Receipt,
 };
-use katana_primitives::trace::{CallInfo, TxExecInfo, TxResources};
+use katana_primitives::trace::{CallInfo, TxExecInfo};
 use katana_primitives::transaction::TxRef;
 use tracing::trace;
 
 pub(crate) const LOG_TARGET: &str = "executor";
 
-pub fn log_resources(resources: &TxResources) {
+pub fn log_resources(resources: &TransactionResources) {
     let mut mapped_strings = Vec::new();
 
-    for (builtin, count) in &resources.vm_resources.builtin_instance_counter {
+    for (builtin, count) in &resources.computation.vm_resources.builtin_instance_counter {
         mapped_strings.push(format!("{builtin}: {count}"));
     }
 
     // Sort the strings alphabetically
     mapped_strings.sort();
-    mapped_strings.insert(0, format!("steps: {}", resources.vm_resources.n_steps));
-    mapped_strings.insert(1, format!("memory holes: {}", resources.vm_resources.n_memory_holes));
+    mapped_strings.insert(0, format!("steps: {}", resources.computation.vm_resources.n_steps));
+    mapped_strings
+        .insert(1, format!("memory holes: {}", resources.computation.vm_resources.n_memory_holes));
 
     trace!(target: LOG_TARGET, usage = mapped_strings.join(" | "), "Transaction resource usage.");
 }

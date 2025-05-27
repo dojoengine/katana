@@ -12,9 +12,9 @@ use katana_primitives::block::{
 use katana_primitives::class::{ClassHash, CompiledClassHash};
 use katana_primitives::da::L1DataAvailabilityMode;
 use katana_primitives::env::BlockEnv;
+use katana_primitives::execution::TransactionExecutionInfo;
 use katana_primitives::receipt::{Event, Receipt, ReceiptWithTxHash};
 use katana_primitives::state::{compute_state_diff_hash, StateUpdates, StateUpdatesWithClasses};
-use katana_primitives::trace::TxExecInfo;
 use katana_primitives::transaction::{TxHash, TxWithHash};
 use katana_primitives::version::CURRENT_STARKNET_VERSION;
 use katana_primitives::{address, ContractAddress, Felt};
@@ -142,7 +142,7 @@ impl<EF: ExecutorFactory> Backend<EF> {
         block: SealedBlockWithStatus,
         states: StateUpdatesWithClasses,
         receipts: Vec<Receipt>,
-        traces: Vec<TxExecInfo>,
+        traces: Vec<TransactionExecutionInfo>,
     ) -> Result<(), BlockProductionError> {
         self.blockchain
             .provider()

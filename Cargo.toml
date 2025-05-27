@@ -230,3 +230,5 @@ bitvec = "1.0.1"
 proc-macro2 = "1.0"
 quote = "1.0"
 syn = { version = "2.0", default-features = false }
+
+blockifier = { git = "https://github.com/dojoengine/sequencer", rev = "5d737b9c9", default-features = false }

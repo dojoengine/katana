@@ -9,6 +9,7 @@ pub mod da;
 pub mod env;
 pub mod eth;
 pub mod event;
+pub mod execution;
 pub mod fee;
 pub mod genesis;
 pub mod message;
