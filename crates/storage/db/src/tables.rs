@@ -1,8 +1,8 @@
 use katana_primitives::block::{BlockHash, BlockNumber, FinalityStatus, Header};
 use katana_primitives::class::{ClassHash, CompiledClassHash, ContractClass};
 use katana_primitives::contract::{ContractAddress, GenericContractInfo, StorageKey};
+use katana_primitives::execution::TransactionExecutionInfo;
 use katana_primitives::receipt::Receipt;
-use katana_primitives::trace::TxExecInfo;
 use katana_primitives::transaction::{Tx, TxHash, TxNumber};
 
 use crate::codecs::{Compress, Decode, Decompress, Encode};
@@ -212,7 +212,7 @@ tables! {
     /// Stores the block number of a transaction.
     TxBlocks: (TxNumber) => BlockNumber,
     /// Stores the transaction's traces.
-    TxTraces: (TxNumber) => TxExecInfo,
+    TxTraces: (TxNumber) => TransactionExecutionInfo,
     /// Store transaction receipts
     Receipts: (TxNumber) => Receipt,
     /// Store compiled classes
@@ -359,9 +359,9 @@ mod tests {
     use katana_primitives::block::{BlockHash, BlockNumber, FinalityStatus, Header};
     use katana_primitives::class::{ClassHash, CompiledClass, CompiledClassHash};
     use katana_primitives::contract::{ContractAddress, GenericContractInfo};
+    use katana_primitives::execution::TransactionExecutionInfo;
     use katana_primitives::fee::{PriceUnit, TxFeeInfo};
     use katana_primitives::receipt::{InvokeTxReceipt, Receipt};
-    use katana_primitives::trace::TxExecInfo;
     use katana_primitives::transaction::{InvokeTx, Tx, TxHash, TxNumber};
     use starknet::macros::felt;
 
@@ -431,7 +431,7 @@ mod tests {
             (TxHash, felt!("0x123456789")),
             (Tx, Tx::Invoke(InvokeTx::V1(Default::default()))),
             (BlockNumber, 99),
-            (TxExecInfo, TxExecInfo::default()),
+            (TransactionExecutionInfo, TransactionExecutionInfo::default()),
             (CompiledClassHash, felt!("211")),
             (CompiledClass, CompiledClass::Legacy(Default::default())),
             (GenericContractInfo, GenericContractInfo::default()),

@@ -282,7 +282,7 @@ impl<'a> BlockExecutor<'a> for StarknetVMProcessor<'a> {
                                 state.declared_classes.insert(class_hash, class.as_ref().clone());
                             }
 
-                            crate::utils::log_resources(&trace.actual_resources);
+                            crate::utils::log_resources(&trace.receipt.resources);
                         }
 
                         ExecutionResult::Failed { error } => {
