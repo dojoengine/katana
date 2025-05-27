@@ -1,21 +1,18 @@
 use jsonrpsee::core::{async_trait, RpcResult};
 use katana_executor::{ExecutionResult, ExecutorFactory, ResultAndStates};
 use katana_primitives::block::{BlockHashOrNumber, BlockIdOrTag};
-use katana_primitives::fee::TxFeeInfo;
-use katana_primitives::trace::TxExecInfo;
-use katana_primitives::transaction::{ExecutableTx, ExecutableTxWithHash, TxHash, TxType};
+use katana_primitives::transaction::{ExecutableTx, ExecutableTxWithHash, Tx, TxHash, TxType};
 use katana_provider::traits::block::{BlockNumberProvider, BlockProvider};
-use katana_provider::traits::transaction::{TransactionTraceProvider, TransactionsProviderExt};
+use katana_provider::traits::transaction::{
+    TransactionProvider, TransactionTraceProvider, TransactionsProviderExt,
+};
 use katana_rpc_api::error::starknet::StarknetApiError;
 use katana_rpc_api::starknet::StarknetTraceApiServer;
-use katana_rpc_types::trace::FunctionInvocation;
+use katana_rpc_types::trace::{to_rpc_fee_estimate, to_rpc_trace};
 use katana_rpc_types::transaction::BroadcastedTx;
-use katana_rpc_types::{FeeEstimate, SimulationFlag};
+use katana_rpc_types::SimulationFlag;
 use starknet::core::types::{
-    BlockTag, ComputationResources, DataAvailabilityResources, DataResources,
-    DeclareTransactionTrace, DeployAccountTransactionTrace, ExecuteInvocation, ExecutionResources,
-    InvokeTransactionTrace, L1HandlerTransactionTrace, PriceUnit, RevertedInvocation,
-    SimulatedTransaction, TransactionTrace, TransactionTraceWithHash,
+    BlockTag, SimulatedTransaction, TransactionTrace, TransactionTraceWithHash,
 };
 
 use super::StarknetApi;
@@ -89,7 +86,7 @@ impl<EF: ExecutorFactory> StarknetApi<EF> {
         for (i, ResultAndStates { result, .. }) in results.into_iter().enumerate() {
             match result {
                 ExecutionResult::Success { trace, receipt } => {
-                    let transaction_trace = to_rpc_trace(trace);
+                    let transaction_trace = to_rpc_trace(trace, receipt.r#type());
                     let fee_estimation = to_rpc_fee_estimate(receipt.fee().clone());
                     let value = SimulatedTransaction { transaction_trace, fee_estimation };
                     simulated.push(value)
@@ -125,7 +122,7 @@ impl<EF: ExecutorFactory> StarknetApi<EF> {
                     let traces = pending_block.transactions().iter().filter_map(|(t, r)| {
                         if let Some(trace) = r.trace() {
                             let transaction_hash = t.hash;
-                            let trace_root = to_rpc_trace(trace.clone());
+                            let trace_root = to_rpc_trace(trace.clone(), t.r#type());
                             Some(TransactionTraceWithHash { transaction_hash, trace_root })
                         } else {
                             None
@@ -148,11 +145,23 @@ impl<EF: ExecutorFactory> StarknetApi<EF> {
         let hashes = provider.transaction_hashes_in_range(indices.into())?;
         let traces = provider.transaction_executions_by_block(block_id)?.ok_or(BlockNotFound)?;
 
+        // get transactions to extract type information
+        let transactions = provider.transactions_by_block(block_id)?.ok_or(BlockNotFound)?;
+
         // convert to rpc types
-        let traces = traces.into_iter().map(to_rpc_trace);
+        let traces_with_types = traces.into_iter().zip(transactions.iter()).map(|(trace, tx)| {
+            let tx_type = match &tx.transaction {
+                Tx::Invoke(_) => TxType::Invoke,
+                Tx::Declare(_) => TxType::Declare,
+                Tx::DeployAccount(_) => TxType::DeployAccount,
+                Tx::L1Handler(_) => TxType::L1Handler,
+                Tx::Deploy(_) => TxType::Deploy,
+            };
+            to_rpc_trace(trace, tx_type)
+        });
         let result = hashes
             .into_iter()
-            .zip(traces)
+            .zip(traces_with_types)
             .map(|(h, r)| TransactionTraceWithHash { transaction_hash: h, trace_root: r })
             .collect::<Vec<_>>();
 
@@ -167,16 +176,27 @@ impl<EF: ExecutorFactory> StarknetApi<EF> {
             let pending_block = state.read();
             let tx = pending_block.transactions().iter().find(|(t, _)| t.hash == tx_hash);
 
-            if let Some(trace) = tx.and_then(|(_, res)| res.trace()) {
-                return Ok(to_rpc_trace(trace.clone()));
+            if let Some((tx, res)) = tx {
+                if let Some(trace) = res.trace() {
+                    return Ok(to_rpc_trace(trace.clone(), tx.r#type()));
+                }
             }
         }
 
         // If not found in pending block, fallback to the provider
         let provider = self.inner.backend.blockchain.provider();
         let trace = provider.transaction_execution(tx_hash)?.ok_or(TxnHashNotFound)?;
+        let tx = provider.transaction_by_hash(tx_hash)?.ok_or(TxnHashNotFound)?;
 
-        Ok(to_rpc_trace(trace))
+        let tx_type = match &tx.transaction {
+            Tx::Invoke(_) => TxType::Invoke,
+            Tx::Deploy(_) => TxType::Deploy,
+            Tx::Declare(_) => TxType::Declare,
+            Tx::L1Handler(_) => TxType::L1Handler,
+            Tx::DeployAccount(_) => TxType::DeployAccount,
+        };
+
+        Ok(to_rpc_trace(trace, tx_type))
     }
 }
 
@@ -203,108 +223,5 @@ impl<EF: ExecutorFactory> StarknetTraceApiServer for StarknetApi<EF> {
         block_id: BlockIdOrTag,
     ) -> RpcResult<Vec<TransactionTraceWithHash>> {
         self.on_io_blocking_task(move |this| Ok(this.block_traces(block_id)?)).await
-    }
-}
-
-// TODO: move this conversion to katana_rpc_types
-
-fn to_rpc_trace(trace: TxExecInfo) -> TransactionTrace {
-    let fee_transfer_invocation =
-        trace.fee_transfer_call_info.map(|f| FunctionInvocation::from(f).0);
-    let validate_invocation = trace.validate_call_info.map(|f| FunctionInvocation::from(f).0);
-    let execute_invocation = trace.execute_call_info.map(|f| FunctionInvocation::from(f).0);
-    let revert_reason = trace.revert_error;
-    // TODO: compute the state diff
-    let state_diff = None;
-
-    let execution_resources = to_rpc_resources(trace.actual_resources.vm_resources);
-
-    match trace.r#type {
-        TxType::Invoke => {
-            let execute_invocation = if let Some(revert_reason) = revert_reason {
-                let invocation = RevertedInvocation { revert_reason };
-                ExecuteInvocation::Reverted(invocation)
-            } else {
-                let invocation = execute_invocation.expect("should exist if not reverted");
-                ExecuteInvocation::Success(invocation)
-            };
-
-            TransactionTrace::Invoke(InvokeTransactionTrace {
-                fee_transfer_invocation,
-                execution_resources,
-                validate_invocation,
-                execute_invocation,
-                state_diff,
-            })
-        }
-
-        TxType::Declare => TransactionTrace::Declare(DeclareTransactionTrace {
-            fee_transfer_invocation,
-            validate_invocation,
-            execution_resources,
-            state_diff,
-        }),
-
-        TxType::DeployAccount => {
-            let constructor_invocation = execute_invocation.expect("should exist if not reverted");
-            TransactionTrace::DeployAccount(DeployAccountTransactionTrace {
-                fee_transfer_invocation,
-                constructor_invocation,
-                validate_invocation,
-                execution_resources,
-                state_diff,
-            })
-        }
-
-        TxType::L1Handler => {
-            let function_invocation = execute_invocation.expect("should exist if not reverted");
-            TransactionTrace::L1Handler(L1HandlerTransactionTrace {
-                execution_resources,
-                function_invocation,
-                state_diff,
-            })
-        }
-
-        TxType::Deploy => {
-            unimplemented!("unsupported legacy tx type")
-        }
-    }
-}
-
-fn to_rpc_resources(resources: katana_primitives::trace::ExecutionResources) -> ExecutionResources {
-    let steps = resources.n_steps as u64;
-    let memory_holes = resources.n_memory_holes as u64;
-    let builtins = resources.builtin_instance_counter;
-
-    let data_availability = DataAvailabilityResources { l1_gas: 0, l1_data_gas: 0 };
-    let data_resources = DataResources { data_availability };
-
-    let computation_resources = ComputationResources {
-        steps,
-        memory_holes: Some(memory_holes),
-        ecdsa_builtin_applications: builtins.ecdsa(),
-        ec_op_builtin_applications: builtins.ec_op(),
-        keccak_builtin_applications: builtins.keccak(),
-        segment_arena_builtin: builtins.segment_arena(),
-        bitwise_builtin_applications: builtins.bitwise(),
-        pedersen_builtin_applications: builtins.pedersen(),
-        poseidon_builtin_applications: builtins.poseidon(),
-        range_check_builtin_applications: builtins.range_check(),
-    };
-
-    ExecutionResources { data_resources, computation_resources }
-}
-
-fn to_rpc_fee_estimate(fee: TxFeeInfo) -> FeeEstimate {
-    FeeEstimate {
-        unit: match fee.unit {
-            katana_primitives::fee::PriceUnit::Wei => PriceUnit::Wei,
-            katana_primitives::fee::PriceUnit::Fri => PriceUnit::Fri,
-        },
-        gas_price: fee.gas_price.into(),
-        overall_fee: fee.overall_fee.into(),
-        gas_consumed: fee.gas_consumed.into(),
-        data_gas_price: Default::default(),
-        data_gas_consumed: Default::default(),
     }
 }
