@@ -1,5 +1,5 @@
 window.BENCHMARK_DATA = {
-  "lastUpdate": 1748009149527,
+  "lastUpdate": 1748332206589,
   "repoUrl": "https://github.com/dojoengine/katana",
   "entries": {
     "Benchmark": [
@@ -539,6 +539,60 @@ window.BENCHMARK_DATA = {
             "name": "Katana.Startup",
             "value": 124064695,
             "range": "± 694509",
+            "unit": "ns/iter"
+          }
+        ]
+      },
+      {
+        "commit": {
+          "author": {
+            "email": "evergreenkary@gmail.com",
+            "name": "Ammar Arif",
+            "username": "kariy"
+          },
+          "committer": {
+            "email": "noreply@github.com",
+            "name": "GitHub",
+            "username": "web-flow"
+          },
+          "distinct": true,
+          "id": "c1bc99a14e46959a5b38cc13fa470f031b58bd5b",
+          "message": "refactor(utils): define tx waiter internally (#91)",
+          "timestamp": "2025-05-27T15:30:33+08:00",
+          "tree_id": "1381b8d5e650b54725e8c5f90f79e36a3d7ea29f",
+          "url": "https://github.com/dojoengine/katana/commit/c1bc99a14e46959a5b38cc13fa470f031b58bd5b"
+        },
+        "date": 1748332204543,
+        "tool": "cargo",
+        "benches": [
+          {
+            "name": "decompress world contract",
+            "value": 2999449,
+            "range": "± 36551",
+            "unit": "ns/iter"
+          },
+          {
+            "name": "Concurrent.Simulate/Blockifier.1",
+            "value": 16228486,
+            "range": "± 193726",
+            "unit": "ns/iter"
+          },
+          {
+            "name": "Concurrent.Simulate/Blockifier.1000",
+            "value": 2638494467,
+            "range": "± 260540761",
+            "unit": "ns/iter"
+          },
+          {
+            "name": "Invoke.ERC20.transfer/Blockifier.Cold",
+            "value": 16196141,
+            "range": "± 256260",
+            "unit": "ns/iter"
+          },
+          {
+            "name": "Katana.Startup",
+            "value": 124100984,
+            "range": "± 754345",
             "unit": "ns/iter"
           }
         ]
