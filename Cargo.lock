@@ -6594,6 +6594,7 @@ dependencies = [
  "arbitrary",
  "assert_matches",
  "base64 0.21.7",
+ "blockifier 0.0.0 (git+https://github.com/dojoengine/sequencer?rev=5d737b9c9)",
  "cainome-cairo-serde 0.1.0 (registry+https://github.com/rust-lang/crates.io-index)",
  "cairo-lang-starknet-classes",
  "cairo-vm 1.0.2 (registry+https://github.com/rust-lang/crates.io-index)",
