@@ -49,7 +49,7 @@ async fn declare_and_deploy_contract() -> Result<()> {
     let res = account.declare_v2(contract.into(), compiled_class_hash).send().await?;
 
     // check that the tx is executed successfully and return the correct receipt
-    let receipt = dojo_utils::TransactionWaiter::new(res.transaction_hash, &provider).await?;
+    let receipt = katana_utils::TxWaiter::new(res.transaction_hash, &provider).await?;
     assert_matches!(receipt.receipt, TransactionReceipt::Declare(DeclareTransactionReceipt { .. }));
 
     // check that the class is actually declared
@@ -94,7 +94,7 @@ async fn declare_and_deploy_contract() -> Result<()> {
         .await?;
 
     // wait for the tx to be mined
-    dojo_utils::TransactionWaiter::new(res.transaction_hash, &provider).await?;
+    katana_utils::TxWaiter::new(res.transaction_hash, &provider).await?;
 
     // make sure the contract is deployed
     let res = provider.get_class_hash_at(BlockId::Tag(BlockTag::Pending), address).await?;
@@ -116,7 +116,7 @@ async fn declare_and_deploy_legacy_contract() -> Result<()> {
     let class_hash = contract.class_hash()?;
     let res = account.declare_legacy(contract.into()).send().await?;
 
-    let receipt = dojo_utils::TransactionWaiter::new(res.transaction_hash, &provider).await?;
+    let receipt = katana_utils::TxWaiter::new(res.transaction_hash, &provider).await?;
     assert_matches!(receipt.receipt, TransactionReceipt::Declare(DeclareTransactionReceipt { .. }));
 
     // check that the class is actually declared
@@ -156,7 +156,7 @@ async fn declare_and_deploy_legacy_contract() -> Result<()> {
         .await?;
 
     // wait for the tx to be mined
-    dojo_utils::TransactionWaiter::new(res.transaction_hash, &provider).await?;
+    katana_utils::TxWaiter::new(res.transaction_hash, &provider).await?;
 
     // make sure the contract is deployed
     let res = provider.get_class_hash_at(BlockId::Tag(BlockTag::Pending), address).await?;
@@ -180,7 +180,7 @@ async fn declaring_already_existing_class() -> Result<()> {
     let res = account.declare_v2(contract.clone().into(), compiled_hash).send().await?;
 
     // check that the tx is executed successfully and return the correct receipt
-    let _ = dojo_utils::TransactionWaiter::new(res.transaction_hash, &provider).await?;
+    let _ = katana_utils::TxWaiter::new(res.transaction_hash, &provider).await?;
     // check that the class is actually declared
     assert!(provider.get_class(BlockId::Tag(BlockTag::Pending), class_hash).await.is_ok());
 
@@ -231,7 +231,7 @@ async fn deploy_account(
     let amount = Uint256 { low: felt!("0x1ba32524a3000"), high: Felt::ZERO };
     let recipient = computed_address;
     let res = contract.transfer(&recipient, &amount).send().await?;
-    dojo_utils::TransactionWaiter::new(res.transaction_hash, &provider).await?;
+    katana_utils::TxWaiter::new(res.transaction_hash, &provider).await?;
 
     // starknet-rs's utility for deploying an OpenZeppelin account
     let factory = OpenZeppelinAccountFactory::new(class_hash, chain_id, &signer, &provider).await?;
@@ -239,7 +239,7 @@ async fn deploy_account(
     // the contract address in the send tx result must be the same as the computed one
     assert_eq!(res.contract_address, computed_address);
 
-    let receipt = dojo_utils::TransactionWaiter::new(res.transaction_hash, &provider).await?;
+    let receipt = katana_utils::TxWaiter::new(res.transaction_hash, &provider).await?;
     assert_matches!(
         receipt.receipt,
         TransactionReceipt::DeployAccount(DeployAccountTransactionReceipt { contract_address, .. })  => {
@@ -269,7 +269,7 @@ async fn deploy_account(
         // the contract address in the send tx result must be the same as the computed one
         assert_eq!(res.contract_address, computed_address);
 
-        let receipt = dojo_utils::TransactionWaiter::new(res.transaction_hash, &provider).await?;
+        let receipt = katana_utils::TxWaiter::new(res.transaction_hash, &provider).await?;
         assert_matches!(
             receipt.receipt,
             TransactionReceipt::DeployAccount(DeployAccountTransactionReceipt { contract_address, .. })  => {
@@ -307,7 +307,7 @@ async fn estimate_fee() -> Result<()> {
     // send a valid transaction first to increment the nonce (so that we can test nonce < current
     // nonce later)
     let res = contract.transfer(&recipient, &amount).send().await?;
-    dojo_utils::TransactionWaiter::new(res.transaction_hash, &provider).await?;
+    katana_utils::TxWaiter::new(res.transaction_hash, &provider).await?;
 
     // estimate fee with current nonce (the expected nonce)
     let nonce = provider.get_nonce(BlockId::Tag(BlockTag::Pending), account.address()).await?;
@@ -389,7 +389,7 @@ async fn concurrent_transactions_submissions(
     // Wait only for the last transaction to be accepted
     let txs = txs.lock().await;
     let last_tx = txs.last().unwrap();
-    dojo_utils::TransactionWaiter::new(*last_tx, &provider).await?;
+    katana_utils::TxWaiter::new(*last_tx, &provider).await?;
 
     // we should've submitted ITERATION transactions
     assert_eq!(txs.len(), N);
@@ -428,8 +428,7 @@ async fn ensure_validator_have_valid_state(
     let amount = Uint256 { low, high };
 
     let res = contract.transfer(&recipient, &amount).send().await?;
-    dojo_utils::TransactionWaiter::new(res.transaction_hash, &sequencer.starknet_provider())
-        .await?;
+    katana_utils::TxWaiter::new(res.transaction_hash, &sequencer.starknet_provider()).await?;
 
     // this should fail validation due to insufficient balance because we specify max fee > the
     // actual balance that we have now.
@@ -472,7 +471,7 @@ async fn send_txs_with_insufficient_fee(
         // matter what value is set, the transaction will always be executed successfully.
         assert_matches!(res, Ok(tx) => {
             let tx_hash = tx.transaction_hash;
-            assert_matches!(dojo_utils::TransactionWaiter::new(tx_hash, &sequencer.starknet_provider()).await, Ok(_));
+            assert_matches!(katana_utils::TxWaiter::new(tx_hash, &sequencer.starknet_provider()).await, Ok(_));
         });
 
         let nonce = sequencer.account().get_nonce().await?;
@@ -493,8 +492,7 @@ async fn send_txs_with_insufficient_fee(
         // in no fee mode, account balance is ignored. as long as the max fee (aka resources) is
         // enough to at least run the account validation, the tx should be accepted.
         // Wait for the transaction to be accepted
-        dojo_utils::TransactionWaiter::new(res?.transaction_hash, &sequencer.starknet_provider())
-            .await?;
+        katana_utils::TxWaiter::new(res?.transaction_hash, &sequencer.starknet_provider()).await?;
 
         // nonce should be incremented by 1 after a valid tx.
         let nonce = sequencer.account().get_nonce().await?;
@@ -551,8 +549,7 @@ async fn send_txs_with_invalid_signature(
 
     if disable_validate {
         // Wait for the transaction to be accepted
-        dojo_utils::TransactionWaiter::new(res?.transaction_hash, &sequencer.starknet_provider())
-            .await?;
+        katana_utils::TxWaiter::new(res?.transaction_hash, &sequencer.starknet_provider()).await?;
 
         // nonce should be incremented by 1 after a valid tx.
         let nonce = sequencer.account().get_nonce().await?;
@@ -594,7 +591,7 @@ async fn send_txs_with_invalid_nonces(
     // send a valid transaction first to increment the nonce (so that we can test nonce < current
     // nonce later)
     let res = contract.transfer(&recipient, &amount).send().await?;
-    dojo_utils::TransactionWaiter::new(res.transaction_hash, &provider).await?;
+    katana_utils::TxWaiter::new(res.transaction_hash, &provider).await?;
 
     // initial sender's account nonce. use to assert how the txs validity change the account nonce.
     let initial_nonce = account.get_nonce().await?;
@@ -615,7 +612,7 @@ async fn send_txs_with_invalid_nonces(
 
     let curr_nonce = initial_nonce;
     let res = contract.transfer(&recipient, &amount).nonce(curr_nonce).max_fee(fee).send().await?;
-    dojo_utils::TransactionWaiter::new(res.transaction_hash, &provider).await?;
+    katana_utils::TxWaiter::new(res.transaction_hash, &provider).await?;
 
     let nonce = account.get_nonce().await?;
     assert_eq!(nonce, Felt::TWO, "Nonce should be 2 after sending two valid txs.");
@@ -664,7 +661,7 @@ async fn get_events_no_pending() -> Result<()> {
 
     for _ in 0..BLOCK_1_TX_COUNT {
         let res = tx().send().await?;
-        dojo_utils::TransactionWaiter::new(res.transaction_hash, &provider).await?;
+        katana_utils::TxWaiter::new(res.transaction_hash, &provider).await?;
     }
 
     // generate a block to mine pending transactions.
@@ -750,7 +747,7 @@ async fn get_events_with_pending() -> Result<()> {
 
     for _ in 0..BLOCK_1_TX_COUNT {
         let res = tx().send().await?;
-        dojo_utils::TransactionWaiter::new(res.transaction_hash, &provider).await?;
+        katana_utils::TxWaiter::new(res.transaction_hash, &provider).await?;
     }
 
     // generate block 1
@@ -759,7 +756,7 @@ async fn get_events_with_pending() -> Result<()> {
     // events in pending block (2)
     for _ in 0..PENDING_BLOCK_TX_COUNT {
         let res = tx().send().await?;
-        dojo_utils::TransactionWaiter::new(res.transaction_hash, &provider).await?;
+        katana_utils::TxWaiter::new(res.transaction_hash, &provider).await?;
     }
 
     // because we didnt specifically set the `from` and `to` block, it will implicitly
@@ -843,7 +840,7 @@ async fn trace() -> Result<()> {
 
     for _ in 0..2 {
         let res = contract.transfer(&recipient, &amount).send().await?;
-        dojo_utils::TransactionWaiter::new(res.transaction_hash, &provider).await?;
+        katana_utils::TxWaiter::new(res.transaction_hash, &provider).await?;
         hashes.push(res.transaction_hash);
     }
 
@@ -860,7 +857,7 @@ async fn trace() -> Result<()> {
 
     for _ in 0..2 {
         let res = contract.transfer(&recipient, &amount).send().await?;
-        dojo_utils::TransactionWaiter::new(res.transaction_hash, &provider).await?;
+        katana_utils::TxWaiter::new(res.transaction_hash, &provider).await?;
 
         let trace = provider.trace_transaction(res.transaction_hash).await?;
         assert_matches!(trace, TransactionTrace::Invoke(_));
@@ -895,7 +892,7 @@ async fn block_traces() -> Result<()> {
 
     for _ in 0..5 {
         let res = contract.transfer(&recipient, &amount).send().await?;
-        dojo_utils::TransactionWaiter::new(res.transaction_hash, &provider).await?;
+        katana_utils::TxWaiter::new(res.transaction_hash, &provider).await?;
         hashes.push(res.transaction_hash);
     }
 
@@ -920,7 +917,7 @@ async fn block_traces() -> Result<()> {
 
     for _ in 0..2 {
         let res = contract.transfer(&recipient, &amount).send().await?;
-        dojo_utils::TransactionWaiter::new(res.transaction_hash, &provider).await?;
+        katana_utils::TxWaiter::new(res.transaction_hash, &provider).await?;
         hashes.push(res.transaction_hash);
     }
 
@@ -945,7 +942,7 @@ async fn block_traces() -> Result<()> {
 
     for _ in 0..3 {
         let res = contract.transfer(&recipient, &amount).send().await?;
-        dojo_utils::TransactionWaiter::new(res.transaction_hash, &provider).await?;
+        katana_utils::TxWaiter::new(res.transaction_hash, &provider).await?;
         hashes.push(res.transaction_hash);
     }
 
@@ -986,7 +983,7 @@ async fn v3_transactions() {
         .await
         .unwrap();
 
-    let rec = dojo_utils::TransactionWaiter::new(res.transaction_hash, &provider).await.unwrap();
+    let rec = katana_utils::TxWaiter::new(res.transaction_hash, &provider).await.unwrap();
     let status = rec.receipt.execution_result().status();
     assert_eq!(status, TransactionExecutionStatus::Succeeded);
 }
@@ -1015,7 +1012,7 @@ async fn fetch_pending_blocks() {
 
     for _ in 0..3 {
         let res = contract.transfer(&recipient, &amount).send().await.unwrap();
-        dojo_utils::TransactionWaiter::new(res.transaction_hash, &provider).await.unwrap();
+        katana_utils::TxWaiter::new(res.transaction_hash, &provider).await.unwrap();
         txs.push(res.transaction_hash);
     }
 
@@ -1117,7 +1114,7 @@ async fn fetch_pending_blocks_in_instant_mode() {
     let amount = Uint256 { low: felt!("0x1"), high: Felt::ZERO };
 
     let res = contract.transfer(&recipient, &amount).send().await.unwrap();
-    dojo_utils::TransactionWaiter::new(res.transaction_hash, &provider).await.unwrap();
+    katana_utils::TxWaiter::new(res.transaction_hash, &provider).await.unwrap();
 
     let block_id = BlockId::Tag(BlockTag::Pending);
 
@@ -1246,7 +1243,7 @@ async fn simulate_should_skip_strict_nonce_check(#[case] nonce: Felt, #[case] sh
     // send a valid transaction first to increment the nonce (so that we can test nonce < current
     // nonce later)
     let res = contract.transfer(&recipient, &amount).send().await.expect("failed to send tx");
-    dojo_utils::TransactionWaiter::new(res.transaction_hash, &provider)
+    katana_utils::TxWaiter::new(res.transaction_hash, &provider)
         .await
         .expect("failed to execute tx");
 

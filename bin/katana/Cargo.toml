@@ -12,6 +12,7 @@ katana-cli.workspace = true
 katana-db.workspace = true
 katana-primitives.workspace = true
 katana-rpc-types.workspace = true
+katana-utils.workspace = true
 
 anyhow.workspace = true
 async-trait.workspace = true
@@ -21,7 +22,6 @@ clap.workspace = true
 clap_complete.workspace = true
 comfy-table = "7.1.1"
 const_format = "0.2.33"
-dojo-utils.workspace = true
 inquire = "0.7.5"
 piltover = { git = "https://github.com/keep-starknet-strange/piltover.git", rev = "161cb3f" }
 rand.workspace = true

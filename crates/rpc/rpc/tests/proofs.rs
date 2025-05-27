@@ -286,7 +286,7 @@ async fn declare(
         .await
         .expect("failed to send declare tx");
 
-    dojo_utils::TransactionWaiter::new(res.transaction_hash, account.provider())
+    katana_utils::TxWaiter::new(res.transaction_hash, account.provider())
         .await
         .expect("failed to wait on tx");
 

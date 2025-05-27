@@ -56,7 +56,7 @@ async fn setup_test_inner(no_mining: bool) -> (TestNode, impl Provider, LocalTes
         for _ in 1..=10 {
             let amount = Uint256 { low: Felt::ONE, high: Felt::ZERO };
             let res = contract.transfer(&Felt::ONE, &amount).send().await.unwrap();
-            dojo_utils::TransactionWaiter::new(res.transaction_hash, &provider).await.unwrap();
+            katana_utils::TxWaiter::new(res.transaction_hash, &provider).await.unwrap();
 
             // events in pending block doesn't have block hash and number, so we can safely put
             // dummy values here.
@@ -67,8 +67,7 @@ async fn setup_test_inner(no_mining: bool) -> (TestNode, impl Provider, LocalTes
         for i in 1..=10 {
             let amount = Uint256 { low: Felt::ONE, high: Felt::ZERO };
             let res = contract.transfer(&Felt::ONE, &amount).send().await.unwrap();
-            let _ =
-                dojo_utils::TransactionWaiter::new(res.transaction_hash, &provider).await.unwrap();
+            let _ = katana_utils::TxWaiter::new(res.transaction_hash, &provider).await.unwrap();
 
             let block_num = FORK_BLOCK_NUMBER + i;
 

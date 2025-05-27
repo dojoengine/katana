@@ -2,7 +2,6 @@ use std::str::FromStr;
 
 use anyhow::{anyhow, Result};
 use cainome::cairo_serde;
-use dojo_utils::{TransactionWaiter, TransactionWaitingError};
 use katana_primitives::block::{BlockHash, BlockNumber};
 use katana_primitives::class::{
     CompiledClassHash, ComputeClassHashError, ContractClass, ContractClassCompilationError,
@@ -10,6 +9,7 @@ use katana_primitives::class::{
 };
 use katana_primitives::{felt, ContractAddress, Felt};
 use katana_rpc_types::class::RpcContractClass;
+use katana_utils::{TxWaiter, TxWaitingError};
 use piltover::{AppchainContract, AppchainContractReader, ProgramInfo};
 use spinoff::{spinners, Color, Spinner};
 use starknet::accounts::{Account, AccountError, ConnectedAccount, SingleOwnerAccount};
@@ -111,7 +111,7 @@ pub async fn deploy_settlement_contract(
                     })
                     .map_err(ContractInitError::DeclarationError)?;
 
-                TransactionWaiter::new(res.transaction_hash, account.provider()).await?;
+                TxWaiter::new(res.transaction_hash, account.provider()).await?;
             }
 
             Err(err) => return Err(ContractInitError::Provider(err)),
@@ -163,7 +163,7 @@ pub async fn deploy_settlement_contract(
         // between the block info returned by the receipt. so we query both at the same time
         // to minimize the chance of a mismatch.
         let (deployment_receipt_res, block_number_res) = tokio::join!(
-            TransactionWaiter::new(res.transaction_hash, account.provider()),
+            TxWaiter::new(res.transaction_hash, account.provider()),
             account.provider().block_number()
         );
 
@@ -218,7 +218,7 @@ pub async fn deploy_settlement_contract(
             })
             .map_err(ContractInitError::Initialization)?;
 
-        TransactionWaiter::new(res.transaction_hash, account.provider()).await?;
+        TxWaiter::new(res.transaction_hash, account.provider()).await?;
 
         // 2. Fact Registry
 
@@ -235,7 +235,7 @@ pub async fn deploy_settlement_contract(
             })
             .map_err(ContractInitError::Initialization)?;
 
-        TransactionWaiter::new(res.transaction_hash, account.provider()).await?;
+        TxWaiter::new(res.transaction_hash, account.provider()).await?;
 
         // -----------------------------------------------------------------------
         // FINAL CHECKS
@@ -369,7 +369,7 @@ pub enum ContractInitError {
     InvalidFactRegistry { expected: Felt, actual: Felt },
 
     #[error(transparent)]
-    TxWaitingError(#[from] TransactionWaitingError),
+    TxWaitingError(#[from] TxWaitingError),
 
     #[error("failed parsing contract class: {0}")]
     ContractParsing(#[from] ContractClassFromStrError),

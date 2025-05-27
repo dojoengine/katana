@@ -45,7 +45,7 @@ async fn simulate_nonce_validation(#[values(None, Some(1000))] block_time: Optio
     // send a valid transaction first to increment the nonce (so that we can test nonce < current
     // nonce later)
     let res = contract.transfer(&recipient, &amount).send().await.unwrap();
-    dojo_utils::TransactionWaiter::new(res.transaction_hash, &provider).await.unwrap();
+    katana_utils::TxWaiter::new(res.transaction_hash, &provider).await.unwrap();
 
     // simulate with current nonce (the expected nonce)
     let nonce =

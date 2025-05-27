@@ -7,14 +7,13 @@ use alloy::providers::ProviderBuilder;
 use alloy::sol;
 use anyhow::Result;
 use cainome::rs::abigen;
-use dojo_utils::TransactionWaiter;
 use katana_messaging::MessagingConfig;
 use katana_primitives::felt;
 use katana_primitives::utils::transaction::{
     compute_l1_handler_tx_hash, compute_l1_to_l2_message_hash,
 };
 use katana_rpc_types::receipt::ReceiptBlock;
-use katana_utils::TestNode;
+use katana_utils::{TestNode, TxWaiter};
 use rand::Rng;
 use starknet::accounts::{Account, ConnectedAccount};
 use starknet::contract::ContractFactory;
@@ -84,7 +83,7 @@ async fn test_messaging() {
         let res = katana_account.declare_v2(contract.into(), compiled_hash).send().await.unwrap();
 
         // The waiter already checks that the transaction is accepted and succeeded on L2.
-        TransactionWaiter::new(res.transaction_hash, katana_account.provider())
+        TxWaiter::new(res.transaction_hash, katana_account.provider())
             .await
             .expect("declare tx failed");
 
@@ -106,7 +105,7 @@ async fn test_messaging() {
             .expect("Unable to deploy contract");
 
         // The waiter already checks that the transaction is accepted and succeeded on L2.
-        TransactionWaiter::new(res.transaction_hash, katana_account.provider())
+        TxWaiter::new(res.transaction_hash, katana_account.provider())
             .await
             .expect("deploy tx failed");
 
@@ -243,7 +242,7 @@ async fn estimate_message_fee() -> Result<()> {
     let class_hash = contract.class_hash();
 
     let res = account.declare_v2(contract.into(), compiled_hash).send().await?;
-    TransactionWaiter::new(res.transaction_hash, account.provider()).await?;
+    TxWaiter::new(res.transaction_hash, account.provider()).await?;
 
     // Deploy the contract using UDC
     let res = ContractFactory::new(class_hash, &account)
@@ -251,7 +250,7 @@ async fn estimate_message_fee() -> Result<()> {
         .send()
         .await?;
 
-    TransactionWaiter::new(res.transaction_hash, account.provider()).await?;
+    TxWaiter::new(res.transaction_hash, account.provider()).await?;
 
     // Compute the contract address of the l1 handler contract
     let l1handler_address = get_contract_address(Felt::ZERO, class_hash, &[], Felt::ZERO);

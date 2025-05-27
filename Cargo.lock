@@ -6025,13 +6025,13 @@ dependencies = [
  "clap_complete",
  "comfy-table",
  "const_format",
- "dojo-utils",
  "inquire",
  "katana-chain-spec",
  "katana-cli",
  "katana-db",
  "katana-primitives",
  "katana-rpc-types",
+ "katana-utils",
  "piltover",
  "rand 0.8.5",
  "rstest 0.18.2",
@@ -6681,6 +6681,8 @@ name = "katana-utils"
 version = "1.5.2"
 dependencies = [
  "anyhow",
+ "assert_matches",
+ "futures",
  "katana-chain-spec",
  "katana-core",
  "katana-executor",
@@ -6688,6 +6690,8 @@ dependencies = [
  "katana-primitives",
  "katana-provider",
  "starknet 0.12.0",
+ "thiserror 1.0.69",
+ "tokio",
 ]
 
 [[package]]
