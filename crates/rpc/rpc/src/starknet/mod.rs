@@ -87,7 +87,7 @@ where
     forked_client: Option<ForkedClient>,
     blocking_task_pool: BlockingTaskPool,
     block_producer: Option<BlockProducer<EF>>,
-    estimate_fee_semaphore: Semaphore,
+    estimate_fee_semaphore: Arc<Semaphore>,
     config: StarknetApiConfig,
 }
 
@@ -127,7 +127,7 @@ where
         let permits = config
             .max_concurrent_estimate_fee_requests
             .unwrap_or(crate::DEFAULT_ESTIMATE_FEE_MAX_CONCURRENT_REQUESTS);
-        let estimate_fee_semaphore = Semaphore::new(permits as usize);
+        let estimate_fee_semaphore = Arc::new(Semaphore::new(permits as usize));
 
         let inner = StarknetApiInner {
             pool,

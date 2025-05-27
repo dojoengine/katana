@@ -105,6 +105,7 @@ pub fn test_config() -> Config {
         apis: RpcModulesList::all(),
         max_proof_keys: Some(100),
         max_event_page_size: Some(100),
+        max_concurrent_estimate_fee_requests: None,
         ..Default::default()
     };
 
