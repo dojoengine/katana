@@ -255,7 +255,9 @@ impl Node {
             let cfg = StarknetApiConfig {
                 max_event_page_size: config.rpc.max_event_page_size,
                 max_proof_keys: config.rpc.max_proof_keys,
-                max_concurrent_estimate_fee_requests: config.rpc.max_connections,
+                max_concurrent_estimate_fee_requests: config
+                    .rpc
+                    .max_concurrent_estimate_fee_requests,
                 #[cfg(feature = "cartridge")]
                 paymaster,
             };

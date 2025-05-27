@@ -5,8 +5,7 @@ use anyhow::Result;
 use cainome::rs::abigen_legacy;
 use katana_primitives::genesis::constant::DEFAULT_ETH_FEE_TOKEN_ADDRESS;
 use katana_utils::TestNode;
-use starknet::accounts::ConnectedAccount;
-use starknet::core::types::{BlockId, BlockTag, Felt};
+use starknet::core::types::Felt;
 use starknet::macros::felt;
 use tokio::sync::Mutex;
 
@@ -19,17 +18,17 @@ async fn test_estimate_fee_rate_limiting() -> Result<()> {
     let mut config = katana_utils::node::test_config();
 
     let max_concurrent_estimate_fee_requests = 2;
-    config.rpc.max_connections = Some(max_concurrent_estimate_fee_requests);
+    config.rpc.max_concurrent_estimate_fee_requests = Some(max_concurrent_estimate_fee_requests);
 
     let sequencer = TestNode::new_with_config(config).await;
 
-    let provider = sequencer.starknet_provider();
+    let _provider = sequencer.starknet_provider();
     let account = Arc::new(sequencer.account());
 
-    let contract = Erc20Contract::new(DEFAULT_ETH_FEE_TOKEN_ADDRESS.into(), &account);
+    let _contract = Erc20Contract::new(DEFAULT_ETH_FEE_TOKEN_ADDRESS.into(), &account);
 
     let recipient = felt!("0x1");
-    let amount = cainome::cairo_serde::U256 { low: felt!("0x1"), high: Felt::ZERO };
+    let amount = Uint256 { low: felt!("0x1"), high: Felt::ZERO };
 
     const REQUEST_COUNT: usize = 10;
     let start_time = Arc::new(Mutex::new(None));
@@ -38,7 +37,9 @@ async fn test_estimate_fee_rate_limiting() -> Result<()> {
     let mut handles = Vec::with_capacity(REQUEST_COUNT);
 
     for i in 0..REQUEST_COUNT {
-        let contract = contract.clone();
+        let account_clone = account.clone();
+        let recipient_clone = recipient;
+        let amount_clone = amount.clone();
         let start_time = start_time.clone();
         let completion_times = completion_times.clone();
 
@@ -48,7 +49,11 @@ async fn test_estimate_fee_rate_limiting() -> Result<()> {
                 *start = Some(Instant::now());
             }
 
-            let result = contract.transfer(&recipient, &amount).estimate_fee().await;
+            // Create contract instance inside the task with the cloned account
+            let contract_instance =
+                Erc20Contract::new(DEFAULT_ETH_FEE_TOKEN_ADDRESS.into(), &account_clone);
+            let result =
+                contract_instance.transfer(&recipient_clone, &amount_clone).estimate_fee().await;
 
             let now = Instant::now();
             let mut times = completion_times.lock().await;
@@ -58,17 +63,26 @@ async fn test_estimate_fee_rate_limiting() -> Result<()> {
         });
 
         handles.push(handle);
+
+        if i < REQUEST_COUNT - 1 {
+            tokio::time::sleep(tokio::time::Duration::from_millis(5)).await;
+        }
     }
 
     for handle in handles {
         let _ = handle.await?;
     }
 
-    let start_time = start_time.lock().await.unwrap();
+    let _start_time = start_time.lock().await.unwrap();
     let completion_times = completion_times.lock().await;
 
     let mut sorted_times = completion_times.clone();
     sorted_times.sort_by_key(|&(_, time)| time);
+
+    println!("Completion times (task_id, time):");
+    for (i, time) in &sorted_times {
+        println!("Task {}: {:?}", i, time);
+    }
 
     let mut time_diffs = Vec::new();
     for i in 1..sorted_times.len() {
@@ -76,21 +90,44 @@ async fn test_estimate_fee_rate_limiting() -> Result<()> {
         let curr_time = sorted_times[i].1;
         let diff = curr_time.duration_since(prev_time).as_millis();
         time_diffs.push(diff);
+        println!("Time diff between {} and {}: {} ms", i - 1, i, diff);
     }
 
-    let first_batch_count = time_diffs.iter().filter(|&&diff| diff < 5).count() + 1; // +1 for the first request
+    let mut batches = Vec::new();
+    let mut current_batch = vec![sorted_times[0].0];
+
+    for i in 1..sorted_times.len() {
+        let prev_time = sorted_times[i - 1].1;
+        let curr_time = sorted_times[i].1;
+        let diff = curr_time.duration_since(prev_time).as_millis();
+
+        if diff < 20 {
+            current_batch.push(sorted_times[i].0);
+        } else {
+            batches.push(current_batch);
+            current_batch = vec![sorted_times[i].0];
+        }
+    }
+
+    if !current_batch.is_empty() {
+        batches.push(current_batch);
+    }
+
+    println!("Task batches by completion time: {:?}", batches);
+
+    let first_batch_size = batches[0].len();
+    println!("First batch size: {}", first_batch_size);
 
     assert!(
-        first_batch_count <= max_concurrent_estimate_fee_requests + 1,
+        first_batch_size <= max_concurrent_estimate_fee_requests as usize,
         "First batch of requests ({}) exceeded the configured limit ({})",
-        first_batch_count,
+        first_batch_size,
         max_concurrent_estimate_fee_requests
     );
 
-    let delayed_requests = time_diffs.iter().filter(|&&diff| diff >= 5).count();
     assert!(
-        delayed_requests > 0,
-        "No evidence of rate limiting found - all requests completed too quickly"
+        batches.len() > 1,
+        "No evidence of rate limiting found - all requests completed in a single batch"
     );
 
     Ok(())
