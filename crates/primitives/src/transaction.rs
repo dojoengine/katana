@@ -83,6 +83,17 @@ impl Tx {
             Tx::Deploy(tx) => tx.version,
         }
     }
+
+    /// Returns the type of the transaction.
+    pub fn r#type(&self) -> TxType {
+        match self {
+            Self::Invoke(_) => TxType::Invoke,
+            Self::Deploy(_) => TxType::Deploy,
+            Self::Declare(_) => TxType::Declare,
+            Self::L1Handler(_) => TxType::L1Handler,
+            Self::DeployAccount(_) => TxType::DeployAccount,
+        }
+    }
 }
 
 #[derive(Debug)]

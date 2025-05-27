@@ -22,8 +22,8 @@ use katana_executor::{BlockExecutor, ExecutionResult, ExecutionStats, ExecutorFa
 use katana_pool::validation::stateful::TxValidator;
 use katana_primitives::block::{BlockHashOrNumber, ExecutableBlock, PartialHeader};
 use katana_primitives::da::L1DataAvailabilityMode;
+use katana_primitives::execution::TransactionExecutionInfo;
 use katana_primitives::receipt::Receipt;
-use katana_primitives::trace::TxExecInfo;
 use katana_primitives::transaction::{ExecutableTxWithHash, TxHash, TxWithHash};
 use katana_primitives::version::CURRENT_STARKNET_VERSION;
 use katana_provider::error::ProviderError;
@@ -77,7 +77,7 @@ pub struct MinedBlockOutcome {
 pub struct TxWithOutcome {
     pub tx: TxWithHash,
     pub receipt: Receipt,
-    pub exec_info: TxExecInfo,
+    pub exec_info: TransactionExecutionInfo,
 }
 
 type ServiceFuture<T> = Pin<Box<dyn Future<Output = BlockingTaskResult<T>> + Send + Sync>>;

@@ -8,7 +8,7 @@ use starknet_types_core::hash::{self, StarkHash};
 use crate::contract::ContractAddress;
 use crate::fee::TxFeeInfo;
 use crate::trace::TxResources;
-use crate::transaction::TxHash;
+use crate::transaction::{TxHash, TxType};
 use crate::Felt;
 
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -173,6 +173,16 @@ impl Receipt {
             Receipt::Declare(rct) => &rct.fee,
             Receipt::L1Handler(rct) => &rct.fee,
             Receipt::DeployAccount(rct) => &rct.fee,
+        }
+    }
+
+    /// Returns the transaction tyoe of the receipt.
+    pub fn r#type(&self) -> TxType {
+        match self {
+            Receipt::Invoke(_) => TxType::Invoke,
+            Receipt::Declare(_) => TxType::Declare,
+            Receipt::L1Handler(_) => TxType::L1Handler,
+            Receipt::DeployAccount(_) => TxType::DeployAccount,
         }
     }
 }
