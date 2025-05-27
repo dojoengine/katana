@@ -46,6 +46,7 @@ use katana_tasks::{BlockingTaskPool, TokioTaskSpawner};
 use starknet::core::types::{
     PriceUnit, ResultPageRequest, TransactionExecutionStatus, TransactionStatus,
 };
+use tokio::sync::Semaphore;
 
 use crate::utils;
 use crate::utils::events::{Cursor, EventBlockId};
@@ -86,6 +87,7 @@ where
     forked_client: Option<ForkedClient>,
     blocking_task_pool: BlockingTaskPool,
     block_producer: Option<BlockProducer<EF>>,
+    estimate_fee_semaphore: Semaphore,
     config: StarknetApiConfig,
 }
 
@@ -122,12 +124,18 @@ where
         let blocking_task_pool =
             BlockingTaskPool::new().expect("failed to create blocking task pool");
 
+        let permits = config
+            .max_concurrent_estimate_fee_requests
+            .unwrap_or(crate::DEFAULT_ESTIMATE_FEE_MAX_CONCURRENT_REQUESTS);
+        let estimate_fee_semaphore = Semaphore::new(permits as usize);
+
         let inner = StarknetApiInner {
             pool,
             backend,
             block_producer,
             blocking_task_pool,
             forked_client,
+            estimate_fee_semaphore,
             config,
         };
 
