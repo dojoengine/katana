@@ -253,6 +253,7 @@ impl NodeArgs {
                 port: self.server.http_port,
                 addr: self.server.http_addr,
                 max_connections: self.server.max_connections,
+                max_concurrent_estimate_fee_requests: None,
                 max_request_body_size: None,
                 max_response_body_size: None,
                 timeout: self.server.timeout.map(Duration::from_secs),
