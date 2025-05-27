@@ -13,9 +13,9 @@ use katana_primitives::block::{
 use katana_primitives::class::{ClassHash, CompiledClassHash};
 use katana_primitives::contract::ContractAddress;
 use katana_primitives::env::BlockEnv;
+use katana_primitives::execution::TransactionExecutionInfo;
 use katana_primitives::receipt::Receipt;
 use katana_primitives::state::{StateUpdates, StateUpdatesWithClasses};
-use katana_primitives::trace::TxExecInfo;
 use katana_primitives::transaction::{TxHash, TxNumber, TxWithHash};
 use starknet::providers::jsonrpc::HttpTransport;
 use starknet::providers::JsonRpcClient;
@@ -199,21 +199,24 @@ impl<Db: Database> TransactionStatusProvider for ForkedProvider<Db> {
 }
 
 impl<Db: Database> TransactionTraceProvider for ForkedProvider<Db> {
-    fn transaction_execution(&self, hash: TxHash) -> ProviderResult<Option<TxExecInfo>> {
+    fn transaction_execution(
+        &self,
+        hash: TxHash,
+    ) -> ProviderResult<Option<TransactionExecutionInfo>> {
         self.provider.transaction_execution(hash)
     }
 
     fn transaction_executions_by_block(
         &self,
         block_id: BlockHashOrNumber,
-    ) -> ProviderResult<Option<Vec<TxExecInfo>>> {
+    ) -> ProviderResult<Option<Vec<TransactionExecutionInfo>>> {
         self.provider.transaction_executions_by_block(block_id)
     }
 
     fn transaction_executions_in_range(
         &self,
         range: Range<TxNumber>,
-    ) -> ProviderResult<Vec<TxExecInfo>> {
+    ) -> ProviderResult<Vec<TransactionExecutionInfo>> {
         self.provider.transaction_executions_in_range(range)
     }
 }
@@ -243,7 +246,7 @@ impl<Db: Database> BlockWriter for ForkedProvider<Db> {
         block: SealedBlockWithStatus,
         states: StateUpdatesWithClasses,
         receipts: Vec<Receipt>,
-        executions: Vec<TxExecInfo>,
+        executions: Vec<TransactionExecutionInfo>,
     ) -> ProviderResult<()> {
         self.provider.insert_block_with_states_and_receipts(block, states, receipts, executions)
     }

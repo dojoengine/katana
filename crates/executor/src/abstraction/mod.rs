@@ -1,9 +1,9 @@
 mod executor;
 
 pub use executor::*;
+use katana_primitives::execution::TransactionExecutionInfo;
 use katana_primitives::receipt::Receipt;
 use katana_primitives::state::{StateUpdates, StateUpdatesWithClasses};
-use katana_primitives::trace::TxExecInfo;
 use katana_primitives::transaction::TxWithHash;
 use katana_primitives::{ContractAddress, Felt};
 
@@ -116,13 +116,13 @@ pub struct EntryPointCall {
 #[allow(clippy::large_enum_variant)]
 #[derive(Debug, Clone)]
 pub enum ExecutionResult {
-    Success { receipt: Receipt, trace: TxExecInfo },
+    Success { receipt: Receipt, trace: TransactionExecutionInfo },
     Failed { error: ExecutionError },
 }
 
 impl ExecutionResult {
     /// Creates a new successful execution result.
-    pub fn new_success(receipt: Receipt, trace: TxExecInfo) -> Self {
+    pub fn new_success(receipt: Receipt, trace: TransactionExecutionInfo) -> Self {
         ExecutionResult::Success { receipt, trace }
     }
 
@@ -150,7 +150,7 @@ impl ExecutionResult {
     }
 
     /// Returns the execution info if it was successful. Otherwise, returns `None`.
-    pub fn trace(&self) -> Option<&TxExecInfo> {
+    pub fn trace(&self) -> Option<&TransactionExecutionInfo> {
         match self {
             ExecutionResult::Success { trace, .. } => Some(trace),
             _ => None,
