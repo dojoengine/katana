@@ -10,9 +10,9 @@ use katana_primitives::block::{
 use katana_primitives::class::{ClassHash, CompiledClassHash, ContractClass};
 use katana_primitives::contract::{ContractAddress, StorageKey, StorageValue};
 use katana_primitives::env::BlockEnv;
+use katana_primitives::execution::TransactionExecutionInfo;
 use katana_primitives::receipt::Receipt;
 use katana_primitives::state::{StateUpdates, StateUpdatesWithClasses};
-use katana_primitives::trace::TxExecInfo;
 use katana_primitives::transaction::{TxHash, TxNumber, TxWithHash};
 use katana_primitives::Felt;
 use traits::block::{BlockIdReader, BlockStatusProvider, BlockWriter};
@@ -141,7 +141,7 @@ where
         block: SealedBlockWithStatus,
         states: StateUpdatesWithClasses,
         receipts: Vec<Receipt>,
-        executions: Vec<TxExecInfo>,
+        executions: Vec<TransactionExecutionInfo>,
     ) -> ProviderResult<()> {
         self.provider.insert_block_with_states_and_receipts(block, states, receipts, executions)
     }
@@ -202,21 +202,24 @@ impl<Db> TransactionTraceProvider for BlockchainProvider<Db>
 where
     Db: TransactionTraceProvider,
 {
-    fn transaction_execution(&self, hash: TxHash) -> ProviderResult<Option<TxExecInfo>> {
+    fn transaction_execution(
+        &self,
+        hash: TxHash,
+    ) -> ProviderResult<Option<TransactionExecutionInfo>> {
         TransactionTraceProvider::transaction_execution(&self.provider, hash)
     }
 
     fn transaction_executions_by_block(
         &self,
         block_id: BlockHashOrNumber,
-    ) -> ProviderResult<Option<Vec<TxExecInfo>>> {
+    ) -> ProviderResult<Option<Vec<TransactionExecutionInfo>>> {
         TransactionTraceProvider::transaction_executions_by_block(&self.provider, block_id)
     }
 
     fn transaction_executions_in_range(
         &self,
         range: Range<TxNumber>,
-    ) -> ProviderResult<Vec<TxExecInfo>> {
+    ) -> ProviderResult<Vec<TransactionExecutionInfo>> {
         TransactionTraceProvider::transaction_executions_in_range(&self.provider, range)
     }
 }

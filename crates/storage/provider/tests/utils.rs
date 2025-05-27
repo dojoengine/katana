@@ -1,13 +1,13 @@
 use katana_primitives::block::{Block, BlockHash, FinalityStatus, Header, SealedBlockWithStatus};
+use katana_primitives::execution::TransactionExecutionInfo;
 use katana_primitives::fee::{PriceUnit, TxFeeInfo};
 use katana_primitives::receipt::{InvokeTxReceipt, Receipt};
-use katana_primitives::trace::TxExecInfo;
 use katana_primitives::transaction::{InvokeTx, Tx, TxHash, TxWithHash};
 use katana_primitives::Felt;
 
 pub fn generate_dummy_txs_and_receipts(
     count: usize,
-) -> (Vec<TxWithHash>, Vec<Receipt>, Vec<TxExecInfo>) {
+) -> (Vec<TxWithHash>, Vec<Receipt>, Vec<TransactionExecutionInfo>) {
     let mut txs = Vec::with_capacity(count);
     let mut receipts = Vec::with_capacity(count);
     let mut executions = Vec::with_capacity(count);
@@ -26,7 +26,7 @@ pub fn generate_dummy_txs_and_receipts(
             execution_resources: Default::default(),
             fee: TxFeeInfo { gas_consumed: 0, gas_price: 0, overall_fee: 0, unit: PriceUnit::Wei },
         }));
-        executions.push(TxExecInfo::default());
+        executions.push(TransactionExecutionInfo::default());
     }
 
     (txs, receipts, executions)
@@ -34,7 +34,7 @@ pub fn generate_dummy_txs_and_receipts(
 
 pub fn generate_dummy_blocks_and_receipts(
     count: u64,
-) -> Vec<(SealedBlockWithStatus, Vec<Receipt>, Vec<TxExecInfo>)> {
+) -> Vec<(SealedBlockWithStatus, Vec<Receipt>, Vec<TransactionExecutionInfo>)> {
     let mut blocks = Vec::with_capacity(count as usize);
     let mut parent_hash: BlockHash = 0u8.into();
 
