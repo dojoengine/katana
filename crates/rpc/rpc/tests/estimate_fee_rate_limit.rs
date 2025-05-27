@@ -2,12 +2,12 @@ use std::sync::Arc;
 use std::time::Instant;
 
 use anyhow::Result;
-use jsonrpsee::http_client::HttpClientBuilder;
+use cainome::rs::abigen_legacy;
 use katana_primitives::genesis::constant::DEFAULT_ETH_FEE_TOKEN_ADDRESS;
-use katana_rpc::starknet::StarknetApiConfig;
 use katana_utils::TestNode;
 use starknet::accounts::ConnectedAccount;
 use starknet::core::types::{BlockId, BlockTag, Felt};
+use starknet::macros::felt;
 use tokio::sync::Mutex;
 
 mod common;
@@ -19,27 +19,17 @@ async fn test_estimate_fee_rate_limiting() -> Result<()> {
     let mut config = katana_utils::node::test_config();
 
     let max_concurrent_estimate_fee_requests = 2;
+    config.rpc.max_connections = Some(max_concurrent_estimate_fee_requests);
 
-    let sequencer = TestNode::new_with_custom_rpc(config, |rpc_server| {
-        let cfg = StarknetApiConfig {
-            max_event_page_size: None,
-            max_proof_keys: None,
-            max_concurrent_estimate_fee_requests: Some(max_concurrent_estimate_fee_requests),
-            #[cfg(feature = "cartridge")]
-            paymaster: None,
-        };
-
-        rpc_server.starknet_api_config(cfg)
-    })
-    .await;
+    let sequencer = TestNode::new_with_config(config).await;
 
     let provider = sequencer.starknet_provider();
     let account = Arc::new(sequencer.account());
 
     let contract = Erc20Contract::new(DEFAULT_ETH_FEE_TOKEN_ADDRESS.into(), &account);
 
-    let recipient = Felt::ONE;
-    let amount = Uint256 { low: Felt::ONE, high: Felt::ZERO };
+    let recipient = felt!("0x1");
+    let amount = cainome::cairo_serde::U256 { low: felt!("0x1"), high: Felt::ZERO };
 
     const REQUEST_COUNT: usize = 10;
     let start_time = Arc::new(Mutex::new(None));
