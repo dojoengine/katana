@@ -6229,7 +6229,7 @@ dependencies = [
 
 [[package]]
 name = "katana-explorer"
-version = "1.5.1"
+version = "1.5.2"
 dependencies = [
  "anyhow",
  "axum",
