@@ -2,7 +2,7 @@ use std::collections::HashMap;
 use std::sync::Arc;
 
 use katana_primitives::execution::{
-    self, BuiltinName, CallInfo, GasVector, TransactionExecutionInfo,
+    self, BuiltinName, CallInfo, GasVector, TransactionExecutionInfo, TypedTransactionExecutionInfo,
 };
 use katana_primitives::fee::TxFeeInfo;
 use katana_primitives::transaction::{TxHash, TxType};
@@ -25,7 +25,10 @@ pub struct TxExecutionInfo {
     pub trace: TransactionExecutionInfo,
 }
 
-pub fn to_rpc_trace(trace: TransactionExecutionInfo, tx_type: TxType) -> TransactionTrace {
+pub fn to_rpc_trace(trace: TypedTransactionExecutionInfo) -> TransactionTrace {
+    let tx_type = trace.r#type();
+    let trace: TransactionExecutionInfo = trace.into();
+
     let execution_resources = to_rpc_resources(trace.receipt);
     let fee_transfer_invocation = trace.fee_transfer_call_info.map(to_function_invocation);
     let validate_invocation = trace.validate_call_info.map(to_function_invocation);
