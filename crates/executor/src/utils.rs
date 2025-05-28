@@ -1,10 +1,10 @@
-use katana_primitives::execution::TransactionResources;
+use blockifier::fee::receipt::TransactionReceipt;
+use katana_primitives::execution::{CallInfo, TransactionExecutionInfo, TransactionResources};
 use katana_primitives::fee::TxFeeInfo;
 use katana_primitives::receipt::{
-    DeclareTxReceipt, DeployAccountTxReceipt, Event, InvokeTxReceipt, L1HandlerTxReceipt,
-    MessageToL1, Receipt,
+    self, DataAvailabilityResources, DeclareTxReceipt, DeployAccountTxReceipt, Event, GasUsed,
+    InvokeTxReceipt, L1HandlerTxReceipt, MessageToL1, Receipt,
 };
-use katana_primitives::trace::{CallInfo, TxExecInfo};
 use katana_primitives::transaction::TxRef;
 use tracing::trace;
 
@@ -26,11 +26,15 @@ pub fn log_resources(resources: &TransactionResources) {
     trace!(target: LOG_TARGET, usage = mapped_strings.join(" | "), "Transaction resource usage.");
 }
 
-pub(crate) fn build_receipt(tx: TxRef<'_>, fee: TxFeeInfo, info: &TxExecInfo) -> Receipt {
+pub(crate) fn build_receipt(
+    tx: TxRef<'_>,
+    fee: TxFeeInfo,
+    info: &TransactionExecutionInfo,
+) -> Receipt {
     let events = events_from_exec_info(info);
-    let revert_error = info.revert_error.clone();
     let messages_sent = l2_to_l1_messages_from_exec_info(info);
-    let actual_resources = info.actual_resources.clone();
+    let execution_resources = get_receipt_resources(&info.receipt);
+    let revert_error = info.revert_error.as_ref().map(|e| e.to_string());
 
     match tx {
         TxRef::Invoke(_) => Receipt::Invoke(InvokeTxReceipt {
@@ -38,7 +42,7 @@ pub(crate) fn build_receipt(tx: TxRef<'_>, fee: TxFeeInfo, info: &TxExecInfo) ->
             fee,
             revert_error,
             messages_sent,
-            execution_resources: actual_resources,
+            execution_resources,
         }),
 
         TxRef::Declare(_) => Receipt::Declare(DeclareTxReceipt {
@@ -46,7 +50,7 @@ pub(crate) fn build_receipt(tx: TxRef<'_>, fee: TxFeeInfo, info: &TxExecInfo) ->
             fee,
             revert_error,
             messages_sent,
-            execution_resources: actual_resources,
+            execution_resources,
         }),
 
         TxRef::L1Handler(tx) => Receipt::L1Handler(L1HandlerTxReceipt {
@@ -55,7 +59,7 @@ pub(crate) fn build_receipt(tx: TxRef<'_>, fee: TxFeeInfo, info: &TxExecInfo) ->
             revert_error,
             messages_sent,
             message_hash: tx.message_hash,
-            execution_resources: actual_resources,
+            execution_resources,
         }),
 
         TxRef::DeployAccount(tx) => Receipt::DeployAccount(DeployAccountTxReceipt {
@@ -63,13 +67,30 @@ pub(crate) fn build_receipt(tx: TxRef<'_>, fee: TxFeeInfo, info: &TxExecInfo) ->
             fee,
             revert_error,
             messages_sent,
-            execution_resources: actual_resources,
+            execution_resources,
             contract_address: tx.contract_address(),
         }),
     }
 }
 
-pub fn events_from_exec_info(info: &TxExecInfo) -> Vec<Event> {
+fn get_receipt_resources(receipt: &TransactionReceipt) -> receipt::ExecutionResources {
+    let computation_resources = receipt.resources.computation.vm_resources.clone();
+
+    let gas = GasUsed {
+        l2_gas: receipt.gas.l2_gas.0,
+        l1_gas: receipt.gas.l1_gas.0,
+        l1_data_gas: receipt.gas.l1_data_gas.0,
+    };
+
+    let da_resources = DataAvailabilityResources {
+        l1_gas: receipt.da_gas.l1_gas.0,
+        l1_data_gas: receipt.da_gas.l1_data_gas.0,
+    };
+
+    receipt::ExecutionResources { da_resources, computation_resources, gas }
+}
+
+fn events_from_exec_info(info: &TransactionExecutionInfo) -> Vec<Event> {
     let mut events: Vec<Event> = vec![];
 
     if let Some(ref call) = info.validate_call_info {
@@ -87,7 +108,7 @@ pub fn events_from_exec_info(info: &TxExecInfo) -> Vec<Event> {
     events
 }
 
-pub fn l2_to_l1_messages_from_exec_info(info: &TxExecInfo) -> Vec<MessageToL1> {
+fn l2_to_l1_messages_from_exec_info(info: &TransactionExecutionInfo) -> Vec<MessageToL1> {
     let mut messages = vec![];
 
     if let Some(ref info) = info.validate_call_info {
@@ -106,138 +127,31 @@ pub fn l2_to_l1_messages_from_exec_info(info: &TxExecInfo) -> Vec<MessageToL1> {
 }
 
 fn get_events_recur(info: &CallInfo) -> Vec<Event> {
-    let mut events: Vec<Event> = vec![];
+    let from_address = info.call.storage_address.into();
+    let mut events = Vec::new();
 
-    events.extend(info.events.iter().map(|e| Event {
-        from_address: info.contract_address,
-        data: e.data.clone(),
-        keys: e.keys.clone(),
+    events.extend(info.execution.events.iter().map(|e| {
+        let data = e.event.data.0.clone();
+        let keys = e.event.keys.iter().map(|k| k.0).collect();
+        Event { from_address, data, keys }
     }));
 
-    info.inner_calls.iter().for_each(|call| {
-        events.extend(get_events_recur(call));
-    });
+    info.inner_calls.iter().for_each(|call| events.extend(get_events_recur(call)));
 
     events
 }
 
 fn get_l2_to_l1_messages_recur(info: &CallInfo) -> Vec<MessageToL1> {
-    let mut messages = vec![];
+    let from_address = info.call.storage_address.into();
+    let mut messages = Vec::new();
 
-    messages.extend(info.l2_to_l1_messages.iter().map(|m| MessageToL1 {
-        from_address: m.from_address,
-        to_address: m.to_address,
-        payload: m.payload.clone(),
+    messages.extend(info.execution.l2_to_l1_messages.iter().map(|m| {
+        let payload = m.message.payload.0.clone();
+        let to_address = m.message.to_address;
+        MessageToL1 { from_address, to_address, payload }
     }));
 
-    info.inner_calls.iter().for_each(|call| {
-        messages.extend(get_l2_to_l1_messages_recur(call));
-    });
+    info.inner_calls.iter().for_each(|call| messages.extend(get_l2_to_l1_messages_recur(call)));
 
     messages
-}
-
-#[cfg(test)]
-mod tests {
-    use katana_primitives::event::OrderedEvent;
-    use katana_primitives::message::OrderedL2ToL1Message;
-    use katana_primitives::receipt::{Event, MessageToL1};
-    use katana_primitives::trace::CallInfo;
-    use starknet::macros::felt;
-
-    fn call_info() -> CallInfo {
-        let inner_calls = vec![CallInfo {
-            contract_address: felt!("0x111").into(),
-            events: vec![
-                OrderedEvent { order: 1, data: vec![1u8.into()], keys: vec![10u8.into()] },
-                OrderedEvent { order: 4, data: vec![2u8.into()], keys: vec![20u8.into()] },
-            ],
-            l2_to_l1_messages: vec![OrderedL2ToL1Message {
-                order: 0,
-                from_address: felt!("0x111").into(),
-                to_address: felt!("0x200"),
-                payload: vec![1u8.into()],
-            }],
-            ..Default::default()
-        }];
-
-        CallInfo {
-            contract_address: felt!("0x100").into(),
-            events: vec![OrderedEvent { order: 0, data: vec![1u8.into()], keys: vec![2u8.into()] }],
-            l2_to_l1_messages: vec![
-                OrderedL2ToL1Message {
-                    order: 0,
-                    from_address: felt!("0x100").into(),
-                    to_address: felt!("0x200"),
-                    payload: vec![1u8.into()],
-                },
-                OrderedL2ToL1Message {
-                    order: 1,
-                    from_address: felt!("0x100").into(),
-                    to_address: felt!("0x201"),
-                    payload: vec![2u8.into()],
-                },
-            ],
-            inner_calls,
-            ..Default::default()
-        }
-    }
-
-    #[test]
-    fn get_events_from_exec_info() {
-        let info = call_info();
-        let events = super::get_events_recur(&info);
-
-        let expected_events = vec![
-            Event {
-                from_address: info.contract_address,
-                data: vec![1u8.into()],
-                keys: vec![2u8.into()],
-            },
-            Event {
-                from_address: info.inner_calls[0].contract_address,
-                data: vec![1u8.into()],
-                keys: vec![10u8.into()],
-            },
-            Event {
-                from_address: info.inner_calls[0].contract_address,
-                data: vec![2u8.into()],
-                keys: vec![20u8.into()],
-            },
-        ];
-
-        similar_asserts::assert_eq!(events, expected_events)
-    }
-
-    #[test]
-    fn get_l2_to_l1_messages_from_exec_info() {
-        let info = call_info();
-        let events = super::get_l2_to_l1_messages_recur(&info);
-
-        // TODO: Maybe remove `from_address` from `MessageToL1`?
-        //
-        // The from address is not constrained to be the same as the contract address
-        // of the call info beca use we already set it when converting TxExecInfo from its executor
-        // specific counterparts. Which is different compare to the events where it doesn't have
-        // from address field in `OrderedEvent`.
-        let expected_messages = vec![
-            MessageToL1 {
-                from_address: info.contract_address,
-                to_address: info.l2_to_l1_messages[0].to_address,
-                payload: info.l2_to_l1_messages[0].payload.clone(),
-            },
-            MessageToL1 {
-                from_address: info.contract_address,
-                to_address: info.l2_to_l1_messages[1].to_address,
-                payload: info.l2_to_l1_messages[1].payload.clone(),
-            },
-            MessageToL1 {
-                from_address: info.inner_calls[0].contract_address,
-                to_address: info.inner_calls[0].l2_to_l1_messages[0].to_address,
-                payload: info.inner_calls[0].l2_to_l1_messages[0].payload.clone(),
-            },
-        ];
-
-        similar_asserts::assert_eq!(events, expected_messages)
-    }
 }

@@ -1,7 +1,7 @@
 use std::collections::HashMap;
 
-use katana_primitives::receipt::{Event, MessageToL1};
-use katana_primitives::trace::{self, BuiltinCounters, BuiltinName};
+use katana_primitives::execution::{BuiltinCounters, BuiltinName, VmResources};
+use katana_primitives::receipt::{DataAvailabilityResources, Event, MessageToL1};
 use katana_primitives::{eth, Felt};
 use serde::Deserialize;
 
@@ -27,14 +27,8 @@ pub enum ExecutionStatus {
 
 #[derive(Debug, PartialEq, Eq)]
 pub struct ExecutionResources {
-    pub vm_resources: trace::ExecutionResources,
+    pub vm_resources: VmResources,
     pub data_availability: Option<DataAvailabilityResources>,
-}
-
-#[derive(Debug, PartialEq, Eq, Deserialize)]
-pub struct DataAvailabilityResources {
-    pub l1_gas: u64,
-    pub l1_data_gas: u64,
 }
 
 #[derive(Debug, PartialEq, Eq, Deserialize)]
@@ -47,8 +41,6 @@ pub struct L1ToL2Message {
     pub nonce: Option<Felt>,
 }
 
-// The reason why we implement `Deserialize` manually is because we want to avoid defining redundant
-// types just because the format is different than the already existing types.
 impl<'de> Deserialize<'de> for ExecutionResources {
     fn deserialize<D: serde::Deserializer<'de>>(deserializer: D) -> Result<Self, D::Error> {
         struct BuiltinCounterHelper(BuiltinCounters);
@@ -163,13 +155,12 @@ impl<'de> Deserialize<'de> for ExecutionResources {
 
         let helper = Helper::deserialize(deserializer)?;
 
-        Ok(Self {
-            data_availability: helper.data_availability,
-            vm_resources: trace::ExecutionResources {
-                n_steps: helper.n_steps,
-                n_memory_holes: helper.n_memory_holes,
-                builtin_instance_counter: helper.builtin_instance_counter.0,
-            },
-        })
+        let vm_resources = VmResources {
+            n_steps: helper.n_steps,
+            n_memory_holes: helper.n_memory_holes,
+            builtin_instance_counter: helper.builtin_instance_counter.0.into(),
+        };
+
+        Ok(Self { data_availability: helper.data_availability, vm_resources })
     }
 }
