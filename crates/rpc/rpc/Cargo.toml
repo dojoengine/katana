@@ -77,5 +77,6 @@ cartridge = [
 	"dep:reqwest",
 	"dep:serde",
 	"dep:stark-vrf",
+	"dep:starknet-crypto",
 	"katana-rpc-api/cartridge",
 ]
