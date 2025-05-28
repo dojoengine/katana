@@ -310,12 +310,7 @@ impl<EF: ExecutorFactory> StarknetApiServer for StarknetApi<EF> {
             transactions
         };
 
-        let permit =
-            self.inner.estimate_fee_semaphore.clone().acquire_owned().await.map_err(|_| {
-                StarknetApiError::UnexpectedError {
-                    reason: "Failed to acquire estimate_fee semaphore permit".to_string(),
-                }
-            })?;
+        let permit = self.inner.estimate_fee_permit.acquire().await?;
 
         self.on_cpu_blocking_task(move |this| {
             let _permit = permit;
