@@ -1,11 +1,10 @@
 use jsonrpsee::core::{async_trait, RpcResult};
 use katana_executor::{ExecutionResult, ExecutorFactory, ResultAndStates};
 use katana_primitives::block::{BlockHashOrNumber, BlockIdOrTag};
-use katana_primitives::transaction::{ExecutableTx, ExecutableTxWithHash, Tx, TxHash, TxType};
+use katana_primitives::execution::TypedTransactionExecutionInfo;
+use katana_primitives::transaction::{ExecutableTx, ExecutableTxWithHash, TxHash};
 use katana_provider::traits::block::{BlockNumberProvider, BlockProvider};
-use katana_provider::traits::transaction::{
-    TransactionProvider, TransactionTraceProvider, TransactionsProviderExt,
-};
+use katana_provider::traits::transaction::{TransactionTraceProvider, TransactionsProviderExt};
 use katana_rpc_api::error::starknet::StarknetApiError;
 use katana_rpc_api::starknet::StarknetTraceApiServer;
 use katana_rpc_types::trace::{to_rpc_fee_estimate, to_rpc_trace};
@@ -86,9 +85,12 @@ impl<EF: ExecutorFactory> StarknetApi<EF> {
         for (i, ResultAndStates { result, .. }) in results.into_iter().enumerate() {
             match result {
                 ExecutionResult::Success { trace, receipt } => {
-                    let transaction_trace = to_rpc_trace(trace, receipt.r#type());
+                    let trace = TypedTransactionExecutionInfo::new(receipt.r#type(), trace);
+
+                    let transaction_trace = to_rpc_trace(trace);
                     let fee_estimation = to_rpc_fee_estimate(receipt.fee().clone());
                     let value = SimulatedTransaction { transaction_trace, fee_estimation };
+
                     simulated.push(value)
                 }
 
@@ -120,9 +122,11 @@ impl<EF: ExecutorFactory> StarknetApi<EF> {
 
                     // extract the txs from the pending block
                     let traces = pending_block.transactions().iter().filter_map(|(t, r)| {
-                        if let Some(trace) = r.trace() {
+                        if let Some(trace) = r.trace().cloned() {
                             let transaction_hash = t.hash;
-                            let trace_root = to_rpc_trace(trace.clone(), t.r#type());
+                            let trace = TypedTransactionExecutionInfo::new(t.r#type(), trace);
+                            let trace_root = to_rpc_trace(trace);
+
                             Some(TransactionTraceWithHash { transaction_hash, trace_root })
                         } else {
                             None
@@ -140,28 +144,15 @@ impl<EF: ExecutorFactory> StarknetApi<EF> {
             BlockIdOrTag::Hash(hash) => hash.into(),
         };
 
-        // TODO: we should probably simplify this query
         let indices = provider.block_body_indices(block_id)?.ok_or(BlockNotFound)?;
-        let hashes = provider.transaction_hashes_in_range(indices.into())?;
+        let tx_hashes = provider.transaction_hashes_in_range(indices.into())?;
+
         let traces = provider.transaction_executions_by_block(block_id)?.ok_or(BlockNotFound)?;
+        let traces = traces.into_iter().map(to_rpc_trace);
 
-        // get transactions to extract type information
-        let transactions = provider.transactions_by_block(block_id)?.ok_or(BlockNotFound)?;
-
-        // convert to rpc types
-        let traces_with_types = traces.into_iter().zip(transactions.iter()).map(|(trace, tx)| {
-            let tx_type = match &tx.transaction {
-                Tx::Invoke(_) => TxType::Invoke,
-                Tx::Declare(_) => TxType::Declare,
-                Tx::DeployAccount(_) => TxType::DeployAccount,
-                Tx::L1Handler(_) => TxType::L1Handler,
-                Tx::Deploy(_) => TxType::Deploy,
-            };
-            to_rpc_trace(trace, tx_type)
-        });
-        let result = hashes
+        let result = tx_hashes
             .into_iter()
-            .zip(traces_with_types)
+            .zip(traces)
             .map(|(h, r)| TransactionTraceWithHash { transaction_hash: h, trace_root: r })
             .collect::<Vec<_>>();
 
@@ -178,7 +169,8 @@ impl<EF: ExecutorFactory> StarknetApi<EF> {
 
             if let Some((tx, res)) = tx {
                 if let Some(trace) = res.trace() {
-                    return Ok(to_rpc_trace(trace.clone(), tx.r#type()));
+                    let trace = TypedTransactionExecutionInfo::new(tx.r#type(), trace.clone());
+                    return Ok(to_rpc_trace(trace));
                 }
             }
         }
@@ -186,17 +178,7 @@ impl<EF: ExecutorFactory> StarknetApi<EF> {
         // If not found in pending block, fallback to the provider
         let provider = self.inner.backend.blockchain.provider();
         let trace = provider.transaction_execution(tx_hash)?.ok_or(TxnHashNotFound)?;
-        let tx = provider.transaction_by_hash(tx_hash)?.ok_or(TxnHashNotFound)?;
-
-        let tx_type = match &tx.transaction {
-            Tx::Invoke(_) => TxType::Invoke,
-            Tx::Deploy(_) => TxType::Deploy,
-            Tx::Declare(_) => TxType::Declare,
-            Tx::L1Handler(_) => TxType::L1Handler,
-            Tx::DeployAccount(_) => TxType::DeployAccount,
-        };
-
-        Ok(to_rpc_trace(trace, tx_type))
+        Ok(to_rpc_trace(trace))
     }
 }
 

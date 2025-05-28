@@ -1,7 +1,7 @@
 use std::ops::Range;
 
 use katana_primitives::block::{BlockHash, BlockHashOrNumber, BlockNumber, FinalityStatus};
-use katana_primitives::execution::TransactionExecutionInfo;
+use katana_primitives::execution::TypedTransactionExecutionInfo;
 use katana_primitives::receipt::Receipt;
 use katana_primitives::transaction::{TxHash, TxNumber, TxWithHash};
 
@@ -59,19 +59,19 @@ pub trait TransactionTraceProvider: Send + Sync {
     fn transaction_execution(
         &self,
         hash: TxHash,
-    ) -> ProviderResult<Option<TransactionExecutionInfo>>;
+    ) -> ProviderResult<Option<TypedTransactionExecutionInfo>>;
 
     /// Returns all the transactions executions for a given block.
     fn transaction_executions_by_block(
         &self,
         block_id: BlockHashOrNumber,
-    ) -> ProviderResult<Option<Vec<TransactionExecutionInfo>>>;
+    ) -> ProviderResult<Option<Vec<TypedTransactionExecutionInfo>>>;
 
     /// Retrieves the execution traces for the given range of tx numbers.
     fn transaction_executions_in_range(
         &self,
         range: Range<TxNumber>,
-    ) -> ProviderResult<Vec<TransactionExecutionInfo>>;
+    ) -> ProviderResult<Vec<TypedTransactionExecutionInfo>>;
 }
 
 #[auto_impl::auto_impl(&, Box, Arc)]
