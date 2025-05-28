@@ -44,13 +44,14 @@ use katana_rpc_types::FeeEstimate;
 use katana_rpc_types_builder::ReceiptBuilder;
 use katana_tasks::{BlockingTaskPool, TokioTaskSpawner};
 use starknet::core::types::{
-    PriceUnit, ResultPageRequest, TransactionExecutionStatus, TransactionStatus,
+    ResultPageRequest, TransactionExecutionStatus, TransactionStatus,
 };
 
 use crate::permit::Permits;
 use crate::utils::events::{Cursor, EventBlockId};
 use crate::{utils, DEFAULT_ESTIMATE_FEE_MAX_CONCURRENT_REQUESTS};
 
+mod blockifier;
 mod config;
 pub mod forking;
 mod read;
@@ -170,24 +171,16 @@ where
         let state = self.state(&block_id)?;
         let env = self.block_env_at(&block_id)?;
 
-        // create the executor
-        let executor = self.inner.backend.executor_factory.with_state_and_block_env(state, env);
-        let results = executor.estimate_fee(transactions, flags);
+        // use the blockifier utils function
+        let cfg_env = self.inner.backend.executor_factory.cfg().clone();
+        let results = blockifier::estimate_fee(state, env, cfg_env, transactions, flags);
 
         let mut estimates = Vec::with_capacity(results.len());
         for (i, res) in results.into_iter().enumerate() {
             match res {
-                Ok(fee) => estimates.push(FeeEstimate {
-                    gas_price: fee.gas_price.into(),
-                    gas_consumed: fee.gas_consumed.into(),
-                    overall_fee: fee.overall_fee.into(),
-                    data_gas_price: Default::default(),
-                    data_gas_consumed: Default::default(),
-                    unit: match fee.unit {
-                        katana_primitives::fee::PriceUnit::Wei => PriceUnit::Wei,
-                        katana_primitives::fee::PriceUnit::Fri => PriceUnit::Fri,
-                    },
-                }),
+                Ok((fee, resources)) => {
+                    estimates.push(katana_rpc_types::trace::to_rpc_fee_estimate(&resources, &fee));
+                }
 
                 Err(err) => {
                     return Err(StarknetApiError::TransactionExecutionError {

@@ -1,0 +1,108 @@
+use std::sync::Arc;
+
+use katana_executor::implementation::blockifier::blockifier::state::cached_state::{
+    self, MutRefState,
+};
+use katana_executor::implementation::blockifier::utils::{self, block_context_from_envs};
+use katana_executor::implementation::blockifier::{
+    cache::COMPILED_CLASS_CACHE, state::CachedState,
+};
+use katana_executor::{
+    EntryPointCall, ExecutionError, ExecutionFlags, ExecutionResult, ResultAndStates,
+};
+use katana_primitives::env::{BlockEnv, CfgEnv};
+use katana_primitives::fee::FeeInfo;
+use katana_primitives::receipt::ExecutionResources;
+use katana_primitives::transaction::{ExecutableTxWithHash, TxWithHash};
+use katana_primitives::Felt;
+use katana_provider::traits::state::StateProvider;
+use tracing::info;
+
+const LOG_TARGET: &str = "katana::rpc::blockifier";
+
+pub fn simulate<P: StateProvider>(
+    state: P,
+    block_env: BlockEnv,
+    cfg_env: CfgEnv,
+    transactions: Vec<ExecutableTxWithHash>,
+    flags: ExecutionFlags,
+) -> Vec<ResultAndStates> {
+    let block_context = Arc::new(block_context_from_envs(&block_env, &cfg_env));
+    let state = CachedState::new(state, COMPILED_CLASS_CACHE.clone());
+
+    let mut results = Vec::with_capacity(transactions.len());
+    for exec_tx in transactions {
+        let _tx = TxWithHash::from(&exec_tx);
+        // Safe to unwrap here because the only way the call to `transact` can return an error
+        // is when bouncer is `Some`.
+        let res = state.with_cached_state(|cached_state| {
+            let mut state = cached_state::CachedState::new(MutRefState::new(cached_state));
+            utils::transact(&mut state, &block_context, &flags, exec_tx, None).unwrap()
+        });
+        results.push(ResultAndStates { result: res, states: Default::default() });
+    }
+
+    results
+}
+
+pub fn estimate_fee<P: StateProvider>(
+    state: P,
+    block_env: BlockEnv,
+    cfg_env: CfgEnv,
+    transactions: Vec<ExecutableTxWithHash>,
+    flags: ExecutionFlags,
+) -> Vec<Result<(FeeInfo, ExecutionResources), ExecutionError>> {
+    let block_context = Arc::new(block_context_from_envs(&block_env, &cfg_env));
+    let state = CachedState::new(state, COMPILED_CLASS_CACHE.clone());
+
+    let mut results = Vec::with_capacity(transactions.len());
+    for exec_tx in transactions {
+        // Safe to unwrap here because the only way the call to `transact` can return an error
+        // is when bouncer is `Some`.
+        let res = state.with_cached_state(|cached_state| {
+            let mut state = cached_state::CachedState::new(MutRefState::new(cached_state));
+            utils::transact(&mut state, &block_context, &flags, exec_tx, None).unwrap()
+        });
+
+        let result = match res {
+            ExecutionResult::Success { receipt, .. } => {
+                // if the transaction was reverted, return as error
+                if let Some(reason) = receipt.revert_reason() {
+                    Err(ExecutionError::TransactionReverted { revert_error: reason.to_string() })
+                } else {
+                    Ok((receipt.fee().clone(), receipt.resources_used().clone()))
+                }
+            }
+
+            ExecutionResult::Failed { error } => {
+                info!(target: LOG_TARGET, %error, "Estimating fee.");
+                Err(error)
+            }
+        };
+        results.push(result);
+    }
+
+    results
+}
+
+pub fn call<P: StateProvider>(
+    state: P,
+    block_env: BlockEnv,
+    cfg_env: CfgEnv,
+    call: EntryPointCall,
+    max_call_gas: u64,
+) -> Result<Vec<Felt>, ExecutionError> {
+    let block_context = Arc::new(block_context_from_envs(&block_env, &cfg_env));
+    let state = CachedState::new(state, COMPILED_CLASS_CACHE.clone());
+
+    state.with_cached_state(|cached_state| {
+        let state = MutRefState::new(cached_state);
+        let retdata = katana_executor::implementation::blockifier::call::execute_call(
+            call,
+            state,
+            block_context,
+            max_call_gas,
+        )?;
+        Ok(retdata)
+    })
+}

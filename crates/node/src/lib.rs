@@ -106,12 +106,8 @@ impl Node {
             .with_fee(config.dev.fee);
 
         let executor_factory = {
-            let mut factory =
+            let factory =
                 BlockifierFactory::new(cfg_env, execution_flags, config.sequencing.block_limits());
-
-            if let Some(max_call_gas) = config.rpc.max_call_gas {
-                factory.set_max_call_gas(max_call_gas);
-            }
 
             #[cfg(feature = "native")]
             {
@@ -244,6 +240,7 @@ impl Node {
             let cfg = StarknetApiConfig {
                 max_event_page_size: config.rpc.max_event_page_size,
                 max_proof_keys: config.rpc.max_proof_keys,
+                max_call_gas: config.rpc.max_call_gas,
                 max_concurrent_estimate_fee_requests: config
                     .rpc
                     .max_concurrent_estimate_fee_requests,

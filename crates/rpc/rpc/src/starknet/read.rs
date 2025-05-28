@@ -150,9 +150,10 @@ impl<EF: ExecutorFactory> StarknetApiServer for StarknetApi<EF> {
             // get the state and block env at the specified block for function call execution
             let state = this.state(&block_id)?;
             let env = this.block_env_at(&block_id)?;
-            let executor = this.inner.backend.executor_factory.with_state_and_block_env(state, env);
+            let cfg_env = this.inner.backend.executor_factory.cfg().clone();
+            let max_call_gas = this.inner.config.max_call_gas.unwrap_or(1_000_000_000);
 
-            match executor.call(request) {
+            match super::blockifier::call(state, env, cfg_env, request, max_call_gas) {
                 Ok(retdata) => Ok(retdata.into_iter().map(|v| v.into()).collect()),
                 Err(err) => Err(Error::from(StarknetApiError::ContractError {
                     revert_error: err.to_string(),
