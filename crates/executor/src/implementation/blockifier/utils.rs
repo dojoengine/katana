@@ -76,7 +76,7 @@ pub fn transact<S: StateReader>(
             Transaction::L1Handler(..) => Tip(0),
         };
 
-        let info = match tx {
+        let execution_info = match tx {
             Transaction::Account(tx) => tx.execute(state, block_context),
             Transaction::L1Handler(tx) => tx.execute(state, block_context),
         }?;
@@ -85,10 +85,15 @@ pub fn transact<S: StateReader>(
         // where the fee is skipped and thus not charged for the transaction (e.g. when the
         // `skip_fee_transfer` is explicitly set, or when the transaction `max_fee` is set to 0). In
         // these cases, we still want to calculate the fee.
-        let overall_fee = if info.receipt.fee == Fee(0) {
-            get_fee_by_gas_vector(block_context.block_info(), info.receipt.gas, &fee_type, Tip(0))
+        let overall_fee = if execution_info.receipt.fee == Fee(0) {
+            get_fee_by_gas_vector(
+                block_context.block_info(),
+                execution_info.receipt.gas,
+                &fee_type,
+                tip,
+            )
         } else {
-            info.receipt.fee
+            execution_info.receipt.fee
         };
 
         let prices = &block_context.block_info().gas_prices;
@@ -112,7 +117,7 @@ pub fn transact<S: StateReader>(
             }
         };
 
-        Ok((info, fee))
+        Ok((execution_info, fee))
     }
 
     let transaction = to_executor_tx(tx.clone(), simulation_flags.clone());
