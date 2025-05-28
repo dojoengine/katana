@@ -20,6 +20,7 @@ pub mod cors;
 pub mod dev;
 pub mod health;
 pub mod metrics;
+pub mod permit;
 pub mod starknet;
 mod utils;
 
