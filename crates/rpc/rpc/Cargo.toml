@@ -20,27 +20,28 @@ katana-rpc-types-builder.workspace = true
 katana-tasks.workspace = true
 
 anyhow.workspace = true
-ark-ec = { version = "0.4.2", optional = true }
-cainome = { workspace = true, optional = true }
 futures.workspace = true
 http.workspace = true
 jsonrpsee = { workspace = true, features = [ "server" ] }
 metrics.workspace = true
-num-bigint = { workspace = true, optional = true }
-parking_lot.workspace = true
-reqwest = { workspace = true, optional = true }
-serde = { workspace = true, optional = true }
 serde_json.workspace = true
 starknet.workspace = true
-starknet-crypto.workspace = true
-# Use a specific revision of stark-vrf to avoid unwanted breaking changes.
-stark-vrf = { git = "https://github.com/dojoengine/stark-vrf.git", rev = "96d6d2a", optional = true }
 thiserror.workspace = true
 tokio.workspace = true
 tower.workspace = true
 tower-http.workspace = true
 tracing.workspace = true
 url.workspace = true
+
+ark-ec = { version = "0.4.2", optional = true }
+cainome = { workspace = true, optional = true }
+num-bigint = { workspace = true, optional = true }
+parking_lot = { workspace = true, optional = true }
+reqwest = { workspace = true, optional = true }
+serde = { workspace = true, optional = true }
+starknet-crypto = { workspace = true, optional = true }
+# Use a specific revision of stark-vrf to avoid unwanted breaking changes.
+stark-vrf = { git = "https://github.com/dojoengine/stark-vrf.git", rev = "96d6d2a", optional = true }
 
 [dev-dependencies]
 katana-chain-spec.workspace = true
@@ -53,6 +54,7 @@ katana-utils.workspace = true
 alloy = { git = "https://github.com/alloy-rs/alloy", features = [ "contract", "network", "node-bindings", "provider-http", "providers", "signer-local" ] }
 alloy-primitives = { workspace = true, features = [ "serde" ] }
 assert_matches.workspace = true
+cainome.workspace = true
 cairo-lang-starknet-classes.workspace = true
 dojo-utils.workspace = true
 indexmap.workspace = true
@@ -71,6 +73,7 @@ cartridge = [
 	"dep:ark-ec",
 	"dep:cainome",
 	"dep:num-bigint",
+	"dep:parking_lot",
 	"dep:reqwest",
 	"dep:serde",
 	"dep:stark-vrf",

@@ -14,7 +14,6 @@ pub mod fee;
 pub mod genesis;
 pub mod message;
 pub mod receipt;
-pub mod trace;
 pub mod transaction;
 pub mod version;
 

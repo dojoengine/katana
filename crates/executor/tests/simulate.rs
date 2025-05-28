@@ -77,21 +77,16 @@ fn test_simulate_tx_impl<EF: ExecutorFactory>(
     assert!(states.classes.is_empty(), "no new classes should be declared");
 }
 
-#[cfg(feature = "blockifier")]
-mod blockifier {
-    use fixtures::blockifier::factory;
-    use katana_executor::implementation::blockifier::BlockifierFactory;
+use fixtures::factory;
+use katana_executor::implementation::blockifier::BlockifierFactory;
 
-    use super::*;
-
-    #[apply(simulate_tx)]
-    fn test_simulate_tx(
-        #[with(factory::default())] executor_factory: BlockifierFactory,
-        block_env: BlockEnv,
-        state_provider: Box<dyn StateProvider>,
-        #[case] tx: ExecutableTxWithHash,
-        #[case] flags: ExecutionFlags,
-    ) {
-        test_simulate_tx_impl(executor_factory, block_env, state_provider, tx, flags);
-    }
+#[apply(simulate_tx)]
+fn test_simulate_tx(
+    #[with(factory::default())] executor_factory: BlockifierFactory,
+    block_env: BlockEnv,
+    state_provider: Box<dyn StateProvider>,
+    #[case] tx: ExecutableTxWithHash,
+    #[case] flags: ExecutionFlags,
+) {
+    test_simulate_tx_impl(executor_factory, block_env, state_provider, tx, flags);
 }

@@ -116,3 +116,15 @@ pub struct GenericContractInfo {
     /// The hash of the contract class.
     pub class_hash: ClassHash,
 }
+
+impl From<starknet_api::core::ContractAddress> for ContractAddress {
+    fn from(value: starknet_api::core::ContractAddress) -> Self {
+        Self(Felt::from(value))
+    }
+}
+
+impl From<ContractAddress> for starknet_api::core::ContractAddress {
+    fn from(value: ContractAddress) -> Self {
+        Self::try_from(value.0).expect("valid address")
+    }
+}
