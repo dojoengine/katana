@@ -313,7 +313,9 @@ impl<EF: ExecutorFactory> StarknetApiServer for StarknetApi<EF> {
             transactions
         };
 
-        let permit = self.inner.estimate_fee_permit.acquire().await?;
+        let permit = self.inner.estimate_fee_permit.acquire().await.map_err(|e| {
+            StarknetApiError::UnexpectedError { reason: format!("Failed to acquire permit: {e}") }
+        })?;
 
         self.on_cpu_blocking_task(move |this| {
             let _permit = permit;

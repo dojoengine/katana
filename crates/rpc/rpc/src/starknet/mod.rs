@@ -47,12 +47,12 @@ use starknet::core::types::{
     PriceUnit, ResultPageRequest, TransactionExecutionStatus, TransactionStatus,
 };
 
-use crate::utils;
+use crate::permit::Permits;
 use crate::utils::events::{Cursor, EventBlockId};
+use crate::{utils, DEFAULT_ESTIMATE_FEE_MAX_CONCURRENT_REQUESTS};
 
 mod config;
 pub mod forking;
-mod permit;
 mod read;
 mod trace;
 mod write;
@@ -61,7 +61,6 @@ mod write;
 pub use config::PaymasterConfig;
 pub use config::StarknetApiConfig;
 use forking::ForkedClient;
-use permit::Permit;
 
 type StarknetApiResult<T> = Result<T, StarknetApiError>;
 
@@ -88,7 +87,7 @@ where
     forked_client: Option<ForkedClient>,
     blocking_task_pool: BlockingTaskPool,
     block_producer: Option<BlockProducer<EF>>,
-    estimate_fee_permit: Permit,
+    estimate_fee_permit: Permits,
     config: StarknetApiConfig,
 }
 
@@ -125,10 +124,10 @@ where
         let blocking_task_pool =
             BlockingTaskPool::new().expect("failed to create blocking task pool");
 
-        let permits = config
+        let total_permits = config
             .max_concurrent_estimate_fee_requests
-            .unwrap_or(crate::DEFAULT_ESTIMATE_FEE_MAX_CONCURRENT_REQUESTS);
-        let estimate_fee_permit = Permit::new(permits);
+            .unwrap_or(DEFAULT_ESTIMATE_FEE_MAX_CONCURRENT_REQUESTS);
+        let estimate_fee_permit = Permits::new(total_permits);
 
         let inner = StarknetApiInner {
             pool,
