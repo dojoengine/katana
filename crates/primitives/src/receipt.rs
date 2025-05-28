@@ -6,8 +6,8 @@ use starknet::core::utils::starknet_keccak;
 use starknet_types_core::hash::{self, StarkHash};
 
 use crate::contract::ContractAddress;
+use crate::execution::VmResources;
 use crate::fee::TxFeeInfo;
-use crate::trace::TxResources;
 use crate::transaction::{TxHash, TxType};
 use crate::Felt;
 
@@ -50,7 +50,7 @@ pub struct InvokeTxReceipt {
     /// Revert error message if the transaction execution failed.
     pub revert_error: Option<String>,
     /// The execution resources used by the transaction.
-    pub execution_resources: TxResources,
+    pub execution_resources: ExecutionResources,
 }
 
 /// Receipt for a `Declare` transaction.
@@ -67,7 +67,7 @@ pub struct DeclareTxReceipt {
     /// Revert error message if the transaction execution failed.
     pub revert_error: Option<String>,
     /// The execution resources used by the transaction.
-    pub execution_resources: TxResources,
+    pub execution_resources: ExecutionResources,
 }
 
 /// Receipt for a `L1Handler` transaction.
@@ -86,7 +86,7 @@ pub struct L1HandlerTxReceipt {
     /// Revert error message if the transaction execution failed.
     pub revert_error: Option<String>,
     /// The execution resources used by the transaction.
-    pub execution_resources: TxResources,
+    pub execution_resources: ExecutionResources,
 }
 
 /// Receipt for a `DeployAccount` transaction.
@@ -103,7 +103,7 @@ pub struct DeployAccountTxReceipt {
     /// Revert error message if the transaction execution failed.
     pub revert_error: Option<String>,
     /// The execution resources used by the transaction.
-    pub execution_resources: TxResources,
+    pub execution_resources: ExecutionResources,
     /// Contract address of the deployed account contract.
     pub contract_address: ContractAddress,
 }
@@ -158,7 +158,7 @@ impl Receipt {
     }
 
     /// Returns the execution resources used.
-    pub fn resources_used(&self) -> &TxResources {
+    pub fn resources_used(&self) -> &ExecutionResources {
         match self {
             Receipt::Invoke(rct) => &rct.execution_resources,
             Receipt::Declare(rct) => &rct.execution_resources,
@@ -252,5 +252,61 @@ impl ReceiptWithTxHash {
         });
 
         hash::Poseidon::hash_array(&elements)
+    }
+}
+
+#[derive(Debug, Default, Clone, PartialEq, Eq)]
+#[cfg_attr(feature = "serde", derive(serde::Serialize, serde::Deserialize))]
+pub struct ExecutionResources {
+    /// The total gas used by the transaction execution.
+    pub gas: GasUsed,
+    /// Computation resources if the transaction is executed on the CairoVM.
+    pub computation_resources: VmResources,
+    pub da_resources: DataAvailabilityResources,
+}
+
+#[derive(Debug, Default, Clone, PartialEq, Eq)]
+#[cfg_attr(feature = "arbitrary", derive(arbitrary::Arbitrary))]
+#[cfg_attr(feature = "serde", derive(serde::Serialize, serde::Deserialize))]
+pub struct GasUsed {
+    pub l2_gas: u64,
+    pub l1_gas: u64,
+    pub l1_data_gas: u64,
+}
+
+#[derive(Debug, Default, Clone, PartialEq, Eq)]
+#[cfg_attr(feature = "arbitrary", derive(arbitrary::Arbitrary))]
+#[cfg_attr(feature = "serde", derive(serde::Serialize, serde::Deserialize))]
+pub struct DataAvailabilityResources {
+    pub l1_gas: u64,
+    pub l1_data_gas: u64,
+}
+
+#[cfg(feature = "arbitrary")]
+impl<'a> arbitrary::Arbitrary<'a> for ExecutionResources {
+    fn arbitrary(u: &mut arbitrary::Unstructured<'a>) -> arbitrary::Result<Self> {
+        use std::collections::HashMap;
+
+        use crate::execution::BuiltinName;
+
+        let n_steps = u.arbitrary()?;
+        let n_memory_holes = u.arbitrary()?;
+
+        let mut builtin_instance_counter = HashMap::new();
+        let num_builtins = u.int_in_range(0..=12)?; // There are 12 only builtin types
+
+        for _ in 0..num_builtins {
+            let builtin = u.arbitrary::<BuiltinName>()?;
+            let count = u.arbitrary::<usize>()?;
+            builtin_instance_counter.insert(builtin, count);
+        }
+
+        let computation_resources =
+            VmResources { n_steps, n_memory_holes, builtin_instance_counter };
+
+        let gas = u.arbitrary::<GasUsed>()?;
+        let da_resources = u.arbitrary::<DataAvailabilityResources>()?;
+
+        Ok(Self { da_resources, computation_resources, gas })
     }
 }

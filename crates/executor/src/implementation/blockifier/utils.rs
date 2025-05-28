@@ -5,13 +5,9 @@ use std::sync::Arc;
 use blockifier::blockifier_versioned_constants::VersionedConstants;
 use blockifier::bouncer::{Bouncer, BouncerConfig};
 use blockifier::context::{BlockContext, ChainInfo, FeeTokenAddresses};
-use blockifier::execution::call_info::{
-    CallExecution, CallInfo, OrderedEvent, OrderedL2ToL1Message,
-};
 use blockifier::execution::contract_class::{
     CompiledClassV0, CompiledClassV1, RunnableCompiledClass,
 };
-use blockifier::execution::entry_point::CallType;
 use blockifier::fee::fee_utils::get_fee_by_gas_vector;
 use blockifier::state::cached_state::{self, TransactionalState};
 use blockifier::state::state_api::{StateReader, UpdatableState};
@@ -22,23 +18,21 @@ use blockifier::transaction::objects::{HasRelatedFeeType, TransactionExecutionIn
 use blockifier::transaction::transaction_execution::Transaction;
 use blockifier::transaction::transactions::ExecutableTransaction;
 use cairo_vm::types::errors::program_errors::ProgramError;
-use cairo_vm::vm::runners::cairo_runner::ExecutionResources;
 use katana_primitives::chain::NamedChainId;
+use katana_primitives::class;
 use katana_primitives::env::{BlockEnv, CfgEnv};
 use katana_primitives::fee::{PriceUnit, TxFeeInfo};
 use katana_primitives::state::{StateUpdates, StateUpdatesWithClasses};
-use katana_primitives::trace::{L1Gas, TxExecInfo, TxResources};
 use katana_primitives::transaction::{
-    DeclareTx, DeployAccountTx, ExecutableTx, ExecutableTxWithHash, InvokeTx, TxType,
+    DeclareTx, DeployAccountTx, ExecutableTx, ExecutableTxWithHash, InvokeTx,
 };
-use katana_primitives::{class, event, message, trace};
 use katana_provider::traits::contract::ContractClassProvider;
 use starknet::core::utils::parse_cairo_short_string;
 use starknet_api::block::{
     BlockInfo, BlockNumber, BlockTimestamp, FeeType, GasPriceVector, GasPrices, NonzeroGasPrice,
     StarknetVersion,
 };
-use starknet_api::contract_class::{ClassInfo, EntryPointType, SierraVersion};
+use starknet_api::contract_class::{ClassInfo, SierraVersion};
 use starknet_api::core::{
     self, ChainId, ClassHash, CompiledClassHash, ContractAddress, EntryPointSelector, Nonce,
 };
@@ -133,9 +127,7 @@ pub fn transact<S: StateReader>(
 
             tx_state.commit();
 
-            // get the trace and receipt from the execution info
-            let trace = to_exec_info(info.clone(), tx.r#type());
-            let receipt = build_receipt(tx.tx_ref(), fee, &trace);
+            let receipt = build_receipt(tx.tx_ref(), fee, &info);
             Ok(ExecutionResult::new_success(receipt, info))
         }
 
@@ -607,113 +599,6 @@ pub fn to_class(class: class::CompiledClass) -> Result<RunnableCompiledClass, Pr
     }
 }
 
-pub fn to_exec_info(exec_info: TransactionExecutionInfo, r#type: TxType) -> TxExecInfo {
-    TxExecInfo {
-        r#type,
-        validate_call_info: exec_info.validate_call_info.map(to_call_info),
-        execute_call_info: exec_info.execute_call_info.map(to_call_info),
-        fee_transfer_call_info: exec_info.fee_transfer_call_info.map(to_call_info),
-        actual_fee: exec_info.receipt.fee.0,
-        revert_error: exec_info.revert_error.map(|e| e.to_string()),
-        actual_resources: TxResources {
-            vm_resources: to_execution_resources(
-                exec_info.receipt.resources.computation.vm_resources,
-            ),
-            n_reverted_steps: exec_info.receipt.resources.computation.n_reverted_steps,
-            data_availability: L1Gas {
-                l1_gas: exec_info.receipt.da_gas.l1_data_gas.0 as u128,
-                l1_data_gas: exec_info.receipt.da_gas.l1_data_gas.0 as u128,
-            },
-            total_gas_consumed: L1Gas {
-                l1_gas: exec_info.receipt.gas.l1_data_gas.0 as u128,
-                l1_data_gas: exec_info.receipt.gas.l1_data_gas.0 as u128,
-            },
-        },
-    }
-}
-
-fn to_call_info(call: CallInfo) -> trace::CallInfo {
-    let contract_address = to_address(call.call.storage_address);
-    let caller_address = to_address(call.call.caller_address);
-    let code_address = call.call.code_address.map(to_address);
-    let class_hash = call.call.class_hash.map(|a| a.0);
-    let entry_point_selector = call.call.entry_point_selector.0;
-    let calldata = call.call.calldata.0.as_ref().clone();
-    let retdata = call.execution.retdata.0;
-
-    let CallExecution { events, l2_to_l1_messages, .. } = call.execution;
-
-    let events = events.into_iter().map(to_ordered_event).collect();
-    let l1_msg =
-        l2_to_l1_messages.into_iter().map(|m| to_l2_l1_messages(m, contract_address)).collect();
-
-    let call_type = match call.call.call_type {
-        CallType::Call => trace::CallType::Call,
-        CallType::Delegate => trace::CallType::Delegate,
-    };
-
-    let entry_point_type = match call.call.entry_point_type {
-        EntryPointType::External => trace::EntryPointType::External,
-        EntryPointType::L1Handler => trace::EntryPointType::L1Handler,
-        EntryPointType::Constructor => trace::EntryPointType::Constructor,
-    };
-
-    let storage_read_values = call.storage_access_tracker.storage_read_values;
-    let storg_keys =
-        call.storage_access_tracker.accessed_storage_keys.into_iter().map(|k| *k.0.key()).collect();
-    let inner_calls = call.inner_calls.into_iter().map(to_call_info).collect();
-    let execution_resources = to_execution_resources(call.resources);
-    let gas_consumed = call.execution.gas_consumed as u128;
-
-    trace::CallInfo {
-        contract_address,
-        caller_address,
-        call_type,
-        code_address,
-        class_hash,
-        entry_point_selector,
-        entry_point_type,
-        calldata,
-        retdata,
-        execution_resources,
-        events,
-        l2_to_l1_messages: l1_msg,
-        storage_read_values,
-        accessed_storage_keys: storg_keys,
-        inner_calls,
-        gas_consumed,
-        failed: call.execution.failed,
-    }
-}
-
-fn to_ordered_event(e: OrderedEvent) -> event::OrderedEvent {
-    event::OrderedEvent {
-        order: e.order as u64,
-        data: e.event.data.0,
-        keys: e.event.keys.iter().map(|f| f.0).collect(),
-    }
-}
-
-fn to_l2_l1_messages(
-    m: OrderedL2ToL1Message,
-    from_address: katana_primitives::contract::ContractAddress,
-) -> message::OrderedL2ToL1Message {
-    let order = m.order as u64;
-    let payload = m.message.payload.0;
-    let to_address = m.message.to_address;
-    message::OrderedL2ToL1Message { order, from_address, to_address, payload }
-}
-
-fn to_execution_resources(
-    resources: ExecutionResources,
-) -> katana_primitives::trace::ExecutionResources {
-    katana_primitives::trace::ExecutionResources {
-        n_steps: resources.n_steps,
-        n_memory_holes: resources.n_memory_holes,
-        builtin_instance_counter: resources.builtin_instance_counter.into(),
-    }
-}
-
 impl From<ExecutionFlags> for BlockifierExecutionFlags {
     fn from(value: ExecutionFlags) -> Self {
         Self {
@@ -773,16 +658,8 @@ fn skip_fee_if_max_fee_is_zero(tx: &ExecutableTxWithHash) -> bool {
 #[cfg(test)]
 mod tests {
 
-    use std::collections::{HashMap, HashSet};
-
-    use blockifier::execution::call_info::StorageAccessTracker;
-    use blockifier::execution::entry_point::CallEntryPoint;
-    use cairo_vm::types::builtin_name::BuiltinName;
-    use cairo_vm::vm::runners::cairo_runner::ExecutionResources;
     use katana_primitives::Felt;
-    use starknet_api::core::EntryPointSelector;
     use starknet_api::felt;
-    use starknet_api::transaction::{EventContent, EventData, EventKey};
 
     use super::*;
 
@@ -819,133 +696,5 @@ mod tests {
         let actual_id = Felt::from_hex(blockifier_id.as_hex().as_str()).unwrap();
 
         assert_eq!(actual_id, id)
-    }
-
-    fn create_blockifier_call_info() -> CallInfo {
-        let top_events = vec![OrderedEvent {
-            order: 0,
-            event: EventContent {
-                data: EventData(vec![888u128.into()]),
-                keys: vec![EventKey(999u128.into())],
-            },
-        }];
-        let nested_events = vec![
-            OrderedEvent {
-                order: 1,
-                event: EventContent {
-                    data: EventData(vec![889u128.into()]),
-                    keys: vec![EventKey(990u128.into())],
-                },
-            },
-            OrderedEvent {
-                order: 2,
-                event: EventContent {
-                    data: EventData(vec![0u128.into()]),
-                    keys: vec![EventKey(9u128.into())],
-                },
-            },
-        ];
-
-        let nested_call = CallInfo {
-            execution: CallExecution { events: nested_events, ..Default::default() },
-            ..Default::default()
-        };
-
-        CallInfo {
-            call: CallEntryPoint {
-                class_hash: None,
-                initial_gas: 77,
-                call_type: CallType::Call,
-                caller_address: 200u128.into(),
-                storage_address: 100u128.into(),
-                code_address: Some(100u128.into()),
-                entry_point_type: EntryPointType::External,
-                calldata: Calldata(Arc::new(vec![felt!(1_u8)])),
-                entry_point_selector: EntryPointSelector(felt!(999_u32)),
-            },
-            execution: CallExecution {
-                failed: true,
-                gas_consumed: 12345,
-                events: top_events,
-                ..Default::default()
-            },
-            storage_access_tracker: StorageAccessTracker {
-                storage_read_values: vec![felt!(1_u8), felt!(2_u8)],
-                accessed_storage_keys: HashSet::from([3u128.into(), 4u128.into(), 5u128.into()]),
-                ..Default::default()
-            },
-            resources: ExecutionResources {
-                n_steps: 1_000_000,
-                n_memory_holes: 9_000,
-                builtin_instance_counter: HashMap::from([
-                    (BuiltinName::ecdsa, 50),
-                    (BuiltinName::pedersen, 9),
-                ]),
-            },
-            inner_calls: vec![nested_call],
-            ..Default::default()
-        }
-    }
-
-    #[test]
-    fn convert_call_info() {
-        // setup expected values
-        let call = create_blockifier_call_info();
-
-        let expected_contract_address = to_address(call.call.storage_address);
-        let expected_caller_address = to_address(call.call.caller_address);
-        let expected_code_address = call.call.code_address.map(to_address);
-        let expected_class_hash = call.call.class_hash.map(|c| c.0);
-        let expected_entry_point_selector = call.call.entry_point_selector.0;
-        let expected_calldata = call.call.calldata.0.as_ref().clone();
-        let expected_retdata = call.execution.retdata.0.clone();
-
-        let CallExecution { events, l2_to_l1_messages, .. } = call.execution.clone();
-        let expected_events: Vec<_> = events.into_iter().map(to_ordered_event).collect();
-        let expected_l2_to_l1_msg: Vec<_> = l2_to_l1_messages
-            .into_iter()
-            .map(|m| to_l2_l1_messages(m, expected_contract_address))
-            .collect();
-
-        let expected_call_type = match call.call.call_type {
-            CallType::Call => trace::CallType::Call,
-            CallType::Delegate => trace::CallType::Delegate,
-        };
-
-        let expected_entry_point_type = match call.call.entry_point_type {
-            EntryPointType::External => trace::EntryPointType::External,
-            EntryPointType::L1Handler => trace::EntryPointType::L1Handler,
-            EntryPointType::Constructor => trace::EntryPointType::Constructor,
-        };
-
-        let expected_storage_read_values = call.storage_access_tracker.storage_read_values.clone();
-        let expected_storage_keys: HashSet<Felt> =
-            call.storage_access_tracker.accessed_storage_keys.iter().map(|v| *v.key()).collect();
-        let expected_inner_calls: Vec<_> =
-            call.inner_calls.clone().into_iter().map(to_call_info).collect();
-
-        let expected_gas_consumed = call.execution.gas_consumed as u128;
-        let expected_failed = call.execution.failed;
-
-        // convert to call info
-        let call = to_call_info(call.clone());
-
-        // assert actual values
-        assert_eq!(call.contract_address, expected_contract_address);
-        assert_eq!(call.caller_address, expected_caller_address);
-        assert_eq!(call.code_address, expected_code_address);
-        assert_eq!(call.class_hash, expected_class_hash);
-        assert_eq!(call.entry_point_selector, expected_entry_point_selector);
-        assert_eq!(call.calldata, expected_calldata);
-        assert_eq!(call.retdata, expected_retdata);
-        assert_eq!(call.events, expected_events);
-        assert_eq!(call.l2_to_l1_messages, expected_l2_to_l1_msg);
-        assert_eq!(call.call_type, expected_call_type);
-        assert_eq!(call.entry_point_type, expected_entry_point_type);
-        assert_eq!(call.storage_read_values, expected_storage_read_values);
-        assert_eq!(call.accessed_storage_keys, expected_storage_keys);
-        assert_eq!(call.inner_calls, expected_inner_calls);
-        assert_eq!(call.gas_consumed, expected_gas_consumed);
-        assert_eq!(call.failed, expected_failed);
     }
 }
