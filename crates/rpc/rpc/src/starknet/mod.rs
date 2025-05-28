@@ -46,13 +46,13 @@ use katana_tasks::{BlockingTaskPool, TokioTaskSpawner};
 use starknet::core::types::{
     PriceUnit, ResultPageRequest, TransactionExecutionStatus, TransactionStatus,
 };
-use tokio::sync::Semaphore;
 
 use crate::utils;
 use crate::utils::events::{Cursor, EventBlockId};
 
 mod config;
 pub mod forking;
+mod permit;
 mod read;
 mod trace;
 mod write;
@@ -61,27 +61,9 @@ mod write;
 pub use config::PaymasterConfig;
 pub use config::StarknetApiConfig;
 use forking::ForkedClient;
+use permit::Permit;
 
 type StarknetApiResult<T> = Result<T, StarknetApiError>;
-
-#[derive(Debug, Clone)]
-struct Permit {
-    semaphore: Arc<Semaphore>,
-}
-
-impl Permit {
-    fn new(permits: u32) -> Self {
-        Self { semaphore: Arc::new(Semaphore::new(permits as usize)) }
-    }
-
-    async fn acquire(&self) -> Result<tokio::sync::OwnedSemaphorePermit, StarknetApiError> {
-        self.semaphore.clone().acquire_owned().await.map_err(|_| {
-            StarknetApiError::UnexpectedError {
-                reason: "Failed to acquire estimate_fee semaphore permit".to_string(),
-            }
-        })
-    }
-}
 
 /// Handler for the Starknet JSON-RPC server.
 ///
