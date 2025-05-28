@@ -27,7 +27,7 @@ use katana_primitives::contract::{
     ContractAddress, GenericContractInfo, Nonce, StorageKey, StorageValue,
 };
 use katana_primitives::env::BlockEnv;
-use katana_primitives::execution::TransactionExecutionInfo;
+use katana_primitives::execution::TypedTransactionExecutionInfo;
 use katana_primitives::receipt::Receipt;
 use katana_primitives::state::{StateUpdates, StateUpdatesWithClasses};
 use katana_primitives::transaction::{TxHash, TxNumber, TxWithHash};
@@ -561,7 +561,7 @@ impl<Db: Database> TransactionTraceProvider for DbProvider<Db> {
     fn transaction_execution(
         &self,
         hash: TxHash,
-    ) -> ProviderResult<Option<TransactionExecutionInfo>> {
+    ) -> ProviderResult<Option<TypedTransactionExecutionInfo>> {
         let db_tx = self.0.tx()?;
         if let Some(num) = db_tx.get::<tables::TxNumbers>(hash)? {
             let execution = db_tx
@@ -578,7 +578,7 @@ impl<Db: Database> TransactionTraceProvider for DbProvider<Db> {
     fn transaction_executions_by_block(
         &self,
         block_id: BlockHashOrNumber,
-    ) -> ProviderResult<Option<Vec<TransactionExecutionInfo>>> {
+    ) -> ProviderResult<Option<Vec<TypedTransactionExecutionInfo>>> {
         if let Some(index) = self.block_body_indices(block_id)? {
             let traces = self.transaction_executions_in_range(index.into())?;
             Ok(Some(traces))
@@ -590,7 +590,7 @@ impl<Db: Database> TransactionTraceProvider for DbProvider<Db> {
     fn transaction_executions_in_range(
         &self,
         range: Range<TxNumber>,
-    ) -> ProviderResult<Vec<TransactionExecutionInfo>> {
+    ) -> ProviderResult<Vec<TypedTransactionExecutionInfo>> {
         let db_tx = self.0.tx()?;
 
         let total = range.end - range.start;
@@ -665,7 +665,7 @@ impl<Db: Database> BlockWriter for DbProvider<Db> {
         block: SealedBlockWithStatus,
         states: StateUpdatesWithClasses,
         receipts: Vec<Receipt>,
-        executions: Vec<TransactionExecutionInfo>,
+        executions: Vec<TypedTransactionExecutionInfo>,
     ) -> ProviderResult<()> {
         self.0.update(move |db_tx| -> ProviderResult<()> {
             let block_hash = block.block.hash;
@@ -862,7 +862,7 @@ mod tests {
         Block, BlockHashOrNumber, FinalityStatus, Header, SealedBlockWithStatus,
     };
     use katana_primitives::contract::ContractAddress;
-    use katana_primitives::execution::TransactionExecutionInfo;
+    use katana_primitives::execution::TypedTransactionExecutionInfo;
     use katana_primitives::fee::{PriceUnit, TxFeeInfo};
     use katana_primitives::receipt::{InvokeTxReceipt, Receipt};
     use katana_primitives::state::{StateUpdates, StateUpdatesWithClasses};
@@ -962,7 +962,7 @@ mod tests {
                     unit: PriceUnit::Wei,
                 },
             })],
-            vec![TransactionExecutionInfo::default()],
+            vec![TypedTransactionExecutionInfo::default()],
         )
         .expect("failed to insert block");
 
@@ -1049,7 +1049,7 @@ mod tests {
                     unit: PriceUnit::Wei,
                 },
             })],
-            vec![TransactionExecutionInfo::default()],
+            vec![TypedTransactionExecutionInfo::default()],
         )
         .expect("failed to insert block");
 
@@ -1070,7 +1070,7 @@ mod tests {
                     unit: PriceUnit::Wei,
                 },
             })],
-            vec![TransactionExecutionInfo::default()],
+            vec![TypedTransactionExecutionInfo::default()],
         )
         .expect("failed to insert block");
 
