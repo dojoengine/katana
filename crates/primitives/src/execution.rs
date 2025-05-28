@@ -16,6 +16,8 @@ pub use starknet_api::executable_transaction::TransactionType;
 pub use starknet_api::execution_resources::{GasAmount, GasVector};
 pub use starknet_api::transaction::fields::Fee;
 
+use crate::transaction::TxType;
+
 #[derive(Debug, Clone, PartialEq)]
 #[cfg_attr(feature = "serde", derive(serde::Serialize, serde::Deserialize))]
 pub enum TypedTransactionExecutionInfo {
@@ -26,6 +28,17 @@ pub enum TypedTransactionExecutionInfo {
 }
 
 impl TypedTransactionExecutionInfo {
+    /// Constructs a new [`TypedTransactionExecutionInfo`].
+    pub fn new(r#type: TxType, execution_info: TransactionExecutionInfo) -> Self {
+        match r#type {
+            TxType::Declare => Self::Declare(execution_info),
+            TxType::Invoke => Self::Invoke(execution_info),
+            TxType::DeployAccount => Self::DeployAccount(execution_info),
+            TxType::L1Handler => Self::L1Handler(execution_info),
+            TxType::Deploy => unimplemented!("deploy tx is unsupported"),
+        }
+    }
+
     /// Returns the [`TransactionExecutionInfo`]
     pub fn info(&self) -> &TransactionExecutionInfo {
         match self {
@@ -34,6 +47,33 @@ impl TypedTransactionExecutionInfo {
             Self::L1Handler(info) => info,
             Self::DeployAccount(info) => info,
         }
+    }
+
+    /// Returns the transaction tyoe of the execution info.
+    pub fn r#type(&self) -> TxType {
+        match self {
+            Self::Invoke(_) => TxType::Invoke,
+            Self::Declare(_) => TxType::Declare,
+            Self::L1Handler(_) => TxType::L1Handler,
+            Self::DeployAccount(_) => TxType::DeployAccount,
+        }
+    }
+}
+
+impl From<TypedTransactionExecutionInfo> for TransactionExecutionInfo {
+    fn from(value: TypedTransactionExecutionInfo) -> Self {
+        match value {
+            TypedTransactionExecutionInfo::Invoke(info) => info,
+            TypedTransactionExecutionInfo::Declare(info) => info,
+            TypedTransactionExecutionInfo::L1Handler(info) => info,
+            TypedTransactionExecutionInfo::DeployAccount(info) => info,
+        }
+    }
+}
+
+impl From<(TxType, TransactionExecutionInfo)> for TypedTransactionExecutionInfo {
+    fn from(value: (TxType, TransactionExecutionInfo)) -> Self {
+        Self::new(value.0, value.1)
     }
 }
 
