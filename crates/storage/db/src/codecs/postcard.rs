@@ -1,6 +1,6 @@
 use katana_primitives::block::Header;
 use katana_primitives::contract::{ContractAddress, GenericContractInfo};
-use katana_primitives::execution::TransactionExecutionInfo;
+use katana_primitives::execution::TypedTransactionExecutionInfo;
 use katana_primitives::receipt::Receipt;
 use katana_primitives::transaction::Tx;
 use katana_primitives::Felt;
@@ -34,7 +34,7 @@ macro_rules! impl_compress_and_decompress_for_table_values {
     }
 }
 
-impl Compress for TransactionExecutionInfo {
+impl Compress for TypedTransactionExecutionInfo {
     type Compressed = Vec<u8>;
     fn compress(self) -> Result<Self::Compressed, crate::error::CodecError> {
         let serialized = postcard::to_stdvec(&self).unwrap();
@@ -42,7 +42,7 @@ impl Compress for TransactionExecutionInfo {
     }
 }
 
-impl Decompress for TransactionExecutionInfo {
+impl Decompress for TypedTransactionExecutionInfo {
     fn decompress<B: AsRef<[u8]>>(bytes: B) -> Result<Self, crate::error::CodecError> {
         let compressed = bytes.as_ref();
         let serialized =
