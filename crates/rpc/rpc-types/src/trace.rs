@@ -1,7 +1,9 @@
 use std::collections::HashMap;
 use std::sync::Arc;
 
-use katana_primitives::execution::{self, BuiltinName, CallInfo, TransactionExecutionInfo};
+use katana_primitives::execution::{
+    self, BuiltinName, CallInfo, GasVector, TransactionExecutionInfo,
+};
 use katana_primitives::fee::TxFeeInfo;
 use katana_primitives::transaction::{TxHash, TxType};
 use serde::{Deserialize, Serialize};
@@ -24,7 +26,7 @@ pub struct TxExecutionInfo {
 }
 
 pub fn to_rpc_trace(trace: TransactionExecutionInfo, tx_type: TxType) -> TransactionTrace {
-    let execution_resources = to_rpc_resources(trace.receipt.resources.computation.vm_resources);
+    let execution_resources = to_rpc_resources(trace.receipt);
     let fee_transfer_invocation = trace.fee_transfer_call_info.map(to_function_invocation);
     let validate_invocation = trace.validate_call_info.map(to_function_invocation);
     let execute_invocation = trace.execute_call_info.map(to_function_invocation);
@@ -83,6 +85,22 @@ pub fn to_rpc_trace(trace: TransactionExecutionInfo, tx_type: TxType) -> Transac
     }
 }
 
+pub fn to_rpc_computation_resources(resources: execution::VmResources) -> ComputationResources {
+    let builtins = &resources.builtin_instance_counter;
+    ComputationResources {
+        steps: resources.n_steps as u64,
+        memory_holes: Some(resources.n_memory_holes as u64),
+        ecdsa_builtin_applications: get_builtin_count(builtins, BuiltinName::ecdsa),
+        ec_op_builtin_applications: get_builtin_count(builtins, BuiltinName::ec_op),
+        keccak_builtin_applications: get_builtin_count(builtins, BuiltinName::keccak),
+        segment_arena_builtin: get_builtin_count(builtins, BuiltinName::segment_arena),
+        bitwise_builtin_applications: get_builtin_count(builtins, BuiltinName::bitwise),
+        pedersen_builtin_applications: get_builtin_count(builtins, BuiltinName::pedersen),
+        poseidon_builtin_applications: get_builtin_count(builtins, BuiltinName::poseidon),
+        range_check_builtin_applications: get_builtin_count(builtins, BuiltinName::range_check),
+    }
+}
+
 pub fn to_rpc_fee_estimate(fee: TxFeeInfo) -> FeeEstimate {
     FeeEstimate {
         unit: match fee.unit {
@@ -97,9 +115,10 @@ pub fn to_rpc_fee_estimate(fee: TxFeeInfo) -> FeeEstimate {
     }
 }
 
-pub fn to_rpc_resources(resources: execution::ExecutionResources) -> ExecutionResources {
-    let data_resources = to_rpc_data_resources(&resources);
-    let computation_resources = to_rpc_computation_resources(&resources);
+fn to_rpc_resources(receipt: execution::TransactionReceipt) -> ExecutionResources {
+    let data_resources = to_rpc_data_resources(receipt.da_gas);
+    let computation_resources = receipt.resources.computation.vm_resources;
+    let computation_resources = to_rpc_computation_resources(computation_resources);
     ExecutionResources { data_resources, computation_resources }
 }
 
@@ -141,10 +160,7 @@ fn to_function_invocation(info: CallInfo) -> FunctionInvocation {
         })
         .collect();
 
-    // TODO: replace execution resources type in primitive CallInfo with an already defined
-    // `TxExecutionResources`
-    //
-    let execution_resources = to_rpc_computation_resources(&info.resources);
+    let execution_resources = to_rpc_computation_resources(info.resources);
 
     FunctionInvocation {
         calls,
@@ -163,25 +179,10 @@ fn to_function_invocation(info: CallInfo) -> FunctionInvocation {
     }
 }
 
-fn to_rpc_computation_resources(resources: &execution::ExecutionResources) -> ComputationResources {
-    let builtins = &resources.builtin_instance_counter;
-    ComputationResources {
-        steps: resources.n_steps as u64,
-        memory_holes: Some(resources.n_memory_holes as u64),
-        ecdsa_builtin_applications: get_builtin_count(builtins, BuiltinName::ecdsa),
-        ec_op_builtin_applications: get_builtin_count(builtins, BuiltinName::ec_op),
-        keccak_builtin_applications: get_builtin_count(builtins, BuiltinName::keccak),
-        segment_arena_builtin: get_builtin_count(builtins, BuiltinName::segment_arena),
-        bitwise_builtin_applications: get_builtin_count(builtins, BuiltinName::bitwise),
-        pedersen_builtin_applications: get_builtin_count(builtins, BuiltinName::pedersen),
-        poseidon_builtin_applications: get_builtin_count(builtins, BuiltinName::poseidon),
-        range_check_builtin_applications: get_builtin_count(builtins, BuiltinName::range_check),
-    }
-}
-
-fn to_rpc_data_resources(_: &execution::ExecutionResources) -> DataResources {
-    let data_availability = DataAvailabilityResources { l1_gas: 0, l1_data_gas: 0 };
-    DataResources { data_availability }
+fn to_rpc_data_resources(da_gas: GasVector) -> DataResources {
+    let l1_gas = da_gas.l1_gas.0;
+    let l1_data_gas = da_gas.l1_data_gas.0;
+    DataResources { data_availability: DataAvailabilityResources { l1_gas, l1_data_gas } }
 }
 
 fn get_builtin_count(
