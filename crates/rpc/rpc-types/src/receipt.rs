@@ -1,15 +1,17 @@
 use katana_primitives::block::FinalityStatus;
 use katana_primitives::fee::{PriceUnit, TxFeeInfo};
-use katana_primitives::receipt::{MessageToL1, Receipt};
+use katana_primitives::receipt::{self, MessageToL1, Receipt};
 use katana_primitives::transaction::TxHash;
 use serde::{Deserialize, Serialize};
 pub use starknet::core::types::ReceiptBlock;
 use starknet::core::types::{
-    ComputationResources, DataAvailabilityResources, DataResources, DeclareTransactionReceipt,
-    DeployAccountTransactionReceipt, ExecutionResult, FeePayment, Hash256,
+    DataAvailabilityResources, DataResources, DeclareTransactionReceipt,
+    DeployAccountTransactionReceipt, ExecutionResources, ExecutionResult, FeePayment, Hash256,
     InvokeTransactionReceipt, L1HandlerTransactionReceipt, TransactionFinalityStatus,
     TransactionReceipt, TransactionReceiptWithBlockInfo,
 };
+
+use crate::trace::to_rpc_computation_resources;
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
 #[serde(transparent)]
@@ -38,7 +40,7 @@ impl TxReceipt {
                     finality_status,
                     transaction_hash,
                     actual_fee: to_rpc_fee(rct.fee),
-                    execution_resources: ExecutionResources::from(rct.execution_resources).0,
+                    execution_resources: to_rpc_resources(rct.execution_resources),
                     execution_result: if let Some(reason) = rct.revert_error {
                         ExecutionResult::Reverted { reason }
                     } else {
@@ -58,7 +60,7 @@ impl TxReceipt {
                     finality_status,
                     transaction_hash,
                     actual_fee: to_rpc_fee(rct.fee),
-                    execution_resources: ExecutionResources::from(rct.execution_resources).0,
+                    execution_resources: to_rpc_resources(rct.execution_resources),
                     execution_result: if let Some(reason) = rct.revert_error {
                         ExecutionResult::Reverted { reason }
                     } else {
@@ -78,7 +80,7 @@ impl TxReceipt {
                     finality_status,
                     transaction_hash,
                     actual_fee: to_rpc_fee(rct.fee),
-                    execution_resources: ExecutionResources::from(rct.execution_resources).0,
+                    execution_resources: to_rpc_resources(rct.execution_resources),
                     message_hash: Hash256::from_bytes(*rct.message_hash),
                     execution_result: if let Some(reason) = rct.revert_error {
                         ExecutionResult::Reverted { reason }
@@ -100,7 +102,7 @@ impl TxReceipt {
                     transaction_hash,
                     actual_fee: to_rpc_fee(rct.fee),
                     contract_address: rct.contract_address.into(),
-                    execution_resources: ExecutionResources::from(rct.execution_resources).0,
+                    execution_resources: to_rpc_resources(rct.execution_resources),
                     execution_result: if let Some(reason) = rct.revert_error {
                         ExecutionResult::Reverted { reason }
                     } else {
@@ -160,40 +162,16 @@ impl From<katana_primitives::receipt::Event> for Event {
     }
 }
 
-struct ExecutionResources(starknet::core::types::ExecutionResources);
+fn to_rpc_resources(resources: receipt::ExecutionResources) -> ExecutionResources {
+    let data_resources = to_da_resources(resources.da_resources);
+    let computation_resources = to_rpc_computation_resources(resources.computation_resources);
+    ExecutionResources { computation_resources, data_resources }
+}
 
-impl From<katana_primitives::trace::TxResources> for ExecutionResources {
-    fn from(value: katana_primitives::trace::TxResources) -> Self {
-        ExecutionResources(starknet::core::types::ExecutionResources {
-            computation_resources: ComputationResources {
-                steps: value.vm_resources.n_steps as u64,
-                memory_holes: Some(value.vm_resources.n_memory_holes as u64),
-                ec_op_builtin_applications: value.vm_resources.builtin_instance_counter.ec_op(),
-                ecdsa_builtin_applications: value.vm_resources.builtin_instance_counter.ecdsa(),
-                keccak_builtin_applications: value.vm_resources.builtin_instance_counter.keccak(),
-                bitwise_builtin_applications: value.vm_resources.builtin_instance_counter.bitwise(),
-                pedersen_builtin_applications: value
-                    .vm_resources
-                    .builtin_instance_counter
-                    .pedersen(),
-                poseidon_builtin_applications: value
-                    .vm_resources
-                    .builtin_instance_counter
-                    .poseidon(),
-                range_check_builtin_applications: value
-                    .vm_resources
-                    .builtin_instance_counter
-                    .range_check(),
-                segment_arena_builtin: value.vm_resources.builtin_instance_counter.segment_arena(),
-            },
-            data_resources: DataResources {
-                data_availability: DataAvailabilityResources {
-                    l1_gas: value.data_availability.l1_gas as u64,
-                    l1_data_gas: value.data_availability.l1_data_gas as u64,
-                },
-            },
-        })
-    }
+fn to_da_resources(resources: receipt::DataAvailabilityResources) -> DataResources {
+    let l1_gas = resources.l1_gas;
+    let l1_data_gas = resources.l1_data_gas;
+    DataResources { data_availability: DataAvailabilityResources { l1_gas, l1_data_gas } }
 }
 
 fn to_rpc_fee(fee: TxFeeInfo) -> FeePayment {
