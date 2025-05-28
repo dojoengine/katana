@@ -10,7 +10,7 @@ use katana_primitives::block::{
 use katana_primitives::class::{ClassHash, CompiledClassHash, ContractClass};
 use katana_primitives::contract::{ContractAddress, StorageKey, StorageValue};
 use katana_primitives::env::BlockEnv;
-use katana_primitives::execution::TransactionExecutionInfo;
+use katana_primitives::execution::TypedTransactionExecutionInfo;
 use katana_primitives::receipt::Receipt;
 use katana_primitives::state::{StateUpdates, StateUpdatesWithClasses};
 use katana_primitives::transaction::{TxHash, TxNumber, TxWithHash};
@@ -141,7 +141,7 @@ where
         block: SealedBlockWithStatus,
         states: StateUpdatesWithClasses,
         receipts: Vec<Receipt>,
-        executions: Vec<TransactionExecutionInfo>,
+        executions: Vec<TypedTransactionExecutionInfo>,
     ) -> ProviderResult<()> {
         self.provider.insert_block_with_states_and_receipts(block, states, receipts, executions)
     }
@@ -205,21 +205,21 @@ where
     fn transaction_execution(
         &self,
         hash: TxHash,
-    ) -> ProviderResult<Option<TransactionExecutionInfo>> {
+    ) -> ProviderResult<Option<TypedTransactionExecutionInfo>> {
         TransactionTraceProvider::transaction_execution(&self.provider, hash)
     }
 
     fn transaction_executions_by_block(
         &self,
         block_id: BlockHashOrNumber,
-    ) -> ProviderResult<Option<Vec<TransactionExecutionInfo>>> {
+    ) -> ProviderResult<Option<Vec<TypedTransactionExecutionInfo>>> {
         TransactionTraceProvider::transaction_executions_by_block(&self.provider, block_id)
     }
 
     fn transaction_executions_in_range(
         &self,
         range: Range<TxNumber>,
-    ) -> ProviderResult<Vec<TransactionExecutionInfo>> {
+    ) -> ProviderResult<Vec<TypedTransactionExecutionInfo>> {
         TransactionTraceProvider::transaction_executions_in_range(&self.provider, range)
     }
 }

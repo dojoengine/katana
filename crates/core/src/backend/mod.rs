@@ -12,7 +12,7 @@ use katana_primitives::block::{
 use katana_primitives::class::{ClassHash, CompiledClassHash};
 use katana_primitives::da::L1DataAvailabilityMode;
 use katana_primitives::env::BlockEnv;
-use katana_primitives::execution::TransactionExecutionInfo;
+use katana_primitives::execution::TypedTransactionExecutionInfo;
 use katana_primitives::receipt::{Event, Receipt, ReceiptWithTxHash};
 use katana_primitives::state::{compute_state_diff_hash, StateUpdates, StateUpdatesWithClasses};
 use katana_primitives::transaction::{TxHash, TxWithHash};
@@ -93,10 +93,10 @@ impl<EF: ExecutorFactory> Backend<EF> {
 
         // only include successful transactions in the block
         for (tx, res) in execution_output.transactions {
-            if let ExecutionResult::Success { receipt, trace, .. } = res {
+            if let ExecutionResult::Success { receipt, trace } = res {
+                traces.push(TypedTransactionExecutionInfo::new(receipt.r#type(), trace));
                 receipts.push(ReceiptWithTxHash::new(tx.hash, receipt));
                 transactions.push(tx);
-                traces.push(trace);
             }
         }
 
@@ -142,7 +142,7 @@ impl<EF: ExecutorFactory> Backend<EF> {
         block: SealedBlockWithStatus,
         states: StateUpdatesWithClasses,
         receipts: Vec<Receipt>,
-        traces: Vec<TransactionExecutionInfo>,
+        traces: Vec<TypedTransactionExecutionInfo>,
     ) -> Result<(), BlockProductionError> {
         self.blockchain
             .provider()
@@ -256,10 +256,10 @@ impl<EF: ExecutorFactory> Backend<EF> {
 
         // only include successful transactions in the block
         for (tx, res) in output.transactions {
-            if let ExecutionResult::Success { receipt, trace, .. } = res {
+            if let ExecutionResult::Success { receipt, trace } = res {
+                traces.push(TypedTransactionExecutionInfo::new(receipt.r#type(), trace));
                 receipts.push(ReceiptWithTxHash::new(tx.hash, receipt));
                 transactions.push(tx);
-                traces.push(trace);
             }
         }
 
