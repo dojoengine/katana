@@ -287,7 +287,7 @@ impl<'a> BlockExecutor<'a> for StarknetVMProcessor<'a> {
                         ExecutionResult::Success { receipt, trace } => {
                             self.stats.l1_gas_used += receipt.fee().gas_consumed;
                             self.stats.cairo_steps_used +=
-                                receipt.resources_used().vm_resources.n_steps as u128;
+                                receipt.resources_used().computation_resources.n_steps as u128;
 
                             if let Some(reason) = receipt.revert_reason() {
                                 info!(target: LOG_TARGET, hash = format!("{hash:#x}"), %reason, "Transaction reverted.");
