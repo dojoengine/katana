@@ -64,6 +64,25 @@ use forking::ForkedClient;
 
 type StarknetApiResult<T> = Result<T, StarknetApiError>;
 
+#[derive(Debug, Clone)]
+struct Permit {
+    semaphore: Arc<Semaphore>,
+}
+
+impl Permit {
+    fn new(permits: u32) -> Self {
+        Self { semaphore: Arc::new(Semaphore::new(permits as usize)) }
+    }
+
+    async fn acquire(&self) -> Result<tokio::sync::OwnedSemaphorePermit, StarknetApiError> {
+        self.semaphore.clone().acquire_owned().await.map_err(|_| {
+            StarknetApiError::UnexpectedError {
+                reason: "Failed to acquire estimate_fee semaphore permit".to_string(),
+            }
+        })
+    }
+}
+
 /// Handler for the Starknet JSON-RPC server.
 ///
 /// This struct implements all the JSON-RPC traits required to serve the Starknet API (ie,
@@ -87,7 +106,7 @@ where
     forked_client: Option<ForkedClient>,
     blocking_task_pool: BlockingTaskPool,
     block_producer: Option<BlockProducer<EF>>,
-    estimate_fee_semaphore: Arc<Semaphore>,
+    estimate_fee_permit: Permit,
     config: StarknetApiConfig,
 }
 
@@ -127,7 +146,7 @@ where
         let permits = config
             .max_concurrent_estimate_fee_requests
             .unwrap_or(crate::DEFAULT_ESTIMATE_FEE_MAX_CONCURRENT_REQUESTS);
-        let estimate_fee_semaphore = Arc::new(Semaphore::new(permits as usize));
+        let estimate_fee_permit = Permit::new(permits);
 
         let inner = StarknetApiInner {
             pool,
@@ -135,7 +154,7 @@ where
             block_producer,
             blocking_task_pool,
             forked_client,
-            estimate_fee_semaphore,
+            estimate_fee_permit,
             config,
         };
 
