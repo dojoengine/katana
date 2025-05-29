@@ -119,16 +119,12 @@ impl Node {
 
             let global_class_cache = class_cache.build_global()?;
 
-            let mut factory = BlockifierFactory::new(
+            let factory = BlockifierFactory::new(
                 cfg_env,
                 execution_flags,
                 config.sequencing.block_limits(),
                 global_class_cache,
             );
-
-            if let Some(max_call_gas) = config.rpc.max_call_gas {
-                factory.set_max_call_gas(max_call_gas);
-            }
 
             Arc::new(factory)
         };
@@ -255,6 +251,7 @@ impl Node {
             let cfg = StarknetApiConfig {
                 max_event_page_size: config.rpc.max_event_page_size,
                 max_proof_keys: config.rpc.max_proof_keys,
+                max_call_gas: config.rpc.max_call_gas,
                 max_concurrent_estimate_fee_requests: config
                     .rpc
                     .max_concurrent_estimate_fee_requests,

@@ -49,7 +49,3 @@ native = [ "blockifier/cairo_native", "dep:cairo-native", "dep:rayon" ]
 [[bench]]
 harness = false
 name = "execution"
-
-[[bench]]
-harness = false
-name = "concurrent"
