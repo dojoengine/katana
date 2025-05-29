@@ -116,11 +116,13 @@ impl Node {
                 class_cache = class_cache.compile_native(config.execution.compile_native);
             }
 
+            let global_class_cache = class_cache.build_global()?;
+
             let mut factory = BlockifierFactory::new(
                 cfg_env,
                 execution_flags,
                 config.sequencing.block_limits(),
-                class_cache.build()?,
+                global_class_cache,
             );
 
             if let Some(max_call_gas) = config.rpc.max_call_gas {
