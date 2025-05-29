@@ -11,7 +11,6 @@ pub mod state;
 pub mod utils;
 
 use blockifier::context::BlockContext;
-
 use katana_primitives::block::{ExecutableBlock, GasPrice as KatanaGasPrices, PartialHeader};
 use katana_primitives::env::{BlockEnv, CfgEnv};
 use katana_primitives::transaction::{ExecutableTx, ExecutableTxWithHash, TxWithHash};
@@ -23,8 +22,8 @@ use tracing::info;
 
 use self::state::CachedState;
 use crate::{
-    BlockExecutor, BlockLimits, ExecutionFlags, ExecutionOutput,
-    ExecutionResult, ExecutionStats, ExecutorError, ExecutorFactory, ExecutorResult,
+    BlockExecutor, BlockLimits, ExecutionFlags, ExecutionOutput, ExecutionResult, ExecutionStats,
+    ExecutorError, ExecutorFactory, ExecutorResult,
 };
 
 pub(crate) const LOG_TARGET: &str = "katana::executor::blockifier";
@@ -48,7 +47,6 @@ impl BlockifierFactory {
             limits,
             #[cfg(feature = "native")]
             use_cairo_native: false,
-
         }
     }
 
@@ -57,8 +55,6 @@ impl BlockifierFactory {
         self.use_cairo_native = enable;
         self
     }
-
-
 }
 
 impl ExecutorFactory for BlockifierFactory {
@@ -209,8 +205,6 @@ impl<'a> StarknetVMProcessor<'a> {
             Default::default(),
         ));
     }
-
-
 }
 
 impl<'a> BlockExecutor<'a> for StarknetVMProcessor<'a> {
@@ -337,5 +331,3 @@ impl<'a> BlockExecutor<'a> for StarknetVMProcessor<'a> {
         }
     }
 }
-
-

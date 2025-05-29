@@ -43,9 +43,7 @@ use katana_rpc_types::trie::{
 use katana_rpc_types::FeeEstimate;
 use katana_rpc_types_builder::ReceiptBuilder;
 use katana_tasks::{BlockingTaskPool, TokioTaskSpawner};
-use starknet::core::types::{
-    ResultPageRequest, TransactionExecutionStatus, TransactionStatus,
-};
+use starknet::core::types::{ResultPageRequest, TransactionExecutionStatus, TransactionStatus};
 
 use crate::permit::Permits;
 use crate::utils::events::{Cursor, EventBlockId};
@@ -178,8 +176,9 @@ where
         let mut estimates = Vec::with_capacity(results.len());
         for (i, res) in results.into_iter().enumerate() {
             match res {
-                Ok((fee, resources)) => {
-                    estimates.push(katana_rpc_types::trace::to_rpc_fee_estimate(&resources, &fee));
+                Ok(fee) => {
+                    let estimate = katana_rpc_types::trace::to_rpc_fee_estimate(fee);
+                    estimates.push(estimate);
                 }
 
                 Err(err) => {

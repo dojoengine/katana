@@ -106,7 +106,8 @@ impl Node {
             .with_fee(config.dev.fee);
 
         let executor_factory = {
-            let factory =
+            #[allow(unused_mut)]
+            let mut factory =
                 BlockifierFactory::new(cfg_env, execution_flags, config.sequencing.block_limits());
 
             #[cfg(feature = "native")]

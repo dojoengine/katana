@@ -4,10 +4,7 @@ use katana_primitives::transaction::{ExecutableTxWithHash, TxWithHash};
 use katana_provider::traits::state::StateProvider;
 
 use super::ExecutorError;
-use crate::{
-    ExecutionFlags, ExecutionOutput, ExecutionResult,
-    ExecutorResult,
-};
+use crate::{ExecutionFlags, ExecutionOutput, ExecutionResult, ExecutorResult};
 
 /// A type that can create [BlockExecutor] instance.
 pub trait ExecutorFactory: Send + Sync + 'static + core::fmt::Debug {
@@ -55,5 +52,3 @@ pub trait BlockExecutor<'a>: Send + Sync + core::fmt::Debug {
     /// Returns the current block environment of the executor.
     fn block_env(&self) -> BlockEnv;
 }
-
-
