@@ -290,3 +290,55 @@ impl ClassCache {
         }
     }
 }
+
+#[cfg(test)]
+mod tests {
+    use assert_matches::assert_matches;
+    use katana_primitives::felt;
+    use katana_primitives::genesis::constant::{DEFAULT_ACCOUNT_CLASS, DEFAULT_LEGACY_UDC_CLASS};
+
+    use super::{ClassCache, ClassCacheBuilder, Error};
+
+    #[test]
+    fn independent_cache() {
+        let cache1 = ClassCacheBuilder::new().build().expect("Failed to build cache 1");
+        let cache2 = ClassCacheBuilder::new().build().expect("Failed to build cache 2");
+
+        let class_hash1 = felt!("0x1");
+        let class_hash2 = felt!("0x2");
+
+        cache1.insert(class_hash1, DEFAULT_ACCOUNT_CLASS.clone());
+        cache1.insert(class_hash2, DEFAULT_LEGACY_UDC_CLASS.clone());
+
+        assert!(cache1.get(&class_hash1).is_some());
+        assert!(cache1.get(&class_hash2).is_some());
+        assert!(cache2.get(&class_hash1).is_none());
+        assert!(cache2.get(&class_hash2).is_none());
+    }
+
+    #[test]
+    fn global_cache() {
+        // Can't get global without initializing it first
+        let error = ClassCache::try_global().unwrap_err();
+        assert_matches!(error, Error::NotInitialized, "Global cache not initialized");
+
+        let cache1 = ClassCacheBuilder::new().build_global().expect("failed to build global cache");
+
+        let error = ClassCacheBuilder::new().build_global().unwrap_err();
+        assert_matches!(error, Error::AlreadyInitialized, "Global cache already initialized");
+
+        // Check that calling ClassCache::global() returns the same instance as cache1
+        let cache2 = ClassCache::global();
+
+        let class_hash1 = felt!("0x1");
+        let class_hash2 = felt!("0x2");
+
+        cache1.insert(class_hash1, DEFAULT_ACCOUNT_CLASS.clone());
+        cache1.insert(class_hash2, DEFAULT_LEGACY_UDC_CLASS.clone());
+
+        assert!(cache1.get(&class_hash1).is_some());
+        assert!(cache1.get(&class_hash2).is_some());
+        assert!(cache2.get(&class_hash1).is_some());
+        assert!(cache2.get(&class_hash2).is_some());
+    }
+}
