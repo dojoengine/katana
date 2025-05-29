@@ -1,15 +1,10 @@
 use katana_primitives::block::ExecutableBlock;
 use katana_primitives::env::{BlockEnv, CfgEnv};
-use katana_primitives::fee::TxFeeInfo;
 use katana_primitives::transaction::{ExecutableTxWithHash, TxWithHash};
-use katana_primitives::Felt;
 use katana_provider::traits::state::StateProvider;
 
 use super::ExecutorError;
-use crate::{
-    EntryPointCall, ExecutionError, ExecutionFlags, ExecutionOutput, ExecutionResult,
-    ExecutorResult, ResultAndStates,
-};
+use crate::{ExecutionFlags, ExecutionOutput, ExecutionResult, ExecutorResult};
 
 /// A type that can create [BlockExecutor] instance.
 pub trait ExecutorFactory: Send + Sync + 'static + core::fmt::Debug {
@@ -35,7 +30,7 @@ pub trait ExecutorFactory: Send + Sync + 'static + core::fmt::Debug {
 }
 
 /// An executor that can execute a block of transactions.
-pub trait BlockExecutor<'a>: ExecutorExt + Send + Sync + core::fmt::Debug {
+pub trait BlockExecutor<'a>: Send + Sync + core::fmt::Debug {
     /// Executes the given block.
     fn execute_block(&mut self, block: ExecutableBlock) -> ExecutorResult<()>;
 
@@ -56,23 +51,4 @@ pub trait BlockExecutor<'a>: ExecutorExt + Send + Sync + core::fmt::Debug {
 
     /// Returns the current block environment of the executor.
     fn block_env(&self) -> BlockEnv;
-}
-
-pub trait ExecutorExt {
-    /// Simulate the given transactions and return the results of each transaction.
-    fn simulate(
-        &self,
-        transactions: Vec<ExecutableTxWithHash>,
-        flags: ExecutionFlags,
-    ) -> Vec<ResultAndStates>;
-
-    /// Get the fee estimation for the given transactions.
-    fn estimate_fee(
-        &self,
-        transactions: Vec<ExecutableTxWithHash>,
-        flags: ExecutionFlags,
-    ) -> Vec<Result<TxFeeInfo, ExecutionError>>;
-
-    /// Perform a contract entry point call and return the output.
-    fn call(&self, call: EntryPointCall) -> Result<Vec<Felt>, ExecutionError>;
 }
