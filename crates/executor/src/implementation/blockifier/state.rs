@@ -22,17 +22,17 @@ use super::utils::{self};
 
 #[derive(Debug, Clone)]
 pub struct CachedState<'a> {
-    pub(crate) inner: Arc<Mutex<CachedStateInner<'a>>>,
+    pub inner: Arc<Mutex<CachedStateInner<'a>>>,
 }
 
 #[derive(Debug)]
-pub(crate) struct CachedStateInner<'a> {
-    pub(super) cached_state: cached_state::CachedState<StateProviderDb<'a>>,
+pub struct CachedStateInner<'a> {
+    pub cached_state: cached_state::CachedState<StateProviderDb<'a>>,
     pub(super) declared_classes: HashMap<class::ClassHash, ContractClass>,
 }
 
 impl<'a> CachedState<'a> {
-    pub(super) fn new(state: impl StateProvider + 'a, class_cache: ClassCache) -> Self {
+    pub fn new(state: impl StateProvider + 'a, class_cache: ClassCache) -> Self {
         let state = StateProviderDb::new_with_class_cache(Box::new(state), class_cache);
         let cached_state = cached_state::CachedState::new(state);
 
@@ -40,6 +40,26 @@ impl<'a> CachedState<'a> {
         let inner = CachedStateInner { cached_state, declared_classes };
 
         Self { inner: Arc::new(Mutex::new(inner)) }
+    }
+
+    pub fn with_cached_state<F, R>(&self, f: F) -> R
+    where
+        F: FnOnce(&mut cached_state::CachedState<StateProviderDb<'a>>) -> R,
+    {
+        let mut inner = self.inner.lock();
+        f(&mut inner.cached_state)
+    }
+
+    pub fn with_cached_state_and_declared_classes<F, R>(&self, f: F) -> R
+    where
+        F: FnOnce(
+            &mut cached_state::CachedState<StateProviderDb<'a>>,
+            &mut HashMap<class::ClassHash, ContractClass>,
+        ) -> R,
+    {
+        let mut inner = self.inner.lock();
+        let CachedStateInner { ref mut cached_state, ref mut declared_classes } = &mut *inner;
+        f(cached_state, declared_classes)
     }
 }
 
@@ -195,8 +215,8 @@ impl StateReader for StateProviderDb<'_> {
 
     fn get_compiled_class(&self, class_hash: ClassHash) -> StateResult<RunnableCompiledClass> {
         if let Some(class) = self.compiled_class_cache.get(&class_hash.0) {
-            // trace!(target: "executor", class = format!("{}", class_hash.to_hex_string()), "Class
-            // cache hit");
+            // // trace!(target: "executor", class = format!("{}", class_hash.to_hex_string()),
+            // "Class cache hit");
             return Ok(class);
         }
 

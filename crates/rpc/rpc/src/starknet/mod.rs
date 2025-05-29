@@ -43,14 +43,13 @@ use katana_rpc_types::trie::{
 use katana_rpc_types::FeeEstimate;
 use katana_rpc_types_builder::ReceiptBuilder;
 use katana_tasks::{BlockingTaskPool, TokioTaskSpawner};
-use starknet::core::types::{
-    PriceUnit, ResultPageRequest, TransactionExecutionStatus, TransactionStatus,
-};
+use starknet::core::types::{ResultPageRequest, TransactionExecutionStatus, TransactionStatus};
 
 use crate::permit::Permits;
 use crate::utils::events::{Cursor, EventBlockId};
 use crate::{utils, DEFAULT_ESTIMATE_FEE_MAX_CONCURRENT_REQUESTS};
 
+mod blockifier;
 mod config;
 pub mod forking;
 mod read;
@@ -169,26 +168,15 @@ where
         // get the state and block env at the specified block for execution
         let state = self.state(&block_id)?;
         let env = self.block_env_at(&block_id)?;
+        let cfg_env = self.inner.backend.executor_factory.cfg().clone();
 
-        // create the executor
-        let executor = self.inner.backend.executor_factory.with_state_and_block_env(state, env);
-        let results = executor.estimate_fee(transactions, flags);
+        // do estimations
+        let results = blockifier::estimate_fees(state, env, cfg_env, transactions, flags);
 
-        let mut estimates = Vec::with_capacity(results.len());
+        let mut estimates: Vec<FeeEstimate> = Vec::with_capacity(results.len());
         for (i, res) in results.into_iter().enumerate() {
             match res {
-                Ok(fee) => estimates.push(FeeEstimate {
-                    gas_price: fee.gas_price.into(),
-                    gas_consumed: fee.gas_consumed.into(),
-                    overall_fee: fee.overall_fee.into(),
-                    data_gas_price: Default::default(),
-                    data_gas_consumed: Default::default(),
-                    unit: match fee.unit {
-                        katana_primitives::fee::PriceUnit::Wei => PriceUnit::Wei,
-                        katana_primitives::fee::PriceUnit::Fri => PriceUnit::Fri,
-                    },
-                }),
-
+                Ok(fee) => estimates.push(fee),
                 Err(err) => {
                     return Err(StarknetApiError::TransactionExecutionError {
                         transaction_index: i as u64,

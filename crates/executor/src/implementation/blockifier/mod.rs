@@ -11,14 +11,10 @@ pub mod state;
 pub mod utils;
 
 use blockifier::context::BlockContext;
-use blockifier::state::cached_state::{self, MutRefState};
-use blockifier::state::state_api::StateReader;
 use cache::ClassCache;
 use katana_primitives::block::{ExecutableBlock, GasPrice as KatanaGasPrices, PartialHeader};
 use katana_primitives::env::{BlockEnv, CfgEnv};
-use katana_primitives::fee::TxFeeInfo;
 use katana_primitives::transaction::{ExecutableTx, ExecutableTxWithHash, TxWithHash};
-use katana_primitives::Felt;
 use katana_provider::traits::state::StateProvider;
 use starknet_api::block::{
     BlockInfo, BlockNumber, BlockTimestamp, GasPriceVector, GasPrices, NonzeroGasPrice,
@@ -27,9 +23,8 @@ use tracing::info;
 
 use self::state::CachedState;
 use crate::{
-    BlockExecutor, BlockLimits, EntryPointCall, ExecutionError, ExecutionFlags, ExecutionOutput,
-    ExecutionResult, ExecutionStats, ExecutorError, ExecutorExt, ExecutorFactory, ExecutorResult,
-    ResultAndStates,
+    BlockExecutor, BlockLimits, ExecutionFlags, ExecutionOutput, ExecutionResult, ExecutionStats,
+    ExecutorError, ExecutorFactory, ExecutorResult,
 };
 
 pub(crate) const LOG_TARGET: &str = "katana::executor::blockifier";
@@ -39,7 +34,7 @@ pub struct BlockifierFactory {
     cfg: CfgEnv,
     flags: ExecutionFlags,
     limits: BlockLimits,
-    max_call_gas: u64,
+
     class_cache: ClassCache,
 }
 
@@ -51,11 +46,7 @@ impl BlockifierFactory {
         limits: BlockLimits,
         class_cache: ClassCache,
     ) -> Self {
-        Self { cfg, flags, limits, max_call_gas: 1_000_000_000, class_cache }
-    }
-
-    pub fn set_max_call_gas(&mut self, max_call_gas: u64) {
-        self.max_call_gas = max_call_gas;
+        Self { cfg, flags, limits, class_cache }
     }
 }
 
@@ -84,7 +75,6 @@ impl ExecutorFactory for BlockifierFactory {
             cfg_env,
             flags,
             limits,
-            self.max_call_gas,
             self.class_cache.clone(),
         ))
     }
@@ -107,7 +97,6 @@ pub struct StarknetVMProcessor<'a> {
     simulation_flags: ExecutionFlags,
     stats: ExecutionStats,
     bouncer: Bouncer,
-    max_call_gas: u64,
 }
 
 impl<'a> StarknetVMProcessor<'a> {
@@ -117,7 +106,6 @@ impl<'a> StarknetVMProcessor<'a> {
         cfg_env: CfgEnv,
         simulation_flags: ExecutionFlags,
         limits: BlockLimits,
-        max_call_gas: u64,
         class_cache: ClassCache,
     ) -> Self {
         let transactions = Vec::new();
@@ -150,7 +138,6 @@ impl<'a> StarknetVMProcessor<'a> {
             simulation_flags,
             stats: Default::default(),
             bouncer,
-            max_call_gas,
         }
     }
 
@@ -203,31 +190,6 @@ impl<'a> StarknetVMProcessor<'a> {
             versioned_constants,
             Default::default(),
         ));
-    }
-
-    fn simulate_with<F, T>(
-        &self,
-        transactions: Vec<ExecutableTxWithHash>,
-        flags: &ExecutionFlags,
-        mut op: F,
-    ) -> Vec<T>
-    where
-        F: FnMut(&mut dyn StateReader, (TxWithHash, ExecutionResult)) -> T,
-    {
-        let block_context = &self.block_context;
-        let state = &mut self.state.inner.lock().cached_state;
-        let mut state = cached_state::CachedState::new(MutRefState::new(state));
-
-        let mut results = Vec::with_capacity(transactions.len());
-        for exec_tx in transactions {
-            let tx = TxWithHash::from(&exec_tx);
-            // Safe to unwrap here because the only way the call to `transact` can return an error
-            // is when bouncer is `Some`.
-            let res = utils::transact(&mut state, block_context, flags, exec_tx, None).unwrap();
-            results.push(op(&mut state, (tx, res)));
-        }
-
-        results
     }
 }
 
@@ -353,49 +315,5 @@ impl<'a> BlockExecutor<'a> for StarknetVMProcessor<'a> {
             timestamp: self.block_context.block_info().block_timestamp.0,
             sequencer_address: utils::to_address(self.block_context.block_info().sequencer_address),
         }
-    }
-}
-
-impl ExecutorExt for StarknetVMProcessor<'_> {
-    fn simulate(
-        &self,
-        transactions: Vec<ExecutableTxWithHash>,
-        flags: ExecutionFlags,
-    ) -> Vec<ResultAndStates> {
-        self.simulate_with(transactions, &flags, |_, (_, result)| ResultAndStates {
-            result,
-            states: Default::default(),
-        })
-    }
-
-    fn estimate_fee(
-        &self,
-        transactions: Vec<ExecutableTxWithHash>,
-        flags: ExecutionFlags,
-    ) -> Vec<Result<TxFeeInfo, ExecutionError>> {
-        self.simulate_with(transactions, &flags, |_, (_, res)| match res {
-            ExecutionResult::Success { receipt, .. } => {
-                // if the transaction was reverted, return as error
-                if let Some(reason) = receipt.revert_reason() {
-                    info!(target: LOG_TARGET, %reason, "Estimating fee.");
-                    Err(ExecutionError::TransactionReverted { revert_error: reason.to_string() })
-                } else {
-                    Ok(receipt.fee().clone())
-                }
-            }
-
-            ExecutionResult::Failed { error } => {
-                info!(target: LOG_TARGET, %error, "Estimating fee.");
-                Err(error)
-            }
-        })
-    }
-
-    fn call(&self, call: EntryPointCall) -> Result<Vec<Felt>, ExecutionError> {
-        let mut state = self.state.inner.lock();
-        let state = MutRefState::new(&mut state.cached_state);
-        let retdata =
-            call::execute_call(call, state, self.block_context.clone(), self.max_call_gas)?;
-        Ok(retdata)
     }
 }
