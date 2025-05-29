@@ -72,6 +72,8 @@ pub struct KatanaRunnerConfig {
     pub dev: bool,
     /// The chain id to use.
     pub chain_id: Option<Felt>,
+    /// Disable auto and interval mining, and mine on demand instead via an endpoint.
+    pub no_mining: bool,
 }
 
 impl Default for KatanaRunnerConfig {
@@ -88,6 +90,7 @@ impl Default for KatanaRunnerConfig {
             db_dir: None,
             dev: false,
             chain_id: None,
+            no_mining: false,
         }
     }
 }
@@ -144,6 +147,8 @@ impl KatanaRunner {
         if let Some(path) = config.db_dir {
             builder = builder.db_dir(path);
         }
+
+        builder = builder.no_mining(config.no_mining);
 
         builder = builder.dev(config.dev);
 
