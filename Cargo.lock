@@ -6384,6 +6384,7 @@ dependencies = [
  "criterion",
  "pprof",
  "regex",
+ "semver 1.0.25",
  "serde",
  "serde_json",
  "starknet 0.12.0",

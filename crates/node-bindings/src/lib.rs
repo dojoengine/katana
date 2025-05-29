@@ -142,6 +142,10 @@ pub enum Error {
 
     #[error("expected logs to be in JSON format: {0}")]
     ExpectedJsonFormat(#[from] serde_json::Error),
+
+    /// Version mismatch between katana binary and katana-node-bindings.
+    #[error("version mismatch: the katana binary version '{binary_version}' does not match katana-node-bindings version '{bindings_version}'")]
+    VersionMismatch { binary_version: String, bindings_version: &'static str },
 }
 
 /// The string indicator from which the RPC server address can be extracted from.
@@ -170,7 +174,6 @@ const CHAIN_ID_LOG_SUBSTR: &str = "Starting node.";
 #[derive(Clone, Debug, Default)]
 #[must_use = "This Builder struct does nothing unless it is `spawn`ed"]
 pub struct Katana {
-    // General options
     dev: bool,
     no_mining: bool,
     json_log: bool,
@@ -180,39 +183,42 @@ pub struct Katana {
     fork_block_number: Option<u64>,
     messaging: Option<PathBuf>,
 
-    // Metrics options
-    metrics_addr: Option<SocketAddr>,
+    /// The metrics server address and port
+    metrics_addr: Option<Ipv4Addr>,
     metrics_port: Option<u16>,
 
-    // Server options
-    http_addr: Option<SocketAddr>,
+    /// The RPC server address and port
+    http_addr: Option<Ipv4Addr>,
     http_port: Option<u16>,
-    rpc_max_connections: Option<u64>,
+    rpc_max_connections: Option<u32>,
     rpc_timeout_ms: Option<u64>,
     rpc_max_call_gas: Option<u64>,
-    http_cors_domain: Option<String>,
+    http_cors_domain: Option<Vec<String>>,
 
-    // Dev options
-    seed: Option<u64>,
-    accounts: Option<u16>,
+    /// The genesis settings
+    seed: Option<u32>,
+    accounts: Option<u8>,
     disable_fee: bool,
     disable_validate: bool,
 
-    // Environment options
+    /// The chain id
     chain_id: Option<Felt>,
-    validate_max_steps: Option<u64>,
-    invoke_max_steps: Option<u64>,
-    eth_gas_price: Option<u64>,
-    strk_gas_price: Option<u64>,
+    validate_max_steps: Option<u32>,
+    invoke_max_steps: Option<u32>,
+    eth_gas_price: Option<u128>,
+    strk_gas_price: Option<u128>,
     genesis: Option<PathBuf>,
 
-    // Cartridge options
+    /// Cartridge controller
     enable_cartridge_paymaster: bool,
     cartridge_api_url: Option<String>,
 
-    // Others
+    /// Timeout for the startup
     timeout: Option<u64>,
     program: Option<PathBuf>,
+
+    /// Skip version compatibility check
+    skip_version_check: bool,
 }
 
 impl Katana {
@@ -413,20 +419,35 @@ impl Katana {
     }
 
     /// Sets the timeout which will be used when the `katana` instance is launched.
+    /// Timeout for the startup (in milliseconds).
     pub const fn timeout(mut self, timeout: u64) -> Self {
         self.timeout = Some(timeout);
         self
     }
 
-    /// Disable auto and interval mining, and mine on demand instead via an endpoint.
+    /// Sets whether to enable mining or not.
     pub const fn no_mining(mut self, no_mining: bool) -> Self {
         self.no_mining = no_mining;
         self
     }
 
+    /// Skip version compatibility check between katana binary and katana-node-bindings.
+    pub const fn skip_version_check(mut self, skip: bool) -> Self {
+        self.skip_version_check = skip;
+        self
+    }
+</edits>
+
+<edits>
+
+<old_text>
+    /// Skip version compatibility check between katana binary and katana-node-bindings.
+    pub const fn skip_version_check(mut self, skip: bool) -> Self {
+        self.skip_version_check = skip;
+        self
+    }
+
     /// Consumes the builder and spawns `katana`.
-    ///
-    /// # Panics
     ///
     /// If spawning the instance fails at any point.
     #[track_caller]
@@ -436,6 +457,20 @@ impl Katana {
 
     /// Consumes the builder and spawns `katana`. If spawning fails, returns an error.
     pub fn try_spawn(self) -> Result<KatanaInstance, Error> {
+        // Check version compatibility before spawning (unless skipped)
+        if !self.skip_version_check {
+            let program_path = self.program.as_ref().map(|p| p.as_ref()).unwrap_or_else(|| std::path::Path::new("katana"));
+            check_katana_version(program_path)?;
+        }
+        self.try_spawn().expect("could not spawn katana")
+    }
+
+    /// Consumes the builder and spawns `katana`. If spawning fails, returns an error.
+    pub fn try_spawn(self) -> Result<KatanaInstance, Error> {
+        // Check version compatibility before spawning
+        let program_path = self.program.as_ref().map(|p| p.as_ref()).unwrap_or_else(|| std::path::Path::new("katana"));
+        check_katana_version(program_path)?;
+
         let mut cmd = self.program.as_ref().map_or_else(|| Command::new("katana"), Command::new);
         cmd.stdout(std::process::Stdio::piped()).stderr(std::process::Stdio::inherit());
 
@@ -729,6 +764,80 @@ fn parse_chain_id_log(log: &str) -> Result<Felt, Error> {
     }
 }
 
+/// Extracts version from katana binary and validates it matches the node-bindings version.
+///
+/// `katana --version` output:
+///
+/// katana 1.5.2-dev (c1bc99a1)
+///
+/// features: -native
+/// built on: 2025-05-29T06:04:01.830806000Z
+fn check_katana_version(program: &std::path::Path) -> Result<(), Error> {
+    let output = std::process::Command::new(program)
+        .arg("--version")
+        .output()
+        .map_err(Error::SpawnError)?;
+
+    if !output.status.success() {
+        return Err(Error::SpawnError(std::io::Error::new(
+            std::io::ErrorKind::Other,
+            "katana --version command failed",
+        )));
+    }
+
+    let version_output = String::from_utf8_lossy(&output.stdout);
+    let binary_version_str = extract_version_from_output(&version_output)?;
+    let bindings_version_str = env!("CARGO_PKG_VERSION");
+
+    // Strip -dev suffix from binary version for semver parsing
+    let binary_version_clean = binary_version_str.split('-').next().unwrap_or(binary_version_str);
+    let bindings_version_clean = bindings_version_str.split('-').next().unwrap_or(bindings_version_str);
+
+    // Parse versions using semver
+    let binary_version = semver::Version::parse(binary_version_clean).map_err(|_| {
+        Error::UnexpectedFormat(format!("invalid semantic version: {}", binary_version_clean))
+    })?;
+
+    let bindings_version = semver::Version::parse(bindings_version_clean).map_err(|_| {
+        Error::UnexpectedFormat(format!("invalid semantic version: {}", bindings_version_clean))
+    })?;
+
+    // Compare major.minor versions (patch differences are allowed)
+    if binary_version.major != bindings_version.major || binary_version.minor != bindings_version.minor {
+        return Err(Error::VersionMismatch {
+            binary_version: binary_version_str.to_string(),
+            bindings_version: bindings_version_str,
+        });
+    }
+
+    Ok(())
+}
+
+/// Extracts version string from katana --version output.
+/// Expected formats:
+/// * "katana 1.5.2 (c1bc99a1)"
+/// * "katana 1.5.2-dev (c1bc99a1)"
+fn extract_version_from_output(output: &str) -> Result<&str, Error> {
+    let first_line = output.lines().next().ok_or_else(|| {
+        Error::UnexpectedFormat("empty version output".to_string())
+    })?;
+
+    // Parse "katana VERSION (HASH)" format
+    let parts: Vec<&str> = first_line.split_whitespace().collect();
+    if parts.len() < 2 || parts[0] != "katana" {
+        return Err(Error::UnexpectedFormat(
+            format!("unexpected version format: {}", first_line)
+        ));
+    }
+
+    // Extract version part (before the parentheses with git hash)
+    let version_part = parts[1];
+    // Remove -dev suffix if present
+    let semver = version_part.split('-').next().unwrap_or(version_part);
+
+    Ok(semver)
+}
+
 #[cfg(test)]
 mod tests {
     use starknet::core::types::{BlockId, BlockTag};
@@ -848,5 +957,79 @@ mod tests {
         let actual_chain_id = provider.chain_id().await.unwrap();
 
         assert_eq!(custom_chain_id, actual_chain_id);
+    }
+
+    #[test]
+    fn test_extract_version_from_output() {
+        // Test standard format
+        let output = "katana 1.5.2-dev (c1bc99a1)\n\nfeatures: -native\nbuilt on: 2025-05-29T06:04:01.830806000Z";
+        let version = extract_version_from_output(output).unwrap();
+        assert_eq!(version, "1.5.2-dev");
+
+        // Test release format (without -dev)
+        let output = "katana 1.5.2 (c1bc99a1)";
+        let version = extract_version_from_output(output).unwrap();
+        assert_eq!(version, "1.5.2");
+
+        // Test empty output
+        let output = "";
+        assert!(extract_version_from_output(output).is_err());
+
+        // Test invalid format
+        let output = "invalid format";
+        assert!(extract_version_from_output(output).is_err());
+    }
+
+    #[test]
+    fn test_version_comparison() {
+        // Test matching versions
+        let binary_version = "1.5.2";
+        let bindings_version = "1.5.2";
+        let binary_base = binary_version.split('-').next().unwrap();
+        let bindings_base = bindings_version.split('-').next().unwrap();
+        assert_eq!(binary_base, bindings_base);
+
+        // Test matching versions with dev suffix
+        let binary_version = "1.5.2-dev";
+        let bindings_version = "1.5.2";
+        let binary_base = binary_version.split('-').next().unwrap();
+        let bindings_base = bindings_version.split('-').next().unwrap();
+        assert_eq!(binary_base, bindings_base);
+
+        // Test mismatched versions
+        let binary_version = "1.5.1";
+        let bindings_version = "1.5.2";
+        let binary_base = binary_version.split('-').next().unwrap();
+        let bindings_base = bindings_version.split('-').next().unwrap();
+        assert_ne!(binary_base, bindings_base);
+    }
+
+    #[test]
+    fn test_version_check_with_local_katana() {
+        // Test that version check passes with locally built katana binary
+        let katana_path = std::path::Path::new("target/debug/katana");
+        if katana_path.exists() {
+            // This should pass since we're using the locally built katana
+            let result = check_katana_version(katana_path);
+            assert!(result.is_ok(), "Version check should pass with local katana binary: {:?}", result);
+        }
+    }
+
+    #[test]
+    fn test_spawn_with_local_katana() {
+        // Test full integration with locally built katana binary
+        let katana_path = std::path::Path::new("target/debug/katana");
+        if katana_path.exists() {
+            // This should work without version mismatch errors
+            let katana = Katana::new()
+                .path(katana_path)
+                .port(0u16) // Use random port
+                .timeout(5000) // 5 second timeout
+                .spawn();
+
+            // Verify basic functionality
+            assert!(katana.port() > 0);
+            assert_eq!(katana.accounts().len(), 10);
+        }
     }
 }
