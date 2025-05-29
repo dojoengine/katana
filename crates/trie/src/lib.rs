@@ -24,13 +24,15 @@ pub use storages::StoragesTrie;
 /// having to handle how to transform the keys into the internal keys used by the trie.
 /// This struct is not meant to be used directly, and instead use the specific tries that have
 /// been derived from it, [`ClassesTrie`], [`ContractsTrie`], or [`StoragesTrie`].
-pub struct BonsaiTrie<DB, Hash = Pedersen>
+/// 
+pub struct BonsaiTrie<DB, Hash = Pedersen, T = bonsai_trie::trie::trees::MerkleTrees<Hash, DB, CommitId>>
 where
     DB: BonsaiDatabase,
     Hash: StarkHash + Send + Sync,
 {
-    storage: BonsaiStorage<CommitId, DB, Hash>,
+    storage: BonsaiStorage<CommitId, DB, Hash, T>,
 }
+type PartialBonsaiTrie<DB, Hash = Pedersen> = BonsaiTrie<DB, Hash, bonsai_trie::trie::trees::PartialMerkleTrees<Hash, DB, CommitId>>;
 
 impl<DB, Hash> BonsaiTrie<DB, Hash>
 where
@@ -52,6 +54,39 @@ where
 
         Self { storage: BonsaiStorage::new(db, config, 251) }
     }
+
+    pub fn new_partial(db: DB) -> Self {
+        let config = BonsaiStorageConfig {
+            // we have our own implementation of storing trie changes
+            max_saved_trie_logs: Some(0),
+            // in the bonsai-trie crate, this field seems to be only used in rocksdb impl.
+            // i dont understand why would they add a config thats implementation specific ????
+            //
+            // this config should be used by our implementation of the
+            // BonsaiPersistentDatabase::snapshot()
+            max_saved_snapshots: Some(64usize),
+            snapshot_interval: 1,
+        };
+
+        Self { storage: BonsaiStorage::new(db, config, 251) }
+    }
+}
+
+impl<DB, Hash> PartialBonsaiTrie<DB, Hash>
+where
+    DB: BonsaiDatabase,
+    Hash: StarkHash + Send + Sync,
+{
+    pub fn new_partial(db: DB) -> Self {
+        let config = BonsaiStorageConfig {
+            max_saved_trie_logs: Some(0),
+            max_saved_snapshots: Some(64usize),
+            snapshot_interval: 1,
+        };
+
+        Self { storage: BonsaiStorage::new_partial(db, config, 251) }
+    }
+}
 
     pub fn root(&self, id: &[u8]) -> Felt {
         self.storage.root_hash(id).expect("failed to get trie root")
