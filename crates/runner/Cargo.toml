@@ -13,3 +13,4 @@ anyhow.workspace = true
 assert_fs.workspace = true
 starknet.workspace = true
 tokio.workspace = true
+jsonrpsee = { workspace = true, features = [ "client" ] }

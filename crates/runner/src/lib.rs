@@ -1,13 +1,14 @@
 #![cfg_attr(not(test), warn(unused_crate_dependencies))]
 
+mod dev;
 mod utils;
-
 use std::net::SocketAddr;
 use std::path::PathBuf;
 use std::thread;
 
 use anyhow::{Context, Result};
 use assert_fs::TempDir;
+pub use dev::KatanaDevClient;
 use katana_node_bindings::{Katana, KatanaInstance};
 pub use katana_runner_macro::test;
 use starknet::accounts::{ExecutionEncoding, SingleOwnerAccount};
