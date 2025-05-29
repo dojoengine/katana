@@ -138,6 +138,10 @@ impl KatanaRunner {
         }
 
         if let Some(block_time_ms) = config.block_time {
+            if config.no_mining {
+                return Err(anyhow::anyhow!("no_mining and block_time cannot be used together"));
+            }
+
             builder = builder.block_time(block_time_ms);
         }
 
