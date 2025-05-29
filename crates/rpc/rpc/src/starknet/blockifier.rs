@@ -11,17 +11,17 @@ use katana_executor::{
     EntryPointCall, ExecutionError, ExecutionFlags, ExecutionResult, ResultAndStates,
 };
 use katana_primitives::env::{BlockEnv, CfgEnv};
-use katana_primitives::fee::FeeInfo;
+use katana_primitives::fee::TxFeeInfo;
 use katana_primitives::receipt::ExecutionResources;
 use katana_primitives::transaction::{ExecutableTxWithHash, TxWithHash};
 use katana_primitives::Felt;
 use katana_provider::traits::state::StateProvider;
-use tracing::info;
+use katana_rpc_types::FeeEstimate;
 
 const LOG_TARGET: &str = "katana::rpc::blockifier";
 
-pub fn simulate<P: StateProvider>(
-    state: P,
+pub fn simulate(
+    state: impl StateProvider,
     block_env: BlockEnv,
     cfg_env: CfgEnv,
     transactions: Vec<ExecutableTxWithHash>,
@@ -45,14 +45,13 @@ pub fn simulate<P: StateProvider>(
     results
 }
 
-pub fn estimate_fee<P: StateProvider>(
-    state: P,
+pub fn estimate_fee(
+    state: impl StateProvider,
     block_env: BlockEnv,
     cfg_env: CfgEnv,
     transactions: Vec<ExecutableTxWithHash>,
     flags: ExecutionFlags,
-) -> Vec<Result<(FeeInfo, ExecutionResources), ExecutionError>> {
-    let block_context = Arc::new(block_context_from_envs(&block_env, &cfg_env));
+) -> Vec<Result<FeeEstimate, ExecutionError>> {
     let state = CachedState::new(state, COMPILED_CLASS_CACHE.clone());
 
     let mut results = Vec::with_capacity(transactions.len());
@@ -66,18 +65,9 @@ pub fn estimate_fee<P: StateProvider>(
 
         let result = match res {
             ExecutionResult::Success { receipt, .. } => {
-                // if the transaction was reverted, return as error
-                if let Some(reason) = receipt.revert_reason() {
-                    Err(ExecutionError::TransactionReverted { revert_error: reason.to_string() })
-                } else {
-                    Ok((receipt.fee().clone(), receipt.resources_used().clone()))
-                }
+                Ok((receipt.fee().clone(), receipt.resources_used().clone()))
             }
-
-            ExecutionResult::Failed { error } => {
-                info!(target: LOG_TARGET, %error, "Estimating fee.");
-                Err(error)
-            }
+            ExecutionResult::Failed { error } => Err(error),
         };
         results.push(result);
     }
@@ -105,4 +95,29 @@ pub fn call<P: StateProvider>(
         )?;
         Ok(retdata)
     })
+}
+
+fn transact(
+    block_env: BlockEnv,
+    cfg_env: CfgEnv,
+    state: impl StateProvider,
+    flags: ExecutionFlags,
+    txs: Vec<ExecutableTxWithHash>,
+) -> Vec<ExecutionResult> {
+    let block_context = block_context_from_envs(&block_env, &cfg_env);
+    let state = CachedState::new(state, COMPILED_CLASS_CACHE.clone());
+
+    let mut results = Vec::with_capacity(txs.len());
+    for tx in txs {
+        // Safe to unwrap here because the only way the call to `transact` can return an error
+        // is when bouncer is `Some`.
+        let result = state.with_cached_state(|cached_state| {
+            let mut state = cached_state::CachedState::new(MutRefState::new(cached_state));
+            utils::transact(&mut state, &block_context, &flags, tx, None).unwrap()
+        });
+
+        results.push(result);
+    }
+
+    results
 }
