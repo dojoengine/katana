@@ -10,10 +10,12 @@ use katana_executor::{
     EntryPointCall, ExecutionError, ExecutionFlags, ExecutionResult, ResultAndStates,
 };
 use katana_primitives::env::{BlockEnv, CfgEnv};
-use katana_primitives::fee::TxFeeInfo;
-use katana_primitives::transaction::{ExecutableTxWithHash, TxWithHash};
+use katana_primitives::fee::{self};
+use katana_primitives::transaction::ExecutableTxWithHash;
 use katana_primitives::Felt;
 use katana_provider::traits::state::StateProvider;
+use katana_rpc_types::FeeEstimate;
+use starknet::core::types::PriceUnit;
 
 pub fn simulate(
     state: impl StateProvider,
@@ -27,26 +29,26 @@ pub fn simulate(
 
     let mut results = Vec::with_capacity(transactions.len());
     for exec_tx in transactions {
-        let _tx = TxWithHash::from(&exec_tx);
         // Safe to unwrap here because the only way the call to `transact` can return an error
         // is when bouncer is `Some`.
-        let res = state.with_cached_state(|cached_state| {
+        let result = state.with_cached_state(|cached_state| {
             let mut state = cached_state::CachedState::new(MutRefState::new(cached_state));
             utils::transact(&mut state, &block_context, &flags, exec_tx, None).unwrap()
         });
-        results.push(ResultAndStates { result: res, states: Default::default() });
+
+        results.push(ResultAndStates { result, states: Default::default() });
     }
 
     results
 }
 
-pub fn estimate_fee(
+pub fn estimate_fees(
     state: impl StateProvider,
     block_env: BlockEnv,
     cfg_env: CfgEnv,
     transactions: Vec<ExecutableTxWithHash>,
     flags: ExecutionFlags,
-) -> Vec<Result<TxFeeInfo, ExecutionError>> {
+) -> Vec<Result<FeeEstimate, ExecutionError>> {
     let block_context = block_context_from_envs(&block_env, &cfg_env);
     let state = CachedState::new(state, COMPILED_CLASS_CACHE.clone());
 
@@ -60,7 +62,20 @@ pub fn estimate_fee(
         });
 
         let result = match res {
-            ExecutionResult::Success { receipt, .. } => Ok(receipt.fee().clone()),
+            ExecutionResult::Success { receipt, .. } => {
+                let fee = receipt.fee();
+                Ok(FeeEstimate {
+                    data_gas_price: Felt::ZERO,
+                    data_gas_consumed: Felt::ZERO,
+                    gas_price: fee.gas_price.into(),
+                    overall_fee: fee.overall_fee.into(),
+                    gas_consumed: fee.gas_consumed.into(),
+                    unit: match fee.unit {
+                        fee::PriceUnit::Wei => PriceUnit::Wei,
+                        fee::PriceUnit::Fri => PriceUnit::Fri,
+                    },
+                })
+            }
             ExecutionResult::Failed { error } => Err(error),
         };
 
@@ -81,13 +96,11 @@ pub fn call<P: StateProvider>(
     let state = CachedState::new(state, COMPILED_CLASS_CACHE.clone());
 
     state.with_cached_state(|cached_state| {
-        let state = MutRefState::new(cached_state);
-        let retdata = katana_executor::implementation::blockifier::call::execute_call(
+        katana_executor::implementation::blockifier::call::execute_call(
             call,
-            state,
+            MutRefState::new(cached_state),
             block_context,
             max_call_gas,
-        )?;
-        Ok(retdata)
+        )
     })
 }

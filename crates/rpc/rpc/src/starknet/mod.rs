@@ -168,19 +168,15 @@ where
         // get the state and block env at the specified block for execution
         let state = self.state(&block_id)?;
         let env = self.block_env_at(&block_id)?;
-
-        // use the blockifier utils function
         let cfg_env = self.inner.backend.executor_factory.cfg().clone();
-        let results = blockifier::estimate_fee(state, env, cfg_env, transactions, flags);
 
-        let mut estimates = Vec::with_capacity(results.len());
+        // do estimations
+        let results = blockifier::estimate_fees(state, env, cfg_env, transactions, flags);
+
+        let mut estimates: Vec<FeeEstimate> = Vec::with_capacity(results.len());
         for (i, res) in results.into_iter().enumerate() {
             match res {
-                Ok(fee) => {
-                    let estimate = katana_rpc_types::trace::to_rpc_fee_estimate(fee);
-                    estimates.push(estimate);
-                }
-
+                Ok(fee) => estimates.push(fee),
                 Err(err) => {
                     return Err(StarknetApiError::TransactionExecutionError {
                         transaction_index: i as u64,
