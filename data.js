@@ -1,5 +1,5 @@
 window.BENCHMARK_DATA = {
-  "lastUpdate": 1748332206589,
+  "lastUpdate": 1748534411427,
   "repoUrl": "https://github.com/dojoengine/katana",
   "entries": {
     "Benchmark": [
@@ -593,6 +593,60 @@ window.BENCHMARK_DATA = {
             "name": "Katana.Startup",
             "value": 124100984,
             "range": "± 754345",
+            "unit": "ns/iter"
+          }
+        ]
+      },
+      {
+        "commit": {
+          "author": {
+            "email": "dev@glihm.net",
+            "name": "glihm",
+            "username": "glihm"
+          },
+          "committer": {
+            "email": "noreply@github.com",
+            "name": "GitHub",
+            "username": "web-flow"
+          },
+          "distinct": true,
+          "id": "4200cb05e741296771cbedee868ce1ffd1946c13",
+          "message": "feat(runner): expose no_mining argument (#99)\n\n* feat(runner): expose no_mining argument\n\n* feat(runner): add dev.rs to generate block via API\n\n* add dev client as getter method of KatanaRunner\n\n* fix typos\n\n* ensure no_mining and block_time are exclusive\n\n---------\n\nCo-authored-by: Ammar Arif <evergreenkary@gmail.com>",
+          "timestamp": "2025-05-29T09:40:51-06:00",
+          "tree_id": "8dac53560d00126cbc3e7544703c45148dca0893",
+          "url": "https://github.com/dojoengine/katana/commit/4200cb05e741296771cbedee868ce1ffd1946c13"
+        },
+        "date": 1748534410171,
+        "tool": "cargo",
+        "benches": [
+          {
+            "name": "decompress world contract",
+            "value": 3027053,
+            "range": "± 43772",
+            "unit": "ns/iter"
+          },
+          {
+            "name": "Concurrent.Simulate/Blockifier.1",
+            "value": 16251985,
+            "range": "± 154157",
+            "unit": "ns/iter"
+          },
+          {
+            "name": "Concurrent.Simulate/Blockifier.1000",
+            "value": 2640472775,
+            "range": "± 238518880",
+            "unit": "ns/iter"
+          },
+          {
+            "name": "Invoke.ERC20.transfer/Blockifier.Cold",
+            "value": 16513043,
+            "range": "± 758304",
+            "unit": "ns/iter"
+          },
+          {
+            "name": "Katana.Startup",
+            "value": 126935060,
+            "range": "± 810993",
             "unit": "ns/iter"
           }
         ]
