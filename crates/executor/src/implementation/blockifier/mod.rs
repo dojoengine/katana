@@ -13,6 +13,7 @@ pub mod utils;
 use blockifier::context::BlockContext;
 use blockifier::state::cached_state::{self, MutRefState};
 use blockifier::state::state_api::StateReader;
+use cache::ClassCache;
 use katana_primitives::block::{ExecutableBlock, GasPrice as KatanaGasPrices, PartialHeader};
 use katana_primitives::env::{BlockEnv, CfgEnv};
 use katana_primitives::fee::TxFeeInfo;
@@ -39,27 +40,18 @@ pub struct BlockifierFactory {
     flags: ExecutionFlags,
     limits: BlockLimits,
     max_call_gas: u64,
-    #[cfg(feature = "native")]
-    use_cairo_native: bool,
+    class_cache: ClassCache,
 }
 
 impl BlockifierFactory {
     /// Create a new factory with the given configuration and simulation flags.
-    pub fn new(cfg: CfgEnv, flags: ExecutionFlags, limits: BlockLimits) -> Self {
-        Self {
-            cfg,
-            flags,
-            limits,
-            #[cfg(feature = "native")]
-            use_cairo_native: false,
-            max_call_gas: 1_000_000_000,
-        }
-    }
-
-    #[cfg(feature = "native")]
-    pub fn cairo_native(&mut self, enable: bool) -> &mut Self {
-        self.use_cairo_native = enable;
-        self
+    pub fn new(
+        cfg: CfgEnv,
+        flags: ExecutionFlags,
+        limits: BlockLimits,
+        class_cache: ClassCache,
+    ) -> Self {
+        Self { cfg, flags, limits, max_call_gas: 1_000_000_000, class_cache }
     }
 
     pub fn set_max_call_gas(&mut self, max_call_gas: u64) {
@@ -93,8 +85,7 @@ impl ExecutorFactory for BlockifierFactory {
             flags,
             limits,
             self.max_call_gas,
-            #[cfg(feature = "native")]
-            self.use_cairo_native,
+            self.class_cache.clone(),
         ))
     }
 
@@ -127,18 +118,12 @@ impl<'a> StarknetVMProcessor<'a> {
         simulation_flags: ExecutionFlags,
         limits: BlockLimits,
         max_call_gas: u64,
-        #[cfg(feature = "native")] cairo_native: bool,
+        class_cache: ClassCache,
     ) -> Self {
         let transactions = Vec::new();
         let block_context = Arc::new(utils::block_context_from_envs(&block_env, &cfg_env));
-        let cache_builder = cache::ClassCache::builder();
 
-        #[cfg(not(feature = "native"))]
-        let compiled_class_cache = cache_builder.build().unwrap();
-        #[cfg(feature = "native")]
-        let compiled_class_cache = cache_builder.compile_native(cairo_native).build().unwrap();
-
-        let state = state::CachedState::new(state, compiled_class_cache);
+        let state = state::CachedState::new(state, class_cache);
 
         let mut block_max_capacity = BouncerWeights::max();
 

@@ -270,6 +270,7 @@ pub fn executor_factory<EF: ExecutorFactory>(
 
 #[cfg(feature = "blockifier")]
 pub mod blockifier {
+    use katana_executor::implementation::blockifier::cache::ClassCache;
     use katana_executor::implementation::blockifier::BlockifierFactory;
     use katana_executor::{BlockLimits, ExecutionFlags};
 
@@ -277,6 +278,6 @@ pub mod blockifier {
 
     #[rstest::fixture]
     pub fn factory(cfg: CfgEnv, #[with(true)] flags: ExecutionFlags) -> BlockifierFactory {
-        BlockifierFactory::new(cfg, flags, BlockLimits::default())
+        BlockifierFactory::new(cfg, flags, BlockLimits::default(), ClassCache::new().unwrap())
     }
 }

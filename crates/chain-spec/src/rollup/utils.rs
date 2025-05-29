@@ -339,6 +339,7 @@ impl<'c> GenesisTransactionsBuilder<'c> {
 mod tests {
 
     use alloy_primitives::U256;
+    use katana_executor::implementation::blockifier::cache::ClassCache;
     use katana_executor::implementation::blockifier::BlockifierFactory;
     use katana_executor::{BlockLimits, ExecutorFactory};
     use katana_primitives::chain::ChainId;
@@ -400,6 +401,7 @@ mod tests {
             },
             Default::default(),
             BlockLimits::default(),
+            ClassCache::new().unwrap(),
         )
     }
 

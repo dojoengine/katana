@@ -32,8 +32,8 @@ pub(crate) struct CachedStateInner<'a> {
 }
 
 impl<'a> CachedState<'a> {
-    pub(super) fn new(state: impl StateProvider + 'a, compiled_class_cache: ClassCache) -> Self {
-        let state = StateProviderDb::new(Box::new(state), compiled_class_cache);
+    pub(super) fn new(state: impl StateProvider + 'a, class_cache: ClassCache) -> Self {
+        let state = StateProviderDb::new_with_class_cache(Box::new(state), class_cache);
         let cached_state = cached_state::CachedState::new(state);
 
         let declared_classes = HashMap::new();
@@ -152,8 +152,18 @@ impl<'a> Deref for StateProviderDb<'a> {
 }
 
 impl<'a> StateProviderDb<'a> {
-    pub fn new(provider: Box<dyn StateProvider + 'a>, compiled_class_cache: ClassCache) -> Self {
+    /// Creates a new [`StateProviderDb`].
+    pub fn new(provider: Box<dyn StateProvider + 'a>) -> Self {
+        let compiled_class_cache = ClassCache::new().expect("failed to build class cache");
         Self { provider, compiled_class_cache }
+    }
+
+    /// Creates a new [`StateProviderDb`] with a custom class cache.
+    pub fn new_with_class_cache(
+        provider: Box<dyn StateProvider + 'a>,
+        class_cache: ClassCache,
+    ) -> Self {
+        Self { provider, compiled_class_cache: class_cache }
     }
 }
 

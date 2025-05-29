@@ -118,7 +118,6 @@ mod tests {
     use starknet::macros::selector;
 
     use super::execute_call_inner;
-    use crate::implementation::blockifier::cache::ClassCache;
     use crate::implementation::blockifier::state::StateProviderDb;
     use crate::EntryPointCall;
 
@@ -141,8 +140,7 @@ mod tests {
         provider.set_class_hash_of_contract(address, class_hash).unwrap();
 
         let state = provider.latest().unwrap();
-        let cache = ClassCache::new().expect("failed to create ClassCache");
-        let state = StateProviderDb::new(state, cache);
+        let state = StateProviderDb::new(state);
 
         // ---------------------------------------------------------------
 
@@ -218,8 +216,7 @@ mod tests {
         provider.set_class_hash_of_contract(address, class_hash).unwrap();
 
         let state = provider.latest().unwrap();
-        let cache = ClassCache::new().expect("failed to create ClassCache");
-        let state = StateProviderDb::new(state, cache);
+        let state = StateProviderDb::new(state);
 
         // ---------------------------------------------------------------
 
