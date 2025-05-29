@@ -198,6 +198,10 @@ impl KatanaRunner {
         self.instance.starknet_provider()
     }
 
+    pub fn dev_client(&self) -> KatanaDevClient {
+        KatanaDevClient::new(self.url().as_str()).expect("failed to get runner dev client")
+    }
+
     // A contract needs to be deployed only once for each instance
     // In proptest runner is static but deployment would happen for each test, unless it is
     // persisted here.

@@ -31,8 +31,7 @@ impl KatanaDevClient {
     }
 
     pub async fn generate_block(&self) -> Result<()> {
-        let _res = self.client.request("dev_generateBlock", rpc_params![]).await?;
-
+        self.client.request::<(), _>("dev_generateBlock", rpc_params![]).await?;
         Ok(())
     }
 }
