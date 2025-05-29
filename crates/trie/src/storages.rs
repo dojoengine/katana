@@ -6,12 +6,18 @@ use katana_primitives::{ContractAddress, Felt};
 
 use crate::id::CommitId;
 
-#[derive(Debug)]
-pub struct StoragesTrie<DB: BonsaiDatabase> {
+// #[derive(Debug)]
+pub struct StoragesTrie<
+    DB: BonsaiDatabase,
+    TreeType = bonsai_trie::trie::trees::FullMerkleTrees<Pedersen, DB, CommitId>,
+> {
     /// The contract address the storage trie belongs to.
     address: ContractAddress,
-    trie: crate::BonsaiTrie<DB, Pedersen>,
+    trie: crate::BonsaiTrie<DB, Pedersen, TreeType>,
 }
+
+type PartialStoragesTrie<DB> =
+    StoragesTrie<DB, bonsai_trie::trie::trees::PartialMerkleTrees<Pedersen, DB, CommitId>>;
 
 impl<DB: BonsaiDatabase> StoragesTrie<DB> {
     pub fn new(db: DB, address: ContractAddress) -> Self {
@@ -27,12 +33,43 @@ impl<DB: BonsaiDatabase> StoragesTrie<DB> {
     }
 }
 
+impl<DB: BonsaiDatabase> PartialStoragesTrie<DB> {
+    pub fn new_partial(db: DB, address: ContractAddress) -> Self {
+        Self { address, trie: crate::PartialBonsaiTrie::new_partial(db) }
+    }
+}
+
 impl<DB> StoragesTrie<DB>
 where
     DB: BonsaiDatabase + BonsaiPersistentDatabase<CommitId>,
 {
     pub fn insert(&mut self, storage_key: StorageKey, storage_value: StorageValue) {
         self.trie.insert(&self.address.to_bytes_be(), storage_key, storage_value)
+    }
+
+    pub fn commit(&mut self, block: BlockNumber) {
+        self.trie.commit(block.into())
+    }
+}
+
+impl<DB> PartialStoragesTrie<DB>
+where
+    DB: BonsaiDatabase + BonsaiPersistentDatabase<CommitId>,
+{
+    pub fn insert(
+        &mut self,
+        storage_key: StorageKey,
+        storage_value: StorageValue,
+        proof: MultiProof,
+        original_root: Felt,
+    ) {
+        self.trie.insert(
+            &self.address.to_bytes_be(),
+            storage_key,
+            storage_value,
+            proof,
+            original_root,
+        )
     }
 
     pub fn commit(&mut self, block: BlockNumber) {

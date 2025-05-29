@@ -135,7 +135,7 @@ native-deps-macos:
 
 native-deps-linux:
 	@echo "Installing LLVM dependencies for Linux..."
-	sudo apt-get install -y llvm-19 llvm-19-dev llvm-19-runtime clang-19 clang-tools-19 lld-19 libpolly-19-dev libmlir-19-dev mlir-19-tools
+	sudo dnf install -y llvm-devel clang clang-tools-extra lld polly-devel
 	@echo "Linux dependencies installed successfully."
 
 native-deps-windows:

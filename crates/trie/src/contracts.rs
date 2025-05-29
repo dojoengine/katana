@@ -5,11 +5,16 @@ use katana_primitives::{ContractAddress, Felt};
 
 use crate::id::CommitId;
 
-#[derive(Debug)]
-pub struct ContractsTrie<DB: BonsaiDatabase> {
-    trie: crate::BonsaiTrie<DB, Pedersen>,
+// #[derive(Debug)]
+pub struct ContractsTrie<
+    DB: BonsaiDatabase,
+    TreeType = bonsai_trie::trie::trees::FullMerkleTrees<Pedersen, DB, CommitId>,
+> {
+    trie: crate::BonsaiTrie<DB, Pedersen, TreeType>,
 }
 
+type PartialContractsTrie<DB> =
+    ContractsTrie<DB, bonsai_trie::trie::trees::PartialMerkleTrees<Pedersen, DB, CommitId>>;
 //////////////////////////////////////////////////////////////
 // 	ContractsTrie implementations
 //////////////////////////////////////////////////////////////
@@ -33,12 +38,39 @@ impl<DB: BonsaiDatabase> ContractsTrie<DB> {
     }
 }
 
+impl<DB: BonsaiDatabase> PartialContractsTrie<DB> {
+    const BONSAI_IDENTIFIER: &'static [u8] = b"contracts";
+
+    pub fn new_partial(db: DB) -> Self {
+        Self { trie: crate::PartialBonsaiTrie::new_partial(db) }
+    }
+}
+
 impl<DB> ContractsTrie<DB>
 where
     DB: BonsaiDatabase + BonsaiPersistentDatabase<CommitId>,
 {
     pub fn insert(&mut self, address: ContractAddress, state_hash: Felt) {
         self.trie.insert(Self::BONSAI_IDENTIFIER, *address, state_hash)
+    }
+
+    pub fn commit(&mut self, block: BlockNumber) {
+        self.trie.commit(block.into())
+    }
+}
+
+impl<DB> PartialContractsTrie<DB>
+where
+    DB: BonsaiDatabase + BonsaiPersistentDatabase<CommitId>,
+{
+    pub fn insert(
+        &mut self,
+        address: ContractAddress,
+        state_hash: Felt,
+        proof: MultiProof,
+        original_root: Felt,
+    ) {
+        self.trie.insert(Self::BONSAI_IDENTIFIER, *address, state_hash, proof, original_root)
     }
 
     pub fn commit(&mut self, block: BlockNumber) {

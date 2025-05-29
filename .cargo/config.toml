@@ -1,0 +1,6 @@
+[env]
+CC = "gcc-14"
+CFLAGS = ""
+
+[build]
+rustflags = [] 
