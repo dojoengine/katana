@@ -2005,7 +2005,7 @@ dependencies = [
  "bitvec",
  "derive_more 0.99.20",
  "hashbrown 0.14.5",
- "indexmap 2.9.0",
+ "indexmap 2.10.0",
  "log",
  "parity-scale-codec",
  "rayon",

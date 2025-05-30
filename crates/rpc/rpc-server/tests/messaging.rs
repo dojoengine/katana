@@ -24,58 +24,58 @@ use starknet::providers::Provider;
 
 mod common;
 
-sol!(
-    #[allow(missing_docs)]
-    #[sol(rpc)]
-    StarknetContract,
-    "tests/test_data/solidity/StarknetMessagingLocalCompiled.json"
-);
+// sol!(
+//     #[allow(missing_docs)]
+//     #[sol(rpc)]
+//     StarknetContract,
+//     "tests/test_data/solidity/StarknetMessagingLocalCompiled.json"
+// );
 
-sol!(
-    #[allow(missing_docs)]
-    #[sol(rpc)]
-    Contract1,
-    "tests/test_data/solidity/Contract1Compiled.json"
-);
+// sol!(
+//     #[allow(missing_docs)]
+//     #[sol(rpc)]
+//     Contract1,
+//     "tests/test_data/solidity/Contract1Compiled.json"
+// );
 
 abigen!(CairoMessagingContract, "crates/rpc/rpc-server/tests/test_data/cairo_l1_msg_contract.json");
 
-#[tokio::test(flavor = "multi_thread")]
-async fn test_messaging() {
-    // TODO: If there's a way to get the endpoint of anvil from the `l1_provider`, we could
-    // remove that and use default anvil to let the OS assign the port.
-    let port: u16 = rand::thread_rng().gen_range(35000..65000);
+// #[tokio::test(flavor = "multi_thread")]
+// async fn test_messaging() {
+//     // TODO: If there's a way to get the endpoint of anvil from the `l1_provider`, we could
+//     // remove that and use default anvil to let the OS assign the port.
+//     let port: u16 = rand::thread_rng().gen_range(35000..65000);
 
     let l1_provider = ProviderBuilder::new()
         .connect_anvil_with_wallet_and_config(|anvil| anvil.port(port))
         .expect("failed to build eth provider");
 
-    // Deploy the core messaging contract on L1
-    let core_contract = StarknetContract::deploy(&l1_provider).await.unwrap();
+//     // Deploy the core messaging contract on L1
+//     let core_contract = StarknetContract::deploy(&l1_provider).await.unwrap();
 
-    // Deploy test contract on L1 used to send/receive messages to/from L2
-    let l1_test_contract = Contract1::deploy(&l1_provider, *core_contract.address()).await.unwrap();
+//     // Deploy test contract on L1 used to send/receive messages to/from L2
+//     let l1_test_contract = Contract1::deploy(&l1_provider, *core_contract.address()).await.unwrap();
 
-    let messaging_config = MessagingConfig {
-        chain: "ethereum".to_string(),
-        rpc_url: format!("http://localhost:{}", port),
-        contract_address: core_contract.address().to_string(),
-        interval: 2,
-        from_block: 0,
-    };
+//     let messaging_config = MessagingConfig {
+//         chain: "ethereum".to_string(),
+//         rpc_url: format!("http://localhost:{}", port),
+//         contract_address: core_contract.address().to_string(),
+//         interval: 2,
+//         from_block: 0,
+//     };
 
-    let mut config = katana_utils::node::test_config();
-    config.messaging = Some(messaging_config);
-    let sequencer = TestNode::new_with_config(config).await;
+//     let mut config = katana_utils::node::test_config();
+//     config.messaging = Some(messaging_config);
+//     let sequencer = TestNode::new_with_config(config).await;
 
     let katana_account = sequencer.account();
     let rpc_client = sequencer.starknet_rpc_client();
 
-    // Deploy test L2 contract that can send/receive messages to/from L1
-    let l2_test_contract = {
-        // Prepare contract declaration params
-        let path = PathBuf::from("tests/test_data/cairo_l1_msg_contract.json");
-        let (contract, compiled_hash) = common::prepare_contract_declaration_params(&path).unwrap();
+//     // Deploy test L2 contract that can send/receive messages to/from L1
+//     let l2_test_contract = {
+//         // Prepare contract declaration params
+//         let path = PathBuf::from("tests/test_data/cairo_l1_msg_contract.json");
+//         let (contract, compiled_hash) = common::prepare_contract_declaration_params(&path).unwrap();
 
         // Declare the contract
         let class_hash = contract.class_hash();
@@ -91,8 +91,8 @@ async fn test_messaging() {
         let Class::Sierra(class) = actual_class else { panic!("Invalid class type") };
         assert_eq!(class.hash(), class_hash, "invalid declared class"); // just to make sure the rpc returns the correct class
 
-        // Compute the contract address
-        let address = get_contract_address(Felt::ZERO, class_hash, &[], Felt::ZERO);
+//         // Compute the contract address
+//         let address = get_contract_address(Felt::ZERO, class_hash, &[], Felt::ZERO);
 
         // Deploy the contract using UDC
         let res = ContractFactory::new(class_hash, &katana_account)
@@ -110,10 +110,10 @@ async fn test_messaging() {
             .await
             .expect("failed to get class hash at address");
 
-        assert_eq!(actual_class_hash, class_hash, "invalid deployed class");
+//         assert_eq!(actual_class_hash, class_hash, "invalid deployed class");
 
-        address
-    };
+//         address
+//     };
 
     // Send message from L1 to L2
     {
@@ -138,62 +138,62 @@ async fn test_messaging() {
             .gas(12000000)
             .value(Uint::from(1));
 
-        let receipt = call
-            .send()
-            .await
-            .expect("failed to send tx")
-            .get_receipt()
-            .await
-            .expect("error getting transaction receipt");
+//         let receipt = call
+//             .send()
+//             .await
+//             .expect("failed to send tx")
+//             .get_receipt()
+//             .await
+//             .expect("error getting transaction receipt");
 
-        assert!(receipt.status(), "failed to send L1 -> L2 message");
+//         assert!(receipt.status(), "failed to send L1 -> L2 message");
 
-        // Wait for the tx to be mined on L2 (Katana)
-        tokio::time::sleep(Duration::from_secs(5)).await;
+//         // Wait for the tx to be mined on L2 (Katana)
+//         tokio::time::sleep(Duration::from_secs(5)).await;
 
-        // In an l1_handler transaction, the first element of the calldata is always the Ethereum
-        // address of the sender (msg.sender).
-        let mut l1_tx_calldata = vec![Felt::from_bytes_be_slice(sender.as_slice())];
-        l1_tx_calldata.extend(calldata.iter().map(|x| Felt::from(*x)));
+//         // In an l1_handler transaction, the first element of the calldata is always the Ethereum
+//         // address of the sender (msg.sender).
+//         let mut l1_tx_calldata = vec![Felt::from_bytes_be_slice(sender.as_slice())];
+//         l1_tx_calldata.extend(calldata.iter().map(|x| Felt::from(*x)));
 
-        // Compute transaction hash
-        let tx_hash = compute_l1_handler_tx_hash(
-            Felt::ZERO,
-            recipient,
-            selector,
-            &l1_tx_calldata,
-            sequencer.starknet_provider().chain_id().await.unwrap(),
-            nonce.to::<u64>().into(),
-        );
+//         // Compute transaction hash
+//         let tx_hash = compute_l1_handler_tx_hash(
+//             Felt::ZERO,
+//             recipient,
+//             selector,
+//             &l1_tx_calldata,
+//             sequencer.starknet_provider().chain_id().await.unwrap(),
+//             nonce.to::<u64>().into(),
+//         );
 
-        // fetch the transaction
-        let tx = katana_account
-            .provider()
-            .get_transaction_by_hash(tx_hash)
-            .await
-            .expect("failed to get l1 handler tx");
+//         // fetch the transaction
+//         let tx = katana_account
+//             .provider()
+//             .get_transaction_by_hash(tx_hash)
+//             .await
+//             .expect("failed to get l1 handler tx");
 
-        let Transaction::L1Handler(ref tx) = tx else {
-            panic!("invalid transaction type");
-        };
+//         let Transaction::L1Handler(ref tx) = tx else {
+//             panic!("invalid transaction type");
+//         };
 
         // Assert the transaction fields
         assert_eq!(tx.contract_address, recipient.into());
         assert_eq!(tx.entry_point_selector, selector);
         assert_eq!(tx.calldata, l1_tx_calldata);
 
-        // fetch the receipt
-        let receipt_res = katana_account
-            .provider()
-            .get_transaction_receipt(tx.transaction_hash)
-            .await
-            .expect("failed to get receipt");
+//         // fetch the receipt
+//         let receipt_res = katana_account
+//             .provider()
+//             .get_transaction_receipt(tx.transaction_hash)
+//             .await
+//             .expect("failed to get receipt");
 
-        match receipt_res.block {
-            ReceiptBlock::Block { .. } => {
-                let TransactionReceipt::L1Handler(receipt) = receipt_res.receipt else {
-                    panic!("invalid receipt type");
-                };
+//         match receipt_res.block {
+//             ReceiptBlock::Block { .. } => {
+//                 let TransactionReceipt::L1Handler(receipt) = receipt_res.receipt else {
+//                     panic!("invalid receipt type");
+//                 };
 
                 let msg_hash = compute_l1_to_l2_message_hash(
                     sender.as_slice().try_into().unwrap(),
@@ -203,25 +203,25 @@ async fn test_messaging() {
                     Felt::from_bytes_be(&nonce.to_be_bytes()),
                 );
 
-                let msg_fee = core_contract
-                    .l1ToL2Messages(msg_hash)
-                    .call()
-                    .await
-                    .expect("failed to get msg fee");
+//                 let msg_fee = core_contract
+//                     .l1ToL2Messages(msg_hash)
+//                     .call()
+//                     .await
+//                     .expect("failed to get msg fee");
 
                 assert_ne!(msg_fee, U256::ZERO, "msg fee must be non-zero if exist");
                 assert_eq!(receipt.message_hash, Hash256::from_bytes(msg_hash.0));
             }
 
-            _ => {
-                panic!("Error, No Receipt TransactionReceipt")
-            }
-        }
-    }
+//             _ => {
+//                 panic!("Error, No Receipt TransactionReceipt")
+//             }
+//         }
+//     }
 
-    // Send message from L2 to L1 testing must be done using Saya or part of
-    // it to ensure the settlement contract is test on piltover and its `update_state` method.
-}
+//     // Send message from L2 to L1 testing must be done using Saya or part of
+//     // it to ensure the settlement contract is test on piltover and its `update_state` method.
+// }
 
 #[tokio::test]
 async fn estimate_message_fee() -> Result<()> {

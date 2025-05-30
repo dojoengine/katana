@@ -1,12 +1,10 @@
+use crate::id::CommitId;
 use bonsai_trie::{BonsaiDatabase, BonsaiPersistentDatabase, MultiProof};
 use katana_primitives::block::BlockNumber;
 use katana_primitives::class::{ClassHash, CompiledClassHash};
 use katana_primitives::hash::{Poseidon, StarkHash};
 use katana_primitives::Felt;
 use starknet::macros::short_string;
-
-use crate::id::CommitId;
-
 #[derive(Debug)]
 pub struct ClassesMultiProof(pub MultiProof);
 

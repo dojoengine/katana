@@ -1,6 +1,7 @@
 use super::ForkedProvider;
 use crate::error::ProviderError;
 use crate::providers::db::trie::contract_state_leaf_hash;
+use crate::traits::state::StateFactoryProvider;
 use crate::traits::trie::TrieWriter;
 use crate::ProviderResult;
 use katana_db::abstraction::Database;
@@ -8,15 +9,13 @@ use katana_db::tables;
 use katana_db::trie::TrieDbMut;
 use katana_primitives::block::BlockNumber;
 use katana_primitives::class::{ClassHash, CompiledClassHash};
+use katana_primitives::hash::StarkHash;
 use katana_primitives::state::StateUpdates;
 use katana_primitives::{ContractAddress, Felt};
-use katana_primitives::hash::StarkHash;
+use katana_rpc_types::trie::ContractStorageKeys;
 use katana_trie::bonsai::trie::trees::PartialMerkleTrees;
-use katana_trie::{
-    ClassesTrie, ContractLeaf, ContractsTrie, StoragesTrie, MultiProof,
-};
+use katana_trie::{ClassesTrie, ContractLeaf, ContractsTrie, MultiProof, StoragesTrie};
 use std::collections::{BTreeMap, HashMap};
-use crate::traits::state::StateFactoryProvider;
 
 impl<Db: Database> TrieWriter for ForkedProvider<Db> {
     fn trie_insert_declared_classes(
@@ -44,7 +43,10 @@ impl<Db: Database> TrieWriter for ForkedProvider<Db> {
         original_root: Felt,
     ) -> ProviderResult<Felt> {
         self.provider.0.update(|tx| {
-            let mut trie = ClassesTrie::<_, PartialMerkleTrees<katana_primitives::hash::Poseidon, _, katana_trie::CommitId>>::new_partial(TrieDbMut::<tables::ClassesTrie, _>::new(tx));
+            let mut trie = ClassesTrie::<
+                _,
+                PartialMerkleTrees<katana_primitives::hash::Poseidon, _, katana_trie::CommitId>,
+            >::new_partial(TrieDbMut::<tables::ClassesTrie, _>::new(tx));
 
             for (class_hash, compiled_hash) in updates {
                 trie.insert(*class_hash, *compiled_hash, proof.clone(), original_root);
@@ -131,7 +133,10 @@ impl<Db: Database> TrieWriter for ForkedProvider<Db> {
     ) -> ProviderResult<Felt> {
         self.provider.0.update(|tx| {
             let mut contract_trie_db =
-                ContractsTrie::<_, PartialMerkleTrees<katana_primitives::hash::Pedersen, _, katana_trie::CommitId>>::new_partial(TrieDbMut::<tables::ContractsTrie, _>::new(tx));
+                ContractsTrie::<
+                    _,
+                    PartialMerkleTrees<katana_primitives::hash::Pedersen, _, katana_trie::CommitId>,
+                >::new_partial(TrieDbMut::<tables::ContractsTrie, _>::new(tx));
 
             let mut contract_leafs: HashMap<ContractAddress, ContractLeaf> = HashMap::new();
 
@@ -199,7 +204,7 @@ impl<Db: Database> TrieWriter for ForkedProvider<Db> {
     ) -> ProviderResult<Felt> {
         // TODO: Here we should check if we have a proof
         // For now we use fallback to standard methods
-        if let Some((proof, original_root)) = self.get_fork_proof(block_number)? {
+        if let Some((proof, original_root)) = self.get_fork_proof(block_number, state_updates)? {
             let class_trie_root = self.trie_insert_declared_classes_with_proof(
                 block_number,
                 &state_updates.declared_classes,
@@ -221,9 +226,11 @@ impl<Db: Database> TrieWriter for ForkedProvider<Db> {
             ]))
         } else {
             // Fallback to default implementation
-            let class_trie_root = self.trie_insert_declared_classes(block_number, &state_updates.declared_classes)?;
-            let contract_trie_root = self.trie_insert_contract_updates(block_number, state_updates)?;
-            
+            let class_trie_root =
+                self.trie_insert_declared_classes(block_number, &state_updates.declared_classes)?;
+            let contract_trie_root =
+                self.trie_insert_contract_updates(block_number, state_updates)?;
+
             Ok(starknet_types_core::hash::Poseidon::hash_array(&[
                 starknet::macros::short_string!("STARKNET_STATE_V0"),
                 contract_trie_root,
@@ -234,10 +241,83 @@ impl<Db: Database> TrieWriter for ForkedProvider<Db> {
 }
 
 impl<Db: Database> ForkedProvider<Db> {
-    /// Get the fork proof for trie operations
-    fn get_fork_proof(&self, _block_number: BlockNumber) -> ProviderResult<Option<(MultiProof, Felt)>> {
-        // TODO: Here we should implement fetching proof from forked network
-        // For now we return None, which will cause fallback to standard methods
-        Ok(None)
+    fn get_fork_proof(
+        &self,
+        block_number: BlockNumber,
+        state_updates: &StateUpdates,
+    ) -> ProviderResult<Option<(MultiProof, Felt)>> {
+        if state_updates.declared_classes.is_empty()
+            && state_updates.deployed_contracts.is_empty()
+            && state_updates.replaced_classes.is_empty()
+            && state_updates.storage_updates.is_empty()
+            && state_updates.nonce_updates.is_empty()
+        {
+            return Ok(None);
+        }
+
+        match self.fetch_proof_from_backend(block_number, state_updates) {
+            Ok((proof, state_root)) => Ok(Some((proof, state_root))),
+            Err(e) => {
+                tracing::warn!("Failed to fetch proof from forked network: {}, falling back to regular trie operations", e);
+                Ok(None)
+            }
+        }
+    }
+
+    fn fetch_proof_from_backend(
+        &self,
+        block_number: BlockNumber,
+        state_updates: &StateUpdates,
+    ) -> ProviderResult<(MultiProof, Felt)> {
+        let mut contract_addresses = Vec::new();
+        let mut class_hashes = Vec::new();
+        let mut storage_keys = Vec::new();
+
+        for address in state_updates.deployed_contracts.keys() {
+            contract_addresses.push(*address);
+        }
+        for address in state_updates.replaced_classes.keys() {
+            contract_addresses.push(*address);
+        }
+        for address in state_updates.nonce_updates.keys() {
+            contract_addresses.push(*address);
+        }
+
+        for (address, storage_map) in &state_updates.storage_updates {
+            contract_addresses.push(*address);
+            storage_keys.push(ContractStorageKeys {
+                address: *address,
+                keys: storage_map.keys().cloned().collect(),
+            });
+        }
+
+        for class_hash in state_updates.declared_classes.keys() {
+            class_hashes.push(*class_hash);
+        }
+
+        let proof_response = self
+            .backend
+            .get_storage_proof(
+                block_number,
+                if class_hashes.is_empty() { None } else { Some(class_hashes.clone()) },
+                if contract_addresses.is_empty() { None } else { Some(contract_addresses) },
+                if storage_keys.is_empty() { None } else { Some(storage_keys) },
+            )
+            .map_err(|e| ProviderError::Other(format!("Backend error: {}", e).into()))?
+            .ok_or_else(|| ProviderError::Other("No proof response from backend".into()))?;
+
+        let state_root = if !class_hashes.is_empty() {
+            proof_response.global_roots.classes_tree_root
+        } else {
+            proof_response.global_roots.contracts_tree_root
+        };
+
+        let multiproof = if !class_hashes.is_empty() {
+            MultiProof::from(proof_response.classes_proof.nodes)
+        } else {
+            MultiProof::from(proof_response.contracts_proof.nodes)
+        };
+
+        Ok((multiproof, state_root))
     }
 }

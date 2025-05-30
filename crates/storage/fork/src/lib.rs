@@ -14,7 +14,7 @@ use futures::channel::mpsc::{channel as async_channel, Receiver, SendError, Send
 use futures::future::BoxFuture;
 use futures::stream::Stream;
 use futures::{Future, FutureExt};
-use katana_primitives::block::{BlockHashOrNumber, BlockIdOrTag};
+use katana_primitives::block::{BlockHashOrNumber, BlockNumber, BlockIdOrTag};
 use katana_primitives::class::{
     ClassHash, CompiledClassHash, ComputeClassHashError, ContractClass,
     ContractClassCompilationError,
@@ -24,12 +24,23 @@ use katana_rpc_client::starknet::{
     Client as StarknetClient, Error as StarknetClientError, StarknetApiError,
 };
 use katana_rpc_types::class::Class;
+use katana_rpc_types::trie::{ContractStorageKeys, GetStorageProofResponse};
 use parking_lot::Mutex;
+use serde_json;
 use tracing::{error, trace};
 
 const LOG_TARGET: &str = "forking::backend";
 
 type BackendResult<T> = Result<T, BackendError>;
+
+/// Payload for storage proof requests
+#[derive(Debug, Clone)]
+pub struct StorageProofPayload {
+    pub block_number: BlockNumber,
+    pub class_hashes: Option<Vec<ClassHash>>,
+    pub contract_addresses: Option<Vec<ContractAddress>>,
+    pub contracts_storage_keys: Option<Vec<ContractStorageKeys>>,
+}
 
 /// The types of response from [`Backend`].
 ///
@@ -45,6 +56,7 @@ enum BackendResponse {
     Storage(BackendResult<StorageValue>),
     ClassHashAt(BackendResult<ClassHash>),
     ClassAt(BackendResult<Class>),
+    StorageProof(BackendResult<GetStorageProofResponse>),
 }
 
 /// Errors that can occur when interacting with the backend.
@@ -72,6 +84,7 @@ enum BackendRequest {
     Class(Request<ClassHash>),
     ClassHash(Request<ContractAddress>),
     Storage(Request<(ContractAddress, StorageKey)>),
+    StorageProof(Request<StorageProofPayload>),
     // Test-only request kind for requesting the backend stats
     #[cfg(test)]
     Stats(OneshotSender<usize>),
@@ -105,6 +118,14 @@ impl BackendRequest {
         (BackendRequest::Storage(Request { payload: (address, key), sender }), receiver)
     }
 
+    /// Create a new request for fetching storage proof
+    fn storage_proof(
+        payload: StorageProofPayload,
+    ) -> (BackendRequest, OneshotReceiver<BackendResponse>) {
+        let (sender, receiver) = oneshot();
+        (BackendRequest::StorageProof(Request { payload, sender }), receiver)
+    }
+
     #[cfg(test)]
     fn stats() -> (BackendRequest, OneshotReceiver<usize>) {
         let (sender, receiver) = oneshot();
@@ -122,6 +143,7 @@ enum BackendRequestIdentifier {
     Class(ClassHash),
     ClassHash(ContractAddress),
     Storage((ContractAddress, StorageKey)),
+    StorageProof(BlockNumber),
 }
 
 /// The backend for the forked provider.
@@ -265,6 +287,52 @@ impl Backend {
                             .map_err(|e| BackendError::StarknetProvider(Arc::new(e)));
 
                         BackendResponse::ClassAt(res)
+                    }),
+                );
+            }
+
+            BackendRequest::StorageProof(Request { payload, sender }) => {
+                let req_key = BackendRequestIdentifier::StorageProof(payload.block_number);
+
+                self.dedup_request(
+                    req_key,
+                    sender,
+                    Box::pin(async move {
+                        let block_id = starknet::core::types::BlockId::Number(payload.block_number);
+
+                        // Convert types to match the RPC API
+                        let rpc_block_id =
+                            katana_primitives::block::BlockIdOrTag::Number(payload.block_number);
+
+                        // Try to cast the provider to JsonRpcClient to use direct request method
+                        let res = if let Ok(client) =
+                            provider.as_ref().downcast_ref::<starknet::providers::JsonRpcClient<
+                                starknet::providers::jsonrpc::HttpTransport,
+                            >>() {
+                            // Use jsonrpsee client directly to make the RPC call
+                            let params = serde_json::json!([
+                                rpc_block_id,
+                                payload.class_hashes,
+                                payload.contract_addresses,
+                                payload.contracts_storage_keys,
+                            ]);
+
+                            match client.inner().request("starknet_getStorageProof", params).await {
+                                Ok(response) => Ok(response),
+                                Err(e) => Err(BackendError::StarknetProvider(Arc::new(
+                                    StarknetProviderError::Other(e.into()),
+                                ))),
+                            }
+                        } else {
+                            // Fallback: return error indicating this method is not supported
+                            Err(BackendError::StarknetProvider(Arc::new(
+                                StarknetProviderError::StarknetError(
+                                    StarknetError::ClassHashNotFound,
+                                ),
+                            )))
+                        };
+
+                        BackendResponse::StorageProof(res)
                     }),
                 );
             }
@@ -483,6 +551,31 @@ impl BackendClient {
             Ok(Some(class.class_hash()?))
         } else {
             Ok(None)
+        }
+    }
+
+    pub fn get_storage_proof(
+        &self,
+        block_number: BlockNumber,
+        class_hashes: Option<Vec<ClassHash>>,
+        contract_addresses: Option<Vec<ContractAddress>>,
+        contracts_storage_keys: Option<Vec<ContractStorageKeys>>,
+    ) -> Result<Option<GetStorageProofResponse>, BackendClientError> {
+        trace!(target: LOG_TARGET, block_number, "Requesting storage proof.");
+
+        let payload = StorageProofPayload {
+            block_number,
+            class_hashes,
+            contract_addresses,
+            contracts_storage_keys,
+        };
+
+        let (req, rx) = BackendRequest::storage_proof(payload);
+        self.request(req)?;
+
+        match rx.recv()? {
+            BackendResponse::StorageProof(res) => handle_not_found_err(res),
+            response => Err(BackendClientError::UnexpectedResponse(anyhow!("{response:?}"))),
         }
     }
 

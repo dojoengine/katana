@@ -368,7 +368,7 @@ where
     ) -> ProviderResult<Felt> {
         self.provider.trie_insert_contract_updates(block_number, state_updates)
     }
-    
+
     fn trie_insert_declared_classes_with_proof(
         &self,
         block_number: BlockNumber,
@@ -376,7 +376,12 @@ where
         proof: katana_trie::MultiProof,
         original_root: Felt,
     ) -> ProviderResult<Felt> {
-        self.provider.trie_insert_declared_classes_with_proof(block_number, updates, proof, original_root)
+        self.provider.trie_insert_declared_classes_with_proof(
+            block_number,
+            updates,
+            proof,
+            original_root,
+        )
     }
 
     fn trie_insert_contract_updates_with_proof(
@@ -386,9 +391,14 @@ where
         proof: katana_trie::MultiProof,
         original_root: Felt,
     ) -> ProviderResult<Felt> {
-        self.provider.trie_insert_contract_updates_with_proof(block_number, state_updates, proof, original_root)
+        self.provider.trie_insert_contract_updates_with_proof(
+            block_number,
+            state_updates,
+            proof,
+            original_root,
+        )
     }
-    
+
     fn compute_state_root(
         &self,
         block_number: BlockNumber,
