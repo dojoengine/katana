@@ -71,6 +71,8 @@ pub struct ResourceBounds {
 pub struct ResourceBoundsMapping {
     pub l1_gas: ResourceBounds,
     pub l2_gas: ResourceBounds,
+    /// v0.8.0 field
+    pub l1_data_gas: ResourceBounds,
 }
 
 #[derive(Debug, PartialEq, Eq, Deserialize)]
@@ -439,6 +441,10 @@ impl From<ResourceBoundsMapping> for katana_primitives::fee::ResourceBoundsMappi
             l2_gas: katana_primitives::fee::ResourceBounds {
                 max_amount: bounds.l2_gas.max_amount,
                 max_price_per_unit: bounds.l2_gas.max_price_per_unit,
+            },
+            l1_data_gas: katana_primitives::fee::ResourceBounds {
+                max_amount: bounds.l1_data_gas.max_amount,
+                max_price_per_unit: bounds.l1_data_gas.max_price_per_unit,
             },
         }
     }

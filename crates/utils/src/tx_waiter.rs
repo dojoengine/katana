@@ -316,9 +316,8 @@ mod tests {
     use starknet::core::types::ExecutionResult::{Reverted, Succeeded};
     use starknet::core::types::TransactionFinalityStatus::{self, AcceptedOnL1, AcceptedOnL2};
     use starknet::core::types::{
-        ComputationResources, DataAvailabilityResources, DataResources, ExecutionResources,
-        ExecutionResult, FeePayment, InvokeTransactionReceipt, PriceUnit, ReceiptBlock,
-        TransactionReceipt, TransactionReceiptWithBlockInfo,
+        ExecutionResources, ExecutionResult, FeePayment, InvokeTransactionReceipt, PriceUnit,
+        ReceiptBlock, TransactionReceipt, TransactionReceiptWithBlockInfo,
     };
     use starknet::macros::felt;
     use starknet::providers::jsonrpc::HttpTransport;
@@ -333,23 +332,8 @@ mod tests {
         (sequencer, provider)
     }
 
-    const EXECUTION_RESOURCES: ExecutionResources = ExecutionResources {
-        computation_resources: ComputationResources {
-            steps: 0,
-            memory_holes: None,
-            ec_op_builtin_applications: Some(0),
-            ecdsa_builtin_applications: Some(0),
-            keccak_builtin_applications: Some(0),
-            bitwise_builtin_applications: Some(0),
-            pedersen_builtin_applications: Some(0),
-            poseidon_builtin_applications: Some(0),
-            range_check_builtin_applications: Some(0),
-            segment_arena_builtin: Some(0),
-        },
-        data_resources: DataResources {
-            data_availability: DataAvailabilityResources { l1_gas: 0, l1_data_gas: 0 },
-        },
-    };
+    const EXECUTION_RESOURCES: ExecutionResources =
+        ExecutionResources { l1_gas: 0, l2_gas: 0, l1_data_gas: 0 };
 
     fn mock_receipt(
         finality_status: TransactionFinalityStatus,

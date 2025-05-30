@@ -281,7 +281,7 @@ async fn declare(
 
     let class_hash = contract.class_hash();
     let res = account
-        .declare_v2(contract.into(), compiled_class_hash)
+        .declare_v3(contract.into(), compiled_class_hash)
         .send()
         .await
         .expect("failed to send declare tx");

@@ -9,7 +9,7 @@ use starknet::core::types::{
 };
 
 use crate::receipt::TxReceipt;
-use crate::transaction::Tx;
+use crate::transaction::TxContent;
 
 pub type BlockTxCount = u64;
 
@@ -24,6 +24,11 @@ impl BlockWithTxs {
             price_in_fri: block.header.l1_gas_prices.strk.get().into(),
         };
 
+        let l2_gas_price = ResourcePrice {
+            price_in_wei: block.header.l2_gas_prices.eth.get().into(),
+            price_in_fri: block.header.l2_gas_prices.strk.get().into(),
+        };
+
         let l1_data_gas_price = ResourcePrice {
             price_in_wei: block.header.l1_data_gas_prices.eth.get().into(),
             price_in_fri: block.header.l1_data_gas_prices.strk.get().into(),
@@ -35,6 +40,7 @@ impl BlockWithTxs {
         Self(starknet::core::types::BlockWithTxs {
             block_hash,
             l1_gas_price,
+            l2_gas_price,
             transactions,
             new_root: block.header.state_root,
             timestamp: block.header.timestamp,
@@ -71,19 +77,24 @@ impl PendingBlockWithTxs {
             price_in_fri: header.l1_gas_prices.strk.get().into(),
         };
 
+        let l2_gas_price = ResourcePrice {
+            price_in_wei: header.l2_gas_prices.eth.get().into(),
+            price_in_fri: header.l2_gas_prices.strk.get().into(),
+        };
+
+        let l1_data_gas_price =
+            ResourcePrice { price_in_fri: Default::default(), price_in_wei: Default::default() };
+
         Self(starknet::core::types::PendingBlockWithTxs {
             transactions,
             l1_gas_price,
+            l2_gas_price,
             timestamp: header.timestamp,
             parent_hash: header.parent_hash,
             starknet_version: header.protocol_version.to_string(),
             sequencer_address: header.sequencer_address.into(),
-
             l1_da_mode: L1DataAvailabilityMode::Calldata,
-            l1_data_gas_price: ResourcePrice {
-                price_in_fri: Default::default(),
-                price_in_wei: Default::default(),
-            },
+            l1_data_gas_price,
         })
     }
 }
@@ -123,6 +134,11 @@ impl BlockWithTxHashes {
             price_in_fri: block.header.l1_gas_prices.strk.get().into(),
         };
 
+        let l2_gas_price = ResourcePrice {
+            price_in_wei: block.header.l2_gas_prices.eth.get().into(),
+            price_in_fri: block.header.l2_gas_prices.strk.get().into(),
+        };
+
         let l1_data_gas_price = ResourcePrice {
             price_in_wei: block.header.l1_data_gas_prices.eth.get().into(),
             price_in_fri: block.header.l1_data_gas_prices.strk.get().into(),
@@ -131,6 +147,7 @@ impl BlockWithTxHashes {
         Self(starknet::core::types::BlockWithTxHashes {
             block_hash,
             l1_gas_price,
+            l2_gas_price,
             transactions: block.body,
             new_root: block.header.state_root,
             timestamp: block.header.timestamp,
@@ -164,6 +181,11 @@ impl PendingBlockWithTxHashes {
             price_in_fri: header.l1_gas_prices.strk.get().into(),
         };
 
+        let l2_gas_price = ResourcePrice {
+            price_in_wei: header.l2_gas_prices.eth.get().into(),
+            price_in_fri: header.l2_gas_prices.strk.get().into(),
+        };
+
         let l1_data_gas_price = ResourcePrice {
             price_in_wei: header.l1_data_gas_prices.eth.get().into(),
             price_in_fri: header.l1_data_gas_prices.strk.get().into(),
@@ -172,6 +194,7 @@ impl PendingBlockWithTxHashes {
         Self(starknet::core::types::PendingBlockWithTxHashes {
             transactions,
             l1_gas_price,
+            l2_gas_price,
             timestamp: header.timestamp,
             parent_hash: header.parent_hash,
             starknet_version: header.protocol_version.to_string(),
@@ -239,6 +262,11 @@ impl BlockWithReceipts {
             price_in_fri: header.l1_gas_prices.strk.get().into(),
         };
 
+        let l2_gas_price = ResourcePrice {
+            price_in_wei: header.l2_gas_prices.eth.get().into(),
+            price_in_fri: header.l2_gas_prices.strk.get().into(),
+        };
+
         let l1_data_gas_price = ResourcePrice {
             price_in_wei: header.l1_data_gas_prices.eth.get().into(),
             price_in_fri: header.l1_data_gas_prices.strk.get().into(),
@@ -247,7 +275,7 @@ impl BlockWithReceipts {
         let transactions = receipts
             .map(|(tx_with_hash, receipt)| {
                 let receipt = TxReceipt::new(tx_with_hash.hash, finality_status, receipt).0;
-                let transaction = Tx::from(tx_with_hash).0;
+                let transaction = TxContent::from(tx_with_hash).0;
                 TransactionWithReceipt { transaction, receipt }
             })
             .collect();
@@ -264,6 +292,7 @@ impl BlockWithReceipts {
             timestamp: header.timestamp,
             sequencer_address: header.sequencer_address.into(),
             l1_gas_price,
+            l2_gas_price,
             l1_data_gas_price,
             l1_da_mode: L1DataAvailabilityMode::Calldata,
             starknet_version: header.protocol_version.to_string(),
@@ -286,6 +315,11 @@ impl PendingBlockWithReceipts {
             price_in_fri: header.l1_gas_prices.strk.get().into(),
         };
 
+        let l2_gas_price = ResourcePrice {
+            price_in_wei: header.l2_gas_prices.eth.get().into(),
+            price_in_fri: header.l2_gas_prices.strk.get().into(),
+        };
+
         let l1_data_gas_price = ResourcePrice {
             price_in_wei: header.l1_data_gas_prices.eth.get().into(),
             price_in_fri: header.l1_data_gas_prices.strk.get().into(),
@@ -295,7 +329,7 @@ impl PendingBlockWithReceipts {
             .map(|(tx_with_hash, receipt)| {
                 let receipt =
                     TxReceipt::new(tx_with_hash.hash, FinalityStatus::AcceptedOnL2, receipt).0;
-                let transaction = Tx::from(tx_with_hash).0;
+                let transaction = TxContent::from(tx_with_hash).0;
                 TransactionWithReceipt { transaction, receipt }
             })
             .collect();
@@ -303,6 +337,7 @@ impl PendingBlockWithReceipts {
         Self(starknet::core::types::PendingBlockWithReceipts {
             transactions,
             l1_gas_price,
+            l2_gas_price,
             timestamp: header.timestamp,
             sequencer_address: header.sequencer_address.into(),
             parent_hash: header.parent_hash,

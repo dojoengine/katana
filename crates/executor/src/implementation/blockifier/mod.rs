@@ -232,7 +232,7 @@ impl<'a> BlockExecutor<'a> for StarknetVMProcessor<'a> {
                 Ok(exec_result) => {
                     match &exec_result {
                         ExecutionResult::Success { receipt, trace } => {
-                            self.stats.l1_gas_used += receipt.fee().gas_consumed;
+                            self.stats.l1_gas_used += receipt.resources_used().gas.l1_gas as u128;
                             self.stats.cairo_steps_used +=
                                 receipt.resources_used().computation_resources.n_steps as u128;
 

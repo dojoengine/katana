@@ -303,12 +303,13 @@ impl InvokeTx {
                 is_query,
             ),
 
-            InvokeTx::V3(tx) => utils::transaction::compute_invoke_v3_tx_hash(
+            InvokeTx::V3(tx) => dbg!(utils::transaction::compute_invoke_v3_tx_hash(
                 Felt::from(tx.sender_address),
                 &tx.calldata,
                 tx.tip,
                 &tx.resource_bounds.l1_gas,
                 &tx.resource_bounds.l2_gas,
+                &tx.resource_bounds.l1_data_gas,
                 &tx.paymaster_data,
                 tx.chain_id.into(),
                 tx.nonce,
@@ -316,7 +317,7 @@ impl InvokeTx {
                 &tx.fee_data_availability_mode,
                 &tx.account_deployment_data,
                 is_query,
-            ),
+            )),
         }
     }
 }
@@ -484,6 +485,7 @@ impl DeclareTx {
                 tx.tip,
                 &tx.resource_bounds.l1_gas,
                 &tx.resource_bounds.l2_gas,
+                &tx.resource_bounds.l1_data_gas,
                 &tx.paymaster_data,
                 tx.chain_id.into(),
                 tx.nonce,
@@ -634,6 +636,7 @@ impl DeployAccountTx {
                 tx.tip,
                 &tx.resource_bounds.l1_gas,
                 &tx.resource_bounds.l2_gas,
+                &tx.resource_bounds.l1_data_gas,
                 &tx.paymaster_data,
                 tx.chain_id.into(),
                 tx.nonce,

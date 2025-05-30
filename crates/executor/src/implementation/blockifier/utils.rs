@@ -19,13 +19,13 @@ use blockifier::transaction::transaction_execution::Transaction;
 use blockifier::transaction::transactions::ExecutableTransaction;
 use cairo_vm::types::errors::program_errors::ProgramError;
 use katana_primitives::chain::NamedChainId;
-use katana_primitives::class;
 use katana_primitives::env::{BlockEnv, CfgEnv};
-use katana_primitives::fee::{PriceUnit, TxFeeInfo};
+use katana_primitives::fee::{FeeInfo, PriceUnit};
 use katana_primitives::state::{StateUpdates, StateUpdatesWithClasses};
 use katana_primitives::transaction::{
     DeclareTx, DeployAccountTx, ExecutableTx, ExecutableTxWithHash, InvokeTx,
 };
+use katana_primitives::{class, fee};
 use katana_provider::traits::contract::ContractClassProvider;
 use starknet::core::utils::parse_cairo_short_string;
 use starknet_api::block::{
@@ -41,8 +41,8 @@ use starknet_api::executable_transaction::{
     DeclareTransaction, DeployAccountTransaction, InvokeTransaction, L1HandlerTransaction,
 };
 use starknet_api::transaction::fields::{
-    AccountDeploymentData, Calldata, ContractAddressSalt, Fee, PaymasterData, ResourceBounds, Tip,
-    TransactionSignature, ValidResourceBounds,
+    AccountDeploymentData, AllResourceBounds, Calldata, ContractAddressSalt, Fee, PaymasterData,
+    ResourceBounds, Tip, TransactionSignature, ValidResourceBounds,
 };
 use starknet_api::transaction::{
     DeclareTransaction as ApiDeclareTransaction, DeclareTransactionV0V1, DeclareTransactionV2,
@@ -68,10 +68,15 @@ pub fn transact<S: StateReader>(
         state: &mut U,
         block_context: &BlockContext,
         tx: Transaction,
-    ) -> Result<(TransactionExecutionInfo, TxFeeInfo), ExecutionError> {
+    ) -> Result<(TransactionExecutionInfo, FeeInfo), ExecutionError> {
         let fee_type = get_fee_type_from_tx(&tx);
 
-        let info = match tx {
+        let tip = match &tx {
+            Transaction::Account(tx) => tx.tip(),
+            Transaction::L1Handler(..) => Tip(0),
+        };
+
+        let execution_info = match tx {
             Transaction::Account(tx) => tx.execute(state, block_context),
             Transaction::L1Handler(tx) => tx.execute(state, block_context),
         }?;
@@ -80,30 +85,39 @@ pub fn transact<S: StateReader>(
         // where the fee is skipped and thus not charged for the transaction (e.g. when the
         // `skip_fee_transfer` is explicitly set, or when the transaction `max_fee` is set to 0). In
         // these cases, we still want to calculate the fee.
-        let fee = if info.receipt.fee == Fee(0) {
-            get_fee_by_gas_vector(block_context.block_info(), info.receipt.gas, &fee_type, Tip(0))
+        let overall_fee = if execution_info.receipt.fee == Fee(0) {
+            get_fee_by_gas_vector(
+                block_context.block_info(),
+                execution_info.receipt.gas,
+                &fee_type,
+                tip,
+            )
         } else {
-            info.receipt.fee
+            execution_info.receipt.fee
         };
 
-        let gas_consumed = (info.receipt.gas.l1_gas.0
-            + info.receipt.gas.l2_gas.0
-            + info.receipt.gas.l1_data_gas.0) as u128;
+        let prices = &block_context.block_info().gas_prices;
 
-        let (unit, gas_price) = match fee_type {
-            FeeType::Eth => (
-                PriceUnit::Wei,
-                block_context.block_info().gas_prices.eth_gas_prices.l1_gas_price.get().0,
-            ),
-            FeeType::Strk => (
-                PriceUnit::Fri,
-                block_context.block_info().gas_prices.strk_gas_prices.l1_gas_price.get().0,
-            ),
+        let fee = match fee_type {
+            FeeType::Eth => {
+                let unit = PriceUnit::Wei;
+                let overall_fee = overall_fee.0;
+                let l1_gas_price = prices.eth_gas_prices.l1_gas_price.get().0;
+                let l2_gas_price = prices.eth_gas_prices.l2_gas_price.get().0;
+                let l1_data_gas_price = prices.eth_gas_prices.l1_data_gas_price.get().0;
+                FeeInfo { unit, overall_fee, l1_gas_price, l2_gas_price, l1_data_gas_price }
+            }
+            FeeType::Strk => {
+                let unit = PriceUnit::Fri;
+                let overall_fee = overall_fee.0;
+                let l1_gas_price = prices.strk_gas_prices.l1_gas_price.get().0;
+                let l2_gas_price = prices.strk_gas_prices.l2_gas_price.get().0;
+                let l1_data_gas_price = prices.strk_gas_prices.l1_data_gas_price.get().0;
+                FeeInfo { unit, overall_fee, l1_gas_price, l2_gas_price, l1_data_gas_price }
+            }
         };
 
-        let fee_info = TxFeeInfo { gas_consumed, gas_price, unit, overall_fee: fee.0 };
-
-        Ok((info, fee_info))
+        Ok((execution_info, fee))
     }
 
     let transaction = to_executor_tx(tx.clone(), simulation_flags.clone());
@@ -513,14 +527,28 @@ fn to_api_da_mode(mode: katana_primitives::da::DataAvailabilityMode) -> DataAvai
 // the wrong variant without the right values will result in execution error.
 //
 // Ref: https://community.starknet.io/t/starknet-v0-13-1-pre-release-notes/113664#sdkswallets-how-to-use-the-new-fee-estimates-7
-fn to_api_resource_bounds(
-    resource_bounds: katana_primitives::fee::ResourceBoundsMapping,
-) -> ValidResourceBounds {
-    // Pre 0.13.3. Only L1 gas. L2 bounds are signed but never used.
-    ValidResourceBounds::L1Gas(ResourceBounds {
+fn to_api_resource_bounds(resource_bounds: fee::ResourceBoundsMapping) -> ValidResourceBounds {
+    // ValidResourceBounds::L1Gas(ResourceBounds {
+    //     max_amount: resource_bounds.l1_gas.max_amount.into(),
+    //     max_price_per_unit: resource_bounds.l1_gas.max_price_per_unit.into(),
+    // })
+
+    let l1_gas = ResourceBounds {
         max_amount: resource_bounds.l1_gas.max_amount.into(),
         max_price_per_unit: resource_bounds.l1_gas.max_price_per_unit.into(),
-    })
+    };
+
+    let l2_gas = ResourceBounds {
+        max_amount: resource_bounds.l2_gas.max_amount.into(),
+        max_price_per_unit: resource_bounds.l2_gas.max_price_per_unit.into(),
+    };
+
+    let l1_data_gas = ResourceBounds {
+        max_amount: resource_bounds.l1_data_gas.max_amount.into(),
+        max_price_per_unit: resource_bounds.l1_data_gas.max_price_per_unit.into(),
+    };
+
+    ValidResourceBounds::AllResources(AllResourceBounds { l1_gas, l2_gas, l1_data_gas })
 }
 
 /// Get the fee type of a transaction. The fee type determines the token used to pay for the

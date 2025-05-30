@@ -9,7 +9,7 @@ use katana_feeder_gateway::types::StateUpdateWithBlock;
 use katana_primitives::block::{
     BlockIdOrTag, BlockNumber, FinalityStatus, GasPrice, Header, SealedBlock, SealedBlockWithStatus,
 };
-use katana_primitives::fee::{PriceUnit, TxFeeInfo};
+use katana_primitives::fee::{FeeInfo, PriceUnit};
 use katana_primitives::receipt::{
     DeclareTxReceipt, DeployAccountTxReceipt, InvokeTxReceipt, L1HandlerTxReceipt, Receipt,
 };
@@ -193,12 +193,7 @@ fn extract_block_data(
                 PriceUnit::Wei
             };
 
-            let fee = TxFeeInfo {
-                unit,
-                overall_fee,
-                gas_price: Default::default(),
-                gas_consumed: Default::default(),
-            };
+            let fee = FeeInfo { unit, overall_fee, ..Default::default() };
 
             match tx.transaction {
                 Tx::Invoke(_) => Receipt::Invoke(InvokeTxReceipt {
