@@ -15,7 +15,7 @@ pub use cairo_vm::vm::runners::cairo_runner::ExecutionResources as VmResources;
 pub use starknet_api::contract_class::EntryPointType;
 pub use starknet_api::executable_transaction::TransactionType;
 pub use starknet_api::execution_resources::{GasAmount, GasVector};
-pub use starknet_api::transaction::fields::Fee;
+pub use starknet_api::transaction::fields::{Fee, Resource};
 
 use crate::transaction::TxType;
 

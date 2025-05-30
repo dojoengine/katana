@@ -11,7 +11,9 @@ use katana_executor::{
 };
 use katana_primitives::env::{BlockEnv, CfgEnv};
 use katana_primitives::fee::{self};
-use katana_primitives::transaction::ExecutableTxWithHash;
+use katana_primitives::transaction::{
+    DeclareTx, DeployAccountTx, ExecutableTx, ExecutableTxWithHash, InvokeTx,
+};
 use katana_primitives::Felt;
 use katana_provider::traits::state::StateProvider;
 use katana_rpc_types::FeeEstimate;
@@ -28,12 +30,13 @@ pub fn simulate(
     let state = CachedState::new(state, ClassCache::global().clone());
 
     let mut results = Vec::with_capacity(transactions.len());
-    for exec_tx in transactions {
+    for tx in transactions {
         // Safe to unwrap here because the only way the call to `transact` can return an error
         // is when bouncer is `Some`.
         let result = state.with_cached_state(|cached_state| {
+            let tx = prepare_tx_for_simulate(tx, u64::MAX);
             let mut state = cached_state::CachedState::new(MutRefState::new(cached_state));
-            utils::transact(&mut state, &block_context, &flags, exec_tx, None).unwrap()
+            utils::transact(&mut state, &block_context, &flags, tx, None).unwrap()
         });
 
         results.push(ResultAndStates { result, states: Default::default() });
@@ -49,16 +52,18 @@ pub fn estimate_fees(
     transactions: Vec<ExecutableTxWithHash>,
     flags: ExecutionFlags,
 ) -> Vec<Result<FeeEstimate, ExecutionError>> {
+    let flags = flags.with_fee(false);
     let block_context = block_context_from_envs(&block_env, &cfg_env);
     let state = CachedState::new(state, ClassCache::global().clone());
 
     let mut results = Vec::with_capacity(transactions.len());
-    for exec_tx in transactions {
+    for tx in transactions {
         // Safe to unwrap here because the only way the call to `transact` can return an error
         // is when bouncer is `Some`.
         let res = state.with_cached_state(|cached_state| {
+            let tx = prepare_tx_for_simulate(tx, u64::MAX);
             let mut state = cached_state::CachedState::new(MutRefState::new(cached_state));
-            utils::transact(&mut state, &block_context, &flags, exec_tx, None).unwrap()
+            utils::transact(&mut state, &block_context, &flags, dbg!(tx), None).unwrap()
         });
 
         let result = match res {
@@ -74,12 +79,12 @@ pub fn estimate_fees(
                 Ok(FeeEstimate {
                     unit,
                     overall_fee: fee.overall_fee.into(),
-                    l2_gas_consumed: resources.gas.l2_gas.into(),
-                    l1_gas_consumed: resources.gas.l1_gas.into(),
-                    l1_data_gas_consumed: resources.gas.l1_data_gas.into(),
                     l2_gas_price: fee.l2_gas_price.into(),
                     l1_gas_price: fee.l1_gas_price.into(),
+                    l2_gas_consumed: resources.gas.l2_gas.into(),
+                    l1_gas_consumed: resources.gas.l1_gas.into(),
                     l1_data_gas_price: fee.l1_data_gas_price.into(),
+                    l1_data_gas_consumed: resources.gas.l1_data_gas.into(),
                 })
             }
             ExecutionResult::Failed { error } => Err(error),
@@ -109,4 +114,24 @@ pub fn call<P: StateProvider>(
             max_call_gas,
         )
     })
+}
+
+fn prepare_tx_for_simulate(mut tx: ExecutableTxWithHash, l2_max_gas: u64) -> ExecutableTxWithHash {
+    match &mut tx.transaction {
+        ExecutableTx::Invoke(InvokeTx::V3(ref mut tx)) => {
+            tx.resource_bounds.l2_gas.max_amount = l2_max_gas;
+        }
+        ExecutableTx::DeployAccount(DeployAccountTx::V3(ref mut tx)) => {
+            tx.resource_bounds.l2_gas.max_amount = l2_max_gas;
+        }
+        ExecutableTx::Declare(tx) => match tx.transaction {
+            DeclareTx::V3(ref mut tx) => {
+                tx.resource_bounds.l2_gas.max_amount = l2_max_gas;
+            }
+            _ => {}
+        },
+        _ => {}
+    }
+
+    tx
 }

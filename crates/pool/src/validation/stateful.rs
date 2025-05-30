@@ -26,6 +26,7 @@ use parking_lot::Mutex;
 
 use super::{Error, InvalidTransactionError, ValidationOutcome, ValidationResult, Validator};
 use crate::tx::PoolTransaction;
+use crate::validation::error::{InsufficientFundsError, IntrinsicFeeTooLowError};
 
 #[derive(Debug, Clone)]
 pub struct TxValidator {
@@ -205,6 +206,7 @@ fn validate(
 fn map_invalid_tx_err(
     err: StatefulValidatorError,
 ) -> Result<InvalidTransactionError, Box<dyn std::error::Error>> {
+    dbg!(&err);
     match err {
         StatefulValidatorError::TransactionExecutionError(err) => match err {
             e @ TransactionExecutionError::ValidateTransactionError {
@@ -241,16 +243,55 @@ fn map_invalid_tx_err(
             }
 
             TransactionPreValidationError::TransactionFeeError(err) => match err {
+                TransactionFeeError::GasBoundsExceedBalance {
+                    resource,
+                    max_amount,
+                    max_price,
+                    balance,
+                } => {
+                    let max_amount = max_amount.0;
+                    let max_price = max_price.0;
+                    let balance: Felt = balance.into();
+
+                    let error = InsufficientFundsError::L1GasBoundsExceedFunds {
+                        balance,
+                        resource,
+                        max_price,
+                        max_amount,
+                    };
+
+                    Ok(InvalidTransactionError::InsufficientFunds(error))
+                }
+
+                TransactionFeeError::ResourcesBoundsExceedBalance { .. } => {
+                    let error = InsufficientFundsError::ResourceBoundsExceedFunds {
+                        error: err.to_string(),
+                    };
+                    Ok(InvalidTransactionError::InsufficientFunds(error))
+                }
+
                 TransactionFeeError::MaxFeeExceedsBalance { max_fee, balance } => {
                     let max_fee = max_fee.0;
                     let balance = balance.into();
-                    Ok(InvalidTransactionError::InsufficientFunds { max_fee, balance })
+
+                    let error = InsufficientFundsError::MaxFeeExceedsFunds { max_fee, balance };
+                    Ok(InvalidTransactionError::InsufficientFunds(error))
                 }
 
                 TransactionFeeError::MaxFeeTooLow { min_fee, max_fee } => {
                     let max_fee = max_fee.0;
                     let min_fee = min_fee.0;
-                    Ok(InvalidTransactionError::IntrinsicFeeTooLow { max_fee, min: min_fee })
+                    Ok(InvalidTransactionError::IntrinsicFeeTooLow(
+                        IntrinsicFeeTooLowError::MaxFee { max_fee, min: min_fee },
+                    ))
+                }
+
+                TransactionFeeError::InsufficientResourceBounds { errors } => {
+                    let error =
+                        errors.iter().map(|e| format!("{}", e)).collect::<Vec<_>>().join("\n");
+                    Ok(InvalidTransactionError::IntrinsicFeeTooLow(
+                        IntrinsicFeeTooLowError::ResourceBounds { error },
+                    ))
                 }
 
                 _ => Err(Box::new(err)),
@@ -262,3 +303,46 @@ fn map_invalid_tx_err(
         _ => Err(Box::new(err)),
     }
 }
+
+// #[cfg(test)]
+// mod tests {
+//     use crate::validation::error::{IntrinsicFeeTooLowError, InvalidTransactionError};
+
+//     #[test]
+//     fn test_intrinsic_fee_too_low_legacy_formatting() {
+//         // Test Legacy variant
+//         let legacy_error = InvalidTransactionError::IntrinsicFeeTooLow {
+//             kind: IntrinsicFeeTooLowError::MaxFee { min: 2000, max_fee: 1500 },
+//         };
+//         assert_eq!(legacy_error.to_string(), "Max fee (1500) is too low. Minimum fee: 2000.");
+//     }
+
+//     #[test]
+//     fn test_intrinsic_fee_too_low_resource_bounds_formatting() {
+//         // Test ResourceBounds variant
+//         let resource_error = InvalidTransactionError::IntrinsicFeeTooLow {
+//             kind: IntrinsicFeeTooLowError::ResourceBounds {
+//                 error: "L1 gas bounds exceed balance".to_string(),
+//             },
+//         };
+//         assert_eq!(
+//             resource_error.to_string(),
+//             "Resource bounds were not satisfied: L1 gas bounds exceed balance"
+//         );
+//     }
+
+//     #[test]
+//     fn test_intrinsic_fee_too_low_resource_bounds_multiple_errors() {
+//         // Test ResourceBounds variant with multiple errors joined
+//         let errors = vec!["L1 gas bounds exceed balance", "L2 gas bounds exceed balance"];
+//         let error_string = errors.iter().map(|e| format!("{}",
+// e)).collect::<Vec<_>>().join("\n");
+
+//         let resource_error = InvalidTransactionError::IntrinsicFeeTooLow {
+//             kind: IntrinsicFeeTooLowError::ResourceBounds { error: error_string },
+//         };
+
+//         let expected = "Resource bounds were not satisfied: L1 gas bounds exceed balance\nL2 gas
+// bounds exceed balance";         assert_eq!(resource_error.to_string(), expected);
+//     }
+// }

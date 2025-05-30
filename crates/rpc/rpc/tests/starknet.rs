@@ -405,7 +405,7 @@ async fn send_txs_with_insufficient_fee(
     // -----------------------------------------------------------------------
     //  transaction with low max fee (underpriced).
 
-    let res = contract.transfer(&recipient, &amount).gas_estimate_multiplier(0.3).send().await;
+    let res = contract.transfer(&recipient, &amount).gas_estimate_multiplier(0.1).send().await;
 
     if disable_fee {
         // In no fee mode, the transaction resources (ie max fee) is totally ignored. So doesn't
@@ -430,7 +430,13 @@ async fn send_txs_with_insufficient_fee(
     // -----------------------------------------------------------------------
     //  transaction with insufficient balance.
 
-    let res = contract.transfer(&recipient, &amount).gas_estimate_multiplier(10000.0).send().await;
+    let res = contract
+        .transfer(&recipient, &amount)
+        .l2_gas(u64::MAX)
+        .l1_gas(u64::MAX)
+        .l1_data_gas(u64::MAX)
+        .send()
+        .await;
 
     if disable_fee {
         // in no fee mode, account balance is ignored. as long as the max fee (aka resources) is

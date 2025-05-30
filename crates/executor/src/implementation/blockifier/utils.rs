@@ -19,13 +19,13 @@ use blockifier::transaction::transaction_execution::Transaction;
 use blockifier::transaction::transactions::ExecutableTransaction;
 use cairo_vm::types::errors::program_errors::ProgramError;
 use katana_primitives::chain::NamedChainId;
-use katana_primitives::class;
 use katana_primitives::env::{BlockEnv, CfgEnv};
 use katana_primitives::fee::{FeeInfo, PriceUnit};
 use katana_primitives::state::{StateUpdates, StateUpdatesWithClasses};
 use katana_primitives::transaction::{
     DeclareTx, DeployAccountTx, ExecutableTx, ExecutableTxWithHash, InvokeTx,
 };
+use katana_primitives::{class, fee};
 use katana_provider::traits::contract::ContractClassProvider;
 use starknet::core::utils::parse_cairo_short_string;
 use starknet_api::block::{
@@ -527,9 +527,12 @@ fn to_api_da_mode(mode: katana_primitives::da::DataAvailabilityMode) -> DataAvai
 // the wrong variant without the right values will result in execution error.
 //
 // Ref: https://community.starknet.io/t/starknet-v0-13-1-pre-release-notes/113664#sdkswallets-how-to-use-the-new-fee-estimates-7
-fn to_api_resource_bounds(
-    resource_bounds: katana_primitives::fee::ResourceBoundsMapping,
-) -> ValidResourceBounds {
+fn to_api_resource_bounds(resource_bounds: fee::ResourceBoundsMapping) -> ValidResourceBounds {
+    // ValidResourceBounds::L1Gas(ResourceBounds {
+    //     max_amount: resource_bounds.l1_gas.max_amount.into(),
+    //     max_price_per_unit: resource_bounds.l1_gas.max_price_per_unit.into(),
+    // })
+
     let l1_gas = ResourceBounds {
         max_amount: resource_bounds.l1_gas.max_amount.into(),
         max_price_per_unit: resource_bounds.l1_gas.max_price_per_unit.into(),
