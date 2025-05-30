@@ -77,9 +77,9 @@ impl<EF: ExecutorFactory> StarknetApi<EF> {
         let state = self.state(&block_id)?;
         let env = self.block_env_at(&block_id)?;
 
-        // create the executor
-        let executor = self.inner.backend.executor_factory.with_state_and_block_env(state, env);
-        let results = executor.simulate(executables, flags);
+        // use the blockifier utils function
+        let cfg_env = self.inner.backend.executor_factory.cfg().clone();
+        let results = super::blockifier::simulate(state, env, cfg_env, executables, flags);
 
         let mut simulated = Vec::with_capacity(results.len());
         for (i, ResultAndStates { result, .. }) in results.into_iter().enumerate() {

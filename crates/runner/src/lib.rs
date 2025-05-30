@@ -1,13 +1,14 @@
 #![cfg_attr(not(test), warn(unused_crate_dependencies))]
 
+mod dev;
 mod utils;
-
 use std::net::SocketAddr;
 use std::path::PathBuf;
 use std::thread;
 
 use anyhow::{Context, Result};
 use assert_fs::TempDir;
+pub use dev::KatanaDevClient;
 use katana_node_bindings::{Katana, KatanaInstance};
 pub use katana_runner_macro::test;
 use starknet::accounts::{ExecutionEncoding, SingleOwnerAccount};
@@ -72,6 +73,8 @@ pub struct KatanaRunnerConfig {
     pub dev: bool,
     /// The chain id to use.
     pub chain_id: Option<Felt>,
+    /// Disable auto and interval mining, and mine on demand instead via an endpoint.
+    pub no_mining: bool,
 }
 
 impl Default for KatanaRunnerConfig {
@@ -88,6 +91,7 @@ impl Default for KatanaRunnerConfig {
             db_dir: None,
             dev: false,
             chain_id: None,
+            no_mining: false,
         }
     }
 }
@@ -134,6 +138,10 @@ impl KatanaRunner {
         }
 
         if let Some(block_time_ms) = config.block_time {
+            if config.no_mining {
+                return Err(anyhow::anyhow!("no_mining and block_time cannot be used together"));
+            }
+
             builder = builder.block_time(block_time_ms);
         }
 
@@ -144,6 +152,8 @@ impl KatanaRunner {
         if let Some(path) = config.db_dir {
             builder = builder.db_dir(path);
         }
+
+        builder = builder.no_mining(config.no_mining);
 
         builder = builder.dev(config.dev);
 
@@ -190,6 +200,10 @@ impl KatanaRunner {
 
     pub fn starknet_provider(&self) -> JsonRpcClient<HttpTransport> {
         self.instance.starknet_provider()
+    }
+
+    pub fn dev_client(&self) -> KatanaDevClient {
+        KatanaDevClient::new(self.url().as_str()).expect("failed to get runner dev client")
     }
 
     // A contract needs to be deployed only once for each instance

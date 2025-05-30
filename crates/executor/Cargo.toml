@@ -30,6 +30,7 @@ katana-rpc-types.workspace = true
 
 alloy-primitives.workspace = true
 anyhow.workspace = true
+assert_matches.workspace = true
 num-traits.workspace = true
 rstest.workspace = true
 rstest_reuse.workspace = true
@@ -48,7 +49,3 @@ native = [ "blockifier/cairo_native", "dep:cairo-native", "dep:rayon" ]
 [[bench]]
 harness = false
 name = "execution"
-
-[[bench]]
-harness = false
-name = "concurrent"

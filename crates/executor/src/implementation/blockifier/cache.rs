@@ -1,5 +1,5 @@
 use std::str::FromStr;
-use std::sync::{Arc, LazyLock};
+use std::sync::{Arc, OnceLock};
 
 use blockifier::execution::contract_class::{CompiledClassV1, RunnableCompiledClass};
 use katana_primitives::class::{ClassHash, CompiledClass, ContractClass};
@@ -8,11 +8,16 @@ use starknet_api::contract_class::SierraVersion;
 
 use super::utils::to_class;
 
-pub static COMPILED_CLASS_CACHE: LazyLock<ClassCache> =
-    LazyLock::new(|| ClassCache::builder().build().unwrap());
+static COMPILED_CLASS_CACHE: OnceLock<ClassCache> = OnceLock::new();
 
 #[derive(Debug, thiserror::Error)]
 pub enum Error {
+    #[error("global class cache already initialized.")]
+    AlreadyInitialized,
+
+    #[error("global class cache not initialized.")]
+    NotInitialized,
+
     #[cfg(feature = "native")]
     #[error(transparent)]
     FailedToCreateThreadPool(#[from] rayon::ThreadPoolBuildError),
@@ -126,6 +131,20 @@ impl ClassCacheBuilder {
             }),
         })
     }
+
+    /// Builds a new `ClassCache` instance and sets it as the global cache.
+    ///
+    /// This builds and initializes a global `ClassCache` that can be accessed via
+    /// [`ClassCache::global`].
+    ///
+    /// ## Errors
+    ///
+    /// Returns an error if the global cache has already been initialized.
+    pub fn build_global(self) -> Result<ClassCache, Error> {
+        let cache = self.build()?;
+        COMPILED_CLASS_CACHE.set(cache.clone()).map_err(|_| Error::AlreadyInitialized)?;
+        Ok(cache)
+    }
 }
 
 impl std::fmt::Debug for ClassCacheBuilder {
@@ -193,6 +212,23 @@ impl ClassCache {
         ClassCacheBuilder::new()
     }
 
+    /// Returns a reference to the global cache instance.
+    ///
+    /// This method will return an error if the global cache has not been initialized via
+    /// [`ClassCacheBuilder::build_global`] first.
+    pub fn try_global() -> Result<&'static ClassCache, Error> {
+        COMPILED_CLASS_CACHE.get().ok_or(Error::NotInitialized)
+    }
+
+    /// Returns a reference to the global cache instance.
+    ///
+    /// # Panics
+    ///
+    /// Panics if the global cache has not been initialized.
+    pub fn global() -> &'static ClassCache {
+        Self::try_global().expect("global class cache not initialized")
+    }
+
     pub fn get(&self, hash: &ClassHash) -> Option<RunnableCompiledClass> {
         self.inner.cache.get(hash)
     }
@@ -252,5 +288,57 @@ impl ClassCache {
                 class
             }
         }
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use assert_matches::assert_matches;
+    use katana_primitives::felt;
+    use katana_primitives::genesis::constant::{DEFAULT_ACCOUNT_CLASS, DEFAULT_LEGACY_UDC_CLASS};
+
+    use super::{ClassCache, ClassCacheBuilder, Error};
+
+    #[test]
+    fn independent_cache() {
+        let cache1 = ClassCacheBuilder::new().build().expect("Failed to build cache 1");
+        let cache2 = ClassCacheBuilder::new().build().expect("Failed to build cache 2");
+
+        let class_hash1 = felt!("0x1");
+        let class_hash2 = felt!("0x2");
+
+        cache1.insert(class_hash1, DEFAULT_ACCOUNT_CLASS.clone());
+        cache1.insert(class_hash2, DEFAULT_LEGACY_UDC_CLASS.clone());
+
+        assert!(cache1.get(&class_hash1).is_some());
+        assert!(cache1.get(&class_hash2).is_some());
+        assert!(cache2.get(&class_hash1).is_none());
+        assert!(cache2.get(&class_hash2).is_none());
+    }
+
+    #[test]
+    fn global_cache() {
+        // Can't get global without initializing it first
+        let error = ClassCache::try_global().unwrap_err();
+        assert_matches!(error, Error::NotInitialized, "Global cache not initialized");
+
+        let cache1 = ClassCacheBuilder::new().build_global().expect("failed to build global cache");
+
+        let error = ClassCacheBuilder::new().build_global().unwrap_err();
+        assert_matches!(error, Error::AlreadyInitialized, "Global cache already initialized");
+
+        // Check that calling ClassCache::global() returns the same instance as cache1
+        let cache2 = ClassCache::global();
+
+        let class_hash1 = felt!("0x1");
+        let class_hash2 = felt!("0x2");
+
+        cache1.insert(class_hash1, DEFAULT_ACCOUNT_CLASS.clone());
+        cache1.insert(class_hash2, DEFAULT_LEGACY_UDC_CLASS.clone());
+
+        assert!(cache1.get(&class_hash1).is_some());
+        assert!(cache1.get(&class_hash2).is_some());
+        assert!(cache2.get(&class_hash1).is_some());
+        assert!(cache2.get(&class_hash2).is_some());
     }
 }

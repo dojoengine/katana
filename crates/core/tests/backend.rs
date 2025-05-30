@@ -4,6 +4,7 @@ use katana_chain_spec::{dev, ChainSpec, SettlementLayer};
 use katana_core::backend::gas_oracle::GasOracle;
 use katana_core::backend::storage::{Blockchain, Database};
 use katana_core::backend::Backend;
+use katana_executor::implementation::blockifier::cache::ClassCache;
 use katana_executor::implementation::blockifier::BlockifierFactory;
 use katana_executor::BlockLimits;
 use katana_primitives::chain::ChainId;
@@ -27,6 +28,7 @@ fn executor(chain_spec: &ChainSpec) -> BlockifierFactory {
         },
         Default::default(),
         BlockLimits::default(),
+        ClassCache::new().unwrap(),
     )
 }
 

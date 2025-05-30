@@ -2,18 +2,16 @@ use katana_primitives::block::ExecutableBlock;
 use katana_primitives::class::{ClassHash, CompiledClassHash, ContractClass};
 use katana_primitives::contract::{ContractAddress, Nonce, StorageKey, StorageValue};
 use katana_primitives::env::{BlockEnv, CfgEnv};
-use katana_primitives::fee::FeeInfo;
 use katana_primitives::transaction::{ExecutableTxWithHash, TxWithHash};
-use katana_primitives::Felt;
 use katana_provider::traits::contract::ContractClassProvider;
 use katana_provider::traits::state::{StateProofProvider, StateProvider, StateRootProvider};
 use katana_provider::ProviderResult;
 
 use crate::abstraction::{
-    BlockExecutor, EntryPointCall, ExecutionFlags, ExecutionOutput, ExecutionResult, ExecutorExt,
-    ExecutorFactory, ExecutorResult, ResultAndStates,
+    BlockExecutor, ExecutionFlags, ExecutionOutput, ExecutionResult, ExecutorFactory,
+    ExecutorResult,
 };
-use crate::{ExecutionError, ExecutorError};
+use crate::ExecutorError;
 
 /// A no-op executor factory. Creates an executor that does nothing.
 #[derive(Debug, Default)]
@@ -63,33 +61,6 @@ impl ExecutorFactory for NoopExecutorFactory {
 #[derive(Debug, Default)]
 struct NoopExecutor {
     block_env: BlockEnv,
-}
-
-impl ExecutorExt for NoopExecutor {
-    fn simulate(
-        &self,
-        transactions: Vec<ExecutableTxWithHash>,
-        flags: ExecutionFlags,
-    ) -> Vec<ResultAndStates> {
-        let _ = transactions;
-        let _ = flags;
-        vec![]
-    }
-
-    fn estimate_fee(
-        &self,
-        transactions: Vec<ExecutableTxWithHash>,
-        flags: ExecutionFlags,
-    ) -> Vec<Result<FeeInfo, ExecutionError>> {
-        let _ = transactions;
-        let _ = flags;
-        vec![]
-    }
-
-    fn call(&self, call: EntryPointCall) -> Result<Vec<Felt>, ExecutionError> {
-        let _ = call;
-        Ok(vec![])
-    }
 }
 
 impl<'a> BlockExecutor<'a> for NoopExecutor {

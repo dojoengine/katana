@@ -25,6 +25,7 @@ use katana_core::constants::{
 use katana_core::env::BlockContextGenerator;
 use katana_core::service::block_producer::BlockProducer;
 use katana_db::mdbx::DbEnv;
+use katana_executor::implementation::blockifier::cache::ClassCache;
 use katana_executor::implementation::blockifier::BlockifierFactory;
 use katana_executor::ExecutionFlags;
 use katana_metrics::exporters::prometheus::PrometheusRecorder;
@@ -106,18 +107,23 @@ impl Node {
             .with_fee(config.dev.fee);
 
         let executor_factory = {
-            let mut factory =
-                BlockifierFactory::new(cfg_env, execution_flags, config.sequencing.block_limits());
-
-            if let Some(max_call_gas) = config.rpc.max_call_gas {
-                factory.set_max_call_gas(max_call_gas);
-            }
+            #[allow(unused_mut)]
+            let mut class_cache = ClassCache::builder();
 
             #[cfg(feature = "native")]
             {
                 info!(enabled = config.execution.compile_native, "Cairo native compilation");
-                factory.cairo_native(config.execution.compile_native);
+                class_cache = class_cache.compile_native(config.execution.compile_native);
             }
+
+            let global_class_cache = class_cache.build_global()?;
+
+            let factory = BlockifierFactory::new(
+                cfg_env,
+                execution_flags,
+                config.sequencing.block_limits(),
+                global_class_cache,
+            );
 
             Arc::new(factory)
         };
@@ -244,6 +250,10 @@ impl Node {
             let cfg = StarknetApiConfig {
                 max_event_page_size: config.rpc.max_event_page_size,
                 max_proof_keys: config.rpc.max_proof_keys,
+                max_call_gas: config.rpc.max_call_gas,
+                max_concurrent_estimate_fee_requests: config
+                    .rpc
+                    .max_concurrent_estimate_fee_requests,
                 #[cfg(feature = "cartridge")]
                 paymaster,
             };
