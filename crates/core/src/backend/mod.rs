@@ -513,21 +513,9 @@ impl<'a, P: TrieWriter> UncommittedBlock<'a, P> {
 
     // state_commitment = hPos("STARKNET_STATE_V0", contract_trie_root, class_trie_root)
     fn compute_new_state_root(&self) -> Felt {
-        let class_trie_root = self
-            .provider
-            .trie_insert_declared_classes(self.header.number, &self.state_updates.declared_classes)
-            .expect("failed to update class trie");
-
-        let contract_trie_root = self
-            .provider
-            .trie_insert_contract_updates(self.header.number, self.state_updates)
-            .expect("failed to update contract trie");
-
-        hash::Poseidon::hash_array(&[
-            short_string!("STARKNET_STATE_V0"),
-            contract_trie_root,
-            class_trie_root,
-        ])
+        self.provider
+            .compute_state_root(self.header.number, self.state_updates)
+            .expect("failed to compute state root")
     }
 }
 

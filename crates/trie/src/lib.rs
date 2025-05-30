@@ -86,6 +86,16 @@ where
     }
 }
 
+impl<DB, Hash> PartialBonsaiTrie<DB, Hash>
+where
+    DB: BonsaiDatabase,
+    Hash: StarkHash + Send + Sync,
+{
+    pub fn root(&self, id: &[u8]) -> Felt {
+        self.storage.root_hash(id).expect("failed to get trie root")
+    }
+}
+
 impl<DB, Hash> BonsaiTrie<DB, Hash>
 where
     DB: BonsaiDatabase + BonsaiPersistentDatabase<CommitId>,

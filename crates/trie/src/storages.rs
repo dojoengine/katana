@@ -37,6 +37,10 @@ impl<DB: BonsaiDatabase> PartialStoragesTrie<DB> {
     pub fn new_partial(db: DB, address: ContractAddress) -> Self {
         Self { address, trie: crate::PartialBonsaiTrie::new_partial(db) }
     }
+
+    pub fn root(&self) -> Felt {
+        self.trie.root(&self.address.to_bytes_be())
+    }
 }
 
 impl<DB> StoragesTrie<DB>

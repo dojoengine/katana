@@ -44,6 +44,10 @@ impl<DB: BonsaiDatabase> PartialContractsTrie<DB> {
     pub fn new_partial(db: DB) -> Self {
         Self { trie: crate::PartialBonsaiTrie::new_partial(db) }
     }
+
+    pub fn root(&self) -> Felt {
+        self.trie.root(Self::BONSAI_IDENTIFIER)
+    }
 }
 
 impl<DB> ContractsTrie<DB>

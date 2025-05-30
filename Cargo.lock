@@ -2000,12 +2000,12 @@ dependencies = [
 [[package]]
 name = "bonsai-trie"
 version = "0.1.0"
-source = "git+https://github.com/michalpalkowski/bonsai-trie-katana.git?branch=feature%2Fkatana-integration#ee8d8a7a94c19f1f97fbcb0e71ae81218fce35c7"
+source = "git+https://github.com/michalpalkowski/bonsai-trie-katana.git?branch=feature%2Fkatana-integration#617c8c5c172de80db567441444faafe891f1cf15"
 dependencies = [
  "bitvec",
  "derive_more 0.99.20",
  "hashbrown 0.14.5",
- "indexmap 2.10.0",
+ "indexmap 2.9.0",
  "log",
  "parity-scale-codec",
  "rayon",
@@ -3047,9 +3047,9 @@ checksum = "37b2a672a2cb129a2e41c10b1224bb368f9f37a2b16b612598138befd7b37eb5"
 
 [[package]]
 name = "cc"
-version = "1.2.31"
+version = "1.2.25"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "c3a42d84bb6b69d3a8b3eaacf0d88f179e1929695e1ad012b6cf64d9caaa5fd2"
+checksum = "d0fc897dc1e865cc67c0e05a836d9d3f1df3cbe442aa4a9473b18e12624a4951"
 dependencies = [
  "jobserver",
  "libc",

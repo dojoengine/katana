@@ -368,6 +368,34 @@ where
     ) -> ProviderResult<Felt> {
         self.provider.trie_insert_contract_updates(block_number, state_updates)
     }
+    
+    fn trie_insert_declared_classes_with_proof(
+        &self,
+        block_number: BlockNumber,
+        updates: &BTreeMap<ClassHash, CompiledClassHash>,
+        proof: katana_trie::MultiProof,
+        original_root: Felt,
+    ) -> ProviderResult<Felt> {
+        self.provider.trie_insert_declared_classes_with_proof(block_number, updates, proof, original_root)
+    }
+
+    fn trie_insert_contract_updates_with_proof(
+        &self,
+        block_number: BlockNumber,
+        state_updates: &StateUpdates,
+        proof: katana_trie::MultiProof,
+        original_root: Felt,
+    ) -> ProviderResult<Felt> {
+        self.provider.trie_insert_contract_updates_with_proof(block_number, state_updates, proof, original_root)
+    }
+    
+    fn compute_state_root(
+        &self,
+        block_number: BlockNumber,
+        state_updates: &StateUpdates,
+    ) -> ProviderResult<Felt> {
+        self.provider.compute_state_root(block_number, state_updates)
+    }
 }
 
 impl<Db> StageCheckpointProvider for BlockchainProvider<Db>

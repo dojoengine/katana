@@ -110,7 +110,7 @@ impl<Db: Database> TrieWriter for DbProvider<Db> {
 }
 
 // computes the contract state leaf hash
-fn contract_state_leaf_hash(
+pub fn contract_state_leaf_hash(
     provider: impl StateProvider,
     address: &ContractAddress,
     contract_leaf: &ContractLeaf,
