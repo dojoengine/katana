@@ -1,7 +1,5 @@
 use cainome::rs::abigen_legacy;
-use katana_primitives::genesis::constant::{
-    DEFAULT_ETH_FEE_TOKEN_ADDRESS, DEFAULT_PREFUNDED_ACCOUNT_BALANCE,
-};
+use katana_primitives::genesis::constant::DEFAULT_ETH_FEE_TOKEN_ADDRESS;
 use katana_utils::TestNode;
 use starknet::accounts::{Account, ExecutionEncoding, SingleOwnerAccount};
 use starknet::core::types::{BlockId, BlockTag, Felt};
@@ -87,8 +85,12 @@ async fn simulate_with_insufficient_fee(
     // -----------------------------------------------------------------------
     //  transaction with low max fee (underpriced).
 
-    let fee = Felt::TWO;
-    let res = contract.transfer(&recipient, &amount).max_fee(fee).simulate(false, false).await;
+    let fee_multiplier = 0.3;
+    let res = contract
+        .transfer(&recipient, &amount)
+        .gas_estimate_multiplier(fee_multiplier)
+        .simulate(false, false)
+        .await;
 
     if disable_node_fee {
         assert!(res.is_ok(), "should succeed when fee is disabled");
@@ -97,14 +99,22 @@ async fn simulate_with_insufficient_fee(
     }
 
     // simulate with 'skip fee charge' flag
-    let result = contract.transfer(&recipient, &amount).max_fee(fee).simulate(false, true).await;
+    let result = contract
+        .transfer(&recipient, &amount)
+        .gas_estimate_multiplier(fee_multiplier)
+        .simulate(false, true)
+        .await;
     assert!(result.is_ok(), "should succeed no matter");
 
     // -----------------------------------------------------------------------
     //  transaction with insufficient balance.
 
-    let fee = Felt::from(DEFAULT_PREFUNDED_ACCOUNT_BALANCE + 1);
-    let result = contract.transfer(&recipient, &amount).max_fee(fee).simulate(false, false).await;
+    let fee_multiplier = 10000.0;
+    let result = contract
+        .transfer(&recipient, &amount)
+        .gas_estimate_multiplier(fee_multiplier)
+        .simulate(false, false)
+        .await;
 
     if disable_node_fee {
         assert!(result.is_ok(), "estimate should succeed when fee is disabled");
@@ -113,7 +123,12 @@ async fn simulate_with_insufficient_fee(
     }
 
     // simulate with 'skip fee charge' flag
-    let result = contract.transfer(&recipient, &amount).max_fee(fee).simulate(false, true).await;
+    let result = contract
+        .transfer(&recipient, &amount)
+        .gas_estimate_multiplier(fee_multiplier)
+        .simulate(false, true)
+        .await;
+
     assert!(result.is_ok(), "should succeed no matter");
 }
 
