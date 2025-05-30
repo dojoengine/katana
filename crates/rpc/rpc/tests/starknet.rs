@@ -489,7 +489,8 @@ async fn send_txs_with_invalid_signature(
     let amount = Uint256 { low: Felt::ONE, high: Felt::ZERO };
 
     // get the base fee
-    let fee = contract.transfer(&recipient, &amount).estimate_fee().await.unwrap();
+    let simulated = contract.transfer(&recipient, &amount).simulate(true, false).await.unwrap();
+    let fee = simulated.fee_estimation;
 
     // initial sender's account nonce. use to assert how the txs validity change the account nonce.
     let initial_nonce = account.get_nonce().await?;

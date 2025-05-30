@@ -111,6 +111,7 @@ pub enum InsufficientFundsError {
         balance: Felt,
     },
 
+    // TODO: dont generalize to string
     /// Error when the resource bounds specified in the transaction exceeds the sender's balance.
     #[error("{error}")]
     ResourceBoundsExceedFunds { error: String },

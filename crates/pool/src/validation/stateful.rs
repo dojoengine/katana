@@ -206,7 +206,6 @@ fn validate(
 fn map_invalid_tx_err(
     err: StatefulValidatorError,
 ) -> Result<InvalidTransactionError, Box<dyn std::error::Error>> {
-    dbg!(&err);
     match err {
         StatefulValidatorError::TransactionExecutionError(err) => match err {
             e @ TransactionExecutionError::ValidateTransactionError {

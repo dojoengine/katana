@@ -82,13 +82,18 @@ async fn simulate_with_insufficient_fee(
     let recipient = Felt::ONE;
     let amount = Uint256 { low: Felt::ONE, high: Felt::ZERO };
 
+    // get base fee
+    let simulated = contract.transfer(&recipient, &amount).simulate(false, false).await.unwrap();
+    let fee = simulated.fee_estimation;
+
     // -----------------------------------------------------------------------
     //  transaction with low max fee (underpriced).
 
-    let fee_multiplier = 0.3;
     let res = contract
         .transfer(&recipient, &amount)
-        .gas_estimate_multiplier(fee_multiplier)
+        .l2_gas(fee.l2_gas_consumed)
+        .l1_gas(fee.l1_gas_consumed)
+        .l1_data_gas(fee.l1_data_gas_consumed)
         .simulate(false, false)
         .await;
 
@@ -99,11 +104,7 @@ async fn simulate_with_insufficient_fee(
     }
 
     // simulate with 'skip fee charge' flag
-    let result = contract
-        .transfer(&recipient, &amount)
-        .gas_estimate_multiplier(fee_multiplier)
-        .simulate(false, true)
-        .await;
+    let result = contract.transfer(&recipient, &amount).simulate(false, true).await;
     assert!(result.is_ok(), "should succeed no matter");
 
     // -----------------------------------------------------------------------

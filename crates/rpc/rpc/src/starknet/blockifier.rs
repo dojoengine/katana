@@ -52,7 +52,7 @@ pub fn estimate_fees(
     transactions: Vec<ExecutableTxWithHash>,
     flags: ExecutionFlags,
 ) -> Vec<Result<FeeEstimate, ExecutionError>> {
-    let flags = flags.with_fee(false);
+    let flags = dbg!(flags.with_fee(false));
     let block_context = block_context_from_envs(&block_env, &cfg_env);
     let state = CachedState::new(state, ClassCache::global().clone());
 
@@ -116,17 +116,26 @@ pub fn call<P: StateProvider>(
     })
 }
 
+// the reason why we do this, ie bcs in blockifier, if all the ValidResourceBounds::AllResources are given, then it will use the max l2 gas as the initial gas for the transaction execution.
+// so when we do fee estimates, usually the resource bounds are all set to zero. so executing them without calling this function will result in an out of gas error - because the initial gas
+// will end up being zero.
 fn prepare_tx_for_simulate(mut tx: ExecutableTxWithHash, l2_max_gas: u64) -> ExecutableTxWithHash {
     match &mut tx.transaction {
         ExecutableTx::Invoke(InvokeTx::V3(ref mut tx)) => {
-            tx.resource_bounds.l2_gas.max_amount = l2_max_gas;
+            if tx.resource_bounds.l2_gas.max_amount == 0 {
+                tx.resource_bounds.l2_gas.max_amount = l2_max_gas;
+            }
         }
         ExecutableTx::DeployAccount(DeployAccountTx::V3(ref mut tx)) => {
-            tx.resource_bounds.l2_gas.max_amount = l2_max_gas;
+            if tx.resource_bounds.l2_gas.max_amount == 0 {
+                tx.resource_bounds.l2_gas.max_amount = l2_max_gas;
+            }
         }
         ExecutableTx::Declare(tx) => match tx.transaction {
             DeclareTx::V3(ref mut tx) => {
-                tx.resource_bounds.l2_gas.max_amount = l2_max_gas;
+                if tx.resource_bounds.l2_gas.max_amount == 0 {
+                    tx.resource_bounds.l2_gas.max_amount = l2_max_gas;
+                }
             }
             _ => {}
         },
