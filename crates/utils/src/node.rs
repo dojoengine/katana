@@ -13,6 +13,7 @@ use katana_node::{LaunchedNode, Node};
 use katana_primitives::chain::ChainId;
 use katana_primitives::{address, ContractAddress};
 use katana_provider::BlockchainProvider;
+use katana_rpc::HttpClient;
 use starknet::accounts::{ExecutionEncoding, SingleOwnerAccount};
 use starknet::core::types::BlockTag;
 pub use starknet::core::types::StarknetError;
@@ -89,6 +90,11 @@ impl TestNode {
         account.set_block_id(starknet::core::types::BlockId::Tag(BlockTag::Pending));
 
         account
+    }
+
+    /// Returns a HTTP client to the JSON-RPC server.
+    pub fn rpc_http_client(&self) -> HttpClient {
+        self.handle().rpc().http_client().expect("failed to get http client for the rpc server")
     }
 }
 
