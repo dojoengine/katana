@@ -14,11 +14,13 @@ katana-tasks.workspace = true
 
 anyhow.workspace = true
 futures.workspace = true
+jsonrpsee.workspace = true
 parking_lot.workspace = true
 starknet.workspace = true
 thiserror.workspace = true
 tokio.workspace = true
 tracing.workspace = true
+serde_json.workspace = true
 
 [dev-dependencies]
 serde_json.workspace = true
