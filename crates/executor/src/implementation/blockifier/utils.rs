@@ -72,8 +72,8 @@ pub fn transact<S: StateReader>(
         let fee_type = get_fee_type_from_tx(&tx);
 
         let tip = match &tx {
-            Transaction::Account(tx) => tx.tip(),
-            Transaction::L1Handler(..) => Tip(0),
+            Transaction::Account(tx) if tx.version() == TransactionVersion::THREE => tx.tip(),
+            _ => Tip(0),
         };
 
         let execution_info = match tx {
