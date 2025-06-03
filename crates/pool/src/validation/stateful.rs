@@ -5,6 +5,7 @@ use std::sync::Arc;
 use katana_executor::implementation::blockifier::blockifier::blockifier::stateful_validator::{
     StatefulValidator, StatefulValidatorError,
 };
+use katana_executor::implementation::blockifier::blockifier::blockifier::transaction_executor::TransactionExecutorError;
 use katana_executor::implementation::blockifier::blockifier::state::cached_state::CachedState;
 use katana_executor::implementation::blockifier::blockifier::transaction::errors::{
     TransactionExecutionError, TransactionFeeError, TransactionPreValidationError,
@@ -207,97 +208,130 @@ fn map_invalid_tx_err(
     err: StatefulValidatorError,
 ) -> Result<InvalidTransactionError, Box<dyn std::error::Error>> {
     match err {
-        StatefulValidatorError::TransactionExecutionError(err) => match err {
-            e @ TransactionExecutionError::ValidateTransactionError {
-                storage_address,
-                class_hash,
-                ..
-            } => {
-                let address = to_address(storage_address);
-                let class_hash = class_hash.0;
-                let error = e.to_string();
-                Ok(InvalidTransactionError::ValidationFailure { address, class_hash, error })
+        StatefulValidatorError::TransactionExecutorError(err) => map_executor_err(err),
+        StatefulValidatorError::TransactionExecutionError(err) => map_execution_err(err),
+        StatefulValidatorError::TransactionPreValidationError(err) => map_pre_validation_err(err),
+        _ => Err(Box::new(err)),
+    }
+}
+
+fn map_fee_err(
+    err: TransactionFeeError,
+) -> Result<InvalidTransactionError, Box<dyn std::error::Error>> {
+    match err {
+        TransactionFeeError::GasBoundsExceedBalance {
+            resource,
+            max_amount,
+            max_price,
+            balance,
+        } => {
+            let max_amount = max_amount.0;
+            let max_price = max_price.0;
+            let balance: Felt = balance.into();
+
+            let error = InsufficientFundsError::L1GasBoundsExceedFunds {
+                balance,
+                resource,
+                max_price,
+                max_amount,
+            };
+
+            Ok(InvalidTransactionError::InsufficientFunds(error))
+        }
+
+        TransactionFeeError::ResourcesBoundsExceedBalance { .. } => {
+            let error =
+                InsufficientFundsError::ResourceBoundsExceedFunds { error: err.to_string() };
+            Ok(InvalidTransactionError::InsufficientFunds(error))
+        }
+
+        TransactionFeeError::MaxFeeExceedsBalance { max_fee, balance } => {
+            let max_fee = max_fee.0;
+            let balance = balance.into();
+
+            let error = InsufficientFundsError::MaxFeeExceedsFunds { max_fee, balance };
+            Ok(InvalidTransactionError::InsufficientFunds(error))
+        }
+
+        TransactionFeeError::MaxFeeTooLow { min_fee, max_fee } => {
+            let max_fee = max_fee.0;
+            let min_fee = min_fee.0;
+            Ok(InvalidTransactionError::IntrinsicFeeTooLow(IntrinsicFeeTooLowError::MaxFee {
+                max_fee,
+                min: min_fee,
+            }))
+        }
+
+        TransactionFeeError::InsufficientResourceBounds { errors } => {
+            let error = errors.iter().map(|e| format!("{}", e)).collect::<Vec<_>>().join("\n");
+            Ok(InvalidTransactionError::IntrinsicFeeTooLow(
+                IntrinsicFeeTooLowError::ResourceBounds { error },
+            ))
+        }
+
+        _ => Err(Box::new(err)),
+    }
+}
+
+fn map_executor_err(
+    err: TransactionExecutorError,
+) -> Result<InvalidTransactionError, Box<dyn std::error::Error>> {
+    match err {
+        TransactionExecutorError::TransactionExecutionError(e) => match e {
+            TransactionExecutionError::TransactionPreValidationError(e) => {
+                map_pre_validation_err(e)
             }
-            TransactionExecutionError::PanicInValidate { panic_reason } => {
-                // TODO: maybe can remove the address and class hash?
-                Ok(InvalidTransactionError::ValidationFailure {
-                    address: Default::default(),
-                    class_hash: Default::default(),
-                    error: panic_reason.to_string(),
-                })
-            }
-            _ => Err(Box::new(err)),
+
+            _ => Err(Box::new(e)),
         },
 
-        StatefulValidatorError::TransactionPreValidationError(err) => match err {
-            TransactionPreValidationError::InvalidNonce {
-                address,
-                account_nonce,
-                incoming_tx_nonce,
-            } => {
-                let address = to_address(address);
-                let current_nonce = account_nonce.0;
-                let tx_nonce = incoming_tx_nonce.0;
-                Ok(InvalidTransactionError::InvalidNonce { address, current_nonce, tx_nonce })
-            }
+        _ => Err(Box::new(err)),
+    }
+}
 
-            TransactionPreValidationError::TransactionFeeError(err) => match err {
-                TransactionFeeError::GasBoundsExceedBalance {
-                    resource,
-                    max_amount,
-                    max_price,
-                    balance,
-                } => {
-                    let max_amount = max_amount.0;
-                    let max_price = max_price.0;
-                    let balance: Felt = balance.into();
+fn map_execution_err(
+    err: TransactionExecutionError,
+) -> Result<InvalidTransactionError, Box<dyn std::error::Error>> {
+    match err {
+        e @ TransactionExecutionError::ValidateTransactionError {
+            storage_address,
+            class_hash,
+            ..
+        } => {
+            let address = to_address(storage_address);
+            let class_hash = class_hash.0;
+            let error = e.to_string();
+            Ok(InvalidTransactionError::ValidationFailure { address, class_hash, error })
+        }
 
-                    let error = InsufficientFundsError::L1GasBoundsExceedFunds {
-                        balance,
-                        resource,
-                        max_price,
-                        max_amount,
-                    };
+        TransactionExecutionError::PanicInValidate { panic_reason } => {
+            // TODO: maybe can remove the address and class hash?
+            Ok(InvalidTransactionError::ValidationFailure {
+                address: Default::default(),
+                class_hash: Default::default(),
+                error: panic_reason.to_string(),
+            })
+        }
+        _ => Err(Box::new(err)),
+    }
+}
 
-                    Ok(InvalidTransactionError::InsufficientFunds(error))
-                }
+fn map_pre_validation_err(
+    err: TransactionPreValidationError,
+) -> Result<InvalidTransactionError, Box<dyn std::error::Error>> {
+    match err {
+        TransactionPreValidationError::InvalidNonce {
+            address,
+            account_nonce,
+            incoming_tx_nonce,
+        } => {
+            let address = to_address(address);
+            let current_nonce = account_nonce.0;
+            let tx_nonce = incoming_tx_nonce.0;
+            Ok(InvalidTransactionError::InvalidNonce { address, current_nonce, tx_nonce })
+        }
 
-                TransactionFeeError::ResourcesBoundsExceedBalance { .. } => {
-                    let error = InsufficientFundsError::ResourceBoundsExceedFunds {
-                        error: err.to_string(),
-                    };
-                    Ok(InvalidTransactionError::InsufficientFunds(error))
-                }
-
-                TransactionFeeError::MaxFeeExceedsBalance { max_fee, balance } => {
-                    let max_fee = max_fee.0;
-                    let balance = balance.into();
-
-                    let error = InsufficientFundsError::MaxFeeExceedsFunds { max_fee, balance };
-                    Ok(InvalidTransactionError::InsufficientFunds(error))
-                }
-
-                TransactionFeeError::MaxFeeTooLow { min_fee, max_fee } => {
-                    let max_fee = max_fee.0;
-                    let min_fee = min_fee.0;
-                    Ok(InvalidTransactionError::IntrinsicFeeTooLow(
-                        IntrinsicFeeTooLowError::MaxFee { max_fee, min: min_fee },
-                    ))
-                }
-
-                TransactionFeeError::InsufficientResourceBounds { errors } => {
-                    let error =
-                        errors.iter().map(|e| format!("{}", e)).collect::<Vec<_>>().join("\n");
-                    Ok(InvalidTransactionError::IntrinsicFeeTooLow(
-                        IntrinsicFeeTooLowError::ResourceBounds { error },
-                    ))
-                }
-
-                _ => Err(Box::new(err)),
-            },
-
-            _ => Err(Box::new(err)),
-        },
+        TransactionPreValidationError::TransactionFeeError(err) => map_fee_err(err),
 
         _ => Err(Box::new(err)),
     }

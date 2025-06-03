@@ -176,7 +176,6 @@ where
             }
 
             Err(error @ crate::validation::Error { hash, .. }) => {
-                println!("ohayo");
                 error!(target: "pool", hash = format!("{hash:#x}"), %error, "Failed to validate transaction.");
                 Err(dbg!(PoolError::Internal(error.error)))
             }
