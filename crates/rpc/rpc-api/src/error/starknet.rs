@@ -144,6 +144,7 @@ impl StarknetApiError {
             StarknetApiError::ContractError { .. }
             | StarknetApiError::PageSizeTooBig { .. }
             | StarknetApiError::UnexpectedError { .. }
+            | StarknetApiError::CompilationFailed { .. }
             | StarknetApiError::ProofLimitExceeded { .. }
             | StarknetApiError::StorageProofNotSupported { .. }
             | StarknetApiError::TransactionExecutionError { .. } => Some(serde_json::json!(self)),
@@ -378,9 +379,11 @@ mod tests {
     	StarknetApiError::CompilationFailed {
      		reason: "Failed to compile".to_string()
       	},
-     	52,
+     	56,
       	"Compilation failed",
-       	Value::String("Failed to compile".to_string())
+       json!({
+           "reason": "Failed to compile".to_string()
+       }),
     )]
     #[case(
     	StarknetApiError::ValidationFailure {
