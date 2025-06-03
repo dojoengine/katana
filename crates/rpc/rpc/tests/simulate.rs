@@ -82,18 +82,17 @@ async fn simulate_with_insufficient_fee(
     let recipient = Felt::ONE;
     let amount = Uint256 { low: Felt::ONE, high: Felt::ZERO };
 
-    // get base fee
-    let simulated = contract.transfer(&recipient, &amount).simulate(false, false).await.unwrap();
-    let fee = simulated.fee_estimation;
-
     // -----------------------------------------------------------------------
     //  transaction with low max fee (underpriced).
 
     let res = contract
         .transfer(&recipient, &amount)
-        .l2_gas(fee.l2_gas_consumed)
-        .l1_gas(fee.l1_gas_consumed)
-        .l1_data_gas(fee.l1_data_gas_consumed)
+        .l2_gas(1)
+        .l2_gas_price(1)
+        .l1_gas(1)
+        .l1_gas_price(1)
+        .l1_data_gas(1)
+        .l1_data_gas_price(1)
         .simulate(false, false)
         .await;
 
@@ -110,23 +109,32 @@ async fn simulate_with_insufficient_fee(
     // -----------------------------------------------------------------------
     //  transaction with insufficient balance.
 
-    let fee_multiplier = 10000.0;
     let result = contract
         .transfer(&recipient, &amount)
-        .gas_estimate_multiplier(fee_multiplier)
+        .l2_gas(u64::MAX)
+        .l2_gas_price(1)
+        .l1_gas(u64::MAX)
+        .l1_gas_price(1)
+        .l1_data_gas(u64::MAX)
+        .l1_data_gas_price(1)
         .simulate(false, false)
         .await;
 
     if disable_node_fee {
         assert!(result.is_ok(), "estimate should succeed when fee is disabled");
     } else {
-        assert!(res.is_err(), "should fail when fee is enabled");
+        assert!(result.is_err(), "should fail when fee is enabled");
     }
 
     // simulate with 'skip fee charge' flag
     let result = contract
         .transfer(&recipient, &amount)
-        .gas_estimate_multiplier(fee_multiplier)
+        .l2_gas(u64::MAX)
+        .l2_gas_price(1)
+        .l1_gas(u64::MAX)
+        .l1_gas_price(1)
+        .l1_data_gas(u64::MAX)
+        .l1_data_gas_price(1)
         .simulate(false, true)
         .await;
 

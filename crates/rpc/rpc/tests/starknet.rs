@@ -174,7 +174,7 @@ async fn deploy_account(
     let contract = FeeToken::new(DEFAULT_STRK_FEE_TOKEN_ADDRESS.into(), &funding_account);
 
     // send enough tokens to the new_account's address just to send the deploy account tx
-    let amount = Uint256 { low: felt!("0x1ba32524a3000"), high: Felt::ZERO };
+    let amount = Uint256 { low: felt!("0x5ea0fb889c9400"), high: Felt::ZERO };
     let res = contract.transfer(&account_address, &amount).send().await.unwrap();
     katana_utils::TxWaiter::new(res.transaction_hash, &provider).await.unwrap();
 
@@ -372,7 +372,7 @@ async fn ensure_validator_have_valid_state(#[values(None, Some(1000))] block_tim
     // actual balance that we have now.
     let err = contract
         .transfer(&recipient, &amount)
-        .gas_estimate_multiplier(10000.0)
+        .gas_estimate_multiplier(1000000.0)
         .send()
         .await
         .unwrap_err();
@@ -405,7 +405,8 @@ async fn send_txs_with_insufficient_fee(
     // -----------------------------------------------------------------------
     //  transaction with low max fee (underpriced).
 
-    let res = contract.transfer(&recipient, &amount).gas_estimate_multiplier(0.1).send().await;
+    let res =
+        contract.transfer(&recipient, &amount).l2_gas(1).l1_gas(1).l1_data_gas(1).send().await;
 
     if disable_fee {
         // In no fee mode, the transaction resources (ie max fee) is totally ignored. So doesn't
@@ -430,13 +431,10 @@ async fn send_txs_with_insufficient_fee(
     // -----------------------------------------------------------------------
     //  transaction with insufficient balance.
 
-    let res = contract
-        .transfer(&recipient, &amount)
-        .l2_gas(u64::MAX)
-        .l1_gas(u64::MAX)
-        .l1_data_gas(u64::MAX)
-        .send()
-        .await;
+    // Set the gas estimate multiplier high enough to artficially bump the total resource cost so
+    // that it exceeds what the account can actually cover.
+    let res =
+        contract.transfer(&recipient, &amount).gas_estimate_multiplier(1000000.0).send().await;
 
     if disable_fee {
         // in no fee mode, account balance is ignored. as long as the max fee (aka resources) is
