@@ -20,7 +20,7 @@ use blockifier::transaction::transactions::ExecutableTransaction;
 use cairo_vm::types::errors::program_errors::ProgramError;
 use katana_primitives::chain::NamedChainId;
 use katana_primitives::env::{BlockEnv, CfgEnv};
-use katana_primitives::fee::{FeeInfo, PriceUnit};
+use katana_primitives::fee::{FeeInfo, PriceUnit, ResourceBoundsMapping};
 use katana_primitives::state::{StateUpdates, StateUpdatesWithClasses};
 use katana_primitives::transaction::{
     DeclareTx, DeployAccountTx, ExecutableTx, ExecutableTxWithHash, InvokeTx,
@@ -152,7 +152,7 @@ pub fn transact<S: StateReader>(
     }
 }
 
-pub fn to_executor_tx(tx: ExecutableTxWithHash, mut flags: ExecutionFlags) -> Transaction {
+pub fn to_executor_tx(mut tx: ExecutableTxWithHash, mut flags: ExecutionFlags) -> Transaction {
     use starknet_api::executable_transaction::AccountTransaction as ExecTx;
 
     let hash = tx.hash;
@@ -160,11 +160,16 @@ pub fn to_executor_tx(tx: ExecutableTxWithHash, mut flags: ExecutionFlags) -> Tr
     // We only do this if we're running in fee enabled mode. If fee is already disabled, then
     // there's no need to do anything.
     if flags.fee() {
-        // Disable fee charge if max fee is 0.
+        // Disable fee charge if the total tx execution gas is zero.
+        //
+        // Max fee == 0 for legacy txs, or the total resource bounds == zero for V3 transactions.
         //
         // This is to support genesis transactions where the fee token is not yet deployed.
-        let skip_fee = skip_fee_if_max_fee_is_zero(&tx);
-        flags = flags.with_fee(!skip_fee);
+        flags = flags.with_fee(!skip_fee_on_zero_gas(&tx));
+    }
+
+    if !flags.fee() {
+        set_max_initial_sierra_gas(&mut tx);
     }
 
     match tx.transaction {
@@ -379,6 +384,34 @@ pub fn to_executor_tx(tx: ExecutableTxWithHash, mut flags: ExecutionFlags) -> Tr
             },
             tx_hash: TransactionHash(hash),
         }),
+    }
+}
+
+// The reason why we do this, ie bcs in blockifier, if all the ValidResourceBounds::AllResources are
+// given, then it will use the max l2 gas as the initial gas for the transaction execution.
+// So when we do fee estimates, usually the resource bounds are all set to zero. so executing them
+// without calling this function will result in an out of gas error - because the initial gas
+// will end up being zero.
+//
+// Similarly, if the node is running in fee disabled mode, we want to completely ignore the resource
+// bounds specified in the tx. So we artifically set the max initial gas in case the tx resource
+// bounds isn't zero or not enough to run the tx to completion, bcs then blockifier will use the max
+// l2 gas as the initial gas for the transaction execution.
+fn set_max_initial_sierra_gas(tx: &mut ExecutableTxWithHash) {
+    match &mut tx.transaction {
+        ExecutableTx::Invoke(InvokeTx::V3(ref mut tx)) => {
+            tx.resource_bounds.l2_gas.max_amount = u64::MAX;
+        }
+        ExecutableTx::DeployAccount(DeployAccountTx::V3(ref mut tx)) => {
+            tx.resource_bounds.l2_gas.max_amount = u64::MAX;
+        }
+        ExecutableTx::Declare(tx) => match tx.transaction {
+            DeclareTx::V3(ref mut tx) => {
+                tx.resource_bounds.l2_gas.max_amount = u64::MAX;
+            }
+            _ => {}
+        },
+        _ => {}
     }
 }
 
@@ -647,40 +680,40 @@ impl From<ExecutionFlags> for BlockifierExecutionFlags {
 /// Reference: https://github.com/dojoengine/sequencer/blob/07f473f9385f1bce4cbd7d0d64b5396f6784bbf1/crates/blockifier/src/transaction/objects.rs#L103-L113
 ///
 /// Transaction with 0 max fee is mainly used for genesis block.
-fn skip_fee_if_max_fee_is_zero(tx: &ExecutableTxWithHash) -> bool {
+fn skip_fee_on_zero_gas(tx: &ExecutableTxWithHash) -> bool {
     match &tx.transaction {
         ExecutableTx::Invoke(tx_inner) => match tx_inner {
             InvokeTx::V0(tx) => tx.max_fee == 0,
             InvokeTx::V1(tx) => tx.max_fee == 0,
-            InvokeTx::V3(tx) => {
-                let l1_bounds = &tx.resource_bounds.l1_gas;
-                let max_amount: u128 = l1_bounds.max_amount.into();
-                (max_amount * l1_bounds.max_price_per_unit) == 0
-            }
+            InvokeTx::V3(tx) => is_zero_resource_bounds(&tx.resource_bounds),
         },
-
         ExecutableTx::DeployAccount(tx_inner) => match tx_inner {
             DeployAccountTx::V1(tx) => tx.max_fee == 0,
-            DeployAccountTx::V3(tx) => {
-                let l1_bounds = &tx.resource_bounds.l1_gas;
-                let max_amount: u128 = l1_bounds.max_amount.into();
-                (max_amount * l1_bounds.max_price_per_unit) == 0
-            }
+            DeployAccountTx::V3(tx) => is_zero_resource_bounds(&tx.resource_bounds),
         },
-
         ExecutableTx::Declare(tx_inner) => match &tx_inner.transaction {
             DeclareTx::V0(tx) => tx.max_fee == 0,
             DeclareTx::V1(tx) => tx.max_fee == 0,
             DeclareTx::V2(tx) => tx.max_fee == 0,
-            DeclareTx::V3(tx) => {
-                let l1_bounds = &tx.resource_bounds.l1_gas;
-                let max_amount: u128 = l1_bounds.max_amount.into();
-                (max_amount * l1_bounds.max_price_per_unit) == 0
-            }
+            DeclareTx::V3(tx) => is_zero_resource_bounds(&tx.resource_bounds),
         },
-
         ExecutableTx::L1Handler(..) => true,
     }
+}
+
+pub fn is_zero_resource_bounds(resource_bounds: &ResourceBoundsMapping) -> bool {
+    let l1_bounds = &resource_bounds.l1_gas;
+    let l2_bounds = &resource_bounds.l2_gas;
+    let l1_data_bounds = &resource_bounds.l1_data_gas;
+
+    let l1_max_amount: u128 = l1_bounds.max_amount.into();
+    let l2_max_amount: u128 = l2_bounds.max_amount.into();
+    let l1_data_max_amount: u128 = l1_data_bounds.max_amount.into();
+
+    ((l1_max_amount * l1_bounds.max_price_per_unit)
+        + (l2_max_amount * l2_bounds.max_price_per_unit)
+        + (l1_data_max_amount * l1_data_bounds.max_price_per_unit))
+        == 0
 }
 
 #[cfg(test)]
