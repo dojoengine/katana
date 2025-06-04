@@ -208,10 +208,10 @@ fn map_invalid_tx_err(
     err: StatefulValidatorError,
 ) -> Result<InvalidTransactionError, Box<dyn std::error::Error>> {
     match err {
+        StatefulValidatorError::StateError(err) => Err(Box::new(err)),
         StatefulValidatorError::TransactionExecutorError(err) => map_executor_err(err),
         StatefulValidatorError::TransactionExecutionError(err) => map_execution_err(err),
         StatefulValidatorError::TransactionPreValidationError(err) => map_pre_validation_err(err),
-        _ => Err(Box::new(err)),
     }
 }
 
@@ -277,6 +277,7 @@ fn map_executor_err(
 ) -> Result<InvalidTransactionError, Box<dyn std::error::Error>> {
     match err {
         TransactionExecutorError::TransactionExecutionError(e) => match e {
+            TransactionExecutionError::TransactionFeeError(e) => map_fee_err(e),
             TransactionExecutionError::TransactionPreValidationError(e) => {
                 map_pre_validation_err(e)
             }
@@ -311,6 +312,7 @@ fn map_execution_err(
                 error: panic_reason.to_string(),
             })
         }
+
         _ => Err(Box::new(err)),
     }
 }
@@ -319,6 +321,8 @@ fn map_pre_validation_err(
     err: TransactionPreValidationError,
 ) -> Result<InvalidTransactionError, Box<dyn std::error::Error>> {
     match err {
+        TransactionPreValidationError::TransactionFeeError(err) => map_fee_err(err),
+        TransactionPreValidationError::StateError(err) => Err(Box::new(err)),
         TransactionPreValidationError::InvalidNonce {
             address,
             account_nonce,
@@ -329,9 +333,5 @@ fn map_pre_validation_err(
             let tx_nonce = incoming_tx_nonce.0;
             Ok(InvalidTransactionError::InvalidNonce { address, current_nonce, tx_nonce })
         }
-
-        TransactionPreValidationError::TransactionFeeError(err) => map_fee_err(err),
-
-        _ => Err(Box::new(err)),
     }
 }
