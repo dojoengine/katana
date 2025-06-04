@@ -118,14 +118,6 @@ impl BackendRequest {
         (BackendRequest::Storage(Request { payload: (address, key), sender }), receiver)
     }
 
-    /// Create a new request for fetching storage proof
-    // fn storage_proof(
-    //     payload: StorageProofPayload,
-    // ) -> (BackendRequest, OneshotReceiver<BackendResponse>) {
-    //     let (sender, receiver) = oneshot();
-    //     (BackendRequest::StorageProof(Request { payload, sender }), receiver)
-    // }
-
     #[cfg(test)]
     fn stats() -> (BackendRequest, OneshotReceiver<usize>) {
         let (sender, receiver) = oneshot();
@@ -290,72 +282,6 @@ impl Backend {
                     }),
                 );
             }
-
-            // BackendRequest::StorageProof(Request { payload, sender }) => {
-            //     let req_key = BackendRequestIdentifier::StorageProof(payload.block_number);
-
-            //     self.dedup_request(
-            //         req_key,
-            //         sender,
-            //         Box::pin(async move {
-            //             // Convert block number to BlockId
-            //             let block_id = starknet::core::types::BlockId::Number(payload.block_number);
-
-            //             // Use jsonrpsee client directly to make the RPC call since starknet-rs
-            //             // doesn't support get_storage_proof yet
-            //             let res = if let Some(client) = provider
-            //                 .as_any()
-            //                 .downcast_ref::<starknet::providers::JsonRpcClient<
-            //                     starknet::providers::jsonrpc::HttpTransport,
-            //                 >>()
-            //             {
-            //                 // Convert to RPC types
-            //                 let rpc_block_id = match block_id {
-            //                     starknet::core::types::BlockId::Number(n) => {
-            //                         katana_primitives::block::BlockIdOrTag::Number(n)
-            //                     }
-            //                     starknet::core::types::BlockId::Hash(h) => {
-            //                         katana_primitives::block::BlockIdOrTag::Hash(h)
-            //                     }
-            //                     starknet::core::types::BlockId::Tag(tag) => {
-            //                         katana_primitives::block::BlockIdOrTag::Tag(match tag {
-            //                             starknet::core::types::BlockTag::Latest => {
-            //                                 starknet::core::types::BlockTag::Latest
-            //                             }
-            //                             starknet::core::types::BlockTag::Pending => {
-            //                                 starknet::core::types::BlockTag::Pending
-            //                             }
-            //                         })
-            //                     }
-            //                 };
-
-            //                 // Use jsonrpsee client directly
-            //                 let params = serde_json::json!([
-            //                     rpc_block_id,
-            //                     payload.class_hashes,
-            //                     payload.contract_addresses,
-            //                     payload.contracts_storage_keys,
-            //                 ]);
-
-            //                 match client.inner().request("starknet_getStorageProof", params).await {
-            //                     Ok(response) => Ok(response),
-            //                     Err(e) => Err(BackendError::StarknetProvider(Arc::new(
-            //                         StarknetProviderError::Other(e.into()),
-            //                     ))),
-            //                 }
-            //             } else {
-            //                 // Fallback: return error indicating this method is not supported
-            //                 Err(BackendError::StarknetProvider(Arc::new(
-            //                     StarknetProviderError::StarknetError(
-            //                         StarknetError::ClassHashNotFound,
-            //                     ),
-            //                 )))
-            //             };
-
-            //             BackendResponse::StorageProof(res)
-            //         }),
-            //     );
-            // }
             #[cfg(test)]
             BackendRequest::Stats(sender) => {
                 let total_ongoing_request = self.pending_requests.len();
@@ -572,31 +498,6 @@ impl BackendClient {
             Ok(None)
         }
     }
-
-    // pub fn get_storage_proof(
-    //     &self,
-    //     block_number: BlockNumber,
-    //     class_hashes: Option<Vec<ClassHash>>,
-    //     contract_addresses: Option<Vec<ContractAddress>>,
-    //     contracts_storage_keys: Option<Vec<ContractStorageKeys>>,
-    // ) -> Result<Option<GetStorageProofResponse>, BackendClientError> {
-    //     trace!(target: LOG_TARGET, block_number, "Requesting storage proof.");
-
-    //     let payload = StorageProofPayload {
-    //         block_number,
-    //         class_hashes,
-    //         contract_addresses,
-    //         contracts_storage_keys,
-    //     };
-
-    //     let (req, rx) = BackendRequest::storage_proof(payload);
-    //     self.request(req)?;
-
-    //     match rx.recv()? {
-    //         BackendResponse::StorageProof(res) => handle_not_found_err(res),
-    //         response => Err(BackendClientError::UnexpectedResponse(anyhow!("{response:?}"))),
-    //     }
-    // }
 
     /// Send a request to the backend thread.
     fn request(&self, req: BackendRequest) -> Result<(), BackendClientError> {
