@@ -8,7 +8,7 @@ use katana_primitives::Felt;
 pub enum InvalidTransactionError {
     /// Error when the account's balance is insufficient to cover the specified transaction fee.
     #[error(transparent)]
-    InsufficientFunds(InsufficientFundsError),
+    InsufficientFunds(#[from] InsufficientFundsError),
 
     /// Error when the specified transaction fee is insufficient to cover the minimum fee required
     /// to start the invocation (including the account's validation logic).
@@ -17,10 +17,10 @@ pub enum InvalidTransactionError {
     /// transaction can cover the intrinsics cost ie data availability, etc.
     ///
     /// This is different from an error due to transaction runs out of gas during execution ie.
-    /// the specified max fee is lower than the amount needed to finish the transaction execution
-    /// (either validation or execution).
+    /// the specified max fee/resource bounds is lower than the amount needed to finish the
+    /// transaction execution (either validation or execution).
     #[error(transparent)]
-    IntrinsicFeeTooLow(#[from] IntrinsicFeeTooLowError),
+    InsufficientIntrinsicFee(#[from] InsufficientIntrinsicFeeError),
 
     /// Error when the account's validation logic fails (ie __validate__ function).
     #[error("{error}")]
@@ -61,21 +61,21 @@ pub enum InvalidTransactionError {
     ClassAlreadyDeclared { class_hash: ClassHash },
 }
 
-/// Specific kinds of intrinsic fee errors to handle both legacy and resource bounds scenarios.
+/// Error related to the transaction intrinsic fee.
 #[derive(Debug, thiserror::Error)]
-pub enum IntrinsicFeeTooLowError {
-    /// Legacy fee validation error (for legacy <V3 transaction).
+pub enum InsufficientIntrinsicFeeError {
+    /// Legacy fee validation error (for <V3 transaction).
     #[error("Max fee ({max_fee}) is too low. Minimum fee: {min}.")]
-    MaxFee {
+    InsufficientMaxFee {
         /// The minimum required for the transaction to be executed.
         min: u128,
         /// The specified transaction fee.
         max_fee: u128,
     },
 
-    /// Resource bounds validation error (for newer transaction versions).
+    /// Resource bounds validation error (for V3 transaction).
     #[error("Resource bounds were not satisfied: {error}")]
-    ResourceBounds {
+    InsufficientResourceBounds {
         /// The resource bounds error details.
         error: String,
     },

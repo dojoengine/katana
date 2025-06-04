@@ -27,7 +27,7 @@ use parking_lot::Mutex;
 
 use super::{Error, InvalidTransactionError, ValidationOutcome, ValidationResult, Validator};
 use crate::tx::PoolTransaction;
-use crate::validation::error::{InsufficientFundsError, IntrinsicFeeTooLowError};
+use crate::validation::error::{InsufficientFundsError, InsufficientIntrinsicFeeError};
 
 #[derive(Debug, Clone)]
 pub struct TxValidator {
@@ -256,16 +256,15 @@ fn map_fee_err(
         TransactionFeeError::MaxFeeTooLow { min_fee, max_fee } => {
             let max_fee = max_fee.0;
             let min_fee = min_fee.0;
-            Ok(InvalidTransactionError::IntrinsicFeeTooLow(IntrinsicFeeTooLowError::MaxFee {
-                max_fee,
-                min: min_fee,
-            }))
+            Ok(InvalidTransactionError::InsufficientIntrinsicFee(
+                InsufficientIntrinsicFeeError::InsufficientMaxFee { max_fee, min: min_fee },
+            ))
         }
 
         TransactionFeeError::InsufficientResourceBounds { errors } => {
             let error = errors.iter().map(|e| format!("{}", e)).collect::<Vec<_>>().join("\n");
-            Ok(InvalidTransactionError::IntrinsicFeeTooLow(
-                IntrinsicFeeTooLowError::ResourceBounds { error },
+            Ok(InvalidTransactionError::InsufficientIntrinsicFee(
+                InsufficientIntrinsicFeeError::InsufficientResourceBounds { error },
             ))
         }
 
