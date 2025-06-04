@@ -69,23 +69,23 @@ pub fn transact<S: StateReader>(
         block_context: &BlockContext,
         tx: Transaction,
     ) -> Result<(TransactionExecutionInfo, FeeInfo), ExecutionError> {
-        let fee_type = get_fee_type_from_tx(&tx);
-
-        let tip = match &tx {
-            Transaction::Account(tx) if tx.version() == TransactionVersion::THREE => tx.tip(),
-            _ => Tip(0),
-        };
-
-        let execution_info = match tx {
+        let execution_info = match &tx {
             Transaction::Account(tx) => tx.execute(state, block_context),
             Transaction::L1Handler(tx) => tx.execute(state, block_context),
         }?;
+
+        let fee_type = get_fee_type_from_tx(&tx);
 
         // There are a few case where the `actual_fee` field of the transaction info is not set
         // where the fee is skipped and thus not charged for the transaction (e.g. when the
         // `skip_fee_transfer` is explicitly set, or when the transaction `max_fee` is set to 0). In
         // these cases, we still want to calculate the fee.
         let overall_fee = if execution_info.receipt.fee == Fee(0) {
+            let tip = match &tx {
+                Transaction::Account(tx) if tx.version() == TransactionVersion::THREE => tx.tip(),
+                _ => Tip::ZERO,
+            };
+
             get_fee_by_gas_vector(
                 block_context.block_info(),
                 execution_info.receipt.gas,
