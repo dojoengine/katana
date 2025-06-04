@@ -405,12 +405,11 @@ fn set_max_initial_sierra_gas(tx: &mut ExecutableTxWithHash) {
         ExecutableTx::DeployAccount(DeployAccountTx::V3(ref mut tx)) => {
             tx.resource_bounds.l2_gas.max_amount = u64::MAX;
         }
-        ExecutableTx::Declare(tx) => match tx.transaction {
-            DeclareTx::V3(ref mut tx) => {
+        ExecutableTx::Declare(tx) => {
+            if let DeclareTx::V3(ref mut tx) = tx.transaction {
                 tx.resource_bounds.l2_gas.max_amount = u64::MAX;
             }
-            _ => {}
-        },
+        }
         _ => {}
     }
 }
