@@ -49,7 +49,7 @@ pub fn estimate_fees(
     transactions: Vec<ExecutableTxWithHash>,
     flags: ExecutionFlags,
 ) -> Vec<Result<FeeEstimate, ExecutionError>> {
-    let flags = dbg!(flags.with_fee(false));
+    let flags = flags.with_fee(false);
     let block_context = block_context_from_envs(&block_env, &cfg_env);
     let state = CachedState::new(state, ClassCache::global().clone());
 
@@ -59,7 +59,7 @@ pub fn estimate_fees(
         // is when bouncer is `Some`.
         let res = state.with_cached_state(|cached_state| {
             let mut state = cached_state::CachedState::new(MutRefState::new(cached_state));
-            utils::transact(&mut state, &block_context, &flags, dbg!(tx), None).unwrap()
+            utils::transact(&mut state, &block_context, &flags, tx, None).unwrap()
         });
 
         let result = match res {
