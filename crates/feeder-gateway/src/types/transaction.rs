@@ -58,7 +58,7 @@ impl<'de> Deserialize<'de> for DataAvailabilityMode {
 
 // Same reason as `DataAvailabilityMode` above, this struct is also defined because the serde
 // implementation of its primitive counterpart is different.
-#[derive(Debug, PartialEq, Eq, Deserialize)]
+#[derive(Debug, Default, PartialEq, Eq, Deserialize)]
 pub struct ResourceBounds {
     #[serde(deserialize_with = "deserialize_u64")]
     pub max_amount: u64,
@@ -71,8 +71,9 @@ pub struct ResourceBounds {
 pub struct ResourceBoundsMapping {
     pub l1_gas: ResourceBounds,
     pub l2_gas: ResourceBounds,
-    /// v0.8.0 field
-    pub l1_data_gas: ResourceBounds,
+    /// Marked as optional because prior to 0.13.4, L1 data gas is not a required field in the
+    /// resource bounds.
+    pub l1_data_gas: Option<ResourceBounds>,
 }
 
 #[derive(Debug, PartialEq, Eq, Deserialize)]
@@ -433,6 +434,7 @@ impl From<DataAvailabilityMode> for katana_primitives::da::DataAvailabilityMode 
 
 impl From<ResourceBoundsMapping> for katana_primitives::fee::ResourceBoundsMapping {
     fn from(bounds: ResourceBoundsMapping) -> Self {
+        let l1_data_gas = bounds.l1_data_gas.unwrap_or_default();
         Self {
             l1_gas: katana_primitives::fee::ResourceBounds {
                 max_amount: bounds.l1_gas.max_amount,
@@ -443,8 +445,8 @@ impl From<ResourceBoundsMapping> for katana_primitives::fee::ResourceBoundsMappi
                 max_price_per_unit: bounds.l2_gas.max_price_per_unit,
             },
             l1_data_gas: katana_primitives::fee::ResourceBounds {
-                max_amount: bounds.l1_data_gas.max_amount,
-                max_price_per_unit: bounds.l1_data_gas.max_price_per_unit,
+                max_amount: l1_data_gas.max_amount,
+                max_price_per_unit: l1_data_gas.max_price_per_unit,
             },
         }
     }
