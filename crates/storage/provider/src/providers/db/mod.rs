@@ -863,7 +863,7 @@ mod tests {
     };
     use katana_primitives::contract::ContractAddress;
     use katana_primitives::execution::TypedTransactionExecutionInfo;
-    use katana_primitives::fee::{PriceUnit, TxFeeInfo};
+    use katana_primitives::fee::FeeInfo;
     use katana_primitives::receipt::{InvokeTxReceipt, Receipt};
     use katana_primitives::state::{StateUpdates, StateUpdatesWithClasses};
     use katana_primitives::transaction::{InvokeTx, Tx, TxHash, TxWithHash};
@@ -954,13 +954,8 @@ mod tests {
                 revert_error: None,
                 events: Vec::new(),
                 messages_sent: Vec::new(),
+                fee: FeeInfo::default(),
                 execution_resources: Default::default(),
-                fee: TxFeeInfo {
-                    gas_consumed: 0,
-                    gas_price: 0,
-                    overall_fee: 0,
-                    unit: PriceUnit::Wei,
-                },
             })],
             vec![TypedTransactionExecutionInfo::default()],
         )
@@ -1041,13 +1036,8 @@ mod tests {
                 revert_error: None,
                 events: Vec::new(),
                 messages_sent: Vec::new(),
+                fee: FeeInfo::default(),
                 execution_resources: Default::default(),
-                fee: TxFeeInfo {
-                    gas_consumed: 0,
-                    gas_price: 0,
-                    overall_fee: 0,
-                    unit: PriceUnit::Wei,
-                },
             })],
             vec![TypedTransactionExecutionInfo::default()],
         )
@@ -1062,13 +1052,8 @@ mod tests {
                 revert_error: None,
                 events: Vec::new(),
                 messages_sent: Vec::new(),
+                fee: FeeInfo::default(),
                 execution_resources: Default::default(),
-                fee: TxFeeInfo {
-                    gas_consumed: 0,
-                    gas_price: 0,
-                    overall_fee: 0,
-                    unit: PriceUnit::Wei,
-                },
             })],
             vec![TypedTransactionExecutionInfo::default()],
         )
