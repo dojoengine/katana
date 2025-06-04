@@ -73,7 +73,7 @@ pub struct NodeArgs {
 
     /// Configuration file
     #[arg(long)]
-    config: Option<PathBuf>,
+    pub config: Option<PathBuf>,
 
     /// Configure the messaging with an other chain.
     ///
