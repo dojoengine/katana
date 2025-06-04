@@ -113,6 +113,10 @@ pub enum InsufficientFundsError {
 
     // TODO: dont generalize to string
     /// Error when the resource bounds specified in the transaction exceeds the sender's balance.
+    ///
+    /// This is applicable only to V3 transactions that set all the gas resource bounds. Prior to
+    /// 0.14.0, it is permissble to only specify L1 gas bounds, or specifies zero L2 gas and no
+    /// data gas bound. But on 0.14.0, it is required to set all bounds.
     #[error("{error}")]
     ResourceBoundsExceedFunds { error: String },
 }
