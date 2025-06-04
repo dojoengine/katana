@@ -7,7 +7,7 @@ use starknet_types_core::hash::{self, StarkHash};
 
 use crate::contract::ContractAddress;
 use crate::execution::VmResources;
-use crate::fee::TxFeeInfo;
+use crate::fee::FeeInfo;
 use crate::transaction::{TxHash, TxType};
 use crate::Felt;
 
@@ -42,7 +42,7 @@ pub struct MessageToL1 {
 #[cfg_attr(feature = "serde", derive(serde::Serialize, serde::Deserialize))]
 pub struct InvokeTxReceipt {
     /// Information about the transaction fee.
-    pub fee: TxFeeInfo,
+    pub fee: FeeInfo,
     /// Events emitted by contracts.
     pub events: Vec<Event>,
     /// Messages sent to L1.
@@ -59,7 +59,7 @@ pub struct InvokeTxReceipt {
 #[cfg_attr(feature = "serde", derive(serde::Serialize, serde::Deserialize))]
 pub struct DeclareTxReceipt {
     /// Information about the transaction fee.
-    pub fee: TxFeeInfo,
+    pub fee: FeeInfo,
     /// Events emitted by contracts.
     pub events: Vec<Event>,
     /// Messages sent to L1.
@@ -76,7 +76,7 @@ pub struct DeclareTxReceipt {
 #[cfg_attr(feature = "serde", derive(serde::Serialize, serde::Deserialize))]
 pub struct L1HandlerTxReceipt {
     /// Information about the transaction fee.
-    pub fee: TxFeeInfo,
+    pub fee: FeeInfo,
     /// Events emitted by contracts.
     pub events: Vec<Event>,
     /// The hash of the L1 message
@@ -95,7 +95,7 @@ pub struct L1HandlerTxReceipt {
 #[cfg_attr(feature = "serde", derive(serde::Serialize, serde::Deserialize))]
 pub struct DeployAccountTxReceipt {
     /// Information about the transaction fee.
-    pub fee: TxFeeInfo,
+    pub fee: FeeInfo,
     /// Events emitted by contracts.
     pub events: Vec<Event>,
     /// Messages sent to L1.
@@ -167,7 +167,7 @@ impl Receipt {
         }
     }
 
-    pub fn fee(&self) -> &TxFeeInfo {
+    pub fn fee(&self) -> &FeeInfo {
         match self {
             Receipt::Invoke(rct) => &rct.fee,
             Receipt::Declare(rct) => &rct.fee,
@@ -206,11 +206,32 @@ impl ReceiptWithTxHash {
 
     /// Computes the hash of the receipt. This is used for computing the receipts commitment.
     ///
+    /// The hash of a transaction receipt is defined as:
+    ///
+    /// ```
+    /// h(
+    ///     transaction_hash,
+    ///     actual_fee,
+    ///     h(messages),
+    ///     sn_keccak(revert_reason),
+    ///     h(l2_gas_consumed, l1_gas_consumed, l1_data_gas_consumed),
+    /// )
+    /// ```
+    ///
     /// See the Starknet [docs] for reference.
     ///
     /// [docs]: https://docs.starknet.io/architecture-and-concepts/network-architecture/block-structure/#receipt_hash
+    //
     pub fn compute_hash(&self) -> Felt {
+        let resources_used = self.resources_used();
+        let gas_uasge = hash::Poseidon::hash_array(&[
+            resources_used.gas.l2_gas.into(),
+            resources_used.gas.l1_gas.into(),
+            resources_used.gas.l1_data_gas.into(),
+        ]);
+
         let messages_hash = self.compute_messages_to_l1_hash();
+
         let revert_reason_hash = if let Some(reason) = self.revert_reason() {
             starknet_keccak(reason.as_bytes())
         } else {
@@ -222,9 +243,7 @@ impl ReceiptWithTxHash {
             self.receipt.fee().overall_fee.into(),
             messages_hash,
             revert_reason_hash,
-            Felt::ZERO, // L2 gas consumption.
-            self.receipt.fee().gas_consumed.into(),
-            // self.receipt.fee().l1_data_gas.into(),
+            gas_uasge,
         ])
     }
 

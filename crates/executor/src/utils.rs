@@ -1,6 +1,6 @@
 use blockifier::fee::receipt::TransactionReceipt;
 use katana_primitives::execution::{CallInfo, TransactionExecutionInfo, TransactionResources};
-use katana_primitives::fee::TxFeeInfo;
+use katana_primitives::fee::FeeInfo;
 use katana_primitives::receipt::{
     self, DataAvailabilityResources, DeclareTxReceipt, DeployAccountTxReceipt, Event, GasUsed,
     InvokeTxReceipt, L1HandlerTxReceipt, MessageToL1, Receipt,
@@ -28,7 +28,7 @@ pub fn log_resources(resources: &TransactionResources) {
 
 pub(crate) fn build_receipt(
     tx: TxRef<'_>,
-    fee: TxFeeInfo,
+    fee: FeeInfo,
     info: &TransactionExecutionInfo,
 ) -> Receipt {
     let events = events_from_exec_info(info);

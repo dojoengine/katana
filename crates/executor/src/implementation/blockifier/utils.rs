@@ -19,13 +19,13 @@ use blockifier::transaction::transaction_execution::Transaction;
 use blockifier::transaction::transactions::ExecutableTransaction;
 use cairo_vm::types::errors::program_errors::ProgramError;
 use katana_primitives::chain::NamedChainId;
-use katana_primitives::class;
 use katana_primitives::env::{BlockEnv, CfgEnv};
-use katana_primitives::fee::{PriceUnit, TxFeeInfo};
+use katana_primitives::fee::{FeeInfo, PriceUnit, ResourceBoundsMapping};
 use katana_primitives::state::{StateUpdates, StateUpdatesWithClasses};
 use katana_primitives::transaction::{
     DeclareTx, DeployAccountTx, ExecutableTx, ExecutableTxWithHash, InvokeTx,
 };
+use katana_primitives::{class, fee};
 use katana_provider::traits::contract::ContractClassProvider;
 use starknet::core::utils::parse_cairo_short_string;
 use starknet_api::block::{
@@ -41,8 +41,8 @@ use starknet_api::executable_transaction::{
     DeclareTransaction, DeployAccountTransaction, InvokeTransaction, L1HandlerTransaction,
 };
 use starknet_api::transaction::fields::{
-    AccountDeploymentData, Calldata, ContractAddressSalt, Fee, PaymasterData, ResourceBounds, Tip,
-    TransactionSignature, ValidResourceBounds,
+    AccountDeploymentData, AllResourceBounds, Calldata, ContractAddressSalt, Fee, PaymasterData,
+    ResourceBounds, Tip, TransactionSignature, ValidResourceBounds,
 };
 use starknet_api::transaction::{
     DeclareTransaction as ApiDeclareTransaction, DeclareTransactionV0V1, DeclareTransactionV2,
@@ -68,42 +68,56 @@ pub fn transact<S: StateReader>(
         state: &mut U,
         block_context: &BlockContext,
         tx: Transaction,
-    ) -> Result<(TransactionExecutionInfo, TxFeeInfo), ExecutionError> {
-        let fee_type = get_fee_type_from_tx(&tx);
-
-        let info = match tx {
+    ) -> Result<(TransactionExecutionInfo, FeeInfo), ExecutionError> {
+        let execution_info = match &tx {
             Transaction::Account(tx) => tx.execute(state, block_context),
             Transaction::L1Handler(tx) => tx.execute(state, block_context),
         }?;
+
+        let fee_type = get_fee_type_from_tx(&tx);
 
         // There are a few case where the `actual_fee` field of the transaction info is not set
         // where the fee is skipped and thus not charged for the transaction (e.g. when the
         // `skip_fee_transfer` is explicitly set, or when the transaction `max_fee` is set to 0). In
         // these cases, we still want to calculate the fee.
-        let fee = if info.receipt.fee == Fee(0) {
-            get_fee_by_gas_vector(block_context.block_info(), info.receipt.gas, &fee_type, Tip(0))
+        let overall_fee = if execution_info.receipt.fee == Fee(0) {
+            let tip = match &tx {
+                Transaction::Account(tx) if tx.version() == TransactionVersion::THREE => tx.tip(),
+                _ => Tip::ZERO,
+            };
+
+            get_fee_by_gas_vector(
+                block_context.block_info(),
+                execution_info.receipt.gas,
+                &fee_type,
+                tip,
+            )
         } else {
-            info.receipt.fee
+            execution_info.receipt.fee
         };
 
-        let gas_consumed = (info.receipt.gas.l1_gas.0
-            + info.receipt.gas.l2_gas.0
-            + info.receipt.gas.l1_data_gas.0) as u128;
+        let prices = &block_context.block_info().gas_prices;
 
-        let (unit, gas_price) = match fee_type {
-            FeeType::Eth => (
-                PriceUnit::Wei,
-                block_context.block_info().gas_prices.eth_gas_prices.l1_gas_price.get().0,
-            ),
-            FeeType::Strk => (
-                PriceUnit::Fri,
-                block_context.block_info().gas_prices.strk_gas_prices.l1_gas_price.get().0,
-            ),
+        let fee = match fee_type {
+            FeeType::Eth => {
+                let unit = PriceUnit::Wei;
+                let overall_fee = overall_fee.0;
+                let l1_gas_price = prices.eth_gas_prices.l1_gas_price.get().0;
+                let l2_gas_price = prices.eth_gas_prices.l2_gas_price.get().0;
+                let l1_data_gas_price = prices.eth_gas_prices.l1_data_gas_price.get().0;
+                FeeInfo { unit, overall_fee, l1_gas_price, l2_gas_price, l1_data_gas_price }
+            }
+            FeeType::Strk => {
+                let unit = PriceUnit::Fri;
+                let overall_fee = overall_fee.0;
+                let l1_gas_price = prices.strk_gas_prices.l1_gas_price.get().0;
+                let l2_gas_price = prices.strk_gas_prices.l2_gas_price.get().0;
+                let l1_data_gas_price = prices.strk_gas_prices.l1_data_gas_price.get().0;
+                FeeInfo { unit, overall_fee, l1_gas_price, l2_gas_price, l1_data_gas_price }
+            }
         };
 
-        let fee_info = TxFeeInfo { gas_consumed, gas_price, unit, overall_fee: fee.0 };
-
-        Ok((info, fee_info))
+        Ok((execution_info, fee))
     }
 
     let transaction = to_executor_tx(tx.clone(), simulation_flags.clone());
@@ -138,7 +152,7 @@ pub fn transact<S: StateReader>(
     }
 }
 
-pub fn to_executor_tx(tx: ExecutableTxWithHash, mut flags: ExecutionFlags) -> Transaction {
+pub fn to_executor_tx(mut tx: ExecutableTxWithHash, mut flags: ExecutionFlags) -> Transaction {
     use starknet_api::executable_transaction::AccountTransaction as ExecTx;
 
     let hash = tx.hash;
@@ -146,11 +160,32 @@ pub fn to_executor_tx(tx: ExecutableTxWithHash, mut flags: ExecutionFlags) -> Tr
     // We only do this if we're running in fee enabled mode. If fee is already disabled, then
     // there's no need to do anything.
     if flags.fee() {
-        // Disable fee charge if max fee is 0.
+        // Disable fee charge if the total tx execution gas is zero.
+        //
+        // Max fee == 0 for legacy txs, or the total resource bounds == zero for V3 transactions.
         //
         // This is to support genesis transactions where the fee token is not yet deployed.
-        let skip_fee = skip_fee_if_max_fee_is_zero(&tx);
-        flags = flags.with_fee(!skip_fee);
+        flags = flags.with_fee(!skip_fee_on_zero_gas(&tx));
+    }
+
+    // In blockifier, if all the resource bounds are specified (ie., the
+    // ValidResourceBounds::AllResources enum in blockifier types), then blockifier will use the
+    // max l2 gas as the initial gas for this transaction's execution. So when we do fee estimates,
+    // usually the resource bounds are all set to zero. so executing them as is will result in
+    // an 'out of gas' error - because the initial gas will end up being zero.
+    //
+    // On fee disabled mode, we completely ignore any fee/resource bounds set by the transaction.
+    // We always execute the transaction regardless whether the sender's have enough balance
+    // (if the set max fee/resource bounds exceed the sender's balance), or if the transaction's
+    // fee/resource bounds isn't actually enough to cover the entire transaction's execution.
+    // So we artifically set the max initial gas so that blockifier will have enough initial sierra
+    // gas to execute the transaction.
+    //
+    // Same case for when the transaction's fee/resource bounds are not set at all.
+    //
+    // See https://github.com/dojoengine/sequencer/blob/5d737b9c90a14bdf4483d759d1a1d4ce64aa9fd2/crates/blockifier/src/transaction/account_transaction.rs#L858
+    if !flags.fee() {
+        set_max_initial_sierra_gas(&mut tx);
     }
 
     match tx.transaction {
@@ -368,6 +403,23 @@ pub fn to_executor_tx(tx: ExecutableTxWithHash, mut flags: ExecutionFlags) -> Tr
     }
 }
 
+fn set_max_initial_sierra_gas(tx: &mut ExecutableTxWithHash) {
+    match &mut tx.transaction {
+        ExecutableTx::Invoke(InvokeTx::V3(ref mut tx)) => {
+            tx.resource_bounds.l2_gas.max_amount = u64::MAX;
+        }
+        ExecutableTx::DeployAccount(DeployAccountTx::V3(ref mut tx)) => {
+            tx.resource_bounds.l2_gas.max_amount = u64::MAX;
+        }
+        ExecutableTx::Declare(tx) => {
+            if let DeclareTx::V3(ref mut tx) = tx.transaction {
+                tx.resource_bounds.l2_gas.max_amount = u64::MAX;
+            }
+        }
+        _ => {}
+    }
+}
+
 /// Create a block context from the chain environment values.
 pub fn block_context_from_envs(block_env: &BlockEnv, cfg_env: &CfgEnv) -> BlockContext {
     let fee_token_addresses = FeeTokenAddresses {
@@ -509,18 +561,23 @@ fn to_api_da_mode(mode: katana_primitives::da::DataAvailabilityMode) -> DataAvai
     }
 }
 
-// The protocol version we want to support depends on the returned `ValidResourceBounds`. Returning
-// the wrong variant without the right values will result in execution error.
-//
-// Ref: https://community.starknet.io/t/starknet-v0-13-1-pre-release-notes/113664#sdkswallets-how-to-use-the-new-fee-estimates-7
-fn to_api_resource_bounds(
-    resource_bounds: katana_primitives::fee::ResourceBoundsMapping,
-) -> ValidResourceBounds {
-    // Pre 0.13.3. Only L1 gas. L2 bounds are signed but never used.
-    ValidResourceBounds::L1Gas(ResourceBounds {
+fn to_api_resource_bounds(resource_bounds: fee::ResourceBoundsMapping) -> ValidResourceBounds {
+    let l1_gas = ResourceBounds {
         max_amount: resource_bounds.l1_gas.max_amount.into(),
         max_price_per_unit: resource_bounds.l1_gas.max_price_per_unit.into(),
-    })
+    };
+
+    let l2_gas = ResourceBounds {
+        max_amount: resource_bounds.l2_gas.max_amount.into(),
+        max_price_per_unit: resource_bounds.l2_gas.max_price_per_unit.into(),
+    };
+
+    let l1_data_gas = ResourceBounds {
+        max_amount: resource_bounds.l1_data_gas.max_amount.into(),
+        max_price_per_unit: resource_bounds.l1_data_gas.max_price_per_unit.into(),
+    };
+
+    ValidResourceBounds::AllResources(AllResourceBounds { l1_gas, l2_gas, l1_data_gas })
 }
 
 /// Get the fee type of a transaction. The fee type determines the token used to pay for the
@@ -619,40 +676,40 @@ impl From<ExecutionFlags> for BlockifierExecutionFlags {
 /// Reference: https://github.com/dojoengine/sequencer/blob/07f473f9385f1bce4cbd7d0d64b5396f6784bbf1/crates/blockifier/src/transaction/objects.rs#L103-L113
 ///
 /// Transaction with 0 max fee is mainly used for genesis block.
-fn skip_fee_if_max_fee_is_zero(tx: &ExecutableTxWithHash) -> bool {
+fn skip_fee_on_zero_gas(tx: &ExecutableTxWithHash) -> bool {
     match &tx.transaction {
         ExecutableTx::Invoke(tx_inner) => match tx_inner {
             InvokeTx::V0(tx) => tx.max_fee == 0,
             InvokeTx::V1(tx) => tx.max_fee == 0,
-            InvokeTx::V3(tx) => {
-                let l1_bounds = &tx.resource_bounds.l1_gas;
-                let max_amount: u128 = l1_bounds.max_amount.into();
-                (max_amount * l1_bounds.max_price_per_unit) == 0
-            }
+            InvokeTx::V3(tx) => is_zero_resource_bounds(&tx.resource_bounds),
         },
-
         ExecutableTx::DeployAccount(tx_inner) => match tx_inner {
             DeployAccountTx::V1(tx) => tx.max_fee == 0,
-            DeployAccountTx::V3(tx) => {
-                let l1_bounds = &tx.resource_bounds.l1_gas;
-                let max_amount: u128 = l1_bounds.max_amount.into();
-                (max_amount * l1_bounds.max_price_per_unit) == 0
-            }
+            DeployAccountTx::V3(tx) => is_zero_resource_bounds(&tx.resource_bounds),
         },
-
         ExecutableTx::Declare(tx_inner) => match &tx_inner.transaction {
             DeclareTx::V0(tx) => tx.max_fee == 0,
             DeclareTx::V1(tx) => tx.max_fee == 0,
             DeclareTx::V2(tx) => tx.max_fee == 0,
-            DeclareTx::V3(tx) => {
-                let l1_bounds = &tx.resource_bounds.l1_gas;
-                let max_amount: u128 = l1_bounds.max_amount.into();
-                (max_amount * l1_bounds.max_price_per_unit) == 0
-            }
+            DeclareTx::V3(tx) => is_zero_resource_bounds(&tx.resource_bounds),
         },
-
         ExecutableTx::L1Handler(..) => true,
     }
+}
+
+pub fn is_zero_resource_bounds(resource_bounds: &ResourceBoundsMapping) -> bool {
+    let l1_bounds = &resource_bounds.l1_gas;
+    let l2_bounds = &resource_bounds.l2_gas;
+    let l1_data_bounds = &resource_bounds.l1_data_gas;
+
+    let l1_max_amount: u128 = l1_bounds.max_amount.into();
+    let l2_max_amount: u128 = l2_bounds.max_amount.into();
+    let l1_data_max_amount: u128 = l1_data_bounds.max_amount.into();
+
+    ((l1_max_amount * l1_bounds.max_price_per_unit)
+        + (l2_max_amount * l2_bounds.max_price_per_unit)
+        + (l1_data_max_amount * l1_data_bounds.max_price_per_unit))
+        == 0
 }
 
 #[cfg(test)]

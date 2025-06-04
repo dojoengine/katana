@@ -80,7 +80,7 @@ async fn test_messaging() {
 
         // Declare the contract
         let class_hash = contract.class_hash();
-        let res = katana_account.declare_v2(contract.into(), compiled_hash).send().await.unwrap();
+        let res = katana_account.declare_v3(contract.into(), compiled_hash).send().await.unwrap();
 
         // The waiter already checks that the transaction is accepted and succeeded on L2.
         TxWaiter::new(res.transaction_hash, katana_account.provider())
@@ -99,7 +99,7 @@ async fn test_messaging() {
 
         // Deploy the contract using UDC
         let res = ContractFactory::new(class_hash, &katana_account)
-            .deploy_v1(Vec::new(), Felt::ZERO, false)
+            .deploy_v3(Vec::new(), Felt::ZERO, false)
             .send()
             .await
             .expect("Unable to deploy contract");
@@ -241,12 +241,12 @@ async fn estimate_message_fee() -> Result<()> {
     let (contract, compiled_hash) = common::prepare_contract_declaration_params(&path)?;
     let class_hash = contract.class_hash();
 
-    let res = account.declare_v2(contract.into(), compiled_hash).send().await?;
+    let res = account.declare_v3(contract.into(), compiled_hash).send().await?;
     TxWaiter::new(res.transaction_hash, account.provider()).await?;
 
     // Deploy the contract using UDC
     let res = ContractFactory::new(class_hash, &account)
-        .deploy_v1(Vec::new(), Felt::ZERO, false)
+        .deploy_v3(Vec::new(), Felt::ZERO, false)
         .send()
         .await?;
 

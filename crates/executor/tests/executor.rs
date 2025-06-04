@@ -273,8 +273,9 @@ fn test_executor_with_valid_blocks_impl<EF: ExecutorFactory>(
     let actual_txs: Vec<TxWithHash> = transactions
         .iter()
         .map(|(tx, res)| {
-            if let Some(fee) = res.receipt().map(|r| r.fee()) {
-                actual_total_gas += fee.gas_consumed;
+            if let Some(receipt) = res.receipt() {
+                let resources = receipt.resources_used();
+                actual_total_gas += resources.gas.l1_gas as u128;
             }
             if let Some(rec) = res.receipt() {
                 actual_total_steps += rec.resources_used().computation_resources.n_steps as u128;

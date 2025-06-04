@@ -79,6 +79,7 @@ pub fn compute_deploy_account_v3_tx_hash(
     tip: u64,
     l1_gas_bounds: &ResourceBounds,
     l2_gas_bounds: &ResourceBounds,
+    l1_data_gas_bounds: Option<&ResourceBounds>,
     paymaster_data: &[Felt],
     chain_id: Felt,
     nonce: Felt,
@@ -90,7 +91,7 @@ pub fn compute_deploy_account_v3_tx_hash(
         PREFIX_DEPLOY_ACCOUNT,
         if is_query { QUERY_VERSION_OFFSET + Felt::THREE } else { Felt::THREE }, // version
         contract_address,
-        hash_fee_fields(tip, l1_gas_bounds, l2_gas_bounds),
+        hash_fee_fields(tip, l1_gas_bounds, l2_gas_bounds, l1_data_gas_bounds),
         poseidon_hash_many(paymaster_data),
         chain_id,
         nonce,
@@ -176,6 +177,7 @@ pub fn compute_declare_v3_tx_hash(
     tip: u64,
     l1_gas_bounds: &ResourceBounds,
     l2_gas_bounds: &ResourceBounds,
+    l1_data_gas_bounds: Option<&ResourceBounds>,
     paymaster_data: &[Felt],
     chain_id: Felt,
     nonce: Felt,
@@ -188,7 +190,7 @@ pub fn compute_declare_v3_tx_hash(
         PREFIX_DECLARE,
         if is_query { QUERY_VERSION_OFFSET + Felt::THREE } else { Felt::THREE }, // version
         sender_address,
-        hash_fee_fields(tip, l1_gas_bounds, l2_gas_bounds),
+        hash_fee_fields(tip, l1_gas_bounds, l2_gas_bounds, l1_data_gas_bounds),
         poseidon_hash_many(paymaster_data),
         chain_id,
         nonce,
@@ -228,6 +230,7 @@ pub fn compute_invoke_v3_tx_hash(
     tip: u64,
     l1_gas_bounds: &ResourceBounds,
     l2_gas_bounds: &ResourceBounds,
+    l1_data_gas_bounds: Option<&ResourceBounds>,
     paymaster_data: &[Felt],
     chain_id: Felt,
     nonce: Felt,
@@ -240,7 +243,7 @@ pub fn compute_invoke_v3_tx_hash(
         PREFIX_INVOKE,
         if is_query { QUERY_VERSION_OFFSET + Felt::THREE } else { Felt::THREE }, // version
         sender_address,
-        hash_fee_fields(tip, l1_gas_bounds, l2_gas_bounds),
+        hash_fee_fields(tip, l1_gas_bounds, l2_gas_bounds, l1_data_gas_bounds),
         poseidon_hash_many(paymaster_data),
         chain_id,
         nonce,
@@ -321,16 +324,35 @@ fn encode_gas_bound(name: &[u8], bound: &ResourceBounds) -> Felt {
     Felt::from_bytes_be(&buffer)
 }
 
+// Prior to 0.13.4, L1 data gas bounds aren't included in the hash, but they are now in 0.13.4.
+// To make sure we can account for both pre and post 0.13.4 V3 transactions hash computation,
+// the L1 data gas bounds are marked as optional. We can't simply set the L1 data gas bounds to zero
+// for <0.13.4 transactions as it will procude completely different hash compared to not setting it
+// at all.
+//
+// Though, it should be noted that as of now, Katana only supports >=0.13.4 transactions.
+//
+// Reference: https://github.com/eqlabs/pathfinder/issues/2571
 fn hash_fee_fields(
     tip: u64,
     l1_gas_bounds: &ResourceBounds,
     l2_gas_bounds: &ResourceBounds,
+    l1_data_gas_bounds: Option<&ResourceBounds>,
 ) -> Felt {
-    poseidon_hash_many(&[
-        tip.into(),
-        encode_gas_bound(b"L1_GAS", l1_gas_bounds),
-        encode_gas_bound(b"L2_GAS", l2_gas_bounds),
-    ])
+    if let Some(data_gas_bounds) = l1_data_gas_bounds {
+        poseidon_hash_many(&[
+            tip.into(),
+            encode_gas_bound(b"L1_GAS", l1_gas_bounds),
+            encode_gas_bound(b"L2_GAS", l2_gas_bounds),
+            encode_gas_bound(b"L1_DATA", data_gas_bounds),
+        ])
+    } else {
+        poseidon_hash_many(&[
+            tip.into(),
+            encode_gas_bound(b"L1_GAS", l1_gas_bounds),
+            encode_gas_bound(b"L2_GAS", l2_gas_bounds),
+        ])
+    }
 }
 
 fn encode_da_mode(
@@ -433,6 +455,7 @@ mod tests {
             tip,
             &l1_gas_bounds,
             &l2_gas_bounds,
+            None,
             &paymaster_data,
             chain_id,
             nonce,
@@ -525,6 +548,7 @@ mod tests {
             tip,
             &l1_gas_bounds,
             &l2_gas_bounds,
+            None,
             &paymaster_data,
             chain_id,
             nonce,
@@ -621,6 +645,7 @@ mod tests {
             tip,
             &l1_gas_bounds,
             &l2_gas_bounds,
+            None,
             &paymaster_data,
             chain_id,
             nonce,

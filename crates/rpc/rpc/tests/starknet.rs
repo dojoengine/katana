@@ -1,4 +1,3 @@
-use std::fs::{self};
 use std::path::PathBuf;
 use std::sync::Arc;
 
@@ -15,11 +14,11 @@ use katana_primitives::genesis::constant::{
 };
 use katana_rpc_api::dev::DevApiClient;
 use katana_utils::TestNode;
+use num_traits::ToPrimitive;
 use starknet::accounts::{
     Account, AccountError, AccountFactory, ConnectedAccount, ExecutionEncoding,
-    OpenZeppelinAccountFactory, SingleOwnerAccount,
+    OpenZeppelinAccountFactory as OZAccountFactory, SingleOwnerAccount,
 };
-use starknet::core::types::contract::legacy::LegacyContractClass;
 use starknet::core::types::{
     BlockId, BlockTag, Call, DeclareTransactionReceipt, DeployAccountTransactionReceipt,
     EventFilter, EventsPage, ExecutionResult, Felt, MaybePendingBlockWithReceipts,
@@ -30,7 +29,7 @@ use starknet::core::types::{
 use starknet::core::utils::get_contract_address;
 use starknet::macros::{felt, selector};
 use starknet::providers::{Provider, ProviderError};
-use starknet::signers::{LocalWallet, Signer, SigningKey};
+use starknet::signers::{LocalWallet, SigningKey};
 use tokio::sync::Mutex;
 
 mod common;
@@ -46,7 +45,7 @@ async fn declare_and_deploy_contract() -> Result<()> {
     let (contract, compiled_class_hash) = common::prepare_contract_declaration_params(&path)?;
 
     let class_hash = contract.class_hash();
-    let res = account.declare_v2(contract.into(), compiled_class_hash).send().await?;
+    let res = account.declare_v3(contract.into(), compiled_class_hash).send().await?;
 
     // check that the tx is executed successfully and return the correct receipt
     let receipt = katana_utils::TxWaiter::new(res.transaction_hash, &provider).await?;
@@ -85,69 +84,7 @@ async fn declare_and_deploy_contract() -> Result<()> {
     let address = get_contract_address(Felt::ZERO, res.class_hash, &ctor_args, Felt::ZERO);
 
     let res = account
-        .execute_v1(vec![Call {
-            calldata,
-            to: DEFAULT_UDC_ADDRESS.into(),
-            selector: selector!("deployContract"),
-        }])
-        .send()
-        .await?;
-
-    // wait for the tx to be mined
-    katana_utils::TxWaiter::new(res.transaction_hash, &provider).await?;
-
-    // make sure the contract is deployed
-    let res = provider.get_class_hash_at(BlockId::Tag(BlockTag::Pending), address).await?;
-    assert_eq!(res, class_hash);
-
-    Ok(())
-}
-
-#[tokio::test]
-async fn declare_and_deploy_legacy_contract() -> Result<()> {
-    let sequencer = TestNode::new().await;
-
-    let account = sequencer.account();
-    let provider = sequencer.starknet_provider();
-
-    let path = PathBuf::from("tests/test_data/cairo0_contract.json");
-    let contract: LegacyContractClass = serde_json::from_reader(fs::File::open(path)?)?;
-
-    let class_hash = contract.class_hash()?;
-    let res = account.declare_legacy(contract.into()).send().await?;
-
-    let receipt = katana_utils::TxWaiter::new(res.transaction_hash, &provider).await?;
-    assert_matches!(receipt.receipt, TransactionReceipt::Declare(DeclareTransactionReceipt { .. }));
-
-    // check that the class is actually declared
-    assert!(provider.get_class(BlockId::Tag(BlockTag::Pending), class_hash).await.is_ok());
-
-    // check state update includes class in deprecated_declared_classes
-    let state_update = provider.get_state_update(BlockId::Tag(BlockTag::Latest)).await?;
-    match state_update {
-        MaybePendingStateUpdate::Update(update) => {
-            assert!(update.state_diff.deprecated_declared_classes.contains(&class_hash));
-        }
-        _ => panic!("Expected Update, got PendingUpdate"),
-    }
-
-    let ctor_args = vec![Felt::ONE];
-    let calldata = [
-        vec![
-            res.class_hash,              // class hash
-            Felt::ZERO,                  // salt
-            Felt::ZERO,                  // unique
-            Felt::from(ctor_args.len()), // constructor calldata len
-        ],
-        ctor_args.clone(),
-    ]
-    .concat();
-
-    // pre-compute the contract address of the would-be deployed contract
-    let address = get_contract_address(Felt::ZERO, res.class_hash, &ctor_args.clone(), Felt::ZERO);
-
-    let res = account
-        .execute_v1(vec![Call {
+        .execute_v3(vec![Call {
             calldata,
             to: DEFAULT_UDC_ADDRESS.into(),
             selector: selector!("deployContract"),
@@ -177,7 +114,7 @@ async fn declaring_already_existing_class() -> Result<()> {
     let class_hash = contract.class_hash();
 
     // Declare the class for the first time.
-    let res = account.declare_v2(contract.clone().into(), compiled_hash).send().await?;
+    let res = account.declare_v3(contract.clone().into(), compiled_hash).send().await?;
 
     // check that the tx is executed successfully and return the correct receipt
     let _ = katana_utils::TxWaiter::new(res.transaction_hash, &provider).await?;
@@ -193,7 +130,14 @@ async fn declaring_already_existing_class() -> Result<()> {
     // The value of the max fee is also irrelevant here, as the validator will only perform static
     // checks and will not run the account's validation.
 
-    let result = account.declare_v2(contract.into(), compiled_hash).max_fee(Felt::ONE).send().await;
+    let result = account
+        .declare_v3(contract.into(), compiled_hash)
+        .l1_gas(1)
+        .l2_gas(1)
+        .l1_data_gas(1)
+        .send()
+        .await;
+
     assert_account_starknet_err!(result.unwrap_err(), StarknetError::ClassAlreadyDeclared);
 
     Ok(())
@@ -204,7 +148,7 @@ async fn declaring_already_existing_class() -> Result<()> {
 async fn deploy_account(
     #[values(true, false)] disable_fee: bool,
     #[values(None, Some(1000))] block_time: Option<u64>,
-) -> Result<()> {
+) {
     // setup test sequencer with the given configuration
     let mut config = katana_utils::node::test_config();
     config.dev.fee = !disable_fee;
@@ -214,44 +158,45 @@ async fn deploy_account(
 
     let provider = sequencer.starknet_provider();
     let funding_account = sequencer.account();
-    let chain_id = provider.chain_id().await?;
+    let chain_id = provider.chain_id().await.unwrap();
 
-    // Precompute the contract address of the new account with the given parameters:
     let signer = LocalWallet::from(SigningKey::from_random());
-    let class_hash = DEFAULT_ACCOUNT_CLASS_HASH;
+    let class = DEFAULT_ACCOUNT_CLASS_HASH;
     let salt = felt!("0x123");
-    let ctor_args = [signer.get_public_key().await?.scalar()];
-    let computed_address = get_contract_address(salt, class_hash, &ctor_args, Felt::ZERO);
+
+    // starknet-rs's utility for deploying an OpenZeppelin account
+    let factory = OZAccountFactory::new(class, chain_id, &signer, &provider).await.unwrap();
+    let deploy_account_tx = factory.deploy_v3(salt);
+    let account_address = deploy_account_tx.address();
 
     // Fund the new account
     abigen_legacy!(FeeToken, "crates/rpc/rpc/tests/test_data/erc20.json");
-    let contract = FeeToken::new(DEFAULT_ETH_FEE_TOKEN_ADDRESS.into(), &funding_account);
+    let contract = FeeToken::new(DEFAULT_STRK_FEE_TOKEN_ADDRESS.into(), &funding_account);
 
     // send enough tokens to the new_account's address just to send the deploy account tx
-    let amount = Uint256 { low: felt!("0x1ba32524a3000"), high: Felt::ZERO };
-    let recipient = computed_address;
-    let res = contract.transfer(&recipient, &amount).send().await?;
-    katana_utils::TxWaiter::new(res.transaction_hash, &provider).await?;
+    let amount = Uint256 { low: felt!("0x5ea0fb889c9400"), high: Felt::ZERO };
+    let res = contract.transfer(&account_address, &amount).send().await.unwrap();
+    katana_utils::TxWaiter::new(res.transaction_hash, &provider).await.unwrap();
 
-    // starknet-rs's utility for deploying an OpenZeppelin account
-    let factory = OpenZeppelinAccountFactory::new(class_hash, chain_id, &signer, &provider).await?;
-    let res = factory.deploy_v1(salt).send().await?;
+    // send the deploy account transaction
+    let res = deploy_account_tx.send().await.unwrap();
     // the contract address in the send tx result must be the same as the computed one
-    assert_eq!(res.contract_address, computed_address);
+    assert_eq!(res.contract_address, account_address);
 
-    let receipt = katana_utils::TxWaiter::new(res.transaction_hash, &provider).await?;
+    let receipt = katana_utils::TxWaiter::new(res.transaction_hash, &provider).await.unwrap();
     assert_matches!(
         receipt.receipt,
         TransactionReceipt::DeployAccount(DeployAccountTransactionReceipt { contract_address, .. })  => {
             // the contract address in the receipt must be the same as the computed one
-            assert_eq!(contract_address, computed_address)
+            assert_eq!(contract_address, account_address)
         }
     );
 
     // Verify the `getClassHashAt` returns the same class hash that we use for the account
     // deployment
-    let res = provider.get_class_hash_at(BlockId::Tag(BlockTag::Pending), computed_address).await?;
-    assert_eq!(res, class_hash);
+    let res =
+        provider.get_class_hash_at(BlockId::Tag(BlockTag::Pending), account_address).await.unwrap();
+    assert_eq!(res, class);
 
     // deploy from empty balance,
     // need to test this case because of how blockifier's StatefulValidator works.
@@ -260,32 +205,31 @@ async fn deploy_account(
         let salt = felt!("0x456");
 
         // starknet-rs's utility for deploying an OpenZeppelin account
-        let factory =
-            OpenZeppelinAccountFactory::new(class_hash, chain_id, &signer, &provider).await?;
-        let res = factory.deploy_v1(salt).send().await?;
-        let ctor_args = [signer.get_public_key().await?.scalar()];
-        let computed_address = get_contract_address(salt, class_hash, &ctor_args, Felt::ZERO);
+        let deploy_account_tx = factory.deploy_v3(salt);
+        let account_address = deploy_account_tx.address();
 
+        // send the tx
+        let res = deploy_account_tx.send().await.unwrap();
         // the contract address in the send tx result must be the same as the computed one
-        assert_eq!(res.contract_address, computed_address);
+        assert_eq!(res.contract_address, account_address);
 
-        let receipt = katana_utils::TxWaiter::new(res.transaction_hash, &provider).await?;
+        let receipt = katana_utils::TxWaiter::new(res.transaction_hash, &provider).await.unwrap();
         assert_matches!(
             receipt.receipt,
             TransactionReceipt::DeployAccount(DeployAccountTransactionReceipt { contract_address, .. })  => {
                 // the contract address in the receipt must be the same as the computed one
-                assert_eq!(contract_address, computed_address)
+                assert_eq!(contract_address, account_address)
             }
         );
 
         // Verify the `getClassHashAt` returns the same class hash that we use for the account
         // deployment
-        let res =
-            provider.get_class_hash_at(BlockId::Tag(BlockTag::Pending), computed_address).await?;
-        assert_eq!(res, class_hash);
+        let res = provider
+            .get_class_hash_at(BlockId::Tag(BlockTag::Pending), account_address)
+            .await
+            .unwrap();
+        assert_eq!(res, class);
     }
-
-    Ok(())
 }
 
 abigen_legacy!(Erc20Contract, "crates/rpc/rpc/tests/test_data/erc20.json", derives(Clone));
@@ -366,13 +310,7 @@ async fn concurrent_transactions_submissions(
             let mut nonce = nonce.lock().await;
             let contract = Erc20Contract::new(DEFAULT_ETH_FEE_TOKEN_ADDRESS.into(), account);
 
-            let res = contract
-                .transfer(&recipient, &amount)
-                .nonce(*nonce)
-                .max_fee(Felt::ZERO)
-                .send()
-                .await
-                .unwrap();
+            let res = contract.transfer(&recipient, &amount).nonce(*nonce).send().await.unwrap();
 
             txs.lock().await.insert(res.transaction_hash);
             *nonce += Felt::ONE;
@@ -409,9 +347,7 @@ async fn concurrent_transactions_submissions(
 
 #[rstest::rstest]
 #[tokio::test]
-async fn ensure_validator_have_valid_state(
-    #[values(None, Some(1000))] block_time: Option<u64>,
-) -> Result<()> {
+async fn ensure_validator_have_valid_state(#[values(None, Some(1000))] block_time: Option<u64>) {
     let mut config = katana_utils::node::test_config();
     config.dev.fee = true;
     config.sequencing.block_time = block_time;
@@ -427,16 +363,21 @@ async fn ensure_validator_have_valid_state(
     let (low, high) = split_felt(Felt::from(DEFAULT_PREFUNDED_ACCOUNT_BALANCE / 2));
     let amount = Uint256 { low, high };
 
-    let res = contract.transfer(&recipient, &amount).send().await?;
-    katana_utils::TxWaiter::new(res.transaction_hash, &sequencer.starknet_provider()).await?;
+    let res = contract.transfer(&recipient, &amount).send().await.unwrap();
+    katana_utils::TxWaiter::new(res.transaction_hash, &sequencer.starknet_provider())
+        .await
+        .unwrap();
 
     // this should fail validation due to insufficient balance because we specify max fee > the
     // actual balance that we have now.
-    let fee = Felt::from(DEFAULT_PREFUNDED_ACCOUNT_BALANCE);
-    let err = contract.transfer(&recipient, &amount).max_fee(fee).send().await.unwrap_err();
-    assert_account_starknet_err!(err, StarknetError::InsufficientAccountBalance);
+    let err = contract
+        .transfer(&recipient, &amount)
+        .gas_estimate_multiplier(1000000.0)
+        .send()
+        .await
+        .unwrap_err();
 
-    Ok(())
+    assert_account_starknet_err!(err, StarknetError::InsufficientAccountBalance);
 }
 
 #[rstest::rstest]
@@ -464,7 +405,8 @@ async fn send_txs_with_insufficient_fee(
     // -----------------------------------------------------------------------
     //  transaction with low max fee (underpriced).
 
-    let res = contract.transfer(&recipient, &amount).max_fee(Felt::TWO).send().await;
+    let res =
+        contract.transfer(&recipient, &amount).l2_gas(1).l1_gas(1).l1_data_gas(1).send().await;
 
     if disable_fee {
         // In no fee mode, the transaction resources (ie max fee) is totally ignored. So doesn't
@@ -472,12 +414,16 @@ async fn send_txs_with_insufficient_fee(
         assert_matches!(res, Ok(tx) => {
             let tx_hash = tx.transaction_hash;
             assert_matches!(katana_utils::TxWaiter::new(tx_hash, &sequencer.starknet_provider()).await, Ok(_));
+            assert_matches!(katana_utils::TxWaiter::new(tx_hash, &sequencer.starknet_provider()).await, Ok(_));
         });
 
         let nonce = sequencer.account().get_nonce().await?;
         assert_eq!(initial_nonce + 1, nonce, "Nonce should change in fee-disabled mode");
     } else {
-        assert_account_starknet_err!(res.unwrap_err(), StarknetError::InsufficientMaxFee);
+        assert_account_starknet_err!(
+            res.unwrap_err(),
+            StarknetError::InsufficientResourcesForValidate
+        );
         let nonce = sequencer.account().get_nonce().await?;
         assert_eq!(initial_nonce, nonce, "Nonce shouldn't change in fee-enabled mode");
     }
@@ -485,8 +431,10 @@ async fn send_txs_with_insufficient_fee(
     // -----------------------------------------------------------------------
     //  transaction with insufficient balance.
 
-    let fee = Felt::from(DEFAULT_PREFUNDED_ACCOUNT_BALANCE + 1);
-    let res = contract.transfer(&recipient, &amount).max_fee(fee).send().await;
+    // Set the gas estimate multiplier high enough to artficially bump the total resource cost so
+    // that it exceeds what the account can actually cover.
+    let res =
+        contract.transfer(&recipient, &amount).gas_estimate_multiplier(1000000.0).send().await;
 
     if disable_fee {
         // in no fee mode, account balance is ignored. as long as the max fee (aka resources) is
@@ -532,11 +480,15 @@ async fn send_txs_with_invalid_signature(
     );
 
     // setup test contract to interact with.
-    let contract = Erc20Contract::new(DEFAULT_ETH_FEE_TOKEN_ADDRESS.into(), &account);
+    let contract = Erc20Contract::new(DEFAULT_STRK_FEE_TOKEN_ADDRESS.into(), &account);
 
     // function call params
     let recipient = Felt::ONE;
     let amount = Uint256 { low: Felt::ONE, high: Felt::ZERO };
+
+    // get the base fee
+    let simulated = contract.transfer(&recipient, &amount).simulate(true, false).await.unwrap();
+    let fee = simulated.fee_estimation;
 
     // initial sender's account nonce. use to assert how the txs validity change the account nonce.
     let initial_nonce = account.get_nonce().await?;
@@ -545,7 +497,16 @@ async fn send_txs_with_invalid_signature(
     //  transaction with invalid signatures.
 
     // we set the max fee manually here to skip fee estimation. we want to test the pool validator.
-    let res = contract.transfer(&recipient, &amount).max_fee(felt!("0x1111111111")).send().await;
+    let res = contract
+        .transfer(&recipient, &amount)
+        .l1_gas(fee.l1_gas_consumed.to_u64().unwrap())
+        .l2_gas(fee.l2_gas_consumed.to_u64().unwrap())
+        .l1_data_gas(fee.l1_data_gas_consumed.to_u64().unwrap())
+        .l1_gas_price(fee.l1_gas_price.to_u128().unwrap())
+        .l2_gas_price(fee.l2_gas_price.to_u128().unwrap())
+        .l1_data_gas_price(fee.l1_data_gas_price.to_u128().unwrap())
+        .send()
+        .await;
 
     if disable_validate {
         // Wait for the transaction to be accepted
@@ -585,9 +546,6 @@ async fn send_txs_with_invalid_nonces(
     let recipient = Felt::ONE;
     let amount = Uint256 { low: Felt::ONE, high: Felt::ZERO };
 
-    // set the fee manually here to skip fee estimation. we want to test the pool validator.
-    let fee = felt!("0x11111111111");
-
     // send a valid transaction first to increment the nonce (so that we can test nonce < current
     // nonce later)
     let res = contract.transfer(&recipient, &amount).send().await?;
@@ -597,11 +555,25 @@ async fn send_txs_with_invalid_nonces(
     let initial_nonce = account.get_nonce().await?;
     assert_eq!(initial_nonce, Felt::ONE, "Initial nonce after sending 1st tx should be 1.");
 
+    // get the base fee
+    let fee = contract.transfer(&recipient, &amount).estimate_fee().await.unwrap();
+
     // -----------------------------------------------------------------------
     //  transaction with nonce < account nonce.
 
     let old_nonce = initial_nonce - Felt::ONE;
-    let res = contract.transfer(&recipient, &amount).nonce(old_nonce).max_fee(fee).send().await;
+    let res = contract
+        .transfer(&recipient, &amount)
+        .nonce(old_nonce)
+        .l1_gas(fee.l1_gas_consumed.to_u64().unwrap())
+        .l2_gas(fee.l2_gas_consumed.to_u64().unwrap())
+        .l1_data_gas(fee.l1_data_gas_consumed.to_u64().unwrap())
+        .l1_gas_price(fee.l1_gas_price.to_u128().unwrap())
+        .l2_gas_price(fee.l2_gas_price.to_u128().unwrap())
+        .l1_data_gas_price(fee.l1_data_gas_price.to_u128().unwrap())
+        .send()
+        .await;
+
     assert_account_starknet_err!(res.unwrap_err(), StarknetError::InvalidTransactionNonce);
 
     let nonce = account.get_nonce().await?;
@@ -611,7 +583,18 @@ async fn send_txs_with_invalid_nonces(
     //  transaction with nonce = account nonce.
 
     let curr_nonce = initial_nonce;
-    let res = contract.transfer(&recipient, &amount).nonce(curr_nonce).max_fee(fee).send().await?;
+    let res = contract
+        .transfer(&recipient, &amount)
+        .nonce(curr_nonce)
+        .l1_gas(fee.l1_gas_consumed.to_u64().unwrap())
+        .l2_gas(fee.l2_gas_consumed.to_u64().unwrap())
+        .l1_data_gas(fee.l1_data_gas_consumed.to_u64().unwrap())
+        .l1_gas_price(fee.l1_gas_price.to_u128().unwrap())
+        .l2_gas_price(fee.l2_gas_price.to_u128().unwrap())
+        .l1_data_gas_price(fee.l1_data_gas_price.to_u128().unwrap())
+        .send()
+        .await?;
+
     katana_utils::TxWaiter::new(res.transaction_hash, &provider).await?;
 
     let nonce = account.get_nonce().await?;
@@ -626,7 +609,18 @@ async fn send_txs_with_invalid_nonces(
     // invalid with nonce mismatch error.
 
     let new_nonce = felt!("0x100");
-    let res = contract.transfer(&recipient, &amount).nonce(new_nonce).max_fee(fee).send().await;
+    let res = contract
+        .transfer(&recipient, &amount)
+        .nonce(new_nonce)
+        .l1_gas(fee.l1_gas_consumed.to_u64().unwrap())
+        .l2_gas(fee.l2_gas_consumed.to_u64().unwrap())
+        .l1_data_gas(fee.l1_data_gas_consumed.to_u64().unwrap())
+        .l1_gas_price(fee.l1_gas_price.to_u128().unwrap())
+        .l2_gas_price(fee.l2_gas_price.to_u128().unwrap())
+        .l1_data_gas_price(fee.l1_data_gas_price.to_u128().unwrap())
+        .send()
+        .await;
+
     assert_account_starknet_err!(res.unwrap_err(), StarknetError::InvalidTransactionNonce);
 
     let nonce = account.get_nonce().await?;
@@ -918,6 +912,7 @@ async fn block_traces() -> Result<()> {
     for _ in 0..2 {
         let res = contract.transfer(&recipient, &amount).send().await?;
         katana_utils::TxWaiter::new(res.transaction_hash, &provider).await?;
+        katana_utils::TxWaiter::new(res.transaction_hash, &provider).await?;
         hashes.push(res.transaction_hash);
     }
 
@@ -942,6 +937,7 @@ async fn block_traces() -> Result<()> {
 
     for _ in 0..3 {
         let res = contract.transfer(&recipient, &amount).send().await?;
+        katana_utils::TxWaiter::new(res.transaction_hash, &provider).await?;
         katana_utils::TxWaiter::new(res.transaction_hash, &provider).await?;
         hashes.push(res.transaction_hash);
     }
@@ -978,7 +974,7 @@ async fn v3_transactions() {
 
     let res = account
         .execute_v3(vec![Call { to, selector, calldata }])
-        .gas(100000000000)
+        .l2_gas(100000000000)
         .send()
         .await
         .unwrap();
@@ -1012,6 +1008,7 @@ async fn fetch_pending_blocks() {
 
     for _ in 0..3 {
         let res = contract.transfer(&recipient, &amount).send().await.unwrap();
+        katana_utils::TxWaiter::new(res.transaction_hash, &provider).await.unwrap();
         katana_utils::TxWaiter::new(res.transaction_hash, &provider).await.unwrap();
         txs.push(res.transaction_hash);
     }
@@ -1050,9 +1047,9 @@ async fn fetch_pending_blocks() {
     if let MaybePendingBlockWithReceipts::PendingBlock(block) = block_with_receipts {
         assert_eq!(block.transactions.len(), txs.len());
         assert_eq!(block.parent_hash, latest_block_hash);
-        assert_eq!(txs[0], *block.transactions[0].transaction.transaction_hash());
-        assert_eq!(txs[1], *block.transactions[1].transaction.transaction_hash());
-        assert_eq!(txs[2], *block.transactions[2].transaction.transaction_hash());
+        assert_eq!(txs[0], *block.transactions[0].receipt.transaction_hash());
+        assert_eq!(txs[1], *block.transactions[1].receipt.transaction_hash());
+        assert_eq!(txs[2], *block.transactions[2].receipt.transaction_hash());
     } else {
         panic!("expected pending block with transaction receipts")
     }
@@ -1115,6 +1112,7 @@ async fn fetch_pending_blocks_in_instant_mode() {
 
     let res = contract.transfer(&recipient, &amount).send().await.unwrap();
     katana_utils::TxWaiter::new(res.transaction_hash, &provider).await.unwrap();
+    katana_utils::TxWaiter::new(res.transaction_hash, &provider).await.unwrap();
 
     let block_id = BlockId::Tag(BlockTag::Pending);
 
@@ -1143,7 +1141,7 @@ async fn fetch_pending_blocks_in_instant_mode() {
     if let MaybePendingBlockWithReceipts::Block(block) = block_with_receipts {
         assert_eq!(block.transactions.len(), 1);
         assert_eq!(block.parent_hash, latest_block_hash);
-        assert_eq!(*block.transactions[0].transaction.transaction_hash(), res.transaction_hash);
+        assert_eq!(*block.transactions[0].receipt.transaction_hash(), res.transaction_hash);
     } else {
         panic!("expected pending block with transaction receipts")
     }

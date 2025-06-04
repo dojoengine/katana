@@ -43,7 +43,7 @@ use katana_rpc_types::trie::{
 use katana_rpc_types::FeeEstimate;
 use katana_rpc_types_builder::ReceiptBuilder;
 use katana_tasks::{BlockingTaskPool, TokioTaskSpawner};
-use starknet::core::types::{ResultPageRequest, TransactionExecutionStatus, TransactionStatus};
+use starknet::core::types::{ResultPageRequest, TransactionStatus};
 
 use crate::permit::Permits;
 use crate::utils::events::{Cursor, EventBlockId};
@@ -537,10 +537,12 @@ where
                         });
                     };
 
-                    let exec_status = if receipt.is_reverted() {
-                        TransactionExecutionStatus::Reverted
+                    let exec_status = if let Some(reason) = receipt.revert_reason() {
+                        starknet::core::types::ExecutionResult::Reverted {
+                            reason: reason.to_string(),
+                        }
                     } else {
-                        TransactionExecutionStatus::Succeeded
+                        starknet::core::types::ExecutionResult::Succeeded
                     };
 
                     let status = match status {
@@ -568,13 +570,15 @@ where
                     let status = match res {
                         ExecutionResult::Failed { .. } => TransactionStatus::Rejected,
                         ExecutionResult::Success { receipt, .. } => {
-                            if receipt.is_reverted() {
+                            if let Some(reason) = receipt.revert_reason() {
                                 TransactionStatus::AcceptedOnL2(
-                                    TransactionExecutionStatus::Reverted,
+                                    starknet::core::types::ExecutionResult::Reverted {
+                                        reason: reason.to_string(),
+                                    },
                                 )
                             } else {
                                 TransactionStatus::AcceptedOnL2(
-                                    TransactionExecutionStatus::Succeeded,
+                                    starknet::core::types::ExecutionResult::Succeeded,
                                 )
                             }
                         }

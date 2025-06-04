@@ -360,7 +360,6 @@ mod tests {
     use katana_primitives::class::{ClassHash, CompiledClass, CompiledClassHash};
     use katana_primitives::contract::{ContractAddress, GenericContractInfo};
     use katana_primitives::execution::TypedTransactionExecutionInfo;
-    use katana_primitives::fee::{PriceUnit, TxFeeInfo};
     use katana_primitives::receipt::{InvokeTxReceipt, Receipt};
     use katana_primitives::transaction::{InvokeTx, Tx, TxHash, TxNumber};
     use starknet::macros::felt;
@@ -444,9 +443,9 @@ mod tests {
             (Receipt, Receipt::Invoke(InvokeTxReceipt {
                 revert_error: None,
                 events: Vec::new(),
+                fee: Default::default(),
                 messages_sent: Vec::new(),
                 execution_resources: Default::default(),
-                fee: TxFeeInfo { gas_consumed: 0, gas_price: 0, overall_fee: 0, unit: PriceUnit::Wei },
             })),
             (TrieDatabaseValue, TrieDatabaseValue::default()),
             (TrieHistoryEntry, TrieHistoryEntry {
