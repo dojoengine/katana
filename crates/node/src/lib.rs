@@ -84,6 +84,9 @@ impl Node {
             let _ = PrometheusRecorder::install("katana")?;
         }
 
+        // Initialize trace propagation for Google Cloud distributed tracing support
+        katana_rpc::telemetry::init_trace_propagation();
+
         // --- build executor factory
 
         let fee_token_addresses = match config.chain.as_ref() {

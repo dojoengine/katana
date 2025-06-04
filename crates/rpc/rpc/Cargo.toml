@@ -37,6 +37,11 @@ tower-http.workspace = true
 tracing.workspace = true
 url.workspace = true
 
+# OpenTelemetry dependencies for trace context propagation
+opentelemetry = { workspace = true }
+opentelemetry-http = { workspace = true }
+opentelemetry-stackdriver = { workspace = true }
+
 [dev-dependencies]
 katana-chain-spec.workspace = true
 katana-messaging.workspace = true

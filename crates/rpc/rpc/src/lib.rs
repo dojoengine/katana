@@ -11,8 +11,8 @@ use jsonrpsee::core::{RegisterMethodError, TEN_MB_SIZE_BYTES};
 use jsonrpsee::server::{Server, ServerConfig, ServerHandle};
 use jsonrpsee::RpcModule;
 use katana_explorer::ExplorerLayer;
-use tower::ServiceBuilder;
 use tracing::info;
+use tower::ServiceBuilder;
 
 #[cfg(feature = "cartridge")]
 pub mod cartridge;
@@ -22,11 +22,13 @@ pub mod dev;
 pub mod health;
 pub mod metrics;
 pub mod starknet;
+pub mod telemetry;
 mod utils;
 
 use cors::Cors;
 use health::HealthCheck;
 use metrics::RpcServerMetricsLayer;
+use telemetry::TraceContextLayer;
 
 /// The default maximum number of concurrent RPC connections.
 pub const DEFAULT_RPC_MAX_CONNECTIONS: u32 = 100;
@@ -84,6 +86,7 @@ pub struct RpcServer {
     cors: Option<Cors>,
     health_check: bool,
     explorer: bool,
+
     module: RpcModule<()>,
     max_connections: u32,
     max_request_body_size: u32,
@@ -189,6 +192,7 @@ impl RpcServer {
         let rpc_metrics = self.metrics.then(|| RpcServerMetricsLayer::new(&modules));
 
         let http_middleware = ServiceBuilder::new()
+            .layer(TraceContextLayer::new())
             .option_layer(self.cors.clone())
             .option_layer(health_check_proxy)
             .option_layer(explorer_layer)
