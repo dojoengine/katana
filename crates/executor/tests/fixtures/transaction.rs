@@ -63,7 +63,7 @@ pub fn invoke_executable_tx(
         tip,
         &resource_bounds.l1_gas,
         &resource_bounds.l2_gas,
-        &resource_bounds.l1_data_gas,
+        Some(&resource_bounds.l1_data_gas),
         &[],
         chain_id.into(),
         nonce,

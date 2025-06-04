@@ -79,7 +79,7 @@ pub fn compute_deploy_account_v3_tx_hash(
     tip: u64,
     l1_gas_bounds: &ResourceBounds,
     l2_gas_bounds: &ResourceBounds,
-    l1_data_gas_bounds: &ResourceBounds,
+    l1_data_gas_bounds: Option<&ResourceBounds>,
     paymaster_data: &[Felt],
     chain_id: Felt,
     nonce: Felt,
@@ -177,7 +177,7 @@ pub fn compute_declare_v3_tx_hash(
     tip: u64,
     l1_gas_bounds: &ResourceBounds,
     l2_gas_bounds: &ResourceBounds,
-    l1_data_gas_bounds: &ResourceBounds,
+    l1_data_gas_bounds: Option<&ResourceBounds>,
     paymaster_data: &[Felt],
     chain_id: Felt,
     nonce: Felt,
@@ -230,7 +230,7 @@ pub fn compute_invoke_v3_tx_hash(
     tip: u64,
     l1_gas_bounds: &ResourceBounds,
     l2_gas_bounds: &ResourceBounds,
-    l1_data_gas_bounds: &ResourceBounds,
+    l1_data_gas_bounds: Option<&ResourceBounds>,
     paymaster_data: &[Felt],
     chain_id: Felt,
     nonce: Felt,
@@ -324,18 +324,35 @@ fn encode_gas_bound(name: &[u8], bound: &ResourceBounds) -> Felt {
     Felt::from_bytes_be(&buffer)
 }
 
+// Prior to 0.13.4, L1 data gas bounds aren't included in the hash, but they are now in 0.13.4.
+// To make sure we can account for both pre and post 0.13.4 V3 transactions hash computation,
+// the L1 data gas bounds are marked as optional. We can't simply set the L1 data gas bounds to zero
+// for <0.13.4 transactions as it will procude completely different hash compared to not setting it
+// at all.
+//
+// Though, it should be noted that as of now, Katana only supports >=0.13.4 transactions.
+//
+// Reference: https://github.com/eqlabs/pathfinder/issues/2571
 fn hash_fee_fields(
     tip: u64,
     l1_gas_bounds: &ResourceBounds,
     l2_gas_bounds: &ResourceBounds,
-    l1_data_gas_bounds: &ResourceBounds,
+    l1_data_gas_bounds: Option<&ResourceBounds>,
 ) -> Felt {
-    poseidon_hash_many(&[
-        tip.into(),
-        encode_gas_bound(b"L1_GAS", l1_gas_bounds),
-        encode_gas_bound(b"L2_GAS", l2_gas_bounds),
-        encode_gas_bound(b"L1_DATA", l1_data_gas_bounds),
-    ])
+    if let Some(data_gas_bounds) = l1_data_gas_bounds {
+        poseidon_hash_many(&[
+            tip.into(),
+            encode_gas_bound(b"L1_GAS", l1_gas_bounds),
+            encode_gas_bound(b"L2_GAS", l2_gas_bounds),
+            encode_gas_bound(b"L1_DATA", data_gas_bounds),
+        ])
+    } else {
+        poseidon_hash_many(&[
+            tip.into(),
+            encode_gas_bound(b"L1_GAS", l1_gas_bounds),
+            encode_gas_bound(b"L2_GAS", l2_gas_bounds),
+        ])
+    }
 }
 
 fn encode_da_mode(
@@ -424,7 +441,6 @@ mod tests {
         let tip = 0;
         let l1_gas_bounds = ResourceBounds { max_amount: 0x29, max_price_per_unit: 0x16b812d3fa41 };
         let l2_gas_bounds = ResourceBounds { max_amount: 0x0, max_price_per_unit: 0x0 };
-        let l1_data_gas_bounds = ResourceBounds { max_amount: 0x0, max_price_per_unit: 0x0 };
         let paymaster_data = vec![];
         let chain_id = ChainId::MAINNET.id();
         let nonce = felt!("0x0");
@@ -439,7 +455,7 @@ mod tests {
             tip,
             &l1_gas_bounds,
             &l2_gas_bounds,
-            &l1_data_gas_bounds,
+            None,
             &paymaster_data,
             chain_id,
             nonce,
@@ -518,7 +534,6 @@ mod tests {
         let tip = 0;
         let l1_gas_bounds = ResourceBounds { max_amount: 0x186a0, max_price_per_unit: 0x2540be400 };
         let l2_gas_bounds = ResourceBounds { max_amount: 0x0, max_price_per_unit: 0x0 };
-        let l1_data_gas_bounds = ResourceBounds { max_amount: 0x0, max_price_per_unit: 0x0 };
         let paymaster_data = vec![];
         let chain_id = ChainId::GOERLI.id();
         let nonce = felt!("0x1");
@@ -533,7 +548,7 @@ mod tests {
             tip,
             &l1_gas_bounds,
             &l2_gas_bounds,
-            &l1_data_gas_bounds,
+            None,
             &paymaster_data,
             chain_id,
             nonce,
@@ -617,7 +632,6 @@ mod tests {
         let tip = 0;
         let l1_gas_bounds = ResourceBounds { max_amount: 0x9b, max_price_per_unit: 0x1d744c7328c8 };
         let l2_gas_bounds = ResourceBounds { max_amount: 0x0, max_price_per_unit: 0x0 };
-        let l1_data_gas_bounds = ResourceBounds { max_amount: 0x0, max_price_per_unit: 0x0 };
         let paymaster_data = vec![];
         let chain_id = ChainId::MAINNET.id();
         let nonce = felt!("0x761");
@@ -631,7 +645,7 @@ mod tests {
             tip,
             &l1_gas_bounds,
             &l2_gas_bounds,
-            &l1_data_gas_bounds,
+            None,
             &paymaster_data,
             chain_id,
             nonce,
