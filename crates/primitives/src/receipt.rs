@@ -206,11 +206,32 @@ impl ReceiptWithTxHash {
 
     /// Computes the hash of the receipt. This is used for computing the receipts commitment.
     ///
+    /// The hash of a transaction receipt is defined as:
+    ///
+    /// ```
+    /// h(
+    ///     transaction_hash,
+    ///     actual_fee,
+    ///     h(messages),
+    ///     sn_keccak(revert_reason),
+    ///     h(l2_gas_consumed, l1_gas_consumed, l1_data_gas_consumed)
+    /// )
+    /// ```
+    ///
     /// See the Starknet [docs] for reference.
     ///
     /// [docs]: https://docs.starknet.io/architecture-and-concepts/network-architecture/block-structure/#receipt_hash
+    //
     pub fn compute_hash(&self) -> Felt {
+        let resources_used = self.resources_used();
+        let gas_uasge = hash::Poseidon::hash_array(&[
+            resources_used.gas.l2_gas.into(),
+            resources_used.gas.l1_gas.into(),
+            resources_used.gas.l1_data_gas.into(),
+        ]);
+
         let messages_hash = self.compute_messages_to_l1_hash();
+
         let revert_reason_hash = if let Some(reason) = self.revert_reason() {
             starknet_keccak(reason.as_bytes())
         } else {
@@ -222,9 +243,7 @@ impl ReceiptWithTxHash {
             self.receipt.fee().overall_fee.into(),
             messages_hash,
             revert_reason_hash,
-            Felt::ZERO, // L2 gas consumption.
-            self.receipt.resources_used().gas.l2_gas.into(),
-            // self.receipt.fee().l1_data_gas.into(),
+            gas_uasge,
         ])
     }
 
