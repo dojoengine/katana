@@ -168,6 +168,22 @@ pub fn to_executor_tx(mut tx: ExecutableTxWithHash, mut flags: ExecutionFlags) -
         flags = flags.with_fee(!skip_fee_on_zero_gas(&tx));
     }
 
+    // In blockifier, if all the resource bounds are specified (ie., the
+    // ValidResourceBounds::AllResources enum in blockifier types), then blockifier will use the
+    // max l2 gas as the initial gas for this transaction's execution. So when we do fee estimates,
+    // usually the resource bounds are all set to zero. so executing them as is will result in
+    // an 'out of gas' error - because the initial gas will end up being zero.
+    //
+    // On fee disabled mode, we completely ignore any fee/resource bounds set by the transaction.
+    // We always execute the transaction regardless whether the sender's have enough balance
+    // (if the set max fee/resource bounds exceed the sender's balance), or if the transaction's
+    // fee/resource bounds isn't actually enough to cover the entire transaction's execution.
+    // So we artifically set the max initial gas so that blockifier will have enough initial sierra
+    // gas to execute the transaction.
+    //
+    // Same case for when the transaction's fee/resource bounds are not set at all.
+    //
+    // See https://github.com/dojoengine/sequencer/blob/5d737b9c90a14bdf4483d759d1a1d4ce64aa9fd2/crates/blockifier/src/transaction/account_transaction.rs#L858
     if !flags.fee() {
         set_max_initial_sierra_gas(&mut tx);
     }
@@ -387,16 +403,6 @@ pub fn to_executor_tx(mut tx: ExecutableTxWithHash, mut flags: ExecutionFlags) -
     }
 }
 
-// The reason why we do this, ie bcs in blockifier, if all the ValidResourceBounds::AllResources are
-// given, then it will use the max l2 gas as the initial gas for the transaction execution.
-// So when we do fee estimates, usually the resource bounds are all set to zero. so executing them
-// without calling this function will result in an out of gas error - because the initial gas
-// will end up being zero.
-//
-// Similarly, if the node is running in fee disabled mode, we want to completely ignore the resource
-// bounds specified in the tx. So we artifically set the max initial gas in case the tx resource
-// bounds isn't zero or not enough to run the tx to completion, bcs then blockifier will use the max
-// l2 gas as the initial gas for the transaction execution.
 fn set_max_initial_sierra_gas(tx: &mut ExecutableTxWithHash) {
     match &mut tx.transaction {
         ExecutableTx::Invoke(InvokeTx::V3(ref mut tx)) => {
