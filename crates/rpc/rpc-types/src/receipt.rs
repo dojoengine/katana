@@ -1,17 +1,14 @@
 use katana_primitives::block::FinalityStatus;
-use katana_primitives::fee::{PriceUnit, TxFeeInfo};
+use katana_primitives::fee::{FeeInfo, PriceUnit};
 use katana_primitives::receipt::{self, MessageToL1, Receipt};
 use katana_primitives::transaction::TxHash;
 use serde::{Deserialize, Serialize};
 pub use starknet::core::types::ReceiptBlock;
 use starknet::core::types::{
-    DataAvailabilityResources, DataResources, DeclareTransactionReceipt,
-    DeployAccountTransactionReceipt, ExecutionResources, ExecutionResult, FeePayment, Hash256,
-    InvokeTransactionReceipt, L1HandlerTransactionReceipt, TransactionFinalityStatus,
-    TransactionReceipt, TransactionReceiptWithBlockInfo,
+    DeclareTransactionReceipt, DeployAccountTransactionReceipt, ExecutionResources,
+    ExecutionResult, FeePayment, Hash256, InvokeTransactionReceipt, L1HandlerTransactionReceipt,
+    TransactionFinalityStatus, TransactionReceipt, TransactionReceiptWithBlockInfo,
 };
-
-use crate::trace::to_rpc_computation_resources;
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
 #[serde(transparent)]
@@ -163,18 +160,14 @@ impl From<katana_primitives::receipt::Event> for Event {
 }
 
 fn to_rpc_resources(resources: receipt::ExecutionResources) -> ExecutionResources {
-    let data_resources = to_da_resources(resources.da_resources);
-    let computation_resources = to_rpc_computation_resources(resources.computation_resources);
-    ExecutionResources { computation_resources, data_resources }
+    ExecutionResources {
+        l2_gas: resources.gas.l2_gas,
+        l1_gas: resources.gas.l1_gas,
+        l1_data_gas: resources.gas.l1_data_gas,
+    }
 }
 
-fn to_da_resources(resources: receipt::DataAvailabilityResources) -> DataResources {
-    let l1_gas = resources.l1_gas;
-    let l1_data_gas = resources.l1_data_gas;
-    DataResources { data_availability: DataAvailabilityResources { l1_gas, l1_data_gas } }
-}
-
-fn to_rpc_fee(fee: TxFeeInfo) -> FeePayment {
+fn to_rpc_fee(fee: FeeInfo) -> FeePayment {
     let unit = match fee.unit {
         PriceUnit::Wei => starknet::core::types::PriceUnit::Wei,
         PriceUnit::Fri => starknet::core::types::PriceUnit::Fri,

@@ -306,7 +306,7 @@ mod tests {
 
     use super::*;
 
-    const SEPOLIA_URL: &str = "https://api.cartridge.gg/x/starknet/sepolia";
+    const SEPOLIA_URL: &str = "https://api.cartridge.gg/x/starknet/sepolia/rpc/v0_8";
     const FORK_BLOCK_NUMBER: BlockNumber = 268_471;
 
     #[tokio::test]
