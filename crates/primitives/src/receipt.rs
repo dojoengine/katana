@@ -214,7 +214,7 @@ impl ReceiptWithTxHash {
     ///     actual_fee,
     ///     h(messages),
     ///     sn_keccak(revert_reason),
-    ///     h(l2_gas_consumed, l1_gas_consumed, l1_data_gas_consumed)
+    ///     h(l2_gas_consumed, l1_gas_consumed, l1_data_gas_consumed),
     /// )
     /// ```
     ///
