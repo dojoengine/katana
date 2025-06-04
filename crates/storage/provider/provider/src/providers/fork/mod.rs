@@ -6,8 +6,8 @@ use katana_db::abstraction::Database;
 use katana_db::models::block::StoredBlockBodyIndices;
 use katana_fork::{Backend, BackendClient};
 use katana_primitives::block::{
-    Block, BlockHash, BlockHashOrNumber, BlockNumber, BlockWithTxHashes, FinalityStatus, Header,
-    SealedBlockWithStatus,
+    Block, BlockHash, BlockHashOrNumber, BlockIdOrTag, BlockNumber, BlockWithTxHashes,
+    FinalityStatus, Header, SealedBlockWithStatus,
 };
 use katana_primitives::class::{ClassHash, CompiledClassHash};
 use katana_primitives::contract::ContractAddress;
@@ -39,7 +39,7 @@ mod trie;
 pub struct ForkedProvider<Db: Database = katana_db::Db> {
     backend: BackendClient,
     provider: Arc<DbProvider<Db>>,
-    rpc_provider: Arc<JsonRpcClient<HttpTransport>>,
+    fork_url: Url,
 }
 
 impl<Db: Database> ForkedProvider<Db> {
@@ -51,19 +51,15 @@ impl<Db: Database> ForkedProvider<Db> {
     pub fn new(db: Db, block_id: BlockHashOrNumber, provider: StarknetClient) -> Self {
         let backend = Backend::new(provider.clone(), block_id).expect("failed to create backend");
         let db_provider = Arc::new(DbProvider::new(db));
-        Self { 
-            provider: db_provider, 
-            backend, 
-            rpc_provider: provider 
-        }
+        Self { provider: db_provider, backend, fork_url }
     }
 
     pub fn backend(&self) -> &BackendClient {
         &self.backend
     }
 
-    pub fn rpc_provider(&self) -> &Arc<JsonRpcClient<HttpTransport>> {
-        &self.rpc_provider
+    pub fn fork_url(&self) -> &Url {
+        &self.fork_url
     }
 }
 

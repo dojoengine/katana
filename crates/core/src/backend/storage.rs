@@ -91,7 +91,7 @@ impl Blockchain {
         fork_block: Option<BlockHashOrNumber>,
         chain: &mut katana_chain_spec::dev::ChainSpec,
     ) -> Result<(Self, BlockNumber)> {
-        let provider = StarknetClient::new(HttpClientBuilder::new().build(fork_url)?);
+        let provider = StarknetClient::new(HttpClientBuilder::new().build(fork_url.clone())?);
         let chain_id = provider.chain_id().await.context("failed to fetch forked network id")?;
 
         // if the id is not in ASCII encoding, we display the chain id as is in hex.

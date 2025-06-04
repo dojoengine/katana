@@ -301,7 +301,7 @@ impl Backend {
             //             // Convert block number to BlockId
             //             let block_id = starknet::core::types::BlockId::Number(payload.block_number);
 
-            //             // Use jsonrpsee client directly to make the RPC call since starknet-rs 
+            //             // Use jsonrpsee client directly to make the RPC call since starknet-rs
             //             // doesn't support get_storage_proof yet
             //             let res = if let Some(client) = provider
             //                 .as_any()
@@ -356,7 +356,6 @@ impl Backend {
             //         }),
             //     );
             // }
-
             #[cfg(test)]
             BackendRequest::Stats(sender) => {
                 let total_ongoing_request = self.pending_requests.len();

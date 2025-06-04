@@ -53,6 +53,7 @@ katana-rpc-client.workspace = true
 katana-trie.workspace = true
 katana-genesis.workspace = true
 katana-utils.workspace = true
+katana-db.workspace = true
 
 alloy-contract = { workspace = true, default-features = false }
 alloy-node-bindings = "1.0.24"
