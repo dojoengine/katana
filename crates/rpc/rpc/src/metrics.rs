@@ -128,7 +128,8 @@ struct RpcServerCallMetrics {
 }
 
 /// Tower layer for RPC server metrics
-#[derive(Debug, Clone)]
+#[allow(missing_debug_implementations)]
+#[derive(Clone)]
 pub struct MetricsLayer {
     metrics: RpcServerMetrics,
 }
@@ -148,7 +149,8 @@ impl<S> Layer<S> for MetricsLayer {
 }
 
 /// Tower service that collects metrics for RPC calls
-#[derive(Debug, Clone)]
+#[allow(missing_debug_implementations)]
+#[derive(Clone)]
 pub struct MetricsService<S> {
     service: S,
     metrics: RpcServerMetrics,
