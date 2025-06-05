@@ -22,19 +22,15 @@
 
 use std::collections::HashMap;
 use std::future::Future;
-use std::pin::Pin;
 use std::sync::Arc;
-use std::task::{Context, Poll};
 use std::time::Instant;
 
-use bytes::Bytes;
-use jsonrpsee::core::BoxError;
-use jsonrpsee::server::ws::is_upgrade_request;
-use jsonrpsee::server::{HttpRequest, HttpResponse};
-use jsonrpsee::RpcModule;
+use jsonrpsee::core::middleware::{Batch, Notification, RpcServiceT};
+use jsonrpsee::types::Request;
+use jsonrpsee::{MethodResponse, RpcModule};
 use katana_metrics::metrics::{Counter, Histogram};
 use katana_metrics::Metrics;
-use tower::{Layer, Service};
+use tower::Layer;
 
 /// Metrics for the RPC server.
 #[allow(missing_debug_implementations)]
@@ -55,7 +51,7 @@ impl RpcServerMetrics {
         Self {
             inner: Arc::new(RpcServerMetricsInner {
                 call_metrics,
-                connection_metrics: ConnectionMetrics::default(),
+                connection_metrics: RpcServerConnectionMetrics::default(),
             }),
         }
     }
@@ -64,37 +60,9 @@ impl RpcServerMetrics {
 #[derive(Default, Clone)]
 struct RpcServerMetricsInner {
     /// Connection metrics per transport type
-    connection_metrics: ConnectionMetrics,
+    connection_metrics: RpcServerConnectionMetrics,
     /// Call metrics per RPC method
     call_metrics: HashMap<&'static str, RpcServerCallMetrics>,
-}
-
-#[derive(Clone)]
-struct ConnectionMetrics {
-    /// Metrics for WebSocket connections
-    ws: RpcServerConnectionMetrics,
-    /// Metrics for HTTP connections
-    http: RpcServerConnectionMetrics,
-}
-
-impl ConnectionMetrics {
-    /// Returns the metrics for the given transport protocol
-    fn get_metrics(&self, is_websocket: bool) -> &RpcServerConnectionMetrics {
-        if is_websocket {
-            &self.ws
-        } else {
-            &self.http
-        }
-    }
-}
-
-impl Default for ConnectionMetrics {
-    fn default() -> Self {
-        Self {
-            ws: RpcServerConnectionMetrics::new_with_labels(&[("transport", "ws")]),
-            http: RpcServerConnectionMetrics::new_with_labels(&[("transport", "http")]),
-        }
-    }
 }
 
 /// Metrics for the RPC connections
@@ -130,88 +98,93 @@ struct RpcServerCallMetrics {
 /// Tower layer for RPC server metrics
 #[allow(missing_debug_implementations)]
 #[derive(Clone)]
-pub struct MetricsLayer {
+pub struct RpcServerMetricsLayer {
     metrics: RpcServerMetrics,
 }
 
-impl MetricsLayer {
+impl RpcServerMetricsLayer {
     pub fn new(module: &RpcModule<()>) -> Self {
         Self { metrics: RpcServerMetrics::new(module) }
     }
 }
 
-impl<S> Layer<S> for MetricsLayer {
-    type Service = MetricsService<S>;
+impl<S> Layer<S> for RpcServerMetricsLayer {
+    type Service = RpcRequestMetricsService<S>;
 
     fn layer(&self, inner: S) -> Self::Service {
-        MetricsService { service: inner, metrics: self.metrics.clone() }
+        RpcRequestMetricsService { inner, metrics: self.metrics.clone() }
     }
 }
 
 /// Tower service that collects metrics for RPC calls
 #[allow(missing_debug_implementations)]
 #[derive(Clone)]
-pub struct MetricsService<S> {
-    service: S,
+pub struct RpcRequestMetricsService<S> {
+    inner: S,
     metrics: RpcServerMetrics,
 }
 
-impl<S, B> Service<HttpRequest<B>> for MetricsService<S>
-where
-    S: Service<HttpRequest<B>, Response = HttpResponse>,
-    S::Error: Into<BoxError> + 'static,
-    S::Future: Send + 'static,
-    S::Response: 'static,
-    B::Data: Send,
-    B::Error: Into<BoxError>,
-    B: http_body::Body<Data = Bytes> + Send + 'static,
-{
-    type Error = S::Error;
-    type Response = S::Response;
-    type Future = Pin<Box<dyn Future<Output = Result<Self::Response, Self::Error>> + Send>>;
-
-    fn poll_ready(&mut self, cx: &mut Context<'_>) -> Poll<Result<(), Self::Error>> {
-        self.service.poll_ready(cx)
+impl<S> Drop for RpcRequestMetricsService<S> {
+    fn drop(&mut self) {
+        self.metrics.inner.connection_metrics.connections_closed.increment(1);
     }
+}
 
-    fn call(&mut self, req: HttpRequest<B>) -> Self::Future {
-        let is_ws = is_upgrade_request(&req);
+impl<S> RpcServiceT for RpcRequestMetricsService<S>
+where
+    S: RpcServiceT<MethodResponse = MethodResponse> + Send + Sync + Clone + 'static,
+{
+    type MethodResponse = S::MethodResponse;
+    type NotificationResponse = S::NotificationResponse;
+    type BatchResponse = S::BatchResponse;
 
+    fn call<'a>(&self, req: Request<'a>) -> impl Future<Output = S::MethodResponse> + Send + 'a {
         let started_at = Instant::now();
-        let method = req.method().to_string();
+        let method = req.method.clone();
 
         // Record connection metrics
-        let connection_metrics = self.metrics.inner.connection_metrics.get_metrics(is_ws);
-        connection_metrics.requests_started.increment(1);
+        self.metrics.inner.connection_metrics.connections_opened.increment(1);
+        self.metrics.inner.connection_metrics.requests_started.increment(1);
 
         // Record call metrics
-        if let Some(call_metrics) = self.metrics.inner.call_metrics.get(method.as_str()) {
+        if let Some(call_metrics) = self.metrics.inner.call_metrics.get(&method.as_ref()) {
             call_metrics.started.increment(1);
         }
 
         let metrics = self.metrics.clone();
-        let fut = self.service.call(req);
+        let fut = self.inner.call(req);
 
         Box::pin(async move {
             let result = fut.await;
 
             // Record response metrics
             let time_taken = started_at.elapsed().as_secs_f64();
-            let connection_metrics = metrics.inner.connection_metrics.get_metrics(is_ws);
-            connection_metrics.request_time_seconds.record(time_taken);
-            connection_metrics.requests_finished.increment(1);
+            metrics.inner.connection_metrics.requests_finished.increment(1);
+            metrics.inner.connection_metrics.request_time_seconds.record(time_taken);
 
             // Record call result metrics
-            if let Some(call_metrics) = metrics.inner.call_metrics.get(method.as_str()) {
+            if let Some(call_metrics) = metrics.inner.call_metrics.get(&method.as_ref()) {
                 call_metrics.time_seconds.record(time_taken);
 
-                match &result {
-                    Ok(_) => call_metrics.successful.increment(1),
-                    Err(_) => call_metrics.failed.increment(1),
+                if result.is_success() {
+                    call_metrics.successful.increment(1)
+                } else {
+                    call_metrics.failed.increment(1)
                 }
             }
 
             result
         })
+    }
+
+    fn batch<'a>(&self, req: Batch<'a>) -> impl Future<Output = Self::BatchResponse> + Send + 'a {
+        self.inner.batch(req)
+    }
+
+    fn notification<'a>(
+        &self,
+        n: Notification<'a>,
+    ) -> impl Future<Output = Self::NotificationResponse> + Send + 'a {
+        self.inner.notification(n)
     }
 }

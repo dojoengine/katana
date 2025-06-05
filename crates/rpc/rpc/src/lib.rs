@@ -6,6 +6,7 @@
 use std::net::SocketAddr;
 use std::time::Duration;
 
+use jsonrpsee::core::middleware::RpcServiceBuilder;
 use jsonrpsee::core::{RegisterMethodError, TEN_MB_SIZE_BYTES};
 use jsonrpsee::server::{Server, ServerConfig, ServerHandle};
 use jsonrpsee::RpcModule;
@@ -25,7 +26,7 @@ mod utils;
 
 use cors::Cors;
 use health::HealthCheck;
-use metrics::MetricsLayer;
+use metrics::RpcServerMetricsLayer;
 
 /// The default maximum number of concurrent RPC connections.
 pub const DEFAULT_RPC_MAX_CONNECTIONS: u32 = 100;
@@ -185,14 +186,15 @@ impl RpcServer {
             None
         };
 
-        let metrics = self.metrics.then(|| MetricsLayer::new(&modules));
+        let rpc_metrics = self.metrics.then(|| RpcServerMetricsLayer::new(&modules));
 
         let http_middleware = ServiceBuilder::new()
             .option_layer(self.cors.clone())
             .option_layer(health_check_proxy)
             .option_layer(explorer_layer)
-            .option_layer(metrics)
             .timeout(self.timeout);
+
+        let rpc_middleware = RpcServiceBuilder::new().option_layer(rpc_metrics);
 
         let cfg = ServerConfig::builder()
             .max_connections(self.max_connections)
@@ -202,6 +204,7 @@ impl RpcServer {
 
         let handle = Server::builder()
             .set_http_middleware(http_middleware)
+            .set_rpc_middleware(rpc_middleware)
             .set_config(cfg)
             .build(addr)
             .await?

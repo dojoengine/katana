@@ -10,6 +10,7 @@ version.workspace = true
 katana-core.workspace = true
 katana-executor.workspace = true
 katana-explorer = { workspace = true, features = [ "jsonrpsee" ] }
+katana-metrics.workspace = true
 katana-pool.workspace = true
 katana-primitives.workspace = true
 katana-provider.workspace = true
@@ -17,16 +18,15 @@ katana-rpc-api.workspace = true
 katana-rpc-types.workspace = true
 katana-rpc-types-builder.workspace = true
 katana-tasks.workspace = true
-katana-metrics.workspace = true
 
+account_sdk = { workspace = true, optional = true }
 anyhow.workspace = true
-bytes.workspace = true
+cainome = { workspace = true, optional = true }
 futures.workspace = true
 http.workspace = true
-http-body.workspace = true
 jsonrpsee = { workspace = true, features = [ "server" ] }
-reqwest = { workspace = true, optional = true }
 metrics.workspace = true
+reqwest = { workspace = true, optional = true }
 serde = { workspace = true, optional = true }
 serde_json.workspace = true
 starknet.workspace = true
@@ -36,8 +36,6 @@ tower.workspace = true
 tower-http.workspace = true
 tracing.workspace = true
 url.workspace = true
-cainome = { workspace = true, optional = true }
-account_sdk = { workspace = true, optional = true }
 
 [dev-dependencies]
 katana-chain-spec.workspace = true
@@ -65,4 +63,10 @@ tempfile.workspace = true
 tokio.workspace = true
 
 [features]
-cartridge = [ "katana-rpc-api/cartridge", "dep:reqwest", "dep:cainome", "dep:account_sdk", "dep:serde" ]
+cartridge = [
+	"dep:account_sdk",
+	"dep:cainome",
+	"dep:reqwest",
+	"dep:serde",
+	"katana-rpc-api/cartridge",
+]
