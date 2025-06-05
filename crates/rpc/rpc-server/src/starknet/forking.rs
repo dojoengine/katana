@@ -404,4 +404,61 @@ mod tests {
             }
         };
     }
+
+    #[tokio::test]
+    async fn compare_storage_roots() {
+        let katana = JsonRpcClient::new(HttpTransport::new(
+            Url::parse("http://localhost:5050").unwrap(),
+        ));
+        let forked_katana = JsonRpcClient::new(HttpTransport::new(
+            Url::parse("http://localhost:5051").unwrap(),
+        ));
+
+        let block_number = katana.block_number().await.unwrap();
+        println!("Block number: {:?}", block_number);
+
+        let katana_state_update =
+            katana.get_state_update(BlockId::Tag(BlockTag::Latest)).await.unwrap();
+        let forked_katana_state_update =
+            forked_katana.get_state_update(BlockId::Tag(BlockTag::Latest)).await.unwrap();
+
+        let katana_state_root = match katana_state_update {
+            StarknetRsMaybePendingStateUpdate::Update(state_update) => {
+                println!("Katana new_root: {:#x}", state_update.new_root);
+                println!("Katana old_root: {:#x}", state_update.old_root);
+                println!("Katana block_hash: {:#x}", state_update.block_hash);
+                println!("Katana state_diff: {:?}", state_update.state_diff);
+                state_update.new_root
+            }
+            StarknetRsMaybePendingStateUpdate::PendingUpdate(pending) => {
+                println!("Pending state update - no state root available");
+                return;
+            }
+        };
+
+        let forked_block_number = forked_katana.block_number().await.unwrap();
+        println!("\nForked block number: {:?}", forked_block_number);
+
+        let forked_katana_state_root = match forked_katana_state_update {
+            StarknetRsMaybePendingStateUpdate::Update(state_update) => {
+                println!("Forked katana new_root: {:#x}", state_update.new_root);
+                println!("Forked katana old_root: {:#x}", state_update.old_root);
+                println!("Forked katana block_hash: {:#x}", state_update.block_hash);
+                println!("Forked katana state_diff: {:?}", state_update.state_diff);
+                state_update.new_root
+            }
+            StarknetRsMaybePendingStateUpdate::PendingUpdate(pending) => {
+                println!("Pending state update - no state root available");
+                return;
+            }
+        };
+
+        let contract_address: ContractAddress =
+            felt!("0x127fd5f1fe78a71f8bcd1fec63e3fe2f0486b6ecd5c86a0466c3a21fa5cfcec").into();
+        let account_nonce = katana.get_nonce(BlockId::Tag(BlockTag::Latest), contract_address).await.unwrap();
+        println!("Account nonce: {:?}", account_nonce);
+
+        let forked_account_nonce = forked_katana.get_nonce(BlockId::Tag(BlockTag::Latest), contract_address).await.unwrap();
+        println!("Forked account nonce: {:?}", forked_account_nonce);
+    }
 }

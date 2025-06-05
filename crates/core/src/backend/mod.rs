@@ -23,8 +23,7 @@ use katana_provider::api::trie::TrieWriter;
 use katana_provider::providers::EmptyStateProvider;
 use katana_trie::bonsai::databases::HashMapDb;
 use katana_trie::{
-    compute_contract_state_hash, compute_merkle_root, ClassesTrie, CommitId, ContractLeaf,
-    ContractsTrie, StoragesTrie,
+    compute_contract_state_hash, compute_merkle_root, ClassesTrie, CommitId, ContractLeaf, ContractsTrie, MultiProof, StoragesTrie
 };
 use parking_lot::RwLock;
 use rayon::prelude::*;
@@ -251,6 +250,7 @@ impl<EF: ExecutorFactory> Backend<EF> {
 
             let block = chain_spec.block();
             let states = chain_spec.state_updates();
+            println!("states: {:?}", states.state_updates);
 
             let outcome = self.do_mine_block(
                 &BlockEnv {
@@ -644,6 +644,83 @@ impl TrieWriter for GenesisTrieWriter {
 
         for (class_hash, compiled_hash) in updates {
             trie.insert(*class_hash, *compiled_hash);
+        }
+
+        trie.commit(block_number);
+        Ok(trie.root())
+    }
+
+    fn trie_insert_contract_updates_with_proof(
+        &self,
+        block_number: BlockNumber,
+        state_updates: &StateUpdates,
+        proof: MultiProof,
+        original_root: Felt,
+    ) -> katana_provider::ProviderResult<Felt> {
+        let mut contract_trie_db = ContractsTrie::new_partial(HashMapDb::<CommitId>::default());
+        let mut contract_leafs: HashMap<ContractAddress, ContractLeaf> = HashMap::new();
+
+        let leaf_hashes = {
+            for (address, nonce) in &state_updates.nonce_updates {
+                contract_leafs.entry(*address).or_default().nonce = Some(*nonce);
+            }
+
+            for (address, class_hash) in &state_updates.deployed_contracts {
+                contract_leafs.entry(*address).or_default().class_hash = Some(*class_hash);
+            }
+
+            for (address, class_hash) in &state_updates.replaced_classes {
+                contract_leafs.entry(*address).or_default().class_hash = Some(*class_hash);
+            }
+
+            for (address, storage_entries) in &state_updates.storage_updates {
+                let mut storage_trie_db =
+                    StoragesTrie::new(HashMapDb::<CommitId>::default(), *address);
+
+                for (key, value) in storage_entries {
+                    storage_trie_db.insert(*key, *value);
+                }
+
+                // Then we commit them
+                storage_trie_db.commit(block_number);
+                let storage_root = storage_trie_db.root();
+
+                // insert the contract address in the contract_leafs to put the storage root
+                // later
+                contract_leafs.entry(*address).or_default().storage_root = Some(storage_root);
+            }
+
+            contract_leafs
+                .into_iter()
+                .map(|(address, leaf)| {
+                    let class_hash = leaf.class_hash.unwrap();
+                    let nonce = leaf.nonce.unwrap_or_default();
+                    let storage_root = leaf.storage_root.unwrap_or_default();
+                    let leaf_hash = compute_contract_state_hash(&class_hash, &storage_root, &nonce);
+                    (address, leaf_hash)
+                })
+                .collect::<Vec<_>>()
+        };
+
+        for (k, v) in leaf_hashes {
+            contract_trie_db.insert(k, v, proof.clone(), original_root);
+        }
+
+        contract_trie_db.commit(block_number);
+        Ok(contract_trie_db.root())
+    }
+
+    fn trie_insert_declared_classes_with_proof(
+        &self,
+        block_number: BlockNumber,
+        updates: &BTreeMap<ClassHash, CompiledClassHash>,
+        proof: MultiProof,
+        original_root: Felt,
+    ) -> katana_provider::ProviderResult<Felt> {
+        let mut trie = ClassesTrie::new_partial(HashMapDb::default());
+
+        for (class_hash, compiled_hash) in updates {
+            trie.insert(*class_hash, *compiled_hash, proof.clone(), original_root);
         }
 
         trie.commit(block_number);

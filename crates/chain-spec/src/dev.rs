@@ -85,6 +85,7 @@ impl ChainSpec {
             }
 
             if let Some(nonce) = alloc.nonce() {
+                println!("Allocinng nonce for address: {:?}", address);
                 states.state_updates.nonce_updates.insert(address, nonce);
             }
 

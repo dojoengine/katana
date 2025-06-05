@@ -180,33 +180,35 @@ impl<Db: Database> TrieWriter for ForkedProvider<Db> {
 
                     // Collect storage proof data
                     let mut class_hashes = Vec::new();
-                    let mut contract_addresses = Vec::new();
+                    let mut contract_addresses = std::collections::HashSet::new();
                     let mut contracts_storage_keys = Vec::new();
 
                     for class_hash in state_updates_clone.declared_classes.keys() {
                         class_hashes.push(*class_hash);
                     }
 
+                    // Collect all unique contract addresses that need proofs
                     for address in state_updates_clone.deployed_contracts.keys() {
-                        contract_addresses.push(*address);
+                        contract_addresses.insert(*address);
                     }
                     for address in state_updates_clone.replaced_classes.keys() {
-                        contract_addresses.push(*address);
+                        contract_addresses.insert(*address);
                     }
                     for address in state_updates_clone.nonce_updates.keys() {
-                        contract_addresses.push(*address);
+                        contract_addresses.insert(*address);
                     }
 
                     for (address, storage_map) in &state_updates_clone.storage_updates {
-                        contract_addresses.push(*address);
+                        contract_addresses.insert(*address);
                         contracts_storage_keys.push(ContractStorageKeys {
                             address: *address,
                             keys: storage_map.keys().cloned().collect(),
                         });
                     }
 
+                    // Convert HashSet to sorted Vec
+                    let mut contract_addresses: Vec<_> = contract_addresses.into_iter().collect();
                     contract_addresses.sort();
-                    contract_addresses.dedup();
 
                     // Make RPC call
                     let response: GetStorageProofResponse = client
@@ -249,14 +251,32 @@ impl<Db: Database> TrieWriter for ForkedProvider<Db> {
                 let contracts_tree_root = proof.global_roots.contracts_tree_root;
                 println!("State updates: {:?}", state_updates);
 
-                let class_trie_root = self
-                    .provider
-                    .trie_insert_declared_classes(block_number, &state_updates.declared_classes)?;
+                // Check if we have any local changes
+                let has_class_changes = !state_updates.declared_classes.is_empty()
+                    || !state_updates.deprecated_declared_classes.is_empty();
+                    
+                let has_contract_changes = !state_updates.deployed_contracts.is_empty()
+                    || !state_updates.replaced_classes.is_empty()
+                    || !state_updates.nonce_updates.is_empty()
+                    || !state_updates.storage_updates.is_empty();
+
+                let class_trie_root = if has_class_changes {
+                    self.provider
+                        .trie_insert_declared_classes(block_number, &state_updates.declared_classes)?
+                } else {
+                    // Use the class trie root from forked network
+                    classes_tree_root
+                };
                 println!("Class trie root: {:?}", class_trie_root);
 
-                let contract_trie_root =
-                    self.provider.trie_insert_contract_updates(block_number, state_updates)?;
+                let contract_trie_root = if has_contract_changes {
+                    self.provider.trie_insert_contract_updates(block_number, state_updates)?
+                } else {
+                    // Use the contract trie root from forked network
+                    contracts_tree_root
+                };
                 println!("Contract trie root: {:?}", contract_trie_root);
+
                 Ok(starknet_types_core::hash::Poseidon::hash_array(&[
                     starknet::macros::short_string!("STARKNET_STATE_V0"),
                     contract_trie_root,
