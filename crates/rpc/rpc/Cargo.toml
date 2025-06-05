@@ -40,7 +40,11 @@ url.workspace = true
 # OpenTelemetry dependencies for trace context propagation
 opentelemetry = { workspace = true }
 opentelemetry-http = { workspace = true }
+opentelemetry-otlp = "0.30.0"
 opentelemetry-stackdriver = { workspace = true }
+opentelemetry_sdk = "0.30.0"
+tracing-opentelemetry = "0.31.0"
+tracing-subscriber.workspace = true
 
 [dev-dependencies]
 katana-chain-spec.workspace = true

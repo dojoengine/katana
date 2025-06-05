@@ -2,7 +2,7 @@ use tracing::subscriber::SetGlobalDefaultError;
 use tracing::Subscriber;
 use tracing_log::log::SetLoggerError;
 use tracing_log::LogTracer;
-use tracing_subscriber::{filter, EnvFilter};
+use tracing_subscriber::{filter, layer::SubscriberExt, util::SubscriberInitExt, EnvFilter};
 
 mod fmt;
 
@@ -41,9 +41,13 @@ pub fn init(format: LogFormat, dev_log: bool) -> Result<(), Error> {
     let builder = tracing_subscriber::fmt::Subscriber::builder().with_env_filter(filter);
 
     let subscriber: Box<dyn Subscriber + Send + Sync> = match format {
-        LogFormat::Full => Box::new(builder.finish()),
+        LogFormat::Full => {
+            let a = builder.finish();
+            Box::new(a)
+        }
         LogFormat::Json => Box::new(builder.json().finish()),
     };
 
+    // tracing_subscriber::registry().with(layer).try_init();
     Ok(tracing::subscriber::set_global_default(subscriber)?)
 }

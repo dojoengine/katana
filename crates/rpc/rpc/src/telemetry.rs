@@ -5,12 +5,16 @@
 
 use std::task::{Context, Poll};
 
+use anyhow::Result;
 use http::{Request, Response};
 use opentelemetry::global;
 use opentelemetry::trace::TraceContextExt;
+use opentelemetry::trace::TracerProvider;
 use opentelemetry_http::HeaderExtractor;
+use opentelemetry_otlp::{Protocol, WithExportConfig};
 use tower::{Layer, Service};
-use tracing::info_span;
+use tracing::{info_span, Subscriber};
+use tracing_subscriber::registry::LookupSpan;
 
 /// Layer that adds trace context propagation to HTTP requests
 #[derive(Debug, Clone)]
@@ -83,6 +87,7 @@ where
             trace_id = %trace_id,
             span_id = %span_id
         );
+
         let _enter = span.enter();
         self.inner.call(request)
     }
@@ -98,4 +103,24 @@ pub fn init_trace_propagation() {
     // Set the Google Cloud trace context propagator globally
     // This will handle both extraction and injection of X-Cloud-Trace-Context headers
     global::set_text_map_propagator(GoogleTraceContextPropagator::default());
+}
+
+/// Create an OTLP layer exporting tracing data.
+fn otlp_layer<S>() -> Result<impl tracing_subscriber::Layer<S>>
+where
+    S: Subscriber + for<'span> LookupSpan<'span>,
+{
+    // Initialize OTLP exporter using HTTP binary protocol
+    let otlp_exporter = opentelemetry_otlp::SpanExporter::builder()
+        .with_http()
+        .with_protocol(Protocol::HttpBinary)
+        .build()?;
+
+    // Create a tracer provider with the exporter
+    let tracer = opentelemetry_sdk::trace::SdkTracerProvider::builder()
+        .with_simple_exporter(otlp_exporter)
+        .build()
+        .tracer("test");
+
+    Ok(tracing_opentelemetry::layer().with_tracer(tracer))
 }
