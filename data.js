@@ -1,5 +1,5 @@
 window.BENCHMARK_DATA = {
-  "lastUpdate": 1748964130826,
+  "lastUpdate": 1749138509860,
   "repoUrl": "https://github.com/dojoengine/katana",
   "entries": {
     "Benchmark": [
@@ -755,6 +755,60 @@ window.BENCHMARK_DATA = {
             "name": "Katana.Startup",
             "value": 126403526,
             "range": "± 951332",
+            "unit": "ns/iter"
+          }
+        ]
+      },
+      {
+        "commit": {
+          "author": {
+            "email": "evergreenkary@gmail.com",
+            "name": "Ammar Arif",
+            "username": "kariy"
+          },
+          "committer": {
+            "email": "noreply@github.com",
+            "name": "GitHub",
+            "username": "web-flow"
+          },
+          "distinct": true,
+          "id": "d14e8c041f4cfc1b3b57cd25d6192fadce9879fa",
+          "message": "chore: bump `jsonrpsee` to `0.25` (#104)",
+          "timestamp": "2025-06-05T23:28:45+08:00",
+          "tree_id": "151525e2282435c7493525627df6b86aac7ae49d",
+          "url": "https://github.com/dojoengine/katana/commit/d14e8c041f4cfc1b3b57cd25d6192fadce9879fa"
+        },
+        "date": 1749138508434,
+        "tool": "cargo",
+        "benches": [
+          {
+            "name": "decompress world contract",
+            "value": 2987568,
+            "range": "± 37949",
+            "unit": "ns/iter"
+          },
+          {
+            "name": "Concurrent.Simulate/Blockifier.1",
+            "value": 394465,
+            "range": "± 5291",
+            "unit": "ns/iter"
+          },
+          {
+            "name": "Concurrent.Simulate/Blockifier.1000",
+            "value": 2845598578,
+            "range": "± 226190319",
+            "unit": "ns/iter"
+          },
+          {
+            "name": "Invoke.ERC20.transfer/Blockifier.Cold",
+            "value": 16730899,
+            "range": "± 437581",
+            "unit": "ns/iter"
+          },
+          {
+            "name": "Katana.Startup",
+            "value": 124712096,
+            "range": "± 704705",
             "unit": "ns/iter"
           }
         ]
