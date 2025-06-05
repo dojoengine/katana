@@ -202,15 +202,17 @@ impl RpcServer {
             .max_response_body_size(self.max_response_body_size)
             .build();
 
-        let handle = Server::builder()
+        let server = Server::builder()
             .set_http_middleware(http_middleware)
             .set_rpc_middleware(rpc_middleware)
             .set_config(cfg)
             .build(addr)
-            .await?
-            .start(modules);
+            .await?;
 
-        let handle = RpcServerHandle { handle, addr };
+        let actual_addr = server.local_addr()?;
+        let handle = server.start(modules);
+
+        let handle = RpcServerHandle { handle, addr: actual_addr };
 
         // The socket address that we log out must be from the RPC handle, in the case that the
         // `addr` passed to this method has port number 0. As the 0 port will be resolved to
