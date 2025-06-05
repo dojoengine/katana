@@ -1,6 +1,6 @@
 use std::sync::Arc;
 
-use jsonrpsee::core::{async_trait, Error};
+use jsonrpsee::core::{async_trait, RpcResult};
 use katana_core::backend::Backend;
 use katana_core::service::block_producer::{BlockProducer, BlockProducerMode, PendingExecutor};
 use katana_executor::ExecutorFactory;
@@ -61,21 +61,21 @@ impl<EF: ExecutorFactory> DevApi<EF> {
 
 #[async_trait]
 impl<EF: ExecutorFactory> DevApiServer for DevApi<EF> {
-    async fn generate_block(&self) -> Result<(), Error> {
+    async fn generate_block(&self) -> RpcResult<()> {
         self.block_producer.force_mine();
         Ok(())
     }
 
-    async fn next_block_timestamp(&self) -> Result<(), Error> {
+    async fn next_block_timestamp(&self) -> RpcResult<()> {
         // Ok(self.sequencer.backend().env.read().block.block_timestamp.0)
         Ok(())
     }
 
-    async fn set_next_block_timestamp(&self, timestamp: u64) -> Result<(), Error> {
+    async fn set_next_block_timestamp(&self, timestamp: u64) -> RpcResult<()> {
         Ok(self.set_next_block_timestamp(timestamp)?)
     }
 
-    async fn increase_next_block_timestamp(&self, timestamp: u64) -> Result<(), Error> {
+    async fn increase_next_block_timestamp(&self, timestamp: u64) -> RpcResult<()> {
         Ok(self.increase_next_block_timestamp(timestamp)?)
     }
 
@@ -84,7 +84,7 @@ impl<EF: ExecutorFactory> DevApiServer for DevApi<EF> {
         _contract_address: Felt,
         _key: Felt,
         _value: Felt,
-    ) -> Result<(), Error> {
+    ) -> RpcResult<()> {
         // self.sequencer
         //     .set_storage_at(contract_address.into(), key, value)
         //     .await
@@ -92,7 +92,7 @@ impl<EF: ExecutorFactory> DevApiServer for DevApi<EF> {
         Ok(())
     }
 
-    async fn predeployed_accounts(&self) -> Result<Vec<Account>, Error> {
+    async fn predeployed_accounts(&self) -> RpcResult<Vec<Account>> {
         Ok(self.backend.chain_spec.genesis().accounts().map(|e| Account::new(*e.0, e.1)).collect())
     }
 }

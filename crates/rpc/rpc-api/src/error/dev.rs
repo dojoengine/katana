@@ -1,6 +1,4 @@
-use jsonrpsee::core::Error;
-use jsonrpsee::types::error::CallError;
-use jsonrpsee::types::ErrorObject;
+use jsonrpsee::types::ErrorObjectOwned;
 
 #[derive(thiserror::Error, Clone, Copy, Debug)]
 #[allow(clippy::enum_variant_names)]
@@ -9,8 +7,8 @@ pub enum DevApiError {
     PendingTransactions,
 }
 
-impl From<DevApiError> for Error {
+impl From<DevApiError> for ErrorObjectOwned {
     fn from(err: DevApiError) -> Self {
-        Error::Call(CallError::Custom(ErrorObject::owned(err as i32, err.to_string(), None::<()>)))
+        ErrorObjectOwned::owned(err as i32, err.to_string(), None::<()>)
     }
 }

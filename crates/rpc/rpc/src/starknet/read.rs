@@ -3,7 +3,8 @@ use std::sync::Arc;
 
 #[cfg(feature = "cartridge")]
 use anyhow::anyhow;
-use jsonrpsee::core::{async_trait, Error, RpcResult};
+use jsonrpsee::core::{async_trait, RpcResult};
+use jsonrpsee::types::ErrorObjectOwned;
 use katana_executor::{EntryPointCall, ExecutorFactory};
 use katana_primitives::block::BlockIdOrTag;
 use katana_primitives::class::ClassHash;
@@ -154,7 +155,7 @@ impl<EF: ExecutorFactory> StarknetApiServer for StarknetApi<EF> {
 
             match executor.call(request) {
                 Ok(retdata) => Ok(retdata.into_iter().map(|v| v.into()).collect()),
-                Err(err) => Err(Error::from(StarknetApiError::ContractError {
+                Err(err) => Err(ErrorObjectOwned::from(StarknetApiError::ContractError {
                     revert_error: err.to_string(),
                 })),
             }
@@ -242,7 +243,8 @@ impl<EF: ExecutorFactory> StarknetApiServer for StarknetApi<EF> {
                 .genesis()
                 .accounts()
                 .nth(0)
-                .ok_or(anyhow!("Cartridge paymaster account doesn't exist"))?;
+                .ok_or(anyhow!("Cartridge paymaster account doesn't exist"))
+                .map_err(StarknetApiError::from)?;
 
             let paymaster_private_key = if let GenesisAccountAlloc::DevAccount(pm) = paymaster_alloc
             {
@@ -276,9 +278,9 @@ impl<EF: ExecutorFactory> StarknetApiServer for StarknetApi<EF> {
                     // existence earlier
                     StarknetApiError::ContractNotFound => {
                         let error = anyhow!("Cartridge paymaster account doesn't exist");
-                        return Err(Error::from(error))?;
+                        return Err(ErrorObjectOwned::from(StarknetApiError::from(error)))?;
                     }
-                    _ => return Err(Error::from(err)),
+                    _ => return Err(ErrorObjectOwned::from(err)),
                 },
             };
 
@@ -293,7 +295,8 @@ impl<EF: ExecutorFactory> StarknetApiServer for StarknetApi<EF> {
                         state.clone(),
                         &paymaster.cartridge_api_url,
                     )
-                    .await?;
+                    .await
+                    .map_err(StarknetApiError::from)?;
 
                 if let Some(tx) = deploy_controller_tx {
                     ctrl_deploy_txs.push(tx);
@@ -338,13 +341,13 @@ impl<EF: ExecutorFactory> StarknetApiServer for StarknetApi<EF> {
                     if let Some(fee) = res.pop() {
                         Ok(fee)
                     } else {
-                        Err(Error::from(StarknetApiError::UnexpectedError {
+                        Err(ErrorObjectOwned::from(StarknetApiError::UnexpectedError {
                             reason: "Fee estimation result should exist".into(),
                         }))
                     }
                 }
 
-                Err(err) => Err(Error::from(err)),
+                Err(err) => Err(ErrorObjectOwned::from(err)),
             }
         })
         .await

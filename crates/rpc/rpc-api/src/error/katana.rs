@@ -1,6 +1,4 @@
-use jsonrpsee::core::Error;
-use jsonrpsee::types::error::CallError;
-use jsonrpsee::types::ErrorObject;
+use jsonrpsee::types::ErrorObjectOwned;
 
 #[derive(thiserror::Error, Clone, Copy, Debug)]
 #[allow(clippy::enum_variant_names)]
@@ -13,8 +11,8 @@ pub enum KatanaApiError {
     FailedToUpdateStorage = 3,
 }
 
-impl From<KatanaApiError> for Error {
+impl From<KatanaApiError> for ErrorObjectOwned {
     fn from(err: KatanaApiError) -> Self {
-        Error::Call(CallError::Custom(ErrorObject::owned(err as i32, err.to_string(), None::<()>)))
+        ErrorObjectOwned::owned(err as i32, err.to_string(), None::<()>)
     }
 }

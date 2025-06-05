@@ -21,15 +21,20 @@
 //! - Response time for each method call
 
 use std::collections::HashMap;
-use std::net::SocketAddr;
+use std::future::Future;
+use std::pin::Pin;
 use std::sync::Arc;
+use std::task::{Context, Poll};
 use std::time::Instant;
 
-use jsonrpsee::server::logger::{HttpRequest, Logger, MethodKind, Params, TransportProtocol};
+use bytes::Bytes;
+use jsonrpsee::core::BoxError;
+use jsonrpsee::server::ws::is_upgrade_request;
+use jsonrpsee::server::{HttpRequest, HttpResponse};
 use jsonrpsee::RpcModule;
 use katana_metrics::metrics::{Counter, Histogram};
 use katana_metrics::Metrics;
-use tracing::debug;
+use tower::{Layer, Service};
 
 /// Metrics for the RPC server.
 #[allow(missing_debug_implementations)]
@@ -74,10 +79,11 @@ struct ConnectionMetrics {
 
 impl ConnectionMetrics {
     /// Returns the metrics for the given transport protocol
-    fn get_metrics(&self, transport: TransportProtocol) -> &RpcServerConnectionMetrics {
-        match transport {
-            TransportProtocol::Http => &self.http,
-            TransportProtocol::WebSocket => &self.ws,
+    fn get_metrics(&self, is_websocket: bool) -> &RpcServerConnectionMetrics {
+        if is_websocket {
+            &self.ws
+        } else {
+            &self.http
         }
     }
 }
@@ -121,54 +127,89 @@ struct RpcServerCallMetrics {
     time_seconds: Histogram,
 }
 
-/// Implements the [Logger] trait so that we can collect metrics on each server request life-cycle.
-impl Logger for RpcServerMetrics {
-    type Instant = Instant;
+/// Tower layer for RPC server metrics
+#[derive(Debug, Clone)]
+pub struct MetricsLayer {
+    metrics: RpcServerMetrics,
+}
 
-    fn on_connect(&self, _: SocketAddr, _: &HttpRequest, transport: TransportProtocol) {
-        self.inner.connection_metrics.get_metrics(transport).connections_opened.increment(1)
+impl MetricsLayer {
+    pub fn new(module: &RpcModule<()>) -> Self {
+        Self { metrics: RpcServerMetrics::new(module) }
+    }
+}
+
+impl<S> Layer<S> for MetricsLayer {
+    type Service = MetricsService<S>;
+
+    fn layer(&self, inner: S) -> Self::Service {
+        MetricsService { service: inner, metrics: self.metrics.clone() }
+    }
+}
+
+/// Tower service that collects metrics for RPC calls
+#[derive(Debug, Clone)]
+pub struct MetricsService<S> {
+    service: S,
+    metrics: RpcServerMetrics,
+}
+
+impl<S, B> Service<HttpRequest<B>> for MetricsService<S>
+where
+    S: Service<HttpRequest<B>, Response = HttpResponse>,
+    S::Error: Into<BoxError> + 'static,
+    S::Future: Send + 'static,
+    S::Response: 'static,
+    B::Data: Send,
+    B::Error: Into<BoxError>,
+    B: http_body::Body<Data = Bytes> + Send + 'static,
+{
+    type Error = S::Error;
+    type Response = S::Response;
+    type Future = Pin<Box<dyn Future<Output = Result<Self::Response, Self::Error>> + Send>>;
+
+    fn poll_ready(&mut self, cx: &mut Context<'_>) -> Poll<Result<(), Self::Error>> {
+        self.service.poll_ready(cx)
     }
 
-    fn on_request(&self, transport: TransportProtocol) -> Self::Instant {
-        self.inner.connection_metrics.get_metrics(transport).requests_started.increment(1);
-        Instant::now()
-    }
+    fn call(&mut self, req: HttpRequest<B>) -> Self::Future {
+        let is_ws = is_upgrade_request(&req);
 
-    fn on_call(&self, method_name: &str, _: Params<'_>, _: MethodKind, _: TransportProtocol) {
-        debug!(target: "server", method = ?method_name);
-        let Some(call_metrics) = self.inner.call_metrics.get(method_name) else { return };
-        call_metrics.started.increment(1);
-    }
+        let started_at = Instant::now();
+        let method = req.method().to_string();
 
-    fn on_result(
-        &self,
-        method_name: &str,
-        success: bool,
-        started_at: Self::Instant,
-        _: TransportProtocol,
-    ) {
-        let Some(call_metrics) = self.inner.call_metrics.get(method_name) else { return };
+        // Record connection metrics
+        let connection_metrics = self.metrics.inner.connection_metrics.get_metrics(is_ws);
+        connection_metrics.requests_started.increment(1);
 
-        // capture call latency
-        let time_taken = started_at.elapsed().as_secs_f64();
-        call_metrics.time_seconds.record(time_taken);
-
-        if success {
-            call_metrics.successful.increment(1);
-        } else {
-            call_metrics.failed.increment(1);
+        // Record call metrics
+        if let Some(call_metrics) = self.metrics.inner.call_metrics.get(method.as_str()) {
+            call_metrics.started.increment(1);
         }
-    }
 
-    fn on_response(&self, _: &str, started_at: Self::Instant, transport: TransportProtocol) {
-        let metrics = self.inner.connection_metrics.get_metrics(transport);
-        // capture request latency for this request/response pair
-        let time_taken = started_at.elapsed().as_secs_f64();
-        metrics.request_time_seconds.record(time_taken);
-        metrics.requests_finished.increment(1);
-    }
+        let metrics = self.metrics.clone();
+        let fut = self.service.call(req);
 
-    fn on_disconnect(&self, _: SocketAddr, transport: TransportProtocol) {
-        self.inner.connection_metrics.get_metrics(transport).connections_closed.increment(1)
+        Box::pin(async move {
+            let result = fut.await;
+
+            // Record response metrics
+            let time_taken = started_at.elapsed().as_secs_f64();
+            let connection_metrics = metrics.inner.connection_metrics.get_metrics(is_ws);
+            connection_metrics.request_time_seconds.record(time_taken);
+            connection_metrics.requests_finished.increment(1);
+
+            // Record call result metrics
+            if let Some(call_metrics) = metrics.inner.call_metrics.get(method.as_str()) {
+                call_metrics.time_seconds.record(time_taken);
+
+                match &result {
+                    Ok(_) => call_metrics.successful.increment(1),
+                    Err(_) => call_metrics.failed.increment(1),
+                }
+            }
+
+            result
+        })
     }
 }

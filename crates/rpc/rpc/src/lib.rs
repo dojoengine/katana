@@ -6,8 +6,8 @@
 use std::net::SocketAddr;
 use std::time::Duration;
 
-use jsonrpsee::core::TEN_MB_SIZE_BYTES;
-use jsonrpsee::server::{AllowHosts, ServerBuilder, ServerHandle};
+use jsonrpsee::core::{RegisterMethodError, TEN_MB_SIZE_BYTES};
+use jsonrpsee::server::{Server, ServerConfig, ServerHandle};
 use jsonrpsee::RpcModule;
 use katana_explorer::ExplorerLayer;
 use tower::ServiceBuilder;
@@ -25,7 +25,7 @@ mod utils;
 
 use cors::Cors;
 use health::HealthCheck;
-use metrics::RpcServerMetrics;
+use metrics::MetricsLayer;
 
 /// The default maximum number of concurrent RPC connections.
 pub const DEFAULT_RPC_MAX_CONNECTIONS: u32 = 100;
@@ -39,7 +39,13 @@ pub const DEFAULT_TIMEOUT: Duration = Duration::from_secs(20);
 #[derive(Debug, thiserror::Error)]
 pub enum Error {
     #[error(transparent)]
-    Jsonrpsee(#[from] jsonrpsee::core::Error),
+    Jsonrpsee(#[from] jsonrpsee::types::ErrorObjectOwned),
+
+    #[error(transparent)]
+    Io(#[from] std::io::Error),
+
+    #[error(transparent)]
+    RegisterMethod(#[from] RegisterMethodError),
 
     #[error("RPC server has already been stopped")]
     AlreadyStopped,
@@ -179,35 +185,29 @@ impl RpcServer {
             None
         };
 
-        let middleware = ServiceBuilder::new()
+        let metrics = self.metrics.then(|| MetricsLayer::new(&modules));
+
+        let http_middleware = ServiceBuilder::new()
             .option_layer(self.cors.clone())
             .option_layer(health_check_proxy)
             .option_layer(explorer_layer)
+            .option_layer(metrics)
             .timeout(self.timeout);
 
-        let builder = ServerBuilder::new()
-            .set_middleware(middleware)
-            .set_host_filtering(AllowHosts::Any)
+        let cfg = ServerConfig::builder()
             .max_connections(self.max_connections)
             .max_request_body_size(self.max_request_body_size)
-            .max_response_body_size(self.max_response_body_size);
+            .max_response_body_size(self.max_response_body_size)
+            .build();
 
-        let handle = if self.metrics {
-            let logger = RpcServerMetrics::new(&modules);
-            let server = builder.set_logger(logger).build(addr).await?;
+        let handle = Server::builder()
+            .set_http_middleware(http_middleware)
+            .set_config(cfg)
+            .build(addr)
+            .await?
+            .start(modules);
 
-            let addr = server.local_addr()?;
-            let handle = server.start(modules)?;
-
-            RpcServerHandle { addr, handle }
-        } else {
-            let server = builder.build(addr).await?;
-
-            let addr = server.local_addr()?;
-            let handle = server.start(modules)?;
-
-            RpcServerHandle { addr, handle }
-        };
+        let handle = RpcServerHandle { handle, addr };
 
         // The socket address that we log out must be from the RPC handle, in the case that the
         // `addr` passed to this method has port number 0. As the 0 port will be resolved to

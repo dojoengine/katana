@@ -10,8 +10,11 @@ katana-tasks.workspace = true
 
 anyhow.workspace = true
 axum = "0.6.20"
+bytes.workspace = true
 http.workspace = true
-jsonrpsee = { workspace = true, features = [ "server" ], optional = true }
+http-body.workspace = true
+hyper.workspace = true
+jsonrpsee = { workspace = true, features = [ "server-core" ], optional = true }
 rust-embed = "6.8.1"
 tiny_http = "0.12"
 tokio = { workspace = true, features = [ "full" ] }

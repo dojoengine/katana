@@ -1,6 +1,4 @@
-use jsonrpsee::core::Error;
-use jsonrpsee::types::error::CallError;
-use jsonrpsee::types::ErrorObject;
+use jsonrpsee::types::ErrorObjectOwned;
 use katana_pool::validation::error::InvalidTransactionError;
 use katana_pool::PoolError;
 use katana_primitives::block::BlockNumber;
@@ -157,9 +155,9 @@ impl StarknetApiError {
     }
 }
 
-impl From<StarknetApiError> for Error {
+impl From<StarknetApiError> for ErrorObjectOwned {
     fn from(err: StarknetApiError) -> Self {
-        Error::Call(CallError::Custom(ErrorObject::owned(err.code(), err.message(), err.data())))
+        ErrorObjectOwned::owned(err.code(), err.message(), err.data())
     }
 }
 impl From<ProviderError> for StarknetApiError {
@@ -315,15 +313,10 @@ mod tests {
         #[case] expected_code: i32,
         #[case] expected_message: &str,
     ) {
-        let error: Error = starknet_error.into();
-        match error {
-            Error::Call(CallError::Custom(err)) => {
-                assert_eq!(err.code(), expected_code);
-                assert_eq!(err.message(), expected_message);
-                assert!(err.data().is_none(), "data should be None");
-            }
-            _ => panic!("Unexpected error variant"),
-        }
+        let err: ErrorObjectOwned = starknet_error.into();
+        assert_eq!(err.code(), expected_code);
+        assert_eq!(err.message(), expected_message);
+	    assert!(err.data().is_none(), "data should be None");
     }
 
     #[rstest]
@@ -417,18 +410,9 @@ mod tests {
         #[case] expected_message: &str,
         #[case] expected_data: serde_json::Value,
     ) {
-        let error: Error = starknet_error.into();
-        match error {
-            Error::Call(CallError::Custom(err)) => {
-                assert_eq!(err.code(), expected_code);
-                assert_eq!(err.message(), expected_message);
-                assert_eq!(
-                    err.data().unwrap().to_string(),
-                    expected_data.to_string(),
-                    "data should exist"
-                );
-            }
-            _ => panic!("Unexpected error variant"),
-        }
+        let err: ErrorObjectOwned = starknet_error.into();
+        assert_eq!(err.code(), expected_code);
+        assert_eq!(err.message(), expected_message);
+        assert_eq!(err.data().unwrap().to_string(), expected_data.to_string(), "data should exist");
     }
 }

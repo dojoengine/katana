@@ -3,9 +3,11 @@ use std::pin::Pin;
 use std::task::{Context, Poll};
 
 use anyhow::{anyhow, Result};
-use axum::body::Body;
-use axum::http::{HeaderValue, Response};
-use http::{Request, StatusCode};
+use bytes::Bytes;
+use http::header::HeaderValue;
+use http::StatusCode;
+use jsonrpsee::core::http_helpers::{Body, Request, Response};
+use jsonrpsee::core::BoxError;
 use rust_embed::RustEmbed;
 use tower::{Layer, Service};
 
@@ -37,16 +39,21 @@ impl<S> Layer<S> for ExplorerLayer {
     }
 }
 
-#[derive(Debug)]
+#[derive(Debug, Clone)]
 pub struct ExplorerService<S> {
     inner: S,
     chain_id: String,
 }
 
-impl<S> Service<Request<Body>> for ExplorerService<S>
+impl<S, B> Service<Request<B>> for ExplorerService<S>
 where
-    S: Service<Request<Body>, Response = Response<Body>> + Send + 'static,
+    B::Data: Send,
+    S::Response: 'static,
+    B::Error: Into<BoxError>,
     S::Future: Send + 'static,
+    S::Error: Into<BoxError> + 'static,
+    S: Service<Request<B>, Response = Response>,
+    B: http_body::Body<Data = Bytes> + Send + 'static,
 {
     type Response = S::Response;
     type Error = S::Error;
@@ -56,7 +63,7 @@ where
         self.inner.poll_ready(cx)
     }
 
-    fn call(&mut self, req: Request<Body>) -> Self::Future {
+    fn call(&mut self, req: Request<B>) -> Self::Future {
         // If the path does not start with the base path, pass the request to the inner service.
         let Some(rel_path) = req.uri().path().strip_prefix("/explorer") else {
             return Box::pin(self.inner.call(req));

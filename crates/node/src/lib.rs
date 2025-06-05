@@ -12,7 +12,8 @@ use std::sync::Arc;
 use anyhow::{Context, Result};
 use config::rpc::RpcModuleKind;
 use config::Config;
-use hyper::Method;
+use http::header::CONTENT_TYPE;
+use http::Method;
 use jsonrpsee::RpcModule;
 use katana_chain_spec::{ChainSpec, SettlementLayer};
 use katana_core::backend::gas_oracle::GasOracle;
@@ -227,7 +228,7 @@ impl Node {
         .allow_origins(config.rpc.cors_origins.clone())
         // Allow `POST` when accessing the resource
         .allow_methods([Method::POST, Method::GET])
-        .allow_headers([hyper::header::CONTENT_TYPE, "argent-client".parse().unwrap(), "argent-version".parse().unwrap()]);
+        .allow_headers([CONTENT_TYPE, "argent-client".parse().unwrap(), "argent-version".parse().unwrap()]);
 
         #[cfg(feature = "cartridge")]
         let paymaster = if let Some(paymaster) = &config.paymaster {

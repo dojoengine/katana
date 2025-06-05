@@ -24,7 +24,7 @@ katana-tasks.workspace = true
 
 anyhow.workspace = true
 futures.workspace = true
-hyper.workspace = true
+http.workspace = true
 jsonrpsee.workspace = true
 serde.workspace = true
 serde_json.workspace = true

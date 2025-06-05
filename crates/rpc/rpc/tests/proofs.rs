@@ -1,6 +1,7 @@
 use std::path::PathBuf;
 
 use assert_matches::assert_matches;
+use jsonrpsee::core::ClientError;
 use jsonrpsee::http_client::HttpClientBuilder;
 use katana_chain_spec::ChainSpec;
 use katana_node::config::rpc::DEFAULT_RPC_MAX_PROOF_KEYS;
@@ -24,8 +25,6 @@ mod common;
 
 #[tokio::test]
 async fn proofs_limit() {
-    use jsonrpsee::core::Error;
-    use jsonrpsee::types::error::CallError;
     use serde_json::json;
 
     let sequencer = TestNode::new().await;
@@ -58,7 +57,7 @@ async fn proofs_limit() {
         .await
         .expect_err("rpc should enforce limit");
 
-    assert_matches!(err, Error::Call(CallError::Custom(e)) => {
+    assert_matches!(err, ClientError::Call(e) => {
         assert_eq!(e.code(), 1000);
         assert_eq!(&e.message(), &"Proof limit exceeded");
 
