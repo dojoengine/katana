@@ -37,6 +37,16 @@ url.workspace = true
 cainome = { workspace = true, optional = true }
 account_sdk = { workspace = true, optional = true }
 
+# Distributed tracing dependencies
+opentelemetry = { version = "0.20", features = ["trace"] }
+opentelemetry_sdk = { version = "0.20", features = ["trace", "rt-tokio"] }
+opentelemetry-gcloud-trace = "0.20"
+opentelemetry-otlp = { version = "0.13", features = ["trace", "grpc-tonic"], optional = true }
+opentelemetry-http = "0.9"
+tracing-opentelemetry = "0.21"
+tracing-subscriber = { workspace = true }
+http-body = "0.4"
+
 [dev-dependencies]
 katana-chain-spec.workspace = true
 katana-messaging.workspace = true

@@ -116,6 +116,9 @@ pub struct NodeArgs {
     #[command(flatten)]
     pub explorer: ExplorerOptions,
 
+    #[command(flatten)]
+    pub tracing: TracingOptions,
+
     #[cfg(feature = "cartridge")]
     #[command(flatten)]
     pub cartridge: CartridgeOptions,
@@ -236,6 +239,47 @@ impl NodeArgs {
 
             let cors_origins = self.server.http_cors_origins.clone();
 
+            let tracing = if self.tracing.tracing {
+                use katana_rpc::tracing::{TracingConfig, TracingExporter};
+                
+                let exporter = match self.tracing.tracing_exporter.as_str() {
+                    "google-cloud-trace" => {
+                        if let Some(project_id) = &self.tracing.tracing_gcp_project_id {
+                            TracingExporter::GoogleCloudTrace {
+                                project_id: project_id.clone(),
+                            }
+                        } else {
+                            bail!("GCP project ID is required when using google-cloud-trace exporter");
+                        }
+                    }
+                    "otlp" => {
+                        #[cfg(feature = "opentelemetry-otlp")]
+                        {
+                            if let Some(endpoint) = &self.tracing.tracing_otlp_endpoint {
+                                TracingExporter::Otlp {
+                                    endpoint: endpoint.clone(),
+                                }
+                            } else {
+                                bail!("OTLP endpoint is required when using otlp exporter");
+                            }
+                        }
+                        #[cfg(not(feature = "opentelemetry-otlp"))]
+                        {
+                            bail!("OTLP exporter is not available. Enable the 'opentelemetry-otlp' feature.");
+                        }
+                    }
+                    "none" | _ => TracingExporter::None,
+                };
+                
+                Some(TracingConfig {
+                    service_name: self.tracing.tracing_service_name.clone(),
+                    exporter,
+                    sample_rate: self.tracing.tracing_sample_rate,
+                })
+            } else {
+                None
+            };
+
             Ok(RpcConfig {
                 apis: modules,
                 port: self.server.http_port,
@@ -249,6 +293,7 @@ impl NodeArgs {
                 max_event_page_size: Some(self.server.max_event_page_size),
                 max_proof_keys: Some(self.server.max_proof_keys),
                 max_call_gas: Some(self.server.max_call_gas),
+                tracing,
             })
         }
 

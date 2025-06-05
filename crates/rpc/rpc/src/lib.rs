@@ -11,7 +11,6 @@ use jsonrpsee::server::{AllowHosts, ServerBuilder, ServerHandle};
 use jsonrpsee::RpcModule;
 use katana_explorer::ExplorerLayer;
 use tower::ServiceBuilder;
-use tracing::info;
 
 #[cfg(feature = "cartridge")]
 pub mod cartridge;
@@ -21,11 +20,13 @@ pub mod dev;
 pub mod health;
 pub mod metrics;
 pub mod starknet;
+pub mod tracing;
 mod utils;
 
 use cors::Cors;
 use health::HealthCheck;
 use metrics::RpcServerMetrics;
+use self::tracing::{TracingConfig, TracingLayer};
 
 /// The default maximum number of concurrent RPC connections.
 pub const DEFAULT_RPC_MAX_CONNECTIONS: u32 = 100;
@@ -77,6 +78,7 @@ pub struct RpcServer {
     cors: Option<Cors>,
     health_check: bool,
     explorer: bool,
+    tracing: Option<TracingConfig>,
     module: RpcModule<()>,
     max_connections: u32,
     max_request_body_size: u32,
@@ -91,6 +93,7 @@ impl RpcServer {
             metrics: false,
             explorer: false,
             health_check: false,
+            tracing: None,
             module: RpcModule::new(()),
             max_connections: 100,
             max_request_body_size: TEN_MB_SIZE_BYTES,
@@ -148,6 +151,12 @@ impl RpcServer {
         self
     }
 
+    /// Enables distributed tracing.
+    pub fn tracing(mut self, config: TracingConfig) -> Self {
+        self.tracing = Some(config);
+        self
+    }
+
     /// Adds a new RPC module to the server.
     ///
     /// This can be chained with other calls to `module` to add multiple modules.
@@ -163,6 +172,12 @@ impl RpcServer {
     }
 
     pub async fn start(&self, addr: SocketAddr) -> Result<RpcServerHandle, Error> {
+        // Initialize tracing if configured
+        if let Some(ref tracing_config) = self.tracing {
+            self::tracing::init_tracer(tracing_config.clone()).await
+                .map_err(|e| Error::Jsonrpsee(jsonrpsee::core::Error::Custom(e.to_string())))?;
+        }
+
         let mut modules = self.module.clone();
 
         let health_check_proxy = if self.health_check {
@@ -183,7 +198,8 @@ impl RpcServer {
             .option_layer(self.cors.clone())
             .option_layer(health_check_proxy)
             .option_layer(explorer_layer)
-            .timeout(self.timeout);
+            // Add tracing layer for HTTP requests last to avoid Clone issues
+            .option_layer(self.tracing.as_ref().map(|_| TracingLayer));
 
         let builder = ServerBuilder::new()
             .set_middleware(middleware)
@@ -213,11 +229,11 @@ impl RpcServer {
         // `addr` passed to this method has port number 0. As the 0 port will be resolved to
         // a free port during the call to `ServerBuilder::build(addr)`.
 
-        info!(target: "rpc", addr = %handle.addr, "RPC server started.");
+        tracing::info!(target: "rpc", addr = %handle.addr, "RPC server started.");
 
         if self.explorer {
             let addr = format!("{}/explorer", handle.addr);
-            info!(target: "explorer", %addr, "Explorer started.");
+            tracing::info!(target: "explorer", %addr, "Explorer started.");
         }
 
         Ok(handle)

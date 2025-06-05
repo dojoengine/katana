@@ -3,6 +3,7 @@ use std::net::{IpAddr, Ipv4Addr, SocketAddr};
 use std::time::Duration;
 
 use katana_rpc::cors::HeaderValue;
+use katana_rpc::tracing::{TracingConfig, TracingExporter};
 use serde::{Deserialize, Serialize};
 
 pub const DEFAULT_RPC_ADDR: IpAddr = IpAddr::V4(Ipv4Addr::LOCALHOST);
@@ -51,6 +52,7 @@ pub struct RpcConfig {
     pub max_proof_keys: Option<u64>,
     pub max_event_page_size: Option<u64>,
     pub max_call_gas: Option<u64>,
+    pub tracing: Option<TracingConfig>,
 }
 
 impl RpcConfig {
@@ -75,6 +77,7 @@ impl Default for RpcConfig {
             max_event_page_size: Some(DEFAULT_RPC_MAX_EVENT_PAGE_SIZE),
             max_proof_keys: Some(DEFAULT_RPC_MAX_PROOF_KEYS),
             max_call_gas: Some(DEFAULT_RPC_MAX_CALL_GAS),
+            tracing: None,
         }
     }
 }

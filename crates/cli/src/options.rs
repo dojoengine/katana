@@ -490,9 +490,55 @@ pub struct ExplorerOptions {
     pub explorer: bool,
 }
 
+/// Distributed tracing configuration
+#[derive(Debug, Default, Clone, Args, Serialize, Deserialize)]
+pub struct TracingOptions {
+    /// Enable distributed tracing
+    #[arg(long)]
+    #[serde(default)]
+    pub tracing: bool,
+
+    /// Tracing service name
+    #[arg(long, default_value = "katana-rpc")]
+    #[serde(default = "default_tracing_service_name")]
+    pub tracing_service_name: String,
+
+    /// Tracing exporter type (google-cloud-trace, otlp, or none)
+    #[arg(long, default_value = "none")]
+    #[serde(default = "default_tracing_exporter")]
+    pub tracing_exporter: String,
+
+    /// GCP project ID (required when using google-cloud-trace exporter)
+    #[arg(long, requires = "tracing")]
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub tracing_gcp_project_id: Option<String>,
+
+    /// OTLP endpoint URL (required when using otlp exporter)
+    #[arg(long, requires = "tracing")]
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub tracing_otlp_endpoint: Option<String>,
+
+    /// Trace sampling rate (0.0 to 1.0)
+    #[arg(long, default_value = "1.0")]
+    #[serde(default = "default_tracing_sample_rate")]
+    pub tracing_sample_rate: f64,
+}
+
 // ** Default functions to setup serde of the configuration file **
 fn default_seed() -> String {
     DEFAULT_DEV_SEED.to_string()
+}
+
+fn default_tracing_service_name() -> String {
+    "katana-rpc".to_string()
+}
+
+fn default_tracing_exporter() -> String {
+    "none".to_string()
+}
+
+fn default_tracing_sample_rate() -> f64 {
+    1.0
 }
 
 fn default_accounts() -> u16 {

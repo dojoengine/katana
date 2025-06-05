@@ -286,6 +286,10 @@ impl Node {
             .cors(cors)
             .module(rpc_modules)?;
 
+        if let Some(tracing_config) = config.rpc.tracing.clone() {
+            rpc_server = rpc_server.tracing(tracing_config);
+        }
+
         if let Some(timeout) = config.rpc.timeout {
             rpc_server = rpc_server.timeout(timeout);
         };
