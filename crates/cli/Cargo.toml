@@ -39,5 +39,6 @@ cartridge = [
 	"katana-rpc/cartridge",
 ]
 default = [ "cartridge", "server" ]
+explorer = [ "katana-node/explorer" ]
 native = [ "katana-node/native" ]
 server = [  ]

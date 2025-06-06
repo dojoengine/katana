@@ -475,6 +475,7 @@ impl Default for CartridgeOptions {
     }
 }
 
+#[cfg(feature = "explorer")]
 #[derive(Debug, Default, Args, Clone, Serialize, Deserialize, PartialEq)]
 #[command(next_help_heading = "Explorer options")]
 pub struct ExplorerOptions {
@@ -578,10 +579,12 @@ where
     }
 }
 
+#[cfg(feature = "cartridge")]
 fn default_paymaster() -> bool {
     false
 }
 
+#[cfg(feature = "cartridge")]
 fn default_api_url() -> Url {
     Url::parse("https://api.cartridge.gg").expect("qed; invalid url")
 }

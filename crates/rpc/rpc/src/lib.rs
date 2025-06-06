@@ -10,7 +10,6 @@ use jsonrpsee::core::middleware::RpcServiceBuilder;
 use jsonrpsee::core::{RegisterMethodError, TEN_MB_SIZE_BYTES};
 use jsonrpsee::server::{Server, ServerConfig, ServerHandle};
 use jsonrpsee::RpcModule;
-use katana_explorer::ExplorerLayer;
 use katana_log::gcloud::GoogleStackDriverMakeSpan;
 use tower::ServiceBuilder;
 use tower_http::trace::TraceLayer;
@@ -182,8 +181,9 @@ impl RpcServer {
             None
         };
 
+        #[cfg(feature = "explorer")]
         let explorer_layer = if self.explorer {
-            let layer = ExplorerLayer::new(String::new()).unwrap();
+            let layer = katana_explorer::ExplorerLayer::new(String::new()).unwrap();
             Some(layer)
         } else {
             None
@@ -196,8 +196,10 @@ impl RpcServer {
             .layer(http_tracer)
             .option_layer(self.cors.clone())
             .option_layer(health_check_proxy)
-            .option_layer(explorer_layer)
             .timeout(self.timeout);
+
+        #[cfg(feature = "explorer")]
+        let http_middleware = http_middleware.option_layer(explorer_layer);
 
         let rpc_middleware = RpcServiceBuilder::new().option_layer(rpc_metrics).rpc_logger(0);
 
