@@ -85,7 +85,7 @@ impl Node {
         }
 
         // Initialize trace propagation for Google Cloud distributed tracing support
-        katana_rpc::telemetry::init_trace_propagation();
+        katana_log::gcloud::init_trace_propagator();
 
         // --- build executor factory
 

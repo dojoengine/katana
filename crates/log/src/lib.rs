@@ -16,6 +16,8 @@ use tracing_subscriber::util::SubscriberInitExt;
 use tracing_subscriber::{filter, EnvFilter, Registry};
 
 mod fmt;
+pub mod gcloud;
+pub mod otel;
 
 pub use fmt::LogFormat;
 
@@ -76,7 +78,7 @@ pub async fn init(format: LogFormat, dev_log: bool) -> Result<(), Error> {
 async fn init_tracing_subscriber() {
     let gcp_tracer = init_gcp_tracer("katana").await.unwrap();
     let telemetry = tracing_opentelemetry::layer().with_tracer(gcp_tracer);
-    let filter = tracing_subscriber::filter::LevelFilter::from_level(Level::INFO);
+    let filter = tracing_subscriber::filter::LevelFilter::from_level(Level::DEBUG);
 
     tracing_subscriber::registry()
         // The global level filter prevents the exporter network stack

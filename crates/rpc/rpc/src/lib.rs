@@ -6,18 +6,15 @@
 use std::net::SocketAddr;
 use std::time::Duration;
 
-use bytes::Bytes;
-use http::Request;
-use http_body_util::Full;
 use jsonrpsee::core::middleware::RpcServiceBuilder;
 use jsonrpsee::core::{RegisterMethodError, TEN_MB_SIZE_BYTES};
 use jsonrpsee::server::{Server, ServerConfig, ServerHandle};
 use jsonrpsee::RpcModule;
 use katana_explorer::ExplorerLayer;
-use opentelemetry_http::HeaderExtractor;
+use katana_log::gcloud::GoogleStackDriverMakeSpan;
 use tower::ServiceBuilder;
-use tower_http::trace::{DefaultMakeSpan, MakeSpan, TraceLayer};
-use tracing::{info, Span};
+use tower_http::trace::TraceLayer;
+use tracing::info;
 
 #[cfg(feature = "cartridge")]
 pub mod cartridge;
@@ -29,7 +26,6 @@ pub mod metrics;
 pub mod starknet;
 pub mod telemetry;
 mod utils;
-
 use cors::Cors;
 use health::HealthCheck;
 use metrics::RpcServerMetricsLayer;
@@ -195,29 +191,6 @@ impl RpcServer {
         };
 
         let rpc_metrics = self.metrics.then(|| RpcServerMetricsLayer::new(&modules));
-
-        #[derive(Debug, Clone, Default)]
-        struct GoogleStackDriverMakeSpan;
-
-        impl<B> MakeSpan<B> for GoogleStackDriverMakeSpan {
-            /// Make a span from a request.
-            fn make_span(&mut self, request: &Request<B>) -> Span {
-                // Extract trace context from HTTP headers
-                let cx = opentelemetry::global::get_text_map_propagator(|propagator| {
-                    propagator.extract(&HeaderExtractor(request.headers()))
-                });
-
-                // Create a span from the parent context
-                let span = tracing::info_span!(
-                    "http_request",
-                    method = %request.method(),
-                    uri = %request.uri(),
-                );
-                span.set_parent(cx);
-
-                span
-            }
-        }
 
         let tracer = TraceLayer::new_for_http().make_span_with(GoogleStackDriverMakeSpan);
 

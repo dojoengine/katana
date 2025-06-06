@@ -11,6 +11,7 @@ katana-core.workspace = true
 katana-db.workspace = true
 katana-executor = { workspace = true, features = [ "blockifier" ] }
 katana-explorer.workspace = true
+katana-log.workspace = true
 katana-messaging.workspace = true
 katana-metrics.workspace = true
 katana-pipeline.workspace = true
