@@ -81,7 +81,7 @@ impl RpcServerHandle {
 }
 
 #[derive(Debug)]
-pub struct RpcServer<T = ()> {
+pub struct RpcServer {
     metrics: bool,
     cors: Option<Cors>,
     health_check: bool,
@@ -92,15 +92,12 @@ pub struct RpcServer<T = ()> {
     max_request_body_size: u32,
     max_response_body_size: u32,
     timeout: Duration,
-
-    tracer: Option<T>,
 }
 
-impl<T> RpcServer<T> {
+impl RpcServer {
     pub fn new() -> Self {
         Self {
             cors: None,
-            tracer: None,
             metrics: false,
             explorer: false,
             health_check: false,
@@ -161,11 +158,6 @@ impl<T> RpcServer<T> {
         self
     }
 
-    pub fn tracer(mut self, tracer: T) -> Self {
-        self.tracer = Some(tracer);
-        self
-    }
-
     /// Adds a new RPC module to the server.
     ///
     /// This can be chained with other calls to `module` to add multiple modules.
@@ -179,9 +171,7 @@ impl<T> RpcServer<T> {
         self.module.merge(module)?;
         Ok(self)
     }
-}
 
-impl RpcServer {
     pub async fn start(&self, addr: SocketAddr) -> Result<RpcServerHandle, Error> {
         let mut modules = self.module.clone();
 
@@ -200,15 +190,13 @@ impl RpcServer {
         };
 
         let rpc_metrics = self.metrics.then(|| RpcServerMetricsLayer::new(&modules));
-
         let tracer = TraceLayer::new_for_http().make_span_with(GoogleStackDriverMakeSpan);
 
-        let a = ServiceBuilder::new();
         let http_middleware = ServiceBuilder::new()
-            .layer(a)
+            .layer(tracer)
             .option_layer(self.cors.clone())
             .option_layer(health_check_proxy)
-            // .option_layer(explorer_layer)
+            .option_layer(explorer_layer)
             .timeout(self.timeout);
 
         let rpc_middleware = RpcServiceBuilder::new().option_layer(rpc_metrics);
