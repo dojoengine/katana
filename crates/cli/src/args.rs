@@ -93,6 +93,9 @@ pub struct NodeArgs {
     #[command(flatten)]
     pub logging: LoggingOptions,
 
+    #[command(flatten)]
+    pub tracer: TracerOptions,
+
     #[cfg(feature = "server")]
     #[command(flatten)]
     pub metrics: MetricsOptions,
@@ -124,7 +127,13 @@ pub struct NodeArgs {
 
 impl NodeArgs {
     pub async fn execute(&self) -> Result<()> {
-        katana_log::init(self.logging.log_format, self.development.dev)?;
+        // Build tracer config
+        let tracer_config =
+            if self.tracer.is_enabled() { Some(self.tracer_config()?) } else { None };
+
+        // Initialize logging with tracer
+        katana_log::init(self.logging.log_format, self.development.dev, tracer_config).await?;
+
         self.start_node().await
     }
 
@@ -442,6 +451,13 @@ impl NodeArgs {
         }
 
         Ok(self)
+    }
+
+    fn tracer_config(&self) -> Result<katana_log::TracerConfig> {
+        use katana_log::gcloud::GcloudConfig;
+        use katana_log::TracerConfig;
+        let cfg = GcloudConfig { project_id: self.tracer.gcloud_project_id.clone() };
+        Ok(TracerConfig::Gcloud(cfg))
     }
 }
 

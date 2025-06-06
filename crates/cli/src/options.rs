@@ -588,3 +588,37 @@ fn default_paymaster() -> bool {
 fn default_api_url() -> Url {
     Url::parse("https://api.cartridge.gg").expect("qed; invalid url")
 }
+
+#[derive(Debug, Default, Args, Clone, Serialize, Deserialize, PartialEq)]
+#[command(next_help_heading = "Tracer options")]
+pub struct TracerOptions {
+    /// Enable Google Cloud Trace exporter
+    #[arg(long = "tracer.gcloud")]
+    #[serde(default)]
+    pub tracer_gcloud: bool,
+
+    /// Google Cloud project ID
+    #[arg(long = "tracer.gcloud-project")]
+    #[arg(requires = "tracer_gcloud")]
+    #[arg(value_name = "PROJECT_ID")]
+    #[serde(default)]
+    pub gcloud_project_id: Option<String>,
+}
+
+impl TracerOptions {
+    /// Check if any telemetry is enabled
+    pub fn is_enabled(&self) -> bool {
+        self.tracer_gcloud
+    }
+
+    pub fn merge(mut self, other: TracerOptions) -> Self {
+        if other.tracer_gcloud {
+            self.tracer_gcloud = other.tracer_gcloud;
+        }
+
+        if other.gcloud_project_id.is_some() {
+            self.gcloud_project_id = other.gcloud_project_id;
+        }
+        self
+    }
+}

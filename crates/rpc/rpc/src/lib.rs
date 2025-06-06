@@ -10,7 +10,9 @@ use jsonrpsee::core::middleware::RpcServiceBuilder;
 use jsonrpsee::core::{RegisterMethodError, TEN_MB_SIZE_BYTES};
 use jsonrpsee::server::{Server, ServerConfig, ServerHandle};
 use jsonrpsee::RpcModule;
+use katana_log::gcloud::GoogleStackDriverMakeSpan;
 use tower::ServiceBuilder;
+use tower_http::trace::TraceLayer;
 use tracing::info;
 
 #[cfg(feature = "cartridge")]
@@ -21,8 +23,8 @@ pub mod dev;
 pub mod health;
 pub mod metrics;
 pub mod starknet;
-mod utils;
 
+mod utils;
 use cors::Cors;
 use health::HealthCheck;
 use metrics::RpcServerMetricsLayer;
@@ -83,6 +85,7 @@ pub struct RpcServer {
     cors: Option<Cors>,
     health_check: bool,
     explorer: bool,
+
     module: RpcModule<()>,
     max_connections: u32,
     max_request_body_size: u32,
@@ -187,8 +190,10 @@ impl RpcServer {
         };
 
         let rpc_metrics = self.metrics.then(|| RpcServerMetricsLayer::new(&modules));
+        let http_tracer = TraceLayer::new_for_http().make_span_with(GoogleStackDriverMakeSpan);
 
         let http_middleware = ServiceBuilder::new()
+            .layer(http_tracer)
             .option_layer(self.cors.clone())
             .option_layer(health_check_proxy)
             .timeout(self.timeout);
@@ -196,7 +201,7 @@ impl RpcServer {
         #[cfg(feature = "explorer")]
         let http_middleware = http_middleware.option_layer(explorer_layer);
 
-        let rpc_middleware = RpcServiceBuilder::new().option_layer(rpc_metrics);
+        let rpc_middleware = RpcServiceBuilder::new().option_layer(rpc_metrics).rpc_logger(0);
 
         let cfg = ServerConfig::builder()
             .max_connections(self.max_connections)
