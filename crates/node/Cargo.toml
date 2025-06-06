@@ -10,7 +10,6 @@ katana-chain-spec.workspace = true
 katana-core.workspace = true
 katana-db.workspace = true
 katana-executor = { workspace = true, features = [ "blockifier" ] }
-katana-explorer.workspace = true
 katana-messaging.workspace = true
 katana-metrics.workspace = true
 katana-pipeline.workspace = true
@@ -48,6 +47,7 @@ tracing-subscriber = { workspace = true, optional = true }
 
 [features]
 cartridge = [ "katana-rpc-api/cartridge", "katana-rpc/cartridge" ]
+explorer = [ "katana-rpc/explorer" ]
 native = [ "katana-executor/native" ]
 # experimental feature to test katana full node mode
 full-node = [ "dep:katana-feeder-gateway", "dep:tokio" ]

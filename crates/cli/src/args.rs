@@ -2,7 +2,6 @@
 
 use std::path::PathBuf;
 use std::sync::Arc;
-use std::time::Duration;
 
 use alloy_primitives::U256;
 #[cfg(feature = "server")]
@@ -18,6 +17,7 @@ use katana_node::config::dev::{DevConfig, FixedL1GasPriceConfig};
 use katana_node::config::execution::ExecutionConfig;
 use katana_node::config::fork::ForkingConfig;
 use katana_node::config::metrics::MetricsConfig;
+#[cfg(feature = "cartridge")]
 use katana_node::config::paymaster::PaymasterConfig;
 use katana_node::config::rpc::RpcConfig;
 #[cfg(feature = "server")]
@@ -113,6 +113,7 @@ pub struct NodeArgs {
     #[command(flatten)]
     pub development: DevOptions,
 
+    #[cfg(feature = "explorer")]
     #[command(flatten)]
     pub explorer: ExplorerOptions,
 
@@ -202,6 +203,8 @@ impl NodeArgs {
     fn rpc_config(&self) -> Result<RpcConfig> {
         #[cfg(feature = "server")]
         {
+            use std::time::Duration;
+
             #[allow(unused_mut)]
             let mut modules = if let Some(modules) = &self.server.http_modules {
                 // TODO: This check should be handled in the `katana-node` level. Right now if you
@@ -245,6 +248,7 @@ impl NodeArgs {
                 max_response_body_size: None,
                 timeout: self.server.timeout.map(Duration::from_secs),
                 cors_origins,
+                #[cfg(feature = "explorer")]
                 explorer: self.explorer.explorer,
                 max_event_page_size: Some(self.server.max_event_page_size),
                 max_proof_keys: Some(self.server.max_proof_keys),
@@ -453,9 +457,9 @@ mod test {
     use katana_node::config::execution::{
         DEFAULT_INVOCATION_MAX_STEPS, DEFAULT_VALIDATION_MAX_STEPS,
     };
+    use katana_node::config::rpc::RpcModuleKind;
     use katana_primitives::chain::ChainId;
     use katana_primitives::{address, felt, ContractAddress, Felt};
-    use katana_rpc::cors::HeaderValue;
 
     use super::*;
 
@@ -678,6 +682,8 @@ chain_id.Named = "Mainnet"
     #[test]
     #[cfg(feature = "server")]
     fn parse_cors_origins() {
+        use katana_rpc::cors::HeaderValue;
+
         let config = NodeArgs::parse_from([
             "katana",
             "--http.cors_origins",
