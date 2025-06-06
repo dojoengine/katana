@@ -2,6 +2,7 @@ use std::str::FromStr;
 
 use opentelemetry::trace::TracerProvider;
 use opentelemetry::KeyValue;
+use opentelemetry_gcloud_trace::errors::GcloudTraceError;
 use opentelemetry_gcloud_trace::{GcpCloudTraceExporterBuilder, SdkTracer};
 use opentelemetry_sdk::trace::{RandomIdGenerator, Sampler, SdkTracerProvider};
 use opentelemetry_sdk::{resource, Resource};
@@ -28,6 +29,9 @@ pub enum Error {
 
     #[error("failed to set global dispatcher: {0}")]
     SetGlobalDefault(#[from] SetGlobalDefaultError),
+
+    #[error("google cloud trace error: {0}")]
+    GcloudTrace(#[from] GcloudTraceError),
 }
 
 pub async fn init(format: LogFormat, dev_log: bool) -> Result<(), Error> {
