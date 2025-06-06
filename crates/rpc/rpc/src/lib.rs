@@ -190,16 +190,16 @@ impl RpcServer {
         };
 
         let rpc_metrics = self.metrics.then(|| RpcServerMetricsLayer::new(&modules));
-        let tracer = TraceLayer::new_for_http().make_span_with(GoogleStackDriverMakeSpan);
+        let http_tracer = TraceLayer::new_for_http().make_span_with(GoogleStackDriverMakeSpan);
 
         let http_middleware = ServiceBuilder::new()
-            .layer(tracer)
+            .layer(http_tracer)
             .option_layer(self.cors.clone())
             .option_layer(health_check_proxy)
             .option_layer(explorer_layer)
             .timeout(self.timeout);
 
-        let rpc_middleware = RpcServiceBuilder::new().option_layer(rpc_metrics);
+        let rpc_middleware = RpcServiceBuilder::new().option_layer(rpc_metrics).rpc_logger(0);
 
         let cfg = ServerConfig::builder()
             .max_connections(self.max_connections)
