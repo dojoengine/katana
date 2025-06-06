@@ -1,19 +1,39 @@
 use anyhow::Result;
 use opentelemetry::trace::TracerProvider;
-use tracing::Subscriber;
-use tracing_subscriber::registry::LookupSpan;
+use opentelemetry_otlp::SpanExporterBuilder;
+use opentelemetry_sdk::trace::{RandomIdGenerator, SdkTracerProvider};
+use opentelemetry_sdk::Resource;
 
-/// Create an OTLP layer exporting tracing data.
-pub fn otlp_layer<S>() -> Result<impl tracing_subscriber::Layer<S>>
-where
-    S: Subscriber + for<'span> LookupSpan<'span>,
-{
-    let otlp_exporter = opentelemetry_otlp::SpanExporter::builder().with_tonic().build()?;
+use crate::Error;
 
-    // Create a tracer provider with the exporter
-    let tracer = opentelemetry_sdk::trace::TracerProviderBuilder::default()
-        .with_simple_exporter(otlp_exporter)
+#[derive(Debug, Clone)]
+pub struct OtlpConfig {
+    pub endpoint: Option<String>,
+}
+
+/// Initialize OTLP tracer
+pub fn init_otlp_tracer(
+    otlp_config: &OtlpConfig,
+) -> Result<opentelemetry_sdk::trace::Tracer, Error> {
+    use opentelemetry_otlp::WithExportConfig;
+
+    let resource = Resource::builder().with_service_name("katana").build();
+
+    let mut exporter_builder = SpanExporterBuilder::new().with_tonic();
+
+    if let Some(endpoint) = &otlp_config.endpoint {
+        exporter_builder = exporter_builder.with_endpoint(endpoint);
+    }
+
+    let exporter = exporter_builder.build().unwrap();
+
+    let provider = SdkTracerProvider::builder()
+        .with_id_generator(RandomIdGenerator::default())
+        .with_batch_exporter(exporter)
+        .with_resource(resource)
         .build();
 
-    Ok(tracing_opentelemetry::layer().with_tracer(tracer.tracer("katana")))
+    opentelemetry::global::set_tracer_provider(provider.clone());
+
+    Ok(provider.tracer("katana"))
 }

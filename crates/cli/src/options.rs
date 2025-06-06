@@ -589,24 +589,10 @@ fn default_api_url() -> Url {
 #[derive(Debug, Default, Args, Clone, Serialize, Deserialize, PartialEq)]
 #[command(next_help_heading = "Tracer options")]
 pub struct TracerOptions {
-    /// Enable OpenTelemetry Protocol (OTLP) exporter
-    #[arg(long = "tracer.otel")]
-    #[arg(conflicts_with = "tracer_gcloud")]
-    #[serde(default)]
-    pub tracer_otel: bool,
-
     /// Enable Google Cloud Trace exporter
     #[arg(long = "tracer.gcloud")]
-    #[arg(conflicts_with = "tracer_otel")]
     #[serde(default)]
     pub tracer_gcloud: bool,
-
-    /// OTLP endpoint URL
-    #[arg(long = "tracer.otel-endpoint")]
-    #[arg(default_value = "http://localhost:4317")]
-    #[arg(requires = "tracer_otel")]
-    #[serde(default)]
-    pub otlp_endpoint: Option<String>,
 
     /// Google Cloud project ID
     #[arg(long = "tracer.gcloud-project")]
@@ -619,39 +605,17 @@ pub struct TracerOptions {
 impl TracerOptions {
     /// Check if any telemetry is enabled
     pub fn is_enabled(&self) -> bool {
-        self.tracer_otel || self.tracer_gcloud
-    }
-
-    /// Get the enabled exporter type
-    pub fn exporter_type(&self) -> Option<TracerExporter> {
-        if self.tracer_otel {
-            Some(TracerExporter::Otlp)
-        } else if self.tracer_gcloud {
-            Some(TracerExporter::Gcloud)
-        } else {
-            None
-        }
+        self.tracer_gcloud
     }
 
     pub fn merge(mut self, other: TracerOptions) -> Self {
-        if other.tracer_otel {
-            self.tracer_otel = other.tracer_otel;
-        }
         if other.tracer_gcloud {
             self.tracer_gcloud = other.tracer_gcloud;
         }
-        if other.otlp_endpoint.is_some() {
-            self.otlp_endpoint = other.otlp_endpoint;
-        }
+
         if other.gcloud_project_id.is_some() {
             self.gcloud_project_id = other.gcloud_project_id;
         }
         self
     }
-}
-
-#[derive(Clone, Debug)]
-pub enum TracerExporter {
-    Otlp,
-    Gcloud,
 }

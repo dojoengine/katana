@@ -126,12 +126,12 @@ pub struct NodeArgs {
 
 impl NodeArgs {
     pub async fn execute(&self) -> Result<()> {
-        // Build telemetry config
-        let telemetry_config =
-            if self.tracer.is_enabled() { Some(self.build_telemetry_config()?) } else { None };
+        // Build tracer config
+        let tracer_config =
+            if self.tracer.is_enabled() { Some(self.tracer_config()?) } else { None };
 
-        // Initialize logging with telemetry
-        katana_log::init(self.logging.log_format, self.development.dev, telemetry_config).await?;
+        // Initialize logging with tracer
+        katana_log::init(self.logging.log_format, self.development.dev, tracer_config).await?;
 
         self.start_node().await
     }
@@ -449,26 +449,11 @@ impl NodeArgs {
         Ok(self)
     }
 
-    fn build_telemetry_config(&self) -> Result<katana_log::Tracer> {
-        let exporter = self
-            .tracer
-            .exporter_type()
-            .ok_or_else(|| anyhow::anyhow!("No telemetry exporter enabled"))?;
-
-        match exporter {
-            TracerExporter::Otlp => {
-                let otlp_config =
-                    katana_log::OtlpConfig { endpoint: self.tracer.otlp_endpoint.clone() };
-
-                Ok(katana_log::Tracer::Otlp(otlp_config))
-            }
-            TracerExporter::Gcloud => {
-                let gcloud_config =
-                    katana_log::GcloudConfig { project_id: self.tracer.gcloud_project_id.clone() };
-
-                Ok(katana_log::Tracer::Gcloud(gcloud_config))
-            }
-        }
+    fn tracer_config(&self) -> Result<katana_log::TracerConfig> {
+        use katana_log::gcloud::GcloudConfig;
+        use katana_log::TracerConfig;
+        let cfg = GcloudConfig { project_id: self.tracer.gcloud_project_id.clone() };
+        Ok(TracerConfig::Gcloud(cfg))
     }
 }
 
