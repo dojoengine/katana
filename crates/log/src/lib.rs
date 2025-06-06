@@ -42,7 +42,11 @@ pub async fn init(format: LogFormat, dev_log: bool) -> Result<(), Error> {
         DEFAULT_LOG_FILTER.to_string()
     };
 
-    LogTracer::init()?;
+    rustls::crypto::ring::default_provider()
+        .install_default()
+        .expect("Failed to install rustls crypto provider");
+
+    // LogTracer::init()?;
     init_tracing_subscriber().await;
 
     // // If the user has set the `RUST_LOG` environment variable, then we prioritize it.
