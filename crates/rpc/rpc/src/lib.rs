@@ -24,12 +24,11 @@ pub mod dev;
 pub mod health;
 pub mod metrics;
 pub mod starknet;
-pub mod telemetry;
+
 mod utils;
 use cors::Cors;
 use health::HealthCheck;
 use metrics::RpcServerMetricsLayer;
-use tracing_opentelemetry::OpenTelemetrySpanExt;
 
 /// The default maximum number of concurrent RPC connections.
 pub const DEFAULT_RPC_MAX_CONNECTIONS: u32 = 100;
@@ -82,7 +81,7 @@ impl RpcServerHandle {
 }
 
 #[derive(Debug)]
-pub struct RpcServer {
+pub struct RpcServer<T = ()> {
     metrics: bool,
     cors: Option<Cors>,
     health_check: bool,
@@ -93,12 +92,15 @@ pub struct RpcServer {
     max_request_body_size: u32,
     max_response_body_size: u32,
     timeout: Duration,
+
+    tracer: Option<T>,
 }
 
-impl RpcServer {
+impl<T> RpcServer<T> {
     pub fn new() -> Self {
         Self {
             cors: None,
+            tracer: None,
             metrics: false,
             explorer: false,
             health_check: false,
@@ -159,6 +161,11 @@ impl RpcServer {
         self
     }
 
+    pub fn tracer(mut self, tracer: T) -> Self {
+        self.tracer = Some(tracer);
+        self
+    }
+
     /// Adds a new RPC module to the server.
     ///
     /// This can be chained with other calls to `module` to add multiple modules.
@@ -172,7 +179,9 @@ impl RpcServer {
         self.module.merge(module)?;
         Ok(self)
     }
+}
 
+impl RpcServer {
     pub async fn start(&self, addr: SocketAddr) -> Result<RpcServerHandle, Error> {
         let mut modules = self.module.clone();
 
@@ -194,8 +203,9 @@ impl RpcServer {
 
         let tracer = TraceLayer::new_for_http().make_span_with(GoogleStackDriverMakeSpan);
 
+        let a = ServiceBuilder::new();
         let http_middleware = ServiceBuilder::new()
-            .layer(tracer)
+            .layer(a)
             .option_layer(self.cors.clone())
             .option_layer(health_check_proxy)
             // .option_layer(explorer_layer)

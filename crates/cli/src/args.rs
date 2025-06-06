@@ -32,7 +32,7 @@ use tracing::info;
 use url::Url;
 
 use crate::file::NodeArgsConfig;
-use crate::options::{self, *};
+use crate::options::*;
 use crate::utils::{self, parse_chain_config_dir, parse_seed};
 
 pub(crate) const LOG_TARGET: &str = "katana::cli";
@@ -94,7 +94,7 @@ pub struct NodeArgs {
     pub logging: LoggingOptions,
 
     #[command(flatten)]
-    pub telemetry: TelemetryOptions,
+    pub tracer: TracerOptions,
 
     #[cfg(feature = "server")]
     #[command(flatten)]
@@ -128,7 +128,7 @@ impl NodeArgs {
     pub async fn execute(&self) -> Result<()> {
         // Build telemetry config
         let telemetry_config =
-            if self.telemetry.is_enabled() { Some(self.build_telemetry_config()?) } else { None };
+            if self.tracer.is_enabled() { Some(self.build_telemetry_config()?) } else { None };
 
         // Initialize logging with telemetry
         katana_log::init(self.logging.log_format, self.development.dev, telemetry_config).await?;
@@ -449,27 +449,24 @@ impl NodeArgs {
         Ok(self)
     }
 
-    fn build_telemetry_config(&self) -> Result<katana_log::TelemetryConfig> {
+    fn build_telemetry_config(&self) -> Result<katana_log::Tracer> {
         let exporter = self
-            .telemetry
+            .tracer
             .exporter_type()
             .ok_or_else(|| anyhow::anyhow!("No telemetry exporter enabled"))?;
 
         match exporter {
-            TelemetryExporter::Otlp => {
-                let otlp_config = katana_log::OtlpConfig {
-                    endpoint: self.telemetry.otlp_endpoint.clone(),
-                    timeout: self.telemetry.otlp_timeout,
-                };
+            TracerExporter::Otlp => {
+                let otlp_config =
+                    katana_log::OtlpConfig { endpoint: self.tracer.otlp_endpoint.clone() };
 
-                Ok(katana_log::TelemetryConfig::Otlp(otlp_config))
+                Ok(katana_log::Tracer::Otlp(otlp_config))
             }
-            TelemetryExporter::Gcloud => {
-                let gcloud_config = katana_log::GcloudConfig {
-                    project_id: self.telemetry.gcloud_project_id.clone(),
-                };
+            TracerExporter::Gcloud => {
+                let gcloud_config =
+                    katana_log::GcloudConfig { project_id: self.tracer.gcloud_project_id.clone() };
 
-                Ok(katana_log::TelemetryConfig::Gcloud(gcloud_config))
+                Ok(katana_log::Tracer::Gcloud(gcloud_config))
             }
         }
     }

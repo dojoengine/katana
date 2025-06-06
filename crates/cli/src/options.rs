@@ -10,7 +10,6 @@
 #[cfg(feature = "server")]
 use std::net::IpAddr;
 use std::num::NonZeroU128;
-use std::path::PathBuf;
 
 use clap::Args;
 use katana_log::LogFormat;
@@ -587,83 +586,62 @@ fn default_api_url() -> Url {
     Url::parse("https://api.cartridge.gg").expect("qed; invalid url")
 }
 
-#[derive(Debug, Args, Clone, Serialize, Deserialize, PartialEq)]
-#[command(next_help_heading = "Telemetry options")]
-pub struct TelemetryOptions {
+#[derive(Debug, Default, Args, Clone, Serialize, Deserialize, PartialEq)]
+#[command(next_help_heading = "Tracer options")]
+pub struct TracerOptions {
     /// Enable OpenTelemetry Protocol (OTLP) exporter
-    #[arg(long = "telemetry.otel")]
-    #[arg(conflicts_with = "telemetry_gcloud")]
+    #[arg(long = "tracer.otel")]
+    #[arg(conflicts_with = "tracer_gcloud")]
     #[serde(default)]
-    pub telemetry_otel: bool,
+    pub tracer_otel: bool,
 
     /// Enable Google Cloud Trace exporter
-    #[arg(long = "telemetry.gcloud")]
-    #[arg(conflicts_with = "telemetry_otel")]
+    #[arg(long = "tracer.gcloud")]
+    #[arg(conflicts_with = "tracer_otel")]
     #[serde(default)]
-    pub telemetry_gcloud: bool,
+    pub tracer_gcloud: bool,
 
     /// OTLP endpoint URL
-    #[arg(long = "telemetry.otel-endpoint")]
+    #[arg(long = "tracer.otel-endpoint")]
     #[arg(default_value = "http://localhost:4317")]
-    #[arg(requires = "telemetry_otel")]
+    #[arg(requires = "tracer_otel")]
     #[serde(default)]
     pub otlp_endpoint: Option<String>,
 
-    /// OTLP timeout in seconds
-    #[arg(long = "telemetry.otel.timeout")]
-    #[arg(default_value = "10")]
-    #[arg(requires = "telemetry_otel")]
-    #[serde(default = "default_otlp_timeout")]
-    pub otlp_timeout: u64,
-
     /// Google Cloud project ID
-    #[arg(long = "telemetry.gcloud-project-id")]
-    #[arg(requires = "telemetry_gcloud")]
+    #[arg(long = "tracer.gcloud-project")]
+    #[arg(requires = "tracer_gcloud")]
+    #[arg(value_name = "PROJECT_ID")]
     #[serde(default)]
     pub gcloud_project_id: Option<String>,
 }
 
-impl Default for TelemetryOptions {
-    fn default() -> Self {
-        Self {
-            telemetry_otel: false,
-            telemetry_gcloud: false,
-            otlp_endpoint: None,
-            otlp_timeout: default_otlp_timeout(),
-            gcloud_project_id: None,
-        }
-    }
-}
-
-impl TelemetryOptions {
+impl TracerOptions {
     /// Check if any telemetry is enabled
     pub fn is_enabled(&self) -> bool {
-        self.telemetry_otel || self.telemetry_gcloud
+        self.tracer_otel || self.tracer_gcloud
     }
 
     /// Get the enabled exporter type
-    pub fn exporter_type(&self) -> Option<TelemetryExporter> {
-        if self.telemetry_otel {
-            Some(TelemetryExporter::Otlp)
-        } else if self.telemetry_gcloud {
-            Some(TelemetryExporter::Gcloud)
+    pub fn exporter_type(&self) -> Option<TracerExporter> {
+        if self.tracer_otel {
+            Some(TracerExporter::Otlp)
+        } else if self.tracer_gcloud {
+            Some(TracerExporter::Gcloud)
         } else {
             None
         }
     }
 
-    pub fn merge(mut self, other: TelemetryOptions) -> Self {
-        if other.telemetry_otel {
-            self.telemetry_otel = other.telemetry_otel;
+    pub fn merge(mut self, other: TracerOptions) -> Self {
+        if other.tracer_otel {
+            self.tracer_otel = other.tracer_otel;
         }
-        if other.telemetry_gcloud {
-            self.telemetry_gcloud = other.telemetry_gcloud;
+        if other.tracer_gcloud {
+            self.tracer_gcloud = other.tracer_gcloud;
         }
         if other.otlp_endpoint.is_some() {
             self.otlp_endpoint = other.otlp_endpoint;
-        }
-        if other.otlp_timeout != default_otlp_timeout() {
-            self.otlp_timeout = other.otlp_timeout;
         }
         if other.gcloud_project_id.is_some() {
             self.gcloud_project_id = other.gcloud_project_id;
@@ -673,19 +651,7 @@ impl TelemetryOptions {
 }
 
 #[derive(Clone, Debug)]
-pub enum TelemetryExporter {
+pub enum TracerExporter {
     Otlp,
     Gcloud,
-}
-
-fn default_telemetry_service_name() -> String {
-    "katana".to_string()
-}
-
-fn default_telemetry_sample_rate() -> f64 {
-    1.0
-}
-
-fn default_otlp_timeout() -> u64 {
-    10
 }

@@ -17,7 +17,7 @@ pub mod otel;
 pub use fmt::LogFormat;
 
 #[derive(Debug, Clone)]
-pub enum TelemetryConfig {
+pub enum Tracer {
     Otlp(OtlpConfig),
     Gcloud(GcloudConfig),
 }
@@ -25,7 +25,6 @@ pub enum TelemetryConfig {
 #[derive(Debug, Clone)]
 pub struct OtlpConfig {
     pub endpoint: Option<String>,
-    pub timeout: u64,
 }
 
 #[derive(Debug, Clone)]
@@ -47,10 +46,11 @@ pub enum Error {
     #[error("google cloud trace error: {0}")]
     GcloudTrace(#[from] GcloudTraceError),
 }
+
 pub async fn init(
     format: LogFormat,
     dev_log: bool,
-    telemetry_config: Option<TelemetryConfig>,
+    telemetry_config: Option<Tracer>,
 ) -> Result<(), Error> {
     const DEFAULT_LOG_FILTER: &str = "cairo_native::compiler=off,pipeline=debug,stage=debug,info,\
                                       tasks=debug,executor=trace,forking::backend=trace,\
@@ -76,11 +76,11 @@ pub async fn init(
     if let Some(telemetry_config) = telemetry_config {
         // Initialize telemetry layer based on exporter type
         let telemetry = match telemetry_config {
-            TelemetryConfig::Gcloud(cfg) => {
+            Tracer::Gcloud(cfg) => {
                 let tracer = init_gcp_tracer(&cfg).await?;
                 tracing_opentelemetry::layer().with_tracer(tracer)
             }
-            TelemetryConfig::Otlp(cfg) => {
+            Tracer::Otlp(cfg) => {
                 let tracer = init_otlp_tracer(&cfg)?;
                 tracing_opentelemetry::layer().with_tracer(tracer)
             }
@@ -133,15 +133,11 @@ async fn init_gcp_tracer(gcloud_config: &GcloudConfig) -> Result<SdkTracer, Erro
 
 /// Initialize OTLP tracer
 fn init_otlp_tracer(otlp_config: &OtlpConfig) -> Result<opentelemetry_sdk::trace::Tracer, Error> {
-    use std::time::Duration;
-
     use opentelemetry_otlp::WithExportConfig;
 
     let resource = Resource::builder().with_service_name("katana").build();
 
-    let mut exporter_builder = SpanExporterBuilder::new()
-        .with_tonic()
-        .with_timeout(Duration::from_secs(otlp_config.timeout));
+    let mut exporter_builder = SpanExporterBuilder::new().with_tonic();
 
     if let Some(endpoint) = &otlp_config.endpoint {
         exporter_builder = exporter_builder.with_endpoint(endpoint);
