@@ -280,7 +280,6 @@ impl Node {
             rpc_modules.merge(DevApiServer::into_rpc(api))?;
         }
 
-
         #[allow(unused_mut)]
         let mut rpc_server =
             RpcServer::new().metrics(true).health_check(true).cors(cors).module(rpc_modules)?;
@@ -289,7 +288,6 @@ impl Node {
         {
             rpc_server = rpc_server.explorer(config.rpc.explorer);
         }
-
 
         if let Some(timeout) = config.rpc.timeout {
             rpc_server = rpc_server.timeout(timeout);
