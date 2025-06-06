@@ -6,13 +6,18 @@
 use std::net::SocketAddr;
 use std::time::Duration;
 
+use bytes::Bytes;
+use http::Request;
+use http_body_util::Full;
 use jsonrpsee::core::middleware::RpcServiceBuilder;
 use jsonrpsee::core::{RegisterMethodError, TEN_MB_SIZE_BYTES};
 use jsonrpsee::server::{Server, ServerConfig, ServerHandle};
 use jsonrpsee::RpcModule;
 use katana_explorer::ExplorerLayer;
-use tracing::info;
+use opentelemetry_http::HeaderExtractor;
 use tower::ServiceBuilder;
+use tower_http::trace::{DefaultMakeSpan, MakeSpan, TraceLayer};
+use tracing::{info, Span};
 
 #[cfg(feature = "cartridge")]
 pub mod cartridge;
@@ -28,7 +33,7 @@ mod utils;
 use cors::Cors;
 use health::HealthCheck;
 use metrics::RpcServerMetricsLayer;
-use telemetry::TraceContextLayer;
+use tracing_opentelemetry::OpenTelemetrySpanExt;
 
 /// The default maximum number of concurrent RPC connections.
 pub const DEFAULT_RPC_MAX_CONNECTIONS: u32 = 100;
@@ -191,11 +196,36 @@ impl RpcServer {
 
         let rpc_metrics = self.metrics.then(|| RpcServerMetricsLayer::new(&modules));
 
+        #[derive(Debug, Clone, Default)]
+        struct GoogleStackDriverMakeSpan;
+
+        impl<B> MakeSpan<B> for GoogleStackDriverMakeSpan {
+            /// Make a span from a request.
+            fn make_span(&mut self, request: &Request<B>) -> Span {
+                // Extract trace context from HTTP headers
+                let cx = opentelemetry::global::get_text_map_propagator(|propagator| {
+                    propagator.extract(&HeaderExtractor(request.headers()))
+                });
+
+                // Create a span from the parent context
+                let span = tracing::info_span!(
+                    "http_request",
+                    method = %request.method(),
+                    uri = %request.uri(),
+                );
+                span.set_parent(cx);
+
+                span
+            }
+        }
+
+        let tracer = TraceLayer::new_for_http().make_span_with(GoogleStackDriverMakeSpan);
+
         let http_middleware = ServiceBuilder::new()
-            .layer(TraceContextLayer::new())
+            .layer(tracer)
             .option_layer(self.cors.clone())
             .option_layer(health_check_proxy)
-            .option_layer(explorer_layer)
+            // .option_layer(explorer_layer)
             .timeout(self.timeout);
 
         let rpc_middleware = RpcServiceBuilder::new().option_layer(rpc_metrics);

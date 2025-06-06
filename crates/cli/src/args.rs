@@ -123,7 +123,7 @@ pub struct NodeArgs {
 
 impl NodeArgs {
     pub async fn execute(&self) -> Result<()> {
-        katana_log::init(self.logging.log_format, self.development.dev)?;
+        katana_log::init(self.logging.log_format, self.development.dev).await?;
         self.start_node().await
     }
 
