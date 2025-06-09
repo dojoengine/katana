@@ -1,5 +1,5 @@
 window.BENCHMARK_DATA = {
-  "lastUpdate": 1749445993653,
+  "lastUpdate": 1749453032261,
   "repoUrl": "https://github.com/dojoengine/katana",
   "entries": {
     "Benchmark": [
@@ -971,6 +971,60 @@ window.BENCHMARK_DATA = {
             "name": "Katana.Startup",
             "value": 125711212,
             "range": "± 1536103",
+            "unit": "ns/iter"
+          }
+        ]
+      },
+      {
+        "commit": {
+          "author": {
+            "email": "evergreenkary@gmail.com",
+            "name": "Ammar Arif",
+            "username": "kariy"
+          },
+          "committer": {
+            "email": "noreply@github.com",
+            "name": "GitHub",
+            "username": "web-flow"
+          },
+          "distinct": true,
+          "id": "889eb30c8d62d84530d2c222680ac97e7bb9ca95",
+          "message": "fix(log): remove `LogTracer` initialization (#109)\n\nIt is already being initialized in the call to `tracing_subscriber::registry().with(filter).with(fmt).init()`",
+          "timestamp": "2025-06-09T14:59:00+08:00",
+          "tree_id": "1a2c6d354f670b615995a15ed476d4981545b5bd",
+          "url": "https://github.com/dojoengine/katana/commit/889eb30c8d62d84530d2c222680ac97e7bb9ca95"
+        },
+        "date": 1749453031040,
+        "tool": "cargo",
+        "benches": [
+          {
+            "name": "decompress world contract",
+            "value": 3010184,
+            "range": "± 133347",
+            "unit": "ns/iter"
+          },
+          {
+            "name": "Concurrent.Simulate/Blockifier.1",
+            "value": 399717,
+            "range": "± 19624",
+            "unit": "ns/iter"
+          },
+          {
+            "name": "Concurrent.Simulate/Blockifier.1000",
+            "value": 2736157830,
+            "range": "± 200583703",
+            "unit": "ns/iter"
+          },
+          {
+            "name": "Invoke.ERC20.transfer/Blockifier.Cold",
+            "value": 16212273,
+            "range": "± 180902",
+            "unit": "ns/iter"
+          },
+          {
+            "name": "Katana.Startup",
+            "value": 122779139,
+            "range": "± 460273",
             "unit": "ns/iter"
           }
         ]
