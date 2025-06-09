@@ -170,6 +170,7 @@ impl<T> DbCursorMut<T> for Cursor<RW, T>
 where
     T: Table,
 {
+    #[tracing::instrument(level = "trace", name = "cursor_upsert", skip_all, fields(table = T::NAME))]
     fn upsert(&mut self, key: T::Key, value: T::Value) -> Result<(), DatabaseError> {
         let key = Encode::encode(key);
         let value = Compress::compress(value);
@@ -182,6 +183,7 @@ where
             })
     }
 
+    #[tracing::instrument(level = "trace", name = "cursor_insert", skip_all, fields(table = T::NAME))]
     fn insert(&mut self, key: T::Key, value: T::Value) -> Result<(), DatabaseError> {
         let key = Encode::encode(key);
         let value = Compress::compress(value);
@@ -211,6 +213,7 @@ where
             })
     }
 
+    #[tracing::instrument(level = "trace", name = "cursor_delete_current", skip_all, fields(table = T::NAME))]
     fn delete_current(&mut self) -> Result<(), DatabaseError> {
         libmdbx::Cursor::del(&mut self.inner, WriteFlags::CURRENT).map_err(DatabaseError::Delete)
     }
