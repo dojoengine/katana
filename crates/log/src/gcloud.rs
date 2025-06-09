@@ -61,7 +61,7 @@ pub(crate) async fn init_gcp_tracer(gcloud_config: &GcloudConfig) -> Result<SdkT
     trace_exporter = trace_exporter.with_resource(resource);
 
     let tracer_provider = trace_exporter.create_provider().await?;
-    let tracer = trace_exporter.install(&tracer_provider).await.unwrap();
+    let tracer = trace_exporter.install(&tracer_provider).await?;
 
     // Set the Google Cloud trace context propagator globally
     // This will handle both extraction and injection of X-Cloud-Trace-Context headers

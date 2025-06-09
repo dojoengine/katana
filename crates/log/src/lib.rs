@@ -33,6 +33,9 @@ pub enum Error {
 
     #[error("failed to install crypto provider")]
     InstallCryptoFailed,
+
+    #[error(transparent)]
+    OtelSdk(#[from] opentelemetry_sdk::error::OTelSdkError),
 }
 
 pub async fn init(
