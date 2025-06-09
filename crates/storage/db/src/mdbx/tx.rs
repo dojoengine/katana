@@ -5,6 +5,7 @@ use std::str::FromStr;
 use libmdbx::ffi::DBI;
 use libmdbx::{TransactionKind, WriteFlags, RW};
 use parking_lot::RwLock;
+use tracing::error;
 
 use super::cursor::Cursor;
 use super::stats::TableStat;
@@ -94,7 +95,10 @@ impl<K: TransactionKind> DbTx for Tx<K> {
 
     #[tracing::instrument(level = "trace", name = "db_commit", skip_all, fields(txn_id = self.inner.id()))]
     fn commit(self) -> Result<bool, DatabaseError> {
-        self.inner.commit().map_err(DatabaseError::Commit)
+        self.inner
+            .commit()
+            .map_err(DatabaseError::Commit)
+            .inspect_err(|error| error!(%error, "Commit failed"))
     }
 
     fn abort(self) {
