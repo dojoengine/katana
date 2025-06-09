@@ -66,7 +66,7 @@ pub async fn init(
     // Initialize tracing subscriber with optional telemetry
     if let Some(telemetry_config) = telemetry_config {
         // Initialize telemetry layer based on exporter type
-        let telemetry = match dbg!(telemetry_config) {
+        let telemetry = match telemetry_config {
             TracerConfig::Gcloud(cfg) => {
                 let tracer = gcloud::init_tracer(&cfg).await?;
                 tracing_opentelemetry::layer().with_tracer(tracer)
