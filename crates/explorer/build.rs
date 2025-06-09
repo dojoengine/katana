@@ -18,6 +18,7 @@ fn main() {
             .arg("--init")
             .arg("--recursive")
             .arg("--force")
+            .arg("ui")
             .status()
             .expect("Failed to update git submodule");
 
