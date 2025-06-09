@@ -81,7 +81,6 @@ pub async fn init(
             LogFormat::Json => tracing_subscriber::fmt::layer().json().boxed(),
         };
 
-        LogTracer::init()?;
         tracing_subscriber::registry().with(filter).with(fmt).init();
     }
 
