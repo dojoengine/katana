@@ -163,10 +163,12 @@ impl Database for DbEnv {
     type TxMut = tx::Tx<RW>;
     type Stats = stats::Stats;
 
+    #[tracing::instrument(level = "trace", name = "db_txn_ro_create", skip_all)]
     fn tx(&self) -> Result<Self::Tx, DatabaseError> {
         Ok(Tx::new(self.inner.env.begin_ro_txn().map_err(DatabaseError::CreateROTx)?))
     }
 
+    #[tracing::instrument(level = "trace", name = "db_txn_rw_create", skip_all)]
     fn tx_mut(&self) -> Result<Self::TxMut, DatabaseError> {
         Ok(Tx::new(self.inner.env.begin_rw_txn().map_err(DatabaseError::CreateRWTx)?))
     }

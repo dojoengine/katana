@@ -75,7 +75,7 @@ impl<K: TransactionKind> DbTx for Tx<K> {
             .map_err(DatabaseError::CreateCursor)
     }
 
-    #[tracing::instrument(level = "trace", name = "db_get", skip_all, fields(table = T::NAME))]
+    #[tracing::instrument(level = "trace", name = "db_get", skip_all, fields(table = T::NAME, txn_id = self.inner.id()))]
     fn get<T: Table>(&self, key: T::Key) -> Result<Option<<T as Table>::Value>, DatabaseError> {
         let key = Encode::encode(key);
         self.inner
@@ -92,7 +92,7 @@ impl<K: TransactionKind> DbTx for Tx<K> {
             .map_err(DatabaseError::Stat)
     }
 
-    #[tracing::instrument(level = "trace", name = "db_commit", skip_all)]
+    #[tracing::instrument(level = "trace", name = "db_commit", skip_all, fields(txn_id = self.inner.id()))]
     fn commit(self) -> Result<bool, DatabaseError> {
         self.inner.commit().map_err(DatabaseError::Commit)
     }
@@ -117,7 +117,7 @@ impl DbTxMut for Tx<RW> {
             .map_err(DatabaseError::CreateCursor)
     }
 
-    #[tracing::instrument(level = "trace", name = "db_put", skip_all, fields(table = T::NAME))]
+    #[tracing::instrument(level = "trace", name = "db_put", skip_all, fields(table = T::NAME, txn_id = self.inner.id()))]
     fn put<T: Table>(&self, key: T::Key, value: T::Value) -> Result<(), DatabaseError> {
         let key = key.encode();
         let value = value.compress();
@@ -127,7 +127,7 @@ impl DbTxMut for Tx<RW> {
         Ok(())
     }
 
-    #[tracing::instrument(level = "trace", name = "db_delete", skip_all, fields(table = T::NAME))]
+    #[tracing::instrument(level = "trace", name = "db_delete", skip_all, fields(table = T::NAME, txn_id = self.inner.id()))]
     fn delete<T: Table>(
         &self,
         key: T::Key,
@@ -139,7 +139,7 @@ impl DbTxMut for Tx<RW> {
         self.inner.del(self.get_dbi::<T>()?, encoded_key, value_ref).map_err(DatabaseError::Delete)
     }
 
-    #[tracing::instrument(level = "trace", name = "db_clear", skip_all, fields(table = T::NAME))]
+    #[tracing::instrument(level = "trace", name = "db_clear", skip_all, fields(table = T::NAME, txn_id = self.inner.id()))]
     fn clear<T: Table>(&self) -> Result<(), DatabaseError> {
         self.inner.clear_db(self.get_dbi::<T>()?).map_err(DatabaseError::Clear)
     }
