@@ -12,9 +12,7 @@ pub struct OtlpConfig {
 }
 
 /// Initialize OTLP tracer
-pub fn init_otlp_tracer(
-    otlp_config: &OtlpConfig,
-) -> Result<opentelemetry_sdk::trace::Tracer, Error> {
+pub fn init_tracer(otlp_config: &OtlpConfig) -> Result<opentelemetry_sdk::trace::Tracer, Error> {
     use opentelemetry_otlp::WithExportConfig;
 
     let resource = Resource::builder().with_service_name("katana").build();
@@ -25,7 +23,7 @@ pub fn init_otlp_tracer(
         exporter_builder = exporter_builder.with_endpoint(endpoint);
     }
 
-    let exporter = exporter_builder.build().unwrap();
+    let exporter = exporter_builder.build()?;
 
     let provider = SdkTracerProvider::builder()
         .with_id_generator(RandomIdGenerator::default())

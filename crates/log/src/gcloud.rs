@@ -40,7 +40,7 @@ pub struct GcloudConfig {
 /// context support.
 ///
 /// Make sure to set `GOOGLE_APPLICATION_CREDENTIALS` env var to authenticate to gcloud
-pub(crate) async fn init_gcp_tracer(gcloud_config: &GcloudConfig) -> Result<SdkTracer, Error> {
+pub(crate) async fn init_tracer(gcloud_config: &GcloudConfig) -> Result<SdkTracer, Error> {
     rustls::crypto::ring::default_provider()
         .install_default()
         .map_err(|_| Error::InstallCryptoFailed)?;

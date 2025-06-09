@@ -12,7 +12,7 @@ use std::net::IpAddr;
 use std::num::NonZeroU128;
 
 use clap::Args;
-use katana_log::LogFormat;
+use katana_log::{gcloud, otlp, LogFormat, TracerConfig};
 use katana_node::config::execution::{DEFAULT_INVOCATION_MAX_STEPS, DEFAULT_VALIDATION_MAX_STEPS};
 #[cfg(feature = "server")]
 use katana_node::config::metrics::{DEFAULT_METRICS_ADDR, DEFAULT_METRICS_PORT};
@@ -594,21 +594,42 @@ fn default_api_url() -> Url {
 pub struct TracerOptions {
     /// Enable Google Cloud Trace exporter
     #[arg(long = "tracer.gcloud")]
+    #[arg(conflicts_with = "tracer_otlp")]
+    #[arg(conflicts_with_all(["tracer_otlp", "otlp_endpoint"]))]
     #[serde(default)]
     pub tracer_gcloud: bool,
 
+    /// Enable OpenTelemetry Protocol (OTLP) exporter
+    #[arg(long = "tracer.otlp")]
+    #[serde(default)]
+    pub tracer_otlp: bool,
+
     /// Google Cloud project ID
     #[arg(long = "tracer.gcloud-project")]
-    #[arg(requires = "tracer_gcloud")]
-    #[arg(value_name = "PROJECT_ID")]
+    #[arg(requires = "tracer_gcloud", value_name = "PROJECT_ID")]
+    #[arg(conflicts_with_all(["tracer_otlp", "otlp_endpoint"]))]
     #[serde(default)]
     pub gcloud_project_id: Option<String>,
+
+    /// OTLP endpoint URL
+    #[arg(long = "tracer.otlp-endpoint")]
+    #[arg(value_name = "URL")]
+    #[serde(default)]
+    pub otlp_endpoint: Option<String>,
 }
 
 impl TracerOptions {
-    /// Check if any telemetry is enabled
-    pub fn is_enabled(&self) -> bool {
-        self.tracer_gcloud
+    /// Get the tracer configuration based on the options
+    pub fn config(&self) -> Option<TracerConfig> {
+        if self.tracer_gcloud {
+            Some(TracerConfig::Gcloud(gcloud::GcloudConfig {
+                project_id: self.gcloud_project_id.clone(),
+            }))
+        } else if self.tracer_otlp {
+            Some(TracerConfig::Otlp(otlp::OtlpConfig { endpoint: self.otlp_endpoint.clone() }))
+        } else {
+            None
+        }
     }
 
     pub fn merge(mut self, other: TracerOptions) -> Self {
@@ -616,8 +637,16 @@ impl TracerOptions {
             self.tracer_gcloud = other.tracer_gcloud;
         }
 
+        if other.tracer_otlp {
+            self.tracer_otlp = other.tracer_otlp;
+        }
+
         if other.gcloud_project_id.is_some() {
             self.gcloud_project_id = other.gcloud_project_id;
+        }
+
+        if other.otlp_endpoint.is_some() {
+            self.otlp_endpoint = other.otlp_endpoint;
         }
         self
     }

@@ -7,12 +7,13 @@ use tracing_subscriber::{filter, EnvFilter, Layer};
 
 mod fmt;
 pub mod gcloud;
-pub mod otel;
+pub mod otlp;
 
 pub use fmt::LogFormat;
 
 #[derive(Debug, Clone)]
 pub enum TracerConfig {
+    Otlp(otlp::OtlpConfig),
     Gcloud(gcloud::GcloudConfig),
 }
 
@@ -33,6 +34,9 @@ pub enum Error {
     #[error("failed to install crypto provider")]
     InstallCryptoFailed,
 
+    #[error("failed to build otlp tracer: {0}")]
+    OtlpBuild(#[from] opentelemetry_otlp::ExporterBuildError),
+
     #[error(transparent)]
     OtelSdk(#[from] opentelemetry_sdk::error::OTelSdkError),
 }
@@ -42,10 +46,11 @@ pub async fn init(
     dev_log: bool,
     telemetry_config: Option<TracerConfig>,
 ) -> Result<(), Error> {
-    const DEFAULT_LOG_FILTER: &str =
-        "cairo_native::compiler=off,pipeline=debug,stage=debug,info,tasks=debug,executor=trace,\
-         forking::backend=trace,blockifier=off,jsonrpsee_server=off,hyper=off,messaging=debug,\
-         node=error,explorer=info,jsonrpsee_core::middleware::layer::logger=trace";
+    const DEFAULT_LOG_FILTER: &str = "katana_db::mdbx::tx=trace,cairo_native::compiler=off,\
+                                      pipeline=debug,stage=debug,info,tasks=debug,executor=trace,\
+                                      forking::backend=trace,blockifier=off,jsonrpsee_server=off,\
+                                      hyper=off,messaging=debug,node=error,explorer=info,\
+                                      jsonrpsee_core::middleware::layer::logger=trace";
 
     let filter = if dev_log {
         format!("{DEFAULT_LOG_FILTER},server=debug")
@@ -61,9 +66,13 @@ pub async fn init(
     // Initialize tracing subscriber with optional telemetry
     if let Some(telemetry_config) = telemetry_config {
         // Initialize telemetry layer based on exporter type
-        let telemetry = match telemetry_config {
+        let telemetry = match dbg!(telemetry_config) {
             TracerConfig::Gcloud(cfg) => {
-                let tracer = gcloud::init_gcp_tracer(&cfg).await?;
+                let tracer = gcloud::init_tracer(&cfg).await?;
+                tracing_opentelemetry::layer().with_tracer(tracer)
+            }
+            TracerConfig::Otlp(cfg) => {
+                let tracer = otlp::init_tracer(&cfg)?;
                 tracing_opentelemetry::layer().with_tracer(tracer)
             }
         };
