@@ -63,7 +63,11 @@ impl TokioTaskSpawner {
         F: FnOnce() -> R + Send + 'static,
         R: Send + 'static,
     {
-        self.tokio_handle.spawn_blocking(func)
+        let span = tracing::Span::current();
+        self.tokio_handle.spawn_blocking(move || {
+            let _guard = span.enter();
+            func()
+        })
     }
 }
 
@@ -133,7 +137,9 @@ impl BlockingTaskPool {
         R: Send + 'static,
     {
         let (tx, rx) = oneshot::channel();
+        let span = tracing::Span::current();
         self.pool.spawn(move || {
+            let _guard = span.enter();
             let _ = tx.send(panic::catch_unwind(AssertUnwindSafe(func)));
         });
         BlockingTaskHandle(rx)
@@ -187,5 +193,41 @@ mod tests {
             let res = blocking_pool.spawn(|| panic!("test")).await;
             assert!(res.is_err(), "panic'd task should be caught");
         })
+    }
+
+    #[tokio::test]
+    async fn span_propagation_blocking_pool() {
+        let blocking_pool = BlockingTaskPool::new().unwrap();
+
+        let span = tracing::info_span!("test_span");
+        let _enter = span.enter();
+
+        let result = blocking_pool
+            .spawn(|| {
+                tracing::info!("Inside spawned task");
+                42
+            })
+            .await;
+
+        assert!(result.is_ok());
+        assert_eq!(result.unwrap(), 42);
+    }
+
+    #[tokio::test]
+    async fn span_propagation_tokio_spawner() {
+        let spawner = TokioTaskSpawner::new().unwrap();
+
+        let span = tracing::info_span!("test_span");
+        let _enter = span.enter();
+
+        let result = spawner
+            .spawn_blocking(|| {
+                tracing::info!("Inside spawned blocking task");
+                42
+            })
+            .await;
+
+        assert!(result.is_ok());
+        assert_eq!(result.unwrap(), 42);
     }
 }
