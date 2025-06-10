@@ -594,7 +594,6 @@ fn default_api_url() -> Url {
 pub struct TracerOptions {
     /// Enable Google Cloud Trace exporter
     #[arg(long = "tracer.gcloud")]
-    #[arg(conflicts_with = "tracer_otlp")]
     #[arg(conflicts_with_all(["tracer_otlp", "otlp_endpoint"]))]
     #[serde(default)]
     pub tracer_gcloud: bool,
@@ -613,7 +612,7 @@ pub struct TracerOptions {
 
     /// OTLP endpoint URL
     #[arg(long = "tracer.otlp-endpoint")]
-    #[arg(value_name = "URL")]
+    #[arg(requires = "tracer_otlp", value_name = "URL")]
     #[serde(default)]
     pub otlp_endpoint: Option<String>,
 }
