@@ -3,7 +3,7 @@ use katana_primitives::class::{ClassHash, CompiledClassHash, ContractClass};
 use katana_primitives::contract::{ContractAddress, GenericContractInfo, StorageKey};
 use katana_primitives::execution::TypedTransactionExecutionInfo;
 use katana_primitives::receipt::Receipt;
-use katana_primitives::transaction::{Tx, TxHash, TxNumber};
+use katana_primitives::transaction::{TxHash, TxNumber};
 
 use crate::codecs::{Compress, Decode, Decompress, Encode};
 use crate::models::block::StoredBlockBodyIndices;
@@ -13,6 +13,7 @@ use crate::models::stage::{StageCheckpoint, StageId};
 use crate::models::storage::{ContractStorageEntry, ContractStorageKey, StorageEntry};
 use crate::models::trie::{TrieDatabaseKey, TrieDatabaseValue, TrieHistoryEntry};
 use crate::models::VersionedHeader;
+use crate::versioned::transaction::VersionedTx;
 
 pub trait Key: Encode + Decode + Clone + std::fmt::Debug {}
 pub trait Value: Compress + Decompress + std::fmt::Debug {}
@@ -209,7 +210,7 @@ tables! {
     /// Transaction hash based on its number
     TxHashes: (TxNumber) => TxHash,
     /// Store canonical transactions
-    Transactions: (TxNumber) => Tx,
+    Transactions: (TxNumber) => VersionedTx,
     /// Stores the block number of a transaction.
     TxBlocks: (TxNumber) => BlockNumber,
     /// Stores the transaction's traces.
@@ -357,7 +358,7 @@ mod tests {
     }
 
     use katana_primitives::address;
-    use katana_primitives::block::{BlockHash, BlockNumber, FinalityStatus, Header};
+    use katana_primitives::block::{BlockHash, BlockNumber, FinalityStatus};
     use katana_primitives::class::{ClassHash, CompiledClass, CompiledClassHash};
     use katana_primitives::contract::{ContractAddress, GenericContractInfo};
     use katana_primitives::execution::TypedTransactionExecutionInfo;
@@ -423,14 +424,14 @@ mod tests {
     #[test]
     fn test_value_compress_decompress() {
         assert_value_compress_decompress! {
-            (VersionedHeader, VersionedHeader::V7(Header::default())),
+            (VersionedHeader, VersionedHeader::default()),
             (BlockHash, BlockHash::default()),
             (BlockNumber, BlockNumber::default()),
             (FinalityStatus, FinalityStatus::AcceptedOnL1),
             (StoredBlockBodyIndices, StoredBlockBodyIndices::default()),
             (TxNumber, 77),
             (TxHash, felt!("0x123456789")),
-            (Tx, Tx::Invoke(InvokeTx::V1(Default::default()))),
+            (crate::versioned::transaction::VersionedTx, crate::versioned::transaction::VersionedTx::V7(Tx::Invoke(InvokeTx::V1(Default::default())))),
             (BlockNumber, 99),
             (TypedTransactionExecutionInfo, TypedTransactionExecutionInfo::default()),
             (CompiledClassHash, felt!("211")),

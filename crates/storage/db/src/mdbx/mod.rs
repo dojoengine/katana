@@ -268,7 +268,6 @@ impl Drop for DbEnv {
 #[cfg(test)]
 mod tests {
 
-    use katana_primitives::block::Header;
     use katana_primitives::contract::{ContractAddress, GenericContractInfo};
     use katana_primitives::{address, Felt};
     use starknet::macros::felt;
@@ -278,7 +277,7 @@ mod tests {
     use crate::codecs::Encode;
     use crate::mdbx::test_utils::create_test_db;
     use crate::models::storage::StorageEntry;
-    use crate::models::versioned;
+    use crate::models::VersionedHeader;
     use crate::tables::{BlockHashes, ContractInfo, ContractStorage, Headers, Table};
 
     const ERROR_PUT: &str = "Not able to insert value into table.";
@@ -302,8 +301,7 @@ mod tests {
 
         // Insert some data to ensure non-zero stats
         let tx = env.tx_mut().expect(ERROR_INIT_TX);
-        tx.put::<Headers>(1u64, versioned::block::VersionedHeader::V7(Header::default()))
-            .expect(ERROR_PUT);
+        tx.put::<Headers>(1u64, VersionedHeader::default()).expect(ERROR_PUT);
         tx.commit().expect(ERROR_COMMIT);
 
         // Retrieve stats
@@ -333,13 +331,12 @@ mod tests {
     fn db_manual_put_get() {
         let env = create_test_db();
 
-        let value = Header::default();
+        let value = VersionedHeader::default();
         let key = 1u64;
 
         // PUT
         let tx = env.tx_mut().expect(ERROR_INIT_TX);
-        tx.put::<Headers>(key, versioned::block::VersionedHeader::V7(value.clone()))
-            .expect(ERROR_PUT);
+        tx.put::<Headers>(key, value.clone()).expect(ERROR_PUT);
         tx.commit().expect(ERROR_COMMIT);
 
         // GET
@@ -349,19 +346,19 @@ mod tests {
         tx.commit().expect(ERROR_COMMIT);
 
         assert!(total_entries == 1);
-        assert!(result.expect(ERROR_RETURN_VALUE) == versioned::block::VersionedHeader::V7(value));
+        assert!(result.expect(ERROR_RETURN_VALUE) == value);
     }
 
     #[test]
     fn db_delete() {
         let env = create_test_db();
 
-        let value = Header::default();
+        let value = VersionedHeader::default();
         let key = 1u64;
 
         // PUT
         let tx = env.tx_mut().expect(ERROR_INIT_TX);
-        tx.put::<Headers>(key, versioned::block::VersionedHeader::V7(value)).expect(ERROR_PUT);
+        tx.put::<Headers>(key, value).expect(ERROR_PUT);
         tx.commit().expect(ERROR_COMMIT);
 
         let entries = env.tx().expect(ERROR_INIT_TX).entries::<Headers>().expect(ERROR_GET);
@@ -383,18 +380,15 @@ mod tests {
         let key1 = 1u64;
         let key2 = 2u64;
         let key3 = 3u64;
-        let header1 = Header::default();
-        let header2 = Header::default();
-        let header3 = Header::default();
+        let header1 = VersionedHeader::default();
+        let header2 = VersionedHeader::default();
+        let header3 = VersionedHeader::default();
 
         // PUT
         let tx = env.tx_mut().expect(ERROR_INIT_TX);
-        tx.put::<Headers>(key1, versioned::block::VersionedHeader::V7(header1.clone()))
-            .expect(ERROR_PUT);
-        tx.put::<Headers>(key2, versioned::block::VersionedHeader::V7(header2.clone()))
-            .expect(ERROR_PUT);
-        tx.put::<Headers>(key3, versioned::block::VersionedHeader::V7(header3.clone()))
-            .expect(ERROR_PUT);
+        tx.put::<Headers>(key1, header1.clone()).expect(ERROR_PUT);
+        tx.put::<Headers>(key2, header2.clone()).expect(ERROR_PUT);
+        tx.put::<Headers>(key3, header3.clone()).expect(ERROR_PUT);
         tx.commit().expect(ERROR_COMMIT);
 
         // CURSOR
@@ -405,9 +399,9 @@ mod tests {
         let (_, result3) = cursor.next().expect(ERROR_GET_AT_CURSOR_POS).expect(ERROR_RETURN_VALUE);
         tx.commit().expect(ERROR_COMMIT);
 
-        assert!(result1 == versioned::block::VersionedHeader::V7(header1));
-        assert!(result2 == versioned::block::VersionedHeader::V7(header2));
-        assert!(result3 == versioned::block::VersionedHeader::V7(header3));
+        assert!(result1 == header1);
+        assert!(result2 == header2);
+        assert!(result3 == header3);
     }
 
     #[test]
@@ -449,13 +443,12 @@ mod tests {
     fn db_cursor_walk() {
         let env = create_test_db();
 
-        let value = Header::default();
+        let value = VersionedHeader::default();
         let key = 1u64;
 
         // PUT
         let tx = env.tx_mut().expect(ERROR_INIT_TX);
-        tx.put::<Headers>(key, versioned::block::VersionedHeader::V7(value.clone()))
-            .expect(ERROR_PUT);
+        tx.put::<Headers>(key, value.clone()).expect(ERROR_PUT);
         tx.commit().expect(ERROR_COMMIT);
 
         // Cursor
@@ -468,11 +461,7 @@ mod tests {
         // Walk
         let walk = cursor.walk(Some(key)).unwrap();
         let first = walk.into_iter().next().unwrap().unwrap();
-        assert_eq!(
-            first.1,
-            versioned::block::VersionedHeader::V7(value),
-            "First next should be put value"
-        );
+        assert_eq!(first.1, value, "First next should be put value");
     }
 
     #[test]
