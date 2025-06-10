@@ -377,6 +377,7 @@ mod tests {
         TrieDatabaseKey, TrieDatabaseKeyType, TrieDatabaseValue, TrieHistoryEntry,
     };
     use crate::models::VersionedHeader;
+    use crate::versioned::transaction::VersionedTx;
 
     macro_rules! assert_key_encode_decode {
 	    { $( ($name:ty, $key:expr) ),* } => {
@@ -431,7 +432,7 @@ mod tests {
             (StoredBlockBodyIndices, StoredBlockBodyIndices::default()),
             (TxNumber, 77),
             (TxHash, felt!("0x123456789")),
-            (crate::versioned::transaction::VersionedTx, crate::versioned::transaction::VersionedTx::V7(Tx::Invoke(InvokeTx::V1(Default::default())))),
+            (VersionedTx, VersionedTx::from(Tx::Invoke(InvokeTx::V1(Default::default())))),
             (BlockNumber, 99),
             (TypedTransactionExecutionInfo, TypedTransactionExecutionInfo::default()),
             (CompiledClassHash, felt!("211")),

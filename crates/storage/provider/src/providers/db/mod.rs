@@ -19,6 +19,8 @@ use katana_db::models::storage::{ContractStorageEntry, ContractStorageKey, Stora
 use katana_db::models::VersionedHeader;
 use katana_db::tables::{self, DupSort, Table};
 use katana_db::utils::KeyValue;
+use katana_db::versioned::block::VersionedHeader;
+use katana_db::versioned::transaction::VersionedTx;
 use katana_primitives::block::{
     Block, BlockHash, BlockHashOrNumber, BlockNumber, BlockWithTxHashes, FinalityStatus, Header,
     SealedBlockWithStatus,
@@ -696,7 +698,7 @@ impl<Db: Database> BlockWriter for DbProvider<Db> {
                 db_tx.put::<tables::TxBlocks>(tx_number, block_number)?;
                 db_tx.put::<tables::Transactions>(
                     tx_number,
-                    katana_db::versioned::transaction::VersionedTx::V7(transaction.transaction),
+                    VersionedTx::from(transaction.transaction),
                 )?;
             }
 
