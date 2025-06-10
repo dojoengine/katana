@@ -6150,7 +6150,7 @@ dependencies = [
 
 [[package]]
 name = "katana"
-version = "1.5.3"
+version = "1.6.0-alpha.0"
 dependencies = [
  "anyhow",
  "assert_matches",
@@ -6185,7 +6185,7 @@ dependencies = [
 
 [[package]]
 name = "katana-chain-spec"
-version = "1.5.3"
+version = "1.6.0-alpha.0"
 dependencies = [
  "alloy-primitives",
  "anyhow",
@@ -6208,7 +6208,7 @@ dependencies = [
 
 [[package]]
 name = "katana-cli"
-version = "1.5.3"
+version = "1.6.0-alpha.0"
 dependencies = [
  "alloy-primitives",
  "anyhow",
@@ -6236,7 +6236,7 @@ dependencies = [
 
 [[package]]
 name = "katana-codecs"
-version = "1.5.3"
+version = "1.6.0-alpha.0"
 dependencies = [
  "bytes",
  "katana-primitives",
@@ -6244,7 +6244,7 @@ dependencies = [
 
 [[package]]
 name = "katana-codecs-derive"
-version = "1.5.3"
+version = "1.6.0-alpha.0"
 dependencies = [
  "proc-macro2",
  "quote",
@@ -6254,7 +6254,7 @@ dependencies = [
 
 [[package]]
 name = "katana-core"
-version = "1.5.3"
+version = "1.6.0-alpha.0"
 dependencies = [
  "alloy-primitives",
  "alloy-provider 0.4.2",
@@ -6294,7 +6294,7 @@ dependencies = [
 
 [[package]]
 name = "katana-db"
-version = "1.5.3"
+version = "1.6.0-alpha.0"
 dependencies = [
  "anyhow",
  "arbitrary",
@@ -6322,7 +6322,7 @@ dependencies = [
 
 [[package]]
 name = "katana-executor"
-version = "1.5.3"
+version = "1.6.0-alpha.0"
 dependencies = [
  "alloy-primitives",
  "anyhow",
@@ -6354,7 +6354,7 @@ dependencies = [
 
 [[package]]
 name = "katana-explorer"
-version = "1.5.3"
+version = "1.6.0-alpha.0"
 dependencies = [
  "anyhow",
  "axum 0.6.20",
@@ -6378,7 +6378,7 @@ dependencies = [
 
 [[package]]
 name = "katana-feeder-gateway"
-version = "1.5.3"
+version = "1.6.0-alpha.0"
 dependencies = [
  "katana-primitives",
  "katana-rpc-types",
@@ -6396,7 +6396,7 @@ dependencies = [
 
 [[package]]
 name = "katana-fork"
-version = "1.5.3"
+version = "1.6.0-alpha.0"
 dependencies = [
  "anyhow",
  "futures",
@@ -6413,7 +6413,7 @@ dependencies = [
 
 [[package]]
 name = "katana-grpc"
-version = "1.5.3"
+version = "1.6.0-alpha.0"
 dependencies = [
  "tonic 0.11.0",
  "tonic-build",
@@ -6421,7 +6421,7 @@ dependencies = [
 
 [[package]]
 name = "katana-log"
-version = "1.5.3"
+version = "1.6.0-alpha.0"
 dependencies = [
  "anyhow",
  "bytes",
@@ -6446,7 +6446,7 @@ dependencies = [
 
 [[package]]
 name = "katana-messaging"
-version = "1.5.3"
+version = "1.6.0-alpha.0"
 dependencies = [
  "alloy-contract 0.4.2",
  "alloy-network 0.4.2",
@@ -6474,7 +6474,7 @@ dependencies = [
 
 [[package]]
 name = "katana-metrics"
-version = "1.5.3"
+version = "1.6.0-alpha.0"
 dependencies = [
  "hyper 0.14.32",
  "jemalloc-ctl",
@@ -6491,7 +6491,7 @@ dependencies = [
 
 [[package]]
 name = "katana-node"
-version = "1.5.3"
+version = "1.6.0-alpha.0"
 dependencies = [
  "anyhow",
  "clap",
@@ -6533,7 +6533,7 @@ dependencies = [
 
 [[package]]
 name = "katana-node-bindings"
-version = "1.5.3"
+version = "1.6.0-alpha.0"
 dependencies = [
  "criterion",
  "pprof",
@@ -6550,7 +6550,7 @@ dependencies = [
 
 [[package]]
 name = "katana-pipeline"
-version = "1.5.3"
+version = "1.6.0-alpha.0"
 dependencies = [
  "async-trait",
  "futures",
@@ -6564,7 +6564,7 @@ dependencies = [
 
 [[package]]
 name = "katana-pool"
-version = "1.5.3"
+version = "1.6.0-alpha.0"
 dependencies = [
  "futures",
  "futures-util",
@@ -6581,7 +6581,7 @@ dependencies = [
 
 [[package]]
 name = "katana-primitives"
-version = "1.5.3"
+version = "1.6.0-alpha.0"
 dependencies = [
  "alloy-primitives",
  "anyhow",
@@ -6618,7 +6618,7 @@ dependencies = [
 
 [[package]]
 name = "katana-provider"
-version = "1.5.3"
+version = "1.6.0-alpha.0"
 dependencies = [
  "alloy-primitives",
  "anyhow",
@@ -6648,7 +6648,7 @@ dependencies = [
 
 [[package]]
 name = "katana-rpc"
-version = "1.5.3"
+version = "1.6.0-alpha.0"
 dependencies = [
  "alloy",
  "alloy-primitives",
@@ -6703,7 +6703,7 @@ dependencies = [
 
 [[package]]
 name = "katana-rpc-api"
-version = "1.5.3"
+version = "1.6.0-alpha.0"
 dependencies = [
  "anyhow",
  "jsonrpsee",
@@ -6721,7 +6721,7 @@ dependencies = [
 
 [[package]]
 name = "katana-rpc-types"
-version = "1.5.3"
+version = "1.6.0-alpha.0"
 dependencies = [
  "alloy-primitives",
  "anyhow",
@@ -6747,7 +6747,7 @@ dependencies = [
 
 [[package]]
 name = "katana-rpc-types-builder"
-version = "1.5.3"
+version = "1.6.0-alpha.0"
 dependencies = [
  "anyhow",
  "katana-executor",
@@ -6759,7 +6759,7 @@ dependencies = [
 
 [[package]]
 name = "katana-runner"
-version = "1.5.3"
+version = "1.6.0-alpha.0"
 dependencies = [
  "anyhow",
  "assert_fs",
@@ -6772,7 +6772,7 @@ dependencies = [
 
 [[package]]
 name = "katana-runner-macro"
-version = "1.5.3"
+version = "1.6.0-alpha.0"
 dependencies = [
  "proc-macro2",
  "quote",
@@ -6781,7 +6781,7 @@ dependencies = [
 
 [[package]]
 name = "katana-slot-controller"
-version = "1.5.3"
+version = "1.6.0-alpha.0"
 dependencies = [
  "account_sdk",
  "katana-primitives",
@@ -6789,7 +6789,7 @@ dependencies = [
 
 [[package]]
 name = "katana-stage"
-version = "1.5.3"
+version = "1.6.0-alpha.0"
 dependencies = [
  "anyhow",
  "async-trait",
@@ -6813,7 +6813,7 @@ dependencies = [
 
 [[package]]
 name = "katana-tasks"
-version = "1.5.3"
+version = "1.6.0-alpha.0"
 dependencies = [
  "futures",
  "rayon",
@@ -6826,7 +6826,7 @@ dependencies = [
 
 [[package]]
 name = "katana-trie"
-version = "1.5.3"
+version = "1.6.0-alpha.0"
 dependencies = [
  "anyhow",
  "bitvec",
@@ -6841,7 +6841,7 @@ dependencies = [
 
 [[package]]
 name = "katana-utils"
-version = "1.5.3"
+version = "1.6.0-alpha.0"
 dependencies = [
  "anyhow",
  "assert_matches",
@@ -9101,7 +9101,7 @@ dependencies = [
 
 [[package]]
 name = "reverse-proxy-test"
-version = "1.5.3"
+version = "1.6.0-alpha.0"
 dependencies = [
  "anyhow",
  "headless_chrome",
@@ -10309,7 +10309,7 @@ dependencies = [
 
 [[package]]
 name = "snos-integration-test"
-version = "1.5.3"
+version = "1.6.0-alpha.0"
 dependencies = [
  "anyhow",
  "cairo-vm 1.0.2 (git+https://github.com/kariy/cairo-vm?branch=kariy%2F1.0.2_clear-cell)",
