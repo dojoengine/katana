@@ -178,7 +178,6 @@ impl Decompress for VersionedTx {
         impl From<UntaggedVersionedTx> for VersionedTx {
             fn from(versioned: UntaggedVersionedTx) -> Self {
                 match versioned {
-                    UntaggedVersionedTx::V5(tx) => Self::V5(tx),
                     UntaggedVersionedTx::V6(tx) => Self::V6(tx),
                     UntaggedVersionedTx::V7(tx) => Self::V7(tx),
                 }
