@@ -24,8 +24,17 @@ pub type TxNumber = u64;
 ///
 /// [Starknet API]: https://github.com/starkware-libs/starknet-specs/blob/b5c43955b1868b8e19af6d1736178e02ec84e678/api/starknet_api_openrpc.json
 #[derive(
-    Debug, Clone, Copy, PartialEq, Eq, Default, strum_macros::EnumString, strum_macros::Display,
+    Debug,
+    Clone,
+    Copy,
+    PartialEq,
+    Eq,
+    Default,
+    strum_macros::EnumString,
+    strum_macros::Display,
+    strum_macros::AsRefStr,
 )]
+#[strum(serialize_all = "SCREAMING_SNAKE_CASE")]
 #[cfg_attr(feature = "arbitrary", derive(::arbitrary::Arbitrary))]
 #[cfg_attr(feature = "serde", derive(serde::Serialize, serde::Deserialize))]
 pub enum TxType {

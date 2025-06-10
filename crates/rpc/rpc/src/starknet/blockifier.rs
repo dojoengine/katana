@@ -17,6 +17,7 @@ use katana_provider::traits::state::StateProvider;
 use katana_rpc_types::FeeEstimate;
 use starknet::core::types::PriceUnit;
 
+#[tracing::instrument(level = "trace", target = "rpc", skip_all, fields(total_txs = transactions.len()))]
 pub fn simulate(
     state: impl StateProvider,
     block_env: BlockEnv,
@@ -42,6 +43,7 @@ pub fn simulate(
     results
 }
 
+#[tracing::instrument(level = "trace", target = "rpc", skip_all, fields(total_txs = transactions.len()))]
 pub fn estimate_fees(
     state: impl StateProvider,
     block_env: BlockEnv,
@@ -92,6 +94,7 @@ pub fn estimate_fees(
     results
 }
 
+#[tracing::instrument(level = "trace", target = "rpc", skip_all)]
 pub fn call<P: StateProvider>(
     state: P,
     block_env: BlockEnv,

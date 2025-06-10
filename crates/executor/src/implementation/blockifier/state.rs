@@ -16,6 +16,7 @@ use katana_provider::ProviderResult;
 use parking_lot::Mutex;
 use starknet_api::core::{ClassHash, CompiledClassHash, Nonce};
 use starknet_api::state::StorageKey;
+use tracing::trace;
 
 use super::cache::ClassCache;
 use super::utils::{self};
@@ -215,10 +216,11 @@ impl StateReader for StateProviderDb<'_> {
 
     fn get_compiled_class(&self, class_hash: ClassHash) -> StateResult<RunnableCompiledClass> {
         if let Some(class) = self.compiled_class_cache.get(&class_hash.0) {
-            // trace!(target: "executor", class = format!("{}", class_hash.to_hex_string()), "Class
-            // cache hit");
+            trace!(target: "class_cache", class = format!("{}", class_hash.to_hex_string()), "Cache hit");
             return Ok(class);
         }
+
+        trace!(target: "class_cache", class = format!("{}", class_hash.to_hex_string()), "Cache miss");
 
         if let Some(class) =
             self.class(class_hash.0).map_err(|e| StateError::StateReadError(e.to_string()))?

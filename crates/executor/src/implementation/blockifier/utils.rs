@@ -57,6 +57,7 @@ use crate::abstraction::ExecutionFlags;
 use crate::utils::build_receipt;
 use crate::{ExecutionError, ExecutionResult, ExecutorResult};
 
+#[tracing::instrument(level = "trace", target = "executor", skip_all, fields(type = tx.transaction.r#type().as_ref(), validate = simulation_flags.account_validation()))]
 pub fn transact<S: StateReader>(
     state: &mut cached_state::CachedState<S>,
     block_context: &BlockContext,

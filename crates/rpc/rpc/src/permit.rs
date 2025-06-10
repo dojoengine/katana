@@ -29,6 +29,7 @@ impl Permits {
     /// This method will yield to the async runtime if no permits are currently
     /// available, rather than blocking the thread. The returned permit is automatically
     /// released when dropped, making it safe to use with async operations.
+    #[tracing::instrument(level = "trace", target = "rpc", name = "permit_acquire", skip_all)]
     pub async fn acquire(&self) -> Result<AcquiredPermit, AcquireError> {
         self.semaphore.clone().acquire_owned().await.map(AcquiredPermit)
     }
