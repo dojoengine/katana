@@ -311,7 +311,7 @@ impl From<VersionedTx> for Tx {
 
 impl From<Tx> for VersionedTx {
     fn from(tx: Tx) -> Self {
-        VersionedTx::V6(tx)
+        VersionedTx::V7(tx)
     }
 }
 
@@ -326,20 +326,24 @@ impl Decompress for VersionedTx {
     fn decompress<B: AsRef<[u8]>>(bytes: B) -> Result<Self, CodecError> {
         let bytes = bytes.as_ref();
 
-        if let Ok(tx) = postcard::from_bytes::<Self>(bytes.as_ref()) {
+        if let Ok(tx) = postcard::from_bytes::<Self>(bytes) {
             return Ok(tx);
         }
 
         #[derive(Debug, Deserialize)]
         #[serde(untagged)]
         enum UntaggedVersionedTx {
-            V6(Tx),
+            V5(TxV5),
+            V6(TxV6),
+            V7(Tx),
         }
 
         impl From<UntaggedVersionedTx> for VersionedTx {
             fn from(versioned: UntaggedVersionedTx) -> Self {
                 match versioned {
+                    UntaggedVersionedTx::V5(tx) => Self::V5(tx),
                     UntaggedVersionedTx::V6(tx) => Self::V6(tx),
+                    UntaggedVersionedTx::V7(tx) => Self::V7(tx),
                 }
             }
         }
