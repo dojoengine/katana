@@ -18,6 +18,8 @@ use katana_db::models::stage::StageCheckpoint;
 use katana_db::models::storage::{ContractStorageEntry, ContractStorageKey, StorageEntry};
 use katana_db::tables::{self, DupSort, Table};
 use katana_db::utils::KeyValue;
+use katana_db::versioned::block::VersionedHeader;
+use katana_db::versioned::transaction::VersionedTx;
 use katana_primitives::block::{
     Block, BlockHash, BlockHashOrNumber, BlockNumber, BlockWithTxHashes, FinalityStatus, Header,
     SealedBlockWithStatus,
@@ -682,10 +684,7 @@ impl<Db: Database> BlockWriter for DbProvider<Db> {
             db_tx.put::<tables::BlockNumbers>(block_hash, block_number)?;
             db_tx.put::<tables::BlockStatusses>(block_number, block.status)?;
 
-            db_tx.put::<tables::Headers>(
-                block_number,
-                katana_db::versioned::block::VersionedHeader::V7(block_header),
-            )?;
+            db_tx.put::<tables::Headers>(block_number, VersionedHeader::from(block_header))?;
             db_tx.put::<tables::BlockBodyIndices>(block_number, block_body_indices)?;
 
             // Store base transaction details
@@ -698,7 +697,7 @@ impl<Db: Database> BlockWriter for DbProvider<Db> {
                 db_tx.put::<tables::TxBlocks>(tx_number, block_number)?;
                 db_tx.put::<tables::Transactions>(
                     tx_number,
-                    katana_db::versioned::transaction::VersionedTx::V7(transaction.transaction),
+                    VersionedTx::from(transaction.transaction),
                 )?;
             }
 
