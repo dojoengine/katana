@@ -268,10 +268,7 @@ impl ClassCache {
                     let inner = self.inner.clone();
                     let compiled_clone = compiled.clone();
 
-                    let parent_span = tracing::Span::current();
                     pool.spawn(move || {
-                        let _parent = parent_span.enter();
-
                         let span = tracing::trace_span!(target: "class_cache", "compile_native_class", class = format!("{hash:#x}"));
                         let _span = span.enter();
 
