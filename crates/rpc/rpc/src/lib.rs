@@ -24,6 +24,7 @@ pub mod health;
 pub mod metrics;
 pub mod starknet;
 
+mod logger;
 mod utils;
 use cors::Cors;
 use health::HealthCheck;
@@ -201,7 +202,8 @@ impl RpcServer {
         #[cfg(feature = "explorer")]
         let http_middleware = http_middleware.option_layer(explorer_layer);
 
-        let rpc_middleware = RpcServiceBuilder::new().option_layer(rpc_metrics).rpc_logger(0);
+        let rpc_middleware =
+            RpcServiceBuilder::new().option_layer(rpc_metrics).layer(logger::RpcLoggerLayer::new());
 
         let cfg = ServerConfig::builder()
             .max_connections(self.max_connections)
