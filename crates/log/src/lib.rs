@@ -46,11 +46,10 @@ pub async fn init(
     dev_log: bool,
     telemetry_config: Option<TracerConfig>,
 ) -> Result<(), Error> {
-    const DEFAULT_LOG_FILTER: &str = "katana_db::mdbx=trace,cairo_native::compiler=off,\
-                                      pipeline=debug,stage=debug,info,tasks=debug,executor=trace,\
-                                      forking::backend=trace,blockifier=off,jsonrpsee_server=off,\
-                                      hyper=off,messaging=debug,node=error,explorer=info,\
-                                      jsonrpsee_core::middleware::layer::logger=trace,pool=trace";
+    const DEFAULT_LOG_FILTER: &str =
+        "katana_db::mdbx=trace,cairo_native::compiler=off,pipeline=debug,stage=debug,tasks=debug,\
+         executor=trace,forking::backend=trace,blockifier=off,jsonrpsee_server=off,hyper=off,\
+         messaging=debug,node=error,explorer=info,rpc=trace,pool=trace,info";
 
     let filter = if dev_log {
         format!("{DEFAULT_LOG_FILTER},server=debug")
