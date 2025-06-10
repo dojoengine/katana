@@ -26,12 +26,11 @@ use crate::{EntryPointCall, ExecutionError};
 /// Perform a function call on a contract and retrieve the return values.
 pub fn execute_call<S: StateReader>(
     request: EntryPointCall,
-    state: S,
+    state: &mut CachedState<S>,
     block_context: Arc<BlockContext>,
     max_gas: u64,
 ) -> Result<Vec<Felt>, ExecutionError> {
-    let mut state = CachedState::new(state);
-    let res = execute_call_inner(request, &mut state, block_context, max_gas)?;
+    let res = execute_call_inner(request, state, block_context, max_gas)?;
     Ok(res.execution.retdata.0)
 }
 

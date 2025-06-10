@@ -1,8 +1,5 @@
 use std::sync::Arc;
 
-use katana_executor::implementation::blockifier::blockifier::state::cached_state::{
-    self, MutRefState,
-};
 use katana_executor::implementation::blockifier::cache::ClassCache;
 use katana_executor::implementation::blockifier::state::CachedState;
 use katana_executor::implementation::blockifier::utils::{self, block_context_from_envs};
@@ -29,13 +26,11 @@ pub fn simulate(
     let state = CachedState::new(state, ClassCache::global().clone());
     let mut results = Vec::with_capacity(transactions.len());
 
-    state.with_cached_state(|cached_state| {
-        let mut state = cached_state::CachedState::new(MutRefState::new(cached_state));
-
+    state.with_mut_cached_state(|state| {
         for tx in transactions {
             // Safe to unwrap here because the only way the call to `transact` can return an error
             // is when bouncer is `Some`.
-            let result = utils::transact(&mut state, &block_context, &flags, tx, None).unwrap();
+            let result = utils::transact(state, &block_context, &flags, tx, None).unwrap();
             let simulated_result = ResultAndStates { result, states: Default::default() };
 
             results.push(simulated_result);
@@ -58,13 +53,11 @@ pub fn estimate_fees(
     let state = CachedState::new(state, ClassCache::global().clone());
 
     let mut results = Vec::with_capacity(transactions.len());
-    state.with_cached_state(|cached_state| {
-        let mut state = cached_state::CachedState::new(MutRefState::new(cached_state));
-
+    state.with_mut_cached_state(|state| {
         for tx in transactions {
             // Safe to unwrap here because the only way the call to `transact` can return an error
             // is when bouncer is `Some`.
-            let result = utils::transact(&mut state, &block_context, &flags, tx, None).unwrap();
+            let result = utils::transact(state, &block_context, &flags, tx, None).unwrap();
             let estimated_result = match result {
                 ExecutionResult::Failed { error } => Err(error),
                 ExecutionResult::Success { receipt, .. } => {
@@ -107,10 +100,10 @@ pub fn call<P: StateProvider>(
     let block_context = Arc::new(block_context_from_envs(&block_env, &cfg_env));
     let state = CachedState::new(state, ClassCache::global().clone());
 
-    state.with_cached_state(|cached_state| {
+    state.with_mut_cached_state(|state| {
         katana_executor::implementation::blockifier::call::execute_call(
             call,
-            MutRefState::new(cached_state),
+            state,
             block_context,
             max_call_gas,
         )

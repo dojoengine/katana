@@ -4,7 +4,7 @@ use std::ops::Deref;
 use std::sync::Arc;
 
 use blockifier::execution::contract_class::RunnableCompiledClass;
-use blockifier::state::cached_state;
+use blockifier::state::cached_state::{self, MutRefState};
 use blockifier::state::errors::StateError;
 use blockifier::state::state_api::{StateReader, StateResult};
 use katana_primitives::class::{self, ContractClass};
@@ -43,12 +43,17 @@ impl<'a> CachedState<'a> {
         Self { inner: Arc::new(Mutex::new(inner)) }
     }
 
-    pub fn with_cached_state<F, R>(&self, f: F) -> R
+    pub fn with_mut_cached_state<F, R>(&self, f: F) -> R
     where
-        F: FnOnce(&mut cached_state::CachedState<StateProviderDb<'a>>) -> R,
+        F: FnOnce(
+            &mut cached_state::CachedState<
+                MutRefState<'_, cached_state::CachedState<StateProviderDb<'a>>>,
+            >,
+        ) -> R,
     {
         let mut inner = self.inner.lock();
-        f(&mut inner.cached_state)
+        let mut state = cached_state::CachedState::new(MutRefState::new(&mut inner.cached_state));
+        f(&mut state)
     }
 
     pub fn with_cached_state_and_declared_classes<F, R>(&self, f: F) -> R

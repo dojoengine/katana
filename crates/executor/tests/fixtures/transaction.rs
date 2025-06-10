@@ -130,6 +130,7 @@ pub fn invoke_executable_tx(
 
     ExecutableTxWithHash::new(tx.into())
 }
+
 #[rstest::fixture]
 fn signed() -> bool {
     true
