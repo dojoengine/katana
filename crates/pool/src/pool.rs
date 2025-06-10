@@ -6,7 +6,7 @@ use futures::channel::mpsc::{channel, Receiver, Sender};
 use katana_primitives::transaction::TxHash;
 use parking_lot::RwLock;
 use tokio::sync::mpsc;
-use tracing::{error, info, warn};
+use tracing::{error, trace, warn};
 
 use crate::ordering::PoolOrd;
 use crate::pending::PendingTransactions;
@@ -133,11 +133,10 @@ where
     type Validator = V;
     type Ordering = O;
 
+    #[tracing::instrument(level = "trace", target = "pool", name = "pool_add", skip_all, fields(tx_hash = format!("{:#x}", tx.hash())))]
     fn add_transaction(&self, tx: T) -> PoolResult<TxHash> {
         let hash = tx.hash();
         let id = TxId::new(tx.sender(), tx.nonce());
-
-        info!(target: "pool", hash = format!("{hash:#x}"), "Transaction received.");
 
         match self.inner.validator.validate(tx) {
             Ok(outcome) => {
@@ -157,14 +156,14 @@ where
                     // TODO: create a small cache for rejected transactions to respect the rpc spec
                     // `getTransactionStatus`
                     ValidationOutcome::Invalid { error, .. } => {
-                        warn!(target: "pool", hash = format!("{hash:#x}"), %error, "Invalid transaction.");
+                        warn!(target: "pool", %error, "Invalid transaction.");
                         Err(PoolError::InvalidTransaction(Box::new(error)))
                     }
 
                     // return as error for now but ideally we should kept the tx in a separate
                     // queue and revalidate it when the parent tx is added to the pool
                     ValidationOutcome::Dependent { tx, tx_nonce, current_nonce } => {
-                        info!(target: "pool", hash = format!("{hash:#x}"), %tx_nonce, %current_nonce, "Dependent transaction.");
+                        trace!(target: "pool", %tx_nonce, %current_nonce, "Dependent transaction.");
                         let err = InvalidTransactionError::InvalidNonce {
                             address: tx.sender(),
                             current_nonce,
@@ -175,8 +174,8 @@ where
                 }
             }
 
-            Err(error @ crate::validation::Error { hash, .. }) => {
-                error!(target: "pool", hash = format!("{hash:#x}"), %error, "Failed to validate transaction.");
+            Err(error) => {
+                error!(target: "pool", %error, "Failed to validate transaction.");
                 Err(PoolError::Internal(error.error))
             }
         }

@@ -112,6 +112,7 @@ impl Inner {
 impl Validator for TxValidator {
     type Transaction = ExecutableTxWithHash;
 
+    #[tracing::instrument(level = "trace", target = "pool", name = "pool_validate", skip_all, fields(tx_hash = format!("{:#x}", tx.hash())))]
     fn validate(&self, tx: Self::Transaction) -> ValidationResult<Self::Transaction> {
         let _permit = self.permit.lock();
         let mut this = self.inner.lock();
