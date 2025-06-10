@@ -148,6 +148,8 @@ where
 
                         // insert the tx in the pool
                         self.inner.transactions.write().insert(tx.clone());
+                        trace!(target: "pool", "Transaction added to the pool");
+
                         self.notify(tx);
 
                         Ok(hash)
