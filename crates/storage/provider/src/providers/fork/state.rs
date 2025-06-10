@@ -76,7 +76,7 @@ where
         if let Some(class) = self.provider.class(hash)? {
             Ok(Some(class))
         } else if let Some(class) = self.backend.get_class_at(hash)? {
-            self.db.db().tx_mut()?.put::<tables::Classes>(hash, class.clone())?;
+            self.db.db().update(|tx| tx.put::<tables::Classes>(hash, class.clone()))??;
             Ok(Some(class))
         } else {
             Ok(None)
@@ -90,7 +90,9 @@ where
         if let res @ Some(..) = self.provider.compiled_class_hash_of_class_hash(hash)? {
             Ok(res)
         } else if let Some(compiled_hash) = self.backend.get_compiled_class_hash(hash)? {
-            self.db.db().tx_mut()?.put::<tables::CompiledClassHashes>(hash, compiled_hash)?;
+            self.db
+                .db()
+                .update(|tx| tx.put::<tables::CompiledClassHashes>(hash, compiled_hash))??;
             Ok(Some(compiled_hash))
         } else {
             Ok(None)
@@ -112,7 +114,7 @@ where
                 .ok_or(ProviderError::MissingContractClassHash { address })?;
 
             let entry = GenericContractInfo { nonce, class_hash };
-            self.db.db().tx_mut()?.put::<tables::ContractInfo>(address, entry)?;
+            self.db.db().update(|tx| tx.put::<tables::ContractInfo>(address, entry))??;
 
             Ok(Some(nonce))
         } else {
@@ -133,7 +135,7 @@ where
                 .ok_or(ProviderError::MissingContractNonce { address })?;
 
             let entry = GenericContractInfo { class_hash, nonce };
-            self.db.db().tx_mut()?.put::<tables::ContractInfo>(address, entry)?;
+            self.db.db().update(|tx| tx.put::<tables::ContractInfo>(address, entry))??;
 
             Ok(Some(class_hash))
         } else {
@@ -150,7 +152,7 @@ where
             Ok(res)
         } else if let Some(value) = self.backend.get_storage(address, key)? {
             let entry = StorageEntry { key, value };
-            self.db.db().tx_mut()?.put::<tables::ContractStorage>(address, entry)?;
+            self.db.db().update(|tx| tx.put::<tables::ContractStorage>(address, entry))??;
             Ok(Some(value))
         } else {
             Ok(None)
