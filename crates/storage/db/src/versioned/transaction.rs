@@ -4,7 +4,8 @@ use katana_primitives::contract::{ContractAddress, Nonce};
 use katana_primitives::da::DataAvailabilityMode;
 use katana_primitives::fee::{ResourceBounds, ResourceBoundsMapping};
 use katana_primitives::transaction::{
-    DeclareTxV0, DeclareTxV1, DeclareTxV2, DeployAccountTxV1, DeployTx, L1HandlerTx, Tx, TxType,
+    DeclareTxV0, DeclareTxV1, DeclareTxV2, DeployAccountTxV1, DeployTx, InvokeTxV0, InvokeTxV1,
+    L1HandlerTx, Tx, TxType,
 };
 use katana_primitives::Felt;
 use serde::{Deserialize, Serialize};
@@ -75,8 +76,8 @@ pub struct DeployAccountTxV3V6 {
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub enum InvokeTxV6 {
-    V0(katana_primitives::transaction::InvokeTxV0),
-    V1(katana_primitives::transaction::InvokeTxV1),
+    V0(InvokeTxV0),
+    V1(InvokeTxV1),
     V3(InvokeTxV3V6),
 }
 
@@ -133,16 +134,6 @@ impl TxV6 {
             Self::Declare(_) => TxType::Declare,
             Self::L1Handler(_) => TxType::L1Handler,
             Self::DeployAccount(_) => TxType::DeployAccount,
-        }
-    }
-}
-
-impl From<ResourceBoundsMappingV6> for ResourceBoundsMapping {
-    fn from(v6: ResourceBoundsMappingV6) -> Self {
-        ResourceBoundsMapping {
-            l1_gas: v6.l1_gas,
-            l2_gas: v6.l2_gas,
-            l1_data_gas: ResourceBounds::default(),
         }
     }
 }
