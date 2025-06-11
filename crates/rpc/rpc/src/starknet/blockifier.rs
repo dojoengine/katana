@@ -40,6 +40,7 @@ pub fn simulate(
     results
 }
 
+// This function will not process the rest of the transactions if a transaction was reverted.
 #[tracing::instrument(level = "trace", target = "rpc", skip_all, fields(total_txs = transactions.len()))]
 pub fn estimate_fees(
     state: impl StateProvider,
@@ -57,32 +58,41 @@ pub fn estimate_fees(
         for tx in transactions {
             // Safe to unwrap here because the only way the call to `transact` can return an error
             // is when bouncer is `Some`.
-            let result = utils::transact(state, &block_context, &flags, tx, None).unwrap();
-            let estimated_result = match result {
-                ExecutionResult::Failed { error } => Err(error),
+            match utils::transact(state, &block_context, &flags, tx, None).unwrap() {
+                ExecutionResult::Failed { error } => {
+                    results.push(Err(error));
+                    break;
+                }
+
                 ExecutionResult::Success { receipt, .. } => {
-                    let fee = receipt.fee();
-                    let resources = receipt.resources_used();
+                    // if the transaction was reverted, return as error
+                    if let Some(reason) = receipt.revert_reason() {
+                        results.push(Err(ExecutionError::TransactionReverted {
+                            revert_error: reason.to_string(),
+                        }));
+                        break;
+                    } else {
+                        let fee = receipt.fee();
+                        let resources = receipt.resources_used();
 
-                    let unit = match fee.unit {
-                        fee::PriceUnit::Wei => PriceUnit::Wei,
-                        fee::PriceUnit::Fri => PriceUnit::Fri,
-                    };
+                        let unit = match fee.unit {
+                            fee::PriceUnit::Wei => PriceUnit::Wei,
+                            fee::PriceUnit::Fri => PriceUnit::Fri,
+                        };
 
-                    Ok(FeeEstimate {
-                        unit,
-                        overall_fee: fee.overall_fee.into(),
-                        l2_gas_price: fee.l2_gas_price.into(),
-                        l1_gas_price: fee.l1_gas_price.into(),
-                        l2_gas_consumed: resources.gas.l2_gas.into(),
-                        l1_gas_consumed: resources.gas.l1_gas.into(),
-                        l1_data_gas_price: fee.l1_data_gas_price.into(),
-                        l1_data_gas_consumed: resources.gas.l1_data_gas.into(),
-                    })
+                        results.push(Ok(FeeEstimate {
+                            unit,
+                            overall_fee: fee.overall_fee.into(),
+                            l2_gas_price: fee.l2_gas_price.into(),
+                            l1_gas_price: fee.l1_gas_price.into(),
+                            l2_gas_consumed: resources.gas.l2_gas.into(),
+                            l1_gas_consumed: resources.gas.l1_gas.into(),
+                            l1_data_gas_price: fee.l1_data_gas_price.into(),
+                            l1_data_gas_consumed: resources.gas.l1_data_gas.into(),
+                        }));
+                    }
                 }
             };
-
-            results.push(estimated_result);
         }
     });
 
