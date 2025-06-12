@@ -53,7 +53,7 @@ impl From<HeaderV6> for Header {
             l1_data_gas_prices: header.l1_data_gas_prices,
             l1_da_mode: header.l1_da_mode,
             protocol_version: header.protocol_version,
-            l2_gas_prices: unsafe { GasPrice::zero() },
+            l2_gas_prices: GasPrice::MIN, // this can't be zero for some reason, probably a check performed by blockifier
         }
     }
 }
@@ -88,25 +88,15 @@ impl Decompress for VersionedHeader {
             return Ok(header);
         }
 
-        // Helper for deserializing from older formats that may be serialized untagged
-        #[derive(Debug, Deserialize)]
-        #[serde(untagged)]
-        enum UntaggedVersionedHeader {
-            V6(HeaderV6),
-            V7(Header),
+        // Try deserializing as V7 first, then fall back to V6
+        if let Ok(header) = postcard::from_bytes::<Header>(bytes) {
+            return Ok(VersionedHeader::V7(header));
         }
 
-        impl From<UntaggedVersionedHeader> for VersionedHeader {
-            fn from(header: UntaggedVersionedHeader) -> Self {
-                match header {
-                    UntaggedVersionedHeader::V6(header) => Self::V6(header),
-                    UntaggedVersionedHeader::V7(header) => Self::V7(header),
-                }
-            }
+        if let Ok(header) = postcard::from_bytes::<HeaderV6>(bytes) {
+            return Ok(VersionedHeader::V6(header));
         }
 
-        postcard::from_bytes::<UntaggedVersionedHeader>(bytes)
-            .map(Self::from)
-            .map_err(|e| CodecError::Decompress(e.to_string()))
+        Err(CodecError::Decompress("failed to deserialize header: unknown format".to_string()))
     }
 }
