@@ -30,11 +30,13 @@ where
             return Ok(None);
         };
 
+        //Here I've got a problem with historical tries
         let new_root = self
             .provider
             .historical(self.block_id)?
             .expect("should exist if block exists")
             .state_root()?;
+        println!("new_root from historical statebuilder: {:?}", new_root);
 
         let old_root = {
             let block_num = BlockNumberProvider::block_number_by_hash(&self.provider, block_hash)?

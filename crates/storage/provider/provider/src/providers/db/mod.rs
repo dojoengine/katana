@@ -873,7 +873,6 @@ impl<Db: Database> BlockWriter for DbProvider<Db> {
                         ..Default::default()
                     }
                 };
-
                 db_tx.put::<tables::ContractInfo>(addr, value)?;
 
                 let nonce_change_key = ContractNonceChange { contract_address: addr, nonce };

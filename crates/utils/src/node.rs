@@ -6,6 +6,7 @@ use katana_core::backend::storage::Database;
 use katana_core::backend::Backend;
 use katana_executor::implementation::blockifier::BlockifierFactory;
 use katana_node::config::dev::DevConfig;
+use katana_node::config::fork::ForkingConfig;
 use katana_node::config::rpc::{RpcConfig, RpcModulesList, DEFAULT_RPC_ADDR};
 use katana_node::config::sequencing::SequencingConfig;
 use katana_node::config::Config;
@@ -21,6 +22,8 @@ use starknet::providers::jsonrpc::HttpTransport;
 use starknet::providers::{JsonRpcClient, Url};
 pub use starknet::providers::{Provider, ProviderError};
 use starknet::signers::{LocalWallet, SigningKey};
+use katana_primitives::block::BlockHashOrNumber;
+use katana_primitives::block::BlockNumber;
 
 #[derive(Debug)]
 pub struct TestNode {
@@ -124,4 +127,27 @@ pub fn test_config() -> Config {
     };
 
     Config { sequencing, rpc, dev, chain: ChainSpec::Dev(chain).into(), ..Default::default() }
+}
+
+pub fn test_config_forking(url: Url, block: BlockHashOrNumber) -> Config {
+    let sequencing = SequencingConfig::default();
+    let dev = DevConfig { fee: false, account_validation: true, fixed_gas_prices: None };
+    let forking_config = ForkingConfig {
+        url,
+        block: Some(block),
+    };
+
+    let mut chain = dev::ChainSpec { id: ChainId::SEPOLIA, ..Default::default() };
+    chain.genesis.sequencer_address = address!("0x1");
+
+    let rpc = RpcConfig {
+        port: 5052,
+        addr: DEFAULT_RPC_ADDR,
+        apis: RpcModulesList::all(),
+        max_proof_keys: Some(1000),
+        max_event_page_size: Some(1000),
+        ..Default::default()
+    };
+
+    Config { sequencing, rpc, dev, chain: ChainSpec::Dev(chain).into(), forking: Some(forking_config), ..Default::default()}
 }

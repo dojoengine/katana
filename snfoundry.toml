@@ -1,0 +1,7 @@
+# Visit https://foundry-rs.github.io/starknet-foundry/appendix/snfoundry-toml.html
+# and https://foundry-rs.github.io/starknet-foundry/projects/configuration.html for more information
+
+[sncast.default]
+account = "mainuser"
+accounts-file = "./account-file.json"
+url = "http://localhost:5051/"

@@ -17,7 +17,7 @@ pub trait StateRootProvider: Send + Sync {
         // https://docs.starknet.io/architecture-and-concepts/network-architecture/starknet-state/#state_commitment
         Ok(starknet_types_core::hash::Poseidon::hash_array(&[
             short_string!("STARKNET_STATE_V0"),
-            self.contracts_root()?,
+            self.contracts_root()?, //here i should create a new partial trie for contracts and classes
             self.classes_root()?,
         ]))
     }

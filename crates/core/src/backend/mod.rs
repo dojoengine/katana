@@ -23,7 +23,8 @@ use katana_provider::api::trie::TrieWriter;
 use katana_provider::providers::EmptyStateProvider;
 use katana_trie::bonsai::databases::HashMapDb;
 use katana_trie::{
-    compute_contract_state_hash, compute_merkle_root, ClassesTrie, CommitId, ContractLeaf, ContractsTrie, MultiProof, StoragesTrie
+    compute_contract_state_hash, compute_merkle_root, ClassesTrie, CommitId, ContractLeaf,
+    ContractsTrie, MultiProof, StoragesTrie,
 };
 use parking_lot::RwLock;
 use rayon::prelude::*;
@@ -71,9 +72,9 @@ impl<EF> Backend<EF> {
 }
 
 impl<EF: ExecutorFactory> Backend<EF> {
-    pub fn init_genesis(&self) -> anyhow::Result<()> {
+    pub fn init_genesis(&self, is_forked: bool) -> anyhow::Result<()> {
         match self.chain_spec.as_ref() {
-            ChainSpec::Dev(cs) => self.init_dev_genesis(cs),
+            ChainSpec::Dev(cs) => self.init_dev_genesis(cs, is_forked),
             ChainSpec::Rollup(cs) => self.init_rollup_genesis(cs),
             ChainSpec::FullNode(_) => {
                 // Full nodes sync from the network, so we skip genesis initialization
@@ -215,6 +216,7 @@ impl<EF: ExecutorFactory> Backend<EF> {
     fn init_dev_genesis(
         &self,
         chain_spec: &katana_chain_spec::dev::ChainSpec,
+        is_forked: bool,
     ) -> anyhow::Result<()> {
         let provider = self.blockchain.provider();
 
@@ -246,26 +248,70 @@ impl<EF: ExecutorFactory> Backend<EF> {
 
             info!(genesis_hash = %local_hash, "Genesis has already been initialized");
         } else {
-            // Initialize the dev genesis block
+            // if is_forked {
+                // In forked mode, we need to insert the forked block into local database
+                // The genesis block in chain_spec is already set to the forked block data
+                info!("Initializing forked genesis block from RPC data");
 
-            let block = chain_spec.block();
-            let states = chain_spec.state_updates();
-            println!("states: {:?}", states.state_updates);
+                let block = chain_spec.block().seal();
+                let mut block = SealedBlockWithStatus { block, status: FinalityStatus::AcceptedOnL1 };
+                let block_number = block.block.header.number;
+                let empty_states = StateUpdatesWithClasses::default();
 
-            let outcome = self.do_mine_block(
-                &BlockEnv {
-                    number: block.header.number,
-                    timestamp: block.header.timestamp,
-                    l2_gas_prices: block.header.l2_gas_prices,
-                    l1_gas_prices: block.header.l1_gas_prices,
-                    l1_data_gas_prices: block.header.l1_data_gas_prices,
-                    sequencer_address: block.header.sequencer_address,
-                    starknet_version: block.header.starknet_version,
-                },
-                ExecutionOutput { states, ..Default::default() },
-            )?;
+                let genesis_state_root = self
+                    .blockchain
+                    .provider()
+                    .compute_state_root(block_number, &empty_states.state_updates)?;
+                println!("genesis_state_root: {:?}", genesis_state_root);
 
-            info!(genesis_hash = %outcome.block_hash, "Genesis initialized");
+                block.block.header.state_root = genesis_state_root;
+
+                // Insert the forked block with empty state (no dev accounts)
+                // State will be fetched from RPC as needed
+
+                provider.insert_block_with_states_and_receipts(
+                    block,
+                    empty_states,
+                    vec![],
+                    vec![],
+                )?;
+                info!("Forked genesis block inserted from RPC");
+            // } else {
+            //     // Initialize the dev genesis block with dev accounts
+            //     let block = chain_spec.block().seal();
+            //     let block = SealedBlockWithStatus { block, status: FinalityStatus::AcceptedOnL1 };
+            //     let states = chain_spec.state_updates();
+
+            //     let mut block = block;
+            //     let block_number = block.block.header.number;
+
+            //     let class_trie_root = provider
+            //         .trie_insert_declared_classes(
+            //             block_number,
+            //             &states.state_updates.declared_classes,
+            //         )
+            //         .context("failed to update class trie")?;
+
+            //     let contract_trie_root = provider
+            //         .trie_insert_contract_updates(block_number, &states.state_updates)
+            //         .context("failed to update contract trie")?;
+
+            //     let genesis_state_root = hash::Poseidon::hash_array(&[
+            //         short_string!("STARKNET_STATE_V0"),
+            //         contract_trie_root,
+            //         class_trie_root,
+            //     ]);
+
+            //     // let genesis_state_root = self
+            //     //     .blockchain
+            //     //     .provider()
+            //     //     .compute_state_root(block_number, &states.state_updates)?;
+
+            //     block.block.header.state_root = genesis_state_root;
+
+            //     provider.insert_block_with_states_and_receipts(block, states, vec![], vec![])?;
+            //     info!("Genesis initialized with dev accounts");
+            // }
         }
 
         Ok(())
@@ -656,6 +702,7 @@ impl TrieWriter for GenesisTrieWriter {
         state_updates: &StateUpdates,
         proof: MultiProof,
         original_root: Felt,
+        contract_addresses: HashMap<ContractAddress, ContractLeaf>,
     ) -> katana_provider::ProviderResult<Felt> {
         let mut contract_trie_db = ContractsTrie::new_partial(HashMapDb::<CommitId>::default());
         let mut contract_leafs: HashMap<ContractAddress, ContractLeaf> = HashMap::new();

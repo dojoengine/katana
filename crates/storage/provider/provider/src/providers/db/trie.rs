@@ -98,7 +98,8 @@ impl<Db: Database> TrieWriter for DbProvider<Db> {
                     })
                     .collect::<Result<Vec<_>, ProviderError>>()?
             };
-
+            println!("LEAF HASHES: {:?}", leaf_hashes);
+            
             for (k, v) in leaf_hashes {
                 contract_trie_db.insert(k, v);
             }
@@ -115,14 +116,18 @@ pub fn contract_state_leaf_hash(
     address: &ContractAddress,
     contract_leaf: &ContractLeaf,
 ) -> Felt {
+    println!("\nFor address: {:?}", address);
+    println!("contract_leaf: {:?}", contract_leaf);
     let nonce =
         contract_leaf.nonce.unwrap_or(provider.nonce(*address).unwrap().unwrap_or_default());
-
+    println!("nonce: {:?}", nonce);
     let class_hash = contract_leaf
         .class_hash
         .unwrap_or(provider.class_hash_of_contract(*address).unwrap().unwrap_or_default());
+    println!("class_hash: {:?}", class_hash);
 
     let storage_root = contract_leaf.storage_root.expect("root need to set");
+    println!("storage_root: {:?}\n", storage_root);
 
     compute_contract_state_hash(&class_hash, &storage_root, &nonce)
 }

@@ -1,7 +1,7 @@
 use std::cmp::Ordering;
 use std::sync::Arc;
 
-use katana_db::abstraction::{Database, DbTx, DbTxMut};
+use katana_db::abstraction::{Database, DbCursorMut, DbDupSortCursor, DbDupSortCursorMut, DbTx, DbTxMut, DbTxMutRef};
 use katana_db::models::contract::{ContractClassChange, ContractNonceChange};
 use katana_db::models::storage::{ContractStorageEntry, ContractStorageKey, StorageEntry};
 use katana_db::tables;
@@ -9,6 +9,7 @@ use katana_fork::BackendClient;
 use katana_primitives::block::{BlockHashOrNumber, BlockNumber};
 use katana_primitives::class::{ClassHash, CompiledClassHash, ContractClass};
 use katana_primitives::contract::{GenericContractInfo, Nonce, StorageKey, StorageValue};
+use katana_primitives::transaction::Tx;
 use katana_primitives::{ContractAddress, Felt};
 use katana_provider_api::block::BlockNumberProvider;
 use katana_provider_api::contract::{ContractClassProvider, ContractClassWriter};
@@ -27,7 +28,7 @@ where
     Db: Database + 'static,
 {
     fn latest(&self) -> ProviderResult<Box<dyn StateProvider>> {
-        let tx = self.provider.db().tx()?;
+        let tx: <Db as Database>::Tx = self.provider.db().tx()?;
         let db = self.provider.clone();
         let provider = db::state::LatestStateProvider::new(tx);
         Ok(Box::new(LatestStateProvider { db, backend: self.backend.clone(), provider }))
@@ -106,10 +107,8 @@ where
 {
     fn nonce(&self, address: ContractAddress) -> ProviderResult<Option<Nonce>> {
         if let res @ Some(..) = self.provider.nonce(address)? {
-            println!("LatestStateProvider::nonce: Found nonce for address in db: {:?}", address);
             Ok(res)
         } else if let Some(nonce) = self.backend.get_nonce(address)? {
-            println!("LatestStateProvider::nonce: Found nonce for address in backend(rpc): {:?}", address);
             let class_hash = self
                 .backend
                 .get_class_hash_at(address)?
@@ -118,16 +117,8 @@ where
             let entry = GenericContractInfo { nonce, class_hash };
             self.db.db().update(|tx| tx.put::<tables::ContractInfo>(address, entry))??;
 
-
-            //TODO :: THINK ABOUT THIS
-            // Also track nonce changes for state updates
-            let block = self.db.latest_number()?;
-            let nonce_entry = ContractNonceChange { contract_address: address, nonce };
-            self.db.db().tx_mut()?.put::<tables::NonceChangeHistory>(block, nonce_entry)?;
-
             Ok(Some(nonce))
         } else {
-            println!("LatestStateProvider::nonce: No nonce found for address: {:?}", address);
             Ok(None)
         }
     }
@@ -136,14 +127,15 @@ where
         &self,
         address: ContractAddress,
     ) -> ProviderResult<Option<ClassHash>> {
+
         if let res @ Some(..) = self.provider.class_hash_of_contract(address)? {
             Ok(res)
         } else if let Some(class_hash) = self.backend.get_class_hash_at(address)? {
             let nonce = self
                 .backend
                 .get_nonce(address)?
-                .ok_or(ProviderError::MissingContractNonce { address })?;
-            
+                // .ok_or(ProviderError::MissingContractNonce { address })?;
+                .unwrap_or(Felt::ZERO);
 
             let entry = GenericContractInfo { class_hash, nonce };
             self.db.db().update(|tx| tx.put::<tables::ContractInfo>(address, entry))??;
@@ -387,5 +379,165 @@ impl<Db: Database> ContractClassWriter for ForkedProvider<Db> {
         compiled_hash: CompiledClassHash,
     ) -> ProviderResult<()> {
         self.provider.set_compiled_class_hash_of_class_hash(hash, compiled_hash)
+    }
+}
+
+impl<Db: Database> ForkedProvider<Db> {
+    pub fn latest_with_tx<'a>(&self, tx: &'a Db::TxMut) -> ProviderResult<MutableLatestStateProvider<'a, Db>> {
+        let db = self.provider.clone();
+        let backend = self.backend.clone();
+        Ok(MutableLatestStateProvider { db, backend, tx })
+    }
+}
+
+#[derive(Debug)]
+pub struct MutableLatestStateProvider<'a, Db: Database> {
+    pub db: Arc<DbProvider<Db>>,
+    pub backend: BackendClient,
+    pub tx: &'a Db::TxMut,
+}
+
+impl<'a, Db> ContractClassProvider for MutableLatestStateProvider<'a, Db>
+where
+    Db: Database,
+{
+    fn class(&self, hash: ClassHash) -> ProviderResult<Option<ContractClass>> {
+        if let Some(class) = self.tx.get::<tables::Classes>(hash)? {
+            Ok(Some(class))
+        } else if let Some(class) = self.backend.get_class_at(hash)? {
+            self.tx.put::<tables::Classes>(hash, class.clone())?;
+            Ok(Some(class))
+        } else {
+            Ok(None)
+        }
+    }
+
+    fn compiled_class_hash_of_class_hash(
+        &self,
+        hash: ClassHash,
+    ) -> ProviderResult<Option<CompiledClassHash>> {
+        if let res @ Some(..) = self.tx.get::<tables::CompiledClassHashes>(hash)? {
+            Ok(res)
+        } else if let Some(compiled_hash) = self.backend.get_compiled_class_hash(hash)? {
+            self.tx.put::<tables::CompiledClassHashes>(hash, compiled_hash)?;
+            Ok(Some(compiled_hash))
+        } else {
+            Ok(None)
+        }
+    }
+}
+
+impl<'a, Db> StateProvider for MutableLatestStateProvider<'a, Db>
+where
+    Db: Database,
+{
+    fn nonce(&self, address: ContractAddress) -> ProviderResult<Option<Nonce>> {
+        let info = self.tx.get::<tables::ContractInfo>(address)?;
+        if let res @ Some(..) = info.map(|info| info.nonce) {
+            Ok(res)
+        } else if let Some(nonce) = self.backend.get_nonce(address)? {
+            let class_hash = self
+                .backend
+                .get_class_hash_at(address)?
+                .ok_or(ProviderError::MissingContractClassHash { address })?;
+
+            let entry = GenericContractInfo { nonce, class_hash };
+            self.tx.put::<tables::ContractInfo>(address, entry)?;
+            Ok(Some(nonce))
+        } else {
+            Ok(None)
+        }
+    }
+
+    fn class_hash_of_contract(
+        &self,
+        address: ContractAddress,
+    ) -> ProviderResult<Option<ClassHash>> {
+
+        let info = self.tx.get::<tables::ContractInfo>(address)?;
+        if let res @ Some(..) = info.map(|info| info.class_hash) {
+            Ok(res)
+        } else if let Some(class_hash) = self.backend.get_class_hash_at(address)? {
+            let nonce = self
+                .backend
+                .get_nonce(address)?
+                .unwrap_or(Felt::ZERO);
+            let entry = GenericContractInfo { class_hash, nonce };
+            self.tx.put::<tables::ContractInfo>(address, entry)?;
+            Ok(Some(class_hash))
+        } else {
+            Ok(None)
+        }
+    }
+
+    fn storage(
+        &self,
+        address: ContractAddress,
+        key: StorageKey,
+    ) -> ProviderResult<Option<StorageValue>> {
+        let mut cursor = self.tx.cursor_dup_mut::<tables::ContractStorage>()?;
+        let entry = cursor.seek_by_key_subkey(address, key)?;
+        match entry {
+            Some(entry) if entry.key == key => Ok(Some(entry.value)),
+            _ => {
+                if let Some(value) = self.backend.get_storage(address, key)? {
+                    let entry = StorageEntry { key, value };
+                    cursor.upsert(address, entry)?;
+                    Ok(Some(value)) 
+                } else {
+                    Ok(None)
+                }
+            }
+        }
+    }
+}
+
+impl<'a, Db> StateProofProvider for MutableLatestStateProvider<'a, Db>
+where
+    Db: Database,
+{
+    fn class_multiproof(&self, classes: Vec<ClassHash>) -> ProviderResult<katana_trie::MultiProof> {
+        let mut trie = katana_db::trie::TrieDbFactory::new(self.tx).latest().classes_trie();
+        let proofs = trie.multiproof(classes);
+        Ok(proofs)
+    }
+
+    fn contract_multiproof(
+        &self,
+        addresses: Vec<ContractAddress>,
+    ) -> ProviderResult<katana_trie::MultiProof> {
+        let mut trie = katana_db::trie::TrieDbFactory::new(self.tx).latest().contracts_trie();
+        let proofs = trie.multiproof(addresses);
+        Ok(proofs)
+    }
+
+    fn storage_multiproof(
+        &self,
+        address: ContractAddress,
+        storage_keys: Vec<StorageKey>,
+    ) -> ProviderResult<katana_trie::MultiProof> {
+        let mut trie = katana_db::trie::TrieDbFactory::new(self.tx).latest().storages_trie(address);
+        let proofs = trie.multiproof(storage_keys);
+        Ok(proofs)
+    }
+}
+
+impl<'a, Db> StateRootProvider for MutableLatestStateProvider<'a, Db>
+where
+    Db: Database,
+{
+    fn classes_root(&self) -> ProviderResult<Felt> {
+        let trie = katana_db::trie::TrieDbFactory::new(self.tx).latest().classes_trie();
+        Ok(trie.root())
+    }
+
+    fn contracts_root(&self) -> ProviderResult<Felt> {
+        let trie = katana_db::trie::TrieDbFactory::new(self.tx).latest().contracts_trie();
+        Ok(trie.root())
+    }
+
+    fn storage_root(&self, contract: ContractAddress) -> ProviderResult<Option<Felt>> {
+        let trie = katana_db::trie::TrieDbFactory::new(self.tx).latest().storages_trie(contract);
+        Ok(Some(trie.root()))
     }
 }

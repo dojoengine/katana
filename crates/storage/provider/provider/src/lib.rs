@@ -1,4 +1,4 @@
-use std::collections::BTreeMap;
+use std::collections::{BTreeMap, HashMap};
 use std::ops::{Range, RangeInclusive};
 use std::sync::Arc;
 
@@ -390,12 +390,14 @@ where
         state_updates: &StateUpdates,
         proof: katana_trie::MultiProof,
         original_root: Felt,
+        contract_addresses: HashMap<ContractAddress, ContractLeaf>,
     ) -> ProviderResult<Felt> {
         self.provider.trie_insert_contract_updates_with_proof(
             block_number,
             state_updates,
             proof,
             original_root,
+            contract_addresses,
         )
     }
 

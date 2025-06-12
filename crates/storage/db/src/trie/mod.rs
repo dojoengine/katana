@@ -62,7 +62,7 @@ where
         &self,
     ) -> katana_trie::ContractsTrie<TrieDb<'a, tables::ContractsTrie, Tx>> {
         katana_trie::ContractsTrie::new(TrieDb::new(self.tx.clone()))
-    }
+    } //Here I need to implement new_partial to create partialtries
 
     /// Returns the classes trie.
     pub fn classes_trie(&self) -> katana_trie::ClassesTrie<TrieDb<'a, tables::ClassesTrie, Tx>> {
