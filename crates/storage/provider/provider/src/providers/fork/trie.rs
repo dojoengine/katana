@@ -70,6 +70,7 @@ impl<Db: Database + 'static> TrieWriter for ForkedProvider<Db> {
         proof: MultiProof,
         original_root: Felt,
         contract_leaves_map: HashMap<ContractAddress, ContractLeaf>,
+        contracts_storage_proofs: Vec<MultiProof>,
     ) -> ProviderResult<Felt> {
         self.provider.0.update(|tx| {
             let mut contract_trie_db =
@@ -91,12 +92,17 @@ impl<Db: Database + 'static> TrieWriter for ForkedProvider<Db> {
 
             let leaf_hashes: Vec<_> = {
                 // First handle storage updates
-                for (address, storage_entries) in &state_updates.storage_updates {
+                for ((address, storage_entries), storage_proof) in state_updates.storage_updates.iter().zip(contracts_storage_proofs.iter()) {
                     let mut storage_trie_db =
                         StoragesTrie::new_partial(TrieDbMut::<tables::StoragesTrie, _>::new(tx), *address);
 
+                    // Get the original root from the contract leaf's storage_root
+                    let original_root = contract_leaves_map.get(address)
+                        .and_then(|leaf| leaf.storage_root)
+                        .unwrap_or(Felt::ZERO);
+
                     for (key, value) in storage_entries {
-                        storage_trie_db.insert(*key, *value, proof.clone(), original_root);
+                        storage_trie_db.insert(*key, *value, storage_proof.clone(), original_root);
                     }
                     contract_leafs.entry(*address).or_insert(ContractLeaf::default());
                     storage_trie_db.commit(block_number);
@@ -118,12 +124,14 @@ impl<Db: Database + 'static> TrieWriter for ForkedProvider<Db> {
                 contract_leafs
                     .into_iter()
                     .map(|(address, mut leaf)| {
-                        if leaf.storage_root.is_none() {
-                            let storage_trie = StoragesTrie::new_partial(
-                                TrieDbMut::<tables::StoragesTrie, _>::new(tx),
-                                address,
-                            );
-                            let storage_root = storage_trie.root();
+                        let storage_trie = StoragesTrie::new_partial(
+                            TrieDbMut::<tables::StoragesTrie, _>::new(tx),
+                            address,
+                        );
+                        let storage_root = storage_trie.root();
+                        // Only update storage root if we have local changes (non-zero root)
+                        //THIS might cause a bug!
+                        if storage_root != Felt::ZERO {
                             leaf.storage_root = Some(storage_root);
                         }
                         
@@ -218,22 +226,6 @@ impl<Db: Database + 'static> TrieWriter for ForkedProvider<Db> {
             contract_addresses.sort(); //think if we need to sort the contract addresses, that may cause a bug
             let contract_addresses_clone = contract_addresses.clone();
 
-            // Use futures::executor::block_on instead of creating a new runtime
-            // let response: GetStorageProofResponse = executor::block_on(async {
-            //     client
-            //         .request(
-            //             "starknet_getStorageProof",
-            //             rpc_params![
-            //                 BlockIdOrTag::Tag(BlockTag::Latest),
-            //                 if class_hashes.is_empty() { None } else { Some(class_hashes) },
-            //                 if contract_addresses.is_empty() { None } else { Some(contract_addresses) },
-            //                 if contracts_storage_keys.is_empty() { None } else { Some(contracts_storage_keys) }
-            //             ],
-            //         )
-            //         .await
-            // }).map_err(|e| {
-            //     ProviderError::ParsingError(format!("RPC call failed: {}", e))
-            // })?;
             let response = self.backend.get_storage_proof(StorageProofPayload {
                 block_number,
                 class_hashes: Some(class_hashes),
@@ -250,6 +242,12 @@ impl<Db: Database + 'static> TrieWriter for ForkedProvider<Db> {
                 // Extract proofs from the response
                 let classes_proof = MultiProof::from(proof.classes_proof.nodes.clone());
                 let contracts_proof = MultiProof::from(proof.contracts_proof.nodes.clone());
+                let mut contracts_storage_proofs_nodes = proof.contracts_storage_proofs.nodes.clone();
+                let mut contracts_storage_proofs = Vec::new();
+                for node in contracts_storage_proofs_nodes.iter_mut() {
+                    let storage_proof = MultiProof::from(node.clone());
+                    contracts_storage_proofs.push(storage_proof);
+                }
                 // let contract_leaves_data = proof.contracts_proof.contract_leaves_data.clone();
                 let classes_tree_root = proof.global_roots.classes_tree_root;
                 let contracts_tree_root = proof.global_roots.contracts_tree_root;
@@ -297,6 +295,7 @@ impl<Db: Database + 'static> TrieWriter for ForkedProvider<Db> {
                         contracts_proof,
                         contracts_tree_root,
                         contract_leaves_map,
+                        contracts_storage_proofs,
                     )?
                 } else {
                     // Use the contract trie root from forked network

@@ -703,6 +703,7 @@ impl TrieWriter for GenesisTrieWriter {
         proof: MultiProof,
         original_root: Felt,
         contract_addresses: HashMap<ContractAddress, ContractLeaf>,
+        contracts_storage_proofs: Vec<MultiProof>,
     ) -> katana_provider::ProviderResult<Felt> {
         let mut contract_trie_db = ContractsTrie::new_partial(HashMapDb::<CommitId>::default());
         let mut contract_leafs: HashMap<ContractAddress, ContractLeaf> = HashMap::new();

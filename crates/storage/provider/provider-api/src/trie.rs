@@ -43,6 +43,7 @@ pub trait TrieWriter: Send + Sync {
         _proof: MultiProof,
         _original_root: Felt,
         _contract_leaves_data: HashMap<ContractAddress, ContractLeaf>,
+        _contracts_storage_proofs: Vec<MultiProof>,
     ) -> ProviderResult<Felt> {
         // Default implementation falls back to regular method (ignoring proof)
         self.trie_insert_contract_updates(block_number, state_updates)

@@ -391,6 +391,7 @@ where
         proof: katana_trie::MultiProof,
         original_root: Felt,
         contract_addresses: HashMap<ContractAddress, ContractLeaf>,
+        contracts_storage_proofs: Vec<katana_trie::MultiProof>,
     ) -> ProviderResult<Felt> {
         self.provider.trie_insert_contract_updates_with_proof(
             block_number,
@@ -398,6 +399,7 @@ where
             proof,
             original_root,
             contract_addresses,
+            contracts_storage_proofs,
         )
     }
 

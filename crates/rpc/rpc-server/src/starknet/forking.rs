@@ -768,9 +768,9 @@ mod tests {
             state_updates.replaced_classes.len()
         );
         let mainnet_provider = provider;
-        let mainnet_state_root = mainnet_provider.compute_state_root(block_number, &state_updates).unwrap();
+        // let mainnet_state_root = mainnet_provider.compute_state_root(block_number, &state_updates).unwrap();
         
-        println!("Mainnet state root in genesis: {:?}", mainnet_state_root);
+        // println!("Mainnet state root in genesis: {:?}", mainnet_state_root);
         
         // Create minimal fork updates with one example from each category
         let mut fork_minimal_updates = StateUpdates::default();
