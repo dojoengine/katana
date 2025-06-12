@@ -4,7 +4,8 @@ use katana_primitives::contract::{ContractAddress, Nonce};
 use katana_primitives::da::DataAvailabilityMode;
 use katana_primitives::fee::{ResourceBounds, ResourceBoundsMapping};
 use katana_primitives::transaction::{
-    DeclareTxV0, DeclareTxV1, DeclareTxV2, DeployAccountTxV1, DeployTx, InvokeTxV0, InvokeTxV1,
+    DeclareTx, DeclareTxV0, DeclareTxV1, DeclareTxV2, DeclareTxV3, DeployAccountTx,
+    DeployAccountTxV1, DeployAccountTxV3, DeployTx, InvokeTx, InvokeTxV0, InvokeTxV1, InvokeTxV3,
     L1HandlerTx, Tx, TxType,
 };
 use katana_primitives::Felt;
@@ -178,5 +179,193 @@ impl Decompress for VersionedTx {
         postcard::from_bytes::<UntaggedVersionedTx>(bytes)
             .map(Self::from)
             .map_err(|e| CodecError::Decompress(e.to_string()))
+    }
+}
+
+impl From<ResourceBoundsMappingV6> for ResourceBoundsMapping {
+    fn from(v6: ResourceBoundsMappingV6) -> Self {
+        Self { l1_gas: v6.l1_gas, l2_gas: v6.l2_gas, l1_data_gas: ResourceBounds::default() }
+    }
+}
+
+impl From<InvokeTxV3V6> for InvokeTxV3 {
+    fn from(v6: InvokeTxV3V6) -> Self {
+        Self {
+            chain_id: v6.chain_id,
+            sender_address: v6.sender_address,
+            nonce: v6.nonce,
+            calldata: v6.calldata,
+            signature: v6.signature,
+            resource_bounds: v6.resource_bounds.into(),
+            tip: v6.tip,
+            paymaster_data: v6.paymaster_data,
+            account_deployment_data: v6.account_deployment_data,
+            nonce_data_availability_mode: v6.nonce_data_availability_mode,
+            fee_data_availability_mode: v6.fee_data_availability_mode,
+        }
+    }
+}
+
+impl From<DeclareTxV3V6> for DeclareTxV3 {
+    fn from(v6: DeclareTxV3V6) -> Self {
+        Self {
+            chain_id: v6.chain_id,
+            sender_address: v6.sender_address,
+            nonce: v6.nonce,
+            signature: v6.signature,
+            class_hash: v6.class_hash,
+            compiled_class_hash: v6.compiled_class_hash,
+            resource_bounds: v6.resource_bounds.into(),
+            tip: v6.tip,
+            paymaster_data: v6.paymaster_data,
+            account_deployment_data: v6.account_deployment_data,
+            nonce_data_availability_mode: v6.nonce_data_availability_mode,
+            fee_data_availability_mode: v6.fee_data_availability_mode,
+        }
+    }
+}
+
+impl From<DeployAccountTxV3V6> for DeployAccountTxV3 {
+    fn from(v6: DeployAccountTxV3V6) -> Self {
+        Self {
+            chain_id: v6.chain_id,
+            nonce: v6.nonce,
+            signature: v6.signature,
+            class_hash: v6.class_hash,
+            contract_address: v6.contract_address,
+            contract_address_salt: v6.contract_address_salt,
+            constructor_calldata: v6.constructor_calldata,
+            resource_bounds: v6.resource_bounds.into(),
+            tip: v6.tip,
+            paymaster_data: v6.paymaster_data,
+            nonce_data_availability_mode: v6.nonce_data_availability_mode,
+            fee_data_availability_mode: v6.fee_data_availability_mode,
+        }
+    }
+}
+
+impl From<InvokeTxV6> for InvokeTx {
+    fn from(v6: InvokeTxV6) -> Self {
+        match v6 {
+            InvokeTxV6::V0(tx) => InvokeTx::V0(tx),
+            InvokeTxV6::V1(tx) => InvokeTx::V1(tx),
+            InvokeTxV6::V3(tx) => InvokeTx::V3(tx.into()),
+        }
+    }
+}
+
+impl From<DeclareTxV6> for DeclareTx {
+    fn from(v6: DeclareTxV6) -> Self {
+        match v6 {
+            DeclareTxV6::V0(tx) => DeclareTx::V0(tx),
+            DeclareTxV6::V1(tx) => DeclareTx::V1(tx),
+            DeclareTxV6::V2(tx) => DeclareTx::V2(tx),
+            DeclareTxV6::V3(tx) => DeclareTx::V3(tx.into()),
+        }
+    }
+}
+
+impl From<DeployAccountTxV6> for DeployAccountTx {
+    fn from(v6: DeployAccountTxV6) -> Self {
+        match v6 {
+            DeployAccountTxV6::V1(tx) => DeployAccountTx::V1(tx),
+            DeployAccountTxV6::V3(tx) => DeployAccountTx::V3(tx.into()),
+        }
+    }
+}
+
+impl From<TxV6> for Tx {
+    fn from(v6: TxV6) -> Self {
+        match v6 {
+            TxV6::Invoke(tx) => Tx::Invoke(tx.into()),
+            TxV6::Declare(tx) => Tx::Declare(tx.into()),
+            TxV6::L1Handler(tx) => Tx::L1Handler(tx),
+            TxV6::DeployAccount(tx) => Tx::DeployAccount(tx.into()),
+            TxV6::Deploy(tx) => Tx::Deploy(tx),
+        }
+    }
+}
+
+impl From<VersionedTx> for Tx {
+    fn from(versioned: VersionedTx) -> Self {
+        match versioned {
+            VersionedTx::V6(tx) => tx.into(),
+            VersionedTx::V7(tx) => tx,
+        }
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use katana_primitives::fee::ResourceBounds;
+    use katana_primitives::transaction::InvokeTxV3;
+    use katana_primitives::Felt;
+
+    use super::*;
+
+    #[test]
+    fn test_versioned_tx_v7_conversion() {
+        let original_tx = Tx::Invoke(InvokeTx::V0(InvokeTxV0::default()));
+        let versioned = VersionedTx::V7(original_tx.clone());
+
+        let converted: Tx = versioned.into();
+        assert_eq!(converted, original_tx);
+    }
+
+    #[test]
+    fn test_versioned_tx_v6_invoke_conversion() {
+        let v6_tx = TxV6::Invoke(InvokeTxV6::V0(InvokeTxV0::default()));
+        let versioned = VersionedTx::V6(v6_tx);
+
+        let converted: Tx = versioned.into();
+        if let Tx::Invoke(InvokeTx::V0(_)) = converted {
+            // Success
+        } else {
+            panic!("Expected InvokeTx::V0");
+        }
+    }
+
+    #[test]
+    fn test_resource_bounds_mapping_v6_conversion() {
+        let v6_mapping = ResourceBoundsMappingV6 {
+            l1_gas: ResourceBounds { max_amount: 1000, max_price_per_unit: 100 },
+            l2_gas: ResourceBounds { max_amount: 2000, max_price_per_unit: 200 },
+        };
+
+        let converted: ResourceBoundsMapping = v6_mapping.into();
+        assert_eq!(converted.l1_gas.max_amount, 1000);
+        assert_eq!(converted.l1_gas.max_price_per_unit, 100);
+        assert_eq!(converted.l2_gas.max_amount, 2000);
+        assert_eq!(converted.l2_gas.max_price_per_unit, 200);
+        assert_eq!(converted.l1_data_gas, ResourceBounds::default());
+    }
+
+    #[test]
+    fn test_invoke_tx_v3_v6_conversion() {
+        let v6_tx = InvokeTxV3V6 {
+            chain_id: Default::default(),
+            sender_address: Default::default(),
+            nonce: Felt::ONE,
+            calldata: vec![Felt::TWO, Felt::THREE],
+            signature: vec![Felt::from(123u32)],
+            resource_bounds: ResourceBoundsMappingV6 {
+                l1_gas: ResourceBounds { max_amount: 1000, max_price_per_unit: 100 },
+                l2_gas: ResourceBounds { max_amount: 2000, max_price_per_unit: 200 },
+            },
+            tip: 50,
+            paymaster_data: vec![],
+            account_deployment_data: vec![],
+            nonce_data_availability_mode: DataAvailabilityMode::L1,
+            fee_data_availability_mode: DataAvailabilityMode::L1,
+        };
+
+        let converted: InvokeTxV3 = v6_tx.into();
+        assert_eq!(converted.nonce, Felt::ONE);
+        assert_eq!(converted.calldata, vec![Felt::TWO, Felt::THREE]);
+        assert_eq!(converted.signature, vec![Felt::from(123u32)]);
+        assert_eq!(converted.tip, 50);
+        assert_eq!(converted.resource_bounds.l1_gas.max_amount, 1000);
+        assert_eq!(converted.resource_bounds.l2_gas.max_amount, 2000);
+        assert_eq!(converted.resource_bounds.l1_data_gas, ResourceBounds::default());
     }
 }
