@@ -8,6 +8,7 @@ use parking_lot::RwLock;
 use tokio::sync::mpsc;
 use tracing::{error, trace, warn};
 
+use crate::metrics::PoolMetrics;
 use crate::ordering::PoolOrd;
 use crate::pending::PendingTransactions;
 use crate::subscription::Subscription;
@@ -42,6 +43,9 @@ struct Inner<T, V, O: PoolOrd> {
 
     /// the ordering mechanism used to order the txs in the pool
     ordering: O,
+
+    /// metrics for pool operations
+    metrics: PoolMetrics,
 }
 
 impl<T, V, O> Pool<T, V, O>
@@ -59,6 +63,7 @@ where
                 transactions: Default::default(),
                 subscribers: Default::default(),
                 listeners: Default::default(),
+                metrics: PoolMetrics::default(),
             }),
         }
     }
@@ -150,6 +155,10 @@ where
                         self.inner.transactions.write().insert(tx.clone());
                         trace!(target: "pool", "Transaction added to the pool");
 
+                        // Record metrics
+                        self.inner.metrics.transactions_added_total.increment(1);
+                        self.inner.metrics.transactions_current.increment(1.0);
+
                         self.notify(tx);
 
                         Ok(hash)
@@ -159,6 +168,7 @@ where
                     // `getTransactionStatus`
                     ValidationOutcome::Invalid { error, .. } => {
                         warn!(target: "pool", %error, "Invalid transaction.");
+                        self.inner.metrics.transactions_rejected_total.increment(1);
                         Err(PoolError::InvalidTransaction(Box::new(error)))
                     }
 
@@ -215,7 +225,13 @@ where
     fn remove_transactions(&self, hashes: &[TxHash]) {
         // retain only transactions that aren't included in the list
         let mut txs = self.inner.transactions.write();
-        txs.retain(|t| !hashes.contains(&t.tx.hash()))
+        let initial_count = txs.len();
+        txs.retain(|t| !hashes.contains(&t.tx.hash()));
+        let removed_count = initial_count - txs.len();
+
+        // Record metrics
+        self.inner.metrics.transactions_removed_total.increment(removed_count as u64);
+        self.inner.metrics.transactions_current.decrement(removed_count as f64);
     }
 
     fn size(&self) -> usize {

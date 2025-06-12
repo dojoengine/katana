@@ -328,6 +328,7 @@ impl<'a, P: TrieWriter> UncommittedBlock<'a, P> {
         Self { header, transactions, receipts, state_updates, provider: trie_provider }
     }
 
+    #[tracing::instrument(target = "block_production", level = "trace", name = "commit_block", skip_all, fields(block_number = self.header.number))]
     pub fn commit(self) -> SealedBlock {
         // get the hash of the latest committed block
         let parent_hash = self.header.parent_hash;

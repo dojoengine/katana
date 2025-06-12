@@ -225,6 +225,8 @@ pub struct IntervalBlockProducer<EF: ExecutorFactory> {
     blocking_task_spawner: BlockingTaskPool,
     ongoing_execution: Option<TxExecutionFuture>,
 
+    span: Option<tracing::Span>,
+
     // Usage with `validator`
     permit: Arc<Mutex<()>>,
     /// validator used in the tx pool
@@ -262,6 +264,7 @@ impl<EF: ExecutorFactory> IntervalBlockProducer<EF> {
 
         Self {
             is_block_full: false,
+            span: None,
             validator,
             permit,
             backend,
@@ -403,10 +406,18 @@ impl<EF: ExecutorFactory> Stream for IntervalBlockProducer<EF> {
                     let backend = pin.backend.clone();
                     let permit = pin.permit.clone();
 
-                    pin.blocking_task_spawner.spawn(|| Self::do_mine(permit, executor, backend))
+                    let span = pin.span.clone().unwrap();
+                    pin.blocking_task_spawner.spawn(move || {
+                        let _guard = span.enter();
+                        Self::do_mine(permit, executor, backend)
+                    })
                 }));
             } else {
                 pin.timer = Some(timer);
+                pin.span = Some(tracing::trace_span!(
+                    target: "block_production",
+                    "block_production",
+                ));
             }
         } else if pin.is_block_full && pin.ongoing_mining.is_none() {
             info!("Block has reached capacity! Closing block...");
@@ -416,7 +427,11 @@ impl<EF: ExecutorFactory> Stream for IntervalBlockProducer<EF> {
                 let backend = pin.backend.clone();
                 let permit = pin.permit.clone();
 
-                pin.blocking_task_spawner.spawn(|| Self::do_mine(permit, executor, backend))
+                let span = pin.span.clone().unwrap();
+                pin.blocking_task_spawner.spawn(move || {
+                    let _guard = span.enter();
+                    Self::do_mine(permit, executor, backend)
+                })
             }));
 
             pin.is_block_full = false;
@@ -433,9 +448,11 @@ impl<EF: ExecutorFactory> Stream for IntervalBlockProducer<EF> {
                 let transactions: Vec<ExecutableTxWithHash> =
                     std::mem::take(&mut pin.queued).into_iter().flatten().collect();
 
-                let fut = pin
-                    .blocking_task_spawner
-                    .spawn(|| Self::execute_transactions(executor, transactions));
+                let span = pin.span.clone().unwrap();
+                let fut = pin.blocking_task_spawner.spawn(move || {
+                    let _guard = span.enter();
+                    Self::execute_transactions(executor, transactions)
+                });
 
                 pin.ongoing_execution = Some(Box::pin(fut));
 
@@ -602,8 +619,6 @@ impl<EF: ExecutorFactory> InstantBlockProducer<EF> {
     ) -> Result<(MinedBlockOutcome, Vec<TxWithOutcome>), BlockProductionError> {
         let _permit = permit.lock();
 
-        trace!(target: LOG_TARGET, "Creating new block.");
-
         let transactions = transactions.into_iter().flatten().collect::<Vec<_>>();
 
         let provider = backend.blockchain.provider();
@@ -613,6 +628,14 @@ impl<EF: ExecutorFactory> InstantBlockProducer<EF> {
         let latest_num = provider.latest_number()?;
         let mut block_env = provider.block_env_at(BlockHashOrNumber::Num(latest_num))?.unwrap();
         backend.update_block_env(&mut block_env);
+
+        // span starts here
+        let span = tracing::trace_span!(
+            target: "block_production",
+            "block_production",
+            block_number = block_env.number
+        );
+        let _enter = span.enter();
 
         let parent_hash = provider.latest_hash()?;
         let latest_state = provider.latest()?;

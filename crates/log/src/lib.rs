@@ -49,7 +49,7 @@ pub async fn init(
     const DEFAULT_LOG_FILTER: &str =
         "katana_db::mdbx=trace,cairo_native::compiler=off,pipeline=debug,stage=debug,tasks=debug,\
          executor=trace,forking::backend=trace,blockifier=off,jsonrpsee_server=off,hyper=off,\
-         messaging=debug,node=error,explorer=info,rpc=trace,pool=trace,info";
+         messaging=debug,node=error,explorer=info,rpc=trace,pool=trace,info,block_production=trace";
 
     let filter = if dev_log {
         format!("{DEFAULT_LOG_FILTER},server=debug")

@@ -9,8 +9,10 @@ version.workspace = true
 [dependencies]
 futures.workspace = true
 katana-executor.workspace = true
+katana-metrics.workspace = true
 katana-primitives.workspace = true
 katana-provider.workspace = true
+metrics.workspace = true
 parking_lot.workspace = true
 thiserror.workspace = true
 tokio = { workspace = true, features = [ "sync" ] }

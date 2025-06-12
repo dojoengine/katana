@@ -194,6 +194,7 @@ impl<'a> StarknetVMProcessor<'a> {
 }
 
 impl<'a> BlockExecutor<'a> for StarknetVMProcessor<'a> {
+    #[tracing::instrument(target = "block_production", level = "trace", name = "execute_block", skip_all, fields(block_number = block.header.number, transactions = block.body.len()))]
     fn execute_block(&mut self, block: ExecutableBlock) -> ExecutorResult<()> {
         self.fill_block_env_from_header(&block.header);
         self.execute_transactions(block.body)?;

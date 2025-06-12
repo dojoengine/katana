@@ -9,6 +9,7 @@ use katana_pool::ordering::PoolOrd;
 use katana_pool::pending::PendingTransactions;
 use katana_pool::{TransactionPool, TxPool};
 use katana_primitives::transaction::ExecutableTxWithHash;
+use metrics::TransactionMinerMetrics;
 use tracing::{error, info};
 
 use self::block_producer::BlockProducer;
@@ -108,6 +109,7 @@ pub struct TransactionMiner<O>
 where
     O: PoolOrd<Transaction = ExecutableTxWithHash>,
 {
+    metrics: TransactionMinerMetrics,
     pending_txs: PendingTransactions<ExecutableTxWithHash, O>,
 }
 
@@ -116,13 +118,21 @@ where
     O: PoolOrd<Transaction = ExecutableTxWithHash>,
 {
     pub fn new(pending_txs: PendingTransactions<ExecutableTxWithHash, O>) -> Self {
-        Self { pending_txs }
+        Self { pending_txs, metrics: TransactionMinerMetrics::default() }
     }
 
     fn poll(&mut self, cx: &mut Context<'_>) -> Poll<Vec<ExecutableTxWithHash>> {
         let mut transactions = Vec::new();
 
         while let Poll::Ready(Some(tx)) = self.pending_txs.poll_next_unpin(cx) {
+            // Calculate internal pool→miner handoff latency: time between transaction
+            // being added to pool and being picked up by miner. Should be <10ms typically.
+            let handoff_latency = tx.added_at.elapsed();
+
+            // Record internal performance metrics
+            self.metrics.tx_pool_hand_off_time_seconds.record(handoff_latency.as_secs_f64());
+            self.metrics.tx_pool_transactions_mined_total.increment(1);
+
             transactions.push(tx.tx.as_ref().clone());
         }
 
