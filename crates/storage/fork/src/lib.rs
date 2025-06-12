@@ -28,6 +28,8 @@ use katana_rpc_types::trie::{ContractStorageKeys, GetStorageProofResponse};
 use parking_lot::Mutex;
 use serde_json;
 use tracing::{error, trace};
+use jsonrpsee::core::client::ClientT;
+use jsonrpsee::http_client::HttpClientBuilder;
 
 const LOG_TARGET: &str = "forking::backend";
 
@@ -40,6 +42,7 @@ pub struct StorageProofPayload {
     pub class_hashes: Option<Vec<ClassHash>>,
     pub contract_addresses: Option<Vec<ContractAddress>>,
     pub contracts_storage_keys: Option<Vec<ContractStorageKeys>>,
+    pub fork_url: String,
 }
 
 /// The types of response from [`Backend`].
@@ -68,6 +71,8 @@ pub enum BackendError {
     StarknetProvider(#[from] Arc<katana_rpc_client::starknet::Error>),
     #[error("unexpected received result: {0}")]
     UnexpectedReceiveResult(Arc<anyhow::Error>),
+    #[error("jsonrpsee error: {0}")]
+    JsonrpseeError(#[from] Arc<jsonrpsee::core::Error>),
 }
 
 struct Request<P> {
@@ -84,7 +89,7 @@ enum BackendRequest {
     Class(Request<ClassHash>),
     ClassHash(Request<ContractAddress>),
     Storage(Request<(ContractAddress, StorageKey)>),
-    // StorageProof(Request<StorageProofPayload>),
+    StorageProof(Request<StorageProofPayload>),
     // Test-only request kind for requesting the backend stats
     #[cfg(test)]
     Stats(OneshotSender<usize>),
@@ -118,6 +123,11 @@ impl BackendRequest {
         (BackendRequest::Storage(Request { payload: (address, key), sender }), receiver)
     }
 
+    fn storage_proof(payload: StorageProofPayload) -> (BackendRequest, OneshotReceiver<BackendResponse>) {
+        let (sender, rx) = oneshot();
+        (BackendRequest::StorageProof(Request { payload, sender }), rx)
+    }
+
     #[cfg(test)]
     fn stats() -> (BackendRequest, OneshotReceiver<usize>) {
         let (sender, receiver) = oneshot();
@@ -135,7 +145,7 @@ enum BackendRequestIdentifier {
     Class(ClassHash),
     ClassHash(ContractAddress),
     Storage((ContractAddress, StorageKey)),
-    // StorageProof(BlockNumber),
+    StorageProof(BlockNumber),
 }
 
 /// The backend for the forked provider.
@@ -282,6 +292,35 @@ impl Backend {
                     }),
                 );
             }
+
+            BackendRequest::StorageProof(Request { payload, sender }) => {
+                let req_key = BackendRequestIdentifier::StorageProof(payload.block_number);
+
+                self.dedup_request(
+                    req_key,
+                    sender,
+                    Box::pin(async move {
+                        let client = HttpClientBuilder::default()
+                            .build(&payload.fork_url)
+                            .expect("failed to create HTTP client");
+                                
+                        let res = client
+                            .request(
+                                "starknet_getStorageProof",
+                                rpc_params![
+                                    BlockIdOrTag::Tag(BlockTag::Latest),
+                                    payload.class_hashes,
+                                    payload.contract_addresses,
+                                    payload.contracts_storage_keys
+                                ],
+                            )
+                            .await
+                            .map_err(|e| BackendError::JsonrpseeError(Arc::new(e)));
+                        BackendResponse::StorageProof(res)
+                    }),
+                );
+            }
+
             #[cfg(test)]
             BackendRequest::Stats(sender) => {
                 let total_ongoing_request = self.pending_requests.len();
@@ -510,6 +549,18 @@ impl BackendClient {
         let (req, rx) = BackendRequest::stats();
         self.request(req)?;
         Ok(rx.recv()?)
+    }
+
+    pub fn get_storage_proof(
+        &self,
+        payload: StorageProofPayload,
+    ) -> Result<Option<GetStorageProofResponse>, BackendClientError> {
+        let (req, rx) = BackendRequest::storage_proof(payload);
+        self.request(req)?;
+        match rx.recv()? {
+            BackendResponse::StorageProof(res) => handle_not_found_err(res),
+            response => Err(BackendClientError::UnexpectedResponse(anyhow!("{response:?}"))),
+        }
     }
 }
 

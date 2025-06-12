@@ -10,6 +10,7 @@ use jsonrpsee::rpc_params;
 use katana_db::abstraction::Database;
 use katana_db::tables;
 use katana_db::trie::TrieDbMut;
+use katana_fork::StorageProofPayload;
 use katana_primitives::block::{BlockIdOrTag, BlockNumber, BlockTag};
 use katana_primitives::class::{ClassHash, CompiledClassHash};
 use katana_primitives::hash::StarkHash;
@@ -149,7 +150,7 @@ impl<Db: Database + 'static> TrieWriter for ForkedProvider<Db> {
         block_number: BlockNumber,
         state_updates: &StateUpdates,
     ) -> ProviderResult<Felt> {
-        let result: Result<(GetStorageProofResponse, Vec<ContractAddress>), ProviderError> = {
+        let result: Result<(Option<GetStorageProofResponse>, Vec<ContractAddress>), ProviderError> = {
             let fork_url = self.fork_url.clone();
             let state_updates_clone = state_updates.clone();
 
@@ -218,29 +219,34 @@ impl<Db: Database + 'static> TrieWriter for ForkedProvider<Db> {
             let contract_addresses_clone = contract_addresses.clone();
 
             // Use futures::executor::block_on instead of creating a new runtime
-            let response: GetStorageProofResponse = executor::block_on(async {
-                client
-                    .request(
-                        "starknet_getStorageProof",
-                        rpc_params![
-                            BlockIdOrTag::Tag(BlockTag::Latest),
-                            if class_hashes.is_empty() { None } else { Some(class_hashes) },
-                            if contract_addresses.is_empty() { None } else { Some(contract_addresses) },
-                            if contracts_storage_keys.is_empty() { None } else { Some(contracts_storage_keys) }
-                        ],
-                    )
-                    .await
-            }).map_err(|e| {
-                ProviderError::ParsingError(format!("RPC call failed: {}", e))
+            // let response: GetStorageProofResponse = executor::block_on(async {
+            //     client
+            //         .request(
+            //             "starknet_getStorageProof",
+            //             rpc_params![
+            //                 BlockIdOrTag::Tag(BlockTag::Latest),
+            //                 if class_hashes.is_empty() { None } else { Some(class_hashes) },
+            //                 if contract_addresses.is_empty() { None } else { Some(contract_addresses) },
+            //                 if contracts_storage_keys.is_empty() { None } else { Some(contracts_storage_keys) }
+            //             ],
+            //         )
+            //         .await
+            // }).map_err(|e| {
+            //     ProviderError::ParsingError(format!("RPC call failed: {}", e))
+            // })?;
+            let response = self.backend.get_storage_proof(StorageProofPayload {
+                block_number,
+                class_hashes: Some(class_hashes),
+                contract_addresses: Some(contract_addresses),
+                contracts_storage_keys: Some(contracts_storage_keys),
+                fork_url: url_with_port,
             })?;
-
-
             Ok((response, contract_addresses_clone))
         };
 
         println!("\nResult of starknet_getStorageProof: {:?}\n", result);
         match result {
-            Ok((proof, contract_addresses)) => {
+            Ok((Some(proof), contract_addresses)) => {
                 // Extract proofs from the response
                 let classes_proof = MultiProof::from(proof.classes_proof.nodes.clone());
                 let contracts_proof = MultiProof::from(proof.contracts_proof.nodes.clone());
@@ -308,6 +314,10 @@ impl<Db: Database + 'static> TrieWriter for ForkedProvider<Db> {
                     contract_trie_root,
                     class_trie_root,
                 ]))
+            }
+            Ok((None, _)) => {
+                tracing::error!("Failed to get storage proof for block {}", block_number);
+                Err(ProviderError::ParsingError(format!("Storage proof failed")))
             }
             Err(e) => {
                 tracing::error!("Failed to get storage proof for block {}: {:?}", block_number, e);
