@@ -234,7 +234,28 @@ async fn deploy_account(
 abigen_legacy!(Erc20Contract, "crates/rpc/rpc/tests/test_data/erc20.json", derives(Clone));
 
 #[tokio::test]
-async fn estimate_fee() -> Result<()> {
+async fn estimate_fee() {
+    let sequencer = TestNode::new().await;
+
+    let provider = sequencer.starknet_provider();
+    let account = sequencer.account();
+
+    // setup contract to interact with (can be any existing contract that can be interacted with)
+    let contract = Erc20Contract::new(DEFAULT_ETH_FEE_TOKEN_ADDRESS.into(), &account);
+
+    // setup contract function params
+    let recipient = felt!("0x1");
+    let amount = Uint256 { low: felt!("0x1"), high: Felt::ZERO };
+
+    // estimate fee with current nonce (the expected nonce)
+    let address = account.address();
+    let nonce = provider.get_nonce(BlockId::Tag(BlockTag::Pending), address).await.unwrap();
+    let result = contract.transfer(&recipient, &amount).nonce(nonce).estimate_fee().await;
+    assert!(result.is_ok(), "estimate should succeed with nonce == current nonce");
+}
+
+#[tokio::test]
+async fn estimate_fee_with_small_nonce() {
     let sequencer = TestNode::new().await;
 
     let provider = sequencer.starknet_provider();
@@ -249,28 +270,70 @@ async fn estimate_fee() -> Result<()> {
 
     // send a valid transaction first to increment the nonce (so that we can test nonce < current
     // nonce later)
-    let res = contract.transfer(&recipient, &amount).send().await?;
-    katana_utils::TxWaiter::new(res.transaction_hash, &provider).await?;
-
-    // estimate fee with current nonce (the expected nonce)
-    let nonce = provider.get_nonce(BlockId::Tag(BlockTag::Pending), account.address()).await?;
-    let result = contract.transfer(&recipient, &amount).nonce(nonce).estimate_fee().await;
-    assert!(result.is_ok(), "estimate should succeed with nonce == current nonce");
+    let res = contract.transfer(&recipient, &amount).send().await.unwrap();
+    katana_utils::TxWaiter::new(res.transaction_hash, &provider).await.unwrap();
 
     // estimate fee with arbitrary nonce < current nonce
     //
     // here we're essentially estimating a transaction with a nonce that has already been
     // used, so it should fail.
-    let nonce = nonce - 1;
+    let address = account.address();
+    let current_nonce = provider.get_nonce(BlockId::Tag(BlockTag::Pending), address).await.unwrap();
+
+    let nonce = current_nonce - 1;
     let result = contract.transfer(&recipient, &amount).nonce(nonce).estimate_fee().await;
     assert!(result.is_err(), "estimate should fail with nonce < current nonce");
+}
+
+#[tokio::test]
+async fn estimate_fee_with_big_nonce() {
+    let sequencer = TestNode::new().await;
+
+    let provider = sequencer.starknet_provider();
+    let account = sequencer.account();
+
+    // setup contract to interact with (can be any existing contract that can be interacted with)
+    let contract = Erc20Contract::new(DEFAULT_ETH_FEE_TOKEN_ADDRESS.into(), &account);
+
+    // setup contract function params
+    let recipient = felt!("0x1");
+    let amount = Uint256 { low: felt!("0x1"), high: Felt::ZERO };
+
+    // send a valid transaction first to increment the nonce (so that we can test nonce > current
+    // nonce later)
+    let res = contract.transfer(&recipient, &amount).send().await.unwrap();
+    katana_utils::TxWaiter::new(res.transaction_hash, &provider).await.unwrap();
 
     // estimate fee with arbitrary nonce >= current nonce
     let nonce = felt!("0x1337");
     let result = contract.transfer(&recipient, &amount).nonce(nonce).estimate_fee().await;
     assert!(result.is_ok(), "estimate should succeed with nonce >= current nonce");
+}
 
-    Ok(())
+#[tokio::test]
+async fn estimate_fee_on_reverted_transaction() {
+    let sequencer = TestNode::new().await;
+
+    let provider = sequencer.starknet_provider();
+    let account = sequencer.account();
+
+    // setup contract to interact with (can be any existing contract that can be interacted with)
+    let contract = Erc20Contract::new(DEFAULT_ETH_FEE_TOKEN_ADDRESS.into(), &account);
+
+    // setup contract function params
+    let recipient = felt!("0x1");
+    let amount = Uint256 { low: Felt::MAX, high: Felt::MAX };
+
+    let error = contract.transfer(&recipient, &amount).estimate_fee().await.unwrap_err();
+
+    assert_matches!(
+        error,
+        AccountError::Provider(ProviderError::StarknetError(
+            StarknetError::TransactionExecutionError(err)
+        )) => {
+            assert_eq!(err.transaction_index, 0, "there's only one transaction");
+        }
+    )
 }
 
 #[rstest::rstest]
