@@ -248,7 +248,7 @@ impl<EF: ExecutorFactory> Backend<EF> {
 
             info!(genesis_hash = %local_hash, "Genesis has already been initialized");
         } else {
-            // if is_forked {
+            if is_forked {
                 // In forked mode, we need to insert the forked block into local database
                 // The genesis block in chain_spec is already set to the forked block data
                 info!("Initializing forked genesis block from RPC data");
@@ -276,42 +276,42 @@ impl<EF: ExecutorFactory> Backend<EF> {
                     vec![],
                 )?;
                 info!("Forked genesis block inserted from RPC");
-            // } else {
-            //     // Initialize the dev genesis block with dev accounts
-            //     let block = chain_spec.block().seal();
-            //     let block = SealedBlockWithStatus { block, status: FinalityStatus::AcceptedOnL1 };
-            //     let states = chain_spec.state_updates();
+            } else {
+                // Initialize the dev genesis block with dev accounts
+                let block = chain_spec.block().seal();
+                let block = SealedBlockWithStatus { block, status: FinalityStatus::AcceptedOnL1 };
+                let states = chain_spec.state_updates();
 
-            //     let mut block = block;
-            //     let block_number = block.block.header.number;
+                let mut block = block;
+                let block_number = block.block.header.number;
 
-            //     let class_trie_root = provider
-            //         .trie_insert_declared_classes(
-            //             block_number,
-            //             &states.state_updates.declared_classes,
-            //         )
-            //         .context("failed to update class trie")?;
+                let class_trie_root = provider
+                    .trie_insert_declared_classes(
+                        block_number,
+                        &states.state_updates.declared_classes,
+                    )
+                    .context("failed to update class trie")?;
 
-            //     let contract_trie_root = provider
-            //         .trie_insert_contract_updates(block_number, &states.state_updates)
-            //         .context("failed to update contract trie")?;
+                let contract_trie_root = provider
+                    .trie_insert_contract_updates(block_number, &states.state_updates)
+                    .context("failed to update contract trie")?;
 
-            //     let genesis_state_root = hash::Poseidon::hash_array(&[
-            //         short_string!("STARKNET_STATE_V0"),
-            //         contract_trie_root,
-            //         class_trie_root,
-            //     ]);
+                let genesis_state_root = hash::Poseidon::hash_array(&[
+                    short_string!("STARKNET_STATE_V0"),
+                    contract_trie_root,
+                    class_trie_root,
+                ]);
 
-            //     // let genesis_state_root = self
-            //     //     .blockchain
-            //     //     .provider()
-            //     //     .compute_state_root(block_number, &states.state_updates)?;
+                // let genesis_state_root = self
+                //     .blockchain
+                //     .provider()
+                //     .compute_state_root(block_number, &states.state_updates)?;
 
-            //     block.block.header.state_root = genesis_state_root;
+                block.block.header.state_root = genesis_state_root;
 
-            //     provider.insert_block_with_states_and_receipts(block, states, vec![], vec![])?;
-            //     info!("Genesis initialized with dev accounts");
-            // }
+                provider.insert_block_with_states_and_receipts(block, states, vec![], vec![])?;
+                info!("Genesis initialized with dev accounts");
+            }
         }
 
         Ok(())
