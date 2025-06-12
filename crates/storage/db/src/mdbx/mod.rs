@@ -301,7 +301,8 @@ mod tests {
 
         // Insert some data to ensure non-zero stats
         let tx = env.tx_mut().expect(ERROR_INIT_TX);
-        tx.put::<Headers>(1u64, Header::default()).expect(ERROR_PUT);
+        tx.put::<Headers>(1u64, crate::versioned::block::VersionedHeader::V7(Header::default()))
+            .expect(ERROR_PUT);
         tx.commit().expect(ERROR_COMMIT);
 
         // Retrieve stats
@@ -336,7 +337,8 @@ mod tests {
 
         // PUT
         let tx = env.tx_mut().expect(ERROR_INIT_TX);
-        tx.put::<Headers>(key, value.clone()).expect(ERROR_PUT);
+        tx.put::<Headers>(key, crate::versioned::block::VersionedHeader::V7(value.clone()))
+            .expect(ERROR_PUT);
         tx.commit().expect(ERROR_COMMIT);
 
         // GET
@@ -346,7 +348,10 @@ mod tests {
         tx.commit().expect(ERROR_COMMIT);
 
         assert!(total_entries == 1);
-        assert!(result.expect(ERROR_RETURN_VALUE) == value);
+        assert!(
+            result.expect(ERROR_RETURN_VALUE)
+                == crate::versioned::block::VersionedHeader::V7(value)
+        );
     }
 
     #[test]
@@ -358,7 +363,8 @@ mod tests {
 
         // PUT
         let tx = env.tx_mut().expect(ERROR_INIT_TX);
-        tx.put::<Headers>(key, value).expect(ERROR_PUT);
+        tx.put::<Headers>(key, crate::versioned::block::VersionedHeader::V7(value))
+            .expect(ERROR_PUT);
         tx.commit().expect(ERROR_COMMIT);
 
         let entries = env.tx().expect(ERROR_INIT_TX).entries::<Headers>().expect(ERROR_GET);
@@ -386,9 +392,12 @@ mod tests {
 
         // PUT
         let tx = env.tx_mut().expect(ERROR_INIT_TX);
-        tx.put::<Headers>(key1, header1.clone()).expect(ERROR_PUT);
-        tx.put::<Headers>(key2, header2.clone()).expect(ERROR_PUT);
-        tx.put::<Headers>(key3, header3.clone()).expect(ERROR_PUT);
+        tx.put::<Headers>(key1, crate::versioned::block::VersionedHeader::V7(header1.clone()))
+            .expect(ERROR_PUT);
+        tx.put::<Headers>(key2, crate::versioned::block::VersionedHeader::V7(header2.clone()))
+            .expect(ERROR_PUT);
+        tx.put::<Headers>(key3, crate::versioned::block::VersionedHeader::V7(header3.clone()))
+            .expect(ERROR_PUT);
         tx.commit().expect(ERROR_COMMIT);
 
         // CURSOR
@@ -399,9 +408,9 @@ mod tests {
         let (_, result3) = cursor.next().expect(ERROR_GET_AT_CURSOR_POS).expect(ERROR_RETURN_VALUE);
         tx.commit().expect(ERROR_COMMIT);
 
-        assert!(result1 == header1);
-        assert!(result2 == header2);
-        assert!(result3 == header3);
+        assert!(result1 == crate::versioned::block::VersionedHeader::V7(header1));
+        assert!(result2 == crate::versioned::block::VersionedHeader::V7(header2));
+        assert!(result3 == crate::versioned::block::VersionedHeader::V7(header3));
     }
 
     #[test]
@@ -448,7 +457,8 @@ mod tests {
 
         // PUT
         let tx = env.tx_mut().expect(ERROR_INIT_TX);
-        tx.put::<Headers>(key, value.clone()).expect(ERROR_PUT);
+        tx.put::<Headers>(key, crate::versioned::block::VersionedHeader::V7(value.clone()))
+            .expect(ERROR_PUT);
         tx.commit().expect(ERROR_COMMIT);
 
         // Cursor
@@ -461,7 +471,11 @@ mod tests {
         // Walk
         let walk = cursor.walk(Some(key)).unwrap();
         let first = walk.into_iter().next().unwrap().unwrap();
-        assert_eq!(first.1, value, "First next should be put value");
+        assert_eq!(
+            first.1,
+            crate::versioned::block::VersionedHeader::V7(value),
+            "First next should be put value"
+        );
     }
 
     #[test]
