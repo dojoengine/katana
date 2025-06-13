@@ -9,11 +9,11 @@ use katana_db::abstraction::{
     Database, DbCursor, DbDupSortCursor, DbDupSortCursorMut, DbTx, DbTxMut,
 };
 use katana_db::mdbx::{DbEnv, DbEnvKind};
-use katana_db::models::list::IntegerSet;
-use katana_db::models::trie::{TrieDatabaseKey, TrieHistoryEntry};
+use katana_db::models::list::BlockList;
+use katana_db::models::trie::TrieDatabaseKey;
 use katana_db::tables::{
-    ClassesTrieChangeSet, ClassesTrieHistory, ContractsTrieChangeSet, ContractsTrieHistory,
-    DupSort, Headers, StoragesTrieChangeSet, StoragesTrieHistory, Table as DbTable, NUM_TABLES,
+    self, ClassesTrieChangeSet, ClassesTrieHistory, ContractsTrieChangeSet, ContractsTrieHistory,
+    Headers, StoragesTrieChangeSet, StoragesTrieHistory, NUM_TABLES,
 };
 use katana_db::version::{get_db_version, CURRENT_DB_VERSION};
 use katana_primitives::block::BlockNumber;
@@ -71,114 +71,26 @@ struct PruneArgs {
 
 #[derive(Subcommand)]
 enum PruneMode {
-    #[command(about = "Keep only the latest trie state (remove all historical data)")]
+    // Keep only the latest trie state (remove all historical data)
     Latest,
-    #[command(about = "Keep only the last N blocks of historical data")]
-    KeepLast { blocks: u64 },
+
+    /// Keep only the last N blocks (since tha latest block) of historical data
+    KeepLastN {
+        #[arg(value_name = "BLOCKS")]
+        #[arg(value_parser = clap::value_parser!(u64).range(1..))]
+        blocks: u64,
+    },
 }
 
 impl DbArgs {
     pub(crate) fn execute(self) -> Result<()> {
         match self.commands {
             Commands::Version { path } => {
-                println!("current version: {CURRENT_DB_VERSION}");
-
-                if let Some(path) = path {
-                    let expanded_path = shellexpand::full(&path)?;
-                    let resolved_path = path::absolute(expanded_path.into_owned())?;
-
-                    ensure!(
-                        resolved_path.exists(),
-                        "database does not exist at path {}",
-                        resolved_path.display()
-                    );
-
-                    let version = get_db_version(&resolved_path)?;
-                    println!("database version: {version}");
-                }
+                display_version(path)?;
             }
-
             Commands::Stats { path } => {
-                let db = open_db_ro(&path)?;
-                let stats = db.stats()?;
-
-                let mut table = table();
-                let mut rows = Vec::with_capacity(NUM_TABLES);
-                // total size of all tables (incl. freelist)
-                let mut total_size = 0;
-
-                table.set_header(vec![
-                    "Table",
-                    "Entries",
-                    "Depth",
-                    "Branch Pages",
-                    "Leaf Pages",
-                    "Overflow Pages",
-                    "Size",
-                ]);
-
-                // page size is equal across all tables, so we can just get it from the first table
-                // and use it to calculate for the freelist table.
-                let mut pagesize: usize = 0;
-
-                for (name, stat) in stats.table_stats().iter() {
-                    let entries = stat.entries();
-                    let depth = stat.depth();
-                    let branch_pages = stat.branch_pages();
-                    let leaf_pages = stat.leaf_pages();
-                    let overflow_pages = stat.overflow_pages();
-                    let size = stat.total_size();
-
-                    rows.push(vec![
-                        name.to_string(),
-                        entries.to_string(),
-                        depth.to_string(),
-                        branch_pages.to_string(),
-                        leaf_pages.to_string(),
-                        overflow_pages.to_string(),
-                        byte_unit!(size),
-                    ]);
-
-                    // increment the size of all tables
-                    total_size += size;
-
-                    if pagesize == 0 {
-                        pagesize = stat.page_size() as usize;
-                    }
-                }
-
-                // sort the rows by the table name
-                rows.sort_by(|a, b| a[0].cmp(&b[0]));
-                table.add_rows(rows);
-
-                // add special row for the freelist table
-                let freelist_size = stats.freelist() * pagesize;
-                total_size += freelist_size;
-
-                table.add_row(vec![
-                    "Freelist".to_string(),
-                    stats.freelist().to_string(),
-                    "-".to_string(),
-                    "-".to_string(),
-                    "-".to_string(),
-                    "-".to_string(),
-                    byte_unit!(freelist_size),
-                ]);
-
-                // add the last row for the total size
-                table.add_row(vec![
-                    "Total Size".to_string(),
-                    "-".to_string(),
-                    "-".to_string(),
-                    "-".to_string(),
-                    "-".to_string(),
-                    "-".to_string(),
-                    byte_unit!(total_size),
-                ]);
-
-                println!("{table}");
+                display_stats(&path)?;
             }
-
             Commands::Prune(PruneArgs { path, mode }) => {
                 prune_database(&path, mode)?;
             }
@@ -188,15 +100,108 @@ impl DbArgs {
     }
 }
 
-/// Open the database at `path` in read-only mode.
-///
-/// The path is expanded and resolved to an absolute path before opening the database for clearer
-/// error messages.
-fn open_db_ro(path: &str) -> Result<DbEnv> {
-    let path = path::absolute(shellexpand::full(path)?.into_owned())?;
-    DbEnv::open(&path, DbEnvKind::RO).with_context(|| {
-        format!("Opening database file in read-only mode at path {}", path.display())
-    })
+/// Display database statistics in a formatted table.
+fn display_stats(db_path: &str) -> Result<()> {
+    let db = open_db_ro(db_path)?;
+    let stats = db.stats()?;
+
+    let mut table = table();
+    let mut rows = Vec::with_capacity(NUM_TABLES);
+    // total size of all tables (incl. freelist)
+    let mut total_size = 0;
+
+    table.set_header(vec![
+        "Table",
+        "Entries",
+        "Depth",
+        "Branch Pages",
+        "Leaf Pages",
+        "Overflow Pages",
+        "Size",
+    ]);
+
+    // page size is equal across all tables, so we can just get it from the first table
+    // and use it to calculate for the freelist table.
+    let mut pagesize: usize = 0;
+
+    for (name, stat) in stats.table_stats().iter() {
+        let entries = stat.entries();
+        let depth = stat.depth();
+        let branch_pages = stat.branch_pages();
+        let leaf_pages = stat.leaf_pages();
+        let overflow_pages = stat.overflow_pages();
+        let size = stat.total_size();
+
+        rows.push(vec![
+            name.to_string(),
+            entries.to_string(),
+            depth.to_string(),
+            branch_pages.to_string(),
+            leaf_pages.to_string(),
+            overflow_pages.to_string(),
+            byte_unit!(size),
+        ]);
+
+        // increment the size of all tables
+        total_size += size;
+
+        if pagesize == 0 {
+            pagesize = stat.page_size() as usize;
+        }
+    }
+
+    // sort the rows by the table name
+    rows.sort_by(|a, b| a[0].cmp(&b[0]));
+    table.add_rows(rows);
+
+    // add special row for the freelist table
+    let freelist_size = stats.freelist() * pagesize;
+    total_size += freelist_size;
+
+    table.add_row(vec![
+        "Freelist".to_string(),
+        stats.freelist().to_string(),
+        "-".to_string(),
+        "-".to_string(),
+        "-".to_string(),
+        "-".to_string(),
+        byte_unit!(freelist_size),
+    ]);
+
+    // add the last row for the total size
+    table.add_row(vec![
+        "Total Size".to_string(),
+        "-".to_string(),
+        "-".to_string(),
+        "-".to_string(),
+        "-".to_string(),
+        "-".to_string(),
+        byte_unit!(total_size),
+    ]);
+
+    println!("{table}");
+
+    Ok(())
+}
+
+fn display_version(path: Option<String>) -> Result<()> {
+    println!("current version: {CURRENT_DB_VERSION}");
+
+    if let Some(path) = path {
+        let expanded_path = shellexpand::full(&path)?;
+        let resolved_path = path::absolute(expanded_path.into_owned())?;
+
+        ensure!(
+            resolved_path.exists(),
+            "database does not exist at path {}",
+            resolved_path.display()
+        );
+
+        let version = get_db_version(&resolved_path)?;
+        println!("database version: {version}");
+    }
+
+    Ok(())
 }
 
 fn prune_database(db_path: &str, mode: PruneMode) -> Result<()> {
@@ -210,10 +215,11 @@ fn prune_database(db_path: &str, mode: PruneMode) -> Result<()> {
             println!("Pruning all historical trie data...");
             prune_all_history(&tx)?;
         }
-        PruneMode::KeepLast { blocks } => {
+        PruneMode::KeepLastN { blocks } => {
             if blocks == 0 {
                 return Err(anyhow::anyhow!("Number of blocks to keep must be greater than 0"));
             }
+
             if blocks > latest_block {
                 println!(
                     "Warning: Requested to keep {} blocks, but only {} blocks exist",
@@ -221,7 +227,8 @@ fn prune_database(db_path: &str, mode: PruneMode) -> Result<()> {
                 );
                 return Ok(());
             }
-            println!("Pruning historical data, keeping last {} blocks...", blocks);
+
+            println!("Pruning historical data, keeping last {blocks} blocks...");
             prune_keep_last_n(&tx, latest_block, blocks)?;
         }
     }
@@ -265,24 +272,23 @@ fn prune_keep_last_n<Tx: DbTxMut>(
         return Ok(());
     }
 
-    prune_history_table::<ClassesTrieHistory, _>(tx, cutoff_block)?;
-    prune_history_table::<ContractsTrieHistory, _>(tx, cutoff_block)?;
-    prune_history_table::<StoragesTrieHistory, _>(tx, cutoff_block)?;
+    prune_history_table::<tables::ClassesTrie>(tx, cutoff_block)?;
+    prune_history_table::<tables::ContractsTrie>(tx, cutoff_block)?;
+    prune_history_table::<tables::StoragesTrie>(tx, cutoff_block)?;
 
-    prune_changeset_table::<ClassesTrieChangeSet, _>(tx, cutoff_block)?;
-    prune_changeset_table::<ContractsTrieChangeSet, _>(tx, cutoff_block)?;
-    prune_changeset_table::<StoragesTrieChangeSet, _>(tx, cutoff_block)?;
+    prune_changeset_table::<tables::ClassesTrie>(tx, cutoff_block)?;
+    prune_changeset_table::<tables::ContractsTrie>(tx, cutoff_block)?;
+    prune_changeset_table::<tables::StoragesTrie>(tx, cutoff_block)?;
 
     println!("Pruned historical data for blocks 0 to {}", cutoff_block);
     Ok(())
 }
 
-fn prune_history_table<T, Tx>(tx: &Tx, cutoff_block: BlockNumber) -> Result<()>
-where
-    T: DupSort<Key = BlockNumber, SubKey = TrieDatabaseKey, Value = TrieHistoryEntry>,
-    Tx: DbTxMut,
-{
-    let mut cursor = tx.cursor_dup_mut::<T>()?;
+fn prune_history_table<T: tables::Trie>(
+    tx: &impl DbTxMut,
+    cutoff_block: BlockNumber,
+) -> Result<()> {
+    let mut cursor = tx.cursor_dup_mut::<T::History>()?;
     let mut blocks_to_delete = Vec::new();
 
     if let Some((block, _)) = cursor.first()? {
@@ -306,48 +312,54 @@ where
     Ok(())
 }
 
-fn prune_changeset_table<T, Tx>(tx: &Tx, cutoff_block: BlockNumber) -> Result<()>
-where
-    T: DbTable<Key = TrieDatabaseKey, Value = IntegerSet>,
-    Tx: DbTxMut,
-{
-    let mut cursor = tx.cursor_mut::<T>()?;
-    let mut keys_to_update = Vec::new();
+/// Prune the changeset table by removing all entries from the genesis block up to the cutoff block
+/// (inclusive).
+fn prune_changeset_table<T: tables::Trie>(
+    tx: &impl DbTxMut,
+    cutoff_block: BlockNumber,
+) -> Result<()> {
+    let mut cursor = tx.cursor_mut::<T::Changeset>()?;
+    let mut keys_to_update: Vec<(TrieDatabaseKey, Option<BlockList>)> = Vec::new();
 
     let walker = cursor.walk(None)?;
     for entry in walker {
-        let (key, block_list) = entry?;
-        let mut filtered_blocks = IntegerSet::new();
+        let (key, mut block_list) = entry?;
         let mut has_changes = false;
 
-        let mut current_rank = 0;
-        while let Some(block) = block_list.select(current_rank) {
-            if block > cutoff_block {
-                filtered_blocks.insert(block);
-            } else {
-                has_changes = true;
-            }
-            current_rank += 1;
+        let total_blocks_removed = block_list.remove_range(0..=cutoff_block);
+        if total_blocks_removed > 0 {
+            has_changes = true;
         }
 
         if has_changes {
-            if filtered_blocks.select(0).is_none() {
+            if block_list.select(0).is_none() {
                 keys_to_update.push((key, None));
             } else {
-                keys_to_update.push((key, Some(filtered_blocks)));
+                keys_to_update.push((key, Some(block_list)));
             }
         }
     }
 
     for (key, maybe_block_list) in keys_to_update {
         if let Some(block_list) = maybe_block_list {
-            tx.put::<T>(key, block_list)?;
+            tx.put::<T::Changeset>(key, block_list)?;
         } else {
-            tx.delete::<T>(key, None)?;
+            tx.delete::<T::Changeset>(key, None)?;
         }
     }
 
     Ok(())
+}
+
+/// Open the database at `path` in read-only mode.
+///
+/// The path is expanded and resolved to an absolute path before opening the database for clearer
+/// error messages.
+fn open_db_ro(path: &str) -> Result<DbEnv> {
+    let path = path::absolute(shellexpand::full(path)?.into_owned())?;
+    DbEnv::open(&path, DbEnvKind::RO).with_context(|| {
+        format!("Opening database file in read-only mode at path {}", path.display())
+    })
 }
 
 fn open_db_rw(path: &str) -> Result<DbEnv> {

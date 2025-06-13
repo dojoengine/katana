@@ -313,8 +313,6 @@ async fn estimate_fee_with_big_nonce() {
 #[tokio::test]
 async fn estimate_fee_on_reverted_transaction() {
     let sequencer = TestNode::new().await;
-
-    let provider = sequencer.starknet_provider();
     let account = sequencer.account();
 
     // setup contract to interact with (can be any existing contract that can be interacted with)

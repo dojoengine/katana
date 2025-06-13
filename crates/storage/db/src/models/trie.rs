@@ -72,14 +72,14 @@ pub type TrieDatabaseValue = ByteVec;
 impl ::arbitrary::Arbitrary<'_> for TrieDatabaseKey {
     fn arbitrary(u: &mut ::arbitrary::Unstructured<'_>) -> ::arbitrary::Result<Self> {
         let r#type = TrieDatabaseKeyType::arbitrary(u)?;
-        
+
         let max_key_len = 256;
         let key_len = u.int_in_range(0..=max_key_len)?;
         let mut key = Vec::with_capacity(key_len);
         for _ in 0..key_len {
             key.push(u8::arbitrary(u)?);
         }
-        
+
         Ok(TrieDatabaseKey { r#type, key })
     }
 }

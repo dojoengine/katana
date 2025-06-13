@@ -1,4 +1,3 @@
-
 use std::collections::HashMap;
 
 use katana_primitives::block::BlockNumber;
@@ -38,23 +37,19 @@ mod tests {
         let mut u = Unstructured::new(&data);
 
         for &block_num in blocks {
-            for _ in 0..3 {  // Generate 3 keys per block for variety
+            for _ in 0..3 {
+                // Generate 3 keys per block for variety
                 let key = generate_arbitrary_key(&mut u);
                 let value = generate_test_value();
 
-                let history_entry = TrieHistoryEntry {
-                    key: key.clone(),
-                    value: value.clone().into(),
-                };
+                let history_entry =
+                    TrieHistoryEntry { key: key.clone(), value: value.clone().into() };
 
                 tx.put::<ClassesTrieHistory>(block_num, history_entry.clone())?;
                 tx.put::<ContractsTrieHistory>(block_num, history_entry.clone())?;
                 tx.put::<StoragesTrieHistory>(block_num, history_entry)?;
 
-                changeset_data
-                    .entry(key.clone())
-                    .or_insert_with(Vec::new)
-                    .push(block_num);
+                changeset_data.entry(key.clone()).or_insert_with(Vec::new).push(block_num);
             }
         }
 
@@ -62,7 +57,7 @@ mod tests {
             let mut classes_set = IntegerSet::new();
             let mut contracts_set = IntegerSet::new();
             let mut storages_set = IntegerSet::new();
-            
+
             for &block in block_list {
                 classes_set.insert(block);
                 contracts_set.insert(block);
@@ -80,7 +75,7 @@ mod tests {
     #[cfg(feature = "arbitrary")]
     fn populate_current_trie_state(tx: &impl DbTxMut) -> anyhow::Result<()> {
         use arbitrary::Unstructured;
-        
+
         let data = vec![42u8; 100]; // Different seed for current state
         let mut u = Unstructured::new(&data);
         let current_key = generate_arbitrary_key(&mut u);
