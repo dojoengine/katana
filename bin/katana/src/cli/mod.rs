@@ -7,7 +7,7 @@ use katana_cli::NodeArgs;
 use tokio::runtime::Runtime;
 
 mod config;
-mod db;
+pub mod db;
 mod init;
 mod version;
 
