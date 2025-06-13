@@ -1,3 +1,5 @@
+use std::ops::RangeBounds;
+
 use roaring::RoaringTreemap;
 use serde::{Deserialize, Serialize};
 
@@ -24,6 +26,11 @@ impl IntegerSet {
         self.0.insert(num);
     }
 
+    /// Removes a value from the set. Returns `true` if the value was present in the set.
+    pub fn remove(&mut self, num: u64) -> bool {
+        self.0.remove(num)
+    }
+
     /// Checks if the set contains the given number.
     pub fn contains(&self, num: u64) -> bool {
         self.0.contains(num)
@@ -37,6 +44,24 @@ impl IntegerSet {
     /// Returns the `n`th integer in the set or `None` if `n >= len()`.
     pub fn select(&self, n: u64) -> Option<u64> {
         self.0.select(n)
+    }
+
+    /// Removes a range of values.
+    ///
+    /// # Returns
+    ///
+    /// Returns the number of removed values.
+    ///
+    /// # Examples
+    ///
+    /// ```rust
+    /// let mut is = IntegerSet::new();
+    /// is.insert(2);
+    /// is.insert(3);
+    /// assert_eq!(is.remove_range(2..4), 2);
+    /// ```
+    pub fn remove_range<R: RangeBounds<u64>>(&mut self, range: R) -> u64 {
+        self.0.remove_range(range)
     }
 }
 
