@@ -7,21 +7,11 @@ use katana::cli::Cli;
 use katana_db::abstraction::{Database, DbCursor, DbDupSortCursor, DbTx, DbTxMut};
 use katana_db::mdbx::DbEnv;
 use katana_db::models::trie::{TrieDatabaseKey, TrieDatabaseValue, TrieHistoryEntry};
-use katana_db::tables::{ClassesTrieHistory, ContractsTrieHistory, Headers, StoragesTrieHistory};
-use katana_primitives::block::Header;
+use katana_db::tables::{self};
+use katana_primitives::block::{Header, PartialHeader};
 use katana_utils::random_bytes;
 use rstest::*;
 use tempfile::TempDir;
-
-/// Get the latest block number from the Headers table
-pub fn get_latest_block_number<Tx: DbTx>(tx: &Tx) -> Result<u64> {
-    let mut cursor = tx.cursor::<Headers>()?;
-    if let Some((block_num, _)) = cursor.last()? {
-        Ok(block_num)
-    } else {
-        Ok(0)
-    }
-}
 
 struct TempDb {
     temp_dir: TempDir,
@@ -96,36 +86,30 @@ fn generate_trie_entries(
 fn populate_db(db: &TempDb) -> Result<()> {
     db.open_rw().update(|tx| {
         for block_num in 0..=15u64 {
-            let header =
-                Header::arbitrary(&mut Unstructured::new(&random_bytes(Header::size_hint(0).0)))
-                    .context("Failed to generate arbitrary header")?;
-
-            tx.put::<Headers>(block_num, header)?;
+            tx.put::<tables::Headers>(block_num, Header::default())?;
         }
 
-        // Generate arbitrary trie data for each trie type
-        let classes_data = generate_trie_entries(15, 5)?;
-        let contracts_data = generate_trie_entries(15, 3)?;
-        let storages_data = generate_trie_entries(15, 7)?;
-
         // Insert classes trie history
+        let classes_data = generate_trie_entries(15, 5)?;
         for (block_num, entries) in classes_data {
             for entry in entries {
-                tx.put::<ClassesTrieHistory>(block_num, entry)?;
+                tx.put::<tables::ClassesTrieHistory>(block_num, entry)?;
             }
         }
 
         // Insert contracts trie history
+        let contracts_data = generate_trie_entries(15, 3)?;
         for (block_num, entries) in contracts_data {
             for entry in entries {
-                tx.put::<ContractsTrieHistory>(block_num, entry)?;
+                tx.put::<tables::ContractsTrieHistory>(block_num, entry)?;
             }
         }
 
         // Insert storages trie history
+        let storages_data = generate_trie_entries(15, 7)?;
         for (block_num, entries) in storages_data {
             for entry in entries {
-                tx.put::<StoragesTrieHistory>(block_num, entry)?;
+                tx.put::<tables::StoragesTrieHistory>(block_num, entry)?;
             }
         }
 
@@ -139,21 +123,21 @@ fn count_historical_entries(db: &DbEnv) -> Result<usize> {
     let mut total = 0;
 
     // Count ClassesTrieHistory entries
-    let mut cursor = tx.cursor_dup::<ClassesTrieHistory>()?;
+    let mut cursor = tx.cursor_dup::<tables::ClassesTrieHistory>()?;
     let mut walker = cursor.walk(None)?;
     while walker.next().transpose()?.is_some() {
         total += 1;
     }
 
     // Count ContractsTrieHistory entries
-    let mut cursor = tx.cursor_dup::<ContractsTrieHistory>()?;
+    let mut cursor = tx.cursor_dup::<tables::ContractsTrieHistory>()?;
     let mut walker = cursor.walk(None)?;
     while walker.next().transpose()?.is_some() {
         total += 1;
     }
 
     // Count StoragesTrieHistory entries
-    let mut cursor = tx.cursor_dup::<StoragesTrieHistory>()?;
+    let mut cursor = tx.cursor_dup::<tables::StoragesTrieHistory>()?;
     let mut walker = cursor.walk(None)?;
     while walker.next().transpose()?.is_some() {
         total += 1;
@@ -165,7 +149,7 @@ fn count_historical_entries(db: &DbEnv) -> Result<usize> {
 /// Count headers in the database (should remain unchanged after pruning)
 fn count_headers(db: &DbEnv) -> Result<usize> {
     let tx = db.tx()?;
-    let mut cursor = tx.cursor::<Headers>()?;
+    let mut cursor = tx.cursor::<tables::Headers>()?;
     let mut count = 0;
 
     let mut walker = cursor.walk(None)?;
