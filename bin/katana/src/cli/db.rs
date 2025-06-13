@@ -6,7 +6,7 @@ use comfy_table::modifiers::UTF8_ROUND_CORNERS;
 use comfy_table::presets::UTF8_FULL;
 use comfy_table::Table;
 use katana_db::abstraction::{
-    Database, DbCursor, DbDupSortCursor, DbDupSortCursorMut, DbTx, DbTxMut, DbTxRef,
+    Database, DbCursor, DbDupSortCursor, DbDupSortCursorMut, DbTx, DbTxMut,
 };
 use katana_db::mdbx::{DbEnv, DbEnvKind};
 use katana_db::models::list::IntegerSet;
@@ -203,7 +203,7 @@ fn prune_database(db_path: &str, mode: PruneMode) -> Result<()> {
     let db = open_db_rw(db_path)?;
     let tx = db.tx_mut().context("Failed to create write transaction")?;
 
-    let latest_block = get_latest_block_number(&&tx)?;
+    let latest_block = get_latest_block_number(&tx)?;
 
     match mode {
         PruneMode::Latest => {
@@ -231,7 +231,7 @@ fn prune_database(db_path: &str, mode: PruneMode) -> Result<()> {
     Ok(())
 }
 
-fn get_latest_block_number<'a, Tx: DbTxRef<'a>>(tx: &'a Tx) -> Result<BlockNumber> {
+fn get_latest_block_number<Tx: DbTx>(tx: &Tx) -> Result<BlockNumber> {
     let mut cursor = tx.cursor::<Headers>()?;
     if let Some((block_num, _)) = cursor.last()? {
         Ok(block_num)
