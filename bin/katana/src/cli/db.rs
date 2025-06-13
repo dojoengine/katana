@@ -5,10 +5,18 @@ use clap::{Args, Subcommand};
 use comfy_table::modifiers::UTF8_ROUND_CORNERS;
 use comfy_table::presets::UTF8_FULL;
 use comfy_table::Table;
-use katana_db::abstraction::Database;
+use katana_db::abstraction::{
+    Database, DbCursor, DbDupSortCursor, DbDupSortCursorMut, DbTx, DbTxMut, DbTxRef,
+};
 use katana_db::mdbx::{DbEnv, DbEnvKind};
-use katana_db::tables::NUM_TABLES;
+use katana_db::models::list::IntegerSet;
+use katana_db::models::trie::{TrieDatabaseKey, TrieHistoryEntry};
+use katana_db::tables::{
+    ClassesTrieChangeSet, ClassesTrieHistory, ContractsTrieChangeSet, ContractsTrieHistory,
+    DupSort, Headers, StoragesTrieChangeSet, StoragesTrieHistory, Table as DbTable, NUM_TABLES,
+};
 use katana_db::version::{get_db_version, CURRENT_DB_VERSION};
+use katana_primitives::block::BlockNumber;
 
 /// Create a human-readable byte unit string (eg. 16.00 KiB)
 macro_rules! byte_unit {
@@ -45,6 +53,28 @@ enum Commands {
         #[arg(short, long)]
         path: Option<String>,
     },
+
+    #[command(about = "Prune historical trie data")]
+    Prune(PruneArgs),
+}
+
+#[derive(Args)]
+struct PruneArgs {
+    /// Path to the database directory.
+    #[arg(short, long)]
+    #[arg(default_value = "~/.katana/db")]
+    path: String,
+
+    #[command(subcommand)]
+    mode: PruneMode,
+}
+
+#[derive(Subcommand)]
+enum PruneMode {
+    #[command(about = "Keep only the latest trie state (remove all historical data)")]
+    Latest,
+    #[command(about = "Keep only the last N blocks of historical data")]
+    KeepLast { blocks: u64 },
 }
 
 impl DbArgs {
@@ -148,6 +178,10 @@ impl DbArgs {
 
                 println!("{table}");
             }
+
+            Commands::Prune(PruneArgs { path, mode }) => {
+                prune_database(&path, mode)?;
+            }
         }
 
         Ok(())
@@ -162,6 +196,164 @@ fn open_db_ro(path: &str) -> Result<DbEnv> {
     let path = path::absolute(shellexpand::full(path)?.into_owned())?;
     DbEnv::open(&path, DbEnvKind::RO).with_context(|| {
         format!("Opening database file in read-only mode at path {}", path.display())
+    })
+}
+
+fn prune_database(db_path: &str, mode: PruneMode) -> Result<()> {
+    let db = open_db_rw(db_path)?;
+    let tx = db.tx_mut().context("Failed to create write transaction")?;
+
+    let latest_block = get_latest_block_number(&&tx)?;
+
+    match mode {
+        PruneMode::Latest => {
+            println!("Pruning all historical trie data...");
+            prune_all_history(&tx)?;
+        }
+        PruneMode::KeepLast { blocks } => {
+            if blocks == 0 {
+                return Err(anyhow::anyhow!("Number of blocks to keep must be greater than 0"));
+            }
+            if blocks > latest_block {
+                println!(
+                    "Warning: Requested to keep {} blocks, but only {} blocks exist",
+                    blocks, latest_block
+                );
+                return Ok(());
+            }
+            println!("Pruning historical data, keeping last {} blocks...", blocks);
+            prune_keep_last_n(&tx, latest_block, blocks)?;
+        }
+    }
+
+    tx.commit().context("Failed to commit pruning transaction")?;
+    println!("Database pruning completed successfully");
+    Ok(())
+}
+
+fn get_latest_block_number<'a, Tx: DbTxRef<'a>>(tx: &'a Tx) -> Result<BlockNumber> {
+    let mut cursor = tx.cursor::<Headers>()?;
+    if let Some((block_num, _)) = cursor.last()? {
+        Ok(block_num)
+    } else {
+        Ok(0)
+    }
+}
+
+fn prune_all_history<Tx: DbTxMut>(tx: &Tx) -> Result<()> {
+    tx.clear::<ClassesTrieHistory>()?;
+    tx.clear::<ContractsTrieHistory>()?;
+    tx.clear::<StoragesTrieHistory>()?;
+
+    tx.clear::<ClassesTrieChangeSet>()?;
+    tx.clear::<ContractsTrieChangeSet>()?;
+    tx.clear::<StoragesTrieChangeSet>()?;
+
+    println!("Cleared all historical trie data");
+    Ok(())
+}
+
+fn prune_keep_last_n<Tx: DbTxMut>(
+    tx: &Tx,
+    latest_block: BlockNumber,
+    keep_blocks: u64,
+) -> Result<()> {
+    let cutoff_block = latest_block.saturating_sub(keep_blocks);
+
+    if cutoff_block == 0 {
+        println!("No blocks to prune");
+        return Ok(());
+    }
+
+    prune_history_table::<ClassesTrieHistory, _>(tx, cutoff_block)?;
+    prune_history_table::<ContractsTrieHistory, _>(tx, cutoff_block)?;
+    prune_history_table::<StoragesTrieHistory, _>(tx, cutoff_block)?;
+
+    prune_changeset_table::<ClassesTrieChangeSet, _>(tx, cutoff_block)?;
+    prune_changeset_table::<ContractsTrieChangeSet, _>(tx, cutoff_block)?;
+    prune_changeset_table::<StoragesTrieChangeSet, _>(tx, cutoff_block)?;
+
+    println!("Pruned historical data for blocks 0 to {}", cutoff_block);
+    Ok(())
+}
+
+fn prune_history_table<T, Tx>(tx: &Tx, cutoff_block: BlockNumber) -> Result<()>
+where
+    T: DupSort<Key = BlockNumber, SubKey = TrieDatabaseKey, Value = TrieHistoryEntry>,
+    Tx: DbTxMut,
+{
+    let mut cursor = tx.cursor_dup_mut::<T>()?;
+    let mut blocks_to_delete = Vec::new();
+
+    if let Some((block, _)) = cursor.first()? {
+        let mut current_block = block;
+        while current_block <= cutoff_block {
+            blocks_to_delete.push(current_block);
+            if let Some((next_block, _)) = cursor.next_no_dup()? {
+                current_block = next_block;
+            } else {
+                break;
+            }
+        }
+    }
+
+    for block in blocks_to_delete {
+        if cursor.seek(block)?.is_some() {
+            cursor.delete_current_duplicates()?;
+        }
+    }
+
+    Ok(())
+}
+
+fn prune_changeset_table<T, Tx>(tx: &Tx, cutoff_block: BlockNumber) -> Result<()>
+where
+    T: DbTable<Key = TrieDatabaseKey, Value = IntegerSet>,
+    Tx: DbTxMut,
+{
+    let mut cursor = tx.cursor_mut::<T>()?;
+    let mut keys_to_update = Vec::new();
+
+    let walker = cursor.walk(None)?;
+    for entry in walker {
+        let (key, block_list) = entry?;
+        let mut filtered_blocks = IntegerSet::new();
+        let mut has_changes = false;
+
+        let mut current_rank = 0;
+        while let Some(block) = block_list.select(current_rank) {
+            if block > cutoff_block {
+                filtered_blocks.insert(block);
+            } else {
+                has_changes = true;
+            }
+            current_rank += 1;
+        }
+
+        if has_changes {
+            if filtered_blocks.select(0).is_none() {
+                keys_to_update.push((key, None));
+            } else {
+                keys_to_update.push((key, Some(filtered_blocks)));
+            }
+        }
+    }
+
+    for (key, maybe_block_list) in keys_to_update {
+        if let Some(block_list) = maybe_block_list {
+            tx.put::<T>(key, block_list)?;
+        } else {
+            tx.delete::<T>(key, None)?;
+        }
+    }
+
+    Ok(())
+}
+
+fn open_db_rw(path: &str) -> Result<DbEnv> {
+    let path = path::absolute(shellexpand::full(path)?.into_owned())?;
+    DbEnv::open(&path, DbEnvKind::RW).with_context(|| {
+        format!("Opening database file in read-write mode at path {}", path.display())
     })
 }
 
