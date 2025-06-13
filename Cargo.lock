@@ -6153,6 +6153,7 @@ name = "katana"
 version = "1.6.0-alpha.0"
 dependencies = [
  "anyhow",
+ "arbitrary",
  "assert_matches",
  "async-trait",
  "byte-unit",
@@ -6169,12 +6170,14 @@ dependencies = [
  "katana-rpc-types",
  "katana-utils",
  "piltover",
+ "proptest",
  "rand 0.8.5",
  "rstest 0.18.2",
  "shellexpand",
  "spinoff",
  "starknet 0.14.0",
  "strum_macros 0.25.3",
+ "tempfile",
  "thiserror 1.0.69",
  "tokio",
  "tracing",

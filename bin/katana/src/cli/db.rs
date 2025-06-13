@@ -41,7 +41,7 @@ pub struct DbArgs {
 }
 
 #[derive(Subcommand)]
-enum Commands {
+pub enum Commands {
     #[command(about = "Retrieves database statistics")]
     Stats,
     #[command(about = "Prune historical trie data")]
@@ -49,13 +49,13 @@ enum Commands {
 }
 
 #[derive(Args)]
-struct PruneArgs {
+pub struct PruneArgs {
     #[command(subcommand)]
     mode: PruneMode,
 }
 
 #[derive(Subcommand)]
-enum PruneMode {
+pub enum PruneMode {
     // Keep only the latest trie state (remove all historical data)
     Latest,
 
@@ -68,7 +68,7 @@ enum PruneMode {
 }
 
 impl DbArgs {
-    pub(crate) fn execute(self) -> Result<()> {
+    pub fn execute(self) -> Result<()> {
         match self.commands {
             Commands::Stats => {
                 display_stats(&self.path)?;
@@ -175,6 +175,7 @@ fn prune_database(db_path: &str, args: PruneArgs) -> Result<()> {
         PruneMode::Latest => {
             println!("Pruning all historical trie data...");
             prune_all_history(&tx)?;
+            println!("Cleared all historical trie data");
         }
         PruneMode::KeepLastN { blocks } => {
             if blocks == 0 {
@@ -189,8 +190,16 @@ fn prune_database(db_path: &str, args: PruneArgs) -> Result<()> {
                 return Ok(());
             }
 
+            let cutoff_block = latest_block.saturating_sub(blocks);
             println!("Pruning historical data, keeping last {blocks} blocks...");
+
+            if cutoff_block == 0 {
+                println!("No blocks to prune");
+                return Ok(());
+            }
+
             prune_keep_last_n(&tx, latest_block, blocks)?;
+            println!("Pruned historical data for blocks 0 to {}", cutoff_block);
         }
     }
 
@@ -199,7 +208,31 @@ fn prune_database(db_path: &str, args: PruneArgs) -> Result<()> {
     Ok(())
 }
 
-fn get_latest_block_number<Tx: DbTx>(tx: &Tx) -> Result<BlockNumber> {
+/// Open the database at `path` in read-only mode.
+///
+/// The path is expanded and resolved to an absolute path before opening the database for clearer
+/// error messages.
+pub fn open_db_ro(path: &str) -> Result<DbEnv> {
+    let path = path::absolute(shellexpand::full(path)?.into_owned())?;
+    DbEnv::open(&path, DbEnvKind::RO).with_context(|| {
+        format!("Opening database file in read-only mode at path {}", path.display())
+    })
+}
+
+pub fn open_db_rw(path: &str) -> Result<DbEnv> {
+    let path = path::absolute(shellexpand::full(path)?.into_owned())?;
+    katana_db::open_db(path)
+}
+
+/// Create a table with the default UTF-8 full border and rounded corners.
+fn table() -> Table {
+    let mut table = Table::new();
+    table.load_preset(UTF8_FULL).apply_modifier(UTF8_ROUND_CORNERS);
+    table
+}
+
+/// Get the latest block number from the Headers table
+pub fn get_latest_block_number<Tx: DbTx>(tx: &Tx) -> Result<BlockNumber> {
     let mut cursor = tx.cursor::<Headers>()?;
     if let Some((block_num, _)) = cursor.last()? {
         Ok(block_num)
@@ -208,7 +241,8 @@ fn get_latest_block_number<Tx: DbTx>(tx: &Tx) -> Result<BlockNumber> {
     }
 }
 
-fn prune_all_history<Tx: DbTxMut>(tx: &Tx) -> Result<()> {
+/// Prune all historical trie data (keeping only current state)
+pub fn prune_all_history<Tx: DbTxMut>(tx: &Tx) -> Result<()> {
     tx.clear::<ClassesTrieHistory>()?;
     tx.clear::<ContractsTrieHistory>()?;
     tx.clear::<StoragesTrieHistory>()?;
@@ -217,11 +251,11 @@ fn prune_all_history<Tx: DbTxMut>(tx: &Tx) -> Result<()> {
     tx.clear::<ContractsTrieChangeSet>()?;
     tx.clear::<StoragesTrieChangeSet>()?;
 
-    println!("Cleared all historical trie data");
     Ok(())
 }
 
-fn prune_keep_last_n<Tx: DbTxMut>(
+/// Prune historical data keeping only the last N blocks
+pub fn prune_keep_last_n<Tx: DbTxMut>(
     tx: &Tx,
     latest_block: BlockNumber,
     keep_blocks: u64,
@@ -229,7 +263,6 @@ fn prune_keep_last_n<Tx: DbTxMut>(
     let cutoff_block = latest_block.saturating_sub(keep_blocks);
 
     if cutoff_block == 0 {
-        println!("No blocks to prune");
         return Ok(());
     }
 
@@ -241,11 +274,11 @@ fn prune_keep_last_n<Tx: DbTxMut>(
     prune_changeset_table::<tables::ContractsTrie>(tx, cutoff_block)?;
     prune_changeset_table::<tables::StoragesTrie>(tx, cutoff_block)?;
 
-    println!("Pruned historical data for blocks 0 to {}", cutoff_block);
     Ok(())
 }
 
-fn prune_history_table<T: tables::Trie>(
+/// Prune historical entries for a specific trie type up to the cutoff block
+pub fn prune_history_table<T: tables::Trie>(
     tx: &impl DbTxMut,
     cutoff_block: BlockNumber,
 ) -> Result<()> {
@@ -273,8 +306,8 @@ fn prune_history_table<T: tables::Trie>(
     Ok(())
 }
 
-/// Prune the changeset table by removing all entries from the genesis block up to the cutoff block (inclusive).
-fn prune_changeset_table<T: tables::Trie>(
+/// Prune changeset entries by removing blocks up to the cutoff
+pub fn prune_changeset_table<T: tables::Trie>(
     tx: &impl DbTxMut,
     cutoff_block: BlockNumber,
 ) -> Result<()> {
@@ -309,29 +342,4 @@ fn prune_changeset_table<T: tables::Trie>(
     }
 
     Ok(())
-}
-
-/// Open the database at `path` in read-only mode.
-///
-/// The path is expanded and resolved to an absolute path before opening the database for clearer
-/// error messages.
-fn open_db_ro(path: &str) -> Result<DbEnv> {
-    let path = path::absolute(shellexpand::full(path)?.into_owned())?;
-    DbEnv::open(&path, DbEnvKind::RO).with_context(|| {
-        format!("Opening database file in read-only mode at path {}", path.display())
-    })
-}
-
-fn open_db_rw(path: &str) -> Result<DbEnv> {
-    let path = path::absolute(shellexpand::full(path)?.into_owned())?;
-    DbEnv::open(&path, DbEnvKind::RW).with_context(|| {
-        format!("Opening database file in read-write mode at path {}", path.display())
-    })
-}
-
-/// Create a table with the default UTF-8 full border and rounded corners.
-fn table() -> Table {
-    let mut table = Table::new();
-    table.load_preset(UTF8_FULL).apply_modifier(UTF8_ROUND_CORNERS);
-    table
 }
