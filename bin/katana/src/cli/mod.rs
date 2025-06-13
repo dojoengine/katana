@@ -13,7 +13,7 @@ mod version;
 
 use version::{generate_long, generate_short};
 
-#[derive(Parser)]
+#[derive(Debug, Parser)]
 #[command(name = "katana", author, version = generate_short(), long_version = generate_long() ,about, long_about = None)]
 pub struct Cli {
     #[command(subcommand)]
@@ -38,7 +38,7 @@ impl Cli {
     }
 }
 
-#[derive(Subcommand)]
+#[derive(Debug, Subcommand)]
 enum Commands {
     #[command(about = "Initialize chain")]
     Init(Box<init::InitArgs>),

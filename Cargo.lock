@@ -6856,6 +6856,7 @@ dependencies = [
  "katana-primitives",
  "katana-provider",
  "katana-rpc",
+ "rand 0.8.5",
  "starknet 0.14.0",
  "thiserror 1.0.69",
  "tokio",
