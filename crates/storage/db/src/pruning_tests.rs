@@ -5,7 +5,7 @@ use katana_primitives::block::BlockNumber;
 
 use crate::abstraction::{Database, DbCursor, DbDupSortCursor, DbDupSortCursorMut, DbTx, DbTxMut};
 use crate::models::list::IntegerSet;
-use crate::models::trie::{TrieDatabaseKey, TrieDatabaseKeyType, TrieHistoryEntry};
+use crate::models::trie::{TrieDatabaseKey, TrieHistoryEntry};
 use crate::tables::{
     ClassesTrie, ClassesTrieChangeSet, ClassesTrieHistory, ContractsTrie, ContractsTrieChangeSet,
     ContractsTrieHistory, StoragesTrie, StoragesTrieChangeSet, StoragesTrieHistory, Table,
@@ -16,30 +16,30 @@ mod tests {
     use super::*;
     use crate::mdbx::test_utils::create_test_db;
 
-    fn generate_test_key(key_type: TrieDatabaseKeyType, suffix: u8) -> TrieDatabaseKey {
-        TrieDatabaseKey {
-            r#type: key_type,
-            key: vec![suffix, suffix + 1, suffix + 2],
-        }
+    #[cfg(feature = "arbitrary")]
+    fn generate_arbitrary_key(u: &mut arbitrary::Unstructured) -> TrieDatabaseKey {
+        use arbitrary::Arbitrary;
+        TrieDatabaseKey::arbitrary(u).unwrap()
     }
 
     fn generate_test_value() -> Vec<u8> {
         vec![1, 2, 3, 4, 5]
     }
 
+    #[cfg(feature = "arbitrary")]
     fn populate_test_data(
         tx: &impl DbTxMut,
         blocks: &[BlockNumber],
     ) -> anyhow::Result<HashMap<TrieDatabaseKey, Vec<BlockNumber>>> {
+        use arbitrary::Unstructured;
         let mut changeset_data = HashMap::new();
 
+        let data = vec![0u8; 1000];
+        let mut u = Unstructured::new(&data);
+
         for &block_num in blocks {
-            for (key_type, suffix) in [
-                (TrieDatabaseKeyType::Trie, 10),
-                (TrieDatabaseKeyType::Flat, 20),
-                (TrieDatabaseKeyType::TrieLog, 30),
-            ] {
-                let key = generate_test_key(key_type, suffix + (block_num as u8) % 10);
+            for _ in 0..3 {  // Generate 3 keys per block for variety
+                let key = generate_arbitrary_key(&mut u);
                 let value = generate_test_value();
 
                 let history_entry = TrieHistoryEntry {
@@ -77,8 +77,13 @@ mod tests {
         Ok(changeset_data)
     }
 
+    #[cfg(feature = "arbitrary")]
     fn populate_current_trie_state(tx: &impl DbTxMut) -> anyhow::Result<()> {
-        let current_key = generate_test_key(TrieDatabaseKeyType::Trie, 100);
+        use arbitrary::Unstructured;
+        
+        let data = vec![42u8; 100]; // Different seed for current state
+        let mut u = Unstructured::new(&data);
+        let current_key = generate_arbitrary_key(&mut u);
         let current_value = generate_test_value();
 
         tx.put::<ClassesTrie>(current_key.clone(), current_value.clone().into())?;
@@ -117,6 +122,7 @@ mod tests {
     }
 
     #[test]
+    #[cfg(feature = "arbitrary")]
     fn test_prune_all_history() -> anyhow::Result<()> {
         let db = create_test_db();
         let tx = db.tx_mut()?;
@@ -159,6 +165,7 @@ mod tests {
     }
 
     #[test]
+    #[cfg(feature = "arbitrary")]
     fn test_prune_keep_last_n() -> anyhow::Result<()> {
         let db = create_test_db();
         let tx = db.tx_mut()?;
@@ -216,6 +223,7 @@ mod tests {
     }
 
     #[test]
+    #[cfg(feature = "arbitrary")]
     fn test_prune_empty_database() -> anyhow::Result<()> {
         let db = create_test_db();
         let tx = db.tx_mut()?;
