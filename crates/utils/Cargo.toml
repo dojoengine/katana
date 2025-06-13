@@ -20,3 +20,4 @@ futures.workspace = true
 starknet.workspace = true
 thiserror.workspace = true
 tokio = { workspace = true, features = [ "time" ] }
+rand.workspace = true

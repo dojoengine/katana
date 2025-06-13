@@ -5,16 +5,11 @@ use clap::{Args, Subcommand};
 use comfy_table::modifiers::UTF8_ROUND_CORNERS;
 use comfy_table::presets::UTF8_FULL;
 use comfy_table::Table;
-use katana_db::abstraction::{
-    Database, DbCursor, DbDupSortCursor, DbDupSortCursorMut, DbTx, DbTxMut,
-};
+use katana_db::abstraction::{Database, DbCursor, DbDupSortCursorMut, DbTx, DbTxMut};
 use katana_db::mdbx::{DbEnv, DbEnvKind};
 use katana_db::models::list::BlockList;
 use katana_db::models::trie::TrieDatabaseKey;
-use katana_db::tables::{
-    self, ClassesTrieChangeSet, ClassesTrieHistory, ContractsTrieChangeSet, ContractsTrieHistory,
-    Headers, StoragesTrieChangeSet, StoragesTrieHistory, NUM_TABLES,
-};
+use katana_db::tables::{self, NUM_TABLES};
 use katana_db::version::{get_db_version, CURRENT_DB_VERSION};
 use katana_primitives::block::BlockNumber;
 
@@ -29,13 +24,13 @@ macro_rules! byte_unit {
     };
 }
 
-#[derive(Args)]
+#[derive(Debug, Args)]
 pub struct DbArgs {
     #[command(subcommand)]
     commands: Commands,
 }
 
-#[derive(Subcommand)]
+#[derive(Debug, Subcommand)]
 enum Commands {
     /// Retrieves database statistics
     Stats {
@@ -58,7 +53,7 @@ enum Commands {
     Prune(PruneArgs),
 }
 
-#[derive(Args)]
+#[derive(Debug, Args)]
 struct PruneArgs {
     /// Path to the database directory.
     #[arg(short, long)]
@@ -69,7 +64,7 @@ struct PruneArgs {
     mode: PruneMode,
 }
 
-#[derive(Subcommand)]
+#[derive(Debug, Subcommand)]
 pub enum PruneMode {
     // Keep only the latest trie state (remove all historical data)
     Latest,
@@ -271,8 +266,8 @@ fn table() -> Table {
 }
 
 /// Get the latest block number from the Headers table
-pub fn get_latest_block_number<Tx: DbTx>(tx: &Tx) -> Result<BlockNumber> {
-    let mut cursor = tx.cursor::<Headers>()?;
+fn get_latest_block_number(tx: &impl DbTx) -> Result<BlockNumber> {
+    let mut cursor = tx.cursor::<tables::Headers>()?;
     if let Some((block_num, _)) = cursor.last()? {
         Ok(block_num)
     } else {
@@ -281,24 +276,20 @@ pub fn get_latest_block_number<Tx: DbTx>(tx: &Tx) -> Result<BlockNumber> {
 }
 
 /// Prune all historical trie data (keeping only current state)
-pub fn prune_all_history<Tx: DbTxMut>(tx: &Tx) -> Result<()> {
-    tx.clear::<ClassesTrieHistory>()?;
-    tx.clear::<ContractsTrieHistory>()?;
-    tx.clear::<StoragesTrieHistory>()?;
+fn prune_all_history(tx: &impl DbTxMut) -> Result<()> {
+    tx.clear::<tables::ClassesTrieHistory>()?;
+    tx.clear::<tables::ContractsTrieHistory>()?;
+    tx.clear::<tables::StoragesTrieHistory>()?;
 
-    tx.clear::<ClassesTrieChangeSet>()?;
-    tx.clear::<ContractsTrieChangeSet>()?;
-    tx.clear::<StoragesTrieChangeSet>()?;
+    tx.clear::<tables::ClassesTrieChangeSet>()?;
+    tx.clear::<tables::ContractsTrieChangeSet>()?;
+    tx.clear::<tables::StoragesTrieChangeSet>()?;
 
     Ok(())
 }
 
 /// Prune historical data keeping only the last N blocks
-pub fn prune_keep_last_n<Tx: DbTxMut>(
-    tx: &Tx,
-    latest_block: BlockNumber,
-    keep_blocks: u64,
-) -> Result<()> {
+fn prune_keep_last_n(tx: &impl DbTxMut, latest_block: BlockNumber, keep_blocks: u64) -> Result<()> {
     let cutoff_block = latest_block.saturating_sub(keep_blocks);
 
     if cutoff_block == 0 {
@@ -317,28 +308,21 @@ pub fn prune_keep_last_n<Tx: DbTxMut>(
 }
 
 /// Prune historical entries for a specific trie type up to the cutoff block
-pub fn prune_history_table<T: tables::Trie>(
+fn prune_history_table<T: tables::Trie>(
     tx: &impl DbTxMut,
     cutoff_block: BlockNumber,
 ) -> Result<()> {
     let mut cursor = tx.cursor_dup_mut::<T::History>()?;
-    let mut blocks_to_delete = Vec::new();
 
     if let Some((block, _)) = cursor.first()? {
         let mut current_block = block;
         while current_block <= cutoff_block {
-            blocks_to_delete.push(current_block);
-            if let Some((next_block, _)) = cursor.next_no_dup()? {
+            cursor.delete_current_duplicates()?;
+            if let Some((next_block, _)) = cursor.next()? {
                 current_block = next_block;
             } else {
                 break;
             }
-        }
-    }
-
-    for block in blocks_to_delete {
-        if cursor.seek(block)?.is_some() {
-            cursor.delete_current_duplicates()?;
         }
     }
 
