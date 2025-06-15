@@ -16,6 +16,7 @@ use katana_db::models::contract::{
 use katana_db::models::list::BlockList;
 use katana_db::models::stage::StageCheckpoint;
 use katana_db::models::storage::{ContractStorageEntry, ContractStorageKey, StorageEntry};
+use katana_db::models::{VersionedHeader, VersionedTx};
 use katana_db::tables::{self, DupSort, Table};
 use katana_db::utils::KeyValue;
 use katana_primitives::block::{
@@ -148,7 +149,7 @@ impl<Db: Database> HeaderProvider for DbProvider<Db> {
             let header =
                 db_tx.get::<tables::Headers>(num)?.ok_or(ProviderError::MissingBlockHeader(num))?;
             db_tx.commit()?;
-            Ok(Some(header))
+            Ok(Some(header.into()))
         } else {
             Ok(None)
         }
@@ -208,7 +209,7 @@ impl<Db: Database> BlockProvider for DbProvider<Db> {
             let body_indices = res.ok_or(ProviderError::MissingBlockTxs(block_num))?;
 
             let body = self.transaction_hashes_in_range(Range::from(body_indices))?;
-            let block = BlockWithTxHashes { header, body };
+            let block = BlockWithTxHashes { header: header.into(), body };
 
             db_tx.commit()?;
 
@@ -230,7 +231,7 @@ impl<Db: Database> BlockProvider for DbProvider<Db> {
                 let body_indices = res.ok_or(ProviderError::MissingBlockBodyIndices(num))?;
 
                 let body = self.transaction_in_range(Range::from(body_indices))?;
-                blocks.push(Block { header, body })
+                blocks.push(Block { header: header.into(), body })
             }
         }
 
@@ -423,7 +424,7 @@ impl<Db: Database> TransactionProvider for DbProvider<Db> {
         if let Some(num) = db_tx.get::<tables::TxNumbers>(hash)? {
             let res = db_tx.get::<tables::Transactions>(num)?;
             let transaction = res.ok_or(ProviderError::MissingTx(num))?;
-            let transaction = TxWithHash { hash, transaction };
+            let transaction = TxWithHash { hash, transaction: transaction.into() };
             db_tx.commit()?;
 
             Ok(Some(transaction))
@@ -454,7 +455,7 @@ impl<Db: Database> TransactionProvider for DbProvider<Db> {
                 let res = db_tx.get::<tables::TxHashes>(i)?;
                 let hash = res.ok_or(ProviderError::MissingTxHash(i))?;
 
-                transactions.push(TxWithHash { hash, transaction });
+                transactions.push(TxWithHash { hash, transaction: transaction.into() });
             };
         }
 
@@ -500,7 +501,7 @@ impl<Db: Database> TransactionProvider for DbProvider<Db> {
                 let transaction = res.ok_or(ProviderError::MissingTx(num))?;
 
                 db_tx.commit()?;
-                Ok(Some(TxWithHash { hash, transaction }))
+                Ok(Some(TxWithHash { hash, transaction: transaction.into() }))
             }
 
             _ => Ok(None),
@@ -682,7 +683,7 @@ impl<Db: Database> BlockWriter for DbProvider<Db> {
             db_tx.put::<tables::BlockNumbers>(block_hash, block_number)?;
             db_tx.put::<tables::BlockStatusses>(block_number, block.status)?;
 
-            db_tx.put::<tables::Headers>(block_number, block_header)?;
+            db_tx.put::<tables::Headers>(block_number, VersionedHeader::from(block_header))?;
             db_tx.put::<tables::BlockBodyIndices>(block_number, block_body_indices)?;
 
             // Store base transaction details
@@ -693,7 +694,10 @@ impl<Db: Database> BlockWriter for DbProvider<Db> {
                 db_tx.put::<tables::TxHashes>(tx_number, tx_hash)?;
                 db_tx.put::<tables::TxNumbers>(tx_hash, tx_number)?;
                 db_tx.put::<tables::TxBlocks>(tx_number, block_number)?;
-                db_tx.put::<tables::Transactions>(tx_number, transaction.transaction)?;
+                db_tx.put::<tables::Transactions>(
+                    tx_number,
+                    VersionedTx::from(transaction.transaction),
+                )?;
             }
 
             // Store transaction receipts

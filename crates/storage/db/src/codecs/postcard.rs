@@ -1,8 +1,6 @@
-use katana_primitives::block::Header;
 use katana_primitives::contract::{ContractAddress, GenericContractInfo};
 use katana_primitives::execution::TypedTransactionExecutionInfo;
 use katana_primitives::receipt::Receipt;
-use katana_primitives::transaction::Tx;
 use katana_primitives::Felt;
 use {postcard, zstd};
 
@@ -53,8 +51,6 @@ impl Decompress for TypedTransactionExecutionInfo {
 
 impl_compress_and_decompress_for_table_values!(
     u64,
-    Tx,
-    Header,
     Receipt,
     Felt,
     TrieDatabaseValue,
