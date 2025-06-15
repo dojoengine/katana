@@ -16,11 +16,9 @@ use katana_db::models::contract::{
 use katana_db::models::list::BlockList;
 use katana_db::models::stage::StageCheckpoint;
 use katana_db::models::storage::{ContractStorageEntry, ContractStorageKey, StorageEntry};
-use katana_db::models::VersionedHeader;
+use katana_db::models::{VersionedHeader, VersionedTx};
 use katana_db::tables::{self, DupSort, Table};
 use katana_db::utils::KeyValue;
-use katana_db::versioned::block::VersionedHeader;
-use katana_db::versioned::transaction::VersionedTx;
 use katana_primitives::block::{
     Block, BlockHash, BlockHashOrNumber, BlockNumber, BlockWithTxHashes, FinalityStatus, Header,
     SealedBlockWithStatus,

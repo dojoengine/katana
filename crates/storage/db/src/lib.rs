@@ -17,7 +17,6 @@ pub mod trie;
 
 pub mod utils;
 pub mod version;
-pub mod versioned;
 
 use mdbx::{DbEnv, DbEnvKind};
 use utils::is_database_empty;

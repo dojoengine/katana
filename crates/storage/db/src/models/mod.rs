@@ -9,3 +9,4 @@ pub mod trie;
 pub mod versioned;
 
 pub use versioned::block::VersionedHeader;
+pub use versioned::transaction::VersionedTx;

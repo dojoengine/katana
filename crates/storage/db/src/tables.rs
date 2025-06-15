@@ -12,8 +12,7 @@ use crate::models::list::BlockList;
 use crate::models::stage::{StageCheckpoint, StageId};
 use crate::models::storage::{ContractStorageEntry, ContractStorageKey, StorageEntry};
 use crate::models::trie::{TrieDatabaseKey, TrieDatabaseValue, TrieHistoryEntry};
-use crate::models::VersionedHeader;
-use crate::versioned::transaction::VersionedTx;
+use crate::models::{VersionedHeader, VersionedTx};
 
 pub trait Key: Encode + Decode + Clone + std::fmt::Debug {}
 pub trait Value: Compress + Decompress + std::fmt::Debug {}
@@ -376,8 +375,7 @@ mod tests {
     use crate::models::trie::{
         TrieDatabaseKey, TrieDatabaseKeyType, TrieDatabaseValue, TrieHistoryEntry,
     };
-    use crate::models::VersionedHeader;
-    use crate::versioned::transaction::VersionedTx;
+    use crate::models::{VersionedHeader, VersionedTx};
 
     macro_rules! assert_key_encode_decode {
 	    { $( ($name:ty, $key:expr) ),* } => {
