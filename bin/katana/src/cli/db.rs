@@ -1,6 +1,6 @@
 use std::path::{self};
 
-use anyhow::{Context, Result};
+use anyhow::{ensure, Context, Result};
 use clap::{Args, Subcommand};
 use comfy_table::modifiers::UTF8_ROUND_CORNERS;
 use comfy_table::presets::UTF8_FULL;
@@ -8,6 +8,7 @@ use comfy_table::Table;
 use katana_db::abstraction::Database;
 use katana_db::mdbx::{DbEnv, DbEnvKind};
 use katana_db::tables::NUM_TABLES;
+use katana_db::version::{get_db_version, CURRENT_DB_VERSION};
 
 /// Create a human-readable byte unit string (eg. 16.00 KiB)
 macro_rules! byte_unit {
@@ -22,27 +23,53 @@ macro_rules! byte_unit {
 
 #[derive(Args)]
 pub struct DbArgs {
-    #[arg(short, long)]
-    #[arg(global = true)]
-    #[arg(help = "Path to the database directory")]
-    #[arg(default_value = "~/.katana/db")]
-    path: String,
-
     #[command(subcommand)]
     commands: Commands,
 }
 
 #[derive(Subcommand)]
 enum Commands {
-    #[command(about = "Retrieves database statistics")]
-    Stats,
+    /// Retrieves database statistics
+    Stats {
+        /// Path to the database directory.
+        #[arg(short, long)]
+        #[arg(default_value = "~/.katana/db")]
+        path: String,
+    },
+
+    /// Shows database version information
+    Version {
+        /// Path to the database directory.
+        ///
+        /// If not provided, the current database version is displayed.
+        #[arg(short, long)]
+        path: Option<String>,
+    },
 }
 
 impl DbArgs {
     pub(crate) fn execute(self) -> Result<()> {
         match self.commands {
-            Commands::Stats => {
-                let db = open_db_ro(&self.path)?;
+            Commands::Version { path } => {
+                println!("current version: {CURRENT_DB_VERSION}");
+
+                if let Some(path) = path {
+                    let expanded_path = shellexpand::full(&path)?;
+                    let resolved_path = path::absolute(expanded_path.into_owned())?;
+
+                    ensure!(
+                        resolved_path.exists(),
+                        "database does not exist at path {}",
+                        resolved_path.display()
+                    );
+
+                    let version = get_db_version(&resolved_path)?;
+                    println!("database version: {version}");
+                }
+            }
+
+            Commands::Stats { path } => {
+                let db = open_db_ro(&path)?;
                 let stats = db.stats()?;
 
                 let mut table = table();
