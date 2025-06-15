@@ -11,11 +11,11 @@ SNOS_OUTPUT ?= tests/snos/snos/build/
 FIXTURES_DIR ?= tests/fixtures
 DB_FIXTURES_DIR ?= $(FIXTURES_DIR)/db
 
-SNOS_DB_TAR ?= $(FIXTURES_DIR)/snos.tar.gz
-SNOS_DB_DIR := $(FIXTURES_DIR)/snos
+SNOS_DB_TAR ?= $(DB_FIXTURES_DIR)/snos.tar.gz
+SNOS_DB_DIR := $(DB_FIXTURES_DIR)/snos
 
-COMPATIBILITY_DB_TAR ?= $(FIXTURES_DIR)/db/v1_2_2.tar.gz
-COMPATIBILITY_DB_DIR ?= $(FIXTURES_DIR)/db/v1_2_2
+COMPATIBILITY_DB_TAR ?= $(DB_FIXTURES_DIR)/v1_2_2.tar.gz
+COMPATIBILITY_DB_DIR ?= $(DB_FIXTURES_DIR)/v1_2_2
 
 .DEFAULT_GOAL := usage
 .SILENT: clean
@@ -37,7 +37,7 @@ usage help:
 	@echo "    help:                      Show this help message."
 
 snos-artifacts: $(SNOS_OUTPUT)
-test-artifacts: $(SNOS_DB_DIR) $(SNOS_OUTPUT) $(COMPATIBILITY_DB_TAR)
+test-artifacts: $(SNOS_DB_DIR) $(SNOS_OUTPUT) $(COMPATIBILITY_DB_DIR)
 	@echo "All test artifacts prepared successfully."
 
 build-explorer:
@@ -65,7 +65,7 @@ $(SNOS_OUTPUT): $(SNOS_DB_DIR)
 
 $(SNOS_DB_DIR): $(SNOS_DB_TAR)
 	@echo "Extracting SNOS test database..."
-	@cd $(FIXTURES_DIR) && \
+	@cd $(DB_FIXTURES_DIR) && \
 		tar -xzf snos.tar.gz || { echo "Failed to extract SNOS test database\!"; exit 1; }
 	@echo "SNOS test database extracted successfully."
 
