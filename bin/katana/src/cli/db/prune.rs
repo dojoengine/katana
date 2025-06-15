@@ -475,8 +475,9 @@ mod tests {
     use katana_db::mdbx::{test_utils, DbEnv};
     use katana_db::models::list::BlockList;
     use katana_db::models::trie::{TrieDatabaseKey, TrieDatabaseValue, TrieHistoryEntry};
+    use katana_db::models::VersionedHeader;
     use katana_db::tables::{self, Tables};
-    use katana_primitives::block::{BlockNumber, Header};
+    use katana_primitives::block::BlockNumber;
     use katana_utils::arbitrary;
 
     use super::*;
@@ -545,7 +546,7 @@ mod tests {
 
         // Insert headers for block range
         for block in block_range {
-            tx.put::<tables::Headers>(block, Header::default())?;
+            tx.put::<tables::Headers>(block, VersionedHeader::default())?;
         }
 
         Ok(())

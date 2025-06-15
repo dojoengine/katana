@@ -20,7 +20,10 @@ pub mod version;
 
 use mdbx::{DbEnv, DbEnvKind};
 use utils::is_database_empty;
-use version::{check_db_version, create_db_version_file, DatabaseVersionError, CURRENT_DB_VERSION};
+use version::{
+    check_db_version, create_db_version_file, is_block_compatible_version, DatabaseVersionError,
+    CURRENT_DB_VERSION,
+};
 
 /// Initialize the database at the given path and returning a handle to the its
 /// environment.
@@ -37,6 +40,16 @@ pub fn init_db<P: AsRef<Path>>(path: P) -> anyhow::Result<DbEnv> {
     } else {
         match check_db_version(&path) {
             Ok(_) => {}
+            Err(DatabaseVersionError::MismatchVersion { found, .. }) => {
+                if is_block_compatible_version(found) {
+                    println!("Using database version {} with block compatibility mode", found);
+                } else {
+                    return Err(anyhow!(DatabaseVersionError::MismatchVersion {
+                        expected: CURRENT_DB_VERSION,
+                        found
+                    }));
+                }
+            }
             Err(DatabaseVersionError::FileNotFound) => {
                 create_db_version_file(&path, CURRENT_DB_VERSION).with_context(|| {
                     format!(
