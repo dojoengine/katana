@@ -58,11 +58,6 @@ pub(super) fn check_db_version(path: impl AsRef<Path>) -> Result<(), DatabaseVer
     }
 }
 
-/// Check if database version is compatible for block data access.
-pub(super) fn is_block_compatible_version(version: u32) -> bool {
-    (5..=CURRENT_DB_VERSION).contains(&version)
-}
-
 /// Get the version of the database at the given `path`.
 pub fn get_db_version(path: impl AsRef<Path>) -> Result<u32, DatabaseVersionError> {
     let path = path.as_ref();
