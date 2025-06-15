@@ -81,12 +81,21 @@ impl GasPrice {
         Self { eth, strk }
     }
 
+    /// Creates a zero gas price.
+    ///
+    /// # Safety
+    ///
+    /// This is primarily used for testing purposes.
+    pub const unsafe fn zero() -> Self {
+        Self::new_unchecked(0, 0)
+    }
+
     /// Creates a non-zero gas price without checking whether the value is non-zero.
     /// This may results in undefined behaviour if the value is zero.
     ///
     /// # Safety
     ///
-    /// The value must not be zero.
+    /// The caller must ensure that gas price is not zero.
     pub const unsafe fn new_unchecked(eth: u128, strk: u128) -> Self {
         Self { eth: NonZeroU128::new_unchecked(eth), strk: NonZeroU128::new_unchecked(strk) }
     }

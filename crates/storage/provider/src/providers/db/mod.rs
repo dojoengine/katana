@@ -16,6 +16,7 @@ use katana_db::models::contract::{
 use katana_db::models::list::BlockList;
 use katana_db::models::stage::StageCheckpoint;
 use katana_db::models::storage::{ContractStorageEntry, ContractStorageKey, StorageEntry};
+use katana_db::models::VersionedHeader;
 use katana_db::tables::{self, DupSort, Table};
 use katana_db::utils::KeyValue;
 use katana_primitives::block::{
@@ -148,7 +149,7 @@ impl<Db: Database> HeaderProvider for DbProvider<Db> {
             let header =
                 db_tx.get::<tables::Headers>(num)?.ok_or(ProviderError::MissingBlockHeader(num))?;
             db_tx.commit()?;
-            Ok(Some(header))
+            Ok(Some(header.into()))
         } else {
             Ok(None)
         }
@@ -208,7 +209,7 @@ impl<Db: Database> BlockProvider for DbProvider<Db> {
             let body_indices = res.ok_or(ProviderError::MissingBlockTxs(block_num))?;
 
             let body = self.transaction_hashes_in_range(Range::from(body_indices))?;
-            let block = BlockWithTxHashes { header, body };
+            let block = BlockWithTxHashes { header: header.into(), body };
 
             db_tx.commit()?;
 
@@ -230,7 +231,7 @@ impl<Db: Database> BlockProvider for DbProvider<Db> {
                 let body_indices = res.ok_or(ProviderError::MissingBlockBodyIndices(num))?;
 
                 let body = self.transaction_in_range(Range::from(body_indices))?;
-                blocks.push(Block { header, body })
+                blocks.push(Block { header: header.into(), body })
             }
         }
 
@@ -679,7 +680,7 @@ impl<Db: Database> BlockWriter for DbProvider<Db> {
             db_tx.put::<tables::BlockNumbers>(block_hash, block_number)?;
             db_tx.put::<tables::BlockStatusses>(block_number, block.status)?;
 
-            db_tx.put::<tables::Headers>(block_number, block_header)?;
+            db_tx.put::<tables::Headers>(block_number, VersionedHeader::from(block_header))?;
             db_tx.put::<tables::BlockBodyIndices>(block_number, block_body_indices)?;
 
             // Store base transaction details

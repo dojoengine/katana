@@ -1,4 +1,4 @@
-use katana_primitives::block::{BlockHash, BlockNumber, FinalityStatus, Header};
+use katana_primitives::block::{BlockHash, BlockNumber, FinalityStatus};
 use katana_primitives::class::{ClassHash, CompiledClassHash, ContractClass};
 use katana_primitives::contract::{ContractAddress, GenericContractInfo, StorageKey};
 use katana_primitives::receipt::Receipt;
@@ -12,6 +12,7 @@ use crate::models::list::BlockList;
 use crate::models::stage::{StageCheckpoint, StageId};
 use crate::models::storage::{ContractStorageEntry, ContractStorageKey, StorageEntry};
 use crate::models::trie::{TrieDatabaseKey, TrieDatabaseValue, TrieHistoryEntry};
+use crate::models::VersionedHeader;
 
 pub trait Key: Encode + Decode + Clone + std::fmt::Debug {}
 pub trait Value: Compress + Decompress + std::fmt::Debug {}
@@ -193,7 +194,7 @@ tables! {
     StageCheckpoints: (StageId) => StageCheckpoint,
 
     /// Store canonical block headers
-    Headers: (BlockNumber) => Header,
+    Headers: (BlockNumber) => VersionedHeader,
     /// Stores block hashes according to its block number
     BlockHashes: (BlockNumber) => BlockHash,
     /// Stores block numbers according to its block hash
@@ -375,6 +376,7 @@ mod tests {
     use crate::models::trie::{
         TrieDatabaseKey, TrieDatabaseKeyType, TrieDatabaseValue, TrieHistoryEntry,
     };
+    use crate::models::VersionedHeader;
 
     macro_rules! assert_key_encode_decode {
 	    { $( ($name:ty, $key:expr) ),* } => {
@@ -422,7 +424,7 @@ mod tests {
     #[test]
     fn test_value_compress_decompress() {
         assert_value_compress_decompress! {
-            (Header, Header::default()),
+            (VersionedHeader, VersionedHeader::V7(Header::default())),
             (BlockHash, BlockHash::default()),
             (BlockNumber, BlockNumber::default()),
             (FinalityStatus, FinalityStatus::AcceptedOnL1),
