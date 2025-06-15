@@ -59,7 +59,7 @@ pub(super) fn check_db_version(path: impl AsRef<Path>) -> Result<(), DatabaseVer
 }
 
 /// Get the version of the database at the given `path`.
-pub(super) fn get_db_version(path: impl AsRef<Path>) -> Result<u32, DatabaseVersionError> {
+pub fn get_db_version(path: impl AsRef<Path>) -> Result<u32, DatabaseVersionError> {
     let path = path.as_ref();
     let path = if path.is_dir() { default_version_file_path(path) } else { path.to_path_buf() };
 
