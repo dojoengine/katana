@@ -6848,6 +6848,7 @@ name = "katana-utils"
 version = "1.6.0-alpha.0"
 dependencies = [
  "anyhow",
+ "arbitrary",
  "assert_matches",
  "futures",
  "katana-chain-spec",
