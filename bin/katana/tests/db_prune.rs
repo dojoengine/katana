@@ -68,9 +68,9 @@ fn db() -> TempDb {
     db
 }
 
-/// Generate test addresses and class hashes  
+/// Generate test addresses and class hashes
 fn generate_test_addresses(count: usize) -> Vec<ContractAddress> {
-    (0..count).map(|i| ContractAddress::from(i as u128)).collect()
+    (0..count).map(|i| ContractAddress::from(Felt::from(i))).collect()
 }
 
 fn generate_test_class_hashes(count: usize) -> Vec<ClassHash> {
@@ -84,50 +84,42 @@ fn generate_test_compiled_class_hashes(count: usize) -> Vec<CompiledClassHash> {
 /// Populate database with test data using the TrieWriter trait
 fn populate_db(db: &TempDb) -> Result<()> {
     let provider = db.provider_rw();
-    
+
     // Generate test data
     let num_contracts = 5;
     let num_classes = 3;
     let addresses = generate_test_addresses(num_contracts);
     let class_hashes = generate_test_class_hashes(num_classes);
     let compiled_class_hashes = generate_test_compiled_class_hashes(num_classes);
-    
+
     // Insert headers first
-    db.open_rw().update(|tx| {
-        for block_num in 0..=15u64 {
-            tx.put::<tables::Headers>(block_num, Header::default())?;
-        }
-        Ok(())
-    }).context("failed to insert headers")?;
-    
+    db.open_rw()
+        .update(|tx| {
+            for block_num in 0..=15u64 {
+                tx.put::<tables::Headers>(block_num, Header::default()).unwrap();
+            }
+        })
+        .expect("failed to insert headers");
+
     // Process each block to create historical trie data
     for block_number in 1..=15u64 {
         let mut state_updates = StateUpdates::default();
-        
+
         // Add some declared classes for this block (only for some blocks)
         if block_number % 3 == 0 && (block_number / 3) as usize <= num_classes {
             let idx = ((block_number / 3) - 1) as usize;
-            state_updates.declared_classes.insert(
-                class_hashes[idx],
-                compiled_class_hashes[idx],
-            );
+            state_updates.declared_classes.insert(class_hashes[idx], compiled_class_hashes[idx]);
         }
-        
-        // Add some deployed contracts for this block (only for some blocks) 
+
+        // Add some deployed contracts for this block (only for some blocks)
         if block_number % 2 == 0 && (block_number / 2) as usize <= num_contracts {
             let idx = ((block_number / 2) - 1) as usize;
             let class_idx = idx % num_classes;
-            state_updates.deployed_contracts.insert(
-                addresses[idx],
-                class_hashes[class_idx],
-            );
+            state_updates.deployed_contracts.insert(addresses[idx], class_hashes[class_idx]);
             // Also set initial nonce
-            state_updates.nonce_updates.insert(
-                addresses[idx],
-                Nonce::from(1u8),
-            );
+            state_updates.nonce_updates.insert(addresses[idx], Nonce::from(1u8));
         }
-        
+
         // Add storage updates for existing contracts
         for (idx, &address) in addresses.iter().enumerate() {
             if idx < (block_number as usize).min(num_contracts) {
@@ -139,28 +131,25 @@ fn populate_db(db: &TempDb) -> Result<()> {
                     storage_entries.insert(key, value);
                 }
                 state_updates.storage_updates.insert(address, storage_entries);
-                
+
                 // Update nonce
-                state_updates.nonce_updates.insert(
-                    address,
-                    Nonce::from(block_number as u8),
-                );
+                state_updates.nonce_updates.insert(address, Nonce::from(block_number as u8));
             }
         }
-        
+
         // Insert declared classes into the trie
         if !state_updates.declared_classes.is_empty() {
             provider
                 .trie_insert_declared_classes(block_number, &state_updates.declared_classes)
                 .context("failed to insert declared classes")?;
         }
-        
+
         // Insert contract updates into the trie
         provider
             .trie_insert_contract_updates(block_number, &state_updates)
             .context("failed to insert contract updates")?;
     }
-    
+
     Ok(())
 }
 
@@ -209,18 +198,9 @@ fn count_headers(db: &DbEnv) -> Result<usize> {
 
 /// Get the current state roots (classes and contracts)
 fn get_state_roots<Db: Database>(provider: &DbProvider<Db>) -> Result<(Felt, Felt)> {
-    let state_provider = provider
-        .latest()
-        .context("failed to get latest state provider")?;
-    
-    let classes_root = state_provider
-        .classes_root()
-        .context("failed to get classes root")?;
-    
-    let contracts_root = state_provider
-        .contracts_root()
-        .context("failed to get contracts root")?;
-    
+    let state_provider = provider.latest().context("failed to get latest state provider")?;
+    let classes_root = state_provider.classes_root().context("failed to get classes root")?;
+    let contracts_root = state_provider.contracts_root().context("failed to get contracts root")?;
     Ok((classes_root, contracts_root))
 }
 
@@ -232,7 +212,7 @@ fn prune_latest_removes_all_history(db: TempDb) {
     let provider = db.provider_ro();
     let (initial_classes_root, initial_contracts_root) = get_state_roots(&provider).unwrap();
     drop(provider);
-    
+
     let env = db.open_ro();
     let initial_history_count = count_historical_entries(&env).unwrap();
     let initial_headers_count = count_headers(&env).unwrap();
@@ -251,7 +231,7 @@ fn prune_latest_removes_all_history(db: TempDb) {
     let provider = db.provider_ro();
     let (final_classes_root, final_contracts_root) = get_state_roots(&provider).unwrap();
     drop(provider);
-    
+
     let env = db.open_ro();
     let final_history_count = count_historical_entries(&env).unwrap();
     let final_headers_count = count_headers(&env).unwrap();
@@ -278,7 +258,7 @@ fn prune_keep_last_n_blocks(db: TempDb) {
     let provider = db.provider_ro();
     let (initial_classes_root, initial_contracts_root) = get_state_roots(&provider).unwrap();
     drop(provider);
-    
+
     let env = db.open_ro();
     let initial_history_count = count_historical_entries(&env).unwrap();
     let initial_headers_count = count_headers(&env).unwrap();
@@ -297,7 +277,7 @@ fn prune_keep_last_n_blocks(db: TempDb) {
     let provider = db.provider_ro();
     let (final_classes_root, final_contracts_root) = get_state_roots(&provider).unwrap();
     drop(provider);
-    
+
     let env = db.open_ro();
     let final_history_count = count_historical_entries(&env).unwrap();
     let final_headers_count = count_headers(&env).unwrap();

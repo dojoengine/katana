@@ -11,7 +11,6 @@ katana-chain-spec.workspace = true
 katana-cli.workspace = true
 katana-db = { workspace = true, features = [ "arbitrary" ] }
 katana-primitives.workspace = true
-katana-provider.workspace = true
 katana-rpc-types.workspace = true
 katana-utils.workspace = true
 
@@ -40,6 +39,8 @@ vergen = { version = "9.0.0", features = [ "build", "cargo", "emit_and_set" ] }
 vergen-gitcl = { version = "1.0.0", features = [ "build", "cargo", "rustc", "si" ] }
 
 [dev-dependencies]
+katana-provider.workspace = true
+
 arbitrary.workspace = true
 assert_matches.workspace = true
 proptest = "1.0"
