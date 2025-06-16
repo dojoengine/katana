@@ -21,7 +21,7 @@ const ROUTES: [(&str, &str, Option<&str>, &str); 5] = [
     (
         "Class Hash Details",
         "/class",
-        Some("0x07dc7899aa655b0aae51eadff6d801a58e97dd99cf4666ee59e704249e51adf2"),
+        Some("0x077543067eefc479829f59547bf12fd53572d2115ec7110501f5df96f73b2f7f"),
         "class-details",
     ),
     (

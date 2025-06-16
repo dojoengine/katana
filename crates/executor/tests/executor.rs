@@ -29,7 +29,7 @@ fn test_executor_with_valid_blocks_impl<EF: ExecutorFactory>(
     // the contract address of the main account used to send most of the transactions (see the
     // `valid_blocks` fixture)
     let main_account =
-        address!("0x2af9427c5a277474c079a1283c880ee8a6f0f8fbf73ce969c08d88befec1bba");
+        address!("0x47406d167f7fda939080b3a7c871cbfdf9f82958302cdcecf98b93771fa5c0f");
     // the contract address of the account deployed using the `DeployAccount` tx (see the
     // `valid_blocks` fixture)
     let new_acc = address!("0x3ddfa445a70b927497249f94ff7431fc2e2abc761a34417fd4891beb7c2db85");
@@ -202,7 +202,7 @@ fn test_executor_with_valid_blocks_impl<EF: ExecutorFactory>(
             felt!("0x1b39"),
             felt!("0x0"),
             // this address must match with the `sender_address` in `valid_blocks` fixture
-            felt!("0x2af9427c5a277474c079a1283c880ee8a6f0f8fbf73ce969c08d88befec1bba"),
+            felt!("0x47406d167f7fda939080b3a7c871cbfdf9f82958302cdcecf98b93771fa5c0f"),
         ],
     );
 
