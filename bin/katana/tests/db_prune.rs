@@ -9,6 +9,7 @@ use katana_db::mdbx::DbEnv;
 use katana_db::models::trie::{TrieDatabaseKey, TrieDatabaseValue, TrieHistoryEntry};
 use katana_db::tables::{self};
 use katana_primitives::block::Header;
+use katana_provider::providers::db::DbProvider;
 use katana_utils::random_bytes;
 use rstest::*;
 use tempfile::TempDir;
