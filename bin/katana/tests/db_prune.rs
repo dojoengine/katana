@@ -27,6 +27,14 @@ impl TempDb {
         Self { temp_dir, db_path }
     }
 
+    fn provider_ro(&self) -> DbProvider {
+        DbProvider::new(self.open_ro())
+    }
+
+    fn provider_rw(&self) -> DbProvider {
+        DbProvider::new(self.open_rw())
+    }
+
     fn open_ro(&self) -> DbEnv {
         katana::cli::db::open_db_ro(self.db_path.to_str().unwrap()).unwrap()
     }
