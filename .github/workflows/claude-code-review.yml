@@ -18,6 +18,11 @@ jobs:
     #   github.event.pull_request.user.login == 'new-developer' ||
     #   github.event.pull_request.author_association == 'FIRST_TIME_CONTRIBUTOR'
 
+    # Skip on draft PR
+    if: |
+      github.event.pull_request.draft == false &&
+      !contains(github.event.pull_request.title, '[WIP]')
+
     runs-on: ubuntu-latest
     permissions:
       contents: read
@@ -32,9 +37,6 @@ jobs:
           fetch-depth: 1
 
       - name: Run Claude Code Review
-        if: | # Skip on draft PR
-          github.event.pull_request.draft == false &&
-          !contains(github.event.pull_request.title, '[WIP]')
         id: claude-review
         uses: anthropics/claude-code-action@beta
         with:
