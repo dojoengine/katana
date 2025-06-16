@@ -32,6 +32,9 @@ jobs:
           fetch-depth: 1
 
       - name: Run Claude Code Review
+        if: | # Skip on draft PR
+          github.event.pull_request.draft == false &&
+          !contains(github.event.pull_request.title, '[WIP]')
         id: claude-review
         uses: anthropics/claude-code-action@beta
         with:
@@ -67,8 +70,3 @@ jobs:
 
           # Optional: Add specific tools for running tests or linting
           # allowed_tools: "Bash(npm run test),Bash(npm run lint),Bash(npm run typecheck)"
-
-          Optional: Skip review on draft PR
-          if: |
-            github.event.pull_request.draft == false &&
-            !contains(github.event.pull_request.title, '[WIP]')
