@@ -1,16 +1,20 @@
+use std::collections::BTreeMap;
 use std::path::PathBuf;
 
 use anyhow::{Context, Result};
-use arbitrary::{Arbitrary, Unstructured};
 use clap::Parser;
 use katana::cli::Cli;
 use katana_db::abstraction::{Database, DbCursor, DbTx, DbTxMut};
 use katana_db::mdbx::DbEnv;
-use katana_db::models::trie::{TrieDatabaseKey, TrieDatabaseValue, TrieHistoryEntry};
 use katana_db::tables::{self};
 use katana_primitives::block::Header;
+use katana_primitives::class::{ClassHash, CompiledClassHash};
+use katana_primitives::contract::{ContractAddress, Nonce, StorageKey, StorageValue};
+use katana_primitives::state::StateUpdates;
+use katana_primitives::Felt;
 use katana_provider::providers::db::DbProvider;
-use katana_utils::random_bytes;
+use katana_provider::traits::state::{StateFactoryProvider, StateRootProvider};
+use katana_provider::traits::trie::TrieWriter;
 use rstest::*;
 use tempfile::TempDir;
 
@@ -64,67 +68,100 @@ fn db() -> TempDb {
     db
 }
 
-/// Generate arbitrary test data for a block range
-fn generate_trie_entries(
-    num_blocks: u64,
-    entries_per_block: usize,
-) -> Result<Vec<(u64, Vec<TrieHistoryEntry>)>> {
-    let mut blocks_data = Vec::new();
-
-    for block_num in 1..=num_blocks {
-        let mut block_entries = Vec::new();
-
-        // Create deterministic but pseudo-random data for each block
-        for _ in 0..entries_per_block {
-            let key = TrieDatabaseKey::arbitrary(&mut Unstructured::new(&random_bytes(
-                TrieDatabaseKey::size_hint(0).0,
-            )))
-            .context("Failed to generate arbitrary key")?;
-
-            let value = TrieDatabaseValue::from_vec(vec![1]);
-
-            block_entries.push(TrieHistoryEntry { key, value });
-        }
-
-        blocks_data.push((block_num, block_entries));
-    }
-
-    Ok(blocks_data)
+/// Generate test addresses and class hashes  
+fn generate_test_addresses(count: usize) -> Vec<ContractAddress> {
+    (0..count).map(|i| ContractAddress::from(i as u128)).collect()
 }
 
-/// Populate database with arbitrary generated data
+fn generate_test_class_hashes(count: usize) -> Vec<ClassHash> {
+    (0..count).map(|i| ClassHash::from(i as u128 + 1000)).collect()
+}
+
+fn generate_test_compiled_class_hashes(count: usize) -> Vec<CompiledClassHash> {
+    (0..count).map(|i| CompiledClassHash::from(i as u128 + 2000)).collect()
+}
+
+/// Populate database with test data using the TrieWriter trait
 fn populate_db(db: &TempDb) -> Result<()> {
+    let provider = db.provider_rw();
+    
+    // Generate test data
+    let num_contracts = 5;
+    let num_classes = 3;
+    let addresses = generate_test_addresses(num_contracts);
+    let class_hashes = generate_test_class_hashes(num_classes);
+    let compiled_class_hashes = generate_test_compiled_class_hashes(num_classes);
+    
+    // Insert headers first
     db.open_rw().update(|tx| {
         for block_num in 0..=15u64 {
             tx.put::<tables::Headers>(block_num, Header::default())?;
         }
-
-        // Insert classes trie history
-        let classes_data = generate_trie_entries(15, 5)?;
-        for (block_num, entries) in classes_data {
-            for entry in entries {
-                tx.put::<tables::ClassesTrieHistory>(block_num, entry)?;
-            }
-        }
-
-        // Insert contracts trie history
-        let contracts_data = generate_trie_entries(15, 3)?;
-        for (block_num, entries) in contracts_data {
-            for entry in entries {
-                tx.put::<tables::ContractsTrieHistory>(block_num, entry)?;
-            }
-        }
-
-        // Insert storages trie history
-        let storages_data = generate_trie_entries(15, 7)?;
-        for (block_num, entries) in storages_data {
-            for entry in entries {
-                tx.put::<tables::StoragesTrieHistory>(block_num, entry)?;
-            }
-        }
-
         Ok(())
-    })?
+    }).context("failed to insert headers")?;
+    
+    // Process each block to create historical trie data
+    for block_number in 1..=15u64 {
+        let mut state_updates = StateUpdates::default();
+        
+        // Add some declared classes for this block (only for some blocks)
+        if block_number % 3 == 0 && (block_number / 3) as usize <= num_classes {
+            let idx = ((block_number / 3) - 1) as usize;
+            state_updates.declared_classes.insert(
+                class_hashes[idx],
+                compiled_class_hashes[idx],
+            );
+        }
+        
+        // Add some deployed contracts for this block (only for some blocks) 
+        if block_number % 2 == 0 && (block_number / 2) as usize <= num_contracts {
+            let idx = ((block_number / 2) - 1) as usize;
+            let class_idx = idx % num_classes;
+            state_updates.deployed_contracts.insert(
+                addresses[idx],
+                class_hashes[class_idx],
+            );
+            // Also set initial nonce
+            state_updates.nonce_updates.insert(
+                addresses[idx],
+                Nonce::from(1u8),
+            );
+        }
+        
+        // Add storage updates for existing contracts
+        for (idx, &address) in addresses.iter().enumerate() {
+            if idx < (block_number as usize).min(num_contracts) {
+                let mut storage_entries = BTreeMap::new();
+                // Add a few storage entries that change each block
+                for storage_idx in 0..3 {
+                    let key = StorageKey::from(storage_idx as u128);
+                    let value = StorageValue::from((block_number * 100 + storage_idx) as u128);
+                    storage_entries.insert(key, value);
+                }
+                state_updates.storage_updates.insert(address, storage_entries);
+                
+                // Update nonce
+                state_updates.nonce_updates.insert(
+                    address,
+                    Nonce::from(block_number as u8),
+                );
+            }
+        }
+        
+        // Insert declared classes into the trie
+        if !state_updates.declared_classes.is_empty() {
+            provider
+                .trie_insert_declared_classes(block_number, &state_updates.declared_classes)
+                .context("failed to insert declared classes")?;
+        }
+        
+        // Insert contract updates into the trie
+        provider
+            .trie_insert_contract_updates(block_number, &state_updates)
+            .context("failed to insert contract updates")?;
+    }
+    
+    Ok(())
 }
 
 /// Count total historical entries in the database
@@ -170,16 +207,37 @@ fn count_headers(db: &DbEnv) -> Result<usize> {
     Ok(count)
 }
 
+/// Get the current state roots (classes and contracts)
+fn get_state_roots<Db: Database>(provider: &DbProvider<Db>) -> Result<(Felt, Felt)> {
+    let state_provider = provider
+        .latest()
+        .context("failed to get latest state provider")?;
+    
+    let classes_root = state_provider
+        .classes_root()
+        .context("failed to get classes root")?;
+    
+    let contracts_root = state_provider
+        .contracts_root()
+        .context("failed to get contracts root")?;
+    
+    Ok((classes_root, contracts_root))
+}
+
 #[rstest]
 fn prune_latest_removes_all_history(db: TempDb) {
     ///////////////////////////////////////////////////////////////////////////////////
-    // Verify we have historical data before pruning
+    // Verify we have historical data before pruning and capture state roots
     ///////////////////////////////////////////////////////////////////////////////////
+    let provider = db.provider_ro();
+    let (initial_classes_root, initial_contracts_root) = get_state_roots(&provider).unwrap();
+    drop(provider);
+    
     let env = db.open_ro();
     let initial_history_count = count_historical_entries(&env).unwrap();
     let initial_headers_count = count_headers(&env).unwrap();
 
-    assert!(initial_history_count > 0);
+    assert!(initial_history_count > 0, "Should have historical data before pruning");
     assert_eq!(initial_headers_count, 16);
     drop(env);
     ///////////////////////////////////////////////////////////////////////////////////
@@ -188,14 +246,26 @@ fn prune_latest_removes_all_history(db: TempDb) {
     Cli::parse_from(["katana", "db", "prune", "--path", path, "latest"]).run().unwrap();
 
     ///////////////////////////////////////////////////////////////////////////////////
-    // Verify pruning outcome
+    // Verify pruning outcome and state roots remain unchanged
     ///////////////////////////////////////////////////////////////////////////////////
+    let provider = db.provider_ro();
+    let (final_classes_root, final_contracts_root) = get_state_roots(&provider).unwrap();
+    drop(provider);
+    
     let env = db.open_ro();
     let final_history_count = count_historical_entries(&env).unwrap();
     let final_headers_count = count_headers(&env).unwrap();
 
-    assert_eq!(final_history_count, 0);
+    assert_eq!(final_history_count, 0, "All historical data should be removed");
     assert_eq!(final_headers_count, initial_headers_count, "Headers should be unchanged");
+    assert_eq!(
+        final_classes_root, initial_classes_root,
+        "Classes root should remain unchanged after pruning"
+    );
+    assert_eq!(
+        final_contracts_root, initial_contracts_root,
+        "Contracts root should remain unchanged after pruning"
+    );
     drop(env);
     ///////////////////////////////////////////////////////////////////////////////////
 }
@@ -203,13 +273,17 @@ fn prune_latest_removes_all_history(db: TempDb) {
 #[rstest]
 fn prune_keep_last_n_blocks(db: TempDb) {
     ///////////////////////////////////////////////////////////////////////////////////
-    // Verify we have historical data before pruning
+    // Verify we have historical data before pruning and capture state roots
     ///////////////////////////////////////////////////////////////////////////////////
+    let provider = db.provider_ro();
+    let (initial_classes_root, initial_contracts_root) = get_state_roots(&provider).unwrap();
+    drop(provider);
+    
     let env = db.open_ro();
     let initial_history_count = count_historical_entries(&env).unwrap();
     let initial_headers_count = count_headers(&env).unwrap();
 
-    assert!(initial_history_count > 0);
+    assert!(initial_history_count > 0, "Should have historical data before pruning");
     assert_eq!(initial_headers_count, 16);
     drop(env);
     ///////////////////////////////////////////////////////////////////////////////////
@@ -218,14 +292,30 @@ fn prune_keep_last_n_blocks(db: TempDb) {
     Cli::parse_from(["katana", "db", "prune", "--path", path, "keep-last-n", "3"]).run().unwrap();
 
     ///////////////////////////////////////////////////////////////////////////////////
-    // Verify pruning outcome
+    // Verify pruning outcome and state roots remain unchanged
     ///////////////////////////////////////////////////////////////////////////////////
+    let provider = db.provider_ro();
+    let (final_classes_root, final_contracts_root) = get_state_roots(&provider).unwrap();
+    drop(provider);
+    
     let env = db.open_ro();
     let final_history_count = count_historical_entries(&env).unwrap();
     let final_headers_count = count_headers(&env).unwrap();
 
-    assert!(final_history_count < initial_history_count);
+    assert!(
+        final_history_count < initial_history_count,
+        "Historical data should be reduced after pruning"
+    );
+    assert!(final_history_count > 0, "Some historical data should remain (last 3 blocks)");
     assert_eq!(final_headers_count, initial_headers_count, "Headers should be unchanged");
+    assert_eq!(
+        final_classes_root, initial_classes_root,
+        "Classes root should remain unchanged after pruning"
+    );
+    assert_eq!(
+        final_contracts_root, initial_contracts_root,
+        "Contracts root should remain unchanged after pruning"
+    );
     drop(env);
     ///////////////////////////////////////////////////////////////////////////////////
 }
