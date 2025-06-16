@@ -21,13 +21,13 @@ jobs:
     steps:
       - uses: actions/checkout@v3
       - run: git config --global --add safe.directory "$GITHUB_WORKSPACE"
-      
+
       - uses: Swatinem/rust-cache@v2
         with:
           key: bench
 
       - name: Running benchmarks
-        run: cargo bench --bench codec --bench execution --bench concurrent --bench startup -- --output-format bencher | sed 1d | tee output.txt
+        run: cargo bench --bench codec --bench execution --bench commit --bench startup -- --output-format bencher | sed 1d | tee output.txt
 
       - uses: benchmark-action/github-action-benchmark@v1
         with:
