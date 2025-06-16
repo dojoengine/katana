@@ -9,8 +9,13 @@ EXPLORER_UI_DIST ?= crates/explorer/ui/dist
 
 SNOS_OUTPUT ?= tests/snos/snos/build/
 FIXTURES_DIR ?= tests/fixtures
-TEST_DB_TAR ?= $(FIXTURES_DIR)/katana_db.tar.gz
-KATANA_DB_DIR := $(FIXTURES_DIR)/katana_db
+DB_FIXTURES_DIR ?= $(FIXTURES_DIR)/db
+
+SNOS_DB_TAR ?= $(DB_FIXTURES_DIR)/snos.tar.gz
+SNOS_DB_DIR := $(DB_FIXTURES_DIR)/snos
+
+COMPATIBILITY_DB_TAR ?= $(DB_FIXTURES_DIR)/v1_2_2.tar.gz
+COMPATIBILITY_DB_DIR ?= $(DB_FIXTURES_DIR)/v1_2_2
 
 .DEFAULT_GOAL := usage
 .SILENT: clean
@@ -32,7 +37,7 @@ usage help:
 	@echo "    help:                      Show this help message."
 
 snos-artifacts: $(SNOS_OUTPUT)
-test-artifacts: $(KATANA_DB_DIR) $(SNOS_OUTPUT)
+test-artifacts: $(SNOS_DB_DIR) $(SNOS_OUTPUT) $(COMPATIBILITY_DB_DIR)
 	@echo "All test artifacts prepared successfully."
 
 build-explorer:
@@ -50,7 +55,7 @@ $(EXPLORER_UI_DIST): $(EXPLORER_UI_DIR)
 		bun run build || { echo "Explorer build failed!"; exit 1; }
 	@echo "Explorer build complete."
 
-$(SNOS_OUTPUT): $(KATANA_DB_DIR)
+$(SNOS_OUTPUT): $(SNOS_DB_DIR)
 	@echo "Initializing submodules..."
 	@git submodule update --init --recursive
 	@echo "Setting up SNOS tests..."
@@ -58,11 +63,17 @@ $(SNOS_OUTPUT): $(KATANA_DB_DIR)
 		. ./setup-scripts/setup-cairo.sh && \
 		. ./setup-scripts/setup-tests.sh || { echo "SNOS setup failed\!"; exit 1; }
 
-$(KATANA_DB_DIR): $(TEST_DB_TAR)
-	@echo "Extracting test database..."
-	@cd $(FIXTURES_DIR) && \
-		tar -xzf katana_db.tar.gz || { echo "Failed to extract test database\!"; exit 1; }
-	@echo "Test database extracted successfully."
+$(SNOS_DB_DIR): $(SNOS_DB_TAR)
+	@echo "Extracting SNOS test database..."
+	@cd $(DB_FIXTURES_DIR) && \
+		tar -xzf snos.tar.gz || { echo "Failed to extract SNOS test database\!"; exit 1; }
+	@echo "SNOS test database extracted successfully."
+
+$(COMPATIBILITY_DB_DIR): $(COMPATIBILITY_DB_TAR)
+	@echo "Extracting backward compatibility test database..."
+	@cd $(DB_FIXTURES_DIR) && \
+		tar -xzf v1_2_2.tar.gz || { echo "Failed to extract backward compatibility test database\!"; exit 1; }
+	@echo "Backward compatibility database extracted successfully."
 
 check-llvm:
 ifndef MLIR_SYS_190_PREFIX
@@ -101,5 +112,5 @@ native-deps-windows:
 
 clean:
 	echo "Cleaning up generated files..."
-	-rm -rf $(KATANA_DB_DIR) $(SNOS_OUTPUT) $(EXPLORER_UI_DIST)
+	-rm -rf $(SNOS_DB_DIR) $(COMPATIBILITY_DB_DIR) $(SNOS_OUTPUT) $(EXPLORER_UI_DIST)
 	echo "Clean complete."

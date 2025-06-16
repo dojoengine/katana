@@ -3956,6 +3956,21 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "2a2330da5de22e8a3cb63252ce2abb30116bf5265e89c0e01bc17015ce30a476"
 
 [[package]]
+name = "db-compat-test"
+version = "1.5.3"
+dependencies = [
+ "anyhow",
+ "katana-chain-spec",
+ "katana-cli",
+ "katana-db",
+ "katana-node",
+ "katana-primitives",
+ "katana-provider",
+ "starknet 0.12.0",
+ "tokio",
+]
+
+[[package]]
 name = "debugid"
 version = "0.8.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"

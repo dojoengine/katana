@@ -31,4 +31,8 @@ tests/snos/snos
 snos-env
 tests/fixtures/katana_db
 
+# Ignore all files under tests/fixtures/db except .tar.gz files
+tests/fixtures/db/*
+!tests/fixtures/db/*.tar.gz
+
 **/.claude/settings.local.json
