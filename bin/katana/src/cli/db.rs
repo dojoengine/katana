@@ -49,7 +49,7 @@ enum Commands {
         path: Option<String>,
     },
 
-    #[command(about = "Prune historical trie data")]
+    /// Prune historical trie data.
     Prune(PruneArgs),
 }
 
@@ -57,7 +57,6 @@ enum Commands {
 struct PruneArgs {
     /// Path to the database directory.
     #[arg(short, long)]
-    #[arg(default_value = "~/.katana/db")]
     path: String,
 
     #[command(subcommand)]

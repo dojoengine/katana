@@ -1,19 +1,20 @@
-use std::path::{Path, PathBuf};
+use std::path::PathBuf;
 
 use anyhow::{Context, Result};
 use arbitrary::{Arbitrary, Unstructured};
 use clap::Parser;
 use katana::cli::Cli;
-use katana_db::abstraction::{Database, DbCursor, DbDupSortCursor, DbTx, DbTxMut};
+use katana_db::abstraction::{Database, DbCursor, DbTx, DbTxMut};
 use katana_db::mdbx::DbEnv;
 use katana_db::models::trie::{TrieDatabaseKey, TrieDatabaseValue, TrieHistoryEntry};
 use katana_db::tables::{self};
-use katana_primitives::block::{Header, PartialHeader};
+use katana_primitives::block::Header;
 use katana_utils::random_bytes;
 use rstest::*;
 use tempfile::TempDir;
 
 struct TempDb {
+    #[allow(unused)]
     temp_dir: TempDir,
     db_path: PathBuf,
 }
@@ -170,12 +171,12 @@ fn prune_latest_removes_all_history(db: TempDb) {
     let initial_headers_count = count_headers(&env).unwrap();
 
     assert!(initial_history_count > 0);
-    assert_eq!(initial_headers_count, 11);
+    assert_eq!(initial_headers_count, 16);
     drop(env);
     ///////////////////////////////////////////////////////////////////////////////////
 
     let path = db.path_str();
-    Cli::parse_from(["katana", "db", "--path", path, "prune", "latest"]).run().unwrap();
+    Cli::parse_from(["katana", "db", "prune", "--path", path, "latest"]).run().unwrap();
 
     ///////////////////////////////////////////////////////////////////////////////////
     // Verify pruning outcome
@@ -200,12 +201,12 @@ fn prune_keep_last_n_blocks(db: TempDb) {
     let initial_headers_count = count_headers(&env).unwrap();
 
     assert!(initial_history_count > 0);
-    assert_eq!(initial_headers_count, 11);
+    assert_eq!(initial_headers_count, 16);
     drop(env);
     ///////////////////////////////////////////////////////////////////////////////////
 
     let path = db.path_str();
-    Cli::parse_from(["katana", "db", "--path", path, "prune", "keep-last-n", "3"]).run().unwrap();
+    Cli::parse_from(["katana", "db", "prune", "--path", path, "keep-last-n", "3"]).run().unwrap();
 
     ///////////////////////////////////////////////////////////////////////////////////
     // Verify pruning outcome
