@@ -7,7 +7,7 @@ use alloy_primitives::U256;
 #[cfg(feature = "server")]
 use anyhow::bail;
 use anyhow::{Context, Result};
-use clap::Parser;
+pub use clap::Parser;
 use katana_chain_spec::rollup::ChainConfigDir;
 use katana_chain_spec::ChainSpec;
 use katana_core::constants::DEFAULT_SEQUENCER_ADDRESS;
@@ -205,7 +205,7 @@ impl NodeArgs {
         }
     }
 
-    fn rpc_config(&self) -> Result<RpcConfig> {
+    pub fn rpc_config(&self) -> Result<RpcConfig> {
         #[cfg(feature = "server")]
         {
             use std::time::Duration;
