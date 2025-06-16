@@ -6581,6 +6581,7 @@ dependencies = [
  "katana-utils",
  "metrics 0.23.1",
  "num-traits",
+ "proptest",
  "rand 0.8.5",
  "rstest 0.18.2",
  "serde",

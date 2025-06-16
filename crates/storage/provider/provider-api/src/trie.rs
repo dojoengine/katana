@@ -59,11 +59,6 @@ pub trait TrieWriter: Send + Sync {
         let class_trie_root =
             self.trie_insert_declared_classes(block_number, &state_updates.declared_classes)?;
         let contract_trie_root = self.trie_insert_contract_updates(block_number, state_updates)?;
-        println!("STATE ROOT COMPUTED ✅: {:?}", starknet_types_core::hash::Poseidon::hash_array(&[
-            starknet::macros::short_string!("STARKNET_STATE_V0"),
-            contract_trie_root,
-            class_trie_root,
-        ]));
 
         Ok(starknet_types_core::hash::Poseidon::hash_array(&[
             starknet::macros::short_string!("STARKNET_STATE_V0"),

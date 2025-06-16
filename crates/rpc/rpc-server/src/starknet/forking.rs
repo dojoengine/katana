@@ -311,7 +311,18 @@ mod tests {
     use katana_rpc_types::trie::ContractStorageKeys;
     use katana_provider::providers::db::DbProvider;
     use url::Url;
-
+    use proptest::proptest;
+    use proptest::prelude::ProptestConfig;
+    use katana_core::backend::storage::Blockchain;
+    use katana_provider::traits::trie::TrieWriter;
+    use katana_provider::traits::block::BlockNumberProvider;
+    use katana_utils::TestNode;
+    use katana_utils::node::test_config_forking;
+    use proptest::prop_assert_eq;
+    use proptest::prelude::Strategy;
+    use proptest::prelude::Just;
+    use proptest::arbitrary::any;
+    use std::collections::BTreeSet;
     use super::*;
 
     // const SEPOLIA_URL: &str = "https://api.cartridge.gg/x/starknet/sepolia";
@@ -342,305 +353,14 @@ mod tests {
         let err = client.get_block_number_by_hash(hash).await.expect_err("should return an error");
         assert!(matches!(err, Error::BlockOutOfRange));
     }
-
-    #[tokio::test]
-    async fn test_commit_new_state_root() {
-        use katana_primitives::state::StateUpdates;
-        use katana_provider::providers::fork::ForkedProvider;
-        use katana_provider::traits::trie::TrieWriter;
-        use starknet::providers::jsonrpc::HttpTransport;
-        use starknet::providers::JsonRpcClient;
-        use std::collections::BTreeMap;
-        use katana_chain_spec::ChainSpec;
-        use katana_executor::implementation::noop::NoopExecutorFactory;
-        use katana_core::backend::storage::Blockchain;
-        use katana_core::backend::gas_oracle::GasOracle;
-        use katana_core::backend::Backend;
-        use katana_runner::KatanaRunner;
-        use katana_runner::KatanaRunnerConfig;
-        
-        let runner = KatanaRunner::new().expect("Failed to start local Katana");
-        let provider = runner.starknet_provider();
-        let rpc_url = runner.instance.rpc_addr();
-        let url = Url::parse(&format!("http://{}", rpc_url)).expect("invalid url");
-
-        let url = Url::parse("http://localhost:5051").unwrap();
-
-        let external_client =
-            JsonRpcClient::new(HttpTransport::new(url.clone()));
-
-        let block_number = external_client.block_number().await.unwrap();
-        println!("Block number: {:?}", block_number);
-
-        // let url = Url::parse(SEPOLIA_URL).unwrap();
-        
-        // let client = ForkedClient::new_http(url.clone(), block_number);
-
-        // let external_state_update =
-        //     external_client.get_state_update(BlockId::Tag(BlockTag::Latest)).await.unwrap();
-
-        // let (external_state_root, external_state_update) = match external_state_update {
-        //     StarknetRsMaybePendingStateUpdate::Update(state_update) => {
-        //         println!("External new_root: {:#x}", state_update.new_root);
-        //         println!("External old_root: {:#x}", state_update.old_root);
-        //         println!("External block_hash: {:#x}", state_update.block_hash);
-        //         (state_update.new_root, state_update)
-        //     }
-        //     StarknetRsMaybePendingStateUpdate::PendingUpdate(pending) => {
-        //         println!("Pending state update - no state root available");
-        //         return;
-        //     }
-        // };
-
-        let mut state_updates = StateUpdates::default();
-
-        // Contract 1: Original contract with multiple storage updates
-        let contract_address_1 =
-            felt!("0x06a4d4e8c1cc9785e125195a2f8bd4e5b0c7510b19f3e2dd63533524f5687e41").into();
-        let class_hash_1 =
-            felt!("0x03d5de568b28042464214dfbe2ea0d7e22d162986bcdb9f56d691d22955a4c23");
-        
-        // Multiple storage entries for contract 1
-        let mut contract_1_storage = BTreeMap::new();
-        contract_1_storage.insert(felt!("0x1").into(), felt!("0x123456").into());
-        contract_1_storage.insert(felt!("0x2").into(), felt!("0x789abc").into());
-        contract_1_storage.insert(felt!("0x5f2e74e1dce39a8d0d7e6b8f9c3a7e4d1c0b2a98").into(), felt!("0xdeadbeef").into());
-        
-        state_updates.deployed_contracts.insert(contract_address_1, class_hash_1);
-        state_updates.storage_updates.insert(contract_address_1, contract_1_storage);
-        state_updates.declared_classes.insert(class_hash_1, felt!("0x123").into());
-        state_updates.nonce_updates.insert(contract_address_1, felt!("0x5").into());
-
-        // Contract 2: ERC20-like contract
-        let contract_address_2 =
-            felt!("0x049d36570d4e46f48e99674bd3fcc84644ddd6b96f7c741b1562b82f9e004dc7").into();
-        let class_hash_2 =
-            felt!("0x02760f25d5a4fb2bdde5f561fd0b44a3dee78c28903577d37d669939d97036a0");
-            
-        let mut contract_2_storage = BTreeMap::new();
-        // Balance mapping entries
-        contract_2_storage.insert(felt!("0x916907772491729262376534102982").into(), felt!("0x1000000000000000000").into()); // 1 ETH
-        contract_2_storage.insert(felt!("0x916907772491729262376534102983").into(), felt!("0x2000000000000000000").into()); // 2 ETH
-        contract_2_storage.insert(felt!("0x5").into(), felt!("0x1bc16d674ec80000").into()); // Total supply
-        
-        state_updates.deployed_contracts.insert(contract_address_2, class_hash_2);
-        state_updates.storage_updates.insert(contract_address_2, contract_2_storage);
-        state_updates.declared_classes.insert(class_hash_2, felt!("0x456").into());
-        state_updates.nonce_updates.insert(contract_address_2, felt!("0x12").into());
-
-        // Contract 3: Account contract
-        let contract_address_3 =
-            felt!("0x0127fd5f1fe78a71f8bcd1fec63e3fe2f0486b6ecd5c86a0466c3a21fa5cfcec").into();
-        let class_hash_3 =
-            felt!("0x033434ad846cdd5f23eb73ff09fe6fddd568284a0fb7d1be20ee482f044dabe2");
-            
-        let mut contract_3_storage = BTreeMap::new();
-        contract_3_storage.insert(felt!("0x0").into(), felt!("0x2dd76e7ad84dbed81c314ffe5e7a7cacfb8f4836f01af4e913f275f89a3de1a").into()); // Public key
-        contract_3_storage.insert(felt!("0x1").into(), felt!("0x1").into()); // Some flag
-        
-        state_updates.deployed_contracts.insert(contract_address_3, class_hash_3);
-        state_updates.storage_updates.insert(contract_address_3, contract_3_storage);
-        state_updates.declared_classes.insert(class_hash_3, felt!("0x789").into());
-        state_updates.nonce_updates.insert(contract_address_3, felt!("0x7").into());
-
-        // Contract 4: Upgraded contract (replaced class)
-        let contract_address_4 =
-            felt!("0x04194c376fcddd757b190476f840f2d211d44c68ba79a6b627fa47e157cd4f97").into();
-        let old_class_hash_4 =
-            felt!("0x025ec026985a3bf9d0cc1fe17326b245dfdc3ff89b8fde106542a3ea56c5a918");
-        let new_class_hash_4 =
-            felt!("0x033434ad846cdd5f23eb73ff09fe6fddd568284a0fb7d1be20ee482f044dabe2");
-            
-        let mut contract_4_storage = BTreeMap::new();
-        contract_4_storage.insert(felt!("0xa").into(), felt!("0xcafebabe").into());
-        contract_4_storage.insert(felt!("0xb").into(), felt!("0x42424242").into());
-        
-        state_updates.storage_updates.insert(contract_address_4, contract_4_storage);
-        state_updates.replaced_classes.insert(contract_address_4, new_class_hash_4);
-        state_updates.declared_classes.insert(new_class_hash_4, felt!("0xabc").into());
-        state_updates.nonce_updates.insert(contract_address_4, felt!("0x3").into());
-
-        // Contract 5: Simple storage contract
-        let contract_address_5 =
-            felt!("0x01234567890abcdef1234567890abcdef1234567890abcdef1234567890abcde").into();
-        let class_hash_5 =
-            felt!("0x0543211234567890abcdef0123456789abcdef0123456789abcdef0123456789");
-            
-        let mut contract_5_storage = BTreeMap::new();
-        contract_5_storage.insert(felt!("0x100").into(), felt!("0x1111111111111111").into());
-        contract_5_storage.insert(felt!("0x200").into(), felt!("0x2222222222222222").into());
-        contract_5_storage.insert(felt!("0x300").into(), felt!("0x3333333333333333").into());
-        
-        state_updates.deployed_contracts.insert(contract_address_5, class_hash_5);
-        state_updates.storage_updates.insert(contract_address_5, contract_5_storage);
-        state_updates.declared_classes.insert(class_hash_5, felt!("0xdef").into());
-        state_updates.nonce_updates.insert(contract_address_5, felt!("0x1").into());
-
-        // Additional declared classes (not deployed yet)
-        let additional_class_hash_1 = felt!("0x0987654321098765432109876543210987654321098765432109876543210987");
-        let additional_class_hash_2 = felt!("0x0111222333444555666777888999aaabbbcccdddeeefffaaabbbcccdddeee");
-        let additional_class_hash_3 = felt!("0x0fedcba9876543210fedcba9876543210fedcba9876543210fedcba987654321");
-        
-        state_updates.declared_classes.insert(additional_class_hash_1, felt!("0x111").into());
-        state_updates.declared_classes.insert(additional_class_hash_2, felt!("0x222").into());
-        state_updates.declared_classes.insert(additional_class_hash_3, felt!("0x333").into());
-
-        // Deprecated declared classes
-        let deprecated_class_hash_1 = felt!("0x0abcdef123456789abcdef123456789abcdef123456789abcdef123456789abc");
-        let deprecated_class_hash_2 = felt!("0x0555666777888999aaabbbcccdddeeefffaaabbbcccdddeeefffaaabbbcccddd");
-        
-        state_updates.deprecated_declared_classes.insert(deprecated_class_hash_1);
-        state_updates.deprecated_declared_classes.insert(deprecated_class_hash_2);
-
-        println!("📊 Enhanced state updates with {} contracts, {} storage entries, {} nonces, {} declared classes, {} deprecated classes, {} replaced classes", 
-            state_updates.deployed_contracts.len(),
-            state_updates.storage_updates.values().map(|s| s.len()).sum::<usize>(),
-            state_updates.nonce_updates.len(),
-            state_updates.declared_classes.len(),
-            state_updates.deprecated_declared_classes.len(),
-            state_updates.replaced_classes.len()
-        );
-
-        let db = katana_db::init_ephemeral_db().unwrap();
-        // Create the provider
-        let rpc_provider = JsonRpcClient::new(HttpTransport::new(url.clone()));
-        let forked_provider = ForkedProvider::new(
-            db.clone(),
-            katana_primitives::block::BlockHashOrNumber::Num(block_number),
-            rpc_provider,
-            url.clone(),
-        );
-        let state_root = forked_provider.compute_state_root(block_number, &state_updates).unwrap();
-
-        let chain_spec = Arc::new(ChainSpec::dev());
-        let executor_factory = NoopExecutorFactory::new();
-        let blockchain = Blockchain::new(DbProvider::new_ephemeral());
-        let gas_oracle = GasOracle::fixed(Default::default(), Default::default());
-        let backend = Arc::new(Backend::new(chain_spec, blockchain.clone(), gas_oracle, executor_factory));
-        // backend.init_genesis(false).expect("failed to initialize genesis");
-
-        let mainnet_provider = blockchain.provider();
-        let mainnet_state_root_after_insertion = mainnet_provider.compute_state_root(block_number, &state_updates).unwrap();
-        // println!("State root: {:?}", state_root);
-        // println!("External state root: {:?}", external_state_root);
-        println!("Mainnet state root after insertion: {:?}", mainnet_state_root_after_insertion);
-
-    }
-
-    #[tokio::test]
-    async fn compare_storage_roots() {
-        let katana =
-            JsonRpcClient::new(HttpTransport::new(Url::parse("http://localhost:5050").unwrap()));
-        let forked_katana =
-            JsonRpcClient::new(HttpTransport::new(Url::parse("http://localhost:5051").unwrap()));
-
-        let block_number = katana.block_number().await.unwrap();
-        println!("Block number: {:?}", block_number);
-
-        // Compare state roots for blocks 0-4
-        for block_num in 0..=8 {
-            println!("\n==================================================");
-            println!("Comparing block {}", block_num);
-            println!("==================================================");
-
-            let katana_state_update = match katana.get_state_update(BlockId::Number(block_num)).await {
-                Ok(update) => update,
-                Err(e) => {
-                    println!("❌ Failed to get katana state update for block {}: {:?}", block_num, e);
-                    continue;
-                }
-            };
-
-            let forked_katana_state_update = match forked_katana.get_state_update(BlockId::Number(block_num)).await {
-                Ok(update) => update,
-                Err(e) => {
-                    println!("❌ Failed to get forked katana state update for block {}: {:?}", block_num, e);
-                    continue;
-                }
-            };
-
-            let katana_state_root = match katana_state_update {
-                StarknetRsMaybePendingStateUpdate::Update(state_update) => {
-                    println!("Katana block {} new_root: {:#x}", block_num, state_update.new_root);
-                    println!("Katana block {} old_root: {:#x}", block_num, state_update.old_root);
-                    println!("Katana block {} block_hash: {:#x}", block_num, state_update.block_hash);
-                    println!("Katana block {} state_diff: {:?}", block_num, state_update.state_diff);
-                    state_update.new_root
-                }
-                StarknetRsMaybePendingStateUpdate::PendingUpdate(pending) => {
-                    println!("Pending state update for block {} - no state root available", block_num);
-                    continue;
-                }
-            };
-
-            let forked_katana_state_root = match forked_katana_state_update {
-                StarknetRsMaybePendingStateUpdate::Update(state_update) => {
-                    println!("Forked katana block {} new_root: {:#x}", block_num, state_update.new_root);
-                    println!("Forked katana block {} old_root: {:#x}", block_num, state_update.old_root);
-                    println!("Forked katana block {} block_hash: {:#x}", block_num, state_update.block_hash);
-                    println!("Forked katana block {} state_diff: {:?}", block_num, state_update.state_diff);
-                    state_update.new_root
-                }
-                StarknetRsMaybePendingStateUpdate::PendingUpdate(pending) => {
-                    println!("Pending state update for forked block {} - no state root available", block_num);
-                    continue;
-                }
-            };
-
-            println!("\nComparing block {} state roots:", block_num);
-            println!("Katana block {} state_root: {:#x}\n", block_num, katana_state_root);
-            println!("Forked katana block {} state_root: {:#x}", block_num, forked_katana_state_root);
-            
-            if katana_state_root == forked_katana_state_root {
-                println!("✅ Block {} state roots match!", block_num);
-            } else {
-                println!("❌ Block {} state roots do NOT match!", block_num);
-            }
-        }
-
-        // Check account nonce as additional verification
-        let account_address: ContractAddress =
-            felt!("0x127fd5f1fe78a71f8bcd1fec63e3fe2f0486b6ecd5c86a0466c3a21fa5cfcec").into();
-        let account_nonce =
-            katana.get_nonce(BlockId::Tag(BlockTag::Latest), account_address).await.unwrap();
-        println!("\nAccount nonce (latest): {:?}", account_nonce);
-
-        let forked_account_nonce =
-            forked_katana.get_nonce(BlockId::Tag(BlockTag::Latest), account_address).await.unwrap();
-        println!("Forked account nonce (latest): {:?}", forked_account_nonce);
-
-        // let contract_address: ContractAddress =
-        //     felt!("0x4194c376fcddd757b190476f840f2d211d44c68ba79a6b627fa47e157cd4f97").into();
-        // let contract_nonce =
-        //     katana.get_nonce(BlockId::Tag(BlockTag::Latest), contract_address).await.unwrap();
-        // println!("Contract nonce: {:?}", contract_nonce);
-
-        // let forked_contract_nonce = forked_katana
-        //     .get_nonce(BlockId::Tag(BlockTag::Latest), contract_address)
-        //     .await
-        //     .unwrap();
-        // println!("Forked contract nonce: {:?}", forked_contract_nonce);
-    }
-
     #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
-    async fn test_commit_new_state_root_two_katana_instances() {
+    async fn test_commit_new_state_root_mainnet_blockchain_and_forked_provider() {
         use katana_primitives::state::StateUpdates;
         use katana_provider::providers::fork::ForkedProvider;
         use katana_provider::traits::trie::TrieWriter;
-        use starknet::providers::jsonrpc::HttpTransport;
-        use starknet::providers::JsonRpcClient;
         use std::collections::BTreeMap;
-        use katana_chain_spec::dev::ChainSpec;
-        use katana_executor::implementation::noop::NoopExecutorFactory;
-        use katana_core::backend::storage::Blockchain;
-        use katana_core::backend::gas_oracle::GasOracle;
-        use katana_core::backend::Backend;
-        use jsonrpsee::http_client::HttpClientBuilder;
-        use katana_provider::traits::block::{BlockNumberProvider, BlockProvider};
-        use katana_provider::traits::env::BlockEnvProvider;
-        use katana_rpc_api::dev::DevApiClient;
+        use katana_provider::traits::block::BlockNumberProvider;
         use katana_utils::TestNode;
-        use katana_utils::node::test_config_forking;
 
         let sequencer = TestNode::new().await;
         let backend = sequencer.backend();
@@ -648,117 +368,15 @@ mod tests {
         let starknet_provider = sequencer.starknet_provider();
         let provider = backend.blockchain.provider();
     
-        // Create a jsonrpsee client for the DevApi
         let url = format!("http://{}", sequencer.rpc_addr());
-        println!("URL: {:?}", url);
-        
         let url = Url::parse(&url).unwrap();
-        println!("parsed URL: {:?}", url);
         
-
         let block_number = provider.latest_number().unwrap();
         println!("Block number from provider: {:?}", block_number);
 
-        let mut state_updates = StateUpdates::default();
-
-        // Contract 1: Original contract with multiple storage updates
-        let contract_address_1 =
-            felt!("0x06a4d4e8c1cc9785e125195a2f8bd4e5b0c7510b19f3e2dd63533524f5687e41").into();
-        let class_hash_1 =
-            felt!("0x03d5de568b28042464214dfbe2ea0d7e22d162986bcdb9f56d691d22955a4c23");
+        // Generate random state updates
+        let state_updates = setup_mainnet_updates_randomized(5);
         
-        // Multiple storage entries for contract 1
-        let mut contract_1_storage = BTreeMap::new();
-        contract_1_storage.insert(felt!("0x1").into(), felt!("0x123456").into());
-        contract_1_storage.insert(felt!("0x2").into(), felt!("0x789abc").into());
-        contract_1_storage.insert(felt!("0x5f2e74e1dce39a8d0d7e6b8f9c3a7e4d1c0b2a98").into(), felt!("0xdeadbeef").into());
-        
-        state_updates.deployed_contracts.insert(contract_address_1, class_hash_1);
-        state_updates.storage_updates.insert(contract_address_1, contract_1_storage);
-        state_updates.declared_classes.insert(class_hash_1, felt!("0x123").into());
-        state_updates.nonce_updates.insert(contract_address_1, felt!("0x5").into());
-
-        // Contract 2: ERC20-like contract
-        let contract_address_2 =
-            felt!("0x049d36570d4e46f48e99674bd3fcc84644ddd6b96f7c741b1562b82f9e004dc7").into();
-        let class_hash_2 =
-            felt!("0x02760f25d5a4fb2bdde5f561fd0b44a3dee78c28903577d37d669939d97036a0");
-            
-        let mut contract_2_storage = BTreeMap::new();
-        // Balance mapping entries
-        contract_2_storage.insert(felt!("0x916907772491729262376534102982").into(), felt!("0x1000000000000000000").into()); // 1 ETH
-        contract_2_storage.insert(felt!("0x916907772491729262376534102983").into(), felt!("0x2000000000000000000").into()); // 2 ETH
-        contract_2_storage.insert(felt!("0x5").into(), felt!("0x1bc16d674ec80000").into()); // Total supply
-        
-        state_updates.deployed_contracts.insert(contract_address_2, class_hash_2);
-        state_updates.storage_updates.insert(contract_address_2, contract_2_storage);
-        state_updates.declared_classes.insert(class_hash_2, felt!("0x456").into());
-        state_updates.nonce_updates.insert(contract_address_2, felt!("0x12").into());
-
-        // Contract 3: Account contract
-        let contract_address_3 =
-            felt!("0x0127fd5f1fe78a71f8bcd1fec63e3fe2f0486b6ecd5c86a0466c3a21fa5cfcec").into();
-        let class_hash_3 =
-            felt!("0x033434ad846cdd5f23eb73ff09fe6fddd568284a0fb7d1be20ee482f044dabe2");
-            
-        let mut contract_3_storage = BTreeMap::new();
-        contract_3_storage.insert(felt!("0x0").into(), felt!("0x2dd76e7ad84dbed81c314ffe5e7a7cacfb8f4836f01af4e913f275f89a3de1a").into()); // Public key
-        contract_3_storage.insert(felt!("0x1").into(), felt!("0x1").into()); // Some flag
-        
-        state_updates.deployed_contracts.insert(contract_address_3, class_hash_3);
-        state_updates.storage_updates.insert(contract_address_3, contract_3_storage);
-        state_updates.declared_classes.insert(class_hash_3, felt!("0x789").into());
-        state_updates.nonce_updates.insert(contract_address_3, felt!("0x7").into());
-
-        // Contract 4: Upgraded contract (replaced class)
-        let contract_address_4 =
-            felt!("0x04194c376fcddd757b190476f840f2d211d44c68ba79a6b627fa47e157cd4f97").into();
-        let old_class_hash_4 =
-            felt!("0x025ec026985a3bf9d0cc1fe17326b245dfdc3ff89b8fde106542a3ea56c5a918");
-        let new_class_hash_4 =
-            felt!("0x033434ad846cdd5f23eb73ff09fe6fddd568284a0fb7d1be20ee482f044dabe2");
-            
-        let mut contract_4_storage = BTreeMap::new();
-        contract_4_storage.insert(felt!("0xa").into(), felt!("0xcafebabe").into());
-        contract_4_storage.insert(felt!("0xb").into(), felt!("0x42424242").into());
-        
-        state_updates.storage_updates.insert(contract_address_4, contract_4_storage);
-        state_updates.replaced_classes.insert(contract_address_4, new_class_hash_4);
-        state_updates.declared_classes.insert(new_class_hash_4, felt!("0xabc").into());
-        state_updates.nonce_updates.insert(contract_address_4, felt!("0x3").into());
-
-        // Contract 5: Simple storage contract
-        let contract_address_5 =
-            felt!("0x01234567890abcdef1234567890abcdef1234567890abcdef1234567890abcde").into();
-        let class_hash_5 =
-            felt!("0x0543211234567890abcdef0123456789abcdef0123456789abcdef0123456789");
-            
-        let mut contract_5_storage = BTreeMap::new();
-        contract_5_storage.insert(felt!("0x100").into(), felt!("0x1111111111111111").into());
-        contract_5_storage.insert(felt!("0x200").into(), felt!("0x2222222222222222").into());
-        contract_5_storage.insert(felt!("0x300").into(), felt!("0x3333333333333333").into());
-        
-        state_updates.deployed_contracts.insert(contract_address_5, class_hash_5);
-        state_updates.storage_updates.insert(contract_address_5, contract_5_storage);
-        state_updates.declared_classes.insert(class_hash_5, felt!("0xdef").into());
-        state_updates.nonce_updates.insert(contract_address_5, felt!("0x1").into());
-
-        // Additional declared classes (not deployed yet)
-        let additional_class_hash_1 = felt!("0x0987654321098765432109876543210987654321098765432109876543210987");
-        let additional_class_hash_2 = felt!("0x0111222333444555666777888999aaabbbcccdddeeefffaaabbbcccdddeee");
-        let additional_class_hash_3 = felt!("0x0fedcba9876543210fedcba9876543210fedcba9876543210fedcba987654321");
-        
-        state_updates.declared_classes.insert(additional_class_hash_1, felt!("0x111").into());
-        state_updates.declared_classes.insert(additional_class_hash_2, felt!("0x222").into());
-        state_updates.declared_classes.insert(additional_class_hash_3, felt!("0x333").into());
-
-        // Deprecated declared classes
-        let deprecated_class_hash_1 = felt!("0x0abcdef123456789abcdef123456789abcdef123456789abcdef123456789abc");
-        let deprecated_class_hash_2 = felt!("0x0555666777888999aaabbbcccdddeeefffaaabbbcccdddeeefffaaabbbcccddd");
-        
-        state_updates.deprecated_declared_classes.insert(deprecated_class_hash_1);
-        state_updates.deprecated_declared_classes.insert(deprecated_class_hash_2);
-
         println!("📊 Enhanced state updates with {} contracts, {} storage entries, {} nonces, {} declared classes, {} deprecated classes, {} replaced classes", 
             state_updates.deployed_contracts.len(),
             state_updates.storage_updates.values().map(|s| s.len()).sum::<usize>(),
@@ -767,39 +385,15 @@ mod tests {
             state_updates.deprecated_declared_classes.len(),
             state_updates.replaced_classes.len()
         );
+
         let mainnet_provider = provider;
-        // let mainnet_state_root = mainnet_provider.compute_state_root(block_number, &state_updates).unwrap();
-        
-        // println!("Mainnet state root in genesis: {:?}", mainnet_state_root);
+        //init first state for mainnet
+        mainnet_provider.compute_state_root(block_number, &state_updates).unwrap();
         
         // Create minimal fork updates with one example from each category
         let mut fork_minimal_updates = StateUpdates::default();
         
-        // // 1. Deployed contract
-        let minimal_contract_address = felt!("0x06a4d4e8c1cc9785e125195a2f8bd4e5b0c7510b19f3e2dd63533524f5687e41").into();
-        let minimal_class_hash = felt!("0x03d5de568b28042464214dfbe2ea0d7e22d162986bcdb9f56d691d22955a4c23");
-        fork_minimal_updates.deployed_contracts.insert(minimal_contract_address, minimal_class_hash);
-        
-        // 2. Storage update
-        let mut minimal_storage = BTreeMap::new();
-        minimal_storage.insert(felt!("0x1").into(), felt!("0x123456").into());
-        fork_minimal_updates.storage_updates.insert(minimal_contract_address, minimal_storage);
-        
-        // 3. Nonce update
-        fork_minimal_updates.nonce_updates.insert(minimal_contract_address, felt!("0x5").into());
-        
-        // 4. Declared class
-        let minimal_declared_class = felt!("0x0987654321098765432109876543210987654321098765432109876543210987");
-        fork_minimal_updates.declared_classes.insert(minimal_declared_class, felt!("0x111").into());
-        
-        // 5. Deprecated class
-        let minimal_deprecated_class = felt!("0x0abcdef123456789abcdef123456789abcdef123456789abcdef123456789abc");
-        fork_minimal_updates.deprecated_declared_classes.insert(minimal_deprecated_class);
-        
-        // 6. Replaced class
-        let minimal_replaced_contract = felt!("0x04194c376fcddd757b190476f840f2d211d44c68ba79a6b627fa47e157cd4f97").into();
-        let minimal_new_class = felt!("0x033434ad846cdd5f23eb73ff09fe6fddd568284a0fb7d1be20ee482f044dabe2");
-        fork_minimal_updates.replaced_classes.insert(minimal_replaced_contract, minimal_new_class);
+        let fork_minimal_updates = setup_mainnet_updates_randomized(5);
 
         println!("📊 Minimal fork updates with {} contracts, {} storage entries, {} nonces, {} declared classes, {} deprecated classes, {} replaced classes", 
             fork_minimal_updates.deployed_contracts.len(),
@@ -810,27 +404,7 @@ mod tests {
             fork_minimal_updates.replaced_classes.len()
         );
 
-
-        let fork_url = url.clone();
-        let fork_block = katana_primitives::block::BlockHashOrNumber::Num(block_number);
-        // let test_node_config = test_config_forking(fork_url, fork_block);
-        // let sequencer = TestNode::new_with_config(test_node_config).await;
-        // let backend = sequencer.backend();
-        // let blockchain = sequencer.blockchain();
-        // let starknet_forked_provider = sequencer.starknet_provider();
-        // let provider = backend.blockchain.provider();
-
         let db = katana_db::init_ephemeral_db().unwrap();
-      
-        // let mut chain_spec = ChainSpec{
-        //     id: ChainId::from_str(s"SN_SEPOLIA").unwrap(),
-        //     genesis: GenesisConfig::default(),
-        //     fee_contracts: FeeContractsConfig::default(),
-        //     settlement: SettlementConfig::default(),
-        // };
-
-        // let (forked_blockchain, _) = Blockchain::new_from_forked(db, fork_url, Some(fork_block), &mut chain_spec).await.unwrap();
-        // let forked_provider = forked_blockchain.provider();
         let forked_provider = ForkedProvider::new(
             db.clone(),
             katana_primitives::block::BlockHashOrNumber::Num(block_number),
@@ -842,7 +416,6 @@ mod tests {
         println!("Forked state root: {:?}", state_root);
 
         let mainnet_state_root_same_updates = mainnet_provider.compute_state_root(block_number, &fork_minimal_updates).unwrap();
-        
         println!("Mainnet state root same updates to compare: {:?}", mainnet_state_root_same_updates);
 
         if state_root == mainnet_state_root_same_updates {
@@ -850,5 +423,392 @@ mod tests {
         } else {
             println!("❌ State roots do NOT match!");
         }
+        assert!(state_root == mainnet_state_root_same_updates, "State roots do not match on first run");
+
+        // Second iteration with new random updates
+        let state_updates = setup_mainnet_updates_randomized(5);
+        //IT's important here to compute state root for forked network first, then for mainnet
+        //otherwise it will be different roots because it's like double computation of same changes
+        let fork_state_root = forked_provider.compute_state_root(block_number, &state_updates).unwrap();
+        let mainnet_state_root = mainnet_provider.compute_state_root(block_number, &state_updates).unwrap();
+
+        println!("Mainnet state root: {:?}", mainnet_state_root);
+        println!("Fork state root: {:?}", fork_state_root);
+
+        if mainnet_state_root == fork_state_root {
+            println!("✅ State roots match!");
+        } else {
+            println!("❌ State roots do NOT match!");
+        }
+        assert!(mainnet_state_root == fork_state_root, "State roots do not match on second run");
+    }
+
+    fn setup_mainnet_updates_randomized(num_contracts: usize) -> StateUpdates {
+        let mut state_updates = StateUpdates::default();
+
+        for _ in 0..num_contracts {
+            let (address, class_hash, storage, nonce) = random_contract();
+            state_updates.deployed_contracts.insert(address, class_hash);
+            state_updates.storage_updates.insert(address, storage);
+            state_updates.declared_classes.insert(class_hash, random_felt());
+            state_updates.nonce_updates.insert(address, nonce);
+            if thread_rng().gen_bool(0.2) {
+                let new_class_hash = random_class_hash();
+                state_updates.replaced_classes.insert(address, new_class_hash);
+                state_updates.declared_classes.insert(new_class_hash, random_felt());
+            }
+            if thread_rng().gen_bool(0.2) {
+                state_updates.deprecated_declared_classes.insert(random_class_hash());
+            }
+        }
+
+        state_updates
+    }
+
+    fn random_felt() -> Felt {
+        let mut bytes = [0u8; 32];
+        rand::thread_rng().fill(&mut bytes);
+        Felt::from_bytes_be(&bytes)
+    }
+
+    fn random_class_hash() -> ClassHash {
+        ClassHash::from(random_felt())
+    }
+
+    fn random_contract_address() -> ContractAddress {
+        ContractAddress::from(random_felt())
+    }
+
+    fn random_contract() -> (ContractAddress, ClassHash, BTreeMap<Felt, Felt>, Felt) {
+        let address = random_contract_address();
+        let class_hash = random_class_hash();
+        let mut storage = BTreeMap::new();
+        for _ in 0..thread_rng().gen_range(1..=3) {
+            storage.insert(random_felt(), random_felt());
+        }
+        let nonce = random_felt();
+        (address, class_hash, storage, nonce)
+    }
+
+
+    /// To run this test you need to comment out global cache part in Node::buil()
+    #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+    async fn test_commit_new_state_root_two_katana_instances() {
+        let mainnet_handle = tokio::spawn(async {
+            let sequencer = TestNode::new().await;
+            let provider = sequencer.backend().blockchain.provider().clone();
+            let url = format!("http://{}", sequencer.rpc_addr());
+            let block_number = provider.latest_number().unwrap();
+
+            tokio::time::sleep(tokio::time::Duration::from_secs(2)).await;
+            
+            (provider, url, sequencer, block_number)
+        });
+
+        let (provider, url, sequencer, block_number) = mainnet_handle.await.unwrap();
+        let block_number = Arc::new(block_number);
+
+        tokio::time::sleep(tokio::time::Duration::from_secs(1)).await;
+
+        let fork_handle = tokio::spawn({
+            let block_number = block_number.clone();
+            async move {
+                let fork_url = Url::parse(&url).unwrap();
+                let fork_block = katana_primitives::block::BlockHashOrNumber::Num(*block_number);
+                let fork_config = test_config_forking(fork_url, fork_block);
+                let sequencer = TestNode::new_with_config(fork_config).await;
+                let provider = sequencer.backend().blockchain.provider().clone();
+                (provider, sequencer)
+            }
+        });
+
+        let (fork_provider, fork_sequencer) = fork_handle.await.unwrap();
+
+        let block_number = provider.latest_number().unwrap();
+        println!("Mainnet block number: {:?}", block_number);
+        let fork_block_number = fork_provider.latest_number().unwrap();
+        println!("Fork block number: {:?}", fork_block_number);
+
+        let state_updates = setup_mainnet_updates_randomized(5);
+        //Initialize genesis
+        provider.compute_state_root(block_number, &state_updates).unwrap();
+
+        let mut producer = IntervalBlockProducer::new(sequencer.backend().clone(), None);
+        let mut fork_producer = IntervalBlockProducer::new(fork_sequencer.backend().clone(), None);
+
+        producer.force_mine();
+        fork_producer.force_mine();
+        
+        let block_number = provider.latest_number().unwrap();
+        println!("Mainnet block number after genesis: {:?}", block_number);
+        let fork_block_number = fork_provider.latest_number().unwrap();
+        println!("Fork block number after genesis: {:?}", fork_block_number);
+
+        let fork_minimal_updates = setup_mainnet_updates_randomized(5);
+        let state_root = fork_provider.compute_state_root(block_number, &fork_minimal_updates).unwrap();
+        let mainnet_state_root_same_updates = provider.compute_state_root(block_number, &fork_minimal_updates).unwrap();
+
+        producer.force_mine();
+        fork_producer.force_mine();
+
+        let block_number = provider.latest_number().unwrap();
+        println!("Mainnet block number after first run: {:?}", block_number);
+        let fork_block_number = fork_provider.latest_number().unwrap();
+        println!("Fork block number after first run: {:?}", fork_block_number);
+
+        println!("Forked state root first run: {:?}", state_root);
+        println!("Mainnet state root first run: {:?}", mainnet_state_root_same_updates);
+        assert!(state_root == mainnet_state_root_same_updates, "State roots do not match on first run");
+
+        let state_updates = setup_mainnet_updates_randomized(5);
+        let fork_state_root = fork_provider.compute_state_root(fork_block_number, &state_updates).unwrap();
+        let mainnet_state_root = provider.compute_state_root(block_number, &state_updates).unwrap();
+
+        producer.force_mine();
+        fork_producer.force_mine();
+
+        let block_number = provider.latest_number().unwrap();
+        println!("Mainnet block number after second run: {:?}", block_number);
+        let fork_block_number = fork_provider.latest_number().unwrap();
+        println!("Fork block number after second run: {:?}", fork_block_number);
+
+        println!("Forked state root second run: {:?}", fork_state_root);
+        println!("Mainnet state root second run: {:?}", mainnet_state_root);
+        assert!(fork_state_root == mainnet_state_root, "State roots do not match on second run");
+
+        let block_number = provider.latest_number().unwrap();
+        println!("Mainnet block number after third run: {:?}", block_number);
+        let fork_block_number = fork_provider.latest_number().unwrap();
+        println!("Fork block number after third run: {:?}", fork_block_number);
+
+        let state_updates = setup_mainnet_updates_randomized(5);
+        let fork_state_root = fork_provider.compute_state_root(fork_block_number, &state_updates).unwrap();
+        let mainnet_state_root = provider.compute_state_root(block_number, &state_updates).unwrap();
+
+        println!("Forked state root third run: {:?}", fork_state_root);
+        println!("Mainnet state root third run: {:?}", mainnet_state_root);
+        assert!(fork_state_root == mainnet_state_root, "State roots do not match on third run");
+
+        producer.force_mine();
+        fork_producer.force_mine();
+
+        let cleanup = tokio::join!(
+            tokio::spawn(async move { sequencer.handle().stop().await }),
+            tokio::spawn(async move { fork_sequencer.handle().stop().await })
+        );
+        
+        cleanup.0.unwrap().unwrap();
+        cleanup.1.unwrap().unwrap();
+    }
+
+    fn arb_felt() -> impl Strategy<Value = Felt> {
+        any::<[u8; 32]>().prop_map(|bytes| Felt::from_bytes_be(&bytes))
+    }
+    
+    fn arb_class_hash() -> impl Strategy<Value = ClassHash> {
+        arb_felt().prop_map(ClassHash::from)
+    }
+    
+    fn arb_contract_address() -> impl Strategy<Value = ContractAddress> {
+        arb_felt().prop_map(ContractAddress::from)
+    }
+    
+    fn arb_storage() -> impl Strategy<Value = BTreeMap<Felt, Felt>> {
+        proptest::collection::btree_map(arb_felt(), arb_felt(), 0..3)
+    }
+    
+    fn arb_state_updates() -> impl Strategy<Value = StateUpdates> {
+        proptest::collection::btree_map(arb_contract_address(), (arb_class_hash(), arb_storage(), arb_felt()), 1..6)
+            .prop_flat_map(|contracts| {
+                // Rozbij na odpowiednie pola
+                let mut deployed_contracts = BTreeMap::new();
+                let mut storage_updates = BTreeMap::new();
+                let mut nonce_updates = BTreeMap::new();
+                let mut declared_classes = BTreeMap::new();
+                let mut replaced_classes = BTreeMap::new();
+                let mut deprecated_declared_classes = BTreeSet::new();
+    
+                for (address, (class_hash, storage, nonce)) in &contracts {
+                    deployed_contracts.insert(*address, *class_hash);
+                    storage_updates.insert(*address, storage.clone());
+                    nonce_updates.insert(*address, *nonce);
+                    declared_classes.insert(*class_hash, Felt::from(1u8)); // losowa wartość
+                    // losowo dodaj replaced_classes i deprecated_declared_classes
+                }
+    
+                Just(StateUpdates {
+                    deployed_contracts,
+                    storage_updates,
+                    nonce_updates,
+                    declared_classes,
+                    replaced_classes,
+                    deprecated_declared_classes,
+                    ..Default::default()
+                })
+            })
+    }
+
+    proptest! {
+        #![proptest_config(ProptestConfig {
+            cases: 10,
+            .. ProptestConfig::default()
+        })]
+        #[test]
+        fn prop_state_roots_match_for_mainnet_and_forked(
+            num_iters in 1usize..=5,
+            state_updates_vec in proptest::collection::vec(arb_state_updates(), 1..=5),
+            fork_minimal_updates_vec in proptest::collection::vec(arb_state_updates(), 1..=5)
+        ) {
+            let rt = tokio::runtime::Runtime::new().unwrap();
+            let _ = rt.block_on(async {
+                let sequencer = TestNode::new().await;
+                let backend = sequencer.backend();
+                let starknet_provider = sequencer.starknet_provider();
+                let provider = backend.blockchain.provider();
+
+                let url = format!("http://{}", sequencer.rpc_addr());
+                let url = Url::parse(&url).unwrap();
+                let mut block_number = provider.latest_number().unwrap();
+
+                let db = katana_db::init_ephemeral_db().unwrap();
+                let forked_provider = ForkedProvider::new(
+                    db.clone(),
+                    katana_primitives::block::BlockHashOrNumber::Num(block_number),
+                    starknet_provider,
+                    url.clone(),
+                );
+
+                let mut producer = IntervalBlockProducer::new(backend.clone(), None);
+
+                for i in 0..num_iters {
+                    let state_updates = &state_updates_vec[i % state_updates_vec.len()];
+                    let fork_minimal_updates = &fork_minimal_updates_vec[i % fork_minimal_updates_vec.len()];
+
+                    provider.compute_state_root(block_number, state_updates).unwrap();
+
+                    let fork_root = forked_provider.compute_state_root(block_number, fork_minimal_updates).unwrap();
+                    let mainnet_root = provider.compute_state_root(block_number, fork_minimal_updates).unwrap();
+
+                    prop_assert_eq!(fork_root, mainnet_root, "State roots do not match at iteration {}", i);
+                    
+                    producer.force_mine();
+                    block_number = provider.latest_number().unwrap();
+                }
+                Ok(())
+            });
+        }
+    }
+
+    #[test]
+    fn debug_failing_case() {
+        use katana_primitives::{Felt, ContractAddress};
+        use katana_primitives::state::StateUpdates;
+        use std::collections::{BTreeMap, BTreeSet};
+        let mut btree_map = BTreeMap::new();
+        btree_map.insert(Felt::ZERO, Felt::ZERO);
+
+        // Skopiowane dane z pliku proptest-regressions/starknet/forking.txt
+        let state_updates = StateUpdates {
+            nonce_updates: [
+                (ContractAddress::from(Felt::from_hex("0x10fb243e82c06238d838f4b3c582b7ad17837ba4117d640ecadc143fd43db5b").unwrap()),
+                 Felt::from_hex("0x374c6b4ecc7464bbc2f1b2d1e56cc796d5ad2df9f3736dac32d078dda5e8b49").unwrap())
+            ].into_iter().collect(),
+            storage_updates: [
+                (ContractAddress::from(Felt::from_hex("0x10fb243e82c06238d838f4b3c582b7ad17837ba4117d640ecadc143fd43db5b").unwrap()),
+                 btree_map)
+            ].into_iter().collect(),
+            deployed_contracts: [
+                (ContractAddress::from(Felt::from_hex("0x10fb243e82c06238d838f4b3c582b7ad17837ba4117d640ecadc143fd43db5b").unwrap()),
+                 ClassHash::from(Felt::from_hex("0x6f6ffb37b185784c4298866f829b0eb736799027bf167b9a7df342520334b4b").unwrap()))
+            ].into_iter().collect(),
+            declared_classes: [
+                (ClassHash::from(Felt::from_hex("0x6f6ffb37b185784c4298866f829b0eb736799027bf167b9a7df342520334b4b").unwrap()),
+                 Felt::from_hex("0x1").unwrap())
+            ].into_iter().collect(),
+            deprecated_declared_classes: BTreeSet::new(),
+            replaced_classes: BTreeMap::new(),
+            ..Default::default()
+        };
+
+        let fork_minimal_updates = StateUpdates {
+            nonce_updates: [
+                (ContractAddress::from(Felt::from_hex("0x5991364353694863494443e75a19bddf51a6a67df7da4d196f6e3987b6874d").unwrap()),
+                 Felt::from_hex("0x686a912006908670917a9695ed0021e5462bb7495aa52fc29ff73f0ee9fe5d9").unwrap()),
+                (ContractAddress::from(Felt::from_hex("0x16ea94eafbe872cd98f9f6e070fa083382a5876a18f34dbae1858601757a5f1").unwrap()),
+                 Felt::from_hex("0x77d5d0ef0d14fa2d36f7f943b0a81921d799d8c0da7d1c3ac09d9c9b48c5379").unwrap()),
+                (ContractAddress::from(Felt::from_hex("0x40807a654b32e4aa778a9aa76702aaa25935fce2d79a4a3c9af568eb0839874").unwrap()),
+                 Felt::from_hex("0x27926baafc1aae314b0366ddd961c0d0455e4b69939bee4b43ec41482db4c16").unwrap()),
+                (ContractAddress::from(Felt::from_hex("0x5c6fe4e6bf95e03d9478e3fe3e2d6eab767a72ff868caa1a8a964491373ba7d").unwrap()),
+                 Felt::from_hex("0x3c294d24e1f8f499865adebdd230647a088a86373230177cb48e397bc38788c").unwrap()),
+                (ContractAddress::from(Felt::from_hex("0x77d97a9faa26dce726faf8a30f308abd81fd375b1b55f7b6c8aae1dec3503c4").unwrap()),
+                 Felt::from_hex("0x69727236c816d0e41aa76f71656d2c7c1b63ecf03a6e16fe1b928a2dfaf7463").unwrap()),
+            ].into_iter().collect(),
+            storage_updates: [
+                (ContractAddress::from(Felt::from_hex("0x5991364353694863494443e75a19bddf51a6a67df7da4d196f6e3987b6874d").unwrap()),
+                 [
+                    (Felt::from_hex("0xc8b4591e6ac3f1e0f3e0d1e7dcbb0624656a2e559add1b86086774892b8fd4").unwrap(), Felt::from_hex("0x68edc8122ff1009d0e56463bf6b26a5ae6a91ca617247db773512cc01612c44").unwrap()),
+                    (Felt::from_hex("0x69f5683aae47a69bfe12823bf555bd25bbfe8afc2bdbf21d8cea06d4d0657c6").unwrap(), Felt::from_hex("0x5ad43ca135b55ef291824b48bab917e3070d96437f17b1950d00c196eeda3e0").unwrap()),
+                 ].into_iter().collect()),
+                (ContractAddress::from(Felt::from_hex("0x16ea94eafbe872cd98f9f6e070fa083382a5876a18f34dbae1858601757a5f1").unwrap()),
+                 [
+                    (Felt::from_hex("0xd528c0c0a99dc646a419bd72211be0dbce7862973e77cc9a8c68f2af4bc59f").unwrap(), Felt::from_hex("0x58905833ca7d08e659c9cbed4c38389edd272f0d97ab49a5625f59e6db76a25").unwrap()),
+                 ].into_iter().collect()),
+                (ContractAddress::from(Felt::from_hex("0x40807a654b32e4aa778a9aa76702aaa25935fce2d79a4a3c9af568eb0839874").unwrap()),
+                 [
+                    (Felt::from_hex("0x1866df9ae650d18ebaa717b55d550f2f69ed8a853bd7db4cdd4b3b41d51cc4f").unwrap(), Felt::from_hex("0x3cec9df661101c30fc01333dc5d801e8fc04b071f63caa0f34a5ab97fa943a1").unwrap()),
+                    (Felt::from_hex("0x321cb66a9256c0c081ca52dbaa3f577b5dda466cf6246cf5e5e390f092fc5c3").unwrap(), Felt::from_hex("0x3da951024bfcdce26b7fe125a1cfebcd5b3773e444a39e3e6d454a45c3fb843").unwrap()),
+                 ].into_iter().collect()),
+                (ContractAddress::from(Felt::from_hex("0x5c6fe4e6bf95e03d9478e3fe3e2d6eab767a72ff868caa1a8a964491373ba7d").unwrap()),
+                 [
+                    (Felt::from_hex("0x44ca6e0abdd6baf26e7092e757e6362f78fc763b9dbe015264826edc40fc682").unwrap(), Felt::from_hex("0x51d40d70918a1f84c2347aa6ab476ed7d6932e32e5d608911596f90aea8af46").unwrap()),
+                 ].into_iter().collect()),
+                (ContractAddress::from(Felt::from_hex("0x77d97a9faa26dce726faf8a30f308abd81fd375b1b55f7b6c8aae1dec3503c4").unwrap()),
+                 BTreeMap::new()),
+            ].into_iter().collect(),
+            deployed_contracts: [
+                (ContractAddress::from(Felt::from_hex("0x5991364353694863494443e75a19bddf51a6a67df7da4d196f6e3987b6874d").unwrap()), ClassHash::from(Felt::from_hex("0x43157a62d2e288a46a0ff0e106e5d871d676b658648d79b6913f880343cb820").unwrap())),
+                (ContractAddress::from(Felt::from_hex("0x16ea94eafbe872cd98f9f6e070fa083382a5876a18f34dbae1858601757a5f1").unwrap()), ClassHash::from(Felt::from_hex("0x1378b9ebe07cab5d9f68eff2f5d6e404256a6ac07b48394eedf49448b54929").unwrap())),
+                (ContractAddress::from(Felt::from_hex("0x40807a654b32e4aa778a9aa76702aaa25935fce2d79a4a3c9af568eb0839874").unwrap()), ClassHash::from(Felt::from_hex("0x451a4390ad61731406919a96d605bef7fe27d428cdcd36c10f9fc42f1de50de").unwrap())),
+                (ContractAddress::from(Felt::from_hex("0x5c6fe4e6bf95e03d9478e3fe3e2d6eab767a72ff868caa1a8a964491373ba7d").unwrap()), ClassHash::from(Felt::from_hex("0xa6b89431e8bd401a9e723f74b91fd48ff87d29fbf1f81fddf752aeca40c3df").unwrap())),
+                (ContractAddress::from(Felt::from_hex("0x77d97a9faa26dce726faf8a30f308abd81fd375b1b55f7b6c8aae1dec3503c4").unwrap()), ClassHash::from(Felt::from_hex("0xd7299f46238eeb37ceb34f3552d7f618e86a8a889b4b3bb8eda330ce196ecd").unwrap())),
+            ].into_iter().collect(),
+            declared_classes: [
+                (ClassHash::from(Felt::from_hex("0x1378b9ebe07cab5d9f68eff2f5d6e404256a6ac07b48394eedf49448b54929").unwrap()), Felt::from_hex("0x1").unwrap()),
+                (ClassHash::from(Felt::from_hex("0xa6b89431e8bd401a9e723f74b91fd48ff87d29fbf1f81fddf752aeca40c3df").unwrap()), Felt::from_hex("0x1").unwrap()),
+                (ClassHash::from(Felt::from_hex("0xd7299f46238eeb37ceb34f3552d7f618e86a8a889b4b3bb8eda330ce196ecd").unwrap()), Felt::from_hex("0x1").unwrap()),
+                (ClassHash::from(Felt::from_hex("0x43157a62d2e288a46a0ff0e106e5d871d676b658648d79b6913f880343cb820").unwrap()), Felt::from_hex("0x1").unwrap()),
+                (ClassHash::from(Felt::from_hex("0x451a4390ad61731406919a96d605bef7fe27d428cdcd36c10f9fc42f1de50de").unwrap()), Felt::from_hex("0x1").unwrap()),
+            ].into_iter().collect(),
+            deprecated_declared_classes: BTreeSet::new(),
+            replaced_classes: BTreeMap::new(),
+            ..Default::default()
+        };
+
+        let rt = tokio::runtime::Runtime::new().unwrap();
+        rt.block_on(async {
+            let sequencer = TestNode::new().await;
+            let backend = sequencer.backend();
+            let starknet_provider = sequencer.starknet_provider();
+            let provider = backend.blockchain.provider();
+
+            let url = format!("http://{}", sequencer.rpc_addr());
+            let url = Url::parse(&url).unwrap();
+            let block_number = provider.latest_number().unwrap();
+
+            provider.compute_state_root(block_number, &state_updates).unwrap();
+
+            let db = katana_db::init_ephemeral_db().unwrap();
+            let forked_provider = ForkedProvider::new(
+                db.clone(),
+                katana_primitives::block::BlockHashOrNumber::Num(block_number),
+                starknet_provider,
+                url.clone(),
+            );
+
+            let fork_root = forked_provider.compute_state_root(block_number, &fork_minimal_updates).unwrap();
+            let mainnet_root = provider.compute_state_root(block_number, &fork_minimal_updates).unwrap();
+
+            assert_eq!(fork_root, mainnet_root);
+        });
     }
 }

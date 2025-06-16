@@ -88,8 +88,7 @@ impl<Db: Database + 'static> TrieWriter for ForkedProvider<Db> {
                 leaf.class_hash = leaf_data.class_hash;
                 contract_leafs.insert(*address, leaf);
             }
-            println!("CONTRACT LEAFS after inserting leaf from proof: {:?}", contract_leafs);
-
+            println!("\n----------------FORKING START----------------\n");
             let leaf_hashes: Vec<_> = {
                 // First handle storage updates
                 for ((address, storage_entries), storage_proof) in state_updates.storage_updates.iter().zip(contracts_storage_proofs.iter()) {
@@ -106,6 +105,7 @@ impl<Db: Database + 'static> TrieWriter for ForkedProvider<Db> {
                     }
                     contract_leafs.entry(*address).or_insert(ContractLeaf::default());
                     storage_trie_db.commit(block_number);
+                    println!("STORAGE ROOT FOR STORAGE TRIE FORKING: {:?}", storage_trie_db.root());
                 }
 
                 // Handle other contract updates
@@ -129,12 +129,12 @@ impl<Db: Database + 'static> TrieWriter for ForkedProvider<Db> {
                             address,
                         );
                         let storage_root = storage_trie.root();
+                        println!("STORAGE ROOT: {:?}", storage_root);
                         // Only update storage root if we have local changes (non-zero root)
                         //THIS might cause a bug!
                         if storage_root != Felt::ZERO {
                             leaf.storage_root = Some(storage_root);
                         }
-                        
                         let latest_state = self.latest_with_tx(tx)?;
                         let leaf_hash = contract_state_leaf_hash(latest_state, &address, &leaf);
 
@@ -143,12 +143,16 @@ impl<Db: Database + 'static> TrieWriter for ForkedProvider<Db> {
                     .collect::<Result<Vec<_>, ProviderError>>()?
             };
             println!("LEAF HASHES FOR FORKED NETWORK: {:?}", leaf_hashes);
+            println!("\n----------------FORKING END----------------\n");
+
+            println!("ORIGINAL ROOT OF CONTRACT TRIE: {:?}", original_root);
 
             for (k, v) in leaf_hashes {
                 contract_trie_db.insert(k, v, proof.clone(), original_root);
             }
 
             contract_trie_db.commit(block_number);
+            println!("CONTRACT TRIE ROOT FORKING: {:?}", contract_trie_db.root());
             Ok(contract_trie_db.root())
         })?
     }
@@ -191,7 +195,6 @@ impl<Db: Database + 'static> TrieWriter for ForkedProvider<Db> {
                         e
                     ))
                 })?;
-            println!("CLIENT: {:?}", client);
 
             // Collect storage proof data
             let mut class_hashes = Vec::new();
@@ -223,7 +226,7 @@ impl<Db: Database + 'static> TrieWriter for ForkedProvider<Db> {
 
             // Convert HashSet to sorted Vec
             let mut contract_addresses: Vec<_> = contract_addresses.into_iter().collect();
-            contract_addresses.sort(); //think if we need to sort the contract addresses, that may cause a bug
+            // contract_addresses.sort(); //think if we need to sort the contract addresses, that may cause a bug
             let contract_addresses_clone = contract_addresses.clone();
 
             let response = self.backend.get_storage_proof(StorageProofPayload {
@@ -236,7 +239,7 @@ impl<Db: Database + 'static> TrieWriter for ForkedProvider<Db> {
             Ok((response, contract_addresses_clone))
         };
 
-        println!("\nResult of starknet_getStorageProof: {:?}\n", result);
+        // println!("\nResult of starknet_getStorageProof: {:?}\n", result);
         match result {
             Ok((Some(proof), contract_addresses)) => {
                 // Extract proofs from the response
@@ -251,8 +254,6 @@ impl<Db: Database + 'static> TrieWriter for ForkedProvider<Db> {
                 // let contract_leaves_data = proof.contracts_proof.contract_leaves_data.clone();
                 let classes_tree_root = proof.global_roots.classes_tree_root;
                 let contracts_tree_root = proof.global_roots.contracts_tree_root;
-                println!("\nPROOF GLOBAL ROOTS: {:?}\n", proof.global_roots);
-                println!("\nState updates: {:?}\n", state_updates);
 
                 let contract_leaves_map: HashMap<ContractAddress, ContractLeaf> = proof.contracts_proof.contract_leaves_data
                     .iter()
@@ -286,7 +287,6 @@ impl<Db: Database + 'static> TrieWriter for ForkedProvider<Db> {
                     // Use the class trie root from forked network
                     classes_tree_root
                 };
-                println!("Class trie root: {:?}", class_trie_root);
 
                 let contract_trie_root = if has_contract_changes {
                     self.trie_insert_contract_updates_with_proof(
@@ -301,12 +301,6 @@ impl<Db: Database + 'static> TrieWriter for ForkedProvider<Db> {
                     // Use the contract trie root from forked network
                     contracts_tree_root
                 };
-                println!("Contract trie root: {:?}", contract_trie_root);
-                println!("STATE ROOT COMPUTED FOR FORKED NETWORK ✅: {:?}", starknet_types_core::hash::Poseidon::hash_array(&[
-                    starknet::macros::short_string!("STARKNET_STATE_V0"),
-                    contract_trie_root,
-                    class_trie_root,
-                ]));
 
                 Ok(starknet_types_core::hash::Poseidon::hash_array(&[
                     starknet::macros::short_string!("STARKNET_STATE_V0"),

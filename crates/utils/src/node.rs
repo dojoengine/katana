@@ -141,7 +141,7 @@ pub fn test_config_forking(url: Url, block: BlockHashOrNumber) -> Config {
     chain.genesis.sequencer_address = address!("0x1");
 
     let rpc = RpcConfig {
-        port: 5052,
+        port: 5053,
         addr: DEFAULT_RPC_ADDR,
         apis: RpcModulesList::all(),
         max_proof_keys: Some(1000),

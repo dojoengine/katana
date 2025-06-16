@@ -61,6 +61,7 @@ impl<Db: Database> TrieWriter for DbProvider<Db> {
 
                     // Then we commit them
                     storage_trie_db.commit(block_number);
+                    println!("STORAGE ROOT FOR STORAGE TRIE MAINNET: {:?}", storage_trie_db.root());
                 }
 
                 for (address, nonce) in &state_updates.nonce_updates {
@@ -103,8 +104,8 @@ impl<Db: Database> TrieWriter for DbProvider<Db> {
             for (k, v) in leaf_hashes {
                 contract_trie_db.insert(k, v);
             }
-
             contract_trie_db.commit(block_number);
+            println!("CONTRACT TRIE ROOT MAINNET: {:?}", contract_trie_db.root());
             Ok(contract_trie_db.root())
         })?
     }
