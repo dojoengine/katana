@@ -22,6 +22,7 @@ clap.workspace = true
 clap_complete.workspace = true
 comfy-table = "7.1.1"
 const_format = "0.2.33"
+indicatif = "0.17.8"
 inquire = "0.7.5"
 piltover = { git = "https://github.com/keep-starknet-strange/piltover.git", rev = "45263e8" }
 rand.workspace = true
