@@ -1,12 +1,16 @@
+use std::collections::HashMap;
+
 use anyhow::{anyhow, Context, Result};
 use clap::Args;
 use indicatif::{MultiProgress, ProgressBar, ProgressStyle};
 use inquire::Confirm;
-use katana_db::abstraction::{Database, DbCursor, DbDupSortCursorMut, DbTx, DbTxMut};
+use katana_db::abstraction::{
+    Database, DbCursor, DbDupSortCursor, DbDupSortCursorMut, DbTx, DbTxMut,
+};
 use katana_db::error::DatabaseError;
 use katana_db::models::list::BlockList;
 use katana_db::models::trie::TrieDatabaseKey;
-use katana_db::tables::{self, Tables};
+use katana_db::tables::{self};
 use katana_primitives::block::BlockNumber;
 
 use super::open_db_ro;
@@ -68,79 +72,19 @@ impl PruneArgs {
 
     fn prompt_confirmation(&self) -> Result<bool> {
         let mode = self.mode();
-        let stats = self.collect_pruning_statistics()?;
+        let stats = self.collect_pruning_stats()?;
         show_confirmation_prompt(&stats, &mode)
     }
 
     /// Collect statistics about what will be pruned
-    fn collect_pruning_statistics(&self) -> Result<PruningStatistics> {
+    fn collect_pruning_stats(&self) -> Result<PruningStats> {
         let mode = self.mode();
+        let tx = open_db_ro(&self.path)?.tx().context("Failed to create read transaction")?;
 
-        let db = open_db_ro(&self.path)?;
-        let tx = db.tx().context("Failed to create read transaction")?;
-
-        let mut total_entries = 0;
-
-        // Count entries in history tables
-        let history_tables_entries = [
-            (
-                Tables::ClassesTrieHistory.name(),
-                Box::new(|| tx.entries::<tables::ClassesTrieHistory>())
-                    as Box<dyn Fn() -> Result<usize, DatabaseError>>,
-            ),
-            (
-                Tables::ContractsTrieHistory.name(),
-                Box::new(|| tx.entries::<tables::ContractsTrieHistory>())
-                    as Box<dyn Fn() -> Result<usize, DatabaseError>>,
-            ),
-            (
-                Tables::StoragesTrieHistory.name(),
-                Box::new(|| tx.entries::<tables::StoragesTrieHistory>())
-                    as Box<dyn Fn() -> Result<usize, DatabaseError>>,
-            ),
-        ];
-
-        for (_, count_fn) in history_tables_entries {
-            if let Ok(count) = count_fn() {
-                if count > 0 {
-                    total_entries += count;
-                }
-            }
+        match mode {
+            PruneMode::Latest => count_all_historical_deletions(&tx),
+            PruneMode::KeepLastN { blocks } => count_keep_last_n_deletions(&tx, blocks),
         }
-
-        // Count entries in changeset tables
-        let changeset_tables = [
-            (
-                Tables::ClassesTrieChangeSet.name(),
-                Box::new(|| tx.entries::<tables::ClassesTrieChangeSet>())
-                    as Box<dyn Fn() -> Result<usize, DatabaseError>>,
-            ),
-            (
-                Tables::ContractsTrieChangeSet.name(),
-                Box::new(|| tx.entries::<tables::ContractsTrieChangeSet>()) as Box<_>,
-            ),
-            (
-                Tables::StoragesTrieChangeSet.name(),
-                Box::new(|| tx.entries::<tables::StoragesTrieChangeSet>()) as Box<_>,
-            ),
-        ];
-
-        for (_, count_fn) in changeset_tables {
-            if let Ok(count) = count_fn() {
-                if count > 0 {
-                    // For changeset tables, we need to estimate based on mode
-                    let estimated_entries = match mode {
-                        PruneMode::Latest => count,               // All entries will be affected
-                        PruneMode::KeepLastN { .. } => count / 2, // Rough estimate
-                    };
-                    total_entries += estimated_entries;
-                }
-            }
-        }
-
-        tx.commit()?;
-
-        Ok(PruningStatistics { tables_affected: 6, total_entries })
     }
 }
 
@@ -380,20 +324,142 @@ fn prune_changeset_table<T: tables::Trie>(
 }
 
 /// Structure to hold pruning statistics
-#[derive(Debug)]
-struct PruningStatistics {
-    pub tables_affected: usize,
-    pub total_entries: usize,
+#[derive(Debug, Default)]
+struct PruningStats {
+    /// Total number of table entries that will be deleted in the pruning process mapped
+    /// according to their table name.
+    pub table_entries_deletions: HashMap<&'static str, usize>,
+}
+
+/// Count total entries that will be deleted for PruneMode::Latest
+fn count_all_historical_deletions(tx: &impl DbTx) -> Result<PruningStats> {
+    let mut table_entries_deletions = HashMap::new();
+
+    // Count all entries in history tables
+    table_entries_deletions.insert(
+        tables::Tables::ClassesTrieHistory.name(),
+        tx.entries::<tables::ClassesTrieHistory>()?,
+    );
+    table_entries_deletions.insert(
+        tables::Tables::ContractsTrieHistory.name(),
+        tx.entries::<tables::ContractsTrieHistory>()?,
+    );
+    table_entries_deletions.insert(
+        tables::Tables::StoragesTrieHistory.name(),
+        tx.entries::<tables::StoragesTrieHistory>()?,
+    );
+
+    // Count all entries in changeset tables
+    table_entries_deletions.insert(
+        tables::Tables::ClassesTrieChangeSet.name(),
+        tx.entries::<tables::ClassesTrieChangeSet>()?,
+    );
+    table_entries_deletions.insert(
+        tables::Tables::ContractsTrieChangeSet.name(),
+        tx.entries::<tables::ContractsTrieChangeSet>()?,
+    );
+    table_entries_deletions.insert(
+        tables::Tables::StoragesTrieChangeSet.name(),
+        tx.entries::<tables::StoragesTrieChangeSet>()?,
+    );
+
+    Ok(PruningStats { table_entries_deletions })
+}
+
+/// Count total entries that will be deleted for PruneMode::KeepLastN
+fn count_keep_last_n_deletions(tx: &impl DbTx, keep_last_n: BlockNumber) -> Result<PruningStats> {
+    let cutoff_block = get_latest_block_number(tx)?.saturating_sub(keep_last_n);
+
+    if cutoff_block == 0 {
+        return Ok(PruningStats::default());
+    }
+
+    let mut table_entries_deletions = HashMap::new();
+
+    // Count entries in history tables
+    table_entries_deletions.insert(
+        tables::Tables::ClassesTrieHistory.name(),
+        count_history_table_deletions::<tables::ClassesTrie>(tx, cutoff_block)?,
+    );
+    table_entries_deletions.insert(
+        tables::Tables::ContractsTrieHistory.name(),
+        count_history_table_deletions::<tables::ContractsTrie>(tx, cutoff_block)?,
+    );
+    table_entries_deletions.insert(
+        tables::Tables::StoragesTrieHistory.name(),
+        count_history_table_deletions::<tables::StoragesTrie>(tx, cutoff_block)?,
+    );
+
+    // Count entries in changeset tables
+    table_entries_deletions.insert(
+        tables::Tables::ClassesTrieChangeSet.name(),
+        count_changeset_table_deletions::<tables::ClassesTrie>(tx, cutoff_block)?,
+    );
+    table_entries_deletions.insert(
+        tables::Tables::ContractsTrieChangeSet.name(),
+        count_changeset_table_deletions::<tables::ContractsTrie>(tx, cutoff_block)?,
+    );
+    table_entries_deletions.insert(
+        tables::Tables::StoragesTrieChangeSet.name(),
+        count_changeset_table_deletions::<tables::StoragesTrie>(tx, cutoff_block)?,
+    );
+
+    Ok(PruningStats { table_entries_deletions })
+}
+
+/// Count historical entries that would be deleted for a specific trie type up to the cutoff block
+fn count_history_table_deletions<T: tables::Trie>(
+    tx: &impl DbTx,
+    cutoff_block: BlockNumber,
+) -> Result<usize> {
+    let mut count = 0;
+    let mut cursor = tx.cursor_dup::<T::History>()?;
+
+    for entry in cursor.walk_dup(None, None)?.unwrap() {
+        let (block, ..) = entry?;
+
+        if block <= cutoff_block {
+            count += 1;
+        }
+    }
+
+    Ok(count)
+}
+
+/// Count changeset entries that would be deleted by removing blocks up to cutoff_block
+fn count_changeset_table_deletions<T: tables::Trie>(
+    tx: &impl DbTx,
+    cutoff_block: BlockNumber,
+) -> Result<usize> {
+    let mut delete_count = 0;
+    let mut cursor = tx.cursor::<T::Changeset>()?;
+
+    for entry in cursor.walk(None)? {
+        let (_, block_list) = entry?;
+
+        // only count if the first block is less than the cutoff block (ie, all the blocks will be
+        // pruned)
+        if let Some(block_num) = block_list.select(0) {
+            if block_num <= cutoff_block {
+                delete_count += 1;
+            }
+        }
+    }
+
+    Ok(delete_count)
 }
 
 /// Show confirmation prompt with statistics
-fn show_confirmation_prompt(stats: &PruningStatistics, mode: &PruneMode) -> Result<bool> {
+fn show_confirmation_prompt(stats: &PruningStats, mode: &PruneMode) -> Result<bool> {
     println!("\nWARNING: This operation will permanently delete historical trie data.");
     println!(
         "- Tables affected: {} (ClassesTrieHistory, ContractsTrieHistory, etc.)",
-        stats.tables_affected
+        stats.table_entries_deletions.len()
     );
-    println!("- Estimated entries to delete: {}", stats.total_entries);
+    println!(
+        "- Estimated entries to delete: {}",
+        stats.table_entries_deletions.values().sum::<usize>()
+    );
 
     match mode {
         PruneMode::Latest => {
