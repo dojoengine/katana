@@ -5743,6 +5743,19 @@ dependencies = [
 ]
 
 [[package]]
+name = "indicatif"
+version = "0.17.11"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "183b3088984b400f4cfac3620d5e076c84da5364016b4f49473de574b2586235"
+dependencies = [
+ "console",
+ "number_prefix",
+ "portable-atomic 1.11.0",
+ "unicode-width 0.2.0",
+ "web-time",
+]
+
+[[package]]
 name = "indoc"
 version = "2.0.5"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -6153,6 +6166,7 @@ name = "katana"
 version = "1.6.0-alpha.0"
 dependencies = [
  "anyhow",
+ "arbitrary",
  "assert_matches",
  "async-trait",
  "byte-unit",
@@ -6161,20 +6175,24 @@ dependencies = [
  "clap_complete",
  "comfy-table",
  "const_format",
+ "indicatif",
  "inquire",
  "katana-chain-spec",
  "katana-cli",
  "katana-db",
  "katana-primitives",
+ "katana-provider",
  "katana-rpc-types",
  "katana-utils",
  "piltover",
+ "proptest",
  "rand 0.8.5",
  "rstest 0.18.2",
  "shellexpand",
  "spinoff",
  "starknet 0.14.0",
  "strum_macros 0.25.3",
+ "tempfile",
  "thiserror 1.0.69",
  "tokio",
  "tracing",
@@ -6844,6 +6862,7 @@ name = "katana-utils"
 version = "1.6.0-alpha.0"
 dependencies = [
  "anyhow",
+ "arbitrary",
  "assert_matches",
  "futures",
  "katana-chain-spec",
@@ -6853,6 +6872,7 @@ dependencies = [
  "katana-primitives",
  "katana-provider",
  "katana-rpc",
+ "rand 0.8.5",
  "starknet 0.14.0",
  "thiserror 1.0.69",
  "tokio",
@@ -7656,6 +7676,12 @@ checksum = "5c7398b9c8b70908f6371f47ed36737907c87c52af34c268fed0bf0ceb92ead9"
 dependencies = [
  "libc",
 ]
+
+[[package]]
+name = "number_prefix"
+version = "0.4.0"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "830b246a0e5f20af87141b25c173cd1b609bd7779a4617d6ec582abaf90870f3"
 
 [[package]]
 name = "nybbles"
@@ -11004,8 +11030,7 @@ dependencies = [
 [[package]]
 name = "starknet-types-core"
 version = "0.1.8"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "4037bcb26ce7c508448d221e570d075196fd4f6912ae6380981098937af9522a"
+source = "git+https://github.com/kariy/types-rs?rev=0f6ae31#0f6ae31a5a19352cc99b74604fab15cd9d1bb76e"
 dependencies = [
  "arbitrary",
  "lambdaworks-crypto",

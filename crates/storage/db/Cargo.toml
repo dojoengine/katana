@@ -12,6 +12,7 @@ katana-trie.workspace = true
 katana-metrics.workspace = true
 
 anyhow.workspace = true
+arbitrary = { workspace = true, optional = true }
 metrics.workspace = true
 page_size = "0.6.0"
 parking_lot.workspace = true
@@ -43,6 +44,7 @@ starknet.workspace = true
 default = [ "postcard" ]
 postcard = [ "dep:postcard" ]
 test-utils = [  ]
+arbitrary = [ "dep:arbitrary" ]
 
 [[bench]]
 harness = false
