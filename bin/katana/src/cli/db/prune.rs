@@ -52,6 +52,8 @@ impl PruneArgs {
     }
 }
 
+// If prune mode is KeepLastN and the value is more than the available blocks,
+// the operation will be a no-op (no data will be pruned).
 fn prune_database(db_path: &str, mode: PruneMode) -> Result<()> {
     let db = open_db_rw(db_path)?;
     let tx = db.tx_mut().context("Failed to create write transaction")?;

@@ -141,10 +141,10 @@ fn prune_keep_last_n_blocks(db: TempDb) {
 fn prune_keep_last_n_blocks_exceeds_available(db: TempDb) {
     let provider = db.provider_ro();
     let latest_block = provider.latest_number().unwrap();
-    
+
     // block -> (classes root, contracts root)
     let mut historical_roots_reg = HashMap::new();
-    
+
     // Verify all historical states are accessible before pruning
     for num in 1..=latest_block {
         let (classes_root, contracts_root) = historical_roots(&provider, num).unwrap();
@@ -152,36 +152,38 @@ fn prune_keep_last_n_blocks_exceeds_available(db: TempDb) {
         assert!(contracts_root != Felt::ZERO, "contracts root for block {num} cannot be zero");
         historical_roots_reg.insert(num, (classes_root, contracts_root));
     }
-    
+
     let (initial_classes_root, initial_contracts_root) = latest_roots(&provider).unwrap();
     drop(provider);
-    
+
     // Request to keep more blocks than are available
     let keep_last_n = latest_block + 10;
     let path = db.path_str();
-    
+
     // This should print a warning and return without pruning anything
     Cli::parse_from([
-        "katana", 
-        "db", 
-        "prune", 
-        "--path", 
-        path, 
-        "--keep-last", 
-        &keep_last_n.to_string()
-    ]).run().unwrap();
-    
+        "katana",
+        "db",
+        "prune",
+        "--path",
+        path,
+        "--keep-last",
+        &keep_last_n.to_string(),
+    ])
+    .run()
+    .unwrap();
+
     let provider = db.provider_ro();
     let (final_classes_root, final_contracts_root) = latest_roots(&provider).unwrap();
-    
+
     // Verify that NO pruning occurred - all historical states should still be accessible
     for num in 1..=latest_block {
         let (classes_root, contracts_root) = historical_roots(&provider, num).unwrap();
-        let (expected_classes_root, expected_contracts_root) = 
+        let (expected_classes_root, expected_contracts_root) =
             historical_roots_reg.get(&num).unwrap();
-        
+
         assert_eq!(
-            classes_root, *expected_classes_root, 
+            classes_root, *expected_classes_root,
             "classes root for block {num} should remain unchanged"
         );
         assert_eq!(
@@ -189,7 +191,7 @@ fn prune_keep_last_n_blocks_exceeds_available(db: TempDb) {
             "contracts root for block {num} should remain unchanged"
         );
     }
-    
+
     // Verify latest state roots remain unchanged
     assert_eq!(final_classes_root, initial_classes_root);
     assert_eq!(final_contracts_root, initial_contracts_root);
