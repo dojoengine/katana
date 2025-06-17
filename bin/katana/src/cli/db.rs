@@ -231,7 +231,7 @@ fn prune_database(db_path: &str, mode: PruneMode) -> Result<()> {
                 return Ok(());
             }
 
-            prune_keep_last_n(&tx, latest_block, blocks)?;
+            prune_keep_last_n(&tx, cutoff_block)?;
             println!("Pruned historical data for blocks 0 to {}", cutoff_block);
         }
     }
@@ -288,9 +288,7 @@ fn prune_all_history(tx: &impl DbTxMut) -> Result<()> {
 }
 
 /// Prune historical data keeping only the last N blocks
-fn prune_keep_last_n(tx: &impl DbTxMut, latest_block: BlockNumber, keep_blocks: u64) -> Result<()> {
-    let cutoff_block = latest_block.saturating_sub(keep_blocks);
-
+fn prune_keep_last_n(tx: &impl DbTxMut, cutoff_block: BlockNumber) -> Result<()> {
     if cutoff_block == 0 {
         return Ok(());
     }
