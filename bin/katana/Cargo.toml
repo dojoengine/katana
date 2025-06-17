@@ -56,10 +56,3 @@ init-custom-settlement-chain = [  ]
 init-slot = [  ]
 jemalloc = [  ]
 native = [ "katana-cli/native" ]
-
-[patch.crates-io]
-# NOTE: remove this patch once this PR is merged <https://github.com/starknet-io/types-rs/pull/132>
-#
-# This patch fixes an issue where we're unable to correctly evaluate the accurate size
-# for constructing `Felt` from unstructured data (Arbitrary).
-starknet-types-core = { git = "https://github.com/kariy/types-rs", rev = "0f6ae31" }

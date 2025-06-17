@@ -11010,8 +11010,7 @@ dependencies = [
 [[package]]
 name = "starknet-types-core"
 version = "0.1.8"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "4037bcb26ce7c508448d221e570d075196fd4f6912ae6380981098937af9522a"
+source = "git+https://github.com/kariy/types-rs?rev=0f6ae31#0f6ae31a5a19352cc99b74604fab15cd9d1bb76e"
 dependencies = [
  "arbitrary",
  "lambdaworks-crypto",
