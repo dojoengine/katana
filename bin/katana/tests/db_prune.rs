@@ -56,7 +56,7 @@ fn prune_latest_removes_all_history(db: TempDb) {
 
     // Will prune all historical tries (blocks < 15)
     let path = db.path_str();
-    Cli::parse_from(["katana", "db", "prune", "--path", path, "--latest"]).run().unwrap();
+    Cli::parse_from(["katana", "db", "prune", "--path", path, "--latest", "-y"]).run().unwrap();
 
     let provider = db.provider_ro();
 
@@ -103,7 +103,7 @@ fn prune_keep_last_n_blocks(db: TempDb) {
 
     let keep_last_n = 3;
     let path = db.path_str();
-    Cli::parse_from(["katana", "db", "prune", "--path", path, "--keep-last", "3"]).run().unwrap();
+    Cli::parse_from(["katana", "db", "prune", "--path", path, "--keep-last", "3", "-y"]).run().unwrap();
 
     let provider = db.provider_ro();
     let (final_classes_root, final_contracts_root) = latest_roots(&provider).unwrap();
@@ -169,6 +169,7 @@ fn prune_keep_last_n_blocks_exceeds_available(db: TempDb) {
         path,
         "--keep-last",
         &keep_last_n.to_string(),
+        "-y",
     ])
     .run()
     .unwrap();

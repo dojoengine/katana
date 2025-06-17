@@ -1,6 +1,7 @@
 use anyhow::{anyhow, Context, Result};
 use clap::Args;
 use indicatif::{MultiProgress, ProgressBar, ProgressStyle};
+use inquire::Confirm;
 use katana_db::abstraction::{Database, DbCursor, DbDupSortCursorMut, DbTx, DbTxMut};
 use katana_db::error::DatabaseError;
 use katana_db::models::list::BlockList;
@@ -27,6 +28,10 @@ pub struct PruneArgs {
     #[arg(value_name = "COUNT", conflicts_with = "latest")]
     #[arg(value_parser = clap::value_parser!(u64).range(1..))]
     pub keep_last_n: Option<u64>,
+
+    /// Skip confirmation prompt (useful for scripts/CI)
+    #[arg(short = 'y', long = "yes")]
+    pub skip_confirmation: bool,
 }
 
 #[derive(Debug)]
@@ -40,7 +45,7 @@ pub enum PruneMode {
 
 impl PruneArgs {
     pub fn execute(self) -> Result<()> {
-        prune_database(&self.path, self.mode())
+        prune_database(&self.path, self.mode(), self.skip_confirmation)
     }
 
     fn mode(&self) -> PruneMode {
@@ -56,8 +61,22 @@ impl PruneArgs {
 
 // If prune mode is KeepLastN and the value is more than the available blocks,
 // the operation will be a no-op (no data will be pruned).
-fn prune_database(db_path: &str, mode: PruneMode) -> Result<()> {
+fn prune_database(db_path: &str, mode: PruneMode, skip_confirmation: bool) -> Result<()> {
     let db = open_db_rw(db_path)?;
+    
+    // Collect statistics before showing confirmation
+    if !skip_confirmation {
+        let tx = db.tx().context("Failed to create read transaction")?;
+        let stats = collect_pruning_statistics(&tx, &mode)?;
+        tx.commit()?;
+        
+        // Show confirmation prompt
+        if !show_confirmation_prompt(&stats, &mode)? {
+            println!("Pruning operation cancelled.");
+            return Ok(());
+        }
+    }
+    
     let tx = db.tx_mut().context("Failed to create write transaction")?;
 
     let latest_block = get_latest_block_number(&tx)?;
@@ -287,4 +306,99 @@ fn prune_changeset_table<T: tables::Trie>(
     }
 
     Ok(())
+}
+
+/// Structure to hold pruning statistics
+#[derive(Debug)]
+struct PruningStatistics {
+    pub tables_affected: usize,
+    pub total_entries: usize,
+    pub db_path: String,
+    pub entries_by_table: Vec<(String, usize)>,
+}
+
+/// Collect statistics about what will be pruned
+fn collect_pruning_statistics(tx: &impl DbTx, mode: &PruneMode) -> Result<PruningStatistics> {
+    let mut total_entries = 0;
+    let mut entries_by_table = Vec::new();
+
+    // Count entries in history tables
+    let history_tables = [
+        ("ClassesTrieHistory", || tx.entries::<tables::ClassesTrieHistory>()),
+        ("ContractsTrieHistory", || tx.entries::<tables::ContractsTrieHistory>()),
+        ("StoragesTrieHistory", || tx.entries::<tables::StoragesTrieHistory>()),
+    ];
+
+    for (name, count_fn) in history_tables {
+        match count_fn() {
+            Ok(count) => {
+                if count > 0 {
+                    total_entries += count;
+                    entries_by_table.push((name.to_string(), count));
+                }
+            }
+            Err(_) => {
+                // If we can't count, assume table has entries
+                entries_by_table.push((name.to_string(), 0));
+            }
+        }
+    }
+
+    // Count entries in changeset tables
+    let changeset_tables = [
+        ("ClassesTrieChangeSet", || tx.entries::<tables::ClassesTrieChangeSet>()),
+        ("ContractsTrieChangeSet", || tx.entries::<tables::ContractsTrieChangeSet>()),
+        ("StoragesTrieChangeSet", || tx.entries::<tables::StoragesTrieChangeSet>()),
+    ];
+
+    for (name, count_fn) in changeset_tables {
+        match count_fn() {
+            Ok(count) => {
+                if count > 0 {
+                    // For changeset tables, we need to estimate based on mode
+                    let estimated_entries = match mode {
+                        PruneMode::Latest => count, // All entries will be affected
+                        PruneMode::KeepLastN { .. } => count / 2, // Rough estimate
+                    };
+                    total_entries += estimated_entries;
+                    entries_by_table.push((name.to_string(), estimated_entries));
+                }
+            }
+            Err(_) => {
+                entries_by_table.push((name.to_string(), 0));
+            }
+        }
+    }
+
+    Ok(PruningStatistics {
+        tables_affected: 6,
+        total_entries,
+        db_path: "Unknown".to_string(), // We don't have easy access to db path here
+        entries_by_table,
+    })
+}
+
+/// Show confirmation prompt with statistics
+fn show_confirmation_prompt(stats: &PruningStatistics, mode: &PruneMode) -> Result<bool> {
+    println!("\nWARNING: This operation will permanently delete historical trie data.");
+    println!("- Tables affected: {} (ClassesTrieHistory, ContractsTrieHistory, etc.)", stats.tables_affected);
+    println!("- Estimated entries to delete: {}", stats.total_entries);
+    
+    match mode {
+        PruneMode::Latest => {
+            println!("- Action: Remove ALL historical data, keeping only the latest state");
+        }
+        PruneMode::KeepLastN { blocks } => {
+            println!("- Action: Keep only the last {} blocks of historical data", blocks);
+        }
+    }
+    
+    println!("\nThis action cannot be undone.");
+
+    let ans = Confirm::new("Continue?")
+        .with_default(false)
+        .with_help_message("Press Enter for default (No)")
+        .prompt()?;
+
+    Ok(ans)
 }
