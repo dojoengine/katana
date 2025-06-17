@@ -1,4 +1,4 @@
-use anyhow::{Context, Result};
+use anyhow::{anyhow, Context, Result};
 use clap::Args;
 use indicatif::{MultiProgress, ProgressBar, ProgressStyle};
 use katana_db::abstraction::{Database, DbCursor, DbDupSortCursorMut, DbTx, DbTxMut};
@@ -70,11 +70,11 @@ fn prune_database(db_path: &str, mode: PruneMode) -> Result<()> {
         }
         PruneMode::KeepLastN { blocks } => {
             if blocks == 0 {
-                return Err(anyhow::anyhow!("Number of blocks to keep must be greater than 0"));
+                return Err(anyhow!("Number of blocks to keep must be greater than 0"));
             }
 
             if blocks > latest_block {
-                println!(
+                eprintln!(
                     "Warning: Requested to keep {} blocks, but only {} blocks exist",
                     blocks, latest_block
                 );
@@ -178,38 +178,38 @@ fn prune_keep_last_n(tx: &impl DbTxMut, cutoff_block: BlockNumber) -> Result<()>
         .unwrap()
         .progress_chars("##-");
 
-    let total_steps = 6;
-    let main_pb = m.add(ProgressBar::new(total_steps));
-    main_pb.set_style(style.clone());
-    main_pb.set_message("Pruning historical data");
+    const TOTAL_STEPS: u64 = 6;
+    let pb = m.add(ProgressBar::new(TOTAL_STEPS));
+    pb.set_style(style);
+    pb.set_message("Pruning historical data");
 
-    // Prune history tables
-    main_pb.set_message("Pruning classes history");
-    prune_history_table::<tables::ClassesTrie>(tx, cutoff_block, &m, &style)?;
-    main_pb.inc(1);
+    // Prune history tables ---------------------------------------
+    pb.set_message("Pruning classes history");
+    prune_history_table::<tables::ClassesTrie>(tx, cutoff_block)?;
+    pb.inc(1);
 
-    main_pb.set_message("Pruning contracts history");
-    prune_history_table::<tables::ContractsTrie>(tx, cutoff_block, &m, &style)?;
-    main_pb.inc(1);
+    pb.set_message("Pruning contracts history");
+    prune_history_table::<tables::ContractsTrie>(tx, cutoff_block)?;
+    pb.inc(1);
 
-    main_pb.set_message("Pruning storages history");
-    prune_history_table::<tables::StoragesTrie>(tx, cutoff_block, &m, &style)?;
-    main_pb.inc(1);
+    pb.set_message("Pruning storages history");
+    prune_history_table::<tables::StoragesTrie>(tx, cutoff_block)?;
+    pb.inc(1);
 
-    // Prune changeset tables
-    main_pb.set_message("Pruning classes changesets");
-    prune_changeset_table::<tables::ClassesTrie>(tx, cutoff_block, &m, &style)?;
-    main_pb.inc(1);
+    // Prune changeset tables --------------------------------------
+    pb.set_message("Pruning classes changesets");
+    prune_changeset_table::<tables::ClassesTrie>(tx, cutoff_block)?;
+    pb.inc(1);
 
-    main_pb.set_message("Pruning contracts changesets");
-    prune_changeset_table::<tables::ContractsTrie>(tx, cutoff_block, &m, &style)?;
-    main_pb.inc(1);
+    pb.set_message("Pruning contracts changesets");
+    prune_changeset_table::<tables::ContractsTrie>(tx, cutoff_block)?;
+    pb.inc(1);
 
-    main_pb.set_message("Pruning storages changesets");
-    prune_changeset_table::<tables::StoragesTrie>(tx, cutoff_block, &m, &style)?;
-    main_pb.inc(1);
+    pb.set_message("Pruning storages changesets");
+    prune_changeset_table::<tables::StoragesTrie>(tx, cutoff_block)?;
+    pb.inc(1);
 
-    main_pb.finish_with_message("Historical data pruned");
+    pb.finish_with_message("Historical data pruned");
     Ok(())
 }
 
@@ -217,44 +217,13 @@ fn prune_keep_last_n(tx: &impl DbTxMut, cutoff_block: BlockNumber) -> Result<()>
 fn prune_history_table<T: tables::Trie>(
     tx: &impl DbTxMut,
     cutoff_block: BlockNumber,
-    multi_progress: &MultiProgress,
-    style: &ProgressStyle,
 ) -> Result<()> {
-    // Count total blocks to prune first
     let mut cursor = tx.cursor_dup_mut::<T::History>()?;
-    let mut blocks_to_prune = 0;
 
-    if let Some((block, _)) = cursor.first()? {
-        let mut current_block = block;
-        while current_block <= cutoff_block {
-            blocks_to_prune += 1;
-            if let Some((next_block, _)) = cursor.next()? {
-                current_block = next_block;
-            } else {
-                break;
-            }
-        }
-    }
-
-    if blocks_to_prune == 0 {
-        return Ok(());
-    }
-
-    // Create progress bar for this table
-    let pb = multi_progress.add(ProgressBar::new(blocks_to_prune));
-    pb.set_style(style.clone());
-    pb.set_message(format!(
-        "  Pruning {} history blocks",
-        std::any::type_name::<T>().split("::").last().unwrap_or("Unknown")
-    ));
-
-    // Reset cursor and prune
-    let mut cursor = tx.cursor_dup_mut::<T::History>()?;
     if let Some((block, _)) = cursor.first()? {
         let mut current_block = block;
         while current_block <= cutoff_block {
             cursor.delete_current_duplicates()?;
-            pb.inc(1);
             if let Some((next_block, _)) = cursor.next()? {
                 current_block = next_block;
             } else {
@@ -263,7 +232,6 @@ fn prune_history_table<T: tables::Trie>(
         }
     }
 
-    pb.finish_and_clear();
     Ok(())
 }
 
@@ -272,33 +240,8 @@ fn prune_history_table<T: tables::Trie>(
 fn prune_changeset_table<T: tables::Trie>(
     tx: &impl DbTxMut,
     cutoff_block: BlockNumber,
-    multi_progress: &MultiProgress,
-    style: &ProgressStyle,
 ) -> Result<()> {
     const BATCH_SIZE: usize = 1000; // Process 1000 entries at a time
-
-    // Count total entries first
-    let mut cursor = tx.cursor_mut::<T::Changeset>()?;
-    let mut total_entries = 0;
-    for entry in cursor.walk(None)? {
-        let (_, block_list) = entry?;
-        // Check if this entry will need processing
-        if block_list.iter().any(|block| block <= cutoff_block) {
-            total_entries += 1;
-        }
-    }
-
-    if total_entries == 0 {
-        return Ok(());
-    }
-
-    // Create progress bar for this table
-    let pb = multi_progress.add(ProgressBar::new(total_entries));
-    pb.set_style(style.clone());
-    pb.set_message(format!(
-        "  Pruning {} changesets",
-        std::any::type_name::<T>().split("::").last().unwrap_or("Unknown")
-    ));
 
     // List of keys to update/delete.
     //
@@ -314,7 +257,6 @@ fn prune_changeset_table<T: tables::Trie>(
         let total_blocks_removed = block_list.remove_range(0..=cutoff_block);
         if total_blocks_removed > 0 {
             has_changes = true;
-            pb.inc(1);
         }
 
         if has_changes {
@@ -346,6 +288,5 @@ fn prune_changeset_table<T: tables::Trie>(
         }
     }
 
-    pb.finish_and_clear();
     Ok(())
 }
