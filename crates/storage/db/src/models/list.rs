@@ -46,6 +46,38 @@ impl IntegerSet {
         self.0.select(n)
     }
 
+    /// Returns the maximum value in the set (if the set is non-empty).
+    ///
+    /// # Examples
+    ///
+    /// ```rust
+    /// let mut is = IntegerSet::new();
+    /// assert_eq!(is.max(), None);
+    ///
+    /// is.insert(3);
+    /// is.insert(4);
+    /// assert_eq!(is.max(), Some(4));
+    /// ```
+    pub fn max(&self) -> Option<u64> {
+        self.0.max()
+    }
+
+    /// Returns the minimum value in the set (if the set is non-empty).
+    ///
+    /// # Examples
+    ///
+    /// ```rust
+    /// let mut is = IntegerSet::new();
+    /// assert_eq!(is.min(), None);
+    ///
+    /// is.insert(3);
+    /// is.insert(4);
+    /// assert_eq!(is.min(), Some(3));
+    /// ```
+    pub fn min(&self) -> Option<u64> {
+        self.0.min()
+    }
+
     /// Removes a range of values.
     ///
     /// # Returns

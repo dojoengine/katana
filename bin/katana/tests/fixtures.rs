@@ -77,8 +77,7 @@ fn populate_db(db: &TempDb) {
 
         let mut nonce_updates = BTreeMap::new();
         for _ in 0..10 {
-            nonce_updates
-                .insert(katana_utils::arbitrary!(ContractAddress), katana_utils::arbitrary!(Nonce));
+            nonce_updates.insert(arbitrary!(ContractAddress), arbitrary!(Nonce));
         }
 
         let mut storage_updates = BTreeMap::new();
