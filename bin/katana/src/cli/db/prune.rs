@@ -2,6 +2,7 @@ use anyhow::{Context, Result};
 use clap::Args;
 use indicatif::{MultiProgress, ProgressBar, ProgressStyle};
 use katana_db::abstraction::{Database, DbCursor, DbDupSortCursorMut, DbTx, DbTxMut};
+use katana_db::error::DatabaseError;
 use katana_db::models::list::BlockList;
 use katana_db::models::trie::TrieDatabaseKey;
 use katana_db::tables::{self};
@@ -123,16 +124,40 @@ fn prune_all_history(tx: &impl DbTxMut) -> Result<()> {
 
     // Clear each table and update progress
     let tables = [
-        ("Classes history", || tx.clear::<tables::ClassesTrieHistory>()),
-        ("Contracts history", || tx.clear::<tables::ContractsTrieHistory>()),
-        ("Storages history", || tx.clear::<tables::StoragesTrieHistory>()),
-        ("Classes changeset", || tx.clear::<tables::ClassesTrieChangeSet>()),
-        ("Contracts changeset", || tx.clear::<tables::ContractsTrieChangeSet>()),
-        ("Storages changeset", || tx.clear::<tables::StoragesTrieChangeSet>()),
+        (
+            "Classes history",
+            Box::new(|| tx.clear::<tables::ClassesTrieHistory>())
+                as Box<dyn Fn() -> Result<(), DatabaseError>>,
+        ),
+        (
+            "Contracts history",
+            Box::new(|| tx.clear::<tables::ContractsTrieHistory>())
+                as Box<dyn Fn() -> Result<(), DatabaseError>>,
+        ),
+        (
+            "Storages history",
+            Box::new(|| tx.clear::<tables::StoragesTrieHistory>())
+                as Box<dyn Fn() -> Result<(), DatabaseError>>,
+        ),
+        (
+            "Classes changeset",
+            Box::new(|| tx.clear::<tables::ClassesTrieChangeSet>())
+                as Box<dyn Fn() -> Result<(), DatabaseError>>,
+        ),
+        (
+            "Contracts changeset",
+            Box::new(|| tx.clear::<tables::ContractsTrieChangeSet>())
+                as Box<dyn Fn() -> Result<(), DatabaseError>>,
+        ),
+        (
+            "Storages changeset",
+            Box::new(|| tx.clear::<tables::StoragesTrieChangeSet>())
+                as Box<dyn Fn() -> Result<(), DatabaseError>>,
+        ),
     ];
 
     for (name, clear_fn) in tables {
-        main_pb.set_message(format!("Clearing {}", name));
+        main_pb.set_message(format!("Clearing {name}"));
         clear_fn()?;
         main_pb.inc(1);
     }
@@ -198,7 +223,7 @@ fn prune_history_table<T: tables::Trie>(
     // Count total blocks to prune first
     let mut cursor = tx.cursor_dup_mut::<T::History>()?;
     let mut blocks_to_prune = 0;
-    
+
     if let Some((block, _)) = cursor.first()? {
         let mut current_block = block;
         while current_block <= cutoff_block {
@@ -218,7 +243,10 @@ fn prune_history_table<T: tables::Trie>(
     // Create progress bar for this table
     let pb = multi_progress.add(ProgressBar::new(blocks_to_prune));
     pb.set_style(style.clone());
-    pb.set_message(format!("  Pruning {} history blocks", std::any::type_name::<T>().split("::").last().unwrap_or("Unknown")));
+    pb.set_message(format!(
+        "  Pruning {} history blocks",
+        std::any::type_name::<T>().split("::").last().unwrap_or("Unknown")
+    ));
 
     // Reset cursor and prune
     let mut cursor = tx.cursor_dup_mut::<T::History>()?;
@@ -255,7 +283,7 @@ fn prune_changeset_table<T: tables::Trie>(
     for entry in cursor.walk(None)? {
         let (_, block_list) = entry?;
         // Check if this entry will need processing
-        if block_list.iter().any(|&block| block <= cutoff_block) {
+        if block_list.iter().any(|block| block <= cutoff_block) {
             total_entries += 1;
         }
     }
@@ -267,7 +295,10 @@ fn prune_changeset_table<T: tables::Trie>(
     // Create progress bar for this table
     let pb = multi_progress.add(ProgressBar::new(total_entries));
     pb.set_style(style.clone());
-    pb.set_message(format!("  Pruning {} changesets", std::any::type_name::<T>().split("::").last().unwrap_or("Unknown")));
+    pb.set_message(format!(
+        "  Pruning {} changesets",
+        std::any::type_name::<T>().split("::").last().unwrap_or("Unknown")
+    ));
 
     // List of keys to update/delete.
     //
