@@ -172,16 +172,14 @@ fn prune_keep_last_n(tx: &impl DbTxMut, cutoff_block: BlockNumber) -> Result<()>
         return Ok(());
     }
 
-    let m = MultiProgress::new();
-    let style = ProgressStyle::default_bar()
-        .template("{msg} {bar:40.cyan/blue} {pos:>7}/{len:7} [{elapsed_precise}] {per_sec}")
-        .unwrap()
-        .progress_chars("##-");
-
     const TOTAL_STEPS: u64 = 6;
-    let pb = m.add(ProgressBar::new(TOTAL_STEPS));
+    const PROGRESS_BAR_TEMPLATE: &str =
+        "{msg} {bar:40.cyan/blue} {pos:>7}/{len:7} [{elapsed_precise}] {per_sec}";
+
+    let pb = ProgressBar::new(TOTAL_STEPS);
+    let style =
+        ProgressStyle::default_bar().progress_chars("##-").template(PROGRESS_BAR_TEMPLATE).unwrap();
     pb.set_style(style);
-    pb.set_message("Pruning historical data");
 
     // Prune history tables ---------------------------------------
     pb.set_message("Pruning classes history");
