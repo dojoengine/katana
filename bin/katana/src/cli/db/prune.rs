@@ -160,16 +160,21 @@ fn prune_history_table<T: tables::Trie>(
 }
 
 /// Prune the changeset table by removing all entries from the genesis block up to the cutoff block
-/// (inclusive).
+/// (inclusive). Processes entries in batches to reduce memory usage.
 fn prune_changeset_table<T: tables::Trie>(
     tx: &impl DbTxMut,
     cutoff_block: BlockNumber,
 ) -> Result<()> {
-    let mut cursor = tx.cursor_mut::<T::Changeset>()?;
-    let mut keys_to_update: Vec<(TrieDatabaseKey, Option<BlockList>)> = Vec::new();
+    const BATCH_SIZE: usize = 1000; // Process 1000 entries at a time
 
-    let walker = cursor.walk(None)?;
-    for entry in walker {
+    // List of keys to update/delete.
+    //
+    // If the block list is empty after pruning, delete the key. Otherwise, update the key with the
+    // new block list
+    let mut keys: Vec<(TrieDatabaseKey, Option<BlockList>)> = Vec::with_capacity(BATCH_SIZE);
+    let mut cursor = tx.cursor_mut::<T::Changeset>()?;
+
+    for entry in cursor.walk(None)? {
         let (key, mut block_list) = entry?;
         let mut has_changes = false;
 
@@ -180,14 +185,26 @@ fn prune_changeset_table<T: tables::Trie>(
 
         if has_changes {
             if block_list.select(0).is_none() {
-                keys_to_update.push((key, None));
+                keys.push((key, None));
             } else {
-                keys_to_update.push((key, Some(block_list)));
+                keys.push((key, Some(block_list)));
+            }
+        }
+
+        // Process batch when it reaches BATCH_SIZE
+        if keys.len() >= BATCH_SIZE {
+            for (key, maybe_block_list) in keys.drain(..) {
+                if let Some(block_list) = maybe_block_list {
+                    tx.put::<T::Changeset>(key, block_list)?;
+                } else {
+                    tx.delete::<T::Changeset>(key, None)?;
+                }
             }
         }
     }
 
-    for (key, maybe_block_list) in keys_to_update {
+    // Process any remaining entries in the final batch
+    for (key, maybe_block_list) in keys {
         if let Some(block_list) = maybe_block_list {
             tx.put::<T::Changeset>(key, block_list)?;
         } else {
