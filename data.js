@@ -1,5 +1,5 @@
 window.BENCHMARK_DATA = {
-  "lastUpdate": 1750176870173,
+  "lastUpdate": 1750177681694,
   "repoUrl": "https://github.com/dojoengine/katana",
   "entries": {
     "Benchmark": [
@@ -1307,6 +1307,72 @@ window.BENCHMARK_DATA = {
             "name": "Katana.Startup",
             "value": 125252934,
             "range": "± 343833",
+            "unit": "ns/iter"
+          }
+        ]
+      },
+      {
+        "commit": {
+          "author": {
+            "email": "158243242+devin-ai-integration[bot]@users.noreply.github.com",
+            "name": "devin-ai-integration[bot]",
+            "username": "devin-ai-integration[bot]"
+          },
+          "committer": {
+            "email": "evergreenkary@gmail.com",
+            "name": "Ammar Arif",
+            "username": "kariy"
+          },
+          "distinct": true,
+          "id": "503390d6e52dcfb80b71bce11cd7ac0f69c3c69a",
+          "message": "feat(cli): database pruning tool for historical trie data (#123)\n\n* feat(db): add database pruning tool for historical trie data\n\n- Add prune subcommand to katana db utility\n- Support two modes: prune all history or keep last N blocks\n- Include safety checks and proper error handling\n- Efficiently handle bulk deletions using database cursors\n\n* feat: add progress monitoring and visualization for database pruning\n\n- Add indicatif dependency for progress bar visualization\n- Implement multi-level progress bars showing overall and per-table progress\n- Add counting passes to determine total entries for accurate progress tracking\n- Show table names, current/total entries, elapsed time, and entries per second\n- Visual progress bars with cyan/blue styling for better user experience\n\n---------\n\nCo-authored-by: Ammar Arif <evergreenkary@gmail.com>\nCo-authored-by: Devin AI <158243242+devin-ai-integration[bot]@users.noreply.github.com>\nCo-authored-by: claude[bot] <209825114+claude[bot]@users.noreply.github.com>",
+          "timestamp": "2025-06-18T00:19:25+08:00",
+          "tree_id": "cdd559d71c9a0957770afa2b68e364f31ffde31d",
+          "url": "https://github.com/dojoengine/katana/commit/503390d6e52dcfb80b71bce11cd7ac0f69c3c69a"
+        },
+        "date": 1750177679486,
+        "tool": "cargo",
+        "benches": [
+          {
+            "name": "Commit.Small/Parallel",
+            "value": 448448,
+            "range": "± 11664",
+            "unit": "ns/iter"
+          },
+          {
+            "name": "Commit.Big/Serial",
+            "value": 94472498,
+            "range": "± 2179341",
+            "unit": "ns/iter"
+          },
+          {
+            "name": "Commit.Big/Parallel",
+            "value": 65583328,
+            "range": "± 1957568",
+            "unit": "ns/iter"
+          },
+          {
+            "name": "compress world contract",
+            "value": 2717793,
+            "range": "± 13292",
+            "unit": "ns/iter"
+          },
+          {
+            "name": "decompress world contract",
+            "value": 2958631,
+            "range": "± 10912",
+            "unit": "ns/iter"
+          },
+          {
+            "name": "Invoke.ERC20.transfer/Blockifier.Cold",
+            "value": 16360320,
+            "range": "± 268134",
+            "unit": "ns/iter"
+          },
+          {
+            "name": "Katana.Startup",
+            "value": 126641498,
+            "range": "± 1063765",
             "unit": "ns/iter"
           }
         ]
