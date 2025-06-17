@@ -22,7 +22,7 @@ pub struct PruneArgs {
     /// Keep only the last N blocks (since the latest block) of historical data
     #[arg(long = "keep-last")]
     #[arg(required_unless_present = "latest")]
-    #[arg(value_name = "BLOCKS", conflicts_with = "latest")]
+    #[arg(value_name = "COUNT", conflicts_with = "latest")]
     #[arg(value_parser = clap::value_parser!(u64).range(1..))]
     pub keep_last_n: Option<u64>,
 }
