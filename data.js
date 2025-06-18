@@ -1,5 +1,5 @@
 window.BENCHMARK_DATA = {
-  "lastUpdate": 1750177681694,
+  "lastUpdate": 1750245729692,
   "repoUrl": "https://github.com/dojoengine/katana",
   "entries": {
     "Benchmark": [
@@ -1373,6 +1373,72 @@ window.BENCHMARK_DATA = {
             "name": "Katana.Startup",
             "value": 126641498,
             "range": "± 1063765",
+            "unit": "ns/iter"
+          }
+        ]
+      },
+      {
+        "commit": {
+          "author": {
+            "email": "evergreenkary@gmail.com",
+            "name": "Ammar Arif",
+            "username": "kariy"
+          },
+          "committer": {
+            "email": "noreply@github.com",
+            "name": "GitHub",
+            "username": "web-flow"
+          },
+          "distinct": true,
+          "id": "71d4bbeb88c8f2b94883d4936e0435f343e96539",
+          "message": "feat(cli): add interactive confirmation prompt for pruning operations (#135)\n\n- Add interactive confirmation prompt before executing pruning operations\n- Display warning message and statistics about what will be pruned\n- Add -y flag to skip confirmation for CI/automation scenarios\n- Default to \"No\" if user just presses Enter\n- Update tests to use -y flag\n\n---------\n\nCo-authored-by: claude[bot] <209825114+claude[bot]@users.noreply.github.com>\nCo-authored-by: Ammar Arif <kariy@users.noreply.github.com>",
+          "timestamp": "2025-06-18T19:14:56+08:00",
+          "tree_id": "62f57ca44718768ffa4eb7b6ffaaaca3a13ce67b",
+          "url": "https://github.com/dojoengine/katana/commit/71d4bbeb88c8f2b94883d4936e0435f343e96539"
+        },
+        "date": 1750245728237,
+        "tool": "cargo",
+        "benches": [
+          {
+            "name": "Commit.Small/Parallel",
+            "value": 457330,
+            "range": "± 12039",
+            "unit": "ns/iter"
+          },
+          {
+            "name": "Commit.Big/Serial",
+            "value": 95123482,
+            "range": "± 285325",
+            "unit": "ns/iter"
+          },
+          {
+            "name": "Commit.Big/Parallel",
+            "value": 65940452,
+            "range": "± 2489302",
+            "unit": "ns/iter"
+          },
+          {
+            "name": "compress world contract",
+            "value": 2680591,
+            "range": "± 28813",
+            "unit": "ns/iter"
+          },
+          {
+            "name": "decompress world contract",
+            "value": 2957640,
+            "range": "± 115993",
+            "unit": "ns/iter"
+          },
+          {
+            "name": "Invoke.ERC20.transfer/Blockifier.Cold",
+            "value": 18022469,
+            "range": "± 395942",
+            "unit": "ns/iter"
+          },
+          {
+            "name": "Katana.Startup",
+            "value": 133715442,
+            "range": "± 3012702",
             "unit": "ns/iter"
           }
         ]
