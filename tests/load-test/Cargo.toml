@@ -1,0 +1,52 @@
+[package]
+edition.workspace = true
+license.workspace = true
+name = "load-test"
+repository.workspace = true
+version.workspace = true
+
+[dependencies]
+# Load testing framework
+goose = "0.17"
+
+# Async runtime
+tokio = { workspace = true, features = [ "full" ] }
+
+# HTTP client
+reqwest = { workspace = true, features = [ "json" ] }
+
+# Serialization
+serde = { workspace = true, features = [ "derive" ] }
+serde_json = { workspace = true }
+
+# Error handling
+anyhow = { workspace = true }
+thiserror = { workspace = true }
+
+# Utilities
+clap = { workspace = true, features = [ "derive" ] }
+futures = { workspace = true }
+hex = { workspace = true }
+rand = { workspace = true }
+
+# Starknet/Cairo dependencies
+starknet = { workspace = true }
+starknet-crypto = { workspace = true }
+starknet-types-core = { workspace = true }
+
+# Katana dependencies (for types and test utilities)
+katana-node-bindings = { workspace = true, optional = true }
+katana-primitives = { workspace = true }
+katana-rpc-types = { workspace = true }
+
+# Metrics and observability
+tracing = { workspace = true }
+tracing-subscriber = { workspace = true }
+
+[features]
+default = [  ]
+embedded = [ "katana-node-bindings" ]
+
+[[bin]]
+name = "katana-load-test"
+path = "src/main.rs"
