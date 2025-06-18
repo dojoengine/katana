@@ -2,6 +2,7 @@ use katana_primitives::{chain, class, contract, da, fee, transaction, Felt};
 use serde::{Deserialize, Serialize};
 
 #[derive(Debug, Clone, PartialEq, Eq, Default, Serialize, Deserialize)]
+#[cfg_attr(test, derive(::arbitrary::Arbitrary))]
 pub struct ResourceBoundsMapping {
     #[serde(alias = "L1_GAS")]
     pub l1_gas: fee::ResourceBounds,
@@ -10,6 +11,7 @@ pub struct ResourceBoundsMapping {
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[cfg_attr(test, derive(::arbitrary::Arbitrary))]
 pub struct InvokeTxV3 {
     pub chain_id: chain::ChainId,
     pub sender_address: contract::ContractAddress,
@@ -25,6 +27,7 @@ pub struct InvokeTxV3 {
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[cfg_attr(test, derive(::arbitrary::Arbitrary))]
 pub struct DeclareTxV3 {
     pub chain_id: chain::ChainId,
     pub sender_address: contract::ContractAddress,
@@ -41,6 +44,7 @@ pub struct DeclareTxV3 {
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[cfg_attr(test, derive(::arbitrary::Arbitrary))]
 pub struct DeployAccountTxV3 {
     pub chain_id: chain::ChainId,
     pub nonce: contract::Nonce,
@@ -57,6 +61,7 @@ pub struct DeployAccountTxV3 {
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[cfg_attr(test, derive(::arbitrary::Arbitrary))]
 pub enum InvokeTx {
     V0(transaction::InvokeTxV0),
     V1(transaction::InvokeTxV1),
@@ -64,6 +69,7 @@ pub enum InvokeTx {
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[cfg_attr(test, derive(::arbitrary::Arbitrary))]
 pub enum DeclareTx {
     V0(transaction::DeclareTxV0),
     V1(transaction::DeclareTxV1),
@@ -72,12 +78,14 @@ pub enum DeclareTx {
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[cfg_attr(test, derive(::arbitrary::Arbitrary))]
 pub enum DeployAccountTx {
     V1(transaction::DeployAccountTxV1),
     V3(DeployAccountTxV3),
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[cfg_attr(test, derive(::arbitrary::Arbitrary))]
 pub enum Tx {
     Invoke(InvokeTx),
     Declare(DeclareTx),

@@ -6,7 +6,8 @@ use crate::error::CodecError;
 
 mod v6;
 
-#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq, arbitrary::Arbitrary)]
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
+#[cfg_attr(test, derive(::arbitrary::Arbitrary))]
 pub enum VersionedHeader {
     V6(v6::Header),
     V7(Header),

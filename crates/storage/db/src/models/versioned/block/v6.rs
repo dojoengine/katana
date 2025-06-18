@@ -5,7 +5,8 @@ use katana_primitives::version::ProtocolVersion;
 use katana_primitives::Felt;
 use serde::{Deserialize, Serialize};
 
-#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, arbitrary::Arbitrary)]
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[cfg_attr(test, derive(::arbitrary::Arbitrary))]
 pub struct Header {
     pub parent_hash: BlockHash,
     pub number: BlockNumber,
