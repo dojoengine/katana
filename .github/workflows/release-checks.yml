@@ -1,0 +1,37 @@
+name: release-checks
+
+on:
+  pull_request:
+    branches:
+      - main
+
+concurrency:
+  group: ${{ github.workflow }}-${{ github.event.pull_request.number }}
+  cancel-in-progress: true
+
+env:
+  CARGO_TERM_COLOR: always
+
+jobs:
+  db-compatibility:
+    runs-on: ubuntu-latest
+    if: startsWith(github.head_ref, 'prepare-release')
+    container:
+      image: ghcr.io/dojoengine/katana-dev:latest
+    steps:
+      - uses: actions/checkout@v3
+        with:
+          submodules: recursive
+      # Workaround for https://github.com/actions/runner-images/issues/6775
+      - run: git config --global --add safe.directory "*"
+
+      - uses: Swatinem/rust-cache@v2
+        with:
+          key: release-checks-${{ github.job }}
+          shared-key: katana-ci-cache
+
+      - name: Generate test artifacts
+        run: make test-artifacts
+
+      - name: Run database compatibility check
+        run: cargo run -p db-compat-test
