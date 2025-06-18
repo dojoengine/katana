@@ -1,5 +1,9 @@
 # Katana
 
+Katana is a high-performant sequencer for Dojo.
+
+For a more comprehensive documentation, see the [Katana section](https://dojoengine.org/toolchain/katana) in the Dojo book.
+
 ## Table of Contents
 
 - [Development Setup](#development-setup)
