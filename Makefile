@@ -22,13 +22,14 @@ COMPATIBILITY_DB_DIR ?= $(DB_FIXTURES_DIR)/v1_2_2
 .PHONY: usage help check-llvm native-deps native-deps-macos native-deps-linux native-deps-windows build-explorer clean
 
 # Virtual targets that map to actual file outputs
-.PHONY: test-artifacts snos-artifacts
+.PHONY: test-artifacts snos-artifacts db-compat-artifacts
 
 usage help:
 	@echo "Usage:"
 	@echo "    build-explorer:            Build the explorer."
 	@echo "    test-artifacts:            Prepare tests artifacts (including test database)."
 	@echo "    snos-artifacts:            Prepare SNOS tests artifacts."
+	@echo "    db-compat-artifacts:       Prepare database compatibility test artifacts."
 	@echo "    native-deps-macos:         Install cairo-native dependencies for macOS."
 	@echo "    native-deps-linux:         Install cairo-native dependencies for Linux."
 	@echo "    native-deps-windows:       Install cairo-native dependencies for Windows."
@@ -37,6 +38,9 @@ usage help:
 	@echo "    help:                      Show this help message."
 
 snos-artifacts: $(SNOS_OUTPUT)
+	@echo "SNOS test artifacts prepared successfully."
+db-compat-artifacts: $(COMPATIBILITY_DB_DIR)
+	@echo "Database compatibility test artifacts prepared successfully."
 test-artifacts: $(SNOS_DB_DIR) $(SNOS_OUTPUT) $(COMPATIBILITY_DB_DIR)
 	@echo "All test artifacts prepared successfully."
 
