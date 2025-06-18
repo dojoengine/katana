@@ -1,5 +1,5 @@
 window.BENCHMARK_DATA = {
-  "lastUpdate": 1750245729692,
+  "lastUpdate": 1750260448815,
   "repoUrl": "https://github.com/dojoengine/katana",
   "entries": {
     "Benchmark": [
@@ -1439,6 +1439,72 @@ window.BENCHMARK_DATA = {
             "name": "Katana.Startup",
             "value": 133715442,
             "range": "± 3012702",
+            "unit": "ns/iter"
+          }
+        ]
+      },
+      {
+        "commit": {
+          "author": {
+            "email": "158243242+devin-ai-integration[bot]@users.noreply.github.com",
+            "name": "devin-ai-integration[bot]",
+            "username": "devin-ai-integration[bot]"
+          },
+          "committer": {
+            "email": "noreply@github.com",
+            "name": "GitHub",
+            "username": "web-flow"
+          },
+          "distinct": true,
+          "id": "5f86bfd6b2c5e211e02c07a41a30fc84724a72b9",
+          "message": "feat(db): add versioned db types for backward compatibility (#118)\n\nThis PR implements versioned storage types for Katana's database to enable backward compatibility for block data across different database versions. The implementation allows newer versions of Katana to read/deserialize databases created with older versions by creating separate versioned storage types in the database layer.\n\nThis is the first half of implementing a full database migration from previous database versions. The objective is to make sure future changes that affect the database format will not introduce compatibility issue with current/older format. \n\n## Initial Prompt:\n\nLet's add a database migration tool to Katana. The idea is if Katana is initialized with an existing database that was created using an older version of Katana which might be using an older database format, we can still use the database.\n\nCurrently, Katana database is not backward compatible. Meaning each time the database version is updated (which usually happens when some changes are made that affect the serialization of the database types), the database version needs to be increased. The version is tracked in version.rs.\n\nNow we want to make the database format be backward compatible. Meaning, existing database that are created using an earlier database version can be still be opened/processed using a Katana version that has a newer database format.\n\nBut, we don't need to maintain backward compatibility with all the types that we use in the database. The database types can be found in tables.rs. Katana is a blockchain node, so we only need to maintain backward compatibility for block data. (i.e., block header, transactions). Because we can re-execute the block in order to rebuild back the state. The reason why we choose to re-execute instead of maintaining compatibility for all the database types, is because there might be some new fields that are added to some tables that can only be computed through transactions execution.\n\nThe plan is to have two things; (1) versioned the necessary database types to ensure we can deserialize no matter the database version (backward compatibility), and (2) have a way to re-execute the blocks.\n\nYour job for now is to implement (1). Make sure the block data types are versioned to maintain backward compatibility.\n\nYou only need to look in the following repo: dojoengine/katana\n\n---------\n\nCo-authored-by: Ammar Arif <evergreenkary@gmail.com>\nCo-authored-by: Devin AI <158243242+devin-ai-integration[bot]@users.noreply.github.com>",
+          "timestamp": "2025-06-18T23:19:59+08:00",
+          "tree_id": "d7606b7c8008fe1ca12bbdd126922e726370d27e",
+          "url": "https://github.com/dojoengine/katana/commit/5f86bfd6b2c5e211e02c07a41a30fc84724a72b9"
+        },
+        "date": 1750260447030,
+        "tool": "cargo",
+        "benches": [
+          {
+            "name": "Commit.Small/Parallel",
+            "value": 454738,
+            "range": "± 10969",
+            "unit": "ns/iter"
+          },
+          {
+            "name": "Commit.Big/Serial",
+            "value": 94156069,
+            "range": "± 300982",
+            "unit": "ns/iter"
+          },
+          {
+            "name": "Commit.Big/Parallel",
+            "value": 65119370,
+            "range": "± 2314983",
+            "unit": "ns/iter"
+          },
+          {
+            "name": "compress world contract",
+            "value": 2854435,
+            "range": "± 9604",
+            "unit": "ns/iter"
+          },
+          {
+            "name": "decompress world contract",
+            "value": 2978413,
+            "range": "± 10744",
+            "unit": "ns/iter"
+          },
+          {
+            "name": "Invoke.ERC20.transfer/Blockifier.Cold",
+            "value": 16688923,
+            "range": "± 465833",
+            "unit": "ns/iter"
+          },
+          {
+            "name": "Katana.Startup",
+            "value": 127746602,
+            "range": "± 1779695",
             "unit": "ns/iter"
           }
         ]
