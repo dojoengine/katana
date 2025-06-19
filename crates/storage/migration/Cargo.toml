@@ -1,0 +1,18 @@
+[package]
+edition.workspace = true
+license.workspace = true
+name = "katana-migration"
+repository.workspace = true
+version.workspace = true
+
+[dependencies]
+katana-db.workspace = true
+katana-executor.workspace = true
+katana-primitives.workspace = true
+katana-provider.workspace = true
+
+anyhow.workspace = true
+tracing.workspace = true
+
+[dev-dependencies]
+katana-chain-spec.workspace = true
