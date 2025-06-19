@@ -6527,6 +6527,7 @@ name = "katana-migration"
 version = "1.6.0-alpha.0"
 dependencies = [
  "anyhow",
+ "katana-chain-spec",
  "katana-db",
  "katana-executor",
  "katana-primitives",

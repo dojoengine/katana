@@ -64,11 +64,15 @@ impl<EF: ExecutorFactory> MigrationManager<EF> {
 
     /// Re-execute a specific block by its number.
     pub fn migrate_block_range(&self, block_range: RangeInclusive<BlockNumber>) -> Result<()> {
+        println!("Migrating blocks from {} to {}", block_range.start(), block_range.end());
+
         // Create blank state provider
         let state_provider = EmptyStateProvider::new();
         let mut executor = self.executor.with_state(state_provider);
 
         for block_num in block_range {
+            println!("Executing block {}", block_num);
+
             let block = self
                 .load_executable_block(block_num)
                 .with_context(|| format!("Failed to load block {block_num}"))?;
@@ -87,7 +91,7 @@ impl<EF: ExecutorFactory> MigrationManager<EF> {
                 format!("Failed to store execution output for block {block_num}")
             })?;
 
-            todo!("commit state")
+            // todo!("commit state")
         }
 
         Ok(())
@@ -131,7 +135,7 @@ impl<EF: ExecutorFactory> MigrationManager<EF> {
         Ok(ExecutableBlock { header: partial_header, body })
     }
 
-    /// Convert a transaction with hash to an executable transaction.
+    /// Convert a transaction to an executable transaction.
     fn convert_to_executable_tx(&self, tx: TxWithHash) -> Result<ExecutableTxWithHash> {
         let executable_tx = match tx.transaction {
             Tx::Invoke(invoke_tx) => ExecutableTx::Invoke(invoke_tx),
@@ -154,7 +158,8 @@ impl<EF: ExecutorFactory> MigrationManager<EF> {
                 // Legacy deploy transactions are not supported in ExecutableTx
                 // We'll skip these transactions for now
                 return Err(anyhow::anyhow!(
-                    "Legacy deploy transactions are not supported in ExecutableTx for transaction {}",
+                    "Legacy deploy transactions are not supported in ExecutableTx for transaction \
+                     {}",
                     tx.hash
                 ));
             }
@@ -163,7 +168,6 @@ impl<EF: ExecutorFactory> MigrationManager<EF> {
         Ok(ExecutableTxWithHash::new(executable_tx))
     }
 
-    /// Helper method to retrieve contract class using provider.
     fn get_contract_class(&self, class_hash: ClassHash) -> Result<ContractClass> {
         self.database
             .latest()?
@@ -233,27 +237,5 @@ impl<EF: ExecutorFactory> MigrationManager<EF> {
 
         debug!("Successfully stored execution output for block {}", block_number);
         Ok(())
-    }
-}
-
-#[cfg(test)]
-mod tests {
-    use super::*;
-
-    #[test]
-    fn test_migration_manager_creation() {
-        // This is a placeholder test since we don't have a concrete database implementation here
-        // Real tests would use a test database implementation from katana-db
-
-        // Example of how the migration manager would be used:
-        // let db = create_test_database();
-        // let migration_manager = MigrationManager::new(Arc::new(db));
-        // migration_manager.migrate_all_blocks(executor_factory).unwrap();
-    }
-
-    #[test]
-    fn test_conversion_functions() {
-        // Test that our conversion logic handles different transaction types correctly
-        // This would require setting up a proper test environment with sample data
     }
 }

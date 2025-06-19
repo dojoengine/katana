@@ -1,17 +1,18 @@
 [package]
-name = "katana-migration"
-version.workspace = true
 edition.workspace = true
 license.workspace = true
+name = "katana-migration"
 repository.workspace = true
+version.workspace = true
 
 [dependencies]
-# Katana dependencies
-katana-db = { workspace = true }
-katana-primitives = { workspace = true }
-katana-executor = { workspace = true }
-katana-provider = { workspace = true }
+katana-db.workspace = true
+katana-executor.workspace = true
+katana-primitives.workspace = true
+katana-provider.workspace = true
 
-# External dependencies
-anyhow = "1.0"
-tracing = "0.1"
+anyhow.workspace = true
+tracing.workspace = true
+
+[dev-dependencies]
+katana-chain-spec.workspace = true
