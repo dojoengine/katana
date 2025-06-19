@@ -34,25 +34,18 @@ impl Decompress for VersionedTx {
             return Ok(tx);
         }
 
-        #[derive(Debug, Deserialize)]
-        #[serde(untagged)]
-        enum UntaggedVersionedTx {
-            V6(v6::Tx),
-            V7(Tx),
+        // Try deserializing as V7 first, then fall back to V6
+        if let Ok(transaction) = postcard::from_bytes::<Tx>(bytes) {
+            return Ok(Self::V7(transaction));
         }
 
-        impl From<UntaggedVersionedTx> for VersionedTx {
-            fn from(versioned: UntaggedVersionedTx) -> Self {
-                match versioned {
-                    UntaggedVersionedTx::V6(tx) => Self::V6(tx),
-                    UntaggedVersionedTx::V7(tx) => Self::V7(tx),
-                }
-            }
+        if let Ok(transaction) = postcard::from_bytes::<v6::Tx>(bytes) {
+            return Ok(Self::V6(transaction));
         }
 
-        postcard::from_bytes::<UntaggedVersionedTx>(bytes)
-            .map(Self::from)
-            .map_err(|e| CodecError::Decompress(e.to_string()))
+        Err(CodecError::Decompress(
+            "failed to deserialize versioned transaction: unknown format".to_string(),
+        ))
     }
 }
 

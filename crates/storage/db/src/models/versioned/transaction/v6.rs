@@ -71,10 +71,10 @@ pub enum InvokeTx {
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 #[cfg_attr(test, derive(::arbitrary::Arbitrary))]
 pub enum DeclareTx {
-    V0(transaction::DeclareTxV0),
     V1(transaction::DeclareTxV1),
     V2(transaction::DeclareTxV2),
     V3(DeclareTxV3),
+    V0(transaction::DeclareTxV0),
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
