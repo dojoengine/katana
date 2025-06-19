@@ -17,19 +17,43 @@ impl ResourceBounds {
 #[cfg_attr(feature = "arbitrary", derive(::arbitrary::Arbitrary))]
 #[cfg_attr(feature = "serde", derive(serde::Serialize, serde::Deserialize))]
 pub struct AllResourceBoundsMapping {
+    /// L1 gas bounds - covers L2→L1 messages sent by the transaction
     #[serde(alias = "L1_GAS")]
     pub l1_gas: ResourceBounds,
+    /// L2 gas bounds - covers L2 resources including computation, tx payload, event emission, code
+    /// size, etc. Units: 1 Cairo step = 100 L2 gas
     #[serde(alias = "L2_GAS")]
     pub l2_gas: ResourceBounds,
+    /// L1 data gas (blob gas) bounds - covers the cost of submitting state diffs as blobs on L1
     #[serde(alias = "L1_DATA_GAS")]
     pub l1_data_gas: ResourceBounds,
 }
 
+/// Transaction resource bounds.
+///
+/// ## NOTE
+///
+/// As of Starknet v0.14.0, only transactions with all three bounds (L1 gas, L2 gas, L1 data gas)
+/// are accepted by the sequencer. Transactions with only L1 gas bounds are supported for
+/// backward compatibility but will be rejected in v0.14.0+.
+///
+/// For further details, refer to [Starknet v0.13.4 pre-release notes](https://community.starknet.io/t/starknet-v0-13-4-pre-release-notes/115257).
 #[derive(Debug, Clone, PartialEq, Eq)]
 #[cfg_attr(feature = "arbitrary", derive(::arbitrary::Arbitrary))]
 #[cfg_attr(feature = "serde", derive(serde::Serialize, serde::Deserialize))]
 pub enum ResourceBoundsMapping {
+    /// Legacy bounds; only L1 gas bounds specified (backward compatibility).
+    ///
+    /// Raw resources are converted to L1 gas for cost calculation. Prior to 0.14.0, the L2 gas
+    /// bounds is signed but is always hardcoded to be zero thus, the L2 gas field is completely
+    /// ommitted from this variant and is assumed to be zero during transaction hash computation.
+    ///
+    /// Supported in Starknet v0.13.4 but rejected in v0.14.0+.
     L1Gas(ResourceBounds),
+
+    /// All three resource bounds specified: L1 gas, L2 gas, and L1 data gas.
+    ///
+    /// The required format as of Starknet v0.14.0.
     All(AllResourceBoundsMapping),
 }
 
