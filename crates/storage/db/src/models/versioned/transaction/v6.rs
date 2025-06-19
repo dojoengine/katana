@@ -130,7 +130,7 @@ impl Tx {
 
 impl From<ResourceBoundsMapping> for fee::ResourceBoundsMapping {
     fn from(v6: ResourceBoundsMapping) -> Self {
-        Self { l1_gas: v6.l1_gas, l2_gas: v6.l2_gas, l1_data_gas: fee::ResourceBounds::default() }
+        Self::L1Gas(v6.l1_gas)
     }
 }
 
@@ -261,11 +261,14 @@ mod tests {
         };
 
         let converted: fee::ResourceBoundsMapping = v6_mapping.into();
-        assert_eq!(converted.l1_gas.max_amount, 1000);
-        assert_eq!(converted.l1_gas.max_price_per_unit, 100);
-        assert_eq!(converted.l2_gas.max_amount, 2000);
-        assert_eq!(converted.l2_gas.max_price_per_unit, 200);
-        assert_eq!(converted.l1_data_gas, fee::ResourceBounds::default());
+
+        match converted {
+            fee::ResourceBoundsMapping::L1Gas(bounds) => {
+                assert_eq!(bounds.max_amount, 1000);
+                assert_eq!(bounds.max_price_per_unit, 100);
+            }
+            fee::ResourceBoundsMapping::All(..) => panic!("wrong variant"),
+        }
     }
 
     #[test]
@@ -292,8 +295,13 @@ mod tests {
         assert_eq!(converted.calldata, vec![Felt::TWO, Felt::THREE]);
         assert_eq!(converted.signature, vec![Felt::from(123u32)]);
         assert_eq!(converted.tip, 50);
-        assert_eq!(converted.resource_bounds.l1_gas.max_amount, 1000);
-        assert_eq!(converted.resource_bounds.l2_gas.max_amount, 2000);
-        assert_eq!(converted.resource_bounds.l1_data_gas, fee::ResourceBounds::default());
+
+        match converted.resource_bounds {
+            fee::ResourceBoundsMapping::L1Gas(bounds) => {
+                assert_eq!(bounds.max_amount, 1000);
+                assert_eq!(bounds.max_price_per_unit, 100);
+            }
+            fee::ResourceBoundsMapping::All(..) => panic!("wrong variant"),
+        }
     }
 }

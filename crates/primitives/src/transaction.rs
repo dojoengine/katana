@@ -7,7 +7,7 @@ use crate::chain::ChainId;
 use crate::class::{ClassHash, CompiledClassHash, ContractClass};
 use crate::contract::{ContractAddress, Nonce};
 use crate::da::DataAvailabilityMode;
-use crate::fee::ResourceBoundsMapping;
+use crate::fee::{ResourceBounds, ResourceBoundsMapping};
 use crate::utils::transaction::{
     compute_declare_v0_tx_hash, compute_declare_v1_tx_hash, compute_declare_v2_tx_hash,
     compute_declare_v3_tx_hash, compute_deploy_account_v1_tx_hash,
@@ -312,21 +312,42 @@ impl InvokeTx {
                 is_query,
             ),
 
-            InvokeTx::V3(tx) => utils::transaction::compute_invoke_v3_tx_hash(
-                Felt::from(tx.sender_address),
-                &tx.calldata,
-                tx.tip,
-                &tx.resource_bounds.l1_gas,
-                &tx.resource_bounds.l2_gas,
-                Some(&tx.resource_bounds.l1_data_gas),
-                &tx.paymaster_data,
-                tx.chain_id.into(),
-                tx.nonce,
-                &tx.nonce_data_availability_mode,
-                &tx.fee_data_availability_mode,
-                &tx.account_deployment_data,
-                is_query,
-            ),
+            InvokeTx::V3(tx) => match &tx.resource_bounds {
+                ResourceBoundsMapping::All(bounds) => {
+                    utils::transaction::compute_invoke_v3_tx_hash(
+                        Felt::from(tx.sender_address),
+                        &tx.calldata,
+                        tx.tip,
+                        &bounds.l1_gas,
+                        &bounds.l2_gas,
+                        Some(&bounds.l1_data_gas),
+                        &tx.paymaster_data,
+                        tx.chain_id.into(),
+                        tx.nonce,
+                        &tx.nonce_data_availability_mode,
+                        &tx.fee_data_availability_mode,
+                        &tx.account_deployment_data,
+                        is_query,
+                    )
+                }
+                ResourceBoundsMapping::L1Gas(bounds) => {
+                    utils::transaction::compute_invoke_v3_tx_hash(
+                        Felt::from(tx.sender_address),
+                        &tx.calldata,
+                        tx.tip,
+                        &bounds,
+                        &ResourceBounds::ZERO,
+                        None,
+                        &tx.paymaster_data,
+                        tx.chain_id.into(),
+                        tx.nonce,
+                        &tx.nonce_data_availability_mode,
+                        &tx.fee_data_availability_mode,
+                        &tx.account_deployment_data,
+                        is_query,
+                    )
+                }
+            },
         }
     }
 }
@@ -487,22 +508,40 @@ impl DeclareTx {
                 is_query,
             ),
 
-            DeclareTx::V3(tx) => compute_declare_v3_tx_hash(
-                Felt::from(tx.sender_address),
-                tx.class_hash,
-                tx.compiled_class_hash,
-                tx.tip,
-                &tx.resource_bounds.l1_gas,
-                &tx.resource_bounds.l2_gas,
-                Some(&tx.resource_bounds.l1_data_gas),
-                &tx.paymaster_data,
-                tx.chain_id.into(),
-                tx.nonce,
-                &tx.nonce_data_availability_mode,
-                &tx.fee_data_availability_mode,
-                &tx.account_deployment_data,
-                is_query,
-            ),
+            DeclareTx::V3(tx) => match &tx.resource_bounds {
+                ResourceBoundsMapping::All(bounds) => compute_declare_v3_tx_hash(
+                    Felt::from(tx.sender_address),
+                    tx.class_hash,
+                    tx.compiled_class_hash,
+                    tx.tip,
+                    &bounds.l1_gas,
+                    &bounds.l2_gas,
+                    Some(&bounds.l1_data_gas),
+                    &tx.paymaster_data,
+                    tx.chain_id.into(),
+                    tx.nonce,
+                    &tx.nonce_data_availability_mode,
+                    &tx.fee_data_availability_mode,
+                    &tx.account_deployment_data,
+                    is_query,
+                ),
+                ResourceBoundsMapping::L1Gas(bounds) => compute_declare_v3_tx_hash(
+                    Felt::from(tx.sender_address),
+                    tx.class_hash,
+                    tx.compiled_class_hash,
+                    tx.tip,
+                    &bounds,
+                    &ResourceBounds::ZERO,
+                    None,
+                    &tx.paymaster_data,
+                    tx.chain_id.into(),
+                    tx.nonce,
+                    &tx.nonce_data_availability_mode,
+                    &tx.fee_data_availability_mode,
+                    &tx.account_deployment_data,
+                    is_query,
+                ),
+            },
         }
     }
 }
@@ -637,22 +676,40 @@ impl DeployAccountTx {
                 is_query,
             ),
 
-            DeployAccountTx::V3(tx) => compute_deploy_account_v3_tx_hash(
-                Felt::from(tx.contract_address),
-                &tx.constructor_calldata,
-                tx.class_hash,
-                tx.contract_address_salt,
-                tx.tip,
-                &tx.resource_bounds.l1_gas,
-                &tx.resource_bounds.l2_gas,
-                Some(&tx.resource_bounds.l1_data_gas),
-                &tx.paymaster_data,
-                tx.chain_id.into(),
-                tx.nonce,
-                &tx.nonce_data_availability_mode,
-                &tx.fee_data_availability_mode,
-                is_query,
-            ),
+            DeployAccountTx::V3(tx) => match &tx.resource_bounds {
+                ResourceBoundsMapping::All(bounds) => compute_deploy_account_v3_tx_hash(
+                    Felt::from(tx.contract_address),
+                    &tx.constructor_calldata,
+                    tx.class_hash,
+                    tx.contract_address_salt,
+                    tx.tip,
+                    &bounds.l1_gas,
+                    &bounds.l2_gas,
+                    Some(&bounds.l1_data_gas),
+                    &tx.paymaster_data,
+                    tx.chain_id.into(),
+                    tx.nonce,
+                    &tx.nonce_data_availability_mode,
+                    &tx.fee_data_availability_mode,
+                    is_query,
+                ),
+                ResourceBoundsMapping::L1Gas(bounds) => compute_deploy_account_v3_tx_hash(
+                    Felt::from(tx.contract_address),
+                    &tx.constructor_calldata,
+                    tx.class_hash,
+                    tx.contract_address_salt,
+                    tx.tip,
+                    &bounds,
+                    &ResourceBounds::ZERO,
+                    None,
+                    &tx.paymaster_data,
+                    tx.chain_id.into(),
+                    tx.nonce,
+                    &tx.nonce_data_availability_mode,
+                    &tx.fee_data_availability_mode,
+                    is_query,
+                ),
+            },
         }
     }
 }

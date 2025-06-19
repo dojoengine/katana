@@ -8,17 +8,29 @@ pub struct ResourceBounds {
     pub max_price_per_unit: u128,
 }
 
+impl ResourceBounds {
+    pub const ZERO: Self = Self { max_amount: 0, max_price_per_unit: 0 };
+}
+
 // Aliased to match the feeder gateway API
 #[derive(Debug, Clone, PartialEq, Eq, Default)]
 #[cfg_attr(feature = "arbitrary", derive(::arbitrary::Arbitrary))]
 #[cfg_attr(feature = "serde", derive(serde::Serialize, serde::Deserialize))]
-pub struct ResourceBoundsMapping {
+pub struct AllResourceBoundsMapping {
     #[serde(alias = "L1_GAS")]
     pub l1_gas: ResourceBounds,
     #[serde(alias = "L2_GAS")]
     pub l2_gas: ResourceBounds,
     #[serde(alias = "L1_DATA_GAS")]
     pub l1_data_gas: ResourceBounds,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+#[cfg_attr(feature = "arbitrary", derive(::arbitrary::Arbitrary))]
+#[cfg_attr(feature = "serde", derive(serde::Serialize, serde::Deserialize))]
+pub enum ResourceBoundsMapping {
+    L1Gas(ResourceBounds),
+    All(AllResourceBoundsMapping),
 }
 
 #[derive(Debug, Default, Clone, Copy, PartialEq, Eq)]

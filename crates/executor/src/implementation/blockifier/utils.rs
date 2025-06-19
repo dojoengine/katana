@@ -406,15 +406,21 @@ pub fn to_executor_tx(mut tx: ExecutableTxWithHash, mut flags: ExecutionFlags) -
 
 fn set_max_initial_sierra_gas(tx: &mut ExecutableTxWithHash) {
     match &mut tx.transaction {
-        ExecutableTx::Invoke(InvokeTx::V3(ref mut tx)) => {
-            tx.resource_bounds.l2_gas.max_amount = u64::MAX;
+        ExecutableTx::Invoke(InvokeTx::V3(tx)) => {
+            if let ResourceBoundsMapping::All(ref mut bounds) = tx.resource_bounds {
+                bounds.l2_gas.max_amount = u64::MAX;
+            }
         }
-        ExecutableTx::DeployAccount(DeployAccountTx::V3(ref mut tx)) => {
-            tx.resource_bounds.l2_gas.max_amount = u64::MAX;
+        ExecutableTx::DeployAccount(DeployAccountTx::V3(tx)) => {
+            if let ResourceBoundsMapping::All(ref mut bounds) = tx.resource_bounds {
+                bounds.l2_gas.max_amount = u64::MAX;
+            }
         }
         ExecutableTx::Declare(tx) => {
             if let DeclareTx::V3(ref mut tx) = tx.transaction {
-                tx.resource_bounds.l2_gas.max_amount = u64::MAX;
+                if let ResourceBoundsMapping::All(ref mut bounds) = tx.resource_bounds {
+                    bounds.l2_gas.max_amount = u64::MAX;
+                }
             }
         }
         _ => {}
@@ -563,22 +569,31 @@ fn to_api_da_mode(mode: katana_primitives::da::DataAvailabilityMode) -> DataAvai
 }
 
 fn to_api_resource_bounds(resource_bounds: fee::ResourceBoundsMapping) -> ValidResourceBounds {
-    let l1_gas = ResourceBounds {
-        max_amount: resource_bounds.l1_gas.max_amount.into(),
-        max_price_per_unit: resource_bounds.l1_gas.max_price_per_unit.into(),
-    };
+    match resource_bounds {
+        fee::ResourceBoundsMapping::All(bounds) => {
+            let l1_gas = ResourceBounds {
+                max_amount: bounds.l1_gas.max_amount.into(),
+                max_price_per_unit: bounds.l1_gas.max_price_per_unit.into(),
+            };
 
-    let l2_gas = ResourceBounds {
-        max_amount: resource_bounds.l2_gas.max_amount.into(),
-        max_price_per_unit: resource_bounds.l2_gas.max_price_per_unit.into(),
-    };
+            let l2_gas = ResourceBounds {
+                max_amount: bounds.l2_gas.max_amount.into(),
+                max_price_per_unit: bounds.l2_gas.max_price_per_unit.into(),
+            };
 
-    let l1_data_gas = ResourceBounds {
-        max_amount: resource_bounds.l1_data_gas.max_amount.into(),
-        max_price_per_unit: resource_bounds.l1_data_gas.max_price_per_unit.into(),
-    };
+            let l1_data_gas = ResourceBounds {
+                max_amount: bounds.l1_data_gas.max_amount.into(),
+                max_price_per_unit: bounds.l1_data_gas.max_price_per_unit.into(),
+            };
 
-    ValidResourceBounds::AllResources(AllResourceBounds { l1_gas, l2_gas, l1_data_gas })
+            ValidResourceBounds::AllResources(AllResourceBounds { l1_gas, l2_gas, l1_data_gas })
+        }
+
+        fee::ResourceBoundsMapping::L1Gas(bounds) => ValidResourceBounds::L1Gas(ResourceBounds {
+            max_amount: bounds.max_amount.into(),
+            max_price_per_unit: bounds.max_price_per_unit.into(),
+        }),
+    }
 }
 
 /// Get the fee type of a transaction. The fee type determines the token used to pay for the
@@ -699,18 +714,26 @@ fn skip_fee_on_zero_gas(tx: &ExecutableTxWithHash) -> bool {
 }
 
 pub fn is_zero_resource_bounds(resource_bounds: &ResourceBoundsMapping) -> bool {
-    let l1_bounds = &resource_bounds.l1_gas;
-    let l2_bounds = &resource_bounds.l2_gas;
-    let l1_data_bounds = &resource_bounds.l1_data_gas;
+    match resource_bounds {
+        ResourceBoundsMapping::All(bounds) => {
+            let l1_bounds = &bounds.l1_gas;
+            let l2_bounds = &bounds.l2_gas;
+            let l1_data_bounds = &bounds.l1_data_gas;
 
-    let l1_max_amount: u128 = l1_bounds.max_amount.into();
-    let l2_max_amount: u128 = l2_bounds.max_amount.into();
-    let l1_data_max_amount: u128 = l1_data_bounds.max_amount.into();
+            let l1_max_amount: u128 = l1_bounds.max_amount.into();
+            let l2_max_amount: u128 = l2_bounds.max_amount.into();
+            let l1_data_max_amount: u128 = l1_data_bounds.max_amount.into();
 
-    ((l1_max_amount * l1_bounds.max_price_per_unit)
-        + (l2_max_amount * l2_bounds.max_price_per_unit)
-        + (l1_data_max_amount * l1_data_bounds.max_price_per_unit))
-        == 0
+            ((l1_max_amount * l1_bounds.max_price_per_unit)
+                + (l2_max_amount * l2_bounds.max_price_per_unit)
+                + (l1_data_max_amount * l1_data_bounds.max_price_per_unit))
+                == 0
+        }
+
+        ResourceBoundsMapping::L1Gas(bounds) => {
+            (bounds.max_amount as u128 * bounds.max_price_per_unit) == 0
+        }
+    }
 }
 
 #[cfg(test)]

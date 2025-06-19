@@ -6,7 +6,7 @@ use katana_primitives::chain::ChainId;
 use katana_primitives::class::{ClassHash, ContractClass};
 use katana_primitives::contract::ContractAddress;
 use katana_primitives::da::DataAvailabilityMode;
-use katana_primitives::fee::{ResourceBounds, ResourceBoundsMapping};
+use katana_primitives::fee::{AllResourceBoundsMapping, ResourceBounds, ResourceBoundsMapping};
 use katana_primitives::transaction::{
     DeclareTx, DeclareTxV3, DeclareTxWithClass, DeployAccountTx, DeployAccountTxV3, InvokeTx,
     InvokeTxV3, TxHash, TxWithHash,
@@ -618,7 +618,7 @@ fn to_rpc_da_mode(mode: DataAvailabilityMode) -> starknet::core::types::DataAvai
 fn from_rpc_resource_bounds(
     rpc_bounds: starknet::core::types::ResourceBoundsMapping,
 ) -> ResourceBoundsMapping {
-    ResourceBoundsMapping {
+    ResourceBoundsMapping::All(AllResourceBoundsMapping {
         l1_gas: ResourceBounds {
             max_amount: rpc_bounds.l1_gas.max_amount,
             max_price_per_unit: rpc_bounds.l1_gas.max_price_per_unit,
@@ -631,24 +631,46 @@ fn from_rpc_resource_bounds(
             max_amount: rpc_bounds.l1_data_gas.max_amount,
             max_price_per_unit: rpc_bounds.l1_data_gas.max_price_per_unit,
         },
-    }
+    })
 }
 
 fn to_rpc_resource_bounds(
     bounds: ResourceBoundsMapping,
 ) -> starknet::core::types::ResourceBoundsMapping {
-    starknet::core::types::ResourceBoundsMapping {
-        l1_gas: starknet::core::types::ResourceBounds {
-            max_amount: bounds.l1_gas.max_amount,
-            max_price_per_unit: bounds.l1_gas.max_price_per_unit,
+    match bounds {
+        ResourceBoundsMapping::All(all_bounds) => starknet::core::types::ResourceBoundsMapping {
+            l1_gas: starknet::core::types::ResourceBounds {
+                max_amount: all_bounds.l1_gas.max_amount,
+                max_price_per_unit: all_bounds.l1_gas.max_price_per_unit,
+            },
+            l2_gas: starknet::core::types::ResourceBounds {
+                max_amount: all_bounds.l2_gas.max_amount,
+                max_price_per_unit: all_bounds.l2_gas.max_price_per_unit,
+            },
+            l1_data_gas: starknet::core::types::ResourceBounds {
+                max_amount: all_bounds.l1_data_gas.max_amount,
+                max_price_per_unit: all_bounds.l1_data_gas.max_price_per_unit,
+            },
         },
-        l2_gas: starknet::core::types::ResourceBounds {
-            max_amount: bounds.l2_gas.max_amount,
-            max_price_per_unit: bounds.l2_gas.max_price_per_unit,
-        },
-        l1_data_gas: starknet::core::types::ResourceBounds {
-            max_amount: bounds.l1_data_gas.max_amount,
-            max_price_per_unit: bounds.l1_data_gas.max_price_per_unit,
-        },
+        // The `l1_data_gas` bounds should actually be ommitted but because `starknet-rs` doesn't
+        // support older RPC spec, we default to zero. This aren't technically accurate so should
+        // find an alternative or completely remove legacy support. But we need to support in order
+        // to maintain backward compatibility from older database version.
+        ResourceBoundsMapping::L1Gas(l1_gas_bounds) => {
+            starknet::core::types::ResourceBoundsMapping {
+                l1_gas: starknet::core::types::ResourceBounds {
+                    max_amount: l1_gas_bounds.max_amount,
+                    max_price_per_unit: l1_gas_bounds.max_price_per_unit,
+                },
+                l2_gas: starknet::core::types::ResourceBounds {
+                    max_amount: 0,
+                    max_price_per_unit: 0,
+                },
+                l1_data_gas: starknet::core::types::ResourceBounds {
+                    max_amount: 0,
+                    max_price_per_unit: 0,
+                },
+            }
+        }
     }
 }

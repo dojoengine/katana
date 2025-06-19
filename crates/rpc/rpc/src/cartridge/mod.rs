@@ -58,7 +58,7 @@ use katana_pool::{TransactionPool, TxPool};
 use katana_primitives::chain::ChainId;
 use katana_primitives::contract::Nonce;
 use katana_primitives::da::DataAvailabilityMode;
-use katana_primitives::fee::ResourceBoundsMapping;
+use katana_primitives::fee::{AllResourceBoundsMapping, ResourceBoundsMapping};
 use katana_primitives::genesis::allocation::GenesisAccountAlloc;
 use katana_primitives::genesis::constant::DEFAULT_UDC_ADDRESS;
 use katana_primitives::transaction::{ExecutableTx, ExecutableTxWithHash, InvokeTx, InvokeTxV3};
@@ -260,12 +260,12 @@ impl<EF: ExecutorFactory> CartridgeApi<EF> {
                 calldata: encode_calls(calls),
                 signature: vec![],
                 sender_address: *pm_address,
-                resource_bounds: ResourceBoundsMapping::default(),
                 tip: 0_u64,
                 paymaster_data: vec![],
                 account_deployment_data: vec![],
                 nonce_data_availability_mode: DataAvailabilityMode::L1,
                 fee_data_availability_mode: DataAvailabilityMode::L1,
+                resource_bounds: ResourceBoundsMapping::All(AllResourceBoundsMapping::default()),
             };
             let tx_hash = InvokeTx::V3(tx.clone()).calculate_hash(false);
 
@@ -441,9 +441,9 @@ pub async fn craft_deploy_cartridge_controller_tx(
             sender_address: paymaster_address,
             calldata: encode_calls(vec![call]),
             nonce: paymaster_nonce,
-            resource_bounds: ResourceBoundsMapping::default(),
             nonce_data_availability_mode: katana_primitives::da::DataAvailabilityMode::L1,
             fee_data_availability_mode: katana_primitives::da::DataAvailabilityMode::L1,
+            resource_bounds: ResourceBoundsMapping::All(AllResourceBoundsMapping::default()),
         };
 
         let tx_hash = InvokeTx::V3(tx.clone()).calculate_hash(false);
@@ -578,9 +578,9 @@ pub async fn craft_deploy_cartridge_vrf_tx(
         sender_address: paymaster_address,
         calldata: encode_calls(vec![call]),
         nonce: paymaster_nonce,
-        resource_bounds: ResourceBoundsMapping::default(),
         nonce_data_availability_mode: katana_primitives::da::DataAvailabilityMode::L1,
         fee_data_availability_mode: katana_primitives::da::DataAvailabilityMode::L1,
+        resource_bounds: ResourceBoundsMapping::All(AllResourceBoundsMapping::default()),
     };
 
     let tx_hash = InvokeTx::V3(tx.clone()).calculate_hash(false);

@@ -1,5 +1,6 @@
 use katana_primitives::class::{ClassHash, CompiledClassHash};
 use katana_primitives::contract::Nonce;
+use katana_primitives::fee::AllResourceBoundsMapping;
 use katana_primitives::transaction::{
     DeclareTx, DeclareTxV0, DeclareTxV1, DeclareTxV2, DeclareTxV3, DeployAccountTx,
     DeployAccountTxV1, DeployAccountTxV3, DeployTx, InvokeTx, InvokeTxV0, InvokeTxV1, InvokeTxV3,
@@ -434,20 +435,26 @@ impl From<DataAvailabilityMode> for katana_primitives::da::DataAvailabilityMode 
 
 impl From<ResourceBoundsMapping> for katana_primitives::fee::ResourceBoundsMapping {
     fn from(bounds: ResourceBoundsMapping) -> Self {
-        let l1_data_gas = bounds.l1_data_gas.unwrap_or_default();
-        Self {
-            l1_gas: katana_primitives::fee::ResourceBounds {
+        if let Some(l1_data_gas) = bounds.l1_data_gas {
+            Self::All(AllResourceBoundsMapping {
+                l1_gas: katana_primitives::fee::ResourceBounds {
+                    max_amount: bounds.l1_gas.max_amount,
+                    max_price_per_unit: bounds.l1_gas.max_price_per_unit,
+                },
+                l2_gas: katana_primitives::fee::ResourceBounds {
+                    max_amount: bounds.l2_gas.max_amount,
+                    max_price_per_unit: bounds.l2_gas.max_price_per_unit,
+                },
+                l1_data_gas: katana_primitives::fee::ResourceBounds {
+                    max_amount: l1_data_gas.max_amount,
+                    max_price_per_unit: l1_data_gas.max_price_per_unit,
+                },
+            })
+        } else {
+            Self::L1Gas(katana_primitives::fee::ResourceBounds {
                 max_amount: bounds.l1_gas.max_amount,
                 max_price_per_unit: bounds.l1_gas.max_price_per_unit,
-            },
-            l2_gas: katana_primitives::fee::ResourceBounds {
-                max_amount: bounds.l2_gas.max_amount,
-                max_price_per_unit: bounds.l2_gas.max_price_per_unit,
-            },
-            l1_data_gas: katana_primitives::fee::ResourceBounds {
-                max_amount: l1_data_gas.max_amount,
-                max_price_per_unit: l1_data_gas.max_price_per_unit,
-            },
+            })
         }
     }
 }

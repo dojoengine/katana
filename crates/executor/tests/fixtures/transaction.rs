@@ -3,7 +3,7 @@ use katana_primitives::chain::ChainId;
 use katana_primitives::contract::{ContractAddress, Nonce};
 use katana_primitives::da::DataAvailabilityMode;
 use katana_primitives::env::CfgEnv;
-use katana_primitives::fee::{ResourceBounds, ResourceBoundsMapping};
+use katana_primitives::fee::ResourceBounds;
 use katana_primitives::genesis::allocation::GenesisAllocation;
 use katana_primitives::genesis::constant::DEFAULT_ETH_FEE_TOKEN_ADDRESS;
 use katana_primitives::transaction::ExecutableTxWithHash;
@@ -51,7 +51,6 @@ pub fn invoke_executable_tx(
     let l1_gas = ResourceBounds { max_amount: 0, max_price_per_unit: 0 };
     let l2_gas = ResourceBounds { max_amount: 0, max_price_per_unit: 0 };
     let l1_data_gas = ResourceBounds { max_amount: 0, max_price_per_unit: 0 };
-    let resource_bounds = ResourceBoundsMapping { l1_gas, l2_gas, l1_data_gas };
 
     let nonce_da_mode = DataAvailabilityMode::L1;
     let fee_da_mode = DataAvailabilityMode::L1;
@@ -61,9 +60,9 @@ pub fn invoke_executable_tx(
         account.address(),
         &calldata,
         tip,
-        &resource_bounds.l1_gas,
-        &resource_bounds.l2_gas,
-        Some(&resource_bounds.l1_data_gas),
+        &l1_gas,
+        &l2_gas,
+        Some(&l1_data_gas),
         &[],
         chain_id.into(),
         nonce,
@@ -88,16 +87,16 @@ pub fn invoke_executable_tx(
 
     let starknet_resource_bounds = starknet::core::types::ResourceBoundsMapping {
         l1_gas: starknet::core::types::ResourceBounds {
-            max_amount: resource_bounds.l1_gas.max_amount,
-            max_price_per_unit: resource_bounds.l1_gas.max_price_per_unit,
+            max_amount: l1_gas.max_amount,
+            max_price_per_unit: l1_gas.max_price_per_unit,
         },
         l1_data_gas: starknet::core::types::ResourceBounds {
-            max_amount: resource_bounds.l1_data_gas.max_amount,
-            max_price_per_unit: resource_bounds.l1_data_gas.max_price_per_unit,
+            max_amount: l1_data_gas.max_amount,
+            max_price_per_unit: l1_data_gas.max_price_per_unit,
         },
         l2_gas: starknet::core::types::ResourceBounds {
-            max_amount: resource_bounds.l2_gas.max_amount,
-            max_price_per_unit: resource_bounds.l2_gas.max_price_per_unit,
+            max_amount: l2_gas.max_amount,
+            max_price_per_unit: l2_gas.max_price_per_unit,
         },
     };
 
