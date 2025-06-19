@@ -580,7 +580,7 @@ impl<Db: Database> TransactionTraceProvider for DbProvider<Db> {
         &self,
         block_id: BlockHashOrNumber,
     ) -> ProviderResult<Option<Vec<TypedTransactionExecutionInfo>>> {
-        if let Some(index) = self.block_body_indices(block_id)? {
+        if let Some(index) = dbg!(self.block_body_indices(block_id)?) {
             let traces = self.transaction_executions_in_range(index.into())?;
             Ok(Some(traces))
         } else {
@@ -594,7 +594,7 @@ impl<Db: Database> TransactionTraceProvider for DbProvider<Db> {
     ) -> ProviderResult<Vec<TypedTransactionExecutionInfo>> {
         let db_tx = self.0.tx()?;
 
-        let total = range.end - range.start;
+        let total = dbg!(range.end - range.start);
         let mut traces = Vec::with_capacity(total as usize);
 
         for i in range {

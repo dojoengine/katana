@@ -138,7 +138,15 @@ impl Tx {
 
 impl From<ResourceBoundsMapping> for fee::ResourceBoundsMapping {
     fn from(v6: ResourceBoundsMapping) -> Self {
+<<<<<<< HEAD
         Self::L1Gas(v6.l1_gas)
+=======
+        Self {
+            l1_gas: v6.l1_gas,
+            l2_gas: dbg!(v6.l2_gas),
+            l1_data_gas: fee::ResourceBounds::default(),
+        }
+>>>>>>> cd5f59d5 (wip)
     }
 }
 

@@ -6539,11 +6539,13 @@ name = "katana-migration"
 version = "1.6.0-alpha.1"
 dependencies = [
  "anyhow",
+ "fs_extra",
  "katana-chain-spec",
  "katana-db",
  "katana-executor",
  "katana-primitives",
  "katana-provider",
+ "tempfile",
  "tracing",
 ]
 

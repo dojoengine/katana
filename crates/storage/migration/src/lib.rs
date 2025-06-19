@@ -19,10 +19,8 @@ use katana_primitives::transaction::{
 };
 use katana_provider::providers::db::DbProvider;
 use katana_provider::providers::EmptyStateProvider;
-use katana_provider::traits::block::{
-    BlockNumberProvider, BlockProvider, BlockWriter, HeaderProvider,
-};
-use katana_provider::traits::state::{StateFactoryProvider, StateProvider};
+use katana_provider::traits::block::{BlockNumberProvider, BlockWriter, HeaderProvider};
+use katana_provider::traits::state::StateFactoryProvider;
 use katana_provider::traits::transaction::TransactionProvider;
 use tracing::{debug, info, warn};
 
@@ -210,14 +208,14 @@ impl<EF: ExecutorFactory> MigrationManager<EF> {
                     transactions.push(tx);
                 }
                 ExecutionResult::Failed { error } => {
-                    warn!(
-                        "Transaction {} in block {} failed during execution: {}",
-                        tx.hash, block_number, error
-                    );
-                    // Skip failed transactions as in production flow
+                    println!("transaction execution failed {error}")
                 }
             }
         }
+
+        dbg!(transactions.len());
+        dbg!(receipts.len());
+        dbg!(traces.len());
 
         // Create a SealedBlockWithStatus for the existing block
         let block =
