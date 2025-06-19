@@ -65,8 +65,9 @@ impl<EF: ExecutorFactory> MigrationManager<EF> {
         println!("Migrating blocks from {} to {}", block_range.start(), block_range.end());
 
         // Create blank state provider
-        let state_provider = EmptyStateProvider::new();
-        let mut executor = self.executor.with_state(state_provider);
+        // let state_provider = EmptyStateProvider::new();
+        let genesis_state = self.database.historical(0.into())?.expect("genesis state must exist");
+        let mut executor = self.executor.with_state(genesis_state);
 
         for block_num in block_range {
             println!("Executing block {}", block_num);
@@ -74,6 +75,8 @@ impl<EF: ExecutorFactory> MigrationManager<EF> {
             let block = self
                 .load_executable_block(block_num)
                 .with_context(|| format!("Failed to load block {block_num}"))?;
+
+            println!("block {} with {} transactions", block_num, block.body.len());
 
             executor
                 .execute_block(block)
@@ -149,6 +152,7 @@ impl<EF: ExecutorFactory> MigrationManager<EF> {
                     format!("Failed to get contract class for hash {class_hash:#x}")
                 })?;
 
+                dbg!(&declare_tx);
                 ExecutableTx::Declare(DeclareTxWithClass::new(declare_tx, contract_class))
             }
 

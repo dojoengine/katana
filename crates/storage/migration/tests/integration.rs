@@ -10,7 +10,9 @@ use katana_migration::MigrationManager;
 use katana_primitives::env::{CfgEnv, FeeTokenAddressses};
 use katana_provider::providers::db::DbProvider;
 use katana_provider::traits::block::BlockNumberProvider;
-use katana_provider::traits::transaction::{ReceiptProvider, TransactionTraceProvider};
+use katana_provider::traits::transaction::{
+    ReceiptProvider, TransactionProvider, TransactionTraceProvider,
+};
 use tempfile::tempdir;
 
 fn executor() -> BlockifierFactory {
@@ -58,6 +60,13 @@ fn db_migration() {
     // }
 
     let db = DbProvider::new(db);
+    // let latest_block = db.latest_number().unwrap();
+
+    // for i in 0..=latest_block {
+    //     let txs = db.transactions_by_block(i.into()).unwrap().unwrap();
+    //     dbg!(txs);
+    // }
+
     // let traces = db.transaction_executions_by_block(11u64.into()).unwrap().unwrap();
     // dbg!(db.latest_number().unwrap());
     // dbg!(traces.len());
