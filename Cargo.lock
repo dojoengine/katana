@@ -6535,6 +6535,18 @@ dependencies = [
 ]
 
 [[package]]
+name = "katana-migration"
+version = "1.6.0-alpha.0"
+dependencies = [
+ "anyhow",
+ "katana-db",
+ "katana-executor",
+ "katana-primitives",
+ "katana-provider",
+ "tracing",
+]
+
+[[package]]
 name = "katana-node"
 version = "1.6.0-alpha.1"
 dependencies = [
