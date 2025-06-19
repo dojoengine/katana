@@ -1,5 +1,5 @@
 window.BENCHMARK_DATA = {
-  "lastUpdate": 1750260448815,
+  "lastUpdate": 1750342832188,
   "repoUrl": "https://github.com/dojoengine/katana",
   "entries": {
     "Benchmark": [
@@ -1505,6 +1505,72 @@ window.BENCHMARK_DATA = {
             "name": "Katana.Startup",
             "value": 127746602,
             "range": "± 1779695",
+            "unit": "ns/iter"
+          }
+        ]
+      },
+      {
+        "commit": {
+          "author": {
+            "email": "evergreenkary@gmail.com",
+            "name": "Ammar Arif",
+            "username": "kariy"
+          },
+          "committer": {
+            "email": "noreply@github.com",
+            "name": "GitHub",
+            "username": "web-flow"
+          },
+          "distinct": true,
+          "id": "39f66a570d0ed827ff534c239a7946cefa69c483",
+          "message": "fix(db): enum variants ordering (#142)\n\nThis PR fixes wrong enum ordering for the v6 transactions. The ordering matters here as it will affect how the variant is encoded when using binary serialization format like `postcard`.\n\nChanging the order will change how postcard de/serialize the enum:\n\n```rust\n// V6 before:\npub enum DeclareTx {\n    V0(transaction::DeclareTxV0),  // Position 0\n    V1(transaction::DeclareTxV1),  // Position 1  \n    V2(transaction::DeclareTxV2),  // Position 2\n    V3(DeclareTxV3),              // Position 3\n}\n\n// V6 after:\npub enum DeclareTx {\n    V1(transaction::DeclareTxV1),  // Position 0\n    V2(transaction::DeclareTxV2),  // Position 1\n    V3(DeclareTxV3),              // Position 2\n    V0(transaction::DeclareTxV0),  // Position 3\n}\n```\n\nCurrently, when reading a `DeclareTx` from the database where the actual variant is a `DeclareTx::V3`, because we're deserializing the bytes as `DeclareTx` (**before**), the entry would end up being deserialized as a `DeclareTx::V2`.\n\nIn addition to this, to maintain consistency I decided to rearrange the enum variants for current (v7) `DeclareTx` - positioning V0 as the first variant. This does break the database format but it's fine because we're still in pre-release stage of V7 db format. Thus, this change will be part of the changes introduces by the new db format.",
+          "timestamp": "2025-06-19T22:13:30+08:00",
+          "tree_id": "aeff1669761e9a98d25bb55da32d76aa44165efc",
+          "url": "https://github.com/dojoengine/katana/commit/39f66a570d0ed827ff534c239a7946cefa69c483"
+        },
+        "date": 1750342830898,
+        "tool": "cargo",
+        "benches": [
+          {
+            "name": "Commit.Small/Parallel",
+            "value": 426432,
+            "range": "± 13825",
+            "unit": "ns/iter"
+          },
+          {
+            "name": "Commit.Big/Serial",
+            "value": 93701352,
+            "range": "± 806128",
+            "unit": "ns/iter"
+          },
+          {
+            "name": "Commit.Big/Parallel",
+            "value": 65078028,
+            "range": "± 2116210",
+            "unit": "ns/iter"
+          },
+          {
+            "name": "compress world contract",
+            "value": 2805597,
+            "range": "± 16323",
+            "unit": "ns/iter"
+          },
+          {
+            "name": "decompress world contract",
+            "value": 2998716,
+            "range": "± 29412",
+            "unit": "ns/iter"
+          },
+          {
+            "name": "Invoke.ERC20.transfer/Blockifier.Cold",
+            "value": 16754283,
+            "range": "± 691934",
+            "unit": "ns/iter"
+          },
+          {
+            "name": "Katana.Startup",
+            "value": 129124471,
+            "range": "± 1623196",
             "unit": "ns/iter"
           }
         ]
