@@ -1,3 +1,7 @@
+//! IMPORTANT: The ordering for enumerable types should not be modified as this is the order that
+//! has been defined in database version 6. Modifying the order will break compatibility with the
+//! version.
+
 use katana_primitives::{chain, class, contract, da, fee, transaction, Felt};
 use serde::{Deserialize, Serialize};
 
@@ -60,34 +64,38 @@ pub struct DeployAccountTxV3 {
     pub fee_data_availability_mode: da::DataAvailabilityMode,
 }
 
+#[repr(u8)]
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 #[cfg_attr(test, derive(::arbitrary::Arbitrary))]
 pub enum InvokeTx {
-    V0(transaction::InvokeTxV0),
+    V0(transaction::InvokeTxV0) = 0,
     V1(transaction::InvokeTxV1),
     V3(InvokeTxV3),
 }
 
+#[repr(u8)]
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 #[cfg_attr(test, derive(::arbitrary::Arbitrary))]
 pub enum DeclareTx {
-    V1(transaction::DeclareTxV1),
-    V2(transaction::DeclareTxV2),
-    V3(DeclareTxV3),
-    V0(transaction::DeclareTxV0),
+    V1(transaction::DeclareTxV1) = 0,
+    V2(transaction::DeclareTxV2) = 1,
+    V3(DeclareTxV3) = 2,
+    V0(transaction::DeclareTxV0) = 3,
 }
 
+#[repr(u8)]
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 #[cfg_attr(test, derive(::arbitrary::Arbitrary))]
 pub enum DeployAccountTx {
-    V1(transaction::DeployAccountTxV1),
+    V1(transaction::DeployAccountTxV1) = 0,
     V3(DeployAccountTxV3),
 }
 
+#[repr(u8)]
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 #[cfg_attr(test, derive(::arbitrary::Arbitrary))]
 pub enum Tx {
-    Invoke(InvokeTx),
+    Invoke(InvokeTx) = 0,
     Declare(DeclareTx),
     L1Handler(transaction::L1HandlerTx),
     DeployAccount(DeployAccountTx),

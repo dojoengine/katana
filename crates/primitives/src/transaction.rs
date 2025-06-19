@@ -335,10 +335,10 @@ impl InvokeTx {
 #[cfg_attr(feature = "arbitrary", derive(::arbitrary::Arbitrary))]
 #[cfg_attr(feature = "serde", derive(serde::Serialize, serde::Deserialize))]
 pub enum DeclareTx {
+    V0(DeclareTxV0),
     V1(DeclareTxV1),
     V2(DeclareTxV2),
     V3(DeclareTxV3),
-    V0(DeclareTxV0),
 }
 
 impl DeclareTx {
