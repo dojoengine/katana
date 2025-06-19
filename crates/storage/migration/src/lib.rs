@@ -5,6 +5,8 @@
 
 pub mod example;
 
+use std::ops::RangeInclusive;
+
 use anyhow::{Context, Result};
 use katana_executor::{ExecutionOutput, ExecutionResult, ExecutorFactory};
 use katana_primitives::block::{
@@ -16,6 +18,7 @@ use katana_primitives::transaction::{
     DeclareTxWithClass, ExecutableTx, ExecutableTxWithHash, Tx, TxWithHash,
 };
 use katana_provider::providers::db::DbProvider;
+use katana_provider::providers::EmptyStateProvider;
 use katana_provider::traits::block::{
     BlockNumberProvider, BlockProvider, BlockWriter, HeaderProvider,
 };
@@ -25,21 +28,22 @@ use tracing::{debug, info, warn};
 
 /// Migration manager for historical block re-execution.
 #[derive(Debug)]
-pub struct MigrationManager {
+pub struct MigrationManager<EF: ExecutorFactory> {
     database: DbProvider,
+    executor: EF,
 }
 
-impl MigrationManager {
+impl<EF: ExecutorFactory> MigrationManager<EF> {
     /// Create a new migration manager with the given database.
-    pub fn new(database: DbProvider) -> Self {
-        Self { database }
+    pub fn new(database: DbProvider, executor: EF) -> Self {
+        Self { database, executor }
     }
 
     /// Re-execute all historical blocks in the database.
     ///
     /// This method reads all blocks from the database, converts them to executable format,
     /// and re-executes them to derive new fields and data.
-    pub fn migrate_all_blocks<EF: ExecutorFactory>(&self, executor_factory: EF) -> Result<()> {
+    pub fn migrate_all_blocks(&self) -> Result<()> {
         info!("Starting historical block re-execution migration");
 
         // Get the latest block number to determine migration range
@@ -51,54 +55,41 @@ impl MigrationManager {
             return Ok(());
         }
 
-        info!("Found {} blocks to migrate", latest_block + 1);
-
         // Re-execute blocks sequentially
-        for block_number in 0..=latest_block {
-            self.migrate_block(block_number, &executor_factory)
-                .with_context(|| format!("Failed to migrate block {}", block_number))?;
-
-            if block_number % 100 == 0 {
-                info!("Migrated {} / {} blocks", block_number + 1, latest_block + 1);
-            }
-        }
+        self.migrate_block_range(0..=latest_block)?;
 
         info!("Historical block re-execution migration completed successfully");
         Ok(())
     }
 
     /// Re-execute a specific block by its number.
-    pub fn migrate_block<EF: ExecutorFactory>(
-        &self,
-        block: BlockNumber,
-        executor_factory: &EF,
-    ) -> Result<()> {
-        debug!("Migrating block {}", block);
+    pub fn migrate_block_range(&self, block_range: RangeInclusive<BlockNumber>) -> Result<()> {
+        // Create blank state provider
+        let state_provider = EmptyStateProvider::new();
+        let mut executor = self.executor.with_state(state_provider);
 
-        // Read block data from database using provider traits
-        let executable_block = self
-            .load_executable_block(block)
-            .with_context(|| format!("Failed to load block {}", block))?;
+        for block_num in block_range {
+            let block = self
+                .load_executable_block(block_num)
+                .with_context(|| format!("Failed to load block {block_num}"))?;
 
-        // Create state provider for this block's parent state
-        let state_provider = self.create_state_provider(block.saturating_sub(1))?;
+            executor
+                .execute_block(block)
+                .with_context(|| format!("Failed to execute block {block_num}"))?;
 
-        // Execute the block
-        let mut executor = executor_factory.with_state(state_provider);
-        executor
-            .execute_block(executable_block)
-            .with_context(|| format!("Failed to execute block {}", block))?;
+            // Get execution output
+            let execution_output = executor
+                .take_execution_output()
+                .with_context(|| format!("Failed to get execution output for block {block_num}"))?;
 
-        // Get execution output
-        let execution_output = executor
-            .take_execution_output()
-            .with_context(|| format!("Failed to get execution output for block {}", block))?;
+            // Store updated block data using provider traits
+            self.store_block_execution_output(block_num, execution_output).with_context(|| {
+                format!("Failed to store execution output for block {block_num}")
+            })?;
 
-        // Store updated block data using provider traits
-        self.store_block_execution_output(block, execution_output)
-            .with_context(|| format!("Failed to store execution output for block {}", block))?;
+            todo!("commit state")
+        }
 
-        debug!("Successfully migrated block {}", block);
         Ok(())
     }
 
@@ -179,23 +170,6 @@ impl MigrationManager {
             .class(class_hash)
             .context("Failed to query contract class")?
             .context("Contract class not found")
-    }
-
-    /// Create a state provider for a given block number.
-    fn create_state_provider(&self, block_number: BlockNumber) -> Result<Box<dyn StateProvider>> {
-        // For historical state, we need to create a provider that provides the state
-        // at the specified block number.
-        if block_number == 0 {
-            // For genesis block, use the latest state (which should be empty/initial state)
-            self.database.latest().context("Failed to create latest state provider")
-        } else {
-            // For historical blocks, create a historical state provider
-            // that reflects the state at the specified block number
-            self.database
-                .historical(block_number.into())
-                .context("Failed to create historical state provider")?
-                .context("Historical state not available for specified block")
-        }
     }
 
     /// Store the execution output for a block using the provider pattern.
