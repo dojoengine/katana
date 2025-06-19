@@ -659,6 +659,104 @@ mod tests {
     }
 
     #[test]
+    fn test_compute_invoke_v3_tx_hash_with_l1_gas_resource_bounds() {
+        // Starknet mainnet tx hash: https://voyager.online/tx/0x562d89cb85f92d99644fd2a53a55c730ec6943021e59c7f38f9ead4a2695174
+        let expected_hash =
+            felt!("0x562d89cb85f92d99644fd2a53a55c730ec6943021e59c7f38f9ead4a2695174");
+
+        let sender_address =
+            felt!("0x7ea191d8fdbefcdd6024309ac58d0229592f3ee32a80f19c251db2b396786ac");
+        let calldata = vec![
+            felt!("0x2"),
+            felt!("0x68f5c6a61780768455de69077e07e89787839bf8166decfbf92b645209c0fb8"),
+            felt!("0x219209e083275171774dab1df80982e9df2096516f06319c5c6d71ae0a8480c"),
+            felt!("0x3"),
+            felt!("0x36144f57b3dfeeade600b446be0789c17a04d51e1d10ba00d1e4b37c13f68e3"),
+            felt!("0x2faf080"),
+            felt!("0x0"),
+            felt!("0x36144f57b3dfeeade600b446be0789c17a04d51e1d10ba00d1e4b37c13f68e3"),
+            felt!("0x1171593aa5bdadda4d6b0efde6cc94ee7649c3163d5efeb19da6c16d63a2a63"),
+            felt!("0x2f"),
+            felt!("0x68f5c6a61780768455de69077e07e89787839bf8166decfbf92b645209c0fb8"),
+            felt!("0x2faf080"),
+            felt!("0x0"),
+            felt!("0x68f5c6a61780768455de69077e07e89787839bf8166decfbf92b645209c0fb8"),
+            felt!("0x2fbcd0e"),
+            felt!("0x0"),
+            felt!("0x2faf080"),
+            felt!("0x0"),
+            felt!("0x7ea191d8fdbefcdd6024309ac58d0229592f3ee32a80f19c251db2b396786ac"),
+            felt!("0x0"),
+            felt!("0x0"),
+            felt!("0x5"),
+            felt!("0x68f5c6a61780768455de69077e07e89787839bf8166decfbf92b645209c0fb8"),
+            felt!("0x53c91253bc9682c04929ca02ed00b3e423f6710d2ee7e0d5ebb06f3ecf368a8"),
+            felt!("0x49ff5b3a7d38e2b50198f408fa8281635b5bc81ee49ab87ac36c8324c214427"),
+            felt!("0xe8d4a51000"),
+            felt!("0x1"),
+            felt!("0xc318445d5a5096e2ad086452d5c97f65a9d28cafe343345e0fa70da0841295"),
+            felt!("0x53c91253bc9682c04929ca02ed00b3e423f6710d2ee7e0d5ebb06f3ecf368a8"),
+            felt!("0x49d36570d4e46f48e99674bd3fcc84644ddd6b96f7c741b1562b82f9e004dc7"),
+            felt!("0x5dd3d2f4429af886cd1a3b08289dbcea99a294197e9eb43b0e0325b4b"),
+            felt!("0xe8d4a51000"),
+            felt!("0x6"),
+            felt!("0x49d36570d4e46f48e99674bd3fcc84644ddd6b96f7c741b1562b82f9e004dc7"),
+            felt!("0x53c91253bc9682c04929ca02ed00b3e423f6710d2ee7e0d5ebb06f3ecf368a8"),
+            felt!("0x20c49ba5e353f80000000000000000"),
+            felt!("0x3e8"),
+            felt!("0x0"),
+            felt!("0x8bb5dee81450f31fed59ebcbe"),
+            felt!("0x49d36570d4e46f48e99674bd3fcc84644ddd6b96f7c741b1562b82f9e004dc7"),
+            felt!("0x68f5c6a61780768455de69077e07e89787839bf8166decfbf92b645209c0fb8"),
+            felt!("0x7a6f98c03379b9513ca84cca1373ff452a7462a3b61598f0af5bb27ad7f76d1"),
+            felt!("0x47243afe60"),
+            felt!("0x0"),
+            felt!("0x49d36570d4e46f48e99674bd3fcc84644ddd6b96f7c741b1562b82f9e004dc7"),
+            felt!("0x68f5c6a61780768455de69077e07e89787839bf8166decfbf92b645209c0fb8"),
+            felt!("0x1114c7103e12c2b2ecbd3a2472ba9c48ddcbf702b1c242dd570057e26212111"),
+            felt!("0xab300f0ba0"),
+            felt!("0x2"),
+            felt!("0x30baaaf1b243f6e74c656f98dcb24b98687dcbe783d25f35854148c4c602d41"),
+            felt!("0x641f3bc1f31f488a1c"),
+            felt!("0x49d36570d4e46f48e99674bd3fcc84644ddd6b96f7c741b1562b82f9e004dc7"),
+            felt!("0x68f5c6a61780768455de69077e07e89787839bf8166decfbf92b645209c0fb8"),
+            felt!("0x28c858a586fa12123a1ccb337a0a3b369281f91ea00544d0c086524b759f627"),
+            felt!("0xe8d4a51000"),
+            felt!("0x1"),
+            felt!("0x0"),
+        ];
+
+        let tip = 0;
+        let l1_gas_bounds =
+            ResourceBounds { max_amount: 0x420, max_price_per_unit: 0x569263440613 };
+
+        let paymaster_data = Vec::new();
+        let chain_id = ChainId::MAINNET.id();
+        let nonce = felt!("0x2a73");
+        let nonce_da_mode = &DataAvailabilityMode::L1;
+        let fee_da_mode = &DataAvailabilityMode::L1;
+        let account_deployment_data = Vec::new();
+
+        let actual_hash = compute_invoke_v3_tx_hash(
+            sender_address,
+            &calldata,
+            tip,
+            &l1_gas_bounds,
+            &ResourceBounds::ZERO,
+            None,
+            &paymaster_data,
+            chain_id,
+            nonce,
+            nonce_da_mode,
+            fee_da_mode,
+            &account_deployment_data,
+            false,
+        );
+
+        assert_eq!(actual_hash, expected_hash);
+    }
+
+    #[test]
     fn test_compute_l1_handler_tx_hash() {
         // Starknet mainnet tx hash: https://voyager.online/tx/0x30d300980374bd923b0d0848ef18c41c071439c5dce578755fb47bcc9b9708b
         let expected_hash =
