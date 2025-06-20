@@ -53,6 +53,7 @@ impl<Db: Database> TrieWriter for DbProvider<Db> {
                         StoragesTrie::new(TrieDbMut::<tables::StoragesTrie, _>::new(tx), *address);
 
                     for (key, value) in storage_entries {
+                        println!("STORAGE KEYS TO INSERT FOR MAINNET GENESIS:  KEY: {:?}, VALUE: {:?}", key, value);
                         storage_trie_db.insert(*key, *value);
                     }
                     // insert the contract address in the contract_leafs to put the storage root
@@ -61,7 +62,6 @@ impl<Db: Database> TrieWriter for DbProvider<Db> {
 
                     // Then we commit them
                     storage_trie_db.commit(block_number);
-                    println!("STORAGE ROOT FOR STORAGE TRIE MAINNET: {:?}", storage_trie_db.root());
                 }
 
                 for (address, nonce) in &state_updates.nonce_updates {
@@ -117,18 +117,13 @@ pub fn contract_state_leaf_hash(
     address: &ContractAddress,
     contract_leaf: &ContractLeaf,
 ) -> Felt {
-    println!("\nFor address: {:?}", address);
-    println!("contract_leaf: {:?}", contract_leaf);
     let nonce =
         contract_leaf.nonce.unwrap_or(provider.nonce(*address).unwrap().unwrap_or_default());
-    println!("nonce: {:?}", nonce);
     let class_hash = contract_leaf
         .class_hash
         .unwrap_or(provider.class_hash_of_contract(*address).unwrap().unwrap_or_default());
-    println!("class_hash: {:?}", class_hash);
 
     let storage_root = contract_leaf.storage_root.expect("root need to set");
-    println!("storage_root: {:?}\n", storage_root);
 
     compute_contract_state_hash(&class_hash, &storage_root, &nonce)
 }

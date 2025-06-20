@@ -89,7 +89,7 @@ impl<Db: Database + 'static> TrieWriter for ForkedProvider<Db> {
                 contract_leafs.insert(*address, leaf);
             }
             println!("\n----------------FORKING START----------------\n");
-            let leaf_hashes: Vec<_> = {
+            let mut leaf_hashes: Vec<_> = {
                 // First handle storage updates
                 for ((address, storage_entries), storage_proof) in state_updates.storage_updates.iter().zip(contracts_storage_proofs.iter()) {
                     let mut storage_trie_db =
@@ -147,7 +147,10 @@ impl<Db: Database + 'static> TrieWriter for ForkedProvider<Db> {
 
             println!("ORIGINAL ROOT OF CONTRACT TRIE: {:?}", original_root);
 
+            // leaf_hashes.sort_by_key(|(k, _)| k.clone());
+            // leaf_hashes.reverse();
             for (k, v) in leaf_hashes {
+                println!("\nINSERTING LEAF HASH: {:?} for address: {:?}\n", v, k);
                 contract_trie_db.insert(k, v, proof.clone(), original_root);
             }
 
@@ -204,6 +207,7 @@ impl<Db: Database + 'static> TrieWriter for ForkedProvider<Db> {
             for class_hash in state_updates_clone.declared_classes.keys() {
                 class_hashes.push(*class_hash);
             }
+            println!("CLASS HASH in state updates: {:?}", class_hashes);
 
             // Collect all unique contract addresses that need proofs
             for address in state_updates_clone.deployed_contracts.keys() {
@@ -216,17 +220,29 @@ impl<Db: Database + 'static> TrieWriter for ForkedProvider<Db> {
                 contract_addresses.insert(*address);
             }
 
+            println!("STORAGE UPDATES to insert: {:?}", state_updates_clone.storage_updates);
+
             for (address, storage_map) in &state_updates_clone.storage_updates {
                 contract_addresses.insert(*address);
+                let mut keys = storage_map.keys().cloned().collect::<Vec<_>>();
+                // keys.reverse();
                 contracts_storage_keys.push(ContractStorageKeys {
                     address: *address,
-                    keys: storage_map.keys().cloned().collect(),
+                    keys,
                 });
             }
 
             // Convert HashSet to sorted Vec
             let mut contract_addresses: Vec<_> = contract_addresses.into_iter().collect();
-            // contract_addresses.sort(); //think if we need to sort the contract addresses, that may cause a bug
+            contract_addresses.sort();
+            contract_addresses.reverse(); //think if we need to sort the contract addresses, that may cause a bug
+            class_hashes.sort();
+            class_hashes.reverse();
+            contracts_storage_keys.sort_by_key(|keys| keys.address.clone());
+            // contracts_storage_keys.reverse();
+            println!("CLASS HASHES TO INSERT FOR FORKED NETWORK: {:?}", class_hashes);
+            println!("CONTRACT ADDRESSES TO INSERT FOR FORKED NETWORK: {:?}", contract_addresses);
+            println!("CONTRACT STORAGE KEYS TO INSERT FOR FORKED NETWORK: {:?}", contracts_storage_keys);
             let contract_addresses_clone = contract_addresses.clone();
 
             let response = self.backend.get_storage_proof(StorageProofPayload {
@@ -247,6 +263,7 @@ impl<Db: Database + 'static> TrieWriter for ForkedProvider<Db> {
                 let contracts_proof = MultiProof::from(proof.contracts_proof.nodes.clone());
                 let mut contracts_storage_proofs_nodes = proof.contracts_storage_proofs.nodes.clone();
                 let mut contracts_storage_proofs = Vec::new();
+                //think if we need to sort() contracts_storage_proofs
                 for node in contracts_storage_proofs_nodes.iter_mut() {
                     let storage_proof = MultiProof::from(node.clone());
                     contracts_storage_proofs.push(storage_proof);
@@ -268,8 +285,8 @@ impl<Db: Database + 'static> TrieWriter for ForkedProvider<Db> {
                     .collect();
 
                 // Check if we have any local changes
-                let has_class_changes = !state_updates.declared_classes.is_empty()
-                    || !state_updates.deprecated_declared_classes.is_empty();
+                let has_class_changes = !state_updates.declared_classes.is_empty();
+                    // || !state_updates.deprecated_declared_classes.is_empty();
 
                 let has_contract_changes = !state_updates.deployed_contracts.is_empty()
                     || !state_updates.replaced_classes.is_empty()

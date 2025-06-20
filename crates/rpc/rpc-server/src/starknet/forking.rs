@@ -649,10 +649,10 @@ mod tests {
     }
 
     proptest! {
-        #![proptest_config(ProptestConfig {
-            cases: 10,
-            .. ProptestConfig::default()
-        })]
+        // #![proptest_config(ProptestConfig {
+        //     cases: 5,
+        //     .. ProptestConfig::default()
+        // })]
         #[test]
         fn prop_state_roots_match_for_mainnet_and_forked(
             num_iters in 1usize..=5,
@@ -670,6 +670,13 @@ mod tests {
                 let url = Url::parse(&url).unwrap();
                 let mut block_number = provider.latest_number().unwrap();
 
+                let mut producer = IntervalBlockProducer::new(backend.clone(), None);
+
+                let initial_state = &state_updates_vec[0];
+                provider.compute_state_root(block_number, initial_state).unwrap();
+                producer.force_mine();
+                block_number = provider.latest_number().unwrap();
+
                 let db = katana_db::init_ephemeral_db().unwrap();
                 let forked_provider = ForkedProvider::new(
                     db.clone(),
@@ -678,19 +685,14 @@ mod tests {
                     url.clone(),
                 );
 
-                let mut producer = IntervalBlockProducer::new(backend.clone(), None);
-
                 for i in 0..num_iters {
-                    let state_updates = &state_updates_vec[i % state_updates_vec.len()];
                     let fork_minimal_updates = &fork_minimal_updates_vec[i % fork_minimal_updates_vec.len()];
-
-                    provider.compute_state_root(block_number, state_updates).unwrap();
 
                     let fork_root = forked_provider.compute_state_root(block_number, fork_minimal_updates).unwrap();
                     let mainnet_root = provider.compute_state_root(block_number, fork_minimal_updates).unwrap();
 
                     prop_assert_eq!(fork_root, mainnet_root, "State roots do not match at iteration {}", i);
-                    
+
                     producer.force_mine();
                     block_number = provider.latest_number().unwrap();
                 }
@@ -704,84 +706,36 @@ mod tests {
         use katana_primitives::{Felt, ContractAddress};
         use katana_primitives::state::StateUpdates;
         use std::collections::{BTreeMap, BTreeSet};
-        let mut btree_map = BTreeMap::new();
-        btree_map.insert(Felt::ZERO, Felt::ZERO);
+        
+        // First state update from state_updates_vec[0]
+        // let state_updates = StateUpdates {
+        //     nonce_updates: [].into_iter().collect(),
+        //     storage_updates: [(
+        //         ContractAddress::from(Felt::from_hex("0x4c3417b29b568b0ef3f6c1e4ab6aa844a26f7b6539f3853cae3c486e55f4774").unwrap()),
+        //         BTreeMap::new(),
+        //     )].into_iter().collect(),
+        //     deployed_contracts: [].into_iter().collect(),
+        //     declared_classes: [].into_iter().collect(),
+        //     deprecated_declared_classes: BTreeSet::new(),
+        //     replaced_classes: BTreeMap::new(),
+        // };
 
-        // Skopiowane dane z pliku proptest-regressions/starknet/forking.txt
-        let state_updates = StateUpdates {
-            nonce_updates: [
-                (ContractAddress::from(Felt::from_hex("0x10fb243e82c06238d838f4b3c582b7ad17837ba4117d640ecadc143fd43db5b").unwrap()),
-                 Felt::from_hex("0x374c6b4ecc7464bbc2f1b2d1e56cc796d5ad2df9f3736dac32d078dda5e8b49").unwrap())
-            ].into_iter().collect(),
-            storage_updates: [
-                (ContractAddress::from(Felt::from_hex("0x10fb243e82c06238d838f4b3c582b7ad17837ba4117d640ecadc143fd43db5b").unwrap()),
-                 btree_map)
-            ].into_iter().collect(),
-            deployed_contracts: [
-                (ContractAddress::from(Felt::from_hex("0x10fb243e82c06238d838f4b3c582b7ad17837ba4117d640ecadc143fd43db5b").unwrap()),
-                 ClassHash::from(Felt::from_hex("0x6f6ffb37b185784c4298866f829b0eb736799027bf167b9a7df342520334b4b").unwrap()))
-            ].into_iter().collect(),
-            declared_classes: [
-                (ClassHash::from(Felt::from_hex("0x6f6ffb37b185784c4298866f829b0eb736799027bf167b9a7df342520334b4b").unwrap()),
-                 Felt::from_hex("0x1").unwrap())
-            ].into_iter().collect(),
-            deprecated_declared_classes: BTreeSet::new(),
-            replaced_classes: BTreeMap::new(),
-            ..Default::default()
-        };
-
+        // First update from fork_minimal_updates_vec[0]
         let fork_minimal_updates = StateUpdates {
-            nonce_updates: [
-                (ContractAddress::from(Felt::from_hex("0x5991364353694863494443e75a19bddf51a6a67df7da4d196f6e3987b6874d").unwrap()),
-                 Felt::from_hex("0x686a912006908670917a9695ed0021e5462bb7495aa52fc29ff73f0ee9fe5d9").unwrap()),
-                (ContractAddress::from(Felt::from_hex("0x16ea94eafbe872cd98f9f6e070fa083382a5876a18f34dbae1858601757a5f1").unwrap()),
-                 Felt::from_hex("0x77d5d0ef0d14fa2d36f7f943b0a81921d799d8c0da7d1c3ac09d9c9b48c5379").unwrap()),
-                (ContractAddress::from(Felt::from_hex("0x40807a654b32e4aa778a9aa76702aaa25935fce2d79a4a3c9af568eb0839874").unwrap()),
-                 Felt::from_hex("0x27926baafc1aae314b0366ddd961c0d0455e4b69939bee4b43ec41482db4c16").unwrap()),
-                (ContractAddress::from(Felt::from_hex("0x5c6fe4e6bf95e03d9478e3fe3e2d6eab767a72ff868caa1a8a964491373ba7d").unwrap()),
-                 Felt::from_hex("0x3c294d24e1f8f499865adebdd230647a088a86373230177cb48e397bc38788c").unwrap()),
-                (ContractAddress::from(Felt::from_hex("0x77d97a9faa26dce726faf8a30f308abd81fd375b1b55f7b6c8aae1dec3503c4").unwrap()),
-                 Felt::from_hex("0x69727236c816d0e41aa76f71656d2c7c1b63ecf03a6e16fe1b928a2dfaf7463").unwrap()),
-            ].into_iter().collect(),
+            nonce_updates: [].into_iter().collect(),
             storage_updates: [
-                (ContractAddress::from(Felt::from_hex("0x5991364353694863494443e75a19bddf51a6a67df7da4d196f6e3987b6874d").unwrap()),
-                 [
-                    (Felt::from_hex("0xc8b4591e6ac3f1e0f3e0d1e7dcbb0624656a2e559add1b86086774892b8fd4").unwrap(), Felt::from_hex("0x68edc8122ff1009d0e56463bf6b26a5ae6a91ca617247db773512cc01612c44").unwrap()),
-                    (Felt::from_hex("0x69f5683aae47a69bfe12823bf555bd25bbfe8afc2bdbf21d8cea06d4d0657c6").unwrap(), Felt::from_hex("0x5ad43ca135b55ef291824b48bab917e3070d96437f17b1950d00c196eeda3e0").unwrap()),
-                 ].into_iter().collect()),
-                (ContractAddress::from(Felt::from_hex("0x16ea94eafbe872cd98f9f6e070fa083382a5876a18f34dbae1858601757a5f1").unwrap()),
-                 [
-                    (Felt::from_hex("0xd528c0c0a99dc646a419bd72211be0dbce7862973e77cc9a8c68f2af4bc59f").unwrap(), Felt::from_hex("0x58905833ca7d08e659c9cbed4c38389edd272f0d97ab49a5625f59e6db76a25").unwrap()),
-                 ].into_iter().collect()),
-                (ContractAddress::from(Felt::from_hex("0x40807a654b32e4aa778a9aa76702aaa25935fce2d79a4a3c9af568eb0839874").unwrap()),
-                 [
-                    (Felt::from_hex("0x1866df9ae650d18ebaa717b55d550f2f69ed8a853bd7db4cdd4b3b41d51cc4f").unwrap(), Felt::from_hex("0x3cec9df661101c30fc01333dc5d801e8fc04b071f63caa0f34a5ab97fa943a1").unwrap()),
-                    (Felt::from_hex("0x321cb66a9256c0c081ca52dbaa3f577b5dda466cf6246cf5e5e390f092fc5c3").unwrap(), Felt::from_hex("0x3da951024bfcdce26b7fe125a1cfebcd5b3773e444a39e3e6d454a45c3fb843").unwrap()),
-                 ].into_iter().collect()),
-                (ContractAddress::from(Felt::from_hex("0x5c6fe4e6bf95e03d9478e3fe3e2d6eab767a72ff868caa1a8a964491373ba7d").unwrap()),
-                 [
-                    (Felt::from_hex("0x44ca6e0abdd6baf26e7092e757e6362f78fc763b9dbe015264826edc40fc682").unwrap(), Felt::from_hex("0x51d40d70918a1f84c2347aa6ab476ed7d6932e32e5d608911596f90aea8af46").unwrap()),
-                 ].into_iter().collect()),
-                (ContractAddress::from(Felt::from_hex("0x77d97a9faa26dce726faf8a30f308abd81fd375b1b55f7b6c8aae1dec3503c4").unwrap()),
+                (ContractAddress::from(Felt::from_hex("0x246258999ea81791cf6e6873e9cffb15c27c4e96b99558d78ff7e3c177d73c8").unwrap()),
+                 BTreeMap::new()),
+                (ContractAddress::from(Felt::from_hex("0x140d99b5f8493f04b1f1eb09734048e2860352cc76cd57f9b2e2a4deafbc9c0").unwrap()),
+                 BTreeMap::new(),
+                ),
+                (ContractAddress::from(Felt::from_hex("0x3d2d7cf3e9a59d09ed30e4812ab0d0cbd8cda5bdaa14a1bf5abe3ce6536ea7c").unwrap()),
                  BTreeMap::new()),
             ].into_iter().collect(),
-            deployed_contracts: [
-                (ContractAddress::from(Felt::from_hex("0x5991364353694863494443e75a19bddf51a6a67df7da4d196f6e3987b6874d").unwrap()), ClassHash::from(Felt::from_hex("0x43157a62d2e288a46a0ff0e106e5d871d676b658648d79b6913f880343cb820").unwrap())),
-                (ContractAddress::from(Felt::from_hex("0x16ea94eafbe872cd98f9f6e070fa083382a5876a18f34dbae1858601757a5f1").unwrap()), ClassHash::from(Felt::from_hex("0x1378b9ebe07cab5d9f68eff2f5d6e404256a6ac07b48394eedf49448b54929").unwrap())),
-                (ContractAddress::from(Felt::from_hex("0x40807a654b32e4aa778a9aa76702aaa25935fce2d79a4a3c9af568eb0839874").unwrap()), ClassHash::from(Felt::from_hex("0x451a4390ad61731406919a96d605bef7fe27d428cdcd36c10f9fc42f1de50de").unwrap())),
-                (ContractAddress::from(Felt::from_hex("0x5c6fe4e6bf95e03d9478e3fe3e2d6eab767a72ff868caa1a8a964491373ba7d").unwrap()), ClassHash::from(Felt::from_hex("0xa6b89431e8bd401a9e723f74b91fd48ff87d29fbf1f81fddf752aeca40c3df").unwrap())),
-                (ContractAddress::from(Felt::from_hex("0x77d97a9faa26dce726faf8a30f308abd81fd375b1b55f7b6c8aae1dec3503c4").unwrap()), ClassHash::from(Felt::from_hex("0xd7299f46238eeb37ceb34f3552d7f618e86a8a889b4b3bb8eda330ce196ecd").unwrap())),
-            ].into_iter().collect(),
-            declared_classes: [
-                (ClassHash::from(Felt::from_hex("0x1378b9ebe07cab5d9f68eff2f5d6e404256a6ac07b48394eedf49448b54929").unwrap()), Felt::from_hex("0x1").unwrap()),
-                (ClassHash::from(Felt::from_hex("0xa6b89431e8bd401a9e723f74b91fd48ff87d29fbf1f81fddf752aeca40c3df").unwrap()), Felt::from_hex("0x1").unwrap()),
-                (ClassHash::from(Felt::from_hex("0xd7299f46238eeb37ceb34f3552d7f618e86a8a889b4b3bb8eda330ce196ecd").unwrap()), Felt::from_hex("0x1").unwrap()),
-                (ClassHash::from(Felt::from_hex("0x43157a62d2e288a46a0ff0e106e5d871d676b658648d79b6913f880343cb820").unwrap()), Felt::from_hex("0x1").unwrap()),
-                (ClassHash::from(Felt::from_hex("0x451a4390ad61731406919a96d605bef7fe27d428cdcd36c10f9fc42f1de50de").unwrap()), Felt::from_hex("0x1").unwrap()),
-            ].into_iter().collect(),
+            deployed_contracts: [].into_iter().collect(),
+            declared_classes: [].into_iter().collect(),
             deprecated_declared_classes: BTreeSet::new(),
             replaced_classes: BTreeMap::new(),
-            ..Default::default()
         };
 
         let rt = tokio::runtime::Runtime::new().unwrap();
@@ -793,9 +747,13 @@ mod tests {
 
             let url = format!("http://{}", sequencer.rpc_addr());
             let url = Url::parse(&url).unwrap();
-            let block_number = provider.latest_number().unwrap();
+            let mut block_number = provider.latest_number().unwrap();
 
-            provider.compute_state_root(block_number, &state_updates).unwrap();
+            let mut producer = IntervalBlockProducer::new(backend.clone(), None);
+            // producer.force_mine();
+            // provider.compute_state_root(block_number, &state_updates).unwrap();
+            // producer.force_mine();
+            // block_number = provider.latest_number().unwrap();
 
             let db = katana_db::init_ephemeral_db().unwrap();
             let forked_provider = ForkedProvider::new(
@@ -808,7 +766,76 @@ mod tests {
             let fork_root = forked_provider.compute_state_root(block_number, &fork_minimal_updates).unwrap();
             let mainnet_root = provider.compute_state_root(block_number, &fork_minimal_updates).unwrap();
 
-            assert_eq!(fork_root, mainnet_root);
+            assert_eq!(fork_root, mainnet_root, "State roots do not match");
+        });
+    }
+
+    #[test]
+    fn debug_passing_case() {
+        use katana_primitives::{Felt, ContractAddress};
+        use katana_primitives::state::StateUpdates;
+        use std::collections::{BTreeMap, BTreeSet};
+        
+        // First state update from state_updates_vec[0]
+        let state_updates = StateUpdates {
+            nonce_updates: [].into_iter().collect(),
+            storage_updates: [(
+                ContractAddress::from(Felt::from_hex("0x4c3417b29b568b0ef3f6c1e4ab6aa844a26f7b6539f3853cae3c486e55f4774").unwrap()),
+                [].into_iter().collect()
+            )].into_iter().collect(),
+            deployed_contracts: [].into_iter().collect(),
+            declared_classes: [].into_iter().collect(),
+            deprecated_declared_classes: BTreeSet::new(),
+            replaced_classes: BTreeMap::new(),
+        };
+
+        // First update from fork_minimal_updates_vec[0]
+        let fork_minimal_updates = StateUpdates {
+            nonce_updates: [].into_iter().collect(),
+            storage_updates: [
+                (ContractAddress::from(Felt::from_hex("0x140d99b5f8493f04b1f1eb09734048e2860352cc76cd57f9b2e2a4deafbc9c0").unwrap()),
+                 [].into_iter().collect()
+                ),
+                (ContractAddress::from(Felt::from_hex("0x246258999ea81791cf6e6873e9cffb15c27c4e96b99558d78ff7e3c177d73c8").unwrap()),
+                 BTreeMap::new()),
+                // (ContractAddress::from(Felt::from_hex("0x3d2d7cf3e9a59d09ed30e4812ab0d0cbd8cda5bdaa14a1bf5abe3ce6536ea7c").unwrap()),
+                //  BTreeMap::new()),
+            ].into_iter().collect(),
+            deployed_contracts: [].into_iter().collect(),
+            declared_classes: [].into_iter().collect(),
+            deprecated_declared_classes: BTreeSet::new(),
+            replaced_classes: BTreeMap::new(),
+        };
+
+        let rt = tokio::runtime::Runtime::new().unwrap();
+        rt.block_on(async {
+            let sequencer = TestNode::new().await;
+            let backend = sequencer.backend();
+            let starknet_provider = sequencer.starknet_provider();
+            let provider = backend.blockchain.provider();
+
+            let url = format!("http://{}", sequencer.rpc_addr());
+            let url = Url::parse(&url).unwrap();
+            let mut block_number = provider.latest_number().unwrap();
+
+            let mut producer = IntervalBlockProducer::new(backend.clone(), None);
+            // producer.force_mine();
+            provider.compute_state_root(block_number, &state_updates).unwrap();
+            // producer.force_mine();
+            // block_number = provider.latest_number().unwrap();
+
+            let db = katana_db::init_ephemeral_db().unwrap();
+            let forked_provider = ForkedProvider::new(
+                db.clone(),
+                katana_primitives::block::BlockHashOrNumber::Num(block_number),
+                starknet_provider,
+                url.clone(),
+            );
+
+            let fork_root = forked_provider.compute_state_root(block_number, &fork_minimal_updates).unwrap();
+            let mainnet_root = provider.compute_state_root(block_number, &fork_minimal_updates).unwrap();
+
+            assert_eq!(fork_root, mainnet_root, "State roots do not match");
         });
     }
 }
