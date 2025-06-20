@@ -1,5 +1,5 @@
 window.BENCHMARK_DATA = {
-  "lastUpdate": 1750342832188,
+  "lastUpdate": 1750429371593,
   "repoUrl": "https://github.com/dojoengine/katana",
   "entries": {
     "Benchmark": [
@@ -1571,6 +1571,72 @@ window.BENCHMARK_DATA = {
             "name": "Katana.Startup",
             "value": 129124471,
             "range": "± 1623196",
+            "unit": "ns/iter"
+          }
+        ]
+      },
+      {
+        "commit": {
+          "author": {
+            "email": "evergreenkary@gmail.com",
+            "name": "Ammar Arif",
+            "username": "kariy"
+          },
+          "committer": {
+            "email": "noreply@github.com",
+            "name": "GitHub",
+            "username": "web-flow"
+          },
+          "distinct": true,
+          "id": "9bde0ae49eec61b7f8ef66cbef6f7181676fd426",
+          "message": "feat: support 'legacy' v3 transaction resource bounds (#141)\n\nIn order to support database migration through re-execution of historical blocks, the transactions must be executed using the exact same parameters as when it was first executed.",
+          "timestamp": "2025-06-20T22:15:46+08:00",
+          "tree_id": "7ad9612c9151925e67b657c8a2c53da5bc8cf1c0",
+          "url": "https://github.com/dojoengine/katana/commit/9bde0ae49eec61b7f8ef66cbef6f7181676fd426"
+        },
+        "date": 1750429370278,
+        "tool": "cargo",
+        "benches": [
+          {
+            "name": "Commit.Small/Parallel",
+            "value": 451368,
+            "range": "± 15720",
+            "unit": "ns/iter"
+          },
+          {
+            "name": "Commit.Big/Serial",
+            "value": 94949101,
+            "range": "± 532941",
+            "unit": "ns/iter"
+          },
+          {
+            "name": "Commit.Big/Parallel",
+            "value": 65740761,
+            "range": "± 1376827",
+            "unit": "ns/iter"
+          },
+          {
+            "name": "compress world contract",
+            "value": 2783998,
+            "range": "± 14041",
+            "unit": "ns/iter"
+          },
+          {
+            "name": "decompress world contract",
+            "value": 2985045,
+            "range": "± 91998",
+            "unit": "ns/iter"
+          },
+          {
+            "name": "Invoke.ERC20.transfer/Blockifier.Cold",
+            "value": 17084318,
+            "range": "± 519462",
+            "unit": "ns/iter"
+          },
+          {
+            "name": "Katana.Startup",
+            "value": 129601109,
+            "range": "± 1068069",
             "unit": "ns/iter"
           }
         ]
