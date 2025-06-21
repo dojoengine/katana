@@ -53,7 +53,10 @@ impl<Db: Database> TrieWriter for DbProvider<Db> {
                         StoragesTrie::new(TrieDbMut::<tables::StoragesTrie, _>::new(tx), *address);
 
                     for (key, value) in storage_entries {
-                        println!("STORAGE KEYS TO INSERT FOR MAINNET GENESIS:  KEY: {:?}, VALUE: {:?}", key, value);
+                        println!(
+                            "STORAGE KEYS TO INSERT FOR MAINNET GENESIS:  KEY: {:?}, VALUE: {:?}",
+                            key, value
+                        );
                         storage_trie_db.insert(*key, *value);
                     }
                     // insert the contract address in the contract_leafs to put the storage root
@@ -100,7 +103,7 @@ impl<Db: Database> TrieWriter for DbProvider<Db> {
                     .collect::<Result<Vec<_>, ProviderError>>()?
             };
             println!("LEAF HASHES: {:?}", leaf_hashes);
-            
+
             for (k, v) in leaf_hashes {
                 contract_trie_db.insert(k, v);
             }

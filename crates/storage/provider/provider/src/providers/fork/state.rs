@@ -1,7 +1,9 @@
 use std::cmp::Ordering;
 use std::sync::Arc;
 
-use katana_db::abstraction::{Database, DbCursorMut, DbDupSortCursor, DbDupSortCursorMut, DbTx, DbTxMut, DbTxMutRef};
+use katana_db::abstraction::{
+    Database, DbCursorMut, DbDupSortCursor, DbDupSortCursorMut, DbTx, DbTxMut, DbTxMutRef,
+};
 use katana_db::models::contract::{ContractClassChange, ContractNonceChange};
 use katana_db::models::storage::{ContractStorageEntry, ContractStorageKey, StorageEntry};
 use katana_db::tables;
@@ -127,7 +129,6 @@ where
         &self,
         address: ContractAddress,
     ) -> ProviderResult<Option<ClassHash>> {
-
         if let res @ Some(..) = self.provider.class_hash_of_contract(address)? {
             Ok(res)
         } else if let Some(class_hash) = self.backend.get_class_hash_at(address)? {
@@ -383,7 +384,10 @@ impl<Db: Database> ContractClassWriter for ForkedProvider<Db> {
 }
 
 impl<Db: Database> ForkedProvider<Db> {
-    pub fn latest_with_tx<'a>(&self, tx: &'a Db::TxMut) -> ProviderResult<MutableLatestStateProvider<'a, Db>> {
+    pub fn latest_with_tx<'a>(
+        &self,
+        tx: &'a Db::TxMut,
+    ) -> ProviderResult<MutableLatestStateProvider<'a, Db>> {
         let db = self.provider.clone();
         let backend = self.backend.clone();
         Ok(MutableLatestStateProvider { db, backend, tx })
@@ -453,15 +457,11 @@ where
         &self,
         address: ContractAddress,
     ) -> ProviderResult<Option<ClassHash>> {
-
         let info = self.tx.get::<tables::ContractInfo>(address)?;
         if let res @ Some(..) = info.map(|info| info.class_hash) {
             Ok(res)
         } else if let Some(class_hash) = self.backend.get_class_hash_at(address)? {
-            let nonce = self
-                .backend
-                .get_nonce(address)?
-                .unwrap_or(Felt::ZERO);
+            let nonce = self.backend.get_nonce(address)?.unwrap_or(Felt::ZERO);
             let entry = GenericContractInfo { class_hash, nonce };
             self.tx.put::<tables::ContractInfo>(address, entry)?;
             Ok(Some(class_hash))
@@ -483,7 +483,7 @@ where
                 if let Some(value) = self.backend.get_storage(address, key)? {
                     let entry = StorageEntry { key, value };
                     cursor.upsert(address, entry)?;
-                    Ok(Some(value)) 
+                    Ok(Some(value))
                 } else {
                     Ok(None)
                 }

@@ -4,6 +4,7 @@ use crate::providers::db::trie::contract_state_leaf_hash;
 use crate::traits::state::StateFactoryProvider;
 use crate::traits::trie::TrieWriter;
 use crate::ProviderResult;
+use futures::executor;
 use jsonrpsee::core::client::ClientT;
 use jsonrpsee::http_client::HttpClientBuilder;
 use jsonrpsee::rpc_params;
@@ -22,7 +23,6 @@ use katana_trie::{ClassesTrie, ContractLeaf, ContractsTrie, MultiProof, Storages
 use std::collections::{BTreeMap, HashMap};
 use std::future::Future;
 use std::sync::Arc;
-use futures::executor;
 
 impl<Db: Database + 'static> TrieWriter for ForkedProvider<Db> {
     fn trie_insert_declared_classes(
@@ -91,12 +91,17 @@ impl<Db: Database + 'static> TrieWriter for ForkedProvider<Db> {
             println!("\n----------------FORKING START----------------\n");
             let mut leaf_hashes: Vec<_> = {
                 // First handle storage updates
-                for ((address, storage_entries), storage_proof) in state_updates.storage_updates.iter().zip(contracts_storage_proofs.iter()) {
-                    let mut storage_trie_db =
-                        StoragesTrie::new_partial(TrieDbMut::<tables::StoragesTrie, _>::new(tx), *address);
+                for ((address, storage_entries), storage_proof) in
+                    state_updates.storage_updates.iter().zip(contracts_storage_proofs.iter())
+                {
+                    let mut storage_trie_db = StoragesTrie::new_partial(
+                        TrieDbMut::<tables::StoragesTrie, _>::new(tx),
+                        *address,
+                    );
 
                     // Get the original root from the contract leaf's storage_root
-                    let original_root = contract_leaves_map.get(address)
+                    let original_root = contract_leaves_map
+                        .get(address)
                         .and_then(|leaf| leaf.storage_root)
                         .unwrap_or(Felt::ZERO);
 
@@ -191,13 +196,9 @@ impl<Db: Database + 'static> TrieWriter for ForkedProvider<Db> {
                 fork_url.to_string()
             };
 
-            let client =
-                HttpClientBuilder::default().build(&url_with_port).map_err(|e| {
-                    ProviderError::ParsingError(format!(
-                        "Failed to create HTTP client: {}",
-                        e
-                    ))
-                })?;
+            let client = HttpClientBuilder::default().build(&url_with_port).map_err(|e| {
+                ProviderError::ParsingError(format!("Failed to create HTTP client: {}", e))
+            })?;
 
             // Collect storage proof data
             let mut class_hashes = Vec::new();
@@ -226,10 +227,7 @@ impl<Db: Database + 'static> TrieWriter for ForkedProvider<Db> {
                 contract_addresses.insert(*address);
                 let mut keys = storage_map.keys().cloned().collect::<Vec<_>>();
                 // keys.reverse();
-                contracts_storage_keys.push(ContractStorageKeys {
-                    address: *address,
-                    keys,
-                });
+                contracts_storage_keys.push(ContractStorageKeys { address: *address, keys });
             }
 
             // Convert HashSet to sorted Vec
@@ -242,7 +240,10 @@ impl<Db: Database + 'static> TrieWriter for ForkedProvider<Db> {
             // contracts_storage_keys.reverse();
             println!("CLASS HASHES TO INSERT FOR FORKED NETWORK: {:?}", class_hashes);
             println!("CONTRACT ADDRESSES TO INSERT FOR FORKED NETWORK: {:?}", contract_addresses);
-            println!("CONTRACT STORAGE KEYS TO INSERT FOR FORKED NETWORK: {:?}", contracts_storage_keys);
+            println!(
+                "CONTRACT STORAGE KEYS TO INSERT FOR FORKED NETWORK: {:?}",
+                contracts_storage_keys
+            );
             let contract_addresses_clone = contract_addresses.clone();
 
             let response = self.backend.get_storage_proof(StorageProofPayload {
@@ -261,7 +262,8 @@ impl<Db: Database + 'static> TrieWriter for ForkedProvider<Db> {
                 // Extract proofs from the response
                 let classes_proof = MultiProof::from(proof.classes_proof.nodes.clone());
                 let contracts_proof = MultiProof::from(proof.contracts_proof.nodes.clone());
-                let mut contracts_storage_proofs_nodes = proof.contracts_storage_proofs.nodes.clone();
+                let mut contracts_storage_proofs_nodes =
+                    proof.contracts_storage_proofs.nodes.clone();
                 let mut contracts_storage_proofs = Vec::new();
                 //think if we need to sort() contracts_storage_proofs
                 for node in contracts_storage_proofs_nodes.iter_mut() {
@@ -272,7 +274,9 @@ impl<Db: Database + 'static> TrieWriter for ForkedProvider<Db> {
                 let classes_tree_root = proof.global_roots.classes_tree_root;
                 let contracts_tree_root = proof.global_roots.contracts_tree_root;
 
-                let contract_leaves_map: HashMap<ContractAddress, ContractLeaf> = proof.contracts_proof.contract_leaves_data
+                let contract_leaves_map: HashMap<ContractAddress, ContractLeaf> = proof
+                    .contracts_proof
+                    .contract_leaves_data
                     .iter()
                     .zip(contract_addresses.iter())
                     .map(|(leaf_data, &addr)| {
@@ -286,7 +290,7 @@ impl<Db: Database + 'static> TrieWriter for ForkedProvider<Db> {
 
                 // Check if we have any local changes
                 let has_class_changes = !state_updates.declared_classes.is_empty();
-                    // || !state_updates.deprecated_declared_classes.is_empty();
+                // || !state_updates.deprecated_declared_classes.is_empty();
 
                 let has_contract_changes = !state_updates.deployed_contracts.is_empty()
                     || !state_updates.replaced_classes.is_empty()

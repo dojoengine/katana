@@ -11,6 +11,8 @@ use katana_node::config::rpc::{RpcConfig, RpcModulesList, DEFAULT_RPC_ADDR};
 use katana_node::config::sequencing::SequencingConfig;
 use katana_node::config::Config;
 use katana_node::{LaunchedNode, Node};
+use katana_primitives::block::BlockHashOrNumber;
+use katana_primitives::block::BlockNumber;
 use katana_primitives::chain::ChainId;
 use katana_primitives::{address, ContractAddress};
 use katana_provider::BlockchainProvider;
@@ -22,8 +24,6 @@ use starknet::providers::jsonrpc::HttpTransport;
 use starknet::providers::{JsonRpcClient, Url};
 pub use starknet::providers::{Provider, ProviderError};
 use starknet::signers::{LocalWallet, SigningKey};
-use katana_primitives::block::BlockHashOrNumber;
-use katana_primitives::block::BlockNumber;
 
 #[derive(Debug)]
 pub struct TestNode {
@@ -132,10 +132,7 @@ pub fn test_config() -> Config {
 pub fn test_config_forking(url: Url, block: BlockHashOrNumber) -> Config {
     let sequencing = SequencingConfig::default();
     let dev = DevConfig { fee: false, account_validation: true, fixed_gas_prices: None };
-    let forking_config = ForkingConfig {
-        url,
-        block: Some(block),
-    };
+    let forking_config = ForkingConfig { url, block: Some(block) };
 
     let mut chain = dev::ChainSpec { id: ChainId::SEPOLIA, ..Default::default() };
     chain.genesis.sequencer_address = address!("0x1");
@@ -149,5 +146,12 @@ pub fn test_config_forking(url: Url, block: BlockHashOrNumber) -> Config {
         ..Default::default()
     };
 
-    Config { sequencing, rpc, dev, chain: ChainSpec::Dev(chain).into(), forking: Some(forking_config), ..Default::default()}
+    Config {
+        sequencing,
+        rpc,
+        dev,
+        chain: ChainSpec::Dev(chain).into(),
+        forking: Some(forking_config),
+        ..Default::default()
+    }
 }

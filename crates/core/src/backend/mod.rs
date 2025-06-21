@@ -254,7 +254,8 @@ impl<EF: ExecutorFactory> Backend<EF> {
                 info!("Initializing forked genesis block from RPC data");
 
                 let block = chain_spec.block().seal();
-                let mut block = SealedBlockWithStatus { block, status: FinalityStatus::AcceptedOnL1 };
+                let mut block =
+                    SealedBlockWithStatus { block, status: FinalityStatus::AcceptedOnL1 };
                 let block_number = block.block.header.number;
                 let empty_states = StateUpdatesWithClasses::default();
 
