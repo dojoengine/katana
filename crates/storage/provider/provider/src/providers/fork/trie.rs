@@ -83,6 +83,13 @@ impl<Db: Database + 'static> TrieWriter for ForkedProvider<Db> {
             }
 
             let leaf_hashes: Vec<_> = {
+                // Verify that storage updates and storage proofs have matching lengths
+                if state_updates.storage_updates.len() != contracts_storage_proofs.len() {
+                    return Err(ProviderError::ParsingError(
+                        "storage updates/proofs count mismatch".to_string(),
+                    ));
+                }
+
                 // First handle storage updates
                 for ((address, storage_entries), storage_proof) in
                     state_updates.storage_updates.iter().zip(contracts_storage_proofs.iter())
@@ -127,7 +134,7 @@ impl<Db: Database + 'static> TrieWriter for ForkedProvider<Db> {
                         );
                         let storage_root = storage_trie.root();
                         // Only update storage root if we have local changes (non-zero root)
-                        //THIS might cause a bug!
+                        // Think if it does not cause a bug somewhere
                         if storage_root != Felt::ZERO {
                             leaf.storage_root = Some(storage_root);
                         }
@@ -232,6 +239,13 @@ impl<Db: Database + 'static> TrieWriter for ForkedProvider<Db> {
                 // let contract_leaves_data = proof.contracts_proof.contract_leaves_data.clone();
                 let classes_tree_root = proof.global_roots.classes_tree_root;
                 let contracts_tree_root = proof.global_roots.contracts_tree_root;
+
+                // Verify that contract leaves data and addresses have matching lengths
+                if proof.contracts_proof.contract_leaves_data.len() != contract_addresses.len() {
+                    return Err(ProviderError::ParsingError(
+                        "leaf/address count mismatch".to_string(),
+                    ));
+                }
 
                 let contract_leaves_map: HashMap<ContractAddress, ContractLeaf> = proof
                     .contracts_proof
