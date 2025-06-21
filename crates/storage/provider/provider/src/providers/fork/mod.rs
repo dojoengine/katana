@@ -6,8 +6,8 @@ use katana_db::abstraction::Database;
 use katana_db::models::block::StoredBlockBodyIndices;
 use katana_fork::{Backend, BackendClient};
 use katana_primitives::block::{
-    Block, BlockHash, BlockHashOrNumber, BlockNumber, BlockWithTxHashes,
-    FinalityStatus, Header, SealedBlockWithStatus,
+    Block, BlockHash, BlockHashOrNumber, BlockNumber, BlockWithTxHashes, FinalityStatus, Header,
+    SealedBlockWithStatus,
 };
 use katana_primitives::class::{ClassHash, CompiledClassHash};
 use katana_primitives::contract::ContractAddress;

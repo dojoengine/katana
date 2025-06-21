@@ -167,11 +167,11 @@ impl<Db: Database + 'static> TrieWriter for ForkedProvider<Db> {
                         )))
                     }
                 };
-                
+
                 if let Some(port) = default_port {
-                    fork_url.set_port(Some(port)).map_err(|_| {
-                        ProviderError::ParsingError(format!("Failed to set port"))
-                    })?;
+                    fork_url
+                        .set_port(Some(port))
+                        .map_err(|_| ProviderError::ParsingError(format!("Failed to set port")))?;
                 }
             }
 

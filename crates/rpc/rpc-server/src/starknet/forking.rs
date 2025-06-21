@@ -1,3 +1,4 @@
+use jsonrpsee::core::Error as JsonRpcseError;
 use katana_primitives::block::{BlockHash, BlockIdOrTag, BlockNumber};
 use katana_primitives::contract::ContractAddress;
 use katana_primitives::transaction::TxHash;
@@ -307,16 +308,15 @@ mod tests {
     use jsonrpsee::http_client::HttpClientBuilder;
     use katana_primitives::felt;
     use katana_primitives::state::StateUpdates;
+    use katana_provider::providers::fork::ForkedProvider;
     use katana_provider::traits::block::BlockNumberProvider;
     use katana_provider::traits::trie::TrieWriter;
     use katana_utils::node::test_config_forking;
     use katana_utils::TestNode;
-    use crate::starknet::ClassHash;
     use proptest::arbitrary::any;
     use proptest::prelude::Just;
     use proptest::prelude::ProptestConfig;
     use proptest::prelude::Strategy;
-    use katana_provider::providers::fork::ForkedProvider;
     use proptest::prop_assert_eq;
     use proptest::proptest;
     use rand::{thread_rng, Rng};
