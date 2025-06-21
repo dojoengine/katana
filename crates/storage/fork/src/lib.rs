@@ -14,14 +14,7 @@ use futures::channel::mpsc::{channel as async_channel, Receiver, SendError, Send
 use futures::future::BoxFuture;
 use futures::stream::Stream;
 use futures::{Future, FutureExt};
-<<<<<<< HEAD
 use katana_primitives::block::{BlockHashOrNumber, BlockNumber, BlockIdOrTag};
-=======
-use jsonrpsee::core::client::ClientT;
-use jsonrpsee::http_client::HttpClientBuilder;
-use jsonrpsee::rpc_params;
-use katana_primitives::block::{BlockHashOrNumber, BlockIdOrTag, BlockNumber, BlockTag};
->>>>>>> 4d16089e (fmt)
 use katana_primitives::class::{
     ClassHash, CompiledClassHash, ComputeClassHashError, ContractClass,
     ContractClassCompilationError,
@@ -206,19 +199,10 @@ impl Backend {
         Ok(handle)
     }
 
-<<<<<<< HEAD
     fn new_inner(
         provider: StarknetClient,
         block_id: BlockHashOrNumber,
     ) -> (BackendClient, Backend) {
-=======
-    fn new_inner(provider: P, block_id: BlockHashOrNumber) -> (BackendClient, Backend<P>) {
-        let block = match block_id {
-            BlockHashOrNumber::Hash(hash) => BlockId::Hash(hash),
-            BlockHashOrNumber::Num(number) => BlockId::Number(number),
-        };
-
->>>>>>> 4d16089e (fmt)
         // Create async channel to receive requests from the handle.
         let (tx, rx) = async_channel(100);
         let backend = Backend {

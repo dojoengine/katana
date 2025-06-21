@@ -1,28 +1,21 @@
 use super::ForkedProvider;
 use crate::error::ProviderError;
 use crate::providers::db::trie::contract_state_leaf_hash;
-use crate::traits::state::StateFactoryProvider;
 use crate::traits::trie::TrieWriter;
 use crate::ProviderResult;
-use futures::executor;
-use jsonrpsee::core::client::ClientT;
-use jsonrpsee::http_client::HttpClientBuilder;
-use jsonrpsee::rpc_params;
 use katana_db::abstraction::Database;
 use katana_db::tables;
 use katana_db::trie::TrieDbMut;
 use katana_fork::StorageProofPayload;
-use katana_primitives::block::{BlockIdOrTag, BlockNumber, BlockTag};
+use katana_primitives::block::BlockNumber;
 use katana_primitives::class::{ClassHash, CompiledClassHash};
 use katana_primitives::hash::StarkHash;
 use katana_primitives::state::StateUpdates;
 use katana_primitives::{ContractAddress, Felt};
-use katana_rpc_types::trie::{ContractLeafData, ContractStorageKeys, GetStorageProofResponse};
+use katana_rpc_types::trie::{ContractStorageKeys, GetStorageProofResponse};
 use katana_trie::bonsai::trie::trees::PartialMerkleTrees;
 use katana_trie::{ClassesTrie, ContractLeaf, ContractsTrie, MultiProof, StoragesTrie};
 use std::collections::{BTreeMap, HashMap};
-use std::future::Future;
-use std::sync::Arc;
 
 impl<Db: Database + 'static> TrieWriter for ForkedProvider<Db> {
     fn trie_insert_declared_classes(
@@ -88,8 +81,8 @@ impl<Db: Database + 'static> TrieWriter for ForkedProvider<Db> {
                 leaf.class_hash = leaf_data.class_hash;
                 contract_leafs.insert(*address, leaf);
             }
-            println!("\n----------------FORKING START----------------\n");
-            let mut leaf_hashes: Vec<_> = {
+
+            let leaf_hashes: Vec<_> = {
                 // First handle storage updates
                 for ((address, storage_entries), storage_proof) in
                     state_updates.storage_updates.iter().zip(contracts_storage_proofs.iter())
@@ -110,7 +103,6 @@ impl<Db: Database + 'static> TrieWriter for ForkedProvider<Db> {
                     }
                     contract_leafs.entry(*address).or_insert(ContractLeaf::default());
                     storage_trie_db.commit(block_number);
-                    println!("STORAGE ROOT FOR STORAGE TRIE FORKING: {:?}", storage_trie_db.root());
                 }
 
                 // Handle other contract updates
@@ -134,7 +126,6 @@ impl<Db: Database + 'static> TrieWriter for ForkedProvider<Db> {
                             address,
                         );
                         let storage_root = storage_trie.root();
-                        println!("STORAGE ROOT: {:?}", storage_root);
                         // Only update storage root if we have local changes (non-zero root)
                         //THIS might cause a bug!
                         if storage_root != Felt::ZERO {
@@ -147,20 +138,10 @@ impl<Db: Database + 'static> TrieWriter for ForkedProvider<Db> {
                     })
                     .collect::<Result<Vec<_>, ProviderError>>()?
             };
-            println!("LEAF HASHES FOR FORKED NETWORK: {:?}", leaf_hashes);
-            println!("\n----------------FORKING END----------------\n");
-
-            println!("ORIGINAL ROOT OF CONTRACT TRIE: {:?}", original_root);
-
-            // leaf_hashes.sort_by_key(|(k, _)| k.clone());
-            // leaf_hashes.reverse();
             for (k, v) in leaf_hashes {
-                println!("\nINSERTING LEAF HASH: {:?} for address: {:?}\n", v, k);
                 contract_trie_db.insert(k, v, proof.clone(), original_root);
             }
-
             contract_trie_db.commit(block_number);
-            println!("CONTRACT TRIE ROOT FORKING: {:?}", contract_trie_db.root());
             Ok(contract_trie_db.root())
         })?
     }
@@ -171,13 +152,14 @@ impl<Db: Database + 'static> TrieWriter for ForkedProvider<Db> {
         state_updates: &StateUpdates,
     ) -> ProviderResult<Felt> {
         let result: Result<(Option<GetStorageProofResponse>, Vec<ContractAddress>), ProviderError> = {
-            let fork_url = self.fork_url.clone();
+            let mut fork_url = self.fork_url.clone();
             let state_updates_clone = state_updates.clone();
 
-            let url_with_port = if fork_url.port().is_none() {
+            // Set default ports only if no port is already specified
+            if fork_url.port().is_none() {
                 let default_port = match fork_url.scheme() {
-                    "https" => ":443",
-                    "http" => ":80",
+                    "https" => Some(443),
+                    "http" => Some(80),
                     _ => {
                         return Err(ProviderError::ParsingError(format!(
                             "Unsupported URL scheme: {}",
@@ -185,20 +167,13 @@ impl<Db: Database + 'static> TrieWriter for ForkedProvider<Db> {
                         )))
                     }
                 };
-                format!(
-                    "{}://{}{}{}",
-                    fork_url.scheme(),
-                    fork_url.host_str().unwrap_or(""),
-                    default_port,
-                    fork_url.path()
-                )
-            } else {
-                fork_url.to_string()
-            };
-
-            let client = HttpClientBuilder::default().build(&url_with_port).map_err(|e| {
-                ProviderError::ParsingError(format!("Failed to create HTTP client: {}", e))
-            })?;
+                
+                if let Some(port) = default_port {
+                    fork_url.set_port(Some(port)).map_err(|_| {
+                        ProviderError::ParsingError(format!("Failed to set port"))
+                    })?;
+                }
+            }
 
             // Collect storage proof data
             let mut class_hashes = Vec::new();
@@ -208,7 +183,6 @@ impl<Db: Database + 'static> TrieWriter for ForkedProvider<Db> {
             for class_hash in state_updates_clone.declared_classes.keys() {
                 class_hashes.push(*class_hash);
             }
-            println!("CLASS HASH in state updates: {:?}", class_hashes);
 
             // Collect all unique contract addresses that need proofs
             for address in state_updates_clone.deployed_contracts.keys() {
@@ -221,29 +195,14 @@ impl<Db: Database + 'static> TrieWriter for ForkedProvider<Db> {
                 contract_addresses.insert(*address);
             }
 
-            println!("STORAGE UPDATES to insert: {:?}", state_updates_clone.storage_updates);
-
             for (address, storage_map) in &state_updates_clone.storage_updates {
                 contract_addresses.insert(*address);
-                let mut keys = storage_map.keys().cloned().collect::<Vec<_>>();
-                // keys.reverse();
+                let keys = storage_map.keys().cloned().collect::<Vec<_>>();
                 contracts_storage_keys.push(ContractStorageKeys { address: *address, keys });
             }
 
             // Convert HashSet to sorted Vec
-            let mut contract_addresses: Vec<_> = contract_addresses.into_iter().collect();
-            contract_addresses.sort();
-            contract_addresses.reverse(); //think if we need to sort the contract addresses, that may cause a bug
-            class_hashes.sort();
-            class_hashes.reverse();
-            contracts_storage_keys.sort_by_key(|keys| keys.address.clone());
-            // contracts_storage_keys.reverse();
-            println!("CLASS HASHES TO INSERT FOR FORKED NETWORK: {:?}", class_hashes);
-            println!("CONTRACT ADDRESSES TO INSERT FOR FORKED NETWORK: {:?}", contract_addresses);
-            println!(
-                "CONTRACT STORAGE KEYS TO INSERT FOR FORKED NETWORK: {:?}",
-                contracts_storage_keys
-            );
+            let contract_addresses: Vec<_> = contract_addresses.into_iter().collect();
             let contract_addresses_clone = contract_addresses.clone();
 
             let response = self.backend.get_storage_proof(StorageProofPayload {
@@ -251,7 +210,7 @@ impl<Db: Database + 'static> TrieWriter for ForkedProvider<Db> {
                 class_hashes: Some(class_hashes),
                 contract_addresses: Some(contract_addresses),
                 contracts_storage_keys: Some(contracts_storage_keys),
-                fork_url: url_with_port,
+                fork_url: fork_url.to_string(),
             })?;
             Ok((response, contract_addresses_clone))
         };

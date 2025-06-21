@@ -6,7 +6,6 @@ use katana_primitives::{ContractAddress, Felt};
 
 use crate::id::CommitId;
 
-// #[derive(Debug)]
 pub struct StoragesTrie<
     DB: BonsaiDatabase,
     TreeType = bonsai_trie::trie::trees::FullMerkleTrees<Pedersen, DB, CommitId>,

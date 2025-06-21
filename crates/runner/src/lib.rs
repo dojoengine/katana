@@ -42,7 +42,7 @@ impl core::ops::Deref for RunnerCtx {
 
 #[derive(Debug)]
 pub struct KatanaRunner {
-    pub instance: KatanaInstance,
+    instance: KatanaInstance,
     provider: JsonRpcClient<HttpTransport>,
     log_file_path: PathBuf,
     contract: Mutex<Option<Felt>>,

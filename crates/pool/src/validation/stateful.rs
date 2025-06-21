@@ -134,10 +134,8 @@ impl Validator for TxValidator {
 
         // Get the current nonce of the account from the pool or the state
         let current_nonce = if let Some(nonce) = this.pool_nonces.get(&address) {
-            println!("TxValidator::validate: Getting nonce for address {:?} from pool", address);
             *nonce
         } else {
-            println!("No nonce in pool nonces so trying to get it from state {:?}", address);
             this.state.nonce(address).unwrap().unwrap_or_default()
         };
 

@@ -54,10 +54,8 @@ where
     let txs: Vec<TxWithHash> =
         blocks.iter().flat_map(|(block, _, _)| block.block.body.clone()).collect();
     let total_txs = txs.len() as u64;
-    println!("total_txs: {:?}", total_txs);
 
     for (block, receipts, executions) in &blocks {
-        println!("block: {:?}", block.block.header.number);
         provider.insert_block_with_states_and_receipts(
             block.clone(),
             Default::default(),
@@ -145,8 +143,6 @@ where
         assert_eq!(actual_executions, Some(executions));
 
         assert_eq!(actual_block_tx_count, Some(expected_block.body.len() as u64));
-        println!("actual_state_root: {:?}", actual_state_root);
-        println!("expected_block.header.state_root: {:?}", expected_block.header.state_root);
         assert_eq!(actual_state_root, Some(expected_block.header.state_root));
         assert_eq!(actual_block_txs, Some(expected_block.body.clone()));
         assert_eq!(actual_block_hash, Some(expected_block_hash));

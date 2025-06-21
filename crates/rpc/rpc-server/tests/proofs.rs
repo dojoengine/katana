@@ -73,7 +73,6 @@ async fn genesis_states() {
     };
 
     let genesis_states = chain_spec.state_updates();
-    println!("genesis nonce updates: {:?}", genesis_states.state_updates.nonce_updates);
 
     // We need to use the jsonrpsee client because `starknet-rs` doesn't yet support RPC 0.8.0
     let client = sequencer.rpc_http_client();
@@ -201,9 +200,6 @@ async fn classes_proofs() {
             .get_storage_proof(BlockIdOrTag::Number(1), Some(vec![class_hash]), None, None)
             .await
             .expect("failed to get storage proof");
-
-        let results = ClassesMultiProof::from(MultiProof::from(proofs.clone().classes_proof.nodes));
-        println!("results: {:?}", results);
 
         let results = ClassesMultiProof::from(MultiProof::from(proofs.classes_proof.nodes))
             .verify(proofs.global_roots.classes_tree_root, vec![class_hash]);
