@@ -206,6 +206,10 @@ impl KatanaRunner {
         KatanaDevClient::new(self.url().as_str()).expect("failed to get runner dev client")
     }
 
+    pub fn instance(&self) -> &KatanaInstance {
+        &self.instance
+    }
+
     // A contract needs to be deployed only once for each instance
     // In proptest runner is static but deployment would happen for each test, unless it is
     // persisted here.

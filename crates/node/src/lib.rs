@@ -144,8 +144,8 @@ impl Node {
                 class_cache = class_cache.compile_native(config.execution.compile_native);
             }
 
-            // let global_class_cache = class_cache.build_global()?;
-            let global_class_cache = ClassCache::new()?;
+            let global_class_cache = class_cache.build_global()?;
+            // let global_class_cache = ClassCache::new()?;
 
             let factory = BlockifierFactory::new(
                 overrides,

@@ -661,7 +661,7 @@ mod tests {
         })
     }
 
-    //T hese tests require walkaround to work
+    // These tests require walkaround to work
     // We need to comment out "let global_class_cache = class_cache.build_global()?;"
     // in Node::build()
     proptest! {
