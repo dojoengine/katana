@@ -15,7 +15,7 @@ use url::Url;
 
 #[derive(Debug, Args)]
 pub struct RpcArgs {
-    /// katana RPC endpoint URL
+    /// Katana RPC endpoint URL
     #[arg(global = true)]
     #[arg(long, default_value = "http://localhost:5050")]
     url: String,
@@ -40,171 +40,173 @@ impl RpcArgs {
 
 #[derive(Debug, Subcommand)]
 enum RpcCommand {
-    #[command(subcommand, about = "Read API methods")]
+    /// Read API methods
+    #[command(subcommand)]
     Read(ReadCommand),
 
-    #[command(subcommand, about = "Trace API methods")]
+    /// Trace API methods
+    #[command(subcommand)]
     Trace(TraceCommand),
 }
 
 // Read API Commands
 #[derive(Debug, Subcommand)]
 enum ReadCommand {
-    #[command(about = "Get Starknet JSON-RPC specification version")]
+    /// Get Starknet JSON-RPC specification version
     SpecVersion,
 
-    #[command(about = "Get block with transaction hashes")]
+    /// Get block with transaction hashes
     GetBlockWithTxHashes(BlockIdArgs),
 
-    #[command(about = "Get block with full transactions")]
+    /// Get block with full transactions
     GetBlockWithTxs(BlockIdArgs),
 
-    #[command(about = "Get block with full transactions and receipts")]
+    /// Get block with full transactions and receipts
     GetBlockWithReceipts(BlockIdArgs),
 
-    #[command(about = "Get state update for a block")]
+    /// Get state update for a block
     GetStateUpdate(BlockIdArgs),
 
-    #[command(about = "Get storage value at address and key")]
+    /// Get storage value at address and key
     GetStorageAt(GetStorageAtArgs),
 
-    #[command(about = "Get transaction status")]
+    /// Get transaction status
     GetTransactionStatus(TxHashArgs),
 
-    #[command(about = "Get transaction by hash")]
+    /// Get transaction by hash
     GetTransactionByHash(TxHashArgs),
 
-    #[command(about = "Get transaction by block ID and index")]
+    /// Get transaction by block ID and index
     GetTransactionByBlockIdAndIndex(GetTransactionByBlockIdAndIndexArgs),
 
-    #[command(about = "Get transaction receipt")]
+    /// Get transaction receipt
     GetTransactionReceipt(TxHashArgs),
 
-    #[command(about = "Get contract class definition")]
+    /// Get contract class definition
     GetClass(GetClassArgs),
 
-    #[command(about = "Get contract class hash at address")]
+    /// Get contract class hash at address
     GetClassHashAt(GetClassHashAtArgs),
 
-    #[command(about = "Get contract class at address")]
+    /// Get contract class at address
     GetClassAt(GetClassAtArgs),
 
-    #[command(about = "Get number of transactions in block")]
+    /// Get number of transactions in block
     GetBlockTransactionCount(BlockIdArgs),
 
-    #[command(about = "Call contract function")]
+    /// Call contract function
     Call(CallArgs),
 
-    #[command(about = "Get latest block number")]
+    /// Get latest block number
     BlockNumber,
 
-    #[command(about = "Get latest block hash and number")]
+    /// Get latest block hash and number
     BlockHashAndNumber,
 
-    #[command(about = "Get chain ID")]
+    /// Get chain ID
     ChainId,
 
-    #[command(about = "Get sync status")]
+    /// Get sync status
     Syncing,
 
-    #[command(about = "Get nonce for address")]
+    /// Get nonce for address
     GetNonce(GetNonceArgs),
 }
 
 // Trace API Commands
 #[derive(Debug, Subcommand)]
 enum TraceCommand {
-    #[command(about = "Get transaction execution trace")]
+    /// Get transaction execution trace
     Transaction(TxHashArgs),
 
-    #[command(about = "Get execution traces for all transactions in a block")]
+    /// Get execution traces for all transactions in a block
     BlockTransactions(BlockIdArgs),
 }
 
 #[derive(Debug, Args)]
 struct BlockIdArgs {
-    #[arg(help = "Block ID (number, hash, 'latest', or 'pending'). Defaults to 'latest'")]
+    /// Block ID (number, hash, 'latest', or 'pending'). Defaults to 'latest'
     block_id: Option<String>,
 }
 
 #[derive(Debug, Args)]
 struct TxHashArgs {
-    #[arg(help = "Transaction hash")]
+    /// Transaction hash
     tx_hash: String,
 }
 
 #[derive(Debug, Args)]
 struct GetStorageAtArgs {
-    #[arg(help = "Contract address")]
+    /// Contract address
     contract_address: String,
 
-    #[arg(help = "Storage key")]
+    /// Storage key
     key: String,
 
-    #[arg(help = "Block ID (number, hash, 'latest', or 'pending'). Defaults to 'latest'")]
+    /// Block ID (number, hash, 'latest', or 'pending'). Defaults to 'latest'
     block_id: Option<String>,
 }
 
 #[derive(Debug, Args)]
 struct GetTransactionByBlockIdAndIndexArgs {
-    #[arg(help = "Block ID (number, hash, 'latest', or 'pending'). Defaults to 'latest'")]
+    /// Block ID (number, hash, 'latest', or 'pending'). Defaults to 'latest'
     block_id: Option<String>,
 
-    #[arg(help = "Transaction index")]
+    /// Transaction index
     index: u64,
 }
 
 #[derive(Debug, Args)]
 struct GetClassArgs {
-    #[arg(help = "Block ID (number, hash, 'latest', or 'pending'). Defaults to 'latest'")]
+    /// Block ID (number, hash, 'latest', or 'pending'). Defaults to 'latest'
     block_id: Option<String>,
 
-    #[arg(help = "Class hash")]
+    /// Class hash
     class_hash: String,
 }
 
 #[derive(Debug, Args)]
 struct GetClassHashAtArgs {
-    #[arg(help = "Block ID (number, hash, 'latest', or 'pending'). Defaults to 'latest'")]
+    /// Block ID (number, hash, 'latest', or 'pending'). Defaults to 'latest'
     block_id: Option<String>,
 
-    #[arg(help = "Contract address")]
+    /// Contract address
     contract_address: String,
 }
 
 #[derive(Debug, Args)]
 struct GetClassAtArgs {
-    #[arg(help = "Block ID (number, hash, 'latest', or 'pending'). Defaults to 'latest'")]
+    /// Block ID (number, hash, 'latest', or 'pending'). Defaults to 'latest'
     block_id: Option<String>,
 
-    #[arg(help = "Contract address")]
+    /// Contract address
     contract_address: String,
 }
 
 #[derive(Debug, Args)]
 struct CallArgs {
-    #[arg(help = "Contract address")]
+    /// Contract address
     contract_address: String,
 
-    #[arg(help = "Function selector")]
+    /// Function selector
     selector: String,
 
-    #[arg(help = "Calldata (space-separated hex values)")]
+    /// Calldata (space-separated hex values)
     calldata: Vec<String>,
 
-    #[arg(help = "Block ID (number, hash, 'latest', or 'pending'). Defaults to 'latest'")]
+    /// Block ID (number, hash, 'latest', or 'pending'). Defaults to 'latest'
     block_id: Option<String>,
 }
 
 #[derive(Debug, Args)]
 struct GetEventsArgs {
-    #[arg(help = "Event filter JSON")]
+    /// Event filter JSON
     filter: String,
 }
 
 #[derive(Debug, Args)]
 struct GetNonceArgs {
-    #[arg(help = "Block ID (number, hash, 'latest', or 'pending'). Defaults to 'latest'")]
+    /// Block ID (number, hash, 'latest', or 'pending'). Defaults to 'latest'
     block_id: Option<String>,
 
     /// The contract address whose nonce is requested
@@ -213,46 +215,50 @@ struct GetNonceArgs {
 
 #[derive(Debug, Args)]
 struct GetStorageProofArgs {
-    #[arg(help = "Block ID (number, hash, 'latest', or 'pending'). Defaults to 'latest'")]
+    /// Block ID (number, hash, 'latest', or 'pending'). Defaults to 'latest'
     block_id: Option<String>,
 
-    #[arg(long, help = "Class hashes JSON array")]
+    /// Class hashes JSON array
+    #[arg(long)]
     class_hashes: Option<String>,
 
-    #[arg(long, help = "Contract addresses JSON array")]
+    /// Contract addresses JSON array
+    #[arg(long)]
     contract_addresses: Option<String>,
 
-    #[arg(long, help = "Contract storage keys JSON")]
+    /// Contract storage keys JSON
+    #[arg(long)]
     contracts_storage_keys: Option<String>,
 }
 
 #[derive(Debug, Args)]
 struct AddInvokeTransactionArgs {
-    #[arg(help = "Invoke transaction JSON")]
+    /// Invoke transaction JSON
     transaction: String,
 }
 
 #[derive(Debug, Args)]
 struct AddDeclareTransactionArgs {
-    #[arg(help = "Declare transaction JSON")]
+    /// Declare transaction JSON
     transaction: String,
 }
 
 #[derive(Debug, Args)]
 struct AddDeployAccountTransactionArgs {
-    #[arg(help = "Deploy account transaction JSON")]
+    /// Deploy account transaction JSON
     transaction: String,
 }
 
 #[derive(Debug, Args)]
 struct SimulateTransactionsArgs {
-    #[arg(help = "Block ID (number, hash, 'latest', or 'pending'). Defaults to 'latest'")]
+    /// Block ID (number, hash, 'latest', or 'pending'). Defaults to 'latest'
     block_id: Option<String>,
 
-    #[arg(help = "Transactions JSON (as array of broadcasted transactions)")]
+    /// Transactions JSON (as array of broadcasted transactions)
     transactions: String,
 
-    #[arg(long, help = "Simulation flags JSON array")]
+    /// Simulation flags JSON array
+    #[arg(long)]
     simulation_flags: Option<String>,
 }
 
@@ -385,7 +391,6 @@ impl ReadCommand {
     }
 }
 
-// Implementation for Trace commands
 impl TraceCommand {
     async fn execute(self, client: &Client) -> Result<()> {
         match self {
