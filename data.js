@@ -1,5 +1,5 @@
 window.BENCHMARK_DATA = {
-  "lastUpdate": 1750755626477,
+  "lastUpdate": 1750803555049,
   "repoUrl": "https://github.com/dojoengine/katana",
   "entries": {
     "Benchmark": [
@@ -1703,6 +1703,72 @@ window.BENCHMARK_DATA = {
             "name": "Katana.Startup",
             "value": 125757198,
             "range": "± 683292",
+            "unit": "ns/iter"
+          }
+        ]
+      },
+      {
+        "commit": {
+          "author": {
+            "email": "evergreenkary@gmail.com",
+            "name": "Ammar Arif",
+            "username": "kariy"
+          },
+          "committer": {
+            "email": "noreply@github.com",
+            "name": "GitHub",
+            "username": "web-flow"
+          },
+          "distinct": true,
+          "id": "40f32619bf53730dc61401246fe65278f43f71d4",
+          "message": "feat(cli): add RPC client commands (#149)\n\nCo-authored-by: claude[bot] <209825114+claude[bot]@users.noreply.github.com>\nCo-authored-by: Ammar Arif <kariy@users.noreply.github.com>",
+          "timestamp": "2025-06-25T06:12:17+08:00",
+          "tree_id": "a3623fa10afdf9e52d33fcd2e6a096d2e138ef5c",
+          "url": "https://github.com/dojoengine/katana/commit/40f32619bf53730dc61401246fe65278f43f71d4"
+        },
+        "date": 1750803553902,
+        "tool": "cargo",
+        "benches": [
+          {
+            "name": "Commit.Small/Parallel",
+            "value": 434822,
+            "range": "± 12796",
+            "unit": "ns/iter"
+          },
+          {
+            "name": "Commit.Big/Serial",
+            "value": 93433565,
+            "range": "± 560637",
+            "unit": "ns/iter"
+          },
+          {
+            "name": "Commit.Big/Parallel",
+            "value": 65083491,
+            "range": "± 2233614",
+            "unit": "ns/iter"
+          },
+          {
+            "name": "compress world contract",
+            "value": 2644858,
+            "range": "± 12564",
+            "unit": "ns/iter"
+          },
+          {
+            "name": "decompress world contract",
+            "value": 2957799,
+            "range": "± 11470",
+            "unit": "ns/iter"
+          },
+          {
+            "name": "Invoke.ERC20.transfer/Blockifier.Cold",
+            "value": 16260157,
+            "range": "± 154356",
+            "unit": "ns/iter"
+          },
+          {
+            "name": "Katana.Startup",
+            "value": 125842501,
+            "range": "± 781683",
             "unit": "ns/iter"
           }
         ]
