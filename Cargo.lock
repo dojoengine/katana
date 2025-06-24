@@ -6203,6 +6203,7 @@ dependencies = [
  "proptest",
  "rand 0.8.5",
  "rstest 0.18.2",
+ "serde_json",
  "shellexpand",
  "spinoff",
  "starknet 0.14.0",
