@@ -30,13 +30,10 @@ pub enum StarknetCommands {
 
     /// Get transaction by hash
     #[command(name = "tx")]
-    GetTransactionByHash(TxHashArgs),
-
-    /// Get transaction status
-    #[command(name = "tx-status")]
-    GetTransactionStatus(TxHashArgs),
+    GetTransactionByHash(GetTransactionArgs),
 
     /// Get transaction by block ID and index
+    #[command(name = "tx-by-block")]
     GetTransactionByBlockIdAndIndex(GetTransactionByBlockIdAndIndexArgs),
 
     /// Get transaction receipt
@@ -48,6 +45,7 @@ pub enum StarknetCommands {
     GetClass(GetClassArgs),
 
     /// Get contract class hash at address
+    #[command(name = "class-at")]
     GetClassHashAt(GetClassHashAtArgs),
 
     /// Get contract class at address
@@ -93,13 +91,15 @@ pub enum StarknetCommands {
 #[derive(Debug, Args)]
 pub struct BlockIdArgs {
     /// Block ID (number, hash, 'latest', or 'pending'). Defaults to 'latest'
-    block_id: Option<String>,
+    #[arg(default_value = "latest")]
+    block_id: BlockIdArg,
 }
 
 #[derive(Debug, Args)]
 pub struct GetBlockArgs {
     /// Block ID (number, hash, 'latest', or 'pending'). Defaults to 'latest'
-    block_id: Option<String>,
+    #[arg(default_value = "latest")]
+    block_id: BlockIdArg,
 
     /// Return block with receipts
     #[arg(long)]
@@ -117,6 +117,16 @@ pub struct TxHashArgs {
 }
 
 #[derive(Debug, Args)]
+pub struct GetTransactionArgs {
+    /// Transaction hash
+    tx_hash: String,
+
+    /// Get only the transaction status instead of full transaction
+    #[arg(long)]
+    status: bool,
+}
+
+#[derive(Debug, Args)]
 pub struct GetStorageAtArgs {
     /// Contract address
     contract_address: String,
@@ -125,13 +135,15 @@ pub struct GetStorageAtArgs {
     key: String,
 
     /// Block ID (number, hash, 'latest', or 'pending'). Defaults to 'latest'
-    block_id: Option<String>,
+    #[arg(default_value = "latest")]
+    block_id: BlockIdArg,
 }
 
 #[derive(Debug, Args)]
 pub struct GetTransactionByBlockIdAndIndexArgs {
     /// Block ID (number, hash, 'latest', or 'pending'). Defaults to 'latest'
-    block_id: Option<String>,
+    #[arg(default_value = "latest")]
+    block_id: BlockIdArg,
 
     /// Transaction index
     index: u64,
@@ -140,7 +152,8 @@ pub struct GetTransactionByBlockIdAndIndexArgs {
 #[derive(Debug, Args)]
 pub struct GetClassArgs {
     /// Block ID (number, hash, 'latest', or 'pending'). Defaults to 'latest'
-    block_id: Option<String>,
+    #[arg(default_value = "latest")]
+    block_id: BlockIdArg,
 
     /// Class hash
     class_hash: String,
@@ -149,7 +162,8 @@ pub struct GetClassArgs {
 #[derive(Debug, Args)]
 pub struct GetClassHashAtArgs {
     /// Block ID (number, hash, 'latest', or 'pending'). Defaults to 'latest'
-    block_id: Option<String>,
+    #[arg(default_value = "latest")]
+    block_id: BlockIdArg,
 
     /// Contract address
     contract_address: String,
@@ -158,7 +172,8 @@ pub struct GetClassHashAtArgs {
 #[derive(Debug, Args)]
 pub struct GetClassAtArgs {
     /// Block ID (number, hash, 'latest', or 'pending'). Defaults to 'latest'
-    block_id: Option<String>,
+    #[arg(default_value = "latest")]
+    block_id: BlockIdArg,
 
     /// Contract address
     contract_address: String,
@@ -176,7 +191,8 @@ pub struct CallArgs {
     calldata: Vec<String>,
 
     /// Block ID (number, hash, 'latest', or 'pending'). Defaults to 'latest'
-    block_id: Option<String>,
+    #[arg(default_value = "latest")]
+    block_id: BlockIdArg,
 }
 
 #[derive(Debug, Args)]
@@ -188,7 +204,8 @@ pub struct GetEventsArgs {
 #[derive(Debug, Args)]
 pub struct GetNonceArgs {
     /// Block ID (number, hash, 'latest', or 'pending'). Defaults to 'latest'
-    block_id: Option<String>,
+    #[arg(default_value = "latest")]
+    block_id: BlockIdArg,
 
     /// The contract address whose nonce is requested
     address: String,
@@ -197,7 +214,8 @@ pub struct GetNonceArgs {
 #[derive(Debug, Args)]
 pub struct GetStorageProofArgs {
     /// Block ID (number, hash, 'latest', or 'pending'). Defaults to 'latest'
-    block_id: Option<String>,
+    #[arg(default_value = "latest")]
+    block_id: BlockIdArg,
 
     /// Class hashes JSON array
     #[arg(long)]
@@ -233,7 +251,8 @@ pub struct AddDeployAccountTransactionArgs {
 #[derive(Debug, Args)]
 pub struct SimulateTransactionsArgs {
     /// Block ID (number, hash, 'latest', or 'pending'). Defaults to 'latest'
-    block_id: Option<String>,
+    #[arg(default_value = "latest")]
+    block_id: BlockIdArg,
 
     /// Transactions JSON (as array of broadcasted transactions)
     transactions: String,
@@ -251,7 +270,7 @@ impl StarknetCommands {
                 println!("{}", colored_json::to_colored_json_auto(&result)?);
             }
             StarknetCommands::GetBlockWithTxs(args) => {
-                let block_id = parse_block_id(args.block_id.as_deref())?;
+                let block_id = args.block_id.0;
 
                 if args.receipts {
                     let result = client.get_block_with_receipts(block_id).await?;
@@ -265,31 +284,30 @@ impl StarknetCommands {
                 };
             }
             StarknetCommands::GetStateUpdate(args) => {
-                let block_id = parse_block_id(args.block_id.as_deref())?;
+                let block_id = args.block_id.0;
                 let result = client.get_state_update(block_id).await?;
                 println!("{}", colored_json::to_colored_json_auto(&result)?);
             }
             StarknetCommands::GetStorageAt(args) => {
                 let contract_address = Felt::from_str(&args.contract_address)?;
                 let key = Felt::from_str(&args.key)?;
-                let block_id = parse_block_id(args.block_id.as_deref())?;
+                let block_id = args.block_id.0;
                 let result = client.get_storage_at(contract_address, key, block_id).await?;
                 println!("{}", colored_json::to_colored_json_auto(&result)?);
             }
-            StarknetCommands::GetTransactionStatus(args) => {
-                let tx_hash =
-                    TxHash::from_str(&args.tx_hash).context("Invalid transaction hash")?;
-                let result = client.get_transaction_status(tx_hash).await?;
-                println!("{}", colored_json::to_colored_json_auto(&result)?);
-            }
             StarknetCommands::GetTransactionByHash(args) => {
-                let tx_hash =
-                    TxHash::from_str(&args.tx_hash).context("Invalid transaction hash")?;
-                let result = client.get_transaction_by_hash(tx_hash).await?;
-                println!("{}", colored_json::to_colored_json_auto(&result)?);
+                let hash = TxHash::from_str(&args.tx_hash).context("Invalid transaction hash")?;
+
+                if args.status {
+                    let result = client.get_transaction_status(hash).await?;
+                    println!("{}", colored_json::to_colored_json_auto(&result)?);
+                } else {
+                    let result = client.get_transaction_by_hash(hash).await?;
+                    println!("{}", colored_json::to_colored_json_auto(&result)?);
+                };
             }
             StarknetCommands::GetTransactionByBlockIdAndIndex(args) => {
-                let block_id = parse_block_id(args.block_id.as_deref())?;
+                let block_id = args.block_id.0;
                 let result =
                     client.get_transaction_by_block_id_and_index(block_id, args.index).await?;
                 println!("{}", colored_json::to_colored_json_auto(&result)?);
@@ -301,27 +319,27 @@ impl StarknetCommands {
                 println!("{}", colored_json::to_colored_json_auto(&result)?);
             }
             StarknetCommands::GetClass(args) => {
-                let block_id = parse_block_id(args.block_id.as_deref())?;
+                let block_id = args.block_id.0;
                 let class_hash = Felt::from_str(&args.class_hash).context("Invalid class hash")?;
                 let result = client.get_class(block_id, class_hash).await?;
                 println!("{}", colored_json::to_colored_json_auto(&result)?);
             }
             StarknetCommands::GetClassHashAt(args) => {
-                let block_id = parse_block_id(args.block_id.as_deref())?;
+                let block_id = args.block_id.0;
                 let contract_address =
                     Felt::from_str(&args.contract_address).context("Invalid contract address")?;
                 let result = client.get_class_hash_at(block_id, contract_address).await?;
                 println!("{}", colored_json::to_colored_json_auto(&result)?);
             }
             StarknetCommands::GetClassAt(args) => {
-                let block_id = parse_block_id(args.block_id.as_deref())?;
+                let block_id = args.block_id.0;
                 let contract_address =
                     Felt::from_str(&args.contract_address).context("Invalid contract address")?;
                 let result = client.get_class_at(block_id, contract_address).await?;
                 println!("{}", colored_json::to_colored_json_auto(&result)?);
             }
             StarknetCommands::GetBlockTransactionCount(args) => {
-                let block_id = parse_block_id(args.block_id.as_deref())?;
+                let block_id = args.block_id.0;
                 let result = client.get_block_transaction_count(block_id).await?;
                 println!("{}", colored_json::to_colored_json_auto(&result)?);
             }
@@ -340,7 +358,7 @@ impl StarknetCommands {
                 let function_call =
                     FunctionCall { contract_address, entry_point_selector, calldata };
 
-                let block_id = parse_block_id(args.block_id.as_deref())?;
+                let block_id = args.block_id.0;
                 let result = client.call(function_call, block_id).await?;
                 println!("{}", colored_json::to_colored_json_auto(&result)?);
             }
@@ -361,7 +379,7 @@ impl StarknetCommands {
                 println!("{}", colored_json::to_colored_json_auto(&result)?);
             }
             StarknetCommands::GetNonce(args) => {
-                let block_id = parse_block_id(args.block_id.as_deref())?;
+                let block_id = args.block_id.0;
                 let address = Felt::from_str(&args.address).context("Invalid contract address")?;
                 let result = client.get_nonce(block_id, address).await?;
                 println!("{}", colored_json::to_colored_json_auto(&result)?);
@@ -373,7 +391,7 @@ impl StarknetCommands {
                 println!("{}", colored_json::to_colored_json_auto(&result)?);
             }
             StarknetCommands::TraceBlockTransactions(args) => {
-                let block_id = parse_block_id(args.block_id.as_deref())?;
+                let block_id = args.block_id.0;
                 let result = client.trace_block_transactions(block_id).await?;
                 println!("{}", colored_json::to_colored_json_auto(&result)?);
             }
@@ -382,19 +400,34 @@ impl StarknetCommands {
     }
 }
 
-fn parse_block_id(block_id: Option<&str>) -> Result<BlockId> {
-    let Some(id) = block_id else { return Ok(BlockId::Tag(BlockTag::Latest)) };
+#[derive(Debug, Clone, Copy)]
+pub struct BlockIdArg(pub BlockId);
 
-    match id {
-        "latest" => Ok(BlockId::Tag(BlockTag::Latest)),
-        "pending" => Ok(BlockId::Tag(BlockTag::Pending)),
+impl std::str::FromStr for BlockIdArg {
+    type Err = anyhow::Error;
 
-        hash if id.starts_with("0x") => {
-            Ok(BlockId::Hash(Felt::from_hex(hash).context("Invalid block hash format")?))
-        }
+    fn from_str(s: &str) -> Result<Self> {
+        let id = match s {
+            "latest" => BlockId::Tag(BlockTag::Latest),
+            "pending" => BlockId::Tag(BlockTag::Pending),
 
-        num => {
-            Ok(BlockId::Number(num.parse::<BlockNumber>().context("Invalid block number format")?))
-        }
+            hash if s.starts_with("0x") => BlockId::Hash(
+                Felt::from_hex(hash)
+                    .with_context(|| format!("Invalid block hash format: {hash}"))?,
+            ),
+
+            num => BlockId::Number(
+                num.parse::<BlockNumber>()
+                    .with_context(|| format!("Invalid block number format: {num}"))?,
+            ),
+        };
+
+        Ok(BlockIdArg(id))
+    }
+}
+
+impl Default for BlockIdArg {
+    fn default() -> Self {
+        BlockIdArg(BlockId::Tag(BlockTag::Latest))
     }
 }
