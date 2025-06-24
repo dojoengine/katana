@@ -12,93 +12,102 @@ use super::client::Client;
 
 #[derive(Debug, Subcommand)]
 pub enum StarknetCommands {
-    /// Read API methods
-    #[command(subcommand)]
-    Read(ReadCommand),
-
-    /// Trace API methods
-    #[command(subcommand)]
-    Trace(TraceCommand),
-}
-
-// Read API Commands
-#[derive(Debug, Subcommand)]
-pub enum ReadCommand {
     /// Get Starknet JSON-RPC specification version
+    #[command(name = "spec")]
     SpecVersion,
 
-    /// Get block with transaction hashes
-    GetBlockWithTxHashes(BlockIdArgs),
-
     /// Get block with full transactions
-    GetBlockWithTxs(BlockIdArgs),
-
-    /// Get block with full transactions and receipts
-    GetBlockWithReceipts(BlockIdArgs),
+    #[command(name = "block")]
+    GetBlockWithTxs(GetBlockArgs),
 
     /// Get state update for a block
+    #[command(name = "state-update")]
     GetStateUpdate(BlockIdArgs),
 
     /// Get storage value at address and key
+    #[command(name = "storage")]
     GetStorageAt(GetStorageAtArgs),
 
-    /// Get transaction status
-    GetTransactionStatus(TxHashArgs),
-
     /// Get transaction by hash
+    #[command(name = "tx")]
     GetTransactionByHash(TxHashArgs),
+
+    /// Get transaction status
+    #[command(name = "tx-status")]
+    GetTransactionStatus(TxHashArgs),
 
     /// Get transaction by block ID and index
     GetTransactionByBlockIdAndIndex(GetTransactionByBlockIdAndIndexArgs),
 
     /// Get transaction receipt
+    #[command(name = "receipt")]
     GetTransactionReceipt(TxHashArgs),
 
     /// Get contract class definition
+    #[command(name = "class")]
     GetClass(GetClassArgs),
 
     /// Get contract class hash at address
     GetClassHashAt(GetClassHashAtArgs),
 
     /// Get contract class at address
+    #[command(name = "code")]
     GetClassAt(GetClassAtArgs),
 
     /// Get number of transactions in block
+    #[command(name = "tx-count")]
     GetBlockTransactionCount(BlockIdArgs),
 
     /// Call contract function
+    #[command(name = "call")]
     Call(CallArgs),
 
     /// Get latest block number
+    #[command(name = "block-number")]
     BlockNumber,
 
     /// Get latest block hash and number
     BlockHashAndNumber,
 
     /// Get chain ID
+    #[command(name = "id")]
     ChainId,
 
     /// Get sync status
+    #[command(name = "sync")]
     Syncing,
 
     /// Get nonce for address
+    #[command(name = "nonce")]
     GetNonce(GetNonceArgs),
-}
 
-// Trace API Commands
-#[derive(Debug, Subcommand)]
-pub enum TraceCommand {
     /// Get transaction execution trace
-    Transaction(TxHashArgs),
+    #[command(name = "trace")]
+    TraceTransaction(TxHashArgs),
 
     /// Get execution traces for all transactions in a block
-    BlockTransactions(BlockIdArgs),
+    #[command(name = "block-traces")]
+    TraceBlockTransactions(BlockIdArgs),
 }
 
 #[derive(Debug, Args)]
 pub struct BlockIdArgs {
     /// Block ID (number, hash, 'latest', or 'pending'). Defaults to 'latest'
     block_id: Option<String>,
+}
+
+#[derive(Debug, Args)]
+pub struct GetBlockArgs {
+    /// Block ID (number, hash, 'latest', or 'pending'). Defaults to 'latest'
+    block_id: Option<String>,
+
+    /// Return block with receipts
+    #[arg(long)]
+    receipts: bool,
+
+    /// Return only transaction hashes instead of full transactions
+    #[arg(long, conflicts_with = "receipts")]
+    tx_hashes_only: bool,
 }
 
 #[derive(Debug, Args)]
@@ -234,90 +243,89 @@ pub struct SimulateTransactionsArgs {
     simulation_flags: Option<String>,
 }
 
-impl ReadCommand {
+impl StarknetCommands {
     pub async fn execute(self, client: &Client) -> Result<()> {
         match self {
-            ReadCommand::SpecVersion => {
+            StarknetCommands::SpecVersion => {
                 let result = client.spec_version().await?;
                 println!("{}", colored_json::to_colored_json_auto(&result)?);
             }
-            ReadCommand::GetBlockWithTxHashes(args) => {
+            StarknetCommands::GetBlockWithTxs(args) => {
                 let block_id = parse_block_id(args.block_id.as_deref())?;
-                let result = client.get_block_with_tx_hashes(block_id).await?;
-                println!("{}", colored_json::to_colored_json_auto(&result)?);
+
+                if args.receipts {
+                    let result = client.get_block_with_receipts(block_id).await?;
+                    println!("{}", colored_json::to_colored_json_auto(&result)?);
+                } else if args.tx_hashes_only {
+                    let result = client.get_block_with_tx_hashes(block_id).await?;
+                    println!("{}", colored_json::to_colored_json_auto(&result)?);
+                } else {
+                    let result = client.get_block_with_txs(block_id).await?;
+                    println!("{}", colored_json::to_colored_json_auto(&result)?);
+                };
             }
-            ReadCommand::GetBlockWithTxs(args) => {
-                let block_id = parse_block_id(args.block_id.as_deref())?;
-                let result = client.get_block_with_txs(block_id).await?;
-                println!("{}", colored_json::to_colored_json_auto(&result)?);
-            }
-            ReadCommand::GetBlockWithReceipts(args) => {
-                let block_id = parse_block_id(args.block_id.as_deref())?;
-                let result = client.get_block_with_receipts(block_id).await?;
-                println!("{}", colored_json::to_colored_json_auto(&result)?);
-            }
-            ReadCommand::GetStateUpdate(args) => {
+            StarknetCommands::GetStateUpdate(args) => {
                 let block_id = parse_block_id(args.block_id.as_deref())?;
                 let result = client.get_state_update(block_id).await?;
                 println!("{}", colored_json::to_colored_json_auto(&result)?);
             }
-            ReadCommand::GetStorageAt(args) => {
+            StarknetCommands::GetStorageAt(args) => {
                 let contract_address = Felt::from_str(&args.contract_address)?;
                 let key = Felt::from_str(&args.key)?;
                 let block_id = parse_block_id(args.block_id.as_deref())?;
                 let result = client.get_storage_at(contract_address, key, block_id).await?;
                 println!("{}", colored_json::to_colored_json_auto(&result)?);
             }
-            ReadCommand::GetTransactionStatus(args) => {
+            StarknetCommands::GetTransactionStatus(args) => {
                 let tx_hash =
                     TxHash::from_str(&args.tx_hash).context("Invalid transaction hash")?;
                 let result = client.get_transaction_status(tx_hash).await?;
                 println!("{}", colored_json::to_colored_json_auto(&result)?);
             }
-            ReadCommand::GetTransactionByHash(args) => {
+            StarknetCommands::GetTransactionByHash(args) => {
                 let tx_hash =
                     TxHash::from_str(&args.tx_hash).context("Invalid transaction hash")?;
                 let result = client.get_transaction_by_hash(tx_hash).await?;
                 println!("{}", colored_json::to_colored_json_auto(&result)?);
             }
-            ReadCommand::GetTransactionByBlockIdAndIndex(args) => {
+            StarknetCommands::GetTransactionByBlockIdAndIndex(args) => {
                 let block_id = parse_block_id(args.block_id.as_deref())?;
                 let result =
                     client.get_transaction_by_block_id_and_index(block_id, args.index).await?;
                 println!("{}", colored_json::to_colored_json_auto(&result)?);
             }
-            ReadCommand::GetTransactionReceipt(args) => {
+            StarknetCommands::GetTransactionReceipt(args) => {
                 let tx_hash =
                     TxHash::from_str(&args.tx_hash).context("Invalid transaction hash")?;
                 let result = client.get_transaction_receipt(tx_hash).await?;
                 println!("{}", colored_json::to_colored_json_auto(&result)?);
             }
-            ReadCommand::GetClass(args) => {
+            StarknetCommands::GetClass(args) => {
                 let block_id = parse_block_id(args.block_id.as_deref())?;
                 let class_hash = Felt::from_str(&args.class_hash).context("Invalid class hash")?;
                 let result = client.get_class(block_id, class_hash).await?;
                 println!("{}", colored_json::to_colored_json_auto(&result)?);
             }
-            ReadCommand::GetClassHashAt(args) => {
+            StarknetCommands::GetClassHashAt(args) => {
                 let block_id = parse_block_id(args.block_id.as_deref())?;
                 let contract_address =
                     Felt::from_str(&args.contract_address).context("Invalid contract address")?;
                 let result = client.get_class_hash_at(block_id, contract_address).await?;
                 println!("{}", colored_json::to_colored_json_auto(&result)?);
             }
-            ReadCommand::GetClassAt(args) => {
+            StarknetCommands::GetClassAt(args) => {
                 let block_id = parse_block_id(args.block_id.as_deref())?;
                 let contract_address =
                     Felt::from_str(&args.contract_address).context("Invalid contract address")?;
                 let result = client.get_class_at(block_id, contract_address).await?;
                 println!("{}", colored_json::to_colored_json_auto(&result)?);
             }
-            ReadCommand::GetBlockTransactionCount(args) => {
+            StarknetCommands::GetBlockTransactionCount(args) => {
                 let block_id = parse_block_id(args.block_id.as_deref())?;
                 let result = client.get_block_transaction_count(block_id).await?;
                 println!("{}", colored_json::to_colored_json_auto(&result)?);
             }
-            ReadCommand::Call(args) => {
+            StarknetCommands::Call(args) => {
                 let contract_address =
                     Felt::from_str(&args.contract_address).context("Invalid contract address")?;
                 let entry_point_selector =
@@ -336,43 +344,35 @@ impl ReadCommand {
                 let result = client.call(function_call, block_id).await?;
                 println!("{}", colored_json::to_colored_json_auto(&result)?);
             }
-            ReadCommand::BlockNumber => {
+            StarknetCommands::BlockNumber => {
                 let result = client.block_number().await?;
                 println!("{}", colored_json::to_colored_json_auto(&result)?);
             }
-            ReadCommand::BlockHashAndNumber => {
+            StarknetCommands::BlockHashAndNumber => {
                 let result = client.block_hash_and_number().await?;
                 println!("{}", colored_json::to_colored_json_auto(&result)?);
             }
-            ReadCommand::ChainId => {
+            StarknetCommands::ChainId => {
                 let result = client.chain_id().await?;
                 println!("{}", colored_json::to_colored_json_auto(&result)?);
             }
-            ReadCommand::Syncing => {
+            StarknetCommands::Syncing => {
                 let result = client.syncing().await?;
                 println!("{}", colored_json::to_colored_json_auto(&result)?);
             }
-            ReadCommand::GetNonce(args) => {
+            StarknetCommands::GetNonce(args) => {
                 let block_id = parse_block_id(args.block_id.as_deref())?;
                 let address = Felt::from_str(&args.address).context("Invalid contract address")?;
                 let result = client.get_nonce(block_id, address).await?;
                 println!("{}", colored_json::to_colored_json_auto(&result)?);
             }
-        }
-        Ok(())
-    }
-}
-
-impl TraceCommand {
-    pub async fn execute(self, client: &Client) -> Result<()> {
-        match self {
-            TraceCommand::Transaction(args) => {
+            StarknetCommands::TraceTransaction(args) => {
                 let tx_hash =
                     TxHash::from_str(&args.tx_hash).context("Invalid transaction hash")?;
                 let result = client.trace_transaction(tx_hash).await?;
                 println!("{}", colored_json::to_colored_json_auto(&result)?);
             }
-            TraceCommand::BlockTransactions(args) => {
+            StarknetCommands::TraceBlockTransactions(args) => {
                 let block_id = parse_block_id(args.block_id.as_deref())?;
                 let result = client.trace_block_transactions(block_id).await?;
                 println!("{}", colored_json::to_colored_json_auto(&result)?);
