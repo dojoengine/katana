@@ -116,7 +116,6 @@ clap = { version = "4.5.16", features = [ "derive", "env" ] }
 clap-verbosity-flag = "2.0.1"
 clap_complete = "4.3"
 colored = "2.0.0"
-colored_json = "3.2.0"
 console = "0.15.7"
 convert_case = "0.6.0"
 crypto-bigint = { version = "0.5.3", features = [ "serde" ] }
