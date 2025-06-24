@@ -29,7 +29,7 @@ use starknet::core::types::{
 };
 
 /// The currently supported version of the Starknet JSON-RPC specification.
-pub const RPC_SPEC_VERSION: &str = "0.7.1";
+pub const RPC_SPEC_VERSION: &str = "0.8.1";
 
 /// Read API.
 #[cfg_attr(not(feature = "client"), rpc(server, namespace = "starknet"))]
