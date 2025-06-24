@@ -9,6 +9,7 @@ use tokio::runtime::Runtime;
 mod config;
 pub mod db;
 mod init;
+mod rpc;
 mod version;
 
 use version::{generate_long, generate_short};
@@ -31,6 +32,7 @@ impl Cli {
                 Commands::Config(args) => args.execute(),
                 Commands::Completions(args) => args.execute(),
                 Commands::Init(args) => execute_async(args.execute())?,
+                Commands::Rpc(args) => execute_async(args.execute())?,
             };
         }
 
@@ -48,6 +50,9 @@ enum Commands {
 
     #[command(about = "Database utilities")]
     Db(db::DbArgs),
+
+    #[command(about = "RPC client for interacting with Katana")]
+    Rpc(rpc::RpcArgs),
 
     #[command(about = "Generate shell completion file for specified shell")]
     Completions(CompletionsArgs),
