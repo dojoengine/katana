@@ -267,7 +267,7 @@ impl StarknetCommands {
         match self {
             StarknetCommands::SpecVersion => {
                 let result = client.spec_version().await?;
-                println!("{}", colored_json::to_colored_json_auto(&result)?);
+                println!("{result}");
             }
             StarknetCommands::GetBlockWithTxs(args) => {
                 let block_id = args.block_id.0;
