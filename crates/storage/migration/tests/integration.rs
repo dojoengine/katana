@@ -49,7 +49,7 @@ fn executor() -> BlockifierFactory {
 fn db_migration() {
     // Copy the fixture database to the temporary location
     // let source_path = "tests/fixtures/v1_2_2";
-    let copy_path = "tests/fixtures/v1_2_2-copy";
+    let copy_path = "tests/fixtures/v1_2_2";
     // fs_extra::dir::copy(source_path, &copy_path, &fs_extra::dir::CopyOptions::new()).unwrap();
 
     let db = open_db(copy_path).unwrap();

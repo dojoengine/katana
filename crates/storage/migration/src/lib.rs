@@ -93,6 +93,7 @@ impl<EF: ExecutorFactory> MigrationManager<EF> {
             })?;
 
             // todo!("commit state")
+            // todo!("verify migration output")
         }
 
         Ok(())
@@ -212,7 +213,7 @@ impl<EF: ExecutorFactory> MigrationManager<EF> {
                     transactions.push(tx);
                 }
                 ExecutionResult::Failed { error } => {
-                    println!("transaction execution failed {error}")
+                    panic!("transaction execution failed {error}")
                 }
             }
         }

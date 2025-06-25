@@ -17,12 +17,16 @@ SNOS_DB_DIR := $(DB_FIXTURES_DIR)/snos
 COMPATIBILITY_DB_TAR ?= $(DB_FIXTURES_DIR)/v1_2_2.tar.gz
 COMPATIBILITY_DB_DIR ?= $(DB_FIXTURES_DIR)/v1_2_2
 
+MIGRATION_FIXTURES_DIR ?= crates/storage/migration/tests/fixtures
+MIGRATION_DB_TAR ?= $(DB_FIXTURES_DIR)/v1_2_2.tar.gz
+MIGRATION_DB_DIR ?= $(MIGRATION_FIXTURES_DIR)/v1_2_2
+
 .DEFAULT_GOAL := usage
 .SILENT: clean
 .PHONY: usage help check-llvm native-deps native-deps-macos native-deps-linux native-deps-windows build-explorer clean
 
 # Virtual targets that map to actual file outputs
-.PHONY: test-artifacts snos-artifacts db-compat-artifacts
+.PHONY: test-artifacts snos-artifacts db-compat-artifacts migration-fixtures
 
 usage help:
 	@echo "Usage:"
@@ -30,6 +34,7 @@ usage help:
 	@echo "    test-artifacts:            Prepare tests artifacts (including test database)."
 	@echo "    snos-artifacts:            Prepare SNOS tests artifacts."
 	@echo "    db-compat-artifacts:       Prepare database compatibility test artifacts."
+	@echo "    migration-fixtures:        Prepare migration test fixtures."
 	@echo "    native-deps-macos:         Install cairo-native dependencies for macOS."
 	@echo "    native-deps-linux:         Install cairo-native dependencies for Linux."
 	@echo "    native-deps-windows:       Install cairo-native dependencies for Windows."
@@ -41,6 +46,8 @@ snos-artifacts: $(SNOS_OUTPUT)
 	@echo "SNOS test artifacts prepared successfully."
 db-compat-artifacts: $(COMPATIBILITY_DB_DIR)
 	@echo "Database compatibility test artifacts prepared successfully."
+migration-fixtures: $(MIGRATION_DB_DIR)
+	@echo "Migration test fixtures prepared successfully."
 test-artifacts: $(SNOS_DB_DIR) $(SNOS_OUTPUT) $(COMPATIBILITY_DB_DIR)
 	@echo "All test artifacts prepared successfully."
 
@@ -79,6 +86,13 @@ $(COMPATIBILITY_DB_DIR): $(COMPATIBILITY_DB_TAR)
 		tar -xzf v1_2_2.tar.gz || { echo "Failed to extract backward compatibility test database\!"; exit 1; }
 	@echo "Backward compatibility database extracted successfully."
 
+$(MIGRATION_DB_DIR): $(MIGRATION_DB_TAR)
+	@echo "Extracting migration test database fixtures..."
+	@mkdir -p $(MIGRATION_FIXTURES_DIR)
+	@cd $(MIGRATION_FIXTURES_DIR) && \
+		tar -xzf $(realpath $(MIGRATION_DB_TAR)) || { echo "Failed to extract migration test database\!"; exit 1; }
+	@echo "Migration test database fixtures extracted successfully."
+
 check-llvm:
 ifndef MLIR_SYS_190_PREFIX
 	$(error Could not find a suitable LLVM 19 toolchain (mlir), please set MLIR_SYS_190_PREFIX env pointing to the LLVM 19 dir)
@@ -116,5 +130,5 @@ native-deps-windows:
 
 clean:
 	echo "Cleaning up generated files..."
-	-rm -rf $(SNOS_DB_DIR) $(COMPATIBILITY_DB_DIR) $(SNOS_OUTPUT) $(EXPLORER_UI_DIST)
+	-rm -rf $(SNOS_DB_DIR) $(COMPATIBILITY_DB_DIR) $(MIGRATION_DB_DIR) $(SNOS_OUTPUT) $(EXPLORER_UI_DIST)
 	echo "Clean complete."

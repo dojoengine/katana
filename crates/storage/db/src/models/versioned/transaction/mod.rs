@@ -31,15 +31,12 @@ impl Decompress for VersionedTx {
         let bytes = bytes.as_ref();
 
         if let Ok(tx) = postcard::from_bytes::<Self>(bytes) {
+            println!("it's versioned");
             return Ok(tx);
         }
 
-        // Try deserializing as V7 first, then fall back to V6
-        if let Ok(transaction) = postcard::from_bytes::<Tx>(bytes) {
-            return Ok(Self::V7(transaction));
-        }
-
         if let Ok(transaction) = postcard::from_bytes::<v6::Tx>(bytes) {
+            println!("it's v6");
             return Ok(Self::V6(transaction));
         }
 
