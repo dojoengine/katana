@@ -6906,6 +6906,27 @@ dependencies = [
 ]
 
 [[package]]
+name = "katana-verifier"
+version = "1.6.0-alpha.1"
+dependencies = [
+ "anyhow",
+ "clap",
+ "katana-db",
+ "katana-executor",
+ "katana-primitives",
+ "katana-provider",
+ "katana-trie",
+ "rstest 0.18.2",
+ "serde",
+ "serde_json",
+ "starknet-types-core",
+ "tempfile",
+ "thiserror 1.0.69",
+ "tracing",
+ "tracing-subscriber",
+]
+
+[[package]]
 name = "keccak"
 version = "0.1.5"
 source = "registry+https://github.com/rust-lang/crates.io-index"

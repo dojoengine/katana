@@ -1,0 +1,49 @@
+[package]
+name = "katana-verifier"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+repository.workspace = true
+description = "Katana database integrity verification tool"
+
+[dependencies]
+# Core dependencies
+anyhow = { workspace = true }
+thiserror = { workspace = true }
+tracing = { workspace = true }
+
+# Katana dependencies
+katana-primitives = { workspace = true }
+katana-provider = { workspace = true }
+katana-executor = { workspace = true }
+katana-trie = { workspace = true }
+
+# Serialization
+serde = { workspace = true, features = ["derive"] }
+serde_json = { workspace = true }
+
+# CLI (only for binary)
+clap = { workspace = true, optional = true }
+tracing-subscriber = { workspace = true, optional = true }
+
+# Hash and crypto
+starknet-types-core = { workspace = true }
+
+# Database (only for CLI)
+katana-db = { workspace = true, optional = true }
+
+[dev-dependencies]
+# Test utilities
+rstest = { workspace = true }
+tempfile = { workspace = true }
+
+# Katana test utilities
+katana-executor = { workspace = true }
+
+[[bin]]
+name = "katana-verifier"
+path = "src/bin/main.rs"
+required-features = ["cli"]
+
+[features]
+cli = ["clap", "tracing-subscriber", "katana-db"]
