@@ -7,6 +7,7 @@ use katana_core::backend::Backend;
 use katana_executor::implementation::blockifier::cache::ClassCache;
 use katana_executor::implementation::blockifier::BlockifierFactory;
 use katana_executor::BlockLimits;
+use katana_primitives::block::GasPrice;
 use katana_primitives::chain::ChainId;
 use katana_primitives::env::CfgEnv;
 use katana_primitives::felt;
@@ -40,7 +41,7 @@ fn backend_with_db(chain_spec: &ChainSpec, provider: impl Database) -> Backend<B
     Backend::new(
         chain_spec.clone().into(),
         Blockchain::new(provider),
-        GasOracle::sampled_starknet(),
+        GasOracle::fixed(GasPrice::MIN, GasPrice::MIN),
         executor(chain_spec),
     )
 }

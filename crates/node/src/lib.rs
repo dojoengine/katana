@@ -164,7 +164,9 @@ impl Node {
             GasOracle::fixed(fixed_prices.gas_price.clone(), fixed_prices.data_gas_price.clone())
         } else if let Some(settlement) = config.chain.settlement() {
             match settlement {
-                SettlementLayer::Starknet { .. } => GasOracle::sampled_starknet(),
+                SettlementLayer::Starknet { rpc_url, .. } => {
+                    GasOracle::sampled_starknet(rpc_url.clone())
+                }
                 SettlementLayer::Ethereum { rpc_url, .. } => {
                     GasOracle::sampled_ethereum(rpc_url.clone())
                 }

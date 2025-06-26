@@ -9,7 +9,8 @@ version.workspace = true
 [dependencies]
 katana-chain-spec.workspace = true
 katana-db.workspace = true
-katana-executor = { workspace = true }
+katana-executor.workspace = true
+katana-gas-oracle.workspace = true
 katana-metrics.workspace = true
 katana-pool.workspace = true
 katana-primitives = { workspace = true, features = [ "arbitrary" ] }

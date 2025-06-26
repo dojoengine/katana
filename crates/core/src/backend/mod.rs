@@ -2,9 +2,9 @@ use std::collections::{BTreeMap, HashMap};
 use std::sync::Arc;
 
 use anyhow::{anyhow, Context};
-use gas_oracle::GasOracle;
 use katana_chain_spec::ChainSpec;
 use katana_executor::{ExecutionOutput, ExecutionResult, ExecutorFactory};
+use katana_gas_oracle::GasOracle;
 use katana_primitives::block::{
     BlockHash, BlockNumber, FinalityStatus, Header, PartialHeader, SealedBlock,
     SealedBlockWithStatus,
@@ -33,7 +33,6 @@ use starknet_types_core::hash::{self, StarkHash};
 use tracing::info;
 
 pub mod contract;
-pub mod gas_oracle;
 pub mod storage;
 
 use self::storage::Blockchain;

@@ -6323,6 +6323,7 @@ dependencies = [
  "katana-chain-spec",
  "katana-db",
  "katana-executor",
+ "katana-gas-oracle",
  "katana-metrics",
  "katana-pool",
  "katana-primitives",
@@ -6459,6 +6460,24 @@ dependencies = [
  "katana-tasks",
  "parking_lot",
  "starknet 0.15.1",
+ "thiserror 1.0.69",
+ "tokio",
+ "tracing",
+ "url",
+]
+
+[[package]]
+name = "katana-gas-oracle"
+version = "1.6.0-alpha.1"
+dependencies = [
+ "alloy-provider 0.4.2",
+ "alloy-rpc-types-eth 0.4.2",
+ "anyhow",
+ "katana-primitives",
+ "katana-tasks",
+ "num-traits",
+ "parking_lot",
+ "starknet 0.14.0",
  "thiserror 1.0.69",
  "tokio",
  "tracing",

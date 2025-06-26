@@ -16,6 +16,7 @@ members = [
 	"crates/metrics",
 	"crates/node",
 	"crates/node-bindings",
+	"crates/oracle/gas",
 	"crates/pool",
 	"crates/primitives",
 	"crates/rpc/rpc",
@@ -72,6 +73,7 @@ katana-executor = { path = "crates/executor" }
 katana-explorer = { path = "crates/explorer" }
 katana-feeder-gateway = { path = "crates/feeder-gateway" }
 katana-fork = { path = "crates/storage/fork" }
+katana-gas-oracle = { path = "crates/oracle/gas" }
 katana-log = { path = "crates/log" }
 katana-messaging = { path = "crates/messaging" }
 katana-metrics = { path = "crates/metrics" }
@@ -91,6 +93,7 @@ katana-stage = { path = "crates/sync/stage" }
 katana-tasks = { path = "crates/tasks" }
 katana-trie = { path = "crates/trie" }
 katana-utils = { path = "crates/utils" }
+
 # cairo
 cairo-lang-casm = "2.11.2"
 cairo-lang-runner = "2.11.2"

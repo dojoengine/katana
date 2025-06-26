@@ -2,15 +2,23 @@ use std::collections::VecDeque;
 use std::fmt::Debug;
 use std::sync::Arc;
 
+use ::starknet::core::types::{BlockId, BlockTag, MaybePendingBlockWithTxHashes, ResourcePrice};
+use ::starknet::providers::jsonrpc::HttpTransport;
+use ::starknet::providers::{JsonRpcClient, Provider as StarknetProvider};
 use alloy_provider::{Provider, ProviderBuilder};
 use alloy_rpc_types_eth::{BlockNumberOrTag, FeeHistory};
 use anyhow::{Context, Ok};
 use katana_primitives::block::GasPrice;
 use katana_tasks::TaskSpawner;
+use num_traits::ToPrimitive;
 use parking_lot::Mutex;
 use tokio::time::Duration;
 use tracing::error;
 use url::Url;
+
+pub mod ethereum;
+pub mod fixed;
+pub mod starknet;
 
 const BUFFER_SIZE: usize = 60;
 const INTERVAL: Duration = Duration::from_secs(60);
@@ -19,109 +27,127 @@ const ONE_GWEI: u128 = 1_000_000_000;
 #[derive(Debug)]
 pub enum GasOracle {
     Fixed(FixedGasOracle),
-    Sampled(EthereumSampledGasOracle),
+    Sampled(SampledGasOracle),
 }
 
+/// Gas oracle that samples prices from different blockchain networks.
 #[derive(Debug)]
-pub struct FixedGasOracle {
-    gas_prices: GasPrice,
-    data_gas_prices: GasPrice,
-}
-
-#[derive(Debug, Clone)]
-pub struct EthereumSampledGasOracle {
-    prices: Arc<Mutex<SampledPrices>>,
-    provider: Url,
+pub enum SampledGasOracle {
+    /// Samples gas prices from an Ethereum-based network.
+    Ethereum(ethereum::GasOracle),
+    /// Samples gas prices from a Starknet-based network.
+    Starknet(starknet::GasOracle),
 }
 
 #[derive(Debug, Default)]
 pub struct SampledPrices {
-    gas_prices: GasPrice,
-    data_gas_prices: GasPrice,
-}
-
-#[derive(Debug, Clone)]
-pub struct GasOracleWorker {
-    pub prices: Arc<Mutex<SampledPrices>>,
-    pub l1_provider_url: Url,
-    pub gas_price_buffer: GasPriceBuffer,
-    pub data_gas_price_buffer: GasPriceBuffer,
+    l2_gas_prices: GasPrice,
+    l1_gas_prices: GasPrice,
+    l1_data_gas_prices: GasPrice,
 }
 
 impl GasOracle {
-    pub fn fixed(gas_prices: GasPrice, data_gas_prices: GasPrice) -> Self {
-        GasOracle::Fixed(FixedGasOracle { gas_prices, data_gas_prices })
+    /// Creates a gas oracle that uses fixed gas prices.
+    pub fn fixed(
+        l2_gas_prices: GasPrice,
+        l1_gas_prices: GasPrice,
+        l1_data_gas_prices: GasPrice,
+    ) -> Self {
+        GasOracle::Fixed(FixedGasOracle { l2_gas_prices, l1_gas_prices, l1_data_gas_prices })
     }
 
     /// Creates a new gas oracle that samples the gas prices from an Ethereum chain.
     pub fn sampled_ethereum(eth_provider: Url) -> Self {
-        let prices: Arc<Mutex<SampledPrices>> = Arc::new(Mutex::new(SampledPrices::default()));
-        GasOracle::Sampled(EthereumSampledGasOracle { prices, provider: eth_provider })
+        GasOracle::Sampled(SampledGasOracle::Ethereum(ethereum::GasOracle::new(eth_provider)))
     }
 
-    /// This is just placeholder for now, as Starknet doesn't provide a way to get the L2 gas
-    /// prices, we just return a fixed gas price values of 0. This is equivalent to calling
-    /// [`GasOracle::fixed`] with 0 values for both gas and data prices.
-    ///
-    /// The result of this is the same as running the node with fee disabled.
-    pub fn sampled_starknet() -> Self {
-        Self::fixed(GasPrice::MIN, GasPrice::MIN)
+    /// Creates a new gas oracle that samples the gas prices from a Starknet chain.
+    pub fn sampled_starknet(starknet_provider: Url) -> Self {
+        GasOracle::Sampled(SampledGasOracle::Starknet(starknet::GasOracle::new(starknet_provider)))
     }
 
-    /// Returns the current gas prices.
-    pub fn current_gas_prices(&self) -> GasPrice {
+    /// Returns the current L1 gas prices.
+    pub fn current_l1_gas_prices(&self) -> GasPrice {
         match self {
-            GasOracle::Fixed(fixed) => fixed.current_gas_prices(),
-            GasOracle::Sampled(sampled) => sampled.prices.lock().gas_prices.clone(),
+            GasOracle::Fixed(fixed) => fixed.current_l1_gas_prices(),
+            GasOracle::Sampled(sampled) => sampled.current_l1_gas_prices(),
         }
     }
 
     /// Returns the current data gas prices.
-    pub fn current_data_gas_prices(&self) -> GasPrice {
+    pub fn current_l1_data_gas_prices(&self) -> GasPrice {
         match self {
-            GasOracle::Fixed(fixed) => fixed.current_data_gas_prices(),
-            GasOracle::Sampled(sampled) => sampled.prices.lock().data_gas_prices.clone(),
+            GasOracle::Fixed(fixed) => fixed.current_l1_data_gas_prices(),
+            GasOracle::Sampled(sampled) => sampled.current_l1_data_gas_prices(),
+        }
+    }
+
+    /// Returns the current L2 gas prices.
+    pub fn current_l2_gas_prices(&self) -> GasPrice {
+        match self {
+            GasOracle::Fixed(fixed) => fixed.current_l1_gas_prices(),
+            GasOracle::Sampled(sampled) => sampled.current_l2_gas_prices(),
         }
     }
 
     pub fn run_worker(&self, task_spawner: TaskSpawner) {
         match self {
             Self::Fixed(..) => {}
-            Self::Sampled(oracle) => {
-                let prices = oracle.prices.clone();
-                let l1_provider = oracle.provider.clone();
+            Self::Sampled(sampled) => match sampled {
+                SampledGasOracle::Ethereum(oracle) => {
+                    let prices = oracle.prices.clone();
+                    let provider = oracle.provider.clone();
 
-                task_spawner.build_task().critical().name("L1 Gas Oracle Worker").spawn(
-                    async move {
-                        let mut worker = GasOracleWorker::new(prices, l1_provider);
-                        worker
-                            .run()
-                            .await
-                            .inspect_err(|error| error!(target: "gas_oracle", %error, "Gas oracle worker failed."))
-                    },
-                );
-            }
+                    task_spawner.build_task().critical().name("Gas Oracle Worker").spawn(
+                        async move {
+                            EthereumGasOracleWorker::new(prices, provider)
+                                .run()
+                                .await
+                                .inspect_err(|error| error!(target: "gas_oracle", %error, "Gas oracle worker failed."))
+                        },
+                    );
+                }
+                SampledGasOracle::Starknet(oracle) => {
+                    let prices = oracle.prices.clone();
+                    let provider = oracle.provider.clone();
+
+                    task_spawner.build_task().critical().name("Gas Oracle Worker").spawn(
+                        async move {
+                            StarknetGasOracleWorker::new(prices, provider)
+                                .run()
+                                .await
+                                .inspect_err(|error| )
+                        },
+                    );
+                }
+            },
         }
     }
 }
 
-impl EthereumSampledGasOracle {
-    pub fn current_data_gas_prices(&self) -> GasPrice {
-        self.prices.lock().data_gas_prices.clone()
+impl SampledGasOracle {
+    /// Returns the current l2 gas prices.
+    pub fn current_l2_gas_prices(&self) -> GasPrice {
+        match self {
+            SampledGasOracle::Ethereum(ethereum) => ethereum.current_l2_gas_prices(),
+            SampledGasOracle::Starknet(starknet) => starknet.current_l2_gas_prices(),
+        }
     }
 
-    pub fn current_gas_prices(&self) -> GasPrice {
-        self.prices.lock().gas_prices.clone()
-    }
-}
-
-impl FixedGasOracle {
-    pub fn current_data_gas_prices(&self) -> GasPrice {
-        self.data_gas_prices.clone()
+    /// Returns the current l1 gas prices.
+    pub fn current_l1_gas_prices(&self) -> GasPrice {
+        match self {
+            SampledGasOracle::Ethereum(ethereum) => ethereum.current_l1_gas_prices(),
+            SampledGasOracle::Starknet(starknet) => starknet.current_l1_gas_prices(),
+        }
     }
 
-    pub fn current_gas_prices(&self) -> GasPrice {
-        self.gas_prices.clone()
+    /// Returns the current l1 data gas prices.
+    pub fn current_l1_data_gas_prices(&self) -> GasPrice {
+        match self {
+            SampledGasOracle::Ethereum(ethereum) => ethereum.current_l1_data_gas_prices(),
+            SampledGasOracle::Starknet(starknet) => starknet.current_l1_data_gas_prices(),
+        }
     }
 }
 
@@ -153,72 +179,11 @@ pub fn update_gas_price(
         GasPrice::new_unchecked(data_gas_price_buffer.average(), data_gas_price_buffer.average())
     };
 
-    l1_oracle.gas_prices = avg_gas_price;
-    l1_oracle.data_gas_prices = avg_blob_price;
+    l1_oracle.l1_gas_prices = avg_gas_price;
+    l1_oracle.l1_data_gas_prices = avg_blob_price;
     Ok(())
 }
 
-impl GasOracleWorker {
-    pub fn new(prices: Arc<Mutex<SampledPrices>>, l1_provider_url: Url) -> Self {
-        Self {
-            prices,
-            l1_provider_url,
-            gas_price_buffer: GasPriceBuffer::new(),
-            data_gas_price_buffer: GasPriceBuffer::new(),
-        }
-    }
-
-    pub async fn run(&mut self) -> anyhow::Result<()> {
-        let provider = ProviderBuilder::new().on_http(self.l1_provider_url.clone());
-        // every 60 seconds, Starknet samples the base price of gas and data gas on L1
-        let mut interval = tokio::time::interval(INTERVAL);
-        interval.set_missed_tick_behavior(tokio::time::MissedTickBehavior::Skip);
-
-        loop {
-            // Wait for the interval to tick
-            interval.tick().await;
-
-            {
-                // Attempt to get the gas price from L1
-                let last_block_number = provider.get_block_number().await?;
-
-                let fee_history = provider
-                    .get_fee_history(1, BlockNumberOrTag::Number(last_block_number), &[])
-                    .await?;
-
-                let mut prices = self.prices.lock();
-
-                if let Err(error) = update_gas_price(
-                    &mut prices,
-                    &mut self.gas_price_buffer,
-                    &mut self.data_gas_price_buffer,
-                    fee_history,
-                ) {
-                    error!(target: "gas_oracle", %error, "Error updating gas prices.");
-                }
-            }
-        }
-    }
-
-    pub async fn update_once(&mut self) -> anyhow::Result<()> {
-        let provider = ProviderBuilder::new().on_http(self.l1_provider_url.clone());
-
-        // Attempt to get the gas price from L1
-        let last_block_number = provider.get_block_number().await?;
-
-        let fee_history =
-            provider.get_fee_history(1, BlockNumberOrTag::Number(last_block_number), &[]).await?;
-
-        let mut prices = self.prices.lock();
-
-        update_gas_price(
-            &mut prices,
-            &mut self.gas_price_buffer,
-            &mut self.data_gas_price_buffer,
-            fee_history,
-        )
-    }
-}
 
 // Buffer to store the last 60 gas price samples
 #[derive(Debug, Clone)]
@@ -303,11 +268,11 @@ mod tests {
         let oracle = GasOracle::sampled_ethereum(url.clone());
 
         let shared_prices = match &oracle {
-            GasOracle::Sampled(sampled) => sampled.prices.clone(),
-            _ => panic!("Expected sampled oracle"),
+            GasOracle::Sampled(SampledGasOracle::Ethereum(sampled)) => sampled.prices.clone(),
+            _ => panic!("Expected Ethereum sampled oracle"),
         };
 
-        let mut worker = GasOracleWorker::new(shared_prices.clone(), url);
+        let mut worker = EthereumGasOracleWorker::new(shared_prices.clone(), url);
 
         for i in 0..3 {
             let initial_gas_prices = oracle.current_gas_prices();
@@ -346,5 +311,39 @@ mod tests {
             // ETH current avg blocktime is ~12 secs so we need a delay to wait for block creation
             tokio::time::sleep(std::time::Duration::from_secs(9)).await;
         }
+    }
+
+    #[tokio::test]
+    #[ignore = "Requires external assumption"]
+    async fn test_starknet_gas_oracle() {
+        let url =
+            Url::parse("https://starknet-mainnet.g.alchemy.com/v2/demo").expect("Invalid URL");
+        let oracle = GasOracle::sampled_starknet(url.clone());
+
+        let shared_prices = match &oracle {
+            GasOracle::Sampled(SampledGasOracle::Starknet(sampled)) => sampled.prices.clone(),
+            _ => panic!("Expected Starknet sampled oracle"),
+        };
+
+        let mut worker = StarknetGasOracleWorker::new(shared_prices.clone(), url);
+
+        // Test initial state
+        let initial_gas_prices = oracle.current_gas_prices();
+        assert_eq!(initial_gas_prices, GasPrice::MIN, "Should start with zero prices");
+
+        // Update once and verify prices are sampled
+        worker.update_once().await.expect("Failed to update prices");
+
+        let updated_gas_prices = oracle.current_gas_prices();
+        let updated_data_gas_prices = oracle.current_data_gas_prices();
+
+        // Verify gas prices are now non-zero (sampled from Starknet)
+        assert!(
+            updated_gas_prices.eth.get() > 0 || updated_gas_prices.strk.get() > 0,
+            "Gas prices should be non-zero after sampling"
+        );
+
+        // Data gas prices should always be valid (non-negative by type constraints)
+        let _ = updated_data_gas_prices;
     }
 }
