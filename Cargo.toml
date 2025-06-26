@@ -29,6 +29,7 @@ members = [
 	"crates/storage/db",
 	"crates/storage/fork",
 	"crates/storage/provider",
+	"crates/storage/verifier",
 	"crates/sync/pipeline",
 	"crates/sync/stage",
 	"crates/tasks",
