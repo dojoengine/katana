@@ -1,7 +1,7 @@
 use katana_primitives::block::{BlockHash, BlockNumber, GasPrice};
 use katana_primitives::contract::ContractAddress;
 use katana_primitives::da::L1DataAvailabilityMode;
-use katana_primitives::version::ProtocolVersion;
+use katana_primitives::version::StarknetVersion;
 use katana_primitives::Felt;
 use serde::{Deserialize, Serialize};
 
@@ -23,7 +23,7 @@ pub struct Header {
     pub l1_gas_prices: GasPrice,
     pub l1_data_gas_prices: GasPrice,
     pub l1_da_mode: L1DataAvailabilityMode,
-    pub protocol_version: ProtocolVersion,
+    pub protocol_version: StarknetVersion,
 }
 
 impl From<Header> for katana_primitives::block::Header {

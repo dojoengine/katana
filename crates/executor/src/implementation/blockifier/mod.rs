@@ -15,6 +15,7 @@ use cache::ClassCache;
 use katana_primitives::block::{ExecutableBlock, GasPrice as KatanaGasPrices, PartialHeader};
 use katana_primitives::env::{BlockEnv, CfgEnv};
 use katana_primitives::transaction::{ExecutableTx, ExecutableTxWithHash, TxWithHash};
+use katana_primitives::version::StarknetVersion;
 use katana_provider::traits::state::StateProvider;
 use starknet_api::block::{
     BlockInfo, BlockNumber, BlockTimestamp, GasPriceVector, GasPrices, NonzeroGasPrice,
@@ -29,7 +30,7 @@ use crate::{
 
 pub(crate) const LOG_TARGET: &str = "katana::executor::blockifier";
 
-#[derive(Debug)]
+#[derive(Debug, Clone)]
 pub struct BlockifierFactory {
     cfg: CfgEnv,
     flags: ExecutionFlags,
@@ -97,6 +98,7 @@ pub struct StarknetVMProcessor<'a> {
     simulation_flags: ExecutionFlags,
     stats: ExecutionStats,
     bouncer: Bouncer,
+    starknet_version: StarknetVersion,
 }
 
 impl<'a> StarknetVMProcessor<'a> {
@@ -109,6 +111,7 @@ impl<'a> StarknetVMProcessor<'a> {
         class_cache: ClassCache,
     ) -> Self {
         let transactions = Vec::new();
+        let starknet_version: StarknetVersion = block_env.starknet_version;
         let block_context = Arc::new(utils::block_context_from_envs(&block_env, &cfg_env));
 
         let state = state::CachedState::new(state, class_cache);
@@ -138,6 +141,7 @@ impl<'a> StarknetVMProcessor<'a> {
             simulation_flags,
             stats: Default::default(),
             bouncer,
+            starknet_version,
         }
     }
 
@@ -184,7 +188,7 @@ impl<'a> StarknetVMProcessor<'a> {
             use_kzg_da: false,
         };
 
-        dbg!(&block_info);
+        // dbg!(&block_info);
 
         self.block_context = Arc::new(BlockContext::new(
             block_info,
@@ -213,7 +217,7 @@ impl<'a> BlockExecutor<'a> for StarknetVMProcessor<'a> {
         let mut total_executed = 0;
         for exec_tx in transactions {
             dbg!(exec_tx.r#type());
-            dbg!(exec_tx.tx_ref());
+            // dbg!(exec_tx.tx_ref());
 
             // Collect class artifacts if its a declare tx
             let class_decl_artifacts = if let ExecutableTx::Declare(tx) = exec_tx.as_ref() {
@@ -319,6 +323,7 @@ impl<'a> BlockExecutor<'a> for StarknetVMProcessor<'a> {
             number: self.block_context.block_info().block_number.0,
             timestamp: self.block_context.block_info().block_timestamp.0,
             sequencer_address: utils::to_address(self.block_context.block_info().sequencer_address),
+            starknet_version: self.starknet_version,
         }
     }
 }

@@ -2,7 +2,9 @@ use std::collections::{BTreeMap, BTreeSet};
 use std::str::FromStr;
 use std::sync::Arc;
 
-use blockifier::blockifier_versioned_constants::{VersionedConstants, VERSIONED_CONSTANTS_V0_13_3};
+use blockifier::blockifier_versioned_constants::{
+    VersionedConstants, VERSIONED_CONSTANTS_V0_13_3, VERSIONED_CONSTANTS_V0_13_4,
+};
 use blockifier::bouncer::{Bouncer, BouncerConfig};
 use blockifier::context::{BlockContext, ChainInfo, FeeTokenAddresses};
 use blockifier::execution::contract_class::{
@@ -477,9 +479,10 @@ pub fn block_context_from_envs(block_env: &BlockEnv, cfg_env: &CfgEnv) -> BlockC
     // Otherwise, there might be a mismatch between the calculated fees.
     //
     // The version of `snos` we're using is still limited up to Starknet version `0.13.3`.
-    // const SN_VERSION: StarknetVersion = StarknetVersion::V0_13_3;
-    // let mut versioned_constants = VersionedConstants::get(&SN_VERSION).unwrap().clone();
-    let mut versioned_constants = VERSIONED_CONSTANTS_V0_13_3.clone();
+    let sn_version: StarknetVersion = block_env.starknet_version.try_into().expect("valid version");
+    let mut versioned_constants = VersionedConstants::get(&sn_version).unwrap().clone();
+
+    // let mut versioned_constants = VERSIONED_CONSTANTS_V0_13_3.clone();
 
     // NOTE:
     // These overrides would potentially make the `snos` run be invalid as it doesn't know about the

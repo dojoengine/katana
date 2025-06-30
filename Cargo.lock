@@ -6541,10 +6541,12 @@ dependencies = [
  "anyhow",
  "fs_extra",
  "katana-chain-spec",
+ "katana-core",
  "katana-db",
  "katana-executor",
  "katana-primitives",
  "katana-provider",
+ "similar-asserts",
  "tempfile",
  "tracing",
 ]

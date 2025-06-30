@@ -6,7 +6,7 @@ use starknet::macros::short_string;
 use crate::contract::ContractAddress;
 use crate::da::L1DataAvailabilityMode;
 use crate::transaction::{ExecutableTxWithHash, TxHash, TxWithHash};
-use crate::version::ProtocolVersion;
+use crate::version::StarknetVersion;
 use crate::Felt;
 
 pub type BlockIdOrTag = starknet::core::types::BlockId;
@@ -55,7 +55,7 @@ pub struct PartialHeader {
     pub l1_data_gas_prices: GasPrice,
     pub l2_gas_prices: GasPrice,
     pub l1_da_mode: L1DataAvailabilityMode,
-    pub protocol_version: ProtocolVersion,
+    pub protocol_version: StarknetVersion,
 }
 
 // TODO: Make sure the values can't be zero because in the blockifier executor, we fallback to 1 if
@@ -130,7 +130,7 @@ pub struct Header {
     pub l1_data_gas_prices: GasPrice,
     pub l2_gas_prices: GasPrice,
     pub l1_da_mode: L1DataAvailabilityMode,
-    pub protocol_version: ProtocolVersion,
+    pub protocol_version: StarknetVersion,
 }
 
 impl Header {
@@ -252,7 +252,7 @@ impl Default for Header {
             l1_data_gas_prices: GasPrice::default(),
             sequencer_address: ContractAddress::default(),
             l1_da_mode: L1DataAvailabilityMode::Calldata,
-            protocol_version: ProtocolVersion::default(),
+            protocol_version: StarknetVersion::default(),
         }
     }
 }

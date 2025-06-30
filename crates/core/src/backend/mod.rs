@@ -107,7 +107,7 @@ impl<EF: ExecutorFactory> Backend<EF> {
         let partial_header = PartialHeader {
             number: block_env.number,
             timestamp: block_env.timestamp,
-            protocol_version: CURRENT_STARKNET_VERSION,
+            protocol_version: block_env.starknet_version,
             l1_da_mode: L1DataAvailabilityMode::Calldata,
             sequencer_address: block_env.sequencer_address,
             l2_gas_prices: block_env.l2_gas_prices.clone(),

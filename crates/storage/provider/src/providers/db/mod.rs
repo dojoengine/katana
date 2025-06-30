@@ -361,6 +361,28 @@ impl<Db: Database> StateUpdateProvider for DbProvider<Db> {
         }
     }
 
+    fn state_update_with_classes(
+        &self,
+        block_id: BlockHashOrNumber,
+    ) -> ProviderResult<Option<StateUpdatesWithClasses>> {
+        let Some(state_updates) = self.state_update(block_id)? else {
+            return Ok(None);
+        };
+
+        let mut classes = BTreeMap::new();
+        for hash in state_updates.declared_classes.keys().copied() {
+            let class = self
+                .historical(block_id)?
+                .expect("qed; block must exist")
+                .class(hash)?
+                .expect("qed; class must exist");
+
+            classes.insert(hash, class);
+        }
+
+        Ok(Some(StateUpdatesWithClasses { state_updates, classes }))
+    }
+
     fn declared_classes(
         &self,
         block_id: BlockHashOrNumber,
@@ -656,6 +678,7 @@ impl<Db: Database> BlockEnvProvider for DbProvider<Db> {
             l1_gas_prices: header.l1_gas_prices,
             l1_data_gas_prices: header.l1_data_gas_prices,
             sequencer_address: header.sequencer_address,
+            starknet_version: header.protocol_version,
         }))
     }
 }

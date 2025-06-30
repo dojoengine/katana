@@ -36,7 +36,6 @@ impl Decompress for VersionedTx {
         }
 
         if let Ok(transaction) = postcard::from_bytes::<v6::Tx>(bytes) {
-            println!("it's v6");
             return Ok(Self::V6(transaction));
         }
 

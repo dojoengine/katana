@@ -1,16 +1,25 @@
 //! Database migration crate for historical block re-execution.
 //!
 //! This crate provides functionality to re-execute historical blocks stored in the database
-//! to derive new fields and data that may not be present in older database entries.
+//! to derive new fields introduced in newer versions and data that may not be present in older database entries.
 
 pub mod example;
 
 use std::ops::RangeInclusive;
+use std::sync::Arc;
 
 use anyhow::{Context, Result};
+use katana_chain_spec::ChainSpec;
+use katana_core::backend::gas_oracle::GasOracle;
+use katana_core::backend::storage::Blockchain;
+use katana_core::backend::Backend;
+use katana_db::abstraction::{Database, DbTxMut};
+use katana_db::{init_db, init_ephemeral_db, tables};
+use katana_executor::implementation::blockifier::BlockifierFactory;
 use katana_executor::{ExecutionOutput, ExecutionResult, ExecutorFactory};
 use katana_primitives::block::{
-    BlockNumber, ExecutableBlock, FinalityStatus, PartialHeader, SealedBlockWithStatus,
+    BlockHashOrNumber, BlockNumber, ExecutableBlock, FinalityStatus, PartialHeader,
+    SealedBlockWithStatus,
 };
 use katana_primitives::class::{ClassHash, ContractClass};
 use katana_primitives::execution::TypedTransactionExecutionInfo;
@@ -18,23 +27,71 @@ use katana_primitives::transaction::{
     DeclareTxWithClass, ExecutableTx, ExecutableTxWithHash, Tx, TxWithHash,
 };
 use katana_provider::providers::db::DbProvider;
-use katana_provider::providers::EmptyStateProvider;
 use katana_provider::traits::block::{BlockNumberProvider, BlockWriter, HeaderProvider};
+use katana_provider::traits::env::BlockEnvProvider;
 use katana_provider::traits::state::StateFactoryProvider;
+use katana_provider::traits::state_update::StateUpdateProvider;
 use katana_provider::traits::transaction::TransactionProvider;
-use tracing::{debug, info, warn};
+use katana_provider::traits::trie::TrieWriter;
+use tracing::{debug, info};
 
 /// Migration manager for historical block re-execution.
 #[derive(Debug)]
-pub struct MigrationManager<EF: ExecutorFactory> {
-    database: DbProvider,
-    executor: EF,
+pub struct MigrationManager {
+    /// The new database to migrate to.
+    new_database: DbProvider,
+    old_database: DbProvider,
+    backend: Backend<BlockifierFactory>,
 }
 
-impl<EF: ExecutorFactory> MigrationManager<EF> {
+impl MigrationManager {
     /// Create a new migration manager with the given database.
-    pub fn new(database: DbProvider, executor: EF) -> Self {
-        Self { database, executor }
+    pub fn new(
+        old_database: DbProvider,
+        chain_spec: Arc<ChainSpec>,
+        gas_oracle: GasOracle,
+        executor: BlockifierFactory,
+    ) -> Result<Self> {
+        let new_database = init_ephemeral_db()?;
+        let new_blockchain = Blockchain::new_with_db(new_database.clone());
+        let backend = Backend::new(chain_spec, new_blockchain, gas_oracle, executor);
+        backend.init_genesis().context("failed to initialize new database")?;
+
+        let new_database = DbProvider::new(new_database);
+        let new = Self { old_database, new_database, backend };
+        new.init_dev_db()?;
+
+        let old_genesis_state_updates = new.old_database.state_update(0.into())?.unwrap();
+        let new_genesis_state_updates =
+            new.backend.blockchain.provider().state_update(0.into())?.unwrap();
+
+        similar_asserts::assert_eq!(old_genesis_state_updates, new_genesis_state_updates);
+
+        Ok(new)
+    }
+
+    fn init_dev_db(&self) -> Result<()> {
+        let old_db = &self.old_database;
+        let genesis_block_id: BlockHashOrNumber = 0.into();
+
+        // determine whether the genesis block is a dev or rollup chain spec
+        let genesis_tx_count = old_db
+            .transaction_count_by_block(genesis_block_id)?
+            .context("missing genesis block")?;
+
+        if dbg!(genesis_tx_count == 0) {
+            let states = old_db
+                .state_update_with_classes(genesis_block_id)?
+                .context("missing genesis block")?;
+
+            let block_env =
+                old_db.block_env_at(genesis_block_id)?.context("missing genesis block env")?;
+
+            self.backend
+                .do_mine_block(&block_env, ExecutionOutput { states, ..Default::default() })?;
+        };
+
+        Ok(())
     }
 
     /// Re-execute all historical blocks in the database.
@@ -46,17 +103,24 @@ impl<EF: ExecutorFactory> MigrationManager<EF> {
 
         // Get the latest block number to determine migration range
         let latest_block =
-            self.database.latest_number().context("Failed to get latest block number")?;
+            self.old_database.latest_number().context("Failed to get latest block number")?;
 
         if latest_block == 0 {
-            info!("No blocks found in database, migration complete");
+            println!("No blocks found in database, migration complete");
             return Ok(());
         }
 
-        // Re-execute blocks sequentially
+        // determine whether the genesis block is a dev or rollup chain spec
+        let genesis_tx_count = self
+            .old_database
+            .transaction_count_by_block(0.into())?
+            .context("genesis block is missing")?;
+
+        // let migrate_from_block = if genesis_tx_count == 0 { 1 } else { 0 };
         self.migrate_block_range(0..=latest_block)?;
 
-        info!("Historical block re-execution migration completed successfully");
+        println!("Historical block re-execution migration completed successfully");
+
         Ok(())
     }
 
@@ -64,36 +128,49 @@ impl<EF: ExecutorFactory> MigrationManager<EF> {
     pub fn migrate_block_range(&self, block_range: RangeInclusive<BlockNumber>) -> Result<()> {
         println!("Migrating blocks from {} to {}", block_range.start(), block_range.end());
 
-        // Create blank state provider
-        // let state_provider = EmptyStateProvider::new();
-        let genesis_state = self.database.historical(0.into())?.expect("genesis state must exist");
-        let mut executor = self.executor.with_state(genesis_state);
-
         for block_num in block_range {
             println!("Executing block {}", block_num);
 
-            let block = self
-                .load_executable_block(block_num)
-                .with_context(|| format!("Failed to load block {block_num}"))?;
+            let state = self.new_database.historical(block_num.saturating_sub(1).into())?.unwrap();
+            let mut executor = self.backend.executor_factory.with_state(state);
 
-            println!("block {} with {} transactions", block_num, block.body.len());
+            let block = self.load_executable_block(block_num)?;
 
-            executor
-                .execute_block(block)
-                .with_context(|| format!("Failed to execute block {block_num}"))?;
+            executor.execute_block(block)?;
+            let execution_output = executor.take_execution_output()?;
+            dbg!(&execution_output.states.state_updates);
 
-            // Get execution output
-            let execution_output = executor
-                .take_execution_output()
-                .with_context(|| format!("Failed to get execution output for block {block_num}"))?;
+            self.store_block_execution_output(block_num, execution_output)?;
 
-            // Store updated block data using provider traits
-            self.store_block_execution_output(block_num, execution_output).with_context(|| {
-                format!("Failed to store execution output for block {block_num}")
-            })?;
+            let old_state_update = self.old_database.state_update(block_num.into())?.unwrap();
+            let new_state_update = self.new_database.state_update(block_num.into())?.unwrap();
 
-            // todo!("commit state")
-            // todo!("verify migration output")
+            similar_asserts::assert_eq!(
+                old_state_update,
+                new_state_update,
+                "mismatch state updates for block {block_num}"
+            );
+
+            // check state root
+
+            let old_latest_state_root = self
+                .old_database
+                .historical(block_num.into())?
+                .unwrap()
+                .state_root()
+                .context("failed to get old latest state root")?;
+
+            let new_latest_state_root = self
+                .new_database
+                .historical(block_num.into())?
+                .unwrap()
+                .state_root()
+                .context("failed to get new latest state root")?;
+
+            assert_eq!(
+                old_latest_state_root, new_latest_state_root,
+                "state root mismatch for block {block_num}"
+            );
         }
 
         Ok(())
@@ -103,14 +180,14 @@ impl<EF: ExecutorFactory> MigrationManager<EF> {
     fn load_executable_block(&self, block_number: BlockNumber) -> Result<ExecutableBlock> {
         // Load header using HeaderProvider
         let header = self
-            .database
+            .old_database
             .header_by_number(block_number)
             .with_context(|| format!("Failed to get header for block {block_number}"))?
             .context("Block header not found")?;
 
         // Load transactions using TransactionProvider
         let tx_with_hashes = self
-            .database
+            .old_database
             .transactions_by_block(block_number.into())
             .with_context(|| format!("Failed to get transactions for block {block_number}"))?
             .context("Block transactions not found")?;
@@ -172,7 +249,7 @@ impl<EF: ExecutorFactory> MigrationManager<EF> {
     }
 
     fn get_contract_class(&self, class_hash: ClassHash) -> Result<ContractClass> {
-        self.database
+        self.old_database
             .latest()?
             .class(class_hash)
             .context("Failed to query contract class")?
@@ -186,15 +263,9 @@ impl<EF: ExecutorFactory> MigrationManager<EF> {
         block_number: BlockNumber,
         execution_output: ExecutionOutput,
     ) -> Result<()> {
-        debug!(
-            "Storing execution output for block {} with {} transactions",
-            block_number,
-            execution_output.transactions.len()
-        );
-
         // Get the existing block header
         let header = self
-            .database
+            .old_database
             .header_by_number(block_number)
             .context("Failed to get block header")?
             .context("Block header not found")?;
@@ -220,7 +291,21 @@ impl<EF: ExecutorFactory> MigrationManager<EF> {
 
         dbg!(transactions.len());
         dbg!(receipts.len());
+        for receipt in &receipts {
+            assert!(!receipt.is_reverted());
+        }
         dbg!(traces.len());
+
+        self.new_database
+            .trie_insert_declared_classes(
+                header.number,
+                &execution_output.states.state_updates.declared_classes,
+            )
+            .expect("failed to update class trie");
+
+        self.new_database
+            .trie_insert_contract_updates(header.number, &execution_output.states.state_updates)
+            .expect("failed to update contract trie");
 
         // Create a SealedBlockWithStatus for the existing block
         let block =
@@ -229,7 +314,7 @@ impl<EF: ExecutorFactory> MigrationManager<EF> {
         let sealed_block = SealedBlockWithStatus { block, status: FinalityStatus::AcceptedOnL2 };
 
         // Store the block with updated execution data using BlockWriter trait
-        self.database
+        self.new_database
             .insert_block_with_states_and_receipts(
                 sealed_block,
                 execution_output.states,
@@ -238,7 +323,7 @@ impl<EF: ExecutorFactory> MigrationManager<EF> {
             )
             .context("Failed to store block execution output")?;
 
-        debug!("Successfully stored execution output for block {}", block_number);
+        println!("Successfully stored execution output for block {}", block_number);
         Ok(())
     }
 }

@@ -1,6 +1,9 @@
 use std::fs;
+use std::sync::Arc;
 
-use katana_chain_spec::ChainSpec;
+use katana_chain_spec::{dev, ChainSpec};
+use katana_core::backend::gas_oracle::GasOracle;
+use katana_core::constants::DEFAULT_SEQUENCER_ADDRESS;
 use katana_db::abstraction::{Database, DbTx};
 use katana_db::{open_db, tables};
 use katana_executor::implementation::blockifier::cache::ClassCache;
@@ -8,6 +11,9 @@ use katana_executor::implementation::blockifier::BlockifierFactory;
 use katana_executor::{BlockLimits, ExecutionFlags};
 use katana_migration::MigrationManager;
 use katana_primitives::env::{CfgEnv, FeeTokenAddressses};
+use katana_primitives::genesis::allocation::DevAllocationsGenerator;
+use katana_primitives::genesis::constant::DEFAULT_PREFUNDED_ACCOUNT_BALANCE;
+use katana_primitives::U256;
 use katana_provider::providers::db::DbProvider;
 use katana_provider::traits::block::BlockNumberProvider;
 use katana_provider::traits::transaction::{
@@ -47,30 +53,43 @@ fn executor() -> BlockifierFactory {
 
 #[test]
 fn db_migration() {
-    // Copy the fixture database to the temporary location
-    // let source_path = "tests/fixtures/v1_2_2";
     let copy_path = "tests/fixtures/v1_2_2";
-    // fs_extra::dir::copy(source_path, &copy_path, &fs_extra::dir::CopyOptions::new()).unwrap();
+    let old_db = DbProvider::new(open_db(copy_path).unwrap());
 
-    let db = open_db(copy_path).unwrap();
+    let chain = Arc::new(cs());
+    let gpo = GasOracle::sampled_starknet();
+    let migration = MigrationManager::new(old_db, chain, gpo, executor()).unwrap();
 
-    // {
-    //     let total = db.tx().unwrap().entries::<tables::TxTraces>().unwrap();
-    //     dbg!(total);
-    // }
+    migration.migrate_all_blocks().unwrap();
+}
 
-    let db = DbProvider::new(db);
-    // let latest_block = db.latest_number().unwrap();
+fn cs() -> ChainSpec {
+    let mut chain_spec = katana_chain_spec::dev::DEV_UNALLOCATED.clone();
+    chain_spec.genesis.sequencer_address = *DEFAULT_SEQUENCER_ADDRESS;
 
-    // for i in 0..=latest_block {
-    //     let txs = db.transactions_by_block(i.into()).unwrap().unwrap();
-    //     dbg!(txs);
-    // }
+    // Generate dev accounts.
+    // If `cartridge` is enabled, the first account will be the paymaster.
+    let accounts = DevAllocationsGenerator::new(DEFAULT_DEV_ACCOUNTS)
+        .with_seed(parse_seed(DEFAULT_DEV_SEED))
+        .with_balance(U256::from(DEFAULT_PREFUNDED_ACCOUNT_BALANCE))
+        .generate();
 
-    // let traces = db.transaction_executions_by_block(11u64.into()).unwrap().unwrap();
-    // dbg!(db.latest_number().unwrap());
-    // dbg!(traces.len());
+    chain_spec.genesis.extend_allocations(accounts.into_iter().map(|(k, v)| (k, v.into())));
 
-    let migration = MigrationManager::new(db, executor());
-    migration.migrate_block_range(0..=1).unwrap();
+    ChainSpec::Dev(chain_spec)
+}
+
+const DEFAULT_DEV_SEED: &str = "0";
+const DEFAULT_DEV_ACCOUNTS: u16 = 10;
+
+pub fn parse_seed(seed: &str) -> [u8; 32] {
+    let seed = seed.as_bytes();
+
+    if seed.len() >= 32 {
+        unsafe { *(seed[..32].as_ptr() as *const [u8; 32]) }
+    } else {
+        let mut actual_seed = [0u8; 32];
+        seed.iter().enumerate().for_each(|(i, b)| actual_seed[i] = *b);
+        actual_seed
+    }
 }
