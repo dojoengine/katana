@@ -15,9 +15,16 @@ katana-provider.workspace = true
 
 anyhow.workspace = true
 similar-asserts.workspace = true
+starknet.workspace = true
 tracing.workspace = true
 
 [dev-dependencies]
-fs_extra = "1.3.0"
 katana-chain-spec.workspace = true
+
+# v6 types
+katana-db-v1_2_2 = { git = "https://github.com/dojoengine/dojo", tag = "v1.2.2", package = "katana-db" }
+katana-primitives-v1_2_2 = { git = "https://github.com/dojoengine/dojo", tag = "v1.2.2", package = "katana-primitives" }
+katana-provider-v1_2_2 = { git = "https://github.com/dojoengine/dojo", tag = "v1.2.2", package = "katana-provider" }
+
+fs_extra = "1.3.0"
 tempfile.workspace = true

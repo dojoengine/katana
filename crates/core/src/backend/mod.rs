@@ -103,8 +103,16 @@ impl<EF: ExecutorFactory> Backend<EF> {
         let tx_count = transactions.len();
         let tx_hashes = transactions.iter().map(|tx| tx.hash).collect::<Vec<_>>();
 
+        let parent_hash = if block_env.number == 0 {
+            BlockHash::ZERO
+        } else {
+            let parent_block_num = block_env.number - 1;
+            self.blockchain.provider().block_hash_by_num(parent_block_num)?.unwrap()
+        };
+
         // create a new block and compute its commitment
         let partial_header = PartialHeader {
+            parent_hash,
             number: block_env.number,
             timestamp: block_env.timestamp,
             protocol_version: block_env.starknet_version,
@@ -112,7 +120,6 @@ impl<EF: ExecutorFactory> Backend<EF> {
             sequencer_address: block_env.sequencer_address,
             l2_gas_prices: block_env.l2_gas_prices.clone(),
             l1_gas_prices: block_env.l1_gas_prices.clone(),
-            parent_hash: self.blockchain.provider().latest_hash()?,
             l1_data_gas_prices: block_env.l1_data_gas_prices.clone(),
         };
 
@@ -131,7 +138,7 @@ impl<EF: ExecutorFactory> Backend<EF> {
         // TODO: maybe should change the arguments for insert_block_with_states_and_receipts to
         // accept ReceiptWithTxHash instead to avoid this conversion.
         let receipts = receipts.into_iter().map(|r| r.receipt).collect::<Vec<_>>();
-        self.store_block(block, execution_output.states, receipts, traces)?;
+        self.store_block(dbg!(block), execution_output.states, receipts, traces)?;
 
         info!(target: LOG_TARGET, %block_number, %tx_count, "Block mined.");
         Ok(MinedBlockOutcome { block_number, txs: tx_hashes, stats: execution_output.stats })
@@ -504,9 +511,9 @@ fn update_block_hash_registry_contract(
 ) -> Result<(), BlockProductionError> {
     const STORED_BLOCK_HASH_BUFFER: u64 = 10;
 
-    if block_number >= STORED_BLOCK_HASH_BUFFER {
-        let block_number = block_number - STORED_BLOCK_HASH_BUFFER;
-        let block_hash = provider.block_hash_by_num(block_number)?;
+    if dbg!(block_number >= STORED_BLOCK_HASH_BUFFER) {
+        let block_number = dbg!(block_number - STORED_BLOCK_HASH_BUFFER);
+        let block_hash = dbg!(provider.block_hash_by_num(block_number)?);
 
         // When in forked mode, we might not have the older block hash in the database. This
         // could be the case where the `block_number - STORED_BLOCK_HASH_BUFFER` is

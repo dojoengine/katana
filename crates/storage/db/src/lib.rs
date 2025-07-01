@@ -91,6 +91,13 @@ pub fn open_db<P: AsRef<Path>>(path: P) -> anyhow::Result<DbEnv> {
     })
 }
 
+/// Open the database at the given `path` in read-write mode.
+pub fn open_db_ro<P: AsRef<Path>>(path: P) -> anyhow::Result<DbEnv> {
+    DbEnv::open(path.as_ref(), DbEnvKind::RO).with_context(|| {
+        format!("Opening database in read-only mode at path {}", path.as_ref().display())
+    })
+}
+
 #[cfg(test)]
 mod tests {
 

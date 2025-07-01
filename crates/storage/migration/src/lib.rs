@@ -13,8 +13,7 @@ use katana_chain_spec::ChainSpec;
 use katana_core::backend::gas_oracle::GasOracle;
 use katana_core::backend::storage::Blockchain;
 use katana_core::backend::Backend;
-use katana_db::abstraction::{Database, DbTxMut};
-use katana_db::{init_db, init_ephemeral_db, tables};
+use katana_db::init_ephemeral_db;
 use katana_executor::implementation::blockifier::BlockifierFactory;
 use katana_executor::{ExecutionOutput, ExecutionResult, ExecutorFactory};
 use katana_primitives::block::{
@@ -23,17 +22,21 @@ use katana_primitives::block::{
 };
 use katana_primitives::class::{ClassHash, ContractClass};
 use katana_primitives::execution::TypedTransactionExecutionInfo;
+use katana_primitives::hash::{self, StarkHash};
 use katana_primitives::transaction::{
     DeclareTxWithClass, ExecutableTx, ExecutableTxWithHash, Tx, TxWithHash,
 };
 use katana_provider::providers::db::DbProvider;
-use katana_provider::traits::block::{BlockNumberProvider, BlockWriter, HeaderProvider};
-use katana_provider::traits::env::BlockEnvProvider;
+use katana_provider::traits::block::{
+    BlockHashProvider, BlockNumberProvider, BlockProvider, BlockStatusProvider, BlockWriter,
+    HeaderProvider,
+};
 use katana_provider::traits::state::StateFactoryProvider;
 use katana_provider::traits::state_update::StateUpdateProvider;
 use katana_provider::traits::transaction::TransactionProvider;
 use katana_provider::traits::trie::TrieWriter;
-use tracing::{debug, info};
+use starknet::macros::short_string;
+use tracing::info;
 
 /// Migration manager for historical block re-execution.
 #[derive(Debug)]
@@ -80,15 +83,46 @@ impl MigrationManager {
             .context("missing genesis block")?;
 
         if dbg!(genesis_tx_count == 0) {
-            let states = old_db
-                .state_update_with_classes(genesis_block_id)?
-                .context("missing genesis block")?;
+            let state_updates = old_db.state_update_with_classes(genesis_block_id)?.unwrap();
+            let block = old_db.block(genesis_block_id)?.unwrap();
+            let block_hash = old_db.block_hash_by_id(genesis_block_id)?.unwrap();
+            let status = old_db.block_status(genesis_block_id)?.unwrap();
 
-            let block_env =
-                old_db.block_env_at(genesis_block_id)?.context("missing genesis block env")?;
+            dbg!(&block);
+            dbg!(block_hash);
+            // assert_eq!(block.seal().hash, block_hash);
 
-            self.backend
-                .do_mine_block(&block_env, ExecutionOutput { states, ..Default::default() })?;
+            let block_number = block.header.number;
+            let mut block = block.seal();
+            dbg!(&block);
+            assert_eq!(block_hash, block.hash);
+
+            let class_trie_root = self
+                .new_database
+                .trie_insert_declared_classes(
+                    block_number,
+                    &state_updates.state_updates.declared_classes,
+                )
+                .context("failed to update class trie")?;
+
+            let contract_trie_root = self
+                .new_database
+                .trie_insert_contract_updates(block_number, &state_updates.state_updates)
+                .context("failed to update contract trie")?;
+
+            let genesis_state_root = hash::Poseidon::hash_array(&[
+                short_string!("STARKNET_STATE_V0"),
+                contract_trie_root,
+                class_trie_root,
+            ]);
+
+            block.header.state_root = genesis_state_root;
+            self.new_database.insert_block_with_states_and_receipts(
+                dbg!(SealedBlockWithStatus { block, status }),
+                state_updates,
+                vec![],
+                vec![],
+            )?;
         };
 
         Ok(())
@@ -111,13 +145,13 @@ impl MigrationManager {
         }
 
         // determine whether the genesis block is a dev or rollup chain spec
-        let genesis_tx_count = self
-            .old_database
-            .transaction_count_by_block(0.into())?
-            .context("genesis block is missing")?;
+        // let genesis_tx_count = self
+        //     .old_database
+        //     .transaction_count_by_block(0.into())?
+        //     .context("genesis block is missing")?;
 
         // let migrate_from_block = if genesis_tx_count == 0 { 1 } else { 0 };
-        self.migrate_block_range(0..=latest_block)?;
+        self.migrate_block_range(1..=1)?;
 
         println!("Historical block re-execution migration completed successfully");
 
@@ -135,42 +169,15 @@ impl MigrationManager {
             let mut executor = self.backend.executor_factory.with_state(state);
 
             let block = self.load_executable_block(block_num)?;
-
             executor.execute_block(block)?;
+            let block_env = executor.block_env();
+
             let execution_output = executor.take_execution_output()?;
-            dbg!(&execution_output.states.state_updates);
 
-            self.store_block_execution_output(block_num, execution_output)?;
+            self.backend.do_mine_block(dbg!(&block_env), execution_output)?;
 
-            let old_state_update = self.old_database.state_update(block_num.into())?.unwrap();
-            let new_state_update = self.new_database.state_update(block_num.into())?.unwrap();
-
-            similar_asserts::assert_eq!(
-                old_state_update,
-                new_state_update,
-                "mismatch state updates for block {block_num}"
-            );
-
-            // check state root
-
-            let old_latest_state_root = self
-                .old_database
-                .historical(block_num.into())?
-                .unwrap()
-                .state_root()
-                .context("failed to get old latest state root")?;
-
-            let new_latest_state_root = self
-                .new_database
-                .historical(block_num.into())?
-                .unwrap()
-                .state_root()
-                .context("failed to get new latest state root")?;
-
-            assert_eq!(
-                old_latest_state_root, new_latest_state_root,
-                "state root mismatch for block {block_num}"
-            );
+            // self.store_block_execution_output(block_num, execution_output)?;
+            self.verify_block_migration(block_num)?;
         }
 
         Ok(())
@@ -184,6 +191,8 @@ impl MigrationManager {
             .header_by_number(block_number)
             .with_context(|| format!("Failed to get header for block {block_number}"))?
             .context("Block header not found")?;
+
+        // dbg!(&header);
 
         // Load transactions using TransactionProvider
         let tx_with_hashes = self
@@ -230,7 +239,7 @@ impl MigrationManager {
                     format!("Failed to get contract class for hash {class_hash:#x}")
                 })?;
 
-                dbg!(&declare_tx);
+                // dbg!(&declare_tx);
                 ExecutableTx::Declare(DeclareTxWithClass::new(declare_tx, contract_class))
             }
 
@@ -254,6 +263,25 @@ impl MigrationManager {
             .class(class_hash)
             .context("Failed to query contract class")?
             .context("Contract class not found")
+    }
+
+    /// Will return an Err if the block migration verification fails.
+    fn verify_block_migration(&self, block: BlockNumber) -> Result<()> {
+        let old_db = &self.old_database;
+        let new_db = &self.new_database;
+        let block_id: BlockHashOrNumber = block.into();
+
+        // State root
+        let old_state_root = old_db.historical(block_id)?.unwrap().state_root()?;
+        let new_state_root = new_db.historical(block_id)?.unwrap().state_root()?;
+        assert_eq!(old_state_root, new_state_root, "mismatch state root for block {block}");
+
+        // Block hash
+        let old_block_hash = old_db.block_hash_by_num(block)?.unwrap();
+        let new_block_hash = new_db.block_hash_by_num(block)?.unwrap();
+        assert_eq!(old_block_hash, new_block_hash, "mismatch block hashes for block {block}");
+
+        Ok(())
     }
 
     /// Store the execution output for a block using the provider pattern.

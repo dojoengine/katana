@@ -188,8 +188,6 @@ impl<'a> StarknetVMProcessor<'a> {
             use_kzg_da: false,
         };
 
-        // dbg!(&block_info);
-
         self.block_context = Arc::new(BlockContext::new(
             block_info,
             chain_info,

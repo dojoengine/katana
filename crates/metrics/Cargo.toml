@@ -23,6 +23,6 @@ jemalloc-ctl = { version = "0.5.0", optional = true }
 jemallocator = { version = "0.5.0", optional = true }
 
 [features]
-default = [ "jemalloc" ]
+# default = [ "jemalloc" ]
 jemalloc = [ "dep:jemalloc-ctl", "dep:jemallocator" ]
 jemalloc-prof = [ "jemalloc", "jemallocator?/profiling" ]
