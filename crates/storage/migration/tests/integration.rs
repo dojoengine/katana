@@ -5,7 +5,7 @@ use katana_chain_spec::{dev, ChainSpec};
 use katana_core::backend::gas_oracle::GasOracle;
 use katana_core::constants::DEFAULT_SEQUENCER_ADDRESS;
 use katana_db::abstraction::{Database, DbTx};
-use katana_db::{open_db, tables};
+use katana_db::{init_ephemeral_db, open_db, tables};
 use katana_executor::implementation::blockifier::cache::ClassCache;
 use katana_executor::implementation::blockifier::BlockifierFactory;
 use katana_executor::{BlockLimits, ExecutionFlags};
@@ -53,12 +53,14 @@ fn executor() -> BlockifierFactory {
 
 #[test]
 fn db_migration() {
+    let new_database = init_ephemeral_db().unwrap();
+
     let copy_path = "tests/fixtures/v1_2_2";
     let old_db = DbProvider::new(open_db(copy_path).unwrap());
 
     let chain = Arc::new(cs());
     let gpo = GasOracle::sampled_starknet();
-    let migration = MigrationManager::new(old_db, chain, gpo, executor()).unwrap();
+    let migration = MigrationManager::new(new_database, old_db, chain, gpo, executor()).unwrap();
 
     migration.migrate_all_blocks().unwrap();
 }

@@ -15,6 +15,7 @@ use katana_core::backend::gas_oracle::GasOracle;
 use katana_core::backend::storage::Blockchain;
 use katana_core::backend::Backend;
 use katana_db::init_ephemeral_db;
+use katana_db::mdbx::DbEnv;
 use katana_executor::implementation::blockifier::BlockifierFactory;
 use katana_executor::{ExecutionOutput, ExecutionResult, ExecutorFactory};
 use katana_primitives::block::{
@@ -53,12 +54,12 @@ pub struct MigrationManager {
 impl MigrationManager {
     /// Create a new migration manager with the given database.
     pub fn new(
+        new_database: DbEnv,
         old_database: DbProvider,
         chain_spec: Arc<ChainSpec>,
         gas_oracle: GasOracle,
         executor: BlockifierFactory,
     ) -> Result<Self> {
-        let new_database = init_ephemeral_db()?;
         let new_blockchain = Blockchain::new_with_db(new_database.clone());
         let backend = Backend::new(chain_spec, new_blockchain, gas_oracle, executor);
         backend.init_genesis().context("failed to initialize new database")?;
