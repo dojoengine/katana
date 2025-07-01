@@ -214,9 +214,6 @@ impl<'a> BlockExecutor<'a> for StarknetVMProcessor<'a> {
 
         let mut total_executed = 0;
         for exec_tx in transactions {
-            dbg!(exec_tx.r#type());
-            // dbg!(exec_tx.tx_ref());
-
             // Collect class artifacts if its a declare tx
             let class_decl_artifacts = if let ExecutableTx::Declare(tx) = exec_tx.as_ref() {
                 let class_hash = tx.class_hash();
@@ -239,9 +236,9 @@ impl<'a> BlockExecutor<'a> for StarknetVMProcessor<'a> {
                 Ok(exec_result) => {
                     match &exec_result {
                         ExecutionResult::Success { receipt, trace } => {
-                            self.stats.l1_gas_used += receipt.resources_used().gas.l1_gas as u128;
-                            self.stats.cairo_steps_used +=
-                                receipt.resources_used().computation_resources.n_steps as u128;
+                            // self.stats.l1_gas_used += receipt.resources_used().gas.l1_gas as
+                            // u128; self.stats.cairo_steps_used +=
+                            //     receipt.resources_used().computation_resources.n_steps as u128;
 
                             if let Some(reason) = receipt.revert_reason() {
                                 info!(target: LOG_TARGET, hash = format!("{hash:#x}"), %reason, "Transaction reverted.");

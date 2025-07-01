@@ -138,7 +138,7 @@ impl<EF: ExecutorFactory> Backend<EF> {
         // TODO: maybe should change the arguments for insert_block_with_states_and_receipts to
         // accept ReceiptWithTxHash instead to avoid this conversion.
         let receipts = receipts.into_iter().map(|r| r.receipt).collect::<Vec<_>>();
-        self.store_block(dbg!(block), execution_output.states, receipts, traces)?;
+        self.store_block(block, execution_output.states, receipts, traces)?;
 
         info!(target: LOG_TARGET, %block_number, %tx_count, "Block mined.");
         Ok(MinedBlockOutcome { block_number, txs: tx_hashes, stats: execution_output.stats })
@@ -511,9 +511,9 @@ fn update_block_hash_registry_contract(
 ) -> Result<(), BlockProductionError> {
     const STORED_BLOCK_HASH_BUFFER: u64 = 10;
 
-    if dbg!(block_number >= STORED_BLOCK_HASH_BUFFER) {
-        let block_number = dbg!(block_number - STORED_BLOCK_HASH_BUFFER);
-        let block_hash = dbg!(provider.block_hash_by_num(block_number)?);
+    if block_number >= STORED_BLOCK_HASH_BUFFER {
+        let block_number = block_number - STORED_BLOCK_HASH_BUFFER;
+        let block_hash = provider.block_hash_by_num(block_number)?;
 
         // When in forked mode, we might not have the older block hash in the database. This
         // could be the case where the `block_number - STORED_BLOCK_HASH_BUFFER` is

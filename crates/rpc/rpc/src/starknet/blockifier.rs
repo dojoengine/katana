@@ -7,12 +7,11 @@ use katana_executor::{
     EntryPointCall, ExecutionError, ExecutionFlags, ExecutionResult, ResultAndStates,
 };
 use katana_primitives::env::{BlockEnv, CfgEnv};
-use katana_primitives::fee::{self};
 use katana_primitives::transaction::ExecutableTxWithHash;
 use katana_primitives::Felt;
 use katana_provider::traits::state::StateProvider;
+use katana_rpc_types::trace::to_rpc_fee_estimate;
 use katana_rpc_types::FeeEstimate;
-use starknet::core::types::PriceUnit;
 
 #[tracing::instrument(level = "trace", target = "rpc", skip_all, fields(total_txs = transactions.len()))]
 pub fn simulate(
@@ -74,22 +73,8 @@ pub fn estimate_fees(
                     } else {
                         let fee = receipt.fee();
                         let resources = receipt.resources_used();
-
-                        let unit = match fee.unit {
-                            fee::PriceUnit::Wei => PriceUnit::Wei,
-                            fee::PriceUnit::Fri => PriceUnit::Fri,
-                        };
-
-                        results.push(Ok(FeeEstimate {
-                            unit,
-                            overall_fee: fee.overall_fee.into(),
-                            l2_gas_price: fee.l2_gas_price.into(),
-                            l1_gas_price: fee.l1_gas_price.into(),
-                            l2_gas_consumed: resources.gas.l2_gas.into(),
-                            l1_gas_consumed: resources.gas.l1_gas.into(),
-                            l1_data_gas_price: fee.l1_data_gas_price.into(),
-                            l1_data_gas_consumed: resources.gas.l1_data_gas.into(),
-                        }));
+                        let estimate = to_rpc_fee_estimate(resources, fee);
+                        results.push(Ok(estimate));
                     }
                 }
             };

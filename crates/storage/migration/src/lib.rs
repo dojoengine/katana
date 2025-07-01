@@ -1,7 +1,8 @@
 //! Database migration crate for historical block re-execution.
 //!
 //! This crate provides functionality to re-execute historical blocks stored in the database
-//! to derive new fields introduced in newer versions and data that may not be present in older database entries.
+//! to derive new fields introduced in newer versions and data that may not be present in older
+//! database entries.
 
 pub mod example;
 
@@ -21,11 +22,13 @@ use katana_primitives::block::{
     SealedBlockWithStatus,
 };
 use katana_primitives::class::{ClassHash, ContractClass};
+use katana_primitives::env::BlockEnv;
 use katana_primitives::execution::TypedTransactionExecutionInfo;
 use katana_primitives::hash::{self, StarkHash};
 use katana_primitives::transaction::{
     DeclareTxWithClass, ExecutableTx, ExecutableTxWithHash, Tx, TxWithHash,
 };
+use katana_primitives::Felt;
 use katana_provider::providers::db::DbProvider;
 use katana_provider::traits::block::{
     BlockHashProvider, BlockNumberProvider, BlockProvider, BlockStatusProvider, BlockWriter,
@@ -82,20 +85,20 @@ impl MigrationManager {
             .transaction_count_by_block(genesis_block_id)?
             .context("missing genesis block")?;
 
-        if dbg!(genesis_tx_count == 0) {
+        // if the genesis block is from the DEV chain spec, follow how the dev chain spec is
+        // initialized in Backend::init_dev_genesis
+        if genesis_tx_count == 0 {
             let state_updates = old_db.state_update_with_classes(genesis_block_id)?.unwrap();
-            let block = old_db.block(genesis_block_id)?.unwrap();
-            let block_hash = old_db.block_hash_by_id(genesis_block_id)?.unwrap();
-            let status = old_db.block_status(genesis_block_id)?.unwrap();
 
-            dbg!(&block);
-            dbg!(block_hash);
-            // assert_eq!(block.seal().hash, block_hash);
+            let old_block_hash = old_db.block_hash_by_id(genesis_block_id)?.unwrap();
+            let status = old_db.block_status(genesis_block_id)?.unwrap();
+            let mut block = old_db.block(genesis_block_id)?.unwrap();
+            // tech debt in the initialization of dev chain spec
+            block.header.state_root = Felt::ZERO;
 
             let block_number = block.header.number;
             let mut block = block.seal();
-            dbg!(&block);
-            assert_eq!(block_hash, block.hash);
+            assert_eq!(dbg!(old_block_hash), block.hash);
 
             let class_trie_root = self
                 .new_database
@@ -118,7 +121,7 @@ impl MigrationManager {
 
             block.header.state_root = genesis_state_root;
             self.new_database.insert_block_with_states_and_receipts(
-                dbg!(SealedBlockWithStatus { block, status }),
+                SealedBlockWithStatus { block, status },
                 state_updates,
                 vec![],
                 vec![],
@@ -144,14 +147,7 @@ impl MigrationManager {
             return Ok(());
         }
 
-        // determine whether the genesis block is a dev or rollup chain spec
-        // let genesis_tx_count = self
-        //     .old_database
-        //     .transaction_count_by_block(0.into())?
-        //     .context("genesis block is missing")?;
-
-        // let migrate_from_block = if genesis_tx_count == 0 { 1 } else { 0 };
-        self.migrate_block_range(1..=1)?;
+        self.migrate_block_range(1..=latest_block)?;
 
         println!("Historical block re-execution migration completed successfully");
 
@@ -166,17 +162,26 @@ impl MigrationManager {
             println!("Executing block {}", block_num);
 
             let state = self.new_database.historical(block_num.saturating_sub(1).into())?.unwrap();
-            let mut executor = self.backend.executor_factory.with_state(state);
-
             let block = self.load_executable_block(block_num)?;
-            executor.execute_block(block)?;
-            let block_env = executor.block_env();
 
+            let block_env = BlockEnv {
+                number: block.header.number,
+                timestamp: block.header.timestamp,
+                l2_gas_prices: block.header.l2_gas_prices.clone(),
+                l1_gas_prices: block.header.l1_gas_prices.clone(),
+                l1_data_gas_prices: block.header.l1_data_gas_prices.clone(),
+                sequencer_address: block.header.sequencer_address,
+                starknet_version: block.header.protocol_version,
+            };
+
+            let mut executor =
+                self.backend.executor_factory.with_state_and_block_env(state, block_env.clone());
+
+            executor.execute_block(block)?;
             let execution_output = executor.take_execution_output()?;
 
-            self.backend.do_mine_block(dbg!(&block_env), execution_output)?;
+            self.backend.do_mine_block(&block_env, execution_output)?;
 
-            // self.store_block_execution_output(block_num, execution_output)?;
             self.verify_block_migration(block_num)?;
         }
 
@@ -186,13 +191,11 @@ impl MigrationManager {
     /// Load an executable block from the database using provider traits.
     fn load_executable_block(&self, block_number: BlockNumber) -> Result<ExecutableBlock> {
         // Load header using HeaderProvider
-        let header = self
+        let old_header = self
             .old_database
             .header_by_number(block_number)
             .with_context(|| format!("Failed to get header for block {block_number}"))?
             .context("Block header not found")?;
-
-        // dbg!(&header);
 
         // Load transactions using TransactionProvider
         let tx_with_hashes = self
@@ -209,15 +212,15 @@ impl MigrationManager {
 
         // Create partial header for ExecutableBlock
         let partial_header = PartialHeader {
-            parent_hash: header.parent_hash,
-            number: header.number,
-            timestamp: header.timestamp,
-            sequencer_address: header.sequencer_address,
-            l1_gas_prices: header.l1_gas_prices,
-            l1_data_gas_prices: header.l1_data_gas_prices,
-            l2_gas_prices: header.l2_gas_prices,
-            l1_da_mode: header.l1_da_mode,
-            protocol_version: header.protocol_version,
+            parent_hash: old_header.parent_hash,
+            number: old_header.number,
+            timestamp: old_header.timestamp,
+            sequencer_address: old_header.sequencer_address,
+            l1_gas_prices: old_header.l1_gas_prices,
+            l1_data_gas_prices: old_header.l1_data_gas_prices,
+            l2_gas_prices: old_header.l2_gas_prices,
+            l1_da_mode: old_header.l1_da_mode,
+            protocol_version: old_header.protocol_version,
         };
 
         Ok(ExecutableBlock { header: partial_header, body })
@@ -239,7 +242,6 @@ impl MigrationManager {
                     format!("Failed to get contract class for hash {class_hash:#x}")
                 })?;
 
-                // dbg!(&declare_tx);
                 ExecutableTx::Declare(DeclareTxWithClass::new(declare_tx, contract_class))
             }
 
@@ -276,10 +278,15 @@ impl MigrationManager {
         let new_state_root = new_db.historical(block_id)?.unwrap().state_root()?;
         assert_eq!(old_state_root, new_state_root, "mismatch state root for block {block}");
 
-        // Block hash
+        // Block
         let old_block_hash = old_db.block_hash_by_num(block)?.unwrap();
+        let old_block = old_db.block(block.into())?.unwrap();
+
         let new_block_hash = new_db.block_hash_by_num(block)?.unwrap();
+        let new_block = new_db.block(block.into())?.unwrap();
+
         assert_eq!(old_block_hash, new_block_hash, "mismatch block hashes for block {block}");
+        similar_asserts::assert_eq!(old_block, new_block, "mismatch block for block {block}");
 
         Ok(())
     }

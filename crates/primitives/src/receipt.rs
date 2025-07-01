@@ -223,13 +223,6 @@ impl ReceiptWithTxHash {
     /// [docs]: https://docs.starknet.io/architecture-and-concepts/network-architecture/block-structure/#receipt_hash
     //
     pub fn compute_hash(&self) -> Felt {
-        let resources_used = self.resources_used();
-        let gas_uasge = hash::Poseidon::hash_array(&[
-            resources_used.gas.l2_gas.into(),
-            resources_used.gas.l1_gas.into(),
-            resources_used.gas.l1_data_gas.into(),
-        ]);
-
         let messages_hash = self.compute_messages_to_l1_hash();
 
         let revert_reason_hash = if let Some(reason) = self.revert_reason() {
@@ -238,13 +231,29 @@ impl ReceiptWithTxHash {
             Felt::ZERO
         };
 
-        hash::Poseidon::hash_array(&[
-            self.tx_hash,
-            self.receipt.fee().overall_fee.into(),
-            messages_hash,
-            revert_reason_hash,
-            gas_uasge,
-        ])
+        match self.resources_used().gas {
+            GasUsed::All { l2_gas, l1_gas, l1_data_gas } => {
+                let gas_usage =
+                    hash::Poseidon::hash_array(&[l2_gas.into(), l1_gas.into(), l1_data_gas.into()]);
+
+                hash::Poseidon::hash_array(&[
+                    self.tx_hash,
+                    self.receipt.fee().overall_fee.into(),
+                    messages_hash,
+                    revert_reason_hash,
+                    gas_usage,
+                ])
+            }
+
+            GasUsed::L1Gas { l1_gas } => hash::Poseidon::hash_array(&[
+                self.tx_hash,
+                self.receipt.fee().overall_fee.into(),
+                messages_hash,
+                revert_reason_hash,
+                Felt::ZERO, // L2 gas consumption.
+                l1_gas.into(),
+            ]),
+        }
     }
 
     // H(n, from, to, H(payload), ...), where n, is the total number of messages, the payload is
@@ -284,13 +293,18 @@ pub struct ExecutionResources {
     pub da_resources: DataAvailabilityResources,
 }
 
-#[derive(Debug, Default, Clone, PartialEq, Eq)]
+#[derive(Debug, Clone, PartialEq, Eq)]
 #[cfg_attr(feature = "arbitrary", derive(arbitrary::Arbitrary))]
 #[cfg_attr(feature = "serde", derive(serde::Serialize, serde::Deserialize))]
-pub struct GasUsed {
-    pub l2_gas: u64,
-    pub l1_gas: u64,
-    pub l1_data_gas: u64,
+pub enum GasUsed {
+    All { l2_gas: u64, l1_gas: u64, l1_data_gas: u64 },
+    L1Gas { l1_gas: u64 },
+}
+
+impl Default for GasUsed {
+    fn default() -> Self {
+        GasUsed::L1Gas { l1_gas: 0 }
+    }
 }
 
 #[derive(Debug, Default, Clone, PartialEq, Eq)]

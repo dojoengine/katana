@@ -160,10 +160,17 @@ impl From<katana_primitives::receipt::Event> for Event {
 }
 
 fn to_rpc_resources(resources: receipt::ExecutionResources) -> ExecutionResources {
-    ExecutionResources {
-        l2_gas: resources.gas.l2_gas,
-        l1_gas: resources.gas.l1_gas,
-        l1_data_gas: resources.gas.l1_data_gas,
+    match resources.gas {
+        receipt::GasUsed::All { l2_gas, l1_gas, l1_data_gas } => {
+            ExecutionResources { l2_gas, l1_gas, l1_data_gas }
+        }
+
+        // TODO(kariy): update the rpc types to support old format
+        receipt::GasUsed::L1Gas { l1_gas } => ExecutionResources {
+            l1_gas,
+            l2_gas: Default::default(),
+            l1_data_gas: Default::default(),
+        },
     }
 }
 
