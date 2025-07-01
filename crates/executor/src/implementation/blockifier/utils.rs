@@ -2,9 +2,7 @@ use std::collections::{BTreeMap, BTreeSet};
 use std::str::FromStr;
 use std::sync::Arc;
 
-use blockifier::blockifier_versioned_constants::{
-    VersionedConstants, VERSIONED_CONSTANTS_V0_13_3, VERSIONED_CONSTANTS_V0_13_4,
-};
+use blockifier::blockifier_versioned_constants::VersionedConstants;
 use blockifier::bouncer::{Bouncer, BouncerConfig};
 use blockifier::context::{BlockContext, ChainInfo, FeeTokenAddresses};
 use blockifier::execution::contract_class::{

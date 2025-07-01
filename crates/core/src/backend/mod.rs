@@ -16,7 +16,6 @@ use katana_primitives::execution::TypedTransactionExecutionInfo;
 use katana_primitives::receipt::{Event, Receipt, ReceiptWithTxHash};
 use katana_primitives::state::{compute_state_diff_hash, StateUpdates, StateUpdatesWithClasses};
 use katana_primitives::transaction::{TxHash, TxWithHash};
-use katana_primitives::version::CURRENT_STARKNET_VERSION;
 use katana_primitives::{address, ContractAddress, Felt};
 use katana_provider::providers::EmptyStateProvider;
 use katana_provider::traits::block::{BlockHashProvider, BlockWriter};

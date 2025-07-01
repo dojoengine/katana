@@ -8,7 +8,6 @@ use katana_primitives::receipt::{
     InvokeTxReceipt, L1HandlerTxReceipt, MessageToL1, Receipt,
 };
 use katana_primitives::transaction::TxRef;
-use starknet_api::transaction::fields::GasVectorComputationMode;
 use tracing::trace;
 
 pub(crate) const LOG_TARGET: &str = "executor";
@@ -80,7 +79,9 @@ fn get_receipt_resources(receipt: &TransactionReceipt) -> receipt::ExecutionReso
     let computation_resources = receipt.resources.computation.vm_resources.clone();
 
     let gas = match receipt.gas.l2_gas {
-        GasAmount::ZERO => GasUsed::L1Gas { l1_gas: receipt.gas.l1_gas.0 },
+        GasAmount::ZERO => {
+            GasUsed::L1 { gas: receipt.gas.l1_gas.0, data_gas: receipt.gas.l1_data_gas.0 }
+        }
         _ => GasUsed::All {
             l1_gas: receipt.gas.l1_gas.0,
             l2_gas: receipt.gas.l2_gas.0,

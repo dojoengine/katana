@@ -166,11 +166,9 @@ fn to_rpc_resources(resources: receipt::ExecutionResources) -> ExecutionResource
         }
 
         // TODO(kariy): update the rpc types to support old format
-        receipt::GasUsed::L1Gas { l1_gas } => ExecutionResources {
-            l1_gas,
-            l2_gas: Default::default(),
-            l1_data_gas: Default::default(),
-        },
+        receipt::GasUsed::L1 { gas, data_gas } => {
+            ExecutionResources { l1_gas: gas, l1_data_gas: data_gas, l2_gas: Default::default() }
+        }
     }
 }
 

@@ -4,8 +4,6 @@
 //! to derive new fields introduced in newer versions and data that may not be present in older
 //! database entries.
 
-pub mod example;
-
 use std::ops::RangeInclusive;
 use std::sync::Arc;
 
@@ -289,77 +287,6 @@ impl MigrationManager {
         assert_eq!(old_block_hash, new_block_hash, "mismatch block hashes for block {block}");
         similar_asserts::assert_eq!(old_block, new_block, "mismatch block for block {block}");
 
-        Ok(())
-    }
-
-    /// Store the execution output for a block using the provider pattern.
-    /// This method follows the same pattern as the production flow in do_mine_block.
-    fn store_block_execution_output(
-        &self,
-        block_number: BlockNumber,
-        execution_output: ExecutionOutput,
-    ) -> Result<()> {
-        // Get the existing block header
-        let header = self
-            .old_database
-            .header_by_number(block_number)
-            .context("Failed to get block header")?
-            .context("Block header not found")?;
-
-        // Process execution results similar to do_mine_block
-        let mut traces = Vec::with_capacity(execution_output.transactions.len());
-        let mut receipts = Vec::with_capacity(execution_output.transactions.len());
-        let mut transactions = Vec::with_capacity(execution_output.transactions.len());
-
-        // Only include successful transactions in the update
-        for (tx, res) in execution_output.transactions {
-            match res {
-                ExecutionResult::Success { receipt, trace } => {
-                    traces.push(TypedTransactionExecutionInfo::new(receipt.r#type(), trace));
-                    receipts.push(receipt);
-                    transactions.push(tx);
-                }
-                ExecutionResult::Failed { error } => {
-                    panic!("transaction execution failed {error}")
-                }
-            }
-        }
-
-        dbg!(transactions.len());
-        dbg!(receipts.len());
-        for receipt in &receipts {
-            assert!(!receipt.is_reverted());
-        }
-        dbg!(traces.len());
-
-        self.new_database
-            .trie_insert_declared_classes(
-                header.number,
-                &execution_output.states.state_updates.declared_classes,
-            )
-            .expect("failed to update class trie");
-
-        self.new_database
-            .trie_insert_contract_updates(header.number, &execution_output.states.state_updates)
-            .expect("failed to update contract trie");
-
-        // Create a SealedBlockWithStatus for the existing block
-        let block =
-            katana_primitives::block::Block { header: header.clone(), body: transactions }.seal();
-
-        let sealed_block = SealedBlockWithStatus { block, status: FinalityStatus::AcceptedOnL2 };
-
-        // Store the block with updated execution data using BlockWriter trait
-        self.new_database
-            .insert_block_with_states_and_receipts(
-                sealed_block,
-                execution_output.states,
-                receipts,
-                traces,
-            )
-            .context("Failed to store block execution output")?;
-
-        println!("Successfully stored execution output for block {}", block_number);
         Ok(())
     }
 }
