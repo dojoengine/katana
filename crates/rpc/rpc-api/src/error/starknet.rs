@@ -94,6 +94,12 @@ pub enum StarknetApiError {
     EntrypointNotFound,
     #[error("The transaction's resources don't cover validation or the minimal transaction fee")]
     InsufficientResourcesForValidate,
+    #[error("Invalid subscription id")]
+    InvalidSubscriptionId,
+    #[error("Too many addresses provided in a filter")]
+    TooManyAddressesInFilter,
+    #[error("Too many blocks back")]
+    TooManyBlocksBack,
 }
 
 impl StarknetApiError {
@@ -129,6 +135,9 @@ impl StarknetApiError {
             StarknetApiError::UnsupportedTransactionVersion => 61,
             StarknetApiError::UnsupportedContractClassVersion => 62,
             StarknetApiError::UnexpectedError { .. } => 63,
+            StarknetApiError::InvalidSubscriptionId => 66,
+            StarknetApiError::TooManyAddressesInFilter => 67,
+            StarknetApiError::TooManyBlocksBack => 68,
             StarknetApiError::ProofLimitExceeded { .. } => 1000,
         }
     }
@@ -264,6 +273,9 @@ impl From<StarknetRsError> for StarknetApiError {
             StarknetRsError::InsufficientResourcesForValidate => {
                 Self::InsufficientResourcesForValidate
             }
+            StarknetRsError::InvalidSubscriptionId => Self::InvalidSubscriptionId,
+            StarknetRsError::TooManyAddressesInFilter => Self::TooManyAddressesInFilter,
+            StarknetRsError::TooManyBlocksBack => Self::TooManyBlocksBack,
         }
     }
 }

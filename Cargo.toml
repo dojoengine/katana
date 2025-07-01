@@ -57,8 +57,8 @@ debug = true
 inherits = "release"
 
 [workspace.dependencies]
-cainome = { version = "0.6.0", features = [ "abigen-rs" ] }
-cainome-cairo-serde = { version = "0.2.0" }
+cainome = { version = "0.8.0", features = [ "abigen-rs" ] }
+cainome-cairo-serde = { version = "0.2.1" }
 dojo-utils = { git = "https://github.com/dojoengine/dojo", tag = "v1.2.2" }
 
 # katana
@@ -144,7 +144,7 @@ pretty_assertions = "1.2.1"
 rand = "0.8.5"
 rayon = "1.8.0"
 regex = "1.10.3"
-reqwest = { version = "0.11.27", features = [ "json", "rustls-tls" ], default-features = false }
+reqwest = { version = "0.12.15", features = [ "json", "rustls-tls" ], default-features = false }
 rpassword = "7.2.0"
 rstest = "0.18.2"
 rstest_reuse = "0.6.0"
@@ -214,7 +214,7 @@ alloy-signer = { version = "0.4", default-features = false }
 alloy-transport = { version = "0.4", default-features = false }
 
 bitvec = "1.0.1"
-starknet = "0.14.0"
+starknet = "0.15.1"
 starknet-crypto = "0.7.1"
 starknet-types-core = { version = "0.1.8", features = [ "arbitrary", "hash" ] }
 # macro
