@@ -26,7 +26,7 @@ use tracing::debug;
 use utils::is_database_empty;
 use version::{
     create_db_version_file, get_db_version, is_block_compatible_version, DatabaseVersionError,
-    CURRENT_DB_VERSION,
+    Version, CURRENT_DB_VERSION,
 };
 
 const GIGABYTE: usize = 1024 * 1024 * 1024;
@@ -35,7 +35,7 @@ const TERABYTE: usize = GIGABYTE * 1024;
 #[derive(Debug, Clone)]
 pub struct Db {
     env: DbEnv,
-    version: version::Version,
+    version: Version,
 }
 
 impl Db {
@@ -145,6 +145,12 @@ impl Db {
         self.version != CURRENT_DB_VERSION
     }
 
+    /// Returns the version of the database.
+    pub fn version(&self) -> Version {
+        self.version
+    }
+
+    /// Returns the path to the directory where the database is located.
     pub fn path(&self) -> &Path {
         self.env.path()
     }
