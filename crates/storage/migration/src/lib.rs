@@ -155,7 +155,7 @@ impl MigrationManager {
 
         self.migrate_block_range(1..=latest_block)?;
 
-        info!(target: "migration", "Historical block re-execution migration completed successfully");
+        info!(target: "migration", total_blocks=%latest_block, "Database migration completed");
 
         Ok(())
     }
