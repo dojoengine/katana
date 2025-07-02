@@ -25,75 +25,85 @@ use version::{
     DatabaseVersionError, CURRENT_DB_VERSION,
 };
 
-/// Initialize the database at the given path and returning a handle to the its
-/// environment.
-///
-/// This will create the default tables, if necessary.
-pub fn init_db<P: AsRef<Path>>(path: P) -> anyhow::Result<DbEnv> {
-    if is_database_empty(path.as_ref()) {
-        fs::create_dir_all(&path).with_context(|| {
-            format!("Creating database directory at path {}", path.as_ref().display())
-        })?;
-        create_db_version_file(&path, CURRENT_DB_VERSION).with_context(|| {
-            format!("Inserting database version file at path {}", path.as_ref().display())
-        })?
-    } else {
-        match check_db_version(&path) {
-            Ok(_) => {}
-            Err(DatabaseVersionError::MismatchVersion { found, .. }) => {
-                if is_block_compatible_version(found) {
-                    println!("Using database version {} with block compatibility mode", found);
-                } else {
-                    return Err(anyhow!(DatabaseVersionError::MismatchVersion {
-                        expected: CURRENT_DB_VERSION,
-                        found
-                    }));
+#[derive(Debug, Clone)]
+pub struct Db {
+    env: DbEnv,
+    version: version::Version,
+}
+
+impl Db {
+    /// Initialize the database at the given path and returning a handle to the its
+    /// environment.
+    ///
+    /// This will create the default tables, if necessary.
+    pub fn new<P: AsRef<Path>>(path: P) -> anyhow::Result<Self> {
+        if is_database_empty(path.as_ref()) {
+            fs::create_dir_all(&path).with_context(|| {
+                format!("Creating database directory at path {}", path.as_ref().display())
+            })?;
+            create_db_version_file(&path, CURRENT_DB_VERSION.inner()).with_context(|| {
+                format!("Inserting database version file at path {}", path.as_ref().display())
+            })?
+        } else {
+            match check_db_version(&path) {
+                Ok(_) => {}
+                Err(DatabaseVersionError::MismatchVersion { found, .. }) => {
+                    if is_block_compatible_version(found) {
+                        println!("Using database version {} with block compatibility mode", found);
+                    } else {
+                        return Err(anyhow!(DatabaseVersionError::MismatchVersion {
+                            expected: CURRENT_DB_VERSION.inner(),
+                            found
+                        }));
+                    }
                 }
+                Err(DatabaseVersionError::FileNotFound) => {
+                    create_db_version_file(&path, CURRENT_DB_VERSION.inner()).with_context(|| {
+                        format!(
+                            "No database version file found. Inserting version file at path {}",
+                            path.as_ref().display()
+                        )
+                    })?
+                }
+                Err(err) => return Err(anyhow!(err)),
             }
-            Err(DatabaseVersionError::FileNotFound) => {
-                create_db_version_file(&path, CURRENT_DB_VERSION).with_context(|| {
-                    format!(
-                        "No database version file found. Inserting version file at path {}",
-                        path.as_ref().display()
-                    )
-                })?
-            }
-            Err(err) => return Err(anyhow!(err)),
         }
+
+        // After ensuring the version file exists, get the actual version from the file
+        let version = get_db_version(&path).with_context(|| {
+            format!("Reading database version from path {}", path.as_ref().display())
+        })?;
+
+        let env = mdbx::DbEnv::open(path, mdbx::DbEnvKind::RW)?;
+        env.create_tables()?;
+        Ok(Self { env, version })
     }
 
-    // After ensuring the version file exists, get the actual version from the file
-    let version = get_db_version(&path).with_context(|| {
-        format!("Reading database version from path {}", path.as_ref().display())
-    })?;
+    /// Similar to [`init_db`] but will initialize a temporary database.
+    ///
+    /// Though it is useful for testing per se, but the initial motivation to implement this
+    /// variation of database is to be used as the backend for the in-memory storage
+    /// provider. Mainly to avoid having two separate implementations for the in-memory and
+    /// persistent db. Simplifying it to using a single solid implementation.
+    ///
+    /// As such, this database environment will trade off durability for write performance and shouldn't
+    /// be used in the case where data persistence is required. For that, use [`init_db`].
+    pub fn in_memory() -> anyhow::Result<Self> {
+        let env = DbEnv::open_ephemeral().context("Opening ephemeral database")?;
+        env.create_tables()?;
+        Ok(Self { env, version: CURRENT_DB_VERSION })
+    }
 
-    let env = open_db(path, version)?;
-    env.create_tables()?;
-    Ok(env)
-}
-
-/// Similar to [`init_db`] but will initialize a temporary database.
-///
-/// Though it is useful for testing per se, but the initial motivation to implement this
-/// variation of database is to be used as the backend for the in-memory storage
-/// provider. Mainly to avoid having two separate implementations for the in-memory and
-/// persistent db. Simplifying it to using a single solid implementation.
-///
-/// As such, this database environment will trade off durability for write performance and shouldn't
-/// be used in the case where data persistence is required. For that, use [`init_db`].
-pub fn init_ephemeral_db() -> anyhow::Result<DbEnv> {
-    // Because the underlying database will always be removed, so there's no need to include the
-    // version file.
-    let env = DbEnv::open_ephemeral().context("Opening ephemeral database")?;
-    env.create_tables()?;
-    Ok(env)
-}
-
-/// Open the database at the given `path` in read-write mode.
-pub fn open_db<P: AsRef<Path>>(path: P, version: u32) -> anyhow::Result<DbEnv> {
-    DbEnv::open(path.as_ref(), DbEnvKind::RW, version).with_context(|| {
-        format!("Opening database in read-write mode at path {}", path.as_ref().display())
-    })
+    /// Open the database at the given `path` in read-write mode.
+    pub fn open<P: AsRef<Path>>(path: P) -> anyhow::Result<Self> {
+        let env = DbEnv::open(path.as_ref(), DbEnvKind::RW).with_context(|| {
+            format!("Opening database in read-write mode at path {}", path.as_ref().display())
+        })?;
+        let version = get_db_version(path.as_ref()).with_context(|| {
+            format!("Getting database version at path {}", path.as_ref().display())
+        })?;
+        Ok(Self { env, version })
+    }
 }
 
 #[cfg(test)]
@@ -102,12 +112,12 @@ mod tests {
     use std::fs;
 
     use crate::version::{default_version_file_path, get_db_version, CURRENT_DB_VERSION};
-    use crate::{init_db, init_ephemeral_db};
+    use crate::{Db};
 
     #[test]
     fn initialize_db_in_empty_dir() {
         let path = tempfile::tempdir().unwrap();
-        init_db(path.path()).unwrap();
+        Db::new(path.path()).unwrap();
 
         let version_file = fs::File::open(default_version_file_path(path.path())).unwrap();
         let actual_version = get_db_version(path.path()).unwrap();
@@ -123,10 +133,10 @@ mod tests {
     fn initialize_db_in_existing_db_dir() {
         let path = tempfile::tempdir().unwrap();
 
-        init_db(path.path()).unwrap();
+        Db::new(path.path()).unwrap();
         let version = get_db_version(path.path()).unwrap();
 
-        init_db(path.path()).unwrap();
+        Db::new(path.path()).unwrap();
         let same_version = get_db_version(path.path()).unwrap();
 
         assert_eq!(version, same_version);
@@ -138,7 +148,7 @@ mod tests {
         let version_file_path = default_version_file_path(path.path());
         fs::write(version_file_path, b"malformed").unwrap();
 
-        let err = init_db(path.path()).unwrap_err();
+        let err = Db::new(path.path()).unwrap_err();
         assert!(err.to_string().contains("Malformed database version file"));
     }
 
@@ -148,18 +158,18 @@ mod tests {
         let version_file_path = default_version_file_path(path.path());
         fs::write(version_file_path, 99u32.to_be_bytes()).unwrap();
 
-        let err = init_db(path.path()).unwrap_err();
+        let err = Db::new(path.path()).unwrap_err();
         assert!(err.to_string().contains("Database version mismatch"));
     }
 
     #[test]
     fn initialize_db_with_missing_version_file() {
         let path = tempfile::tempdir().unwrap();
-        init_db(path.path()).unwrap();
+        Db::new(path.path()).unwrap();
 
         fs::remove_file(default_version_file_path(path.path())).unwrap();
 
-        init_db(path.path()).unwrap();
+        Db::new(path.path()).unwrap();
         let actual_version = get_db_version(path.path()).unwrap();
         assert_eq!(actual_version, CURRENT_DB_VERSION);
     }
@@ -167,7 +177,7 @@ mod tests {
     #[test]
     fn ephemeral_db_deletion_on_drop() {
         // Create an ephemeral database
-        let db = init_ephemeral_db().expect("failed to create ephemeral database");
+        let db = Db::in_memory().expect("failed to create ephemeral database");
         let dir_path = db.path().to_path_buf();
 
         // Ensure the directory exists

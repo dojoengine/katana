@@ -5,7 +5,7 @@ use std::mem;
 use std::path::{Path, PathBuf};
 
 /// Current version of the database.
-pub const CURRENT_DB_VERSION: u32 = 7;
+pub const CURRENT_DB_VERSION: Version = Version::new(7);
 
 /// Name of the version file.
 const DB_VERSION_FILE_NAME: &str = "db.version";
@@ -20,6 +20,19 @@ pub enum DatabaseVersionError {
     MalformedContent(#[from] TryFromSliceError),
     #[error("Database version mismatch. Expected version {expected}, found version {found}.")]
     MismatchVersion { expected: u32, found: u32 },
+}
+
+#[derive(Debug, Copy, Clone, PartialEq, Eq)]
+pub struct Version(u32);
+
+impl Version {
+    pub const fn new(version: u32) -> Self {
+        Version(version)
+    }
+
+    pub const fn inner(self) -> u32 {
+        self.0
+    }
 }
 
 /// Insert a version file at the given `path` with the specified `version`. If the `path` is a
@@ -52,7 +65,7 @@ pub(super) fn create_db_version_file(
 pub(super) fn check_db_version(path: impl AsRef<Path>) -> Result<(), DatabaseVersionError> {
     let version = get_db_version(path)?;
     if version != CURRENT_DB_VERSION {
-        Err(DatabaseVersionError::MismatchVersion { expected: CURRENT_DB_VERSION, found: version })
+        Err(DatabaseVersionError::MismatchVersion { expected: CURRENT_DB_VERSION.inner(), found: version.inner() })
     } else {
         Ok(())
     }
@@ -60,11 +73,11 @@ pub(super) fn check_db_version(path: impl AsRef<Path>) -> Result<(), DatabaseVer
 
 /// Check if database version is compatible for block data access.
 pub(super) fn is_block_compatible_version(version: u32) -> bool {
-    (5..=CURRENT_DB_VERSION).contains(&version)
+    (5..=CURRENT_DB_VERSION.inner()).contains(&version)
 }
 
 /// Get the version of the database at the given `path`.
-pub fn get_db_version(path: impl AsRef<Path>) -> Result<u32, DatabaseVersionError> {
+pub fn get_db_version(path: impl AsRef<Path>) -> Result<Version, DatabaseVersionError> {
     let path = path.as_ref();
     let path = if path.is_dir() { default_version_file_path(path) } else { path.to_path_buf() };
 
@@ -73,7 +86,7 @@ pub fn get_db_version(path: impl AsRef<Path>) -> Result<u32, DatabaseVersionErro
     file.read_to_end(&mut buf)?;
 
     let bytes = <[u8; mem::size_of::<u32>()]>::try_from(buf.as_slice())?;
-    Ok(u32::from_be_bytes(bytes))
+    Ok(Version(u32::from_be_bytes(bytes)))
 }
 
 pub(super) fn default_version_file_path(path: &Path) -> PathBuf {
@@ -86,6 +99,6 @@ mod tests {
     #[test]
     fn test_current_version() {
         use super::CURRENT_DB_VERSION;
-        assert_eq!(CURRENT_DB_VERSION, 7, "Invalid current database version")
+        assert_eq!(CURRENT_DB_VERSION.inner(), 7, "Invalid current database version")
     }
 }
