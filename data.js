@@ -1,5 +1,5 @@
 window.BENCHMARK_DATA = {
-  "lastUpdate": 1750803555049,
+  "lastUpdate": 1751430270975,
   "repoUrl": "https://github.com/dojoengine/katana",
   "entries": {
     "Benchmark": [
@@ -1769,6 +1769,72 @@ window.BENCHMARK_DATA = {
             "name": "Katana.Startup",
             "value": 125842501,
             "range": "± 781683",
+            "unit": "ns/iter"
+          }
+        ]
+      },
+      {
+        "commit": {
+          "author": {
+            "email": "dev@glihm.net",
+            "name": "glihm",
+            "username": "glihm"
+          },
+          "committer": {
+            "email": "noreply@github.com",
+            "name": "GitHub",
+            "username": "web-flow"
+          },
+          "distinct": true,
+          "id": "eaea71540bc04a32db2e7a3f5eaa890c05f79a71",
+          "message": "feat: bump `starknet-rs` to 0.15.1 (#153)\n\n* bump starknet-rs to 0.15.1\n\n* fix linter\n\n* feat: update error message to match spec\n\n---------\n\nCo-authored-by: Ammar Arif <evergreenkary@gmail.com>",
+          "timestamp": "2025-07-02T12:08:03+08:00",
+          "tree_id": "7d6f38e742d75a3870a87b237d9ae9bbd68f9364",
+          "url": "https://github.com/dojoengine/katana/commit/eaea71540bc04a32db2e7a3f5eaa890c05f79a71"
+        },
+        "date": 1751430269810,
+        "tool": "cargo",
+        "benches": [
+          {
+            "name": "Commit.Small/Parallel",
+            "value": 468148,
+            "range": "± 11300",
+            "unit": "ns/iter"
+          },
+          {
+            "name": "Commit.Big/Serial",
+            "value": 95711598,
+            "range": "± 2108422",
+            "unit": "ns/iter"
+          },
+          {
+            "name": "Commit.Big/Parallel",
+            "value": 66108996,
+            "range": "± 2552838",
+            "unit": "ns/iter"
+          },
+          {
+            "name": "compress world contract",
+            "value": 2642449,
+            "range": "± 14081",
+            "unit": "ns/iter"
+          },
+          {
+            "name": "decompress world contract",
+            "value": 3051391,
+            "range": "± 14022",
+            "unit": "ns/iter"
+          },
+          {
+            "name": "Invoke.ERC20.transfer/Blockifier.Cold",
+            "value": 16559604,
+            "range": "± 322656",
+            "unit": "ns/iter"
+          },
+          {
+            "name": "Katana.Startup",
+            "value": 126957766,
+            "range": "± 626901",
             "unit": "ns/iter"
           }
         ]
