@@ -96,9 +96,9 @@ pub enum StarknetApiError {
     InsufficientResourcesForValidate,
     #[error("Invalid subscription id")]
     InvalidSubscriptionId,
-    #[error("Too many addresses provided in a filter")]
+    #[error("Too many addresses in filter sender_address filter")]
     TooManyAddressesInFilter,
-    #[error("Too many blocks back")]
+    #[error("Cannot go back more than 1024 blocks")]
     TooManyBlocksBack,
 }
 
@@ -328,6 +328,9 @@ mod tests {
     #[case(StarknetApiError::InsufficientAccountBalance, 54, "Account balance is smaller than the transaction's max_fee")]
     #[case(StarknetApiError::CompiledClassHashMismatch, 60, "The compiled class hash did not match the one supplied in the transaction")]
     #[case(StarknetApiError::InsufficientResourcesForValidate, 53, "The transaction's resources don't cover validation or the minimal transaction fee")]
+    #[case(StarknetApiError::InvalidSubscriptionId, 66, "Invalid subscription id")]
+    #[case(StarknetApiError::TooManyAddressesInFilter, 67, "Too many addresses in filter sender_address filter")]
+    #[case(StarknetApiError::TooManyBlocksBack, 68, "Cannot go back more than 1024 blocks")]
     fn test_starknet_api_error_to_error_conversion_data_none(
         #[case] starknet_error: StarknetApiError,
         #[case] expected_code: i32,
