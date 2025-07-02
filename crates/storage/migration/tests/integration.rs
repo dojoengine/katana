@@ -5,7 +5,6 @@ use katana_chain_spec::ChainSpec;
 use katana_core::backend::gas_oracle::GasOracle;
 use katana_core::constants::DEFAULT_SEQUENCER_ADDRESS;
 use katana_db::abstraction::{Database, DbTx};
-// use katana_db::{init_db, open_db};
 use katana_db_migration::MigrationManager;
 use katana_db_v1_5_4::abstraction::{Database as _, DbTx as _};
 use katana_executor::implementation::blockifier::cache::ClassCache;
