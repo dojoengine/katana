@@ -32,6 +32,10 @@ impl Decompress for VersionedTx {
 
         if let Ok(tx) = postcard::from_bytes::<Self>(bytes) {
             println!("it's versioned");
+            if let Self::V6(..) = tx {
+                println!("it's v6");
+            }
+
             return Ok(tx);
         }
 

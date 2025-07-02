@@ -233,6 +233,7 @@ impl ReceiptWithTxHash {
 
         match self.resources_used().gas {
             GasUsed::All { l2_gas, l1_gas, l1_data_gas } => {
+                println!("gas all");
                 let gas_usage =
                     hash::Poseidon::hash_array(&[l2_gas.into(), l1_gas.into(), l1_data_gas.into()]);
 
@@ -245,15 +246,19 @@ impl ReceiptWithTxHash {
                 ])
             }
 
-            GasUsed::L1 { gas, .. } => hash::Poseidon::hash_array(&[
-                self.tx_hash,
-                self.receipt.fee().overall_fee.into(),
-                messages_hash,
-                revert_reason_hash,
-                Felt::ZERO, // L2 gas consumption.
-                gas.into(),
-                // data_gas.into(),
-            ]),
+            GasUsed::L1 { gas, .. } => {
+                println!("gas l1");
+
+                hash::Poseidon::hash_array(&[
+                    self.tx_hash,
+                    self.receipt.fee().overall_fee.into(),
+                    messages_hash,
+                    revert_reason_hash,
+                    Felt::ZERO, // L2 gas consumption.
+                    gas.into(),
+                    // data_gas.into(),
+                ])
+            }
         }
     }
 

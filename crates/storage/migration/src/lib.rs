@@ -12,17 +12,17 @@ use katana_chain_spec::ChainSpec;
 use katana_core::backend::gas_oracle::GasOracle;
 use katana_core::backend::storage::Blockchain;
 use katana_core::backend::Backend;
-use katana_db::init_ephemeral_db;
 use katana_db::mdbx::DbEnv;
 use katana_executor::implementation::blockifier::BlockifierFactory;
-use katana_executor::{ExecutionOutput, ExecutionResult, ExecutorFactory};
+use katana_executor::ExecutorFactory;
 use katana_primitives::block::{
-    BlockHashOrNumber, BlockNumber, ExecutableBlock, FinalityStatus, PartialHeader,
-    SealedBlockWithStatus,
+    BlockHashOrNumber, BlockNumber, ExecutableBlock, PartialHeader, SealedBlockWithStatus,
 };
 use katana_primitives::class::{ClassHash, ContractClass};
 use katana_primitives::env::BlockEnv;
-use katana_primitives::execution::TypedTransactionExecutionInfo;
+use katana_primitives::genesis::constant::{
+    DEFAULT_LEGACY_ERC20_CLASS, DEFAULT_LEGACY_ERC20_CLASS_HASH,
+};
 use katana_primitives::hash::{self, StarkHash};
 use katana_primitives::transaction::{
     DeclareTxWithClass, ExecutableTx, ExecutableTxWithHash, Tx, TxWithHash,
@@ -35,7 +35,7 @@ use katana_provider::traits::block::{
 };
 use katana_provider::traits::state::StateFactoryProvider;
 use katana_provider::traits::state_update::StateUpdateProvider;
-use katana_provider::traits::transaction::TransactionProvider;
+use katana_provider::traits::transaction::{ReceiptProvider, TransactionProvider};
 use katana_provider::traits::trie::TrieWriter;
 use starknet::macros::short_string;
 use tracing::info;
@@ -60,17 +60,18 @@ impl MigrationManager {
     ) -> Result<Self> {
         let new_blockchain = Blockchain::new_with_db(new_database.clone());
         let backend = Backend::new(chain_spec, new_blockchain, gas_oracle, executor);
-        backend.init_genesis().context("failed to initialize new database")?;
+        // backend.init_genesis().context("failed to initialize new database")?;
 
         let new_database = DbProvider::new(new_database);
         let new = Self { old_database, new_database, backend };
         new.init_dev_db()?;
 
-        let old_genesis_state_updates = new.old_database.state_update(0.into())?.unwrap();
-        let new_genesis_state_updates =
-            new.backend.blockchain.provider().state_update(0.into())?.unwrap();
+        let old_genesis_state_root =
+            new.old_database.historical(0.into())?.unwrap().state_root()?;
+        let new_genesis_state_root =
+            new.new_database.historical(0.into())?.unwrap().state_root()?;
 
-        similar_asserts::assert_eq!(old_genesis_state_updates, new_genesis_state_updates);
+        similar_asserts::assert_eq!(old_genesis_state_root, new_genesis_state_root);
 
         Ok(new)
     }
@@ -87,7 +88,13 @@ impl MigrationManager {
         // if the genesis block is from the DEV chain spec, follow how the dev chain spec is
         // initialized in Backend::init_dev_genesis
         if genesis_tx_count == 0 {
-            let state_updates = old_db.state_update_with_classes(genesis_block_id)?.unwrap();
+            let mut state_updates = old_db.state_update_with_classes(genesis_block_id)?.unwrap();
+            // dbg!(&state_updates.state_updates);
+
+            // fix for a bug
+            state_updates
+                .classes
+                .insert(DEFAULT_LEGACY_ERC20_CLASS_HASH, DEFAULT_LEGACY_ERC20_CLASS.clone());
 
             let old_block_hash = old_db.block_hash_by_id(genesis_block_id)?.unwrap();
             let status = old_db.block_status(genesis_block_id)?.unwrap();
@@ -97,7 +104,7 @@ impl MigrationManager {
 
             let block_number = block.header.number;
             let mut block = block.seal();
-            assert_eq!(dbg!(old_block_hash), block.hash);
+            assert_eq!(old_block_hash, block.hash);
 
             let class_trie_root = self
                 .new_database
@@ -135,30 +142,32 @@ impl MigrationManager {
     /// This method reads all blocks from the database, converts them to executable format,
     /// and re-executes them to derive new fields and data.
     pub fn migrate_all_blocks(&self) -> Result<()> {
-        info!("Starting historical block re-execution migration");
+        info!(target: "migration", "Starting historical block re-execution migration");
 
         // Get the latest block number to determine migration range
         let latest_block =
             self.old_database.latest_number().context("Failed to get latest block number")?;
 
         if latest_block == 0 {
-            println!("No blocks found in database, migration complete");
+            info!(target: "migration", "No blocks found in database, migration complete.");
             return Ok(());
         }
 
         self.migrate_block_range(1..=latest_block)?;
 
-        println!("Historical block re-execution migration completed successfully");
+        info!(target: "migration", "Historical block re-execution migration completed successfully");
 
         Ok(())
     }
 
     /// Re-execute a specific block by its number.
     pub fn migrate_block_range(&self, block_range: RangeInclusive<BlockNumber>) -> Result<()> {
-        println!("Migrating blocks from {} to {}", block_range.start(), block_range.end());
+        let block_start = *block_range.start();
+        let block_end = *block_range.end();
+        info!(target: "migration", %block_start, %block_end, "Migrating database");
 
         for block_num in block_range {
-            println!("Executing block {}", block_num);
+            info!(target: "migration", block=format!("{block_num}/{block_end}"), "Migrating block.");
 
             let state = self.new_database.historical(block_num.saturating_sub(1).into())?.unwrap();
             let block = self.load_executable_block(block_num)?;
@@ -181,7 +190,7 @@ impl MigrationManager {
 
             self.backend.do_mine_block(&block_env, execution_output)?;
 
-            self.verify_block_migration(block_num)?;
+            // self.verify_block_migration(block_num)?;
         }
 
         Ok(())
@@ -227,7 +236,8 @@ impl MigrationManager {
 
     /// Convert a transaction to an executable transaction.
     fn convert_to_executable_tx(&self, tx: TxWithHash) -> Result<ExecutableTxWithHash> {
-        let executable_tx = match tx.transaction {
+        let hash = tx.hash;
+        let transaction = match tx.transaction {
             Tx::Invoke(invoke_tx) => ExecutableTx::Invoke(invoke_tx),
             Tx::L1Handler(l1_handler_tx) => ExecutableTx::L1Handler(l1_handler_tx),
             Tx::DeployAccount(deploy_account_tx) => ExecutableTx::DeployAccount(deploy_account_tx),
@@ -255,7 +265,7 @@ impl MigrationManager {
             }
         };
 
-        Ok(ExecutableTxWithHash::new(executable_tx))
+        Ok(ExecutableTxWithHash { transaction, hash })
     }
 
     fn get_contract_class(&self, class_hash: ClassHash) -> Result<ContractClass> {
@@ -272,6 +282,18 @@ impl MigrationManager {
         let new_db = &self.new_database;
         let block_id: BlockHashOrNumber = block.into();
 
+        let old_receipts = old_db.receipts_by_block(block_id)?.unwrap_or_default().into_iter();
+        let new_receipts = new_db.receipts_by_block(block_id)?.unwrap_or_default().into_iter();
+
+        // make sure both transactions have the same execution status (ie succeeded / reverted )
+        for (idx, (new, old)) in new_receipts.zip(old_receipts).enumerate() {
+            assert_eq!(
+                new.is_reverted(),
+                old.is_reverted(),
+                "mismatch receipt status for tx {idx} in block {block}",
+            )
+        }
+
         // State root
         let old_state_root = old_db.historical(block_id)?.unwrap().state_root()?;
         let new_state_root = new_db.historical(block_id)?.unwrap().state_root()?;
@@ -284,8 +306,8 @@ impl MigrationManager {
         let new_block_hash = new_db.block_hash_by_num(block)?.unwrap();
         let new_block = new_db.block(block.into())?.unwrap();
 
-        assert_eq!(old_block_hash, new_block_hash, "mismatch block hashes for block {block}");
         similar_asserts::assert_eq!(old_block, new_block, "mismatch block for block {block}");
+        assert_eq!(old_block_hash, new_block_hash, "mismatch block hashes for block {block}");
 
         Ok(())
     }

@@ -370,7 +370,10 @@ impl<Db: Database> StateUpdateProvider for DbProvider<Db> {
         };
 
         let mut classes = BTreeMap::new();
-        for hash in state_updates.declared_classes.keys().copied() {
+        let declared_class_hashes = state_updates.declared_classes.keys();
+        let deprecated_declared_class_hashes = state_updates.deprecated_declared_classes.iter();
+
+        for hash in declared_class_hashes.chain(deprecated_declared_class_hashes).copied() {
             let class = self
                 .historical(block_id)?
                 .expect("qed; block must exist")
