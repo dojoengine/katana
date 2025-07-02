@@ -168,30 +168,35 @@ impl MigrationManager {
 
         for block_num in block_range {
             info!(target: "migration", block=format!("{block_num}/{block_end}"), "Migrating block.");
-
-            let state = self.new_database.historical(block_num.saturating_sub(1).into())?.unwrap();
-            let block = self.load_executable_block(block_num)?;
-
-            let block_env = BlockEnv {
-                number: block.header.number,
-                timestamp: block.header.timestamp,
-                l2_gas_prices: block.header.l2_gas_prices.clone(),
-                l1_gas_prices: block.header.l1_gas_prices.clone(),
-                l1_data_gas_prices: block.header.l1_data_gas_prices.clone(),
-                sequencer_address: block.header.sequencer_address,
-                starknet_version: block.header.protocol_version,
-            };
-
-            let mut executor =
-                self.backend.executor_factory.with_state_and_block_env(state, block_env.clone());
-
-            executor.execute_block(block)?;
-            let execution_output = executor.take_execution_output()?;
-
-            self.backend.do_mine_block(&block_env, execution_output)?;
-
-            // self.verify_block_migration(block_num)?;
+            self.migrate_block(block_num)?;
         }
+
+        Ok(())
+    }
+
+    fn migrate_block(&self, block_num: BlockNumber) -> Result<()> {
+        let state = self.new_database.historical(block_num.saturating_sub(1).into())?.unwrap();
+        let block = self.load_executable_block(block_num)?;
+
+        let block_env = BlockEnv {
+            number: block.header.number,
+            timestamp: block.header.timestamp,
+            l2_gas_prices: block.header.l2_gas_prices.clone(),
+            l1_gas_prices: block.header.l1_gas_prices.clone(),
+            l1_data_gas_prices: block.header.l1_data_gas_prices.clone(),
+            sequencer_address: block.header.sequencer_address,
+            starknet_version: block.header.protocol_version,
+        };
+
+        let mut executor =
+            self.backend.executor_factory.with_state_and_block_env(state, block_env.clone());
+
+        executor.execute_block(block)?;
+        let execution_output = executor.take_execution_output()?;
+
+        self.backend.do_mine_block(&block_env, execution_output)?;
+
+        // self.verify_block_migration(block_num)?;
 
         Ok(())
     }
