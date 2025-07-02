@@ -8,7 +8,6 @@ use std::sync::Arc;
 
 use anyhow::Result;
 use exit::NodeStoppedFuture;
-use katana_db::mdbx::DbEnv;
 use katana_feeder_gateway::client::SequencerGateway;
 use katana_metrics::exporters::prometheus::PrometheusRecorder;
 use katana_metrics::{Report, Server as MetricsServer};
@@ -38,7 +37,7 @@ pub struct Config {
 
 #[derive(Debug)]
 pub struct Node {
-    pub db: DbEnv,
+    pub db: katana_db::Db,
     pub pool: TxPool,
     pub config: Arc<Config>,
     pub task_manager: TaskManager,
@@ -62,7 +61,7 @@ impl Node {
         let path = config.db.dir.clone().expect("database path must exist");
 
         info!(target: "node", path = %path.display(), "Initializing database.");
-        let db = katana_db::init_db(path)?;
+        let db = katana_db::Db::new(path)?;
 
         let provider = DbProvider::new(db.clone());
 
@@ -134,7 +133,7 @@ impl Node {
 
 #[derive(Debug)]
 pub struct LaunchedNode {
-    pub db: DbEnv,
+    pub db: katana_db::Db,
     pub pool: TxPool,
     pub task_manager: TaskManager,
     pub config: Arc<Config>,
