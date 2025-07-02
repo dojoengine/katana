@@ -247,8 +247,6 @@ impl ReceiptWithTxHash {
             }
 
             GasUsed::L1 { gas, .. } => {
-                println!("gas l1");
-
                 hash::Poseidon::hash_array(&[
                     self.tx_hash,
                     self.receipt.fee().overall_fee.into(),
