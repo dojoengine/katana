@@ -5,14 +5,16 @@
 //! database entries.
 
 use std::ops::RangeInclusive;
+use std::path::Path;
 use std::sync::Arc;
+use std::{fs, io};
 
 use anyhow::{Context, Result};
 use katana_chain_spec::ChainSpec;
 use katana_core::backend::gas_oracle::GasOracle;
 use katana_core::backend::storage::Blockchain;
 use katana_core::backend::Backend;
-use katana_db::mdbx::DbEnv;
+use katana_db::Db;
 use katana_executor::implementation::blockifier::BlockifierFactory;
 use katana_executor::ExecutorFactory;
 use katana_primitives::block::{
@@ -47,36 +49,55 @@ pub struct MigrationManager {
     new_database: DbProvider,
     old_database: DbProvider,
     backend: Backend<BlockifierFactory>,
+    is_dev: bool,
 }
 
 impl MigrationManager {
     /// Create a new migration manager with the given database.
     pub fn new(
-        new_database: DbEnv,
-        old_database: DbProvider,
+        old_database: katana_db::Db,
         chain_spec: Arc<ChainSpec>,
         gas_oracle: GasOracle,
         executor: BlockifierFactory,
     ) -> Result<Self> {
-        let new_blockchain = Blockchain::new_with_db(new_database.clone());
-        let backend = Backend::new(chain_spec, new_blockchain, gas_oracle, executor);
-        // backend.init_genesis().context("failed to initialize new database")?;
+        let old_db_path = old_database.path().to_path_buf();
+        let backup_path = old_db_path.with_extension("backup");
 
-        let new_database = DbProvider::new(new_database);
-        let new = Self { old_database, new_database, backend };
+        // Rename the old database directory to create a backup
+        copy_dir_all(&old_db_path, &backup_path).context("failed to create backup")?;
+        drop(old_database);
+
+        // Delete the old database directory after successful copy
+        fs::remove_dir_all(&old_db_path).context("failed to delete old database")?;
+
+        // Open the backup as the old database
+        let old_db_env = Db::open(backup_path).context("failed to open backup (old) database")?;
+        let old_database = DbProvider::new(old_db_env);
+
+        // Open a new database at the original path
+        let new_db_env = Db::new(old_db_path).context("failed to open new database")?;
+
+        let new_blockchain = Blockchain::new_with_db(new_db_env.clone());
+        let backend = Backend::new(chain_spec, new_blockchain, gas_oracle, executor);
+
+        let new_database = DbProvider::new(new_db_env);
+        let mut new = Self { old_database, new_database, backend, is_dev: false };
         new.init_dev_db()?;
 
-        let old_genesis_state_root =
-            new.old_database.historical(0.into())?.unwrap().state_root()?;
-        let new_genesis_state_root =
-            new.new_database.historical(0.into())?.unwrap().state_root()?;
+        // assert initial state are equal
+        {
+            let old_genesis_state_root =
+                new.old_database.historical(0.into())?.unwrap().state_root()?;
+            let new_genesis_state_root =
+                new.new_database.historical(0.into())?.unwrap().state_root()?;
 
-        similar_asserts::assert_eq!(old_genesis_state_root, new_genesis_state_root);
+            similar_asserts::assert_eq!(old_genesis_state_root, new_genesis_state_root);
+        }
 
         Ok(new)
     }
 
-    fn init_dev_db(&self) -> Result<()> {
+    fn init_dev_db(&mut self) -> Result<bool> {
         let old_db = &self.old_database;
         let genesis_block_id: BlockHashOrNumber = 0.into();
 
@@ -87,7 +108,7 @@ impl MigrationManager {
 
         // if the genesis block is from the DEV chain spec, follow how the dev chain spec is
         // initialized in Backend::init_dev_genesis
-        if genesis_tx_count == 0 {
+        let is_dev = if genesis_tx_count == 0 {
             let mut state_updates = old_db.state_update_with_classes(genesis_block_id)?.unwrap();
             // dbg!(&state_updates.state_updates);
 
@@ -132,16 +153,21 @@ impl MigrationManager {
                 vec![],
                 vec![],
             )?;
+
+            true
+        } else {
+            false
         };
 
-        Ok(())
+        self.is_dev = is_dev;
+        Ok(is_dev)
     }
 
     /// Re-execute all historical blocks in the database.
     ///
     /// This method reads all blocks from the database, converts them to executable format,
     /// and re-executes them to derive new fields and data.
-    pub fn migrate_all_blocks(&self) -> Result<()> {
+    pub fn migrate(&self) -> Result<()> {
         info!(target: "migration", "Starting historical block re-execution migration");
 
         // Get the latest block number to determine migration range
@@ -282,6 +308,7 @@ impl MigrationManager {
     }
 
     /// Will return an Err if the block migration verification fails.
+    #[allow(unused)]
     fn verify_block_migration(&self, block: BlockNumber) -> Result<()> {
         let old_db = &self.old_database;
         let new_db = &self.new_database;
@@ -316,4 +343,18 @@ impl MigrationManager {
 
         Ok(())
     }
+}
+
+fn copy_dir_all(src: impl AsRef<Path>, dst: impl AsRef<Path>) -> io::Result<()> {
+    fs::create_dir_all(&dst)?;
+    for entry in fs::read_dir(src)? {
+        let entry = entry?;
+        let ty = entry.file_type()?;
+        if ty.is_dir() {
+            copy_dir_all(entry.path(), dst.as_ref().join(entry.file_name()))?;
+        } else {
+            fs::copy(entry.path(), dst.as_ref().join(entry.file_name()))?;
+        }
+    }
+    Ok(())
 }

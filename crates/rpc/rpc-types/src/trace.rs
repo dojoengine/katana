@@ -96,7 +96,7 @@ pub fn to_rpc_fee_estimate(resources: &receipt::ExecutionResources, fee: &FeeInf
 
     let (l1_gas_consumed, l2_gas_consumed, l1_data_gas_consumed) = match &resources.gas {
         receipt::GasUsed::All { l1_gas, l2_gas, l1_data_gas } => (*l1_gas, *l2_gas, *l1_data_gas),
-        receipt::GasUsed::L1 { gas, data_gas } => ((*gas).into(), (*data_gas).into(), 0u64.into()),
+        receipt::GasUsed::L1 { gas, data_gas } => (*gas, *data_gas, 0u64),
     };
 
     FeeEstimate {
@@ -104,10 +104,10 @@ pub fn to_rpc_fee_estimate(resources: &receipt::ExecutionResources, fee: &FeeInf
         l1_gas_consumed,
         l2_gas_consumed,
         l1_data_gas_consumed,
-        overall_fee: fee.overall_fee.into(),
-        l2_gas_price: fee.l2_gas_price.into(),
-        l1_gas_price: fee.l1_gas_price.into(),
-        l1_data_gas_price: fee.l1_data_gas_price.into(),
+        overall_fee: fee.overall_fee,
+        l2_gas_price: fee.l2_gas_price,
+        l1_gas_price: fee.l1_gas_price,
+        l1_data_gas_price: fee.l1_data_gas_price,
     }
 }
 

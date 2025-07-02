@@ -6553,6 +6553,32 @@ dependencies = [
 ]
 
 [[package]]
+name = "katana-db-migration"
+version = "1.6.0-alpha.1"
+dependencies = [
+ "anyhow",
+ "fs_extra",
+ "katana-chain-spec",
+ "katana-core",
+ "katana-db 1.2.2",
+ "katana-db 1.6.0-alpha.0",
+ "katana-db 1.6.0-alpha.1",
+ "katana-executor",
+ "katana-log",
+ "katana-primitives 1.2.2",
+ "katana-primitives 1.6.0-alpha.0",
+ "katana-primitives 1.6.0-alpha.1",
+ "katana-provider 1.2.2",
+ "katana-provider 1.6.0-alpha.0",
+ "katana-provider 1.6.0-alpha.1",
+ "similar-asserts",
+ "starknet 0.15.1",
+ "tempfile",
+ "tokio",
+ "tracing",
+]
+
+[[package]]
 name = "katana-executor"
 version = "1.6.0-alpha.1"
 dependencies = [
@@ -6757,32 +6783,6 @@ dependencies = [
 ]
 
 [[package]]
-name = "katana-migration"
-version = "1.6.0-alpha.1"
-dependencies = [
- "anyhow",
- "fs_extra",
- "katana-chain-spec",
- "katana-core",
- "katana-db 1.2.2",
- "katana-db 1.6.0-alpha.0",
- "katana-db 1.6.0-alpha.1",
- "katana-executor",
- "katana-log",
- "katana-primitives 1.2.2",
- "katana-primitives 1.6.0-alpha.0",
- "katana-primitives 1.6.0-alpha.1",
- "katana-provider 1.2.2",
- "katana-provider 1.6.0-alpha.0",
- "katana-provider 1.6.0-alpha.1",
- "similar-asserts",
- "starknet 0.15.1",
- "tempfile",
- "tokio",
- "tracing",
-]
-
-[[package]]
 name = "katana-node"
 version = "1.6.0-alpha.1"
 dependencies = [
@@ -6795,6 +6795,7 @@ dependencies = [
  "katana-chain-spec",
  "katana-core",
  "katana-db 1.6.0-alpha.1",
+ "katana-db-migration",
  "katana-executor",
  "katana-feeder-gateway",
  "katana-log",

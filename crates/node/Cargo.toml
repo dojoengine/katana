@@ -9,6 +9,7 @@ version.workspace = true
 katana-chain-spec.workspace = true
 katana-core.workspace = true
 katana-db.workspace = true
+katana-db-migration.workspace = true
 katana-executor.workspace = true
 katana-log.workspace = true
 katana-messaging.workspace = true

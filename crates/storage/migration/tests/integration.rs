@@ -5,13 +5,13 @@ use katana_chain_spec::ChainSpec;
 use katana_core::backend::gas_oracle::GasOracle;
 use katana_core::constants::DEFAULT_SEQUENCER_ADDRESS;
 use katana_db::abstraction::{Database, DbTx};
-use katana_db::{init_db, open_db};
+// use katana_db::{init_db, open_db};
+use katana_db_migration::MigrationManager;
 use katana_db_v1_5_4::abstraction::{Database as _, DbTx as _};
 use katana_executor::implementation::blockifier::cache::ClassCache;
 use katana_executor::implementation::blockifier::BlockifierFactory;
 use katana_executor::{BlockLimits, ExecutionFlags};
 use katana_log::LogFormat;
-use katana_migration::MigrationManager;
 use katana_primitives::env::{CfgEnv, FeeTokenAddressses};
 use katana_primitives::genesis::allocation::DevAllocationsGenerator;
 use katana_primitives::genesis::constant::DEFAULT_PREFUNDED_ACCOUNT_BALANCE;
@@ -52,17 +52,17 @@ fn executor() -> BlockifierFactory {
 async fn db_migration() {
     katana_log::init(LogFormat::Full, false, None).await.unwrap();
 
-    let new_path = PathBuf::from("/Volumes/Ohio/jokersofneon-db_new");
-    let new_db = init_db(new_path).unwrap();
+    // let new_path = PathBuf::from("/Volumes/Ohio/jokersofneon-db_new");
+    // let new_db = init_db(new_path).unwrap();
 
-    let old_path = PathBuf::from("/Volumes/Ohio/jokersofneon-db");
-    let old_db = DbProvider::new(open_db(old_path).unwrap());
+    // let old_path = PathBuf::from("/Volumes/Ohio/jokersofneon-db");
+    let old_db = katana_db::Db::open("tests/fixtures/v1_2_2").unwrap();
 
     let chain = Arc::new(cs());
     let gpo = GasOracle::sampled_starknet();
-    let migration = MigrationManager::new(new_db, old_db, chain, gpo, executor()).unwrap();
+    let migration = MigrationManager::new(old_db, chain, gpo, executor()).unwrap();
 
-    migration.migrate_all_blocks().unwrap();
+    migration.migrate().unwrap();
 }
 
 fn cs() -> ChainSpec {

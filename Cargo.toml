@@ -69,13 +69,13 @@ katana-codecs = { path = "crates/storage/codecs" }
 katana-codecs-derive = { path = "crates/storage/codecs/derive" }
 katana-core = { path = "crates/core" }
 katana-db = { path = "crates/storage/db" }
+katana-db-migration = { path = "crates/storage/migration" }
 katana-executor = { path = "crates/executor" }
 katana-explorer = { path = "crates/explorer" }
 katana-feeder-gateway = { path = "crates/feeder-gateway" }
 katana-fork = { path = "crates/storage/fork" }
 katana-log = { path = "crates/log" }
 katana-messaging = { path = "crates/messaging" }
-katana-migration = { path = "crates/storage/migration" }
 katana-metrics = { path = "crates/metrics" }
 katana-node = { path = "crates/node" }
 katana-node-bindings = { path = "crates/node-bindings" }
