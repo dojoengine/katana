@@ -21,8 +21,8 @@ pub mod version;
 use mdbx::{DbEnv, DbEnvKind};
 use utils::is_database_empty;
 use version::{
-    check_db_version, create_db_version_file, is_block_compatible_version, DatabaseVersionError,
-    CURRENT_DB_VERSION,
+    check_db_version, create_db_version_file, get_db_version, is_block_compatible_version,
+    DatabaseVersionError, CURRENT_DB_VERSION,
 };
 
 /// Initialize the database at the given path and returning a handle to the its
@@ -62,7 +62,12 @@ pub fn init_db<P: AsRef<Path>>(path: P) -> anyhow::Result<DbEnv> {
         }
     }
 
-    let env = open_db(path)?;
+    // After ensuring the version file exists, get the actual version from the file
+    let version = get_db_version(&path).with_context(|| {
+        format!("Reading database version from path {}", path.as_ref().display())
+    })?;
+
+    let env = open_db(path, version)?;
     env.create_tables()?;
     Ok(env)
 }
@@ -85,8 +90,8 @@ pub fn init_ephemeral_db() -> anyhow::Result<DbEnv> {
 }
 
 /// Open the database at the given `path` in read-write mode.
-pub fn open_db<P: AsRef<Path>>(path: P) -> anyhow::Result<DbEnv> {
-    DbEnv::open(path.as_ref(), DbEnvKind::RW).with_context(|| {
+pub fn open_db<P: AsRef<Path>>(path: P, version: u32) -> anyhow::Result<DbEnv> {
+    DbEnv::open(path.as_ref(), DbEnvKind::RW, version).with_context(|| {
         format!("Opening database in read-write mode at path {}", path.as_ref().display())
     })
 }

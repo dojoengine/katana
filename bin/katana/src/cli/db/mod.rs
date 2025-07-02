@@ -6,6 +6,7 @@ use comfy_table::modifiers::UTF8_ROUND_CORNERS;
 use comfy_table::presets::UTF8_FULL;
 use comfy_table::Table;
 use katana_db::mdbx::{DbEnv, DbEnvKind};
+use katana_db::version::get_db_version;
 
 mod prune;
 mod stats;
@@ -45,14 +46,20 @@ impl DbArgs {
 /// error messages.
 pub fn open_db_ro(path: &str) -> Result<DbEnv> {
     let path = path::absolute(shellexpand::full(path)?.into_owned())?;
-    DbEnv::open(&path, DbEnvKind::RO).with_context(|| {
+    let version = get_db_version(&path).with_context(|| {
+        format!("Reading database version from path {}", path.display())
+    })?;
+    DbEnv::open(&path, DbEnvKind::RO, version).with_context(|| {
         format!("Opening database file in read-only mode at path {}", path.display())
     })
 }
 
 pub fn open_db_rw(path: &str) -> Result<DbEnv> {
     let path = path::absolute(shellexpand::full(path)?.into_owned())?;
-    katana_db::open_db(path)
+    let version = get_db_version(&path).with_context(|| {
+        format!("Reading database version from path {}", path.display())
+    })?;
+    katana_db::open_db(path, version)
 }
 
 /// Create a table with the default UTF-8 full border and rounded corners.

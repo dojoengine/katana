@@ -22,6 +22,7 @@ use crate::abstraction::Database;
 use crate::error::DatabaseError;
 use crate::tables::{TableType, Tables, NUM_TABLES};
 use crate::utils;
+use crate::version::CURRENT_DB_VERSION;
 
 const GIGABYTE: usize = 1024 * 1024 * 1024;
 const TERABYTE: usize = GIGABYTE * 1024;
@@ -53,13 +54,15 @@ struct DbEnvInner {
     /// A flag inidicating whether the database is ephemeral or not. If `true`, the database will
     /// be deleted when the environment is dropped.
     ephemeral: bool,
+    /// The database schema version.
+    version: u32,
 }
 
 impl DbEnv {
     /// Opens the database at the specified path with the given `EnvKind`.
     ///
     /// It does not create the tables, for that call [`DbEnv::create_tables`].
-    pub fn open(path: impl AsRef<Path>, kind: DbEnvKind) -> Result<DbEnv, DatabaseError> {
+    pub fn open(path: impl AsRef<Path>, kind: DbEnvKind, version: u32) -> Result<DbEnv, DatabaseError> {
         let mode = match kind {
             DbEnvKind::RO => Mode::ReadOnly,
             DbEnvKind::RW => Mode::ReadWrite { sync_mode: SyncMode::Durable },
@@ -89,7 +92,7 @@ impl DbEnv {
 
         let env = builder.open(path.as_ref()).map_err(DatabaseError::OpenEnv)?;
         let dir = path.as_ref().to_path_buf();
-        let inner = DbEnvInner { env, dir, ephemeral: false };
+        let inner = DbEnvInner { env, dir, ephemeral: false, version };
 
         Ok(Self { inner: Arc::new(inner) }.with_metrics())
     }
@@ -121,7 +124,7 @@ impl DbEnv {
 
         let env = builder.open(path).map_err(DatabaseError::OpenEnv)?;
         let dir = path.to_path_buf();
-        let inner = DbEnvInner { env, dir, ephemeral: true };
+        let inner = DbEnvInner { env, dir, ephemeral: true, version: CURRENT_DB_VERSION };
 
         Ok(Self { inner: Arc::new(inner) }.with_metrics())
     }
@@ -147,6 +150,11 @@ impl DbEnv {
     /// Returns the path to the database environment directory.
     pub fn path(&self) -> &Path {
         &self.inner.dir
+    }
+
+    /// Returns the database schema version.
+    pub fn version(&self) -> u32 {
+        self.inner.version
     }
 
     fn with_metrics(self) -> Self {
