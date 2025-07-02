@@ -20,6 +20,7 @@ pub mod utils;
 pub mod version;
 
 use error::DatabaseError;
+use libmdbx::SyncMode;
 use mdbx::{DbEnv, DbEnvBuilder};
 use tracing::debug;
 use utils::is_database_empty;
@@ -27,6 +28,9 @@ use version::{
     create_db_version_file, get_db_version, is_block_compatible_version, DatabaseVersionError,
     CURRENT_DB_VERSION,
 };
+
+const GIGABYTE: usize = 1024 * 1024 * 1024;
+const TERABYTE: usize = GIGABYTE * 1024;
 
 #[derive(Debug, Clone)]
 pub struct Db {
@@ -96,7 +100,12 @@ impl Db {
         let dir = tempfile::Builder::new().keep(true).tempdir()?;
         let path = dir.path();
 
-        let env = mdbx::DbEnvBuilder::new().sync(libmdbx::SyncMode::UtterlyNoSync).build(path)?;
+        let env = mdbx::DbEnvBuilder::new()
+            .max_size(GIGABYTE * 10)  // 10gb
+            .growth_step((GIGABYTE / 2) as isize) // 512mb
+            .sync(SyncMode::UtterlyNoSync)
+            .build(path)?;
+
         env.create_default_tables()?;
 
         Ok(Self { env, version: CURRENT_DB_VERSION })

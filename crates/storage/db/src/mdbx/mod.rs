@@ -11,7 +11,7 @@ use tracing::error;
 use crate::abstraction::Database;
 use crate::error::DatabaseError;
 use crate::tables::{TableType, Tables, NUM_TABLES};
-use crate::utils;
+use crate::{utils, GIGABYTE, TERABYTE};
 
 pub mod cursor;
 pub mod stats;
@@ -20,23 +20,29 @@ pub mod tx;
 use self::stats::{Stats, TableStat};
 use self::tx::Tx;
 
-const GIGABYTE: usize = 1024 * 1024 * 1024;
-const TERABYTE: usize = GIGABYTE * 1024;
-
 /// MDBX allows up to 32767 readers (`MDBX_READERS_LIMIT`), but we limit it to slightly below that
 const DEFAULT_MAX_READERS: u64 = 32_000;
+const DEFAULT_MAX_SIZE: usize = TERABYTE;
+const DEFAULT_GROWTH_STEP: isize = 4 * GIGABYTE as isize;
 
 /// Builder for configuring and creating a [`DbEnv`].
 #[derive(Debug)]
 pub struct DbEnvBuilder {
     mode: libmdbx::Mode,
     max_readers: u64,
+    max_size: usize,
+    growth_step: isize,
 }
 
 impl DbEnvBuilder {
     /// Creates a new builder with default settings for the specified environment kind.
     pub fn new() -> Self {
-        Self { mode: libmdbx::Mode::ReadOnly, max_readers: DEFAULT_MAX_READERS }
+        Self {
+            mode: libmdbx::Mode::ReadOnly,
+            max_readers: DEFAULT_MAX_READERS,
+            max_size: DEFAULT_MAX_SIZE,
+            growth_step: DEFAULT_GROWTH_STEP,
+        }
     }
 
     /// Sets the maximum number of readers.
@@ -55,6 +61,16 @@ impl DbEnvBuilder {
         self
     }
 
+    pub fn max_size(mut self, max_size: usize) -> Self {
+        self.max_size = max_size;
+        self
+    }
+
+    pub fn growth_step(mut self, growth_step: isize) -> Self {
+        self.growth_step = growth_step;
+        self
+    }
+
     /// Builds the database environment at the specified path.
     pub fn build(self, path: impl AsRef<Path>) -> Result<DbEnv, DatabaseError> {
         let mut builder = libmdbx::Environment::builder();
@@ -62,13 +78,18 @@ impl DbEnvBuilder {
         builder
             .set_max_dbs(Tables::ALL.len())
             .set_geometry(Geometry {
-                size: Some(0..(TERABYTE)),
-                growth_step: Some(4 * GIGABYTE as isize),
+                // Maximum database size of 1 terabytes
+                size: Some(0..(self.max_size)),
+                // We grow the database in increments of 4 gigabytes
+                growth_step: Some(self.growth_step),
+                // The database never shrinks
                 shrink_threshold: None,
                 page_size: Some(PageSize::Set(utils::default_page_size())),
             })
             .set_flags(EnvironmentFlags {
                 mode: self.mode,
+                // We disable readahead because it improves performance for linear scans, but
+                // worsens it for random access (which is our access pattern outside of sync)
                 no_rdahead: true,
                 coalesce: true,
                 ..Default::default()
