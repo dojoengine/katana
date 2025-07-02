@@ -5,6 +5,7 @@
 use std::fs;
 use std::path::Path;
 
+use abstraction::Database;
 use anyhow::{anyhow, Context};
 
 pub mod abstraction;
@@ -18,11 +19,13 @@ pub mod trie;
 pub mod utils;
 pub mod version;
 
-use mdbx::{DbEnv, DbEnvKind};
+use error::DatabaseError;
+use mdbx::{DbEnv, DbEnvBuilder};
+use tracing::debug;
 use utils::is_database_empty;
 use version::{
-    check_db_version, create_db_version_file, get_db_version, is_block_compatible_version,
-    DatabaseVersionError, CURRENT_DB_VERSION,
+    create_db_version_file, get_db_version, is_block_compatible_version, DatabaseVersionError,
+    CURRENT_DB_VERSION,
 };
 
 #[derive(Debug, Clone)]
@@ -37,45 +40,45 @@ impl Db {
     ///
     /// This will create the default tables, if necessary.
     pub fn new<P: AsRef<Path>>(path: P) -> anyhow::Result<Self> {
-        if is_database_empty(path.as_ref()) {
+        let version = if is_database_empty(path.as_ref()) {
             fs::create_dir_all(&path).with_context(|| {
                 format!("Creating database directory at path {}", path.as_ref().display())
             })?;
-            create_db_version_file(&path, CURRENT_DB_VERSION.inner()).with_context(|| {
+
+            create_db_version_file(&path, CURRENT_DB_VERSION).with_context(|| {
                 format!("Inserting database version file at path {}", path.as_ref().display())
             })?
         } else {
-            match check_db_version(&path) {
-                Ok(_) => {}
-                Err(DatabaseVersionError::MismatchVersion { found, .. }) => {
-                    if is_block_compatible_version(found) {
-                        println!("Using database version {} with block compatibility mode", found);
-                    } else {
+            match get_db_version(&path) {
+                Ok(version) if version != CURRENT_DB_VERSION => {
+                    if !is_block_compatible_version(&version) {
                         return Err(anyhow!(DatabaseVersionError::MismatchVersion {
-                            expected: CURRENT_DB_VERSION.inner(),
-                            found
+                            expected: CURRENT_DB_VERSION,
+                            found: version
                         }));
                     }
+                    debug!(target: "db", "Using database version {version} with block compatibility mode");
+                    version
                 }
+
+                Ok(version) => version,
+
                 Err(DatabaseVersionError::FileNotFound) => {
-                    create_db_version_file(&path, CURRENT_DB_VERSION.inner()).with_context(|| {
+                    create_db_version_file(&path, CURRENT_DB_VERSION).with_context(|| {
                         format!(
                             "No database version file found. Inserting version file at path {}",
                             path.as_ref().display()
                         )
                     })?
                 }
+
                 Err(err) => return Err(anyhow!(err)),
             }
-        }
+        };
 
-        // After ensuring the version file exists, get the actual version from the file
-        let version = get_db_version(&path).with_context(|| {
-            format!("Reading database version from path {}", path.as_ref().display())
-        })?;
+        let env = DbEnvBuilder::new().write().build(path)?;
+        env.create_default_tables()?;
 
-        let env = mdbx::DbEnv::open(path, mdbx::DbEnvKind::RW)?;
-        env.create_tables()?;
         Ok(Self { env, version })
     }
 
@@ -86,23 +89,82 @@ impl Db {
     /// provider. Mainly to avoid having two separate implementations for the in-memory and
     /// persistent db. Simplifying it to using a single solid implementation.
     ///
-    /// As such, this database environment will trade off durability for write performance and shouldn't
-    /// be used in the case where data persistence is required. For that, use [`init_db`].
+    /// As such, this database environment will trade off durability for write performance and
+    /// shouldn't be used in the case where data persistence is required. For that, use
+    /// [`init_db`].
     pub fn in_memory() -> anyhow::Result<Self> {
-        let env = DbEnv::open_ephemeral().context("Opening ephemeral database")?;
-        env.create_tables()?;
+        let dir = tempfile::Builder::new().keep(true).tempdir()?;
+        let path = dir.path();
+
+        let env = mdbx::DbEnvBuilder::new().sync(libmdbx::SyncMode::UtterlyNoSync).build(path)?;
+        env.create_default_tables()?;
+
         Ok(Self { env, version: CURRENT_DB_VERSION })
     }
 
-    /// Open the database at the given `path` in read-write mode.
+    // Open the database at the given `path` in read-write mode.
     pub fn open<P: AsRef<Path>>(path: P) -> anyhow::Result<Self> {
-        let env = DbEnv::open(path.as_ref(), DbEnvKind::RW).with_context(|| {
-            format!("Opening database in read-write mode at path {}", path.as_ref().display())
-        })?;
-        let version = get_db_version(path.as_ref()).with_context(|| {
-            format!("Getting database version at path {}", path.as_ref().display())
-        })?;
+        Self::open_inner(path, false)
+    }
+
+    // Open the database at the given `path` in read-write mode.
+    pub fn open_ro<P: AsRef<Path>>(path: P) -> anyhow::Result<Self> {
+        Self::open_inner(path, true)
+    }
+
+    fn open_inner<P: AsRef<Path>>(path: P, read_only: bool) -> anyhow::Result<Self> {
+        let path = path.as_ref();
+        let builder = DbEnvBuilder::new();
+
+        let env = if read_only {
+            builder.build(path).with_context(|| {
+                format!("Opening database in read-only mode at path {}", path.display())
+            })?
+        } else {
+            builder.write().build(path).with_context(|| {
+                format!("Opening database in read-write mode at path {}", path.display())
+            })?
+        };
+
+        let version = get_db_version(path)
+            .with_context(|| format!("Getting database version at path {}", path.display()))?;
+
         Ok(Self { env, version })
+    }
+
+    pub fn require_migration(&self) -> bool {
+        self.version != CURRENT_DB_VERSION
+    }
+
+    pub fn path(&self) -> &Path {
+        self.env.path()
+    }
+}
+
+/// Main persistent database trait. The database implementation must be transactional.
+impl Database for Db {
+    type Tx = <DbEnv as Database>::Tx;
+    type TxMut = <DbEnv as Database>::TxMut;
+    type Stats = <DbEnv as Database>::Stats;
+
+    #[track_caller]
+    fn tx(&self) -> Result<Self::Tx, DatabaseError> {
+        self.env.tx()
+    }
+
+    #[track_caller]
+    fn tx_mut(&self) -> Result<Self::TxMut, DatabaseError> {
+        self.env.tx_mut()
+    }
+
+    fn stats(&self) -> Result<Self::Stats, DatabaseError> {
+        self.env.stats()
+    }
+}
+
+impl katana_metrics::Report for Db {
+    fn report(&self) {
+        self.env.report()
     }
 }
 
@@ -112,7 +174,7 @@ mod tests {
     use std::fs;
 
     use crate::version::{default_version_file_path, get_db_version, CURRENT_DB_VERSION};
-    use crate::{Db};
+    use crate::Db;
 
     #[test]
     fn initialize_db_in_empty_dir() {

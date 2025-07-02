@@ -1,6 +1,5 @@
 use std::collections::BTreeMap;
 
-use katana_db::mdbx;
 use katana_primitives::address;
 use katana_primitives::block::{
     BlockHashOrNumber, FinalityStatus, Header, SealedBlock, SealedBlockWithStatus,
@@ -68,8 +67,7 @@ pub mod fork {
 
 #[rstest::fixture]
 pub fn db_provider() -> BlockchainProvider<DbProvider> {
-    let env = mdbx::test_utils::create_test_db();
-    BlockchainProvider::new(DbProvider::new(env))
+    BlockchainProvider::new(DbProvider::new_in_memory())
 }
 
 #[rstest::fixture]

@@ -72,7 +72,7 @@ pub fn state_provider(chain: &ChainSpec) -> Box<dyn StateProvider> {
     let ChainSpec::Dev(chain) = chain else { panic!("should be dev chain spec") };
 
     let states = chain.state_updates();
-    let provider = DbProvider::new_ephemeral();
+    let provider = DbProvider::new_in_memory();
 
     let block = SealedBlockWithStatus {
         status: FinalityStatus::AcceptedOnL2,

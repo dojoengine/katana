@@ -1,6 +1,5 @@
 use std::collections::{BTreeMap, BTreeSet};
 
-use katana_db::mdbx::DbEnv;
 use katana_primitives::block::{Block, BlockHash, FinalityStatus};
 use katana_primitives::class::{ClassHash, CompiledClassHash};
 use katana_primitives::contract::{ContractAddress, Nonce, StorageKey, StorageValue};
@@ -20,7 +19,7 @@ pub struct TempDb {
 impl TempDb {
     pub fn new() -> Self {
         let temp_dir = tempfile::tempdir().expect("failed to create temp dir");
-        katana_db::init_db(temp_dir.path()).expect("failed to initialize database");
+        katana_db::Db::new(temp_dir.path()).expect("failed to initialize database");
         Self { temp_dir }
     }
 
@@ -32,11 +31,11 @@ impl TempDb {
         DbProvider::new(self.open_rw())
     }
 
-    fn open_ro(&self) -> DbEnv {
+    fn open_ro(&self) -> katana_db::Db {
         katana::cli::db::open_db_ro(self.path_str()).unwrap()
     }
 
-    fn open_rw(&self) -> DbEnv {
+    fn open_rw(&self) -> katana_db::Db {
         katana::cli::db::open_db_rw(self.path_str()).unwrap()
     }
 

@@ -237,8 +237,6 @@ impl<'a> BlockExecutor<'a> for StarknetVMProcessor<'a> {
                                 receipt.resources_used().computation_resources.n_steps as u128;
 
                             if let Some(reason) = receipt.revert_reason() {
-                                println!("tx reverted: {reason}");
-                                break;
                                 info!(target: LOG_TARGET, hash = format!("{hash:#x}"), %reason, "Transaction reverted.");
                             }
 

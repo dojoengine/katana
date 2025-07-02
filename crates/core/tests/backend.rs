@@ -33,7 +33,7 @@ fn executor(chain_spec: &ChainSpec) -> BlockifierFactory {
 }
 
 fn backend(chain_spec: &ChainSpec) -> Backend<BlockifierFactory> {
-    backend_with_db(chain_spec, DbProvider::new_ephemeral())
+    backend_with_db(chain_spec, DbProvider::new_in_memory())
 }
 
 fn backend_with_db(chain_spec: &ChainSpec, provider: impl Database) -> Backend<BlockifierFactory> {
@@ -83,7 +83,7 @@ fn can_initialize_genesis(#[case] chain: ChainSpec) {
 #[case::dev(ChainSpec::Dev(dev_chain_spec()))]
 #[case::rollup(ChainSpec::Rollup(rollup_chain_spec()))]
 fn can_reinitialize_genesis(#[case] chain: ChainSpec) {
-    let db = DbProvider::new_ephemeral();
+    let db = DbProvider::new_in_memory();
 
     let backend = backend_with_db(&chain, db.clone());
     backend.init_genesis().expect("failed to initialize genesis");
@@ -94,7 +94,7 @@ fn can_reinitialize_genesis(#[case] chain: ChainSpec) {
 
 #[test]
 fn reinitialize_with_different_rollup_chain_spec() {
-    let db = DbProvider::new_ephemeral();
+    let db = DbProvider::new_in_memory();
 
     let chain1 = ChainSpec::Rollup(rollup_chain_spec());
     let backend1 = backend_with_db(&chain1, db.clone());

@@ -3,7 +3,6 @@ use std::ops::{Range, RangeInclusive};
 use std::sync::Arc;
 
 use katana_db::abstraction::Database;
-use katana_db::mdbx::DbEnv;
 use katana_db::models::block::StoredBlockBodyIndices;
 use katana_fork::{Backend, BackendClient};
 use katana_primitives::block::{
@@ -38,7 +37,7 @@ mod state;
 mod trie;
 
 #[derive(Debug)]
-pub struct ForkedProvider<Db: Database = DbEnv> {
+pub struct ForkedProvider<Db: Database = katana_db::Db> {
     backend: BackendClient,
     provider: Arc<DbProvider<Db>>,
 }
@@ -59,14 +58,14 @@ impl<Db: Database> ForkedProvider<Db> {
     }
 }
 
-impl ForkedProvider<DbEnv> {
+impl ForkedProvider<katana_db::Db> {
     /// Creates a new [`ForkedProvider`] using an ephemeral database.
     pub fn new_ephemeral(
         block_id: BlockHashOrNumber,
         provider: Arc<JsonRpcClient<HttpTransport>>,
     ) -> Self {
         let backend = Backend::new(provider, block_id).expect("failed to create backend");
-        let provider = Arc::new(DbProvider::new_ephemeral());
+        let provider = Arc::new(DbProvider::new_in_memory());
         Self { provider, backend }
     }
 }

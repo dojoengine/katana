@@ -25,7 +25,7 @@ use katana_core::constants::{
 };
 use katana_core::env::BlockContextGenerator;
 use katana_core::service::block_producer::BlockProducer;
-use katana_db::mdbx::DbEnv;
+use katana_db::Db;
 use katana_executor::implementation::blockifier::cache::ClassCache;
 use katana_executor::implementation::blockifier::BlockifierFactory;
 use katana_executor::ExecutionFlags;
@@ -63,7 +63,7 @@ use crate::exit::NodeStoppedFuture;
 pub struct Node {
     config: Arc<Config>,
     pool: TxPool,
-    db: DbEnv,
+    db: katana_db::Db,
     rpc_server: RpcServer,
     task_manager: TaskManager,
     backend: Arc<Backend<BlockifierFactory>>,
@@ -138,7 +138,7 @@ impl Node {
                 return Err(anyhow::anyhow!("Forking is only supported in dev mode for now"));
             };
 
-            let db = katana_db::init_ephemeral_db()?;
+            let db = katana_db::Db::in_memory()?;
             let (bc, block_num) =
                 Blockchain::new_from_forked(db.clone(), cfg.url.clone(), cfg.block, chain_spec)
                     .await?;
@@ -149,10 +149,10 @@ impl Node {
 
             (bc, db, Some(forked_client))
         } else if let Some(db_path) = &config.db.dir {
-            let db = katana_db::init_db(db_path)?;
+            let db = katana_db::Db::new(db_path)?;
             (Blockchain::new_with_db(db.clone()), db, None)
         } else {
-            let db = katana_db::init_ephemeral_db()?;
+            let db = katana_db::Db::in_memory()?;
             (Blockchain::new_with_db(db.clone()), db, None)
         };
 
@@ -371,7 +371,7 @@ impl Node {
     }
 
     /// Returns a reference to the node's database environment (if any).
-    pub fn db(&self) -> &DbEnv {
+    pub fn db(&self) -> &Db {
         &self.db
     }
 
