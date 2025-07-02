@@ -237,6 +237,8 @@ impl<'a> BlockExecutor<'a> for StarknetVMProcessor<'a> {
                     match &exec_result {
                         ExecutionResult::Success { receipt, trace } => {
                             if let Some(reason) = receipt.revert_reason() {
+                                println!("tx reverted: {reason}");
+                                break;
                                 info!(target: LOG_TARGET, hash = format!("{hash:#x}"), %reason, "Transaction reverted.");
                             }
 
