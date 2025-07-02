@@ -47,26 +47,25 @@ const DEFAULT_MAX_READERS: u64 = 32_000;
 #[derive(Debug)]
 pub struct DbEnvBuilder {
     max_readers: u64,
-    geometry: Option<libmdbx::Geometry<Range<usize>>>,
 }
 
 impl DbEnvBuilder {
     /// Creates a new builder with default settings for the specified environment kind.
     pub fn new() -> Self {
-        Self { flags: None, geometry: None, max_readers: DEFAULT_MAX_READERS }
+        Self { max_readers: DEFAULT_MAX_READERS }
     }
 
-    /// Sets the database geometry configuration.
-    pub fn geometry(mut self, geometry: Geometry<std::ops::Range<usize>>) -> Self {
-        self.geometry = Some(geometry);
-        self
-    }
+    // /// Sets the database geometry configuration.
+    // pub fn geometry(mut self, geometry: Geometry<std::ops::Range<usize>>) -> Self {
+    //     self.geometry = Some(geometry);
+    //     self
+    // }
 
-    /// Sets the environment flags.
-    pub fn flags(mut self, flags: EnvironmentFlags) -> Self {
-        self.flags = Some(flags);
-        self
-    }
+    // /// Sets the environment flags.
+    // pub fn flags(mut self, flags: EnvironmentFlags) -> Self {
+    //     self.flags = Some(flags);
+    //     self
+    // }
 
     /// Sets the maximum number of readers.
     pub fn max_readers(mut self, max_readers: u64) -> Self {
@@ -84,19 +83,19 @@ impl DbEnvBuilder {
 
         builder
             .set_max_dbs(Tables::ALL.len())
-            .set_geometry(self.geometry.unwrap_or_else(|| Geometry {
+            .set_geometry(Geometry {
                 size: Some(0..(TERABYTE)),
                 growth_step: Some(4 * GIGABYTE as isize),
                 shrink_threshold: None,
                 page_size: Some(PageSize::Set(utils::default_page_size())),
-            }))
-            .set_flags(self.flags.unwrap_or_else(|| EnvironmentFlags {
+            })
+            .set_flags(EnvironmentFlags {
                 mode,
                 no_rdahead: true,
                 coalesce: true,
                 ..Default::default()
-            }))
-            .set_max_readers(self.max_readers.unwrap_or(DEFAULT_MAX_READERS));
+            })
+            .set_max_readers(self.max_readers);
 
         let env = builder.open(path.as_ref()).map_err(DatabaseError::OpenEnv)?;
         let dir = path.as_ref().to_path_buf();
