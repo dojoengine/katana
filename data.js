@@ -1,5 +1,5 @@
 window.BENCHMARK_DATA = {
-  "lastUpdate": 1751430270975,
+  "lastUpdate": 1751470925559,
   "repoUrl": "https://github.com/dojoengine/katana",
   "entries": {
     "Benchmark": [
@@ -1835,6 +1835,72 @@ window.BENCHMARK_DATA = {
             "name": "Katana.Startup",
             "value": 126957766,
             "range": "± 626901",
+            "unit": "ns/iter"
+          }
+        ]
+      },
+      {
+        "commit": {
+          "author": {
+            "email": "evergreenkary@gmail.com",
+            "name": "Ammar Arif",
+            "username": "kariy"
+          },
+          "committer": {
+            "email": "noreply@github.com",
+            "name": "GitHub",
+            "username": "web-flow"
+          },
+          "distinct": true,
+          "id": "df5a95756aea08b4eb8cf56127ff2e6deaca604c",
+          "message": "feat(db): include database version in `DbEnv` (#155)\n\n* feat(db): include database version in `DbEnv`\n\n- Add private `version` field to `DbEnvInner` struct\n- Modify `DbEnv::open()` to accept version parameter\n- Update `open_ephemeral()` to use `CURRENT_DB_VERSION` \n- Add public `version()` getter method to access stored version\n- Update `open_db()` and `init_db()` to read and pass version from file\n- Update CLI database opening functions to handle version parameter\n\nThe database version is now accessible at the provider level through\n`DbEnv::version()` method as requested in issue #154.\n\nCo-authored-by: Ammar Arif <kariy@users.noreply.github.com>\n\n* wip\n\n* wip\n\n* wip\n\n* add back ephemeral db geometry\n\n* wip\n\n* fix\n\n---------\n\nCo-authored-by: claude[bot] <209825114+claude[bot]@users.noreply.github.com>\nCo-authored-by: Ammar Arif <kariy@users.noreply.github.com>",
+          "timestamp": "2025-07-02T23:34:59+08:00",
+          "tree_id": "1dfcf487f98fa79a41f80452ccbe4f6f8f427521",
+          "url": "https://github.com/dojoengine/katana/commit/df5a95756aea08b4eb8cf56127ff2e6deaca604c"
+        },
+        "date": 1751470923935,
+        "tool": "cargo",
+        "benches": [
+          {
+            "name": "Commit.Small/Parallel",
+            "value": 442856,
+            "range": "± 8734",
+            "unit": "ns/iter"
+          },
+          {
+            "name": "Commit.Big/Serial",
+            "value": 94634614,
+            "range": "± 408842",
+            "unit": "ns/iter"
+          },
+          {
+            "name": "Commit.Big/Parallel",
+            "value": 65648291,
+            "range": "± 2014875",
+            "unit": "ns/iter"
+          },
+          {
+            "name": "compress world contract",
+            "value": 2669998,
+            "range": "± 9878",
+            "unit": "ns/iter"
+          },
+          {
+            "name": "decompress world contract",
+            "value": 2966323,
+            "range": "± 11543",
+            "unit": "ns/iter"
+          },
+          {
+            "name": "Invoke.ERC20.transfer/Blockifier.Cold",
+            "value": 16689009,
+            "range": "± 836480",
+            "unit": "ns/iter"
+          },
+          {
+            "name": "Katana.Startup",
+            "value": 127011915,
+            "range": "± 2576872",
             "unit": "ns/iter"
           }
         ]
