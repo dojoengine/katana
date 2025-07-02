@@ -338,6 +338,20 @@ impl Node {
             info!(%addr, "Metrics server started.");
         }
 
+        // Perform database migration if required
+        if self.db.require_migration() {
+            info!(target: "node", "Database migration required.");
+
+            katana_db_migration::MigrationManager::new(
+                self.db.clone(),
+                self.config.chain.clone(),
+                self.backend.gas_oracle.clone(),
+                self.backend.executor_factory.as_ref().clone(),
+            )?
+            .migrate()
+            .context("Failed to migrate database")?;
+        }
+
         let pool = self.pool.clone();
         let backend = self.backend.clone();
         let block_producer = self.block_producer.clone();

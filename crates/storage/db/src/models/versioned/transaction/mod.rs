@@ -34,11 +34,6 @@ impl Decompress for VersionedTx {
             return Ok(tx);
         }
 
-        // Try deserializing as V7 first, then fall back to V6
-        if let Ok(transaction) = postcard::from_bytes::<Tx>(bytes) {
-            return Ok(Self::V7(transaction));
-        }
-
         if let Ok(transaction) = postcard::from_bytes::<v6::Tx>(bytes) {
             return Ok(Self::V6(transaction));
         }

@@ -131,6 +131,13 @@ impl<Db: Database> StateUpdateProvider for ForkedProvider<Db> {
         self.provider.state_update(block_id)
     }
 
+    fn state_update_with_classes(
+        &self,
+        block_id: BlockHashOrNumber,
+    ) -> ProviderResult<Option<StateUpdatesWithClasses>> {
+        self.provider.state_update_with_classes(block_id)
+    }
+
     fn declared_classes(
         &self,
         block_id: BlockHashOrNumber,

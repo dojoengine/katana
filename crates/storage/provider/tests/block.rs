@@ -93,6 +93,7 @@ where
             l1_gas_prices: expected_block.header.l1_gas_prices.clone(),
             l1_data_gas_prices: expected_block.header.l1_data_gas_prices.clone(),
             sequencer_address: expected_block.header.sequencer_address,
+            starknet_version: expected_block.header.protocol_version,
         };
 
         let actual_block_hash = provider.block_hash_by_num(expected_block_num)?;
@@ -201,6 +202,7 @@ where
             l1_gas_prices: expected_block.header.l1_gas_prices.clone(),
             l1_data_gas_prices: expected_block.header.l1_data_gas_prices.clone(),
             sequencer_address: expected_block.header.sequencer_address,
+            starknet_version: expected_block.header.protocol_version,
         };
 
         let actual_block_hash = provider.block_hash_by_num(expected_block_num)?;

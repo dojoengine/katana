@@ -14,6 +14,18 @@ use crate::ProviderResult;
 #[derive(Debug)]
 pub struct EmptyStateProvider;
 
+impl EmptyStateProvider {
+    pub fn new() -> Self {
+        EmptyStateProvider
+    }
+}
+
+impl Default for EmptyStateProvider {
+    fn default() -> Self {
+        Self::new()
+    }
+}
+
 impl StateProvider for EmptyStateProvider {
     fn class_hash_of_contract(
         &self,

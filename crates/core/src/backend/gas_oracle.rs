@@ -16,13 +16,13 @@ const BUFFER_SIZE: usize = 60;
 const INTERVAL: Duration = Duration::from_secs(60);
 const ONE_GWEI: u128 = 1_000_000_000;
 
-#[derive(Debug)]
+#[derive(Debug, Clone)]
 pub enum GasOracle {
     Fixed(FixedGasOracle),
     Sampled(EthereumSampledGasOracle),
 }
 
-#[derive(Debug)]
+#[derive(Debug, Clone)]
 pub struct FixedGasOracle {
     gas_prices: GasPrice,
     data_gas_prices: GasPrice,

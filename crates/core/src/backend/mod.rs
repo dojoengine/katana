@@ -16,7 +16,6 @@ use katana_primitives::execution::TypedTransactionExecutionInfo;
 use katana_primitives::receipt::{Event, Receipt, ReceiptWithTxHash};
 use katana_primitives::state::{compute_state_diff_hash, StateUpdates, StateUpdatesWithClasses};
 use katana_primitives::transaction::{TxHash, TxWithHash};
-use katana_primitives::version::CURRENT_STARKNET_VERSION;
 use katana_primitives::{address, ContractAddress, Felt};
 use katana_provider::providers::EmptyStateProvider;
 use katana_provider::traits::block::{BlockHashProvider, BlockWriter};
@@ -103,16 +102,23 @@ impl<EF: ExecutorFactory> Backend<EF> {
         let tx_count = transactions.len();
         let tx_hashes = transactions.iter().map(|tx| tx.hash).collect::<Vec<_>>();
 
+        let parent_hash = if block_env.number == 0 {
+            BlockHash::ZERO
+        } else {
+            let parent_block_num = block_env.number - 1;
+            self.blockchain.provider().block_hash_by_num(parent_block_num)?.unwrap()
+        };
+
         // create a new block and compute its commitment
         let partial_header = PartialHeader {
+            parent_hash,
             number: block_env.number,
             timestamp: block_env.timestamp,
-            protocol_version: CURRENT_STARKNET_VERSION,
+            protocol_version: block_env.starknet_version,
             l1_da_mode: L1DataAvailabilityMode::Calldata,
             sequencer_address: block_env.sequencer_address,
             l2_gas_prices: block_env.l2_gas_prices.clone(),
             l1_gas_prices: block_env.l1_gas_prices.clone(),
-            parent_hash: self.blockchain.provider().latest_hash()?,
             l1_data_gas_prices: block_env.l1_data_gas_prices.clone(),
         };
 

@@ -1,6 +1,7 @@
 use crate::block::{BlockNumber, GasPrice};
 use crate::chain::ChainId;
 use crate::contract::ContractAddress;
+use crate::version::StarknetVersion;
 
 /// Block environment values.
 #[derive(Debug, Clone, Default, PartialEq, Eq)]
@@ -17,6 +18,8 @@ pub struct BlockEnv {
     pub l1_data_gas_prices: GasPrice,
     /// The contract address of the sequencer.
     pub sequencer_address: ContractAddress,
+
+    pub starknet_version: StarknetVersion,
 }
 
 /// The chain configuration values.

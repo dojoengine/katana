@@ -2,7 +2,7 @@ use std::collections::BTreeMap;
 
 use katana_primitives::block::BlockHashOrNumber;
 use katana_primitives::class::{ClassHash, CompiledClassHash};
-use katana_primitives::state::StateUpdates;
+use katana_primitives::state::{StateUpdates, StateUpdatesWithClasses};
 use katana_primitives::ContractAddress;
 
 use crate::ProviderResult;
@@ -11,6 +11,12 @@ use crate::ProviderResult;
 pub trait StateUpdateProvider: Send + Sync {
     /// Returns the state update at the given block.
     fn state_update(&self, block_id: BlockHashOrNumber) -> ProviderResult<Option<StateUpdates>>;
+
+    /// Returns the state update at the given block including the declared classes artifact.
+    fn state_update_with_classes(
+        &self,
+        block_id: BlockHashOrNumber,
+    ) -> ProviderResult<Option<StateUpdatesWithClasses>>;
 
     /// Returns all declared class hashes at the given block.
     fn declared_classes(

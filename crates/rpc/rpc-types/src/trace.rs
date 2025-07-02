@@ -94,15 +94,20 @@ pub fn to_rpc_fee_estimate(resources: &receipt::ExecutionResources, fee: &FeeInf
         fee::PriceUnit::Fri => PriceUnit::Fri,
     };
 
+    let (l1_gas_consumed, l2_gas_consumed, l1_data_gas_consumed) = match &resources.gas {
+        receipt::GasUsed::All { l1_gas, l2_gas, l1_data_gas } => (*l1_gas, *l2_gas, *l1_data_gas),
+        receipt::GasUsed::L1 { gas, data_gas } => (*gas, 0u64, *data_gas),
+    };
+
     FeeEstimate {
         unit,
+        l1_gas_consumed,
+        l2_gas_consumed,
+        l1_data_gas_consumed,
         overall_fee: fee.overall_fee,
         l2_gas_price: fee.l2_gas_price,
         l1_gas_price: fee.l1_gas_price,
         l1_data_gas_price: fee.l1_data_gas_price,
-        l1_gas_consumed: resources.gas.l1_gas,
-        l2_gas_consumed: resources.gas.l2_gas,
-        l1_data_gas_consumed: resources.gas.l1_data_gas,
     }
 }
 

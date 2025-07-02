@@ -28,6 +28,7 @@ members = [
 	"crates/storage/codecs/derive",
 	"crates/storage/db",
 	"crates/storage/fork",
+	"crates/storage/migration",
 	"crates/storage/provider",
 	"crates/sync/pipeline",
 	"crates/sync/stage",
@@ -68,6 +69,7 @@ katana-codecs = { path = "crates/storage/codecs" }
 katana-codecs-derive = { path = "crates/storage/codecs/derive" }
 katana-core = { path = "crates/core" }
 katana-db = { path = "crates/storage/db" }
+katana-db-migration = { path = "crates/storage/migration" }
 katana-executor = { path = "crates/executor" }
 katana-explorer = { path = "crates/explorer" }
 katana-feeder-gateway = { path = "crates/feeder-gateway" }

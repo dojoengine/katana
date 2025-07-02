@@ -15,6 +15,7 @@ use cache::ClassCache;
 use katana_primitives::block::{ExecutableBlock, GasPrice as KatanaGasPrices, PartialHeader};
 use katana_primitives::env::{BlockEnv, CfgEnv};
 use katana_primitives::transaction::{ExecutableTx, ExecutableTxWithHash, TxWithHash};
+use katana_primitives::version::StarknetVersion;
 use katana_provider::traits::state::StateProvider;
 use starknet_api::block::{
     BlockInfo, BlockNumber, BlockTimestamp, GasPriceVector, GasPrices, NonzeroGasPrice,
@@ -29,7 +30,7 @@ use crate::{
 
 pub(crate) const LOG_TARGET: &str = "katana::executor::blockifier";
 
-#[derive(Debug)]
+#[derive(Debug, Clone)]
 pub struct BlockifierFactory {
     cfg: CfgEnv,
     flags: ExecutionFlags,
@@ -97,6 +98,7 @@ pub struct StarknetVMProcessor<'a> {
     simulation_flags: ExecutionFlags,
     stats: ExecutionStats,
     bouncer: Bouncer,
+    starknet_version: StarknetVersion,
 }
 
 impl<'a> StarknetVMProcessor<'a> {
@@ -109,6 +111,7 @@ impl<'a> StarknetVMProcessor<'a> {
         class_cache: ClassCache,
     ) -> Self {
         let transactions = Vec::new();
+        let starknet_version: StarknetVersion = block_env.starknet_version;
         let block_context = Arc::new(utils::block_context_from_envs(&block_env, &cfg_env));
 
         let state = state::CachedState::new(state, class_cache);
@@ -138,6 +141,7 @@ impl<'a> StarknetVMProcessor<'a> {
             simulation_flags,
             stats: Default::default(),
             bouncer,
+            starknet_version,
         }
     }
 
@@ -145,8 +149,10 @@ impl<'a> StarknetVMProcessor<'a> {
         let number = BlockNumber(header.number);
         let timestamp = BlockTimestamp(header.timestamp);
 
-        // TODO: should we enforce the gas price to not be 0,
-        // as there's a flag to disable gas uasge instead?
+        let eth_l2_gas_price = NonzeroGasPrice::new(header.l2_gas_prices.eth.get().into())
+            .unwrap_or(NonzeroGasPrice::MIN);
+        let strk_l2_gas_price = NonzeroGasPrice::new(header.l2_gas_prices.strk.get().into())
+            .unwrap_or(NonzeroGasPrice::MIN);
         let eth_l1_gas_price = NonzeroGasPrice::new(header.l1_gas_prices.eth.get().into())
             .unwrap_or(NonzeroGasPrice::MIN);
         let strk_l1_gas_price = NonzeroGasPrice::new(header.l1_gas_prices.strk.get().into())
@@ -169,16 +175,14 @@ impl<'a> StarknetVMProcessor<'a> {
             sequencer_address: utils::to_blk_address(header.sequencer_address),
             gas_prices: GasPrices {
                 eth_gas_prices: GasPriceVector {
+                    l2_gas_price: eth_l2_gas_price,
                     l1_gas_price: eth_l1_gas_price,
                     l1_data_gas_price: eth_l1_data_gas_price,
-                    // TODO: update to use the correct value
-                    l2_gas_price: eth_l1_gas_price,
                 },
                 strk_gas_prices: GasPriceVector {
+                    l2_gas_price: strk_l2_gas_price,
                     l1_gas_price: strk_l1_gas_price,
                     l1_data_gas_price: strk_l1_data_gas_price,
-                    // TODO: update to use the correct value
-                    l2_gas_price: strk_l1_gas_price,
                 },
             },
             use_kzg_da: false,
@@ -220,6 +224,7 @@ impl<'a> BlockExecutor<'a> for StarknetVMProcessor<'a> {
 
             let tx = TxWithHash::from(&exec_tx);
             let hash = tx.hash;
+
             let result = utils::transact(
                 &mut state.cached_state,
                 block_context,
@@ -232,10 +237,6 @@ impl<'a> BlockExecutor<'a> for StarknetVMProcessor<'a> {
                 Ok(exec_result) => {
                     match &exec_result {
                         ExecutionResult::Success { receipt, trace } => {
-                            self.stats.l1_gas_used += receipt.resources_used().gas.l1_gas as u128;
-                            self.stats.cairo_steps_used +=
-                                receipt.resources_used().computation_resources.n_steps as u128;
-
                             if let Some(reason) = receipt.revert_reason() {
                                 info!(target: LOG_TARGET, hash = format!("{hash:#x}"), %reason, "Transaction reverted.");
                             }
@@ -314,6 +315,7 @@ impl<'a> BlockExecutor<'a> for StarknetVMProcessor<'a> {
             number: self.block_context.block_info().block_number.0,
             timestamp: self.block_context.block_info().block_timestamp.0,
             sequencer_address: utils::to_address(self.block_context.block_info().sequencer_address),
+            starknet_version: self.starknet_version,
         }
     }
 }
