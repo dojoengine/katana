@@ -94,6 +94,12 @@ pub enum StarknetApiError {
     EntrypointNotFound,
     #[error("The transaction's resources don't cover validation or the minimal transaction fee")]
     InsufficientResourcesForValidate,
+    #[error("Invalid subscription id")]
+    InvalidSubscriptionId,
+    #[error("Too many addresses in filter sender_address filter")]
+    TooManyAddressesInFilter,
+    #[error("Cannot go back more than 1024 blocks")]
+    TooManyBlocksBack,
 }
 
 impl StarknetApiError {
@@ -129,6 +135,9 @@ impl StarknetApiError {
             StarknetApiError::UnsupportedTransactionVersion => 61,
             StarknetApiError::UnsupportedContractClassVersion => 62,
             StarknetApiError::UnexpectedError { .. } => 63,
+            StarknetApiError::InvalidSubscriptionId => 66,
+            StarknetApiError::TooManyAddressesInFilter => 67,
+            StarknetApiError::TooManyBlocksBack => 68,
             StarknetApiError::ProofLimitExceeded { .. } => 1000,
         }
     }
@@ -264,6 +273,9 @@ impl From<StarknetRsError> for StarknetApiError {
             StarknetRsError::InsufficientResourcesForValidate => {
                 Self::InsufficientResourcesForValidate
             }
+            StarknetRsError::InvalidSubscriptionId => Self::InvalidSubscriptionId,
+            StarknetRsError::TooManyAddressesInFilter => Self::TooManyAddressesInFilter,
+            StarknetRsError::TooManyBlocksBack => Self::TooManyBlocksBack,
         }
     }
 }
@@ -316,6 +328,9 @@ mod tests {
     #[case(StarknetApiError::InsufficientAccountBalance, 54, "Account balance is smaller than the transaction's max_fee")]
     #[case(StarknetApiError::CompiledClassHashMismatch, 60, "The compiled class hash did not match the one supplied in the transaction")]
     #[case(StarknetApiError::InsufficientResourcesForValidate, 53, "The transaction's resources don't cover validation or the minimal transaction fee")]
+    #[case(StarknetApiError::InvalidSubscriptionId, 66, "Invalid subscription id")]
+    #[case(StarknetApiError::TooManyAddressesInFilter, 67, "Too many addresses in filter sender_address filter")]
+    #[case(StarknetApiError::TooManyBlocksBack, 68, "Cannot go back more than 1024 blocks")]
     fn test_starknet_api_error_to_error_conversion_data_none(
         #[case] starknet_error: StarknetApiError,
         #[case] expected_code: i32,
