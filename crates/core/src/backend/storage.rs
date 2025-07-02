@@ -1,7 +1,6 @@
 use std::sync::Arc;
 
 use anyhow::{anyhow, bail, Context, Result};
-use katana_db::mdbx::DbEnv;
 use katana_primitives::block::{
     BlockHashOrNumber, BlockIdOrTag, BlockNumber, FinalityStatus, GasPrice, SealedBlockWithStatus,
 };
@@ -85,13 +84,13 @@ impl Blockchain {
     }
 
     /// Creates a new [Blockchain] from a database at `path` and `genesis` state.
-    pub fn new_with_db(db: DbEnv) -> Self {
+    pub fn new_with_db(db: katana_db::Db) -> Self {
         Self::new(DbProvider::new(db))
     }
 
     /// Builds a new blockchain with a forked block.
     pub async fn new_from_forked(
-        db: DbEnv,
+        db: katana_db::Db,
         fork_url: Url,
         fork_block: Option<BlockHashOrNumber>,
         chain: &mut katana_chain_spec::dev::ChainSpec,

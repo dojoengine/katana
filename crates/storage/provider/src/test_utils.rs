@@ -1,7 +1,6 @@
 use std::sync::Arc;
 
 use alloy_primitives::U256;
-use katana_db::mdbx::test_utils;
 use katana_primitives::address;
 use katana_primitives::block::{Block, BlockHash, FinalityStatus};
 use katana_primitives::contract::ContractAddress;
@@ -17,7 +16,7 @@ use crate::traits::block::BlockWriter;
 
 /// Creates a persistent storage provider with initial states loaded for testin.
 pub fn test_provider() -> DbProvider {
-    let provider = DbProvider::new(test_utils::create_test_db());
+    let provider = DbProvider::new_in_memory();
     initialize_test_provider(&provider);
     provider
 }

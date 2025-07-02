@@ -142,7 +142,7 @@ fn commit_small(c: &mut Criterion) {
         small_transactions,
         small_receipts.as_slice(),
         &small_state_updates,
-        DbProvider::new_ephemeral(),
+        DbProvider::new_in_memory(),
     );
 
     c.bench_function("Serial", |b| {
@@ -168,7 +168,7 @@ fn commit_big(c: &mut Criterion) {
         big_transactions,
         big_receipts.as_slice(),
         &big_state_updates,
-        DbProvider::new_ephemeral(),
+        DbProvider::new_in_memory(),
     );
 
     c.bench_function("Serial", |b| {

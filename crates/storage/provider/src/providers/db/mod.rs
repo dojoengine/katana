@@ -7,8 +7,6 @@ use std::ops::{Range, RangeInclusive};
 
 use katana_db::abstraction::{Database, DbCursor, DbCursorMut, DbDupSortCursor, DbTx, DbTxMut};
 use katana_db::error::DatabaseError;
-use katana_db::init_ephemeral_db;
-use katana_db::mdbx::DbEnv;
 use katana_db::models::block::StoredBlockBodyIndices;
 use katana_db::models::contract::{
     ContractClassChange, ContractInfoChangeList, ContractNonceChange,
@@ -51,7 +49,7 @@ use crate::ProviderResult;
 /// A provider implementation that uses a persistent database as the backend.
 // TODO: remove the default generic type
 #[derive(Debug, Clone)]
-pub struct DbProvider<Db: Database = DbEnv>(pub(crate) Db);
+pub struct DbProvider<Db: Database = katana_db::Db>(pub(crate) Db);
 
 impl<Db: Database> DbProvider<Db> {
     /// Creates a new [`DbProvider`] from the given [`DbEnv`].
@@ -65,10 +63,10 @@ impl<Db: Database> DbProvider<Db> {
     }
 }
 
-impl DbProvider<DbEnv> {
-    /// Creates a new [`DbProvider`] using an ephemeral database.
-    pub fn new_ephemeral() -> Self {
-        let db = init_ephemeral_db().expect("Failed to initialize ephemeral database");
+impl DbProvider<katana_db::Db> {
+    /// Creates a new [`DbProvider`] using an in-memory database.
+    pub fn new_in_memory() -> Self {
+        let db = katana_db::Db::in_memory().expect("Failed to initialize in-memory database");
         Self(db)
     }
 }
@@ -966,7 +964,7 @@ mod tests {
     }
 
     fn create_db_provider() -> DbProvider {
-        DbProvider(katana_db::mdbx::test_utils::create_test_db())
+        DbProvider::new_in_memory()
     }
 
     #[test]

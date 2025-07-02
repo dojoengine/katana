@@ -1,11 +1,10 @@
 use std::path::{self};
 
-use anyhow::{Context, Result};
+use anyhow::Result;
 use clap::{Args, Subcommand};
 use comfy_table::modifiers::UTF8_ROUND_CORNERS;
 use comfy_table::presets::UTF8_FULL;
 use comfy_table::Table;
-use katana_db::mdbx::{DbEnv, DbEnvKind};
 
 mod prune;
 mod stats;
@@ -43,16 +42,16 @@ impl DbArgs {
 ///
 /// The path is expanded and resolved to an absolute path before opening the database for clearer
 /// error messages.
-pub fn open_db_ro(path: &str) -> Result<DbEnv> {
-    let path = path::absolute(shellexpand::full(path)?.into_owned())?;
-    DbEnv::open(&path, DbEnvKind::RO).with_context(|| {
-        format!("Opening database file in read-only mode at path {}", path.display())
-    })
+pub fn open_db_ro(path: &str) -> Result<katana_db::Db> {
+    katana_db::Db::open_ro(&path::absolute(shellexpand::full(path)?.into_owned())?)
 }
 
-pub fn open_db_rw(path: &str) -> Result<DbEnv> {
-    let path = path::absolute(shellexpand::full(path)?.into_owned())?;
-    katana_db::open_db(path)
+/// Open the database at `path` in read-write mode.
+///
+/// The path is expanded and resolved to an absolute path before opening the database for clearer
+/// error messages.
+pub fn open_db_rw(path: &str) -> Result<katana_db::Db> {
+    katana_db::Db::open(&path::absolute(shellexpand::full(path)?.into_owned())?)
 }
 
 /// Create a table with the default UTF-8 full border and rounded corners.

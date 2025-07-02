@@ -1,133 +1,131 @@
-//! MDBX backend for the database.
-//!
-//! The code is adapted from `reth` mdbx implementation:  <https://github.com/paradigmxyz/reth/blob/227e1b7ad513977f4f48b18041df02686fca5f94/crates/storage/db/src/implementation/mdbx/mod.rs>
-
-pub mod cursor;
-pub mod stats;
-pub mod tx;
-
 use std::collections::HashMap;
 use std::path::{Path, PathBuf};
 use std::sync::Arc;
 
 use katana_metrics::metrics::gauge;
 pub use libmdbx;
-use libmdbx::{DatabaseFlags, EnvironmentFlags, Geometry, Mode, PageSize, SyncMode, RO, RW};
+use libmdbx::{DatabaseFlags, EnvironmentFlags, Geometry, PageSize, SyncMode, RO, RW};
 use metrics::{describe_gauge, Label};
 use tracing::error;
 
-use self::stats::{Stats, TableStat};
-use self::tx::Tx;
 use crate::abstraction::Database;
 use crate::error::DatabaseError;
 use crate::tables::{TableType, Tables, NUM_TABLES};
-use crate::utils;
+use crate::{utils, GIGABYTE, TERABYTE};
 
-const GIGABYTE: usize = 1024 * 1024 * 1024;
-const TERABYTE: usize = GIGABYTE * 1024;
+pub mod cursor;
+pub mod stats;
+pub mod tx;
+
+use self::stats::{Stats, TableStat};
+use self::tx::Tx;
 
 /// MDBX allows up to 32767 readers (`MDBX_READERS_LIMIT`), but we limit it to slightly below that
 const DEFAULT_MAX_READERS: u64 = 32_000;
+const DEFAULT_MAX_SIZE: usize = TERABYTE;
+const DEFAULT_GROWTH_STEP: isize = 4 * GIGABYTE as isize;
 
-/// Environment used when opening a MDBX environment. RO/RW.
+/// Builder for configuring and creating a [`DbEnv`].
 #[derive(Debug)]
-pub enum DbEnvKind {
-    /// Read-only MDBX environment.
-    RO,
-    /// Read-write MDBX environment.
-    RW,
+pub struct DbEnvBuilder {
+    mode: libmdbx::Mode,
+    max_readers: u64,
+    max_size: usize,
+    growth_step: isize,
 }
 
-/// Wrapper for `libmdbx-sys` environment.
-#[derive(Debug, Clone)]
-pub struct DbEnv {
-    inner: Arc<DbEnvInner>,
-}
+impl DbEnvBuilder {
+    /// Creates a new builder with default settings for the specified environment kind.
+    pub fn new() -> Self {
+        Self {
+            mode: libmdbx::Mode::ReadOnly,
+            max_readers: DEFAULT_MAX_READERS,
+            max_size: DEFAULT_MAX_SIZE,
+            growth_step: DEFAULT_GROWTH_STEP,
+        }
+    }
 
-#[derive(Debug)]
-struct DbEnvInner {
-    /// The handle to the MDBX environment.
-    env: libmdbx::Environment,
-    /// The path where the database environemnt is stored at.
-    dir: PathBuf,
-    /// A flag inidicating whether the database is ephemeral or not. If `true`, the database will
-    /// be deleted when the environment is dropped.
-    ephemeral: bool,
-}
+    /// Sets the maximum number of readers.
+    pub fn max_readers(mut self, max_readers: u64) -> Self {
+        self.max_readers = max_readers;
+        self
+    }
 
-impl DbEnv {
-    /// Opens the database at the specified path with the given `EnvKind`.
-    ///
-    /// It does not create the tables, for that call [`DbEnv::create_tables`].
-    pub fn open(path: impl AsRef<Path>, kind: DbEnvKind) -> Result<DbEnv, DatabaseError> {
-        let mode = match kind {
-            DbEnvKind::RO => Mode::ReadOnly,
-            DbEnvKind::RW => Mode::ReadWrite { sync_mode: SyncMode::Durable },
-        };
+    pub fn write(mut self) -> Self {
+        self.mode = libmdbx::Mode::ReadWrite { sync_mode: SyncMode::Durable };
+        self
+    }
 
+    pub fn sync(mut self, sync_mode: libmdbx::SyncMode) -> Self {
+        self.mode = libmdbx::Mode::ReadWrite { sync_mode };
+        self
+    }
+
+    pub fn max_size(mut self, max_size: usize) -> Self {
+        self.max_size = max_size;
+        self
+    }
+
+    pub fn growth_step(mut self, growth_step: isize) -> Self {
+        self.growth_step = growth_step;
+        self
+    }
+
+    /// Builds the database environment at the specified path.
+    pub fn build(self, path: impl AsRef<Path>) -> Result<DbEnv, DatabaseError> {
         let mut builder = libmdbx::Environment::builder();
+
         builder
             .set_max_dbs(Tables::ALL.len())
             .set_geometry(Geometry {
                 // Maximum database size of 1 terabytes
-                size: Some(0..(TERABYTE)),
+                size: Some(0..(self.max_size)),
                 // We grow the database in increments of 4 gigabytes
-                growth_step: Some(4 * GIGABYTE as isize),
+                growth_step: Some(self.growth_step),
                 // The database never shrinks
                 shrink_threshold: None,
                 page_size: Some(PageSize::Set(utils::default_page_size())),
             })
             .set_flags(EnvironmentFlags {
-                mode,
+                mode: self.mode,
                 // We disable readahead because it improves performance for linear scans, but
                 // worsens it for random access (which is our access pattern outside of sync)
                 no_rdahead: true,
                 coalesce: true,
                 ..Default::default()
             })
-            .set_max_readers(DEFAULT_MAX_READERS);
+            .set_max_readers(self.max_readers);
 
         let env = builder.open(path.as_ref()).map_err(DatabaseError::OpenEnv)?;
         let dir = path.as_ref().to_path_buf();
-        let inner = DbEnvInner { env, dir, ephemeral: false };
 
-        Ok(Self { inner: Arc::new(inner) }.with_metrics())
+        Ok(DbEnv { inner: Arc::new(DbEnvInner { env, dir }) }.with_metrics())
     }
+}
 
-    /// Opens an ephemeral database. Temporary database environment whose underlying directory will
-    /// be deleted when the returned [`DbEnv`] is dropped.
-    pub fn open_ephemeral() -> Result<Self, DatabaseError> {
-        let dir =
-            tempfile::Builder::new().keep(true).tempdir().expect("failed to create a temp dir");
-        let path = dir.path();
-
-        let mut builder = libmdbx::Environment::builder();
-        builder
-            .set_max_dbs(Tables::ALL.len())
-            .set_geometry(Geometry {
-                size: Some(0..(GIGABYTE * 10)),             // 10gb
-                growth_step: Some((GIGABYTE / 2) as isize), // 512mb
-                shrink_threshold: None,
-                page_size: Some(PageSize::Set(utils::default_page_size())),
-            })
-            .set_flags(EnvironmentFlags {
-                // we dont care about durability  here
-                mode: Mode::ReadWrite { sync_mode: SyncMode::UtterlyNoSync },
-                no_rdahead: true,
-                coalesce: true,
-                ..Default::default()
-            })
-            .set_max_readers(DEFAULT_MAX_READERS);
-
-        let env = builder.open(path).map_err(DatabaseError::OpenEnv)?;
-        let dir = path.to_path_buf();
-        let inner = DbEnvInner { env, dir, ephemeral: true };
-
-        Ok(Self { inner: Arc::new(inner) }.with_metrics())
+impl Default for DbEnvBuilder {
+    fn default() -> Self {
+        Self::new()
     }
+}
 
+/// Wrapper for `libmdbx-sys` environment.
+#[derive(Debug, Clone)]
+pub struct DbEnv {
+    pub(crate) inner: Arc<DbEnvInner>,
+}
+
+#[derive(Debug)]
+pub(super) struct DbEnvInner {
+    /// The handle to the MDBX environment.
+    pub(super) env: libmdbx::Environment,
+    /// The path where the database environemnt is stored at.
+    pub(super) dir: PathBuf,
+}
+
+impl DbEnv {
     /// Creates all the defined tables in [`Tables`], if necessary.
-    pub fn create_tables(&self) -> Result<(), DatabaseError> {
+    pub fn create_default_tables(&self) -> Result<(), DatabaseError> {
         let tx = self.inner.env.begin_rw_txn().map_err(DatabaseError::CreateRWTx)?;
 
         for table in Tables::ALL {
@@ -149,7 +147,7 @@ impl DbEnv {
         &self.inner.dir
     }
 
-    fn with_metrics(self) -> Self {
+    pub(super) fn with_metrics(self) -> Self {
         describe_gauge!("db.table_size", metrics::Unit::Bytes, "Total size of the table");
         describe_gauge!("db.table_pages", metrics::Unit::Count, "Number of pages in the table");
         describe_gauge!("db.table_entries", metrics::Unit::Count, "Number of entries in the table");
@@ -240,28 +238,13 @@ impl katana_metrics::Report for DbEnv {
 pub mod test_utils {
 
     use super::DbEnv;
-    use crate::init_ephemeral_db;
+    use crate::Db;
 
     const ERROR_DB_CREATION: &str = "Not able to create the mdbx file.";
 
     /// Create ephemeral database for testing
     pub fn create_test_db() -> DbEnv {
-        init_ephemeral_db().expect(ERROR_DB_CREATION)
-    }
-}
-
-impl Drop for DbEnv {
-    fn drop(&mut self) {
-        // Try to get a mutable reference, this will return Some if there's only a single reference
-        // left.
-        if let Some(inner) = Arc::get_mut(&mut self.inner) {
-            // And if it is ephemeral, remove the directory.
-            if inner.ephemeral {
-                if let Err(e) = std::fs::remove_dir_all(&inner.dir) {
-                    eprintln!("Failed to remove temporary directory: {e}");
-                }
-            }
-        }
+        Db::in_memory().expect(ERROR_DB_CREATION).env
     }
 }
 

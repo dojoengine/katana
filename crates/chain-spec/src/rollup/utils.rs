@@ -409,7 +409,7 @@ mod tests {
     fn valid_transactions() {
         let chain_spec = chain_spec(1, true);
 
-        let provider = DbProvider::new_ephemeral();
+        let provider = DbProvider::new_in_memory();
         let ef = executor(&chain_spec);
 
         let mut executor = ef.with_state(provider.latest().unwrap());
@@ -426,7 +426,7 @@ mod tests {
     fn genesis_states() {
         let chain_spec = chain_spec(1, true);
 
-        let provider = DbProvider::new_ephemeral();
+        let provider = DbProvider::new_in_memory();
         let ef = executor(&chain_spec);
 
         let mut executor = ef.with_state(provider.latest().unwrap());
