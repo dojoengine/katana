@@ -15,9 +15,6 @@ pub enum ParseVersionError {
     #[error("invalid version format")]
     InvalidFormat,
 
-    #[error("invalid version")]
-    InvalidVersion,
-
     #[error("failed to parse segment: {0}")]
     ParseSegment(#[from] std::num::ParseIntError),
 }
@@ -109,11 +106,18 @@ mod serde {
     }
 }
 
-impl TryFrom<StarknetVersion> for starknet_api::block::StarknetVersion {
-    type Error = ParseVersionError;
+/// An error when the version doesn't correspond to any of the official Starknet releases.
+///
+/// List for all of the official releases can be found at <https://docs.starknet.io/resources/version-notes/>
+#[derive(thiserror::Error, Debug)]
+#[error("invalid version: {0}")]
+pub struct InvalidVersionError(StarknetVersion);
 
-    fn try_from(value: StarknetVersion) -> Result<Self, Self::Error> {
-        match value.segments {
+impl TryFrom<StarknetVersion> for starknet_api::block::StarknetVersion {
+    type Error = InvalidVersionError;
+
+    fn try_from(version: StarknetVersion) -> Result<Self, Self::Error> {
+        match version.segments {
             [0, 9, 1, 0] => Ok(Self::V0_9_1),
             [0, 10, 0, 0] => Ok(Self::V0_10_0),
             [0, 10, 1, 0] => Ok(Self::V0_10_1),
@@ -136,7 +140,7 @@ impl TryFrom<StarknetVersion> for starknet_api::block::StarknetVersion {
             [0, 13, 4, 0] => Ok(Self::V0_13_4),
             [0, 13, 5, 0] => Ok(Self::V0_13_5),
             [0, 14, 0, 0] => Ok(Self::V0_14_0),
-            _ => Err(ParseVersionError::InvalidFormat),
+            _ => Err(InvalidVersionError(version)),
         }
     }
 }
