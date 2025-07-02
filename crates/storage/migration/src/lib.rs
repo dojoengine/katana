@@ -110,7 +110,6 @@ impl MigrationManager {
         // initialized in Backend::init_dev_genesis
         let is_dev = if genesis_tx_count == 0 {
             let mut state_updates = old_db.state_update_with_classes(genesis_block_id)?.unwrap();
-            // dbg!(&state_updates.state_updates);
 
             // fix for a bug
             state_updates
