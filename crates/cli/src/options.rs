@@ -396,37 +396,43 @@ pub struct GasPriceOracleOptions {
     /// The L2 ETH gas price. (denominated in wei)
     #[arg(long = "gpo.l2-eth-gas-price", value_name = "WEI")]
     #[serde(serialize_with = "serialize_option_as_hex")]
-    #[serde(deserialize_with = "deserialize_nonzero_gas_price")]
+    #[serde(deserialize_with = "deserialize_gas_price")]
+    #[serde(default)]
     pub l2_eth_gas_price: Option<GasPrice>,
 
     /// The L2 STRK gas price. (denominated in fri)
     #[arg(long = "gpo.l2-strk-gas-price", value_name = "FRI")]
     #[serde(serialize_with = "serialize_option_as_hex")]
-    #[serde(deserialize_with = "deserialize_nonzero_gas_price")]
+    #[serde(deserialize_with = "deserialize_gas_price")]
+    #[serde(default)]
     pub l2_strk_gas_price: Option<GasPrice>,
 
     /// The L1 ETH gas price. (denominated in wei)
     #[arg(long = "gpo.l1-eth-gas-price", value_name = "WEI")]
     #[serde(serialize_with = "serialize_option_as_hex")]
-    #[serde(deserialize_with = "deserialize_nonzero_gas_price")]
+    #[serde(default)]
+    #[serde(deserialize_with = "deserialize_gas_price")]
     pub l1_eth_gas_price: Option<GasPrice>,
 
     /// The L1 STRK gas price. (denominated in fri)
     #[arg(long = "gpo.l1-strk-gas-price", value_name = "FRI")]
     #[serde(serialize_with = "serialize_option_as_hex")]
-    #[serde(deserialize_with = "deserialize_nonzero_gas_price")]
+    #[serde(deserialize_with = "deserialize_gas_price")]
+    #[serde(default)]
     pub l1_strk_gas_price: Option<GasPrice>,
 
     /// The L1 ETH data gas price. (denominated in wei)
     #[arg(long = "gpo.l1-eth-data-gas-price", value_name = "WEI")]
     #[serde(serialize_with = "serialize_option_as_hex")]
-    #[serde(deserialize_with = "deserialize_nonzero_gas_price")]
+    #[serde(deserialize_with = "deserialize_gas_price")]
+    #[serde(default)]
     pub l1_eth_data_gas_price: Option<GasPrice>,
 
     /// The L1 STRK data gas price. (denominated in fri)
     #[arg(long = "gpo.l1-strk-data-gas-price", value_name = "FRI")]
     #[serde(serialize_with = "serialize_option_as_hex")]
-    #[serde(deserialize_with = "deserialize_nonzero_gas_price")]
+    #[serde(deserialize_with = "deserialize_gas_price")]
+    #[serde(default)]
     pub l1_strk_data_gas_price: Option<GasPrice>,
 }
 
@@ -555,8 +561,8 @@ fn default_max_call_gas() -> u64 {
     DEFAULT_RPC_MAX_CALL_GAS
 }
 
-/// Deserialize a string (hex or decimal) into a [`NonZeroU128`]
-fn deserialize_nonzero_gas_price<'de, D>(deserializer: D) -> Result<Option<GasPrice>, D::Error>
+/// Deserialize a string (hex or decimal) into a [`GasPrice`]
+fn deserialize_gas_price<'de, D>(deserializer: D) -> Result<Option<GasPrice>, D::Error>
 where
     D: serde::Deserializer<'de>,
 {
