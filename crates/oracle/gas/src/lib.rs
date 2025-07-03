@@ -66,7 +66,7 @@ impl GasPriceOracle {
     /// Returns the current L2 gas prices.
     pub fn l2_gas_prices(&self) -> GasPrices {
         match self {
-            GasPriceOracle::Fixed(fixed) => fixed.l1_gas_prices().clone(),
+            GasPriceOracle::Fixed(fixed) => fixed.l2_gas_prices().clone(),
             GasPriceOracle::Sampled(sampled) => sampled.avg_l2_gas_prices(),
         }
     }
