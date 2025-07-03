@@ -168,6 +168,8 @@ fn add_default_fee_tokens(states: &mut StateUpdatesWithClasses, genesis: &Genesi
         .entry(DEFAULT_LEGACY_ERC20_CLASS_HASH)
         .or_insert_with(|| DEFAULT_LEGACY_ERC20_CLASS.clone());
 
+    states.state_updates.deprecated_declared_classes.insert(DEFAULT_LEGACY_ERC20_CLASS_HASH);
+
     // -- ETH
     add_fee_token(
         states,
