@@ -124,12 +124,17 @@ mod tests {
         let mut buffer = SlidingWindowBuffer::new(BUFFER_SIZE);
 
         // Fill up buffer
-        for i in 0..BUFFER_SIZE {
-            buffer.push(i as u128);
+        for value in 0..BUFFER_SIZE {
+            buffer.push(value as u128);
         }
 
         // Check if buffer size is maintained
         assert_eq!(buffer.len(), BUFFER_SIZE);
+
+        // Fill up buffer
+        for (expected_value, elem) in buffer.iter().enumerate() {
+            assert_eq!(expected_value as u128, *elem)
+        }
 
         // check first in first out
         for i in BUFFER_SIZE..(BUFFER_SIZE * 2) {

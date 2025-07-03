@@ -157,6 +157,9 @@ impl GasPrices {
         Self { eth, strk }
     }
 
+    /// # Safety
+    ///
+    /// The caller must ensure that gas price is not zero.
     pub const unsafe fn new_unchecked(eth: u128, fri: u128) -> Self {
         Self::new(GasPrice::new_unchecked(eth), GasPrice::new_unchecked(fri))
     }
