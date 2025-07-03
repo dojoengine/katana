@@ -1863,9 +1863,9 @@ dependencies = [
 
 [[package]]
 name = "backon"
-version = "1.4.0"
+version = "1.5.1"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "49fef586913a57ff189f25c9b3d034356a5bf6b3fa9a7f067588fe1698ba1f5d"
+checksum = "302eaff5357a264a2c42f127ecb8bac761cf99749fc3dc95677e2743991f99e7"
 dependencies = [
  "fastrand",
  "gloo-timers 0.3.0",
@@ -6473,6 +6473,7 @@ dependencies = [
  "alloy-rpc-types-eth 0.4.2",
  "alloy-transport-http 0.4.2",
  "anyhow",
+ "backon",
  "katana-primitives",
  "katana-tasks",
  "num-traits",

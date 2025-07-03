@@ -3,10 +3,11 @@ use std::sync::Arc;
 use std::time::Duration;
 
 use ::starknet::providers::jsonrpc::HttpTransport;
+use backon::{ExponentialBuilder, Retryable};
 use buffer::GasPricesBuffer;
 use katana_primitives::block::GasPrices;
 use parking_lot::Mutex;
-use tracing::error;
+use tracing::{error, warn};
 use url::Url;
 
 mod buffer;
@@ -60,7 +61,14 @@ impl SampledPriceOracle {
         async move {
             loop {
                 interval.tick().await;
-                match inner.sampler.sample().await {
+
+                let request = || async { inner.sampler.clone().sample().await };
+                let backoff = ExponentialBuilder::default().with_min_delay(Duration::from_secs(3));
+                let future = request.retry(backoff).notify(|error, _| {
+                    warn!(target: "gas_oracle", %error, "Retrying gas prices sampling.");
+                });
+
+                match future.await {
                     Ok(prices) => {
                         let mut buffers = inner.samples.lock();
                         buffers.l2_gas_prices.push(prices.l2_gas_prices);
