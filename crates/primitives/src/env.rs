@@ -1,4 +1,4 @@
-use crate::block::{BlockNumber, GasPrice};
+use crate::block::{BlockNumber, GasPrices};
 use crate::chain::ChainId;
 use crate::contract::ContractAddress;
 
@@ -10,11 +10,11 @@ pub struct BlockEnv {
     /// The timestamp in seconds since the UNIX epoch.
     pub timestamp: u64,
     /// The L2 gas prices.
-    pub l2_gas_prices: GasPrice,
+    pub l2_gas_prices: GasPrices,
     /// The L1 gas prices.
-    pub l1_gas_prices: GasPrice,
+    pub l1_gas_prices: GasPrices,
     /// The L1 data gas prices.
-    pub l1_data_gas_prices: GasPrice,
+    pub l1_data_gas_prices: GasPrices,
     /// The contract address of the sequencer.
     pub sequencer_address: ContractAddress,
 }

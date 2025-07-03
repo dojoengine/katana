@@ -7,7 +7,8 @@ use katana_feeder_gateway::client;
 use katana_feeder_gateway::client::SequencerGateway;
 use katana_feeder_gateway::types::StateUpdateWithBlock;
 use katana_primitives::block::{
-    BlockIdOrTag, BlockNumber, FinalityStatus, GasPrice, Header, SealedBlock, SealedBlockWithStatus,
+    BlockIdOrTag, BlockNumber, FinalityStatus, GasPrices, Header, SealedBlock,
+    SealedBlockWithStatus,
 };
 use katana_primitives::fee::{FeeInfo, PriceUnit};
 use katana_primitives::receipt::{
@@ -157,10 +158,10 @@ impl Downloader {
 fn extract_block_data(
     data: StateUpdateWithBlock,
 ) -> Result<(SealedBlockWithStatus, Vec<Receipt>, StateUpdatesWithClasses)> {
-    fn to_gas_prices(prices: ResourcePrice) -> GasPrice {
+    fn to_gas_prices(prices: ResourcePrice) -> GasPrices {
         let eth = prices.price_in_fri.to_u128().expect("valid u128");
         let strk = prices.price_in_fri.to_u128().expect("valid u128");
-        unsafe { GasPrice::new_unchecked(eth, strk) }
+        unsafe { GasPrices::new_unchecked(eth, strk) }
     }
 
     let status = match data.block.status {

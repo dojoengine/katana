@@ -1,4 +1,6 @@
+use std::fmt::{Display, LowerHex};
 use std::num::NonZeroU128;
+use std::str::FromStr;
 
 use starknet::core::utils::cairo_short_string_to_felt;
 use starknet::macros::short_string;
@@ -51,11 +53,85 @@ pub struct PartialHeader {
     pub number: BlockNumber,
     pub timestamp: u64,
     pub sequencer_address: ContractAddress,
-    pub l1_gas_prices: GasPrice,
-    pub l1_data_gas_prices: GasPrice,
-    pub l2_gas_prices: GasPrice,
+    pub l1_gas_prices: GasPrices,
+    pub l1_data_gas_prices: GasPrices,
+    pub l2_gas_prices: GasPrices,
     pub l1_da_mode: L1DataAvailabilityMode,
     pub protocol_version: ProtocolVersion,
+}
+
+#[derive(Debug, Copy, Clone, PartialEq, Eq)]
+#[cfg_attr(feature = "arbitrary", derive(::arbitrary::Arbitrary))]
+#[cfg_attr(feature = "serde", derive(serde::Serialize, serde::Deserialize))]
+pub struct GasPrice(NonZeroU128);
+
+impl GasPrice {
+    pub const MIN: Self = Self(NonZeroU128::MIN);
+    pub const MAX: Self = Self(NonZeroU128::MAX);
+
+    /// Creates a new `GasPrice` instance.
+    pub const fn new(value: NonZeroU128) -> Self {
+        Self(value)
+    }
+
+    /// Returns the value of the gas price.
+    pub const fn get(&self) -> u128 {
+        self.0.get()
+    }
+
+    /// Creates a zero gas price.
+    ///
+    /// # Safety
+    ///
+    /// This is primarily used for testing purposes.
+    pub const unsafe fn zero() -> Self {
+        Self::new_unchecked(0)
+    }
+
+    /// Creates a non-zero gas price without checking whether the value is non-zero.
+    /// This may results in undefined behaviour if the value is zero.
+    ///
+    /// # Safety
+    ///
+    /// The caller must ensure that gas price is not zero.
+    pub const unsafe fn new_unchecked(value: u128) -> Self {
+        Self(NonZeroU128::new_unchecked(value))
+    }
+}
+
+impl Display for GasPrice {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        write!(f, "{:#x}", self.0)
+    }
+}
+
+impl LowerHex for GasPrice {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        <NonZeroU128 as LowerHex>::fmt(&self.0, f)
+    }
+}
+
+#[derive(thiserror::Error, Debug)]
+#[error("gas price cannot be zero")]
+pub struct GasPriceIsZeroError;
+
+impl TryFrom<u128> for GasPrice {
+    type Error = GasPriceIsZeroError;
+
+    fn try_from(value: u128) -> Result<Self, Self::Error> {
+        match NonZeroU128::new(value) {
+            Some(non_zero) => Ok(Self(non_zero)),
+            None => Err(GasPriceIsZeroError),
+        }
+    }
+}
+
+impl FromStr for GasPrice {
+    type Err = std::num::ParseIntError;
+
+    fn from_str(s: &str) -> Result<Self, Self::Err> {
+        <NonZeroU128 as FromStr>::from_str(s).map(Self)
+    }
 }
 
 // TODO: Make sure the values can't be zero because in the blockifier executor, we fallback to 1 if
@@ -65,43 +141,28 @@ pub struct PartialHeader {
 #[cfg_attr(feature = "arbitrary", derive(::arbitrary::Arbitrary))]
 #[cfg_attr(feature = "serde", derive(serde::Serialize, serde::Deserialize))]
 #[cfg_attr(feature = "serde", serde(rename_all = "UPPERCASE"))]
-pub struct GasPrice {
+pub struct GasPrices {
     /// The price of one unit of the given resource, denominated in wei
-    pub eth: NonZeroU128,
+    pub eth: GasPrice,
     /// The price of one unit of the given resource, denominated in fri (the smallest unit of STRK,
     /// equivalent to 10^-18 STRK)
-    pub strk: NonZeroU128,
+    pub strk: GasPrice,
 }
 
-impl GasPrice {
-    pub const MIN: Self = Self::new(NonZeroU128::MIN, NonZeroU128::MIN);
-    pub const MAX: Self = Self::new(NonZeroU128::MAX, NonZeroU128::MAX);
+impl GasPrices {
+    pub const MIN: Self = Self::new(GasPrice::MIN, GasPrice::MIN);
+    pub const MAX: Self = Self::new(GasPrice::MAX, GasPrice::MAX);
 
-    pub const fn new(eth: NonZeroU128, strk: NonZeroU128) -> Self {
+    pub const fn new(eth: GasPrice, strk: GasPrice) -> Self {
         Self { eth, strk }
     }
 
-    /// Creates a zero gas price.
-    ///
-    /// # Safety
-    ///
-    /// This is primarily used for testing purposes.
-    pub const unsafe fn zero() -> Self {
-        Self::new_unchecked(0, 0)
-    }
-
-    /// Creates a non-zero gas price without checking whether the value is non-zero.
-    /// This may results in undefined behaviour if the value is zero.
-    ///
-    /// # Safety
-    ///
-    /// The caller must ensure that gas price is not zero.
-    pub const unsafe fn new_unchecked(eth: u128, strk: u128) -> Self {
-        Self { eth: NonZeroU128::new_unchecked(eth), strk: NonZeroU128::new_unchecked(strk) }
+    pub const unsafe fn new_unchecked(eth: u128, fri: u128) -> Self {
+        Self::new(GasPrice::new_unchecked(eth), GasPrice::new_unchecked(fri))
     }
 }
 
-impl Default for GasPrice {
+impl Default for GasPrices {
     fn default() -> Self {
         Self::MIN
     }
@@ -126,9 +187,9 @@ pub struct Header {
     pub state_diff_length: u32,
     pub timestamp: u64,
     pub sequencer_address: ContractAddress,
-    pub l1_gas_prices: GasPrice,
-    pub l1_data_gas_prices: GasPrice,
-    pub l2_gas_prices: GasPrice,
+    pub l1_gas_prices: GasPrices,
+    pub l1_data_gas_prices: GasPrices,
+    pub l2_gas_prices: GasPrices,
     pub l1_da_mode: L1DataAvailabilityMode,
     pub protocol_version: ProtocolVersion,
 }
@@ -246,10 +307,10 @@ impl Default for Header {
             receipts_commitment: Felt::ZERO,
             state_diff_commitment: Felt::ZERO,
             parent_hash: BlockHash::default(),
-            l2_gas_prices: GasPrice::default(),
-            l1_gas_prices: GasPrice::default(),
+            l2_gas_prices: GasPrices::default(),
+            l1_gas_prices: GasPrices::default(),
             transactions_commitment: Felt::ZERO,
-            l1_data_gas_prices: GasPrice::default(),
+            l1_data_gas_prices: GasPrices::default(),
             sequencer_address: ContractAddress::default(),
             l1_da_mode: L1DataAvailabilityMode::Calldata,
             protocol_version: ProtocolVersion::default(),

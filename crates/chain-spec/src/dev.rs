@@ -1,7 +1,7 @@
 use std::collections::BTreeMap;
 
 use alloy_primitives::U256;
-use katana_primitives::block::{Block, GasPrice, Header};
+use katana_primitives::block::{Block, GasPrices, Header};
 use katana_primitives::chain::ChainId;
 use katana_primitives::class::ClassHash;
 use katana_primitives::contract::ContractAddress;
@@ -61,7 +61,7 @@ impl ChainSpec {
             parent_hash: self.genesis.parent_hash,
             l1_da_mode: L1DataAvailabilityMode::Calldata,
             l1_gas_prices: self.genesis.gas_prices.clone(),
-            l2_gas_prices: GasPrice::MIN,
+            l2_gas_prices: GasPrices::MIN,
             l1_data_gas_prices: self.genesis.gas_prices.clone(),
             sequencer_address: self.genesis.sequencer_address,
         };
@@ -264,7 +264,7 @@ mod tests {
 
     use alloy_primitives::U256;
     use katana_primitives::address;
-    use katana_primitives::block::{Block, GasPrice, Header};
+    use katana_primitives::block::{Block, GasPrices, Header};
     use katana_primitives::da::L1DataAvailabilityMode;
     use katana_primitives::genesis::allocation::{
         GenesisAccount, GenesisAccountAlloc, GenesisContractAlloc,
@@ -341,7 +341,7 @@ mod tests {
                 state_root: felt!("0x99"),
                 parent_hash: felt!("0x999"),
                 sequencer_address: address!("0x100"),
-                gas_prices: unsafe { GasPrice::new_unchecked(1111, 2222) },
+                gas_prices: unsafe { GasPrices::new_unchecked(1111, 2222) },
             },
             fee_contracts: FeeContracts {
                 eth: DEFAULT_ETH_FEE_TOKEN_ADDRESS,
@@ -363,7 +363,7 @@ mod tests {
                 state_root: chain_spec.genesis.state_root,
                 parent_hash: chain_spec.genesis.parent_hash,
                 sequencer_address: chain_spec.genesis.sequencer_address,
-                l2_gas_prices: GasPrice::MIN,
+                l2_gas_prices: GasPrices::MIN,
                 l1_gas_prices: chain_spec.genesis.gas_prices.clone(),
                 l1_data_gas_prices: chain_spec.genesis.gas_prices.clone(),
                 l1_da_mode: L1DataAvailabilityMode::Calldata,

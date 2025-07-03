@@ -4,7 +4,7 @@ use std::sync::Arc;
 use anyhow::{anyhow, Context};
 use katana_chain_spec::ChainSpec;
 use katana_executor::{ExecutionOutput, ExecutionResult, ExecutorFactory};
-use katana_gas_oracle::GasOracle;
+use katana_gas_oracle::GasPriceOracle;
 use katana_primitives::block::{
     BlockHash, BlockNumber, FinalityStatus, Header, PartialHeader, SealedBlock,
     SealedBlockWithStatus,
@@ -52,14 +52,14 @@ pub struct Backend<EF> {
 
     pub executor_factory: Arc<EF>,
 
-    pub gas_oracle: GasOracle,
+    pub gas_oracle: GasPriceOracle,
 }
 
 impl<EF> Backend<EF> {
     pub fn new(
         chain_spec: Arc<ChainSpec>,
         blockchain: Blockchain,
-        gas_oracle: GasOracle,
+        gas_oracle: GasPriceOracle,
         executor_factory: EF,
     ) -> Self {
         Self {
@@ -171,8 +171,9 @@ impl<EF: ExecutorFactory> Backend<EF> {
 
     /// Updates the gas prices in the block environment.
     pub fn update_block_gas_prices(&self, block_env: &mut BlockEnv) {
-        block_env.l1_gas_prices = self.gas_oracle.current_gas_prices();
-        block_env.l1_data_gas_prices = self.gas_oracle.current_data_gas_prices();
+        block_env.l2_gas_prices = self.gas_oracle.l2_gas_prices();
+        block_env.l1_gas_prices = self.gas_oracle.l1_gas_prices();
+        block_env.l1_data_gas_prices = self.gas_oracle.l1_data_gas_prices();
     }
 
     pub fn mine_empty_block(

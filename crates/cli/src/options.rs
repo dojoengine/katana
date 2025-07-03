@@ -22,7 +22,7 @@ use katana_node::config::rpc::{RpcModulesList, DEFAULT_RPC_MAX_PROOF_KEYS};
 use katana_node::config::rpc::{
     DEFAULT_RPC_ADDR, DEFAULT_RPC_MAX_CALL_GAS, DEFAULT_RPC_MAX_EVENT_PAGE_SIZE, DEFAULT_RPC_PORT,
 };
-use katana_primitives::block::BlockHashOrNumber;
+use katana_primitives::block::{BlockHashOrNumber, GasPrice};
 use katana_primitives::chain::ChainId;
 use katana_primitives::genesis::Genesis;
 #[cfg(feature = "server")]
@@ -393,29 +393,41 @@ pub struct LoggingOptions {
 #[derive(Debug, Args, Default, Clone, Serialize, Deserialize, PartialEq)]
 #[command(next_help_heading = "Gas Price Oracle Options")]
 pub struct GasPriceOracleOptions {
+    /// The L2 ETH gas price. (denominated in wei)
+    #[arg(long = "gpo.l2-eth-gas-price", value_name = "WEI")]
+    #[serde(serialize_with = "serialize_option_as_hex")]
+    #[serde(deserialize_with = "deserialize_nonzero_gas_price")]
+    pub l2_eth_gas_price: Option<GasPrice>,
+
+    /// The L2 STRK gas price. (denominated in fri)
+    #[arg(long = "gpo.l2-strk-gas-price", value_name = "FRI")]
+    #[serde(serialize_with = "serialize_option_as_hex")]
+    #[serde(deserialize_with = "deserialize_nonzero_gas_price")]
+    pub l2_strk_gas_price: Option<GasPrice>,
+
     /// The L1 ETH gas price. (denominated in wei)
     #[arg(long = "gpo.l1-eth-gas-price", value_name = "WEI")]
     #[serde(serialize_with = "serialize_option_as_hex")]
     #[serde(deserialize_with = "deserialize_nonzero_gas_price")]
-    pub l1_eth_gas_price: Option<NonZeroU128>,
+    pub l1_eth_gas_price: Option<GasPrice>,
 
     /// The L1 STRK gas price. (denominated in fri)
     #[arg(long = "gpo.l1-strk-gas-price", value_name = "FRI")]
     #[serde(serialize_with = "serialize_option_as_hex")]
     #[serde(deserialize_with = "deserialize_nonzero_gas_price")]
-    pub l1_strk_gas_price: Option<NonZeroU128>,
+    pub l1_strk_gas_price: Option<GasPrice>,
 
     /// The L1 ETH data gas price. (denominated in wei)
     #[arg(long = "gpo.l1-eth-data-gas-price", value_name = "WEI")]
     #[serde(serialize_with = "serialize_option_as_hex")]
     #[serde(deserialize_with = "deserialize_nonzero_gas_price")]
-    pub l1_eth_data_gas_price: Option<NonZeroU128>,
+    pub l1_eth_data_gas_price: Option<GasPrice>,
 
     /// The L1 STRK data gas price. (denominated in fri)
     #[arg(long = "gpo.l1-strk-data-gas-price", value_name = "FRI")]
     #[serde(serialize_with = "serialize_option_as_hex")]
     #[serde(deserialize_with = "deserialize_nonzero_gas_price")]
-    pub l1_strk_data_gas_price: Option<NonZeroU128>,
+    pub l1_strk_data_gas_price: Option<GasPrice>,
 }
 
 #[cfg(feature = "cartridge")]
@@ -544,7 +556,7 @@ fn default_max_call_gas() -> u64 {
 }
 
 /// Deserialize a string (hex or decimal) into a [`NonZeroU128`]
-fn deserialize_nonzero_gas_price<'de, D>(deserializer: D) -> Result<Option<NonZeroU128>, D::Error>
+fn deserialize_nonzero_gas_price<'de, D>(deserializer: D) -> Result<Option<GasPrice>, D::Error>
 where
     D: serde::Deserializer<'de>,
 {
@@ -561,8 +573,10 @@ where
         u128::from_str(&s).map_err(D::Error::custom)?
     };
 
-    // Convert to NonZeroU128
-    NonZeroU128::new(value).map(Some).ok_or_else(|| D::Error::custom("value cannot be zero"))
+    NonZeroU128::new(value)
+        .map(GasPrice::new)
+        .map(Some)
+        .ok_or_else(|| D::Error::custom("value cannot be zero"))
 }
 
 fn serialize_option_as_hex<S, T>(

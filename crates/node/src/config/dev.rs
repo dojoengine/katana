@@ -1,8 +1,8 @@
-use katana_core::constants::{
+use katana_gas_oracle::{
     DEFAULT_ETH_L1_DATA_GAS_PRICE, DEFAULT_ETH_L1_GAS_PRICE, DEFAULT_STRK_L1_DATA_GAS_PRICE,
     DEFAULT_STRK_L1_GAS_PRICE,
 };
-use katana_primitives::block::GasPrice;
+use katana_primitives::block::GasPrices;
 
 /// Development configuration.
 #[derive(Debug, Clone)]
@@ -33,20 +33,25 @@ pub struct DevConfig {
     pub fixed_gas_prices: Option<FixedL1GasPriceConfig>,
 }
 
+// TODO: move to gas oracle options
 /// Fixed gas prices for development.
 #[derive(Debug, Clone)]
 pub struct FixedL1GasPriceConfig {
-    pub gas_price: GasPrice,
-    pub data_gas_price: GasPrice,
+    pub l2_gas_prices: GasPrices,
+    pub l1_gas_prices: GasPrices,
+    pub l1_data_gas_prices: GasPrices,
 }
 
 impl std::default::Default for FixedL1GasPriceConfig {
     fn default() -> Self {
-        let gas_price = GasPrice::new(DEFAULT_ETH_L1_GAS_PRICE, DEFAULT_STRK_L1_GAS_PRICE);
-        let data_gas_price =
-            GasPrice::new(DEFAULT_ETH_L1_DATA_GAS_PRICE, DEFAULT_STRK_L1_DATA_GAS_PRICE);
-
-        Self { gas_price, data_gas_price }
+        Self {
+            l2_gas_prices: GasPrices::new(DEFAULT_ETH_L1_GAS_PRICE, DEFAULT_STRK_L1_GAS_PRICE),
+            l1_gas_prices: GasPrices::new(DEFAULT_ETH_L1_GAS_PRICE, DEFAULT_STRK_L1_GAS_PRICE),
+            l1_data_gas_prices: GasPrices::new(
+                DEFAULT_ETH_L1_DATA_GAS_PRICE,
+                DEFAULT_STRK_L1_DATA_GAS_PRICE,
+            ),
+        }
     }
 }
 

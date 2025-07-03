@@ -215,6 +215,7 @@ alloy-provider = { version = "0.4", default-features = false }
 alloy-rpc-types-eth = { version = "0.4", default-features = false }
 alloy-signer = { version = "0.4", default-features = false }
 alloy-transport = { version = "0.4", default-features = false }
+alloy-transport-http = { version = "0.4", default-features = false }
 
 bitvec = "1.0.1"
 starknet = "0.15.1"

@@ -1,4 +1,4 @@
-use katana_primitives::block::{BlockHash, BlockNumber, GasPrice};
+use katana_primitives::block::{BlockHash, BlockNumber, GasPrices};
 use katana_primitives::contract::ContractAddress;
 use katana_primitives::da::L1DataAvailabilityMode;
 use katana_primitives::version::ProtocolVersion;
@@ -20,8 +20,8 @@ pub struct Header {
     pub state_diff_length: u32,
     pub timestamp: u64,
     pub sequencer_address: ContractAddress,
-    pub l1_gas_prices: GasPrice,
-    pub l1_data_gas_prices: GasPrice,
+    pub l1_gas_prices: GasPrices,
+    pub l1_data_gas_prices: GasPrices,
     pub l1_da_mode: L1DataAvailabilityMode,
     pub protocol_version: ProtocolVersion,
 }
@@ -45,8 +45,9 @@ impl From<Header> for katana_primitives::block::Header {
             l1_data_gas_prices: header.l1_data_gas_prices,
             l1_da_mode: header.l1_da_mode,
             protocol_version: header.protocol_version,
-            l2_gas_prices: GasPrice::MIN, /* this can't be zero for some reason, probably a check
-                                           * performed by blockifier */
+            l2_gas_prices: GasPrices::MIN, /* this can't be zero for some reason, probably a
+                                            * check
+                                            * performed by blockifier */
         }
     }
 }

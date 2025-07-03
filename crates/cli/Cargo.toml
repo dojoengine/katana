@@ -30,6 +30,7 @@ url.workspace = true
 
 [dev-dependencies]
 assert_matches.workspace = true
+katana-gas-oracle.workspace = true
 starknet.workspace = true
 
 [features]

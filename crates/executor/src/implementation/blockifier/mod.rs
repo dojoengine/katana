@@ -12,7 +12,7 @@ pub mod utils;
 
 use blockifier::context::BlockContext;
 use cache::ClassCache;
-use katana_primitives::block::{ExecutableBlock, GasPrice as KatanaGasPrices, PartialHeader};
+use katana_primitives::block::{ExecutableBlock, GasPrices as KatanaGasPrices, PartialHeader};
 use katana_primitives::env::{BlockEnv, CfgEnv};
 use katana_primitives::transaction::{ExecutableTx, ExecutableTxWithHash, TxWithHash};
 use katana_provider::traits::state::StateProvider;

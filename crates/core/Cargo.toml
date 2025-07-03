@@ -33,9 +33,6 @@ tokio.workspace = true
 tracing.workspace = true
 url.workspace = true
 
-alloy-provider = { workspace = true, default-features = false, features = [ "reqwest", "reqwest-rustls-tls" ] }
-alloy-rpc-types-eth = { workspace = true, default-features = false }
-
 [dev-dependencies]
 alloy-primitives = { workspace = true, features = [ "serde" ] }
 arbitrary.workspace = true

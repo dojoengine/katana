@@ -24,7 +24,7 @@ use super::allocation::{
 };
 use super::constant::{DEFAULT_ACCOUNT_CLASS, DEFAULT_ACCOUNT_CLASS_HASH};
 use super::{Genesis, GenesisAllocation};
-use crate::block::{BlockHash, BlockNumber, GasPrice};
+use crate::block::{BlockHash, BlockNumber, GasPrices};
 use crate::class::{
     ClassHash, ComputeClassHashError, ContractClass, ContractClassCompilationError,
     LegacyContractClass, SierraContractClass,
@@ -220,7 +220,7 @@ pub struct GenesisJson {
     pub number: BlockNumber,
     pub timestamp: u64,
     pub sequencer_address: ContractAddress,
-    pub gas_prices: GasPrice,
+    pub gas_prices: GasPrices,
     #[serde(default)]
     pub classes: Vec<GenesisClassJson>,
     #[serde(default)]
@@ -864,7 +864,7 @@ mod tests {
             sequencer_address: address!("0x100"),
             state_root: felt!("0x99"),
             parent_hash: felt!("0x999"),
-            gas_prices: unsafe { GasPrice::new_unchecked(1111, 2222) },
+            gas_prices: unsafe { GasPrices::new_unchecked(1111, 2222) },
         };
 
         assert_eq!(actual_genesis.number, expected_genesis.number);
@@ -959,7 +959,7 @@ mod tests {
             state_root: felt!("0x99"),
             parent_hash: felt!("0x999"),
             sequencer_address: address!("0x100"),
-            gas_prices: unsafe { GasPrice::new_unchecked(1111, 2222) },
+            gas_prices: unsafe { GasPrices::new_unchecked(1111, 2222) },
         };
 
         assert_eq!(actual_genesis.allocations.len(), expected_genesis.allocations.len());

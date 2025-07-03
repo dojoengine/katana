@@ -1,38 +1,64 @@
-use std::collections::VecDeque;
 use std::fmt::Debug;
-use std::sync::Arc;
+use std::num::NonZeroU128;
 
-use ::starknet::core::types::{BlockId, BlockTag, MaybePendingBlockWithTxHashes, ResourcePrice};
-use ::starknet::providers::jsonrpc::HttpTransport;
-use ::starknet::providers::{JsonRpcClient, Provider as StarknetProvider};
-use alloy_provider::{Provider, ProviderBuilder};
-use alloy_rpc_types_eth::{BlockNumberOrTag, FeeHistory};
-use anyhow::{Context, Ok};
-use katana_primitives::block::GasPrice;
-use katana_tasks::TaskSpawner;
-use num_traits::ToPrimitive;
-use parking_lot::Mutex;
-use tokio::time::Duration;
-use tracing::error;
-use url::Url;
+use katana_primitives::block::{GasPrice, GasPrices};
 
 #[derive(Debug)]
-pub struct FixedGasOracle {
-    l2_gas_prices: GasPrice,
-    l1_gas_prices: GasPrice,
-    l1_data_gas_prices: GasPrice,
+pub struct FixedPriceOracle {
+    l2_gas_prices: GasPrices,
+    l1_gas_prices: GasPrices,
+    l1_data_gas_prices: GasPrices,
 }
 
-impl FixedGasOracle {
-    pub fn current_l1_data_gas_prices(&self) -> GasPrice {
-        self.l1_data_gas_prices.clone()
+impl FixedPriceOracle {
+    pub fn new(
+        l2_gas_prices: GasPrices,
+        l1_gas_prices: GasPrices,
+        l1_data_gas_prices: GasPrices,
+    ) -> Self {
+        Self { l1_gas_prices, l2_gas_prices, l1_data_gas_prices }
     }
 
-    pub fn current_l1_gas_prices(&self) -> GasPrice {
-        self.l1_gas_prices.clone()
+    pub fn l1_gas_prices(&self) -> &GasPrices {
+        &self.l1_gas_prices
     }
 
-    pub fn current_l2_gas_prices(&self) -> GasPrice {
-        self.l2_gas_prices.clone()
+    pub fn l2_gas_prices(&self) -> &GasPrices {
+        &self.l2_gas_prices
+    }
+
+    pub fn l1_data_gas_prices(&self) -> &GasPrices {
+        &self.l1_data_gas_prices
     }
 }
+
+impl Default for FixedPriceOracle {
+    fn default() -> Self {
+        Self {
+            l1_gas_prices: GasPrices::new(DEFAULT_ETH_L1_GAS_PRICE, DEFAULT_STRK_L1_GAS_PRICE),
+            l2_gas_prices: GasPrices::new(DEFAULT_ETH_L2_GAS_PRICE, DEFAULT_STRK_L2_GAS_PRICE),
+            l1_data_gas_prices: GasPrices::new(
+                DEFAULT_ETH_L1_DATA_GAS_PRICE,
+                DEFAULT_STRK_L1_DATA_GAS_PRICE,
+            ),
+        }
+    }
+}
+
+// Default l2 gas prices
+pub const DEFAULT_ETH_L2_GAS_PRICE: GasPrice =
+    GasPrice::new(NonZeroU128::new(20 * u128::pow(10, 9)).unwrap()); // Given in units of Wei.
+pub const DEFAULT_STRK_L2_GAS_PRICE: GasPrice =
+    GasPrice::new(NonZeroU128::new(20 * u128::pow(10, 9)).unwrap()); // Given in units of Fri.
+
+// Default l1 gas prices
+pub const DEFAULT_ETH_L1_GAS_PRICE: GasPrice =
+    GasPrice::new(NonZeroU128::new(20 * u128::pow(10, 9)).unwrap()); // Given in units of Wei.
+pub const DEFAULT_STRK_L1_GAS_PRICE: GasPrice =
+    GasPrice::new(NonZeroU128::new(20 * u128::pow(10, 9)).unwrap()); // Given in units of Fri.
+
+// Default l1 data gas prices
+pub const DEFAULT_ETH_L1_DATA_GAS_PRICE: GasPrice =
+    GasPrice::new(NonZeroU128::new(u128::pow(10, 6)).unwrap()); // Given in units of Wei.
+pub const DEFAULT_STRK_L1_DATA_GAS_PRICE: GasPrice =
+    GasPrice::new(NonZeroU128::new(u128::pow(10, 6)).unwrap()); // Given in units of Fri.

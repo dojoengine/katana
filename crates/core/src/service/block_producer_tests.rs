@@ -2,19 +2,19 @@ use arbitrary::{Arbitrary, Unstructured};
 use futures::pin_mut;
 use katana_chain_spec::ChainSpec;
 use katana_executor::implementation::noop::NoopExecutorFactory;
+use katana_gas_oracle::GasPriceOracle;
 use katana_primitives::transaction::{ExecutableTx, InvokeTx};
 use katana_primitives::Felt;
 use katana_provider::providers::db::DbProvider;
 
 use super::*;
-use crate::backend::gas_oracle::GasOracle;
 use crate::backend::storage::Blockchain;
 
 fn test_backend() -> Arc<Backend<NoopExecutorFactory>> {
     let chain_spec = Arc::new(ChainSpec::dev());
     let executor_factory = NoopExecutorFactory::new();
     let blockchain = Blockchain::new(DbProvider::new_in_memory());
-    let gas_oracle = GasOracle::fixed(Default::default(), Default::default());
+    let gas_oracle = GasPriceOracle::create_for_testing();
     let backend = Arc::new(Backend::new(chain_spec, blockchain, gas_oracle, executor_factory));
     backend.init_genesis().expect("failed to initialize genesis");
     backend

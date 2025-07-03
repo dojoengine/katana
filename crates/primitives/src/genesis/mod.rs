@@ -14,7 +14,7 @@ use self::constant::{
     DEFAULT_ACCOUNT_CLASS_HASH, DEFAULT_LEGACY_ERC20_CLASS, DEFAULT_LEGACY_ERC20_CLASS_HASH,
     DEFAULT_LEGACY_UDC_CLASS, DEFAULT_LEGACY_UDC_CLASS_HASH,
 };
-use crate::block::{BlockHash, BlockNumber, GasPrice};
+use crate::block::{BlockHash, BlockNumber, GasPrices};
 use crate::class::{ClassHash, ContractClass};
 use crate::contract::ContractAddress;
 use crate::Felt;
@@ -33,7 +33,7 @@ pub struct Genesis {
     /// The genesis block sequencer address.
     pub sequencer_address: ContractAddress,
     /// The genesis block L1 gas prices.
-    pub gas_prices: GasPrice,
+    pub gas_prices: GasPrices,
     /// The classes to declare in the genesis block.
     pub classes: BTreeMap<ClassHash, Arc<ContractClass>>,
     /// The genesis contract allocations.
@@ -94,7 +94,7 @@ impl Default for Genesis {
             number: 0,
             state_root: Felt::ZERO,
             timestamp: 0,
-            gas_prices: GasPrice::default(),
+            gas_prices: GasPrices::default(),
             sequencer_address: Felt::ZERO.into(),
             classes,
             allocations: BTreeMap::new(),

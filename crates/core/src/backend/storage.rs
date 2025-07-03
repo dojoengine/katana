@@ -2,7 +2,7 @@ use std::sync::Arc;
 
 use anyhow::{anyhow, bail, Context, Result};
 use katana_primitives::block::{
-    BlockHashOrNumber, BlockIdOrTag, BlockNumber, FinalityStatus, GasPrice, SealedBlockWithStatus,
+    BlockHashOrNumber, BlockIdOrTag, BlockNumber, FinalityStatus, GasPrices, SealedBlockWithStatus,
 };
 use katana_primitives::da::L1DataAvailabilityMode;
 use katana_primitives::hash::{self, StarkHash};
@@ -141,7 +141,7 @@ impl Blockchain {
         let strk_l1_gas_price =
             forked_block.l1_gas_price.price_in_fri.to_u128().expect("should fit in u128");
         chain.genesis.gas_prices =
-            unsafe { GasPrice::new_unchecked(eth_l1_gas_price, strk_l1_gas_price) };
+            unsafe { GasPrices::new_unchecked(eth_l1_gas_price, strk_l1_gas_price) };
 
         // TODO: convert this to block number instead of BlockHashOrNumber so that it is easier to
         // check if the requested block is within the supported range or not.
@@ -159,7 +159,7 @@ impl Blockchain {
             forked_block.l1_data_gas_price.price_in_fri.to_u128().expect("should fit in u128");
 
         block.header.l1_data_gas_prices =
-            unsafe { GasPrice::new_unchecked(eth_l1_data_gas_price, strk_l1_data_gas_price) };
+            unsafe { GasPrices::new_unchecked(eth_l1_data_gas_price, strk_l1_data_gas_price) };
 
         block.header.l1_da_mode = match forked_block.l1_da_mode {
             starknet::core::types::L1DataAvailabilityMode::Blob => L1DataAvailabilityMode::Blob,

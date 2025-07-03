@@ -16,25 +16,20 @@ use http::header::CONTENT_TYPE;
 use http::Method;
 use jsonrpsee::RpcModule;
 use katana_chain_spec::{ChainSpec, SettlementLayer};
-use katana_core::backend::gas_oracle::GasOracle;
 use katana_core::backend::storage::Blockchain;
 use katana_core::backend::Backend;
-use katana_core::constants::{
-    DEFAULT_ETH_L1_DATA_GAS_PRICE, DEFAULT_ETH_L1_GAS_PRICE, DEFAULT_STRK_L1_DATA_GAS_PRICE,
-    DEFAULT_STRK_L1_GAS_PRICE,
-};
 use katana_core::env::BlockContextGenerator;
 use katana_core::service::block_producer::BlockProducer;
 use katana_db::Db;
 use katana_executor::implementation::blockifier::cache::ClassCache;
 use katana_executor::implementation::blockifier::BlockifierFactory;
 use katana_executor::ExecutionFlags;
+use katana_gas_oracle::{FixedPriceOracle, GasPriceOracle};
 use katana_metrics::exporters::prometheus::PrometheusRecorder;
 use katana_metrics::sys::DiskReporter;
 use katana_metrics::{Report, Server as MetricsServer};
 use katana_pool::ordering::FiFo;
 use katana_pool::TxPool;
-use katana_primitives::block::GasPrice;
 use katana_primitives::env::{CfgEnv, FeeTokenAddressses};
 #[cfg(feature = "cartridge")]
 use katana_rpc::cartridge::CartridgeApi;
@@ -159,34 +154,26 @@ impl Node {
         // --- build l1 gas oracle
 
         // Check if the user specify a fixed gas price in the dev config.
-        let gas_oracle = if let Some(fixed_prices) = &config.dev.fixed_gas_prices {
-            // Use fixed gas prices if provided in the configuration
-            GasOracle::fixed(fixed_prices.gas_price.clone(), fixed_prices.data_gas_price.clone())
+        let gas_oracle = if let Some(prices) = &config.dev.fixed_gas_prices {
+            GasPriceOracle::fixed(
+                prices.l2_gas_prices.clone(),
+                prices.l1_gas_prices.clone(),
+                prices.l1_data_gas_prices.clone(),
+            )
         } else if let Some(settlement) = config.chain.settlement() {
             match settlement {
                 SettlementLayer::Starknet { rpc_url, .. } => {
-                    GasOracle::sampled_starknet(rpc_url.clone())
+                    GasPriceOracle::sampled_starknet(rpc_url.clone())
                 }
                 SettlementLayer::Ethereum { rpc_url, .. } => {
-                    GasOracle::sampled_ethereum(rpc_url.clone())
+                    GasPriceOracle::sampled_ethereum(rpc_url.clone())
                 }
-                SettlementLayer::Sovereign { .. } => GasOracle::fixed(
-                    GasPrice { eth: DEFAULT_ETH_L1_GAS_PRICE, strk: DEFAULT_STRK_L1_GAS_PRICE },
-                    GasPrice {
-                        eth: DEFAULT_ETH_L1_DATA_GAS_PRICE,
-                        strk: DEFAULT_STRK_L1_DATA_GAS_PRICE,
-                    },
-                ),
+                SettlementLayer::Sovereign { .. } => {
+                    GasPriceOracle::Fixed(FixedPriceOracle::default())
+                }
             }
         } else {
-            // Use default fixed gas prices if no url and if no fixed prices are provided
-            GasOracle::fixed(
-                GasPrice { eth: DEFAULT_ETH_L1_GAS_PRICE, strk: DEFAULT_STRK_L1_GAS_PRICE },
-                GasPrice {
-                    eth: DEFAULT_ETH_L1_DATA_GAS_PRICE,
-                    strk: DEFAULT_STRK_L1_DATA_GAS_PRICE,
-                },
-            )
+            GasPriceOracle::Fixed(FixedPriceOracle::default())
         };
 
         let block_context_generator = BlockContextGenerator::default().into();
@@ -366,7 +353,16 @@ impl Node {
         let rpc_handle = self.rpc_server.start(self.config.rpc.socket_addr()).await?;
 
         // --- start the gas oracle worker task
-        self.backend.gas_oracle.run_worker(self.task_manager.task_spawner());
+
+        if let Some(worker) = self.backend.gas_oracle.run_worker() {
+            self.task_manager
+                .task_spawner()
+                .build_task()
+                .critical()
+                .name("gas oracle")
+                .spawn(worker);
+        }
+
         info!(target: "node", "Gas price oracle worker started.");
 
         Ok(LaunchedNode { node: self, rpc: rpc_handle })
