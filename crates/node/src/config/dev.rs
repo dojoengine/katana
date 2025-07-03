@@ -1,6 +1,6 @@
 use katana_gas_oracle::{
-    DEFAULT_ETH_L1_DATA_GAS_PRICE, DEFAULT_ETH_L1_GAS_PRICE, DEFAULT_STRK_L1_DATA_GAS_PRICE,
-    DEFAULT_STRK_L1_GAS_PRICE,
+    DEFAULT_ETH_L1_DATA_GAS_PRICE, DEFAULT_ETH_L1_GAS_PRICE, DEFAULT_ETH_L2_GAS_PRICE,
+    DEFAULT_STRK_L1_DATA_GAS_PRICE, DEFAULT_STRK_L1_GAS_PRICE, DEFAULT_STRK_L2_GAS_PRICE,
 };
 use katana_primitives::block::GasPrices;
 
@@ -45,7 +45,7 @@ pub struct FixedL1GasPriceConfig {
 impl std::default::Default for FixedL1GasPriceConfig {
     fn default() -> Self {
         Self {
-            l2_gas_prices: GasPrices::new(DEFAULT_ETH_L1_GAS_PRICE, DEFAULT_STRK_L1_GAS_PRICE),
+            l2_gas_prices: GasPrices::new(DEFAULT_ETH_L2_GAS_PRICE, DEFAULT_STRK_L2_GAS_PRICE),
             l1_gas_prices: GasPrices::new(DEFAULT_ETH_L1_GAS_PRICE, DEFAULT_STRK_L1_GAS_PRICE),
             l1_data_gas_prices: GasPrices::new(
                 DEFAULT_ETH_L1_DATA_GAS_PRICE,
