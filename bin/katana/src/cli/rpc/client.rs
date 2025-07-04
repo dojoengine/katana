@@ -108,7 +108,7 @@ impl Client {
         contract_address: Felt,
         key: Felt,
         block_id: BlockId,
-    ) -> Result<Felt> {
+    ) -> Result<Value> {
         self.send_request(
             StarknetJsonRpcMethod::GetStorageAt,
             GetStorageAtRequestRef {
@@ -177,7 +177,7 @@ impl Client {
         &self,
         block_id: BlockId,
         contract_address: Felt,
-    ) -> Result<Felt> {
+    ) -> Result<Value> {
         self.send_request(
             StarknetJsonRpcMethod::GetClassHashAt,
             GetClassHashAtRequestRef {
@@ -210,7 +210,7 @@ impl Client {
         .map_err(|e| anyhow!("Failed to get block transaction count: {e}"))
     }
 
-    pub async fn call(&self, request: FunctionCall, block_id: BlockId) -> Result<Vec<Felt>> {
+    pub async fn call(&self, request: FunctionCall, block_id: BlockId) -> Result<Vec<Value>> {
         self.send_request(
             StarknetJsonRpcMethod::Call,
             CallRequestRef { request: request.as_ref(), block_id: block_id.as_ref() },
@@ -231,7 +231,7 @@ impl Client {
             .map_err(|e| anyhow!("Failed to get block hash and number: {e}"))
     }
 
-    pub async fn chain_id(&self) -> Result<Felt> {
+    pub async fn chain_id(&self) -> Result<Value> {
         self.send_request(StarknetJsonRpcMethod::ChainId, ChainIdRequest)
             .await
             .map_err(|e| anyhow!("Failed to get chain id: {e}"))
@@ -243,7 +243,7 @@ impl Client {
             .map_err(|e| anyhow!("Failed to get syncing status: {e}"))
     }
 
-    pub async fn get_nonce(&self, block_id: BlockId, contract_address: Felt) -> Result<Felt> {
+    pub async fn get_nonce(&self, block_id: BlockId, contract_address: Felt) -> Result<Value> {
         self.send_request(
             StarknetJsonRpcMethod::GetNonce,
             GetNonceRequestRef {
