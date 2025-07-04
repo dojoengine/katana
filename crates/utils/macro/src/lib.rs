@@ -2,8 +2,6 @@
 
 //! Procedural macros for creating mock implementations of traits for testing.
 
-use proc_macro::TokenStream;
-
 mod mock_provider;
 
 /// A procedural macro for creating mock implementations of the Provider trait.
@@ -50,11 +48,6 @@ mod mock_provider;
 /// - A Provider trait implementation with your custom methods
 /// - `unimplemented!()` for all other Provider methods
 #[proc_macro]
-pub fn mock_provider(input: TokenStream) -> TokenStream {
-    use mock_provider::{generate_mock_provider, MockProviderInput};
-
-    match syn::parse::<MockProviderInput>(input) {
-        Ok(input) => generate_mock_provider(input).into(),
-        Err(err) => err.to_compile_error().into(),
-    }
+pub fn mock_provider(input: proc_macro::TokenStream) -> proc_macro::TokenStream {
+    mock_provider::mock_provider_impl(input.into()).into()
 }

@@ -35,14 +35,14 @@ mock_provider! {
         }))
     },
 
-    // Mock the get_storage_at method
-    fn get_storage_at: (contract_address, key, block_id) => {
-        println!("Mock get_storage_at called with:");
-        println!("  contract_address: {}", contract_address.as_ref());
-        println!("  key: {}", key.as_ref());
-        println!("  block_id called");
+    // Mock the get_storage_at method using custom parameter names
+    fn get_storage_at: (addr, storage_key, block) => {
+        println!("Mock get_storage_at called with custom parameter names:");
+        println!("  addr: {}", addr.as_ref());
+        println!("  storage_key: {}", storage_key.as_ref());
+        println!("  block called");
 
-        // Return a mock storage value
+        // Return a mock storage value using custom parameter names
         Ok(Felt::from(999u32))
     },
 
@@ -59,7 +59,7 @@ mock_provider! {
     }
 }
 
-// Create another mock provider with different implementations
+// Create another mock provider with different implementations and custom parameter names
 mock_provider! {
     DifferentMockProvider,
 
@@ -73,6 +73,12 @@ mock_provider! {
     fn block_number: () => {
         println!("Different mock block_number called");
         Ok(54321u64) // Different block number
+    },
+
+    // Example with very descriptive custom parameter names
+    fn get_nonce: (at_block_identifier, for_account_address) => {
+        println!("Getting nonce for account: {}", for_account_address.as_ref());
+        Ok(Felt::from(42u32))
     }
 }
 
@@ -137,10 +143,17 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
     println!("MyMockProvider block_number: {}", mock_provider_1.block_number().await?);
     println!("DifferentMockProvider block_number: {}", mock_provider_2.block_number().await?);
 
+    println!("\n4. Testing custom parameter names:");
+    println!("----------------------------------");
+    let nonce =
+        mock_provider_2.get_nonce(BlockId::Tag(BlockTag::Latest), Felt::from(0x1234u32)).await?;
+    println!("✅ Nonce from custom params: {}", nonce);
+
     println!("\n✨ Example completed successfully!");
     println!("\nKey takeaways:");
     println!("- The mock_provider! macro generates a full Provider implementation");
     println!("- You only need to implement the methods you care about for testing");
+    println!("- You can use custom parameter names instead of the exact trait names");
     println!("- Unimplemented methods will panic with a clear error message");
     println!("- Each mock provider can have different implementations");
     println!("- The generated structs implement Default and Debug traits");

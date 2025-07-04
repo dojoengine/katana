@@ -17,12 +17,12 @@ use starknet::providers::Provider;
 
 mock_provider! {
     MyMockProvider,
-
-    fn get_storage_at: (contract_address, key, block_id) => {
-        // Your custom implementation here
+    
+    fn get_storage_at: (addr, storage_key, block) => {
+        // Your custom implementation here using custom parameter names
         Ok(Felt::from(42u32))
     },
-
+    
     fn chain_id: () => {
         Ok(Felt::from(1u32))
     }
@@ -34,8 +34,8 @@ async fn test_my_mock_provider() {
 
     // Test implemented methods
     let storage = provider.get_storage_at(
-        Felt::from(1u32),
-        Felt::from(2u32),
+        Felt::from(1u32), 
+        Felt::from(2u32), 
         BlockId::Tag(BlockTag::Latest)
     ).await.unwrap();
     assert_eq!(storage, Felt::from(42u32));
@@ -55,11 +55,11 @@ You can create multiple mock providers with different implementations:
 ```rust
 mock_provider! {
     TestnetMockProvider,
-
+    
     fn chain_id: () => {
-        Ok(Felt::from(1u32))
+        Ok(Felt::from(1u32)) // Mainnet
     },
-
+    
     fn block_number: () => {
         Ok(12345u64)
     }
@@ -67,13 +67,18 @@ mock_provider! {
 
 mock_provider! {
     LocalMockProvider,
-
+    
     fn chain_id: () => {
-        Ok(Felt::from(1536727068981429685321u128))
+        Ok(Felt::from(1536727068981429685321u128)) // Local testnet
     },
-
+    
     fn block_number: () => {
         Ok(1u64)
+    },
+    
+    // Example with custom parameter names
+    fn get_storage_at: (contract_addr, key_value, at_block) => {
+        Ok(contract_addr.as_ref() + key_value.as_ref())
     }
 }
 ```
@@ -85,14 +90,14 @@ The macro follows this syntax:
 ```rust
 mock_provider! {
     StructName,
-
-    fn method_name: (param1, param2, ...) => {
-        // Method implementation
+    
+    fn method_name: (custom_param1, custom_param2, ...) => {
+        // Method implementation using your custom parameter names
         // Must return the appropriate Result type
     },
-
-    fn another_method: (param) => {
-        // Another implementation
+    
+    fn another_method: (my_param) => {
+        // Another implementation with custom parameter name
     }
 }
 ```
@@ -101,9 +106,10 @@ mock_provider! {
 
 1. **Struct Name**: The first parameter is the name of the struct to generate
 2. **fn Keyword**: Each method must be prefixed with the `fn` keyword
-3. **Method Signature**: You only need to specify the parameter names, not their types or the full signature
-4. **Implementation**: The body should return the appropriate `Result` type for the method
-5. **Async Methods**: All Provider methods are async, so your implementations should return the result directly (not wrapped in a Future)
+3. **Custom Parameter Names**: You can use any parameter names you want - they don't need to match the exact Provider trait parameter names
+4. **Method Signature**: You only need to specify the parameter names, not their types or the full signature
+5. **Implementation**: The body should return the appropriate `Result` type for the method
+6. **Async Methods**: All Provider methods are async, so your implementations should return the result directly (not wrapped in a Future)
 
 ## Generated Code
 

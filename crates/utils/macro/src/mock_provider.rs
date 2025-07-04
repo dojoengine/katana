@@ -1,8 +1,30 @@
-use proc_macro2::TokenStream as TokenStream2;
+use proc_macro2::TokenStream;
 use quote::quote;
 use syn::parse::{Parse, ParseStream};
 use syn::punctuated::Punctuated;
 use syn::{Ident, Result, Token};
+
+/// mock_provider macro entry
+pub fn mock_provider_impl(input: TokenStream) -> TokenStream {
+    match syn::parse2::<MockProviderInput>(input) {
+        Ok(input) => generate_mock_provider(input).into(),
+        Err(err) => err.to_compile_error().into(),
+    }
+}
+
+/// Generate the complete mock provider implementation
+fn generate_mock_provider(input: MockProviderInput) -> TokenStream {
+    let struct_name = &input.struct_name;
+    let methods = &input.methods;
+
+    let struct_def = generate_struct_definition(struct_name);
+    let provider_impl = generate_provider_impl(struct_name, methods);
+
+    quote! {
+        #struct_def
+        #provider_impl
+    }
+}
 
 /// Parsed input for the mock_provider macro
 pub struct MockProviderInput {
@@ -14,7 +36,7 @@ pub struct MockProviderInput {
 pub struct MockMethod {
     name: Ident,
     params: Vec<Ident>,
-    body: TokenStream2,
+    body: TokenStream,
 }
 
 impl Parse for MockProviderInput {
@@ -48,28 +70,14 @@ impl Parse for MockMethod {
         input.parse::<Token![=>]>()?;
         let body;
         syn::braced!(body in input);
-        let body: TokenStream2 = body.parse()?;
+        let body: TokenStream = body.parse()?;
 
         Ok(MockMethod { name, params, body })
     }
 }
 
-/// Generate the complete mock provider implementation
-pub fn generate_mock_provider(input: MockProviderInput) -> TokenStream2 {
-    let struct_name = &input.struct_name;
-    let methods = &input.methods;
-
-    let struct_def = generate_struct_definition(struct_name);
-    let provider_impl = generate_provider_impl(struct_name, methods);
-
-    quote! {
-        #struct_def
-        #provider_impl
-    }
-}
-
 /// Generate the struct definition
-fn generate_struct_definition(struct_name: &Ident) -> TokenStream2 {
+fn generate_struct_definition(struct_name: &Ident) -> TokenStream {
     quote! {
         #[derive(Debug, Clone)]
         pub struct #struct_name;
@@ -89,7 +97,7 @@ fn generate_struct_definition(struct_name: &Ident) -> TokenStream2 {
 }
 
 /// Generate the Provider trait implementation
-fn generate_provider_impl(struct_name: &Ident, methods: &[MockMethod]) -> TokenStream2 {
+fn generate_provider_impl(struct_name: &Ident, methods: &[MockMethod]) -> TokenStream {
     let all_methods = get_all_provider_methods();
     let mut method_impls = Vec::new();
 
@@ -113,22 +121,24 @@ fn generate_provider_impl(struct_name: &Ident, methods: &[MockMethod]) -> TokenS
 }
 
 /// Generate a user-provided method implementation
-fn generate_user_method_impl(method: &ProviderMethod, user_method: &MockMethod) -> TokenStream2 {
+fn generate_user_method_impl(method: &ProviderMethod, user_method: &MockMethod) -> TokenStream {
     let method_name = &method.name;
     let return_type = &method.return_type;
-    let params = &method.params;
     let where_clause = &method.where_clause;
     let body = &user_method.body;
 
+    // Generate custom params using user's parameter names
+    let custom_params = generate_custom_params(method_name, &user_method.params);
+
     quote! {
-        async fn #method_name #params -> #return_type #where_clause {
+        async fn #method_name #custom_params -> #return_type #where_clause {
             #body
         }
     }
 }
 
 /// Generate an unimplemented method
-fn generate_unimplemented_method(method: &ProviderMethod) -> TokenStream2 {
+fn generate_unimplemented_method(method: &ProviderMethod) -> TokenStream {
     let method_name = &method.name;
     let return_type = &method.return_type;
     let params = &method.params;
@@ -144,9 +154,9 @@ fn generate_unimplemented_method(method: &ProviderMethod) -> TokenStream2 {
 /// Represents a single method in the Provider trait
 struct ProviderMethod {
     name: Ident,
-    params: TokenStream2,
-    return_type: TokenStream2,
-    where_clause: TokenStream2,
+    params: TokenStream,
+    return_type: TokenStream,
+    where_clause: TokenStream,
 }
 
 /// Get all Provider trait methods with their signatures
@@ -357,4 +367,159 @@ fn get_all_provider_methods() -> Vec<ProviderMethod> {
             where_clause: quote! { where B: AsRef<starknet::core::types::BlockId> + Send + Sync, T: AsRef<starknet::core::types::BroadcastedTransaction> + Send + Sync, S: AsRef<[starknet::core::types::SimulationFlag]> + Send + Sync },
         },
     ]
+}
+
+/// Generate custom parameter list using user's parameter names with correct Provider trait types
+fn generate_custom_params(method_name: &Ident, user_params: &[Ident]) -> TokenStream {
+    let method_name_str = method_name.to_string();
+
+    match method_name_str.as_str() {
+        "spec_version" => quote! { (&self) },
+        "get_block_with_tx_hashes" => {
+            let block_param = &user_params[0];
+            quote! { <B>(&self, #block_param: B) }
+        }
+        "get_block_with_txs" => {
+            let block_param = &user_params[0];
+            quote! { <B>(&self, #block_param: B) }
+        }
+        "get_block_with_receipts" => {
+            let block_param = &user_params[0];
+            quote! { <B>(&self, #block_param: B) }
+        }
+        "get_state_update" => {
+            let block_param = &user_params[0];
+            quote! { <B>(&self, #block_param: B) }
+        }
+        "get_storage_at" => {
+            let contract_param = &user_params[0];
+            let key_param = &user_params[1];
+            let block_param = &user_params[2];
+            quote! { <A, K, B>(&self, #contract_param: A, #key_param: K, #block_param: B) }
+        }
+        "get_messages_status" => {
+            let tx_hash_param = &user_params[0];
+            quote! { (&self, #tx_hash_param: starknet::core::types::Hash256) }
+        }
+        "get_transaction_status" => {
+            let tx_hash_param = &user_params[0];
+            quote! { <H>(&self, #tx_hash_param: H) }
+        }
+        "get_transaction_by_hash" => {
+            let tx_hash_param = &user_params[0];
+            quote! { <H>(&self, #tx_hash_param: H) }
+        }
+        "get_transaction_by_block_id_and_index" => {
+            let block_param = &user_params[0];
+            let index_param = &user_params[1];
+            quote! { <B>(&self, #block_param: B, #index_param: u64) }
+        }
+        "get_transaction_receipt" => {
+            let tx_hash_param = &user_params[0];
+            quote! { <H>(&self, #tx_hash_param: H) }
+        }
+        "get_class" => {
+            let block_param = &user_params[0];
+            let class_hash_param = &user_params[1];
+            quote! { <B, H>(&self, #block_param: B, #class_hash_param: H) }
+        }
+        "get_class_hash_at" => {
+            let block_param = &user_params[0];
+            let contract_param = &user_params[1];
+            quote! { <B, A>(&self, #block_param: B, #contract_param: A) }
+        }
+        "get_class_at" => {
+            let block_param = &user_params[0];
+            let contract_param = &user_params[1];
+            quote! { <B, A>(&self, #block_param: B, #contract_param: A) }
+        }
+        "get_block_transaction_count" => {
+            let block_param = &user_params[0];
+            quote! { <B>(&self, #block_param: B) }
+        }
+        "call" => {
+            let request_param = &user_params[0];
+            let block_param = &user_params[1];
+            quote! { <R, B>(&self, #request_param: R, #block_param: B) }
+        }
+        "estimate_fee" => {
+            let request_param = &user_params[0];
+            let flags_param = &user_params[1];
+            let block_param = &user_params[2];
+            quote! { <R, S, B>(&self, #request_param: R, #flags_param: S, #block_param: B) }
+        }
+        "estimate_message_fee" => {
+            let message_param = &user_params[0];
+            let block_param = &user_params[1];
+            quote! { <M, B>(&self, #message_param: M, #block_param: B) }
+        }
+        "block_number" => quote! { (&self) },
+        "block_hash_and_number" => quote! { (&self) },
+        "chain_id" => quote! { (&self) },
+        "syncing" => quote! { (&self) },
+        "get_events" => {
+            let filter_param = &user_params[0];
+            let token_param = &user_params[1];
+            let chunk_param = &user_params[2];
+            quote! { (&self, #filter_param: starknet::core::types::EventFilter, #token_param: Option<String>, #chunk_param: u64) }
+        }
+        "get_nonce" => {
+            let block_param = &user_params[0];
+            let contract_param = &user_params[1];
+            quote! { <B, A>(&self, #block_param: B, #contract_param: A) }
+        }
+        "get_storage_proof" => {
+            let block_param = &user_params[0];
+            let class_hashes_param = &user_params[1];
+            let contract_addresses_param = &user_params[2];
+            let storage_keys_param = &user_params[3];
+            quote! { <B, H, A, K>(&self, #block_param: B, #class_hashes_param: H, #contract_addresses_param: A, #storage_keys_param: K) }
+        }
+        "add_invoke_transaction" => {
+            let tx_param = &user_params[0];
+            quote! { <I>(&self, #tx_param: I) }
+        }
+        "add_declare_transaction" => {
+            let tx_param = &user_params[0];
+            quote! { <D>(&self, #tx_param: D) }
+        }
+        "add_deploy_account_transaction" => {
+            let tx_param = &user_params[0];
+            quote! { <D>(&self, #tx_param: D) }
+        }
+        "trace_transaction" => {
+            let tx_hash_param = &user_params[0];
+            quote! { <H>(&self, #tx_hash_param: H) }
+        }
+        "simulate_transactions" => {
+            let block_param = &user_params[0];
+            let txs_param = &user_params[1];
+            let flags_param = &user_params[2];
+            quote! { <B, T, S>(&self, #block_param: B, #txs_param: T, #flags_param: S) }
+        }
+        "trace_block_transactions" => {
+            let block_param = &user_params[0];
+            quote! { <B>(&self, #block_param: B) }
+        }
+        "batch_requests" => {
+            let requests_param = &user_params[0];
+            quote! { <R>(&self, #requests_param: R) }
+        }
+        "estimate_fee_single" => {
+            let request_param = &user_params[0];
+            let flags_param = &user_params[1];
+            let block_param = &user_params[2];
+            quote! { <R, S, B>(&self, #request_param: R, #flags_param: S, #block_param: B) }
+        }
+        "simulate_transaction" => {
+            let block_param = &user_params[0];
+            let tx_param = &user_params[1];
+            let flags_param = &user_params[2];
+            quote! { <B, T, S>(&self, #block_param: B, #tx_param: T, #flags_param: S) }
+        }
+        _ => {
+            // Fallback to original params if method not recognized
+            quote! { (&self) }
+        }
+    }
 }
