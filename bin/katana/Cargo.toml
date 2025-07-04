@@ -27,6 +27,8 @@ inquire = "0.7.5"
 # Rev on branch starknet 0.15.1.
 piltover = { git = "https://github.com/cartridge-gg/piltover.git", rev = "3bed7ac554259668dbdce6a5f56de5b2bf7faf43" }
 rand.workspace = true
+serde.workspace = true
+serde_json.workspace = true
 shellexpand = "3.1.0"
 spinoff.workspace = true
 starknet.workspace = true
