@@ -1,5 +1,5 @@
 window.BENCHMARK_DATA = {
-  "lastUpdate": 1751547447453,
+  "lastUpdate": 1751623074966,
   "repoUrl": "https://github.com/dojoengine/katana",
   "entries": {
     "Benchmark": [
@@ -1967,6 +1967,72 @@ window.BENCHMARK_DATA = {
             "name": "Katana.Startup",
             "value": 125880124,
             "range": "± 416731",
+            "unit": "ns/iter"
+          }
+        ]
+      },
+      {
+        "commit": {
+          "author": {
+            "email": "evergreenkary@gmail.com",
+            "name": "Ammar Arif",
+            "username": "kariy"
+          },
+          "committer": {
+            "email": "noreply@github.com",
+            "name": "GitHub",
+            "username": "web-flow"
+          },
+          "distinct": true,
+          "id": "e6aaa106b12f615ac6f4cb16a0bb36a7d67c6623",
+          "message": "fix(chain-spec): add erc20 to deperacated class (#156)\n\nCurrently, the class hash is included in the state updates - we only add the class artifact to the class registry but for it to be canonically considered 'declared', the class hash needs to be added into the `StateUpdates` struct i.e., int the `deprecated_declared_classes` field.",
+          "timestamp": "2025-07-04T17:50:55+08:00",
+          "tree_id": "b442b247a2042dc7e3c0341ced30050d6deba311",
+          "url": "https://github.com/dojoengine/katana/commit/e6aaa106b12f615ac6f4cb16a0bb36a7d67c6623"
+        },
+        "date": 1751623073387,
+        "tool": "cargo",
+        "benches": [
+          {
+            "name": "Commit.Small/Parallel",
+            "value": 446210,
+            "range": "± 7902",
+            "unit": "ns/iter"
+          },
+          {
+            "name": "Commit.Big/Serial",
+            "value": 93926587,
+            "range": "± 725247",
+            "unit": "ns/iter"
+          },
+          {
+            "name": "Commit.Big/Parallel",
+            "value": 65605887,
+            "range": "± 1979374",
+            "unit": "ns/iter"
+          },
+          {
+            "name": "compress world contract",
+            "value": 2716979,
+            "range": "± 21071",
+            "unit": "ns/iter"
+          },
+          {
+            "name": "decompress world contract",
+            "value": 2969165,
+            "range": "± 10419",
+            "unit": "ns/iter"
+          },
+          {
+            "name": "Invoke.ERC20.transfer/Blockifier.Cold",
+            "value": 16140790,
+            "range": "± 251508",
+            "unit": "ns/iter"
+          },
+          {
+            "name": "Katana.Startup",
+            "value": 124823154,
+            "range": "± 608386",
             "unit": "ns/iter"
           }
         ]
