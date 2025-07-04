@@ -1,0 +1,19 @@
+[package]
+edition.workspace = true
+license.workspace = true
+name = "katana-utils-macro"
+repository.workspace = true
+version.workspace = true
+
+[lib]
+proc-macro = true
+
+[dependencies]
+proc-macro2.workspace = true
+quote.workspace = true
+syn = { workspace = true, features = [ "extra-traits", "full", "parsing", "proc-macro" ] }
+
+[dev-dependencies]
+async-trait.workspace = true
+starknet.workspace = true
+tokio = { workspace = true, features = [ "test-util" ] }

@@ -6922,6 +6922,7 @@ dependencies = [
  "anyhow",
  "arbitrary",
  "assert_matches",
+ "async-trait",
  "futures",
  "katana-chain-spec",
  "katana-core",
@@ -6930,9 +6931,22 @@ dependencies = [
  "katana-primitives",
  "katana-provider",
  "katana-rpc",
+ "katana-utils-macro",
  "rand 0.8.5",
  "starknet 0.15.1",
  "thiserror 1.0.69",
+ "tokio",
+]
+
+[[package]]
+name = "katana-utils-macro"
+version = "1.6.0-alpha.1"
+dependencies = [
+ "async-trait",
+ "proc-macro2",
+ "quote",
+ "starknet 0.15.1",
+ "syn 2.0.98",
  "tokio",
 ]
 

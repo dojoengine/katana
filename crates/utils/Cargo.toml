@@ -13,10 +13,12 @@ katana-node = { workspace = true, features = [ "explorer" ] }
 katana-primitives.workspace = true
 katana-provider.workspace = true
 katana-rpc = { workspace = true, features = [ "client" ] }
+katana-utils-macro = { path = "macro" }
 
 anyhow.workspace = true
 arbitrary.workspace = true
 assert_matches.workspace = true
+async-trait.workspace = true
 futures.workspace = true
 rand.workspace = true
 starknet.workspace = true

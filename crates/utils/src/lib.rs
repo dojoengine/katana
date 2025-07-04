@@ -1,6 +1,7 @@
 pub mod node;
 mod tx_waiter;
 
+pub use katana_utils_macro::mock_provider;
 pub use node::TestNode;
 pub use tx_waiter::*;
 
