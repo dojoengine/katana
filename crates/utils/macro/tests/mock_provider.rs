@@ -5,7 +5,7 @@ use starknet::providers::Provider;
 mock_provider! {
     TestMockProvider,
 
-    fn get_block_with_txs: (block_id) => {
+    fn get_block_with_txs: (_block_id) => {
         Ok(MaybePendingBlockWithTxs::PendingBlock(PendingBlockWithTxs {
             transactions: vec![],
             timestamp: 0,
@@ -19,7 +19,7 @@ mock_provider! {
         }))
     },
 
-    fn get_storage_at: (contract_address, key, block_id) => {
+    fn get_storage_at: (_, _, _) => {
         Ok(Felt::from(42u32))
     },
 
@@ -102,7 +102,7 @@ mock_provider! {
         Ok("0.13.0".to_string())
     },
 
-    fn get_nonce: (block_id, contract_address) => {
+    fn get_nonce: (_, _) => {
         Ok(Felt::from(1u32))
     }
 }

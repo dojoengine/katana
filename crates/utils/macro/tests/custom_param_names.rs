@@ -6,13 +6,13 @@ use starknet::providers::Provider;
 mock_provider! {
     CustomParamMock,
 
-    fn get_storage_at: (addr, storage_key, block) => {
+    fn get_storage_at: (addr, storage_key, _block) => {
         // Use the custom parameter names in the implementation
         println!("Custom params - addr: {}, key: {}", addr.as_ref(), storage_key.as_ref());
         Ok(addr.as_ref() + storage_key.as_ref())
     },
 
-    fn get_class_hash_at: (block_ref, contract_addr) => {
+    fn get_class_hash_at: (_block_ref, contract_addr) => {
         // Different custom names for these parameters
         Ok(*contract_addr.as_ref())
     },
@@ -21,7 +21,7 @@ mock_provider! {
         Ok(Felt::from(1337u32))
     },
 
-    fn get_nonce: (block_identifier, account_address) => {
+    fn get_nonce: (_, account_address) => {
         // Custom names that are more descriptive
         Ok(*account_address.as_ref())
     }
@@ -31,11 +31,11 @@ mock_provider! {
 mock_provider! {
     ShortParamMock,
 
-    fn get_storage_at: (a, k, b) => {
+    fn get_storage_at: (_, _, _) => {
         Ok(Felt::from(42u32))
     },
 
-    fn get_transaction_by_block_id_and_index: (blk, idx) => {
+    fn get_transaction_by_block_id_and_index: (_, idx) => {
         // Use the custom short names
         Ok(starknet::core::types::Transaction::Invoke(
             starknet::core::types::InvokeTransaction::V1(
@@ -56,7 +56,7 @@ mock_provider! {
 mock_provider! {
     DescriptiveParamMock,
 
-    fn estimate_fee: (transaction_request, simulation_options, at_block) => {
+    fn estimate_fee: (_transaction_request, _simulation_options, _) => {
         Ok(vec![starknet::core::types::FeeEstimate {
             l1_gas_consumed: 21000u64,
             l1_gas_price: 1000000000u128,
