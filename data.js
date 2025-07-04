@@ -1,5 +1,5 @@
 window.BENCHMARK_DATA = {
-  "lastUpdate": 1751623074966,
+  "lastUpdate": 1751636770765,
   "repoUrl": "https://github.com/dojoengine/katana",
   "entries": {
     "Benchmark": [
@@ -2033,6 +2033,72 @@ window.BENCHMARK_DATA = {
             "name": "Katana.Startup",
             "value": 124823154,
             "range": "± 608386",
+            "unit": "ns/iter"
+          }
+        ]
+      },
+      {
+        "commit": {
+          "author": {
+            "email": "evergreenkary@gmail.com",
+            "name": "Ammar Arif",
+            "username": "kariy"
+          },
+          "committer": {
+            "email": "noreply@github.com",
+            "name": "GitHub",
+            "username": "web-flow"
+          },
+          "distinct": true,
+          "id": "77a9f77c8bbf677e832be0395491a7dc78e96dea",
+          "message": "feat(katana): default to deserialize response as JSON (#157)\n\nDeserialize the JSON-RPC response object as a raw JSON to make the client compatible with other Starknet RPC spec. \n\nCurrently, we deserialize the response as concrete types from `starknet-rs` crate. The crate only supports a single RPC spec at a time so the types are bounded to a single RPC spec. Meaning the client is only compatible when interacting the a server of a similar spec. \n\nDeserializing as raw JSON makes the client more flexible and can be used to interact with Starknet servers regardless of the RPC spec version.",
+          "timestamp": "2025-07-04T21:38:56+08:00",
+          "tree_id": "c1373676ce8298fca674ed608c2bd1a777cd450e",
+          "url": "https://github.com/dojoengine/katana/commit/77a9f77c8bbf677e832be0395491a7dc78e96dea"
+        },
+        "date": 1751636768945,
+        "tool": "cargo",
+        "benches": [
+          {
+            "name": "Commit.Small/Parallel",
+            "value": 454624,
+            "range": "± 7962",
+            "unit": "ns/iter"
+          },
+          {
+            "name": "Commit.Big/Serial",
+            "value": 94319572,
+            "range": "± 512565",
+            "unit": "ns/iter"
+          },
+          {
+            "name": "Commit.Big/Parallel",
+            "value": 65560251,
+            "range": "± 2197897",
+            "unit": "ns/iter"
+          },
+          {
+            "name": "compress world contract",
+            "value": 2673204,
+            "range": "± 6741",
+            "unit": "ns/iter"
+          },
+          {
+            "name": "decompress world contract",
+            "value": 2973942,
+            "range": "± 18625",
+            "unit": "ns/iter"
+          },
+          {
+            "name": "Invoke.ERC20.transfer/Blockifier.Cold",
+            "value": 16297014,
+            "range": "± 207746",
+            "unit": "ns/iter"
+          },
+          {
+            "name": "Katana.Startup",
+            "value": 126048696,
+            "range": "± 1196050",
             "unit": "ns/iter"
           }
         ]
