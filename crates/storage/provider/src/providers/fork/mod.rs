@@ -40,7 +40,6 @@ mod trie;
 pub struct ForkedProvider<Db: Database = katana_db::Db> {
     backend: BackendClient,
     provider: Arc<DbProvider<Db>>,
-    forked_block: (BlockNumber, BlockHash),
 }
 
 impl<Db: Database> ForkedProvider<Db> {
@@ -51,32 +50,28 @@ impl<Db: Database> ForkedProvider<Db> {
     /// - `provider`: The Starknet JSON-RPC client to use for the provider.
     pub fn new(
         db: Db,
-        block_id: (BlockNumber, BlockHash),
+        block_id: BlockHashOrNumber,
         provider: Arc<JsonRpcClient<HttpTransport>>,
     ) -> Self {
-        let backend = Backend::new(provider, block_id.0.into()).expect("failed to create backend");
+        let backend = Backend::new(provider, block_id).expect("failed to create backend");
         let provider = Arc::new(DbProvider::new(db));
-        Self { provider, backend, forked_block: block_id }
+        Self { provider, backend }
     }
 
     pub fn backend(&self) -> &BackendClient {
         &self.backend
-    }
-
-    pub fn forked_block(&self) -> (BlockNumber, BlockHash) {
-        self.forked_block
     }
 }
 
 impl ForkedProvider<katana_db::Db> {
     /// Creates a new [`ForkedProvider`] using an ephemeral database.
     pub fn new_ephemeral(
-        block_id: (BlockNumber, BlockHash),
+        block_id: BlockHashOrNumber,
         provider: Arc<JsonRpcClient<HttpTransport>>,
     ) -> Self {
-        let backend = Backend::new(provider, block_id.0.into()).expect("failed to create backend");
+        let backend = Backend::new(provider, block_id).expect("failed to create backend");
         let provider = Arc::new(DbProvider::new_in_memory());
-        Self { provider, backend, forked_block: block_id }
+        Self { provider, backend }
     }
 }
 

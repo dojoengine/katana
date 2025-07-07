@@ -2,7 +2,7 @@ use std::sync::Arc;
 
 use anyhow::{bail, Context, Result};
 use katana_primitives::block::{
-    BlockIdOrTag, BlockNumber, FinalityStatus, GasPrices, Header, SealedBlock,
+    BlockHashOrNumber, BlockIdOrTag, BlockNumber, FinalityStatus, GasPrices, Header, SealedBlock,
     SealedBlockWithStatus,
 };
 use katana_primitives::da::L1DataAvailabilityMode;
@@ -91,7 +91,7 @@ impl Blockchain {
     pub async fn new_from_forked(
         db: katana_db::Db,
         fork_url: Url,
-        fork_block: Option<BlockNumber>,
+        fork_block: Option<BlockHashOrNumber>,
         chain: &mut katana_chain_spec::dev::ChainSpec,
     ) -> Result<(Self, BlockNumber)> {
         let provider = Arc::new(JsonRpcClient::new(HttpTransport::new(fork_url)));
@@ -105,16 +105,17 @@ impl Blockchain {
 
         // If the fork block number is not specified, we use the latest accepted block on the forked
         // network.
-        let fork_block_num = if let Some(block_num) = fork_block {
-            block_num
+        let block_id = if let Some(id) = fork_block {
+            id
         } else {
-            provider.block_number().await?
+            let num = provider.block_number().await?;
+            BlockHashOrNumber::Num(num)
         };
 
-        info!(chain = %parsed_id, block = %fork_block_num, "Forking chain.");
+        info!(chain = %parsed_id, block = %block_id, "Forking chain.");
 
         let block = provider
-            .get_block_with_tx_hashes(BlockIdOrTag::Number(fork_block_num))
+            .get_block_with_tx_hashes(BlockIdOrTag::from(block_id))
             .await
             .context("failed to fetch forked block")?;
 
@@ -123,7 +124,6 @@ impl Blockchain {
         };
 
         let block_num = forked_block.block_number;
-        let block_hash = forked_block.block_hash;
 
         chain.id = chain_id.into();
 
@@ -144,8 +144,7 @@ impl Blockchain {
 
         // TODO: convert this to block number instead of BlockHashOrNumber so that it is easier to
         // check if the requested block is within the supported range or not.
-        let fork_block_ids = (block_num, block_hash);
-        let database = ForkedProvider::new(db, fork_block_ids, Arc::clone(&provider));
+        let database = ForkedProvider::new(db, block_id, Arc::clone(&provider));
 
         // initialize parent fork block
         //
