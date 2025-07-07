@@ -1,27 +1,15 @@
 name: Claude Code Review
 
 on:
-  pull_request:
-    types: [opened, synchronize]
-    # Optional: Only run on specific file changes
-    # paths:
-    #   - "src/**/*.ts"
-    #   - "src/**/*.tsx"
-    #   - "src/**/*.js"
-    #   - "src/**/*.jsx"
+  issue_comment:
+    types: [created]
 
 jobs:
   claude-review:
-    # Optional: Filter by PR author
-    # if: |
-    #   github.event.pull_request.user.login == 'external-contributor' ||
-    #   github.event.pull_request.user.login == 'new-developer' ||
-    #   github.event.pull_request.author_association == 'FIRST_TIME_CONTRIBUTOR'
-
-    # Skip on draft PR
+    # Only trigger on PR comments that mention @claude
     if: |
-      github.event.pull_request.draft == false &&
-      !contains(github.event.pull_request.title, '[WIP]')
+      github.event.issue.pull_request &&
+      contains(github.event.comment.body, '@claude')
 
     runs-on: ubuntu-latest
     permissions:
