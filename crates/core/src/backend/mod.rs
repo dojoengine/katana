@@ -102,8 +102,16 @@ impl<EF: ExecutorFactory> Backend<EF> {
         let tx_count = transactions.len();
         let tx_hashes = transactions.iter().map(|tx| tx.hash).collect::<Vec<_>>();
 
+        let parent_hash = if block_env.number == 0 {
+            BlockHash::ZERO
+        } else {
+            let parent_block_num = block_env.number - 1;
+            self.blockchain.provider().block_hash_by_num(parent_block_num)?.unwrap()
+        };
+
         // create a new block and compute its commitment
         let partial_header = PartialHeader {
+            parent_hash,
             number: block_env.number,
             timestamp: block_env.timestamp,
             starknet_version: CURRENT_STARKNET_VERSION,
@@ -111,7 +119,6 @@ impl<EF: ExecutorFactory> Backend<EF> {
             sequencer_address: block_env.sequencer_address,
             l2_gas_prices: block_env.l2_gas_prices.clone(),
             l1_gas_prices: block_env.l1_gas_prices.clone(),
-            parent_hash: self.blockchain.provider().latest_hash()?,
             l1_data_gas_prices: block_env.l1_data_gas_prices.clone(),
         };
 
