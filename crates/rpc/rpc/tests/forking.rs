@@ -2,7 +2,7 @@ use anyhow::Result;
 use assert_matches::assert_matches;
 use cainome::rs::abigen_legacy;
 use katana_node::config::fork::ForkingConfig;
-use katana_primitives::block::{BlockHash, BlockHashOrNumber, BlockIdOrTag, BlockNumber, BlockTag};
+use katana_primitives::block::{BlockHash, BlockIdOrTag, BlockNumber, BlockTag};
 use katana_primitives::chain::NamedChainId;
 use katana_primitives::event::MaybeForkedContinuationToken;
 use katana_primitives::genesis::constant::DEFAULT_STRK_FEE_TOKEN_ADDRESS;
@@ -23,10 +23,7 @@ const FORK_BLOCK_HASH: BlockHash =
     felt!("0x208950cfcbba73ecbda1c14e4d58d66a8d60655ea1b9dcf07c16014ae8a93cd");
 
 fn forking_cfg() -> ForkingConfig {
-    ForkingConfig {
-        url: Url::parse(SEPOLIA_URL).unwrap(),
-        block: Some(BlockHashOrNumber::Num(FORK_BLOCK_NUMBER)),
-    }
+    ForkingConfig { url: Url::parse(SEPOLIA_URL).unwrap(), block: Some(FORK_BLOCK_NUMBER) }
 }
 
 type LocalTestVector = Vec<((BlockNumber, BlockHash), TxHash)>;

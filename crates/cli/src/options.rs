@@ -22,7 +22,7 @@ use katana_node::config::rpc::{RpcModulesList, DEFAULT_RPC_MAX_PROOF_KEYS};
 use katana_node::config::rpc::{
     DEFAULT_RPC_ADDR, DEFAULT_RPC_MAX_CALL_GAS, DEFAULT_RPC_MAX_EVENT_PAGE_SIZE, DEFAULT_RPC_PORT,
 };
-use katana_primitives::block::{BlockHashOrNumber, GasPrice};
+use katana_primitives::block::{BlockNumber, GasPrice};
 use katana_primitives::chain::ChainId;
 use katana_primitives::genesis::Genesis;
 #[cfg(feature = "server")]
@@ -379,7 +379,7 @@ pub struct ForkingOptions {
     /// number.
     #[arg(long = "fork.block", value_name = "BLOCK", requires = "fork_provider")]
     #[arg(value_parser = parse_block_hash_or_number)]
-    pub fork_block: Option<BlockHashOrNumber>,
+    pub fork_block: Option<BlockNumber>,
 }
 
 #[derive(Debug, Args, Clone, Serialize, Deserialize, Default, PartialEq)]

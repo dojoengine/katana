@@ -49,7 +49,7 @@ pub mod fork {
     ) -> BlockchainProvider<ForkedProvider> {
         let provider = JsonRpcClient::new(HttpTransport::new(Url::parse(rpc).unwrap()));
         let provider =
-            ForkedProvider::new_ephemeral(BlockHashOrNumber::Num(block_num), Arc::new(provider));
+            ForkedProvider::new_ephemeral((block_num, felt!("0x1337")), Arc::new(provider));
         BlockchainProvider::new(provider)
     }
 
@@ -57,10 +57,8 @@ pub mod fork {
     pub fn fork_provider_with_spawned_fork_network(
         #[default(0)] block_num: u64,
     ) -> BlockchainProvider<ForkedProvider> {
-        let provider = ForkedProvider::new_ephemeral(
-            BlockHashOrNumber::Num(block_num),
-            FORKED_PROVIDER.1.clone(),
-        );
+        let provider =
+            ForkedProvider::new_ephemeral((block_num, felt!("0x1337")), FORKED_PROVIDER.1.clone());
         BlockchainProvider::new(provider)
     }
 }

@@ -1,11 +1,11 @@
 use std::sync::Arc;
 
-use anyhow::{anyhow, bail, Context, Result};
+use anyhow::{bail, Context, Result};
 use katana_primitives::block::{
-    BlockHashOrNumber, BlockIdOrTag, BlockNumber, FinalityStatus, GasPrices, SealedBlockWithStatus,
+    BlockIdOrTag, BlockNumber, FinalityStatus, GasPrices, Header, SealedBlock,
+    SealedBlockWithStatus,
 };
 use katana_primitives::da::L1DataAvailabilityMode;
-use katana_primitives::hash::{self, StarkHash};
 use katana_provider::providers::db::DbProvider;
 use katana_provider::providers::fork::ForkedProvider;
 use katana_provider::traits::block::{BlockProvider, BlockWriter};
@@ -92,10 +92,10 @@ impl Blockchain {
     pub async fn new_from_forked(
         db: katana_db::Db,
         fork_url: Url,
-        fork_block: Option<BlockHashOrNumber>,
+        fork_block: Option<BlockNumber>,
         chain: &mut katana_chain_spec::dev::ChainSpec,
     ) -> Result<(Self, BlockNumber)> {
-        let provider = JsonRpcClient::new(HttpTransport::new(fork_url));
+        let provider = Arc::new(JsonRpcClient::new(HttpTransport::new(fork_url)));
         let chain_id = provider.chain_id().await.context("failed to fetch forked network id")?;
 
         // if the id is not in ASCII encoding, we display the chain id as is in hex.
@@ -106,17 +106,16 @@ impl Blockchain {
 
         // If the fork block number is not specified, we use the latest accepted block on the forked
         // network.
-        let block_id = if let Some(id) = fork_block {
-            id
+        let fork_block_num = if let Some(block_num) = fork_block {
+            block_num
         } else {
-            let num = provider.block_number().await?;
-            BlockHashOrNumber::Num(num)
+            provider.block_number().await?
         };
 
-        info!(chain = %parsed_id, block = %block_id, "Forking chain.");
+        info!(chain = %parsed_id, block = %fork_block_num, "Forking chain.");
 
         let block = provider
-            .get_block_with_tx_hashes(BlockIdOrTag::from(block_id))
+            .get_block_with_tx_hashes(BlockIdOrTag::Number(fork_block_num))
             .await
             .context("failed to fetch forked block")?;
 
@@ -125,6 +124,7 @@ impl Blockchain {
         };
 
         let block_num = forked_block.block_number;
+        let block_hash = forked_block.block_hash;
 
         chain.id = chain_id.into();
 
@@ -145,7 +145,46 @@ impl Blockchain {
 
         // TODO: convert this to block number instead of BlockHashOrNumber so that it is easier to
         // check if the requested block is within the supported range or not.
-        let database = ForkedProvider::new(db, block_id, Arc::new(provider));
+        let fork_block_ids = (block_num, block_hash);
+        let database = ForkedProvider::new(db, fork_block_ids, Arc::clone(&provider));
+
+        // initialize parent fork block
+        //
+        // NOTE: this is just a workaround for allowing forked genesis block to be initialize using
+        // `Backend::do_mine_block`.
+        {
+            let parent_block_id = BlockId::Hash(forked_block.parent_hash);
+            let parent_block = provider.get_block_with_tx_hashes(parent_block_id).await?;
+
+            let MaybePendingBlockWithTxHashes::Block(parent_block) = parent_block else {
+                bail!("parent block is a pending block");
+            };
+
+            let parent_block = SealedBlockWithStatus {
+                block: SealedBlock {
+                    hash: parent_block.block_hash,
+                    body: Vec::new(),
+                    header: Header {
+                        parent_hash: parent_block.parent_hash,
+                        timestamp: parent_block.timestamp,
+                        number: parent_block.block_number,
+                        state_root: parent_block.new_root,
+                        sequencer_address: parent_block.sequencer_address.into(),
+                        ..Default::default()
+                    },
+                },
+                status: FinalityStatus::AcceptedOnL2,
+            };
+
+            database
+                .insert_block_with_states_and_receipts(
+                    parent_block,
+                    Default::default(),
+                    Default::default(),
+                    Default::default(),
+                )
+                .context("failed to initialize provider with the parent of the forked block")?;
+        }
 
         // update the genesis block with the forked block's data
         // we dont update the `l1_gas_price` bcs its already done when we set the `gas_prices` in
@@ -169,61 +208,6 @@ impl Blockchain {
         };
 
         Ok((Self::new(database), block_num))
-    }
-
-    /// Creates a new [Blockchain] with the given [Database] implementation and genesis state.
-    pub fn new_dev(
-        provider: impl Database,
-        chain_spec: &katana_chain_spec::dev::ChainSpec,
-    ) -> Result<Self> {
-        // check whether the genesis block has been initialized
-        let genesis_hash = provider.block_hash_by_num(chain_spec.genesis.number)?;
-
-        match genesis_hash {
-            Some(db_hash) => {
-                let genesis_hash = chain_spec.block().header.compute_hash();
-                // check genesis should be the same
-                if db_hash == genesis_hash {
-                    Ok(Self::new(provider))
-                } else {
-                    Err(anyhow!(
-                        "Genesis block hash mismatch: expected {genesis_hash:#x}, got {db_hash:#x}",
-                    ))
-                }
-            }
-
-            // Initialize the dev genesis block
-            None => {
-                let block = chain_spec.block().seal();
-                let block = SealedBlockWithStatus { block, status: FinalityStatus::AcceptedOnL1 };
-                let states = chain_spec.state_updates();
-
-                let mut block = block;
-                let block_number = block.block.header.number;
-
-                let class_trie_root = provider
-                    .trie_insert_declared_classes(
-                        block_number,
-                        &states.state_updates.declared_classes,
-                    )
-                    .context("failed to update class trie")?;
-
-                let contract_trie_root = provider
-                    .trie_insert_contract_updates(block_number, &states.state_updates)
-                    .context("failed to update contract trie")?;
-
-                let genesis_state_root = hash::Poseidon::hash_array(&[
-                    short_string!("STARKNET_STATE_V0"),
-                    contract_trie_root,
-                    class_trie_root,
-                ]);
-
-                block.block.header.state_root = genesis_state_root;
-                provider.insert_block_with_states_and_receipts(block, states, vec![], vec![])?;
-
-                Ok(Self::new(provider))
-            }
-        }
     }
 
     pub fn provider(&self) -> &BlockchainProvider<Box<dyn Database>> {
