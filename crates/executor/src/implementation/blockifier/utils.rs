@@ -434,10 +434,16 @@ pub fn block_context_from_envs(block_env: &BlockEnv, cfg_env: &CfgEnv) -> BlockC
         strk_fee_token_address: to_blk_address(cfg_env.fee_token_addresses.strk),
     };
 
+    let eth_l2_gas_price = NonzeroGasPrice::new(block_env.l2_gas_prices.eth.get().into())
+        .unwrap_or(NonzeroGasPrice::MIN);
+    let strk_l2_gas_price = NonzeroGasPrice::new(block_env.l2_gas_prices.strk.get().into())
+        .unwrap_or(NonzeroGasPrice::MIN);
+
     let eth_l1_gas_price = NonzeroGasPrice::new(block_env.l1_gas_prices.eth.get().into())
         .unwrap_or(NonzeroGasPrice::MIN);
     let strk_l1_gas_price = NonzeroGasPrice::new(block_env.l1_gas_prices.strk.get().into())
         .unwrap_or(NonzeroGasPrice::MIN);
+
     let eth_l1_data_gas_price = NonzeroGasPrice::new(block_env.l1_data_gas_prices.eth.get().into())
         .unwrap_or(NonzeroGasPrice::MIN);
     let strk_l1_data_gas_price =
@@ -446,16 +452,14 @@ pub fn block_context_from_envs(block_env: &BlockEnv, cfg_env: &CfgEnv) -> BlockC
 
     let gas_prices = GasPrices {
         eth_gas_prices: GasPriceVector {
+            l2_gas_price: eth_l2_gas_price,
             l1_gas_price: eth_l1_gas_price,
             l1_data_gas_price: eth_l1_data_gas_price,
-            // TODO: update to use the correct value
-            l2_gas_price: eth_l1_gas_price,
         },
         strk_gas_prices: GasPriceVector {
+            l2_gas_price: strk_l2_gas_price,
             l1_gas_price: strk_l1_gas_price,
             l1_data_gas_price: strk_l1_data_gas_price,
-            // TODO: update to use the correct value
-            l2_gas_price: strk_l1_gas_price,
         },
     };
 
@@ -471,12 +475,11 @@ pub fn block_context_from_envs(block_env: &BlockEnv, cfg_env: &CfgEnv) -> BlockC
 
     // IMPORTANT:
     //
-    // The versioned constants that we use here must match the version that is used in `snos`.
-    // Otherwise, there might be a mismatch between the calculated fees.
-    //
-    // The version of `snos` we're using is still limited up to Starknet version `0.13.3`.
-    const SN_VERSION: StarknetVersion = StarknetVersion::V0_13_4;
-    let mut versioned_constants = VersionedConstants::get(&SN_VERSION).unwrap().clone();
+    // The versioned constants that we use here must match the version that is used during
+    // re-execution with `snos`. Otherwise, there might be a mismatch between the calculated
+    // fees.
+    let sn_version: StarknetVersion = block_env.starknet_version.try_into().expect("valid version");
+    let mut versioned_constants = VersionedConstants::get(&sn_version).unwrap().clone();
 
     // NOTE:
     // These overrides would potentially make the `snos` run be invalid as it doesn't know about the

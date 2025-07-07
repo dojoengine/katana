@@ -46,7 +46,7 @@ impl StarknetVersion {
 
 impl core::default::Default for StarknetVersion {
     fn default() -> Self {
-        StarknetVersion::new([0, 1, 0, 0])
+        CURRENT_STARKNET_VERSION
     }
 }
 
@@ -100,6 +100,45 @@ mod serde {
         fn deserialize<D: ::serde::Deserializer<'de>>(deserializer: D) -> Result<Self, D::Error> {
             let s = String::deserialize(deserializer)?;
             StarknetVersion::parse(&s).map_err(::serde::de::Error::custom)
+        }
+    }
+}
+
+/// An error when the version doesn't correspond to any of the official Starknet releases.
+///
+/// List for all of the official releases can be found at <https://docs.starknet.io/resources/version-notes/>
+#[derive(thiserror::Error, Debug)]
+#[error("invalid version: {0}")]
+pub struct InvalidVersionError(StarknetVersion);
+
+impl TryFrom<StarknetVersion> for starknet_api::block::StarknetVersion {
+    type Error = InvalidVersionError;
+
+    fn try_from(version: StarknetVersion) -> Result<Self, Self::Error> {
+        match version.segments {
+            [0, 9, 1, 0] => Ok(Self::V0_9_1),
+            [0, 10, 0, 0] => Ok(Self::V0_10_0),
+            [0, 10, 1, 0] => Ok(Self::V0_10_1),
+            [0, 10, 2, 0] => Ok(Self::V0_10_2),
+            [0, 10, 3, 0] => Ok(Self::V0_10_3),
+            [0, 11, 0, 0] => Ok(Self::V0_11_0),
+            [0, 11, 0, 2] => Ok(Self::V0_11_0_2),
+            [0, 11, 1, 0] => Ok(Self::V0_11_1),
+            [0, 11, 2, 0] => Ok(Self::V0_11_2),
+            [0, 12, 0, 0] => Ok(Self::V0_12_0),
+            [0, 12, 1, 0] => Ok(Self::V0_12_1),
+            [0, 12, 2, 0] => Ok(Self::V0_12_2),
+            [0, 12, 3, 0] => Ok(Self::V0_12_3),
+            [0, 13, 0, 0] => Ok(Self::V0_13_0),
+            [0, 13, 1, 0] => Ok(Self::V0_13_1),
+            [0, 13, 1, 1] => Ok(Self::V0_13_3),
+            [0, 13, 2, 0] => Ok(Self::V0_13_2),
+            [0, 13, 2, 1] => Ok(Self::V0_13_2_1),
+            [0, 13, 3, 0] => Ok(Self::V0_13_3),
+            [0, 13, 4, 0] => Ok(Self::V0_13_4),
+            [0, 13, 5, 0] => Ok(Self::V0_13_5),
+            [0, 14, 0, 0] => Ok(Self::V0_14_0),
+            _ => Err(InvalidVersionError(version)),
         }
     }
 }

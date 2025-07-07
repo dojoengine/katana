@@ -2,6 +2,7 @@ use std::sync::Arc;
 
 // Re-export the blockifier crate.
 pub use blockifier;
+use blockifier::blockifier_versioned_constants::VersionedConstants;
 use blockifier::bouncer::{n_steps_to_sierra_gas, Bouncer, BouncerConfig, BouncerWeights};
 
 pub mod cache;
@@ -99,6 +100,7 @@ pub struct StarknetVMProcessor<'a> {
     stats: ExecutionStats,
     bouncer: Bouncer,
     starknet_version: StarknetVersion,
+    cfg_env: CfgEnv,
 }
 
 impl<'a> StarknetVMProcessor<'a> {
@@ -134,6 +136,7 @@ impl<'a> StarknetVMProcessor<'a> {
         let bouncer = Bouncer::new(BouncerConfig { block_max_capacity });
 
         Self {
+            cfg_env,
             state,
             transactions,
             block_context,
@@ -165,10 +168,6 @@ impl<'a> StarknetVMProcessor<'a> {
             NonzeroGasPrice::new(header.l1_data_gas_prices.strk.get().into())
                 .unwrap_or(NonzeroGasPrice::MIN);
 
-        // TODO: @kariy, not sure here if we should add some functions to alter it
-        // instead of cloning. Or did I miss a function?
-        // https://github.com/starkware-libs/blockifier/blob/a6200402ab635d8a8e175f7f135be5914c960007/crates/blockifier/src/context.rs#L23
-        let versioned_constants = self.block_context.versioned_constants().clone();
         let chain_info = self.block_context.chain_info().clone();
         let block_info = BlockInfo {
             block_number: number,
@@ -188,6 +187,16 @@ impl<'a> StarknetVMProcessor<'a> {
             },
             use_kzg_da: false,
         };
+
+        let sn_version = header.starknet_version.try_into().expect("valid version");
+        let mut versioned_constants = VersionedConstants::get(&sn_version).unwrap().clone();
+
+        // NOTE:
+        // These overrides would potentially make the `snos` run be invalid as it doesn't know about
+        // the new overridden values.
+        versioned_constants.max_recursion_depth = self.cfg_env.max_recursion_depth;
+        versioned_constants.validate_max_n_steps = self.cfg_env.validate_max_n_steps;
+        versioned_constants.invoke_tx_max_n_steps = self.cfg_env.invoke_tx_max_n_steps;
 
         self.starknet_version = header.starknet_version;
         self.block_context = Arc::new(BlockContext::new(
