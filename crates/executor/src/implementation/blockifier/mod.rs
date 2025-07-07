@@ -145,12 +145,16 @@ impl<'a> StarknetVMProcessor<'a> {
         let number = BlockNumber(header.number);
         let timestamp = BlockTimestamp(header.timestamp);
 
-        // TODO: should we enforce the gas price to not be 0,
-        // as there's a flag to disable gas uasge instead?
+        let eth_l2_gas_price = NonzeroGasPrice::new(header.l2_gas_prices.eth.get().into())
+            .unwrap_or(NonzeroGasPrice::MIN);
+        let strk_l2_gas_price = NonzeroGasPrice::new(header.l2_gas_prices.strk.get().into())
+            .unwrap_or(NonzeroGasPrice::MIN);
+
         let eth_l1_gas_price = NonzeroGasPrice::new(header.l1_gas_prices.eth.get().into())
             .unwrap_or(NonzeroGasPrice::MIN);
         let strk_l1_gas_price = NonzeroGasPrice::new(header.l1_gas_prices.strk.get().into())
             .unwrap_or(NonzeroGasPrice::MIN);
+
         let eth_l1_data_gas_price =
             NonzeroGasPrice::new(header.l1_data_gas_prices.eth.get().into())
                 .unwrap_or(NonzeroGasPrice::MIN);
@@ -169,16 +173,14 @@ impl<'a> StarknetVMProcessor<'a> {
             sequencer_address: utils::to_blk_address(header.sequencer_address),
             gas_prices: GasPrices {
                 eth_gas_prices: GasPriceVector {
+                    l2_gas_price: eth_l2_gas_price,
                     l1_gas_price: eth_l1_gas_price,
                     l1_data_gas_price: eth_l1_data_gas_price,
-                    // TODO: update to use the correct value
-                    l2_gas_price: eth_l1_gas_price,
                 },
                 strk_gas_prices: GasPriceVector {
+                    l2_gas_price: strk_l2_gas_price,
                     l1_gas_price: strk_l1_gas_price,
                     l1_data_gas_price: strk_l1_data_gas_price,
-                    // TODO: update to use the correct value
-                    l2_gas_price: strk_l1_gas_price,
                 },
             },
             use_kzg_da: false,
