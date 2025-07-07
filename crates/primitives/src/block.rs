@@ -8,7 +8,7 @@ use starknet::macros::short_string;
 use crate::contract::ContractAddress;
 use crate::da::L1DataAvailabilityMode;
 use crate::transaction::{ExecutableTxWithHash, TxHash, TxWithHash};
-use crate::version::ProtocolVersion;
+use crate::version::StarknetVersion;
 use crate::Felt;
 
 pub type BlockIdOrTag = starknet::core::types::BlockId;
@@ -57,7 +57,7 @@ pub struct PartialHeader {
     pub l1_data_gas_prices: GasPrices,
     pub l2_gas_prices: GasPrices,
     pub l1_da_mode: L1DataAvailabilityMode,
-    pub protocol_version: ProtocolVersion,
+    pub starknet_version: StarknetVersion,
 }
 
 #[derive(Debug, Copy, Clone, PartialEq, Eq)]
@@ -194,7 +194,7 @@ pub struct Header {
     pub l1_data_gas_prices: GasPrices,
     pub l2_gas_prices: GasPrices,
     pub l1_da_mode: L1DataAvailabilityMode,
-    pub protocol_version: ProtocolVersion,
+    pub starknet_version: StarknetVersion,
 }
 
 impl Header {
@@ -250,7 +250,7 @@ impl Header {
             self.l1_gas_prices.strk.get().into(),
             self.l1_data_gas_prices.eth.get().into(),
             self.l1_data_gas_prices.strk.get().into(),
-            cairo_short_string_to_felt(&self.protocol_version.to_string()).unwrap(),
+            cairo_short_string_to_felt(&self.starknet_version.to_string()).unwrap(),
             Felt::ZERO,
             self.parent_hash,
         ])
@@ -316,7 +316,7 @@ impl Default for Header {
             l1_data_gas_prices: GasPrices::default(),
             sequencer_address: ContractAddress::default(),
             l1_da_mode: L1DataAvailabilityMode::Calldata,
-            protocol_version: ProtocolVersion::default(),
+            starknet_version: StarknetVersion::default(),
         }
     }
 }

@@ -89,6 +89,7 @@ where
         let expected_block_env = BlockEnv {
             number: expected_block_num,
             timestamp: expected_block.header.timestamp,
+            starknet_version: expected_block.header.starknet_version,
             l2_gas_prices: expected_block.header.l2_gas_prices.clone(),
             l1_gas_prices: expected_block.header.l1_gas_prices.clone(),
             l1_data_gas_prices: expected_block.header.l1_data_gas_prices.clone(),
@@ -197,6 +198,7 @@ where
         let expected_block_env = BlockEnv {
             number: expected_block_num,
             timestamp: expected_block.header.timestamp,
+            starknet_version: expected_block.header.starknet_version,
             l2_gas_prices: expected_block.header.l2_gas_prices.clone(),
             l1_gas_prices: expected_block.header.l1_gas_prices.clone(),
             l1_data_gas_prices: expected_block.header.l1_data_gas_prices.clone(),

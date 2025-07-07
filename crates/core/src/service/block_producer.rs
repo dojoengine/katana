@@ -625,7 +625,7 @@ impl<EF: ExecutorFactory> InstantBlockProducer<EF> {
                 parent_hash,
                 number: block_env.number,
                 timestamp: block_env.timestamp,
-                protocol_version: CURRENT_STARKNET_VERSION,
+                starknet_version: CURRENT_STARKNET_VERSION,
                 sequencer_address: block_env.sequencer_address,
                 l1_da_mode: L1DataAvailabilityMode::Calldata,
                 l2_gas_prices: block_env.l2_gas_prices.clone(),

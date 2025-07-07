@@ -91,7 +91,7 @@ pub fn state_provider(chain: &ChainSpec) -> Box<dyn StateProvider> {
 /// [state_provider].
 #[rstest::fixture]
 pub fn valid_blocks() -> [ExecutableBlock; 3] {
-    let protocol_version = CURRENT_STARKNET_VERSION;
+    let starknet_version = CURRENT_STARKNET_VERSION;
     let chain_id = ChainId::parse("KATANA").unwrap();
     let sequencer_address = ContractAddress(1u64.into());
 
@@ -107,7 +107,7 @@ pub fn valid_blocks() -> [ExecutableBlock; 3] {
     [
         ExecutableBlock {
             header: PartialHeader {
-                protocol_version: protocol_version.clone(),
+                starknet_version,
                 number: 1,
                 timestamp: 100,
                 sequencer_address,
@@ -157,7 +157,7 @@ pub fn valid_blocks() -> [ExecutableBlock; 3] {
         },
         ExecutableBlock {
             header: PartialHeader {
-                protocol_version: protocol_version.clone(),
+                starknet_version,
                 number: 2,
                 timestamp: 200,
                 sequencer_address,
@@ -191,7 +191,7 @@ pub fn valid_blocks() -> [ExecutableBlock; 3] {
         },
         ExecutableBlock {
             header: PartialHeader {
-                protocol_version,
+                starknet_version,
                 number: 3,
                 timestamp: 300,
                 sequencer_address,

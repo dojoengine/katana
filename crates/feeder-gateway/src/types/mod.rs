@@ -7,7 +7,7 @@ use katana_primitives::class::{
 };
 use katana_primitives::contract::{Nonce, StorageKey, StorageValue};
 use katana_primitives::da::L1DataAvailabilityMode;
-use katana_primitives::version::ProtocolVersion;
+use katana_primitives::version::StarknetVersion;
 use katana_primitives::{ContractAddress, Felt};
 use katana_rpc_types::class::ConversionError;
 pub use katana_rpc_types::class::RpcSierraContractClass;
@@ -102,7 +102,7 @@ pub struct Block {
     pub transactions: Vec<ConfirmedTransaction>,
     pub transaction_receipts: Vec<ConfirmedReceipt>,
     #[serde(default)]
-    pub starknet_version: Option<ProtocolVersion>,
+    pub starknet_version: Option<StarknetVersion>,
 }
 
 // -- Conversion to Katana primitive types.

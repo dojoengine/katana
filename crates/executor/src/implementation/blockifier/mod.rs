@@ -15,6 +15,7 @@ use cache::ClassCache;
 use katana_primitives::block::{ExecutableBlock, GasPrices as KatanaGasPrices, PartialHeader};
 use katana_primitives::env::{BlockEnv, CfgEnv};
 use katana_primitives::transaction::{ExecutableTx, ExecutableTxWithHash, TxWithHash};
+use katana_primitives::version::StarknetVersion;
 use katana_provider::traits::state::StateProvider;
 use starknet_api::block::{
     BlockInfo, BlockNumber, BlockTimestamp, GasPriceVector, GasPrices, NonzeroGasPrice,
@@ -97,6 +98,7 @@ pub struct StarknetVMProcessor<'a> {
     simulation_flags: ExecutionFlags,
     stats: ExecutionStats,
     bouncer: Bouncer,
+    starknet_version: StarknetVersion,
 }
 
 impl<'a> StarknetVMProcessor<'a> {
@@ -138,6 +140,7 @@ impl<'a> StarknetVMProcessor<'a> {
             simulation_flags,
             stats: Default::default(),
             bouncer,
+            starknet_version: block_env.starknet_version,
         }
     }
 
@@ -184,6 +187,7 @@ impl<'a> StarknetVMProcessor<'a> {
             use_kzg_da: false,
         };
 
+        self.starknet_version = header.starknet_version;
         self.block_context = Arc::new(BlockContext::new(
             block_info,
             chain_info,
@@ -311,6 +315,7 @@ impl<'a> BlockExecutor<'a> for StarknetVMProcessor<'a> {
             l2_gas_prices,
             l1_gas_prices,
             l1_data_gas_prices,
+            starknet_version: self.starknet_version,
             number: self.block_context.block_info().block_number.0,
             timestamp: self.block_context.block_info().block_timestamp.0,
             sequencer_address: utils::to_address(self.block_context.block_info().sequencer_address),

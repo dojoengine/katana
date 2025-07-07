@@ -106,7 +106,7 @@ impl<EF: ExecutorFactory> Backend<EF> {
         let partial_header = PartialHeader {
             number: block_env.number,
             timestamp: block_env.timestamp,
-            protocol_version: CURRENT_STARKNET_VERSION,
+            starknet_version: CURRENT_STARKNET_VERSION,
             l1_da_mode: L1DataAvailabilityMode::Calldata,
             sequencer_address: block_env.sequencer_address,
             l2_gas_prices: block_env.l2_gas_prices.clone(),
@@ -359,7 +359,7 @@ impl<'a, P: TrieWriter> UncommittedBlock<'a, P> {
             l1_gas_prices: self.header.l1_gas_prices,
             l1_data_gas_prices: self.header.l1_data_gas_prices,
             sequencer_address: self.header.sequencer_address,
-            protocol_version: self.header.protocol_version,
+            starknet_version: self.header.starknet_version,
         };
 
         let hash = header.compute_hash();
@@ -405,7 +405,7 @@ impl<'a, P: TrieWriter> UncommittedBlock<'a, P> {
             l1_gas_prices: self.header.l1_gas_prices,
             l1_data_gas_prices: self.header.l1_data_gas_prices,
             sequencer_address: self.header.sequencer_address,
-            protocol_version: self.header.protocol_version,
+            starknet_version: self.header.starknet_version,
         };
 
         let hash = header.compute_hash();

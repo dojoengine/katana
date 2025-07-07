@@ -250,7 +250,7 @@ fn extract_block_data(
             l2_gas_prices: to_gas_prices(data.block.l2_gas_price),
             state_root: data.block.state_root.unwrap_or_default(),
             l1_data_gas_prices: to_gas_prices(data.block.l1_data_gas_price),
-            protocol_version: data.block.starknet_version.unwrap_or_default(),
+            starknet_version: data.block.starknet_version.unwrap_or_default(),
             events_commitment: data.block.event_commitment.unwrap_or_default(),
             sequencer_address: data.block.sequencer_address.unwrap_or_default(),
             transactions_commitment: data.block.transaction_commitment.unwrap_or_default(),

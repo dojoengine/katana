@@ -628,7 +628,7 @@ where
                             parent_hash: latest_hash,
                             timestamp: block_env.timestamp,
                             sequencer_address: block_env.sequencer_address,
-                            protocol_version: CURRENT_STARKNET_VERSION,
+                            starknet_version: CURRENT_STARKNET_VERSION,
                         };
 
                         // TODO(kariy): create a method that can perform this filtering for us
@@ -696,7 +696,7 @@ where
                             timestamp: block_env.timestamp,
                             l1_da_mode: L1DataAvailabilityMode::Calldata,
                             sequencer_address: block_env.sequencer_address,
-                            protocol_version: CURRENT_STARKNET_VERSION,
+                            starknet_version: CURRENT_STARKNET_VERSION,
                         };
 
                         let receipts = executor
@@ -762,7 +762,7 @@ where
                             number: block_env.number,
                             parent_hash: latest_hash,
                             timestamp: block_env.timestamp,
-                            protocol_version: CURRENT_STARKNET_VERSION,
+                            starknet_version: CURRENT_STARKNET_VERSION,
                             sequencer_address: block_env.sequencer_address,
                         };
 

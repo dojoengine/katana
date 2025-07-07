@@ -38,7 +38,7 @@ pub struct ChainSpec {
 impl ChainSpec {
     pub fn block(&self) -> ExecutableBlock {
         let header = PartialHeader {
-            protocol_version: CURRENT_STARKNET_VERSION,
+            starknet_version: CURRENT_STARKNET_VERSION,
             number: self.genesis.number,
             timestamp: self.genesis.timestamp,
             parent_hash: self.genesis.parent_hash,

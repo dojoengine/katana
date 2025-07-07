@@ -48,7 +48,7 @@ impl ChainSpec {
     pub fn block(&self) -> Block {
         let header = Header {
             state_diff_length: 0,
-            protocol_version: CURRENT_STARKNET_VERSION,
+            starknet_version: CURRENT_STARKNET_VERSION,
             number: self.genesis.number,
             timestamp: self.genesis.timestamp,
             events_count: 0,
@@ -369,7 +369,7 @@ mod tests {
                 l1_gas_prices: chain_spec.genesis.gas_prices.clone(),
                 l1_data_gas_prices: chain_spec.genesis.gas_prices.clone(),
                 l1_da_mode: L1DataAvailabilityMode::Calldata,
-                protocol_version: CURRENT_STARKNET_VERSION,
+                starknet_version: CURRENT_STARKNET_VERSION,
                 transaction_count: 0,
                 events_count: 0,
             },

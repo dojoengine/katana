@@ -46,7 +46,7 @@ impl BlockWithTxs {
             timestamp: block.header.timestamp,
             block_number: block.header.number,
             parent_hash: block.header.parent_hash,
-            starknet_version: block.header.protocol_version.to_string(),
+            starknet_version: block.header.starknet_version.to_string(),
             sequencer_address: block.header.sequencer_address.into(),
             status: match finality_status {
                 FinalityStatus::AcceptedOnL1 => BlockStatus::AcceptedOnL1,
@@ -91,7 +91,7 @@ impl PendingBlockWithTxs {
             l2_gas_price,
             timestamp: header.timestamp,
             parent_hash: header.parent_hash,
-            starknet_version: header.protocol_version.to_string(),
+            starknet_version: header.starknet_version.to_string(),
             sequencer_address: header.sequencer_address.into(),
             l1_da_mode: L1DataAvailabilityMode::Calldata,
             l1_data_gas_price,
@@ -153,7 +153,7 @@ impl BlockWithTxHashes {
             timestamp: block.header.timestamp,
             block_number: block.header.number,
             parent_hash: block.header.parent_hash,
-            starknet_version: block.header.protocol_version.to_string(),
+            starknet_version: block.header.starknet_version.to_string(),
             sequencer_address: block.header.sequencer_address.into(),
             status: match finality_status {
                 FinalityStatus::AcceptedOnL1 => BlockStatus::AcceptedOnL1,
@@ -197,7 +197,7 @@ impl PendingBlockWithTxHashes {
             l2_gas_price,
             timestamp: header.timestamp,
             parent_hash: header.parent_hash,
-            starknet_version: header.protocol_version.to_string(),
+            starknet_version: header.starknet_version.to_string(),
             sequencer_address: header.sequencer_address.into(),
             l1_da_mode: match header.l1_da_mode {
                 katana_primitives::da::L1DataAvailabilityMode::Blob => L1DataAvailabilityMode::Blob,
@@ -295,7 +295,7 @@ impl BlockWithReceipts {
             l2_gas_price,
             l1_data_gas_price,
             l1_da_mode: L1DataAvailabilityMode::Calldata,
-            starknet_version: header.protocol_version.to_string(),
+            starknet_version: header.starknet_version.to_string(),
             transactions,
         })
     }
@@ -348,7 +348,7 @@ impl PendingBlockWithReceipts {
                 }
             },
             l1_data_gas_price,
-            starknet_version: header.protocol_version.to_string(),
+            starknet_version: header.starknet_version.to_string(),
         })
     }
 }
