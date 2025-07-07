@@ -9,8 +9,9 @@ use katana_primitives::da::L1DataAvailabilityMode;
 use katana_primitives::genesis::allocation::{DevAllocationsGenerator, GenesisAllocation};
 use katana_primitives::genesis::constant::{
     get_fee_token_balance_base_storage_address, DEFAULT_ACCOUNT_CLASS_PUBKEY_STORAGE_SLOT,
-    DEFAULT_ETH_FEE_TOKEN_ADDRESS, DEFAULT_LEGACY_ERC20_CLASS, DEFAULT_LEGACY_ERC20_CLASS_HASH,
-    DEFAULT_LEGACY_UDC_CLASS, DEFAULT_LEGACY_UDC_CLASS_HASH, DEFAULT_PREFUNDED_ACCOUNT_BALANCE,
+    DEFAULT_ACCOUNT_CLASS_SRC5_ACCOUNT_INTERFACE_ID_STORAGE_SLOT, DEFAULT_ETH_FEE_TOKEN_ADDRESS,
+    DEFAULT_LEGACY_ERC20_CLASS, DEFAULT_LEGACY_ERC20_CLASS_HASH, DEFAULT_LEGACY_UDC_CLASS,
+    DEFAULT_LEGACY_UDC_CLASS_HASH, DEFAULT_PREFUNDED_ACCOUNT_BALANCE,
     DEFAULT_STRK_FEE_TOKEN_ADDRESS, DEFAULT_UDC_ADDRESS, ERC20_DECIMAL_STORAGE_SLOT,
     ERC20_NAME_STORAGE_SLOT, ERC20_SYMBOL_STORAGE_SLOT, ERC20_TOTAL_SUPPLY_STORAGE_SLOT,
 };
@@ -93,6 +94,7 @@ impl ChainSpec {
             if let Some(pub_key) = alloc.public_key() {
                 storage.insert(DEFAULT_ACCOUNT_CLASS_PUBKEY_STORAGE_SLOT, pub_key);
             }
+            storage.insert(DEFAULT_ACCOUNT_CLASS_SRC5_ACCOUNT_INTERFACE_ID_STORAGE_SLOT, Felt::ONE);
 
             states.state_updates.storage_updates.insert(address, storage);
         }
@@ -455,6 +457,8 @@ mod tests {
             DEFAULT_ACCOUNT_CLASS_PUBKEY_STORAGE_SLOT,
             felt!("0x01ef15c18599971b7beced415a40f0c7deacfd9b0d1819e03d723d8bc943cfca"),
         );
+        account_allocation_storage
+            .insert(DEFAULT_ACCOUNT_CLASS_SRC5_ACCOUNT_INTERFACE_ID_STORAGE_SLOT, felt!("0x1"));
 
         assert_eq!(
             actual_state_updates.state_updates.deployed_contracts.get(&alloc_1_addr),
