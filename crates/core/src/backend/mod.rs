@@ -212,7 +212,7 @@ impl<EF: ExecutorFactory> Backend<EF> {
         } else {
             // Initialize the dev genesis block
 
-            let mut block = chain_spec.block();
+            let block = chain_spec.block();
             let states = chain_spec.state_updates();
 
             self.do_mine_block(
