@@ -27,7 +27,6 @@ inquire = "0.7.5"
 # Rev on branch starknet 0.15.1.
 piltover = { git = "https://github.com/cartridge-gg/piltover.git", rev = "3bed7ac554259668dbdce6a5f56de5b2bf7faf43" }
 rand.workspace = true
-serde.workspace = true
 shellexpand = "3.1.0"
 spinoff.workspace = true
 starknet.workspace = true
@@ -38,6 +37,7 @@ tracing.workspace = true
 url.workspace = true
 
 colored_json = { version = "5.0", optional = true }
+serde = { workspace = true, optional = true }
 serde_json = { workspace = true, optional = true }
 
 [build-dependencies]
@@ -57,7 +57,7 @@ tempfile.workspace = true
 default = [ "cartridge", "init-slot", "jemalloc", "katana-cli/explorer" ]
 
 cartridge = [ "katana-cli/cartridge" ]
-client = [ "dep:colored_json", "dep:serde_json" ]
+client = [ "dep:colored_json", "dep:serde", "dep:serde_json" ]
 init-custom-settlement-chain = [  ]
 init-slot = [  ]
 jemalloc = [  ]
