@@ -23,7 +23,7 @@ const FORK_BLOCK_HASH: BlockHash =
     felt!("0x208950cfcbba73ecbda1c14e4d58d66a8d60655ea1b9dcf07c16014ae8a93cd");
 
 fn forking_cfg() -> ForkingConfig {
-    ForkingConfig { url: Url::parse(SEPOLIA_URL).unwrap(), block: Some(FORK_BLOCK_NUMBER) }
+    ForkingConfig { url: Url::parse(SEPOLIA_URL).unwrap(), block: Some(FORK_BLOCK_NUMBER.into()) }
 }
 
 type LocalTestVector = Vec<((BlockNumber, BlockHash), TxHash)>;
