@@ -82,3 +82,32 @@ impl GasPriceOracle {
         GasPriceOracle::Fixed(fixed::FixedPriceOracle::default())
     }
 }
+
+#[cfg(test)]
+mod tests {
+    use std::time::Duration;
+
+    use katana_primitives::block::GasPrices;
+
+    use crate::GasPriceOracle;
+
+    #[test]
+    fn fixed_gpo() {
+        const L2_GAS_PRICES: GasPrices = unsafe { GasPrices::new_unchecked(101, 102) };
+        const L1_GAS_PRICES: GasPrices = unsafe { GasPrices::new_unchecked(201, 202) };
+        const L1_DATA_GAS_PRICES: GasPrices = unsafe { GasPrices::new_unchecked(301, 302) };
+
+        let gpo = GasPriceOracle::fixed(L2_GAS_PRICES, L1_GAS_PRICES, L1_DATA_GAS_PRICES);
+
+        assert_eq!(gpo.l2_gas_prices(), L2_GAS_PRICES);
+        assert_eq!(gpo.l1_gas_prices(), L1_GAS_PRICES);
+        assert_eq!(gpo.l1_data_gas_prices(), L1_DATA_GAS_PRICES);
+
+        // Sleep for s few seconds to ensure the gas prices don't change.
+        std::thread::sleep(Duration::from_secs(3));
+
+        assert_eq!(gpo.l2_gas_prices(), L2_GAS_PRICES);
+        assert_eq!(gpo.l1_gas_prices(), L1_GAS_PRICES);
+        assert_eq!(gpo.l1_data_gas_prices(), L1_DATA_GAS_PRICES);
+    }
+}
