@@ -20,7 +20,7 @@ use futures::stream::{Stream, StreamExt};
 use futures::FutureExt;
 use katana_executor::{BlockExecutor, ExecutionResult, ExecutionStats, ExecutorFactory};
 use katana_pool::validation::stateful::TxValidator;
-use katana_primitives::block::{BlockHashOrNumber, ExecutableBlock, PartialHeader};
+use katana_primitives::block::{BlockHash, BlockHashOrNumber, ExecutableBlock, PartialHeader};
 use katana_primitives::da::L1DataAvailabilityMode;
 use katana_primitives::execution::TransactionExecutionInfo;
 use katana_primitives::receipt::Receipt;
@@ -68,6 +68,7 @@ impl BlockProductionError {
 
 #[derive(Debug, Clone)]
 pub struct MinedBlockOutcome {
+    pub block_hash: BlockHash,
     pub block_number: u64,
     pub txs: Vec<TxHash>,
     pub stats: ExecutionStats,

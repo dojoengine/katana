@@ -132,6 +132,7 @@ impl<EF: ExecutorFactory> Backend<EF> {
         )?;
 
         let block = SealedBlockWithStatus { block, status: FinalityStatus::AcceptedOnL2 };
+        let block_hash = block.block.hash;
         let block_number = block.block.header.number;
 
         // TODO: maybe should change the arguments for insert_block_with_states_and_receipts to
@@ -140,7 +141,13 @@ impl<EF: ExecutorFactory> Backend<EF> {
         self.store_block(block, execution_output.states, receipts, traces)?;
 
         info!(target: LOG_TARGET, %block_number, %tx_count, "Block mined.");
-        Ok(MinedBlockOutcome { block_number, txs: tx_hashes, stats: execution_output.stats })
+
+        Ok(MinedBlockOutcome {
+            block_hash,
+            block_number,
+            txs: tx_hashes,
+            stats: execution_output.stats,
+        })
     }
 
     fn store_block(
@@ -200,22 +207,36 @@ impl<EF: ExecutorFactory> Backend<EF> {
         let local_hash = provider.block_hash_by_num(chain_spec.genesis.number)?;
 
         if let Some(local_hash) = local_hash {
-            let genesis_hash = chain_spec.block().header.compute_hash();
+            let genesis_block = chain_spec.block();
+            let mut genesis_state_updates = chain_spec.state_updates();
+
+            // commit the block but compute the trie using volatile storage so that it won't
+            // overwrite the existing trie this is very hacky and we should find for a
+            // much elegant solution.
+            let committed_block = commit_genesis_block(
+                GenesisTrieWriter,
+                genesis_block.header.clone(),
+                Vec::new(),
+                &[],
+                &mut genesis_state_updates.state_updates,
+            )?;
+
             // check genesis should be the same
-            if local_hash != genesis_hash {
+            if local_hash != committed_block.hash {
                 return Err(anyhow!(
-                    "Genesis block hash mismatch: expected {genesis_hash:#x}, got {local_hash:#x}",
+                    "Genesis block hash mismatch: expected {:#x}, got {local_hash:#x}",
+                    committed_block.hash
                 ));
             }
 
-            info!("Genesis has already been initialized");
+            info!(genesis_hash = %local_hash, "Genesis has already been initialized");
         } else {
             // Initialize the dev genesis block
 
             let block = chain_spec.block();
             let states = chain_spec.state_updates();
 
-            self.do_mine_block(
+            let outcome = self.do_mine_block(
                 &BlockEnv {
                     number: block.header.number,
                     timestamp: block.header.timestamp,
@@ -228,7 +249,7 @@ impl<EF: ExecutorFactory> Backend<EF> {
                 ExecutionOutput { states, ..Default::default() },
             )?;
 
-            info!("Genesis initialized");
+            info!(genesis_hash = %outcome.block_hash, "Genesis initialized");
         }
 
         Ok(())

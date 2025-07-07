@@ -1,7 +1,7 @@
 use std::collections::BTreeMap;
 
 use alloy_primitives::U256;
-use katana_primitives::block::{Block, GasPrices, Header};
+use katana_primitives::block::{ExecutableBlock, GasPrices, PartialHeader};
 use katana_primitives::chain::ChainId;
 use katana_primitives::class::ClassHash;
 use katana_primitives::contract::ContractAddress;
@@ -45,19 +45,11 @@ pub struct ChainSpec {
 //////////////////////////////////////////////////////////////
 
 impl ChainSpec {
-    pub fn block(&self) -> Block {
-        let header = Header {
-            state_diff_length: 0,
+    pub fn block(&self) -> ExecutableBlock {
+        let header = PartialHeader {
             starknet_version: CURRENT_STARKNET_VERSION,
             number: self.genesis.number,
             timestamp: self.genesis.timestamp,
-            events_count: 0,
-            transaction_count: 0,
-            events_commitment: Felt::ZERO,
-            receipts_commitment: Felt::ZERO,
-            state_diff_commitment: Felt::ZERO,
-            transactions_commitment: Felt::ZERO,
-            state_root: self.genesis.state_root,
             parent_hash: self.genesis.parent_hash,
             l1_da_mode: L1DataAvailabilityMode::Calldata,
             l1_gas_prices: self.genesis.gas_prices.clone(),
@@ -65,7 +57,8 @@ impl ChainSpec {
             l1_data_gas_prices: self.genesis.gas_prices.clone(),
             sequencer_address: self.genesis.sequencer_address,
         };
-        Block { header, body: Vec::new() }
+
+        ExecutableBlock { header, body: Vec::new() }
     }
 
     // this method will include the ETH and STRK fee tokens, and the UDC
@@ -266,7 +259,7 @@ mod tests {
 
     use alloy_primitives::U256;
     use katana_primitives::address;
-    use katana_primitives::block::{Block, GasPrices, Header};
+    use katana_primitives::block::GasPrices;
     use katana_primitives::da::L1DataAvailabilityMode;
     use katana_primitives::genesis::allocation::{
         GenesisAccount, GenesisAccountAlloc, GenesisContractAlloc,
@@ -353,16 +346,10 @@ mod tests {
         };
 
         // setup expected storage values
-        let expected_block = Block {
-            header: Header {
-                state_diff_length: 0,
-                events_commitment: Felt::ZERO,
-                receipts_commitment: Felt::ZERO,
-                state_diff_commitment: Felt::ZERO,
-                transactions_commitment: Felt::ZERO,
+        let expected_block = ExecutableBlock {
+            header: PartialHeader {
                 number: chain_spec.genesis.number,
                 timestamp: chain_spec.genesis.timestamp,
-                state_root: chain_spec.genesis.state_root,
                 parent_hash: chain_spec.genesis.parent_hash,
                 sequencer_address: chain_spec.genesis.sequencer_address,
                 l2_gas_prices: GasPrices::MIN,
@@ -370,8 +357,6 @@ mod tests {
                 l1_data_gas_prices: chain_spec.genesis.gas_prices.clone(),
                 l1_da_mode: L1DataAvailabilityMode::Calldata,
                 starknet_version: CURRENT_STARKNET_VERSION,
-                transaction_count: 0,
-                events_count: 0,
             },
             body: Vec::new(),
         };
