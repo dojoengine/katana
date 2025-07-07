@@ -45,7 +45,7 @@ pub enum FinalityStatus {
 }
 
 /// Represents a partial block header.
-#[derive(Debug, Clone)]
+#[derive(Debug, Clone, PartialEq, Eq)]
 #[cfg_attr(feature = "arbitrary", derive(::arbitrary::Arbitrary))]
 #[cfg_attr(feature = "serde", derive(serde::Serialize, serde::Deserialize))]
 pub struct PartialHeader {
@@ -409,7 +409,7 @@ impl From<BlockHashOrNumber> for BlockIdOrTag {
 
 /// A block that can executed. This is a block whose transactions includes
 /// all the necessary information to be executed.
-#[derive(Debug, Clone)]
+#[derive(Debug, Clone, PartialEq, Eq)]
 pub struct ExecutableBlock {
     pub header: PartialHeader,
     pub body: Vec<ExecutableTxWithHash>,

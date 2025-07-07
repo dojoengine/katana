@@ -125,7 +125,7 @@ impl<'a> From<TxRef<'a>> for Tx {
 }
 
 /// Represents a transaction that has all the necessary data to be executed.
-#[derive(Debug, Clone, From)]
+#[derive(Debug, Clone, From, PartialEq, Eq)]
 pub enum ExecutableTx {
     Invoke(InvokeTx),
     L1Handler(L1HandlerTx),
@@ -162,7 +162,7 @@ impl ExecutableTx {
     }
 }
 
-#[derive(Debug, Clone, AsRef, Deref)]
+#[derive(Debug, Clone, AsRef, Deref, PartialEq, Eq)]
 pub struct ExecutableTxWithHash {
     /// The hash of the transaction.
     pub hash: TxHash,
@@ -194,7 +194,7 @@ impl ExecutableTxWithHash {
     }
 }
 
-#[derive(Debug, Clone, AsRef, Deref)]
+#[derive(Debug, Clone, AsRef, Deref, PartialEq, Eq)]
 pub struct DeclareTxWithClass {
     /// The contract class.
     pub class: Arc<ContractClass>,

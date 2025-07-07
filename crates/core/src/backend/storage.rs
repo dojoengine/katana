@@ -21,9 +21,8 @@ use katana_provider::traits::transaction::{
 use katana_provider::traits::trie::TrieWriter;
 use katana_provider::BlockchainProvider;
 use num_traits::ToPrimitive;
-use starknet::core::types::MaybePendingBlockWithTxHashes;
+use starknet::core::types::{BlockId, MaybePendingBlockWithTxHashes};
 use starknet::core::utils::parse_cairo_short_string;
-use starknet::macros::short_string;
 use starknet::providers::jsonrpc::HttpTransport;
 use starknet::providers::{JsonRpcClient, Provider};
 use tracing::info;

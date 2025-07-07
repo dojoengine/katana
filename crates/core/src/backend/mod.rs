@@ -106,7 +106,10 @@ impl<EF: ExecutorFactory> Backend<EF> {
             BlockHash::ZERO
         } else {
             let parent_block_num = block_env.number - 1;
-            self.blockchain.provider().block_hash_by_num(parent_block_num)?.unwrap()
+            self.blockchain
+                .provider()
+                .block_hash_by_num(parent_block_num)?
+                .expect("qed; missing block hash for parent block")
         };
 
         // create a new block and compute its commitment
