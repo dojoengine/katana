@@ -59,12 +59,6 @@ cargo build --bin katana --features native
 
 Cairo Native is disabled by default but can be enabled at runtime by specifying the `--enable-native-compilation` flag.
 
-```bash
-Environment options:
-      --enable-native-compilation
-          Enable cairo-native compilation for improved performance
-```
-
 ## Testing
 
 We recommend using `cargo nextest` for running the tests. Nextest is a next-generation test runner for Rust that provides better performance and user experience compared to `cargo test`. For more information on `cargo-nextest`, including installation instructions, please refer to the [official documentation](https://nexte.st/).
