@@ -4,6 +4,7 @@
 
 - [Development Setup](#development-setup)
 - [Cairo Native](#cairo-native)
+- [Explorer](#explorer)
 - [Testing](#testing)
 
 ## Development Setup
@@ -33,11 +34,12 @@ After installing LLVM, you need to make sure the required environment variables 
 source scripts/cairo-native.env.sh
 ```
 
-### Bun (for Explorer)
+### Bun
 
-When building the project, you may need to build the Explorer application. For that, you need to have [Bun](https://bun.sh/docs/installation) installed.
+When building the project, you may need to build the [Explorer](#explorer) web application.
+For that, you need to have [Bun](https://bun.sh/docs/installation) installed.
 
-Building the Explorer application will be handled automatically by Cargo, but it can also be built manually:
+The actual building flow will be handled automatically by Cargo, but it can also be built manually:
 
 ```bash
 make build-explorer
@@ -58,6 +60,18 @@ cargo build --bin katana --features native
 ```
 
 Cairo Native is disabled by default but can be enabled at runtime by specifying the `--enable-native-compilation` flag.
+
+## Explorer
+
+Katana includes a built-in, developer-focused, and stateless block explorer called **Explorer**. It is bundled with the Katana binary and can be enabled using the `--explorer` flag:
+
+```bash
+katana --explorer
+```
+
+Once enabled, the Explorer web application will be served at the `/explorer` path relative to the Katana RPC server endpoint. For example, if the RPC server is running at `http://localhost:5050`, the Explorer will be accessible at `http://localhost:5050/explorer`.
+
+This makes it easy for developers to inspect blocks, transactions, and other on-chain data in a lightweight, self-hosted interface. The Explorer is designed to be fast, minimal, and fully integrated into the Katana workflow without requiring additional setup. To learn more about the Explorer or contribute to its development, visit the [repository](https://github.com/cartridge-gg/explorer/).
 
 ## Testing
 
