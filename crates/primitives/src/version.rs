@@ -1,5 +1,5 @@
 /// The currently supported version of the Starknet protocol.
-pub const CURRENT_STARKNET_VERSION: StarknetVersion = StarknetVersion::new([0, 13, 1, 1]); // version 0.13.1.1
+pub const CURRENT_STARKNET_VERSION: StarknetVersion = StarknetVersion::new([0, 13, 4, 0]);
 
 /// Starknet protocol version.
 #[derive(Debug, Copy, Clone, PartialEq, Eq)]
