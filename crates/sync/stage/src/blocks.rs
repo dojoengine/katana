@@ -273,6 +273,7 @@ mod tests {
     use crate::{Stage, StageExecutionInput};
 
     #[tokio::test]
+    #[ignore = "require external network"]
     async fn fetch_blocks() {
         let from_block = 308919;
         let to_block = from_block + 2;

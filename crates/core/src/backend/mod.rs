@@ -117,7 +117,7 @@ impl<EF: ExecutorFactory> Backend<EF> {
             parent_hash,
             number: block_env.number,
             timestamp: block_env.timestamp,
-            starknet_version: CURRENT_STARKNET_VERSION,
+            starknet_version: block_env.starknet_version,
             l1_da_mode: L1DataAvailabilityMode::Calldata,
             sequencer_address: block_env.sequencer_address,
             l2_gas_prices: block_env.l2_gas_prices.clone(),
@@ -181,6 +181,7 @@ impl<EF: ExecutorFactory> Backend<EF> {
 
         block_env.number += 1;
         block_env.timestamp = timestamp;
+        block_env.starknet_version = CURRENT_STARKNET_VERSION;
 
         // update the gas prices
         self.update_block_gas_prices(block_env);
