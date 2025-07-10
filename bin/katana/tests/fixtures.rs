@@ -1,7 +1,7 @@
 use std::collections::{BTreeMap, BTreeSet};
 
 use katana_primitives::block::{Block, BlockHash, FinalityStatus};
-use katana_primitives::class::{ClassHash, CompiledClassHash};
+use katana_primitives::class::{ClassHash, CompiledClassHash, ContractClass};
 use katana_primitives::contract::{ContractAddress, Nonce, StorageKey, StorageValue};
 use katana_primitives::state::{StateUpdates, StateUpdatesWithClasses};
 use katana_provider::providers::db::DbProvider;
@@ -69,9 +69,20 @@ fn populate_db(db: &TempDb) {
     let provider = db.provider_rw();
 
     for num in 1..=15u64 {
+        let mut classes = BTreeMap::new();
+
         let mut declared_classes = BTreeMap::new();
         for _ in 0..10 {
-            declared_classes.insert(arbitrary!(ClassHash), arbitrary!(CompiledClassHash));
+            let hash = arbitrary!(ClassHash);
+            declared_classes.insert(hash, arbitrary!(CompiledClassHash));
+            classes.insert(hash, ContractClass::Legacy(Default::default()));
+        }
+
+        let mut deprecated_declared_classes = BTreeSet::new();
+        for _ in 0..10 {
+            let hash = arbitrary!(ClassHash);
+            deprecated_declared_classes.insert(hash);
+            classes.insert(hash, ContractClass::Legacy(Default::default()));
         }
 
         let mut nonce_updates = BTreeMap::new();
@@ -93,11 +104,6 @@ fn populate_db(db: &TempDb) {
 
         for _ in 0..10 {
             deployed_contracts.insert(arbitrary!(ContractAddress), arbitrary!(ClassHash));
-        }
-
-        let mut deprecated_declared_classes = BTreeSet::new();
-        for _ in 0..10 {
-            deprecated_declared_classes.insert(arbitrary!(ClassHash));
         }
 
         let mut replaced_classes = BTreeMap::new();
@@ -126,7 +132,7 @@ fn populate_db(db: &TempDb) {
         provider
             .insert_block_with_states_and_receipts(
                 block,
-                StateUpdatesWithClasses { state_updates, ..Default::default() },
+                StateUpdatesWithClasses { state_updates, classes },
                 Vec::new(),
                 Vec::new(),
             )

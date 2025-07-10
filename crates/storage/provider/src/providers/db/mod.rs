@@ -871,6 +871,7 @@ mod tests {
     use katana_primitives::block::{
         Block, BlockHashOrNumber, FinalityStatus, Header, SealedBlockWithStatus,
     };
+    use katana_primitives::class::ContractClass;
     use katana_primitives::contract::ContractAddress;
     use katana_primitives::execution::TypedTransactionExecutionInfo;
     use katana_primitives::fee::FeeInfo;
@@ -920,6 +921,10 @@ mod tests {
                 )]),
                 ..Default::default()
             },
+            classes: BTreeMap::from([
+                (felt!("3"), ContractClass::Legacy(Default::default())),
+                (felt!("4"), ContractClass::Legacy(Default::default())),
+            ]),
             ..Default::default()
         }
     }
