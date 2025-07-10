@@ -17,7 +17,7 @@ use katana_primitives::genesis::constant::{
 use katana_primitives::genesis::Genesis;
 use katana_primitives::state::StateUpdatesWithClasses;
 use katana_primitives::utils::split_u256;
-use katana_primitives::version::CURRENT_STARKNET_VERSION;
+use katana_primitives::version::StarknetVersion;
 use katana_primitives::Felt;
 use lazy_static::lazy_static;
 use serde::{Deserialize, Serialize};
@@ -47,7 +47,6 @@ pub struct ChainSpec {
 impl ChainSpec {
     pub fn block(&self) -> ExecutableBlock {
         let header = PartialHeader {
-            starknet_version: CURRENT_STARKNET_VERSION,
             number: self.genesis.number,
             timestamp: self.genesis.timestamp,
             parent_hash: self.genesis.parent_hash,
@@ -56,6 +55,8 @@ impl ChainSpec {
             l2_gas_prices: GasPrices::MIN,
             l1_data_gas_prices: self.genesis.gas_prices.clone(),
             sequencer_address: self.genesis.sequencer_address,
+            // keep at 0.13.1.1 for backward compatibility reason
+            starknet_version: StarknetVersion::new([0, 13, 1, 1]),
         };
 
         ExecutableBlock { header, body: Vec::new() }
@@ -270,7 +271,6 @@ mod tests {
         DEFAULT_LEGACY_ERC20_CLASS, DEFAULT_LEGACY_ERC20_COMPILED_CLASS_HASH,
         DEFAULT_LEGACY_UDC_CLASS, DEFAULT_LEGACY_UDC_COMPILED_CLASS_HASH,
     };
-    use katana_primitives::version::CURRENT_STARKNET_VERSION;
     use starknet::macros::felt;
 
     use super::*;
@@ -356,7 +356,7 @@ mod tests {
                 l1_gas_prices: chain_spec.genesis.gas_prices.clone(),
                 l1_data_gas_prices: chain_spec.genesis.gas_prices.clone(),
                 l1_da_mode: L1DataAvailabilityMode::Calldata,
-                starknet_version: CURRENT_STARKNET_VERSION,
+                starknet_version: StarknetVersion::new([0, 13, 1, 1]),
             },
             body: Vec::new(),
         };

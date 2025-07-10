@@ -1,5 +1,15 @@
 /// The currently supported version of the Starknet protocol.
-pub const CURRENT_STARKNET_VERSION: StarknetVersion = StarknetVersion::new([0, 13, 1, 1]); // version 0.13.1.1
+///
+/// ## IMPORTANT
+///
+/// This version must correspond to the minimum Cairo/Sierra version we want to support. Ideally,
+/// this version should be synchronized with Dojo's Cairo version.
+///
+/// As of Cairo v2.10.0, contracts written with that version are only deployable on Starknet
+/// >=0.13.4. Check out the [release notes] for more info.
+///
+/// [release notes]: https://community.starknet.io/t/cairo-v2-10-0-is-out/115362
+pub const CURRENT_STARKNET_VERSION: StarknetVersion = StarknetVersion::new([0, 13, 4, 0]);
 
 /// Starknet protocol version.
 #[derive(Debug, Copy, Clone, PartialEq, Eq)]
