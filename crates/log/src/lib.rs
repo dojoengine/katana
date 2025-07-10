@@ -41,26 +41,14 @@ pub enum Error {
     OtelSdk(#[from] opentelemetry_sdk::error::OTelSdkError),
 }
 
-pub async fn init(
-    format: LogFormat,
-    dev_log: bool,
-    telemetry_config: Option<TracerConfig>,
-) -> Result<(), Error> {
+pub async fn init(format: LogFormat, telemetry_config: Option<TracerConfig>) -> Result<(), Error> {
     const DEFAULT_LOG_FILTER: &str =
         "katana_db::mdbx=trace,cairo_native::compiler=off,pipeline=debug,stage=debug,tasks=debug,\
          executor=trace,forking::backend=trace,blockifier=off,jsonrpsee_server=off,hyper=off,\
          messaging=debug,node=error,explorer=info,rpc=trace,pool=trace,info";
 
-    let filter = if dev_log {
-        format!("{DEFAULT_LOG_FILTER},server=debug")
-    } else {
-        DEFAULT_LOG_FILTER.to_string()
-    };
-
-    // If the user has set the `RUST_LOG` environment variable, then we prioritize it.
-    // Otherwise, we use the default log filter.
-    // TODO: change env var to `KATANA_LOG`.
-    let filter = EnvFilter::try_from_default_env().or(EnvFilter::try_new(&filter))?;
+    let default_filter = EnvFilter::try_new(DEFAULT_LOG_FILTER);
+    let filter = EnvFilter::try_from_default_env().or(default_filter)?;
 
     // Initialize tracing subscriber with optional telemetry
     if let Some(telemetry_config) = telemetry_config {
