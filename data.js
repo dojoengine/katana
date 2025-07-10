@@ -1,5 +1,5 @@
 window.BENCHMARK_DATA = {
-  "lastUpdate": 1752119149052,
+  "lastUpdate": 1752148375692,
   "repoUrl": "https://github.com/dojoengine/katana",
   "entries": {
     "Benchmark": [
@@ -2561,6 +2561,72 @@ window.BENCHMARK_DATA = {
             "name": "Katana.Startup",
             "value": 125198344,
             "range": "± 3343983",
+            "unit": "ns/iter"
+          }
+        ]
+      },
+      {
+        "commit": {
+          "author": {
+            "email": "evergreenkary@gmail.com",
+            "name": "Ammar Arif",
+            "username": "kariy"
+          },
+          "committer": {
+            "email": "evergreenkary@gmail.com",
+            "name": "Ammar Arif",
+            "username": "kariy"
+          },
+          "distinct": true,
+          "id": "bf81cd2491926c541a929de4a2d66b73b9c6ba5e",
+          "message": "feat: bump Starknet version to 0.13.4 (#169)\n\nStarknet version ties heavily to the minimum Cairo version the network supports - deploying a Cairo contract that was compiled with unsupported compiler version may result in an error. \n\nAssuming that Dojo wants to use Cairo compiler version >=2.10, Katana should at least be using Starknet version **0.13.4** as Cairo 2.10 introduces new changes that are only supported starting from **0.13.4**.\n\nWe maintain the default Starknet version used in the genesis block - this is to ensure we change the computed genesis block hash.\n\n---\n\nThe issue for this particular case, currently Katana is failing with a `Syscall gas cost must be greater than base syscall gas cost` error when executing a contract that uses the `get_class_hash_at_syscall`. The syscall was first introduced in Cairo **2.10.0**, and thus requires at least Starknet **0.13.4** as mentioned in the [release notes](https://community.starknet.io/t/cairo-v2-10-0-is-out/115362).",
+          "timestamp": "2025-07-10T19:45:41+08:00",
+          "tree_id": "27d93484c2882ab4c27443dd544b652358404d81",
+          "url": "https://github.com/dojoengine/katana/commit/bf81cd2491926c541a929de4a2d66b73b9c6ba5e"
+        },
+        "date": 1752148374268,
+        "tool": "cargo",
+        "benches": [
+          {
+            "name": "Commit.Small/Parallel",
+            "value": 426353,
+            "range": "± 11867",
+            "unit": "ns/iter"
+          },
+          {
+            "name": "Commit.Big/Serial",
+            "value": 94301769,
+            "range": "± 807508",
+            "unit": "ns/iter"
+          },
+          {
+            "name": "Commit.Big/Parallel",
+            "value": 65911583,
+            "range": "± 2124683",
+            "unit": "ns/iter"
+          },
+          {
+            "name": "compress world contract",
+            "value": 2630019,
+            "range": "± 57487",
+            "unit": "ns/iter"
+          },
+          {
+            "name": "decompress world contract",
+            "value": 2987995,
+            "range": "± 15473",
+            "unit": "ns/iter"
+          },
+          {
+            "name": "Invoke.ERC20.transfer/Blockifier.Cold",
+            "value": 16202743,
+            "range": "± 59577",
+            "unit": "ns/iter"
+          },
+          {
+            "name": "Katana.Startup",
+            "value": 125483539,
+            "range": "± 362862",
             "unit": "ns/iter"
           }
         ]
