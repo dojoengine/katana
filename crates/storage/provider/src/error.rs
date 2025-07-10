@@ -61,6 +61,10 @@ pub enum ProviderError {
     #[error("Missing compiled class hash for class hash {0:#x}")]
     MissingCompiledClassHash(ClassHash),
 
+    /// Error when a contract class artifact is not found but the class hash exists.
+    #[error("Missing contract class for class hash {0:#x}")]
+    MissingContractClass(ClassHash),
+
     /// Error when a contract class change entry is not found but the block number of when the
     /// change happen exists in the class change list.
     #[error("Missing contract class change entry")]

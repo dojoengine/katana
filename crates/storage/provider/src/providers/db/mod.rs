@@ -712,22 +712,29 @@ impl<Db: Database> BlockWriter for DbProvider<Db> {
             }
 
             // insert classes
+            let mut classes_registry = states.classes;
 
             for (class_hash, compiled_hash) in states.state_updates.declared_classes {
                 db_tx.put::<tables::CompiledClassHashes>(class_hash, compiled_hash)?;
 
                 db_tx.put::<tables::ClassDeclarationBlock>(class_hash, block_number)?;
-                db_tx.put::<tables::ClassDeclarations>(block_number, class_hash)?
+                db_tx.put::<tables::ClassDeclarations>(block_number, class_hash)?;
+
+                let entry = classes_registry.remove(&class_hash);
+                let class = entry.ok_or(ProviderError::MissingContractClass(class_hash))?;
+                db_tx.put::<tables::Classes>(class_hash, class)?;
             }
 
             for class_hash in states.state_updates.deprecated_declared_classes {
                 db_tx.put::<tables::ClassDeclarationBlock>(class_hash, block_number)?;
-                db_tx.put::<tables::ClassDeclarations>(block_number, class_hash)?
-            }
+                db_tx.put::<tables::ClassDeclarations>(block_number, class_hash)?;
 
-            for (class_hash, class) in states.classes {
+                let entry = classes_registry.remove(&class_hash);
+                let class = entry.ok_or(ProviderError::MissingContractClass(class_hash))?;
                 db_tx.put::<tables::Classes>(class_hash, class)?;
             }
+
+            assert!(classes_registry.is_empty(), "all declared classes should've been stored");
 
             // insert storage changes
             {
@@ -864,6 +871,7 @@ mod tests {
     use katana_primitives::block::{
         Block, BlockHashOrNumber, FinalityStatus, Header, SealedBlockWithStatus,
     };
+    use katana_primitives::class::ContractClass;
     use katana_primitives::contract::ContractAddress;
     use katana_primitives::execution::TypedTransactionExecutionInfo;
     use katana_primitives::fee::FeeInfo;
@@ -913,6 +921,10 @@ mod tests {
                 )]),
                 ..Default::default()
             },
+            classes: BTreeMap::from([
+                (felt!("3"), ContractClass::Legacy(Default::default())),
+                (felt!("4"), ContractClass::Legacy(Default::default())),
+            ]),
             ..Default::default()
         }
     }
