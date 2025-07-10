@@ -6,7 +6,7 @@ use katana_core::backend::Backend;
 use katana_executor::implementation::blockifier::cache::ClassCache;
 use katana_executor::implementation::blockifier::BlockifierFactory;
 use katana_executor::BlockLimits;
-use katana_gas_oracle::GasPriceOracle;
+use katana_gas_price_oracle::GasPriceOracle;
 use katana_primitives::chain::ChainId;
 use katana_primitives::env::CfgEnv;
 use katana_primitives::felt;

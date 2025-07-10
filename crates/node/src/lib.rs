@@ -24,7 +24,7 @@ use katana_db::Db;
 use katana_executor::implementation::blockifier::cache::ClassCache;
 use katana_executor::implementation::blockifier::BlockifierFactory;
 use katana_executor::ExecutionFlags;
-use katana_gas_oracle::{FixedPriceOracle, GasPriceOracle};
+use katana_gas_price_oracle::{FixedPriceOracle, GasPriceOracle};
 use katana_metrics::exporters::prometheus::PrometheusRecorder;
 use katana_metrics::sys::DiskReporter;
 use katana_metrics::{Report, Server as MetricsServer};

@@ -68,7 +68,7 @@ katana-executor = { path = "crates/executor" }
 katana-explorer = { path = "crates/explorer" }
 katana-feeder-gateway = { path = "crates/feeder-gateway" }
 katana-fork = { path = "crates/storage/fork" }
-katana-gas-oracle = { path = "crates/oracle/gas" }
+katana-gas-price-oracle = { path = "crates/oracle/gas" }
 katana-log = { path = "crates/log" }
 katana-messaging = { path = "crates/messaging" }
 katana-metrics = { path = "crates/metrics" }
