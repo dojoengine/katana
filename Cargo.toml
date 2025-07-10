@@ -36,6 +36,7 @@ members = [
 	"crates/trie",
 	"crates/utils",
 	"tests/db-compat",
+	"tests/load-test",
 	"tests/reverse-proxy",
 	"tests/snos",
 ]
