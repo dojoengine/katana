@@ -471,7 +471,7 @@ mod test {
     use std::str::FromStr;
 
     use assert_matches::assert_matches;
-    use katana_gas_oracle::{
+    use katana_gas_price_oracle::{
         DEFAULT_ETH_L1_DATA_GAS_PRICE, DEFAULT_ETH_L1_GAS_PRICE, DEFAULT_ETH_L2_GAS_PRICE,
         DEFAULT_STRK_L1_DATA_GAS_PRICE, DEFAULT_STRK_L1_GAS_PRICE,
     };

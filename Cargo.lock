@@ -6274,7 +6274,7 @@ dependencies = [
  "dojo-utils",
  "katana-chain-spec",
  "katana-core",
- "katana-gas-oracle",
+ "katana-gas-price-oracle",
  "katana-log",
  "katana-messaging",
  "katana-node",
@@ -6324,7 +6324,7 @@ dependencies = [
  "katana-chain-spec",
  "katana-db",
  "katana-executor",
- "katana-gas-oracle",
+ "katana-gas-price-oracle",
  "katana-metrics",
  "katana-pool",
  "katana-primitives",
@@ -6468,7 +6468,7 @@ dependencies = [
 ]
 
 [[package]]
-name = "katana-gas-oracle"
+name = "katana-gas-price-oracle"
 version = "1.6.0"
 dependencies = [
  "alloy-provider 0.4.2",
@@ -6581,7 +6581,7 @@ dependencies = [
  "katana-db",
  "katana-executor",
  "katana-feeder-gateway",
- "katana-gas-oracle",
+ "katana-gas-price-oracle",
  "katana-log",
  "katana-messaging",
  "katana-metrics",

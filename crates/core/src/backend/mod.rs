@@ -4,7 +4,7 @@ use std::sync::Arc;
 use anyhow::{anyhow, Context};
 use katana_chain_spec::ChainSpec;
 use katana_executor::{ExecutionOutput, ExecutionResult, ExecutorFactory};
-use katana_gas_oracle::GasPriceOracle;
+use katana_gas_price_oracle::GasPriceOracle;
 use katana_primitives::block::{
     BlockHash, BlockNumber, FinalityStatus, Header, PartialHeader, SealedBlock,
     SealedBlockWithStatus,
