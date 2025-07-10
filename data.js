@@ -1,5 +1,5 @@
 window.BENCHMARK_DATA = {
-  "lastUpdate": 1752170028371,
+  "lastUpdate": 1752179187506,
   "repoUrl": "https://github.com/dojoengine/katana",
   "entries": {
     "Benchmark": [
@@ -2693,6 +2693,72 @@ window.BENCHMARK_DATA = {
             "name": "Katana.Startup",
             "value": 125602528,
             "range": "± 542331",
+            "unit": "ns/iter"
+          }
+        ]
+      },
+      {
+        "commit": {
+          "author": {
+            "email": "evergreenkary@gmail.com",
+            "name": "Ammar Arif",
+            "username": "kariy"
+          },
+          "committer": {
+            "email": "noreply@github.com",
+            "name": "GitHub",
+            "username": "web-flow"
+          },
+          "distinct": true,
+          "id": "d045c4225537d884b4d9d29d0eed023be591bc5d",
+          "message": "refactor(log): remove debug logs (#175)\n\nRemoves 'dev' logs which are basically just `debug`-level RPC server logs that would be implicitly enabled when Katana is used with `--dev` flag.\r\n\r\nThe logs have been found to be rather noisy as it will log out the method name of all RPC requests. The logs, however, can be manually enabled by adding `server=debug` to the `RUST_LOG` environment variable. So, it's not exactly a big deal for it to be removed.",
+          "timestamp": "2025-07-10T16:19:28-04:00",
+          "tree_id": "814bb73f3657ca226d591dfbf3fc8fbb09c9129b",
+          "url": "https://github.com/dojoengine/katana/commit/d045c4225537d884b4d9d29d0eed023be591bc5d"
+        },
+        "date": 1752179186244,
+        "tool": "cargo",
+        "benches": [
+          {
+            "name": "Commit.Small/Parallel",
+            "value": 422094,
+            "range": "± 6014",
+            "unit": "ns/iter"
+          },
+          {
+            "name": "Commit.Big/Serial",
+            "value": 94311700,
+            "range": "± 1132878",
+            "unit": "ns/iter"
+          },
+          {
+            "name": "Commit.Big/Parallel",
+            "value": 66016811,
+            "range": "± 2608705",
+            "unit": "ns/iter"
+          },
+          {
+            "name": "compress world contract",
+            "value": 2765897,
+            "range": "± 7239",
+            "unit": "ns/iter"
+          },
+          {
+            "name": "decompress world contract",
+            "value": 2976808,
+            "range": "± 11870",
+            "unit": "ns/iter"
+          },
+          {
+            "name": "Invoke.ERC20.transfer/Blockifier.Cold",
+            "value": 16268804,
+            "range": "± 144040",
+            "unit": "ns/iter"
+          },
+          {
+            "name": "Katana.Startup",
+            "value": 125564818,
+            "range": "± 830876",
             "unit": "ns/iter"
           }
         ]
