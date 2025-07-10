@@ -1,5 +1,5 @@
 window.BENCHMARK_DATA = {
-  "lastUpdate": 1752179187506,
+  "lastUpdate": 1752179264479,
   "repoUrl": "https://github.com/dojoengine/katana",
   "entries": {
     "Benchmark": [
@@ -2759,6 +2759,72 @@ window.BENCHMARK_DATA = {
             "name": "Katana.Startup",
             "value": 125564818,
             "range": "± 830876",
+            "unit": "ns/iter"
+          }
+        ]
+      },
+      {
+        "commit": {
+          "author": {
+            "email": "evergreenkary@gmail.com",
+            "name": "Ammar Arif",
+            "username": "kariy"
+          },
+          "committer": {
+            "email": "noreply@github.com",
+            "name": "GitHub",
+            "username": "web-flow"
+          },
+          "distinct": true,
+          "id": "8a003f611f7781451af2fbe4d46ae6e7fae207fa",
+          "message": "refactor(provider): store class artifacts based on declared classes (#173)\n\nAdds validation to ensure that all declared classes (both normal and deprecated) have their corresponding class artifacts included in the state updates, with proper error handling for missing classes.\r\n\r\nThis ensure that in a case where the state updates invariant is violated, the `insert_block_with_states_and_receipts` operation should fail accordingly. Not failing would result in an incoherent state.",
+          "timestamp": "2025-07-10T16:20:21-04:00",
+          "tree_id": "853fbef1bb93422c4a52120349ea815ed99dd829",
+          "url": "https://github.com/dojoengine/katana/commit/8a003f611f7781451af2fbe4d46ae6e7fae207fa"
+        },
+        "date": 1752179262641,
+        "tool": "cargo",
+        "benches": [
+          {
+            "name": "Commit.Small/Parallel",
+            "value": 429729,
+            "range": "± 8538",
+            "unit": "ns/iter"
+          },
+          {
+            "name": "Commit.Big/Serial",
+            "value": 93736513,
+            "range": "± 2156616",
+            "unit": "ns/iter"
+          },
+          {
+            "name": "Commit.Big/Parallel",
+            "value": 65034171,
+            "range": "± 2334335",
+            "unit": "ns/iter"
+          },
+          {
+            "name": "compress world contract",
+            "value": 2796378,
+            "range": "± 14302",
+            "unit": "ns/iter"
+          },
+          {
+            "name": "decompress world contract",
+            "value": 2983445,
+            "range": "± 15337",
+            "unit": "ns/iter"
+          },
+          {
+            "name": "Invoke.ERC20.transfer/Blockifier.Cold",
+            "value": 16336313,
+            "range": "± 153675",
+            "unit": "ns/iter"
+          },
+          {
+            "name": "Katana.Startup",
+            "value": 128199763,
+            "range": "± 1534283",
             "unit": "ns/iter"
           }
         ]
