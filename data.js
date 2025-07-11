@@ -1,5 +1,5 @@
 window.BENCHMARK_DATA = {
-  "lastUpdate": 1752196698222,
+  "lastUpdate": 1752215224315,
   "repoUrl": "https://github.com/dojoengine/katana",
   "entries": {
     "Benchmark": [
@@ -2891,6 +2891,72 @@ window.BENCHMARK_DATA = {
             "name": "Katana.Startup",
             "value": 127711571,
             "range": "± 572708",
+            "unit": "ns/iter"
+          }
+        ]
+      },
+      {
+        "commit": {
+          "author": {
+            "email": "dev@glihm.net",
+            "name": "glihm",
+            "username": "glihm"
+          },
+          "committer": {
+            "email": "noreply@github.com",
+            "name": "GitHub",
+            "username": "web-flow"
+          },
+          "distinct": true,
+          "id": "298025505623eb03afd0ee19f1c4beda875ed79a",
+          "message": "fix(rpc): ensure cairo serde for outside execution matches contract expectation (#180)\n\nA fix to match the contract entrypoint input when it comes to `execute_from_outside_v2/v3` as shown [here](https://github.com/cartridge-gg/argent-contracts-starknet/blob/35f21a533e7636f926484546652fb3470d2d478d/src/outside_execution/interface.cairo#L38).\r\n\r\nThe variant is not included in the input, but since `CairoSerde` doesn't have an `untagged` like `serde`, the variant index is always included.",
+          "timestamp": "2025-07-11T02:19:52-04:00",
+          "tree_id": "c5786331512db512163f8a64a8cd1fe51d757b2f",
+          "url": "https://github.com/dojoengine/katana/commit/298025505623eb03afd0ee19f1c4beda875ed79a"
+        },
+        "date": 1752215222899,
+        "tool": "cargo",
+        "benches": [
+          {
+            "name": "Commit.Small/Parallel",
+            "value": 431816,
+            "range": "± 8948",
+            "unit": "ns/iter"
+          },
+          {
+            "name": "Commit.Big/Serial",
+            "value": 94136066,
+            "range": "± 1602736",
+            "unit": "ns/iter"
+          },
+          {
+            "name": "Commit.Big/Parallel",
+            "value": 65046173,
+            "range": "± 1113653",
+            "unit": "ns/iter"
+          },
+          {
+            "name": "compress world contract",
+            "value": 2813887,
+            "range": "± 13667",
+            "unit": "ns/iter"
+          },
+          {
+            "name": "decompress world contract",
+            "value": 2989435,
+            "range": "± 16008",
+            "unit": "ns/iter"
+          },
+          {
+            "name": "Invoke.ERC20.transfer/Blockifier.Cold",
+            "value": 17259131,
+            "range": "± 551796",
+            "unit": "ns/iter"
+          },
+          {
+            "name": "Katana.Startup",
+            "value": 126961472,
+            "range": "± 933228",
             "unit": "ns/iter"
           }
         ]
