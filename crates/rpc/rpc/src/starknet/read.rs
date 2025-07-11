@@ -33,6 +33,7 @@ use starknet::core::types::TransactionStatus;
 use super::StarknetApi;
 #[cfg(feature = "cartridge")]
 use crate::cartridge;
+use crate::cartridge::client::CartridgeApiClient;
 
 #[async_trait]
 impl<EF: ExecutorFactory> StarknetApiServer for StarknetApi<EF> {
@@ -286,6 +287,7 @@ impl<EF: ExecutorFactory> StarknetApiServer for StarknetApi<EF> {
             };
 
             for tx in &transactions {
+                let api = CartridgeApiClient::new(paymaster.cartridge_api_url.clone());
                 let deploy_controller_tx =
                     cartridge::get_controller_deploy_tx_if_controller_address(
                         *paymaster_address,
@@ -294,7 +296,7 @@ impl<EF: ExecutorFactory> StarknetApiServer for StarknetApi<EF> {
                         tx,
                         self.inner.backend.chain_spec.id(),
                         state.clone(),
-                        &paymaster.cartridge_api_url,
+                        &api,
                     )
                     .await
                     .map_err(StarknetApiError::from)?;

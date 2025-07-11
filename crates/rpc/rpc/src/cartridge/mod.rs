@@ -44,12 +44,14 @@
 //! from environment variable `KATANA_VRF_PRIVATE_KEY`. It is important to note that changing the
 //! private key will result in a different VRF provider contract address.
 
+pub mod client;
 pub mod vrf;
 
 use std::sync::Arc;
 
 use anyhow::anyhow;
 use cainome::cairo_serde::CairoSerde;
+use client::CartridgeApiClient;
 use jsonrpsee::core::{async_trait, RpcResult};
 use katana_core::backend::Backend;
 use katana_core::service::block_producer::{BlockProducer, BlockProducerMode, PendingExecutor};
@@ -69,7 +71,6 @@ use katana_rpc_api::error::starknet::StarknetApiError;
 use katana_rpc_types::outside_execution::OutsideExecution;
 use katana_rpc_types::transaction::InvokeTxResult;
 use katana_tasks::TokioTaskSpawner;
-use serde::Deserialize;
 use starknet::core::types::Call;
 use starknet::macros::selector;
 use starknet::signers::{LocalWallet, Signer, SigningKey};
@@ -84,9 +85,9 @@ pub struct CartridgeApi<EF: ExecutorFactory> {
     backend: Arc<Backend<EF>>,
     block_producer: BlockProducer<EF>,
     pool: TxPool,
-    /// The root URL for the Cartridge API for paymaster related operations.
-    api_url: Url,
     vrf_ctx: VrfContext,
+    /// The Cartridge API client for paymaster related operations.
+    api_client: client::CartridgeApiClient,
 }
 
 impl<EF> Clone for CartridgeApi<EF>
@@ -95,10 +96,10 @@ where
 {
     fn clone(&self) -> Self {
         Self {
-            backend: Arc::clone(&self.backend),
+            backend: self.backend.clone(),
             block_producer: self.block_producer.clone(),
             pool: self.pool.clone(),
-            api_url: self.api_url.clone(),
+            api_client: self.api_client.clone(),
             vrf_ctx: self.vrf_ctx.clone(),
         }
     }
@@ -119,13 +120,14 @@ impl<EF: ExecutorFactory> CartridgeApi<EF> {
             .nth(0)
             .expect("Cartridge paymaster account should exist");
 
+        let api_client = CartridgeApiClient::new(api_url);
         let vrf_ctx = VrfContext::new(CARTRIDGE_VRF_DEFAULT_PRIVATE_KEY, *pm_address);
 
         // Info to ensure this is visible to the user without changing the default logging level.
         // The use can still use `rpc::cartridge` in debug to see the random value and the seed.
         info!(target: "rpc::cartridge", paymaster_address = %pm_address, vrf_address = %vrf_ctx.address(), "Cartridge API initialized.");
 
-        Self { backend, block_producer, pool, api_url, vrf_ctx }
+        Self { backend, block_producer, pool, api_client, vrf_ctx }
     }
 
     fn nonce(&self, contract_address: ContractAddress) -> Result<Option<Nonce>, StarknetApiError> {
@@ -190,7 +192,7 @@ impl<EF: ExecutorFactory> CartridgeApi<EF> {
 	           	debug!(target: "rpc::cartridge", controller = %address, "Controller not yet deployed");
                 if let Some(tx) =
                     futures::executor::block_on(craft_deploy_cartridge_controller_tx(
-                        &this.api_url,
+                        &this.api_client,
                         address,
                         *pm_address,
                         pm_private_key,
@@ -304,52 +306,6 @@ impl<EF: ExecutorFactory> CartridgeApiServer for CartridgeApi<EF> {
     }
 }
 
-/// Response from the Cartridge API to fetch the calldata for the constructor of the given
-/// controller address.
-#[derive(Debug, Deserialize)]
-struct CartridgeAccountResponse {
-    /// The address of the controller account.
-    #[allow(unused)]
-    address: Felt,
-    /// The username of the controller account used as salt.
-    #[allow(unused)]
-    username: String,
-    /// The calldata for the constructor of the given controller address, this is
-    /// UDC calldata, already containing the class hash and the salt + the constructor arguments.
-    calldata: Vec<Felt>,
-}
-
-/// Fetch the calldata for the constructor of the given controller address.
-///
-/// Returns `None` if the `address` is not associated with a Controller account.
-async fn fetch_controller_constructor_calldata(
-    cartridge_api_url: &Url,
-    address: ContractAddress,
-) -> anyhow::Result<Option<Vec<Felt>>> {
-    debug!(target: "rpc::cartridge", %address, "Fetching Controller constructor calldata");
-    let account_data_url = cartridge_api_url.join("/accounts/calldata")?;
-
-    let body = serde_json::json!({
-        "address": address
-    });
-
-    let client = reqwest::Client::new();
-    let response = client
-        .post(account_data_url)
-        .header("Content-Type", "application/json")
-        .json(&body)
-        .send()
-        .await?;
-
-    let response = response.text().await?;
-    if response.contains("Address not found") {
-        Ok(None)
-    } else {
-        let account = serde_json::from_str::<CartridgeAccountResponse>(&response)?;
-        Ok(Some(account.calldata))
-    }
-}
-
 /// Encodes the given calls into a vector of Felt values (New encoding, cairo 1),
 /// since controller accounts are Cairo 1 contracts.
 pub fn encode_calls(calls: Vec<Call>) -> Vec<Felt> {
@@ -378,7 +334,7 @@ pub async fn get_controller_deploy_tx_if_controller_address(
     tx: &ExecutableTxWithHash,
     chain_id: ChainId,
     state: Arc<Box<dyn StateProvider>>,
-    cartridge_api_url: &Url,
+    cartridge_api_client: &CartridgeApiClient,
 ) -> anyhow::Result<Option<ExecutableTxWithHash>> {
     // The whole Cartridge paymaster flow would only be accessible mainly from the Controller
     // wallet. The Controller wallet only supports V3 transactions (considering < V3
@@ -395,7 +351,7 @@ pub async fn get_controller_deploy_tx_if_controller_address(
         }
 
         if let tx @ Some(..) = craft_deploy_cartridge_controller_tx(
-            cartridge_api_url,
+            cartridge_api_client,
             maybe_controller_address,
             paymaster_address,
             paymaster_private_key,
@@ -416,20 +372,22 @@ pub async fn get_controller_deploy_tx_if_controller_address(
 ///
 /// Returns None if the provided `controller_address` is not registered in the Cartridge API.
 pub async fn craft_deploy_cartridge_controller_tx(
-    cartridge_api_url: &Url,
+    cartridge_api_client: &CartridgeApiClient,
     controller_address: ContractAddress,
     paymaster_address: ContractAddress,
     paymaster_private_key: Felt,
     chain_id: ChainId,
     paymaster_nonce: Felt,
 ) -> anyhow::Result<Option<ExecutableTxWithHash>> {
-    if let Some(calldata) =
-        fetch_controller_constructor_calldata(cartridge_api_url, controller_address).await?
+    if let Some(res) = cartridge_api_client
+        .get_account_calldata(controller_address)
+        .await
+        .map_err(|e| anyhow!("Failed to fetch controller constructor calldata: {e}"))?
     {
         let call = Call {
             to: DEFAULT_UDC_ADDRESS.into(),
             selector: selector!("deployContract"),
-            calldata,
+            calldata: res.calldata,
         };
 
         let mut tx = InvokeTxV3 {
