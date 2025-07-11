@@ -5,6 +5,12 @@
 //! fee subsidy, and other advanced transaction patterns.
 //!
 //! Based on [SNIP-9](https://github.com/starknet-io/SNIPs/blob/main/SNIPS/snip-9.md).
+//!
+//! An important note is that the `execute_from_outside_[v2/v3]` functions are not expecting
+//! the serialized enum [`OutsideExecution`] but instead the variant already serialized for the
+//! matching version.
+//! This is why [`OutsideExecution`] is not deriving `CairoSerde` directly.
+//! <https://github.com/cartridge-gg/argent-contracts-starknet/blob/35f21a533e7636f926484546652fb3470d2d478d/src/outside_execution/interface.cairo#L38>
 
 use cainome::cairo_serde::{deserialize_from_hex, serialize_as_hex};
 use cainome::cairo_serde_derive::CairoSerde;
@@ -63,7 +69,7 @@ pub struct OutsideExecutionV3 {
     pub calls: Vec<Call>,
 }
 
-#[derive(Clone, CairoSerde, Serialize, Deserialize, Debug)]
+#[derive(Clone, Serialize, Deserialize, Debug)]
 #[serde(untagged)]
 pub enum OutsideExecution {
     /// SNIP-9 standard version.

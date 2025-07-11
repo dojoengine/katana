@@ -66,7 +66,9 @@ use katana_primitives::{ContractAddress, Felt};
 use katana_provider::traits::state::{StateFactoryProvider, StateProvider};
 use katana_rpc_api::cartridge::CartridgeApiServer;
 use katana_rpc_api::error::starknet::StarknetApiError;
-use katana_rpc_types::outside_execution::OutsideExecution;
+use katana_rpc_types::outside_execution::{
+    OutsideExecution, OutsideExecutionV2, OutsideExecutionV3,
+};
 use katana_rpc_types::transaction::InvokeTxResult;
 use katana_tasks::TokioTaskSpawner;
 use serde::Deserialize;
@@ -211,8 +213,15 @@ impl<EF: ExecutorFactory> CartridgeApi<EF> {
                 nonce += Nonce::ONE;
             }
 
-            let mut inner_calldata =
-                OutsideExecution::cairo_serialize(&outside_execution);
+            let mut inner_calldata = match &outside_execution {
+                OutsideExecution::V2(v2) => {
+                    OutsideExecutionV2::cairo_serialize(v2)
+                }
+                OutsideExecution::V3(v3) => {
+                    OutsideExecutionV3::cairo_serialize(v3)
+                }
+            };
+
             inner_calldata.extend(Vec::<Felt>::cairo_serialize(&signature));
 
             let execute_from_outside_call = Call { to: address.into(), selector: entrypoint, calldata: inner_calldata };
