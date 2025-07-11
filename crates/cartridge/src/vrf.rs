@@ -1,3 +1,21 @@
+//! For the VRF, the integration works as follows (if an execution from outside is targetting the
+//! VRF provider contract):
+//!
+//! 1. The VRF provider contract is deployed (if not already deployed).
+//! 2. The Stark VRF proof is generated using the `Source` provided in the call. Since one of the
+//!    `Source` is a nonce for a given address, Katana keeps an in-memory cache of the nonces for
+//!    each address. WARNING: Restarting Katana will reset the cache, hence reset the VRF sequence.
+//! 3. The original execution from outside call is then sandwitched between two VRF calls, one for
+//!    submitting the randomness, and one to assert the correct consumption of the randomness.
+//! 4. When using the VRF, the user has the responsability to add a first call to target the VRF
+//!    provider contract `request_random` entrypoint. This call sets which `Source` will be used
+//!    to generate the randomness.
+//!    <https://docs.cartridge.gg/vrf/overview#executing-vrf-transactions>
+//!
+//! In the current implementation, the VRF contract is deployed with a default private key, or read
+//! from environment variable `KATANA_VRF_PRIVATE_KEY`. It is important to note that changing the
+//! private key will result in a different VRF provider contract address.
+
 use std::collections::HashMap;
 use std::str::FromStr;
 use std::sync::Arc;
@@ -103,7 +121,7 @@ impl VrfContext {
 
         let beta = ecvrf.proof_to_hash(&proof)?;
 
-        trace!(target: "rpc::cartridge", seed = ?seed[0], random_value = %format(beta), "Computing VRF proof.");
+        trace!(target: "cartridge", seed = ?seed[0], random_value = %format(beta), "Computing VRF proof.");
 
         Ok(StarkVrfProof {
             gamma_x: format(proof.0.x),
