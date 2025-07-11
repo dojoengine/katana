@@ -3,6 +3,7 @@ resolver = "2"
 
 members = [
 	"bin/katana",
+	"crates/cartridge",
 	"crates/chain-spec",
 	"crates/cli",
 	"crates/controller",
@@ -58,6 +59,8 @@ debug = true
 inherits = "release"
 
 [workspace.dependencies]
+cartridge = { path = "crates/cartridge" }
+
 katana-chain-spec = { path = "crates/chain-spec" }
 katana-cli = { path = "crates/cli" }
 katana-codecs = { path = "crates/storage/codecs" }

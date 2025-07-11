@@ -24,34 +24,14 @@
 //!    the associated transaction to be executed in order to deploy the controller account. See the
 //!    fee estimate RPC method of [StarknetApi](crate::starknet::StarknetApi) to see how the
 //!    Controller deployment is handled during fee estimation.
-//!
-//!
-//! For the VRF, the integration works as follows (if an execution from outside is targetting the
-//! VRF provider contract):
-//!
-//! 1. The VRF provider contract is deployed (if not already deployed).
-//! 2. The Stark VRF proof is generated using the `Source` provided in the call. Since one of the
-//!    `Source` is a nonce for a given address, Katana keeps an in-memory cache of the nonces for
-//!    each address. WARNING: Restarting Katana will reset the cache, hence reset the VRF sequence.
-//! 3. The original execution from outside call is then sandwitched between two VRF calls, one for
-//!    submitting the randomness, and one to assert the correct consumption of the randomness.
-//! 4. When using the VRF, the user has the responsability to add a first call to target the VRF
-//!    provider contract `request_random` entrypoint. This call sets which `Source` will be used
-//!    to generate the randomness.
-//!    <https://docs.cartridge.gg/vrf/overview#executing-vrf-transactions>
-//!
-//! In the current implementation, the VRF contract is deployed with a default private key, or read
-//! from environment variable `KATANA_VRF_PRIVATE_KEY`. It is important to note that changing the
-//! private key will result in a different VRF provider contract address.
-
-pub mod client;
-pub mod vrf;
 
 use std::sync::Arc;
 
 use anyhow::anyhow;
 use cainome::cairo_serde::CairoSerde;
-use client::CartridgeApiClient;
+use cartridge::vrf::{
+    VrfContext, CARTRIDGE_VRF_CLASS_HASH, CARTRIDGE_VRF_DEFAULT_PRIVATE_KEY, CARTRIDGE_VRF_SALT,
+};
 use jsonrpsee::core::{async_trait, RpcResult};
 use katana_core::backend::Backend;
 use katana_core::service::block_producer::{BlockProducer, BlockProducerMode, PendingExecutor};
@@ -76,9 +56,6 @@ use starknet::macros::selector;
 use starknet::signers::{LocalWallet, Signer, SigningKey};
 use tracing::{debug, info};
 use url::Url;
-use vrf::{
-    VrfContext, CARTRIDGE_VRF_CLASS_HASH, CARTRIDGE_VRF_DEFAULT_PRIVATE_KEY, CARTRIDGE_VRF_SALT,
-};
 
 #[allow(missing_debug_implementations)]
 pub struct CartridgeApi<EF: ExecutorFactory> {
@@ -87,7 +64,7 @@ pub struct CartridgeApi<EF: ExecutorFactory> {
     pool: TxPool,
     vrf_ctx: VrfContext,
     /// The Cartridge API client for paymaster related operations.
-    api_client: client::CartridgeApiClient,
+    api_client: cartridge::Client,
 }
 
 impl<EF> Clone for CartridgeApi<EF>
@@ -120,7 +97,7 @@ impl<EF: ExecutorFactory> CartridgeApi<EF> {
             .nth(0)
             .expect("Cartridge paymaster account should exist");
 
-        let api_client = CartridgeApiClient::new(api_url);
+        let api_client = cartridge::Client::new(api_url);
         let vrf_ctx = VrfContext::new(CARTRIDGE_VRF_DEFAULT_PRIVATE_KEY, *pm_address);
 
         // Info to ensure this is visible to the user without changing the default logging level.
@@ -334,7 +311,7 @@ pub async fn get_controller_deploy_tx_if_controller_address(
     tx: &ExecutableTxWithHash,
     chain_id: ChainId,
     state: Arc<Box<dyn StateProvider>>,
-    cartridge_api_client: &CartridgeApiClient,
+    cartridge_api_client: &cartridge::Client,
 ) -> anyhow::Result<Option<ExecutableTxWithHash>> {
     // The whole Cartridge paymaster flow would only be accessible mainly from the Controller
     // wallet. The Controller wallet only supports V3 transactions (considering < V3
@@ -372,7 +349,7 @@ pub async fn get_controller_deploy_tx_if_controller_address(
 ///
 /// Returns None if the provided `controller_address` is not registered in the Cartridge API.
 pub async fn craft_deploy_cartridge_controller_tx(
-    cartridge_api_client: &CartridgeApiClient,
+    cartridge_api_client: &cartridge::Client,
     controller_address: ContractAddress,
     paymaster_address: ContractAddress,
     paymaster_private_key: Felt,
@@ -387,7 +364,7 @@ pub async fn craft_deploy_cartridge_controller_tx(
         let call = Call {
             to: DEFAULT_UDC_ADDRESS.into(),
             selector: selector!("deployContract"),
-            calldata: res.calldata,
+            calldata: res.constructor_calldata,
         };
 
         let mut tx = InvokeTxV3 {
