@@ -1,5 +1,3 @@
-use std::collections::BTreeMap;
-
 use blockifier::fee::receipt::TransactionReceipt;
 use katana_primitives::execution::{CallInfo, TransactionExecutionInfo, TransactionResources};
 use katana_primitives::fee::FeeInfo;
@@ -96,15 +94,15 @@ fn events_from_exec_info(info: &TransactionExecutionInfo) -> Vec<Event> {
     let mut events: Vec<Event> = vec![];
 
     if let Some(ref call) = info.validate_call_info {
-        events.extend(get_events_recur(call));
+        events.extend(collect_all_events(call));
     }
 
     if let Some(ref call) = info.execute_call_info {
-        events.extend(get_events_recur(call));
+        events.extend(collect_all_events(call));
     }
 
     if let Some(ref call) = info.fee_transfer_call_info {
-        events.extend(get_events_recur(call));
+        events.extend(collect_all_events(call));
     }
 
     events
@@ -128,10 +126,9 @@ fn l2_to_l1_messages_from_exec_info(info: &TransactionExecutionInfo) -> Vec<Mess
     messages
 }
 
-fn get_events_recur(call_info: &CallInfo) -> Vec<Event> {
-    fn inner(call_info: &CallInfo) -> BTreeMap<usize, Event> {
+fn collect_all_events(call_info: &CallInfo) -> Vec<Event> {
+    fn inner(call_info: &CallInfo, events: &mut Vec<(usize, Event)>) {
         let from_address = call_info.call.storage_address.into();
-        let mut events = BTreeMap::new();
 
         events.extend(call_info.execution.events.iter().map(|e| {
             let order = e.order;
@@ -140,12 +137,15 @@ fn get_events_recur(call_info: &CallInfo) -> Vec<Event> {
             (order, Event { from_address, data, keys })
         }));
 
-        call_info.inner_calls.iter().for_each(|call| events.extend(inner(call)));
-
-        events
+        for inner_call in &call_info.inner_calls {
+            inner(inner_call, events);
+        }
     }
 
-    inner(call_info).into_values().collect()
+    let mut events = Vec::new();
+    inner(call_info, &mut events);
+    events.sort_by_key(|(order, _)| *order);
+    events.into_iter().map(|(_, event)| event).collect()
 }
 
 fn get_l2_to_l1_messages_recur(info: &CallInfo) -> Vec<MessageToL1> {
@@ -171,7 +171,7 @@ mod tests {
     use katana_utils::arbitrary;
     use starknet_api::transaction::{EventContent, EventData, EventKey};
 
-    use super::get_events_recur;
+    use super::collect_all_events;
 
     macro_rules! rand_ordered_event {
         ($order:expr) => {{
@@ -255,7 +255,7 @@ mod tests {
         let expected_events =
             vec![event_0, event_1, event_2, event_3, event_4, event_5, event_6, event_7];
 
-        let actual_events = get_events_recur(&call_1);
+        let actual_events = collect_all_events(&call_1);
 
         for (idx, event) in actual_events.iter().enumerate() {
             let expected_event = expected_events[idx].clone();
