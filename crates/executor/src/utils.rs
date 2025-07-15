@@ -1,3 +1,5 @@
+use std::collections::BTreeMap;
+
 use blockifier::fee::receipt::TransactionReceipt;
 use katana_primitives::execution::{CallInfo, TransactionExecutionInfo, TransactionResources};
 use katana_primitives::fee::FeeInfo;
@@ -126,19 +128,24 @@ fn l2_to_l1_messages_from_exec_info(info: &TransactionExecutionInfo) -> Vec<Mess
     messages
 }
 
-fn get_events_recur(info: &CallInfo) -> Vec<Event> {
-    let from_address = info.call.storage_address.into();
-    let mut events = Vec::new();
+fn get_events_recur(call_info: &CallInfo) -> Vec<Event> {
+    fn inner(call_info: &CallInfo) -> BTreeMap<usize, Event> {
+        let from_address = call_info.call.storage_address.into();
+        let mut events = BTreeMap::new();
 
-    events.extend(info.execution.events.iter().map(|e| {
-        let data = e.event.data.0.clone();
-        let keys = e.event.keys.iter().map(|k| k.0).collect();
-        Event { from_address, data, keys }
-    }));
+        events.extend(call_info.execution.events.iter().map(|e| {
+            let order = e.order;
+            let data = e.event.data.0.clone();
+            let keys = e.event.keys.iter().map(|k| k.0).collect();
+            (order, Event { from_address, data, keys })
+        }));
 
-    info.inner_calls.iter().for_each(|call| events.extend(get_events_recur(call)));
+        call_info.inner_calls.iter().for_each(|call| events.extend(inner(call)));
 
-    events
+        events
+    }
+
+    inner(call_info).into_values().collect()
 }
 
 fn get_l2_to_l1_messages_recur(info: &CallInfo) -> Vec<MessageToL1> {
@@ -154,4 +161,105 @@ fn get_l2_to_l1_messages_recur(info: &CallInfo) -> Vec<MessageToL1> {
     info.inner_calls.iter().for_each(|call| messages.extend(get_l2_to_l1_messages_recur(call)));
 
     messages
+}
+
+#[cfg(test)]
+mod tests {
+    use blockifier::execution::call_info::OrderedEvent;
+    use katana_primitives::execution::{CallExecution, CallInfo};
+    use katana_primitives::Felt;
+    use katana_utils::arbitrary;
+    use starknet_api::transaction::{EventContent, EventData, EventKey};
+
+    use super::get_events_recur;
+
+    macro_rules! rand_ordered_event {
+        ($order:expr) => {{
+            let keys = vec![EventKey(arbitrary!(Felt))];
+            let data = EventData(vec![arbitrary!(Felt)]);
+            OrderedEvent { order: $order, event: EventContent { keys, data } }
+        }};
+    }
+
+    // TODO: perform this test on the RPC level.
+    #[test]
+    fn get_events_in_order() {
+        let event_0 = rand_ordered_event!(0);
+        let event_1 = rand_ordered_event!(1);
+        let event_2 = rand_ordered_event!(2);
+        let event_3 = rand_ordered_event!(3);
+        let event_4 = rand_ordered_event!(4);
+        let event_5 = rand_ordered_event!(5);
+        let event_6 = rand_ordered_event!(6);
+        let event_7 = rand_ordered_event!(7);
+
+        // ## Nested Calls Structure
+        //
+        //  (1)
+        //   │   event 0
+        //   │
+        //   │  (2)
+        //   │   │  (3)
+        //   │   │   │  event 1
+        //   │   │   │  event 2
+        //   │   │   │
+        //   │   │   │
+        //   │   │
+        //   │   │  (4)
+        //   │   │   │  event 3
+        //   │   │   │  event 4
+        //   │   │   │
+        //   │   │   │
+        //   │   │   │
+        //   │   │
+        //   │   │   event 5
+        //   │   │   event 6
+        //   │
+        //   │   event 7
+        //
+
+        let events_call_1 = vec![event_0.clone(), event_7.clone()];
+        let events_call_2 = vec![event_5.clone(), event_6.clone()];
+        let events_call_3 = vec![event_1.clone(), event_2.clone()];
+        let events_call_4 = vec![event_3.clone(), event_4.clone()];
+
+        let call_4 = CallInfo {
+            execution: CallExecution { events: events_call_4, ..Default::default() },
+            ..Default::default()
+        };
+
+        let call_3 = CallInfo {
+            execution: CallExecution { events: events_call_3, ..Default::default() },
+            ..Default::default()
+        };
+
+        let call_2 = CallInfo {
+            execution: CallExecution { events: events_call_2, ..Default::default() },
+            inner_calls: vec![call_3, call_4],
+            ..Default::default()
+        };
+
+        let call_1 = CallInfo {
+            execution: CallExecution { events: events_call_1, ..Default::default() },
+            inner_calls: vec![call_2],
+            ..Default::default()
+        };
+
+        // The expected order should be in the order they were emitted in the call info stack.
+        let expected_events =
+            vec![event_0, event_1, event_2, event_3, event_4, event_5, event_6, event_7];
+
+        let actual_events = get_events_recur(&call_1);
+
+        for (idx, event) in actual_events.iter().enumerate() {
+            let expected_event = expected_events[idx].clone();
+
+            let expected_data = expected_event.event.data.0;
+            let expected_keys =
+                expected_event.event.keys.iter().map(|k| k.0).collect::<Vec<Felt>>();
+
+            similar_asserts::assert_eq!(expected_keys, event.keys);
+            similar_asserts::assert_eq!(expected_data, event.data);
+        }
+    }
 }

@@ -6412,6 +6412,7 @@ dependencies = [
  "katana-primitives",
  "katana-provider",
  "katana-rpc-types",
+ "katana-utils",
  "num-traits",
  "oneshot",
  "parking_lot",
