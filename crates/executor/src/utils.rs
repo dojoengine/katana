@@ -193,29 +193,35 @@ mod tests {
         let event_6 = rand_ordered_event!(6);
         let event_7 = rand_ordered_event!(7);
 
-        // ## Nested Calls Structure
+        // ## Nested Calls Structure And Event Emitted Ordering
         //
-        //  (1)
-        //   │   event 0
+        //  [Call 1]
         //   │
-        //   │  (2)
-        //   │   │  (3)
-        //   │   │   │  event 1
-        //   │   │   │  event 2
+        //   │   -> Event 0
+        //   │
+        //   │  [Call 2]
+        //   │   │
+        //   │   │  [Call 3]
+        //   │   │   │
+        //   │   │   │  -> Event 1
+        //   │   │   │  -> Event 2
         //   │   │   │
         //   │   │   │
         //   │   │
-        //   │   │  (4)
-        //   │   │   │  event 3
-        //   │   │   │  event 4
+        //   │   │  [Call 4]
+        //   │   │   │
+        //   │   │   │  -> Event 3
+        //   │   │   │  -> Event 4
         //   │   │   │
         //   │   │   │
         //   │   │   │
         //   │   │
-        //   │   │   event 5
-        //   │   │   event 6
+        //   │   │   -> Event 5
+        //   │   │   -> Event 6
+        //   │   │
         //   │
-        //   │   event 7
+        //   │   -> Event 7
+        //   │
         //
 
         let events_call_1 = vec![event_0.clone(), event_7.clone()];
