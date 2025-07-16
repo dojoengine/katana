@@ -124,7 +124,9 @@ mod tests {
     fn max_steps() {
         // -------------------- Preparations -------------------------------
 
-        let json = include_str!("../../../tests/fixtures/call_test.json");
+        let json = include_str!(
+            "../../../../../contracts/build/katana_test_contracts_CallTest.contract_class.json"
+        );
         let class = ContractClass::from_str(json).unwrap();
         let class_hash = class.class_hash().unwrap();
         let casm_hash = class.clone().compile().unwrap().class_hash().unwrap();
@@ -200,7 +202,9 @@ mod tests {
     fn call_with_panic() {
         // -------------------- Preparations -------------------------------
 
-        let json = include_str!("../../../tests/fixtures/call_test.json");
+        let json = include_str!(
+            "../../../../../contracts/build/katana_test_contracts_CallTest.contract_class.json"
+        );
         let class = ContractClass::from_str(json).unwrap();
         let class_hash = class.class_hash().unwrap();
         let casm_hash = class.clone().compile().unwrap().class_hash().unwrap();

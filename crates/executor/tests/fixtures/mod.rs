@@ -38,7 +38,9 @@ pub fn legacy_contract_class() -> CompiledClass {
 }
 
 pub fn contract_class() -> (CompiledClass, ContractClass) {
-    let json = include_str!("contract.json");
+    let json = include_str!(
+        "../../../../contracts/build/katana_test_contracts_CallTest.contract_class.json"
+    );
     let artifact = serde_json::from_str(json).unwrap();
 
     let class = parse_sierra_class(json).unwrap();
