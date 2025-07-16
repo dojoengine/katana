@@ -1,5 +1,6 @@
 //! Server implementation for the Starknet JSON-RPC API.
 
+use std::ops::Range;
 use std::sync::Arc;
 
 use katana_core::backend::Backend;
@@ -15,16 +16,18 @@ use katana_primitives::contract::{ContractAddress, Nonce, StorageKey, StorageVal
 use katana_primitives::da::L1DataAvailabilityMode;
 use katana_primitives::env::BlockEnv;
 use katana_primitives::event::MaybeForkedContinuationToken;
-use katana_primitives::transaction::{ExecutableTxWithHash, TxHash, TxWithHash};
+use katana_primitives::transaction::{ExecutableTxWithHash, TxHash, TxNumber, TxWithHash};
 use katana_primitives::version::CURRENT_STARKNET_VERSION;
 use katana_primitives::Felt;
 use katana_provider::error::ProviderError;
-use katana_provider::traits::block::{BlockHashProvider, BlockIdReader, BlockNumberProvider};
+use katana_provider::traits::block::{
+    BlockHashProvider, BlockIdReader, BlockNumberProvider, BlockProvider,
+};
 use katana_provider::traits::contract::ContractClassProvider;
 use katana_provider::traits::env::BlockEnvProvider;
 use katana_provider::traits::state::{StateFactoryProvider, StateProvider, StateRootProvider};
 use katana_provider::traits::transaction::{
-    ReceiptProvider, TransactionProvider, TransactionStatusProvider,
+    ReceiptProvider, TransactionProvider, TransactionStatusProvider, TransactionsProviderExt,
 };
 use katana_rpc_api::error::starknet::StarknetApiError;
 use katana_rpc_types::block::{
@@ -33,6 +36,9 @@ use katana_rpc_types::block::{
 };
 use katana_rpc_types::class::RpcContractClass;
 use katana_rpc_types::event::{EventFilterWithPage, EventsPage};
+use katana_rpc_types::list::{
+    GetBlocksRequest, GetBlocksResponse, GetTransactionsRequest, GetTransactionsResponse,
+};
 use katana_rpc_types::receipt::{ReceiptBlock, TxReceiptWithBlockInfo};
 use katana_rpc_types::state_update::MaybePendingStateUpdate;
 use katana_rpc_types::transaction::Tx;
@@ -41,7 +47,7 @@ use katana_rpc_types::trie::{
     GetStorageProofResponse, GlobalRoots, Nodes,
 };
 use katana_rpc_types::FeeEstimate;
-use katana_rpc_types_builder::ReceiptBuilder;
+use katana_rpc_types_builder::{BlockBuilder, ReceiptBuilder};
 use katana_tasks::{BlockingTaskPool, TokioTaskSpawner};
 use starknet::core::types::{ResultPageRequest, TransactionStatus};
 
@@ -52,6 +58,7 @@ use crate::{utils, DEFAULT_ESTIMATE_FEE_MAX_CONCURRENT_REQUESTS};
 mod blockifier;
 mod config;
 pub mod forking;
+mod list;
 mod read;
 mod trace;
 mod write;
@@ -1233,6 +1240,122 @@ where
                 contracts_proof,
                 contracts_storage_proofs,
             })
+        })
+        .await
+    }
+
+    /////////////////////////////////////////////////////
+    // `StarknetApiExt` Implementations
+    /////////////////////////////////////////////////////
+
+    async fn blocks(&self, request: GetBlocksRequest) -> StarknetApiResult<GetBlocksResponse> {
+        self.on_io_blocking_task(move |this| {
+            let provider = this.inner.backend.blockchain.provider();
+            let continuation_token;
+
+            let range_start = request.from;
+            let mut range_end =
+                if let Some(to) = request.to { to } else { provider.latest_number()? };
+
+            if let Some(limit) = request.chunk_size {
+                if limit > 0 {
+                    range_end = range_start.saturating_add(limit.saturating_sub(1)).min(range_end);
+                }
+            }
+
+            let blocks = provider.blocks_in_range(range_start..=range_end)?;
+
+            // Convert to RPC format
+            let mut rpc_blocks = Vec::new();
+            for block in blocks {
+                let block_id = block.header.number.into();
+                if let Some(rpc_block) =
+                    BlockBuilder::new(block_id, &provider).build_with_tx_hash()?
+                {
+                    rpc_blocks.push(rpc_block);
+                }
+            }
+
+            Ok(GetBlocksResponse { blocks: rpc_blocks, continuation_token: None })
+        })
+        .await
+    }
+
+    async fn transactions(
+        &self,
+        request: GetTransactionsRequest,
+    ) -> StarknetApiResult<GetTransactionsResponse> {
+        self.on_io_blocking_task(move |this| {
+            let provider = this.inner.backend.blockchain.provider();
+
+            // Handle descending vs ascending order
+            let (range_start, range_end) = if request.descending {
+                // For descending order
+                let start = request.from;
+                let end = if let Some(end) = request.to {
+                    end
+                } else if let Some(limit) = request.chunk_size {
+                    start.saturating_sub(limit.saturating_sub(1))
+                } else {
+                    start.saturating_sub(99) // Default to 100 transactions
+                };
+
+                if start < end {
+                    return Err(StarknetApiError::UnexpectedError {
+                        reason: "For descending order, start_tx must be >= end_tx".to_string(),
+                    });
+                }
+
+                (end, start)
+            } else {
+                // For ascending order
+                let start = request.from;
+                let end = if let Some(end) = request.to {
+                    end
+                } else if let Some(limit) = request.chunk_size {
+                    start.saturating_add(limit.saturating_sub(1))
+                } else {
+                    start.saturating_add(99) // Default to 100 transactions
+                };
+
+                if start > end {
+                    return Err(StarknetApiError::UnexpectedError {
+                        reason: "For ascending order, start_tx must be <= end_tx".to_string(),
+                    });
+                }
+
+                (start, end)
+            };
+
+            // Apply limit if specified
+            let mut actual_end = range_end;
+            if let Some(limit) = request.chunk_size {
+                if limit > 0 {
+                    actual_end = range_start.saturating_add(limit.saturating_sub(1)).min(range_end);
+                }
+            }
+
+            let range: Range<TxNumber> = range_start..actual_end.saturating_add(1);
+
+            // Get transactions from provider
+            let transactions = provider.transaction_in_range(range)?;
+
+            // Convert to RPC format
+            let mut rpc_transactions: Vec<Tx> =
+                transactions.into_iter().map(|tx| tx.into()).collect();
+
+            let response = GetTransactionsResponse { transactions: rpc_transactions };
+
+            Ok(response)
+        })
+        .await
+    }
+
+    async fn total_transactions(&self) -> StarknetApiResult<TxNumber> {
+        self.on_io_blocking_task(move |this| {
+            let provider = this.inner.backend.blockchain.provider();
+            let total = provider.total_transactions()? as TxNumber;
+            Ok(total)
         })
         .await
     }
