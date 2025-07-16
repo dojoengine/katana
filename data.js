@@ -1,5 +1,5 @@
 window.BENCHMARK_DATA = {
-  "lastUpdate": 1752226758203,
+  "lastUpdate": 1752632787331,
   "repoUrl": "https://github.com/dojoengine/katana",
   "entries": {
     "Benchmark": [
@@ -3023,6 +3023,72 @@ window.BENCHMARK_DATA = {
             "name": "Katana.Startup",
             "value": 127917787,
             "range": "± 1372249",
+            "unit": "ns/iter"
+          }
+        ]
+      },
+      {
+        "commit": {
+          "author": {
+            "email": "evergreenkary@gmail.com",
+            "name": "Ammar Arif",
+            "username": "kariy"
+          },
+          "committer": {
+            "email": "noreply@github.com",
+            "name": "GitHub",
+            "username": "web-flow"
+          },
+          "distinct": true,
+          "id": "7c23b7a045232f72d517811934fb2ac4602c9413",
+          "message": "fix(executor): preserve correct event ordering (#183)\n\nPreserve the ordering of the emitted transaction from the `blockifier's `CallInfo` type into Katana's primitive types.",
+          "timestamp": "2025-07-16T10:08:47+08:00",
+          "tree_id": "5e82e6c22fc73d8244a1779fd3bf7be7f3340302",
+          "url": "https://github.com/dojoengine/katana/commit/7c23b7a045232f72d517811934fb2ac4602c9413"
+        },
+        "date": 1752632785578,
+        "tool": "cargo",
+        "benches": [
+          {
+            "name": "Commit.Small/Parallel",
+            "value": 454395,
+            "range": "± 7378",
+            "unit": "ns/iter"
+          },
+          {
+            "name": "Commit.Big/Serial",
+            "value": 93733648,
+            "range": "± 1382328",
+            "unit": "ns/iter"
+          },
+          {
+            "name": "Commit.Big/Parallel",
+            "value": 65120586,
+            "range": "± 2764320",
+            "unit": "ns/iter"
+          },
+          {
+            "name": "compress world contract",
+            "value": 2657510,
+            "range": "± 14435",
+            "unit": "ns/iter"
+          },
+          {
+            "name": "decompress world contract",
+            "value": 2984181,
+            "range": "± 20455",
+            "unit": "ns/iter"
+          },
+          {
+            "name": "Invoke.ERC20.transfer/Blockifier.Cold",
+            "value": 16219049,
+            "range": "± 101027",
+            "unit": "ns/iter"
+          },
+          {
+            "name": "Katana.Startup",
+            "value": 126526638,
+            "range": "± 786974",
             "unit": "ns/iter"
           }
         ]
