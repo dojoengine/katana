@@ -1,6 +1,8 @@
 pub mod node;
 mod tx_waiter;
 
+// Re-export the Arbitrary trait and related types
+pub use arbitrary::{Arbitrary, Unstructured};
 pub use katana_utils_macro::mock_provider;
 pub use node::TestNode;
 pub use tx_waiter::*;
@@ -32,13 +34,13 @@ pub fn random_bytes(size: usize) -> Vec<u8> {
 #[macro_export]
 macro_rules! arbitrary {
     ($type:ty) => {{
-        let data = $crate::random_bytes(<$type as arbitrary::Arbitrary>::size_hint(0).0);
-        let mut data = arbitrary::Unstructured::new(&data);
-        <$type as arbitrary::Arbitrary>::arbitrary(&mut data)
+        let data = $crate::random_bytes(<$type as $crate::Arbitrary>::size_hint(0).0);
+        let mut data = $crate::Unstructured::new(&data);
+        <$type as $crate::Arbitrary>::arbitrary(&mut data)
             .expect(&format!("failed to generate arbitrary {}", std::any::type_name::<$type>()))
     }};
     ($type:ty, $data:expr) => {{
-        <$type as arbitrary::Arbitrary>::arbitrary(&mut $data)
+        <$type as $crate::Arbitrary>::arbitrary(&mut $data)
             .expect(&format!("failed to generate arbitrary {}", std::any::type_name::<$type>()))
     }};
 }
