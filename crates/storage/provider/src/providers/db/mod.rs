@@ -536,6 +536,13 @@ impl<Db: Database> TransactionsProviderExt for DbProvider<Db> {
         db_tx.commit()?;
         Ok(hashes)
     }
+
+    fn total_transactions(&self) -> ProviderResult<usize> {
+        let tx = self.0.tx()?;
+        let total = tx.entries::<tables::Transactions>()?;
+        tx.commit()?;
+        Ok(total)
+    }
 }
 
 impl<Db: Database> TransactionStatusProvider for DbProvider<Db> {
