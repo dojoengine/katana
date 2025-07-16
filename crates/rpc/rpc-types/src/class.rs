@@ -256,7 +256,8 @@ mod tests {
 
     #[test]
     fn rt() {
-        let json = include_str!("../../../../contracts/build/default_account.json");
+        let json =
+            include_str!("../../../../contracts/build/katana_account_Account.contract_class.json");
         let class = serde_json::from_str::<SierraContractClass>(json).unwrap();
 
         let rpc = RpcSierraContractClass::try_from(class.clone()).unwrap();
@@ -270,7 +271,7 @@ mod tests {
 
     #[test]
     fn legacy_rt() {
-        let json = include_str!("../../../../contracts/build/account.json");
+        let json = include_str!("../../../../contracts/build/legacy/account.json");
         let class = serde_json::from_str::<LegacyContractClass>(json).unwrap();
 
         let rpc = RpcLegacyContractClass::try_from(class.clone()).unwrap();
@@ -292,7 +293,8 @@ mod tests {
 
     #[test]
     fn rt_with_starknet_rs() {
-        let json = include_str!("../../../../contracts/build/default_account.json");
+        let json =
+            include_str!("../../../../contracts/build/katana_account_Account.contract_class.json");
         let expected_class = serde_json::from_str::<SierraContractClass>(json).unwrap();
 
         // -- starknet-rs
@@ -318,7 +320,7 @@ mod tests {
     fn legacy_rt_with_starknet_rs() {
         use similar_asserts::assert_eq;
 
-        let json = include_str!("../../../../contracts/build/erc20.json");
+        let json = include_str!("../../../../contracts/build/legacy/erc20.json");
         let expected_class = serde_json::from_str::<LegacyContractClass>(json).unwrap();
 
         // -- starknet-rs
