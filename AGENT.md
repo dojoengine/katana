@@ -1,29 +1,99 @@
-# Katana Development Guide
+# CLAUDE.md
 
-## Build Commands
-- `cargo build` - Build the project
-- `cargo test` - Run all tests  
-- `cargo test <test_name>` - Run a specific test
-- `cargo test -p <crate_name>` - Run tests for a specific crate
-- `cargo clippy` - Run linter
-- `make test-artifacts` - Prepare test database and SNOS artifacts
+This file provides guidance to Claude Code (claude.ai/code) when working with code in this repository.
 
-## Code Style
-- **Formatting**: Uses rustfmt with 100 char width, group imports by StdExternalCrate
-- **Imports**: std → external crates → local crates, use explicit paths `use crate::module::Type`
-- **Naming**: snake_case functions, constructors use `new()`, `from_*()`, `with_*()` patterns
-- **Error Handling**: Use `thiserror` for custom errors, `anyhow` for general error handling, always use `Result<T>` types
-- **Visibility**: Clear `pub` boundaries, comprehensive `///` docs for public APIs
-- **Async**: Use `async/await` with `?` operator for error propagation
-- **Types**: Use `Arc<>` for shared ownership, prefer owned types over references in function signatures
+## Project Overview
 
-## Testing
-- Test modules use `#[cfg(test)]` 
-- Use descriptive test names that explain the scenario being tested
-- Use `rstest` for parameterized tests, `assert_matches` for pattern matching
-- Run `make test-artifacts` before running tests that need database fixtures
+Katana is a fast and lightweight local Starknet development sequencer, part of the Dojo Engine ecosystem. It provides a local development environment for Starknet applications with full RPC support, a built-in explorer UI, and L1-L2 messaging capabilities.
 
-## Architecture
-- Workspace with multiple crates under `crates/` directory
-- Each crate focuses on specific functionality (rpc, storage, executor, etc.)
-- Use workspace dependencies for consistent versioning across crates
+## Essential Commands
+
+### Build
+- `cargo build` - Build the project in debug mode
+- `cargo build --release` - Build optimized release version
+- `make build-explorer` - Build the Explorer UI (requires Bun)
+
+### Test
+- `make test-artifacts` - **MUST RUN FIRST** - Prepares test database and SNOS artifacts
+- `cargo nextest run` - Run all tests
+- `cargo nextest run <test_name>` - Run specific test by name
+- `cargo nextest run -p <crate_name>` - Run tests for specific crate (e.g., `cargo nextest run -p katana-core`)
+
+### Lint & Format
+- `cargo +nightly-2025-02-20 fmt --all` - Format all code (uses specific nightly version)
+- `./scripts/clippy.sh` - Run linter
+
+### Development Setup
+1. Install LLVM 19 dependencies:
+   - macOS: `make native-deps-macos`
+   - Linux: `make native-deps-linux`
+   - Windows: `make native-deps-windows`
+2. Source environment: `source scripts/cairo-native.env.sh`
+3. For Explorer development: Install Bun package manager
+
+## Architecture Overview
+
+### Crate Organization
+The project uses a Rust workspace with functionality split across multiple crates:
+
+- **Core Components**:
+  - `katana-core`: Core backend services, blockchain implementation
+  - `katana-executor`: Transaction execution engine, state management
+  - `katana-primitives`: Core types, traits, and data structures
+  - `katana-pool`: Transaction mempool implementation
+
+- **Storage Layer**:
+  - `katana-db`: Database abstraction and implementations
+  - `katana-provider`: Storage provider interfaces
+  - `katana-trie`: Merkle Patricia Trie for state storage
+  - `katana-storage`: Higher-level storage operations
+
+- **RPC & Networking**:
+  - `katana-rpc`: JSON-RPC server implementation
+  - `katana-rpc-api`: RPC API trait definitions
+  - `katana-rpc-types`: RPC type definitions
+  - `katana-grpc`: gRPC server support
+
+- **Node Operations**:
+  - `katana-node`: Main node implementation and lifecycle
+  - `katana-sync`: Blockchain synchronization logic
+  - `katana-tasks`: Async task management
+  - `katana-messaging`: L1-L2 messaging support
+
+### Key Design Patterns
+
+1. **Provider Pattern**: Storage operations go through provider traits (`katana-provider`) allowing different storage backend implementations.
+
+2. **Stage-based Sync**: The sync pipeline (`katana-pipeline`) uses stages for modular blockchain synchronization.
+
+3. **RPC Abstraction**: RPC implementations (`katana-rpc`) are separated from API definitions (`katana-rpc-api`) for flexibility.
+
+4. **Executor Separation**: Transaction execution (`katana-executor`) is decoupled from node logic, using the Blockifier library for Cairo execution.
+
+### Important Files & Locations
+
+- Entry point: `bin/katana/src/main.rs`
+- Node configuration: `crates/node/src/config.rs`
+- RPC server setup: `crates/rpc/src/config.rs`
+- Chain spec definitions: `crates/chain-spec/src/lib.rs`
+- Test chain configuration: `tests/fixtures/test-chain/`
+
+### Documentation
+
+When refactoring or modifying components, ensure to update the corresponding documentation in `/docs/`. This directory contains high-level documentation for each component that should reflect any architectural or design changes.
+
+### Testing Approach
+
+- Unit tests are colocated with source files
+- Integration tests in `tests/` directory
+- Test database must be extracted before running tests (`make test-artifacts`)
+- Use `rstest` for parameterized tests
+- Property-based testing with `proptest` for primitives
+
+### Explorer UI
+
+The Explorer is a submodule React application:
+- Located in `crates/explorer/`
+- Built with Bun and TypeScript
+- Requires separate build step: `make build-explorer`
+- Serves on port 3000 by default when Katana runs with `--dev` flag
