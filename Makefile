@@ -45,7 +45,7 @@ snos-artifacts: $(SNOS_OUTPUT)
 	@echo "SNOS test artifacts prepared successfully."
 db-compat-artifacts: $(COMPATIBILITY_DB_DIR)
 	@echo "Database compatibility test artifacts prepared successfully."
-test-artifacts: $(SNOS_DB_DIR) $(SNOS_OUTPUT) $(COMPATIBILITY_DB_DIR)
+test-artifacts: $(SNOS_DB_DIR) $(SNOS_OUTPUT) $(COMPATIBILITY_DB_DIR) $(CONTRACTS_BUILD_DIR)
 	@echo "All test artifacts prepared successfully."
 
 build-explorer:
