@@ -1,10 +1,10 @@
-# CLAUDE.md
+# AGENT.md
 
-This file provides guidance to Claude Code (claude.ai/code) when working with code in this repository.
+This file provides guidance to AI agents when working with code in this repository.
 
 ## Project Overview
 
-Katana is a fast and lightweight local Starknet development sequencer, part of the Dojo Engine ecosystem. It provides a local development environment for Starknet applications with full RPC support, a built-in explorer UI, and L1-L2 messaging capabilities.
+Katana is a fast and lightweight local Starknet-based sequencer, part of the Dojo Engine ecosystem. It provides a local development environment for Starknet applications with full RPC support, a built-in explorer UI, and L1-L2 messaging capabilities.
 
 ## Essential Commands
 
@@ -14,7 +14,7 @@ Katana is a fast and lightweight local Starknet development sequencer, part of t
 - `make build-explorer` - Build the Explorer UI (requires Bun)
 
 ### Test
-- `make test-artifacts` - **MUST RUN FIRST** - Prepares test database and SNOS artifacts
+- `make test-artifacts` - **MUST RUN FIRST** - Prepares test artifacts
 - `cargo nextest run` - Run all tests
 - `cargo nextest run <test_name>` - Run specific test by name
 - `cargo nextest run -p <crate_name>` - Run tests for specific crate (e.g., `cargo nextest run -p katana-core`)
@@ -97,3 +97,7 @@ The Explorer is a submodule React application:
 - Built with Bun and TypeScript
 - Requires separate build step: `make build-explorer`
 - Serves on port 3000 by default when Katana runs with `--dev` flag
+
+## Running Tests
+
+Before running any tests, you must first generate all required test artifacts. The test artifacts only need to be generated once unless the test database schema or SNOS artifacts change. If you encounter test failures related to missing artifacts or database issues, re-run `make test-artifacts` to refresh them.
