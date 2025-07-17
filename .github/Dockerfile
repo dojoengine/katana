@@ -100,7 +100,8 @@ RUN if [ "$TARGETPLATFORM" = "linux/arm64" ] ; then \
 	rustup target add x86_64-fortanix-unknown-sgx --toolchain ${CLIPPY_VERSION}; \
 	fi
 
-RUN curl --proto '=https' --tlsv1.2 -sSf https://docs.swmansion.com/scarb/install.sh | bash
+# Install scarb for compiling contracts
+RUN curl --proto '=https' --tlsv1.2 -sSf https://docs.swmansion.com/scarb/install.sh | bash -s -- -v 2.8.2
 
 RUN chown -R root:root /usr/local/cargo
 RUN chmod -R 700 /usr/local/cargo
@@ -129,9 +130,6 @@ RUN apt-get install -y bc
 RUN apt-get install -y unzip
 RUN curl -fsSL https://bun.sh/install | bash
 ENV PATH="/root/.bun/bin:$PATH"
-
-# Install scarb for compiling contracts
-RUN curl --proto '=https' --tlsv1.2 -sSf https://docs.swmansion.com/scarb/install.sh | sh -s -- -v 2.8.2
 
 ENV PYENV_ROOT="/root/.pyenv"
 ENV PATH="/root/.pyenv/bin:$PATH"
