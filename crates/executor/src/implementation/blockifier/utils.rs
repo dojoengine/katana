@@ -27,6 +27,7 @@ use katana_primitives::transaction::{
 };
 use katana_primitives::{class, fee};
 use katana_provider::traits::contract::ContractClassProvider;
+use num_traits::Zero;
 use starknet::core::utils::parse_cairo_short_string;
 use starknet_api::block::{
     BlockInfo, BlockNumber, BlockTimestamp, FeeType, GasPriceVector, GasPrices, NonzeroGasPrice,
@@ -480,13 +481,7 @@ pub fn block_context_from_envs(block_env: &BlockEnv, cfg_env: &CfgEnv) -> BlockC
     // fees.
     let sn_version: StarknetVersion = block_env.starknet_version.try_into().expect("valid version");
     let mut versioned_constants = VersionedConstants::get(&sn_version).unwrap().clone();
-
-    // NOTE:
-    // These overrides would potentially make the `snos` run be invalid as it doesn't know about the
-    // new overridden values.
-    versioned_constants.max_recursion_depth = cfg_env.max_recursion_depth;
-    versioned_constants.validate_max_n_steps = cfg_env.validate_max_n_steps;
-    versioned_constants.invoke_tx_max_n_steps = cfg_env.invoke_tx_max_n_steps;
+    apply_versioned_constant_overrides(cfg_env, &mut versioned_constants);
 
     BlockContext::new(block_info, chain_info, versioned_constants, BouncerConfig::max())
 }
@@ -737,6 +732,42 @@ pub fn is_zero_resource_bounds(resource_bounds: &ResourceBoundsMapping) -> bool 
             (bounds.max_amount as u128 * bounds.max_price_per_unit) == 0
         }
     }
+}
+
+// NOTE:
+//
+// These overrides would potentially make the `snos` run be invalid as it doesn't know about the
+// new overridden values.
+pub(crate) fn apply_versioned_constant_overrides(
+    cfg: &CfgEnv,
+    versioned_constants: &mut VersionedConstants,
+) {
+    versioned_constants.max_recursion_depth = cfg.max_recursion_depth;
+    versioned_constants.validate_max_n_steps = cfg.validate_max_n_steps;
+    versioned_constants.invoke_tx_max_n_steps = cfg.invoke_tx_max_n_steps;
+
+    // Convert the steps to L2 gas.
+    //
+    // Reference: https://github.com/dojoengine/sequencer/blob/5d737b9c90a14bdf4483d759d1a1d4ce64aa9fd2/crates/blockifier/src/execution/entry_point.rs#L431-L440
+    let l2_gas_per_step = versioned_constants.os_constants.gas_costs.base.step_gas_cost;
+    let execute_max_sierra_gas = if l2_gas_per_step.is_zero() {
+        u64::MAX
+    } else {
+        (cfg.invoke_tx_max_n_steps as u64).saturating_mul(l2_gas_per_step)
+    };
+
+    let validate_max_sierra_gas = if l2_gas_per_step.is_zero() {
+        u64::MAX
+    } else {
+        (cfg.validate_max_n_steps as u64).saturating_mul(l2_gas_per_step)
+    };
+
+    // Override the max sierra gas as well so that both resources have equal limits as tranasction
+    // may be executed using different tracked resources ie cairo steps or sierra gas.
+    let mut os_constants = versioned_constants.os_constants.as_ref().clone();
+    os_constants.execute_max_sierra_gas = execute_max_sierra_gas.into();
+    os_constants.validate_max_sierra_gas = validate_max_sierra_gas.into();
+    versioned_constants.os_constants = Arc::new(os_constants);
 }
 
 #[cfg(test)]
