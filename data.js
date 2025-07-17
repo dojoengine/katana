@@ -1,5 +1,5 @@
 window.BENCHMARK_DATA = {
-  "lastUpdate": 1752632787331,
+  "lastUpdate": 1752781278429,
   "repoUrl": "https://github.com/dojoengine/katana",
   "entries": {
     "Benchmark": [
@@ -3089,6 +3089,72 @@ window.BENCHMARK_DATA = {
             "name": "Katana.Startup",
             "value": 126526638,
             "range": "± 786974",
+            "unit": "ns/iter"
+          }
+        ]
+      },
+      {
+        "commit": {
+          "author": {
+            "email": "evergreenkary@gmail.com",
+            "name": "Ammar Arif",
+            "username": "kariy"
+          },
+          "committer": {
+            "email": "noreply@github.com",
+            "name": "GitHub",
+            "username": "web-flow"
+          },
+          "distinct": true,
+          "id": "4be53a81c69cd48ff68f4c2fd0c42b8f39e0b0a5",
+          "message": "fix(blockifier): apply overrides on both tracked resource types (#189)\n\nApplies the max execution resources overrides on both Cairo steps and Sierra gas. The Sierra gas are being limited [here](https://github.com/dojoengine/sequencer/blob/5d737b9c90a14bdf4483d759d1a1d4ce64aa9fd2/crates/blockifier/src/transaction/account_transaction.rs#L544-L545) where they are used to limit the initial sierra gas that a transaction will use.",
+          "timestamp": "2025-07-18T03:23:27+08:00",
+          "tree_id": "54c5a269303d2e03ced97439d88a4621fa8c3076",
+          "url": "https://github.com/dojoengine/katana/commit/4be53a81c69cd48ff68f4c2fd0c42b8f39e0b0a5"
+        },
+        "date": 1752781276369,
+        "tool": "cargo",
+        "benches": [
+          {
+            "name": "Commit.Small/Parallel",
+            "value": 425612,
+            "range": "± 9427",
+            "unit": "ns/iter"
+          },
+          {
+            "name": "Commit.Big/Serial",
+            "value": 94480692,
+            "range": "± 964373",
+            "unit": "ns/iter"
+          },
+          {
+            "name": "Commit.Big/Parallel",
+            "value": 65624536,
+            "range": "± 1697239",
+            "unit": "ns/iter"
+          },
+          {
+            "name": "compress world contract",
+            "value": 2639233,
+            "range": "± 14120",
+            "unit": "ns/iter"
+          },
+          {
+            "name": "decompress world contract",
+            "value": 2988830,
+            "range": "± 10510",
+            "unit": "ns/iter"
+          },
+          {
+            "name": "Invoke.ERC20.transfer/Blockifier.Cold",
+            "value": 16453847,
+            "range": "± 428712",
+            "unit": "ns/iter"
+          },
+          {
+            "name": "Katana.Startup",
+            "value": 128359807,
+            "range": "± 379591",
             "unit": "ns/iter"
           }
         ]
