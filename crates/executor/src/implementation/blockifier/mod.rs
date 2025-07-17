@@ -22,6 +22,7 @@ use starknet_api::block::{
     BlockInfo, BlockNumber, BlockTimestamp, GasPriceVector, GasPrices, NonzeroGasPrice,
 };
 use tracing::info;
+use utils::apply_versioned_constant_overrides;
 
 use self::state::CachedState;
 use crate::{
@@ -190,13 +191,7 @@ impl<'a> StarknetVMProcessor<'a> {
 
         let sn_version = header.starknet_version.try_into().expect("valid version");
         let mut versioned_constants = VersionedConstants::get(&sn_version).unwrap().clone();
-
-        // NOTE:
-        // These overrides would potentially make the `snos` run be invalid as it doesn't know about
-        // the new overridden values.
-        versioned_constants.max_recursion_depth = self.cfg_env.max_recursion_depth;
-        versioned_constants.validate_max_n_steps = self.cfg_env.validate_max_n_steps;
-        versioned_constants.invoke_tx_max_n_steps = self.cfg_env.invoke_tx_max_n_steps;
+        apply_versioned_constant_overrides(&self.cfg_env, &mut versioned_constants);
 
         self.starknet_version = header.starknet_version;
         self.block_context = Arc::new(BlockContext::new(
