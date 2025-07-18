@@ -7,10 +7,10 @@ fn contract_macro() {
 
     assert_eq!(
         felt!("0x07dc7899aa655b0aae51eadff6d801a58e97dd99cf4666ee59e704249e51adf2"),
-        AccountContract::hash()
+        AccountContract::HASH
     );
     assert_eq!(
         felt!("0x01b97e0ef7f5c2f2b7483cda252a3accc7f917773fb69d4bd290f92770069aec"),
-        AccountContract::casm_hash()
+        AccountContract::CASM_HASH
     );
 }

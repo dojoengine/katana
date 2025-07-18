@@ -8,7 +8,7 @@ use syn::{parse_macro_input, Ident, LitStr};
 
 /// A proc macro that generates contract wrapper structs with compile-time computed hashes.
 ///
-/// # Uage
+/// # Usage
 ///
 /// ```rust
 /// contract!(ContractName, "path/to/contract.json");
@@ -31,7 +31,7 @@ struct ContractInput {
 }
 
 impl syn::parse::Parse for ContractInput {
-    fn parse(input: syn::parse::ParseStream) -> syn::Result<Self> {
+    fn parse(input: syn::parse::ParseStream<'_>) -> syn::Result<Self> {
         // first argument - struct name
         let name = input.parse::<Ident>()?;
         input.parse::<syn::Token![,]>()?;
@@ -83,51 +83,22 @@ fn generate_contract_impl(input: &ContractInput) -> Result<proc_macro2::TokenStr
 
     // Generate the contract implementation
     let expanded = quote! {
-        pub struct #contract_name(#crate_path::ClassArtifact);
+        pub struct #contract_name;
 
         impl #contract_name {
-            /// Creates a new instance of the contract wrapper.
-            pub fn new() -> Self {
-                Self(#crate_path::ClassArtifact::new(::std::path::PathBuf::from(#contract_path)))
-            }
-
-            /// Returns the contract class hash as a compile-time constant.
-            pub const fn hash() -> katana_primitives::class::ClassHash {
-                ::katana_primitives::felt!(#class_hash_str)
-            }
-
-            /// Returns the compiled class hash as a compile-time constant.
-            pub const fn casm_hash() -> katana_primitives::class::CompiledClassHash {
-                ::katana_primitives::felt!(#compiled_class_hash_str)
-            }
+            /// The contract class hash as a compile-time constant.
+            pub const HASH: ::katana_primitives::class::ClassHash = ::katana_primitives::felt!(#class_hash_str);
+            /// The compiled class hash as a compile-time constant.
+            pub const CASM_HASH: ::katana_primitives::class::CompiledClassHash = ::katana_primitives::felt!(#compiled_class_hash_str);
 
             /// Returns the Sierra class artifact.
-            pub fn class(&self) -> Result<&katana_primitives::class::ContractClass, #crate_path::ClassArtifactError> {
-                self.0.class()
+            pub fn class() -> katana_primitives::class::ContractClass {
+                #crate_path::ClassArtifact::file(::std::path::PathBuf::from(#contract_path)).class().unwrap()
             }
 
             /// Returns the compiled CASM class.
-            pub fn casm(&self) -> Result<&katana_primitives::class::CompiledClass, #crate_path::ClassArtifactError> {
-                self.0.casm()
-            }
-
-            /// Returns a reference to the underlying unified artifact.
-            pub fn artifact(&self) -> &#crate_path::ClassArtifact {
-                &self.0
-            }
-        }
-
-        impl Default for #contract_name {
-            fn default() -> Self {
-                Self::new()
-            }
-        }
-
-        impl std::ops::Deref for #contract_name {
-            type Target = #crate_path::ClassArtifact;
-
-            fn deref(&self) -> &Self::Target {
-                &self.0
+            pub fn casm() -> katana_primitives::class::CompiledClass {
+                #crate_path::ClassArtifact::file(::std::path::PathBuf::from(#contract_path)).casm().unwrap()
             }
         }
     };

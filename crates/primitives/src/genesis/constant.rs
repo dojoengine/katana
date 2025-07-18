@@ -2,7 +2,7 @@ use lazy_static::lazy_static;
 use starknet::core::utils::get_storage_var_address;
 use starknet::macros::felt;
 
-use crate::class::{ClassHash, CompiledClassHash, ContractClass};
+use crate::class::{ClassHash, ContractClass};
 use crate::contract::{ContractAddress, StorageKey};
 use crate::utils::class::{parse_deprecated_compiled_class, parse_sierra_class};
 use crate::Felt;
@@ -53,43 +53,22 @@ pub const DEFAULT_PREFUNDED_ACCOUNT_BALANCE: u128 = 10 * u128::pow(10, 21);
 pub const DEFAULT_LEGACY_ERC20_CLASS_HASH: ClassHash =
     felt!("0xa2475bc66197c751d854ea8c39c6ad9781eb284103bcd856b58e6b500078ac");
 
-/// The compiled class hash of DEFAULT_LEGACY_ERC20_CONTRACT_CASM.
-pub const DEFAULT_LEGACY_ERC20_COMPILED_CLASS_HASH: CompiledClassHash =
-    DEFAULT_LEGACY_ERC20_CLASS_HASH;
-
 /// The class hash of DEFAULT_LEGACY_UDC_CASM.
 pub const DEFAULT_LEGACY_UDC_CLASS_HASH: ClassHash =
     felt!("0x07b3e05f48f0c69e4a65ce5e076a66271a527aff2c34ce1083ec6e1526997a69");
-
-/// The compiled class hash of DEFAULT_LEGACY_UDC_CASM.
-pub const DEFAULT_LEGACY_UDC_COMPILED_CLASS_HASH: CompiledClassHash = DEFAULT_LEGACY_UDC_CLASS_HASH;
 
 /// The class hash of [`DEFAULT_ACCOUNT_CLASS`].
 pub const DEFAULT_ACCOUNT_CLASS_HASH: ClassHash =
     felt!("0x07dc7899aa655b0aae51eadff6d801a58e97dd99cf4666ee59e704249e51adf2");
 
-/// The compiled class hash of [`DEFAULT_ACCOUNT_CLASS`].
-pub const DEFAULT_ACCOUNT_COMPILED_CLASS_HASH: CompiledClassHash =
-    felt!("0x01b97e0ef7f5c2f2b7483cda252a3accc7f917773fb69d4bd290f92770069aec");
-
-/// Cartridge Controller account class hash.
-pub const CONTROLLER_CLASS_HASH: ClassHash =
-    felt!("0x024a9edbfa7082accfceabf6a92d7160086f346d622f28741bf1c651c412c9ab");
-
 // Pre-compiled contract classes
 lazy_static! {
-
     // Default fee token contract
     pub static ref DEFAULT_LEGACY_ERC20_CLASS: ContractClass = read_legacy_class_artifact(include_str!("../../../contracts/build/legacy/erc20.json"));
-
     // Default universal deployer
     pub static ref DEFAULT_LEGACY_UDC_CLASS: ContractClass = read_legacy_class_artifact(include_str!("../../../contracts/build/legacy/universal_deployer.json"));
-
     // Default account contract
     pub static ref DEFAULT_ACCOUNT_CLASS: ContractClass = parse_sierra_class(include_str!("../../../contracts/build/katana_account_Account.contract_class.json")).unwrap();
-
-    // Genesis account class
-    pub static ref GENESIS_ACCOUNT_CLASS: ContractClass = read_legacy_class_artifact(include_str!("../../../contracts/build/legacy/account.json"));
 }
 
 /// A helper function to get the base storage address for the fee token balance of a given account.
