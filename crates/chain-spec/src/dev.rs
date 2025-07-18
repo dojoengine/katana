@@ -1,6 +1,7 @@
 use std::collections::BTreeMap;
 
 use alloy_primitives::U256;
+use katana_contracts::contracts;
 use katana_primitives::block::{ExecutableBlock, GasPrices, PartialHeader};
 use katana_primitives::chain::ChainId;
 use katana_primitives::class::ClassHash;
@@ -9,8 +10,7 @@ use katana_primitives::da::L1DataAvailabilityMode;
 use katana_primitives::genesis::allocation::{DevAllocationsGenerator, GenesisAllocation};
 use katana_primitives::genesis::constant::{
     get_fee_token_balance_base_storage_address, DEFAULT_ACCOUNT_CLASS_PUBKEY_STORAGE_SLOT,
-    DEFAULT_ETH_FEE_TOKEN_ADDRESS, DEFAULT_LEGACY_ERC20_CLASS, DEFAULT_LEGACY_ERC20_CLASS_HASH,
-    DEFAULT_LEGACY_UDC_CLASS, DEFAULT_LEGACY_UDC_CLASS_HASH, DEFAULT_PREFUNDED_ACCOUNT_BALANCE,
+    DEFAULT_ETH_FEE_TOKEN_ADDRESS, DEFAULT_PREFUNDED_ACCOUNT_BALANCE,
     DEFAULT_STRK_FEE_TOKEN_ADDRESS, DEFAULT_UDC_ADDRESS, ERC20_DECIMAL_STORAGE_SLOT,
     ERC20_NAME_STORAGE_SLOT, ERC20_SYMBOL_STORAGE_SLOT, ERC20_TOTAL_SUPPLY_STORAGE_SLOT,
 };
@@ -157,12 +157,8 @@ lazy_static! {
 
 fn add_default_fee_tokens(states: &mut StateUpdatesWithClasses, genesis: &Genesis) {
     // declare erc20 token contract
-    states
-        .classes
-        .entry(DEFAULT_LEGACY_ERC20_CLASS_HASH)
-        .or_insert_with(|| DEFAULT_LEGACY_ERC20_CLASS.clone());
-
-    states.state_updates.deprecated_declared_classes.insert(DEFAULT_LEGACY_ERC20_CLASS_HASH);
+    states.classes.entry(contracts::Erc20::HASH).or_insert_with(contracts::Erc20::class);
+    states.state_updates.deprecated_declared_classes.insert(contracts::Erc20::HASH);
 
     // -- ETH
     add_fee_token(
@@ -171,7 +167,7 @@ fn add_default_fee_tokens(states: &mut StateUpdatesWithClasses, genesis: &Genesi
         "ETH",
         18,
         DEFAULT_ETH_FEE_TOKEN_ADDRESS,
-        DEFAULT_LEGACY_ERC20_CLASS_HASH,
+        contracts::Erc20::HASH,
         &genesis.allocations,
     );
 
@@ -182,7 +178,7 @@ fn add_default_fee_tokens(states: &mut StateUpdatesWithClasses, genesis: &Genesi
         "STRK",
         18,
         DEFAULT_STRK_FEE_TOKEN_ADDRESS,
-        DEFAULT_LEGACY_ERC20_CLASS_HASH,
+        contracts::Erc20::HASH,
         &genesis.allocations,
     );
 }
@@ -240,17 +236,17 @@ fn add_default_udc(states: &mut StateUpdatesWithClasses) {
     // declare UDC class
     states
         .classes
-        .entry(DEFAULT_LEGACY_UDC_CLASS_HASH)
-        .or_insert_with(|| DEFAULT_LEGACY_UDC_CLASS.clone());
+        .entry(contracts::UniversalDeployer::HASH)
+        .or_insert_with(contracts::UniversalDeployer::class);
 
-    states.state_updates.deprecated_declared_classes.insert(DEFAULT_LEGACY_UDC_CLASS_HASH);
+    states.state_updates.deprecated_declared_classes.insert(contracts::UniversalDeployer::HASH);
 
     // deploy UDC contract
     states
         .state_updates
         .deployed_contracts
         .entry(DEFAULT_UDC_ADDRESS)
-        .or_insert(DEFAULT_LEGACY_UDC_CLASS_HASH);
+        .or_insert(contracts::UniversalDeployer::HASH);
 }
 
 #[cfg(test)]
@@ -265,12 +261,7 @@ mod tests {
     use katana_primitives::genesis::allocation::{
         GenesisAccount, GenesisAccountAlloc, GenesisContractAlloc,
     };
-    use katana_primitives::genesis::constant::{
-        DEFAULT_ACCOUNT_CLASS, DEFAULT_ACCOUNT_CLASS_HASH,
-        DEFAULT_ACCOUNT_CLASS_PUBKEY_STORAGE_SLOT, DEFAULT_ACCOUNT_COMPILED_CLASS_HASH,
-        DEFAULT_LEGACY_ERC20_CLASS, DEFAULT_LEGACY_ERC20_COMPILED_CLASS_HASH,
-        DEFAULT_LEGACY_UDC_CLASS, DEFAULT_LEGACY_UDC_COMPILED_CLASS_HASH,
-    };
+    use katana_primitives::genesis::constant::DEFAULT_ACCOUNT_CLASS_PUBKEY_STORAGE_SLOT;
     use starknet::macros::felt;
 
     use super::*;
@@ -280,9 +271,9 @@ mod tests {
         // setup initial states to test
 
         let classes = BTreeMap::from([
-            (DEFAULT_LEGACY_UDC_CLASS_HASH, DEFAULT_LEGACY_UDC_CLASS.clone().into()),
-            (DEFAULT_LEGACY_ERC20_CLASS_HASH, DEFAULT_LEGACY_ERC20_CLASS.clone().into()),
-            (DEFAULT_ACCOUNT_CLASS_HASH, DEFAULT_ACCOUNT_CLASS.clone().into()),
+            (contracts::Erc20::HASH, contracts::UniversalDeployer::class().into()),
+            (contracts::UniversalDeployer::HASH, contracts::Erc20::class().into()),
+            (contracts::Account::HASH, contracts::Account::class().into()),
         ]);
 
         let allocations = [
@@ -293,7 +284,7 @@ mod tests {
                         "0x01ef15c18599971b7beced415a40f0c7deacfd9b0d1819e03d723d8bc943cfca"
                     ),
                     balance: Some(U256::from_str("0xD3C21BCECCEDA1000000").unwrap()),
-                    class_hash: DEFAULT_ACCOUNT_CLASS_HASH,
+                    class_hash: contracts::Account::HASH,
                     nonce: Some(felt!("0x99")),
                     storage: Some(BTreeMap::from([
                         (felt!("0x1"), felt!("0x1")),
@@ -306,7 +297,7 @@ mod tests {
                 address!("0xdeadbeef"),
                 GenesisAllocation::Contract(GenesisContractAlloc {
                     balance: Some(U256::from_str("0xD3C21BCECCEDA1000000").unwrap()),
-                    class_hash: Some(DEFAULT_ACCOUNT_CLASS_HASH),
+                    class_hash: Some(contracts::Account::HASH),
                     nonce: Some(felt!("0x100")),
                     storage: Some(BTreeMap::from([
                         (felt!("0x100"), felt!("0x111")),
@@ -319,7 +310,7 @@ mod tests {
                 GenesisAllocation::Account(GenesisAccountAlloc::Account(GenesisAccount {
                     public_key: felt!("0x2"),
                     balance: Some(U256::ZERO),
-                    class_hash: DEFAULT_ACCOUNT_CLASS_HASH,
+                    class_hash: contracts::Account::HASH,
                     nonce: None,
                     storage: None,
                     salt: GenesisAccount::DEFAULT_SALT,
@@ -372,17 +363,12 @@ mod tests {
             actual_state_updates
                 .state_updates
                 .deprecated_declared_classes
-                .get(&DEFAULT_LEGACY_ERC20_CLASS_HASH),
-            Some(&DEFAULT_LEGACY_ERC20_COMPILED_CLASS_HASH),
+                .get(&contracts::Erc20::HASH),
+            Some(&contracts::Erc20::CASM_HASH),
         );
         assert_eq!(
-            actual_state_updates.classes.get(&DEFAULT_LEGACY_ERC20_CLASS_HASH),
-            Some(&DEFAULT_LEGACY_ERC20_CLASS.clone())
-        );
-
-        assert_eq!(
-            actual_state_updates.classes.get(&DEFAULT_LEGACY_ERC20_CLASS_HASH),
-            Some(&*DEFAULT_LEGACY_ERC20_CLASS),
+            actual_state_updates.classes.get(&contracts::Erc20::HASH),
+            Some(&contracts::Erc20::class())
         );
 
         assert_eq!(
@@ -390,7 +376,7 @@ mod tests {
                 .state_updates
                 .deployed_contracts
                 .get(&DEFAULT_ETH_FEE_TOKEN_ADDRESS),
-            Some(&DEFAULT_LEGACY_ERC20_CLASS_HASH),
+            Some(&contracts::Erc20::HASH),
             "The ETH fee token contract should be created"
         );
         assert_eq!(
@@ -398,7 +384,7 @@ mod tests {
                 .state_updates
                 .deployed_contracts
                 .get(&DEFAULT_STRK_FEE_TOKEN_ADDRESS),
-            Some(&DEFAULT_LEGACY_ERC20_CLASS_HASH),
+            Some(&contracts::Erc20::HASH),
             "The STRK fee token contract should be created"
         );
 
@@ -406,36 +392,38 @@ mod tests {
             actual_state_updates
                 .state_updates
                 .deprecated_declared_classes
-                .get(&DEFAULT_LEGACY_UDC_CLASS_HASH),
-            Some(&DEFAULT_LEGACY_UDC_COMPILED_CLASS_HASH),
+                .get(&contracts::UniversalDeployer::HASH),
+            Some(&contracts::UniversalDeployer::CASM_HASH),
             "The default universal deployer class should be declared"
         );
 
         assert_eq!(
-            actual_state_updates.classes.get(&DEFAULT_LEGACY_UDC_CLASS_HASH),
-            Some(&*DEFAULT_LEGACY_UDC_CLASS),
-            "The default universal deployer casm class should be declared"
+            actual_state_updates
+                .state_updates
+                .declared_classes
+                .get(&contracts::UniversalDeployer::HASH),
+            Some(&contracts::UniversalDeployer::CASM_HASH),
         );
         assert_eq!(
-            actual_state_updates.classes.get(&DEFAULT_LEGACY_UDC_CLASS_HASH),
-            Some(&DEFAULT_LEGACY_UDC_CLASS.clone())
+            actual_state_updates.classes.get(&contracts::UniversalDeployer::HASH),
+            Some(&contracts::UniversalDeployer::class())
         );
 
         assert_eq!(
             actual_state_updates.state_updates.deployed_contracts.get(&DEFAULT_UDC_ADDRESS),
-            Some(&DEFAULT_LEGACY_UDC_CLASS_HASH),
+            Some(&contracts::UniversalDeployer::HASH),
             "The universal deployer contract should be created"
         );
 
         assert_eq!(
-            actual_state_updates.state_updates.declared_classes.get(&DEFAULT_ACCOUNT_CLASS_HASH),
-            Some(&DEFAULT_ACCOUNT_COMPILED_CLASS_HASH),
+            actual_state_updates.state_updates.declared_classes.get(&contracts::Account::HASH),
+            Some(&contracts::Account::CASM_HASH),
             "The default oz account class should be declared"
         );
 
         assert_eq!(
-            actual_state_updates.classes.get(&DEFAULT_ACCOUNT_CLASS_HASH),
-            Some(&*DEFAULT_ACCOUNT_CLASS),
+            actual_state_updates.classes.get(&contracts::Account::HASH),
+            Some(&contracts::Account::class()),
             "The default oz account contract sierra class should be declared"
         );
 

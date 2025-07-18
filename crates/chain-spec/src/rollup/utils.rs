@@ -3,13 +3,10 @@ use std::collections::HashSet;
 use std::sync::Arc;
 
 use alloy_primitives::U256;
+use katana_contracts::contracts;
 use katana_primitives::class::{ClassHash, ContractClass};
 use katana_primitives::contract::{ContractAddress, Nonce};
 use katana_primitives::genesis::allocation::{DevGenesisAccount, GenesisAccountAlloc};
-use katana_primitives::genesis::constant::{
-    DEFAULT_ACCOUNT_CLASS, DEFAULT_ACCOUNT_CLASS_HASH, DEFAULT_LEGACY_ERC20_CLASS,
-    DEFAULT_LEGACY_UDC_CLASS, GENESIS_ACCOUNT_CLASS,
-};
 use katana_primitives::transaction::{
     DeclareTx, DeclareTxV0, DeclareTxV2, DeclareTxWithClass, DeployAccountTx, DeployAccountTxV1,
     ExecutableTx, ExecutableTxWithHash, InvokeTx, InvokeTxV1,
@@ -225,11 +222,11 @@ impl<'c> GenesisTransactionsBuilder<'c> {
     }
 
     fn deploy_predeployed_account(&self, salt: Felt, public_key: Felt) -> ContractAddress {
-        self.deploy(DEFAULT_ACCOUNT_CLASS_HASH, vec![public_key], salt)
+        self.deploy(contracts::Account::HASH, vec![public_key], salt)
     }
 
     fn build_master_account(&self) {
-        let account_class_hash = self.legacy_declare(GENESIS_ACCOUNT_CLASS.clone());
+        let account_class_hash = self.legacy_declare(contracts::GenesisAccount::class());
 
         let master_pubkey = self.master_signer.verifying_key().scalar();
         let calldata = vec![master_pubkey];
@@ -268,7 +265,7 @@ impl<'c> GenesisTransactionsBuilder<'c> {
     }
 
     fn build_core_contracts(&mut self) {
-        let udc_class_hash = self.legacy_declare(DEFAULT_LEGACY_UDC_CLASS.clone());
+        let udc_class_hash = self.legacy_declare(contracts::UniversalDeployer::class());
         self.deploy(udc_class_hash, Vec::new(), Felt::ZERO);
 
         let master_address = *self.master_address.get().expect("must be initialized first");
@@ -282,14 +279,14 @@ impl<'c> GenesisTransactionsBuilder<'c> {
             master_address.into(),
         ];
 
-        let erc20_class_hash = self.legacy_declare(DEFAULT_LEGACY_ERC20_CLASS.clone());
+        let erc20_class_hash = self.legacy_declare(contracts::Erc20::class());
         let fee_token_address = self.deploy(erc20_class_hash, ctor_args, Felt::ZERO);
 
         self.fee_token.set(fee_token_address).expect("must be uninitialized");
     }
 
     fn build_allocated_accounts(&mut self) {
-        let default_account_class_hash = self.declare(DEFAULT_ACCOUNT_CLASS.clone());
+        let default_account_class_hash = self.declare(contracts::Account::class());
 
         for (expected_addr, account) in self.chain_spec.genesis.accounts() {
             if account.class_hash() != default_account_class_hash {
@@ -339,6 +336,7 @@ impl<'c> GenesisTransactionsBuilder<'c> {
 mod tests {
 
     use alloy_primitives::U256;
+    use katana_contracts::contracts;
     use katana_executor::implementation::blockifier::cache::ClassCache;
     use katana_executor::implementation::blockifier::BlockifierFactory;
     use katana_executor::{BlockLimits, ExecutorFactory};
@@ -350,7 +348,6 @@ mod tests {
         DevAllocationsGenerator, GenesisAccount, GenesisAccountAlloc, GenesisAllocation,
     };
     use katana_primitives::genesis::constant::{
-        DEFAULT_ACCOUNT_CLASS_HASH, DEFAULT_LEGACY_ERC20_CLASS, DEFAULT_LEGACY_UDC_CLASS,
         DEFAULT_PREFUNDED_ACCOUNT_BALANCE, DEFAULT_UDC_ADDRESS,
     };
     use katana_primitives::genesis::Genesis;
@@ -438,11 +435,11 @@ mod tests {
         // Classes
 
         // check that the default erc20 class is declared
-        let erc20_class_hash = DEFAULT_LEGACY_ERC20_CLASS.class_hash().unwrap();
+        let erc20_class_hash = contracts::Erc20::HASH;
         assert!(genesis_state.class(erc20_class_hash).unwrap().is_some());
 
         // check that the default udc class is declared
-        let udc_class_hash = DEFAULT_LEGACY_UDC_CLASS.class_hash().unwrap();
+        let udc_class_hash = contracts::UniversalDeployer::HASH;
         assert!(genesis_state.class(udc_class_hash).unwrap().is_some());
 
         // -----------------------------------------------------------------------
@@ -497,7 +494,7 @@ mod tests {
 
             // add non-dev allocations
             for i in 0..n_accounts {
-                const CLASS_HASH: ClassHash = DEFAULT_ACCOUNT_CLASS_HASH;
+                const CLASS_HASH: ClassHash = contracts::Account::HASH;
                 let salt = Felt::from(i);
                 let pk = Felt::from(1337);
 

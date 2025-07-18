@@ -6,9 +6,10 @@ use assert_matches::assert_matches;
 use cainome::rs::{abigen, abigen_legacy};
 use common::split_felt;
 use indexmap::IndexSet;
+use katana_contracts::contracts;
 use katana_primitives::event::ContinuationToken;
 use katana_primitives::genesis::constant::{
-    DEFAULT_ACCOUNT_CLASS_HASH, DEFAULT_ETH_FEE_TOKEN_ADDRESS, DEFAULT_PREFUNDED_ACCOUNT_BALANCE,
+    DEFAULT_ETH_FEE_TOKEN_ADDRESS, DEFAULT_PREFUNDED_ACCOUNT_BALANCE,
     DEFAULT_STRK_FEE_TOKEN_ADDRESS, DEFAULT_UDC_ADDRESS,
 };
 use katana_rpc_api::dev::DevApiClient;
@@ -160,7 +161,7 @@ async fn deploy_account(
     let chain_id = provider.chain_id().await.unwrap();
 
     let signer = LocalWallet::from(SigningKey::from_random());
-    let class = DEFAULT_ACCOUNT_CLASS_HASH;
+    let class = contracts::Account::HASH;
     let salt = felt!("0x123");
 
     // starknet-rs's utility for deploying an OpenZeppelin account

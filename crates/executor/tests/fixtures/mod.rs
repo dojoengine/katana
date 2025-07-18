@@ -2,6 +2,7 @@ pub mod transaction;
 
 use alloy_primitives::U256;
 use katana_chain_spec::ChainSpec;
+use katana_contracts::contracts;
 use katana_executor::implementation::noop::NoopExecutorFactory;
 use katana_executor::{ExecutionFlags, ExecutorFactory};
 use katana_primitives::block::{
@@ -14,8 +15,8 @@ use katana_primitives::da::L1DataAvailabilityMode;
 use katana_primitives::env::{CfgEnv, FeeTokenAddressses};
 use katana_primitives::genesis::allocation::DevAllocationsGenerator;
 use katana_primitives::genesis::constant::{
-    DEFAULT_ACCOUNT_CLASS_HASH, DEFAULT_ETH_FEE_TOKEN_ADDRESS, DEFAULT_LEGACY_ERC20_CLASS_HASH,
-    DEFAULT_PREFUNDED_ACCOUNT_BALANCE, DEFAULT_STRK_FEE_TOKEN_ADDRESS,
+    DEFAULT_ETH_FEE_TOKEN_ADDRESS, DEFAULT_PREFUNDED_ACCOUNT_BALANCE,
+    DEFAULT_STRK_FEE_TOKEN_ADDRESS,
 };
 use katana_primitives::transaction::{
     DeclareTx, DeclareTxV2, DeclareTxWithClass, DeployAccountTx, DeployAccountTxV1, ExecutableTx,
@@ -182,7 +183,7 @@ pub fn valid_blocks() -> [ExecutableBlock; 3] {
                         constructor_calldata: vec![felt!(
                             "0x4c339f18b9d1b95b64a6d378abd1480b2e0d5d5bd33cd0828cbce4d65c27284"
                         )],
-                        class_hash: DEFAULT_ACCOUNT_CLASS_HASH,
+                        class_hash: contracts::Account::HASH,
                         contract_address: address!(
                             "0x3ddfa445a70b927497249f94ff7431fc2e2abc761a34417fd4891beb7c2db85"
                         ),
@@ -214,7 +215,7 @@ pub fn valid_blocks() -> [ExecutableBlock; 3] {
                         felt!("0x1987cbd17808b9a23693d4de7e246a443cfe37e6e7fbaeabd7d7e6532b07c3d"),
                         felt!("10"), // the # of felts after this point
                         // --- udc::deployContract arguments
-                        DEFAULT_LEGACY_ERC20_CLASS_HASH, // class hash
+                        contracts::Erc20::HASH, // class hash
                         felt!("0x6ea2ff5aa6f633708e69f5c61d2ac5f860d2435b46ddbd016aa065bce25100a"), /* salt */
                         felt!("0x1"), // uniquness
                         felt!("6"),   // ctor calldata length

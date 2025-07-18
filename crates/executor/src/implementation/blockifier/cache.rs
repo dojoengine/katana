@@ -294,8 +294,8 @@ impl ClassCache {
 #[cfg(test)]
 mod tests {
     use assert_matches::assert_matches;
+    use katana_contracts::contracts;
     use katana_primitives::felt;
-    use katana_primitives::genesis::constant::{DEFAULT_ACCOUNT_CLASS, DEFAULT_LEGACY_UDC_CLASS};
 
     use super::{ClassCache, ClassCacheBuilder, Error};
 
@@ -307,8 +307,8 @@ mod tests {
         let class_hash1 = felt!("0x1");
         let class_hash2 = felt!("0x2");
 
-        cache1.insert(class_hash1, DEFAULT_ACCOUNT_CLASS.clone());
-        cache1.insert(class_hash2, DEFAULT_LEGACY_UDC_CLASS.clone());
+        cache1.insert(class_hash1, contracts::Account::class());
+        cache1.insert(class_hash2, contracts::UniversalDeployer::class());
 
         assert!(cache1.get(&class_hash1).is_some());
         assert!(cache1.get(&class_hash2).is_some());
@@ -333,8 +333,8 @@ mod tests {
         let class_hash1 = felt!("0x1");
         let class_hash2 = felt!("0x2");
 
-        cache1.insert(class_hash1, DEFAULT_ACCOUNT_CLASS.clone());
-        cache1.insert(class_hash2, DEFAULT_LEGACY_UDC_CLASS.clone());
+        cache1.insert(class_hash1, contracts::Account::class());
+        cache1.insert(class_hash2, contracts::UniversalDeployer::class());
 
         assert!(cache1.get(&class_hash1).is_some());
         assert!(cache1.get(&class_hash2).is_some());
