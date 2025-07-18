@@ -5,7 +5,8 @@ members = [
 	"bin/katana",
 	"crates/cartridge",
 	"crates/chain-spec",
-	"crates/cli", "crates/contracts",
+	"crates/cli",
+	"crates/contracts",
 	"crates/controller",
 	"crates/core",
 	"crates/executor",
@@ -65,6 +66,7 @@ katana-chain-spec = { path = "crates/chain-spec" }
 katana-cli = { path = "crates/cli" }
 katana-codecs = { path = "crates/storage/codecs" }
 katana-codecs-derive = { path = "crates/storage/codecs/derive" }
+katana-contracts = { path = "crates/contracts" }
 katana-core = { path = "crates/core" }
 katana-db = { path = "crates/storage/db" }
 katana-executor = { path = "crates/executor" }

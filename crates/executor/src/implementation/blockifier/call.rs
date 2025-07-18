@@ -125,7 +125,7 @@ mod tests {
         // -------------------- Preparations -------------------------------
 
         let json = include_str!(
-            "../../../../../contracts/build/katana_test_contracts_CallTest.contract_class.json"
+            "../../../../contracts/build/katana_test_contracts_CallTest.contract_class.json"
         );
         let class = ContractClass::from_str(json).unwrap();
         let class_hash = class.class_hash().unwrap();
@@ -203,7 +203,7 @@ mod tests {
         // -------------------- Preparations -------------------------------
 
         let json = include_str!(
-            "../../../../../contracts/build/katana_test_contracts_CallTest.contract_class.json"
+            "../../../../contracts/build/katana_test_contracts_CallTest.contract_class.json"
         );
         let class = ContractClass::from_str(json).unwrap();
         let class_hash = class.class_hash().unwrap();

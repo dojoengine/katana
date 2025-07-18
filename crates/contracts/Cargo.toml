@@ -1,9 +1,13 @@
 [package]
-name = "katana-contracts"
 edition.workspace = true
 license.workspace = true
-license-file.workspace = true
+name = "katana-contracts"
 repository.workspace = true
 version.workspace = true
 
 [dependencies]
+katana-contracts-macro = { path = "macro" }
+katana-primitives.workspace = true
+starknet.workspace = true
+
+thiserror.workspace = true

@@ -44,7 +44,7 @@ async fn setup_test_inner(no_mining: bool) -> (TestNode, impl Provider, LocalTes
     let mut txs_vector: LocalTestVector = Vec::new();
 
     // create some emtpy blocks and dummy transactions
-    abigen_legacy!(Erc20Contract, "contracts/build/legacy/erc20.json", derives(Clone));
+    abigen_legacy!(Erc20Contract, "crates/contracts/build/legacy/erc20.json", derives(Clone));
     let contract = Erc20Contract::new(DEFAULT_STRK_FEE_TOKEN_ADDRESS.into(), sequencer.account());
 
     if no_mining {

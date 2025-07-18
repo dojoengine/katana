@@ -9,7 +9,7 @@ use starknet::signers::{LocalWallet, SigningKey};
 
 mod common;
 
-abigen_legacy!(Erc20Contract, "contracts/build/legacy/erc20.json", derives(Clone));
+abigen_legacy!(Erc20Contract, "crates/contracts/build/legacy/erc20.json", derives(Clone));
 
 #[tokio::test]
 async fn simulate() {
