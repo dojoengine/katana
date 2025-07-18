@@ -1,0 +1,59 @@
+{
+    "enums": {},
+    "messages": {
+        "oracle::StarkVrfProof": [
+            {
+                "name": "felt252_gamma_x",
+                "ty": {
+                    "primitive": "felt252"
+                }
+            },
+            {
+                "name": "felt252_gamma_y",
+                "ty": {
+                    "primitive": "felt252"
+                }
+            },
+            {
+                "name": "felt252_c",
+                "ty": {
+                    "primitive": "felt252"
+                }
+            },
+            {
+                "name": "felt252_s",
+                "ty": {
+                    "primitive": "felt252"
+                }
+            },
+            {
+                "name": "felt252_sqrt_ratio",
+                "ty": {
+                    "primitive": "felt252"
+                }
+            }
+        ],
+        "oracle::StarkVrfRequest": [
+            {
+                "name": "felt252_seed",
+                "ty": {
+                    "array": {
+                        "primitive": "felt252"
+                    }
+                }
+            }
+        ]
+    },
+    "services": {
+        "StarkVrfOracle": {
+            "stark_vrf": {
+                "input": {
+                    "message": "oracle::StarkVrfRequest"
+                },
+                "output": {
+                    "message": "oracle::StarkVrfProof"
+                }
+            }
+        }
+    }
+}

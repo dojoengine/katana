@@ -5,7 +5,7 @@ members = [
 	"bin/katana",
 	"crates/cartridge",
 	"crates/chain-spec",
-	"crates/cli",
+	"crates/cli", "crates/contracts",
 	"crates/controller",
 	"crates/core",
 	"crates/executor",
