@@ -102,6 +102,7 @@ RUN if [ "$TARGETPLATFORM" = "linux/arm64" ] ; then \
 
 # Install scarb for compiling contracts
 RUN curl --proto '=https' --tlsv1.2 -sSf https://docs.swmansion.com/scarb/install.sh | bash -s -- -v 2.8.2
+ENV PATH="/root/.local/bin:$PATH"
 
 RUN chown -R root:root /usr/local/cargo
 RUN chmod -R 700 /usr/local/cargo
