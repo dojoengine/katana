@@ -40,6 +40,7 @@ starknet-crypto = { workspace = true, optional = true }
 
 [dev-dependencies]
 katana-chain-spec.workspace = true
+katana-contracts.workspace = true
 katana-messaging.workspace = true
 katana-node.workspace = true
 katana-rpc-api = { workspace = true, features = [ "client" ] }

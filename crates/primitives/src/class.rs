@@ -217,7 +217,8 @@ mod tests {
 
     #[test]
     fn compute_class_hash() {
-        let artifact = include_str!("../../../contracts/build/default_account.json");
+        let artifact =
+            include_str!("../../contracts/build/katana_account_Account.contract_class.json");
 
         let class = serde_json::from_str::<SierraContractClass>(artifact).unwrap();
         let actual_hash = ContractClass::Class(class).class_hash().unwrap();
@@ -232,7 +233,7 @@ mod tests {
 
     #[test]
     fn compute_legacy_class_hash() {
-        let artifact = include_str!("../../../contracts/build/erc20.json");
+        let artifact = include_str!("../../contracts/build/legacy/erc20.json");
 
         let class = serde_json::from_str::<LegacyContractClass>(artifact).unwrap();
         let actual_hash = ContractClass::Legacy(class).class_hash().unwrap();
@@ -243,5 +244,29 @@ mod tests {
         let expected_hash = class.class_hash().unwrap();
 
         assert_eq!(actual_hash, expected_hash);
+    }
+
+    #[test]
+    #[cfg(feature = "serde")]
+    fn contract_class_from_str() {
+        use std::str::FromStr;
+
+        /////////////////////////////////////////////////////////////////////////
+        // Sierra contract class
+        /////////////////////////////////////////////////////////////////////////
+
+        let raw = include_str!("../../contracts/build/katana_account_Account.contract_class.json");
+        let class = ContractClass::from_str(raw).unwrap();
+        assert!(class.as_sierra().is_some());
+        assert!(!class.is_legacy());
+
+        /////////////////////////////////////////////////////////////////////////
+        // Legacy contract class
+        /////////////////////////////////////////////////////////////////////////
+
+        let raw = include_str!("../../contracts/build/legacy/erc20.json");
+        let class = ContractClass::from_str(raw).unwrap();
+        assert!(class.as_legacy().is_some());
+        assert!(class.is_legacy());
     }
 }

@@ -4,7 +4,6 @@ use anyhow::Result;
 use fixtures::{provider_with_states, DOJO_WORLD_SIERRA_CLASS};
 use katana_primitives::block::{BlockHashOrNumber, BlockNumber};
 use katana_primitives::class::{ClassHash, CompiledClassHash, ContractClass};
-use katana_primitives::genesis::constant::{DEFAULT_LEGACY_ERC20_CLASS, DEFAULT_LEGACY_UDC_CLASS};
 use katana_provider::traits::contract::ContractClassProviderExt;
 use katana_provider::traits::state::{StateFactoryProvider, StateProvider};
 use katana_provider::BlockchainProvider;
@@ -34,6 +33,7 @@ fn assert_state_provider_class(
 }
 
 mod latest {
+    use katana_contracts::contracts;
     use katana_provider::providers::db::DbProvider;
 
     use super::*;
@@ -51,8 +51,8 @@ mod latest {
     #[rstest::rstest]
     #[case(
         vec![
-            (felt!("11"), Some(felt!("1000")), Some(DEFAULT_LEGACY_ERC20_CLASS.clone())),
-            (felt!("22"), Some(felt!("2000")), Some(DEFAULT_LEGACY_UDC_CLASS.clone())),
+            (felt!("11"), Some(felt!("1000")), Some(contracts::Erc20::class())),
+            (felt!("22"), Some(felt!("2000")), Some(contracts::UniversalDeployer::class())),
             (felt!("33"), Some(felt!("3000")), Some(ContractClass::Class((*DOJO_WORLD_SIERRA_CLASS).clone()))),
         ]
     )]
@@ -89,6 +89,7 @@ mod latest {
 }
 
 mod historical {
+    use katana_contracts::contracts;
     use katana_provider::providers::db::DbProvider;
 
     use super::*;
@@ -120,7 +121,7 @@ mod historical {
     #[case::class_hash_at_block_1(
         1,
         vec![
-            (felt!("11"), Some(felt!("1000")), Some(DEFAULT_LEGACY_ERC20_CLASS.clone())),
+            (felt!("11"), Some(felt!("1000")), Some(contracts::Erc20::class())),
             (felt!("22"), None, None),
             (felt!("33"), None, None),
         ])
@@ -128,16 +129,16 @@ mod historical {
     #[case::class_hash_at_block_4(
         4,
         vec![
-            (felt!("11"), Some(felt!("1000")), Some(DEFAULT_LEGACY_ERC20_CLASS.clone())),
-            (felt!("22"), Some(felt!("2000")), Some(DEFAULT_LEGACY_UDC_CLASS.clone())),
+            (felt!("11"), Some(felt!("1000")), Some(contracts::Erc20::class())),
+            (felt!("22"), Some(felt!("2000")), Some(contracts::UniversalDeployer::class())),
             (felt!("33"), None, None),
         ])
     ]
     #[case::class_hash_at_block_5(
         5,
         vec![
-            (felt!("11"), Some(felt!("1000")), Some(DEFAULT_LEGACY_ERC20_CLASS.clone())),
-            (felt!("22"), Some(felt!("2000")), Some(DEFAULT_LEGACY_UDC_CLASS.clone())),
+            (felt!("11"), Some(felt!("1000")), Some(contracts::Erc20::class())),
+            (felt!("22"), Some(felt!("2000")), Some(contracts::UniversalDeployer::class())),
             (felt!("33"), Some(felt!("3000")), Some(ContractClass::Class((*DOJO_WORLD_SIERRA_CLASS).clone()))),
         ])
     ]

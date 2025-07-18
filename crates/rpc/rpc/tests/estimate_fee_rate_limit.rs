@@ -11,7 +11,7 @@ use tokio::sync::Mutex;
 
 mod common;
 
-abigen_legacy!(Erc20Contract, "crates/rpc/rpc/tests/test_data/erc20.json", derives(Clone));
+abigen_legacy!(Erc20Contract, "crates/contracts/build/legacy/erc20.json", derives(Clone));
 
 #[tokio::test(flavor = "multi_thread")]
 async fn test_estimate_fee_rate_limiting() -> Result<()> {

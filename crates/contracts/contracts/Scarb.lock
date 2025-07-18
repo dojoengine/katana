@@ -13,7 +13,7 @@ name = "katana_messaging"
 version = "0.1.0"
 
 [[package]]
-name = "katana_misc"
+name = "katana_test_contracts"
 version = "0.1.0"
 dependencies = [
  "openzeppelin",
