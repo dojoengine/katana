@@ -6331,6 +6331,10 @@ dependencies = [
 ]
 
 [[package]]
+name = "katana-contracts"
+version = "1.6.2"
+
+[[package]]
 name = "katana-core"
 version = "1.6.3"
 dependencies = [
