@@ -245,4 +245,28 @@ mod tests {
 
         assert_eq!(actual_hash, expected_hash);
     }
+
+    #[test]
+    #[cfg(feature = "serde")]
+    fn contract_class_from_str() {
+        use std::str::FromStr;
+
+        /////////////////////////////////////////////////////////////////////////
+        // Sierra contract class
+        /////////////////////////////////////////////////////////////////////////
+
+        let raw = include_str!("../../contracts/build/katana_account_Account.contract_class.json");
+        let class = ContractClass::from_str(raw).unwrap();
+        assert!(class.as_sierra().is_some());
+        assert!(!class.is_legacy());
+
+        /////////////////////////////////////////////////////////////////////////
+        // Legacy contract class
+        /////////////////////////////////////////////////////////////////////////
+
+        let raw = include_str!("../../contracts/build/legacy/erc20.json");
+        let class = ContractClass::from_str(raw).unwrap();
+        assert!(class.as_legacy().is_some());
+        assert!(class.is_legacy());
+    }
 }
