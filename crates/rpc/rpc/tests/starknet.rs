@@ -230,7 +230,7 @@ async fn deploy_account(
     }
 }
 
-abigen_legacy!(Erc20Contract, "contracts/build/legacy/erc20.json", derives(Clone));
+abigen_legacy!(Erc20Contract, "crates/contracts/build/legacy/erc20.json", derives(Clone));
 
 #[tokio::test]
 async fn estimate_fee() {

@@ -80,16 +80,16 @@ pub const CONTROLLER_CLASS_HASH: ClassHash =
 lazy_static! {
 
     // Default fee token contract
-    pub static ref DEFAULT_LEGACY_ERC20_CLASS: ContractClass = read_legacy_class_artifact(include_str!("../../../../contracts/build/legacy/erc20.json"));
+    pub static ref DEFAULT_LEGACY_ERC20_CLASS: ContractClass = read_legacy_class_artifact(include_str!("../../../contracts/build/legacy/erc20.json"));
 
     // Default universal deployer
-    pub static ref DEFAULT_LEGACY_UDC_CLASS: ContractClass = read_legacy_class_artifact(include_str!("../../../../contracts/build/legacy/universal_deployer.json"));
+    pub static ref DEFAULT_LEGACY_UDC_CLASS: ContractClass = read_legacy_class_artifact(include_str!("../../../contracts/build/legacy/universal_deployer.json"));
 
     // Default account contract
-    pub static ref DEFAULT_ACCOUNT_CLASS: ContractClass = parse_sierra_class(include_str!("../../../../contracts/build/katana_account_Account.contract_class.json")).unwrap();
+    pub static ref DEFAULT_ACCOUNT_CLASS: ContractClass = parse_sierra_class(include_str!("../../../contracts/build/katana_account_Account.contract_class.json")).unwrap();
 
     // Genesis account class
-    pub static ref GENESIS_ACCOUNT_CLASS: ContractClass = read_legacy_class_artifact(include_str!("../../../../contracts/build/legacy/account.json"));
+    pub static ref GENESIS_ACCOUNT_CLASS: ContractClass = read_legacy_class_artifact(include_str!("../../../contracts/build/legacy/account.json"));
 }
 
 /// A helper function to get the base storage address for the fee token balance of a given account.
