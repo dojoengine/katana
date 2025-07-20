@@ -5,7 +5,7 @@ use std::str::FromStr;
 pub use katana_contracts_macro::contract;
 use katana_primitives::class::{
     ClassHash, CompiledClass, CompiledClassHash, ComputeClassHashError, ContractClass,
-    ContractClassCompilationError,
+    ContractClassCompilationError, ContractClassFromStrError,
 };
 
 pub mod contracts;
@@ -13,17 +13,17 @@ pub mod contracts;
 /// Errors that can occur when working with unified artifacts.
 #[derive(Debug, thiserror::Error)]
 pub enum ClassArtifactError {
-    #[error("Failed to load sierra class from file: {0}")]
-    SierraClassParse(#[from] katana_primitives::class::ContractClassFromStrError),
+    #[error("failed to parse class artifact: {0}")]
+    ParseArtifact(ContractClassFromStrError),
 
-    #[error("Failed to compute class hash: {0}")]
-    ClassHash(#[from] ComputeClassHashError),
+    #[error("failed to compute class hash: {0}")]
+    ComputeClassHash(ComputeClassHashError),
 
     #[error("failed to compile sierra to casm: {0}")]
-    Compilation(#[from] ContractClassCompilationError),
+    Compilation(ContractClassCompilationError),
 
     #[error("io error: {0}")]
-    Io(#[from] std::io::Error),
+    Io(std::io::Error),
 
     #[error("artifact not found at path: {0}")]
     ArtifactNotFound(PathBuf),
@@ -64,8 +64,13 @@ impl ClassArtifact {
     /// * `Err(ArtifactError)` - If loading or parsing fails
     pub fn class(&self) -> Result<ContractClass, ClassArtifactError> {
         match &self.artifact_source {
-            ArtifactSource::Embedded(content) => Ok(ContractClass::from_str(content)?),
-            ArtifactSource::File(path) => Ok(ContractClass::from_str(&fs::read_to_string(path)?)?),
+            ArtifactSource::Embedded(content) => {
+                ContractClass::from_str(content).map_err(ClassArtifactError::ParseArtifact)
+            }
+            ArtifactSource::File(path) => {
+                let content = fs::read_to_string(path).map_err(ClassArtifactError::Io)?;
+                ContractClass::from_str(&content).map_err(ClassArtifactError::ParseArtifact)
+            }
         }
     }
 
@@ -75,7 +80,7 @@ impl ClassArtifact {
     /// * `Ok(&ClassHash)` - Reference to the computed class hash
     /// * `Err(ArtifactError)` - If computation fails
     pub fn class_hash(&self) -> Result<ClassHash, ClassArtifactError> {
-        self.class()?.class_hash().map_err(ClassArtifactError::ClassHash)
+        self.class()?.class_hash().map_err(ClassArtifactError::ComputeClassHash)
     }
 
     /// Gets the compiled CASM class, compiling it lazily on first access.
@@ -93,6 +98,6 @@ impl ClassArtifact {
     /// * `Ok(&CompiledClassHash)` - Reference to the computed compiled class hash
     /// * `Err(ArtifactError)` - If computation fails
     pub fn casm_hash(&self) -> Result<CompiledClassHash, ClassArtifactError> {
-        self.casm()?.class_hash().map_err(ClassArtifactError::ClassHash)
+        self.casm()?.class_hash().map_err(ClassArtifactError::ComputeClassHash)
     }
 }

@@ -6333,7 +6333,7 @@ dependencies = [
 
 [[package]]
 name = "katana-contracts"
-version = "1.6.2"
+version = "1.6.3"
 dependencies = [
  "katana-contracts-macro",
  "katana-primitives",
