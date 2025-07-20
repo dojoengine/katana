@@ -46,6 +46,9 @@ jobs:
 
             Include a passage from Marcus Aurelius' Meditations at the end of the review. Enclose it in a code block.
 
+          # Optional: Customize the trigger phrase (default: @claude)
+          trigger_phrase: "/review"
+
           # Optional: Customize review based on file types
           # direct_prompt: |
           #   Review this PR focusing on:
