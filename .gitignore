@@ -35,7 +35,7 @@ tests/fixtures/katana_db
 tests/fixtures/db/*
 !tests/fixtures/db/*.tar.gz
 
-contracts/build/
-!contracts/build/legacy/
+crates/contracts/build/
+!crates/contracts/build/legacy/
 
 **/.claude/settings.local.json
