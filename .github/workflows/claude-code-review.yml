@@ -8,8 +8,7 @@ jobs:
   claude-review:
     # Only trigger on PR comments that mention @claude
     if: |
-      github.event.issue.pull_request &&
-      contains(github.event.comment.body, '@claude')
+      github.event.issue.pull_request
 
     runs-on: ubuntu-latest
     permissions:
@@ -35,7 +34,7 @@ jobs:
 
           # Direct prompt for automated review (no @claude mention needed)
           direct_prompt: |
-            Please review this pull request and provide feedback on:
+            You're a senior software engineer. Your job is to review this pull request and provider feeback on:
             - Code quality and best practices
             - Potential bugs or issues
             - Performance considerations
