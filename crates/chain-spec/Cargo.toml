@@ -6,6 +6,7 @@ repository.workspace = true
 version.workspace = true
 
 [dependencies]
+katana-contracts.workspace = true
 katana-primitives.workspace = true
 
 alloy-primitives.workspace = true

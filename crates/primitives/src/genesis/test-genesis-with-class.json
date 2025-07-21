@@ -40,11 +40,11 @@
   },
   "classes": [
     {
-      "class": "../../../../contracts/build/erc20.json",
+      "class": "../../../contracts/build/legacy/erc20.json",
       "name": "MyErc20"
     },
     {
-      "class": "../../../../contracts/build/universal_deployer.json",
+      "class": "../../../contracts/build/legacy/universal_deployer.json",
       "name": "Foo"
     },
     {

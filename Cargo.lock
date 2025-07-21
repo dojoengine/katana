@@ -6267,6 +6267,7 @@ dependencies = [
  "alloy-primitives",
  "anyhow",
  "dirs 6.0.0",
+ "katana-contracts",
  "katana-executor",
  "katana-primitives",
  "katana-provider",
@@ -6327,6 +6328,31 @@ dependencies = [
  "proc-macro2",
  "quote",
  "serde",
+ "syn 2.0.98",
+]
+
+[[package]]
+name = "katana-contracts"
+version = "1.6.3"
+dependencies = [
+ "katana-contracts-macro",
+ "katana-primitives",
+ "lazy_static",
+ "starknet 0.15.1",
+ "thiserror 1.0.69",
+]
+
+[[package]]
+name = "katana-contracts-macro"
+version = "1.6.2"
+dependencies = [
+ "cairo-lang-starknet-classes",
+ "katana-primitives",
+ "proc-macro2",
+ "quote",
+ "serde_json",
+ "starknet-crypto 0.7.4",
+ "starknet-types-core",
  "syn 2.0.98",
 ]
 
@@ -6409,6 +6435,7 @@ dependencies = [
  "cairo-vm 1.0.2 (registry+https://github.com/rust-lang/crates.io-index)",
  "criterion",
  "katana-chain-spec",
+ "katana-contracts",
  "katana-primitives",
  "katana-provider",
  "katana-rpc-types",
@@ -6726,6 +6753,7 @@ dependencies = [
  "bitvec",
  "futures",
  "katana-chain-spec",
+ "katana-contracts",
  "katana-db",
  "katana-fork",
  "katana-primitives",
@@ -6763,6 +6791,7 @@ dependencies = [
  "indexmap 2.7.1",
  "jsonrpsee",
  "katana-chain-spec",
+ "katana-contracts",
  "katana-core",
  "katana-executor",
  "katana-explorer",

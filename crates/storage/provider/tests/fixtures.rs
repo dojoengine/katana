@@ -1,12 +1,12 @@
 use std::collections::BTreeMap;
 
+use katana_contracts::contracts;
 use katana_primitives::address;
 use katana_primitives::block::{
     BlockHashOrNumber, FinalityStatus, Header, SealedBlock, SealedBlockWithStatus,
 };
 use katana_primitives::class::{ContractClass, SierraContractClass};
 use katana_primitives::contract::ContractAddress;
-use katana_primitives::genesis::constant::{DEFAULT_LEGACY_ERC20_CLASS, DEFAULT_LEGACY_UDC_CLASS};
 use katana_primitives::state::{StateUpdates, StateUpdatesWithClasses};
 use katana_provider::providers::db::DbProvider;
 use katana_provider::traits::block::BlockWriter;
@@ -100,7 +100,7 @@ pub fn mock_state_updates() -> [StateUpdatesWithClasses; 3] {
             ]),
             ..Default::default()
         },
-        classes: BTreeMap::from([(class_hash_1, DEFAULT_LEGACY_ERC20_CLASS.clone())]),
+        classes: BTreeMap::from([(class_hash_1, contracts::LegacyERC20::CLASS.clone())]),
     };
 
     let state_update_2 = StateUpdatesWithClasses {
@@ -114,7 +114,7 @@ pub fn mock_state_updates() -> [StateUpdatesWithClasses; 3] {
             deployed_contracts: BTreeMap::from([(address_2, class_hash_2)]),
             ..Default::default()
         },
-        classes: BTreeMap::from([(class_hash_2, DEFAULT_LEGACY_UDC_CLASS.clone())]),
+        classes: BTreeMap::from([(class_hash_2, contracts::UniversalDeployer::CLASS.clone())]),
     };
 
     let state_update_3 = StateUpdatesWithClasses {

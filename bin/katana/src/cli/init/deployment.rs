@@ -86,7 +86,9 @@ pub async fn deploy_settlement_contract(
         // CONTRACT DEPLOYMENT
         // -----------------------------------------------------------------------
 
-        let class = include_str!("../../../../../contracts/build/appchain_core_contract.json");
+        let class = include_str!(
+            "../../../../../crates/contracts/build/legacy/appchain_core_contract.json"
+        );
 
         let class = ContractClass::from_str(class)?;
         let class_hash = class.class_hash()?;

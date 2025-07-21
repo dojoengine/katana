@@ -1,5 +1,5 @@
 [package]
-name = "katana_misc"
+name = "katana_test_contracts"
 version.workspace = true
 edition.workspace = true
 
@@ -11,4 +11,4 @@ openzeppelin.workspace = true
 
 [[target.starknet-contract]]
 sierra = true
-casm = true
+casm = false

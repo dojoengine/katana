@@ -6,9 +6,10 @@ use assert_matches::assert_matches;
 use cainome::rs::{abigen, abigen_legacy};
 use common::split_felt;
 use indexmap::IndexSet;
+use katana_contracts::contracts;
 use katana_primitives::event::ContinuationToken;
 use katana_primitives::genesis::constant::{
-    DEFAULT_ACCOUNT_CLASS_HASH, DEFAULT_ETH_FEE_TOKEN_ADDRESS, DEFAULT_PREFUNDED_ACCOUNT_BALANCE,
+    DEFAULT_ETH_FEE_TOKEN_ADDRESS, DEFAULT_PREFUNDED_ACCOUNT_BALANCE,
     DEFAULT_STRK_FEE_TOKEN_ADDRESS, DEFAULT_UDC_ADDRESS,
 };
 use katana_rpc_api::dev::DevApiClient;
@@ -160,7 +161,7 @@ async fn deploy_account(
     let chain_id = provider.chain_id().await.unwrap();
 
     let signer = LocalWallet::from(SigningKey::from_random());
-    let class = DEFAULT_ACCOUNT_CLASS_HASH;
+    let class = contracts::Account::HASH;
     let salt = felt!("0x123");
 
     // starknet-rs's utility for deploying an OpenZeppelin account
@@ -169,8 +170,7 @@ async fn deploy_account(
     let account_address = deploy_account_tx.address();
 
     // Fund the new account
-    abigen_legacy!(FeeToken, "crates/rpc/rpc/tests/test_data/erc20.json");
-    let contract = FeeToken::new(DEFAULT_STRK_FEE_TOKEN_ADDRESS.into(), &funding_account);
+    let contract = Erc20Contract::new(DEFAULT_STRK_FEE_TOKEN_ADDRESS.into(), &funding_account);
 
     // send enough tokens to the new_account's address just to send the deploy account tx
     let amount = Uint256 { low: felt!("0x5ea0fb889c9400"), high: Felt::ZERO };
@@ -231,7 +231,7 @@ async fn deploy_account(
     }
 }
 
-abigen_legacy!(Erc20Contract, "crates/rpc/rpc/tests/test_data/erc20.json", derives(Clone));
+abigen_legacy!(Erc20Contract, "crates/contracts/build/legacy/erc20.json", derives(Clone));
 
 #[tokio::test]
 async fn estimate_fee() {

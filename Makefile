@@ -17,9 +17,13 @@ SNOS_DB_DIR := $(DB_FIXTURES_DIR)/snos
 COMPATIBILITY_DB_TAR ?= $(DB_FIXTURES_DIR)/v1_2_2.tar.gz
 COMPATIBILITY_DB_DIR ?= $(DB_FIXTURES_DIR)/v1_2_2
 
+CONTRACTS_CRATE := crates/contracts
+CONTRACTS_DIR := $(CONTRACTS_CRATE)/contracts
+CONTRACTS_BUILD_DIR := $(CONTRACTS_CRATE)/build
+
 .DEFAULT_GOAL := usage
 .SILENT: clean
-.PHONY: usage help check-llvm native-deps native-deps-macos native-deps-linux native-deps-windows build-explorer clean
+.PHONY: usage help check-llvm native-deps native-deps-macos native-deps-linux native-deps-windows build-explorer build-contracts clean
 
 # Virtual targets that map to actual file outputs
 .PHONY: test-artifacts snos-artifacts db-compat-artifacts
@@ -27,6 +31,7 @@ COMPATIBILITY_DB_DIR ?= $(DB_FIXTURES_DIR)/v1_2_2
 usage help:
 	@echo "Usage:"
 	@echo "    build-explorer:            Build the explorer."
+	@echo "    build-contracts:           Build the contracts."
 	@echo "    test-artifacts:            Prepare tests artifacts (including test database)."
 	@echo "    snos-artifacts:            Prepare SNOS tests artifacts."
 	@echo "    db-compat-artifacts:       Prepare database compatibility test artifacts."
@@ -41,12 +46,21 @@ snos-artifacts: $(SNOS_OUTPUT)
 	@echo "SNOS test artifacts prepared successfully."
 db-compat-artifacts: $(COMPATIBILITY_DB_DIR)
 	@echo "Database compatibility test artifacts prepared successfully."
-test-artifacts: $(SNOS_DB_DIR) $(SNOS_OUTPUT) $(COMPATIBILITY_DB_DIR)
+test-artifacts: $(SNOS_DB_DIR) $(SNOS_OUTPUT) $(COMPATIBILITY_DB_DIR) $(CONTRACTS_BUILD_DIR)
 	@echo "All test artifacts prepared successfully."
 
 build-explorer:
 	@which bun >/dev/null 2>&1 || { echo "Error: bun is required but not installed. Please install bun first."; exit 1; }
 	@$(MAKE) $(EXPLORER_UI_DIST)
+
+build-contracts: $(CONTRACTS_BUILD_DIR)
+	@echo "Contracts build complete."
+
+$(CONTRACTS_BUILD_DIR): $(CONTRACTS_DIR)
+	@echo "Building contracts..."
+	@cd $< && scarb build
+	@mkdir -p build && \
+		mv $</target/dev/* $@ || { echo "Contracts build failed!"; exit 1; }
 
 $(EXPLORER_UI_DIR):
 	@echo "Initializing Explorer UI submodule..."
@@ -116,5 +130,5 @@ native-deps-windows:
 
 clean:
 	echo "Cleaning up generated files..."
-	-rm -rf $(SNOS_DB_DIR) $(COMPATIBILITY_DB_DIR) $(SNOS_OUTPUT) $(EXPLORER_UI_DIST)
+	-rm -rf $(SNOS_DB_DIR) $(COMPATIBILITY_DB_DIR) $(SNOS_OUTPUT) $(EXPLORER_UI_DIST) $(CONTRACTS_BUILD_DIR)
 	echo "Clean complete."

@@ -3,12 +3,12 @@ mod fixtures;
 use std::collections::BTreeMap;
 
 use fixtures::{state_provider, valid_blocks};
+use katana_contracts::contracts;
 use katana_executor::{ExecutionOutput, ExecutionResult, ExecutorFactory};
 use katana_primitives::block::ExecutableBlock;
 use katana_primitives::contract::ContractAddress;
 use katana_primitives::genesis::constant::{
-    DEFAULT_ACCOUNT_CLASS_HASH, DEFAULT_ETH_FEE_TOKEN_ADDRESS, DEFAULT_LEGACY_ERC20_CLASS_HASH,
-    DEFAULT_PREFUNDED_ACCOUNT_BALANCE, DEFAULT_UDC_ADDRESS,
+    DEFAULT_ETH_FEE_TOKEN_ADDRESS, DEFAULT_PREFUNDED_ACCOUNT_BALANCE, DEFAULT_UDC_ADDRESS,
 };
 use katana_primitives::transaction::TxWithHash;
 use katana_primitives::{address, Felt};
@@ -148,7 +148,7 @@ fn test_executor_with_valid_blocks_impl<EF: ExecutorFactory>(
 
     assert_eq!(
         actual_new_acc_class_hash,
-        Some(DEFAULT_ACCOUNT_CLASS_HASH),
+        Some(contracts::Account::HASH),
         "account should be deployed"
     );
     assert_eq!(actual_new_acc_nonce, Some(1u64.into()), "account nonce is updated");
@@ -188,7 +188,7 @@ fn test_executor_with_valid_blocks_impl<EF: ExecutorFactory>(
     // compute the contract address that we deploy thru the UDC using Invoke tx (the erc20 contract)
     let deployed_contract = get_udc_deployed_address(
         felt!("0x6ea2ff5aa6f633708e69f5c61d2ac5f860d2435b46ddbd016aa065bce25100a"),
-        DEFAULT_LEGACY_ERC20_CLASS_HASH,
+        contracts::LegacyERC20::HASH,
         &UdcUniqueness::Unique(UdcUniqueSettings {
             deployer_address: *main_account,
             udc_contract_address: DEFAULT_UDC_ADDRESS.into(),
@@ -240,7 +240,7 @@ fn test_executor_with_valid_blocks_impl<EF: ExecutorFactory>(
 
     assert_eq!(
         actual_deployed_contract_class_hash,
-        Some(DEFAULT_LEGACY_ERC20_CLASS_HASH),
+        Some(contracts::LegacyERC20::HASH),
         "contract should be deployed"
     );
     assert_eq!(actual_storage_value_1, Some(felt!("0x4b415249")), "ERC_name should be set");
@@ -300,8 +300,8 @@ fn test_executor_with_valid_blocks_impl<EF: ExecutorFactory>(
 
     let actual_contract_deployed = states.state_updates.deployed_contracts;
     let expected_contract_deployed = BTreeMap::from([
-        (new_acc, DEFAULT_ACCOUNT_CLASS_HASH),
-        (deployed_contract.into(), DEFAULT_LEGACY_ERC20_CLASS_HASH),
+        (new_acc, contracts::Account::HASH),
+        (deployed_contract.into(), contracts::LegacyERC20::HASH),
     ]);
 
     similar_asserts::assert_eq!(actual_nonce_updates, expected_nonce_updates);
