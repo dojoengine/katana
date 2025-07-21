@@ -135,6 +135,14 @@ jobs:
           key: ci-${{ github.job }}
           shared-key: katana-ci-cache
 
+      - name: Restore test artifacts
+        uses: actions/cache@v3
+        with:
+          path: |
+            ./tests/snos/snos/build
+            ./crates/contracts/build
+          key: test-artifacts
+
       - name: Run tests w/ code coverage
         if: github.event_name == 'pull_request'
         run: |
@@ -174,12 +182,12 @@ jobs:
           key: ci-${{ github.job }}
           shared-key: katana-ci-cache
 
-      - name: Restore test artifacts from clippy job
-        id: restore-test-artifacts
+      - name: Restore test artifacts
         uses: actions/cache@v3
         with:
           path: |
             ./tests/snos/snos/build
+            ./crates/contracts/build
           key: test-artifacts
 
       - name: Prepare SNOS test environment
@@ -207,9 +215,17 @@ jobs:
         with:
           key: ci-${{ github.job }}
           shared-key: katana-ci-cache
+
+      - name: Restore test artifacts
+        uses: actions/cache@v3
+        with:
+          path: |
+            ./tests/snos/snos/build
+            ./crates/contracts/build
+          key: test-artifacts
+
       - uses: browser-actions/setup-chrome@v1
-      - run: |
-          cargo run -p reverse-proxy-test
+      - run: cargo run -p reverse-proxy-test
 
   # db-compatibility-check:
   #   needs: [fmt, clippy]
