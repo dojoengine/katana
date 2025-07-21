@@ -58,10 +58,9 @@ build-contracts: $(CONTRACTS_BUILD_DIR)
 
 $(CONTRACTS_BUILD_DIR): $(CONTRACTS_DIR)
 	@echo "Building contracts..."
-	@cd $(CONTRACTS_DIR) && \
-		scarb build && \
-		mkdir -p build && \
-		mv target/dev/* build/ || { echo "Contracts build failed!"; exit 1; }
+	@cd $< && scarb build
+	@mkdir -p build && \
+		mv $</target/dev/* $@ || { echo "Contracts build failed!"; exit 1; }
 
 $(EXPLORER_UI_DIR):
 	@echo "Initializing Explorer UI submodule..."
