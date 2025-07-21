@@ -6337,6 +6337,7 @@ version = "1.6.3"
 dependencies = [
  "katana-contracts-macro",
  "katana-primitives",
+ "lazy_static",
  "starknet 0.15.1",
  "thiserror 1.0.69",
 ]

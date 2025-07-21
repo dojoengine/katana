@@ -100,7 +100,7 @@ pub fn mock_state_updates() -> [StateUpdatesWithClasses; 3] {
             ]),
             ..Default::default()
         },
-        classes: BTreeMap::from([(class_hash_1, contracts::Erc20::class())]),
+        classes: BTreeMap::from([(class_hash_1, contracts::LegacyERC20::CLASS.clone())]),
     };
 
     let state_update_2 = StateUpdatesWithClasses {
@@ -114,7 +114,7 @@ pub fn mock_state_updates() -> [StateUpdatesWithClasses; 3] {
             deployed_contracts: BTreeMap::from([(address_2, class_hash_2)]),
             ..Default::default()
         },
-        classes: BTreeMap::from([(class_hash_2, contracts::UniversalDeployer::class())]),
+        classes: BTreeMap::from([(class_hash_2, contracts::UniversalDeployer::CLASS.clone())]),
     };
 
     let state_update_3 = StateUpdatesWithClasses {

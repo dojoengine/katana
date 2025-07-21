@@ -8,6 +8,9 @@ use syn::{parse_macro_input, Ident, LitStr};
 
 /// A proc macro that generates contract wrapper structs with compile-time computed hashes.
 ///
+/// This is a helper macro to guarantees that the generated hashes (i.e., sierra and casm hashes)
+/// are correct and can be accessed in a const context.
+///
 /// # Usage
 ///
 /// ```rust
@@ -23,11 +26,14 @@ pub fn contract(input: TokenStream) -> TokenStream {
     }
 }
 
-/// Input structure for the contract macro
+/// Input structure for the contract! macro.
 struct ContractInput {
+    /// The name of the contract.
+    ///
+    /// This will be used as the identifier for the generated contract struct.
     name: Ident,
+    /// The absolute path to the contract artifact.
     artifact_path: PathBuf,
-    crate_path: syn::Path,
 }
 
 impl syn::parse::Parse for ContractInput {
@@ -39,90 +45,86 @@ impl syn::parse::Parse for ContractInput {
         // second argument - artifact path
         let str = input.parse::<LitStr>()?.value();
         let artifact_path = PathBuf::from(str);
+        let abs_artifact_path = artifact_path.canonicalize().map_err(|error| {
+            syn::Error::new(
+                input.span(),
+                format!(
+                    "failed to canonicalize artifact path {}: {error}",
+                    artifact_path.display()
+                ),
+            )
+        })?;
 
-        // third argument (optional) - crate path
-        let crate_path = if input.peek(syn::Token![,]) {
-            input.parse::<syn::Token![,]>()?;
-            input.parse::<syn::Path>()?
-        } else {
-            syn::parse_str::<syn::Path>(crate_path())?
-        };
-
-        Ok(ContractInput { crate_path, name, artifact_path })
+        Ok(ContractInput { name, artifact_path: abs_artifact_path })
     }
 }
 
 fn generate_contract_impl(input: &ContractInput) -> Result<proc_macro2::TokenStream, String> {
     let contract_content = std::fs::read_to_string(&input.artifact_path).map_err(|error| {
-        format!("Failed to read contract file '{}': {error}", input.artifact_path.display())
+        format!("failed to read contract file '{}': {error}", input.artifact_path.display())
     })?;
 
     // Parse the contract class
     let contract_class = ContractClass::from_str(&contract_content)
-        .map_err(|error| format!("Failed to parse contract class: {error}"))?;
+        .map_err(|error| format!("failed to parse contract class: {error}"))?;
 
     // Compute class hash
     let class_hash =
-        contract_class.class_hash().map_err(|e| format!("Failed to compute class hash: {}", e))?;
+        contract_class.class_hash().map_err(|e| format!("failed to compute class hash: {}", e))?;
 
     // Compile and compute compiled class hash
     let compiled_class =
-        contract_class.compile().map_err(|e| format!("Failed to compile contract class: {}", e))?;
+        contract_class.compile().map_err(|e| format!("failed to compile contract class: {}", e))?;
 
-    let compiled_class_hash = compiled_class
-        .class_hash()
-        .map_err(|e| format!("Failed to compute compiled class hash: {}", e))?;
+    let compiled_class_hash =
+        compiled_class.class_hash().map_err(|e| format!("failed to compute casm hash: {}", e))?;
 
     // Convert Felt values to string representation for const generation
     let class_hash_str = format!("{class_hash:#x}",);
     let compiled_class_hash_str = format!("{compiled_class_hash:#x}",);
 
-    let crate_path = &input.crate_path;
     let contract_name = &input.name;
     let contract_path = input.artifact_path.to_string_lossy().to_string();
+    let static_class_name = syn::parse_str::<Ident>(&format!("{contract_name}_CLASS")).unwrap();
 
     // Generate the contract implementation
     let expanded = quote! {
         pub struct #contract_name;
 
         impl #contract_name {
-            /// The contract class hash as a compile-time constant.
             pub const HASH: ::katana_primitives::class::ClassHash = ::katana_primitives::felt!(#class_hash_str);
-            /// The compiled class hash as a compile-time constant.
             pub const CASM_HASH: ::katana_primitives::class::CompiledClassHash = ::katana_primitives::felt!(#compiled_class_hash_str);
+            pub const CLASS: #static_class_name = #static_class_name { __private_field: () };
+        }
 
-            /// Returns the Sierra class artifact.
-            pub fn class() -> katana_primitives::class::ContractClass {
-                #crate_path::ClassArtifact::file(::std::path::PathBuf::from(#contract_path)).class().unwrap()
+        #[allow(missing_copy_implementations)]
+        #[allow(non_camel_case_types)]
+        #[allow(dead_code)]
+        pub struct #static_class_name {
+            __private_field: (),
+        }
+        impl ::lazy_static::__Deref for #static_class_name {
+            type Target = ::katana_primitives::class::ContractClass;
+            fn deref(&self) -> &::katana_primitives::class::ContractClass {
+                #[inline(always)]
+                fn __static_ref_initialize() -> ::katana_primitives::class::ContractClass {
+                    use ::std::str::FromStr;
+                    (::katana_primitives::class::ContractClass::from_str(include_str!(#contract_path)).unwrap())
+                }
+                #[inline(always)]
+                fn __stability() -> &'static ::katana_primitives::class::ContractClass {
+                    static LAZY: lazy_static::lazy::Lazy<::katana_primitives::class::ContractClass> = lazy_static::lazy::Lazy::INIT;
+                    LAZY.get(__static_ref_initialize)
+                }
+                __stability()
             }
-
-            /// Returns the compiled CASM class.
-            pub fn casm() -> katana_primitives::class::CompiledClass {
-                #crate_path::ClassArtifact::file(::std::path::PathBuf::from(#contract_path)).casm().unwrap()
+        }
+        impl ::lazy_static::LazyStatic for #static_class_name {
+            fn initialize(lazy: &Self) {
+                let _ = &**lazy;
             }
         }
     };
 
     Ok(expanded)
-}
-
-fn crate_path() -> &'static str {
-    "::katana_contracts"
-}
-
-#[cfg(test)]
-mod tests {
-    use syn::parse_quote;
-
-    use super::*;
-
-    #[test]
-    fn test_contract_input_parsing() {
-        let input: ContractInput = parse_quote! {
-            TestContract, "path/to/contract.json"
-        };
-
-        assert_eq!(input.name.to_string(), "TestContract");
-        assert_eq!(input.artifact_path, PathBuf::from("path/to/contract.json"));
-    }
 }

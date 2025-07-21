@@ -157,8 +157,11 @@ lazy_static! {
 
 fn add_default_fee_tokens(states: &mut StateUpdatesWithClasses, genesis: &Genesis) {
     // declare erc20 token contract
-    states.classes.entry(contracts::Erc20::HASH).or_insert_with(contracts::Erc20::class);
-    states.state_updates.deprecated_declared_classes.insert(contracts::Erc20::HASH);
+    states
+        .classes
+        .entry(contracts::LegacyERC20::HASH)
+        .or_insert_with(|| contracts::LegacyERC20::CLASS.clone());
+    states.state_updates.deprecated_declared_classes.insert(contracts::LegacyERC20::HASH);
 
     // -- ETH
     add_fee_token(
@@ -167,7 +170,7 @@ fn add_default_fee_tokens(states: &mut StateUpdatesWithClasses, genesis: &Genesi
         "ETH",
         18,
         DEFAULT_ETH_FEE_TOKEN_ADDRESS,
-        contracts::Erc20::HASH,
+        contracts::LegacyERC20::HASH,
         &genesis.allocations,
     );
 
@@ -178,7 +181,7 @@ fn add_default_fee_tokens(states: &mut StateUpdatesWithClasses, genesis: &Genesi
         "STRK",
         18,
         DEFAULT_STRK_FEE_TOKEN_ADDRESS,
-        contracts::Erc20::HASH,
+        contracts::LegacyERC20::HASH,
         &genesis.allocations,
     );
 }
@@ -237,7 +240,7 @@ fn add_default_udc(states: &mut StateUpdatesWithClasses) {
     states
         .classes
         .entry(contracts::UniversalDeployer::HASH)
-        .or_insert_with(contracts::UniversalDeployer::class);
+        .or_insert_with(|| contracts::UniversalDeployer::CLASS.clone());
 
     states.state_updates.deprecated_declared_classes.insert(contracts::UniversalDeployer::HASH);
 
@@ -271,9 +274,12 @@ mod tests {
         // setup initial states to test
 
         let classes = BTreeMap::from([
-            (contracts::Erc20::HASH, contracts::UniversalDeployer::class().into()),
-            (contracts::UniversalDeployer::HASH, contracts::Erc20::class().into()),
-            (contracts::Account::HASH, contracts::Account::class().into()),
+            (contracts::LegacyERC20::HASH, contracts::LegacyERC20::CLASS.clone().into()),
+            (
+                contracts::UniversalDeployer::HASH,
+                contracts::UniversalDeployer::CLASS.clone().into(),
+            ),
+            (contracts::Account::HASH, contracts::Account::CLASS.clone().into()),
         ]);
 
         let allocations = [
@@ -360,15 +366,21 @@ mod tests {
         assert!(actual_state_updates.classes.len() == 3);
 
         assert_eq!(
+            actual_state_updates.state_updates.declared_classes.get(&contracts::LegacyERC20::HASH),
+            None,
+            "The default erc20 is a legacy class - legacy class should only be in \
+             `deprecated_declared_classes`"
+        );
+        assert_eq!(
             actual_state_updates
                 .state_updates
                 .deprecated_declared_classes
-                .get(&contracts::Erc20::HASH),
-            Some(&contracts::Erc20::CASM_HASH),
+                .get(&contracts::LegacyERC20::HASH),
+            Some(&contracts::LegacyERC20::CASM_HASH),
         );
         assert_eq!(
-            actual_state_updates.classes.get(&contracts::Erc20::HASH),
-            Some(&contracts::Erc20::class())
+            actual_state_updates.classes.get(&contracts::LegacyERC20::HASH),
+            Some(&contracts::LegacyERC20::CLASS.clone())
         );
 
         assert_eq!(
@@ -376,7 +388,7 @@ mod tests {
                 .state_updates
                 .deployed_contracts
                 .get(&DEFAULT_ETH_FEE_TOKEN_ADDRESS),
-            Some(&contracts::Erc20::HASH),
+            Some(&contracts::LegacyERC20::HASH),
             "The ETH fee token contract should be created"
         );
         assert_eq!(
@@ -384,7 +396,7 @@ mod tests {
                 .state_updates
                 .deployed_contracts
                 .get(&DEFAULT_STRK_FEE_TOKEN_ADDRESS),
-            Some(&contracts::Erc20::HASH),
+            Some(&contracts::LegacyERC20::HASH),
             "The STRK fee token contract should be created"
         );
 
@@ -393,7 +405,7 @@ mod tests {
                 .state_updates
                 .deprecated_declared_classes
                 .get(&contracts::UniversalDeployer::HASH),
-            Some(&contracts::UniversalDeployer::CASM_HASH),
+            Some(&contracts::UniversalDeployer::HASH),
             "The default universal deployer class should be declared"
         );
 
@@ -402,11 +414,13 @@ mod tests {
                 .state_updates
                 .declared_classes
                 .get(&contracts::UniversalDeployer::HASH),
-            Some(&contracts::UniversalDeployer::CASM_HASH),
+            None,
+            "The udc is a legacy class - legacy class should only be in \
+             `deprecated_declared_classes`"
         );
         assert_eq!(
             actual_state_updates.classes.get(&contracts::UniversalDeployer::HASH),
-            Some(&contracts::UniversalDeployer::class())
+            Some(&contracts::UniversalDeployer::CLASS.clone())
         );
 
         assert_eq!(
@@ -423,7 +437,7 @@ mod tests {
 
         assert_eq!(
             actual_state_updates.classes.get(&contracts::Account::HASH),
-            Some(&contracts::Account::class()),
+            Some(&contracts::Account::CLASS.clone()),
             "The default oz account contract sierra class should be declared"
         );
 

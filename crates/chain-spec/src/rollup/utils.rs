@@ -226,7 +226,7 @@ impl<'c> GenesisTransactionsBuilder<'c> {
     }
 
     fn build_master_account(&self) {
-        let account_class_hash = self.legacy_declare(contracts::GenesisAccount::class());
+        let account_class_hash = self.legacy_declare(contracts::GenesisAccount::CLASS.clone());
 
         let master_pubkey = self.master_signer.verifying_key().scalar();
         let calldata = vec![master_pubkey];
@@ -265,7 +265,7 @@ impl<'c> GenesisTransactionsBuilder<'c> {
     }
 
     fn build_core_contracts(&mut self) {
-        let udc_class_hash = self.legacy_declare(contracts::UniversalDeployer::class());
+        let udc_class_hash = self.legacy_declare(contracts::UniversalDeployer::CLASS.clone());
         self.deploy(udc_class_hash, Vec::new(), Felt::ZERO);
 
         let master_address = *self.master_address.get().expect("must be initialized first");
@@ -279,14 +279,14 @@ impl<'c> GenesisTransactionsBuilder<'c> {
             master_address.into(),
         ];
 
-        let erc20_class_hash = self.legacy_declare(contracts::Erc20::class());
+        let erc20_class_hash = self.legacy_declare(contracts::LegacyERC20::CLASS.clone());
         let fee_token_address = self.deploy(erc20_class_hash, ctor_args, Felt::ZERO);
 
         self.fee_token.set(fee_token_address).expect("must be uninitialized");
     }
 
     fn build_allocated_accounts(&mut self) {
-        let default_account_class_hash = self.declare(contracts::Account::class());
+        let default_account_class_hash = self.declare(contracts::Account::CLASS.clone());
 
         for (expected_addr, account) in self.chain_spec.genesis.accounts() {
             if account.class_hash() != default_account_class_hash {
@@ -435,7 +435,7 @@ mod tests {
         // Classes
 
         // check that the default erc20 class is declared
-        let erc20_class_hash = contracts::Erc20::HASH;
+        let erc20_class_hash = contracts::LegacyERC20::HASH;
         assert!(genesis_state.class(erc20_class_hash).unwrap().is_some());
 
         // check that the default udc class is declared

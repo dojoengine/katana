@@ -1,4 +1,4 @@
-use katana_contracts::contract;
+use katana_contracts_macro::contract;
 use katana_primitives::felt;
 
 #[test]

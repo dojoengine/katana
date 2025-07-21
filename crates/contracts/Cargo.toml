@@ -8,6 +8,8 @@ version.workspace = true
 [dependencies]
 katana-contracts-macro = { path = "macro" }
 katana-primitives.workspace = true
+
+lazy_static.workspace = true
 starknet.workspace = true
 
 thiserror.workspace = true

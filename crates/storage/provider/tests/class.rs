@@ -51,8 +51,8 @@ mod latest {
     #[rstest::rstest]
     #[case(
         vec![
-            (felt!("11"), Some(felt!("1000")), Some(contracts::Erc20::class())),
-            (felt!("22"), Some(felt!("2000")), Some(contracts::UniversalDeployer::class())),
+            (felt!("11"), Some(felt!("1000")), Some(contracts::LegacyERC20::CLASS.clone())),
+            (felt!("22"), Some(felt!("2000")), Some(contracts::UniversalDeployer::CLASS.clone())),
             (felt!("33"), Some(felt!("3000")), Some(ContractClass::Class((*DOJO_WORLD_SIERRA_CLASS).clone()))),
         ]
     )]
@@ -121,7 +121,7 @@ mod historical {
     #[case::class_hash_at_block_1(
         1,
         vec![
-            (felt!("11"), Some(felt!("1000")), Some(contracts::Erc20::class())),
+            (felt!("11"), Some(felt!("1000")), Some(contracts::LegacyERC20::CLASS.clone())),
             (felt!("22"), None, None),
             (felt!("33"), None, None),
         ])
@@ -129,16 +129,16 @@ mod historical {
     #[case::class_hash_at_block_4(
         4,
         vec![
-            (felt!("11"), Some(felt!("1000")), Some(contracts::Erc20::class())),
-            (felt!("22"), Some(felt!("2000")), Some(contracts::UniversalDeployer::class())),
+            (felt!("11"), Some(felt!("1000")), Some(contracts::LegacyERC20::CLASS.clone())),
+            (felt!("22"), Some(felt!("2000")), Some(contracts::UniversalDeployer::CLASS.clone())),
             (felt!("33"), None, None),
         ])
     ]
     #[case::class_hash_at_block_5(
         5,
         vec![
-            (felt!("11"), Some(felt!("1000")), Some(contracts::Erc20::class())),
-            (felt!("22"), Some(felt!("2000")), Some(contracts::UniversalDeployer::class())),
+            (felt!("11"), Some(felt!("1000")), Some(contracts::LegacyERC20::CLASS.clone())),
+            (felt!("22"), Some(felt!("2000")), Some(contracts::UniversalDeployer::CLASS.clone())),
             (felt!("33"), Some(felt!("3000")), Some(ContractClass::Class((*DOJO_WORLD_SIERRA_CLASS).clone()))),
         ])
     ]
