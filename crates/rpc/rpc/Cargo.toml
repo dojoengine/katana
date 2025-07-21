@@ -10,7 +10,6 @@ version.workspace = true
 katana-core.workspace = true
 katana-executor.workspace = true
 katana-explorer = { workspace = true, features = [ "jsonrpsee" ], optional = true }
-katana-log.workspace = true
 katana-metrics.workspace = true
 katana-pool.workspace = true
 katana-primitives.workspace = true
@@ -19,6 +18,7 @@ katana-rpc-api.workspace = true
 katana-rpc-types.workspace = true
 katana-rpc-types-builder.workspace = true
 katana-tasks.workspace = true
+katana-tracing.workspace = true
 
 anyhow.workspace = true
 futures.workspace = true

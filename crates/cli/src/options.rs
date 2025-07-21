@@ -12,7 +12,6 @@ use std::net::IpAddr;
 use std::num::NonZeroU128;
 
 use clap::Args;
-use katana_log::{gcloud, otlp, LogFormat, TracerConfig};
 use katana_node::config::execution::{DEFAULT_INVOCATION_MAX_STEPS, DEFAULT_VALIDATION_MAX_STEPS};
 #[cfg(feature = "server")]
 use katana_node::config::metrics::{DEFAULT_METRICS_ADDR, DEFAULT_METRICS_PORT};
@@ -27,6 +26,7 @@ use katana_primitives::chain::ChainId;
 use katana_primitives::genesis::Genesis;
 #[cfg(feature = "server")]
 use katana_rpc::cors::HeaderValue;
+use katana_tracing::{gcloud, otlp, LogFormat, TracerConfig};
 use serde::{Deserialize, Serialize};
 use url::Url;
 

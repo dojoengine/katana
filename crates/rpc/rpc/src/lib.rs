@@ -10,7 +10,7 @@ use jsonrpsee::core::middleware::RpcServiceBuilder;
 use jsonrpsee::core::{RegisterMethodError, TEN_MB_SIZE_BYTES};
 use jsonrpsee::server::{Server, ServerConfig, ServerHandle};
 use jsonrpsee::RpcModule;
-use katana_log::gcloud::GoogleStackDriverMakeSpan;
+use katana_tracing::gcloud::GoogleStackDriverMakeSpan;
 use tower::ServiceBuilder;
 use tower_http::trace::TraceLayer;
 use tracing::info;

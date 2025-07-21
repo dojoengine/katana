@@ -11,7 +11,6 @@ katana-core.workspace = true
 katana-db.workspace = true
 katana-executor.workspace = true
 katana-gas-price-oracle.workspace = true
-katana-log.workspace = true
 katana-messaging.workspace = true
 katana-metrics.workspace = true
 katana-pipeline.workspace = true
@@ -22,6 +21,7 @@ katana-rpc = { workspace = true }
 katana-rpc-api.workspace = true
 katana-stage.workspace = true
 katana-tasks.workspace = true
+katana-tracing.workspace = true
 
 anyhow.workspace = true
 futures.workspace = true
