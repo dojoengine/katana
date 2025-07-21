@@ -106,6 +106,7 @@ jobs:
         with:
           path: |
             ./tests/snos/snos/build
+            ./crates/contracts/build
           key: test-artifacts
 
       - name: Run Clippy
