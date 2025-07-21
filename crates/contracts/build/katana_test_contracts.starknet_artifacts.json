@@ -1,1 +1,0 @@
-{"version":1,"contracts":[{"id":"hmd5pv6bo1ftk","package_name":"katana_test_contracts","contract_name":"CallTest","module_path":"katana_test_contracts::call::CallTest","artifacts":{"sierra":"katana_test_contracts_CallTest.contract_class.json","casm":null}}]}
