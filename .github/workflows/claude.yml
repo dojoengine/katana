@@ -31,7 +31,7 @@ jobs:
 
       - name: Run Claude Code
         id: claude
-        uses: anthropics/claude-code-action@beta
+        uses: anthropics/claude-code-action@0.0.40
         with:
           anthropic_api_key: ${{ secrets.ANTHROPIC_API_KEY }}
 
@@ -39,7 +39,7 @@ jobs:
           # model: "claude-opus-4-20250514"
 
           # Optional: Customize the trigger phrase (default: @claude)
-          # trigger_phrase: "/claude"
+          trigger_phrase: "/do"
 
           # Optional: Trigger when specific user is assigned to an issue
           assignee_trigger: "claude-bot"

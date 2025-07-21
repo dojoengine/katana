@@ -9,7 +9,7 @@ jobs:
     # Only trigger on PR comments that mention @claude
     if: |
       github.event.issue.pull_request &&
-      contains(github.event.comment.body, '@claude')
+      github.event.comment
 
     runs-on: ubuntu-latest
     permissions:
@@ -26,7 +26,7 @@ jobs:
 
       - name: Run Claude Code Review
         id: claude-review
-        uses: anthropics/claude-code-action@beta
+        uses: anthropics/claude-code-action@0.0.40
         with:
           anthropic_api_key: ${{ secrets.ANTHROPIC_API_KEY }}
 
@@ -35,7 +35,7 @@ jobs:
 
           # Direct prompt for automated review (no @claude mention needed)
           direct_prompt: |
-            Please review this pull request and provide feedback on:
+            You're a senior software engineer. Your job is to review this pull request and provider feeback on:
             - Code quality and best practices
             - Potential bugs or issues
             - Performance considerations
@@ -45,6 +45,9 @@ jobs:
             Be constructive and helpful in your feedback.
 
             Include a passage from Marcus Aurelius' Meditations at the end of the review. Enclose it in a code block.
+
+          # Optional: Customize the trigger phrase (default: @claude)
+          trigger_phrase: "/review"
 
           # Optional: Customize review based on file types
           # direct_prompt: |
