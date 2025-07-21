@@ -1,0 +1,120 @@
+name: Report
+
+on:
+  schedule:
+    - cron: "0 9 * * 1" # Run every Monday at 9:00 AM UTC
+  workflow_dispatch: # Allow manual triggering
+
+jobs:
+  current-main-size:
+    name: Current main branch binary size
+    runs-on: ubuntu-latest
+    container:
+      image: ghcr.io/dojoengine/katana-dev:latest
+    outputs:
+      size: ${{ steps.binary-size.outputs.size }}
+      commit: ${{ steps.binary-size.outputs.commit }}
+      branch: ${{ steps.binary-size.outputs.branch }}
+
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: main
+      # Workaround for https://github.com/actions/runner-images/issues/6775
+      - run: git config --global --add safe.directory "*"
+
+      - uses: Swatinem/rust-cache@v2
+        with:
+          key: weekly-binary-size-main
+
+      - name: Get binary size (main)
+        id: binary-size
+        run: |
+          cargo build --bin katana --profile performance
+          BINARY_SIZE=$(stat --format %s ./target/performance/katana)
+          COMMIT_SHA=$(git rev-parse HEAD)
+          echo "size=$BINARY_SIZE" >> $GITHUB_OUTPUT
+          echo "commit=$COMMIT_SHA" >> $GITHUB_OUTPUT
+          echo "branch=main" >> $GITHUB_OUTPUT
+
+  latest-release-size:
+    name: Latest release binary size
+    runs-on: ubuntu-latest
+    container:
+      image: ghcr.io/dojoengine/katana-dev:latest
+    outputs:
+      size: ${{ steps.binary-size.outputs.size }}
+      tag: ${{ steps.binary-size.outputs.tag }}
+      branch: ${{ steps.binary-size.outputs.branch }}
+
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+      # Workaround for https://github.com/actions/runner-images/issues/6775
+      - run: git config --global --add safe.directory "*"
+
+      - uses: Swatinem/rust-cache@v2
+        with:
+          key: weekly-binary-size-release
+
+      - name: Get latest release and binary size
+        id: binary-size
+        run: |
+          # Get the latest release tag
+          LATEST_TAG=$(git tag --sort=-version:refname | grep -E '^v[0-9]+\.[0-9]+\.[0-9]+' | head -1)
+          if [ -z "$LATEST_TAG" ]; then
+            echo "No release tags found"
+            exit 1
+          fi
+
+          echo "Latest release tag: $LATEST_TAG"
+          git checkout $LATEST_TAG
+          cargo build --bin katana --profile performance
+          BINARY_SIZE=$(stat --format %s ./target/performance/katana)
+          echo "size=$BINARY_SIZE" >> $GITHUB_OUTPUT
+          echo "tag=$LATEST_TAG" >> $GITHUB_OUTPUT
+          echo "branch=$LATEST_TAG" >> $GITHUB_OUTPUT
+
+  generate-report:
+    name: Generate binary size report
+    needs: [current-main-size, latest-release-size]
+    runs-on: ubuntu-latest
+    container:
+      image: ghcr.io/dojoengine/katana-dev:latest
+
+    steps:
+      - uses: actions/checkout@v4
+      - run: git config --global --add safe.directory "*"
+
+      - name: Generate weekly binary size report
+        id: size-report
+        shell: bash
+        run: |
+          REPORT=$(./scripts/generate-weekly-binary-size-report.sh "${{ needs.latest-release-size.outputs.branch }}" ${{ needs.latest-release-size.outputs.size }} "${{ needs.current-main-size.outputs.branch }}" ${{ needs.current-main-size.outputs.size }} "${{ needs.current-main-size.outputs.commit }}")
+          echo "report<<EOF" >> $GITHUB_OUTPUT
+          echo "$REPORT" >> $GITHUB_OUTPUT
+          echo "EOF" >> $GITHUB_OUTPUT
+
+      - name: Create issue with weekly report
+        uses: actions/github-script@v7
+        with:
+          github-token: ${{ secrets.GITHUB_TOKEN }}
+          script: |
+            const title = `Weekly Binary Size Report - ${new Date().toISOString().split('T')[0]}`;
+            const body = `${{ steps.size-report.outputs.report }}`;
+
+            try {
+              const { data: issue } = await github.rest.issues.create({
+                owner: context.repo.owner,
+                repo: context.repo.repo,
+                title: title,
+                body: body,
+                labels: ['weekly-report', 'binary-size']
+              });
+
+              console.log(`Created weekly binary size report issue: ${issue.html_url}`);
+            } catch (error) {
+              console.error('Error creating weekly report issue:', error);
+              core.setFailed(`Failed to create weekly report issue: ${error.message}`);
+            }
