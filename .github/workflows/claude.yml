@@ -17,6 +17,7 @@ jobs:
       (github.event_name == 'pull_request_review_comment' && contains(github.event.comment.body, '@claude') && contains(vars.ALLOWED_CLAUDE_USERS, github.event.comment.user.login)) ||
       (github.event_name == 'pull_request_review' && contains(github.event.review.body, '@claude') && contains(vars.ALLOWED_CLAUDE_USERS, github.event.review.user.login)) ||
       (github.event_name == 'issues' && (contains(github.event.issue.body, '@claude') || contains(github.event.issue.title, '@claude')) && contains(vars.ALLOWED_CLAUDE_USERS, github.event.issue.user.login)))
+
     runs-on: ubuntu-latest
     permissions:
       contents: write
@@ -38,9 +39,6 @@ jobs:
           # Optional: Specify model (defaults to Claude Sonnet 4, uncomment for Claude Opus 4)
           # model: "claude-opus-4-20250514"
 
-          # Optional: Customize the trigger phrase (default: @claude)
-          trigger_phrase: "/do"
-
           # Optional: Trigger when specific user is assigned to an issue
           assignee_trigger: "claude-bot"
 
@@ -60,3 +58,62 @@ jobs:
           # Optional: Custom environment variables for Claude
           # claude_env: |
           #   NODE_ENV: test
+
+  review:
+    # Only trigger on PR comments match the trigger words exactly ie '@claude /review'
+    if: |
+      github.event.issue.pull_request &&
+      github.event.comment &&
+      github.event.comment.body == '/claude-review'
+
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+      pull-requests: write
+      issues: write
+      id-token: write
+
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 1
+
+      - name: Run Claude Code Review
+        id: claude-review
+        uses: anthropics/claude-code-action@v0.0.40
+        with:
+          anthropic_api_key: ${{ secrets.ANTHROPIC_API_KEY }}
+
+          # Optional: Specify model (defaults to Claude Sonnet 4, uncomment for Claude Opus 4)
+          # model: "claude-opus-4-20250514"
+
+          # Direct prompt for automated review (no @claude mention needed)
+          direct_prompt: |
+            You're a senior software engineer. Your job is to review this pull request and provider feeback on:
+            - Code quality and best practices
+            - Potential bugs or issues
+            - Performance considerations
+            - Security concerns
+            - Test coverage
+
+            Be constructive and helpful in your feedback.
+
+            Include a passage from Marcus Aurelius' Meditations at the end of the review. Enclose it in a code block.
+
+          # Optional: Customize review based on file types
+          # direct_prompt: |
+          #   Review this PR focusing on:
+          #   - For TypeScript files: Type safety and proper interface usage
+          #   - For API endpoints: Security, input validation, and error handling
+          #   - For React components: Performance, accessibility, and best practices
+          #   - For tests: Coverage, edge cases, and test quality
+
+          # Optional: Different prompts for different authors
+          # direct_prompt: |
+          #   ${{ github.event.pull_request.author_association == 'FIRST_TIME_CONTRIBUTOR' &&
+          #   'Welcome! Please review this PR from a first-time contributor. Be encouraging and provide detailed explanations for any suggestions.' ||
+          #   'Please provide a thorough code review focusing on our coding standards and best practices.' }}
+
+          # Optional: Add specific tools for running tests or linting
+          # allowed_tools: "Bash(npm run test),Bash(npm run lint),Bash(npm run typecheck)"
