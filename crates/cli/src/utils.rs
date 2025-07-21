@@ -4,7 +4,6 @@ use anyhow::{anyhow, Context, Result};
 use console::Style;
 use katana_chain_spec::rollup::ChainConfigDir;
 use katana_chain_spec::ChainSpec;
-use katana_log::LogFormat;
 use katana_primitives::block::{BlockHash, BlockHashOrNumber, BlockNumber};
 use katana_primitives::chain::ChainId;
 use katana_primitives::class::ClassHash;
@@ -16,6 +15,7 @@ use katana_primitives::genesis::constant::{
 use katana_primitives::genesis::json::GenesisJson;
 use katana_primitives::genesis::Genesis;
 use katana_rpc::cors::HeaderValue;
+use katana_tracing::LogFormat;
 use serde::{Deserialize, Deserializer, Serializer};
 use tracing::info;
 

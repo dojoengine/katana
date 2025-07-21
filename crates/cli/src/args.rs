@@ -129,7 +129,7 @@ impl NodeArgs {
     pub async fn execute(&self) -> Result<()> {
         // Initialize logging with tracer
         let tracer_config = self.tracer_config();
-        katana_log::init(self.logging.log_format, tracer_config).await?;
+        katana_tracing::init(self.logging.log_format, tracer_config).await?;
         self.start_node().await
     }
 
@@ -461,7 +461,7 @@ impl NodeArgs {
         Ok(self)
     }
 
-    fn tracer_config(&self) -> Option<katana_log::TracerConfig> {
+    fn tracer_config(&self) -> Option<katana_tracing::TracerConfig> {
         self.tracer.config()
     }
 }

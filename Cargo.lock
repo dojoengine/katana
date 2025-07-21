@@ -6297,12 +6297,12 @@ dependencies = [
  "katana-chain-spec",
  "katana-core",
  "katana-gas-price-oracle",
- "katana-log",
  "katana-messaging",
  "katana-node",
  "katana-primitives",
  "katana-rpc",
  "katana-slot-controller",
+ "katana-tracing",
  "serde",
  "serde_json",
  "shellexpand",
@@ -6546,31 +6546,6 @@ dependencies = [
 ]
 
 [[package]]
-name = "katana-log"
-version = "1.6.3"
-dependencies = [
- "anyhow",
- "bytes",
- "clap",
- "http 1.3.1",
- "http-body-util",
- "opentelemetry",
- "opentelemetry-gcloud-trace",
- "opentelemetry-http",
- "opentelemetry-otlp",
- "opentelemetry-stackdriver",
- "opentelemetry_sdk",
- "rustls 0.23.27",
- "serde",
- "thiserror 1.0.69",
- "tower-http",
- "tracing",
- "tracing-log 0.1.4",
- "tracing-opentelemetry",
- "tracing-subscriber",
-]
-
-[[package]]
 name = "katana-messaging"
 version = "1.6.3"
 dependencies = [
@@ -6631,7 +6606,6 @@ dependencies = [
  "katana-executor",
  "katana-feeder-gateway",
  "katana-gas-price-oracle",
- "katana-log",
  "katana-messaging",
  "katana-metrics",
  "katana-pipeline",
@@ -6642,6 +6616,7 @@ dependencies = [
  "katana-rpc-api",
  "katana-stage",
  "katana-tasks",
+ "katana-tracing",
  "serde",
  "serde_json",
  "starknet 0.15.1",
@@ -6795,7 +6770,6 @@ dependencies = [
  "katana-core",
  "katana-executor",
  "katana-explorer",
- "katana-log",
  "katana-messaging",
  "katana-metrics",
  "katana-node",
@@ -6806,6 +6780,7 @@ dependencies = [
  "katana-rpc-types",
  "katana-rpc-types-builder",
  "katana-tasks",
+ "katana-tracing",
  "katana-trie",
  "katana-utils",
  "metrics 0.23.0",
@@ -6947,6 +6922,31 @@ dependencies = [
  "tokio-metrics",
  "tokio-util",
  "tracing",
+]
+
+[[package]]
+name = "katana-tracing"
+version = "1.6.3"
+dependencies = [
+ "anyhow",
+ "bytes",
+ "clap",
+ "http 1.3.1",
+ "http-body-util",
+ "opentelemetry",
+ "opentelemetry-gcloud-trace",
+ "opentelemetry-http",
+ "opentelemetry-otlp",
+ "opentelemetry-stackdriver",
+ "opentelemetry_sdk",
+ "rustls 0.23.27",
+ "serde",
+ "thiserror 1.0.69",
+ "tower-http",
+ "tracing",
+ "tracing-log 0.1.4",
+ "tracing-opentelemetry",
+ "tracing-subscriber",
 ]
 
 [[package]]
