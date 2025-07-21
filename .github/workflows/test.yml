@@ -64,7 +64,7 @@ jobs:
           key: test-artifacts
           path: |
             ./tests/snos/snos/build
-            ./contracts/build
+            ./crates/contracts/build
 
       - name: Generate test artifacts
         if: steps.check-files.outputs.files_changed == 'true' || steps.cache.outputs.cache-hit != 'true'
@@ -77,7 +77,7 @@ jobs:
           key: test-artifacts
           path: |
             ./tests/snos/snos/build
-            ./contracts/build
+            ./crates/contracts/build
 
   clippy:
     needs: [generate-test-artifacts]
