@@ -13,6 +13,7 @@ use config::rpc::RpcModuleKind;
 use config::Config;
 use http::header::CONTENT_TYPE;
 use http::Method;
+use jsonrpsee::core::middleware::layer::Either;
 use jsonrpsee::RpcModule;
 use katana_chain_spec::{ChainSpec, SettlementLayer};
 use katana_core::backend::storage::{ProviderRO, ProviderRW};
@@ -31,8 +32,16 @@ use katana_pool::ordering::FiFo;
 use katana_pool::TxPool;
 use katana_primitives::block::{BlockHashOrNumber, GasPrices};
 use katana_primitives::cairo::ShortString;
-use katana_primitives::env::VersionedConstantsOverrides;
+use katana_primitives::env::{CfgEnv, FeeTokenAddressses, VersionedConstantsOverrides};
+use katana_primitives::genesis::allocation::GenesisAccountAlloc;
 use katana_provider::{DbProviderFactory, ForkProviderFactory, ProviderFactory};
+use katana_rpc::cors::Cors;
+use katana_rpc::dev::DevApi;
+use katana_rpc::logger::RpcLoggerLayer;
+use katana_rpc::metrics::RpcServerMetricsLayer;
+use katana_rpc::starknet::forking::ForkedClient;
+use katana_rpc::starknet::{StarknetApi, StarknetApiConfig};
+use katana_rpc::{RpcServer, RpcServerHandle, RpcServiceBuilder};
 #[cfg(feature = "cartridge")]
 use katana_rpc_api::cartridge::CartridgeApiServer;
 use katana_rpc_api::dev::DevApiServer;
@@ -52,9 +61,19 @@ use katana_rpc_types::GetBlockWithTxHashesResponse;
 use katana_stage::Sequencing;
 use katana_tasks::TaskManager;
 use num_traits::ToPrimitive;
+use starknet::signers::SigningKey;
+use tower::layer::util::{Identity, Stack};
 use tracing::info;
 
 use crate::exit::NodeStoppedFuture;
+
+/// The concrete type of of the RPC middleware stack used by the node.
+type NodeRpcMiddleware = Stack<
+    Either<PaymasterLayer<BlockifierFactory>, Identity>,
+    Stack<RpcLoggerLayer, Stack<RpcServerMetricsLayer, Identity>>,
+>;
+
+pub type NodeRpcServer = RpcServer<NodeRpcMiddleware>;
 
 /// A node instance.
 ///
@@ -71,7 +90,7 @@ where
     provider: P,
     config: Arc<Config>,
     pool: TxPool,
-    rpc_server: RpcServer,
+    rpc_server: NodeRpcServer,
     task_manager: TaskManager,
     backend: Arc<Backend<BlockifierFactory, P>>,
     block_producer: BlockProducer<BlockifierFactory, P>,
@@ -206,28 +225,6 @@ where
         .allow_methods([Method::POST, Method::GET])
         .allow_headers([CONTENT_TYPE, "argent-client".parse().unwrap(), "argent-version".parse().unwrap()]);
 
-        #[cfg(feature = "cartridge")]
-        let paymaster = if let Some(paymaster) = &config.paymaster {
-            anyhow::ensure!(
-                config.rpc.apis.contains(&RpcModuleKind::Cartridge),
-                "Cartridge API should be enabled when paymaster is set"
-            );
-
-            let api = CartridgeApi::new(
-                backend.clone(),
-                block_producer.clone(),
-                pool.clone(),
-                task_spawner.clone(),
-                paymaster.cartridge_api_url.clone(),
-            );
-
-            rpc_modules.merge(CartridgeApiServer::into_rpc(api))?;
-
-            Some(PaymasterConfig { cartridge_api_url: paymaster.cartridge_api_url.clone() })
-        } else {
-            None
-        };
-
         // --- build starknet api
 
         let starknet_api_cfg = StarknetApiConfig {
@@ -269,9 +266,66 @@ where
             rpc_modules.merge(DevApiServer::into_rpc(api))?;
         }
 
-        #[allow(unused_mut)]
-        let mut rpc_server =
-            RpcServer::new().metrics(true).health_check(true).cors(cors).module(rpc_modules)?;
+        #[cfg(feature = "cartridge")]
+        let paymaster = if let Some(paymaster) = &config.paymaster {
+            anyhow::ensure!(
+                config.rpc.apis.contains(&RpcModuleKind::Cartridge),
+                "Cartridge API should be enabled when paymaster is set"
+            );
+
+            let api = CartridgeApi::new(
+                backend.clone(),
+                block_producer.clone(),
+                pool.clone(),
+                paymaster.cartridge_api_url.clone(),
+            );
+
+            rpc_modules.merge(CartridgeApiServer::into_rpc(api))?;
+
+            // build cartridge paymaster
+
+            let cartridge_api_client = cartridge::Client::new(paymaster.cartridge_api_url.clone());
+
+            // For now, we use the first predeployed account in the genesis as the paymaster
+            // account.
+            let (pm_address, pm_acc) = config
+                .chain
+                .genesis()
+                .accounts()
+                .nth(0)
+                .ok_or(anyhow!("Cartridge paymaster account doesn't exist"))?;
+
+            // TODO: create a dedicated types for aux accounts (eg paymaster)
+            let pm_private_key = if let GenesisAccountAlloc::DevAccount(pm) = pm_acc {
+                pm.private_key
+            } else {
+                bail!("Paymaster is not a dev account")
+            };
+
+            Some(Paymaster::new(
+                starknet_api,
+                cartridge_api_client,
+                pool.clone(),
+                config.chain.id(),
+                *pm_address,
+                SigningKey::from_secret_scalar(pm_private_key),
+            ))
+        } else {
+            None
+        };
+
+        // build rpc middleware
+
+        let rpc_middleware = RpcServiceBuilder::new()
+            .layer(RpcServerMetricsLayer::new(&rpc_modules))
+            .layer(katana_rpc::logger::RpcLoggerLayer::new())
+            .option_layer(paymaster.map(|p| p.layer()));
+
+        let mut rpc_server = katana_rpc::RpcServer::new()
+            .rpc_middleware(rpc_middleware)
+            .health_check(true)
+            .cors(cors)
+            .module(rpc_modules)?;
 
         #[cfg(feature = "explorer")]
         {
@@ -544,7 +598,7 @@ where
     }
 
     /// Returns a reference to the node's JSON-RPC server.
-    pub fn rpc(&self) -> &RpcServer {
+    pub fn rpc(&self) -> &NodeRpcServer {
         &self.rpc_server
     }
 

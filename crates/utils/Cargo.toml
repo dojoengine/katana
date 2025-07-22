@@ -9,12 +9,12 @@ version.workspace = true
 katana-chain-spec.workspace = true
 katana-core.workspace = true
 katana-executor.workspace = true
-katana-node.workspace = true
+katana-node = { workspace = true, features = [ "cartridge", "explorer" ] }
 katana-primitives.workspace = true
 katana-provider.workspace = true
-katana-rpc-server.workspace = true
 katana-rpc-api.workspace = true
 katana-rpc-client.workspace = true
+katana-rpc-server.workspace = true
 katana-rpc-types.workspace = true
 katana-utils-macro = { path = "macro" }
 
