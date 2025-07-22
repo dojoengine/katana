@@ -13,6 +13,7 @@ use config::rpc::RpcModuleKind;
 use config::Config;
 use http::header::CONTENT_TYPE;
 use http::Method;
+use jsonrpsee::core::middleware::layer::Either;
 use jsonrpsee::RpcModule;
 use katana_chain_spec::{ChainSpec, SettlementLayer};
 use katana_core::backend::Backend;
@@ -59,9 +60,19 @@ use katana_rpc_types::GetBlockWithTxHashesResponse;
 use katana_stage::Sequencing;
 use katana_tasks::TaskManager;
 use num_traits::ToPrimitive;
+use starknet::signers::SigningKey;
+use tower::layer::util::{Identity, Stack};
 use tracing::info;
 
 use crate::exit::NodeStoppedFuture;
+
+/// The concrete type of of the RPC middleware stack used by the node.
+type NodeRpcMiddleware = Stack<
+    Either<PaymasterLayer<BlockifierFactory>, Identity>,
+    Stack<RpcLoggerLayer, Stack<RpcServerMetricsLayer, Identity>>,
+>;
+
+pub type NodeRpcServer = RpcServer<NodeRpcMiddleware>;
 
 /// A node instance.
 ///
@@ -78,7 +89,7 @@ where
     provider: P,
     config: Arc<Config>,
     pool: TxPool,
-    rpc_server: RpcServer,
+    rpc_server: NodeRpcServer,
     #[cfg(feature = "grpc")]
     grpc_server: Option<GrpcServer>,
     task_manager: TaskManager,
@@ -226,13 +237,39 @@ where
                 backend.clone(),
                 block_producer.clone(),
                 pool.clone(),
-                task_spawner.clone(),
                 paymaster.cartridge_api_url.clone(),
             );
 
             rpc_modules.merge(CartridgeApiServer::into_rpc(api))?;
 
-            Some(PaymasterConfig { cartridge_api_url: paymaster.cartridge_api_url.clone() })
+            // build cartridge paymaster
+
+            let cartridge_api_client = cartridge::Client::new(paymaster.cartridge_api_url.clone());
+
+            // For now, we use the first predeployed account in the genesis as the paymaster
+            // account.
+            let (pm_address, pm_acc) = config
+                .chain
+                .genesis()
+                .accounts()
+                .nth(0)
+                .ok_or(anyhow!("Cartridge paymaster account doesn't exist"))?;
+
+            // TODO: create a dedicated types for aux accounts (eg paymaster)
+            let pm_private_key = if let GenesisAccountAlloc::DevAccount(pm) = pm_acc {
+                pm.private_key
+            } else {
+                bail!("Paymaster is not a dev account")
+            };
+
+            Some(Paymaster::new(
+                starknet_api,
+                cartridge_api_client,
+                pool.clone(),
+                config.chain.id(),
+                *pm_address,
+                SigningKey::from_secret_scalar(pm_private_key),
+            ))
         } else {
             None
         };
@@ -309,9 +346,20 @@ where
             }
         }
 
+        // build rpc middleware
+
+        let rpc_middleware = RpcServiceBuilder::new()
+            .layer(RpcServerMetricsLayer::new(&rpc_modules))
+            .layer(katana_rpc::logger::RpcLoggerLayer::new())
+            .option_layer(paymaster.map(|p| p.layer()));
+
         #[allow(unused_mut)]
-        let mut rpc_server =
-            RpcServer::new().metrics(true).health_check(true).cors(cors).module(rpc_modules)?;
+        let mut rpc_server = katana_rpc::RpcServer::new()
+            .rpc_middleware(rpc_middleware)
+            .metrics(true)
+            .health_check(true)
+            .cors(cors)
+            .module(rpc_modules)?;
 
         #[cfg(feature = "explorer")]
         {
@@ -632,7 +680,7 @@ where
     }
 
     /// Returns a reference to the node's JSON-RPC server.
-    pub fn rpc(&self) -> &RpcServer {
+    pub fn rpc(&self) -> &NodeRpcServer {
         &self.rpc_server
     }
 

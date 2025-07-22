@@ -6,12 +6,14 @@
 use std::net::SocketAddr;
 use std::time::Duration;
 
-use jsonrpsee::core::middleware::RpcServiceBuilder;
+use jsonrpsee::core::middleware::RpcServiceT;
 use jsonrpsee::core::{RegisterMethodError, TEN_MB_SIZE_BYTES};
+use jsonrpsee::server::middleware::rpc::RpcService;
 use jsonrpsee::server::{Server, ServerConfig, ServerHandle};
-use jsonrpsee::RpcModule;
+use jsonrpsee::{MethodResponse, RpcModule};
 use katana_tracing::gcloud::GoogleStackDriverMakeSpan;
-use tower::ServiceBuilder;
+use tower::layer::util::Identity;
+use tower::{Layer, ServiceBuilder};
 use tower_http::trace::TraceLayer;
 use tracing::info;
 
@@ -24,17 +26,18 @@ pub mod tee;
 pub mod cors;
 pub mod dev;
 pub mod health;
+pub mod logger;
 pub mod metrics;
 pub mod permit;
 pub mod starknet;
 
-mod logger;
 mod utils;
 use cors::Cors;
 use health::HealthCheck;
+pub use jsonrpsee::core::middleware::RpcServiceBuilder;
+#[cfg(feature = "client")]
 pub use jsonrpsee::http_client::HttpClient;
 pub use katana_rpc_api as api;
-use metrics::RpcServerMetricsLayer;
 
 /// The default maximum number of concurrent RPC connections.
 pub const DEFAULT_RPC_MAX_CONNECTIONS: u32 = 100;
@@ -96,7 +99,7 @@ impl RpcServerHandle {
 }
 
 #[derive(Debug)]
-pub struct RpcServer {
+pub struct RpcServer<RpcMiddleware = Identity> {
     metrics: bool,
     cors: Option<Cors>,
     health_check: bool,
@@ -107,9 +110,11 @@ pub struct RpcServer {
     max_request_body_size: u32,
     max_response_body_size: u32,
     timeout: Duration,
+
+    rpc_middleware: RpcServiceBuilder<RpcMiddleware>,
 }
 
-impl RpcServer {
+impl RpcServer<Identity> {
     pub fn new() -> Self {
         Self {
             cors: None,
@@ -121,9 +126,12 @@ impl RpcServer {
             max_request_body_size: TEN_MB_SIZE_BYTES,
             max_response_body_size: TEN_MB_SIZE_BYTES,
             timeout: DEFAULT_TIMEOUT,
+            rpc_middleware: RpcServiceBuilder::new(),
         }
     }
+}
 
+impl<RpcMiddleware> RpcServer<RpcMiddleware> {
     /// Set the maximum number of connections allowed. Default is 100.
     pub fn max_connections(mut self, max: u32) -> Self {
         self.max_connections = max;
@@ -173,6 +181,32 @@ impl RpcServer {
         self
     }
 
+    /// Configure custom RPC middleware.
+    ///
+    /// The provided closure will receive a fresh RpcServiceBuilder and should return
+    /// an RpcServiceBuilder with additional middleware layers. This custom middleware
+    /// will be applied on top of the built-in middleware stack.
+    ///
+    /// # Example
+    ///
+    /// ```rust
+    /// let server = RpcServer::new().with_rpc_middleware(|builder| builder.layer(custom_rpc_layer()));
+    /// ```
+    pub fn rpc_middleware<T>(self, middleware: RpcServiceBuilder<T>) -> RpcServer<T> {
+        RpcServer {
+            rpc_middleware: middleware,
+            cors: self.cors,
+            module: self.module,
+            timeout: self.timeout,
+            metrics: self.metrics,
+            explorer: self.explorer,
+            health_check: self.health_check,
+            max_connections: self.max_connections,
+            max_request_body_size: self.max_request_body_size,
+            max_response_body_size: self.max_response_body_size,
+        }
+    }
+
     /// Adds a new RPC module to the server.
     ///
     /// This can be chained with other calls to `module` to add multiple modules.
@@ -186,7 +220,19 @@ impl RpcServer {
         self.module.merge(module)?;
         Ok(self)
     }
+}
 
+impl<RpcMiddleware> RpcServer<RpcMiddleware>
+where
+    RpcMiddleware: Layer<RpcService> + Clone + Send + 'static,
+    <RpcMiddleware as Layer<RpcService>>::Service: RpcServiceT<
+            MethodResponse = MethodResponse,
+            BatchResponse = MethodResponse,
+            NotificationResponse = MethodResponse,
+        > + Send
+        + Sync
+        + 'static,
+{
     pub async fn start(&self, addr: SocketAddr) -> Result<RpcServerHandle, Error> {
         let mut modules = self.module.clone();
 
@@ -205,7 +251,7 @@ impl RpcServer {
             None
         };
 
-        let rpc_metrics = self.metrics.then(|| RpcServerMetricsLayer::new(&modules));
+        // let rpc_metrics = self.metrics.then(|| RpcServerMetricsLayer::new(&modules));
         let http_tracer = TraceLayer::new_for_http().make_span_with(GoogleStackDriverMakeSpan);
 
         let http_middleware = ServiceBuilder::new()
@@ -217,8 +263,10 @@ impl RpcServer {
         #[cfg(feature = "explorer")]
         let http_middleware = http_middleware.option_layer(explorer_layer);
 
-        let rpc_middleware =
-            RpcServiceBuilder::new().option_layer(rpc_metrics).layer(logger::RpcLoggerLayer::new());
+        // let rpc_middleware = RpcServiceBuilder::new()
+        //     .option_layer(rpc_metrics)
+        //     .layer(logger::RpcLoggerLayer::new())
+        //     .layer(self.rpc_middleware.clone());
 
         let cfg = ServerConfig::builder()
             .max_connections(self.max_connections)
@@ -228,7 +276,7 @@ impl RpcServer {
 
         let server = Server::builder()
             .set_http_middleware(http_middleware)
-            .set_rpc_middleware(rpc_middleware)
+            .set_rpc_middleware(self.rpc_middleware.clone())
             .set_config(cfg)
             .build(addr)
             .await?;
@@ -253,7 +301,7 @@ impl RpcServer {
     }
 }
 
-impl Default for RpcServer {
+impl Default for RpcServer<Identity> {
     fn default() -> Self {
         Self::new()
     }

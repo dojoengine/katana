@@ -1,14 +1,23 @@
 [package]
+build = "build.rs"
 edition.workspace = true
 license.workspace = true
 name = "cartridge"
 repository.workspace = true
 version.workspace = true
-build = "build.rs"
 
 [dependencies]
+katana-chain-spec.workspace = true
 katana-contracts.workspace = true
+katana-core.workspace = true
+katana-executor.workspace = true
+katana-pool.workspace = true
 katana-primitives.workspace = true
+katana-provider.workspace = true
+katana-rpc.workspace = true
+katana-rpc-api.workspace = true
+katana-rpc-types.workspace = true
+katana-tasks.workspace = true
 
 anyhow.workspace = true
 ark-ec = "0.4"
@@ -22,3 +31,12 @@ tracing.workspace = true
 url.workspace = true
 # Use a specific revision of stark-vrf to avoid unwanted breaking changes.
 stark-vrf = { git = "https://github.com/dojoengine/stark-vrf.git", rev = "96d6d2a" }
+
+jsonrpsee = { workspace = true, features = [ "server" ] }
+tower.workspace = true
+
+cainome.workspace = true
+cainome-cairo-serde.workspace = true
+
+[dev-dependencies]
+similar-asserts.workspace = true

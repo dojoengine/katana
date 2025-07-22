@@ -7,30 +7,31 @@ repository.workspace = true
 version.workspace = true
 
 [dependencies]
-katana-core.workspace = true
 katana-chain-spec.workspace = true
+katana-core.workspace = true
 katana-executor.workspace = true
 katana-explorer = { workspace = true, features = [ "jsonrpsee" ], optional = true }
+katana-gas-price-oracle.workspace = true
+katana-genesis = { workspace = true, optional = true }
 katana-metrics.workspace = true
 katana-pool.workspace = true
 katana-primitives.workspace = true
-katana-genesis = { workspace = true, optional = true }
 katana-provider = { workspace = true, features = [ "test-utils" ] }
 katana-rpc-api = { workspace = true, features = [ "client" ] }
 katana-rpc-types.workspace = true
 katana-rpc-types-builder.workspace = true
 katana-tasks.workspace = true
-katana-gas-price-oracle.workspace = true
 katana-tracing.workspace = true
 
 anyhow.workspace = true
 auto_impl.workspace = true
+bytes.workspace = true
+futures = { workspace = true, optional = true }
 http.workspace = true
 jsonrpsee = { workspace = true, features = [ "client", "server" ] }
 metrics.workspace = true
 serde_json.workspace = true
 starknet = { workspace = true, optional = true }
-futures = { workspace = true, optional = true }
 thiserror.workspace = true
 tokio.workspace = true
 tower.workspace = true
@@ -41,20 +42,20 @@ cainome = { workspace = true, optional = true }
 cartridge = { workspace = true, optional = true }
 url = { workspace = true, optional = true }
 
-katana-tee = { workspace = true, optional = true }
 hex = { workspace = true, optional = true }
+katana-tee = { workspace = true, optional = true }
 starknet-types-core = { workspace = true, optional = true }
 
 [dev-dependencies]
 katana-chain-spec.workspace = true
 katana-contracts.workspace = true
+katana-genesis.workspace = true
 katana-messaging.workspace = true
 katana-node.workspace = true
 katana-rpc-api = { workspace = true, features = [ "client" ] }
 katana-rpc-client.workspace = true
 katana-trie.workspace = true
-katana-genesis.workspace = true
-katana-utils = { workspace = true, features = ["node"] }
+katana-utils = { workspace = true, features = [ "node" ] }
 
 alloy-contract = { workspace = true, default-features = false }
 alloy-node-bindings = "1.0.24"
@@ -79,19 +80,21 @@ tokio.workspace = true
 url.workspace = true
 
 [features]
+
 cartridge = [
 	"dep:cainome",
-	"dep:futures",
 	"dep:cartridge",
+	"dep:futures",
 	"dep:katana-genesis",
 	"dep:starknet",
 	"dep:url",
 	"katana-rpc-api/cartridge",
 ]
-explorer = ["dep:katana-explorer"]
+client = [ "jsonrpsee/client", "katana-rpc-api/client" ]
+explorer = [ "dep:katana-explorer" ]
 tee = [
-	"dep:katana-tee",
 	"dep:hex",
+	"dep:katana-tee",
 	"dep:starknet-types-core",
 	"katana-rpc-api/tee",
 ]

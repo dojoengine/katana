@@ -30,9 +30,6 @@ use std::sync::Arc;
 
 use anyhow::anyhow;
 use cainome::cairo_serde::CairoSerde;
-use cartridge::vrf::{
-    VrfContext, CARTRIDGE_VRF_CLASS_HASH, CARTRIDGE_VRF_DEFAULT_PRIVATE_KEY, CARTRIDGE_VRF_SALT,
-};
 use jsonrpsee::core::{async_trait, RpcResult};
 use katana_core::backend::Backend;
 use katana_core::service::block_producer::{BlockProducer, BlockProducerMode};
@@ -47,6 +44,7 @@ use katana_primitives::fee::{AllResourceBoundsMapping, ResourceBoundsMapping};
 use katana_primitives::hash::{Pedersen, Poseidon, StarkHash};
 use katana_primitives::transaction::{ExecutableTx, ExecutableTxWithHash, InvokeTx, InvokeTxV3};
 use katana_primitives::{ContractAddress, Felt};
+<<<<<<<< HEAD:crates/rpc/rpc-server/src/cartridge/mod.rs
 use katana_provider::api::state::{StateFactoryProvider, StateProvider};
 use katana_provider::{ProviderFactory, ProviderRO, ProviderRW};
 use katana_rpc_api::cartridge::CartridgeApiServer;
@@ -57,10 +55,28 @@ use katana_rpc_types::outside_execution::{
 };
 use katana_rpc_types::FunctionCall;
 use katana_tasks::{Result as TaskResult, TaskSpawner};
+========
+use katana_provider::traits::state::{StateFactoryProvider, StateProvider};
+use katana_rpc_api::error::starknet::StarknetApiError;
+use katana_rpc_types::transaction::InvokeTxResult;
+use katana_tasks::TokioTaskSpawner;
+use starknet::core::types::Call;
+>>>>>>>> 2d078ce3 (update):crates/cartridge/src/rpc/mod.rs
 use starknet::macros::selector;
 use starknet::signers::{LocalWallet, Signer, SigningKey};
 use tracing::{debug, info};
 use url::Url;
+
+mod api;
+mod types;
+
+pub use api::*;
+pub use types::*;
+
+use crate::vrf::{
+    VrfContext, CARTRIDGE_VRF_CLASS_HASH, CARTRIDGE_VRF_DEFAULT_PRIVATE_KEY, CARTRIDGE_VRF_SALT,
+};
+use crate::Client as CartridgeClient;
 
 #[allow(missing_debug_implementations)]
 pub struct CartridgeApi<EF: ExecutorFactory, PF: ProviderFactory> {
@@ -70,7 +86,7 @@ pub struct CartridgeApi<EF: ExecutorFactory, PF: ProviderFactory> {
     pool: TxPool,
     vrf_ctx: VrfContext,
     /// The Cartridge API client for paymaster related operations.
-    api_client: cartridge::Client,
+    api_client: CartridgeClient,
 }
 
 impl<EF, PF> Clone for CartridgeApi<EF, PF>
@@ -112,7 +128,7 @@ where
             .nth(0)
             .expect("Cartridge paymaster account should exist");
 
-        let api_client = cartridge::Client::new(api_url);
+        let api_client = CartridgeClient::new(api_url);
         let vrf_ctx = VrfContext::new(CARTRIDGE_VRF_DEFAULT_PRIVATE_KEY, *pm_address);
         // Info to ensure this is visible to the user without changing the default logging level.
         // The use can still use `rpc::cartridge` in debug to see the random value and the seed.
@@ -169,9 +185,8 @@ where
             // Get the current nonce of the paymaster account.
             let mut nonce = this.nonce(*pm_address)?.unwrap_or_default();
 
-            // ====================== CONTROLLER DEPLOYMENT ======================
-            // Check if the controller is already deployed. If not, deploy it.
 
+<<<<<<<< HEAD:crates/rpc/rpc-server/src/cartridge/mod.rs
             let state = this.state().map(Arc::new)?;
             let is_controller_deployed = state.class_hash_of_contract(address)?.is_some();
 
@@ -208,7 +223,10 @@ where
                     OutsideExecutionV3::cairo_serialize(v3)
                 }
             };
+========
+>>>>>>>> 2d078ce3 (update):crates/cartridge/src/rpc/mod.rs
 
+            let mut inner_calldata = OutsideExecution::cairo_serialize(&outside_execution);
             inner_calldata.extend(Vec::<Felt>::cairo_serialize(&signature));
 
             let execute_from_outside_call = FunctionCall { contract_address: address, entry_point_selector: entrypoint, calldata: inner_calldata };
@@ -354,7 +372,7 @@ pub async fn get_controller_deploy_tx_if_controller_address(
     tx: &ExecutableTxWithHash,
     chain_id: ChainId,
     state: Arc<Box<dyn StateProvider>>,
-    cartridge_api_client: &cartridge::Client,
+    cartridge_api_client: &CartridgeClient,
 ) -> anyhow::Result<Option<ExecutableTxWithHash>> {
     // The whole Cartridge paymaster flow would only be accessible mainly from the Controller
     // wallet. The Controller wallet only supports V3 transactions (considering < V3
@@ -392,7 +410,7 @@ pub async fn get_controller_deploy_tx_if_controller_address(
 ///
 /// Returns None if the provided `controller_address` is not registered in the Cartridge API.
 pub async fn craft_deploy_cartridge_controller_tx(
-    cartridge_api_client: &cartridge::Client,
+    cartridge_api_client: &CartridgeClient,
     controller_address: ContractAddress,
     paymaster_address: ContractAddress,
     paymaster_private_key: Felt,

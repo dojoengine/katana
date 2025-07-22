@@ -58,6 +58,7 @@ impl Client {
         }
     }
 }
+
 /// Response from the Cartridge API to fetch the calldata for the constructor of the given
 /// controller address.
 #[derive(Debug, Clone, Deserialize)]

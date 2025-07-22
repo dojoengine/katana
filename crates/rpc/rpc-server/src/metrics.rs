@@ -96,7 +96,6 @@ struct RpcServerCallMetrics {
 }
 
 /// Tower layer for RPC server metrics
-#[allow(missing_debug_implementations)]
 #[derive(Clone)]
 pub struct RpcServerMetricsLayer {
     metrics: RpcServerMetrics,
@@ -105,6 +104,12 @@ pub struct RpcServerMetricsLayer {
 impl RpcServerMetricsLayer {
     pub fn new(module: &RpcModule<()>) -> Self {
         Self { metrics: RpcServerMetrics::new(module) }
+    }
+}
+
+impl std::fmt::Debug for RpcServerMetricsLayer {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.debug_struct("RpcServerMetricsLayer").field("metrics", &"..").finish()
     }
 }
 
