@@ -16,6 +16,12 @@ impl RpcLoggerLayer {
     }
 }
 
+impl Default for RpcLoggerLayer {
+    fn default() -> Self {
+        Self::new()
+    }
+}
+
 impl<S> tower::Layer<S> for RpcLoggerLayer {
     type Service = RpcLogger<S>;
 
