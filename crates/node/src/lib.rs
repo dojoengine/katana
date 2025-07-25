@@ -11,8 +11,9 @@ use std::sync::Arc;
 
 use anyhow::{anyhow, bail, Context, Result};
 #[cfg(feature = "cartridge")]
+use cartridge::paymaster::layer::PaymasterLayer;
+#[cfg(feature = "cartridge")]
 use cartridge::paymaster::Paymaster;
-use cartridge::paymaster::PaymasterLayer;
 #[cfg(feature = "cartridge")]
 use cartridge::rpc::{CartridgeApi, CartridgeApiServer};
 use config::rpc::RpcModuleKind;
