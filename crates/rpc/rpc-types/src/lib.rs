@@ -10,7 +10,6 @@ pub mod block;
 pub mod class;
 pub mod event;
 pub mod message;
-pub mod outside_execution;
 pub mod receipt;
 pub mod state_update;
 pub mod trace;

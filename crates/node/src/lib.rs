@@ -9,11 +9,18 @@ pub mod exit;
 use std::future::IntoFuture;
 use std::sync::Arc;
 
-use anyhow::{Context, Result};
+use anyhow::{anyhow, bail, Context, Result};
+#[cfg(feature = "cartridge")]
+use cartridge::paymaster::layer::PaymasterLayer;
+#[cfg(feature = "cartridge")]
+use cartridge::paymaster::Paymaster;
+#[cfg(feature = "cartridge")]
+use cartridge::rpc::{CartridgeApi, CartridgeApiServer};
 use config::rpc::RpcModuleKind;
 use config::Config;
 use http::header::CONTENT_TYPE;
 use http::Method;
+use jsonrpsee::core::middleware::layer::Either;
 use jsonrpsee::RpcModule;
 use katana_chain_spec::{ChainSpec, SettlementLayer};
 use katana_core::backend::storage::Blockchain;
@@ -31,24 +38,31 @@ use katana_metrics::{Report, Server as MetricsServer};
 use katana_pool::ordering::FiFo;
 use katana_pool::TxPool;
 use katana_primitives::env::{CfgEnv, FeeTokenAddressses};
-#[cfg(feature = "cartridge")]
-use katana_rpc::cartridge::CartridgeApi;
+use katana_primitives::genesis::allocation::GenesisAccountAlloc;
 use katana_rpc::cors::Cors;
 use katana_rpc::dev::DevApi;
+use katana_rpc::logger::RpcLoggerLayer;
+use katana_rpc::metrics::RpcServerMetricsLayer;
 use katana_rpc::starknet::forking::ForkedClient;
-#[cfg(feature = "cartridge")]
-use katana_rpc::starknet::PaymasterConfig;
 use katana_rpc::starknet::{StarknetApi, StarknetApiConfig};
-use katana_rpc::{RpcServer, RpcServerHandle};
-#[cfg(feature = "cartridge")]
-use katana_rpc_api::cartridge::CartridgeApiServer;
+use katana_rpc::{RpcServer, RpcServerHandle, RpcServiceBuilder};
 use katana_rpc_api::dev::DevApiServer;
 use katana_rpc_api::starknet::{StarknetApiServer, StarknetTraceApiServer, StarknetWriteApiServer};
 use katana_stage::Sequencing;
 use katana_tasks::TaskManager;
+use starknet::signers::SigningKey;
+use tower::layer::util::{Identity, Stack};
 use tracing::info;
 
 use crate::exit::NodeStoppedFuture;
+
+/// The concrete type of of the RPC middleware stack used by the node.
+type NodeRpcMiddleware = Stack<
+    Either<PaymasterLayer<BlockifierFactory>, Identity>,
+    Stack<RpcLoggerLayer, Stack<RpcServerMetricsLayer, Identity>>,
+>;
+
+pub type NodeRpcServer = RpcServer<NodeRpcMiddleware>;
 
 /// A node instance.
 ///
@@ -59,7 +73,7 @@ pub struct Node {
     config: Arc<Config>,
     pool: TxPool,
     db: katana_db::Db,
-    rpc_server: RpcServer,
+    rpc_server: NodeRpcServer,
     task_manager: TaskManager,
     backend: Arc<Backend<BlockifierFactory>>,
     block_producer: BlockProducer<BlockifierFactory>,
@@ -69,7 +83,7 @@ impl Node {
     /// Build the node components from the given [`Config`].
     ///
     /// This returns a [`Node`] instance which can be launched with the all the necessary components
-    /// configured.
+    /// configred.
     pub async fn build(config: Config) -> Result<Node> {
         let mut config = config;
 
@@ -215,6 +229,41 @@ impl Node {
         .allow_methods([Method::POST, Method::GET])
         .allow_headers([CONTENT_TYPE, "argent-client".parse().unwrap(), "argent-version".parse().unwrap()]);
 
+        let starknet_api_cfg = StarknetApiConfig {
+            max_call_gas: config.rpc.max_call_gas,
+            max_proof_keys: config.rpc.max_proof_keys,
+            max_event_page_size: config.rpc.max_event_page_size,
+            max_concurrent_estimate_fee_requests: config.rpc.max_concurrent_estimate_fee_requests,
+        };
+
+        let starknet_api = if let Some(client) = forked_client {
+            StarknetApi::new_forked(
+                backend.clone(),
+                pool.clone(),
+                block_producer.clone(),
+                client,
+                starknet_api_cfg,
+            )
+        } else {
+            StarknetApi::new(
+                backend.clone(),
+                pool.clone(),
+                Some(block_producer.clone()),
+                starknet_api_cfg,
+            )
+        };
+
+        if config.rpc.apis.contains(&RpcModuleKind::Starknet) {
+            rpc_modules.merge(StarknetApiServer::into_rpc(starknet_api.clone()))?;
+            rpc_modules.merge(StarknetWriteApiServer::into_rpc(starknet_api.clone()))?;
+            rpc_modules.merge(StarknetTraceApiServer::into_rpc(starknet_api.clone()))?;
+        }
+
+        if config.rpc.apis.contains(&RpcModuleKind::Dev) {
+            let api = DevApi::new(backend.clone(), block_producer.clone());
+            rpc_modules.merge(DevApiServer::into_rpc(api))?;
+        }
+
         #[cfg(feature = "cartridge")]
         let paymaster = if let Some(paymaster) = &config.paymaster {
             anyhow::ensure!(
@@ -231,48 +280,50 @@ impl Node {
 
             rpc_modules.merge(CartridgeApiServer::into_rpc(api))?;
 
-            Some(PaymasterConfig { cartridge_api_url: paymaster.cartridge_api_url.clone() })
+            // build cartridge paymaster
+
+            let cartridge_api_client = cartridge::Client::new(paymaster.cartridge_api_url.clone());
+
+            // For now, we use the first predeployed account in the genesis as the paymaster
+            // account.
+            let (pm_address, pm_acc) = config
+                .chain
+                .genesis()
+                .accounts()
+                .nth(0)
+                .ok_or(anyhow!("Cartridge paymaster account doesn't exist"))?;
+
+            // TODO: create a dedicated types for aux accounts (eg paymaster)
+            let pm_private_key = if let GenesisAccountAlloc::DevAccount(pm) = pm_acc {
+                pm.private_key
+            } else {
+                bail!("Paymaster is not a dev account")
+            };
+
+            Some(Paymaster::new(
+                starknet_api,
+                cartridge_api_client,
+                pool.clone(),
+                config.chain.id(),
+                *pm_address,
+                SigningKey::from_secret_scalar(pm_private_key),
+            ))
         } else {
             None
         };
 
-        if config.rpc.apis.contains(&RpcModuleKind::Starknet) {
-            let cfg = StarknetApiConfig {
-                max_event_page_size: config.rpc.max_event_page_size,
-                max_proof_keys: config.rpc.max_proof_keys,
-                max_call_gas: config.rpc.max_call_gas,
-                max_concurrent_estimate_fee_requests: config
-                    .rpc
-                    .max_concurrent_estimate_fee_requests,
-                #[cfg(feature = "cartridge")]
-                paymaster,
-            };
+        // build rpc middleware
 
-            let api = if let Some(client) = forked_client {
-                StarknetApi::new_forked(
-                    backend.clone(),
-                    pool.clone(),
-                    block_producer.clone(),
-                    client,
-                    cfg,
-                )
-            } else {
-                StarknetApi::new(backend.clone(), pool.clone(), Some(block_producer.clone()), cfg)
-            };
+        let rpc_middleware = RpcServiceBuilder::new()
+            .layer(RpcServerMetricsLayer::new(&rpc_modules))
+            .layer(katana_rpc::logger::RpcLoggerLayer::new())
+            .option_layer(paymaster.map(|p| p.layer()));
 
-            rpc_modules.merge(StarknetApiServer::into_rpc(api.clone()))?;
-            rpc_modules.merge(StarknetWriteApiServer::into_rpc(api.clone()))?;
-            rpc_modules.merge(StarknetTraceApiServer::into_rpc(api))?;
-        }
-
-        if config.rpc.apis.contains(&RpcModuleKind::Dev) {
-            let api = DevApi::new(backend.clone(), block_producer.clone());
-            rpc_modules.merge(DevApiServer::into_rpc(api))?;
-        }
-
-        #[allow(unused_mut)]
-        let mut rpc_server =
-            RpcServer::new().metrics(true).health_check(true).cors(cors).module(rpc_modules)?;
+        let mut rpc_server = katana_rpc::RpcServer::new()
+            .rpc_middleware(rpc_middleware)
+            .health_check(true)
+            .cors(cors)
+            .module(rpc_modules)?;
 
         #[cfg(feature = "explorer")]
         {
@@ -383,7 +434,7 @@ impl Node {
     }
 
     /// Returns a reference to the node's JSON-RPC server.
-    pub fn rpc(&self) -> &RpcServer {
+    pub fn rpc(&self) -> &NodeRpcServer {
         &self.rpc_server
     }
 

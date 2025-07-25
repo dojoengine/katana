@@ -22,5 +22,4 @@ starknet.workspace = true
 thiserror.workspace = true
 
 [features]
-cartridge = [  ]
 client = [ "jsonrpsee/client" ]

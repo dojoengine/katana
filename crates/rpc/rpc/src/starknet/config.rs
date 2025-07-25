@@ -16,14 +16,4 @@ pub struct StarknetApiConfig {
     ///
     /// If `None`, defaults to [`DEFAULT_ESTIMATE_FEE_MAX_CONCURRENT_REQUESTS`].
     pub max_concurrent_estimate_fee_requests: Option<u32>,
-
-    #[cfg(feature = "cartridge")]
-    pub paymaster: Option<PaymasterConfig>,
-}
-
-#[cfg(feature = "cartridge")]
-#[derive(Debug, Clone)]
-pub struct PaymasterConfig {
-    /// The root URL for the Cartridge API.
-    pub cartridge_api_url: url::Url,
 }

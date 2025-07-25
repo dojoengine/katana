@@ -34,10 +34,6 @@ tower-http = { workspace = true, features = [ "cors", "trace" ] }
 tracing.workspace = true
 url.workspace = true
 
-cainome = { workspace = true, optional = true }
-cartridge = { workspace = true, optional = true }
-starknet-crypto = { workspace = true, optional = true }
-
 [dev-dependencies]
 katana-chain-spec.workspace = true
 katana-contracts.workspace = true
@@ -65,11 +61,5 @@ tempfile.workspace = true
 tokio.workspace = true
 
 [features]
-cartridge = [
-	"dep:cainome",
-	"dep:cartridge",
-	"dep:starknet-crypto",
-	"katana-rpc-api/cartridge",
-]
 client = [ "jsonrpsee/client", "katana-rpc-api/client" ]
 explorer = [ "dep:katana-explorer" ]
