@@ -9,6 +9,7 @@ on:
       - "crates/**/*.rs"
       - ".github/workflows/test.yml"
   pull_request:
+    types: [opened, synchronize, ready_for_review]
     paths:
       - "bin/**/*.rs"
       - "crates/**/*.rs"
