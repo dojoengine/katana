@@ -8,11 +8,13 @@ use katana_primitives::class::{ClassHash, ContractClass};
 use katana_primitives::contract::{ContractAddress, Nonce};
 use katana_primitives::genesis::allocation::{DevGenesisAccount, GenesisAccountAlloc};
 use katana_primitives::transaction::{
-    DeclareTx, DeclareTxV0, DeclareTxV2, DeclareTxWithClass, DeployAccountTx, DeployAccountTxV1,
-    ExecutableTx, ExecutableTxWithHash, InvokeTx, InvokeTxV1,
+    DeclareTx, DeclareTxV0, DeclareTxV3, DeclareTxWithClass, DeployAccountTx, DeployAccountTxV3,
+    ExecutableTx, ExecutableTxWithHash, InvokeTx, InvokeTxV3,
 };
+use katana_primitives::fee::{AllResourceBoundsMapping, ResourceBoundsMapping,ResourceBounds};
+use katana_primitives::da::DataAvailabilityMode;
 use katana_primitives::utils::split_u256;
-use katana_primitives::utils::transaction::compute_deploy_account_v1_tx_hash;
+use katana_primitives::utils::transaction::compute_deploy_account_v3_tx_hash;
 use katana_primitives::{felt, Felt};
 use num_traits::FromPrimitive;
 use starknet::core::utils::{get_contract_address, get_selector_from_name};
@@ -99,23 +101,29 @@ impl<'c> GenesisTransactionsBuilder<'c> {
 
         let compiled_class_hash = class.clone().compile().unwrap().class_hash().unwrap();
 
-        let mut transaction = DeclareTxV2 {
+        let mut transaction = DeclareTxV3 {
             chain_id: self.chain_spec.id,
             signature: Vec::new(),
             compiled_class_hash,
             sender_address,
             class_hash,
-            max_fee: 0,
             nonce,
+            account_deployment_data: vec![],
+            fee_data_availability_mode: DataAvailabilityMode::L2,
+            nonce_data_availability_mode: DataAvailabilityMode::L2,
+            resource_bounds: ResourceBoundsMapping::All(
+                AllResourceBoundsMapping::default()),
+            paymaster_data: vec![],
+            tip: 0,
         };
 
-        let hash = DeclareTx::V2(transaction.clone()).calculate_hash(false);
+        let hash = DeclareTx::V3(transaction.clone()).calculate_hash(false);
         let signature = self.master_signer.sign(&hash).unwrap();
         transaction.signature = vec![signature.r, signature.s];
 
         self.transactions.borrow_mut().push(ExecutableTxWithHash {
             transaction: ExecutableTx::Declare(DeclareTxWithClass {
-                transaction: DeclareTx::V2(transaction),
+                transaction: DeclareTx::V3(transaction),
                 class: class.into(),
             }),
             hash,
@@ -164,21 +172,27 @@ impl<'c> GenesisTransactionsBuilder<'c> {
             .chain(args)
             .collect();
 
-        let mut transaction = InvokeTxV1 {
+        let mut transaction = InvokeTxV3 {
             chain_id: self.chain_spec.id,
             signature: Vec::new(),
             sender_address,
-            max_fee: 0,
             calldata,
             nonce,
+            resource_bounds: ResourceBoundsMapping::All(
+                AllResourceBoundsMapping::default()),
+            tip: 0,
+            paymaster_data: vec![],
+            account_deployment_data: vec![],
+            nonce_data_availability_mode: DataAvailabilityMode::L2,
+            fee_data_availability_mode: DataAvailabilityMode::L2,
         };
 
-        let tx_hash = InvokeTx::V1(transaction.clone()).calculate_hash(false);
+        let tx_hash = InvokeTx::V3(transaction.clone()).calculate_hash(false);
         let signature = self.master_signer.sign(&tx_hash).unwrap();
         transaction.signature = vec![signature.r, signature.s];
 
         self.transactions.borrow_mut().push(ExecutableTxWithHash {
-            transaction: ExecutableTx::Invoke(InvokeTx::V1(transaction)),
+            transaction: ExecutableTx::Invoke(InvokeTx::V3(transaction)),
             hash: tx_hash,
         });
     }
@@ -191,28 +205,48 @@ impl<'c> GenesisTransactionsBuilder<'c> {
         let calldata = vec![pubkey];
         let account_address = get_contract_address(account.salt, class_hash, &calldata, Felt::ZERO);
 
-        let tx_hash = compute_deploy_account_v1_tx_hash(
+        let tx_hash = compute_deploy_account_v3_tx_hash(
             account_address,
             &calldata,
             class_hash,
             account.salt,
             0,
+            &ResourceBounds{
+                max_amount: 0,
+                max_price_per_unit: 0,
+            },
+            &ResourceBounds{
+                max_amount: 0,
+                max_price_per_unit: 0,
+            },
+            Some(&ResourceBounds{
+                max_amount: 0,
+                max_price_per_unit: 0,
+            }),
+            &vec![],
             self.chain_spec.id.into(),
             Felt::ZERO,
+            &DataAvailabilityMode::L2,
+            &DataAvailabilityMode::L2,
             false,
         );
 
         let signature = signer.sign(&tx_hash).unwrap();
 
-        let transaction = ExecutableTx::DeployAccount(DeployAccountTx::V1(DeployAccountTxV1 {
+        let transaction = ExecutableTx::DeployAccount(DeployAccountTx::V3(DeployAccountTxV3 {
             signature: vec![signature.r, signature.s],
             contract_address: account_address.into(),
             constructor_calldata: calldata,
             chain_id: self.chain_spec.id,
             contract_address_salt: account.salt,
             nonce: Felt::ZERO,
-            max_fee: 0,
             class_hash,
+            fee_data_availability_mode: DataAvailabilityMode::L2,
+            nonce_data_availability_mode: DataAvailabilityMode::L2,
+            paymaster_data: vec![],
+            tip: 0,
+            resource_bounds: ResourceBoundsMapping::All(
+                AllResourceBoundsMapping::default()),
         }));
 
         let tx_hash = transaction.calculate_hash(false);
@@ -235,28 +269,48 @@ impl<'c> GenesisTransactionsBuilder<'c> {
 
         self.master_address.set(master_address.into()).expect("must be uninitialized");
 
-        let deploy_account_tx_hash = compute_deploy_account_v1_tx_hash(
+        let deploy_account_tx_hash = compute_deploy_account_v3_tx_hash(
             master_address,
             &calldata,
             account_class_hash,
             salt,
             0,
+            &ResourceBounds{
+                max_amount: 0,
+                max_price_per_unit: 0,
+            },
+            &ResourceBounds{
+                max_amount: 0,
+                max_price_per_unit: 0,
+            },
+            Some(&ResourceBounds{
+                max_amount: 0,
+                max_price_per_unit: 0,
+            }),
+            &vec![],
             self.chain_spec.id.into(),
             Felt::ZERO,
+            &DataAvailabilityMode::L2,
+            &DataAvailabilityMode::L2,
             false,
         );
 
         let signature = self.master_signer.sign(&deploy_account_tx_hash).unwrap();
 
-        let transaction = ExecutableTx::DeployAccount(DeployAccountTx::V1(DeployAccountTxV1 {
+        let transaction = ExecutableTx::DeployAccount(DeployAccountTx::V3(DeployAccountTxV3 {
             signature: vec![signature.r, signature.s],
             nonce: Felt::ZERO,
-            max_fee: 0,
             contract_address_salt: salt,
             contract_address: master_address.into(),
             constructor_calldata: calldata,
             class_hash: account_class_hash,
             chain_id: self.chain_spec.id,
+            fee_data_availability_mode: DataAvailabilityMode::L2,
+            nonce_data_availability_mode: DataAvailabilityMode::L2,
+            paymaster_data: vec![],
+            tip: 0,
+            resource_bounds: ResourceBoundsMapping::All(
+                AllResourceBoundsMapping::default()),
         }));
 
         let tx_hash = transaction.calculate_hash(false);
