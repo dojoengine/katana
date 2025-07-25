@@ -10,36 +10,176 @@ use katana_executor::ExecutorFactory;
 use katana_pool::{TransactionPool, TxPool};
 use katana_primitives::block::{BlockIdOrTag, BlockTag};
 use katana_primitives::chain::ChainId;
+use katana_primitives::contract::Nonce;
 use katana_primitives::fee::{AllResourceBoundsMapping, ResourceBoundsMapping};
 use katana_primitives::genesis::constant::DEFAULT_UDC_ADDRESS;
-use katana_primitives::transaction::{ExecutableTx, ExecutableTxWithHash, InvokeTx, InvokeTxV3};
+use katana_primitives::transaction::{
+    ExecutableTx, ExecutableTxWithHash, InvokeTx, InvokeTxV3, TxHash,
+};
 use katana_primitives::{ContractAddress, Felt};
 use katana_rpc::starknet::StarknetApi;
 use katana_rpc_api::error::starknet::StarknetApiError;
-use katana_rpc_types::transaction::{BroadcastedInvokeTx, BroadcastedTx};
+use katana_rpc_types::transaction::{BroadcastedDeclareTx, BroadcastedInvokeTx, BroadcastedTx};
 use starknet::core::types::{Call, SimulationFlagForEstimateFee};
 use starknet::macros::selector;
 use starknet::signers::{LocalWallet, Signer, SigningKey};
+use tracing::trace;
 
 use crate::rpc::types::OutsideExecution;
 use crate::utils::encode_calls;
 use crate::Client;
 
+pub type PaymasterResult<T> = Result<T, Error>;
+
+#[derive(Debug, thiserror::Error)]
+pub enum Error {
+    #[error("no controller found for address {0}")]
+    ControllerNotFound(ContractAddress),
+
+    #[error("cartridge client error: {0}")]
+    Client(#[from] crate::client::Error),
+
+    #[error("starknet api error: {0}")]
+    StarknetApi(#[from] StarknetApiError),
+
+    #[error("paymaster not found")]
+    PaymasterNotFound(ContractAddress),
+
+    #[error("failed to add deploy controller transaction to the pool: {0}")]
+    FailedToAddTransaction(#[from] katana_pool::PoolError),
+}
+
 #[derive(Debug, Clone)]
-pub struct Paymaster<S, EF: ExecutorFactory> {
-    service: S,
+pub struct Paymaster<EF: ExecutorFactory> {
     starknet_api: StarknetApi<EF>,
     cartridge_api: Client,
-    paymaster_address: ContractAddress,
-    paymaster_key: SigningKey,
     pool: TxPool,
+
     chain_id: ChainId,
+    paymaster_key: SigningKey,
+    paymaster_address: ContractAddress,
 }
 
 impl<S, EF: ExecutorFactory> Paymaster<S, EF> {
-    pub fn intercept_estimate_fee<'a>(&self, request: &Request<'a>) -> Request<'a> {
-        let params = request.params();
+    /// Deploys the account contract of a Controller account.
+    pub fn deploy_controller(&self, address: ContractAddress) -> PaymasterResult<TxHash> {
+        let block_id = BlockIdOrTag::Tag(BlockTag::Pending);
+        let deploy_tx_res = self.get_controller_deploy_tx(address, block_id)?;
+        let tx_hash = self.pool.add_transaction(tx).map_err(Error::FailedToAddTransaction)?;
+        Ok(tx_hash)
+    }
 
+    pub fn handle_estimate_fees(
+        &self,
+        block_id: BlockIdOrTag,
+        transactions: Vec<BroadcastedTx>,
+    ) -> PaymasterResult<Vec<BroadcastedTx>> {
+        let mut new_transactions = Vec::with_capacity(transactions.len());
+
+        for tx in transactions {
+            let address = match &tx {
+                BroadcastedTx::Invoke(BroadcastedInvokeTx(tx)) => tx.sender_address,
+                BroadcastedTx::Declare(BroadcastedDeclareTx(tx)) => tx.sender_address,
+                _ => continue,
+            };
+
+            // Check if the address has already been deployed
+            if block_on(self.starknet_api.class_hash_at_address(block_id, address.into())).is_ok() {
+                continue;
+            }
+
+            /// Handles the deployment of a cartridge controller if the estimate fee is requested
+            /// for a cartridge controller.
+
+            /// The controller accounts are created with a specific version of the controller.
+            /// To ensure address determinism, the controller account must be deployed with the same
+            /// version, which is included in the calldata retrieved from the Cartridge API.
+            match self.get_controller_deploy_tx(address.into(), block_id) {
+                Ok(tx) => {
+                    todo!("convert from ExecutableTxWithHash to BroadcastedTx");
+                    // new_transactions.push(tx);
+                }
+
+                Err(Error::ControllerNotFound(address)) => continue,
+                Err(err) => panic!("{err}"),
+            }
+        }
+
+        Ok(new_transactions)
+    }
+
+    /// Returns a [`Layer`](tower::Layer) implementation of [`Paymaster`].
+    ///
+    /// This allows the paymaster to be used as a middleware in Katana RPC stack.
+    pub fn layer(self) -> PaymasterLayer<EF> {
+        PaymasterLayer { paymaster }
+    }
+
+    /// Crafts a deploy controller transaction for a cartridge controller.
+    ///
+    /// Returns None if the provided `controller_address` is not registered in the Cartridge API.
+    fn get_controller_deploy_tx(
+        &self,
+        address: ContractAddress,
+        block_id: BlockIdOrTag,
+    ) -> PaymasterResult<ExecutableTxWithHash> {
+        let result = block_on(self.cartridge_api.get_account_calldata(address))?;
+        let account = result.ok_or(Error::ControllerNotFound(address))?;
+
+        // Check if any of the transactions are sent from an address associated with a Cartridge
+        // Controller account. If yes, we craft a Controller deployment transaction
+        // for each of the unique sender and push it at the beginning of the
+        // transaction list so that all the requested transactions are executed against a state
+        // with the Controller accounts deployed.
+
+        let pm_address = self.paymaster_address;
+        let pm_nonce = match block_on(self.starknet_api.nonce_at(block_id, pm_address)) {
+            Ok(nonce) => nonce,
+            Err(StarknetApiError::ContractNotFound) => Err(Error::PaymasterNotFound(pm_address)),
+            Err(err) => Err(Error::StarknetApi(err)),
+        };
+
+        Ok(create_deploy_tx(
+            pm_address,
+            self.paymaster_key.clone(),
+            pm_nonce,
+            block_id,
+            account.constructor_calldata,
+        ))
+    }
+}
+
+#[derive(Debug)]
+pub struct PaymasterLayer<EF: ExecutorFactory> {
+    paymaster: Paymaster<EF>,
+}
+
+impl<EF: ExecutorFactory> Clone for PaymasterLayer<EF> {
+    fn clone(&self) -> Self {
+        Self { paymaster: self.paymaster.clone() }
+    }
+}
+
+impl<S, EF: ExecutorFactory> tower::Layer<S> for PaymasterLayer<EF> {
+    type Service = PaymasterService<S, EF>;
+
+    fn layer(&self, service: S) -> Self::Service {
+        PaymasterService { service, paymaster: self.paymaster.clone() }
+    }
+}
+
+#[derive(Debug)]
+pub struct PaymasterService<S, EF: ExecutorFactory> {
+    service: S,
+    paymaster: Paymaster<EF>,
+}
+
+impl<S, EF> PaymasterService<S, EF>
+where
+    S: middleware::RpcServiceT + Send + Sync + Clone + 'static,
+    EF: ExecutorFactory,
+{
+    fn call_on_estimate_fee(&self, request: Request<'a>) {
         let (mut requests, simulation_flags, block_id) = if params.is_object() {
             #[derive(serde::Deserialize)]
             struct ParamsObject<G0, G1, G2> {
@@ -107,26 +247,6 @@ impl<S, EF: ExecutorFactory> Paymaster<S, EF> {
             (request, simulation_flags, block_id)
         };
 
-        let mut new_requests = Vec::with_capacity(requests.len());
-
-        for request in &mut requests {
-            // The whole Cartridge paymaster flow would only be accessible mainly from the
-            // Controller wallet. The Controller wallet only supports V3 transactions
-            // (considering < V3 transactions will soon be deprecated) hence why we're
-            // only checking for V3 transactions here.
-            //
-            // Yes, ideally it's better to handle all versions but it's probably fine for now.
-            if let BroadcastedTx::Invoke(BroadcastedInvokeTx(tx)) = &request {
-                let deploy_controller_tx = self
-                    .get_controller_deploy_tx_if_controller_address(tx.sender_address, block_id)
-                    .unwrap();
-
-                if let Some(tx) = deploy_controller_tx {
-                    new_requests.push(tx);
-                }
-            }
-        }
-
         let params = {
             let mut params = jsonrpsee::core::params::ArrayParams::new();
 
@@ -148,13 +268,14 @@ impl<S, EF: ExecutorFactory> Paymaster<S, EF> {
         let params = params.map(Cow::Owned);
         new_request.params = params;
 
-        new_request
+        // Pass the new request object to the underlying service
+        self.service.call(new_request)
     }
 
-    pub fn intercept_add_outside_execution(&self, request: &Request<'_>) {
+    fn call_on_add_outside_execution(&self, request: Request<'a>) {
         let params = request.params();
 
-        let (address, ..) = if params.is_object() {
+        let (controller_address, ..) = if params.is_object() {
             #[derive(serde::Deserialize)]
             struct ParamsObject<G0, G1, G2> {
                 address: G0,
@@ -212,157 +333,22 @@ impl<S, EF: ExecutorFactory> Paymaster<S, EF> {
             (address, outside_execution, signature)
         };
 
-        if let Some(deploy_controller_tx) = self
-            .get_controller_deploy_tx_if_controller_address(
-                *address,
-                BlockIdOrTag::Tag(BlockTag::Pending),
-            )
-            .unwrap()
-        {
-            self.pool
-                .add_transaction(deploy_controller_tx)
-                .expect("failed to add transaction to pool");
-        }
-    }
-
-    /// Handles the deployment of a cartridge controller if the estimate fee is requested for a
-    /// cartridge controller.
-    ///
-    /// The controller accounts are created with a specific version of the controller.
-    /// To ensure address determinism, the controller account must be deployed with the same
-    /// version, which is included in the calldata retrieved from the Cartridge API.
-    fn get_controller_deploy_tx_if_controller_address(
-        &self,
-        address: Felt,
-        block_id: BlockIdOrTag,
-    ) -> anyhow::Result<Option<ExecutableTxWithHash>> {
-        // Avoid deploying the controller account if it is already deployed.
-        if block_on(self.starknet_api.class_hash_at_address(block_id, address.into())).is_ok() {
-            return Ok(None);
+        match self.paymaster.deploy_controller(controller_address) {
+            Ok(tx_hash) => {
+                trace!(
+                    tx_hash = format!("{tx_hash:#x}"),
+                    "Controller deploy transaction submitted",
+                );
+            }
+            Err(Error::ControllerNotFound(..)) => {}
+            Err(error) => panic!("{error}"),
         }
 
-        if let tx @ Some(..) = self.get_controller_deploy_tx(address.into(), block_id)? {
-            // debug!(address = %maybe_controller_address, "Deploying controller account.");
-            return Ok(tx);
-        }
-
-        Ok(None)
-    }
-
-    /// Crafts a deploy controller transaction for a cartridge controller.
-    ///
-    /// Returns None if the provided `controller_address` is not registered in the Cartridge API.
-    fn get_controller_deploy_tx(
-        &self,
-        address: ContractAddress,
-        block_id: BlockIdOrTag,
-    ) -> anyhow::Result<Option<ExecutableTxWithHash>> {
-        if let Some(res) = block_on(self.cartridge_api.get_account_calldata(address)).unwrap() {
-            // Check if any of the transactions are sent from an address associated with a Cartridge
-            // Controller account. If yes, we craft a Controller deployment transaction
-            // for each of the unique sender and push it at the beginning of the
-            // transaction list so that all the requested transactions are executed against a state
-            // with the Controller accounts deployed.
-            let paymaster_nonce =
-                match block_on(self.starknet_api.nonce_at(block_id, self.paymaster_address)) {
-                    Ok(nonce) => nonce,
-                    Err(StarknetApiError::ContractNotFound) => {
-                        panic!("Cartridge paymaster account doesn't exist");
-                    }
-                    _ => {
-                        panic!("something")
-                    }
-                };
-
-            let call = Call {
-                to: DEFAULT_UDC_ADDRESS.into(),
-                selector: selector!("deployContract"),
-                calldata: res.constructor_calldata,
-            };
-
-            let mut tx = InvokeTxV3 {
-                tip: 0_u64,
-                signature: vec![],
-                nonce: paymaster_nonce,
-                paymaster_data: vec![],
-                chain_id: self.chain_id,
-                account_deployment_data: vec![],
-                calldata: encode_calls(vec![call]),
-                sender_address: self.paymaster_address,
-                nonce_data_availability_mode: katana_primitives::da::DataAvailabilityMode::L1,
-                fee_data_availability_mode: katana_primitives::da::DataAvailabilityMode::L1,
-                resource_bounds: ResourceBoundsMapping::All(AllResourceBoundsMapping::default()),
-            };
-
-            let tx_hash = InvokeTx::V3(tx.clone()).calculate_hash(false);
-
-            let signer = LocalWallet::from(self.paymaster_key.clone());
-            let signature = futures::executor::block_on(signer.sign_hash(&tx_hash)).unwrap();
-            tx.signature = vec![signature.r, signature.s];
-
-            let tx = ExecutableTxWithHash::new(ExecutableTx::Invoke(InvokeTx::V3(tx)));
-
-            Ok(Some(tx))
-        } else {
-            Ok(None)
-        }
+        self.service.call(request)
     }
 }
 
-/// Paymaster layer.
-#[derive(Debug)]
-pub struct PaymasterLayer<EF: ExecutorFactory> {
-    starknet_api: StarknetApi<EF>,
-    cartridge_api: Client,
-    paymaster_address: ContractAddress,
-    paymaster_key: SigningKey,
-    chain_id: ChainId,
-    pool: TxPool,
-}
-
-impl<EF: ExecutorFactory> PaymasterLayer<EF> {
-    pub fn new(
-        starknet_api: StarknetApi<EF>,
-        cartridge_api: Client,
-        paymaster_address: ContractAddress,
-        paymaster_key: SigningKey,
-        chain_id: ChainId,
-        pool: TxPool,
-    ) -> Self {
-        Self { starknet_api, cartridge_api, paymaster_address, paymaster_key, chain_id, pool }
-    }
-}
-
-impl<EF: ExecutorFactory> Clone for PaymasterLayer<EF> {
-    fn clone(&self) -> Self {
-        Self {
-            starknet_api: self.starknet_api.clone(),
-            cartridge_api: self.cartridge_api.clone(),
-            paymaster_address: self.paymaster_address,
-            paymaster_key: self.paymaster_key.clone(),
-            chain_id: self.chain_id,
-            pool: self.pool.clone(),
-        }
-    }
-}
-
-impl<S, EF: ExecutorFactory> tower::Layer<S> for PaymasterLayer<EF> {
-    type Service = Paymaster<S, EF>;
-
-    fn layer(&self, service: S) -> Self::Service {
-        Paymaster {
-            service,
-            pool: self.pool.clone(),
-            chain_id: self.chain_id,
-            starknet_api: self.starknet_api.clone(),
-            cartridge_api: self.cartridge_api.clone(),
-            paymaster_address: self.paymaster_address,
-            paymaster_key: self.paymaster_key.clone(),
-        }
-    }
-}
-
-impl<S, EF> middleware::RpcServiceT for Paymaster<S, EF>
+impl<S, EF> middleware::RpcServiceT for PaymasterService<S, EF>
 where
     S: middleware::RpcServiceT + Send + Sync + Clone + 'static,
     EF: ExecutorFactory,
@@ -375,12 +361,10 @@ where
         &self,
         request: Request<'a>,
     ) -> impl Future<Output = Self::MethodResponse> + Send + 'a {
-        if dbg!(request.method_name() == "starknet_estimateFee") {
-            let request = self.intercept_estimate_fee(&request);
-            self.service.call(request)
-        } else if dbg!(request.method_name() == "cartridge_addExecuteOutsideTransaction") {
-            self.intercept_add_outside_execution(&request);
-            self.service.call(request)
+        if request.method_name() == "starknet_estimateFee" {
+            self.call_on_estimate_fee(request)
+        } else if request.method_name() == "cartridge_addExecuteOutsideTransaction" {
+            self.call_on_add_outside_execution(request)
         } else {
             self.service.call(request)
         }
@@ -399,4 +383,55 @@ where
     ) -> impl Future<Output = Self::NotificationResponse> + Send + 'a {
         self.service.notification(n)
     }
+}
+
+fn create_deploy_tx(
+    deployer: ContractAddress,
+    deployer_pk: SigningKey,
+    nonce: Nonce,
+    block_id: BlockIdOrTag,
+    constructor_calldata: Vec<Felt>,
+) {
+    // Check if any of the transactions are sent from an address associated with a Cartridge
+    // Controller account. If yes, we craft a Controller deployment transaction
+    // for each of the unique sender and push it at the beginning of the
+    // transaction list so that all the requested transactions are executed against a state
+    // with the Controller accounts deployed.
+
+    // let pm_address = self.paymaster_address;
+    // let pm_nonce = match block_on(self.starknet_api.nonce_at(block_id, pm_address)) {
+    //     Ok(nonce) => nonce,
+    //     Err(StarknetApiError::ContractNotFound) => Err(Error::PaymasterNotFound(pm_address)),
+    //     Err(err) => Err(Error::StarknetApi(err)),
+    // };
+
+    let call = Call {
+        calldata: constructor_calldata,
+        to: DEFAULT_UDC_ADDRESS.into(),
+        selector: selector!("deployContract"),
+    };
+
+    let mut tx = InvokeTxV3 {
+        nonce,
+        tip: 0_u64,
+        signature: vec![],
+        paymaster_data: vec![],
+        chain_id: self.chain_id,
+        sender_address: deployer,
+        account_deployment_data: vec![],
+        calldata: encode_calls(vec![call]),
+        nonce_data_availability_mode: katana_primitives::da::DataAvailabilityMode::L1,
+        fee_data_availability_mode: katana_primitives::da::DataAvailabilityMode::L1,
+        resource_bounds: ResourceBoundsMapping::All(AllResourceBoundsMapping::default()),
+    };
+
+    let tx_hash = InvokeTx::V3(tx.clone()).calculate_hash(false);
+
+    let signer = LocalWallet::from(deployer_pk);
+    let signature = block_on(signer.sign_hash(&tx_hash)).unwrap();
+    tx.signature = vec![signature.r, signature.s];
+
+    let tx = ExecutableTxWithHash::new(ExecutableTx::Invoke(InvokeTx::V3(tx)));
+
+    Ok(tx)
 }

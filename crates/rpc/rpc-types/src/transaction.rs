@@ -9,7 +9,7 @@ use katana_primitives::da::DataAvailabilityMode;
 use katana_primitives::fee::{AllResourceBoundsMapping, ResourceBounds, ResourceBoundsMapping};
 use katana_primitives::transaction::{
     DeclareTx, DeclareTxV3, DeclareTxWithClass, DeployAccountTx, DeployAccountTxV3, InvokeTx,
-    InvokeTxV3, TxHash, TxWithHash,
+    TxHash, TxWithHash,
 };
 use katana_primitives::Felt;
 use num_traits::ToPrimitive;
@@ -43,19 +43,7 @@ impl BroadcastedInvokeTx {
     }
 
     pub fn into_tx_with_chain_id(self, chain_id: ChainId) -> InvokeTx {
-        InvokeTx::V3(InvokeTxV3 {
-            chain_id,
-            nonce: self.0.nonce,
-            calldata: self.0.calldata,
-            signature: self.0.signature,
-            sender_address: self.0.sender_address.into(),
-            account_deployment_data: self.0.account_deployment_data,
-            fee_data_availability_mode: from_rpc_da_mode(self.0.fee_data_availability_mode),
-            nonce_data_availability_mode: from_rpc_da_mode(self.0.nonce_data_availability_mode),
-            paymaster_data: self.0.paymaster_data,
-            resource_bounds: from_rpc_resource_bounds(self.0.resource_bounds),
-            tip: self.0.tip,
-        })
+        InvokeTx::from_broadcasted_with_chain_id(self.0, chain_id)
     }
 }
 
@@ -521,19 +509,7 @@ impl From<TxHash> for InvokeTxResult {
 
 impl From<BroadcastedInvokeTx> for InvokeTx {
     fn from(tx: BroadcastedInvokeTx) -> Self {
-        InvokeTx::V3(InvokeTxV3 {
-            nonce: tx.0.nonce,
-            calldata: tx.0.calldata,
-            signature: tx.0.signature,
-            chain_id: ChainId::default(),
-            sender_address: tx.0.sender_address.into(),
-            account_deployment_data: tx.0.account_deployment_data,
-            fee_data_availability_mode: from_rpc_da_mode(tx.0.fee_data_availability_mode),
-            nonce_data_availability_mode: from_rpc_da_mode(tx.0.nonce_data_availability_mode),
-            paymaster_data: tx.0.paymaster_data,
-            resource_bounds: from_rpc_resource_bounds(tx.0.resource_bounds),
-            tip: tx.0.tip,
-        })
+        tx.0.into()
     }
 }
 
