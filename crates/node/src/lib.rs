@@ -11,6 +11,7 @@ use std::sync::Arc;
 
 use anyhow::{anyhow, bail, Context, Result};
 #[cfg(feature = "cartridge")]
+use cartridge::paymaster::Paymaster;
 use cartridge::paymaster::PaymasterLayer;
 #[cfg(feature = "cartridge")]
 use cartridge::rpc::{CartridgeApi, CartridgeApiServer};
@@ -263,7 +264,7 @@ impl Node {
         }
 
         #[cfg(feature = "cartridge")]
-        let paymaster_layer = if let Some(paymaster) = &config.paymaster {
+        let paymaster = if let Some(paymaster) = &config.paymaster {
             anyhow::ensure!(
                 config.rpc.apis.contains(&RpcModuleKind::Cartridge),
                 "Cartridge API should be enabled when paymaster is set"
@@ -298,13 +299,13 @@ impl Node {
                 bail!("Paymaster is not a dev account")
             };
 
-            Some(PaymasterLayer::new(
+            Some(Paymaster::new(
                 starknet_api,
                 cartridge_api_client,
+                pool.clone(),
+                config.chain.id(),
                 *pm_address,
                 SigningKey::from_secret_scalar(pm_private_key),
-                config.chain.id(),
-                pool.clone(),
             ))
         } else {
             None
@@ -315,7 +316,7 @@ impl Node {
         let rpc_middleware = RpcServiceBuilder::new()
             .layer(RpcServerMetricsLayer::new(&rpc_modules))
             .layer(katana_rpc::logger::RpcLoggerLayer::new())
-            .option_layer(paymaster_layer);
+            .option_layer(paymaster.map(|p| p.layer()));
 
         let mut rpc_server = katana_rpc::RpcServer::new()
             .rpc_middleware(rpc_middleware)

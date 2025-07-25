@@ -49,7 +49,7 @@ pub enum Error {
     FailedToAddTransaction(#[from] katana_pool::PoolError),
 }
 
-#[derive(Debug, Clone)]
+#[derive(Debug)]
 pub struct Paymaster<EF: ExecutorFactory> {
     starknet_api: StarknetApi<EF>,
     cartridge_api: Client,
@@ -60,11 +60,22 @@ pub struct Paymaster<EF: ExecutorFactory> {
     paymaster_address: ContractAddress,
 }
 
-impl<S, EF: ExecutorFactory> Paymaster<S, EF> {
+impl<EF: ExecutorFactory> Paymaster<EF> {
+    pub fn new(
+        starknet_api: StarknetApi<EF>,
+        cartridge_api: Client,
+        pool: TxPool,
+        chain_id: ChainId,
+        paymaster_address: ContractAddress,
+        paymaster_key: SigningKey,
+    ) -> Self {
+        Self { starknet_api, cartridge_api, pool, chain_id, paymaster_key, paymaster_address }
+    }
+
     /// Deploys the account contract of a Controller account.
     pub fn deploy_controller(&self, address: ContractAddress) -> PaymasterResult<TxHash> {
         let block_id = BlockIdOrTag::Tag(BlockTag::Pending);
-        let deploy_tx_res = self.get_controller_deploy_tx(address, block_id)?;
+        let tx = self.get_controller_deploy_tx(address, block_id)?;
         let tx_hash = self.pool.add_transaction(tx).map_err(Error::FailedToAddTransaction)?;
         Ok(tx_hash)
     }
@@ -88,19 +99,19 @@ impl<S, EF: ExecutorFactory> Paymaster<S, EF> {
                 continue;
             }
 
-            /// Handles the deployment of a cartridge controller if the estimate fee is requested
-            /// for a cartridge controller.
+            // Handles the deployment of a cartridge controller if the estimate fee is requested
+            // for a cartridge controller.
 
-            /// The controller accounts are created with a specific version of the controller.
-            /// To ensure address determinism, the controller account must be deployed with the same
-            /// version, which is included in the calldata retrieved from the Cartridge API.
+            // The controller accounts are created with a specific version of the controller.
+            // To ensure address determinism, the controller account must be deployed with the same
+            // version, which is included in the calldata retrieved from the Cartridge API.
             match self.get_controller_deploy_tx(address.into(), block_id) {
                 Ok(tx) => {
                     todo!("convert from ExecutableTxWithHash to BroadcastedTx");
                     // new_transactions.push(tx);
                 }
 
-                Err(Error::ControllerNotFound(address)) => continue,
+                Err(Error::ControllerNotFound(..)) => continue,
                 Err(err) => panic!("{err}"),
             }
         }
@@ -112,7 +123,7 @@ impl<S, EF: ExecutorFactory> Paymaster<S, EF> {
     ///
     /// This allows the paymaster to be used as a middleware in Katana RPC stack.
     pub fn layer(self) -> PaymasterLayer<EF> {
-        PaymasterLayer { paymaster }
+        PaymasterLayer { paymaster: self }
     }
 
     /// Crafts a deploy controller transaction for a cartridge controller.
@@ -135,17 +146,32 @@ impl<S, EF: ExecutorFactory> Paymaster<S, EF> {
         let pm_address = self.paymaster_address;
         let pm_nonce = match block_on(self.starknet_api.nonce_at(block_id, pm_address)) {
             Ok(nonce) => nonce,
-            Err(StarknetApiError::ContractNotFound) => Err(Error::PaymasterNotFound(pm_address)),
-            Err(err) => Err(Error::StarknetApi(err)),
+            Err(StarknetApiError::ContractNotFound) => {
+                return Err(Error::PaymasterNotFound(pm_address))
+            }
+            Err(err) => return Err(Error::StarknetApi(err)),
         };
 
-        Ok(create_deploy_tx(
+        create_deploy_tx(
             pm_address,
             self.paymaster_key.clone(),
             pm_nonce,
-            block_id,
             account.constructor_calldata,
-        ))
+            self.chain_id,
+        )
+    }
+}
+
+impl<EF: ExecutorFactory> Clone for Paymaster<EF> {
+    fn clone(&self) -> Self {
+        Self {
+            pool: self.pool.clone(),
+            chain_id: self.chain_id,
+            starknet_api: self.starknet_api.clone(),
+            cartridge_api: self.cartridge_api.clone(),
+            paymaster_key: self.paymaster_key.clone(),
+            paymaster_address: self.paymaster_address,
+        }
     }
 }
 
@@ -174,12 +200,24 @@ pub struct PaymasterService<S, EF: ExecutorFactory> {
     paymaster: Paymaster<EF>,
 }
 
+impl<S, EF> Clone for PaymasterService<S, EF>
+where
+    S: Clone,
+    EF: ExecutorFactory + Clone,
+{
+    fn clone(&self) -> Self {
+        Self { service: self.service.clone(), paymaster: self.paymaster.clone() }
+    }
+}
+
 impl<S, EF> PaymasterService<S, EF>
 where
     S: middleware::RpcServiceT + Send + Sync + Clone + 'static,
     EF: ExecutorFactory,
 {
-    fn call_on_estimate_fee(&self, request: Request<'a>) {
+    fn call_on_estimate_fee(&self, request: &mut Request<'_>) {
+        let params = request.params();
+
         let (mut requests, simulation_flags, block_id) = if params.is_object() {
             #[derive(serde::Deserialize)]
             struct ParamsObject<G0, G1, G2> {
@@ -247,7 +285,7 @@ where
             (request, simulation_flags, block_id)
         };
 
-        let params = {
+        let new_params = {
             let mut params = jsonrpsee::core::params::ArrayParams::new();
 
             if let Err(err) = params.insert(requests) {
@@ -263,16 +301,12 @@ where
             params
         };
 
-        let mut new_request = request.clone();
-        let params = params.to_rpc_params().unwrap();
+        let params = new_params.to_rpc_params().unwrap();
         let params = params.map(Cow::Owned);
-        new_request.params = params;
-
-        // Pass the new request object to the underlying service
-        self.service.call(new_request)
+        request.params = params;
     }
 
-    fn call_on_add_outside_execution(&self, request: Request<'a>) {
+    fn call_on_add_outside_execution(&self, request: &Request<'_>) {
         let params = request.params();
 
         let (controller_address, ..) = if params.is_object() {
@@ -343,8 +377,6 @@ where
             Err(Error::ControllerNotFound(..)) => {}
             Err(error) => panic!("{error}"),
         }
-
-        self.service.call(request)
     }
 }
 
@@ -359,12 +391,14 @@ where
 
     fn call<'a>(
         &self,
-        request: Request<'a>,
+        mut request: Request<'a>,
     ) -> impl Future<Output = Self::MethodResponse> + Send + 'a {
         if request.method_name() == "starknet_estimateFee" {
-            self.call_on_estimate_fee(request)
+            self.call_on_estimate_fee(&mut request);
+            self.service.call(request)
         } else if request.method_name() == "cartridge_addExecuteOutsideTransaction" {
-            self.call_on_add_outside_execution(request)
+            self.call_on_add_outside_execution(&request);
+            self.service.call(request)
         } else {
             self.service.call(request)
         }
@@ -389,9 +423,9 @@ fn create_deploy_tx(
     deployer: ContractAddress,
     deployer_pk: SigningKey,
     nonce: Nonce,
-    block_id: BlockIdOrTag,
     constructor_calldata: Vec<Felt>,
-) {
+    chain_id: ChainId,
+) -> PaymasterResult<ExecutableTxWithHash> {
     // Check if any of the transactions are sent from an address associated with a Cartridge
     // Controller account. If yes, we craft a Controller deployment transaction
     // for each of the unique sender and push it at the beginning of the
@@ -413,13 +447,13 @@ fn create_deploy_tx(
 
     let mut tx = InvokeTxV3 {
         nonce,
+        chain_id,
         tip: 0_u64,
-        signature: vec![],
-        paymaster_data: vec![],
-        chain_id: self.chain_id,
+        signature: Vec::new(),
         sender_address: deployer,
-        account_deployment_data: vec![],
+        paymaster_data: Vec::new(),
         calldata: encode_calls(vec![call]),
+        account_deployment_data: Vec::new(),
         nonce_data_availability_mode: katana_primitives::da::DataAvailabilityMode::L1,
         fee_data_availability_mode: katana_primitives::da::DataAvailabilityMode::L1,
         resource_bounds: ResourceBoundsMapping::All(AllResourceBoundsMapping::default()),
