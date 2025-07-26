@@ -3,12 +3,13 @@ use katana_primitives::chain::ChainId;
 use katana_primitives::contract::{ContractAddress, Nonce};
 use katana_primitives::da::DataAvailabilityMode;
 use katana_primitives::env::CfgEnv;
-use katana_primitives::fee::ResourceBounds;
+use katana_primitives::fee::{AllResourceBoundsMapping, ResourceBounds, ResourceBoundsMapping};
 use katana_primitives::genesis::allocation::GenesisAllocation;
 use katana_primitives::genesis::constant::DEFAULT_ETH_FEE_TOKEN_ADDRESS;
 use katana_primitives::transaction::ExecutableTxWithHash;
 use katana_primitives::utils::transaction::compute_invoke_v3_tx_hash;
 use katana_primitives::Felt;
+use katana_rpc_types::new_transaction::BroadcastedInvokeTx;
 use starknet::accounts::{Account, ExecutionEncoder, ExecutionEncoding, SingleOwnerAccount};
 use starknet::core::types::{BlockId, BlockTag, BroadcastedInvokeTransactionV3, Call};
 use starknet::macros::{felt, selector};
@@ -85,49 +86,40 @@ pub fn invoke_executable_tx(
         vec![]
     };
 
-    let starknet_resource_bounds = starknet::core::types::ResourceBoundsMapping {
-        l1_gas: starknet::core::types::ResourceBounds {
+    let resource_bounds = ResourceBoundsMapping::All(AllResourceBoundsMapping {
+        l1_gas: ResourceBounds {
             max_amount: l1_gas.max_amount,
             max_price_per_unit: l1_gas.max_price_per_unit,
         },
-        l1_data_gas: starknet::core::types::ResourceBounds {
+        l1_data_gas: ResourceBounds {
             max_amount: l1_data_gas.max_amount,
             max_price_per_unit: l1_data_gas.max_price_per_unit,
         },
-        l2_gas: starknet::core::types::ResourceBounds {
+        l2_gas: ResourceBounds {
             max_amount: l2_gas.max_amount,
             max_price_per_unit: l2_gas.max_price_per_unit,
         },
-    };
+    });
 
-    let mut starknet_rs_broadcasted_tx = BroadcastedInvokeTransactionV3 {
-        sender_address: account.address(),
+    let mut broadcasted_tx = BroadcastedInvokeTx {
+        version: Felt::THREE,
+        sender_address: account.address().into(),
         calldata,
         signature,
         nonce,
-        resource_bounds: starknet_resource_bounds,
+        resource_bounds,
         tip,
         paymaster_data: vec![],
         account_deployment_data: vec![],
-        nonce_data_availability_mode: match nonce_da_mode {
-            DataAvailabilityMode::L1 => starknet::core::types::DataAvailabilityMode::L1,
-            DataAvailabilityMode::L2 => starknet::core::types::DataAvailabilityMode::L2,
-        },
-        fee_data_availability_mode: match fee_da_mode {
-            DataAvailabilityMode::L1 => starknet::core::types::DataAvailabilityMode::L1,
-            DataAvailabilityMode::L2 => starknet::core::types::DataAvailabilityMode::L2,
-        },
-        is_query: false,
+        nonce_data_availability_mode: nonce_da_mode,
+        fee_data_availability_mode: fee_da_mode,
     };
 
     if !signed {
-        starknet_rs_broadcasted_tx.signature = vec![]
+        broadcasted_tx.signature = vec![]
     }
 
-    let tx = katana_rpc_types::transaction::BroadcastedInvokeTx(starknet_rs_broadcasted_tx)
-        .into_tx_with_chain_id(chain_id);
-
-    ExecutableTxWithHash::new(tx.into())
+    ExecutableTxWithHash::new(broadcasted_tx.into_inner(chain_id).into())
 }
 
 #[rstest::fixture]

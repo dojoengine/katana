@@ -7,7 +7,7 @@ use katana_primitives::da::DataAvailabilityMode;
 use katana_primitives::fee::ResourceBoundsMapping;
 use katana_primitives::transaction::{
     DeclareTx, DeclareTxV3, DeclareTxWithClass, DeployAccountTx, DeployAccountTxV3, InvokeTx,
-    InvokeTxV3,
+    InvokeTxV3, TxHash,
 };
 use katana_primitives::{ContractAddress, Felt};
 use serde::{Deserialize, Deserializer, Serialize};
@@ -233,4 +233,29 @@ impl BroadcastedDeployAccountTx {
             nonce_data_availability_mode: self.nonce_data_availability_mode,
         })
     }
+}
+
+/// Response for broadcasting an `INVOKE` transaction.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct AddInvokeTransactionResult {
+    /// The hash of the invoke transaction
+    pub transaction_hash: TxHash,
+}
+
+/// Response for broadcasting a `DECLARE` transaction.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct AddDeclareTransactionResult {
+    /// The hash of the declare transaction
+    pub transaction_hash: TxHash,
+    /// The hash of the declared class
+    pub class_hash: ClassHash,
+}
+
+/// Response for broadcasting a `DEPLOY_ACCOUNT` transaction.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct AddDeployAccountTransactionResult {
+    /// The hash of the deploy transaction
+    pub transaction_hash: TxHash,
+    /// The address of the new contract
+    pub contract_address: ContractAddress,
 }
