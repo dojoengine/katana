@@ -6,7 +6,9 @@ use std::io::{self, Write};
 
 use cairo_lang_starknet_classes::contract_class::ContractEntryPoints;
 use cairo_lang_utils::bigint::BigUintAsHex;
-use katana_primitives::class::{ContractClass, LegacyContractClass, SierraContractClass};
+use katana_primitives::class::{
+    ClassHash, ContractClass, LegacyContractClass, SierraContractClass,
+};
 use katana_primitives::{
     Felt, {self},
 };
@@ -78,6 +80,12 @@ pub struct RpcSierraContractClass {
     pub contract_class_version: String,
     pub entry_points_by_type: ContractEntryPoints,
     pub abi: String,
+}
+
+impl RpcSierraContractClass {
+    pub fn hash(&self) -> ClassHash {
+        unimplemented!("rpc sierra class hash")
+    }
 }
 
 impl TryFrom<SierraContractClass> for RpcSierraContractClass {

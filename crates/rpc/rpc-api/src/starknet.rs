@@ -13,12 +13,12 @@ use katana_rpc_types::block::{
 use katana_rpc_types::class::RpcContractClass;
 use katana_rpc_types::event::{EventFilterWithPage, EventsPage};
 use katana_rpc_types::message::MsgFromL1;
+use katana_rpc_types::new_transaction::{
+    BroadcastedDeclareTx, BroadcastedDeployAccountTx, BroadcastedInvokeTx, BroadcastedTx,
+};
 use katana_rpc_types::receipt::TxReceiptWithBlockInfo;
 use katana_rpc_types::state_update::MaybePendingStateUpdate;
-use katana_rpc_types::transaction::{
-    BroadcastedDeclareTx, BroadcastedDeployAccountTx, BroadcastedInvokeTx, BroadcastedTx,
-    DeclareTxResult, DeployAccountTxResult, InvokeTxResult, Tx,
-};
+use katana_rpc_types::transaction::{DeclareTxResult, DeployAccountTxResult, InvokeTxResult, Tx};
 use katana_rpc_types::trie::{ContractStorageKeys, GetStorageProofResponse};
 use katana_rpc_types::{
     FeeEstimate, FeltAsHex, FunctionCall, SimulationFlag, SimulationFlagForEstimateFee,

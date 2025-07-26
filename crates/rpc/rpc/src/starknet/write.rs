@@ -4,10 +4,10 @@ use katana_pool::TransactionPool;
 use katana_primitives::transaction::{ExecutableTx, ExecutableTxWithHash};
 use katana_rpc_api::error::starknet::StarknetApiError;
 use katana_rpc_api::starknet::StarknetWriteApiServer;
-use katana_rpc_types::transaction::{
-    BroadcastedDeclareTx, BroadcastedDeployAccountTx, BroadcastedInvokeTx, DeclareTxResult,
-    DeployAccountTxResult, InvokeTxResult,
+use katana_rpc_types::new_transaction::{
+    BroadcastedDeclareTx, BroadcastedDeployAccountTx, BroadcastedInvokeTx,
 };
+use katana_rpc_types::transaction::{DeclareTxResult, DeployAccountTxResult, InvokeTxResult};
 
 use super::StarknetApi;
 
@@ -21,7 +21,7 @@ impl<EF: ExecutorFactory> StarknetApi<EF> {
                 return Err(StarknetApiError::UnsupportedTransactionVersion);
             }
 
-            let tx = tx.into_tx_with_chain_id(this.inner.backend.chain_spec.id());
+            let tx = tx.into_inner(this.inner.backend.chain_spec.id());
             let tx = ExecutableTxWithHash::new(ExecutableTx::Invoke(tx));
             let hash = this.inner.pool.add_transaction(tx)?;
 
@@ -39,9 +39,7 @@ impl<EF: ExecutorFactory> StarknetApi<EF> {
                 return Err(StarknetApiError::UnsupportedTransactionVersion);
             }
 
-            let tx = tx
-                .try_into_tx_with_chain_id(this.inner.backend.chain_spec.id())
-                .map_err(|_| StarknetApiError::InvalidContractClass)?;
+            let tx = tx.into_inner(this.inner.backend.chain_spec.id());
 
             let class_hash = tx.class_hash();
             let tx = ExecutableTxWithHash::new(ExecutableTx::Declare(tx));
@@ -61,7 +59,7 @@ impl<EF: ExecutorFactory> StarknetApi<EF> {
                 return Err(StarknetApiError::UnsupportedTransactionVersion);
             }
 
-            let tx = tx.into_tx_with_chain_id(this.inner.backend.chain_spec.id());
+            let tx = tx.into_inner(this.inner.backend.chain_spec.id());
             let contract_address = tx.contract_address();
 
             let tx = ExecutableTxWithHash::new(ExecutableTx::DeployAccount(tx));
