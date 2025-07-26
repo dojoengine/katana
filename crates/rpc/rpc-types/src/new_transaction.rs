@@ -27,7 +27,6 @@ pub enum BroadcastedTx {
 
 #[derive(Debug, Clone)]
 pub struct BroadcastedInvokeTx {
-    pub version: Felt,
     pub sender_address: ContractAddress,
     pub calldata: Vec<Felt>,
     pub signature: Vec<Felt>,
@@ -38,11 +37,12 @@ pub struct BroadcastedInvokeTx {
     pub resource_bounds: ResourceBoundsMapping,
     pub fee_data_availability_mode: DataAvailabilityMode,
     pub nonce_data_availability_mode: DataAvailabilityMode,
+    is_query: bool,
 }
 
 impl BroadcastedInvokeTx {
     pub fn is_query(&self) -> bool {
-        todo!()
+        self.is_query
     }
 
     pub fn into_inner(self, chain_id: ChainId) -> InvokeTx {
@@ -69,9 +69,11 @@ impl serde::Serialize for BroadcastedInvokeTx {
     {
         use serde::ser::SerializeStruct;
 
+        let version = if self.is_query { Felt::THREE + QUERY_VERSION_OFFSET } else { Felt::THREE };
+
         let mut state = serializer.serialize_struct("BroadcastedInvokeTx", 11)?;
         state.serialize_field("type", "INVOKE")?;
-        state.serialize_field("version", &self.version)?;
+        state.serialize_field("version", &version)?;
         state.serialize_field("sender_address", &self.sender_address)?;
         state.serialize_field("calldata", &self.calldata)?;
         state.serialize_field("signature", &self.signature)?;
@@ -89,13 +91,6 @@ impl serde::Serialize for BroadcastedInvokeTx {
 
 impl<'de> Deserialize<'de> for BroadcastedInvokeTx {
     fn deserialize<D: Deserializer<'de>>(deserializer: D) -> Result<Self, D::Error> {
-        // "version": {
-        //             "title": "Version",
-        //             "description": "Version of the transaction scheme",
-        //             "type": "string",
-        //             "enum": ["0x3", "0x100000000000000000000000000000003"]
-        //           },
-
         #[derive(Deserialize)]
         struct Tagged {
             r#type: Option<String>,
@@ -120,26 +115,26 @@ impl<'de> Deserialize<'de> for BroadcastedInvokeTx {
             }
         }
 
-        // let is_query = if tagged.version == Felt::THREE {
-        //     false
-        // } else if tagged.version == Felt::THREE + QUERY_VERSION_OFFSET {
-        //     true
-        // } else {
-        //     return Err(serde::de::Error::custom("invalid `version` value"));
-        // };
+        let is_query = if tagged.version == Felt::THREE {
+            false
+        } else if tagged.version == Felt::THREE + QUERY_VERSION_OFFSET {
+            true
+        } else {
+            return Err(serde::de::Error::custom("invalid `version` value"));
+        };
 
         Ok(Self {
-            version: tagged.version,
-            sender_address: tagged.sender_address,
+            is_query,
+            tip: tagged.tip,
+            nonce: tagged.nonce,
             calldata: tagged.calldata,
             signature: tagged.signature,
-            nonce: tagged.nonce,
-            resource_bounds: tagged.resource_bounds,
-            tip: tagged.tip,
+            sender_address: tagged.sender_address,
             paymaster_data: tagged.paymaster_data,
+            resource_bounds: tagged.resource_bounds,
             account_deployment_data: tagged.account_deployment_data,
-            nonce_data_availability_mode: tagged.nonce_data_availability_mode,
             fee_data_availability_mode: tagged.fee_data_availability_mode,
+            nonce_data_availability_mode: tagged.nonce_data_availability_mode,
         })
     }
 }
