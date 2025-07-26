@@ -11,7 +11,7 @@ use katana_primitives::utils::transaction::compute_invoke_v3_tx_hash;
 use katana_primitives::Felt;
 use katana_rpc_types::new_transaction::BroadcastedInvokeTx;
 use starknet::accounts::{Account, ExecutionEncoder, ExecutionEncoding, SingleOwnerAccount};
-use starknet::core::types::{BlockId, BlockTag, BroadcastedInvokeTransactionV3, Call};
+use starknet::core::types::{BlockId, BlockTag, Call};
 use starknet::macros::{felt, selector};
 use starknet::providers::jsonrpc::HttpTransport;
 use starknet::providers::{JsonRpcClient, Url};
@@ -102,7 +102,7 @@ pub fn invoke_executable_tx(
     });
 
     let mut broadcasted_tx = BroadcastedInvokeTx {
-        version: Felt::THREE,
+        is_query: false,
         sender_address: account.address().into(),
         calldata,
         signature,

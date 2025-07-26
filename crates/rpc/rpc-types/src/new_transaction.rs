@@ -37,7 +37,7 @@ pub struct BroadcastedInvokeTx {
     pub resource_bounds: ResourceBoundsMapping,
     pub fee_data_availability_mode: DataAvailabilityMode,
     pub nonce_data_availability_mode: DataAvailabilityMode,
-    is_query: bool,
+    pub is_query: bool,
 }
 
 impl BroadcastedInvokeTx {
@@ -139,9 +139,8 @@ impl<'de> Deserialize<'de> for BroadcastedInvokeTx {
     }
 }
 
-#[derive(Debug, Clone, Serialize, Deserialize)]
+#[derive(Debug, Clone)]
 pub struct BroadcastedDeclareTx {
-    pub version: Felt,
     pub sender_address: ContractAddress,
     pub compiled_class_hash: CompiledClassHash,
     pub signature: Vec<Felt>,
@@ -153,11 +152,12 @@ pub struct BroadcastedDeclareTx {
     pub account_deployment_data: Vec<Felt>,
     pub nonce_data_availability_mode: DataAvailabilityMode,
     pub fee_data_availability_mode: DataAvailabilityMode,
+    pub is_query: bool,
 }
 
 impl BroadcastedDeclareTx {
     pub fn is_query(&self) -> bool {
-        todo!()
+        self.is_query
     }
 
     pub fn into_inner(self, chain_id: ChainId) -> DeclareTxWithClass {
@@ -185,9 +185,85 @@ impl BroadcastedDeclareTx {
     }
 }
 
-#[derive(Debug, Clone, Serialize, Deserialize)]
+impl serde::Serialize for BroadcastedDeclareTx {
+    fn serialize<S: serde::Serializer>(&self, serializer: S) -> Result<S::Ok, S::Error> {
+        use serde::ser::SerializeStruct;
+
+        let version = if self.is_query { Felt::THREE + QUERY_VERSION_OFFSET } else { Felt::THREE };
+
+        let mut state = serializer.serialize_struct("BroadcastedDeclareTx", 12)?;
+        state.serialize_field("type", "DECLARE")?;
+        state.serialize_field("version", &version)?;
+        state.serialize_field("sender_address", &self.sender_address)?;
+        state.serialize_field("compiled_class_hash", &self.compiled_class_hash)?;
+        state.serialize_field("signature", &self.signature)?;
+        state.serialize_field("nonce", &self.nonce)?;
+        state.serialize_field("contract_class", &self.contract_class)?;
+        state.serialize_field("resource_bounds", &self.resource_bounds)?;
+        state.serialize_field("tip", &self.tip)?;
+        state.serialize_field("paymaster_data", &self.paymaster_data)?;
+        state.serialize_field("account_deployment_data", &self.account_deployment_data)?;
+        state
+            .serialize_field("nonce_data_availability_mode", &self.nonce_data_availability_mode)?;
+        state.serialize_field("fee_data_availability_mode", &self.fee_data_availability_mode)?;
+        state.end()
+    }
+}
+
+impl<'de> Deserialize<'de> for BroadcastedDeclareTx {
+    fn deserialize<D: Deserializer<'de>>(deserializer: D) -> Result<Self, D::Error> {
+        #[derive(Deserialize)]
+        struct Tagged {
+            r#type: Option<String>,
+            version: Felt,
+            sender_address: ContractAddress,
+            compiled_class_hash: CompiledClassHash,
+            signature: Vec<Felt>,
+            nonce: Nonce,
+            contract_class: Arc<RpcSierraContractClass>,
+            resource_bounds: ResourceBoundsMapping,
+            tip: u64,
+            paymaster_data: Vec<Felt>,
+            account_deployment_data: Vec<Felt>,
+            nonce_data_availability_mode: DataAvailabilityMode,
+            fee_data_availability_mode: DataAvailabilityMode,
+        }
+
+        let tagged = Tagged::deserialize(deserializer)?;
+
+        if let Some(tag_field) = &tagged.r#type {
+            if tag_field != "DECLARE" {
+                return Err(serde::de::Error::custom("invalid `type` value"));
+            }
+        }
+
+        let is_query = if tagged.version == Felt::THREE {
+            false
+        } else if tagged.version == Felt::THREE + QUERY_VERSION_OFFSET {
+            true
+        } else {
+            return Err(serde::de::Error::custom("invalid `version` value"));
+        };
+
+        Ok(Self {
+            is_query,
+            tip: tagged.tip,
+            nonce: tagged.nonce,
+            signature: tagged.signature,
+            sender_address: tagged.sender_address,
+            contract_class: tagged.contract_class,
+            paymaster_data: tagged.paymaster_data,
+            resource_bounds: tagged.resource_bounds,
+            compiled_class_hash: tagged.compiled_class_hash,
+            account_deployment_data: tagged.account_deployment_data,
+            fee_data_availability_mode: tagged.fee_data_availability_mode,
+            nonce_data_availability_mode: tagged.nonce_data_availability_mode,
+        })
+    }
+}
+
+#[derive(Debug, Clone)]
 pub struct BroadcastedDeployAccountTx {
-    pub version: Felt,
     pub signature: Vec<Felt>,
     pub nonce: Nonce,
     pub contract_address_salt: Felt,
@@ -198,11 +274,12 @@ pub struct BroadcastedDeployAccountTx {
     pub paymaster_data: Vec<Felt>,
     pub nonce_data_availability_mode: DataAvailabilityMode,
     pub fee_data_availability_mode: DataAvailabilityMode,
+    pub is_query: bool,
 }
 
 impl BroadcastedDeployAccountTx {
     pub fn is_query(&self) -> bool {
-        todo!()
+        self.is_query
     }
 
     pub fn into_inner(self, chain_id: ChainId) -> DeployAccountTx {
@@ -226,6 +303,83 @@ impl BroadcastedDeployAccountTx {
             contract_address_salt: self.contract_address_salt,
             fee_data_availability_mode: self.fee_data_availability_mode,
             nonce_data_availability_mode: self.nonce_data_availability_mode,
+        })
+    }
+}
+
+impl serde::Serialize for BroadcastedDeployAccountTx {
+    fn serialize<S>(&self, serializer: S) -> Result<S::Ok, S::Error>
+    where
+        S: serde::Serializer,
+    {
+        use serde::ser::SerializeStruct;
+
+        let version = if self.is_query { Felt::THREE + QUERY_VERSION_OFFSET } else { Felt::THREE };
+
+        let mut state = serializer.serialize_struct("BroadcastedDeployAccountTx", 11)?;
+        state.serialize_field("type", "DEPLOY_ACCOUNT")?;
+        state.serialize_field("version", &version)?;
+        state.serialize_field("signature", &self.signature)?;
+        state.serialize_field("nonce", &self.nonce)?;
+        state.serialize_field("contract_address_salt", &self.contract_address_salt)?;
+        state.serialize_field("constructor_calldata", &self.constructor_calldata)?;
+        state.serialize_field("class_hash", &self.class_hash)?;
+        state.serialize_field("resource_bounds", &self.resource_bounds)?;
+        state.serialize_field("tip", &self.tip)?;
+        state.serialize_field("paymaster_data", &self.paymaster_data)?;
+        state
+            .serialize_field("nonce_data_availability_mode", &self.nonce_data_availability_mode)?;
+        state.serialize_field("fee_data_availability_mode", &self.fee_data_availability_mode)?;
+        state.end()
+    }
+}
+
+impl<'de> Deserialize<'de> for BroadcastedDeployAccountTx {
+    fn deserialize<D: Deserializer<'de>>(deserializer: D) -> Result<Self, D::Error> {
+        #[derive(Deserialize)]
+        struct Tagged {
+            r#type: Option<String>,
+            version: Felt,
+            signature: Vec<Felt>,
+            nonce: Nonce,
+            contract_address_salt: Felt,
+            constructor_calldata: Vec<Felt>,
+            class_hash: ClassHash,
+            resource_bounds: ResourceBoundsMapping,
+            tip: u64,
+            paymaster_data: Vec<Felt>,
+            nonce_data_availability_mode: DataAvailabilityMode,
+            fee_data_availability_mode: DataAvailabilityMode,
+        }
+
+        let tagged = Tagged::deserialize(deserializer)?;
+
+        if let Some(tag_field) = &tagged.r#type {
+            if tag_field != "DEPLOY_ACCOUNT" {
+                return Err(serde::de::Error::custom("invalid `type` value"));
+            }
+        }
+
+        let is_query = if tagged.version == Felt::THREE {
+            false
+        } else if tagged.version == Felt::THREE + QUERY_VERSION_OFFSET {
+            true
+        } else {
+            return Err(serde::de::Error::custom("invalid `version` value"));
+        };
+
+        Ok(Self {
+            is_query,
+            tip: tagged.tip,
+            nonce: tagged.nonce,
+            signature: tagged.signature,
+            class_hash: tagged.class_hash,
+            paymaster_data: tagged.paymaster_data,
+            resource_bounds: tagged.resource_bounds,
+            constructor_calldata: tagged.constructor_calldata,
+            contract_address_salt: tagged.contract_address_salt,
+            fee_data_availability_mode: tagged.fee_data_availability_mode,
+            nonce_data_availability_mode: tagged.nonce_data_availability_mode,
         })
     }
 }
