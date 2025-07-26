@@ -1,150 +1,20 @@
-use std::sync::Arc;
-
-use anyhow::Result;
-use derive_more::Deref;
-use katana_primitives::chain::ChainId;
-use katana_primitives::class::{ClassHash, ContractClass};
-use katana_primitives::contract::ContractAddress;
 use katana_primitives::da::DataAvailabilityMode;
-use katana_primitives::fee::{AllResourceBoundsMapping, ResourceBounds, ResourceBoundsMapping};
-use katana_primitives::transaction::{
-    DeclareTx, DeclareTxV3, DeclareTxWithClass, DeployAccountTx, DeployAccountTxV3, InvokeTx,
-    InvokeTxV3, TxHash, TxWithHash,
-};
-use katana_primitives::Felt;
+use katana_primitives::fee::ResourceBoundsMapping;
+use katana_primitives::transaction::{DeclareTx, DeployAccountTx, InvokeTx, TxWithHash};
 use num_traits::ToPrimitive;
 use serde::{Deserialize, Serialize};
 use starknet::core::types::{
-    BroadcastedDeclareTransaction, BroadcastedDeployAccountTransaction,
-    BroadcastedDeployAccountTransactionV3, BroadcastedInvokeTransaction, DeclareTransactionContent,
-    DeclareTransactionResult, DeclareTransactionV0Content, DeclareTransactionV1Content,
+    DeclareTransactionContent, DeclareTransactionV0Content, DeclareTransactionV1Content,
     DeclareTransactionV2Content, DeclareTransactionV3Content, DeployAccountTransactionContent,
-    DeployAccountTransactionResult, DeployAccountTransactionV1, DeployAccountTransactionV1Content,
-    DeployAccountTransactionV3, DeployAccountTransactionV3Content, DeployTransactionContent,
-    InvokeTransactionContent, InvokeTransactionResult, InvokeTransactionV0Content,
-    InvokeTransactionV1Content, InvokeTransactionV3Content, L1HandlerTransactionContent,
-    TransactionContent,
+    DeployAccountTransactionV1, DeployAccountTransactionV1Content, DeployAccountTransactionV3,
+    DeployAccountTransactionV3Content, DeployTransactionContent, InvokeTransactionContent,
+    InvokeTransactionV0Content, InvokeTransactionV1Content, InvokeTransactionV3Content,
+    L1HandlerTransactionContent, TransactionContent,
 };
-use starknet::core::utils::get_contract_address;
 
-use crate::class::{RpcContractClass, RpcSierraContractClass};
 use crate::receipt::TxReceiptWithBlockInfo;
-use crate::utils::compiled_class_hash_from_flattened_sierra_class;
 
 pub const CHUNK_SIZE_DEFAULT: u64 = 100;
-
-#[derive(Debug, Clone, Serialize, Deserialize, Deref)]
-#[serde(transparent)]
-pub struct BroadcastedInvokeTx(pub BroadcastedInvokeTransaction);
-
-impl BroadcastedInvokeTx {
-    pub fn is_query(&self) -> bool {
-        self.0.is_query
-    }
-
-    pub fn into_tx_with_chain_id(self, chain_id: ChainId) -> InvokeTx {
-        InvokeTx::V3(InvokeTxV3 {
-            chain_id,
-            nonce: self.0.nonce,
-            calldata: self.0.calldata,
-            signature: self.0.signature,
-            sender_address: self.0.sender_address.into(),
-            account_deployment_data: self.0.account_deployment_data,
-            fee_data_availability_mode: from_rpc_da_mode(self.0.fee_data_availability_mode),
-            nonce_data_availability_mode: from_rpc_da_mode(self.0.nonce_data_availability_mode),
-            paymaster_data: self.0.paymaster_data,
-            resource_bounds: from_rpc_resource_bounds(self.0.resource_bounds),
-            tip: self.0.tip,
-        })
-    }
-}
-
-#[derive(Debug, Clone, Serialize, Deserialize, Deref)]
-#[serde(transparent)]
-pub struct BroadcastedDeclareTx(pub BroadcastedDeclareTransaction);
-
-impl BroadcastedDeclareTx {
-    /// Validates that the provided compiled class hash is computed correctly from the class
-    /// provided in the transaction.
-    pub fn validate_compiled_class_hash(&self) -> Result<bool> {
-        let hash = compiled_class_hash_from_flattened_sierra_class(&self.0.contract_class)?;
-        Ok(hash == self.0.compiled_class_hash)
-    }
-
-    // TODO: change the contract class type for the broadcasted tx to katana-rpc-types instead for
-    // easier conversion.
-    /// This function assumes that the compiled class hash is valid.
-    pub fn try_into_tx_with_chain_id(self, chain_id: ChainId) -> Result<DeclareTxWithClass> {
-        let class_hash = self.0.contract_class.class_hash();
-
-        let rpc_class = Arc::unwrap_or_clone(self.0.contract_class);
-        let rpc_class = RpcSierraContractClass::try_from(rpc_class).unwrap();
-        let class = ContractClass::try_from(RpcContractClass::Class(rpc_class)).unwrap();
-
-        let tx = DeclareTx::V3(DeclareTxV3 {
-            chain_id,
-            class_hash,
-            tip: self.0.tip,
-            nonce: self.0.nonce,
-            signature: self.0.signature,
-            paymaster_data: self.0.paymaster_data,
-            sender_address: self.0.sender_address.into(),
-            compiled_class_hash: self.0.compiled_class_hash,
-            account_deployment_data: self.0.account_deployment_data,
-            resource_bounds: from_rpc_resource_bounds(self.0.resource_bounds),
-            fee_data_availability_mode: from_rpc_da_mode(self.0.fee_data_availability_mode),
-            nonce_data_availability_mode: from_rpc_da_mode(self.0.nonce_data_availability_mode),
-        });
-
-        Ok(DeclareTxWithClass::new(tx, class))
-    }
-
-    pub fn is_query(&self) -> bool {
-        self.0.is_query
-    }
-}
-
-#[derive(Debug, Clone, Serialize, Deserialize, Deref)]
-#[serde(transparent)]
-pub struct BroadcastedDeployAccountTx(pub BroadcastedDeployAccountTransaction);
-
-impl BroadcastedDeployAccountTx {
-    pub fn is_query(&self) -> bool {
-        self.0.is_query
-    }
-
-    pub fn into_tx_with_chain_id(self, chain_id: ChainId) -> DeployAccountTx {
-        let contract_address = get_contract_address(
-            self.0.contract_address_salt,
-            self.0.class_hash,
-            &self.0.constructor_calldata,
-            Felt::ZERO,
-        );
-
-        DeployAccountTx::V3(DeployAccountTxV3 {
-            chain_id,
-            nonce: self.0.nonce,
-            signature: self.0.signature,
-            class_hash: self.0.class_hash,
-            contract_address: contract_address.into(),
-            constructor_calldata: self.0.constructor_calldata,
-            contract_address_salt: self.0.contract_address_salt,
-            fee_data_availability_mode: from_rpc_da_mode(self.0.fee_data_availability_mode),
-            nonce_data_availability_mode: from_rpc_da_mode(self.0.nonce_data_availability_mode),
-            paymaster_data: self.0.paymaster_data,
-            resource_bounds: from_rpc_resource_bounds(self.0.resource_bounds),
-            tip: self.0.tip,
-        })
-    }
-}
-
-#[derive(Debug, Clone, Serialize, Deserialize)]
-#[serde(untagged)]
-pub enum BroadcastedTx {
-    Invoke(BroadcastedInvokeTx),
-    Declare(BroadcastedDeclareTx),
-    DeployAccount(BroadcastedDeployAccountTx),
-}
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
 #[serde(transparent)]
@@ -153,18 +23,6 @@ pub struct Tx(pub starknet::core::types::Transaction);
 #[derive(Debug, Clone, Serialize, Deserialize)]
 #[serde(transparent)]
 pub struct TxContent(pub starknet::core::types::TransactionContent);
-
-#[derive(Debug, Clone, Serialize, Deserialize)]
-#[serde(transparent)]
-pub struct DeployAccountTxResult(DeployAccountTransactionResult);
-
-#[derive(Debug, Clone, Serialize, Deserialize)]
-#[serde(transparent)]
-pub struct DeclareTxResult(DeclareTransactionResult);
-
-#[derive(Debug, Clone, Serialize, Deserialize)]
-#[serde(transparent)]
-pub struct InvokeTxResult(InvokeTransactionResult);
 
 impl From<TxWithHash> for Tx {
     fn from(value: TxWithHash) -> Self {
@@ -480,103 +338,6 @@ impl From<starknet::core::types::Transaction> for Tx {
     }
 }
 
-impl DeployAccountTxResult {
-    pub fn new(transaction_hash: TxHash, contract_address: ContractAddress) -> Self {
-        Self(DeployAccountTransactionResult {
-            transaction_hash,
-            contract_address: contract_address.into(),
-        })
-    }
-}
-
-impl DeclareTxResult {
-    pub fn new(transaction_hash: TxHash, class_hash: ClassHash) -> Self {
-        Self(DeclareTransactionResult { transaction_hash, class_hash })
-    }
-}
-
-impl InvokeTxResult {
-    pub fn new(transaction_hash: TxHash) -> Self {
-        Self(InvokeTransactionResult { transaction_hash })
-    }
-}
-
-impl From<(TxHash, ContractAddress)> for DeployAccountTxResult {
-    fn from((transaction_hash, contract_address): (TxHash, ContractAddress)) -> Self {
-        Self::new(transaction_hash, contract_address)
-    }
-}
-
-impl From<(TxHash, ClassHash)> for DeclareTxResult {
-    fn from((transaction_hash, class_hash): (TxHash, ClassHash)) -> Self {
-        Self::new(transaction_hash, class_hash)
-    }
-}
-
-impl From<TxHash> for InvokeTxResult {
-    fn from(transaction_hash: TxHash) -> Self {
-        Self::new(transaction_hash)
-    }
-}
-
-impl From<BroadcastedInvokeTx> for InvokeTx {
-    fn from(tx: BroadcastedInvokeTx) -> Self {
-        InvokeTx::V3(InvokeTxV3 {
-            nonce: tx.0.nonce,
-            calldata: tx.0.calldata,
-            signature: tx.0.signature,
-            chain_id: ChainId::default(),
-            sender_address: tx.0.sender_address.into(),
-            account_deployment_data: tx.0.account_deployment_data,
-            fee_data_availability_mode: from_rpc_da_mode(tx.0.fee_data_availability_mode),
-            nonce_data_availability_mode: from_rpc_da_mode(tx.0.nonce_data_availability_mode),
-            paymaster_data: tx.0.paymaster_data,
-            resource_bounds: from_rpc_resource_bounds(tx.0.resource_bounds),
-            tip: tx.0.tip,
-        })
-    }
-}
-
-impl From<BroadcastedDeployAccountTx> for DeployAccountTx {
-    fn from(tx: BroadcastedDeployAccountTx) -> Self {
-        let BroadcastedDeployAccountTransactionV3 {
-            tip,
-            nonce,
-            signature,
-            class_hash,
-            paymaster_data,
-            resource_bounds,
-            constructor_calldata,
-            contract_address_salt,
-            fee_data_availability_mode,
-            nonce_data_availability_mode,
-            ..
-        } = tx.0;
-
-        let contract_address = get_contract_address(
-            contract_address_salt,
-            class_hash,
-            &constructor_calldata,
-            Felt::ZERO,
-        );
-
-        DeployAccountTx::V3(DeployAccountTxV3 {
-            nonce,
-            class_hash,
-            chain_id: ChainId::default(),
-            contract_address: contract_address.into(),
-            contract_address_salt,
-            fee_data_availability_mode: from_rpc_da_mode(fee_data_availability_mode),
-            nonce_data_availability_mode: from_rpc_da_mode(nonce_data_availability_mode),
-            resource_bounds: from_rpc_resource_bounds(resource_bounds),
-            constructor_calldata,
-            paymaster_data,
-            signature,
-            tip,
-        })
-    }
-}
-
 #[derive(Debug, Clone, Serialize, Deserialize, Copy)]
 pub struct TransactionsPageCursor {
     pub block_number: u64,
@@ -601,37 +362,11 @@ pub struct TransactionsPage {
 // not rely on `starknet-rs` rpc types anymore and should instead define the types ourselves to have
 // more flexibility.
 
-fn from_rpc_da_mode(mode: starknet::core::types::DataAvailabilityMode) -> DataAvailabilityMode {
-    match mode {
-        starknet::core::types::DataAvailabilityMode::L1 => DataAvailabilityMode::L1,
-        starknet::core::types::DataAvailabilityMode::L2 => DataAvailabilityMode::L2,
-    }
-}
-
 fn to_rpc_da_mode(mode: DataAvailabilityMode) -> starknet::core::types::DataAvailabilityMode {
     match mode {
         DataAvailabilityMode::L1 => starknet::core::types::DataAvailabilityMode::L1,
         DataAvailabilityMode::L2 => starknet::core::types::DataAvailabilityMode::L2,
     }
-}
-
-fn from_rpc_resource_bounds(
-    rpc_bounds: starknet::core::types::ResourceBoundsMapping,
-) -> ResourceBoundsMapping {
-    ResourceBoundsMapping::All(AllResourceBoundsMapping {
-        l1_gas: ResourceBounds {
-            max_amount: rpc_bounds.l1_gas.max_amount,
-            max_price_per_unit: rpc_bounds.l1_gas.max_price_per_unit,
-        },
-        l2_gas: ResourceBounds {
-            max_amount: rpc_bounds.l2_gas.max_amount,
-            max_price_per_unit: rpc_bounds.l2_gas.max_price_per_unit,
-        },
-        l1_data_gas: ResourceBounds {
-            max_amount: rpc_bounds.l1_data_gas.max_amount,
-            max_price_per_unit: rpc_bounds.l1_data_gas.max_price_per_unit,
-        },
-    })
 }
 
 fn to_rpc_resource_bounds(
