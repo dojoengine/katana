@@ -164,7 +164,8 @@ impl UntypedBroadcastedTx {
     }
 }
 
-#[derive(Debug, Clone)]
+#[derive(Debug, Clone, Deserialize)]
+#[serde(untagged)]
 pub enum BroadcastedTx {
     Invoke(BroadcastedInvokeTx),
     Declare(BroadcastedDeclareTx),
@@ -172,42 +173,11 @@ pub enum BroadcastedTx {
 }
 
 impl Serialize for BroadcastedTx {
-    fn serialize<S>(&self, serializer: S) -> Result<S::Ok, S::Error>
-    where
-        S: serde::Serializer,
-    {
+    fn serialize<S: serde::Serializer>(&self, serializer: S) -> Result<S::Ok, S::Error> {
         match self {
             BroadcastedTx::Invoke(tx) => tx.serialize(serializer),
             BroadcastedTx::Declare(tx) => tx.serialize(serializer),
             BroadcastedTx::DeployAccount(tx) => tx.serialize(serializer),
-        }
-    }
-}
-
-impl<'de> Deserialize<'de> for BroadcastedTx {
-    fn deserialize<D>(deserializer: D) -> Result<Self, D::Error>
-    where
-        D: Deserializer<'de>,
-    {
-        let untyped = UntypedBroadcastedTx::deserialize(deserializer)?;
-
-        match untyped.r#type {
-            TxType::Invoke => {
-                let tx = untyped.try_into_invoke_tx().map_err(serde::de::Error::custom)?;
-                Ok(BroadcastedTx::Invoke(tx))
-            }
-            TxType::Declare => {
-                let tx = untyped.try_into_declare_tx().map_err(serde::de::Error::custom)?;
-                Ok(BroadcastedTx::Declare(tx))
-            }
-            TxType::DeployAccount => {
-                let tx = untyped.try_into_deploy_account_tx().map_err(serde::de::Error::custom)?;
-                Ok(BroadcastedTx::DeployAccount(tx))
-            }
-            _ => Err(serde::de::Error::custom(format!(
-                "Unknown transaction type: {}",
-                untyped.r#type
-            ))),
         }
     }
 }
@@ -280,7 +250,7 @@ impl<'de> Deserialize<'de> for BroadcastedInvokeTx {
     fn deserialize<D: Deserializer<'de>>(deserializer: D) -> Result<Self, D::Error> {
         let untyped = UntypedBroadcastedTx::deserialize(deserializer)?;
 
-        let is_query = if untyped.version == Felt::THREE {
+        let is_query = if dbg!(untyped.version) == Felt::THREE {
             false
         } else if untyped.version == Felt::THREE + QUERY_VERSION_OFFSET {
             true
@@ -288,7 +258,7 @@ impl<'de> Deserialize<'de> for BroadcastedInvokeTx {
             return Err(serde::de::Error::custom("invalid `version` value"));
         };
 
-        Ok(Self { is_query, ..untyped.try_into_invoke_tx().unwrap() })
+        Ok(dbg!(Self { is_query, ..untyped.try_into_invoke_tx().unwrap() }))
     }
 }
 
@@ -521,30 +491,15 @@ fn deserialize_resource_bounds_mapping<'de, D: Deserializer<'de>>(
 
     match rpc_mapping {
         RpcResourceBoundsMapping::Legacy { l1_gas, .. } => Ok(ResourceBoundsMapping::L1Gas(l1_gas)),
-
         RpcResourceBoundsMapping::Current { l1_gas, l2_gas, l1_data_gas } => {
             Ok(ResourceBoundsMapping::All(AllResourceBoundsMapping { l1_gas, l2_gas, l1_data_gas }))
         }
     }
 }
 
-#[derive(Serialize, Deserialize)]
+#[derive(Debug, Serialize, Deserialize)]
 #[serde(untagged)]
 enum RpcResourceBoundsMapping {
-    Legacy {
-        #[serde(
-            serialize_with = "serialize_resource_bounds",
-            deserialize_with = "deserialize_resource_bounds"
-        )]
-        l1_gas: ResourceBounds,
-
-        #[serde(
-            serialize_with = "serialize_resource_bounds",
-            deserialize_with = "deserialize_resource_bounds"
-        )]
-        l2_gas: ResourceBounds,
-    },
-
     Current {
         #[serde(
             serialize_with = "serialize_resource_bounds",
@@ -563,6 +518,20 @@ enum RpcResourceBoundsMapping {
             deserialize_with = "deserialize_resource_bounds"
         )]
         l1_data_gas: ResourceBounds,
+    },
+
+    Legacy {
+        #[serde(
+            serialize_with = "serialize_resource_bounds",
+            deserialize_with = "deserialize_resource_bounds"
+        )]
+        l1_gas: ResourceBounds,
+
+        #[serde(
+            serialize_with = "serialize_resource_bounds",
+            deserialize_with = "deserialize_resource_bounds"
+        )]
+        l2_gas: ResourceBounds,
     },
 }
 
@@ -594,4 +563,66 @@ fn deserialize_resource_bounds<'de, D: Deserializer<'de>>(
         max_amount: helper.max_amount,
         max_price_per_unit: helper.max_price_per_unit,
     })
+}
+
+#[cfg(test)]
+mod tests {
+    use assert_matches::assert_matches;
+    use serde_json::json;
+
+    use crate::new_transaction::RpcResourceBoundsMapping;
+
+    #[test]
+    fn legacy_rpc_resource_bounds_serde() {
+        let json = json!({
+            "l1_gas": {
+                "max_amount": "0x1",
+                "max_price_per_unit": "0x1"
+            },
+            "l2_gas": {
+                "max_amount": "0x0",
+                "max_price_per_unit": "0x0"
+            }
+        });
+
+        let resource_bounds: RpcResourceBoundsMapping = serde_json::from_value(json).unwrap();
+
+        assert_matches!(resource_bounds, RpcResourceBoundsMapping::Legacy { l1_gas, l2_gas } => {
+            assert_eq!(l1_gas.max_amount, 1);
+            assert_eq!(l1_gas.max_price_per_unit, 1);
+            assert_eq!(l2_gas.max_amount, 0);
+            assert_eq!(l2_gas.max_price_per_unit, 0);
+        });
+    }
+
+    #[test]
+    fn rpc_resource_bounds_serde() {
+        let json = json!({
+            "l2_gas": {
+                "max_amount": "0xa",
+                "max_price_per_unit": "0xb"
+            },
+            "l1_gas": {
+                "max_amount": "0x1",
+                "max_price_per_unit": "0x2"
+            },
+            "l1_data_gas": {
+                "max_amount": "0xabc",
+                "max_price_per_unit": "0x1337"
+            }
+        });
+
+        let resource_bounds: RpcResourceBoundsMapping = serde_json::from_value(json).unwrap();
+
+        assert_matches!(resource_bounds, RpcResourceBoundsMapping::Current {  l2_gas, l1_gas, l1_data_gas } => {
+            assert_eq!(l2_gas.max_amount, 0xa);
+            assert_eq!(l2_gas.max_price_per_unit, 0xb);
+
+            assert_eq!(l1_gas.max_amount, 0x1);
+            assert_eq!(l1_gas.max_price_per_unit, 0x2);
+
+            assert_eq!(l1_data_gas.max_amount, 0xabc);
+            assert_eq!(l1_data_gas.max_price_per_unit, 0x1337);
+        });
+    }
 }

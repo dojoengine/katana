@@ -6825,6 +6825,7 @@ version = "1.6.3"
 dependencies = [
  "alloy-primitives",
  "anyhow",
+ "assert_matches",
  "cainome 0.8.0",
  "cainome-cairo-serde 0.2.1",
  "cairo-lang-starknet-classes",
