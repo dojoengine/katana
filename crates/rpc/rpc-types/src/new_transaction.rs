@@ -4,7 +4,8 @@ use katana_primitives::chain::ChainId;
 use katana_primitives::class::{ClassHash, CompiledClassHash, ContractClass, SierraContractClass};
 use katana_primitives::contract::Nonce;
 use katana_primitives::da::DataAvailabilityMode;
-use katana_primitives::fee::ResourceBoundsMapping;
+use katana_primitives::fee::NumAsHex;
+use katana_primitives::fee::{AllResourceBoundsMapping, ResourceBounds};
 use katana_primitives::transaction::{
     DeclareTx, DeclareTxV3, DeclareTxWithClass, DeployAccountTx, DeployAccountTxV3, InvokeTx,
     InvokeTxV3, TxHash,
@@ -19,9 +20,13 @@ const QUERY_VERSION_OFFSET: Felt =
     Felt::from_raw([576460752142434320, 18446744073709551584, 17407, 18446744073700081665]);
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(tag = "type")]
 pub enum BroadcastedTx {
+    #[serde(rename = "INVOKE")]
     Invoke(BroadcastedInvokeTx),
+    #[serde(rename = "DECLARE")]
     Declare(BroadcastedDeclareTx),
+    #[serde(rename = "DEPLOY_ACCOUNT")]
     DeployAccount(BroadcastedDeployAccountTx),
 }
 
@@ -34,7 +39,7 @@ pub struct BroadcastedInvokeTx {
     pub paymaster_data: Vec<Felt>,
     pub tip: u64,
     pub account_deployment_data: Vec<Felt>,
-    pub resource_bounds: ResourceBoundsMapping,
+    pub resource_bounds: RpcResourceBoundsMapping,
     pub fee_data_availability_mode: DataAvailabilityMode,
     pub nonce_data_availability_mode: DataAvailabilityMode,
     pub is_query: bool,
@@ -54,7 +59,7 @@ impl BroadcastedInvokeTx {
             signature: self.signature,
             sender_address: self.sender_address,
             paymaster_data: self.paymaster_data,
-            resource_bounds: self.resource_bounds,
+            resource_bounds: self.resource_bounds.into(),
             account_deployment_data: self.account_deployment_data,
             fee_data_availability_mode: self.fee_data_availability_mode,
             nonce_data_availability_mode: self.nonce_data_availability_mode,
@@ -91,6 +96,7 @@ impl serde::Serialize for BroadcastedInvokeTx {
 
 impl<'de> Deserialize<'de> for BroadcastedInvokeTx {
     fn deserialize<D: Deserializer<'de>>(deserializer: D) -> Result<Self, D::Error> {
+        #[serde_with::serde_as]
         #[derive(Deserialize)]
         struct Tagged {
             r#type: Option<String>,
@@ -99,7 +105,8 @@ impl<'de> Deserialize<'de> for BroadcastedInvokeTx {
             version: Felt,
             signature: Vec<Felt>,
             nonce: Felt,
-            resource_bounds: ResourceBoundsMapping,
+            resource_bounds: RpcResourceBoundsMapping,
+            #[serde_as(as = "NumAsHex")]
             tip: u64,
             paymaster_data: Vec<Felt>,
             account_deployment_data: Vec<Felt>,
@@ -146,7 +153,7 @@ pub struct BroadcastedDeclareTx {
     pub signature: Vec<Felt>,
     pub nonce: Nonce,
     pub contract_class: Arc<RpcSierraContractClass>,
-    pub resource_bounds: ResourceBoundsMapping,
+    pub resource_bounds: RpcResourceBoundsMapping,
     pub tip: u64,
     pub paymaster_data: Vec<Felt>,
     pub account_deployment_data: Vec<Felt>,
@@ -174,7 +181,7 @@ impl BroadcastedDeclareTx {
             signature: self.signature,
             paymaster_data: self.paymaster_data,
             sender_address: self.sender_address,
-            resource_bounds: self.resource_bounds,
+            resource_bounds: self.resource_bounds.into(),
             compiled_class_hash: self.compiled_class_hash,
             account_deployment_data: self.account_deployment_data,
             fee_data_availability_mode: self.fee_data_availability_mode,
@@ -221,7 +228,7 @@ impl<'de> Deserialize<'de> for BroadcastedDeclareTx {
             signature: Vec<Felt>,
             nonce: Nonce,
             contract_class: Arc<RpcSierraContractClass>,
-            resource_bounds: ResourceBoundsMapping,
+            resource_bounds: RpcResourceBoundsMapping,
             tip: u64,
             paymaster_data: Vec<Felt>,
             account_deployment_data: Vec<Felt>,
@@ -269,7 +276,7 @@ pub struct BroadcastedDeployAccountTx {
     pub contract_address_salt: Felt,
     pub constructor_calldata: Vec<Felt>,
     pub class_hash: ClassHash,
-    pub resource_bounds: ResourceBoundsMapping,
+    pub resource_bounds: RpcResourceBoundsMapping,
     pub tip: u64,
     pub paymaster_data: Vec<Felt>,
     pub nonce_data_availability_mode: DataAvailabilityMode,
@@ -297,7 +304,7 @@ impl BroadcastedDeployAccountTx {
             signature: self.signature,
             class_hash: self.class_hash,
             paymaster_data: self.paymaster_data,
-            resource_bounds: self.resource_bounds,
+            resource_bounds: self.resource_bounds.into(),
             contract_address: contract_address.into(),
             constructor_calldata: self.constructor_calldata,
             contract_address_salt: self.contract_address_salt,
@@ -345,7 +352,7 @@ impl<'de> Deserialize<'de> for BroadcastedDeployAccountTx {
             contract_address_salt: Felt,
             constructor_calldata: Vec<Felt>,
             class_hash: ClassHash,
-            resource_bounds: ResourceBoundsMapping,
+            resource_bounds: RpcResourceBoundsMapping,
             tip: u64,
             paymaster_data: Vec<Felt>,
             nonce_data_availability_mode: DataAvailabilityMode,
@@ -407,4 +414,34 @@ pub struct AddDeployAccountTransactionResult {
     pub transaction_hash: TxHash,
     /// The address of the new contract
     pub contract_address: ContractAddress,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub enum RpcResourceBoundsMapping {
+    L1Gas(Ab),
+    All(Allc),
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct Allc {
+    l1_data_gas: ResourceBounds,
+    l1_gas: ResourceBounds,
+    l2_gas: ResourceBounds,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct Ab {
+    l1_gas: ResourceBounds,
+    l2_gas: ResourceBounds,
+}
+
+impl From<RpcResourceBoundsMapping> for katana_primitives::fee::ResourceBoundsMapping {
+    fn from(value: RpcResourceBoundsMapping) -> Self {
+        match value {
+            RpcResourceBoundsMapping::L1Gas(Ab { l1_gas, .. }) => Self::L1Gas(l1_gas),
+            RpcResourceBoundsMapping::All(Allc { l2_gas, l1_gas, l1_data_gas }) => {
+                Self::All(AllResourceBoundsMapping { l1_data_gas, l1_gas, l2_gas })
+            }
+        }
+    }
 }

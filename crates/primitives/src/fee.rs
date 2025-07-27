@@ -1,10 +1,12 @@
 #[derive(Debug, Clone, PartialEq, Eq, Default)]
 #[cfg_attr(feature = "arbitrary", derive(::arbitrary::Arbitrary))]
-#[cfg_attr(feature = "serde", derive(serde::Serialize, serde::Deserialize))]
+#[cfg_attr(feature = "serde", ::serde_with::serde_as, derive(serde::Serialize, serde::Deserialize))]
 pub struct ResourceBounds {
     /// The max amount of the resource that can be used in the tx
+    #[serde_as(as = "NumAsHex")]
     pub max_amount: u64,
     /// The max price per unit of this resource for this tx
+    #[serde_as(as = "NumAsHex")]
     pub max_price_per_unit: u128,
 }
 
@@ -45,7 +47,7 @@ pub enum ResourceBoundsMapping {
     /// Legacy bounds; only L1 gas bounds specified (backward compatibility).
     ///
     /// Raw resources are converted to L1 gas for cost calculation. Prior to 0.14.0, the L2 gas
-    /// bounds is signed but is always hardcoded to be zero thus, the L2 gas field is completely
+    /// bounds is signed and present in the but is always hardcoded to be zero thus, the L2 gas field is completely
     /// ommitted from this variant and is assumed to be zero during transaction hash computation.
     ///
     /// Supported in Starknet v0.13.4 but rejected in v0.14.0+.
@@ -87,4 +89,112 @@ pub struct FeeInfo {
     pub overall_fee: u128,
     /// Units in which the fee is given
     pub unit: PriceUnit,
+}
+
+use std::fmt::Formatter;
+
+use serde::{de::Visitor, Deserializer};
+use serde_with::{serde_as, DeserializeAs, SerializeAs};
+
+pub struct NumAsHex;
+
+struct NumAsHexVisitorU64;
+struct NumAsHexVisitorU128;
+
+impl SerializeAs<u64> for NumAsHex {
+    fn serialize_as<S>(value: &u64, serializer: S) -> Result<S::Ok, S::Error>
+    where
+        S: serde::Serializer,
+    {
+        serializer.serialize_str(&format!("{value:#x}"))
+    }
+}
+
+impl SerializeAs<&u64> for NumAsHex {
+    fn serialize_as<S>(value: &&u64, serializer: S) -> Result<S::Ok, S::Error>
+    where
+        S: serde::Serializer,
+    {
+        serializer.serialize_str(&format!("{value:#x}"))
+    }
+}
+
+impl<'de> DeserializeAs<'de, u64> for NumAsHex {
+    fn deserialize_as<D>(deserializer: D) -> Result<u64, D::Error>
+    where
+        D: Deserializer<'de>,
+    {
+        deserializer.deserialize_any(NumAsHexVisitorU64)
+    }
+}
+
+impl SerializeAs<u128> for NumAsHex {
+    fn serialize_as<S>(value: &u128, serializer: S) -> Result<S::Ok, S::Error>
+    where
+        S: serde::Serializer,
+    {
+        serializer.serialize_str(&format!("{value:#x}"))
+    }
+}
+
+impl<'de> DeserializeAs<'de, u128> for NumAsHex {
+    fn deserialize_as<D>(deserializer: D) -> Result<u128, D::Error>
+    where
+        D: Deserializer<'de>,
+    {
+        deserializer.deserialize_any(NumAsHexVisitorU128)
+    }
+}
+
+impl Visitor<'_> for NumAsHexVisitorU64 {
+    type Value = u64;
+
+    fn expecting(&self, formatter: &mut Formatter<'_>) -> std::fmt::Result {
+        write!(formatter, "string or number")
+    }
+
+    fn visit_str<E>(self, v: &str) -> Result<Self::Value, E>
+    where
+        E: serde::de::Error,
+    {
+        match u64::from_str_radix(v.trim_start_matches("0x"), 16) {
+            Ok(value) => Ok(value),
+            Err(err) => Err(serde::de::Error::custom(format!("invalid hex string: {err}"))),
+        }
+    }
+
+    fn visit_i64<E>(self, v: i64) -> Result<Self::Value, E>
+    where
+        E: serde::de::Error,
+    {
+        match v.try_into() {
+            Ok(value) => self.visit_u64(value),
+            Err(_) => Err(serde::de::Error::custom(format!("value cannot be negative: {}", v))),
+        }
+    }
+
+    fn visit_u64<E>(self, v: u64) -> Result<Self::Value, E>
+    where
+        E: serde::de::Error,
+    {
+        Ok(v)
+    }
+}
+
+impl Visitor<'_> for NumAsHexVisitorU128 {
+    type Value = u128;
+
+    fn expecting(&self, formatter: &mut Formatter<'_>) -> std::fmt::Result {
+        write!(formatter, "string or number")
+    }
+
+    fn visit_str<E>(self, v: &str) -> Result<Self::Value, E>
+    where
+        E: serde::de::Error,
+    {
+        match u128::from_str_radix(v.trim_start_matches("0x"), 16) {
+            Ok(value) => Ok(value),
+            Err(err) => Err(serde::de::Error::custom(format!("invalid hex string: {err}"))),
+        }
+    }
 }

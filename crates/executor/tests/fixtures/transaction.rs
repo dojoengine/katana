@@ -107,7 +107,7 @@ pub fn invoke_executable_tx(
         calldata,
         signature,
         nonce,
-        resource_bounds,
+        resource_bounds: resource_bounds.into(),
         tip,
         paymaster_data: vec![],
         account_deployment_data: vec![],
