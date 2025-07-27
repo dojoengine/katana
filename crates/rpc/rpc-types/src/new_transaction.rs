@@ -4,14 +4,16 @@ use katana_primitives::chain::ChainId;
 use katana_primitives::class::{ClassHash, CompiledClassHash, ContractClass, SierraContractClass};
 use katana_primitives::contract::Nonce;
 use katana_primitives::da::DataAvailabilityMode;
-use katana_primitives::fee::{AllResourceBoundsMapping, ResourceBoundsMapping};
+use katana_primitives::fee::{AllResourceBoundsMapping, ResourceBounds, ResourceBoundsMapping};
 use katana_primitives::transaction::{
     DeclareTx, DeclareTxV3, DeclareTxWithClass, DeployAccountTx, DeployAccountTxV3, InvokeTx,
     InvokeTxV3, TxHash, TxType,
 };
-use katana_primitives::utils::serde::{deserialize_hex_u64, serialize_hex_u64};
+use katana_primitives::utils::serde::{
+    deserialize_hex_u128, deserialize_hex_u64, serialize_hex_u128, serialize_hex_u64,
+};
 use katana_primitives::{ContractAddress, Felt};
-use serde::{Deserialize, Deserializer, Serialize};
+use serde::{Deserialize, Deserializer, Serialize, Serializer};
 use starknet::core::utils::get_contract_address;
 
 use crate::class::RpcSierraContractClass;
@@ -28,6 +30,10 @@ pub struct UntypedBroadcastedTx {
     #[serde(serialize_with = "serialize_hex_u64", deserialize_with = "deserialize_hex_u64")]
     pub tip: u64,
     pub paymaster_data: Vec<Felt>,
+    #[serde(
+        serialize_with = "serialize_resource_bounds_mapping",
+        deserialize_with = "deserialize_resource_bounds_mapping"
+    )]
     pub resource_bounds: ResourceBoundsMapping,
     pub nonce_data_availability_mode: DataAvailabilityMode,
     pub fee_data_availability_mode: DataAvailabilityMode,
@@ -59,7 +65,7 @@ pub struct UntypedBroadcastedTx {
 
 impl UntypedBroadcastedTx {
     pub fn try_into_invoke_tx(self) -> Result<BroadcastedInvokeTx, String> {
-        if self.r#type != "INVOKE" {
+        if self.r#type != TxType::Invoke {
             return Err(format!("Expected INVOKE transaction, got {}", self.r#type));
         }
 
@@ -89,7 +95,7 @@ impl UntypedBroadcastedTx {
     }
 
     pub fn try_into_declare_tx(self) -> Result<BroadcastedDeclareTx, String> {
-        if self.r#type != "DECLARE" {
+        if self.r#type != TxType::Declare {
             return Err(format!("Expected DECLARE transaction, got {}", self.r#type));
         }
 
@@ -124,7 +130,7 @@ impl UntypedBroadcastedTx {
     }
 
     pub fn try_into_deploy_account_tx(self) -> Result<BroadcastedDeployAccountTx, String> {
-        if self.r#type != "DEPLOY_ACCOUNT" {
+        if self.r#type != TxType::DeployAccount {
             return Err(format!("Expected DEPLOY_ACCOUNT transaction, got {}", self.r#type));
         }
 
@@ -158,15 +164,52 @@ impl UntypedBroadcastedTx {
     }
 }
 
-#[derive(Debug, Clone, Serialize, Deserialize)]
-#[serde(tag = "type")]
+#[derive(Debug, Clone)]
 pub enum BroadcastedTx {
-    #[serde(rename = "INVOKE")]
     Invoke(BroadcastedInvokeTx),
-    #[serde(rename = "DECLARE")]
     Declare(BroadcastedDeclareTx),
-    #[serde(rename = "DEPLOY_ACCOUNT")]
     DeployAccount(BroadcastedDeployAccountTx),
+}
+
+impl Serialize for BroadcastedTx {
+    fn serialize<S>(&self, serializer: S) -> Result<S::Ok, S::Error>
+    where
+        S: serde::Serializer,
+    {
+        match self {
+            BroadcastedTx::Invoke(tx) => tx.serialize(serializer),
+            BroadcastedTx::Declare(tx) => tx.serialize(serializer),
+            BroadcastedTx::DeployAccount(tx) => tx.serialize(serializer),
+        }
+    }
+}
+
+impl<'de> Deserialize<'de> for BroadcastedTx {
+    fn deserialize<D>(deserializer: D) -> Result<Self, D::Error>
+    where
+        D: Deserializer<'de>,
+    {
+        let untyped = UntypedBroadcastedTx::deserialize(deserializer)?;
+
+        match untyped.r#type {
+            TxType::Invoke => {
+                let tx = untyped.try_into_invoke_tx().map_err(serde::de::Error::custom)?;
+                Ok(BroadcastedTx::Invoke(tx))
+            }
+            TxType::Declare => {
+                let tx = untyped.try_into_declare_tx().map_err(serde::de::Error::custom)?;
+                Ok(BroadcastedTx::Declare(tx))
+            }
+            TxType::DeployAccount => {
+                let tx = untyped.try_into_deploy_account_tx().map_err(serde::de::Error::custom)?;
+                Ok(BroadcastedTx::DeployAccount(tx))
+            }
+            _ => Err(serde::de::Error::custom(format!(
+                "Unknown transaction type: {}",
+                untyped.r#type
+            ))),
+        }
+    }
 }
 
 #[derive(Debug, Clone)]
@@ -198,7 +241,7 @@ impl BroadcastedInvokeTx {
             signature: self.signature,
             sender_address: self.sender_address,
             paymaster_data: self.paymaster_data,
-            resource_bounds: self.resource_bounds.into(),
+            resource_bounds: self.resource_bounds,
             account_deployment_data: self.account_deployment_data,
             fee_data_availability_mode: self.fee_data_availability_mode,
             nonce_data_availability_mode: self.nonce_data_availability_mode,
@@ -237,12 +280,6 @@ impl<'de> Deserialize<'de> for BroadcastedInvokeTx {
     fn deserialize<D: Deserializer<'de>>(deserializer: D) -> Result<Self, D::Error> {
         let untyped = UntypedBroadcastedTx::deserialize(deserializer)?;
 
-        if let Some(tag_field) = &untyped.r#type {
-            if tag_field != "INVOKE" {
-                return Err(serde::de::Error::custom("invalid `type` value"));
-            }
-        }
-
         let is_query = if untyped.version == Felt::THREE {
             false
         } else if untyped.version == Felt::THREE + QUERY_VERSION_OFFSET {
@@ -251,19 +288,7 @@ impl<'de> Deserialize<'de> for BroadcastedInvokeTx {
             return Err(serde::de::Error::custom("invalid `version` value"));
         };
 
-        Ok(Self {
-            is_query,
-            tip: untyped.tip,
-            nonce: untyped.nonce,
-            calldata: untyped.calldata,
-            signature: untyped.signature,
-            sender_address: untyped.sender_address,
-            paymaster_data: untyped.paymaster_data,
-            resource_bounds: untyped.resource_bounds,
-            account_deployment_data: untyped.account_deployment_data,
-            fee_data_availability_mode: untyped.fee_data_availability_mode,
-            nonce_data_availability_mode: untyped.nonce_data_availability_mode,
-        })
+        Ok(Self { is_query, ..untyped.try_into_invoke_tx().unwrap() })
     }
 }
 
@@ -302,7 +327,7 @@ impl BroadcastedDeclareTx {
             signature: self.signature,
             paymaster_data: self.paymaster_data,
             sender_address: self.sender_address,
-            resource_bounds: self.resource_bounds.into(),
+            resource_bounds: self.resource_bounds,
             compiled_class_hash: self.compiled_class_hash,
             account_deployment_data: self.account_deployment_data,
             fee_data_availability_mode: self.fee_data_availability_mode,
@@ -342,12 +367,6 @@ impl<'de> Deserialize<'de> for BroadcastedDeclareTx {
     fn deserialize<D: Deserializer<'de>>(deserializer: D) -> Result<Self, D::Error> {
         let untyped = UntypedBroadcastedTx::deserialize(deserializer)?;
 
-        if let Some(tag_field) = &untyped.r#type {
-            if tag_field != "DECLARE" {
-                return Err(serde::de::Error::custom("invalid `type` value"));
-            }
-        }
-
         let is_query = if untyped.version == Felt::THREE {
             false
         } else if untyped.version == Felt::THREE + QUERY_VERSION_OFFSET {
@@ -356,20 +375,7 @@ impl<'de> Deserialize<'de> for BroadcastedDeclareTx {
             return Err(serde::de::Error::custom("invalid `version` value"));
         };
 
-        Ok(Self {
-            is_query,
-            tip: untyped.tip,
-            nonce: untyped.nonce,
-            signature: untyped.signature,
-            sender_address: untyped.sender_address,
-            contract_class: untyped.contract_class,
-            paymaster_data: untyped.paymaster_data,
-            resource_bounds: untyped.resource_bounds,
-            compiled_class_hash: untyped.compiled_class_hash,
-            account_deployment_data: untyped.account_deployment_data,
-            fee_data_availability_mode: untyped.fee_data_availability_mode,
-            nonce_data_availability_mode: untyped.nonce_data_availability_mode,
-        })
+        Ok(Self { is_query, ..untyped.try_into_declare_tx().unwrap() })
     }
 }
 
@@ -408,7 +414,7 @@ impl BroadcastedDeployAccountTx {
             signature: self.signature,
             class_hash: self.class_hash,
             paymaster_data: self.paymaster_data,
-            resource_bounds: self.resource_bounds.into(),
+            resource_bounds: self.resource_bounds,
             contract_address: contract_address.into(),
             constructor_calldata: self.constructor_calldata,
             contract_address_salt: self.contract_address_salt,
@@ -449,12 +455,6 @@ impl<'de> Deserialize<'de> for BroadcastedDeployAccountTx {
     fn deserialize<D: Deserializer<'de>>(deserializer: D) -> Result<Self, D::Error> {
         let untyped = UntypedBroadcastedTx::deserialize(deserializer)?;
 
-        if let Some(tag_field) = &untyped.r#type {
-            if tag_field != "DEPLOY_ACCOUNT" {
-                return Err(serde::de::Error::custom("invalid `type` value"));
-            }
-        }
-
         let is_query = if untyped.version == Felt::THREE {
             false
         } else if untyped.version == Felt::THREE + QUERY_VERSION_OFFSET {
@@ -463,19 +463,7 @@ impl<'de> Deserialize<'de> for BroadcastedDeployAccountTx {
             return Err(serde::de::Error::custom("invalid `version` value"));
         };
 
-        Ok(Self {
-            is_query,
-            tip: untyped.tip,
-            nonce: untyped.nonce,
-            signature: untyped.signature,
-            class_hash: untyped.class_hash,
-            paymaster_data: untyped.paymaster_data,
-            resource_bounds: untyped.resource_bounds,
-            constructor_calldata: untyped.constructor_calldata,
-            contract_address_salt: untyped.contract_address_salt,
-            fee_data_availability_mode: untyped.fee_data_availability_mode,
-            nonce_data_availability_mode: untyped.nonce_data_availability_mode,
-        })
+        Ok(Self { is_query, ..untyped.try_into_deploy_account_tx().unwrap() })
     }
 }
 
@@ -502,4 +490,108 @@ pub struct AddDeployAccountTransactionResult {
     pub transaction_hash: TxHash,
     /// The address of the new contract
     pub contract_address: ContractAddress,
+}
+
+fn serialize_resource_bounds_mapping<S: Serializer>(
+    resource_bounds: &ResourceBoundsMapping,
+    serializer: S,
+) -> Result<S::Ok, S::Error> {
+    let rpc_mapping = match resource_bounds {
+        ResourceBoundsMapping::L1Gas(l1_gas) => RpcResourceBoundsMapping::Legacy {
+            l1_gas: l1_gas.clone(),
+            l2_gas: ResourceBounds::default(),
+        },
+
+        ResourceBoundsMapping::All(AllResourceBoundsMapping { l1_gas, l2_gas, l1_data_gas }) => {
+            RpcResourceBoundsMapping::Current {
+                l1_gas: l1_gas.clone(),
+                l2_gas: l2_gas.clone(),
+                l1_data_gas: l1_data_gas.clone(),
+            }
+        }
+    };
+
+    rpc_mapping.serialize(serializer)
+}
+
+fn deserialize_resource_bounds_mapping<'de, D: Deserializer<'de>>(
+    deserializer: D,
+) -> Result<ResourceBoundsMapping, D::Error> {
+    let rpc_mapping = RpcResourceBoundsMapping::deserialize(deserializer)?;
+
+    match rpc_mapping {
+        RpcResourceBoundsMapping::Legacy { l1_gas, .. } => Ok(ResourceBoundsMapping::L1Gas(l1_gas)),
+
+        RpcResourceBoundsMapping::Current { l1_gas, l2_gas, l1_data_gas } => {
+            Ok(ResourceBoundsMapping::All(AllResourceBoundsMapping { l1_gas, l2_gas, l1_data_gas }))
+        }
+    }
+}
+
+#[derive(Serialize, Deserialize)]
+#[serde(untagged)]
+enum RpcResourceBoundsMapping {
+    Legacy {
+        #[serde(
+            serialize_with = "serialize_resource_bounds",
+            deserialize_with = "deserialize_resource_bounds"
+        )]
+        l1_gas: ResourceBounds,
+
+        #[serde(
+            serialize_with = "serialize_resource_bounds",
+            deserialize_with = "deserialize_resource_bounds"
+        )]
+        l2_gas: ResourceBounds,
+    },
+
+    Current {
+        #[serde(
+            serialize_with = "serialize_resource_bounds",
+            deserialize_with = "deserialize_resource_bounds"
+        )]
+        l1_gas: ResourceBounds,
+
+        #[serde(
+            serialize_with = "serialize_resource_bounds",
+            deserialize_with = "deserialize_resource_bounds"
+        )]
+        l2_gas: ResourceBounds,
+
+        #[serde(
+            serialize_with = "serialize_resource_bounds",
+            deserialize_with = "deserialize_resource_bounds"
+        )]
+        l1_data_gas: ResourceBounds,
+    },
+}
+
+#[derive(Serialize, Deserialize)]
+struct RpcResourceBounds {
+    #[serde(serialize_with = "serialize_hex_u64", deserialize_with = "deserialize_hex_u64")]
+    max_amount: u64,
+    #[serde(serialize_with = "serialize_hex_u128", deserialize_with = "deserialize_hex_u128")]
+    max_price_per_unit: u128,
+}
+
+fn serialize_resource_bounds<S: Serializer>(
+    resource_bounds: &ResourceBounds,
+    serializer: S,
+) -> Result<S::Ok, S::Error> {
+    let helper = RpcResourceBounds {
+        max_amount: resource_bounds.max_amount,
+        max_price_per_unit: resource_bounds.max_price_per_unit,
+    };
+
+    helper.serialize(serializer)
+}
+
+fn deserialize_resource_bounds<'de, D: Deserializer<'de>>(
+    deserializer: D,
+) -> Result<ResourceBounds, D::Error> {
+    let helper = RpcResourceBounds::deserialize(deserializer)?;
+    Ok(ResourceBounds {
+        max_amount: helper.max_amount,
+        max_price_per_unit: helper.max_price_per_unit,
+    })
 }
