@@ -4,12 +4,12 @@ use katana_primitives::chain::ChainId;
 use katana_primitives::class::{ClassHash, CompiledClassHash, ContractClass, SierraContractClass};
 use katana_primitives::contract::Nonce;
 use katana_primitives::da::DataAvailabilityMode;
-use katana_primitives::fee::NumAsHex;
-use katana_primitives::fee::{AllResourceBoundsMapping, ResourceBounds};
+use katana_primitives::fee::{AllResourceBoundsMapping, ResourceBoundsMapping};
 use katana_primitives::transaction::{
     DeclareTx, DeclareTxV3, DeclareTxWithClass, DeployAccountTx, DeployAccountTxV3, InvokeTx,
-    InvokeTxV3, TxHash,
+    InvokeTxV3, TxHash, TxType,
 };
+use katana_primitives::utils::serde::{deserialize_hex_u64, serialize_hex_u64};
 use katana_primitives::{ContractAddress, Felt};
 use serde::{Deserialize, Deserializer, Serialize};
 use starknet::core::utils::get_contract_address;
@@ -18,6 +18,145 @@ use crate::class::RpcSierraContractClass;
 
 const QUERY_VERSION_OFFSET: Felt =
     Felt::from_raw([576460752142434320, 18446744073709551584, 17407, 18446744073700081665]);
+
+#[serde_with::serde_as]
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct UntypedBroadcastedTx {
+    pub r#type: TxType,
+    pub version: Felt,
+    pub signature: Vec<Felt>,
+    #[serde(serialize_with = "serialize_hex_u64", deserialize_with = "deserialize_hex_u64")]
+    pub tip: u64,
+    pub paymaster_data: Vec<Felt>,
+    pub resource_bounds: ResourceBoundsMapping,
+    pub nonce_data_availability_mode: DataAvailabilityMode,
+    pub fee_data_availability_mode: DataAvailabilityMode,
+
+    // Invoke-specific fields
+    #[serde(default)]
+    pub sender_address: Option<ContractAddress>,
+    #[serde(default)]
+    pub calldata: Option<Vec<Felt>>,
+    #[serde(default)]
+    pub nonce: Option<Felt>,
+    #[serde(default)]
+    pub account_deployment_data: Option<Vec<Felt>>,
+
+    // Declare-specific fields
+    #[serde(default)]
+    pub compiled_class_hash: Option<CompiledClassHash>,
+    #[serde(default)]
+    pub contract_class: Option<Arc<RpcSierraContractClass>>,
+
+    // DeployAccount-specific fields
+    #[serde(default)]
+    pub contract_address_salt: Option<Felt>,
+    #[serde(default)]
+    pub constructor_calldata: Option<Vec<Felt>>,
+    #[serde(default)]
+    pub class_hash: Option<ClassHash>,
+}
+
+impl UntypedBroadcastedTx {
+    pub fn try_into_invoke_tx(self) -> Result<BroadcastedInvokeTx, String> {
+        if self.r#type != "INVOKE" {
+            return Err(format!("Expected INVOKE transaction, got {}", self.r#type));
+        }
+
+        let is_query = if self.version == Felt::THREE {
+            false
+        } else if self.version == Felt::THREE + QUERY_VERSION_OFFSET {
+            true
+        } else {
+            return Err("Invalid version for INVOKE transaction".to_string());
+        };
+
+        Ok(BroadcastedInvokeTx {
+            sender_address: self
+                .sender_address
+                .ok_or("Missing sender_address for INVOKE transaction")?,
+            calldata: self.calldata.ok_or("Missing calldata for INVOKE transaction")?,
+            signature: self.signature,
+            nonce: self.nonce.ok_or("Missing nonce for INVOKE transaction")?,
+            paymaster_data: self.paymaster_data,
+            tip: self.tip,
+            account_deployment_data: self.account_deployment_data.unwrap_or_default(),
+            resource_bounds: self.resource_bounds,
+            fee_data_availability_mode: self.fee_data_availability_mode,
+            nonce_data_availability_mode: self.nonce_data_availability_mode,
+            is_query,
+        })
+    }
+
+    pub fn try_into_declare_tx(self) -> Result<BroadcastedDeclareTx, String> {
+        if self.r#type != "DECLARE" {
+            return Err(format!("Expected DECLARE transaction, got {}", self.r#type));
+        }
+
+        let is_query = if self.version == Felt::THREE {
+            false
+        } else if self.version == Felt::THREE + QUERY_VERSION_OFFSET {
+            true
+        } else {
+            return Err("Invalid version for DECLARE transaction".to_string());
+        };
+
+        Ok(BroadcastedDeclareTx {
+            sender_address: self
+                .sender_address
+                .ok_or("Missing sender_address for DECLARE transaction")?,
+            compiled_class_hash: self
+                .compiled_class_hash
+                .ok_or("Missing compiled_class_hash for DECLARE transaction")?,
+            signature: self.signature,
+            nonce: self.nonce.ok_or("Missing nonce for DECLARE transaction")?,
+            contract_class: self
+                .contract_class
+                .ok_or("Missing contract_class for DECLARE transaction")?,
+            resource_bounds: self.resource_bounds,
+            tip: self.tip,
+            paymaster_data: self.paymaster_data,
+            account_deployment_data: self.account_deployment_data.unwrap_or_default(),
+            nonce_data_availability_mode: self.nonce_data_availability_mode,
+            fee_data_availability_mode: self.fee_data_availability_mode,
+            is_query,
+        })
+    }
+
+    pub fn try_into_deploy_account_tx(self) -> Result<BroadcastedDeployAccountTx, String> {
+        if self.r#type != "DEPLOY_ACCOUNT" {
+            return Err(format!("Expected DEPLOY_ACCOUNT transaction, got {}", self.r#type));
+        }
+
+        let is_query = if self.version == Felt::THREE {
+            false
+        } else if self.version == Felt::THREE + QUERY_VERSION_OFFSET {
+            true
+        } else {
+            return Err("Invalid version for DEPLOY_ACCOUNT transaction".to_string());
+        };
+
+        Ok(BroadcastedDeployAccountTx {
+            signature: self.signature,
+            nonce: self.nonce.ok_or("Missing nonce for DEPLOY_ACCOUNT transaction")?,
+            contract_address_salt: self
+                .contract_address_salt
+                .ok_or("Missing contract_address_salt for DEPLOY_ACCOUNT transaction")?,
+            constructor_calldata: self
+                .constructor_calldata
+                .ok_or("Missing constructor_calldata for DEPLOY_ACCOUNT transaction")?,
+            class_hash: self
+                .class_hash
+                .ok_or("Missing class_hash for DEPLOY_ACCOUNT transaction")?,
+            resource_bounds: self.resource_bounds,
+            tip: self.tip,
+            paymaster_data: self.paymaster_data,
+            nonce_data_availability_mode: self.nonce_data_availability_mode,
+            fee_data_availability_mode: self.fee_data_availability_mode,
+            is_query,
+        })
+    }
+}
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
 #[serde(tag = "type")]
@@ -39,7 +178,7 @@ pub struct BroadcastedInvokeTx {
     pub paymaster_data: Vec<Felt>,
     pub tip: u64,
     pub account_deployment_data: Vec<Felt>,
-    pub resource_bounds: RpcResourceBoundsMapping,
+    pub resource_bounds: ResourceBoundsMapping,
     pub fee_data_availability_mode: DataAvailabilityMode,
     pub nonce_data_availability_mode: DataAvailabilityMode,
     pub is_query: bool,
@@ -96,35 +235,17 @@ impl serde::Serialize for BroadcastedInvokeTx {
 
 impl<'de> Deserialize<'de> for BroadcastedInvokeTx {
     fn deserialize<D: Deserializer<'de>>(deserializer: D) -> Result<Self, D::Error> {
-        #[serde_with::serde_as]
-        #[derive(Deserialize)]
-        struct Tagged {
-            r#type: Option<String>,
-            sender_address: ContractAddress,
-            calldata: Vec<Felt>,
-            version: Felt,
-            signature: Vec<Felt>,
-            nonce: Felt,
-            resource_bounds: RpcResourceBoundsMapping,
-            #[serde_as(as = "NumAsHex")]
-            tip: u64,
-            paymaster_data: Vec<Felt>,
-            account_deployment_data: Vec<Felt>,
-            nonce_data_availability_mode: DataAvailabilityMode,
-            fee_data_availability_mode: DataAvailabilityMode,
-        }
+        let untyped = UntypedBroadcastedTx::deserialize(deserializer)?;
 
-        let tagged = Tagged::deserialize(deserializer)?;
-
-        if let Some(tag_field) = &tagged.r#type {
+        if let Some(tag_field) = &untyped.r#type {
             if tag_field != "INVOKE" {
                 return Err(serde::de::Error::custom("invalid `type` value"));
             }
         }
 
-        let is_query = if tagged.version == Felt::THREE {
+        let is_query = if untyped.version == Felt::THREE {
             false
-        } else if tagged.version == Felt::THREE + QUERY_VERSION_OFFSET {
+        } else if untyped.version == Felt::THREE + QUERY_VERSION_OFFSET {
             true
         } else {
             return Err(serde::de::Error::custom("invalid `version` value"));
@@ -132,16 +253,16 @@ impl<'de> Deserialize<'de> for BroadcastedInvokeTx {
 
         Ok(Self {
             is_query,
-            tip: tagged.tip,
-            nonce: tagged.nonce,
-            calldata: tagged.calldata,
-            signature: tagged.signature,
-            sender_address: tagged.sender_address,
-            paymaster_data: tagged.paymaster_data,
-            resource_bounds: tagged.resource_bounds,
-            account_deployment_data: tagged.account_deployment_data,
-            fee_data_availability_mode: tagged.fee_data_availability_mode,
-            nonce_data_availability_mode: tagged.nonce_data_availability_mode,
+            tip: untyped.tip,
+            nonce: untyped.nonce,
+            calldata: untyped.calldata,
+            signature: untyped.signature,
+            sender_address: untyped.sender_address,
+            paymaster_data: untyped.paymaster_data,
+            resource_bounds: untyped.resource_bounds,
+            account_deployment_data: untyped.account_deployment_data,
+            fee_data_availability_mode: untyped.fee_data_availability_mode,
+            nonce_data_availability_mode: untyped.nonce_data_availability_mode,
         })
     }
 }
@@ -153,7 +274,7 @@ pub struct BroadcastedDeclareTx {
     pub signature: Vec<Felt>,
     pub nonce: Nonce,
     pub contract_class: Arc<RpcSierraContractClass>,
-    pub resource_bounds: RpcResourceBoundsMapping,
+    pub resource_bounds: ResourceBoundsMapping,
     pub tip: u64,
     pub paymaster_data: Vec<Felt>,
     pub account_deployment_data: Vec<Felt>,
@@ -219,34 +340,17 @@ impl serde::Serialize for BroadcastedDeclareTx {
 
 impl<'de> Deserialize<'de> for BroadcastedDeclareTx {
     fn deserialize<D: Deserializer<'de>>(deserializer: D) -> Result<Self, D::Error> {
-        #[derive(Deserialize)]
-        struct Tagged {
-            r#type: Option<String>,
-            version: Felt,
-            sender_address: ContractAddress,
-            compiled_class_hash: CompiledClassHash,
-            signature: Vec<Felt>,
-            nonce: Nonce,
-            contract_class: Arc<RpcSierraContractClass>,
-            resource_bounds: RpcResourceBoundsMapping,
-            tip: u64,
-            paymaster_data: Vec<Felt>,
-            account_deployment_data: Vec<Felt>,
-            nonce_data_availability_mode: DataAvailabilityMode,
-            fee_data_availability_mode: DataAvailabilityMode,
-        }
+        let untyped = UntypedBroadcastedTx::deserialize(deserializer)?;
 
-        let tagged = Tagged::deserialize(deserializer)?;
-
-        if let Some(tag_field) = &tagged.r#type {
+        if let Some(tag_field) = &untyped.r#type {
             if tag_field != "DECLARE" {
                 return Err(serde::de::Error::custom("invalid `type` value"));
             }
         }
 
-        let is_query = if tagged.version == Felt::THREE {
+        let is_query = if untyped.version == Felt::THREE {
             false
-        } else if tagged.version == Felt::THREE + QUERY_VERSION_OFFSET {
+        } else if untyped.version == Felt::THREE + QUERY_VERSION_OFFSET {
             true
         } else {
             return Err(serde::de::Error::custom("invalid `version` value"));
@@ -254,17 +358,17 @@ impl<'de> Deserialize<'de> for BroadcastedDeclareTx {
 
         Ok(Self {
             is_query,
-            tip: tagged.tip,
-            nonce: tagged.nonce,
-            signature: tagged.signature,
-            sender_address: tagged.sender_address,
-            contract_class: tagged.contract_class,
-            paymaster_data: tagged.paymaster_data,
-            resource_bounds: tagged.resource_bounds,
-            compiled_class_hash: tagged.compiled_class_hash,
-            account_deployment_data: tagged.account_deployment_data,
-            fee_data_availability_mode: tagged.fee_data_availability_mode,
-            nonce_data_availability_mode: tagged.nonce_data_availability_mode,
+            tip: untyped.tip,
+            nonce: untyped.nonce,
+            signature: untyped.signature,
+            sender_address: untyped.sender_address,
+            contract_class: untyped.contract_class,
+            paymaster_data: untyped.paymaster_data,
+            resource_bounds: untyped.resource_bounds,
+            compiled_class_hash: untyped.compiled_class_hash,
+            account_deployment_data: untyped.account_deployment_data,
+            fee_data_availability_mode: untyped.fee_data_availability_mode,
+            nonce_data_availability_mode: untyped.nonce_data_availability_mode,
         })
     }
 }
@@ -276,7 +380,7 @@ pub struct BroadcastedDeployAccountTx {
     pub contract_address_salt: Felt,
     pub constructor_calldata: Vec<Felt>,
     pub class_hash: ClassHash,
-    pub resource_bounds: RpcResourceBoundsMapping,
+    pub resource_bounds: ResourceBoundsMapping,
     pub tip: u64,
     pub paymaster_data: Vec<Felt>,
     pub nonce_data_availability_mode: DataAvailabilityMode,
@@ -343,33 +447,17 @@ impl serde::Serialize for BroadcastedDeployAccountTx {
 
 impl<'de> Deserialize<'de> for BroadcastedDeployAccountTx {
     fn deserialize<D: Deserializer<'de>>(deserializer: D) -> Result<Self, D::Error> {
-        #[derive(Deserialize)]
-        struct Tagged {
-            r#type: Option<String>,
-            version: Felt,
-            signature: Vec<Felt>,
-            nonce: Nonce,
-            contract_address_salt: Felt,
-            constructor_calldata: Vec<Felt>,
-            class_hash: ClassHash,
-            resource_bounds: RpcResourceBoundsMapping,
-            tip: u64,
-            paymaster_data: Vec<Felt>,
-            nonce_data_availability_mode: DataAvailabilityMode,
-            fee_data_availability_mode: DataAvailabilityMode,
-        }
+        let untyped = UntypedBroadcastedTx::deserialize(deserializer)?;
 
-        let tagged = Tagged::deserialize(deserializer)?;
-
-        if let Some(tag_field) = &tagged.r#type {
+        if let Some(tag_field) = &untyped.r#type {
             if tag_field != "DEPLOY_ACCOUNT" {
                 return Err(serde::de::Error::custom("invalid `type` value"));
             }
         }
 
-        let is_query = if tagged.version == Felt::THREE {
+        let is_query = if untyped.version == Felt::THREE {
             false
-        } else if tagged.version == Felt::THREE + QUERY_VERSION_OFFSET {
+        } else if untyped.version == Felt::THREE + QUERY_VERSION_OFFSET {
             true
         } else {
             return Err(serde::de::Error::custom("invalid `version` value"));
@@ -377,16 +465,16 @@ impl<'de> Deserialize<'de> for BroadcastedDeployAccountTx {
 
         Ok(Self {
             is_query,
-            tip: tagged.tip,
-            nonce: tagged.nonce,
-            signature: tagged.signature,
-            class_hash: tagged.class_hash,
-            paymaster_data: tagged.paymaster_data,
-            resource_bounds: tagged.resource_bounds,
-            constructor_calldata: tagged.constructor_calldata,
-            contract_address_salt: tagged.contract_address_salt,
-            fee_data_availability_mode: tagged.fee_data_availability_mode,
-            nonce_data_availability_mode: tagged.nonce_data_availability_mode,
+            tip: untyped.tip,
+            nonce: untyped.nonce,
+            signature: untyped.signature,
+            class_hash: untyped.class_hash,
+            paymaster_data: untyped.paymaster_data,
+            resource_bounds: untyped.resource_bounds,
+            constructor_calldata: untyped.constructor_calldata,
+            contract_address_salt: untyped.contract_address_salt,
+            fee_data_availability_mode: untyped.fee_data_availability_mode,
+            nonce_data_availability_mode: untyped.nonce_data_availability_mode,
         })
     }
 }
@@ -414,34 +502,4 @@ pub struct AddDeployAccountTransactionResult {
     pub transaction_hash: TxHash,
     /// The address of the new contract
     pub contract_address: ContractAddress,
-}
-
-#[derive(Debug, Clone, Serialize, Deserialize)]
-pub enum RpcResourceBoundsMapping {
-    L1Gas(Ab),
-    All(Allc),
-}
-
-#[derive(Debug, Clone, Serialize, Deserialize)]
-pub struct Allc {
-    l1_data_gas: ResourceBounds,
-    l1_gas: ResourceBounds,
-    l2_gas: ResourceBounds,
-}
-
-#[derive(Debug, Clone, Serialize, Deserialize)]
-pub struct Ab {
-    l1_gas: ResourceBounds,
-    l2_gas: ResourceBounds,
-}
-
-impl From<RpcResourceBoundsMapping> for katana_primitives::fee::ResourceBoundsMapping {
-    fn from(value: RpcResourceBoundsMapping) -> Self {
-        match value {
-            RpcResourceBoundsMapping::L1Gas(Ab { l1_gas, .. }) => Self::L1Gas(l1_gas),
-            RpcResourceBoundsMapping::All(Allc { l2_gas, l1_gas, l1_data_gas }) => {
-                Self::All(AllResourceBoundsMapping { l1_data_gas, l1_gas, l2_gas })
-            }
-        }
-    }
 }
