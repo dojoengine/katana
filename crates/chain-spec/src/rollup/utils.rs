@@ -6,13 +6,13 @@ use alloy_primitives::U256;
 use katana_contracts::contracts;
 use katana_primitives::class::{ClassHash, ContractClass};
 use katana_primitives::contract::{ContractAddress, Nonce};
+use katana_primitives::da::DataAvailabilityMode;
+use katana_primitives::fee::{AllResourceBoundsMapping, ResourceBounds, ResourceBoundsMapping};
 use katana_primitives::genesis::allocation::{DevGenesisAccount, GenesisAccountAlloc};
 use katana_primitives::transaction::{
     DeclareTx, DeclareTxV0, DeclareTxV3, DeclareTxWithClass, DeployAccountTx, DeployAccountTxV3,
     ExecutableTx, ExecutableTxWithHash, InvokeTx, InvokeTxV3,
 };
-use katana_primitives::fee::{AllResourceBoundsMapping, ResourceBoundsMapping,ResourceBounds};
-use katana_primitives::da::DataAvailabilityMode;
 use katana_primitives::utils::split_u256;
 use katana_primitives::utils::transaction::compute_deploy_account_v3_tx_hash;
 use katana_primitives::{felt, Felt};
@@ -109,10 +109,13 @@ impl<'c> GenesisTransactionsBuilder<'c> {
             class_hash,
             nonce,
             account_deployment_data: vec![],
-            fee_data_availability_mode: DataAvailabilityMode::L2,
-            nonce_data_availability_mode: DataAvailabilityMode::L2,
-            resource_bounds: ResourceBoundsMapping::All(
-                AllResourceBoundsMapping::default()),
+            fee_data_availability_mode: DataAvailabilityMode::L1,
+            nonce_data_availability_mode: DataAvailabilityMode::L1,
+            resource_bounds: ResourceBoundsMapping::All(AllResourceBoundsMapping {
+                l1_gas: ResourceBounds { max_amount: 0, max_price_per_unit: 0 },
+                l2_gas: ResourceBounds { max_amount: u64::MAX, max_price_per_unit: 0 },
+                l1_data_gas: ResourceBounds { max_amount: 0, max_price_per_unit: 0 },
+            }),
             paymaster_data: vec![],
             tip: 0,
         };
@@ -178,13 +181,16 @@ impl<'c> GenesisTransactionsBuilder<'c> {
             sender_address,
             calldata,
             nonce,
-            resource_bounds: ResourceBoundsMapping::All(
-                AllResourceBoundsMapping::default()),
+            resource_bounds: ResourceBoundsMapping::All(AllResourceBoundsMapping {
+                l1_gas: ResourceBounds { max_amount: 0, max_price_per_unit: 0 },
+                l2_gas: ResourceBounds { max_amount: u64::MAX, max_price_per_unit: 0 },
+                l1_data_gas: ResourceBounds { max_amount: 0, max_price_per_unit: 0 },
+            }),
             tip: 0,
             paymaster_data: vec![],
             account_deployment_data: vec![],
-            nonce_data_availability_mode: DataAvailabilityMode::L2,
-            fee_data_availability_mode: DataAvailabilityMode::L2,
+            nonce_data_availability_mode: DataAvailabilityMode::L1,
+            fee_data_availability_mode: DataAvailabilityMode::L1,
         };
 
         let tx_hash = InvokeTx::V3(transaction.clone()).calculate_hash(false);
@@ -211,23 +217,14 @@ impl<'c> GenesisTransactionsBuilder<'c> {
             class_hash,
             account.salt,
             0,
-            &ResourceBounds{
-                max_amount: 0,
-                max_price_per_unit: 0,
-            },
-            &ResourceBounds{
-                max_amount: 0,
-                max_price_per_unit: 0,
-            },
-            Some(&ResourceBounds{
-                max_amount: 0,
-                max_price_per_unit: 0,
-            }),
+            &ResourceBounds { max_amount: 0, max_price_per_unit: 0 },
+            &ResourceBounds { max_amount: u64::MAX, max_price_per_unit: 0 },
+            Some(&ResourceBounds { max_amount: 0, max_price_per_unit: 0 }),
             &vec![],
             self.chain_spec.id.into(),
             Felt::ZERO,
-            &DataAvailabilityMode::L2,
-            &DataAvailabilityMode::L2,
+            &DataAvailabilityMode::L1,
+            &DataAvailabilityMode::L1,
             false,
         );
 
@@ -241,12 +238,15 @@ impl<'c> GenesisTransactionsBuilder<'c> {
             contract_address_salt: account.salt,
             nonce: Felt::ZERO,
             class_hash,
-            fee_data_availability_mode: DataAvailabilityMode::L2,
-            nonce_data_availability_mode: DataAvailabilityMode::L2,
+            fee_data_availability_mode: DataAvailabilityMode::L1,
+            nonce_data_availability_mode: DataAvailabilityMode::L1,
             paymaster_data: vec![],
             tip: 0,
-            resource_bounds: ResourceBoundsMapping::All(
-                AllResourceBoundsMapping::default()),
+            resource_bounds: ResourceBoundsMapping::All(AllResourceBoundsMapping {
+                l1_gas: ResourceBounds { max_amount: 0, max_price_per_unit: 0 },
+                l2_gas: ResourceBounds { max_amount: u64::MAX, max_price_per_unit: 0 },
+                l1_data_gas: ResourceBounds { max_amount: 0, max_price_per_unit: 0 },
+            }),
         }));
 
         let tx_hash = transaction.calculate_hash(false);
@@ -275,23 +275,14 @@ impl<'c> GenesisTransactionsBuilder<'c> {
             account_class_hash,
             salt,
             0,
-            &ResourceBounds{
-                max_amount: 0,
-                max_price_per_unit: 0,
-            },
-            &ResourceBounds{
-                max_amount: 0,
-                max_price_per_unit: 0,
-            },
-            Some(&ResourceBounds{
-                max_amount: 0,
-                max_price_per_unit: 0,
-            }),
+            &ResourceBounds { max_amount: 0, max_price_per_unit: 0 },
+            &ResourceBounds { max_amount: u64::MAX, max_price_per_unit: 0 },
+            Some(&ResourceBounds { max_amount: 0, max_price_per_unit: 0 }),
             &vec![],
             self.chain_spec.id.into(),
             Felt::ZERO,
-            &DataAvailabilityMode::L2,
-            &DataAvailabilityMode::L2,
+            &DataAvailabilityMode::L1,
+            &DataAvailabilityMode::L1,
             false,
         );
 
@@ -305,12 +296,15 @@ impl<'c> GenesisTransactionsBuilder<'c> {
             constructor_calldata: calldata,
             class_hash: account_class_hash,
             chain_id: self.chain_spec.id,
-            fee_data_availability_mode: DataAvailabilityMode::L2,
-            nonce_data_availability_mode: DataAvailabilityMode::L2,
+            fee_data_availability_mode: DataAvailabilityMode::L1,
+            nonce_data_availability_mode: DataAvailabilityMode::L1,
             paymaster_data: vec![],
             tip: 0,
-            resource_bounds: ResourceBoundsMapping::All(
-                AllResourceBoundsMapping::default()),
+            resource_bounds: ResourceBoundsMapping::All(AllResourceBoundsMapping {
+                l1_gas: ResourceBounds { max_amount: 0, max_price_per_unit: 0 },
+                l2_gas: ResourceBounds { max_amount: u64::MAX, max_price_per_unit: 0 },
+                l1_data_gas: ResourceBounds { max_amount: 0, max_price_per_unit: 0 },
+            }),
         }));
 
         let tx_hash = transaction.calculate_hash(false);
