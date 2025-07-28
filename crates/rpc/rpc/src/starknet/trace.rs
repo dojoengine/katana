@@ -7,8 +7,8 @@ use katana_provider::traits::block::{BlockNumberProvider, BlockProvider};
 use katana_provider::traits::transaction::{TransactionTraceProvider, TransactionsProviderExt};
 use katana_rpc_api::error::starknet::StarknetApiError;
 use katana_rpc_api::starknet::StarknetTraceApiServer;
+use katana_rpc_types::broadcasted::BroadcastedTx;
 use katana_rpc_types::trace::{to_rpc_fee_estimate, to_rpc_trace};
-use katana_rpc_types::transaction::BroadcastedTx;
 use katana_rpc_types::SimulationFlag;
 use starknet::core::types::{
     BlockTag, SimulatedTransaction, TransactionTrace, TransactionTraceWithHash,
@@ -32,24 +32,22 @@ impl<EF: ExecutorFactory> StarknetApi<EF> {
                     BroadcastedTx::Invoke(tx) => {
                         let is_query = tx.is_query();
                         ExecutableTxWithHash::new_query(
-                            ExecutableTx::Invoke(tx.into_tx_with_chain_id(chain_id)),
+                            ExecutableTx::Invoke(tx.into_inner(chain_id)),
                             is_query,
                         )
                     }
                     BroadcastedTx::Declare(tx) => {
                         let is_query = tx.is_query();
-                        ExecutableTxWithHash::new_query(
-                            ExecutableTx::Declare(
-                                tx.try_into_tx_with_chain_id(chain_id)
-                                    .map_err(|_| StarknetApiError::InvalidContractClass)?,
-                            ),
-                            is_query,
-                        )
+                        let tx = tx
+                            .into_inner(chain_id)
+                            .map_err(|_| StarknetApiError::InvalidContractClass)?;
+
+                        ExecutableTxWithHash::new_query(ExecutableTx::Declare(tx), is_query)
                     }
                     BroadcastedTx::DeployAccount(tx) => {
                         let is_query = tx.is_query();
                         ExecutableTxWithHash::new_query(
-                            ExecutableTx::DeployAccount(tx.into_tx_with_chain_id(chain_id)),
+                            ExecutableTx::DeployAccount(tx.into_inner(chain_id)),
                             is_query,
                         )
                     }

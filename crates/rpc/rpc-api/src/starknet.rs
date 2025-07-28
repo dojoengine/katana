@@ -10,15 +10,16 @@ use katana_rpc_types::block::{
     BlockHashAndNumber, BlockTxCount, MaybePendingBlockWithReceipts, MaybePendingBlockWithTxHashes,
     MaybePendingBlockWithTxs,
 };
+use katana_rpc_types::broadcasted::{
+    AddDeclareTransactionResult, AddDeployAccountTransactionResult, AddInvokeTransactionResult,
+    BroadcastedDeclareTx, BroadcastedDeployAccountTx, BroadcastedInvokeTx, BroadcastedTx,
+};
 use katana_rpc_types::class::RpcContractClass;
 use katana_rpc_types::event::{EventFilterWithPage, EventsPage};
 use katana_rpc_types::message::MsgFromL1;
 use katana_rpc_types::receipt::TxReceiptWithBlockInfo;
 use katana_rpc_types::state_update::MaybePendingStateUpdate;
-use katana_rpc_types::transaction::{
-    BroadcastedDeclareTx, BroadcastedDeployAccountTx, BroadcastedInvokeTx, BroadcastedTx,
-    DeclareTxResult, DeployAccountTxResult, InvokeTxResult, Tx,
-};
+use katana_rpc_types::transaction::Tx;
 use katana_rpc_types::trie::{ContractStorageKeys, GetStorageProofResponse};
 use katana_rpc_types::{
     FeeEstimate, FeltAsHex, FunctionCall, SimulationFlag, SimulationFlagForEstimateFee,
@@ -208,21 +209,21 @@ pub trait StarknetWriteApi {
     async fn add_invoke_transaction(
         &self,
         invoke_transaction: BroadcastedInvokeTx,
-    ) -> RpcResult<InvokeTxResult>;
+    ) -> RpcResult<AddInvokeTransactionResult>;
 
     /// Submit a new class declaration transaction.
     #[method(name = "addDeclareTransaction")]
     async fn add_declare_transaction(
         &self,
         declare_transaction: BroadcastedDeclareTx,
-    ) -> RpcResult<DeclareTxResult>;
+    ) -> RpcResult<AddDeclareTransactionResult>;
 
     /// Submit a new deploy account transaction.
     #[method(name = "addDeployAccountTransaction")]
     async fn add_deploy_account_transaction(
         &self,
         deploy_account_transaction: BroadcastedDeployAccountTx,
-    ) -> RpcResult<DeployAccountTxResult>;
+    ) -> RpcResult<AddDeployAccountTransactionResult>;
 }
 
 /// Trace API.

@@ -1,7 +1,7 @@
 use jsonrpsee::core::RpcResult;
 use jsonrpsee::proc_macros::rpc;
 use katana_primitives::{ContractAddress, Felt};
-use katana_rpc_types::transaction::InvokeTxResult;
+use katana_rpc_types::broadcasted::AddInvokeTransactionResult;
 
 use crate::rpc::types::OutsideExecution;
 
@@ -15,5 +15,5 @@ pub trait CartridgeApi {
         address: ContractAddress,
         outside_execution: OutsideExecution,
         signature: Vec<Felt>,
-    ) -> RpcResult<InvokeTxResult>;
+    ) -> RpcResult<AddInvokeTransactionResult>;
 }

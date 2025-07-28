@@ -6,7 +6,10 @@ use std::io::{self, Write};
 
 use cairo_lang_starknet_classes::contract_class::ContractEntryPoints;
 use cairo_lang_utils::bigint::BigUintAsHex;
-use katana_primitives::class::{ContractClass, LegacyContractClass, SierraContractClass};
+use katana_primitives::class::{
+    compute_sierra_class_hash, ClassHash, ComputeClassHashError, ContractClass,
+    LegacyContractClass, SierraContractClass,
+};
 use katana_primitives::{
     Felt, {self},
 };
@@ -72,12 +75,18 @@ impl TryFrom<RpcContractClass> for ContractClass {
 
 // -- SIERRA CLASS
 
-#[derive(Debug, Serialize, Deserialize, Clone, PartialEq, Eq)]
+#[derive(Debug, Serialize, Deserialize, Clone, PartialEq, Eq, Default)]
 pub struct RpcSierraContractClass {
     pub sierra_program: Vec<Felt>,
     pub contract_class_version: String,
     pub entry_points_by_type: ContractEntryPoints,
     pub abi: String,
+}
+
+impl RpcSierraContractClass {
+    pub fn hash(&self) -> Result<ClassHash, ComputeClassHashError> {
+        compute_sierra_class_hash(&self.abi, &self.entry_points_by_type, &self.sierra_program)
+    }
 }
 
 impl TryFrom<SierraContractClass> for RpcSierraContractClass {
@@ -351,5 +360,20 @@ mod tests {
         assert_eq!(expected_class.program.reference_manager, class.program.reference_manager);
         // The debug info is stripped when converting to RPC format.
         assert_eq!(serde_json::to_value::<Option<()>>(None).unwrap(), class.program.debug_info);
+    }
+
+    #[test]
+    fn class_hash() {
+        let json =
+            include_str!("../../../contracts/build/katana_account_Account.contract_class.json");
+        let class = serde_json::from_str::<SierraContractClass>(json).unwrap();
+
+        let rpc_class = RpcSierraContractClass::try_from(class.clone()).unwrap();
+        let rpc_class_hash = rpc_class.hash().unwrap();
+
+        let primitive = ContractClass::Class(SierraContractClass::try_from(rpc_class).unwrap());
+        let primitive_class_hash = primitive.class_hash().unwrap();
+
+        assert_eq!(rpc_class_hash, primitive_class_hash);
     }
 }

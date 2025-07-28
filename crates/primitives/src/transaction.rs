@@ -36,7 +36,11 @@ pub type TxNumber = u64;
 )]
 #[strum(serialize_all = "SCREAMING_SNAKE_CASE")]
 #[cfg_attr(feature = "arbitrary", derive(::arbitrary::Arbitrary))]
-#[cfg_attr(feature = "serde", derive(serde::Serialize, serde::Deserialize))]
+#[cfg_attr(
+    feature = "serde",
+    derive(serde::Serialize, serde::Deserialize),
+    serde(rename_all = "SCREAMING_SNAKE_CASE")
+)]
 pub enum TxType {
     /// Invokes a function of a contract.
     #[default]

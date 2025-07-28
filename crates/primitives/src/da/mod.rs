@@ -15,6 +15,10 @@ pub enum L1DataAvailabilityMode {
     Calldata,
 }
 
+/// Data availability mode.
+///
+/// Specifies a storage domain in Starknet. Each domain has different guarantees regarding
+/// availability
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 #[cfg_attr(feature = "arbitrary", derive(::arbitrary::Arbitrary))]
 #[cfg_attr(feature = "serde", derive(::serde::Serialize, ::serde::Deserialize))]
