@@ -238,6 +238,94 @@ impl UntypedBroadcastedTx {
     }
 }
 
+impl From<BroadcastedTx> for UntypedBroadcastedTx {
+    fn from(tx: BroadcastedTx) -> Self {
+        match tx {
+            BroadcastedTx::Invoke(tx) => tx.into(),
+            BroadcastedTx::Declare(tx) => tx.into(),
+            BroadcastedTx::DeployAccount(tx) => tx.into(),
+        }
+    }
+}
+
+impl From<BroadcastedInvokeTx> for UntypedBroadcastedTx {
+    fn from(tx: BroadcastedInvokeTx) -> Self {
+        let version = if tx.is_query { Felt::THREE + QUERY_VERSION_OFFSET } else { Felt::THREE };
+
+        Self {
+            r#type: TxType::Invoke,
+            version,
+            tip: tx.tip,
+            nonce: tx.nonce,
+            signature: tx.signature,
+            paymaster_data: tx.paymaster_data,
+            resource_bounds: tx.resource_bounds,
+            sender_address: Some(tx.sender_address),
+            account_deployment_data: Some(tx.account_deployment_data),
+            fee_data_availability_mode: tx.fee_data_availability_mode,
+            nonce_data_availability_mode: tx.nonce_data_availability_mode,
+            calldata: Some(tx.calldata),
+            class_hash: None,
+            contract_class: None,
+            compiled_class_hash: None,
+            constructor_calldata: None,
+            contract_address_salt: None,
+        }
+    }
+}
+
+impl From<BroadcastedDeclareTx> for UntypedBroadcastedTx {
+    fn from(tx: BroadcastedDeclareTx) -> Self {
+        let version = if tx.is_query { Felt::THREE + QUERY_VERSION_OFFSET } else { Felt::THREE };
+
+        Self {
+            r#type: TxType::Declare,
+            version,
+            tip: tx.tip,
+            nonce: tx.nonce,
+            signature: tx.signature,
+            paymaster_data: tx.paymaster_data,
+            resource_bounds: tx.resource_bounds,
+            contract_class: Some(tx.contract_class),
+            sender_address: Some(tx.sender_address),
+            compiled_class_hash: Some(tx.compiled_class_hash),
+            account_deployment_data: Some(tx.account_deployment_data),
+            fee_data_availability_mode: tx.fee_data_availability_mode,
+            nonce_data_availability_mode: tx.nonce_data_availability_mode,
+            calldata: None,
+            class_hash: None,
+            constructor_calldata: None,
+            contract_address_salt: None,
+        }
+    }
+}
+
+impl From<BroadcastedDeployAccountTx> for UntypedBroadcastedTx {
+    fn from(tx: BroadcastedDeployAccountTx) -> Self {
+        let version = if tx.is_query { Felt::THREE + QUERY_VERSION_OFFSET } else { Felt::THREE };
+
+        Self {
+            r#type: TxType::DeployAccount,
+            version,
+            tip: tx.tip,
+            nonce: tx.nonce,
+            signature: tx.signature,
+            class_hash: Some(tx.class_hash),
+            paymaster_data: tx.paymaster_data,
+            resource_bounds: tx.resource_bounds,
+            constructor_calldata: Some(tx.constructor_calldata),
+            contract_address_salt: Some(tx.contract_address_salt),
+            fee_data_availability_mode: tx.fee_data_availability_mode,
+            nonce_data_availability_mode: tx.nonce_data_availability_mode,
+            calldata: None,
+            contract_class: None,
+            sender_address: None,
+            compiled_class_hash: None,
+            account_deployment_data: None,
+        }
+    }
+}
+
 /// A broadcasted transaction.
 #[derive(Debug, Clone, Serialize)]
 #[serde(untagged)]
