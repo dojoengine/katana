@@ -67,6 +67,9 @@ impl<EF: ExecutorFactory> Paymaster<EF> {
     }
 
     /// Deploys the account contract of a Controller account.
+    ///
+    /// This will submit a transaction to the pool for deploying the Controller account contract
+    /// associated with `address`.
     pub fn deploy_controller(&self, address: ContractAddress) -> PaymasterResult<TxHash> {
         let block_id = BlockIdOrTag::Tag(BlockTag::Pending);
         let tx = self.get_controller_deploy_tx(address, block_id)?;
