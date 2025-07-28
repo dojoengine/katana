@@ -98,7 +98,7 @@ impl UntypedBroadcastedTx {
             TxType::DeployAccount => {
                 Ok(BroadcastedTx::DeployAccount(self.try_into_deploy_account()?))
             }
-            r#type @ _ => Err(UntypedBroadcastedTxError::UnsupportedTxType { r#type }),
+            r#type => Err(UntypedBroadcastedTxError::UnsupportedTxType { r#type }),
         }
     }
 
@@ -613,7 +613,7 @@ mod tests {
     use serde_json::json;
 
     use super::*;
-    use crate::new_transaction::{
+    use crate::broadcasted::{
         AddDeclareTransactionResult, AddDeployAccountTransactionResult, AddInvokeTransactionResult,
         BroadcastedTx, RpcResourceBoundsMapping, UntypedBroadcastedTxError,
     };

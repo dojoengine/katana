@@ -7,7 +7,7 @@ use katana_provider::traits::block::{BlockNumberProvider, BlockProvider};
 use katana_provider::traits::transaction::{TransactionTraceProvider, TransactionsProviderExt};
 use katana_rpc_api::error::starknet::StarknetApiError;
 use katana_rpc_api::starknet::StarknetTraceApiServer;
-use katana_rpc_types::new_transaction::BroadcastedTx;
+use katana_rpc_types::broadcasted::BroadcastedTx;
 use katana_rpc_types::trace::{to_rpc_fee_estimate, to_rpc_trace};
 use katana_rpc_types::SimulationFlag;
 use starknet::core::types::{

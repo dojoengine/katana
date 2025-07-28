@@ -13,7 +13,7 @@ use katana_rpc_types::block::{
 use katana_rpc_types::class::RpcContractClass;
 use katana_rpc_types::event::{EventFilterWithPage, EventsPage};
 use katana_rpc_types::message::MsgFromL1;
-use katana_rpc_types::new_transaction::{
+use katana_rpc_types::broadcasted::{
     AddDeclareTransactionResult, AddDeployAccountTransactionResult, AddInvokeTransactionResult,
     BroadcastedDeclareTx, BroadcastedDeployAccountTx, BroadcastedInvokeTx, BroadcastedTx,
 };

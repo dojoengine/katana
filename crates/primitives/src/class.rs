@@ -59,7 +59,7 @@ impl ContractClass {
                     .map(|f| f.value.clone().into())
                     .collect::<Vec<Felt>>();
 
-                compute_sierra_class_hash(&abi_str, &class.entry_points_by_type, &sierra_program)
+                compute_sierra_class_hash(&abi_str, &class.entry_points_by_type, sierra_program)
             }
 
             Self::Legacy(class) => compute_legacy_class_hash(class),

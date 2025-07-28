@@ -48,7 +48,7 @@ use katana_primitives::{ContractAddress, Felt};
 use katana_provider::traits::state::{StateFactoryProvider, StateProvider};
 use katana_rpc_api::cartridge::CartridgeApiServer;
 use katana_rpc_api::error::starknet::StarknetApiError;
-use katana_rpc_types::new_transaction::AddInvokeTransactionResult;
+use katana_rpc_types::broadcasted::AddInvokeTransactionResult;
 use katana_rpc_types::outside_execution::{
     OutsideExecution, OutsideExecutionV2, OutsideExecutionV3,
 };

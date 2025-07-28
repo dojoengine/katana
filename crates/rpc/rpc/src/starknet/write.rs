@@ -4,7 +4,7 @@ use katana_pool::TransactionPool;
 use katana_primitives::transaction::{ExecutableTx, ExecutableTxWithHash};
 use katana_rpc_api::error::starknet::StarknetApiError;
 use katana_rpc_api::starknet::StarknetWriteApiServer;
-use katana_rpc_types::new_transaction::{
+use katana_rpc_types::broadcasted::{
     AddDeclareTransactionResult, AddDeployAccountTransactionResult, AddInvokeTransactionResult,
     BroadcastedDeclareTx, BroadcastedDeployAccountTx, BroadcastedInvokeTx,
 };

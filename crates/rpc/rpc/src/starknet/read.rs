@@ -23,7 +23,7 @@ use katana_rpc_types::block::{
 use katana_rpc_types::class::RpcContractClass;
 use katana_rpc_types::event::{EventFilterWithPage, EventsPage};
 use katana_rpc_types::message::MsgFromL1;
-use katana_rpc_types::new_transaction::BroadcastedTx;
+use katana_rpc_types::broadcasted::BroadcastedTx;
 use katana_rpc_types::receipt::TxReceiptWithBlockInfo;
 use katana_rpc_types::state_update::MaybePendingStateUpdate;
 use katana_rpc_types::transaction::Tx;
