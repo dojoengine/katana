@@ -71,6 +71,7 @@ impl<EF: ExecutorFactory> Paymaster<EF> {
     /// This will submit a transaction to the pool for deploying the Controller account contract
     /// associated with `address`.
     pub fn deploy_controller(&self, address: ContractAddress) -> PaymasterResult<TxHash> {
+        // Create a Controller deploy transaction against the latest state of the network.
         let block_id = BlockIdOrTag::Tag(BlockTag::Pending);
         let tx = self.get_controller_deploy_tx(address, block_id)?;
 
@@ -107,12 +108,10 @@ impl<EF: ExecutorFactory> Paymaster<EF> {
             // version, which is included in the calldata retrieved from the Cartridge API.
             match self.get_controller_deploy_tx(address, block_id) {
                 Ok(tx) => {
-                    // todo!("convert from ExecutableTxWithHash to BroadcastedTx");
                     new_transactions.push(BroadcastedTx::from(tx));
                 }
-
                 Err(Error::ControllerNotFound(..)) => continue,
-                Err(err) => panic!("{err}"),
+                Err(err) => return Err(err),
             }
         }
 
@@ -187,13 +186,6 @@ fn create_deploy_tx(
     // for each of the unique sender and push it at the beginning of the
     // transaction list so that all the requested transactions are executed against a state
     // with the Controller accounts deployed.
-
-    // let pm_address = self.paymaster_address;
-    // let pm_nonce = match block_on(self.starknet_api.nonce_at(block_id, pm_address)) {
-    //     Ok(nonce) => nonce,
-    //     Err(StarknetApiError::ContractNotFound) => Err(Error::PaymasterNotFound(pm_address)),
-    //     Err(err) => Err(Error::StarknetApi(err)),
-    // };
 
     let call = Call {
         calldata: constructor_calldata,

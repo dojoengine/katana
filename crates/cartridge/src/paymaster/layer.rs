@@ -186,14 +186,14 @@ where
         &self,
         mut request: Request<'a>,
     ) -> impl Future<Output = Self::MethodResponse> + Send + 'a {
-        if request.method_name() == "starknet_estimateFee" {
-            self.intercept_estimate_fee(&mut request);
-            self.service.call(request)
-        } else if request.method_name() == "cartridge_addExecuteOutsideTransaction" {
-            self.intercept_add_outside_execution(&request);
-            self.service.call(request)
-        } else {
-            self.service.call(request)
+        async {
+            if request.method_name() == "starknet_estimateFee" {
+                self.intercept_estimate_fee(&mut request);
+            } else if request.method_name() == "cartridge_addExecuteOutsideTransaction" {
+                self.intercept_add_outside_execution(&request);
+            }
+
+            self.service.call(request).await
         }
     }
 
