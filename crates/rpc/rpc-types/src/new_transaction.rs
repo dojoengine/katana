@@ -13,13 +13,34 @@ use katana_primitives::utils::serde::{
     deserialize_hex_u128, deserialize_hex_u64, serialize_hex_u128, serialize_hex_u64,
 };
 use katana_primitives::{ContractAddress, Felt};
-use serde::{Deserialize, Deserializer, Serialize, Serializer};
+use serde::{de, Deserialize, Deserializer, Serialize, Serializer};
 use starknet::core::utils::get_contract_address;
 
 use crate::class::RpcSierraContractClass;
 
 const QUERY_VERSION_OFFSET: Felt =
     Felt::from_raw([576460752142434320, 18446744073709551584, 17407, 18446744073700081665]);
+
+macro_rules! expect_field {
+    ($field:expr, $tx_type:expr, $field_name:literal) => {
+        $field.ok_or(UntypedBroadcastedTxError::MissingField {
+            r#type: $tx_type,
+            field: $field_name,
+        })?
+    };
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, thiserror::Error)]
+pub enum UntypedBroadcastedTxError {
+    #[error("expected {expected} transaction, got {actual}")]
+    InvalidTxType { expected: TxType, actual: TxType },
+
+    #[error("missing `{field}` for {r#type} transaction")]
+    MissingField { r#type: TxType, field: &'static str },
+
+    #[error("invalid version for {r#type} transaction")]
+    InvalidVersion { r#type: TxType },
+}
 
 #[serde_with::serde_as]
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -64,9 +85,16 @@ pub struct UntypedBroadcastedTx {
 }
 
 impl UntypedBroadcastedTx {
-    pub fn try_into_invoke_tx(self) -> Result<BroadcastedInvokeTx, String> {
+    pub fn typed(self) -> BroadcastedTx {
+        unimplemented!()
+    }
+
+    pub fn try_into_invoke_tx(self) -> Result<BroadcastedInvokeTx, UntypedBroadcastedTxError> {
         if self.r#type != TxType::Invoke {
-            return Err(format!("Expected INVOKE transaction, got {}", self.r#type));
+            return Err(UntypedBroadcastedTxError::InvalidTxType {
+                expected: TxType::Invoke,
+                actual: self.r#type,
+            });
         }
 
         let is_query = if self.version == Felt::THREE {
@@ -74,19 +102,23 @@ impl UntypedBroadcastedTx {
         } else if self.version == Felt::THREE + QUERY_VERSION_OFFSET {
             true
         } else {
-            return Err("Invalid version for INVOKE transaction".to_string());
+            return Err(UntypedBroadcastedTxError::InvalidVersion { r#type: TxType::Invoke });
         };
+
+        let nonce = expect_field!(self.nonce, TxType::Invoke, "nonce");
+        let calldata = expect_field!(self.calldata, TxType::Invoke, "calldata");
+        let sender_address = expect_field!(self.sender_address, TxType::Invoke, "sender_address");
+        let account_deployment_data =
+            expect_field!(self.account_deployment_data, TxType::Invoke, "account_deployment_data");
 
         Ok(BroadcastedInvokeTx {
-            sender_address: self
-                .sender_address
-                .ok_or("Missing sender_address for INVOKE transaction")?,
-            calldata: self.calldata.ok_or("Missing calldata for INVOKE transaction")?,
-            signature: self.signature,
-            nonce: self.nonce.ok_or("Missing nonce for INVOKE transaction")?,
-            paymaster_data: self.paymaster_data,
+            nonce,
+            calldata,
             tip: self.tip,
-            account_deployment_data: self.account_deployment_data.unwrap_or_default(),
+            sender_address,
+            account_deployment_data,
+            signature: self.signature,
+            paymaster_data: self.paymaster_data,
             resource_bounds: self.resource_bounds,
             fee_data_availability_mode: self.fee_data_availability_mode,
             nonce_data_availability_mode: self.nonce_data_availability_mode,
@@ -94,9 +126,12 @@ impl UntypedBroadcastedTx {
         })
     }
 
-    pub fn try_into_declare_tx(self) -> Result<BroadcastedDeclareTx, String> {
+    pub fn try_into_declare_tx(self) -> Result<BroadcastedDeclareTx, UntypedBroadcastedTxError> {
         if self.r#type != TxType::Declare {
-            return Err(format!("Expected DECLARE transaction, got {}", self.r#type));
+            return Err(UntypedBroadcastedTxError::InvalidTxType {
+                expected: TxType::Declare,
+                actual: self.r#type,
+            });
         }
 
         let is_query = if self.version == Felt::THREE {
@@ -104,34 +139,41 @@ impl UntypedBroadcastedTx {
         } else if self.version == Felt::THREE + QUERY_VERSION_OFFSET {
             true
         } else {
-            return Err("Invalid version for DECLARE transaction".to_string());
+            return Err(UntypedBroadcastedTxError::InvalidVersion { r#type: TxType::Declare });
         };
+
+        let sender_address = expect_field!(self.sender_address, TxType::Declare, "sender_address");
+        let compiled_class_hash =
+            expect_field!(self.compiled_class_hash, TxType::Declare, "compiled_class_hash");
+        let nonce = expect_field!(self.nonce, TxType::Declare, "nonce");
+        let contract_class = expect_field!(self.contract_class, TxType::Declare, "contract_class");
+        let account_deployment_data =
+            expect_field!(self.account_deployment_data, TxType::Declare, "account_deployment_data");
 
         Ok(BroadcastedDeclareTx {
-            sender_address: self
-                .sender_address
-                .ok_or("Missing sender_address for DECLARE transaction")?,
-            compiled_class_hash: self
-                .compiled_class_hash
-                .ok_or("Missing compiled_class_hash for DECLARE transaction")?,
-            signature: self.signature,
-            nonce: self.nonce.ok_or("Missing nonce for DECLARE transaction")?,
-            contract_class: self
-                .contract_class
-                .ok_or("Missing contract_class for DECLARE transaction")?,
-            resource_bounds: self.resource_bounds,
+            nonce,
+            contract_class,
+            sender_address,
             tip: self.tip,
+            compiled_class_hash,
+            account_deployment_data,
+            signature: self.signature,
             paymaster_data: self.paymaster_data,
-            account_deployment_data: self.account_deployment_data.unwrap_or_default(),
+            resource_bounds: self.resource_bounds,
             nonce_data_availability_mode: self.nonce_data_availability_mode,
             fee_data_availability_mode: self.fee_data_availability_mode,
             is_query,
         })
     }
 
-    pub fn try_into_deploy_account_tx(self) -> Result<BroadcastedDeployAccountTx, String> {
+    pub fn try_into_deploy_account_tx(
+        self,
+    ) -> Result<BroadcastedDeployAccountTx, UntypedBroadcastedTxError> {
         if self.r#type != TxType::DeployAccount {
-            return Err(format!("Expected DEPLOY_ACCOUNT transaction, got {}", self.r#type));
+            return Err(UntypedBroadcastedTxError::InvalidTxType {
+                expected: TxType::DeployAccount,
+                actual: self.r#type,
+            });
         }
 
         let is_query = if self.version == Felt::THREE {
@@ -139,33 +181,38 @@ impl UntypedBroadcastedTx {
         } else if self.version == Felt::THREE + QUERY_VERSION_OFFSET {
             true
         } else {
-            return Err("Invalid version for DEPLOY_ACCOUNT transaction".to_string());
+            return Err(UntypedBroadcastedTxError::InvalidVersion {
+                r#type: TxType::DeployAccount,
+            });
         };
 
+        let nonce = expect_field!(self.nonce, TxType::DeployAccount, "nonce");
+        let contract_address_salt = expect_field!(
+            self.contract_address_salt,
+            TxType::DeployAccount,
+            "contract_address_salt"
+        );
+        let constructor_calldata =
+            expect_field!(self.constructor_calldata, TxType::DeployAccount, "constructor_calldata");
+        let class_hash = expect_field!(self.class_hash, TxType::DeployAccount, "class_hash");
+
         Ok(BroadcastedDeployAccountTx {
-            signature: self.signature,
-            nonce: self.nonce.ok_or("Missing nonce for DEPLOY_ACCOUNT transaction")?,
-            contract_address_salt: self
-                .contract_address_salt
-                .ok_or("Missing contract_address_salt for DEPLOY_ACCOUNT transaction")?,
-            constructor_calldata: self
-                .constructor_calldata
-                .ok_or("Missing constructor_calldata for DEPLOY_ACCOUNT transaction")?,
-            class_hash: self
-                .class_hash
-                .ok_or("Missing class_hash for DEPLOY_ACCOUNT transaction")?,
-            resource_bounds: self.resource_bounds,
+            nonce,
+            class_hash,
             tip: self.tip,
+            constructor_calldata,
+            contract_address_salt,
+            signature: self.signature,
             paymaster_data: self.paymaster_data,
-            nonce_data_availability_mode: self.nonce_data_availability_mode,
+            resource_bounds: self.resource_bounds,
             fee_data_availability_mode: self.fee_data_availability_mode,
+            nonce_data_availability_mode: self.nonce_data_availability_mode,
             is_query,
         })
     }
 }
 
-#[derive(Debug, Clone, Deserialize)]
-#[serde(untagged)]
+#[derive(Debug, Clone)]
 pub enum BroadcastedTx {
     Invoke(BroadcastedInvokeTx),
     Declare(BroadcastedDeclareTx),
@@ -178,6 +225,31 @@ impl Serialize for BroadcastedTx {
             BroadcastedTx::Invoke(tx) => tx.serialize(serializer),
             BroadcastedTx::Declare(tx) => tx.serialize(serializer),
             BroadcastedTx::DeployAccount(tx) => tx.serialize(serializer),
+        }
+    }
+}
+
+impl<'de> Deserialize<'de> for BroadcastedTx {
+    fn deserialize<D: Deserializer<'de>>(deserializer: D) -> Result<Self, D::Error> {
+        let untyped = UntypedBroadcastedTx::deserialize(deserializer)?;
+
+        match untyped.r#type {
+            TxType::Invoke => {
+                let typed = untyped.try_into_invoke_tx().map_err(de::Error::custom)?;
+                Ok(BroadcastedTx::Invoke(typed))
+            }
+
+            TxType::Declare => {
+                let typed = untyped.try_into_declare_tx().map_err(de::Error::custom)?;
+                Ok(BroadcastedTx::Declare(typed))
+            }
+
+            TxType::DeployAccount => {
+                let typed = untyped.try_into_deploy_account_tx().map_err(de::Error::custom)?;
+                Ok(BroadcastedTx::DeployAccount(typed))
+            }
+
+            r#type @ _ => Err(de::Error::custom(format!("unsupported transaction type {type}"))),
         }
     }
 }
@@ -220,10 +292,7 @@ impl BroadcastedInvokeTx {
 }
 
 impl serde::Serialize for BroadcastedInvokeTx {
-    fn serialize<S>(&self, serializer: S) -> Result<S::Ok, S::Error>
-    where
-        S: serde::Serializer,
-    {
+    fn serialize<S: serde::Serializer>(&self, serializer: S) -> Result<S::Ok, S::Error> {
         use serde::ser::SerializeStruct;
 
         let version = if self.is_query { Felt::THREE + QUERY_VERSION_OFFSET } else { Felt::THREE };
@@ -284,7 +353,7 @@ impl BroadcastedDeclareTx {
     }
 
     pub fn into_inner(self, chain_id: ChainId) -> DeclareTxWithClass {
-        let class_hash = self.contract_class.hash();
+        let class_hash = self.contract_class.hash().unwrap();
 
         let rpc_class = Arc::unwrap_or_clone(self.contract_class);
         let class = ContractClass::Class(SierraContractClass::try_from(rpc_class).unwrap());
