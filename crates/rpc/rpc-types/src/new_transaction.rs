@@ -40,6 +40,9 @@ pub enum UntypedBroadcastedTxError {
 
     #[error("invalid version for {r#type} transaction")]
     InvalidVersion { r#type: TxType },
+
+    #[error("unsupported transaction type {r#type}")]
+    UnsupportedTxType { r#type: TxType },
 }
 
 #[serde_with::serde_as]
@@ -85,11 +88,18 @@ pub struct UntypedBroadcastedTx {
 }
 
 impl UntypedBroadcastedTx {
-    pub fn typed(self) -> BroadcastedTx {
-        unimplemented!()
+    pub fn typed(self) -> Result<BroadcastedTx, UntypedBroadcastedTxError> {
+        match self.r#type {
+            TxType::Invoke => Ok(BroadcastedTx::Invoke(self.try_into_invoke()?)),
+            TxType::Declare => Ok(BroadcastedTx::Declare(self.try_into_declare()?)),
+            TxType::DeployAccount => {
+                Ok(BroadcastedTx::DeployAccount(self.try_into_deploy_account()?))
+            }
+            r#type @ _ => Err(UntypedBroadcastedTxError::UnsupportedTxType { r#type }),
+        }
     }
 
-    pub fn try_into_invoke_tx(self) -> Result<BroadcastedInvokeTx, UntypedBroadcastedTxError> {
+    pub fn try_into_invoke(self) -> Result<BroadcastedInvokeTx, UntypedBroadcastedTxError> {
         if self.r#type != TxType::Invoke {
             return Err(UntypedBroadcastedTxError::InvalidTxType {
                 expected: TxType::Invoke,
@@ -126,7 +136,7 @@ impl UntypedBroadcastedTx {
         })
     }
 
-    pub fn try_into_declare_tx(self) -> Result<BroadcastedDeclareTx, UntypedBroadcastedTxError> {
+    pub fn try_into_declare(self) -> Result<BroadcastedDeclareTx, UntypedBroadcastedTxError> {
         if self.r#type != TxType::Declare {
             return Err(UntypedBroadcastedTxError::InvalidTxType {
                 expected: TxType::Declare,
@@ -166,7 +176,7 @@ impl UntypedBroadcastedTx {
         })
     }
 
-    pub fn try_into_deploy_account_tx(
+    pub fn try_into_deploy_account(
         self,
     ) -> Result<BroadcastedDeployAccountTx, UntypedBroadcastedTxError> {
         if self.r#type != TxType::DeployAccount {
@@ -231,26 +241,7 @@ impl Serialize for BroadcastedTx {
 
 impl<'de> Deserialize<'de> for BroadcastedTx {
     fn deserialize<D: Deserializer<'de>>(deserializer: D) -> Result<Self, D::Error> {
-        let untyped = UntypedBroadcastedTx::deserialize(deserializer)?;
-
-        match untyped.r#type {
-            TxType::Invoke => {
-                let typed = untyped.try_into_invoke_tx().map_err(de::Error::custom)?;
-                Ok(BroadcastedTx::Invoke(typed))
-            }
-
-            TxType::Declare => {
-                let typed = untyped.try_into_declare_tx().map_err(de::Error::custom)?;
-                Ok(BroadcastedTx::Declare(typed))
-            }
-
-            TxType::DeployAccount => {
-                let typed = untyped.try_into_deploy_account_tx().map_err(de::Error::custom)?;
-                Ok(BroadcastedTx::DeployAccount(typed))
-            }
-
-            r#type @ _ => Err(de::Error::custom(format!("unsupported transaction type {type}"))),
-        }
+        UntypedBroadcastedTx::deserialize(deserializer)?.typed().map_err(de::Error::custom)
     }
 }
 
@@ -317,17 +308,9 @@ impl serde::Serialize for BroadcastedInvokeTx {
 
 impl<'de> Deserialize<'de> for BroadcastedInvokeTx {
     fn deserialize<D: Deserializer<'de>>(deserializer: D) -> Result<Self, D::Error> {
-        let untyped = UntypedBroadcastedTx::deserialize(deserializer)?;
-
-        let is_query = if dbg!(untyped.version) == Felt::THREE {
-            false
-        } else if untyped.version == Felt::THREE + QUERY_VERSION_OFFSET {
-            true
-        } else {
-            return Err(serde::de::Error::custom("invalid `version` value"));
-        };
-
-        Ok(dbg!(Self { is_query, ..untyped.try_into_invoke_tx().unwrap() }))
+        UntypedBroadcastedTx::deserialize(deserializer)?
+            .try_into_invoke()
+            .map_err(de::Error::custom)
     }
 }
 
@@ -404,17 +387,9 @@ impl serde::Serialize for BroadcastedDeclareTx {
 
 impl<'de> Deserialize<'de> for BroadcastedDeclareTx {
     fn deserialize<D: Deserializer<'de>>(deserializer: D) -> Result<Self, D::Error> {
-        let untyped = UntypedBroadcastedTx::deserialize(deserializer)?;
-
-        let is_query = if untyped.version == Felt::THREE {
-            false
-        } else if untyped.version == Felt::THREE + QUERY_VERSION_OFFSET {
-            true
-        } else {
-            return Err(serde::de::Error::custom("invalid `version` value"));
-        };
-
-        Ok(Self { is_query, ..untyped.try_into_declare_tx().unwrap() })
+        UntypedBroadcastedTx::deserialize(deserializer)?
+            .try_into_declare()
+            .map_err(de::Error::custom)
     }
 }
 
@@ -492,17 +467,9 @@ impl serde::Serialize for BroadcastedDeployAccountTx {
 
 impl<'de> Deserialize<'de> for BroadcastedDeployAccountTx {
     fn deserialize<D: Deserializer<'de>>(deserializer: D) -> Result<Self, D::Error> {
-        let untyped = UntypedBroadcastedTx::deserialize(deserializer)?;
-
-        let is_query = if untyped.version == Felt::THREE {
-            false
-        } else if untyped.version == Felt::THREE + QUERY_VERSION_OFFSET {
-            true
-        } else {
-            return Err(serde::de::Error::custom("invalid `version` value"));
-        };
-
-        Ok(Self { is_query, ..untyped.try_into_deploy_account_tx().unwrap() })
+        UntypedBroadcastedTx::deserialize(deserializer)?
+            .try_into_deploy_account()
+            .map_err(de::Error::custom)
     }
 }
 
