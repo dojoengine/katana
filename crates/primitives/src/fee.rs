@@ -45,9 +45,8 @@ pub enum ResourceBoundsMapping {
     /// Legacy bounds; only L1 gas bounds specified (backward compatibility).
     ///
     /// Raw resources are converted to L1 gas for cost calculation. Prior to 0.14.0, the L2 gas
-    /// bounds is signed and present in the but is always hardcoded to be zero thus, the L2 gas
-    /// field is completely ommitted from this variant and is assumed to be zero during
-    /// transaction hash computation.
+    /// bounds is signed but is always hardcoded to be zero thus, the L2 gas field is completely
+    /// ommitted from this variant and is assumed to be zero during transaction hash computation.
     ///
     /// Supported in Starknet v0.13.4 but rejected in v0.14.0+.
     L1Gas(ResourceBounds),
