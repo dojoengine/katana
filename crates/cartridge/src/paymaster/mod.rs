@@ -12,7 +12,7 @@ use katana_primitives::transaction::{
 use katana_primitives::{ContractAddress, Felt};
 use katana_rpc::starknet::StarknetApi;
 use katana_rpc_api::error::starknet::StarknetApiError;
-use katana_rpc_types::transaction::{BroadcastedDeclareTx, BroadcastedInvokeTx, BroadcastedTx};
+use katana_rpc_types::broadcasted::BroadcastedTx;
 use layer::PaymasterLayer;
 use starknet::core::types::Call;
 use starknet::macros::selector;
@@ -70,7 +70,10 @@ impl<EF: ExecutorFactory> Paymaster<EF> {
     pub fn deploy_controller(&self, address: ContractAddress) -> PaymasterResult<TxHash> {
         let block_id = BlockIdOrTag::Tag(BlockTag::Pending);
         let tx = self.get_controller_deploy_tx(address, block_id)?;
+
+        let tx = ExecutableTxWithHash::new(tx);
         let tx_hash = self.pool.add_transaction(tx).map_err(Error::FailedToAddTransaction)?;
+
         Ok(tx_hash)
     }
 
@@ -83,8 +86,8 @@ impl<EF: ExecutorFactory> Paymaster<EF> {
 
         for tx in transactions {
             let address = match &tx {
-                BroadcastedTx::Invoke(BroadcastedInvokeTx(tx)) => tx.sender_address,
-                BroadcastedTx::Declare(BroadcastedDeclareTx(tx)) => tx.sender_address,
+                BroadcastedTx::Invoke(tx) => tx.sender_address,
+                BroadcastedTx::Declare(tx) => tx.sender_address,
                 _ => continue,
             };
 
@@ -101,8 +104,8 @@ impl<EF: ExecutorFactory> Paymaster<EF> {
             // version, which is included in the calldata retrieved from the Cartridge API.
             match self.get_controller_deploy_tx(address.into(), block_id) {
                 Ok(tx) => {
-                    todo!("convert from ExecutableTxWithHash to BroadcastedTx");
-                    // new_transactions.push(tx);
+                    // todo!("convert from ExecutableTxWithHash to BroadcastedTx");
+                    new_transactions.push(BroadcastedTx::from(tx));
                 }
 
                 Err(Error::ControllerNotFound(..)) => continue,
@@ -127,7 +130,7 @@ impl<EF: ExecutorFactory> Paymaster<EF> {
         &self,
         address: ContractAddress,
         block_id: BlockIdOrTag,
-    ) -> PaymasterResult<ExecutableTxWithHash> {
+    ) -> PaymasterResult<ExecutableTx> {
         let result = block_on(self.cartridge_api.get_account_calldata(address))?;
         let account = result.ok_or(Error::ControllerNotFound(address))?;
 
@@ -175,7 +178,7 @@ fn create_deploy_tx(
     nonce: Nonce,
     constructor_calldata: Vec<Felt>,
     chain_id: ChainId,
-) -> PaymasterResult<ExecutableTxWithHash> {
+) -> PaymasterResult<ExecutableTx> {
     // Check if any of the transactions are sent from an address associated with a Cartridge
     // Controller account. If yes, we craft a Controller deployment transaction
     // for each of the unique sender and push it at the beginning of the
@@ -215,7 +218,5 @@ fn create_deploy_tx(
     let signature = block_on(signer.sign_hash(&tx_hash)).unwrap();
     tx.signature = vec![signature.r, signature.s];
 
-    let tx = ExecutableTxWithHash::new(ExecutableTx::Invoke(InvokeTx::V3(tx)));
-
-    Ok(tx)
+    Ok(ExecutableTx::Invoke(InvokeTx::V3(tx)))
 }

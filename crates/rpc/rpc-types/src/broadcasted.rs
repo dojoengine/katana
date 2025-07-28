@@ -8,8 +8,8 @@ use katana_primitives::contract::Nonce;
 use katana_primitives::da::DataAvailabilityMode;
 use katana_primitives::fee::{AllResourceBoundsMapping, ResourceBounds, ResourceBoundsMapping};
 use katana_primitives::transaction::{
-    DeclareTx, DeclareTxV3, DeclareTxWithClass, DeployAccountTx, DeployAccountTxV3, InvokeTx,
-    InvokeTxV3, TxHash, TxType,
+    DeclareTx, DeclareTxV3, DeclareTxWithClass, DeployAccountTx, DeployAccountTxV3, ExecutableTx,
+    InvokeTx, InvokeTxV3, TxHash, TxType,
 };
 use katana_primitives::utils::serde::{
     deserialize_hex_u128, deserialize_hex_u64, serialize_hex_u128, serialize_hex_u64,
@@ -330,6 +330,164 @@ impl From<BroadcastedDeployAccountTx> for UntypedBroadcastedTx {
     }
 }
 
+impl From<ExecutableTx> for BroadcastedTx {
+    fn from(tx: ExecutableTx) -> Self {
+        match tx {
+            ExecutableTx::Invoke(invoke_tx) => {
+                let (
+                    sender_address,
+                    calldata,
+                    signature,
+                    nonce,
+                    tip,
+                    paymaster_data,
+                    resource_bounds,
+                    account_deployment_data,
+                    fee_data_availability_mode,
+                    nonce_data_availability_mode,
+                ) = match invoke_tx {
+                    InvokeTx::V0(_) => {
+                        panic!("V0 invoke transactions are not supported for broadcasting")
+                    }
+                    InvokeTx::V1(_) => {
+                        panic!("V1 invoke transactions are not supported for broadcasting")
+                    }
+                    InvokeTx::V3(tx) => (
+                        tx.sender_address,
+                        tx.calldata,
+                        tx.signature,
+                        tx.nonce,
+                        tx.tip,
+                        tx.paymaster_data,
+                        tx.resource_bounds,
+                        tx.account_deployment_data,
+                        tx.fee_data_availability_mode,
+                        tx.nonce_data_availability_mode,
+                    ),
+                };
+
+                BroadcastedTx::Invoke(BroadcastedInvokeTx {
+                    sender_address,
+                    calldata,
+                    signature,
+                    nonce,
+                    paymaster_data,
+                    tip,
+                    account_deployment_data,
+                    resource_bounds,
+                    fee_data_availability_mode,
+                    nonce_data_availability_mode,
+                    is_query: false,
+                })
+            }
+            ExecutableTx::Declare(declare_tx_with_class) => {
+                let declare_tx = declare_tx_with_class.transaction;
+                let contract_class = Arc::new(
+                    RpcSierraContractClass::try_from(
+                        declare_tx_with_class.class.as_sierra().cloned().unwrap(),
+                    )
+                    .unwrap(),
+                );
+
+                let (
+                    sender_address,
+                    signature,
+                    nonce,
+                    compiled_class_hash,
+                    tip,
+                    paymaster_data,
+                    resource_bounds,
+                    account_deployment_data,
+                    fee_data_availability_mode,
+                    nonce_data_availability_mode,
+                ) = match declare_tx {
+                    DeclareTx::V0(_) => {
+                        panic!("V0 declare transactions are not supported for broadcasting")
+                    }
+                    DeclareTx::V1(_) => {
+                        panic!("V1 declare transactions are not supported for broadcasting")
+                    }
+                    DeclareTx::V2(_) => {
+                        panic!("V2 declare transactions are not supported for broadcasting")
+                    }
+                    DeclareTx::V3(tx) => (
+                        tx.sender_address,
+                        tx.signature,
+                        tx.nonce,
+                        tx.compiled_class_hash,
+                        tx.tip,
+                        tx.paymaster_data,
+                        tx.resource_bounds,
+                        tx.account_deployment_data,
+                        tx.fee_data_availability_mode,
+                        tx.nonce_data_availability_mode,
+                    ),
+                };
+
+                BroadcastedTx::Declare(BroadcastedDeclareTx {
+                    sender_address,
+                    compiled_class_hash,
+                    signature,
+                    nonce,
+                    contract_class,
+                    paymaster_data,
+                    tip,
+                    account_deployment_data,
+                    resource_bounds,
+                    fee_data_availability_mode,
+                    nonce_data_availability_mode,
+                    is_query: false,
+                })
+            }
+            ExecutableTx::DeployAccount(deploy_account_tx) => {
+                let (
+                    signature,
+                    nonce,
+                    contract_address_salt,
+                    constructor_calldata,
+                    class_hash,
+                    tip,
+                    paymaster_data,
+                    resource_bounds,
+                    fee_data_availability_mode,
+                    nonce_data_availability_mode,
+                ) = match deploy_account_tx {
+                    DeployAccountTx::V1(_) => {
+                        panic!("V1 deploy account transactions are not supported for broadcasting")
+                    }
+                    DeployAccountTx::V3(tx) => (
+                        tx.signature,
+                        tx.nonce,
+                        tx.contract_address_salt,
+                        tx.constructor_calldata,
+                        tx.class_hash,
+                        tx.tip,
+                        tx.paymaster_data,
+                        tx.resource_bounds,
+                        tx.fee_data_availability_mode,
+                        tx.nonce_data_availability_mode,
+                    ),
+                };
+
+                BroadcastedTx::DeployAccount(BroadcastedDeployAccountTx {
+                    signature,
+                    nonce,
+                    contract_address_salt,
+                    constructor_calldata,
+                    class_hash,
+                    paymaster_data,
+                    tip,
+                    resource_bounds,
+                    fee_data_availability_mode,
+                    nonce_data_availability_mode,
+                    is_query: false,
+                })
+            }
+            ExecutableTx::L1Handler(_) => panic!("L1Handler transactions cannot be broadcasted"),
+        }
+    }
+}
+
 /// A broadcasted transaction.
 #[derive(Debug, Clone, Serialize)]
 #[serde(untagged)]
@@ -337,6 +495,16 @@ pub enum BroadcastedTx {
     Invoke(BroadcastedInvokeTx),
     Declare(BroadcastedDeclareTx),
     DeployAccount(BroadcastedDeployAccountTx),
+}
+
+impl BroadcastedTx {
+    pub fn sender_address(&self) -> Option<ContractAddress> {
+        match self {
+            BroadcastedTx::Invoke(tx) => Some(tx.sender_address),
+            BroadcastedTx::Declare(tx) => Some(tx.sender_address),
+            BroadcastedTx::DeployAccount(..) => None,
+        }
+    }
 }
 
 /// A broadcasted `INVOKE` transaction.
