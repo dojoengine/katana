@@ -10,13 +10,13 @@ use katana_rpc_types::block::{
     BlockHashAndNumber, BlockTxCount, MaybePendingBlockWithReceipts, MaybePendingBlockWithTxHashes,
     MaybePendingBlockWithTxs,
 };
-use katana_rpc_types::class::RpcContractClass;
-use katana_rpc_types::event::{EventFilterWithPage, EventsPage};
-use katana_rpc_types::message::MsgFromL1;
 use katana_rpc_types::broadcasted::{
     AddDeclareTransactionResult, AddDeployAccountTransactionResult, AddInvokeTransactionResult,
     BroadcastedDeclareTx, BroadcastedDeployAccountTx, BroadcastedInvokeTx, BroadcastedTx,
 };
+use katana_rpc_types::class::RpcContractClass;
+use katana_rpc_types::event::{EventFilterWithPage, EventsPage};
+use katana_rpc_types::message::MsgFromL1;
 use katana_rpc_types::receipt::TxReceiptWithBlockInfo;
 use katana_rpc_types::state_update::MaybePendingStateUpdate;
 use katana_rpc_types::transaction::Tx;

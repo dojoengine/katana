@@ -1,5 +1,6 @@
 #[derive(Debug, Clone, PartialEq, Eq, Default)]
 #[cfg_attr(feature = "arbitrary", derive(::arbitrary::Arbitrary))]
+#[cfg_attr(feature = "serde", derive(serde::Serialize, serde::Deserialize))]
 pub struct ResourceBounds {
     /// The max amount of the resource that can be used in the tx
     pub max_amount: u64,
@@ -87,64 +88,4 @@ pub struct FeeInfo {
     pub overall_fee: u128,
     /// Units in which the fee is given
     pub unit: PriceUnit,
-}
-
-#[cfg(feature = "serde")]
-mod _serde {
-    use super::ResourceBounds;
-    use crate::utils::serde::{
-        deserialize_hex_u128, deserialize_hex_u64, serialize_hex_u128, serialize_hex_u64,
-    };
-
-    #[derive(::serde::Serialize, ::serde::Deserialize)]
-    struct HumanReadableResourceBounds {
-        #[serde(serialize_with = "serialize_hex_u64", deserialize_with = "deserialize_hex_u64")]
-        max_amount: u64,
-        #[serde(serialize_with = "serialize_hex_u128", deserialize_with = "deserialize_hex_u128")]
-        max_price_per_unit: u128,
-    }
-
-    #[derive(::serde::Serialize, ::serde::Deserialize)]
-    struct NonHumanReadableResourceBounds {
-        max_amount: u64,
-        max_price_per_unit: u128,
-    }
-
-    impl ::serde::Serialize for ResourceBounds {
-        fn serialize<S: ::serde::Serializer>(&self, serializer: S) -> Result<S::Ok, S::Error> {
-            if serializer.is_human_readable() {
-                let helper = HumanReadableResourceBounds {
-                    max_amount: self.max_amount,
-                    max_price_per_unit: self.max_price_per_unit,
-                };
-
-                helper.serialize(serializer)
-            } else {
-                let helper = NonHumanReadableResourceBounds {
-                    max_amount: self.max_amount,
-                    max_price_per_unit: self.max_price_per_unit,
-                };
-
-                helper.serialize(serializer)
-            }
-        }
-    }
-
-    impl<'de> ::serde::Deserialize<'de> for ResourceBounds {
-        fn deserialize<D: ::serde::Deserializer<'de>>(deserializer: D) -> Result<Self, D::Error> {
-            if deserializer.is_human_readable() {
-                let helper = HumanReadableResourceBounds::deserialize(deserializer)?;
-                Ok(ResourceBounds {
-                    max_amount: helper.max_amount,
-                    max_price_per_unit: helper.max_price_per_unit,
-                })
-            } else {
-                let helper = NonHumanReadableResourceBounds::deserialize(deserializer)?;
-                Ok(ResourceBounds {
-                    max_amount: helper.max_amount,
-                    max_price_per_unit: helper.max_price_per_unit,
-                })
-            }
-        }
-    }
 }
