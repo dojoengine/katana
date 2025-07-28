@@ -501,41 +501,6 @@ pub struct AddDeployAccountTransactionResult {
     pub contract_address: ContractAddress,
 }
 
-fn serialize_resource_bounds_mapping<S: Serializer>(
-    resource_bounds: &ResourceBoundsMapping,
-    serializer: S,
-) -> Result<S::Ok, S::Error> {
-    let rpc_mapping = match resource_bounds {
-        ResourceBoundsMapping::L1Gas(l1_gas) => RpcResourceBoundsMapping::Legacy {
-            l1_gas: l1_gas.clone(),
-            l2_gas: ResourceBounds::default(),
-        },
-
-        ResourceBoundsMapping::All(AllResourceBoundsMapping { l1_gas, l2_gas, l1_data_gas }) => {
-            RpcResourceBoundsMapping::Current {
-                l1_gas: l1_gas.clone(),
-                l2_gas: l2_gas.clone(),
-                l1_data_gas: l1_data_gas.clone(),
-            }
-        }
-    };
-
-    rpc_mapping.serialize(serializer)
-}
-
-fn deserialize_resource_bounds_mapping<'de, D: Deserializer<'de>>(
-    deserializer: D,
-) -> Result<ResourceBoundsMapping, D::Error> {
-    let rpc_mapping = RpcResourceBoundsMapping::deserialize(deserializer)?;
-
-    match rpc_mapping {
-        RpcResourceBoundsMapping::Legacy { l1_gas, .. } => Ok(ResourceBoundsMapping::L1Gas(l1_gas)),
-        RpcResourceBoundsMapping::Current { l1_gas, l2_gas, l1_data_gas } => {
-            Ok(ResourceBoundsMapping::All(AllResourceBoundsMapping { l1_gas, l2_gas, l1_data_gas }))
-        }
-    }
-}
-
 #[derive(Debug, Serialize, Deserialize)]
 #[serde(untagged)]
 enum RpcResourceBoundsMapping {
@@ -580,6 +545,41 @@ struct RpcResourceBounds {
     max_amount: u64,
     #[serde(serialize_with = "serialize_hex_u128", deserialize_with = "deserialize_hex_u128")]
     max_price_per_unit: u128,
+}
+
+fn serialize_resource_bounds_mapping<S: Serializer>(
+    resource_bounds: &ResourceBoundsMapping,
+    serializer: S,
+) -> Result<S::Ok, S::Error> {
+    let rpc_mapping = match resource_bounds {
+        ResourceBoundsMapping::L1Gas(l1_gas) => RpcResourceBoundsMapping::Legacy {
+            l1_gas: l1_gas.clone(),
+            l2_gas: ResourceBounds::default(),
+        },
+
+        ResourceBoundsMapping::All(AllResourceBoundsMapping { l1_gas, l2_gas, l1_data_gas }) => {
+            RpcResourceBoundsMapping::Current {
+                l1_gas: l1_gas.clone(),
+                l2_gas: l2_gas.clone(),
+                l1_data_gas: l1_data_gas.clone(),
+            }
+        }
+    };
+
+    rpc_mapping.serialize(serializer)
+}
+
+fn deserialize_resource_bounds_mapping<'de, D: Deserializer<'de>>(
+    deserializer: D,
+) -> Result<ResourceBoundsMapping, D::Error> {
+    let rpc_mapping = RpcResourceBoundsMapping::deserialize(deserializer)?;
+
+    match rpc_mapping {
+        RpcResourceBoundsMapping::Legacy { l1_gas, .. } => Ok(ResourceBoundsMapping::L1Gas(l1_gas)),
+        RpcResourceBoundsMapping::Current { l1_gas, l2_gas, l1_data_gas } => {
+            Ok(ResourceBoundsMapping::All(AllResourceBoundsMapping { l1_gas, l2_gas, l1_data_gas }))
+        }
+    }
 }
 
 fn serialize_resource_bounds<S: Serializer>(
