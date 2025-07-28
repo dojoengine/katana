@@ -40,8 +40,8 @@ pub enum UntypedBroadcastedTxError {
     #[error("missing `{field}` for {r#type} transaction")]
     MissingField { r#type: TxType, field: &'static str },
 
-    #[error("invalid version for {r#type} transaction")]
-    InvalidVersion { r#type: TxType },
+    #[error("invalid version {version} for {r#type} transaction")]
+    InvalidVersion { version: Felt, r#type: TxType },
 
     #[error("unsupported transaction type {r#type}")]
     UnsupportedTxType { r#type: TxType },
@@ -118,7 +118,10 @@ impl UntypedBroadcastedTx {
         } else if self.version == Felt::THREE + QUERY_VERSION_OFFSET {
             true
         } else {
-            return Err(UntypedBroadcastedTxError::InvalidVersion { r#type: TxType::Invoke });
+            return Err(UntypedBroadcastedTxError::InvalidVersion {
+                version: self.version,
+                r#type: TxType::Invoke,
+            });
         };
 
         let calldata = expect_field!(self.calldata, TxType::Invoke, "calldata");
@@ -155,7 +158,10 @@ impl UntypedBroadcastedTx {
         } else if self.version == Felt::THREE + QUERY_VERSION_OFFSET {
             true
         } else {
-            return Err(UntypedBroadcastedTxError::InvalidVersion { r#type: TxType::Declare });
+            return Err(UntypedBroadcastedTxError::InvalidVersion {
+                version: self.version,
+                r#type: TxType::Declare,
+            });
         };
 
         let sender_address = expect_field!(self.sender_address, TxType::Declare, "sender_address");
@@ -198,6 +204,7 @@ impl UntypedBroadcastedTx {
             true
         } else {
             return Err(UntypedBroadcastedTxError::InvalidVersion {
+                version: self.version,
                 r#type: TxType::DeployAccount,
             });
         };
@@ -1120,7 +1127,9 @@ mod tests {
 
         assert_matches!(
             result,
-            Err(UntypedBroadcastedTxError::InvalidVersion { r#type: TxType::Invoke })
+            Err(UntypedBroadcastedTxError::InvalidVersion { r#type: TxType::Invoke, version }) => {
+                assert_eq!(version, Felt::TWO);
+            }
         );
     }
 
