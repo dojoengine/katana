@@ -1,7 +1,9 @@
 use std::sync::Arc;
 
 use katana_primitives::chain::ChainId;
-use katana_primitives::class::{ClassHash, CompiledClassHash, ContractClass, SierraContractClass};
+use katana_primitives::class::{
+    ClassHash, CompiledClassHash, ComputeClassHashError, ContractClass, SierraContractClass,
+};
 use katana_primitives::contract::Nonce;
 use katana_primitives::da::DataAvailabilityMode;
 use katana_primitives::fee::{AllResourceBoundsMapping, ResourceBounds, ResourceBoundsMapping};
@@ -317,6 +319,14 @@ impl<'de> Deserialize<'de> for BroadcastedInvokeTx {
     }
 }
 
+#[derive(Debug, thiserror::Error)]
+pub enum BroadcastedDeclareTxError {
+    #[error("failed to compute class hash: {0}")]
+    ComputeClassHash(#[from] ComputeClassHashError),
+    #[error("invalid contract class: {0}")]
+    InvalidContractClass(#[from] crate::class::ConversionError),
+}
+
 #[derive(Debug, Clone)]
 pub struct BroadcastedDeclareTx {
     pub sender_address: ContractAddress,
@@ -338,11 +348,14 @@ impl BroadcastedDeclareTx {
         self.is_query
     }
 
-    pub fn into_inner(self, chain_id: ChainId) -> DeclareTxWithClass {
-        let class_hash = self.contract_class.hash().unwrap();
+    pub fn into_inner(
+        self,
+        chain_id: ChainId,
+    ) -> Result<DeclareTxWithClass, BroadcastedDeclareTxError> {
+        let class_hash = self.contract_class.hash()?;
 
         let rpc_class = Arc::unwrap_or_clone(self.contract_class);
-        let class = ContractClass::Class(SierraContractClass::try_from(rpc_class).unwrap());
+        let class = ContractClass::Class(SierraContractClass::try_from(rpc_class)?);
 
         let tx = DeclareTx::V3(DeclareTxV3 {
             chain_id,
@@ -359,7 +372,7 @@ impl BroadcastedDeclareTx {
             nonce_data_availability_mode: self.nonce_data_availability_mode,
         });
 
-        DeclareTxWithClass::new(tx, class)
+        Ok(DeclareTxWithClass::new(tx, class))
     }
 }
 

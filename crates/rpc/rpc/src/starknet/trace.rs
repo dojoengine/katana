@@ -38,10 +38,11 @@ impl<EF: ExecutorFactory> StarknetApi<EF> {
                     }
                     BroadcastedTx::Declare(tx) => {
                         let is_query = tx.is_query();
-                        ExecutableTxWithHash::new_query(
-                            ExecutableTx::Declare(tx.into_inner(chain_id)),
-                            is_query,
-                        )
+                        let tx = tx
+                            .into_inner(chain_id)
+                            .map_err(|_| StarknetApiError::InvalidContractClass)?;
+
+                        ExecutableTxWithHash::new_query(ExecutableTx::Declare(tx), is_query)
                     }
                     BroadcastedTx::DeployAccount(tx) => {
                         let is_query = tx.is_query();
