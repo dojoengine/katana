@@ -92,7 +92,7 @@ impl<EF: ExecutorFactory> Paymaster<EF> {
             };
 
             // Check if the address has already been deployed
-            if block_on(self.starknet_api.class_hash_at_address(block_id, address.into())).is_ok() {
+            if block_on(self.starknet_api.class_hash_at_address(block_id, address)).is_ok() {
                 continue;
             }
 
@@ -102,7 +102,7 @@ impl<EF: ExecutorFactory> Paymaster<EF> {
             // The controller accounts are created with a specific version of the controller.
             // To ensure address determinism, the controller account must be deployed with the same
             // version, which is included in the calldata retrieved from the Cartridge API.
-            match self.get_controller_deploy_tx(address.into(), block_id) {
+            match self.get_controller_deploy_tx(address, block_id) {
                 Ok(tx) => {
                     // todo!("convert from ExecutableTxWithHash to BroadcastedTx");
                     new_transactions.push(BroadcastedTx::from(tx));

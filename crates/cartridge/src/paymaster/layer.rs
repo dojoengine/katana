@@ -41,16 +41,6 @@ pub struct PaymasterService<S, EF: ExecutorFactory> {
     paymaster: Paymaster<EF>,
 }
 
-impl<S, EF> Clone for PaymasterService<S, EF>
-where
-    S: Clone,
-    EF: ExecutorFactory + Clone,
-{
-    fn clone(&self) -> Self {
-        Self { service: self.service.clone(), paymaster: self.paymaster.clone() }
-    }
-}
-
 impl<S, EF> PaymasterService<S, EF>
 where
     S: middleware::RpcServiceT + Send + Sync + Clone + 'static,
@@ -153,6 +143,7 @@ where
         match self.paymaster.deploy_controller(controller_address) {
             Ok(tx_hash) => {
                 trace!(
+                    target: "paymaster",
                     tx_hash = format!("{tx_hash:#x}"),
                     "Controller deploy transaction submitted",
                 );
@@ -162,14 +153,16 @@ where
             Err(Error::ControllerNotFound(..)) => None,
             Err(error) => panic!("{error}"),
         }
+    }
+}
 
-        // let a = jsonrpsee::IntoResponse::into_response(
-        //                   context.as_ref().get_transaction_by_hash(transaction_hash).await,
-        // );
-        // ResponsePayload::success(t);
-
-        // MethodResponse::response(id, rp, max_response_size)
-        // Some(request)
+impl<S, EF> Clone for PaymasterService<S, EF>
+where
+    S: Clone,
+    EF: ExecutorFactory + Clone,
+{
+    fn clone(&self) -> Self {
+        Self { service: self.service.clone(), paymaster: self.paymaster.clone() }
     }
 }
 
