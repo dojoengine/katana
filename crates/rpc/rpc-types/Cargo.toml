@@ -10,12 +10,10 @@ version.workspace = true
 katana-primitives.workspace = true
 katana-trie.workspace = true
 
-anyhow.workspace = true
 cainome.workspace = true
 cainome-cairo-serde.workspace = true
 cairo-lang-starknet-classes.workspace = true
 cairo-lang-utils.workspace = true
-derive_more.workspace = true
 num-traits.workspace = true
 serde.workspace = true
 serde_json.workspace = true
@@ -29,5 +27,6 @@ flate2.workspace = true
 serde_json_pythonic = "0.1.2"
 
 [dev-dependencies]
+assert_matches.workspace = true
 rstest.workspace = true
 similar-asserts.workspace = true

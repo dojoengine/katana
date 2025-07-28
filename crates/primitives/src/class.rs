@@ -2,7 +2,7 @@ use std::str::FromStr;
 
 use cairo_lang_starknet_classes::abi;
 use cairo_lang_starknet_classes::casm_contract_class::StarknetSierraCompilationError;
-use cairo_lang_starknet_classes::contract_class::ContractEntryPoint;
+use cairo_lang_starknet_classes::contract_class::{ContractEntryPoint, ContractEntryPoints};
 use serde_json_pythonic::to_string_pythonic;
 use starknet::core::utils::{normalize_address, starknet_keccak};
 use starknet::macros::short_string;
@@ -45,7 +45,23 @@ impl ContractClass {
     /// Computes the hash of the class.
     pub fn class_hash(&self) -> Result<ClassHash, ComputeClassHashError> {
         match self {
-            Self::Class(class) => compute_sierra_class_hash(class),
+            Self::Class(class) => {
+                // Technically we don't have to use the Pythonic JSON style here. Doing this just to
+                // align with the official `cairo-lang` CLI.
+                //
+                // TODO: add an `AbiFormatter` trait and let users choose which one to use.
+                let abi = class.abi.as_ref();
+                let abi_str = to_string_pythonic(abi.unwrap_or(&abi::Contract::default())).unwrap();
+
+                let sierra_program = &class
+                    .sierra_program
+                    .iter()
+                    .map(|f| f.value.clone().into())
+                    .collect::<Vec<Felt>>();
+
+                compute_sierra_class_hash(&abi_str, &class.entry_points_by_type, sierra_program)
+            }
+
             Self::Legacy(class) => compute_legacy_class_hash(class),
         }
     }
@@ -154,42 +170,24 @@ pub enum ComputeClassHashError {
     AbiConversion(#[from] serde_json_pythonic::Error),
 }
 
-// Taken from starknet-rs
-fn compute_sierra_class_hash(class: &SierraContractClass) -> Result<Felt, ComputeClassHashError> {
-    // Technically we don't have to use the Pythonic JSON style here. Doing this just to align
-    // with the official `cairo-lang` CLI.
-    //
-    // TODO: add an `AbiFormatter` trait and let users choose which one to use.
-    let abi = class.abi.as_ref();
-    let abi_str = to_string_pythonic(abi.unwrap_or(&abi::Contract::default())).unwrap();
-
+pub fn compute_sierra_class_hash(
+    abi: &str,
+    entry_points_by_type: &ContractEntryPoints,
+    sierra_program: &[Felt],
+) -> Result<Felt, ComputeClassHashError> {
     let mut hasher = starknet_crypto::PoseidonHasher::new();
     hasher.update(short_string!("CONTRACT_CLASS_V0.1.0"));
 
     // Hashes entry points
-    hasher.update(entrypoints_hash(&class.entry_points_by_type.external));
-    hasher.update(entrypoints_hash(&class.entry_points_by_type.l1_handler));
-    hasher.update(entrypoints_hash(&class.entry_points_by_type.constructor));
-
+    hasher.update(entrypoints_hash(&entry_points_by_type.external));
+    hasher.update(entrypoints_hash(&entry_points_by_type.l1_handler));
+    hasher.update(entrypoints_hash(&entry_points_by_type.constructor));
     // Hashes ABI
-    hasher.update(starknet_keccak(abi_str.as_bytes()));
-
+    hasher.update(starknet_keccak(abi.as_bytes()));
     // Hashes Sierra program
-    let prog = class.sierra_program.iter().map(|f| f.value.clone().into()).collect::<Vec<Felt>>();
-    hasher.update(poseidon_hash_many(&prog));
+    hasher.update(poseidon_hash_many(sierra_program));
 
     Ok(normalize_address(hasher.finalize()))
-}
-
-fn entrypoints_hash(entrypoints: &[ContractEntryPoint]) -> Felt {
-    let mut hasher = starknet_crypto::PoseidonHasher::new();
-
-    for entry in entrypoints {
-        hasher.update(entry.selector.clone().into());
-        hasher.update(entry.function_idx.into());
-    }
-
-    hasher.finalize()
 }
 
 /// Computes the hash of a legacy contract class.
@@ -205,6 +203,17 @@ fn compute_legacy_class_hash(class: &LegacyContractClass) -> Result<Felt, Comput
     let hash = class.class_hash().unwrap();
 
     Ok(hash)
+}
+
+fn entrypoints_hash(entrypoints: &[ContractEntryPoint]) -> Felt {
+    let mut hasher = starknet_crypto::PoseidonHasher::new();
+
+    for entry in entrypoints {
+        hasher.update(entry.selector.clone().into());
+        hasher.update(entry.function_idx.into());
+    }
+
+    hasher.finalize()
 }
 
 #[cfg(test)]

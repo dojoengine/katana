@@ -20,12 +20,13 @@ use katana_rpc_types::block::{
     BlockHashAndNumber, MaybePendingBlockWithReceipts, MaybePendingBlockWithTxHashes,
     MaybePendingBlockWithTxs,
 };
+use katana_rpc_types::broadcasted::BroadcastedTx;
 use katana_rpc_types::class::RpcContractClass;
 use katana_rpc_types::event::{EventFilterWithPage, EventsPage};
 use katana_rpc_types::message::MsgFromL1;
 use katana_rpc_types::receipt::TxReceiptWithBlockInfo;
 use katana_rpc_types::state_update::MaybePendingStateUpdate;
-use katana_rpc_types::transaction::{BroadcastedTx, Tx};
+use katana_rpc_types::transaction::Tx;
 use katana_rpc_types::trie::{ContractStorageKeys, GetStorageProofResponse};
 use katana_rpc_types::{FeeEstimate, FeltAsHex, FunctionCall, SimulationFlagForEstimateFee};
 use starknet::core::types::TransactionStatus;
@@ -191,21 +192,22 @@ impl<EF: ExecutorFactory> StarknetApiServer for StarknetApi<EF> {
                 let tx = match tx {
                     BroadcastedTx::Invoke(tx) => {
                         let is_query = tx.is_query();
-                        let tx = tx.into_tx_with_chain_id(chain_id);
+                        let tx = tx.into_inner(chain_id);
                         ExecutableTxWithHash::new_query(ExecutableTx::Invoke(tx), is_query)
                     }
 
                     BroadcastedTx::DeployAccount(tx) => {
                         let is_query = tx.is_query();
-                        let tx = tx.into_tx_with_chain_id(chain_id);
+                        let tx = tx.into_inner(chain_id);
                         ExecutableTxWithHash::new_query(ExecutableTx::DeployAccount(tx), is_query)
                     }
 
                     BroadcastedTx::Declare(tx) => {
                         let is_query = tx.is_query();
                         let tx = tx
-                            .try_into_tx_with_chain_id(chain_id)
+                            .into_inner(chain_id)
                             .map_err(|_| StarknetApiError::InvalidContractClass)?;
+
                         ExecutableTxWithHash::new_query(ExecutableTx::Declare(tx), is_query)
                     }
                 };

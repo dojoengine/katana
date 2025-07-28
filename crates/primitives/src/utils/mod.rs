@@ -3,6 +3,7 @@ use alloy_primitives::U256;
 use crate::Felt;
 
 pub mod class;
+pub mod serde;
 pub mod transaction;
 
 /// Split a [U256] into its high and low 128-bit parts in represented as [FieldElement]s.

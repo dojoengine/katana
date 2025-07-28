@@ -7,6 +7,7 @@
 
 pub mod account;
 pub mod block;
+pub mod broadcasted;
 pub mod class;
 pub mod event;
 pub mod message;
@@ -16,7 +17,6 @@ pub mod state_update;
 pub mod trace;
 pub mod transaction;
 pub mod trie;
-mod utils;
 
 use std::ops::Deref;
 
