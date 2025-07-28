@@ -47,13 +47,17 @@ pub enum UntypedBroadcastedTxError {
     UnsupportedTxType { r#type: TxType },
 }
 
+/// An untyped broadcasted transaction.
+///
+/// This type can be used to represent any type of transaction, and can be converted to a typed
+/// transaction provided that all the required fields for that particular transaction type are
+/// present.
 #[serde_with::serde_as]
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct UntypedBroadcastedTx {
-    // Common fields
     pub r#type: TxType,
     pub version: Felt,
-    pub nonce: Felt,
+    pub nonce: Nonce,
     pub signature: Vec<Felt>,
     #[serde(serialize_with = "serialize_hex_u64", deserialize_with = "deserialize_hex_u64")]
     pub tip: u64,
@@ -234,41 +238,48 @@ impl UntypedBroadcastedTx {
     }
 }
 
-#[derive(Debug, Clone)]
+/// A broadcasted transaction.
+#[derive(Debug, Clone, Serialize)]
+#[serde(untagged)]
 pub enum BroadcastedTx {
     Invoke(BroadcastedInvokeTx),
     Declare(BroadcastedDeclareTx),
     DeployAccount(BroadcastedDeployAccountTx),
 }
 
-impl Serialize for BroadcastedTx {
-    fn serialize<S: serde::Serializer>(&self, serializer: S) -> Result<S::Ok, S::Error> {
-        match self {
-            BroadcastedTx::Invoke(tx) => tx.serialize(serializer),
-            BroadcastedTx::Declare(tx) => tx.serialize(serializer),
-            BroadcastedTx::DeployAccount(tx) => tx.serialize(serializer),
-        }
-    }
-}
-
-impl<'de> Deserialize<'de> for BroadcastedTx {
-    fn deserialize<D: Deserializer<'de>>(deserializer: D) -> Result<Self, D::Error> {
-        UntypedBroadcastedTx::deserialize(deserializer)?.typed().map_err(de::Error::custom)
-    }
-}
-
+/// A broadcasted `INVOKE` transaction.
 #[derive(Debug, Clone)]
 pub struct BroadcastedInvokeTx {
+    /// The transaction sender.
+    ///
+    /// Address of the account where the transaction will be executed from.
     pub sender_address: ContractAddress,
+    /// Function calldata.
+    ///
+    /// The data expected by the account's `execute` function (in most usecases, this includes the
+    /// called contract address and a function selector).
     pub calldata: Vec<Felt>,
+    /// The sender's signature.
     pub signature: Vec<Felt>,
+    /// The transaction nonce
+    ///
+    /// The nonce is used to prevent replay attacks and ensure that each transaction is unique. For
+    /// a transaction to be valid for execution, the nonce must be equal to the account's
+    /// current nonce.
     pub nonce: Felt,
+    /// Data needed to allow the paymaster to pay for the transaction in native tokens.
     pub paymaster_data: Vec<Felt>,
+    /// The tip for the transaction.
     pub tip: u64,
+    /// Data needed to deploy the account contract from which this tx will be initiated.
     pub account_deployment_data: Vec<Felt>,
+    /// Resource bounds for the transaction execution.
     pub resource_bounds: ResourceBoundsMapping,
+    /// The storage domain of the account's balance from which fee will be charged.
     pub fee_data_availability_mode: DataAvailabilityMode,
+    /// The storage domain of the account's nonce (an account has a nonce per DA mode).
     pub nonce_data_availability_mode: DataAvailabilityMode,
+    /// An internal flag indicating whether this transaction is a query.
     pub is_query: bool,
 }
 
@@ -294,38 +305,6 @@ impl BroadcastedInvokeTx {
     }
 }
 
-impl serde::Serialize for BroadcastedInvokeTx {
-    fn serialize<S: serde::Serializer>(&self, serializer: S) -> Result<S::Ok, S::Error> {
-        use serde::ser::SerializeStruct;
-
-        let version = if self.is_query { Felt::THREE + QUERY_VERSION_OFFSET } else { Felt::THREE };
-
-        let mut state = serializer.serialize_struct("BroadcastedInvokeTx", 11)?;
-        state.serialize_field("type", "INVOKE")?;
-        state.serialize_field("version", &version)?;
-        state.serialize_field("sender_address", &self.sender_address)?;
-        state.serialize_field("calldata", &self.calldata)?;
-        state.serialize_field("signature", &self.signature)?;
-        state.serialize_field("nonce", &self.nonce)?;
-        state.serialize_field("paymaster_data", &self.paymaster_data)?;
-        state.serialize_field("tip", &self.tip)?;
-        state.serialize_field("account_deployment_data", &self.account_deployment_data)?;
-        state.serialize_field("resource_bounds", &self.resource_bounds)?;
-        state.serialize_field("fee_data_availability_mode", &self.fee_data_availability_mode)?;
-        state
-            .serialize_field("nonce_data_availability_mode", &self.nonce_data_availability_mode)?;
-        state.end()
-    }
-}
-
-impl<'de> Deserialize<'de> for BroadcastedInvokeTx {
-    fn deserialize<D: Deserializer<'de>>(deserializer: D) -> Result<Self, D::Error> {
-        UntypedBroadcastedTx::deserialize(deserializer)?
-            .try_into_invoke()
-            .map_err(de::Error::custom)
-    }
-}
-
 #[derive(Debug, thiserror::Error)]
 pub enum BroadcastedDeclareTxError {
     #[error("failed to compute class hash: {0}")]
@@ -334,19 +313,36 @@ pub enum BroadcastedDeclareTxError {
     InvalidContractClass(#[from] crate::class::ConversionError),
 }
 
+/// A broadcasted `DECLARE` transaction.
 #[derive(Debug, Clone)]
 pub struct BroadcastedDeclareTx {
+    /// The transaction sender.
+    ///
+    /// Address of the account where the transaction will be executed from.
     pub sender_address: ContractAddress,
     pub compiled_class_hash: CompiledClassHash,
+    /// The sender's signature.
     pub signature: Vec<Felt>,
+    /// The transaction nonce
+    ///
+    /// The nonce is used to prevent replay attacks and ensure that each transaction is unique. For
+    /// a transaction to be valid for execution, the nonce must be equal to the account's current
+    /// nonce.
     pub nonce: Nonce,
     pub contract_class: Arc<RpcSierraContractClass>,
-    pub resource_bounds: ResourceBoundsMapping,
-    pub tip: u64,
+    /// Data needed to allow the paymaster to pay for the transaction in native tokens.
     pub paymaster_data: Vec<Felt>,
+    /// The tip for the transaction.
+    pub tip: u64,
+    /// Data needed to deploy the account contract from which this tx will be initiated.
     pub account_deployment_data: Vec<Felt>,
-    pub nonce_data_availability_mode: DataAvailabilityMode,
+    /// Resource bounds for the transaction execution.
+    pub resource_bounds: ResourceBoundsMapping,
+    /// The storage domain of the account's balance from which fee will be charged.
     pub fee_data_availability_mode: DataAvailabilityMode,
+    /// The storage domain of the account's nonce (an account has a nonce per DA mode).
+    pub nonce_data_availability_mode: DataAvailabilityMode,
+    /// An internal flag indicating whether this transaction is a query.
     pub is_query: bool,
 }
 
@@ -383,51 +379,31 @@ impl BroadcastedDeclareTx {
     }
 }
 
-impl serde::Serialize for BroadcastedDeclareTx {
-    fn serialize<S: serde::Serializer>(&self, serializer: S) -> Result<S::Ok, S::Error> {
-        use serde::ser::SerializeStruct;
-
-        let version = if self.is_query { Felt::THREE + QUERY_VERSION_OFFSET } else { Felt::THREE };
-
-        let mut state = serializer.serialize_struct("BroadcastedDeclareTx", 12)?;
-        state.serialize_field("type", "DECLARE")?;
-        state.serialize_field("version", &version)?;
-        state.serialize_field("sender_address", &self.sender_address)?;
-        state.serialize_field("compiled_class_hash", &self.compiled_class_hash)?;
-        state.serialize_field("signature", &self.signature)?;
-        state.serialize_field("nonce", &self.nonce)?;
-        state.serialize_field("contract_class", &self.contract_class)?;
-        state.serialize_field("resource_bounds", &self.resource_bounds)?;
-        state.serialize_field("tip", &self.tip)?;
-        state.serialize_field("paymaster_data", &self.paymaster_data)?;
-        state.serialize_field("account_deployment_data", &self.account_deployment_data)?;
-        state
-            .serialize_field("nonce_data_availability_mode", &self.nonce_data_availability_mode)?;
-        state.serialize_field("fee_data_availability_mode", &self.fee_data_availability_mode)?;
-        state.end()
-    }
-}
-
-impl<'de> Deserialize<'de> for BroadcastedDeclareTx {
-    fn deserialize<D: Deserializer<'de>>(deserializer: D) -> Result<Self, D::Error> {
-        UntypedBroadcastedTx::deserialize(deserializer)?
-            .try_into_declare()
-            .map_err(de::Error::custom)
-    }
-}
-
+/// A broadcasted `DEPLOY_ACCOUNT` transaction.
 #[derive(Debug, Clone)]
 pub struct BroadcastedDeployAccountTx {
+    /// The sender's signature.
     pub signature: Vec<Felt>,
+    /// The transaction nonce
+    ///
+    /// The nonce is used to prevent replay attacks and ensure that each transaction is unique. For
+    /// a transaction to be valid for execution, the nonce must be equal to the account's current
+    /// nonce.
     pub nonce: Nonce,
     pub contract_address_salt: Felt,
     pub constructor_calldata: Vec<Felt>,
+    /// The hash of the class that will be used by the account.
     pub class_hash: ClassHash,
-    pub resource_bounds: ResourceBoundsMapping,
-    pub tip: u64,
     pub paymaster_data: Vec<Felt>,
-    pub nonce_data_availability_mode: DataAvailabilityMode,
+    /// The tip for the transaction.
+    pub tip: u64,
+    /// Resource bounds for the transaction execution.
+    pub resource_bounds: ResourceBoundsMapping,
+    /// The storage domain of the account's balance from which fee will be charged.
     pub fee_data_availability_mode: DataAvailabilityMode,
+    /// The storage domain of the account's nonce (an account has a nonce per DA mode).
+    pub nonce_data_availability_mode: DataAvailabilityMode,
+    /// An internal flag indicating whether this transaction is a query.
     pub is_query: bool,
 }
 
@@ -458,6 +434,102 @@ impl BroadcastedDeployAccountTx {
             fee_data_availability_mode: self.fee_data_availability_mode,
             nonce_data_availability_mode: self.nonce_data_availability_mode,
         })
+    }
+}
+
+/// Response for broadcasting an `INVOKE` transaction.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct AddInvokeTransactionResult {
+    /// The hash of the invoke transaction
+    pub transaction_hash: TxHash,
+}
+
+/// Response for broadcasting a `DECLARE` transaction.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct AddDeclareTransactionResult {
+    /// The hash of the declare transaction
+    pub transaction_hash: TxHash,
+    /// The hash of the declared class
+    pub class_hash: ClassHash,
+}
+
+/// Response for broadcasting a `DEPLOY_ACCOUNT` transaction.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct AddDeployAccountTransactionResult {
+    /// The hash of the deploy transaction
+    pub transaction_hash: TxHash,
+    /// The address of the new contract
+    pub contract_address: ContractAddress,
+}
+
+impl<'de> Deserialize<'de> for BroadcastedTx {
+    fn deserialize<D: Deserializer<'de>>(deserializer: D) -> Result<Self, D::Error> {
+        UntypedBroadcastedTx::deserialize(deserializer)?.typed().map_err(de::Error::custom)
+    }
+}
+
+impl serde::Serialize for BroadcastedInvokeTx {
+    fn serialize<S: serde::Serializer>(&self, serializer: S) -> Result<S::Ok, S::Error> {
+        use serde::ser::SerializeStruct;
+
+        let version = if self.is_query { Felt::THREE + QUERY_VERSION_OFFSET } else { Felt::THREE };
+
+        let mut state = serializer.serialize_struct("BroadcastedInvokeTx", 11)?;
+        state.serialize_field("type", "INVOKE")?;
+        state.serialize_field("version", &version)?;
+        state.serialize_field("sender_address", &self.sender_address)?;
+        state.serialize_field("calldata", &self.calldata)?;
+        state.serialize_field("signature", &self.signature)?;
+        state.serialize_field("nonce", &self.nonce)?;
+        state.serialize_field("paymaster_data", &self.paymaster_data)?;
+        state.serialize_field("tip", &self.tip)?;
+        state.serialize_field("account_deployment_data", &self.account_deployment_data)?;
+        state.serialize_field("resource_bounds", &self.resource_bounds)?;
+        state.serialize_field("fee_data_availability_mode", &self.fee_data_availability_mode)?;
+        state
+            .serialize_field("nonce_data_availability_mode", &self.nonce_data_availability_mode)?;
+        state.end()
+    }
+}
+
+impl<'de> Deserialize<'de> for BroadcastedInvokeTx {
+    fn deserialize<D: Deserializer<'de>>(deserializer: D) -> Result<Self, D::Error> {
+        UntypedBroadcastedTx::deserialize(deserializer)?
+            .try_into_invoke()
+            .map_err(de::Error::custom)
+    }
+}
+
+impl serde::Serialize for BroadcastedDeclareTx {
+    fn serialize<S: serde::Serializer>(&self, serializer: S) -> Result<S::Ok, S::Error> {
+        use serde::ser::SerializeStruct;
+
+        let version = if self.is_query { Felt::THREE + QUERY_VERSION_OFFSET } else { Felt::THREE };
+
+        let mut state = serializer.serialize_struct("BroadcastedDeclareTx", 12)?;
+        state.serialize_field("type", "DECLARE")?;
+        state.serialize_field("version", &version)?;
+        state.serialize_field("sender_address", &self.sender_address)?;
+        state.serialize_field("compiled_class_hash", &self.compiled_class_hash)?;
+        state.serialize_field("signature", &self.signature)?;
+        state.serialize_field("nonce", &self.nonce)?;
+        state.serialize_field("contract_class", &self.contract_class)?;
+        state.serialize_field("resource_bounds", &self.resource_bounds)?;
+        state.serialize_field("tip", &self.tip)?;
+        state.serialize_field("paymaster_data", &self.paymaster_data)?;
+        state.serialize_field("account_deployment_data", &self.account_deployment_data)?;
+        state
+            .serialize_field("nonce_data_availability_mode", &self.nonce_data_availability_mode)?;
+        state.serialize_field("fee_data_availability_mode", &self.fee_data_availability_mode)?;
+        state.end()
+    }
+}
+
+impl<'de> Deserialize<'de> for BroadcastedDeclareTx {
+    fn deserialize<D: Deserializer<'de>>(deserializer: D) -> Result<Self, D::Error> {
+        UntypedBroadcastedTx::deserialize(deserializer)?
+            .try_into_declare()
+            .map_err(de::Error::custom)
     }
 }
 
@@ -494,31 +566,6 @@ impl<'de> Deserialize<'de> for BroadcastedDeployAccountTx {
             .try_into_deploy_account()
             .map_err(de::Error::custom)
     }
-}
-
-/// Response for broadcasting an `INVOKE` transaction.
-#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
-pub struct AddInvokeTransactionResult {
-    /// The hash of the invoke transaction
-    pub transaction_hash: TxHash,
-}
-
-/// Response for broadcasting a `DECLARE` transaction.
-#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
-pub struct AddDeclareTransactionResult {
-    /// The hash of the declare transaction
-    pub transaction_hash: TxHash,
-    /// The hash of the declared class
-    pub class_hash: ClassHash,
-}
-
-/// Response for broadcasting a `DEPLOY_ACCOUNT` transaction.
-#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
-pub struct AddDeployAccountTransactionResult {
-    /// The hash of the deploy transaction
-    pub transaction_hash: TxHash,
-    /// The address of the new contract
-    pub contract_address: ContractAddress,
 }
 
 #[derive(Debug, Serialize, Deserialize)]
