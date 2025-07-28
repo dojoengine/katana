@@ -53,7 +53,7 @@ pub enum UntypedBroadcastedTxError {
 /// transaction provided that all the required fields for that particular transaction type are
 /// present.
 #[serde_with::serde_as]
-#[derive(Debug, Clone, Serialize, Deserialize)]
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
 pub struct UntypedBroadcastedTx {
     pub r#type: TxType,
     pub version: Felt,
@@ -71,27 +71,31 @@ pub struct UntypedBroadcastedTx {
     pub fee_data_availability_mode: DataAvailabilityMode,
 
     // Invoke only fields
-    #[serde(default)]
+    #[serde(default, skip_serializing_if = "Option::is_none")]
     pub calldata: Option<Vec<Felt>>,
 
     // Declare only fields
-    #[serde(default)]
+    #[serde(default, skip_serializing_if = "Option::is_none")]
     pub compiled_class_hash: Option<CompiledClassHash>,
-    #[serde(default)]
+
+    #[serde(default, skip_serializing_if = "Option::is_none")]
     pub contract_class: Option<Arc<RpcSierraContractClass>>,
 
     // Invoke & Declare only field
-    #[serde(default)]
+    #[serde(default, skip_serializing_if = "Option::is_none")]
     pub sender_address: Option<ContractAddress>,
-    #[serde(default)]
+
+    #[serde(default, skip_serializing_if = "Option::is_none")]
     pub account_deployment_data: Option<Vec<Felt>>,
 
     // DeployAccount only fields
-    #[serde(default)]
+    #[serde(default, skip_serializing_if = "Option::is_none")]
     pub contract_address_salt: Option<Felt>,
-    #[serde(default)]
+
+    #[serde(default, skip_serializing_if = "Option::is_none")]
     pub constructor_calldata: Option<Vec<Felt>>,
-    #[serde(default)]
+
+    #[serde(default, skip_serializing_if = "Option::is_none")]
     pub class_hash: Option<ClassHash>,
 }
 
@@ -558,25 +562,7 @@ impl<'de> Deserialize<'de> for BroadcastedTx {
 
 impl serde::Serialize for BroadcastedInvokeTx {
     fn serialize<S: serde::Serializer>(&self, serializer: S) -> Result<S::Ok, S::Error> {
-        use serde::ser::SerializeStruct;
-
-        let version = if self.is_query { Felt::THREE + QUERY_VERSION_OFFSET } else { Felt::THREE };
-
-        let mut state = serializer.serialize_struct("BroadcastedInvokeTx", 11)?;
-        state.serialize_field("type", "INVOKE")?;
-        state.serialize_field("version", &version)?;
-        state.serialize_field("sender_address", &self.sender_address)?;
-        state.serialize_field("calldata", &self.calldata)?;
-        state.serialize_field("signature", &self.signature)?;
-        state.serialize_field("nonce", &self.nonce)?;
-        state.serialize_field("paymaster_data", &self.paymaster_data)?;
-        state.serialize_field("tip", &self.tip)?;
-        state.serialize_field("account_deployment_data", &self.account_deployment_data)?;
-        state.serialize_field("resource_bounds", &self.resource_bounds)?;
-        state.serialize_field("fee_data_availability_mode", &self.fee_data_availability_mode)?;
-        state
-            .serialize_field("nonce_data_availability_mode", &self.nonce_data_availability_mode)?;
-        state.end()
+        UntypedBroadcastedTx::from(self.clone()).serialize(serializer)
     }
 }
 
@@ -590,26 +576,7 @@ impl<'de> Deserialize<'de> for BroadcastedInvokeTx {
 
 impl serde::Serialize for BroadcastedDeclareTx {
     fn serialize<S: serde::Serializer>(&self, serializer: S) -> Result<S::Ok, S::Error> {
-        use serde::ser::SerializeStruct;
-
-        let version = if self.is_query { Felt::THREE + QUERY_VERSION_OFFSET } else { Felt::THREE };
-
-        let mut state = serializer.serialize_struct("BroadcastedDeclareTx", 12)?;
-        state.serialize_field("type", "DECLARE")?;
-        state.serialize_field("version", &version)?;
-        state.serialize_field("sender_address", &self.sender_address)?;
-        state.serialize_field("compiled_class_hash", &self.compiled_class_hash)?;
-        state.serialize_field("signature", &self.signature)?;
-        state.serialize_field("nonce", &self.nonce)?;
-        state.serialize_field("contract_class", &self.contract_class)?;
-        state.serialize_field("resource_bounds", &self.resource_bounds)?;
-        state.serialize_field("tip", &self.tip)?;
-        state.serialize_field("paymaster_data", &self.paymaster_data)?;
-        state.serialize_field("account_deployment_data", &self.account_deployment_data)?;
-        state
-            .serialize_field("nonce_data_availability_mode", &self.nonce_data_availability_mode)?;
-        state.serialize_field("fee_data_availability_mode", &self.fee_data_availability_mode)?;
-        state.end()
+        UntypedBroadcastedTx::from(self.clone()).serialize(serializer)
     }
 }
 
@@ -622,29 +589,8 @@ impl<'de> Deserialize<'de> for BroadcastedDeclareTx {
 }
 
 impl serde::Serialize for BroadcastedDeployAccountTx {
-    fn serialize<S>(&self, serializer: S) -> Result<S::Ok, S::Error>
-    where
-        S: serde::Serializer,
-    {
-        use serde::ser::SerializeStruct;
-
-        let version = if self.is_query { Felt::THREE + QUERY_VERSION_OFFSET } else { Felt::THREE };
-
-        let mut state = serializer.serialize_struct("BroadcastedDeployAccountTx", 11)?;
-        state.serialize_field("type", "DEPLOY_ACCOUNT")?;
-        state.serialize_field("version", &version)?;
-        state.serialize_field("signature", &self.signature)?;
-        state.serialize_field("nonce", &self.nonce)?;
-        state.serialize_field("contract_address_salt", &self.contract_address_salt)?;
-        state.serialize_field("constructor_calldata", &self.constructor_calldata)?;
-        state.serialize_field("class_hash", &self.class_hash)?;
-        state.serialize_field("resource_bounds", &self.resource_bounds)?;
-        state.serialize_field("tip", &self.tip)?;
-        state.serialize_field("paymaster_data", &self.paymaster_data)?;
-        state
-            .serialize_field("nonce_data_availability_mode", &self.nonce_data_availability_mode)?;
-        state.serialize_field("fee_data_availability_mode", &self.fee_data_availability_mode)?;
-        state.end()
+    fn serialize<S: serde::Serializer>(&self, serializer: S) -> Result<S::Ok, S::Error> {
+        UntypedBroadcastedTx::from(self.clone()).serialize(serializer)
     }
 }
 
@@ -828,7 +774,7 @@ mod tests {
     }
 
     #[test]
-    fn untyped_invoke_tx_deserialization() {
+    fn untyped_invoke_tx_serde() {
         let json = json!({
           "account_deployment_data": [],
           "calldata": [
@@ -867,7 +813,7 @@ mod tests {
           "version": "0x3"
         });
 
-        let untyped: UntypedBroadcastedTx = serde_json::from_value(json).unwrap();
+        let untyped: UntypedBroadcastedTx = serde_json::from_value(json.clone()).unwrap();
 
         assert_eq!(untyped.version, Felt::THREE);
         assert_eq!(untyped.r#type, TxType::Invoke);
@@ -924,7 +870,7 @@ mod tests {
 
         // Make sure can convert to the correct typed tx.
         let typed = untyped.clone().typed().expect("failed to convert to typed tx");
-        assert_matches!(typed, BroadcastedTx::Invoke(tx) => {
+        assert_matches!(&typed, BroadcastedTx::Invoke(tx) => {
             // common fields
             assert_eq!(tx.tip, untyped.tip);
             assert_eq!(tx.nonce, untyped.nonce);
@@ -934,13 +880,20 @@ mod tests {
             assert_eq!(tx.nonce_data_availability_mode, untyped.nonce_data_availability_mode);
 
             // tx specific fields
-            assert_eq!(tx.calldata,  untyped.calldata.unwrap());
+            assert_eq!(tx.calldata,  untyped.calldata.clone().unwrap());
             assert_eq!(tx.sender_address, untyped.sender_address.unwrap());
         });
+
+        let new_untyped = UntypedBroadcastedTx::from(typed.clone());
+        similar_asserts::assert_eq!(untyped, new_untyped);
+
+        // Serializing typed transaction should yield the same JSON as the original
+        let new_json = serde_json::to_value(typed).unwrap();
+        similar_asserts::assert_eq!(json, new_json);
     }
 
     #[test]
-    fn untyped_declare_tx_deserialization() {
+    fn untyped_declare_tx_serde() {
         let json = json!({
             "type": "DECLARE",
             "version": "0x3",
@@ -975,7 +928,7 @@ mod tests {
             }
         });
 
-        let untyped: UntypedBroadcastedTx = serde_json::from_value(json).unwrap();
+        let untyped: UntypedBroadcastedTx = serde_json::from_value(json.clone()).unwrap();
 
         assert_eq!(untyped.version, Felt::THREE);
         assert_eq!(untyped.r#type, TxType::Declare);
@@ -1007,7 +960,7 @@ mod tests {
 
         // Make sure can convert to the correct typed tx.
         let typed = untyped.clone().typed().expect("failed to convert to typed tx");
-        assert_matches!(typed, BroadcastedTx::Declare(tx) => {
+        assert_matches!(&typed, BroadcastedTx::Declare(tx) => {
             // common fields
             assert_eq!(tx.tip, untyped.tip);
             assert_eq!(tx.nonce, untyped.nonce);
@@ -1020,10 +973,17 @@ mod tests {
             assert_eq!(tx.sender_address, untyped.sender_address.unwrap());
             assert_eq!(tx.compiled_class_hash, untyped.compiled_class_hash.unwrap());
         });
+
+        let new_untyped = UntypedBroadcastedTx::from(typed.clone());
+        similar_asserts::assert_eq!(untyped, new_untyped);
+
+        // Serializing typed transaction should yield the same JSON as the original
+        let new_json = serde_json::to_value(typed).unwrap();
+        similar_asserts::assert_eq!(json, new_json);
     }
 
     #[test]
-    fn untyped_deploy_account_tx_deserialization() {
+    fn untyped_deploy_account_tx_serde() {
         let json = json!({
             "type": "DEPLOY_ACCOUNT",
             "version": "0x3",
@@ -1036,8 +996,8 @@ mod tests {
                     "max_price_per_unit": "0x200"
                 },
                 "l2_gas": {
-                    "max_amount": "0x300",
-                    "max_price_per_unit": "0x400"
+                    "max_amount": "0x0",
+                    "max_price_per_unit": "0x0"
                 }
             },
             "nonce_data_availability_mode": "L1",
@@ -1048,7 +1008,7 @@ mod tests {
             "class_hash": "0xdef"
         });
 
-        let untyped: UntypedBroadcastedTx = serde_json::from_value(json).unwrap();
+        let untyped: UntypedBroadcastedTx = serde_json::from_value(json.clone()).unwrap();
 
         assert_eq!(untyped.version, Felt::THREE);
         assert_eq!(untyped.r#type, TxType::DeployAccount);
@@ -1081,7 +1041,7 @@ mod tests {
 
         // Make sure can convert to the correct typed tx.
         let typed = untyped.clone().typed().expect("failed to convert to typed tx");
-        assert_matches!(typed, BroadcastedTx::DeployAccount(tx) => {
+        assert_matches!(&typed, BroadcastedTx::DeployAccount(tx) => {
             // common fields
             assert_eq!(tx.tip, untyped.tip);
             assert_eq!(tx.nonce, untyped.nonce);
@@ -1092,9 +1052,16 @@ mod tests {
 
             // tx specific fields
             assert_eq!(tx.class_hash, untyped.class_hash.unwrap());
-            assert_eq!(tx.constructor_calldata, untyped.constructor_calldata.unwrap());
             assert_eq!(tx.contract_address_salt,  untyped.contract_address_salt.unwrap());
+            assert_eq!(tx.constructor_calldata, untyped.constructor_calldata.clone().unwrap());
         });
+
+        let new_untyped = UntypedBroadcastedTx::from(typed.clone());
+        similar_asserts::assert_eq!(untyped, new_untyped);
+
+        // Serializing typed transaction should yield the same JSON as the original
+        let new_json = serde_json::to_value(typed).unwrap();
+        similar_asserts::assert_eq!(json, new_json);
     }
 
     #[test]
@@ -1130,7 +1097,7 @@ mod tests {
     }
 
     #[test]
-    fn broadcasted_tx_enum_deserialization() {
+    fn broadcasted_tx_enum_serde() {
         let json = json!({
             "type": "INVOKE",
             "version": "0x3",
@@ -1155,8 +1122,11 @@ mod tests {
             "account_deployment_data": []
         });
 
-        let tx: BroadcastedTx = serde_json::from_value(json).unwrap();
+        let tx: BroadcastedTx = serde_json::from_value(json.clone()).unwrap();
         assert_matches!(tx, BroadcastedTx::Invoke(_));
+
+        let new_json = serde_json::to_value(tx).unwrap();
+        similar_asserts::assert_eq!(json, new_json);
     }
 
     // Attempting to deserialize a broadcasted transaction that is missing a
@@ -1332,7 +1302,7 @@ mod tests {
     }
 
     #[test]
-    fn response_types_serialization() {
+    fn response_types_serde() {
         let invoke_result = AddInvokeTransactionResult { transaction_hash: felt!("0x123") };
 
         let expected = json!({
@@ -1367,5 +1337,50 @@ mod tests {
 
         let actual = serde_json::to_value(&deploy_result).unwrap();
         similar_asserts::assert_eq!(actual, expected);
+    }
+
+    // This will currently fail because the l2 gas on legacy resource bounds format are not
+    // preserved throughout the serialization process.
+    #[test]
+    #[ignore]
+    fn legacy_resource_bounds_with_nonzero_l2_gas() {
+        let json = json!({
+          "account_deployment_data": [],
+          "calldata": [
+            "0x4",
+            "0xcf"
+          ],
+          "fee_data_availability_mode": "L1",
+          "nonce": "0x4c7",
+          "nonce_data_availability_mode": "L1",
+          "paymaster_data": [],
+          "resource_bounds": {
+            "l1_gas": {
+              "max_amount": "0x360",
+              "max_price_per_unit": "0x1626"
+            },
+            "l2_gas": {
+              "max_amount": "0xc1e300",
+              "max_price_per_unit": "0x4e575794"
+            }
+          },
+          "sender_address": "0x7c93d1c768414c8acac9ef01e09d196ab097c44acec98bdbb9b2e4da37e8aaf",
+          "signature": [
+            "0x54f3f4b563f83ba5b0fdf339d07d0e88662e602db1243b5c23b4664d2530958",
+            "0x4fb187a83219ade17afa01161359b0bb9f64da4be0f96ccefaaa6e41bae7dce"
+          ],
+          "tip": "0x0",
+          "type": "INVOKE",
+          "version": "0x3"
+        });
+
+        assert_eq!(json["resource_bounds"]["l2_gas"]["max_amount"], "0xc1e300");
+        assert_eq!(json["resource_bounds"]["l2_gas"]["max_price_per_unit"], "0x4e575794");
+
+        let untyped: UntypedBroadcastedTx = serde_json::from_value(json.clone()).unwrap();
+        let new_json = serde_json::to_value(&untyped).unwrap();
+
+        assert_eq!(new_json["resource_bounds"]["l2_gas"]["max_amount"], "0xc1e300");
+        assert_eq!(new_json["resource_bounds"]["l2_gas"]["max_price_per_unit"], "0x4e575794");
     }
 }
