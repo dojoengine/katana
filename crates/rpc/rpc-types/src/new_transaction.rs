@@ -48,8 +48,10 @@ pub enum UntypedBroadcastedTxError {
 #[serde_with::serde_as]
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct UntypedBroadcastedTx {
+    // Common fields
     pub r#type: TxType,
     pub version: Felt,
+    pub nonce: Felt,
     pub signature: Vec<Felt>,
     #[serde(serialize_with = "serialize_hex_u64", deserialize_with = "deserialize_hex_u64")]
     pub tip: u64,
@@ -62,23 +64,23 @@ pub struct UntypedBroadcastedTx {
     pub nonce_data_availability_mode: DataAvailabilityMode,
     pub fee_data_availability_mode: DataAvailabilityMode,
 
-    // Invoke-specific fields
-    #[serde(default)]
-    pub sender_address: Option<ContractAddress>,
+    // Invoke only fields
     #[serde(default)]
     pub calldata: Option<Vec<Felt>>,
-    #[serde(default)]
-    pub nonce: Option<Felt>,
-    #[serde(default)]
-    pub account_deployment_data: Option<Vec<Felt>>,
 
-    // Declare-specific fields
+    // Declare only fields
     #[serde(default)]
     pub compiled_class_hash: Option<CompiledClassHash>,
     #[serde(default)]
     pub contract_class: Option<Arc<RpcSierraContractClass>>,
 
-    // DeployAccount-specific fields
+    // Invoke & Declare only field
+    #[serde(default)]
+    pub sender_address: Option<ContractAddress>,
+    #[serde(default)]
+    pub account_deployment_data: Option<Vec<Felt>>,
+
+    // DeployAccount only fields
     #[serde(default)]
     pub contract_address_salt: Option<Felt>,
     #[serde(default)]
@@ -88,6 +90,7 @@ pub struct UntypedBroadcastedTx {
 }
 
 impl UntypedBroadcastedTx {
+    /// Convert into a typed transaction.
     pub fn typed(self) -> Result<BroadcastedTx, UntypedBroadcastedTxError> {
         match self.r#type {
             TxType::Invoke => Ok(BroadcastedTx::Invoke(self.try_into_invoke()?)),
@@ -99,6 +102,7 @@ impl UntypedBroadcastedTx {
         }
     }
 
+    /// Convert into an **Invoke** transaction.
     pub fn try_into_invoke(self) -> Result<BroadcastedInvokeTx, UntypedBroadcastedTxError> {
         if self.r#type != TxType::Invoke {
             return Err(UntypedBroadcastedTxError::InvalidTxType {
@@ -115,17 +119,16 @@ impl UntypedBroadcastedTx {
             return Err(UntypedBroadcastedTxError::InvalidVersion { r#type: TxType::Invoke });
         };
 
-        let nonce = expect_field!(self.nonce, TxType::Invoke, "nonce");
         let calldata = expect_field!(self.calldata, TxType::Invoke, "calldata");
         let sender_address = expect_field!(self.sender_address, TxType::Invoke, "sender_address");
         let account_deployment_data =
             expect_field!(self.account_deployment_data, TxType::Invoke, "account_deployment_data");
 
         Ok(BroadcastedInvokeTx {
-            nonce,
             calldata,
             tip: self.tip,
             sender_address,
+            nonce: self.nonce,
             account_deployment_data,
             signature: self.signature,
             paymaster_data: self.paymaster_data,
@@ -136,6 +139,7 @@ impl UntypedBroadcastedTx {
         })
     }
 
+    /// Convert into a **Declare** transaction.
     pub fn try_into_declare(self) -> Result<BroadcastedDeclareTx, UntypedBroadcastedTxError> {
         if self.r#type != TxType::Declare {
             return Err(UntypedBroadcastedTxError::InvalidTxType {
@@ -155,16 +159,15 @@ impl UntypedBroadcastedTx {
         let sender_address = expect_field!(self.sender_address, TxType::Declare, "sender_address");
         let compiled_class_hash =
             expect_field!(self.compiled_class_hash, TxType::Declare, "compiled_class_hash");
-        let nonce = expect_field!(self.nonce, TxType::Declare, "nonce");
         let contract_class = expect_field!(self.contract_class, TxType::Declare, "contract_class");
         let account_deployment_data =
             expect_field!(self.account_deployment_data, TxType::Declare, "account_deployment_data");
 
         Ok(BroadcastedDeclareTx {
-            nonce,
             contract_class,
             sender_address,
             tip: self.tip,
+            nonce: self.nonce,
             compiled_class_hash,
             account_deployment_data,
             signature: self.signature,
@@ -176,6 +179,7 @@ impl UntypedBroadcastedTx {
         })
     }
 
+    /// Convert into a **DeployAccount** transaction.
     pub fn try_into_deploy_account(
         self,
     ) -> Result<BroadcastedDeployAccountTx, UntypedBroadcastedTxError> {
@@ -196,7 +200,6 @@ impl UntypedBroadcastedTx {
             });
         };
 
-        let nonce = expect_field!(self.nonce, TxType::DeployAccount, "nonce");
         let contract_address_salt = expect_field!(
             self.contract_address_salt,
             TxType::DeployAccount,
@@ -207,9 +210,9 @@ impl UntypedBroadcastedTx {
         let class_hash = expect_field!(self.class_hash, TxType::DeployAccount, "class_hash");
 
         Ok(BroadcastedDeployAccountTx {
-            nonce,
             class_hash,
             tip: self.tip,
+            nonce: self.nonce,
             constructor_calldata,
             contract_address_salt,
             signature: self.signature,
@@ -604,9 +607,16 @@ fn deserialize_resource_bounds<'de, D: Deserializer<'de>>(
 #[cfg(test)]
 mod tests {
     use assert_matches::assert_matches;
+    use katana_primitives::fee::ResourceBoundsMapping;
+    use katana_primitives::transaction::TxType;
+    use katana_primitives::{address, felt, ContractAddress, Felt};
     use serde_json::json;
 
-    use crate::new_transaction::RpcResourceBoundsMapping;
+    use super::*;
+    use crate::new_transaction::{
+        AddDeclareTransactionResult, AddDeployAccountTransactionResult, AddInvokeTransactionResult,
+        BroadcastedTx, RpcResourceBoundsMapping, UntypedBroadcastedTxError,
+    };
 
     #[test]
     fn legacy_rpc_resource_bounds_serde() {
@@ -660,5 +670,545 @@ mod tests {
             assert_eq!(l1_data_gas.max_amount, 0xabc);
             assert_eq!(l1_data_gas.max_price_per_unit, 0x1337);
         });
+    }
+
+    #[test]
+    fn untyped_invoke_tx_deserialization() {
+        let json = json!({
+          "account_deployment_data": [],
+          "calldata": [
+            "0x1",
+            "0x3284bb4684703a368db8fd538c39b30e51822dbab9ad398e66311e820318444",
+            "0xb6ed56333389f45e60acf4deb7dca7c0ab16a4b24e2e8797959bbea4063636",
+            "0x2",
+            "0x4",
+            "0xcf"
+          ],
+          "fee_data_availability_mode": "L1",
+          "nonce": "0x4c7",
+          "nonce_data_availability_mode": "L1",
+          "paymaster_data": [],
+          "resource_bounds": {
+            "l1_data_gas": {
+              "max_amount": "0x360",
+              "max_price_per_unit": "0x1626"
+            },
+            "l1_gas": {
+              "max_amount": "0x0",
+              "max_price_per_unit": "0x2fd0cf343294"
+            },
+            "l2_gas": {
+              "max_amount": "0xc1e300",
+              "max_price_per_unit": "0x4e575794"
+            }
+          },
+          "sender_address": "0x7c93d1c768414c8acac9ef01e09d196ab097c44acec98bdbb9b2e4da37e8aaf",
+          "signature": [
+            "0x54f3f4b563f83ba5b0fdf339d07d0e88662e602db1243b5c23b4664d2530958",
+            "0x4fb187a83219ade17afa01161359b0bb9f64da4be0f96ccefaaa6e41bae7dce"
+          ],
+          "tip": "0x0",
+          "type": "INVOKE",
+          "version": "0x3"
+        });
+
+        let untyped: UntypedBroadcastedTx = serde_json::from_value(json).unwrap();
+
+        assert_eq!(untyped.version, Felt::THREE);
+        assert_eq!(untyped.r#type, TxType::Invoke);
+
+        // Common fields
+        assert_eq!(untyped.tip, 0x0);
+        assert_eq!(untyped.nonce, felt!("0x4c7"));
+        assert_eq!(untyped.paymaster_data, vec![]);
+        assert_eq!(untyped.fee_data_availability_mode, DataAvailabilityMode::L1);
+        assert_eq!(untyped.nonce_data_availability_mode, DataAvailabilityMode::L1);
+        assert_matches!(&untyped.resource_bounds, ResourceBoundsMapping::All(bounds) => {
+            assert_eq!(bounds.l1_gas.max_amount, 0x0);
+            assert_eq!(bounds.l1_gas.max_price_per_unit, 0x2fd0cf343294);
+
+            assert_eq!(bounds.l2_gas.max_amount, 0xc1e300);
+            assert_eq!(bounds.l2_gas.max_price_per_unit, 0x4e575794);
+
+            assert_eq!(bounds.l1_data_gas.max_amount, 0x360);
+            assert_eq!(bounds.l1_data_gas.max_price_per_unit, 0x1626);
+        });
+        assert_eq!(
+            untyped.signature,
+            vec![
+                felt!("0x54f3f4b563f83ba5b0fdf339d07d0e88662e602db1243b5c23b4664d2530958"),
+                felt!("0x4fb187a83219ade17afa01161359b0bb9f64da4be0f96ccefaaa6e41bae7dce")
+            ]
+        );
+
+        // Tx specific fields
+        assert_eq!(
+            untyped.sender_address,
+            Some(address!("0x7c93d1c768414c8acac9ef01e09d196ab097c44acec98bdbb9b2e4da37e8aaf"))
+        );
+        assert_eq!(
+            untyped.calldata,
+            Some(vec![
+                felt!("0x1"),
+                felt!("0x3284bb4684703a368db8fd538c39b30e51822dbab9ad398e66311e820318444"),
+                felt!("0xb6ed56333389f45e60acf4deb7dca7c0ab16a4b24e2e8797959bbea4063636"),
+                felt!("0x2"),
+                felt!("0x4"),
+                felt!("0xcf")
+            ])
+        );
+
+        // Declare Tx fields should be None
+        assert!(untyped.contract_class.is_none());
+        assert!(untyped.compiled_class_hash.is_none());
+
+        // DeployAccount Tx fields should be None
+        assert!(untyped.class_hash.is_none());
+        assert!(untyped.constructor_calldata.is_none());
+        assert!(untyped.contract_address_salt.is_none());
+
+        // Make sure can convert to the correct typed tx.
+        let typed = untyped.clone().typed().expect("failed to convert to typed tx");
+        assert_matches!(typed, BroadcastedTx::Invoke(tx) => {
+            // common fields
+            assert_eq!(tx.tip, untyped.tip);
+            assert_eq!(tx.nonce, untyped.nonce);
+            assert_eq!(tx.signature, untyped.signature);
+            assert_eq!(tx.paymaster_data, untyped.paymaster_data);
+            assert_eq!(tx.fee_data_availability_mode, untyped.fee_data_availability_mode);
+            assert_eq!(tx.nonce_data_availability_mode, untyped.nonce_data_availability_mode);
+
+            // tx specific fields
+            assert_eq!(tx.calldata,  untyped.calldata.unwrap());
+            assert_eq!(tx.sender_address, untyped.sender_address.unwrap());
+        });
+    }
+
+    #[test]
+    fn untyped_declare_tx_deserialization() {
+        let json = json!({
+            "type": "DECLARE",
+            "version": "0x3",
+            "signature": ["0x1"],
+            "tip": "0x0",
+            "paymaster_data": [],
+            "resource_bounds": {
+                "l1_gas": {
+                    "max_amount": "0x100",
+                    "max_price_per_unit": "0x200"
+                },
+                "l2_gas": {
+                    "max_amount": "0x0",
+                    "max_price_per_unit": "0x0"
+                }
+            },
+            "nonce_data_availability_mode": "L1",
+            "fee_data_availability_mode": "L1",
+            "sender_address": "0x456",
+            "compiled_class_hash": "0x789",
+            "nonce": "0x1",
+            "account_deployment_data": ["0x11", "0x22"],
+            "contract_class": {
+                "sierra_program": ["0x1", "0x2"],
+                "contract_class_version": "0.1.0",
+                "entry_points_by_type": {
+                    "EXTERNAL": [],
+                    "L1_HANDLER": [],
+                    "CONSTRUCTOR": []
+                },
+                "abi": ""
+            }
+        });
+
+        let untyped: UntypedBroadcastedTx = serde_json::from_value(json).unwrap();
+
+        assert_eq!(untyped.version, Felt::THREE);
+        assert_eq!(untyped.r#type, TxType::Declare);
+
+        // Common fields
+        assert_eq!(untyped.tip, 0x0);
+        assert_eq!(untyped.nonce, felt!("0x1"));
+        assert_eq!(untyped.paymaster_data, vec![]);
+        assert_eq!(untyped.fee_data_availability_mode, DataAvailabilityMode::L1);
+        assert_eq!(untyped.nonce_data_availability_mode, DataAvailabilityMode::L1);
+        assert_matches!(&untyped.resource_bounds, ResourceBoundsMapping::L1Gas(bounds) => {
+            assert_eq!(bounds.max_amount, 0x100);
+            assert_eq!(bounds.max_price_per_unit, 0x200);
+        });
+
+        // Tx specific fields
+        assert!(untyped.contract_class.is_some());
+        assert_eq!(untyped.sender_address, Some(address!("0x456")));
+        assert_eq!(untyped.compiled_class_hash, Some(felt!("0x789")));
+        assert_eq!(untyped.account_deployment_data, Some(vec![felt!("0x11"), felt!("0x22")]));
+
+        // Invoke Tx fields should be None
+        assert!(untyped.calldata.is_none());
+
+        // DeployAccount Tx fields should be None
+        assert!(untyped.class_hash.is_none());
+        assert!(untyped.constructor_calldata.is_none());
+        assert!(untyped.contract_address_salt.is_none());
+
+        // Make sure can convert to the correct typed tx.
+        let typed = untyped.clone().typed().expect("failed to convert to typed tx");
+        assert_matches!(typed, BroadcastedTx::Declare(tx) => {
+            // common fields
+            assert_eq!(tx.tip, untyped.tip);
+            assert_eq!(tx.nonce, untyped.nonce);
+            assert_eq!(tx.signature, untyped.signature);
+            assert_eq!(tx.paymaster_data, untyped.paymaster_data);
+            assert_eq!(tx.fee_data_availability_mode, untyped.fee_data_availability_mode);
+            assert_eq!(tx.nonce_data_availability_mode, untyped.nonce_data_availability_mode);
+
+            // tx specific fields
+            assert_eq!(tx.sender_address, untyped.sender_address.unwrap());
+            assert_eq!(tx.compiled_class_hash, untyped.compiled_class_hash.unwrap());
+        });
+    }
+
+    #[test]
+    fn untyped_deploy_account_tx_deserialization() {
+        let json = json!({
+            "type": "DEPLOY_ACCOUNT",
+            "version": "0x3",
+            "signature": ["0x1", "0x2", "0x3"],
+            "tip": "0x1",
+            "paymaster_data": [],
+            "resource_bounds": {
+                "l1_gas": {
+                    "max_amount": "0x100",
+                    "max_price_per_unit": "0x200"
+                },
+                "l2_gas": {
+                    "max_amount": "0x300",
+                    "max_price_per_unit": "0x400"
+                }
+            },
+            "nonce_data_availability_mode": "L1",
+            "fee_data_availability_mode": "L1",
+            "nonce": "0x0",
+            "contract_address_salt": "0xabc",
+            "constructor_calldata": ["0x1", "0x2"],
+            "class_hash": "0xdef"
+        });
+
+        let untyped: UntypedBroadcastedTx = serde_json::from_value(json).unwrap();
+
+        assert_eq!(untyped.version, Felt::THREE);
+        assert_eq!(untyped.r#type, TxType::DeployAccount);
+
+        // Common fields
+        assert_eq!(untyped.tip, 0x1);
+        assert_eq!(untyped.nonce, felt!("0x0"));
+        assert_eq!(untyped.paymaster_data, vec![]);
+        assert_eq!(untyped.signature, vec![felt!("0x1"), felt!("0x2"), felt!("0x3")]);
+        assert_eq!(untyped.fee_data_availability_mode, DataAvailabilityMode::L1);
+        assert_eq!(untyped.nonce_data_availability_mode, DataAvailabilityMode::L1);
+        assert_matches!(&untyped.resource_bounds, ResourceBoundsMapping::L1Gas(bounds) => {
+            assert_eq!(bounds.max_amount, 0x100);
+            assert_eq!(bounds.max_price_per_unit, 0x200);
+        });
+
+        // Tx specific fields
+        assert_eq!(untyped.class_hash, Some(felt!("0xdef")));
+        assert_eq!(untyped.contract_address_salt, Some(felt!("0xabc")));
+        assert_eq!(untyped.constructor_calldata, Some(vec![felt!("0x1"), felt!("0x2")]));
+
+        // Invoke Tx fields should be None
+        assert!(untyped.sender_address.is_none());
+        assert!(untyped.calldata.is_none());
+        assert!(untyped.account_deployment_data.is_none());
+
+        // Declare Tx fields should be None
+        assert!(untyped.compiled_class_hash.is_none());
+        assert!(untyped.contract_class.is_none());
+
+        // Make sure can convert to the correct typed tx.
+        let typed = untyped.clone().typed().expect("failed to convert to typed tx");
+        assert_matches!(typed, BroadcastedTx::DeployAccount(tx) => {
+            // common fields
+            assert_eq!(tx.tip, untyped.tip);
+            assert_eq!(tx.nonce, untyped.nonce);
+            assert_eq!(tx.signature, untyped.signature);
+            assert_eq!(tx.paymaster_data, untyped.paymaster_data);
+            assert_eq!(tx.fee_data_availability_mode, untyped.fee_data_availability_mode);
+            assert_eq!(tx.nonce_data_availability_mode, untyped.nonce_data_availability_mode);
+
+            // tx specific fields
+            assert_eq!(tx.class_hash, untyped.class_hash.unwrap());
+            assert_eq!(tx.constructor_calldata, untyped.constructor_calldata.unwrap());
+            assert_eq!(tx.contract_address_salt,  untyped.contract_address_salt.unwrap());
+        });
+    }
+
+    #[test]
+    fn query_version_handling() {
+        let query_version = Felt::THREE + QUERY_VERSION_OFFSET;
+        let json = json!({
+            "type": "INVOKE",
+            "version": query_version,
+            "signature": [],
+            "tip": "0x0",
+            "paymaster_data": [],
+            "resource_bounds": {
+                "l1_gas": {
+                    "max_amount": "0x100",
+                    "max_price_per_unit": "0x200"
+                },
+                "l2_gas": {
+                    "max_amount": "0x0",
+                    "max_price_per_unit": "0x0"
+                }
+            },
+            "nonce_data_availability_mode": "L1",
+            "fee_data_availability_mode": "L1",
+            "sender_address": "0x123",
+            "calldata": [],
+            "nonce": "0x0",
+            "account_deployment_data": []
+        });
+
+        let tx: UntypedBroadcastedTx = serde_json::from_value(json).unwrap();
+        let invoke_tx = tx.try_into_invoke().unwrap();
+        assert!(invoke_tx.is_query());
+    }
+
+    #[test]
+    fn broadcasted_tx_enum_deserialization() {
+        let json = json!({
+            "type": "INVOKE",
+            "version": "0x3",
+            "signature": [],
+            "tip": "0x0",
+            "paymaster_data": [],
+            "resource_bounds": {
+                "l1_gas": {
+                    "max_amount": "0x100",
+                    "max_price_per_unit": "0x200"
+                },
+                "l2_gas": {
+                    "max_amount": "0x0",
+                    "max_price_per_unit": "0x0"
+                }
+            },
+            "nonce_data_availability_mode": "L1",
+            "fee_data_availability_mode": "L1",
+            "sender_address": "0x123",
+            "calldata": [],
+            "nonce": "0x0",
+            "account_deployment_data": []
+        });
+
+        let tx: BroadcastedTx = serde_json::from_value(json).unwrap();
+        assert_matches!(tx, BroadcastedTx::Invoke(_));
+    }
+
+    // Attempting to deserialize a broadcasted transaction that is missing a
+    // field that is not specific to a type.
+    #[test]
+    fn missing_common_field_error() {
+        // Invoke transaction but missing a common field: `signature`
+        let json = json!({
+            "type": "INVOKE",
+            "version": "0x3",
+            "tip": "0xa",
+            "paymaster_data": [],
+            "sender_address": "0x123",
+            "calldata": ["0x1", "0x2", "0x3"],
+            "nonce": "0x5",
+            "account_deployment_data": [],
+            "fee_data_availability_mode": "L1",
+            "nonce_data_availability_mode": "L1",
+            "resource_bounds": {
+                "l1_gas": {
+                    "max_amount": "0x100",
+                    "max_price_per_unit": "0x200"
+                },
+                "l2_gas": {
+                    "max_amount": "0x300",
+                    "max_price_per_unit": "0x400"
+                }
+            },
+        });
+
+        assert!(serde_json::from_value::<UntypedBroadcastedTx>(json).is_err())
+    }
+
+    // Attempting to convert to a typed transaction but missing a field that
+    // is specific to that type.
+    #[test]
+    fn missing_field_error() {
+        // Invoke transaction but missing a tx specific field: `calldata`
+        let json = json!({
+            "type": "INVOKE",
+            "version": "0x3",
+            "nonce": "0x3",
+            "signature": [],
+            "tip": "0x0",
+            "paymaster_data": [],
+            "sender_address": "0x1337",
+            "resource_bounds": {
+                "l1_gas": {
+                    "max_amount": "0x100",
+                    "max_price_per_unit": "0x200"
+                },
+                "l2_gas": {
+                    "max_amount": "0x0",
+                    "max_price_per_unit": "0x0"
+                }
+            },
+            "nonce_data_availability_mode": "L1",
+            "fee_data_availability_mode": "L1",
+            "account_deployment_data": ["0x11", "0x22"]
+            // "calldata": ["0x1", "0x67"],
+        });
+
+        let tx: UntypedBroadcastedTx = serde_json::from_value(json).unwrap();
+        let result = tx.try_into_invoke();
+
+        assert_matches!(
+            result,
+            Err(UntypedBroadcastedTxError::MissingField {
+                r#type: TxType::Invoke,
+                field: "calldata"
+            })
+        );
+    }
+
+    #[test]
+    fn invalid_version_error() {
+        let json = json!({
+            "type": "INVOKE",
+            "version": "0x2", // Invalid version
+            "signature": [],
+            "tip": "0x0",
+            "paymaster_data": [],
+            "resource_bounds": {
+                "l1_gas": {
+                    "max_amount": "0x100",
+                    "max_price_per_unit": "0x200"
+                },
+                "l2_gas": {
+                    "max_amount": "0x0",
+                    "max_price_per_unit": "0x0"
+                }
+            },
+            "nonce_data_availability_mode": "L1",
+            "fee_data_availability_mode": "L1",
+            "sender_address": "0x123",
+            "calldata": [],
+            "nonce": "0x0",
+            "account_deployment_data": []
+        });
+
+        let tx: UntypedBroadcastedTx = serde_json::from_value(json).unwrap();
+        let result = tx.try_into_invoke();
+
+        assert_matches!(
+            result,
+            Err(UntypedBroadcastedTxError::InvalidVersion { r#type: TxType::Invoke })
+        );
+    }
+
+    #[test]
+    fn invalid_tx_type_error() {
+        let json = json!({
+          "account_deployment_data": [],
+          "calldata": [
+            "0x1",
+            "0x3284bb4684703a368db8fd538c39b30e51822dbab9ad398e66311e820318444",
+            "0xb6ed56333389f45e60acf4deb7dca7c0ab16a4b24e2e8797959bbea4063636",
+            "0x2",
+            "0x4",
+            "0xcf"
+          ],
+          "fee_data_availability_mode": "L1",
+          "nonce": "0x4c7",
+          "nonce_data_availability_mode": "L1",
+          "paymaster_data": [],
+          "resource_bounds": {
+            "l1_data_gas": {
+              "max_amount": "0x360",
+              "max_price_per_unit": "0x1626"
+            },
+            "l1_gas": {
+              "max_amount": "0x0",
+              "max_price_per_unit": "0x2fd0cf343294"
+            },
+            "l2_gas": {
+              "max_amount": "0xc1e300",
+              "max_price_per_unit": "0x4e575794"
+            }
+          },
+          "sender_address": "0x7c93d1c768414c8acac9ef01e09d196ab097c44acec98bdbb9b2e4da37e8aaf",
+          "signature": [
+            "0x54f3f4b563f83ba5b0fdf339d07d0e88662e602db1243b5c23b4664d2530958",
+            "0x4fb187a83219ade17afa01161359b0bb9f64da4be0f96ccefaaa6e41bae7dce"
+          ],
+          "tip": "0x0",
+          "type": "INVOKE",
+          "version": "0x3"
+        });
+
+        let tx: UntypedBroadcastedTx = serde_json::from_value(json).unwrap();
+        let invoke_tx_result = tx.clone().try_into_invoke();
+        let declare_tx_result = tx.clone().try_into_declare();
+        let deploy_account_tx_result = tx.try_into_deploy_account();
+
+        assert!(invoke_tx_result.is_ok());
+
+        assert_matches!(
+            declare_tx_result,
+            Err(UntypedBroadcastedTxError::InvalidTxType {
+                expected: TxType::Declare,
+                actual: TxType::Invoke
+            })
+        );
+        assert_matches!(
+            deploy_account_tx_result,
+            Err(UntypedBroadcastedTxError::InvalidTxType {
+                expected: TxType::DeployAccount,
+                actual: TxType::Invoke
+            })
+        );
+    }
+
+    #[test]
+    fn response_types_serialization() {
+        let invoke_result = AddInvokeTransactionResult { transaction_hash: felt!("0x123") };
+
+        let expected = json!({
+            "transaction_hash": "0x123"
+        });
+
+        let actual = serde_json::to_value(&invoke_result).unwrap();
+        similar_asserts::assert_eq!(actual, expected);
+
+        let declare_result = AddDeclareTransactionResult {
+            transaction_hash: felt!("0x456"),
+            class_hash: felt!("0x789"),
+        };
+
+        let expected = json!({
+            "transaction_hash": "0x456",
+            "class_hash": "0x789"
+        });
+
+        let actual = serde_json::to_value(&declare_result).unwrap();
+        similar_asserts::assert_eq!(actual, expected);
+
+        let deploy_result = AddDeployAccountTransactionResult {
+            transaction_hash: felt!("0xabc"),
+            contract_address: address!("0xdef"),
+        };
+
+        let expected = json!({
+            "transaction_hash": "0xabc",
+            "contract_address": "0xdef"
+        });
+
+        let actual = serde_json::to_value(&deploy_result).unwrap();
+        similar_asserts::assert_eq!(actual, expected);
     }
 }
