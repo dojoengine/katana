@@ -20,9 +20,10 @@ use starknet::accounts::{
     OpenZeppelinAccountFactory as OZAccountFactory, SingleOwnerAccount,
 };
 use starknet::core::types::{
-    BlockId, BlockTag, Call, DeclareTransactionReceipt, DeployAccountTransactionReceipt,
-    EventFilter, EventsPage, ExecutionResult, Felt, MaybePreConfirmedBlockWithReceipts,
-    MaybePreConfirmedBlockWithTxHashes, MaybePreConfirmedBlockWithTxs, StarknetError,
+    BlockId, BlockTag, Call, ConfirmedBlockId, DeclareTransactionReceipt,
+    DeployAccountTransactionReceipt, EventFilter, EventsPage, ExecutionResult, Felt,
+    MaybePreConfirmedBlockWithReceipts, MaybePreConfirmedBlockWithTxHashes,
+    MaybePreConfirmedBlockWithTxs, MaybePreConfirmedStateUpdate, StarknetError,
     TransactionExecutionStatus, TransactionFinalityStatus, TransactionReceipt, TransactionTrace,
 };
 use starknet::core::utils::get_contract_address;
@@ -56,7 +57,7 @@ async fn declare_and_deploy_contract() -> Result<()> {
     // check state update includes class in declared_classes
     let state_update = provider.get_state_update(BlockId::Tag(BlockTag::Latest)).await?;
     match state_update {
-        MaybePendingStateUpdate::Update(update) => {
+        MaybePreConfirmedStateUpdate::Update(update) => {
             assert!(update
                 .state_diff
                 .declared_classes
@@ -637,7 +638,7 @@ async fn send_txs_with_invalid_nonces(
         .send()
         .await;
 
-    assert_account_starknet_err!(res.unwrap_err(), StarknetError::InvalidTransactionNonce);
+    assert_account_starknet_err!(res.unwrap_err(), StarknetError::InvalidTransactionNonce(..));
 
     let nonce = account.get_nonce().await?;
     assert_eq!(nonce, initial_nonce, "Nonce shouldn't change on invalid tx.");
@@ -684,7 +685,7 @@ async fn send_txs_with_invalid_nonces(
         .send()
         .await;
 
-    assert_account_starknet_err!(res.unwrap_err(), StarknetError::InvalidTransactionNonce);
+    assert_account_starknet_err!(res.unwrap_err(), StarknetError::InvalidTransactionNonce(..));
 
     let nonce = account.get_nonce().await?;
     assert_eq!(nonce, Felt::TWO, "Nonce shouldn't change bcs the tx is still invalid.");
@@ -1001,7 +1002,7 @@ async fn block_traces() -> Result<()> {
     }
 
     // Get the traces of the transactions in block 3 (pending).
-    let block_id = BlockId::Tag(BlockTag::PreConfirmed);
+    let block_id = ConfirmedBlockId::Latest; // this is technically wrong for this test scenario
     let traces = provider.trace_block_transactions(block_id).await?;
     assert_eq!(traces.len(), 3);
 
@@ -1075,13 +1076,13 @@ async fn fetch_pending_blocks() {
     // -----------------------------------------------------------------------
 
     let latest_block_hash_n_num = provider.block_hash_and_number().await.unwrap();
-    let latest_block_hash = latest_block_hash_n_num.block_hash;
+    let latest_block_number = latest_block_hash_n_num.block_number;
 
     let block_with_txs = provider.get_block_with_txs(block_id).await.unwrap();
 
     if let MaybePreConfirmedBlockWithTxs::PreConfirmedBlock(block) = block_with_txs {
         assert_eq!(block.transactions.len(), txs.len());
-        assert_eq!(block.parent_hash, latest_block_hash);
+        assert_eq!(block.block_number, latest_block_number);
         assert_eq!(txs[0], *block.transactions[0].transaction_hash());
         assert_eq!(txs[1], *block.transactions[1].transaction_hash());
         assert_eq!(txs[2], *block.transactions[2].transaction_hash());
@@ -1092,7 +1093,7 @@ async fn fetch_pending_blocks() {
     let block_with_tx_hashes = provider.get_block_with_tx_hashes(block_id).await.unwrap();
     if let MaybePreConfirmedBlockWithTxHashes::PreConfirmedBlock(block) = block_with_tx_hashes {
         assert_eq!(block.transactions.len(), txs.len());
-        assert_eq!(block.parent_hash, latest_block_hash);
+        assert_eq!(block.block_number, latest_block_number);
         assert_eq!(txs[0], block.transactions[0]);
         assert_eq!(txs[1], block.transactions[1]);
         assert_eq!(txs[2], block.transactions[2]);
@@ -1103,7 +1104,7 @@ async fn fetch_pending_blocks() {
     let block_with_receipts = provider.get_block_with_receipts(block_id).await.unwrap();
     if let MaybePreConfirmedBlockWithReceipts::PreConfirmedBlock(block) = block_with_receipts {
         assert_eq!(block.transactions.len(), txs.len());
-        assert_eq!(block.parent_hash, latest_block_hash);
+        assert_eq!(block.block_number, latest_block_number);
         assert_eq!(txs[0], *block.transactions[0].receipt.transaction_hash());
         assert_eq!(txs[1], *block.transactions[1].receipt.transaction_hash());
         assert_eq!(txs[2], *block.transactions[2].receipt.transaction_hash());
@@ -1117,12 +1118,12 @@ async fn fetch_pending_blocks() {
     // -----------------------------------------------------------------------
 
     let latest_block_hash_n_num = provider.block_hash_and_number().await.unwrap();
-    let latest_block_hash = latest_block_hash_n_num.block_hash;
+    let latest_block_number = latest_block_hash_n_num.block_number;
     let block_with_txs = provider.get_block_with_txs(block_id).await.unwrap();
 
     if let MaybePreConfirmedBlockWithTxs::PreConfirmedBlock(block) = block_with_txs {
         assert_eq!(block.transactions.len(), 0);
-        assert_eq!(block.parent_hash, latest_block_hash);
+        assert_eq!(block.block_number, latest_block_number);
     } else {
         panic!("expected pending block with transactions")
     }
@@ -1130,7 +1131,7 @@ async fn fetch_pending_blocks() {
     let block_with_tx_hashes = provider.get_block_with_tx_hashes(block_id).await.unwrap();
     if let MaybePreConfirmedBlockWithTxHashes::PreConfirmedBlock(block) = block_with_tx_hashes {
         assert_eq!(block.transactions.len(), 0);
-        assert_eq!(block.parent_hash, latest_block_hash);
+        assert_eq!(block.block_number, latest_block_number);
     } else {
         panic!("expected pending block with transaction hashes")
     }
@@ -1138,7 +1139,7 @@ async fn fetch_pending_blocks() {
     let block_with_receipts = provider.get_block_with_receipts(block_id).await.unwrap();
     if let MaybePreConfirmedBlockWithReceipts::PreConfirmedBlock(block) = block_with_receipts {
         assert_eq!(block.transactions.len(), 0);
-        assert_eq!(block.parent_hash, latest_block_hash);
+        assert_eq!(block.block_number, latest_block_number);
     } else {
         panic!("expected pending block with transaction receipts")
     }
@@ -1157,6 +1158,7 @@ async fn fetch_pending_blocks_in_instant_mode() {
     // Get the latest block hash before sending the tx beacuse the tx will generate a new block.
     let latest_block_hash_n_num = provider.block_hash_and_number().await.unwrap();
     let latest_block_hash = latest_block_hash_n_num.block_hash;
+    let latest_block_number = latest_block_hash_n_num.block_number;
 
     // setup contract to interact with (can be any existing contract that can be interacted with)
     let contract = Erc20Contract::new(DEFAULT_ETH_FEE_TOKEN_ADDRESS.into(), &account);
