@@ -85,7 +85,7 @@ pub async fn prompt() -> Result<AnyOutcome> {
 
             let contract_exist_parser = &|input: &str| {
                 let client = JsonRpcClient::new(HttpTransport::new(url.clone()));
-                let block_id = BlockId::Tag(BlockTag::Pending);
+                let block_id = BlockId::Tag(BlockTag::PreConfirmed);
                 let address = Felt::from_str(input).map_err(|_| ())?;
                 let result = tokio::task::block_in_place(|| {
                     Handle::current().block_on(client.get_class_hash_at(block_id, address))

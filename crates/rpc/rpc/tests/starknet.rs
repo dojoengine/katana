@@ -989,7 +989,7 @@ async fn block_traces() -> Result<()> {
     }
 
     // -----------------------------------------------------------------------
-    // Block 3 (Pending)
+    // Block 3
 
     // remove the previous transaction hashes
     hashes.clear();
@@ -1001,8 +1001,11 @@ async fn block_traces() -> Result<()> {
         hashes.push(res.transaction_hash);
     }
 
-    // Get the traces of the transactions in block 3 (pending).
-    let block_id = ConfirmedBlockId::Latest; // this is technically wrong for this test scenario
+    // Generate a block to include the transactions. The generated block will have block number 3.
+    rpc_client.generate_block().await?;
+
+    // Get the traces of the transactions in block 3.
+    let block_id = ConfirmedBlockId::Latest;
     let traces = provider.trace_block_transactions(block_id).await?;
     assert_eq!(traces.len(), 3);
 
@@ -1010,6 +1013,8 @@ async fn block_traces() -> Result<()> {
         assert_eq!(traces[i].transaction_hash, hashes[i]);
         assert_matches!(&traces[i].trace_root, TransactionTrace::Invoke(_));
     }
+
+    // TODO: add scenario for l1 accepted block
 
     Ok(())
 }
@@ -1081,8 +1086,9 @@ async fn fetch_pending_blocks() {
     let block_with_txs = provider.get_block_with_txs(block_id).await.unwrap();
 
     if let MaybePreConfirmedBlockWithTxs::PreConfirmedBlock(block) = block_with_txs {
+        // preconfimred block number should be latest_block_number + 1
+        assert_eq!(block.block_number, latest_block_number + 1);
         assert_eq!(block.transactions.len(), txs.len());
-        assert_eq!(block.block_number, latest_block_number);
         assert_eq!(txs[0], *block.transactions[0].transaction_hash());
         assert_eq!(txs[1], *block.transactions[1].transaction_hash());
         assert_eq!(txs[2], *block.transactions[2].transaction_hash());
@@ -1092,8 +1098,9 @@ async fn fetch_pending_blocks() {
 
     let block_with_tx_hashes = provider.get_block_with_tx_hashes(block_id).await.unwrap();
     if let MaybePreConfirmedBlockWithTxHashes::PreConfirmedBlock(block) = block_with_tx_hashes {
+        // preconfimred block number should be latest_block_number + 1
+        assert_eq!(block.block_number, latest_block_number + 1);
         assert_eq!(block.transactions.len(), txs.len());
-        assert_eq!(block.block_number, latest_block_number);
         assert_eq!(txs[0], block.transactions[0]);
         assert_eq!(txs[1], block.transactions[1]);
         assert_eq!(txs[2], block.transactions[2]);
@@ -1103,8 +1110,9 @@ async fn fetch_pending_blocks() {
 
     let block_with_receipts = provider.get_block_with_receipts(block_id).await.unwrap();
     if let MaybePreConfirmedBlockWithReceipts::PreConfirmedBlock(block) = block_with_receipts {
+        // preconfimred block number should be latest_block_number + 1
+        assert_eq!(block.block_number, latest_block_number + 1);
         assert_eq!(block.transactions.len(), txs.len());
-        assert_eq!(block.block_number, latest_block_number);
         assert_eq!(txs[0], *block.transactions[0].receipt.transaction_hash());
         assert_eq!(txs[1], *block.transactions[1].receipt.transaction_hash());
         assert_eq!(txs[2], *block.transactions[2].receipt.transaction_hash());
@@ -1122,24 +1130,27 @@ async fn fetch_pending_blocks() {
     let block_with_txs = provider.get_block_with_txs(block_id).await.unwrap();
 
     if let MaybePreConfirmedBlockWithTxs::PreConfirmedBlock(block) = block_with_txs {
+        // preconfimred block number should be latest_block_number + 1
+        assert_eq!(block.block_number, latest_block_number + 1);
         assert_eq!(block.transactions.len(), 0);
-        assert_eq!(block.block_number, latest_block_number);
     } else {
         panic!("expected pending block with transactions")
     }
 
     let block_with_tx_hashes = provider.get_block_with_tx_hashes(block_id).await.unwrap();
     if let MaybePreConfirmedBlockWithTxHashes::PreConfirmedBlock(block) = block_with_tx_hashes {
+        // preconfimred block number should be latest_block_number + 1
+        assert_eq!(block.block_number, latest_block_number + 1);
         assert_eq!(block.transactions.len(), 0);
-        assert_eq!(block.block_number, latest_block_number);
     } else {
         panic!("expected pending block with transaction hashes")
     }
 
     let block_with_receipts = provider.get_block_with_receipts(block_id).await.unwrap();
     if let MaybePreConfirmedBlockWithReceipts::PreConfirmedBlock(block) = block_with_receipts {
+        // preconfimred block number should be latest_block_number + 1
+        assert_eq!(block.block_number, latest_block_number + 1);
         assert_eq!(block.transactions.len(), 0);
-        assert_eq!(block.block_number, latest_block_number);
     } else {
         panic!("expected pending block with transaction receipts")
     }

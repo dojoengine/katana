@@ -24,6 +24,8 @@ pub type FunctionCall = starknet::core::types::FunctionCall;
 
 pub type FeeEstimate = starknet::core::types::FeeEstimate;
 
+pub type MessageFeeEstimate = starknet::core::types::MessageFeeEstimate;
+
 /// Simulation flags for `starknet_estimateFee` RPC method.
 #[derive(Debug, Clone, Copy, Serialize, Deserialize, PartialEq, Eq)]
 pub enum EstimateFeeSimulationFlag {
