@@ -28,7 +28,9 @@ use katana_rpc_types::receipt::TxReceiptWithBlockInfo;
 use katana_rpc_types::state_update::MaybePreConfirmedStateUpdate;
 use katana_rpc_types::transaction::Tx;
 use katana_rpc_types::trie::{ContractStorageKeys, GetStorageProofResponse};
-use katana_rpc_types::{FeeEstimate, FeltAsHex, FunctionCall, SimulationFlagForEstimateFee};
+use katana_rpc_types::{
+    FeeEstimate, FeltAsHex, FunctionCall, MessageFeeEstimate, SimulationFlagForEstimateFee,
+};
 use starknet::core::types::TransactionStatus;
 
 use super::StarknetApi;
@@ -337,7 +339,7 @@ impl<EF: ExecutorFactory> StarknetApiServer for StarknetApi<EF> {
         &self,
         message: MsgFromL1,
         block_id: BlockIdOrTag,
-    ) -> RpcResult<FeeEstimate> {
+    ) -> RpcResult<MessageFeeEstimate> {
         self.on_cpu_blocking_task(move |this| {
             let chain_id = this.inner.backend.chain_spec.id();
 
@@ -349,10 +351,19 @@ impl<EF: ExecutorFactory> StarknetApiServer for StarknetApi<EF> {
                 block_id,
                 Default::default(),
             );
+
             match result {
                 Ok(mut res) => {
                     if let Some(fee) = res.pop() {
-                        Ok(fee)
+                        Ok(MessageFeeEstimate {
+                            overall_fee: fee.overall_fee,
+                            l2_gas_price: fee.l2_gas_price,
+                            l1_gas_price: fee.l1_gas_price,
+                            l2_gas_consumed: fee.l2_gas_consumed,
+                            l1_gas_consumed: fee.l1_gas_consumed,
+                            l1_data_gas_price: fee.l1_data_gas_price,
+                            l1_data_gas_consumed: fee.l1_data_gas_consumed,
+                        })
                     } else {
                         Err(ErrorObjectOwned::from(StarknetApiError::UnexpectedError {
                             reason: "Fee estimation result should exist".into(),

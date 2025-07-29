@@ -22,8 +22,8 @@ use katana_rpc_types::state_update::MaybePreConfirmedStateUpdate;
 use katana_rpc_types::transaction::Tx;
 use katana_rpc_types::trie::{ContractStorageKeys, GetStorageProofResponse};
 use katana_rpc_types::{
-    FeeEstimate, FeltAsHex, FunctionCall, SimulationFlag, SimulationFlagForEstimateFee,
-    SyncingStatus,
+    FeeEstimate, FeltAsHex, FunctionCall, MessageFeeEstimate, SimulationFlag,
+    SimulationFlagForEstimateFee, SyncingStatus,
 };
 use starknet::core::types::{
     SimulatedTransaction, TransactionStatus, TransactionTrace, TransactionTraceWithHash,
@@ -158,7 +158,7 @@ pub trait StarknetApi {
         &self,
         message: MsgFromL1,
         block_id: BlockIdOrTag,
-    ) -> RpcResult<FeeEstimate>;
+    ) -> RpcResult<MessageFeeEstimate>;
 
     /// Get the most recent accepted block number.
     #[method(name = "blockNumber")]
