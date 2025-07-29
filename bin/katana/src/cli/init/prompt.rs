@@ -107,7 +107,7 @@ pub async fn prompt() -> Result<AnyOutcome> {
     };
 
     let contract_exist_parser = &|input: &str| {
-        let block_id = BlockId::Tag(BlockTag::Pending);
+        let block_id = BlockId::Tag(BlockTag::PreConfirmed);
         let address = Felt::from_str(input).map_err(|_| ())?;
         let result = tokio::task::block_in_place(|| {
             Handle::current()

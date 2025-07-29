@@ -198,25 +198,25 @@ fn get_all_provider_methods() -> Vec<ProviderMethod> {
         ProviderMethod {
             name: syn::parse_str("get_block_with_tx_hashes").unwrap(),
             params: quote! { <B>(&self, block_id: B) },
-            return_type: quote! { Result<starknet::core::types::MaybePendingBlockWithTxHashes, starknet::providers::ProviderError> },
+            return_type: quote! { Result<starknet::core::types::MaybePreConfirmedBlockWithTxHashes, starknet::providers::ProviderError> },
             where_clause: quote! { where B: AsRef<starknet::core::types::BlockId> + Send + Sync },
         },
         ProviderMethod {
             name: syn::parse_str("get_block_with_txs").unwrap(),
             params: quote! { <B>(&self, block_id: B) },
-            return_type: quote! { Result<starknet::core::types::MaybePendingBlockWithTxs, starknet::providers::ProviderError> },
+            return_type: quote! { Result<starknet::core::types::MaybePreConfirmedBlockWithTxs, starknet::providers::ProviderError> },
             where_clause: quote! { where B: AsRef<starknet::core::types::BlockId> + Send + Sync },
         },
         ProviderMethod {
             name: syn::parse_str("get_block_with_receipts").unwrap(),
             params: quote! { <B>(&self, block_id: B) },
-            return_type: quote! { Result<starknet::core::types::MaybePendingBlockWithReceipts, starknet::providers::ProviderError> },
+            return_type: quote! { Result<starknet::core::types::MaybePreConfirmedBlockWithReceipts, starknet::providers::ProviderError> },
             where_clause: quote! { where B: AsRef<starknet::core::types::BlockId> + Send + Sync },
         },
         ProviderMethod {
             name: syn::parse_str("get_state_update").unwrap(),
             params: quote! { <B>(&self, block_id: B) },
-            return_type: quote! { Result<starknet::core::types::MaybePendingStateUpdate, starknet::providers::ProviderError> },
+            return_type: quote! { Result<starknet::core::types::MaybePreConfirmedStateUpdate, starknet::providers::ProviderError> },
             where_clause: quote! { where B: AsRef<starknet::core::types::BlockId> + Send + Sync },
         },
         ProviderMethod {
@@ -228,7 +228,7 @@ fn get_all_provider_methods() -> Vec<ProviderMethod> {
         ProviderMethod {
             name: syn::parse_str("get_messages_status").unwrap(),
             params: quote! { (&self, transaction_hash: starknet::core::types::Hash256) },
-            return_type: quote! { Result<Vec<starknet::core::types::MessageWithStatus>, starknet::providers::ProviderError> },
+            return_type: quote! { Result<Vec<starknet::core::types::MessageStatus>, starknet::providers::ProviderError> },
             where_clause: quote! {},
         },
         ProviderMethod {
@@ -294,7 +294,7 @@ fn get_all_provider_methods() -> Vec<ProviderMethod> {
         ProviderMethod {
             name: syn::parse_str("estimate_message_fee").unwrap(),
             params: quote! { <M, B>(&self, message: M, block_id: B) },
-            return_type: quote! { Result<starknet::core::types::FeeEstimate, starknet::providers::ProviderError> },
+            return_type: quote! { Result<starknet::core::types::MessageFeeEstimate, starknet::providers::ProviderError> },
             where_clause: quote! { where M: AsRef<starknet::core::types::MsgFromL1> + Send + Sync, B: AsRef<starknet::core::types::BlockId> + Send + Sync },
         },
         ProviderMethod {
@@ -373,7 +373,7 @@ fn get_all_provider_methods() -> Vec<ProviderMethod> {
             name: syn::parse_str("trace_block_transactions").unwrap(),
             params: quote! { <B>(&self, block_id: B) },
             return_type: quote! { Result<Vec<starknet::core::types::TransactionTraceWithHash>, starknet::providers::ProviderError> },
-            where_clause: quote! { where B: AsRef<starknet::core::types::BlockId> + Send + Sync },
+            where_clause: quote! { where B: AsRef<starknet::core::types::ConfirmedBlockId> + Send + Sync },
         },
         ProviderMethod {
             name: syn::parse_str("batch_requests").unwrap(),

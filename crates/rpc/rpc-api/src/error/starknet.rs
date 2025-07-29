@@ -228,6 +228,13 @@ impl From<Box<InvalidTransactionError>> for StarknetApiError {
 impl From<StarknetRsError> for StarknetApiError {
     fn from(value: StarknetRsError) -> Self {
         match value {
+            StarknetRsError::FeeBelowMinimum => {
+                unimplemented!("ReplacementTransactionUnderpriced")
+            }
+            StarknetRsError::ReplacementTransactionUnderpriced => {
+                unimplemented!("ReplacementTransactionUnderpriced")
+            }
+
             StarknetRsError::FailedToReceiveTransaction => Self::FailedToReceiveTxn,
             StarknetRsError::NoBlocks => Self::NoBlocks,
             StarknetRsError::NonAccount => Self::NonAccount,
@@ -258,8 +265,8 @@ impl From<StarknetRsError> for StarknetApiError {
                 execution_error: String::new(),
                 transaction_index: data.transaction_index,
             },
-            StarknetRsError::InvalidTransactionNonce => {
-                Self::InvalidTransactionNonce { reason: "".to_string() }
+            StarknetRsError::InvalidTransactionNonce(reason) => {
+                Self::InvalidTransactionNonce { reason }
             }
             StarknetRsError::UnsupportedContractClassVersion => {
                 Self::UnsupportedContractClassVersion

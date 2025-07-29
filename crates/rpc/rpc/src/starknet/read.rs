@@ -18,15 +18,15 @@ use katana_provider::traits::state::StateFactoryProvider;
 use katana_rpc_api::error::starknet::StarknetApiError;
 use katana_rpc_api::starknet::StarknetApiServer;
 use katana_rpc_types::block::{
-    BlockHashAndNumber, MaybePendingBlockWithReceipts, MaybePendingBlockWithTxHashes,
-    MaybePendingBlockWithTxs,
+    BlockHashAndNumber, MaybePreConfirmedBlockWithReceipts, MaybePreConfirmedBlockWithTxHashes,
+    MaybePreConfirmedBlockWithTxs,
 };
 use katana_rpc_types::broadcasted::BroadcastedTx;
 use katana_rpc_types::class::Class;
 use katana_rpc_types::event::{EventFilterWithPage, EventsPage};
 use katana_rpc_types::message::MsgFromL1;
 use katana_rpc_types::receipt::TxReceiptWithBlockInfo;
-use katana_rpc_types::state_update::MaybePendingStateUpdate;
+use katana_rpc_types::state_update::MaybePreConfirmedStateUpdate;
 use katana_rpc_types::transaction::Tx;
 use katana_rpc_types::trie::{ContractStorageKeys, GetStorageProofResult};
 use katana_rpc_types::{EstimateFeeSimulationFlag, FeeEstimate, FunctionCall};
@@ -77,7 +77,7 @@ impl<EF: ExecutorFactory> StarknetApiServer for StarknetApi<EF> {
     async fn get_block_with_tx_hashes(
         &self,
         block_id: BlockIdOrTag,
-    ) -> RpcResult<MaybePendingBlockWithTxHashes> {
+    ) -> RpcResult<MaybePreConfirmedBlockWithTxHashes> {
         Ok(self.block_with_tx_hashes(block_id).await?)
     }
 
@@ -92,18 +92,21 @@ impl<EF: ExecutorFactory> StarknetApiServer for StarknetApi<EF> {
     async fn get_block_with_txs(
         &self,
         block_id: BlockIdOrTag,
-    ) -> RpcResult<MaybePendingBlockWithTxs> {
+    ) -> RpcResult<MaybePreConfirmedBlockWithTxs> {
         Ok(self.block_with_txs(block_id).await?)
     }
 
     async fn get_block_with_receipts(
         &self,
         block_id: BlockIdOrTag,
-    ) -> RpcResult<MaybePendingBlockWithReceipts> {
+    ) -> RpcResult<MaybePreConfirmedBlockWithReceipts> {
         Ok(self.block_with_receipts(block_id).await?)
     }
 
-    async fn get_state_update(&self, block_id: BlockIdOrTag) -> RpcResult<MaybePendingStateUpdate> {
+    async fn get_state_update(
+        &self,
+        block_id: BlockIdOrTag,
+    ) -> RpcResult<MaybePreConfirmedStateUpdate> {
         Ok(self.state_update(block_id).await?)
     }
 
