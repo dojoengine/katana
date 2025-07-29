@@ -953,7 +953,7 @@ async fn block_traces() -> Result<()> {
     rpc_client.generate_block().await?;
 
     // Get the traces of the transactions in block 1.
-    let block_id = BlockId::Number(1);
+    let block_id = ConfirmedBlockId::Number(1);
     let traces = provider.trace_block_transactions(block_id).await?;
     assert_eq!(traces.len(), 5);
 
@@ -1158,7 +1158,6 @@ async fn fetch_pending_blocks_in_instant_mode() {
     // Get the latest block hash before sending the tx beacuse the tx will generate a new block.
     let latest_block_hash_n_num = provider.block_hash_and_number().await.unwrap();
     let latest_block_hash = latest_block_hash_n_num.block_hash;
-    let latest_block_number = latest_block_hash_n_num.block_number;
 
     // setup contract to interact with (can be any existing contract that can be interacted with)
     let contract = Erc20Contract::new(DEFAULT_ETH_FEE_TOKEN_ADDRESS.into(), &account);
