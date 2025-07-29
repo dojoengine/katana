@@ -115,7 +115,11 @@ impl<EF: ExecutorFactory> StarknetApi<EF> {
         let provider = self.inner.backend.blockchain.provider();
 
         let block_id: BlockHashOrNumber = match block_id {
-            BlockIdOrTag::Tag(BlockTag::Pending) => match self.pending_executor() {
+            BlockIdOrTag::Tag(BlockTag::L1Accepted) => {
+                unimplemented!("l1 accepted block id")
+            }
+
+            BlockIdOrTag::Tag(BlockTag::PreConfirmed) => match self.pending_executor() {
                 Some(state) => {
                     let pending_block = state.read();
 
