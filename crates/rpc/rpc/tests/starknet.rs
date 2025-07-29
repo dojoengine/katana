@@ -979,7 +979,7 @@ async fn block_traces() -> Result<()> {
     rpc_client.generate_block().await?;
 
     // Get the traces of the transactions in block 2.
-    let block_id = BlockId::Number(2);
+    let block_id = ConfirmedBlockId::Number(2);
     let traces = provider.trace_block_transactions(block_id).await?;
     assert_eq!(traces.len(), 2);
 
