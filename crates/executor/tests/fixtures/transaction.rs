@@ -40,7 +40,7 @@ pub fn invoke_executable_tx(
         ExecutionEncoding::New,
     );
 
-    account.set_block_id(BlockId::Tag(BlockTag::Pending));
+    account.set_block_id(BlockId::Tag(BlockTag::PreConfirmed));
 
     let calls = vec![Call {
         to: DEFAULT_ETH_FEE_TOKEN_ADDRESS.into(),
