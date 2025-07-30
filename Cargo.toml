@@ -47,7 +47,7 @@ edition = "2021"
 license = "Apache-2.0"
 license-file = "LICENSE"
 repository = "https://github.com/dojoengine/katana/"
-version = "1.6.3"
+version = "1.7.0-alpha.0"
 
 [profile.performance]
 codegen-units = 1

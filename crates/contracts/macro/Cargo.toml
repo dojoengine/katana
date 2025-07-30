@@ -1,6 +1,6 @@
 [package]
 name = "katana-contracts-macro"
-version = "1.6.2"
+version = "1.7.0-alpha.0"
 edition = "2021"
 
 [lib]
