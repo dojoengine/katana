@@ -9,7 +9,7 @@ version.workspace = true
 katana-chain-spec.workspace = true
 katana-core.workspace = true
 katana-executor.workspace = true
-katana-node = { workspace = true, features = [ "explorer" ] }
+katana-node = { workspace = true, features = [ "cartridge", "explorer" ] }
 katana-primitives.workspace = true
 katana-provider.workspace = true
 katana-rpc = { workspace = true, features = [ "client" ] }

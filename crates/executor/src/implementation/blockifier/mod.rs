@@ -32,7 +32,7 @@ use crate::{
 
 pub(crate) const LOG_TARGET: &str = "katana::executor::blockifier";
 
-#[derive(Debug)]
+#[derive(Debug, Clone)]
 pub struct BlockifierFactory {
     cfg: CfgEnv,
     flags: ExecutionFlags,

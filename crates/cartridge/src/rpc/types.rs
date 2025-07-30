@@ -9,6 +9,7 @@
 //! An important note is that the `execute_from_outside_[v2/v3]` functions are not expecting
 //! the serialized enum [`OutsideExecution`] but instead the variant already serialized for the
 //! matching version.
+//!
 //! This is why [`OutsideExecution`] is not deriving `CairoSerde` directly.
 //! <https://github.com/cartridge-gg/argent-contracts-starknet/blob/35f21a533e7636f926484546652fb3470d2d478d/src/outside_execution/interface.cairo#L38>
 
@@ -18,6 +19,8 @@ use katana_primitives::{ContractAddress, Felt};
 use serde::{Deserialize, Serialize};
 
 /// A single call to be executed as part of an outside execution.
+///
+/// _(kariy): how do we remove the redundacy with starknet-rs's Call type?
 #[derive(Clone, CairoSerde, Serialize, Deserialize, PartialEq, Debug)]
 pub struct Call {
     /// Contract address to call.
@@ -87,6 +90,29 @@ impl OutsideExecution {
     }
 }
 
+impl cainome_cairo_serde::CairoSerde for OutsideExecution {
+    type RustType = Self;
+    const SERIALIZED_SIZE: Option<usize> = None;
+
+    fn cairo_serialized_size(rust: &Self::RustType) -> usize {
+        match &rust {
+            OutsideExecution::V2(v2) => OutsideExecutionV2::cairo_serialized_size(v2),
+            OutsideExecution::V3(v3) => OutsideExecutionV3::cairo_serialized_size(v3),
+        }
+    }
+
+    fn cairo_serialize(rust: &Self::RustType) -> Vec<Felt> {
+        match &rust {
+            OutsideExecution::V2(v2) => OutsideExecutionV2::cairo_serialize(v2),
+            OutsideExecution::V3(v3) => OutsideExecutionV3::cairo_serialize(v3),
+        }
+    }
+
+    fn cairo_deserialize(_: &[Felt], _: usize) -> cainome_cairo_serde::Result<Self::RustType> {
+        unimplemented!("not used")
+    }
+}
+
 #[cfg(test)]
 mod tests {
 
@@ -94,7 +120,7 @@ mod tests {
     use serde_json::json;
     use starknet::macros::selector;
 
-    use crate::outside_execution::{Call, NonceChannel, OutsideExecutionV2, OutsideExecutionV3};
+    use super::{Call, NonceChannel, OutsideExecutionV2, OutsideExecutionV3};
 
     #[test]
     fn outside_execution_v2_serialization() {

@@ -56,8 +56,6 @@ mod read;
 mod trace;
 mod write;
 
-#[cfg(feature = "cartridge")]
-pub use config::PaymasterConfig;
 pub use config::StarknetApiConfig;
 use forking::ForkedClient;
 
@@ -69,18 +67,13 @@ type StarknetApiResult<T> = Result<T, StarknetApiError>;
 /// [read](katana_rpc_api::starknet::StarknetApi),
 /// [write](katana_rpc_api::starknet::StarknetWriteApi), and
 /// [trace](katana_rpc_api::starknet::StarknetTraceApi) APIs.
-#[allow(missing_debug_implementations)]
-pub struct StarknetApi<EF>
-where
-    EF: ExecutorFactory,
-{
+#[derive(Debug)]
+pub struct StarknetApi<EF: ExecutorFactory> {
     inner: Arc<StarknetApiInner<EF>>,
 }
 
-struct StarknetApiInner<EF>
-where
-    EF: ExecutorFactory,
-{
+#[derive(Debug)]
+struct StarknetApiInner<EF: ExecutorFactory> {
     pool: TxPool,
     backend: Arc<Backend<EF>>,
     forked_client: Option<ForkedClient>,
@@ -273,7 +266,7 @@ where
         .await
     }
 
-    async fn class_hash_at_address(
+    pub async fn class_hash_at_address(
         &self,
         block_id: BlockIdOrTag,
         contract_address: ContractAddress,
@@ -363,7 +356,7 @@ where
         .await
     }
 
-    async fn nonce_at(
+    pub async fn nonce_at(
         &self,
         block_id: BlockIdOrTag,
         contract_address: ContractAddress,
