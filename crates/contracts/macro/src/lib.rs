@@ -16,6 +16,36 @@ use syn::{parse_macro_input, Ident, LitStr};
 /// ```rust
 /// contract!(ContractName, "path/to/contract.json");
 /// ```
+///
+/// # Path Resolution
+///
+/// The macro supports the `{CARGO_MANIFEST_DIR}` placeholder to ensure paths are resolved
+/// correctly when the macro is invoked from downstream crates:
+///
+/// ```rust
+/// contract!(LegacyERC20, "{CARGO_MANIFEST_DIR}/build/legacy/erc20.json");
+/// ```
+///
+/// This will resolve to the directory containing your `Cargo.toml` file at compile time.
+/// The `{CARGO_MANIFEST_DIR}` placeholder is particularly useful when this macro is used
+/// in a crate that is a dependency of another crate, as it ensures the path is always
+/// relative to the crate where the macro is used, not the downstream crate.
+///
+/// For example, if your project structure is:
+///
+/// ```
+/// my-project/
+/// ├── Cargo.toml
+/// ├── src/
+/// │   └── lib.rs
+/// └── build/
+///     └── legacy/
+///         └── erc20.json
+/// ```
+///
+/// And `CARGO_MANIFEST_DIR` is `/home/user/my-project`, then:
+/// - `"{CARGO_MANIFEST_DIR}/build/legacy/erc20.json"` resolves to
+///   `/home/user/my-project/build/legacy/erc20.json`
 #[proc_macro]
 pub fn contract(input: TokenStream) -> TokenStream {
     let input = parse_macro_input!(input as ContractInput);
@@ -44,7 +74,18 @@ impl syn::parse::Parse for ContractInput {
 
         // second argument - artifact path
         let str = input.parse::<LitStr>()?.value();
-        let artifact_path = PathBuf::from(str);
+
+        // Check if the literal string path starts with {CARGO_MANIFEST_DIR}
+        let artifact_path = if let Some(stripped_path) = str.strip_prefix("{CARGO_MANIFEST_DIR}") {
+            let manifest_dir = std::env::var("CARGO_MANIFEST_DIR").map_err(|_| {
+                syn::Error::new(input.span(), "`CARGO_MANIFEST_DIR` environment variable not set")
+            })?;
+
+            PathBuf::from(manifest_dir).join(stripped_path.trim_start_matches('/'))
+        } else {
+            PathBuf::from(str)
+        };
+
         let abs_artifact_path = artifact_path.canonicalize().map_err(|error| {
             syn::Error::new(
                 input.span(),
