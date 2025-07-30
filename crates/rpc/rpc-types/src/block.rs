@@ -65,9 +65,9 @@ impl BlockWithTxs {
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
 #[serde(transparent)]
-pub struct PendingBlockWithTxs(starknet::core::types::PendingBlockWithTxs);
+pub struct PreConfirmedBlockWithTxs(starknet::core::types::PreConfirmedBlockWithTxs);
 
-impl PendingBlockWithTxs {
+impl PreConfirmedBlockWithTxs {
     pub fn new(header: PartialHeader, transactions: Vec<TxWithHash>) -> Self {
         let transactions =
             transactions.into_iter().map(|tx| crate::transaction::Tx::from(tx).0).collect();
@@ -85,12 +85,12 @@ impl PendingBlockWithTxs {
         let l1_data_gas_price =
             ResourcePrice { price_in_fri: Default::default(), price_in_wei: Default::default() };
 
-        Self(starknet::core::types::PendingBlockWithTxs {
+        Self(starknet::core::types::PreConfirmedBlockWithTxs {
             transactions,
             l1_gas_price,
             l2_gas_price,
             timestamp: header.timestamp,
-            parent_hash: header.parent_hash,
+            block_number: header.number,
             starknet_version: header.starknet_version.to_string(),
             sequencer_address: header.sequencer_address.into(),
             l1_da_mode: L1DataAvailabilityMode::Calldata,
@@ -101,19 +101,19 @@ impl PendingBlockWithTxs {
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
 #[serde(untagged)]
-pub enum MaybePendingBlockWithTxs {
-    Pending(PendingBlockWithTxs),
+pub enum MaybePreConfirmedBlockWithTxs {
+    PreConfirmed(PreConfirmedBlockWithTxs),
     Block(BlockWithTxs),
 }
 
-impl From<starknet::core::types::MaybePendingBlockWithTxs> for MaybePendingBlockWithTxs {
-    fn from(value: starknet::core::types::MaybePendingBlockWithTxs) -> Self {
+impl From<starknet::core::types::MaybePreConfirmedBlockWithTxs> for MaybePreConfirmedBlockWithTxs {
+    fn from(value: starknet::core::types::MaybePreConfirmedBlockWithTxs) -> Self {
         match value {
-            starknet::core::types::MaybePendingBlockWithTxs::PendingBlock(block) => {
-                MaybePendingBlockWithTxs::Pending(PendingBlockWithTxs(block))
+            starknet::core::types::MaybePreConfirmedBlockWithTxs::PreConfirmedBlock(block) => {
+                MaybePreConfirmedBlockWithTxs::PreConfirmed(PreConfirmedBlockWithTxs(block))
             }
-            starknet::core::types::MaybePendingBlockWithTxs::Block(block) => {
-                MaybePendingBlockWithTxs::Block(BlockWithTxs(block))
+            starknet::core::types::MaybePreConfirmedBlockWithTxs::Block(block) => {
+                MaybePreConfirmedBlockWithTxs::Block(BlockWithTxs(block))
             }
         }
     }
@@ -172,9 +172,9 @@ impl BlockWithTxHashes {
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
 #[serde(transparent)]
-pub struct PendingBlockWithTxHashes(starknet::core::types::PendingBlockWithTxHashes);
+pub struct PreConfirmedBlockWithTxHashes(starknet::core::types::PreConfirmedBlockWithTxHashes);
 
-impl PendingBlockWithTxHashes {
+impl PreConfirmedBlockWithTxHashes {
     pub fn new(header: PartialHeader, transactions: Vec<TxHash>) -> Self {
         let l1_gas_price = ResourcePrice {
             price_in_wei: header.l1_gas_prices.eth.get().into(),
@@ -191,12 +191,12 @@ impl PendingBlockWithTxHashes {
             price_in_fri: header.l1_data_gas_prices.strk.get().into(),
         };
 
-        Self(starknet::core::types::PendingBlockWithTxHashes {
+        Self(starknet::core::types::PreConfirmedBlockWithTxHashes {
             transactions,
             l1_gas_price,
             l2_gas_price,
             timestamp: header.timestamp,
-            parent_hash: header.parent_hash,
+            block_number: header.number,
             starknet_version: header.starknet_version.to_string(),
             sequencer_address: header.sequencer_address.into(),
             l1_da_mode: match header.l1_da_mode {
@@ -212,19 +212,23 @@ impl PendingBlockWithTxHashes {
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
 #[serde(untagged)]
-pub enum MaybePendingBlockWithTxHashes {
-    Pending(PendingBlockWithTxHashes),
+pub enum MaybePreConfirmedBlockWithTxHashes {
+    PreConfirmed(PreConfirmedBlockWithTxHashes),
     Block(BlockWithTxHashes),
 }
 
-impl From<starknet::core::types::MaybePendingBlockWithTxHashes> for MaybePendingBlockWithTxHashes {
-    fn from(value: starknet::core::types::MaybePendingBlockWithTxHashes) -> Self {
+impl From<starknet::core::types::MaybePreConfirmedBlockWithTxHashes>
+    for MaybePreConfirmedBlockWithTxHashes
+{
+    fn from(value: starknet::core::types::MaybePreConfirmedBlockWithTxHashes) -> Self {
         match value {
-            starknet::core::types::MaybePendingBlockWithTxHashes::PendingBlock(block) => {
-                MaybePendingBlockWithTxHashes::Pending(PendingBlockWithTxHashes(block))
+            starknet::core::types::MaybePreConfirmedBlockWithTxHashes::PreConfirmedBlock(block) => {
+                MaybePreConfirmedBlockWithTxHashes::PreConfirmed(PreConfirmedBlockWithTxHashes(
+                    block,
+                ))
             }
-            starknet::core::types::MaybePendingBlockWithTxHashes::Block(block) => {
-                MaybePendingBlockWithTxHashes::Block(BlockWithTxHashes(block))
+            starknet::core::types::MaybePreConfirmedBlockWithTxHashes::Block(block) => {
+                MaybePreConfirmedBlockWithTxHashes::Block(BlockWithTxHashes(block))
             }
         }
     }
@@ -303,9 +307,9 @@ impl BlockWithReceipts {
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
 #[serde(transparent)]
-pub struct PendingBlockWithReceipts(starknet::core::types::PendingBlockWithReceipts);
+pub struct PreConfirmedBlockWithReceipts(starknet::core::types::PreConfirmedBlockWithReceipts);
 
-impl PendingBlockWithReceipts {
+impl PreConfirmedBlockWithReceipts {
     pub fn new(
         header: PartialHeader,
         receipts: impl Iterator<Item = (TxWithHash, Receipt)>,
@@ -334,13 +338,13 @@ impl PendingBlockWithReceipts {
             })
             .collect();
 
-        Self(starknet::core::types::PendingBlockWithReceipts {
+        Self(starknet::core::types::PreConfirmedBlockWithReceipts {
             transactions,
             l1_gas_price,
             l2_gas_price,
             timestamp: header.timestamp,
             sequencer_address: header.sequencer_address.into(),
-            parent_hash: header.parent_hash,
+            block_number: header.number,
             l1_da_mode: match header.l1_da_mode {
                 katana_primitives::da::L1DataAvailabilityMode::Blob => L1DataAvailabilityMode::Blob,
                 katana_primitives::da::L1DataAvailabilityMode::Calldata => {
@@ -355,19 +359,23 @@ impl PendingBlockWithReceipts {
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
 #[serde(untagged)]
-pub enum MaybePendingBlockWithReceipts {
-    Pending(PendingBlockWithReceipts),
+pub enum MaybePreConfirmedBlockWithReceipts {
+    PreConfirmed(PreConfirmedBlockWithReceipts),
     Block(BlockWithReceipts),
 }
 
-impl From<starknet::core::types::MaybePendingBlockWithReceipts> for MaybePendingBlockWithReceipts {
-    fn from(value: starknet::core::types::MaybePendingBlockWithReceipts) -> Self {
+impl From<starknet::core::types::MaybePreConfirmedBlockWithReceipts>
+    for MaybePreConfirmedBlockWithReceipts
+{
+    fn from(value: starknet::core::types::MaybePreConfirmedBlockWithReceipts) -> Self {
         match value {
-            starknet::core::types::MaybePendingBlockWithReceipts::PendingBlock(block) => {
-                MaybePendingBlockWithReceipts::Pending(PendingBlockWithReceipts(block))
+            starknet::core::types::MaybePreConfirmedBlockWithReceipts::PreConfirmedBlock(block) => {
+                MaybePreConfirmedBlockWithReceipts::PreConfirmed(PreConfirmedBlockWithReceipts(
+                    block,
+                ))
             }
-            starknet::core::types::MaybePendingBlockWithReceipts::Block(block) => {
-                MaybePendingBlockWithReceipts::Block(BlockWithReceipts(block))
+            starknet::core::types::MaybePreConfirmedBlockWithReceipts::Block(block) => {
+                MaybePreConfirmedBlockWithReceipts::Block(BlockWithReceipts(block))
             }
         }
     }

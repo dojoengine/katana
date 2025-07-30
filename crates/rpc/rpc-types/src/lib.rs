@@ -53,6 +53,8 @@ pub type FunctionCall = starknet::core::types::FunctionCall;
 
 pub type FeeEstimate = starknet::core::types::FeeEstimate;
 
+pub type MessageFeeEstimate = starknet::core::types::MessageFeeEstimate;
+
 // pub type ContractClass = starknet::core::types::ContractClass;
 
 pub type SimulationFlagForEstimateFee = starknet::core::types::SimulationFlagForEstimateFee;

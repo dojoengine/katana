@@ -113,8 +113,6 @@ backon = { version = "1.5", features = [ "tokio-sleep" ] }
 base64 = "0.21.2"
 bigdecimal = "0.4.1"
 bitvec = "1.0.1"
-cainome = { version = "0.8.0", features = [ "abigen-rs" ] }
-cainome-cairo-serde = { version = "0.2.1" }
 camino = { version = "1.1.2", features = [ "serde1" ] }
 chrono = { version = "0.4.24", features = [ "serde" ] }
 clap = { version = "4.5.16", features = [ "derive", "env" ] }
@@ -208,8 +206,8 @@ opentelemetry-http = "0.30.0"
 opentelemetry-stackdriver = { version = "0.27.0", features = [ "propagator" ] }
 
 # starknet
-starknet = "0.15.1"
-starknet-crypto = "0.7.1"
+starknet = { git = "https://github.com/xJonathanLEI/starknet-rs", rev = "993a708551f87bcfbf7fdf33f796b01f7521a634" }
+starknet-crypto = { git = "https://github.com/xJonathanLEI/starknet-rs", rev = "993a708551f87bcfbf7fdf33f796b01f7521a634" }
 starknet-types-core = { version = "0.1.8", features = [ "arbitrary", "hash" ] }
 # Some types that we used from cairo-vm implements the `Arbitrary` trait,
 # only under the `test_utils` feature.
@@ -217,6 +215,10 @@ cairo-vm = { version = "1.0.2", features = [ "test_utils" ] }
 
 blockifier = { git = "https://github.com/dojoengine/sequencer", rev = "5d737b9c9", default-features = false }
 starknet_api = { git = "https://github.com/dojoengine/sequencer", rev = "5d737b9c9" }
+
+cainome = { git = "https://github.com/kariy/cainome", branch = "feat/rpc0.9", features = [ "abigen-rs" ] }
+cainome-cairo-serde = { git = "https://github.com/kariy/cainome", branch = "feat/rpc0.9" }
+piltover = { git = "https://github.com/kariy/piltover.git", branch = "feat/rpc0.9" }
 
 [patch.crates-io]
 # NOTE: remove this patch once this PR is merged <https://github.com/starknet-io/types-rs/pull/132>

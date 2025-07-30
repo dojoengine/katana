@@ -17,18 +17,20 @@ use katana_provider::traits::state::StateFactoryProvider;
 use katana_rpc_api::error::starknet::StarknetApiError;
 use katana_rpc_api::starknet::StarknetApiServer;
 use katana_rpc_types::block::{
-    BlockHashAndNumber, MaybePendingBlockWithReceipts, MaybePendingBlockWithTxHashes,
-    MaybePendingBlockWithTxs,
+    BlockHashAndNumber, MaybePreConfirmedBlockWithReceipts, MaybePreConfirmedBlockWithTxHashes,
+    MaybePreConfirmedBlockWithTxs,
 };
 use katana_rpc_types::broadcasted::BroadcastedTx;
 use katana_rpc_types::class::RpcContractClass;
 use katana_rpc_types::event::{EventFilterWithPage, EventsPage};
 use katana_rpc_types::message::MsgFromL1;
 use katana_rpc_types::receipt::TxReceiptWithBlockInfo;
-use katana_rpc_types::state_update::MaybePendingStateUpdate;
+use katana_rpc_types::state_update::MaybePreConfirmedStateUpdate;
 use katana_rpc_types::transaction::Tx;
 use katana_rpc_types::trie::{ContractStorageKeys, GetStorageProofResponse};
-use katana_rpc_types::{FeeEstimate, FeltAsHex, FunctionCall, SimulationFlagForEstimateFee};
+use katana_rpc_types::{
+    FeeEstimate, FeltAsHex, FunctionCall, MessageFeeEstimate, SimulationFlagForEstimateFee,
+};
 use starknet::core::types::TransactionStatus;
 
 use super::StarknetApi;
@@ -80,7 +82,7 @@ impl<EF: ExecutorFactory> StarknetApiServer for StarknetApi<EF> {
     async fn get_block_with_tx_hashes(
         &self,
         block_id: BlockIdOrTag,
-    ) -> RpcResult<MaybePendingBlockWithTxHashes> {
+    ) -> RpcResult<MaybePreConfirmedBlockWithTxHashes> {
         Ok(self.block_with_tx_hashes(block_id).await?)
     }
 
@@ -95,18 +97,21 @@ impl<EF: ExecutorFactory> StarknetApiServer for StarknetApi<EF> {
     async fn get_block_with_txs(
         &self,
         block_id: BlockIdOrTag,
-    ) -> RpcResult<MaybePendingBlockWithTxs> {
+    ) -> RpcResult<MaybePreConfirmedBlockWithTxs> {
         Ok(self.block_with_txs(block_id).await?)
     }
 
     async fn get_block_with_receipts(
         &self,
         block_id: BlockIdOrTag,
-    ) -> RpcResult<MaybePendingBlockWithReceipts> {
+    ) -> RpcResult<MaybePreConfirmedBlockWithReceipts> {
         Ok(self.block_with_receipts(block_id).await?)
     }
 
-    async fn get_state_update(&self, block_id: BlockIdOrTag) -> RpcResult<MaybePendingStateUpdate> {
+    async fn get_state_update(
+        &self,
+        block_id: BlockIdOrTag,
+    ) -> RpcResult<MaybePreConfirmedStateUpdate> {
         Ok(self.state_update(block_id).await?)
     }
 
@@ -334,7 +339,7 @@ impl<EF: ExecutorFactory> StarknetApiServer for StarknetApi<EF> {
         &self,
         message: MsgFromL1,
         block_id: BlockIdOrTag,
-    ) -> RpcResult<FeeEstimate> {
+    ) -> RpcResult<MessageFeeEstimate> {
         self.on_cpu_blocking_task(move |this| {
             let chain_id = this.inner.backend.chain_spec.id();
 
@@ -346,10 +351,19 @@ impl<EF: ExecutorFactory> StarknetApiServer for StarknetApi<EF> {
                 block_id,
                 Default::default(),
             );
+
             match result {
                 Ok(mut res) => {
                     if let Some(fee) = res.pop() {
-                        Ok(fee)
+                        Ok(MessageFeeEstimate {
+                            overall_fee: fee.overall_fee,
+                            l2_gas_price: fee.l2_gas_price,
+                            l1_gas_price: fee.l1_gas_price,
+                            l2_gas_consumed: fee.l2_gas_consumed,
+                            l1_gas_consumed: fee.l1_gas_consumed,
+                            l1_data_gas_price: fee.l1_data_gas_price,
+                            l1_data_gas_consumed: fee.l1_data_gas_consumed,
+                        })
                     } else {
                         Err(ErrorObjectOwned::from(StarknetApiError::UnexpectedError {
                             reason: "Fee estimation result should exist".into(),

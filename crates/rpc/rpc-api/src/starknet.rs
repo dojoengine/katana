@@ -7,8 +7,8 @@ use katana_primitives::class::ClassHash;
 use katana_primitives::transaction::TxHash;
 use katana_primitives::{ContractAddress, Felt};
 use katana_rpc_types::block::{
-    BlockHashAndNumber, BlockTxCount, MaybePendingBlockWithReceipts, MaybePendingBlockWithTxHashes,
-    MaybePendingBlockWithTxs,
+    BlockHashAndNumber, BlockTxCount, MaybePreConfirmedBlockWithReceipts,
+    MaybePreConfirmedBlockWithTxHashes, MaybePreConfirmedBlockWithTxs,
 };
 use katana_rpc_types::broadcasted::{
     AddDeclareTransactionResult, AddDeployAccountTransactionResult, AddInvokeTransactionResult,
@@ -18,12 +18,12 @@ use katana_rpc_types::class::RpcContractClass;
 use katana_rpc_types::event::{EventFilterWithPage, EventsPage};
 use katana_rpc_types::message::MsgFromL1;
 use katana_rpc_types::receipt::TxReceiptWithBlockInfo;
-use katana_rpc_types::state_update::MaybePendingStateUpdate;
+use katana_rpc_types::state_update::MaybePreConfirmedStateUpdate;
 use katana_rpc_types::transaction::Tx;
 use katana_rpc_types::trie::{ContractStorageKeys, GetStorageProofResponse};
 use katana_rpc_types::{
-    FeeEstimate, FeltAsHex, FunctionCall, SimulationFlag, SimulationFlagForEstimateFee,
-    SyncingStatus,
+    FeeEstimate, FeltAsHex, FunctionCall, MessageFeeEstimate, SimulationFlag,
+    SimulationFlagForEstimateFee, SyncingStatus,
 };
 use starknet::core::types::{
     SimulatedTransaction, TransactionStatus, TransactionTrace, TransactionTraceWithHash,
@@ -47,25 +47,28 @@ pub trait StarknetApi {
     async fn get_block_with_tx_hashes(
         &self,
         block_id: BlockIdOrTag,
-    ) -> RpcResult<MaybePendingBlockWithTxHashes>;
+    ) -> RpcResult<MaybePreConfirmedBlockWithTxHashes>;
 
     /// Get block information with full transactions given the block id.
     #[method(name = "getBlockWithTxs")]
     async fn get_block_with_txs(
         &self,
         block_id: BlockIdOrTag,
-    ) -> RpcResult<MaybePendingBlockWithTxs>;
+    ) -> RpcResult<MaybePreConfirmedBlockWithTxs>;
 
     /// Get block information with full transactions and receipts given the block id.
     #[method(name = "getBlockWithReceipts")]
     async fn get_block_with_receipts(
         &self,
         block_id: BlockIdOrTag,
-    ) -> RpcResult<MaybePendingBlockWithReceipts>;
+    ) -> RpcResult<MaybePreConfirmedBlockWithReceipts>;
 
     /// Get the information about the result of executing the requested block.
     #[method(name = "getStateUpdate")]
-    async fn get_state_update(&self, block_id: BlockIdOrTag) -> RpcResult<MaybePendingStateUpdate>;
+    async fn get_state_update(
+        &self,
+        block_id: BlockIdOrTag,
+    ) -> RpcResult<MaybePreConfirmedStateUpdate>;
 
     /// Get the value of the storage at the given address and key
     #[method(name = "getStorageAt")]
@@ -155,7 +158,7 @@ pub trait StarknetApi {
         &self,
         message: MsgFromL1,
         block_id: BlockIdOrTag,
-    ) -> RpcResult<FeeEstimate>;
+    ) -> RpcResult<MessageFeeEstimate>;
 
     /// Get the most recent accepted block number.
     #[method(name = "blockNumber")]
