@@ -1,11 +1,3 @@
-# Git and development files
-.git
-.gitignore
-.gitmodules
-.ropeproject
-.vscode
-.claude
-
 # Documentation and configs
 *.md
 docs/
