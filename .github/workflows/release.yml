@@ -51,11 +51,10 @@ jobs:
         run: make build-contracts
 
       - name: Upload contract artifacts
-        uses: actions/upload-artifact@v4
+        uses: actions/cache@v3
         with:
           key: contract-artifacts
           path: ./crates/contracts/build
-          retention-days: 1
 
   release:
     name: ${{ matrix.job.target }} (${{ matrix.job.os }}${{ matrix.job.native_build == true && ', native' || '' }})
@@ -127,7 +126,7 @@ jobs:
       - uses: actions/checkout@v4
 
       - name: Download contract artifacts
-        uses: actions/download-artifact@v4
+        uses: actions/cache@v3
         with:
           key: contract-artifacts
           path: ./crates/contracts/build
