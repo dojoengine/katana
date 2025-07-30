@@ -1,0 +1,41 @@
+# Git and development files
+.git
+.gitignore
+.gitmodules
+.ropeproject
+.vscode
+.claude
+
+# Documentation and configs
+*.md
+docs/
+CLAUDE.md
+AGENT.md
+
+# Build artifacts and caches
+target/
+build/
+monitoring/
+
+# CI/CD files (except the Dockerfile being built)
+.github/
+!.github/Dockerfile*
+
+# Python and other dev tools
+.python-version
+__pycache__/
+*.pyc
+
+# Rust development
+rust-toolchain.toml
+clippy.toml
+rustfmt.toml
+taplo.toml
+
+# Node.js dependencies
+**/node_modules/
+
+# Other
+.config/
+scripts/
+Makefile
