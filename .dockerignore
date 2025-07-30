@@ -27,6 +27,10 @@ taplo.toml
 # Node.js dependencies
 **/node_modules/
 
+# Test fixtures (ignore all except .tar.gz files)
+tests/fixtures/*
+!tests/fixtures/*.tar.gz
+
 # Other
 .config/
 scripts/
