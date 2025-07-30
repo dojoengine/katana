@@ -1,4 +1,5 @@
-//! Extension to the Starknet JSON-RPC API for list endpoints. These endpoints shouldn't be relied upon as they may change or be removed in the future.
+//! Extension to the Starknet JSON-RPC API for list endpoints. These endpoints shouldn't be relied
+//! upon as they may change or be removed in the future.
 
 use jsonrpsee::core::RpcResult;
 use jsonrpsee::proc_macros::rpc;

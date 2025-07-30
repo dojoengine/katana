@@ -6,6 +6,7 @@ use std::num::ParseIntError;
 use katana_primitives::block::BlockNumber;
 use katana_primitives::transaction::TxNumber;
 use serde::{Deserialize, Serialize};
+use starknet::core::types::ResultPageRequest;
 
 use crate::block::BlockWithTxHashes;
 use crate::transaction::Tx;
@@ -34,7 +35,15 @@ pub enum ContinuationTokenError {
 
 impl ContinuationToken {
     pub fn parse(token: &str) -> Result<Self, ContinuationTokenError> {
-        let item_n = u64::from_str_radix(token, 16).map_err(ContinuationTokenError::ParseFailed)?;
+        token.parse()
+    }
+}
+
+impl std::str::FromStr for ContinuationToken {
+    type Err = ContinuationTokenError;
+
+    fn from_str(s: &str) -> Result<Self, Self::Err> {
+        let item_n = u64::from_str_radix(s, 16).map_err(ContinuationTokenError::ParseFailed)?;
         Ok(ContinuationToken { item_n })
     }
 }
@@ -48,11 +57,12 @@ impl fmt::Display for ContinuationToken {
 /// Request parameters for the `starknet_getBlocks` endpoint.
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct GetBlocksRequest {
-    /// The starting block number (inclusive). For descending order, this should be higher than `end_block`.
+    /// The starting block number (inclusive). For descending order, this should be higher than
+    /// `end_block`.
     pub from: BlockNumber,
 
-    /// The ending block number (inclusive). If not provided, returns blocks starting from `start_block`.
-    /// For descending order, this should be lower than `start_block`.
+    /// The ending block number (inclusive). If not provided, returns blocks starting from
+    /// `start_block`. For descending order, this should be lower than `start_block`.
     #[serde(skip_serializing_if = "Option::is_none")]
     pub to: Option<BlockNumber>,
 
@@ -60,6 +70,8 @@ pub struct GetBlocksRequest {
     /// This acts as a limit to prevent excessively large responses.
     #[serde(skip_serializing_if = "Option::is_none")]
     pub chunk_size: Option<u64>,
+
+    pub result_page_request: ResultPageRequest,
 }
 
 /// Response for the `starknet_getBlocks` endpoint.
@@ -68,9 +80,9 @@ pub struct GetBlocksResponse {
     /// The list of blocks.
     pub blocks: Vec<BlockWithTxHashes>,
 
-    /// A pointer to the last element of the delivered page, use this token in a subsequent query to
-    /// obtain the next page. If the value is `None`, don't add it to the response as clients might
-    /// use `contains_key` as a check for the last page.
+    /// A pointer to the last element of the delivered page, use this token in a subsequent query
+    /// to obtain the next page. If the value is `None`, don't add it to the response as
+    /// clients might use `contains_key` as a check for the last page.
     #[serde(skip_serializing_if = "Option::is_none")]
     pub continuation_token: Option<String>,
 }
@@ -78,18 +90,21 @@ pub struct GetBlocksResponse {
 /// Request parameters for the `starknet_getTransactions` endpoint.
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct GetTransactionsRequest {
-    /// The starting transaction number (inclusive). For descending order, this should be higher than `end_tx`.
+    /// The starting transaction number (inclusive). For descending order, this should be higher
+    /// than `end_tx`.
     pub from: TxNumber,
 
-    /// The ending transaction number (inclusive). If not provided, returns transactions starting from `start_tx`.
-    /// For descending order, this should be lower than `start_tx`.
+    /// The ending transaction number (inclusive). If not provided, returns transactions starting
+    /// from `start_tx`. For descending order, this should be lower than `start_tx`.
     #[serde(skip_serializing_if = "Option::is_none")]
     pub to: Option<TxNumber>,
 
-    /// The maximum number of transactions to return. If not provided, returns all transactions in the range.
-    /// This acts as a limit to prevent excessively large responses.
+    /// The maximum number of transactions to return. If not provided, returns all transactions in
+    /// the range. This acts as a limit to prevent excessively large responses.
     #[serde(skip_serializing_if = "Option::is_none")]
     pub chunk_size: Option<u64>,
+
+    pub result_page_request: ResultPageRequest,
 }
 
 /// Response for the `starknet_getTransactions` endpoint.
@@ -98,9 +113,9 @@ pub struct GetTransactionsResponse {
     /// The list of transactions.
     pub transactions: Vec<Tx>,
 
-    /// A pointer to the last element of the delivered page, use this token in a subsequent query to
-    /// obtain the next page. If the value is `None`, don't add it to the response as clients might
-    /// use `contains_key` as a check for the last page.
+    /// A pointer to the last element of the delivered page, use this token in a subsequent query
+    /// to obtain the next page. If the value is `None`, don't add it to the response as
+    /// clients might use `contains_key` as a check for the last page.
     #[serde(skip_serializing_if = "Option::is_none")]
     pub continuation_token: Option<String>,
 }

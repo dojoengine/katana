@@ -1,6 +1,7 @@
 //! Server implementation for the Starknet JSON-RPC API.
 
 use std::ops::Range;
+use std::str::FromStr;
 use std::sync::Arc;
 
 use katana_core::backend::Backend;
@@ -37,7 +38,8 @@ use katana_rpc_types::block::{
 use katana_rpc_types::class::Class;
 use katana_rpc_types::event::{EventFilterWithPage, EventsPage};
 use katana_rpc_types::list::{
-    GetBlocksRequest, GetBlocksResponse, GetTransactionsRequest, GetTransactionsResponse,
+    ContinuationToken as ListContinuationToken, GetBlocksRequest, GetBlocksResponse,
+    GetTransactionsRequest, GetTransactionsResponse,
 };
 use katana_rpc_types::receipt::{ReceiptBlock, TxReceiptWithBlockInfo};
 use katana_rpc_types::state_update::MaybePreConfirmedStateUpdate;
@@ -1236,27 +1238,39 @@ where
         })
         .await
     }
+}
 
-    /////////////////////////////////////////////////////
-    // `StarknetApiExt` Implementations
-    /////////////////////////////////////////////////////
+/////////////////////////////////////////////////////
+// `StarknetApiExt` Implementations
+/////////////////////////////////////////////////////
 
+impl<EF: ExecutorFactory> StarknetApi<EF> {
     async fn blocks(&self, request: GetBlocksRequest) -> StarknetApiResult<GetBlocksResponse> {
         self.on_io_blocking_task(move |this| {
             let provider = this.inner.backend.blockchain.provider();
-            let continuation_token;
 
-            let range_start = request.from;
+            // Parse continuation token to get starting point
+            let start_from = if let Some(token_str) = request.result_page_request.continuation_token
+            {
+                // Parse the continuation token
+                let token: ListContinuationToken = ListContinuationToken::from_str(&token_str)
+                    .map_err(|_| StarknetApiError::InvalidContinuationToken)?;
+
+                token.item_n
+            } else {
+                request.from
+            };
+
+            let chunk_size = request.result_page_request.chunk_size;
             let mut range_end =
                 if let Some(to) = request.to { to } else { provider.latest_number()? };
 
-            if let Some(limit) = request.chunk_size {
-                if limit > 0 {
-                    range_end = range_start.saturating_add(limit.saturating_sub(1)).min(range_end);
-                }
+            // Apply chunk size limit
+            if chunk_size > 0 {
+                range_end = start_from.saturating_add(chunk_size.saturating_sub(1)).min(range_end);
             }
 
-            let blocks = provider.blocks_in_range(range_start..=range_end)?;
+            let blocks = provider.blocks_in_range(start_from..=range_end)?;
 
             // Convert to RPC format
             let mut rpc_blocks = Vec::new();
@@ -1269,7 +1283,15 @@ where
                 }
             }
 
-            Ok(GetBlocksResponse { blocks: rpc_blocks, continuation_token: None })
+            // Generate continuation token if there are more blocks
+            let continuation_token = if range_end < request.to.unwrap_or(provider.latest_number()?)
+            {
+                Some(ListContinuationToken { item_n: range_end + 1 }.to_string())
+            } else {
+                None
+            };
+
+            Ok(GetBlocksResponse { blocks: rpc_blocks, continuation_token })
         })
         .await
     }
@@ -1281,63 +1303,49 @@ where
         self.on_io_blocking_task(move |this| {
             let provider = this.inner.backend.blockchain.provider();
 
-            // Handle descending vs ascending order
-            let (range_start, range_end) = if request.descending {
-                // For descending order
-                let start = request.from;
-                let end = if let Some(end) = request.to {
-                    end
-                } else if let Some(limit) = request.chunk_size {
-                    start.saturating_sub(limit.saturating_sub(1))
-                } else {
-                    start.saturating_sub(99) // Default to 100 transactions
-                };
+            // Parse continuation token to get starting point
+            let start_from = if let Some(token_str) = request.result_page_request.continuation_token
+            {
+                // Parse the continuation token
+                let token: ListContinuationToken = ListContinuationToken::from_str(&token_str)
+                    .map_err(|_| StarknetApiError::InvalidContinuationToken)?;
 
-                if start < end {
-                    return Err(StarknetApiError::UnexpectedError {
-                        reason: "For descending order, start_tx must be >= end_tx".to_string(),
-                    });
-                }
-
-                (end, start)
+                token.item_n
             } else {
-                // For ascending order
-                let start = request.from;
-                let end = if let Some(end) = request.to {
-                    end
-                } else if let Some(limit) = request.chunk_size {
-                    start.saturating_add(limit.saturating_sub(1))
-                } else {
-                    start.saturating_add(99) // Default to 100 transactions
-                };
-
-                if start > end {
-                    return Err(StarknetApiError::UnexpectedError {
-                        reason: "For ascending order, start_tx must be <= end_tx".to_string(),
-                    });
-                }
-
-                (start, end)
+                request.from
             };
 
-            // Apply limit if specified
-            let mut actual_end = range_end;
-            if let Some(limit) = request.chunk_size {
-                if limit > 0 {
-                    actual_end = range_start.saturating_add(limit.saturating_sub(1)).min(range_end);
-                }
+            let chunk_size = request.result_page_request.chunk_size;
+            let mut range_end = if let Some(to) = request.to {
+                to
+            } else {
+                provider.total_transactions()? as TxNumber - 1
+            };
+
+            // Apply chunk size limit
+            if chunk_size > 0 {
+                range_end = start_from.saturating_add(chunk_size.saturating_sub(1)).min(range_end);
             }
 
-            let range: Range<TxNumber> = range_start..actual_end.saturating_add(1);
+            let range: Range<TxNumber> = start_from..range_end.saturating_add(1);
 
             // Get transactions from provider
             let transactions = provider.transaction_in_range(range)?;
 
             // Convert to RPC format
-            let mut rpc_transactions: Vec<Tx> =
-                transactions.into_iter().map(|tx| tx.into()).collect();
+            let rpc_transactions: Vec<Tx> = transactions.into_iter().map(|tx| tx.into()).collect();
 
-            let response = GetTransactionsResponse { transactions: rpc_transactions };
+            // Generate continuation token if there are more transactions
+            let continuation_token = if range_end
+                < request.to.unwrap_or(provider.total_transactions()? as TxNumber - 1)
+            {
+                Some(ListContinuationToken { item_n: range_end + 1 }.to_string())
+            } else {
+                None
+            };
+
+            let response =
+                GetTransactionsResponse { transactions: rpc_transactions, continuation_token };
 
             Ok(response)
         })
