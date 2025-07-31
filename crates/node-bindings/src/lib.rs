@@ -260,13 +260,13 @@ impl Katana {
     ///
     /// # Example
     ///
-    /// ```
-    /// # use katana_node_bindings::Katana;
-    /// fn a() {
-    ///  let katana = Katana::default().spawn();
+    /// ```ignore
+    /// use katana_node_bindings::Katana;
     ///
-    ///  println!("Katana running at `{}`", katana.rpc_addr());
-    /// # }
+    /// fn main() {
+    /// 	let katana = Katana::default().spawn();
+    /// 	println!("Katana running at `{}`", katana.rpc_addr());
+    /// }
     /// ```
     pub fn new() -> Self {
         Self::default()
@@ -276,13 +276,13 @@ impl Katana {
     ///
     /// # Example
     ///
-    /// ```
-    /// # use katana_node_bindings::Katana;
-    /// fn a() {
-    ///  let katana = Katana::at("~/.katana/bin/katana").spawn();
+    /// ```ignore
+    /// use katana_node_bindings::Katana;
     ///
-    ///  println!("Katana running at `{}`", katana.rpc_addr());
-    /// # }
+    /// fn main() {
+    ///     let katana = Katana::at("~/.katana/bin/katana").spawn();
+    ///     println!("Katana running at `{}`", katana.rpc_addr());
+    /// }
     /// ```
     pub fn at(path: impl Into<PathBuf>) -> Self {
         Self::new().path(path)
@@ -300,6 +300,10 @@ impl Katana {
     /// Sets the port which will be used when the `katana` instance is launched.
     ///
     /// Default: `5050`
+    ///
+    /// ## CLI Flag
+    ///
+    /// `--http.port <PORT>`
     pub fn port<T: Into<u16>>(mut self, port: T) -> Self {
         self.http_port = Some(port.into());
         self
@@ -307,18 +311,30 @@ impl Katana {
 
     /// Sets the block-time in milliseconds which will be used when the `katana` instance is
     /// launched.
+    ///
+    /// ## CLI Flag
+    ///
+    /// `-b, --block-time <MILLISECONDS>`
     pub const fn block_time(mut self, block_time: u64) -> Self {
         self.block_time = Some(block_time);
         self
     }
 
     /// Sets the database directory path which will be used when the `katana` instance is launched.
+    ///
+    /// ## CLI Flag
+    ///
+    /// `--db-dir <PATH>`
     pub fn db_dir<T: Into<PathBuf>>(mut self, db_dir: T) -> Self {
         self.db_dir = Some(db_dir.into());
         self
     }
 
     /// Enables the dev mode.
+    ///
+    /// ## CLI Flag
+    ///
+    /// `--dev`
     pub const fn dev(mut self, dev: bool) -> Self {
         self.dev = dev;
         self
@@ -326,6 +342,10 @@ impl Katana {
 
     /// Sets the messaging configuration path which will be used when the `katana` instance is
     /// launched.
+    ///
+    /// ## CLI Flag
+    ///
+    /// `--messaging <PATH>`
     pub fn messaging<T: Into<PathBuf>>(mut self, messaging: T) -> Self {
         self.messaging = Some(messaging.into());
         self
@@ -334,6 +354,10 @@ impl Katana {
     /// Enables Prometheus metrics and sets the metrics server address.
     ///
     /// Default: `127.0.0.1`
+    ///
+    /// ## CLI Flag
+    ///
+    /// `--metrics.addr <ADDRESS>`
     pub fn metrics_addr<T: Into<SocketAddr>>(mut self, addr: T) -> Self {
         self.metrics_addr = Some(addr.into());
         self
@@ -342,6 +366,10 @@ impl Katana {
     /// Enables Prometheus metrics and sets the metrics server port.
     ///
     /// Default: `9100`
+    ///
+    /// ## CLI Flag
+    ///
+    /// `--metrics.port <PORT>`
     pub fn metrics_port<T: Into<u16>>(mut self, port: T) -> Self {
         self.metrics_port = Some(port.into());
         self
@@ -350,12 +378,20 @@ impl Katana {
     /// Sets the host IP address the server will listen on.
     ///
     /// Default: `127.0.0.1`
+    ///
+    /// ## CLI Flag
+    ///
+    /// `--http.addr <ADDRESS>`
     pub fn http_addr<T: Into<SocketAddr>>(mut self, addr: T) -> Self {
         self.http_addr = Some(addr.into());
         self
     }
 
     /// Sets the maximum number of concurrent connections allowed.
+    ///
+    /// ## CLI Flag
+    ///
+    /// `--rpc.max-connections <MAX>`
     pub const fn rpc_max_connections(mut self, max_connections: u64) -> Self {
         self.rpc_max_connections = Some(max_connections);
         self
@@ -364,6 +400,10 @@ impl Katana {
     /// Sets the maximum gas for the `starknet_call` RPC method.
     ///
     /// Default: `1000000000`
+    ///
+    /// ## CLI Flag
+    ///
+    /// `--rpc.max-call-gas <GAS>`
     pub const fn rpc_max_call_gas(mut self, max_call_gas: u64) -> Self {
         self.rpc_max_call_gas = Some(max_call_gas);
         self
@@ -372,6 +412,10 @@ impl Katana {
     /// Sets the seed for randomness of accounts to be predeployed.
     ///
     /// Default: `0`
+    ///
+    /// ## CLI Flag
+    ///
+    /// `--dev.seed <SEED>`
     pub const fn seed(mut self, seed: u64) -> Self {
         self.seed = Some(seed);
         self
@@ -379,6 +423,9 @@ impl Katana {
 
     /// Sets the number of pre-funded accounts to generate.
     ///
+    /// ## CLI Flag
+    ///
+    /// `--dev.accounts <NUM>`
     /// Default: `10`
     pub fn accounts(mut self, accounts: u16) -> Self {
         self.accounts = Some(accounts);
@@ -387,6 +434,10 @@ impl Katana {
 
     /// Enable or disable charging fee when executing transactions.
     /// Enabled by default.
+    ///
+    /// ## CLI Flag
+    ///
+    /// `--dev.no-fee` (when disabled)
     pub const fn fee(mut self, enable: bool) -> Self {
         self.disable_fee = !enable;
         self
@@ -394,12 +445,20 @@ impl Katana {
 
     /// Enables or disable transaction validation.
     /// Enabled by default.
+    ///
+    /// ## CLI Flag
+    ///
+    /// `--dev.no-account-validation` (when disabled)
     pub const fn validate(mut self, enable: bool) -> Self {
         self.disable_validate = !enable;
         self
     }
 
     /// Sets the chain ID.
+    ///
+    /// ## CLI Flag
+    ///
+    /// `--chain-id <CHAIN_ID>`
     pub const fn chain_id(mut self, id: Felt) -> Self {
         self.chain_id = Some(id);
         self
@@ -408,6 +467,10 @@ impl Katana {
     /// Sets the maximum number of steps available for the account validation logic.
     ///
     /// Default: `1000000`
+    ///
+    /// ## CLI Flag
+    ///
+    /// `--validate-max-steps <VALIDATE_MAX_STEPS>`
     pub const fn validate_max_steps(mut self, validate_max_steps: u64) -> Self {
         self.validate_max_steps = Some(validate_max_steps);
         self
@@ -416,30 +479,48 @@ impl Katana {
     /// Sets the maximum number of steps available for the account execution logic.
     ///
     /// Default: `10000000`
+    ///
+    /// ## CLI Flag
+    ///
+    /// `--invoke-max-steps <INVOKE_MAX_STEPS>`
     pub const fn invoke_max_steps(mut self, invoke_max_steps: u64) -> Self {
         self.invoke_max_steps = Some(invoke_max_steps);
         self
     }
 
     /// Sets the genesis configuration path.
+    ///
+    /// ## CLI Flag
+    ///
+    /// `--genesis <GENESIS>`
     pub fn genesis<T: Into<PathBuf>>(mut self, genesis: T) -> Self {
         self.genesis = Some(genesis.into());
         self
     }
 
     /// Sets the timeout which will be used when the `katana` instance is launched.
+    ///
+    /// Note: This is an internal timeout for the bindings, not a CLI flag.
     pub const fn timeout(mut self, timeout: u64) -> Self {
         self.timeout = Some(timeout);
         self
     }
 
     /// Disable auto and interval mining, and mine on demand instead via an endpoint.
+    ///
+    /// ## CLI Flag
+    ///
+    /// `--no-mining`
     pub const fn no_mining(mut self, no_mining: bool) -> Self {
         self.no_mining = no_mining;
         self
     }
 
     /// Don't print anything on startup.
+    ///
+    /// ## CLI Flag
+    ///
+    /// `--silent`
     pub const fn silent(mut self, silent: bool) -> Self {
         self.silent = silent;
         self
@@ -448,90 +529,150 @@ impl Katana {
     /// Sets the log format to use.
     ///
     /// Default: `LogFormat::Full`
+    ///
+    /// ## CLI Flag
+    ///
+    /// `--log.format <FORMAT>`
     pub const fn log_format(mut self, format: LogFormat) -> Self {
         self.log_format = Some(format);
         self
     }
 
     /// Sets the maximum number of Cairo steps available for block sequencing.
+    ///
+    /// ## CLI Flag
+    ///
+    /// `--sequencing.block-max-cairo-steps <TOTAL>`
     pub const fn sequencing_block_max_cairo_steps(mut self, steps: u64) -> Self {
         self.sequencing_block_max_cairo_steps = Some(steps);
         self
     }
 
     /// Sets the configuration file path.
+    ///
+    /// ## CLI Flag
+    ///
+    /// `--config <CONFIG>`
     pub fn config<T: Into<PathBuf>>(mut self, config: T) -> Self {
         self.config = Some(config.into());
         self
     }
 
     /// Sets the RPC URL to fork the network from.
+    ///
+    /// ## CLI Flag
+    ///
+    /// `--fork.provider <URL>`
     pub fn fork_provider<T: Into<String>>(mut self, provider: T) -> Self {
         self.fork_provider = Some(provider.into());
         self
     }
 
     /// Sets the fork block number.
+    ///
+    /// ## CLI Flag
+    ///
+    /// `--fork.block <BLOCK>`
     pub const fn fork_block(mut self, block: u64) -> Self {
         self.fork_block = Some(block);
         self
     }
 
     /// Enable Google Cloud Trace exporter.
+    ///
+    /// ## CLI Flag
+    ///
+    /// `--tracer.gcloud`
     pub const fn tracer_gcloud(mut self, enable: bool) -> Self {
         self.tracer_gcloud = enable;
         self
     }
 
     /// Enable OpenTelemetry Protocol (OTLP) exporter.
+    ///
+    /// ## CLI Flag
+    ///
+    /// `--tracer.otlp`
     pub const fn tracer_otlp(mut self, enable: bool) -> Self {
         self.tracer_otlp = enable;
         self
     }
 
     /// Sets the Google Cloud project ID.
+    ///
+    /// ## CLI Flag
+    ///
+    /// `--tracer.gcloud-project <PROJECT_ID>`
     pub fn tracer_gcloud_project<T: Into<String>>(mut self, project_id: T) -> Self {
         self.tracer_gcloud_project = Some(project_id.into());
         self
     }
 
     /// Sets the OTLP endpoint URL.
+    ///
+    /// ## CLI Flag
+    ///
+    /// `--tracer.otlp-endpoint <URL>`
     pub fn tracer_otlp_endpoint<T: Into<String>>(mut self, endpoint: T) -> Self {
         self.tracer_otlp_endpoint = Some(endpoint.into());
         self
     }
 
     /// Enable metrics collection.
+    ///
+    /// ## CLI Flag
+    ///
+    /// `--metrics`
     pub const fn metrics(mut self, enable: bool) -> Self {
         self.metrics = enable;
         self
     }
 
     /// Sets the comma separated list of domains from which to accept cross origin requests.
+    ///
+    /// ## CLI Flag
+    ///
+    /// `--http.cors_origins <HTTP_CORS_ORIGINS>`
     pub fn http_cors_origins<T: Into<String>>(mut self, origins: T) -> Self {
         self.http_cors_origins = Some(origins.into());
         self
     }
 
     /// Sets the API modules offered over the HTTP-RPC interface.
+    ///
+    /// ## CLI Flag
+    ///
+    /// `--http.api <MODULES>`
     pub fn http_api<T: Into<String>>(mut self, modules: T) -> Self {
         self.http_api = Some(modules.into());
         self
     }
 
     /// Sets the maximum request body size (in bytes).
+    ///
+    /// ## CLI Flag
+    ///
+    /// `--rpc.max-request-body-size <SIZE>`
     pub const fn rpc_max_request_body_size(mut self, size: u64) -> Self {
         self.rpc_max_request_body_size = Some(size);
         self
     }
 
     /// Sets the maximum response body size (in bytes).
+    ///
+    /// ## CLI Flag
+    ///
+    /// `--rpc.max-response-body-size <SIZE>`
     pub const fn rpc_max_response_body_size(mut self, size: u64) -> Self {
         self.rpc_max_response_body_size = Some(size);
         self
     }
 
     /// Sets the timeout for the RPC server request (in seconds).
+    ///
+    /// ## CLI Flag
+    ///
+    /// `--rpc.timeout <TIMEOUT>`
     pub const fn rpc_timeout(mut self, timeout: u64) -> Self {
         self.rpc_timeout = Some(timeout);
         self
@@ -540,6 +681,10 @@ impl Katana {
     /// Sets the maximum page size for event queries.
     ///
     /// Default: `1024`
+    ///
+    /// ## CLI Flag
+    ///
+    /// `--rpc.max-event-page-size <SIZE>`
     pub const fn rpc_max_event_page_size(mut self, size: u64) -> Self {
         self.rpc_max_event_page_size = Some(size);
         self
@@ -548,60 +693,100 @@ impl Katana {
     /// Sets the maximum keys for requesting storage proofs.
     ///
     /// Default: `100`
+    ///
+    /// ## CLI Flag
+    ///
+    /// `--rpc.max-proof-keys <SIZE>`
     pub const fn rpc_max_proof_keys(mut self, keys: u64) -> Self {
         self.rpc_max_proof_keys = Some(keys);
         self
     }
 
     /// Sets the L2 ETH gas price (denominated in wei).
+    ///
+    /// ## CLI Flag
+    ///
+    /// `--gpo.l2-eth-gas-price <WEI>`
     pub const fn gpo_l2_eth_gas_price(mut self, price: u64) -> Self {
         self.gpo_l2_eth_gas_price = Some(price);
         self
     }
 
     /// Sets the L2 STRK gas price (denominated in fri).
+    ///
+    /// ## CLI Flag
+    ///
+    /// `--gpo.l2-strk-gas-price <FRI>`
     pub const fn gpo_l2_strk_gas_price(mut self, price: u64) -> Self {
         self.gpo_l2_strk_gas_price = Some(price);
         self
     }
 
     /// Sets the L1 ETH gas price (denominated in wei).
+    ///
+    /// ## CLI Flag
+    ///
+    /// `--gpo.l1-eth-gas-price <WEI>`
     pub const fn gpo_l1_eth_gas_price(mut self, price: u64) -> Self {
         self.gpo_l1_eth_gas_price = Some(price);
         self
     }
 
     /// Sets the L1 STRK gas price (denominated in fri).
+    ///
+    /// ## CLI Flag
+    ///
+    /// `--gpo.l1-strk-gas-price <FRI>`
     pub const fn gpo_l1_strk_gas_price(mut self, price: u64) -> Self {
         self.gpo_l1_strk_gas_price = Some(price);
         self
     }
 
     /// Sets the L1 ETH data gas price (denominated in wei).
+    ///
+    /// ## CLI Flag
+    ///
+    /// `--gpo.l1-eth-data-gas-price <WEI>`
     pub const fn gpo_l1_eth_data_gas_price(mut self, price: u64) -> Self {
         self.gpo_l1_eth_data_gas_price = Some(price);
         self
     }
 
     /// Sets the L1 STRK data gas price (denominated in fri).
+    ///
+    /// ## CLI Flag
+    ///
+    /// `--gpo.l1-strk-data-gas-price <FRI>`
     pub const fn gpo_l1_strk_data_gas_price(mut self, price: u64) -> Self {
         self.gpo_l1_strk_data_gas_price = Some(price);
         self
     }
 
     /// Enable and launch the explorer frontend.
+    ///
+    /// ## CLI Flag
+    ///
+    /// `--explorer`
     pub const fn explorer(mut self, enable: bool) -> Self {
         self.explorer = enable;
         self
     }
 
     /// Declare all versions of the Controller class at genesis.
+    ///
+    /// ## CLI Flag
+    ///
+    /// `--cartridge.controllers`
     pub const fn cartridge_controllers(mut self, enable: bool) -> Self {
         self.cartridge_controllers = enable;
         self
     }
 
     /// Whether to use the Cartridge paymaster.
+    ///
+    /// ## CLI Flag
+    ///
+    /// `--cartridge.paymaster`
     pub const fn cartridge_paymaster(mut self, enable: bool) -> Self {
         self.cartridge_paymaster = enable;
         self
@@ -610,6 +795,10 @@ impl Katana {
     /// Sets the root URL for the Cartridge API.
     ///
     /// Default: `https://api.cartridge.gg`
+    ///
+    /// ## CLI Flag
+    ///
+    /// `--cartridge.api <API>`
     pub fn cartridge_api<T: Into<String>>(mut self, api: T) -> Self {
         self.cartridge_api = Some(api.into());
         self
