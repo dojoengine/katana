@@ -66,11 +66,6 @@ pub struct GetBlocksRequest {
     #[serde(skip_serializing_if = "Option::is_none")]
     pub to: Option<BlockNumber>,
 
-    /// The maximum number of blocks to return. If not provided, returns all blocks in the range.
-    /// This acts as a limit to prevent excessively large responses.
-    #[serde(skip_serializing_if = "Option::is_none")]
-    pub chunk_size: Option<u64>,
-
     pub result_page_request: ResultPageRequest,
 }
 
@@ -98,11 +93,6 @@ pub struct GetTransactionsRequest {
     /// from `start_tx`. For descending order, this should be lower than `start_tx`.
     #[serde(skip_serializing_if = "Option::is_none")]
     pub to: Option<TxNumber>,
-
-    /// The maximum number of transactions to return. If not provided, returns all transactions in
-    /// the range. This acts as a limit to prevent excessively large responses.
-    #[serde(skip_serializing_if = "Option::is_none")]
-    pub chunk_size: Option<u64>,
 
     pub result_page_request: ResultPageRequest,
 }
