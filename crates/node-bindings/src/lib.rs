@@ -423,10 +423,11 @@ impl Katana {
 
     /// Sets the number of pre-funded accounts to generate.
     ///
+    /// Default: `10`
+    ///
     /// ## CLI Flag
     ///
     /// `--dev.accounts <NUM>`
-    /// Default: `10`
     pub fn accounts(mut self, accounts: u16) -> Self {
         self.accounts = Some(accounts);
         self
