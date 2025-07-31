@@ -7,8 +7,7 @@ use katana_core::service::block_producer::{BlockProducer, BlockProducerMode, Pen
 use katana_executor::{ExecutionResult, ExecutorFactory};
 use katana_pool::{TransactionPool, TxPool};
 use katana_primitives::block::{
-    BlockHash, BlockHashOrNumber, BlockIdOrTag, BlockNumber, BlockTag, FinalityStatus,
-    PartialHeader,
+    BlockHashOrNumber, BlockIdOrTag, BlockNumber, BlockTag, FinalityStatus, PartialHeader,
 };
 use katana_primitives::class::ClassHash;
 use katana_primitives::contract::{ContractAddress, Nonce, StorageKey, StorageValue};
@@ -28,8 +27,9 @@ use katana_provider::traits::transaction::{
 };
 use katana_rpc_api::error::starknet::StarknetApiError;
 use katana_rpc_types::block::{
-    MaybePendingBlockWithReceipts, MaybePendingBlockWithTxHashes, MaybePendingBlockWithTxs,
-    PendingBlockWithReceipts, PendingBlockWithTxHashes, PendingBlockWithTxs,
+    BlockHashAndNumber, MaybePendingBlockWithReceipts, MaybePendingBlockWithTxHashes,
+    MaybePendingBlockWithTxs, PendingBlockWithReceipts, PendingBlockWithTxHashes,
+    PendingBlockWithTxs,
 };
 use katana_rpc_types::class::RpcContractClass;
 use katana_rpc_types::event::{EventFilterWithPage, EventsPage};
@@ -249,11 +249,11 @@ where
         env.ok_or(StarknetApiError::BlockNotFound)
     }
 
-    fn block_hash_and_number(&self) -> StarknetApiResult<(BlockHash, BlockNumber)> {
+    fn block_hash_and_number(&self) -> StarknetApiResult<BlockHashAndNumber> {
         let provider = self.inner.backend.blockchain.provider();
         let hash = provider.latest_hash()?;
         let number = provider.latest_number()?;
-        Ok((hash, number))
+        Ok(BlockHashAndNumber::new(hash, number))
     }
 
     async fn class_at_hash(

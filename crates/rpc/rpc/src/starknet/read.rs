@@ -70,11 +70,7 @@ impl<EF: ExecutorFactory> StarknetApiServer for StarknetApi<EF> {
     }
 
     async fn block_hash_and_number(&self) -> RpcResult<BlockHashAndNumber> {
-        self.on_io_blocking_task(move |this| {
-            let res = this.block_hash_and_number()?;
-            Ok(res.into())
-        })
-        .await
+        self.on_io_blocking_task(move |this| Ok(this.block_hash_and_number()?)).await
     }
 
     async fn get_block_with_tx_hashes(
