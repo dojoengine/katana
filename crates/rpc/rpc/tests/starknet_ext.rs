@@ -382,7 +382,7 @@ async fn empty_range_requests() {
 
     let blocks_response = client.get_blocks(blocks_request).await.unwrap();
     assert_eq!(blocks_response.blocks.len(), 0);
-    assert!(blocks_response.continuation_token).is_none();
+    assert!(blocks_response.continuation_token.is_none());
 
     // Test empty transactions range
     let txs_request = GetTransactionsRequest {
