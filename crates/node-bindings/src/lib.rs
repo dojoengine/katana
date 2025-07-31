@@ -808,7 +808,7 @@ impl Katana {
     /// Enables JSON logging.
     ///
     /// **Deprecated**: Use `log_format(LogFormat::Json)` instead.
-    #[deprecated(since = "0.1.0", note = "Use `log_format(LogFormat::Json)` instead")]
+    #[deprecated(note = "Use `log_format(LogFormat::Json)` instead")]
     pub const fn json_log(mut self, json_log: bool) -> Self {
         self.json_log = json_log;
         self
@@ -817,7 +817,7 @@ impl Katana {
     /// Sets the fork block number which will be used when the `katana` instance is launched.
     ///
     /// **Deprecated**: Use `fork_block()` instead.
-    #[deprecated(since = "0.1.0", note = "Use `fork_block()` instead")]
+    #[deprecated(note = "Use `fork_block()` instead")]
     pub const fn fork_block_number(mut self, fork_block_number: u64) -> Self {
         self.fork_block_number = Some(fork_block_number);
         self
@@ -826,7 +826,7 @@ impl Katana {
     /// Sets the RPC URL to fork the network from.
     ///
     /// **Deprecated**: Use `fork_provider()` instead.
-    #[deprecated(since = "0.1.0", note = "Use `fork_provider()` instead")]
+    #[deprecated(note = "Use `fork_provider()` instead")]
     pub fn l1_provider<T: Into<String>>(mut self, rpc_url: T) -> Self {
         self.l1_provider = Some(rpc_url.into());
         self
@@ -835,7 +835,7 @@ impl Katana {
     /// Sets the maximum timeout for the RPC.
     ///
     /// **Deprecated**: Use `rpc_timeout()` instead (note: units changed from ms to seconds).
-    #[deprecated(since = "0.1.0", note = "Use `rpc_timeout()` instead")]
+    #[deprecated(note = "Use `rpc_timeout()` instead")]
     pub const fn rpc_timeout_ms(mut self, timeout_ms: u64) -> Self {
         self.rpc_timeout_ms = Some(timeout_ms);
         self
@@ -844,7 +844,7 @@ impl Katana {
     /// Enables the CORS layer and sets the allowed origins, separated by commas.
     ///
     /// **Deprecated**: Use `http_cors_origins()` instead.
-    #[deprecated(since = "0.1.0", note = "Use `http_cors_origins()` instead")]
+    #[deprecated(note = "Use `http_cors_origins()` instead")]
     pub fn http_cors_domain<T: Into<String>>(mut self, allowed_origins: T) -> Self {
         self.http_cors_domain = Some(allowed_origins.into());
         self
@@ -853,7 +853,7 @@ impl Katana {
     /// Sets the L1 ETH gas price (denominated in wei).
     ///
     /// **Deprecated**: Use `gpo_l2_eth_gas_price()` instead.
-    #[deprecated(since = "0.1.0", note = "Use `gpo_l2_eth_gas_price()` instead")]
+    #[deprecated(note = "Use `gpo_l2_eth_gas_price()` instead")]
     pub const fn eth_gas_price(mut self, eth_gas_price: u64) -> Self {
         self.eth_gas_price = Some(eth_gas_price);
         self
@@ -862,7 +862,7 @@ impl Katana {
     /// Sets the L1 STRK gas price (denominated in fri).
     ///
     /// **Deprecated**: Use `gpo_l2_strk_gas_price()` instead.
-    #[deprecated(since = "0.1.0", note = "Use `gpo_l2_strk_gas_price()` instead")]
+    #[deprecated(note = "Use `gpo_l2_strk_gas_price()` instead")]
     pub const fn strk_gas_price(mut self, strk_gas_price: u64) -> Self {
         self.strk_gas_price = Some(strk_gas_price);
         self
@@ -871,7 +871,7 @@ impl Katana {
     /// Whether to use the Cartridge paymaster.
     ///
     /// **Deprecated**: Use `cartridge_paymaster()` instead.
-    #[deprecated(since = "0.1.0", note = "Use `cartridge_paymaster()` instead")]
+    #[deprecated(note = "Use `cartridge_paymaster()` instead")]
     pub const fn enable_cartridge_paymaster(mut self, enable: bool) -> Self {
         self.enable_cartridge_paymaster = enable;
         self
@@ -880,7 +880,7 @@ impl Katana {
     /// Sets the root URL for the Cartridge API.
     ///
     /// **Deprecated**: Use `cartridge_api()` instead.
-    #[deprecated(since = "0.1.0", note = "Use `cartridge_api()` instead")]
+    #[deprecated(note = "Use `cartridge_api()` instead")]
     pub fn cartridge_api_url<T: Into<String>>(mut self, url: T) -> Self {
         self.cartridge_api_url = Some(url.into());
         self
