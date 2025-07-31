@@ -107,6 +107,7 @@ pub fn test_config() -> Config {
 
     let rpc = RpcConfig {
         port: 0,
+        explorer: true,
         addr: DEFAULT_RPC_ADDR,
         apis: RpcModulesList::all(),
         max_proof_keys: Some(100),
