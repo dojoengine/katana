@@ -1,7 +1,6 @@
 //! Types for list endpoints (blocks and transactions)
 
 use core::fmt;
-use std::num::ParseIntError;
 
 use katana_primitives::block::BlockNumber;
 use katana_primitives::transaction::TxNumber;
@@ -26,16 +25,15 @@ pub struct ContinuationToken {
 }
 
 #[derive(PartialEq, Eq, Debug, thiserror::Error)]
-pub enum ContinuationTokenError {
-    #[error("Invalid data")]
-    InvalidToken,
-    #[error("Invalid format: {0}")]
-    ParseFailed(ParseIntError),
+#[error("invalid token `{token}`: {error}")]
+pub struct ContinuationTokenError {
+    error: std::num::ParseIntError,
+    token: String,
 }
 
 impl ContinuationToken {
     pub fn parse(token: &str) -> Result<Self, ContinuationTokenError> {
-        token.parse()
+        str::parse(token)
     }
 }
 
@@ -43,8 +41,9 @@ impl std::str::FromStr for ContinuationToken {
     type Err = ContinuationTokenError;
 
     fn from_str(s: &str) -> Result<Self, Self::Err> {
-        let item_n = u64::from_str_radix(s, 16).map_err(ContinuationTokenError::ParseFailed)?;
-        Ok(ContinuationToken { item_n })
+        u64::from_str_radix(s, 16)
+            .map(|item_n| ContinuationToken { item_n })
+            .map_err(|error| ContinuationTokenError { error, token: s.to_string() })
     }
 }
 
@@ -114,29 +113,21 @@ pub struct GetTransactionsResponse {
 mod test {
     use super::*;
 
-    #[test]
-    fn list_continuation_token_parse_works() {
-        assert_eq!(ContinuationToken::parse("0").unwrap(), ContinuationToken { item_n: 0 });
-        assert_eq!(ContinuationToken::parse("1e").unwrap(), ContinuationToken { item_n: 30 });
+    #[rstest::rstest]
+    #[case("0", 0)]
+    #[case("1e", 30)]
+    #[case("ff", 255)]
+    fn list_continuation_token_parse_works(#[case] input: &str, #[case] expected: u64) {
+        let input = ContinuationToken::parse(input).unwrap();
+        let expected = ContinuationToken { item_n: expected };
+        assert_eq!(input, expected);
     }
 
-    #[test]
-    fn list_continuation_token_parse_should_fail() {
-        assert_eq!(
-            ContinuationToken::parse("0,").unwrap_err(),
-            ContinuationTokenError::InvalidToken
-        );
-        assert_eq!(
-            ContinuationToken::parse("0,0,0").unwrap_err(),
-            ContinuationTokenError::InvalidToken
-        );
-    }
-
-    #[test]
-    fn list_continuation_token_parse_u64_should_fail() {
-        matches!(
-            ContinuationToken::parse("2y").unwrap_err(),
-            ContinuationTokenError::ParseFailed(_)
-        );
+    #[rstest::rstest]
+    #[case::trailing_comma("0,")]
+    #[case::multiple_commas("0,0,0")]
+    #[case::invalid_hex_char("2y")]
+    fn list_continuation_token_parse_should_fail(#[case] input: &str) {
+        assert!(ContinuationToken::parse(input).is_err());
     }
 }
