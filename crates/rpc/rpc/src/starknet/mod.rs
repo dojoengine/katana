@@ -1262,15 +1262,19 @@ impl<EF: ExecutorFactory> StarknetApi<EF> {
             };
 
             let chunk_size = request.result_page_request.chunk_size;
-            let mut range_end =
-                if let Some(to) = request.to { to } else { provider.latest_number()? };
+            let total_blocks = provider.latest_number()?;
+
+            let abs_range_end =
+                if let Some(to) = request.to { to.min(total_blocks) } else { total_blocks };
+            let mut req_range_end = abs_range_end;
 
             // Apply chunk size limit
             if chunk_size > 0 {
-                range_end = start_from.saturating_add(chunk_size.saturating_sub(1)).min(range_end);
+                req_range_end =
+                    start_from.saturating_add(chunk_size.saturating_sub(1)).min(abs_range_end);
             }
 
-            let blocks = provider.blocks_in_range(start_from..=range_end)?;
+            let blocks = provider.blocks_in_range(start_from..=req_range_end)?;
 
             // Convert to RPC format
             let mut rpc_blocks = Vec::new();
@@ -1284,9 +1288,8 @@ impl<EF: ExecutorFactory> StarknetApi<EF> {
             }
 
             // Generate continuation token if there are more blocks
-            let continuation_token = if range_end < request.to.unwrap_or(provider.latest_number()?)
-            {
-                Some(ListContinuationToken { item_n: range_end + 1 }.to_string())
+            let continuation_token = if req_range_end < abs_range_end {
+                Some(ListContinuationToken { item_n: req_range_end + 1 }.to_string())
             } else {
                 None
             };
@@ -1316,18 +1319,19 @@ impl<EF: ExecutorFactory> StarknetApi<EF> {
             };
 
             let chunk_size = request.result_page_request.chunk_size;
-            let mut range_end = if let Some(to) = request.to {
-                to
-            } else {
-                provider.total_transactions()? as TxNumber - 1
-            };
+            let total_txs = (provider.total_transactions()? as TxNumber).saturating_sub(1);
+
+            let abs_range_end =
+                if let Some(to) = request.to { to.min(total_txs) } else { total_txs };
+            let mut req_range_end = abs_range_end;
 
             // Apply chunk size limit
             if chunk_size > 0 {
-                range_end = start_from.saturating_add(chunk_size.saturating_sub(1)).min(range_end);
+                req_range_end =
+                    start_from.saturating_add(chunk_size.saturating_sub(1)).min(abs_range_end);
             }
 
-            let range: Range<TxNumber> = start_from..range_end.saturating_add(1);
+            let range: Range<TxNumber> = start_from..req_range_end.saturating_add(1);
 
             // Get transactions from provider
             let transactions = provider.transaction_in_range(range)?;
@@ -1336,10 +1340,8 @@ impl<EF: ExecutorFactory> StarknetApi<EF> {
             let rpc_transactions: Vec<Tx> = transactions.into_iter().map(|tx| tx.into()).collect();
 
             // Generate continuation token if there are more transactions
-            let continuation_token = if range_end
-                < request.to.unwrap_or(provider.total_transactions()? as TxNumber - 1)
-            {
-                Some(ListContinuationToken { item_n: range_end + 1 }.to_string())
+            let continuation_token = if req_range_end < abs_range_end {
+                Some(ListContinuationToken { item_n: req_range_end + 1 }.to_string())
             } else {
                 None
             };
