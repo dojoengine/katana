@@ -44,6 +44,7 @@ use katana_rpc::{RpcServer, RpcServerHandle};
 use katana_rpc_api::cartridge::CartridgeApiServer;
 use katana_rpc_api::dev::DevApiServer;
 use katana_rpc_api::starknet::{StarknetApiServer, StarknetTraceApiServer, StarknetWriteApiServer};
+#[cfg(feature = "cartridge")]
 use katana_rpc_api::starknet_ext::StarknetApiExtServer;
 use katana_stage::Sequencing;
 use katana_tasks::TaskManager;
@@ -261,6 +262,7 @@ impl Node {
                 StarknetApi::new(backend.clone(), pool.clone(), Some(block_producer.clone()), cfg)
             };
 
+            #[cfg(feature = "explorer")]
             if config.rpc.explorer {
                 rpc_modules.merge(StarknetApiExtServer::into_rpc(api.clone()))?;
             }
