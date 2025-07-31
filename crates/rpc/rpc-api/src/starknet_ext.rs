@@ -16,20 +16,10 @@ use katana_rpc_types::list::{
 #[cfg_attr(feature = "client", rpc(client, server, namespace = "starknet"))]
 pub trait StarknetApiExt {
     /// Returns a list of blocks within the specified range.
-    ///
-    /// This endpoint accepts a range of block numbers and returns blocks
-    /// within that range. Set `descending: true` to get results in
-    /// descending order (newest first). Use `limit` to control the
-    /// maximum number of blocks returned.
     #[method(name = "getBlocks")]
     async fn get_blocks(&self, request: GetBlocksRequest) -> RpcResult<GetBlocksResponse>;
 
     /// Returns a list of transactions within the specified range.
-    ///
-    /// This endpoint accepts a range of transaction numbers and returns
-    /// transactions within that range. Set `descending: true` to get
-    /// results in descending order (newest first). Use `limit` to control
-    /// the maximum number of transactions returned.
     #[method(name = "getTransactions")]
     async fn get_transactions(
         &self,
