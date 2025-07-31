@@ -20,7 +20,7 @@ use katana_rpc_types::message::MsgFromL1;
 use katana_rpc_types::receipt::TxReceiptWithBlockInfo;
 use katana_rpc_types::state_update::MaybePendingStateUpdate;
 use katana_rpc_types::transaction::Tx;
-use katana_rpc_types::trie::{ContractStorageKeys, GetStorageProofResponse};
+use katana_rpc_types::trie::{ContractStorageKeys, GetStorageProofResult};
 use katana_rpc_types::{
     EstimateFeeSimulationFlag, FeeEstimate, FunctionCall, SimulationFlag, SyncingStatus,
 };
@@ -188,7 +188,7 @@ pub trait StarknetApi {
         class_hashes: Option<Vec<ClassHash>>,
         contract_addresses: Option<Vec<ContractAddress>>,
         contracts_storage_keys: Option<Vec<ContractStorageKeys>>,
-    ) -> RpcResult<GetStorageProofResponse>;
+    ) -> RpcResult<GetStorageProofResult>;
 }
 
 /// Write API.

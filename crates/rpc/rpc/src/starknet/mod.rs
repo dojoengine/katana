@@ -38,7 +38,7 @@ use katana_rpc_types::state_update::MaybePendingStateUpdate;
 use katana_rpc_types::transaction::Tx;
 use katana_rpc_types::trie::{
     ClassesProof, ContractLeafData, ContractStorageKeys, ContractStorageProofs, ContractsProof,
-    GetStorageProofResponse, GlobalRoots, Nodes,
+    GetStorageProofResult, GlobalRoots, Nodes,
 };
 use katana_rpc_types::FeeEstimate;
 use katana_rpc_types_builder::ReceiptBuilder;
@@ -1155,7 +1155,7 @@ where
         class_hashes: Option<Vec<ClassHash>>,
         contract_addresses: Option<Vec<ContractAddress>>,
         contracts_storage_keys: Option<Vec<ContractStorageKeys>>,
-    ) -> StarknetApiResult<GetStorageProofResponse> {
+    ) -> StarknetApiResult<GetStorageProofResult> {
         self.on_io_blocking_task(move |this| {
             let provider = this.inner.backend.blockchain.provider();
 
@@ -1227,7 +1227,7 @@ where
             let contracts_tree_root = state.contracts_root()?;
             let global_roots = GlobalRoots { block_hash, classes_tree_root, contracts_tree_root };
 
-            Ok(GetStorageProofResponse {
+            Ok(GetStorageProofResult {
                 global_roots,
                 classes_proof,
                 contracts_proof,

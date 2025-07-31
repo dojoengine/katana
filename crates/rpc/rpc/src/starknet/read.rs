@@ -27,7 +27,7 @@ use katana_rpc_types::message::MsgFromL1;
 use katana_rpc_types::receipt::TxReceiptWithBlockInfo;
 use katana_rpc_types::state_update::MaybePendingStateUpdate;
 use katana_rpc_types::transaction::Tx;
-use katana_rpc_types::trie::{ContractStorageKeys, GetStorageProofResponse};
+use katana_rpc_types::trie::{ContractStorageKeys, GetStorageProofResult};
 use katana_rpc_types::{EstimateFeeSimulationFlag, FeeEstimate, FunctionCall};
 use starknet::core::types::TransactionStatus;
 
@@ -364,7 +364,7 @@ impl<EF: ExecutorFactory> StarknetApiServer for StarknetApi<EF> {
         class_hashes: Option<Vec<ClassHash>>,
         contract_addresses: Option<Vec<ContractAddress>>,
         contracts_storage_keys: Option<Vec<ContractStorageKeys>>,
-    ) -> RpcResult<GetStorageProofResponse> {
+    ) -> RpcResult<GetStorageProofResult> {
         let proofs = self
             .get_proofs(block_id, class_hashes, contract_addresses, contracts_storage_keys)
             .await?;
