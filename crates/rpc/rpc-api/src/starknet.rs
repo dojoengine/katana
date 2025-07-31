@@ -22,7 +22,7 @@ use katana_rpc_types::state_update::MaybePendingStateUpdate;
 use katana_rpc_types::transaction::Tx;
 use katana_rpc_types::trie::{ContractStorageKeys, GetStorageProofResponse};
 use katana_rpc_types::{
-    EstimateFeeSimulationFlag, FeeEstimate, FeltAsHex, FunctionCall, SimulationFlag, SyncingStatus,
+    EstimateFeeSimulationFlag, FeeEstimate, FunctionCall, SimulationFlag, SyncingStatus,
 };
 use starknet::core::types::{
     SimulatedTransaction, TransactionStatus, TransactionTrace, TransactionTraceWithHash,
@@ -73,7 +73,7 @@ pub trait StarknetApi {
         contract_address: Felt,
         key: Felt,
         block_id: BlockIdOrTag,
-    ) -> RpcResult<FeltAsHex>;
+    ) -> RpcResult<Felt>;
 
     /// Gets the transaction status (possibly reflecting that the tx is still in the mempool, or
     /// dropped from it).
@@ -117,7 +117,7 @@ pub trait StarknetApi {
         &self,
         block_id: BlockIdOrTag,
         contract_address: Felt,
-    ) -> RpcResult<FeltAsHex>;
+    ) -> RpcResult<Felt>;
 
     /// Get the contract class definition in the given block at the given address.
     #[method(name = "getClassAt")]
@@ -133,11 +133,7 @@ pub trait StarknetApi {
 
     /// Call a starknet function without creating a StarkNet transaction.
     #[method(name = "call")]
-    async fn call(
-        &self,
-        request: FunctionCall,
-        block_id: BlockIdOrTag,
-    ) -> RpcResult<Vec<FeltAsHex>>;
+    async fn call(&self, request: FunctionCall, block_id: BlockIdOrTag) -> RpcResult<Vec<Felt>>;
 
     /// Estimate the fee for of StarkNet transactions.
     #[method(name = "estimateFee")]
@@ -166,7 +162,7 @@ pub trait StarknetApi {
 
     /// Return the currently configured StarkNet chain id.
     #[method(name = "chainId")]
-    async fn chain_id(&self) -> RpcResult<FeltAsHex>;
+    async fn chain_id(&self) -> RpcResult<Felt>;
 
     /// Returns an object about the sync status, or false if the node is not synching.
     #[method(name = "syncing")]
@@ -180,11 +176,7 @@ pub trait StarknetApi {
 
     /// Get the nonce associated with the given address in the given block.
     #[method(name = "getNonce")]
-    async fn get_nonce(
-        &self,
-        block_id: BlockIdOrTag,
-        contract_address: Felt,
-    ) -> RpcResult<FeltAsHex>;
+    async fn get_nonce(&self, block_id: BlockIdOrTag, contract_address: Felt) -> RpcResult<Felt>;
 
     /// Get merkle paths in one of the state tries: global state, classes, individual contract. A
     /// single request can query for any mix of the three types of storage proofs (classes,

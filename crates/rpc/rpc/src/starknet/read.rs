@@ -28,7 +28,7 @@ use katana_rpc_types::receipt::TxReceiptWithBlockInfo;
 use katana_rpc_types::state_update::MaybePendingStateUpdate;
 use katana_rpc_types::transaction::Tx;
 use katana_rpc_types::trie::{ContractStorageKeys, GetStorageProofResponse};
-use katana_rpc_types::{EstimateFeeSimulationFlag, FeeEstimate, FeltAsHex, FunctionCall};
+use katana_rpc_types::{EstimateFeeSimulationFlag, FeeEstimate, FunctionCall};
 use starknet::core::types::TransactionStatus;
 
 use super::StarknetApi;
@@ -37,16 +37,12 @@ use crate::cartridge;
 
 #[async_trait]
 impl<EF: ExecutorFactory> StarknetApiServer for StarknetApi<EF> {
-    async fn chain_id(&self) -> RpcResult<FeltAsHex> {
-        Ok(self.inner.backend.chain_spec.id().id().into())
+    async fn chain_id(&self) -> RpcResult<Felt> {
+        Ok(self.inner.backend.chain_spec.id().id())
     }
 
-    async fn get_nonce(
-        &self,
-        block_id: BlockIdOrTag,
-        contract_address: Felt,
-    ) -> RpcResult<FeltAsHex> {
-        Ok(self.nonce_at(block_id, contract_address.into()).await?.into())
+    async fn get_nonce(&self, block_id: BlockIdOrTag, contract_address: Felt) -> RpcResult<Felt> {
+        Ok(self.nonce_at(block_id, contract_address.into()).await?)
     }
 
     async fn block_number(&self) -> RpcResult<u64> {
@@ -117,8 +113,8 @@ impl<EF: ExecutorFactory> StarknetApiServer for StarknetApi<EF> {
         &self,
         block_id: BlockIdOrTag,
         contract_address: Felt,
-    ) -> RpcResult<FeltAsHex> {
-        Ok(self.class_hash_at_address(block_id, contract_address.into()).await?.into())
+    ) -> RpcResult<Felt> {
+        Ok(self.class_hash_at_address(block_id, contract_address.into()).await?)
     }
 
     async fn get_class(
@@ -133,11 +129,7 @@ impl<EF: ExecutorFactory> StarknetApiServer for StarknetApi<EF> {
         Ok(self.events(filter).await?)
     }
 
-    async fn call(
-        &self,
-        request: FunctionCall,
-        block_id: BlockIdOrTag,
-    ) -> RpcResult<Vec<FeltAsHex>> {
+    async fn call(&self, request: FunctionCall, block_id: BlockIdOrTag) -> RpcResult<Vec<Felt>> {
         self.on_io_blocking_task(move |this| {
             let request = EntryPointCall {
                 calldata: request.calldata,
@@ -152,7 +144,7 @@ impl<EF: ExecutorFactory> StarknetApiServer for StarknetApi<EF> {
             let max_call_gas = this.inner.config.max_call_gas.unwrap_or(1_000_000_000);
 
             match super::blockifier::call(state, env, cfg_env, request, max_call_gas) {
-                Ok(retdata) => Ok(retdata.into_iter().map(|v| v.into()).collect()),
+                Ok(retdata) => Ok(retdata),
                 Err(err) => Err(ErrorObjectOwned::from(StarknetApiError::ContractError {
                     revert_error: err.to_string(),
                 })),
@@ -166,10 +158,10 @@ impl<EF: ExecutorFactory> StarknetApiServer for StarknetApi<EF> {
         contract_address: Felt,
         key: Felt,
         block_id: BlockIdOrTag,
-    ) -> RpcResult<FeltAsHex> {
+    ) -> RpcResult<Felt> {
         self.on_io_blocking_task(move |this| {
             let value = this.storage_at(contract_address.into(), key, block_id)?;
-            Ok(value.into())
+            Ok(value)
         })
         .await
     }
