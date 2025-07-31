@@ -298,6 +298,8 @@ impl Katana {
     }
 
     /// Sets the port which will be used when the `katana` instance is launched.
+    ///
+    /// Default: `5050`
     pub fn port<T: Into<u16>>(mut self, port: T) -> Self {
         self.http_port = Some(port.into());
         self
@@ -330,18 +332,24 @@ impl Katana {
     }
 
     /// Enables Prometheus metrics and sets the metrics server address.
+    ///
+    /// Default: `127.0.0.1`
     pub fn metrics_addr<T: Into<SocketAddr>>(mut self, addr: T) -> Self {
         self.metrics_addr = Some(addr.into());
         self
     }
 
     /// Enables Prometheus metrics and sets the metrics server port.
+    ///
+    /// Default: `9100`
     pub fn metrics_port<T: Into<u16>>(mut self, port: T) -> Self {
         self.metrics_port = Some(port.into());
         self
     }
 
     /// Sets the host IP address the server will listen on.
+    ///
+    /// Default: `127.0.0.1`
     pub fn http_addr<T: Into<SocketAddr>>(mut self, addr: T) -> Self {
         self.http_addr = Some(addr.into());
         self
@@ -354,18 +362,24 @@ impl Katana {
     }
 
     /// Sets the maximum gas for the `starknet_call` RPC method.
+    ///
+    /// Default: `1000000000`
     pub const fn rpc_max_call_gas(mut self, max_call_gas: u64) -> Self {
         self.rpc_max_call_gas = Some(max_call_gas);
         self
     }
 
     /// Sets the seed for randomness of accounts to be predeployed.
+    ///
+    /// Default: `0`
     pub const fn seed(mut self, seed: u64) -> Self {
         self.seed = Some(seed);
         self
     }
 
     /// Sets the number of pre-funded accounts to generate.
+    ///
+    /// Default: `10`
     pub fn accounts(mut self, accounts: u16) -> Self {
         self.accounts = Some(accounts);
         self
@@ -392,12 +406,16 @@ impl Katana {
     }
 
     /// Sets the maximum number of steps available for the account validation logic.
+    ///
+    /// Default: `1000000`
     pub const fn validate_max_steps(mut self, validate_max_steps: u64) -> Self {
         self.validate_max_steps = Some(validate_max_steps);
         self
     }
 
     /// Sets the maximum number of steps available for the account execution logic.
+    ///
+    /// Default: `10000000`
     pub const fn invoke_max_steps(mut self, invoke_max_steps: u64) -> Self {
         self.invoke_max_steps = Some(invoke_max_steps);
         self
@@ -428,6 +446,8 @@ impl Katana {
     }
 
     /// Sets the log format to use.
+    ///
+    /// Default: `LogFormat::Full`
     pub const fn log_format(mut self, format: LogFormat) -> Self {
         self.log_format = Some(format);
         self
@@ -518,12 +538,16 @@ impl Katana {
     }
 
     /// Sets the maximum page size for event queries.
+    ///
+    /// Default: `1024`
     pub const fn rpc_max_event_page_size(mut self, size: u64) -> Self {
         self.rpc_max_event_page_size = Some(size);
         self
     }
 
     /// Sets the maximum keys for requesting storage proofs.
+    ///
+    /// Default: `100`
     pub const fn rpc_max_proof_keys(mut self, keys: u64) -> Self {
         self.rpc_max_proof_keys = Some(keys);
         self
@@ -584,6 +608,8 @@ impl Katana {
     }
 
     /// Sets the root URL for the Cartridge API.
+    ///
+    /// Default: `https://api.cartridge.gg`
     pub fn cartridge_api<T: Into<String>>(mut self, api: T) -> Self {
         self.cartridge_api = Some(api.into());
         self
