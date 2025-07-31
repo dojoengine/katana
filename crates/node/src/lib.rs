@@ -44,7 +44,7 @@ use katana_rpc::{RpcServer, RpcServerHandle};
 use katana_rpc_api::cartridge::CartridgeApiServer;
 use katana_rpc_api::dev::DevApiServer;
 use katana_rpc_api::starknet::{StarknetApiServer, StarknetTraceApiServer, StarknetWriteApiServer};
-#[cfg(feature = "cartridge")]
+#[cfg(feature = "explorer")]
 use katana_rpc_api::starknet_ext::StarknetApiExtServer;
 use katana_stage::Sequencing;
 use katana_tasks::TaskManager;
