@@ -10,20 +10,46 @@ fn main() {
         let ui_dir = Path::new(&std::env::var("CARGO_MANIFEST_DIR").unwrap()).join("ui");
         println!("Explorer UI directory: {}", ui_dir.display());
 
-        // Update git submodule
-        println!("UI directory is empty, updating git submodule...");
-        let status = Command::new("git")
-            .arg("submodule")
-            .arg("update")
-            .arg("--init")
-            .arg("--recursive")
-            .arg("--force")
-            .arg("ui")
-            .status()
-            .expect("Failed to update git submodule");
+        // Check if ui/ doesn't exist or is empty. This determines whether we need to initialize the
+        // git submodule.
+        //
+        // The condition is true if:
+        // 1. The ui directory doesn't exist at all, OR
+        // 2. The ui directory exists but is empty (no entries when reading the directory)
+        let should_update_submodule = !ui_dir.exists()
+            || (ui_dir.exists()
+                && ui_dir.read_dir().map(|mut d| d.next().is_none()).unwrap_or(true));
 
-        if !status.success() {
-            panic!("Failed to update git submodule");
+        if should_update_submodule {
+            // Check if we're in a git repository
+            let git_check = Command::new("git").arg("rev-parse").arg("--git-dir").output();
+            if git_check.is_ok() && git_check.unwrap().status.success() {
+                // Update git submodule
+                println!("UI directory is empty, updating git submodule...");
+
+                let status = Command::new("git")
+                    .arg("submodule")
+                    .arg("update")
+                    .arg("--init")
+                    .arg("--recursive")
+                    .arg("--force")
+                    .arg("ui")
+                    .status()
+                    .expect("Failed to update git submodule");
+
+                if !status.success() {
+                    panic!(
+                        "Failed to update git submodule for UI directory at {}",
+                        ui_dir.display()
+                    );
+                }
+            } else {
+                panic!(
+                    "UI directory doesn't exist at {} and couldn't fetch it through git submodule \
+                     (not in a git repository)",
+                    ui_dir.display()
+                );
+            }
         }
 
         let bun_check = Command::new("bun").arg("--version").output();
@@ -43,7 +69,7 @@ fn main() {
             .expect("Failed to install UI dependencies");
 
         if !status.success() {
-            panic!("Failed to install UI dependencies");
+            panic!("Failed to install UI dependencies in {}", ui_dir.display());
         }
 
         println!("Building UI...");
@@ -56,7 +82,7 @@ fn main() {
             .expect("Failed to build UI");
 
         if !status.success() {
-            panic!("Failed to build UI");
+            panic!("Failed to build UI in {}", ui_dir.display());
         }
     }
 }
