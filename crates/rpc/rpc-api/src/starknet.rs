@@ -22,8 +22,7 @@ use katana_rpc_types::state_update::MaybePendingStateUpdate;
 use katana_rpc_types::transaction::Tx;
 use katana_rpc_types::trie::{ContractStorageKeys, GetStorageProofResponse};
 use katana_rpc_types::{
-    FeeEstimate, FeltAsHex, FunctionCall, SimulationFlag, SimulationFlagForEstimateFee,
-    SyncingStatus,
+    EstimateFeeSimulationFlag, FeeEstimate, FeltAsHex, FunctionCall, SimulationFlag, SyncingStatus,
 };
 use starknet::core::types::{
     SimulatedTransaction, TransactionStatus, TransactionTrace, TransactionTraceWithHash,
@@ -145,7 +144,7 @@ pub trait StarknetApi {
     async fn estimate_fee(
         &self,
         request: Vec<BroadcastedTx>,
-        simulation_flags: Vec<SimulationFlagForEstimateFee>,
+        simulation_flags: Vec<EstimateFeeSimulationFlag>,
         block_id: BlockIdOrTag,
     ) -> RpcResult<Vec<FeeEstimate>>;
 

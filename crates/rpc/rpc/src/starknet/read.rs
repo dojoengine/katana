@@ -28,7 +28,7 @@ use katana_rpc_types::receipt::TxReceiptWithBlockInfo;
 use katana_rpc_types::state_update::MaybePendingStateUpdate;
 use katana_rpc_types::transaction::Tx;
 use katana_rpc_types::trie::{ContractStorageKeys, GetStorageProofResponse};
-use katana_rpc_types::{FeeEstimate, FeltAsHex, FunctionCall, SimulationFlagForEstimateFee};
+use katana_rpc_types::{EstimateFeeSimulationFlag, FeeEstimate, FeltAsHex, FunctionCall};
 use starknet::core::types::TransactionStatus;
 
 use super::StarknetApi;
@@ -177,7 +177,7 @@ impl<EF: ExecutorFactory> StarknetApiServer for StarknetApi<EF> {
     async fn estimate_fee(
         &self,
         request: Vec<BroadcastedTx>,
-        simulation_flags: Vec<SimulationFlagForEstimateFee>,
+        simulation_flags: Vec<EstimateFeeSimulationFlag>,
         block_id: BlockIdOrTag,
     ) -> RpcResult<Vec<FeeEstimate>> {
         let chain_id = self.inner.backend.chain_spec.id();
@@ -212,7 +212,7 @@ impl<EF: ExecutorFactory> StarknetApiServer for StarknetApi<EF> {
             })
             .collect::<Result<Vec<_>, _>>()?;
 
-        let skip_validate = simulation_flags.contains(&SimulationFlagForEstimateFee::SkipValidate);
+        let skip_validate = simulation_flags.contains(&EstimateFeeSimulationFlag::SkipValidate);
 
         // If the node is run with transaction validation disabled, then we should not validate
         // transactions when estimating the fee even if the `SKIP_VALIDATE` flag is not set.

@@ -53,20 +53,31 @@ pub type FunctionCall = starknet::core::types::FunctionCall;
 
 pub type FeeEstimate = starknet::core::types::FeeEstimate;
 
-// pub type ContractClass = starknet::core::types::ContractClass;
+/// Simulation flags for `starknet_estimateFee` RPC method.
+#[derive(Debug, Clone, Copy, Serialize, Deserialize, PartialEq, Eq)]
+pub enum EstimateFeeSimulationFlag {
+    #[serde(rename = "SKIP_VALIDATE")]
+    SkipValidate,
+}
 
-pub type SimulationFlagForEstimateFee = starknet::core::types::SimulationFlagForEstimateFee;
-
-pub type SimulationFlag = starknet::core::types::SimulationFlag;
+/// Simulation flags for `starknet_simulationTransactions` RPC method.
+#[derive(Debug, Clone, Copy, Serialize, Deserialize, PartialEq, Eq)]
+pub enum SimulationFlag {
+    #[serde(rename = "SKIP_VALIDATE")]
+    SkipValidate,
+    #[serde(rename = "SKIP_FEE_CHARGE")]
+    SkipFeeCharge,
+}
 
 pub type SyncingStatus = starknet::core::types::SyncStatusType;
 
 #[cfg(test)]
 mod tests {
-    use serde_json::json;
+    use rstest::rstest;
+    use serde_json::{json, Value};
     use starknet::macros::felt;
 
-    use super::FeltAsHex;
+    use super::{EstimateFeeSimulationFlag, FeltAsHex, SimulationFlag};
 
     #[test]
     fn serde_felt() {
@@ -80,5 +91,52 @@ mod tests {
 
         let actual_ser_value = serde_json::to_value(expected_value).unwrap();
         assert_eq!(value_as_hex, actual_ser_value, "should serialize to hex");
+    }
+
+    #[rstest]
+    #[case(EstimateFeeSimulationFlag::SkipValidate, json!("SKIP_VALIDATE"))]
+    fn estimate_fee_simulation_flags_serde(
+        #[case] flag: EstimateFeeSimulationFlag,
+        #[case] json: Value,
+    ) {
+        let serialized = serde_json::to_value(&flag).unwrap();
+        assert_eq!(serialized, json);
+        let deserialized: EstimateFeeSimulationFlag = serde_json::from_value(json).unwrap();
+        assert_eq!(deserialized, flag);
+    }
+
+    #[rstest]
+    #[case(json!("INVALID_FLAG"))]
+    #[case(json!("skip_validate"))]
+    #[case(json!(""))]
+    #[case(json!(123))]
+    #[case(json!(null))]
+    #[case(json!(true))]
+    fn invalid_estimate_fee_simulation_flags(#[case] invalid: Value) {
+        let result = serde_json::from_value::<EstimateFeeSimulationFlag>(invalid.clone());
+        assert!(result.is_err(), "expected error for invalid value: {invalid}");
+    }
+
+    #[rstest]
+    #[case(SimulationFlag::SkipValidate, json!("SKIP_VALIDATE"))]
+    #[case(SimulationFlag::SkipFeeCharge, json!("SKIP_FEE_CHARGE"))]
+    fn simulation_flags_serde(#[case] flag: SimulationFlag, #[case] json: Value) {
+        let serialized = serde_json::to_value(&flag).unwrap();
+        assert_eq!(serialized, json);
+        let deserialized: SimulationFlag = serde_json::from_value(json).unwrap();
+        assert_eq!(deserialized, flag);
+    }
+
+    #[rstest]
+    #[case(json!("INVALID_FLAG"))]
+    #[case(json!("skip_validate"))]
+    #[case(json!("skip_fee_charge"))]
+    #[case(json!(""))]
+    #[case(json!(123))]
+    #[case(json!(null))]
+    #[case(json!(false))]
+    fn invalid_simulation_flags(#[case] invalid: Value) {
+        let result = serde_json::from_value::<SimulationFlag>(invalid.clone());
+        assert!(result.is_err(), "expected error for invalid value: {invalid}");
     }
 }
