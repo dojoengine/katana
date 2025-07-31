@@ -220,7 +220,7 @@ impl<Db: Database> BlockProvider for DbProvider<Db> {
     fn blocks_in_range(&self, range: RangeInclusive<u64>) -> ProviderResult<Vec<Block>> {
         let db_tx = self.0.tx()?;
 
-        let total = range.end() - range.start() + 1;
+        let total = range.end().saturating_sub(*range.start()) + 1;
         let mut blocks = Vec::with_capacity(total as usize);
 
         for num in range {
@@ -445,7 +445,7 @@ impl<Db: Database> TransactionProvider for DbProvider<Db> {
     fn transaction_in_range(&self, range: Range<TxNumber>) -> ProviderResult<Vec<TxWithHash>> {
         let db_tx = self.0.tx()?;
 
-        let total = range.end - range.start;
+        let total = range.end.saturating_sub(range.start);
         let mut transactions = Vec::with_capacity(total as usize);
 
         for i in range {

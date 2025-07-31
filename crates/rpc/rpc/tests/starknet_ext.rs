@@ -333,10 +333,10 @@ async fn get_transactions_no_to_parameter() {
 
     let response = client.get_transactions(request).await.unwrap();
 
-    // Should return transactions from 1 to latest
-    assert!(response.transactions.len() >= 3);
+    // Should return transactions from 1 to latest (3)
+    assert_eq!(response.transactions.len(), 2);
 
-    for (expected_hash, actual_tx) in tx_hashes.iter().zip(response.transactions.iter()) {
+    for (expected_hash, actual_tx) in tx_hashes.iter().skip(1).zip(response.transactions.iter()) {
         assert_eq!(expected_hash, actual_tx.0.transaction_hash());
     }
 }
@@ -382,7 +382,7 @@ async fn empty_range_requests() {
 
     let blocks_response = client.get_blocks(blocks_request).await.unwrap();
     assert_eq!(blocks_response.blocks.len(), 0);
-    assert!(blocks_response.continuation_token.is_none());
+    assert!(blocks_response.continuation_token).is_none();
 
     // Test empty transactions range
     let txs_request = GetTransactionsRequest {
