@@ -223,10 +223,8 @@ async fn get_transactions_with_chunk_size() {
     let mut tx_hashes = Vec::new();
     for _ in 0..5 {
         let result = erc20.transfer(&recipient, &amount).send().await.unwrap();
-        let tx_hash = result.transaction_hash;
-        tx_hashes.push(tx_hash);
-
-        katana_utils::TxWaiter::new(tx_hash, &account.provider()).await.unwrap();
+        tx_hashes.push(result.transaction_hash);
+        katana_utils::TxWaiter::new(result.transaction_hash, &account.provider()).await.unwrap();
     }
 
     // Request with chunk size limit
@@ -237,14 +235,13 @@ async fn get_transactions_with_chunk_size() {
     };
 
     let response = client.get_transactions(request).await.unwrap();
-    let txs = response.transactions;
 
     // Should return only first 3 transactions due to chunk size limit
-    assert_eq!(txs.len(), 3);
+    assert_eq!(response.transactions.len(), 3);
     // Should have continuation token since more transactions are available
     assert!(response.continuation_token.is_some());
 
-    for (expected_hash, actual_tx) in tx_hashes.iter().zip(txs.iter()) {
+    for (expected_hash, actual_tx) in tx_hashes.iter().take(3).zip(response.transactions.iter()) {
         assert_eq!(expected_hash, actual_tx.0.transaction_hash());
     }
 }
@@ -262,8 +259,10 @@ async fn get_transactions_pagination() {
     let amount = Uint256 { low: Felt::ONE, high: Felt::ZERO };
 
     // Generate transactions
+    let mut tx_hashes = Vec::new();
     for _ in 0..5 {
         let result = erc20.transfer(&recipient, &amount).send().await.unwrap();
+        tx_hashes.push(result.transaction_hash);
         katana_utils::TxWaiter::new(result.transaction_hash, &account.provider()).await.unwrap();
     }
 
@@ -278,6 +277,12 @@ async fn get_transactions_pagination() {
     assert_eq!(first_response.transactions.len(), 2);
     assert!(first_response.continuation_token.is_some());
 
+    for (expected_hash, actual_tx) in
+        tx_hashes.iter().take(2).zip(first_response.transactions.iter())
+    {
+        assert_eq!(expected_hash, actual_tx.0.transaction_hash());
+    }
+
     // Second page using continuation token
     let request = GetTransactionsRequest {
         from: 0,
@@ -291,6 +296,12 @@ async fn get_transactions_pagination() {
     let second_response = client.get_transactions(request).await.unwrap();
     assert_eq!(second_response.transactions.len(), 2);
     assert!(second_response.continuation_token.is_some());
+
+    for (expected_hash, actual_tx) in
+        tx_hashes.iter().skip(2).zip(second_response.transactions.iter())
+    {
+        assert_eq!(expected_hash, actual_tx.0.transaction_hash());
+    }
 }
 
 #[tokio::test]
@@ -306,8 +317,10 @@ async fn get_transactions_no_to_parameter() {
     let amount = Uint256 { low: Felt::ONE, high: Felt::ZERO };
 
     // Generate some transactions
+    let mut tx_hashes = Vec::new();
     for _ in 0..3 {
         let result = erc20.transfer(&recipient, &amount).send().await.unwrap();
+        tx_hashes.push(result.transaction_hash);
         katana_utils::TxWaiter::new(result.transaction_hash, &account.provider()).await.unwrap();
     }
 
@@ -322,6 +335,10 @@ async fn get_transactions_no_to_parameter() {
 
     // Should return transactions from 1 to latest
     assert!(response.transactions.len() >= 3);
+
+    for (expected_hash, actual_tx) in tx_hashes.iter().zip(response.transactions.iter()) {
+        assert_eq!(expected_hash, actual_tx.0.transaction_hash());
+    }
 }
 
 #[tokio::test]
