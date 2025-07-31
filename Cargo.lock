@@ -6638,6 +6638,7 @@ name = "katana-node-bindings"
 version = "1.6.3"
 dependencies = [
  "criterion",
+ "katana-tracing",
  "pprof",
  "regex",
  "serde",
