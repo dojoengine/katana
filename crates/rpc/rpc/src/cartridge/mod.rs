@@ -56,6 +56,7 @@ use katana_rpc_types::FunctionCall;
 use katana_tasks::{Result as TaskResult, TaskSpawner};
 use starknet::macros::selector;
 use starknet::signers::{LocalWallet, Signer, SigningKey};
+use starknet_crypto::pedersen_hash;
 use tracing::{debug, info};
 use url::Url;
 
@@ -104,7 +105,6 @@ impl<EF: ExecutorFactory> CartridgeApi<EF> {
 
         let api_client = cartridge::Client::new(api_url);
         let vrf_ctx = VrfContext::new(CARTRIDGE_VRF_DEFAULT_PRIVATE_KEY, *pm_address);
-
         // Info to ensure this is visible to the user without changing the default logging level.
         // The use can still use `rpc::cartridge` in debug to see the random value and the seed.
         info!(target: "rpc::cartridge", paymaster_address = %pm_address, vrf_address = %vrf_ctx.address(), "Cartridge API initialized.");
@@ -234,7 +234,7 @@ impl<EF: ExecutorFactory> CartridgeApi<EF> {
                 nonce += Nonce::ONE;
             }
 
-            let vrf_calls = futures::executor::block_on(handle_vrf_calls(&outside_execution, chain_id, &this.vrf_ctx))?;
+            let vrf_calls = futures::executor::block_on(handle_vrf_calls(&outside_execution, chain_id, &this.vrf_ctx, state))?;
 
             let calls = if vrf_calls.is_empty() {
                 vec![execute_from_outside_call]
@@ -426,6 +426,7 @@ async fn handle_vrf_calls(
     outside_execution: &OutsideExecution,
     chain_id: ChainId,
     vrf_ctx: &VrfContext,
+    state: Arc<Box<dyn StateProvider>>,
 ) -> anyhow::Result<Vec<FunctionCall>> {
     let calls = match outside_execution {
         OutsideExecution::V2(v2) => &v2.calls,
@@ -455,8 +456,8 @@ async fn handle_vrf_calls(
     let salt_or_nonce = first_call.calldata[2];
 
     let seed = if salt_or_nonce_selector == Felt::ZERO {
-        let contract_address = salt_or_nonce;
-        let nonce = vrf_ctx.consume_nonce(contract_address.into());
+        let key = pedersen_hash(&selector!("VrfProvider_nonces"), &salt_or_nonce);
+        let nonce = state.storage(vrf_ctx.address(), key).unwrap_or_default().unwrap_or_default();
         starknet_crypto::poseidon_hash_many(vec![&nonce, &caller, &chain_id.id()])
     } else if salt_or_nonce_selector == Felt::ONE {
         let salt = salt_or_nonce;
