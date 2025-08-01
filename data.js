@@ -1,5 +1,5 @@
 window.BENCHMARK_DATA = {
-  "lastUpdate": 1754066995985,
+  "lastUpdate": 1754073995597,
   "repoUrl": "https://github.com/dojoengine/katana",
   "entries": {
     "Benchmark": [
@@ -3353,6 +3353,72 @@ window.BENCHMARK_DATA = {
             "name": "Katana.Startup",
             "value": 127655531,
             "range": "± 544278",
+            "unit": "ns/iter"
+          }
+        ]
+      },
+      {
+        "commit": {
+          "author": {
+            "email": "evergreenkary@gmail.com",
+            "name": "Ammar Arif",
+            "username": "kariy"
+          },
+          "committer": {
+            "email": "noreply@github.com",
+            "name": "GitHub",
+            "username": "web-flow"
+          },
+          "distinct": true,
+          "id": "2a7eb155613586f10cdafdd6d083c7b5c1ad68a7",
+          "message": "chore(rpc-types): incremental removal of the `starknet-rs` crate dependency (#209)\n\nPart of an ongoing effort to remove the reliance on `starknet-rs` for providing the RPC types and define the types locally instead.",
+          "timestamp": "2025-08-02T02:36:56+08:00",
+          "tree_id": "c2133407ab85c81340700b08db3ce36949ca0246",
+          "url": "https://github.com/dojoengine/katana/commit/2a7eb155613586f10cdafdd6d083c7b5c1ad68a7"
+        },
+        "date": 1754073994326,
+        "tool": "cargo",
+        "benches": [
+          {
+            "name": "Commit.Small/Parallel",
+            "value": 457508,
+            "range": "± 7650",
+            "unit": "ns/iter"
+          },
+          {
+            "name": "Commit.Big/Serial",
+            "value": 94238475,
+            "range": "± 2416905",
+            "unit": "ns/iter"
+          },
+          {
+            "name": "Commit.Big/Parallel",
+            "value": 65030170,
+            "range": "± 1591021",
+            "unit": "ns/iter"
+          },
+          {
+            "name": "compress world contract",
+            "value": 2669309,
+            "range": "± 21838",
+            "unit": "ns/iter"
+          },
+          {
+            "name": "decompress world contract",
+            "value": 2996133,
+            "range": "± 11667",
+            "unit": "ns/iter"
+          },
+          {
+            "name": "Invoke.ERC20.transfer/Blockifier.Cold",
+            "value": 16305110,
+            "range": "± 217542",
+            "unit": "ns/iter"
+          },
+          {
+            "name": "Katana.Startup",
+            "value": 128777161,
+            "range": "± 1467129",
             "unit": "ns/iter"
           }
         ]
