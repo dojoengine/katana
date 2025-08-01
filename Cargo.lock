@@ -6811,12 +6811,22 @@ dependencies = [
  "katana-pool",
  "katana-primitives",
  "katana-provider",
+ "katana-rpc-api-macro",
  "katana-rpc-types",
  "rstest 0.18.2",
  "serde",
  "serde_json",
  "starknet 0.15.1",
  "thiserror 1.0.69",
+]
+
+[[package]]
+name = "katana-rpc-api-macro"
+version = "1.6.3"
+dependencies = [
+ "proc-macro2",
+ "quote",
+ "syn 2.0.98",
 ]
 
 [[package]]

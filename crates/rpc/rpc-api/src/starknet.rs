@@ -6,6 +6,7 @@ use katana_primitives::block::{BlockIdOrTag, BlockNumber};
 use katana_primitives::class::ClassHash;
 use katana_primitives::transaction::TxHash;
 use katana_primitives::{ContractAddress, Felt};
+use katana_rpc_api_macro::starknet_rpc;
 use katana_rpc_types::block::{
     BlockHashAndNumber, BlockTxCount, MaybePendingBlockWithReceipts, MaybePendingBlockWithTxHashes,
     MaybePendingBlockWithTxs,
@@ -29,19 +30,9 @@ use starknet::core::types::{
     SimulatedTransaction, TransactionStatus, TransactionTrace, TransactionTraceWithHash,
 };
 
-/// The currently supported version of the Starknet JSON-RPC specification.
-pub const RPC_SPEC_VERSION: &str = "0.8.1";
-
 /// Read API.
-#[cfg_attr(not(feature = "client"), rpc(server, namespace = "starknet"))]
-#[cfg_attr(feature = "client", rpc(client, server, namespace = "starknet"))]
+#[starknet_rpc(server, version = "0.9.0-rc.2", namespace = "starknet")]
 pub trait StarknetApi {
-    /// Returns the version of the Starknet JSON-RPC specification being used.
-    #[method(name = "specVersion")]
-    async fn spec_version(&self) -> RpcResult<String> {
-        Ok(RPC_SPEC_VERSION.into())
-    }
-
     /// Get block information with transaction hashes given the block id.
     #[method(name = "getBlockWithTxHashes")]
     async fn get_block_with_tx_hashes(
@@ -201,8 +192,7 @@ pub trait StarknetApi {
 }
 
 /// Write API.
-#[cfg_attr(not(feature = "client"), rpc(server, namespace = "starknet"))]
-#[cfg_attr(feature = "client", rpc(client, server, namespace = "starknet"))]
+#[starknet_rpc(server, client, namespace = "starknet")]
 pub trait StarknetWriteApi {
     /// Submit a new transaction to be added to the chain.
     #[method(name = "addInvokeTransaction")]
@@ -227,8 +217,7 @@ pub trait StarknetWriteApi {
 }
 
 /// Trace API.
-#[cfg_attr(not(feature = "client"), rpc(server, namespace = "starknet"))]
-#[cfg_attr(feature = "client", rpc(client, server, namespace = "starknet"))]
+#[starknet_rpc(server, client, version = "0.9.0-rc.2", namespace = "starknet")]
 pub trait StarknetTraceApi {
     /// Returns the execution trace of the transaction designated by the input hash.
     #[method(name = "traceTransaction")]
