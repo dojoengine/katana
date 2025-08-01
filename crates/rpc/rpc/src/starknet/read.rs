@@ -8,6 +8,7 @@ use jsonrpsee::types::ErrorObjectOwned;
 use katana_executor::{EntryPointCall, ExecutorFactory};
 use katana_primitives::block::BlockIdOrTag;
 use katana_primitives::class::ClassHash;
+use katana_primitives::contract::{Nonce, StorageKey, StorageValue};
 #[cfg(feature = "cartridge")]
 use katana_primitives::genesis::allocation::GenesisAccountAlloc;
 use katana_primitives::transaction::{ExecutableTx, ExecutableTxWithHash, TxHash};
@@ -41,15 +42,19 @@ impl<EF: ExecutorFactory> StarknetApiServer for StarknetApi<EF> {
         Ok(self.inner.backend.chain_spec.id().id())
     }
 
-    async fn get_nonce(&self, block_id: BlockIdOrTag, contract_address: Felt) -> RpcResult<Felt> {
-        Ok(self.nonce_at(block_id, contract_address.into()).await?)
+    async fn get_nonce(
+        &self,
+        block_id: BlockIdOrTag,
+        contract_address: ContractAddress,
+    ) -> RpcResult<Nonce> {
+        Ok(self.nonce_at(block_id, contract_address).await?)
     }
 
     async fn block_number(&self) -> RpcResult<u64> {
         Ok(self.latest_block_number().await?)
     }
 
-    async fn get_transaction_by_hash(&self, transaction_hash: Felt) -> RpcResult<Tx> {
+    async fn get_transaction_by_hash(&self, transaction_hash: TxHash) -> RpcResult<Tx> {
         Ok(self.transaction(transaction_hash).await?)
     }
 
@@ -60,9 +65,9 @@ impl<EF: ExecutorFactory> StarknetApiServer for StarknetApi<EF> {
     async fn get_class_at(
         &self,
         block_id: BlockIdOrTag,
-        contract_address: Felt,
+        contract_address: ContractAddress,
     ) -> RpcResult<RpcContractClass> {
-        Ok(self.class_at_address(block_id, contract_address.into()).await?)
+        Ok(self.class_at_address(block_id, contract_address).await?)
     }
 
     async fn block_hash_and_number(&self) -> RpcResult<BlockHashAndNumber> {
@@ -104,7 +109,7 @@ impl<EF: ExecutorFactory> StarknetApiServer for StarknetApi<EF> {
 
     async fn get_transaction_receipt(
         &self,
-        transaction_hash: Felt,
+        transaction_hash: TxHash,
     ) -> RpcResult<TxReceiptWithBlockInfo> {
         Ok(self.receipt(transaction_hash).await?)
     }
@@ -112,15 +117,15 @@ impl<EF: ExecutorFactory> StarknetApiServer for StarknetApi<EF> {
     async fn get_class_hash_at(
         &self,
         block_id: BlockIdOrTag,
-        contract_address: Felt,
+        contract_address: ContractAddress,
     ) -> RpcResult<Felt> {
-        Ok(self.class_hash_at_address(block_id, contract_address.into()).await?)
+        Ok(self.class_hash_at_address(block_id, contract_address).await?)
     }
 
     async fn get_class(
         &self,
         block_id: BlockIdOrTag,
-        class_hash: Felt,
+        class_hash: ClassHash,
     ) -> RpcResult<RpcContractClass> {
         Ok(self.class_at_hash(block_id, class_hash).await?)
     }
@@ -155,12 +160,12 @@ impl<EF: ExecutorFactory> StarknetApiServer for StarknetApi<EF> {
 
     async fn get_storage_at(
         &self,
-        contract_address: Felt,
-        key: Felt,
+        contract_address: ContractAddress,
+        key: StorageKey,
         block_id: BlockIdOrTag,
-    ) -> RpcResult<Felt> {
+    ) -> RpcResult<StorageValue> {
         self.on_io_blocking_task(move |this| {
-            let value = this.storage_at(contract_address.into(), key, block_id)?;
+            let value = this.storage_at(contract_address, key, block_id)?;
             Ok(value)
         })
         .await

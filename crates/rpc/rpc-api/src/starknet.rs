@@ -4,6 +4,7 @@ use jsonrpsee::core::RpcResult;
 use jsonrpsee::proc_macros::rpc;
 use katana_primitives::block::{BlockIdOrTag, BlockNumber};
 use katana_primitives::class::ClassHash;
+use katana_primitives::contract::{Nonce, StorageKey};
 use katana_primitives::transaction::TxHash;
 use katana_primitives::{ContractAddress, Felt};
 use katana_rpc_types::block::{
@@ -70,8 +71,8 @@ pub trait StarknetApi {
     #[method(name = "getStorageAt")]
     async fn get_storage_at(
         &self,
-        contract_address: Felt,
-        key: Felt,
+        contract_address: ContractAddress,
+        key: StorageKey,
         block_id: BlockIdOrTag,
     ) -> RpcResult<Felt>;
 
@@ -107,7 +108,7 @@ pub trait StarknetApi {
     async fn get_class(
         &self,
         block_id: BlockIdOrTag,
-        class_hash: Felt,
+        class_hash: ClassHash,
     ) -> RpcResult<RpcContractClass>;
 
     /// Get the contract class hash in the given block for the contract deployed at the given
@@ -116,7 +117,7 @@ pub trait StarknetApi {
     async fn get_class_hash_at(
         &self,
         block_id: BlockIdOrTag,
-        contract_address: Felt,
+        contract_address: ContractAddress,
     ) -> RpcResult<Felt>;
 
     /// Get the contract class definition in the given block at the given address.
@@ -124,7 +125,7 @@ pub trait StarknetApi {
     async fn get_class_at(
         &self,
         block_id: BlockIdOrTag,
-        contract_address: Felt,
+        contract_address: ContractAddress,
     ) -> RpcResult<RpcContractClass>;
 
     /// Get the number of transactions in a block given a block id.
@@ -176,7 +177,11 @@ pub trait StarknetApi {
 
     /// Get the nonce associated with the given address in the given block.
     #[method(name = "getNonce")]
-    async fn get_nonce(&self, block_id: BlockIdOrTag, contract_address: Felt) -> RpcResult<Felt>;
+    async fn get_nonce(
+        &self,
+        block_id: BlockIdOrTag,
+        contract_address: ContractAddress,
+    ) -> RpcResult<Nonce>;
 
     /// Get merkle paths in one of the state tries: global state, classes, individual contract. A
     /// single request can query for any mix of the three types of storage proofs (classes,
