@@ -10,7 +10,7 @@ use katana_primitives::da::L1DataAvailabilityMode;
 use katana_primitives::version::StarknetVersion;
 use katana_primitives::{ContractAddress, Felt};
 use katana_rpc_types::class::ConversionError;
-pub use katana_rpc_types::class::RpcSierraContractClass;
+pub use katana_rpc_types::class::SierraClass;
 use serde::Deserialize;
 use starknet::core::types::ResourcePrice;
 use starknet::providers::sequencer::models::BlockStatus;
@@ -26,7 +26,7 @@ pub use transaction::*;
 #[derive(Debug, PartialEq, Eq, Deserialize)]
 #[serde(untagged)]
 pub enum ContractClass {
-    Class(RpcSierraContractClass),
+    Class(SierraClass),
     Legacy(LegacyContractClass),
 }
 

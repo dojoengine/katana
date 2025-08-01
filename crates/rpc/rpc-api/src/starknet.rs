@@ -15,7 +15,7 @@ use katana_rpc_types::broadcasted::{
     AddDeclareTransactionResult, AddDeployAccountTransactionResult, AddInvokeTransactionResult,
     BroadcastedDeclareTx, BroadcastedDeployAccountTx, BroadcastedInvokeTx, BroadcastedTx,
 };
-use katana_rpc_types::class::RpcContractClass;
+use katana_rpc_types::class::Class;
 use katana_rpc_types::event::{EventFilterWithPage, EventsPage};
 use katana_rpc_types::message::MsgFromL1;
 use katana_rpc_types::receipt::TxReceiptWithBlockInfo;
@@ -105,11 +105,7 @@ pub trait StarknetApi {
 
     /// Get the contract class definition in the given block associated with the given hash.
     #[method(name = "getClass")]
-    async fn get_class(
-        &self,
-        block_id: BlockIdOrTag,
-        class_hash: ClassHash,
-    ) -> RpcResult<RpcContractClass>;
+    async fn get_class(&self, block_id: BlockIdOrTag, class_hash: ClassHash) -> RpcResult<Class>;
 
     /// Get the contract class hash in the given block for the contract deployed at the given
     /// address.
@@ -126,7 +122,7 @@ pub trait StarknetApi {
         &self,
         block_id: BlockIdOrTag,
         contract_address: ContractAddress,
-    ) -> RpcResult<RpcContractClass>;
+    ) -> RpcResult<Class>;
 
     /// Get the number of transactions in a block given a block id.
     #[method(name = "getBlockTransactionCount")]

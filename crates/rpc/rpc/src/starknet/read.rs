@@ -22,7 +22,7 @@ use katana_rpc_types::block::{
     MaybePendingBlockWithTxs,
 };
 use katana_rpc_types::broadcasted::BroadcastedTx;
-use katana_rpc_types::class::RpcContractClass;
+use katana_rpc_types::class::Class;
 use katana_rpc_types::event::{EventFilterWithPage, EventsPage};
 use katana_rpc_types::message::MsgFromL1;
 use katana_rpc_types::receipt::TxReceiptWithBlockInfo;
@@ -66,7 +66,7 @@ impl<EF: ExecutorFactory> StarknetApiServer for StarknetApi<EF> {
         &self,
         block_id: BlockIdOrTag,
         contract_address: ContractAddress,
-    ) -> RpcResult<RpcContractClass> {
+    ) -> RpcResult<Class> {
         Ok(self.class_at_address(block_id, contract_address).await?)
     }
 
@@ -122,11 +122,7 @@ impl<EF: ExecutorFactory> StarknetApiServer for StarknetApi<EF> {
         Ok(self.class_hash_at_address(block_id, contract_address).await?)
     }
 
-    async fn get_class(
-        &self,
-        block_id: BlockIdOrTag,
-        class_hash: ClassHash,
-    ) -> RpcResult<RpcContractClass> {
+    async fn get_class(&self, block_id: BlockIdOrTag, class_hash: ClassHash) -> RpcResult<Class> {
         Ok(self.class_at_hash(block_id, class_hash).await?)
     }
 

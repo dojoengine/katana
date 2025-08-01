@@ -31,7 +31,7 @@ use katana_rpc_types::block::{
     MaybePendingBlockWithTxs, PendingBlockWithReceipts, PendingBlockWithTxHashes,
     PendingBlockWithTxs,
 };
-use katana_rpc_types::class::RpcContractClass;
+use katana_rpc_types::class::Class;
 use katana_rpc_types::event::{EventFilterWithPage, EventsPage};
 use katana_rpc_types::receipt::{ReceiptBlock, TxReceiptWithBlockInfo};
 use katana_rpc_types::state_update::MaybePendingStateUpdate;
@@ -260,7 +260,7 @@ where
         &self,
         block_id: BlockIdOrTag,
         class_hash: ClassHash,
-    ) -> StarknetApiResult<RpcContractClass> {
+    ) -> StarknetApiResult<Class> {
         self.on_io_blocking_task(move |this| {
             let state = this.state(&block_id)?;
 
@@ -268,7 +268,7 @@ where
                 return Err(StarknetApiError::ClassHashNotFound);
             };
 
-            Ok(RpcContractClass::try_from(class).unwrap())
+            Ok(Class::try_from(class).unwrap())
         })
         .await
     }
@@ -296,7 +296,7 @@ where
         &self,
         block_id: BlockIdOrTag,
         contract_address: ContractAddress,
-    ) -> StarknetApiResult<RpcContractClass> {
+    ) -> StarknetApiResult<Class> {
         let hash = self.class_hash_at_address(block_id, contract_address).await?;
         let class = self.class_at_hash(block_id, hash).await?;
         Ok(class)

@@ -21,7 +21,7 @@ use katana_primitives::class::{
 };
 use katana_primitives::contract::{ContractAddress, Nonce, StorageKey, StorageValue};
 use katana_primitives::Felt;
-use katana_rpc_types::class::RpcContractClass;
+use katana_rpc_types::class::Class;
 use parking_lot::Mutex;
 use starknet::core::types::{BlockId, ContractClass as StarknetRsClass, StarknetError};
 use starknet::providers::{Provider, ProviderError as StarknetProviderError};
@@ -468,7 +468,7 @@ impl BackendClient {
         match rx.recv()? {
             BackendResponse::ClassAt(res) => {
                 if let Some(class) = handle_not_found_err(res)? {
-                    let class = RpcContractClass::try_from(class)?;
+                    let class = Class::try_from(class)?;
                     Ok(Some(ContractClass::try_from(class)?))
                 } else {
                     Ok(None)

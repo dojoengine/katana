@@ -23,12 +23,14 @@ use starknet_api::deprecated_contract_class::{
 };
 use starknet_api::serde_utils::deserialize_optional_contract_class_abi_entry_vector;
 
-/// RPC representation of the contract class.
+/// RPC representation of the Starknet class.
+///
+/// This is the RPC equivalent of [ContractClass].
 #[derive(Debug, Clone, Serialize, Deserialize)]
 #[serde(untagged)]
-pub enum RpcContractClass {
-    Class(RpcSierraContractClass),
-    Legacy(RpcLegacyContractClass),
+pub enum Class {
+    Sierra(SierraClass),
+    Legacy(LegacyClass),
 }
 
 #[derive(Debug, thiserror::Error)]
@@ -43,53 +45,31 @@ pub enum ConversionError {
     AbiPythonic(#[from] serde_json_pythonic::Error),
 }
 
-impl TryFrom<ContractClass> for RpcContractClass {
-    type Error = ConversionError;
-
-    fn try_from(value: ContractClass) -> Result<Self, Self::Error> {
-        match value {
-            ContractClass::Class(class) => {
-                Ok(Self::Class(RpcSierraContractClass::try_from(class)?))
-            }
-            ContractClass::Legacy(class) => {
-                Ok(Self::Legacy(RpcLegacyContractClass::try_from(class)?))
-            }
-        }
-    }
-}
-
-impl TryFrom<RpcContractClass> for ContractClass {
-    type Error = ConversionError;
-
-    fn try_from(value: RpcContractClass) -> Result<Self, Self::Error> {
-        match value {
-            RpcContractClass::Class(class) => {
-                Ok(Self::Class(SierraContractClass::try_from(class)?))
-            }
-            RpcContractClass::Legacy(class) => {
-                Ok(Self::Legacy(LegacyContractClass::try_from(class)?))
-            }
-        }
-    }
-}
-
 // -- SIERRA CLASS
 
 #[derive(Debug, Serialize, Deserialize, Clone, PartialEq, Eq, Default)]
-pub struct RpcSierraContractClass {
+pub struct SierraClass {
     pub sierra_program: Vec<Felt>,
     pub contract_class_version: String,
     pub entry_points_by_type: ContractEntryPoints,
+    /// The class ABI.
+    ///
+    /// The ABI is serialized as Pythonic JSON.
     pub abi: String,
 }
 
-impl RpcSierraContractClass {
+//////////////////////////////////////////////////
+// SierraClass implementations
+//////////////////////////////////////////////////
+
+impl SierraClass {
+    /// Computes the hash of the Sierra class.
     pub fn hash(&self) -> Result<ClassHash, ComputeClassHashError> {
         compute_sierra_class_hash(&self.abi, &self.entry_points_by_type, &self.sierra_program)
     }
 }
 
-impl TryFrom<SierraContractClass> for RpcSierraContractClass {
+impl TryFrom<SierraContractClass> for SierraClass {
     type Error = ConversionError;
 
     fn try_from(value: SierraContractClass) -> Result<Self, Self::Error> {
@@ -105,10 +85,10 @@ impl TryFrom<SierraContractClass> for RpcSierraContractClass {
     }
 }
 
-impl TryFrom<RpcSierraContractClass> for SierraContractClass {
+impl TryFrom<SierraClass> for SierraContractClass {
     type Error = ConversionError;
 
-    fn try_from(value: RpcSierraContractClass) -> Result<Self, Self::Error> {
+    fn try_from(value: SierraClass) -> Result<Self, Self::Error> {
         use cairo_lang_starknet_classes::abi;
 
         let abi = serde_json::from_str::<Option<abi::Contract>>(&value.abi)?;
@@ -131,7 +111,7 @@ impl TryFrom<RpcSierraContractClass> for SierraContractClass {
 // -- LEGACY CLASS
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
-pub struct RpcLegacyContractClass {
+pub struct LegacyClass {
     /// A base64 representation of the compressed program code
     #[serde(with = "base64")]
     pub program: Vec<u8>,
@@ -142,7 +122,11 @@ pub struct RpcLegacyContractClass {
     pub abi: Option<Vec<ContractClassAbiEntry>>,
 }
 
-impl TryFrom<LegacyContractClass> for RpcLegacyContractClass {
+//////////////////////////////////////////////////
+// LegacyClass implementations
+//////////////////////////////////////////////////
+
+impl TryFrom<LegacyContractClass> for LegacyClass {
     type Error = ConversionError;
 
     fn try_from(value: LegacyContractClass) -> Result<Self, Self::Error> {
@@ -151,10 +135,10 @@ impl TryFrom<LegacyContractClass> for RpcLegacyContractClass {
     }
 }
 
-impl TryFrom<RpcLegacyContractClass> for LegacyContractClass {
+impl TryFrom<LegacyClass> for LegacyContractClass {
     type Error = ConversionError;
 
-    fn try_from(value: RpcLegacyContractClass) -> Result<Self, Self::Error> {
+    fn try_from(value: LegacyClass) -> Result<Self, Self::Error> {
         let program = decompress_legacy_program(&value.program)?;
         Ok(Self { program, abi: value.abi, entry_points_by_type: value.entry_points_by_type })
     }
@@ -177,44 +161,66 @@ fn decompress_legacy_program(compressed_data: &[u8]) -> Result<LegacyProgram, Co
     Ok(serde_json::from_slice::<LegacyProgram>(&decompressed)?)
 }
 
-// Conversion from `starknet-rs` types for convenience.
+// Round-trip conversion between RPC and katana-primitives types
+
+impl TryFrom<ContractClass> for Class {
+    type Error = ConversionError;
+
+    fn try_from(value: ContractClass) -> Result<Self, Self::Error> {
+        match value {
+            ContractClass::Class(class) => Ok(Self::Sierra(SierraClass::try_from(class)?)),
+            ContractClass::Legacy(class) => Ok(Self::Legacy(LegacyClass::try_from(class)?)),
+        }
+    }
+}
+
+impl TryFrom<Class> for ContractClass {
+    type Error = ConversionError;
+
+    fn try_from(value: Class) -> Result<Self, Self::Error> {
+        match value {
+            Class::Sierra(class) => Ok(Self::Class(SierraContractClass::try_from(class)?)),
+            Class::Legacy(class) => Ok(Self::Legacy(LegacyContractClass::try_from(class)?)),
+        }
+    }
+}
+
+// Round-trip conversion from `starknet-rs` types for convenience.
 //
 // These are not the most efficient way to convert the types, but they are the most convenient.
 // Considering we are not using `starknet-rs` types for the contract class definitions in Katana and
 // mainly for utility purposes, these conversions should be avoided from being used in a program
 // hot path.
 
-impl TryFrom<starknet::core::types::ContractClass> for RpcContractClass {
+impl TryFrom<starknet::core::types::ContractClass> for Class {
     type Error = ConversionError;
 
     fn try_from(value: starknet::core::types::ContractClass) -> Result<Self, Self::Error> {
         match value {
             starknet::core::types::ContractClass::Legacy(class) => {
-                Ok(Self::Legacy(RpcLegacyContractClass::try_from(class)?))
+                Ok(Self::Legacy(LegacyClass::try_from(class)?))
             }
             starknet::core::types::ContractClass::Sierra(class) => {
-                Ok(Self::Class(RpcSierraContractClass::try_from(class)?))
+                Ok(Self::Sierra(SierraClass::try_from(class)?))
             }
         }
     }
 }
 
-impl TryFrom<RpcContractClass> for starknet::core::types::ContractClass {
+impl TryFrom<Class> for starknet::core::types::ContractClass {
     type Error = ConversionError;
 
-    fn try_from(value: RpcContractClass) -> Result<Self, Self::Error> {
+    fn try_from(value: Class) -> Result<Self, Self::Error> {
         match value {
-            RpcContractClass::Legacy(class) => {
+            Class::Legacy(class) => {
                 Ok(Self::Legacy(CompressedLegacyContractClass::try_from(class)?))
             }
-            RpcContractClass::Class(class) => {
-                Ok(Self::Sierra(FlattenedSierraClass::try_from(class)?))
-            }
+            Class::Sierra(class) => Ok(Self::Sierra(FlattenedSierraClass::try_from(class)?)),
         }
     }
 }
 
-impl TryFrom<FlattenedSierraClass> for RpcSierraContractClass {
+impl TryFrom<FlattenedSierraClass> for SierraClass {
     type Error = ConversionError;
 
     fn try_from(value: FlattenedSierraClass) -> Result<Self, Self::Error> {
@@ -224,17 +230,17 @@ impl TryFrom<FlattenedSierraClass> for RpcSierraContractClass {
     }
 }
 
-impl TryFrom<RpcSierraContractClass> for FlattenedSierraClass {
+impl TryFrom<SierraClass> for FlattenedSierraClass {
     type Error = ConversionError;
 
-    fn try_from(value: RpcSierraContractClass) -> Result<Self, Self::Error> {
+    fn try_from(value: SierraClass) -> Result<Self, Self::Error> {
         let value = serde_json::to_value(value)?;
         let class = serde_json::from_value::<Self>(value)?;
         Ok(class)
     }
 }
 
-impl TryFrom<CompressedLegacyContractClass> for RpcLegacyContractClass {
+impl TryFrom<CompressedLegacyContractClass> for LegacyClass {
     type Error = ConversionError;
 
     fn try_from(value: CompressedLegacyContractClass) -> Result<Self, Self::Error> {
@@ -244,10 +250,10 @@ impl TryFrom<CompressedLegacyContractClass> for RpcLegacyContractClass {
     }
 }
 
-impl TryFrom<RpcLegacyContractClass> for CompressedLegacyContractClass {
+impl TryFrom<LegacyClass> for CompressedLegacyContractClass {
     type Error = ConversionError;
 
-    fn try_from(value: RpcLegacyContractClass) -> Result<Self, Self::Error> {
+    fn try_from(value: LegacyClass) -> Result<Self, Self::Error> {
         let value = serde_json::to_value(value)?;
         let class = serde_json::from_value::<Self>(value)?;
         Ok(class)
@@ -258,10 +264,10 @@ impl TryFrom<RpcLegacyContractClass> for CompressedLegacyContractClass {
 mod tests {
     use katana_primitives::class::{ContractClass, LegacyContractClass, SierraContractClass};
     use starknet::core::types::contract::legacy::LegacyContractClass as StarknetRsLegacyContractClass;
-    use starknet::core::types::contract::SierraClass;
+    use starknet::core::types::contract::SierraClass as StarknetRsSierraClass;
 
-    use super::RpcLegacyContractClass;
-    use crate::class::RpcSierraContractClass;
+    use super::LegacyClass;
+    use crate::class::SierraClass;
 
     #[test]
     fn rt() {
@@ -269,7 +275,7 @@ mod tests {
             include_str!("../../../contracts/build/katana_account_Account.contract_class.json");
         let class = serde_json::from_str::<SierraContractClass>(json).unwrap();
 
-        let rpc = RpcSierraContractClass::try_from(class.clone()).unwrap();
+        let rpc = SierraClass::try_from(class.clone()).unwrap();
         let rt = SierraContractClass::try_from(rpc).unwrap();
 
         assert_eq!(class.abi, rt.abi);
@@ -283,7 +289,7 @@ mod tests {
         let json = include_str!("../../../contracts/build/legacy/account.json");
         let class = serde_json::from_str::<LegacyContractClass>(json).unwrap();
 
-        let rpc = RpcLegacyContractClass::try_from(class.clone()).unwrap();
+        let rpc = LegacyClass::try_from(class.clone()).unwrap();
         let rt = LegacyContractClass::try_from(rpc).unwrap();
 
         assert_eq!(class.abi, rt.abi);
@@ -308,13 +314,13 @@ mod tests {
 
         // -- starknet-rs
 
-        let starknet_rs_class = serde_json::from_str::<SierraClass>(json).unwrap();
+        let starknet_rs_class = serde_json::from_str::<StarknetRsSierraClass>(json).unwrap();
         let starknet_rs_hash = starknet_rs_class.class_hash().unwrap();
         let starknet_rpc = starknet_rs_class.flatten().unwrap();
 
         // -- katana
 
-        let rpc = RpcSierraContractClass::try_from(starknet_rpc).unwrap();
+        let rpc = SierraClass::try_from(starknet_rpc).unwrap();
         let class = SierraContractClass::try_from(rpc).unwrap();
         let hash = ContractClass::Class(class.clone()).class_hash().unwrap();
 
@@ -343,7 +349,7 @@ mod tests {
 
         // -- katana
 
-        let rpc = serde_json::from_str::<RpcLegacyContractClass>(&json).unwrap();
+        let rpc = serde_json::from_str::<LegacyClass>(&json).unwrap();
         let class = LegacyContractClass::try_from(rpc).unwrap();
         let hash = ContractClass::Legacy(class.clone()).class_hash().unwrap();
 
@@ -368,7 +374,7 @@ mod tests {
             include_str!("../../../contracts/build/katana_account_Account.contract_class.json");
         let class = serde_json::from_str::<SierraContractClass>(json).unwrap();
 
-        let rpc_class = RpcSierraContractClass::try_from(class.clone()).unwrap();
+        let rpc_class = SierraClass::try_from(class.clone()).unwrap();
         let rpc_class_hash = rpc_class.hash().unwrap();
 
         let primitive = ContractClass::Class(SierraContractClass::try_from(rpc_class).unwrap());
