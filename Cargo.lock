@@ -6638,6 +6638,7 @@ name = "katana-node-bindings"
 version = "1.6.3"
 dependencies = [
  "criterion",
+ "katana-tracing",
  "pprof",
  "regex",
  "serde",
@@ -6938,6 +6939,7 @@ dependencies = [
  "opentelemetry-otlp",
  "opentelemetry-stackdriver",
  "opentelemetry_sdk",
+ "rstest 0.18.2",
  "rustls 0.23.27",
  "serde",
  "thiserror 1.0.69",
