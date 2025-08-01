@@ -456,7 +456,10 @@ async fn handle_vrf_calls(
     let salt_or_nonce = first_call.calldata[2];
 
     let seed = if salt_or_nonce_selector == Felt::ZERO {
-        let key = pedersen_hash(&selector!("VrfProvider_nonces"), &salt_or_nonce);
+        // compute storage key of the VRF contract storage member VrfProvider_nonces:
+        // Map<ContractAddress, felt252>
+        let address = salt_or_nonce;
+        let key = pedersen_hash(&selector!("VrfProvider_nonces"), &address);
         let nonce = state.storage(vrf_ctx.address(), key).unwrap_or_default().unwrap_or_default();
         starknet_crypto::poseidon_hash_many(vec![&nonce, &caller, &chain_id.id()])
     } else if salt_or_nonce_selector == Felt::ONE {
