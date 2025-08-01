@@ -2,9 +2,8 @@
 //! VRF provider contract):
 //!
 //! 1. The VRF provider contract is deployed (if not already deployed).
-//! 2. The Stark VRF proof is generated using the `Source` provided in the call. Since one of the
-//!    `Source` is a nonce for a given address, Katana keeps an in-memory cache of the nonces for
-//!    each address. WARNING: Restarting Katana will reset the cache, hence reset the VRF sequence.
+//! 2. The Stark VRF proof is generated using the `Source` provided in the call.
+//! The seed is precomputed to match smart contract behavior https://github.com/cartridge-gg/vrf/blob/38d71385f939a19829113c122f1ab12dbbe0f877/src/vrf_provider/vrf_provider_component.cairo#L112
 //! 3. The original execution from outside call is then sandwitched between two VRF calls, one for
 //!    submitting the randomness, and one to assert the correct consumption of the randomness.
 //! 4. When using the VRF, the user has the responsability to add a first call to target the VRF
