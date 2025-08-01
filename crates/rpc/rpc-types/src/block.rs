@@ -230,13 +230,18 @@ impl From<starknet::core::types::MaybePendingBlockWithTxHashes> for MaybePending
     }
 }
 
-#[derive(Debug, Clone, Serialize, Deserialize)]
-#[serde(transparent)]
-pub struct BlockHashAndNumber(starknet::core::types::BlockHashAndNumber);
+/// The response object for the `starknet_blockHashAndNumber` method.
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
+pub struct BlockHashAndNumber {
+    /// The block's hash.
+    pub block_hash: BlockHash,
+    /// The block's number (height).
+    pub block_number: u64,
+}
 
 impl BlockHashAndNumber {
-    pub fn new(hash: BlockHash, number: BlockNumber) -> Self {
-        Self(starknet::core::types::BlockHashAndNumber { block_hash: hash, block_number: number })
+    pub fn new(block_hash: BlockHash, block_number: BlockNumber) -> Self {
+        Self { block_hash, block_number }
     }
 }
 
@@ -370,5 +375,35 @@ impl From<starknet::core::types::MaybePendingBlockWithReceipts> for MaybePending
                 MaybePendingBlockWithReceipts::Block(BlockWithReceipts(block))
             }
         }
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use katana_primitives::felt;
+    use serde_json::{json, Value};
+
+    use super::BlockHashAndNumber;
+
+    #[rstest::rstest]
+    #[case(json!({
+		"block_hash": "0x69ff022845ab47276b5b2c30d17e19b3a87192228e1495ec332180f52e9850e",
+		"block_number": 1660537
+    }), BlockHashAndNumber {
+	    block_hash: felt!("0x69ff022845ab47276b5b2c30d17e19b3a87192228e1495ec332180f52e9850e"),
+	    block_number: 1660537
+    })]
+    #[case(json!({
+		"block_hash": "0x0",
+		"block_number": 0
+    }), BlockHashAndNumber {
+	    block_hash: felt!("0x0"),
+	    block_number: 0
+    })]
+    fn block_hash_and_number(#[case] json: Value, #[case] expected: BlockHashAndNumber) {
+        let deserialized = serde_json::from_value::<BlockHashAndNumber>(json.clone()).unwrap();
+        similar_asserts::assert_eq!(deserialized, expected);
+        let serialized = serde_json::to_value(deserialized).unwrap();
+        similar_asserts::assert_eq!(serialized, json);
     }
 }

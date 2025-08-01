@@ -8,7 +8,7 @@ use katana_primitives::class::{
     ContractClassFromStrError,
 };
 use katana_primitives::{felt, ContractAddress, Felt};
-use katana_rpc_types::class::RpcContractClass;
+use katana_rpc_types::class::Class;
 use katana_utils::{TxWaiter, TxWaitingError};
 use piltover::{AppchainContract, AppchainContractReader, ProgramInfo};
 use spinoff::{spinners, Color, Spinner};
@@ -403,8 +403,8 @@ fn prepare_contract_declaration_params(
 ) -> Result<(FlattenedSierraClass, CompiledClassHash)> {
     let casm_hash = class.clone().compile()?.class_hash()?;
 
-    let rpc_class = RpcContractClass::try_from(class).expect("should be valid");
-    let RpcContractClass::Class(class) = rpc_class else { unreachable!("unexpected legacy class") };
+    let rpc_class = Class::try_from(class).expect("should be valid");
+    let Class::Sierra(class) = rpc_class else { unreachable!("unexpected legacy class") };
     let flattened: FlattenedSierraClass = class.try_into()?;
 
     Ok((flattened, casm_hash))

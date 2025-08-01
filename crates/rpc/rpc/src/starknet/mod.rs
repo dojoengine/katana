@@ -7,8 +7,7 @@ use katana_core::service::block_producer::{BlockProducer, BlockProducerMode, Pen
 use katana_executor::{ExecutionResult, ExecutorFactory};
 use katana_pool::{TransactionPool, TxPool};
 use katana_primitives::block::{
-    BlockHash, BlockHashOrNumber, BlockIdOrTag, BlockNumber, BlockTag, FinalityStatus,
-    PartialHeader,
+    BlockHashOrNumber, BlockIdOrTag, BlockNumber, BlockTag, FinalityStatus, PartialHeader,
 };
 use katana_primitives::class::ClassHash;
 use katana_primitives::contract::{ContractAddress, Nonce, StorageKey, StorageValue};
@@ -28,17 +27,18 @@ use katana_provider::traits::transaction::{
 };
 use katana_rpc_api::error::starknet::StarknetApiError;
 use katana_rpc_types::block::{
-    MaybePendingBlockWithReceipts, MaybePendingBlockWithTxHashes, MaybePendingBlockWithTxs,
-    PendingBlockWithReceipts, PendingBlockWithTxHashes, PendingBlockWithTxs,
+    BlockHashAndNumber, MaybePendingBlockWithReceipts, MaybePendingBlockWithTxHashes,
+    MaybePendingBlockWithTxs, PendingBlockWithReceipts, PendingBlockWithTxHashes,
+    PendingBlockWithTxs,
 };
-use katana_rpc_types::class::RpcContractClass;
+use katana_rpc_types::class::Class;
 use katana_rpc_types::event::{EventFilterWithPage, EventsPage};
 use katana_rpc_types::receipt::{ReceiptBlock, TxReceiptWithBlockInfo};
 use katana_rpc_types::state_update::MaybePendingStateUpdate;
 use katana_rpc_types::transaction::Tx;
 use katana_rpc_types::trie::{
     ClassesProof, ContractLeafData, ContractStorageKeys, ContractStorageProofs, ContractsProof,
-    GetStorageProofResponse, GlobalRoots, Nodes,
+    GetStorageProofResult, GlobalRoots, Nodes,
 };
 use katana_rpc_types::FeeEstimate;
 use katana_rpc_types_builder::ReceiptBuilder;
@@ -249,18 +249,18 @@ where
         env.ok_or(StarknetApiError::BlockNotFound)
     }
 
-    fn block_hash_and_number(&self) -> StarknetApiResult<(BlockHash, BlockNumber)> {
+    fn block_hash_and_number(&self) -> StarknetApiResult<BlockHashAndNumber> {
         let provider = self.inner.backend.blockchain.provider();
         let hash = provider.latest_hash()?;
         let number = provider.latest_number()?;
-        Ok((hash, number))
+        Ok(BlockHashAndNumber::new(hash, number))
     }
 
     async fn class_at_hash(
         &self,
         block_id: BlockIdOrTag,
         class_hash: ClassHash,
-    ) -> StarknetApiResult<RpcContractClass> {
+    ) -> StarknetApiResult<Class> {
         self.on_io_blocking_task(move |this| {
             let state = this.state(&block_id)?;
 
@@ -268,7 +268,7 @@ where
                 return Err(StarknetApiError::ClassHashNotFound);
             };
 
-            Ok(RpcContractClass::try_from(class).unwrap())
+            Ok(Class::try_from(class).unwrap())
         })
         .await
     }
@@ -296,7 +296,7 @@ where
         &self,
         block_id: BlockIdOrTag,
         contract_address: ContractAddress,
-    ) -> StarknetApiResult<RpcContractClass> {
+    ) -> StarknetApiResult<Class> {
         let hash = self.class_hash_at_address(block_id, contract_address).await?;
         let class = self.class_at_hash(block_id, hash).await?;
         Ok(class)
@@ -1155,7 +1155,7 @@ where
         class_hashes: Option<Vec<ClassHash>>,
         contract_addresses: Option<Vec<ContractAddress>>,
         contracts_storage_keys: Option<Vec<ContractStorageKeys>>,
-    ) -> StarknetApiResult<GetStorageProofResponse> {
+    ) -> StarknetApiResult<GetStorageProofResult> {
         self.on_io_blocking_task(move |this| {
             let provider = this.inner.backend.blockchain.provider();
 
@@ -1227,7 +1227,7 @@ where
             let contracts_tree_root = state.contracts_root()?;
             let global_roots = GlobalRoots { block_hash, classes_tree_root, contracts_tree_root };
 
-            Ok(GetStorageProofResponse {
+            Ok(GetStorageProofResult {
                 global_roots,
                 classes_proof,
                 contracts_proof,

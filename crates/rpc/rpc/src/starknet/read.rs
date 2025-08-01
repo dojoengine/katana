@@ -8,6 +8,7 @@ use jsonrpsee::types::ErrorObjectOwned;
 use katana_executor::{EntryPointCall, ExecutorFactory};
 use katana_primitives::block::BlockIdOrTag;
 use katana_primitives::class::ClassHash;
+use katana_primitives::contract::{Nonce, StorageKey, StorageValue};
 #[cfg(feature = "cartridge")]
 use katana_primitives::genesis::allocation::GenesisAccountAlloc;
 use katana_primitives::transaction::{ExecutableTx, ExecutableTxWithHash, TxHash};
@@ -21,14 +22,14 @@ use katana_rpc_types::block::{
     MaybePendingBlockWithTxs,
 };
 use katana_rpc_types::broadcasted::BroadcastedTx;
-use katana_rpc_types::class::RpcContractClass;
+use katana_rpc_types::class::Class;
 use katana_rpc_types::event::{EventFilterWithPage, EventsPage};
 use katana_rpc_types::message::MsgFromL1;
 use katana_rpc_types::receipt::TxReceiptWithBlockInfo;
 use katana_rpc_types::state_update::MaybePendingStateUpdate;
 use katana_rpc_types::transaction::Tx;
-use katana_rpc_types::trie::{ContractStorageKeys, GetStorageProofResponse};
-use katana_rpc_types::{FeeEstimate, FeltAsHex, FunctionCall, SimulationFlagForEstimateFee};
+use katana_rpc_types::trie::{ContractStorageKeys, GetStorageProofResult};
+use katana_rpc_types::{EstimateFeeSimulationFlag, FeeEstimate, FunctionCall};
 use starknet::core::types::TransactionStatus;
 
 use super::StarknetApi;
@@ -37,23 +38,23 @@ use crate::cartridge;
 
 #[async_trait]
 impl<EF: ExecutorFactory> StarknetApiServer for StarknetApi<EF> {
-    async fn chain_id(&self) -> RpcResult<FeltAsHex> {
-        Ok(self.inner.backend.chain_spec.id().id().into())
+    async fn chain_id(&self) -> RpcResult<Felt> {
+        Ok(self.inner.backend.chain_spec.id().id())
     }
 
     async fn get_nonce(
         &self,
         block_id: BlockIdOrTag,
-        contract_address: Felt,
-    ) -> RpcResult<FeltAsHex> {
-        Ok(self.nonce_at(block_id, contract_address.into()).await?.into())
+        contract_address: ContractAddress,
+    ) -> RpcResult<Nonce> {
+        Ok(self.nonce_at(block_id, contract_address).await?)
     }
 
     async fn block_number(&self) -> RpcResult<u64> {
         Ok(self.latest_block_number().await?)
     }
 
-    async fn get_transaction_by_hash(&self, transaction_hash: Felt) -> RpcResult<Tx> {
+    async fn get_transaction_by_hash(&self, transaction_hash: TxHash) -> RpcResult<Tx> {
         Ok(self.transaction(transaction_hash).await?)
     }
 
@@ -64,17 +65,13 @@ impl<EF: ExecutorFactory> StarknetApiServer for StarknetApi<EF> {
     async fn get_class_at(
         &self,
         block_id: BlockIdOrTag,
-        contract_address: Felt,
-    ) -> RpcResult<RpcContractClass> {
-        Ok(self.class_at_address(block_id, contract_address.into()).await?)
+        contract_address: ContractAddress,
+    ) -> RpcResult<Class> {
+        Ok(self.class_at_address(block_id, contract_address).await?)
     }
 
     async fn block_hash_and_number(&self) -> RpcResult<BlockHashAndNumber> {
-        self.on_io_blocking_task(move |this| {
-            let res = this.block_hash_and_number()?;
-            Ok(res.into())
-        })
-        .await
+        self.on_io_blocking_task(move |this| Ok(this.block_hash_and_number()?)).await
     }
 
     async fn get_block_with_tx_hashes(
@@ -112,7 +109,7 @@ impl<EF: ExecutorFactory> StarknetApiServer for StarknetApi<EF> {
 
     async fn get_transaction_receipt(
         &self,
-        transaction_hash: Felt,
+        transaction_hash: TxHash,
     ) -> RpcResult<TxReceiptWithBlockInfo> {
         Ok(self.receipt(transaction_hash).await?)
     }
@@ -120,16 +117,12 @@ impl<EF: ExecutorFactory> StarknetApiServer for StarknetApi<EF> {
     async fn get_class_hash_at(
         &self,
         block_id: BlockIdOrTag,
-        contract_address: Felt,
-    ) -> RpcResult<FeltAsHex> {
-        Ok(self.class_hash_at_address(block_id, contract_address.into()).await?.into())
+        contract_address: ContractAddress,
+    ) -> RpcResult<Felt> {
+        Ok(self.class_hash_at_address(block_id, contract_address).await?)
     }
 
-    async fn get_class(
-        &self,
-        block_id: BlockIdOrTag,
-        class_hash: Felt,
-    ) -> RpcResult<RpcContractClass> {
+    async fn get_class(&self, block_id: BlockIdOrTag, class_hash: ClassHash) -> RpcResult<Class> {
         Ok(self.class_at_hash(block_id, class_hash).await?)
     }
 
@@ -137,11 +130,7 @@ impl<EF: ExecutorFactory> StarknetApiServer for StarknetApi<EF> {
         Ok(self.events(filter).await?)
     }
 
-    async fn call(
-        &self,
-        request: FunctionCall,
-        block_id: BlockIdOrTag,
-    ) -> RpcResult<Vec<FeltAsHex>> {
+    async fn call(&self, request: FunctionCall, block_id: BlockIdOrTag) -> RpcResult<Vec<Felt>> {
         self.on_io_blocking_task(move |this| {
             let request = EntryPointCall {
                 calldata: request.calldata,
@@ -156,7 +145,7 @@ impl<EF: ExecutorFactory> StarknetApiServer for StarknetApi<EF> {
             let max_call_gas = this.inner.config.max_call_gas.unwrap_or(1_000_000_000);
 
             match super::blockifier::call(state, env, cfg_env, request, max_call_gas) {
-                Ok(retdata) => Ok(retdata.into_iter().map(|v| v.into()).collect()),
+                Ok(retdata) => Ok(retdata),
                 Err(err) => Err(ErrorObjectOwned::from(StarknetApiError::ContractError {
                     revert_error: err.to_string(),
                 })),
@@ -167,13 +156,13 @@ impl<EF: ExecutorFactory> StarknetApiServer for StarknetApi<EF> {
 
     async fn get_storage_at(
         &self,
-        contract_address: Felt,
-        key: Felt,
+        contract_address: ContractAddress,
+        key: StorageKey,
         block_id: BlockIdOrTag,
-    ) -> RpcResult<FeltAsHex> {
+    ) -> RpcResult<StorageValue> {
         self.on_io_blocking_task(move |this| {
-            let value = this.storage_at(contract_address.into(), key, block_id)?;
-            Ok(value.into())
+            let value = this.storage_at(contract_address, key, block_id)?;
+            Ok(value)
         })
         .await
     }
@@ -181,7 +170,7 @@ impl<EF: ExecutorFactory> StarknetApiServer for StarknetApi<EF> {
     async fn estimate_fee(
         &self,
         request: Vec<BroadcastedTx>,
-        simulation_flags: Vec<SimulationFlagForEstimateFee>,
+        simulation_flags: Vec<EstimateFeeSimulationFlag>,
         block_id: BlockIdOrTag,
     ) -> RpcResult<Vec<FeeEstimate>> {
         let chain_id = self.inner.backend.chain_spec.id();
@@ -216,7 +205,7 @@ impl<EF: ExecutorFactory> StarknetApiServer for StarknetApi<EF> {
             })
             .collect::<Result<Vec<_>, _>>()?;
 
-        let skip_validate = simulation_flags.contains(&SimulationFlagForEstimateFee::SkipValidate);
+        let skip_validate = simulation_flags.contains(&EstimateFeeSimulationFlag::SkipValidate);
 
         // If the node is run with transaction validation disabled, then we should not validate
         // transactions when estimating the fee even if the `SKIP_VALIDATE` flag is not set.
@@ -376,7 +365,7 @@ impl<EF: ExecutorFactory> StarknetApiServer for StarknetApi<EF> {
         class_hashes: Option<Vec<ClassHash>>,
         contract_addresses: Option<Vec<ContractAddress>>,
         contracts_storage_keys: Option<Vec<ContractStorageKeys>>,
-    ) -> RpcResult<GetStorageProofResponse> {
+    ) -> RpcResult<GetStorageProofResult> {
         let proofs = self
             .get_proofs(block_id, class_hashes, contract_addresses, contracts_storage_keys)
             .await?;
