@@ -531,14 +531,14 @@ impl BroadcastedDeployAccountTx {
 
 /// Response for broadcasting an `INVOKE` transaction.
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
-pub struct AddInvokeTransactionResult {
+pub struct AddInvokeTransactionResponse {
     /// The hash of the invoke transaction
     pub transaction_hash: TxHash,
 }
 
 /// Response for broadcasting a `DECLARE` transaction.
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
-pub struct AddDeclareTransactionResult {
+pub struct AddDeclareTransactionResponse {
     /// The hash of the declare transaction
     pub transaction_hash: TxHash,
     /// The hash of the declared class
@@ -547,7 +547,7 @@ pub struct AddDeclareTransactionResult {
 
 /// Response for broadcasting a `DEPLOY_ACCOUNT` transaction.
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
-pub struct AddDeployAccountTransactionResult {
+pub struct AddDeployAccountTransactionResponse {
     /// The hash of the deploy transaction
     pub transaction_hash: TxHash,
     /// The address of the new contract
@@ -715,8 +715,9 @@ mod tests {
 
     use super::*;
     use crate::broadcasted::{
-        AddDeclareTransactionResult, AddDeployAccountTransactionResult, AddInvokeTransactionResult,
-        BroadcastedTx, RpcResourceBoundsMapping, UntypedBroadcastedTxError,
+        AddDeclareTransactionResponse, AddDeployAccountTransactionResponse,
+        AddInvokeTransactionResponse, BroadcastedTx, RpcResourceBoundsMapping,
+        UntypedBroadcastedTxError,
     };
 
     #[test]
@@ -1303,7 +1304,7 @@ mod tests {
 
     #[test]
     fn response_types_serde() {
-        let invoke_result = AddInvokeTransactionResult { transaction_hash: felt!("0x123") };
+        let invoke_result = AddInvokeTransactionResponse { transaction_hash: felt!("0x123") };
 
         let expected = json!({
             "transaction_hash": "0x123"
@@ -1312,7 +1313,7 @@ mod tests {
         let actual = serde_json::to_value(&invoke_result).unwrap();
         similar_asserts::assert_eq!(actual, expected);
 
-        let declare_result = AddDeclareTransactionResult {
+        let declare_result = AddDeclareTransactionResponse {
             transaction_hash: felt!("0x456"),
             class_hash: felt!("0x789"),
         };
@@ -1325,7 +1326,7 @@ mod tests {
         let actual = serde_json::to_value(&declare_result).unwrap();
         similar_asserts::assert_eq!(actual, expected);
 
-        let deploy_result = AddDeployAccountTransactionResult {
+        let deploy_result = AddDeployAccountTransactionResponse {
             transaction_hash: felt!("0xabc"),
             contract_address: address!("0xdef"),
         };
