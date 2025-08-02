@@ -5,7 +5,6 @@ use katana_primitives::execution::TransactionExecutionInfo;
 use katana_primitives::receipt::Receipt;
 use katana_primitives::state::{StateUpdates, StateUpdatesWithClasses};
 use katana_primitives::transaction::TxWithHash;
-use katana_primitives::{ContractAddress, Felt};
 
 pub use crate::error::*;
 
@@ -101,16 +100,6 @@ pub struct ExecutionOutput {
     pub states: StateUpdatesWithClasses,
     /// The transactions that have been executed.
     pub transactions: Vec<(TxWithHash, ExecutionResult)>,
-}
-
-#[derive(Debug, Clone)]
-pub struct EntryPointCall {
-    /// The address of the contract whose function you're calling.
-    pub contract_address: ContractAddress,
-    /// The input to the function.
-    pub calldata: Vec<Felt>,
-    /// The contract function name.
-    pub entry_point_selector: Felt,
 }
 
 #[allow(clippy::large_enum_variant)]
