@@ -26,9 +26,6 @@ pub enum TxWaitingError {
     #[error("transaction reverted with reason: {0}")]
     TransactionReverted(String),
 
-    #[error("transaction rejected")]
-    TransactionRejected,
-
     #[error(transparent)]
     Provider(ProviderError),
 }
@@ -134,7 +131,7 @@ impl<'a, P: Provider> TxWaiter<'a, P> {
         must_succeed: bool,
     ) -> Option<Result<TransactionReceiptWithBlockInfo, TxWaitingError>> {
         match &receipt.block {
-            ReceiptBlock::Pending => {
+            ReceiptBlock::PreConfirmed => {
                 // pending receipt doesn't include finality status, so we cant check it.
                 if expected_finality_status.is_some() {
                     return None;
@@ -203,18 +200,15 @@ impl<P: Provider + Send> Future for TxWaiter<'_, P> {
                 match fut.poll_unpin(cx) {
                     Poll::Ready(res) => match res {
                         Ok(status) => match status {
-                            TransactionStatus::AcceptedOnL2(_)
+                            TransactionStatus::PreConfirmed(_)
+                            | TransactionStatus::AcceptedOnL2(_)
                             | TransactionStatus::AcceptedOnL1(_) => {
                                 this.tx_receipt_request_fut = Some(Box::pin(
                                     this.provider.get_transaction_receipt(this.tx_hash),
                                 ));
                             }
 
-                            TransactionStatus::Rejected => {
-                                return Poll::Ready(Err(TxWaitingError::TransactionRejected));
-                            }
-
-                            TransactionStatus::Received => {}
+                            TransactionStatus::Candidate | TransactionStatus::Received => {}
                         },
 
                         Err(ProviderError::StarknetError(
@@ -358,7 +352,7 @@ mod tests {
         }
     }
 
-    fn mock_pending_receipt(execution_result: ExecutionResult) -> TransactionReceiptWithBlockInfo {
+    fn mock_preconf_receipt(execution_result: ExecutionResult) -> TransactionReceiptWithBlockInfo {
         let receipt = TransactionReceipt::Invoke(InvokeTransactionReceipt {
             execution_result,
             events: Default::default(),
@@ -369,7 +363,7 @@ mod tests {
             execution_resources: EXECUTION_RESOURCES,
         });
 
-        TransactionReceiptWithBlockInfo { receipt, block: ReceiptBlock::Pending }
+        TransactionReceiptWithBlockInfo { receipt, block: ReceiptBlock::PreConfirmed }
     }
 
     #[tokio::test]
@@ -437,13 +431,13 @@ mod tests {
 
     #[test]
     fn wait_for_pending_tx() {
-        let receipt = mock_pending_receipt(Succeeded);
+        let receipt = mock_preconf_receipt(Succeeded);
         assert!(eval_receipt!(receipt.clone(), AcceptedOnL2, true).is_none());
 
-        let receipt = mock_pending_receipt(Reverted { reason: Default::default() });
+        let receipt = mock_preconf_receipt(Reverted { reason: Default::default() });
         assert!(eval_receipt!(receipt.clone(), false).unwrap().is_ok());
 
-        let receipt = mock_pending_receipt(Reverted { reason: Default::default() });
+        let receipt = mock_preconf_receipt(Reverted { reason: Default::default() });
         let evaluation = eval_receipt!(receipt.clone(), true).unwrap();
         assert_matches!(evaluation, Err(TxWaitingError::TransactionReverted(_)));
     }

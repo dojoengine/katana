@@ -4,11 +4,12 @@ use katana_primitives::transaction::TxHash;
 use katana_primitives::Felt;
 use katana_rpc_api::error::starknet::StarknetApiError;
 use katana_rpc_types::block::{
-    MaybePendingBlockWithReceipts, MaybePendingBlockWithTxHashes, MaybePendingBlockWithTxs,
+    MaybePreConfirmedBlockWithReceipts, MaybePreConfirmedBlockWithTxHashes,
+    MaybePreConfirmedBlockWithTxs,
 };
 use katana_rpc_types::event::EventsPage;
 use katana_rpc_types::receipt::TxReceiptWithBlockInfo;
-use katana_rpc_types::state_update::MaybePendingStateUpdate;
+use katana_rpc_types::state_update::MaybePreConfirmedStateUpdate;
 use katana_rpc_types::transaction::Tx;
 use starknet::core::types::{EventFilter, TransactionStatus};
 use starknet::providers::jsonrpc::HttpTransport;
@@ -60,11 +61,11 @@ impl ForkedClient {
 
 impl<P: Provider> ForkedClient<P> {
     pub async fn get_block_number_by_hash(&self, hash: BlockHash) -> Result<BlockNumber, Error> {
-        use starknet::core::types::MaybePendingBlockWithTxHashes as StarknetRsMaybePendingBlockWithTxHashes;
+        use starknet::core::types::MaybePreConfirmedBlockWithTxHashes as StarknetRsMaybePreConfirmedBlockWithTxHashes;
 
         let block = self.provider.get_block_with_tx_hashes(BlockIdOrTag::Hash(hash)).await?;
         // Pending block doesn't have a hash yet, so if we get a pending block, we return an error.
-        let StarknetRsMaybePendingBlockWithTxHashes::Block(block) = block else {
+        let StarknetRsMaybePreConfirmedBlockWithTxHashes::Block(block) = block else {
             return Err(Error::UnexpectedPendingData);
         };
 
@@ -129,10 +130,10 @@ impl<P: Provider> ForkedClient<P> {
                 );
 
                 let number = match block? {
-                    starknet::core::types::MaybePendingBlockWithTxHashes::Block(block) => {
+                    starknet::core::types::MaybePreConfirmedBlockWithTxHashes::Block(block) => {
                         block.block_number
                     }
-                    starknet::core::types::MaybePendingBlockWithTxHashes::PendingBlock(_) => {
+                    starknet::core::types::MaybePreConfirmedBlockWithTxHashes::PreConfirmedBlock(_) => {
                         return Err(Error::UnexpectedPendingData);
                     }
                 };
@@ -151,11 +152,11 @@ impl<P: Provider> ForkedClient<P> {
     pub async fn get_block_with_txs(
         &self,
         block_id: BlockIdOrTag,
-    ) -> Result<MaybePendingBlockWithTxs, Error> {
+    ) -> Result<MaybePreConfirmedBlockWithTxs, Error> {
         let block = self.provider.get_block_with_txs(block_id).await?;
 
         match block {
-            starknet::core::types::MaybePendingBlockWithTxs::Block(ref b) => {
+            starknet::core::types::MaybePreConfirmedBlockWithTxs::Block(ref b) => {
                 if b.block_number > self.block {
                     Err(Error::BlockOutOfRange)
                 } else {
@@ -163,7 +164,7 @@ impl<P: Provider> ForkedClient<P> {
                 }
             }
 
-            starknet::core::types::MaybePendingBlockWithTxs::PendingBlock(_) => {
+            starknet::core::types::MaybePreConfirmedBlockWithTxs::PreConfirmedBlock(_) => {
                 Err(Error::UnexpectedPendingData)
             }
         }
@@ -172,16 +173,16 @@ impl<P: Provider> ForkedClient<P> {
     pub async fn get_block_with_receipts(
         &self,
         block_id: BlockIdOrTag,
-    ) -> Result<MaybePendingBlockWithReceipts, Error> {
+    ) -> Result<MaybePreConfirmedBlockWithReceipts, Error> {
         let block = self.provider.get_block_with_receipts(block_id).await?;
 
         match block {
-            starknet::core::types::MaybePendingBlockWithReceipts::Block(ref b) => {
+            starknet::core::types::MaybePreConfirmedBlockWithReceipts::Block(ref b) => {
                 if b.block_number > self.block {
                     return Err(Error::BlockOutOfRange);
                 }
             }
-            starknet::core::types::MaybePendingBlockWithReceipts::PendingBlock(_) => {
+            starknet::core::types::MaybePreConfirmedBlockWithReceipts::PreConfirmedBlock(_) => {
                 return Err(Error::UnexpectedPendingData);
             }
         }
@@ -192,16 +193,16 @@ impl<P: Provider> ForkedClient<P> {
     pub async fn get_block_with_tx_hashes(
         &self,
         block_id: BlockIdOrTag,
-    ) -> Result<MaybePendingBlockWithTxHashes, Error> {
+    ) -> Result<MaybePreConfirmedBlockWithTxHashes, Error> {
         let block = self.provider.get_block_with_tx_hashes(block_id).await?;
 
         match block {
-            starknet::core::types::MaybePendingBlockWithTxHashes::Block(ref b) => {
+            starknet::core::types::MaybePreConfirmedBlockWithTxHashes::Block(ref b) => {
                 if b.block_number > self.block {
                     return Err(Error::BlockOutOfRange);
                 }
             }
-            starknet::core::types::MaybePendingBlockWithTxHashes::PendingBlock(_) => {
+            starknet::core::types::MaybePreConfirmedBlockWithTxHashes::PreConfirmedBlock(_) => {
                 return Err(Error::UnexpectedPendingData);
             }
         }
@@ -217,7 +218,7 @@ impl<P: Provider> ForkedClient<P> {
             BlockIdOrTag::Hash(hash) => {
                 let block =
                     self.provider.get_block_with_tx_hashes(BlockIdOrTag::Hash(hash)).await?;
-                if let starknet::core::types::MaybePendingBlockWithTxHashes::Block(b) = block {
+                if let starknet::core::types::MaybePreConfirmedBlockWithTxHashes::Block(b) = block {
                     if b.block_number > self.block {
                         return Err(Error::BlockOutOfRange);
                     }
@@ -236,7 +237,7 @@ impl<P: Provider> ForkedClient<P> {
     pub async fn get_state_update(
         &self,
         block_id: BlockIdOrTag,
-    ) -> Result<MaybePendingStateUpdate, Error> {
+    ) -> Result<MaybePreConfirmedStateUpdate, Error> {
         match block_id {
             BlockIdOrTag::Number(num) if num > self.block => {
                 return Err(Error::BlockOutOfRange);
@@ -244,7 +245,7 @@ impl<P: Provider> ForkedClient<P> {
             BlockIdOrTag::Hash(hash) => {
                 let block =
                     self.provider.get_block_with_tx_hashes(BlockIdOrTag::Hash(hash)).await?;
-                if let starknet::core::types::MaybePendingBlockWithTxHashes::Block(b) = block {
+                if let starknet::core::types::MaybePreConfirmedBlockWithTxHashes::Block(b) = block {
                     if b.block_number > self.block {
                         return Err(Error::BlockOutOfRange);
                     }

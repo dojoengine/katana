@@ -6,7 +6,7 @@ use katana_primitives::block::BlockNumber;
 use katana_primitives::transaction::TxHash;
 use katana_primitives::Felt;
 use katana_rpc_types::FunctionCall;
-use starknet::core::types::{BlockId, BlockTag};
+use starknet::core::types::{BlockId, BlockTag, ConfirmedBlockId};
 
 use super::client::Client;
 
@@ -85,7 +85,7 @@ pub enum StarknetCommands {
 
     /// Get execution traces for all transactions in a block
     #[command(name = "block-traces")]
-    TraceBlockTransactions(BlockIdArgs),
+    TraceBlockTransactions(TraceBlockTransactionsArg),
 }
 
 #[derive(Debug, Args)]
@@ -250,7 +250,7 @@ pub struct AddDeployAccountTransactionArgs {
 
 #[derive(Debug, Args)]
 pub struct SimulateTransactionsArgs {
-    /// Block ID (number, hash, 'latest', or 'pending'). Defaults to 'latest'
+    /// Block ID (number, hash, 'latest', or 'preconfirmed'). Defaults to 'latest'
     #[arg(default_value = "latest")]
     block_id: BlockIdArg,
 
@@ -260,6 +260,13 @@ pub struct SimulateTransactionsArgs {
     /// Simulation flags JSON array
     #[arg(long)]
     simulation_flags: Option<String>,
+}
+
+#[derive(Debug, Args)]
+pub struct TraceBlockTransactionsArg {
+    /// Block ID (number, hash, 'latest', or 'l1_accepted'). Defaults to 'latest'
+    #[arg(default_value = "latest")]
+    block_id: ConfirmedBlockIdArg,
 }
 
 impl StarknetCommands {
@@ -390,9 +397,8 @@ impl StarknetCommands {
                 let result = client.trace_transaction(tx_hash).await?;
                 println!("{}", colored_json::to_colored_json_auto(&result)?);
             }
-            StarknetCommands::TraceBlockTransactions(args) => {
-                let block_id = args.block_id.0;
-                let result = client.trace_block_transactions(block_id).await?;
+            StarknetCommands::TraceBlockTransactions(TraceBlockTransactionsArg { block_id }) => {
+                let result = client.trace_block_transactions(block_id.0).await?;
                 println!("{}", colored_json::to_colored_json_auto(&result)?);
             }
         }
@@ -409,7 +415,8 @@ impl std::str::FromStr for BlockIdArg {
     fn from_str(s: &str) -> Result<Self> {
         let id = match s {
             "latest" => BlockId::Tag(BlockTag::Latest),
-            "pending" => BlockId::Tag(BlockTag::Pending),
+            "l1_accepted" => BlockId::Tag(BlockTag::L1Accepted),
+            "preconfirmed" => BlockId::Tag(BlockTag::PreConfirmed),
 
             hash if s.starts_with("0x") => BlockId::Hash(
                 Felt::from_hex(hash)
@@ -429,5 +436,36 @@ impl std::str::FromStr for BlockIdArg {
 impl Default for BlockIdArg {
     fn default() -> Self {
         BlockIdArg(BlockId::Tag(BlockTag::Latest))
+    }
+}
+
+#[derive(Debug, Clone, Copy)]
+pub struct ConfirmedBlockIdArg(pub ConfirmedBlockId);
+
+impl std::str::FromStr for ConfirmedBlockIdArg {
+    type Err = anyhow::Error;
+
+    fn from_str(s: &str) -> Result<Self> {
+        let id = match s {
+            "latest" => ConfirmedBlockId::Latest,
+            "l1_accepted" => ConfirmedBlockId::L1Accepted,
+
+            hash if s.starts_with("0x") => ConfirmedBlockId::Hash(
+                Felt::from_hex(hash)
+                    .with_context(|| format!("Invalid block hash format: {hash}"))?,
+            ),
+
+            num => ConfirmedBlockId::Number(
+                num.parse::<BlockNumber>()
+                    .with_context(|| format!("Invalid block number format: {num}"))?,
+            ),
+        };
+
+        Ok(ConfirmedBlockIdArg(id))
+    }
+}
+impl Default for ConfirmedBlockIdArg {
+    fn default() -> Self {
+        ConfirmedBlockIdArg(ConfirmedBlockId::Latest)
     }
 }

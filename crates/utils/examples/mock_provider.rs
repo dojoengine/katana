@@ -10,8 +10,8 @@
 
 use katana_utils::mock_provider;
 use starknet::core::types::{
-    BlockId, BlockTag, Felt, L1DataAvailabilityMode, MaybePendingBlockWithTxs, PendingBlockWithTxs,
-    ResourcePrice,
+    BlockId, BlockTag, Felt, L1DataAvailabilityMode, MaybePreConfirmedBlockWithTxs,
+    PreConfirmedBlockWithTxs, ResourcePrice,
 };
 use starknet::providers::Provider;
 
@@ -22,13 +22,13 @@ mock_provider! {
     // Mock the get_block_with_txs method
     fn get_block_with_txs: (block_id) => {
         println!("Mock get_block_with_txs called");
-        Ok(MaybePendingBlockWithTxs::PendingBlock(PendingBlockWithTxs {
+        Ok(MaybePreConfirmedBlockWithTxs::PreConfirmedBlock(PreConfirmedBlockWithTxs {
+           block_number: 0,
             transactions: vec![],
             timestamp: 1234567890,
             l1_gas_price: ResourcePrice { price_in_fri: Felt::from(100u32), price_in_wei: Felt::from(200u32) },
             l1_data_gas_price: ResourcePrice { price_in_fri: Felt::from(50u32), price_in_wei: Felt::from(75u32) },
             l2_gas_price: ResourcePrice { price_in_fri: Felt::from(25u32), price_in_wei: Felt::from(30u32) },
-            parent_hash: Felt::from(42u32),
             sequencer_address: Felt::from(123u32),
             starknet_version: "0.13.0".to_string(),
             l1_da_mode: L1DataAvailabilityMode::Calldata,

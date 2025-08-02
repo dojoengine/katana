@@ -47,7 +47,7 @@ async fn simulate_nonce_validation(#[values(None, Some(1000))] block_time: Optio
 
     // simulate with current nonce (the expected nonce)
     let nonce =
-        provider.get_nonce(BlockId::Tag(BlockTag::Pending), account.address()).await.unwrap();
+        provider.get_nonce(BlockId::Tag(BlockTag::PreConfirmed), account.address()).await.unwrap();
     let result = contract.transfer(&recipient, &amount).nonce(nonce).simulate(false, false).await;
     assert!(result.is_ok(), "estimate should succeed with nonce == current nonce");
 

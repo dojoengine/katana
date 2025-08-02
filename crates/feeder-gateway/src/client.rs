@@ -142,9 +142,12 @@ impl RequestBuilder<'_> {
         match block_id {
             // latest block is implied, if no block id specified
             BlockIdOrTag::Tag(BlockTag::Latest) => self,
-            BlockIdOrTag::Tag(BlockTag::Pending) => self.add_query_param("blockNumber", "pending"),
+            BlockIdOrTag::Tag(BlockTag::PreConfirmed) => {
+                self.add_query_param("blockNumber", "pending")
+            }
             BlockIdOrTag::Hash(hash) => self.add_query_param("blockHash", &format!("{hash:#x}")),
             BlockIdOrTag::Number(num) => self.add_query_param("blockNumber", &num.to_string()),
+            BlockIdOrTag::Tag(BlockTag::L1Accepted) => unimplemented!("l1 accepted block id"),
         }
     }
 
@@ -231,7 +234,7 @@ mod tests {
         let req = client.feeder_gateway("test");
 
         // Test pending block
-        let pending_url = req.clone().with_block_id(BlockIdOrTag::Tag(BlockTag::Pending)).url;
+        let pending_url = req.clone().with_block_id(BlockIdOrTag::Tag(BlockTag::PreConfirmed)).url;
         assert_eq!(pending_url.query(), Some("blockNumber=pending"));
 
         // Test block hash
@@ -275,7 +278,7 @@ mod tests {
 
         let url = req
             .clone()
-            .with_block_id(BlockIdOrTag::Tag(BlockTag::Pending))
+            .with_block_id(BlockIdOrTag::Tag(BlockTag::PreConfirmed))
             .with_block_id(BlockIdOrTag::Number(42))
             .url;
 
@@ -285,7 +288,7 @@ mod tests {
         let url = req
             .clone()
             .with_block_id(BlockIdOrTag::Hash(hash))
-            .with_block_id(BlockIdOrTag::Tag(BlockTag::Pending))
+            .with_block_id(BlockIdOrTag::Tag(BlockTag::PreConfirmed))
             .url;
 
         assert_eq!(url.query(), Some("blockNumber=pending"));

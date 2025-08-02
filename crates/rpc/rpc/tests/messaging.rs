@@ -276,7 +276,7 @@ async fn estimate_message_fee() -> Result<()> {
         from_address: from_address.try_into()?,
     };
 
-    let result = provider.estimate_message_fee(msg, BlockId::Tag(BlockTag::Pending)).await;
+    let result = provider.estimate_message_fee(msg, BlockId::Tag(BlockTag::PreConfirmed)).await;
     assert!(result.is_ok());
 
     // #[derive(Drop, Serde)]
@@ -301,7 +301,7 @@ async fn estimate_message_fee() -> Result<()> {
         from_address: from_address.try_into()?,
     };
 
-    let result = provider.estimate_message_fee(msg, BlockId::Tag(BlockTag::Pending)).await;
+    let result = provider.estimate_message_fee(msg, BlockId::Tag(BlockTag::PreConfirmed)).await;
     assert!(result.is_ok());
 
     Ok(())

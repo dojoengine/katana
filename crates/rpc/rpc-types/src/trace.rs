@@ -3,14 +3,14 @@ use std::sync::Arc;
 use katana_primitives::execution::{
     self, CallInfo, TrackedResource, TransactionExecutionInfo, TypedTransactionExecutionInfo,
 };
-use katana_primitives::fee::{self, FeeInfo};
+use katana_primitives::fee::FeeInfo;
 use katana_primitives::receipt;
 use katana_primitives::transaction::{TxHash, TxType};
 use serde::{Deserialize, Serialize};
 use starknet::core::types::{
     CallType, DeclareTransactionTrace, DeployAccountTransactionTrace, EntryPointType,
     ExecuteInvocation, ExecutionResources, FunctionInvocation, InnerCallExecutionResources,
-    InvokeTransactionTrace, L1HandlerTransactionTrace, OrderedEvent, OrderedMessage, PriceUnit,
+    InvokeTransactionTrace, L1HandlerTransactionTrace, OrderedEvent, OrderedMessage,
     RevertedInvocation, TransactionTrace,
 };
 
@@ -74,7 +74,14 @@ pub fn to_rpc_trace(trace: TypedTransactionExecutionInfo) -> TransactionTrace {
         }
 
         TxType::L1Handler => {
-            let function_invocation = execute_invocation.expect("should exist if not reverted");
+            let function_invocation = if let Some(revert_reason) = revert_reason {
+                let invocation = RevertedInvocation { revert_reason };
+                ExecuteInvocation::Reverted(invocation)
+            } else {
+                let invocation = execute_invocation.expect("should exist if not reverted");
+                ExecuteInvocation::Success(invocation)
+            };
+
             TransactionTrace::L1Handler(L1HandlerTransactionTrace {
                 execution_resources,
                 function_invocation,
@@ -89,13 +96,7 @@ pub fn to_rpc_trace(trace: TypedTransactionExecutionInfo) -> TransactionTrace {
 }
 
 pub fn to_rpc_fee_estimate(resources: &receipt::ExecutionResources, fee: &FeeInfo) -> FeeEstimate {
-    let unit = match fee.unit {
-        fee::PriceUnit::Wei => PriceUnit::Wei,
-        fee::PriceUnit::Fri => PriceUnit::Fri,
-    };
-
     FeeEstimate {
-        unit,
         overall_fee: fee.overall_fee,
         l2_gas_price: fee.l2_gas_price,
         l1_gas_price: fee.l1_gas_price,
