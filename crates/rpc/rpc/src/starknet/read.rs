@@ -5,7 +5,7 @@ use std::sync::Arc;
 use anyhow::anyhow;
 use jsonrpsee::core::{async_trait, RpcResult};
 use jsonrpsee::types::ErrorObjectOwned;
-use katana_executor::{EntryPointCall, ExecutorFactory};
+use katana_executor::ExecutorFactory;
 use katana_primitives::block::BlockIdOrTag;
 use katana_primitives::class::ClassHash;
 use katana_primitives::contract::{Nonce, StorageKey, StorageValue};
@@ -132,12 +132,6 @@ impl<EF: ExecutorFactory> StarknetApiServer for StarknetApi<EF> {
 
     async fn call(&self, request: FunctionCall, block_id: BlockIdOrTag) -> RpcResult<Vec<Felt>> {
         self.on_io_blocking_task(move |this| {
-            let request = EntryPointCall {
-                calldata: request.calldata,
-                contract_address: request.contract_address.into(),
-                entry_point_selector: request.entry_point_selector,
-            };
-
             // get the state and block env at the specified block for function call execution
             let state = this.state(&block_id)?;
             let env = this.block_env_at(&block_id)?;

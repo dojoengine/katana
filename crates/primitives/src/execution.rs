@@ -18,6 +18,21 @@ pub use starknet_api::execution_resources::{GasAmount, GasVector};
 pub use starknet_api::transaction::fields::{Fee, Resource};
 
 use crate::transaction::TxType;
+use crate::{ContractAddress, Felt};
+
+/// The selector of a contract entry point (ie function selector).
+pub type EntryPointSelector = Felt;
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+#[cfg_attr(feature = "serde", derive(serde::Serialize, serde::Deserialize))]
+pub struct FunctionCall {
+    /// The contract function selector.
+    pub entry_point_selector: EntryPointSelector,
+    /// The address of the contract whose function you're calling.
+    pub contract_address: ContractAddress,
+    /// The input to the function.
+    pub calldata: Vec<Felt>,
+}
 
 #[derive(Debug, Clone, PartialEq)]
 #[cfg_attr(feature = "serde", derive(serde::Serialize, serde::Deserialize))]
