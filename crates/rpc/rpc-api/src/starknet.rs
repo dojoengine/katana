@@ -12,8 +12,9 @@ use katana_rpc_types::block::{
     MaybePreConfirmedBlockWithTxHashes, MaybePreConfirmedBlockWithTxs,
 };
 use katana_rpc_types::broadcasted::{
-    AddDeclareTransactionResult, AddDeployAccountTransactionResult, AddInvokeTransactionResult,
-    BroadcastedDeclareTx, BroadcastedDeployAccountTx, BroadcastedInvokeTx, BroadcastedTx,
+    AddDeclareTransactionResponse, AddDeployAccountTransactionResponse,
+    AddInvokeTransactionResponse, BroadcastedDeclareTx, BroadcastedDeployAccountTx,
+    BroadcastedInvokeTx, BroadcastedTx,
 };
 use katana_rpc_types::class::Class;
 use katana_rpc_types::event::{EventFilterWithPage, EventsPage};
@@ -21,7 +22,7 @@ use katana_rpc_types::message::MsgFromL1;
 use katana_rpc_types::receipt::TxReceiptWithBlockInfo;
 use katana_rpc_types::state_update::MaybePreConfirmedStateUpdate;
 use katana_rpc_types::transaction::Tx;
-use katana_rpc_types::trie::{ContractStorageKeys, GetStorageProofResult};
+use katana_rpc_types::trie::{ContractStorageKeys, GetStorageProofResponse};
 use katana_rpc_types::{
     EstimateFeeSimulationFlag, FeeEstimate, FunctionCall, MessageFeeEstimate, SimulationFlag,
     SyncingStatus,
@@ -193,7 +194,7 @@ pub trait StarknetApi {
         class_hashes: Option<Vec<ClassHash>>,
         contract_addresses: Option<Vec<ContractAddress>>,
         contracts_storage_keys: Option<Vec<ContractStorageKeys>>,
-    ) -> RpcResult<GetStorageProofResult>;
+    ) -> RpcResult<GetStorageProofResponse>;
 }
 
 /// Write API.
@@ -205,21 +206,21 @@ pub trait StarknetWriteApi {
     async fn add_invoke_transaction(
         &self,
         invoke_transaction: BroadcastedInvokeTx,
-    ) -> RpcResult<AddInvokeTransactionResult>;
+    ) -> RpcResult<AddInvokeTransactionResponse>;
 
     /// Submit a new class declaration transaction.
     #[method(name = "addDeclareTransaction")]
     async fn add_declare_transaction(
         &self,
         declare_transaction: BroadcastedDeclareTx,
-    ) -> RpcResult<AddDeclareTransactionResult>;
+    ) -> RpcResult<AddDeclareTransactionResponse>;
 
     /// Submit a new deploy account transaction.
     #[method(name = "addDeployAccountTransaction")]
     async fn add_deploy_account_transaction(
         &self,
         deploy_account_transaction: BroadcastedDeployAccountTx,
-    ) -> RpcResult<AddDeployAccountTransactionResult>;
+    ) -> RpcResult<AddDeployAccountTransactionResponse>;
 }
 
 /// Trace API.

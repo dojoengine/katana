@@ -15,17 +15,18 @@ use blockifier::state::cached_state::CachedState;
 use blockifier::state::state_api::StateReader;
 use blockifier::transaction::objects::{DeprecatedTransactionInfo, TransactionInfo};
 use cairo_vm::vm::runners::cairo_runner::RunResources;
+use katana_primitives::execution::FunctionCall;
 use katana_primitives::Felt;
 use starknet_api::core::EntryPointSelector;
 use starknet_api::execution_resources::GasAmount;
 use starknet_api::transaction::fields::Calldata;
 
 use super::utils::to_blk_address;
-use crate::{EntryPointCall, ExecutionError};
+use crate::ExecutionError;
 
 /// Perform a function call on a contract and retrieve the return values.
 pub fn execute_call<S: StateReader>(
-    request: EntryPointCall,
+    request: FunctionCall,
     state: &mut CachedState<S>,
     block_context: Arc<BlockContext>,
     max_gas: u64,
@@ -35,7 +36,7 @@ pub fn execute_call<S: StateReader>(
 }
 
 fn execute_call_inner<S: StateReader>(
-    request: EntryPointCall,
+    request: FunctionCall,
     state: &mut CachedState<S>,
     block_context: Arc<BlockContext>,
     max_gas: u64,
@@ -110,6 +111,7 @@ mod tests {
     use blockifier::execution::errors::EntryPointExecutionError;
     use blockifier::state::cached_state::{self};
     use katana_primitives::class::ContractClass;
+    use katana_primitives::execution::FunctionCall;
     use katana_primitives::{address, felt, ContractAddress};
     use katana_provider::test_utils;
     use katana_provider::traits::contract::ContractClassWriter;
@@ -118,7 +120,6 @@ mod tests {
 
     use super::execute_call_inner;
     use crate::implementation::blockifier::state::StateProviderDb;
-    use crate::EntryPointCall;
 
     #[test]
     fn max_steps() {
@@ -148,7 +149,7 @@ mod tests {
         let mut state = cached_state::CachedState::new(state);
         let ctx = Arc::new(BlockContext::create_for_testing());
 
-        let mut req = EntryPointCall {
+        let mut req = FunctionCall {
             calldata: Vec::new(),
             contract_address: address,
             entry_point_selector: selector!("bounded_call"),
@@ -226,7 +227,7 @@ mod tests {
         let mut state = cached_state::CachedState::new(state);
         let ctx = Arc::new(BlockContext::create_for_testing());
 
-        let req = EntryPointCall {
+        let req = FunctionCall {
             calldata: Vec::new(),
             contract_address: address,
             entry_point_selector: selector!("call_with_panic"),

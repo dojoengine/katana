@@ -3,14 +3,12 @@ use std::sync::Arc;
 use katana_executor::implementation::blockifier::cache::ClassCache;
 use katana_executor::implementation::blockifier::state::CachedState;
 use katana_executor::implementation::blockifier::utils::{self, block_context_from_envs};
-use katana_executor::{
-    EntryPointCall, ExecutionError, ExecutionFlags, ExecutionResult, ResultAndStates,
-};
+use katana_executor::{ExecutionError, ExecutionFlags, ExecutionResult, ResultAndStates};
 use katana_primitives::env::{BlockEnv, CfgEnv};
 use katana_primitives::transaction::ExecutableTxWithHash;
 use katana_primitives::Felt;
 use katana_provider::traits::state::StateProvider;
-use katana_rpc_types::FeeEstimate;
+use katana_rpc_types::{FeeEstimate, FunctionCall};
 
 #[tracing::instrument(level = "trace", target = "rpc", skip_all, fields(total_txs = transactions.len()))]
 pub fn simulate(
@@ -102,7 +100,7 @@ pub fn call<P: StateProvider>(
     state: P,
     block_env: BlockEnv,
     cfg_env: CfgEnv,
-    call: EntryPointCall,
+    call: FunctionCall,
     max_call_gas: u64,
 ) -> Result<Vec<Felt>, ExecutionError> {
     let block_context = Arc::new(block_context_from_envs(&block_env, &cfg_env));

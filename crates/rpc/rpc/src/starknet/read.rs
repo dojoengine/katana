@@ -5,7 +5,7 @@ use std::sync::Arc;
 use anyhow::anyhow;
 use jsonrpsee::core::{async_trait, RpcResult};
 use jsonrpsee::types::ErrorObjectOwned;
-use katana_executor::{EntryPointCall, ExecutorFactory};
+use katana_executor::ExecutorFactory;
 use katana_primitives::block::BlockIdOrTag;
 use katana_primitives::class::ClassHash;
 use katana_primitives::contract::{Nonce, StorageKey, StorageValue};
@@ -28,7 +28,7 @@ use katana_rpc_types::message::MsgFromL1;
 use katana_rpc_types::receipt::TxReceiptWithBlockInfo;
 use katana_rpc_types::state_update::MaybePreConfirmedStateUpdate;
 use katana_rpc_types::transaction::Tx;
-use katana_rpc_types::trie::{ContractStorageKeys, GetStorageProofResult};
+use katana_rpc_types::trie::{ContractStorageKeys, GetStorageProofResponse};
 use katana_rpc_types::{EstimateFeeSimulationFlag, FeeEstimate, FunctionCall, MessageFeeEstimate};
 use starknet::core::types::TransactionStatus;
 
@@ -135,12 +135,6 @@ impl<EF: ExecutorFactory> StarknetApiServer for StarknetApi<EF> {
 
     async fn call(&self, request: FunctionCall, block_id: BlockIdOrTag) -> RpcResult<Vec<Felt>> {
         self.on_io_blocking_task(move |this| {
-            let request = EntryPointCall {
-                calldata: request.calldata,
-                contract_address: request.contract_address.into(),
-                entry_point_selector: request.entry_point_selector,
-            };
-
             // get the state and block env at the specified block for function call execution
             let state = this.state(&block_id)?;
             let env = this.block_env_at(&block_id)?;
@@ -377,7 +371,7 @@ impl<EF: ExecutorFactory> StarknetApiServer for StarknetApi<EF> {
         class_hashes: Option<Vec<ClassHash>>,
         contract_addresses: Option<Vec<ContractAddress>>,
         contracts_storage_keys: Option<Vec<ContractStorageKeys>>,
-    ) -> RpcResult<GetStorageProofResult> {
+    ) -> RpcResult<GetStorageProofResponse> {
         let proofs = self
             .get_proofs(block_id, class_hashes, contract_addresses, contracts_storage_keys)
             .await?;

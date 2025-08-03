@@ -20,7 +20,8 @@ pub mod trie;
 
 use serde::{Deserialize, Serialize};
 
-pub type FunctionCall = starknet::core::types::FunctionCall;
+/// Request type for `starknet_call` RPC method.
+pub type FunctionCall = katana_primitives::execution::FunctionCall;
 
 pub type FeeEstimate = starknet::core::types::FeeEstimate;
 

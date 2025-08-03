@@ -48,7 +48,7 @@ use katana_primitives::{ContractAddress, Felt};
 use katana_provider::traits::state::{StateFactoryProvider, StateProvider};
 use katana_rpc_api::cartridge::CartridgeApiServer;
 use katana_rpc_api::error::starknet::StarknetApiError;
-use katana_rpc_types::broadcasted::AddInvokeTransactionResult;
+use katana_rpc_types::broadcasted::AddInvokeTransactionResponse;
 use katana_rpc_types::outside_execution::{
     OutsideExecution, OutsideExecutionV2, OutsideExecutionV3,
 };
@@ -125,7 +125,7 @@ impl<EF: ExecutorFactory> CartridgeApi<EF> {
         address: ContractAddress,
         outside_execution: OutsideExecution,
         signature: Vec<Felt>,
-    ) -> Result<AddInvokeTransactionResult, StarknetApiError> {
+    ) -> Result<AddInvokeTransactionResponse, StarknetApiError> {
         debug!(%address, ?outside_execution, "Adding execute outside transaction.");
         self.on_io_blocking_task(move |this| {
             // For now, we use the first predeployed account in the genesis as the paymaster
@@ -265,7 +265,7 @@ impl<EF: ExecutorFactory> CartridgeApi<EF> {
             let tx = ExecutableTxWithHash::new(ExecutableTx::Invoke(InvokeTx::V3(tx)));
             let transaction_hash = this.pool.add_transaction(tx)?;
 
-            Ok(AddInvokeTransactionResult {transaction_hash})
+            Ok(AddInvokeTransactionResponse {transaction_hash})
         })
         .await
     }
@@ -287,7 +287,7 @@ impl<EF: ExecutorFactory> CartridgeApiServer for CartridgeApi<EF> {
         address: ContractAddress,
         outside_execution: OutsideExecution,
         signature: Vec<Felt>,
-    ) -> RpcResult<AddInvokeTransactionResult> {
+    ) -> RpcResult<AddInvokeTransactionResponse> {
         Ok(self.execute_outside(address, outside_execution, signature).await?)
     }
 }

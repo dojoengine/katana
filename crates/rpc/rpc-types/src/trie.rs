@@ -69,7 +69,7 @@ impl MerkleNode {
 /// it may end in an edge node whose path is not a prefix of the requested leaf, thus effectively
 /// proving non-membership
 #[derive(Debug, Clone, Serialize, Deserialize)]
-pub struct GetStorageProofResult {
+pub struct GetStorageProofResponse {
     pub global_roots: GlobalRoots,
     pub classes_proof: ClassesProof,
     pub contracts_proof: ContractsProof,
