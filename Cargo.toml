@@ -122,7 +122,6 @@ clap_complete = "4.3"
 colored = "2.0.0"
 console = "0.15.7"
 derive_more = "0.99.17"
-dojo-utils = { git = "https://github.com/dojoengine/dojo", tag = "v1.2.2" }
 flate2 = "1.0.35"
 futures = "0.3.30"
 futures-util = "0.3.30"

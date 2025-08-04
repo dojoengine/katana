@@ -52,7 +52,6 @@ alloy-primitives = { workspace = true, features = [ "serde" ] }
 assert_matches.workspace = true
 cainome.workspace = true
 cairo-lang-starknet-classes.workspace = true
-dojo-utils.workspace = true
 indexmap.workspace = true
 jsonrpsee = { workspace = true, features = [ "client" ] }
 num-traits.workspace = true

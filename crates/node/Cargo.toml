@@ -41,7 +41,6 @@ strum.workspace = true
 strum_macros.workspace = true
 
 clap = { workspace = true, optional = true }
-dojo-utils = { workspace = true, optional = true }
 katana-feeder-gateway = { workspace = true, optional = true }
 tokio = { workspace = true, features = [ "time" ], optional = true }
 tracing-log = { workspace = true, optional = true }
