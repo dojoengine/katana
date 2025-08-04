@@ -147,7 +147,7 @@ impl NodeArgs {
 
         // Wait until an OS signal (ie SIGINT, SIGTERM) is received or the node is shutdown.
         tokio::select! {
-            _ = dojo_utils::signal::wait_signals() => {
+            _ = katana_utils::wait_shutdown_signals() => {
                 // Gracefully shutdown the node before exiting
                 handle.stop().await?;
             },

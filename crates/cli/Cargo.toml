@@ -14,12 +14,12 @@ katana-primitives.workspace = true
 katana-rpc.workspace = true
 katana-slot-controller = { workspace = true, optional = true }
 katana-tracing.workspace = true
+katana-utils.workspace = true
 
 alloy-primitives.workspace = true
 anyhow.workspace = true
 clap.workspace = true
 console.workspace = true
-dojo-utils.workspace = true
 serde.workspace = true
 serde_json.workspace = true
 shellexpand = "3.1.0"

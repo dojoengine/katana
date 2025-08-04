@@ -1,10 +1,12 @@
-pub mod node;
-mod tx_waiter;
-
-// Re-export the Arbitrary trait and related types
 pub use arbitrary::{Arbitrary, Unstructured};
 pub use katana_utils_macro::mock_provider;
+
+pub mod node;
+mod signal;
+mod tx_waiter;
+
 pub use node::TestNode;
+pub use signal::wait_shutdown_signals;
 pub use tx_waiter::*;
 
 /// Generate a random bytes vector of the given size.
