@@ -568,7 +568,10 @@ where
 
                     // TODO: should impl From<ExecutionResult> for TransactionStatus
                     let status = match res {
-                        ExecutionResult::Failed { .. } => TransactionStatus::Rejected,
+                        ExecutionResult::Failed { error } => {
+                            TransactionStatus::Rejected { reason: error.to_string() }
+                        }
+
                         ExecutionResult::Success { receipt, .. } => {
                             if let Some(reason) = receipt.revert_reason() {
                                 TransactionStatus::AcceptedOnL2(
