@@ -24,8 +24,6 @@ comfy-table = "7.1.1"
 const_format = "0.2.33"
 indicatif = "0.17.8"
 inquire = "0.7.5"
-# Rev on branch starknet 0.15.1.
-piltover = { git = "https://github.com/cartridge-gg/piltover.git", rev = "3bed7ac554259668dbdce6a5f56de5b2bf7faf43" }
 rand.workspace = true
 shellexpand = "3.1.0"
 spinoff.workspace = true
@@ -39,6 +37,9 @@ url.workspace = true
 colored_json = { version = "5.0", optional = true }
 serde = { workspace = true, optional = true }
 serde_json = { workspace = true, optional = true }
+
+# piltover rev with starknet 0.16.0
+piltover = { git = "https://github.com/kariy/piltover.git", rev = "ff4a519" }
 
 [build-dependencies]
 vergen = { version = "9.0.0", features = [ "build", "cargo", "emit_and_set" ] }

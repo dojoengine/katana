@@ -26,8 +26,8 @@ pub enum TxWaitingError {
     #[error("transaction reverted with reason: {0}")]
     TransactionReverted(String),
 
-    #[error("transaction rejected")]
-    TransactionRejected,
+    #[error("transaction rejected with reason: {0}")]
+    TransactionRejected(String),
 
     #[error(transparent)]
     Provider(ProviderError),
@@ -210,8 +210,9 @@ impl<P: Provider + Send> Future for TxWaiter<'_, P> {
                                 ));
                             }
 
-                            TransactionStatus::Rejected => {
-                                return Poll::Ready(Err(TxWaitingError::TransactionRejected));
+                            TransactionStatus::Rejected { reason } => {
+                                let error = TxWaitingError::TransactionRejected(reason);
+                                return Poll::Ready(Err(error));
                             }
 
                             TransactionStatus::Received => {}
