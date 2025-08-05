@@ -77,7 +77,7 @@ async fn main() -> Result<()> {
     let node = Node::build(config)?.launch()?;
 
     tokio::select! {
-        _ = dojo_utils::signal::wait_signals() => {
+        _ = katana_utils::wait_shutdown_signals() => {
             // Gracefully shutdown the node before exiting
             node.stop().await?;
         },

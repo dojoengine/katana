@@ -23,4 +23,4 @@ futures.workspace = true
 rand.workspace = true
 starknet.workspace = true
 thiserror.workspace = true
-tokio = { workspace = true, features = [ "time" ] }
+tokio = { workspace = true, features = [ "macros", "signal", "time" ], default-features = false }
