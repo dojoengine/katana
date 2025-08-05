@@ -194,6 +194,10 @@ impl<Db: Database> TransactionsProviderExt for ForkedProvider<Db> {
     fn transaction_hashes_in_range(&self, range: Range<TxNumber>) -> ProviderResult<Vec<TxHash>> {
         self.provider.transaction_hashes_in_range(range)
     }
+
+    fn total_transactions(&self) -> ProviderResult<usize> {
+        self.provider.total_transactions()
+    }
 }
 
 impl<Db: Database> TransactionStatusProvider for ForkedProvider<Db> {
