@@ -1,5 +1,5 @@
 window.BENCHMARK_DATA = {
-  "lastUpdate": 1754331817302,
+  "lastUpdate": 1754352384454,
   "repoUrl": "https://github.com/dojoengine/katana",
   "entries": {
     "Benchmark": [
@@ -3551,6 +3551,72 @@ window.BENCHMARK_DATA = {
             "name": "Katana.Startup",
             "value": 127647486,
             "range": "± 613089",
+            "unit": "ns/iter"
+          }
+        ]
+      },
+      {
+        "commit": {
+          "author": {
+            "email": "evergreenkary@gmail.com",
+            "name": "Ammar Arif",
+            "username": "kariy"
+          },
+          "committer": {
+            "email": "noreply@github.com",
+            "name": "GitHub",
+            "username": "web-flow"
+          },
+          "distinct": true,
+          "id": "0acf03abd0742455dc4d93171400652c63e75f0d",
+          "message": "chore(utils): remove dependency on `dojo-utils` (#213)\n\nThe motivation to remove the reliance on `dojo-utils` is so to avoid having version conflicts when bumping shared dependencies (primarily the `starknet` crate). \n\nIn some cases, when we're attempting to bump `starknet` crate version on Katana, it'd conflict with the version of `starknet` required by `dojo-utils`. Even though the stuff we're importing from `dojo-utils` doesn't rely on `starknet` at all (this is the case with the `dojo_utils::signal::wait_signals` function).",
+          "timestamp": "2025-08-05T07:56:46+08:00",
+          "tree_id": "6f11ff49d73cc4760f475ede4cbd75beb9ae5089",
+          "url": "https://github.com/dojoengine/katana/commit/0acf03abd0742455dc4d93171400652c63e75f0d"
+        },
+        "date": 1754352382927,
+        "tool": "cargo",
+        "benches": [
+          {
+            "name": "Commit.Small/Parallel",
+            "value": 458498,
+            "range": "± 7051",
+            "unit": "ns/iter"
+          },
+          {
+            "name": "Commit.Big/Serial",
+            "value": 93988947,
+            "range": "± 449114",
+            "unit": "ns/iter"
+          },
+          {
+            "name": "Commit.Big/Parallel",
+            "value": 65210818,
+            "range": "± 3034250",
+            "unit": "ns/iter"
+          },
+          {
+            "name": "compress world contract",
+            "value": 2679792,
+            "range": "± 19083",
+            "unit": "ns/iter"
+          },
+          {
+            "name": "decompress world contract",
+            "value": 3064565,
+            "range": "± 10688",
+            "unit": "ns/iter"
+          },
+          {
+            "name": "Invoke.ERC20.transfer/Blockifier.Cold",
+            "value": 16815512,
+            "range": "± 326487",
+            "unit": "ns/iter"
+          },
+          {
+            "name": "Katana.Startup",
+            "value": 127343456,
+            "range": "± 298852",
             "unit": "ns/iter"
           }
         ]
