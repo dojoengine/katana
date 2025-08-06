@@ -47,8 +47,10 @@ katana-rpc-api = { workspace = true, features = [ "client" ] }
 katana-trie.workspace = true
 katana-utils.workspace = true
 
-alloy = { git = "https://github.com/alloy-rs/alloy", features = [ "contract", "network", "node-bindings", "provider-http", "providers", "signer-local" ] }
+# alloy = { git = "https://github.com/alloy-rs/alloy", features = [ "contract", "network", "node-bindings", "provider-http", "providers", "signer-local" ] }
 alloy-primitives = { workspace = true, features = [ "serde" ] }
+alloy-provider.workspace = true
+
 assert_matches.workspace = true
 cainome.workspace = true
 cairo-lang-starknet-classes.workspace = true
