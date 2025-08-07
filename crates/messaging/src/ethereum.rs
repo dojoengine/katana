@@ -149,7 +149,7 @@ impl Messenger for EthereumMessaging {
 
 // TODO: refactor this as a method of the message log struct
 fn l1_handler_tx_from_log(log: Log, chain_id: ChainId) -> MessengerResult<L1HandlerTx> {
-    let log = LogMessageToL2::decode_log(log.as_ref(), false).unwrap();
+    let log = LogMessageToL2::decode_log(log.as_ref()).unwrap();
 
     let from_address = EthAddress::try_from(log.from_address.as_slice()).expect("valid address");
     let contract_address = felt_from_u256(log.to_address);
