@@ -5,7 +5,7 @@ use std::sync::Arc;
 
 use alloy_network::Ethereum;
 use alloy_primitives::{Address, U256};
-use alloy_provider::{Provider, ReqwestProvider};
+use alloy_provider::{Provider, RootProvider};
 use alloy_rpc_types_eth::{BlockNumberOrTag, Filter, FilterBlockOption, FilterSet, Log, Topic};
 use alloy_sol_types::{sol, SolEvent};
 use anyhow::Result;
@@ -43,14 +43,14 @@ sol! {
 
 #[derive(Debug)]
 pub struct EthereumMessaging {
-    provider: Arc<ReqwestProvider<Ethereum>>,
+    provider: Arc<RootProvider<Ethereum>>,
     messaging_contract_address: Address,
 }
 
 impl EthereumMessaging {
     pub async fn new(config: MessagingConfig) -> Result<EthereumMessaging> {
         Ok(EthereumMessaging {
-            provider: Arc::new(ReqwestProvider::<Ethereum>::new_http(reqwest::Url::parse(
+            provider: Arc::new(RootProvider::<Ethereum>::new_http(reqwest::Url::parse(
                 &config.rpc_url,
             )?)),
             messaging_contract_address: config.contract_address.parse::<Address>()?,
@@ -149,7 +149,7 @@ impl Messenger for EthereumMessaging {
 
 // TODO: refactor this as a method of the message log struct
 fn l1_handler_tx_from_log(log: Log, chain_id: ChainId) -> MessengerResult<L1HandlerTx> {
-    let log = LogMessageToL2::decode_log(log.as_ref(), false).unwrap();
+    let log = LogMessageToL2::decode_log(log.as_ref()).unwrap();
 
     let from_address = EthAddress::try_from(log.from_address.as_slice()).expect("valid address");
     let contract_address = felt_from_u256(log.to_address);
