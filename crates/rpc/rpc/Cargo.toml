@@ -47,8 +47,12 @@ katana-rpc-api = { workspace = true, features = [ "client" ] }
 katana-trie.workspace = true
 katana-utils.workspace = true
 
+alloy-contract = { workspace = true, default-features = false }
+alloy-node-bindings = "1.0.24"
 alloy-primitives = { workspace = true, features = [ "serde" ] }
+alloy-provider = { workspace = true, default-features = false, features = [ "anvil-node", "reqwest", "reqwest-rustls-tls" ] }
 alloy-sol-types.workspace = true
+
 assert_matches.workspace = true
 cainome.workspace = true
 cairo-lang-starknet-classes.workspace = true
