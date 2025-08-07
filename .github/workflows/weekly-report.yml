@@ -91,7 +91,7 @@ jobs:
         id: size-report
         shell: bash
         run: |
-          REPORT=$(./scripts/generate-weekly-binary-size-report.sh "${{ needs.latest-release-size.outputs.branch }}" ${{ needs.latest-release-size.outputs.size }} "${{ needs.current-main-size.outputs.branch }}" ${{ needs.current-main-size.outputs.size }} "${{ needs.current-main-size.outputs.commit }}")
+          REPORT=$(./scripts/generate-binary-size-report.sh "${{ needs.latest-release-size.outputs.branch }}" ${{ needs.latest-release-size.outputs.size }} ${{ needs.current-main-size.outputs.size }} "${{ needs.current-main-size.outputs.commit }}")
           echo "report<<EOF" >> $GITHUB_OUTPUT
           echo "$REPORT" >> $GITHUB_OUTPUT
           echo "EOF" >> $GITHUB_OUTPUT
