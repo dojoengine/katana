@@ -1,5 +1,5 @@
 window.BENCHMARK_DATA = {
-  "lastUpdate": 1754352384454,
+  "lastUpdate": 1754592783826,
   "repoUrl": "https://github.com/dojoengine/katana",
   "entries": {
     "Benchmark": [
@@ -3617,6 +3617,72 @@ window.BENCHMARK_DATA = {
             "name": "Katana.Startup",
             "value": 127343456,
             "range": "± 298852",
+            "unit": "ns/iter"
+          }
+        ]
+      },
+      {
+        "commit": {
+          "author": {
+            "email": "evergreenkary@gmail.com",
+            "name": "Ammar Arif",
+            "username": "kariy"
+          },
+          "committer": {
+            "email": "noreply@github.com",
+            "name": "GitHub",
+            "username": "web-flow"
+          },
+          "distinct": true,
+          "id": "8435c99e08f9a9f9d42490c9922feee27555e790",
+          "message": "chore: bump alloy and friends (#215)\n\nThis is a general maintenance dependencies update but also seems to be a required update when I'm trying to upgrade Katana to RPC 0.9.\n\nThis is currently block as since [`alloy@1.0.23`](https://github.com/alloy-rs/alloy/releases/tag/v1.0.23) they have bumped msrv (minimal supported Rust version) to 1.86.0. We could avoid having to bump the msrv for Katana by pinning the exact Alloy version to `1.0.22`, but to avoid possible version conflicts in the future with upstream (and downstream) crates we just let Cargo decides what patch version to use.\n\nThe `snos` related crates are bumped mainly to resolve version conflicts involving the `c-kzg` crate: https://github.com/cartridge-gg/snos/commit/266be0263de358529d2073ae0e6f9cb952e8f89d",
+          "timestamp": "2025-08-08T02:32:13+08:00",
+          "tree_id": "e3e74105733de127129ec304ced7bd492bfe3523",
+          "url": "https://github.com/dojoengine/katana/commit/8435c99e08f9a9f9d42490c9922feee27555e790"
+        },
+        "date": 1754592782588,
+        "tool": "cargo",
+        "benches": [
+          {
+            "name": "Commit.Small/Parallel",
+            "value": 427048,
+            "range": "± 8538",
+            "unit": "ns/iter"
+          },
+          {
+            "name": "Commit.Big/Serial",
+            "value": 94703121,
+            "range": "± 2288185",
+            "unit": "ns/iter"
+          },
+          {
+            "name": "Commit.Big/Parallel",
+            "value": 65858555,
+            "range": "± 2293898",
+            "unit": "ns/iter"
+          },
+          {
+            "name": "compress world contract",
+            "value": 2758497,
+            "range": "± 7481",
+            "unit": "ns/iter"
+          },
+          {
+            "name": "decompress world contract",
+            "value": 3056765,
+            "range": "± 21993",
+            "unit": "ns/iter"
+          },
+          {
+            "name": "Invoke.ERC20.transfer/Blockifier.Cold",
+            "value": 17689828,
+            "range": "± 982621",
+            "unit": "ns/iter"
+          },
+          {
+            "name": "Katana.Startup",
+            "value": 129126161,
+            "range": "± 738089",
             "unit": "ns/iter"
           }
         ]
