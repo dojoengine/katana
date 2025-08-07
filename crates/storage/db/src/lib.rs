@@ -97,7 +97,7 @@ impl Db {
     /// shouldn't be used in the case where data persistence is required. For that, use
     /// [`init_db`].
     pub fn in_memory() -> anyhow::Result<Self> {
-        let dir = tempfile::Builder::new().keep(true).tempdir()?;
+        let dir = tempfile::Builder::new().disable_cleanup(true).tempdir()?;
         let path = dir.path();
 
         let env = mdbx::DbEnvBuilder::new()
