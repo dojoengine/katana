@@ -53,7 +53,9 @@ impl<'a> CachedState<'a> {
     {
         let mut inner = self.inner.lock();
         let mut state = cached_state::CachedState::new(MutRefState::new(&mut inner.cached_state));
-        f(&mut state)
+        let result = f(&mut state);
+        state.commit();
+        result
     }
 
     pub fn with_cached_state_and_declared_classes<F, R>(&self, f: F) -> R

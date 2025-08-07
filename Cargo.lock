@@ -6086,7 +6086,6 @@ dependencies = [
  "anyhow",
  "arbitrary",
  "assert_matches",
- "blockifier 0.0.0 (git+https://github.com/dojoengine/sequencer?rev=5d737b9c9)",
  "criterion",
  "derive_more 0.99.19",
  "futures",
