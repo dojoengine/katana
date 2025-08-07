@@ -177,18 +177,16 @@ tonic-build = "0.11"
 criterion = "0.5.1"
 pprof = { version = "0.13.0", features = [ "criterion", "flamegraph" ] }
 
-# alloy core
-alloy-primitives = { version = "0.8", default-features = false }
-alloy-sol-types = { version = "0.8", default-features = false }
-# alloy
-alloy-contract = { version = "0.4", default-features = false }
-alloy-json-rpc = { version = "0.4", default-features = false }
-alloy-network = { version = "0.4", default-features = false }
-alloy-provider = { version = "0.4", default-features = false }
-alloy-rpc-types-eth = { version = "0.4", default-features = false }
-alloy-signer = { version = "0.4", default-features = false }
-alloy-transport = { version = "0.4", default-features = false }
-alloy-transport-http = { version = "0.4", default-features = false }
+# alloys
+alloy-contract = { version = "1.0", default-features = false }
+alloy-network = { version = "1.0", default-features = false }
+alloy-primitives = { version = "1.0", default-features = false }
+alloy-provider = { version = "1.0", default-features = false }
+alloy-rpc-types-eth = { version = "1.0", default-features = false }
+alloy-signer = { version = "1.0", default-features = false }
+alloy-sol-types = { version = "1.0", default-features = false }
+alloy-transport = { version = "1.0", default-features = false }
+alloy-transport-http = { version = "1.0", default-features = false }
 
 # macro
 proc-macro2 = "1.0"

@@ -2,9 +2,9 @@ use std::path::PathBuf;
 use std::str::FromStr;
 use std::time::Duration;
 
-use alloy::primitives::{Uint, U256};
-use alloy::providers::ProviderBuilder;
-use alloy::sol;
+use alloy_primitives::{Uint, U256};
+use alloy_providers::ProviderBuilder;
+use alloy_sol_types::sol;
 use anyhow::Result;
 use cainome::rs::abigen;
 use katana_messaging::MessagingConfig;
