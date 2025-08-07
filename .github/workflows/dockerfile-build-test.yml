@@ -5,6 +5,10 @@ on:
     paths:
       - ".github/Dockerfile"
 
+env:
+  RUST_VERSION: 1.86.0
+  CLIPPY_VERSION: nightly-2025-02-20
+
 jobs:
   build-dev-image:
     runs-on: ubuntu-latest
@@ -25,7 +29,7 @@ jobs:
           file: .github/Dockerfile
           platforms: ${{ matrix.platform }}
           build-args: |
-            RUST_VERSION=1.85.0
-            CLIPPY_VERSION=nightly-2025-02-20
+            RUST_VERSION=${{ env.RUST_VERSION }}
+            CLIPPY_VERSION=${{ env.CLIPPY_VERSION }}
           cache-from: type=gha
           cache-to: type=gha,mode=max

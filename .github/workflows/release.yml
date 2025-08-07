@@ -12,6 +12,7 @@ on:
       - main
 
 env:
+  RUST_VERSION: 1.86.0
   CARGO_TERM_COLOR: always
   REGISTRY_IMAGE: ghcr.io/${{ github.repository }}
 
@@ -135,7 +136,7 @@ jobs:
       - uses: actions-rust-lang/setup-rust-toolchain@v1
         name: Rust Toolchain Setup
         with:
-          toolchain: "1.85.0"
+          toolchain: ${{ env.RUST_VERSION }}
           target: ${{ matrix.job.target }}
           cache-on-failure: true
           cache-key: ${{ matrix.job.target }}

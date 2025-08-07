@@ -5,7 +5,15 @@ on:
       version:
         description: Version to release
         required: true
-        type: string
+        type: choice
+        options:
+          - major
+          - minor
+          - patch,
+          - release
+          - rc
+          - beta
+          - alpha
 
 jobs:
   propose-release:
