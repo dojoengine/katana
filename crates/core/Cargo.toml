@@ -19,7 +19,6 @@ katana-tasks.workspace = true
 katana-trie.workspace = true
 
 anyhow.workspace = true
-blockifier.workspace = true
 derive_more.workspace = true
 futures.workspace = true
 lazy_static.workspace = true

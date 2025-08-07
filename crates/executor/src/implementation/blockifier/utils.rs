@@ -11,7 +11,7 @@ use blockifier::execution::contract_class::{
 use blockifier::fee::fee_utils::get_fee_by_gas_vector;
 use blockifier::state::cached_state::{self, TransactionalState};
 use blockifier::state::state_api::{StateReader, UpdatableState};
-use blockifier::state::stateful_compression::compress;
+use blockifier::state::stateful_compression::{allocate_aliases_in_storage, compress};
 use blockifier::transaction::account_transaction::{
     AccountTransaction, ExecutionFlags as BlockifierExecutionFlags,
 };
@@ -492,8 +492,10 @@ pub(super) fn state_update_from_cached_state(state: &CachedState<'_>) -> StateUp
     let state_diff = state.inner.lock().cached_state.to_state_diff().unwrap().state_maps;
 
     let compressed_state_diff = state
-        .with_cached_state_and_declared_classes(|state, _| {
-            compress(&state_diff, state, contract_address!("0x2"))
+        .with_mut_cached_state(|state| {
+            let alias_contract_address = contract_address!("0x2");
+            allocate_aliases_in_storage(state, alias_contract_address)?;
+            compress(&state_diff, state, alias_contract_address)
         })
         .expect("failed to apply stateful compression to state diff");
 
