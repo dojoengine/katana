@@ -491,6 +491,7 @@ pub fn block_context_from_envs(block_env: &BlockEnv, cfg_env: &CfgEnv) -> BlockC
 pub(super) fn state_update_from_cached_state(state: &CachedState<'_>) -> StateUpdatesWithClasses {
     let state_diff = state.inner.lock().cached_state.to_state_diff().unwrap().state_maps;
 
+    // stateful compression should be applied conditionally
     let compressed_state_diff = state
         .with_mut_cached_state(|state| {
             let alias_contract_address = contract_address!("0x2");
