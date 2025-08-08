@@ -20,7 +20,7 @@ mock_provider! {
     MyMockProvider,
 
     // Mock the get_block_with_txs method
-    fn get_block_with_txs: (block_id) => {
+    fn get_block_with_txs: (_) => {
         println!("Mock get_block_with_txs called");
         Ok(MaybePreConfirmedBlockWithTxs::PreConfirmedBlock(PreConfirmedBlockWithTxs {
            block_number: 0,
@@ -36,7 +36,7 @@ mock_provider! {
     },
 
     // Mock the get_storage_at method using custom parameter names
-    fn get_storage_at: (addr, storage_key, block) => {
+    fn get_storage_at: (addr, storage_key, _) => {
         println!("Mock get_storage_at called with custom parameter names:");
         println!("  addr: {}", addr.as_ref());
         println!("  storage_key: {}", storage_key.as_ref());
@@ -76,7 +76,7 @@ mock_provider! {
     },
 
     // Example with very descriptive custom parameter names
-    fn get_nonce: (at_block_identifier, for_account_address) => {
+    fn get_nonce: (_, for_account_address) => {
         println!("Getting nonce for account: {}", for_account_address.as_ref());
         Ok(Felt::from(42u32))
     }

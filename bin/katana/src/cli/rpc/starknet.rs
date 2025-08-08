@@ -463,8 +463,81 @@ impl std::str::FromStr for ConfirmedBlockIdArg {
         Ok(ConfirmedBlockIdArg(id))
     }
 }
+
 impl Default for ConfirmedBlockIdArg {
     fn default() -> Self {
         ConfirmedBlockIdArg(ConfirmedBlockId::Latest)
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use std::str::FromStr;
+
+    use starknet::core::types::{BlockId, BlockTag, ConfirmedBlockId};
+
+    use super::{BlockIdArg, ConfirmedBlockIdArg};
+
+    #[test]
+    fn block_id_arg_from_str() {
+        // Test tag parsing
+        let latest = BlockIdArg::from_str("latest").unwrap();
+        assert!(matches!(latest.0, BlockId::Tag(BlockTag::Latest)));
+
+        let l1_accepted = BlockIdArg::from_str("l1_accepted").unwrap();
+        assert!(matches!(l1_accepted.0, BlockId::Tag(BlockTag::L1Accepted)));
+
+        let preconfirmed = BlockIdArg::from_str("preconfirmed").unwrap();
+        assert!(matches!(preconfirmed.0, BlockId::Tag(BlockTag::PreConfirmed)));
+
+        // Test hash parsing
+        let hash = BlockIdArg::from_str("0x1234567890abcdef").unwrap();
+        assert!(matches!(hash.0, BlockId::Hash(_)));
+
+        // Test number parsing
+        let number = BlockIdArg::from_str("12345").unwrap();
+        assert!(matches!(number.0, BlockId::Number(12345)));
+
+        // Test invalid hash
+        assert!(BlockIdArg::from_str("0xinvalid").is_err());
+
+        // Test invalid number
+        assert!(BlockIdArg::from_str("not_a_number").is_err());
+    }
+
+    #[test]
+    fn block_id_arg_default() {
+        let default = BlockIdArg::default();
+        assert!(matches!(default.0, BlockId::Tag(BlockTag::Latest)));
+    }
+
+    #[test]
+    fn confirmed_block_id_arg_from_str() {
+        // Test tag parsing
+        let latest = ConfirmedBlockIdArg::from_str("latest").unwrap();
+        assert!(matches!(latest.0, ConfirmedBlockId::Latest));
+
+        let l1_accepted = ConfirmedBlockIdArg::from_str("l1_accepted").unwrap();
+        assert!(matches!(l1_accepted.0, ConfirmedBlockId::L1Accepted));
+
+        // Test hash parsing
+        let hash = ConfirmedBlockIdArg::from_str("0x1234567890abcdef").unwrap();
+        assert!(matches!(hash.0, ConfirmedBlockId::Hash(_)));
+
+        // Test number parsing
+        let number = ConfirmedBlockIdArg::from_str("12345").unwrap();
+        assert!(matches!(number.0, ConfirmedBlockId::Number(12345)));
+
+        // Test invalid hash
+        assert!(ConfirmedBlockIdArg::from_str("0xinvalid").is_err());
+
+        // Test invalid number
+        assert!(ConfirmedBlockIdArg::from_str("not_a_number").is_err());
+    }
+
+    #[test]
+    fn confirmed_block_id_arg_default() {
+        let default = ConfirmedBlockIdArg::default();
+        assert!(matches!(default.0, ConfirmedBlockId::Latest));
     }
 }
