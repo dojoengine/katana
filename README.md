@@ -14,6 +14,18 @@
 The project is built with the Rust programming language. You'll need to have Rust and Cargo (the Rust package manager) installed first in order to start developing.
 Follow the installation steps here: https://www.rust-lang.org/tools/install
 
+### Scarb
+
+Scarb is the Cairo package manager required for building the feature contracts in [`katana-contracts`](https://github.com/dojoengine/katana/tree/main/crates/contracts). The project requires a specific version of Scarb (2.8.4) to ensure compatibility.
+
+To install the required version of `scarb`:
+
+```bash
+make install-scarb
+```
+
+This command will check if the correct version is already installed and only install it if necessary. For further information on `scarb`, check its [documentations page](https://docs.swmansion.com/scarb/docs.html).
+
 ### LLVM Dependencies
 
 For Cairo native support, you'll need to install LLVM dependencies:

@@ -21,15 +21,16 @@ CONTRACTS_CRATE := crates/contracts
 CONTRACTS_DIR := $(CONTRACTS_CRATE)/contracts
 CONTRACTS_BUILD_DIR := $(CONTRACTS_CRATE)/build
 
+# The `scarb` version that is required to compile the feature contracts in katana-contracts
+SCARB_VERSION := 2.8.4
+
 .DEFAULT_GOAL := usage
 .SILENT: clean
-.PHONY: usage help check-llvm native-deps native-deps-macos native-deps-linux native-deps-windows build-explorer build-contracts clean
-
-# Virtual targets that map to actual file outputs
-.PHONY: test-artifacts snos-artifacts db-compat-artifacts
+.PHONY: usage help check-llvm native-deps native-deps-macos native-deps-linux native-deps-windows build-explorer build-contracts clean deps install-scarb test-artifacts snos-artifacts db-compat-artifacts
 
 usage help:
 	@echo "Usage:"
+	@echo "    deps:                      Install all required dependencies for building Katana with all features."
 	@echo "    build-explorer:            Build the explorer."
 	@echo "    build-contracts:           Build the contracts."
 	@echo "    test-artifacts:            Prepare tests artifacts (including test database)."
@@ -41,6 +42,18 @@ usage help:
 	@echo "    check-llvm:                Check if LLVM is properly configured."
 	@echo "    clean:                     Clean up generated files and artifacts."
 	@echo "    help:                      Show this help message."
+
+deps: install-scarb native-deps
+	@echo "All dependencies installed successfully."
+
+install-scarb:
+	@if scarb --version 2>/dev/null | grep -q "^scarb $(SCARB_VERSION)"; then \
+		echo "scarb $(SCARB_VERSION) is already installed."; \
+	else \
+		echo "Installing scarb $(SCARB_VERSION)..."; \
+		curl --proto '=https' --tlsv1.2 -sSf https://docs.swmansion.com/scarb/install.sh | sh -s -- -v $(SCARB_VERSION) || { echo "Failed to install scarb!"; exit 1; }; \
+		echo "scarb $(SCARB_VERSION) installed successfully."; \
+	fi
 
 snos-artifacts: $(SNOS_OUTPUT)
 	@echo "SNOS test artifacts prepared successfully."
