@@ -5,7 +5,7 @@ use clap::{Args, Subcommand};
 use katana_primitives::block::BlockNumber;
 use katana_primitives::transaction::TxHash;
 use katana_primitives::Felt;
-use starknet::core::types::{BlockId, BlockTag, FunctionCall, ConfirmedBlockId};
+use starknet::core::types::{BlockId, BlockTag, ConfirmedBlockId, FunctionCall};
 
 use super::client::Client;
 

@@ -7,6 +7,5 @@ version.workspace = true
 # See more keys and their definitions at https://doc.rust-lang.org/cargo/reference/manifest.html
 
 [dependencies]
-# Using a fork until this PR is merged: <https://github.com/cartridge-gg/controller-rs/pull/26>
-account_sdk = { git = "https://github.com/kariy/controller-rs", branch = "feat/rpc0.9" }
+account_sdk = { git = "https://github.com/cartridge-gg/controller-rs", rev = "242e7bd" }
 katana-primitives.workspace = true
