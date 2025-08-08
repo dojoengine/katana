@@ -3,6 +3,7 @@ use std::sync::Arc;
 use std::time::Duration;
 
 use ::starknet::providers::jsonrpc::HttpTransport;
+use alloy_provider::network;
 use backon::{ExponentialBuilder, Retryable};
 use buffer::GasPricesBuffer;
 use katana_primitives::block::GasPrices;
@@ -119,7 +120,7 @@ impl Sampler {
 
     /// Creates a new sampler for Ethereum.
     pub fn ethereum(url: Url) -> Self {
-        let provider = alloy_provider::ProviderBuilder::new().on_http(url);
+        let provider = alloy_provider::RootProvider::<network::Ethereum>::new_http(url);
         Self::Ethereum(ethereum::EthSampler::new(provider))
     }
 

@@ -1,14 +1,15 @@
 use std::fmt::Debug;
 
-use alloy_provider::RootProvider;
-use alloy_transport_http::Http;
+use alloy_provider::network;
 use katana_primitives::block::{GasPrice, GasPrices};
-use reqwest::Client;
 
 use super::SampledPrices;
 
+/// Type alias for an Ethereum network provider with alloy's recommended default fillers.
+type EthereumProvider = alloy_provider::RootProvider<network::Ethereum>;
+
 #[derive(Debug, Clone)]
-pub struct EthSampler<P = RootProvider<Http<Client>>> {
+pub struct EthSampler<P = EthereumProvider> {
     provider: P,
 }
 
@@ -18,7 +19,8 @@ impl<P> EthSampler<P> {
     }
 }
 
-impl<P: alloy_provider::Provider<Http<Client>>> EthSampler<P> {
+// The alloy Provider trait is only implemented for the Ethereum network provider.
+impl<P: alloy_provider::Provider<network::Ethereum>> EthSampler<P> {
     pub async fn sample(&self) -> anyhow::Result<SampledPrices> {
         let block = self.provider.get_block_number().await?;
         let fee_history = self.provider.get_fee_history(1, block.into(), &[]).await?;

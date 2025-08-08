@@ -2,9 +2,9 @@ use std::path::PathBuf;
 use std::str::FromStr;
 use std::time::Duration;
 
-use alloy::sol;
 use alloy_primitives::{Uint, U256};
 use alloy_provider::ProviderBuilder;
+use alloy_sol_types::sol;
 use anyhow::Result;
 use cainome::rs::abigen;
 use katana_messaging::MessagingConfig;
@@ -49,7 +49,7 @@ async fn test_messaging() {
     let port: u16 = rand::thread_rng().gen_range(35000..65000);
 
     let l1_provider = ProviderBuilder::new()
-        .on_anvil_with_wallet_and_config(|anvil| anvil.port(port))
+        .connect_anvil_with_wallet_and_config(|anvil| anvil.port(port))
         .expect("failed to build eth provider");
 
     // Deploy the core messaging contract on L1
@@ -132,7 +132,7 @@ async fn test_messaging() {
         // The L2 contract function arguments
         let calldata = [123u8];
         // Get the current L1 -> L2 message nonce
-        let nonce = core_contract.l1ToL2MessageNonce().call().await.expect("get nonce")._0;
+        let nonce = core_contract.l1ToL2MessageNonce().call().await.expect("get nonce");
 
         // Send message to L2
         let call = l1_test_contract
@@ -215,7 +215,7 @@ async fn test_messaging() {
                     .await
                     .expect("failed to get msg fee");
 
-                assert_ne!(msg_fee._0, U256::ZERO, "msg fee must be non-zero if exist");
+                assert_ne!(msg_fee, U256::ZERO, "msg fee must be non-zero if exist");
                 assert_eq!(receipt.message_hash, Hash256::from_bytes(msg_hash.0));
             }
 
