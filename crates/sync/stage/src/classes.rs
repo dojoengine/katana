@@ -4,7 +4,8 @@ use std::time::Duration;
 use anyhow::Result;
 use backon::{ExponentialBuilder, Retryable};
 use katana_feeder_gateway::client::{self, SequencerGateway};
-use katana_primitives::block::{BlockIdOrTag, BlockNumber};
+use katana_feeder_gateway::types::BlockId;
+use katana_primitives::block::BlockNumber;
 use katana_primitives::class::{ClassHash, ContractClass};
 use katana_provider::error::ProviderError;
 use katana_provider::traits::contract::ContractClassWriter;
@@ -148,12 +149,12 @@ impl Downloader {
     async fn fetch_class(
         &self,
         hash: ClassHash,
-        block: BlockNumber,
+        block_number: BlockNumber,
     ) -> Result<ContractClass, Error> {
-        let class = self.client.get_class(hash, BlockIdOrTag::Number(block)).await.inspect_err(
+        let class = self.client.get_class(hash, BlockId::Number(block_number)).await.inspect_err(
             |error| {
                 if !error.is_rate_limited() {
-	                error!(target: "pipeline", %error, %block, class = %format!("{hash:#x}"), "Fetching class.")
+	                error!(target: "pipeline", %error, %block_number, class = %format!("{hash:#x}"), "Fetching class.")
                 }
             },
         )?;
