@@ -1,4 +1,3 @@
-use katana_primitives::block::{BlockIdOrTag, BlockTag};
 use katana_primitives::class::CasmContractClass;
 use katana_primitives::Felt;
 use reqwest::header::{HeaderMap, HeaderValue};
@@ -8,7 +7,7 @@ use serde::{Deserialize, Serialize};
 use tracing::error;
 use url::Url;
 
-use crate::types::{Block, ContractClass, StateUpdate, StateUpdateWithBlock};
+use crate::types::{Block, BlockId, ContractClass, StateUpdate, StateUpdateWithBlock};
 
 /// HTTP request header for the feeder gateway API key. This allow bypassing the rate limiting.
 const X_THROTTLING_BYPASS: &str = "X-Throttling-Bypass";
@@ -74,17 +73,17 @@ impl SequencerGateway {
         self
     }
 
-    pub async fn get_block(&self, block_id: BlockIdOrTag) -> Result<Block, Error> {
+    pub async fn get_block(&self, block_id: BlockId) -> Result<Block, Error> {
         self.feeder_gateway("get_block").with_block_id(block_id).send().await
     }
 
-    pub async fn get_state_update(&self, block_id: BlockIdOrTag) -> Result<StateUpdate, Error> {
+    pub async fn get_state_update(&self, block_id: BlockId) -> Result<StateUpdate, Error> {
         self.feeder_gateway("get_state_update").with_block_id(block_id).send().await
     }
 
     pub async fn get_state_update_with_block(
         &self,
-        block_id: BlockIdOrTag,
+        block_id: BlockId,
     ) -> Result<StateUpdateWithBlock, Error> {
         self.feeder_gateway("get_state_update")
             .add_query_param("includeBlock", "true")
@@ -93,11 +92,7 @@ impl SequencerGateway {
             .await
     }
 
-    pub async fn get_class(
-        &self,
-        hash: Felt,
-        block_id: BlockIdOrTag,
-    ) -> Result<ContractClass, Error> {
+    pub async fn get_class(&self, hash: Felt, block_id: BlockId) -> Result<ContractClass, Error> {
         self.feeder_gateway("get_class_by_hash")
             .add_query_param("classHash", &format!("{hash:#x}"))
             .with_block_id(block_id)
@@ -108,7 +103,7 @@ impl SequencerGateway {
     pub async fn get_compiled_class(
         &self,
         hash: Felt,
-        block_id: BlockIdOrTag,
+        block_id: BlockId,
     ) -> Result<CasmContractClass, Error> {
         self.feeder_gateway("get_compiled_class_by_class_hash")
             .add_query_param("classHash", &format!("{hash:#x}"))
@@ -138,13 +133,12 @@ struct RequestBuilder<'a> {
 }
 
 impl RequestBuilder<'_> {
-    fn with_block_id(self, block_id: BlockIdOrTag) -> Self {
+    fn with_block_id(self, block_id: BlockId) -> Self {
         match block_id {
             // latest block is implied, if no block id specified
-            BlockIdOrTag::Tag(BlockTag::Latest) => self,
-            BlockIdOrTag::Tag(BlockTag::Pending) => self.add_query_param("blockNumber", "pending"),
-            BlockIdOrTag::Hash(hash) => self.add_query_param("blockHash", &format!("{hash:#x}")),
-            BlockIdOrTag::Number(num) => self.add_query_param("blockNumber", &num.to_string()),
+            BlockId::Latest => self,
+            BlockId::Hash(hash) => self.add_query_param("blockHash", &format!("{hash:#x}")),
+            BlockId::Number(num) => self.add_query_param("blockNumber", &num.to_string()),
         }
     }
 
@@ -230,21 +224,17 @@ mod tests {
         let client = SequencerGateway::new(base_url);
         let req = client.feeder_gateway("test");
 
-        // Test pending block
-        let pending_url = req.clone().with_block_id(BlockIdOrTag::Tag(BlockTag::Pending)).url;
-        assert_eq!(pending_url.query(), Some("blockNumber=pending"));
-
         // Test block hash
         let hash = Felt::from(123);
-        let hash_url = req.clone().with_block_id(BlockIdOrTag::Hash(hash)).url;
+        let hash_url = req.clone().with_block_id(BlockId::Hash(hash)).url;
         assert_eq!(hash_url.query(), Some("blockHash=0x7b"));
 
         // Test block number
-        let num_url = req.clone().with_block_id(BlockIdOrTag::Number(42)).url;
+        let num_url = req.clone().with_block_id(BlockId::Number(42)).url;
         assert_eq!(num_url.query(), Some("blockNumber=42"));
 
         // Test latest block (should have no query params)
-        let latest_url = req.with_block_id(BlockIdOrTag::Tag(BlockTag::Latest)).url;
+        let latest_url = req.with_block_id(BlockId::Latest).url;
         assert_eq!(latest_url.query(), None);
     }
 
@@ -273,20 +263,12 @@ mod tests {
         let client = SequencerGateway::new(base_url);
         let req = client.feeder_gateway("test");
 
-        let url = req
-            .clone()
-            .with_block_id(BlockIdOrTag::Tag(BlockTag::Pending))
-            .with_block_id(BlockIdOrTag::Number(42))
-            .url;
+        let url = req.clone().with_block_id(BlockId::Latest).with_block_id(BlockId::Number(42)).url;
 
         assert_eq!(url.query(), Some("blockNumber=42"));
 
         let hash = Felt::from(123);
-        let url = req
-            .clone()
-            .with_block_id(BlockIdOrTag::Hash(hash))
-            .with_block_id(BlockIdOrTag::Tag(BlockTag::Pending))
-            .url;
+        let url = req.clone().with_block_id(BlockId::Hash(hash)).url;
 
         assert_eq!(url.query(), Some("blockNumber=pending"));
     }

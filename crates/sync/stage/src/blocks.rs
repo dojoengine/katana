@@ -5,10 +5,9 @@ use anyhow::Result;
 use backon::{ExponentialBuilder, Retryable};
 use katana_feeder_gateway::client;
 use katana_feeder_gateway::client::SequencerGateway;
-use katana_feeder_gateway::types::StateUpdateWithBlock;
+use katana_feeder_gateway::types::{BlockId, StateUpdateWithBlock};
 use katana_primitives::block::{
-    BlockIdOrTag, BlockNumber, FinalityStatus, GasPrices, Header, SealedBlock,
-    SealedBlockWithStatus,
+    BlockNumber, FinalityStatus, GasPrices, Header, SealedBlock, SealedBlockWithStatus,
 };
 use katana_primitives::fee::{FeeInfo, PriceUnit};
 use katana_primitives::receipt::{
@@ -142,15 +141,14 @@ impl Downloader {
 
     /// Fetch a single block with the given block number.
     async fn fetch_block(&self, block: BlockNumber) -> Result<StateUpdateWithBlock, Error> {
-        let block = self
-            .client
-            .get_state_update_with_block(BlockIdOrTag::Number(block))
-            .await
-            .inspect_err(|error| {
-                if !error.is_rate_limited() {
-                    error!(target: "pipeline", %error, %block, "Failed to fetch block.")
-                }
-            })?;
+        let block =
+            self.client.get_state_update_with_block(BlockId::Number(block)).await.inspect_err(
+                |error| {
+                    if !error.is_rate_limited() {
+                        error!(target: "pipeline", %error, %block, "Failed to fetch block.")
+                    }
+                },
+            )?;
         Ok(block)
     }
 }

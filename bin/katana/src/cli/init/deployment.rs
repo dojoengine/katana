@@ -77,7 +77,7 @@ pub async fn deploy_settlement_contract(
 ) -> Result<DeploymentOutcome, ContractInitError> {
     // This is important! Otherwise all the estimate fees after a transaction will be executed
     // against invalid state.
-    account.set_block_id(BlockId::Tag(BlockTag::Pending));
+    account.set_block_id(BlockId::Tag(BlockTag::PreConfirmed));
 
     let mut sp = Spinner::new(spinners::Dots, "", Color::Blue);
 
@@ -94,7 +94,7 @@ pub async fn deploy_settlement_contract(
         let class_hash = class.class_hash()?;
 
         // Check if the class has already been declared,
-        match account.provider().get_class(BlockId::Tag(BlockTag::Pending), class_hash).await {
+        match account.provider().get_class(BlockId::Tag(BlockTag::PreConfirmed), class_hash).await {
             Ok(..) => {
                 // Class has already been declared, no need to do anything...
             }

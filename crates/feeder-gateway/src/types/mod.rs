@@ -22,6 +22,13 @@ mod transaction;
 pub use receipt::*;
 pub use transaction::*;
 
+#[derive(Debug, Copy, Clone, PartialEq, Eq)]
+pub enum BlockId {
+    Number(BlockNumber),
+    Hash(BlockHash),
+    Latest,
+}
+
 /// The contract class type returns by `/get_class_by_hash` endpoint.
 #[derive(Debug, PartialEq, Eq, Deserialize)]
 #[serde(untagged)]

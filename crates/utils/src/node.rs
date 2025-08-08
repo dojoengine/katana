@@ -87,7 +87,7 @@ impl TestNode {
             ExecutionEncoding::New,
         );
 
-        account.set_block_id(starknet::core::types::BlockId::Tag(BlockTag::Pending));
+        account.set_block_id(starknet::core::types::BlockId::Tag(BlockTag::PreConfirmed));
 
         account
     }

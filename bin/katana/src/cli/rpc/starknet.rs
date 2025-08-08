@@ -5,7 +5,7 @@ use clap::{Args, Subcommand};
 use katana_primitives::block::BlockNumber;
 use katana_primitives::transaction::TxHash;
 use katana_primitives::Felt;
-use starknet::core::types::{BlockId, BlockTag, FunctionCall};
+use starknet::core::types::{BlockId, BlockTag, ConfirmedBlockId, FunctionCall};
 
 use super::client::Client;
 
@@ -84,7 +84,7 @@ pub enum StarknetCommands {
 
     /// Get execution traces for all transactions in a block
     #[command(name = "block-traces")]
-    TraceBlockTransactions(BlockIdArgs),
+    TraceBlockTransactions(TraceBlockTransactionsArg),
 }
 
 #[derive(Debug, Args)]
@@ -249,7 +249,7 @@ pub struct AddDeployAccountTransactionArgs {
 
 #[derive(Debug, Args)]
 pub struct SimulateTransactionsArgs {
-    /// Block ID (number, hash, 'latest', or 'pending'). Defaults to 'latest'
+    /// Block ID (number, hash, 'latest', or 'preconfirmed'). Defaults to 'latest'
     #[arg(default_value = "latest")]
     block_id: BlockIdArg,
 
@@ -259,6 +259,13 @@ pub struct SimulateTransactionsArgs {
     /// Simulation flags JSON array
     #[arg(long)]
     simulation_flags: Option<String>,
+}
+
+#[derive(Debug, Args)]
+pub struct TraceBlockTransactionsArg {
+    /// Block ID (number, hash, 'latest', or 'l1_accepted'). Defaults to 'latest'
+    #[arg(default_value = "latest")]
+    block_id: ConfirmedBlockIdArg,
 }
 
 impl StarknetCommands {
@@ -389,9 +396,8 @@ impl StarknetCommands {
                 let result = client.trace_transaction(tx_hash).await?;
                 println!("{}", colored_json::to_colored_json_auto(&result)?);
             }
-            StarknetCommands::TraceBlockTransactions(args) => {
-                let block_id = args.block_id.0;
-                let result = client.trace_block_transactions(block_id).await?;
+            StarknetCommands::TraceBlockTransactions(TraceBlockTransactionsArg { block_id }) => {
+                let result = client.trace_block_transactions(block_id.0).await?;
                 println!("{}", colored_json::to_colored_json_auto(&result)?);
             }
         }
@@ -408,7 +414,8 @@ impl std::str::FromStr for BlockIdArg {
     fn from_str(s: &str) -> Result<Self> {
         let id = match s {
             "latest" => BlockId::Tag(BlockTag::Latest),
-            "pending" => BlockId::Tag(BlockTag::Pending),
+            "l1_accepted" => BlockId::Tag(BlockTag::L1Accepted),
+            "preconfirmed" => BlockId::Tag(BlockTag::PreConfirmed),
 
             hash if s.starts_with("0x") => BlockId::Hash(
                 Felt::from_hex(hash)
@@ -428,5 +435,115 @@ impl std::str::FromStr for BlockIdArg {
 impl Default for BlockIdArg {
     fn default() -> Self {
         BlockIdArg(BlockId::Tag(BlockTag::Latest))
+    }
+}
+
+#[derive(Debug, Clone, Copy)]
+pub struct ConfirmedBlockIdArg(pub ConfirmedBlockId);
+
+impl std::str::FromStr for ConfirmedBlockIdArg {
+    type Err = anyhow::Error;
+
+    fn from_str(s: &str) -> Result<Self> {
+        let id = match s {
+            "latest" => ConfirmedBlockId::Latest,
+            "l1_accepted" => ConfirmedBlockId::L1Accepted,
+
+            hash if s.starts_with("0x") => ConfirmedBlockId::Hash(
+                Felt::from_hex(hash)
+                    .with_context(|| format!("Invalid block hash format: {hash}"))?,
+            ),
+
+            num => ConfirmedBlockId::Number(
+                num.parse::<BlockNumber>()
+                    .with_context(|| format!("Invalid block number format: {num}"))?,
+            ),
+        };
+
+        Ok(ConfirmedBlockIdArg(id))
+    }
+}
+
+impl Default for ConfirmedBlockIdArg {
+    fn default() -> Self {
+        ConfirmedBlockIdArg(ConfirmedBlockId::Latest)
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use std::str::FromStr;
+
+    use assert_matches::assert_matches;
+    use katana_primitives::felt;
+    use starknet::core::types::{BlockId, BlockTag, ConfirmedBlockId};
+
+    use super::{BlockIdArg, ConfirmedBlockIdArg};
+
+    #[test]
+    fn block_id_arg_from_str() {
+        // Test tag parsing
+        let latest = BlockIdArg::from_str("latest").unwrap();
+        assert_matches!(latest.0, BlockId::Tag(BlockTag::Latest));
+
+        let l1_accepted = BlockIdArg::from_str("l1_accepted").unwrap();
+        assert_matches!(l1_accepted.0, BlockId::Tag(BlockTag::L1Accepted));
+
+        let preconfirmed = BlockIdArg::from_str("preconfirmed").unwrap();
+        assert_matches!(preconfirmed.0, BlockId::Tag(BlockTag::PreConfirmed));
+
+        // Test hash parsing
+        let hash = BlockIdArg::from_str("0x1234567890abcdef").unwrap();
+        assert_matches!(hash.0, BlockId::Hash(actual_hash) => {
+            assert_eq!(actual_hash, felt!("0x1234567890abcdef"))
+        });
+
+        // Test number parsing
+        let number = BlockIdArg::from_str("12345").unwrap();
+        assert_matches!(number.0, BlockId::Number(12345));
+
+        // Test invalid hash
+        assert!(BlockIdArg::from_str("0xinvalid").is_err());
+
+        // Test invalid number
+        assert!(BlockIdArg::from_str("not_a_number").is_err());
+    }
+
+    #[test]
+    fn block_id_arg_default() {
+        let default = BlockIdArg::default();
+        assert_matches!(default.0, BlockId::Tag(BlockTag::Latest));
+    }
+
+    #[test]
+    fn confirmed_block_id_arg_from_str() {
+        // Test tag parsing
+        let latest = ConfirmedBlockIdArg::from_str("latest").unwrap();
+        assert_matches!(latest.0, ConfirmedBlockId::Latest);
+
+        let l1_accepted = ConfirmedBlockIdArg::from_str("l1_accepted").unwrap();
+        assert_matches!(l1_accepted.0, ConfirmedBlockId::L1Accepted);
+
+        // Test hash parsing
+        let hash = ConfirmedBlockIdArg::from_str("0x1234567890abcdef").unwrap();
+        assert_matches!(hash.0, ConfirmedBlockId::Hash(actual_hash) => {
+            assert_eq!(actual_hash, felt!("0x1234567890abcdef"))
+        });
+
+        // Test number parsing
+        let number = ConfirmedBlockIdArg::from_str("12345").unwrap();
+        assert_matches!(number.0, ConfirmedBlockId::Number(12345));
+
+        // Test invalid hash
+        assert!(ConfirmedBlockIdArg::from_str("0xinvalid").is_err());
+
+        // Test invalid number
+        assert!(ConfirmedBlockIdArg::from_str("not_a_number").is_err());
+    }
+
+    #[test]
+    fn confirmed_block_id_arg_default() {
+        let default = ConfirmedBlockIdArg::default();
+        assert_matches!(default.0, ConfirmedBlockId::Latest);
     }
 }

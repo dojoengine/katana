@@ -6,19 +6,19 @@ use starknet::core::types::{
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
 #[serde(untagged)]
-pub enum MaybePendingStateUpdate {
-    Pending(PendingStateUpdate),
+pub enum MaybePreConfirmedStateUpdate {
+    PreConfirmed(PreConfirmedStateUpdate),
     Update(StateUpdate),
 }
 
-impl From<starknet::core::types::MaybePendingStateUpdate> for MaybePendingStateUpdate {
-    fn from(value: starknet::core::types::MaybePendingStateUpdate) -> Self {
+impl From<starknet::core::types::MaybePreConfirmedStateUpdate> for MaybePreConfirmedStateUpdate {
+    fn from(value: starknet::core::types::MaybePreConfirmedStateUpdate) -> Self {
         match value {
-            starknet::core::types::MaybePendingStateUpdate::PendingUpdate(pending) => {
-                MaybePendingStateUpdate::Pending(pending.into())
+            starknet::core::types::MaybePreConfirmedStateUpdate::PreConfirmedUpdate(pending) => {
+                MaybePreConfirmedStateUpdate::PreConfirmed(pending.into())
             }
-            starknet::core::types::MaybePendingStateUpdate::Update(update) => {
-                MaybePendingStateUpdate::Update(update.into())
+            starknet::core::types::MaybePreConfirmedStateUpdate::Update(update) => {
+                MaybePreConfirmedStateUpdate::Update(update.into())
             }
         }
     }
@@ -30,7 +30,7 @@ pub struct StateUpdate(starknet::core::types::StateUpdate);
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
 #[serde(transparent)]
-pub struct PendingStateUpdate(starknet::core::types::PendingStateUpdate);
+pub struct PreConfirmedStateUpdate(starknet::core::types::PreConfirmedStateUpdate);
 
 #[derive(Debug, Clone, Serialize)]
 #[serde(transparent)]
@@ -91,8 +91,8 @@ impl From<katana_primitives::state::StateUpdates> for StateDiff {
     }
 }
 
-impl From<starknet::core::types::PendingStateUpdate> for PendingStateUpdate {
-    fn from(value: starknet::core::types::PendingStateUpdate) -> Self {
+impl From<starknet::core::types::PreConfirmedStateUpdate> for PreConfirmedStateUpdate {
+    fn from(value: starknet::core::types::PreConfirmedStateUpdate) -> Self {
         Self(value)
     }
 }

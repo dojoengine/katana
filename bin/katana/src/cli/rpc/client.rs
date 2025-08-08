@@ -7,7 +7,9 @@ use serde::de::DeserializeOwned;
 use serde::Serialize;
 use serde_json::Value;
 use starknet::core::types::requests::*;
-use starknet::core::types::{BlockHashAndNumber, BlockId, FunctionCall, SyncStatusType};
+use starknet::core::types::{
+    BlockHashAndNumber, BlockId, ConfirmedBlockId, FunctionCall, SyncStatusType,
+};
 use starknet::providers::jsonrpc::{
     HttpTransport, JsonRpcClientError, JsonRpcMethod as StarknetJsonRpcMethod, JsonRpcResponse,
     JsonRpcTransport,
@@ -266,7 +268,7 @@ impl Client {
         .map_err(|e| anyhow!("Failed to trace transaction: {e}"))
     }
 
-    pub async fn trace_block_transactions(&self, block_id: BlockId) -> Result<Vec<Value>> {
+    pub async fn trace_block_transactions(&self, block_id: ConfirmedBlockId) -> Result<Vec<Value>> {
         self.send_request(
             StarknetJsonRpcMethod::TraceBlockTransactions,
             TraceBlockTransactionsRequestRef { block_id: block_id.as_ref() },

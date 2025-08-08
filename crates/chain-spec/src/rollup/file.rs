@@ -394,7 +394,7 @@ mod tests {
 
     #[test]
     fn test_list_chain_specs() {
-        let dir = tempfile::TempDir::new().unwrap().into_path();
+        let dir = tempfile::TempDir::new().unwrap().keep();
 
         let listed_chains = super::list_at(&dir).unwrap();
         assert_eq!(listed_chains.len(), 0, "Must be empty initially");

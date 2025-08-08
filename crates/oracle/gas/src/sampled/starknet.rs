@@ -2,7 +2,7 @@ use std::fmt::Debug;
 
 use katana_primitives::block::GasPrices;
 use num_traits::ToPrimitive;
-use starknet::core::types::{BlockId, BlockTag, MaybePendingBlockWithTxHashes};
+use starknet::core::types::{BlockId, BlockTag, MaybePreConfirmedBlockWithTxHashes};
 use starknet::providers::jsonrpc::HttpTransport;
 use starknet::providers::JsonRpcClient;
 
@@ -26,10 +26,10 @@ impl<P: starknet::providers::Provider> StarknetSampler<P> {
         let block = self.provider.get_block_with_tx_hashes(block_id).await?;
 
         let (l1_gas_price, l2_gas_price, l1_data_gas_price) = match block {
-            MaybePendingBlockWithTxHashes::Block(block) => {
+            MaybePreConfirmedBlockWithTxHashes::Block(block) => {
                 (block.l1_gas_price, block.l2_gas_price, block.l1_data_gas_price)
             }
-            MaybePendingBlockWithTxHashes::PendingBlock(pending) => {
+            MaybePreConfirmedBlockWithTxHashes::PreConfirmedBlock(pending) => {
                 (pending.l1_gas_price, pending.l2_gas_price, pending.l1_data_gas_price)
             }
         };

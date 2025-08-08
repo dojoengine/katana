@@ -9,7 +9,10 @@ use katana_primitives::genesis::constant::DEFAULT_STRK_FEE_TOKEN_ADDRESS;
 use katana_primitives::transaction::TxHash;
 use katana_primitives::{felt, Felt};
 use katana_utils::TestNode;
-use starknet::core::types::{EventFilter, MaybePendingBlockWithTxHashes, StarknetError};
+use starknet::core::types::{
+    EventFilter, MaybePreConfirmedBlockWithReceipts, MaybePreConfirmedBlockWithTxHashes,
+    MaybePreConfirmedBlockWithTxs, StarknetError,
+};
 use starknet::providers::jsonrpc::HttpTransport;
 use starknet::providers::{JsonRpcClient, Provider, ProviderError};
 use url::Url;
@@ -71,7 +74,7 @@ async fn setup_test_inner(no_mining: bool) -> (TestNode, impl Provider, LocalTes
             let block_id = BlockIdOrTag::Number(block_num);
             let block = provider.get_block_with_tx_hashes(block_id).await.unwrap();
             let block_hash = match block {
-                MaybePendingBlockWithTxHashes::Block(b) => b.block_hash,
+                MaybePreConfirmedBlockWithTxHashes::Block(b) => b.block_hash,
                 _ => panic!("Expected a block"),
             };
 
@@ -106,7 +109,8 @@ async fn can_fork() -> Result<()> {
 #[tokio::test]
 async fn get_blocks_from_num() -> Result<()> {
     use starknet::core::types::{
-        MaybePendingBlockWithReceipts, MaybePendingBlockWithTxHashes, MaybePendingBlockWithTxs,
+        MaybePreConfirmedBlockWithReceipts, MaybePreConfirmedBlockWithTxHashes,
+        MaybePreConfirmedBlockWithTxs,
     };
 
     let (_sequencer, provider, local_only_block) = setup_test().await;
@@ -119,13 +123,13 @@ async fn get_blocks_from_num() -> Result<()> {
     let id = BlockIdOrTag::Number(num);
 
     let block = provider.get_block_with_txs(id).await?;
-    assert_matches!(block, MaybePendingBlockWithTxs::Block(b) if b.block_number == num);
+    assert_matches!(block, MaybePreConfirmedBlockWithTxs::Block(b) if b.block_number == num);
 
     let block = provider.get_block_with_receipts(id).await?;
-    assert_matches!(block, MaybePendingBlockWithReceipts::Block(b) if b.block_number == num);
+    assert_matches!(block, MaybePreConfirmedBlockWithReceipts::Block(b) if b.block_number == num);
 
     let block = provider.get_block_with_tx_hashes(id).await?;
-    assert_matches!(block, MaybePendingBlockWithTxHashes::Block(b) if b.block_number == num);
+    assert_matches!(block, MaybePreConfirmedBlockWithTxHashes::Block(b) if b.block_number == num);
 
     let result = provider.get_block_transaction_count(id).await;
     assert!(result.is_ok());
@@ -142,13 +146,13 @@ async fn get_blocks_from_num() -> Result<()> {
     let id = BlockIdOrTag::Number(num);
 
     let block = provider.get_block_with_txs(id).await?;
-    assert_matches!(block, MaybePendingBlockWithTxs::Block(b) if b.block_number == num);
+    assert_matches!(block, MaybePreConfirmedBlockWithTxs::Block(b) if b.block_number == num);
 
     let block = provider.get_block_with_receipts(id).await?;
-    assert_matches!(block, MaybePendingBlockWithReceipts::Block(b) if b.block_number == num);
+    assert_matches!(block, MaybePreConfirmedBlockWithReceipts::Block(b) if b.block_number == num);
 
     let block = provider.get_block_with_tx_hashes(id).await?;
-    assert_matches!(block, MaybePendingBlockWithTxHashes::Block(b) if b.block_number == num);
+    assert_matches!(block, MaybePreConfirmedBlockWithTxHashes::Block(b) if b.block_number == num);
 
     let result = provider.get_block_transaction_count(id).await;
     assert!(result.is_ok());
@@ -164,13 +168,13 @@ async fn get_blocks_from_num() -> Result<()> {
         let id = BlockIdOrTag::Number(num);
 
         let block = provider.get_block_with_txs(id).await?;
-        assert_matches!(block, MaybePendingBlockWithTxs::Block(b) if b.block_number == num);
+        assert_matches!(block, MaybePreConfirmedBlockWithTxs::Block(b) if b.block_number == num);
 
         let block = provider.get_block_with_receipts(id).await?;
-        assert_matches!(block, starknet::core::types::MaybePendingBlockWithReceipts::Block(b) if b.block_number == num);
+        assert_matches!(block, MaybePreConfirmedBlockWithReceipts::Block(b) if b.block_number == num);
 
         let block = provider.get_block_with_tx_hashes(id).await?;
-        assert_matches!(block, starknet::core::types::MaybePendingBlockWithTxHashes::Block(b) if b.block_number == num);
+        assert_matches!(block, MaybePreConfirmedBlockWithTxHashes::Block(b) if b.block_number == num);
 
         let count = provider.get_block_transaction_count(id).await?;
         assert_eq!(count, 1, "all the locally generated blocks should have 1 tx");
@@ -225,10 +229,6 @@ async fn get_blocks_from_num() -> Result<()> {
 
 #[tokio::test]
 async fn get_blocks_from_hash() -> Result<()> {
-    use starknet::core::types::{
-        MaybePendingBlockWithReceipts, MaybePendingBlockWithTxHashes, MaybePendingBlockWithTxs,
-    };
-
     let (_sequencer, provider, local_only_block) = setup_test().await;
 
     // -----------------------------------------------------------------------
@@ -239,13 +239,13 @@ async fn get_blocks_from_hash() -> Result<()> {
     let id = BlockIdOrTag::Hash(hash);
 
     let block = provider.get_block_with_txs(id).await?;
-    assert_matches!(block, MaybePendingBlockWithTxs::Block(b) if b.block_hash == hash);
+    assert_matches!(block, MaybePreConfirmedBlockWithTxs::Block(b) if b.block_hash == hash);
 
     let block = provider.get_block_with_receipts(id).await?;
-    assert_matches!(block, MaybePendingBlockWithReceipts::Block(b) if b.block_hash == hash);
+    assert_matches!(block, MaybePreConfirmedBlockWithReceipts::Block(b) if b.block_hash == hash);
 
     let block = provider.get_block_with_tx_hashes(id).await?;
-    assert_matches!(block, MaybePendingBlockWithTxHashes::Block(b) if b.block_hash == hash);
+    assert_matches!(block, MaybePreConfirmedBlockWithTxHashes::Block(b) if b.block_hash == hash);
 
     let result = provider.get_block_transaction_count(id).await;
     assert!(result.is_ok());
@@ -262,13 +262,13 @@ async fn get_blocks_from_hash() -> Result<()> {
     let id = BlockIdOrTag::Hash(hash);
 
     let block = provider.get_block_with_txs(id).await?;
-    assert_matches!(block, MaybePendingBlockWithTxs::Block(b) if b.block_hash == hash);
+    assert_matches!(block, MaybePreConfirmedBlockWithTxs::Block(b) if b.block_hash == hash);
 
     let block = provider.get_block_with_receipts(id).await?;
-    assert_matches!(block, MaybePendingBlockWithReceipts::Block(b) if b.block_hash == hash);
+    assert_matches!(block, MaybePreConfirmedBlockWithReceipts::Block(b) if b.block_hash == hash);
 
     let block = provider.get_block_with_tx_hashes(id).await?;
-    assert_matches!(block, MaybePendingBlockWithTxHashes::Block(b) if b.block_hash == hash);
+    assert_matches!(block, MaybePreConfirmedBlockWithTxHashes::Block(b) if b.block_hash == hash);
 
     let result = provider.get_block_transaction_count(id).await;
     assert!(result.is_ok());
@@ -284,13 +284,13 @@ async fn get_blocks_from_hash() -> Result<()> {
         let id = BlockIdOrTag::Hash(hash);
 
         let block = provider.get_block_with_txs(id).await?;
-        assert_matches!(block, MaybePendingBlockWithTxs::Block(b) if b.block_hash == hash);
+        assert_matches!(block, MaybePreConfirmedBlockWithTxs::Block(b) if b.block_hash == hash);
 
         let block = provider.get_block_with_receipts(id).await?;
-        assert_matches!(block, MaybePendingBlockWithReceipts::Block(b) if b.block_hash == hash);
+        assert_matches!(block, MaybePreConfirmedBlockWithReceipts::Block(b) if b.block_hash == hash);
 
         let block = provider.get_block_with_tx_hashes(id).await?;
-        assert_matches!(block, MaybePendingBlockWithTxHashes::Block(b) if b.block_hash == hash);
+        assert_matches!(block, MaybePreConfirmedBlockWithTxHashes::Block(b) if b.block_hash == hash);
 
         let result = provider.get_block_transaction_count(id).await;
         assert!(result.is_ok());
@@ -538,8 +538,8 @@ async fn get_events_pending_exhaustive() -> Result<()> {
     let filter = EventFilter {
         keys: None,
         address: None,
-        to_block: Some(BlockIdOrTag::Tag(BlockTag::Pending)),
-        from_block: Some(BlockIdOrTag::Tag(BlockTag::Pending)),
+        to_block: Some(BlockIdOrTag::Tag(BlockTag::PreConfirmed)),
+        from_block: Some(BlockIdOrTag::Tag(BlockTag::PreConfirmed)),
     };
 
     let result = provider.get_events(filter, None, 10).await?;
@@ -643,7 +643,7 @@ async fn get_events_forked_and_local_boundary_non_exhaustive(
     let filter = EventFilter {
         keys: None,
         address: None,
-        to_block: Some(BlockIdOrTag::Tag(BlockTag::Pending)),
+        to_block: Some(BlockIdOrTag::Tag(BlockTag::PreConfirmed)),
         from_block: Some(block_id),
     };
 

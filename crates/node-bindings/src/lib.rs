@@ -774,7 +774,8 @@ mod tests {
         for (index, account) in katana.accounts().iter().enumerate() {
             // Check each account address has a deployed contract by verifying it has a class hash
             let address = account.address;
-            let result = provider.get_class_hash_at(BlockId::Tag(BlockTag::Pending), address).await;
+            let result =
+                provider.get_class_hash_at(BlockId::Tag(BlockTag::PreConfirmed), address).await;
             assert!(result.is_ok(), "Account #{index} contract does not exist at {address}");
         }
     }
