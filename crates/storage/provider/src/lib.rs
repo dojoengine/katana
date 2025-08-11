@@ -231,6 +231,10 @@ where
     fn transaction_hashes_in_range(&self, range: Range<TxNumber>) -> ProviderResult<Vec<TxHash>> {
         TransactionsProviderExt::transaction_hashes_in_range(&self.provider, range)
     }
+
+    fn total_transactions(&self) -> ProviderResult<usize> {
+        TransactionsProviderExt::total_transactions(&self.provider)
+    }
 }
 
 impl<Db> ReceiptProvider for BlockchainProvider<Db>
