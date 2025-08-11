@@ -6,7 +6,7 @@ repository.workspace = true
 version.workspace = true
 
 [dependencies]
-clap.workspace = true
+clap = { workspace = true, features = [ "string" ] }
 serde.workspace = true
 thiserror.workspace = true
 tracing.workspace = true
@@ -28,3 +28,6 @@ tower-http = { workspace = true, features = [ "trace" ] }
 
 bytes.workspace = true
 http-body-util = "0.1.3"
+
+[dev-dependencies]
+rstest.workspace = true
