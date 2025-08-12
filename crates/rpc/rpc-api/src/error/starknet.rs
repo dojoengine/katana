@@ -100,6 +100,10 @@ pub enum StarknetApiError {
     TooManyAddressesInFilter,
     #[error("Cannot go back more than 1024 blocks")]
     TooManyBlocksBack,
+    #[error("Replacement transaction is underpriced")]
+    ReplacementTransactionUnderpriced,
+    #[error("Transaction fee below minimum")]
+    FeeBelowMinimum,
 }
 
 impl StarknetApiError {
@@ -135,6 +139,8 @@ impl StarknetApiError {
             StarknetApiError::UnsupportedTransactionVersion => 61,
             StarknetApiError::UnsupportedContractClassVersion => 62,
             StarknetApiError::UnexpectedError { .. } => 63,
+            StarknetApiError::ReplacementTransactionUnderpriced => 64,
+            StarknetApiError::FeeBelowMinimum => 65,
             StarknetApiError::InvalidSubscriptionId => 66,
             StarknetApiError::TooManyAddressesInFilter => 67,
             StarknetApiError::TooManyBlocksBack => 68,
