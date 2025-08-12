@@ -33,7 +33,8 @@ pub trait BlockIdReader: BlockNumberProvider + Send + Sync {
                 }
             }
 
-            _ => panic!("unsupported block id"),
+            // TODO: track l1 accepted block
+            BlockIdOrTag::Tag(BlockTag::L1Accepted) => Ok(None),
         }
     }
 

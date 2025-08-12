@@ -201,9 +201,7 @@ where
         let provider = self.inner.backend.blockchain.provider();
 
         let state = match block_id {
-            BlockIdOrTag::Tag(BlockTag::L1Accepted) => {
-                unimplemented!("l1 accepted block id")
-            }
+            BlockIdOrTag::Tag(BlockTag::L1Accepted) => None,
 
             BlockIdOrTag::Tag(BlockTag::Latest) => Some(provider.latest()?),
 
@@ -226,9 +224,7 @@ where
         let provider = self.inner.backend.blockchain.provider();
 
         let env = match block_id {
-            BlockIdOrTag::Tag(BlockTag::L1Accepted) => {
-                unimplemented!("l1 accepted block id")
-            }
+            BlockIdOrTag::Tag(BlockTag::L1Accepted) => None,
 
             BlockIdOrTag::Tag(BlockTag::PreConfirmed) => {
                 // If there is a pending block, use the block env of the pending block.
@@ -337,9 +333,7 @@ where
                 let provider = this.inner.backend.blockchain.provider();
 
                 let block_id: BlockHashOrNumber = match block_id {
-                    BlockIdOrTag::Tag(BlockTag::L1Accepted) => {
-                        unimplemented!("l1 accepted block id")
-                    }
+                    BlockIdOrTag::Tag(BlockTag::L1Accepted) => return Ok(None),
 
                     BlockIdOrTag::Tag(BlockTag::PreConfirmed) => match this.pending_executor() {
                         Some(exec) => {
@@ -825,10 +819,6 @@ where
                 let provider = this.inner.backend.blockchain.provider();
 
                 let block_id = match block_id {
-                    BlockIdOrTag::Tag(BlockTag::L1Accepted) => {
-                        unimplemented!("l1 accepted block id")
-                    }
-
                     BlockIdOrTag::Number(num) => BlockHashOrNumber::Num(num),
                     BlockIdOrTag::Hash(hash) => BlockHashOrNumber::Hash(hash),
 
@@ -836,7 +826,9 @@ where
                         provider.latest_number().map(BlockHashOrNumber::Num)?
                     }
 
-                    BlockIdOrTag::Tag(BlockTag::PreConfirmed) => {
+                    // TODO: Implement for L1 accepted and preconfirmed block id
+                    BlockIdOrTag::Tag(BlockTag::L1Accepted)
+                    | BlockIdOrTag::Tag(BlockTag::PreConfirmed) => {
                         return Err(StarknetApiError::BlockNotFound);
                     }
                 };
