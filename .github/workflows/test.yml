@@ -65,6 +65,7 @@ jobs:
           path: |
             ./tests/snos/snos/build
             ./crates/contracts/build
+            ./tests/fixtures/db/simple
 
       - name: Generate test artifacts
         if: steps.check-files.outputs.files_changed == 'true' || steps.cache.outputs.cache-hit != 'true'
@@ -78,6 +79,7 @@ jobs:
           path: |
             ./tests/snos/snos/build
             ./crates/contracts/build
+            ./tests/fixtures/db/simple
 
   clippy:
     needs: [generate-test-artifacts]
@@ -107,6 +109,7 @@ jobs:
           path: |
             ./tests/snos/snos/build
             ./crates/contracts/build
+            ./tests/fixtures/db/simple
           key: test-artifacts
 
       - name: Run Clippy
@@ -141,6 +144,7 @@ jobs:
           path: |
             ./tests/snos/snos/build
             ./crates/contracts/build
+            ./tests/fixtures/db/simple
           key: test-artifacts
 
       - name: Run tests w/ code coverage
@@ -188,6 +192,7 @@ jobs:
           path: |
             ./tests/snos/snos/build
             ./crates/contracts/build
+            ./tests/fixtures/db/simple
           key: test-artifacts
 
       - name: Prepare SNOS test environment
@@ -222,6 +227,7 @@ jobs:
           path: |
             ./tests/snos/snos/build
             ./crates/contracts/build
+            ./tests/fixtures/db/simple
           key: test-artifacts
 
       - uses: browser-actions/setup-chrome@v1
