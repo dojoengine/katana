@@ -5,12 +5,10 @@ use katana_executor::implementation::blockifier::state::CachedState;
 use katana_executor::implementation::blockifier::utils::{self, block_context_from_envs};
 use katana_executor::{ExecutionError, ExecutionFlags, ExecutionResult, ResultAndStates};
 use katana_primitives::env::{BlockEnv, CfgEnv};
-use katana_primitives::fee::{self};
 use katana_primitives::transaction::ExecutableTxWithHash;
 use katana_primitives::Felt;
 use katana_provider::traits::state::StateProvider;
 use katana_rpc_types::{FeeEstimate, FunctionCall};
-use starknet::core::types::PriceUnit;
 
 #[tracing::instrument(level = "trace", target = "rpc", skip_all, fields(total_txs = transactions.len()))]
 pub fn simulate(
@@ -73,13 +71,13 @@ pub fn estimate_fees(
                         let fee = receipt.fee();
                         let resources = receipt.resources_used();
 
-                        let unit = match fee.unit {
-                            fee::PriceUnit::Wei => PriceUnit::Wei,
-                            fee::PriceUnit::Fri => PriceUnit::Fri,
-                        };
+                        // let unit = match fee.unit {
+                        //     fee::PriceUnit::Wei => PriceUnit::Wei,
+                        //     fee::PriceUnit::Fri => PriceUnit::Fri,
+                        // };
 
                         results.push(Ok(FeeEstimate {
-                            unit,
+                            // unit,
                             overall_fee: fee.overall_fee,
                             l2_gas_price: fee.l2_gas_price,
                             l1_gas_price: fee.l1_gas_price,

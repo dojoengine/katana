@@ -100,6 +100,10 @@ pub enum StarknetApiError {
     TooManyAddressesInFilter,
     #[error("Cannot go back more than 1024 blocks")]
     TooManyBlocksBack,
+    #[error("Replacement transaction is underpriced")]
+    ReplacementTransactionUnderpriced,
+    #[error("Transaction fee below minimum")]
+    FeeBelowMinimum,
 }
 
 impl StarknetApiError {
@@ -135,6 +139,8 @@ impl StarknetApiError {
             StarknetApiError::UnsupportedTransactionVersion => 61,
             StarknetApiError::UnsupportedContractClassVersion => 62,
             StarknetApiError::UnexpectedError { .. } => 63,
+            StarknetApiError::ReplacementTransactionUnderpriced => 64,
+            StarknetApiError::FeeBelowMinimum => 65,
             StarknetApiError::InvalidSubscriptionId => 66,
             StarknetApiError::TooManyAddressesInFilter => 67,
             StarknetApiError::TooManyBlocksBack => 68,
@@ -228,6 +234,13 @@ impl From<Box<InvalidTransactionError>> for StarknetApiError {
 impl From<StarknetRsError> for StarknetApiError {
     fn from(value: StarknetRsError) -> Self {
         match value {
+            StarknetRsError::FeeBelowMinimum => {
+                unimplemented!("ReplacementTransactionUnderpriced")
+            }
+            StarknetRsError::ReplacementTransactionUnderpriced => {
+                unimplemented!("ReplacementTransactionUnderpriced")
+            }
+
             StarknetRsError::FailedToReceiveTransaction => Self::FailedToReceiveTxn,
             StarknetRsError::NoBlocks => Self::NoBlocks,
             StarknetRsError::NonAccount => Self::NonAccount,
@@ -258,8 +271,8 @@ impl From<StarknetRsError> for StarknetApiError {
                 execution_error: String::new(),
                 transaction_index: data.transaction_index,
             },
-            StarknetRsError::InvalidTransactionNonce => {
-                Self::InvalidTransactionNonce { reason: "".to_string() }
+            StarknetRsError::InvalidTransactionNonce(reason) => {
+                Self::InvalidTransactionNonce { reason }
             }
             StarknetRsError::UnsupportedContractClassVersion => {
                 Self::UnsupportedContractClassVersion

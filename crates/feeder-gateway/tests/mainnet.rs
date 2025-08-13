@@ -1,6 +1,6 @@
 use katana_feeder_gateway::client::SequencerGateway;
-use katana_feeder_gateway::types::{Block, StateUpdate, StateUpdateWithBlock};
-use katana_primitives::block::{BlockIdOrTag, BlockNumber};
+use katana_feeder_gateway::types::{Block, BlockId, StateUpdate, StateUpdateWithBlock};
+use katana_primitives::block::BlockNumber;
 use rstest::rstest;
 
 mod fixtures;
@@ -21,7 +21,7 @@ async fn get_block(
     #[case] block_number: BlockNumber,
     #[case] expected: Block,
 ) {
-    let id = BlockIdOrTag::Number(block_number);
+    let id = BlockId::Number(block_number);
     let block = gateway.get_block(id).await.unwrap();
     similar_asserts::assert_eq!(block, expected);
 }
@@ -41,7 +41,7 @@ async fn get_state_update(
     #[case] block_number: BlockNumber,
     #[case] expected: StateUpdate,
 ) {
-    let id = BlockIdOrTag::Number(block_number);
+    let id = BlockId::Number(block_number);
     let state_update = gateway.get_state_update(id).await.unwrap();
     similar_asserts::assert_eq!(state_update, expected);
 }
@@ -61,7 +61,7 @@ async fn get_state_update_with_block(
     #[case] block_number: BlockNumber,
     #[case] expected: StateUpdateWithBlock,
 ) {
-    let id = BlockIdOrTag::Number(block_number);
+    let id = BlockId::Number(block_number);
     let state_update = gateway.get_state_update_with_block(id).await.unwrap();
     similar_asserts::assert_eq!(state_update, expected);
 }

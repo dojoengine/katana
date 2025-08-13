@@ -65,7 +65,6 @@ mock_provider! {
             l2_gas_consumed: 5000u64,
             l2_gas_price: 500000000u128,
             overall_fee: 21000000000000u128,
-            unit: starknet::core::types::PriceUnit::Wei,
         }])
     }
 }

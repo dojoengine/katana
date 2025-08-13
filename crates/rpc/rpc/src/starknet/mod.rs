@@ -27,14 +27,14 @@ use katana_provider::traits::transaction::{
 };
 use katana_rpc_api::error::starknet::StarknetApiError;
 use katana_rpc_types::block::{
-    BlockHashAndNumber, MaybePendingBlockWithReceipts, MaybePendingBlockWithTxHashes,
-    MaybePendingBlockWithTxs, PendingBlockWithReceipts, PendingBlockWithTxHashes,
-    PendingBlockWithTxs,
+    BlockHashAndNumber, MaybePreConfirmedBlockWithReceipts, MaybePreConfirmedBlockWithTxHashes,
+    MaybePreConfirmedBlockWithTxs, PreConfirmedBlockWithReceipts, PreConfirmedBlockWithTxHashes,
+    PreConfirmedBlockWithTxs,
 };
 use katana_rpc_types::class::Class;
 use katana_rpc_types::event::{EventFilterWithPage, EventsPage};
 use katana_rpc_types::receipt::{ReceiptBlock, TxReceiptWithBlockInfo};
-use katana_rpc_types::state_update::MaybePendingStateUpdate;
+use katana_rpc_types::state_update::MaybePreConfirmedStateUpdate;
 use katana_rpc_types::transaction::Tx;
 use katana_rpc_types::trie::{
     ClassesProof, ContractLeafData, ContractStorageKeys, ContractStorageProofs, ContractsProof,
@@ -201,9 +201,11 @@ where
         let provider = self.inner.backend.blockchain.provider();
 
         let state = match block_id {
+            BlockIdOrTag::Tag(BlockTag::L1Accepted) => None,
+
             BlockIdOrTag::Tag(BlockTag::Latest) => Some(provider.latest()?),
 
-            BlockIdOrTag::Tag(BlockTag::Pending) => {
+            BlockIdOrTag::Tag(BlockTag::PreConfirmed) => {
                 if let Some(exec) = self.pending_executor() {
                     Some(exec.read().state())
                 } else {
@@ -222,7 +224,9 @@ where
         let provider = self.inner.backend.blockchain.provider();
 
         let env = match block_id {
-            BlockIdOrTag::Tag(BlockTag::Pending) => {
+            BlockIdOrTag::Tag(BlockTag::L1Accepted) => None,
+
+            BlockIdOrTag::Tag(BlockTag::PreConfirmed) => {
                 // If there is a pending block, use the block env of the pending block.
                 if let Some(exec) = self.pending_executor() {
                     Some(exec.read().block_env())
@@ -329,7 +333,9 @@ where
                 let provider = this.inner.backend.blockchain.provider();
 
                 let block_id: BlockHashOrNumber = match block_id {
-                    BlockIdOrTag::Tag(BlockTag::Pending) => match this.pending_executor() {
+                    BlockIdOrTag::Tag(BlockTag::L1Accepted) => return Ok(None),
+
+                    BlockIdOrTag::Tag(BlockTag::PreConfirmed) => match this.pending_executor() {
                         Some(exec) => {
                             let count = exec.read().transactions().len() as u64;
                             return Ok(Some(count));
@@ -373,7 +379,7 @@ where
             //
             // TODO: this is a temporary solution, we should have a better way to handle this.
             // perhaps a pending/pool state provider that implements all the state provider traits.
-            let result = if let BlockIdOrTag::Tag(BlockTag::Pending) = block_id {
+            let result = if let BlockIdOrTag::Tag(BlockTag::PreConfirmed) = block_id {
                 this.inner.pool.validator().pool_nonce(contract_address)?
             } else {
                 let state = this.state(&block_id)?;
@@ -394,7 +400,7 @@ where
         let tx = self
             .on_io_blocking_task(move |this| {
                 // TEMP: have to handle pending tag independently for now
-                let tx = if BlockIdOrTag::Tag(BlockTag::Pending) == block_id {
+                let tx = if BlockIdOrTag::Tag(BlockTag::PreConfirmed) == block_id {
                     let Some(executor) = this.pending_executor() else {
                         return Err(StarknetApiError::BlockNotFound);
                     };
@@ -497,7 +503,7 @@ where
 
                         if let Some(receipt) = pending_receipt {
                             let receipt = TxReceiptWithBlockInfo::new(
-                                ReceiptBlock::Pending,
+                                ReceiptBlock::PreConfirmed,
                                 hash,
                                 FinalityStatus::AcceptedOnL2,
                                 receipt,
@@ -561,35 +567,30 @@ where
                 if let Some(pending_executor) = this.pending_executor() {
                     let pending_executor = pending_executor.read();
                     let pending_txs = pending_executor.transactions();
-                    let (_, res) = pending_txs
-                        .iter()
-                        .find(|(tx, _)| tx.hash == hash)
-                        .ok_or(StarknetApiError::TxnHashNotFound)?;
 
-                    // TODO: should impl From<ExecutionResult> for TransactionStatus
-                    let status = match res {
-                        ExecutionResult::Failed { error } => {
-                            TransactionStatus::Rejected { reason: error.to_string() }
-                        }
+                    let Some((_, res)) = pending_txs.iter().find(|(tx, ..)| tx.hash == hash) else {
+                        return Ok(None);
+                    };
 
-                        ExecutionResult::Success { receipt, .. } => {
-                            if let Some(reason) = receipt.revert_reason() {
-                                TransactionStatus::AcceptedOnL2(
-                                    starknet::core::types::ExecutionResult::Reverted {
-                                        reason: reason.to_string(),
-                                    },
-                                )
-                            } else {
-                                TransactionStatus::AcceptedOnL2(
-                                    starknet::core::types::ExecutionResult::Succeeded,
-                                )
-                            }
-                        }
+                    let ExecutionResult::Success { receipt, .. } = res else {
+                        return Ok(None);
+                    };
+
+                    // TODO: maybe should do impl From<ExecutionResult> for TransactionStatus
+                    let status = if let Some(reason) = receipt.revert_reason() {
+                        TransactionStatus::AcceptedOnL2(
+                            starknet::core::types::ExecutionResult::Reverted {
+                                reason: reason.to_string(),
+                            },
+                        )
+                    } else {
+                        TransactionStatus::AcceptedOnL2(
+                            starknet::core::types::ExecutionResult::Succeeded,
+                        )
                     };
 
                     Ok(Some(status))
                 } else {
-                    // Err(StarknetApiError::TxnHashNotFound)
                     Ok(None)
                 }
             })
@@ -608,12 +609,12 @@ where
     async fn block_with_txs(
         &self,
         block_id: BlockIdOrTag,
-    ) -> StarknetApiResult<MaybePendingBlockWithTxs> {
+    ) -> StarknetApiResult<MaybePreConfirmedBlockWithTxs> {
         let block = self
             .on_io_blocking_task(move |this| {
                 let provider = this.inner.backend.blockchain.provider();
 
-                if BlockIdOrTag::Tag(BlockTag::Pending) == block_id {
+                if BlockIdOrTag::Tag(BlockTag::PreConfirmed) == block_id {
                     if let Some(executor) = this.pending_executor() {
                         let block_env = executor.read().block_env();
                         let latest_hash = provider.latest_hash().map_err(StarknetApiError::from)?;
@@ -647,15 +648,15 @@ where
                             .map(|(tx, _)| tx.clone())
                             .collect::<Vec<_>>();
 
-                        let block = PendingBlockWithTxs::new(header, transactions);
-                        return Ok(Some(MaybePendingBlockWithTxs::Pending(block)));
+                        let block = PreConfirmedBlockWithTxs::new(header, transactions);
+                        return Ok(Some(MaybePreConfirmedBlockWithTxs::PreConfirmed(block)));
                     }
                 }
 
                 if let Some(num) = provider.convert_block_id(block_id)? {
                     let block = katana_rpc_types_builder::BlockBuilder::new(num.into(), provider)
                         .build()?
-                        .map(MaybePendingBlockWithTxs::Block);
+                        .map(MaybePreConfirmedBlockWithTxs::Block);
 
                     StarknetApiResult::Ok(block)
                 } else {
@@ -676,12 +677,12 @@ where
     async fn block_with_receipts(
         &self,
         block_id: BlockIdOrTag,
-    ) -> StarknetApiResult<MaybePendingBlockWithReceipts> {
+    ) -> StarknetApiResult<MaybePreConfirmedBlockWithReceipts> {
         let block = self
             .on_io_blocking_task(move |this| {
                 let provider = this.inner.backend.blockchain.provider();
 
-                if BlockIdOrTag::Tag(BlockTag::Pending) == block_id {
+                if BlockIdOrTag::Tag(BlockTag::PreConfirmed) == block_id {
                     if let Some(executor) = this.pending_executor() {
                         let block_env = executor.read().block_env();
                         let latest_hash = provider.latest_hash()?;
@@ -714,15 +715,16 @@ where
                             })
                             .collect::<Vec<_>>();
 
-                        let block = PendingBlockWithReceipts::new(header, receipts.into_iter());
-                        return Ok(Some(MaybePendingBlockWithReceipts::Pending(block)));
+                        let block =
+                            PreConfirmedBlockWithReceipts::new(header, receipts.into_iter());
+                        return Ok(Some(MaybePreConfirmedBlockWithReceipts::PreConfirmed(block)));
                     }
                 }
 
                 if let Some(num) = provider.convert_block_id(block_id)? {
                     let block = katana_rpc_types_builder::BlockBuilder::new(num.into(), provider)
                         .build_with_receipts()?
-                        .map(MaybePendingBlockWithReceipts::Block);
+                        .map(MaybePreConfirmedBlockWithReceipts::Block);
 
                     StarknetApiResult::Ok(block)
                 } else {
@@ -743,12 +745,12 @@ where
     async fn block_with_tx_hashes(
         &self,
         block_id: BlockIdOrTag,
-    ) -> StarknetApiResult<MaybePendingBlockWithTxHashes> {
+    ) -> StarknetApiResult<MaybePreConfirmedBlockWithTxHashes> {
         let block = self
             .on_io_blocking_task(move |this| {
                 let provider = this.inner.backend.blockchain.provider();
 
-                if BlockIdOrTag::Tag(BlockTag::Pending) == block_id {
+                if BlockIdOrTag::Tag(BlockTag::PreConfirmed) == block_id {
                     if let Some(executor) = this.pending_executor() {
                         let block_env = executor.read().block_env();
                         let latest_hash = provider.latest_hash().map_err(StarknetApiError::from)?;
@@ -782,15 +784,15 @@ where
                             .map(|(tx, _)| tx.hash)
                             .collect::<Vec<_>>();
 
-                        let block = PendingBlockWithTxHashes::new(header, transactions);
-                        return Ok(Some(MaybePendingBlockWithTxHashes::Pending(block)));
+                        let block = PreConfirmedBlockWithTxHashes::new(header, transactions);
+                        return Ok(Some(MaybePreConfirmedBlockWithTxHashes::PreConfirmed(block)));
                     }
                 }
 
                 if let Some(num) = provider.convert_block_id(block_id)? {
                     let block = katana_rpc_types_builder::BlockBuilder::new(num.into(), provider)
                         .build_with_tx_hash()?
-                        .map(MaybePendingBlockWithTxHashes::Block);
+                        .map(MaybePreConfirmedBlockWithTxHashes::Block);
 
                     StarknetApiResult::Ok(block)
                 } else {
@@ -811,7 +813,7 @@ where
     async fn state_update(
         &self,
         block_id: BlockIdOrTag,
-    ) -> StarknetApiResult<MaybePendingStateUpdate> {
+    ) -> StarknetApiResult<MaybePreConfirmedStateUpdate> {
         let state_update = self
             .on_io_blocking_task(move |this| {
                 let provider = this.inner.backend.blockchain.provider();
@@ -824,7 +826,9 @@ where
                         provider.latest_number().map(BlockHashOrNumber::Num)?
                     }
 
-                    BlockIdOrTag::Tag(BlockTag::Pending) => {
+                    // TODO: Implement for L1 accepted and preconfirmed block id
+                    BlockIdOrTag::Tag(BlockTag::L1Accepted)
+                    | BlockIdOrTag::Tag(BlockTag::PreConfirmed) => {
                         return Err(StarknetApiError::BlockNotFound);
                     }
                 };
@@ -832,7 +836,7 @@ where
                 let state_update =
                     katana_rpc_types_builder::StateUpdateBuilder::new(block_id, provider)
                         .build()?
-                        .map(MaybePendingStateUpdate::Update);
+                        .map(MaybePreConfirmedStateUpdate::Update);
 
                 StarknetApiResult::Ok(state_update)
             })
@@ -868,7 +872,7 @@ where
 
             let to = match event_filter.to_block {
                 Some(id) => id,
-                None => BlockIdOrTag::Tag(BlockTag::Pending),
+                None => BlockIdOrTag::Tag(BlockTag::PreConfirmed),
             };
 
             let keys = event_filter.keys.filter(|keys| !(keys.len() == 1 && keys.is_empty()));
@@ -1124,7 +1128,8 @@ where
         let provider = self.inner.backend.blockchain.provider();
 
         let id = match id {
-            BlockIdOrTag::Tag(BlockTag::Pending) => EventBlockId::Pending,
+            BlockIdOrTag::Tag(BlockTag::L1Accepted) => EventBlockId::Pending,
+            BlockIdOrTag::Tag(BlockTag::PreConfirmed) => EventBlockId::Pending,
             BlockIdOrTag::Number(num) => EventBlockId::Num(num),
 
             BlockIdOrTag::Tag(BlockTag::Latest) => {

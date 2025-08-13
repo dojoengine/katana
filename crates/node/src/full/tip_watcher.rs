@@ -4,8 +4,8 @@ use std::time::Duration;
 use anyhow::Result;
 use futures::future::BoxFuture;
 use katana_feeder_gateway::client::SequencerGateway;
+use katana_feeder_gateway::types::BlockId;
 use katana_pipeline::PipelineHandle;
-use katana_primitives::block::{BlockIdOrTag, BlockTag};
 use tracing::{error, info, trace};
 
 type TipWatcherFut = BoxFuture<'static, Result<()>>;
@@ -33,7 +33,7 @@ impl ChainTipWatcher {
         let mut prev_tip = 0;
 
         loop {
-            let block = self.client.get_block(BlockIdOrTag::Tag(BlockTag::Latest)).await?;
+            let block = self.client.get_block(BlockId::Latest).await?;
             let block_number = block.block_number.expect("must exist for latest block");
 
             if prev_tip != block_number {

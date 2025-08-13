@@ -21,7 +21,7 @@ use katana_provider::traits::transaction::{
 use katana_provider::traits::trie::TrieWriter;
 use katana_provider::BlockchainProvider;
 use num_traits::ToPrimitive;
-use starknet::core::types::{BlockId, MaybePendingBlockWithTxHashes};
+use starknet::core::types::{BlockId, MaybePreConfirmedBlockWithTxHashes};
 use starknet::core::utils::parse_cairo_short_string;
 use starknet::providers::jsonrpc::HttpTransport;
 use starknet::providers::{JsonRpcClient, Provider};
@@ -119,7 +119,7 @@ impl Blockchain {
             .await
             .context("failed to fetch forked block")?;
 
-        let MaybePendingBlockWithTxHashes::Block(forked_block) = block else {
+        let MaybePreConfirmedBlockWithTxHashes::Block(forked_block) = block else {
             bail!("forking a pending block is not allowed")
         };
 
@@ -154,8 +154,8 @@ impl Blockchain {
             let parent_block_id = BlockId::Hash(forked_block.parent_hash);
             let parent_block = provider.get_block_with_tx_hashes(parent_block_id).await?;
 
-            let MaybePendingBlockWithTxHashes::Block(parent_block) = parent_block else {
-                bail!("parent block is a pending block");
+            let MaybePreConfirmedBlockWithTxHashes::Block(parent_block) = parent_block else {
+                bail!("parent block is a preconfirmed block");
             };
 
             let parent_block = SealedBlockWithStatus {

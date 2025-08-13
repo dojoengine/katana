@@ -24,7 +24,7 @@ pub trait BlockIdReader: BlockNumberProvider + Send + Sync {
                 BlockNumberProvider::latest_number(&self).map(Some)
             }
 
-            BlockIdOrTag::Tag(BlockTag::Pending) => {
+            BlockIdOrTag::Tag(BlockTag::PreConfirmed) => {
                 if let Some((num, _)) = Self::pending_block_id(self)? {
                     Ok(Some(num))
                 } else {
@@ -32,6 +32,9 @@ pub trait BlockIdReader: BlockNumberProvider + Send + Sync {
                     BlockNumberProvider::latest_number(&self).map(Some)
                 }
             }
+
+            // TODO: track l1 accepted block
+            BlockIdOrTag::Tag(BlockTag::L1Accepted) => Ok(None),
         }
     }
 

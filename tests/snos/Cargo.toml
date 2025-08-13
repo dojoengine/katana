@@ -6,11 +6,14 @@ repository.workspace = true
 version.workspace = true
 
 [dependencies]
-# snos branch: kariy/0.13.4
-snos = { package = "prove_block", git = "https://github.com/cartridge-gg/snos", rev = "266be02" }
-starknet-os = { git = "https://github.com/cartridge-gg/snos", rev = "266be02" }
+# snos branch: kariy/0.13.4_rpc0.9
+snos = { package = "prove_block", git = "https://github.com/cartridge-gg/snos", rev = "c96eb9e" }
+starknet-os = { git = "https://github.com/cartridge-gg/snos", rev = "c96eb9e" }
 # SNOS-compatible cairo-vm
 cairo-vm = { package = "cairo-vm", git = "https://github.com/kariy/cairo-vm", branch = "kariy/1.0.2_clear-cell" }
+
+c-kzg = "2.1.0"
+either = "1.15.0"
 
 katana-chain-spec.workspace = true
 katana-messaging.workspace = true
