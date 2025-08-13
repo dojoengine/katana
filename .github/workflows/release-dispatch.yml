@@ -2,18 +2,24 @@ name: release-dispatch
 on:
   workflow_dispatch:
     inputs:
-      version:
-        description: Version to release
-        required: true
+      version_type:
+        description: Version type to release
+        required: false
         type: choice
+        default: custom
         options:
           - major
           - minor
-          - patch,
+          - patch
           - release
           - rc
           - beta
           - alpha
+          - custom
+      custom_version:
+        description: Custom version (used when `version_type` is 'custom')
+        required: false
+        type: string
 
 jobs:
   propose-release:
@@ -26,6 +32,18 @@ jobs:
     env:
       VERSION: ""
     steps:
+      - name: "Validate inputs"
+        run: |
+          if [ "${{ inputs.version_type }}" = "custom" ] && [ -z "${{ inputs.custom_version }}" ]; then
+            echo "error: custom_version is required when version_type is 'custom'"
+            exit 1
+          fi
+
+          if [ "${{ inputs.version_type }}" != "custom" ] && [ -n "${{ inputs.custom_version }}" ]; then
+            echo "error: custom_version should be empty when version_type is not 'custom'"
+            exit 1
+          fi
+
       - uses: actions/checkout@v4
       - run: git config --global --add safe.directory "*"
 
@@ -35,7 +53,11 @@ jobs:
           toolchain: "stable"
 
       - run: |
-          VERSION=${{ inputs.version }}
+          if [ "${{ inputs.version_type }}" = "custom" ]; then
+            VERSION=${{ inputs.custom_version }}
+          else
+            VERSION=${{ inputs.version_type }}
+          fi
           VERSION=${VERSION#v}
           cargo release version $VERSION --execute --no-confirm && cargo release replace --execute --no-confirm
 
