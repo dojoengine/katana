@@ -234,13 +234,10 @@ impl From<Box<InvalidTransactionError>> for StarknetApiError {
 impl From<StarknetRsError> for StarknetApiError {
     fn from(value: StarknetRsError) -> Self {
         match value {
-            StarknetRsError::FeeBelowMinimum => {
-                unimplemented!("ReplacementTransactionUnderpriced")
-            }
+            StarknetRsError::FeeBelowMinimum => Self::FeeBelowMinimum,
             StarknetRsError::ReplacementTransactionUnderpriced => {
-                unimplemented!("ReplacementTransactionUnderpriced")
+                Self::ReplacementTransactionUnderpriced
             }
-
             StarknetRsError::FailedToReceiveTransaction => Self::FailedToReceiveTxn,
             StarknetRsError::NoBlocks => Self::NoBlocks,
             StarknetRsError::NonAccount => Self::NonAccount,

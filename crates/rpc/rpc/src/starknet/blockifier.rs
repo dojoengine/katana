@@ -71,13 +71,7 @@ pub fn estimate_fees(
                         let fee = receipt.fee();
                         let resources = receipt.resources_used();
 
-                        // let unit = match fee.unit {
-                        //     fee::PriceUnit::Wei => PriceUnit::Wei,
-                        //     fee::PriceUnit::Fri => PriceUnit::Fri,
-                        // };
-
                         results.push(Ok(FeeEstimate {
-                            // unit,
                             overall_fee: fee.overall_fee,
                             l2_gas_price: fee.l2_gas_price,
                             l1_gas_price: fee.l1_gas_price,
