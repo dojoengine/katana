@@ -1,5 +1,5 @@
 window.BENCHMARK_DATA = {
-  "lastUpdate": 1754592783826,
+  "lastUpdate": 1755054542139,
   "repoUrl": "https://github.com/dojoengine/katana",
   "entries": {
     "Benchmark": [
@@ -3683,6 +3683,72 @@ window.BENCHMARK_DATA = {
             "name": "Katana.Startup",
             "value": 129126161,
             "range": "± 738089",
+            "unit": "ns/iter"
+          }
+        ]
+      },
+      {
+        "commit": {
+          "author": {
+            "email": "evergreenkary@gmail.com",
+            "name": "Ammar Arif",
+            "username": "kariy"
+          },
+          "committer": {
+            "email": "noreply@github.com",
+            "name": "GitHub",
+            "username": "web-flow"
+          },
+          "distinct": true,
+          "id": "df14db7fab895e62f106f20cef8c3329c35606e3",
+          "message": "feat(rpc): update Starknet RPC to 0.9.0-rc.2 (#210)\n\nAn update to the Starknet JSON-RPC spec to version [0.9.0-rc.2](https://github.com/starkware-libs/starknet-specs/releases/tag/v0.9.0-rc.2).\n\nCurrently, the supported version of the Starknet JSON-RPC spec in Katana is 0.8.0. The Starknet network has planned on upgrading their RPC version to the new [0.9.0](https://community.starknet.io/t/sn-0-14-0-pre-release-notes/115618#p-2359352-rpc-09-5). It's already the version used on Starknet testnet now and will soon hit mainnet on [18 Aug](https://docs.starknet.io/resources/version-notes/#starknet_v0_14_0_aug_18_25).\n\nAs of writing this, the `starknet` crate has yet to publish a version on `crates.io` with the stable v0.9.0 (i.e., not one of the `rc`s) support and this is primarily because the stable version of the spec was just released very recently (2 days ago).",
+          "timestamp": "2025-08-13T10:48:09+08:00",
+          "tree_id": "361bee5cca30aea7e5ce8bc0fc8fee0700e29037",
+          "url": "https://github.com/dojoengine/katana/commit/df14db7fab895e62f106f20cef8c3329c35606e3"
+        },
+        "date": 1755054540959,
+        "tool": "cargo",
+        "benches": [
+          {
+            "name": "Commit.Small/Parallel",
+            "value": 431309,
+            "range": "± 9555",
+            "unit": "ns/iter"
+          },
+          {
+            "name": "Commit.Big/Serial",
+            "value": 94170064,
+            "range": "± 405624",
+            "unit": "ns/iter"
+          },
+          {
+            "name": "Commit.Big/Parallel",
+            "value": 65175528,
+            "range": "± 1158292",
+            "unit": "ns/iter"
+          },
+          {
+            "name": "compress world contract",
+            "value": 2825029,
+            "range": "± 18502",
+            "unit": "ns/iter"
+          },
+          {
+            "name": "decompress world contract",
+            "value": 3047094,
+            "range": "± 23493",
+            "unit": "ns/iter"
+          },
+          {
+            "name": "Invoke.ERC20.transfer/Blockifier.Cold",
+            "value": 18283140,
+            "range": "± 708822",
+            "unit": "ns/iter"
+          },
+          {
+            "name": "Katana.Startup",
+            "value": 129456427,
+            "range": "± 489812",
             "unit": "ns/iter"
           }
         ]
