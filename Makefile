@@ -17,9 +17,6 @@ SNOS_DB_DIR := $(DB_FIXTURES_DIR)/snos
 COMPATIBILITY_DB_TAR ?= $(DB_FIXTURES_DIR)/v1_2_2.tar.gz
 COMPATIBILITY_DB_DIR ?= $(DB_FIXTURES_DIR)/v1_2_2
 
-SIMPLE_DB_TAR ?= $(DB_FIXTURES_DIR)/simple.tar.gz
-SIMPLE_DB_DIR ?= $(DB_FIXTURES_DIR)/simple
-
 CONTRACTS_CRATE := crates/contracts
 CONTRACTS_DIR := $(CONTRACTS_CRATE)/contracts
 CONTRACTS_BUILD_DIR := $(CONTRACTS_CRATE)/build
@@ -29,7 +26,7 @@ SCARB_VERSION := 2.8.4
 
 .DEFAULT_GOAL := usage
 .SILENT: clean
-.PHONY: usage help check-llvm native-deps native-deps-macos native-deps-linux native-deps-windows build-explorer build-contracts clean deps install-scarb test-artifacts snos-artifacts db-compat-artifacts simple-db generate-simple-db
+.PHONY: usage help check-llvm native-deps native-deps-macos native-deps-linux native-deps-windows build-explorer build-contracts clean deps install-scarb test-artifacts snos-artifacts db-compat-artifacts
 
 usage help:
 	@echo "Usage:"
@@ -39,8 +36,6 @@ usage help:
 	@echo "    test-artifacts:            Prepare tests artifacts (including test database)."
 	@echo "    snos-artifacts:            Prepare SNOS tests artifacts."
 	@echo "    db-compat-artifacts:       Prepare database compatibility test artifacts."
-	@echo "    simple-db:                 Extract simple test database."
-	@echo "    generate-simple-db:        Generate simple test database from Dojo repository."
 	@echo "    native-deps-macos:         Install cairo-native dependencies for macOS."
 	@echo "    native-deps-linux:         Install cairo-native dependencies for Linux."
 	@echo "    native-deps-windows:       Install cairo-native dependencies for Windows."
@@ -64,9 +59,7 @@ snos-artifacts: $(SNOS_OUTPUT)
 	@echo "SNOS test artifacts prepared successfully."
 db-compat-artifacts: $(COMPATIBILITY_DB_DIR)
 	@echo "Database compatibility test artifacts prepared successfully."
-simple-db: $(SIMPLE_DB_DIR)
-	@echo "Simple test database prepared successfully."
-test-artifacts: $(SNOS_DB_DIR) $(SNOS_OUTPUT) $(COMPATIBILITY_DB_DIR) $(CONTRACTS_BUILD_DIR) $(SIMPLE_DB_DIR)
+test-artifacts: $(SNOS_DB_DIR) $(SNOS_OUTPUT) $(COMPATIBILITY_DB_DIR) $(CONTRACTS_BUILD_DIR)
 	@echo "All test artifacts prepared successfully."
 
 build-explorer:
@@ -113,17 +106,6 @@ $(COMPATIBILITY_DB_DIR): $(COMPATIBILITY_DB_TAR)
 		tar -xzf v1_2_2.tar.gz || { echo "Failed to extract backward compatibility test database\!"; exit 1; }
 	@echo "Backward compatibility database extracted successfully."
 
-$(SIMPLE_DB_DIR): $(SIMPLE_DB_TAR)
-	@echo "Extracting simple test database..."
-	@cd $(DB_FIXTURES_DIR) && \
-		tar -xzf simple.tar.gz || { echo "Failed to extract simple test database\!"; exit 1; }
-	@echo "Simple test database extracted successfully."
-
-generate-simple-db:
-	@echo "Generating simple test database from Dojo repository..."
-	@./scripts/generate-simple-db.sh
-	@echo "Simple test database generation complete."
-
 check-llvm:
 ifndef MLIR_SYS_190_PREFIX
 	$(error Could not find a suitable LLVM 19 toolchain (mlir), please set MLIR_SYS_190_PREFIX env pointing to the LLVM 19 dir)
@@ -161,5 +143,5 @@ native-deps-windows:
 
 clean:
 	echo "Cleaning up generated files..."
-	-rm -rf $(SNOS_DB_DIR) $(COMPATIBILITY_DB_DIR) $(SIMPLE_DB_DIR) $(SNOS_OUTPUT) $(EXPLORER_UI_DIST) $(CONTRACTS_BUILD_DIR)
+	-rm -rf $(SNOS_DB_DIR) $(COMPATIBILITY_DB_DIR) $(SNOS_OUTPUT) $(EXPLORER_UI_DIST) $(CONTRACTS_BUILD_DIR)
 	echo "Clean complete."
