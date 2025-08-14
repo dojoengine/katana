@@ -246,7 +246,9 @@ jobs:
           key: test-artifacts
 
       - name: Start Katana
-        run: cargo run --bin katana > katana.log 2>&1 &
+        run: |
+          cargo run --bin katana
+          katana > katana.log 2>&1 &
 
       - name: Checkout Dojo repository
         uses: actions/checkout@v3
@@ -257,7 +259,10 @@ jobs:
 
       - name: Build and migrate `spawn-and=move` project
         run: |
-          cd examples/spawn-and-move
+          cd dojo
+          cargo install --path bin/sozo --locked --force
+
+          cd dojo/examples/spawn-and-move
           sozo build && sozo migrate
 
       - name: Output Katana logs on failure
