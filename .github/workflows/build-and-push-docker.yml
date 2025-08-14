@@ -12,12 +12,24 @@ on:
       - main
     paths:
       - ".github/Dockerfile"
+  release:
+    types: [created]
 
 env:
   RUST_VERSION: 1.86.0
   CLIPPY_VERSION: nightly-2025-02-20
 
 jobs:
+  # Docker tag determination based on workflow trigger:
+  #
+  # |--------------------|---------------------------|
+  # | Trigger            | Docker Tag                |
+  # |--------------------|---------------------------|
+  # | push               | Short SHA (first 7 chars) |
+  # | release            | GitHub release tag        |
+  # | workflow_dispatch  | User-provided input       |
+  # |--------------------|---------------------------|
+  #
   setup:
     runs-on: ubuntu-latest
     outputs:
