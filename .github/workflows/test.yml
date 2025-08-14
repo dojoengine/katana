@@ -216,6 +216,56 @@ jobs:
       - uses: browser-actions/setup-chrome@v1
       - run: cargo run -p reverse-proxy-test
 
+  dojo-integration-test:
+    needs: [fmt, clippy]
+    runs-on: ubuntu-latest-32-cores
+    if: github.event_name == 'push' || (github.event_name == 'pull_request' && github.event.pull_request.draft == false)
+    container:
+      image: ghcr.io/dojoengine/katana-dev:rpc090rc2
+    env:
+      MLIR_SYS_190_PREFIX: /usr/lib/llvm-19/
+      LLVM_SYS_191_PREFIX: /usr/lib/llvm-19/
+      TABLEGEN_190_PREFIX: /usr/lib/llvm-19/
+      NEXTEST_PROFILE: ci
+    steps:
+      - uses: actions/checkout@v3
+        with:
+          submodules: recursive
+      # Workaround for https://github.com/actions/runner-images/issues/6775
+      - run: git config --global --add safe.directory "*"
+
+      - uses: Swatinem/rust-cache@v2
+        with:
+          key: ci-${{ github.job }}
+          shared-key: katana-ci-cache
+
+      - name: Restore test artifacts
+        uses: actions/cache@v3
+        with:
+          path: ./crates/contracts/build
+          key: test-artifacts
+
+      - name: Start Katana
+        run: cargo run --bin katana > katana.log 2>&1 &
+
+      - name: Checkout Dojo repository
+        uses: actions/checkout@v3
+        with:
+          repository: dojoengine/dojo
+          ref: v1.7.0-alpha.0
+          path: dojo
+
+      - name: Build and migrate `spawn-and=move` project
+        run: |
+          cd examples/spawn-and-move
+          sozo build && sozo migrate
+
+      - name: Output Katana logs on failure
+        if: failure()
+        run: |
+          echo "=== Last 50 lines of Katana logs ==="
+          tail -n 50 katana.log
+
   # db-compatibility-check:
   #   needs: [fmt, clippy]
   #   runs-on: ubuntu-latest
