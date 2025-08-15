@@ -257,7 +257,7 @@ jobs:
 
       - uses: software-mansion/setup-scarb@v1
         with:
-          scarb-version: "2.11.4"
+          scarb-version: "nightly-2025-05-08"
 
       - name: Build and migrate `spawn-and=move` project
         run: |
