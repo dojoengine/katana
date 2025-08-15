@@ -246,8 +246,7 @@ jobs:
 
       - name: Start Katana
         run: |
-          cargo run --bin katana
-          katana > katana.log 2>&1 &
+          cargo run --bin katana > katana.log 2>&1 &
 
       - name: Checkout Dojo repository
         uses: actions/checkout@v3
