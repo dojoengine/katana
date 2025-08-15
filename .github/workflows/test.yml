@@ -117,7 +117,7 @@ jobs:
           overwrite: true
           retention-days: 1
           if-no-files-found: error
-          path: ./target/dev/katana
+          path: ./target/debug/katana
 
   clippy:
     needs: [generate-test-artifacts]
