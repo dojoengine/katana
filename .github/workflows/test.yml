@@ -1,4 +1,4 @@
-name: ci
+name: test
 
 on:
   push:
@@ -57,24 +57,25 @@ jobs:
           fi
 
       - name: Try to restore cached test artifacts
-        id: cache
-        uses: actions/cache@v3
+        id: download
+        uses: actions/download-artifact@v5
+        continue-on-error: true
         with:
-          lookup-only: true
-          key: test-artifacts
-          path: |
-            ./tests/snos/snos/build
-            ./crates/contracts/build
+          name: test-artifacts
 
+      # Only generate the test artifacts if the snos submodule changes or the downloading the artifacts failed
       - name: Generate test artifacts
-        if: steps.check-files.outputs.files_changed == 'true' || steps.cache.outputs.cache-hit != 'true'
+        if: steps.check-files.outputs.files_changed == 'true' || steps.download.outcome == 'failure'
         run: make test-artifacts
 
       - name: Cache test artifacts
-        if: steps.check-files.outputs.files_changed == 'true' || steps.cache.outputs.cache-hit != 'true'
-        uses: actions/cache@v3
+        if: steps.check-files.outputs.files_changed == 'true' || steps.download.outcome == 'failure'
+        uses: actions/upload-artifact@v4
         with:
-          key: test-artifacts
+          name: test-artifacts
+          overwrite: true
+          retention-days: 14
+          if-no-files-found: error
           path: |
             ./tests/snos/snos/build
             ./crates/contracts/build
@@ -101,13 +102,10 @@ jobs:
           key: ci-${{ github.job }}
           shared-key: katana-ci-cache
 
-      - name: Restore test artifacts
-        uses: actions/cache@v3
+      - name: Download test artifacts
+        uses: actions/download-artifact@v5
         with:
-          path: |
-            ./tests/snos/snos/build
-            ./crates/contracts/build
-          key: test-artifacts
+          name: test-artifacts
 
       - name: Run Clippy
         run: ./scripts/clippy.sh
@@ -135,13 +133,10 @@ jobs:
           key: ci-${{ github.job }}
           shared-key: katana-ci-cache
 
-      - name: Restore test artifacts
-        uses: actions/cache@v3
+      - name: Download test artifacts
+        uses: actions/download-artifact@v5
         with:
-          path: |
-            ./tests/snos/snos/build
-            ./crates/contracts/build
-          key: test-artifacts
+          name: test-artifacts
 
       - name: Run tests w/ code coverage
         if: github.event_name == 'pull_request'
@@ -182,13 +177,10 @@ jobs:
           key: ci-${{ github.job }}
           shared-key: katana-ci-cache
 
-      - name: Restore test artifacts
-        uses: actions/cache@v3
+      - name: Download test artifacts
+        uses: actions/download-artifact@v5
         with:
-          path: |
-            ./tests/snos/snos/build
-            ./crates/contracts/build
-          key: test-artifacts
+          name: test-artifacts
 
       - name: Prepare SNOS test environment
         run: |
@@ -216,13 +208,10 @@ jobs:
           key: ci-${{ github.job }}
           shared-key: katana-ci-cache
 
-      - name: Restore test artifacts
-        uses: actions/cache@v3
+      - name: Download test artifacts
+        uses: actions/download-artifact@v5
         with:
-          path: |
-            ./tests/snos/snos/build
-            ./crates/contracts/build
-          key: test-artifacts
+          name: test-artifacts
 
       - uses: browser-actions/setup-chrome@v1
       - run: cargo run -p reverse-proxy-test
