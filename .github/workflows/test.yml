@@ -255,6 +255,10 @@ jobs:
           ref: v1.7.0-alpha.0
           path: dojo
 
+      - uses: software-mansion/setup-scarb@v1
+        with:
+          scarb-version: "2.11.4"
+
       - name: Build and migrate `spawn-and=move` project
         run: |
           cd dojo
