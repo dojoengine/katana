@@ -221,12 +221,7 @@ jobs:
     runs-on: ubuntu-latest-32-cores
     if: github.event_name == 'push' || (github.event_name == 'pull_request' && github.event.pull_request.draft == false)
     container:
-      image: ghcr.io/dojoengine/katana-dev:rpc090rc2
-    env:
-      MLIR_SYS_190_PREFIX: /usr/lib/llvm-19/
-      LLVM_SYS_191_PREFIX: /usr/lib/llvm-19/
-      TABLEGEN_190_PREFIX: /usr/lib/llvm-19/
-      NEXTEST_PROFILE: ci
+      image: ghcr.io/dojoengine/katana-dev:latest
     steps:
       - uses: actions/checkout@v3
         with:
@@ -239,14 +234,17 @@ jobs:
           key: ci-${{ github.job }}
           shared-key: katana-ci-cache
 
+      - uses: software-mansion/setup-scarb@v1
+        with:
+          scarb-version: "nightly-2025-05-08"
+
       - name: Download test artifacts
         uses: actions/download-artifact@v5
         with:
           name: test-artifacts
 
       - name: Start Katana
-        run: |
-          cargo run --bin katana > katana.log 2>&1 &
+        run: cargo run --bin katana > katana.log 2>&1 &
 
       - name: Checkout Dojo repository
         uses: actions/checkout@v3
@@ -255,11 +253,7 @@ jobs:
           ref: v1.7.0-alpha.0
           path: dojo
 
-      - uses: software-mansion/setup-scarb@v1
-        with:
-          scarb-version: "nightly-2025-05-08"
-
-      - name: Build and migrate `spawn-and=move` project
+      - name: Build and migrate `spawn-and-move` project
         run: |
           cd dojo
           cargo install --path bin/sozo --locked --force
