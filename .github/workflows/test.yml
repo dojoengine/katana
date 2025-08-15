@@ -113,6 +113,7 @@ jobs:
   test:
     needs: [fmt, clippy]
     runs-on: ubuntu-latest-32-cores
+    timeout-minutes: 30
     if: github.event_name == 'push' || (github.event_name == 'pull_request' && github.event.pull_request.draft == false)
     container:
       image: ghcr.io/dojoengine/katana-dev:rpc090rc2
@@ -158,6 +159,7 @@ jobs:
   snos-integration-test:
     needs: [fmt, clippy]
     runs-on: ubuntu-latest-32-cores
+    timeout-minutes: 30
     if: github.event_name == 'push' || (github.event_name == 'pull_request' && github.event.pull_request.draft == false)
     container:
       image: ghcr.io/dojoengine/katana-dev:latest
