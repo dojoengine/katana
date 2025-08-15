@@ -12,7 +12,7 @@ on:
       - main
     paths:
       - ".github/Dockerfile"
-  # run when a stable or pre-releases publish
+  # run when a stable or pre-releases publish: <https://docs.github.com/en/actions/reference/workflows-and-actions/events-that-trigger-workflows#release>
   release:
     types: [published]
 
