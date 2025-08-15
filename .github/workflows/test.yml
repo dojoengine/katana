@@ -234,10 +234,6 @@ jobs:
           key: ci-${{ github.job }}
           shared-key: katana-ci-cache
 
-      - uses: software-mansion/setup-scarb@v1
-        with:
-          scarb-version: "nightly-2025-05-08"
-
       - name: Download test artifacts
         uses: actions/download-artifact@v5
         with:
@@ -252,6 +248,10 @@ jobs:
           repository: dojoengine/dojo
           ref: v1.7.0-alpha.1
           path: dojo
+
+      - uses: software-mansion/setup-scarb@v1
+        with:
+          scarb-version: "nightly-2025-05-08"
 
       - name: Build and migrate `spawn-and-move` project
         run: |
