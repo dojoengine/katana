@@ -218,6 +218,57 @@ jobs:
       - uses: browser-actions/setup-chrome@v1
       - run: cargo run -p reverse-proxy-test
 
+  dojo-integration-test:
+    needs: [fmt, clippy]
+    runs-on: ubuntu-latest-32-cores
+    if: github.event_name == 'push' || (github.event_name == 'pull_request' && github.event.pull_request.draft == false)
+    container:
+      image: ghcr.io/dojoengine/katana-dev:latest
+    steps:
+      - uses: actions/checkout@v3
+        with:
+          submodules: recursive
+      # Workaround for https://github.com/actions/runner-images/issues/6775
+      - run: git config --global --add safe.directory "*"
+
+      - uses: Swatinem/rust-cache@v2
+        with:
+          key: ci-${{ github.job }}
+          shared-key: katana-ci-cache
+
+      - name: Download test artifacts
+        uses: actions/download-artifact@v5
+        with:
+          name: test-artifacts
+
+      - name: Start Katana
+        run: cargo run --bin katana > katana.log 2>&1 &
+
+      - name: Checkout Dojo repository
+        uses: actions/checkout@v3
+        with:
+          repository: dojoengine/dojo
+          ref: v1.7.0-alpha.1
+          path: dojo
+
+      - uses: software-mansion/setup-scarb@v1
+        with:
+          scarb-version: "nightly-2025-05-08"
+
+      - name: Build and migrate `spawn-and-move` project
+        run: |
+          cd dojo
+          cargo install --path bin/sozo --locked --force
+
+          cd examples/spawn-and-move
+          sozo build && sozo migrate
+
+      - name: Output Katana logs on failure
+        if: failure()
+        run: |
+          echo "=== Last 50 lines of Katana logs ==="
+          tail -n 50 katana.log
+
   # db-compatibility-check:
   #   needs: [fmt, clippy]
   #   runs-on: ubuntu-latest
