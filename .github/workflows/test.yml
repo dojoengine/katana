@@ -260,7 +260,7 @@ jobs:
           cd dojo
           cargo install --path bin/sozo --locked --force
 
-          cd dojo/examples/spawn-and-move
+          cd examples/spawn-and-move
           sozo build && sozo migrate
 
       - name: Output Katana logs on failure
