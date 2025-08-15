@@ -110,17 +110,3 @@ RUN chown -R root:root /usr/local/cargo && chmod -R 700 /usr/local/cargo
 ENV MLIR_SYS_190_PREFIX=/usr/lib/llvm-19
 ENV LLVM_SYS_191_PREFIX=/usr/lib/llvm-19
 ENV TABLEGEN_190_PREFIX=/usr/lib/llvm-19
-
-# ===== Dependency Builder Stage =====
-# This stage builds only Rust dependencies, separate from source code
-FROM external-tools as builder
-
-WORKDIR /katana
-COPY . .
-
-# Build katana
-RUN cargo install --path bin/katana --features native --locked
-# Verify the binary works
-RUN katana --version
-
-CMD ["katana"]
