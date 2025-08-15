@@ -36,8 +36,22 @@ fn main() {
         .expect("Failed to execute scarb build");
 
     if !output.status.success() {
-        let stderr = String::from_utf8_lossy(&output.stderr);
-        panic!("Contract compilation failed:\n{}", stderr);
+        let logs = String::from_utf8_lossy(&output.stdout);
+        let last_n_lines = logs
+            .split('\n')
+            .rev()
+            .take(50)
+            .collect::<Vec<&str>>()
+            .into_iter()
+            .rev()
+            .collect::<Vec<&str>>()
+            .join("\n");
+
+        panic!(
+            "Contract compilation build script failed. Below are the last 50 lines of `scarb \
+             build` output:\n\n{}",
+            last_n_lines
+        );
     }
 
     // Create build directory if it doesn't exist
