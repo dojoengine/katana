@@ -1,5 +1,5 @@
 window.BENCHMARK_DATA = {
-  "lastUpdate": 1755268762026,
+  "lastUpdate": 1755299310397,
   "repoUrl": "https://github.com/dojoengine/katana",
   "entries": {
     "Benchmark": [
@@ -4079,6 +4079,72 @@ window.BENCHMARK_DATA = {
             "name": "Katana.Startup",
             "value": 127629235,
             "range": "± 455528",
+            "unit": "ns/iter"
+          }
+        ]
+      },
+      {
+        "commit": {
+          "author": {
+            "email": "evergreenkary@gmail.com",
+            "name": "Ammar Arif",
+            "username": "kariy"
+          },
+          "committer": {
+            "email": "noreply@github.com",
+            "name": "GitHub",
+            "username": "web-flow"
+          },
+          "distinct": true,
+          "id": "819edd3e9268a9f81a3f7bfd25a22b5c3275f8b7",
+          "message": "refactor(contracts): run build script on empty dir (#231)\n\nSwitch the contracts build target from depending on a directory node to depending on the full set of files under `$(CONTRACTS_DIR)`. This fixes missed rebuilds caused by directory `mtimes` not reflecting changes in nested files.\n\nGNU Make decides whether to run a rule by comparing the target’s `mtime` with its prerequisites. The previous rule:\n\n```Makefile\n$(CONTRACTS_BUILD_DIR): $(CONTRACTS_DIR)\n```\n\nused the **directory mtime** as a proxy for changes. Directory `mtimes` often don’t update when you edit files deeper in the tree, so Make could skip necessary rebuilds.\n\nBy having `$(shell find $(CONTRACTS_DIR) -type f)` as the prerequisite, we capture all files at any depth and the target now rebuilds when any of the captured files is added/removed/modified.",
+          "timestamp": "2025-08-16T06:59:02+08:00",
+          "tree_id": "ba996ebcba826f9531a87e06579bbef11fdfcfb9",
+          "url": "https://github.com/dojoengine/katana/commit/819edd3e9268a9f81a3f7bfd25a22b5c3275f8b7"
+        },
+        "date": 1755299309117,
+        "tool": "cargo",
+        "benches": [
+          {
+            "name": "Commit.Small/Parallel",
+            "value": 451623,
+            "range": "± 11620",
+            "unit": "ns/iter"
+          },
+          {
+            "name": "Commit.Big/Serial",
+            "value": 94312842,
+            "range": "± 670391",
+            "unit": "ns/iter"
+          },
+          {
+            "name": "Commit.Big/Parallel",
+            "value": 65822186,
+            "range": "± 3810240",
+            "unit": "ns/iter"
+          },
+          {
+            "name": "compress world contract",
+            "value": 2687351,
+            "range": "± 13637",
+            "unit": "ns/iter"
+          },
+          {
+            "name": "decompress world contract",
+            "value": 3056077,
+            "range": "± 14160",
+            "unit": "ns/iter"
+          },
+          {
+            "name": "Invoke.ERC20.transfer/Blockifier.Cold",
+            "value": 16484091,
+            "range": "± 157612",
+            "unit": "ns/iter"
+          },
+          {
+            "name": "Katana.Startup",
+            "value": 126905744,
+            "range": "± 436164",
             "unit": "ns/iter"
           }
         ]
