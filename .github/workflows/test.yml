@@ -250,7 +250,7 @@ jobs:
         uses: actions/checkout@v3
         with:
           repository: dojoengine/dojo
-          ref: v1.7.0-alpha.0
+          ref: v1.7.0-alpha.1
           path: dojo
 
       - name: Build and migrate `spawn-and-move` project
