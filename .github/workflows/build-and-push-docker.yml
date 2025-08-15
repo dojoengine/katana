@@ -12,8 +12,9 @@ on:
       - main
     paths:
       - ".github/Dockerfile"
+  # run when a stable or pre-releases publish
   release:
-    types: [created]
+    types: [published]
 
 env:
   RUST_VERSION: 1.86.0
