@@ -108,7 +108,7 @@ jobs:
           name: test-artifacts
 
       - name: Build binary with all features
-        run: cargo build --binary katana --all-features
+        run: cargo build --bin katana --all-features
 
       - name: Upload binary
         uses: actions/upload-artifact@v4
