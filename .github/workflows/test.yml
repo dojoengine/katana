@@ -80,6 +80,45 @@ jobs:
             ./tests/snos/snos/build
             ./crates/contracts/build
 
+  build-katana-binary:
+    needs: [fmt, clippy, generate-test-artifacts]
+    runs-on: ubuntu-latest-32-cores
+    if: github.event_name == 'push' || (github.event_name == 'pull_request' && github.event.pull_request.draft == false)
+    container:
+      image: ghcr.io/dojoengine/katana-dev:latest
+    env:
+      MLIR_SYS_190_PREFIX: /usr/lib/llvm-19/
+      LLVM_SYS_191_PREFIX: /usr/lib/llvm-19/
+      TABLEGEN_190_PREFIX: /usr/lib/llvm-19/
+    steps:
+      - uses: actions/checkout@v3
+        with:
+          submodules: recursive
+      # Workaround for https://github.com/actions/runner-images/issues/6775
+      - run: git config --global --add safe.directory "*"
+
+      - uses: Swatinem/rust-cache@v2
+        with:
+          key: ci-${{ github.job }}
+          shared-key: katana-ci-cache
+
+      - name: Download contract artifacts
+        uses: actions/download-artifact@v5
+        with:
+          name: test-artifacts
+
+      - name: Build binary with all features
+        run: cargo build --binary katana --all-features
+
+      - name: Upload binary
+        uses: actions/upload-artifact@v4
+        with:
+          name: binary
+          overwrite: true
+          retention-days: 1
+          if-no-files-found: error
+          path: ./target/dev/katana
+
   clippy:
     needs: [generate-test-artifacts]
     runs-on: ubuntu-latest-4-cores
@@ -111,12 +150,12 @@ jobs:
         run: ./scripts/clippy.sh
 
   test:
-    needs: [fmt, clippy]
+    needs: [fmt, clippy, generate-test-artifacts, build-katana-binary]
     runs-on: ubuntu-latest-32-cores
     timeout-minutes: 30
     if: github.event_name == 'push' || (github.event_name == 'pull_request' && github.event.pull_request.draft == false)
     container:
-      image: ghcr.io/dojoengine/katana-dev:rpc090rc2
+      image: ghcr.io/dojoengine/katana-dev:latest
     env:
       MLIR_SYS_190_PREFIX: /usr/lib/llvm-19/
       LLVM_SYS_191_PREFIX: /usr/lib/llvm-19/
@@ -139,18 +178,30 @@ jobs:
         with:
           name: test-artifacts
 
-      - name: Run tests w/ code coverage
-        if: github.event_name == 'pull_request'
+      - name: Download Katana binary
+        uses: actions/download-artifact@v5
+        with:
+          name: binary
+
+      - name: Add binary to PATH
         run: |
-          cargo llvm-cov nextest --no-report --all-features --workspace --exclude snos-integration-test --build-jobs 20
-          cargo llvm-cov report --lcov --output-path lcov.info
+          chmod +x katana
+          export PATH="$(pwd):$GITHUB_PATH"
+          echo $PATH > $GITHUB_PATH
 
       - name: Run tests
         if: github.event_name != 'pull_request'
         run: |
           cargo nextest run --all-features --workspace --exclude snos-integration-test --build-jobs 20
 
-      - uses: codecov/codecov-action@v4
+      - name: Run tests w/ code coverage
+        if: github.event_name == 'pull_request'
+        run: |
+          cargo llvm-cov nextest --no-report --all-features --workspace --exclude snos-integration-test --build-jobs 20
+          cargo llvm-cov report --lcov --output-path lcov.info
+
+      - name: Upload code coverage
+        uses: codecov/codecov-action@v4
         if: github.event_name == 'pull_request'
         with:
           token: ${{ secrets.CODECOV_TOKEN }}
