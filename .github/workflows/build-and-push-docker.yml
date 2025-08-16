@@ -12,9 +12,6 @@ on:
       - main
     paths:
       - ".github/Dockerfile"
-  # run when a stable or pre-releases publish: <https://docs.github.com/en/actions/reference/workflows-and-actions/events-that-trigger-workflows#release>
-  release:
-    types: [published]
 
 env:
   RUST_VERSION: 1.86.0
@@ -27,7 +24,6 @@ jobs:
   # | Trigger            | Docker Tag                |
   # |--------------------|---------------------------|
   # | push               | Short SHA (first 7 chars) |
-  # | release            | GitHub release tag        |
   # | workflow_dispatch  | User-provided input       |
   # |--------------------|---------------------------|
   #
@@ -48,8 +44,6 @@ jobs:
           if [ "${{ github.event_name }}" == "push" ]; then
             SHORT_SHA=$(echo "${{ github.sha }}" | cut -c 1-7)
             echo "tag_name=$SHORT_SHA" >> $GITHUB_OUTPUT
-          elif [ "${{ github.event_name }}" == "release" ]; then
-            echo "tag_name=${{ github.event.release.tag_name }}" >> $GITHUB_OUTPUT
           elif [ "${{ github.event_name }}" == "workflow_dispatch" ]; then
             echo "tag_name=${{ inputs.docker_tag }}" >> $GITHUB_OUTPUT
           fi
@@ -78,7 +72,7 @@ jobs:
         uses: docker/build-push-action@v6
         with:
           context: .
-          push: ${{ (github.event_name == 'push' && github.ref == 'refs/heads/main') || (github.event_name == 'release' && startsWith(github.ref, 'refs/tags/')) || github.event_name == 'workflow_dispatch' }}
+          push: ${{ (github.event_name == 'push' && github.ref == 'refs/heads/main') || github.event_name == 'workflow_dispatch' }}
           file: .github/Dockerfile
           tags: ghcr.io/${{ github.repository }}-dev:${{ needs.setup.outputs.tag_name }}-amd64,ghcr.io/${{ github.repository }}-dev:latest-amd64
           build-args: |
@@ -111,7 +105,7 @@ jobs:
         uses: docker/build-push-action@v6
         with:
           context: .
-          push: ${{ (github.event_name == 'push' && github.ref == 'refs/heads/main') || (github.event_name == 'release' && startsWith(github.ref, 'refs/tags/')) || github.event_name == 'workflow_dispatch' }}
+          push: ${{ (github.event_name == 'push' && github.ref == 'refs/heads/main') || github.event_name == 'workflow_dispatch' }}
           file: .github/Dockerfile
           tags: ghcr.io/${{ github.repository }}-dev:${{ needs.setup.outputs.tag_name }}-arm64,ghcr.io/${{ github.repository }}-dev:latest-arm64
           build-args: |
