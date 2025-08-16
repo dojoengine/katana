@@ -275,6 +275,18 @@ jobs:
       - uses: browser-actions/setup-chrome@v1
       - run: cargo run -p reverse-proxy-test
 
+      - name: Output Katana logs on failure
+        if: failure()
+        run: |
+          echo "=== Last 50 lines of Katana logs ==="
+          tail -n 50 katana.log
+
+      - name: Output Caddy logs on failure
+        if: failure()
+        run: |
+          echo "=== Last 50 lines of Caddy logs ==="
+          tail -n 50 caddy.log
+
   dojo-integration-test:
     needs: [fmt, clippy]
     runs-on: ubuntu-latest-32-cores
