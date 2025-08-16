@@ -1,5 +1,5 @@
 window.BENCHMARK_DATA = {
-  "lastUpdate": 1755299310397,
+  "lastUpdate": 1755303405521,
   "repoUrl": "https://github.com/dojoengine/katana",
   "entries": {
     "Benchmark": [
@@ -4145,6 +4145,72 @@ window.BENCHMARK_DATA = {
             "name": "Katana.Startup",
             "value": 126905744,
             "range": "± 436164",
+            "unit": "ns/iter"
+          }
+        ]
+      },
+      {
+        "commit": {
+          "author": {
+            "email": "evergreenkary@gmail.com",
+            "name": "Ammar Arif",
+            "username": "kariy"
+          },
+          "committer": {
+            "email": "noreply@github.com",
+            "name": "GitHub",
+            "username": "web-flow"
+          },
+          "distinct": true,
+          "id": "8e9ddba04809ea4525daf7b2b679a577e87eb034",
+          "message": "fix(rpc): unfinished error conversion (#222)\n\n`ReplacementTransactionUnderpriced` and `FeeBelowMinimum` are two new errors that have been added as part of the RPC 0.9.0 but were mistakenly left out in commit `df14db7`.",
+          "timestamp": "2025-08-16T08:07:00+08:00",
+          "tree_id": "e1b123547abbe35eec4280044e927651468c7041",
+          "url": "https://github.com/dojoengine/katana/commit/8e9ddba04809ea4525daf7b2b679a577e87eb034"
+        },
+        "date": 1755303403424,
+        "tool": "cargo",
+        "benches": [
+          {
+            "name": "Commit.Small/Parallel",
+            "value": 450130,
+            "range": "± 10056",
+            "unit": "ns/iter"
+          },
+          {
+            "name": "Commit.Big/Serial",
+            "value": 94094806,
+            "range": "± 365417",
+            "unit": "ns/iter"
+          },
+          {
+            "name": "Commit.Big/Parallel",
+            "value": 65647968,
+            "range": "± 2511451",
+            "unit": "ns/iter"
+          },
+          {
+            "name": "compress world contract",
+            "value": 2680378,
+            "range": "± 12996",
+            "unit": "ns/iter"
+          },
+          {
+            "name": "decompress world contract",
+            "value": 3084334,
+            "range": "± 14972",
+            "unit": "ns/iter"
+          },
+          {
+            "name": "Invoke.ERC20.transfer/Blockifier.Cold",
+            "value": 16518791,
+            "range": "± 77061",
+            "unit": "ns/iter"
+          },
+          {
+            "name": "Katana.Startup",
+            "value": 127270394,
+            "range": "± 298345",
             "unit": "ns/iter"
           }
         ]
