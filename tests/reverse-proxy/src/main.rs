@@ -1,14 +1,12 @@
-use std::path::{Path, PathBuf};
-use std::process::{Child, Command};
-use std::sync::{Arc, Condvar, Mutex};
-use std::thread::{self, JoinHandle};
-use std::time::Duration;
+//! A test to ensure the Explorer web app works correctly even when accessed through the reverse
+//! proxy.
+//!
+//! This test assumes that Katana and the reverse proxy are already running on port 6060 and 9090
+//! respectively.
 
 use anyhow::Result;
 use headless_chrome::browser::default_executable;
 use headless_chrome::{Browser, LaunchOptionsBuilder};
-use katana_utils::node::test_config;
-use katana_utils::TestNode;
 
 // must match the values in fixtures/Caddyfile
 const PORT: u16 = 6060;
@@ -36,18 +34,37 @@ const ROUTES: [(&str, &str, Option<&str>, &str); 5] = [
 
 #[tokio::main]
 async fn main() {
-    let _node = start_katana().await;
-    let rp_handle = start_reverse_proxy().await;
     let browser = browser();
 
-    // Test both direct and proxied endpoints
     let url = format!("http://localhost:{PORT}/explorer");
-    test_all_pages(&browser, &url).await;
-
     let rp_url = format!("https://localhost:{RP_PORT}/x/foo/katana/explorer");
-    test_all_pages(&browser, &rp_url).await;
 
-    rp_handle.join().unwrap().kill().expect("failed to clean up reverse proxy")
+    // Check if the direct URL is healthy before running tests
+    if !check_url_health(&url).await {
+        panic!(
+            "❌ Failed to connect to Katana at {url}. Please make sure Katana is running on port \
+             {PORT}."
+        );
+    }
+
+    // Check if the reverse proxy URL is healthy before running tests
+    if !check_url_health(&rp_url).await {
+        panic!(
+            "❌ Failed to connect to reverse proxy at {rp_url}. Please make sure the reverse \
+             proxy is running on port {RP_PORT}."
+        );
+    }
+
+    // Test both direct and proxied endpoints
+    test_all_pages(&browser, &url).await;
+    test_all_pages(&browser, &rp_url).await;
+}
+
+async fn check_url_health(url: &str) -> bool {
+    match reqwest::get(url).await {
+        Ok(response) => response.status().is_success(),
+        Err(_) => false,
+    }
 }
 
 async fn test_all_pages(browser: &Browser, base_url: &str) {
@@ -83,75 +100,6 @@ fn test_page(browser: &Browser, page_name: &str, url: &str, selector: &str) -> R
             Err(e)
         }
     }
-}
-
-async fn start_katana() -> TestNode {
-    let mut config = test_config();
-    config.rpc.explorer = true;
-    // must match the port in the reverse proxy config (ie fixtures/Caddyfile)
-    config.rpc.port = 6060;
-
-    let node = TestNode::new_with_config(config).await;
-    println!("Katana started");
-    node
-}
-
-async fn start_reverse_proxy() -> JoinHandle<Child> {
-    let caddy_check = Command::new("caddy").arg("--version").output();
-    if caddy_check.is_err() || !caddy_check.unwrap().status.success() {
-        panic!("Caddy is not installed.");
-    }
-
-    let has_started = Arc::new((Mutex::new(false), Condvar::new()));
-    let has_started2 = Arc::clone(&has_started);
-
-    let handle = thread::spawn(move || {
-        let config_path = get_caddy_config_file_path();
-
-        let handle = if Command::new("sudo").arg("--version").output().is_ok() {
-            Command::new("sudo")
-                .args(&["caddy", "run", "--config", config_path.to_str().unwrap()])
-                .spawn()
-                .expect("failed to start reverse proxy")
-        } else {
-            Command::new("caddy")
-                .args(&["run", "--config", config_path.to_str().unwrap()])
-                .spawn()
-                .expect("failed to start reverse proxy")
-        };
-
-        let client = reqwest::blocking::Client::new();
-        let health_check_url = format!("http://localhost:{RP_PORT}/health-check");
-
-        for _ in 0..30 {
-            if client.get(&health_check_url).send().is_ok() {
-                println!("Reverse proxy server started");
-
-                let (lock, cvar) = &*has_started2;
-                let mut started = lock.lock().unwrap();
-                *started = true;
-                cvar.notify_one();
-
-                return handle;
-            }
-            thread::sleep(Duration::from_secs(1));
-        }
-
-        panic!("timeout waiting on caddy to start: {health_check_url}");
-    });
-
-    // Wait for the thread to start up.
-    let (lock, cvar) = &*has_started;
-    let mut started = lock.lock().unwrap();
-    while !*started {
-        started = cvar.wait(started).unwrap();
-    }
-
-    handle
-}
-
-fn get_caddy_config_file_path() -> PathBuf {
-    Path::new(env!("CARGO_MANIFEST_DIR")).join("../fixtures/Caddyfile").canonicalize().unwrap()
 }
 
 fn browser() -> Browser {

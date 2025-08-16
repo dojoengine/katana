@@ -9028,7 +9028,6 @@ version = "1.7.0-alpha.2"
 dependencies = [
  "anyhow",
  "headless_chrome",
- "katana-utils",
  "nix 0.30.1",
  "reqwest 0.12.22",
  "tokio",

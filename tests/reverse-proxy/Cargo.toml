@@ -6,8 +6,6 @@ repository.workspace = true
 version.workspace = true
 
 [dependencies]
-katana-utils.workspace = true
-
 anyhow.workspace = true
 headless_chrome = { version = "1.0.17", features = [ "fetch", "rustls" ] }
 nix = { version = "0.30.0", features = [ "user" ] }
