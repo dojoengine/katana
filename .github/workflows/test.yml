@@ -267,7 +267,9 @@ jobs:
           name: binary
 
       - name: Run Katana
-        run: ./katana --http.port 6060 --explorer > katana.log 2>&1 &
+        run: |
+          chmod +x ./katana
+          ./katana --http.port 6060 --explorer > katana.log 2>&1 &
 
       - name: Run Reverse Proxy (Caddy)
         run: caddy run --config ./tests/fixtures/Caddyfile > caddy.log 2>&1 &
