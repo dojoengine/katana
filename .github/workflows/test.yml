@@ -245,7 +245,7 @@ jobs:
           cargo run -p snos-integration-test
 
   explorer-reverse-proxy:
-    needs: [fmt, clippy]
+    needs: [fmt, clippy, build-katana-binary]
     runs-on: ubuntu-latest
     if: github.event_name == 'push' || (github.event_name == 'pull_request' && github.event.pull_request.draft == false)
     container:
@@ -261,10 +261,16 @@ jobs:
           key: ci-${{ github.job }}
           shared-key: katana-ci-cache
 
-      - name: Download test artifacts
+      - name: Download Katana binary
         uses: actions/download-artifact@v5
         with:
-          name: test-artifacts
+          name: binary
+
+      - name: Run Katana
+        run: katana --http.port 6060 --explorer > katana.log 2>&1 &
+
+      - name: Run Reverse Proxy (Caddy)
+        run: caddy run --config ./tests/fixtures/Caddyfile > caddy.log 2>&1 &
 
       - uses: browser-actions/setup-chrome@v1
       - run: cargo run -p reverse-proxy-test
