@@ -266,28 +266,12 @@ jobs:
         with:
           name: binary
 
-      - name: Run Katana
+      - name: Setup Katana binary
+        run: chmod +x ./katana
+
+      - name: Run reverse proxy test
         run: |
-          chmod +x ./katana
-          ./katana --http.port 6060 --explorer > katana.log 2>&1 &
-
-      - name: Run Reverse Proxy (Caddy)
-        run: caddy run --config ./tests/fixtures/Caddyfile > caddy.log 2>&1 &
-
-      - uses: browser-actions/setup-chrome@v1
-      - run: cargo run -p reverse-proxy-test
-
-      - name: Output Katana logs on failure
-        if: failure()
-        run: |
-          echo "=== Last 50 lines of Katana logs ==="
-          tail -n 50 katana.log
-
-      - name: Output Caddy logs on failure
-        if: failure()
-        run: |
-          echo "=== Last 50 lines of Caddy logs ==="
-          tail -n 50 caddy.log
+          KATANA_BIN=./katana ./scripts/reverse-proxy-test.sh
 
   dojo-integration-test:
     needs: [fmt, clippy]

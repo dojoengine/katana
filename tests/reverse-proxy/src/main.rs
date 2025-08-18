@@ -7,6 +7,7 @@
 use anyhow::Result;
 use headless_chrome::browser::default_executable;
 use headless_chrome::{Browser, LaunchOptionsBuilder};
+use reqwest::Client;
 
 // must match the values in fixtures/Caddyfile
 const PORT: u16 = 6060;
@@ -34,34 +35,39 @@ const ROUTES: [(&str, &str, Option<&str>, &str); 5] = [
 
 #[tokio::main]
 async fn main() {
-    let browser = browser();
-
-    let url = format!("http://localhost:{PORT}/explorer");
-    let rp_url = format!("https://localhost:{RP_PORT}/x/foo/katana/explorer");
-
     // Check if the direct URL is healthy before running tests
-    if !check_url_health(&url).await {
+    if !check_url_health(&format!("http://localhost:{PORT}/"), false).await {
         panic!(
-            "❌ Failed to connect to Katana at {url}. Please make sure Katana is running on port \
-             {PORT}."
+            "❌ Failed to connect to Katana at {PORT}. Please make sure Katana is already running."
         );
     }
 
     // Check if the reverse proxy URL is healthy before running tests
-    if !check_url_health(&rp_url).await {
+    if !check_url_health(&format!("https://localhost:{RP_PORT}/health-check"), true).await {
         panic!(
-            "❌ Failed to connect to reverse proxy at {rp_url}. Please make sure the reverse \
-             proxy is running on port {RP_PORT}."
+            "❌ Failed to connect to the reverse proxy at port {RP_PORT}. Please make sure the \
+             reverse proxy is already running."
         );
     }
+
+    let url = format!("http://localhost:{PORT}/explorer");
+    let rp_url = format!("https://localhost:{RP_PORT}/x/foo/katana/explorer");
+
+    let browser = browser();
 
     // Test both direct and proxied endpoints
     test_all_pages(&browser, &url).await;
     test_all_pages(&browser, &rp_url).await;
 }
 
-async fn check_url_health(url: &str) -> bool {
-    match reqwest::get(url).await {
+async fn check_url_health(url: &str, use_https: bool) -> bool {
+    let client = if use_https {
+        Client::builder().danger_accept_invalid_certs(true).build().unwrap()
+    } else {
+        Client::new()
+    };
+
+    match client.get(url).send().await {
         Ok(response) => response.status().is_success(),
         Err(_) => false,
     }
