@@ -11,7 +11,7 @@ use blockifier::execution::contract_class::{
 use blockifier::fee::fee_utils::get_fee_by_gas_vector;
 use blockifier::state::cached_state::{self, TransactionalState};
 use blockifier::state::state_api::{StateReader, UpdatableState};
-use blockifier::state::stateful_compression::allocate_aliases_in_storage;
+use blockifier::state::stateful_compression::{allocate_aliases_in_storage, compress};
 use blockifier::transaction::account_transaction::{
     AccountTransaction, ExecutionFlags as BlockifierExecutionFlags,
 };
@@ -501,32 +501,17 @@ pub fn block_context_from_envs(
     BlockContext::new(block_info, chain_info, versioned_constants, BouncerConfig::max())
 }
 
-pub(super) fn state_update_from_cached_state(
-    state: &CachedState,
-    stateful_compression: bool,
-) -> StateUpdatesWithClasses {
-    let state_diff = if stateful_compression {
-        let mut state_lock = state.inner.lock();
+pub(super) fn state_update_from_cached_state(state: &CachedState<'_>) -> StateUpdatesWithClasses {
+    let state_diff = state.inner.lock().cached_state.to_state_diff().unwrap().state_maps;
 
-        let alias_contract_address = contract_address!(ALIAS_CONTRACT_ADDRESS);
-        allocate_aliases_in_storage(&mut state_lock.cached_state, alias_contract_address)
-            .expect("failed to allocated aliases");
-
-        #[cfg(debug_assertions)]
-        {
-            use blockifier::state::stateful_compression::compress;
-
-            let state_diff = state_lock.cached_state.to_state_diff().unwrap().state_maps;
-            let compressed_state_diff =
-                compress(&state_diff, &state_lock.cached_state, alias_contract_address);
-
-            debug_assert!(compressed_state_diff.is_ok(), "failed to compress state diff");
-        }
-
-        state_lock.cached_state.to_state_diff().unwrap().state_maps
-    } else {
-        state.inner.lock().cached_state.to_state_diff().unwrap().state_maps
-    };
+    // stateful compression should be applied conditionally
+    let compressed_state_diff = state
+        .with_mut_cached_state(|state| {
+            let alias_contract_address = contract_address!("0x2");
+            allocate_aliases_in_storage(state, alias_contract_address)?;
+            compress(&state_diff, state, alias_contract_address)
+        })
+        .expect("failed to apply stateful compression to state diff");
 
     let mut declared_contract_classes: BTreeMap<
         katana_primitives::class::ClassHash,
@@ -538,7 +523,7 @@ pub(super) fn state_update_from_cached_state(
 
     // TODO: Legacy class shouldn't have a compiled class hash. This is a hack we added
     // in our fork of `blockifier. Check if it's possible to remove it now.
-    for (class_hash, compiled_hash) in state_diff.compiled_class_hashes {
+    for (class_hash, compiled_hash) in compressed_state_diff.compiled_class_hashes {
         let hash = class_hash.0;
         let class = state.class(hash).unwrap().expect("must exist if declared");
 
@@ -552,7 +537,7 @@ pub(super) fn state_update_from_cached_state(
     }
 
     let nonce_updates =
-        state_diff
+        compressed_state_diff
             .nonces
             .into_iter()
             .map(|(key, value)| (to_address(key), value.0))
@@ -561,7 +546,7 @@ pub(super) fn state_update_from_cached_state(
                 katana_primitives::contract::Nonce,
             >>();
 
-    let storage_updates = state_diff.storage.into_iter().fold(
+    let storage_updates = compressed_state_diff.storage.into_iter().fold(
         BTreeMap::new(),
         |mut storage, ((addr, key), value)| {
             let entry: &mut BTreeMap<
@@ -574,7 +559,7 @@ pub(super) fn state_update_from_cached_state(
     );
 
     let deployed_contracts =
-        state_diff
+        compressed_state_diff
             .class_hashes
             .into_iter()
             .map(|(key, value)| (to_address(key), value.0))
