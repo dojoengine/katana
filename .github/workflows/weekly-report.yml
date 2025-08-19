@@ -4,6 +4,12 @@ on:
   schedule:
     - cron: "0 9 * * 1" # Run every Monday at 9:00 AM UTC
   workflow_dispatch: # Allow manual triggering
+  pull_request:
+    paths:
+      [
+        ".github/workflows/weekly-report.yml",
+        "scripts/generate-binary-size-report.sh",
+      ]
 
 jobs:
   current-main-size:
