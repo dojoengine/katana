@@ -62,14 +62,14 @@ cat << EOF
 # 📊 Weekly Binary Size Report - $REPORT_DATE
 
 ## Summary
-The Katana binary size has **$TREND_DESC** by **$DIFF_PERCENT%** since the last release (\`$RELEASE_TAG\`).
+The Katana binary size has **$TREND_DESC** by **$DIFF_PERCENT%** since the last release ($RELEASE_TAG).
 
 ## Binary Size Comparison
 
 | Version | Size | Change |
 |---------|------|--------|
-| Release [(\`$RELEASE_TAG\`)](https://github.com/dojoengine/katana/releases/tag/$RELEASE_TAG) | $RELEASE_SIZE_HUMAN | - |
-| Main [(\`main\`)](https://github.com/dojoengine/katana/commit/$MAIN_COMMIT) | $MAIN_SIZE_HUMAN | $CHANGE_TEXT |
+| Release [($RELEASE_TAG)](https://github.com/dojoengine/katana/releases/tag/$RELEASE_TAG) | $RELEASE_SIZE_HUMAN | - |
+| Main [(main)](https://github.com/dojoengine/katana/commit/$MAIN_COMMIT) | $MAIN_SIZE_HUMAN | $CHANGE_TEXT |
 
 ## Details
 - **Absolute Change:** $DIFF_HUMAN
