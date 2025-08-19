@@ -269,6 +269,9 @@ jobs:
       - name: Setup Katana binary
         run: chmod +x ./katana
 
+      # chrome executable required by puppeteer
+      - uses: browser-actions/setup-chrome@v1
+
       - name: Run reverse proxy test
         run: |
           KATANA_BIN=./katana ./scripts/reverse-proxy-test.sh
