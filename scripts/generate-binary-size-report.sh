@@ -47,26 +47,36 @@ fi
 # Generate the report date
 REPORT_DATE=$(date -u +"%Y-%m-%d")
 
+# Convert absolute diff to human-readable (handle negative values)
+if [ "$DIFF_BYTES" -lt 0 ]; then
+  DIFF_BYTES_ABS=$(( -DIFF_BYTES ))
+  DIFF_HUMAN="-$(numfmt --to=iec-i --suffix=B --format="%.2f" "$DIFF_BYTES_ABS")"
+elif [ "$DIFF_BYTES" -gt 0 ]; then
+  DIFF_HUMAN="+$(numfmt --to=iec-i --suffix=B --format="%.2f" "$DIFF_BYTES")"
+else
+  DIFF_HUMAN="0B"
+fi
+
 # Output the markdown report
 cat << EOF
 # 📊 Weekly Binary Size Report - $REPORT_DATE
 
 ## Summary
-The Katana binary size has **$TREND_DESC** by **$DIFF_PERCENT%** since the last release (\`$RELEASE_TAG\`).
+The Katana binary size has **$TREND_DESC** by **$DIFF_PERCENT%** since the last release ($RELEASE_TAG).
 
 ## Binary Size Comparison
 
 | Version | Size | Change |
 |---------|------|--------|
-| Release [(\`$RELEASE_TAG\`)](https://github.com/dojoengine/katana/releases/tag/$RELEASE_TAG) | $RELEASE_SIZE_HUMAN | - |
-| Main [(\`main\`)](https://github.com/dojoengine/katana/commit/$MAIN_COMMIT) | $MAIN_SIZE_HUMAN | $CHANGE_TEXT |
+| Release [($RELEASE_TAG)](https://github.com/dojoengine/katana/releases/tag/$RELEASE_TAG) | $RELEASE_SIZE_HUMAN | - |
+| Main [(main)](https://github.com/dojoengine/katana/commit/$MAIN_COMMIT) | $MAIN_SIZE_HUMAN | $CHANGE_TEXT |
 
 ## Details
-- **Absolute Change:** $(if [ "$DIFF_BYTES" -gt 0 ]; then echo "+"; fi)$(numfmt --to=iec-i --suffix=B --format="%.2f" "$DIFF_BYTES")
+- **Absolute Change:** $DIFF_HUMAN
 - **Relative Change:** $DIFF_PERCENT%
 
 $WARNING
 
 ---
-*This report is automatically generated weekly to track binary size changes over time.*
+*This is an automated report.*
 EOF
