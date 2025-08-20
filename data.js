@@ -1,5 +1,5 @@
 window.BENCHMARK_DATA = {
-  "lastUpdate": 1755567538177,
+  "lastUpdate": 1755728331305,
   "repoUrl": "https://github.com/dojoengine/katana",
   "entries": {
     "Benchmark": [
@@ -4271,6 +4271,66 @@ window.BENCHMARK_DATA = {
             "name": "Invoke.ERC20.transfer/Blockifier.Cold",
             "value": 16353141,
             "range": "± 159713",
+            "unit": "ns/iter"
+          }
+        ]
+      },
+      {
+        "commit": {
+          "author": {
+            "email": "evergreenkary@gmail.com",
+            "name": "Ammar Arif",
+            "username": "kariy"
+          },
+          "committer": {
+            "email": "noreply@github.com",
+            "name": "GitHub",
+            "username": "web-flow"
+          },
+          "distinct": true,
+          "id": "1b20238920eb764a8378f4cb0ecb6b2644bc2741",
+          "message": "test(node-bindings): verify process is killed on drop (#236)\n\nEnsure that the Katana process is properly cleaned up after the `KatanaInstance` struct has been dropped.",
+          "timestamp": "2025-08-21T06:11:03+08:00",
+          "tree_id": "87e556f33502469b5ad4fbf7ee1d7f419d0b6758",
+          "url": "https://github.com/dojoengine/katana/commit/1b20238920eb764a8378f4cb0ecb6b2644bc2741"
+        },
+        "date": 1755728330019,
+        "tool": "cargo",
+        "benches": [
+          {
+            "name": "Commit.Small/Parallel",
+            "value": 454315,
+            "range": "± 7624",
+            "unit": "ns/iter"
+          },
+          {
+            "name": "Commit.Big/Serial",
+            "value": 94522007,
+            "range": "± 302783",
+            "unit": "ns/iter"
+          },
+          {
+            "name": "Commit.Big/Parallel",
+            "value": 65744392,
+            "range": "± 2545759",
+            "unit": "ns/iter"
+          },
+          {
+            "name": "compress world contract",
+            "value": 2680084,
+            "range": "± 21488",
+            "unit": "ns/iter"
+          },
+          {
+            "name": "decompress world contract",
+            "value": 3056616,
+            "range": "± 12868",
+            "unit": "ns/iter"
+          },
+          {
+            "name": "Invoke.ERC20.transfer/Blockifier.Cold",
+            "value": 16981726,
+            "range": "± 516895",
             "unit": "ns/iter"
           }
         ]
