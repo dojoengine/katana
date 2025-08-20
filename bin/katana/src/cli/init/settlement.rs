@@ -20,8 +20,8 @@ const ATLANTIC_FACT_REGISTRY_MAINNET: Felt =
 const ATLANTIC_FACT_REGISTRY_SEPOLIA: Felt =
     felt!("0x4ce7851f00b6c3289674841fd7a1b96b6fd41ed1edc248faccd672c26371b8c");
 
-const CARTRIDGE_SN_MAINNET_PROVIDER: &str = "https://api.cartridge.gg/x/starknet/mainnet";
-const CARTRIDGE_SN_SEPOLIA_PROVIDER: &str = "https://api.cartridge.gg/x/starknet/sepolia";
+const CARTRIDGE_SN_MAINNET_PROVIDER: &str = "https://api.cartridge.gg/x/starknet/mainnet/rpc/v0_9";
+const CARTRIDGE_SN_SEPOLIA_PROVIDER: &str = "https://api.cartridge.gg/x/starknet/sepolia/rpc/v0_9";
 
 #[derive(Debug, Clone)]
 pub struct SettlementChainProvider {
