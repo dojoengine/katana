@@ -489,17 +489,16 @@ pub fn block_context_from_envs(block_env: &BlockEnv, cfg_env: &CfgEnv) -> BlockC
 }
 
 pub(super) fn state_update_from_cached_state(state: &CachedState<'_>) -> StateUpdatesWithClasses {
-    // TODO:stateful compression should be applied conditionally
+    // TODO: stateful compression should be applied conditionally
     //
     // The state diff here has been applied stateful compression
-    let state_diff = state
-        .with_mut_cached_state(|state| {
-            let alias_contract_address = contract_address!("0x2");
-            allocate_aliases_in_storage(state, alias_contract_address)?;
-            let state_diff = state.to_state_diff().expect("failed to get state diff").state_maps;
-            compress(&state_diff, state, alias_contract_address)
-        })
+    let alias_contract_address = contract_address!("0x2");
+    allocate_aliases_in_storage(&mut state.inner.lock().cached_state, alias_contract_address)
         .unwrap();
+
+    let state_diff = state.inner.lock().cached_state.to_state_diff().unwrap().state_maps;
+    let state_diff =
+        compress(&state_diff, &state.inner.lock().cached_state, alias_contract_address).unwrap();
 
     let mut declared_contract_classes: BTreeMap<
         katana_primitives::class::ClassHash,
