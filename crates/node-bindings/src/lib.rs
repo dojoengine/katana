@@ -36,9 +36,11 @@ pub struct Account {
     pub private_key: Option<SigningKey>,
 }
 
-/// A katana CLI instance. Will close the instance when dropped.
+/// A Katana CLI instance.
 ///
-/// Construct this using [`Katana`].
+/// This can only be constructed using the [`Katana`] struct.
+///
+/// When the instance of this struct is dropped, the child process will be terminated.
 #[derive(Debug)]
 pub struct KatanaInstance {
     port: u16,
@@ -851,54 +853,8 @@ mod tests {
         assert_eq!(custom_chain_id, actual_chain_id);
     }
 
-    #[tokio::test]
-    async fn process_stops_on_drop() {
-        let katana = Katana::new().spawn();
-        let pid = katana.child().id();
-
-        // Verify Katana is running correctly
-        let provider = katana.starknet_provider();
-        assert!(provider.chain_id().await.is_ok());
-
-        // Verify the process is actually running before dropping
-        #[cfg(unix)]
-        {
-            use std::process::Command;
-
-            let result = Command::new("kill")
-                .arg("-0")
-                .arg(pid.to_string())
-                .output()
-                .expect("failed to execute kill command");
-
-            // Exit code should be zero, indicating the process exists
-            assert!(result.status.success(), "process should be running before drop");
-        }
-
-        #[cfg(windows)]
-        {
-            use std::process::Command;
-
-            // Search for the Katana process id in the task list
-            let result = Command::new("tasklist")
-                .arg("/fi")
-                .arg(&format!("PID eq {pid}"))
-                .arg("/fo")
-                .arg("list")
-                .output()
-                .expect("failed to execute tasklist");
-
-            let output = String::from_utf8_lossy(&result.stdout);
-            // The process id should be in the task list
-            assert!(output.contains(&pid.to_string()), "process should be running before drop");
-        }
-
-        // Drop the instance
-        drop(katana);
-
-        // Give the process a moment to actually terminate
-        tokio::time::sleep(Duration::from_millis(100)).await;
-
+    /// Check if a process with the given PID is running
+    fn is_process_running(pid: u32) -> bool {
         // Verify the process is no longer running by trying to kill it
         // On Unix systems, signal 0 checks if process exists without actually sending a signal
         #[cfg(unix)]
@@ -911,8 +867,8 @@ mod tests {
                 .output()
                 .expect("failed to execute kill command");
 
-            // Exit code should be non-zero, indicating the process doesn't exist
-            assert!(!result.status.success(), "process should have been terminated");
+            // Exit code is zero if the process exists
+            result.status.success()
         }
 
         // On Windows, we use the `tasklist` command displays a list of currently running processes.
@@ -920,10 +876,9 @@ mod tests {
         // `tasklist` command manual page: <https://learn.microsoft.com/en-us/windows-server/administration/windows-commands/tasklist>
         #[cfg(windows)]
         {
-            use std::os::windows::io::AsRawHandle;
             use std::process::Command;
 
-            // Search for the Katana process id in the task list
+            // Search for the process id in the task list
             let result = Command::new("tasklist")
                 .arg("/fi")
                 .arg(&format!("PID eq {pid}"))
@@ -934,7 +889,25 @@ mod tests {
 
             let output = String::from_utf8_lossy(&result.stdout);
             // If it has been terminated the process id should not be in the task list
-            assert!(!output.contains(&pid.to_string()), "process should have been terminated");
+            output.contains(&pid.to_string())
         }
+    }
+
+    #[tokio::test]
+    async fn process_stops_on_drop() {
+        let katana = Katana::new().spawn();
+        let pid = katana.child().id();
+
+        // Verify Katana is running correctly
+        let provider = katana.starknet_provider();
+        assert!(provider.chain_id().await.is_ok());
+
+        // Verify the process is actually running before dropping
+        assert!(is_process_running(pid), "process should be running before drop");
+
+        drop(katana);
+
+        // Verify the process is no longer running
+        assert!(!is_process_running(pid), "process should have been terminated");
     }
 }
