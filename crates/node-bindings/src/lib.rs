@@ -850,4 +850,91 @@ mod tests {
 
         assert_eq!(custom_chain_id, actual_chain_id);
     }
+
+    #[tokio::test]
+    async fn process_stops_on_drop() {
+        let katana = Katana::new().spawn();
+        let pid = katana.child().id();
+
+        // Verify Katana is running correctly
+        let provider = katana.starknet_provider();
+        assert!(provider.chain_id().await.is_ok());
+
+        // Verify the process is actually running before dropping
+        #[cfg(unix)]
+        {
+            use std::process::Command;
+
+            let result = Command::new("kill")
+                .arg("-0")
+                .arg(pid.to_string())
+                .output()
+                .expect("failed to execute kill command");
+
+            // Exit code should be zero, indicating the process exists
+            assert!(result.status.success(), "process should be running before drop");
+        }
+
+        #[cfg(windows)]
+        {
+            use std::process::Command;
+
+            // Search for the Katana process id in the task list
+            let result = Command::new("tasklist")
+                .arg("/fi")
+                .arg(&format!("PID eq {pid}"))
+                .arg("/fo")
+                .arg("list")
+                .output()
+                .expect("failed to execute tasklist");
+
+            let output = String::from_utf8_lossy(&result.stdout);
+            // The process id should be in the task list
+            assert!(output.contains(&pid.to_string()), "process should be running before drop");
+        }
+
+        // Drop the instance
+        drop(katana);
+
+        // Give the process a moment to actually terminate
+        tokio::time::sleep(Duration::from_millis(100)).await;
+
+        // Verify the process is no longer running by trying to kill it
+        // On Unix systems, signal 0 checks if process exists without actually sending a signal
+        #[cfg(unix)]
+        {
+            use std::process::Command;
+
+            let result = Command::new("kill")
+                .arg("-0")
+                .arg(pid.to_string())
+                .output()
+                .expect("failed to execute kill command");
+
+            // Exit code should be non-zero, indicating the process doesn't exist
+            assert!(!result.status.success(), "process should have been terminated");
+        }
+
+        // On Windows, we use the `tasklist` command displays a list of currently running processes.
+        //
+        // `tasklist` command manual page: <https://learn.microsoft.com/en-us/windows-server/administration/windows-commands/tasklist>
+        #[cfg(windows)]
+        {
+            use std::os::windows::io::AsRawHandle;
+            use std::process::Command;
+
+            // Search for the Katana process id in the task list
+            let result = Command::new("tasklist")
+                .arg("/fi")
+                .arg(&format!("PID eq {pid}"))
+                .arg("/fo")
+                .arg("list")
+                .output()
+                .expect("failed to execute tasklist");
+
+            let output = String::from_utf8_lossy(&result.stdout);
+            // If it has been terminated the process id should not be in the task list
+            assert!(!output.contains(&pid.to_string()), "process should have been terminated");
+        }
+    }
 }
