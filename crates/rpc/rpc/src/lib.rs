@@ -257,3 +257,34 @@ impl Default for RpcServer {
         Self::new()
     }
 }
+
+#[cfg(test)]
+mod tests {
+    use std::future::pending;
+    use std::time::Duration;
+
+    use jsonrpsee::{rpc_params, RpcModule};
+
+    use crate::RpcServer;
+
+    #[cfg(feature = "client")]
+    #[tokio::test]
+    async fn test_rpc_server_timeout() {
+        use jsonrpsee::core::client::ClientT;
+
+        // Create a method that never returns to simulate a long running request
+        let mut module = RpcModule::new(());
+        module.register_async_method("test_timeout", |_, _, _| pending::<()>()).unwrap();
+
+        let server = RpcServer::new().timeout(Duration::from_millis(200)).module(module).unwrap();
+
+        // Start the server
+        let addr = "127.0.0.1:0".parse().unwrap();
+        let server_handle = server.start(addr).await.unwrap();
+
+        let client = server_handle.http_client().unwrap();
+        let result = client.request::<String, _>("test_timeout", rpc_params![]).await;
+
+        assert!(result.is_err(), "the request failed due to timeout");
+    }
+}
