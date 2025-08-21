@@ -216,8 +216,8 @@ impl ClassCache {
     ///
     /// This method will return an error if the global cache has not been initialized via
     /// [`ClassCacheBuilder::build_global`] first.
-    pub fn try_global() -> Result<&'static ClassCache, Error> {
-        COMPILED_CLASS_CACHE.get().ok_or(Error::NotInitialized)
+    pub fn try_global() -> Result<ClassCache, Error> {
+        COMPILED_CLASS_CACHE.get().cloned().ok_or(Error::NotInitialized)
     }
 
     /// Returns a reference to the global cache instance.
@@ -225,8 +225,8 @@ impl ClassCache {
     /// # Panics
     ///
     /// Panics if the global cache has not been initialized.
-    pub fn global() -> &'static ClassCache {
-        Self::try_global().expect("global class cache not initialized")
+    pub fn global() -> ClassCache {
+        Self::try_global().expect("global class cache not initialized").clone()
     }
 
     pub fn get(&self, hash: &ClassHash) -> Option<RunnableCompiledClass> {

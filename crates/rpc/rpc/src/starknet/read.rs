@@ -141,12 +141,8 @@ impl<EF: ExecutorFactory> StarknetApiServer for StarknetApi<EF> {
             let cfg_env = this.inner.backend.executor_factory.cfg().clone();
             let max_call_gas = this.inner.config.max_call_gas.unwrap_or(1_000_000_000);
 
-            match super::blockifier::call(state, env, cfg_env, request, max_call_gas) {
-                Ok(retdata) => Ok(retdata),
-                Err(err) => Err(ErrorObjectOwned::from(StarknetApiError::ContractError {
-                    revert_error: err.to_string(),
-                })),
-            }
+            let result = super::blockifier::call(state, env, cfg_env, request, max_call_gas)?;
+            Ok(result)
         })
         .await
     }
