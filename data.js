@@ -1,5 +1,5 @@
 window.BENCHMARK_DATA = {
-  "lastUpdate": 1755728331305,
+  "lastUpdate": 1755734551472,
   "repoUrl": "https://github.com/dojoengine/katana",
   "entries": {
     "Benchmark": [
@@ -4331,6 +4331,66 @@ window.BENCHMARK_DATA = {
             "name": "Invoke.ERC20.transfer/Blockifier.Cold",
             "value": 16981726,
             "range": "± 516895",
+            "unit": "ns/iter"
+          }
+        ]
+      },
+      {
+        "commit": {
+          "author": {
+            "email": "evergreenkary@gmail.com",
+            "name": "Ammar Arif",
+            "username": "kariy"
+          },
+          "committer": {
+            "email": "noreply@github.com",
+            "name": "GitHub",
+            "username": "web-flow"
+          },
+          "distinct": true,
+          "id": "190584feaaffe545a63ca9e184fffc7ba24f0114",
+          "message": "feat(init): upgrade Cartridge provider to v0.9 (#237)\n\nWe have to include the `rpc/v0_9` suffix on the RPC URL because the default RPC version exposed by Cartrigde-hosted nodes are still on 0.8. As of the time of writing, mainnet is still on RPC 0.8 hence the Cartridge provider is still on that version.",
+          "timestamp": "2025-08-21T07:54:23+08:00",
+          "tree_id": "540b6911b9a0c57a4b80602267b0dc453c760faf",
+          "url": "https://github.com/dojoengine/katana/commit/190584feaaffe545a63ca9e184fffc7ba24f0114"
+        },
+        "date": 1755734549541,
+        "tool": "cargo",
+        "benches": [
+          {
+            "name": "Commit.Small/Parallel",
+            "value": 460702,
+            "range": "± 9141",
+            "unit": "ns/iter"
+          },
+          {
+            "name": "Commit.Big/Serial",
+            "value": 94782319,
+            "range": "± 1698821",
+            "unit": "ns/iter"
+          },
+          {
+            "name": "Commit.Big/Parallel",
+            "value": 65729669,
+            "range": "± 1903494",
+            "unit": "ns/iter"
+          },
+          {
+            "name": "compress world contract",
+            "value": 2691025,
+            "range": "± 16860",
+            "unit": "ns/iter"
+          },
+          {
+            "name": "decompress world contract",
+            "value": 3036846,
+            "range": "± 16669",
+            "unit": "ns/iter"
+          },
+          {
+            "name": "Invoke.ERC20.transfer/Blockifier.Cold",
+            "value": 16796617,
+            "range": "± 328076",
             "unit": "ns/iter"
           }
         ]
