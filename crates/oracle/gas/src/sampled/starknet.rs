@@ -52,3 +52,60 @@ impl<P: starknet::providers::Provider> StarknetSampler<P> {
         Ok(SampledPrices { l2_gas_prices, l1_gas_prices, l1_data_gas_prices })
     }
 }
+
+#[cfg(test)]
+mod tests {
+    use katana_utils::mock_provider;
+    use starknet::core::types::{
+        BlockStatus, BlockWithTxHashes, Felt, L1DataAvailabilityMode,
+        MaybePreConfirmedBlockWithTxHashes, ResourcePrice,
+    };
+
+    use crate::sampled::starknet::StarknetSampler;
+
+    mock_provider! {
+        MockGasProvider,
+
+       fn get_block_with_tx_hashes: (_) => {
+            Ok(MaybePreConfirmedBlockWithTxHashes::Block(BlockWithTxHashes {
+                block_number: 100,
+                transactions: vec![],
+                timestamp: 1234567890,
+                block_hash: Felt::from(1u32),
+                new_root: Felt::from(123u32),
+                parent_hash: Felt::from(0u32),
+                status: BlockStatus::AcceptedOnL2,
+                sequencer_address: Felt::from(999u32),
+                starknet_version: "0.13.0".to_string(),
+                l1_da_mode: L1DataAvailabilityMode::Blob,
+                l1_gas_price: ResourcePrice {
+                    price_in_wei: Felt::from(1000u32),
+                    price_in_fri: Felt::from(2000u32),
+                },
+                l2_gas_price: ResourcePrice {
+                    price_in_wei: Felt::from(500u32),
+                    price_in_fri: Felt::from(750u32),
+                },
+                l1_data_gas_price: ResourcePrice {
+                    price_in_wei: Felt::from(100u32),
+                    price_in_fri: Felt::from(150u32),
+                },
+            }))
+        }
+    }
+
+    #[tokio::test]
+    async fn sample_gas_prices() {
+        let sampler = StarknetSampler::new(MockGasProvider::new());
+        let sampled_prices = sampler.sample().await.unwrap();
+
+        assert_eq!(sampled_prices.l2_gas_prices.eth.get(), 500);
+        assert_eq!(sampled_prices.l2_gas_prices.strk.get(), 750);
+
+        assert_eq!(sampled_prices.l1_gas_prices.eth.get(), 1000);
+        assert_eq!(sampled_prices.l1_gas_prices.strk.get(), 2000);
+
+        assert_eq!(sampled_prices.l1_data_gas_prices.eth.get(), 100);
+        assert_eq!(sampled_prices.l1_data_gas_prices.strk.get(), 150);
+    }
+}
