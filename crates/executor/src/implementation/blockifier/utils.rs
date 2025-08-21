@@ -498,8 +498,11 @@ pub(super) fn state_update_from_cached_state(state: &CachedState<'_>) -> StateUp
 
     let state_diff = state.inner.lock().cached_state.to_state_diff().unwrap().state_maps;
     let state_diff =
-        compress(&state_diff, &state.inner.lock().cached_state, alias_contract_address).unwrap();
+        compress(&state_diff, &state.inner.lock().cached_state, alias_contract_address);
 
+    assert!(state_diff.is_ok(), "failed to compress state diff");
+
+    let state_diff = state.inner.lock().cached_state.to_state_diff().unwrap().state_maps;
     let mut declared_contract_classes: BTreeMap<
         katana_primitives::class::ClassHash,
         katana_primitives::class::ContractClass,
