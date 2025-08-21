@@ -489,16 +489,16 @@ pub fn block_context_from_envs(block_env: &BlockEnv, cfg_env: &CfgEnv) -> BlockC
 }
 
 pub(super) fn state_update_from_cached_state(state: &CachedState<'_>) -> StateUpdatesWithClasses {
-    let state_diff = state.inner.lock().cached_state.to_state_diff().unwrap().state_maps;
+    // TODO: stateful compression should be applied conditionally
+    //
+    // The state diff here has been applied stateful compression
+    let alias_contract_address = contract_address!("0x2");
+    allocate_aliases_in_storage(&mut state.inner.lock().cached_state, alias_contract_address)
+        .unwrap();
 
-    // stateful compression should be applied conditionally
-    let compressed_state_diff = state
-        .with_mut_cached_state(|state| {
-            let alias_contract_address = contract_address!("0x2");
-            allocate_aliases_in_storage(state, alias_contract_address)?;
-            compress(&state_diff, state, alias_contract_address)
-        })
-        .expect("failed to apply stateful compression to state diff");
+    let state_diff = state.inner.lock().cached_state.to_state_diff().unwrap().state_maps;
+    let state_diff =
+        compress(&state_diff, &state.inner.lock().cached_state, alias_contract_address).unwrap();
 
     let mut declared_contract_classes: BTreeMap<
         katana_primitives::class::ClassHash,
@@ -510,7 +510,7 @@ pub(super) fn state_update_from_cached_state(state: &CachedState<'_>) -> StateUp
 
     // TODO: Legacy class shouldn't have a compiled class hash. This is a hack we added
     // in our fork of `blockifier. Check if it's possible to remove it now.
-    for (class_hash, compiled_hash) in compressed_state_diff.compiled_class_hashes {
+    for (class_hash, compiled_hash) in state_diff.compiled_class_hashes {
         let hash = class_hash.0;
         let class = state.class(hash).unwrap().expect("must exist if declared");
 
@@ -524,7 +524,7 @@ pub(super) fn state_update_from_cached_state(state: &CachedState<'_>) -> StateUp
     }
 
     let nonce_updates =
-        compressed_state_diff
+        state_diff
             .nonces
             .into_iter()
             .map(|(key, value)| (to_address(key), value.0))
@@ -533,7 +533,7 @@ pub(super) fn state_update_from_cached_state(state: &CachedState<'_>) -> StateUp
                 katana_primitives::contract::Nonce,
             >>();
 
-    let storage_updates = compressed_state_diff.storage.into_iter().fold(
+    let storage_updates = state_diff.storage.into_iter().fold(
         BTreeMap::new(),
         |mut storage, ((addr, key), value)| {
             let entry: &mut BTreeMap<
@@ -546,7 +546,7 @@ pub(super) fn state_update_from_cached_state(state: &CachedState<'_>) -> StateUp
     );
 
     let deployed_contracts =
-        compressed_state_diff
+        state_diff
             .class_hashes
             .into_iter()
             .map(|(key, value)| (to_address(key), value.0))
