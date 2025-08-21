@@ -1,5 +1,5 @@
 window.BENCHMARK_DATA = {
-  "lastUpdate": 1755815156097,
+  "lastUpdate": 1755817033352,
   "repoUrl": "https://github.com/dojoengine/katana",
   "entries": {
     "Benchmark": [
@@ -4511,6 +4511,66 @@ window.BENCHMARK_DATA = {
             "name": "Invoke.ERC20.transfer/Blockifier.Cold",
             "value": 16613523,
             "range": "± 166868",
+            "unit": "ns/iter"
+          }
+        ]
+      },
+      {
+        "commit": {
+          "author": {
+            "email": "evergreenkary@gmail.com",
+            "name": "Ammar Arif",
+            "username": "kariy"
+          },
+          "committer": {
+            "email": "noreply@github.com",
+            "name": "GitHub",
+            "username": "web-flow"
+          },
+          "distinct": true,
+          "id": "18f0ca4bc878148fec9fe6b4294abe837ab96de7",
+          "message": "test(gpo): test Starknet gas prices sampler (#241)",
+          "timestamp": "2025-08-22T06:49:11+08:00",
+          "tree_id": "fdbd7a17b79c85a4c081aa805688177676d07aa1",
+          "url": "https://github.com/dojoengine/katana/commit/18f0ca4bc878148fec9fe6b4294abe837ab96de7"
+        },
+        "date": 1755817031265,
+        "tool": "cargo",
+        "benches": [
+          {
+            "name": "Commit.Small/Parallel",
+            "value": 421417,
+            "range": "± 10555",
+            "unit": "ns/iter"
+          },
+          {
+            "name": "Commit.Big/Serial",
+            "value": 94111954,
+            "range": "± 541722",
+            "unit": "ns/iter"
+          },
+          {
+            "name": "Commit.Big/Parallel",
+            "value": 65651402,
+            "range": "± 2271589",
+            "unit": "ns/iter"
+          },
+          {
+            "name": "compress world contract",
+            "value": 2717099,
+            "range": "± 7116",
+            "unit": "ns/iter"
+          },
+          {
+            "name": "decompress world contract",
+            "value": 3038294,
+            "range": "± 12759",
+            "unit": "ns/iter"
+          },
+          {
+            "name": "Invoke.ERC20.transfer/Blockifier.Cold",
+            "value": 16486427,
+            "range": "± 1428965",
             "unit": "ns/iter"
           }
         ]
