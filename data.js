@@ -1,5 +1,5 @@
 window.BENCHMARK_DATA = {
-  "lastUpdate": 1755734551472,
+  "lastUpdate": 1755813188296,
   "repoUrl": "https://github.com/dojoengine/katana",
   "entries": {
     "Benchmark": [
@@ -4391,6 +4391,66 @@ window.BENCHMARK_DATA = {
             "name": "Invoke.ERC20.transfer/Blockifier.Cold",
             "value": 16796617,
             "range": "± 328076",
+            "unit": "ns/iter"
+          }
+        ]
+      },
+      {
+        "commit": {
+          "author": {
+            "email": "evergreenkary@gmail.com",
+            "name": "Ammar Arif",
+            "username": "kariy"
+          },
+          "committer": {
+            "email": "noreply@github.com",
+            "name": "GitHub",
+            "username": "web-flow"
+          },
+          "distinct": true,
+          "id": "cf8c519a912c1aa24ec27c73bb2e530d64f7dadf",
+          "message": "fix(rpc): return the expected error types  (#239)\n\nCurrently, the request for contract call execution via the\n`starknet_call` RPC method is handled by the [`call`] utility function.\nThe function returns a `Result` where the error type is\n[`ExecutionError`] which gets opaquely converted to\n`StarknetApiError::ContractError` on the RPC side:\n\n\nhttps://github.com/dojoengine/katana/blob/1b50ea8078185ad456fba80678919dcbf7712e06/crates/rpc/rpc/src/starknet/read.rs#L144-L149\n\nMapping the error entirely as a contract error is not the right\nbehaviour and doesn't follow the expected error types for the\n`starknet_call` RPC method as defined by the [`spec`].\n\n[`call`]:\nhttps://github.com/dojoengine/katana/blob/1b50ea8078185ad456fba80678919dcbf7712e06/crates/rpc/rpc/src/starknet/blockifier.rs#L98-L118\n[`ExecutionError`]:\nhttps://github.com/dojoengine/katana/blob/1b50ea8078185ad456fba80678919dcbf7712e06/crates/executor/src/error.rs#L15-L18\n[`spec`]:\nhttps://github.com/starkware-libs/starknet-specs/blob/c2e93098b9c2ca0423b7f4d15b201f52f22d8c36/api/starknet_api_openrpc.json#L605-L619",
+          "timestamp": "2025-08-22T05:45:15+08:00",
+          "tree_id": "44b3378d40e789e6798dae15c4ced77518ef086b",
+          "url": "https://github.com/dojoengine/katana/commit/cf8c519a912c1aa24ec27c73bb2e530d64f7dadf"
+        },
+        "date": 1755813186844,
+        "tool": "cargo",
+        "benches": [
+          {
+            "name": "Commit.Small/Parallel",
+            "value": 436226,
+            "range": "± 11246",
+            "unit": "ns/iter"
+          },
+          {
+            "name": "Commit.Big/Serial",
+            "value": 94556482,
+            "range": "± 1945228",
+            "unit": "ns/iter"
+          },
+          {
+            "name": "Commit.Big/Parallel",
+            "value": 65621668,
+            "range": "± 2391776",
+            "unit": "ns/iter"
+          },
+          {
+            "name": "compress world contract",
+            "value": 2751392,
+            "range": "± 7765",
+            "unit": "ns/iter"
+          },
+          {
+            "name": "decompress world contract",
+            "value": 3050572,
+            "range": "± 38999",
+            "unit": "ns/iter"
+          },
+          {
+            "name": "Invoke.ERC20.transfer/Blockifier.Cold",
+            "value": 17114856,
+            "range": "± 463082",
             "unit": "ns/iter"
           }
         ]
