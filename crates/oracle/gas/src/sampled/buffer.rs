@@ -2,6 +2,10 @@ use std::collections::{vec_deque, VecDeque};
 
 use katana_primitives::block::GasPrices;
 
+/// Gas prices buffer.
+///
+/// The buffer is implemented as a sliding window buffer i.e., once the buffer is full, the oldest
+/// price is removed when a new gas price is inserted.
 #[derive(Debug, Clone)]
 pub struct GasPricesBuffer(SlidingWindowBuffer<GasPrices>);
 
