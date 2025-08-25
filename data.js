@@ -1,5 +1,5 @@
 window.BENCHMARK_DATA = {
-  "lastUpdate": 1755817033352,
+  "lastUpdate": 1756130478278,
   "repoUrl": "https://github.com/dojoengine/katana",
   "entries": {
     "Benchmark": [
@@ -4571,6 +4571,66 @@ window.BENCHMARK_DATA = {
             "name": "Invoke.ERC20.transfer/Blockifier.Cold",
             "value": 16486427,
             "range": "± 1428965",
+            "unit": "ns/iter"
+          }
+        ]
+      },
+      {
+        "commit": {
+          "author": {
+            "email": "evergreenkary@gmail.com",
+            "name": "Ammar Arif",
+            "username": "kariy"
+          },
+          "committer": {
+            "email": "noreply@github.com",
+            "name": "GitHub",
+            "username": "web-flow"
+          },
+          "distinct": true,
+          "id": "d0b904b6b144f788769e4bfc3e4b366c13270dc7",
+          "message": "feat(tracing): format timestamp (#242)\n\nUpdate the log timestamp format to be more readable. The new format is applied to both Full and JSON log formatting. \n\nThis is what the new format looks like:\n\n```\n2025-08-24 21:11:48.403 -04:00  INFO rpc: RPC server started. addr=127.0.0.1:5050\n```\n\nAnd this is the before:\n\n```\n2025-08-25T00:12:12.654937Z  INFO rpc: RPC server started. addr=127.0.0.1:5050\n```",
+          "timestamp": "2025-08-25T21:52:57+08:00",
+          "tree_id": "19344b32c0e760e501567bcba9c006cacf418be6",
+          "url": "https://github.com/dojoengine/katana/commit/d0b904b6b144f788769e4bfc3e4b366c13270dc7"
+        },
+        "date": 1756130476679,
+        "tool": "cargo",
+        "benches": [
+          {
+            "name": "Commit.Small/Parallel",
+            "value": 429124,
+            "range": "± 9180",
+            "unit": "ns/iter"
+          },
+          {
+            "name": "Commit.Big/Serial",
+            "value": 94713964,
+            "range": "± 2138078",
+            "unit": "ns/iter"
+          },
+          {
+            "name": "Commit.Big/Parallel",
+            "value": 65722173,
+            "range": "± 1897174",
+            "unit": "ns/iter"
+          },
+          {
+            "name": "compress world contract",
+            "value": 2750974,
+            "range": "± 17618",
+            "unit": "ns/iter"
+          },
+          {
+            "name": "decompress world contract",
+            "value": 3075144,
+            "range": "± 42249",
+            "unit": "ns/iter"
+          },
+          {
+            "name": "Invoke.ERC20.transfer/Blockifier.Cold",
+            "value": 19152173,
+            "range": "± 1395245",
             "unit": "ns/iter"
           }
         ]
