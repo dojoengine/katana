@@ -11,6 +11,8 @@ pub mod otlp;
 
 pub use fmt::LogFormat;
 
+use crate::fmt::LocalTime;
+
 #[derive(Debug, Clone)]
 pub enum TracerConfig {
     Otlp(otlp::OtlpConfig),
@@ -65,15 +67,23 @@ pub async fn init(format: LogFormat, telemetry_config: Option<TracerConfig>) -> 
         };
 
         let fmt = match format {
-            LogFormat::Full => tracing_subscriber::fmt::layer().boxed(),
-            LogFormat::Json => tracing_subscriber::fmt::layer().json().boxed(),
+            LogFormat::Full => {
+                tracing_subscriber::fmt::layer().with_timer(LocalTime::new()).boxed()
+            }
+            LogFormat::Json => {
+                tracing_subscriber::fmt::layer().json().with_timer(LocalTime::new()).boxed()
+            }
         };
 
         tracing_subscriber::registry().with(filter).with(telemetry).with(fmt).init();
     } else {
         let fmt = match format {
-            LogFormat::Full => tracing_subscriber::fmt::layer().boxed(),
-            LogFormat::Json => tracing_subscriber::fmt::layer().json().boxed(),
+            LogFormat::Full => {
+                tracing_subscriber::fmt::layer().with_timer(LocalTime::new()).boxed()
+            }
+            LogFormat::Json => {
+                tracing_subscriber::fmt::layer().json().with_timer(LocalTime::new()).boxed()
+            }
         };
 
         tracing_subscriber::registry().with(filter).with(fmt).init();
