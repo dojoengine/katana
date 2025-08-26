@@ -11,7 +11,6 @@ use katana_primitives::Felt;
 use katana_provider::traits::state::StateProvider;
 use katana_rpc_api::error::starknet::StarknetApiError;
 use katana_rpc_types::{FeeEstimate, FunctionCall};
-use tracing::debug;
 
 use crate::starknet::StarknetApiResult;
 
