@@ -12,6 +12,8 @@ use katana_provider::traits::state::StateProvider;
 use katana_rpc_api::error::starknet::StarknetApiError;
 use katana_rpc_types::{FeeEstimate, FunctionCall};
 
+use crate::starknet::StarknetApiResult;
+
 #[tracing::instrument(level = "trace", target = "rpc", skip_all, fields(total_txs = transactions.len()))]
 pub fn simulate(
     state: impl StateProvider,
@@ -38,7 +40,18 @@ pub fn simulate(
     results
 }
 
-// This function will not process the rest of the transactions if a transaction was reverted.
+/// Estimates the fees for a list of transactions.
+///
+/// ## Errors
+///
+/// If one of the transactions reverts or fails due to any reason (e.g. validation failure or an
+/// internal error), the function will fail with [`StarknetApiError::TransactionExecutionError`]
+/// error.
+///
+/// This is in accordance with the Starknet RPC [specification] for the `starknet_estimateFee`
+/// method.
+///
+/// [specification]: https://github.com/starkware-libs/starknet-specs/blob/c2e93098b9c2ca0423b7f4d15b201f52f22d8c36/api/starknet_api_openrpc.json#L623
 #[tracing::instrument(level = "trace", target = "rpc", skip_all, fields(total_txs = transactions.len()))]
 pub fn estimate_fees(
     state: impl StateProvider,
@@ -46,34 +59,31 @@ pub fn estimate_fees(
     cfg_env: CfgEnv,
     transactions: Vec<ExecutableTxWithHash>,
     flags: ExecutionFlags,
-) -> Vec<Result<FeeEstimate, ExecutionError>> {
+) -> StarknetApiResult<Vec<FeeEstimate>> {
     let flags = flags.with_fee(false);
     let block_context = block_context_from_envs(&block_env, &cfg_env);
     let state = CachedState::new(state, ClassCache::global().clone());
 
-    let mut results = Vec::with_capacity(transactions.len());
     state.with_mut_cached_state(|state| {
-        for tx in transactions {
-            // Safe to unwrap here because the only way the call to `transact` can return an error
-            // is when bouncer is `Some`.
-            match utils::transact(state, &block_context, &flags, tx, None).unwrap() {
-                ExecutionResult::Failed { error } => {
-                    results.push(Err(error));
-                    break;
-                }
+        let mut estimates = Vec::with_capacity(transactions.len());
 
+        for (idx, tx) in transactions.into_iter().enumerate() {
+            // Safe to unwrap here because the only way the call to `transact` can return an
+            // error is when bouncer is `Some`.
+            let result = utils::transact(state, &block_context, &flags, tx, None).unwrap();
+
+            match result {
                 ExecutionResult::Success { receipt, .. } => {
-                    // if the transaction was reverted, return as error
                     if let Some(reason) = receipt.revert_reason() {
-                        results.push(Err(ExecutionError::TransactionReverted {
-                            revert_error: reason.to_string(),
-                        }));
-                        break;
+                        return Err(StarknetApiError::TransactionExecutionError {
+                            transaction_index: idx as u64,
+                            execution_error: reason.to_string(),
+                        });
                     } else {
                         let fee = receipt.fee();
                         let resources = receipt.resources_used();
 
-                        results.push(Ok(FeeEstimate {
+                        estimates.push(FeeEstimate {
                             overall_fee: fee.overall_fee,
                             l2_gas_price: fee.l2_gas_price,
                             l1_gas_price: fee.l1_gas_price,
@@ -81,14 +91,21 @@ pub fn estimate_fees(
                             l1_gas_consumed: resources.gas.l1_gas,
                             l1_data_gas_price: fee.l1_data_gas_price,
                             l1_data_gas_consumed: resources.gas.l1_data_gas,
-                        }));
+                        });
                     }
+                }
+
+                ExecutionResult::Failed { error } => {
+                    return Err(StarknetApiError::TransactionExecutionError {
+                        transaction_index: idx as u64,
+                        execution_error: error.to_string(),
+                    });
                 }
             };
         }
-    });
 
-    results
+        Ok(estimates)
+    })
 }
 
 #[tracing::instrument(level = "trace", target = "rpc", skip_all)]
