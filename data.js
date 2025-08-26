@@ -1,5 +1,5 @@
 window.BENCHMARK_DATA = {
-  "lastUpdate": 1756130478278,
+  "lastUpdate": 1756237118178,
   "repoUrl": "https://github.com/dojoengine/katana",
   "entries": {
     "Benchmark": [
@@ -4631,6 +4631,66 @@ window.BENCHMARK_DATA = {
             "name": "Invoke.ERC20.transfer/Blockifier.Cold",
             "value": 19152173,
             "range": "± 1395245",
+            "unit": "ns/iter"
+          }
+        ]
+      },
+      {
+        "commit": {
+          "author": {
+            "email": "evergreenkary@gmail.com",
+            "name": "Ammar Arif",
+            "username": "kariy"
+          },
+          "committer": {
+            "email": "noreply@github.com",
+            "name": "GitHub",
+            "username": "web-flow"
+          },
+          "distinct": true,
+          "id": "08c7e8982803a56f18512df0eedeb3bbc8f8c158",
+          "message": "refactor(rpc): avoid doing double pass on fee estimation error (#244)\n\nSimplify the function to avoid doing a double pass on the fee estimation results - first during the actual fee estimation process, second when we're iterating over the estimation results on the RPC side to find an error.",
+          "timestamp": "2025-08-27T03:30:34+08:00",
+          "tree_id": "f3ea32f56a06b80b77ef3bd0c7c2455bdef22145",
+          "url": "https://github.com/dojoengine/katana/commit/08c7e8982803a56f18512df0eedeb3bbc8f8c158"
+        },
+        "date": 1756237116817,
+        "tool": "cargo",
+        "benches": [
+          {
+            "name": "Commit.Small/Parallel",
+            "value": 460241,
+            "range": "± 8716",
+            "unit": "ns/iter"
+          },
+          {
+            "name": "Commit.Big/Serial",
+            "value": 94446723,
+            "range": "± 2109289",
+            "unit": "ns/iter"
+          },
+          {
+            "name": "Commit.Big/Parallel",
+            "value": 65530745,
+            "range": "± 1094641",
+            "unit": "ns/iter"
+          },
+          {
+            "name": "compress world contract",
+            "value": 2708141,
+            "range": "± 13736",
+            "unit": "ns/iter"
+          },
+          {
+            "name": "decompress world contract",
+            "value": 3057219,
+            "range": "± 14820",
+            "unit": "ns/iter"
+          },
+          {
+            "name": "Invoke.ERC20.transfer/Blockifier.Cold",
+            "value": 17180268,
+            "range": "± 484283",
             "unit": "ns/iter"
           }
         ]
