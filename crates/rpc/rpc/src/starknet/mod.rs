@@ -171,22 +171,7 @@ where
         let cfg_env = self.inner.backend.executor_factory.cfg().clone();
 
         // do estimations
-        let results = blockifier::estimate_fees(state, env, cfg_env, transactions, flags);
-
-        let mut estimates: Vec<FeeEstimate> = Vec::with_capacity(results.len());
-        for (i, res) in results.into_iter().enumerate() {
-            match res {
-                Ok(fee) => estimates.push(fee),
-                Err(err) => {
-                    return Err(StarknetApiError::TransactionExecutionError {
-                        transaction_index: i as u64,
-                        execution_error: err.to_string(),
-                    });
-                }
-            }
-        }
-
-        Ok(estimates)
+        blockifier::estimate_fees(state, env, cfg_env, transactions, flags)
     }
 
     /// Returns the pending state if the sequencer is running in _interval_ mode. Otherwise `None`.
