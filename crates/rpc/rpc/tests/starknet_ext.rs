@@ -4,7 +4,7 @@ use katana_rpc_api::starknet_ext::StarknetApiExtClient;
 use katana_rpc_types::list::{ContinuationToken, GetBlocksRequest, GetTransactionsRequest};
 use katana_utils::TestNode;
 use starknet::accounts::ConnectedAccount;
-use starknet::core::types::{Felt, ResultPageRequest};
+use starknet::core::types::{Felt, ResultPageRequest, TransactionReceipt};
 
 mod common;
 
@@ -242,7 +242,9 @@ async fn get_transactions_with_chunk_size() {
     assert!(response.continuation_token.is_some());
 
     for (expected_hash, actual_tx) in tx_hashes.iter().take(3).zip(response.transactions.iter()) {
-        assert_eq!(expected_hash, actual_tx.0.transaction_hash());
+        assert_matches!(&actual_tx.0.receipt, TransactionReceipt::Invoke(receipt) => {
+           assert_eq!(expected_hash, &receipt.transaction_hash);
+        });
     }
 }
 
@@ -280,7 +282,9 @@ async fn get_transactions_pagination() {
     for (expected_hash, actual_tx) in
         tx_hashes.iter().take(2).zip(first_response.transactions.iter())
     {
-        assert_eq!(expected_hash, actual_tx.0.transaction_hash());
+        assert_matches!(&actual_tx.0.receipt, TransactionReceipt::Invoke(receipt) => {
+           assert_eq!(expected_hash, &receipt.transaction_hash);
+        });
     }
 
     // Second page using continuation token
@@ -300,7 +304,9 @@ async fn get_transactions_pagination() {
     for (expected_hash, actual_tx) in
         tx_hashes.iter().skip(2).zip(second_response.transactions.iter())
     {
-        assert_eq!(expected_hash, actual_tx.0.transaction_hash());
+        assert_matches!(&actual_tx.0.receipt, TransactionReceipt::Invoke(receipt) => {
+           assert_eq!(expected_hash, &receipt.transaction_hash);
+        });
     }
 }
 
@@ -337,7 +343,9 @@ async fn get_transactions_no_to_parameter() {
     assert_eq!(response.transactions.len(), 2);
 
     for (expected_hash, actual_tx) in tx_hashes.iter().skip(1).zip(response.transactions.iter()) {
-        assert_eq!(expected_hash, actual_tx.0.transaction_hash());
+        assert_matches!(&actual_tx.0.receipt, TransactionReceipt::Invoke(receipt) => {
+           assert_eq!(expected_hash, &receipt.transaction_hash);
+        });
     }
 }
 

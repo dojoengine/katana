@@ -1,7 +1,5 @@
 //! Server implementation for the Starknet JSON-RPC API.
 
-use std::ops::Range;
-use std::str::FromStr;
 use std::sync::Arc;
 
 use katana_core::backend::Backend;
@@ -20,9 +18,7 @@ use katana_primitives::transaction::{ExecutableTxWithHash, TxHash, TxNumber, TxW
 use katana_primitives::version::CURRENT_STARKNET_VERSION;
 use katana_primitives::Felt;
 use katana_provider::error::ProviderError;
-use katana_provider::traits::block::{
-    BlockHashProvider, BlockIdReader, BlockNumberProvider, BlockProvider,
-};
+use katana_provider::traits::block::{BlockHashProvider, BlockIdReader, BlockNumberProvider};
 use katana_provider::traits::contract::ContractClassProvider;
 use katana_provider::traits::env::BlockEnvProvider;
 use katana_provider::traits::state::{StateFactoryProvider, StateProvider, StateRootProvider};
@@ -1252,49 +1248,57 @@ impl<EF: ExecutorFactory> StarknetApi<EF> {
             // Parse continuation token to get starting point
             let start_from = if let Some(token_str) = request.result_page_request.continuation_token
             {
-                // Parse the continuation token
-                let token: ListContinuationToken = ListContinuationToken::from_str(&token_str)
-                    .map_err(|_| StarknetApiError::InvalidContinuationToken)?;
-
-                token.item_n
+                // Parse the continuation token and extract the item number
+                ListContinuationToken::parse(&token_str)
+                    .map(|token| token.item_n)
+                    .map_err(|_| StarknetApiError::InvalidContinuationToken)?
             } else {
                 request.from
             };
 
+            // `latest_number` returns the number of the latest block, and block number starts from
+            // 0.
+            //
+            // Unlike for `StarknetApi::transactions` where we use
+            // `TransactionsProviderExt::total_transactions` which returns the total
+            // number of transactions overall, the value returns by
+            // `BlockNumberProvider::latest_number` is an index so we don't need to subtract by 1.
+            let last_block_idx = provider.latest_number()?;
             let chunk_size = request.result_page_request.chunk_size;
-            let total_blocks = provider.latest_number()?;
 
-            let abs_range_end =
-                if let Some(to) = request.to { to.min(total_blocks) } else { total_blocks };
-            let mut req_range_end = abs_range_end;
+            // Determine the absolute end of the range based on how many blocks we actually
+            // have. The range shouldn't exceed the total of available blocks!
+            //
+            // If the `to` field is not provided, we assume the end of the range is the last block.
+            let absolute_end =
+                request.to.map(|to| to.min(last_block_idx)).unwrap_or(last_block_idx);
 
-            // Apply chunk size limit
-            if chunk_size > 0 {
-                req_range_end =
-                    start_from.saturating_add(chunk_size.saturating_sub(1)).min(abs_range_end);
-            }
+            // We must respect the chunk size if the range is larger than the chunk size.
+            let chunked_end = start_from.saturating_add(chunk_size);
+            // But, it must not exceed the absolute end of the range.
+            let actual_end = chunked_end.min(absolute_end);
 
-            let blocks = provider.blocks_in_range(start_from..=req_range_end)?;
+            // Unlike StarknetApi::transactions, we don't need to add by one here because the range
+            // is inclusive.
+            let block_range = start_from..=actual_end;
+            let mut blocks = Vec::with_capacity(chunk_size as usize);
 
-            // Convert to RPC format
-            let mut rpc_blocks = Vec::new();
-            for block in blocks {
-                let block_id = block.header.number.into();
-                if let Some(rpc_block) =
-                    BlockBuilder::new(block_id, &provider).build_with_tx_hash()?
-                {
-                    rpc_blocks.push(rpc_block);
-                }
+            for block_num in block_range {
+                let block = BlockBuilder::new(block_num.into(), &provider)
+                    .build_with_tx_hash()?
+                    .expect("must exist");
+
+                blocks.push(block);
             }
 
             // Generate continuation token if there are more blocks
-            let continuation_token = if req_range_end < abs_range_end {
-                Some(ListContinuationToken { item_n: req_range_end + 1 }.to_string())
+            let continuation_token = if actual_end < absolute_end {
+                Some(ListContinuationToken { item_n: actual_end }.to_string())
             } else {
                 None
             };
 
-            Ok(GetBlocksResponse { blocks: rpc_blocks, continuation_token })
+            Ok(GetBlocksResponse { blocks, continuation_token })
         })
         .await
     }
@@ -1309,47 +1313,49 @@ impl<EF: ExecutorFactory> StarknetApi<EF> {
             // Parse continuation token to get starting point
             let start_from = if let Some(token_str) = request.result_page_request.continuation_token
             {
-                // Parse the continuation token
-                let token: ListContinuationToken = ListContinuationToken::from_str(&token_str)
-                    .map_err(|_| StarknetApiError::InvalidContinuationToken)?;
-
-                token.item_n
+                // Parse the continuation token and extract the item number
+                ListContinuationToken::parse(&token_str)
+                    .map(|token| token.item_n)
+                    .map_err(|_| StarknetApiError::InvalidContinuationToken)?
             } else {
                 request.from
             };
 
+            let last_txn_idx = (provider.total_transactions()? as TxNumber).saturating_sub(1);
             let chunk_size = request.result_page_request.chunk_size;
-            let total_txs = (provider.total_transactions()? as TxNumber).saturating_sub(1);
 
-            let abs_range_end =
-                if let Some(to) = request.to { to.min(total_txs) } else { total_txs };
-            let mut req_range_end = abs_range_end;
+            // Determine the absolute end of the range based on how many transactions we actually
+            // have. The range shouldn't exceed the total of available transactions!
+            //
+            // If the `to` field is not provided, we assume the end of the range is the last
+            // transaction.
+            let absolute_end = request.to.map(|to| to.min(last_txn_idx)).unwrap_or(last_txn_idx);
 
-            // Apply chunk size limit
-            if chunk_size > 0 {
-                req_range_end =
-                    start_from.saturating_add(chunk_size.saturating_sub(1)).min(abs_range_end);
+            // Get the range end based solely on the chunk size.
+            // We must respect the chunk size if the range is larger than the chunk size.
+            let chunked_end = start_from.saturating_add(chunk_size);
+            // But, it must not exceed the absolute end of the range.
+            let actual_end = chunked_end.min(absolute_end);
+
+            // Because the range is non inclusive, we need to add 1 to the range end so that we
+            // include the last transaction index ie number in the range.
+            let tx_range = start_from..actual_end + 1;
+            let transaction_hashes = provider.transaction_hashes_in_range(tx_range)?;
+            let mut transactions = Vec::with_capacity(transaction_hashes.len());
+
+            for hash in transaction_hashes {
+                let receipt = ReceiptBuilder::new(hash, provider).build()?.expect("must exist");
+                transactions.push(receipt);
             }
 
-            let range: Range<TxNumber> = start_from..req_range_end.saturating_add(1);
-
-            // Get transactions from provider
-            let transactions = provider.transaction_in_range(range)?;
-
-            // Convert to RPC format
-            let rpc_transactions: Vec<Tx> = transactions.into_iter().map(|tx| tx.into()).collect();
-
             // Generate continuation token if there are more transactions
-            let continuation_token = if req_range_end < abs_range_end {
-                Some(ListContinuationToken { item_n: req_range_end + 1 }.to_string())
+            let continuation_token = if actual_end < absolute_end {
+                Some(ListContinuationToken { item_n: actual_end }.to_string())
             } else {
                 None
             };
 
-            let response =
-                GetTransactionsResponse { transactions: rpc_transactions, continuation_token };
-
-            Ok(response)
+            Ok(GetTransactionsResponse { transactions, continuation_token })
         })
         .await
     }

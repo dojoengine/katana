@@ -524,7 +524,7 @@ impl<Db: Database> TransactionsProviderExt for DbProvider<Db> {
     fn transaction_hashes_in_range(&self, range: Range<TxNumber>) -> ProviderResult<Vec<TxHash>> {
         let db_tx = self.0.tx()?;
 
-        let total = range.end - range.start;
+        let total = range.end.saturating_sub(range.start);
         let mut hashes = Vec::with_capacity(total as usize);
 
         for i in range {
