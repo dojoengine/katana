@@ -1,5 +1,5 @@
 window.BENCHMARK_DATA = {
-  "lastUpdate": 1756237118178,
+  "lastUpdate": 1756320531867,
   "repoUrl": "https://github.com/dojoengine/katana",
   "entries": {
     "Benchmark": [
@@ -4691,6 +4691,66 @@ window.BENCHMARK_DATA = {
             "name": "Invoke.ERC20.transfer/Blockifier.Cold",
             "value": 17180268,
             "range": "± 484283",
+            "unit": "ns/iter"
+          }
+        ]
+      },
+      {
+        "commit": {
+          "author": {
+            "email": "evergreenkary@gmail.com",
+            "name": "Ammar Arif",
+            "username": "kariy"
+          },
+          "committer": {
+            "email": "noreply@github.com",
+            "name": "GitHub",
+            "username": "web-flow"
+          },
+          "distinct": true,
+          "id": "0333da74327efd69779791e8551ad43e0f2ee027",
+          "message": "refactor(gpo): optimize buffer to use fixed-size array (#246)\n\nChange the underlying data structure of the `SlidingWindowBuffer` struct, that is used for sampling gas prices, to a fixed-size array instead of a dynamically-sized one.",
+          "timestamp": "2025-08-28T02:41:02+08:00",
+          "tree_id": "3513cb3b1ad8fc4c6bca9e337c16a583bca33526",
+          "url": "https://github.com/dojoengine/katana/commit/0333da74327efd69779791e8551ad43e0f2ee027"
+        },
+        "date": 1756320530622,
+        "tool": "cargo",
+        "benches": [
+          {
+            "name": "Commit.Small/Parallel",
+            "value": 457832,
+            "range": "± 9019",
+            "unit": "ns/iter"
+          },
+          {
+            "name": "Commit.Big/Serial",
+            "value": 94290248,
+            "range": "± 392517",
+            "unit": "ns/iter"
+          },
+          {
+            "name": "Commit.Big/Parallel",
+            "value": 65585015,
+            "range": "± 2507292",
+            "unit": "ns/iter"
+          },
+          {
+            "name": "compress world contract",
+            "value": 2730684,
+            "range": "± 17016",
+            "unit": "ns/iter"
+          },
+          {
+            "name": "decompress world contract",
+            "value": 3040789,
+            "range": "± 16183",
+            "unit": "ns/iter"
+          },
+          {
+            "name": "Invoke.ERC20.transfer/Blockifier.Cold",
+            "value": 17070753,
+            "range": "± 535933",
             "unit": "ns/iter"
           }
         ]
