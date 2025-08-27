@@ -141,7 +141,6 @@ reqwest = { version = "0.12.15", features = [ "json", "rustls-tls" ], default-fe
 rstest = "0.18.2"
 rstest_reuse = "0.6.0"
 similar-asserts = "1.5.0"
-slot = { git = "https://github.com/cartridge-gg/slot", rev = "1298a30" }
 spinoff = "0.8.0"
 strum = "0.25"
 strum_macros = "0.25"
@@ -206,7 +205,7 @@ opentelemetry-http = "0.30.0"
 opentelemetry-stackdriver = { version = "0.27.0", features = [ "propagator" ] }
 
 # starknet
-starknet = "0.17.0-rc.2"
+starknet = "0.17.0-rc.4"
 starknet-crypto = "0.7.4"
 starknet-types-core = { version = "0.1.8", features = [ "arbitrary", "hash" ] }
 # Some types that we used from cairo-vm implements the `Arbitrary` trait,
