@@ -482,6 +482,7 @@ pub fn block_context_from_envs(block_env: &BlockEnv, cfg_env: &CfgEnv) -> BlockC
     // re-execution with `snos`. Otherwise, there might be a mismatch between the calculated
     // fees.
     let sn_version: StarknetVersion = block_env.starknet_version.try_into().expect("valid version");
+    println!("Using starknet version: {}", sn_version);
     let mut versioned_constants = VersionedConstants::get(&sn_version).unwrap().clone();
     apply_versioned_constant_overrides(cfg_env, &mut versioned_constants);
 
@@ -492,6 +493,7 @@ pub(super) fn state_update_from_cached_state(state: &CachedState<'_>) -> StateUp
     // TODO: stateful compression should be applied conditionally
     //
     // The state diff here has been applied stateful compression
+    println!("Applying stateful compression");
     let alias_contract_address = contract_address!("0x2");
     allocate_aliases_in_storage(&mut state.inner.lock().cached_state, alias_contract_address)
         .unwrap();
@@ -503,6 +505,7 @@ pub(super) fn state_update_from_cached_state(state: &CachedState<'_>) -> StateUp
     assert!(state_diff.is_ok(), "failed to compress state diff");
 
     let state_diff = state.inner.lock().cached_state.to_state_diff().unwrap().state_maps;
+    std::fs::write("state_diff.json", format!("{:#?}", state_diff)).unwrap();
     let mut declared_contract_classes: BTreeMap<
         katana_primitives::class::ClassHash,
         katana_primitives::class::ContractClass,
