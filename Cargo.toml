@@ -216,8 +216,8 @@ blockifier = { git = "https://github.com/dojoengine/sequencer", branch = "blocki
 cairo-native = "0.6"
 starknet_api = { git = "https://github.com/dojoengine/sequencer", branch = "blockifier/v0.15.0-rc.3" }
 
-cainome = { git = "https://github.com/cartridge-gg/cainome", rev = "7d60de1", features = [ "abigen-rs" ] }
-cainome-cairo-serde = { git = "https://github.com/cartridge-gg/cainome", rev = "7d60de1" }
+cainome = { git = "https://github.com/cartridge-gg/cainome", rev = "1e7afb2", features = [ "abigen-rs" ] }
+cainome-cairo-serde = { git = "https://github.com/cartridge-gg/cainome", rev = "1e7afb2" }
 piltover = { git = "https://github.com/kariy/piltover.git", branch = "feat/rpc0.9" }
 
 [patch.crates-io]
