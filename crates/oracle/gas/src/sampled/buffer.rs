@@ -338,4 +338,190 @@ mod tests {
         assert_eq!(average.eth.get(), expected_eth);
         assert_eq!(average.strk.get(), expected_strk);
     }
+
+    #[test]
+    fn sliding_window_iterator_empty_buffer() {
+        let buffer = SlidingWindowBuffer::<i32, 5>::new();
+        let mut iter = buffer.iter();
+
+        assert_eq!(iter.next(), None);
+        assert_eq!(iter.len(), 0);
+        assert_eq!(iter.size_hint(), (0, Some(0)));
+
+        let collected: Vec<_> = buffer.iter().collect();
+        assert!(collected.is_empty());
+    }
+
+    #[test]
+    fn sliding_window_iterator_partial_buffer() {
+        let mut buffer = SlidingWindowBuffer::<i32, 5>::new();
+        buffer.push(1);
+        buffer.push(2);
+        buffer.push(3);
+
+        let collected: Vec<_> = buffer.iter().copied().collect();
+        assert_eq!(collected, vec![1, 2, 3]);
+
+        let mut iter = buffer.iter();
+        assert_eq!(iter.len(), 3);
+        assert_eq!(iter.size_hint(), (3, Some(3)));
+
+        assert_eq!(iter.next(), Some(&1));
+        assert_eq!(iter.len(), 2);
+        assert_eq!(iter.size_hint(), (2, Some(2)));
+
+        assert_eq!(iter.next(), Some(&2));
+        assert_eq!(iter.len(), 1);
+        assert_eq!(iter.size_hint(), (1, Some(1)));
+
+        assert_eq!(iter.next(), Some(&3));
+        assert_eq!(iter.len(), 0);
+        assert_eq!(iter.size_hint(), (0, Some(0)));
+
+        assert_eq!(iter.next(), None);
+    }
+
+    #[test]
+    fn sliding_window_iterator_full_buffer_no_wrap() {
+        let mut buffer = SlidingWindowBuffer::<i32, 5>::new();
+        for i in 1..=5 {
+            buffer.push(i);
+        }
+
+        let collected: Vec<_> = buffer.iter().copied().collect();
+        assert_eq!(collected, vec![1, 2, 3, 4, 5]);
+
+        assert_eq!(buffer.iter().len(), 5);
+        assert_eq!(buffer.iter().count(), 5);
+    }
+
+    #[test]
+    fn sliding_window_iterator_with_wraparound() {
+        let mut buffer = SlidingWindowBuffer::<i32, 3>::new();
+
+        // Fill the buffer
+        buffer.push(1);
+        buffer.push(2);
+        buffer.push(3);
+
+        // Push more elements to cause wraparound
+        buffer.push(4); // evicts 1
+        buffer.push(5); // evicts 2
+
+        // Buffer should now contain [3, 4, 5] with head pointing to 3
+        let collected: Vec<_> = buffer.iter().copied().collect();
+        assert_eq!(collected, vec![3, 4, 5]);
+
+        // Push one more to verify wraparound works correctly
+        buffer.push(6); // evicts 3
+        let collected: Vec<_> = buffer.iter().copied().collect();
+        assert_eq!(collected, vec![4, 5, 6]);
+    }
+
+    #[test]
+    fn sliding_window_iterator_complex_wraparound() {
+        let mut buffer = SlidingWindowBuffer::<i32, 4>::new();
+
+        // Create a complex wraparound scenario
+        for i in 1..=10 {
+            buffer.push(i);
+        }
+
+        // Buffer should only contain [7, 8, 9, 10] due to fixed size of 4.
+        let collected: Vec<_> = buffer.iter().copied().collect();
+        assert_eq!(collected, vec![7, 8, 9, 10]);
+
+        // Test iterator correctness
+        let mut iter = buffer.iter();
+        assert_eq!(iter.next(), Some(&7));
+        assert_eq!(iter.next(), Some(&8));
+        assert_eq!(iter.next(), Some(&9));
+        assert_eq!(iter.next(), Some(&10));
+        assert_eq!(iter.next(), None);
+    }
+
+    #[test]
+    fn sliding_window_iterator_after_pop() {
+        let mut buffer = SlidingWindowBuffer::<i32, 5>::new();
+
+        // Fill buffer
+        for i in 1..=5 {
+            buffer.push(i);
+        }
+
+        // Pop some elements
+        assert_eq!(buffer.pop(), Some(1));
+        assert_eq!(buffer.pop(), Some(2));
+
+        // Iterator should show remaining elements
+        let collected: Vec<_> = buffer.iter().copied().collect();
+        assert_eq!(collected, vec![3, 4, 5]);
+        assert_eq!(buffer.iter().len(), 3);
+
+        // Add more elements
+        buffer.push(6);
+        buffer.push(7);
+
+        let collected: Vec<_> = buffer.iter().copied().collect();
+        assert_eq!(collected, vec![3, 4, 5, 6, 7]);
+    }
+
+    #[test]
+    fn sliding_window_iterator_multiple_iterations() {
+        let mut buffer = SlidingWindowBuffer::<i32, 3>::new();
+        buffer.push(1);
+        buffer.push(2);
+        buffer.push(3);
+
+        // Multiple iterations should work independently
+        let first: Vec<_> = buffer.iter().copied().collect();
+        let second: Vec<_> = buffer.iter().copied().collect();
+        assert_eq!(first, second);
+        assert_eq!(first, vec![1, 2, 3]);
+    }
+
+    #[test]
+    fn sliding_window_iterator_size_hint_accuracy() {
+        let mut buffer = SlidingWindowBuffer::<i32, 4>::new();
+
+        // Test size hint at different stages
+        let iter = buffer.iter();
+        assert_eq!(iter.size_hint(), (0, Some(0)));
+        assert_eq!(iter.len(), 0);
+
+        buffer.push(1);
+        let mut iter = buffer.iter();
+        assert_eq!(iter.size_hint(), (1, Some(1)));
+        assert_eq!(iter.len(), 1);
+
+        // Consume one element
+        iter.next();
+        assert_eq!(iter.size_hint(), (0, Some(0)));
+        assert_eq!(iter.len(), 0);
+
+        // Fill buffer
+        buffer.push(2);
+        buffer.push(3);
+        buffer.push(4);
+
+        let mut iter = buffer.iter();
+        assert_eq!(iter.size_hint(), (4, Some(4)));
+
+        // Partially consume
+        iter.next();
+        iter.next();
+        assert_eq!(iter.size_hint(), (2, Some(2)));
+        assert_eq!(iter.len(), 2);
+    }
+
+    #[test]
+    fn sliding_window_iterator_edge_case_single_element() {
+        let mut buffer = SlidingWindowBuffer::<i32, 1>::new();
+
+        buffer.push(1);
+        assert_eq!(buffer.iter().copied().collect::<Vec<_>>(), vec![1]);
+
+        buffer.push(2); // evicts 1
+        assert_eq!(buffer.iter().copied().collect::<Vec<_>>(), vec![2]);
+    }
 }
