@@ -277,7 +277,7 @@ jobs:
           KATANA_BIN=./katana ./scripts/reverse-proxy-test.sh
 
   dojo-integration-test:
-    needs: [fmt, clippy]
+    needs: [fmt, clippy, build-katana-binary]
     runs-on: ubuntu-latest-32-cores
     if: github.event_name == 'push' || (github.event_name == 'pull_request' && github.event.pull_request.draft == false)
     container:
@@ -299,8 +299,16 @@ jobs:
         with:
           name: test-artifacts
 
+      - name: Download Katana binary
+        uses: actions/download-artifact@v5
+        with:
+          name: binary
+
+      - name: Setup Katana binary
+        run: chmod +x ./katana
+
       - name: Start Katana
-        run: cargo run --bin katana > katana.log 2>&1 &
+        run: ./katana > katana.log 2>&1 &
 
       - name: Checkout Dojo repository
         uses: actions/checkout@v3
