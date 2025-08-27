@@ -16,7 +16,6 @@ mod ethereum;
 mod starknet;
 
 const DEFAULT_SAMPLING_INTERVAL: Duration = Duration::from_secs(60);
-const SAMPLE_SIZE: usize = 60;
 
 #[derive(Debug, Clone)]
 pub struct SampledPriceOracle {
@@ -31,7 +30,7 @@ struct SampledPriceOracleInner {
 
 impl SampledPriceOracle {
     pub fn new(sampler: Sampler) -> Self {
-        let samples = Mutex::new(Samples::new(SAMPLE_SIZE));
+        let samples = Mutex::new(Samples::new());
         let inner = Arc::new(SampledPriceOracleInner { samples, sampler });
         Self { inner }
     }
@@ -85,19 +84,22 @@ impl SampledPriceOracle {
     }
 }
 
+/// The default sample size for the gas prices buffer.
+const SAMPLE_SIZE: usize = 60;
+
 #[derive(Debug, Clone)]
 struct Samples {
-    l2_gas_prices: GasPricesBuffer,
-    l1_gas_prices: GasPricesBuffer,
-    l1_data_gas_prices: GasPricesBuffer,
+    l2_gas_prices: GasPricesBuffer<SAMPLE_SIZE>,
+    l1_gas_prices: GasPricesBuffer<SAMPLE_SIZE>,
+    l1_data_gas_prices: GasPricesBuffer<SAMPLE_SIZE>,
 }
 
 impl Samples {
-    fn new(size: usize) -> Self {
+    fn new() -> Self {
         Self {
-            l2_gas_prices: GasPricesBuffer::new(size),
-            l1_gas_prices: GasPricesBuffer::new(size),
-            l1_data_gas_prices: GasPricesBuffer::new(size),
+            l2_gas_prices: GasPricesBuffer::new(),
+            l1_gas_prices: GasPricesBuffer::new(),
+            l1_data_gas_prices: GasPricesBuffer::new(),
         }
     }
 }
