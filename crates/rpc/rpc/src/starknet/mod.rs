@@ -75,17 +75,11 @@ type StarknetApiResult<T> = Result<T, StarknetApiError>;
 /// [write](katana_rpc_api::starknet::StarknetWriteApi), and
 /// [trace](katana_rpc_api::starknet::StarknetTraceApi) APIs.
 #[allow(missing_debug_implementations)]
-pub struct StarknetApi<EF>
-where
-    EF: ExecutorFactory,
-{
+pub struct StarknetApi<EF: ExecutorFactory> {
     inner: Arc<StarknetApiInner<EF>>,
 }
 
-struct StarknetApiInner<EF>
-where
-    EF: ExecutorFactory,
-{
+struct StarknetApiInner<EF: ExecutorFactory> {
     pool: TxPool,
     backend: Arc<Backend<EF>>,
     forked_client: Option<ForkedClient>,
@@ -95,10 +89,7 @@ where
     config: StarknetApiConfig,
 }
 
-impl<EF> StarknetApi<EF>
-where
-    EF: ExecutorFactory,
-{
+impl<EF: ExecutorFactory> StarknetApi<EF> {
     pub fn new(
         backend: Arc<Backend<EF>>,
         pool: TxPool,
@@ -1261,26 +1252,33 @@ impl<EF: ExecutorFactory> StarknetApi<EF> {
             //
             // Unlike for `StarknetApi::transactions` where we use
             // `TransactionsProviderExt::total_transactions` which returns the total
-            // number of transactions overall, the value returns by
-            // `BlockNumberProvider::latest_number` is an index so we don't need to subtract by 1.
+            // number of transactions overall, the block number here is a block index so we don't
+            // need to subtract by 1.
             let last_block_idx = provider.latest_number()?;
             let chunk_size = request.result_page_request.chunk_size;
 
-            // Determine the absolute end of the range based on how many blocks we actually
-            // have. The range shouldn't exceed the total of available blocks!
+            // Determine the theoretical end of the range based on how many blocks we actually
+            // have and the `to` field of this query. The range shouldn't exceed the total of
+            // available blocks!
             //
-            // If the `to` field is not provided, we assume the end of the range is the last block.
-            let absolute_end =
-                request.to.map(|to| to.min(last_block_idx)).unwrap_or(last_block_idx);
+            // If the `to` field is not provided, we assume the end of the range is the last
+            // block.
+            let max_end = request.to.map(|to| to.min(last_block_idx)).unwrap_or(last_block_idx);
 
+            // Get the end of the range based solely on the chunk size.
             // We must respect the chunk size if the range is larger than the chunk size.
-            let chunked_end = start_from.saturating_add(chunk_size);
-            // But, it must not exceed the absolute end of the range.
-            let actual_end = chunked_end.min(absolute_end);
+            //
+            // Subtract by one because we're referring this as a block index.
+            let chunked_end = start_from.saturating_add(chunk_size) - 1;
+            // But, it must not exceed the theoretical end of the range.
+            let abs_end = chunked_end.min(max_end);
 
-            // Unlike StarknetApi::transactions, we don't need to add by one here because the range
-            // is inclusive.
-            let block_range = start_from..=actual_end;
+            // Calculate the next block index to fetch after this query's range.
+            let next_block_idx = abs_end + 1;
+
+            // Unlike the transactiosn counterpart, we don't need to add by one here because the
+            // range is inclusive.
+            let block_range = start_from..=abs_end;
             let mut blocks = Vec::with_capacity(chunk_size as usize);
 
             for block_num in block_range {
@@ -1292,8 +1290,8 @@ impl<EF: ExecutorFactory> StarknetApi<EF> {
             }
 
             // Generate continuation token if there are more blocks
-            let continuation_token = if actual_end < absolute_end {
-                Some(ListContinuationToken { item_n: actual_end }.to_string())
+            let continuation_token = if next_block_idx < max_end {
+                Some(ListContinuationToken { item_n: next_block_idx }.to_string())
             } else {
                 None
             };
@@ -1303,6 +1301,7 @@ impl<EF: ExecutorFactory> StarknetApi<EF> {
         .await
     }
 
+    // NOTE: The current implementation of this method doesn't support pending transactions.
     async fn transactions(
         &self,
         request: GetTransactionsRequest,
@@ -1310,10 +1309,9 @@ impl<EF: ExecutorFactory> StarknetApi<EF> {
         self.on_io_blocking_task(move |this| {
             let provider = this.inner.backend.blockchain.provider();
 
-            // Parse continuation token to get starting point
+            // Resolve the starting point for this query.
             let start_from = if let Some(token_str) = request.result_page_request.continuation_token
             {
-                // Parse the continuation token and extract the item number
                 ListContinuationToken::parse(&token_str)
                     .map(|token| token.item_n)
                     .map_err(|_| StarknetApiError::InvalidContinuationToken)?
@@ -1324,22 +1322,28 @@ impl<EF: ExecutorFactory> StarknetApi<EF> {
             let last_txn_idx = (provider.total_transactions()? as TxNumber).saturating_sub(1);
             let chunk_size = request.result_page_request.chunk_size;
 
-            // Determine the absolute end of the range based on how many transactions we actually
-            // have. The range shouldn't exceed the total of available transactions!
+            // Determine the theoretical end of the range based on how many transactions we actually
+            // have and the `to` field of this query. The range shouldn't exceed the total of
+            // available transactions!
             //
             // If the `to` field is not provided, we assume the end of the range is the last
             // transaction.
-            let absolute_end = request.to.map(|to| to.min(last_txn_idx)).unwrap_or(last_txn_idx);
+            let max_txn_end = request.to.map(|to| to.min(last_txn_idx)).unwrap_or(last_txn_idx);
 
-            // Get the range end based solely on the chunk size.
+            // Get the end of the range based solely on the chunk size.
             // We must respect the chunk size if the range is larger than the chunk size.
-            let chunked_end = start_from.saturating_add(chunk_size);
-            // But, it must not exceed the absolute end of the range.
-            let actual_end = chunked_end.min(absolute_end);
+            //
+            // Subtract by one because we're referring this as a transaction index.
+            let chunked_end = start_from.saturating_add(chunk_size) - 1;
+            // But, it must not exceed the theoretical end of the range.
+            let abs_end = chunked_end.min(max_txn_end);
 
-            // Because the range is non inclusive, we need to add 1 to the range end so that we
-            // include the last transaction index ie number in the range.
-            let tx_range = start_from..actual_end + 1;
+            // Calculate the next transaction index to fetch after this query's range.
+            let next_txn_idx = abs_end + 1;
+
+            // We use `next_txn_idx` because the range is non-inclusive - we want to include the
+            // transaction pointed by `abs_end`.
+            let tx_range = start_from..next_txn_idx;
             let transaction_hashes = provider.transaction_hashes_in_range(tx_range)?;
             let mut transactions = Vec::with_capacity(transaction_hashes.len());
 
@@ -1349,8 +1353,10 @@ impl<EF: ExecutorFactory> StarknetApi<EF> {
             }
 
             // Generate continuation token if there are more transactions
-            let continuation_token = if actual_end < absolute_end {
-                Some(ListContinuationToken { item_n: actual_end }.to_string())
+            let continuation_token = if next_txn_idx < max_txn_end {
+                // the token should point to the next transaction because `abs_end` is included in
+                // this query.
+                Some(ListContinuationToken { item_n: next_txn_idx }.to_string())
             } else {
                 None
             };
@@ -1370,10 +1376,7 @@ impl<EF: ExecutorFactory> StarknetApi<EF> {
     }
 }
 
-impl<EF> Clone for StarknetApi<EF>
-where
-    EF: ExecutorFactory,
-{
+impl<EF: ExecutorFactory> Clone for StarknetApi<EF> {
     fn clone(&self) -> Self {
         Self { inner: Arc::clone(&self.inner) }
     }

@@ -2,6 +2,7 @@ use assert_matches::assert_matches;
 use katana_primitives::genesis::constant::DEFAULT_STRK_FEE_TOKEN_ADDRESS;
 use katana_rpc_api::starknet_ext::StarknetApiExtClient;
 use katana_rpc_types::list::{ContinuationToken, GetBlocksRequest, GetTransactionsRequest};
+use katana_utils::node::Provider;
 use katana_utils::TestNode;
 use starknet::accounts::ConnectedAccount;
 use starknet::core::types::{Felt, ResultPageRequest, TransactionReceipt};
@@ -103,8 +104,12 @@ async fn get_blocks_pagination() {
     let recipient = Felt::ONE;
     let amount = Uint256 { low: Felt::ONE, high: Felt::ZERO };
 
+    let latest_block = account.provider().block_number().await.unwrap();
+
     // Generate blocks
-    for _ in 0..5 {
+    //
+    // we want to make sure the node only has 5 blocks for this test.
+    for _ in 0..(5 - (latest_block + 1)) {
         let result = erc20.transfer(&recipient, &amount).send().await.unwrap();
         katana_utils::TxWaiter::new(result.transaction_hash, &account.provider()).await.unwrap();
     }
@@ -112,7 +117,7 @@ async fn get_blocks_pagination() {
     // First page
     let request = GetBlocksRequest {
         from: 0,
-        to: Some(5),
+        to: Some(4),
         result_page_request: ResultPageRequest { continuation_token: None, chunk_size: 2 },
     };
 
@@ -125,7 +130,7 @@ async fn get_blocks_pagination() {
     // Second page using continuation token
     let request = GetBlocksRequest {
         from: 0,
-        to: Some(5),
+        to: Some(4),
         result_page_request: ResultPageRequest {
             continuation_token: first_response.continuation_token.clone(),
             chunk_size: 2,
@@ -136,7 +141,28 @@ async fn get_blocks_pagination() {
     assert_eq!(second_response.blocks.len(), 2);
     assert_eq!(second_response.blocks[0].0.block_number, 2);
     assert_eq!(second_response.blocks[1].0.block_number, 3);
-    assert!(second_response.continuation_token.is_some());
+
+    // Should have continuation token since we have 1 more block
+    assert_matches!(&second_response.continuation_token, Some(token) => {
+        use katana_rpc_types::list::ContinuationToken;
+        let token = ContinuationToken::parse(&token).unwrap();
+        assert_eq!(token.item_n, 4);
+    });
+
+    // Third page using continuation token
+    let request = GetBlocksRequest {
+        from: 0,
+        to: Some(4),
+        result_page_request: ResultPageRequest {
+            continuation_token: second_response.continuation_token.clone(),
+            chunk_size: 2,
+        },
+    };
+
+    let second_response = client.get_blocks(request).await.unwrap();
+    assert_eq!(second_response.blocks.len(), 1);
+    assert_eq!(second_response.blocks[0].0.block_number, 4);
+    assert!(second_response.continuation_token.is_none());
 }
 
 #[tokio::test]
@@ -168,6 +194,7 @@ async fn get_blocks_no_to_parameter() {
 
     // Should return blocks from 1 to latest
     assert!(response.blocks.len() >= 3); // At least blocks 1, 2, 3
+    assert!(response.continuation_token.is_none());
     assert_eq!(response.blocks[0].0.block_number, 1);
 }
 
@@ -230,16 +257,20 @@ async fn get_transactions_with_chunk_size() {
     // Request with chunk size limit
     let request = GetTransactionsRequest {
         from: 0,
-        to: Some(5),
+        to: Some(4),
         result_page_request: ResultPageRequest { continuation_token: None, chunk_size: 3 },
     };
 
     let response = client.get_transactions(request).await.unwrap();
 
-    // Should return only first 3 transactions due to chunk size limit
+    // Should return only first 3 transactions (ie 0, 1, 2) due to chunk size limit
     assert_eq!(response.transactions.len(), 3);
     // Should have continuation token since more transactions are available
-    assert!(response.continuation_token.is_some());
+    assert_matches!(response.continuation_token, Some(token) => {
+        use katana_rpc_types::list::ContinuationToken;
+        let token = ContinuationToken::parse(&token).unwrap();
+        assert_eq!(token.item_n, 3);
+    });
 
     for (expected_hash, actual_tx) in tx_hashes.iter().take(3).zip(response.transactions.iter()) {
         assert_matches!(&actual_tx.0.receipt, TransactionReceipt::Invoke(receipt) => {
@@ -271,13 +302,20 @@ async fn get_transactions_pagination() {
     // First page
     let request = GetTransactionsRequest {
         from: 0,
-        to: Some(5),
+        to: Some(4),
         result_page_request: ResultPageRequest { continuation_token: None, chunk_size: 2 },
     };
 
     let first_response = client.get_transactions(request).await.unwrap();
     assert_eq!(first_response.transactions.len(), 2);
-    assert!(first_response.continuation_token.is_some());
+    // Should have continuation token since more transactions are available
+    assert_matches!(&first_response.continuation_token, Some(token) => {
+        use katana_rpc_types::list::ContinuationToken;
+        let token = ContinuationToken::parse(token).unwrap();
+        // We have only collected 2 transactions so far (ie tx 0, and tx 1), so the next
+        // tx to fetch should be tx 2.
+        assert_eq!(token.item_n, 2);
+    });
 
     for (expected_hash, actual_tx) in
         tx_hashes.iter().take(2).zip(first_response.transactions.iter())
@@ -290,7 +328,7 @@ async fn get_transactions_pagination() {
     // Second page using continuation token
     let request = GetTransactionsRequest {
         from: 0,
-        to: Some(5),
+        to: Some(4),
         result_page_request: ResultPageRequest {
             continuation_token: first_response.continuation_token.clone(),
             chunk_size: 2,
@@ -299,7 +337,7 @@ async fn get_transactions_pagination() {
 
     let second_response = client.get_transactions(request).await.unwrap();
     assert_eq!(second_response.transactions.len(), 2);
-    assert!(second_response.continuation_token.is_some());
+    assert!(second_response.continuation_token.is_none());
 
     for (expected_hash, actual_tx) in
         tx_hashes.iter().skip(2).zip(second_response.transactions.iter())
@@ -341,6 +379,7 @@ async fn get_transactions_no_to_parameter() {
 
     // Should return transactions from 1 to latest (3)
     assert_eq!(response.transactions.len(), 2);
+    assert!(response.continuation_token.is_none());
 
     for (expected_hash, actual_tx) in tx_hashes.iter().skip(1).zip(response.transactions.iter()) {
         assert_matches!(&actual_tx.0.receipt, TransactionReceipt::Invoke(receipt) => {
