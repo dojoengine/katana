@@ -1669,7 +1669,7 @@ dependencies = [
  "bitflags 2.9.1",
  "cexpr",
  "clang-sys",
- "itertools 0.12.1",
+ "itertools 0.10.5",
  "lazy_static",
  "lazycell",
  "log",
@@ -3178,7 +3178,7 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "117725a109d387c937a1533ce01b450cbde6b88abceea8473c4d7a85853cda3c"
 dependencies = [
  "lazy_static",
- "windows-sys 0.59.0",
+ "windows-sys 0.48.0",
 ]
 
 [[package]]
@@ -3187,7 +3187,7 @@ version = "3.0.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "fde0e0ec90c9dfb3b4b1a0891a7dcd0e2bffde2f7efed5fe7c9bb00e5bfb915e"
 dependencies = [
- "windows-sys 0.59.0",
+ "windows-sys 0.48.0",
 ]
 
 [[package]]
@@ -5060,7 +5060,7 @@ dependencies = [
  "js-sys",
  "log",
  "wasm-bindgen",
- "windows-core 0.61.2",
+ "windows-core 0.57.0",
 ]
 
 [[package]]
@@ -5897,7 +5897,7 @@ dependencies = [
  "quote",
  "serde_json",
  "starknet-crypto 0.7.4",
- "starknet-types-core 0.1.8",
+ "starknet-types-core 0.2.0",
  "syn 2.0.104",
 ]
 
@@ -5932,7 +5932,7 @@ dependencies = [
  "rayon",
  "rstest 0.18.2",
  "starknet",
- "starknet-types-core 0.1.8",
+ "starknet-types-core 0.2.0",
  "tempfile",
  "thiserror 1.0.69",
  "tokio",
@@ -6257,7 +6257,7 @@ dependencies = [
  "similar-asserts",
  "starknet",
  "starknet-crypto 0.7.4",
- "starknet-types-core 0.1.8",
+ "starknet-types-core 0.2.0",
  "starknet_api",
  "strum 0.25.0",
  "strum_macros 0.25.3",
@@ -6287,7 +6287,7 @@ dependencies = [
  "rstest_reuse 0.6.0",
  "serde_json",
  "starknet",
- "starknet-types-core 0.1.8",
+ "starknet-types-core 0.2.0",
  "tempfile",
  "thiserror 1.0.69",
  "tokio",
@@ -6508,7 +6508,7 @@ dependencies = [
  "serde",
  "slab",
  "starknet",
- "starknet-types-core 0.1.8",
+ "starknet-types-core 0.2.0",
  "thiserror 1.0.69",
 ]
 
@@ -6648,7 +6648,7 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "07033963ba89ebaf1584d767badaa2e8fcec21aedea6b8c0346d487d49c28667"
 dependencies = [
  "cfg-if",
- "windows-targets 0.53.3",
+ "windows-targets 0.48.5",
 ]
 
 [[package]]
@@ -7726,9 +7726,9 @@ checksum = "5be167a7af36ee22fe3115051bc51f6e6c7054c9348e28deb4f49bd6f705a315"
 [[package]]
 name = "piltover"
 version = "0.1.0"
-source = "git+https://github.com/kariy/piltover.git?branch=feat%2Frpc0.9#fda4f1668344021d30c506070ef54a790f4cc5cb"
+source = "git+https://github.com/kariy/piltover.git?branch=feat%2Frpc0.9#10e61e44abad622c585cabfe792508c170164185"
 dependencies = [
- "cainome 0.9.1 (git+https://github.com/cartridge-gg/cainome?rev=7d60de1)",
+ "cainome 0.9.1 (git+https://github.com/cartridge-gg/cainome?rev=1e7afb2)",
  "starknet",
 ]
 
@@ -8121,8 +8121,8 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "22505a5c94da8e3b7c2996394d1c933236c4d743e81a410bcca4e6989fc066a4"
 dependencies = [
  "bytes",
- "heck 0.5.0",
- "itertools 0.12.1",
+ "heck 0.4.1",
+ "itertools 0.10.5",
  "log",
  "multimap",
  "once_cell",
@@ -8142,7 +8142,7 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "81bddcdb20abf9501610992b6759a4c888aef7d1a7247ef75e2404275ac24af1"
 dependencies = [
  "anyhow",
- "itertools 0.12.1",
+ "itertools 0.10.5",
  "proc-macro2",
  "quote",
  "syn 2.0.104",
@@ -10225,6 +10225,7 @@ version = "0.2.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "5fa3d91e38f091dbc543d33589eb7716bed2a8eb1c20879e484561977832b60a"
 dependencies = [
+ "arbitrary",
  "blake2",
  "digest 0.10.7",
  "lambdaworks-crypto",
@@ -11856,7 +11857,7 @@ version = "0.1.9"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "cf221c93e13a30d793f7645a0e7762c55d169dbb0a49671918a2319d289b10bb"
 dependencies = [
- "windows-sys 0.59.0",
+ "windows-sys 0.48.0",
 ]
 
 [[package]]
