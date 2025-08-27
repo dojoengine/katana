@@ -125,7 +125,13 @@ async fn get_blocks_pagination() {
     assert_eq!(first_response.blocks.len(), 2);
     assert_eq!(first_response.blocks[0].0.block_number, 0);
     assert_eq!(first_response.blocks[1].0.block_number, 1);
-    assert!(first_response.continuation_token.is_some());
+
+    // Should have continuation token since we have 3 more block
+    assert_matches!(&first_response.continuation_token, Some(token) => {
+        use katana_rpc_types::list::ContinuationToken;
+        let token = ContinuationToken::parse(&token).unwrap();
+        assert_eq!(token.item_n, 2);
+    });
 
     // Second page using continuation token
     let request = GetBlocksRequest {
@@ -159,10 +165,10 @@ async fn get_blocks_pagination() {
         },
     };
 
-    let second_response = client.get_blocks(request).await.unwrap();
-    assert_eq!(second_response.blocks.len(), 1);
-    assert_eq!(second_response.blocks[0].0.block_number, 4);
-    assert!(second_response.continuation_token.is_none());
+    let third_response = client.get_blocks(request).await.unwrap();
+    assert_eq!(third_response.blocks.len(), 1);
+    assert_eq!(third_response.blocks[0].0.block_number, 4);
+    assert!(third_response.continuation_token.is_none());
 }
 
 #[tokio::test]
@@ -337,10 +343,39 @@ async fn get_transactions_pagination() {
 
     let second_response = client.get_transactions(request).await.unwrap();
     assert_eq!(second_response.transactions.len(), 2);
-    assert!(second_response.continuation_token.is_none());
+    // Should have continuation token since more transactions are available
+    assert_matches!(&second_response.continuation_token, Some(token) => {
+        use katana_rpc_types::list::ContinuationToken;
+        let token = ContinuationToken::parse(token).unwrap();
+        // We have only collected 4 transactions so far (ie tx 0, 1, 2, 3), so the next
+        // tx to fetch should be tx 4.
+        assert_eq!(token.item_n, 4);
+    });
 
     for (expected_hash, actual_tx) in
         tx_hashes.iter().skip(2).zip(second_response.transactions.iter())
+    {
+        assert_matches!(&actual_tx.0.receipt, TransactionReceipt::Invoke(receipt) => {
+           assert_eq!(expected_hash, &receipt.transaction_hash);
+        });
+    }
+
+    // Third page using continuation token
+    let request = GetTransactionsRequest {
+        from: 0,
+        to: Some(4),
+        result_page_request: ResultPageRequest {
+            continuation_token: second_response.continuation_token.clone(),
+            chunk_size: 2,
+        },
+    };
+
+    let third_response = client.get_transactions(request).await.unwrap();
+    assert_eq!(third_response.transactions.len(), 1);
+    assert!(third_response.continuation_token.is_none());
+
+    for (expected_hash, actual_tx) in
+        tx_hashes.iter().skip(4).zip(third_response.transactions.iter())
     {
         assert_matches!(&actual_tx.0.receipt, TransactionReceipt::Invoke(receipt) => {
            assert_eq!(expected_hash, &receipt.transaction_hash);

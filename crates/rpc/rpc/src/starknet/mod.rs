@@ -1263,18 +1263,16 @@ impl<EF: ExecutorFactory> StarknetApi<EF> {
             //
             // If the `to` field is not provided, we assume the end of the range is the last
             // block.
-            let max_end = request.to.map(|to| to.min(last_block_idx)).unwrap_or(last_block_idx);
+            let max_block_end =
+                request.to.map(|to| to.min(last_block_idx)).unwrap_or(last_block_idx);
 
             // Get the end of the range based solely on the chunk size.
             // We must respect the chunk size if the range is larger than the chunk size.
             //
             // Subtract by one because we're referring this as a block index.
-            let chunked_end = start_from.saturating_add(chunk_size) - 1;
+            let chunked_end = start_from.saturating_add(chunk_size).saturating_sub(1);
             // But, it must not exceed the theoretical end of the range.
-            let abs_end = chunked_end.min(max_end);
-
-            // Calculate the next block index to fetch after this query's range.
-            let next_block_idx = abs_end + 1;
+            let abs_end = chunked_end.min(max_block_end);
 
             // Unlike the transactiosn counterpart, we don't need to add by one here because the
             // range is inclusive.
@@ -1289,8 +1287,13 @@ impl<EF: ExecutorFactory> StarknetApi<EF> {
                 blocks.push(block);
             }
 
-            // Generate continuation token if there are more blocks
-            let continuation_token = if next_block_idx < max_end {
+            // Calculate the next block index to fetch after this query's range.
+            let next_block_idx = abs_end + 1;
+
+            // Create a continuation token if we have still more blocks to fetch.
+            //
+            // `next_block_idx` is not included in this query, hence why we're using <=.
+            let continuation_token = if next_block_idx <= max_block_end {
                 Some(ListContinuationToken { item_n: next_block_idx }.to_string())
             } else {
                 None
@@ -1353,7 +1356,7 @@ impl<EF: ExecutorFactory> StarknetApi<EF> {
             }
 
             // Generate continuation token if there are more transactions
-            let continuation_token = if next_txn_idx < max_txn_end {
+            let continuation_token = if next_txn_idx <= max_txn_end {
                 // the token should point to the next transaction because `abs_end` is included in
                 // this query.
                 Some(ListContinuationToken { item_n: next_txn_idx }.to_string())
