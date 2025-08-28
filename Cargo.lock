@@ -5731,6 +5731,7 @@ dependencies = [
  "clap",
  "console",
  "katana-chain-spec",
+ "katana-cli-args",
  "katana-core",
  "katana-gas-price-oracle",
  "katana-messaging",
@@ -5742,11 +5743,29 @@ dependencies = [
  "katana-utils",
  "serde",
  "serde_json",
- "shellexpand",
  "starknet",
  "tokio",
- "toml",
  "tracing",
+ "url",
+]
+
+[[package]]
+name = "katana-cli-args"
+version = "1.7.0-alpha.2"
+dependencies = [
+ "anyhow",
+ "clap",
+ "katana-chain-spec",
+ "katana-messaging",
+ "katana-node",
+ "katana-primitives",
+ "katana-rpc",
+ "katana-slot-controller",
+ "katana-tracing",
+ "serde",
+ "serde_json",
+ "shellexpand",
+ "toml",
  "url",
 ]
 

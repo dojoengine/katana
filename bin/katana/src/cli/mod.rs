@@ -3,7 +3,7 @@ use std::future::Future;
 use anyhow::{Context, Result};
 use clap::{Args, CommandFactory, Parser, Subcommand};
 use clap_complete::Shell;
-use katana_cli::NodeArgs;
+use katana_cli::{NodeArgs, exec::NodeArgsExecute};
 use tokio::runtime::Runtime;
 
 mod config;

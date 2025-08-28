@@ -1,0 +1,33 @@
+[package]
+edition.workspace = true
+license.workspace = true
+name = "katana-cli-args"
+repository.workspace = true
+version.workspace = true
+description = "CLI argument types for Katana"
+
+[dependencies]
+katana-chain-spec.workspace = true
+katana-messaging.workspace = true
+katana-primitives.workspace = true
+katana-tracing.workspace = true
+
+# Only import specific types we need from these crates
+katana-node = { workspace = true, default-features = false }
+katana-rpc = { workspace = true, optional = true, default-features = false }
+katana-slot-controller = { workspace = true, optional = true }
+
+anyhow.workspace = true
+clap.workspace = true
+serde.workspace = true
+shellexpand = "3.1.0"
+toml.workspace = true
+url.workspace = true
+
+[dev-dependencies]
+serde_json.workspace = true
+
+[features]
+cartridge = ["dep:katana-slot-controller"]
+default = []
+server = ["dep:katana-rpc"]
