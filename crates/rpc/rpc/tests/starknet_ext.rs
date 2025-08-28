@@ -5,7 +5,7 @@ use katana_rpc_types::list::{ContinuationToken, GetBlocksRequest, GetTransaction
 use katana_utils::node::Provider;
 use katana_utils::TestNode;
 use starknet::accounts::ConnectedAccount;
-use starknet::core::types::{Felt, ResultPageRequest, TransactionReceipt};
+use starknet::core::types::{Felt, ResultPageRequest, Transaction, TransactionReceipt};
 
 mod common;
 
@@ -279,7 +279,11 @@ async fn get_transactions_with_chunk_size() {
     });
 
     for (expected_hash, actual_tx) in tx_hashes.iter().take(3).zip(response.transactions.iter()) {
-        assert_matches!(&actual_tx.0.receipt, TransactionReceipt::Invoke(receipt) => {
+        assert_matches!(&actual_tx.transaction.0, Transaction::Invoke(tx) => {
+           assert_eq!(expected_hash, tx.transaction_hash());
+        });
+
+        assert_matches!(&actual_tx.receipt.0.receipt, TransactionReceipt::Invoke(receipt) => {
            assert_eq!(expected_hash, &receipt.transaction_hash);
         });
     }
@@ -326,7 +330,11 @@ async fn get_transactions_pagination() {
     for (expected_hash, actual_tx) in
         tx_hashes.iter().take(2).zip(first_response.transactions.iter())
     {
-        assert_matches!(&actual_tx.0.receipt, TransactionReceipt::Invoke(receipt) => {
+        assert_matches!(&actual_tx.transaction.0, Transaction::Invoke(tx) => {
+           assert_eq!(expected_hash, tx.transaction_hash());
+        });
+
+        assert_matches!(&actual_tx.receipt.0.receipt, TransactionReceipt::Invoke(receipt) => {
            assert_eq!(expected_hash, &receipt.transaction_hash);
         });
     }
@@ -355,7 +363,11 @@ async fn get_transactions_pagination() {
     for (expected_hash, actual_tx) in
         tx_hashes.iter().skip(2).zip(second_response.transactions.iter())
     {
-        assert_matches!(&actual_tx.0.receipt, TransactionReceipt::Invoke(receipt) => {
+        assert_matches!(&actual_tx.transaction.0, Transaction::Invoke(tx) => {
+           assert_eq!(expected_hash, tx.transaction_hash());
+        });
+
+        assert_matches!(&actual_tx.receipt.0.receipt, TransactionReceipt::Invoke(receipt) => {
            assert_eq!(expected_hash, &receipt.transaction_hash);
         });
     }
@@ -377,7 +389,11 @@ async fn get_transactions_pagination() {
     for (expected_hash, actual_tx) in
         tx_hashes.iter().skip(4).zip(third_response.transactions.iter())
     {
-        assert_matches!(&actual_tx.0.receipt, TransactionReceipt::Invoke(receipt) => {
+        assert_matches!(&actual_tx.transaction.0, Transaction::Invoke(tx) => {
+           assert_eq!(expected_hash, tx.transaction_hash());
+        });
+
+        assert_matches!(&actual_tx.receipt.0.receipt, TransactionReceipt::Invoke(receipt) => {
            assert_eq!(expected_hash, &receipt.transaction_hash);
         });
     }
@@ -417,7 +433,11 @@ async fn get_transactions_no_to_parameter() {
     assert!(response.continuation_token.is_none());
 
     for (expected_hash, actual_tx) in tx_hashes.iter().skip(1).zip(response.transactions.iter()) {
-        assert_matches!(&actual_tx.0.receipt, TransactionReceipt::Invoke(receipt) => {
+        assert_matches!(&actual_tx.transaction.0, Transaction::Invoke(tx) => {
+           assert_eq!(expected_hash, tx.transaction_hash());
+        });
+
+        assert_matches!(&actual_tx.receipt.0.receipt, TransactionReceipt::Invoke(receipt) => {
            assert_eq!(expected_hash, &receipt.transaction_hash);
         });
     }

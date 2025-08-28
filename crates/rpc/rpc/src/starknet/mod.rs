@@ -35,7 +35,7 @@ use katana_rpc_types::class::Class;
 use katana_rpc_types::event::{EventFilterWithPage, EventsPage};
 use katana_rpc_types::list::{
     ContinuationToken as ListContinuationToken, GetBlocksRequest, GetBlocksResponse,
-    GetTransactionsRequest, GetTransactionsResponse,
+    GetTransactionsRequest, GetTransactionsResponse, TransactionListItem,
 };
 use katana_rpc_types::receipt::{ReceiptBlock, TxReceiptWithBlockInfo};
 use katana_rpc_types::state_update::MaybePreConfirmedStateUpdate;
@@ -1347,12 +1347,24 @@ impl<EF: ExecutorFactory> StarknetApi<EF> {
             // We use `next_txn_idx` because the range is non-inclusive - we want to include the
             // transaction pointed by `abs_end`.
             let tx_range = start_from..next_txn_idx;
-            let transaction_hashes = provider.transaction_hashes_in_range(tx_range)?;
-            let mut transactions = Vec::with_capacity(transaction_hashes.len());
+            let tx_hashes = provider.transaction_hashes_in_range(tx_range)?;
 
-            for hash in transaction_hashes {
-                let receipt = ReceiptBuilder::new(hash, provider).build()?.expect("must exist");
-                transactions.push(receipt);
+            let mut transactions: Vec<TransactionListItem> = Vec::with_capacity(tx_hashes.len());
+
+            for hash in tx_hashes {
+                let transaction = provider.transaction_by_hash(hash)?.map(Tx::from).ok_or(
+                    StarknetApiError::UnexpectedError {
+                        reason: format!("transaction is missing; {hash:#}"),
+                    },
+                )?;
+
+                let receipt = ReceiptBuilder::new(hash, provider).build()?.ok_or(
+                    StarknetApiError::UnexpectedError {
+                        reason: format!("transaction is missing; {hash:#}"),
+                    },
+                )?;
+
+                transactions.push(TransactionListItem { transaction, receipt });
             }
 
             // Generate continuation token if there are more transactions

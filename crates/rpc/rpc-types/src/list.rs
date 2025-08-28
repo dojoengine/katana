@@ -9,6 +9,7 @@ use starknet::core::types::ResultPageRequest;
 
 use crate::block::BlockWithTxHashes;
 use crate::receipt::TxReceiptWithBlockInfo;
+use crate::transaction::Tx;
 
 /// Represents a continuation token for implementing paging in block and transaction queries.
 ///
@@ -100,13 +101,21 @@ pub struct GetTransactionsRequest {
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct GetTransactionsResponse {
     /// The list of transactions.
-    pub transactions: Vec<TxReceiptWithBlockInfo>,
+    pub transactions: Vec<TransactionListItem>,
 
     /// A pointer to the last element of the delivered page, use this token in a subsequent query
     /// to obtain the next page. If the value is `None`, don't add it to the response as
     /// clients might use `contains_key` as a check for the last page.
     #[serde(skip_serializing_if = "Option::is_none")]
     pub continuation_token: Option<String>,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct TransactionListItem {
+    /// The transaction - same object returned by `starknet_getTransactionByHash`.
+    pub transaction: Tx,
+    /// The transaction receipt - same object returned by `starknet_getTransactionReceipt`.
+    pub receipt: TxReceiptWithBlockInfo,
 }
 
 #[cfg(test)]
