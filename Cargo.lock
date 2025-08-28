@@ -1879,7 +1879,7 @@ dependencies = [
 [[package]]
 name = "bonsai-trie"
 version = "0.1.0"
-source = "git+https://github.com/dojoengine/bonsai-trie/?rev=8b509fd#8b509fdf2c22fb7386acc6c00f179ac1cd099243"
+source = "git+https://github.com/dojoengine/bonsai-trie/?branch=kariy%2Findexmap#c59f52e302e688fff25b215765e12d6107849b9e"
 dependencies = [
  "bitvec",
  "derive_more 0.99.20",
@@ -1891,7 +1891,7 @@ dependencies = [
  "serde",
  "slotmap",
  "smallvec",
- "starknet-types-core 0.1.8",
+ "starknet-types-core 0.2.0",
  "thiserror 2.0.12",
 ]
 
@@ -2970,7 +2970,7 @@ dependencies = [
  "serde_json",
  "stark-vrf",
  "starknet",
- "starknet-crypto 0.7.4",
+ "starknet-crypto 0.8.0",
  "thiserror 1.0.69",
  "tracing",
  "url",
@@ -5896,7 +5896,7 @@ dependencies = [
  "proc-macro2",
  "quote",
  "serde_json",
- "starknet-crypto 0.7.4",
+ "starknet-crypto 0.8.0",
  "starknet-types-core 0.2.0",
  "syn 2.0.104",
 ]
@@ -6113,7 +6113,7 @@ dependencies = [
  "serde",
  "serde_json",
  "starknet",
- "starknet-crypto 0.7.4",
+ "starknet-crypto 0.8.0",
  "thiserror 1.0.69",
  "tokio",
  "tracing",
@@ -6256,7 +6256,7 @@ dependencies = [
  "serde_with",
  "similar-asserts",
  "starknet",
- "starknet-crypto 0.7.4",
+ "starknet-crypto 0.8.0",
  "starknet-types-core 0.2.0",
  "starknet_api",
  "strum 0.25.0",
@@ -6339,7 +6339,7 @@ dependencies = [
  "serde_json",
  "similar-asserts",
  "starknet",
- "starknet-crypto 0.7.4",
+ "starknet-crypto 0.8.0",
  "tempfile",
  "thiserror 1.0.69",
  "tokio",
@@ -10213,7 +10213,6 @@ dependencies = [
  "num-bigint",
  "num-integer",
  "num-traits",
- "parity-scale-codec",
  "serde",
  "size-of",
  "zeroize",
@@ -10233,6 +10232,7 @@ dependencies = [
  "num-bigint",
  "num-integer",
  "num-traits",
+ "parity-scale-codec",
  "serde",
  "zeroize",
 ]

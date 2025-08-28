@@ -14,7 +14,7 @@ on:
       - ".github/Dockerfile"
 
 env:
-  RUST_VERSION: 1.86.0
+  RUST_VERSION: 1.87.0
   CLIPPY_VERSION: nightly-2025-02-20
 
 jobs:
