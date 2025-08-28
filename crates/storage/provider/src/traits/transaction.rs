@@ -45,6 +45,9 @@ pub trait TransactionProvider: Send + Sync {
 pub trait TransactionsProviderExt: TransactionProvider + Send + Sync {
     /// Retrieves the tx hashes for the given range of tx numbers.
     fn transaction_hashes_in_range(&self, range: Range<TxNumber>) -> ProviderResult<Vec<TxHash>>;
+
+    /// Retrieves the total number of transactions.
+    fn total_transactions(&self) -> ProviderResult<usize>;
 }
 
 #[auto_impl::auto_impl(&, Box, Arc)]
