@@ -1,55 +1,16 @@
-use std::path::PathBuf;
-
-use anyhow::{anyhow, Context, Result};
 use console::Style;
-use katana_chain_spec::rollup::ChainConfigDir;
 use katana_chain_spec::ChainSpec;
-use katana_primitives::block::{BlockHash, BlockHashOrNumber, BlockNumber};
-use katana_primitives::chain::ChainId;
+use katana_cli_args::NodeArgs;
 use katana_primitives::class::ClassHash;
 use katana_primitives::contract::ContractAddress;
 use katana_primitives::genesis::allocation::GenesisAccountAlloc;
 use katana_primitives::genesis::constant::{
     DEFAULT_LEGACY_ERC20_CLASS_HASH, DEFAULT_LEGACY_UDC_CLASS_HASH, DEFAULT_UDC_ADDRESS,
 };
-use katana_primitives::genesis::json::GenesisJson;
-use katana_primitives::genesis::Genesis;
-use katana_rpc::cors::HeaderValue;
 use katana_tracing::LogFormat;
-use serde::{Deserialize, Deserializer, Serializer};
 use tracing::info;
 
-use crate::args::LOG_TARGET;
-use crate::NodeArgs;
-
-pub fn parse_seed(seed: &str) -> [u8; 32] {
-    let seed = seed.as_bytes();
-
-    if seed.len() >= 32 {
-        unsafe { *(seed[..32].as_ptr() as *const [u8; 32]) }
-    } else {
-        let mut actual_seed = [0u8; 32];
-        seed.iter().enumerate().for_each(|(i, b)| actual_seed[i] = *b);
-        actual_seed
-    }
-}
-
-/// Used as clap value parser for [Genesis].
-pub fn parse_genesis(value: &str) -> Result<Genesis> {
-    let path = PathBuf::from(shellexpand::full(value)?.into_owned());
-    let genesis = Genesis::try_from(GenesisJson::load(path)?)?;
-    Ok(genesis)
-}
-
-/// If the value starts with `0x`, it is parsed as a [`BlockHash`], otherwise as a [`BlockNumber`].
-pub fn parse_block_hash_or_number(value: &str) -> Result<BlockHashOrNumber> {
-    if value.starts_with("0x") {
-        Ok(BlockHashOrNumber::Hash(BlockHash::from_hex(value)?))
-    } else {
-        let num = value.parse::<BlockNumber>().context("could not parse block number")?;
-        Ok(BlockHashOrNumber::Num(num))
-    }
-}
+use crate::exec::LOG_TARGET;
 
 pub fn print_intro(args: &NodeArgs, chain: &ChainSpec) {
     let mut accounts = chain.genesis().accounts().peekable();
@@ -98,142 +59,47 @@ ACCOUNTS SEED
 
 fn print_genesis_contracts(chain: &ChainSpec, account_class_hash: Option<ClassHash>) {
     match chain {
-        ChainSpec::Dev(cs) => {
+        ChainSpec::Dev(_) | ChainSpec::Rollup(_) => {
             println!(
                 r"
-PREDEPLOYED CONTRACTS
-==================
-
-| Contract        | ETH Fee Token
-| Address         | {}
-| Class Hash      | {:#064x}
-
-| Contract        | STRK Fee Token
-| Address         | {}
-| Class Hash      | {:#064x}",
-                cs.fee_contracts.eth,
-                DEFAULT_LEGACY_ERC20_CLASS_HASH,
-                cs.fee_contracts.strk,
-                DEFAULT_LEGACY_ERC20_CLASS_HASH
-            );
-        }
-
-        ChainSpec::Rollup(cs) => {
-            println!(
-                r"
-PREDEPLOYED CONTRACTS
-==================
-
-| Contract        | STRK Fee Token
-| Address         | {}
-| Class Hash      | {:#064x}",
-                cs.fee_contract.strk, DEFAULT_LEGACY_ERC20_CLASS_HASH,
-            );
-        }
-    }
-
-    println!(
-        r"
-| Contract        | Universal Deployer
-| Address         | {}
-| Class Hash      | {:#064x}",
-        DEFAULT_UDC_ADDRESS, DEFAULT_LEGACY_UDC_CLASS_HASH
-    );
-
-    if let Some(hash) = account_class_hash {
-        println!(
-            r"
-| Contract        | Account Contract
-| Class Hash      | {hash:#064x}"
-        )
-    }
-}
-
-fn print_genesis_accounts<'a, Accounts>(accounts: Accounts)
-where
-    Accounts: Iterator<Item = (&'a ContractAddress, &'a GenesisAccountAlloc)>,
-{
-    println!(
-        r"
 
 PREFUNDED ACCOUNTS
 =================="
-    );
+            );
 
+            if let Some(hash) = account_class_hash {
+                println!("Class hash: {:#x}\n", hash);
+            }
+        }
+    }
+}
+
+fn print_genesis_accounts(
+    accounts: impl Iterator<Item = (ContractAddress, GenesisAccountAlloc)>,
+) {
     for (addr, account) in accounts {
         if let Some(pk) = account.private_key() {
-            println!(
-                r"
-| Account address |  {addr}
-| Private key     |  {pk:#x}
-| Public key      |  {:#x}",
-                account.public_key()
-            )
+            println!("| Account address |  {addr:#x}");
+            println!("| Private key     |  {pk:#x}");
+            println!("| Public key      |  {:#x}", account.public_key());
         } else {
-            println!(
-                r"
-| Account address |  {addr}
-| Public key      |  {:#x}",
-                account.public_key()
-            )
+            println!("| Account address |  {addr:#x}");
+            println!("| Public key      |  {:#x}", account.public_key());
         }
+
+        println!();
     }
-}
 
-pub fn serialize_cors_origins<S>(values: &[HeaderValue], serializer: S) -> Result<S::Ok, S::Error>
-where
-    S: Serializer,
-{
-    let string = values
-        .iter()
-        .map(|v| v.to_str())
-        .collect::<Result<Vec<_>, _>>()
-        .map_err(serde::ser::Error::custom)?
-        .join(",");
+    println!(
+        r"
+PREFUNDED CONTRACTS
+===================
 
-    serializer.serialize_str(&string)
-}
+| Contract        | Udc
+| Address         | {DEFAULT_UDC_ADDRESS:#x}
+| Class hash      | {DEFAULT_LEGACY_UDC_CLASS_HASH:#x}
 
-pub fn deserialize_cors_origins<'de, D>(deserializer: D) -> Result<Vec<HeaderValue>, D::Error>
-where
-    D: Deserializer<'de>,
-{
-    String::deserialize(deserializer)?
-        .split(',')
-        .map(|s| s.trim())
-        .filter(|s| !s.is_empty())
-        .map(HeaderValue::from_str)
-        .collect::<Result<Vec<HeaderValue>, _>>()
-        .map_err(serde::de::Error::custom)
-}
-
-// Chain IDs can be arbitrary ASCII strings, making them indistinguishable from filesystem paths.
-// To handle this ambiguity, we first try parsing single-component inputs as paths, then as chain
-// IDs. Multi-component inputs are always treated as paths.
-pub fn parse_chain_config_dir(value: &str) -> Result<ChainConfigDir> {
-    let path = PathBuf::from(value);
-
-    if path.components().count() == 1 {
-        if path.exists() {
-            Ok(ChainConfigDir::open(path)?)
-        } else if let Ok(id) = ChainId::parse(value) {
-            Ok(ChainConfigDir::open_local(&id)?)
-        } else {
-            Err(anyhow!("Invalid path or chain id"))
-        }
-    } else {
-        let path = PathBuf::from(shellexpand::tilde(value).as_ref());
-        Ok(ChainConfigDir::open(path)?)
-    }
-}
-
-#[cfg(test)]
-mod tests {
-    use super::*;
-
-    #[test]
-    fn parse_genesis_file() {
-        let path = "./test-data/genesis.json";
-        parse_genesis(path).unwrap();
-    }
+| Contract        | ERC20 Mock
+| Class hash      | {DEFAULT_LEGACY_ERC20_CLASS_HASH:#x}",
+    );
 }
