@@ -7,5 +7,5 @@ version.workspace = true
 # See more keys and their definitions at https://doc.rust-lang.org/cargo/reference/manifest.html
 
 [dependencies]
-account_sdk = { git = "https://github.com/cartridge-gg/controller-rs", rev = "242e7bd" }
+account_sdk = { git = "https://github.com/cartridge-gg/controller-rs", rev = "d997ab0" }
 katana-primitives.workspace = true

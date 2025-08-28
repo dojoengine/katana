@@ -119,12 +119,20 @@ pub struct GenericContractInfo {
 
 impl From<starknet_api::core::ContractAddress> for ContractAddress {
     fn from(value: starknet_api::core::ContractAddress) -> Self {
-        Self(Felt::from(value))
+        // Had to do this workaround until we have this PR https://github.com/starkware-libs/cairo/pull/8285
+        //
+        // Before this we could simply do Felt::from(value).
+        Self(Felt::from(value.0.key().to_biguint()))
     }
 }
 
 impl From<ContractAddress> for starknet_api::core::ContractAddress {
     fn from(value: ContractAddress) -> Self {
-        Self::try_from(value.0).expect("valid address")
+        // Had to do this workaround until we have this PR https://github.com/starkware-libs/cairo/pull/8285
+        //
+        // Before this we could simply do Felt::from(value.0).
+        use starknet_api::hash::StarkHash;
+        let sn_api_felt = StarkHash::from(value.to_biguint());
+        Self::try_from(sn_api_felt).expect("valid address")
     }
 }

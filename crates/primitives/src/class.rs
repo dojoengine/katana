@@ -151,7 +151,12 @@ impl CompiledClass {
     /// Computes the hash of the compiled class.
     pub fn class_hash(&self) -> Result<CompiledClassHash, ComputeClassHashError> {
         match self {
-            Self::Class(class) => Ok(class.compiled_class_hash()),
+            Self::Class(class) => {
+                // Had to do this workaround until we have this PR https://github.com/starkware-libs/cairo/pull/8285
+                let hash = class.compiled_class_hash();
+                Ok(Felt::from(hash.to_biguint()))
+            }
+
             Self::Legacy(class) => Ok(compute_legacy_class_hash(class)?),
         }
     }
