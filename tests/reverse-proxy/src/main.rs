@@ -15,7 +15,7 @@ const RP_PORT: u16 = 9090;
 
 // (name, route, value, id selector)
 const ROUTES: [(&str, &str, Option<&str>, &str); 5] = [
-    ("Home", "/", None, "home-search-bar"),
+    ("Home", "/", None, "home-with-katana-extension"),
     ("Block Details", "/block", Some("0"), "block-details"),
     (
         "Class Hash Details",
@@ -29,7 +29,7 @@ const ROUTES: [(&str, &str, Option<&str>, &str); 5] = [
         Some("0x04718f5a0fc34cc1af16a1cdee98ffb20c31f5cd61d6ab07201858f4287c938d"),
         "contract-details",
     ),
-    ("JSON Playground", "/jrpc", None, "json-playground"),
+    ("JSON Playground", "/json-rpc", None, "json-playground"),
     // ("Transaction Details", "tx", Some("0x0"), "tx-details"),
 ];
 
