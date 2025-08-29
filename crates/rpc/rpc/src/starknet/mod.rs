@@ -1337,7 +1337,7 @@ impl<EF: ExecutorFactory> StarknetApi<EF> {
             // We must respect the chunk size if the range is larger than the chunk size.
             //
             // Subtract by one because we're referring this as a transaction index.
-            let chunked_end = start_from.saturating_add(chunk_size) - 1;
+            let chunked_end = start_from.saturating_add(chunk_size).saturating_sub(1);
             // But, it must not exceed the theoretical end of the range.
             let abs_end = chunked_end.min(max_txn_end);
 
