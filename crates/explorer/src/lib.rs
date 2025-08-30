@@ -1,15 +1,12 @@
 //! # Katana Explorer
 //!
-//! A flexible Tower middleware for serving the Katana blockchain explorer UI with multiple
-//! deployment modes including hot reload for development and embedded assets for production.
+//! A flexible Tower middleware for serving the Explorer Web App with multiple deployment modes
+//! including hot reload for development and embedded assets for production.
 //!
 //! ## Features
 //!
 //! - **Hot Reload**: Real-time UI updates during development
 //! - **Multiple Serving Modes**: Embedded, FileSystem, and Proxy
-//! - **Security Headers**: Production-ready security configuration
-//! - **Caching**: Intelligent file caching with invalidation
-//! - **SPA Support**: Single Page Application routing
 //! - **Builder Pattern**: Ergonomic configuration API
 //!
 //! ## Quick Start
@@ -27,9 +24,11 @@
 //!
 //! ## Serving Modes
 //!
-//! - [`ExplorerMode::Embedded`]: Serves pre-built UI assets embedded in the binary
-//! - [`ExplorerMode::FileSystem`]: Serves UI files from disk with optional hot reload
-//! - [`ExplorerMode::Proxy`]: Proxies requests to an external development server (planned)
+//! - [`ExplorerMode::Embedded`]: Serves pre-built UI assets embedded in the binary (suitable for
+//!   production)
+//! - [`ExplorerMode::FileSystem`]: Serves UI files from disk with optional hot reload (suitable for
+//!   development)
+//! - [`ExplorerMode::Proxy`]: Proxies requests to an external development server (soon)
 //!
 //! ## Integration with Tower
 //!
@@ -52,7 +51,6 @@ use anyhow::{anyhow, Result};
 use bytes::Bytes;
 use http::header::HeaderValue;
 use http::{HeaderMap, Request, Response, StatusCode};
-// Define Body type based on what's available
 #[cfg(feature = "jsonrpsee")]
 use jsonrpsee::core::{http_helpers::Body, BoxError};
 use notify::{Event, RecommendedWatcher, RecursiveMode, Watcher};
@@ -61,6 +59,9 @@ use tokio::sync::RwLock;
 use tower::{Layer, Service};
 use tracing::{debug, error, info, warn};
 use url::Url;
+
+/// The default path prefix for the Explorer UI when served by Katana.
+const DEFAULT_PATH_PREFIX: &str = "/explorer";
 
 #[cfg(not(feature = "jsonrpsee"))]
 type BoxError = Box<dyn std::error::Error + Send + Sync>;
@@ -102,7 +103,7 @@ impl http_body::Body for Body {
 /// Determines how the Explorer UI assets are served to clients. Each mode has different
 /// performance characteristics and is suited for different deployment scenarios.
 #[derive(Debug, Clone, Serialize, Deserialize)]
-pub enum ExplorerMode {
+pub enum ServingMode {
     /// Serve pre-built UI assets embedded in the binary.
     ///
     /// **Best for**: Production deployments where assets don't change.
@@ -119,9 +120,6 @@ pub enum ExplorerMode {
     ///
     /// **Requires**: The specified `ui_path` must exist and contain built UI assets.
     /// When `hot_reload` is enabled, file system watching is used to detect changes.
-    ///
-    /// **Performance**: Slightly slower than embedded mode due to file I/O, but supports
-    /// intelligent caching and hot reload for development efficiency.
     FileSystem {
         /// Path to the directory containing built UI assets (must contain index.html).
         ui_path: PathBuf,
@@ -148,49 +146,16 @@ pub enum ExplorerMode {
 ///
 /// This struct contains all settings needed to configure how the Explorer UI is served,
 /// including the serving mode, security settings, and custom environment variables.
-///
-/// ## Examples
-///
-/// ```rust,no_run
-/// use std::collections::HashMap;
-/// use std::path::PathBuf;
-///
-/// use katana_explorer::{ExplorerConfig, ExplorerMode};
-///
-/// // Development configuration
-/// let dev_config = ExplorerConfig {
-///     mode: ExplorerMode::FileSystem { ui_path: PathBuf::from("./ui/dist"), hot_reload: true },
-///     chain_id: "KATANA_DEV".to_string(),
-///     cors_enabled: true,
-///     security_headers: false,
-///     ..Default::default()
-/// };
-///
-/// // Production configuration
-/// let prod_config = ExplorerConfig {
-///     mode: ExplorerMode::Embedded,
-///     chain_id: "KATANA_PROD".to_string(),
-///     security_headers: true,
-///     ..Default::default()
-/// };
-/// ```
-///
-/// ## Recommendations
-///
-/// - Use [`ExplorerLayer::builder()`] for a more ergonomic configuration experience
-/// - Enable `hot_reload` only in development environments
-/// - Always enable `security_headers` in production
-/// - Use `cors_enabled` carefully - only enable when necessary for development
 #[derive(Debug, Clone, Serialize, Deserialize)]
-pub struct ExplorerConfig {
+struct ExplorerConfig {
     /// The serving mode determining how UI assets are provided to clients.
-    pub mode: ExplorerMode,
+    mode: ServingMode,
 
     /// Blockchain chain ID to inject into the UI environment.
     ///
     /// This value is made available to the UI via `window.CHAIN_ID` and
     /// `window.KATANA_CONFIG.CHAIN_ID` for blockchain connections.
-    pub chain_id: String,
+    chain_id: String,
 
     /// URL path prefix for all Explorer routes.
     ///
@@ -199,7 +164,7 @@ pub struct ExplorerConfig {
     /// All Explorer requests must start with this prefix. For example, with the default
     /// prefix, the Explorer UI is available at `/explorer` and static assets at
     /// `/explorer/assets/*`.
-    pub path_prefix: String,
+    path_prefix: String,
 
     /// Enable Cross-Origin Resource Sharing (CORS) headers.
     ///
@@ -207,7 +172,7 @@ pub struct ExplorerConfig {
     /// Enabling CORS allows requests from any origin.
     ///
     /// **Default**: `false`
-    pub cors_enabled: bool,
+    cors_enabled: bool,
 
     /// Enable production security headers.
     ///
@@ -218,20 +183,20 @@ pub struct ExplorerConfig {
     /// debugging.
     ///
     /// **Default**: `true`
-    pub security_headers: bool,
+    security_headers: bool,
 
     /// Enable asset compression (future feature).
     ///
     /// **Status**: Not yet implemented.
     ///
     /// **Default**: `false`
-    pub compression: bool,
+    compression: bool,
 
     /// Custom HTTP headers to add to all responses.
     ///
     /// Useful for adding environment-specific headers like `X-Environment: staging`
     /// or API versioning headers.
-    pub custom_headers: HashMap<String, String>,
+    custom_headers: HashMap<String, String>,
 
     /// Custom environment variables to inject into the UI.
     ///
@@ -240,22 +205,7 @@ pub struct ExplorerConfig {
     ///
     /// **Note**: The `CHAIN_ID` and `ENABLE_CONTROLLER` variables are automatically
     /// injected and don't need to be specified here.
-    pub ui_env: HashMap<String, serde_json::Value>,
-}
-
-impl Default for ExplorerConfig {
-    fn default() -> Self {
-        Self {
-            mode: ExplorerMode::Embedded,
-            chain_id: "KATANA".to_string(),
-            path_prefix: "/explorer".to_string(),
-            cors_enabled: false,
-            security_headers: true,
-            compression: false,
-            custom_headers: HashMap::new(),
-            ui_env: HashMap::new(),
-        }
-    }
+    ui_env: HashMap<String, serde_json::Value>,
 }
 
 /// File cache entry for hot reload functionality.
@@ -312,76 +262,6 @@ pub struct ExplorerLayer {
 }
 
 impl ExplorerLayer {
-    /// Create a new ExplorerLayer with the given configuration.
-    ///
-    /// ## Validation
-    ///
-    /// This method validates the provided configuration:
-    /// - For `Embedded` mode: Checks that UI assets are available
-    /// - For `FileSystem` mode: Verifies the UI path exists
-    /// - For `Proxy` mode: Logs the upstream configuration
-    ///
-    /// ## Examples
-    ///
-    /// ```rust,no_run
-    /// use std::path::PathBuf;
-    ///
-    /// use katana_explorer::{ExplorerConfig, ExplorerLayer, ExplorerMode};
-    ///
-    /// let config = ExplorerConfig {
-    ///     mode: ExplorerMode::FileSystem { ui_path: PathBuf::from("./ui/dist"), hot_reload: true },
-    ///     chain_id: "KATANA".to_string(),
-    ///     ..Default::default()
-    /// };
-    ///
-    /// let layer = ExplorerLayer::new(config)?;
-    /// # Ok::<(), Box<dyn std::error::Error>>(())
-    /// ```
-    ///
-    /// ## Errors
-    ///
-    /// Returns an error if:
-    /// - Embedded mode is selected but `embedded-ui` feature is disabled or no assets exist
-    /// - FileSystem mode is selected but the specified path doesn't exist
-    /// - Invalid URLs are provided in proxy mode
-    pub fn new(config: ExplorerConfig) -> Result<Self> {
-        // Validate configuration
-        match &config.mode {
-            ExplorerMode::Embedded => {
-                #[cfg(feature = "embedded-ui")]
-                {
-                    if EmbeddedAssets::get("index.html").is_none() {
-                        return Err(anyhow!(
-                            "Embedded mode selected but no UI assets found. Make sure the \
-                             explorer UI is built."
-                        ));
-                    }
-                }
-                #[cfg(not(feature = "embedded-ui"))]
-                {
-                    return Err(anyhow!(
-                        "Embedded mode selected but embedded-ui feature is disabled. Enable the \
-                         feature or use FileSystem/Proxy mode."
-                    ));
-                }
-            }
-            ExplorerMode::FileSystem { ui_path, .. } => {
-                if !ui_path.exists() {
-                    return Err(anyhow!("UI path does not exist: {}", ui_path.display()));
-                }
-                if !ui_path.join("index.html").exists() {
-                    warn!("index.html not found in UI path: {}", ui_path.display());
-                }
-            }
-            ExplorerMode::Proxy { upstream_url, .. } => {
-                debug!("Proxy mode configured to upstream: {}", upstream_url);
-            }
-        }
-
-        info!("Explorer configured with mode: {:?}", config.mode);
-        Ok(Self { config })
-    }
-
     /// Create a builder for ergonomic layer configuration.
     ///
     /// The builder pattern provides a fluent API with sensible defaults and preset methods
@@ -408,112 +288,6 @@ impl ExplorerLayer {
     /// See [`ExplorerLayerBuilder`] for all available configuration methods.
     pub fn builder() -> ExplorerLayerBuilder {
         ExplorerLayerBuilder::new()
-    }
-
-    /// Create an ExplorerLayer with embedded assets mode.
-    ///
-    /// This is a convenience method for production deployments where UI assets
-    /// are embedded in the binary.
-    ///
-    /// ## Requirements
-    ///
-    /// - The `embedded-ui` feature must be enabled (default)
-    /// - UI assets must be available (built during compilation)
-    ///
-    /// ## Equivalent to
-    ///
-    /// ```rust,no_run
-    /// use katana_explorer::ExplorerLayer;
-    ///
-    /// // These are equivalent:
-    /// let layer1 = ExplorerLayer::embedded("KATANA".to_string())?;
-    /// let layer2 = ExplorerLayer::builder().production().chain_id("KATANA").build()?;
-    /// # Ok::<(), Box<dyn std::error::Error>>(())
-    /// ```
-    ///
-    /// ## Errors
-    ///
-    /// Returns an error if embedded assets are not available.
-    pub fn embedded(chain_id: String) -> Result<Self> {
-        Self::new(ExplorerConfig { mode: ExplorerMode::Embedded, chain_id, ..Default::default() })
-    }
-
-    /// Create an ExplorerLayer with filesystem mode.
-    ///
-    /// This convenience method configures the layer to serve UI files from the specified
-    /// directory with optional hot reload for development.
-    ///
-    /// ## Parameters
-    ///
-    /// - `ui_path`: Directory containing built UI assets (must contain `index.html`)
-    /// - `chain_id`: Blockchain chain ID to inject into the UI
-    /// - `hot_reload`: Enable file watching and automatic cache invalidation
-    ///
-    /// ## Examples
-    ///
-    /// ```rust,no_run
-    /// use std::path::PathBuf;
-    ///
-    /// use katana_explorer::ExplorerLayer;
-    ///
-    /// // Development with hot reload
-    /// let dev_layer = ExplorerLayer::filesystem(
-    ///     PathBuf::from("./ui/dist"),
-    ///     "KATANA_DEV".to_string(),
-    ///     true, // hot_reload
-    /// )?;
-    ///
-    /// // Static filesystem serving
-    /// let static_layer = ExplorerLayer::filesystem(
-    ///     PathBuf::from("/var/www/explorer"),
-    ///     "KATANA_PROD".to_string(),
-    ///     false, // no hot reload
-    /// )?;
-    /// # Ok::<(), Box<dyn std::error::Error>>(())
-    /// ```
-    ///
-    /// ## Errors
-    ///
-    /// Returns an error if the specified UI path doesn't exist.
-    pub fn filesystem(ui_path: PathBuf, chain_id: String, hot_reload: bool) -> Result<Self> {
-        Self::new(ExplorerConfig {
-            mode: ExplorerMode::FileSystem { ui_path, hot_reload },
-            chain_id,
-            ..Default::default()
-        })
-    }
-
-    /// Create an ExplorerLayer with proxy mode.
-    ///
-    /// This convenience method configures the layer to proxy requests to an external
-    /// development server (e.g., Vite dev server).
-    ///
-    /// ## Status
-    ///
-    /// **Note**: Proxy mode is not fully implemented yet and currently falls back
-    /// to embedded mode. This method is provided for future compatibility.
-    ///
-    /// ## Parameters
-    ///
-    /// - `upstream_url`: URL of the development server to proxy to
-    /// - `chain_id`: Blockchain chain ID to inject into proxied HTML responses
-    ///
-    /// ## Examples
-    ///
-    /// ```rust,no_run
-    /// use katana_explorer::ExplorerLayer;
-    /// use url::Url;
-    ///
-    /// let proxy_layer =
-    ///     ExplorerLayer::proxy(Url::parse("http://localhost:3000")?, "KATANA_DEV".to_string())?;
-    /// # Ok::<(), Box<dyn std::error::Error>>(())
-    /// ```
-    pub fn proxy(upstream_url: Url, chain_id: String) -> Result<Self> {
-        Self::new(ExplorerConfig {
-            mode: ExplorerMode::Proxy { upstream_url, inject_env: true },
-            chain_id,
-            ..Default::default()
-        })
     }
 }
 
@@ -585,10 +359,21 @@ impl ExplorerLayerBuilder {
     /// let builder = ExplorerLayer::builder(); // Same as ExplorerLayerBuilder::new()
     /// ```
     pub fn new() -> Self {
-        Self { config: ExplorerConfig::default() }
+        Self {
+            config: ExplorerConfig {
+                mode: ServingMode::Embedded,
+                chain_id: "".to_string(),
+                path_prefix: DEFAULT_PATH_PREFIX.to_string(),
+                cors_enabled: false,
+                security_headers: true,
+                compression: false,
+                custom_headers: HashMap::new(),
+                ui_env: HashMap::new(),
+            },
+        }
     }
 
-    /// Build the ExplorerLayer with the current configuration.
+    /// Build [`ExplorerLayer`] with the current configuration.
     ///
     /// This method validates the configuration and creates the final [`ExplorerLayer`].
     /// Configuration validation includes checking that UI paths exist and assets are
@@ -614,7 +399,32 @@ impl ExplorerLayerBuilder {
     /// # Ok::<(), Box<dyn std::error::Error>>(())
     /// ```
     pub fn build(self) -> Result<ExplorerLayer> {
-        ExplorerLayer::new(self.config)
+        // Validate configuration
+        match &self.config.mode {
+            ServingMode::Embedded => {
+                if EmbeddedAssets::get("index.html").is_none() {
+                    return Err(anyhow!(
+                        "Embedded mode selected but no UI assets found. Make sure the explorer UI \
+                         is built."
+                    ));
+                }
+            }
+
+            ServingMode::FileSystem { ui_path, .. } => {
+                if !ui_path.exists() {
+                    return Err(anyhow!("UI path does not exist: {}", ui_path.display()));
+                }
+                if !ui_path.join("index.html").exists() {
+                    warn!("index.html not found in UI path: {}", ui_path.display());
+                }
+            }
+
+            ServingMode::Proxy { upstream_url, .. } => {
+                debug!("Proxy mode configured to upstream: {}", upstream_url);
+            }
+        }
+
+        Ok(ExplorerLayer { config: self.config })
     }
 
     // === Preset Methods ===
@@ -662,7 +472,7 @@ impl ExplorerLayerBuilder {
     /// ```
     pub fn development(mut self) -> Self {
         self.config.mode =
-            ExplorerMode::FileSystem { ui_path: PathBuf::from("./ui/dist"), hot_reload: true };
+            ServingMode::FileSystem { ui_path: PathBuf::from("./ui/dist"), hot_reload: true };
         self.config.cors_enabled = true;
         self.config.security_headers = false;
         self.config.compression = false;
@@ -715,7 +525,7 @@ impl ExplorerLayerBuilder {
     /// # Ok::<(), Box<dyn std::error::Error>>(())
     /// ```
     pub fn production(mut self) -> Self {
-        self.config.mode = ExplorerMode::Embedded;
+        self.config.mode = ServingMode::Embedded;
         self.config.cors_enabled = false;
         self.config.security_headers = true;
         self.config.compression = true;
@@ -820,8 +630,8 @@ impl ExplorerLayerBuilder {
     ///
     /// Embedded mode offers the best performance since assets are served directly
     /// from memory with no filesystem I/O overhead.
-    pub fn embedded_mode(mut self) -> Self {
-        self.config.mode = ExplorerMode::Embedded;
+    pub fn embedded(mut self) -> Self {
+        self.config.mode = ServingMode::Embedded;
         self
     }
 
@@ -864,7 +674,7 @@ impl ExplorerLayerBuilder {
     /// # Ok::<(), Box<dyn std::error::Error>>(())
     /// ```
     pub fn filesystem_mode<P: Into<PathBuf>>(mut self, ui_path: P, hot_reload: bool) -> Self {
-        self.config.mode = ExplorerMode::FileSystem { ui_path: ui_path.into(), hot_reload };
+        self.config.mode = ServingMode::FileSystem { ui_path: ui_path.into(), hot_reload };
         self
     }
 
@@ -945,6 +755,7 @@ impl ExplorerLayerBuilder {
     /// Use proxy mode with full control over settings.
     ///
     /// In proxy mode, requests are forwarded to an upstream development server
+    ///
     /// (e.g., Vite dev server). This is useful during development when running
     /// the UI with its own development server.
     ///
@@ -975,7 +786,7 @@ impl ExplorerLayerBuilder {
     /// # Ok::<(), Box<dyn std::error::Error>>(())
     /// ```
     pub fn proxy_mode(mut self, upstream_url: Url, inject_env: bool) -> Self {
-        self.config.mode = ExplorerMode::Proxy { upstream_url, inject_env };
+        self.config.mode = ServingMode::Proxy { upstream_url, inject_env };
         self
     }
 
@@ -1054,13 +865,13 @@ impl ExplorerLayerBuilder {
     /// ```
     pub fn ui_path<P: Into<PathBuf>>(mut self, path: P) -> Self {
         match &mut self.config.mode {
-            ExplorerMode::FileSystem { ui_path, .. } => {
+            ServingMode::FileSystem { ui_path, .. } => {
                 *ui_path = path.into();
             }
             _ => {
                 // Switch to filesystem mode if not already
                 self.config.mode =
-                    ExplorerMode::FileSystem { ui_path: path.into(), hot_reload: true };
+                    ServingMode::FileSystem { ui_path: path.into(), hot_reload: true };
             }
         }
         self
@@ -1108,7 +919,7 @@ impl ExplorerLayerBuilder {
     /// Hot reload adds file watching overhead. Disable in production for better performance.
     pub fn hot_reload(mut self, enabled: bool) -> Self {
         match &mut self.config.mode {
-            ExplorerMode::FileSystem { hot_reload, .. } => {
+            ServingMode::FileSystem { hot_reload, .. } => {
                 *hot_reload = enabled;
             }
             _ => {
@@ -1605,11 +1416,11 @@ impl<S: Clone> Clone for ExplorerService<S> {
 }
 
 impl<S> ExplorerService<S> {
-    pub fn new(inner: S, config: ExplorerConfig) -> Self {
+    fn new(inner: S, config: ExplorerConfig) -> Self {
         let file_cache = Arc::new(RwLock::new(HashMap::new()));
 
         // Set up file watcher for hot reload
-        let _watcher = if let ExplorerMode::FileSystem { ui_path, hot_reload } = &config.mode {
+        let _watcher = if let ServingMode::FileSystem { ui_path, hot_reload } = &config.mode {
             if *hot_reload {
                 Self::setup_file_watcher(ui_path.clone(), file_cache.clone())
             } else {
@@ -1711,11 +1522,13 @@ impl<S> ExplorerService<S> {
         path: &str,
     ) -> Option<Response<Body>> {
         match &config.mode {
-            ExplorerMode::FileSystem { ui_path, hot_reload } => {
+            ServingMode::Embedded => Self::serve_embedded(config, path).await,
+
+            ServingMode::FileSystem { ui_path, hot_reload } => {
                 Self::serve_from_filesystem(config, cache, ui_path, path, *hot_reload).await
             }
-            ExplorerMode::Embedded => Self::serve_embedded(config, path).await,
-            ExplorerMode::Proxy { .. } => {
+
+            ServingMode::Proxy { .. } => {
                 // For now, we'll implement a simple fallback to embedded
                 // Full proxy implementation would require an HTTP client
                 warn!("Proxy mode not fully implemented, falling back to embedded");
@@ -1787,50 +1600,37 @@ impl<S> ExplorerService<S> {
                 debug!("Serving {} from filesystem: {}", path, file_path.display());
                 Some(Self::create_response(config, content_type, processed_content))
             }
+
             Err(e) => {
                 debug!("Failed to read file {}: {}", file_path.display(), e);
-
                 // Fallback to embedded if filesystem fails
-                #[cfg(feature = "embedded-ui")]
-                {
-                    warn!("Falling back to embedded assets for: {}", path);
-                    Self::serve_embedded(config, path).await
-                }
-                #[cfg(not(feature = "embedded-ui"))]
-                None
+                warn!("Falling back to embedded assets for: {}", path);
+                Self::serve_embedded(config, path).await
             }
         }
     }
 
     async fn serve_embedded(config: &ExplorerConfig, path: &str) -> Option<Response<Body>> {
-        #[cfg(feature = "embedded-ui")]
-        {
-            let asset_path = if path.is_empty() || path == "/" {
-                "index.html"
-            } else if Self::is_static_asset_path(path) && EmbeddedAssets::get(path).is_some() {
-                path
+        let asset_path = if path.is_empty() || path == "/" {
+            "index.html"
+        } else if Self::is_static_asset_path(path) && EmbeddedAssets::get(path).is_some() {
+            path
+        } else {
+            "index.html" // SPA fallback
+        };
+
+        if let Some(asset) = EmbeddedAssets::get(asset_path) {
+            let content_type = Self::get_content_type(&format!("/{}", asset_path));
+            let content = if content_type == "text/html" {
+                let html = String::from_utf8_lossy(&asset.data);
+                let injected = Self::inject_environment(&html, config);
+                Bytes::from(injected)
             } else {
-                "index.html" // SPA fallback
+                Bytes::copy_from_slice(&asset.data)
             };
 
-            if let Some(asset) = EmbeddedAssets::get(asset_path) {
-                let content_type = Self::get_content_type(&format!("/{}", asset_path));
-                let content = if content_type == "text/html" {
-                    let html = String::from_utf8_lossy(&asset.data);
-                    let injected = Self::inject_environment(&html, config);
-                    Bytes::from(injected)
-                } else {
-                    Bytes::copy_from_slice(&asset.data)
-                };
-
-                debug!("Serving {} from embedded assets", asset_path);
-                return Some(Self::create_response(config, content_type, content));
-            }
-        }
-
-        #[cfg(not(feature = "embedded-ui"))]
-        {
-            let _ = (config, path); // Silence unused warnings
+            debug!("Serving {} from embedded assets", asset_path);
+            return Some(Self::create_response(config, content_type, content));
         }
 
         None
@@ -1973,36 +1773,13 @@ impl<S> ExplorerService<S> {
     }
 }
 
-/// Embedded explorer UI files (only available with embedded-ui feature)
-#[cfg(feature = "embedded-ui")]
+/// Embedded Explorer UI assets
 #[derive(rust_embed::RustEmbed)]
 #[folder = "ui/dist"]
 struct EmbeddedAssets;
 
-/// Stub for when embedded-ui feature is disabled
-#[cfg(not(feature = "embedded-ui"))]
-struct EmbeddedAssets;
-
-#[cfg(not(feature = "embedded-ui"))]
-impl EmbeddedAssets {
-    fn get(_path: &str) -> Option<EmbeddedFile> {
-        None
-    }
-}
-
-#[cfg(not(feature = "embedded-ui"))]
-struct EmbeddedFile;
-
-#[cfg(not(feature = "embedded-ui"))]
-impl EmbeddedFile {
-    pub fn data(&self) -> &[u8] {
-        &[]
-    }
-}
-
 #[cfg(test)]
 mod tests {
-    use std::collections::HashMap;
 
     use tempfile::TempDir;
     use tokio::fs;
@@ -2067,57 +1844,6 @@ mod tests {
     }
 
     #[test]
-    fn test_inject_environment() {
-        let html = "<html><head></head><body></body></html>";
-        let config = ExplorerConfig {
-            chain_id: "TEST_CHAIN".to_string(),
-            ui_env: {
-                let mut env = HashMap::new();
-                env.insert("DEBUG".to_string(), serde_json::Value::Bool(true));
-                env
-            },
-            ..Default::default()
-        };
-
-        let result = ExplorerService::<()>::inject_environment(html, &config);
-
-        assert!(result.contains("window.KATANA_CONFIG"));
-        assert!(result.contains("\"CHAIN_ID\":\"TEST_CHAIN\""));
-        assert!(result.contains("\"DEBUG\":true"));
-        assert!(result.contains("window.CHAIN_ID = \"TEST_CHAIN\""));
-    }
-
-    #[test]
-    fn test_explorer_config_default() {
-        let config = ExplorerConfig::default();
-        assert_eq!(config.chain_id, "KATANA");
-        assert_eq!(config.path_prefix, "/explorer");
-        assert!(!config.cors_enabled);
-        assert!(config.security_headers);
-    }
-
-    #[tokio::test]
-    async fn test_filesystem_mode_with_temp_dir() {
-        let temp_dir = TempDir::new().unwrap();
-        let ui_path = temp_dir.path().to_path_buf();
-
-        // Create a simple index.html
-        let index_content = r#"<html><head></head><body><h1>Test UI</h1></body></html>"#;
-        fs::write(ui_path.join("index.html"), index_content).await.unwrap();
-
-        // Create config
-        let config = ExplorerConfig {
-            mode: ExplorerMode::FileSystem { ui_path: ui_path.clone(), hot_reload: false },
-            chain_id: "TEST".to_string(),
-            ..Default::default()
-        };
-
-        // Test layer creation
-        let layer = ExplorerLayer::new(config).unwrap();
-        assert!(matches!(layer.config.mode, ExplorerMode::FileSystem { .. }));
-    }
-
-    #[test]
     fn test_builder_pattern_development_preset() {
         let layer = ExplorerLayer::builder().development().chain_id("TEST_DEV").build();
 
@@ -2131,7 +1857,7 @@ mod tests {
         assert_eq!(layer.config.chain_id, "TEST_DEV");
         assert!(layer.config.cors_enabled);
         assert!(!layer.config.security_headers);
-        assert!(matches!(layer.config.mode, ExplorerMode::FileSystem { hot_reload: true, .. }));
+        assert!(matches!(layer.config.mode, ServingMode::FileSystem { hot_reload: true, .. }));
     }
 
     #[test]
@@ -2144,7 +1870,7 @@ mod tests {
                 assert_eq!(layer.config.chain_id, "TEST_PROD");
                 assert!(!layer.config.cors_enabled);
                 assert!(layer.config.security_headers);
-                assert!(matches!(layer.config.mode, ExplorerMode::Embedded));
+                assert!(matches!(layer.config.mode, ServingMode::Embedded));
             }
             Err(_) => {
                 // Expected if embedded assets aren't available
@@ -2187,8 +1913,7 @@ mod tests {
         assert_eq!(layer.config.custom_headers.get("X-Test"), Some(&"value".to_string()));
 
         // Check filesystem mode with hot reload
-        if let ExplorerMode::FileSystem { ui_path: configured_path, hot_reload } =
-            &layer.config.mode
+        if let ServingMode::FileSystem { ui_path: configured_path, hot_reload } = &layer.config.mode
         {
             assert_eq!(configured_path, &ui_path);
             assert!(*hot_reload);
@@ -2201,7 +1926,7 @@ mod tests {
     fn test_builder_pattern_ui_path_switching() {
         // Start with embedded mode, then set ui_path - should switch to filesystem
         let result =
-            ExplorerLayer::builder().embedded_mode().ui_path("./test-ui").chain_id("TEST").build();
+            ExplorerLayer::builder().embedded().ui_path("./test-ui").chain_id("TEST").build();
 
         // May fail due to path not existing, but we can check the config was set
         if let Err(_) = result {
@@ -2209,9 +1934,9 @@ mod tests {
         }
 
         // Test the config directly
-        let builder = ExplorerLayer::builder().embedded_mode().ui_path("./test-ui");
+        let builder = ExplorerLayer::builder().embedded().ui_path("./test-ui");
 
-        if let ExplorerMode::FileSystem { ui_path, hot_reload } = &builder.config.mode {
+        if let ServingMode::FileSystem { ui_path, hot_reload } = &builder.config.mode {
             assert_eq!(ui_path, &PathBuf::from("./test-ui"));
             assert!(*hot_reload); // Should default to true when switching
         } else {
@@ -2252,24 +1977,6 @@ mod tests {
 
         assert_eq!(builder.config.custom_headers.get("X-Header1"), Some(&"value1".to_string()));
         assert_eq!(builder.config.custom_headers.get("X-Header2"), Some(&"value2".to_string()));
-    }
-
-    #[test]
-    fn test_explorer_layer_embedded_without_assets() {
-        // This should fail if embedded-ui feature is disabled and no assets
-        let result = ExplorerLayer::embedded("TEST".to_string());
-
-        #[cfg(feature = "embedded-ui")]
-        {
-            // With embedded-ui feature, this might pass or fail depending on whether assets exist
-            // We just test that it doesn't panic
-            let _ = result;
-        }
-
-        #[cfg(not(feature = "embedded-ui"))]
-        {
-            assert!(result.is_err());
-        }
     }
 
     // Mock service tests would go here - similar to the previous implementation

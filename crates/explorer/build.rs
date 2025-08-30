@@ -1,28 +1,16 @@
-fn main() {
-    // Only build UI when embedded-ui feature is enabled
-    #[cfg(feature = "embedded-ui")]
-    {
-        println!("cargo:rerun-if-changed=ui/");
-        build_ui();
-    }
+use std::env::var;
+use std::path::Path;
+use std::process::Command;
 
-    #[cfg(not(feature = "embedded-ui"))]
-    {
-        println!("cargo:warning=Embedded UI feature is disabled. UI assets will not be built.");
-        println!(
-            "cargo:warning=Use --features embedded-ui to enable embedded assets, or use \
-             FileSystem/Proxy mode."
-        );
-    }
+fn main() {
+    println!("cargo:rerun-if-changed=ui/");
+    build_ui();
 }
 
-#[cfg(feature = "embedded-ui")]
 fn build_ui() {
-    use std::path::Path;
-
     // Check if we're in a build script
-    if std::env::var("CARGO_MANIFEST_DIR").is_ok() {
-        let manifest_dir = std::env::var("CARGO_MANIFEST_DIR").unwrap();
+    if var("CARGO_MANIFEST_DIR").is_ok() {
+        let manifest_dir = var("CARGO_MANIFEST_DIR").unwrap();
         let ui_dir = Path::new(&manifest_dir).join("ui");
         println!("Explorer UI directory: {}", ui_dir.display());
 
@@ -45,10 +33,7 @@ fn build_ui() {
     }
 }
 
-#[cfg(feature = "embedded-ui")]
-fn initialize_submodule(ui_dir: &std::path::Path) {
-    use std::process::Command;
-
+fn initialize_submodule(ui_dir: &Path) {
     // Check if we're in a git repository
     let git_check = Command::new("git").arg("rev-parse").arg("--git-dir").output();
     if git_check.is_ok() && git_check.unwrap().status.success() {
@@ -76,15 +61,11 @@ fn initialize_submodule(ui_dir: &std::path::Path) {
     }
 }
 
-#[cfg(feature = "embedded-ui")]
-fn is_dist_empty(dist_dir: &std::path::Path) -> bool {
+fn is_dist_empty(dist_dir: &Path) -> bool {
     dist_dir.read_dir().map(|mut entries| entries.next().is_none()).unwrap_or(true)
 }
 
-#[cfg(feature = "embedded-ui")]
-fn build_ui_assets(ui_dir: &std::path::Path) {
-    use std::process::Command;
-
+fn build_ui_assets(ui_dir: &Path) {
     // Check for Bun
     let bun_check = Command::new("bun").arg("--version").output();
     if bun_check.is_err() || !bun_check.unwrap().status.success() {
