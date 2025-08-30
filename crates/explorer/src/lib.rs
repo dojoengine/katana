@@ -1,7 +1,10 @@
 //! # Katana Explorer
 //!
-//! A flexible middleware for serving the Explorer web App using the [tower] modular networking
+//! A flexible middleware for serving the [Explorer web app] using the [tower] modular networking
 //! stack.
+//!
+//! Explorer is a developer oriented and stateless block explorer that relies entirely on Katana's
+//! JSON-RPC interface.
 //!
 //! ## Serving Modes
 //!
@@ -19,6 +22,7 @@
 //! let service = ServiceBuilder::new().layer(layer).service_fn(your_main_service);
 //! ```
 //!
+//! [Explorer web app]: https://github.com/cartridge-gg/explorer
 //! [tower]: https://docs.rs/tower/0.5.2/tower/
 
 #![cfg_attr(not(test), warn(unused_crate_dependencies))]
@@ -158,7 +162,7 @@ struct ExplorerConfig {
     ///
     /// Useful for adding environment-specific headers like `X-Environment: staging`
     /// or API versioning headers.
-    custom_headers: HashMap<String, String>,
+    headers: HashMap<String, String>,
 
     /// Custom environment variables to inject into the UI.
     ///
@@ -218,7 +222,7 @@ impl ExplorerLayerBuilder {
                 cors_enabled: false,
                 security_headers: true,
                 compression: false,
-                custom_headers: HashMap::new(),
+                headers: HashMap::new(),
                 ui_env: HashMap::new(),
             },
         }
@@ -251,20 +255,6 @@ impl ExplorerLayerBuilder {
         }
 
         Ok(ExplorerLayer { config: self.config })
-    }
-
-    /// Set the network chain ID.
-    ///
-    /// The chain ID is injected into the UI environment as both `window.CHAIN_ID`
-    /// and `window.KATANA_CONFIG.CHAIN_ID` for the frontend to use when connecting
-    /// to the blockchain.
-    ///
-    /// ## Arguments
-    ///
-    /// - `chain_id`: The chain identifier (e.g., "KATANA", "KATANA_DEV", "SN_MAIN")
-    pub fn chain_id<S: Into<String>>(mut self, chain_id: S) -> Self {
-        self.config.chain_id = chain_id.into();
-        self
     }
 
     /// Set the URL path prefix for all Explorer routes.
@@ -396,7 +386,7 @@ impl ExplorerLayerBuilder {
         K: Into<String>,
         V: Into<String>,
     {
-        self.config.custom_headers.insert(key.into(), value.into());
+        self.config.headers.insert(key.into(), value.into());
         self
     }
 
@@ -434,7 +424,7 @@ impl ExplorerLayerBuilder {
         V: Into<String>,
     {
         for (key, value) in headers {
-            self.config.custom_headers.insert(key.into(), value.into());
+            self.config.headers.insert(key.into(), value.into());
         }
         self
     }
@@ -594,7 +584,7 @@ impl<S> ExplorerService<S> {
             let content_type = Self::get_content_type(&format!("/{}", asset_path));
             let content = if content_type == "text/html" {
                 let html = String::from_utf8_lossy(&asset.data);
-                let injected = Self::inject_environment(&html, config);
+                let injected = Self::inject_environment(config, &html);
                 Bytes::from(injected)
             } else {
                 Bytes::copy_from_slice(&asset.data)
@@ -615,33 +605,33 @@ impl<S> ExplorerService<S> {
         let mut response =
             Response::builder().status(StatusCode::OK).header("Content-Type", content_type);
 
-        // Add caching headers
+        // caching headers
         let cache_control = Self::get_cache_control(content_type);
         response = response.header("Cache-Control", cache_control);
 
-        // Add security headers
+        // security headers
         if config.security_headers {
             for (key, value) in Self::get_security_headers().iter() {
                 response = response.header(key, value);
             }
         }
 
-        // Add CORS headers
+        // CORS headers
         if config.cors_enabled {
             response = response.header("Access-Control-Allow-Origin", "*");
             response = response.header("Access-Control-Allow-Methods", "GET, OPTIONS");
             response = response.header("Access-Control-Allow-Headers", "Content-Type");
         }
 
-        // Add custom headers
-        for (key, value) in &config.custom_headers {
+        // custom headers (if any)
+        for (key, value) in &config.headers {
             response = response.header(key, value);
         }
 
         response.body(Body::from(content.to_vec())).unwrap()
     }
 
-    fn create_404_response() -> Response<Body> {
+    fn response_404() -> Response<Body> {
         Response::builder()
             .status(StatusCode::NOT_FOUND)
             .header("Content-Type", "text/plain")
@@ -649,7 +639,7 @@ impl<S> ExplorerService<S> {
             .unwrap()
     }
 
-    fn inject_environment(html: &str, config: &ExplorerConfig) -> String {
+    fn inject_environment(config: &ExplorerConfig, html: &str) -> String {
         let mut env_vars = config.ui_env.clone();
         env_vars.insert("CHAIN_ID".to_string(), serde_json::Value::String(config.chain_id.clone()));
         env_vars.insert("ENABLE_CONTROLLER".to_string(), serde_json::Value::Bool(false));
@@ -764,13 +754,13 @@ where
 
     fn call(&mut self, req: Request<B>) -> Self::Future {
         // Check if this is an explorer request
-        let uri_path = req.uri().path().to_string();
+        let uri_path = req.uri().path();
         if !uri_path.starts_with(&self.config.path_prefix) {
             return Box::pin(self.inner.call(req));
         }
 
         // Extract the file path after the prefix
-        let rel_path = uri_path
+        let relative_path = uri_path
             .strip_prefix(&self.config.path_prefix)
             .unwrap_or("")
             .trim_start_matches('/')
@@ -779,9 +769,9 @@ where
         let config = self.config.clone();
 
         Box::pin(async move {
-            let response = match Self::serve_asset(&config, &rel_path).await {
+            let response = match Self::serve_asset(&config, &relative_path).await {
                 Some(response) => response,
-                None => Self::create_404_response(),
+                None => Self::response_404(),
             };
             Ok(response)
         })
@@ -805,7 +795,7 @@ mod tests {
     use super::*;
 
     #[test]
-    fn test_get_content_type() {
+    fn get_content_type() {
         assert_eq!(
             ExplorerService::<()>::get_content_type("index.html"),
             "text/html; charset=utf-8"
@@ -846,7 +836,7 @@ mod tests {
     }
 
     #[test]
-    fn test_is_static_asset_path() {
+    fn is_static_asset_path() {
         assert!(ExplorerService::<()>::is_static_asset_path("app.js"));
         assert!(ExplorerService::<()>::is_static_asset_path("app.mjs"));
         assert!(ExplorerService::<()>::is_static_asset_path("styles.css"));
@@ -862,9 +852,103 @@ mod tests {
     }
 
     #[test]
-    fn test_builder_pattern_method_chaining() {
+    fn create_response() {
+        // Test with minimal config
+        let config = ExplorerConfig {
+            mode: ServingMode::Embedded,
+            chain_id: "test".to_string(),
+            path_prefix: "/explorer".to_string(),
+            cors_enabled: false,
+            security_headers: false,
+            compression: false,
+            headers: HashMap::new(),
+            ui_env: HashMap::new(),
+        };
+
+        let content = Bytes::from("test content");
+        let response = ExplorerService::<()>::create_response(
+            &config,
+            "text/html; charset=utf-8",
+            content.clone(),
+        );
+
+        assert_eq!(response.status(), StatusCode::OK);
+        assert_eq!(response.headers().get("Content-Type").unwrap(), "text/html; charset=utf-8");
+        assert_eq!(response.headers().get("Cache-Control").unwrap(), "no-cache, must-revalidate");
+
+        // with security headers enabled
+        let mut config_with_security = config.clone();
+        config_with_security.security_headers = true;
+        let response = ExplorerService::<()>::create_response(
+            &config_with_security,
+            "text/html; charset=utf-8",
+            content.clone(),
+        );
+
+        assert!(response.headers().get("X-Frame-Options").is_some());
+        assert!(response.headers().get("X-Content-Type-Options").is_some());
+        assert!(response.headers().get("Referrer-Policy").is_some());
+        assert!(response.headers().get("Content-Security-Policy").is_some());
+
+        // with CORS enabled
+        let mut config_with_cors = config.clone();
+        config_with_cors.cors_enabled = true;
+        let response = ExplorerService::<()>::create_response(
+            &config_with_cors,
+            "text/html; charset=utf-8",
+            content.clone(),
+        );
+
+        assert_eq!(response.headers().get("Access-Control-Allow-Origin").unwrap(), "*");
+        assert_eq!(response.headers().get("Access-Control-Allow-Methods").unwrap(), "GET, OPTIONS");
+        assert_eq!(response.headers().get("Access-Control-Allow-Headers").unwrap(), "Content-Type");
+
+        //  with custom headers
+        let mut config_with_headers = config.clone();
+        config_with_headers
+            .headers
+            .insert("X-Custom-Header".to_string(), "custom-value".to_string());
+        config_with_headers
+            .headers
+            .insert("X-Another-Header".to_string(), "another-value".to_string());
+        let response = ExplorerService::<()>::create_response(
+            &config_with_headers,
+            "text/html; charset=utf-8",
+            content.clone(),
+        );
+
+        assert_eq!(response.headers().get("X-Custom-Header").unwrap(), "custom-value");
+        assert_eq!(response.headers().get("X-Another-Header").unwrap(), "another-value");
+
+        // cache control for different content types
+        let response_js = ExplorerService::<()>::create_response(
+            &config,
+            "application/javascript; charset=utf-8",
+            content.clone(),
+        );
+        assert_eq!(
+            response_js.headers().get("Cache-Control").unwrap(),
+            "public, max-age=31536000, immutable"
+        );
+
+        let response_css = ExplorerService::<()>::create_response(
+            &config,
+            "text/css; charset=utf-8",
+            content.clone(),
+        );
+        assert_eq!(
+            response_css.headers().get("Cache-Control").unwrap(),
+            "public, max-age=31536000, immutable"
+        );
+
+        let response_img =
+            ExplorerService::<()>::create_response(&config, "image/png", content.clone());
+        assert_eq!(response_img.headers().get("Cache-Control").unwrap(), "public, max-age=3600");
+    }
+
+    #[test]
+    fn builder_pattern_method_chaining() {
         let builder = ExplorerLayer::builder()
-            .chain_id("CHAIN_TEST")
             .cors(true)
             .security_headers(false)
             .ui_env("KEY1", "value1")
@@ -873,8 +957,6 @@ mod tests {
             .header("X-Header1", "value1")
             .header("X-Header2", "value2");
 
-        // Check all configurations were set
-        assert_eq!(builder.config.chain_id, "CHAIN_TEST");
         assert!(builder.config.cors_enabled);
         assert!(!builder.config.security_headers);
 
@@ -885,7 +967,7 @@ mod tests {
         assert_eq!(builder.config.ui_env.get("KEY2"), Some(&serde_json::Value::Number(42.into())));
         assert_eq!(builder.config.ui_env.get("KEY3"), Some(&serde_json::Value::Bool(true)));
 
-        assert_eq!(builder.config.custom_headers.get("X-Header1"), Some(&"value1".to_string()));
-        assert_eq!(builder.config.custom_headers.get("X-Header2"), Some(&"value2".to_string()));
+        assert_eq!(builder.config.headers.get("X-Header1"), Some(&"value1".to_string()));
+        assert_eq!(builder.config.headers.get("X-Header2"), Some(&"value2".to_string()));
     }
 }
