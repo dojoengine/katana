@@ -1,33 +1,25 @@
 [package]
 edition.workspace = true
-license-file.workspace = true
+license.workspace = true
 name = "katana-explorer"
 repository.workspace = true
 version.workspace = true
 
 [dependencies]
-katana-tasks.workspace = true
-
-anyhow.workspace = true
-axum = "0.6.20"
 bytes.workspace = true
 http.workspace = true
 http-body.workspace = true
-hyper.workspace = true
 jsonrpsee = { workspace = true, features = [ "server-core" ], optional = true }
-tiny_http = "0.12"
-tokio = { workspace = true, features = [ "full" ] }
+serde = { workspace = true, features = [ "derive" ] }
+serde_json.workspace = true
+thiserror.workspace = true
 tower.workspace = true
-tower-http = { workspace = true, features = [ "cors" ] }
 tracing.workspace = true
 url.workspace = true
-urlencoding = "2.1.2"
 
-# If the `debug-embed` is not enabled, the assets are not embedded in the binary when the crate is
-# build in debug mode. We want to make sure the assets are embedded in both debug and release mode
-# to ensure consistent behaviour.
-rust-embed = { version = "6.8.1", features = [ "debug-embed" ] }
+rust-embed = { version = "6.8", features = [ "debug-embed" ] }
 
 [dev-dependencies]
 katana-runner.workspace = true
 reqwest.workspace = true
+tempfile.workspace = true
