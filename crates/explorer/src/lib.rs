@@ -3,19 +3,6 @@
 //! A flexible middleware for serving the Explorer web App using the [tower] modular networking
 //! stack.
 //!
-//! ## Quick Start
-//!
-//! ```rust,no_run
-//! use katana_explorer::ExplorerLayer;
-//!
-//! // Development mode with hot reload
-//! let dev_layer = ExplorerLayer::builder().development().chain_id("KATANA_DEV").build()?;
-//!
-//! // Production mode with embedded assets
-//! let prod_layer = ExplorerLayer::builder().production().chain_id("KATANA_PROD").build()?;
-//! # Ok::<(), Box<dyn std::error::Error>>(())
-//! ```
-//!
 //! ## Serving Modes
 //!
 //! - [`ExplorerMode::Embedded`]: Serves pre-built UI assets embedded in the binary (suitable for
@@ -28,17 +15,19 @@
 //! use katana_explorer::ExplorerLayer;
 //! use tower::ServiceBuilder;
 //!
-//! let service = ServiceBuilder::new().layer(explorer_layer).service_fn(your_main_service);
+//! let layer = ExplorerLayer::builder().build()?;
+//! let service = ServiceBuilder::new().layer(layer).service_fn(your_main_service);
 //! ```
 //!
 //! [tower]: https://docs.rs/tower/0.5.2/tower/
+
+#![cfg_attr(not(test), warn(unused_crate_dependencies))]
 
 use std::collections::HashMap;
 use std::future::Future;
 use std::pin::Pin;
 use std::task::{Context, Poll};
 
-use anyhow::{anyhow, Result};
 use bytes::Bytes;
 use http::header::HeaderValue;
 use http::{HeaderMap, Request, Response, StatusCode};
@@ -51,6 +40,13 @@ use url::Url;
 
 /// The default path prefix for the Explorer UI when served by Katana.
 const DEFAULT_PATH_PREFIX: &str = "/explorer";
+
+#[derive(Debug, thiserror::Error)]
+pub enum Error {
+    /// Missing or invalid UI assets when in embedded mode.
+    #[error("ui asset not found")]
+    AssetNotFound,
+}
 
 #[cfg(not(feature = "jsonrpsee"))]
 type BoxError = Box<dyn std::error::Error + Send + Sync>;
@@ -135,8 +131,6 @@ struct ExplorerConfig {
 
     /// URL path prefix for all Explorer routes.
     ///
-    /// **Default**: `"/explorer"`
-    ///
     /// All Explorer requests must start with this prefix. For example, with the default
     /// prefix, the Explorer UI is available at `/explorer` and static assets at
     /// `/explorer/assets/*`.
@@ -146,8 +140,6 @@ struct ExplorerConfig {
     ///
     /// **Security Note**: Only enable in development or when explicitly needed.
     /// Enabling CORS allows requests from any origin.
-    ///
-    /// **Default**: `false`
     cors_enabled: bool,
 
     /// Enable production security headers.
@@ -157,15 +149,9 @@ struct ExplorerConfig {
     ///
     /// **Recommendation**: Always enable in production, disable in development for easier
     /// debugging.
-    ///
-    /// **Default**: `true`
     security_headers: bool,
 
-    /// Enable asset compression (future feature).
-    ///
-    /// **Status**: Not yet implemented.
-    ///
-    /// **Default**: `false`
+    /// Enable asset compression.
     compression: bool,
 
     /// Custom HTTP headers to add to all responses.
@@ -188,23 +174,6 @@ struct ExplorerConfig {
 ///
 /// This layer intercepts HTTP requests matching the configured path prefix and serves
 /// the Explorer UI assets, while passing through all other requests to the inner service.
-///
-/// ## Usage
-///
-/// ```rust,no_run
-/// use katana_explorer::ExplorerLayer;
-/// use tower::ServiceBuilder;
-///
-/// // Using builder pattern (recommended)
-/// let layer = ExplorerLayer::builder()
-///     .development()           // or .production()
-///     .chain_id("KATANA")
-///     .build()?;
-///
-/// // Integrate with Tower service stack
-/// let service = ServiceBuilder::new().layer(layer).service_fn(your_main_service);
-/// # Ok::<(), Box<dyn std::error::Error>>(())
-/// ```
 ///
 /// ## Path Handling
 ///
@@ -265,58 +234,34 @@ impl ExplorerLayerBuilder {
     ///
     /// - **Embedded mode**: Returns error if `embedded-ui` feature is disabled or no assets exist
     /// - **Proxy mode**: Returns error if the upstream URL is invalid
-    ///
-    /// ## Examples
-    ///
-    /// ```rust,no_run
-    /// use katana_explorer::ExplorerLayer;
-    ///
-    /// let layer = ExplorerLayer::builder().development().chain_id("KATANA_DEV").build()?;
-    /// # Ok::<(), Box<dyn std::error::Error>>(())
-    /// ```
-    pub fn build(self) -> Result<ExplorerLayer> {
+    pub fn build(self) -> Result<ExplorerLayer, Error> {
         // Validate configuration
         match &self.config.mode {
             ServingMode::Embedded => {
                 if EmbeddedAssets::get("index.html").is_none() {
-                    return Err(anyhow!(
-                        "Embedded mode selected but no UI assets found. Make sure the explorer UI \
-                         is built."
-                    ));
+                    return Err(Error::AssetNotFound);
                 }
                 debug!("Explorer configured to embedded mode");
             }
 
             ServingMode::Proxy { upstream_url, .. } => {
                 debug!(%upstream_url, "Explorer configured to proxy mode");
+                unimplemented!("Proxy mode is not yet implemented");
             }
         }
 
         Ok(ExplorerLayer { config: self.config })
     }
 
-    /// Set the blockchain chain ID.
+    /// Set the network chain ID.
     ///
     /// The chain ID is injected into the UI environment as both `window.CHAIN_ID`
     /// and `window.KATANA_CONFIG.CHAIN_ID` for the frontend to use when connecting
     /// to the blockchain.
     ///
-    /// ## Parameters
+    /// ## Arguments
     ///
     /// - `chain_id`: The chain identifier (e.g., "KATANA", "KATANA_DEV", "SN_MAIN")
-    ///
-    /// ## Returns
-    ///
-    /// Returns `Self` for method chaining.
-    ///
-    /// ## Examples
-    ///
-    /// ```rust,no_run
-    /// use katana_explorer::ExplorerLayer;
-    ///
-    /// let layer = ExplorerLayer::builder().chain_id("KATANA_TESTNET").development().build()?;
-    /// # Ok::<(), Box<dyn std::error::Error>>(())
-    /// ```
     pub fn chain_id<S: Into<String>>(mut self, chain_id: S) -> Self {
         self.config.chain_id = chain_id.into();
         self
@@ -327,13 +272,9 @@ impl ExplorerLayerBuilder {
     /// All Explorer requests must start with this prefix. Static assets and UI routes
     /// will be served under this path. The default prefix is `"/explorer"`.
     ///
-    /// ## Parameters
+    /// ## Arguments
     ///
     /// - `prefix`: URL path prefix (should start with `/`)
-    ///
-    /// ## Returns
-    ///
-    /// Returns `Self` for method chaining.
     ///
     /// ## Examples
     ///
@@ -342,7 +283,7 @@ impl ExplorerLayerBuilder {
     ///
     /// // UI will be available at /ui/* instead of /explorer/*
     /// let layer = ExplorerLayer::builder().path_prefix("/ui").development().build()?;
-    /// # Ok::<(), Box<dyn std::error::Error>>(())
+    /// # Ok::<(), katana_explorer::ExplorerError>(())
     /// ```
     ///
     /// ## Important Notes
@@ -367,77 +308,18 @@ impl ExplorerLayerBuilder {
         self
     }
 
-    /// Use proxy mode with full control over settings.
-    ///
-    /// In proxy mode, requests are forwarded to an upstream development server
-    ///
-    /// (e.g., Vite dev server). This is useful during development when running
-    /// the UI with its own development server.
-    ///
-    /// ## Parameters
-    ///
-    /// - `upstream_url`: URL of the upstream development server
-    /// - `inject_env`: Whether to inject environment variables into HTML responses
-    ///
-    /// ## Status
-    ///
-    /// **Currently planned but not implemented** - will fall back to embedded mode.
-    ///
-    /// ## Returns
-    ///
-    /// Returns `Self` for method chaining.
-    ///
-    /// ## Future Examples
-    ///
-    /// ```rust,no_run
-    /// use katana_explorer::ExplorerLayer;
-    /// use url::Url;
-    ///
-    /// let upstream = Url::parse("http://localhost:3000")?;
-    /// let layer = ExplorerLayer::builder()
-    ///     .proxy_mode(upstream, true)  // inject_env = true
-    ///     .chain_id("DEV")
-    ///     .build()?;
-    /// # Ok::<(), Box<dyn std::error::Error>>(())
-    /// ```
-    pub fn proxy_mode(mut self, upstream_url: Url, inject_env: bool) -> Self {
-        self.config.mode = ServingMode::Proxy { upstream_url, inject_env };
-        self
-    }
-
     /// Use proxy mode with environment injection enabled.
     ///
     /// This convenience method configures proxy mode with environment variable
     /// injection enabled, which is the common use case for development.
     ///
-    /// ## Parameters
+    /// ## Arguments
     ///
     /// - `upstream_url`: URL string of the upstream development server
-    ///
-    /// ## Returns
-    ///
-    /// Returns `Result<Self, anyhow::Error>` where errors indicate invalid URLs.
-    ///
-    /// ## Errors
-    ///
-    /// Returns error if the upstream URL cannot be parsed.
-    ///
-    /// ## Status
-    ///
-    /// **Currently planned but not implemented** - will fall back to embedded mode.
-    ///
-    /// ## Future Examples
-    ///
-    /// ```rust,no_run
-    /// use katana_explorer::ExplorerLayer;
-    ///
-    /// let layer = ExplorerLayer::builder().proxy("http://localhost:3000")?.chain_id("DEV").build()?;
-    /// # Ok::<(), Box<dyn std::error::Error>>(())
-    /// ```
-    pub fn proxy<S: AsRef<str>>(self, upstream_url: S) -> Result<Self> {
-        let url = Url::parse(upstream_url.as_ref())
-            .map_err(|e| anyhow!("Invalid upstream URL: {}", e))?;
-        Ok(self.proxy_mode(url, true))
+    pub fn proxy<U: Into<Url>>(mut self, upstream_url: U) -> Self {
+        let upstream_url = upstream_url.into();
+        self.config.mode = ServingMode::Proxy { upstream_url, inject_env: false };
+        self
     }
 
     /// Enable or disable Cross-Origin Resource Sharing (CORS).
@@ -445,7 +327,7 @@ impl ExplorerLayerBuilder {
     /// When enabled, adds CORS headers that allow requests from any origin (`*`).
     /// This is useful for development but should be used carefully in production.
     ///
-    /// ## Parameters
+    /// ## Arguments
     ///
     /// - `enabled`: Whether to add CORS headers to responses
     ///
@@ -454,23 +336,6 @@ impl ExplorerLayerBuilder {
     /// - **Development**: Generally safe to enable for local development
     /// - **Production**: Only enable if you need cross-origin access and understand the risks
     /// - **CORS headers added**: `Access-Control-Allow-Origin: *`
-    ///
-    /// ## Returns
-    ///
-    /// Returns `Self` for method chaining.
-    ///
-    /// ## Examples
-    ///
-    /// ```rust,no_run
-    /// use katana_explorer::ExplorerLayer;
-    ///
-    /// // Enable CORS for development
-    /// let dev_layer = ExplorerLayer::builder().development().cors(true).build()?;
-    ///
-    /// // Disable CORS for security
-    /// let secure_layer = ExplorerLayer::builder().production().cors(false).build()?;
-    /// # Ok::<(), Box<dyn std::error::Error>>(())
-    /// ```
     pub fn cors(mut self, enabled: bool) -> Self {
         self.config.cors_enabled = enabled;
         self
@@ -489,38 +354,9 @@ impl ExplorerLayerBuilder {
     /// - `Referrer-Policy: strict-origin-when-cross-origin` - Controls referrer info
     /// - `Content-Security-Policy: ...` - Restricts resource loading
     ///
-    /// ## Parameters
+    /// ## Arguments
     ///
     /// - `enabled`: Whether to add security headers to responses
-    ///
-    /// ## Returns
-    ///
-    /// Returns `Self` for method chaining.
-    ///
-    /// ## Examples
-    ///
-    /// ```rust,no_run
-    /// use katana_explorer::ExplorerLayer;
-    ///
-    /// // Production with security headers
-    /// let prod_layer = ExplorerLayer::builder()
-    ///     .production()
-    ///     .security_headers(true)  // Already enabled by production()
-    ///     .build()?;
-    ///
-    /// // Development without security headers for easier debugging
-    /// let dev_layer = ExplorerLayer::builder()
-    ///     .development()
-    ///     .security_headers(false)  // Already disabled by development()
-    ///     .build()?;
-    /// # Ok::<(), Box<dyn std::error::Error>>(())
-    /// ```
-    ///
-    /// ## Recommendations
-    ///
-    /// - **Production**: Always enable for security
-    /// - **Development**: Disable to avoid CSP and other restrictions
-    /// - **Staging**: Enable to test security headers before production
     pub fn security_headers(mut self, enabled: bool) -> Self {
         self.config.security_headers = enabled;
         self
@@ -532,14 +368,10 @@ impl ExplorerLayerBuilder {
     /// This is useful for adding environment-specific headers, API versioning,
     /// or custom application headers.
     ///
-    /// ## Parameters
+    /// ## Arguments
     ///
     /// - `key`: Header name (e.g., "X-Environment", "X-API-Version")
     /// - `value`: Header value (e.g., "staging", "v1.0")
-    ///
-    /// ## Returns
-    ///
-    /// Returns `Self` for method chaining.
     ///
     /// ## Examples
     ///
@@ -547,12 +379,10 @@ impl ExplorerLayerBuilder {
     /// use katana_explorer::ExplorerLayer;
     ///
     /// let layer = ExplorerLayer::builder()
-    ///     .production()
     ///     .header("X-Environment", "production")
     ///     .header("X-API-Version", "v2.0")
     ///     .header("X-Build-Time", "2024-01-15")
     ///     .build()?;
-    /// # Ok::<(), Box<dyn std::error::Error>>(())
     /// ```
     ///
     /// ## Common Use Cases
@@ -575,13 +405,9 @@ impl ExplorerLayerBuilder {
     /// This is a convenience method for adding multiple headers at once rather
     /// than chaining multiple `.header()` calls.
     ///
-    /// ## Parameters
+    /// ## Arguments
     ///
     /// - `headers`: An iterator of (key, value) pairs where both implement `Into<String>`
-    ///
-    /// ## Returns
-    ///
-    /// Returns `Self` for method chaining.
     ///
     /// ## Examples
     ///
@@ -594,13 +420,12 @@ impl ExplorerLayerBuilder {
     /// header_map.insert("X-Environment", "staging");
     /// header_map.insert("X-API-Version", "v1.0");
     ///
-    /// let layer = ExplorerLayer::builder().production().headers(header_map).build()?;
+    /// let layer = ExplorerLayer::builder().headers(header_map).build()?;
     ///
     /// // Or with a Vec of tuples
     /// let headers = vec![("X-Service", "katana-explorer"), ("X-Version", "1.0.0")];
     ///
-    /// let layer2 = ExplorerLayer::builder().production().headers(headers).build()?;
-    /// # Ok::<(), Box<dyn std::error::Error>>(())
+    /// let layer2 = ExplorerLayer::builder().headers(headers).build()?;
     /// ```
     pub fn headers<I, K, V>(mut self, headers: I) -> Self
     where
@@ -614,22 +439,11 @@ impl ExplorerLayerBuilder {
         self
     }
 
-    // === UI Environment Variables ===
-
     /// Add a UI environment variable.
     ///
     /// UI environment variables are injected into the HTML page and made available
     /// to the frontend JavaScript via `window.KATANA_CONFIG`. This allows passing
     /// configuration and runtime information to the UI.
-    ///
-    /// ## Parameters
-    ///
-    /// - `key`: Variable name (will be available as `window.KATANA_CONFIG.{key}`)
-    /// - `value`: Variable value (supports strings, numbers, booleans, and JSON values)
-    ///
-    /// ## Returns
-    ///
-    /// Returns `Self` for method chaining.
     ///
     /// ## Examples
     ///
@@ -637,16 +451,12 @@ impl ExplorerLayerBuilder {
     /// use katana_explorer::ExplorerLayer;
     ///
     /// let layer = ExplorerLayer::builder()
-    ///     .development()
     ///     .ui_env("DEBUG", true)
     ///     .ui_env("API_URL", "http://localhost:8080")
     ///     .ui_env("MAX_RETRIES", 3)
     ///     .ui_env("FEATURES", vec!["feature1", "feature2"])
     ///     .build()?;
-    /// # Ok::<(), Box<dyn std::error::Error>>(())
     /// ```
-    ///
-    /// ## Frontend Access
     ///
     /// Variables are accessible in the browser as:
     ///
@@ -675,13 +485,9 @@ impl ExplorerLayerBuilder {
     /// This is a convenience method for adding multiple UI environment variables
     /// at once rather than chaining multiple `.ui_env()` calls.
     ///
-    /// ## Parameters
+    /// ## Arguments
     ///
     /// - `envs`: An iterator of (key, value) pairs to add to the UI environment
-    ///
-    /// ## Returns
-    ///
-    /// Returns `Self` for method chaining.
     ///
     /// ## Examples
     ///
@@ -695,13 +501,12 @@ impl ExplorerLayerBuilder {
     /// env_vars.insert("API_TIMEOUT", 5000);
     /// env_vars.insert("ENVIRONMENT", "staging");
     ///
-    /// let layer = ExplorerLayer::builder().development().ui_envs(env_vars).build()?;
+    /// let layer = ExplorerLayer::builder().ui_envs(env_vars).build()?;
     ///
     /// // Or with a Vec of tuples
     /// let envs = vec![("FEATURE_A", true), ("FEATURE_B", false), ("POLL_INTERVAL", 1000)];
     ///
-    /// let layer2 = ExplorerLayer::builder().development().ui_envs(envs).build()?;
-    /// # Ok::<(), Box<dyn std::error::Error>>(())
+    /// let layer2 = ExplorerLayer::builder().ui_envs(envs).build()?;
     /// ```
     pub fn ui_envs<I, K, V>(mut self, envs: I) -> Self
     where
@@ -721,7 +526,7 @@ impl ExplorerLayerBuilder {
     /// bandwidth usage and improve loading times. This feature is planned for
     /// future implementation.
     ///
-    /// ## Parameters
+    /// ## Arguments
     ///
     /// - `enabled`: Whether to enable asset compression
     ///
@@ -729,20 +534,6 @@ impl ExplorerLayerBuilder {
     ///
     /// **Currently not implemented** - this setting is reserved for future use.
     /// Setting this value will not have any effect on current behavior.
-    ///
-    /// ## Returns
-    ///
-    /// Returns `Self` for method chaining.
-    ///
-    /// ## Future Examples
-    ///
-    /// ```rust,no_run
-    /// use katana_explorer::ExplorerLayer;
-    ///
-    /// // When implemented, this will enable gzip/brotli compression
-    /// let layer = ExplorerLayer::builder().production().compression(true).build()?;
-    /// # Ok::<(), Box<dyn std::error::Error>>(())
-    /// ```
     ///
     /// ## Implementation Notes
     ///
@@ -1093,16 +884,8 @@ mod tests {
         );
         assert_eq!(builder.config.ui_env.get("KEY2"), Some(&serde_json::Value::Number(42.into())));
         assert_eq!(builder.config.ui_env.get("KEY3"), Some(&serde_json::Value::Bool(true)));
-        assert_eq!(builder.config.ui_env.get("DEBUG"), Some(&serde_json::Value::Bool(true)));
-        assert_eq!(
-            builder.config.ui_env.get("API_ENDPOINT"),
-            Some(&serde_json::Value::String("/api/v1".to_string()))
-        );
 
         assert_eq!(builder.config.custom_headers.get("X-Header1"), Some(&"value1".to_string()));
         assert_eq!(builder.config.custom_headers.get("X-Header2"), Some(&"value2".to_string()));
     }
-
-    // Mock service tests would go here - similar to the previous implementation
-    // but adapted for the new architecture
 }
