@@ -198,7 +198,7 @@ impl RpcServer {
 
         #[cfg(feature = "explorer")]
         let explorer_layer = if self.explorer {
-            let layer = katana_explorer::ExplorerLayer::new(String::new()).unwrap();
+            let layer = katana_explorer::ExplorerLayer::builder().embedded().build().unwrap();
             Some(layer)
         } else {
             None
