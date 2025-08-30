@@ -1,5 +1,5 @@
 window.BENCHMARK_DATA = {
-  "lastUpdate": 1756590609313,
+  "lastUpdate": 1756592451470,
   "repoUrl": "https://github.com/dojoengine/katana",
   "entries": {
     "Benchmark": [
@@ -4931,6 +4931,66 @@ window.BENCHMARK_DATA = {
             "name": "Invoke.ERC20.transfer/Blockifier.Cold",
             "value": 16602559,
             "range": "± 263247",
+            "unit": "ns/iter"
+          }
+        ]
+      },
+      {
+        "commit": {
+          "author": {
+            "email": "evergreenkary@gmail.com",
+            "name": "Ammar Arif",
+            "username": "kariy"
+          },
+          "committer": {
+            "email": "noreply@github.com",
+            "name": "GitHub",
+            "username": "web-flow"
+          },
+          "distinct": true,
+          "id": "1efc3cf30534e4f964d4f1126e011c6b9aebe67c",
+          "message": "feat(explorer): builder pattern for creating `ExplorerLayer` (#254)\n\nThis is a general refactor for making the `katana-explorer` crate more robust. It introduces a builder struct for creating `ExplorerLayer` and a new serving mode (proxy) which is only a placeholder for now.",
+          "timestamp": "2025-08-31T06:12:56+08:00",
+          "tree_id": "95fdb53791bf5e47c70f6fc5e1b9a88e6faffdfa",
+          "url": "https://github.com/dojoengine/katana/commit/1efc3cf30534e4f964d4f1126e011c6b9aebe67c"
+        },
+        "date": 1756592450004,
+        "tool": "cargo",
+        "benches": [
+          {
+            "name": "Commit.Small/Parallel",
+            "value": 456289,
+            "range": "± 13026",
+            "unit": "ns/iter"
+          },
+          {
+            "name": "Commit.Big/Serial",
+            "value": 94625313,
+            "range": "± 523297",
+            "unit": "ns/iter"
+          },
+          {
+            "name": "Commit.Big/Parallel",
+            "value": 66228115,
+            "range": "± 2769272",
+            "unit": "ns/iter"
+          },
+          {
+            "name": "compress world contract",
+            "value": 2707410,
+            "range": "± 9631",
+            "unit": "ns/iter"
+          },
+          {
+            "name": "decompress world contract",
+            "value": 3060354,
+            "range": "± 24161",
+            "unit": "ns/iter"
+          },
+          {
+            "name": "Invoke.ERC20.transfer/Blockifier.Cold",
+            "value": 16586430,
+            "range": "± 50294",
             "unit": "ns/iter"
           }
         ]
