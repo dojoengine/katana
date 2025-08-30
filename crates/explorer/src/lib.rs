@@ -1,13 +1,7 @@
 //! # Katana Explorer
 //!
-//! A flexible Tower middleware for serving the Explorer Web App with multiple deployment modes
-//! including hot reload for development and embedded assets for production.
-//!
-//! ## Features
-//!
-//! - **Hot Reload**: Real-time UI updates during development
-//! - **Multiple Serving Modes**: Embedded, FileSystem, and Proxy
-//! - **Builder Pattern**: Ergonomic configuration API
+//! A flexible middleware for serving the Explorer web App using the [tower] modular networking
+//! stack.
 //!
 //! ## Quick Start
 //!
@@ -26,8 +20,6 @@
 //!
 //! - [`ExplorerMode::Embedded`]: Serves pre-built UI assets embedded in the binary (suitable for
 //!   production)
-//! - [`ExplorerMode::FileSystem`]: Serves UI files from disk with optional hot reload (suitable for
-//!   development)
 //! - [`ExplorerMode::Proxy`]: Proxies requests to an external development server (soon)
 //!
 //! ## Integration with Tower
@@ -38,14 +30,13 @@
 //!
 //! let service = ServiceBuilder::new().layer(explorer_layer).service_fn(your_main_service);
 //! ```
+//!
+//! [tower]: https://docs.rs/tower/0.5.2/tower/
 
 use std::collections::HashMap;
 use std::future::Future;
-use std::path::{Path, PathBuf};
 use std::pin::Pin;
-use std::sync::Arc;
 use std::task::{Context, Poll};
-use std::time::SystemTime;
 
 use anyhow::{anyhow, Result};
 use bytes::Bytes;
@@ -53,11 +44,9 @@ use http::header::HeaderValue;
 use http::{HeaderMap, Request, Response, StatusCode};
 #[cfg(feature = "jsonrpsee")]
 use jsonrpsee::core::{http_helpers::Body, BoxError};
-use notify::{Event, RecommendedWatcher, RecursiveMode, Watcher};
 use serde::{Deserialize, Serialize};
-use tokio::sync::RwLock;
 use tower::{Layer, Service};
-use tracing::{debug, error, info, warn};
+use tracing::debug;
 use url::Url;
 
 /// The default path prefix for the Explorer UI when served by Katana.
@@ -113,19 +102,6 @@ pub enum ServingMode {
     ///
     /// **Performance**: Fastest serving as assets are loaded from memory.
     Embedded,
-
-    /// Serve UI files from the filesystem with optional hot reload.
-    ///
-    /// **Best for**: Development and scenarios where UI can be updated without recompilation.
-    ///
-    /// **Requires**: The specified `ui_path` must exist and contain built UI assets.
-    /// When `hot_reload` is enabled, file system watching is used to detect changes.
-    FileSystem {
-        /// Path to the directory containing built UI assets (must contain index.html).
-        ui_path: PathBuf,
-        /// Enable real-time file watching and cache invalidation for development.
-        hot_reload: bool,
-    },
 
     /// Proxy requests to an external development server.
     ///
@@ -208,20 +184,6 @@ struct ExplorerConfig {
     ui_env: HashMap<String, serde_json::Value>,
 }
 
-/// File cache entry for hot reload functionality.
-///
-/// Stores cached file content along with metadata for efficient serving
-/// and change detection in FileSystem mode with hot reload enabled.
-#[derive(Debug, Clone)]
-struct CacheEntry {
-    /// The cached file content.
-    content: Bytes,
-    /// The MIME content type for HTTP response headers.
-    content_type: String,
-    /// Last modification time for cache invalidation.
-    last_modified: SystemTime,
-}
-
 /// Tower layer for serving the Katana Explorer UI.
 ///
 /// This layer intercepts HTTP requests matching the configured path prefix and serves
@@ -249,13 +211,6 @@ struct CacheEntry {
 /// - Requests to `{path_prefix}/*` are handled by the Explorer
 /// - All other requests pass through to the inner service
 /// - Static assets are served directly, SPA routes serve `index.html`
-///
-/// ## Error Conditions
-///
-/// Layer creation fails if:
-/// - Embedded mode is selected but no assets are available
-/// - FileSystem mode is selected but the UI path doesn't exist
-/// - Invalid configuration is provided
 #[derive(Debug, Clone)]
 pub struct ExplorerLayer {
     config: ExplorerConfig,
@@ -266,24 +221,6 @@ impl ExplorerLayer {
     ///
     /// The builder pattern provides a fluent API with sensible defaults and preset methods
     /// for common use cases. This is the recommended way to create an `ExplorerLayer`.
-    ///
-    /// ## Examples
-    ///
-    /// ```rust,no_run
-    /// use katana_explorer::ExplorerLayer;
-    ///
-    /// // Development mode with hot reload
-    /// let dev_layer = ExplorerLayer::builder().development().chain_id("KATANA_DEV").build()?;
-    ///
-    /// // Custom configuration
-    /// let custom_layer = ExplorerLayer::builder()
-    ///     .chain_id("KATANA")
-    ///     .filesystem_with_hot_reload("./ui/dist")
-    ///     .with_cors()
-    ///     .debug()
-    ///     .build()?;
-    /// # Ok::<(), Box<dyn std::error::Error>>(())
-    /// ```
     ///
     /// See [`ExplorerLayerBuilder`] for all available configuration methods.
     pub fn builder() -> ExplorerLayerBuilder {
@@ -296,68 +233,13 @@ impl ExplorerLayer {
 /// The builder provides a convenient API with method chaining, sensible defaults,
 /// and preset configurations for common use cases. This is the recommended way
 /// to configure the Explorer layer.
-///
-/// ## Design Philosophy
-///
-/// - **Preset Methods**: `.development()` and `.production()` provide opinionated defaults
-/// - **Fluent API**: All methods return `Self` for easy chaining
-/// - **Type Safety**: Invalid configurations are caught at compile time
-/// - **Discoverability**: Method names clearly indicate their purpose
-///
-/// ## Basic Usage
-///
-/// ```rust,no_run
-/// use katana_explorer::ExplorerLayer;
-///
-/// // Start with a preset and customize as needed
-/// let layer = ExplorerLayer::builder()
-///     .development()           // Apply development defaults
-///     .chain_id("KATANA_DEV")  // Set required chain ID
-///     .ui_path("./my-ui")      // Override UI path if needed
-///     .build()?; // Create the layer
-/// # Ok::<(), Box<dyn std::error::Error>>(())
-/// ```
-///
-/// ## Advanced Usage
-///
-/// ```rust,no_run
-/// use katana_explorer::ExplorerLayer;
-///
-/// let layer = ExplorerLayer::builder()
-///     .chain_id("KATANA")
-///     .filesystem_with_hot_reload("./ui/dist")
-///     .cors(true)
-///     .security_headers(false)
-///     .ui_env("DEBUG", true)
-///     .ui_env("API_ENDPOINT", "/api/v2")
-///     .header("X-Environment", "development")
-///     .path_prefix("/blockchain-explorer")
-///     .build()?;
-/// # Ok::<(), Box<dyn std::error::Error>>(())
-/// ```
 #[derive(Debug, Clone)]
 pub struct ExplorerLayerBuilder {
     config: ExplorerConfig,
 }
 
 impl ExplorerLayerBuilder {
-    /// Create a new builder with default configuration.
-    ///
-    /// Initializes the builder with [`ExplorerConfig::default()`] values.
-    /// Use preset methods like [`development()`](Self::development) or
-    /// [`production()`](Self::production) for common configurations.
-    ///
-    /// ## Returns
-    ///
-    /// Returns `Self` for method chaining (fluent API pattern).
-    ///
-    /// ## Examples
-    ///
-    /// ```rust,no_run
-    /// use katana_explorer::ExplorerLayer;
-    ///
-    /// let builder = ExplorerLayer::builder(); // Same as ExplorerLayerBuilder::new()
-    /// ```
+    /// Create a new [`ExplorerLayerBuilder`] with default configuration.
     pub fn new() -> Self {
         Self {
             config: ExplorerConfig {
@@ -379,15 +261,9 @@ impl ExplorerLayerBuilder {
     /// Configuration validation includes checking that UI paths exist and assets are
     /// available for the selected mode.
     ///
-    /// ## Returns
-    ///
-    /// Returns `Result<ExplorerLayer, anyhow::Error>` where errors indicate
-    /// configuration validation failures.
-    ///
     /// ## Errors
     ///
     /// - **Embedded mode**: Returns error if `embedded-ui` feature is disabled or no assets exist
-    /// - **FileSystem mode**: Returns error if the specified UI path doesn't exist
     /// - **Proxy mode**: Returns error if the upstream URL is invalid
     ///
     /// ## Examples
@@ -408,131 +284,16 @@ impl ExplorerLayerBuilder {
                          is built."
                     ));
                 }
-            }
-
-            ServingMode::FileSystem { ui_path, .. } => {
-                if !ui_path.exists() {
-                    return Err(anyhow!("UI path does not exist: {}", ui_path.display()));
-                }
-                if !ui_path.join("index.html").exists() {
-                    warn!("index.html not found in UI path: {}", ui_path.display());
-                }
+                debug!("Explorer configured to embedded mode");
             }
 
             ServingMode::Proxy { upstream_url, .. } => {
-                debug!("Proxy mode configured to upstream: {}", upstream_url);
+                debug!(%upstream_url, "Explorer configured to proxy mode");
             }
         }
 
         Ok(ExplorerLayer { config: self.config })
     }
-
-    // === Preset Methods ===
-
-    /// Configure for development with sensible defaults.
-    ///
-    /// This preset is optimized for local development and debugging:
-    /// - **FileSystem mode** with hot reload enabled (path: `"./ui/dist"`)
-    /// - **CORS enabled** for cross-origin requests during development
-    /// - **Security headers disabled** for easier debugging
-    /// - **Compression disabled** for faster builds
-    ///
-    /// ## When to use
-    ///
-    /// Use this preset when developing locally and you need real-time UI updates.
-    /// The hot reload feature watches for file changes and automatically serves
-    /// updated assets.
-    ///
-    /// ## Returns
-    ///
-    /// Returns `Self` for method chaining.
-    ///
-    /// ## Examples
-    ///
-    /// ```rust,no_run
-    /// use katana_explorer::ExplorerLayer;
-    ///
-    /// let dev_layer = ExplorerLayer::builder().development().chain_id("KATANA_DEV").build()?;
-    /// # Ok::<(), Box<dyn std::error::Error>>(())
-    /// ```
-    ///
-    /// ## Post-configuration
-    ///
-    /// You can further customize after calling this preset:
-    ///
-    /// ```rust,no_run
-    /// use katana_explorer::ExplorerLayer;
-    ///
-    /// let custom_dev = ExplorerLayer::builder()
-    ///     .development()
-    ///     .ui_path("./my-ui/build")  // Override default path
-    ///     .api_endpoint("/api/v2")   // Add custom API endpoint
-    ///     .build()?;
-    /// # Ok::<(), Box<dyn std::error::Error>>(())
-    /// ```
-    pub fn development(mut self) -> Self {
-        self.config.mode =
-            ServingMode::FileSystem { ui_path: PathBuf::from("./ui/dist"), hot_reload: true };
-        self.config.cors_enabled = true;
-        self.config.security_headers = false;
-        self.config.compression = false;
-        self
-    }
-
-    /// Configure for production with sensible defaults.
-    ///
-    /// This preset is optimized for production deployments:
-    /// - **Embedded mode** for optimal performance and self-contained deployment
-    /// - **Security headers enabled** for production security
-    /// - **CORS disabled** for security (only enable if needed)
-    /// - **Compression enabled** for reduced bundle sizes (future feature)
-    ///
-    /// ## When to use
-    ///
-    /// Use this preset for production deployments where performance and security
-    /// are priorities. The embedded mode serves assets from memory with no filesystem I/O.
-    ///
-    /// ## Requirements
-    ///
-    /// - The `embedded-ui` feature must be enabled (default)
-    /// - UI assets must be built and embedded during compilation
-    ///
-    /// ## Returns
-    ///
-    /// Returns `Self` for method chaining.
-    ///
-    /// ## Examples
-    ///
-    /// ```rust,no_run
-    /// use katana_explorer::ExplorerLayer;
-    ///
-    /// let prod_layer = ExplorerLayer::builder().production().chain_id("KATANA_MAINNET").build()?;
-    /// # Ok::<(), Box<dyn std::error::Error>>(())
-    /// ```
-    ///
-    /// ## Post-configuration
-    ///
-    /// You can customize security settings after calling this preset:
-    ///
-    /// ```rust,no_run
-    /// use katana_explorer::ExplorerLayer;
-    ///
-    /// let custom_prod = ExplorerLayer::builder()
-    ///     .production()
-    ///     .with_cors()  // Enable CORS if needed for production
-    ///     .header("X-Environment", "staging")
-    ///     .build()?;
-    /// # Ok::<(), Box<dyn std::error::Error>>(())
-    /// ```
-    pub fn production(mut self) -> Self {
-        self.config.mode = ServingMode::Embedded;
-        self.config.cors_enabled = false;
-        self.config.security_headers = true;
-        self.config.compression = true;
-        self
-    }
-
-    // === Core Configuration ===
 
     /// Set the blockchain chain ID.
     ///
@@ -594,162 +355,16 @@ impl ExplorerLayerBuilder {
         self
     }
 
-    // === Serving Mode Configuration ===
-
     /// Use embedded assets mode.
     ///
     /// In this mode, pre-built UI assets are served from memory. The assets must
-    /// be embedded during compilation via the build script and the `embedded-ui`
-    /// feature must be enabled.
+    /// be embedded during compilation via the build script.
     ///
-    /// ## When to use
-    ///
-    /// - Production deployments for optimal performance
-    /// - Self-contained binaries where UI won't change
-    /// - When filesystem access is limited or not desired
-    ///
-    /// ## Requirements
-    ///
-    /// - `embedded-ui` feature enabled (default)
-    /// - UI assets must be built before compilation
-    ///
-    /// ## Returns
-    ///
-    /// Returns `Self` for method chaining.
-    ///
-    /// ## Examples
-    ///
-    /// ```rust,no_run
-    /// use katana_explorer::ExplorerLayer;
-    ///
-    /// let layer = ExplorerLayer::builder().embedded_mode().chain_id("KATANA").build()?;
-    /// # Ok::<(), Box<dyn std::error::Error>>(())
-    /// ```
-    ///
-    /// ## Performance
-    ///
-    /// Embedded mode offers the best performance since assets are served directly
-    /// from memory with no filesystem I/O overhead.
+    /// This is suitable if you need a self-contained binaries where the UI won't change. This means
+    /// the the binary must be rebuilt whenever the UI changes.
     pub fn embedded(mut self) -> Self {
         self.config.mode = ServingMode::Embedded;
         self
-    }
-
-    /// Use filesystem mode with specified path and hot reload setting.
-    ///
-    /// In this mode, UI assets are served from the filesystem. The UI path must
-    /// exist and contain a built UI (including `index.html`).
-    ///
-    /// ## Parameters
-    ///
-    /// - `ui_path`: Path to directory containing built UI assets
-    /// - `hot_reload`: Whether to watch for file changes and invalidate cache
-    ///
-    /// ## When to use
-    ///
-    /// - Development when you need file watching (`hot_reload = true`)
-    /// - Production when UI assets are deployed separately (`hot_reload = false`)
-    /// - When you want to update UI without recompiling the binary
-    ///
-    /// ## Returns
-    ///
-    /// Returns `Self` for method chaining.
-    ///
-    /// ## Examples
-    ///
-    /// ```rust,no_run
-    /// use std::path::PathBuf;
-    ///
-    /// use katana_explorer::ExplorerLayer;
-    ///
-    /// // Development with hot reload
-    /// let dev_layer =
-    ///     ExplorerLayer::builder().filesystem_mode("./ui/dist", true).chain_id("DEV").build()?;
-    ///
-    /// // Production from filesystem (no hot reload)
-    /// let prod_layer = ExplorerLayer::builder()
-    ///     .filesystem_mode("/var/www/explorer", false)
-    ///     .chain_id("PROD")
-    ///     .build()?;
-    /// # Ok::<(), Box<dyn std::error::Error>>(())
-    /// ```
-    pub fn filesystem_mode<P: Into<PathBuf>>(mut self, ui_path: P, hot_reload: bool) -> Self {
-        self.config.mode = ServingMode::FileSystem { ui_path: ui_path.into(), hot_reload };
-        self
-    }
-
-    /// Use filesystem mode with hot reload enabled.
-    ///
-    /// This is a convenience method for the common development use case where you
-    /// want to serve from filesystem with automatic cache invalidation when files change.
-    ///
-    /// ## Parameters
-    ///
-    /// - `ui_path`: Path to directory containing built UI assets
-    ///
-    /// ## Returns
-    ///
-    /// Returns `Self` for method chaining.
-    ///
-    /// ## Examples
-    ///
-    /// ```rust,no_run
-    /// use katana_explorer::ExplorerLayer;
-    ///
-    /// let layer = ExplorerLayer::builder()
-    ///     .filesystem_with_hot_reload("./ui/build")
-    ///     .chain_id("DEV")
-    ///     .build()?;
-    /// # Ok::<(), Box<dyn std::error::Error>>(())
-    /// ```
-    ///
-    /// ## Equivalent to
-    ///
-    /// ```rust,no_run
-    /// use katana_explorer::ExplorerLayer;
-    ///
-    /// let layer = ExplorerLayer::builder()
-    ///     .filesystem_mode("./ui/build", true)  // hot_reload = true
-    ///     .chain_id("DEV")
-    ///     .build()?;
-    /// # Ok::<(), Box<dyn std::error::Error>>(())
-    /// ```
-    pub fn filesystem_with_hot_reload<P: Into<PathBuf>>(self, ui_path: P) -> Self {
-        self.filesystem_mode(ui_path, true)
-    }
-
-    /// Use filesystem mode with hot reload disabled.
-    ///
-    /// This is useful for production deployments where UI assets are served from
-    /// the filesystem but you don't want the overhead of file watching.
-    ///
-    /// ## Parameters
-    ///
-    /// - `ui_path`: Path to directory containing built UI assets
-    ///
-    /// ## Returns
-    ///
-    /// Returns `Self` for method chaining.
-    ///
-    /// ## Examples
-    ///
-    /// ```rust,no_run
-    /// use katana_explorer::ExplorerLayer;
-    ///
-    /// let layer = ExplorerLayer::builder()
-    ///     .filesystem_static("/var/www/katana-ui")
-    ///     .chain_id("PROD")
-    ///     .build()?;
-    /// # Ok::<(), Box<dyn std::error::Error>>(())
-    /// ```
-    ///
-    /// ## Use cases
-    ///
-    /// - Production with UI assets deployed via CD pipeline
-    /// - Docker containers with UI assets in separate volume
-    /// - When you want filesystem serving without file watching overhead
-    pub fn filesystem_static<P: Into<PathBuf>>(self, ui_path: P) -> Self {
-        self.filesystem_mode(ui_path, false)
     }
 
     /// Use proxy mode with full control over settings.
@@ -825,113 +440,6 @@ impl ExplorerLayerBuilder {
         Ok(self.proxy_mode(url, true))
     }
 
-    // === Convenience Methods for UI Path ===
-
-    /// Set or change the UI path for filesystem mode.
-    ///
-    /// This method automatically switches to filesystem mode if not already in that mode.
-    /// If already in filesystem mode, it updates the path while preserving the hot reload setting.
-    ///
-    /// ## Parameters
-    ///
-    /// - `path`: Path to directory containing built UI assets
-    ///
-    /// ## Behavior
-    ///
-    /// - **If in FileSystem mode**: Updates the UI path, preserves hot reload setting
-    /// - **If in other modes**: Switches to FileSystem mode with hot reload enabled
-    ///
-    /// ## Returns
-    ///
-    /// Returns `Self` for method chaining.
-    ///
-    /// ## Examples
-    ///
-    /// ```rust,no_run
-    /// use katana_explorer::ExplorerLayer;
-    ///
-    /// // Starting with embedded mode, switches to filesystem
-    /// let layer = ExplorerLayer::builder()
-    ///     .embedded_mode()
-    ///     .ui_path("./ui/dist")  // Now in filesystem mode with hot reload
-    ///     .build()?;
-    ///
-    /// // Already in filesystem mode, just updates path
-    /// let layer2 = ExplorerLayer::builder()
-    ///     .filesystem_static("./old-path")
-    ///     .ui_path("./new-path")  // Updates path, preserves hot_reload=false
-    ///     .build()?;
-    /// # Ok::<(), Box<dyn std::error::Error>>(())
-    /// ```
-    pub fn ui_path<P: Into<PathBuf>>(mut self, path: P) -> Self {
-        match &mut self.config.mode {
-            ServingMode::FileSystem { ui_path, .. } => {
-                *ui_path = path.into();
-            }
-            _ => {
-                // Switch to filesystem mode if not already
-                self.config.mode =
-                    ServingMode::FileSystem { ui_path: path.into(), hot_reload: true };
-            }
-        }
-        self
-    }
-
-    /// Enable or disable hot reload for filesystem mode.
-    ///
-    /// Hot reload watches the UI directory for file changes and automatically
-    /// invalidates the file cache, ensuring the latest files are served.
-    ///
-    /// ## Parameters
-    ///
-    /// - `enabled`: Whether to enable file watching and cache invalidation
-    ///
-    /// ## Behavior
-    ///
-    /// - **If in FileSystem mode**: Updates the hot reload setting
-    /// - **If in other modes**: Logs a debug message and ignores the setting
-    ///
-    /// ## Returns
-    ///
-    /// Returns `Self` for method chaining.
-    ///
-    /// ## Examples
-    ///
-    /// ```rust,no_run
-    /// use katana_explorer::ExplorerLayer;
-    ///
-    /// // Enable hot reload for development
-    /// let dev_layer = ExplorerLayer::builder()
-    ///     .filesystem_static("./ui/dist")
-    ///     .hot_reload(true)  // Now has hot reload enabled
-    ///     .build()?;
-    ///
-    /// // Disable for production
-    /// let prod_layer = ExplorerLayer::builder()
-    ///     .filesystem_with_hot_reload("./ui/dist")
-    ///     .hot_reload(false)  // Disables hot reload
-    ///     .build()?;
-    /// # Ok::<(), Box<dyn std::error::Error>>(())
-    /// ```
-    ///
-    /// ## Performance Note
-    ///
-    /// Hot reload adds file watching overhead. Disable in production for better performance.
-    pub fn hot_reload(mut self, enabled: bool) -> Self {
-        match &mut self.config.mode {
-            ServingMode::FileSystem { hot_reload, .. } => {
-                *hot_reload = enabled;
-            }
-            _ => {
-                // If not filesystem mode, ignore this setting but don't error
-                debug!("hot_reload() called but not in filesystem mode, ignoring");
-            }
-        }
-        self
-    }
-
-    // === Security and Headers ===
-
     /// Enable or disable Cross-Origin Resource Sharing (CORS).
     ///
     /// When enabled, adds CORS headers that allow requests from any origin (`*`).
@@ -966,39 +474,6 @@ impl ExplorerLayerBuilder {
     pub fn cors(mut self, enabled: bool) -> Self {
         self.config.cors_enabled = enabled;
         self
-    }
-
-    /// Enable CORS (convenience method).
-    ///
-    /// This is a convenience method equivalent to `.cors(true)` for better readability
-    /// in builder chains.
-    ///
-    /// ## Returns
-    ///
-    /// Returns `Self` for method chaining.
-    ///
-    /// ## Examples
-    ///
-    /// ```rust,no_run
-    /// use katana_explorer::ExplorerLayer;
-    ///
-    /// let layer = ExplorerLayer::builder()
-    ///     .development()
-    ///     .with_cors()  // More readable than .cors(true)
-    ///     .build()?;
-    /// # Ok::<(), Box<dyn std::error::Error>>(())
-    /// ```
-    ///
-    /// ## Equivalent to
-    ///
-    /// ```rust,no_run
-    /// use katana_explorer::ExplorerLayer;
-    ///
-    /// let layer = ExplorerLayer::builder().development().cors(true).build()?;
-    /// # Ok::<(), Box<dyn std::error::Error>>(())
-    /// ```
-    pub fn with_cors(self) -> Self {
-        self.cors(true)
     }
 
     /// Enable or disable production security headers.
@@ -1240,102 +715,6 @@ impl ExplorerLayerBuilder {
         self
     }
 
-    /// Enable debug mode by adding `DEBUG=true` to the UI environment.
-    ///
-    /// This convenience method adds `DEBUG: true` to the UI environment variables,
-    /// making it available to the frontend for enabling debug features, logging,
-    /// and development tools.
-    ///
-    /// ## Returns
-    ///
-    /// Returns `Self` for method chaining.
-    ///
-    /// ## Examples
-    ///
-    /// ```rust,no_run
-    /// use katana_explorer::ExplorerLayer;
-    ///
-    /// let layer = ExplorerLayer::builder()
-    ///     .development()
-    ///     .debug()  // Adds DEBUG: true to UI environment
-    ///     .build()?;
-    /// # Ok::<(), Box<dyn std::error::Error>>(())
-    /// ```
-    ///
-    /// ## Frontend Access
-    ///
-    /// The debug flag is accessible in the browser as:
-    ///
-    /// ```javascript
-    /// if (window.KATANA_CONFIG.DEBUG) {
-    ///     console.log("Debug mode enabled");
-    ///     // Enable debug features
-    /// }
-    /// ```
-    ///
-    /// ## Equivalent to
-    ///
-    /// ```rust,no_run
-    /// use katana_explorer::ExplorerLayer;
-    ///
-    /// let layer = ExplorerLayer::builder().development().ui_env("DEBUG", true).build()?;
-    /// # Ok::<(), Box<dyn std::error::Error>>(())
-    /// ```
-    pub fn debug(self) -> Self {
-        self.ui_env("DEBUG", true)
-    }
-
-    /// Set the API endpoint URL for the UI.
-    ///
-    /// This convenience method adds an `API_ENDPOINT` variable to the UI environment,
-    /// making it available to the frontend for API communication. This is useful
-    /// when the API endpoint differs from the default or when using a different port.
-    ///
-    /// ## Parameters
-    ///
-    /// - `endpoint`: The API endpoint URL (e.g., "/api/v1", "http://localhost:8080/api")
-    ///
-    /// ## Returns
-    ///
-    /// Returns `Self` for method chaining.
-    ///
-    /// ## Examples
-    ///
-    /// ```rust,no_run
-    /// use katana_explorer::ExplorerLayer;
-    ///
-    /// // Relative endpoint
-    /// let layer = ExplorerLayer::builder().development().api_endpoint("/api/v2").build()?;
-    ///
-    /// // Absolute endpoint for different service
-    /// let layer2 =
-    ///     ExplorerLayer::builder().production().api_endpoint("https://api.katana.com/v1").build()?;
-    /// # Ok::<(), Box<dyn std::error::Error>>(())
-    /// ```
-    ///
-    /// ## Frontend Access
-    ///
-    /// The API endpoint is accessible in the browser as:
-    ///
-    /// ```javascript
-    /// const apiUrl = window.KATANA_CONFIG.API_ENDPOINT;
-    /// fetch(`${apiUrl}/transactions`);
-    /// ```
-    ///
-    /// ## Equivalent to
-    ///
-    /// ```rust,no_run
-    /// use katana_explorer::ExplorerLayer;
-    ///
-    /// let layer = ExplorerLayer::builder().development().ui_env("API_ENDPOINT", "/api/v2").build()?;
-    /// # Ok::<(), Box<dyn std::error::Error>>(())
-    /// ```
-    pub fn api_endpoint<S: Into<String>>(self, endpoint: S) -> Self {
-        self.ui_env("API_ENDPOINT", endpoint.into())
-    }
-
-    // === Performance ===
-
     /// Enable or disable asset compression.
     ///
     /// When enabled, static assets will be compressed before serving to reduce
@@ -1397,216 +776,17 @@ impl<S> Layer<S> for ExplorerLayer {
 pub struct ExplorerService<S> {
     inner: S,
     config: ExplorerConfig,
-    file_cache: Arc<RwLock<HashMap<String, CacheEntry>>>,
-    _watcher: Option<RecommendedWatcher>,
-}
-
-impl<S: Clone> Clone for ExplorerService<S> {
-    fn clone(&self) -> Self {
-        // Note: We don't clone the watcher, as having multiple watchers for the same path
-        // would be redundant and potentially problematic. The cache is shared via Arc,
-        // so hot reload functionality is maintained.
-        Self {
-            inner: self.inner.clone(),
-            config: self.config.clone(),
-            file_cache: self.file_cache.clone(),
-            _watcher: None,
-        }
-    }
 }
 
 impl<S> ExplorerService<S> {
     fn new(inner: S, config: ExplorerConfig) -> Self {
-        let file_cache = Arc::new(RwLock::new(HashMap::new()));
-
-        // Set up file watcher for hot reload
-        let _watcher = if let ServingMode::FileSystem { ui_path, hot_reload } = &config.mode {
-            if *hot_reload {
-                Self::setup_file_watcher(ui_path.clone(), file_cache.clone())
-            } else {
-                None
-            }
-        } else {
-            None
-        };
-
-        Self { inner, config, file_cache, _watcher }
+        Self { inner, config }
     }
 
-    fn setup_file_watcher(
-        ui_path: PathBuf,
-        cache: Arc<RwLock<HashMap<String, CacheEntry>>>,
-    ) -> Option<RecommendedWatcher> {
-        match notify::recommended_watcher({
-            let cache = cache.clone();
-            move |result: Result<Event, notify::Error>| {
-                match result {
-                    Ok(event) => {
-                        debug!("File system event: {:?}", event);
-                        // Clear cache on any file change
-                        if let Ok(mut cache) = cache.try_write() {
-                            cache.clear();
-                            debug!("File cache cleared due to file system change");
-                        }
-                    }
-                    Err(e) => error!("File watcher error: {:?}", e),
-                }
-            }
-        }) {
-            Ok(mut watcher) => {
-                if let Err(e) = watcher.watch(&ui_path, RecursiveMode::Recursive) {
-                    error!("Failed to watch UI directory: {:?}", e);
-                    None
-                } else {
-                    info!("Hot reload enabled for UI directory: {}", ui_path.display());
-                    Some(watcher)
-                }
-            }
-            Err(e) => {
-                error!("Failed to create file watcher: {:?}", e);
-                None
-            }
-        }
-    }
-}
-
-impl<S, B> Service<Request<B>> for ExplorerService<S>
-where
-    B::Data: Send,
-    S::Response: 'static,
-    B::Error: Into<BoxError>,
-    S::Future: Send + 'static,
-    S::Error: Into<BoxError> + 'static,
-    S: Service<Request<B>, Response = Response<Body>>,
-    B: http_body::Body<Data = Bytes> + Send + 'static,
-{
-    type Response = Response<Body>;
-    type Error = S::Error;
-    type Future = Pin<Box<dyn Future<Output = Result<Self::Response, Self::Error>> + Send>>;
-
-    fn poll_ready(&mut self, cx: &mut Context<'_>) -> Poll<Result<(), Self::Error>> {
-        self.inner.poll_ready(cx)
-    }
-
-    fn call(&mut self, req: Request<B>) -> Self::Future {
-        // Check if this is an explorer request
-        let uri_path = req.uri().path().to_string();
-        if !uri_path.starts_with(&self.config.path_prefix) {
-            return Box::pin(self.inner.call(req));
-        }
-
-        // Extract the file path after the prefix
-        let rel_path = uri_path
-            .strip_prefix(&self.config.path_prefix)
-            .unwrap_or("")
-            .trim_start_matches('/')
-            .to_string();
-
-        let config = self.config.clone();
-        let cache = self.file_cache.clone();
-
-        Box::pin(async move {
-            let response = match Self::serve_asset(&config, cache, &rel_path).await {
-                Some(response) => response,
-                None => Self::create_404_response(),
-            };
-            Ok(response)
-        })
-    }
-}
-
-impl<S> ExplorerService<S> {
-    async fn serve_asset(
-        config: &ExplorerConfig,
-        cache: Arc<RwLock<HashMap<String, CacheEntry>>>,
-        path: &str,
-    ) -> Option<Response<Body>> {
+    async fn serve_asset(config: &ExplorerConfig, path: &str) -> Option<Response<Body>> {
         match &config.mode {
             ServingMode::Embedded => Self::serve_embedded(config, path).await,
-
-            ServingMode::FileSystem { ui_path, hot_reload } => {
-                Self::serve_from_filesystem(config, cache, ui_path, path, *hot_reload).await
-            }
-
-            ServingMode::Proxy { .. } => {
-                // For now, we'll implement a simple fallback to embedded
-                // Full proxy implementation would require an HTTP client
-                warn!("Proxy mode not fully implemented, falling back to embedded");
-                Self::serve_embedded(config, path).await
-            }
-        }
-    }
-
-    async fn serve_from_filesystem(
-        config: &ExplorerConfig,
-        cache: Arc<RwLock<HashMap<String, CacheEntry>>>,
-        ui_path: &Path,
-        path: &str,
-        hot_reload: bool,
-    ) -> Option<Response<Body>> {
-        let file_path = if path.is_empty() || path == "/" {
-            ui_path.join("index.html")
-        } else if Self::is_static_asset_path(path) {
-            ui_path.join(path)
-        } else {
-            // SPA fallback - serve index.html for routes
-            ui_path.join("index.html")
-        };
-
-        // Try cache first (if hot reload is disabled or for performance)
-        if hot_reload {
-            let cache_read = cache.read().await;
-            if let Some(entry) = cache_read.get(path) {
-                if let Ok(metadata) = std::fs::metadata(&file_path) {
-                    if let Ok(modified) = metadata.modified() {
-                        if modified <= entry.last_modified {
-                            debug!("Serving {} from cache", path);
-                            return Some(Self::create_response(
-                                config,
-                                &entry.content_type,
-                                entry.content.clone(),
-                            ));
-                        }
-                    }
-                }
-            }
-        }
-
-        // Read from filesystem
-        match tokio::fs::read(&file_path).await {
-            Ok(content) => {
-                let content_type = Self::get_content_type(&file_path.to_string_lossy());
-                let processed_content = if content_type == "text/html" {
-                    let html = String::from_utf8_lossy(&content);
-                    let injected = Self::inject_environment(&html, config);
-                    Bytes::from(injected)
-                } else {
-                    Bytes::from(content)
-                };
-
-                // Update cache if hot reload is enabled
-                if hot_reload {
-                    let mut cache_write = cache.write().await;
-                    cache_write.insert(
-                        path.to_string(),
-                        CacheEntry {
-                            content: processed_content.clone(),
-                            content_type: content_type.to_string(),
-                            last_modified: SystemTime::now(),
-                        },
-                    );
-                }
-
-                debug!("Serving {} from filesystem: {}", path, file_path.display());
-                Some(Self::create_response(config, content_type, processed_content))
-            }
-
-            Err(e) => {
-                debug!("Failed to read file {}: {}", file_path.display(), e);
-                // Fallback to embedded if filesystem fails
-                warn!("Falling back to embedded assets for: {}", path);
-                Self::serve_embedded(config, path).await
-            }
+            ServingMode::Proxy { .. } => unimplemented!("Explorer Proxy mode"),
         }
     }
 
@@ -1773,6 +953,56 @@ impl<S> ExplorerService<S> {
     }
 }
 
+impl<S, B> Service<Request<B>> for ExplorerService<S>
+where
+    B::Data: Send,
+    S::Response: 'static,
+    B::Error: Into<BoxError>,
+    S::Future: Send + 'static,
+    S::Error: Into<BoxError> + 'static,
+    S: Service<Request<B>, Response = Response<Body>>,
+    B: http_body::Body<Data = Bytes> + Send + 'static,
+{
+    type Response = Response<Body>;
+    type Error = S::Error;
+    type Future = Pin<Box<dyn Future<Output = Result<Self::Response, Self::Error>> + Send>>;
+
+    fn poll_ready(&mut self, cx: &mut Context<'_>) -> Poll<Result<(), Self::Error>> {
+        self.inner.poll_ready(cx)
+    }
+
+    fn call(&mut self, req: Request<B>) -> Self::Future {
+        // Check if this is an explorer request
+        let uri_path = req.uri().path().to_string();
+        if !uri_path.starts_with(&self.config.path_prefix) {
+            return Box::pin(self.inner.call(req));
+        }
+
+        // Extract the file path after the prefix
+        let rel_path = uri_path
+            .strip_prefix(&self.config.path_prefix)
+            .unwrap_or("")
+            .trim_start_matches('/')
+            .to_string();
+
+        let config = self.config.clone();
+
+        Box::pin(async move {
+            let response = match Self::serve_asset(&config, &rel_path).await {
+                Some(response) => response,
+                None => Self::create_404_response(),
+            };
+            Ok(response)
+        })
+    }
+}
+
+impl<S: Clone> Clone for ExplorerService<S> {
+    fn clone(&self) -> Self {
+        Self { inner: self.inner.clone(), config: self.config.clone() }
+    }
+}
+
 /// Embedded Explorer UI assets
 #[derive(rust_embed::RustEmbed)]
 #[folder = "ui/dist"]
@@ -1780,9 +1010,6 @@ struct EmbeddedAssets;
 
 #[cfg(test)]
 mod tests {
-
-    use tempfile::TempDir;
-    use tokio::fs;
 
     use super::*;
 
@@ -1844,107 +1071,6 @@ mod tests {
     }
 
     #[test]
-    fn test_builder_pattern_development_preset() {
-        let layer = ExplorerLayer::builder().development().chain_id("TEST_DEV").build();
-
-        // Should fail because ./ui/dist doesn't exist in test environment
-        if layer.is_err() {
-            // Expected in test environment
-            return;
-        }
-
-        let layer = layer.unwrap();
-        assert_eq!(layer.config.chain_id, "TEST_DEV");
-        assert!(layer.config.cors_enabled);
-        assert!(!layer.config.security_headers);
-        assert!(matches!(layer.config.mode, ServingMode::FileSystem { hot_reload: true, .. }));
-    }
-
-    #[test]
-    fn test_builder_pattern_production_preset() {
-        let result = ExplorerLayer::builder().production().chain_id("TEST_PROD").build();
-
-        // May fail if embedded-ui feature is disabled or no assets
-        match result {
-            Ok(layer) => {
-                assert_eq!(layer.config.chain_id, "TEST_PROD");
-                assert!(!layer.config.cors_enabled);
-                assert!(layer.config.security_headers);
-                assert!(matches!(layer.config.mode, ServingMode::Embedded));
-            }
-            Err(_) => {
-                // Expected if embedded assets aren't available
-            }
-        }
-    }
-
-    #[tokio::test]
-    async fn test_builder_pattern_custom_configuration() {
-        let temp_dir = TempDir::new().unwrap();
-        let ui_path = temp_dir.path().to_path_buf();
-
-        // Create a simple index.html
-        let index_content = r#"<html><head></head><body><h1>Test UI</h1></body></html>"#;
-        fs::write(ui_path.join("index.html"), index_content).await.unwrap();
-
-        let layer = ExplorerLayer::builder()
-            .chain_id("CUSTOM_TEST")
-            .filesystem_with_hot_reload(&ui_path)
-            .with_cors()
-            .debug()
-            .api_endpoint("/api/test")
-            .header("X-Test", "value")
-            .path_prefix("/test-explorer")
-            .build()
-            .unwrap();
-
-        assert_eq!(layer.config.chain_id, "CUSTOM_TEST");
-        assert_eq!(layer.config.path_prefix, "/test-explorer");
-        assert!(layer.config.cors_enabled);
-
-        // Check UI environment variables
-        assert_eq!(layer.config.ui_env.get("DEBUG"), Some(&serde_json::Value::Bool(true)));
-        assert_eq!(
-            layer.config.ui_env.get("API_ENDPOINT"),
-            Some(&serde_json::Value::String("/api/test".to_string()))
-        );
-
-        // Check custom headers
-        assert_eq!(layer.config.custom_headers.get("X-Test"), Some(&"value".to_string()));
-
-        // Check filesystem mode with hot reload
-        if let ServingMode::FileSystem { ui_path: configured_path, hot_reload } = &layer.config.mode
-        {
-            assert_eq!(configured_path, &ui_path);
-            assert!(*hot_reload);
-        } else {
-            panic!("Expected FileSystem mode");
-        }
-    }
-
-    #[test]
-    fn test_builder_pattern_ui_path_switching() {
-        // Start with embedded mode, then set ui_path - should switch to filesystem
-        let result =
-            ExplorerLayer::builder().embedded().ui_path("./test-ui").chain_id("TEST").build();
-
-        // May fail due to path not existing, but we can check the config was set
-        if let Err(_) = result {
-            // Expected since ./test-ui doesn't exist
-        }
-
-        // Test the config directly
-        let builder = ExplorerLayer::builder().embedded().ui_path("./test-ui");
-
-        if let ServingMode::FileSystem { ui_path, hot_reload } = &builder.config.mode {
-            assert_eq!(ui_path, &PathBuf::from("./test-ui"));
-            assert!(*hot_reload); // Should default to true when switching
-        } else {
-            panic!("Expected FileSystem mode after setting ui_path");
-        }
-    }
-
-    #[test]
     fn test_builder_pattern_method_chaining() {
         let builder = ExplorerLayer::builder()
             .chain_id("CHAIN_TEST")
@@ -1954,9 +1080,7 @@ mod tests {
             .ui_env("KEY2", 42)
             .ui_env("KEY3", true)
             .header("X-Header1", "value1")
-            .header("X-Header2", "value2")
-            .debug()
-            .api_endpoint("/api/v1");
+            .header("X-Header2", "value2");
 
         // Check all configurations were set
         assert_eq!(builder.config.chain_id, "CHAIN_TEST");
