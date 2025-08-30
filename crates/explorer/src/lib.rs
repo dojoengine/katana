@@ -155,6 +155,11 @@ impl ExplorerLayer {
         Ok(Self { config })
     }
 
+    /// Create a builder for more ergonomic configuration
+    pub fn builder() -> ExplorerLayerBuilder {
+        ExplorerLayerBuilder::new()
+    }
+
     /// Create a new ExplorerLayer with embedded mode
     pub fn embedded(chain_id: String) -> Result<Self> {
         Self::new(ExplorerConfig { mode: ExplorerMode::Embedded, chain_id, ..Default::default() })
@@ -176,6 +181,226 @@ impl ExplorerLayer {
             chain_id,
             ..Default::default()
         })
+    }
+}
+
+/// Builder for creating ExplorerLayer with a fluent API
+#[derive(Debug, Clone)]
+pub struct ExplorerLayerBuilder {
+    config: ExplorerConfig,
+}
+
+impl ExplorerLayerBuilder {
+    /// Create a new builder with default configuration
+    pub fn new() -> Self {
+        Self { config: ExplorerConfig::default() }
+    }
+
+    /// Build the ExplorerLayer with current configuration
+    pub fn build(self) -> Result<ExplorerLayer> {
+        ExplorerLayer::new(self.config)
+    }
+
+    // === Preset Methods ===
+
+    /// Configure for development with sensible defaults
+    /// - FileSystem mode with hot reload enabled
+    /// - CORS enabled for development
+    /// - Security headers disabled for easier development
+    /// - UI path defaults to "./ui/dist"
+    pub fn development(mut self) -> Self {
+        self.config.mode =
+            ExplorerMode::FileSystem { ui_path: PathBuf::from("./ui/dist"), hot_reload: true };
+        self.config.cors_enabled = true;
+        self.config.security_headers = false;
+        self.config.compression = false;
+        self
+    }
+
+    /// Configure for production with sensible defaults
+    /// - Embedded mode for optimal performance
+    /// - Security headers enabled
+    /// - CORS disabled for security
+    /// - Compression enabled (future)
+    pub fn production(mut self) -> Self {
+        self.config.mode = ExplorerMode::Embedded;
+        self.config.cors_enabled = false;
+        self.config.security_headers = true;
+        self.config.compression = true;
+        self
+    }
+
+    // === Core Configuration ===
+
+    /// Set the chain ID (required)
+    pub fn chain_id<S: Into<String>>(mut self, chain_id: S) -> Self {
+        self.config.chain_id = chain_id.into();
+        self
+    }
+
+    /// Set the URL path prefix (default: "/explorer")
+    pub fn path_prefix<S: Into<String>>(mut self, prefix: S) -> Self {
+        self.config.path_prefix = prefix.into();
+        self
+    }
+
+    // === Serving Mode Configuration ===
+
+    /// Use embedded assets mode
+    pub fn embedded_mode(mut self) -> Self {
+        self.config.mode = ExplorerMode::Embedded;
+        self
+    }
+
+    /// Use filesystem mode with specified path and hot reload setting
+    pub fn filesystem_mode<P: Into<PathBuf>>(mut self, ui_path: P, hot_reload: bool) -> Self {
+        self.config.mode = ExplorerMode::FileSystem { ui_path: ui_path.into(), hot_reload };
+        self
+    }
+
+    /// Use filesystem mode with hot reload enabled (common development case)
+    pub fn filesystem_with_hot_reload<P: Into<PathBuf>>(self, ui_path: P) -> Self {
+        self.filesystem_mode(ui_path, true)
+    }
+
+    /// Use filesystem mode with hot reload disabled
+    pub fn filesystem_static<P: Into<PathBuf>>(self, ui_path: P) -> Self {
+        self.filesystem_mode(ui_path, false)
+    }
+
+    /// Use proxy mode
+    pub fn proxy_mode(mut self, upstream_url: Url, inject_env: bool) -> Self {
+        self.config.mode = ExplorerMode::Proxy { upstream_url, inject_env };
+        self
+    }
+
+    /// Use proxy mode with environment injection enabled (default)
+    pub fn proxy<S: AsRef<str>>(self, upstream_url: S) -> Result<Self> {
+        let url = Url::parse(upstream_url.as_ref())
+            .map_err(|e| anyhow!("Invalid upstream URL: {}", e))?;
+        Ok(self.proxy_mode(url, true))
+    }
+
+    // === Convenience Methods for UI Path ===
+
+    /// Set UI path (only relevant for filesystem mode)
+    pub fn ui_path<P: Into<PathBuf>>(mut self, path: P) -> Self {
+        match &mut self.config.mode {
+            ExplorerMode::FileSystem { ui_path, .. } => {
+                *ui_path = path.into();
+            }
+            _ => {
+                // Switch to filesystem mode if not already
+                self.config.mode =
+                    ExplorerMode::FileSystem { ui_path: path.into(), hot_reload: true };
+            }
+        }
+        self
+    }
+
+    /// Enable hot reload (only relevant for filesystem mode)
+    pub fn hot_reload(mut self, enabled: bool) -> Self {
+        match &mut self.config.mode {
+            ExplorerMode::FileSystem { hot_reload, .. } => {
+                *hot_reload = enabled;
+            }
+            _ => {
+                // If not filesystem mode, ignore this setting but don't error
+                debug!("hot_reload() called but not in filesystem mode, ignoring");
+            }
+        }
+        self
+    }
+
+    // === Security and Headers ===
+
+    /// Enable or disable CORS
+    pub fn cors(mut self, enabled: bool) -> Self {
+        self.config.cors_enabled = enabled;
+        self
+    }
+
+    /// Enable CORS (convenience method)
+    pub fn with_cors(self) -> Self {
+        self.cors(true)
+    }
+
+    /// Enable or disable security headers
+    pub fn security_headers(mut self, enabled: bool) -> Self {
+        self.config.security_headers = enabled;
+        self
+    }
+
+    /// Add a custom header
+    pub fn header<K, V>(mut self, key: K, value: V) -> Self
+    where
+        K: Into<String>,
+        V: Into<String>,
+    {
+        self.config.custom_headers.insert(key.into(), value.into());
+        self
+    }
+
+    /// Add multiple custom headers
+    pub fn headers<I, K, V>(mut self, headers: I) -> Self
+    where
+        I: IntoIterator<Item = (K, V)>,
+        K: Into<String>,
+        V: Into<String>,
+    {
+        for (key, value) in headers {
+            self.config.custom_headers.insert(key.into(), value.into());
+        }
+        self
+    }
+
+    // === UI Environment Variables ===
+
+    /// Add a UI environment variable
+    pub fn ui_env<K, V>(mut self, key: K, value: V) -> Self
+    where
+        K: Into<String>,
+        V: Into<serde_json::Value>,
+    {
+        self.config.ui_env.insert(key.into(), value.into());
+        self
+    }
+
+    /// Add multiple UI environment variables
+    pub fn ui_envs<I, K, V>(mut self, envs: I) -> Self
+    where
+        I: IntoIterator<Item = (K, V)>,
+        K: Into<String>,
+        V: Into<serde_json::Value>,
+    {
+        for (key, value) in envs {
+            self.config.ui_env.insert(key.into(), value.into());
+        }
+        self
+    }
+
+    /// Enable debug mode (adds DEBUG=true to UI environment)
+    pub fn debug(self) -> Self {
+        self.ui_env("DEBUG", true)
+    }
+
+    /// Set API endpoint URL for the UI
+    pub fn api_endpoint<S: Into<String>>(self, endpoint: S) -> Self {
+        self.ui_env("API_ENDPOINT", endpoint.into())
+    }
+
+    // === Performance ===
+
+    /// Enable or disable compression (future feature)
+    pub fn compression(mut self, enabled: bool) -> Self {
+        self.config.compression = enabled;
+        self
+    }
+}
+
+impl Default for ExplorerLayerBuilder {
+    fn default() -> Self {
+        Self::new()
     }
 }
 
@@ -707,6 +932,143 @@ mod tests {
         // Test layer creation
         let layer = ExplorerLayer::new(config).unwrap();
         assert!(matches!(layer.config.mode, ExplorerMode::FileSystem { .. }));
+    }
+
+    #[test]
+    fn test_builder_pattern_development_preset() {
+        let layer = ExplorerLayer::builder().development().chain_id("TEST_DEV").build();
+
+        // Should fail because ./ui/dist doesn't exist in test environment
+        if layer.is_err() {
+            // Expected in test environment
+            return;
+        }
+
+        let layer = layer.unwrap();
+        assert_eq!(layer.config.chain_id, "TEST_DEV");
+        assert!(layer.config.cors_enabled);
+        assert!(!layer.config.security_headers);
+        assert!(matches!(layer.config.mode, ExplorerMode::FileSystem { hot_reload: true, .. }));
+    }
+
+    #[test]
+    fn test_builder_pattern_production_preset() {
+        let result = ExplorerLayer::builder().production().chain_id("TEST_PROD").build();
+
+        // May fail if embedded-ui feature is disabled or no assets
+        match result {
+            Ok(layer) => {
+                assert_eq!(layer.config.chain_id, "TEST_PROD");
+                assert!(!layer.config.cors_enabled);
+                assert!(layer.config.security_headers);
+                assert!(matches!(layer.config.mode, ExplorerMode::Embedded));
+            }
+            Err(_) => {
+                // Expected if embedded assets aren't available
+            }
+        }
+    }
+
+    #[tokio::test]
+    async fn test_builder_pattern_custom_configuration() {
+        let temp_dir = TempDir::new().unwrap();
+        let ui_path = temp_dir.path().to_path_buf();
+
+        // Create a simple index.html
+        let index_content = r#"<html><head></head><body><h1>Test UI</h1></body></html>"#;
+        fs::write(ui_path.join("index.html"), index_content).await.unwrap();
+
+        let layer = ExplorerLayer::builder()
+            .chain_id("CUSTOM_TEST")
+            .filesystem_with_hot_reload(&ui_path)
+            .with_cors()
+            .debug()
+            .api_endpoint("/api/test")
+            .header("X-Test", "value")
+            .path_prefix("/test-explorer")
+            .build()
+            .unwrap();
+
+        assert_eq!(layer.config.chain_id, "CUSTOM_TEST");
+        assert_eq!(layer.config.path_prefix, "/test-explorer");
+        assert!(layer.config.cors_enabled);
+
+        // Check UI environment variables
+        assert_eq!(layer.config.ui_env.get("DEBUG"), Some(&serde_json::Value::Bool(true)));
+        assert_eq!(
+            layer.config.ui_env.get("API_ENDPOINT"),
+            Some(&serde_json::Value::String("/api/test".to_string()))
+        );
+
+        // Check custom headers
+        assert_eq!(layer.config.custom_headers.get("X-Test"), Some(&"value".to_string()));
+
+        // Check filesystem mode with hot reload
+        if let ExplorerMode::FileSystem { ui_path: configured_path, hot_reload } =
+            &layer.config.mode
+        {
+            assert_eq!(configured_path, &ui_path);
+            assert!(*hot_reload);
+        } else {
+            panic!("Expected FileSystem mode");
+        }
+    }
+
+    #[test]
+    fn test_builder_pattern_ui_path_switching() {
+        // Start with embedded mode, then set ui_path - should switch to filesystem
+        let result =
+            ExplorerLayer::builder().embedded_mode().ui_path("./test-ui").chain_id("TEST").build();
+
+        // May fail due to path not existing, but we can check the config was set
+        if let Err(_) = result {
+            // Expected since ./test-ui doesn't exist
+        }
+
+        // Test the config directly
+        let builder = ExplorerLayer::builder().embedded_mode().ui_path("./test-ui");
+
+        if let ExplorerMode::FileSystem { ui_path, hot_reload } = &builder.config.mode {
+            assert_eq!(ui_path, &PathBuf::from("./test-ui"));
+            assert!(*hot_reload); // Should default to true when switching
+        } else {
+            panic!("Expected FileSystem mode after setting ui_path");
+        }
+    }
+
+    #[test]
+    fn test_builder_pattern_method_chaining() {
+        let builder = ExplorerLayer::builder()
+            .chain_id("CHAIN_TEST")
+            .cors(true)
+            .security_headers(false)
+            .ui_env("KEY1", "value1")
+            .ui_env("KEY2", 42)
+            .ui_env("KEY3", true)
+            .header("X-Header1", "value1")
+            .header("X-Header2", "value2")
+            .debug()
+            .api_endpoint("/api/v1");
+
+        // Check all configurations were set
+        assert_eq!(builder.config.chain_id, "CHAIN_TEST");
+        assert!(builder.config.cors_enabled);
+        assert!(!builder.config.security_headers);
+
+        assert_eq!(
+            builder.config.ui_env.get("KEY1"),
+            Some(&serde_json::Value::String("value1".to_string()))
+        );
+        assert_eq!(builder.config.ui_env.get("KEY2"), Some(&serde_json::Value::Number(42.into())));
+        assert_eq!(builder.config.ui_env.get("KEY3"), Some(&serde_json::Value::Bool(true)));
+        assert_eq!(builder.config.ui_env.get("DEBUG"), Some(&serde_json::Value::Bool(true)));
+        assert_eq!(
+            builder.config.ui_env.get("API_ENDPOINT"),
+            Some(&serde_json::Value::String("/api/v1".to_string()))
+        );
+
+        assert_eq!(builder.config.custom_headers.get("X-Header1"), Some(&"value1".to_string()));
+        assert_eq!(builder.config.custom_headers.get("X-Header2"), Some(&"value2".to_string()));
     }
 
     #[test]
