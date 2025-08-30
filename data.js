@@ -1,5 +1,5 @@
 window.BENCHMARK_DATA = {
-  "lastUpdate": 1756532954107,
+  "lastUpdate": 1756590609313,
   "repoUrl": "https://github.com/dojoengine/katana",
   "entries": {
     "Benchmark": [
@@ -4871,6 +4871,66 @@ window.BENCHMARK_DATA = {
             "name": "Invoke.ERC20.transfer/Blockifier.Cold",
             "value": 18395660,
             "range": "± 395073",
+            "unit": "ns/iter"
+          }
+        ]
+      },
+      {
+        "commit": {
+          "author": {
+            "email": "evergreenkary@gmail.com",
+            "name": "Ammar Arif",
+            "username": "kariy"
+          },
+          "committer": {
+            "email": "noreply@github.com",
+            "name": "GitHub",
+            "username": "web-flow"
+          },
+          "distinct": true,
+          "id": "eba352aa5f12c474732c7db04d9d8369d6f4d4ac",
+          "message": "feat(rpc): use stable version of RPC 0.9 (#255)\n\nThe stable version of the RPC 0.9 has been [released](https://github.com/starkware-libs/starknet-specs/releases/tag/v0.9.0). Katana doesn't actually support all the features in RPC 0.9.0 (especially the WebSocket API) but we still need to make the bump mostly to ensure compatibility with the ecosystem.",
+          "timestamp": "2025-08-31T05:42:11+08:00",
+          "tree_id": "efc8e5460dabb0a6bd141f4abe035245599d8100",
+          "url": "https://github.com/dojoengine/katana/commit/eba352aa5f12c474732c7db04d9d8369d6f4d4ac"
+        },
+        "date": 1756590607954,
+        "tool": "cargo",
+        "benches": [
+          {
+            "name": "Commit.Small/Parallel",
+            "value": 423363,
+            "range": "± 5522",
+            "unit": "ns/iter"
+          },
+          {
+            "name": "Commit.Big/Serial",
+            "value": 94674293,
+            "range": "± 2592748",
+            "unit": "ns/iter"
+          },
+          {
+            "name": "Commit.Big/Parallel",
+            "value": 65961840,
+            "range": "± 1443338",
+            "unit": "ns/iter"
+          },
+          {
+            "name": "compress world contract",
+            "value": 2705408,
+            "range": "± 12342",
+            "unit": "ns/iter"
+          },
+          {
+            "name": "decompress world contract",
+            "value": 3036505,
+            "range": "± 16161",
+            "unit": "ns/iter"
+          },
+          {
+            "name": "Invoke.ERC20.transfer/Blockifier.Cold",
+            "value": 16602559,
+            "range": "± 263247",
             "unit": "ns/iter"
           }
         ]
