@@ -190,22 +190,16 @@ pub struct ExplorerLayer {
 }
 
 impl ExplorerLayer {
-    /// Create a builder for ergonomic layer configuration.
+    /// Create a builder for building a new [`ExplorerLayer`].
     ///
-    /// The builder pattern provides a fluent API with sensible defaults and preset methods
-    /// for common use cases. This is the recommended way to create an `ExplorerLayer`.
-    ///
-    /// See [`ExplorerLayerBuilder`] for all available configuration methods.
+    /// This is the only way to create an [`ExplorerLayer`]. See [`ExplorerLayerBuilder`] for all
+    /// available configuration methods.
     pub fn builder() -> ExplorerLayerBuilder {
         ExplorerLayerBuilder::new()
     }
 }
 
 /// Fluent builder for creating [`ExplorerLayer`] with ergonomic configuration.
-///
-/// The builder provides a convenient API with method chaining, sensible defaults,
-/// and preset configurations for common use cases. This is the recommended way
-/// to configure the Explorer layer.
 #[derive(Debug, Clone)]
 pub struct ExplorerLayerBuilder {
     config: ExplorerConfig,
@@ -228,39 +222,10 @@ impl ExplorerLayerBuilder {
         }
     }
 
-    /// Build [`ExplorerLayer`] with the current configuration.
-    ///
-    /// This method validates the configuration and creates the final [`ExplorerLayer`].
-    /// Configuration validation includes checking that UI paths exist and assets are
-    /// available for the selected mode.
-    ///
-    /// ## Errors
-    ///
-    /// - **Embedded mode**: Returns error if `embedded-ui` feature is disabled or no assets exist
-    /// - **Proxy mode**: Returns error if the upstream URL is invalid
-    pub fn build(self) -> Result<ExplorerLayer, Error> {
-        // Validate configuration
-        match &self.config.mode {
-            ServingMode::Embedded => {
-                if EmbeddedAssets::get("index.html").is_none() {
-                    return Err(Error::AssetNotFound);
-                }
-                debug!("Explorer configured to embedded mode");
-            }
-
-            ServingMode::Proxy { upstream_url, .. } => {
-                debug!(%upstream_url, "Explorer configured to proxy mode");
-                unimplemented!("Proxy mode is not yet implemented");
-            }
-        }
-
-        Ok(ExplorerLayer { config: self.config })
-    }
-
     /// Set the URL path prefix for all Explorer routes.
     ///
     /// All Explorer requests must start with this prefix. Static assets and UI routes
-    /// will be served under this path. The default prefix is `"/explorer"`.
+    /// will be served under this path. The default prefix is `/explorer`.
     ///
     /// ## Arguments
     ///
@@ -276,7 +241,7 @@ impl ExplorerLayerBuilder {
     /// # Ok::<(), katana_explorer::ExplorerError>(())
     /// ```
     ///
-    /// ## Important Notes
+    /// ## Important
     ///
     /// - The prefix should not end with `/` (e.g., use `/ui` not `/ui/`)
     /// - Changing the prefix affects all Explorer routes including assets
@@ -298,7 +263,7 @@ impl ExplorerLayerBuilder {
         self
     }
 
-    /// Use proxy mode with environment injection enabled.
+    /// Use proxy mode.
     ///
     /// This convenience method configures proxy mode with environment variable
     /// injection enabled, which is the common use case for development.
@@ -354,14 +319,10 @@ impl ExplorerLayerBuilder {
 
     /// Add a custom HTTP header to all responses.
     ///
-    /// Custom headers are added to every response served by the Explorer layer.
-    /// This is useful for adding environment-specific headers, API versioning,
-    /// or custom application headers.
-    ///
     /// ## Arguments
     ///
-    /// - `key`: Header name (e.g., "X-Environment", "X-API-Version")
-    /// - `value`: Header value (e.g., "staging", "v1.0")
+    /// - `key`: Header name
+    /// - `value`: Header value
     ///
     /// ## Examples
     ///
@@ -374,13 +335,6 @@ impl ExplorerLayerBuilder {
     ///     .header("X-Build-Time", "2024-01-15")
     ///     .build()?;
     /// ```
-    ///
-    /// ## Common Use Cases
-    ///
-    /// - Environment identification: `X-Environment: staging`
-    /// - API versioning: `X-API-Version: v1.0`
-    /// - Build information: `X-Build-Hash: abc123`
-    /// - Custom application headers: `X-Feature-Flags: feature1,feature2`
     pub fn header<K, V>(mut self, key: K, value: V) -> Self
     where
         K: Into<String>,
@@ -441,10 +395,10 @@ impl ExplorerLayerBuilder {
     /// use katana_explorer::ExplorerLayer;
     ///
     /// let layer = ExplorerLayer::builder()
-    ///     .ui_env("DEBUG", true)
-    ///     .ui_env("API_URL", "http://localhost:8080")
-    ///     .ui_env("MAX_RETRIES", 3)
-    ///     .ui_env("FEATURES", vec!["feature1", "feature2"])
+    ///     .env("DEBUG", true)
+    ///     .env("API_URL", "http://localhost:8080")
+    ///     .env("MAX_RETRIES", 3)
+    ///     .env("FEATURES", vec!["feature1", "feature2"])
     ///     .build()?;
     /// ```
     ///
@@ -461,7 +415,7 @@ impl ExplorerLayerBuilder {
     /// These variables are automatically added and don't need to be set manually:
     /// - `CHAIN_ID`: Set via the `chain_id()` method
     /// - `ENABLE_CONTROLLER`: Always set to `false`
-    pub fn ui_env<K, V>(mut self, key: K, value: V) -> Self
+    pub fn env<K, V>(mut self, key: K, value: V) -> Self
     where
         K: Into<String>,
         V: Into<serde_json::Value>,
@@ -496,9 +450,9 @@ impl ExplorerLayerBuilder {
     /// // Or with a Vec of tuples
     /// let envs = vec![("FEATURE_A", true), ("FEATURE_B", false), ("POLL_INTERVAL", 1000)];
     ///
-    /// let layer2 = ExplorerLayer::builder().ui_envs(envs).build()?;
+    /// let layer2 = ExplorerLayer::builder().envs(envs).build()?;
     /// ```
-    pub fn ui_envs<I, K, V>(mut self, envs: I) -> Self
+    pub fn envs<I, K, V>(mut self, envs: I) -> Self
     where
         I: IntoIterator<Item = (K, V)>,
         K: Into<String>,
@@ -535,6 +489,35 @@ impl ExplorerLayerBuilder {
     pub fn compression(mut self, enabled: bool) -> Self {
         self.config.compression = enabled;
         self
+    }
+
+    /// Build [`ExplorerLayer`] with the current configuration.
+    ///
+    /// This method validates the configuration and creates the final [`ExplorerLayer`].
+    /// Configuration validation includes checking that UI paths exist and assets are
+    /// available for the selected mode.
+    ///
+    /// ## Errors
+    ///
+    /// - **Embedded mode**: Returns error if `embedded-ui` feature is disabled or no assets exist
+    /// - **Proxy mode**: Returns error if the upstream URL is invalid
+    pub fn build(self) -> Result<ExplorerLayer, Error> {
+        // Validate configuration
+        match &self.config.mode {
+            ServingMode::Embedded => {
+                if EmbeddedAssets::get("index.html").is_none() {
+                    return Err(Error::AssetNotFound);
+                }
+                debug!("Explorer configured to embedded mode");
+            }
+
+            ServingMode::Proxy { upstream_url, .. } => {
+                debug!(%upstream_url, "Explorer configured to proxy mode");
+                unimplemented!("Proxy mode is not yet implemented");
+            }
+        }
+
+        Ok(ExplorerLayer { config: self.config })
     }
 }
 
@@ -951,9 +934,9 @@ mod tests {
         let builder = ExplorerLayer::builder()
             .cors(true)
             .security_headers(false)
-            .ui_env("KEY1", "value1")
-            .ui_env("KEY2", 42)
-            .ui_env("KEY3", true)
+            .env("KEY1", "value1")
+            .env("KEY2", 42)
+            .env("KEY3", true)
             .header("X-Header1", "value1")
             .header("X-Header2", "value2");
 
