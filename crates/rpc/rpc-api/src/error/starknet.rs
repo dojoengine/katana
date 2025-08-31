@@ -16,77 +16,112 @@ use starknet::providers::ProviderError as StarknetRsProviderError;
 pub enum StarknetApiError {
     #[error("Failed to write transaction")]
     FailedToReceiveTxn,
+
     #[error("Contract not found")]
     ContractNotFound,
+
     #[error("Invalid call data")]
     InvalidCallData,
+
     #[error("Block not found")]
     BlockNotFound,
+
     #[error("Transaction hash not found")]
     TxnHashNotFound,
+
     #[error("Invalid transaction index in a block")]
     InvalidTxnIndex,
+
     #[error("Class hash not found")]
     ClassHashNotFound,
+
     #[error("Requested page size is too big")]
     PageSizeTooBig(PageSizeTooBigData),
+
     #[error("There are no blocks")]
     NoBlocks,
+
     #[error("The supplied continuation token is invalid or unknown")]
     InvalidContinuationToken,
+
     #[error("Contract error")]
     ContractError(ContractErrorData),
+
     #[error("Transaction execution error")]
     TransactionExecutionError(TransactionExecutionErrorData),
+
     #[error("Invalid contract class")]
     InvalidContractClass,
+
     #[error("Class already declared")]
     ClassAlreadyDeclared,
+
     // TEMP: adding a reason field temporarily to match what's being returned by the gateway. the
     // gateway includes the information regarding the expected and actual nonce in the error
     // message. but this doesn't break compatibility with the spec.
     #[error("Invalid transaction nonce")]
     InvalidTransactionNonce(InvalidTransactionNonceData),
+
     #[error("Account balance is smaller than the transaction's max_fee")]
     InsufficientAccountBalance,
+
     #[error("Account validation failed")]
     ValidationFailure(ValidationFailureData),
+
     #[error("Compilation failed")]
     CompilationFailed(CompilationFailedData),
+
     #[error("Contract class size is too large")]
     ContractClassSizeIsTooLarge,
+
     #[error("Sender address in not an account contract")]
     NonAccount,
+
     #[error("A transaction with the same hash already exists in the mempool")]
     DuplicateTransaction,
+
     #[error("The compiled class hash did not match the one supplied in the transaction")]
     CompiledClassHashMismatch,
+
     #[error("The transaction version is not supported")]
     UnsupportedTransactionVersion,
+
     #[error("The contract class version is not supported")]
     UnsupportedContractClassVersion,
+
     #[error("An unexpected error occurred")]
     UnexpectedError(UnexpectedErrorData),
+
     #[error("Too many keys provided in a filter")]
     TooManyKeysInFilter,
+
     #[error("Failed to fetch pending transactions")]
     FailedToFetchPendingTransactions,
+
     #[error("The node doesn't support storage proofs for blocks that are too far in the past")]
     StorageProofNotSupported(StorageProofNotSupportedData),
+
     #[error("Proof limit exceeded")]
     ProofLimitExceeded(ProofLimitExceededData),
+
     #[error("Requested entrypoint does not exist in the contract")]
     EntrypointNotFound,
+
     #[error("The transaction's resources don't cover validation or the minimal transaction fee")]
     InsufficientResourcesForValidate,
+
     #[error("Invalid subscription id")]
     InvalidSubscriptionId,
+
     #[error("Too many addresses in filter sender_address filter")]
     TooManyAddressesInFilter,
+
     #[error("Cannot go back more than 1024 blocks")]
     TooManyBlocksBack,
+
     #[error("Replacement transaction is underpriced")]
     ReplacementTransactionUnderpriced,
+
     #[error("Transaction fee below minimum")]
     FeeBelowMinimum,
 }
@@ -172,6 +207,7 @@ impl StarknetApiError {
     }
 }
 
+/// JSON-RPC error data for the [`StarknetApiError::PageSizeTooBig`] error.
 #[derive(Debug, Clone, Serialize, Deserialize, Default)]
 pub struct PageSizeTooBigData {
     /// The user requested page size.
@@ -180,11 +216,13 @@ pub struct PageSizeTooBigData {
     pub max_allowed: u64,
 }
 
+/// JSON-RPC error data for the [`StarknetApiError::ContractError`] error.
 #[derive(Debug, Clone, Serialize, Deserialize, Default)]
 pub struct ContractErrorData {
     pub revert_error: String,
 }
 
+/// JSON-RPC error data for the [`StarknetApiError::TransactionExecutionError`] error.
 #[derive(Debug, Clone, Serialize, Deserialize, Default)]
 pub struct TransactionExecutionErrorData {
     /// The index of the first transaction failing in a sequence of given transactions.
@@ -193,6 +231,7 @@ pub struct TransactionExecutionErrorData {
     pub execution_error: String,
 }
 
+/// JSON-RPC error data for the [`StarknetApiError::StorageProofNotSupported`] error.
 #[derive(Debug, Clone, Serialize, Deserialize, Default)]
 pub struct StorageProofNotSupportedData {
     /// The oldest block whose storage proof can be obtained.
@@ -201,16 +240,19 @@ pub struct StorageProofNotSupportedData {
     pub requested_block: BlockNumber,
 }
 
+/// JSON-RPC error data for the [`StarknetApiError::InvalidTransactionNonce`] error.
 #[derive(Debug, Clone, Serialize, Deserialize, Default)]
 pub struct InvalidTransactionNonceData {
     pub reason: String,
 }
 
+/// JSON-RPC error data for the [`StarknetApiError::UnexpectedError`] error.
 #[derive(Debug, Clone, Serialize, Deserialize, Default)]
 pub struct UnexpectedErrorData {
     pub reason: String,
 }
 
+/// JSON-RPC error data for the [`StarknetApiError::ProofLimitExceeded`] error.
 #[derive(Debug, Clone, Serialize, Deserialize, Default)]
 pub struct ProofLimitExceededData {
     /// The limit for the total number of keys that can be specified in a single request.
@@ -219,13 +261,17 @@ pub struct ProofLimitExceededData {
     pub total: u64,
 }
 
+/// JSON-RPC error data for the [`StarknetApiError::ValidationFailure`] error.
 #[derive(Debug, Clone, Serialize, Deserialize, Default)]
 pub struct ValidationFailureData {
+    /// The reason for the  failure.
     pub reason: String,
 }
 
+/// JSON-RPC error data for the [`StarknetApiError::CompilationFailed`] error.
 #[derive(Debug, Clone, Serialize, Deserialize, Default)]
 pub struct CompilationFailedData {
+    /// The reason for the compilation failure.
     pub reason: String,
 }
 
@@ -392,9 +438,7 @@ impl From<PoolError> for StarknetApiError {
     fn from(error: PoolError) -> Self {
         match error {
             PoolError::InvalidTransaction(err) => err.into(),
-            PoolError::Internal(err) => {
-                StarknetApiError::UnexpectedError(UnexpectedErrorData { reason: err.to_string() })
-            }
+            PoolError::Internal(err) => StarknetApiError::unexpected(err),
         }
     }
 }
@@ -496,17 +540,13 @@ impl From<StarknetRsProviderError> for StarknetApiError {
     fn from(value: StarknetRsProviderError) -> Self {
         match value {
             StarknetRsProviderError::StarknetError(error) => error.into(),
-            StarknetRsProviderError::Other(error) => {
-                Self::UnexpectedError(UnexpectedErrorData { reason: error.to_string() })
-            }
+            StarknetRsProviderError::Other(error) => Self::unexpected(error),
             StarknetRsProviderError::ArrayLengthMismatch => {
-                Self::UnexpectedError(UnexpectedErrorData {
-                    reason: "Forking client: Array length mismatch".to_string(),
-                })
+                Self::unexpected("Forking client: Array length mismatch")
             }
-            StarknetRsProviderError::RateLimited => Self::UnexpectedError(UnexpectedErrorData {
-                reason: "Forking client: Rate limited".to_string(),
-            }),
+            StarknetRsProviderError::RateLimited => {
+                Self::unexpected("Forking client: Rate limited")
+            }
         }
     }
 }
