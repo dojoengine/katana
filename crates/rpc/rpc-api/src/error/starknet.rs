@@ -1,13 +1,6 @@
-use jsonrpsee::types::ErrorObjectOwned;
-use katana_pool::validation::error::InvalidTransactionError;
-use katana_pool::PoolError;
 use katana_primitives::block::BlockNumber;
-use katana_primitives::event::ContinuationTokenError;
-use katana_provider::error::ProviderError;
 use serde::{Deserialize, Serialize};
 use serde_json::Value;
-use starknet::core::types::StarknetError as StarknetRsError;
-use starknet::providers::ProviderError as StarknetRsProviderError;
 
 /// Possible list of errors that can be returned by the Starknet API according to the spec: <https://github.com/starkware-libs/starknet-specs>.
 #[derive(Debug, thiserror::Error, Clone, Serialize)]
@@ -207,7 +200,7 @@ impl StarknetApiError {
     }
 }
 
-/// JSON-RPC error data for the [`StarknetApiError::PageSizeTooBig`] error.
+/// Data for the [`StarknetApiError::PageSizeTooBig`] error.
 #[derive(Debug, Clone, Serialize, Deserialize, Default)]
 pub struct PageSizeTooBigData {
     /// The user requested page size.
@@ -216,13 +209,13 @@ pub struct PageSizeTooBigData {
     pub max_allowed: u64,
 }
 
-/// JSON-RPC error data for the [`StarknetApiError::ContractError`] error.
+/// Data for the [`StarknetApiError::ContractError`] error.
 #[derive(Debug, Clone, Serialize, Deserialize, Default)]
 pub struct ContractErrorData {
     pub revert_error: String,
 }
 
-/// JSON-RPC error data for the [`StarknetApiError::TransactionExecutionError`] error.
+/// Data for the [`StarknetApiError::TransactionExecutionError`] error.
 #[derive(Debug, Clone, Serialize, Deserialize, Default)]
 pub struct TransactionExecutionErrorData {
     /// The index of the first transaction failing in a sequence of given transactions.
@@ -231,7 +224,7 @@ pub struct TransactionExecutionErrorData {
     pub execution_error: String,
 }
 
-/// JSON-RPC error data for the [`StarknetApiError::StorageProofNotSupported`] error.
+/// Data for the [`StarknetApiError::StorageProofNotSupported`] error.
 #[derive(Debug, Clone, Serialize, Deserialize, Default)]
 pub struct StorageProofNotSupportedData {
     /// The oldest block whose storage proof can be obtained.
@@ -240,19 +233,19 @@ pub struct StorageProofNotSupportedData {
     pub requested_block: BlockNumber,
 }
 
-/// JSON-RPC error data for the [`StarknetApiError::InvalidTransactionNonce`] error.
+/// Data for the [`StarknetApiError::InvalidTransactionNonce`] error.
 #[derive(Debug, Clone, Serialize, Deserialize, Default)]
 pub struct InvalidTransactionNonceData {
     pub reason: String,
 }
 
-/// JSON-RPC error data for the [`StarknetApiError::UnexpectedError`] error.
+/// Data for the [`StarknetApiError::UnexpectedError`] error.
 #[derive(Debug, Clone, Serialize, Deserialize, Default)]
 pub struct UnexpectedErrorData {
     pub reason: String,
 }
 
-/// JSON-RPC error data for the [`StarknetApiError::ProofLimitExceeded`] error.
+/// Data for the [`StarknetApiError::ProofLimitExceeded`] error.
 #[derive(Debug, Clone, Serialize, Deserialize, Default)]
 pub struct ProofLimitExceededData {
     /// The limit for the total number of keys that can be specified in a single request.
@@ -261,291 +254,307 @@ pub struct ProofLimitExceededData {
     pub total: u64,
 }
 
-/// JSON-RPC error data for the [`StarknetApiError::ValidationFailure`] error.
+/// Data for the [`StarknetApiError::ValidationFailure`] error.
 #[derive(Debug, Clone, Serialize, Deserialize, Default)]
 pub struct ValidationFailureData {
     /// The reason for the  failure.
     pub reason: String,
 }
 
-/// JSON-RPC error data for the [`StarknetApiError::CompilationFailed`] error.
+/// Data for the [`StarknetApiError::CompilationFailed`] error.
 #[derive(Debug, Clone, Serialize, Deserialize, Default)]
 pub struct CompilationFailedData {
     /// The reason for the compilation failure.
     pub reason: String,
 }
 
-impl From<ErrorObjectOwned> for StarknetApiError {
-    fn from(err: ErrorObjectOwned) -> Self {
-        match err.code() {
-            1 => Self::FailedToReceiveTxn,
-            20 => Self::ContractNotFound,
-            21 => Self::EntrypointNotFound,
-            22 => Self::InvalidCallData,
-            24 => Self::BlockNotFound,
-            27 => Self::InvalidTxnIndex,
-            28 => Self::ClassHashNotFound,
-            29 => Self::TxnHashNotFound,
-            31 => {
-                if let Some(data) = err.data() {
-                    if let Ok(data) = serde_json::from_str::<PageSizeTooBigData>(data.get()) {
-                        return Self::PageSizeTooBig(data);
-                    }
-                }
+// Implementations from/to other error types
+mod impls {
 
-                Self::PageSizeTooBig(Default::default())
-            }
-            32 => Self::NoBlocks,
-            33 => Self::InvalidContinuationToken,
-            34 => Self::TooManyKeysInFilter,
-            38 => Self::FailedToFetchPendingTransactions,
-            40 => {
-                let data = if let Some(data) = err.data() {
-                    if let Ok(data) = serde_json::from_str::<ContractErrorData>(data.get()) {
-                        data
+    use jsonrpsee::types::ErrorObjectOwned;
+    use katana_pool::validation::error::InvalidTransactionError;
+    use katana_pool::PoolError;
+    use katana_primitives::event::ContinuationTokenError;
+    use katana_provider::error::ProviderError;
+    use starknet::core::types::StarknetError as StarknetRsError;
+    use starknet::providers::ProviderError as StarknetRsProviderError;
+
+    use super::{
+        CompilationFailedData, ContractErrorData, InvalidTransactionNonceData, PageSizeTooBigData,
+        StarknetApiError, StorageProofNotSupportedData, ValidationFailureData,
+    };
+    use crate::error::starknet::{
+        ProofLimitExceededData, TransactionExecutionErrorData, UnexpectedErrorData,
+    };
+
+    impl From<ErrorObjectOwned> for StarknetApiError {
+        fn from(err: ErrorObjectOwned) -> Self {
+            match err.code() {
+                1 => Self::FailedToReceiveTxn,
+                20 => Self::ContractNotFound,
+                21 => Self::EntrypointNotFound,
+                22 => Self::InvalidCallData,
+                24 => Self::BlockNotFound,
+                27 => Self::InvalidTxnIndex,
+                28 => Self::ClassHashNotFound,
+                29 => Self::TxnHashNotFound,
+                31 => {
+                    if let Some(data) = err.data() {
+                        if let Ok(data) = serde_json::from_str::<PageSizeTooBigData>(data.get()) {
+                            return Self::PageSizeTooBig(data);
+                        }
+                    }
+
+                    Self::PageSizeTooBig(Default::default())
+                }
+                32 => Self::NoBlocks,
+                33 => Self::InvalidContinuationToken,
+                34 => Self::TooManyKeysInFilter,
+                38 => Self::FailedToFetchPendingTransactions,
+                40 => {
+                    let data = if let Some(data) = err.data() {
+                        if let Ok(data) = serde_json::from_str::<ContractErrorData>(data.get()) {
+                            data
+                        } else {
+                            ContractErrorData::default()
+                        }
                     } else {
                         ContractErrorData::default()
-                    }
-                } else {
-                    ContractErrorData::default()
-                };
+                    };
 
-                Self::ContractError(data)
-            }
-            41 => {
-                let data = if let Some(data) = err.data() {
-                    if let Ok(data) =
-                        serde_json::from_str::<TransactionExecutionErrorData>(data.get())
-                    {
-                        data
+                    Self::ContractError(data)
+                }
+                41 => {
+                    let data = if let Some(data) = err.data() {
+                        if let Ok(data) =
+                            serde_json::from_str::<TransactionExecutionErrorData>(data.get())
+                        {
+                            data
+                        } else {
+                            TransactionExecutionErrorData::default()
+                        }
                     } else {
                         TransactionExecutionErrorData::default()
-                    }
-                } else {
-                    TransactionExecutionErrorData::default()
-                };
+                    };
 
-                Self::TransactionExecutionError(data)
-            }
-            42 => {
-                if let Some(data) = err.data() {
-                    if let Ok(data) =
-                        serde_json::from_str::<StorageProofNotSupportedData>(data.get())
-                    {
-                        return Self::StorageProofNotSupported(data);
+                    Self::TransactionExecutionError(data)
+                }
+                42 => {
+                    if let Some(data) = err.data() {
+                        if let Ok(data) =
+                            serde_json::from_str::<StorageProofNotSupportedData>(data.get())
+                        {
+                            return Self::StorageProofNotSupported(data);
+                        }
                     }
+
+                    Self::StorageProofNotSupported(StorageProofNotSupportedData::default())
+                }
+                50 => Self::InvalidContractClass,
+                51 => Self::ClassAlreadyDeclared,
+                52 => {
+                    let data = if let Some(value) = err.data() {
+                        serde_json::from_str::<InvalidTransactionNonceData>(value.get())
+                            .unwrap_or_default()
+                    } else {
+                        InvalidTransactionNonceData::default()
+                    };
+
+                    Self::InvalidTransactionNonce(data)
+                }
+                53 => Self::InsufficientResourcesForValidate,
+                54 => Self::InsufficientAccountBalance,
+                55 => {
+                    let data = if let Some(data) = err.data() {
+                        serde_json::from_str::<ValidationFailureData>(data.get())
+                            .unwrap_or_default()
+                    } else {
+                        ValidationFailureData::default()
+                    };
+
+                    Self::ValidationFailure(data)
+                }
+                56 => {
+                    let data = if let Some(data) = err.data() {
+                        serde_json::from_str::<CompilationFailedData>(data.get())
+                            .unwrap_or_default()
+                    } else {
+                        CompilationFailedData::default()
+                    };
+
+                    Self::CompilationFailed(data)
+                }
+                57 => Self::ContractClassSizeIsTooLarge,
+                58 => Self::NonAccount,
+                59 => Self::DuplicateTransaction,
+                60 => Self::CompiledClassHashMismatch,
+                61 => Self::UnsupportedTransactionVersion,
+                62 => Self::UnsupportedContractClassVersion,
+                63 => {
+                    let data = if let Some(data) = err.data() {
+                        serde_json::from_str::<UnexpectedErrorData>(data.get()).unwrap_or_default()
+                    } else {
+                        UnexpectedErrorData::default()
+                    };
+
+                    Self::UnexpectedError(data)
+                }
+                64 => Self::ReplacementTransactionUnderpriced,
+                65 => Self::FeeBelowMinimum,
+                66 => Self::InvalidSubscriptionId,
+                67 => Self::TooManyAddressesInFilter,
+                68 => Self::TooManyBlocksBack,
+                1000 => {
+                    let data = if let Some(data) = err.data() {
+                        serde_json::from_str::<ProofLimitExceededData>(data.get())
+                            .unwrap_or_default()
+                    } else {
+                        ProofLimitExceededData::default()
+                    };
+
+                    Self::ProofLimitExceeded(data)
                 }
 
-                Self::StorageProofNotSupported(StorageProofNotSupportedData::default())
-            }
-            50 => Self::InvalidContractClass,
-            51 => Self::ClassAlreadyDeclared,
-            52 => {
-                let data = if let Some(value) = err.data() {
-                    serde_json::from_str::<InvalidTransactionNonceData>(value.get())
-                        .unwrap_or_default()
-                } else {
-                    InvalidTransactionNonceData::default()
-                };
-
-                Self::InvalidTransactionNonce(data)
-            }
-            53 => Self::InsufficientResourcesForValidate,
-            54 => Self::InsufficientAccountBalance,
-            55 => {
-                let data = if let Some(data) = err.data() {
-                    serde_json::from_str::<ValidationFailureData>(data.get()).unwrap_or_default()
-                } else {
-                    ValidationFailureData::default()
-                };
-
-                Self::ValidationFailure(data)
-            }
-            56 => {
-                let data = if let Some(data) = err.data() {
-                    serde_json::from_str::<CompilationFailedData>(data.get()).unwrap_or_default()
-                } else {
-                    CompilationFailedData::default()
-                };
-
-                Self::CompilationFailed(data)
-            }
-            57 => Self::ContractClassSizeIsTooLarge,
-            58 => Self::NonAccount,
-            59 => Self::DuplicateTransaction,
-            60 => Self::CompiledClassHashMismatch,
-            61 => Self::UnsupportedTransactionVersion,
-            62 => Self::UnsupportedContractClassVersion,
-            63 => {
-                let data = if let Some(data) = err.data() {
-                    serde_json::from_str::<UnexpectedErrorData>(data.get()).unwrap_or_default()
-                } else {
-                    UnexpectedErrorData::default()
-                };
-
-                Self::UnexpectedError(data)
-            }
-            64 => Self::ReplacementTransactionUnderpriced,
-            65 => Self::FeeBelowMinimum,
-            66 => Self::InvalidSubscriptionId,
-            67 => Self::TooManyAddressesInFilter,
-            68 => Self::TooManyBlocksBack,
-            1000 => {
-                let data = if let Some(data) = err.data() {
-                    serde_json::from_str::<ProofLimitExceededData>(data.get()).unwrap_or_default()
-                } else {
-                    ProofLimitExceededData::default()
-                };
-
-                Self::ProofLimitExceeded(data)
-            }
-
-            _ => Self::UnexpectedError(UnexpectedErrorData { reason: err.message().to_string() }),
-        }
-    }
-}
-
-impl From<StarknetApiError> for ErrorObjectOwned {
-    fn from(err: StarknetApiError) -> Self {
-        ErrorObjectOwned::owned(err.code(), err.message(), err.data())
-    }
-}
-
-impl From<ProviderError> for StarknetApiError {
-    fn from(value: ProviderError) -> Self {
-        StarknetApiError::UnexpectedError(UnexpectedErrorData { reason: value.to_string() })
-    }
-}
-
-impl From<ContinuationTokenError> for StarknetApiError {
-    fn from(value: ContinuationTokenError) -> Self {
-        match value {
-            ContinuationTokenError::InvalidToken => StarknetApiError::InvalidContinuationToken,
-            ContinuationTokenError::ParseFailed(e) => {
-                StarknetApiError::UnexpectedError(UnexpectedErrorData { reason: e.to_string() })
+                _ => Self::unexpected(err),
             }
         }
     }
-}
 
-impl From<anyhow::Error> for StarknetApiError {
-    fn from(value: anyhow::Error) -> Self {
-        StarknetApiError::UnexpectedError(UnexpectedErrorData { reason: value.to_string() })
-    }
-}
-
-impl From<PoolError> for StarknetApiError {
-    fn from(error: PoolError) -> Self {
-        match error {
-            PoolError::InvalidTransaction(err) => err.into(),
-            PoolError::Internal(err) => StarknetApiError::unexpected(err),
+    impl From<StarknetApiError> for ErrorObjectOwned {
+        fn from(err: StarknetApiError) -> Self {
+            ErrorObjectOwned::owned(err.code(), err.message(), err.data())
         }
     }
-}
 
-impl From<Box<InvalidTransactionError>> for StarknetApiError {
-    fn from(error: Box<InvalidTransactionError>) -> Self {
-        match error.as_ref() {
-            InvalidTransactionError::InsufficientFunds { .. } => Self::InsufficientAccountBalance,
-            InvalidTransactionError::ClassAlreadyDeclared { .. } => Self::ClassAlreadyDeclared,
-            InvalidTransactionError::InsufficientIntrinsicFee(..) => {
-                Self::InsufficientResourcesForValidate
-            }
-            InvalidTransactionError::NonAccount { .. } => Self::NonAccount,
-            InvalidTransactionError::InvalidNonce { .. } => {
-                Self::InvalidTransactionNonce(InvalidTransactionNonceData {
-                    reason: error.to_string(),
-                })
-            }
-            InvalidTransactionError::ValidationFailure { error, .. } => {
-                Self::ValidationFailure(ValidationFailureData { reason: error.to_string() })
+    impl From<ProviderError> for StarknetApiError {
+        fn from(value: ProviderError) -> Self {
+            StarknetApiError::unexpected(value)
+        }
+    }
+
+    impl From<ContinuationTokenError> for StarknetApiError {
+        fn from(value: ContinuationTokenError) -> Self {
+            match value {
+                ContinuationTokenError::InvalidToken => StarknetApiError::InvalidContinuationToken,
+                ContinuationTokenError::ParseFailed(e) => StarknetApiError::unexpected(e),
             }
         }
     }
-}
 
-// ---- Forking client error conversion
-
-impl From<StarknetRsError> for StarknetApiError {
-    fn from(value: StarknetRsError) -> Self {
-        match value {
-            StarknetRsError::FeeBelowMinimum => Self::FeeBelowMinimum,
-            StarknetRsError::ReplacementTransactionUnderpriced => {
-                Self::ReplacementTransactionUnderpriced
-            }
-            StarknetRsError::FailedToReceiveTransaction => Self::FailedToReceiveTxn,
-            StarknetRsError::NoBlocks => Self::NoBlocks,
-            StarknetRsError::NonAccount => Self::NonAccount,
-            StarknetRsError::BlockNotFound => Self::BlockNotFound,
-            StarknetRsError::PageSizeTooBig => {
-                Self::PageSizeTooBig(PageSizeTooBigData { requested: 0, max_allowed: 0 })
-            }
-            StarknetRsError::DuplicateTx => Self::DuplicateTransaction,
-            StarknetRsError::ContractNotFound => Self::ContractNotFound,
-            StarknetRsError::ClassHashNotFound => Self::ClassHashNotFound,
-            StarknetRsError::TooManyKeysInFilter => Self::TooManyKeysInFilter,
-            StarknetRsError::InvalidTransactionIndex => Self::InvalidTxnIndex,
-            StarknetRsError::TransactionHashNotFound => Self::TxnHashNotFound,
-            StarknetRsError::ClassAlreadyDeclared => Self::ClassAlreadyDeclared,
-            StarknetRsError::UnexpectedError(reason) => {
-                Self::UnexpectedError(UnexpectedErrorData { reason })
-            }
-            StarknetRsError::InvalidContinuationToken => Self::InvalidContinuationToken,
-            StarknetRsError::UnsupportedTxVersion => Self::UnsupportedTransactionVersion,
-            StarknetRsError::CompiledClassHashMismatch => Self::CompiledClassHashMismatch,
-            StarknetRsError::CompilationFailed(reason) => {
-                Self::CompilationFailed(CompilationFailedData { reason })
-            }
-            StarknetRsError::InsufficientAccountBalance => Self::InsufficientAccountBalance,
-            StarknetRsError::ValidationFailure(reason) => {
-                Self::ValidationFailure(ValidationFailureData { reason })
-            }
-            StarknetRsError::ContractClassSizeIsTooLarge => Self::ContractClassSizeIsTooLarge,
-            StarknetRsError::EntrypointNotFound => Self::EntrypointNotFound,
-            StarknetRsError::ContractError(..) => {
-                Self::ContractError(ContractErrorData { revert_error: String::new() })
-            }
-            StarknetRsError::TransactionExecutionError(data) => {
-                Self::TransactionExecutionError(TransactionExecutionErrorData {
-                    execution_error: String::new(),
-                    transaction_index: data.transaction_index,
-                })
-            }
-            StarknetRsError::InvalidTransactionNonce(reason) => {
-                Self::InvalidTransactionNonce(InvalidTransactionNonceData { reason })
-            }
-            StarknetRsError::UnsupportedContractClassVersion => {
-                Self::UnsupportedContractClassVersion
-            }
-            StarknetRsError::NoTraceAvailable(_) => Self::UnexpectedError(UnexpectedErrorData {
-                reason: "No trace available".to_string(),
-            }),
-            StarknetRsError::StorageProofNotSupported => {
-                Self::StorageProofNotSupported(StorageProofNotSupportedData {
-                    oldest_block: 0,
-                    requested_block: 0,
-                })
-            }
-            StarknetRsError::InsufficientResourcesForValidate => {
-                Self::InsufficientResourcesForValidate
-            }
-            StarknetRsError::InvalidSubscriptionId => Self::InvalidSubscriptionId,
-            StarknetRsError::TooManyAddressesInFilter => Self::TooManyAddressesInFilter,
-            StarknetRsError::TooManyBlocksBack => Self::TooManyBlocksBack,
+    impl From<anyhow::Error> for StarknetApiError {
+        fn from(value: anyhow::Error) -> Self {
+            StarknetApiError::unexpected(value)
         }
     }
-}
 
-impl From<StarknetRsProviderError> for StarknetApiError {
-    fn from(value: StarknetRsProviderError) -> Self {
-        match value {
-            StarknetRsProviderError::StarknetError(error) => error.into(),
-            StarknetRsProviderError::Other(error) => Self::unexpected(error),
-            StarknetRsProviderError::ArrayLengthMismatch => {
-                Self::unexpected("Forking client: Array length mismatch")
+    impl From<PoolError> for StarknetApiError {
+        fn from(error: PoolError) -> Self {
+            match error {
+                PoolError::InvalidTransaction(err) => err.into(),
+                PoolError::Internal(err) => StarknetApiError::unexpected(err),
             }
-            StarknetRsProviderError::RateLimited => {
-                Self::unexpected("Forking client: Rate limited")
+        }
+    }
+
+    impl From<Box<InvalidTransactionError>> for StarknetApiError {
+        fn from(error: Box<InvalidTransactionError>) -> Self {
+            match error.as_ref() {
+                InvalidTransactionError::InsufficientFunds { .. } => {
+                    Self::InsufficientAccountBalance
+                }
+                InvalidTransactionError::ClassAlreadyDeclared { .. } => Self::ClassAlreadyDeclared,
+                InvalidTransactionError::InsufficientIntrinsicFee(..) => {
+                    Self::InsufficientResourcesForValidate
+                }
+                InvalidTransactionError::NonAccount { .. } => Self::NonAccount,
+                InvalidTransactionError::InvalidNonce { .. } => {
+                    Self::InvalidTransactionNonce(InvalidTransactionNonceData {
+                        reason: error.to_string(),
+                    })
+                }
+                InvalidTransactionError::ValidationFailure { error, .. } => {
+                    Self::ValidationFailure(ValidationFailureData { reason: error.to_string() })
+                }
+            }
+        }
+    }
+
+    // ---- Forking client error conversion
+
+    impl From<StarknetRsError> for StarknetApiError {
+        fn from(value: StarknetRsError) -> Self {
+            match value {
+                StarknetRsError::FeeBelowMinimum => Self::FeeBelowMinimum,
+                StarknetRsError::ReplacementTransactionUnderpriced => {
+                    Self::ReplacementTransactionUnderpriced
+                }
+                StarknetRsError::FailedToReceiveTransaction => Self::FailedToReceiveTxn,
+                StarknetRsError::NoBlocks => Self::NoBlocks,
+                StarknetRsError::NonAccount => Self::NonAccount,
+                StarknetRsError::BlockNotFound => Self::BlockNotFound,
+                StarknetRsError::PageSizeTooBig => {
+                    Self::PageSizeTooBig(PageSizeTooBigData { requested: 0, max_allowed: 0 })
+                }
+                StarknetRsError::DuplicateTx => Self::DuplicateTransaction,
+                StarknetRsError::ContractNotFound => Self::ContractNotFound,
+                StarknetRsError::ClassHashNotFound => Self::ClassHashNotFound,
+                StarknetRsError::TooManyKeysInFilter => Self::TooManyKeysInFilter,
+                StarknetRsError::InvalidTransactionIndex => Self::InvalidTxnIndex,
+                StarknetRsError::TransactionHashNotFound => Self::TxnHashNotFound,
+                StarknetRsError::ClassAlreadyDeclared => Self::ClassAlreadyDeclared,
+                StarknetRsError::UnexpectedError(reason) => Self::unexpected(reason),
+                StarknetRsError::InvalidContinuationToken => Self::InvalidContinuationToken,
+                StarknetRsError::UnsupportedTxVersion => Self::UnsupportedTransactionVersion,
+                StarknetRsError::CompiledClassHashMismatch => Self::CompiledClassHashMismatch,
+                StarknetRsError::CompilationFailed(reason) => {
+                    Self::CompilationFailed(CompilationFailedData { reason })
+                }
+                StarknetRsError::InsufficientAccountBalance => Self::InsufficientAccountBalance,
+                StarknetRsError::ValidationFailure(reason) => {
+                    Self::ValidationFailure(ValidationFailureData { reason })
+                }
+                StarknetRsError::ContractClassSizeIsTooLarge => Self::ContractClassSizeIsTooLarge,
+                StarknetRsError::EntrypointNotFound => Self::EntrypointNotFound,
+                StarknetRsError::ContractError(..) => {
+                    Self::ContractError(ContractErrorData { revert_error: String::new() })
+                }
+                StarknetRsError::TransactionExecutionError(data) => {
+                    Self::transaction_execution_error(data.transaction_index, String::new())
+                }
+                StarknetRsError::InvalidTransactionNonce(reason) => {
+                    Self::InvalidTransactionNonce(InvalidTransactionNonceData { reason })
+                }
+                StarknetRsError::UnsupportedContractClassVersion => {
+                    Self::UnsupportedContractClassVersion
+                }
+                StarknetRsError::NoTraceAvailable(_) => Self::unexpected("No trace available"),
+                StarknetRsError::StorageProofNotSupported => {
+                    Self::StorageProofNotSupported(StorageProofNotSupportedData {
+                        oldest_block: 0,
+                        requested_block: 0,
+                    })
+                }
+                StarknetRsError::InsufficientResourcesForValidate => {
+                    Self::InsufficientResourcesForValidate
+                }
+                StarknetRsError::InvalidSubscriptionId => Self::InvalidSubscriptionId,
+                StarknetRsError::TooManyAddressesInFilter => Self::TooManyAddressesInFilter,
+                StarknetRsError::TooManyBlocksBack => Self::TooManyBlocksBack,
+            }
+        }
+    }
+
+    impl From<StarknetRsProviderError> for StarknetApiError {
+        fn from(value: StarknetRsProviderError) -> Self {
+            match value {
+                StarknetRsProviderError::StarknetError(error) => error.into(),
+                StarknetRsProviderError::Other(error) => Self::unexpected(error),
+                StarknetRsProviderError::ArrayLengthMismatch => {
+                    Self::unexpected("Forking client: Array length mismatch")
+                }
+                StarknetRsProviderError::RateLimited => {
+                    Self::unexpected("Forking client: Rate limited")
+                }
             }
         }
     }
@@ -553,6 +562,7 @@ impl From<StarknetRsProviderError> for StarknetApiError {
 
 #[cfg(test)]
 mod tests {
+    use jsonrpsee::types::ErrorObjectOwned;
     use rstest::rstest;
     use serde_json::json;
 
