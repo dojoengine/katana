@@ -17,7 +17,7 @@ use katana_rpc_types::broadcasted::{
     BroadcastedInvokeTx, BroadcastedTx,
 };
 use katana_rpc_types::class::Class;
-use katana_rpc_types::event::{EventFilterWithPage, EventsPage};
+use katana_rpc_types::event::{EventFilterWithPage, GetEventsResponse};
 use katana_rpc_types::message::MsgFromL1;
 use katana_rpc_types::receipt::TxReceiptWithBlockInfo;
 use katana_rpc_types::state_update::MaybePreConfirmedStateUpdate;
@@ -174,7 +174,7 @@ pub trait StarknetApi {
 
     /// Returns all event objects matching the conditions in the provided filter.
     #[method(name = "getEvents")]
-    async fn get_events(&self, filter: EventFilterWithPage) -> RpcResult<EventsPage>;
+    async fn get_events(&self, filter: EventFilterWithPage) -> RpcResult<GetEventsResponse>;
 
     /// Get the nonce associated with the given address in the given block.
     #[method(name = "getNonce")]

@@ -23,7 +23,7 @@ use katana_rpc_types::block::{
 };
 use katana_rpc_types::broadcasted::BroadcastedTx;
 use katana_rpc_types::class::Class;
-use katana_rpc_types::event::{EventFilterWithPage, EventsPage};
+use katana_rpc_types::event::{EventFilterWithPage, GetEventsResponse};
 use katana_rpc_types::message::MsgFromL1;
 use katana_rpc_types::receipt::TxReceiptWithBlockInfo;
 use katana_rpc_types::state_update::MaybePreConfirmedStateUpdate;
@@ -129,7 +129,7 @@ impl<EF: ExecutorFactory> StarknetApiServer for StarknetApi<EF> {
         Ok(self.class_at_hash(block_id, class_hash).await?)
     }
 
-    async fn get_events(&self, filter: EventFilterWithPage) -> RpcResult<EventsPage> {
+    async fn get_events(&self, filter: EventFilterWithPage) -> RpcResult<GetEventsResponse> {
         Ok(self.events(filter).await?)
     }
 

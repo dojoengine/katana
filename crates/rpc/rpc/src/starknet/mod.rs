@@ -32,7 +32,7 @@ use katana_rpc_types::block::{
     PreConfirmedBlockWithTxs,
 };
 use katana_rpc_types::class::Class;
-use katana_rpc_types::event::{EventFilterWithPage, EventsPage};
+use katana_rpc_types::event::{EventFilterWithPage, GetEventsResponse};
 use katana_rpc_types::list::{
     ContinuationToken as ListContinuationToken, GetBlocksRequest, GetBlocksResponse,
     GetTransactionsRequest, GetTransactionsResponse, TransactionListItem,
@@ -832,7 +832,7 @@ impl<EF: ExecutorFactory> StarknetApi<EF> {
         }
     }
 
-    async fn events(&self, filter: EventFilterWithPage) -> StarknetApiResult<EventsPage> {
+    async fn events(&self, filter: EventFilterWithPage) -> StarknetApiResult<GetEventsResponse> {
         let EventFilterWithPage { event_filter, result_page_request } = filter;
         let ResultPageRequest { continuation_token, chunk_size } = result_page_request;
 
@@ -890,7 +890,7 @@ impl<EF: ExecutorFactory> StarknetApi<EF> {
         keys: Option<Vec<Vec<Felt>>>,
         continuation_token: Option<MaybeForkedContinuationToken>,
         chunk_size: u64,
-    ) -> StarknetApiResult<EventsPage> {
+    ) -> StarknetApiResult<GetEventsResponse> {
         let provider = self.inner.backend.blockchain.provider();
 
         let from = self.resolve_event_block_id_if_forked(from_block)?;
@@ -945,7 +945,7 @@ impl<EF: ExecutorFactory> StarknetApi<EF> {
                             if let Some(token) = forked_result.continuation_token {
                                 let token = MaybeForkedContinuationToken::Forked(token);
                                 let continuation_token = Some(token.to_string());
-                                return Ok(EventsPage { events, continuation_token });
+                                return Ok(GetEventsResponse { events, continuation_token });
                             }
                         }
                     }
@@ -970,7 +970,7 @@ impl<EF: ExecutorFactory> StarknetApi<EF> {
                 )?;
 
                 let continuation_token = cursor.map(|c| c.into_rpc_cursor().to_string());
-                let events_page = EventsPage { events, continuation_token };
+                let events_page = GetEventsResponse { events, continuation_token };
 
                 Ok(events_page)
             }
@@ -1019,7 +1019,7 @@ impl<EF: ExecutorFactory> StarknetApi<EF> {
                             if let Some(token) = forked_result.continuation_token {
                                 let token = MaybeForkedContinuationToken::Forked(token);
                                 let continuation_token = Some(token.to_string());
-                                return Ok(EventsPage { events, continuation_token });
+                                return Ok(GetEventsResponse { events, continuation_token });
                             }
                         }
                     }
@@ -1048,7 +1048,7 @@ impl<EF: ExecutorFactory> StarknetApi<EF> {
                 // reached the latest block.
                 if let Some(c) = int_cursor {
                     let continuation_token = Some(c.into_rpc_cursor().to_string());
-                    return Ok(EventsPage { events, continuation_token });
+                    return Ok(GetEventsResponse { events, continuation_token });
                 }
 
                 if let Some(executor) = self.pending_executor() {
@@ -1061,11 +1061,11 @@ impl<EF: ExecutorFactory> StarknetApi<EF> {
                     )?;
 
                     let continuation_token = Some(cursor.into_rpc_cursor().to_string());
-                    Ok(EventsPage { events, continuation_token })
+                    Ok(GetEventsResponse { events, continuation_token })
                 } else {
                     let cursor = Cursor::new_block(latest + 1);
                     let continuation_token = Some(cursor.into_rpc_cursor().to_string());
-                    Ok(EventsPage { events, continuation_token })
+                    Ok(GetEventsResponse { events, continuation_token })
                 }
             }
 
@@ -1081,13 +1081,13 @@ impl<EF: ExecutorFactory> StarknetApi<EF> {
                     )?;
 
                     let continuation_token = Some(new_cursor.into_rpc_cursor().to_string());
-                    Ok(EventsPage { events, continuation_token })
+                    Ok(GetEventsResponse { events, continuation_token })
                 } else {
                     let latest = provider.latest_number()?;
                     let new_cursor = Cursor::new_block(latest);
 
                     let continuation_token = Some(new_cursor.into_rpc_cursor().to_string());
-                    Ok(EventsPage { events, continuation_token })
+                    Ok(GetEventsResponse { events, continuation_token })
                 }
             }
 

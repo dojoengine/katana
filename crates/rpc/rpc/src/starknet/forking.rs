@@ -7,7 +7,7 @@ use katana_rpc_types::block::{
     MaybePreConfirmedBlockWithReceipts, MaybePreConfirmedBlockWithTxHashes,
     MaybePreConfirmedBlockWithTxs,
 };
-use katana_rpc_types::event::EventsPage;
+use katana_rpc_types::event::GetEventsResponse;
 use katana_rpc_types::receipt::TxReceiptWithBlockInfo;
 use katana_rpc_types::state_update::MaybePreConfirmedStateUpdate;
 use katana_rpc_types::transaction::Tx;
@@ -272,7 +272,7 @@ impl<P: Provider> ForkedClient<P> {
         keys: Option<Vec<Vec<Felt>>>,
         continuation_token: Option<String>,
         chunk_size: u64,
-    ) -> Result<EventsPage, Error> {
+    ) -> Result<GetEventsResponse, Error> {
         if from > self.block || to > self.block {
             return Err(Error::BlockOutOfRange);
         }
