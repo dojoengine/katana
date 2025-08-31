@@ -3,9 +3,10 @@ use katana_primitives::block::{
 };
 use katana_primitives::receipt::Receipt;
 use katana_primitives::transaction::{TxHash, TxWithHash};
+use katana_primitives::{ContractAddress, Felt};
 use serde::{Deserialize, Serialize};
 use starknet::core::types::{
-    BlockStatus, L1DataAvailabilityMode, ResourcePrice, TransactionWithReceipt,
+    BlockStatus, L1DataAvailabilityMode, ResourcePrice, TransactionContent,
 };
 
 use crate::receipt::TxReceipt;
@@ -256,8 +257,28 @@ impl From<(BlockHash, BlockNumber)> for BlockHashAndNumber {
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
-#[serde(transparent)]
-pub struct BlockWithReceipts(starknet::core::types::BlockWithReceipts);
+#[serde(untagged)]
+pub enum MaybePreConfirmedBlockWithReceipts {
+    PreConfirmed(PreConfirmedBlockWithReceipts),
+    Block(BlockWithReceipts),
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct BlockWithReceipts {
+    pub status: BlockStatus,
+    pub block_hash: BlockHash,
+    pub parent_hash: BlockHash,
+    pub block_number: BlockNumber,
+    pub new_root: Felt,
+    pub timestamp: u64,
+    pub sequencer_address: ContractAddress,
+    pub l1_gas_price: ResourcePrice,
+    pub l2_gas_price: ResourcePrice,
+    pub l1_data_gas_price: ResourcePrice,
+    pub l1_da_mode: L1DataAvailabilityMode,
+    pub starknet_version: String,
+    pub transactions: Vec<TxWithReceipt>,
+}
 
 impl BlockWithReceipts {
     pub fn new(
@@ -283,13 +304,13 @@ impl BlockWithReceipts {
 
         let transactions = receipts
             .map(|(tx_with_hash, receipt)| {
-                let receipt = TxReceipt::new(tx_with_hash.hash, finality_status, receipt).0;
+                let receipt = TxReceipt::new(tx_with_hash.hash, finality_status, receipt);
                 let transaction = TxContent::from(tx_with_hash).0;
-                TransactionWithReceipt { transaction, receipt }
+                TxWithReceipt { transaction, receipt }
             })
             .collect();
 
-        Self(starknet::core::types::BlockWithReceipts {
+        Self {
             status: match finality_status {
                 FinalityStatus::AcceptedOnL1 => BlockStatus::AcceptedOnL1,
                 FinalityStatus::AcceptedOnL2 => BlockStatus::AcceptedOnL2,
@@ -306,13 +327,28 @@ impl BlockWithReceipts {
             l1_da_mode: L1DataAvailabilityMode::Calldata,
             starknet_version: header.starknet_version.to_string(),
             transactions,
-        })
+        }
     }
 }
 
-#[derive(Debug, Clone, Serialize, Deserialize)]
-#[serde(transparent)]
-pub struct PreConfirmedBlockWithReceipts(starknet::core::types::PreConfirmedBlockWithReceipts);
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct TxWithReceipt {
+    transaction: TransactionContent,
+    receipt: TxReceipt,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct PreConfirmedBlockWithReceipts {
+    pub transactions: Vec<TxWithReceipt>,
+    pub block_number: BlockNumber,
+    pub timestamp: u64,
+    pub sequencer_address: ContractAddress,
+    pub l1_gas_price: ResourcePrice,
+    pub l2_gas_price: ResourcePrice,
+    pub l1_data_gas_price: ResourcePrice,
+    pub l1_da_mode: L1DataAvailabilityMode,
+    pub starknet_version: String,
+}
 
 impl PreConfirmedBlockWithReceipts {
     pub fn new(
@@ -337,13 +373,13 @@ impl PreConfirmedBlockWithReceipts {
         let transactions = receipts
             .map(|(tx_with_hash, receipt)| {
                 let receipt =
-                    TxReceipt::new(tx_with_hash.hash, FinalityStatus::AcceptedOnL2, receipt).0;
+                    TxReceipt::new(tx_with_hash.hash, FinalityStatus::AcceptedOnL2, receipt);
                 let transaction = TxContent::from(tx_with_hash).0;
-                TransactionWithReceipt { transaction, receipt }
+                TxWithReceipt { transaction, receipt }
             })
             .collect();
 
-        Self(starknet::core::types::PreConfirmedBlockWithReceipts {
+        Self {
             transactions,
             l1_gas_price,
             l2_gas_price,
@@ -358,31 +394,19 @@ impl PreConfirmedBlockWithReceipts {
             },
             l1_data_gas_price,
             starknet_version: header.starknet_version.to_string(),
-        })
+        }
     }
 }
 
-#[derive(Debug, Clone, Serialize, Deserialize)]
-#[serde(untagged)]
-pub enum MaybePreConfirmedBlockWithReceipts {
-    PreConfirmed(PreConfirmedBlockWithReceipts),
-    Block(BlockWithReceipts),
+impl From<PreConfirmedBlockWithReceipts> for MaybePreConfirmedBlockWithReceipts {
+    fn from(value: PreConfirmedBlockWithReceipts) -> Self {
+        MaybePreConfirmedBlockWithReceipts::PreConfirmed(value)
+    }
 }
 
-impl From<starknet::core::types::MaybePreConfirmedBlockWithReceipts>
-    for MaybePreConfirmedBlockWithReceipts
-{
-    fn from(value: starknet::core::types::MaybePreConfirmedBlockWithReceipts) -> Self {
-        match value {
-            starknet::core::types::MaybePreConfirmedBlockWithReceipts::PreConfirmedBlock(block) => {
-                MaybePreConfirmedBlockWithReceipts::PreConfirmed(PreConfirmedBlockWithReceipts(
-                    block,
-                ))
-            }
-            starknet::core::types::MaybePreConfirmedBlockWithReceipts::Block(block) => {
-                MaybePreConfirmedBlockWithReceipts::Block(BlockWithReceipts(block))
-            }
-        }
+impl From<BlockWithReceipts> for MaybePreConfirmedBlockWithReceipts {
+    fn from(value: BlockWithReceipts) -> Self {
+        MaybePreConfirmedBlockWithReceipts::Block(value)
     }
 }
 

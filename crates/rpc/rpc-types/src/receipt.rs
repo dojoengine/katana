@@ -1,18 +1,81 @@
 use katana_primitives::block::FinalityStatus;
 use katana_primitives::fee::{FeeInfo, PriceUnit};
-use katana_primitives::receipt::{self, MessageToL1, Receipt};
+use katana_primitives::receipt::{self, Event, MessageToL1, Receipt};
 use katana_primitives::transaction::TxHash;
+use katana_primitives::ContractAddress;
 use serde::{Deserialize, Serialize};
 pub use starknet::core::types::ReceiptBlock;
 use starknet::core::types::{
-    DeclareTransactionReceipt, DeployAccountTransactionReceipt, ExecutionResources,
-    ExecutionResult, FeePayment, Hash256, InvokeTransactionReceipt, L1HandlerTransactionReceipt,
-    TransactionFinalityStatus, TransactionReceipt, TransactionReceiptWithBlockInfo,
+    ExecutionResources, ExecutionResult, FeePayment, Hash256, TransactionFinalityStatus,
 };
 
-#[derive(Debug, Clone, Serialize, Deserialize)]
-#[serde(transparent)]
-pub struct TxReceipt(pub(crate) starknet::core::types::TransactionReceipt);
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(tag = "type", rename_all = "SCREAMING_SNAKE_CASE")]
+pub enum TxReceipt {
+    Invoke(InvokeTxReceipt),
+    Deploy(DeployTxReceipt),
+    Declare(DeclareTxReceipt),
+    L1Handler(L1HandlerTxReceipt),
+    DeployAccount(DeployAccountTxReceipt),
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct InvokeTxReceipt {
+    pub transaction_hash: TxHash,
+    pub actual_fee: FeePayment,
+    pub finality_status: TransactionFinalityStatus,
+    pub messages_sent: Vec<MessageToL1>,
+    pub events: Vec<Event>,
+    pub execution_resources: ExecutionResources,
+    pub execution_result: ExecutionResult,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct L1HandlerTxReceipt {
+    pub transaction_hash: TxHash,
+    pub message_hash: Hash256,
+    pub actual_fee: FeePayment,
+    pub finality_status: TransactionFinalityStatus,
+    pub messages_sent: Vec<MessageToL1>,
+    pub events: Vec<Event>,
+    pub execution_resources: ExecutionResources,
+    pub execution_result: ExecutionResult,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct DeclareTxReceipt {
+    pub transaction_hash: TxHash,
+    pub actual_fee: FeePayment,
+    pub finality_status: TransactionFinalityStatus,
+    pub messages_sent: Vec<MessageToL1>,
+    pub events: Vec<Event>,
+    pub execution_resources: ExecutionResources,
+    pub execution_result: ExecutionResult,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct DeployTxReceipt {
+    pub transaction_hash: TxHash,
+    pub actual_fee: FeePayment,
+    pub finality_status: TransactionFinalityStatus,
+    pub messages_sent: Vec<MessageToL1>,
+    pub events: Vec<Event>,
+    pub execution_resources: ExecutionResources,
+    pub execution_result: ExecutionResult,
+    pub contract_address: ContractAddress,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct DeployAccountTxReceipt {
+    pub transaction_hash: TxHash,
+    pub actual_fee: FeePayment,
+    pub finality_status: TransactionFinalityStatus,
+    pub messages_sent: Vec<MessageToL1>,
+    pub events: Vec<Event>,
+    pub execution_resources: ExecutionResources,
+    pub execution_result: ExecutionResult,
+    pub contract_address: ContractAddress,
+}
 
 impl TxReceipt {
     pub fn new(
@@ -25,13 +88,12 @@ impl TxReceipt {
             FinalityStatus::AcceptedOnL2 => TransactionFinalityStatus::AcceptedOnL2,
         };
 
-        let receipt = match receipt {
+        match receipt {
             Receipt::Invoke(rct) => {
-                let messages_sent =
-                    rct.messages_sent.into_iter().map(|e| MsgToL1::from(e).0).collect();
-                let events = rct.events.into_iter().map(|e| Event::from(e).0).collect();
+                let messages_sent = rct.messages_sent;
+                let events = rct.events;
 
-                TransactionReceipt::Invoke(InvokeTransactionReceipt {
+                TxReceipt::Invoke(InvokeTxReceipt {
                     events,
                     messages_sent,
                     finality_status,
@@ -47,11 +109,10 @@ impl TxReceipt {
             }
 
             Receipt::Declare(rct) => {
-                let messages_sent =
-                    rct.messages_sent.into_iter().map(|e| MsgToL1::from(e).0).collect();
-                let events = rct.events.into_iter().map(|e| Event::from(e).0).collect();
+                let messages_sent = rct.messages_sent;
+                let events = rct.events;
 
-                TransactionReceipt::Declare(DeclareTransactionReceipt {
+                TxReceipt::Declare(DeclareTxReceipt {
                     events,
                     messages_sent,
                     finality_status,
@@ -67,11 +128,10 @@ impl TxReceipt {
             }
 
             Receipt::L1Handler(rct) => {
-                let messages_sent =
-                    rct.messages_sent.into_iter().map(|e| MsgToL1::from(e).0).collect();
-                let events = rct.events.into_iter().map(|e| Event::from(e).0).collect();
+                let messages_sent = rct.messages_sent;
+                let events = rct.events;
 
-                TransactionReceipt::L1Handler(L1HandlerTransactionReceipt {
+                TxReceipt::L1Handler(L1HandlerTxReceipt {
                     events,
                     messages_sent,
                     finality_status,
@@ -88,17 +148,16 @@ impl TxReceipt {
             }
 
             Receipt::DeployAccount(rct) => {
-                let messages_sent =
-                    rct.messages_sent.into_iter().map(|e| MsgToL1::from(e).0).collect();
-                let events = rct.events.into_iter().map(|e| Event::from(e).0).collect();
+                let messages_sent = rct.messages_sent;
+                let events = rct.events;
 
-                TransactionReceipt::DeployAccount(DeployAccountTransactionReceipt {
+                TxReceipt::DeployAccount(DeployAccountTxReceipt {
                     events,
                     messages_sent,
                     finality_status,
                     transaction_hash,
                     actual_fee: to_rpc_fee(rct.fee),
-                    contract_address: rct.contract_address.into(),
+                    contract_address: rct.contract_address,
                     execution_resources: to_rpc_resources(rct.execution_resources),
                     execution_result: if let Some(reason) = rct.revert_error {
                         ExecutionResult::Reverted { reason }
@@ -107,20 +166,16 @@ impl TxReceipt {
                     },
                 })
             }
-        };
-
-        Self(receipt)
+        }
     }
 }
 
-#[derive(Debug, Clone, Serialize, Deserialize)]
-#[serde(transparent)]
-pub struct TxReceiptWithBlockInfo(pub starknet::core::types::TransactionReceiptWithBlockInfo);
-
-impl From<starknet::core::types::TransactionReceiptWithBlockInfo> for TxReceiptWithBlockInfo {
-    fn from(value: starknet::core::types::TransactionReceiptWithBlockInfo) -> Self {
-        Self(value)
-    }
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct TxReceiptWithBlockInfo {
+    #[serde(flatten)]
+    pub receipt: TxReceipt,
+    #[serde(flatten)]
+    pub block: ReceiptBlock,
 }
 
 impl TxReceiptWithBlockInfo {
@@ -130,32 +185,8 @@ impl TxReceiptWithBlockInfo {
         finality_status: FinalityStatus,
         receipt: Receipt,
     ) -> Self {
-        let receipt = TxReceipt::new(transaction_hash, finality_status, receipt).0;
-        Self(TransactionReceiptWithBlockInfo { receipt, block })
-    }
-}
-
-struct MsgToL1(starknet::core::types::MsgToL1);
-
-impl From<MessageToL1> for MsgToL1 {
-    fn from(value: MessageToL1) -> Self {
-        MsgToL1(starknet::core::types::MsgToL1 {
-            from_address: value.from_address.into(),
-            to_address: value.to_address,
-            payload: value.payload,
-        })
-    }
-}
-
-struct Event(starknet::core::types::Event);
-
-impl From<katana_primitives::receipt::Event> for Event {
-    fn from(value: katana_primitives::receipt::Event) -> Self {
-        Event(starknet::core::types::Event {
-            from_address: value.from_address.into(),
-            keys: value.keys,
-            data: value.data,
-        })
+        let receipt = TxReceipt::new(transaction_hash, finality_status, receipt);
+        Self { receipt, block }
     }
 }
 
