@@ -25,7 +25,9 @@ use katana_provider::traits::state::{StateFactoryProvider, StateProvider, StateR
 use katana_provider::traits::transaction::{
     ReceiptProvider, TransactionProvider, TransactionStatusProvider, TransactionsProviderExt,
 };
-use katana_rpc_api::error::starknet::StarknetApiError;
+use katana_rpc_api::error::starknet::{
+    PageSizeTooBigData, ProofLimitExceededData, StarknetApiError,
+};
 use katana_rpc_types::block::{
     BlockHashAndNumberResponse, BlockNumberResponse, MaybePreConfirmedBlockWithReceipts,
     MaybePreConfirmedBlockWithTxHashes, MaybePreConfirmedBlockWithTxs,
@@ -519,10 +521,10 @@ impl<EF: ExecutorFactory> StarknetApi<EF> {
                     // TODO: this might not work once we allow querying for 'failed' transactions
                     // from the provider
                     let Some(receipt) = provider.receipt_by_hash(hash)? else {
-                        return Err(StarknetApiError::UnexpectedError {
-                            reason: "Transaction hash exist, but the receipt is missing"
-                                .to_string(),
-                        });
+                        let error = StarknetApiError::unexpected(
+                            "Transaction hash exist, but the receipt is missing",
+                        );
+                        return Err(error);
                     };
 
                     let exec_status = if let Some(reason) = receipt.revert_reason() {
@@ -834,15 +836,15 @@ impl<EF: ExecutorFactory> StarknetApi<EF> {
     }
 
     async fn events(&self, filter: EventFilterWithPage) -> StarknetApiResult<GetEventsResponse> {
-        let EventFilterWithPage { event_filter, result_page_request } = filter;
+        let EventFilterWithPage { filter: event_filter, result_page_request } = filter;
         let ResultPageRequest { continuation_token, chunk_size } = result_page_request;
 
         if let Some(max_size) = self.inner.config.max_event_page_size {
             if chunk_size > max_size {
-                return Err(StarknetApiError::PageSizeTooBig {
+                return Err(StarknetApiError::PageSizeTooBig(PageSizeTooBigData {
                     requested: chunk_size,
                     max_allowed: max_size,
-                });
+                }));
             }
         }
 
@@ -1092,11 +1094,9 @@ impl<EF: ExecutorFactory> StarknetApi<EF> {
                 }
             }
 
-            (EventBlockId::Pending, EventBlockId::Num(_)) => {
-                Err(StarknetApiError::UnexpectedError {
-                    reason: "Invalid block range; `from` block must be lower than `to`".to_string(),
-                })
-            }
+            (EventBlockId::Pending, EventBlockId::Num(_)) => Err(StarknetApiError::unexpected(
+                "Invalid block range; `from` block must be lower than `to`",
+            )),
         }
     }
 
@@ -1161,7 +1161,10 @@ impl<EF: ExecutorFactory> StarknetApi<EF> {
 
                 let total_keys = total_keys as u64;
                 if total_keys > limit {
-                    return Err(StarknetApiError::ProofLimitExceeded { limit, total: total_keys });
+                    return Err(StarknetApiError::ProofLimitExceeded(ProofLimitExceededData {
+                        limit,
+                        total: total_keys,
+                    }));
                 }
             }
 
@@ -1354,15 +1357,11 @@ impl<EF: ExecutorFactory> StarknetApi<EF> {
 
             for hash in tx_hashes {
                 let transaction = provider.transaction_by_hash(hash)?.map(TxWithHash::from).ok_or(
-                    StarknetApiError::UnexpectedError {
-                        reason: format!("transaction is missing; {hash:#}"),
-                    },
+                    StarknetApiError::unexpected(format!("transaction is missing; {hash:#}")),
                 )?;
 
                 let receipt = ReceiptBuilder::new(hash, provider).build()?.ok_or(
-                    StarknetApiError::UnexpectedError {
-                        reason: format!("transaction is missing; {hash:#}"),
-                    },
+                    StarknetApiError::unexpected(format!("transaction is missing; {hash:#}")),
                 )?;
 
                 transactions.push(TransactionListItem { transaction, receipt });

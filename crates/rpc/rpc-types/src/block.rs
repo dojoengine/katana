@@ -125,9 +125,29 @@ impl PreConfirmedBlockWithTxs {
     }
 }
 
-#[derive(Debug, Clone, Serialize, Deserialize)]
-#[serde(transparent)]
-pub struct BlockWithTxHashes(pub starknet::core::types::BlockWithTxHashes);
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(untagged)]
+pub enum MaybePreConfirmedBlockWithTxHashes {
+    PreConfirmed(PreConfirmedBlockWithTxHashes),
+    Block(BlockWithTxHashes),
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct BlockWithTxHashes {
+    pub status: BlockStatus,
+    pub block_hash: BlockHash,
+    pub parent_hash: BlockHash,
+    pub block_number: BlockNumber,
+    pub new_root: Felt,
+    pub timestamp: u64,
+    pub sequencer_address: ContractAddress,
+    pub l1_gas_price: ResourcePrice,
+    pub l2_gas_price: ResourcePrice,
+    pub l1_data_gas_price: ResourcePrice,
+    pub l1_da_mode: L1DataAvailabilityMode,
+    pub starknet_version: String,
+    pub transactions: Vec<Felt>,
+}
 
 impl BlockWithTxHashes {
     pub fn new(
@@ -150,7 +170,7 @@ impl BlockWithTxHashes {
             price_in_fri: block.header.l1_data_gas_prices.strk.get().into(),
         };
 
-        Self(starknet::core::types::BlockWithTxHashes {
+        Self {
             block_hash,
             l1_gas_price,
             l2_gas_price,
@@ -172,13 +192,32 @@ impl BlockWithTxHashes {
                 }
             },
             l1_data_gas_price,
-        })
+        }
     }
 }
 
-#[derive(Debug, Clone, Serialize, Deserialize)]
-#[serde(transparent)]
-pub struct PreConfirmedBlockWithTxHashes(starknet::core::types::PreConfirmedBlockWithTxHashes);
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct PreConfirmedBlockWithTxHashes {
+    /// The hashes of the transactions included in this block
+    pub transactions: Vec<Felt>,
+    /// The block number of the block that the proposer is currently building. Note that this is a
+    /// local view of the node, whose accuracy depends on its polling interval length.
+    pub block_number: BlockNumber,
+    /// The time in which the block was created, encoded in Unix time
+    pub timestamp: u64,
+    /// The Starknet identity of the sequencer submitting this block
+    pub sequencer_address: ContractAddress,
+    /// The price of L1 gas in the block
+    pub l1_gas_price: ResourcePrice,
+    /// The price of L2 gas in the block
+    pub l2_gas_price: ResourcePrice,
+    /// The price of L1 data gas in the block
+    pub l1_data_gas_price: ResourcePrice,
+    /// Specifies whether the data of this block is published via blob data or calldata
+    pub l1_da_mode: L1DataAvailabilityMode,
+    /// Semver of the current Starknet protocol
+    pub starknet_version: String,
+}
 
 impl PreConfirmedBlockWithTxHashes {
     pub fn new(header: PartialHeader, transactions: Vec<TxHash>) -> Self {
@@ -197,7 +236,7 @@ impl PreConfirmedBlockWithTxHashes {
             price_in_fri: header.l1_data_gas_prices.strk.get().into(),
         };
 
-        Self(starknet::core::types::PreConfirmedBlockWithTxHashes {
+        Self {
             transactions,
             l1_gas_price,
             l2_gas_price,
@@ -212,30 +251,6 @@ impl PreConfirmedBlockWithTxHashes {
                 }
             },
             l1_data_gas_price,
-        })
-    }
-}
-
-#[derive(Debug, Clone, Serialize, Deserialize)]
-#[serde(untagged)]
-pub enum MaybePreConfirmedBlockWithTxHashes {
-    PreConfirmed(PreConfirmedBlockWithTxHashes),
-    Block(BlockWithTxHashes),
-}
-
-impl From<starknet::core::types::MaybePreConfirmedBlockWithTxHashes>
-    for MaybePreConfirmedBlockWithTxHashes
-{
-    fn from(value: starknet::core::types::MaybePreConfirmedBlockWithTxHashes) -> Self {
-        match value {
-            starknet::core::types::MaybePreConfirmedBlockWithTxHashes::PreConfirmedBlock(block) => {
-                MaybePreConfirmedBlockWithTxHashes::PreConfirmed(PreConfirmedBlockWithTxHashes(
-                    block,
-                ))
-            }
-            starknet::core::types::MaybePreConfirmedBlockWithTxHashes::Block(block) => {
-                MaybePreConfirmedBlockWithTxHashes::Block(BlockWithTxHashes(block))
-            }
         }
     }
 }
@@ -254,7 +269,7 @@ pub struct BlockHashAndNumberResponse {
     /// The block's hash.
     pub block_hash: BlockHash,
     /// The block's number (height).
-    pub block_number: u64,
+    pub block_number: BlockNumber,
 }
 
 impl BlockHashAndNumberResponse {

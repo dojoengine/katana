@@ -9,7 +9,7 @@ use katana_primitives::env::{BlockEnv, CfgEnv};
 use katana_primitives::transaction::ExecutableTxWithHash;
 use katana_primitives::Felt;
 use katana_provider::traits::state::StateProvider;
-use katana_rpc_api::error::starknet::StarknetApiError;
+use katana_rpc_api::error::starknet::{ContractErrorData, StarknetApiError};
 use katana_rpc_types::{FeeEstimate, FunctionCall};
 
 use crate::starknet::StarknetApiResult;
@@ -75,10 +75,10 @@ pub fn estimate_fees(
             match result {
                 ExecutionResult::Success { receipt, .. } => {
                     if let Some(reason) = receipt.revert_reason() {
-                        return Err(StarknetApiError::TransactionExecutionError {
-                            transaction_index: idx as u64,
-                            execution_error: reason.to_string(),
-                        });
+                        return Err(StarknetApiError::transaction_execution_error(
+                            idx as u64,
+                            reason.to_string(),
+                        ));
                     } else {
                         let fee = receipt.fee();
                         let resources = receipt.resources_used();
@@ -96,10 +96,10 @@ pub fn estimate_fees(
                 }
 
                 ExecutionResult::Failed { error } => {
-                    return Err(StarknetApiError::TransactionExecutionError {
-                        transaction_index: idx as u64,
-                        execution_error: error.to_string(),
-                    });
+                    return Err(StarknetApiError::transaction_execution_error(
+                        idx as u64,
+                        error.to_string(),
+                    ));
                 }
             };
         }
@@ -124,7 +124,7 @@ pub fn call<P: StateProvider>(
     // test) we have to initialize it manually.
     let class_cache = ClassCache::try_global()
         .or_else(|_| ClassCache::new())
-        .map_err(|e| StarknetApiError::UnexpectedError { reason: e.to_string() })?;
+        .map_err(StarknetApiError::unexpected)?;
 
     let state = CachedState::new(state, class_cache);
 
@@ -137,7 +137,9 @@ fn to_api_error(error: ExecutionError) -> StarknetApiError {
     match error {
         ExecutionError::EntryPointNotFound(..) => StarknetApiError::EntrypointNotFound,
         ExecutionError::ContractNotDeployed(..) => StarknetApiError::ContractNotFound,
-        error => StarknetApiError::ContractError { revert_error: error.to_string() },
+        error => {
+            StarknetApiError::ContractError(ContractErrorData { revert_error: error.to_string() })
+        }
     }
 }
 

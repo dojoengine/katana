@@ -142,8 +142,7 @@ impl<EF: ExecutorFactory> CartridgeApi<EF> {
             let pm_private_key = if let GenesisAccountAlloc::DevAccount(pm) = pm_acc {
                 pm.private_key
             } else {
-                let reason = "Paymaster is not a dev account".to_string();
-                return Err(StarknetApiError::UnexpectedError { reason });
+                return Err(StarknetApiError::unexpected("Paymaster is not a dev account"))
             };
 
             // Contract function selector for

@@ -235,8 +235,7 @@ impl<EF: ExecutorFactory> StarknetApiServer for StarknetApi<EF> {
             {
                 pm.private_key
             } else {
-                let reason = "Paymaster is not a dev account".to_string();
-                return Err(StarknetApiError::UnexpectedError { reason }.into());
+                return Err(StarknetApiError::unexpected("Paymaster is not a dev account").into());
             };
 
             let state = self
@@ -300,9 +299,10 @@ impl<EF: ExecutorFactory> StarknetApiServer for StarknetApi<EF> {
             transactions
         };
 
-        let permit = self.inner.estimate_fee_permit.acquire().await.map_err(|e| {
-            StarknetApiError::UnexpectedError { reason: format!("Failed to acquire permit: {e}") }
-        })?;
+        let permit =
+            self.inner.estimate_fee_permit.acquire().await.map_err(|e| {
+                StarknetApiError::unexpected(format!("Failed to acquire permit: {e}"))
+            })?;
 
         self.on_cpu_blocking_task(move |this| {
             let _permit = permit;
@@ -342,9 +342,9 @@ impl<EF: ExecutorFactory> StarknetApiServer for StarknetApi<EF> {
                             l1_data_gas_consumed: fee.l1_data_gas_consumed,
                         })
                     } else {
-                        Err(ErrorObjectOwned::from(StarknetApiError::UnexpectedError {
-                            reason: "Fee estimation result should exist".into(),
-                        }))
+                        Err(ErrorObjectOwned::from(StarknetApiError::unexpected(
+                            "Fee estimation result should exist",
+                        )))
                     }
                 }
 
