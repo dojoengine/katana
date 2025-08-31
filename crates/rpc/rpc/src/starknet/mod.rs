@@ -7,14 +7,14 @@ use katana_core::service::block_producer::{BlockProducer, BlockProducerMode, Pen
 use katana_executor::{ExecutionResult, ExecutorFactory};
 use katana_pool::{TransactionPool, TxPool};
 use katana_primitives::block::{
-    BlockHashOrNumber, BlockIdOrTag, BlockNumber, BlockTag, FinalityStatus, PartialHeader,
+    BlockHashOrNumber, BlockIdOrTag, BlockTag, FinalityStatus, PartialHeader,
 };
 use katana_primitives::class::ClassHash;
 use katana_primitives::contract::{ContractAddress, Nonce, StorageKey, StorageValue};
 use katana_primitives::da::L1DataAvailabilityMode;
 use katana_primitives::env::BlockEnv;
 use katana_primitives::event::MaybeForkedContinuationToken;
-use katana_primitives::transaction::{ExecutableTxWithHash, TxHash, TxNumber, TxWithHash};
+use katana_primitives::transaction::{ExecutableTxWithHash, TxHash, TxNumber};
 use katana_primitives::version::CURRENT_STARKNET_VERSION;
 use katana_primitives::Felt;
 use katana_provider::error::ProviderError;
@@ -27,9 +27,9 @@ use katana_provider::traits::transaction::{
 };
 use katana_rpc_api::error::starknet::StarknetApiError;
 use katana_rpc_types::block::{
-    BlockHashAndNumber, MaybePreConfirmedBlockWithReceipts, MaybePreConfirmedBlockWithTxHashes,
-    MaybePreConfirmedBlockWithTxs, PreConfirmedBlockWithReceipts, PreConfirmedBlockWithTxHashes,
-    PreConfirmedBlockWithTxs,
+    BlockHashAndNumberResponse, BlockNumberResponse, MaybePreConfirmedBlockWithReceipts,
+    MaybePreConfirmedBlockWithTxHashes, MaybePreConfirmedBlockWithTxs,
+    PreConfirmedBlockWithReceipts, PreConfirmedBlockWithTxHashes, PreConfirmedBlockWithTxs,
 };
 use katana_rpc_types::class::Class;
 use katana_rpc_types::event::{EventFilterWithPage, GetEventsResponse, ResultPageRequest};
@@ -39,7 +39,7 @@ use katana_rpc_types::list::{
 };
 use katana_rpc_types::receipt::{ReceiptBlock, TxReceiptWithBlockInfo};
 use katana_rpc_types::state_update::MaybePreConfirmedStateUpdate;
-use katana_rpc_types::transaction::Tx;
+use katana_rpc_types::transaction::TxWithHash;
 use katana_rpc_types::trie::{
     ClassesProof, ContractLeafData, ContractStorageKeys, ContractStorageProofs, ContractsProof,
     GetStorageProofResponse, GlobalRoots, Nodes,
@@ -234,11 +234,11 @@ impl<EF: ExecutorFactory> StarknetApi<EF> {
         env.ok_or(StarknetApiError::BlockNotFound)
     }
 
-    fn block_hash_and_number(&self) -> StarknetApiResult<BlockHashAndNumber> {
+    fn block_hash_and_number(&self) -> StarknetApiResult<BlockHashAndNumberResponse> {
         let provider = self.inner.backend.blockchain.provider();
         let hash = provider.latest_hash()?;
         let number = provider.latest_number()?;
-        Ok(BlockHashAndNumber::new(hash, number))
+        Ok(BlockHashAndNumberResponse::new(hash, number))
     }
 
     async fn class_at_hash(
@@ -343,9 +343,10 @@ impl<EF: ExecutorFactory> StarknetApi<EF> {
         }
     }
 
-    async fn latest_block_number(&self) -> StarknetApiResult<BlockNumber> {
+    async fn latest_block_number(&self) -> StarknetApiResult<BlockNumberResponse> {
         self.on_io_blocking_task(move |this| {
-            Ok(this.inner.backend.blockchain.provider().latest_number()?)
+            let block_number = this.inner.backend.blockchain.provider().latest_number()?;
+            Ok(BlockNumberResponse { block_number })
         })
         .await
     }
@@ -377,7 +378,7 @@ impl<EF: ExecutorFactory> StarknetApi<EF> {
         &self,
         block_id: BlockIdOrTag,
         index: u64,
-    ) -> StarknetApiResult<Tx> {
+    ) -> StarknetApiResult<TxWithHash> {
         let tx = self
             .on_io_blocking_task(move |this| {
                 // TEMP: have to handle pending tag independently for now
@@ -412,7 +413,7 @@ impl<EF: ExecutorFactory> StarknetApi<EF> {
         }
     }
 
-    async fn transaction(&self, hash: TxHash) -> StarknetApiResult<Tx> {
+    async fn transaction(&self, hash: TxHash) -> StarknetApiResult<TxWithHash> {
         let tx = self
             .on_io_blocking_task(move |this| {
                 let tx = this
@@ -421,7 +422,7 @@ impl<EF: ExecutorFactory> StarknetApi<EF> {
                     .blockchain
                     .provider()
                     .transaction_by_hash(hash)?
-                    .map(Tx::from);
+                    .map(TxWithHash::from);
 
                 let result = match tx {
                     tx @ Some(_) => tx,
@@ -432,7 +433,7 @@ impl<EF: ExecutorFactory> StarknetApi<EF> {
                                 .transactions()
                                 .iter()
                                 .find(|(tx, _)| tx.hash == hash)
-                                .map(|(tx, _)| Tx::from(tx.clone()))
+                                .map(|(tx, _)| TxWithHash::from(tx.clone()))
                         })
                     }
                 };
@@ -448,7 +449,7 @@ impl<EF: ExecutorFactory> StarknetApi<EF> {
         } else {
             let tx = self.inner.pool.get(hash).ok_or(StarknetApiError::TxnHashNotFound)?;
             let tx = TxWithHash::from(tx.as_ref());
-            Ok(Tx::from(tx))
+            Ok(TxWithHash::from(tx))
         }
     }
 
@@ -1352,7 +1353,7 @@ impl<EF: ExecutorFactory> StarknetApi<EF> {
             let mut transactions: Vec<TransactionListItem> = Vec::with_capacity(tx_hashes.len());
 
             for hash in tx_hashes {
-                let transaction = provider.transaction_by_hash(hash)?.map(Tx::from).ok_or(
+                let transaction = provider.transaction_by_hash(hash)?.map(TxWithHash::from).ok_or(
                     StarknetApiError::UnexpectedError {
                         reason: format!("transaction is missing; {hash:#}"),
                     },

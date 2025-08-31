@@ -5,12 +5,10 @@ use katana_primitives::receipt::Receipt;
 use katana_primitives::transaction::{TxHash, TxWithHash};
 use katana_primitives::{ContractAddress, Felt};
 use serde::{Deserialize, Serialize};
-use starknet::core::types::{
-    BlockStatus, L1DataAvailabilityMode, ResourcePrice, TransactionContent,
-};
+use starknet::core::types::{BlockStatus, L1DataAvailabilityMode, ResourcePrice};
 
 use crate::receipt::TxReceipt;
-use crate::transaction::{Tx, TxContent};
+use crate::transaction::Tx;
 
 pub type BlockTxCount = u64;
 
@@ -35,7 +33,7 @@ pub struct BlockWithTxs {
     pub l1_data_gas_price: ResourcePrice,
     pub l1_da_mode: L1DataAvailabilityMode,
     pub starknet_version: String,
-    pub transactions: Vec<Tx>,
+    pub transactions: Vec<TxWithHash>,
 }
 
 impl BlockWithTxs {
@@ -85,7 +83,7 @@ impl BlockWithTxs {
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub struct PreConfirmedBlockWithTxs {
-    pub transactions: Vec<Tx>,
+    pub transactions: Vec<TxWithHash>,
     pub block_number: BlockNumber,
     pub timestamp: u64,
     pub sequencer_address: ContractAddress,
@@ -242,24 +240,26 @@ impl From<starknet::core::types::MaybePreConfirmedBlockWithTxHashes>
     }
 }
 
+/// Response object for the `starknet_blockNumber` method.
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
+#[serde(transparent)]
+pub struct BlockNumberResponse {
+    /// The latest block number.
+    pub block_number: BlockNumber,
+}
+
 /// The response object for the `starknet_blockHashAndNumber` method.
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
-pub struct BlockHashAndNumber {
+pub struct BlockHashAndNumberResponse {
     /// The block's hash.
     pub block_hash: BlockHash,
     /// The block's number (height).
     pub block_number: u64,
 }
 
-impl BlockHashAndNumber {
+impl BlockHashAndNumberResponse {
     pub fn new(block_hash: BlockHash, block_number: BlockNumber) -> Self {
         Self { block_hash, block_number }
-    }
-}
-
-impl From<(BlockHash, BlockNumber)> for BlockHashAndNumber {
-    fn from((hash, number): (BlockHash, BlockNumber)) -> Self {
-        Self::new(hash, number)
     }
 }
 
@@ -310,9 +310,9 @@ impl BlockWithReceipts {
         };
 
         let transactions = receipts
-            .map(|(tx_with_hash, receipt)| {
-                let receipt = TxReceipt::new(tx_with_hash.hash, finality_status, receipt);
-                let transaction = TxContent::from(tx_with_hash).0;
+            .map(|(tx, receipt)| {
+                let receipt = TxReceipt::new(tx.hash, finality_status, receipt);
+                let transaction = Tx::from(tx.transaction);
                 TxWithReceipt { transaction, receipt }
             })
             .collect();
@@ -340,7 +340,7 @@ impl BlockWithReceipts {
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub struct TxWithReceipt {
-    transaction: TransactionContent,
+    transaction: Tx,
     receipt: TxReceipt,
 }
 
@@ -378,10 +378,9 @@ impl PreConfirmedBlockWithReceipts {
         };
 
         let transactions = receipts
-            .map(|(tx_with_hash, receipt)| {
-                let receipt =
-                    TxReceipt::new(tx_with_hash.hash, FinalityStatus::AcceptedOnL2, receipt);
-                let transaction = TxContent::from(tx_with_hash).0;
+            .map(|(tx, receipt)| {
+                let receipt = TxReceipt::new(tx.hash, FinalityStatus::AcceptedOnL2, receipt);
+                let transaction = Tx::from(tx.transaction);
                 TxWithReceipt { transaction, receipt }
             })
             .collect();
@@ -410,25 +409,26 @@ mod tests {
     use katana_primitives::felt;
     use serde_json::{json, Value};
 
-    use super::BlockHashAndNumber;
+    use super::BlockHashAndNumberResponse;
 
     #[rstest::rstest]
     #[case(json!({
 		"block_hash": "0x69ff022845ab47276b5b2c30d17e19b3a87192228e1495ec332180f52e9850e",
 		"block_number": 1660537
-    }), BlockHashAndNumber {
+    }), BlockHashAndNumberResponse {
 	    block_hash: felt!("0x69ff022845ab47276b5b2c30d17e19b3a87192228e1495ec332180f52e9850e"),
 	    block_number: 1660537
     })]
     #[case(json!({
 		"block_hash": "0x0",
 		"block_number": 0
-    }), BlockHashAndNumber {
+    }), BlockHashAndNumberResponse {
 	    block_hash: felt!("0x0"),
 	    block_number: 0
     })]
-    fn block_hash_and_number(#[case] json: Value, #[case] expected: BlockHashAndNumber) {
-        let deserialized = serde_json::from_value::<BlockHashAndNumber>(json.clone()).unwrap();
+    fn block_hash_and_number(#[case] json: Value, #[case] expected: BlockHashAndNumberResponse) {
+        let deserialized =
+            serde_json::from_value::<BlockHashAndNumberResponse>(json.clone()).unwrap();
         similar_asserts::assert_eq!(deserialized, expected);
         let serialized = serde_json::to_value(deserialized).unwrap();
         similar_asserts::assert_eq!(serialized, json);

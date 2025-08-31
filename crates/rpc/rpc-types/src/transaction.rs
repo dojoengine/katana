@@ -1,10 +1,17 @@
 use katana_primitives::class::{ClassHash, CompiledClassHash};
 use katana_primitives::contract::Nonce;
 use katana_primitives::execution::EntryPointSelector;
-use katana_primitives::transaction::{TxHash, TxWithHash};
-use katana_primitives::{ContractAddress, Felt};
+use katana_primitives::transaction::TxHash;
+use katana_primitives::{transaction as primitives, ContractAddress, Felt};
 use serde::{Deserialize, Serialize};
 use starknet::core::types::{DataAvailabilityMode, ResourceBoundsMapping};
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct TxWithHash {
+    pub transaction_hash: TxHash,
+    #[serde(flatten)]
+    pub transaction: Tx,
+}
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(tag = "type", rename_all = "SCREAMING_SNAKE_CASE")]
@@ -21,8 +28,6 @@ pub enum Tx {
     DeployAccount(DeployAccountTx),
 }
 
-/// An `INVOKE` Starknet transaction.
-
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(tag = "version")]
 pub enum InvokeTx {
@@ -34,14 +39,8 @@ pub enum InvokeTx {
     V3(InvokeTxV3),
 }
 
-/// Invoke transaction v0.
-///
-/// Invokes a specific function in the desired contract (not necessarily an account).
-
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub struct InvokeTxV0 {
-    /// Transaction hash
-    pub transaction_hash: TxHash,
     /// The maximal fee that can be charged for including the transaction
     pub max_fee: Felt,
     /// Signature
@@ -54,14 +53,8 @@ pub struct InvokeTxV0 {
     pub calldata: Vec<Felt>,
 }
 
-/// Invoke transaction v1.
-///
-/// Initiates a transaction from a given account.
-
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub struct InvokeTxV1 {
-    /// Transaction hash
-    pub transaction_hash: TxHash,
     /// Sender address
     pub sender_address: ContractAddress,
     /// The data expected by the account's `execute` function (in most usecases, this includes the
@@ -75,14 +68,8 @@ pub struct InvokeTxV1 {
     pub nonce: Nonce,
 }
 
-/// Invoke transaction v3.
-///
-/// Initiates a transaction from a given account.
-
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub struct InvokeTxV3 {
-    /// Transaction hash
-    pub transaction_hash: TxHash,
     /// Sender address
     pub sender_address: ContractAddress,
     /// The data expected by the account's `execute` function (in most usecases, this includes the
@@ -112,8 +99,6 @@ pub struct InvokeTxV3 {
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub struct L1HandlerTx {
-    /// Transaction hash
-    pub transaction_hash: TxHash,
     /// Version of the transaction scheme
     pub version: Felt,
     /// The L1->L2 message nonce field of the sn core L1 contract at the time the transaction was
@@ -126,8 +111,6 @@ pub struct L1HandlerTx {
     /// The parameters passed to the function
     pub calldata: Vec<Felt>,
 }
-
-/// A `DECLARE` Starknet transaction.
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(tag = "version")]
@@ -146,14 +129,8 @@ pub enum DeclareTx {
     V3(DeclareTxV3),
 }
 
-/// Declare contract transaction v0.
-///
-/// Declare contract transaction v0.
-
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub struct DeclareTxV0 {
-    /// Transaction hash
-    pub transaction_hash: TxHash,
     /// The address of the account contract sending the declaration transaction
     pub sender_address: ContractAddress,
     /// The maximal fee that can be charged for including the transaction
@@ -164,14 +141,8 @@ pub struct DeclareTxV0 {
     pub class_hash: ClassHash,
 }
 
-/// Declare contract transaction v1.
-///
-/// Declare contract transaction v1.
-
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub struct DeclareTxV1 {
-    /// Transaction hash
-    pub transaction_hash: TxHash,
     /// The address of the account contract sending the declaration transaction
     pub sender_address: ContractAddress,
     /// The maximal fee that can be charged for including the transaction
@@ -184,14 +155,8 @@ pub struct DeclareTxV1 {
     pub class_hash: ClassHash,
 }
 
-/// Declare transaction v2.
-///
-/// Declare contract transaction v2.
-
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub struct DeclareTxV2 {
-    /// Transaction hash
-    pub transaction_hash: TxHash,
     /// The address of the account contract sending the declaration transaction
     pub sender_address: ContractAddress,
     /// The hash of the cairo assembly resulting from the sierra compilation
@@ -208,8 +173,6 @@ pub struct DeclareTxV2 {
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub struct DeclareTxV3 {
-    /// Transaction hash
-    pub transaction_hash: TxHash,
     /// The address of the account contract sending the declaration transaction
     pub sender_address: ContractAddress,
     /// The hash of the cairo assembly resulting from the sierra compilation
@@ -236,8 +199,6 @@ pub struct DeclareTxV3 {
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub struct DeployTx {
-    /// Transaction hash
-    pub transaction_hash: TxHash,
     /// Version of the transaction scheme
     pub version: Felt,
     /// The salt for the address of the deployed contract
@@ -261,8 +222,6 @@ pub enum DeployAccountTx {
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub struct DeployAccountTxV1 {
-    /// Transaction hash
-    pub transaction_hash: TxHash,
     /// The maximal fee that can be charged for including the transaction
     pub max_fee: Felt,
     /// Signature
@@ -279,8 +238,6 @@ pub struct DeployAccountTxV1 {
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub struct DeployAccountTxV3 {
-    /// Transaction hash
-    pub transaction_hash: TxHash,
     /// Signature
     pub signature: Vec<Felt>,
     /// Nonce
@@ -307,15 +264,19 @@ pub struct DeployAccountTxV3 {
 #[serde(transparent)]
 pub struct TxContent(pub starknet::core::types::TransactionContent);
 
-impl From<TxWithHash> for Tx {
-    fn from(value: TxWithHash) -> Self {
-        use katana_primitives::transaction as primitives;
-
+impl From<primitives::TxWithHash> for TxWithHash {
+    fn from(value: primitives::TxWithHash) -> Self {
         let transaction_hash = value.hash;
-        match value.transaction {
+        let transaction = Tx::from(value.transaction);
+        TxWithHash { transaction_hash, transaction }
+    }
+}
+
+impl From<primitives::Tx> for Tx {
+    fn from(value: primitives::Tx) -> Self {
+        match value {
             primitives::Tx::Invoke(invoke) => match invoke {
                 primitives::InvokeTx::V0(tx) => Tx::Invoke(InvokeTx::V0(InvokeTxV0 {
-                    transaction_hash,
                     calldata: tx.calldata,
                     signature: tx.signature,
                     max_fee: tx.max_fee.into(),
@@ -325,7 +286,6 @@ impl From<TxWithHash> for Tx {
 
                 primitives::InvokeTx::V1(tx) => Tx::Invoke(InvokeTx::V1(InvokeTxV1 {
                     nonce: tx.nonce,
-                    transaction_hash,
                     calldata: tx.calldata,
                     signature: tx.signature,
                     max_fee: tx.max_fee.into(),
@@ -334,7 +294,6 @@ impl From<TxWithHash> for Tx {
 
                 primitives::InvokeTx::V3(tx) => Tx::Invoke(InvokeTx::V3(InvokeTxV3 {
                     nonce: tx.nonce,
-                    transaction_hash,
                     calldata: tx.calldata,
                     signature: tx.signature,
                     sender_address: tx.sender_address.into(),
@@ -349,7 +308,6 @@ impl From<TxWithHash> for Tx {
 
             primitives::Tx::Declare(tx) => Tx::Declare(match tx {
                 primitives::DeclareTx::V0(tx) => DeclareTx::V0(DeclareTxV0 {
-                    transaction_hash,
                     signature: tx.signature,
                     class_hash: tx.class_hash,
                     max_fee: tx.max_fee.into(),
@@ -358,7 +316,6 @@ impl From<TxWithHash> for Tx {
 
                 primitives::DeclareTx::V1(tx) => DeclareTx::V1(DeclareTxV1 {
                     nonce: tx.nonce,
-                    transaction_hash,
                     signature: tx.signature,
                     class_hash: tx.class_hash,
                     max_fee: tx.max_fee.into(),
@@ -367,7 +324,6 @@ impl From<TxWithHash> for Tx {
 
                 primitives::DeclareTx::V2(tx) => DeclareTx::V2(DeclareTxV2 {
                     nonce: tx.nonce,
-                    transaction_hash,
                     signature: tx.signature,
                     class_hash: tx.class_hash,
                     max_fee: tx.max_fee.into(),
@@ -377,7 +333,6 @@ impl From<TxWithHash> for Tx {
 
                 primitives::DeclareTx::V3(tx) => DeclareTx::V3(DeclareTxV3 {
                     nonce: tx.nonce,
-                    transaction_hash,
                     signature: tx.signature,
                     class_hash: tx.class_hash,
                     sender_address: tx.sender_address.into(),
@@ -392,7 +347,6 @@ impl From<TxWithHash> for Tx {
             }),
 
             primitives::Tx::L1Handler(tx) => Tx::L1Handler(L1HandlerTx {
-                transaction_hash,
                 calldata: tx.calldata,
                 contract_address: tx.contract_address.into(),
                 entry_point_selector: tx.entry_point_selector,
@@ -402,7 +356,6 @@ impl From<TxWithHash> for Tx {
 
             primitives::Tx::DeployAccount(tx) => Tx::DeployAccount(match tx {
                 primitives::DeployAccountTx::V1(tx) => DeployAccountTx::V1(DeployAccountTxV1 {
-                    transaction_hash,
                     nonce: tx.nonce,
                     signature: tx.signature,
                     class_hash: tx.class_hash,
@@ -412,7 +365,6 @@ impl From<TxWithHash> for Tx {
                 }),
 
                 primitives::DeployAccountTx::V3(tx) => DeployAccountTx::V3(DeployAccountTxV3 {
-                    transaction_hash,
                     nonce: tx.nonce,
                     signature: tx.signature,
                     class_hash: tx.class_hash,
@@ -431,147 +383,10 @@ impl From<TxWithHash> for Tx {
                 contract_address_salt: tx.contract_address_salt,
                 class_hash: tx.class_hash,
                 version: tx.version,
-                transaction_hash,
             }),
         }
     }
 }
-
-// impl From<TxWithHash> for TxContent {
-//     fn from(value: TxWithHash) -> Self {
-//         use katana_primitives::transaction::Tx as InternalTx;
-
-//         let tx = match value.transaction {
-//             InternalTx::Invoke(invoke) => match invoke {
-//                 InvokeTx::V0(tx) => TransactionContent::Invoke(InvokeTransactionContent::V0(
-//                     InvokeTransactionV0Content {
-//                         calldata: tx.calldata,
-//                         signature: tx.signature,
-//                         max_fee: tx.max_fee.into(),
-//                         contract_address: tx.contract_address.into(),
-//                         entry_point_selector: tx.entry_point_selector,
-//                     },
-//                 )),
-
-//                 InvokeTx::V1(tx) => TransactionContent::Invoke(InvokeTransactionContent::V1(
-//                     InvokeTransactionV1Content {
-//                         nonce: tx.nonce,
-//                         calldata: tx.calldata,
-//                         signature: tx.signature,
-//                         max_fee: tx.max_fee.into(),
-//                         sender_address: tx.sender_address.into(),
-//                     },
-//                 )),
-
-//                 InvokeTx::V3(tx) => TransactionContent::Invoke(InvokeTransactionContent::V3(
-//                     InvokeTransactionV3Content {
-//                         nonce: tx.nonce,
-//                         calldata: tx.calldata,
-//                         signature: tx.signature,
-//                         sender_address: tx.sender_address.into(),
-//                         account_deployment_data: tx.account_deployment_data,
-//                         fee_data_availability_mode:
-// to_rpc_da_mode(tx.fee_data_availability_mode),
-// nonce_data_availability_mode: to_rpc_da_mode(
-// tx.nonce_data_availability_mode,                         ),
-//                         paymaster_data: tx.paymaster_data,
-//                         resource_bounds: to_rpc_resource_bounds(tx.resource_bounds),
-//                         tip: tx.tip,
-//                     },
-//                 )),
-//             },
-
-//             InternalTx::Declare(tx) => TransactionContent::Declare(match tx {
-//                 DeclareTx::V0(tx) => DeclareTransactionContent::V0(DeclareTransactionV0Content {
-//                     signature: tx.signature,
-//                     class_hash: tx.class_hash,
-//                     max_fee: tx.max_fee.into(),
-//                     sender_address: tx.sender_address.into(),
-//                 }),
-
-//                 DeclareTx::V1(tx) => DeclareTransactionContent::V1(DeclareTransactionV1Content {
-//                     nonce: tx.nonce,
-//                     signature: tx.signature,
-//                     class_hash: tx.class_hash,
-//                     max_fee: tx.max_fee.into(),
-//                     sender_address: tx.sender_address.into(),
-//                 }),
-
-//                 DeclareTx::V2(tx) => DeclareTransactionContent::V2(DeclareTransactionV2Content {
-//                     nonce: tx.nonce,
-//                     signature: tx.signature,
-//                     class_hash: tx.class_hash,
-//                     max_fee: tx.max_fee.into(),
-//                     sender_address: tx.sender_address.into(),
-//                     compiled_class_hash: tx.compiled_class_hash,
-//                 }),
-
-//                 DeclareTx::V3(tx) => DeclareTransactionContent::V3(DeclareTransactionV3Content {
-//                     nonce: tx.nonce,
-//                     signature: tx.signature,
-//                     class_hash: tx.class_hash,
-//                     sender_address: tx.sender_address.into(),
-//                     compiled_class_hash: tx.compiled_class_hash,
-//                     account_deployment_data: tx.account_deployment_data,
-//                     fee_data_availability_mode: to_rpc_da_mode(tx.fee_data_availability_mode),
-//                     nonce_data_availability_mode:
-// to_rpc_da_mode(tx.nonce_data_availability_mode),                     paymaster_data:
-// tx.paymaster_data,                     resource_bounds:
-// to_rpc_resource_bounds(tx.resource_bounds),                     tip: tx.tip,
-//                 }),
-//             }),
-
-//             InternalTx::L1Handler(tx) => {
-//                 TransactionContent::L1Handler(L1HandlerTransactionContent {
-//                     calldata: tx.calldata,
-//                     contract_address: tx.contract_address.into(),
-//                     entry_point_selector: tx.entry_point_selector,
-//                     nonce: tx.nonce.to_u64().expect("nonce should fit in u64"),
-//                     version: tx.version,
-//                 })
-//             }
-
-//             InternalTx::DeployAccount(tx) => TransactionContent::DeployAccount(match tx {
-//                 DeployAccountTx::V1(tx) => {
-//                     DeployAccountTransactionContent::V1(DeployAccountTransactionV1Content {
-//                         nonce: tx.nonce,
-//                         signature: tx.signature,
-//                         class_hash: tx.class_hash,
-//                         max_fee: tx.max_fee.into(),
-//                         constructor_calldata: tx.constructor_calldata,
-//                         contract_address_salt: tx.contract_address_salt,
-//                     })
-//                 }
-
-//                 DeployAccountTx::V3(tx) => {
-//                     DeployAccountTransactionContent::V3(DeployAccountTransactionV3Content {
-//                         nonce: tx.nonce,
-//                         signature: tx.signature,
-//                         class_hash: tx.class_hash,
-//                         constructor_calldata: tx.constructor_calldata,
-//                         contract_address_salt: tx.contract_address_salt,
-//                         fee_data_availability_mode:
-// to_rpc_da_mode(tx.fee_data_availability_mode),
-// nonce_data_availability_mode: to_rpc_da_mode(
-// tx.nonce_data_availability_mode,                         ),
-//                         paymaster_data: tx.paymaster_data,
-//                         resource_bounds: to_rpc_resource_bounds(tx.resource_bounds),
-//                         tip: tx.tip,
-//                     })
-//                 }
-//             }),
-
-//             InternalTx::Deploy(tx) => TransactionContent::Deploy(DeployTransactionContent {
-//                 constructor_calldata: tx.constructor_calldata,
-//                 contract_address_salt: tx.contract_address_salt,
-//                 class_hash: tx.class_hash,
-//                 version: tx.version,
-//             }),
-//         };
-
-//         TxContent(tx)
-//     }
-// }
 
 // TODO: find a solution to avoid doing this conversion, this is not pretty at all. the reason why
 // we had to do this in the first place is because of the orphan rule. i think eventually we should

@@ -10,7 +10,7 @@ use katana_rpc_types::block::{
 use katana_rpc_types::event::GetEventsResponse;
 use katana_rpc_types::receipt::TxReceiptWithBlockInfo;
 use katana_rpc_types::state_update::MaybePreConfirmedStateUpdate;
-use katana_rpc_types::transaction::Tx;
+use katana_rpc_types::transaction::TxWithHash;
 use starknet::core::types::{EventFilter, TransactionStatus};
 use starknet::providers::jsonrpc::HttpTransport;
 use starknet::providers::{JsonRpcClient, Provider, ProviderError};
@@ -76,7 +76,7 @@ impl<P: Provider> ForkedClient<P> {
         }
     }
 
-    pub async fn get_transaction_by_hash(&self, hash: TxHash) -> Result<Tx, Error> {
+    pub async fn get_transaction_by_hash(&self, hash: TxHash) -> Result<TxWithHash, Error> {
         let tx = self.provider.get_transaction_by_hash(hash).await?;
         Ok(tx.into())
     }
@@ -112,7 +112,7 @@ impl<P: Provider> ForkedClient<P> {
         &self,
         block_id: BlockIdOrTag,
         idx: u64,
-    ) -> Result<Tx, Error> {
+    ) -> Result<TxWithHash, Error> {
         match block_id {
             BlockIdOrTag::Number(num) => {
                 if num > self.block {

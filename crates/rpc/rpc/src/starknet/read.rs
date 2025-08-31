@@ -18,8 +18,8 @@ use katana_provider::traits::state::StateFactoryProvider;
 use katana_rpc_api::error::starknet::StarknetApiError;
 use katana_rpc_api::starknet::StarknetApiServer;
 use katana_rpc_types::block::{
-    BlockHashAndNumber, MaybePreConfirmedBlockWithReceipts, MaybePreConfirmedBlockWithTxHashes,
-    MaybePreConfirmedBlockWithTxs,
+    BlockHashAndNumberResponse, BlockNumberResponse, MaybePreConfirmedBlockWithReceipts,
+    MaybePreConfirmedBlockWithTxHashes, MaybePreConfirmedBlockWithTxs,
 };
 use katana_rpc_types::broadcasted::BroadcastedTx;
 use katana_rpc_types::class::Class;
@@ -27,7 +27,7 @@ use katana_rpc_types::event::{EventFilterWithPage, GetEventsResponse};
 use katana_rpc_types::message::MsgFromL1;
 use katana_rpc_types::receipt::TxReceiptWithBlockInfo;
 use katana_rpc_types::state_update::MaybePreConfirmedStateUpdate;
-use katana_rpc_types::transaction::Tx;
+use katana_rpc_types::transaction::TxWithHash;
 use katana_rpc_types::trie::{ContractStorageKeys, GetStorageProofResponse};
 use katana_rpc_types::{EstimateFeeSimulationFlag, FeeEstimate, FunctionCall, MessageFeeEstimate};
 use starknet::core::types::TransactionStatus;
@@ -50,11 +50,11 @@ impl<EF: ExecutorFactory> StarknetApiServer for StarknetApi<EF> {
         Ok(self.nonce_at(block_id, contract_address).await?)
     }
 
-    async fn block_number(&self) -> RpcResult<u64> {
+    async fn block_number(&self) -> RpcResult<BlockNumberResponse> {
         Ok(self.latest_block_number().await?)
     }
 
-    async fn get_transaction_by_hash(&self, transaction_hash: TxHash) -> RpcResult<Tx> {
+    async fn get_transaction_by_hash(&self, transaction_hash: TxHash) -> RpcResult<TxWithHash> {
         Ok(self.transaction(transaction_hash).await?)
     }
 
@@ -70,7 +70,7 @@ impl<EF: ExecutorFactory> StarknetApiServer for StarknetApi<EF> {
         Ok(self.class_at_address(block_id, contract_address).await?)
     }
 
-    async fn block_hash_and_number(&self) -> RpcResult<BlockHashAndNumber> {
+    async fn block_hash_and_number(&self) -> RpcResult<BlockHashAndNumberResponse> {
         self.on_io_blocking_task(move |this| Ok(this.block_hash_and_number()?)).await
     }
 
@@ -85,7 +85,7 @@ impl<EF: ExecutorFactory> StarknetApiServer for StarknetApi<EF> {
         &self,
         block_id: BlockIdOrTag,
         index: u64,
-    ) -> RpcResult<Tx> {
+    ) -> RpcResult<TxWithHash> {
         Ok(self.transaction_by_block_id_and_index(block_id, index).await?)
     }
 

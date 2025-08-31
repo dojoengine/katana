@@ -2,14 +2,15 @@
 
 use jsonrpsee::core::RpcResult;
 use jsonrpsee::proc_macros::rpc;
-use katana_primitives::block::{BlockIdOrTag, BlockNumber};
+use katana_primitives::block::BlockIdOrTag;
 use katana_primitives::class::ClassHash;
 use katana_primitives::contract::{Nonce, StorageKey};
 use katana_primitives::transaction::TxHash;
 use katana_primitives::{ContractAddress, Felt};
 use katana_rpc_types::block::{
-    BlockHashAndNumber, BlockTxCount, MaybePreConfirmedBlockWithReceipts,
-    MaybePreConfirmedBlockWithTxHashes, MaybePreConfirmedBlockWithTxs,
+    BlockHashAndNumberResponse, BlockNumberResponse, BlockTxCount,
+    MaybePreConfirmedBlockWithReceipts, MaybePreConfirmedBlockWithTxHashes,
+    MaybePreConfirmedBlockWithTxs,
 };
 use katana_rpc_types::broadcasted::{
     AddDeclareTransactionResponse, AddDeployAccountTransactionResponse,
@@ -21,7 +22,7 @@ use katana_rpc_types::event::{EventFilterWithPage, GetEventsResponse};
 use katana_rpc_types::message::MsgFromL1;
 use katana_rpc_types::receipt::TxReceiptWithBlockInfo;
 use katana_rpc_types::state_update::MaybePreConfirmedStateUpdate;
-use katana_rpc_types::transaction::Tx;
+use katana_rpc_types::transaction::TxWithHash;
 use katana_rpc_types::trie::{ContractStorageKeys, GetStorageProofResponse};
 use katana_rpc_types::{
     EstimateFeeSimulationFlag, FeeEstimate, FunctionCall, MessageFeeEstimate, SimulationFlag,
@@ -91,7 +92,7 @@ pub trait StarknetApi {
 
     /// Get the details and status of a submitted transaction.
     #[method(name = "getTransactionByHash")]
-    async fn get_transaction_by_hash(&self, transaction_hash: TxHash) -> RpcResult<Tx>;
+    async fn get_transaction_by_hash(&self, transaction_hash: TxHash) -> RpcResult<TxWithHash>;
 
     /// Get the details of a transaction by a given block id and index.
     #[method(name = "getTransactionByBlockIdAndIndex")]
@@ -99,7 +100,7 @@ pub trait StarknetApi {
         &self,
         block_id: BlockIdOrTag,
         index: u64,
-    ) -> RpcResult<Tx>;
+    ) -> RpcResult<TxWithHash>;
 
     /// Get the transaction receipt by the transaction hash.
     #[method(name = "getTransactionReceipt")]
@@ -156,11 +157,11 @@ pub trait StarknetApi {
 
     /// Get the most recent accepted block number.
     #[method(name = "blockNumber")]
-    async fn block_number(&self) -> RpcResult<BlockNumber>;
+    async fn block_number(&self) -> RpcResult<BlockNumberResponse>;
 
     /// Get the most recent accepted block hash and number.
     #[method(name = "blockHashAndNumber")]
-    async fn block_hash_and_number(&self) -> RpcResult<BlockHashAndNumber>;
+    async fn block_hash_and_number(&self) -> RpcResult<BlockHashAndNumberResponse>;
 
     /// Return the currently configured StarkNet chain id.
     #[method(name = "chainId")]
