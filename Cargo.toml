@@ -7,6 +7,7 @@ members = [
 	"crates/chain-spec",
 	"crates/cli",
 	"crates/contracts",
+	"crates/contracts/macro",
 	"crates/controller",
 	"crates/core",
 	"crates/executor",
@@ -140,7 +141,6 @@ reqwest = { version = "0.12.15", features = [ "json", "rustls-tls" ], default-fe
 rstest = "0.18.2"
 rstest_reuse = "0.6.0"
 similar-asserts = "1.5.0"
-slot = { git = "https://github.com/cartridge-gg/slot", rev = "1298a30" }
 spinoff = "0.8.0"
 strum = "0.25"
 strum_macros = "0.25"
@@ -205,18 +205,19 @@ opentelemetry-http = "0.30.0"
 opentelemetry-stackdriver = { version = "0.27.0", features = [ "propagator" ] }
 
 # starknet
-starknet = "0.17.0-rc.2"
-starknet-crypto = "0.7.4"
-starknet-types-core = { version = "0.1.8", features = [ "arbitrary", "hash" ] }
+starknet = "0.17.0"
+starknet-crypto = "0.8"
+starknet-types-core = { version = "0.2", features = [ "arbitrary", "hash" ] }
 # Some types that we used from cairo-vm implements the `Arbitrary` trait,
 # only under the `test_utils` feature.
-cairo-vm = { version = "1.0.2", features = [ "test_utils" ] }
+cairo-vm = { version = "2.0", features = [ "test_utils" ] }
 
 blockifier = { git = "https://github.com/dojoengine/sequencer", rev = "5d737b9c9", default-features = false }
+cairo-native = "0.4"
 starknet_api = { git = "https://github.com/dojoengine/sequencer", rev = "5d737b9c9" }
 
-cainome = { git = "https://github.com/cartridge-gg/cainome", rev = "7d60de1", features = [ "abigen-rs" ] }
-cainome-cairo-serde = { git = "https://github.com/cartridge-gg/cainome", rev = "7d60de1" }
+cainome = { git = "https://github.com/cartridge-gg/cainome", rev = "1e7afb2", features = [ "abigen-rs" ] }
+cainome-cairo-serde = { git = "https://github.com/cartridge-gg/cainome", rev = "1e7afb2" }
 piltover = { git = "https://github.com/kariy/piltover.git", branch = "feat/rpc0.9" }
 
 [patch.crates-io]
