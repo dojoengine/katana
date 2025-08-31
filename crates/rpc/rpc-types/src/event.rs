@@ -2,8 +2,46 @@ use katana_primitives::block::{BlockHash, BlockNumber};
 use katana_primitives::transaction::TxHash;
 use katana_primitives::{ContractAddress, Felt};
 use serde::{Deserialize, Serialize};
+use starknet::core::types::BlockId;
 
-pub type EventFilterWithPage = starknet::core::types::EventFilterWithPage;
+/// Events request.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct EventFilterWithPage {
+    #[serde(flatten)]
+    pub event_filter: EventFilter,
+    #[serde(flatten)]
+    pub result_page_request: ResultPageRequest,
+}
+
+/// Event filter.
+///
+/// An event filter/query.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct EventFilter {
+    /// From block
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub from_block: Option<BlockId>,
+    /// To block
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub to_block: Option<BlockId>,
+    /// From contract
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub address: Option<ContractAddress>,
+    /// The keys to filter over
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub keys: Option<Vec<Vec<Felt>>>,
+}
+
+/// Result page request.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct ResultPageRequest {
+    /// The token returned from the previous query. If no token is provided the first page is
+    /// returned.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub continuation_token: Option<String>,
+    /// Chunk size
+    pub chunk_size: u64,
+}
 
 /// A "page" of events in a cursor-based pagniation system.
 ///

@@ -32,7 +32,7 @@ use katana_rpc_types::block::{
     PreConfirmedBlockWithTxs,
 };
 use katana_rpc_types::class::Class;
-use katana_rpc_types::event::{EventFilterWithPage, GetEventsResponse};
+use katana_rpc_types::event::{EventFilterWithPage, GetEventsResponse, ResultPageRequest};
 use katana_rpc_types::list::{
     ContinuationToken as ListContinuationToken, GetBlocksRequest, GetBlocksResponse,
     GetTransactionsRequest, GetTransactionsResponse, TransactionListItem,
@@ -47,7 +47,7 @@ use katana_rpc_types::trie::{
 use katana_rpc_types::FeeEstimate;
 use katana_rpc_types_builder::{BlockBuilder, ReceiptBuilder};
 use katana_tasks::{BlockingTaskPool, TokioTaskSpawner};
-use starknet::core::types::{ResultPageRequest, TransactionStatus};
+use starknet::core::types::TransactionStatus;
 
 use crate::permit::Permits;
 use crate::utils::events::{Cursor, EventBlockId};
