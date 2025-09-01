@@ -41,7 +41,7 @@ use katana_rpc_types::list::{
 };
 use katana_rpc_types::receipt::{ReceiptBlock, TxReceiptWithBlockInfo};
 use katana_rpc_types::state_update::MaybePreConfirmedStateUpdate;
-use katana_rpc_types::transaction::TxWithHash;
+use katana_rpc_types::transaction::RpcTxWithHash;
 use katana_rpc_types::trie::{
     ClassesProof, ContractLeafData, ContractStorageKeys, ContractStorageProofs, ContractsProof,
     GetStorageProofResponse, GlobalRoots, Nodes,
@@ -380,7 +380,7 @@ impl<EF: ExecutorFactory> StarknetApi<EF> {
         &self,
         block_id: BlockIdOrTag,
         index: u64,
-    ) -> StarknetApiResult<TxWithHash> {
+    ) -> StarknetApiResult<RpcTxWithHash> {
         let tx = self
             .on_io_blocking_task(move |this| {
                 // TEMP: have to handle pending tag independently for now
@@ -415,7 +415,7 @@ impl<EF: ExecutorFactory> StarknetApi<EF> {
         }
     }
 
-    async fn transaction(&self, hash: TxHash) -> StarknetApiResult<TxWithHash> {
+    async fn transaction(&self, hash: TxHash) -> StarknetApiResult<RpcTxWithHash> {
         let tx = self
             .on_io_blocking_task(move |this| {
                 let tx = this
@@ -424,7 +424,7 @@ impl<EF: ExecutorFactory> StarknetApi<EF> {
                     .blockchain
                     .provider()
                     .transaction_by_hash(hash)?
-                    .map(TxWithHash::from);
+                    .map(RpcTxWithHash::from);
 
                 let result = match tx {
                     tx @ Some(_) => tx,
@@ -435,7 +435,7 @@ impl<EF: ExecutorFactory> StarknetApi<EF> {
                                 .transactions()
                                 .iter()
                                 .find(|(tx, _)| tx.hash == hash)
-                                .map(|(tx, _)| TxWithHash::from(tx.clone()))
+                                .map(|(tx, _)| RpcTxWithHash::from(tx.clone()))
                         })
                     }
                 };
@@ -450,8 +450,8 @@ impl<EF: ExecutorFactory> StarknetApi<EF> {
             Ok(client.get_transaction_by_hash(hash).await?)
         } else {
             let tx = self.inner.pool.get(hash).ok_or(StarknetApiError::TxnHashNotFound)?;
-            let tx = TxWithHash::from(tx.as_ref());
-            Ok(TxWithHash::from(tx))
+            let tx = katana_primitives::transaction::TxWithHash::from(tx.as_ref());
+            Ok(RpcTxWithHash::from(tx))
         }
     }
 
@@ -869,7 +869,7 @@ impl<EF: ExecutorFactory> StarknetApi<EF> {
             let events = this.events_inner(
                 from,
                 to,
-                event_filter.address.map(|f| f.into()),
+                event_filter.address,
                 keys,
                 continuation_token,
                 chunk_size,
@@ -1356,9 +1356,10 @@ impl<EF: ExecutorFactory> StarknetApi<EF> {
             let mut transactions: Vec<TransactionListItem> = Vec::with_capacity(tx_hashes.len());
 
             for hash in tx_hashes {
-                let transaction = provider.transaction_by_hash(hash)?.map(TxWithHash::from).ok_or(
-                    StarknetApiError::unexpected(format!("transaction is missing; {hash:#}")),
-                )?;
+                let transaction =
+                    provider.transaction_by_hash(hash)?.map(RpcTxWithHash::from).ok_or(
+                        StarknetApiError::unexpected(format!("transaction is missing; {hash:#}")),
+                    )?;
 
                 let receipt = ReceiptBuilder::new(hash, provider).build()?.ok_or(
                     StarknetApiError::unexpected(format!("transaction is missing; {hash:#}")),

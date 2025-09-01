@@ -9,7 +9,7 @@ use starknet::core::types::ResultPageRequest;
 
 use crate::block::BlockWithTxHashes;
 use crate::receipt::TxReceiptWithBlockInfo;
-use crate::transaction::TxWithHash;
+use crate::transaction::RpcTxWithHash;
 
 /// Represents a continuation token for implementing paging in block and transaction queries.
 ///
@@ -113,7 +113,7 @@ pub struct GetTransactionsResponse {
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct TransactionListItem {
     /// The transaction - same object returned by `starknet_getTransactionByHash`.
-    pub transaction: TxWithHash,
+    pub transaction: RpcTxWithHash,
     /// The transaction receipt - same object returned by `starknet_getTransactionReceipt`.
     pub receipt: TxReceiptWithBlockInfo,
 }

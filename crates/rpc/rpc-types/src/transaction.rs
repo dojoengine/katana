@@ -7,40 +7,40 @@ use serde::{Deserialize, Serialize};
 use starknet::core::types::{DataAvailabilityMode, ResourceBoundsMapping};
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
-pub struct TxWithHash {
+pub struct RpcTxWithHash {
     pub transaction_hash: TxHash,
     #[serde(flatten)]
-    pub transaction: Tx,
+    pub transaction: RpcTx,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(tag = "type", rename_all = "SCREAMING_SNAKE_CASE")]
-pub enum Tx {
+pub enum RpcTx {
     /// An `INVOKE` transaction.
-    Invoke(InvokeTx),
+    Invoke(RpcInvokeTx),
     /// An `L1_HANDLER` transaction.
-    L1Handler(L1HandlerTx),
+    L1Handler(RpcL1HandlerTx),
     /// A `DECLARE` transaction.
-    Declare(DeclareTx),
+    Declare(RpcDeclareTx),
     /// A `DEPLOY` transaction.
-    Deploy(DeployTx),
+    Deploy(RpcDeployTx),
     /// A `DEPLOY_ACCOUNT` transaction.
-    DeployAccount(DeployAccountTx),
+    DeployAccount(RpcDeployAccountTx),
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(tag = "version")]
-pub enum InvokeTx {
+pub enum RpcInvokeTx {
     #[serde(rename = "0x0")]
-    V0(InvokeTxV0),
+    V0(RpcInvokeTxV0),
     #[serde(rename = "0x1")]
-    V1(InvokeTxV1),
+    V1(RpcInvokeTxV1),
     #[serde(rename = "0x3")]
-    V3(InvokeTxV3),
+    V3(RpcInvokeTxV3),
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
-pub struct InvokeTxV0 {
+pub struct RpcInvokeTxV0 {
     /// The maximal fee that can be charged for including the transaction
     pub max_fee: Felt,
     /// Signature
@@ -54,7 +54,7 @@ pub struct InvokeTxV0 {
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
-pub struct InvokeTxV1 {
+pub struct RpcInvokeTxV1 {
     /// Sender address
     pub sender_address: ContractAddress,
     /// The data expected by the account's `execute` function (in most usecases, this includes the
@@ -69,7 +69,7 @@ pub struct InvokeTxV1 {
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
-pub struct InvokeTxV3 {
+pub struct RpcInvokeTxV3 {
     /// Sender address
     pub sender_address: ContractAddress,
     /// The data expected by the account's `execute` function (in most usecases, this includes the
@@ -98,7 +98,7 @@ pub struct InvokeTxV3 {
 /// A call to an l1_handler on an L2 contract induced by a message from L1.
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
-pub struct L1HandlerTx {
+pub struct RpcL1HandlerTx {
     /// Version of the transaction scheme
     pub version: Felt,
     /// The L1->L2 message nonce field of the sn core L1 contract at the time the transaction was
@@ -114,23 +114,23 @@ pub struct L1HandlerTx {
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(tag = "version")]
-pub enum DeclareTx {
+pub enum RpcDeclareTx {
     /// Version 0 `DECLARE` transaction.
     #[serde(rename = "0x0")]
-    V0(DeclareTxV0),
+    V0(RpcDeclareTxV0),
     /// Version 1 `DECLARE` transaction.
     #[serde(rename = "0x1")]
-    V1(DeclareTxV1),
+    V1(RpcDeclareTxV1),
     /// Version 2 `DECLARE` transaction.
     #[serde(rename = "0x2")]
-    V2(DeclareTxV2),
+    V2(RpcDeclareTxV2),
     /// Version 3 `DECLARE` transaction.
     #[serde(rename = "0x3")]
-    V3(DeclareTxV3),
+    V3(RpcDeclareTxV3),
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
-pub struct DeclareTxV0 {
+pub struct RpcDeclareTxV0 {
     /// The address of the account contract sending the declaration transaction
     pub sender_address: ContractAddress,
     /// The maximal fee that can be charged for including the transaction
@@ -142,7 +142,7 @@ pub struct DeclareTxV0 {
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
-pub struct DeclareTxV1 {
+pub struct RpcDeclareTxV1 {
     /// The address of the account contract sending the declaration transaction
     pub sender_address: ContractAddress,
     /// The maximal fee that can be charged for including the transaction
@@ -156,7 +156,7 @@ pub struct DeclareTxV1 {
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
-pub struct DeclareTxV2 {
+pub struct RpcDeclareTxV2 {
     /// The address of the account contract sending the declaration transaction
     pub sender_address: ContractAddress,
     /// The hash of the cairo assembly resulting from the sierra compilation
@@ -172,7 +172,7 @@ pub struct DeclareTxV2 {
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
-pub struct DeclareTxV3 {
+pub struct RpcDeclareTxV3 {
     /// The address of the account contract sending the declaration transaction
     pub sender_address: ContractAddress,
     /// The hash of the cairo assembly resulting from the sierra compilation
@@ -198,7 +198,7 @@ pub struct DeclareTxV3 {
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
-pub struct DeployTx {
+pub struct RpcDeployTx {
     /// Version of the transaction scheme
     pub version: Felt,
     /// The salt for the address of the deployed contract
@@ -211,17 +211,17 @@ pub struct DeployTx {
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(tag = "version")]
-pub enum DeployAccountTx {
+pub enum RpcDeployAccountTx {
     /// Version 1 `DEPLOY_ACCOUNT` transaction.
     #[serde(rename = "0x1")]
-    V1(DeployAccountTxV1),
+    V1(RpcDeployAccountTxV1),
     /// Version 3 `DEPLOY_ACCOUNT` transaction.
     #[serde(rename = "0x3")]
-    V3(DeployAccountTxV3),
+    V3(RpcDeployAccountTxV3),
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
-pub struct DeployAccountTxV1 {
+pub struct RpcDeployAccountTxV1 {
     /// The maximal fee that can be charged for including the transaction
     pub max_fee: Felt,
     /// Signature
@@ -237,7 +237,7 @@ pub struct DeployAccountTxV1 {
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
-pub struct DeployAccountTxV3 {
+pub struct RpcDeployAccountTxV3 {
     /// Signature
     pub signature: Vec<Felt>,
     /// Nonce
@@ -260,43 +260,39 @@ pub struct DeployAccountTxV3 {
     pub fee_data_availability_mode: DataAvailabilityMode,
 }
 
-#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
-#[serde(transparent)]
-pub struct TxContent(pub starknet::core::types::TransactionContent);
-
-impl From<primitives::TxWithHash> for TxWithHash {
+impl From<primitives::TxWithHash> for RpcTxWithHash {
     fn from(value: primitives::TxWithHash) -> Self {
         let transaction_hash = value.hash;
-        let transaction = Tx::from(value.transaction);
-        TxWithHash { transaction_hash, transaction }
+        let transaction = RpcTx::from(value.transaction);
+        RpcTxWithHash { transaction_hash, transaction }
     }
 }
 
-impl From<primitives::Tx> for Tx {
+impl From<primitives::Tx> for RpcTx {
     fn from(value: primitives::Tx) -> Self {
         match value {
             primitives::Tx::Invoke(invoke) => match invoke {
-                primitives::InvokeTx::V0(tx) => Tx::Invoke(InvokeTx::V0(InvokeTxV0 {
+                primitives::InvokeTx::V0(tx) => RpcTx::Invoke(RpcInvokeTx::V0(RpcInvokeTxV0 {
                     calldata: tx.calldata,
                     signature: tx.signature,
                     max_fee: tx.max_fee.into(),
-                    contract_address: tx.contract_address.into(),
+                    contract_address: tx.contract_address,
                     entry_point_selector: tx.entry_point_selector,
                 })),
 
-                primitives::InvokeTx::V1(tx) => Tx::Invoke(InvokeTx::V1(InvokeTxV1 {
+                primitives::InvokeTx::V1(tx) => RpcTx::Invoke(RpcInvokeTx::V1(RpcInvokeTxV1 {
                     nonce: tx.nonce,
                     calldata: tx.calldata,
                     signature: tx.signature,
                     max_fee: tx.max_fee.into(),
-                    sender_address: tx.sender_address.into(),
+                    sender_address: tx.sender_address,
                 })),
 
-                primitives::InvokeTx::V3(tx) => Tx::Invoke(InvokeTx::V3(InvokeTxV3 {
+                primitives::InvokeTx::V3(tx) => RpcTx::Invoke(RpcInvokeTx::V3(RpcInvokeTxV3 {
                     nonce: tx.nonce,
                     calldata: tx.calldata,
                     signature: tx.signature,
-                    sender_address: tx.sender_address.into(),
+                    sender_address: tx.sender_address,
                     account_deployment_data: tx.account_deployment_data,
                     fee_data_availability_mode: to_rpc_da_mode(tx.fee_data_availability_mode),
                     nonce_data_availability_mode: to_rpc_da_mode(tx.nonce_data_availability_mode),
@@ -306,36 +302,36 @@ impl From<primitives::Tx> for Tx {
                 })),
             },
 
-            primitives::Tx::Declare(tx) => Tx::Declare(match tx {
-                primitives::DeclareTx::V0(tx) => DeclareTx::V0(DeclareTxV0 {
+            primitives::Tx::Declare(tx) => RpcTx::Declare(match tx {
+                primitives::DeclareTx::V0(tx) => RpcDeclareTx::V0(RpcDeclareTxV0 {
                     signature: tx.signature,
                     class_hash: tx.class_hash,
                     max_fee: tx.max_fee.into(),
-                    sender_address: tx.sender_address.into(),
+                    sender_address: tx.sender_address,
                 }),
 
-                primitives::DeclareTx::V1(tx) => DeclareTx::V1(DeclareTxV1 {
+                primitives::DeclareTx::V1(tx) => RpcDeclareTx::V1(RpcDeclareTxV1 {
                     nonce: tx.nonce,
                     signature: tx.signature,
                     class_hash: tx.class_hash,
                     max_fee: tx.max_fee.into(),
-                    sender_address: tx.sender_address.into(),
+                    sender_address: tx.sender_address,
                 }),
 
-                primitives::DeclareTx::V2(tx) => DeclareTx::V2(DeclareTxV2 {
+                primitives::DeclareTx::V2(tx) => RpcDeclareTx::V2(RpcDeclareTxV2 {
                     nonce: tx.nonce,
                     signature: tx.signature,
                     class_hash: tx.class_hash,
                     max_fee: tx.max_fee.into(),
-                    sender_address: tx.sender_address.into(),
+                    sender_address: tx.sender_address,
                     compiled_class_hash: tx.compiled_class_hash,
                 }),
 
-                primitives::DeclareTx::V3(tx) => DeclareTx::V3(DeclareTxV3 {
+                primitives::DeclareTx::V3(tx) => RpcDeclareTx::V3(RpcDeclareTxV3 {
                     nonce: tx.nonce,
                     signature: tx.signature,
                     class_hash: tx.class_hash,
-                    sender_address: tx.sender_address.into(),
+                    sender_address: tx.sender_address,
                     compiled_class_hash: tx.compiled_class_hash,
                     account_deployment_data: tx.account_deployment_data,
                     fee_data_availability_mode: to_rpc_da_mode(tx.fee_data_availability_mode),
@@ -346,39 +342,45 @@ impl From<primitives::Tx> for Tx {
                 }),
             }),
 
-            primitives::Tx::L1Handler(tx) => Tx::L1Handler(L1HandlerTx {
+            primitives::Tx::L1Handler(tx) => RpcTx::L1Handler(RpcL1HandlerTx {
                 calldata: tx.calldata,
-                contract_address: tx.contract_address.into(),
+                contract_address: tx.contract_address,
                 entry_point_selector: tx.entry_point_selector,
                 nonce: tx.nonce,
                 version: tx.version,
             }),
 
-            primitives::Tx::DeployAccount(tx) => Tx::DeployAccount(match tx {
-                primitives::DeployAccountTx::V1(tx) => DeployAccountTx::V1(DeployAccountTxV1 {
-                    nonce: tx.nonce,
-                    signature: tx.signature,
-                    class_hash: tx.class_hash,
-                    max_fee: tx.max_fee.into(),
-                    constructor_calldata: tx.constructor_calldata,
-                    contract_address_salt: tx.contract_address_salt,
-                }),
+            primitives::Tx::DeployAccount(tx) => RpcTx::DeployAccount(match tx {
+                primitives::DeployAccountTx::V1(tx) => {
+                    RpcDeployAccountTx::V1(RpcDeployAccountTxV1 {
+                        nonce: tx.nonce,
+                        signature: tx.signature,
+                        class_hash: tx.class_hash,
+                        max_fee: tx.max_fee.into(),
+                        constructor_calldata: tx.constructor_calldata,
+                        contract_address_salt: tx.contract_address_salt,
+                    })
+                }
 
-                primitives::DeployAccountTx::V3(tx) => DeployAccountTx::V3(DeployAccountTxV3 {
-                    nonce: tx.nonce,
-                    signature: tx.signature,
-                    class_hash: tx.class_hash,
-                    constructor_calldata: tx.constructor_calldata,
-                    contract_address_salt: tx.contract_address_salt,
-                    fee_data_availability_mode: to_rpc_da_mode(tx.fee_data_availability_mode),
-                    nonce_data_availability_mode: to_rpc_da_mode(tx.nonce_data_availability_mode),
-                    paymaster_data: tx.paymaster_data,
-                    resource_bounds: to_rpc_resource_bounds(tx.resource_bounds),
-                    tip: tx.tip,
-                }),
+                primitives::DeployAccountTx::V3(tx) => {
+                    RpcDeployAccountTx::V3(RpcDeployAccountTxV3 {
+                        nonce: tx.nonce,
+                        signature: tx.signature,
+                        class_hash: tx.class_hash,
+                        constructor_calldata: tx.constructor_calldata,
+                        contract_address_salt: tx.contract_address_salt,
+                        fee_data_availability_mode: to_rpc_da_mode(tx.fee_data_availability_mode),
+                        nonce_data_availability_mode: to_rpc_da_mode(
+                            tx.nonce_data_availability_mode,
+                        ),
+                        paymaster_data: tx.paymaster_data,
+                        resource_bounds: to_rpc_resource_bounds(tx.resource_bounds),
+                        tip: tx.tip,
+                    })
+                }
             }),
 
-            primitives::Tx::Deploy(tx) => Tx::Deploy(DeployTx {
+            primitives::Tx::Deploy(tx) => RpcTx::Deploy(RpcDeployTx {
                 constructor_calldata: tx.constructor_calldata,
                 contract_address_salt: tx.contract_address_salt,
                 class_hash: tx.class_hash,

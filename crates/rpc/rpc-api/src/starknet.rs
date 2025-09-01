@@ -22,7 +22,7 @@ use katana_rpc_types::event::{EventFilterWithPage, GetEventsResponse};
 use katana_rpc_types::message::MsgFromL1;
 use katana_rpc_types::receipt::TxReceiptWithBlockInfo;
 use katana_rpc_types::state_update::MaybePreConfirmedStateUpdate;
-use katana_rpc_types::transaction::TxWithHash;
+use katana_rpc_types::transaction::RpcTxWithHash;
 use katana_rpc_types::trie::{ContractStorageKeys, GetStorageProofResponse};
 use katana_rpc_types::{
     EstimateFeeSimulationFlag, FeeEstimate, FunctionCall, MessageFeeEstimate, SimulationFlag,
@@ -92,7 +92,7 @@ pub trait StarknetApi {
 
     /// Get the details and status of a submitted transaction.
     #[method(name = "getTransactionByHash")]
-    async fn get_transaction_by_hash(&self, transaction_hash: TxHash) -> RpcResult<TxWithHash>;
+    async fn get_transaction_by_hash(&self, transaction_hash: TxHash) -> RpcResult<RpcTxWithHash>;
 
     /// Get the details of a transaction by a given block id and index.
     #[method(name = "getTransactionByBlockIdAndIndex")]
@@ -100,7 +100,7 @@ pub trait StarknetApi {
         &self,
         block_id: BlockIdOrTag,
         index: u64,
-    ) -> RpcResult<TxWithHash>;
+    ) -> RpcResult<RpcTxWithHash>;
 
     /// Get the transaction receipt by the transaction hash.
     #[method(name = "getTransactionReceipt")]

@@ -6371,7 +6371,6 @@ dependencies = [
  "flate2",
  "katana-primitives",
  "katana-trie",
- "num-traits",
  "rstest 0.18.2",
  "serde",
  "serde_json",

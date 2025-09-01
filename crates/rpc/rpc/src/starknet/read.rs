@@ -27,7 +27,7 @@ use katana_rpc_types::event::{EventFilterWithPage, GetEventsResponse};
 use katana_rpc_types::message::MsgFromL1;
 use katana_rpc_types::receipt::TxReceiptWithBlockInfo;
 use katana_rpc_types::state_update::MaybePreConfirmedStateUpdate;
-use katana_rpc_types::transaction::TxWithHash;
+use katana_rpc_types::transaction::RpcTxWithHash;
 use katana_rpc_types::trie::{ContractStorageKeys, GetStorageProofResponse};
 use katana_rpc_types::{EstimateFeeSimulationFlag, FeeEstimate, FunctionCall, MessageFeeEstimate};
 use starknet::core::types::TransactionStatus;
@@ -54,7 +54,7 @@ impl<EF: ExecutorFactory> StarknetApiServer for StarknetApi<EF> {
         Ok(self.latest_block_number().await?)
     }
 
-    async fn get_transaction_by_hash(&self, transaction_hash: TxHash) -> RpcResult<TxWithHash> {
+    async fn get_transaction_by_hash(&self, transaction_hash: TxHash) -> RpcResult<RpcTxWithHash> {
         Ok(self.transaction(transaction_hash).await?)
     }
 
@@ -85,7 +85,7 @@ impl<EF: ExecutorFactory> StarknetApiServer for StarknetApi<EF> {
         &self,
         block_id: BlockIdOrTag,
         index: u64,
-    ) -> RpcResult<TxWithHash> {
+    ) -> RpcResult<RpcTxWithHash> {
         Ok(self.transaction_by_block_id_and_index(block_id, index).await?)
     }
 

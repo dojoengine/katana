@@ -313,11 +313,7 @@ mod impls {
                 38 => Self::FailedToFetchPendingTransactions,
                 40 => {
                     let data = if let Some(data) = err.data() {
-                        if let Ok(data) = serde_json::from_str::<ContractErrorData>(data.get()) {
-                            data
-                        } else {
-                            ContractErrorData::default()
-                        }
+                        serde_json::from_str::<ContractErrorData>(data.get()).unwrap_or_default()
                     } else {
                         ContractErrorData::default()
                     };
@@ -326,13 +322,8 @@ mod impls {
                 }
                 41 => {
                     let data = if let Some(data) = err.data() {
-                        if let Ok(data) =
-                            serde_json::from_str::<TransactionExecutionErrorData>(data.get())
-                        {
-                            data
-                        } else {
-                            TransactionExecutionErrorData::default()
-                        }
+                        serde_json::from_str::<TransactionExecutionErrorData>(data.get())
+                            .unwrap_or_default()
                     } else {
                         TransactionExecutionErrorData::default()
                     };

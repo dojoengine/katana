@@ -15,7 +15,7 @@ use katana_rpc_types::event::{
 };
 use katana_rpc_types::receipt::{ReceiptBlock, TxReceiptWithBlockInfo};
 use katana_rpc_types::state_update::MaybePreConfirmedStateUpdate;
-use katana_rpc_types::transaction::TxWithHash;
+use katana_rpc_types::transaction::RpcTxWithHash;
 use starknet::core::types::TransactionStatus;
 
 #[derive(Debug, thiserror::Error)]
@@ -72,7 +72,7 @@ impl ForkedClient {
         }
     }
 
-    pub async fn get_transaction_by_hash(&self, hash: TxHash) -> Result<TxWithHash, Error> {
+    pub async fn get_transaction_by_hash(&self, hash: TxHash) -> Result<RpcTxWithHash, Error> {
         Ok(self.client.get_transaction_by_hash(hash).await?)
     }
 
@@ -107,7 +107,7 @@ impl ForkedClient {
         &self,
         block_id: BlockIdOrTag,
         idx: u64,
-    ) -> Result<TxWithHash, Error> {
+    ) -> Result<RpcTxWithHash, Error> {
         match block_id {
             BlockIdOrTag::Number(num) => {
                 if num > self.block {
@@ -243,7 +243,7 @@ impl ForkedClient {
             _ => {}
         }
 
-        Ok(self.client.get_state_update(block_id).await?.into())
+        Ok(self.client.get_state_update(block_id).await?)
     }
 
     // NOTE(kariy): The reason why I don't just use EventFilter as a param, bcs i wanna make sure
@@ -297,8 +297,8 @@ impl From<ClientError> for Error {
 
 #[cfg(test)]
 mod tests {
+    use jsonrpsee::http_client::HttpClientBuilder;
     use katana_primitives::felt;
-    use url::Url;
 
     use super::*;
 
@@ -307,8 +307,8 @@ mod tests {
 
     #[tokio::test]
     async fn get_block_hash() {
-        let url = Url::parse(SEPOLIA_URL).unwrap();
-        let client = ForkedClient::new_http(url, FORK_BLOCK_NUMBER);
+        let http_client = HttpClientBuilder::new().build(SEPOLIA_URL).unwrap();
+        let client = ForkedClient::new(http_client, FORK_BLOCK_NUMBER);
 
         // -----------------------------------------------------------------------
         // Block before the forked block

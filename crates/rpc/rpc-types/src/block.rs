@@ -7,8 +7,8 @@ use katana_primitives::{ContractAddress, Felt};
 use serde::{Deserialize, Serialize};
 use starknet::core::types::{BlockStatus, L1DataAvailabilityMode, ResourcePrice};
 
-use crate::receipt::TxReceipt;
-use crate::transaction::Tx;
+use crate::receipt::RpcTxReceipt;
+use crate::transaction::{RpcTx, RpcTxWithHash};
 
 pub type BlockTxCount = u64;
 
@@ -33,7 +33,7 @@ pub struct BlockWithTxs {
     pub l1_data_gas_price: ResourcePrice,
     pub l1_da_mode: L1DataAvailabilityMode,
     pub starknet_version: String,
-    pub transactions: Vec<TxWithHash>,
+    pub transactions: Vec<RpcTxWithHash>,
 }
 
 impl BlockWithTxs {
@@ -65,7 +65,7 @@ impl BlockWithTxs {
             block_number: block.header.number,
             parent_hash: block.header.parent_hash,
             starknet_version: block.header.starknet_version.to_string(),
-            sequencer_address: block.header.sequencer_address.into(),
+            sequencer_address: block.header.sequencer_address,
             status: match finality_status {
                 FinalityStatus::AcceptedOnL1 => BlockStatus::AcceptedOnL1,
                 FinalityStatus::AcceptedOnL2 => BlockStatus::AcceptedOnL2,
@@ -83,7 +83,6 @@ impl BlockWithTxs {
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub struct PreConfirmedBlockWithTxs {
-    pub transactions: Vec<TxWithHash>,
     pub block_number: BlockNumber,
     pub timestamp: u64,
     pub sequencer_address: ContractAddress,
@@ -92,6 +91,7 @@ pub struct PreConfirmedBlockWithTxs {
     pub l1_data_gas_price: ResourcePrice,
     pub l1_da_mode: L1DataAvailabilityMode,
     pub starknet_version: String,
+    pub transactions: Vec<RpcTxWithHash>,
 }
 
 impl PreConfirmedBlockWithTxs {
@@ -118,7 +118,7 @@ impl PreConfirmedBlockWithTxs {
             timestamp: header.timestamp,
             block_number: header.number,
             starknet_version: header.starknet_version.to_string(),
-            sequencer_address: header.sequencer_address.into(),
+            sequencer_address: header.sequencer_address,
             l1_da_mode: L1DataAvailabilityMode::Calldata,
             l1_data_gas_price,
         }
@@ -146,7 +146,7 @@ pub struct BlockWithTxHashes {
     pub l1_data_gas_price: ResourcePrice,
     pub l1_da_mode: L1DataAvailabilityMode,
     pub starknet_version: String,
-    pub transactions: Vec<Felt>,
+    pub transactions: Vec<TxHash>,
 }
 
 impl BlockWithTxHashes {
@@ -180,7 +180,7 @@ impl BlockWithTxHashes {
             block_number: block.header.number,
             parent_hash: block.header.parent_hash,
             starknet_version: block.header.starknet_version.to_string(),
-            sequencer_address: block.header.sequencer_address.into(),
+            sequencer_address: block.header.sequencer_address,
             status: match finality_status {
                 FinalityStatus::AcceptedOnL1 => BlockStatus::AcceptedOnL1,
                 FinalityStatus::AcceptedOnL2 => BlockStatus::AcceptedOnL2,
@@ -198,8 +198,6 @@ impl BlockWithTxHashes {
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub struct PreConfirmedBlockWithTxHashes {
-    /// The hashes of the transactions included in this block
-    pub transactions: Vec<Felt>,
     /// The block number of the block that the proposer is currently building. Note that this is a
     /// local view of the node, whose accuracy depends on its polling interval length.
     pub block_number: BlockNumber,
@@ -217,6 +215,8 @@ pub struct PreConfirmedBlockWithTxHashes {
     pub l1_da_mode: L1DataAvailabilityMode,
     /// Semver of the current Starknet protocol
     pub starknet_version: String,
+    /// The hashes of the transactions included in this block
+    pub transactions: Vec<TxHash>,
 }
 
 impl PreConfirmedBlockWithTxHashes {
@@ -243,7 +243,7 @@ impl PreConfirmedBlockWithTxHashes {
             timestamp: header.timestamp,
             block_number: header.number,
             starknet_version: header.starknet_version.to_string(),
-            sequencer_address: header.sequencer_address.into(),
+            sequencer_address: header.sequencer_address,
             l1_da_mode: match header.l1_da_mode {
                 katana_primitives::da::L1DataAvailabilityMode::Blob => L1DataAvailabilityMode::Blob,
                 katana_primitives::da::L1DataAvailabilityMode::Calldata => {
@@ -299,7 +299,7 @@ pub struct BlockWithReceipts {
     pub l1_data_gas_price: ResourcePrice,
     pub l1_da_mode: L1DataAvailabilityMode,
     pub starknet_version: String,
-    pub transactions: Vec<TxWithReceipt>,
+    pub transactions: Vec<RpcTxWithReceipt>,
 }
 
 impl BlockWithReceipts {
@@ -326,9 +326,9 @@ impl BlockWithReceipts {
 
         let transactions = receipts
             .map(|(tx, receipt)| {
-                let receipt = TxReceipt::new(tx.hash, finality_status, receipt);
-                let transaction = Tx::from(tx.transaction);
-                TxWithReceipt { transaction, receipt }
+                let receipt = RpcTxReceipt::new(tx.hash, finality_status, receipt);
+                let transaction = RpcTx::from(tx.transaction);
+                RpcTxWithReceipt { transaction, receipt }
             })
             .collect();
 
@@ -342,7 +342,7 @@ impl BlockWithReceipts {
             block_number: header.number,
             new_root: header.state_root,
             timestamp: header.timestamp,
-            sequencer_address: header.sequencer_address.into(),
+            sequencer_address: header.sequencer_address,
             l1_gas_price,
             l2_gas_price,
             l1_data_gas_price,
@@ -354,14 +354,13 @@ impl BlockWithReceipts {
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
-pub struct TxWithReceipt {
-    transaction: Tx,
-    receipt: TxReceipt,
+pub struct RpcTxWithReceipt {
+    transaction: RpcTx,
+    receipt: RpcTxReceipt,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub struct PreConfirmedBlockWithReceipts {
-    pub transactions: Vec<TxWithReceipt>,
     pub block_number: BlockNumber,
     pub timestamp: u64,
     pub sequencer_address: ContractAddress,
@@ -370,6 +369,7 @@ pub struct PreConfirmedBlockWithReceipts {
     pub l1_data_gas_price: ResourcePrice,
     pub l1_da_mode: L1DataAvailabilityMode,
     pub starknet_version: String,
+    pub transactions: Vec<RpcTxWithReceipt>,
 }
 
 impl PreConfirmedBlockWithReceipts {
@@ -394,9 +394,9 @@ impl PreConfirmedBlockWithReceipts {
 
         let transactions = receipts
             .map(|(tx, receipt)| {
-                let receipt = TxReceipt::new(tx.hash, FinalityStatus::AcceptedOnL2, receipt);
-                let transaction = Tx::from(tx.transaction);
-                TxWithReceipt { transaction, receipt }
+                let receipt = RpcTxReceipt::new(tx.hash, FinalityStatus::AcceptedOnL2, receipt);
+                let transaction = RpcTx::from(tx.transaction);
+                RpcTxWithReceipt { transaction, receipt }
             })
             .collect();
 
@@ -405,7 +405,7 @@ impl PreConfirmedBlockWithReceipts {
             l1_gas_price,
             l2_gas_price,
             timestamp: header.timestamp,
-            sequencer_address: header.sequencer_address.into(),
+            sequencer_address: header.sequencer_address,
             block_number: header.number,
             l1_da_mode: match header.l1_da_mode {
                 katana_primitives::da::L1DataAvailabilityMode::Blob => L1DataAvailabilityMode::Blob,

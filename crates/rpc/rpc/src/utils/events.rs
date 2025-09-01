@@ -318,7 +318,7 @@ fn fetch_tx_events(
             keys: e.keys.clone(),
             data: e.data.clone(),
             transaction_hash: tx_hash,
-            from_address: e.from_address.into(),
+            from_address: e.from_address,
         })
         // enumerate so that we can keep track of the event's index in the transaction
         .enumerate()

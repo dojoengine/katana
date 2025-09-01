@@ -40,7 +40,7 @@ use katana_rpc::starknet::forking::ForkedClient;
 #[cfg(feature = "cartridge")]
 use katana_rpc::starknet::PaymasterConfig;
 use katana_rpc::starknet::{StarknetApi, StarknetApiConfig};
-use katana_rpc::{HttpClient, RpcServer, RpcServerHandle};
+use katana_rpc::{RpcServer, RpcServerHandle};
 #[cfg(feature = "cartridge")]
 use katana_rpc_api::cartridge::CartridgeApiServer;
 use katana_rpc_api::dev::DevApiServer;
@@ -143,7 +143,7 @@ impl Node {
 
             // TODO: it'd bee nice if the client can be shared on both the rpc and forked backend
             // side
-            let rpc_client = HttpClientBuilder::new().build(cfg.url)?;
+            let rpc_client = HttpClientBuilder::new().build(cfg.url.as_ref())?;
             let forked_client = ForkedClient::new(rpc_client, block_num);
 
             (bc, db, Some(forked_client))

@@ -11,16 +11,16 @@ use starknet::core::types::{
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(tag = "type", rename_all = "SCREAMING_SNAKE_CASE")]
-pub enum TxReceipt {
-    Invoke(InvokeTxReceipt),
-    Deploy(DeployTxReceipt),
-    Declare(DeclareTxReceipt),
-    L1Handler(L1HandlerTxReceipt),
-    DeployAccount(DeployAccountTxReceipt),
+pub enum RpcTxReceipt {
+    Invoke(RpcInvokeTxReceipt),
+    Deploy(RpcDeployTxReceipt),
+    Declare(RpcDeclareTxReceipt),
+    L1Handler(RpcL1HandlerTxReceipt),
+    DeployAccount(RpcDeployAccountTxReceipt),
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
-pub struct InvokeTxReceipt {
+pub struct RpcInvokeTxReceipt {
     pub transaction_hash: TxHash,
     pub actual_fee: FeePayment,
     pub finality_status: TransactionFinalityStatus,
@@ -31,7 +31,7 @@ pub struct InvokeTxReceipt {
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
-pub struct L1HandlerTxReceipt {
+pub struct RpcL1HandlerTxReceipt {
     pub transaction_hash: TxHash,
     pub message_hash: Hash256,
     pub actual_fee: FeePayment,
@@ -43,7 +43,7 @@ pub struct L1HandlerTxReceipt {
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
-pub struct DeclareTxReceipt {
+pub struct RpcDeclareTxReceipt {
     pub transaction_hash: TxHash,
     pub actual_fee: FeePayment,
     pub finality_status: TransactionFinalityStatus,
@@ -54,7 +54,7 @@ pub struct DeclareTxReceipt {
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
-pub struct DeployTxReceipt {
+pub struct RpcDeployTxReceipt {
     pub transaction_hash: TxHash,
     pub actual_fee: FeePayment,
     pub finality_status: TransactionFinalityStatus,
@@ -66,7 +66,7 @@ pub struct DeployTxReceipt {
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
-pub struct DeployAccountTxReceipt {
+pub struct RpcDeployAccountTxReceipt {
     pub transaction_hash: TxHash,
     pub actual_fee: FeePayment,
     pub finality_status: TransactionFinalityStatus,
@@ -77,7 +77,7 @@ pub struct DeployAccountTxReceipt {
     pub contract_address: ContractAddress,
 }
 
-impl TxReceipt {
+impl RpcTxReceipt {
     pub fn new(
         transaction_hash: TxHash,
         finality_status: FinalityStatus,
@@ -93,7 +93,7 @@ impl TxReceipt {
                 let messages_sent = rct.messages_sent;
                 let events = rct.events;
 
-                TxReceipt::Invoke(InvokeTxReceipt {
+                RpcTxReceipt::Invoke(RpcInvokeTxReceipt {
                     events,
                     messages_sent,
                     finality_status,
@@ -112,7 +112,7 @@ impl TxReceipt {
                 let messages_sent = rct.messages_sent;
                 let events = rct.events;
 
-                TxReceipt::Declare(DeclareTxReceipt {
+                RpcTxReceipt::Declare(RpcDeclareTxReceipt {
                     events,
                     messages_sent,
                     finality_status,
@@ -131,7 +131,7 @@ impl TxReceipt {
                 let messages_sent = rct.messages_sent;
                 let events = rct.events;
 
-                TxReceipt::L1Handler(L1HandlerTxReceipt {
+                RpcTxReceipt::L1Handler(RpcL1HandlerTxReceipt {
                     events,
                     messages_sent,
                     finality_status,
@@ -151,7 +151,7 @@ impl TxReceipt {
                 let messages_sent = rct.messages_sent;
                 let events = rct.events;
 
-                TxReceipt::DeployAccount(DeployAccountTxReceipt {
+                RpcTxReceipt::DeployAccount(RpcDeployAccountTxReceipt {
                     events,
                     messages_sent,
                     finality_status,
@@ -173,7 +173,7 @@ impl TxReceipt {
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub struct TxReceiptWithBlockInfo {
     #[serde(flatten)]
-    pub receipt: TxReceipt,
+    pub receipt: RpcTxReceipt,
     #[serde(flatten)]
     pub block: ReceiptBlock,
 }
@@ -185,7 +185,7 @@ impl TxReceiptWithBlockInfo {
         finality_status: FinalityStatus,
         receipt: Receipt,
     ) -> Self {
-        let receipt = TxReceipt::new(transaction_hash, finality_status, receipt);
+        let receipt = RpcTxReceipt::new(transaction_hash, finality_status, receipt);
         Self { receipt, block }
     }
 }
