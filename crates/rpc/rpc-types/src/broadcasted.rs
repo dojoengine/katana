@@ -140,7 +140,7 @@ impl UntypedBroadcastedTx {
 
         Ok(BroadcastedInvokeTx {
             calldata,
-            tip: self.tip.into(),
+            tip: self.tip,
             sender_address,
             nonce: self.nonce,
             account_deployment_data,
@@ -183,7 +183,7 @@ impl UntypedBroadcastedTx {
         Ok(BroadcastedDeclareTx {
             contract_class,
             sender_address,
-            tip: self.tip.into(),
+            tip: self.tip,
             nonce: self.nonce,
             compiled_class_hash,
             account_deployment_data,
@@ -229,7 +229,7 @@ impl UntypedBroadcastedTx {
 
         Ok(BroadcastedDeployAccountTx {
             class_hash,
-            tip: self.tip.into(),
+            tip: self.tip,
             nonce: self.nonce,
             constructor_calldata,
             contract_address_salt,

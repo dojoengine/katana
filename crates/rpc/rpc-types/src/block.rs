@@ -324,12 +324,12 @@ impl<'de> Deserialize<'de> for MaybePreConfirmedBlockWithReceipts {
         } = RawObject::deserialize(deserializer)
             .map_err(|e| serde::de::Error::custom(format!("malformed payload: {e}")))?;
 
-        if block_hash.is_some() {
+        if let Some(block_hash) = block_hash {
             Ok(MaybePreConfirmedBlockWithReceipts::Block(BlockWithReceipts {
-                block_hash: block_hash.unwrap(),
                 parent_hash: parent_hash.unwrap(),
                 new_root: new_root.unwrap(),
                 status: status.unwrap(),
+                block_hash,
                 block_number,
                 timestamp,
                 sequencer_address,
