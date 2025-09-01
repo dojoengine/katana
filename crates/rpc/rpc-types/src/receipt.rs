@@ -1,10 +1,9 @@
-use katana_primitives::block::FinalityStatus;
+use katana_primitives::block::{BlockHash, BlockNumber, FinalityStatus};
 use katana_primitives::fee::{FeeInfo, PriceUnit};
 use katana_primitives::receipt::{self, Event, MessageToL1, Receipt};
 use katana_primitives::transaction::TxHash;
 use katana_primitives::ContractAddress;
 use serde::{Deserialize, Serialize};
-pub use starknet::core::types::ReceiptBlock;
 use starknet::core::types::{
     ExecutionResources, ExecutionResult, FeePayment, Hash256, TransactionFinalityStatus,
 };
@@ -180,18 +179,57 @@ pub struct TxReceiptWithBlockInfo {
     #[serde(flatten)]
     pub receipt: RpcTxReceipt,
     #[serde(flatten)]
-    pub block: ReceiptBlock,
+    pub block: ReceiptBlockInfo,
 }
 
 impl TxReceiptWithBlockInfo {
     pub fn new(
-        block: ReceiptBlock,
+        block: ReceiptBlockInfo,
         transaction_hash: TxHash,
         finality_status: FinalityStatus,
         receipt: Receipt,
     ) -> Self {
         let receipt = RpcTxReceipt::new(transaction_hash, finality_status, receipt);
         Self { receipt, block }
+    }
+}
+
+/// The block information associated with a receipt.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize)]
+#[serde(untagged)]
+pub enum ReceiptBlockInfo {
+    /// The receipt is from a pre-confirmed block.
+    PreConfirmed {
+        /// Block number.
+        block_number: BlockNumber,
+    },
+
+    /// The receipt is from a confirmed block.
+    Block {
+        /// Block hash.
+        block_hash: BlockHash,
+        /// Block number.
+        block_number: BlockNumber,
+    },
+}
+
+impl<'de> Deserialize<'de> for ReceiptBlockInfo {
+    fn deserialize<D: serde::Deserializer<'de>>(deserializer: D) -> Result<Self, D::Error> {
+        use serde::de::Error;
+
+        #[derive(Debug, Deserialize)]
+        struct Raw {
+            block_hash: Option<BlockHash>,
+            block_number: Option<BlockNumber>,
+        }
+
+        let raw = Raw::deserialize(deserializer)?;
+        let block_number = raw.block_number.ok_or(Error::custom("`block_number` is missing"))?;
+
+        match raw.block_hash {
+            None => Ok(ReceiptBlockInfo::PreConfirmed { block_number }),
+            Some(block_hash) => Ok(ReceiptBlockInfo::Block { block_hash, block_number }),
+        }
     }
 }
 

@@ -14,7 +14,7 @@ katana-metrics.workspace = true
 katana-pool.workspace = true
 katana-primitives.workspace = true
 katana-provider.workspace = true
-katana-rpc-api.workspace = true
+katana-rpc-api = { workspace = true, features = [ "client" ] }
 katana-rpc-types.workspace = true
 katana-rpc-types-builder.workspace = true
 katana-tasks.workspace = true
@@ -76,5 +76,4 @@ cartridge = [
 	"dep:url",
 	"katana-rpc-api/cartridge",
 ]
-client = [ "jsonrpsee/client", "katana-rpc-api/client" ]
 explorer = [ "dep:katana-explorer" ]

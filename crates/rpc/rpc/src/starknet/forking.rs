@@ -13,7 +13,7 @@ use katana_rpc_types::block::{
 use katana_rpc_types::event::{
     EventFilter, EventFilterWithPage, GetEventsResponse, ResultPageRequest,
 };
-use katana_rpc_types::receipt::{ReceiptBlock, TxReceiptWithBlockInfo};
+use katana_rpc_types::receipt::{ReceiptBlockInfo, TxReceiptWithBlockInfo};
 use katana_rpc_types::state_update::MaybePreConfirmedStateUpdate;
 use katana_rpc_types::transaction::RpcTxWithHash;
 use starknet::core::types::TransactionStatus;
@@ -81,7 +81,7 @@ impl ForkedClient {
     ) -> Result<TxReceiptWithBlockInfo, Error> {
         let receipt = self.client.get_transaction_receipt(hash).await?;
 
-        if let ReceiptBlock::Block { block_number, .. } = receipt.block {
+        if let ReceiptBlockInfo::Block { block_number, .. } = receipt.block {
             if block_number > self.block {
                 return Err(Error::BlockOutOfRange);
             }

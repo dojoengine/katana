@@ -12,13 +12,13 @@ use katana_primitives::felt;
 use katana_primitives::utils::transaction::{
     compute_l1_handler_tx_hash, compute_l1_to_l2_message_hash,
 };
-use katana_rpc_types::receipt::ReceiptBlock;
 use katana_utils::{TestNode, TxWaiter};
 use rand::Rng;
 use starknet::accounts::{Account, ConnectedAccount};
 use starknet::contract::ContractFactory;
 use starknet::core::types::{
-    BlockId, BlockTag, ContractClass, Felt, Hash256, MsgFromL1, Transaction, TransactionReceipt,
+    BlockId, BlockTag, ContractClass, Felt, Hash256, MsgFromL1, ReceiptBlock, Transaction,
+    TransactionReceipt,
 };
 use starknet::core::utils::get_contract_address;
 use starknet::macros::selector;

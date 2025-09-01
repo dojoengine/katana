@@ -39,7 +39,7 @@ use katana_rpc_types::list::{
     ContinuationToken as ListContinuationToken, GetBlocksRequest, GetBlocksResponse,
     GetTransactionsRequest, GetTransactionsResponse, TransactionListItem,
 };
-use katana_rpc_types::receipt::{ReceiptBlock, TxReceiptWithBlockInfo};
+use katana_rpc_types::receipt::{ReceiptBlockInfo, TxReceiptWithBlockInfo};
 use katana_rpc_types::state_update::MaybePreConfirmedStateUpdate;
 use katana_rpc_types::transaction::RpcTxWithHash;
 use katana_rpc_types::trie::{
@@ -466,28 +466,34 @@ impl<EF: ExecutorFactory> StarknetApi<EF> {
                     Some(receipt) => Ok(Some(receipt)),
                     None => {
                         let executor = this.pending_executor();
-                        // If there's a pending executor
-                        let pending_receipt = executor.and_then(|executor| {
-                            // Find the transaction in the pending block that matches the hash
-                            executor.read().transactions().iter().find_map(|(tx, res)| {
-                                if tx.hash == hash {
-                                    // If the transaction is found, only return the receipt if it's
-                                    // successful
-                                    match res {
-                                        ExecutionResult::Success { receipt, .. } => {
-                                            Some(receipt.clone())
-                                        }
-                                        ExecutionResult::Failed { .. } => None,
+
+                        let Some(executor) = executor else { return StarknetApiResult::Ok(None) };
+                        let executor_lock = executor.read();
+
+                        // Find the transaction in the pending block that matches the hash
+                        let receipt = executor_lock.transactions().iter().find_map(|(tx, res)| {
+                            if tx.hash == hash {
+                                // If the transaction is found, only return the receipt if it's
+                                // successful
+                                match res {
+                                    ExecutionResult::Failed { .. } => None,
+                                    ExecutionResult::Success { receipt, .. } => {
+                                        Some(receipt.clone())
                                     }
-                                } else {
-                                    None
                                 }
-                            })
+                            } else {
+                                None
+                            }
                         });
 
-                        if let Some(receipt) = pending_receipt {
+                        if let Some(receipt) = receipt {
+                            let pending_block_env = executor_lock.block_env();
+                            let pending_block_number = pending_block_env.number;
+
                             let receipt = TxReceiptWithBlockInfo::new(
-                                ReceiptBlock::PreConfirmed,
+                                ReceiptBlockInfo::PreConfirmed {
+                                    block_number: pending_block_number,
+                                },
                                 hash,
                                 FinalityStatus::AcceptedOnL2,
                                 receipt,
