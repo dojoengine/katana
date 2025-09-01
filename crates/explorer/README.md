@@ -45,9 +45,3 @@ For local development of the UI:
 3. Start the development server: `bun run dev`
 
 Note: The `ui/dist` directory is gitignored to prevent committing built files.
-
-## Utilities
-
-This crate also provides some utility functions for working with the embedded files:
-
-- `inject_rpc_url`: Injects the RPC URL into an HTML file

@@ -9,11 +9,11 @@ use katana_messaging::MessagingConfig;
 use serde::{Deserialize, Serialize};
 use url::Url;
 
-pub mod config;
+pub mod file;
 pub mod options;
 pub mod utils;
 
-pub use config::NodeArgsConfig;
+pub use file::NodeArgsConfig;
 pub use options::*;
 use utils::parse_chain_config_dir;
 
@@ -108,11 +108,11 @@ pub struct NodeArgs {
 impl NodeArgs {
     /// Parse the node config from the command line arguments and the config file,
     /// and merge them together prioritizing the command line arguments.
-    pub fn with_config_file(mut self) -> Result<Self> {
+    pub fn with_config_file(&mut self) -> Result<()> {
         let config = if let Some(path) = &self.config {
             NodeArgsConfig::read(path)?
         } else {
-            return Ok(self);
+            return Ok(());
         };
 
         // the CLI (self) takes precedence over the config file.
@@ -172,6 +172,6 @@ impl NodeArgs {
             self.cartridge.merge(config.cartridge.as_ref());
         }
 
-        Ok(self)
+        Ok(())
     }
 }

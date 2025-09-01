@@ -121,7 +121,7 @@ impl From<starknet::core::types::MaybePreConfirmedBlockWithTxs> for MaybePreConf
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
 #[serde(transparent)]
-pub struct BlockWithTxHashes(starknet::core::types::BlockWithTxHashes);
+pub struct BlockWithTxHashes(pub starknet::core::types::BlockWithTxHashes);
 
 impl BlockWithTxHashes {
     pub fn new(

@@ -7,9 +7,7 @@ use std::sync::Arc;
 use alloy_primitives::U256;
 use anyhow::{Context, Result};
 use clap::Parser;
-use katana_chain_spec::{rollup::ChainConfigDir, ChainSpec};
-pub use katana_cli_args::{options::*, NodeArgs, NodeArgsConfig};
-use katana_cli_args::{NodeArgs, NodeArgsConfig};
+use katana_chain_spec::ChainSpec;
 use katana_core::constants::DEFAULT_SEQUENCER_ADDRESS;
 use katana_messaging::MessagingConfig;
 use katana_node::config::db::DbConfig;
@@ -25,12 +23,13 @@ use katana_node::config::rpc::{RpcModuleKind, RpcModulesList};
 use katana_node::config::sequencing::SequencingConfig;
 use katana_node::config::Config;
 use katana_node::Node;
+pub use katana_node_cli_args::options::*;
+use katana_node_cli_args::utils::parse_seed;
+pub use katana_node_cli_args::{NodeArgs, NodeArgsConfig};
 use katana_primitives::genesis::allocation::DevAllocationsGenerator;
 use katana_primitives::genesis::constant::DEFAULT_PREFUNDED_ACCOUNT_BALANCE;
+use serde::{Deserialize, Serialize};
 use tracing::info;
-
-use crate::utils;
-use katana_cli_args::utils::parse_seed;
 
 pub(crate) const LOG_TARGET: &str = "katana::cli";
 
@@ -41,11 +40,24 @@ pub struct Cli {
 }
 
 impl Cli {
-    async fn execute(&self) -> Result<()> {
+    pub fn parse_from<I, T>(itr: I) -> Self
+    where
+        I: IntoIterator<Item = T>,
+        T: Into<std::ffi::OsString> + Clone,
+    {
+        Self { args: NodeArgs::parse_from(itr) }
+    }
+}
+
+impl Cli {
+    pub async fn execute(mut self) -> Result<()> {
+        self.args.with_config_file()?;
+
         // Initialize logging with tracer
         let tracer_config = self.tracer_config();
-        katana_tracing::init(self.logging.log_format, tracer_config).await?;
-        start_node(self).await
+        katana_tracing::init(self.args.logging.log_format, tracer_config).await?;
+
+        self.start_node().await
     }
 
     async fn start_node(&self) -> Result<()> {
@@ -53,7 +65,7 @@ impl Cli {
         let config = self.build_config()?;
         let node = Node::build(config).await.context("failed to build node")?;
 
-        if !args.silent {
+        if !self.args.silent {
             utils::print_intro(&self.args, &node.backend().chain_spec);
         }
 
@@ -88,7 +100,8 @@ impl Cli {
         // the `katana init` will automatically generate a messaging config. so if katana is run
         // with `--chain` then the `--messaging` flag is not required. this is temporary and
         // the messagign config will eventually be removed slowly.
-        let messaging = if cs_messaging.is_some() { cs_messaging } else { args.messaging.clone() };
+        let messaging =
+            if cs_messaging.is_some() { cs_messaging } else { self.args.messaging.clone() };
 
         #[cfg(feature = "cartridge")]
         {
@@ -261,7 +274,7 @@ impl Cli {
         DevConfig {
             fixed_gas_prices,
             fee: !self.args.development.no_fee,
-            account_validation: !args.development.no_account_validation,
+            account_validation: !self.args.development.no_account_validation,
         }
     }
 

@@ -14,7 +14,7 @@ use katana_primitives::contract::{ContractAddress, Nonce, StorageKey, StorageVal
 use katana_primitives::da::L1DataAvailabilityMode;
 use katana_primitives::env::BlockEnv;
 use katana_primitives::event::MaybeForkedContinuationToken;
-use katana_primitives::transaction::{ExecutableTxWithHash, TxHash, TxWithHash};
+use katana_primitives::transaction::{ExecutableTxWithHash, TxHash, TxNumber, TxWithHash};
 use katana_primitives::version::CURRENT_STARKNET_VERSION;
 use katana_primitives::Felt;
 use katana_provider::error::ProviderError;
@@ -23,7 +23,7 @@ use katana_provider::traits::contract::ContractClassProvider;
 use katana_provider::traits::env::BlockEnvProvider;
 use katana_provider::traits::state::{StateFactoryProvider, StateProvider, StateRootProvider};
 use katana_provider::traits::transaction::{
-    ReceiptProvider, TransactionProvider, TransactionStatusProvider,
+    ReceiptProvider, TransactionProvider, TransactionStatusProvider, TransactionsProviderExt,
 };
 use katana_rpc_api::error::starknet::StarknetApiError;
 use katana_rpc_types::block::{
@@ -33,6 +33,10 @@ use katana_rpc_types::block::{
 };
 use katana_rpc_types::class::Class;
 use katana_rpc_types::event::{EventFilterWithPage, EventsPage};
+use katana_rpc_types::list::{
+    ContinuationToken as ListContinuationToken, GetBlocksRequest, GetBlocksResponse,
+    GetTransactionsRequest, GetTransactionsResponse, TransactionListItem,
+};
 use katana_rpc_types::receipt::{ReceiptBlock, TxReceiptWithBlockInfo};
 use katana_rpc_types::state_update::MaybePreConfirmedStateUpdate;
 use katana_rpc_types::transaction::Tx;
@@ -41,7 +45,7 @@ use katana_rpc_types::trie::{
     GetStorageProofResponse, GlobalRoots, Nodes,
 };
 use katana_rpc_types::FeeEstimate;
-use katana_rpc_types_builder::ReceiptBuilder;
+use katana_rpc_types_builder::{BlockBuilder, ReceiptBuilder};
 use katana_tasks::{BlockingTaskPool, TokioTaskSpawner};
 use starknet::core::types::{ResultPageRequest, TransactionStatus};
 
@@ -52,6 +56,7 @@ use crate::{utils, DEFAULT_ESTIMATE_FEE_MAX_CONCURRENT_REQUESTS};
 mod blockifier;
 mod config;
 pub mod forking;
+mod list;
 mod read;
 mod trace;
 mod write;
@@ -70,17 +75,11 @@ type StarknetApiResult<T> = Result<T, StarknetApiError>;
 /// [write](katana_rpc_api::starknet::StarknetWriteApi), and
 /// [trace](katana_rpc_api::starknet::StarknetTraceApi) APIs.
 #[allow(missing_debug_implementations)]
-pub struct StarknetApi<EF>
-where
-    EF: ExecutorFactory,
-{
+pub struct StarknetApi<EF: ExecutorFactory> {
     inner: Arc<StarknetApiInner<EF>>,
 }
 
-struct StarknetApiInner<EF>
-where
-    EF: ExecutorFactory,
-{
+struct StarknetApiInner<EF: ExecutorFactory> {
     pool: TxPool,
     backend: Arc<Backend<EF>>,
     forked_client: Option<ForkedClient>,
@@ -90,10 +89,7 @@ where
     config: StarknetApiConfig,
 }
 
-impl<EF> StarknetApi<EF>
-where
-    EF: ExecutorFactory,
-{
+impl<EF: ExecutorFactory> StarknetApi<EF> {
     pub fn new(
         backend: Arc<Backend<EF>>,
         pool: TxPool,
@@ -1231,10 +1227,171 @@ where
     }
 }
 
-impl<EF> Clone for StarknetApi<EF>
-where
-    EF: ExecutorFactory,
-{
+/////////////////////////////////////////////////////
+// `StarknetApiExt` Implementations
+/////////////////////////////////////////////////////
+
+impl<EF: ExecutorFactory> StarknetApi<EF> {
+    async fn blocks(&self, request: GetBlocksRequest) -> StarknetApiResult<GetBlocksResponse> {
+        self.on_io_blocking_task(move |this| {
+            let provider = this.inner.backend.blockchain.provider();
+
+            // Parse continuation token to get starting point
+            let start_from = if let Some(token_str) = request.result_page_request.continuation_token
+            {
+                // Parse the continuation token and extract the item number
+                ListContinuationToken::parse(&token_str)
+                    .map(|token| token.item_n)
+                    .map_err(|_| StarknetApiError::InvalidContinuationToken)?
+            } else {
+                request.from
+            };
+
+            // `latest_number` returns the number of the latest block, and block number starts from
+            // 0.
+            //
+            // Unlike for `StarknetApi::transactions` where we use
+            // `TransactionsProviderExt::total_transactions` which returns the total
+            // number of transactions overall, the block number here is a block index so we don't
+            // need to subtract by 1.
+            let last_block_idx = provider.latest_number()?;
+            let chunk_size = request.result_page_request.chunk_size;
+
+            // Determine the theoretical end of the range based on how many blocks we actually
+            // have and the `to` field of this query. The range shouldn't exceed the total of
+            // available blocks!
+            //
+            // If the `to` field is not provided, we assume the end of the range is the last
+            // block.
+            let max_block_end =
+                request.to.map(|to| to.min(last_block_idx)).unwrap_or(last_block_idx);
+
+            // Get the end of the range based solely on the chunk size.
+            // We must respect the chunk size if the range is larger than the chunk size.
+            //
+            // Subtract by one because we're referring this as a block index.
+            let chunked_end = start_from.saturating_add(chunk_size).saturating_sub(1);
+            // But, it must not exceed the theoretical end of the range.
+            let abs_end = chunked_end.min(max_block_end);
+
+            // Unlike the transactiosn counterpart, we don't need to add by one here because the
+            // range is inclusive.
+            let block_range = start_from..=abs_end;
+            let mut blocks = Vec::with_capacity(chunk_size as usize);
+
+            for block_num in block_range {
+                let block = BlockBuilder::new(block_num.into(), &provider)
+                    .build_with_tx_hash()?
+                    .expect("must exist");
+
+                blocks.push(block);
+            }
+
+            // Calculate the next block index to fetch after this query's range.
+            let next_block_idx = abs_end + 1;
+
+            // Create a continuation token if we have still more blocks to fetch.
+            //
+            // `next_block_idx` is not included in this query, hence why we're using <=.
+            let continuation_token = if next_block_idx <= max_block_end {
+                Some(ListContinuationToken { item_n: next_block_idx }.to_string())
+            } else {
+                None
+            };
+
+            Ok(GetBlocksResponse { blocks, continuation_token })
+        })
+        .await
+    }
+
+    // NOTE: The current implementation of this method doesn't support pending transactions.
+    async fn transactions(
+        &self,
+        request: GetTransactionsRequest,
+    ) -> StarknetApiResult<GetTransactionsResponse> {
+        self.on_io_blocking_task(move |this| {
+            let provider = this.inner.backend.blockchain.provider();
+
+            // Resolve the starting point for this query.
+            let start_from = if let Some(token_str) = request.result_page_request.continuation_token
+            {
+                ListContinuationToken::parse(&token_str)
+                    .map(|token| token.item_n)
+                    .map_err(|_| StarknetApiError::InvalidContinuationToken)?
+            } else {
+                request.from
+            };
+
+            let last_txn_idx = (provider.total_transactions()? as TxNumber).saturating_sub(1);
+            let chunk_size = request.result_page_request.chunk_size;
+
+            // Determine the theoretical end of the range based on how many transactions we actually
+            // have and the `to` field of this query. The range shouldn't exceed the total of
+            // available transactions!
+            //
+            // If the `to` field is not provided, we assume the end of the range is the last
+            // transaction.
+            let max_txn_end = request.to.map(|to| to.min(last_txn_idx)).unwrap_or(last_txn_idx);
+
+            // Get the end of the range based solely on the chunk size.
+            // We must respect the chunk size if the range is larger than the chunk size.
+            //
+            // Subtract by one because we're referring this as a transaction index.
+            let chunked_end = start_from.saturating_add(chunk_size).saturating_sub(1);
+            // But, it must not exceed the theoretical end of the range.
+            let abs_end = chunked_end.min(max_txn_end);
+
+            // Calculate the next transaction index to fetch after this query's range.
+            let next_txn_idx = abs_end + 1;
+
+            // We use `next_txn_idx` because the range is non-inclusive - we want to include the
+            // transaction pointed by `abs_end`.
+            let tx_range = start_from..next_txn_idx;
+            let tx_hashes = provider.transaction_hashes_in_range(tx_range)?;
+
+            let mut transactions: Vec<TransactionListItem> = Vec::with_capacity(tx_hashes.len());
+
+            for hash in tx_hashes {
+                let transaction = provider.transaction_by_hash(hash)?.map(Tx::from).ok_or(
+                    StarknetApiError::UnexpectedError {
+                        reason: format!("transaction is missing; {hash:#}"),
+                    },
+                )?;
+
+                let receipt = ReceiptBuilder::new(hash, provider).build()?.ok_or(
+                    StarknetApiError::UnexpectedError {
+                        reason: format!("transaction is missing; {hash:#}"),
+                    },
+                )?;
+
+                transactions.push(TransactionListItem { transaction, receipt });
+            }
+
+            // Generate continuation token if there are more transactions
+            let continuation_token = if next_txn_idx <= max_txn_end {
+                // the token should point to the next transaction because `abs_end` is included in
+                // this query.
+                Some(ListContinuationToken { item_n: next_txn_idx }.to_string())
+            } else {
+                None
+            };
+
+            Ok(GetTransactionsResponse { transactions, continuation_token })
+        })
+        .await
+    }
+
+    async fn total_transactions(&self) -> StarknetApiResult<TxNumber> {
+        self.on_io_blocking_task(move |this| {
+            let provider = this.inner.backend.blockchain.provider();
+            let total = provider.total_transactions()? as TxNumber;
+            Ok(total)
+        })
+        .await
+    }
+}
+
+impl<EF: ExecutorFactory> Clone for StarknetApi<EF> {
     fn clone(&self) -> Self {
         Self { inner: Arc::clone(&self.inner) }
     }

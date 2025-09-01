@@ -1304,12 +1304,6 @@ dependencies = [
 ]
 
 [[package]]
-name = "ascii"
-version = "1.1.0"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "d92bec98840b8f03a5ff5413de5293bfcd8bf96467cf5452609f939ec6f5de16"
-
-[[package]]
 name = "ascii-canvas"
 version = "4.0.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -1480,11 +1474,7 @@ dependencies = [
  "pin-project-lite",
  "rustversion",
  "serde",
- "serde_json",
- "serde_path_to_error",
- "serde_urlencoded",
  "sync_wrapper 0.1.2",
- "tokio",
  "tower 0.4.13",
  "tower-layer",
  "tower-service",
@@ -2849,7 +2839,7 @@ dependencies = [
 
 [[package]]
 name = "cartridge"
-version = "1.7.0-alpha.2"
+version = "1.7.0-alpha.3"
 dependencies = [
  "anyhow",
  "ark-ec 0.4.2",
@@ -2935,12 +2925,6 @@ dependencies = [
  "wasm-bindgen",
  "windows-link",
 ]
-
-[[package]]
-name = "chunked_transfer"
-version = "1.5.0"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "6e4de3bc4ea267985becf712dc6d9eed8b04c953b3fcfb339ebc87acd9804901"
 
 [[package]]
 name = "ciborium"
@@ -3540,13 +3524,14 @@ checksum = "2a2330da5de22e8a3cb63252ce2abb30116bf5265e89c0e01bc17015ce30a476"
 
 [[package]]
 name = "db-compat-test"
-version = "1.7.0-alpha.2"
+version = "1.7.0-alpha.3"
 dependencies = [
  "anyhow",
+ "clap",
  "katana-chain-spec",
- "katana-cli",
  "katana-db",
  "katana-node",
+ "katana-node-cli",
  "katana-primitives",
  "katana-provider",
  "starknet",
@@ -5656,7 +5641,7 @@ dependencies = [
 
 [[package]]
 name = "katana"
-version = "1.7.0-alpha.2"
+version = "1.7.0-alpha.3"
 dependencies = [
  "anyhow",
  "arbitrary",
@@ -5672,8 +5657,8 @@ dependencies = [
  "indicatif",
  "inquire",
  "katana-chain-spec",
- "katana-cli",
  "katana-db",
+ "katana-node-cli",
  "katana-primitives",
  "katana-provider",
  "katana-rpc-types",
@@ -5699,7 +5684,7 @@ dependencies = [
 
 [[package]]
 name = "katana-chain-spec"
-version = "1.7.0-alpha.2"
+version = "1.7.0-alpha.3"
 dependencies = [
  "alloy-primitives 1.3.0",
  "anyhow",
@@ -5722,56 +5707,8 @@ dependencies = [
 ]
 
 [[package]]
-name = "katana-cli"
-version = "1.7.0-alpha.2"
-dependencies = [
- "alloy-primitives 1.3.0",
- "anyhow",
- "assert_matches",
- "clap",
- "console",
- "katana-chain-spec",
- "katana-cli-args",
- "katana-core",
- "katana-gas-price-oracle",
- "katana-messaging",
- "katana-node",
- "katana-primitives",
- "katana-rpc",
- "katana-slot-controller",
- "katana-tracing",
- "katana-utils",
- "serde",
- "serde_json",
- "starknet",
- "tokio",
- "tracing",
- "url",
-]
-
-[[package]]
-name = "katana-cli-args"
-version = "1.7.0-alpha.2"
-dependencies = [
- "anyhow",
- "clap",
- "katana-chain-spec",
- "katana-messaging",
- "katana-node",
- "katana-primitives",
- "katana-rpc",
- "katana-slot-controller",
- "katana-tracing",
- "serde",
- "serde_json",
- "shellexpand",
- "toml",
- "url",
-]
-
-[[package]]
 name = "katana-codecs"
-version = "1.7.0-alpha.2"
+version = "1.7.0-alpha.3"
 dependencies = [
  "bytes",
  "katana-primitives",
@@ -5779,7 +5716,7 @@ dependencies = [
 
 [[package]]
 name = "katana-codecs-derive"
-version = "1.7.0-alpha.2"
+version = "1.7.0-alpha.3"
 dependencies = [
  "proc-macro2",
  "quote",
@@ -5789,7 +5726,7 @@ dependencies = [
 
 [[package]]
 name = "katana-contracts"
-version = "1.7.0-alpha.2"
+version = "1.7.0-alpha.3"
 dependencies = [
  "katana-contracts-macro",
  "katana-primitives",
@@ -5800,7 +5737,7 @@ dependencies = [
 
 [[package]]
 name = "katana-contracts-macro"
-version = "1.7.0-alpha.2"
+version = "1.7.0-alpha.3"
 dependencies = [
  "cairo-lang-starknet-classes",
  "katana-primitives",
@@ -5814,7 +5751,7 @@ dependencies = [
 
 [[package]]
 name = "katana-core"
-version = "1.7.0-alpha.2"
+version = "1.7.0-alpha.3"
 dependencies = [
  "alloy-primitives 1.3.0",
  "anyhow",
@@ -5853,7 +5790,7 @@ dependencies = [
 
 [[package]]
 name = "katana-db"
-version = "1.7.0-alpha.2"
+version = "1.7.0-alpha.3"
 dependencies = [
  "anyhow",
  "arbitrary",
@@ -5881,7 +5818,7 @@ dependencies = [
 
 [[package]]
 name = "katana-executor"
-version = "1.7.0-alpha.2"
+version = "1.7.0-alpha.3"
 dependencies = [
  "alloy-primitives 1.3.0",
  "anyhow",
@@ -5915,31 +5852,27 @@ dependencies = [
 
 [[package]]
 name = "katana-explorer"
-version = "1.7.0-alpha.2"
+version = "1.7.0-alpha.3"
 dependencies = [
- "anyhow",
- "axum 0.6.20",
  "bytes",
  "http 1.3.1",
  "http-body 1.0.1",
- "hyper 0.14.32",
  "jsonrpsee",
  "katana-runner",
- "katana-tasks",
  "reqwest 0.12.22",
  "rust-embed",
- "tiny_http",
- "tokio",
+ "serde",
+ "serde_json",
+ "tempfile",
+ "thiserror 1.0.69",
  "tower 0.5.2",
- "tower-http",
  "tracing",
  "url",
- "urlencoding",
 ]
 
 [[package]]
 name = "katana-feeder-gateway"
-version = "1.7.0-alpha.2"
+version = "1.7.0-alpha.3"
 dependencies = [
  "katana-primitives",
  "katana-rpc-types",
@@ -5957,7 +5890,7 @@ dependencies = [
 
 [[package]]
 name = "katana-fork"
-version = "1.7.0-alpha.2"
+version = "1.7.0-alpha.3"
 dependencies = [
  "anyhow",
  "futures",
@@ -5974,7 +5907,7 @@ dependencies = [
 
 [[package]]
 name = "katana-gas-price-oracle"
-version = "1.7.0-alpha.2"
+version = "1.7.0-alpha.3"
 dependencies = [
  "alloy-provider",
  "alloy-rpc-types-eth",
@@ -5997,7 +5930,7 @@ dependencies = [
 
 [[package]]
 name = "katana-grpc"
-version = "1.7.0-alpha.2"
+version = "1.7.0-alpha.3"
 dependencies = [
  "tonic 0.11.0",
  "tonic-build",
@@ -6005,7 +5938,7 @@ dependencies = [
 
 [[package]]
 name = "katana-messaging"
-version = "1.7.0-alpha.2"
+version = "1.7.0-alpha.3"
 dependencies = [
  "alloy-contract",
  "alloy-network",
@@ -6033,7 +5966,7 @@ dependencies = [
 
 [[package]]
 name = "katana-metrics"
-version = "1.7.0-alpha.2"
+version = "1.7.0-alpha.3"
 dependencies = [
  "hyper 0.14.32",
  "jemalloc-ctl",
@@ -6050,7 +5983,7 @@ dependencies = [
 
 [[package]]
 name = "katana-node"
-version = "1.7.0-alpha.2"
+version = "1.7.0-alpha.3"
 dependencies = [
  "anyhow",
  "clap",
@@ -6092,7 +6025,7 @@ dependencies = [
 
 [[package]]
 name = "katana-node-bindings"
-version = "1.7.0-alpha.2"
+version = "1.7.0-alpha.3"
 dependencies = [
  "criterion",
  "pprof",
@@ -6108,8 +6041,53 @@ dependencies = [
 ]
 
 [[package]]
+name = "katana-node-cli"
+version = "1.7.0-alpha.3"
+dependencies = [
+ "alloy-primitives 1.3.0",
+ "anyhow",
+ "assert_matches",
+ "clap",
+ "console",
+ "katana-chain-spec",
+ "katana-core",
+ "katana-gas-price-oracle",
+ "katana-messaging",
+ "katana-node",
+ "katana-node-cli-args",
+ "katana-primitives",
+ "katana-slot-controller",
+ "katana-tracing",
+ "katana-utils",
+ "serde",
+ "serde_json",
+ "starknet",
+ "tokio",
+ "tracing",
+]
+
+[[package]]
+name = "katana-node-cli-args"
+version = "1.7.0-alpha.3"
+dependencies = [
+ "anyhow",
+ "clap",
+ "katana-chain-spec",
+ "katana-messaging",
+ "katana-node",
+ "katana-primitives",
+ "katana-rpc",
+ "katana-tracing",
+ "serde",
+ "serde_json",
+ "shellexpand",
+ "toml",
+ "url",
+]
+
+[[package]]
 name = "katana-pipeline"
-version = "1.7.0-alpha.2"
+version = "1.7.0-alpha.3"
 dependencies = [
  "async-trait",
  "futures",
@@ -6123,7 +6101,7 @@ dependencies = [
 
 [[package]]
 name = "katana-pool"
-version = "1.7.0-alpha.2"
+version = "1.7.0-alpha.3"
 dependencies = [
  "futures",
  "futures-util",
@@ -6140,7 +6118,7 @@ dependencies = [
 
 [[package]]
 name = "katana-primitives"
-version = "1.7.0-alpha.2"
+version = "1.7.0-alpha.3"
 dependencies = [
  "alloy-primitives 1.3.0",
  "anyhow",
@@ -6177,7 +6155,7 @@ dependencies = [
 
 [[package]]
 name = "katana-provider"
-version = "1.7.0-alpha.2"
+version = "1.7.0-alpha.3"
 dependencies = [
  "alloy-primitives 1.3.0",
  "anyhow",
@@ -6208,7 +6186,7 @@ dependencies = [
 
 [[package]]
 name = "katana-rpc"
-version = "1.7.0-alpha.2"
+version = "1.7.0-alpha.3"
 dependencies = [
  "alloy-contract",
  "alloy-node-bindings",
@@ -6262,7 +6240,7 @@ dependencies = [
 
 [[package]]
 name = "katana-rpc-api"
-version = "1.7.0-alpha.2"
+version = "1.7.0-alpha.3"
 dependencies = [
  "anyhow",
  "jsonrpsee",
@@ -6280,7 +6258,7 @@ dependencies = [
 
 [[package]]
 name = "katana-rpc-types"
-version = "1.7.0-alpha.2"
+version = "1.7.0-alpha.3"
 dependencies = [
  "alloy-primitives 1.3.0",
  "assert_matches",
@@ -6305,7 +6283,7 @@ dependencies = [
 
 [[package]]
 name = "katana-rpc-types-builder"
-version = "1.7.0-alpha.2"
+version = "1.7.0-alpha.3"
 dependencies = [
  "anyhow",
  "katana-executor",
@@ -6317,7 +6295,7 @@ dependencies = [
 
 [[package]]
 name = "katana-runner"
-version = "1.7.0-alpha.2"
+version = "1.7.0-alpha.3"
 dependencies = [
  "anyhow",
  "assert_fs",
@@ -6330,7 +6308,7 @@ dependencies = [
 
 [[package]]
 name = "katana-runner-macro"
-version = "1.7.0-alpha.2"
+version = "1.7.0-alpha.3"
 dependencies = [
  "proc-macro2",
  "quote",
@@ -6339,7 +6317,7 @@ dependencies = [
 
 [[package]]
 name = "katana-slot-controller"
-version = "1.7.0-alpha.2"
+version = "1.7.0-alpha.3"
 dependencies = [
  "account_sdk",
  "katana-primitives",
@@ -6347,7 +6325,7 @@ dependencies = [
 
 [[package]]
 name = "katana-stage"
-version = "1.7.0-alpha.2"
+version = "1.7.0-alpha.3"
 dependencies = [
  "anyhow",
  "async-trait",
@@ -6371,7 +6349,7 @@ dependencies = [
 
 [[package]]
 name = "katana-tasks"
-version = "1.7.0-alpha.2"
+version = "1.7.0-alpha.3"
 dependencies = [
  "futures",
  "rayon",
@@ -6384,7 +6362,7 @@ dependencies = [
 
 [[package]]
 name = "katana-tracing"
-version = "1.7.0-alpha.2"
+version = "1.7.0-alpha.3"
 dependencies = [
  "anyhow",
  "bytes",
@@ -6410,7 +6388,7 @@ dependencies = [
 
 [[package]]
 name = "katana-trie"
-version = "1.7.0-alpha.2"
+version = "1.7.0-alpha.3"
 dependencies = [
  "anyhow",
  "bitvec",
@@ -6425,7 +6403,7 @@ dependencies = [
 
 [[package]]
 name = "katana-utils"
-version = "1.7.0-alpha.2"
+version = "1.7.0-alpha.3"
 dependencies = [
  "anyhow",
  "arbitrary",
@@ -6448,7 +6426,7 @@ dependencies = [
 
 [[package]]
 name = "katana-utils-macro"
-version = "1.7.0-alpha.2"
+version = "1.7.0-alpha.3"
 dependencies = [
  "async-trait",
  "proc-macro2",
@@ -8602,7 +8580,7 @@ dependencies = [
 
 [[package]]
 name = "reverse-proxy-test"
-version = "1.7.0-alpha.2"
+version = "1.7.0-alpha.3"
 dependencies = [
  "anyhow",
  "headless_chrome",
@@ -9468,16 +9446,6 @@ checksum = "62212da9872ca2a0cad0093191ee33753eddff9266cbbc1b4a602d13a3a768db"
 dependencies = [
  "itoa",
  "ryu",
- "serde",
-]
-
-[[package]]
-name = "serde_path_to_error"
-version = "0.1.17"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "59fab13f937fa393d08645bf3a84bdfe86e296747b506ada67bb15f10f218b2a"
-dependencies = [
- "itoa",
  "serde",
 ]
 
@@ -10503,18 +10471,6 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "2c9d3793400a45f954c52e73d068316d76b6f4e36977e3fcebb13a2721e80237"
 dependencies = [
  "crunchy",
-]
-
-[[package]]
-name = "tiny_http"
-version = "0.12.0"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "389915df6413a2e74fb181895f933386023c71110878cd0825588928e64cdc82"
-dependencies = [
- "ascii",
- "chunked_transfer",
- "httpdate",
- "log",
 ]
 
 [[package]]

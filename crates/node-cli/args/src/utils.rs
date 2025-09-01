@@ -1,8 +1,9 @@
 use std::path::PathBuf;
 
-use anyhow::{Context, Result};
+use anyhow::{anyhow, Context, Result};
 use katana_chain_spec::rollup::ChainConfigDir;
 use katana_primitives::block::{BlockHash, BlockHashOrNumber, BlockNumber};
+use katana_primitives::chain::ChainId;
 use katana_primitives::genesis::json::GenesisJson;
 use katana_primitives::genesis::Genesis;
 #[cfg(feature = "server")]
@@ -38,19 +39,33 @@ pub fn parse_block_hash_or_number(value: &str) -> Result<BlockHashOrNumber> {
     }
 }
 
+// Chain IDs can be arbitrary ASCII strings, making them indistinguishable from filesystem paths.
+// To handle this ambiguity, we first try parsing single-component inputs as paths, then as chain
+// IDs. Multi-component inputs are always treated as paths.
 pub fn parse_chain_config_dir(value: &str) -> Result<ChainConfigDir> {
-    let path = PathBuf::from(shellexpand::full(value)?.into_owned());
-    Ok(ChainConfigDir(path))
+    let path = PathBuf::from(value);
+
+    if path.components().count() == 1 {
+        if path.exists() {
+            Ok(ChainConfigDir::open(path)?)
+        } else if let Ok(id) = ChainId::parse(value) {
+            Ok(ChainConfigDir::open_local(&id)?)
+        } else {
+            Err(anyhow!("Invalid path or chain id"))
+        }
+    } else {
+        let path = PathBuf::from(shellexpand::tilde(value).as_ref());
+        Ok(ChainConfigDir::open(path)?)
+    }
 }
 
 #[cfg(feature = "server")]
-pub fn serialize_cors_origins<S>(
-    values: &[HeaderValue],
-    serializer: S,
-) -> Result<S::Ok, S::Error>
+pub fn serialize_cors_origins<S>(values: &[HeaderValue], serializer: S) -> Result<S::Ok, S::Error>
 where
     S: Serializer,
 {
+    use serde::Serialize;
+
     let strings: Vec<String> = values.iter().map(|v| v.to_str().unwrap().to_string()).collect();
     strings.serialize(serializer)
 }
@@ -65,4 +80,15 @@ where
         .into_iter()
         .map(|s| HeaderValue::from_str(&s).map_err(serde::de::Error::custom))
         .collect()
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn parse_genesis_file() {
+        let path = "./test-data/genesis.json";
+        parse_genesis(path).unwrap();
+    }
 }

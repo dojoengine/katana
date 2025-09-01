@@ -5,14 +5,21 @@ on:
     branches:
       - main
     paths:
+      - "Cargo.toml"
       - "bin/**/*.rs"
+      - "bin/**/Cargo.toml"
       - "crates/**/*.rs"
+      - "crates/**/Cargo.toml"
       - ".github/workflows/test.yml"
+
   pull_request:
     types: [opened, synchronize, ready_for_review]
     paths:
+      - "Cargo.toml"
       - "bin/**/*.rs"
+      - "bin/**/Cargo.toml"
       - "crates/**/*.rs"
+      - "crates/**/Cargo.toml"
       - ".github/workflows/test.yml"
 
 # Cancel in progress workflow when a new one is triggered by running in a concurrency group
