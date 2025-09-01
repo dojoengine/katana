@@ -6,7 +6,9 @@ use katana_primitives::class::{
 };
 use katana_primitives::contract::Nonce;
 use katana_primitives::da::DataAvailabilityMode;
-use katana_primitives::fee::{AllResourceBoundsMapping, ResourceBounds, ResourceBoundsMapping};
+use katana_primitives::fee::{
+    AllResourceBoundsMapping, ResourceBounds, ResourceBoundsMapping, Tip,
+};
 use katana_primitives::transaction::{
     DeclareTx, DeclareTxV3, DeclareTxWithClass, DeployAccountTx, DeployAccountTxV3, InvokeTx,
     InvokeTxV3, TxHash, TxType,
@@ -59,8 +61,7 @@ pub struct UntypedBroadcastedTx {
     pub version: Felt,
     pub nonce: Nonce,
     pub signature: Vec<Felt>,
-    #[serde(serialize_with = "serialize_hex_u64", deserialize_with = "deserialize_hex_u64")]
-    pub tip: u64,
+    pub tip: Tip,
     pub paymaster_data: Vec<Felt>,
     #[serde(
         serialize_with = "serialize_resource_bounds_mapping",
@@ -139,7 +140,7 @@ impl UntypedBroadcastedTx {
 
         Ok(BroadcastedInvokeTx {
             calldata,
-            tip: self.tip,
+            tip: self.tip.into(),
             sender_address,
             nonce: self.nonce,
             account_deployment_data,
@@ -182,7 +183,7 @@ impl UntypedBroadcastedTx {
         Ok(BroadcastedDeclareTx {
             contract_class,
             sender_address,
-            tip: self.tip,
+            tip: self.tip.into(),
             nonce: self.nonce,
             compiled_class_hash,
             account_deployment_data,
@@ -228,7 +229,7 @@ impl UntypedBroadcastedTx {
 
         Ok(BroadcastedDeployAccountTx {
             class_hash,
-            tip: self.tip,
+            tip: self.tip.into(),
             nonce: self.nonce,
             constructor_calldata,
             contract_address_salt,
@@ -362,7 +363,7 @@ pub struct BroadcastedInvokeTx {
     /// Data needed to allow the paymaster to pay for the transaction in native tokens.
     pub paymaster_data: Vec<Felt>,
     /// The tip for the transaction.
-    pub tip: u64,
+    pub tip: Tip,
     /// Data needed to deploy the account contract from which this tx will be initiated.
     pub account_deployment_data: Vec<Felt>,
     /// Resource bounds for the transaction execution.
@@ -383,7 +384,7 @@ impl BroadcastedInvokeTx {
     pub fn into_inner(self, chain_id: ChainId) -> InvokeTx {
         InvokeTx::V3(InvokeTxV3 {
             chain_id,
-            tip: self.tip,
+            tip: self.tip.into(),
             nonce: self.nonce,
             calldata: self.calldata,
             signature: self.signature,
@@ -425,7 +426,7 @@ pub struct BroadcastedDeclareTx {
     /// Data needed to allow the paymaster to pay for the transaction in native tokens.
     pub paymaster_data: Vec<Felt>,
     /// The tip for the transaction.
-    pub tip: u64,
+    pub tip: Tip,
     /// Data needed to deploy the account contract from which this tx will be initiated.
     pub account_deployment_data: Vec<Felt>,
     /// Resource bounds for the transaction execution.
@@ -455,7 +456,7 @@ impl BroadcastedDeclareTx {
         let tx = DeclareTx::V3(DeclareTxV3 {
             chain_id,
             class_hash,
-            tip: self.tip,
+            tip: self.tip.into(),
             nonce: self.nonce,
             signature: self.signature,
             paymaster_data: self.paymaster_data,
@@ -488,7 +489,7 @@ pub struct BroadcastedDeployAccountTx {
     pub class_hash: ClassHash,
     pub paymaster_data: Vec<Felt>,
     /// The tip for the transaction.
-    pub tip: u64,
+    pub tip: Tip,
     /// Resource bounds for the transaction execution.
     pub resource_bounds: ResourceBoundsMapping,
     /// The storage domain of the account's balance from which fee will be charged.
@@ -514,7 +515,7 @@ impl BroadcastedDeployAccountTx {
 
         DeployAccountTx::V3(DeployAccountTxV3 {
             chain_id,
-            tip: self.tip,
+            tip: self.tip.into(),
             nonce: self.nonce,
             signature: self.signature,
             class_hash: self.class_hash,
@@ -820,7 +821,7 @@ mod tests {
         assert_eq!(untyped.r#type, TxType::Invoke);
 
         // Common fields
-        assert_eq!(untyped.tip, 0x0);
+        assert_eq!(untyped.tip, Tip::from(0x0));
         assert_eq!(untyped.nonce, felt!("0x4c7"));
         assert_eq!(untyped.paymaster_data, vec![]);
         assert_eq!(untyped.fee_data_availability_mode, DataAvailabilityMode::L1);
@@ -935,7 +936,7 @@ mod tests {
         assert_eq!(untyped.r#type, TxType::Declare);
 
         // Common fields
-        assert_eq!(untyped.tip, 0x0);
+        assert_eq!(untyped.tip, Tip::from(0x0));
         assert_eq!(untyped.nonce, felt!("0x1"));
         assert_eq!(untyped.paymaster_data, vec![]);
         assert_eq!(untyped.fee_data_availability_mode, DataAvailabilityMode::L1);
@@ -1015,7 +1016,7 @@ mod tests {
         assert_eq!(untyped.r#type, TxType::DeployAccount);
 
         // Common fields
-        assert_eq!(untyped.tip, 0x1);
+        assert_eq!(untyped.tip, Tip::from(0x1));
         assert_eq!(untyped.nonce, felt!("0x0"));
         assert_eq!(untyped.paymaster_data, vec![]);
         assert_eq!(untyped.signature, vec![felt!("0x1"), felt!("0x2"), felt!("0x3")]);

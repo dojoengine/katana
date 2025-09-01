@@ -8,7 +8,7 @@ use starknet::core::types::BlockId;
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub struct EventFilterWithPage {
     #[serde(flatten)]
-    pub filter: EventFilter,
+    pub event_filter: EventFilter,
     #[serde(flatten)]
     pub result_page_request: ResultPageRequest,
 }

@@ -27,6 +27,7 @@ pub struct RpcInvokeTxReceipt {
     pub messages_sent: Vec<MessageToL1>,
     pub events: Vec<Event>,
     pub execution_resources: ExecutionResources,
+    #[serde(flatten)]
     pub execution_result: ExecutionResult,
 }
 
@@ -39,6 +40,7 @@ pub struct RpcL1HandlerTxReceipt {
     pub messages_sent: Vec<MessageToL1>,
     pub events: Vec<Event>,
     pub execution_resources: ExecutionResources,
+    #[serde(flatten)]
     pub execution_result: ExecutionResult,
 }
 
@@ -50,6 +52,7 @@ pub struct RpcDeclareTxReceipt {
     pub messages_sent: Vec<MessageToL1>,
     pub events: Vec<Event>,
     pub execution_resources: ExecutionResources,
+    #[serde(flatten)]
     pub execution_result: ExecutionResult,
 }
 
@@ -61,8 +64,9 @@ pub struct RpcDeployTxReceipt {
     pub messages_sent: Vec<MessageToL1>,
     pub events: Vec<Event>,
     pub execution_resources: ExecutionResources,
-    pub execution_result: ExecutionResult,
     pub contract_address: ContractAddress,
+    #[serde(flatten)]
+    pub execution_result: ExecutionResult,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
@@ -73,8 +77,9 @@ pub struct RpcDeployAccountTxReceipt {
     pub messages_sent: Vec<MessageToL1>,
     pub events: Vec<Event>,
     pub execution_resources: ExecutionResources,
-    pub execution_result: ExecutionResult,
     pub contract_address: ContractAddress,
+    #[serde(flatten)]
+    pub execution_result: ExecutionResult,
 }
 
 impl RpcTxReceipt {

@@ -228,7 +228,7 @@ async fn get_blocks_from_num() -> Result<()> {
 }
 
 #[tokio::test]
-async fn get_blocks_from_hash() -> Result<()> {
+async fn get_blocks_from_hash() {
     let (_sequencer, provider, local_only_block) = setup_test().await;
 
     // -----------------------------------------------------------------------
@@ -238,20 +238,20 @@ async fn get_blocks_from_hash() -> Result<()> {
     let hash = felt!("0x208950cfcbba73ecbda1c14e4d58d66a8d60655ea1b9dcf07c16014ae8a93cd"); // 268471
     let id = BlockIdOrTag::Hash(hash);
 
-    let block = provider.get_block_with_txs(id).await?;
+    let block = provider.get_block_with_txs(id).await.unwrap();
     assert_matches!(block, MaybePreConfirmedBlockWithTxs::Block(b) if b.block_hash == hash);
 
-    let block = provider.get_block_with_receipts(id).await?;
+    let block = provider.get_block_with_receipts(id).await.unwrap();
     assert_matches!(block, MaybePreConfirmedBlockWithReceipts::Block(b) if b.block_hash == hash);
 
-    let block = provider.get_block_with_tx_hashes(id).await?;
+    let block = provider.get_block_with_tx_hashes(id).await.unwrap();
     assert_matches!(block, MaybePreConfirmedBlockWithTxHashes::Block(b) if b.block_hash == hash);
 
     let result = provider.get_block_transaction_count(id).await;
     assert!(result.is_ok());
 
     // TODO: uncomment this once we include genesis forked state update
-    // let state = provider.get_state_update(id).await?;
+    // let state = provider.get_state_update(id).await.unwrap();
     // assert_matches!(state, starknet::core::types::MaybePendingStateUpdate::Update(_));
 
     // -----------------------------------------------------------------------
@@ -261,20 +261,20 @@ async fn get_blocks_from_hash() -> Result<()> {
     let hash = felt!("0x42dc67af5003d212ac6cd784e72db945ea4d619898f30f422358ff215cbe1e4"); // 268466
     let id = BlockIdOrTag::Hash(hash);
 
-    let block = provider.get_block_with_txs(id).await?;
+    let block = provider.get_block_with_txs(id).await.unwrap();
     assert_matches!(block, MaybePreConfirmedBlockWithTxs::Block(b) if b.block_hash == hash);
 
-    let block = provider.get_block_with_receipts(id).await?;
+    let block = provider.get_block_with_receipts(id).await.unwrap();
     assert_matches!(block, MaybePreConfirmedBlockWithReceipts::Block(b) if b.block_hash == hash);
 
-    let block = provider.get_block_with_tx_hashes(id).await?;
+    let block = provider.get_block_with_tx_hashes(id).await.unwrap();
     assert_matches!(block, MaybePreConfirmedBlockWithTxHashes::Block(b) if b.block_hash == hash);
 
     let result = provider.get_block_transaction_count(id).await;
     assert!(result.is_ok());
 
     // TODO: uncomment this once we include genesis forked state update
-    // let state = provider.get_state_update(id).await?;
+    // let state = provider.get_state_update(id).await.unwrap();
     // assert_matches!(state, starknet::core::types::MaybePendingStateUpdate::Update(_));
 
     // -----------------------------------------------------------------------
@@ -283,20 +283,20 @@ async fn get_blocks_from_hash() -> Result<()> {
     for ((_, hash), _) in local_only_block {
         let id = BlockIdOrTag::Hash(hash);
 
-        let block = provider.get_block_with_txs(id).await?;
+        let block = provider.get_block_with_txs(id).await.unwrap();
         assert_matches!(block, MaybePreConfirmedBlockWithTxs::Block(b) if b.block_hash == hash);
 
-        let block = provider.get_block_with_receipts(id).await?;
+        let block = provider.get_block_with_receipts(id).await.unwrap();
         assert_matches!(block, MaybePreConfirmedBlockWithReceipts::Block(b) if b.block_hash == hash);
 
-        let block = provider.get_block_with_tx_hashes(id).await?;
+        let block = provider.get_block_with_tx_hashes(id).await.unwrap();
         assert_matches!(block, MaybePreConfirmedBlockWithTxHashes::Block(b) if b.block_hash == hash);
 
         let result = provider.get_block_transaction_count(id).await;
         assert!(result.is_ok());
 
         // TODO: uncomment this once we include genesis forked state update
-        // let state = provider.get_state_update(id).await?;
+        // let state = provider.get_state_update(id).await.unwrap();
         // assert_matches!(state, starknet::core::types::MaybePendingStateUpdate::Update(_));
     }
 
@@ -339,8 +339,6 @@ async fn get_blocks_from_hash() -> Result<()> {
 
     let result = provider.get_state_update(id).await.unwrap_err();
     assert_provider_starknet_err!(result, StarknetError::BlockNotFound);
-
-    Ok(())
 }
 
 #[tokio::test]

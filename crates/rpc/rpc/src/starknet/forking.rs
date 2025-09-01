@@ -59,16 +59,15 @@ impl ForkedClient {
 
 impl ForkedClient {
     pub async fn get_block_number_by_hash(&self, hash: BlockHash) -> Result<BlockNumber, Error> {
-        let block = self.client.get_block_with_tx_hashes(BlockIdOrTag::Hash(hash)).await?;
-        // Pending block doesn't have a hash yet, so if we get a pending block, we return an error.
-        let MaybePreConfirmedBlockWithTxHashes::Block(block) = block else {
-            return Err(Error::UnexpectedPendingData);
+        let number = match self.client.get_block_with_tx_hashes(BlockIdOrTag::Hash(hash)).await? {
+            MaybePreConfirmedBlockWithTxHashes::Block(block) => block.block_number,
+            MaybePreConfirmedBlockWithTxHashes::PreConfirmed(block) => block.block_number,
         };
 
-        if block.block_number > self.block {
+        if number > self.block {
             Err(Error::BlockOutOfRange)
         } else {
-            Ok(block.block_number)
+            Ok(number)
         }
     }
 
@@ -265,10 +264,11 @@ impl ForkedClient {
         let from_block = Some(BlockIdOrTag::Number(from));
         let to_block = Some(BlockIdOrTag::Number(to));
 
-        let filter = EventFilter { address, from_block, to_block, keys };
+        let event_filter = EventFilter { address, from_block, to_block, keys };
         let result_page_request = ResultPageRequest { chunk_size, continuation_token };
+        let filter = EventFilterWithPage { event_filter, result_page_request };
 
-        Ok(self.client.get_events(EventFilterWithPage { filter, result_page_request }).await?)
+        Ok(self.client.get_events(filter).await?)
     }
 }
 

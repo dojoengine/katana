@@ -1,7 +1,6 @@
 use std::path::PathBuf;
 use std::sync::Arc;
 
-use anyhow::Result;
 use assert_matches::assert_matches;
 use cainome::rs::{abigen, abigen_legacy};
 use common::split_felt;
@@ -35,27 +34,28 @@ use tokio::sync::Mutex;
 mod common;
 
 #[tokio::test]
-async fn declare_and_deploy_contract() -> Result<()> {
+async fn declare_and_deploy_contract() {
     let sequencer = TestNode::new().await;
 
     let account = sequencer.account();
     let provider = sequencer.starknet_provider();
 
     let path: PathBuf = PathBuf::from("tests/test_data/cairo1_contract.json");
-    let (contract, compiled_class_hash) = common::prepare_contract_declaration_params(&path)?;
+    let (contract, compiled_class_hash) =
+        common::prepare_contract_declaration_params(&path).unwrap();
 
     let class_hash = contract.class_hash();
-    let res = account.declare_v3(contract.into(), compiled_class_hash).send().await?;
+    let res = account.declare_v3(contract.into(), compiled_class_hash).send().await.unwrap();
 
     // check that the tx is executed successfully and return the correct receipt
-    let receipt = katana_utils::TxWaiter::new(res.transaction_hash, &provider).await?;
+    let receipt = katana_utils::TxWaiter::new(res.transaction_hash, &provider).await.unwrap();
     assert_matches!(receipt.receipt, TransactionReceipt::Declare(DeclareTransactionReceipt { .. }));
 
     // check that the class is actually declared
     assert!(provider.get_class(BlockId::Tag(BlockTag::PreConfirmed), class_hash).await.is_ok());
 
     // check state update includes class in declared_classes
-    let state_update = provider.get_state_update(BlockId::Tag(BlockTag::Latest)).await?;
+    let state_update = provider.get_state_update(BlockId::Tag(BlockTag::Latest)).await.unwrap();
     match state_update {
         MaybePreConfirmedStateUpdate::Update(update) => {
             assert!(update
@@ -90,34 +90,34 @@ async fn declare_and_deploy_contract() -> Result<()> {
             selector: selector!("deployContract"),
         }])
         .send()
-        .await?;
+        .await
+        .unwrap();
 
     // wait for the tx to be mined
-    katana_utils::TxWaiter::new(res.transaction_hash, &provider).await?;
+    katana_utils::TxWaiter::new(res.transaction_hash, &provider).await.unwrap();
 
     // make sure the contract is deployed
-    let res = provider.get_class_hash_at(BlockId::Tag(BlockTag::PreConfirmed), address).await?;
+    let res =
+        provider.get_class_hash_at(BlockId::Tag(BlockTag::PreConfirmed), address).await.unwrap();
     assert_eq!(res, class_hash);
-
-    Ok(())
 }
 
 #[tokio::test]
-async fn declaring_already_existing_class() -> Result<()> {
+async fn declaring_already_existing_class() {
     let sequencer = TestNode::new().await;
 
     let account = sequencer.account();
     let provider = sequencer.starknet_provider();
 
     let path = PathBuf::from("tests/test_data/cairo1_contract.json");
-    let (contract, compiled_hash) = common::prepare_contract_declaration_params(&path)?;
+    let (contract, compiled_hash) = common::prepare_contract_declaration_params(&path).unwrap();
     let class_hash = contract.class_hash();
 
     // Declare the class for the first time.
-    let res = account.declare_v3(contract.clone().into(), compiled_hash).send().await?;
+    let res = account.declare_v3(contract.clone().into(), compiled_hash).send().await.unwrap();
 
     // check that the tx is executed successfully and return the correct receipt
-    let _ = katana_utils::TxWaiter::new(res.transaction_hash, &provider).await?;
+    let _ = katana_utils::TxWaiter::new(res.transaction_hash, &provider).await.unwrap();
     // check that the class is actually declared
     assert!(provider.get_class(BlockId::Tag(BlockTag::PreConfirmed), class_hash).await.is_ok());
 
@@ -139,8 +139,6 @@ async fn declaring_already_existing_class() -> Result<()> {
         .await;
 
     assert_account_starknet_err!(result.unwrap_err(), StarknetError::ClassAlreadyDeclared);
-
-    Ok(())
 }
 
 #[rstest::rstest]
@@ -339,9 +337,7 @@ async fn estimate_fee_on_reverted_transaction() {
 
 #[rstest::rstest]
 #[tokio::test(flavor = "multi_thread")]
-async fn concurrent_transactions_submissions(
-    #[values(None, Some(1000))] block_time: Option<u64>,
-) -> Result<()> {
+async fn concurrent_transactions_submissions(#[values(None, Some(1000))] block_time: Option<u64>) {
     // setup test sequencer with the given configuration
     let mut config = katana_utils::node::test_config();
     config.sequencing.block_time = block_time;
@@ -356,7 +352,8 @@ async fn concurrent_transactions_submissions(
 
     let initial_nonce = provider
         .get_nonce(BlockId::Tag(BlockTag::PreConfirmed), sequencer.account().address())
-        .await?;
+        .await
+        .unwrap();
 
     const N: usize = 100;
     let nonce = Arc::new(Mutex::new(initial_nonce));
@@ -385,28 +382,26 @@ async fn concurrent_transactions_submissions(
 
     // wait for all txs to be submitted
     for handle in handles {
-        handle.await?;
+        handle.await.unwrap();
     }
 
     // Wait only for the last transaction to be accepted
     let txs = txs.lock().await;
     let last_tx = txs.last().unwrap();
-    katana_utils::TxWaiter::new(*last_tx, &provider).await?;
+    katana_utils::TxWaiter::new(*last_tx, &provider).await.unwrap();
 
     // we should've submitted ITERATION transactions
     assert_eq!(txs.len(), N);
 
     // check the status of each txs
     for hash in txs.iter() {
-        let receipt = provider.get_transaction_receipt(hash).await?;
+        let receipt = provider.get_transaction_receipt(hash).await.unwrap();
         assert_eq!(receipt.receipt.execution_result(), &ExecutionResult::Succeeded);
         assert_eq!(receipt.receipt.finality_status(), &TransactionFinalityStatus::AcceptedOnL2);
     }
 
-    let nonce = account.get_nonce().await?;
+    let nonce = account.get_nonce().await.unwrap();
     assert_eq!(nonce, Felt::from(N), "Nonce should be incremented by {N} time");
-
-    Ok(())
 }
 
 #[rstest::rstest]
@@ -449,7 +444,7 @@ async fn ensure_validator_have_valid_state(#[values(None, Some(1000))] block_tim
 async fn send_txs_with_insufficient_fee(
     #[values(true, false)] disable_fee: bool,
     #[values(None, Some(1000))] block_time: Option<u64>,
-) -> Result<()> {
+) {
     // setup test sequencer with the given configuration
     let mut config = katana_utils::node::test_config();
     config.dev.fee = !disable_fee;
@@ -464,7 +459,7 @@ async fn send_txs_with_insufficient_fee(
     let amount = Uint256 { low: Felt::ONE, high: Felt::ZERO };
 
     // initial sender's account nonce. use to assert how the txs validity change the account nonce.
-    let initial_nonce = sequencer.account().get_nonce().await?;
+    let initial_nonce = sequencer.account().get_nonce().await.unwrap();
 
     // -----------------------------------------------------------------------
     //  transaction with low max fee (underpriced).
@@ -481,14 +476,14 @@ async fn send_txs_with_insufficient_fee(
             assert_matches!(katana_utils::TxWaiter::new(tx_hash, &sequencer.starknet_provider()).await, Ok(_));
         });
 
-        let nonce = sequencer.account().get_nonce().await?;
+        let nonce = sequencer.account().get_nonce().await.unwrap();
         assert_eq!(initial_nonce + 1, nonce, "Nonce should change in fee-disabled mode");
     } else {
         assert_account_starknet_err!(
             res.unwrap_err(),
             StarknetError::InsufficientResourcesForValidate
         );
-        let nonce = sequencer.account().get_nonce().await?;
+        let nonce = sequencer.account().get_nonce().await.unwrap();
         assert_eq!(initial_nonce, nonce, "Nonce shouldn't change in fee-enabled mode");
     }
 
@@ -504,20 +499,21 @@ async fn send_txs_with_insufficient_fee(
         // in no fee mode, account balance is ignored. as long as the max fee (aka resources) is
         // enough to at least run the account validation, the tx should be accepted.
         // Wait for the transaction to be accepted
-        katana_utils::TxWaiter::new(res?.transaction_hash, &sequencer.starknet_provider()).await?;
+        let res = res.unwrap();
+        katana_utils::TxWaiter::new(res.transaction_hash, &sequencer.starknet_provider())
+            .await
+            .unwrap();
 
         // nonce should be incremented by 1 after a valid tx.
-        let nonce = sequencer.account().get_nonce().await?;
+        let nonce = sequencer.account().get_nonce().await.unwrap();
         assert_eq!(initial_nonce + 2, nonce, "Nonce should change in fee-disabled mode");
     } else {
         assert_account_starknet_err!(res.unwrap_err(), StarknetError::InsufficientAccountBalance);
 
         // nonce shouldn't change for an invalid tx.
-        let nonce = sequencer.account().get_nonce().await?;
+        let nonce = sequencer.account().get_nonce().await.unwrap();
         assert_eq!(initial_nonce, nonce, "Nonce shouldn't change in fee-enabled mode");
     }
-
-    Ok(())
 }
 
 #[rstest::rstest]
@@ -525,7 +521,7 @@ async fn send_txs_with_insufficient_fee(
 async fn send_txs_with_invalid_signature(
     #[values(true, false)] disable_validate: bool,
     #[values(None, Some(1000))] block_time: Option<u64>,
-) -> Result<()> {
+) {
     // setup test sequencer with the given configuration
     let mut config = katana_utils::node::test_config();
     config.dev.account_validation = !disable_validate;
@@ -539,7 +535,7 @@ async fn send_txs_with_invalid_signature(
         sequencer.starknet_provider(),
         LocalWallet::from(SigningKey::from_random()),
         sequencer.account().address(),
-        sequencer.starknet_provider().chain_id().await?,
+        sequencer.starknet_provider().chain_id().await.unwrap(),
         ExecutionEncoding::New,
     );
 
@@ -555,7 +551,7 @@ async fn send_txs_with_invalid_signature(
     let fee = simulated.fee_estimation;
 
     // initial sender's account nonce. use to assert how the txs validity change the account nonce.
-    let initial_nonce = account.get_nonce().await?;
+    let initial_nonce = account.get_nonce().await.unwrap();
 
     // -----------------------------------------------------------------------
     //  transaction with invalid signatures.
@@ -573,28 +569,28 @@ async fn send_txs_with_invalid_signature(
         .await;
 
     if disable_validate {
+        let res = res.unwrap();
+
         // Wait for the transaction to be accepted
-        katana_utils::TxWaiter::new(res?.transaction_hash, &sequencer.starknet_provider()).await?;
+        katana_utils::TxWaiter::new(res.transaction_hash, &sequencer.starknet_provider())
+            .await
+            .unwrap();
 
         // nonce should be incremented by 1 after a valid tx.
-        let nonce = sequencer.account().get_nonce().await?;
+        let nonce = sequencer.account().get_nonce().await.unwrap();
         assert_eq!(initial_nonce + 1, nonce);
     } else {
         assert_account_starknet_err!(res.unwrap_err(), StarknetError::ValidationFailure(_));
 
         // nonce shouldn't change for an invalid tx.
-        let nonce = sequencer.account().get_nonce().await?;
+        let nonce = sequencer.account().get_nonce().await.unwrap();
         assert_eq!(initial_nonce, nonce);
     }
-
-    Ok(())
 }
 
 #[rstest::rstest]
 #[tokio::test]
-async fn send_txs_with_invalid_nonces(
-    #[values(None, Some(1000))] block_time: Option<u64>,
-) -> Result<()> {
+async fn send_txs_with_invalid_nonces(#[values(None, Some(1000))] block_time: Option<u64>) {
     // setup test sequencer with the given configuration
     let mut config = katana_utils::node::test_config();
     config.sequencing.block_time = block_time;
@@ -612,11 +608,11 @@ async fn send_txs_with_invalid_nonces(
 
     // send a valid transaction first to increment the nonce (so that we can test nonce < current
     // nonce later)
-    let res = contract.transfer(&recipient, &amount).send().await?;
-    katana_utils::TxWaiter::new(res.transaction_hash, &provider).await?;
+    let res = contract.transfer(&recipient, &amount).send().await.unwrap();
+    katana_utils::TxWaiter::new(res.transaction_hash, &provider).await.unwrap();
 
     // initial sender's account nonce. use to assert how the txs validity change the account nonce.
-    let initial_nonce = account.get_nonce().await?;
+    let initial_nonce = account.get_nonce().await.unwrap();
     assert_eq!(initial_nonce, Felt::ONE, "Initial nonce after sending 1st tx should be 1.");
 
     // get the base fee
@@ -640,7 +636,7 @@ async fn send_txs_with_invalid_nonces(
 
     assert_account_starknet_err!(res.unwrap_err(), StarknetError::InvalidTransactionNonce(..));
 
-    let nonce = account.get_nonce().await?;
+    let nonce = account.get_nonce().await.unwrap();
     assert_eq!(nonce, initial_nonce, "Nonce shouldn't change on invalid tx.");
 
     // -----------------------------------------------------------------------
@@ -657,11 +653,12 @@ async fn send_txs_with_invalid_nonces(
         .l2_gas_price(fee.l2_gas_price.to_u128().unwrap())
         .l1_data_gas_price(fee.l1_data_gas_price.to_u128().unwrap())
         .send()
-        .await?;
+        .await
+        .unwrap();
 
-    katana_utils::TxWaiter::new(res.transaction_hash, &provider).await?;
+    katana_utils::TxWaiter::new(res.transaction_hash, &provider).await.unwrap();
 
-    let nonce = account.get_nonce().await?;
+    let nonce = account.get_nonce().await.unwrap();
     assert_eq!(nonce, Felt::TWO, "Nonce should be 2 after sending two valid txs.");
 
     // -----------------------------------------------------------------------
@@ -687,15 +684,13 @@ async fn send_txs_with_invalid_nonces(
 
     assert_account_starknet_err!(res.unwrap_err(), StarknetError::InvalidTransactionNonce(..));
 
-    let nonce = account.get_nonce().await?;
+    let nonce = account.get_nonce().await.unwrap();
     assert_eq!(nonce, Felt::TWO, "Nonce shouldn't change bcs the tx is still invalid.");
-
-    Ok(())
 }
 
 // TODO: write more elaborate tests for get events.
 #[tokio::test]
-async fn get_events_no_pending() -> Result<()> {
+async fn get_events_no_pending() {
     // setup test sequencer with the given configuration
     let mut config = katana_utils::node::test_config();
     config.sequencing.no_mining = true;
@@ -717,12 +712,12 @@ async fn get_events_no_pending() -> Result<()> {
     const TOTAL_EVENT_COUNT: usize = BLOCK_1_TX_COUNT * EVENT_COUNT_PER_TX;
 
     for _ in 0..BLOCK_1_TX_COUNT {
-        let res = tx().send().await?;
-        katana_utils::TxWaiter::new(res.transaction_hash, &provider).await?;
+        let res = tx().send().await.unwrap();
+        katana_utils::TxWaiter::new(res.transaction_hash, &provider).await.unwrap();
     }
 
     // generate a block to mine pending transactions.
-    client.generate_block().await?;
+    client.generate_block().await.unwrap();
 
     let filter = EventFilter {
         keys: None,
@@ -736,11 +731,11 @@ async fn get_events_no_pending() -> Result<()> {
 
     let chunk_size = 0;
     let EventsPage { events, continuation_token } =
-        provider.get_events(filter.clone(), None, chunk_size).await?;
+        provider.get_events(filter.clone(), None, chunk_size).await.unwrap();
 
     assert_eq!(events.len(), 0);
     assert_matches!(continuation_token, Some(token ) => {
-        let token = ContinuationToken::parse(&token)?;
+        let token = ContinuationToken::parse(&token).unwrap();
         assert_eq!(token.block_n, 1);
         assert_eq!(token.txn_n, 0);
         assert_eq!(token.event_n, 0);
@@ -751,18 +746,18 @@ async fn get_events_no_pending() -> Result<()> {
 
     let chunk_size = 3;
     let EventsPage { events, continuation_token } =
-        provider.get_events(filter.clone(), None, chunk_size).await?;
+        provider.get_events(filter.clone(), None, chunk_size).await.unwrap();
 
     assert_eq!(events.len(), 3, "Total events should be limited by chunk size ({chunk_size})");
     assert_matches!(continuation_token, Some(ref token) => {
-        let token = ContinuationToken::parse(token)?;
+        let token = ContinuationToken::parse(token).unwrap();
         assert_eq!(token.block_n, 1);
         assert_eq!(token.txn_n, 3);
         assert_eq!(token.event_n, 0);
     });
 
     let EventsPage { events, continuation_token } =
-        provider.get_events(filter.clone(), continuation_token, chunk_size).await?;
+        provider.get_events(filter.clone(), continuation_token, chunk_size).await.unwrap();
 
     assert_eq!(events.len(), 2, "Remaining should be 2");
     assert_matches!(continuation_token, None);
@@ -772,16 +767,14 @@ async fn get_events_no_pending() -> Result<()> {
 
     let chunk_size = 100;
     let EventsPage { events, continuation_token } =
-        provider.get_events(filter.clone(), None, chunk_size).await?;
+        provider.get_events(filter.clone(), None, chunk_size).await.unwrap();
 
     assert_eq!(events.len(), TOTAL_EVENT_COUNT);
     assert_matches!(continuation_token, None);
-
-    Ok(())
 }
 
 #[tokio::test]
-async fn get_events_with_pending() -> Result<()> {
+async fn get_events_with_pending() {
     // setup test sequencer with the given configuration
     let mut config = katana_utils::node::test_config();
     config.sequencing.no_mining = true;
@@ -802,17 +795,17 @@ async fn get_events_with_pending() -> Result<()> {
     const PENDING_BLOCK_TX_COUNT: usize = 5;
 
     for _ in 0..BLOCK_1_TX_COUNT {
-        let res = tx().send().await?;
-        katana_utils::TxWaiter::new(res.transaction_hash, &provider).await?;
+        let res = tx().send().await.unwrap();
+        katana_utils::TxWaiter::new(res.transaction_hash, &provider).await.unwrap();
     }
 
     // generate block 1
-    client.generate_block().await?;
+    client.generate_block().await.unwrap();
 
     // events in pending block (2)
     for _ in 0..PENDING_BLOCK_TX_COUNT {
-        let res = tx().send().await?;
-        katana_utils::TxWaiter::new(res.transaction_hash, &provider).await?;
+        let res = tx().send().await.unwrap();
+        katana_utils::TxWaiter::new(res.transaction_hash, &provider).await.unwrap();
     }
 
     // because we didnt specifically set the `from` and `to` block, it will implicitly
@@ -821,14 +814,14 @@ async fn get_events_with_pending() -> Result<()> {
 
     let chunk_size = BLOCK_1_TX_COUNT;
     let EventsPage { events, continuation_token } =
-        provider.get_events(filter.clone(), None, chunk_size as u64).await?;
+        provider.get_events(filter.clone(), None, chunk_size as u64).await.unwrap();
 
     assert_eq!(events.len(), chunk_size);
     assert_matches!(continuation_token, Some(ref token) => {
         // the continuation token should now point to block 2 (pending block) because:-
         // (1) the filter doesn't specify the exact 'to' block, so it will keep moving the cursor to point to the next block.
         // (2) events in block 1 has been exhausted by the first two queries.
-        let token = ContinuationToken::parse(token)?;
+        let token = ContinuationToken::parse(token).unwrap();
         assert_eq!(token.block_n, 2);
         assert_eq!(token.txn_n, 0);
         assert_eq!(token.event_n, 0);
@@ -838,11 +831,11 @@ async fn get_events_with_pending() -> Result<()> {
 
     let chunk_size = 3;
     let EventsPage { events, continuation_token } =
-        provider.get_events(filter.clone(), continuation_token, chunk_size).await?;
+        provider.get_events(filter.clone(), continuation_token, chunk_size).await.unwrap();
 
     assert_eq!(events.len() as u64, chunk_size);
     assert_matches!(continuation_token, Some(ref token) => {
-        let token = ContinuationToken::parse(token)?;
+        let token = ContinuationToken::parse(token).unwrap();
         assert_eq!(token.block_n, 2);
         assert_eq!(token.txn_n, 3);
         assert_eq!(token.event_n, 0);
@@ -850,11 +843,11 @@ async fn get_events_with_pending() -> Result<()> {
 
     // get the rest of events in the pending block
     let EventsPage { events, continuation_token } =
-        provider.get_events(filter.clone(), continuation_token, chunk_size).await?;
+        provider.get_events(filter.clone(), continuation_token, chunk_size).await.unwrap();
 
     assert_eq!(events.len(), PENDING_BLOCK_TX_COUNT - chunk_size as usize);
     assert_matches!(continuation_token, Some(ref token) => {
-        let token = ContinuationToken::parse(token)?;
+        let token = ContinuationToken::parse(token).unwrap();
         assert_eq!(token.block_n, 2);
         assert_eq!(token.txn_n, 5);
         assert_eq!(token.event_n, 0);
@@ -863,16 +856,14 @@ async fn get_events_with_pending() -> Result<()> {
     // fetching events with the continuation token should return an empty list and the
     // token shouldn't change.
     let EventsPage { events, continuation_token: new_token } =
-        provider.get_events(filter, continuation_token.clone(), chunk_size).await?;
+        provider.get_events(filter, continuation_token.clone(), chunk_size).await.unwrap();
 
     assert_eq!(events.len(), 0);
     assert_eq!(new_token, continuation_token);
-
-    Ok(())
 }
 
 #[tokio::test]
-async fn trace() -> Result<()> {
+async fn trace() {
     let mut config = katana_utils::node::test_config();
     config.sequencing.no_mining = true;
     let sequencer = TestNode::new_with_config(config).await;
@@ -894,16 +885,16 @@ async fn trace() -> Result<()> {
     let mut hashes = Vec::new();
 
     for _ in 0..2 {
-        let res = contract.transfer(&recipient, &amount).send().await?;
-        katana_utils::TxWaiter::new(res.transaction_hash, &provider).await?;
+        let res = contract.transfer(&recipient, &amount).send().await.unwrap();
+        katana_utils::TxWaiter::new(res.transaction_hash, &provider).await.unwrap();
         hashes.push(res.transaction_hash);
     }
 
     // Generate a block to include the transactions. The generated block will have block number 1.
-    rpc_client.generate_block().await?;
+    rpc_client.generate_block().await.unwrap();
 
     for hash in hashes {
-        let trace = provider.trace_transaction(hash).await?;
+        let trace = provider.trace_transaction(hash).await.unwrap();
         assert_matches!(trace, TransactionTrace::Invoke(_));
     }
 
@@ -911,18 +902,16 @@ async fn trace() -> Result<()> {
     // Transactions in pending block
 
     for _ in 0..2 {
-        let res = contract.transfer(&recipient, &amount).send().await?;
-        katana_utils::TxWaiter::new(res.transaction_hash, &provider).await?;
+        let res = contract.transfer(&recipient, &amount).send().await.unwrap();
+        katana_utils::TxWaiter::new(res.transaction_hash, &provider).await.unwrap();
 
-        let trace = provider.trace_transaction(res.transaction_hash).await?;
+        let trace = provider.trace_transaction(res.transaction_hash).await.unwrap();
         assert_matches!(trace, TransactionTrace::Invoke(_));
     }
-
-    Ok(())
 }
 
 #[tokio::test]
-async fn block_traces() -> Result<()> {
+async fn block_traces() {
     let mut config = katana_utils::node::test_config();
     config.sequencing.no_mining = true;
     let sequencer = TestNode::new_with_config(config).await;
@@ -944,17 +933,17 @@ async fn block_traces() -> Result<()> {
     // Block 1
 
     for _ in 0..5 {
-        let res = contract.transfer(&recipient, &amount).send().await?;
-        katana_utils::TxWaiter::new(res.transaction_hash, &provider).await?;
+        let res = contract.transfer(&recipient, &amount).send().await.unwrap();
+        katana_utils::TxWaiter::new(res.transaction_hash, &provider).await.unwrap();
         hashes.push(res.transaction_hash);
     }
 
     // Generate a block to include the transactions. The generated block will have block number 1.
-    rpc_client.generate_block().await?;
+    rpc_client.generate_block().await.unwrap();
 
     // Get the traces of the transactions in block 1.
     let block_id = ConfirmedBlockId::Number(1);
-    let traces = provider.trace_block_transactions(block_id).await?;
+    let traces = provider.trace_block_transactions(block_id).await.unwrap();
     assert_eq!(traces.len(), 5);
 
     for i in 0..5 {
@@ -969,18 +958,18 @@ async fn block_traces() -> Result<()> {
     hashes.clear();
 
     for _ in 0..2 {
-        let res = contract.transfer(&recipient, &amount).send().await?;
-        katana_utils::TxWaiter::new(res.transaction_hash, &provider).await?;
-        katana_utils::TxWaiter::new(res.transaction_hash, &provider).await?;
+        let res = contract.transfer(&recipient, &amount).send().await.unwrap();
+        katana_utils::TxWaiter::new(res.transaction_hash, &provider).await.unwrap();
+        katana_utils::TxWaiter::new(res.transaction_hash, &provider).await.unwrap();
         hashes.push(res.transaction_hash);
     }
 
     // Generate a block to include the transactions. The generated block will have block number 2.
-    rpc_client.generate_block().await?;
+    rpc_client.generate_block().await.unwrap();
 
     // Get the traces of the transactions in block 2.
     let block_id = ConfirmedBlockId::Number(2);
-    let traces = provider.trace_block_transactions(block_id).await?;
+    let traces = provider.trace_block_transactions(block_id).await.unwrap();
     assert_eq!(traces.len(), 2);
 
     for i in 0..2 {
@@ -995,18 +984,18 @@ async fn block_traces() -> Result<()> {
     hashes.clear();
 
     for _ in 0..3 {
-        let res = contract.transfer(&recipient, &amount).send().await?;
-        katana_utils::TxWaiter::new(res.transaction_hash, &provider).await?;
-        katana_utils::TxWaiter::new(res.transaction_hash, &provider).await?;
+        let res = contract.transfer(&recipient, &amount).send().await.unwrap();
+        katana_utils::TxWaiter::new(res.transaction_hash, &provider).await.unwrap();
+        katana_utils::TxWaiter::new(res.transaction_hash, &provider).await.unwrap();
         hashes.push(res.transaction_hash);
     }
 
     // Generate a block to include the transactions. The generated block will have block number 3.
-    rpc_client.generate_block().await?;
+    rpc_client.generate_block().await.unwrap();
 
     // Get the traces of the transactions in block 3.
     let block_id = ConfirmedBlockId::Latest;
-    let traces = provider.trace_block_transactions(block_id).await?;
+    let traces = provider.trace_block_transactions(block_id).await.unwrap();
     assert_eq!(traces.len(), 3);
 
     for i in 0..3 {
@@ -1015,8 +1004,6 @@ async fn block_traces() -> Result<()> {
     }
 
     // TODO: add scenario for l1 accepted block
-
-    Ok(())
 }
 
 // Test that the v3 transactions are working as expected. The expectation is that the v3 transaction

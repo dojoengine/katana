@@ -128,8 +128,8 @@ impl PreConfirmedBlockWithTxs {
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(untagged)]
 pub enum MaybePreConfirmedBlockWithTxHashes {
-    PreConfirmed(PreConfirmedBlockWithTxHashes),
     Block(BlockWithTxHashes),
+    PreConfirmed(PreConfirmedBlockWithTxHashes),
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
@@ -278,11 +278,82 @@ impl BlockHashAndNumberResponse {
     }
 }
 
-#[derive(Debug, Clone, Serialize, Deserialize)]
+#[derive(Debug, Clone, Serialize)]
 #[serde(untagged)]
 pub enum MaybePreConfirmedBlockWithReceipts {
-    PreConfirmed(PreConfirmedBlockWithReceipts),
     Block(BlockWithReceipts),
+    PreConfirmed(PreConfirmedBlockWithReceipts),
+}
+
+impl<'de> Deserialize<'de> for MaybePreConfirmedBlockWithReceipts {
+    fn deserialize<D>(deserializer: D) -> Result<Self, D::Error>
+    where
+        D: serde::Deserializer<'de>,
+    {
+        #[derive(Debug, Deserialize)]
+        struct RawObject {
+            status: Option<BlockStatus>,
+            block_hash: Option<BlockHash>,
+            parent_hash: Option<BlockHash>,
+            block_number: BlockNumber,
+            new_root: Option<Felt>,
+            timestamp: u64,
+            sequencer_address: ContractAddress,
+            l1_gas_price: ResourcePrice,
+            l2_gas_price: ResourcePrice,
+            l1_data_gas_price: ResourcePrice,
+            l1_da_mode: L1DataAvailabilityMode,
+            starknet_version: String,
+            transactions: Vec<RpcTxWithReceipt>,
+        }
+
+        let RawObject {
+            parent_hash,
+            block_number,
+            new_root,
+            timestamp,
+            sequencer_address,
+            l1_gas_price,
+            l2_gas_price,
+            l1_data_gas_price,
+            l1_da_mode,
+            starknet_version,
+            transactions,
+            status,
+            block_hash,
+        } = RawObject::deserialize(deserializer)
+            .map_err(|e| serde::de::Error::custom(format!("malformed payload: {e}")))?;
+
+        if block_hash.is_some() {
+            Ok(MaybePreConfirmedBlockWithReceipts::Block(BlockWithReceipts {
+                block_hash: block_hash.unwrap(),
+                parent_hash: parent_hash.unwrap(),
+                new_root: new_root.unwrap(),
+                status: status.unwrap(),
+                block_number,
+                timestamp,
+                sequencer_address,
+                l1_gas_price,
+                l2_gas_price,
+                l1_data_gas_price,
+                l1_da_mode,
+                starknet_version,
+                transactions,
+            }))
+        } else {
+            Ok(MaybePreConfirmedBlockWithReceipts::PreConfirmed(PreConfirmedBlockWithReceipts {
+                block_number,
+                timestamp,
+                sequencer_address,
+                l1_gas_price,
+                l2_gas_price,
+                l1_data_gas_price,
+                l1_da_mode,
+                starknet_version,
+                transactions,
+            }))
+        }
+    }
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]

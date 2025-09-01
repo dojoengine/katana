@@ -1,6 +1,7 @@
 use katana_primitives::class::{ClassHash, CompiledClassHash};
 use katana_primitives::contract::Nonce;
 use katana_primitives::execution::EntryPointSelector;
+use katana_primitives::fee::Tip;
 use katana_primitives::transaction::TxHash;
 use katana_primitives::{transaction as primitives, ContractAddress, Felt};
 use serde::{Deserialize, Serialize};
@@ -82,7 +83,7 @@ pub struct RpcInvokeTxV3 {
     /// Resource bounds for the transaction execution
     pub resource_bounds: ResourceBoundsMapping,
     /// The tip for the transaction
-    pub tip: u64,
+    pub tip: Tip,
     /// Data needed to allow the paymaster to pay for the transaction in native tokens
     pub paymaster_data: Vec<Felt>,
     /// Data needed to deploy the account contract from which this tx will be initiated
@@ -186,7 +187,7 @@ pub struct RpcDeclareTxV3 {
     /// Resource bounds for the transaction execution
     pub resource_bounds: ResourceBoundsMapping,
     /// The tip for the transaction
-    pub tip: u64,
+    pub tip: Tip,
     /// Data needed to allow the paymaster to pay for the transaction in native tokens
     pub paymaster_data: Vec<Felt>,
     /// Data needed to deploy the account contract from which this tx will be initiated
@@ -251,7 +252,7 @@ pub struct RpcDeployAccountTxV3 {
     /// Resource bounds for the transaction execution
     pub resource_bounds: ResourceBoundsMapping,
     /// The tip for the transaction
-    pub tip: u64,
+    pub tip: Tip,
     /// Data needed to allow the paymaster to pay for the transaction in native tokens
     pub paymaster_data: Vec<Felt>,
     /// The storage domain of the account's nonce (an account has a nonce per da mode)
@@ -298,7 +299,7 @@ impl From<primitives::Tx> for RpcTx {
                     nonce_data_availability_mode: to_rpc_da_mode(tx.nonce_data_availability_mode),
                     paymaster_data: tx.paymaster_data,
                     resource_bounds: to_rpc_resource_bounds(tx.resource_bounds),
-                    tip: tx.tip,
+                    tip: tx.tip.into(),
                 })),
             },
 
@@ -338,7 +339,7 @@ impl From<primitives::Tx> for RpcTx {
                     nonce_data_availability_mode: to_rpc_da_mode(tx.nonce_data_availability_mode),
                     paymaster_data: tx.paymaster_data,
                     resource_bounds: to_rpc_resource_bounds(tx.resource_bounds),
-                    tip: tx.tip,
+                    tip: tx.tip.into(),
                 }),
             }),
 
@@ -375,7 +376,7 @@ impl From<primitives::Tx> for RpcTx {
                         ),
                         paymaster_data: tx.paymaster_data,
                         resource_bounds: to_rpc_resource_bounds(tx.resource_bounds),
-                        tip: tx.tip,
+                        tip: tx.tip.into(),
                     })
                 }
             }),

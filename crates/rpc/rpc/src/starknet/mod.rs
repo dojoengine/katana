@@ -836,7 +836,7 @@ impl<EF: ExecutorFactory> StarknetApi<EF> {
     }
 
     async fn events(&self, filter: EventFilterWithPage) -> StarknetApiResult<GetEventsResponse> {
-        let EventFilterWithPage { filter: event_filter, result_page_request } = filter;
+        let EventFilterWithPage { event_filter, result_page_request } = filter;
         let ResultPageRequest { continuation_token, chunk_size } = result_page_request;
 
         if let Some(max_size) = self.inner.config.max_event_page_size {
