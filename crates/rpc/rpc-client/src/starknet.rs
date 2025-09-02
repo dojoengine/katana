@@ -31,8 +31,6 @@ use starknet::core::types::{
     SimulatedTransaction, TransactionStatus, TransactionTrace, TransactionTraceWithHash,
 };
 
-pub use jsonrpsee::core::client::Error as ClientError;
-
 #[derive(Debug, thiserror::Error)]
 pub enum Error {
     /// API-specific error returned by the server.
