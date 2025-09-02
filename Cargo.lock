@@ -6359,6 +6359,19 @@ dependencies = [
 ]
 
 [[package]]
+name = "katana-rpc-client"
+version = "1.7.0-alpha.3"
+dependencies = [
+ "jsonrpsee",
+ "katana-primitives",
+ "katana-rpc-api",
+ "katana-rpc-types",
+ "starknet",
+ "thiserror 1.0.69",
+ "tokio",
+]
+
+[[package]]
 name = "katana-rpc-types"
 version = "1.7.0-alpha.3"
 dependencies = [
@@ -6518,6 +6531,8 @@ dependencies = [
  "katana-primitives",
  "katana-provider",
  "katana-rpc",
+ "katana-rpc-client",
+ "katana-rpc-types",
  "katana-utils-macro",
  "rand 0.8.5",
  "starknet",

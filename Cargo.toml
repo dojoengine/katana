@@ -22,6 +22,7 @@ members = [
 	"crates/primitives",
 	"crates/rpc/rpc",
 	"crates/rpc/rpc-api",
+	"crates/rpc/rpc-client",
 	"crates/rpc/rpc-types",
 	"crates/rpc/rpc-types-builder",
 	"crates/runner",
@@ -84,6 +85,7 @@ katana-primitives = { path = "crates/primitives" }
 katana-provider = { path = "crates/storage/provider" }
 katana-rpc = { path = "crates/rpc/rpc" }
 katana-rpc-api = { path = "crates/rpc/rpc-api" }
+katana-rpc-client = { path = "crates/rpc/rpc-client" }
 katana-rpc-types = { path = "crates/rpc/rpc-types" }
 katana-rpc-types-builder = { path = "crates/rpc/rpc-types-builder" }
 katana-runner = { path = "crates/runner" }

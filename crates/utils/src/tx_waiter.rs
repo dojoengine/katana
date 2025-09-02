@@ -5,15 +5,15 @@ use std::time::Duration;
 
 use anyhow::Result;
 use futures::FutureExt;
-use starknet::core::types::{
-    ExecutionResult, Felt, ReceiptBlock, StarknetError, TransactionFinalityStatus,
-    TransactionReceipt, TransactionReceiptWithBlockInfo, TransactionStatus,
-};
-use starknet::providers::{Provider, ProviderError};
+use katana_rpc::api::error::starknet::StarknetApiError;
+use katana_rpc_client::starknet::Client as StarknetClient;
+use katana_rpc_client::starknet::Error as StarknetClientError;
+use katana_rpc_types::receipt::{ReceiptBlockInfo, RpcTxReceipt, TxReceiptWithBlockInfo};
+use starknet::core::types::{ExecutionResult, Felt, TransactionFinalityStatus, TransactionStatus};
 use tokio::time::{Instant, Interval};
 
-type GetTxStatusResult = Result<TransactionStatus, ProviderError>;
-type GetTxReceiptResult = Result<TransactionReceiptWithBlockInfo, ProviderError>;
+type GetTxStatusResult = Result<TransactionStatus, StarknetClientError>;
+type GetTxReceiptResult = Result<TxReceiptWithBlockInfo, StarknetClientError>;
 
 type GetTxStatusFuture<'a> = Pin<Box<dyn Future<Output = GetTxStatusResult> + Send + 'a>>;
 type GetTxReceiptFuture<'a> = Pin<Box<dyn Future<Output = GetTxReceiptResult> + Send + 'a>>;
@@ -27,7 +27,7 @@ pub enum TxWaitingError {
     TransactionReverted(String),
 
     #[error(transparent)]
-    Provider(ProviderError),
+    Client(StarknetClientError),
 }
 
 /// Utility for waiting on a transaction.
@@ -53,7 +53,7 @@ pub enum TxWaitingError {
 /// let receipt = TxWaiter::new(tx_hash, &provider).with_tx_status(TransactionFinalityStatus::AcceptedOnL2).await.unwrap();
 /// ```
 #[must_use = "TxWaiter does nothing unless polled"]
-pub struct TxWaiter<'a, P: Provider> {
+pub struct TxWaiter<'a> {
     /// The hash of the transaction to wait for.
     tx_hash: Felt,
     /// The transaction finality status to wait for.
@@ -75,7 +75,8 @@ pub struct TxWaiter<'a, P: Provider> {
     /// 300 seconds.
     timeout: Duration,
     /// The provider to use for polling the transaction.
-    provider: &'a P,
+    rpc_client: &'a StarknetClient,
+
     /// The future that gets the transaction status.
     tx_status_request_fut: Option<GetTxStatusFuture<'a>>,
     /// The future that gets the transaction receipt.
@@ -84,7 +85,7 @@ pub struct TxWaiter<'a, P: Provider> {
     started_at: Option<Instant>,
 }
 
-impl<'a, P: Provider> TxWaiter<'a, P> {
+impl<'a> TxWaiter<'a> {
     /// The default timeout for a transaction to be accepted or reverted on L2.
     /// The inclusion (which can be accepted or reverted) is ~5seconds in ideal cases.
     /// We keep some margin for times that could be affected by network congestion or
@@ -93,9 +94,9 @@ impl<'a, P: Provider> TxWaiter<'a, P> {
     /// Interval for use with 3rd party provider without burning the API rate limit.
     const DEFAULT_INTERVAL: Duration = Duration::from_millis(2500);
 
-    pub fn new(tx: Felt, provider: &'a P) -> Self {
+    pub fn new(tx: Felt, rpc_client: &'a StarknetClient) -> Self {
         Self {
-            provider,
+            rpc_client,
             tx_hash: tx,
             started_at: None,
             must_succeed: true,
@@ -126,12 +127,12 @@ impl<'a, P: Provider> TxWaiter<'a, P> {
     // Helper function to evaluate if the transaction receipt should be accepted yet or not, based
     // on the waiter's parameters. Used in the `Future` impl.
     fn evaluate_receipt_from_params(
-        receipt: TransactionReceiptWithBlockInfo,
+        receipt: TxReceiptWithBlockInfo,
         expected_finality_status: Option<TransactionFinalityStatus>,
         must_succeed: bool,
-    ) -> Option<Result<TransactionReceiptWithBlockInfo, TxWaitingError>> {
+    ) -> Option<Result<TxReceiptWithBlockInfo, TxWaitingError>> {
         match &receipt.block {
-            ReceiptBlock::PreConfirmed => {
+            ReceiptBlockInfo::PreConfirmed { .. } => {
                 // pending receipt doesn't include finality status, so we cant check it.
                 if expected_finality_status.is_some() {
                     return None;
@@ -149,7 +150,7 @@ impl<'a, P: Provider> TxWaiter<'a, P> {
                 }
             }
 
-            ReceiptBlock::Block { .. } => {
+            ReceiptBlockInfo::Block { .. } => {
                 if let Some(expected_status) = expected_finality_status {
                     match finality_status_from_receipt(&receipt.receipt) {
                         TransactionFinalityStatus::AcceptedOnL2
@@ -179,8 +180,8 @@ impl<'a, P: Provider> TxWaiter<'a, P> {
     }
 }
 
-impl<P: Provider + Send> Future for TxWaiter<'_, P> {
-    type Output = Result<TransactionReceiptWithBlockInfo, TxWaitingError>;
+impl Future for TxWaiter<'_> {
+    type Output = Result<TxReceiptWithBlockInfo, TxWaitingError>;
 
     fn poll(self: Pin<&mut Self>, cx: &mut Context<'_>) -> Poll<Self::Output> {
         let this = self.get_mut();
@@ -204,19 +205,17 @@ impl<P: Provider + Send> Future for TxWaiter<'_, P> {
                             | TransactionStatus::AcceptedOnL2(_)
                             | TransactionStatus::AcceptedOnL1(_) => {
                                 this.tx_receipt_request_fut = Some(Box::pin(
-                                    this.provider.get_transaction_receipt(this.tx_hash),
+                                    this.rpc_client.get_transaction_receipt(this.tx_hash),
                                 ));
                             }
 
                             TransactionStatus::Candidate | TransactionStatus::Received => {}
                         },
 
-                        Err(ProviderError::StarknetError(
-                            StarknetError::TransactionHashNotFound,
-                        )) => {}
+                        Err(StarknetClientError::Starknet(StarknetApiError::TxnHashNotFound)) => {}
 
                         Err(e) => {
-                            return Poll::Ready(Err(TxWaitingError::Provider(e)));
+                            return Poll::Ready(Err(TxWaitingError::Client(dbg!(e))));
                         }
                     },
 
@@ -235,12 +234,9 @@ impl<P: Provider + Send> Future for TxWaiter<'_, P> {
                     }
 
                     Poll::Ready(res) => match res {
-                        Err(ProviderError::StarknetError(
-                            StarknetError::TransactionHashNotFound,
-                        )) => {}
-
+                        Err(StarknetClientError::Starknet(StarknetApiError::TxnHashNotFound)) => {}
                         Err(e) => {
-                            return Poll::Ready(Err(TxWaitingError::Provider(e)));
+                            return Poll::Ready(Err(TxWaitingError::Client(dbg!(e))));
                         }
 
                         Ok(res) => {
@@ -258,7 +254,7 @@ impl<P: Provider + Send> Future for TxWaiter<'_, P> {
 
             if this.interval.poll_tick(cx).is_ready() {
                 this.tx_status_request_fut =
-                    Some(Box::pin(this.provider.get_transaction_status(this.tx_hash)));
+                    Some(Box::pin(this.rpc_client.get_transaction_status(this.tx_hash)));
             } else {
                 break;
             }
@@ -268,7 +264,7 @@ impl<P: Provider + Send> Future for TxWaiter<'_, P> {
     }
 }
 
-impl<P: Provider> std::fmt::Debug for TxWaiter<'_, P> {
+impl std::fmt::Debug for TxWaiter<'_> {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         f.debug_struct("TxWaiter")
             .field("tx_hash", &self.tx_hash)
@@ -284,35 +280,35 @@ impl<P: Provider> std::fmt::Debug for TxWaiter<'_, P> {
     }
 }
 
-fn execution_status_from_receipt(receipt: &TransactionReceipt) -> &ExecutionResult {
+fn execution_status_from_receipt(receipt: &RpcTxReceipt) -> &ExecutionResult {
     match receipt {
-        TransactionReceipt::Invoke(receipt) => &receipt.execution_result,
-        TransactionReceipt::Deploy(receipt) => &receipt.execution_result,
-        TransactionReceipt::Declare(receipt) => &receipt.execution_result,
-        TransactionReceipt::L1Handler(receipt) => &receipt.execution_result,
-        TransactionReceipt::DeployAccount(receipt) => &receipt.execution_result,
+        RpcTxReceipt::Invoke(receipt) => &receipt.execution_result,
+        RpcTxReceipt::Deploy(receipt) => &receipt.execution_result,
+        RpcTxReceipt::Declare(receipt) => &receipt.execution_result,
+        RpcTxReceipt::L1Handler(receipt) => &receipt.execution_result,
+        RpcTxReceipt::DeployAccount(receipt) => &receipt.execution_result,
     }
 }
 
-fn finality_status_from_receipt(receipt: &TransactionReceipt) -> TransactionFinalityStatus {
+fn finality_status_from_receipt(receipt: &RpcTxReceipt) -> TransactionFinalityStatus {
     match receipt {
-        TransactionReceipt::Invoke(receipt) => receipt.finality_status,
-        TransactionReceipt::Deploy(receipt) => receipt.finality_status,
-        TransactionReceipt::Declare(receipt) => receipt.finality_status,
-        TransactionReceipt::L1Handler(receipt) => receipt.finality_status,
-        TransactionReceipt::DeployAccount(receipt) => receipt.finality_status,
+        RpcTxReceipt::Invoke(receipt) => receipt.finality_status,
+        RpcTxReceipt::Deploy(receipt) => receipt.finality_status,
+        RpcTxReceipt::Declare(receipt) => receipt.finality_status,
+        RpcTxReceipt::L1Handler(receipt) => receipt.finality_status,
+        RpcTxReceipt::DeployAccount(receipt) => receipt.finality_status,
     }
 }
 
 #[cfg(test)]
 mod tests {
     use assert_matches::assert_matches;
+    use katana_rpc_types::receipt::{
+        ReceiptBlockInfo, RpcInvokeTxReceipt, RpcTxReceipt, TxReceiptWithBlockInfo,
+    };
     use starknet::core::types::ExecutionResult::{Reverted, Succeeded};
     use starknet::core::types::TransactionFinalityStatus::{self, AcceptedOnL1, AcceptedOnL2};
-    use starknet::core::types::{
-        ExecutionResources, ExecutionResult, FeePayment, InvokeTransactionReceipt, PriceUnit,
-        ReceiptBlock, TransactionReceipt, TransactionReceiptWithBlockInfo,
-    };
+    use starknet::core::types::{ExecutionResources, ExecutionResult, FeePayment, PriceUnit};
     use starknet::macros::felt;
     use starknet::providers::jsonrpc::HttpTransport;
     use starknet::providers::JsonRpcClient;
@@ -320,10 +316,8 @@ mod tests {
     use super::{Duration, TxWaiter};
     use crate::{TestNode, TxWaitingError};
 
-    async fn create_test_sequencer() -> (TestNode, JsonRpcClient<HttpTransport>) {
-        let sequencer = TestNode::new().await;
-        let provider = sequencer.starknet_provider();
-        (sequencer, provider)
+    async fn create_test_sequencer() -> TestNode {
+        TestNode::new().await
     }
 
     const EXECUTION_RESOURCES: ExecutionResources =
@@ -332,8 +326,8 @@ mod tests {
     fn mock_receipt(
         finality_status: TransactionFinalityStatus,
         execution_result: ExecutionResult,
-    ) -> TransactionReceiptWithBlockInfo {
-        let receipt = TransactionReceipt::Invoke(InvokeTransactionReceipt {
+    ) -> TxReceiptWithBlockInfo {
+        let receipt = RpcTxReceipt::Invoke(RpcInvokeTxReceipt {
             finality_status,
             execution_result,
             events: Default::default(),
@@ -343,17 +337,17 @@ mod tests {
             execution_resources: EXECUTION_RESOURCES,
         });
 
-        TransactionReceiptWithBlockInfo {
+        TxReceiptWithBlockInfo {
             receipt,
-            block: ReceiptBlock::Block {
+            block: ReceiptBlockInfo::Block {
                 block_hash: Default::default(),
                 block_number: Default::default(),
             },
         }
     }
 
-    fn mock_preconf_receipt(execution_result: ExecutionResult) -> TransactionReceiptWithBlockInfo {
-        let receipt = TransactionReceipt::Invoke(InvokeTransactionReceipt {
+    fn mock_preconf_receipt(execution_result: ExecutionResult) -> TxReceiptWithBlockInfo {
+        let receipt = RpcTxReceipt::Invoke(RpcInvokeTxReceipt {
             execution_result,
             events: Default::default(),
             finality_status: TransactionFinalityStatus::AcceptedOnL2,
@@ -363,35 +357,32 @@ mod tests {
             execution_resources: EXECUTION_RESOURCES,
         });
 
-        TransactionReceiptWithBlockInfo { receipt, block: ReceiptBlock::PreConfirmed }
+        TxReceiptWithBlockInfo {
+            receipt,
+            block: ReceiptBlockInfo::PreConfirmed { block_number: 0 },
+        }
     }
 
     #[tokio::test]
     async fn should_timeout_on_nonexistant_transaction() {
-        let (_sequencer, provider) = create_test_sequencer().await;
+        let sequencer = create_test_sequencer().await;
+
+        let client = katana_rpc_client::starknet::Client::new(sequencer.rpc_http_client());
 
         let hash = felt!("0x1234");
         let result =
-            TxWaiter::new(hash, &provider).with_timeout(Duration::from_secs(1)).await.unwrap_err();
+            TxWaiter::new(hash, &client).with_timeout(Duration::from_secs(1)).await.unwrap_err();
 
         assert_matches!(result, TxWaitingError::Timeout);
     }
 
     macro_rules! eval_receipt {
         ($receipt:expr, $must_succeed:expr) => {
-            TxWaiter::<JsonRpcClient<HttpTransport>>::evaluate_receipt_from_params(
-                $receipt,
-                None,
-                $must_succeed,
-            )
+            TxWaiter::evaluate_receipt_from_params($receipt, None, $must_succeed)
         };
 
         ($receipt:expr, $expected_status:expr, $must_succeed:expr) => {
-            TxWaiter::<JsonRpcClient<HttpTransport>>::evaluate_receipt_from_params(
-                $receipt,
-                Some($expected_status),
-                $must_succeed,
-            )
+            TxWaiter::evaluate_receipt_from_params($receipt, Some($expected_status), $must_succeed)
         };
     }
 
