@@ -14,7 +14,6 @@ pub struct NodeArgsConfig {
     pub block_time: Option<u64>,
     pub block_cairo_steps_limit: Option<u64>,
     pub db_dir: Option<PathBuf>,
-    // pub messaging: Option<MessagingConfig>,
     pub logging: Option<LoggingOptions>,
     pub messaging: Option<MessagingOptions>,
     pub starknet: Option<StarknetOptions>,

@@ -6,7 +6,6 @@ use anyhow::Result;
 use clap::Parser;
 use katana_chain_spec::rollup::ChainConfigDir;
 use serde::{Deserialize, Serialize};
-use url::Url;
 
 pub mod file;
 pub mod options;
@@ -63,11 +62,10 @@ pub struct NodeArgs {
     // #[arg(value_parser = katana_messaging::MessagingConfig::parse)]
     // #[arg(conflicts_with = "chain")]
     // pub messaging: Option<MessagingConfig>,
-    #[arg(long = "l1.provider", value_name = "URL", alias = "l1-provider")]
-    #[arg(help = "The Ethereum RPC provider to sample the gas prices from to enable the gas \
-                  price oracle.")]
-    pub l1_provider_url: Option<Url>,
-
+    // #[arg(long = "l1.provider", value_name = "URL", alias = "l1-provider")]
+    // #[arg(help = "The Ethereum RPC provider to sample the gas prices from to enable the gas \
+    //               price oracle.")]
+    // pub l1_provider_url: Option<Url>,
     #[command(flatten)]
     pub messaging: MessagingOptions,
 
