@@ -304,12 +304,14 @@ fn finality_status_from_receipt(receipt: &RpcTxReceipt) -> TransactionFinalitySt
 #[cfg(test)]
 mod tests {
     use assert_matches::assert_matches;
+    use katana_primitives::fee::PriceUnit;
     use katana_rpc_types::receipt::ExecutionResult::{Reverted, Succeeded};
     use katana_rpc_types::receipt::{
         ExecutionResult, ReceiptBlockInfo, RpcInvokeTxReceipt, RpcTxReceipt, TxReceiptWithBlockInfo,
     };
+    use katana_rpc_types::FeePayment;
+    use starknet::core::types::ExecutionResources;
     use starknet::core::types::TransactionFinalityStatus::{self, AcceptedOnL1, AcceptedOnL2};
-    use starknet::core::types::{ExecutionResources, FeePayment, PriceUnit};
     use starknet::macros::felt;
 
     use super::{Duration, TxWaiter};

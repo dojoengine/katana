@@ -1,11 +1,12 @@
 use assert_matches::assert_matches;
+use katana_primitives::fee::PriceUnit;
 use katana_primitives::receipt::Event;
 use katana_primitives::{address, felt, ContractAddress};
 use katana_rpc_types::receipt::{
     ExecutionResult, ReceiptBlockInfo, RpcTxReceipt, TxReceiptWithBlockInfo,
 };
 use serde_json::Value;
-use starknet::core::types::{Hash256, PriceUnit, TransactionFinalityStatus};
+use starknet::core::types::{Hash256, TransactionFinalityStatus};
 
 mod fixtures;
 

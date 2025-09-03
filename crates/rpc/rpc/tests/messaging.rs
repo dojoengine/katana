@@ -8,6 +8,7 @@ use alloy_sol_types::sol;
 use anyhow::Result;
 use cainome::rs::abigen;
 use katana_messaging::MessagingConfig;
+use katana_primitives::eth_address;
 use katana_primitives::felt;
 use katana_primitives::utils::transaction::{
     compute_l1_handler_tx_hash, compute_l1_to_l2_message_hash,
@@ -263,15 +264,10 @@ async fn estimate_message_fee() -> Result<()> {
 
     let entry_point_selector = selector!("msg_handler_value");
     let payload = vec![felt!("123")];
-    let from_address = felt!("0x1337");
+    let from_address = eth_address!("0x1337");
     let to_address = l1handler_address.into();
 
-    let msg = MsgFromL1 {
-        payload,
-        to_address,
-        entry_point_selector,
-        from_address: from_address.try_into()?,
-    };
+    let msg = MsgFromL1 { payload, to_address, entry_point_selector, from_address };
 
     let result = rpc_client.estimate_message_fee(msg, BlockId::Tag(BlockTag::PreConfirmed)).await;
     assert!(result.is_ok());
@@ -288,15 +284,10 @@ async fn estimate_message_fee() -> Result<()> {
     let entry_point_selector = selector!("msg_handler_struct");
     // [ MyData.a , MyData.b ]
     let payload = vec![felt!("1"), felt!("2")];
-    let from_address = felt!("0x1337");
-    let to_address = l1handler_address;
+    let from_address = eth_address!("0x1337");
+    let to_address = l1handler_address.into();
 
-    let msg = MsgFromL1 {
-        payload,
-        to_address,
-        entry_point_selector,
-        from_address: from_address.try_into()?,
-    };
+    let msg = MsgFromL1 { payload, to_address, entry_point_selector, from_address };
 
     let result = rpc_client.estimate_message_fee(msg, BlockId::Tag(BlockTag::PreConfirmed)).await;
     assert!(result.is_ok());

@@ -117,7 +117,7 @@ impl RpcTxReceipt {
                     events,
                     messages_sent,
                     finality_status,
-                    actual_fee: to_rpc_fee(rct.fee),
+                    actual_fee: rct.fee.into(),
                     execution_resources: to_rpc_resources(rct.execution_resources),
                     execution_result: if let Some(reason) = rct.revert_error {
                         ExecutionResult::Reverted { reason }
@@ -135,7 +135,7 @@ impl RpcTxReceipt {
                     events,
                     messages_sent,
                     finality_status,
-                    actual_fee: to_rpc_fee(rct.fee),
+                    actual_fee: rct.fee.into(),
                     execution_resources: to_rpc_resources(rct.execution_resources),
                     execution_result: if let Some(reason) = rct.revert_error {
                         ExecutionResult::Reverted { reason }
@@ -153,7 +153,7 @@ impl RpcTxReceipt {
                     events,
                     messages_sent,
                     finality_status,
-                    actual_fee: to_rpc_fee(rct.fee),
+                    actual_fee: rct.fee.into(),
                     execution_resources: to_rpc_resources(rct.execution_resources),
                     message_hash: Hash256::from_bytes(*rct.message_hash),
                     execution_result: if let Some(reason) = rct.revert_error {
@@ -172,7 +172,7 @@ impl RpcTxReceipt {
                     events,
                     messages_sent,
                     finality_status,
-                    actual_fee: to_rpc_fee(rct.fee),
+                    actual_fee: rct.fee.into(),
                     contract_address: rct.contract_address,
                     execution_resources: to_rpc_resources(rct.execution_resources),
                     execution_result: if let Some(reason) = rct.revert_error {
