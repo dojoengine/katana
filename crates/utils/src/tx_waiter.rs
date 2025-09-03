@@ -5,11 +5,12 @@ use std::time::Duration;
 
 use anyhow::Result;
 use futures::FutureExt;
-use katana_rpc::api::error::starknet::StarknetApiError;
-use katana_rpc_client::starknet::Client as StarknetClient;
-use katana_rpc_client::starknet::Error as StarknetClientError;
-use katana_rpc_types::receipt::{ReceiptBlockInfo, RpcTxReceipt, TxReceiptWithBlockInfo};
-use starknet::core::types::{ExecutionResult, Felt, TransactionFinalityStatus, TransactionStatus};
+use katana_rpc_api::error::starknet::StarknetApiError;
+use katana_rpc_client::starknet::{Client as StarknetClient, Error as StarknetClientError};
+use katana_rpc_types::receipt::{
+    ExecutionResult, ReceiptBlockInfo, RpcTxReceipt, TxReceiptWithBlockInfo,
+};
+use starknet::core::types::{Felt, TransactionFinalityStatus, TransactionStatus};
 use tokio::time::{Instant, Interval};
 
 type GetTxStatusResult = Result<TransactionStatus, StarknetClientError>;
@@ -303,15 +304,13 @@ fn finality_status_from_receipt(receipt: &RpcTxReceipt) -> TransactionFinalitySt
 #[cfg(test)]
 mod tests {
     use assert_matches::assert_matches;
+    use katana_rpc_types::receipt::ExecutionResult::{Reverted, Succeeded};
     use katana_rpc_types::receipt::{
-        ReceiptBlockInfo, RpcInvokeTxReceipt, RpcTxReceipt, TxReceiptWithBlockInfo,
+        ExecutionResult, ReceiptBlockInfo, RpcInvokeTxReceipt, RpcTxReceipt, TxReceiptWithBlockInfo,
     };
-    use starknet::core::types::ExecutionResult::{Reverted, Succeeded};
     use starknet::core::types::TransactionFinalityStatus::{self, AcceptedOnL1, AcceptedOnL2};
-    use starknet::core::types::{ExecutionResources, ExecutionResult, FeePayment, PriceUnit};
+    use starknet::core::types::{ExecutionResources, FeePayment, PriceUnit};
     use starknet::macros::felt;
-    use starknet::providers::jsonrpc::HttpTransport;
-    use starknet::providers::JsonRpcClient;
 
     use super::{Duration, TxWaiter};
     use crate::{TestNode, TxWaitingError};
@@ -333,12 +332,12 @@ mod tests {
             events: Default::default(),
             actual_fee: FeePayment { amount: Default::default(), unit: PriceUnit::Wei },
             messages_sent: Default::default(),
-            transaction_hash: Default::default(),
             execution_resources: EXECUTION_RESOURCES,
         });
 
         TxReceiptWithBlockInfo {
             receipt,
+            transaction_hash: Default::default(),
             block: ReceiptBlockInfo::Block {
                 block_hash: Default::default(),
                 block_number: Default::default(),
@@ -353,12 +352,12 @@ mod tests {
             finality_status: TransactionFinalityStatus::AcceptedOnL2,
             actual_fee: FeePayment { amount: Default::default(), unit: PriceUnit::Wei },
             messages_sent: Default::default(),
-            transaction_hash: Default::default(),
             execution_resources: EXECUTION_RESOURCES,
         });
 
         TxReceiptWithBlockInfo {
             receipt,
+            transaction_hash: Default::default(),
             block: ReceiptBlockInfo::PreConfirmed { block_number: 0 },
         }
     }

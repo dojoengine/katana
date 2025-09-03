@@ -26,7 +26,7 @@ use katana_rpc_types::transaction::RpcTxWithHash;
 use katana_rpc_types::trie::{ContractStorageKeys, GetStorageProofResponse};
 use katana_rpc_types::{
     EstimateFeeSimulationFlag, FeeEstimate, FunctionCall, MessageFeeEstimate, SimulationFlag,
-    SyncingStatus,
+    SyncingResponse,
 };
 use starknet::core::types::{
     SimulatedTransaction, TransactionStatus, TransactionTrace, TransactionTraceWithHash,
@@ -169,8 +169,8 @@ pub trait StarknetApi {
 
     /// Returns an object about the sync status, or false if the node is not synching.
     #[method(name = "syncing")]
-    async fn syncing(&self) -> RpcResult<SyncingStatus> {
-        Ok(SyncingStatus::NotSyncing)
+    async fn syncing(&self) -> RpcResult<SyncingResponse> {
+        Ok(SyncingResponse::NotSyncing)
     }
 
     /// Returns all event objects matching the conditions in the provided filter.

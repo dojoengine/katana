@@ -89,6 +89,6 @@ macro_rules! assert_account_starknet_err {
 #[macro_export]
 macro_rules! assert_provider_starknet_err {
     ($err:expr, $api_err:pat) => {
-        assert_matches!($err, ProviderError::StarknetError($api_err))
+        assert_matches!($err, katana_rpc_client::starknet::Error::Starknet($api_err))
     };
 }

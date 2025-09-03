@@ -758,3 +758,17 @@ impl From<&ExecutableTxWithHash> for TxWithHash {
         Self { hash: tx.hash, transaction: tx.tx_ref().into() }
     }
 }
+
+/// The finality status of transaction.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+#[cfg_attr(feature = "arbitrary", derive(arbitrary::Arbitrary))]
+#[cfg_attr(
+    feature = "serde",
+    derive(serde::Serialize, serde::Deserialize),
+    serde(rename_all = "SCREAMING_SNAKE_CASE")
+)]
+pub enum TransactionFinalityStatus {
+    PreConfirmed,
+    AcceptedOnL2,
+    AcceptedOnL1,
+}

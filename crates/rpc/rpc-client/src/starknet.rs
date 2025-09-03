@@ -24,8 +24,8 @@ use katana_rpc_types::state_update::MaybePreConfirmedStateUpdate;
 use katana_rpc_types::transaction::RpcTxWithHash;
 use katana_rpc_types::trie::{ContractStorageKeys, GetStorageProofResponse};
 use katana_rpc_types::{
-    EstimateFeeSimulationFlag, FeeEstimate, FunctionCall, MessageFeeEstimate, SimulationFlag,
-    SyncingStatus,
+    EstimateFeeSimulationFlag, EventFilter, FeeEstimate, FunctionCall, MessageFeeEstimate,
+    ResultPageRequest, SimulationFlag, SyncingResponse,
 };
 use starknet::core::types::{
     SimulatedTransaction, TransactionStatus, TransactionTrace, TransactionTraceWithHash,
@@ -215,13 +215,20 @@ impl Client {
     }
 
     /// Returns an object about the sync status, or false if the node is not syncing.
-    pub async fn syncing(&self) -> Result<SyncingStatus> {
+    pub async fn syncing(&self) -> Result<SyncingResponse> {
         self.client.syncing().await.map_err(Into::into)
     }
 
     /// Returns all event objects matching the conditions in the provided filter.
-    pub async fn get_events(&self, filter: EventFilterWithPage) -> Result<GetEventsResponse> {
-        self.client.get_events(filter).await.map_err(Into::into)
+    pub async fn get_events(
+        &self,
+        event_filter: EventFilter,
+        continuation_token: Option<String>,
+        chunk_size: u64,
+    ) -> Result<GetEventsResponse> {
+        let page = ResultPageRequest { chunk_size, continuation_token };
+        let request = EventFilterWithPage { event_filter, result_page_request: page };
+        self.client.get_events(request).await.map_err(Into::into)
     }
 
     /// Get the nonce associated with the given address in the given block.

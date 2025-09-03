@@ -18,6 +18,8 @@ async fn get_blocks_basic_range() {
     let sequencer = TestNode::new().await;
 
     let client = sequencer.rpc_http_client();
+    let starknet_client = sequencer.starknet_rpc_client();
+
     let account = sequencer.account();
     let erc20 = Erc20Contract::new(DEFAULT_STRK_FEE_TOKEN_ADDRESS.into(), &account);
 
@@ -29,7 +31,7 @@ async fn get_blocks_basic_range() {
     // expect to have 3 blocks - block 0 to 2.
     for _ in 0..3 {
         let result = erc20.transfer(&recipient, &amount).send().await.unwrap();
-        katana_utils::TxWaiter::new(result.transaction_hash, &account.provider()).await.unwrap();
+        katana_utils::TxWaiter::new(result.transaction_hash, &starknet_client).await.unwrap();
     }
 
     // Test getting blocks in range
@@ -54,6 +56,8 @@ async fn get_blocks_with_chunk_size() {
     let sequencer = TestNode::new().await;
 
     let client = sequencer.rpc_http_client();
+    let starknet_client = sequencer.starknet_rpc_client();
+
     let account = sequencer.account();
     let erc20 = Erc20Contract::new(DEFAULT_STRK_FEE_TOKEN_ADDRESS.into(), &account);
 
@@ -65,7 +69,7 @@ async fn get_blocks_with_chunk_size() {
     // expect to have 5 blocks - block 0 to 4.
     for _ in 0..5 {
         let result = erc20.transfer(&recipient, &amount).send().await.unwrap();
-        katana_utils::TxWaiter::new(result.transaction_hash, &account.provider()).await.unwrap();
+        katana_utils::TxWaiter::new(result.transaction_hash, &starknet_client).await.unwrap();
     }
 
     // Request with chunk size limit
@@ -99,6 +103,8 @@ async fn get_blocks_pagination() {
     let sequencer = TestNode::new().await;
 
     let client = sequencer.rpc_http_client();
+    let starknet_client = sequencer.starknet_rpc_client();
+
     let account = sequencer.account();
     let erc20 = Erc20Contract::new(DEFAULT_STRK_FEE_TOKEN_ADDRESS.into(), &account);
 
@@ -113,7 +119,7 @@ async fn get_blocks_pagination() {
     // we want to make sure the node only has 5 blocks for this test.
     for _ in 0..(5 - (latest_block + 1)) {
         let result = erc20.transfer(&recipient, &amount).send().await.unwrap();
-        katana_utils::TxWaiter::new(result.transaction_hash, &account.provider()).await.unwrap();
+        katana_utils::TxWaiter::new(result.transaction_hash, &starknet_client).await.unwrap();
     }
 
     // First page
@@ -178,6 +184,8 @@ async fn get_blocks_no_to_parameter() {
     let sequencer = TestNode::new().await;
 
     let client = sequencer.rpc_http_client();
+    let starknet_client = sequencer.starknet_rpc_client();
+
     let account = sequencer.account();
     let erc20 = Erc20Contract::new(DEFAULT_STRK_FEE_TOKEN_ADDRESS.into(), &account);
 
@@ -188,7 +196,7 @@ async fn get_blocks_no_to_parameter() {
     // Generate some blocks
     for _ in 0..3 {
         let result = erc20.transfer(&recipient, &amount).send().await.unwrap();
-        katana_utils::TxWaiter::new(result.transaction_hash, &account.provider()).await.unwrap();
+        katana_utils::TxWaiter::new(result.transaction_hash, &starknet_client).await.unwrap();
     }
 
     // Test without 'to' parameter (should get from start to latest)
@@ -211,6 +219,8 @@ async fn get_transactions_basic_range() {
     let sequencer = TestNode::new().await;
 
     let client = sequencer.rpc_http_client();
+    let starknet_client = sequencer.starknet_rpc_client();
+
     let account = sequencer.account();
     let erc20 = Erc20Contract::new(DEFAULT_STRK_FEE_TOKEN_ADDRESS.into(), &account);
 
@@ -225,7 +235,7 @@ async fn get_transactions_basic_range() {
         let tx_hash = result.transaction_hash;
         tx_hashes.push(tx_hash);
 
-        katana_utils::TxWaiter::new(tx_hash, &account.provider()).await.unwrap();
+        katana_utils::TxWaiter::new(tx_hash, &starknet_client).await.unwrap();
     }
 
     // Test getting transactions in range
@@ -247,6 +257,8 @@ async fn get_transactions_with_chunk_size() {
     let sequencer = TestNode::new().await;
 
     let client = sequencer.rpc_http_client();
+    let starknet_client = sequencer.starknet_rpc_client();
+
     let account = sequencer.account();
     let erc20 = Erc20Contract::new(DEFAULT_STRK_FEE_TOKEN_ADDRESS.into(), &account);
 
@@ -259,7 +271,7 @@ async fn get_transactions_with_chunk_size() {
     for _ in 0..5 {
         let result = erc20.transfer(&recipient, &amount).send().await.unwrap();
         tx_hashes.push(result.transaction_hash);
-        katana_utils::TxWaiter::new(result.transaction_hash, &account.provider()).await.unwrap();
+        katana_utils::TxWaiter::new(result.transaction_hash, &starknet_client).await.unwrap();
     }
 
     // Request with chunk size limit
@@ -296,6 +308,8 @@ async fn get_transactions_pagination() {
     let sequencer = TestNode::new().await;
 
     let client = sequencer.rpc_http_client();
+    let starknet_client = sequencer.starknet_rpc_client();
+
     let account = sequencer.account();
     let erc20 = Erc20Contract::new(DEFAULT_STRK_FEE_TOKEN_ADDRESS.into(), &account);
 
@@ -308,7 +322,7 @@ async fn get_transactions_pagination() {
     for _ in 0..5 {
         let result = erc20.transfer(&recipient, &amount).send().await.unwrap();
         tx_hashes.push(result.transaction_hash);
-        katana_utils::TxWaiter::new(result.transaction_hash, &account.provider()).await.unwrap();
+        katana_utils::TxWaiter::new(result.transaction_hash, &starknet_client).await.unwrap();
     }
 
     // First page
@@ -406,6 +420,8 @@ async fn get_transactions_no_to_parameter() {
     let sequencer = TestNode::new().await;
 
     let client = sequencer.rpc_http_client();
+    let starknet_client = sequencer.starknet_rpc_client();
+
     let account = sequencer.account();
     let erc20 = Erc20Contract::new(DEFAULT_STRK_FEE_TOKEN_ADDRESS.into(), &account);
 
@@ -418,7 +434,7 @@ async fn get_transactions_no_to_parameter() {
     for _ in 0..3 {
         let result = erc20.transfer(&recipient, &amount).send().await.unwrap();
         tx_hashes.push(result.transaction_hash);
-        katana_utils::TxWaiter::new(result.transaction_hash, &account.provider()).await.unwrap();
+        katana_utils::TxWaiter::new(result.transaction_hash, &starknet_client).await.unwrap();
     }
 
     // Test without 'to' parameter (should get from start to latest)
@@ -450,6 +466,8 @@ async fn transaction_number() {
     let sequencer = TestNode::new().await;
 
     let client = sequencer.rpc_http_client();
+    let starknet_client = sequencer.starknet_rpc_client();
+
     let account = sequencer.account();
     let erc20 = Erc20Contract::new(DEFAULT_STRK_FEE_TOKEN_ADDRESS.into(), &account);
 
@@ -464,7 +482,7 @@ async fn transaction_number() {
     // Generate some transactions
     for _ in 0..3 {
         let result = erc20.transfer(&recipient, &amount).send().await.unwrap();
-        katana_utils::TxWaiter::new(result.transaction_hash, &account.provider()).await.unwrap();
+        katana_utils::TxWaiter::new(result.transaction_hash, &starknet_client).await.unwrap();
     }
 
     // Should now have 3 more transactions

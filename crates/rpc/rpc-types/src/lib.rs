@@ -19,6 +19,17 @@ pub mod trace;
 pub mod transaction;
 pub mod trie;
 
+pub use block::*;
+pub use broadcasted::*;
+pub use class::*;
+pub use event::*;
+use katana_primitives::block::{BlockHash, BlockNumber};
+pub use message::*;
+pub use outside_execution::*;
+pub use receipt::*;
+pub use transaction::*;
+pub use trie::*;
+
 use serde::{Deserialize, Serialize};
 
 /// Request type for `starknet_call` RPC method.
@@ -44,7 +55,64 @@ pub enum SimulationFlag {
     SkipFeeCharge,
 }
 
-pub type SyncingStatus = starknet::core::types::SyncStatusType;
+/// A Starknet client node's synchronization status.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub enum SyncingResponse {
+    /// The node is synchronizing.
+    Syncing(SyncStatus),
+    /// The node is not synchronizing.
+    NotSyncing,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct SyncStatus {
+    /// The hash of the block from which the sync started
+    pub starting_block_hash: BlockHash,
+    /// The number (height) of the block from which the sync started
+    pub starting_block_num: BlockNumber,
+    /// The hash of the current block being synchronized
+    pub current_block_hash: BlockHash,
+    /// The number (height) of the current block being synchronized
+    pub current_block_num: BlockNumber,
+    /// The hash of the estimated highest block to be synchronized
+    pub highest_block_hash: BlockHash,
+    /// The number (height) of the estimated highest block to be synchronized
+    pub highest_block_num: BlockNumber,
+}
+
+impl Serialize for SyncingResponse {
+    fn serialize<S>(&self, serializer: S) -> Result<S::Ok, S::Error>
+    where
+        S: serde::Serializer,
+    {
+        match self {
+            Self::NotSyncing => serializer.serialize_bool(false),
+            Self::Syncing(sync_status) => SyncStatus::serialize(sync_status, serializer),
+        }
+    }
+}
+
+impl<'de> Deserialize<'de> for SyncingResponse {
+    fn deserialize<D>(deserializer: D) -> Result<Self, D::Error>
+    where
+        D: serde::Deserializer<'de>,
+    {
+        #[derive(Deserialize)]
+        #[serde(untagged)]
+        enum Helper {
+            Boolean(bool),
+            SyncStatus(SyncStatus),
+        }
+
+        match Helper::deserialize(deserializer)? {
+            Helper::SyncStatus(value) => Ok(Self::Syncing(value)),
+            Helper::Boolean(value) => match value {
+                true => Err(serde::de::Error::custom("invalid boolean value")),
+                false => Ok(Self::NotSyncing),
+            },
+        }
+    }
+}
 
 #[cfg(test)]
 mod tests {

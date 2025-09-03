@@ -2,11 +2,36 @@ use katana_primitives::block::{BlockHash, BlockNumber, FinalityStatus};
 use katana_primitives::fee::{FeeInfo, PriceUnit};
 use katana_primitives::receipt::{self, Event, MessageToL1, Receipt};
 use katana_primitives::transaction::TxHash;
-use katana_primitives::ContractAddress;
+use katana_primitives::{ContractAddress, Felt};
 use serde::{Deserialize, Serialize};
-use starknet::core::types::{
-    ExecutionResources, ExecutionResult, FeePayment, Hash256, TransactionFinalityStatus,
-};
+use starknet::core::types::{ExecutionResources, Hash256, TransactionFinalityStatus};
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct RpcTxReceiptWithHash {
+    /// The hash of the transaction associated with the receipt.
+    pub transaction_hash: TxHash,
+    #[serde(flatten)]
+    pub receipt: RpcTxReceipt,
+}
+
+impl RpcTxReceiptWithHash {
+    pub fn new(
+        transaction_hash: TxHash,
+        receipt: Receipt,
+        finality_status: FinalityStatus,
+    ) -> Self {
+        Self { transaction_hash, receipt: RpcTxReceipt::new(receipt, finality_status) }
+    }
+}
+
+/// Fee payment.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct FeePayment {
+    /// Amount paid
+    pub amount: Felt,
+    /// Units in which the fee is given
+    pub unit: PriceUnit,
+}
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(tag = "type", rename_all = "SCREAMING_SNAKE_CASE")]
@@ -20,7 +45,6 @@ pub enum RpcTxReceipt {
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub struct RpcInvokeTxReceipt {
-    pub transaction_hash: TxHash,
     pub actual_fee: FeePayment,
     pub finality_status: TransactionFinalityStatus,
     pub messages_sent: Vec<MessageToL1>,
@@ -32,7 +56,6 @@ pub struct RpcInvokeTxReceipt {
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub struct RpcL1HandlerTxReceipt {
-    pub transaction_hash: TxHash,
     pub message_hash: Hash256,
     pub actual_fee: FeePayment,
     pub finality_status: TransactionFinalityStatus,
@@ -45,7 +68,6 @@ pub struct RpcL1HandlerTxReceipt {
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub struct RpcDeclareTxReceipt {
-    pub transaction_hash: TxHash,
     pub actual_fee: FeePayment,
     pub finality_status: TransactionFinalityStatus,
     pub messages_sent: Vec<MessageToL1>,
@@ -57,7 +79,6 @@ pub struct RpcDeclareTxReceipt {
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub struct RpcDeployTxReceipt {
-    pub transaction_hash: TxHash,
     pub actual_fee: FeePayment,
     pub finality_status: TransactionFinalityStatus,
     pub messages_sent: Vec<MessageToL1>,
@@ -70,7 +91,6 @@ pub struct RpcDeployTxReceipt {
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub struct RpcDeployAccountTxReceipt {
-    pub transaction_hash: TxHash,
     pub actual_fee: FeePayment,
     pub finality_status: TransactionFinalityStatus,
     pub messages_sent: Vec<MessageToL1>,
@@ -82,11 +102,7 @@ pub struct RpcDeployAccountTxReceipt {
 }
 
 impl RpcTxReceipt {
-    pub fn new(
-        transaction_hash: TxHash,
-        finality_status: FinalityStatus,
-        receipt: Receipt,
-    ) -> Self {
+    fn new(receipt: Receipt, finality_status: FinalityStatus) -> Self {
         let finality_status = match finality_status {
             FinalityStatus::AcceptedOnL1 => TransactionFinalityStatus::AcceptedOnL1,
             FinalityStatus::AcceptedOnL2 => TransactionFinalityStatus::AcceptedOnL2,
@@ -101,7 +117,6 @@ impl RpcTxReceipt {
                     events,
                     messages_sent,
                     finality_status,
-                    transaction_hash,
                     actual_fee: to_rpc_fee(rct.fee),
                     execution_resources: to_rpc_resources(rct.execution_resources),
                     execution_result: if let Some(reason) = rct.revert_error {
@@ -120,7 +135,6 @@ impl RpcTxReceipt {
                     events,
                     messages_sent,
                     finality_status,
-                    transaction_hash,
                     actual_fee: to_rpc_fee(rct.fee),
                     execution_resources: to_rpc_resources(rct.execution_resources),
                     execution_result: if let Some(reason) = rct.revert_error {
@@ -139,7 +153,6 @@ impl RpcTxReceipt {
                     events,
                     messages_sent,
                     finality_status,
-                    transaction_hash,
                     actual_fee: to_rpc_fee(rct.fee),
                     execution_resources: to_rpc_resources(rct.execution_resources),
                     message_hash: Hash256::from_bytes(*rct.message_hash),
@@ -159,7 +172,6 @@ impl RpcTxReceipt {
                     events,
                     messages_sent,
                     finality_status,
-                    transaction_hash,
                     actual_fee: to_rpc_fee(rct.fee),
                     contract_address: rct.contract_address,
                     execution_resources: to_rpc_resources(rct.execution_resources),
@@ -176,6 +188,8 @@ impl RpcTxReceipt {
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub struct TxReceiptWithBlockInfo {
+    /// The hash of the transaction associated with the receipt.
+    pub transaction_hash: TxHash,
     #[serde(flatten)]
     pub receipt: RpcTxReceipt,
     #[serde(flatten)]
@@ -189,8 +203,8 @@ impl TxReceiptWithBlockInfo {
         finality_status: FinalityStatus,
         receipt: Receipt,
     ) -> Self {
-        let receipt = RpcTxReceipt::new(transaction_hash, finality_status, receipt);
-        Self { receipt, block }
+        let receipt = RpcTxReceipt::new(receipt, finality_status);
+        Self { transaction_hash, receipt, block }
     }
 }
 
@@ -233,6 +247,30 @@ impl<'de> Deserialize<'de> for ReceiptBlockInfo {
     }
 }
 
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub enum TxStatus {
+    Received,
+    Candidate,
+    PreConfirmed(ExecutionResult),
+    AcceptedOnL2(ExecutionResult),
+    AcceptedOnL1(ExecutionResult),
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(untagged)]
+pub enum ExecutionResult {
+    Succeeded,
+    Reverted { reason: String },
+}
+
+/// The execution status of transaction.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "SCREAMING_SNAKE_CASE")]
+pub enum TxExecutionStatus {
+    Succeeded,
+    Reverted,
+}
+
 fn to_rpc_resources(resources: receipt::ExecutionResources) -> ExecutionResources {
     ExecutionResources {
         l2_gas: resources.gas.l2_gas,
@@ -241,11 +279,8 @@ fn to_rpc_resources(resources: receipt::ExecutionResources) -> ExecutionResource
     }
 }
 
-fn to_rpc_fee(fee: FeeInfo) -> FeePayment {
-    let unit = match fee.unit {
-        PriceUnit::Wei => starknet::core::types::PriceUnit::Wei,
-        PriceUnit::Fri => starknet::core::types::PriceUnit::Fri,
-    };
-
-    FeePayment { amount: fee.overall_fee.into(), unit }
+impl From<FeeInfo> for FeePayment {
+    fn from(fee: FeeInfo) -> Self {
+        FeePayment { amount: fee.overall_fee.into(), unit: fee.unit }
+    }
 }

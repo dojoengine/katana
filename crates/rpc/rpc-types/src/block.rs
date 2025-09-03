@@ -7,7 +7,7 @@ use katana_primitives::{ContractAddress, Felt};
 use serde::{Deserialize, Serialize};
 use starknet::core::types::{BlockStatus, L1DataAvailabilityMode, ResourcePrice};
 
-use crate::receipt::RpcTxReceipt;
+use crate::receipt::RpcTxReceiptWithHash;
 use crate::transaction::{RpcTx, RpcTxWithHash};
 
 pub type BlockTxCount = u64;
@@ -397,7 +397,7 @@ impl BlockWithReceipts {
 
         let transactions = receipts
             .map(|(tx, receipt)| {
-                let receipt = RpcTxReceipt::new(tx.hash, finality_status, receipt);
+                let receipt = RpcTxReceiptWithHash::new(tx.hash, receipt, finality_status);
                 let transaction = RpcTx::from(tx.transaction);
                 RpcTxWithReceipt { transaction, receipt }
             })
@@ -427,7 +427,7 @@ impl BlockWithReceipts {
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub struct RpcTxWithReceipt {
     transaction: RpcTx,
-    receipt: RpcTxReceipt,
+    receipt: RpcTxReceiptWithHash,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
@@ -465,7 +465,8 @@ impl PreConfirmedBlockWithReceipts {
 
         let transactions = receipts
             .map(|(tx, receipt)| {
-                let receipt = RpcTxReceipt::new(tx.hash, FinalityStatus::AcceptedOnL2, receipt);
+                let receipt =
+                    RpcTxReceiptWithHash::new(tx.hash, receipt, FinalityStatus::AcceptedOnL2);
                 let transaction = RpcTx::from(tx.transaction);
                 RpcTxWithReceipt { transaction, receipt }
             })

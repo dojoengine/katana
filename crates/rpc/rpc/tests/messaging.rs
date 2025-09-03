@@ -12,13 +12,13 @@ use katana_primitives::felt;
 use katana_primitives::utils::transaction::{
     compute_l1_handler_tx_hash, compute_l1_to_l2_message_hash,
 };
+use katana_rpc_types::MsgFromL1;
 use katana_utils::{TestNode, TxWaiter};
 use rand::Rng;
 use starknet::accounts::{Account, ConnectedAccount};
 use starknet::contract::ContractFactory;
 use starknet::core::types::{
-    BlockId, BlockTag, ContractClass, Felt, Hash256, MsgFromL1, ReceiptBlock, Transaction,
-    TransactionReceipt,
+    BlockId, BlockTag, ContractClass, Felt, Hash256, ReceiptBlock, Transaction, TransactionReceipt,
 };
 use starknet::core::utils::get_contract_address;
 use starknet::macros::selector;
@@ -71,6 +71,7 @@ async fn test_messaging() {
     let sequencer = TestNode::new_with_config(config).await;
 
     let katana_account = sequencer.account();
+    let rpc_client = sequencer.starknet_rpc_client();
 
     // Deploy test L2 contract that can send/receive messages to/from L1
     let l2_test_contract = {
@@ -83,9 +84,7 @@ async fn test_messaging() {
         let res = katana_account.declare_v3(contract.into(), compiled_hash).send().await.unwrap();
 
         // The waiter already checks that the transaction is accepted and succeeded on L2.
-        TxWaiter::new(res.transaction_hash, katana_account.provider())
-            .await
-            .expect("declare tx failed");
+        TxWaiter::new(res.transaction_hash, &rpc_client).await.expect("declare tx failed");
 
         // Checks that the class was indeed declared
         let block_id = BlockId::Tag(BlockTag::Latest);
@@ -105,9 +104,7 @@ async fn test_messaging() {
             .expect("Unable to deploy contract");
 
         // The waiter already checks that the transaction is accepted and succeeded on L2.
-        TxWaiter::new(res.transaction_hash, katana_account.provider())
-            .await
-            .expect("deploy tx failed");
+        TxWaiter::new(res.transaction_hash, &rpc_client).await.expect("deploy tx failed");
 
         // Checks that the class was indeed deployed with the correct class
         let actual_class_hash = katana_account
@@ -234,7 +231,7 @@ async fn estimate_message_fee() -> Result<()> {
     let sequencer = TestNode::new().await;
 
     let account = sequencer.account();
-    let provider = account.provider();
+    let rpc_client = sequencer.starknet_rpc_client();
 
     // Declare and deploy a l1 handler contract
     let path = PathBuf::from("tests/test_data/cairo_l1_msg_contract.json");
@@ -242,7 +239,7 @@ async fn estimate_message_fee() -> Result<()> {
     let class_hash = contract.class_hash();
 
     let res = account.declare_v3(contract.into(), compiled_hash).send().await?;
-    TxWaiter::new(res.transaction_hash, account.provider()).await?;
+    TxWaiter::new(res.transaction_hash, &rpc_client).await?;
 
     // Deploy the contract using UDC
     let res = ContractFactory::new(class_hash, &account)
@@ -250,7 +247,7 @@ async fn estimate_message_fee() -> Result<()> {
         .send()
         .await?;
 
-    TxWaiter::new(res.transaction_hash, account.provider()).await?;
+    TxWaiter::new(res.transaction_hash, &rpc_client).await?;
 
     // Compute the contract address of the l1 handler contract
     let l1handler_address = get_contract_address(Felt::ZERO, class_hash, &[], Felt::ZERO);
@@ -267,7 +264,7 @@ async fn estimate_message_fee() -> Result<()> {
     let entry_point_selector = selector!("msg_handler_value");
     let payload = vec![felt!("123")];
     let from_address = felt!("0x1337");
-    let to_address = l1handler_address;
+    let to_address = l1handler_address.into();
 
     let msg = MsgFromL1 {
         payload,
@@ -276,7 +273,7 @@ async fn estimate_message_fee() -> Result<()> {
         from_address: from_address.try_into()?,
     };
 
-    let result = provider.estimate_message_fee(msg, BlockId::Tag(BlockTag::PreConfirmed)).await;
+    let result = rpc_client.estimate_message_fee(msg, BlockId::Tag(BlockTag::PreConfirmed)).await;
     assert!(result.is_ok());
 
     // #[derive(Drop, Serde)]
@@ -301,7 +298,7 @@ async fn estimate_message_fee() -> Result<()> {
         from_address: from_address.try_into()?,
     };
 
-    let result = provider.estimate_message_fee(msg, BlockId::Tag(BlockTag::PreConfirmed)).await;
+    let result = rpc_client.estimate_message_fee(msg, BlockId::Tag(BlockTag::PreConfirmed)).await;
     assert!(result.is_ok());
 
     Ok(())

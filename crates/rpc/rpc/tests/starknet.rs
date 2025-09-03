@@ -38,7 +38,7 @@ async fn declare_and_deploy_contract() {
     let sequencer = TestNode::new().await;
 
     let account = sequencer.account();
-    let provider = sequencer.starknet_provider();
+    let provider = sequencer.starknet_rpc_client();
 
     let path: PathBuf = PathBuf::from("tests/test_data/cairo1_contract.json");
     let (contract, compiled_class_hash) =
@@ -107,7 +107,7 @@ async fn declaring_already_existing_class() {
     let sequencer = TestNode::new().await;
 
     let account = sequencer.account();
-    let provider = sequencer.starknet_provider();
+    let provider = sequencer.starknet_rpc_client();
 
     let path = PathBuf::from("tests/test_data/cairo1_contract.json");
     let (contract, compiled_hash) = common::prepare_contract_declaration_params(&path).unwrap();
@@ -154,7 +154,7 @@ async fn deploy_account(
 
     let sequencer = TestNode::new_with_config(config).await;
 
-    let provider = sequencer.starknet_provider();
+    let provider = sequencer.starknet_rpc_client();
     let funding_account = sequencer.account();
     let chain_id = provider.chain_id().await.unwrap();
 
@@ -237,7 +237,7 @@ abigen_legacy!(Erc20Contract, "crates/contracts/build/legacy/erc20.json", derive
 async fn estimate_fee() {
     let sequencer = TestNode::new().await;
 
-    let provider = sequencer.starknet_provider();
+    let provider = sequencer.starknet_rpc_client();
     let account = sequencer.account();
 
     // setup contract to interact with (can be any existing contract that can be interacted with)
@@ -258,7 +258,7 @@ async fn estimate_fee() {
 async fn estimate_fee_with_small_nonce() {
     let sequencer = TestNode::new().await;
 
-    let provider = sequencer.starknet_provider();
+    let provider = sequencer.starknet_rpc_client();
     let account = sequencer.account();
 
     // setup contract to interact with (can be any existing contract that can be interacted with)
@@ -290,7 +290,7 @@ async fn estimate_fee_with_small_nonce() {
 async fn estimate_fee_with_big_nonce() {
     let sequencer = TestNode::new().await;
 
-    let provider = sequencer.starknet_provider();
+    let provider = sequencer.starknet_rpc_client();
     let account = sequencer.account();
 
     // setup contract to interact with (can be any existing contract that can be interacted with)
@@ -343,7 +343,7 @@ async fn concurrent_transactions_submissions(#[values(None, Some(1000))] block_t
     config.sequencing.block_time = block_time;
     let sequencer = TestNode::new_with_config(config).await;
 
-    let provider = sequencer.starknet_provider();
+    let provider = sequencer.starknet_rpc_client();
     let account = Arc::new(sequencer.account());
 
     // function call params
@@ -596,7 +596,7 @@ async fn send_txs_with_invalid_nonces(#[values(None, Some(1000))] block_time: Op
     config.sequencing.block_time = block_time;
     let sequencer = TestNode::new_with_config(config).await;
 
-    let provider = sequencer.starknet_provider();
+    let provider = sequencer.starknet_rpc_client();
     let account = sequencer.account();
 
     // setup test contract to interact with.
@@ -699,7 +699,7 @@ async fn get_events_no_pending() {
     // create a json rpc client to interact with the dev api.
     let client = sequencer.rpc_http_client();
 
-    let provider = sequencer.starknet_provider();
+    let provider = sequencer.starknet_rpc_client();
     let account = sequencer.account();
 
     // setup test contract to interact with.
@@ -783,7 +783,7 @@ async fn get_events_with_pending() {
     // create a json rpc client to interact with the dev api.
     let client = sequencer.rpc_http_client();
 
-    let provider = sequencer.starknet_provider();
+    let provider = sequencer.starknet_rpc_client();
     let account = sequencer.account();
 
     // setup test contract to interact with.
@@ -868,7 +868,7 @@ async fn trace() {
     config.sequencing.no_mining = true;
     let sequencer = TestNode::new_with_config(config).await;
 
-    let provider = sequencer.starknet_provider();
+    let provider = sequencer.starknet_rpc_client();
     let account = sequencer.account();
     let rpc_client = sequencer.rpc_http_client();
 
@@ -916,7 +916,7 @@ async fn block_traces() {
     config.sequencing.no_mining = true;
     let sequencer = TestNode::new_with_config(config).await;
 
-    let provider = sequencer.starknet_provider();
+    let provider = sequencer.starknet_rpc_client();
     let account = sequencer.account();
     let rpc_client = sequencer.rpc_http_client();
 
@@ -1015,7 +1015,7 @@ async fn v3_transactions() {
     config.sequencing.no_mining = true;
     let sequencer = TestNode::new_with_config(config).await;
 
-    let provider = sequencer.starknet_provider();
+    let provider = sequencer.starknet_rpc_client();
     let account = sequencer.account();
 
     // craft a raw v3 transaction, should probably use abigen for simplicity
@@ -1043,7 +1043,7 @@ async fn fetch_pending_blocks() {
 
     // create a json rpc client to interact with the dev api.
     let dev_client = sequencer.rpc_http_client();
-    let provider = sequencer.starknet_provider();
+    let provider = sequencer.starknet_rpc_client();
     let account = sequencer.account();
 
     // setup contract to interact with (can be any existing contract that can be interacted with)
@@ -1150,7 +1150,7 @@ async fn fetch_pending_blocks_in_instant_mode() {
 
     // create a json rpc client to interact with the dev api.
     let dev_client = sequencer.rpc_http_client();
-    let provider = sequencer.starknet_provider();
+    let provider = sequencer.starknet_rpc_client();
     let account = sequencer.account();
 
     // Get the latest block hash before sending the tx beacuse the tx will generate a new block.
@@ -1239,7 +1239,7 @@ async fn fetch_pending_blocks_in_instant_mode() {
 async fn call_contract() {
     let sequencer = TestNode::new().await;
 
-    let provider = sequencer.starknet_provider();
+    let provider = sequencer.starknet_rpc_client();
     let account = sequencer.account().address();
 
     // -----------------------------------------------------------------------
@@ -1284,7 +1284,7 @@ async fn simulate_should_skip_strict_nonce_check(#[case] nonce: Felt, #[case] sh
     let sequencer = TestNode::new().await;
 
     let account = sequencer.account();
-    let provider = sequencer.starknet_provider();
+    let provider = sequencer.starknet_rpc_client();
 
     // setup contract to interact with (can be any existing contract that can be interacted with)
     let contract = Erc20Contract::new(DEFAULT_ETH_FEE_TOKEN_ADDRESS.into(), &account);

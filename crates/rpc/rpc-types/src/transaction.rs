@@ -9,6 +9,7 @@ use starknet::core::types::{DataAvailabilityMode, ResourceBoundsMapping};
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub struct RpcTxWithHash {
+    /// The hash of the transaction.
     pub transaction_hash: TxHash,
     #[serde(flatten)]
     pub transaction: RpcTx,
