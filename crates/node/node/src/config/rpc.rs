@@ -1,19 +1,10 @@
 use std::collections::HashSet;
-use std::net::{IpAddr, Ipv4Addr, SocketAddr};
+use std::net::{IpAddr, SocketAddr};
 use std::time::Duration;
 
+pub use katana_node_defaults::rpc::*;
 use katana_rpc::cors::HeaderValue;
 use serde::{Deserialize, Serialize};
-
-pub const DEFAULT_RPC_ADDR: IpAddr = IpAddr::V4(Ipv4Addr::LOCALHOST);
-pub const DEFAULT_RPC_PORT: u16 = 5050;
-
-/// Default maximmum page size for the `starknet_getEvents` RPC method.
-pub const DEFAULT_RPC_MAX_EVENT_PAGE_SIZE: u64 = 1024;
-/// Default maximmum number of keys for the `starknet_getStorageProof` RPC method.
-pub const DEFAULT_RPC_MAX_PROOF_KEYS: u64 = 100;
-/// Default maximum gas for the `starknet_call` RPC method.
-pub const DEFAULT_RPC_MAX_CALL_GAS: u64 = 1_000_000_000;
 
 /// List of RPC modules supported by Katana.
 #[derive(
@@ -127,6 +118,30 @@ impl RpcModulesList {
         self.0.is_empty()
     }
 
+    /// Parses from an iterator of strings.
+    pub fn parse_from_iter<I, S>(iter: I) -> Result<Self, InvalidRpcModuleError>
+    where
+        I: IntoIterator<Item = S>,
+        S: AsRef<str>,
+    {
+        let mut modules = HashSet::new();
+        for module_name in iter {
+            let trimmed_module_name = module_name.as_ref().trim();
+
+            if trimmed_module_name.is_empty() {
+                continue;
+            }
+
+            let module: RpcModuleKind = trimmed_module_name
+                .parse()
+                .map_err(|_| InvalidRpcModuleError(trimmed_module_name.to_string()))?;
+
+            modules.insert(module);
+        }
+
+        Ok(Self(modules))
+    }
+
     /// Used as the value parser for `clap`.
     pub fn parse(value: &str) -> Result<Self, InvalidRpcModuleError> {
         if value.is_empty() {
@@ -157,7 +172,6 @@ impl Default for RpcModulesList {
         Self(HashSet::from([RpcModuleKind::Starknet]))
     }
 }
-
 #[cfg(test)]
 mod tests {
     use super::*;

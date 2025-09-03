@@ -6,8 +6,6 @@ use katana_primitives::block::{BlockHash, BlockHashOrNumber, BlockNumber};
 use katana_primitives::chain::ChainId;
 use katana_primitives::genesis::json::GenesisJson;
 use katana_primitives::genesis::Genesis;
-#[cfg(feature = "server")]
-use katana_rpc::cors::HeaderValue;
 use serde::{Deserialize, Deserializer, Serializer};
 
 pub fn parse_seed(seed: &str) -> [u8; 32] {
@@ -60,7 +58,10 @@ pub fn parse_chain_config_dir(value: &str) -> Result<ChainConfigDir> {
 }
 
 #[cfg(feature = "server")]
-pub fn serialize_cors_origins<S>(values: &[HeaderValue], serializer: S) -> Result<S::Ok, S::Error>
+pub fn serialize_cors_origins<S>(
+    values: &[http::HeaderValue],
+    serializer: S,
+) -> Result<S::Ok, S::Error>
 where
     S: Serializer,
 {
@@ -71,14 +72,14 @@ where
 }
 
 #[cfg(feature = "server")]
-pub fn deserialize_cors_origins<'de, D>(deserializer: D) -> Result<Vec<HeaderValue>, D::Error>
+pub fn deserialize_cors_origins<'de, D>(deserializer: D) -> Result<Vec<http::HeaderValue>, D::Error>
 where
     D: Deserializer<'de>,
 {
     let strings: Vec<String> = Vec::deserialize(deserializer)?;
     strings
         .into_iter()
-        .map(|s| HeaderValue::from_str(&s).map_err(serde::de::Error::custom))
+        .map(|s| http::HeaderValue::from_str(&s).map_err(serde::de::Error::custom))
         .collect()
 }
 

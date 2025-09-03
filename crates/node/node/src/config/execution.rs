@@ -1,10 +1,4 @@
-pub const MAX_RECURSION_DEPTH: usize = 1000;
-
-pub const DEFAULT_INVOCATION_MAX_STEPS: u32 = 10_000_000;
-pub const DEFAULT_VALIDATION_MAX_STEPS: u32 = 1_000_000;
-
-#[cfg(feature = "native")]
-pub const DEFAULT_ENABLE_NATIVE_COMPILATION: bool = false;
+pub use katana_node_defaults::execution::*;
 
 #[derive(Debug, Clone)]
 pub struct ExecutionConfig {

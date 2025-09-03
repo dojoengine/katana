@@ -139,7 +139,9 @@ impl Cli {
             use std::time::Duration;
 
             #[allow(unused_mut)]
-            let mut modules = if let Some(modules) = &self.args.server.http_modules {
+            let mut modules = if let Some(modules_str) = &self.args.server.http_modules {
+                let modules = RpcModulesList::parse_from_iter(modules_str)?;
+
                 // TODO: This check should be handled in the `katana-node` level. Right now if you
                 // instantiate katana programmatically, you can still add the dev module without
                 // enabling dev mode.
@@ -243,32 +245,32 @@ impl Cli {
 
         if let Some(eth) = self.args.gpo.l2_eth_gas_price {
             let prices = fixed_gas_prices.get_or_insert(FixedL1GasPriceConfig::default());
-            prices.l2_gas_prices.eth = eth;
+            prices.l2_gas_prices.eth = eth.into();
         }
 
         if let Some(strk) = self.args.gpo.l2_strk_gas_price {
             let prices = fixed_gas_prices.get_or_insert(FixedL1GasPriceConfig::default());
-            prices.l2_gas_prices.strk = strk;
+            prices.l2_gas_prices.strk = strk.into();
         }
 
         if let Some(eth) = self.args.gpo.l1_eth_gas_price {
             let prices = fixed_gas_prices.get_or_insert(FixedL1GasPriceConfig::default());
-            prices.l1_gas_prices.eth = eth;
+            prices.l1_gas_prices.eth = eth.into();
         }
 
         if let Some(strk) = self.args.gpo.l1_strk_gas_price {
             let prices = fixed_gas_prices.get_or_insert(FixedL1GasPriceConfig::default());
-            prices.l1_gas_prices.strk = strk;
+            prices.l1_gas_prices.strk = strk.into();
         }
 
         if let Some(eth) = self.args.gpo.l1_eth_data_gas_price {
             let prices = fixed_gas_prices.get_or_insert(FixedL1GasPriceConfig::default());
-            prices.l1_data_gas_prices.eth = eth;
+            prices.l1_data_gas_prices.eth = eth.into();
         }
 
         if let Some(strk) = self.args.gpo.l1_strk_data_gas_price {
             let prices = fixed_gas_prices.get_or_insert(FixedL1GasPriceConfig::default());
-            prices.l1_data_gas_prices.strk = strk;
+            prices.l1_data_gas_prices.strk = strk.into();
         }
 
         DevConfig {

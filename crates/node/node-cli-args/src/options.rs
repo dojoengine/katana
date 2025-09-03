@@ -12,20 +12,18 @@ use std::net::IpAddr;
 use std::num::NonZeroU128;
 
 use clap::Args;
-use katana_node::config::execution::{DEFAULT_INVOCATION_MAX_STEPS, DEFAULT_VALIDATION_MAX_STEPS};
+use katana_node_defaults::execution::{DEFAULT_INVOCATION_MAX_STEPS, DEFAULT_VALIDATION_MAX_STEPS};
 #[cfg(feature = "server")]
-use katana_node::config::metrics::{DEFAULT_METRICS_ADDR, DEFAULT_METRICS_PORT};
+use katana_node_defaults::metrics::{DEFAULT_METRICS_ADDR, DEFAULT_METRICS_PORT};
 #[cfg(feature = "server")]
-use katana_node::config::rpc::{RpcModulesList, DEFAULT_RPC_MAX_PROOF_KEYS};
+use katana_node_defaults::rpc::DEFAULT_RPC_MAX_PROOF_KEYS;
 #[cfg(feature = "server")]
-use katana_node::config::rpc::{
+use katana_node_defaults::rpc::{
     DEFAULT_RPC_ADDR, DEFAULT_RPC_MAX_CALL_GAS, DEFAULT_RPC_MAX_EVENT_PAGE_SIZE, DEFAULT_RPC_PORT,
 };
-use katana_primitives::block::{BlockHashOrNumber, GasPrice};
+use katana_primitives::block::BlockHashOrNumber;
 use katana_primitives::chain::ChainId;
 use katana_primitives::genesis::Genesis;
-#[cfg(feature = "server")]
-use katana_rpc::cors::HeaderValue;
 use katana_tracing::{gcloud, otlp, LogFormat, TracerConfig};
 use serde::{Deserialize, Serialize};
 use url::Url;
@@ -99,13 +97,13 @@ pub struct ServerOptions {
         serialize_with = "serialize_cors_origins",
         deserialize_with = "deserialize_cors_origins"
     )]
-    pub http_cors_origins: Vec<HeaderValue>,
+    pub http_cors_origins: Vec<http::HeaderValue>,
 
     /// API's offered over the HTTP-RPC interface.
     #[arg(long = "http.api", value_name = "MODULES")]
-    #[arg(value_parser = RpcModulesList::parse)]
+    // #[arg(value_parser = RpcModulesList::parse)]
     #[serde(default)]
-    pub http_modules: Option<RpcModulesList>,
+    pub http_modules: Option<Vec<String>>,
 
     /// Maximum number of concurrent connections allowed.
     #[arg(long = "rpc.max-connections", value_name = "MAX")]
@@ -390,6 +388,7 @@ pub struct LoggingOptions {
     #[arg(default_value_t = LogFormat::Full)]
     pub log_format: LogFormat,
 }
+
 #[derive(Debug, Args, Default, Clone, Serialize, Deserialize, PartialEq)]
 #[command(next_help_heading = "Gas Price Oracle Options")]
 pub struct GasPriceOracleOptions {
@@ -398,42 +397,42 @@ pub struct GasPriceOracleOptions {
     #[serde(serialize_with = "serialize_option_as_hex")]
     #[serde(deserialize_with = "deserialize_gas_price")]
     #[serde(default)]
-    pub l2_eth_gas_price: Option<GasPrice>,
+    pub l2_eth_gas_price: Option<NonZeroU128>,
 
     /// The L2 STRK gas price. (denominated in fri)
     #[arg(long = "gpo.l2-strk-gas-price", value_name = "FRI")]
     #[serde(serialize_with = "serialize_option_as_hex")]
     #[serde(deserialize_with = "deserialize_gas_price")]
     #[serde(default)]
-    pub l2_strk_gas_price: Option<GasPrice>,
+    pub l2_strk_gas_price: Option<NonZeroU128>,
 
     /// The L1 ETH gas price. (denominated in wei)
     #[arg(long = "gpo.l1-eth-gas-price", value_name = "WEI")]
     #[serde(serialize_with = "serialize_option_as_hex")]
     #[serde(default)]
     #[serde(deserialize_with = "deserialize_gas_price")]
-    pub l1_eth_gas_price: Option<GasPrice>,
+    pub l1_eth_gas_price: Option<NonZeroU128>,
 
     /// The L1 STRK gas price. (denominated in fri)
     #[arg(long = "gpo.l1-strk-gas-price", value_name = "FRI")]
     #[serde(serialize_with = "serialize_option_as_hex")]
     #[serde(deserialize_with = "deserialize_gas_price")]
     #[serde(default)]
-    pub l1_strk_gas_price: Option<GasPrice>,
+    pub l1_strk_gas_price: Option<NonZeroU128>,
 
     /// The L1 ETH data gas price. (denominated in wei)
     #[arg(long = "gpo.l1-eth-data-gas-price", value_name = "WEI")]
     #[serde(serialize_with = "serialize_option_as_hex")]
     #[serde(deserialize_with = "deserialize_gas_price")]
     #[serde(default)]
-    pub l1_eth_data_gas_price: Option<GasPrice>,
+    pub l1_eth_data_gas_price: Option<NonZeroU128>,
 
     /// The L1 STRK data gas price. (denominated in fri)
     #[arg(long = "gpo.l1-strk-data-gas-price", value_name = "FRI")]
     #[serde(serialize_with = "serialize_option_as_hex")]
     #[serde(deserialize_with = "deserialize_gas_price")]
     #[serde(default)]
-    pub l1_strk_data_gas_price: Option<GasPrice>,
+    pub l1_strk_data_gas_price: Option<NonZeroU128>,
 }
 
 #[cfg(feature = "cartridge")]
@@ -543,7 +542,7 @@ fn default_page_size() -> u64 {
 
 #[cfg(feature = "server")]
 fn default_proof_keys() -> u64 {
-    katana_node::config::rpc::DEFAULT_RPC_MAX_PROOF_KEYS
+    katana_node_defaults::rpc::DEFAULT_RPC_MAX_PROOF_KEYS
 }
 
 #[cfg(feature = "server")]
@@ -562,7 +561,7 @@ fn default_max_call_gas() -> u64 {
 }
 
 /// Deserialize a string (hex or decimal) into a [`GasPrice`]
-fn deserialize_gas_price<'de, D>(deserializer: D) -> Result<Option<GasPrice>, D::Error>
+fn deserialize_gas_price<'de, D>(deserializer: D) -> Result<Option<NonZeroU128>, D::Error>
 where
     D: serde::Deserializer<'de>,
 {
@@ -579,10 +578,7 @@ where
         u128::from_str(&s).map_err(D::Error::custom)?
     };
 
-    NonZeroU128::new(value)
-        .map(GasPrice::new)
-        .map(Some)
-        .ok_or_else(|| D::Error::custom("value cannot be zero"))
+    NonZeroU128::new(value).map(Some).ok_or_else(|| D::Error::custom("gas price cannot be zero"))
 }
 
 fn serialize_option_as_hex<S, T>(

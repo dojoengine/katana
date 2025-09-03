@@ -9,17 +9,16 @@ version.workspace = true
 [dependencies]
 katana-chain-spec.workspace = true
 katana-messaging.workspace = true
+katana-node-defaults.workspace = true
 katana-primitives.workspace = true
 katana-tracing.workspace = true
 
-# Only import specific types we need from these crates
-katana-node = { workspace = true, default-features = false }
-katana-rpc = { workspace = true, optional = true, default-features = false }
-
 anyhow.workspace = true
 clap.workspace = true
+http = { workspace = true, optional = true }
 serde.workspace = true
 shellexpand = "3.1.0"
+starknet-types-core.workspace = true
 toml.workspace = true
 url.workspace = true
 
@@ -31,4 +30,4 @@ cartridge = [  ]
 default = [  ]
 explorer = [  ]
 native = [  ]
-server = [ "dep:katana-rpc" ]
+server = [ "dep:http" ]

@@ -111,6 +111,12 @@ impl LowerHex for GasPrice {
     }
 }
 
+impl From<NonZeroU128> for GasPrice {
+    fn from(value: NonZeroU128) -> Self {
+        Self(value)
+    }
+}
+
 #[derive(thiserror::Error, Debug)]
 #[error("gas price cannot be zero")]
 pub struct GasPriceIsZeroError;

@@ -15,10 +15,11 @@ members = [
 	"crates/grpc",
 	"crates/messaging",
 	"crates/metrics",
-	"crates/node",
-	"crates/node-bindings",
-	"crates/node-cli",
-	"crates/node-cli/args",
+	"crates/node/node",
+	"crates/node/node-bindings",
+	"crates/node/node-cli",
+	"crates/node/node-cli-args",
+	"crates/node/node-defaults",
 	"crates/oracle/gas",
 	"crates/pool",
 	"crates/primitives",
@@ -77,10 +78,11 @@ katana-fork = { path = "crates/storage/fork" }
 katana-gas-price-oracle = { path = "crates/oracle/gas" }
 katana-messaging = { path = "crates/messaging" }
 katana-metrics = { path = "crates/metrics" }
-katana-node = { path = "crates/node" }
-katana-node-bindings = { path = "crates/node-bindings" }
-katana-node-cli = { path = "crates/node-cli" }
-katana-node-cli-args = { path = "crates/node-cli/args" }
+katana-node = { path = "crates/node/node" }
+katana-node-bindings = { path = "crates/node/node-bindings" }
+katana-node-cli = { path = "crates/node/node-cli" }
+katana-node-cli-args = { path = "crates/node/node-cli-args" }
+katana-node-defaults = { path = "crates/node/node-defaults" }
 katana-pipeline = { path = "crates/sync/pipeline" }
 katana-pool = { path = "crates/pool" }
 katana-primitives = { path = "crates/primitives" }
