@@ -8,7 +8,6 @@ version.workspace = true
 
 [dependencies]
 katana-chain-spec.workspace = true
-katana-messaging.workspace = true
 katana-node-defaults.workspace = true
 katana-primitives.workspace = true
 katana-tracing.workspace = true
@@ -18,7 +17,6 @@ clap.workspace = true
 http = { workspace = true, optional = true }
 serde.workspace = true
 shellexpand = "3.1.0"
-starknet-types-core.workspace = true
 toml.workspace = true
 url.workspace = true
 

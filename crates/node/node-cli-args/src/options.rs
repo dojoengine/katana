@@ -666,3 +666,14 @@ impl TracerOptions {
         self
     }
 }
+
+#[derive(Debug, Default, Args, Clone, Serialize, Deserialize, PartialEq)]
+#[command(next_help_heading = "Messaging options")]
+pub struct MessagingOptions {
+    /// Frequency (in seconds) of message collection.
+    ///
+    /// This controls how often messages are collected from the settlement chain.
+    #[arg(long = "messaging.interval")]
+    #[serde(default)]
+    pub interval: u64,
+}

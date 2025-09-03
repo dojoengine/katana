@@ -5,7 +5,6 @@ use std::path::PathBuf;
 use anyhow::Result;
 use clap::Parser;
 use katana_chain_spec::rollup::ChainConfigDir;
-use katana_messaging::MessagingConfig;
 use serde::{Deserialize, Serialize};
 use url::Url;
 
@@ -55,20 +54,22 @@ pub struct NodeArgs {
     #[arg(long)]
     pub config: Option<PathBuf>,
 
-    /// Configure the messaging with an other chain.
-    ///
-    /// Configure the messaging to allow Katana listening/sending messages on a
-    /// settlement chain that can be Ethereum or an other Starknet sequencer.
-    #[arg(long)]
-    #[arg(value_name = "PATH")]
-    #[arg(value_parser = katana_messaging::MessagingConfig::parse)]
-    #[arg(conflicts_with = "chain")]
-    pub messaging: Option<MessagingConfig>,
-
+    // /// Configure the messaging with an other chain.
+    // ///
+    // /// Configure the messaging to allow Katana listening/sending messages on a
+    // /// settlement chain that can be Ethereum or an other Starknet sequencer.
+    // #[arg(long)]
+    // #[arg(value_name = "PATH")]
+    // #[arg(value_parser = katana_messaging::MessagingConfig::parse)]
+    // #[arg(conflicts_with = "chain")]
+    // pub messaging: Option<MessagingConfig>,
     #[arg(long = "l1.provider", value_name = "URL", alias = "l1-provider")]
     #[arg(help = "The Ethereum RPC provider to sample the gas prices from to enable the gas \
                   price oracle.")]
     pub l1_provider_url: Option<Url>,
+
+    #[command(flatten)]
+    pub messaging: MessagingOptions,
 
     #[command(flatten)]
     pub logging: LoggingOptions,
@@ -137,8 +138,10 @@ impl NodeArgs {
             }
         }
 
-        if self.messaging.is_none() {
-            self.messaging = config.messaging;
+        if self.messaging == MessagingOptions::default() {
+            if let Some(messaging) = config.messaging {
+                self.messaging = messaging;
+            }
         }
 
         #[cfg(feature = "server")]

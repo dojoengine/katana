@@ -91,17 +91,17 @@ impl Cli {
         let db = self.db_config();
         let rpc = self.rpc_config()?;
         let dev = self.dev_config();
-        let (chain, cs_messaging) = self.chain_spec()?;
+        let (chain, messaging) = self.chain_spec()?;
         let metrics = self.metrics_config();
         let forking = self.forking_config()?;
         let execution = self.execution_config();
         let sequencing = self.sequencer_config();
 
-        // the `katana init` will automatically generate a messaging config. so if katana is run
-        // with `--chain` then the `--messaging` flag is not required. this is temporary and
-        // the messagign config will eventually be removed slowly.
-        let messaging =
-            if cs_messaging.is_some() { cs_messaging } else { self.args.messaging.clone() };
+        // // the `katana init` will automatically generate a messaging config. so if katana is run
+        // // with `--chain` then the `--messaging` flag is not required. this is temporary and
+        // // the messagign config will eventually be removed slowly.
+        // let messaging =
+        //     if cs_messaging.is_some() { cs_messaging } else { self.args.messaging.clone() };
 
         #[cfg(feature = "cartridge")]
         {
