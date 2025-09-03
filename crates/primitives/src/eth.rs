@@ -1,1 +1,1 @@
-pub use alloy_primitives::{Address, ChainId};
+pub use alloy_primitives::{address, Address, ChainId};

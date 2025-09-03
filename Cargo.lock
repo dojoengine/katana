@@ -6418,6 +6418,7 @@ dependencies = [
  "criterion",
  "derive_more 0.99.20",
  "heapless",
+ "hex",
  "lazy_static",
  "num-bigint",
  "num-traits",
