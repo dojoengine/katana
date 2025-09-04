@@ -27,10 +27,9 @@ use katana_primitives::block::{BlockHash, BlockNumber};
 pub use message::*;
 pub use outside_execution::*;
 pub use receipt::*;
+use serde::{Deserialize, Serialize};
 pub use transaction::*;
 pub use trie::*;
-
-use serde::{Deserialize, Serialize};
 
 /// Request type for `starknet_call` RPC method.
 pub type FunctionCall = katana_primitives::execution::FunctionCall;

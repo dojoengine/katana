@@ -8,11 +8,10 @@ use alloy_sol_types::sol;
 use anyhow::Result;
 use cainome::rs::abigen;
 use katana_messaging::MessagingConfig;
-use katana_primitives::eth_address;
-use katana_primitives::felt;
 use katana_primitives::utils::transaction::{
     compute_l1_handler_tx_hash, compute_l1_to_l2_message_hash,
 };
+use katana_primitives::{eth_address, felt};
 use katana_rpc_types::MsgFromL1;
 use katana_utils::{TestNode, TxWaiter};
 use rand::Rng;

@@ -1,12 +1,11 @@
 use std::collections::{BTreeMap, BTreeSet};
 
-use katana_primitives::{
-    block::BlockHash,
-    class::{ClassHash, CompiledClassHash},
-    contract::{Nonce, StorageKey, StorageValue},
-    ContractAddress, Felt,
-};
-use serde::{ser::SerializeMap, Deserialize, Serialize};
+use katana_primitives::block::BlockHash;
+use katana_primitives::class::{ClassHash, CompiledClassHash};
+use katana_primitives::contract::{Nonce, StorageKey, StorageValue};
+use katana_primitives::{ContractAddress, Felt};
+use serde::ser::SerializeMap;
+use serde::{Deserialize, Serialize};
 
 /// Response object for the `starknet_getStateUpdate` RPC method.
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -298,7 +297,7 @@ impl<'de> Deserialize<'de> for StateDiff {
                 A: MapAccess<'de>,
             {
                 let mut nonces = None;
-                let mut storage_updates = None;
+                let mut storage_diffs = None;
                 let mut deployed_contracts = None;
                 let mut declared_classes = None;
                 let mut deprecated_declared_classes = None;
@@ -309,8 +308,8 @@ impl<'de> Deserialize<'de> for StateDiff {
                         "nonces" => {
                             nonces = Some(map.next_value_seed(NoncesDe)?);
                         }
-                        "storage_updates" => {
-                            storage_updates = Some(map.next_value_seed(StorageDiffsDe)?);
+                        "storage_diffs" => {
+                            storage_diffs = Some(map.next_value_seed(StorageDiffsDe)?);
                         }
                         "deployed_contracts" => {
                             deployed_contracts = Some(map.next_value_seed(DeployedContractsDe)?);
@@ -333,8 +332,8 @@ impl<'de> Deserialize<'de> for StateDiff {
 
                 Ok(StateDiff {
                     nonces: nonces.ok_or_else(|| serde::de::Error::missing_field("nonces"))?,
-                    storage_diffs: storage_updates
-                        .ok_or_else(|| serde::de::Error::missing_field("storage_updates"))?,
+                    storage_diffs: storage_diffs
+                        .ok_or_else(|| serde::de::Error::missing_field("storage_diffs"))?,
                     deployed_contracts: deployed_contracts
                         .ok_or_else(|| serde::de::Error::missing_field("deployed_contracts"))?,
                     declared_classes: declared_classes
