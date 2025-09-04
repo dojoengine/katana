@@ -272,8 +272,8 @@ pub struct CompilationFailedData {
 mod impls {
 
     use jsonrpsee::types::ErrorObjectOwned;
-    use katana_pool::validation::error::InvalidTransactionError;
-    use katana_pool::PoolError;
+    use katana_pool_api::validation::InvalidTransactionError;
+    use katana_pool_api::PoolError;
     use katana_primitives::event::ContinuationTokenError;
     use katana_provider::error::ProviderError;
     use starknet::core::types::StarknetError as StarknetRsError;

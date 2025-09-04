@@ -6,8 +6,8 @@ use futures::Stream;
 use parking_lot::Mutex;
 use tokio::sync::mpsc;
 
-use crate::ordering::PoolOrd;
-use crate::tx::{PendingTx, PoolTransaction};
+use crate::tx::PendingTx;
+use crate::{PoolOrd, PoolTransaction};
 
 /// A subscription to newly added transactions in the pool.
 ///
@@ -24,8 +24,14 @@ where
     T: PoolTransaction,
     O: PoolOrd<Transaction = T>,
 {
-    pub(crate) fn new(receiver: mpsc::UnboundedReceiver<PendingTx<T, O>>) -> Self {
-        Self { txs: Default::default(), receiver }
+    /// Create a new pool subscription.
+    ///
+    /// ## Returns
+    ///
+    /// A tuple containing the subscription and a sender for broadcasting the transactions to the subscription channel.
+    pub fn new() -> (Self, mpsc::UnboundedSender<PendingTx<T, O>>) {
+        let (sender, receiver) = mpsc::unbounded_channel();
+        (Self { txs: Default::default(), receiver }, sender)
     }
 }
 

@@ -1,36 +1,30 @@
-#![cfg_attr(not(test), warn(unused_crate_dependencies))]
-
-pub mod ordering;
-pub mod pending;
-pub mod pool;
-pub mod subscription;
-pub mod tx;
-pub mod validation;
-
 use std::sync::Arc;
 
 use futures::channel::mpsc::Receiver;
-use katana_primitives::transaction::{ExecutableTxWithHash, TxHash};
-use ordering::{FiFo, PoolOrd};
-use pending::PendingTransactions;
-use pool::Pool;
-use tx::PoolTransaction;
-use validation::error::InvalidTransactionError;
-use validation::stateful::TxValidator;
-use validation::Validator;
+use katana_primitives::{contract::Nonce, transaction::TxHash, ContractAddress};
 
-/// Katana default transacstion pool type.
-pub type TxPool = Pool<ExecutableTxWithHash, TxValidator, FiFo<ExecutableTxWithHash>>;
+mod ordering;
+mod pending;
+mod subscription;
+mod tx;
+pub mod validation;
 
-pub type PoolResult<T> = Result<T, PoolError>;
+pub use ordering::*;
+pub use pending::*;
+pub use subscription::*;
+pub use tx::*;
+
+use crate::validation::{InvalidTransactionError, Validator};
 
 #[derive(Debug, thiserror::Error)]
 pub enum PoolError {
     #[error("Invalid transaction: {0}")]
     InvalidTransaction(Box<InvalidTransactionError>),
     #[error("Internal error: {0}")]
-    Internal(Box<dyn std::error::Error>),
+    Internal(Box<dyn core::error::Error>),
 }
+
+pub type PoolResult<T> = Result<T, PoolError>;
 
 /// Represents a complete transaction pool.
 pub trait TransactionPool {
@@ -67,4 +61,23 @@ pub trait TransactionPool {
 
     /// Get a reference to the pool's validator.
     fn validator(&self) -> &Self::Validator;
+}
+
+// the transaction type is recommended to implement a cheap clone (eg ref-counting) so that it
+// can be cloned around to different pools as necessary.
+pub trait PoolTransaction: Clone {
+    /// return the tx hash.
+    fn hash(&self) -> TxHash;
+
+    /// return the tx nonce.
+    fn nonce(&self) -> Nonce;
+
+    /// return the tx sender.
+    fn sender(&self) -> ContractAddress;
+
+    /// return the max fee that tx is willing to pay.
+    fn max_fee(&self) -> u128;
+
+    /// return the tx tip.
+    fn tip(&self) -> u64;
 }

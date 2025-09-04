@@ -6208,6 +6208,7 @@ dependencies = [
  "futures",
  "futures-util",
  "katana-executor",
+ "katana-pool-api",
  "katana-primitives",
  "katana-provider",
  "parking_lot",
@@ -6216,6 +6217,18 @@ dependencies = [
  "thiserror 1.0.69",
  "tokio",
  "tracing",
+]
+
+[[package]]
+name = "katana-pool-api"
+version = "1.7.0-alpha.3"
+dependencies = [
+ "futures",
+ "futures-util",
+ "katana-primitives",
+ "parking_lot",
+ "thiserror 1.0.69",
+ "tokio",
 ]
 
 [[package]]
@@ -6347,7 +6360,7 @@ version = "1.7.0-alpha.3"
 dependencies = [
  "anyhow",
  "jsonrpsee",
- "katana-pool",
+ "katana-pool-api",
  "katana-primitives",
  "katana-provider",
  "katana-rpc-types",

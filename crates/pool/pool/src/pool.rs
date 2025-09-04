@@ -3,18 +3,17 @@ use std::collections::BTreeSet;
 use std::sync::Arc;
 
 use futures::channel::mpsc::{channel, Receiver, Sender};
+use katana_pool_api::{
+    validation::{ValidationOutcome, Validator},
+    PendingTransactions, PendingTx, PoolError, PoolOrd, PoolResult, PoolTransaction, Subscription,
+    TransactionPool, TxId,
+};
 use katana_primitives::transaction::TxHash;
 use parking_lot::RwLock;
 use tokio::sync::mpsc;
 use tracing::{error, trace, warn};
 
-use crate::ordering::PoolOrd;
-use crate::pending::PendingTransactions;
-use crate::subscription::Subscription;
-use crate::tx::{PendingTx, PoolTransaction, TxId};
-use crate::validation::error::InvalidTransactionError;
-use crate::validation::{ValidationOutcome, Validator};
-use crate::{PoolError, PoolResult, TransactionPool};
+use katana_pool_api::validation::InvalidTransactionError;
 
 #[derive(Debug)]
 pub struct Pool<T, V, O>
@@ -116,8 +115,7 @@ where
     }
 
     fn subscribe(&self) -> Subscription<T, O> {
-        let (tx, rx) = mpsc::unbounded_channel();
-        let subscriber = Subscription::new(rx);
+        let (subscriber, tx) = Subscription::new();
         self.inner.subscribers.write().push(tx);
         subscriber
     }
@@ -246,7 +244,7 @@ pub(crate) mod test_utils {
     use rand::Rng;
 
     use super::*;
-    use crate::tx::PoolTransaction;
+    use katana_pool_api::PoolTransaction;
 
     fn random_bytes<const SIZE: usize>() -> [u8; SIZE] {
         let mut bytes = [0u8; SIZE];
@@ -321,6 +319,7 @@ pub(crate) mod test_utils {
 mod tests {
 
     use futures::StreamExt;
+    use katana_pool_api::{PoolTransaction, TransactionPool};
     use katana_primitives::contract::{ContractAddress, Nonce};
     use katana_primitives::transaction::TxHash;
     use katana_primitives::Felt;
@@ -328,9 +327,7 @@ mod tests {
     use super::test_utils::*;
     use super::Pool;
     use crate::ordering::FiFo;
-    use crate::tx::PoolTransaction;
     use crate::validation::NoopValidator;
-    use crate::TransactionPool;
 
     /// Tx pool that uses a noop validator and a first-come-first-serve ordering.
     type TestPool = Pool<PoolTx, NoopValidator<PoolTx>, FiFo<PoolTx>>;

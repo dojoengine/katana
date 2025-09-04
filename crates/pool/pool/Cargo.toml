@@ -7,10 +7,12 @@ repository.workspace = true
 version.workspace = true
 
 [dependencies]
-futures.workspace = true
 katana-executor.workspace = true
+katana-pool-api.workspace = true
 katana-primitives.workspace = true
 katana-provider.workspace = true
+
+futures.workspace = true
 parking_lot.workspace = true
 thiserror.workspace = true
 tokio = { workspace = true, features = [ "sync" ] }

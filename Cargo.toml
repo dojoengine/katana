@@ -18,7 +18,8 @@ members = [
 	"crates/node",
 	"crates/node-bindings",
 	"crates/oracle/gas",
-	"crates/pool",
+	"crates/pool/pool",
+	"crates/pool/pool-api",
 	"crates/primitives",
 	"crates/rpc/rpc",
 	"crates/rpc/rpc-api",
@@ -80,7 +81,8 @@ katana-metrics = { path = "crates/metrics" }
 katana-node = { path = "crates/node" }
 katana-node-bindings = { path = "crates/node-bindings" }
 katana-pipeline = { path = "crates/sync/pipeline" }
-katana-pool = { path = "crates/pool" }
+katana-pool = { path = "crates/pool/pool" }
+katana-pool-api = { path = "crates/pool/pool-api" }
 katana-primitives = { path = "crates/primitives" }
 katana-provider = { path = "crates/storage/provider" }
 katana-rpc = { path = "crates/rpc/rpc" }

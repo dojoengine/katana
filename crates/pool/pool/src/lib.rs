@@ -1,40 +1,18 @@
-use std::collections::btree_set::IntoIter;
-use std::pin::Pin;
-use std::task::{Context, Poll};
+#![cfg_attr(not(test), warn(unused_crate_dependencies))]
 
-use futures::{Stream, StreamExt};
+pub mod ordering;
+pub mod pool;
+pub mod validation;
 
-use crate::ordering::PoolOrd;
-use crate::subscription::Subscription;
-use crate::tx::{PendingTx, PoolTransaction};
+use katana_primitives::transaction::ExecutableTxWithHash;
+use ordering::FiFo;
+use pool::Pool;
+use validation::stateful::TxValidator;
 
-/// An iterator that yields transactions from the pool that can be included in a block, sorted by
-/// by its priority.
-#[derive(Debug)]
-pub struct PendingTransactions<T, O: PoolOrd> {
-    /// Iterator over all the pending transactions at the time of the creation of this struct.
-    pub(crate) all: IntoIter<PendingTx<T, O>>,
-    /// Subscription to the pool to get notified when new transactions are added. This is used to
-    /// wait on the new transactions after exhausting the `all` iterator.
-    pub(crate) subscription: Subscription<T, O>,
-}
+pub use katana_pool_api::{PendingTransactions, PoolOrd, PoolTransaction, TransactionPool};
 
-impl<T, O> Stream for PendingTransactions<T, O>
-where
-    T: PoolTransaction,
-    O: PoolOrd<Transaction = T>,
-{
-    type Item = PendingTx<T, O>;
-
-    fn poll_next(self: Pin<&mut Self>, cx: &mut Context<'_>) -> Poll<Option<Self::Item>> {
-        let this = self.get_mut();
-        if let Some(tx) = this.all.next() {
-            Poll::Ready(Some(tx))
-        } else {
-            this.subscription.poll_next_unpin(cx)
-        }
-    }
-}
+/// Katana default transacstion pool type.
+pub type TxPool = Pool<ExecutableTxWithHash, TxValidator, FiFo<ExecutableTxWithHash>>;
 
 #[cfg(test)]
 mod tests {
@@ -43,12 +21,13 @@ mod tests {
     use std::sync::Arc;
 
     use futures::StreamExt;
+    use katana_pool_api::{PoolTransaction, TransactionPool};
     use tokio::task::yield_now;
 
+    use crate::ordering;
     use crate::pool::test_utils::PoolTx;
     use crate::pool::Pool;
     use crate::validation::NoopValidator;
-    use crate::{ordering, PoolTransaction, TransactionPool};
 
     #[tokio::test]
     async fn pending_transactions() {

@@ -17,6 +17,9 @@ use katana_executor::implementation::blockifier::utils::{
     block_context_from_envs, to_address, to_executor_tx,
 };
 use katana_executor::ExecutionFlags;
+use katana_pool_api::validation::Error;
+use katana_pool_api::validation::{InvalidTransactionError, ValidationOutcome, Validator};
+use katana_pool_api::PoolTransaction;
 use katana_primitives::contract::{ContractAddress, Nonce};
 use katana_primitives::env::{BlockEnv, CfgEnv};
 use katana_primitives::transaction::{ExecutableTx, ExecutableTxWithHash};
@@ -25,9 +28,8 @@ use katana_provider::error::ProviderError;
 use katana_provider::traits::state::StateProvider;
 use parking_lot::Mutex;
 
-use super::{Error, InvalidTransactionError, ValidationOutcome, ValidationResult, Validator};
-use crate::tx::PoolTransaction;
-use crate::validation::error::{InsufficientFundsError, InsufficientIntrinsicFeeError};
+use super::ValidationResult;
+use katana_pool_api::validation::{InsufficientFundsError, InsufficientIntrinsicFeeError};
 
 #[derive(Debug, Clone)]
 pub struct TxValidator {

@@ -8,25 +8,7 @@ use katana_primitives::transaction::{
 };
 
 use crate::ordering::PoolOrd;
-
-// the transaction type is recommended to implement a cheap clone (eg ref-counting) so that it
-// can be cloned around to different pools as necessary.
-pub trait PoolTransaction: Clone {
-    /// return the tx hash.
-    fn hash(&self) -> TxHash;
-
-    /// return the tx nonce.
-    fn nonce(&self) -> Nonce;
-
-    /// return the tx sender.
-    fn sender(&self) -> ContractAddress;
-
-    /// return the max fee that tx is willing to pay.
-    fn max_fee(&self) -> u128;
-
-    /// return the tx tip.
-    fn tip(&self) -> u64;
-}
+use crate::PoolTransaction;
 
 /// the tx id in the pool. identified by its sender and nonce.
 #[derive(Debug, Clone, PartialEq, Eq, PartialOrd, Ord)]
@@ -199,87 +181,5 @@ impl PoolTransaction for ExecutableTxWithHash {
                 _ => 0,
             },
         }
-    }
-}
-
-#[cfg(test)]
-mod tests {
-    use std::collections::BTreeSet;
-
-    use katana_primitives::{address, ContractAddress, Felt};
-
-    use super::{PendingTx, TxId};
-    use crate::ordering::{FiFo, TxSubmissionNonce};
-    use crate::pool::test_utils::PoolTx;
-
-    fn create_pending_tx(
-        sender: ContractAddress,
-        nonce: u64,
-        priority_value: u64,
-    ) -> PendingTx<PoolTx, FiFo<PoolTx>> {
-        let tx = PoolTx::new();
-        let tx_id = TxId::new(sender, Felt::from(nonce));
-        let priority = TxSubmissionNonce::from(priority_value);
-        PendingTx::new(tx_id, tx, priority)
-    }
-
-    #[test]
-    fn ordering_same_sender_is_by_nonce_only() {
-        let sender = address!("0x1");
-
-        let tx1 = create_pending_tx(sender, 2, 10); // nonce 2, prio 10
-        let tx2 = create_pending_tx(sender, 0, 20); // nonce 0, prio 20
-        let tx3 = create_pending_tx(sender, 1, 5); // nonce 1, prio 5
-
-        let mut tx_set = BTreeSet::new();
-        tx_set.insert(tx1.clone());
-        tx_set.insert(tx2.clone());
-        tx_set.insert(tx3.clone());
-
-        let ordered_tx_ids: Vec<TxId> = tx_set.iter().map(|ptx| ptx.id.clone()).collect();
-
-        // The order should be purely by nonce regardless of priority and insertion order.
-        let expected_order = vec![tx2.id, tx3.id, tx1.id];
-
-        assert_eq!(ordered_tx_ids, expected_order);
-    }
-
-    #[test]
-    fn ordering_different_senders_is_by_priority_then_nonce_within_sender() {
-        let sender_a = address!("0xA");
-        let sender_b = address!("0xB");
-
-        let tx_a2_p20 = create_pending_tx(sender_a, 2, 20); // Sender A, nonce 2, prio 20
-        let tx_b1_p15 = create_pending_tx(sender_b, 1, 15); // Sender B, nonce 1, prio 15
-        let tx_a1_p30 = create_pending_tx(sender_a, 1, 30); // Sender A, nonce 1, prio 30
-        let tx_b0_p10_later = create_pending_tx(sender_b, 0, 10); // Sender B, nonce 0, prio 10
-        let tx_b2_p40_later = create_pending_tx(sender_b, 2, 40); // Sender B, nonce 2, prio 40
-        let tx_a0_p12_later = create_pending_tx(sender_a, 0, 12); // Sender A, nonce 0, prio 12
-
-        let mut tx_set = BTreeSet::new();
-        tx_set.insert(tx_a2_p20.clone());
-        tx_set.insert(tx_b1_p15.clone());
-        tx_set.insert(tx_a1_p30.clone());
-        tx_set.insert(tx_b0_p10_later.clone());
-        tx_set.insert(tx_b2_p40_later.clone());
-        tx_set.insert(tx_a0_p12_later.clone());
-
-        let ordered_tx_ids: Vec<TxId> = tx_set.iter().map(|ptx| ptx.id.clone()).collect();
-
-        // If we only consider the order based on priority value, then the order would be:
-        // [tx_b0_p10_later, tx_a0_p12_later, tx_b1_p15, tx_a2_p20, tx_a0_p30, tx_b2_p40_later]
-        //
-        // This is the expected order if tx with the same sender are ordered according to their
-        // nonces:
-        let expected_order = vec![
-            tx_b0_p10_later.id,
-            tx_a0_p12_later.id,
-            tx_b1_p15.id,
-            tx_a1_p30.id,
-            tx_a2_p20.id,
-            tx_b2_p40_later.id,
-        ];
-
-        assert_eq!(ordered_tx_ids, expected_order);
     }
 }
