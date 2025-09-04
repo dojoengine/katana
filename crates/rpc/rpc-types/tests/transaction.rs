@@ -1,11 +1,12 @@
 use assert_matches::assert_matches;
+use katana_primitives::da::DataAvailabilityMode;
 use katana_primitives::fee::Tip;
 use katana_primitives::{address, felt, ContractAddress};
 use katana_rpc_types::transaction::{
     RpcDeclareTx, RpcDeployAccountTx, RpcInvokeTx, RpcTx, RpcTxWithHash,
 };
 use serde_json::Value;
-use starknet::core::types::{DataAvailabilityMode, ResourceBounds};
+use starknet::core::types::ResourceBounds;
 
 mod fixtures;
 

@@ -4,7 +4,6 @@ use katana_primitives::block::BlockHash;
 use katana_primitives::class::{ClassHash, CompiledClassHash};
 use katana_primitives::contract::{Nonce, StorageKey, StorageValue};
 use katana_primitives::{ContractAddress, Felt};
-use serde::ser::SerializeMap;
 use serde::{Deserialize, Serialize};
 
 /// Response object for the `starknet_getStateUpdate` RPC method.
@@ -59,7 +58,7 @@ impl Serialize for StateDiff {
     where
         S: serde::Serializer,
     {
-        use serde::ser::SerializeSeq;
+        use serde::ser::{SerializeMap, SerializeSeq};
 
         /// Serializes nonces as an array of objects with the following structure:
         ///
@@ -260,18 +259,18 @@ impl Serialize for StateDiff {
 
         let nonces = NoncesSer(&self.nonces);
         let storage_diffs = StorageDiffsSer(&self.storage_diffs);
-        let deployed_contracts = DeployedContractsSer(&self.deployed_contracts);
-        let declared_classes = DeclaredClassesSer(&self.declared_classes);
-        let deprecated_declared_classes = DepDeclaredClassesSer(&self.deprecated_declared_classes);
         let replaced_classes = ReplacedClassesSer(&self.replaced_classes);
+        let declared_classes = DeclaredClassesSer(&self.declared_classes);
+        let deployed_contracts = DeployedContractsSer(&self.deployed_contracts);
+        let deprecated_declared_classes = DepDeclaredClassesSer(&self.deprecated_declared_classes);
 
         let mut map = serializer.serialize_map(Some(6))?;
         map.serialize_entry("nonces", &nonces)?;
         map.serialize_entry("storage_updates", &storage_diffs)?;
-        map.serialize_entry("deployed_contracts", &deployed_contracts)?;
         map.serialize_entry("declared_classes", &declared_classes)?;
-        map.serialize_entry("deprecated_declared_classes", &deprecated_declared_classes)?;
         map.serialize_entry("replaced_classes", &replaced_classes)?;
+        map.serialize_entry("deployed_contracts", &deployed_contracts)?;
+        map.serialize_entry("deprecated_declared_classes", &deprecated_declared_classes)?;
         map.end()
     }
 }

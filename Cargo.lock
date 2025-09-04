@@ -6347,7 +6347,6 @@ version = "1.7.0-alpha.3"
 dependencies = [
  "anyhow",
  "jsonrpsee",
- "katana-core",
  "katana-pool",
  "katana-primitives",
  "katana-provider",

@@ -1,9 +1,9 @@
 #![cfg_attr(not(test), warn(unused_crate_dependencies))]
 
 //! Types used in the Katana JSON-RPC API.
-//!
-//! Most of the types defined in this crate are simple wrappers around types imported from
-//! `starknet-rs`.
+
+use katana_primitives::block::{BlockHash, BlockNumber};
+use serde::{Deserialize, Serialize};
 
 pub mod account;
 pub mod block;
@@ -23,20 +23,39 @@ pub use block::*;
 pub use broadcasted::*;
 pub use class::*;
 pub use event::*;
-use katana_primitives::block::{BlockHash, BlockNumber};
 pub use message::*;
 pub use outside_execution::*;
 pub use receipt::*;
-use serde::{Deserialize, Serialize};
 pub use transaction::*;
 pub use trie::*;
 
 /// Request type for `starknet_call` RPC method.
 pub type FunctionCall = katana_primitives::execution::FunctionCall;
 
-pub type FeeEstimate = starknet::core::types::FeeEstimate;
-
-pub type MessageFeeEstimate = starknet::core::types::MessageFeeEstimate;
+/// Message fee estimation.
+#[derive(Debug, Clone, Copy, Serialize, Deserialize, PartialEq, Eq)]
+pub struct FeeEstimate {
+    /// The Ethereum gas consumption of the transaction, charged for L1->L2 messages and, depending
+    /// on the block's da_mode, state diffs
+    pub l1_gas_consumed: u64,
+    /// The gas price (in wei or fri, depending on the tx version) that was used in the cost
+    /// estimation
+    pub l1_gas_price: u128,
+    /// The L2 gas consumption of the transaction
+    pub l2_gas_consumed: u64,
+    /// The L2 gas price (in wei or fri, depending on the tx version) that was used in the cost
+    /// estimation
+    pub l2_gas_price: u128,
+    /// The Ethereum data gas consumption of the transaction
+    pub l1_data_gas_consumed: u64,
+    /// The data gas price (in wei or fri, depending on the tx version) that was used in the cost
+    /// estimation
+    pub l1_data_gas_price: u128,
+    /// The estimated fee for the transaction (in wei or fri, depending on the tx version), equals
+    /// to l1_gas_consumed*l1_gas_price + l1_data_gas_consumed*l1_data_gas_price +
+    /// l2_gas_consumed*l2_gas_price
+    pub overall_fee: u128,
+}
 
 /// Simulation flags for `starknet_estimateFee` RPC method.
 #[derive(Debug, Clone, Copy, Serialize, Deserialize, PartialEq, Eq)]
@@ -80,10 +99,7 @@ pub struct SyncStatus {
 }
 
 impl Serialize for SyncingResponse {
-    fn serialize<S>(&self, serializer: S) -> Result<S::Ok, S::Error>
-    where
-        S: serde::Serializer,
-    {
+    fn serialize<S: serde::Serializer>(&self, serializer: S) -> Result<S::Ok, S::Error> {
         match self {
             Self::NotSyncing => serializer.serialize_bool(false),
             Self::Syncing(sync_status) => SyncStatus::serialize(sync_status, serializer),
@@ -92,24 +108,27 @@ impl Serialize for SyncingResponse {
 }
 
 impl<'de> Deserialize<'de> for SyncingResponse {
-    fn deserialize<D>(deserializer: D) -> Result<Self, D::Error>
-    where
-        D: serde::Deserializer<'de>,
-    {
-        #[derive(Deserialize)]
-        #[serde(untagged)]
-        enum Helper {
-            Boolean(bool),
-            SyncStatus(SyncStatus),
+    fn deserialize<D: serde::Deserializer<'de>>(deserializer: D) -> Result<Self, D::Error> {
+        use serde::Deserialize;
+        use serde::__private::de::{Content, ContentRefDeserializer};
+
+        let content = <Content as Deserialize>::deserialize(deserializer)?;
+        let deserializer = ContentRefDeserializer::<D::Error>::new(&content);
+
+        if let Ok(bool) = <bool as Deserialize>::deserialize(deserializer) {
+            // The only valid boolean value is `false` which indicates that the node is not syncing.
+            if bool == false {
+                return Ok(Self::NotSyncing);
+            };
+        } else if let Ok(value) = <SyncStatus as Deserialize>::deserialize(deserializer) {
+            return Ok(Self::Syncing(value));
         }
 
-        match Helper::deserialize(deserializer)? {
-            Helper::SyncStatus(value) => Ok(Self::Syncing(value)),
-            Helper::Boolean(value) => match value {
-                true => Err(serde::de::Error::custom("invalid boolean value")),
-                false => Ok(Self::NotSyncing),
-            },
-        }
+        Err(serde::de::Error::custom(
+            "expected either `false` or an object with fields: starting_block_hash, \
+             starting_block_num, current_block_hash, current_block_num, highest_block_hash, \
+             highest_block_num",
+        ))
     }
 }
 

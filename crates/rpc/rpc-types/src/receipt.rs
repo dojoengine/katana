@@ -4,7 +4,7 @@ use katana_primitives::receipt::{self, Event, MessageToL1, Receipt};
 use katana_primitives::transaction::TxHash;
 use katana_primitives::{ContractAddress, Felt};
 use serde::{Deserialize, Serialize};
-use starknet::core::types::{ExecutionResources, Hash256, TransactionFinalityStatus};
+use starknet::core::types::{Hash256, TransactionFinalityStatus};
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub struct RpcTxReceiptWithHash {
@@ -118,7 +118,7 @@ impl RpcTxReceipt {
                     messages_sent,
                     finality_status,
                     actual_fee: rct.fee.into(),
-                    execution_resources: to_rpc_resources(rct.execution_resources),
+                    execution_resources: rct.execution_resources.into(),
                     execution_result: if let Some(reason) = rct.revert_error {
                         ExecutionResult::Reverted { reason }
                     } else {
@@ -136,7 +136,7 @@ impl RpcTxReceipt {
                     messages_sent,
                     finality_status,
                     actual_fee: rct.fee.into(),
-                    execution_resources: to_rpc_resources(rct.execution_resources),
+                    execution_resources: rct.execution_resources.into(),
                     execution_result: if let Some(reason) = rct.revert_error {
                         ExecutionResult::Reverted { reason }
                     } else {
@@ -154,7 +154,7 @@ impl RpcTxReceipt {
                     messages_sent,
                     finality_status,
                     actual_fee: rct.fee.into(),
-                    execution_resources: to_rpc_resources(rct.execution_resources),
+                    execution_resources: rct.execution_resources.into(),
                     message_hash: Hash256::from_bytes(*rct.message_hash),
                     execution_result: if let Some(reason) = rct.revert_error {
                         ExecutionResult::Reverted { reason }
@@ -174,7 +174,7 @@ impl RpcTxReceipt {
                     finality_status,
                     actual_fee: rct.fee.into(),
                     contract_address: rct.contract_address,
-                    execution_resources: to_rpc_resources(rct.execution_resources),
+                    execution_resources: rct.execution_resources.into(),
                     execution_result: if let Some(reason) = rct.revert_error {
                         ExecutionResult::Reverted { reason }
                     } else {
@@ -229,18 +229,17 @@ pub enum ReceiptBlockInfo {
 
 impl<'de> Deserialize<'de> for ReceiptBlockInfo {
     fn deserialize<D: serde::Deserializer<'de>>(deserializer: D) -> Result<Self, D::Error> {
-        use serde::de::Error;
-
         #[derive(Debug, Deserialize)]
-        struct Raw {
+        struct Json {
+            block_number: BlockNumber,
             block_hash: Option<BlockHash>,
-            block_number: Option<BlockNumber>,
         }
 
-        let raw = Raw::deserialize(deserializer)?;
-        let block_number = raw.block_number.ok_or(Error::custom("`block_number` is missing"))?;
+        let raw = Json::deserialize(deserializer)?;
+        let block_number = raw.block_number;
+        let block_hash = raw.block_hash;
 
-        match raw.block_hash {
+        match block_hash {
             None => Ok(ReceiptBlockInfo::PreConfirmed { block_number }),
             Some(block_hash) => Ok(ReceiptBlockInfo::Block { block_hash, block_number }),
         }
@@ -271,11 +270,25 @@ pub enum TxExecutionStatus {
     Reverted,
 }
 
-fn to_rpc_resources(resources: receipt::ExecutionResources) -> ExecutionResources {
-    ExecutionResources {
-        l2_gas: resources.gas.l2_gas,
-        l1_gas: resources.gas.l1_gas,
-        l1_data_gas: resources.gas.l1_data_gas,
+/// The resources consumed by the transaction.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct ExecutionResources {
+    /// L1 gas consumed by this transaction, used for L2-->L1 messages and state updates if blobs
+    /// are not used
+    pub l1_gas: u64,
+    /// Data gas consumed by this transaction, 0 if blobs are not used
+    pub l1_data_gas: u64,
+    /// L2 gas consumed by this transaction, used for computation and calldata
+    pub l2_gas: u64,
+}
+
+impl From<receipt::ExecutionResources> for ExecutionResources {
+    fn from(resources: receipt::ExecutionResources) -> Self {
+        ExecutionResources {
+            l2_gas: resources.gas.l2_gas,
+            l1_gas: resources.gas.l1_gas,
+            l1_data_gas: resources.gas.l1_data_gas,
+        }
     }
 }
 

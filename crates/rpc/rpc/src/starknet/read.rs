@@ -29,7 +29,7 @@ use katana_rpc_types::receipt::TxReceiptWithBlockInfo;
 use katana_rpc_types::state_update::GetStateUpdateResponse;
 use katana_rpc_types::transaction::RpcTxWithHash;
 use katana_rpc_types::trie::{ContractStorageKeys, GetStorageProofResponse};
-use katana_rpc_types::{EstimateFeeSimulationFlag, FeeEstimate, FunctionCall, MessageFeeEstimate};
+use katana_rpc_types::{EstimateFeeSimulationFlag, FeeEstimate, FunctionCall};
 use starknet::core::types::TransactionStatus;
 
 use super::StarknetApi;
@@ -314,7 +314,7 @@ impl<EF: ExecutorFactory> StarknetApiServer for StarknetApi<EF> {
         &self,
         message: MsgFromL1,
         block_id: BlockIdOrTag,
-    ) -> RpcResult<MessageFeeEstimate> {
+    ) -> RpcResult<FeeEstimate> {
         self.on_cpu_blocking_task(move |this| {
             let chain_id = this.inner.backend.chain_spec.id();
 
@@ -330,7 +330,7 @@ impl<EF: ExecutorFactory> StarknetApiServer for StarknetApi<EF> {
             match result {
                 Ok(mut res) => {
                     if let Some(fee) = res.pop() {
-                        Ok(MessageFeeEstimate {
+                        Ok(FeeEstimate {
                             overall_fee: fee.overall_fee,
                             l2_gas_price: fee.l2_gas_price,
                             l1_gas_price: fee.l1_gas_price,

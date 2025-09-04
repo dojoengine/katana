@@ -4,16 +4,6 @@ use crate::contract::{ContractAddress, Nonce};
 use crate::eth::Address as EthAddress;
 use crate::Felt;
 
-#[derive(Debug, Clone, PartialEq, Eq, Default)]
-#[cfg_attr(feature = "arbitrary", derive(::arbitrary::Arbitrary))]
-#[cfg_attr(feature = "serde", derive(serde::Serialize, serde::Deserialize))]
-pub struct OrderedL2ToL1Message {
-    pub order: u64,
-    pub from_address: ContractAddress,
-    pub to_address: Felt,
-    pub payload: Vec<Felt>,
-}
-
 /// Message from L1.
 #[derive(Debug, Clone, PartialEq, Eq, Default)]
 #[cfg_attr(feature = "arbitrary", derive(::arbitrary::Arbitrary))]

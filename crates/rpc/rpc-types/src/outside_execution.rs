@@ -14,6 +14,7 @@
 
 use cainome::cairo_serde::{deserialize_from_hex, serialize_as_hex};
 use cainome::cairo_serde_derive::CairoSerde;
+use katana_primitives::execution::EntryPointSelector;
 use katana_primitives::{ContractAddress, Felt};
 use serde::{Deserialize, Serialize};
 
@@ -23,7 +24,7 @@ pub struct Call {
     /// Contract address to call.
     pub to: ContractAddress,
     /// Function selector to invoke.
-    pub selector: Felt,
+    pub selector: EntryPointSelector,
     /// Arguments to pass to the function.
     pub calldata: Vec<Felt>,
 }

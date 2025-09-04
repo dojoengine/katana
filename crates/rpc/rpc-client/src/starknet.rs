@@ -24,32 +24,12 @@ use katana_rpc_types::state_update::MaybePreConfirmedStateUpdate;
 use katana_rpc_types::transaction::RpcTxWithHash;
 use katana_rpc_types::trie::{ContractStorageKeys, GetStorageProofResponse};
 use katana_rpc_types::{
-    EstimateFeeSimulationFlag, EventFilter, FeeEstimate, FunctionCall, MessageFeeEstimate,
-    ResultPageRequest, SimulationFlag, SyncingResponse,
+    EstimateFeeSimulationFlag, EventFilter, FeeEstimate, FunctionCall, ResultPageRequest,
+    SimulationFlag, SyncingResponse,
 };
 use starknet::core::types::{
     SimulatedTransaction, TransactionStatus, TransactionTrace, TransactionTraceWithHash,
 };
-
-#[derive(Debug, thiserror::Error)]
-pub enum Error {
-    /// API-specific error returned by the server.
-    #[error(transparent)]
-    Starknet(StarknetApiError),
-
-    /// Transport or other client-level error.
-    #[error(transparent)]
-    Client(jsonrpsee::core::client::Error),
-}
-
-impl From<jsonrpsee::core::client::Error> for Error {
-    fn from(err: jsonrpsee::core::client::Error) -> Self {
-        match err {
-            jsonrpsee::core::client::Error::Call(err_obj) => Error::Starknet(err_obj.into()),
-            _ => Error::Client(err),
-        }
-    }
-}
 
 type Result<T> = std::result::Result<T, Error>;
 
@@ -195,7 +175,7 @@ impl Client {
         &self,
         message: MsgFromL1,
         block_id: BlockIdOrTag,
-    ) -> Result<MessageFeeEstimate> {
+    ) -> Result<FeeEstimate> {
         self.client.estimate_message_fee(message, block_id).await.map_err(Into::into)
     }
 
@@ -309,5 +289,25 @@ impl Client {
         block_id: BlockIdOrTag,
     ) -> Result<Vec<TransactionTraceWithHash>> {
         self.client.trace_block_transactions(block_id).await.map_err(Into::into)
+    }
+}
+
+#[derive(Debug, thiserror::Error)]
+pub enum Error {
+    /// API-specific error returned by the server.
+    #[error(transparent)]
+    Starknet(StarknetApiError),
+
+    /// Transport or other client-level error.
+    #[error(transparent)]
+    Client(jsonrpsee::core::client::Error),
+}
+
+impl From<jsonrpsee::core::client::Error> for Error {
+    fn from(err: jsonrpsee::core::client::Error) -> Self {
+        match err {
+            jsonrpsee::core::client::Error::Call(err_obj) => Error::Starknet(err_obj.into()),
+            _ => Error::Client(err),
+        }
     }
 }

@@ -1,17 +1,6 @@
 use core::fmt;
 use std::num::ParseIntError;
 
-use crate::Felt;
-
-#[derive(Debug, Clone, PartialEq, Eq)]
-#[cfg_attr(feature = "arbitrary", derive(::arbitrary::Arbitrary))]
-#[cfg_attr(feature = "serde", derive(serde::Serialize, serde::Deserialize))]
-pub struct OrderedEvent {
-    pub order: u64,
-    pub keys: Vec<Felt>,
-    pub data: Vec<Felt>,
-}
-
 /// Represents a continuation token for implementing paging in event queries.
 ///
 /// This struct stores the necessary information to resume fetching events

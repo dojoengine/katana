@@ -1,5 +1,6 @@
 use katana_primitives::chain::ChainId;
 use katana_primitives::eth::Address as EthAddress;
+use katana_primitives::execution::EntryPointSelector;
 use katana_primitives::message::L1ToL2Message;
 use katana_primitives::transaction::L1HandlerTx;
 use katana_primitives::{ContractAddress, Felt};
@@ -13,7 +14,7 @@ pub struct MsgFromL1 {
     /// The target L2 address the message is sent to
     pub to_address: ContractAddress,
     /// The selector of the l1_handler in invoke in the target contract
-    pub entry_point_selector: Felt,
+    pub entry_point_selector: EntryPointSelector,
     /// The payload of the message
     pub payload: Vec<Felt>,
 }

@@ -2,7 +2,7 @@ use std::ops::RangeInclusive;
 
 use katana_db::models::block::StoredBlockBodyIndices;
 use katana_primitives::block::{
-    Block, BlockHash, BlockHashOrNumber, BlockIdOrTag, BlockNumber, BlockTag, BlockWithTxHashes,
+    Block, BlockHash, BlockHashOrNumber, BlockIdOrTag, BlockNumber, BlockWithTxHashes,
     FinalityStatus, Header, SealedBlockWithStatus,
 };
 use katana_primitives::execution::TypedTransactionExecutionInfo;
@@ -19,12 +19,9 @@ pub trait BlockIdReader: BlockNumberProvider + Send + Sync {
         match id {
             BlockIdOrTag::Number(number) => Ok(Some(number)),
             BlockIdOrTag::Hash(hash) => BlockNumberProvider::block_number_by_hash(self, hash),
+            BlockIdOrTag::Latest => BlockNumberProvider::latest_number(&self).map(Some),
 
-            BlockIdOrTag::Tag(BlockTag::Latest) => {
-                BlockNumberProvider::latest_number(&self).map(Some)
-            }
-
-            BlockIdOrTag::Tag(BlockTag::PreConfirmed) => {
+            BlockIdOrTag::PreConfirmed => {
                 if let Some((num, _)) = Self::pending_block_id(self)? {
                     Ok(Some(num))
                 } else {
@@ -34,7 +31,7 @@ pub trait BlockIdReader: BlockNumberProvider + Send + Sync {
             }
 
             // TODO: track l1 accepted block
-            BlockIdOrTag::Tag(BlockTag::L1Accepted) => Ok(None),
+            BlockIdOrTag::L1Accepted => Ok(None),
         }
     }
 

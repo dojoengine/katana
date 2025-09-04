@@ -5,19 +5,15 @@ use katana_primitives::genesis::allocation::GenesisAccountAlloc;
 use katana_primitives::Felt;
 use serde::{Deserialize, Serialize};
 use serde_with::serde_as;
-use starknet::core::serde::unsigned_field_element::{UfeHex, UfeHexOption};
 
 #[serde_as]
 #[derive(Debug, Clone, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
 pub struct Account {
     pub address: ContractAddress,
-    #[serde_as(as = "UfeHex")]
     pub public_key: Felt,
-    #[serde_as(as = "UfeHexOption")]
     #[serde(skip_serializing_if = "Option::is_none")]
     pub private_key: Option<Felt>,
-    #[serde_as(as = "UfeHex")]
     pub class_hash: ClassHash,
     pub balance: U256,
 }

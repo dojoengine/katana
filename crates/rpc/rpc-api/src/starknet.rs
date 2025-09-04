@@ -25,8 +25,7 @@ use katana_rpc_types::state_update::GetStateUpdateResponse;
 use katana_rpc_types::transaction::RpcTxWithHash;
 use katana_rpc_types::trie::{ContractStorageKeys, GetStorageProofResponse};
 use katana_rpc_types::{
-    EstimateFeeSimulationFlag, FeeEstimate, FunctionCall, MessageFeeEstimate, SimulationFlag,
-    SyncingResponse,
+    EstimateFeeSimulationFlag, FeeEstimate, FunctionCall, SimulationFlag, SyncingResponse,
 };
 use starknet::core::types::{
     SimulatedTransaction, TransactionStatus, TransactionTrace, TransactionTraceWithHash,
@@ -150,7 +149,7 @@ pub trait StarknetApi {
         &self,
         message: MsgFromL1,
         block_id: BlockIdOrTag,
-    ) -> RpcResult<MessageFeeEstimate>;
+    ) -> RpcResult<FeeEstimate>;
 
     /// Get the most recent accepted block number.
     #[method(name = "blockNumber")]

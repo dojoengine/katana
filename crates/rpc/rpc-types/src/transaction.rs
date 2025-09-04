@@ -1,11 +1,12 @@
 use katana_primitives::class::{ClassHash, CompiledClassHash};
 use katana_primitives::contract::Nonce;
+use katana_primitives::da::DataAvailabilityMode;
 use katana_primitives::execution::EntryPointSelector;
 use katana_primitives::fee::Tip;
 use katana_primitives::transaction::TxHash;
 use katana_primitives::{transaction as primitives, ContractAddress, Felt};
 use serde::{Deserialize, Serialize};
-use starknet::core::types::{DataAvailabilityMode, ResourceBoundsMapping};
+use starknet::core::types::ResourceBoundsMapping;
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub struct RpcTxWithHash {
@@ -296,8 +297,8 @@ impl From<primitives::Tx> for RpcTx {
                     signature: tx.signature,
                     sender_address: tx.sender_address,
                     account_deployment_data: tx.account_deployment_data,
-                    fee_data_availability_mode: to_rpc_da_mode(tx.fee_data_availability_mode),
-                    nonce_data_availability_mode: to_rpc_da_mode(tx.nonce_data_availability_mode),
+                    fee_data_availability_mode: tx.fee_data_availability_mode,
+                    nonce_data_availability_mode: tx.nonce_data_availability_mode,
                     paymaster_data: tx.paymaster_data,
                     resource_bounds: to_rpc_resource_bounds(tx.resource_bounds),
                     tip: tx.tip.into(),
@@ -336,8 +337,8 @@ impl From<primitives::Tx> for RpcTx {
                     sender_address: tx.sender_address,
                     compiled_class_hash: tx.compiled_class_hash,
                     account_deployment_data: tx.account_deployment_data,
-                    fee_data_availability_mode: to_rpc_da_mode(tx.fee_data_availability_mode),
-                    nonce_data_availability_mode: to_rpc_da_mode(tx.nonce_data_availability_mode),
+                    fee_data_availability_mode: tx.fee_data_availability_mode,
+                    nonce_data_availability_mode: tx.nonce_data_availability_mode,
                     paymaster_data: tx.paymaster_data,
                     resource_bounds: to_rpc_resource_bounds(tx.resource_bounds),
                     tip: tx.tip.into(),
@@ -371,10 +372,8 @@ impl From<primitives::Tx> for RpcTx {
                         class_hash: tx.class_hash,
                         constructor_calldata: tx.constructor_calldata,
                         contract_address_salt: tx.contract_address_salt,
-                        fee_data_availability_mode: to_rpc_da_mode(tx.fee_data_availability_mode),
-                        nonce_data_availability_mode: to_rpc_da_mode(
-                            tx.nonce_data_availability_mode,
-                        ),
+                        fee_data_availability_mode: tx.fee_data_availability_mode,
+                        nonce_data_availability_mode: tx.nonce_data_availability_mode,
                         paymaster_data: tx.paymaster_data,
                         resource_bounds: to_rpc_resource_bounds(tx.resource_bounds),
                         tip: tx.tip.into(),
@@ -388,24 +387,6 @@ impl From<primitives::Tx> for RpcTx {
                 class_hash: tx.class_hash,
                 version: tx.version,
             }),
-        }
-    }
-}
-
-// TODO: find a solution to avoid doing this conversion, this is not pretty at all. the reason why
-// we had to do this in the first place is because of the orphan rule. i think eventually we should
-// not rely on `starknet-rs` rpc types anymore and should instead define the types ourselves to have
-// more flexibility.
-
-fn to_rpc_da_mode(
-    mode: katana_primitives::da::DataAvailabilityMode,
-) -> starknet::core::types::DataAvailabilityMode {
-    match mode {
-        katana_primitives::da::DataAvailabilityMode::L1 => {
-            starknet::core::types::DataAvailabilityMode::L1
-        }
-        katana_primitives::da::DataAvailabilityMode::L2 => {
-            starknet::core::types::DataAvailabilityMode::L2
         }
     }
 }
