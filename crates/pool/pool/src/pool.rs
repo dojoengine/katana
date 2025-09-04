@@ -3,8 +3,8 @@ use std::collections::BTreeSet;
 use std::sync::Arc;
 
 use futures::channel::mpsc::{channel, Receiver, Sender};
+use katana_pool_api::validation::{InvalidTransactionError, ValidationOutcome, Validator};
 use katana_pool_api::{
-    validation::{ValidationOutcome, Validator},
     PendingTransactions, PendingTx, PoolError, PoolOrd, PoolResult, PoolTransaction, Subscription,
     TransactionPool, TxId,
 };
@@ -12,8 +12,6 @@ use katana_primitives::transaction::TxHash;
 use parking_lot::RwLock;
 use tokio::sync::mpsc;
 use tracing::{error, trace, warn};
-
-use katana_pool_api::validation::InvalidTransactionError;
 
 #[derive(Debug)]
 pub struct Pool<T, V, O>
@@ -239,12 +237,12 @@ where
 #[cfg(test)]
 pub(crate) mod test_utils {
 
+    use katana_pool_api::PoolTransaction;
     use katana_primitives::contract::{ContractAddress, Nonce};
     use katana_primitives::Felt;
     use rand::Rng;
 
     use super::*;
-    use katana_pool_api::PoolTransaction;
 
     fn random_bytes<const SIZE: usize>() -> [u8; SIZE] {
         let mut bytes = [0u8; SIZE];

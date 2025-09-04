@@ -15,7 +15,6 @@ use katana_trie::{
 };
 use katana_utils::TestNode;
 use starknet::accounts::{Account, SingleOwnerAccount};
-use starknet::core::types::BlockTag;
 use starknet::providers::jsonrpc::HttpTransport;
 use starknet::providers::JsonRpcClient;
 use starknet::signers::LocalWallet;
@@ -46,12 +45,7 @@ async fn proofs_limit() {
     }
 
     let err = client
-        .get_storage_proof(
-            BlockIdOrTag::Tag(BlockTag::Latest),
-            Some(classes),
-            Some(contracts),
-            Some(storages),
-        )
+        .get_storage_proof(BlockIdOrTag::Latest, Some(classes), Some(contracts), Some(storages))
         .await
         .expect_err("rpc should enforce limit");
 
@@ -108,7 +102,7 @@ async fn genesis_states() {
 
     let proofs = client
         .get_storage_proof(
-            BlockIdOrTag::Tag(BlockTag::Latest),
+            BlockIdOrTag::Latest,
             Some(genesis_classes.clone()),
             Some(genesis_contracts.clone()),
             Some(genesis_contract_storages.clone()),
@@ -252,12 +246,7 @@ async fn classes_proofs() {
         ];
 
         let proofs = client
-            .get_storage_proof(
-                BlockIdOrTag::Tag(BlockTag::Latest),
-                Some(class_hashes.clone()),
-                None,
-                None,
-            )
+            .get_storage_proof(BlockIdOrTag::Latest, Some(class_hashes.clone()), None, None)
             .await
             .expect("failed to get storage proof");
 

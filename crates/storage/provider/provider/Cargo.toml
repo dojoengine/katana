@@ -12,6 +12,7 @@ katana-db = { workspace = true, features = [ "test-utils" ] }
 katana-fork.workspace = true
 katana-primitives.workspace = true
 katana-provider-api.workspace = true
+katana-rpc-client.workspace = true
 katana-trie.workspace = true
 
 anyhow.workspace = true

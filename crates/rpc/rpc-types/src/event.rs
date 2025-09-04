@@ -1,8 +1,7 @@
-use katana_primitives::block::{BlockHash, BlockNumber};
+use katana_primitives::block::{BlockHash, BlockIdOrTag, BlockNumber};
 use katana_primitives::transaction::TxHash;
 use katana_primitives::{ContractAddress, Felt};
 use serde::{Deserialize, Serialize};
-use starknet::core::types::BlockId;
 
 /// Events request.
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
@@ -20,10 +19,10 @@ pub struct EventFilterWithPage {
 pub struct EventFilter {
     /// From block
     #[serde(skip_serializing_if = "Option::is_none")]
-    pub from_block: Option<BlockId>,
+    pub from_block: Option<BlockIdOrTag>,
     /// To block
     #[serde(skip_serializing_if = "Option::is_none")]
-    pub to_block: Option<BlockId>,
+    pub to_block: Option<BlockIdOrTag>,
     /// From contract
     #[serde(skip_serializing_if = "Option::is_none")]
     pub address: Option<ContractAddress>,

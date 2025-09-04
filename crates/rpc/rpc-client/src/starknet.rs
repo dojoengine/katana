@@ -1,9 +1,10 @@
 use jsonrpsee::http_client::HttpClient;
-use katana_primitives::block::BlockIdOrTag;
+use katana_primitives::block::{BlockIdOrTag, ConfirmedBlockIdOrTag};
 use katana_primitives::class::ClassHash;
 use katana_primitives::contract::{Nonce, StorageKey};
 use katana_primitives::transaction::TxHash;
 use katana_primitives::{ContractAddress, Felt};
+pub use katana_rpc_api::error::starknet::StarknetApiError;
 use katana_rpc_api::starknet::{StarknetApiClient, StarknetTraceApiClient, StarknetWriteApiClient};
 use katana_rpc_types::block::{
     BlockHashAndNumberResponse, BlockNumberResponse, BlockTxCount,
@@ -20,17 +21,14 @@ use katana_rpc_types::event::{EventFilterWithPage, GetEventsResponse};
 use katana_rpc_types::message::MsgFromL1;
 use katana_rpc_types::receipt::TxReceiptWithBlockInfo;
 use katana_rpc_types::state_update::MaybePreConfirmedStateUpdate;
+use katana_rpc_types::trace::{SimulatedTransactionsResponse, TxTrace, TxTraceWithHash};
 use katana_rpc_types::transaction::RpcTxWithHash;
 use katana_rpc_types::trie::{ContractStorageKeys, GetStorageProofResponse};
 use katana_rpc_types::{
     EstimateFeeSimulationFlag, EventFilter, FeeEstimate, FunctionCall, ResultPageRequest,
     SimulationFlag, SyncingResponse,
 };
-use starknet::core::types::{
-    SimulatedTransaction, TransactionStatus, TransactionTrace, TransactionTraceWithHash,
-};
-
-pub use katana_rpc_api::error::starknet::StarknetApiError;
+use starknet::core::types::TransactionStatus;
 
 type Result<T> = std::result::Result<T, Error>;
 
@@ -267,7 +265,7 @@ impl Client {
     // Trace API methods
 
     /// Returns the execution trace of the transaction designated by the input hash.
-    pub async fn trace_transaction(&self, transaction_hash: TxHash) -> Result<TransactionTrace> {
+    pub async fn trace_transaction(&self, transaction_hash: TxHash) -> Result<TxTrace> {
         self.client.trace_transaction(transaction_hash).await.map_err(Into::into)
     }
 
@@ -277,7 +275,7 @@ impl Client {
         block_id: BlockIdOrTag,
         transactions: Vec<BroadcastedTx>,
         simulation_flags: Vec<SimulationFlag>,
-    ) -> Result<Vec<SimulatedTransaction>> {
+    ) -> Result<Vec<SimulatedTransactionsResponse>> {
         self.client
             .simulate_transactions(block_id, transactions, simulation_flags)
             .await
@@ -287,8 +285,8 @@ impl Client {
     /// Returns the execution traces of all transactions included in the given block.
     pub async fn trace_block_transactions(
         &self,
-        block_id: BlockIdOrTag,
-    ) -> Result<Vec<TransactionTraceWithHash>> {
+        block_id: ConfirmedBlockIdOrTag,
+    ) -> Result<Vec<TxTraceWithHash>> {
         self.client.trace_block_transactions(block_id).await.map_err(Into::into)
     }
 }

@@ -10,14 +10,14 @@ use katana_primitives::contract::{
     ContractAddress, GenericContractInfo, Nonce, StorageKey, StorageValue,
 };
 use katana_primitives::Felt;
-
-use super::DbProvider;
-use crate::ProviderResult;
 use katana_provider_api::contract::{ContractClassProvider, ContractClassWriter};
 use katana_provider_api::state::{
     StateProofProvider, StateProvider, StateRootProvider, StateWriter,
 };
 use katana_provider_api::ProviderError;
+
+use super::DbProvider;
+use crate::ProviderResult;
 
 impl<Db: Database> StateWriter for DbProvider<Db> {
     fn set_nonce(&self, address: ContractAddress, nonce: Nonce) -> ProviderResult<()> {

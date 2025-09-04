@@ -6,9 +6,7 @@ use katana_core::backend::Backend;
 use katana_core::service::block_producer::{BlockProducer, BlockProducerMode, PendingExecutor};
 use katana_executor::{ExecutionResult, ExecutorFactory};
 use katana_pool::{TransactionPool, TxPool};
-use katana_primitives::block::{
-    BlockHashOrNumber, BlockIdOrTag, BlockTag, FinalityStatus, PartialHeader,
-};
+use katana_primitives::block::{BlockHashOrNumber, BlockIdOrTag, FinalityStatus, PartialHeader};
 use katana_primitives::class::ClassHash;
 use katana_primitives::contract::{ContractAddress, Nonce, StorageKey, StorageValue};
 use katana_primitives::da::L1DataAvailabilityMode;
@@ -17,14 +15,14 @@ use katana_primitives::event::MaybeForkedContinuationToken;
 use katana_primitives::transaction::{ExecutableTxWithHash, TxHash, TxNumber};
 use katana_primitives::version::CURRENT_STARKNET_VERSION;
 use katana_primitives::Felt;
-use katana_provider::error::ProviderError;
-use katana_provider::traits::block::{BlockHashProvider, BlockIdReader, BlockNumberProvider};
-use katana_provider::traits::contract::ContractClassProvider;
-use katana_provider::traits::env::BlockEnvProvider;
-use katana_provider::traits::state::{StateFactoryProvider, StateProvider, StateRootProvider};
-use katana_provider::traits::transaction::{
+use katana_provider::api::block::{BlockHashProvider, BlockIdReader, BlockNumberProvider};
+use katana_provider::api::contract::ContractClassProvider;
+use katana_provider::api::env::BlockEnvProvider;
+use katana_provider::api::state::{StateFactoryProvider, StateProvider, StateRootProvider};
+use katana_provider::api::transaction::{
     ReceiptProvider, TransactionProvider, TransactionStatusProvider, TransactionsProviderExt,
 };
+use katana_provider::api::ProviderError;
 use katana_rpc_api::error::starknet::{
     PageSizeTooBigData, ProofLimitExceededData, StarknetApiError,
 };
@@ -184,11 +182,11 @@ impl<EF: ExecutorFactory> StarknetApi<EF> {
         let provider = self.inner.backend.blockchain.provider();
 
         let state = match block_id {
-            BlockIdOrTag::Tag(BlockTag::L1Accepted) => None,
+            BlockIdOrTag::L1Accepted => None,
 
-            BlockIdOrTag::Tag(BlockTag::Latest) => Some(provider.latest()?),
+            BlockIdOrTag::Latest => Some(provider.latest()?),
 
-            BlockIdOrTag::Tag(BlockTag::PreConfirmed) => {
+            BlockIdOrTag::PreConfirmed => {
                 if let Some(exec) = self.pending_executor() {
                     Some(exec.read().state())
                 } else {
@@ -207,9 +205,9 @@ impl<EF: ExecutorFactory> StarknetApi<EF> {
         let provider = self.inner.backend.blockchain.provider();
 
         let env = match block_id {
-            BlockIdOrTag::Tag(BlockTag::L1Accepted) => None,
+            BlockIdOrTag::L1Accepted => None,
 
-            BlockIdOrTag::Tag(BlockTag::PreConfirmed) => {
+            BlockIdOrTag::PreConfirmed => {
                 // If there is a pending block, use the block env of the pending block.
                 if let Some(exec) = self.pending_executor() {
                     Some(exec.read().block_env())
@@ -224,7 +222,7 @@ impl<EF: ExecutorFactory> StarknetApi<EF> {
                 }
             }
 
-            BlockIdOrTag::Tag(BlockTag::Latest) => {
+            BlockIdOrTag::Latest => {
                 let num = provider.latest_number()?;
                 provider.block_env_at(num.into())?
             }
@@ -316,16 +314,16 @@ impl<EF: ExecutorFactory> StarknetApi<EF> {
                 let provider = this.inner.backend.blockchain.provider();
 
                 let block_id: BlockHashOrNumber = match block_id {
-                    BlockIdOrTag::Tag(BlockTag::L1Accepted) => return Ok(None),
+                    BlockIdOrTag::L1Accepted => return Ok(None),
 
-                    BlockIdOrTag::Tag(BlockTag::PreConfirmed) => match this.pending_executor() {
+                    BlockIdOrTag::PreConfirmed => match this.pending_executor() {
                         Some(exec) => {
                             let count = exec.read().transactions().len() as u64;
                             return Ok(Some(count));
                         }
                         None => provider.latest_hash()?.into(),
                     },
-                    BlockIdOrTag::Tag(BlockTag::Latest) => provider.latest_number()?.into(),
+                    BlockIdOrTag::Latest => provider.latest_number()?.into(),
                     BlockIdOrTag::Number(num) => num.into(),
                     BlockIdOrTag::Hash(hash) => hash.into(),
                 };
@@ -363,7 +361,7 @@ impl<EF: ExecutorFactory> StarknetApi<EF> {
             //
             // TODO: this is a temporary solution, we should have a better way to handle this.
             // perhaps a pending/pool state provider that implements all the state provider traits.
-            let result = if let BlockIdOrTag::Tag(BlockTag::PreConfirmed) = block_id {
+            let result = if let BlockIdOrTag::PreConfirmed = block_id {
                 this.inner.pool.validator().pool_nonce(contract_address)?
             } else {
                 let state = this.state(&block_id)?;
@@ -384,7 +382,7 @@ impl<EF: ExecutorFactory> StarknetApi<EF> {
         let tx = self
             .on_io_blocking_task(move |this| {
                 // TEMP: have to handle pending tag independently for now
-                let tx = if BlockIdOrTag::Tag(BlockTag::PreConfirmed) == block_id {
+                let tx = if BlockIdOrTag::PreConfirmed == block_id {
                     let Some(executor) = this.pending_executor() else {
                         return Err(StarknetApiError::BlockNotFound);
                     };
@@ -604,7 +602,7 @@ impl<EF: ExecutorFactory> StarknetApi<EF> {
             .on_io_blocking_task(move |this| {
                 let provider = this.inner.backend.blockchain.provider();
 
-                if BlockIdOrTag::Tag(BlockTag::PreConfirmed) == block_id {
+                if BlockIdOrTag::PreConfirmed == block_id {
                     if let Some(executor) = this.pending_executor() {
                         let block_env = executor.read().block_env();
                         let latest_hash = provider.latest_hash().map_err(StarknetApiError::from)?;
@@ -672,7 +670,7 @@ impl<EF: ExecutorFactory> StarknetApi<EF> {
             .on_io_blocking_task(move |this| {
                 let provider = this.inner.backend.blockchain.provider();
 
-                if BlockIdOrTag::Tag(BlockTag::PreConfirmed) == block_id {
+                if BlockIdOrTag::PreConfirmed == block_id {
                     if let Some(executor) = this.pending_executor() {
                         let block_env = executor.read().block_env();
                         let latest_hash = provider.latest_hash()?;
@@ -740,7 +738,7 @@ impl<EF: ExecutorFactory> StarknetApi<EF> {
             .on_io_blocking_task(move |this| {
                 let provider = this.inner.backend.blockchain.provider();
 
-                if BlockIdOrTag::Tag(BlockTag::PreConfirmed) == block_id {
+                if BlockIdOrTag::PreConfirmed == block_id {
                     if let Some(executor) = this.pending_executor() {
                         let block_env = executor.read().block_env();
                         let latest_hash = provider.latest_hash().map_err(StarknetApiError::from)?;
@@ -812,13 +810,10 @@ impl<EF: ExecutorFactory> StarknetApi<EF> {
                     BlockIdOrTag::Number(num) => BlockHashOrNumber::Num(num),
                     BlockIdOrTag::Hash(hash) => BlockHashOrNumber::Hash(hash),
 
-                    BlockIdOrTag::Tag(BlockTag::Latest) => {
-                        provider.latest_number().map(BlockHashOrNumber::Num)?
-                    }
+                    BlockIdOrTag::Latest => provider.latest_number().map(BlockHashOrNumber::Num)?,
 
                     // TODO: Implement for L1 accepted and preconfirmed block id
-                    BlockIdOrTag::Tag(BlockTag::L1Accepted)
-                    | BlockIdOrTag::Tag(BlockTag::PreConfirmed) => {
+                    BlockIdOrTag::L1Accepted | BlockIdOrTag::PreConfirmed => {
                         return Err(StarknetApiError::BlockNotFound);
                     }
                 };
@@ -862,7 +857,7 @@ impl<EF: ExecutorFactory> StarknetApi<EF> {
 
             let to = match event_filter.to_block {
                 Some(id) => id,
-                None => BlockIdOrTag::Tag(BlockTag::PreConfirmed),
+                None => BlockIdOrTag::PreConfirmed,
             };
 
             let keys = event_filter.keys.filter(|keys| !(keys.len() == 1 && keys.is_empty()));
@@ -1116,11 +1111,11 @@ impl<EF: ExecutorFactory> StarknetApi<EF> {
         let provider = self.inner.backend.blockchain.provider();
 
         let id = match id {
-            BlockIdOrTag::Tag(BlockTag::L1Accepted) => EventBlockId::Pending,
-            BlockIdOrTag::Tag(BlockTag::PreConfirmed) => EventBlockId::Pending,
+            BlockIdOrTag::L1Accepted => EventBlockId::Pending,
+            BlockIdOrTag::PreConfirmed => EventBlockId::Pending,
             BlockIdOrTag::Number(num) => EventBlockId::Num(num),
 
-            BlockIdOrTag::Tag(BlockTag::Latest) => {
+            BlockIdOrTag::Latest => {
                 let num = provider.convert_block_id(id)?;
                 EventBlockId::Num(num.ok_or(StarknetApiError::BlockNotFound)?)
             }

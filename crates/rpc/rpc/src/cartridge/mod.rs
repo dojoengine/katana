@@ -45,7 +45,7 @@ use katana_primitives::genesis::allocation::GenesisAccountAlloc;
 use katana_primitives::genesis::constant::DEFAULT_UDC_ADDRESS;
 use katana_primitives::transaction::{ExecutableTx, ExecutableTxWithHash, InvokeTx, InvokeTxV3};
 use katana_primitives::{ContractAddress, Felt};
-use katana_provider::traits::state::{StateFactoryProvider, StateProvider};
+use katana_provider::api::state::{StateFactoryProvider, StateProvider};
 use katana_rpc_api::cartridge::CartridgeApiServer;
 use katana_rpc_api::error::starknet::StarknetApiError;
 use katana_rpc_types::broadcasted::AddInvokeTransactionResponse;

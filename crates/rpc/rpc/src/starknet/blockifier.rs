@@ -8,7 +8,7 @@ use katana_executor::{ExecutionError, ExecutionFlags, ExecutionResult, ResultAnd
 use katana_primitives::env::{BlockEnv, CfgEnv};
 use katana_primitives::transaction::ExecutableTxWithHash;
 use katana_primitives::Felt;
-use katana_provider::traits::state::StateProvider;
+use katana_provider::api::state::StateProvider;
 use katana_rpc_api::error::starknet::{ContractErrorData, StarknetApiError};
 use katana_rpc_types::{FeeEstimate, FunctionCall};
 
@@ -149,8 +149,8 @@ mod tests {
 
     use katana_primitives::env::{BlockEnv, CfgEnv};
     use katana_primitives::{address, ContractAddress};
+    use katana_provider::api::state::StateFactoryProvider;
     use katana_provider::test_utils::test_provider;
-    use katana_provider::traits::state::StateFactoryProvider;
     use katana_rpc_api::error::starknet::StarknetApiError;
     use katana_rpc_types::FunctionCall;
     use starknet::macros::selector;

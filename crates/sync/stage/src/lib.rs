@@ -1,7 +1,7 @@
 #![cfg_attr(not(test), warn(unused_crate_dependencies))]
 
 use katana_primitives::block::BlockNumber;
-use katana_provider::error::ProviderError;
+use katana_provider::api::ProviderError;
 
 mod blocks;
 mod classes;

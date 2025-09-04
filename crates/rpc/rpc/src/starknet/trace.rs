@@ -1,18 +1,17 @@
 use jsonrpsee::core::{async_trait, RpcResult};
 use katana_executor::{ExecutionResult, ExecutorFactory, ResultAndStates};
-use katana_primitives::block::{BlockHashOrNumber, BlockIdOrTag};
+use katana_primitives::block::{BlockHashOrNumber, BlockIdOrTag, ConfirmedBlockIdOrTag};
 use katana_primitives::execution::TypedTransactionExecutionInfo;
 use katana_primitives::transaction::{ExecutableTx, ExecutableTxWithHash, TxHash};
-use katana_provider::traits::block::{BlockNumberProvider, BlockProvider};
-use katana_provider::traits::transaction::{TransactionTraceProvider, TransactionsProviderExt};
+use katana_provider::api::block::{BlockNumberProvider, BlockProvider};
+use katana_provider::api::transaction::{TransactionTraceProvider, TransactionsProviderExt};
 use katana_rpc_api::error::starknet::StarknetApiError;
 use katana_rpc_api::starknet::StarknetTraceApiServer;
 use katana_rpc_types::broadcasted::BroadcastedTx;
-use katana_rpc_types::trace::{to_rpc_fee_estimate, to_rpc_trace};
-use katana_rpc_types::SimulationFlag;
-use starknet::core::types::{
-    BlockTag, SimulatedTransaction, TransactionTrace, TransactionTraceWithHash,
+use katana_rpc_types::trace::{
+    to_rpc_fee_estimate, SimulatedTransactionsResponse, TxTrace, TxTraceWithHash,
 };
+use katana_rpc_types::SimulationFlag;
 
 use super::StarknetApi;
 
@@ -22,7 +21,7 @@ impl<EF: ExecutorFactory> StarknetApi<EF> {
         block_id: BlockIdOrTag,
         transactions: Vec<BroadcastedTx>,
         simulation_flags: Vec<SimulationFlag>,
-    ) -> Result<Vec<SimulatedTransaction>, StarknetApiError> {
+    ) -> Result<Vec<SimulatedTransactionsResponse>, StarknetApiError> {
         let chain_id = self.inner.backend.chain_spec.id();
 
         let executables = transactions
@@ -85,10 +84,10 @@ impl<EF: ExecutorFactory> StarknetApi<EF> {
                 ExecutionResult::Success { trace, receipt } => {
                     let trace = TypedTransactionExecutionInfo::new(receipt.r#type(), trace);
 
-                    let transaction_trace = to_rpc_trace(trace);
+                    let transaction_trace = TxTrace::from(trace);
                     let fee_estimation =
                         to_rpc_fee_estimate(receipt.resources_used(), receipt.fee());
-                    let value = SimulatedTransaction { transaction_trace, fee_estimation };
+                    let value = SimulatedTransactionsResponse { transaction_trace, fee_estimation };
 
                     simulated.push(value)
                 }
@@ -107,61 +106,37 @@ impl<EF: ExecutorFactory> StarknetApi<EF> {
 
     fn block_traces(
         &self,
-        block_id: BlockIdOrTag,
-    ) -> Result<Vec<TransactionTraceWithHash>, StarknetApiError> {
+        block_id: ConfirmedBlockIdOrTag,
+    ) -> Result<Vec<TxTraceWithHash>, StarknetApiError> {
         use StarknetApiError::BlockNotFound;
 
         let provider = self.inner.backend.blockchain.provider();
 
         let block_id: BlockHashOrNumber = match block_id {
-            BlockIdOrTag::Tag(BlockTag::L1Accepted) => {
+            ConfirmedBlockIdOrTag::L1Accepted => {
                 unimplemented!("l1 accepted block id")
             }
-
-            BlockIdOrTag::Tag(BlockTag::PreConfirmed) => match self.pending_executor() {
-                Some(state) => {
-                    let pending_block = state.read();
-
-                    // extract the txs from the pending block
-                    let traces = pending_block.transactions().iter().filter_map(|(t, r)| {
-                        if let Some(trace) = r.trace().cloned() {
-                            let transaction_hash = t.hash;
-                            let trace = TypedTransactionExecutionInfo::new(t.r#type(), trace);
-                            let trace_root = to_rpc_trace(trace);
-
-                            Some(TransactionTraceWithHash { transaction_hash, trace_root })
-                        } else {
-                            None
-                        }
-                    });
-
-                    return Ok(traces.collect::<Vec<TransactionTraceWithHash>>());
-                }
-
-                // if there is no pending block, return the latest block
-                None => provider.latest_number()?.into(),
-            },
-            BlockIdOrTag::Tag(BlockTag::Latest) => provider.latest_number()?.into(),
-            BlockIdOrTag::Number(num) => num.into(),
-            BlockIdOrTag::Hash(hash) => hash.into(),
+            ConfirmedBlockIdOrTag::Latest => provider.latest_number()?.into(),
+            ConfirmedBlockIdOrTag::Number(num) => num.into(),
+            ConfirmedBlockIdOrTag::Hash(hash) => hash.into(),
         };
 
         let indices = provider.block_body_indices(block_id)?.ok_or(BlockNotFound)?;
         let tx_hashes = provider.transaction_hashes_in_range(indices.into())?;
 
         let traces = provider.transaction_executions_by_block(block_id)?.ok_or(BlockNotFound)?;
-        let traces = traces.into_iter().map(to_rpc_trace);
+        let traces = traces.into_iter().map(TxTrace::from);
 
         let result = tx_hashes
             .into_iter()
             .zip(traces)
-            .map(|(h, r)| TransactionTraceWithHash { transaction_hash: h, trace_root: r })
+            .map(|(h, r)| TxTraceWithHash { transaction_hash: h, trace_root: r })
             .collect::<Vec<_>>();
 
         Ok(result)
     }
 
-    fn trace(&self, tx_hash: TxHash) -> Result<TransactionTrace, StarknetApiError> {
+    fn trace(&self, tx_hash: TxHash) -> Result<TxTrace, StarknetApiError> {
         use StarknetApiError::TxnHashNotFound;
 
         // Check in the pending block first
@@ -172,7 +147,7 @@ impl<EF: ExecutorFactory> StarknetApi<EF> {
             if let Some((tx, res)) = tx {
                 if let Some(trace) = res.trace() {
                     let trace = TypedTransactionExecutionInfo::new(tx.r#type(), trace.clone());
-                    return Ok(to_rpc_trace(trace));
+                    return Ok(TxTrace::from(trace));
                 }
             }
         }
@@ -180,13 +155,13 @@ impl<EF: ExecutorFactory> StarknetApi<EF> {
         // If not found in pending block, fallback to the provider
         let provider = self.inner.backend.blockchain.provider();
         let trace = provider.transaction_execution(tx_hash)?.ok_or(TxnHashNotFound)?;
-        Ok(to_rpc_trace(trace))
+        Ok(TxTrace::from(trace))
     }
 }
 
 #[async_trait]
 impl<EF: ExecutorFactory> StarknetTraceApiServer for StarknetApi<EF> {
-    async fn trace_transaction(&self, transaction_hash: TxHash) -> RpcResult<TransactionTrace> {
+    async fn trace_transaction(&self, transaction_hash: TxHash) -> RpcResult<TxTrace> {
         self.on_io_blocking_task(move |this| Ok(this.trace(transaction_hash)?)).await
     }
 
@@ -195,7 +170,7 @@ impl<EF: ExecutorFactory> StarknetTraceApiServer for StarknetApi<EF> {
         block_id: BlockIdOrTag,
         transactions: Vec<BroadcastedTx>,
         simulation_flags: Vec<SimulationFlag>,
-    ) -> RpcResult<Vec<SimulatedTransaction>> {
+    ) -> RpcResult<Vec<SimulatedTransactionsResponse>> {
         self.on_cpu_blocking_task(move |this| {
             Ok(this.simulate_txs(block_id, transactions, simulation_flags)?)
         })
@@ -204,8 +179,8 @@ impl<EF: ExecutorFactory> StarknetTraceApiServer for StarknetApi<EF> {
 
     async fn trace_block_transactions(
         &self,
-        block_id: BlockIdOrTag,
-    ) -> RpcResult<Vec<TransactionTraceWithHash>> {
+        block_id: ConfirmedBlockIdOrTag,
+    ) -> RpcResult<Vec<TxTraceWithHash>> {
         self.on_io_blocking_task(move |this| Ok(this.block_traces(block_id)?)).await
     }
 }

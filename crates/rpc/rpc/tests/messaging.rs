@@ -8,18 +8,17 @@ use alloy_sol_types::sol;
 use anyhow::Result;
 use cainome::rs::abigen;
 use katana_messaging::MessagingConfig;
+use katana_primitives::block::BlockIdOrTag;
 use katana_primitives::utils::transaction::{
     compute_l1_handler_tx_hash, compute_l1_to_l2_message_hash,
 };
 use katana_primitives::{eth_address, felt};
-use katana_rpc_types::MsgFromL1;
+use katana_rpc_types::{Class, MsgFromL1};
 use katana_utils::{TestNode, TxWaiter};
 use rand::Rng;
 use starknet::accounts::{Account, ConnectedAccount};
 use starknet::contract::ContractFactory;
-use starknet::core::types::{
-    BlockId, BlockTag, ContractClass, Felt, Hash256, ReceiptBlock, Transaction, TransactionReceipt,
-};
+use starknet::core::types::{Felt, Hash256, ReceiptBlock, Transaction, TransactionReceipt};
 use starknet::core::utils::get_contract_address;
 use starknet::macros::selector;
 use starknet::providers::Provider;
@@ -87,11 +86,11 @@ async fn test_messaging() {
         TxWaiter::new(res.transaction_hash, &rpc_client).await.expect("declare tx failed");
 
         // Checks that the class was indeed declared
-        let block_id = BlockId::Tag(BlockTag::Latest);
-        let actual_class = katana_account.provider().get_class(block_id, class_hash).await.unwrap();
+        let block_id = BlockIdOrTag::Latest;
+        let actual_class = rpc_client.get_class(block_id, class_hash).await.unwrap();
 
-        let ContractClass::Sierra(class) = actual_class else { panic!("Invalid class type") };
-        assert_eq!(class.class_hash(), class_hash, "invalid declared class"); // just to make sure the rpc returns the correct class
+        let Class::Sierra(class) = actual_class else { panic!("Invalid class type") };
+        assert_eq!(class.hash().unwrap(), class_hash, "invalid declared class"); // just to make sure the rpc returns the correct class
 
         // Compute the contract address
         let address = get_contract_address(Felt::ZERO, class_hash, &[], Felt::ZERO);
@@ -107,9 +106,8 @@ async fn test_messaging() {
         TxWaiter::new(res.transaction_hash, &rpc_client).await.expect("deploy tx failed");
 
         // Checks that the class was indeed deployed with the correct class
-        let actual_class_hash = katana_account
-            .provider()
-            .get_class_hash_at(block_id, address)
+        let actual_class_hash = rpc_client
+            .get_class_hash_at(block_id, address.into())
             .await
             .expect("failed to get class hash at address");
 
@@ -268,7 +266,7 @@ async fn estimate_message_fee() -> Result<()> {
 
     let msg = MsgFromL1 { payload, to_address, entry_point_selector, from_address };
 
-    let result = rpc_client.estimate_message_fee(msg, BlockId::Tag(BlockTag::PreConfirmed)).await;
+    let result = rpc_client.estimate_message_fee(msg, BlockIdOrTag::PreConfirmed).await;
     assert!(result.is_ok());
 
     // #[derive(Drop, Serde)]
@@ -288,7 +286,7 @@ async fn estimate_message_fee() -> Result<()> {
 
     let msg = MsgFromL1 { payload, to_address, entry_point_selector, from_address };
 
-    let result = rpc_client.estimate_message_fee(msg, BlockId::Tag(BlockTag::PreConfirmed)).await;
+    let result = rpc_client.estimate_message_fee(msg, BlockIdOrTag::PreConfirmed).await;
     assert!(result.is_ok());
 
     Ok(())

@@ -1,9 +1,7 @@
 pub mod stateful;
 
-use katana_pool_api::{
-    validation::{ValidationOutcome, ValidationResult, Validator},
-    PoolTransaction,
-};
+use katana_pool_api::validation::{ValidationOutcome, ValidationResult, Validator};
+use katana_pool_api::PoolTransaction;
 
 /// A no-op validator that does nothing and assume all incoming transactions are valid.
 #[derive(Debug)]

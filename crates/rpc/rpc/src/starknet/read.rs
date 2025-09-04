@@ -14,7 +14,7 @@ use katana_primitives::genesis::allocation::GenesisAccountAlloc;
 use katana_primitives::transaction::{ExecutableTx, ExecutableTxWithHash, TxHash};
 use katana_primitives::{ContractAddress, Felt};
 #[cfg(feature = "cartridge")]
-use katana_provider::traits::state::StateFactoryProvider;
+use katana_provider::api::state::StateFactoryProvider;
 use katana_rpc_api::error::starknet::StarknetApiError;
 use katana_rpc_api::starknet::StarknetApiServer;
 use katana_rpc_types::block::{

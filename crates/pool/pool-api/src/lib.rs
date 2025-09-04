@@ -1,7 +1,9 @@
 use std::sync::Arc;
 
 use futures::channel::mpsc::Receiver;
-use katana_primitives::{contract::Nonce, transaction::TxHash, ContractAddress};
+use katana_primitives::contract::Nonce;
+use katana_primitives::transaction::TxHash;
+use katana_primitives::ContractAddress;
 
 mod ordering;
 mod pending;

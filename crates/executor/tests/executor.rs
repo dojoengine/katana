@@ -12,8 +12,8 @@ use katana_primitives::genesis::constant::{
 };
 use katana_primitives::transaction::TxWithHash;
 use katana_primitives::{address, Felt};
-use katana_provider::traits::contract::ContractClassProviderExt;
-use katana_provider::traits::state::StateProvider;
+use katana_provider::api::contract::ContractClassProviderExt;
+use katana_provider::api::state::StateProvider;
 use starknet::core::utils::{
     get_storage_var_address, get_udc_deployed_address, UdcUniqueSettings, UdcUniqueness,
 };

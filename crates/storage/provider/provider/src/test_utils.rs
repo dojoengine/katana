@@ -1,15 +1,13 @@
 use std::sync::Arc;
 
-use katana_primitives::address;
 use katana_primitives::block::{Block, BlockHash, FinalityStatus};
 use katana_primitives::contract::ContractAddress;
-use katana_primitives::felt;
 use katana_primitives::genesis::allocation::{
     DevGenesisAccount, GenesisAccountAlloc, GenesisAllocation,
 };
 use katana_primitives::genesis::Genesis;
 use katana_primitives::utils::class::parse_sierra_class;
-use katana_primitives::U256;
+use katana_primitives::{address, felt, U256};
 use katana_provider_api::block::BlockWriter;
 
 use crate::providers::db::DbProvider;

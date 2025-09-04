@@ -2,7 +2,7 @@
 
 use jsonrpsee::core::RpcResult;
 use jsonrpsee::proc_macros::rpc;
-use katana_primitives::block::BlockIdOrTag;
+use katana_primitives::block::{BlockIdOrTag, ConfirmedBlockIdOrTag};
 use katana_primitives::class::ClassHash;
 use katana_primitives::contract::{Nonce, StorageKey};
 use katana_primitives::transaction::TxHash;
@@ -22,14 +22,13 @@ use katana_rpc_types::event::{EventFilterWithPage, GetEventsResponse};
 use katana_rpc_types::message::MsgFromL1;
 use katana_rpc_types::receipt::TxReceiptWithBlockInfo;
 use katana_rpc_types::state_update::GetStateUpdateResponse;
+use katana_rpc_types::trace::{SimulatedTransactionsResponse, TxTrace, TxTraceWithHash};
 use katana_rpc_types::transaction::RpcTxWithHash;
 use katana_rpc_types::trie::{ContractStorageKeys, GetStorageProofResponse};
 use katana_rpc_types::{
     EstimateFeeSimulationFlag, FeeEstimate, FunctionCall, SimulationFlag, SyncingResponse,
 };
-use starknet::core::types::{
-    SimulatedTransaction, TransactionStatus, TransactionTrace, TransactionTraceWithHash,
-};
+use starknet::core::types::TransactionStatus;
 
 /// The currently supported version of the Starknet JSON-RPC specification.
 pub const RPC_SPEC_VERSION: &str = "0.9.0";
@@ -226,7 +225,7 @@ pub trait StarknetWriteApi {
 pub trait StarknetTraceApi {
     /// Returns the execution trace of the transaction designated by the input hash.
     #[method(name = "traceTransaction")]
-    async fn trace_transaction(&self, transaction_hash: TxHash) -> RpcResult<TransactionTrace>;
+    async fn trace_transaction(&self, transaction_hash: TxHash) -> RpcResult<TxTrace>;
 
     /// Simulates a list of transactions on the provided block.
     #[method(name = "simulateTransactions")]
@@ -235,12 +234,12 @@ pub trait StarknetTraceApi {
         block_id: BlockIdOrTag,
         transactions: Vec<BroadcastedTx>,
         simulation_flags: Vec<SimulationFlag>,
-    ) -> RpcResult<Vec<SimulatedTransaction>>;
+    ) -> RpcResult<Vec<SimulatedTransactionsResponse>>;
 
     /// Returns the execution traces of all transactions included in the given block.
     #[method(name = "traceBlockTransactions")]
     async fn trace_block_transactions(
         &self,
-        block_id: BlockIdOrTag,
-    ) -> RpcResult<Vec<TransactionTraceWithHash>>;
+        block_id: ConfirmedBlockIdOrTag,
+    ) -> RpcResult<Vec<TxTraceWithHash>>;
 }

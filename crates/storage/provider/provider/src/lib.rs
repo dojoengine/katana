@@ -16,23 +16,20 @@ use katana_primitives::state::{StateUpdates, StateUpdatesWithClasses};
 use katana_primitives::transaction::{TxHash, TxNumber, TxWithHash};
 use katana_primitives::Felt;
 use katana_provider_api::block::{
-    BlockHashProvider, BlockNumberProvider, BlockProvider, HeaderProvider,
+    BlockHashProvider, BlockIdReader, BlockNumberProvider, BlockProvider, BlockStatusProvider,
+    BlockWriter, HeaderProvider,
 };
-use katana_provider_api::block::{BlockIdReader, BlockStatusProvider, BlockWriter};
 use katana_provider_api::contract::ContractClassWriter;
 use katana_provider_api::env::BlockEnvProvider;
 use katana_provider_api::stage::StageCheckpointProvider;
-use katana_provider_api::state::StateWriter;
-use katana_provider_api::state::{StateFactoryProvider, StateProvider};
+use katana_provider_api::state::{StateFactoryProvider, StateProvider, StateWriter};
 use katana_provider_api::state_update::StateUpdateProvider;
 use katana_provider_api::transaction::{
-    ReceiptProvider, TransactionProvider, TransactionsProviderExt,
+    ReceiptProvider, TransactionProvider, TransactionStatusProvider, TransactionTraceProvider,
+    TransactionsProviderExt,
 };
-use katana_provider_api::transaction::{TransactionStatusProvider, TransactionTraceProvider};
 use katana_provider_api::trie::TrieWriter;
-
-pub use katana_provider_api::ProviderError;
-pub use katana_provider_api::ProviderResult;
+pub use katana_provider_api::{ProviderError, ProviderResult};
 
 pub mod providers;
 #[cfg(any(test, feature = "test-utils"))]

@@ -9,9 +9,9 @@ use katana_primitives::event::ContinuationToken;
 use katana_primitives::receipt::Event;
 use katana_primitives::transaction::TxHash;
 use katana_primitives::Felt;
-use katana_provider::error::ProviderError;
-use katana_provider::traits::block::BlockProvider;
-use katana_provider::traits::transaction::ReceiptProvider;
+use katana_provider::api::block::BlockProvider;
+use katana_provider::api::transaction::ReceiptProvider;
+use katana_provider::api::ProviderError;
 use katana_rpc_api::error::starknet::StarknetApiError;
 use katana_rpc_types::event::EmittedEvent;
 

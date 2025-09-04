@@ -136,7 +136,9 @@ impl ForkedClient {
                 Ok(tx?)
             }
 
-            BlockIdOrTag::Tag(_) => Err(Error::BlockTagNotAllowed),
+            BlockIdOrTag::L1Accepted | BlockIdOrTag::Latest | BlockIdOrTag::PreConfirmed => {
+                return Err(Error::BlockTagNotAllowed);
+            }
         }
     }
 
@@ -211,10 +213,10 @@ impl ForkedClient {
                     }
                 }
             }
-            BlockIdOrTag::Tag(_) => {
+            BlockIdOrTag::L1Accepted | BlockIdOrTag::Latest | BlockIdOrTag::PreConfirmed => {
                 return Err(Error::BlockTagNotAllowed);
             }
-            _ => {}
+            BlockIdOrTag::Number(_) => {}
         }
 
         Ok(self.client.get_block_transaction_count(block_id).await?)
@@ -236,10 +238,10 @@ impl ForkedClient {
                     }
                 }
             }
-            BlockIdOrTag::Tag(_) => {
+            BlockIdOrTag::L1Accepted | BlockIdOrTag::Latest | BlockIdOrTag::PreConfirmed => {
                 return Err(Error::BlockTagNotAllowed);
             }
-            _ => {}
+            BlockIdOrTag::Number(_) => {}
         }
 
         Ok(self.client.get_state_update(block_id).await?)

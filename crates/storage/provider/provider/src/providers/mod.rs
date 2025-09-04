@@ -5,11 +5,11 @@ pub mod fork;
 use katana_primitives::class::{ClassHash, CompiledClassHash, ContractClass};
 use katana_primitives::contract::{Nonce, StorageKey, StorageValue};
 use katana_primitives::{ContractAddress, Felt};
+use katana_provider_api::contract::ContractClassProvider;
+use katana_provider_api::state::{StateProofProvider, StateProvider, StateRootProvider};
 use katana_trie::MultiProof;
 
 use crate::ProviderResult;
-use katana_provider_api::contract::ContractClassProvider;
-use katana_provider_api::state::{StateProofProvider, StateProvider, StateRootProvider};
 
 #[derive(Debug)]
 pub struct EmptyStateProvider;

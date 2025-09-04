@@ -2,7 +2,7 @@ use anyhow::Result;
 use assert_matches::assert_matches;
 use cainome::rs::abigen_legacy;
 use katana_node::config::fork::ForkingConfig;
-use katana_primitives::block::{BlockHash, BlockIdOrTag, BlockNumber, BlockTag};
+use katana_primitives::block::{BlockHash, BlockIdOrTag, BlockNumber};
 use katana_primitives::chain::NamedChainId;
 use katana_primitives::event::MaybeForkedContinuationToken;
 use katana_primitives::genesis::constant::DEFAULT_STRK_FEE_TOKEN_ADDRESS;
@@ -12,12 +12,10 @@ use katana_rpc::HttpClient;
 use katana_rpc_api::error::starknet::StarknetApiError;
 use katana_rpc_client::starknet::Client as StarknetClient;
 use katana_rpc_types::{
-    BlockNumberResponse, EventFilter, EventFilterWithPage, MaybePreConfirmedBlockWithReceipts,
-    MaybePreConfirmedBlockWithTxHashes, MaybePreConfirmedBlockWithTxs, ResultPageRequest,
+    BlockNumberResponse, EventFilter, MaybePreConfirmedBlockWithReceipts,
+    MaybePreConfirmedBlockWithTxHashes, MaybePreConfirmedBlockWithTxs,
 };
 use katana_utils::TestNode;
-use starknet::providers::jsonrpc::HttpTransport;
-use starknet::providers::{JsonRpcClient, Provider, ProviderError};
 use url::Url;
 
 mod common;
@@ -530,8 +528,8 @@ async fn get_events_pending_exhaustive() {
     let filter = EventFilter {
         keys: None,
         address: None,
-        to_block: Some(BlockIdOrTag::Tag(BlockTag::PreConfirmed)),
-        from_block: Some(BlockIdOrTag::Tag(BlockTag::PreConfirmed)),
+        to_block: Some(BlockIdOrTag::PreConfirmed),
+        from_block: Some(BlockIdOrTag::PreConfirmed),
     };
 
     let result = provider.get_events(filter, None, 10).await.unwrap();
@@ -577,7 +575,7 @@ async fn get_events_forked_and_local_boundary_exhaustive(#[case] block_id: Block
     let filter = EventFilter {
         keys: None,
         address: None,
-        to_block: Some(BlockIdOrTag::Tag(BlockTag::Latest)),
+        to_block: Some(BlockIdOrTag::Latest),
         from_block: Some(block_id),
     };
 
@@ -627,7 +625,7 @@ async fn get_events_forked_and_local_boundary_non_exhaustive(#[case] block_id: B
     let filter = EventFilter {
         keys: None,
         address: None,
-        to_block: Some(BlockIdOrTag::Tag(BlockTag::PreConfirmed)),
+        to_block: Some(BlockIdOrTag::PreConfirmed),
         from_block: Some(block_id),
     };
 

@@ -17,8 +17,10 @@ use katana_executor::implementation::blockifier::utils::{
     block_context_from_envs, to_address, to_executor_tx,
 };
 use katana_executor::ExecutionFlags;
-use katana_pool_api::validation::Error;
-use katana_pool_api::validation::{InvalidTransactionError, ValidationOutcome, Validator};
+use katana_pool_api::validation::{
+    Error, InsufficientFundsError, InsufficientIntrinsicFeeError, InvalidTransactionError,
+    ValidationOutcome, Validator,
+};
 use katana_pool_api::PoolTransaction;
 use katana_primitives::contract::{ContractAddress, Nonce};
 use katana_primitives::env::{BlockEnv, CfgEnv};
@@ -29,7 +31,6 @@ use katana_provider::api::ProviderError;
 use parking_lot::Mutex;
 
 use super::ValidationResult;
-use katana_pool_api::validation::{InsufficientFundsError, InsufficientIntrinsicFeeError};
 
 #[derive(Debug, Clone)]
 pub struct TxValidator {

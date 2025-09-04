@@ -43,6 +43,68 @@ pub enum RpcTxReceipt {
     DeployAccount(RpcDeployAccountTxReceipt),
 }
 
+impl RpcTxReceipt {
+    pub fn execution_resources(&self) -> &ExecutionResources {
+        match self {
+            RpcTxReceipt::Invoke(receipt) => &receipt.execution_resources,
+            RpcTxReceipt::Deploy(receipt) => &receipt.execution_resources,
+            RpcTxReceipt::Declare(receipt) => &receipt.execution_resources,
+            RpcTxReceipt::L1Handler(receipt) => &receipt.execution_resources,
+            RpcTxReceipt::DeployAccount(receipt) => &receipt.execution_resources,
+        }
+    }
+
+    pub fn execution_result(&self) -> &ExecutionResult {
+        match self {
+            RpcTxReceipt::Invoke(receipt) => &receipt.execution_result,
+            RpcTxReceipt::Deploy(receipt) => &receipt.execution_result,
+            RpcTxReceipt::Declare(receipt) => &receipt.execution_result,
+            RpcTxReceipt::L1Handler(receipt) => &receipt.execution_result,
+            RpcTxReceipt::DeployAccount(receipt) => &receipt.execution_result,
+        }
+    }
+
+    pub fn finality_status(&self) -> &TransactionFinalityStatus {
+        match self {
+            RpcTxReceipt::Invoke(receipt) => &receipt.finality_status,
+            RpcTxReceipt::Deploy(receipt) => &receipt.finality_status,
+            RpcTxReceipt::Declare(receipt) => &receipt.finality_status,
+            RpcTxReceipt::L1Handler(receipt) => &receipt.finality_status,
+            RpcTxReceipt::DeployAccount(receipt) => &receipt.finality_status,
+        }
+    }
+
+    pub fn actual_fee(&self) -> &FeePayment {
+        match self {
+            RpcTxReceipt::Invoke(receipt) => &receipt.actual_fee,
+            RpcTxReceipt::Deploy(receipt) => &receipt.actual_fee,
+            RpcTxReceipt::Declare(receipt) => &receipt.actual_fee,
+            RpcTxReceipt::L1Handler(receipt) => &receipt.actual_fee,
+            RpcTxReceipt::DeployAccount(receipt) => &receipt.actual_fee,
+        }
+    }
+
+    pub fn events(&self) -> &[Event] {
+        match self {
+            RpcTxReceipt::Invoke(receipt) => &receipt.events,
+            RpcTxReceipt::Deploy(receipt) => &receipt.events,
+            RpcTxReceipt::Declare(receipt) => &receipt.events,
+            RpcTxReceipt::L1Handler(receipt) => &receipt.events,
+            RpcTxReceipt::DeployAccount(receipt) => &receipt.events,
+        }
+    }
+
+    pub fn messages_sent(&self) -> &[MessageToL1] {
+        match self {
+            RpcTxReceipt::Invoke(receipt) => &receipt.messages_sent,
+            RpcTxReceipt::Deploy(receipt) => &receipt.messages_sent,
+            RpcTxReceipt::Declare(receipt) => &receipt.messages_sent,
+            RpcTxReceipt::L1Handler(receipt) => &receipt.messages_sent,
+            RpcTxReceipt::DeployAccount(receipt) => &receipt.messages_sent,
+        }
+    }
+}
+
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub struct RpcInvokeTxReceipt {
     pub actual_fee: FeePayment,

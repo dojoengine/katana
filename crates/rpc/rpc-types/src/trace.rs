@@ -12,6 +12,20 @@ use serde::{Deserialize, Serialize};
 use crate::state_update::StateDiff;
 use crate::{ExecutionResources, FeeEstimate};
 
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct SimulatedTransactionsResponse {
+    /// The transaction's trace
+    pub transaction_trace: TxTrace,
+    /// The transaction's resources and fee
+    pub fee_estimation: FeeEstimate,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct TxTraceWithHash {
+    pub transaction_hash: Felt,
+    pub trace_root: TxTrace,
+}
+
 /// Execution trace of a Starknet transaction.
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(tag = "type", rename_all = "SCREAMING_SNAKE_CASE")]

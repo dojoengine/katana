@@ -1,3 +1,4 @@
+use std::collections::BTreeMap;
 use std::path::PathBuf;
 use std::sync::Arc;
 
@@ -6,6 +7,7 @@ use cainome::rs::{abigen, abigen_legacy};
 use common::split_felt;
 use indexmap::IndexSet;
 use katana_contracts::contracts;
+use katana_primitives::block::{BlockIdOrTag, ConfirmedBlockIdOrTag};
 use katana_primitives::event::ContinuationToken;
 use katana_primitives::genesis::constant::{
     DEFAULT_ETH_FEE_TOKEN_ADDRESS, DEFAULT_PREFUNDED_ACCOUNT_BALANCE,
@@ -14,19 +16,20 @@ use katana_primitives::genesis::constant::{
 use katana_primitives::Felt;
 use katana_rpc_api::dev::DevApiClient;
 use katana_rpc_types::state_update::MaybePreConfirmedStateUpdate;
+use katana_rpc_types::trace::TxTrace;
 use katana_rpc_types::{
-    MaybePreConfirmedBlockWithReceipts, MaybePreConfirmedBlockWithTxHashes,
-    MaybePreConfirmedBlockWithTxs, RpcDeclareTxReceipt, RpcDeployAccountTxReceipt, RpcTxReceipt,
+    EventFilter, GetEventsResponse, MaybePreConfirmedBlockWithReceipts,
+    MaybePreConfirmedBlockWithTxHashes, MaybePreConfirmedBlockWithTxs, RpcDeclareTxReceipt,
+    RpcDeployAccountTxReceipt, RpcTxReceipt,
 };
+use katana_utils::node::StarknetError;
 use katana_utils::TestNode;
 use num_traits::ToPrimitive;
 use starknet::accounts::{
     Account, AccountError, AccountFactory, ConnectedAccount, ExecutionEncoding,
     OpenZeppelinAccountFactory as OZAccountFactory, SingleOwnerAccount,
 };
-use starknet::core::types::{
-    BlockId, BlockTag, Call, ConfirmedBlockId, ExecutionResult, TransactionTrace,
-};
+use starknet::core::types::{Call, ExecutionResult};
 use starknet::core::utils::get_contract_address;
 use starknet::macros::{felt, selector};
 use starknet::providers::{Provider, ProviderError};
@@ -54,19 +57,16 @@ async fn declare_and_deploy_contract() {
     assert_matches!(receipt.receipt, RpcTxReceipt::Declare(RpcDeclareTxReceipt { .. }));
 
     // check that the class is actually declared
-    assert!(provider.get_class(BlockId::Tag(BlockTag::PreConfirmed), class_hash).await.is_ok());
+    assert!(provider.get_class(BlockIdOrTag::PreConfirmed, class_hash).await.is_ok());
 
     // check state update includes class in declared_classes
-    let state_update = provider.get_state_update(BlockId::Tag(BlockTag::Latest)).await.unwrap();
+    let state_update = provider.get_state_update(BlockIdOrTag::Latest).await.unwrap();
     match state_update {
         MaybePreConfirmedStateUpdate::Update(update) => {
-            assert!(update
-                .0
-                .state_diff
-                .declared_classes
-                .iter()
-                .any(|item| item.class_hash == class_hash
-                    && item.compiled_class_hash == compiled_class_hash));
+            similar_asserts::assert_eq!(
+                update.state_diff.declared_classes,
+                BTreeMap::from_iter([(class_hash, compiled_class_hash)])
+            );
         }
         _ => panic!("Expected Update, got PendingUpdate"),
     }
@@ -100,8 +100,7 @@ async fn declare_and_deploy_contract() {
     katana_utils::TxWaiter::new(res.transaction_hash, &provider).await.unwrap();
 
     // make sure the contract is deployed
-    let res =
-        provider.get_class_hash_at(BlockId::Tag(BlockTag::PreConfirmed), address).await.unwrap();
+    let res = provider.get_class_hash_at(BlockIdOrTag::PreConfirmed, address.into()).await.unwrap();
     assert_eq!(res, class_hash);
 }
 
@@ -122,7 +121,7 @@ async fn declaring_already_existing_class() {
     // check that the tx is executed successfully and return the correct receipt
     let _ = katana_utils::TxWaiter::new(res.transaction_hash, &provider).await.unwrap();
     // check that the class is actually declared
-    assert!(provider.get_class(BlockId::Tag(BlockTag::PreConfirmed), class_hash).await.is_ok());
+    assert!(provider.get_class(BlockIdOrTag::PreConfirmed, class_hash).await.is_ok());
 
     // -----------------------------------------------------------------------
     // Declaring the same class again should fail with a ClassAlreadyDeclared error
@@ -194,10 +193,8 @@ async fn deploy_account(
 
     // Verify the `getClassHashAt` returns the same class hash that we use for the account
     // deployment
-    let res = provider
-        .get_class_hash_at(BlockId::Tag(BlockTag::PreConfirmed), account_address)
-        .await
-        .unwrap();
+    let res =
+        provider.get_class_hash_at(BlockIdOrTag::PreConfirmed, account_address).await.unwrap();
     assert_eq!(res, class);
 
     // deploy from empty balance,
@@ -226,10 +223,8 @@ async fn deploy_account(
 
         // Verify the `getClassHashAt` returns the same class hash that we use for the account
         // deployment
-        let res = provider
-            .get_class_hash_at(BlockId::Tag(BlockTag::PreConfirmed), account_address)
-            .await
-            .unwrap();
+        let res =
+            provider.get_class_hash_at(BlockIdOrTag::PreConfirmed, account_address).await.unwrap();
         assert_eq!(res, class);
     }
 }
@@ -252,8 +247,7 @@ async fn estimate_fee() {
 
     // estimate fee with current nonce (the expected nonce)
     let address = account.address();
-    let nonce =
-        provider.get_nonce(BlockId::Tag(BlockTag::PreConfirmed), address.into()).await.unwrap();
+    let nonce = provider.get_nonce(BlockIdOrTag::PreConfirmed, address.into()).await.unwrap();
     let result = contract.transfer(&recipient, &amount).nonce(nonce).estimate_fee().await;
     assert!(result.is_ok(), "estimate should succeed with nonce == current nonce");
 }
@@ -283,7 +277,7 @@ async fn estimate_fee_with_small_nonce() {
     // used, so it should fail.
     let address = account.address();
     let current_nonce =
-        provider.get_nonce(BlockId::Tag(BlockTag::PreConfirmed), address).await.unwrap();
+        provider.get_nonce(BlockIdOrTag::PreConfirmed, address.into()).await.unwrap();
 
     let nonce = current_nonce - 1;
     let result = contract.transfer(&recipient, &amount).nonce(nonce).estimate_fee().await;
@@ -355,7 +349,7 @@ async fn concurrent_transactions_submissions(#[values(None, Some(1000))] block_t
     let amount = Uint256 { low: Felt::ONE, high: Felt::ZERO };
 
     let initial_nonce = provider
-        .get_nonce(BlockId::Tag(BlockTag::PreConfirmed), sequencer.account().address())
+        .get_nonce(BlockIdOrTag::PreConfirmed, sequencer.account().address())
         .await
         .unwrap();
 
@@ -399,7 +393,7 @@ async fn concurrent_transactions_submissions(#[values(None, Some(1000))] block_t
 
     // check the status of each txs
     for hash in txs.iter() {
-        let receipt = provider.get_transaction_receipt(hash).await.unwrap();
+        let receipt = provider.get_transaction_receipt(*hash).await.unwrap();
         assert_eq!(receipt.receipt.execution_result(), &ExecutionResult::Succeeded);
         assert_eq!(receipt.receipt.finality_status(), &TransactionFinalityStatus::AcceptedOnL2);
     }
@@ -427,7 +421,7 @@ async fn ensure_validator_have_valid_state(#[values(None, Some(1000))] block_tim
     let amount = Uint256 { low, high };
 
     let res = contract.transfer(&recipient, &amount).send().await.unwrap();
-    katana_utils::TxWaiter::new(res.transaction_hash, &sequencer.starknet_provider())
+    katana_utils::TxWaiter::new(res.transaction_hash, &sequencer.starknet_rpc_client())
         .await
         .unwrap();
 
@@ -724,19 +718,19 @@ async fn get_events_no_pending() {
     let filter = EventFilter {
         keys: None,
         address: None,
-        to_block: Some(BlockId::Number(1)),
-        from_block: Some(BlockId::Number(0)),
+        to_block: Some(BlockIdOrTag::Number(1)),
+        from_block: Some(BlockIdOrTag::Number(0)),
     };
 
     // -----------------------------------------------------------------------
     //  case 1 (chunk size = 0)
 
     let chunk_size = 0;
-    let EventsPage { events, continuation_token } =
+    let GetEventsResponse { events, continuation_token } =
         provider.get_events(filter.clone(), None, chunk_size).await.unwrap();
 
     assert_eq!(events.len(), 0);
-    assert_matches!(continuation_token, Some(token ) => {
+    assert_matches!(continuation_token, Some(token) => {
         let token = ContinuationToken::parse(&token).unwrap();
         assert_eq!(token.block_n, 1);
         assert_eq!(token.txn_n, 0);
@@ -747,7 +741,7 @@ async fn get_events_no_pending() {
     //  case 2
 
     let chunk_size = 3;
-    let EventsPage { events, continuation_token } =
+    let GetEventsResponse { events, continuation_token } =
         provider.get_events(filter.clone(), None, chunk_size).await.unwrap();
 
     assert_eq!(events.len(), 3, "Total events should be limited by chunk size ({chunk_size})");
@@ -758,7 +752,7 @@ async fn get_events_no_pending() {
         assert_eq!(token.event_n, 0);
     });
 
-    let EventsPage { events, continuation_token } =
+    let GetEventsResponse { events, continuation_token } =
         provider.get_events(filter.clone(), continuation_token, chunk_size).await.unwrap();
 
     assert_eq!(events.len(), 2, "Remaining should be 2");
@@ -768,7 +762,7 @@ async fn get_events_no_pending() {
     //  case 3 (max chunk is greater than total events in the requested range)
 
     let chunk_size = 100;
-    let EventsPage { events, continuation_token } =
+    let GetEventsResponse { events, continuation_token } =
         provider.get_events(filter.clone(), None, chunk_size).await.unwrap();
 
     assert_eq!(events.len(), TOTAL_EVENT_COUNT);
@@ -815,7 +809,7 @@ async fn get_events_with_pending() {
     let filter = EventFilter { keys: None, address: None, to_block: None, from_block: None };
 
     let chunk_size = BLOCK_1_TX_COUNT;
-    let EventsPage { events, continuation_token } =
+    let GetEventsResponse { events, continuation_token } =
         provider.get_events(filter.clone(), None, chunk_size as u64).await.unwrap();
 
     assert_eq!(events.len(), chunk_size);
@@ -832,7 +826,7 @@ async fn get_events_with_pending() {
     // we split the pending events into two chunks to cover different cases.
 
     let chunk_size = 3;
-    let EventsPage { events, continuation_token } =
+    let GetEventsResponse { events, continuation_token } =
         provider.get_events(filter.clone(), continuation_token, chunk_size).await.unwrap();
 
     assert_eq!(events.len() as u64, chunk_size);
@@ -844,7 +838,7 @@ async fn get_events_with_pending() {
     });
 
     // get the rest of events in the pending block
-    let EventsPage { events, continuation_token } =
+    let GetEventsResponse { events, continuation_token } =
         provider.get_events(filter.clone(), continuation_token, chunk_size).await.unwrap();
 
     assert_eq!(events.len(), PENDING_BLOCK_TX_COUNT - chunk_size as usize);
@@ -857,7 +851,7 @@ async fn get_events_with_pending() {
 
     // fetching events with the continuation token should return an empty list and the
     // token shouldn't change.
-    let EventsPage { events, continuation_token: new_token } =
+    let GetEventsResponse { events, continuation_token: new_token } =
         provider.get_events(filter, continuation_token.clone(), chunk_size).await.unwrap();
 
     assert_eq!(events.len(), 0);
@@ -897,7 +891,7 @@ async fn trace() {
 
     for hash in hashes {
         let trace = provider.trace_transaction(hash).await.unwrap();
-        assert_matches!(trace, TransactionTrace::Invoke(_));
+        assert_matches!(trace, TxTrace::Invoke(_));
     }
 
     // -----------------------------------------------------------------------
@@ -908,7 +902,7 @@ async fn trace() {
         katana_utils::TxWaiter::new(res.transaction_hash, &provider).await.unwrap();
 
         let trace = provider.trace_transaction(res.transaction_hash).await.unwrap();
-        assert_matches!(trace, TransactionTrace::Invoke(_));
+        assert_matches!(trace, TxTrace::Invoke(_));
     }
 }
 
@@ -944,13 +938,13 @@ async fn block_traces() {
     rpc_client.generate_block().await.unwrap();
 
     // Get the traces of the transactions in block 1.
-    let block_id = ConfirmedBlockId::Number(1);
+    let block_id = ConfirmedBlockIdOrTag::Number(1);
     let traces = provider.trace_block_transactions(block_id).await.unwrap();
     assert_eq!(traces.len(), 5);
 
     for i in 0..5 {
         assert_eq!(traces[i].transaction_hash, hashes[i]);
-        assert_matches!(&traces[i].trace_root, TransactionTrace::Invoke(_));
+        assert_matches!(&traces[i].trace_root, TxTrace::Invoke(_));
     }
 
     // -----------------------------------------------------------------------
@@ -970,13 +964,13 @@ async fn block_traces() {
     rpc_client.generate_block().await.unwrap();
 
     // Get the traces of the transactions in block 2.
-    let block_id = ConfirmedBlockId::Number(2);
+    let block_id = ConfirmedBlockIdOrTag::Number(2);
     let traces = provider.trace_block_transactions(block_id).await.unwrap();
     assert_eq!(traces.len(), 2);
 
     for i in 0..2 {
         assert_eq!(traces[i].transaction_hash, hashes[i]);
-        assert_matches!(&traces[i].trace_root, TransactionTrace::Invoke(_));
+        assert_matches!(&traces[i].trace_root, TxTrace::Invoke(_));
     }
 
     // -----------------------------------------------------------------------
@@ -996,13 +990,13 @@ async fn block_traces() {
     rpc_client.generate_block().await.unwrap();
 
     // Get the traces of the transactions in block 3.
-    let block_id = ConfirmedBlockId::Latest;
+    let block_id = ConfirmedBlockIdOrTag::Latest;
     let traces = provider.trace_block_transactions(block_id).await.unwrap();
     assert_eq!(traces.len(), 3);
 
     for i in 0..3 {
         assert_eq!(traces[i].transaction_hash, hashes[i]);
-        assert_matches!(&traces[i].trace_root, TransactionTrace::Invoke(_));
+        assert_matches!(&traces[i].trace_root, TxTrace::Invoke(_));
     }
 
     // TODO: add scenario for l1 accepted block
@@ -1065,7 +1059,7 @@ async fn fetch_pending_blocks() {
         txs.push(res.transaction_hash);
     }
 
-    let block_id = BlockId::Tag(BlockTag::PreConfirmed);
+    let block_id = BlockIdOrTag::PreConfirmed;
 
     // -----------------------------------------------------------------------
 
@@ -1074,19 +1068,19 @@ async fn fetch_pending_blocks() {
 
     let block_with_txs = provider.get_block_with_txs(block_id).await.unwrap();
 
-    if let MaybePreConfirmedBlockWithTxs::PreConfirmedBlock(block) = block_with_txs {
+    if let MaybePreConfirmedBlockWithTxs::PreConfirmed(block) = block_with_txs {
         // preconfimred block number should be latest_block_number + 1
         assert_eq!(block.block_number, latest_block_number + 1);
         assert_eq!(block.transactions.len(), txs.len());
-        assert_eq!(txs[0], *block.transactions[0].transaction_hash());
-        assert_eq!(txs[1], *block.transactions[1].transaction_hash());
-        assert_eq!(txs[2], *block.transactions[2].transaction_hash());
+        assert_eq!(txs[0], block.transactions[0].transaction_hash);
+        assert_eq!(txs[1], block.transactions[1].transaction_hash);
+        assert_eq!(txs[2], block.transactions[2].transaction_hash);
     } else {
         panic!("expected pending block with transactions")
     }
 
     let block_with_tx_hashes = provider.get_block_with_tx_hashes(block_id).await.unwrap();
-    if let MaybePreConfirmedBlockWithTxHashes::PreConfirmedBlock(block) = block_with_tx_hashes {
+    if let MaybePreConfirmedBlockWithTxHashes::PreConfirmed(block) = block_with_tx_hashes {
         // preconfimred block number should be latest_block_number + 1
         assert_eq!(block.block_number, latest_block_number + 1);
         assert_eq!(block.transactions.len(), txs.len());
@@ -1098,13 +1092,13 @@ async fn fetch_pending_blocks() {
     }
 
     let block_with_receipts = provider.get_block_with_receipts(block_id).await.unwrap();
-    if let MaybePreConfirmedBlockWithReceipts::PreConfirmedBlock(block) = block_with_receipts {
+    if let MaybePreConfirmedBlockWithReceipts::PreConfirmed(block) = block_with_receipts {
         // preconfimred block number should be latest_block_number + 1
         assert_eq!(block.block_number, latest_block_number + 1);
         assert_eq!(block.transactions.len(), txs.len());
-        assert_eq!(txs[0], *block.transactions[0].receipt.transaction_hash());
-        assert_eq!(txs[1], *block.transactions[1].receipt.transaction_hash());
-        assert_eq!(txs[2], *block.transactions[2].receipt.transaction_hash());
+        assert_eq!(txs[0], block.transactions[0].receipt.transaction_hash);
+        assert_eq!(txs[1], block.transactions[1].receipt.transaction_hash);
+        assert_eq!(txs[2], block.transactions[2].receipt.transaction_hash);
     } else {
         panic!("expected pending block with transaction receipts")
     }
@@ -1118,7 +1112,7 @@ async fn fetch_pending_blocks() {
     let latest_block_number = latest_block_hash_n_num.block_number;
     let block_with_txs = provider.get_block_with_txs(block_id).await.unwrap();
 
-    if let MaybePreConfirmedBlockWithTxs::PreConfirmedBlock(block) = block_with_txs {
+    if let MaybePreConfirmedBlockWithTxs::PreConfirmed(block) = block_with_txs {
         // preconfimred block number should be latest_block_number + 1
         assert_eq!(block.block_number, latest_block_number + 1);
         assert_eq!(block.transactions.len(), 0);
@@ -1127,7 +1121,7 @@ async fn fetch_pending_blocks() {
     }
 
     let block_with_tx_hashes = provider.get_block_with_tx_hashes(block_id).await.unwrap();
-    if let MaybePreConfirmedBlockWithTxHashes::PreConfirmedBlock(block) = block_with_tx_hashes {
+    if let MaybePreConfirmedBlockWithTxHashes::PreConfirmed(block) = block_with_tx_hashes {
         // preconfimred block number should be latest_block_number + 1
         assert_eq!(block.block_number, latest_block_number + 1);
         assert_eq!(block.transactions.len(), 0);
@@ -1136,7 +1130,7 @@ async fn fetch_pending_blocks() {
     }
 
     let block_with_receipts = provider.get_block_with_receipts(block_id).await.unwrap();
-    if let MaybePreConfirmedBlockWithReceipts::PreConfirmedBlock(block) = block_with_receipts {
+    if let MaybePreConfirmedBlockWithReceipts::PreConfirmed(block) = block_with_receipts {
         // preconfimred block number should be latest_block_number + 1
         assert_eq!(block.block_number, latest_block_number + 1);
         assert_eq!(block.transactions.len(), 0);
@@ -1170,7 +1164,7 @@ async fn fetch_pending_blocks_in_instant_mode() {
     katana_utils::TxWaiter::new(res.transaction_hash, &provider).await.unwrap();
     katana_utils::TxWaiter::new(res.transaction_hash, &provider).await.unwrap();
 
-    let block_id = BlockId::Tag(BlockTag::PreConfirmed);
+    let block_id = BlockIdOrTag::PreConfirmed;
 
     // -----------------------------------------------------------------------
 
@@ -1179,7 +1173,7 @@ async fn fetch_pending_blocks_in_instant_mode() {
     if let MaybePreConfirmedBlockWithTxs::Block(block) = block_with_txs {
         assert_eq!(block.transactions.len(), 1);
         assert_eq!(block.parent_hash, latest_block_hash);
-        assert_eq!(*block.transactions[0].transaction_hash(), res.transaction_hash);
+        assert_eq!(block.transactions[0].transaction_hash, res.transaction_hash);
     } else {
         panic!("expected pending block with transactions")
     }

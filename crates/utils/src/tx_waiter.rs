@@ -309,8 +309,7 @@ mod tests {
     use katana_rpc_types::receipt::{
         ExecutionResult, ReceiptBlockInfo, RpcInvokeTxReceipt, RpcTxReceipt, TxReceiptWithBlockInfo,
     };
-    use katana_rpc_types::FeePayment;
-    use starknet::core::types::ExecutionResources;
+    use katana_rpc_types::{ExecutionResources, FeePayment};
     use starknet::core::types::TransactionFinalityStatus::{self, AcceptedOnL1, AcceptedOnL2};
     use starknet::macros::felt;
 

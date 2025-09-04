@@ -15,6 +15,8 @@ katana-metrics.workspace = true
 katana-pool.workspace = true
 katana-primitives = { workspace = true, features = [ "arbitrary" ] }
 katana-provider = { workspace = true, features = [ "fork", "in-memory" ] }
+katana-rpc-client.workspace = true
+katana-rpc-types.workspace = true
 katana-tasks.workspace = true
 katana-trie.workspace = true
 

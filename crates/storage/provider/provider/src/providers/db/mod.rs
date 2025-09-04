@@ -30,8 +30,6 @@ use katana_primitives::execution::TypedTransactionExecutionInfo;
 use katana_primitives::receipt::Receipt;
 use katana_primitives::state::{StateUpdates, StateUpdatesWithClasses};
 use katana_primitives::transaction::{TxHash, TxNumber, TxWithHash};
-
-use crate::ProviderResult;
 use katana_provider_api::block::{
     BlockHashProvider, BlockNumberProvider, BlockProvider, BlockStatusProvider, BlockWriter,
     HeaderProvider,
@@ -45,6 +43,8 @@ use katana_provider_api::transaction::{
     TransactionsProviderExt,
 };
 use katana_provider_api::ProviderError;
+
+use crate::ProviderResult;
 
 /// A provider implementation that uses a persistent database as the backend.
 // TODO: remove the default generic type
@@ -885,14 +885,14 @@ mod tests {
     use katana_primitives::receipt::{InvokeTxReceipt, Receipt};
     use katana_primitives::state::{StateUpdates, StateUpdatesWithClasses};
     use katana_primitives::transaction::{InvokeTx, Tx, TxHash, TxWithHash};
-    use starknet::macros::felt;
-
-    use super::DbProvider;
     use katana_provider_api::block::{
         BlockHashProvider, BlockNumberProvider, BlockProvider, BlockStatusProvider, BlockWriter,
     };
     use katana_provider_api::state::StateFactoryProvider;
     use katana_provider_api::transaction::TransactionProvider;
+    use starknet::macros::felt;
+
+    use super::DbProvider;
 
     fn create_dummy_block() -> SealedBlockWithStatus {
         let header = Header { parent_hash: 199u8.into(), number: 0, ..Default::default() };

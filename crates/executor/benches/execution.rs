@@ -7,8 +7,8 @@ use katana_executor::implementation::blockifier::state::StateProviderDb;
 use katana_executor::ExecutionFlags;
 use katana_primitives::env::{BlockEnv, CfgEnv};
 use katana_primitives::transaction::ExecutableTxWithHash;
+use katana_provider::api::state::StateFactoryProvider;
 use katana_provider::test_utils;
-use katana_provider::traits::state::StateFactoryProvider;
 use pprof::criterion::{Output, PProfProfiler};
 
 use crate::utils::{envs, tx};

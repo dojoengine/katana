@@ -28,7 +28,8 @@ where
     ///
     /// ## Returns
     ///
-    /// A tuple containing the subscription and a sender for broadcasting the transactions to the subscription channel.
+    /// A tuple containing the subscription and a sender for broadcasting the transactions to the
+    /// subscription channel.
     pub fn new() -> (Self, mpsc::UnboundedSender<PendingTx<T, O>>) {
         let (sender, receiver) = mpsc::unbounded_channel();
         (Self { txs: Default::default(), receiver }, sender)

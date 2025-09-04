@@ -16,11 +16,6 @@ use katana_primitives::execution::TypedTransactionExecutionInfo;
 use katana_primitives::receipt::Receipt;
 use katana_primitives::state::{StateUpdates, StateUpdatesWithClasses};
 use katana_primitives::transaction::{TxHash, TxNumber, TxWithHash};
-use starknet::providers::jsonrpc::HttpTransport;
-use starknet::providers::JsonRpcClient;
-
-use super::db::{self, DbProvider};
-use crate::ProviderResult;
 use katana_provider_api::block::{
     BlockHashProvider, BlockNumberProvider, BlockProvider, BlockStatusProvider, BlockWriter,
     HeaderProvider,
@@ -32,6 +27,10 @@ use katana_provider_api::transaction::{
     ReceiptProvider, TransactionProvider, TransactionStatusProvider, TransactionTraceProvider,
     TransactionsProviderExt,
 };
+use katana_rpc_client::starknet::Client as StarknetClient;
+
+use super::db::{self, DbProvider};
+use crate::ProviderResult;
 
 mod state;
 mod trie;
@@ -48,11 +47,7 @@ impl<Db: Database> ForkedProvider<Db> {
     /// - `db`: The database to use for the provider.
     /// - `block_id`: The block number or hash to use as the fork point.
     /// - `provider`: The Starknet JSON-RPC client to use for the provider.
-    pub fn new(
-        db: Db,
-        block_id: BlockHashOrNumber,
-        provider: Arc<JsonRpcClient<HttpTransport>>,
-    ) -> Self {
+    pub fn new(db: Db, block_id: BlockHashOrNumber, provider: StarknetClient) -> Self {
         let backend = Backend::new(provider, block_id).expect("failed to create backend");
         let provider = Arc::new(DbProvider::new(db));
         Self { provider, backend }
@@ -65,10 +60,7 @@ impl<Db: Database> ForkedProvider<Db> {
 
 impl ForkedProvider<katana_db::Db> {
     /// Creates a new [`ForkedProvider`] using an ephemeral database.
-    pub fn new_ephemeral(
-        block_id: BlockHashOrNumber,
-        provider: Arc<JsonRpcClient<HttpTransport>>,
-    ) -> Self {
+    pub fn new_ephemeral(block_id: BlockHashOrNumber, provider: StarknetClient) -> Self {
         let backend = Backend::new(provider, block_id).expect("failed to create backend");
         let provider = Arc::new(DbProvider::new_in_memory());
         Self { provider, backend }

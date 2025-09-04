@@ -5,10 +5,10 @@ use katana_primitives::block::BlockNumber;
 use katana_primitives::class::{ClassHash, CompiledClassHash};
 use katana_primitives::state::StateUpdates;
 use katana_primitives::Felt;
+use katana_provider_api::trie::TrieWriter;
 
 use super::ForkedProvider;
 use crate::ProviderResult;
-use katana_provider_api::trie::TrieWriter;
 
 impl<Db: Database> TrieWriter for ForkedProvider<Db> {
     fn trie_insert_contract_updates(

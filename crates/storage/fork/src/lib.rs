@@ -14,17 +14,17 @@ use futures::channel::mpsc::{channel as async_channel, Receiver, SendError, Send
 use futures::future::BoxFuture;
 use futures::stream::Stream;
 use futures::{Future, FutureExt};
-use katana_primitives::block::BlockHashOrNumber;
+use katana_primitives::block::{BlockHashOrNumber, BlockIdOrTag};
 use katana_primitives::class::{
     ClassHash, CompiledClassHash, ComputeClassHashError, ContractClass,
     ContractClassCompilationError,
 };
 use katana_primitives::contract::{ContractAddress, Nonce, StorageKey, StorageValue};
-use katana_rpc_client::starknet::Error as StarknetClientError;
-use katana_rpc_client::starknet::{Client as StarknetClient, StarknetApiError};
+use katana_rpc_client::starknet::{
+    Client as StarknetClient, Error as StarknetClientError, StarknetApiError,
+};
 use katana_rpc_types::class::Class;
 use parking_lot::Mutex;
-use starknet::core::types::BlockId;
 use tracing::{error, trace};
 
 const LOG_TARGET: &str = "forking::backend";
@@ -140,7 +140,7 @@ pub struct Backend {
     /// A channel for receiving requests from the [BackendHandle]s.
     incoming: Receiver<BackendRequest>,
     /// Pinned block id for all requests.
-    block: BlockId,
+    block_id: BlockHashOrNumber,
 }
 
 /////////////////////////////////////////////////////////////////
@@ -179,15 +179,10 @@ impl Backend {
         provider: StarknetClient,
         block_id: BlockHashOrNumber,
     ) -> (BackendClient, Backend) {
-        let block = match block_id {
-            BlockHashOrNumber::Hash(hash) => BlockId::Hash(hash),
-            BlockHashOrNumber::Num(number) => BlockId::Number(number),
-        };
-
         // Create async channel to receive requests from the handle.
         let (tx, rx) = async_channel(100);
         let backend = Backend {
-            block,
+            block_id,
             incoming: rx,
             provider: Arc::new(provider),
             request_dedup_map: HashMap::new(),
@@ -201,7 +196,7 @@ impl Backend {
     /// This method is responsible for transforming the incoming request
     /// sent from a [BackendHandle] into a RPC request to the remote network.
     fn handle_requests(&mut self, request: BackendRequest) {
-        let block = self.block;
+        let block_id = BlockIdOrTag::from(self.block_id);
         let provider = self.provider.clone();
 
         // Check if there are similar requests in the queue before sending the request
@@ -214,7 +209,7 @@ impl Backend {
                     sender,
                     Box::pin(async move {
                         let res = provider
-                            .get_nonce(block, payload)
+                            .get_nonce(block_id, payload)
                             .await
                             .map_err(|e| BackendError::StarknetProvider(Arc::new(e)));
 
@@ -231,7 +226,7 @@ impl Backend {
                     sender,
                     Box::pin(async move {
                         let res = provider
-                            .get_storage_at(addr, key, block)
+                            .get_storage_at(addr, key, block_id)
                             .await
                             .map_err(|e| BackendError::StarknetProvider(Arc::new(e)));
 
@@ -248,7 +243,7 @@ impl Backend {
                     sender,
                     Box::pin(async move {
                         let res = provider
-                            .get_class_hash_at(block, payload)
+                            .get_class_hash_at(block_id, payload)
                             .await
                             .map_err(|e| BackendError::StarknetProvider(Arc::new(e)));
 
@@ -265,7 +260,7 @@ impl Backend {
                     sender,
                     Box::pin(async move {
                         let res = provider
-                            .get_class(block, payload)
+                            .get_class(block_id, payload)
                             .await
                             .map_err(|e| BackendError::StarknetProvider(Arc::new(e)));
 
@@ -375,7 +370,7 @@ impl Debug for Backend {
             .field("pending_requests", &self.pending_requests.len())
             .field("queued_requests", &self.queued_requests.len())
             .field("incoming", &self.incoming)
-            .field("block", &self.block)
+            .field("block", &self.block_id)
             .finish()
     }
 }

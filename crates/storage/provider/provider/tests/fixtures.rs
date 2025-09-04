@@ -23,22 +23,19 @@ lazy_static! {
 #[cfg(feature = "fork")]
 pub mod fork {
 
-    use std::sync::Arc;
-
     use katana_provider::providers::fork::ForkedProvider;
+    use katana_rpc_client::starknet::Client as StarknetClient;
+    use katana_rpc_client::HttpClientBuilder;
     use katana_runner::KatanaRunner;
     use lazy_static::lazy_static;
-    use starknet::providers::jsonrpc::HttpTransport;
-    use starknet::providers::JsonRpcClient;
-    use url::Url;
 
     use super::*;
 
     lazy_static! {
-        pub static ref FORKED_PROVIDER: (KatanaRunner, Arc<JsonRpcClient<HttpTransport>>) = {
+        pub static ref FORKED_PROVIDER: (KatanaRunner, StarknetClient) = {
             let runner = katana_runner::KatanaRunner::new().unwrap();
-            let provider = runner.starknet_provider();
-            (runner, Arc::new(provider))
+            let url = runner.url();
+            (runner, StarknetClient::new(HttpClientBuilder::new().build(url).unwrap()))
         };
     }
 
@@ -47,8 +44,8 @@ pub mod fork {
         #[default("http://127.0.0.1:5050")] rpc: &str,
         #[default(0)] block_num: u64,
     ) -> BlockchainProvider<ForkedProvider> {
-        let provider = JsonRpcClient::new(HttpTransport::new(Url::parse(rpc).unwrap()));
-        let provider = ForkedProvider::new_ephemeral(block_num.into(), Arc::new(provider));
+        let provider = StarknetClient::new(HttpClientBuilder::new().build(rpc).unwrap());
+        let provider = ForkedProvider::new_ephemeral(block_num.into(), provider);
         BlockchainProvider::new(provider)
     }
 

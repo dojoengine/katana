@@ -1,13 +1,14 @@
 use assert_matches::assert_matches;
 use katana_primitives::genesis::constant::DEFAULT_STRK_FEE_TOKEN_ADDRESS;
+use katana_primitives::Felt;
 use katana_rpc_api::starknet_ext::StarknetApiExtClient;
 use katana_rpc_types::list::{ContinuationToken, GetBlocksRequest, GetTransactionsRequest};
 use katana_rpc_types::receipt::RpcTxReceipt;
 use katana_rpc_types::transaction::RpcTx;
+use katana_rpc_types::ResultPageRequest;
 use katana_utils::node::Provider;
 use katana_utils::TestNode;
 use starknet::accounts::ConnectedAccount;
-use starknet::core::types::{Felt, ResultPageRequest};
 
 mod common;
 

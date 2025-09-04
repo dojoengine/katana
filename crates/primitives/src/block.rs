@@ -25,105 +25,30 @@ pub enum BlockIdOrTag {
     PreConfirmed,
 }
 
-#[cfg(feature = "serde")]
-impl serde::Serialize for BlockIdOrTag {
-    fn serialize<S>(&self, serializer: S) -> Result<S::Ok, S::Error>
-    where
-        S: serde::Serializer,
-    {
-        use serde::ser::SerializeMap;
-
-        match self {
-            BlockIdOrTag::Hash(hash) => {
-                let mut map = serializer.serialize_map(Some(1))?;
-                map.serialize_entry("block_hash", hash)?;
-                map.end()
-            }
-            BlockIdOrTag::Number(number) => {
-                let mut map = serializer.serialize_map(Some(1))?;
-                map.serialize_entry("block_number", number)?;
-                map.end()
-            }
-            BlockIdOrTag::L1Accepted => serializer.serialize_str("l1_accepted"),
-            BlockIdOrTag::Latest => serializer.serialize_str("latest"),
-            BlockIdOrTag::PreConfirmed => serializer.serialize_str("pre_confirmed"),
-        }
+impl From<BlockHash> for BlockIdOrTag {
+    fn from(hash: BlockHash) -> Self {
+        BlockIdOrTag::Hash(hash)
     }
 }
 
-#[cfg(feature = "serde")]
-impl<'de> serde::Deserialize<'de> for BlockIdOrTag {
-    fn deserialize<D>(deserializer: D) -> Result<Self, D::Error>
-    where
-        D: serde::Deserializer<'de>,
-    {
-        use serde::de::{self, MapAccess, Visitor};
-
-        struct BlockIdOrTagVisitor;
-
-        impl<'de> Visitor<'de> for BlockIdOrTagVisitor {
-            type Value = BlockIdOrTag;
-
-            fn expecting(&self, formatter: &mut std::fmt::Formatter) -> std::fmt::Result {
-                formatter.write_str("a block identifier or tag")
-            }
-
-            fn visit_str<E>(self, value: &str) -> Result<Self::Value, E>
-            where
-                E: de::Error,
-            {
-                match value {
-                    "l1_accepted" => Ok(BlockIdOrTag::L1Accepted),
-                    "latest" => Ok(BlockIdOrTag::Latest),
-                    "pre_confirmed" => Ok(BlockIdOrTag::PreConfirmed),
-                    _ => {
-                        Err(E::unknown_variant(value, &["l1_accepted", "latest", "pre_confirmed"]))
-                    }
-                }
-            }
-
-            fn visit_map<A>(self, mut map: A) -> Result<Self::Value, A::Error>
-            where
-                A: MapAccess<'de>,
-            {
-                let mut block_hash = None;
-                let mut block_number = None;
-
-                while let Some(key) = map.next_key::<String>()? {
-                    match key.as_str() {
-                        "block_hash" => {
-                            if block_hash.is_some() {
-                                return Err(de::Error::duplicate_field("block_hash"));
-                            }
-                            block_hash = Some(map.next_value()?);
-                        }
-                        "block_number" => {
-                            if block_number.is_some() {
-                                return Err(de::Error::duplicate_field("block_number"));
-                            }
-                            block_number = Some(map.next_value()?);
-                        }
-                        _ => {
-                            let _: de::IgnoredAny = map.next_value()?;
-                        }
-                    }
-                }
-
-                match (block_hash, block_number) {
-                    (Some(hash), None) => Ok(BlockIdOrTag::Hash(hash)),
-                    (None, Some(number)) => Ok(BlockIdOrTag::Number(number)),
-                    (Some(_), Some(_)) => {
-                        Err(de::Error::custom("cannot have both block_hash and block_number"))
-                    }
-                    (None, None) => {
-                        Err(de::Error::custom("expected either block_hash or block_number"))
-                    }
-                }
-            }
-        }
-
-        deserializer.deserialize_any(BlockIdOrTagVisitor)
+impl From<BlockNumber> for BlockIdOrTag {
+    fn from(number: BlockNumber) -> Self {
+        BlockIdOrTag::Number(number)
     }
+}
+
+/// Block identifier that refers to a confirmed block.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum ConfirmedBlockIdOrTag {
+    /// Block hash.
+    Hash(BlockHash),
+    /// Block number (height).
+    Number(BlockNumber),
+    /// The latest confirmed block.
+    Latest,
+    /// The latest Starknet block which was included in a state update on L1 and finalized by the
+    /// consensus on L1st,
+    L1Accepted,
 }
 
 #[derive(Debug, Copy, Clone, PartialEq)]
@@ -138,6 +63,27 @@ impl std::fmt::Display for BlockHashOrNumber {
         match self {
             BlockHashOrNumber::Num(num) => write!(f, "{num}"),
             BlockHashOrNumber::Hash(hash) => write!(f, "{hash:#x}"),
+        }
+    }
+}
+
+impl From<BlockNumber> for BlockHashOrNumber {
+    fn from(number: BlockNumber) -> Self {
+        Self::Num(number)
+    }
+}
+
+impl From<BlockHash> for BlockHashOrNumber {
+    fn from(hash: BlockHash) -> Self {
+        Self::Hash(hash)
+    }
+}
+
+impl From<BlockHashOrNumber> for BlockIdOrTag {
+    fn from(value: BlockHashOrNumber) -> Self {
+        match value {
+            BlockHashOrNumber::Hash(hash) => BlockIdOrTag::Hash(hash),
+            BlockHashOrNumber::Num(number) => BlockIdOrTag::Number(number),
         }
     }
 }
@@ -493,33 +439,196 @@ pub struct SealedBlockWithStatus {
     pub status: FinalityStatus,
 }
 
-impl From<BlockNumber> for BlockHashOrNumber {
-    fn from(number: BlockNumber) -> Self {
-        Self::Num(number)
-    }
-}
-
-impl From<BlockHash> for BlockHashOrNumber {
-    fn from(hash: BlockHash) -> Self {
-        Self::Hash(hash)
-    }
-}
-
-impl From<BlockHashOrNumber> for BlockIdOrTag {
-    fn from(value: BlockHashOrNumber) -> Self {
-        match value {
-            BlockHashOrNumber::Hash(hash) => BlockIdOrTag::Hash(hash),
-            BlockHashOrNumber::Num(number) => BlockIdOrTag::Number(number),
-        }
-    }
-}
-
 /// A block that can executed. This is a block whose transactions includes
 /// all the necessary information to be executed.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct ExecutableBlock {
     pub header: PartialHeader,
     pub body: Vec<ExecutableTxWithHash>,
+}
+
+#[cfg(feature = "serde")]
+mod serde_impls {
+    use crate::block::{BlockIdOrTag, ConfirmedBlockIdOrTag};
+
+    impl serde::Serialize for BlockIdOrTag {
+        fn serialize<S>(&self, serializer: S) -> Result<S::Ok, S::Error>
+        where
+            S: serde::Serializer,
+        {
+            use serde::ser::SerializeMap;
+
+            match self {
+                BlockIdOrTag::Hash(hash) => {
+                    let mut map = serializer.serialize_map(Some(1))?;
+                    map.serialize_entry("block_hash", hash)?;
+                    map.end()
+                }
+                BlockIdOrTag::Number(number) => {
+                    let mut map = serializer.serialize_map(Some(1))?;
+                    map.serialize_entry("block_number", number)?;
+                    map.end()
+                }
+                BlockIdOrTag::L1Accepted => serializer.serialize_str("l1_accepted"),
+                BlockIdOrTag::Latest => serializer.serialize_str("latest"),
+                BlockIdOrTag::PreConfirmed => serializer.serialize_str("pre_confirmed"),
+            }
+        }
+    }
+
+    impl<'de> serde::Deserialize<'de> for BlockIdOrTag {
+        fn deserialize<D: serde::Deserializer<'de>>(deserializer: D) -> Result<Self, D::Error> {
+            use serde::de::{self, MapAccess, Visitor};
+
+            struct BlockIdOrTagVisitor;
+
+            impl<'de> Visitor<'de> for BlockIdOrTagVisitor {
+                type Value = BlockIdOrTag;
+
+                fn expecting(&self, formatter: &mut std::fmt::Formatter) -> std::fmt::Result {
+                    formatter.write_str("a block identifier or tag")
+                }
+
+                fn visit_str<E: de::Error>(self, value: &str) -> Result<Self::Value, E> {
+                    match value {
+                        "latest" => Ok(BlockIdOrTag::Latest),
+                        "l1_accepted" => Ok(BlockIdOrTag::L1Accepted),
+                        "pre_confirmed" => Ok(BlockIdOrTag::PreConfirmed),
+                        _ => Err(E::unknown_variant(
+                            value,
+                            &["l1_accepted", "latest", "pre_confirmed"],
+                        )),
+                    }
+                }
+
+                fn visit_map<A: MapAccess<'de>>(self, mut map: A) -> Result<Self::Value, A::Error> {
+                    let mut block_hash = None;
+                    let mut block_number = None;
+
+                    while let Some(key) = map.next_key::<String>()? {
+                        match key.as_str() {
+                            "block_hash" => {
+                                if block_hash.is_some() {
+                                    return Err(de::Error::duplicate_field("block_hash"));
+                                }
+                                block_hash = Some(map.next_value()?);
+                            }
+                            "block_number" => {
+                                if block_number.is_some() {
+                                    return Err(de::Error::duplicate_field("block_number"));
+                                }
+                                block_number = Some(map.next_value()?);
+                            }
+                            _ => {
+                                let _: de::IgnoredAny = map.next_value()?;
+                            }
+                        }
+                    }
+
+                    match (block_hash, block_number) {
+                        (Some(hash), None) => Ok(BlockIdOrTag::Hash(hash)),
+                        (None, Some(number)) => Ok(BlockIdOrTag::Number(number)),
+                        (Some(_), Some(_)) => Err(de::Error::custom(
+                            "cannot have both `block_hash` and `block_number`",
+                        )),
+                        (None, None) => {
+                            Err(de::Error::custom("expected either `block_hash` or `block_number`"))
+                        }
+                    }
+                }
+            }
+
+            deserializer.deserialize_any(BlockIdOrTagVisitor)
+        }
+    }
+
+    impl serde::Serialize for ConfirmedBlockIdOrTag {
+        fn serialize<S>(&self, serializer: S) -> Result<S::Ok, S::Error>
+        where
+            S: serde::Serializer,
+        {
+            use serde::ser::SerializeMap;
+
+            match self {
+                ConfirmedBlockIdOrTag::Hash(hash) => {
+                    let mut map = serializer.serialize_map(Some(1))?;
+                    map.serialize_entry("block_hash", hash)?;
+                    map.end()
+                }
+                ConfirmedBlockIdOrTag::Number(number) => {
+                    let mut map = serializer.serialize_map(Some(1))?;
+                    map.serialize_entry("block_number", number)?;
+                    map.end()
+                }
+                ConfirmedBlockIdOrTag::L1Accepted => serializer.serialize_str("l1_accepted"),
+                ConfirmedBlockIdOrTag::Latest => serializer.serialize_str("latest"),
+            }
+        }
+    }
+
+    impl<'de> serde::Deserialize<'de> for ConfirmedBlockIdOrTag {
+        fn deserialize<D: serde::Deserializer<'de>>(deserializer: D) -> Result<Self, D::Error> {
+            use serde::de::{self, MapAccess, Visitor};
+
+            struct ConfirmedBlockIdOrTagVisitor;
+
+            impl<'de> Visitor<'de> for ConfirmedBlockIdOrTagVisitor {
+                type Value = ConfirmedBlockIdOrTag;
+
+                fn expecting(&self, formatter: &mut std::fmt::Formatter) -> std::fmt::Result {
+                    formatter.write_str("a block identifier or tag")
+                }
+
+                fn visit_str<E: de::Error>(self, value: &str) -> Result<Self::Value, E> {
+                    match value {
+                        "latest" => Ok(ConfirmedBlockIdOrTag::Latest),
+                        "l1_accepted" => Ok(ConfirmedBlockIdOrTag::L1Accepted),
+                        _ => Err(E::unknown_variant(value, &["l1_accepted", "latest"])),
+                    }
+                }
+
+                fn visit_map<A: MapAccess<'de>>(self, mut map: A) -> Result<Self::Value, A::Error> {
+                    let mut block_hash = None;
+                    let mut block_number = None;
+
+                    while let Some(key) = map.next_key::<String>()? {
+                        match key.as_str() {
+                            "block_hash" if block_hash.is_some() => {
+                                return Err(de::Error::duplicate_field("block_hash"));
+                            }
+                            "block_number" if block_number.is_some() => {
+                                return Err(de::Error::duplicate_field("block_number"));
+                            }
+
+                            "block_hash" => {
+                                block_hash = Some(map.next_value()?);
+                            }
+                            "block_number" => {
+                                block_number = Some(map.next_value()?);
+                            }
+
+                            _ => {
+                                let _: de::IgnoredAny = map.next_value()?;
+                            }
+                        }
+                    }
+
+                    match (block_hash, block_number) {
+                        (Some(hash), None) => Ok(ConfirmedBlockIdOrTag::Hash(hash)),
+                        (None, Some(number)) => Ok(ConfirmedBlockIdOrTag::Number(number)),
+                        (Some(_), Some(_)) => Err(de::Error::custom(
+                            "cannot have both `block_hash` and `block_number`",
+                        )),
+                        (None, None) => {
+                            Err(de::Error::custom("expected either `block_hash` or `block_number`"))
+                        }
+                    }
+                }
+            }
+
+            deserializer.deserialize_any(ConfirmedBlockIdOrTagVisitor)
+        }
+    }
 }
 
 #[cfg(test)]
