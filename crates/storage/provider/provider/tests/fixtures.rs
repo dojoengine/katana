@@ -8,9 +8,9 @@ use katana_primitives::block::{
 use katana_primitives::class::{ContractClass, SierraContractClass};
 use katana_primitives::contract::ContractAddress;
 use katana_primitives::state::{StateUpdates, StateUpdatesWithClasses};
+use katana_provider::api::block::BlockWriter;
+use katana_provider::api::state::StateFactoryProvider;
 use katana_provider::providers::db::DbProvider;
-use katana_provider::traits::block::BlockWriter;
-use katana_provider::traits::state::StateFactoryProvider;
 use katana_provider::BlockchainProvider;
 use lazy_static::lazy_static;
 use starknet::macros::felt;

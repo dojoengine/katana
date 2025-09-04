@@ -31,20 +31,20 @@ use katana_primitives::receipt::Receipt;
 use katana_primitives::state::{StateUpdates, StateUpdatesWithClasses};
 use katana_primitives::transaction::{TxHash, TxNumber, TxWithHash};
 
-use crate::error::ProviderError;
-use crate::traits::block::{
+use crate::ProviderResult;
+use katana_provider_api::block::{
     BlockHashProvider, BlockNumberProvider, BlockProvider, BlockStatusProvider, BlockWriter,
     HeaderProvider,
 };
-use crate::traits::env::BlockEnvProvider;
-use crate::traits::stage::StageCheckpointProvider;
-use crate::traits::state::{StateFactoryProvider, StateProvider};
-use crate::traits::state_update::StateUpdateProvider;
-use crate::traits::transaction::{
+use katana_provider_api::env::BlockEnvProvider;
+use katana_provider_api::stage::StageCheckpointProvider;
+use katana_provider_api::state::{StateFactoryProvider, StateProvider};
+use katana_provider_api::state_update::StateUpdateProvider;
+use katana_provider_api::transaction::{
     ReceiptProvider, TransactionProvider, TransactionStatusProvider, TransactionTraceProvider,
     TransactionsProviderExt,
 };
-use crate::ProviderResult;
+use katana_provider_api::ProviderError;
 
 /// A provider implementation that uses a persistent database as the backend.
 // TODO: remove the default generic type
@@ -888,11 +888,11 @@ mod tests {
     use starknet::macros::felt;
 
     use super::DbProvider;
-    use crate::traits::block::{
+    use katana_provider_api::block::{
         BlockHashProvider, BlockNumberProvider, BlockProvider, BlockStatusProvider, BlockWriter,
     };
-    use crate::traits::state::StateFactoryProvider;
-    use crate::traits::transaction::TransactionProvider;
+    use katana_provider_api::state::StateFactoryProvider;
+    use katana_provider_api::transaction::TransactionProvider;
 
     fn create_dummy_block() -> SealedBlockWithStatus {
         let header = Header { parent_hash: 199u8.into(), number: 0, ..Default::default() };

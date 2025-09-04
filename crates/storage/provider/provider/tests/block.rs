@@ -5,16 +5,16 @@ use katana_primitives::block::{
 use katana_primitives::env::BlockEnv;
 use katana_primitives::state::StateUpdatesWithClasses;
 use katana_primitives::transaction::TxWithHash;
-use katana_provider::providers::db::DbProvider;
-use katana_provider::traits::block::{
+use katana_provider::api::block::{
     BlockHashProvider, BlockNumberProvider, BlockProvider, BlockStatusProvider, BlockWriter,
 };
-use katana_provider::traits::env::BlockEnvProvider;
-use katana_provider::traits::state::{StateFactoryProvider, StateRootProvider};
-use katana_provider::traits::state_update::StateUpdateProvider;
-use katana_provider::traits::transaction::{
+use katana_provider::api::env::BlockEnvProvider;
+use katana_provider::api::state::{StateFactoryProvider, StateRootProvider};
+use katana_provider::api::state_update::StateUpdateProvider;
+use katana_provider::api::transaction::{
     ReceiptProvider, TransactionProvider, TransactionStatusProvider, TransactionTraceProvider,
 };
+use katana_provider::providers::db::DbProvider;
 use katana_provider::BlockchainProvider;
 use rstest_reuse::{self, *};
 

@@ -6,19 +6,19 @@ use katana_primitives::block::{
     SealedBlockWithStatus,
 };
 use katana_primitives::da::L1DataAvailabilityMode;
-use katana_provider::providers::db::DbProvider;
-use katana_provider::providers::fork::ForkedProvider;
-use katana_provider::traits::block::{BlockProvider, BlockWriter};
-use katana_provider::traits::contract::ContractClassWriter;
-use katana_provider::traits::env::BlockEnvProvider;
-use katana_provider::traits::stage::StageCheckpointProvider;
-use katana_provider::traits::state::{StateFactoryProvider, StateWriter};
-use katana_provider::traits::state_update::StateUpdateProvider;
-use katana_provider::traits::transaction::{
+use katana_provider::api::block::{BlockProvider, BlockWriter};
+use katana_provider::api::contract::ContractClassWriter;
+use katana_provider::api::env::BlockEnvProvider;
+use katana_provider::api::stage::StageCheckpointProvider;
+use katana_provider::api::state::{StateFactoryProvider, StateWriter};
+use katana_provider::api::state_update::StateUpdateProvider;
+use katana_provider::api::transaction::{
     ReceiptProvider, TransactionProvider, TransactionStatusProvider, TransactionTraceProvider,
     TransactionsProviderExt,
 };
-use katana_provider::traits::trie::TrieWriter;
+use katana_provider::api::trie::TrieWriter;
+use katana_provider::providers::db::DbProvider;
+use katana_provider::providers::fork::ForkedProvider;
 use katana_provider::BlockchainProvider;
 use num_traits::ToPrimitive;
 use starknet::core::types::{BlockId, MaybePreConfirmedBlockWithTxHashes};

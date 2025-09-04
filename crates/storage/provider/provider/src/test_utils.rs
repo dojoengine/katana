@@ -1,18 +1,18 @@
 use std::sync::Arc;
 
-use alloy_primitives::U256;
 use katana_primitives::address;
 use katana_primitives::block::{Block, BlockHash, FinalityStatus};
 use katana_primitives::contract::ContractAddress;
+use katana_primitives::felt;
 use katana_primitives::genesis::allocation::{
     DevGenesisAccount, GenesisAccountAlloc, GenesisAllocation,
 };
 use katana_primitives::genesis::Genesis;
 use katana_primitives::utils::class::parse_sierra_class;
-use starknet::macros::felt;
+use katana_primitives::U256;
+use katana_provider_api::block::BlockWriter;
 
 use crate::providers::db::DbProvider;
-use crate::traits::block::BlockWriter;
 
 /// Creates a persistent storage provider with initial states loaded for testin.
 pub fn test_provider() -> DbProvider {

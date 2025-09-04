@@ -1,5 +1,5 @@
 use katana_primitives::transaction::TxHash;
-use katana_provider::traits::transaction::{
+use katana_provider::api::transaction::{
     ReceiptProvider, TransactionProvider, TransactionStatusProvider,
 };
 use katana_rpc_types::receipt::{ReceiptBlockInfo, TxReceiptWithBlockInfo};

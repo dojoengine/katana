@@ -275,7 +275,7 @@ mod impls {
     use katana_pool_api::validation::InvalidTransactionError;
     use katana_pool_api::PoolError;
     use katana_primitives::event::ContinuationTokenError;
-    use katana_provider::error::ProviderError;
+    use katana_provider_api::ProviderError;
     use starknet::core::types::StarknetError as StarknetRsError;
     use starknet::providers::ProviderError as StarknetRsProviderError;
 

@@ -26,7 +26,7 @@ use katana_primitives::transaction::{
     DeclareTx, DeployAccountTx, ExecutableTx, ExecutableTxWithHash, InvokeTx,
 };
 use katana_primitives::{class, fee};
-use katana_provider::traits::contract::ContractClassProvider;
+use katana_provider::api::contract::ContractClassProvider;
 use num_traits::Zero;
 use starknet::core::utils::parse_cairo_short_string;
 use starknet_api::block::{

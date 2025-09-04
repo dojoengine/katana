@@ -4,7 +4,7 @@ use anyhow::Result;
 use fixtures::provider_with_states;
 use katana_primitives::block::{BlockHashOrNumber, BlockNumber};
 use katana_primitives::contract::{ContractAddress, StorageKey, StorageValue};
-use katana_provider::traits::state::{StateFactoryProvider, StateProvider};
+use katana_provider::api::state::{StateFactoryProvider, StateProvider};
 use katana_provider::BlockchainProvider;
 use rstest_reuse::{self, *};
 use starknet::macros::felt;

@@ -1,7 +1,7 @@
 use katana_primitives::block::ExecutableBlock;
 use katana_primitives::env::{BlockEnv, CfgEnv};
 use katana_primitives::transaction::{ExecutableTxWithHash, TxWithHash};
-use katana_provider::traits::state::StateProvider;
+use katana_provider::api::state::StateProvider;
 
 use super::ExecutorError;
 use crate::{ExecutionFlags, ExecutionOutput, ExecutionResult, ExecutorResult};

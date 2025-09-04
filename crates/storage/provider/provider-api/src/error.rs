@@ -121,10 +121,6 @@ pub enum ProviderError {
     #[error(transparent)]
     Database(#[from] DatabaseError),
 
-    #[cfg(feature = "fork")]
-    #[error(transparent)]
-    ForkedBackend1(#[from] katana_fork::BackendClientError),
-
     /// Any error that is not covered by the other variants.
     #[error("Something went wrong: {0}")]
     Other(String),

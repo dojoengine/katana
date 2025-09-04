@@ -1,8 +1,8 @@
 use katana_primitives::block::BlockHashOrNumber;
 use katana_primitives::Felt;
-use katana_provider::traits::block::{BlockHashProvider, BlockNumberProvider};
-use katana_provider::traits::state::{StateFactoryProvider, StateRootProvider};
-use katana_provider::traits::state_update::StateUpdateProvider;
+use katana_provider::api::block::{BlockHashProvider, BlockNumberProvider};
+use katana_provider::api::state::{StateFactoryProvider, StateRootProvider};
+use katana_provider::api::state_update::StateUpdateProvider;
 use katana_provider::ProviderResult;
 use katana_rpc_types::state_update::{StateDiff, StateUpdate};
 

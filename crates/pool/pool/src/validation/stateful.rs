@@ -24,8 +24,8 @@ use katana_primitives::contract::{ContractAddress, Nonce};
 use katana_primitives::env::{BlockEnv, CfgEnv};
 use katana_primitives::transaction::{ExecutableTx, ExecutableTxWithHash};
 use katana_primitives::Felt;
-use katana_provider::error::ProviderError;
-use katana_provider::traits::state::StateProvider;
+use katana_provider::api::state::StateProvider;
+use katana_provider::api::ProviderError;
 use parking_lot::Mutex;
 
 use super::ValidationResult;

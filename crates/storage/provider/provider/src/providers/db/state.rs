@@ -12,10 +12,12 @@ use katana_primitives::contract::{
 use katana_primitives::Felt;
 
 use super::DbProvider;
-use crate::error::ProviderError;
-use crate::traits::contract::{ContractClassProvider, ContractClassWriter};
-use crate::traits::state::{StateProofProvider, StateProvider, StateRootProvider, StateWriter};
 use crate::ProviderResult;
+use katana_provider_api::contract::{ContractClassProvider, ContractClassWriter};
+use katana_provider_api::state::{
+    StateProofProvider, StateProvider, StateRootProvider, StateWriter,
+};
+use katana_provider_api::ProviderError;
 
 impl<Db: Database> StateWriter for DbProvider<Db> {
     fn set_nonce(&self, address: ContractAddress, nonce: Nonce) -> ProviderResult<()> {

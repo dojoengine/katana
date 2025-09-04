@@ -4,7 +4,6 @@ use katana_primitives::class::ClassHash;
 use katana_primitives::contract::{Nonce, StorageKey};
 use katana_primitives::transaction::TxHash;
 use katana_primitives::{ContractAddress, Felt};
-use katana_rpc_api::error::starknet::StarknetApiError;
 use katana_rpc_api::starknet::{StarknetApiClient, StarknetTraceApiClient, StarknetWriteApiClient};
 use katana_rpc_types::block::{
     BlockHashAndNumberResponse, BlockNumberResponse, BlockTxCount,
@@ -30,6 +29,8 @@ use katana_rpc_types::{
 use starknet::core::types::{
     SimulatedTransaction, TransactionStatus, TransactionTrace, TransactionTraceWithHash,
 };
+
+pub use katana_rpc_api::error::starknet::StarknetApiError;
 
 type Result<T> = std::result::Result<T, Error>;
 

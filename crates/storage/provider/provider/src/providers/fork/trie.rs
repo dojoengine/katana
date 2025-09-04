@@ -7,8 +7,8 @@ use katana_primitives::state::StateUpdates;
 use katana_primitives::Felt;
 
 use super::ForkedProvider;
-use crate::traits::trie::TrieWriter;
 use crate::ProviderResult;
+use katana_provider_api::trie::TrieWriter;
 
 impl<Db: Database> TrieWriter for ForkedProvider<Db> {
     fn trie_insert_contract_updates(

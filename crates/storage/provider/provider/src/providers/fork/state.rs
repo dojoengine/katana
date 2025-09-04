@@ -10,16 +10,16 @@ use katana_primitives::block::{BlockHashOrNumber, BlockNumber};
 use katana_primitives::class::{ClassHash, CompiledClassHash, ContractClass};
 use katana_primitives::contract::{GenericContractInfo, Nonce, StorageKey, StorageValue};
 use katana_primitives::{ContractAddress, Felt};
+use katana_provider_api::block::BlockNumberProvider;
+use katana_provider_api::contract::{ContractClassProvider, ContractClassWriter};
+use katana_provider_api::state::{
+    StateFactoryProvider, StateProofProvider, StateProvider, StateRootProvider, StateWriter,
+};
+use katana_provider_api::ProviderError;
 
 use super::db::{self};
 use super::ForkedProvider;
-use crate::error::ProviderError;
 use crate::providers::db::DbProvider;
-use crate::traits::block::BlockNumberProvider;
-use crate::traits::contract::{ContractClassProvider, ContractClassWriter};
-use crate::traits::state::{
-    StateFactoryProvider, StateProofProvider, StateProvider, StateRootProvider, StateWriter,
-};
 use crate::ProviderResult;
 
 impl<Db> StateFactoryProvider for ForkedProvider<Db>

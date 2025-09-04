@@ -32,7 +32,8 @@ members = [
 	"crates/storage/codecs/derive",
 	"crates/storage/db",
 	"crates/storage/fork",
-	"crates/storage/provider",
+	"crates/storage/provider/provider",
+	"crates/storage/provider/provider-api",
 	"crates/sync/pipeline",
 	"crates/sync/stage",
 	"crates/tasks",
@@ -84,7 +85,8 @@ katana-pipeline = { path = "crates/sync/pipeline" }
 katana-pool = { path = "crates/pool/pool" }
 katana-pool-api = { path = "crates/pool/pool-api" }
 katana-primitives = { path = "crates/primitives" }
-katana-provider = { path = "crates/storage/provider" }
+katana-provider = { path = "crates/storage/provider/provider" }
+katana-provider-api = { path = "crates/storage/provider/provider-api" }
 katana-rpc = { path = "crates/rpc/rpc" }
 katana-rpc-api = { path = "crates/rpc/rpc-api" }
 katana-rpc-client = { path = "crates/rpc/rpc-client" }

@@ -6042,6 +6042,8 @@ dependencies = [
  "anyhow",
  "futures",
  "katana-primitives",
+ "katana-provider-api",
+ "katana-rpc-client",
  "katana-rpc-types",
  "katana-tasks",
  "parking_lot",
@@ -6214,7 +6216,6 @@ dependencies = [
  "parking_lot",
  "rand 0.8.5",
  "starknet",
- "thiserror 1.0.69",
  "tokio",
  "tracing",
 ]
@@ -6282,6 +6283,7 @@ dependencies = [
  "katana-db",
  "katana-fork",
  "katana-primitives",
+ "katana-provider-api",
  "katana-runner",
  "katana-trie",
  "lazy_static",
@@ -6297,6 +6299,19 @@ dependencies = [
  "tokio",
  "tracing",
  "url",
+]
+
+[[package]]
+name = "katana-provider-api"
+version = "1.7.0-alpha.3"
+dependencies = [
+ "auto_impl",
+ "katana-db",
+ "katana-primitives",
+ "katana-trie",
+ "starknet",
+ "starknet-types-core",
+ "thiserror 1.0.69",
 ]
 
 [[package]]
@@ -6362,7 +6377,7 @@ dependencies = [
  "jsonrpsee",
  "katana-pool-api",
  "katana-primitives",
- "katana-provider",
+ "katana-provider-api",
  "katana-rpc-types",
  "rstest 0.18.2",
  "serde",

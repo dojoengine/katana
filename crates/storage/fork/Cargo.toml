@@ -7,6 +7,8 @@ version.workspace = true
 
 [dependencies]
 katana-primitives.workspace = true
+katana-provider-api.workspace = true
+katana-rpc-client.workspace = true
 katana-rpc-types.workspace = true
 katana-tasks.workspace = true
 

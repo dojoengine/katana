@@ -14,7 +14,6 @@ katana-provider.workspace = true
 
 futures.workspace = true
 parking_lot.workspace = true
-thiserror.workspace = true
 tokio = { workspace = true, features = [ "sync" ] }
 tracing.workspace = true
 

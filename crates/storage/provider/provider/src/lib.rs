@@ -15,28 +15,32 @@ use katana_primitives::receipt::Receipt;
 use katana_primitives::state::{StateUpdates, StateUpdatesWithClasses};
 use katana_primitives::transaction::{TxHash, TxNumber, TxWithHash};
 use katana_primitives::Felt;
-use traits::block::{BlockIdReader, BlockStatusProvider, BlockWriter};
-use traits::contract::ContractClassWriter;
-use traits::env::BlockEnvProvider;
-use traits::stage::StageCheckpointProvider;
-use traits::state::StateWriter;
-use traits::transaction::{TransactionStatusProvider, TransactionTraceProvider};
-use traits::trie::TrieWriter;
+use katana_provider_api::block::{
+    BlockHashProvider, BlockNumberProvider, BlockProvider, HeaderProvider,
+};
+use katana_provider_api::block::{BlockIdReader, BlockStatusProvider, BlockWriter};
+use katana_provider_api::contract::ContractClassWriter;
+use katana_provider_api::env::BlockEnvProvider;
+use katana_provider_api::stage::StageCheckpointProvider;
+use katana_provider_api::state::StateWriter;
+use katana_provider_api::state::{StateFactoryProvider, StateProvider};
+use katana_provider_api::state_update::StateUpdateProvider;
+use katana_provider_api::transaction::{
+    ReceiptProvider, TransactionProvider, TransactionsProviderExt,
+};
+use katana_provider_api::transaction::{TransactionStatusProvider, TransactionTraceProvider};
+use katana_provider_api::trie::TrieWriter;
 
-pub mod error;
+pub use katana_provider_api::ProviderError;
+pub use katana_provider_api::ProviderResult;
+
 pub mod providers;
-pub mod traits;
-
 #[cfg(any(test, feature = "test-utils"))]
 pub mod test_utils;
 
-use crate::traits::block::{BlockHashProvider, BlockNumberProvider, BlockProvider, HeaderProvider};
-use crate::traits::state::{StateFactoryProvider, StateProvider};
-use crate::traits::state_update::StateUpdateProvider;
-use crate::traits::transaction::{ReceiptProvider, TransactionProvider, TransactionsProviderExt};
-
-/// A result type for blockchain providers.
-pub type ProviderResult<T> = Result<T, error::ProviderError>;
+pub mod api {
+    pub use katana_provider_api::*;
+}
 
 /// A blockchain provider that can be used to access the storage.
 ///

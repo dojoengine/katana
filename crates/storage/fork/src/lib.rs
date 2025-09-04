@@ -20,11 +20,11 @@ use katana_primitives::class::{
     ContractClassCompilationError,
 };
 use katana_primitives::contract::{ContractAddress, Nonce, StorageKey, StorageValue};
-use katana_primitives::Felt;
+use katana_rpc_client::starknet::Error as StarknetClientError;
+use katana_rpc_client::starknet::{Client as StarknetClient, StarknetApiError};
 use katana_rpc_types::class::Class;
 use parking_lot::Mutex;
-use starknet::core::types::{BlockId, ContractClass as StarknetRsClass, StarknetError};
-use starknet::providers::{Provider, ProviderError as StarknetProviderError};
+use starknet::core::types::BlockId;
 use tracing::{error, trace};
 
 const LOG_TARGET: &str = "forking::backend";
@@ -44,7 +44,7 @@ enum BackendResponse {
     Nonce(BackendResult<Nonce>),
     Storage(BackendResult<StorageValue>),
     ClassHashAt(BackendResult<ClassHash>),
-    ClassAt(BackendResult<StarknetRsClass>),
+    ClassAt(BackendResult<Class>),
 }
 
 /// Errors that can occur when interacting with the backend.
@@ -53,7 +53,7 @@ pub enum BackendError {
     #[error("failed to spawn backend thread: {0}")]
     BackendThreadInit(#[from] Arc<io::Error>),
     #[error("rpc provider error: {0}")]
-    StarknetProvider(#[from] Arc<starknet::providers::ProviderError>),
+    StarknetProvider(#[from] Arc<katana_rpc_client::starknet::Error>),
     #[error("unexpected received result: {0}")]
     UnexpectedReceiveResult(Arc<anyhow::Error>),
 }
@@ -128,9 +128,9 @@ enum BackendRequestIdentifier {
 ///
 /// It is responsible for processing [requests](BackendRequest) to fetch data from the remote
 /// provider.
-pub struct Backend<P> {
+pub struct Backend {
     /// The Starknet RPC provider that will be used to fetch data from.
-    provider: Arc<P>,
+    provider: Arc<StarknetClient>,
     // HashMap that keep track of current requests, for dedup purposes.
     request_dedup_map: HashMap<BackendRequestIdentifier, Vec<OneshotSender<BackendResponse>>>,
     /// Requests that are currently being poll.
@@ -147,16 +147,16 @@ pub struct Backend<P> {
 // Backend implementation
 /////////////////////////////////////////////////////////////////
 
-impl<P> Backend<P>
-where
-    P: Provider + Send + Sync + 'static,
-{
+impl Backend {
     // TODO(kariy): create a `.start()` method start running the backend logic and let the users
     // choose which thread to running it on instead of spawning the thread ourselves.
     /// Create a new [Backend] with the given provider and block id, and returns a handle to it. The
     /// backend will start processing requests immediately upon creation.
     #[allow(clippy::new_ret_no_self)]
-    pub fn new(provider: P, block_id: BlockHashOrNumber) -> Result<BackendClient, BackendError> {
+    pub fn new(
+        provider: StarknetClient,
+        block_id: BlockHashOrNumber,
+    ) -> Result<BackendClient, BackendError> {
         let (handle, backend) = Self::new_inner(provider, block_id);
 
         thread::Builder::new()
@@ -175,7 +175,10 @@ where
         Ok(handle)
     }
 
-    fn new_inner(provider: P, block_id: BlockHashOrNumber) -> (BackendClient, Backend<P>) {
+    fn new_inner(
+        provider: StarknetClient,
+        block_id: BlockHashOrNumber,
+    ) -> (BackendClient, Backend) {
         let block = match block_id {
             BlockHashOrNumber::Hash(hash) => BlockId::Hash(hash),
             BlockHashOrNumber::Num(number) => BlockId::Number(number),
@@ -211,9 +214,10 @@ where
                     sender,
                     Box::pin(async move {
                         let res = provider
-                            .get_nonce(block, Felt::from(payload))
+                            .get_nonce(block, payload)
                             .await
                             .map_err(|e| BackendError::StarknetProvider(Arc::new(e)));
+
                         BackendResponse::Nonce(res)
                     }),
                 );
@@ -227,7 +231,7 @@ where
                     sender,
                     Box::pin(async move {
                         let res = provider
-                            .get_storage_at(Felt::from(addr), key, block)
+                            .get_storage_at(addr, key, block)
                             .await
                             .map_err(|e| BackendError::StarknetProvider(Arc::new(e)));
 
@@ -244,7 +248,7 @@ where
                     sender,
                     Box::pin(async move {
                         let res = provider
-                            .get_class_hash_at(block, Felt::from(payload))
+                            .get_class_hash_at(block, payload)
                             .await
                             .map_err(|e| BackendError::StarknetProvider(Arc::new(e)));
 
@@ -302,10 +306,7 @@ where
     }
 }
 
-impl<P> Future for Backend<P>
-where
-    P: Provider + Send + Sync + 'static,
-{
+impl Future for Backend {
     type Output = ();
 
     fn poll(self: Pin<&mut Self>, cx: &mut Context<'_>) -> Poll<Self::Output> {
@@ -366,7 +367,7 @@ where
     }
 }
 
-impl<P: Debug> Debug for Backend<P> {
+impl Debug for Backend {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         f.debug_struct("Backend")
             .field("provider", &self.provider)
@@ -468,7 +469,6 @@ impl BackendClient {
         match rx.recv()? {
             BackendResponse::ClassAt(res) => {
                 if let Some(class) = handle_not_found_err(res)? {
-                    let class = Class::try_from(class)?;
                     Ok(Some(ContractClass::try_from(class)?))
                 } else {
                     Ok(None)
@@ -517,8 +517,8 @@ fn handle_not_found_err<T>(
         Ok(value) => Ok(Some(value)),
 
         Err(BackendError::StarknetProvider(err)) => match err.as_ref() {
-            StarknetProviderError::StarknetError(StarknetError::ContractNotFound) => Ok(None),
-            StarknetProviderError::StarknetError(StarknetError::ClassHashNotFound) => Ok(None),
+            StarknetClientError::Starknet(StarknetApiError::ContractNotFound) => Ok(None),
+            StarknetClientError::Starknet(StarknetApiError::ClassHashNotFound) => Ok(None),
             _ => Err(BackendClientError::BackendError(BackendError::StarknetProvider(err))),
         },
 
@@ -532,8 +532,7 @@ pub(crate) mod test_utils {
     use std::sync::mpsc::{sync_channel, SyncSender};
 
     use katana_primitives::block::BlockNumber;
-    use starknet::providers::jsonrpc::HttpTransport;
-    use starknet::providers::JsonRpcClient;
+    use katana_rpc_client::HttpClientBuilder;
     use tokio::io::{AsyncReadExt, AsyncWriteExt};
     use tokio::net::TcpListener;
     use url::Url;
@@ -542,7 +541,7 @@ pub(crate) mod test_utils {
 
     pub fn create_forked_backend(rpc_url: &str, block_num: BlockNumber) -> BackendClient {
         let url = Url::parse(rpc_url).expect("valid url");
-        let provider = Arc::new(JsonRpcClient::new(HttpTransport::new(url)));
+        let provider = StarknetClient::new(HttpClientBuilder::new().build(url).unwrap());
         Backend::new(provider, block_num.into()).unwrap()
     }
 
@@ -603,6 +602,12 @@ pub(crate) mod test_utils {
 
         // Returning the sender to allow controlling the response timing.
         tx
+    }
+}
+
+impl From<BackendClientError> for katana_provider_api::ProviderError {
+    fn from(value: BackendClientError) -> Self {
+        Self::Other(value.to_string())
     }
 }
 

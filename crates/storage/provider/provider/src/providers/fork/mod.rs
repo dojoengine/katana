@@ -20,18 +20,18 @@ use starknet::providers::jsonrpc::HttpTransport;
 use starknet::providers::JsonRpcClient;
 
 use super::db::{self, DbProvider};
-use crate::traits::block::{
+use crate::ProviderResult;
+use katana_provider_api::block::{
     BlockHashProvider, BlockNumberProvider, BlockProvider, BlockStatusProvider, BlockWriter,
     HeaderProvider,
 };
-use crate::traits::env::BlockEnvProvider;
-use crate::traits::stage::StageCheckpointProvider;
-use crate::traits::state_update::StateUpdateProvider;
-use crate::traits::transaction::{
+use katana_provider_api::env::BlockEnvProvider;
+use katana_provider_api::stage::StageCheckpointProvider;
+use katana_provider_api::state_update::StateUpdateProvider;
+use katana_provider_api::transaction::{
     ReceiptProvider, TransactionProvider, TransactionStatusProvider, TransactionTraceProvider,
     TransactionsProviderExt,
 };
-use crate::ProviderResult;
 
 mod state;
 mod trie;
