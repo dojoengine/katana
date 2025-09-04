@@ -14,7 +14,7 @@ use katana_trie::{
     compute_classes_trie_value, compute_contract_state_hash, ClassesMultiProof, MultiProof,
 };
 use katana_utils::TestNode;
-use starknet::accounts::{Account, ConnectedAccount, SingleOwnerAccount};
+use starknet::accounts::{Account, SingleOwnerAccount};
 use starknet::core::types::BlockTag;
 use starknet::providers::jsonrpc::HttpTransport;
 use starknet::providers::JsonRpcClient;
@@ -186,13 +186,14 @@ async fn genesis_states() {
 async fn classes_proofs() {
     let sequencer = TestNode::new().await;
     let account = sequencer.account();
+    let rpc_client = sequencer.starknet_rpc_client();
 
     let (class_hash1, compiled_class_hash1) =
-        declare(&account, "tests/test_data/cairo1_contract.json").await;
+        declare(&rpc_client, &account, "tests/test_data/cairo1_contract.json").await;
     let (class_hash2, compiled_class_hash2) =
-        declare(&account, "tests/test_data/cairo_l1_msg_contract.json").await;
+        declare(&rpc_client, &account, "tests/test_data/cairo_l1_msg_contract.json").await;
     let (class_hash3, compiled_class_hash3) =
-        declare(&account, "tests/test_data/test_sierra_contract.json").await;
+        declare(&rpc_client, &account, "tests/test_data/test_sierra_contract.json").await;
 
     // We need to use the jsonrpsee client because `starknet-rs` doesn't yet support RPC 0.8.0
     let client = sequencer.rpc_http_client();
@@ -268,6 +269,7 @@ async fn classes_proofs() {
 }
 
 async fn declare(
+    client: &katana_rpc_client::starknet::Client,
     account: &SingleOwnerAccount<JsonRpcClient<HttpTransport>, LocalWallet>,
     path: impl Into<PathBuf>,
 ) -> (ClassHash, CompiledClassHash) {
@@ -281,9 +283,7 @@ async fn declare(
         .await
         .expect("failed to send declare tx");
 
-    katana_utils::TxWaiter::new(res.transaction_hash, account.provider())
-        .await
-        .expect("failed to wait on tx");
+    katana_utils::TxWaiter::new(res.transaction_hash, client).await.expect("failed to wait on tx");
 
     (class_hash, compiled_class_hash)
 }

@@ -835,7 +835,7 @@ impl<EF: ExecutorFactory> StarknetApi<EF> {
         if let Some(state_update) = state_update {
             Ok(state_update)
         } else if let Some(client) = &self.inner.forked_client {
-            Ok(client.get_state_update(block_id).await?)
+            Ok(client.get_state_update(block_id).await?.state_update)
         } else {
             Err(StarknetApiError::BlockNotFound)
         }

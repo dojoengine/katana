@@ -264,7 +264,7 @@ async fn estimate_message_fee() -> Result<()> {
 
     let entry_point_selector = selector!("msg_handler_value");
     let payload = vec![felt!("123")];
-    let from_address = eth_address!("0x1337");
+    let from_address = eth_address!("0x0000000000000000000000000000000000001337");
     let to_address = l1handler_address.into();
 
     let msg = MsgFromL1 { payload, to_address, entry_point_selector, from_address };
@@ -284,7 +284,7 @@ async fn estimate_message_fee() -> Result<()> {
     let entry_point_selector = selector!("msg_handler_struct");
     // [ MyData.a , MyData.b ]
     let payload = vec![felt!("1"), felt!("2")];
-    let from_address = eth_address!("0x1337");
+    let from_address = eth_address!("0x0000000000000000000000000000000000001337");
     let to_address = l1handler_address.into();
 
     let msg = MsgFromL1 { payload, to_address, entry_point_selector, from_address };

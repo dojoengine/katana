@@ -99,7 +99,7 @@ impl Client {
         &self,
         block_id: BlockIdOrTag,
     ) -> Result<MaybePreConfirmedStateUpdate> {
-        self.client.get_state_update(block_id).await.map_err(Into::into)
+        self.client.get_state_update(block_id).await.map(|res| res.state_update).map_err(Into::into)
     }
 
     /// Get the value of the storage at the given address and key.

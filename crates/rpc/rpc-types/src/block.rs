@@ -426,8 +426,8 @@ impl BlockWithReceipts {
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub struct RpcTxWithReceipt {
-    transaction: RpcTx,
-    receipt: RpcTxReceiptWithHash,
+    pub transaction: RpcTx,
+    pub receipt: RpcTxReceiptWithHash,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]

@@ -14,7 +14,7 @@ use katana_rpc_types::event::{
     EventFilter, EventFilterWithPage, GetEventsResponse, ResultPageRequest,
 };
 use katana_rpc_types::receipt::{ReceiptBlockInfo, TxReceiptWithBlockInfo};
-use katana_rpc_types::state_update::MaybePreConfirmedStateUpdate;
+use katana_rpc_types::state_update::GetStateUpdateResponse;
 use katana_rpc_types::transaction::RpcTxWithHash;
 use starknet::core::types::TransactionStatus;
 
@@ -223,7 +223,7 @@ impl ForkedClient {
     pub async fn get_state_update(
         &self,
         block_id: BlockIdOrTag,
-    ) -> Result<MaybePreConfirmedStateUpdate, Error> {
+    ) -> Result<GetStateUpdateResponse, Error> {
         match block_id {
             BlockIdOrTag::Number(num) if num > self.block => {
                 return Err(Error::BlockOutOfRange);

@@ -55,14 +55,6 @@ where
                 .expect("should exist if block exists")
                 .into();
 
-        Ok(Some(
-            starknet::core::types::StateUpdate {
-                block_hash,
-                new_root,
-                old_root,
-                state_diff: state_diff.0,
-            }
-            .into(),
-        ))
+        Ok(Some(StateUpdate { block_hash, new_root, old_root, state_diff }))
     }
 }

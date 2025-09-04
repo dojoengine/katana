@@ -12,7 +12,7 @@ use katana_rpc::HttpClient;
 use katana_rpc_api::error::starknet::StarknetApiError;
 use katana_rpc_client::starknet::Client as StarknetClient;
 use katana_rpc_types::{
-    EventFilter, EventFilterWithPage, MaybePreConfirmedBlockWithReceipts,
+    BlockNumberResponse, EventFilter, EventFilterWithPage, MaybePreConfirmedBlockWithReceipts,
     MaybePreConfirmedBlockWithTxHashes, MaybePreConfirmedBlockWithTxs, ResultPageRequest,
 };
 use katana_utils::TestNode;
@@ -100,11 +100,11 @@ async fn setup_test_pending() -> (TestNode, StarknetClient, LocalTestVector) {
 async fn can_fork() -> Result<()> {
     let (_sequencer, provider, _) = setup_test().await;
 
-    let block = provider.block_number().await?;
+    let BlockNumberResponse { block_number } = provider.block_number().await?;
     let chain = provider.chain_id().await?;
 
     assert_eq!(chain, SEPOLIA_CHAIN_ID);
-    assert_eq!(block, FORK_BLOCK_NUMBER + 10);
+    assert_eq!(block_number, FORK_BLOCK_NUMBER + 10);
 
     Ok(())
 }
@@ -351,10 +351,10 @@ async fn get_transactions() -> Result<()> {
     let tx_hash = felt!("0x81207d4244596678e186f6ab9c833fe40a4b35291e8a90b9a163f7f643df9f");
 
     let tx = provider.get_transaction_by_hash(tx_hash).await?;
-    assert_eq!(*tx.transaction_hash, tx_hash);
+    assert_eq!(tx.transaction_hash, tx_hash);
 
     let tx = provider.get_transaction_receipt(tx_hash).await?;
-    assert_eq!(*tx.receipt.transaction_hash(), tx_hash);
+    assert_eq!(tx.transaction_hash, tx_hash);
 
     let result = provider.get_transaction_status(tx_hash).await;
     assert!(result.is_ok());
@@ -364,10 +364,10 @@ async fn get_transactions() -> Result<()> {
     let tx_hash = felt!("0x1b18d62544d4ef749befadabcec019d83218d3905abd321b4c1b1fc948d5710");
 
     let tx = provider.get_transaction_by_hash(tx_hash).await?;
-    assert_eq!(*tx.transaction_hash, tx_hash);
+    assert_eq!(tx.transaction_hash, tx_hash);
 
     let tx = provider.get_transaction_receipt(tx_hash).await?;
-    assert_eq!(*tx.receipt.transaction_hash(), tx_hash);
+    assert_eq!(tx.transaction_hash, tx_hash);
 
     let result = provider.get_transaction_status(tx_hash).await;
     assert!(result.is_ok());
@@ -377,10 +377,10 @@ async fn get_transactions() -> Result<()> {
 
     for (_, tx_hash) in local_only_data {
         let tx = provider.get_transaction_by_hash(tx_hash).await?;
-        assert_eq!(*tx.transaction_hash, tx_hash);
+        assert_eq!(tx.transaction_hash, tx_hash);
 
         let tx = provider.get_transaction_receipt(tx_hash).await?;
-        assert_eq!(*tx.receipt.transaction_hash(), tx_hash);
+        assert_eq!(tx.transaction_hash, tx_hash);
 
         let result = provider.get_transaction_status(tx_hash).await;
         assert!(result.is_ok());
@@ -393,13 +393,13 @@ async fn get_transactions() -> Result<()> {
     // transaction in block num 268,474 (FORK_BLOCK_NUMBER + 3)
     let tx_hash = felt!("0x335a605f2c91873f8f830a6e5285e704caec18503ca28c18485ea6f682eb65e");
     let result = provider.get_transaction_by_hash(tx_hash).await.unwrap_err();
-    assert_provider_starknet_err!(result, StarknetApiError::TransactionHashNotFound);
+    assert_provider_starknet_err!(result, StarknetApiError::TxnHashNotFound);
 
     let result = provider.get_transaction_receipt(tx_hash).await.unwrap_err();
-    assert_provider_starknet_err!(result, StarknetApiError::TransactionHashNotFound);
+    assert_provider_starknet_err!(result, StarknetApiError::TxnHashNotFound);
 
     let result = provider.get_transaction_status(tx_hash).await.unwrap_err();
-    assert_provider_starknet_err!(result, StarknetApiError::TransactionHashNotFound);
+    assert_provider_starknet_err!(result, StarknetApiError::TxnHashNotFound);
 
     Ok(())
 }
@@ -410,7 +410,7 @@ async fn get_transactions() -> Result<()> {
 #[case(BlockIdOrTag::Hash(felt!("0x208950cfcbba73ecbda1c14e4d58d66a8d60655ea1b9dcf07c16014ae8a93cd")))]
 async fn get_events_partially_from_forked(#[case] block_id: BlockIdOrTag) -> Result<()> {
     let (_sequencer, provider, _) = setup_test().await;
-    let forked_provider = JsonRpcClient::new(HttpTransport::new(Url::parse(SEPOLIA_URL)?));
+    let forked_provider = StarknetClient::new(HttpClient::builder().build(SEPOLIA_URL).unwrap());
 
     // -----------------------------------------------------------------------
     // Fetch events partially from forked block.

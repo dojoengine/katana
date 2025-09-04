@@ -11,7 +11,13 @@ use katana_primitives::genesis::constant::{
     DEFAULT_ETH_FEE_TOKEN_ADDRESS, DEFAULT_PREFUNDED_ACCOUNT_BALANCE,
     DEFAULT_STRK_FEE_TOKEN_ADDRESS, DEFAULT_UDC_ADDRESS,
 };
+use katana_primitives::Felt;
 use katana_rpc_api::dev::DevApiClient;
+use katana_rpc_types::state_update::MaybePreConfirmedStateUpdate;
+use katana_rpc_types::{
+    MaybePreConfirmedBlockWithReceipts, MaybePreConfirmedBlockWithTxHashes,
+    MaybePreConfirmedBlockWithTxs, RpcDeclareTxReceipt, RpcDeployAccountTxReceipt, RpcTxReceipt,
+};
 use katana_utils::TestNode;
 use num_traits::ToPrimitive;
 use starknet::accounts::{
@@ -19,11 +25,7 @@ use starknet::accounts::{
     OpenZeppelinAccountFactory as OZAccountFactory, SingleOwnerAccount,
 };
 use starknet::core::types::{
-    BlockId, BlockTag, Call, ConfirmedBlockId, DeclareTransactionReceipt,
-    DeployAccountTransactionReceipt, EventFilter, EventsPage, ExecutionResult, Felt,
-    MaybePreConfirmedBlockWithReceipts, MaybePreConfirmedBlockWithTxHashes,
-    MaybePreConfirmedBlockWithTxs, MaybePreConfirmedStateUpdate, StarknetError,
-    TransactionExecutionStatus, TransactionFinalityStatus, TransactionReceipt, TransactionTrace,
+    BlockId, BlockTag, Call, ConfirmedBlockId, ExecutionResult, TransactionTrace,
 };
 use starknet::core::utils::get_contract_address;
 use starknet::macros::{felt, selector};
@@ -49,7 +51,7 @@ async fn declare_and_deploy_contract() {
 
     // check that the tx is executed successfully and return the correct receipt
     let receipt = katana_utils::TxWaiter::new(res.transaction_hash, &provider).await.unwrap();
-    assert_matches!(receipt.receipt, TransactionReceipt::Declare(DeclareTransactionReceipt { .. }));
+    assert_matches!(receipt.receipt, RpcTxReceipt::Declare(RpcDeclareTxReceipt { .. }));
 
     // check that the class is actually declared
     assert!(provider.get_class(BlockId::Tag(BlockTag::PreConfirmed), class_hash).await.is_ok());
@@ -59,6 +61,7 @@ async fn declare_and_deploy_contract() {
     match state_update {
         MaybePreConfirmedStateUpdate::Update(update) => {
             assert!(update
+                .0
                 .state_diff
                 .declared_classes
                 .iter()
@@ -183,7 +186,7 @@ async fn deploy_account(
     let receipt = katana_utils::TxWaiter::new(res.transaction_hash, &provider).await.unwrap();
     assert_matches!(
         receipt.receipt,
-        TransactionReceipt::DeployAccount(DeployAccountTransactionReceipt { contract_address, .. })  => {
+        RpcTxReceipt::DeployAccount(RpcDeployAccountTxReceipt { contract_address, .. })  => {
             // the contract address in the receipt must be the same as the computed one
             assert_eq!(contract_address, account_address)
         }
@@ -215,7 +218,7 @@ async fn deploy_account(
         let receipt = katana_utils::TxWaiter::new(res.transaction_hash, &provider).await.unwrap();
         assert_matches!(
             receipt.receipt,
-            TransactionReceipt::DeployAccount(DeployAccountTransactionReceipt { contract_address, .. })  => {
+            RpcTxReceipt::DeployAccount(RpcDeployAccountTxReceipt { contract_address, .. })  => {
                 // the contract address in the receipt must be the same as the computed one
                 assert_eq!(contract_address, account_address)
             }
@@ -249,7 +252,8 @@ async fn estimate_fee() {
 
     // estimate fee with current nonce (the expected nonce)
     let address = account.address();
-    let nonce = provider.get_nonce(BlockId::Tag(BlockTag::PreConfirmed), address).await.unwrap();
+    let nonce =
+        provider.get_nonce(BlockId::Tag(BlockTag::PreConfirmed), address.into()).await.unwrap();
     let result = contract.transfer(&recipient, &amount).nonce(nonce).estimate_fee().await;
     assert!(result.is_ok(), "estimate should succeed with nonce == current nonce");
 }
@@ -450,6 +454,7 @@ async fn send_txs_with_insufficient_fee(
     config.dev.fee = !disable_fee;
     config.sequencing.block_time = block_time;
     let sequencer = TestNode::new_with_config(config).await;
+    let rpc_client = sequencer.starknet_rpc_client();
 
     // setup test contract to interact with.
     let contract = Erc20Contract::new(DEFAULT_ETH_FEE_TOKEN_ADDRESS.into(), sequencer.account());
@@ -472,8 +477,8 @@ async fn send_txs_with_insufficient_fee(
         // matter what value is set, the transaction will always be executed successfully.
         assert_matches!(res, Ok(tx) => {
             let tx_hash = tx.transaction_hash;
-            assert_matches!(katana_utils::TxWaiter::new(tx_hash, &sequencer.starknet_provider()).await, Ok(_));
-            assert_matches!(katana_utils::TxWaiter::new(tx_hash, &sequencer.starknet_provider()).await, Ok(_));
+            assert_matches!(katana_utils::TxWaiter::new(tx_hash, &rpc_client).await, Ok(_));
+            assert_matches!(katana_utils::TxWaiter::new(tx_hash, &rpc_client).await, Ok(_));
         });
 
         let nonce = sequencer.account().get_nonce().await.unwrap();
@@ -500,9 +505,7 @@ async fn send_txs_with_insufficient_fee(
         // enough to at least run the account validation, the tx should be accepted.
         // Wait for the transaction to be accepted
         let res = res.unwrap();
-        katana_utils::TxWaiter::new(res.transaction_hash, &sequencer.starknet_provider())
-            .await
-            .unwrap();
+        katana_utils::TxWaiter::new(res.transaction_hash, &rpc_client).await.unwrap();
 
         // nonce should be incremented by 1 after a valid tx.
         let nonce = sequencer.account().get_nonce().await.unwrap();
@@ -527,6 +530,7 @@ async fn send_txs_with_invalid_signature(
     config.dev.account_validation = !disable_validate;
     config.sequencing.block_time = block_time;
     let sequencer = TestNode::new_with_config(config).await;
+    let rpc_client = sequencer.starknet_rpc_client();
 
     // starknet-rs doesn't provide a way to manually set the signatures so instead we create an
     // account with random signer to simulate invalid signatures.
@@ -572,9 +576,7 @@ async fn send_txs_with_invalid_signature(
         let res = res.unwrap();
 
         // Wait for the transaction to be accepted
-        katana_utils::TxWaiter::new(res.transaction_hash, &sequencer.starknet_provider())
-            .await
-            .unwrap();
+        katana_utils::TxWaiter::new(res.transaction_hash, &rpc_client).await.unwrap();
 
         // nonce should be incremented by 1 after a valid tx.
         let nonce = sequencer.account().get_nonce().await.unwrap();
@@ -1195,7 +1197,7 @@ async fn fetch_pending_blocks_in_instant_mode() {
     if let MaybePreConfirmedBlockWithReceipts::Block(block) = block_with_receipts {
         assert_eq!(block.transactions.len(), 1);
         assert_eq!(block.parent_hash, latest_block_hash);
-        assert_eq!(*block.transactions[0].receipt.transaction_hash(), res.transaction_hash);
+        assert_eq!(block.transactions[0].receipt.transaction_hash, res.transaction_hash);
     } else {
         panic!("expected pending block with transaction receipts")
     }
