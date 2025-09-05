@@ -9,6 +9,7 @@ version.workspace = true
 [dependencies]
 katana-primitives = { workspace = true, features = [ "serde" ] }
 katana-trie.workspace = true
+serde-utils.workspace = true
 
 cainome.workspace = true
 cainome-cairo-serde.workspace = true

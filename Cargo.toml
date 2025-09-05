@@ -28,6 +28,7 @@ members = [
 	"crates/rpc/rpc-types-builder",
 	"crates/runner",
 	"crates/runner/macro",
+	"crates/serde-utils",
 	"crates/storage/codecs",
 	"crates/storage/codecs/derive",
 	"crates/storage/db",
@@ -64,6 +65,7 @@ inherits = "release"
 
 [workspace.dependencies]
 cartridge = { path = "crates/cartridge" }
+serde-utils = { path = "crates/serde-utils" }
 
 katana-chain-spec = { path = "crates/chain-spec" }
 katana-cli = { path = "crates/cli" }
@@ -226,7 +228,7 @@ cainome-cairo-serde = { git = "https://github.com/cartridge-gg/cainome", rev = "
 piltover = { git = "https://github.com/kariy/piltover.git", branch = "feat/rpc0.9" }
 
 [patch.crates-io]
-starknet = { git = "https://github.com/kariy/starknet-rs", rev = "02069a9" }
+starknet = { git = "https://github.com/kariy/starknet-rs", rev = "2ef3088" }
 # NOTE: remove this patch once this PR is merged <https://github.com/starknet-io/types-rs/pull/132>
 #
 # This patch fixes an issue where we're unable to correctly evaluate the accurate size

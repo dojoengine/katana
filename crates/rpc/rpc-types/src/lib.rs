@@ -5,6 +5,7 @@
 use katana_primitives::block::{BlockHash, BlockNumber};
 use katana_primitives::Felt;
 use serde::{Deserialize, Serialize};
+use serde_utils::{deserialize_u128, deserialize_u64, serialize_as_hex};
 
 pub mod account;
 pub mod block;
@@ -39,28 +40,41 @@ pub struct CallResponse {
     pub result: Vec<Felt>,
 }
 
-/// Message fee estimation.
+/// Fee estimation.
 #[derive(Debug, Clone, Copy, Serialize, Deserialize, PartialEq, Eq)]
 pub struct FeeEstimate {
     /// The Ethereum gas consumption of the transaction, charged for L1->L2 messages and, depending
     /// on the block's da_mode, state diffs
+    #[serde(serialize_with = "serialize_as_hex", deserialize_with = "deserialize_u64")]
     pub l1_gas_consumed: u64,
+
     /// The gas price (in wei or fri, depending on the tx version) that was used in the cost
     /// estimation
+    #[serde(serialize_with = "serialize_as_hex", deserialize_with = "deserialize_u128")]
     pub l1_gas_price: u128,
+
     /// The L2 gas consumption of the transaction
+    #[serde(serialize_with = "serialize_as_hex", deserialize_with = "deserialize_u64")]
     pub l2_gas_consumed: u64,
+
     /// The L2 gas price (in wei or fri, depending on the tx version) that was used in the cost
     /// estimation
+    #[serde(serialize_with = "serialize_as_hex", deserialize_with = "deserialize_u128")]
     pub l2_gas_price: u128,
+
     /// The Ethereum data gas consumption of the transaction
+    #[serde(serialize_with = "serialize_as_hex", deserialize_with = "deserialize_u64")]
     pub l1_data_gas_consumed: u64,
+
     /// The data gas price (in wei or fri, depending on the tx version) that was used in the cost
     /// estimation
+    #[serde(serialize_with = "serialize_as_hex", deserialize_with = "deserialize_u128")]
     pub l1_data_gas_price: u128,
+
     /// The estimated fee for the transaction (in wei or fri, depending on the tx version), equals
     /// to l1_gas_consumed*l1_gas_price + l1_data_gas_consumed*l1_data_gas_price +
     /// l2_gas_consumed*l2_gas_price
+    #[serde(serialize_with = "serialize_as_hex", deserialize_with = "deserialize_u128")]
     pub overall_fee: u128,
 }
 
@@ -145,7 +159,7 @@ mod tests {
     use rstest::rstest;
     use serde_json::{json, Value};
 
-    use super::{EstimateFeeSimulationFlag, SimulationFlag};
+    use super::{EstimateFeeSimulationFlag, FeeEstimate, SimulationFlag};
 
     #[rstest::rstest]
     #[case(felt!("0x0"), json!("0x0"))]
@@ -204,5 +218,34 @@ mod tests {
     fn invalid_simulation_flags(#[case] invalid: Value) {
         let result = serde_json::from_value::<SimulationFlag>(invalid.clone());
         assert!(result.is_err(), "expected error for invalid value: {invalid}");
+    }
+
+    #[test]
+    fn fee_estimate_serde() {
+        let fee_estimate = FeeEstimate {
+            l1_gas_consumed: 100,
+            l1_gas_price: 1000,
+            l2_gas_consumed: 200,
+            l2_gas_price: 2000,
+            l1_data_gas_consumed: 300,
+            l1_data_gas_price: 3000,
+            overall_fee: 1400000,
+        };
+
+        let json = json!({
+            "l1_gas_consumed": "0x64",
+            "l1_gas_price": "0x3e8",
+            "l2_gas_consumed": "0xc8",
+            "l2_gas_price": "0x7d0",
+            "l1_data_gas_consumed": "0x12c",
+            "l1_data_gas_price": "0xbb8",
+            "overall_fee": "0x155cc0"
+        });
+
+        let serialized = serde_json::to_value(&fee_estimate).unwrap();
+        assert_eq!(serialized, json);
+
+        let deserialized = serde_json::from_value::<FeeEstimate>(json).unwrap();
+        assert_eq!(deserialized, fee_estimate);
     }
 }

@@ -5845,6 +5845,7 @@ dependencies = [
  "katana-tracing",
  "katana-utils",
  "serde",
+ "serde-utils",
  "serde_json",
  "shellexpand",
  "starknet",
@@ -6029,6 +6030,7 @@ dependencies = [
  "reqwest 0.12.22",
  "rstest 0.18.2",
  "serde",
+ "serde-utils",
  "serde_json",
  "similar-asserts",
  "starknet",
@@ -6418,6 +6420,7 @@ dependencies = [
  "katana-trie",
  "rstest 0.18.2",
  "serde",
+ "serde-utils",
  "serde_json",
  "serde_json_pythonic",
  "serde_with",
@@ -9689,6 +9692,13 @@ dependencies = [
 ]
 
 [[package]]
+name = "serde-utils"
+version = "1.7.0-alpha.3"
+dependencies = [
+ "serde",
+]
+
+[[package]]
 name = "serde_derive"
 version = "1.0.219"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -10160,13 +10170,13 @@ dependencies = [
 [[package]]
 name = "starknet"
 version = "0.17.0-rc.2"
-source = "git+https://github.com/kariy/starknet-rs?rev=02069a9#02069a91bd4d962b357876a10846ac067c69abac"
+source = "git+https://github.com/kariy/starknet-rs?rev=2ef3088#2ef30887a2be68b6aa4514d6b56ba12fcb3988be"
 dependencies = [
  "starknet-accounts",
  "starknet-contract",
  "starknet-core",
  "starknet-core-derive",
- "starknet-crypto 0.7.4 (git+https://github.com/kariy/starknet-rs?rev=02069a9)",
+ "starknet-crypto 0.7.4 (git+https://github.com/kariy/starknet-rs?rev=2ef3088)",
  "starknet-macros",
  "starknet-providers",
  "starknet-signers",
@@ -10175,12 +10185,12 @@ dependencies = [
 [[package]]
 name = "starknet-accounts"
 version = "0.16.0-rc.2"
-source = "git+https://github.com/kariy/starknet-rs?rev=02069a9#02069a91bd4d962b357876a10846ac067c69abac"
+source = "git+https://github.com/kariy/starknet-rs?rev=2ef3088#2ef30887a2be68b6aa4514d6b56ba12fcb3988be"
 dependencies = [
  "async-trait",
  "auto_impl",
  "starknet-core",
- "starknet-crypto 0.7.4 (git+https://github.com/kariy/starknet-rs?rev=02069a9)",
+ "starknet-crypto 0.7.4 (git+https://github.com/kariy/starknet-rs?rev=2ef3088)",
  "starknet-providers",
  "starknet-signers",
  "thiserror 1.0.69",
@@ -10189,7 +10199,7 @@ dependencies = [
 [[package]]
 name = "starknet-contract"
 version = "0.16.0-rc.2"
-source = "git+https://github.com/kariy/starknet-rs?rev=02069a9#02069a91bd4d962b357876a10846ac067c69abac"
+source = "git+https://github.com/kariy/starknet-rs?rev=2ef3088#2ef30887a2be68b6aa4514d6b56ba12fcb3988be"
 dependencies = [
  "serde",
  "serde_json",
@@ -10203,7 +10213,7 @@ dependencies = [
 [[package]]
 name = "starknet-core"
 version = "0.16.0-rc.2"
-source = "git+https://github.com/kariy/starknet-rs?rev=02069a9#02069a91bd4d962b357876a10846ac067c69abac"
+source = "git+https://github.com/kariy/starknet-rs?rev=2ef3088#2ef30887a2be68b6aa4514d6b56ba12fcb3988be"
 dependencies = [
  "base64 0.21.7",
  "crypto-bigint",
@@ -10218,14 +10228,14 @@ dependencies = [
  "serde_with",
  "sha3",
  "starknet-core-derive",
- "starknet-crypto 0.7.4 (git+https://github.com/kariy/starknet-rs?rev=02069a9)",
+ "starknet-crypto 0.7.4 (git+https://github.com/kariy/starknet-rs?rev=2ef3088)",
  "starknet-types-core",
 ]
 
 [[package]]
 name = "starknet-core-derive"
 version = "0.1.0"
-source = "git+https://github.com/kariy/starknet-rs?rev=02069a9#02069a91bd4d962b357876a10846ac067c69abac"
+source = "git+https://github.com/kariy/starknet-rs?rev=2ef3088#2ef30887a2be68b6aa4514d6b56ba12fcb3988be"
 dependencies = [
  "proc-macro2",
  "quote",
@@ -10274,7 +10284,7 @@ dependencies = [
 [[package]]
 name = "starknet-crypto"
 version = "0.7.4"
-source = "git+https://github.com/kariy/starknet-rs?rev=02069a9#02069a91bd4d962b357876a10846ac067c69abac"
+source = "git+https://github.com/kariy/starknet-rs?rev=2ef3088#2ef30887a2be68b6aa4514d6b56ba12fcb3988be"
 dependencies = [
  "crypto-bigint",
  "hex",
@@ -10284,7 +10294,7 @@ dependencies = [
  "num-traits",
  "rfc6979",
  "sha2",
- "starknet-curve 0.5.1 (git+https://github.com/kariy/starknet-rs?rev=02069a9)",
+ "starknet-curve 0.5.1 (git+https://github.com/kariy/starknet-rs?rev=2ef3088)",
  "starknet-types-core",
  "zeroize",
 ]
@@ -10321,7 +10331,7 @@ dependencies = [
 [[package]]
 name = "starknet-curve"
 version = "0.5.1"
-source = "git+https://github.com/kariy/starknet-rs?rev=02069a9#02069a91bd4d962b357876a10846ac067c69abac"
+source = "git+https://github.com/kariy/starknet-rs?rev=2ef3088#2ef30887a2be68b6aa4514d6b56ba12fcb3988be"
 dependencies = [
  "starknet-types-core",
 ]
@@ -10365,7 +10375,7 @@ dependencies = [
 [[package]]
 name = "starknet-macros"
 version = "0.2.5-rc.2"
-source = "git+https://github.com/kariy/starknet-rs?rev=02069a9#02069a91bd4d962b357876a10846ac067c69abac"
+source = "git+https://github.com/kariy/starknet-rs?rev=2ef3088#2ef30887a2be68b6aa4514d6b56ba12fcb3988be"
 dependencies = [
  "starknet-core",
  "syn 2.0.104",
@@ -10447,7 +10457,7 @@ dependencies = [
 [[package]]
 name = "starknet-providers"
 version = "0.16.0-rc.2"
-source = "git+https://github.com/kariy/starknet-rs?rev=02069a9#02069a91bd4d962b357876a10846ac067c69abac"
+source = "git+https://github.com/kariy/starknet-rs?rev=2ef3088#2ef30887a2be68b6aa4514d6b56ba12fcb3988be"
 dependencies = [
  "async-trait",
  "auto_impl",
@@ -10467,7 +10477,7 @@ dependencies = [
 [[package]]
 name = "starknet-signers"
 version = "0.14.0-rc.2"
-source = "git+https://github.com/kariy/starknet-rs?rev=02069a9#02069a91bd4d962b357876a10846ac067c69abac"
+source = "git+https://github.com/kariy/starknet-rs?rev=2ef3088#2ef30887a2be68b6aa4514d6b56ba12fcb3988be"
 dependencies = [
  "async-trait",
  "auto_impl",
@@ -10476,7 +10486,7 @@ dependencies = [
  "getrandom 0.2.16",
  "rand 0.8.5",
  "starknet-core",
- "starknet-crypto 0.7.4 (git+https://github.com/kariy/starknet-rs?rev=02069a9)",
+ "starknet-crypto 0.7.4 (git+https://github.com/kariy/starknet-rs?rev=2ef3088)",
  "thiserror 1.0.69",
 ]
 
