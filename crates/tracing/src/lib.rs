@@ -50,19 +50,18 @@ pub enum Error {
 /// This function is maintained for backward compatibility.
 /// For new code, consider using [`TracingBuilder`] for more flexibility.
 pub async fn init(format: LogFormat, telemetry_config: Option<TracerConfig>) -> Result<(), Error> {
-    let builder =
-        TracingBuilder::new().with_log_format(format).with_env_filter_or_default()?.configure();
+    let builder = TracingBuilder::new().with_log_format(format).with_env_filter_or_default()?;
 
     match telemetry_config {
         Some(TracerConfig::Otlp(cfg)) => {
-            let mut otlp_builder = builder.with_telemetry().otlp();
+            let mut otlp_builder = builder.otlp();
             if let Some(endpoint) = cfg.endpoint {
                 otlp_builder = otlp_builder.with_endpoint(endpoint);
             }
             otlp_builder.build().await
         }
         Some(TracerConfig::Gcloud(cfg)) => {
-            let mut gcloud_builder = builder.with_telemetry().gcloud();
+            let mut gcloud_builder = builder.gcloud();
             if let Some(project_id) = cfg.project_id {
                 gcloud_builder = gcloud_builder.with_project_id(project_id);
             }
