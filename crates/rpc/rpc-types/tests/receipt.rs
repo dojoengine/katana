@@ -7,6 +7,7 @@ use katana_rpc_types::receipt::{
     ExecutionResult, ReceiptBlockInfo, RpcTxReceipt, TxReceiptWithBlockInfo,
 };
 use serde_json::Value;
+use similar_asserts::assert_eq;
 use starknet::core::types::Hash256;
 
 mod fixtures;
@@ -14,8 +15,8 @@ mod fixtures;
 #[test]
 fn invoke_confirmed_receipt() {
     let json = fixtures::test_data::<Value>("v0.9/receipts/v3/invoke.json");
-    let receipt: TxReceiptWithBlockInfo = serde_json::from_value(json.clone()).unwrap();
-    let TxReceiptWithBlockInfo { transaction_hash, receipt, block } = receipt;
+    let full_receipt: TxReceiptWithBlockInfo = serde_json::from_value(json.clone()).unwrap();
+    let TxReceiptWithBlockInfo { transaction_hash, receipt, block } = full_receipt.clone();
 
     assert_matches!(&block, ReceiptBlockInfo::Block { block_hash, block_number } => {
         assert_eq!(*block_number, 1832699);
@@ -53,15 +54,15 @@ fn invoke_confirmed_receipt() {
         assert_eq!(rct.execution_resources.l1_gas, 0);
     });
 
-    let serialized = serde_json::to_value(&receipt).unwrap();
+    let serialized = serde_json::to_value(&full_receipt).unwrap();
     assert_eq!(serialized, json);
 }
 
 #[test]
 fn declare_confirmed_receipt() {
     let json = fixtures::test_data::<Value>("v0.9/receipts/v3/declare.json");
-    let receipt: TxReceiptWithBlockInfo = serde_json::from_value(json.clone()).unwrap();
-    let TxReceiptWithBlockInfo { transaction_hash, receipt, block } = receipt;
+    let full_receipt: TxReceiptWithBlockInfo = serde_json::from_value(json.clone()).unwrap();
+    let TxReceiptWithBlockInfo { transaction_hash, receipt, block } = full_receipt.clone();
 
     assert_matches!(&block, ReceiptBlockInfo::Block { block_hash, block_number } => {
         assert_eq!(*block_number, 1831872);
@@ -99,15 +100,15 @@ fn declare_confirmed_receipt() {
         assert_eq!(rct.execution_resources.l1_gas, 0);
     });
 
-    let serialized = serde_json::to_value(&receipt).unwrap();
+    let serialized = serde_json::to_value(&full_receipt).unwrap();
     assert_eq!(serialized, json);
 }
 
 #[test]
 fn deploy_account_confirmed_receipt() {
     let json = fixtures::test_data::<Value>("v0.9/receipts/v3/deploy_account.json");
-    let receipt: TxReceiptWithBlockInfo = serde_json::from_value(json.clone()).unwrap();
-    let TxReceiptWithBlockInfo { transaction_hash, receipt, block } = receipt;
+    let full_receipt: TxReceiptWithBlockInfo = serde_json::from_value(json.clone()).unwrap();
+    let TxReceiptWithBlockInfo { transaction_hash, receipt, block } = full_receipt.clone();
 
     assert_matches!(&block, ReceiptBlockInfo::Block { block_hash, block_number } => {
         assert_eq!(*block_number, 1831872);
@@ -147,15 +148,15 @@ fn deploy_account_confirmed_receipt() {
         assert_eq!(rct.contract_address, address!("0x583d1ea19135ccdea1e42c2772687b765bba714b1f2104213c5a3919a2574b"));
     });
 
-    let serialized = serde_json::to_value(&receipt).unwrap();
+    let serialized = serde_json::to_value(&full_receipt).unwrap();
     assert_eq!(serialized, json);
 }
 
 #[test]
 fn l1_handler_confirmed_receipt() {
     let json = fixtures::test_data::<Value>("v0.9/receipts/v3/l1_handler.json");
-    let receipt: TxReceiptWithBlockInfo = serde_json::from_value(json.clone()).unwrap();
-    let TxReceiptWithBlockInfo { transaction_hash, receipt, block } = receipt;
+    let full_receipt: TxReceiptWithBlockInfo = serde_json::from_value(json.clone()).unwrap();
+    let TxReceiptWithBlockInfo { transaction_hash, receipt, block } = full_receipt.clone();
 
     assert_matches!(&block, ReceiptBlockInfo::Block { block_hash, block_number } => {
         assert_eq!(*block_number, 1832108);
@@ -207,6 +208,6 @@ fn l1_handler_confirmed_receipt() {
         assert_eq!(rct.message_hash, Hash256::from_hex("0xb720c23367e1ebcb73f909ce13c3773d74c9a06b212d6dca1e6f55c3d4b44fde").unwrap());
     });
 
-    let serialized = serde_json::to_value(&receipt).unwrap();
+    let serialized = serde_json::to_value(&full_receipt).unwrap();
     assert_eq!(serialized, json);
 }

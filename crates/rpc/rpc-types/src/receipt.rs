@@ -338,18 +338,16 @@ pub enum TxStatus {
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
-#[serde(untagged)]
+#[serde(tag = "execution_status")]
 pub enum ExecutionResult {
+    #[serde(rename = "SUCCEEDED")]
     Succeeded,
-    Reverted { reason: String },
-}
 
-/// The execution status of transaction.
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
-#[serde(rename_all = "SCREAMING_SNAKE_CASE")]
-pub enum TxExecutionStatus {
-    Succeeded,
-    Reverted,
+    #[serde(rename = "REVERTED")]
+    Reverted {
+        #[serde(rename = "revert_reason")]
+        reason: String,
+    },
 }
 
 /// The resources consumed by the transaction.
