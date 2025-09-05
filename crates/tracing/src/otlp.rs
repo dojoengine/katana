@@ -11,11 +11,14 @@ pub struct OtlpConfig {
     pub endpoint: Option<String>,
 }
 
-/// Initialize OTLP tracer
-pub fn init_tracer(otlp_config: &OtlpConfig) -> Result<opentelemetry_sdk::trace::Tracer, Error> {
+/// Initialize OTLP tracer with custom service name
+pub fn init_tracer_with_service(
+    otlp_config: &OtlpConfig,
+    service_name: &str,
+) -> Result<opentelemetry_sdk::trace::Tracer, Error> {
     use opentelemetry_otlp::WithExportConfig;
 
-    let resource = Resource::builder().with_service_name("katana").build();
+    let resource = Resource::builder().with_service_name(service_name.to_string()).build();
 
     let mut exporter_builder = SpanExporterBuilder::new().with_tonic();
 
@@ -33,5 +36,10 @@ pub fn init_tracer(otlp_config: &OtlpConfig) -> Result<opentelemetry_sdk::trace:
 
     opentelemetry::global::set_tracer_provider(provider.clone());
 
-    Ok(provider.tracer("katana"))
+    Ok(provider.tracer(service_name.to_string()))
+}
+
+/// Initialize OTLP tracer (backward compatibility)
+pub fn init_tracer(otlp_config: &OtlpConfig) -> Result<opentelemetry_sdk::trace::Tracer, Error> {
+    init_tracer_with_service(otlp_config, "katana")
 }
