@@ -1,10 +1,10 @@
-use katana_tracing::{LogFormat, TracingBuilder};
+use katana_tracing::TracingBuilder;
 
 #[tokio::main]
 async fn main() -> Result<(), Box<dyn std::error::Error>> {
     // Example 1: Basic configuration without telemetry
     TracingBuilder::new()
-        .with_log_format(LogFormat::Json)
+        .json()  // Must choose format first
         .with_default_filter()?
         .build()
         .await?;
@@ -16,7 +16,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
 
     // Example 2: With OTLP telemetry
     // TracingBuilder::new()
-    //     .with_log_format(LogFormat::Full)
+    //     .full()  // Choose format first
     //     .with_env_filter_or_default()?
     //     .with_service_name("my-katana-node")
     //     .otlp()
@@ -26,7 +26,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
 
     // Example 3: With Google Cloud telemetry
     // TracingBuilder::new()
-    //     .with_log_format(LogFormat::Json)
+    //     .json()  // Choose format first
     //     .with_filter("debug")?
     //     .with_service_name("katana-prod")
     //     .gcloud()
@@ -36,12 +36,14 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
 
     // Example 4: Using environment filter
     // TracingBuilder::new()
+    //     .full()  // Must choose format
     //     .with_env_filter()?  // Uses RUST_LOG environment variable
     //     .build()
     //     .await?;
 
     // Example 5: Custom filter with OTLP telemetry (using default endpoint)
     // TracingBuilder::new()
+    //     .json()
     //     .with_filter("katana=debug,tower=info")?
     //     .with_service_name("custom-service")
     //     .otlp()

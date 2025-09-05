@@ -1,3 +1,4 @@
+use std::marker::PhantomData;
 
 use tracing_subscriber::layer::SubscriberExt;
 use tracing_subscriber::util::SubscriberInitExt;
@@ -6,11 +7,16 @@ use tracing_subscriber::{EnvFilter, Layer};
 use crate::fmt::LocalTime;
 use crate::{gcloud, otlp, Error, LogFormat};
 
-// Main builder struct
-pub struct TracingBuilder {
-    log_format: LogFormat,
+// Type-state markers for log format
+pub struct NoFormat;
+pub struct WithFormat;
+
+// Main builder struct with type-state for format
+pub struct TracingBuilder<Format = NoFormat> {
+    log_format: Option<LogFormat>,
     filter: Option<EnvFilter>,
     service_name: String,
+    _format: PhantomData<Format>,
 }
 
 // Configuration that will be used during build
@@ -23,31 +29,48 @@ enum TelemetryConfig {
 // Builder for OTLP telemetry configuration
 pub struct OtlpTelemetryBuilder {
     endpoint: Option<String>,
-    parent_builder: TracingBuilder,
+    parent_builder: TracingBuilder<WithFormat>,
 }
 
 // Builder for Google Cloud telemetry configuration
 pub struct GcloudTelemetryBuilder {
     project_id: Option<String>,
-    parent_builder: TracingBuilder,
+    parent_builder: TracingBuilder<WithFormat>,
 }
 
-impl TracingBuilder {
-    /// Create a new tracing builder with default settings
+impl TracingBuilder<NoFormat> {
+    /// Create a new tracing builder
     pub fn new() -> Self {
         Self {
-            log_format: LogFormat::Full,
+            log_format: None,
             filter: None,
             service_name: "katana".to_string(),
+            _format: PhantomData,
         }
     }
 
-    /// Set the log format
-    pub fn with_log_format(mut self, format: LogFormat) -> Self {
-        self.log_format = format;
-        self
+    /// Set the log format to full (human-readable with colors)
+    pub fn full(self) -> TracingBuilder<WithFormat> {
+        TracingBuilder {
+            log_format: Some(LogFormat::Full),
+            filter: self.filter,
+            service_name: self.service_name,
+            _format: PhantomData,
+        }
     }
 
+    /// Set the log format to JSON
+    pub fn json(self) -> TracingBuilder<WithFormat> {
+        TracingBuilder {
+            log_format: Some(LogFormat::Json),
+            filter: self.filter,
+            service_name: self.service_name,
+            _format: PhantomData,
+        }
+    }
+}
+
+impl TracingBuilder<WithFormat> {
     /// Set a custom filter from a string
     pub fn with_filter(mut self, filter: &str) -> Result<Self, Error> {
         self.filter = Some(EnvFilter::try_new(filter)?);
@@ -123,9 +146,11 @@ impl TracingBuilder {
             EnvFilter::try_new(DEFAULT_LOG_FILTER).expect("default filter should be valid")
         });
 
+        let log_format = self.log_format.expect("log format must be set");
+
         match telemetry_config {
             TelemetryConfig::None => {
-                let fmt = match self.log_format {
+                let fmt = match log_format {
                     LogFormat::Full => {
                         tracing_subscriber::fmt::layer().with_timer(LocalTime::new()).boxed()
                     }
@@ -140,7 +165,7 @@ impl TracingBuilder {
                 let tracer = otlp::init_tracer_with_service(&cfg, &self.service_name)?;
                 let telemetry = tracing_opentelemetry::layer().with_tracer(tracer);
 
-                let fmt = match self.log_format {
+                let fmt = match log_format {
                     LogFormat::Full => {
                         tracing_subscriber::fmt::layer().with_timer(LocalTime::new()).boxed()
                     }
@@ -155,7 +180,7 @@ impl TracingBuilder {
                 let tracer = gcloud::init_tracer_with_service(&cfg, &self.service_name).await?;
                 let telemetry = tracing_opentelemetry::layer().with_tracer(tracer);
 
-                let fmt = match self.log_format {
+                let fmt = match log_format {
                     LogFormat::Full => {
                         tracing_subscriber::fmt::layer().with_timer(LocalTime::new()).boxed()
                     }
@@ -204,9 +229,20 @@ impl GcloudTelemetryBuilder {
     }
 }
 
-impl Default for TracingBuilder {
+impl Default for TracingBuilder<NoFormat> {
     fn default() -> Self {
         Self::new()
+    }
+}
+
+// Helper function for backward compatibility - creates a builder with a format already set
+impl TracingBuilder<NoFormat> {
+    /// Create a builder with a pre-selected format (for backward compatibility)
+    pub(crate) fn with_format(format: LogFormat) -> TracingBuilder<WithFormat> {
+        match format {
+            LogFormat::Full => Self::new().full(),
+            LogFormat::Json => Self::new().json(),
+        }
     }
 }
 
@@ -215,28 +251,36 @@ mod tests {
     use super::*;
 
     #[test]
-    fn test_builder_type_safety() {
-        // This test ensures the builder pattern compiles correctly
-        // and demonstrates the fluent API flow
+    fn test_builder_requires_format() {
+        // This demonstrates that you must choose a format before building
         
         // The following should compile:
         let _builder = TracingBuilder::new()
-            .with_log_format(LogFormat::Json)
+            .json()
             .with_service_name("test-service");
 
-        // Test that telemetry selection works
-        let _otlp_builder = TracingBuilder::new().otlp();
-        let _gcloud_builder = TracingBuilder::new().gcloud();
+        let _builder = TracingBuilder::new()
+            .full()
+            .with_service_name("test-service");
+
+        // The following would NOT compile (commented out):
+        // let _builder = TracingBuilder::new()
+        //     .with_service_name("test-service") // Error: method not found
+        //     .build();
+
+        // Test that telemetry selection works after format is set
+        let _otlp_builder = TracingBuilder::new().json().otlp();
+        let _gcloud_builder = TracingBuilder::new().full().gcloud();
     }
 
     #[tokio::test]
-    async fn test_builder_without_telemetry() {
+    async fn test_builder_with_format() {
         // Note: This will fail if tracing is already initialized
         // In practice, this would be tested with a custom registry
         
         // Just ensure the builder compiles and doesn't panic
         let result = TracingBuilder::new()
-            .with_log_format(LogFormat::Json)
+            .json()
             .build()
             .await;
         

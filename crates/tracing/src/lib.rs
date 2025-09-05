@@ -50,7 +50,7 @@ pub enum Error {
 /// This function is maintained for backward compatibility.
 /// For new code, consider using [`TracingBuilder`] for more flexibility.
 pub async fn init(format: LogFormat, telemetry_config: Option<TracerConfig>) -> Result<(), Error> {
-    let builder = TracingBuilder::new().with_log_format(format).with_env_filter_or_default()?;
+    let builder = builder::TracingBuilder::with_format(format).with_env_filter_or_default()?;
 
     match telemetry_config {
         Some(TracerConfig::Otlp(cfg)) => {
