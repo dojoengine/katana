@@ -290,6 +290,9 @@ pub enum ReceiptBlockInfo {
 }
 
 impl ReceiptBlockInfo {
+    /// Returns the block number of this block info.
+    ///
+    /// This is the block number of the block that contains the transaction.
     pub fn block_number(&self) -> BlockNumber {
         match self {
             ReceiptBlockInfo::PreConfirmed { block_number } => *block_number,

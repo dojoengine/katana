@@ -166,7 +166,8 @@ async fn deploy_account(
     let salt = felt!("0x123");
 
     // starknet-rs's utility for deploying an OpenZeppelin account
-    let factory = OZAccountFactory::new(class, chain_id, &signer, &provider).await.unwrap();
+    let factory =
+        OZAccountFactory::new(class, chain_id, &signer, funding_account.provider()).await.unwrap();
     let deploy_account_tx = factory.deploy_v3(salt);
     let account_address = deploy_account_tx.address();
 
@@ -194,8 +195,10 @@ async fn deploy_account(
 
     // Verify the `getClassHashAt` returns the same class hash that we use for the account
     // deployment
-    let res =
-        provider.get_class_hash_at(BlockIdOrTag::PreConfirmed, account_address).await.unwrap();
+    let res = provider
+        .get_class_hash_at(BlockIdOrTag::PreConfirmed, account_address.into())
+        .await
+        .unwrap();
     assert_eq!(res, class);
 
     // deploy from empty balance,
@@ -224,8 +227,10 @@ async fn deploy_account(
 
         // Verify the `getClassHashAt` returns the same class hash that we use for the account
         // deployment
-        let res =
-            provider.get_class_hash_at(BlockIdOrTag::PreConfirmed, account_address).await.unwrap();
+        let res = provider
+            .get_class_hash_at(BlockIdOrTag::PreConfirmed, account_address.into())
+            .await
+            .unwrap();
         assert_eq!(res, class);
     }
 }

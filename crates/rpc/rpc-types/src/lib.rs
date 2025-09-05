@@ -119,12 +119,12 @@ impl<'de> Deserialize<'de> for SyncingResponse {
         use serde::Deserialize;
         use serde::__private::de::{Content, ContentRefDeserializer};
 
-        let content = <Content as Deserialize>::deserialize(deserializer)?;
+        let content = <Content<'_> as Deserialize>::deserialize(deserializer)?;
         let deserializer = ContentRefDeserializer::<D::Error>::new(&content);
 
         if let Ok(bool) = <bool as Deserialize>::deserialize(deserializer) {
             // The only valid boolean value is `false` which indicates that the node is not syncing.
-            if bool == false {
+            if !bool {
                 return Ok(Self::NotSyncing);
             };
         } else if let Ok(value) = <SyncStatus as Deserialize>::deserialize(deserializer) {

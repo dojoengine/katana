@@ -5779,6 +5779,7 @@ dependencies = [
  "katana-db",
  "katana-primitives",
  "katana-provider",
+ "katana-rpc-client",
  "katana-rpc-types",
  "katana-utils",
  "piltover",

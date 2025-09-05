@@ -485,7 +485,7 @@ mod serde_impls {
             impl<'de> Visitor<'de> for BlockIdOrTagVisitor {
                 type Value = BlockIdOrTag;
 
-                fn expecting(&self, formatter: &mut std::fmt::Formatter) -> std::fmt::Result {
+                fn expecting(&self, formatter: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
                     formatter.write_str("a block identifier or tag")
                 }
 
@@ -575,7 +575,7 @@ mod serde_impls {
             impl<'de> Visitor<'de> for ConfirmedBlockIdOrTagVisitor {
                 type Value = ConfirmedBlockIdOrTag;
 
-                fn expecting(&self, formatter: &mut std::fmt::Formatter) -> std::fmt::Result {
+                fn expecting(&self, formatter: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
                     formatter.write_str("a block identifier or tag")
                 }
 

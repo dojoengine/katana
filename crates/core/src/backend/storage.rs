@@ -130,7 +130,7 @@ impl Blockchain {
         chain.genesis.number = forked_block.block_number;
         chain.genesis.state_root = forked_block.new_root;
         chain.genesis.parent_hash = forked_block.parent_hash;
-        chain.genesis.sequencer_address = forked_block.sequencer_address.into();
+        chain.genesis.sequencer_address = forked_block.sequencer_address;
 
         // TODO: remove gas price from genesis
         let eth_l1_gas_price =
@@ -165,7 +165,7 @@ impl Blockchain {
                         timestamp: parent_block.timestamp,
                         number: parent_block.block_number,
                         state_root: parent_block.new_root,
-                        sequencer_address: parent_block.sequencer_address.into(),
+                        sequencer_address: parent_block.sequencer_address,
                         ..Default::default()
                     },
                 },

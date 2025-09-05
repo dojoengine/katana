@@ -6,9 +6,9 @@ use fixtures::{db, TempDb};
 use katana::cli::Cli;
 use katana_db::abstraction::Database;
 use katana_primitives::Felt;
+use katana_provider::api::block::BlockNumberProvider;
+use katana_provider::api::state::{StateFactoryProvider, StateRootProvider};
 use katana_provider::providers::db::DbProvider;
-use katana_provider::traits::block::BlockNumberProvider;
-use katana_provider::traits::state::{StateFactoryProvider, StateRootProvider};
 use rstest::*;
 
 mod fixtures;

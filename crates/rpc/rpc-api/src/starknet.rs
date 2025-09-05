@@ -115,7 +115,7 @@ pub trait StarknetApi {
         &self,
         block_id: BlockIdOrTag,
         contract_address: ContractAddress,
-    ) -> RpcResult<Felt>;
+    ) -> RpcResult<ClassHash>;
 
     /// Get the contract class definition in the given block at the given address.
     #[method(name = "getClassAt")]

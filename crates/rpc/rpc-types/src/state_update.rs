@@ -70,7 +70,7 @@ impl Serialize for StateDiff {
         /// ```
         struct NoncesSer<'a>(&'a BTreeMap<ContractAddress, Nonce>);
 
-        impl<'a> Serialize for NoncesSer<'a> {
+        impl Serialize for NoncesSer<'_> {
             fn serialize<S: serde::Serializer>(&self, serializer: S) -> Result<S::Ok, S::Error> {
                 #[derive(Debug, Serialize)]
                 struct NonceUpdate {
@@ -94,7 +94,7 @@ impl Serialize for StateDiff {
         /// ```json
         /// [
         ///   {
-        ///     "contract_address": "0x123",
+        ///     "address": "0x123",
         ///     "storage_entries": [
         ///       {
         ///         "key": "0x123",
@@ -110,7 +110,7 @@ impl Serialize for StateDiff {
             &'a BTreeMap<ContractAddress, BTreeMap<StorageKey, StorageValue>>,
         );
 
-        impl<'a> Serialize for StorageDiffsSer<'a> {
+        impl Serialize for StorageDiffsSer<'_> {
             fn serialize<S: serde::Serializer>(&self, serializer: S) -> Result<S::Ok, S::Error> {
                 #[derive(Debug, Serialize)]
                 struct StorageEntry {
@@ -125,14 +125,14 @@ impl Serialize for StateDiff {
                 }
 
                 let mut seq = serializer.serialize_seq(Some(self.0.len()))?;
-                for (contract_address, entries) in self.0 {
+                for (address, entries) in self.0 {
                     let storage_entries: Vec<StorageEntry> = entries
                         .iter()
                         .map(|(key, value)| StorageEntry { key: *key, value: *value })
                         .collect();
 
                     seq.serialize_element(&ContractStorageDiff {
-                        address: *contract_address,
+                        address: *address,
                         storage_entries,
                     })?;
                 }
@@ -154,7 +154,7 @@ impl Serialize for StateDiff {
         /// ```
         struct DeployedContractsSer<'a>(&'a BTreeMap<ContractAddress, ClassHash>);
 
-        impl<'a> Serialize for DeployedContractsSer<'a> {
+        impl Serialize for DeployedContractsSer<'_> {
             fn serialize<S: serde::Serializer>(&self, serializer: S) -> Result<S::Ok, S::Error> {
                 #[derive(Debug, Serialize)]
                 struct DeployedContract {
@@ -186,7 +186,7 @@ impl Serialize for StateDiff {
         /// ```
         struct DeclaredClassesSer<'a>(&'a BTreeMap<ClassHash, CompiledClassHash>);
 
-        impl<'a> Serialize for DeclaredClassesSer<'a> {
+        impl Serialize for DeclaredClassesSer<'_> {
             fn serialize<S: serde::Serializer>(&self, serializer: S) -> Result<S::Ok, S::Error> {
                 #[derive(Debug, Serialize)]
                 struct DeclaredClass {
@@ -212,7 +212,7 @@ impl Serialize for StateDiff {
         /// ```
         struct DepDeclaredClassesSer<'a>(&'a BTreeSet<ClassHash>);
 
-        impl<'a> Serialize for DepDeclaredClassesSer<'a> {
+        impl Serialize for DepDeclaredClassesSer<'_> {
             fn serialize<S: serde::Serializer>(&self, serializer: S) -> Result<S::Ok, S::Error> {
                 let mut seq = serializer.serialize_seq(Some(self.0.len()))?;
                 for class_hash in self.0 {
@@ -235,7 +235,7 @@ impl Serialize for StateDiff {
         /// ```
         struct ReplacedClassesSer<'a>(&'a BTreeMap<ContractAddress, ClassHash>);
 
-        impl<'a> Serialize for ReplacedClassesSer<'a> {
+        impl Serialize for ReplacedClassesSer<'_> {
             fn serialize<S: serde::Serializer>(&self, serializer: S) -> Result<S::Ok, S::Error> {
                 #[derive(Debug, Serialize)]
                 struct ReplacedClass {
@@ -284,7 +284,7 @@ impl<'de> Deserialize<'de> for StateDiff {
         impl<'de> Visitor<'de> for StateDiffVisitor {
             type Value = StateDiff;
 
-            fn expecting(&self, formatter: &mut std::fmt::Formatter) -> std::fmt::Result {
+            fn expecting(&self, formatter: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
                 formatter.write_str("a valid StateDiff")
             }
 
@@ -357,7 +357,10 @@ impl<'de> Deserialize<'de> for StateDiff {
                 impl<'de> Visitor<'de> for NoncesVisitor {
                     type Value = BTreeMap<ContractAddress, Nonce>;
 
-                    fn expecting(&self, formatter: &mut std::fmt::Formatter) -> std::fmt::Result {
+                    fn expecting(
+                        &self,
+                        formatter: &mut std::fmt::Formatter<'_>,
+                    ) -> std::fmt::Result {
                         formatter.write_str("an array of nonce updates")
                     }
 
@@ -397,7 +400,10 @@ impl<'de> Deserialize<'de> for StateDiff {
                 impl<'de> Visitor<'de> for StorageDiffsVisitor {
                     type Value = BTreeMap<ContractAddress, BTreeMap<StorageKey, StorageValue>>;
 
-                    fn expecting(&self, formatter: &mut std::fmt::Formatter) -> std::fmt::Result {
+                    fn expecting(
+                        &self,
+                        formatter: &mut std::fmt::Formatter<'_>,
+                    ) -> std::fmt::Result {
                         formatter.write_str("an array of storage diffs")
                     }
 
@@ -447,7 +453,10 @@ impl<'de> Deserialize<'de> for StateDiff {
                 impl<'de> Visitor<'de> for DeployedContractsVisitor {
                     type Value = BTreeMap<ContractAddress, ClassHash>;
 
-                    fn expecting(&self, formatter: &mut std::fmt::Formatter) -> std::fmt::Result {
+                    fn expecting(
+                        &self,
+                        formatter: &mut std::fmt::Formatter<'_>,
+                    ) -> std::fmt::Result {
                         formatter.write_str("an array of deployed contracts")
                     }
 
@@ -487,7 +496,10 @@ impl<'de> Deserialize<'de> for StateDiff {
                 impl<'de> Visitor<'de> for DeclaredClassesVisitor {
                     type Value = BTreeMap<ClassHash, CompiledClassHash>;
 
-                    fn expecting(&self, formatter: &mut std::fmt::Formatter) -> std::fmt::Result {
+                    fn expecting(
+                        &self,
+                        formatter: &mut std::fmt::Formatter<'_>,
+                    ) -> std::fmt::Result {
                         formatter.write_str("an array of declared classes")
                     }
 
@@ -527,7 +539,10 @@ impl<'de> Deserialize<'de> for StateDiff {
                 impl<'de> Visitor<'de> for DepDeclaredClassesVisitor {
                     type Value = BTreeSet<ClassHash>;
 
-                    fn expecting(&self, formatter: &mut std::fmt::Formatter) -> std::fmt::Result {
+                    fn expecting(
+                        &self,
+                        formatter: &mut std::fmt::Formatter<'_>,
+                    ) -> std::fmt::Result {
                         formatter.write_str("an array of class hashes")
                     }
 
@@ -561,7 +576,10 @@ impl<'de> Deserialize<'de> for StateDiff {
                 impl<'de> Visitor<'de> for ReplacedClassesVisitor {
                     type Value = BTreeMap<ContractAddress, ClassHash>;
 
-                    fn expecting(&self, formatter: &mut std::fmt::Formatter) -> std::fmt::Result {
+                    fn expecting(
+                        &self,
+                        formatter: &mut std::fmt::Formatter<'_>,
+                    ) -> std::fmt::Result {
                         formatter.write_str("an array of replaced classes")
                     }
 
@@ -595,8 +613,8 @@ impl From<katana_primitives::state::StateUpdates> for StateDiff {
     fn from(value: katana_primitives::state::StateUpdates) -> Self {
         Self {
             nonces: value.nonce_updates,
-            replaced_classes: Default::default(),
             storage_diffs: value.storage_updates,
+            replaced_classes: value.replaced_classes,
             declared_classes: value.declared_classes,
             deployed_contracts: value.deployed_contracts,
             deprecated_declared_classes: value.deprecated_declared_classes,

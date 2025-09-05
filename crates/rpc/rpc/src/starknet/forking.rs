@@ -136,7 +136,7 @@ impl ForkedClient {
             }
 
             BlockIdOrTag::L1Accepted | BlockIdOrTag::Latest | BlockIdOrTag::PreConfirmed => {
-                return Err(Error::BlockTagNotAllowed);
+                Err(Error::BlockTagNotAllowed)
             }
         }
     }
