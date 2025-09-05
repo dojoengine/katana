@@ -43,6 +43,9 @@ pub struct StateUpdate {
 
 /// The change in state applied in this block, given as a mapping of addresses to the new values
 /// and/or new contracts.
+///
+/// The side effect of using a [`BTreeMap`](std::collections::BTreeMap) is the entries will be
+/// sorted by it's key in the resultant serialized JSON object.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct StateDiff {
     pub nonces: BTreeMap<ContractAddress, Nonce>,
@@ -123,7 +126,7 @@ impl Serialize for StateDiff {
 
                 #[derive(Debug, Serialize)]
                 struct ContractStorageDiff {
-                    contract_address: ContractAddress,
+                    address: ContractAddress,
                     storage_entries: Vec<StorageEntry>,
                 }
 
@@ -135,7 +138,7 @@ impl Serialize for StateDiff {
                         .collect();
 
                     seq.serialize_element(&ContractStorageDiff {
-                        contract_address: *contract_address,
+                        address: *contract_address,
                         storage_entries,
                     })?;
                 }
@@ -149,7 +152,7 @@ impl Serialize for StateDiff {
         /// ```json
         /// [
         ///   {
-        ///     "contract_address": "0x123",
+        ///     "address": "0x123",
         ///     "class_hash": "0x456"
         ///   },
         ///   ...
@@ -161,14 +164,14 @@ impl Serialize for StateDiff {
             fn serialize<S: serde::Serializer>(&self, serializer: S) -> Result<S::Ok, S::Error> {
                 #[derive(Debug, Serialize)]
                 struct DeployedContract {
-                    contract_address: ContractAddress,
+                    address: ContractAddress,
                     class_hash: ClassHash,
                 }
 
                 let mut seq = serializer.serialize_seq(Some(self.0.len()))?;
                 for (contract_address, class_hash) in self.0 {
                     seq.serialize_element(&DeployedContract {
-                        contract_address: *contract_address,
+                        address: *contract_address,
                         class_hash: *class_hash,
                     })?;
                 }
@@ -266,7 +269,7 @@ impl Serialize for StateDiff {
 
         let mut map = serializer.serialize_map(Some(6))?;
         map.serialize_entry("nonces", &nonces)?;
-        map.serialize_entry("storage_updates", &storage_diffs)?;
+        map.serialize_entry("storage_diffs", &storage_diffs)?;
         map.serialize_entry("declared_classes", &declared_classes)?;
         map.serialize_entry("replaced_classes", &replaced_classes)?;
         map.serialize_entry("deployed_contracts", &deployed_contracts)?;
@@ -416,7 +419,7 @@ impl<'de> Deserialize<'de> for StateDiff {
 
                         #[derive(Debug, Deserialize)]
                         struct ContractStorageDiff {
-                            contract_address: ContractAddress,
+                            address: ContractAddress,
                             storage_entries: Vec<StorageEntry>,
                         }
 
@@ -426,7 +429,7 @@ impl<'de> Deserialize<'de> for StateDiff {
                             for entry in diff.storage_entries {
                                 entries.insert(entry.key, entry.value);
                             }
-                            storage_diffs.insert(diff.contract_address, entries);
+                            storage_diffs.insert(diff.address, entries);
                         }
                         Ok(storage_diffs)
                     }
@@ -460,14 +463,13 @@ impl<'de> Deserialize<'de> for StateDiff {
                     {
                         #[derive(Debug, Deserialize)]
                         struct DeployedContract {
-                            contract_address: ContractAddress,
+                            address: ContractAddress,
                             class_hash: ClassHash,
                         }
 
                         let mut deployed_contracts = BTreeMap::new();
                         while let Some(contract) = seq.next_element::<DeployedContract>()? {
-                            deployed_contracts
-                                .insert(contract.contract_address, contract.class_hash);
+                            deployed_contracts.insert(contract.address, contract.class_hash);
                         }
                         Ok(deployed_contracts)
                     }
