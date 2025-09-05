@@ -50,14 +50,14 @@ impl SequencerGateway {
     ///
     /// https://docs.starknet.io/tools/important-addresses/#sequencer_base_url
     pub fn sn_mainnet() -> Self {
-        Self::new(Url::parse("https://alpha-mainnet.starknet.io/").unwrap())
+        Self::new(Url::parse("https://feeder.alpha-mainnet.starknet.io/").unwrap())
     }
 
     /// Creates a new gateway client to Starknet sepolia.
     ///
     /// https://docs.starknet.io/tools/important-addresses/#sequencer_base_url
     pub fn sn_sepolia() -> Self {
-        Self::new(Url::parse("https://alpha-sepolia.starknet.io/").unwrap())
+        Self::new(Url::parse("https://feeder.integration-sepolia.starknet.io/").unwrap())
     }
 
     /// Creates a new gateway client at the given base URL.
