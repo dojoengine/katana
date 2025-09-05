@@ -36,16 +36,16 @@ pub struct GcloudConfig {
     pub project_id: Option<String>,
 }
 
-/// Initialize Google Cloud Trace exporter and OpenTelemetry propagators for Google Cloud trace
-/// context support.
-///
-/// Make sure to set `GOOGLE_APPLICATION_CREDENTIALS` env var to authenticate to gcloud
-pub(crate) async fn init_tracer(gcloud_config: &GcloudConfig) -> Result<SdkTracer, Error> {
+/// Initialize Google Cloud Trace exporter with custom service name
+pub(crate) async fn init_tracer_with_service(
+    gcloud_config: &GcloudConfig,
+    service_name: &str,
+) -> Result<SdkTracer, Error> {
     rustls::crypto::ring::default_provider()
         .install_default()
         .map_err(|_| Error::InstallCryptoFailed)?;
 
-    let resource = Resource::builder().with_service_name("katana").build();
+    let resource = Resource::builder().with_service_name(service_name.to_string()).build();
 
     let mut trace_exporter = if let Some(project_id) = &gcloud_config.project_id {
         GcpCloudTraceExporterBuilder::new(project_id.clone())
@@ -69,4 +69,13 @@ pub(crate) async fn init_tracer(gcloud_config: &GcloudConfig) -> Result<SdkTrace
     opentelemetry::global::set_tracer_provider(tracer_provider.clone());
 
     Ok(tracer)
+}
+
+/// Initialize Google Cloud Trace exporter and OpenTelemetry propagators for Google Cloud trace
+/// context support (backward compatibility).
+///
+/// Make sure to set `GOOGLE_APPLICATION_CREDENTIALS` env var to authenticate to gcloud
+#[allow(dead_code)]
+pub(crate) async fn init_tracer(gcloud_config: &GcloudConfig) -> Result<SdkTracer, Error> {
+    init_tracer_with_service(gcloud_config, "katana").await
 }

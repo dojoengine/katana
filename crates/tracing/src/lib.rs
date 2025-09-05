@@ -1,17 +1,16 @@
 use opentelemetry_gcloud_trace::errors::GcloudTraceError;
 use tracing::subscriber::SetGlobalDefaultError;
 use tracing_log::log::SetLoggerError;
-use tracing_subscriber::layer::SubscriberExt;
-use tracing_subscriber::util::SubscriberInitExt;
-use tracing_subscriber::{filter, EnvFilter, Layer};
+use tracing_subscriber::filter;
 
+mod builder;
 mod fmt;
 pub mod gcloud;
 pub mod otlp;
 
+pub use builder::TracingBuilder;
 pub use fmt::LogFormat;
 
-use crate::fmt::LocalTime;
 
 #[derive(Debug, Clone)]
 pub enum TracerConfig {
@@ -26,6 +25,9 @@ pub enum Error {
 
     #[error("failed to parse environment filter: {0}")]
     EnvFilterParse(#[from] filter::ParseError),
+    
+    #[error("failed to parse environment filter from env: {0}")]
+    EnvFilterFromEnv(#[from] filter::FromEnvError),
 
     #[error("failed to set global dispatcher: {0}")]
     SetGlobalDefault(#[from] SetGlobalDefaultError),
@@ -43,51 +45,29 @@ pub enum Error {
     OtelSdk(#[from] opentelemetry_sdk::error::OTelSdkError),
 }
 
+/// Initialize tracing with the given configuration.
+///
+/// This function is maintained for backward compatibility.
+/// For new code, consider using [`TracingBuilder`] for more flexibility.
 pub async fn init(format: LogFormat, telemetry_config: Option<TracerConfig>) -> Result<(), Error> {
-    const DEFAULT_LOG_FILTER: &str =
-        "katana_db::mdbx=trace,cairo_native::compiler=off,pipeline=debug,stage=debug,tasks=debug,\
-         executor=trace,forking::backend=trace,blockifier=off,jsonrpsee_server=off,hyper=off,\
-         messaging=debug,node=error,explorer=info,rpc=trace,pool=trace,info";
+    let builder =
+        TracingBuilder::new().with_log_format(format).with_env_filter_or_default()?.configure();
 
-    let default_filter = EnvFilter::try_new(DEFAULT_LOG_FILTER);
-    let filter = EnvFilter::try_from_default_env().or(default_filter)?;
-
-    // Initialize tracing subscriber with optional telemetry
-    if let Some(telemetry_config) = telemetry_config {
-        // Initialize telemetry layer based on exporter type
-        let telemetry = match telemetry_config {
-            TracerConfig::Gcloud(cfg) => {
-                let tracer = gcloud::init_tracer(&cfg).await?;
-                tracing_opentelemetry::layer().with_tracer(tracer)
+    match telemetry_config {
+        Some(TracerConfig::Otlp(cfg)) => {
+            let mut otlp_builder = builder.with_telemetry().otlp();
+            if let Some(endpoint) = cfg.endpoint {
+                otlp_builder = otlp_builder.with_endpoint(endpoint);
             }
-            TracerConfig::Otlp(cfg) => {
-                let tracer = otlp::init_tracer(&cfg)?;
-                tracing_opentelemetry::layer().with_tracer(tracer)
+            otlp_builder.build().await
+        }
+        Some(TracerConfig::Gcloud(cfg)) => {
+            let mut gcloud_builder = builder.with_telemetry().gcloud();
+            if let Some(project_id) = cfg.project_id {
+                gcloud_builder = gcloud_builder.with_project_id(project_id);
             }
-        };
-
-        let fmt = match format {
-            LogFormat::Full => {
-                tracing_subscriber::fmt::layer().with_timer(LocalTime::new()).boxed()
-            }
-            LogFormat::Json => {
-                tracing_subscriber::fmt::layer().json().with_timer(LocalTime::new()).boxed()
-            }
-        };
-
-        tracing_subscriber::registry().with(filter).with(telemetry).with(fmt).init();
-    } else {
-        let fmt = match format {
-            LogFormat::Full => {
-                tracing_subscriber::fmt::layer().with_timer(LocalTime::new()).boxed()
-            }
-            LogFormat::Json => {
-                tracing_subscriber::fmt::layer().json().with_timer(LocalTime::new()).boxed()
-            }
-        };
-
-        tracing_subscriber::registry().with(filter).with(fmt).init();
+            gcloud_builder.build().await
+        }
+        None => builder.build().await,
     }
-
-    Ok(())
 }
