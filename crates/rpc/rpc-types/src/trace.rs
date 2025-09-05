@@ -131,9 +131,12 @@ pub struct RevertedInvocation {
 /// The execution trace of an invoke transaction.
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub struct InvokeTxTrace {
-    pub validate_invocation: Option<FunctionInvocation>,
     pub execute_invocation: ExecuteInvocation,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub validate_invocation: Option<FunctionInvocation>,
+    #[serde(skip_serializing_if = "Option::is_none")]
     pub fee_transfer_invocation: Option<FunctionInvocation>,
+    #[serde(skip_serializing_if = "Option::is_none")]
     pub state_diff: Option<StateDiff>,
     pub execution_resources: ExecutionResources,
 }
@@ -141,9 +144,12 @@ pub struct InvokeTxTrace {
 /// The execution trace of a deploy account transaction.
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub struct DeployAccountTxTrace {
-    pub validate_invocation: Option<FunctionInvocation>,
     pub constructor_invocation: FunctionInvocation,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub validate_invocation: Option<FunctionInvocation>,
+    #[serde(skip_serializing_if = "Option::is_none")]
     pub fee_transfer_invocation: Option<FunctionInvocation>,
+    #[serde(skip_serializing_if = "Option::is_none")]
     pub state_diff: Option<StateDiff>,
     pub execution_resources: ExecutionResources,
 }
@@ -152,6 +158,7 @@ pub struct DeployAccountTxTrace {
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub struct L1HandlerTxTrace {
     pub function_invocation: ExecuteInvocation,
+    #[serde(skip_serializing_if = "Option::is_none")]
     pub state_diff: Option<StateDiff>,
     pub execution_resources: ExecutionResources,
 }
@@ -159,8 +166,11 @@ pub struct L1HandlerTxTrace {
 /// The execution trace of a declare transaction.
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub struct DeclareTxTrace {
+    #[serde(skip_serializing_if = "Option::is_none")]
     pub validate_invocation: Option<FunctionInvocation>,
+    #[serde(skip_serializing_if = "Option::is_none")]
     pub fee_transfer_invocation: Option<FunctionInvocation>,
+    #[serde(skip_serializing_if = "Option::is_none")]
     pub state_diff: Option<StateDiff>,
     pub execution_resources: ExecutionResources,
 }
