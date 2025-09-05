@@ -1,10 +1,10 @@
 use katana_primitives::block::{BlockHash, BlockNumber, FinalityStatus};
 use katana_primitives::fee::{FeeInfo, PriceUnit};
 use katana_primitives::receipt::{self, Event, MessageToL1, Receipt};
-use katana_primitives::transaction::TxHash;
+use katana_primitives::transaction::{TransactionFinalityStatus, TxHash};
 use katana_primitives::{ContractAddress, Felt};
 use serde::{Deserialize, Serialize};
-use starknet::core::types::{Hash256, TransactionFinalityStatus};
+use starknet::core::types::Hash256;
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub struct RpcTxReceiptWithHash {
@@ -287,6 +287,23 @@ pub enum ReceiptBlockInfo {
         /// Block number.
         block_number: BlockNumber,
     },
+}
+
+impl ReceiptBlockInfo {
+    pub fn block_number(&self) -> BlockNumber {
+        match self {
+            ReceiptBlockInfo::PreConfirmed { block_number } => *block_number,
+            ReceiptBlockInfo::Block { block_number, .. } => *block_number,
+        }
+    }
+
+    /// Returns the block hash if the receipt is from a confirmed block. Otherwise, returns `None`.
+    pub fn block_hash(&self) -> Option<BlockHash> {
+        match self {
+            ReceiptBlockInfo::PreConfirmed { .. } => None,
+            ReceiptBlockInfo::Block { block_hash, .. } => Some(*block_hash),
+        }
+    }
 }
 
 impl<'de> Deserialize<'de> for ReceiptBlockInfo {

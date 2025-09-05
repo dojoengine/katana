@@ -6,15 +6,9 @@ use katana_primitives::contract::{Nonce, StorageKey, StorageValue};
 use katana_primitives::{ContractAddress, Felt};
 use serde::{Deserialize, Serialize};
 
-/// Response object for the `starknet_getStateUpdate` RPC method.
-#[derive(Debug, Clone, Serialize, Deserialize)]
-pub struct GetStateUpdateResponse {
-    pub state_update: MaybePreConfirmedStateUpdate,
-}
-
 #[derive(Debug, Clone, Serialize, Deserialize)]
 #[serde(untagged)]
-pub enum MaybePreConfirmedStateUpdate {
+pub enum GetStateUpdateResponse {
     Update(StateUpdate),
     PreConfirmed(PreConfirmedStateUpdate),
 }

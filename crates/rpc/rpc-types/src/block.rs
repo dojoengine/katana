@@ -14,8 +14,8 @@ pub type BlockTxCount = u64;
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
 #[serde(untagged)]
-pub enum MaybePreConfirmedBlockWithTxs {
-    Block(BlockWithTxs),
+pub enum MaybePreConfirmedBlock {
+    Confirmed(BlockWithTxs),
     PreConfirmed(PreConfirmedBlockWithTxs),
 }
 
@@ -127,7 +127,7 @@ impl PreConfirmedBlockWithTxs {
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(untagged)]
-pub enum MaybePreConfirmedBlockWithTxHashes {
+pub enum GetBlockWithTxHashesResponse {
     Block(BlockWithTxHashes),
     PreConfirmed(PreConfirmedBlockWithTxHashes),
 }
@@ -280,12 +280,12 @@ impl BlockHashAndNumberResponse {
 
 #[derive(Debug, Clone, Serialize)]
 #[serde(untagged)]
-pub enum MaybePreConfirmedBlockWithReceipts {
+pub enum GetBlockWithReceiptsResponse {
     Block(BlockWithReceipts),
     PreConfirmed(PreConfirmedBlockWithReceipts),
 }
 
-impl<'de> Deserialize<'de> for MaybePreConfirmedBlockWithReceipts {
+impl<'de> Deserialize<'de> for GetBlockWithReceiptsResponse {
     fn deserialize<D>(deserializer: D) -> Result<Self, D::Error>
     where
         D: serde::Deserializer<'de>,
@@ -325,7 +325,7 @@ impl<'de> Deserialize<'de> for MaybePreConfirmedBlockWithReceipts {
             .map_err(|e| serde::de::Error::custom(format!("malformed payload: {e}")))?;
 
         if let Some(block_hash) = block_hash {
-            Ok(MaybePreConfirmedBlockWithReceipts::Block(BlockWithReceipts {
+            Ok(GetBlockWithReceiptsResponse::Block(BlockWithReceipts {
                 parent_hash: parent_hash.unwrap(),
                 new_root: new_root.unwrap(),
                 status: status.unwrap(),
@@ -341,7 +341,7 @@ impl<'de> Deserialize<'de> for MaybePreConfirmedBlockWithReceipts {
                 transactions,
             }))
         } else {
-            Ok(MaybePreConfirmedBlockWithReceipts::PreConfirmed(PreConfirmedBlockWithReceipts {
+            Ok(GetBlockWithReceiptsResponse::PreConfirmed(PreConfirmedBlockWithReceipts {
                 block_number,
                 timestamp,
                 sequencer_address,

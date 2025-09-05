@@ -13,7 +13,19 @@ use crate::state_update::StateDiff;
 use crate::{ExecutionResources, FeeEstimate};
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(transparent)]
+pub struct TraceBlockTransactionsResponse {
+    pub traces: Vec<TxTraceWithHash>,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(transparent)]
 pub struct SimulatedTransactionsResponse {
+    pub transactions: Vec<SimulatedTransactions>,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct SimulatedTransactions {
     /// The transaction's trace
     pub transaction_trace: TxTrace,
     /// The transaction's resources and fee

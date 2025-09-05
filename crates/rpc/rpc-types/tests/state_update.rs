@@ -3,7 +3,7 @@ use std::collections::{BTreeMap, BTreeSet};
 use assert_matches::assert_matches;
 use katana_primitives::{address, felt, ContractAddress};
 use katana_rpc_types::state_update::{
-    MaybePreConfirmedStateUpdate, PreConfirmedStateUpdate, StateUpdate,
+    GetStateUpdateResponse, PreConfirmedStateUpdate, StateUpdate,
 };
 use serde_json::Value;
 
@@ -29,8 +29,8 @@ fn preconfirmed_state_update() {
     let json = fixtures::test_data::<Value>("v0.9/state-updates/preconfirmed_state_update.json");
 
     let state_update: PreConfirmedStateUpdate = serde_json::from_value(json.clone()).unwrap();
-    let as_enum: MaybePreConfirmedStateUpdate = serde_json::from_value(json.clone()).unwrap();
-    assert_matches!(as_enum, MaybePreConfirmedStateUpdate::PreConfirmed(as_enum_update) => {
+    let as_enum: GetStateUpdateResponse = serde_json::from_value(json.clone()).unwrap();
+    assert_matches!(as_enum, GetStateUpdateResponse::PreConfirmed(as_enum_update) => {
         similar_asserts::assert_eq!(as_enum_update, state_update);
     });
 
@@ -75,8 +75,8 @@ fn confirmed_state_update() {
     let json = fixtures::test_data::<Value>("v0.9/state-updates/confirmed_state_update.json");
 
     let state_update: StateUpdate = serde_json::from_value(json.clone()).unwrap();
-    let as_enum: MaybePreConfirmedStateUpdate = serde_json::from_value(json.clone()).unwrap();
-    assert_matches!(as_enum, MaybePreConfirmedStateUpdate::Update(as_enum_update) => {
+    let as_enum: GetStateUpdateResponse = serde_json::from_value(json.clone()).unwrap();
+    assert_matches!(as_enum, GetStateUpdateResponse::Update(as_enum_update) => {
         similar_asserts::assert_eq!(as_enum_update, state_update);
     });
 

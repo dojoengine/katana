@@ -172,14 +172,7 @@ pub async fn deploy_settlement_contract(
         let deployment_receipt = deployment_receipt_res?;
         let block_number = block_number_res?;
 
-        // If there's no block number in the receipt, that means it's still in the pending block.
-        let deployment_block = if let Some(block) = deployment_receipt.block.block_number() {
-            block
-        } else {
-            // we assume the block_number is the block number of the previous block (latest) so we
-            // add 1 to the block_number as the number of the pending block
-            block_number + 1
-        };
+        let deployment_block = deployment_receipt.block.block_number();
 
         // -----------------------------------------------------------------------
         // CONTRACT INITIALIZATIONS

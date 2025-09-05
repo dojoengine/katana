@@ -8,9 +8,8 @@ use katana_primitives::contract::{Nonce, StorageKey};
 use katana_primitives::transaction::TxHash;
 use katana_primitives::{ContractAddress, Felt};
 use katana_rpc_types::block::{
-    BlockHashAndNumberResponse, BlockNumberResponse, BlockTxCount,
-    MaybePreConfirmedBlockWithReceipts, MaybePreConfirmedBlockWithTxHashes,
-    MaybePreConfirmedBlockWithTxs,
+    BlockHashAndNumberResponse, BlockNumberResponse, BlockTxCount, GetBlockWithReceiptsResponse,
+    GetBlockWithTxHashesResponse, MaybePreConfirmedBlock,
 };
 use katana_rpc_types::broadcasted::{
     AddDeclareTransactionResponse, AddDeployAccountTransactionResponse,
@@ -22,11 +21,14 @@ use katana_rpc_types::event::{EventFilterWithPage, GetEventsResponse};
 use katana_rpc_types::message::MsgFromL1;
 use katana_rpc_types::receipt::TxReceiptWithBlockInfo;
 use katana_rpc_types::state_update::GetStateUpdateResponse;
-use katana_rpc_types::trace::{SimulatedTransactionsResponse, TxTrace, TxTraceWithHash};
+use katana_rpc_types::trace::{
+    SimulatedTransactionsResponse, TraceBlockTransactionsResponse, TxTrace,
+};
 use katana_rpc_types::transaction::RpcTxWithHash;
 use katana_rpc_types::trie::{ContractStorageKeys, GetStorageProofResponse};
 use katana_rpc_types::{
-    EstimateFeeSimulationFlag, FeeEstimate, FunctionCall, SimulationFlag, SyncingResponse,
+    CallResponse, EstimateFeeSimulationFlag, FeeEstimate, FunctionCall, SimulationFlag,
+    SyncingResponse,
 };
 use starknet::core::types::TransactionStatus;
 
@@ -48,21 +50,19 @@ pub trait StarknetApi {
     async fn get_block_with_tx_hashes(
         &self,
         block_id: BlockIdOrTag,
-    ) -> RpcResult<MaybePreConfirmedBlockWithTxHashes>;
+    ) -> RpcResult<GetBlockWithTxHashesResponse>;
 
     /// Get block information with full transactions given the block id.
     #[method(name = "getBlockWithTxs")]
-    async fn get_block_with_txs(
-        &self,
-        block_id: BlockIdOrTag,
-    ) -> RpcResult<MaybePreConfirmedBlockWithTxs>;
+    async fn get_block_with_txs(&self, block_id: BlockIdOrTag)
+        -> RpcResult<MaybePreConfirmedBlock>;
 
     /// Get block information with full transactions and receipts given the block id.
     #[method(name = "getBlockWithReceipts")]
     async fn get_block_with_receipts(
         &self,
         block_id: BlockIdOrTag,
-    ) -> RpcResult<MaybePreConfirmedBlockWithReceipts>;
+    ) -> RpcResult<GetBlockWithReceiptsResponse>;
 
     /// Get the information about the result of executing the requested block.
     #[method(name = "getStateUpdate")]
@@ -131,7 +131,7 @@ pub trait StarknetApi {
 
     /// Call a starknet function without creating a StarkNet transaction.
     #[method(name = "call")]
-    async fn call(&self, request: FunctionCall, block_id: BlockIdOrTag) -> RpcResult<Vec<Felt>>;
+    async fn call(&self, request: FunctionCall, block_id: BlockIdOrTag) -> RpcResult<CallResponse>;
 
     /// Estimate the fee for of StarkNet transactions.
     #[method(name = "estimateFee")]
@@ -234,12 +234,12 @@ pub trait StarknetTraceApi {
         block_id: BlockIdOrTag,
         transactions: Vec<BroadcastedTx>,
         simulation_flags: Vec<SimulationFlag>,
-    ) -> RpcResult<Vec<SimulatedTransactionsResponse>>;
+    ) -> RpcResult<SimulatedTransactionsResponse>;
 
     /// Returns the execution traces of all transactions included in the given block.
     #[method(name = "traceBlockTransactions")]
     async fn trace_block_transactions(
         &self,
         block_id: ConfirmedBlockIdOrTag,
-    ) -> RpcResult<Vec<TxTraceWithHash>>;
+    ) -> RpcResult<TraceBlockTransactionsResponse>;
 }

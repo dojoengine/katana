@@ -3,6 +3,7 @@
 //! Types used in the Katana JSON-RPC API.
 
 use katana_primitives::block::{BlockHash, BlockNumber};
+use katana_primitives::Felt;
 use serde::{Deserialize, Serialize};
 
 pub mod account;
@@ -31,6 +32,12 @@ pub use trie::*;
 
 /// Request type for `starknet_call` RPC method.
 pub type FunctionCall = katana_primitives::execution::FunctionCall;
+
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
+#[serde(transparent)]
+pub struct CallResponse {
+    pub result: Vec<Felt>,
+}
 
 /// Message fee estimation.
 #[derive(Debug, Clone, Copy, Serialize, Deserialize, PartialEq, Eq)]

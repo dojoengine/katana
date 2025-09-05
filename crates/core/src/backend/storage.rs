@@ -20,7 +20,7 @@ use katana_provider::providers::fork::ForkedProvider;
 use katana_provider::BlockchainProvider;
 use katana_rpc_client::starknet::Client as StarknetClient;
 use katana_rpc_client::HttpClientBuilder;
-use katana_rpc_types::MaybePreConfirmedBlockWithTxHashes;
+use katana_rpc_types::GetBlockWithTxHashesResponse;
 use num_traits::ToPrimitive;
 use starknet::core::utils::parse_cairo_short_string;
 use tracing::info;
@@ -117,7 +117,7 @@ impl Blockchain {
             .await
             .context("failed to fetch forked block")?;
 
-        let MaybePreConfirmedBlockWithTxHashes::Block(forked_block) = block else {
+        let GetBlockWithTxHashesResponse::Block(forked_block) = block else {
             bail!("forking a pending block is not allowed")
         };
 
@@ -152,7 +152,7 @@ impl Blockchain {
             let parent_block_id = BlockIdOrTag::from(forked_block.parent_hash);
             let parent_block = provider.get_block_with_tx_hashes(parent_block_id).await?;
 
-            let MaybePreConfirmedBlockWithTxHashes::Block(parent_block) = parent_block else {
+            let GetBlockWithTxHashesResponse::Block(parent_block) = parent_block else {
                 bail!("parent block is a preconfirmed block");
             };
 

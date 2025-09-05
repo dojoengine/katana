@@ -13,14 +13,15 @@ use katana_primitives::genesis::constant::{
     DEFAULT_ETH_FEE_TOKEN_ADDRESS, DEFAULT_PREFUNDED_ACCOUNT_BALANCE,
     DEFAULT_STRK_FEE_TOKEN_ADDRESS, DEFAULT_UDC_ADDRESS,
 };
+use katana_primitives::transaction::TransactionFinalityStatus;
 use katana_primitives::Felt;
 use katana_rpc_api::dev::DevApiClient;
-use katana_rpc_types::state_update::MaybePreConfirmedStateUpdate;
+use katana_rpc_types::state_update::GetStateUpdateResponse;
 use katana_rpc_types::trace::TxTrace;
 use katana_rpc_types::{
-    EventFilter, GetEventsResponse, MaybePreConfirmedBlockWithReceipts,
-    MaybePreConfirmedBlockWithTxHashes, MaybePreConfirmedBlockWithTxs, RpcDeclareTxReceipt,
-    RpcDeployAccountTxReceipt, RpcTxReceipt,
+    EventFilter, ExecutionResult, GetBlockWithReceiptsResponse, GetBlockWithTxHashesResponse,
+    GetEventsResponse, MaybePreConfirmedBlock, RpcDeclareTxReceipt, RpcDeployAccountTxReceipt,
+    RpcTxReceipt,
 };
 use katana_utils::node::StarknetError;
 use katana_utils::TestNode;
@@ -29,7 +30,7 @@ use starknet::accounts::{
     Account, AccountError, AccountFactory, ConnectedAccount, ExecutionEncoding,
     OpenZeppelinAccountFactory as OZAccountFactory, SingleOwnerAccount,
 };
-use starknet::core::types::{Call, ExecutionResult};
+use starknet::core::types::Call;
 use starknet::core::utils::get_contract_address;
 use starknet::macros::{felt, selector};
 use starknet::providers::{Provider, ProviderError};
@@ -62,7 +63,7 @@ async fn declare_and_deploy_contract() {
     // check state update includes class in declared_classes
     let state_update = provider.get_state_update(BlockIdOrTag::Latest).await.unwrap();
     match state_update {
-        MaybePreConfirmedStateUpdate::Update(update) => {
+        GetStateUpdateResponse::Update(update) => {
             similar_asserts::assert_eq!(
                 update.state_diff.declared_classes,
                 BTreeMap::from_iter([(class_hash, compiled_class_hash)])
@@ -349,7 +350,7 @@ async fn concurrent_transactions_submissions(#[values(None, Some(1000))] block_t
     let amount = Uint256 { low: Felt::ONE, high: Felt::ZERO };
 
     let initial_nonce = provider
-        .get_nonce(BlockIdOrTag::PreConfirmed, sequencer.account().address())
+        .get_nonce(BlockIdOrTag::PreConfirmed, sequencer.account().address().into())
         .await
         .unwrap();
 
@@ -939,7 +940,7 @@ async fn block_traces() {
 
     // Get the traces of the transactions in block 1.
     let block_id = ConfirmedBlockIdOrTag::Number(1);
-    let traces = provider.trace_block_transactions(block_id).await.unwrap();
+    let traces = provider.trace_block_transactions(block_id).await.unwrap().traces;
     assert_eq!(traces.len(), 5);
 
     for i in 0..5 {
@@ -965,7 +966,7 @@ async fn block_traces() {
 
     // Get the traces of the transactions in block 2.
     let block_id = ConfirmedBlockIdOrTag::Number(2);
-    let traces = provider.trace_block_transactions(block_id).await.unwrap();
+    let traces = provider.trace_block_transactions(block_id).await.unwrap().traces;
     assert_eq!(traces.len(), 2);
 
     for i in 0..2 {
@@ -991,7 +992,7 @@ async fn block_traces() {
 
     // Get the traces of the transactions in block 3.
     let block_id = ConfirmedBlockIdOrTag::Latest;
-    let traces = provider.trace_block_transactions(block_id).await.unwrap();
+    let traces = provider.trace_block_transactions(block_id).await.unwrap().traces;
     assert_eq!(traces.len(), 3);
 
     for i in 0..3 {
@@ -1027,8 +1028,8 @@ async fn v3_transactions() {
         .unwrap();
 
     let rec = katana_utils::TxWaiter::new(res.transaction_hash, &provider).await.unwrap();
-    let status = rec.receipt.execution_result().status();
-    assert_eq!(status, TransactionExecutionStatus::Succeeded);
+    let result = rec.receipt.execution_result();
+    assert_matches!(result, ExecutionResult::Succeeded);
 }
 
 #[tokio::test]
@@ -1068,7 +1069,7 @@ async fn fetch_pending_blocks() {
 
     let block_with_txs = provider.get_block_with_txs(block_id).await.unwrap();
 
-    if let MaybePreConfirmedBlockWithTxs::PreConfirmed(block) = block_with_txs {
+    if let MaybePreConfirmedBlock::PreConfirmed(block) = block_with_txs {
         // preconfimred block number should be latest_block_number + 1
         assert_eq!(block.block_number, latest_block_number + 1);
         assert_eq!(block.transactions.len(), txs.len());
@@ -1080,7 +1081,7 @@ async fn fetch_pending_blocks() {
     }
 
     let block_with_tx_hashes = provider.get_block_with_tx_hashes(block_id).await.unwrap();
-    if let MaybePreConfirmedBlockWithTxHashes::PreConfirmed(block) = block_with_tx_hashes {
+    if let GetBlockWithTxHashesResponse::PreConfirmed(block) = block_with_tx_hashes {
         // preconfimred block number should be latest_block_number + 1
         assert_eq!(block.block_number, latest_block_number + 1);
         assert_eq!(block.transactions.len(), txs.len());
@@ -1092,7 +1093,7 @@ async fn fetch_pending_blocks() {
     }
 
     let block_with_receipts = provider.get_block_with_receipts(block_id).await.unwrap();
-    if let MaybePreConfirmedBlockWithReceipts::PreConfirmed(block) = block_with_receipts {
+    if let GetBlockWithReceiptsResponse::PreConfirmed(block) = block_with_receipts {
         // preconfimred block number should be latest_block_number + 1
         assert_eq!(block.block_number, latest_block_number + 1);
         assert_eq!(block.transactions.len(), txs.len());
@@ -1112,7 +1113,7 @@ async fn fetch_pending_blocks() {
     let latest_block_number = latest_block_hash_n_num.block_number;
     let block_with_txs = provider.get_block_with_txs(block_id).await.unwrap();
 
-    if let MaybePreConfirmedBlockWithTxs::PreConfirmed(block) = block_with_txs {
+    if let MaybePreConfirmedBlock::PreConfirmed(block) = block_with_txs {
         // preconfimred block number should be latest_block_number + 1
         assert_eq!(block.block_number, latest_block_number + 1);
         assert_eq!(block.transactions.len(), 0);
@@ -1121,7 +1122,7 @@ async fn fetch_pending_blocks() {
     }
 
     let block_with_tx_hashes = provider.get_block_with_tx_hashes(block_id).await.unwrap();
-    if let MaybePreConfirmedBlockWithTxHashes::PreConfirmed(block) = block_with_tx_hashes {
+    if let GetBlockWithTxHashesResponse::PreConfirmed(block) = block_with_tx_hashes {
         // preconfimred block number should be latest_block_number + 1
         assert_eq!(block.block_number, latest_block_number + 1);
         assert_eq!(block.transactions.len(), 0);
@@ -1130,7 +1131,7 @@ async fn fetch_pending_blocks() {
     }
 
     let block_with_receipts = provider.get_block_with_receipts(block_id).await.unwrap();
-    if let MaybePreConfirmedBlockWithReceipts::PreConfirmed(block) = block_with_receipts {
+    if let GetBlockWithReceiptsResponse::PreConfirmed(block) = block_with_receipts {
         // preconfimred block number should be latest_block_number + 1
         assert_eq!(block.block_number, latest_block_number + 1);
         assert_eq!(block.transactions.len(), 0);
@@ -1170,7 +1171,7 @@ async fn fetch_pending_blocks_in_instant_mode() {
 
     let block_with_txs = provider.get_block_with_txs(block_id).await.unwrap();
 
-    if let MaybePreConfirmedBlockWithTxs::Block(block) = block_with_txs {
+    if let MaybePreConfirmedBlock::Confirmed(block) = block_with_txs {
         assert_eq!(block.transactions.len(), 1);
         assert_eq!(block.parent_hash, latest_block_hash);
         assert_eq!(block.transactions[0].transaction_hash, res.transaction_hash);
@@ -1179,7 +1180,7 @@ async fn fetch_pending_blocks_in_instant_mode() {
     }
 
     let block_with_tx_hashes = provider.get_block_with_tx_hashes(block_id).await.unwrap();
-    if let MaybePreConfirmedBlockWithTxHashes::Block(block) = block_with_tx_hashes {
+    if let GetBlockWithTxHashesResponse::Block(block) = block_with_tx_hashes {
         assert_eq!(block.transactions.len(), 1);
         assert_eq!(block.parent_hash, latest_block_hash);
         assert_eq!(block.transactions[0], res.transaction_hash);
@@ -1188,7 +1189,7 @@ async fn fetch_pending_blocks_in_instant_mode() {
     }
 
     let block_with_receipts = provider.get_block_with_receipts(block_id).await.unwrap();
-    if let MaybePreConfirmedBlockWithReceipts::Block(block) = block_with_receipts {
+    if let GetBlockWithReceiptsResponse::Block(block) = block_with_receipts {
         assert_eq!(block.transactions.len(), 1);
         assert_eq!(block.parent_hash, latest_block_hash);
         assert_eq!(block.transactions[0].receipt.transaction_hash, res.transaction_hash);
@@ -1207,7 +1208,7 @@ async fn fetch_pending_blocks_in_instant_mode() {
 
     let block_with_txs = provider.get_block_with_txs(block_id).await.unwrap();
 
-    if let MaybePreConfirmedBlockWithTxs::Block(block) = block_with_txs {
+    if let MaybePreConfirmedBlock::Confirmed(block) = block_with_txs {
         assert_eq!(block.transactions.len(), 0);
         assert_eq!(block.parent_hash, latest_block_hash);
     } else {
@@ -1215,7 +1216,7 @@ async fn fetch_pending_blocks_in_instant_mode() {
     }
 
     let block_with_tx_hashes = provider.get_block_with_tx_hashes(block_id).await.unwrap();
-    if let MaybePreConfirmedBlockWithTxHashes::Block(block) = block_with_tx_hashes {
+    if let GetBlockWithTxHashesResponse::Block(block) = block_with_tx_hashes {
         assert_eq!(block.transactions.len(), 0);
         assert_eq!(block.parent_hash, latest_block_hash);
     } else {
@@ -1223,7 +1224,7 @@ async fn fetch_pending_blocks_in_instant_mode() {
     }
 
     let block_with_receipts = provider.get_block_with_receipts(block_id).await.unwrap();
-    if let MaybePreConfirmedBlockWithReceipts::Block(block) = block_with_receipts {
+    if let GetBlockWithReceiptsResponse::Block(block) = block_with_receipts {
         assert_eq!(block.transactions.len(), 0);
         assert_eq!(block.parent_hash, latest_block_hash);
     } else {
@@ -1235,7 +1236,7 @@ async fn fetch_pending_blocks_in_instant_mode() {
 async fn call_contract() {
     let sequencer = TestNode::new().await;
 
-    let provider = sequencer.starknet_rpc_client();
+    let provider = sequencer.starknet_provider();
     let account = sequencer.account().address();
 
     // -----------------------------------------------------------------------

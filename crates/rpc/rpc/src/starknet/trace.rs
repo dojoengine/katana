@@ -9,7 +9,8 @@ use katana_rpc_api::error::starknet::StarknetApiError;
 use katana_rpc_api::starknet::StarknetTraceApiServer;
 use katana_rpc_types::broadcasted::BroadcastedTx;
 use katana_rpc_types::trace::{
-    to_rpc_fee_estimate, SimulatedTransactionsResponse, TxTrace, TxTraceWithHash,
+    to_rpc_fee_estimate, SimulatedTransactions, SimulatedTransactionsResponse,
+    TraceBlockTransactionsResponse, TxTrace, TxTraceWithHash,
 };
 use katana_rpc_types::SimulationFlag;
 
@@ -21,7 +22,7 @@ impl<EF: ExecutorFactory> StarknetApi<EF> {
         block_id: BlockIdOrTag,
         transactions: Vec<BroadcastedTx>,
         simulation_flags: Vec<SimulationFlag>,
-    ) -> Result<Vec<SimulatedTransactionsResponse>, StarknetApiError> {
+    ) -> Result<Vec<SimulatedTransactions>, StarknetApiError> {
         let chain_id = self.inner.backend.chain_spec.id();
 
         let executables = transactions
@@ -87,7 +88,7 @@ impl<EF: ExecutorFactory> StarknetApi<EF> {
                     let transaction_trace = TxTrace::from(trace);
                     let fee_estimation =
                         to_rpc_fee_estimate(receipt.resources_used(), receipt.fee());
-                    let value = SimulatedTransactionsResponse { transaction_trace, fee_estimation };
+                    let value = SimulatedTransactions { transaction_trace, fee_estimation };
 
                     simulated.push(value)
                 }
@@ -170,9 +171,10 @@ impl<EF: ExecutorFactory> StarknetTraceApiServer for StarknetApi<EF> {
         block_id: BlockIdOrTag,
         transactions: Vec<BroadcastedTx>,
         simulation_flags: Vec<SimulationFlag>,
-    ) -> RpcResult<Vec<SimulatedTransactionsResponse>> {
+    ) -> RpcResult<SimulatedTransactionsResponse> {
         self.on_cpu_blocking_task(move |this| {
-            Ok(this.simulate_txs(block_id, transactions, simulation_flags)?)
+            let transactions = this.simulate_txs(block_id, transactions, simulation_flags)?;
+            Ok(SimulatedTransactionsResponse { transactions })
         })
         .await
     }
@@ -180,7 +182,11 @@ impl<EF: ExecutorFactory> StarknetTraceApiServer for StarknetApi<EF> {
     async fn trace_block_transactions(
         &self,
         block_id: ConfirmedBlockIdOrTag,
-    ) -> RpcResult<Vec<TxTraceWithHash>> {
-        self.on_io_blocking_task(move |this| Ok(this.block_traces(block_id)?)).await
+    ) -> RpcResult<TraceBlockTransactionsResponse> {
+        self.on_io_blocking_task(move |this| {
+            let traces = this.block_traces(block_id)?;
+            Ok(TraceBlockTransactionsResponse { traces })
+        })
+        .await
     }
 }

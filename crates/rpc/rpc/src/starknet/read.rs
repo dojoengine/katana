@@ -18,8 +18,8 @@ use katana_provider::api::state::StateFactoryProvider;
 use katana_rpc_api::error::starknet::StarknetApiError;
 use katana_rpc_api::starknet::StarknetApiServer;
 use katana_rpc_types::block::{
-    BlockHashAndNumberResponse, BlockNumberResponse, MaybePreConfirmedBlockWithReceipts,
-    MaybePreConfirmedBlockWithTxHashes, MaybePreConfirmedBlockWithTxs,
+    BlockHashAndNumberResponse, BlockNumberResponse, GetBlockWithReceiptsResponse,
+    GetBlockWithTxHashesResponse, MaybePreConfirmedBlock,
 };
 use katana_rpc_types::broadcasted::BroadcastedTx;
 use katana_rpc_types::class::Class;
@@ -29,7 +29,7 @@ use katana_rpc_types::receipt::TxReceiptWithBlockInfo;
 use katana_rpc_types::state_update::GetStateUpdateResponse;
 use katana_rpc_types::transaction::RpcTxWithHash;
 use katana_rpc_types::trie::{ContractStorageKeys, GetStorageProofResponse};
-use katana_rpc_types::{EstimateFeeSimulationFlag, FeeEstimate, FunctionCall};
+use katana_rpc_types::{CallResponse, EstimateFeeSimulationFlag, FeeEstimate, FunctionCall};
 use starknet::core::types::TransactionStatus;
 
 use super::StarknetApi;
@@ -77,7 +77,7 @@ impl<EF: ExecutorFactory> StarknetApiServer for StarknetApi<EF> {
     async fn get_block_with_tx_hashes(
         &self,
         block_id: BlockIdOrTag,
-    ) -> RpcResult<MaybePreConfirmedBlockWithTxHashes> {
+    ) -> RpcResult<GetBlockWithTxHashesResponse> {
         Ok(self.block_with_tx_hashes(block_id).await?)
     }
 
@@ -92,20 +92,20 @@ impl<EF: ExecutorFactory> StarknetApiServer for StarknetApi<EF> {
     async fn get_block_with_txs(
         &self,
         block_id: BlockIdOrTag,
-    ) -> RpcResult<MaybePreConfirmedBlockWithTxs> {
+    ) -> RpcResult<MaybePreConfirmedBlock> {
         Ok(self.block_with_txs(block_id).await?)
     }
 
     async fn get_block_with_receipts(
         &self,
         block_id: BlockIdOrTag,
-    ) -> RpcResult<MaybePreConfirmedBlockWithReceipts> {
+    ) -> RpcResult<GetBlockWithReceiptsResponse> {
         Ok(self.block_with_receipts(block_id).await?)
     }
 
     async fn get_state_update(&self, block_id: BlockIdOrTag) -> RpcResult<GetStateUpdateResponse> {
         let state_update = self.state_update(block_id).await?;
-        Ok(GetStateUpdateResponse { state_update })
+        Ok(state_update)
     }
 
     async fn get_transaction_receipt(
@@ -131,7 +131,7 @@ impl<EF: ExecutorFactory> StarknetApiServer for StarknetApi<EF> {
         Ok(self.events(filter).await?)
     }
 
-    async fn call(&self, request: FunctionCall, block_id: BlockIdOrTag) -> RpcResult<Vec<Felt>> {
+    async fn call(&self, request: FunctionCall, block_id: BlockIdOrTag) -> RpcResult<CallResponse> {
         self.on_io_blocking_task(move |this| {
             // get the state and block env at the specified block for function call execution
             let state = this.state(&block_id)?;
@@ -140,7 +140,7 @@ impl<EF: ExecutorFactory> StarknetApiServer for StarknetApi<EF> {
             let max_call_gas = this.inner.config.max_call_gas.unwrap_or(1_000_000_000);
 
             let result = super::blockifier::call(state, env, cfg_env, request, max_call_gas)?;
-            Ok(result)
+            Ok(CallResponse { result })
         })
         .await
     }

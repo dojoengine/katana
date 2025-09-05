@@ -27,9 +27,9 @@ use katana_rpc_api::error::starknet::{
     PageSizeTooBigData, ProofLimitExceededData, StarknetApiError,
 };
 use katana_rpc_types::block::{
-    BlockHashAndNumberResponse, BlockNumberResponse, MaybePreConfirmedBlockWithReceipts,
-    MaybePreConfirmedBlockWithTxHashes, MaybePreConfirmedBlockWithTxs,
-    PreConfirmedBlockWithReceipts, PreConfirmedBlockWithTxHashes, PreConfirmedBlockWithTxs,
+    BlockHashAndNumberResponse, BlockNumberResponse, GetBlockWithReceiptsResponse,
+    GetBlockWithTxHashesResponse, MaybePreConfirmedBlock, PreConfirmedBlockWithReceipts,
+    PreConfirmedBlockWithTxHashes, PreConfirmedBlockWithTxs,
 };
 use katana_rpc_types::class::Class;
 use katana_rpc_types::event::{EventFilterWithPage, GetEventsResponse, ResultPageRequest};
@@ -38,7 +38,7 @@ use katana_rpc_types::list::{
     GetTransactionsRequest, GetTransactionsResponse, TransactionListItem,
 };
 use katana_rpc_types::receipt::{ReceiptBlockInfo, TxReceiptWithBlockInfo};
-use katana_rpc_types::state_update::MaybePreConfirmedStateUpdate;
+use katana_rpc_types::state_update::GetStateUpdateResponse;
 use katana_rpc_types::transaction::RpcTxWithHash;
 use katana_rpc_types::trie::{
     ClassesProof, ContractLeafData, ContractStorageKeys, ContractStorageProofs, ContractsProof,
@@ -597,7 +597,7 @@ impl<EF: ExecutorFactory> StarknetApi<EF> {
     async fn block_with_txs(
         &self,
         block_id: BlockIdOrTag,
-    ) -> StarknetApiResult<MaybePreConfirmedBlockWithTxs> {
+    ) -> StarknetApiResult<MaybePreConfirmedBlock> {
         let block = self
             .on_io_blocking_task(move |this| {
                 let provider = this.inner.backend.blockchain.provider();
@@ -637,14 +637,14 @@ impl<EF: ExecutorFactory> StarknetApi<EF> {
                             .collect::<Vec<_>>();
 
                         let block = PreConfirmedBlockWithTxs::new(header, transactions);
-                        return Ok(Some(MaybePreConfirmedBlockWithTxs::PreConfirmed(block)));
+                        return Ok(Some(MaybePreConfirmedBlock::PreConfirmed(block)));
                     }
                 }
 
                 if let Some(num) = provider.convert_block_id(block_id)? {
                     let block = katana_rpc_types_builder::BlockBuilder::new(num.into(), provider)
                         .build()?
-                        .map(MaybePreConfirmedBlockWithTxs::Block);
+                        .map(MaybePreConfirmedBlock::Confirmed);
 
                     StarknetApiResult::Ok(block)
                 } else {
@@ -665,7 +665,7 @@ impl<EF: ExecutorFactory> StarknetApi<EF> {
     async fn block_with_receipts(
         &self,
         block_id: BlockIdOrTag,
-    ) -> StarknetApiResult<MaybePreConfirmedBlockWithReceipts> {
+    ) -> StarknetApiResult<GetBlockWithReceiptsResponse> {
         let block = self
             .on_io_blocking_task(move |this| {
                 let provider = this.inner.backend.blockchain.provider();
@@ -705,14 +705,14 @@ impl<EF: ExecutorFactory> StarknetApi<EF> {
 
                         let block =
                             PreConfirmedBlockWithReceipts::new(header, receipts.into_iter());
-                        return Ok(Some(MaybePreConfirmedBlockWithReceipts::PreConfirmed(block)));
+                        return Ok(Some(GetBlockWithReceiptsResponse::PreConfirmed(block)));
                     }
                 }
 
                 if let Some(num) = provider.convert_block_id(block_id)? {
                     let block = katana_rpc_types_builder::BlockBuilder::new(num.into(), provider)
                         .build_with_receipts()?
-                        .map(MaybePreConfirmedBlockWithReceipts::Block);
+                        .map(GetBlockWithReceiptsResponse::Block);
 
                     StarknetApiResult::Ok(block)
                 } else {
@@ -733,7 +733,7 @@ impl<EF: ExecutorFactory> StarknetApi<EF> {
     async fn block_with_tx_hashes(
         &self,
         block_id: BlockIdOrTag,
-    ) -> StarknetApiResult<MaybePreConfirmedBlockWithTxHashes> {
+    ) -> StarknetApiResult<GetBlockWithTxHashesResponse> {
         let block = self
             .on_io_blocking_task(move |this| {
                 let provider = this.inner.backend.blockchain.provider();
@@ -773,14 +773,14 @@ impl<EF: ExecutorFactory> StarknetApi<EF> {
                             .collect::<Vec<_>>();
 
                         let block = PreConfirmedBlockWithTxHashes::new(header, transactions);
-                        return Ok(Some(MaybePreConfirmedBlockWithTxHashes::PreConfirmed(block)));
+                        return Ok(Some(GetBlockWithTxHashesResponse::PreConfirmed(block)));
                     }
                 }
 
                 if let Some(num) = provider.convert_block_id(block_id)? {
                     let block = katana_rpc_types_builder::BlockBuilder::new(num.into(), provider)
                         .build_with_tx_hash()?
-                        .map(MaybePreConfirmedBlockWithTxHashes::Block);
+                        .map(GetBlockWithTxHashesResponse::Block);
 
                     StarknetApiResult::Ok(block)
                 } else {
@@ -801,7 +801,7 @@ impl<EF: ExecutorFactory> StarknetApi<EF> {
     async fn state_update(
         &self,
         block_id: BlockIdOrTag,
-    ) -> StarknetApiResult<MaybePreConfirmedStateUpdate> {
+    ) -> StarknetApiResult<GetStateUpdateResponse> {
         let state_update = self
             .on_io_blocking_task(move |this| {
                 let provider = this.inner.backend.blockchain.provider();
@@ -821,7 +821,7 @@ impl<EF: ExecutorFactory> StarknetApi<EF> {
                 let state_update =
                     katana_rpc_types_builder::StateUpdateBuilder::new(block_id, provider)
                         .build()?
-                        .map(MaybePreConfirmedStateUpdate::Update);
+                        .map(GetStateUpdateResponse::Update);
 
                 StarknetApiResult::Ok(state_update)
             })
@@ -830,7 +830,7 @@ impl<EF: ExecutorFactory> StarknetApi<EF> {
         if let Some(state_update) = state_update {
             Ok(state_update)
         } else if let Some(client) = &self.inner.forked_client {
-            Ok(client.get_state_update(block_id).await?.state_update)
+            Ok(client.get_state_update(block_id).await?)
         } else {
             Err(StarknetApiError::BlockNotFound)
         }

@@ -5,12 +5,14 @@ use std::time::Duration;
 
 use anyhow::Result;
 use futures::FutureExt;
+use katana_primitives::transaction::TransactionFinalityStatus;
+use katana_primitives::Felt;
 use katana_rpc_api::error::starknet::StarknetApiError;
 use katana_rpc_client::starknet::{Client as StarknetClient, Error as StarknetClientError};
 use katana_rpc_types::receipt::{
     ExecutionResult, ReceiptBlockInfo, RpcTxReceipt, TxReceiptWithBlockInfo,
 };
-use starknet::core::types::{Felt, TransactionFinalityStatus, TransactionStatus};
+use starknet::core::types::TransactionStatus;
 use tokio::time::{Instant, Interval};
 
 type GetTxStatusResult = Result<TransactionStatus, StarknetClientError>;
@@ -305,12 +307,14 @@ fn finality_status_from_receipt(receipt: &RpcTxReceipt) -> TransactionFinalitySt
 mod tests {
     use assert_matches::assert_matches;
     use katana_primitives::fee::PriceUnit;
+    use katana_primitives::transaction::TransactionFinalityStatus::{
+        self, AcceptedOnL1, AcceptedOnL2,
+    };
     use katana_rpc_types::receipt::ExecutionResult::{Reverted, Succeeded};
     use katana_rpc_types::receipt::{
         ExecutionResult, ReceiptBlockInfo, RpcInvokeTxReceipt, RpcTxReceipt, TxReceiptWithBlockInfo,
     };
     use katana_rpc_types::{ExecutionResources, FeePayment};
-    use starknet::core::types::TransactionFinalityStatus::{self, AcceptedOnL1, AcceptedOnL2};
     use starknet::macros::felt;
 
     use super::{Duration, TxWaiter};

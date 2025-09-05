@@ -7,9 +7,8 @@ use katana_primitives::{ContractAddress, Felt};
 pub use katana_rpc_api::error::starknet::StarknetApiError;
 use katana_rpc_api::starknet::{StarknetApiClient, StarknetTraceApiClient, StarknetWriteApiClient};
 use katana_rpc_types::block::{
-    BlockHashAndNumberResponse, BlockNumberResponse, BlockTxCount,
-    MaybePreConfirmedBlockWithReceipts, MaybePreConfirmedBlockWithTxHashes,
-    MaybePreConfirmedBlockWithTxs,
+    BlockHashAndNumberResponse, BlockNumberResponse, BlockTxCount, GetBlockWithReceiptsResponse,
+    GetBlockWithTxHashesResponse, MaybePreConfirmedBlock,
 };
 use katana_rpc_types::broadcasted::{
     AddDeclareTransactionResponse, AddDeployAccountTransactionResponse,
@@ -20,13 +19,15 @@ use katana_rpc_types::class::Class;
 use katana_rpc_types::event::{EventFilterWithPage, GetEventsResponse};
 use katana_rpc_types::message::MsgFromL1;
 use katana_rpc_types::receipt::TxReceiptWithBlockInfo;
-use katana_rpc_types::state_update::MaybePreConfirmedStateUpdate;
-use katana_rpc_types::trace::{SimulatedTransactionsResponse, TxTrace, TxTraceWithHash};
+use katana_rpc_types::state_update::GetStateUpdateResponse;
+use katana_rpc_types::trace::{
+    SimulatedTransactionsResponse, TraceBlockTransactionsResponse, TxTrace,
+};
 use katana_rpc_types::transaction::RpcTxWithHash;
 use katana_rpc_types::trie::{ContractStorageKeys, GetStorageProofResponse};
 use katana_rpc_types::{
-    EstimateFeeSimulationFlag, EventFilter, FeeEstimate, FunctionCall, ResultPageRequest,
-    SimulationFlag, SyncingResponse,
+    CallResponse, EstimateFeeSimulationFlag, EventFilter, FeeEstimate, FunctionCall,
+    ResultPageRequest, SimulationFlag, SyncingResponse,
 };
 use starknet::core::types::TransactionStatus;
 
@@ -53,7 +54,7 @@ impl Client {
     pub async fn get_block_with_tx_hashes(
         &self,
         block_id: BlockIdOrTag,
-    ) -> Result<MaybePreConfirmedBlockWithTxHashes> {
+    ) -> Result<GetBlockWithTxHashesResponse> {
         self.client.get_block_with_tx_hashes(block_id).await.map_err(Into::into)
     }
 
@@ -61,7 +62,7 @@ impl Client {
     pub async fn get_block_with_txs(
         &self,
         block_id: BlockIdOrTag,
-    ) -> Result<MaybePreConfirmedBlockWithTxs> {
+    ) -> Result<MaybePreConfirmedBlock> {
         self.client.get_block_with_txs(block_id).await.map_err(Into::into)
     }
 
@@ -69,16 +70,13 @@ impl Client {
     pub async fn get_block_with_receipts(
         &self,
         block_id: BlockIdOrTag,
-    ) -> Result<MaybePreConfirmedBlockWithReceipts> {
+    ) -> Result<GetBlockWithReceiptsResponse> {
         self.client.get_block_with_receipts(block_id).await.map_err(Into::into)
     }
 
     /// Get the information about the result of executing the requested block.
-    pub async fn get_state_update(
-        &self,
-        block_id: BlockIdOrTag,
-    ) -> Result<MaybePreConfirmedStateUpdate> {
-        self.client.get_state_update(block_id).await.map(|res| res.state_update).map_err(Into::into)
+    pub async fn get_state_update(&self, block_id: BlockIdOrTag) -> Result<GetStateUpdateResponse> {
+        self.client.get_state_update(block_id).await.map_err(Into::into)
     }
 
     /// Get the value of the storage at the given address and key.
@@ -155,7 +153,11 @@ impl Client {
     }
 
     /// Call a starknet function without creating a StarkNet transaction.
-    pub async fn call(&self, request: FunctionCall, block_id: BlockIdOrTag) -> Result<Vec<Felt>> {
+    pub async fn call(
+        &self,
+        request: FunctionCall,
+        block_id: BlockIdOrTag,
+    ) -> Result<CallResponse> {
         self.client.call(request, block_id).await.map_err(Into::into)
     }
 
@@ -275,7 +277,7 @@ impl Client {
         block_id: BlockIdOrTag,
         transactions: Vec<BroadcastedTx>,
         simulation_flags: Vec<SimulationFlag>,
-    ) -> Result<Vec<SimulatedTransactionsResponse>> {
+    ) -> Result<SimulatedTransactionsResponse> {
         self.client
             .simulate_transactions(block_id, transactions, simulation_flags)
             .await
@@ -286,7 +288,7 @@ impl Client {
     pub async fn trace_block_transactions(
         &self,
         block_id: ConfirmedBlockIdOrTag,
-    ) -> Result<Vec<TxTraceWithHash>> {
+    ) -> Result<TraceBlockTransactionsResponse> {
         self.client.trace_block_transactions(block_id).await.map_err(Into::into)
     }
 }
