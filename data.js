@@ -1,5 +1,5 @@
 window.BENCHMARK_DATA = {
-  "lastUpdate": 1756592451470,
+  "lastUpdate": 1757120097896,
   "repoUrl": "https://github.com/dojoengine/katana",
   "entries": {
     "Benchmark": [
@@ -4991,6 +4991,66 @@ window.BENCHMARK_DATA = {
             "name": "Invoke.ERC20.transfer/Blockifier.Cold",
             "value": 16586430,
             "range": "± 50294",
+            "unit": "ns/iter"
+          }
+        ]
+      },
+      {
+        "commit": {
+          "author": {
+            "email": "evergreenkary@gmail.com",
+            "name": "Ammar Arif",
+            "username": "kariy"
+          },
+          "committer": {
+            "email": "noreply@github.com",
+            "name": "GitHub",
+            "username": "web-flow"
+          },
+          "distinct": true,
+          "id": "6c65d91f1ffb4b473c5c623a4fec53b5cc22f849",
+          "message": "chore(feeder-gateway): update feeder gateway urls (#261)\n\nThe sequencer feeder gateway URLs have been changed per Starknet 0.14.0 release [notes]:\n\n> The feeder gateway URL is now\nfeeder.{chain_name}.starknet.io/feeder_gateway (while the gateway URL remains {chain_name}.starknet.io/gateway), ...\n\n[notes]:\nhttps://docs.starknet.io/learn/cheatsheets/version-notes#starknet-v0-14-0-september-1%2C-25",
+          "timestamp": "2025-09-06T08:35:37+08:00",
+          "tree_id": "6815cb8145a463c783f2aa1987fa15113e94dde6",
+          "url": "https://github.com/dojoengine/katana/commit/6c65d91f1ffb4b473c5c623a4fec53b5cc22f849"
+        },
+        "date": 1757120096613,
+        "tool": "cargo",
+        "benches": [
+          {
+            "name": "Commit.Small/Parallel",
+            "value": 448571,
+            "range": "± 9936",
+            "unit": "ns/iter"
+          },
+          {
+            "name": "Commit.Big/Serial",
+            "value": 95084798,
+            "range": "± 1641849",
+            "unit": "ns/iter"
+          },
+          {
+            "name": "Commit.Big/Parallel",
+            "value": 65939443,
+            "range": "± 1530401",
+            "unit": "ns/iter"
+          },
+          {
+            "name": "compress world contract",
+            "value": 2710020,
+            "range": "± 14563",
+            "unit": "ns/iter"
+          },
+          {
+            "name": "decompress world contract",
+            "value": 3050082,
+            "range": "± 13755",
+            "unit": "ns/iter"
+          },
+          {
+            "name": "Invoke.ERC20.transfer/Blockifier.Cold",
+            "value": 16810382,
+            "range": "± 355080",
             "unit": "ns/iter"
           }
         ]
