@@ -6052,6 +6052,7 @@ dependencies = [
  "katana-rpc-types",
  "katana-tasks",
  "parking_lot",
+ "serde_json",
  "starknet",
  "thiserror 1.0.69",
  "tokio",

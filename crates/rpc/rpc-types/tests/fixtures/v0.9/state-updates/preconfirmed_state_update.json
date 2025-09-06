@@ -30,12 +30,12 @@
         "address": "0x4718f5a0fc34cc1af16a1cdee98ffb20c31f5cd61d6ab07201858f4287c938d",
         "storage_entries": [
           {
-            "key": "0x5496768776e3db30053404f18067d81a6e06f5a2b0de326e21298fd9d569a9a",
-            "value": "0x2326bff25acc7269684a1"
-          },
-          {
             "key": "0x1bc06e01c8edbc022b2a63178e2e2f2bc1bc498a6b2fa743a0e99ec2be6ac16",
             "value": "0x64eefbf434e26244877"
+          },
+          {
+            "key": "0x5496768776e3db30053404f18067d81a6e06f5a2b0de326e21298fd9d569a9a",
+            "value": "0x2326bff25acc7269684a1"
           }
         ]
       }

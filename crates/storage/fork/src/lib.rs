@@ -576,17 +576,56 @@ pub(crate) mod test_utils {
 
                     // Read the request, so hyper would not close the connection
                     let mut buffer = [0; 1024];
-                    let _ = socket.read(&mut buffer).await.unwrap();
+                    let n = socket.read(&mut buffer).await.unwrap();
+
+                    // Parse the HTTP request to extract the JSON-RPC body
+                    let request_str = String::from_utf8_lossy(&buffer[..n]);
+                    let request_id = if let Some(body_start) = request_str.rfind("\r\n\r\n") {
+                        let body = &request_str[body_start + 4..];
+
+                        // Parse the JSON-RPC request using serde_json
+                        if let Ok(json_request) = serde_json::from_str::<serde_json::Value>(body) {
+                            // Extract the ID from the parsed JSON
+                            json_request
+                                .get("id")
+                                .and_then(|id| {
+                                    if id.is_string() {
+                                        id.as_str().map(|s| format!("\"{}\"", s))
+                                    } else {
+                                        Some(id.to_string())
+                                    }
+                                })
+                                .unwrap_or_else(|| "1".to_string())
+                        } else {
+                            "1".to_string()
+                        }
+                    } else {
+                        "1".to_string()
+                    };
 
                     // Wait for a signal to return the response.
                     rx.recv().unwrap();
 
-                    // After reading, we send the pre-determined response
+                    // Parse the response template and update with correct ID
+                    let json_response = if let Ok(mut response_json) =
+                        serde_json::from_str::<serde_json::Value>(&response)
+                    {
+                        // Update the ID in the response
+                        if let Ok(id_value) = serde_json::from_str::<serde_json::Value>(&request_id)
+                        {
+                            response_json["id"] = id_value;
+                        }
+                        serde_json::to_string(&response_json).unwrap_or(response.clone())
+                    } else {
+                        response.clone()
+                    };
+
+                    // After reading, we send the response with correct ID
                     let http_response = format!(
                         "HTTP/1.1 200 OK\r\ncontent-length: {}\r\ncontent-type: \
                          application/json\r\n\r\n{}",
-                        response.len(),
-                        response
+                        json_response.len(),
+                        json_response
                     );
 
                     socket.write_all(http_response.as_bytes()).await.unwrap();

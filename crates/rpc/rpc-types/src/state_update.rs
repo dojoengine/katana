@@ -4,7 +4,7 @@ use katana_primitives::block::BlockHash;
 use katana_primitives::class::{ClassHash, CompiledClassHash};
 use katana_primitives::contract::{Nonce, StorageKey, StorageValue};
 use katana_primitives::{ContractAddress, Felt};
-use serde::{Deserialize, Serialize};
+use serde::{Deserialize, Deserializer, Serialize, Serializer};
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
 #[serde(untagged)]
@@ -51,10 +51,7 @@ pub struct StateDiff {
 }
 
 impl Serialize for StateDiff {
-    fn serialize<S>(&self, serializer: S) -> Result<S::Ok, S::Error>
-    where
-        S: serde::Serializer,
-    {
+    fn serialize<S: Serializer>(&self, serializer: S) -> Result<S::Ok, S::Error> {
         use serde::ser::{SerializeMap, SerializeSeq};
 
         /// Serializes nonces as an array of objects with the following structure:
@@ -273,11 +270,8 @@ impl Serialize for StateDiff {
 }
 
 impl<'de> Deserialize<'de> for StateDiff {
-    fn deserialize<D>(deserializer: D) -> Result<Self, D::Error>
-    where
-        D: serde::Deserializer<'de>,
-    {
-        use serde::de::{MapAccess, SeqAccess, Visitor};
+    fn deserialize<D: Deserializer<'de>>(deserializer: D) -> Result<Self, D::Error> {
+        use serde::de::{DeserializeSeed, MapAccess, SeqAccess, Visitor};
 
         struct StateDiffVisitor;
 
@@ -288,10 +282,7 @@ impl<'de> Deserialize<'de> for StateDiff {
                 formatter.write_str("a valid StateDiff")
             }
 
-            fn visit_map<A>(self, mut map: A) -> Result<Self::Value, A::Error>
-            where
-                A: MapAccess<'de>,
-            {
+            fn visit_map<A: MapAccess<'de>>(self, mut map: A) -> Result<Self::Value, A::Error> {
                 let mut nonces = None;
                 let mut storage_diffs = None;
                 let mut deployed_contracts = None;
@@ -345,13 +336,13 @@ impl<'de> Deserialize<'de> for StateDiff {
 
         struct NoncesDe;
 
-        impl<'de> serde::de::DeserializeSeed<'de> for NoncesDe {
+        impl<'de> DeserializeSeed<'de> for NoncesDe {
             type Value = BTreeMap<ContractAddress, Nonce>;
 
-            fn deserialize<D>(self, deserializer: D) -> Result<Self::Value, D::Error>
-            where
-                D: serde::Deserializer<'de>,
-            {
+            fn deserialize<D: Deserializer<'de>>(
+                self,
+                deserializer: D,
+            ) -> Result<Self::Value, D::Error> {
                 struct NoncesVisitor;
 
                 impl<'de> Visitor<'de> for NoncesVisitor {
@@ -388,13 +379,13 @@ impl<'de> Deserialize<'de> for StateDiff {
 
         struct StorageDiffsDe;
 
-        impl<'de> serde::de::DeserializeSeed<'de> for StorageDiffsDe {
+        impl<'de> DeserializeSeed<'de> for StorageDiffsDe {
             type Value = BTreeMap<ContractAddress, BTreeMap<StorageKey, StorageValue>>;
 
-            fn deserialize<D>(self, deserializer: D) -> Result<Self::Value, D::Error>
-            where
-                D: serde::Deserializer<'de>,
-            {
+            fn deserialize<D: Deserializer<'de>>(
+                self,
+                deserializer: D,
+            ) -> Result<Self::Value, D::Error> {
                 struct StorageDiffsVisitor;
 
                 impl<'de> Visitor<'de> for StorageDiffsVisitor {
@@ -407,10 +398,10 @@ impl<'de> Deserialize<'de> for StateDiff {
                         formatter.write_str("an array of storage diffs")
                     }
 
-                    fn visit_seq<A>(self, mut seq: A) -> Result<Self::Value, A::Error>
-                    where
-                        A: SeqAccess<'de>,
-                    {
+                    fn visit_seq<A: SeqAccess<'de>>(
+                        self,
+                        mut seq: A,
+                    ) -> Result<Self::Value, A::Error> {
                         #[derive(Debug, Deserialize)]
                         struct StorageEntry {
                             key: StorageKey,
@@ -441,13 +432,13 @@ impl<'de> Deserialize<'de> for StateDiff {
 
         struct DeployedContractsDe;
 
-        impl<'de> serde::de::DeserializeSeed<'de> for DeployedContractsDe {
+        impl<'de> DeserializeSeed<'de> for DeployedContractsDe {
             type Value = BTreeMap<ContractAddress, ClassHash>;
 
-            fn deserialize<D>(self, deserializer: D) -> Result<Self::Value, D::Error>
-            where
-                D: serde::Deserializer<'de>,
-            {
+            fn deserialize<D: Deserializer<'de>>(
+                self,
+                deserializer: D,
+            ) -> Result<Self::Value, D::Error> {
                 struct DeployedContractsVisitor;
 
                 impl<'de> Visitor<'de> for DeployedContractsVisitor {
@@ -460,10 +451,10 @@ impl<'de> Deserialize<'de> for StateDiff {
                         formatter.write_str("an array of deployed contracts")
                     }
 
-                    fn visit_seq<A>(self, mut seq: A) -> Result<Self::Value, A::Error>
-                    where
-                        A: SeqAccess<'de>,
-                    {
+                    fn visit_seq<A: SeqAccess<'de>>(
+                        self,
+                        mut seq: A,
+                    ) -> Result<Self::Value, A::Error> {
                         #[derive(Debug, Deserialize)]
                         struct DeployedContract {
                             address: ContractAddress,
@@ -484,13 +475,13 @@ impl<'de> Deserialize<'de> for StateDiff {
 
         struct DeclaredClassesDe;
 
-        impl<'de> serde::de::DeserializeSeed<'de> for DeclaredClassesDe {
+        impl<'de> DeserializeSeed<'de> for DeclaredClassesDe {
             type Value = BTreeMap<ClassHash, CompiledClassHash>;
 
-            fn deserialize<D>(self, deserializer: D) -> Result<Self::Value, D::Error>
-            where
-                D: serde::Deserializer<'de>,
-            {
+            fn deserialize<D: Deserializer<'de>>(
+                self,
+                deserializer: D,
+            ) -> Result<Self::Value, D::Error> {
                 struct DeclaredClassesVisitor;
 
                 impl<'de> Visitor<'de> for DeclaredClassesVisitor {
@@ -527,13 +518,13 @@ impl<'de> Deserialize<'de> for StateDiff {
 
         struct DepDeclaredClassesDe;
 
-        impl<'de> serde::de::DeserializeSeed<'de> for DepDeclaredClassesDe {
+        impl<'de> DeserializeSeed<'de> for DepDeclaredClassesDe {
             type Value = BTreeSet<ClassHash>;
 
-            fn deserialize<D>(self, deserializer: D) -> Result<Self::Value, D::Error>
-            where
-                D: serde::Deserializer<'de>,
-            {
+            fn deserialize<D: serde::Deserializer<'de>>(
+                self,
+                deserializer: D,
+            ) -> Result<Self::Value, D::Error> {
                 struct DepDeclaredClassesVisitor;
 
                 impl<'de> Visitor<'de> for DepDeclaredClassesVisitor {
@@ -546,10 +537,10 @@ impl<'de> Deserialize<'de> for StateDiff {
                         formatter.write_str("an array of class hashes")
                     }
 
-                    fn visit_seq<A>(self, mut seq: A) -> Result<Self::Value, A::Error>
-                    where
-                        A: SeqAccess<'de>,
-                    {
+                    fn visit_seq<A: SeqAccess<'de>>(
+                        self,
+                        mut seq: A,
+                    ) -> Result<Self::Value, A::Error> {
                         let mut deprecated_declared_classes = BTreeSet::new();
                         while let Some(class_hash) = seq.next_element::<ClassHash>()? {
                             deprecated_declared_classes.insert(class_hash);
@@ -564,13 +555,13 @@ impl<'de> Deserialize<'de> for StateDiff {
 
         struct ReplacedClassesDe;
 
-        impl<'de> serde::de::DeserializeSeed<'de> for ReplacedClassesDe {
+        impl<'de> DeserializeSeed<'de> for ReplacedClassesDe {
             type Value = BTreeMap<ContractAddress, ClassHash>;
 
-            fn deserialize<D>(self, deserializer: D) -> Result<Self::Value, D::Error>
-            where
-                D: serde::Deserializer<'de>,
-            {
+            fn deserialize<D: serde::Deserializer<'de>>(
+                self,
+                deserializer: D,
+            ) -> Result<Self::Value, D::Error> {
                 struct ReplacedClassesVisitor;
 
                 impl<'de> Visitor<'de> for ReplacedClassesVisitor {
@@ -583,10 +574,10 @@ impl<'de> Deserialize<'de> for StateDiff {
                         formatter.write_str("an array of replaced classes")
                     }
 
-                    fn visit_seq<A>(self, mut seq: A) -> Result<Self::Value, A::Error>
-                    where
-                        A: SeqAccess<'de>,
-                    {
+                    fn visit_seq<A: SeqAccess<'de>>(
+                        self,
+                        mut seq: A,
+                    ) -> Result<Self::Value, A::Error> {
                         #[derive(Debug, Deserialize)]
                         struct ReplacedClass {
                             contract_address: ContractAddress,
