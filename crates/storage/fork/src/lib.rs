@@ -528,6 +528,7 @@ pub(crate) mod test_utils {
 
     use katana_primitives::block::BlockNumber;
     use katana_rpc_client::HttpClientBuilder;
+    use serde_json::{json, Value};
     use tokio::io::{AsyncReadExt, AsyncWriteExt};
     use tokio::net::TcpListener;
     use url::Url;
@@ -563,8 +564,11 @@ pub(crate) mod test_utils {
     }
 
     // Helper function to start a TCP server that returns predefined JSON-RPC responses
-    pub fn start_mock_rpc_server(addr: String, response: String) -> SyncSender<()> {
+    // The `result` parameter should be the value to return in the "result" field of the JSON-RPC
+    // response
+    pub fn start_mock_rpc_server(addr: String, result: String) -> SyncSender<()> {
         use tokio::runtime::Builder;
+
         let (tx, rx) = sync_channel::<()>(1);
 
         thread::spawn(move || {
@@ -579,46 +583,29 @@ pub(crate) mod test_utils {
                     let n = socket.read(&mut buffer).await.unwrap();
 
                     // Parse the HTTP request to extract the JSON-RPC body
+                    //
+                    // The response ID must match the request ID
                     let request_str = String::from_utf8_lossy(&buffer[..n]);
-                    let request_id = if let Some(body_start) = request_str.rfind("\r\n\r\n") {
+                    let id = if let Some(body_start) = request_str.rfind("\r\n\r\n") {
                         let body = &request_str[body_start + 4..];
-
-                        // Parse the JSON-RPC request using serde_json
-                        if let Ok(json_request) = serde_json::from_str::<serde_json::Value>(body) {
-                            // Extract the ID from the parsed JSON
-                            json_request
-                                .get("id")
-                                .and_then(|id| {
-                                    if id.is_string() {
-                                        id.as_str().map(|s| format!("\"{}\"", s))
-                                    } else {
-                                        Some(id.to_string())
-                                    }
-                                })
-                                .unwrap_or_else(|| "1".to_string())
-                        } else {
-                            "1".to_string()
-                        }
+                        // Extract the ID from the parsed JSON
+                        let request = serde_json::from_str::<Value>(body).unwrap();
+                        request.get("id").unwrap().clone()
                     } else {
-                        "1".to_string()
+                        json!(1)
                     };
 
                     // Wait for a signal to return the response.
                     rx.recv().unwrap();
 
-                    // Parse the response template and update with correct ID
-                    let json_response = if let Ok(mut response_json) =
-                        serde_json::from_str::<serde_json::Value>(&response)
-                    {
-                        // Update the ID in the response
-                        if let Ok(id_value) = serde_json::from_str::<serde_json::Value>(&request_id)
-                        {
-                            response_json["id"] = id_value;
-                        }
-                        serde_json::to_string(&response_json).unwrap_or(response.clone())
-                    } else {
-                        response.clone()
-                    };
+                    // Build the JSON-RPC response with the provided result and extracted ID
+                    let response_obj = serde_json::json!({
+                        "id": id,
+                        "jsonrpc": "2.0",
+                        "result": result
+                    });
+
+                    let json_response = serde_json::to_string(&response_obj).unwrap();
 
                     // After reading, we send the response with correct ID
                     let http_response = format!(
@@ -1014,9 +1001,9 @@ mod tests {
 
     #[test]
     fn test_deduplicated_request_should_return_similar_results() {
-        // Start mock server with a predefined nonce response
-        let response = r#"{"jsonrpc":"2.0","result":"0x123","id":1}"#;
-        let sender = start_mock_rpc_server("127.0.0.1:8090".to_string(), response.to_string());
+        // Start mock server with a predefined nonce result value
+        let result = "0x123";
+        let sender = start_mock_rpc_server("127.0.0.1:8090".to_string(), result.to_string());
 
         let handle = create_forked_backend("http://127.0.0.1:8090", 1);
         let addr = ContractAddress(felt!("0x1"));
