@@ -1,3 +1,5 @@
+pub use katana_contracts_macro::contract;
+
 pub mod contracts {
     use katana_contracts_macro::contract;
 

@@ -770,9 +770,18 @@ chain_id.Named = "Mainnet"
         assert!(config.rpc.apis.contains(&RpcModuleKind::Starknet));
 
         // Verify that all the Controller classes are added to the genesis
-        for (_, class) in katana_slot_controller::CONTROLLERS.iter() {
-            assert!(config.chain.genesis().classes.get(&class.hash).is_some());
-        }
+        use katana_slot_controller::{
+            ControllerLatest, ControllerV104, ControllerV105, ControllerV106, ControllerV107,
+            ControllerV108, ControllerV109,
+        };
+
+        assert!(config.chain.genesis().classes.get(&ControllerV104::HASH).is_some());
+        assert!(config.chain.genesis().classes.get(&ControllerV105::HASH).is_some());
+        assert!(config.chain.genesis().classes.get(&ControllerV106::HASH).is_some());
+        assert!(config.chain.genesis().classes.get(&ControllerV107::HASH).is_some());
+        assert!(config.chain.genesis().classes.get(&ControllerV108::HASH).is_some());
+        assert!(config.chain.genesis().classes.get(&ControllerV109::HASH).is_some());
+        assert!(config.chain.genesis().classes.get(&ControllerLatest::HASH).is_some());
 
         // Test without paymaster enabled
         let args = NodeArgs::parse_from(["katana"]);
@@ -781,8 +790,12 @@ chain_id.Named = "Mainnet"
         // Verify cartridge module is not enabled by default
         assert!(!config.rpc.apis.contains(&RpcModuleKind::Cartridge));
 
-        for (_, class) in katana_slot_controller::CONTROLLERS.iter() {
-            assert!(config.chain.genesis().classes.get(&class.hash).is_none());
-        }
+        assert!(config.chain.genesis().classes.get(&ControllerV104::HASH).is_none());
+        assert!(config.chain.genesis().classes.get(&ControllerV105::HASH).is_none());
+        assert!(config.chain.genesis().classes.get(&ControllerV106::HASH).is_none());
+        assert!(config.chain.genesis().classes.get(&ControllerV107::HASH).is_none());
+        assert!(config.chain.genesis().classes.get(&ControllerV108::HASH).is_none());
+        assert!(config.chain.genesis().classes.get(&ControllerV109::HASH).is_none());
+        assert!(config.chain.genesis().classes.get(&ControllerLatest::HASH).is_none());
     }
 }

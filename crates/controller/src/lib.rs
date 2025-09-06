@@ -1,11 +1,15 @@
-pub use account_sdk::artifacts::CONTROLLERS;
+pub use cartridge::controller::*;
 use katana_primitives::genesis::Genesis;
 use katana_primitives::utils::class::parse_sierra_class;
 
 pub fn add_controller_classes(genesis: &mut Genesis) {
-    genesis.classes.extend(
-        CONTROLLERS.iter().map(|(_, v)| (v.hash, parse_sierra_class(v.content).unwrap().into())),
-    );
+    genesis.classes.insert(ControllerV104::HASH, ControllerV104::CLASS.clone().into());
+    genesis.classes.insert(ControllerV105::HASH, ControllerV105::CLASS.clone().into());
+    genesis.classes.insert(ControllerV106::HASH, ControllerV106::CLASS.clone().into());
+    genesis.classes.insert(ControllerV107::HASH, ControllerV107::CLASS.clone().into());
+    genesis.classes.insert(ControllerV108::HASH, ControllerV108::CLASS.clone().into());
+    genesis.classes.insert(ControllerV109::HASH, ControllerV109::CLASS.clone().into());
+    genesis.classes.insert(ControllerLatest::HASH, ControllerLatest::CLASS.clone().into());
 }
 
 pub fn add_vrf_provider_class(genesis: &mut Genesis) {

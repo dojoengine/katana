@@ -15,3 +15,6 @@
 [submodule "contracts/vrf"]
 	path = contracts/vrf
 	url = https://github.com/cartridge-gg/vrf
+[submodule "crates/cartridge/controller"]
+	path = crates/cartridge/controller
+	url = https://github.com/cartridge-gg/controller-rs.git
