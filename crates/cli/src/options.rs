@@ -628,7 +628,7 @@ impl TracerOptions {
     /// Get the tracer configuration based on the options
     pub fn config(&self) -> Option<TracerConfig> {
         if self.tracer_gcloud {
-            Some(TracerConfig::Gcloud(gcloud::GcloudConfig {
+            Some(TracerConfig::GCloud(gcloud::GcloudConfig {
                 project_id: self.gcloud_project_id.clone(),
             }))
         } else if self.tracer_otlp {
