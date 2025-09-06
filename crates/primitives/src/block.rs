@@ -92,9 +92,11 @@ impl From<BlockHashOrNumber> for BlockIdOrTag {
 #[derive(Debug, Copy, Clone, PartialEq, Eq)]
 #[cfg_attr(feature = "arbitrary", derive(::arbitrary::Arbitrary))]
 #[cfg_attr(feature = "serde", derive(serde::Serialize, serde::Deserialize))]
+#[cfg_attr(feature = "serde", serde(rename_all = "SCREAMING_SNAKE_CASE"))]
 pub enum FinalityStatus {
-    AcceptedOnL2,
-    AcceptedOnL1,
+    AcceptedOnL2 = 0,
+    AcceptedOnL1 = 1,
+    PreConfirmed = 2,
 }
 
 /// Represents a partial block header.

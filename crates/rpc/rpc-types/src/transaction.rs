@@ -8,6 +8,24 @@ use katana_primitives::{transaction as primitives, ContractAddress, Felt};
 use serde::{Deserialize, Serialize};
 use starknet::core::types::ResourceBoundsMapping;
 
+use crate::ExecutionResult;
+
+/// Represents the status of a transaction.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(tag = "finality_status")]
+pub enum TxStatus {
+    /// Transaction received by sequencer and awaiting processing.
+    Received,
+    /// Transaction is scheduled to be executed by sequencer.
+    Candidate,
+    /// Transaction pre-confirmed by sequencer but is not guaranteed to be included in a block.
+    PreConfirmed(ExecutionResult),
+    /// Transaction accepted on Layer 2 with a specific execution status.
+    AcceptedOnL2(ExecutionResult),
+    /// Transaction accepted on Layer 1 with a specific execution status.
+    AcceptedOnL1(ExecutionResult),
+}
+
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub struct RpcTxWithHash {
     /// The hash of the transaction.

@@ -29,8 +29,9 @@ use katana_rpc_types::receipt::TxReceiptWithBlockInfo;
 use katana_rpc_types::state_update::GetStateUpdateResponse;
 use katana_rpc_types::transaction::RpcTxWithHash;
 use katana_rpc_types::trie::{ContractStorageKeys, GetStorageProofResponse};
-use katana_rpc_types::{CallResponse, EstimateFeeSimulationFlag, FeeEstimate, FunctionCall};
-use starknet::core::types::TransactionStatus;
+use katana_rpc_types::{
+    CallResponse, EstimateFeeSimulationFlag, FeeEstimate, FunctionCall, TxStatus,
+};
 
 use super::StarknetApi;
 #[cfg(feature = "cartridge")]
@@ -352,10 +353,7 @@ impl<EF: ExecutorFactory> StarknetApiServer for StarknetApi<EF> {
         .await
     }
 
-    async fn get_transaction_status(
-        &self,
-        transaction_hash: TxHash,
-    ) -> RpcResult<TransactionStatus> {
+    async fn get_transaction_status(&self, transaction_hash: TxHash) -> RpcResult<TxStatus> {
         Ok(self.transaction_status(transaction_hash).await?)
     }
 

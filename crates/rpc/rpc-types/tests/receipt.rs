@@ -1,7 +1,7 @@
 use assert_matches::assert_matches;
+use katana_primitives::block::FinalityStatus;
 use katana_primitives::fee::PriceUnit;
 use katana_primitives::receipt::Event;
-use katana_primitives::transaction::TransactionFinalityStatus;
 use katana_primitives::{address, felt, ContractAddress};
 use katana_rpc_types::receipt::{
     ExecutionResult, ReceiptBlockInfo, RpcTxReceipt, TxReceiptWithBlockInfo,
@@ -31,7 +31,7 @@ fn invoke_confirmed_receipt() {
         felt!("0x47ad063062288bcb3d6e9d56428625206e6b8ca0a0414389836c337badc4678")
     );
     assert_matches!(&receipt, RpcTxReceipt::Invoke(rct) => {
-        assert_eq!(rct.finality_status, TransactionFinalityStatus::AcceptedOnL2);
+        assert_eq!(rct.finality_status, FinalityStatus::AcceptedOnL2);
         assert_eq!(rct.execution_result, ExecutionResult::Succeeded);
 
         assert_eq!(rct.actual_fee.amount, felt!("0x8d13974114d80"));
@@ -77,7 +77,7 @@ fn declare_confirmed_receipt() {
         felt!("0x5d5522b21bd46a27eff36e10d431cf974df5a68bcc260164f40ece60c898d82")
     );
     assert_matches!(&receipt, RpcTxReceipt::Declare(rct) => {
-        assert_eq!(rct.finality_status, TransactionFinalityStatus::AcceptedOnL2);
+        assert_eq!(rct.finality_status, FinalityStatus::AcceptedOnL2);
         assert_eq!(rct.execution_result, ExecutionResult::Succeeded);
 
         assert_eq!(rct.actual_fee.amount, felt!("0x97d2e342fa59c0"));
@@ -123,7 +123,7 @@ fn deploy_account_confirmed_receipt() {
         felt!("0x7ed8d22d2da21c072a61661888f15cb4039ee2370711d7a82fb142fa805941d")
     );
     assert_matches!(&receipt, RpcTxReceipt::DeployAccount(rct) => {
-        assert_eq!(rct.finality_status, TransactionFinalityStatus::AcceptedOnL2);
+        assert_eq!(rct.finality_status, FinalityStatus::AcceptedOnL2);
         assert_eq!(rct.execution_result, ExecutionResult::Succeeded);
 
         assert_eq!(rct.actual_fee.amount, felt!("0x7327522833800"));
@@ -171,7 +171,7 @@ fn l1_handler_confirmed_receipt() {
         felt!("0x5e7e5063a7106ba707f3084cdfe77b3dee2f08f4a3c6b37665077499ed9259f")
     );
     assert_matches!(&receipt, RpcTxReceipt::L1Handler(rct) => {
-        assert_eq!(rct.finality_status, TransactionFinalityStatus::AcceptedOnL2);
+        assert_eq!(rct.finality_status, FinalityStatus::AcceptedOnL2);
         assert_eq!(rct.execution_result, ExecutionResult::Succeeded);
 
         assert_eq!(rct.actual_fee.amount, felt!("0x0"));

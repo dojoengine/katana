@@ -15,7 +15,7 @@ use katana_rpc_types::event::{
 use katana_rpc_types::receipt::{ReceiptBlockInfo, TxReceiptWithBlockInfo};
 use katana_rpc_types::state_update::GetStateUpdateResponse;
 use katana_rpc_types::transaction::RpcTxWithHash;
-use starknet::core::types::TransactionStatus;
+use katana_rpc_types::TxStatus;
 
 #[derive(Debug, thiserror::Error)]
 pub enum Error {
@@ -89,7 +89,7 @@ impl ForkedClient {
         Ok(receipt)
     }
 
-    pub async fn get_transaction_status(&self, hash: TxHash) -> Result<TransactionStatus, Error> {
+    pub async fn get_transaction_status(&self, hash: TxHash) -> Result<TxStatus, Error> {
         let (receipt, status) = tokio::join!(
             self.get_transaction_receipt(hash),
             self.client.get_transaction_status(hash)

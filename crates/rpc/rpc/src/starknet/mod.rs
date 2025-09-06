@@ -44,10 +44,9 @@ use katana_rpc_types::trie::{
     ClassesProof, ContractLeafData, ContractStorageKeys, ContractStorageProofs, ContractsProof,
     GetStorageProofResponse, GlobalRoots, Nodes,
 };
-use katana_rpc_types::FeeEstimate;
+use katana_rpc_types::{FeeEstimate, TxStatus};
 use katana_rpc_types_builder::{BlockBuilder, ReceiptBuilder};
 use katana_tasks::{BlockingTaskPool, TokioTaskSpawner};
-use starknet::core::types::TransactionStatus;
 
 use crate::permit::Permits;
 use crate::utils::events::{Cursor, EventBlockId};
@@ -515,7 +514,7 @@ impl<EF: ExecutorFactory> StarknetApi<EF> {
         }
     }
 
-    async fn transaction_status(&self, hash: TxHash) -> StarknetApiResult<TransactionStatus> {
+    async fn transaction_status(&self, hash: TxHash) -> StarknetApiResult<TxStatus> {
         let status = self
             .on_io_blocking_task(move |this| {
                 let provider = this.inner.backend.blockchain.provider();
@@ -532,20 +531,15 @@ impl<EF: ExecutorFactory> StarknetApi<EF> {
                     };
 
                     let exec_status = if let Some(reason) = receipt.revert_reason() {
-                        starknet::core::types::ExecutionResult::Reverted {
-                            reason: reason.to_string(),
-                        }
+                        katana_rpc_types::ExecutionResult::Reverted { reason: reason.to_string() }
                     } else {
-                        starknet::core::types::ExecutionResult::Succeeded
+                        katana_rpc_types::ExecutionResult::Succeeded
                     };
 
                     let status = match status {
-                        FinalityStatus::AcceptedOnL1 => {
-                            TransactionStatus::AcceptedOnL1(exec_status)
-                        }
-                        FinalityStatus::AcceptedOnL2 => {
-                            TransactionStatus::AcceptedOnL2(exec_status)
-                        }
+                        FinalityStatus::AcceptedOnL1 => TxStatus::AcceptedOnL1(exec_status),
+                        FinalityStatus::AcceptedOnL2 => TxStatus::AcceptedOnL2(exec_status),
+                        FinalityStatus::PreConfirmed => TxStatus::PreConfirmed(exec_status),
                     };
 
                     return Ok(Some(status));
@@ -566,15 +560,11 @@ impl<EF: ExecutorFactory> StarknetApi<EF> {
 
                     // TODO: maybe should do impl From<ExecutionResult> for TransactionStatus
                     let status = if let Some(reason) = receipt.revert_reason() {
-                        TransactionStatus::AcceptedOnL2(
-                            starknet::core::types::ExecutionResult::Reverted {
-                                reason: reason.to_string(),
-                            },
-                        )
+                        TxStatus::AcceptedOnL2(katana_rpc_types::ExecutionResult::Reverted {
+                            reason: reason.to_string(),
+                        })
                     } else {
-                        TransactionStatus::AcceptedOnL2(
-                            starknet::core::types::ExecutionResult::Succeeded,
-                        )
+                        TxStatus::AcceptedOnL2(katana_rpc_types::ExecutionResult::Succeeded)
                     };
 
                     Ok(Some(status))
@@ -590,7 +580,7 @@ impl<EF: ExecutorFactory> StarknetApi<EF> {
             Ok(client.get_transaction_status(hash).await?)
         } else {
             let _ = self.inner.pool.get(hash).ok_or(StarknetApiError::TxnHashNotFound)?;
-            Ok(TransactionStatus::Received)
+            Ok(TxStatus::Received)
         }
     }
 

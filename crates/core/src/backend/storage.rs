@@ -3,7 +3,6 @@ use katana_primitives::block::{
     BlockHashOrNumber, BlockIdOrTag, BlockNumber, FinalityStatus, GasPrices, Header, SealedBlock,
     SealedBlockWithStatus,
 };
-use katana_primitives::da::L1DataAvailabilityMode;
 use katana_provider::api::block::{BlockProvider, BlockWriter};
 use katana_provider::api::contract::ContractClassWriter;
 use katana_provider::api::env::BlockEnvProvider;
@@ -196,12 +195,7 @@ impl Blockchain {
         block.header.l1_data_gas_prices =
             unsafe { GasPrices::new_unchecked(eth_l1_data_gas_price, strk_l1_data_gas_price) };
 
-        block.header.l1_da_mode = match forked_block.l1_da_mode {
-            starknet::core::types::L1DataAvailabilityMode::Blob => L1DataAvailabilityMode::Blob,
-            starknet::core::types::L1DataAvailabilityMode::Calldata => {
-                L1DataAvailabilityMode::Calldata
-            }
-        };
+        block.header.l1_da_mode = forked_block.l1_da_mode;
 
         Ok((Self::new(database), block_num))
     }

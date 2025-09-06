@@ -28,9 +28,8 @@ use katana_rpc_types::transaction::RpcTxWithHash;
 use katana_rpc_types::trie::{ContractStorageKeys, GetStorageProofResponse};
 use katana_rpc_types::{
     CallResponse, EstimateFeeSimulationFlag, FeeEstimate, FunctionCall, SimulationFlag,
-    SyncingResponse,
+    SyncingResponse, TxStatus,
 };
-use starknet::core::types::TransactionStatus;
 
 /// The currently supported version of the Starknet JSON-RPC specification.
 pub const RPC_SPEC_VERSION: &str = "0.9.0";
@@ -80,10 +79,7 @@ pub trait StarknetApi {
     /// Gets the transaction status (possibly reflecting that the tx is still in the mempool, or
     /// dropped from it).
     #[method(name = "getTransactionStatus")]
-    async fn get_transaction_status(
-        &self,
-        transaction_hash: TxHash,
-    ) -> RpcResult<TransactionStatus>;
+    async fn get_transaction_status(&self, transaction_hash: TxHash) -> RpcResult<TxStatus>;
 
     /// Get the details and status of a submitted transaction.
     #[method(name = "getTransactionByHash")]

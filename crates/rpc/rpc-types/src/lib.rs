@@ -34,6 +34,9 @@ pub use trie::*;
 /// Request type for `starknet_call` RPC method.
 pub type FunctionCall = katana_primitives::execution::FunctionCall;
 
+/// Finality status of a block or transaction.
+pub type FinalityStatus = katana_primitives::block::FinalityStatus;
+
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
 #[serde(transparent)]
 pub struct CallResponse {

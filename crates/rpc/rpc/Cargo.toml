@@ -26,7 +26,7 @@ http.workspace = true
 jsonrpsee = { workspace = true, features = [ "client", "server" ] }
 metrics.workspace = true
 serde_json.workspace = true
-starknet.workspace = true
+starknet = { workspace = true, optional = true }
 thiserror.workspace = true
 tokio.workspace = true
 tower.workspace = true
@@ -73,6 +73,7 @@ url.workspace = true
 cartridge = [
 	"dep:cainome",
 	"dep:cartridge",
+	"dep:starknet",
 	"dep:starknet-crypto",
 	"dep:url",
 	"katana-rpc-api/cartridge",

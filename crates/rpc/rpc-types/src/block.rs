@@ -1,11 +1,12 @@
 use katana_primitives::block::{
     Block, BlockHash, BlockNumber, FinalityStatus, Header, PartialHeader,
 };
+use katana_primitives::da::L1DataAvailabilityMode;
 use katana_primitives::receipt::Receipt;
 use katana_primitives::transaction::{TxHash, TxWithHash};
 use katana_primitives::{ContractAddress, Felt};
 use serde::{Deserialize, Serialize};
-use starknet::core::types::{BlockStatus, L1DataAvailabilityMode, ResourcePrice};
+use starknet::core::types::ResourcePrice;
 
 use crate::receipt::RpcTxReceiptWithHash;
 use crate::transaction::{RpcTx, RpcTxWithHash};
@@ -21,7 +22,7 @@ pub enum MaybePreConfirmedBlock {
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub struct BlockWithTxs {
-    pub status: BlockStatus,
+    pub status: FinalityStatus,
     pub block_hash: BlockHash,
     pub parent_hash: BlockHash,
     pub block_number: BlockNumber,
@@ -66,16 +67,8 @@ impl BlockWithTxs {
             parent_hash: block.header.parent_hash,
             starknet_version: block.header.starknet_version.to_string(),
             sequencer_address: block.header.sequencer_address,
-            status: match finality_status {
-                FinalityStatus::AcceptedOnL1 => BlockStatus::AcceptedOnL1,
-                FinalityStatus::AcceptedOnL2 => BlockStatus::AcceptedOnL2,
-            },
-            l1_da_mode: match block.header.l1_da_mode {
-                katana_primitives::da::L1DataAvailabilityMode::Blob => L1DataAvailabilityMode::Blob,
-                katana_primitives::da::L1DataAvailabilityMode::Calldata => {
-                    L1DataAvailabilityMode::Calldata
-                }
-            },
+            status: finality_status,
+            l1_da_mode: block.header.l1_da_mode,
             l1_data_gas_price,
         }
     }
@@ -134,7 +127,7 @@ pub enum GetBlockWithTxHashesResponse {
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub struct BlockWithTxHashes {
-    pub status: BlockStatus,
+    pub status: FinalityStatus,
     pub block_hash: BlockHash,
     pub parent_hash: BlockHash,
     pub block_number: BlockNumber,
@@ -181,16 +174,8 @@ impl BlockWithTxHashes {
             parent_hash: block.header.parent_hash,
             starknet_version: block.header.starknet_version.to_string(),
             sequencer_address: block.header.sequencer_address,
-            status: match finality_status {
-                FinalityStatus::AcceptedOnL1 => BlockStatus::AcceptedOnL1,
-                FinalityStatus::AcceptedOnL2 => BlockStatus::AcceptedOnL2,
-            },
-            l1_da_mode: match block.header.l1_da_mode {
-                katana_primitives::da::L1DataAvailabilityMode::Blob => L1DataAvailabilityMode::Blob,
-                katana_primitives::da::L1DataAvailabilityMode::Calldata => {
-                    L1DataAvailabilityMode::Calldata
-                }
-            },
+            status: finality_status,
+            l1_da_mode: block.header.l1_da_mode,
             l1_data_gas_price,
         }
     }
@@ -292,7 +277,7 @@ impl<'de> Deserialize<'de> for GetBlockWithReceiptsResponse {
     {
         #[derive(Debug, Deserialize)]
         struct RawObject {
-            status: Option<BlockStatus>,
+            status: Option<FinalityStatus>,
             block_hash: Option<BlockHash>,
             parent_hash: Option<BlockHash>,
             block_number: BlockNumber,
@@ -358,7 +343,7 @@ impl<'de> Deserialize<'de> for GetBlockWithReceiptsResponse {
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub struct BlockWithReceipts {
-    pub status: BlockStatus,
+    pub status: FinalityStatus,
     pub block_hash: BlockHash,
     pub parent_hash: BlockHash,
     pub block_number: BlockNumber,
@@ -404,10 +389,7 @@ impl BlockWithReceipts {
             .collect();
 
         Self {
-            status: match finality_status {
-                FinalityStatus::AcceptedOnL1 => BlockStatus::AcceptedOnL1,
-                FinalityStatus::AcceptedOnL2 => BlockStatus::AcceptedOnL2,
-            },
+            status: finality_status,
             block_hash: hash,
             parent_hash: header.parent_hash,
             block_number: header.number,

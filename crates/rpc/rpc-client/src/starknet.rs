@@ -27,9 +27,8 @@ use katana_rpc_types::transaction::RpcTxWithHash;
 use katana_rpc_types::trie::{ContractStorageKeys, GetStorageProofResponse};
 use katana_rpc_types::{
     CallResponse, EstimateFeeSimulationFlag, EventFilter, FeeEstimate, FunctionCall,
-    ResultPageRequest, SimulationFlag, SyncingResponse,
+    ResultPageRequest, SimulationFlag, SyncingResponse, TxStatus,
 };
-use starknet::core::types::TransactionStatus;
 
 type Result<T> = std::result::Result<T, Error>;
 
@@ -91,10 +90,7 @@ impl Client {
 
     /// Gets the transaction status (possibly reflecting that the tx is still in the mempool, or
     /// dropped from it).
-    pub async fn get_transaction_status(
-        &self,
-        transaction_hash: TxHash,
-    ) -> Result<TransactionStatus> {
+    pub async fn get_transaction_status(&self, transaction_hash: TxHash) -> Result<TxStatus> {
         self.client.get_transaction_status(transaction_hash).await.map_err(Into::into)
     }
 

@@ -13,15 +13,14 @@ use katana_primitives::genesis::constant::{
     DEFAULT_ETH_FEE_TOKEN_ADDRESS, DEFAULT_PREFUNDED_ACCOUNT_BALANCE,
     DEFAULT_STRK_FEE_TOKEN_ADDRESS, DEFAULT_UDC_ADDRESS,
 };
-use katana_primitives::transaction::TransactionFinalityStatus;
 use katana_primitives::Felt;
 use katana_rpc_api::dev::DevApiClient;
 use katana_rpc_types::state_update::GetStateUpdateResponse;
 use katana_rpc_types::trace::TxTrace;
 use katana_rpc_types::{
-    EventFilter, ExecutionResult, GetBlockWithReceiptsResponse, GetBlockWithTxHashesResponse,
-    GetEventsResponse, MaybePreConfirmedBlock, RpcDeclareTxReceipt, RpcDeployAccountTxReceipt,
-    RpcTxReceipt,
+    EventFilter, ExecutionResult, FinalityStatus, GetBlockWithReceiptsResponse,
+    GetBlockWithTxHashesResponse, GetEventsResponse, MaybePreConfirmedBlock, RpcDeclareTxReceipt,
+    RpcDeployAccountTxReceipt, RpcTxReceipt,
 };
 use katana_utils::node::StarknetError;
 use katana_utils::TestNode;
@@ -401,7 +400,7 @@ async fn concurrent_transactions_submissions(#[values(None, Some(1000))] block_t
     for hash in txs.iter() {
         let receipt = provider.get_transaction_receipt(*hash).await.unwrap();
         assert_eq!(receipt.receipt.execution_result(), &ExecutionResult::Succeeded);
-        assert_eq!(receipt.receipt.finality_status(), &TransactionFinalityStatus::AcceptedOnL2);
+        assert_eq!(receipt.receipt.finality_status(), &FinalityStatus::AcceptedOnL2);
     }
 
     let nonce = account.get_nonce().await.unwrap();

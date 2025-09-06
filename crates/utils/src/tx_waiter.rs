@@ -5,17 +5,17 @@ use std::time::Duration;
 
 use anyhow::Result;
 use futures::FutureExt;
-use katana_primitives::transaction::TransactionFinalityStatus;
+pub use katana_primitives::block::FinalityStatus;
 use katana_primitives::Felt;
 use katana_rpc_api::error::starknet::StarknetApiError;
 use katana_rpc_client::starknet::{Client as StarknetClient, Error as StarknetClientError};
 use katana_rpc_types::receipt::{
     ExecutionResult, ReceiptBlockInfo, RpcTxReceipt, TxReceiptWithBlockInfo,
 };
-use starknet::core::types::TransactionStatus;
+use katana_rpc_types::TxStatus;
 use tokio::time::{Instant, Interval};
 
-type GetTxStatusResult = Result<TransactionStatus, StarknetClientError>;
+type GetTxStatusResult = Result<TxStatus, StarknetClientError>;
 type GetTxReceiptResult = Result<TxReceiptWithBlockInfo, StarknetClientError>;
 
 type GetTxStatusFuture<'a> = Pin<Box<dyn Future<Output = GetTxStatusResult> + Send + 'a>>;
@@ -48,12 +48,12 @@ pub enum TxWaitingError {
 /// use url::Url;
 /// use starknet::providers::jsonrpc::HttpTransport;
 /// use starknet::providers::JsonRpcClient;
-/// use starknet::core::types::TransactionFinalityStatus;
+/// use starknet::core::types::FinalityStatus;
 ///
 /// let provider = JsonRpcClient::new(HttpTransport::new(Url::parse("http://localhost:5000").unwrap()));
 ///
 /// let tx_hash = Felt::from(0xbadbeefu64);
-/// let receipt = TxWaiter::new(tx_hash, &provider).with_tx_status(TransactionFinalityStatus::AcceptedOnL2).await.unwrap();
+/// let receipt = TxWaiter::new(tx_hash, &provider).with_tx_status(FinalityStatus::AcceptedOnL2).await.unwrap();
 /// ```
 #[must_use = "TxWaiter does nothing unless polled"]
 pub struct TxWaiter<'a> {
@@ -62,7 +62,7 @@ pub struct TxWaiter<'a> {
     /// The transaction finality status to wait for.
     ///
     /// If not set, then it will wait until it is `ACCEPTED_ON_L2` whether it is reverted or not.
-    tx_finality_status: Option<TransactionFinalityStatus>,
+    tx_finality_status: Option<FinalityStatus>,
     /// A flag to indicate that the waited transaction must either be successfully executed or not.
     ///
     /// If it's set to `true`, then the transaction execution result must be `SUCCEEDED` otherwise
@@ -119,7 +119,7 @@ impl<'a> TxWaiter<'a> {
         Self { interval: tokio::time::interval_at(Instant::now() + interval, interval), ..self }
     }
 
-    pub fn with_tx_status(self, status: TransactionFinalityStatus) -> Self {
+    pub fn with_tx_status(self, status: FinalityStatus) -> Self {
         Self { tx_finality_status: Some(status), ..self }
     }
 
@@ -131,7 +131,7 @@ impl<'a> TxWaiter<'a> {
     // on the waiter's parameters. Used in the `Future` impl.
     fn evaluate_receipt_from_params(
         receipt: TxReceiptWithBlockInfo,
-        expected_finality_status: Option<TransactionFinalityStatus>,
+        expected_finality_status: Option<FinalityStatus>,
         must_succeed: bool,
     ) -> Option<Result<TxReceiptWithBlockInfo, TxWaitingError>> {
         match &receipt.block {
@@ -156,8 +156,8 @@ impl<'a> TxWaiter<'a> {
             ReceiptBlockInfo::Block { .. } => {
                 if let Some(expected_status) = expected_finality_status {
                     match finality_status_from_receipt(&receipt.receipt) {
-                        TransactionFinalityStatus::AcceptedOnL2
-                            if expected_status == TransactionFinalityStatus::AcceptedOnL1 =>
+                        FinalityStatus::AcceptedOnL2
+                            if expected_status == FinalityStatus::AcceptedOnL1 =>
                         {
                             None
                         }
@@ -204,15 +204,15 @@ impl Future for TxWaiter<'_> {
                 match fut.poll_unpin(cx) {
                     Poll::Ready(res) => match res {
                         Ok(status) => match status {
-                            TransactionStatus::PreConfirmed(_)
-                            | TransactionStatus::AcceptedOnL2(_)
-                            | TransactionStatus::AcceptedOnL1(_) => {
+                            TxStatus::PreConfirmed(_)
+                            | TxStatus::AcceptedOnL2(_)
+                            | TxStatus::AcceptedOnL1(_) => {
                                 this.tx_receipt_request_fut = Some(Box::pin(
                                     this.rpc_client.get_transaction_receipt(this.tx_hash),
                                 ));
                             }
 
-                            TransactionStatus::Candidate | TransactionStatus::Received => {}
+                            TxStatus::Candidate | TxStatus::Received => {}
                         },
 
                         Err(StarknetClientError::Starknet(StarknetApiError::TxnHashNotFound)) => {}
@@ -293,7 +293,7 @@ fn execution_status_from_receipt(receipt: &RpcTxReceipt) -> &ExecutionResult {
     }
 }
 
-fn finality_status_from_receipt(receipt: &RpcTxReceipt) -> TransactionFinalityStatus {
+fn finality_status_from_receipt(receipt: &RpcTxReceipt) -> FinalityStatus {
     match receipt {
         RpcTxReceipt::Invoke(receipt) => receipt.finality_status,
         RpcTxReceipt::Deploy(receipt) => receipt.finality_status,
@@ -306,10 +306,8 @@ fn finality_status_from_receipt(receipt: &RpcTxReceipt) -> TransactionFinalitySt
 #[cfg(test)]
 mod tests {
     use assert_matches::assert_matches;
+    use katana_primitives::block::FinalityStatus::{self, AcceptedOnL1, AcceptedOnL2};
     use katana_primitives::fee::PriceUnit;
-    use katana_primitives::transaction::TransactionFinalityStatus::{
-        self, AcceptedOnL1, AcceptedOnL2,
-    };
     use katana_rpc_types::receipt::ExecutionResult::{Reverted, Succeeded};
     use katana_rpc_types::receipt::{
         ExecutionResult, ReceiptBlockInfo, RpcInvokeTxReceipt, RpcTxReceipt, TxReceiptWithBlockInfo,
@@ -328,7 +326,7 @@ mod tests {
         ExecutionResources { l1_gas: 0, l2_gas: 0, l1_data_gas: 0 };
 
     fn mock_receipt(
-        finality_status: TransactionFinalityStatus,
+        finality_status: FinalityStatus,
         execution_result: ExecutionResult,
     ) -> TxReceiptWithBlockInfo {
         let receipt = RpcTxReceipt::Invoke(RpcInvokeTxReceipt {
@@ -354,7 +352,7 @@ mod tests {
         let receipt = RpcTxReceipt::Invoke(RpcInvokeTxReceipt {
             execution_result,
             events: Default::default(),
-            finality_status: TransactionFinalityStatus::AcceptedOnL2,
+            finality_status: FinalityStatus::AcceptedOnL2,
             actual_fee: FeePayment { amount: Default::default(), unit: PriceUnit::Wei },
             messages_sent: Default::default(),
             execution_resources: EXECUTION_RESOURCES,
