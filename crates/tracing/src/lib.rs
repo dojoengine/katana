@@ -11,11 +11,10 @@ pub mod otlp;
 pub use builder::TracingBuilder;
 pub use fmt::LogFormat;
 
-
 #[derive(Debug, Clone)]
 pub enum TracerConfig {
     Otlp(otlp::OtlpConfig),
-    Gcloud(gcloud::GcloudConfig),
+    GCloud(gcloud::GcloudConfig),
 }
 
 #[derive(Debug, thiserror::Error)]
@@ -25,7 +24,7 @@ pub enum Error {
 
     #[error("failed to parse environment filter: {0}")]
     EnvFilterParse(#[from] filter::ParseError),
-    
+
     #[error("failed to parse environment filter from env: {0}")]
     EnvFilterFromEnv(#[from] filter::FromEnvError),
 
@@ -50,23 +49,29 @@ pub enum Error {
 /// This function is maintained for backward compatibility.
 /// For new code, consider using [`TracingBuilder`] for more flexibility.
 pub async fn init(format: LogFormat, telemetry_config: Option<TracerConfig>) -> Result<(), Error> {
-    let builder = builder::TracingBuilder::with_format(format).with_env_filter_or_default()?;
+    match format {
+        LogFormat::Full => match telemetry_config {
+            Some(TracerConfig::Otlp(cfg)) => {
+                TracingBuilder::new().full().with_otlp(cfg).try_init().await
+            }
 
-    match telemetry_config {
-        Some(TracerConfig::Otlp(cfg)) => {
-            let mut otlp_builder = builder.otlp();
-            if let Some(endpoint) = cfg.endpoint {
-                otlp_builder = otlp_builder.with_endpoint(endpoint);
+            Some(TracerConfig::GCloud(cfg)) => {
+                TracingBuilder::new().full().with_gcloud(cfg).try_init().await
             }
-            otlp_builder.build().await
-        }
-        Some(TracerConfig::Gcloud(cfg)) => {
-            let mut gcloud_builder = builder.gcloud();
-            if let Some(project_id) = cfg.project_id {
-                gcloud_builder = gcloud_builder.with_project_id(project_id);
+
+            None => TracingBuilder::new().full().try_init().await,
+        },
+
+        LogFormat::Json => match telemetry_config {
+            Some(TracerConfig::Otlp(cfg)) => {
+                TracingBuilder::new().json().with_otlp(cfg).try_init().await
             }
-            gcloud_builder.build().await
-        }
-        None => builder.build().await,
+
+            Some(TracerConfig::GCloud(cfg)) => {
+                TracingBuilder::new().json().with_gcloud(cfg).try_init().await
+            }
+
+            None => TracingBuilder::new().json().try_init().await,
+        },
     }
 }
