@@ -326,19 +326,18 @@ jobs:
 
       - uses: software-mansion/setup-scarb@v1
         with:
-          scarb-version: "nightly-2025-05-08"
+          scarb-version: "dev-2025-09-05"
 
       - name: Download Sozo binary
         run: |
           wget https://github.com/dojoengine/dojo/releases/download/v1.7.0-alpha.2/dojo_v1.7.0-alpha.2_linux_amd64.tar.gz
           tar -xzf dojo_v1.7.0-alpha.2_linux_amd64.tar.gz
           chmod +x sozo
-          export PATH="$(pwd):$PATH"
 
       - name: Build and migrate `spawn-and-move` project
         run: |
-          cd dojo/examples/spawn-and-move
-          sozo build && sozo migrate
+          ./sozo build --manifest-path dojo/examples/spawn-and-move/Scarb.toml
+          ./sozo migrate --manifest-path dojo/examples/spawn-and-move/Scarb.toml
 
       - name: Output Katana logs on failure
         if: failure()
