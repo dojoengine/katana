@@ -31,6 +31,11 @@ pub use receipt::*;
 pub use transaction::*;
 pub use trie::*;
 
+/// Block identifier (block hash or number), or tag.
+pub type BlockIdOrTag = katana_primitives::block::BlockIdOrTag;
+/// Block identifier (block hash or number), or tag that refers only to a confirmed block.
+pub type ConfirmedBlockIdOrTag = katana_primitives::block::ConfirmedBlockIdOrTag;
+
 /// Request type for `starknet_call` RPC method.
 pub type FunctionCall = katana_primitives::execution::FunctionCall;
 
@@ -163,7 +168,8 @@ mod tests {
     use serde_json::{json, Value};
 
     use super::{
-        EstimateFeeSimulationFlag, FeeEstimate, SimulationFlag, SyncStatus, SyncingResponse,
+        BlockIdOrTag, ConfirmedBlockIdOrTag, EstimateFeeSimulationFlag, FeeEstimate,
+        FinalityStatus, SimulationFlag, SyncStatus, SyncingResponse,
     };
 
     #[rstest::rstest]
@@ -176,6 +182,93 @@ mod tests {
         assert_eq!(serialized, json);
         let deserialized: Felt = serde_json::from_value(serialized).unwrap();
         assert_eq!(deserialized, felt);
+    }
+
+    #[rstest]
+    #[case(FinalityStatus::AcceptedOnL2, json!("ACCEPTED_ON_L2"))]
+    #[case(FinalityStatus::AcceptedOnL1, json!("ACCEPTED_ON_L1"))]
+    #[case(FinalityStatus::PreConfirmed, json!("PRE_CONFIRMED"))]
+    fn finality_status_serde(#[case] status: FinalityStatus, #[case] json: Value) {
+        let serialized = serde_json::to_value(&status).unwrap();
+        assert_eq!(serialized, json);
+        let deserialized: FinalityStatus = serde_json::from_value(json).unwrap();
+        assert_eq!(deserialized, status);
+    }
+
+    #[rstest]
+    #[case(json!("INVALID_STATUS"))]
+    #[case(json!("accepted_on_l2"))]
+    #[case(json!("accepted_on_l1"))]
+    #[case(json!("pre_confirmed"))]
+    #[case(json!(""))]
+    #[case(json!(123))]
+    #[case(json!(null))]
+    #[case(json!(false))]
+    fn invalid_finality_status(#[case] invalid: Value) {
+        let result = serde_json::from_value::<FinalityStatus>(invalid.clone());
+        assert!(result.is_err(), "expected error for invalid value: {invalid}");
+    }
+
+    #[rstest]
+    #[case(BlockIdOrTag::Latest, json!("latest"))]
+    #[case(BlockIdOrTag::L1Accepted, json!("l1_accepted"))]
+    #[case(BlockIdOrTag::PreConfirmed, json!("pre_confirmed"))]
+    #[case(BlockIdOrTag::Hash(felt!("0x123")), json!({"block_hash": "0x123"}))]
+    #[case(BlockIdOrTag::Number(42), json!({"block_number": 42}))]
+    fn block_id_or_tag_serde(#[case] block_id: BlockIdOrTag, #[case] json: Value) {
+        let serialized = serde_json::to_value(&block_id).unwrap();
+        assert_eq!(serialized, json);
+        let deserialized: BlockIdOrTag = serde_json::from_value(json).unwrap();
+        assert_eq!(deserialized, block_id);
+    }
+
+    #[rstest]
+    #[case(json!("invalid_tag"))]
+    #[case(json!("LATEST"))]
+    #[case(json!("L1_ACCEPTED"))]
+    #[case(json!("PRE_CONFIRMED"))]
+    #[case(json!({"block_hash": "0x123", "block_number": 42}))]
+    #[case(json!({}))]
+    #[case(json!({"invalid_field": "value"}))]
+    #[case(json!(123))]
+    #[case(json!(null))]
+    #[case(json!(true))]
+    #[case(json!([]))]
+    fn invalid_block_id_or_tag(#[case] invalid: Value) {
+        let result = serde_json::from_value::<BlockIdOrTag>(invalid.clone());
+        assert!(result.is_err(), "expected error for invalid value: {invalid}");
+    }
+
+    #[rstest]
+    #[case(ConfirmedBlockIdOrTag::Latest, json!("latest"))]
+    #[case(ConfirmedBlockIdOrTag::L1Accepted, json!("l1_accepted"))]
+    #[case(ConfirmedBlockIdOrTag::Hash(felt!("0x456")), json!({"block_hash": "0x456"}))]
+    #[case(ConfirmedBlockIdOrTag::Number(100), json!({"block_number": 100}))]
+    fn confirmed_block_id_or_tag_serde(
+        #[case] block_id: ConfirmedBlockIdOrTag,
+        #[case] json: Value,
+    ) {
+        let serialized = serde_json::to_value(&block_id).unwrap();
+        assert_eq!(serialized, json);
+        let deserialized: ConfirmedBlockIdOrTag = serde_json::from_value(json).unwrap();
+        assert_eq!(deserialized, block_id);
+    }
+
+    #[rstest]
+    #[case(json!("pre_confirmed"))]
+    #[case(json!("invalid_tag"))]
+    #[case(json!("LATEST"))]
+    #[case(json!("L1_ACCEPTED"))]
+    #[case(json!({"block_hash": "0x123", "block_number": 42}))]
+    #[case(json!({}))]
+    #[case(json!({"invalid_field": "value"}))]
+    #[case(json!(123))]
+    #[case(json!(null))]
+    #[case(json!(false))]
+    #[case(json!([]))]
+    fn invalid_confirmed_block_id_or_tag(#[case] invalid: Value) {
+        let result = serde_json::from_value::<ConfirmedBlockIdOrTag>(invalid.clone());
+        assert!(result.is_err(), "expected error for invalid value: {invalid}");
     }
 
     #[rstest]
