@@ -169,7 +169,7 @@ mod tests {
 
     use super::{
         BlockIdOrTag, ConfirmedBlockIdOrTag, EstimateFeeSimulationFlag, FeeEstimate,
-        FinalityStatus, SimulationFlag, SyncStatus, SyncingResponse,
+        FinalityStatus, FunctionCall, SimulationFlag, SyncStatus, SyncingResponse,
     };
 
     #[rstest::rstest]
@@ -316,6 +316,27 @@ mod tests {
     fn invalid_simulation_flags(#[case] invalid: Value) {
         let result = serde_json::from_value::<SimulationFlag>(invalid.clone());
         assert!(result.is_err(), "expected error for invalid value: {invalid}");
+    }
+
+    #[test]
+    fn function_call_serde() {
+        let function_call = FunctionCall {
+            entry_point_selector: felt!("0x100"),
+            contract_address: felt!("0x200").into(),
+            calldata: vec![felt!("0x1"), felt!("0x2"), felt!("0x3")],
+        };
+
+        let json = json!({
+            "entry_point_selector": "0x100",
+            "contract_address": "0x200",
+            "calldata": ["0x1", "0x2", "0x3"]
+        });
+
+        let serialized = serde_json::to_value(&function_call).unwrap();
+        assert_eq!(serialized, json);
+
+        let deserialized = serde_json::from_value::<FunctionCall>(json).unwrap();
+        assert_eq!(deserialized, function_call);
     }
 
     #[test]
