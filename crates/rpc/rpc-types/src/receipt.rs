@@ -34,12 +34,21 @@ pub struct FeePayment {
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
-#[serde(tag = "type", rename_all = "SCREAMING_SNAKE_CASE")]
+#[serde(tag = "type")]
 pub enum RpcTxReceipt {
+    #[serde(rename = "INVOKE")]
     Invoke(RpcInvokeTxReceipt),
+
+    #[serde(rename = "DEPLOY")]
     Deploy(RpcDeployTxReceipt),
+
+    #[serde(rename = "DECLARE")]
     Declare(RpcDeclareTxReceipt),
+
+    #[serde(rename = "L1_HANDLER")]
     L1Handler(RpcL1HandlerTxReceipt),
+
+    #[serde(rename = "DEPLOY_ACCOUNT")]
     DeployAccount(RpcDeployAccountTxReceipt),
 }
 

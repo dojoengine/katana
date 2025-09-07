@@ -40,19 +40,30 @@ pub struct TxTraceWithHash {
 
 /// Execution trace of a Starknet transaction.
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
-#[serde(tag = "type", rename_all = "SCREAMING_SNAKE_CASE")]
+#[serde(tag = "type")]
 pub enum TxTrace {
+    #[serde(rename = "INVOKE")]
     Invoke(InvokeTxTrace),
+
+    #[serde(rename = "DECLARE")]
     Declare(DeclareTxTrace),
+
+    #[serde(rename = "L1_HANDLER")]
     L1Handler(L1HandlerTxTrace),
+
+    #[serde(rename = "DEPLOY_ACCOUNT")]
     DeployAccount(DeployAccountTxTrace),
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
-#[serde(rename_all = "SCREAMING_SNAKE_CASE")]
 pub enum CallType {
+    #[serde(rename = "LIBRARY_CALL")]
     LibraryCall,
+
+    #[serde(rename = "CALL")]
     Call,
+
+    #[serde(rename = "DELEGATE")]
     Delegate,
 }
 

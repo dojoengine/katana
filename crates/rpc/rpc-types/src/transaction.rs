@@ -15,14 +15,23 @@ use crate::ExecutionResult;
 #[serde(tag = "finality_status")]
 pub enum TxStatus {
     /// Transaction received by sequencer and awaiting processing.
+    #[serde(rename = "RECEIVED")]
     Received,
+
     /// Transaction is scheduled to be executed by sequencer.
+    #[serde(rename = "CANDIDATE")]
     Candidate,
+
     /// Transaction pre-confirmed by sequencer but is not guaranteed to be included in a block.
+    #[serde(rename = "PRE_CONFIRMED")]
     PreConfirmed(ExecutionResult),
+
     /// Transaction accepted on Layer 2 with a specific execution status.
+    #[serde(rename = "ACCEPTED_ON_L2")]
     AcceptedOnL2(ExecutionResult),
+
     /// Transaction accepted on Layer 1 with a specific execution status.
+    #[serde(rename = "ACCEPTED_ON_L1")]
     AcceptedOnL1(ExecutionResult),
 }
 
@@ -35,17 +44,26 @@ pub struct RpcTxWithHash {
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
-#[serde(tag = "type", rename_all = "SCREAMING_SNAKE_CASE")]
+#[serde(tag = "type")]
 pub enum RpcTx {
     /// An `INVOKE` transaction.
+    #[serde(rename = "INVOKE")]
     Invoke(RpcInvokeTx),
+
     /// An `L1_HANDLER` transaction.
+    #[serde(rename = "L1_HANDLER")]
     L1Handler(RpcL1HandlerTx),
+
     /// A `DECLARE` transaction.
+    #[serde(rename = "DECLARE")]
     Declare(RpcDeclareTx),
+
     /// A `DEPLOY` transaction.
+    #[serde(rename = "DEPLOY")]
     Deploy(RpcDeployTx),
+
     /// A `DEPLOY_ACCOUNT` transaction.
+    #[serde(rename = "DEPLOY_ACCOUNT")]
     DeployAccount(RpcDeployAccountTx),
 }
 
@@ -54,8 +72,10 @@ pub enum RpcTx {
 pub enum RpcInvokeTx {
     #[serde(rename = "0x0")]
     V0(RpcInvokeTxV0),
+
     #[serde(rename = "0x1")]
     V1(RpcInvokeTxV1),
+
     #[serde(rename = "0x3")]
     V3(RpcInvokeTxV3),
 }
@@ -139,12 +159,15 @@ pub enum RpcDeclareTx {
     /// Version 0 `DECLARE` transaction.
     #[serde(rename = "0x0")]
     V0(RpcDeclareTxV0),
+
     /// Version 1 `DECLARE` transaction.
     #[serde(rename = "0x1")]
     V1(RpcDeclareTxV1),
+
     /// Version 2 `DECLARE` transaction.
     #[serde(rename = "0x2")]
     V2(RpcDeclareTxV2),
+
     /// Version 3 `DECLARE` transaction.
     #[serde(rename = "0x3")]
     V3(RpcDeclareTxV3),
@@ -236,6 +259,7 @@ pub enum RpcDeployAccountTx {
     /// Version 1 `DEPLOY_ACCOUNT` transaction.
     #[serde(rename = "0x1")]
     V1(RpcDeployAccountTxV1),
+
     /// Version 3 `DEPLOY_ACCOUNT` transaction.
     #[serde(rename = "0x3")]
     V3(RpcDeployAccountTxV3),

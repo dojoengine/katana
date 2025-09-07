@@ -65,6 +65,7 @@ rstest.workspace = true
 serde.workspace = true
 serde_json.workspace = true
 similar-asserts.workspace = true
+starknet.workspace = true
 tempfile.workspace = true
 tokio.workspace = true
 url.workspace = true
