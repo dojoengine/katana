@@ -162,7 +162,9 @@ mod tests {
     use rstest::rstest;
     use serde_json::{json, Value};
 
-    use super::{EstimateFeeSimulationFlag, FeeEstimate, SimulationFlag};
+    use super::{
+        EstimateFeeSimulationFlag, FeeEstimate, SimulationFlag, SyncStatus, SyncingResponse,
+    };
 
     #[rstest::rstest]
     #[case(felt!("0x0"), json!("0x0"))]
@@ -250,5 +252,64 @@ mod tests {
 
         let deserialized = serde_json::from_value::<FeeEstimate>(json).unwrap();
         assert_eq!(deserialized, fee_estimate);
+    }
+
+    #[test]
+    fn syncing_response_not_syncing_serde() {
+        let response = SyncingResponse::NotSyncing;
+
+        let expected_json = json!(false);
+
+        // Serialization
+        let serialized = serde_json::to_value(&response).unwrap();
+        assert_eq!(serialized, expected_json);
+
+        // Deserialization
+        let deserialized: SyncingResponse = serde_json::from_value(expected_json).unwrap();
+        assert_eq!(deserialized, SyncingResponse::NotSyncing);
+    }
+
+    #[test]
+    fn syncing_response_syncing_serde() {
+        let sync_status = SyncStatus {
+            starting_block_hash: felt!("0x1"),
+            starting_block_num: 100,
+            current_block_hash: felt!("0x2"),
+            current_block_num: 200,
+            highest_block_hash: felt!("0x3"),
+            highest_block_num: 300,
+        };
+
+        let response = SyncingResponse::Syncing(sync_status.clone());
+
+        let expected_json = json!({
+            "starting_block_hash": "0x1",
+            "starting_block_num": 100,
+            "current_block_hash": "0x2",
+            "current_block_num": 200,
+            "highest_block_hash": "0x3",
+            "highest_block_num": 300,
+        });
+
+        // Serialization
+        let serialized = serde_json::to_value(&response).unwrap();
+        assert_eq!(serialized, expected_json);
+
+        // Deserialization
+        let deserialized: SyncingResponse = serde_json::from_value(expected_json).unwrap();
+        assert_eq!(deserialized, SyncingResponse::Syncing(sync_status));
+    }
+
+    #[rstest]
+    #[case(json!(true))]
+    #[case(json!("invalid"))]
+    #[case(json!(123))]
+    #[case(json!(null))]
+    #[case(json!([]))]
+    #[case(json!({"invalid_field": "value"}))]
+    #[case(json!({"starting_block_hash": "0x1"}))] // Missing required fields
+    fn invalid_syncing_response(#[case] invalid: Value) {
+        let result = serde_json::from_value::<SyncingResponse>(invalid.clone());
+        assert!(result.is_err(), "expected error for invalid value: {invalid}");
     }
 }
