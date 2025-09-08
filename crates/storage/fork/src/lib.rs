@@ -14,17 +14,17 @@ use futures::channel::mpsc::{channel as async_channel, Receiver, SendError, Send
 use futures::future::BoxFuture;
 use futures::stream::Stream;
 use futures::{Future, FutureExt};
-use katana_primitives::block::BlockHashOrNumber;
+use katana_primitives::block::{BlockHashOrNumber, BlockIdOrTag};
 use katana_primitives::class::{
     ClassHash, CompiledClassHash, ComputeClassHashError, ContractClass,
     ContractClassCompilationError,
 };
 use katana_primitives::contract::{ContractAddress, Nonce, StorageKey, StorageValue};
-use katana_primitives::Felt;
+use katana_rpc_client::starknet::{
+    Client as StarknetClient, Error as StarknetClientError, StarknetApiError,
+};
 use katana_rpc_types::class::Class;
 use parking_lot::Mutex;
-use starknet::core::types::{BlockId, ContractClass as StarknetRsClass, StarknetError};
-use starknet::providers::{Provider, ProviderError as StarknetProviderError};
 use tracing::{error, trace};
 
 const LOG_TARGET: &str = "forking::backend";
@@ -44,7 +44,7 @@ enum BackendResponse {
     Nonce(BackendResult<Nonce>),
     Storage(BackendResult<StorageValue>),
     ClassHashAt(BackendResult<ClassHash>),
-    ClassAt(BackendResult<StarknetRsClass>),
+    ClassAt(BackendResult<Class>),
 }
 
 /// Errors that can occur when interacting with the backend.
@@ -53,7 +53,7 @@ pub enum BackendError {
     #[error("failed to spawn backend thread: {0}")]
     BackendThreadInit(#[from] Arc<io::Error>),
     #[error("rpc provider error: {0}")]
-    StarknetProvider(#[from] Arc<starknet::providers::ProviderError>),
+    StarknetProvider(#[from] Arc<katana_rpc_client::starknet::Error>),
     #[error("unexpected received result: {0}")]
     UnexpectedReceiveResult(Arc<anyhow::Error>),
 }
@@ -128,9 +128,9 @@ enum BackendRequestIdentifier {
 ///
 /// It is responsible for processing [requests](BackendRequest) to fetch data from the remote
 /// provider.
-pub struct Backend<P> {
+pub struct Backend {
     /// The Starknet RPC provider that will be used to fetch data from.
-    provider: Arc<P>,
+    provider: Arc<StarknetClient>,
     // HashMap that keep track of current requests, for dedup purposes.
     request_dedup_map: HashMap<BackendRequestIdentifier, Vec<OneshotSender<BackendResponse>>>,
     /// Requests that are currently being poll.
@@ -140,23 +140,23 @@ pub struct Backend<P> {
     /// A channel for receiving requests from the [BackendHandle]s.
     incoming: Receiver<BackendRequest>,
     /// Pinned block id for all requests.
-    block: BlockId,
+    block_id: BlockHashOrNumber,
 }
 
 /////////////////////////////////////////////////////////////////
 // Backend implementation
 /////////////////////////////////////////////////////////////////
 
-impl<P> Backend<P>
-where
-    P: Provider + Send + Sync + 'static,
-{
+impl Backend {
     // TODO(kariy): create a `.start()` method start running the backend logic and let the users
     // choose which thread to running it on instead of spawning the thread ourselves.
     /// Create a new [Backend] with the given provider and block id, and returns a handle to it. The
     /// backend will start processing requests immediately upon creation.
     #[allow(clippy::new_ret_no_self)]
-    pub fn new(provider: P, block_id: BlockHashOrNumber) -> Result<BackendClient, BackendError> {
+    pub fn new(
+        provider: StarknetClient,
+        block_id: BlockHashOrNumber,
+    ) -> Result<BackendClient, BackendError> {
         let (handle, backend) = Self::new_inner(provider, block_id);
 
         thread::Builder::new()
@@ -175,16 +175,14 @@ where
         Ok(handle)
     }
 
-    fn new_inner(provider: P, block_id: BlockHashOrNumber) -> (BackendClient, Backend<P>) {
-        let block = match block_id {
-            BlockHashOrNumber::Hash(hash) => BlockId::Hash(hash),
-            BlockHashOrNumber::Num(number) => BlockId::Number(number),
-        };
-
+    fn new_inner(
+        provider: StarknetClient,
+        block_id: BlockHashOrNumber,
+    ) -> (BackendClient, Backend) {
         // Create async channel to receive requests from the handle.
         let (tx, rx) = async_channel(100);
         let backend = Backend {
-            block,
+            block_id,
             incoming: rx,
             provider: Arc::new(provider),
             request_dedup_map: HashMap::new(),
@@ -198,7 +196,7 @@ where
     /// This method is responsible for transforming the incoming request
     /// sent from a [BackendHandle] into a RPC request to the remote network.
     fn handle_requests(&mut self, request: BackendRequest) {
-        let block = self.block;
+        let block_id = BlockIdOrTag::from(self.block_id);
         let provider = self.provider.clone();
 
         // Check if there are similar requests in the queue before sending the request
@@ -211,9 +209,10 @@ where
                     sender,
                     Box::pin(async move {
                         let res = provider
-                            .get_nonce(block, Felt::from(payload))
+                            .get_nonce(block_id, payload)
                             .await
                             .map_err(|e| BackendError::StarknetProvider(Arc::new(e)));
+
                         BackendResponse::Nonce(res)
                     }),
                 );
@@ -227,7 +226,7 @@ where
                     sender,
                     Box::pin(async move {
                         let res = provider
-                            .get_storage_at(Felt::from(addr), key, block)
+                            .get_storage_at(addr, key, block_id)
                             .await
                             .map_err(|e| BackendError::StarknetProvider(Arc::new(e)));
 
@@ -244,7 +243,7 @@ where
                     sender,
                     Box::pin(async move {
                         let res = provider
-                            .get_class_hash_at(block, Felt::from(payload))
+                            .get_class_hash_at(block_id, payload)
                             .await
                             .map_err(|e| BackendError::StarknetProvider(Arc::new(e)));
 
@@ -261,7 +260,7 @@ where
                     sender,
                     Box::pin(async move {
                         let res = provider
-                            .get_class(block, payload)
+                            .get_class(block_id, payload)
                             .await
                             .map_err(|e| BackendError::StarknetProvider(Arc::new(e)));
 
@@ -302,10 +301,7 @@ where
     }
 }
 
-impl<P> Future for Backend<P>
-where
-    P: Provider + Send + Sync + 'static,
-{
+impl Future for Backend {
     type Output = ();
 
     fn poll(self: Pin<&mut Self>, cx: &mut Context<'_>) -> Poll<Self::Output> {
@@ -366,7 +362,7 @@ where
     }
 }
 
-impl<P: Debug> Debug for Backend<P> {
+impl Debug for Backend {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         f.debug_struct("Backend")
             .field("provider", &self.provider)
@@ -374,7 +370,7 @@ impl<P: Debug> Debug for Backend<P> {
             .field("pending_requests", &self.pending_requests.len())
             .field("queued_requests", &self.queued_requests.len())
             .field("incoming", &self.incoming)
-            .field("block", &self.block)
+            .field("block", &self.block_id)
             .finish()
     }
 }
@@ -468,7 +464,6 @@ impl BackendClient {
         match rx.recv()? {
             BackendResponse::ClassAt(res) => {
                 if let Some(class) = handle_not_found_err(res)? {
-                    let class = Class::try_from(class)?;
                     Ok(Some(ContractClass::try_from(class)?))
                 } else {
                     Ok(None)
@@ -517,8 +512,8 @@ fn handle_not_found_err<T>(
         Ok(value) => Ok(Some(value)),
 
         Err(BackendError::StarknetProvider(err)) => match err.as_ref() {
-            StarknetProviderError::StarknetError(StarknetError::ContractNotFound) => Ok(None),
-            StarknetProviderError::StarknetError(StarknetError::ClassHashNotFound) => Ok(None),
+            StarknetClientError::Starknet(StarknetApiError::ContractNotFound) => Ok(None),
+            StarknetClientError::Starknet(StarknetApiError::ClassHashNotFound) => Ok(None),
             _ => Err(BackendClientError::BackendError(BackendError::StarknetProvider(err))),
         },
 
@@ -532,8 +527,8 @@ pub(crate) mod test_utils {
     use std::sync::mpsc::{sync_channel, SyncSender};
 
     use katana_primitives::block::BlockNumber;
-    use starknet::providers::jsonrpc::HttpTransport;
-    use starknet::providers::JsonRpcClient;
+    use katana_rpc_client::HttpClientBuilder;
+    use serde_json::{json, Value};
     use tokio::io::{AsyncReadExt, AsyncWriteExt};
     use tokio::net::TcpListener;
     use url::Url;
@@ -542,7 +537,7 @@ pub(crate) mod test_utils {
 
     pub fn create_forked_backend(rpc_url: &str, block_num: BlockNumber) -> BackendClient {
         let url = Url::parse(rpc_url).expect("valid url");
-        let provider = Arc::new(JsonRpcClient::new(HttpTransport::new(url)));
+        let provider = StarknetClient::new(HttpClientBuilder::new().build(url).unwrap());
         Backend::new(provider, block_num.into()).unwrap()
     }
 
@@ -569,8 +564,11 @@ pub(crate) mod test_utils {
     }
 
     // Helper function to start a TCP server that returns predefined JSON-RPC responses
-    pub fn start_mock_rpc_server(addr: String, response: String) -> SyncSender<()> {
+    // The `result` parameter should be the value to return in the "result" field of the JSON-RPC
+    // response
+    pub fn start_mock_rpc_server(addr: String, result: String) -> SyncSender<()> {
         use tokio::runtime::Builder;
+
         let (tx, rx) = sync_channel::<()>(1);
 
         thread::spawn(move || {
@@ -582,17 +580,39 @@ pub(crate) mod test_utils {
 
                     // Read the request, so hyper would not close the connection
                     let mut buffer = [0; 1024];
-                    let _ = socket.read(&mut buffer).await.unwrap();
+                    let n = socket.read(&mut buffer).await.unwrap();
+
+                    // Parse the HTTP request to extract the JSON-RPC body
+                    //
+                    // The response ID must match the request ID
+                    let request_str = String::from_utf8_lossy(&buffer[..n]);
+                    let id = if let Some(body_start) = request_str.rfind("\r\n\r\n") {
+                        let body = &request_str[body_start + 4..];
+                        // Extract the ID from the parsed JSON
+                        let request = serde_json::from_str::<Value>(body).unwrap();
+                        request.get("id").unwrap().clone()
+                    } else {
+                        json!(1)
+                    };
 
                     // Wait for a signal to return the response.
                     rx.recv().unwrap();
 
-                    // After reading, we send the pre-determined response
+                    // Build the JSON-RPC response with the provided result and extracted ID
+                    let response_obj = serde_json::json!({
+                        "id": id,
+                        "jsonrpc": "2.0",
+                        "result": result
+                    });
+
+                    let json_response = serde_json::to_string(&response_obj).unwrap();
+
+                    // After reading, we send the response with correct ID
                     let http_response = format!(
                         "HTTP/1.1 200 OK\r\ncontent-length: {}\r\ncontent-type: \
                          application/json\r\n\r\n{}",
-                        response.len(),
-                        response
+                        json_response.len(),
+                        json_response
                     );
 
                     socket.write_all(http_response.as_bytes()).await.unwrap();
@@ -603,6 +623,12 @@ pub(crate) mod test_utils {
 
         // Returning the sender to allow controlling the response timing.
         tx
+    }
+}
+
+impl From<BackendClientError> for katana_provider_api::ProviderError {
+    fn from(value: BackendClientError) -> Self {
+        Self::Other(value.to_string())
     }
 }
 
@@ -975,9 +1001,9 @@ mod tests {
 
     #[test]
     fn test_deduplicated_request_should_return_similar_results() {
-        // Start mock server with a predefined nonce response
-        let response = r#"{"jsonrpc":"2.0","result":"0x123","id":1}"#;
-        let sender = start_mock_rpc_server("127.0.0.1:8090".to_string(), response.to_string());
+        // Start mock server with a predefined nonce result value
+        let result = "0x123";
+        let sender = start_mock_rpc_server("127.0.0.1:8090".to_string(), result.to_string());
 
         let handle = create_forked_backend("http://127.0.0.1:8090", 1);
         let addr = ContractAddress(felt!("0x1"));

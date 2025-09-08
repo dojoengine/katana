@@ -14,7 +14,7 @@ katana-metrics.workspace = true
 katana-pool.workspace = true
 katana-primitives.workspace = true
 katana-provider.workspace = true
-katana-rpc-api.workspace = true
+katana-rpc-api = { workspace = true, features = [ "client" ] }
 katana-rpc-types.workspace = true
 katana-rpc-types-builder.workspace = true
 katana-tasks.workspace = true
@@ -26,17 +26,17 @@ http.workspace = true
 jsonrpsee = { workspace = true, features = [ "client", "server" ] }
 metrics.workspace = true
 serde_json.workspace = true
-starknet.workspace = true
+starknet = { workspace = true, optional = true }
 thiserror.workspace = true
 tokio.workspace = true
 tower.workspace = true
 tower-http = { workspace = true, features = [ "cors", "trace" ] }
 tracing.workspace = true
-url.workspace = true
 
 cainome = { workspace = true, optional = true }
 cartridge = { workspace = true, optional = true }
 starknet-crypto = { workspace = true, optional = true }
+url = { workspace = true, optional = true }
 
 [dev-dependencies]
 katana-chain-spec.workspace = true
@@ -44,6 +44,7 @@ katana-contracts.workspace = true
 katana-messaging.workspace = true
 katana-node.workspace = true
 katana-rpc-api = { workspace = true, features = [ "client" ] }
+katana-rpc-client.workspace = true
 katana-trie.workspace = true
 katana-utils.workspace = true
 
@@ -64,15 +65,18 @@ rstest.workspace = true
 serde.workspace = true
 serde_json.workspace = true
 similar-asserts.workspace = true
+starknet.workspace = true
 tempfile.workspace = true
 tokio.workspace = true
+url.workspace = true
 
 [features]
 cartridge = [
 	"dep:cainome",
 	"dep:cartridge",
+	"dep:starknet",
 	"dep:starknet-crypto",
+	"dep:url",
 	"katana-rpc-api/cartridge",
 ]
-client = [ "jsonrpsee/client", "katana-rpc-api/client" ]
 explorer = [ "dep:katana-explorer" ]

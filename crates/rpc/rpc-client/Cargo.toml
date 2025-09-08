@@ -1,0 +1,17 @@
+[package]
+edition.workspace = true
+license.workspace = true
+name = "katana-rpc-client"
+repository.workspace = true
+version.workspace = true
+
+[dependencies]
+katana-primitives.workspace = true
+katana-rpc-api = { workspace = true, features = [ "client" ] }
+katana-rpc-types.workspace = true
+
+jsonrpsee = { workspace = true, features = [ "client" ] }
+thiserror.workspace = true
+
+[dev-dependencies]
+tokio = { workspace = true, features = [ "full" ] }

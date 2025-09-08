@@ -1,0 +1,32 @@
+{
+  "account_deployment_data": [],
+  "class_hash": "0x32e39f7822757c912b254026368ca4ddba0011f59917bf889c11280e2f3d555",
+  "compiled_class_hash": "0x1b5d213e134d827c5325a530a94e33f06f0fd96b75af21802809923929f2871",
+  "fee_data_availability_mode": "L1",
+  "nonce": "0x47824e",
+  "nonce_data_availability_mode": "L1",
+  "paymaster_data": [],
+  "resource_bounds": {
+    "l1_data_gas": {
+      "max_amount": "0x2710",
+      "max_price_per_unit": "0x8d79883d20000"
+    },
+    "l1_gas": {
+      "max_amount": "0x249f0",
+      "max_price_per_unit": "0x8d79883d20000"
+    },
+    "l2_gas": {
+      "max_amount": "0x6c76900",
+      "max_price_per_unit": "0xba43b7400"
+    }
+  },
+  "sender_address": "0x352057331d5ad77465315d30b98135ddb815b86aa485d659dfeef59a904f88d",
+  "signature": [
+    "0x4cc6d149973a9f546634064662e3c63c865236e8fc2efe34d15cae733e17cb0",
+    "0x6edb6d5f8ae526a3f27bf3fc694c02e8dc36d74650ff49d0703c212616fbbc9"
+  ],
+  "tip": "0x0",
+  "transaction_hash": "0x5d5522b21bd46a27eff36e10d431cf974df5a68bcc260164f40ece60c898d82",
+  "type": "DECLARE",
+  "version": "0x3"
+}

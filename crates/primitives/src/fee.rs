@@ -88,3 +88,108 @@ pub struct FeeInfo {
     /// Units in which the fee is given
     pub unit: PriceUnit,
 }
+/// Transaction tip amount.
+#[derive(Debug, Default, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Hash)]
+#[cfg_attr(feature = "arbitrary", derive(::arbitrary::Arbitrary))]
+pub struct Tip(u64);
+
+impl Tip {
+    /// Creates a new Tip with the given value
+    pub const fn new(value: u64) -> Self {
+        Self(value)
+    }
+}
+
+impl From<u64> for Tip {
+    fn from(value: u64) -> Self {
+        Self(value)
+    }
+}
+
+impl From<Tip> for u64 {
+    fn from(tip: Tip) -> Self {
+        tip.0
+    }
+}
+
+impl std::fmt::Display for Tip {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        write!(f, "{:#x}", self.0)
+    }
+}
+
+impl std::str::FromStr for Tip {
+    type Err = std::num::ParseIntError;
+
+    fn from_str(s: &str) -> Result<Self, Self::Err> {
+        if let Some(stripped) = s.strip_prefix("0x") {
+            Ok(Self(u64::from_str_radix(stripped, 16)?))
+        } else {
+            Ok(Self(s.parse()?))
+        }
+    }
+}
+
+#[cfg(feature = "serde")]
+impl serde::Serialize for Tip {
+    fn serialize<S: serde::Serializer>(&self, serializer: S) -> Result<S::Ok, S::Error> {
+        serializer.serialize_str(&format!("{:#x}", self.0))
+    }
+}
+
+#[cfg(feature = "serde")]
+impl<'de> serde::Deserialize<'de> for Tip {
+    fn deserialize<D: serde::Deserializer<'de>>(deserializer: D) -> Result<Self, D::Error> {
+        use std::str::FromStr;
+
+        let s = String::deserialize(deserializer)?;
+        let tip = Tip::from_str(&s).map_err(serde::de::Error::custom)?;
+
+        Ok(tip)
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[cfg(feature = "serde")]
+    #[test]
+    fn tip_serde() {
+        // Test serialization
+        let tip = Tip::new(0);
+        let serialized = serde_json::to_string(&tip).unwrap();
+        assert_eq!(serialized, "\"0x0\"");
+
+        let tip = Tip::new(0xff);
+        let serialized = serde_json::to_string(&tip).unwrap();
+        assert_eq!(serialized, "\"0xff\"");
+
+        let tip = Tip::new(0xa);
+        let serialized = serde_json::to_string(&tip).unwrap();
+        assert_eq!(serialized, "\"0xa\"");
+
+        // Test deserialization with 0x prefix
+        let deserialized: Tip = serde_json::from_str("\"0x0\"").unwrap();
+        assert_eq!(deserialized.0, 0x0);
+
+        let deserialized: Tip = serde_json::from_str("\"0xff\"").unwrap();
+        assert_eq!(deserialized.0, 0xff);
+
+        let deserialized: Tip = serde_json::from_str("\"0xa\"").unwrap();
+        assert_eq!(deserialized.0, 0xa);
+
+        // Test deserialization without 0x prefix (should fail)
+        let result = serde_json::from_str::<Tip>("\"ff\"");
+        assert!(result.is_err());
+
+        let result = serde_json::from_str::<Tip>("\"a\"");
+        assert!(result.is_err());
+
+        // Test round-trip
+        let original = Tip::new(12345);
+        let serialized = serde_json::to_string(&original).unwrap();
+        let deserialized: Tip = serde_json::from_str(&serialized).unwrap();
+        assert_eq!(original, deserialized);
+    }
+}

@@ -1,0 +1,23 @@
+[package]
+description = "Transaction pool abstraction and implementation for Katana"
+edition.workspace = true
+license.workspace = true
+name = "katana-pool"
+repository.workspace = true
+version.workspace = true
+
+[dependencies]
+katana-executor.workspace = true
+katana-pool-api.workspace = true
+katana-primitives.workspace = true
+katana-provider.workspace = true
+
+futures.workspace = true
+parking_lot.workspace = true
+tokio = { workspace = true, features = [ "sync" ] }
+tracing.workspace = true
+
+[dev-dependencies]
+futures-util.workspace = true
+rand.workspace = true
+starknet.workspace = true

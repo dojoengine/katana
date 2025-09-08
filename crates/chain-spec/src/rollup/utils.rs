@@ -353,8 +353,8 @@ mod tests {
     use katana_primitives::genesis::Genesis;
     use katana_primitives::transaction::TxType;
     use katana_primitives::Felt;
+    use katana_provider::api::state::StateFactoryProvider;
     use katana_provider::providers::db::DbProvider;
-    use katana_provider::traits::state::StateFactoryProvider;
     use url::Url;
 
     use super::GenesisTransactionsBuilder;

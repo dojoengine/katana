@@ -14,23 +14,24 @@ use katana_primitives::genesis::allocation::GenesisAccountAlloc;
 use katana_primitives::transaction::{ExecutableTx, ExecutableTxWithHash, TxHash};
 use katana_primitives::{ContractAddress, Felt};
 #[cfg(feature = "cartridge")]
-use katana_provider::traits::state::StateFactoryProvider;
+use katana_provider::api::state::StateFactoryProvider;
 use katana_rpc_api::error::starknet::StarknetApiError;
 use katana_rpc_api::starknet::StarknetApiServer;
 use katana_rpc_types::block::{
-    BlockHashAndNumber, MaybePreConfirmedBlockWithReceipts, MaybePreConfirmedBlockWithTxHashes,
-    MaybePreConfirmedBlockWithTxs,
+    BlockHashAndNumberResponse, BlockNumberResponse, GetBlockWithReceiptsResponse,
+    GetBlockWithTxHashesResponse, MaybePreConfirmedBlock,
 };
 use katana_rpc_types::broadcasted::BroadcastedTx;
 use katana_rpc_types::class::Class;
-use katana_rpc_types::event::{EventFilterWithPage, EventsPage};
+use katana_rpc_types::event::{EventFilterWithPage, GetEventsResponse};
 use katana_rpc_types::message::MsgFromL1;
 use katana_rpc_types::receipt::TxReceiptWithBlockInfo;
-use katana_rpc_types::state_update::MaybePreConfirmedStateUpdate;
-use katana_rpc_types::transaction::Tx;
+use katana_rpc_types::state_update::GetStateUpdateResponse;
+use katana_rpc_types::transaction::RpcTxWithHash;
 use katana_rpc_types::trie::{ContractStorageKeys, GetStorageProofResponse};
-use katana_rpc_types::{EstimateFeeSimulationFlag, FeeEstimate, FunctionCall, MessageFeeEstimate};
-use starknet::core::types::TransactionStatus;
+use katana_rpc_types::{
+    CallResponse, EstimateFeeSimulationFlag, FeeEstimate, FunctionCall, TxStatus,
+};
 
 use super::StarknetApi;
 #[cfg(feature = "cartridge")]
@@ -50,11 +51,11 @@ impl<EF: ExecutorFactory> StarknetApiServer for StarknetApi<EF> {
         Ok(self.nonce_at(block_id, contract_address).await?)
     }
 
-    async fn block_number(&self) -> RpcResult<u64> {
+    async fn block_number(&self) -> RpcResult<BlockNumberResponse> {
         Ok(self.latest_block_number().await?)
     }
 
-    async fn get_transaction_by_hash(&self, transaction_hash: TxHash) -> RpcResult<Tx> {
+    async fn get_transaction_by_hash(&self, transaction_hash: TxHash) -> RpcResult<RpcTxWithHash> {
         Ok(self.transaction(transaction_hash).await?)
     }
 
@@ -70,14 +71,14 @@ impl<EF: ExecutorFactory> StarknetApiServer for StarknetApi<EF> {
         Ok(self.class_at_address(block_id, contract_address).await?)
     }
 
-    async fn block_hash_and_number(&self) -> RpcResult<BlockHashAndNumber> {
+    async fn block_hash_and_number(&self) -> RpcResult<BlockHashAndNumberResponse> {
         self.on_io_blocking_task(move |this| Ok(this.block_hash_and_number()?)).await
     }
 
     async fn get_block_with_tx_hashes(
         &self,
         block_id: BlockIdOrTag,
-    ) -> RpcResult<MaybePreConfirmedBlockWithTxHashes> {
+    ) -> RpcResult<GetBlockWithTxHashesResponse> {
         Ok(self.block_with_tx_hashes(block_id).await?)
     }
 
@@ -85,29 +86,27 @@ impl<EF: ExecutorFactory> StarknetApiServer for StarknetApi<EF> {
         &self,
         block_id: BlockIdOrTag,
         index: u64,
-    ) -> RpcResult<Tx> {
+    ) -> RpcResult<RpcTxWithHash> {
         Ok(self.transaction_by_block_id_and_index(block_id, index).await?)
     }
 
     async fn get_block_with_txs(
         &self,
         block_id: BlockIdOrTag,
-    ) -> RpcResult<MaybePreConfirmedBlockWithTxs> {
+    ) -> RpcResult<MaybePreConfirmedBlock> {
         Ok(self.block_with_txs(block_id).await?)
     }
 
     async fn get_block_with_receipts(
         &self,
         block_id: BlockIdOrTag,
-    ) -> RpcResult<MaybePreConfirmedBlockWithReceipts> {
+    ) -> RpcResult<GetBlockWithReceiptsResponse> {
         Ok(self.block_with_receipts(block_id).await?)
     }
 
-    async fn get_state_update(
-        &self,
-        block_id: BlockIdOrTag,
-    ) -> RpcResult<MaybePreConfirmedStateUpdate> {
-        Ok(self.state_update(block_id).await?)
+    async fn get_state_update(&self, block_id: BlockIdOrTag) -> RpcResult<GetStateUpdateResponse> {
+        let state_update = self.state_update(block_id).await?;
+        Ok(state_update)
     }
 
     async fn get_transaction_receipt(
@@ -129,11 +128,11 @@ impl<EF: ExecutorFactory> StarknetApiServer for StarknetApi<EF> {
         Ok(self.class_at_hash(block_id, class_hash).await?)
     }
 
-    async fn get_events(&self, filter: EventFilterWithPage) -> RpcResult<EventsPage> {
+    async fn get_events(&self, filter: EventFilterWithPage) -> RpcResult<GetEventsResponse> {
         Ok(self.events(filter).await?)
     }
 
-    async fn call(&self, request: FunctionCall, block_id: BlockIdOrTag) -> RpcResult<Vec<Felt>> {
+    async fn call(&self, request: FunctionCall, block_id: BlockIdOrTag) -> RpcResult<CallResponse> {
         self.on_io_blocking_task(move |this| {
             // get the state and block env at the specified block for function call execution
             let state = this.state(&block_id)?;
@@ -142,7 +141,7 @@ impl<EF: ExecutorFactory> StarknetApiServer for StarknetApi<EF> {
             let max_call_gas = this.inner.config.max_call_gas.unwrap_or(1_000_000_000);
 
             let result = super::blockifier::call(state, env, cfg_env, request, max_call_gas)?;
-            Ok(result)
+            Ok(CallResponse { result })
         })
         .await
     }
@@ -235,8 +234,7 @@ impl<EF: ExecutorFactory> StarknetApiServer for StarknetApi<EF> {
             {
                 pm.private_key
             } else {
-                let reason = "Paymaster is not a dev account".to_string();
-                return Err(StarknetApiError::UnexpectedError { reason }.into());
+                return Err(StarknetApiError::unexpected("Paymaster is not a dev account").into());
             };
 
             let state = self
@@ -300,9 +298,10 @@ impl<EF: ExecutorFactory> StarknetApiServer for StarknetApi<EF> {
             transactions
         };
 
-        let permit = self.inner.estimate_fee_permit.acquire().await.map_err(|e| {
-            StarknetApiError::UnexpectedError { reason: format!("Failed to acquire permit: {e}") }
-        })?;
+        let permit =
+            self.inner.estimate_fee_permit.acquire().await.map_err(|e| {
+                StarknetApiError::unexpected(format!("Failed to acquire permit: {e}"))
+            })?;
 
         self.on_cpu_blocking_task(move |this| {
             let _permit = permit;
@@ -316,7 +315,7 @@ impl<EF: ExecutorFactory> StarknetApiServer for StarknetApi<EF> {
         &self,
         message: MsgFromL1,
         block_id: BlockIdOrTag,
-    ) -> RpcResult<MessageFeeEstimate> {
+    ) -> RpcResult<FeeEstimate> {
         self.on_cpu_blocking_task(move |this| {
             let chain_id = this.inner.backend.chain_spec.id();
 
@@ -332,7 +331,7 @@ impl<EF: ExecutorFactory> StarknetApiServer for StarknetApi<EF> {
             match result {
                 Ok(mut res) => {
                     if let Some(fee) = res.pop() {
-                        Ok(MessageFeeEstimate {
+                        Ok(FeeEstimate {
                             overall_fee: fee.overall_fee,
                             l2_gas_price: fee.l2_gas_price,
                             l1_gas_price: fee.l1_gas_price,
@@ -342,9 +341,9 @@ impl<EF: ExecutorFactory> StarknetApiServer for StarknetApi<EF> {
                             l1_data_gas_consumed: fee.l1_data_gas_consumed,
                         })
                     } else {
-                        Err(ErrorObjectOwned::from(StarknetApiError::UnexpectedError {
-                            reason: "Fee estimation result should exist".into(),
-                        }))
+                        Err(ErrorObjectOwned::from(StarknetApiError::unexpected(
+                            "Fee estimation result should exist",
+                        )))
                     }
                 }
 
@@ -354,10 +353,7 @@ impl<EF: ExecutorFactory> StarknetApiServer for StarknetApi<EF> {
         .await
     }
 
-    async fn get_transaction_status(
-        &self,
-        transaction_hash: TxHash,
-    ) -> RpcResult<TransactionStatus> {
+    async fn get_transaction_status(&self, transaction_hash: TxHash) -> RpcResult<TxStatus> {
         Ok(self.transaction_status(transaction_hash).await?)
     }
 

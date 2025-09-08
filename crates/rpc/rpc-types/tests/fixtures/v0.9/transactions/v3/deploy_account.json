@@ -1,0 +1,33 @@
+{
+  "class_hash": "0x345354e2d801833068de73d1a2028e2f619f71045dd5229e79469fa7f598038",
+  "constructor_calldata": [
+    "0x406a640b3b70dad390d661c088df1fbaeb5162a07d57cf29ba794e2b0e3c804"
+  ],
+  "contract_address_salt": "0x30cf3785921671a5367b01813d9ca1db2bc8539abf6e4bf31e8b78d0b5b37fc",
+  "fee_data_availability_mode": "L1",
+  "nonce": "0x0",
+  "nonce_data_availability_mode": "L1",
+  "paymaster_data": [],
+  "resource_bounds": {
+    "l1_data_gas": {
+      "max_amount": "0x2710",
+      "max_price_per_unit": "0x8d79883d20000"
+    },
+    "l1_gas": {
+      "max_amount": "0x249f0",
+      "max_price_per_unit": "0x8d79883d20000"
+    },
+    "l2_gas": {
+      "max_amount": "0x5f5e100",
+      "max_price_per_unit": "0xba43b7400"
+    }
+  },
+  "signature": [
+    "0x5ab916cc1aeea8cc25f2d993dc6a385a732a328fab831e7a56dc1e71964d742",
+    "0x271941e40c7bd1560b2d45091af4ec1cca5b7221d16b1c3983f672a2225c07"
+  ],
+  "tip": "0x5f5e100",
+  "transaction_hash": "0x7ed8d22d2da21c072a61661888f15cb4039ee2370711d7a82fb142fa805941d",
+  "type": "DEPLOY_ACCOUNT",
+  "version": "0x3"
+}

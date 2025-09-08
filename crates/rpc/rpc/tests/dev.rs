@@ -1,5 +1,5 @@
-use katana_provider::traits::block::{BlockNumberProvider, BlockProvider};
-use katana_provider::traits::env::BlockEnvProvider;
+use katana_provider::api::block::{BlockNumberProvider, BlockProvider};
+use katana_provider::api::env::BlockEnvProvider;
 use katana_rpc::api::dev::DevApiClient;
 use katana_utils::TestNode;
 

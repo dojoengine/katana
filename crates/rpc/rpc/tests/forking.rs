@@ -2,19 +2,20 @@ use anyhow::Result;
 use assert_matches::assert_matches;
 use cainome::rs::abigen_legacy;
 use katana_node::config::fork::ForkingConfig;
-use katana_primitives::block::{BlockHash, BlockIdOrTag, BlockNumber, BlockTag};
+use katana_primitives::block::{BlockHash, BlockIdOrTag, BlockNumber};
 use katana_primitives::chain::NamedChainId;
 use katana_primitives::event::MaybeForkedContinuationToken;
 use katana_primitives::genesis::constant::DEFAULT_STRK_FEE_TOKEN_ADDRESS;
 use katana_primitives::transaction::TxHash;
 use katana_primitives::{felt, Felt};
-use katana_utils::TestNode;
-use starknet::core::types::{
-    EventFilter, MaybePreConfirmedBlockWithReceipts, MaybePreConfirmedBlockWithTxHashes,
-    MaybePreConfirmedBlockWithTxs, StarknetError,
+use katana_rpc::HttpClient;
+use katana_rpc_api::error::starknet::StarknetApiError;
+use katana_rpc_client::starknet::Client as StarknetClient;
+use katana_rpc_types::{
+    BlockNumberResponse, EventFilter, GetBlockWithReceiptsResponse, GetBlockWithTxHashesResponse,
+    MaybePreConfirmedBlock,
 };
-use starknet::providers::jsonrpc::HttpTransport;
-use starknet::providers::{JsonRpcClient, Provider, ProviderError};
+use katana_utils::TestNode;
 use url::Url;
 
 mod common;
@@ -36,13 +37,13 @@ type LocalTestVector = Vec<((BlockNumber, BlockHash), TxHash)>;
 /// a single transaction.
 ///
 /// The returned [`TestVector`] is a list of all the locally created blocks and transactions.
-async fn setup_test_inner(no_mining: bool) -> (TestNode, impl Provider, LocalTestVector) {
+async fn setup_test_inner(no_mining: bool) -> (TestNode, StarknetClient, LocalTestVector) {
     let mut config = katana_utils::node::test_config();
     config.sequencing.no_mining = no_mining;
     config.forking = Some(forking_cfg());
 
     let sequencer = TestNode::new_with_config(config).await;
-    let provider = sequencer.starknet_provider();
+    let provider = sequencer.starknet_rpc_client();
 
     let mut txs_vector: LocalTestVector = Vec::new();
 
@@ -74,7 +75,7 @@ async fn setup_test_inner(no_mining: bool) -> (TestNode, impl Provider, LocalTes
             let block_id = BlockIdOrTag::Number(block_num);
             let block = provider.get_block_with_tx_hashes(block_id).await.unwrap();
             let block_hash = match block {
-                MaybePreConfirmedBlockWithTxHashes::Block(b) => b.block_hash,
+                GetBlockWithTxHashesResponse::Block(b) => b.block_hash,
                 _ => panic!("Expected a block"),
             };
 
@@ -85,11 +86,11 @@ async fn setup_test_inner(no_mining: bool) -> (TestNode, impl Provider, LocalTes
     (sequencer, provider, txs_vector)
 }
 
-async fn setup_test() -> (TestNode, impl Provider, LocalTestVector) {
+async fn setup_test() -> (TestNode, StarknetClient, LocalTestVector) {
     setup_test_inner(false).await
 }
 
-async fn setup_test_pending() -> (TestNode, impl Provider, LocalTestVector) {
+async fn setup_test_pending() -> (TestNode, StarknetClient, LocalTestVector) {
     setup_test_inner(true).await
 }
 
@@ -97,22 +98,17 @@ async fn setup_test_pending() -> (TestNode, impl Provider, LocalTestVector) {
 async fn can_fork() -> Result<()> {
     let (_sequencer, provider, _) = setup_test().await;
 
-    let block = provider.block_number().await?;
+    let BlockNumberResponse { block_number } = provider.block_number().await?;
     let chain = provider.chain_id().await?;
 
     assert_eq!(chain, SEPOLIA_CHAIN_ID);
-    assert_eq!(block, FORK_BLOCK_NUMBER + 10);
+    assert_eq!(block_number, FORK_BLOCK_NUMBER + 10);
 
     Ok(())
 }
 
 #[tokio::test]
 async fn get_blocks_from_num() -> Result<()> {
-    use starknet::core::types::{
-        MaybePreConfirmedBlockWithReceipts, MaybePreConfirmedBlockWithTxHashes,
-        MaybePreConfirmedBlockWithTxs,
-    };
-
     let (_sequencer, provider, local_only_block) = setup_test().await;
 
     // -----------------------------------------------------------------------
@@ -123,13 +119,13 @@ async fn get_blocks_from_num() -> Result<()> {
     let id = BlockIdOrTag::Number(num);
 
     let block = provider.get_block_with_txs(id).await?;
-    assert_matches!(block, MaybePreConfirmedBlockWithTxs::Block(b) if b.block_number == num);
+    assert_matches!(block, MaybePreConfirmedBlock::Confirmed(b) if b.block_number == num);
 
     let block = provider.get_block_with_receipts(id).await?;
-    assert_matches!(block, MaybePreConfirmedBlockWithReceipts::Block(b) if b.block_number == num);
+    assert_matches!(block, GetBlockWithReceiptsResponse::Block(b) if b.block_number == num);
 
     let block = provider.get_block_with_tx_hashes(id).await?;
-    assert_matches!(block, MaybePreConfirmedBlockWithTxHashes::Block(b) if b.block_number == num);
+    assert_matches!(block, GetBlockWithTxHashesResponse::Block(b) if b.block_number == num);
 
     let result = provider.get_block_transaction_count(id).await;
     assert!(result.is_ok());
@@ -146,13 +142,13 @@ async fn get_blocks_from_num() -> Result<()> {
     let id = BlockIdOrTag::Number(num);
 
     let block = provider.get_block_with_txs(id).await?;
-    assert_matches!(block, MaybePreConfirmedBlockWithTxs::Block(b) if b.block_number == num);
+    assert_matches!(block, MaybePreConfirmedBlock::Confirmed(b) if b.block_number == num);
 
     let block = provider.get_block_with_receipts(id).await?;
-    assert_matches!(block, MaybePreConfirmedBlockWithReceipts::Block(b) if b.block_number == num);
+    assert_matches!(block, GetBlockWithReceiptsResponse::Block(b) if b.block_number == num);
 
     let block = provider.get_block_with_tx_hashes(id).await?;
-    assert_matches!(block, MaybePreConfirmedBlockWithTxHashes::Block(b) if b.block_number == num);
+    assert_matches!(block, GetBlockWithTxHashesResponse::Block(b) if b.block_number == num);
 
     let result = provider.get_block_transaction_count(id).await;
     assert!(result.is_ok());
@@ -168,13 +164,13 @@ async fn get_blocks_from_num() -> Result<()> {
         let id = BlockIdOrTag::Number(num);
 
         let block = provider.get_block_with_txs(id).await?;
-        assert_matches!(block, MaybePreConfirmedBlockWithTxs::Block(b) if b.block_number == num);
+        assert_matches!(block, MaybePreConfirmedBlock::Confirmed(b) if b.block_number == num);
 
         let block = provider.get_block_with_receipts(id).await?;
-        assert_matches!(block, MaybePreConfirmedBlockWithReceipts::Block(b) if b.block_number == num);
+        assert_matches!(block, GetBlockWithReceiptsResponse::Block(b) if b.block_number == num);
 
         let block = provider.get_block_with_tx_hashes(id).await?;
-        assert_matches!(block, MaybePreConfirmedBlockWithTxHashes::Block(b) if b.block_number == num);
+        assert_matches!(block, GetBlockWithTxHashesResponse::Block(b) if b.block_number == num);
 
         let count = provider.get_block_transaction_count(id).await?;
         assert_eq!(count, 1, "all the locally generated blocks should have 1 tx");
@@ -191,44 +187,44 @@ async fn get_blocks_from_num() -> Result<()> {
     // We only created 10 local blocks so this is fine.
     let id = BlockIdOrTag::Number(270_328);
     let result = provider.get_block_with_txs(id).await.unwrap_err();
-    assert_provider_starknet_err!(result, StarknetError::BlockNotFound);
+    assert_provider_starknet_err!(result, StarknetApiError::BlockNotFound);
 
     let result = provider.get_block_with_receipts(id).await.unwrap_err();
-    assert_provider_starknet_err!(result, StarknetError::BlockNotFound);
+    assert_provider_starknet_err!(result, StarknetApiError::BlockNotFound);
 
     let result = provider.get_block_with_tx_hashes(id).await.unwrap_err();
-    assert_provider_starknet_err!(result, StarknetError::BlockNotFound);
+    assert_provider_starknet_err!(result, StarknetApiError::BlockNotFound);
 
     let result = provider.get_block_transaction_count(id).await.unwrap_err();
-    assert_provider_starknet_err!(result, StarknetError::BlockNotFound);
+    assert_provider_starknet_err!(result, StarknetApiError::BlockNotFound);
 
     let result = provider.get_state_update(id).await.unwrap_err();
-    assert_provider_starknet_err!(result, StarknetError::BlockNotFound);
+    assert_provider_starknet_err!(result, StarknetApiError::BlockNotFound);
 
     // -----------------------------------------------------------------------
     // Get block that doesn't exist on the both the forked and local chain
 
     let id = BlockIdOrTag::Number(i64::MAX as u64);
     let result = provider.get_block_with_txs(id).await.unwrap_err();
-    assert_provider_starknet_err!(result, StarknetError::BlockNotFound);
+    assert_provider_starknet_err!(result, StarknetApiError::BlockNotFound);
 
     let result = provider.get_block_with_receipts(id).await.unwrap_err();
-    assert_provider_starknet_err!(result, StarknetError::BlockNotFound);
+    assert_provider_starknet_err!(result, StarknetApiError::BlockNotFound);
 
     let result = provider.get_block_with_tx_hashes(id).await.unwrap_err();
-    assert_provider_starknet_err!(result, StarknetError::BlockNotFound);
+    assert_provider_starknet_err!(result, StarknetApiError::BlockNotFound);
 
     let result = provider.get_block_transaction_count(id).await.unwrap_err();
-    assert_provider_starknet_err!(result, StarknetError::BlockNotFound);
+    assert_provider_starknet_err!(result, StarknetApiError::BlockNotFound);
 
     let result = provider.get_state_update(id).await.unwrap_err();
-    assert_provider_starknet_err!(result, StarknetError::BlockNotFound);
+    assert_provider_starknet_err!(result, StarknetApiError::BlockNotFound);
 
     Ok(())
 }
 
 #[tokio::test]
-async fn get_blocks_from_hash() -> Result<()> {
+async fn get_blocks_from_hash() {
     let (_sequencer, provider, local_only_block) = setup_test().await;
 
     // -----------------------------------------------------------------------
@@ -238,20 +234,20 @@ async fn get_blocks_from_hash() -> Result<()> {
     let hash = felt!("0x208950cfcbba73ecbda1c14e4d58d66a8d60655ea1b9dcf07c16014ae8a93cd"); // 268471
     let id = BlockIdOrTag::Hash(hash);
 
-    let block = provider.get_block_with_txs(id).await?;
-    assert_matches!(block, MaybePreConfirmedBlockWithTxs::Block(b) if b.block_hash == hash);
+    let block = provider.get_block_with_txs(id).await.unwrap();
+    assert_matches!(block, MaybePreConfirmedBlock::Confirmed(b) if b.block_hash == hash);
 
-    let block = provider.get_block_with_receipts(id).await?;
-    assert_matches!(block, MaybePreConfirmedBlockWithReceipts::Block(b) if b.block_hash == hash);
+    let block = provider.get_block_with_receipts(id).await.unwrap();
+    assert_matches!(block, GetBlockWithReceiptsResponse::Block(b) if b.block_hash == hash);
 
-    let block = provider.get_block_with_tx_hashes(id).await?;
-    assert_matches!(block, MaybePreConfirmedBlockWithTxHashes::Block(b) if b.block_hash == hash);
+    let block = provider.get_block_with_tx_hashes(id).await.unwrap();
+    assert_matches!(block, GetBlockWithTxHashesResponse::Block(b) if b.block_hash == hash);
 
     let result = provider.get_block_transaction_count(id).await;
     assert!(result.is_ok());
 
     // TODO: uncomment this once we include genesis forked state update
-    // let state = provider.get_state_update(id).await?;
+    // let state = provider.get_state_update(id).await.unwrap();
     // assert_matches!(state, starknet::core::types::MaybePendingStateUpdate::Update(_));
 
     // -----------------------------------------------------------------------
@@ -261,20 +257,20 @@ async fn get_blocks_from_hash() -> Result<()> {
     let hash = felt!("0x42dc67af5003d212ac6cd784e72db945ea4d619898f30f422358ff215cbe1e4"); // 268466
     let id = BlockIdOrTag::Hash(hash);
 
-    let block = provider.get_block_with_txs(id).await?;
-    assert_matches!(block, MaybePreConfirmedBlockWithTxs::Block(b) if b.block_hash == hash);
+    let block = provider.get_block_with_txs(id).await.unwrap();
+    assert_matches!(block, MaybePreConfirmedBlock::Confirmed(b) if b.block_hash == hash);
 
-    let block = provider.get_block_with_receipts(id).await?;
-    assert_matches!(block, MaybePreConfirmedBlockWithReceipts::Block(b) if b.block_hash == hash);
+    let block = provider.get_block_with_receipts(id).await.unwrap();
+    assert_matches!(block, GetBlockWithReceiptsResponse::Block(b) if b.block_hash == hash);
 
-    let block = provider.get_block_with_tx_hashes(id).await?;
-    assert_matches!(block, MaybePreConfirmedBlockWithTxHashes::Block(b) if b.block_hash == hash);
+    let block = provider.get_block_with_tx_hashes(id).await.unwrap();
+    assert_matches!(block, GetBlockWithTxHashesResponse::Block(b) if b.block_hash == hash);
 
     let result = provider.get_block_transaction_count(id).await;
     assert!(result.is_ok());
 
     // TODO: uncomment this once we include genesis forked state update
-    // let state = provider.get_state_update(id).await?;
+    // let state = provider.get_state_update(id).await.unwrap();
     // assert_matches!(state, starknet::core::types::MaybePendingStateUpdate::Update(_));
 
     // -----------------------------------------------------------------------
@@ -283,20 +279,20 @@ async fn get_blocks_from_hash() -> Result<()> {
     for ((_, hash), _) in local_only_block {
         let id = BlockIdOrTag::Hash(hash);
 
-        let block = provider.get_block_with_txs(id).await?;
-        assert_matches!(block, MaybePreConfirmedBlockWithTxs::Block(b) if b.block_hash == hash);
+        let block = provider.get_block_with_txs(id).await.unwrap();
+        assert_matches!(block, MaybePreConfirmedBlock::Confirmed(b) if b.block_hash == hash);
 
-        let block = provider.get_block_with_receipts(id).await?;
-        assert_matches!(block, MaybePreConfirmedBlockWithReceipts::Block(b) if b.block_hash == hash);
+        let block = provider.get_block_with_receipts(id).await.unwrap();
+        assert_matches!(block, GetBlockWithReceiptsResponse::Block(b) if b.block_hash == hash);
 
-        let block = provider.get_block_with_tx_hashes(id).await?;
-        assert_matches!(block, MaybePreConfirmedBlockWithTxHashes::Block(b) if b.block_hash == hash);
+        let block = provider.get_block_with_tx_hashes(id).await.unwrap();
+        assert_matches!(block, GetBlockWithTxHashesResponse::Block(b) if b.block_hash == hash);
 
         let result = provider.get_block_transaction_count(id).await;
         assert!(result.is_ok());
 
         // TODO: uncomment this once we include genesis forked state update
-        // let state = provider.get_state_update(id).await?;
+        // let state = provider.get_state_update(id).await.unwrap();
         // assert_matches!(state, starknet::core::types::MaybePendingStateUpdate::Update(_));
     }
 
@@ -307,40 +303,38 @@ async fn get_blocks_from_hash() -> Result<()> {
     // We only created 10 local blocks so this is fine.
     let id = BlockIdOrTag::Number(270_328);
     let result = provider.get_block_with_txs(id).await.unwrap_err();
-    assert_provider_starknet_err!(result, StarknetError::BlockNotFound);
+    assert_provider_starknet_err!(result, StarknetApiError::BlockNotFound);
 
     let result = provider.get_block_with_receipts(id).await.unwrap_err();
-    assert_provider_starknet_err!(result, StarknetError::BlockNotFound);
+    assert_provider_starknet_err!(result, StarknetApiError::BlockNotFound);
 
     let result = provider.get_block_with_tx_hashes(id).await.unwrap_err();
-    assert_provider_starknet_err!(result, StarknetError::BlockNotFound);
+    assert_provider_starknet_err!(result, StarknetApiError::BlockNotFound);
 
     let result = provider.get_block_transaction_count(id).await.unwrap_err();
-    assert_provider_starknet_err!(result, StarknetError::BlockNotFound);
+    assert_provider_starknet_err!(result, StarknetApiError::BlockNotFound);
 
     let result = provider.get_state_update(id).await.unwrap_err();
-    assert_provider_starknet_err!(result, StarknetError::BlockNotFound);
+    assert_provider_starknet_err!(result, StarknetApiError::BlockNotFound);
 
     // -----------------------------------------------------------------------
     // Get block that doesn't exist on the both the forked and local chain
 
     let id = BlockIdOrTag::Number(i64::MAX as u64);
     let result = provider.get_block_with_txs(id).await.unwrap_err();
-    assert_provider_starknet_err!(result, StarknetError::BlockNotFound);
+    assert_provider_starknet_err!(result, StarknetApiError::BlockNotFound);
 
     let result = provider.get_block_with_receipts(id).await.unwrap_err();
-    assert_provider_starknet_err!(result, StarknetError::BlockNotFound);
+    assert_provider_starknet_err!(result, StarknetApiError::BlockNotFound);
 
     let result = provider.get_block_with_tx_hashes(id).await.unwrap_err();
-    assert_provider_starknet_err!(result, StarknetError::BlockNotFound);
+    assert_provider_starknet_err!(result, StarknetApiError::BlockNotFound);
 
     let result = provider.get_block_transaction_count(id).await.unwrap_err();
-    assert_provider_starknet_err!(result, StarknetError::BlockNotFound);
+    assert_provider_starknet_err!(result, StarknetApiError::BlockNotFound);
 
     let result = provider.get_state_update(id).await.unwrap_err();
-    assert_provider_starknet_err!(result, StarknetError::BlockNotFound);
-
-    Ok(())
+    assert_provider_starknet_err!(result, StarknetApiError::BlockNotFound);
 }
 
 #[tokio::test]
@@ -355,10 +349,10 @@ async fn get_transactions() -> Result<()> {
     let tx_hash = felt!("0x81207d4244596678e186f6ab9c833fe40a4b35291e8a90b9a163f7f643df9f");
 
     let tx = provider.get_transaction_by_hash(tx_hash).await?;
-    assert_eq!(*tx.transaction_hash(), tx_hash);
+    assert_eq!(tx.transaction_hash, tx_hash);
 
     let tx = provider.get_transaction_receipt(tx_hash).await?;
-    assert_eq!(*tx.receipt.transaction_hash(), tx_hash);
+    assert_eq!(tx.transaction_hash, tx_hash);
 
     let result = provider.get_transaction_status(tx_hash).await;
     assert!(result.is_ok());
@@ -368,10 +362,10 @@ async fn get_transactions() -> Result<()> {
     let tx_hash = felt!("0x1b18d62544d4ef749befadabcec019d83218d3905abd321b4c1b1fc948d5710");
 
     let tx = provider.get_transaction_by_hash(tx_hash).await?;
-    assert_eq!(*tx.transaction_hash(), tx_hash);
+    assert_eq!(tx.transaction_hash, tx_hash);
 
     let tx = provider.get_transaction_receipt(tx_hash).await?;
-    assert_eq!(*tx.receipt.transaction_hash(), tx_hash);
+    assert_eq!(tx.transaction_hash, tx_hash);
 
     let result = provider.get_transaction_status(tx_hash).await;
     assert!(result.is_ok());
@@ -381,10 +375,10 @@ async fn get_transactions() -> Result<()> {
 
     for (_, tx_hash) in local_only_data {
         let tx = provider.get_transaction_by_hash(tx_hash).await?;
-        assert_eq!(*tx.transaction_hash(), tx_hash);
+        assert_eq!(tx.transaction_hash, tx_hash);
 
         let tx = provider.get_transaction_receipt(tx_hash).await?;
-        assert_eq!(*tx.receipt.transaction_hash(), tx_hash);
+        assert_eq!(tx.transaction_hash, tx_hash);
 
         let result = provider.get_transaction_status(tx_hash).await;
         assert!(result.is_ok());
@@ -397,13 +391,13 @@ async fn get_transactions() -> Result<()> {
     // transaction in block num 268,474 (FORK_BLOCK_NUMBER + 3)
     let tx_hash = felt!("0x335a605f2c91873f8f830a6e5285e704caec18503ca28c18485ea6f682eb65e");
     let result = provider.get_transaction_by_hash(tx_hash).await.unwrap_err();
-    assert_provider_starknet_err!(result, StarknetError::TransactionHashNotFound);
+    assert_provider_starknet_err!(result, StarknetApiError::TxnHashNotFound);
 
     let result = provider.get_transaction_receipt(tx_hash).await.unwrap_err();
-    assert_provider_starknet_err!(result, StarknetError::TransactionHashNotFound);
+    assert_provider_starknet_err!(result, StarknetApiError::TxnHashNotFound);
 
     let result = provider.get_transaction_status(tx_hash).await.unwrap_err();
-    assert_provider_starknet_err!(result, StarknetError::TransactionHashNotFound);
+    assert_provider_starknet_err!(result, StarknetApiError::TxnHashNotFound);
 
     Ok(())
 }
@@ -414,7 +408,7 @@ async fn get_transactions() -> Result<()> {
 #[case(BlockIdOrTag::Hash(felt!("0x208950cfcbba73ecbda1c14e4d58d66a8d60655ea1b9dcf07c16014ae8a93cd")))]
 async fn get_events_partially_from_forked(#[case] block_id: BlockIdOrTag) -> Result<()> {
     let (_sequencer, provider, _) = setup_test().await;
-    let forked_provider = JsonRpcClient::new(HttpTransport::new(Url::parse(SEPOLIA_URL)?));
+    let forked_provider = StarknetClient::new(HttpClient::builder().build(SEPOLIA_URL).unwrap());
 
     // -----------------------------------------------------------------------
     // Fetch events partially from forked block.
@@ -457,9 +451,9 @@ async fn get_events_partially_from_forked(#[case] block_id: BlockIdOrTag) -> Res
 #[rstest::rstest]
 #[case(BlockIdOrTag::Number(FORK_BLOCK_NUMBER))]
 #[case(BlockIdOrTag::Hash(felt!("0x208950cfcbba73ecbda1c14e4d58d66a8d60655ea1b9dcf07c16014ae8a93cd")))]
-async fn get_events_all_from_forked(#[case] block_id: BlockIdOrTag) -> Result<()> {
+async fn get_events_all_from_forked(#[case] block_id: BlockIdOrTag) {
     let (_sequencer, provider, _) = setup_test().await;
-    let forked_provider = JsonRpcClient::new(HttpTransport::new(Url::parse(SEPOLIA_URL)?));
+    let forked_provider = StarknetClient::new(HttpClient::builder().build(SEPOLIA_URL).unwrap());
 
     // -----------------------------------------------------------------------
     // Fetch events from the forked block (ie `FORK_BLOCK_NUMBER`) only.
@@ -475,11 +469,11 @@ async fn get_events_all_from_forked(#[case] block_id: BlockIdOrTag) -> Result<()
     };
 
     // events fetched directly from the forked chain.
-    let result = forked_provider.get_events(filter.clone(), None, 100).await?;
+    let result = forked_provider.get_events(filter.clone(), None, 100).await.unwrap();
     let events = result.events;
 
     // events fetched through the forked katana.
-    let result = provider.get_events(filter, None, 100).await?;
+    let result = provider.get_events(filter, None, 100).await.unwrap();
     let forked_events = result.events;
 
     assert!(result.continuation_token.is_none());
@@ -494,12 +488,10 @@ async fn get_events_all_from_forked(#[case] block_id: BlockIdOrTag) -> Result<()
         assert_eq!(a.keys, b.keys);
         assert_eq!(a.data, b.data);
     }
-
-    Ok(())
 }
 
 #[tokio::test]
-async fn get_events_local() -> Result<()> {
+async fn get_events_local() {
     let (_sequencer, provider, local_only_data) = setup_test().await;
 
     // -----------------------------------------------------------------------
@@ -512,7 +504,7 @@ async fn get_events_local() -> Result<()> {
         from_block: Some(BlockIdOrTag::Number(FORK_BLOCK_NUMBER + 1)),
     };
 
-    let result = provider.get_events(filter, None, 10).await?;
+    let result = provider.get_events(filter, None, 10).await.unwrap();
     let forked_events = result.events;
 
     // compare the events
@@ -524,12 +516,10 @@ async fn get_events_local() -> Result<()> {
         assert_eq!(event.block_hash, Some(*block_hash));
         assert_eq!(event.block_number, Some(*block_number));
     }
-
-    Ok(())
 }
 
 #[tokio::test]
-async fn get_events_pending_exhaustive() -> Result<()> {
+async fn get_events_pending_exhaustive() {
     let (_sequencer, provider, local_only_data) = setup_test_pending().await;
 
     // -----------------------------------------------------------------------
@@ -538,11 +528,11 @@ async fn get_events_pending_exhaustive() -> Result<()> {
     let filter = EventFilter {
         keys: None,
         address: None,
-        to_block: Some(BlockIdOrTag::Tag(BlockTag::PreConfirmed)),
-        from_block: Some(BlockIdOrTag::Tag(BlockTag::PreConfirmed)),
+        to_block: Some(BlockIdOrTag::PreConfirmed),
+        from_block: Some(BlockIdOrTag::PreConfirmed),
     };
 
-    let result = provider.get_events(filter, None, 10).await?;
+    let result = provider.get_events(filter, None, 10).await.unwrap();
     let events = result.events;
 
     // This is expected behaviour, as the pending block is not yet closed.
@@ -555,19 +545,15 @@ async fn get_events_pending_exhaustive() -> Result<()> {
         assert_eq!(event.block_hash, None);
         assert_eq!(event.block_number, None);
     }
-
-    Ok(())
 }
 
 #[tokio::test]
 #[rstest::rstest]
 #[case(BlockIdOrTag::Number(FORK_BLOCK_NUMBER))]
 #[case(BlockIdOrTag::Hash(felt!("0x208950cfcbba73ecbda1c14e4d58d66a8d60655ea1b9dcf07c16014ae8a93cd")))] // FORK_BLOCK_NUMBER hash
-async fn get_events_forked_and_local_boundary_exhaustive(
-    #[case] block_id: BlockIdOrTag,
-) -> Result<()> {
+async fn get_events_forked_and_local_boundary_exhaustive(#[case] block_id: BlockIdOrTag) {
     let (_sequencer, provider, local_only_data) = setup_test().await;
-    let forked_provider = JsonRpcClient::new(HttpTransport::new(Url::parse(SEPOLIA_URL)?));
+    let forked_provider = StarknetClient::new(HttpClient::builder().build(SEPOLIA_URL).unwrap());
 
     // -----------------------------------------------------------------------
     // Get events from that cross the boundaries between forked and local chain block.
@@ -583,17 +569,17 @@ async fn get_events_forked_and_local_boundary_exhaustive(
     };
 
     // events fetched directly from the forked chain.
-    let result = forked_provider.get_events(filter.clone(), None, 100).await?;
+    let result = forked_provider.get_events(filter.clone(), None, 100).await.unwrap();
     let events = result.events;
 
     let filter = EventFilter {
         keys: None,
         address: None,
-        to_block: Some(BlockIdOrTag::Tag(BlockTag::Latest)),
+        to_block: Some(BlockIdOrTag::Latest),
         from_block: Some(block_id),
     };
 
-    let result = provider.get_events(filter, None, 100).await?;
+    let result = provider.get_events(filter, None, 100).await.unwrap();
     let boundary_events = result.events;
 
     // because we're pointing to latest block, we should not have anymore continuation token.
@@ -611,19 +597,15 @@ async fn get_events_forked_and_local_boundary_exhaustive(
         assert_eq!(event.block_hash, Some(*block_hash));
         assert_eq!(event.block_number, Some(*block_number));
     }
-
-    Ok(())
 }
 
 #[tokio::test]
 #[rstest::rstest]
 #[case(BlockIdOrTag::Number(FORK_BLOCK_NUMBER - 1))]
 #[case(BlockIdOrTag::Hash(felt!("0x4a6a79bfefceb03af4f78758785b0c40ddf9f757e9a8f72f01ecb0aad11e298")))] // FORK_BLOCK_NUMBER - 1 hash
-async fn get_events_forked_and_local_boundary_non_exhaustive(
-    #[case] block_id: BlockIdOrTag,
-) -> Result<()> {
+async fn get_events_forked_and_local_boundary_non_exhaustive(#[case] block_id: BlockIdOrTag) {
     let (_sequencer, provider, _) = setup_test().await;
-    let forked_provider = JsonRpcClient::new(HttpTransport::new(Url::parse(SEPOLIA_URL)?));
+    let forked_provider = StarknetClient::new(HttpClient::builder().build(SEPOLIA_URL).unwrap());
 
     // -----------------------------------------------------------------------
     // Get events that cross the boundaries between forked and local chain block, but
@@ -637,31 +619,29 @@ async fn get_events_forked_and_local_boundary_non_exhaustive(
     };
 
     // events fetched directly from the forked chain.
-    let result = forked_provider.get_events(filter.clone(), None, 50).await?;
+    let result = forked_provider.get_events(filter.clone(), None, 50).await.unwrap();
     let forked_events = result.events;
 
     let filter = EventFilter {
         keys: None,
         address: None,
-        to_block: Some(BlockIdOrTag::Tag(BlockTag::PreConfirmed)),
+        to_block: Some(BlockIdOrTag::PreConfirmed),
         from_block: Some(block_id),
     };
 
-    let result = provider.get_events(filter, None, 50).await?;
+    let result = provider.get_events(filter, None, 50).await.unwrap();
     let katana_events = result.events;
 
-    let token = MaybeForkedContinuationToken::parse(&result.continuation_token.unwrap())?;
+    let token = MaybeForkedContinuationToken::parse(&result.continuation_token.unwrap()).unwrap();
     assert_matches!(token, MaybeForkedContinuationToken::Forked(_));
     similar_asserts::assert_eq!(katana_events, forked_events);
-
-    Ok(())
 }
 
 #[tokio::test]
 #[rstest::rstest]
 #[case::doesnt_exist_at_all(felt!("0x123"))]
 #[case::after_forked_block_but_on_the_forked_chain(felt!("0x21f4c20f9cc721dbaee2eaf44c79342b37c60f55ac37c13a4bdd6785ac2a5e5"))]
-async fn get_events_with_invalid_block_hash(#[case] hash: BlockHash) -> Result<()> {
+async fn get_events_with_invalid_block_hash(#[case] hash: BlockHash) {
     let (_sequencer, provider, _) = setup_test().await;
 
     let filter = EventFilter {
@@ -672,7 +652,5 @@ async fn get_events_with_invalid_block_hash(#[case] hash: BlockHash) -> Result<(
     };
 
     let result = provider.get_events(filter.clone(), None, 5).await.unwrap_err();
-    assert_provider_starknet_err!(result, StarknetError::BlockNotFound);
-
-    Ok(())
+    assert_provider_starknet_err!(result, StarknetApiError::BlockNotFound);
 }

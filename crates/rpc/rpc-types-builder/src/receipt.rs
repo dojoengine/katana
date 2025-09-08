@@ -1,8 +1,8 @@
 use katana_primitives::transaction::TxHash;
-use katana_provider::traits::transaction::{
+use katana_provider::api::transaction::{
     ReceiptProvider, TransactionProvider, TransactionStatusProvider,
 };
-use katana_rpc_types::receipt::{ReceiptBlock, TxReceiptWithBlockInfo};
+use katana_rpc_types::receipt::{ReceiptBlockInfo, TxReceiptWithBlockInfo};
 
 /// A builder for building RPC transaction receipt types.
 #[derive(Debug)]
@@ -35,7 +35,7 @@ where
             TransactionStatusProvider::transaction_status(&self.provider, self.transaction_hash)?
                 .expect("must exist");
 
-        let block = ReceiptBlock::Block { block_hash, block_number };
+        let block = ReceiptBlockInfo::Block { block_hash, block_number };
 
         Ok(Some(TxReceiptWithBlockInfo::new(
             block,

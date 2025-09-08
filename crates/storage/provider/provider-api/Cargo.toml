@@ -1,0 +1,15 @@
+[package]
+edition.workspace = true
+license.workspace = true
+name = "katana-provider-api"
+version.workspace = true
+
+[dependencies]
+katana-db = { workspace = true, features = [ "test-utils" ] }
+katana-primitives.workspace = true
+katana-trie.workspace = true
+
+auto_impl.workspace = true
+starknet.workspace = true
+starknet-types-core.workspace = true
+thiserror.workspace = true

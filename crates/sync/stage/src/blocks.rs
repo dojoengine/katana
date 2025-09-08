@@ -16,7 +16,7 @@ use katana_primitives::receipt::{
 use katana_primitives::state::{StateUpdates, StateUpdatesWithClasses};
 use katana_primitives::transaction::{Tx, TxWithHash};
 use katana_primitives::Felt;
-use katana_provider::traits::block::BlockWriter;
+use katana_provider::api::block::BlockWriter;
 use num_traits::ToPrimitive;
 use starknet::core::types::ResourcePrice;
 use starknet::providers::sequencer::models::BlockStatus;
@@ -264,8 +264,8 @@ fn extract_block_data(
 #[cfg(test)]
 mod tests {
     use katana_feeder_gateway::client::SequencerGateway;
+    use katana_provider::api::block::BlockNumberProvider;
     use katana_provider::test_utils::test_provider;
-    use katana_provider::traits::block::BlockNumberProvider;
 
     use super::Blocks;
     use crate::{Stage, StageExecutionInput};

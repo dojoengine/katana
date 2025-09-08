@@ -99,6 +99,12 @@ impl cainome_cairo_serde::CairoSerde for ContractAddress {
     }
 }
 
+impl PartialEq<Felt> for ContractAddress {
+    fn eq(&self, other: &Felt) -> bool {
+        self.0 == *other
+    }
+}
+
 #[macro_export]
 macro_rules! address {
     ($value:expr) => {

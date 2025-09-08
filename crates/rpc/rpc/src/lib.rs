@@ -29,7 +29,6 @@ mod logger;
 mod utils;
 use cors::Cors;
 use health::HealthCheck;
-#[cfg(feature = "client")]
 pub use jsonrpsee::http_client::HttpClient;
 pub use katana_rpc_api as api;
 use metrics::RpcServerMetricsLayer;
@@ -86,7 +85,6 @@ impl RpcServerHandle {
     }
 
     /// Returns a HTTP client associated with the server.
-    #[cfg(feature = "client")]
     pub fn http_client(&self) -> Result<HttpClient, Error> {
         use jsonrpsee::http_client::HttpClientBuilder;
         let url = format!("http://{}", self.addr);
@@ -267,7 +265,6 @@ mod tests {
 
     use crate::RpcServer;
 
-    #[cfg(feature = "client")]
     #[tokio::test]
     async fn test_rpc_server_timeout() {
         use jsonrpsee::core::client::ClientT;

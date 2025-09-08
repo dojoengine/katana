@@ -1,6 +1,6 @@
 use katana_primitives::block::BlockHashOrNumber;
-use katana_provider::traits::block::{BlockHashProvider, BlockProvider, BlockStatusProvider};
-use katana_provider::traits::transaction::ReceiptProvider;
+use katana_provider::api::block::{BlockHashProvider, BlockProvider, BlockStatusProvider};
+use katana_provider::api::transaction::ReceiptProvider;
 use katana_provider::ProviderResult;
 use katana_rpc_types::block::{BlockWithReceipts, BlockWithTxHashes, BlockWithTxs};
 

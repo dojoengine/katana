@@ -1,49 +1,53 @@
+use jsonrpsee::core::ClientError;
+use jsonrpsee::http_client::HttpClient;
 use katana_primitives::block::{BlockHash, BlockIdOrTag, BlockNumber};
 use katana_primitives::contract::ContractAddress;
 use katana_primitives::transaction::TxHash;
 use katana_primitives::Felt;
 use katana_rpc_api::error::starknet::StarknetApiError;
+use katana_rpc_api::starknet::StarknetApiClient;
 use katana_rpc_types::block::{
-    MaybePreConfirmedBlockWithReceipts, MaybePreConfirmedBlockWithTxHashes,
-    MaybePreConfirmedBlockWithTxs,
+    GetBlockWithReceiptsResponse, GetBlockWithTxHashesResponse, MaybePreConfirmedBlock,
 };
-use katana_rpc_types::event::EventsPage;
-use katana_rpc_types::receipt::TxReceiptWithBlockInfo;
-use katana_rpc_types::state_update::MaybePreConfirmedStateUpdate;
-use katana_rpc_types::transaction::Tx;
-use starknet::core::types::{EventFilter, TransactionStatus};
-use starknet::providers::jsonrpc::HttpTransport;
-use starknet::providers::{JsonRpcClient, Provider, ProviderError};
-use url::Url;
+use katana_rpc_types::event::{
+    EventFilter, EventFilterWithPage, GetEventsResponse, ResultPageRequest,
+};
+use katana_rpc_types::receipt::{ReceiptBlockInfo, TxReceiptWithBlockInfo};
+use katana_rpc_types::state_update::GetStateUpdateResponse;
+use katana_rpc_types::transaction::RpcTxWithHash;
+use katana_rpc_types::TxStatus;
 
 #[derive(Debug, thiserror::Error)]
 pub enum Error {
-    /// Error originating from the underlying [`Provider`] implementation.
-    #[error("Provider error: {0}")]
-    Provider(#[from] ProviderError),
+    #[error("client error: {0}")]
+    ClientError(ClientError),
 
-    #[error("Block out of range")]
+    /// Error that occurs in the JSON-RPC call itself.
+    #[error("call error: {0}")]
+    CallError(jsonrpsee::types::ErrorObjectOwned),
+
+    #[error("block out of range")]
     BlockOutOfRange,
 
-    #[error("Not allowed to use block tag as a block identifier")]
+    #[error("not allowed to use block tag as a block identifier")]
     BlockTagNotAllowed,
 
-    #[error("Unexpected pending data")]
+    #[error("unexpected pending data")]
     UnexpectedPendingData,
 }
 
-#[derive(Debug)]
-pub struct ForkedClient<P: Provider = JsonRpcClient<HttpTransport>> {
+#[derive(Debug, Clone)]
+pub struct ForkedClient {
     /// The block number where the node is forked from.
     block: BlockNumber,
-    /// The Starknet Json RPC provider client for doing the request to the forked network.
-    provider: P,
+    /// The Starknet JSON-RPC client for doing the request to the forked network.
+    client: HttpClient,
 }
 
-impl<P: Provider> ForkedClient<P> {
+impl ForkedClient {
     /// Creates a new forked client from the given [`Provider`] and block number.
-    pub fn new(provider: P, block: BlockNumber) -> Self {
-        Self { provider, block }
+    pub fn new(client: HttpClient, block: BlockNumber) -> Self {
+        Self { block, client }
     }
 
     /// Returns the block number of the forked client.
@@ -53,53 +57,42 @@ impl<P: Provider> ForkedClient<P> {
 }
 
 impl ForkedClient {
-    /// Creates a new forked client from the given HTTP URL and block number.
-    pub fn new_http(url: Url, block: BlockNumber) -> Self {
-        Self { provider: JsonRpcClient::new(HttpTransport::new(url)), block }
-    }
-}
-
-impl<P: Provider> ForkedClient<P> {
     pub async fn get_block_number_by_hash(&self, hash: BlockHash) -> Result<BlockNumber, Error> {
-        use starknet::core::types::MaybePreConfirmedBlockWithTxHashes as StarknetRsMaybePreConfirmedBlockWithTxHashes;
-
-        let block = self.provider.get_block_with_tx_hashes(BlockIdOrTag::Hash(hash)).await?;
-        // Pending block doesn't have a hash yet, so if we get a pending block, we return an error.
-        let StarknetRsMaybePreConfirmedBlockWithTxHashes::Block(block) = block else {
-            return Err(Error::UnexpectedPendingData);
+        let number = match self.client.get_block_with_tx_hashes(BlockIdOrTag::Hash(hash)).await? {
+            GetBlockWithTxHashesResponse::Block(block) => block.block_number,
+            GetBlockWithTxHashesResponse::PreConfirmed(block) => block.block_number,
         };
 
-        if block.block_number > self.block {
+        if number > self.block {
             Err(Error::BlockOutOfRange)
         } else {
-            Ok(block.block_number)
+            Ok(number)
         }
     }
 
-    pub async fn get_transaction_by_hash(&self, hash: TxHash) -> Result<Tx, Error> {
-        let tx = self.provider.get_transaction_by_hash(hash).await?;
-        Ok(tx.into())
+    pub async fn get_transaction_by_hash(&self, hash: TxHash) -> Result<RpcTxWithHash, Error> {
+        Ok(self.client.get_transaction_by_hash(hash).await?)
     }
 
     pub async fn get_transaction_receipt(
         &self,
         hash: TxHash,
     ) -> Result<TxReceiptWithBlockInfo, Error> {
-        let receipt = self.provider.get_transaction_receipt(hash).await?;
+        let receipt = self.client.get_transaction_receipt(hash).await?;
 
-        if let starknet::core::types::ReceiptBlock::Block { block_number, .. } = receipt.block {
+        if let ReceiptBlockInfo::Block { block_number, .. } = receipt.block {
             if block_number > self.block {
                 return Err(Error::BlockOutOfRange);
             }
         }
 
-        Ok(receipt.into())
+        Ok(receipt)
     }
 
-    pub async fn get_transaction_status(&self, hash: TxHash) -> Result<TransactionStatus, Error> {
+    pub async fn get_transaction_status(&self, hash: TxHash) -> Result<TxStatus, Error> {
         let (receipt, status) = tokio::join!(
             self.get_transaction_receipt(hash),
-            self.provider.get_transaction_status(hash)
+            self.client.get_transaction_status(hash)
         );
 
         // We get the receipt first to check if the block number is within the forked range.
@@ -112,28 +105,25 @@ impl<P: Provider> ForkedClient<P> {
         &self,
         block_id: BlockIdOrTag,
         idx: u64,
-    ) -> Result<Tx, Error> {
+    ) -> Result<RpcTxWithHash, Error> {
         match block_id {
             BlockIdOrTag::Number(num) => {
                 if num > self.block {
                     return Err(Error::BlockOutOfRange);
                 }
 
-                let tx = self.provider.get_transaction_by_block_id_and_index(block_id, idx).await?;
-                Ok(tx.into())
+                Ok(self.client.get_transaction_by_block_id_and_index(block_id, idx).await?)
             }
 
             BlockIdOrTag::Hash(hash) => {
                 let (block, tx) = tokio::join!(
-                    self.provider.get_block_with_tx_hashes(BlockIdOrTag::Hash(hash)),
-                    self.provider.get_transaction_by_block_id_and_index(block_id, idx)
+                    self.client.get_block_with_tx_hashes(BlockIdOrTag::Hash(hash)),
+                    self.client.get_transaction_by_block_id_and_index(block_id, idx)
                 );
 
                 let number = match block? {
-                    starknet::core::types::MaybePreConfirmedBlockWithTxHashes::Block(block) => {
-                        block.block_number
-                    }
-                    starknet::core::types::MaybePreConfirmedBlockWithTxHashes::PreConfirmedBlock(_) => {
+                    GetBlockWithTxHashesResponse::Block(block) => block.block_number,
+                    GetBlockWithTxHashesResponse::PreConfirmed(_) => {
                         return Err(Error::UnexpectedPendingData);
                     }
                 };
@@ -142,30 +132,29 @@ impl<P: Provider> ForkedClient<P> {
                     return Err(Error::BlockOutOfRange);
                 }
 
-                Ok(tx?.into())
+                Ok(tx?)
             }
 
-            BlockIdOrTag::Tag(_) => Err(Error::BlockTagNotAllowed),
+            BlockIdOrTag::L1Accepted | BlockIdOrTag::Latest | BlockIdOrTag::PreConfirmed => {
+                Err(Error::BlockTagNotAllowed)
+            }
         }
     }
 
     pub async fn get_block_with_txs(
         &self,
         block_id: BlockIdOrTag,
-    ) -> Result<MaybePreConfirmedBlockWithTxs, Error> {
-        let block = self.provider.get_block_with_txs(block_id).await?;
+    ) -> Result<MaybePreConfirmedBlock, Error> {
+        let block = self.client.get_block_with_txs(block_id).await?;
 
         match block {
-            starknet::core::types::MaybePreConfirmedBlockWithTxs::Block(ref b) => {
+            MaybePreConfirmedBlock::PreConfirmed(_) => Err(Error::UnexpectedPendingData),
+            MaybePreConfirmedBlock::Confirmed(ref b) => {
                 if b.block_number > self.block {
                     Err(Error::BlockOutOfRange)
                 } else {
-                    Ok(block.into())
+                    Ok(block)
                 }
-            }
-
-            starknet::core::types::MaybePreConfirmedBlockWithTxs::PreConfirmedBlock(_) => {
-                Err(Error::UnexpectedPendingData)
             }
         }
     }
@@ -173,41 +162,41 @@ impl<P: Provider> ForkedClient<P> {
     pub async fn get_block_with_receipts(
         &self,
         block_id: BlockIdOrTag,
-    ) -> Result<MaybePreConfirmedBlockWithReceipts, Error> {
-        let block = self.provider.get_block_with_receipts(block_id).await?;
+    ) -> Result<GetBlockWithReceiptsResponse, Error> {
+        let block = self.client.get_block_with_receipts(block_id).await?;
 
         match block {
-            starknet::core::types::MaybePreConfirmedBlockWithReceipts::Block(ref b) => {
+            GetBlockWithReceiptsResponse::Block(ref b) => {
                 if b.block_number > self.block {
                     return Err(Error::BlockOutOfRange);
                 }
             }
-            starknet::core::types::MaybePreConfirmedBlockWithReceipts::PreConfirmedBlock(_) => {
+            GetBlockWithReceiptsResponse::PreConfirmed(_) => {
                 return Err(Error::UnexpectedPendingData);
             }
         }
 
-        Ok(block.into())
+        Ok(block)
     }
 
     pub async fn get_block_with_tx_hashes(
         &self,
         block_id: BlockIdOrTag,
-    ) -> Result<MaybePreConfirmedBlockWithTxHashes, Error> {
-        let block = self.provider.get_block_with_tx_hashes(block_id).await?;
+    ) -> Result<GetBlockWithTxHashesResponse, Error> {
+        let block = self.client.get_block_with_tx_hashes(block_id).await?;
 
         match block {
-            starknet::core::types::MaybePreConfirmedBlockWithTxHashes::Block(ref b) => {
+            GetBlockWithTxHashesResponse::Block(ref b) => {
                 if b.block_number > self.block {
                     return Err(Error::BlockOutOfRange);
                 }
             }
-            starknet::core::types::MaybePreConfirmedBlockWithTxHashes::PreConfirmedBlock(_) => {
+            GetBlockWithTxHashesResponse::PreConfirmed(_) => {
                 return Err(Error::UnexpectedPendingData);
             }
         }
 
-        Ok(block.into())
+        Ok(block)
     }
 
     pub async fn get_block_transaction_count(&self, block_id: BlockIdOrTag) -> Result<u64, Error> {
@@ -216,49 +205,45 @@ impl<P: Provider> ForkedClient<P> {
                 return Err(Error::BlockOutOfRange);
             }
             BlockIdOrTag::Hash(hash) => {
-                let block =
-                    self.provider.get_block_with_tx_hashes(BlockIdOrTag::Hash(hash)).await?;
-                if let starknet::core::types::MaybePreConfirmedBlockWithTxHashes::Block(b) = block {
+                let block = self.client.get_block_with_tx_hashes(BlockIdOrTag::Hash(hash)).await?;
+                if let GetBlockWithTxHashesResponse::Block(b) = block {
                     if b.block_number > self.block {
                         return Err(Error::BlockOutOfRange);
                     }
                 }
             }
-            BlockIdOrTag::Tag(_) => {
+            BlockIdOrTag::L1Accepted | BlockIdOrTag::Latest | BlockIdOrTag::PreConfirmed => {
                 return Err(Error::BlockTagNotAllowed);
             }
-            _ => {}
+            BlockIdOrTag::Number(_) => {}
         }
 
-        let status = self.provider.get_block_transaction_count(block_id).await?;
-        Ok(status)
+        Ok(self.client.get_block_transaction_count(block_id).await?)
     }
 
     pub async fn get_state_update(
         &self,
         block_id: BlockIdOrTag,
-    ) -> Result<MaybePreConfirmedStateUpdate, Error> {
+    ) -> Result<GetStateUpdateResponse, Error> {
         match block_id {
             BlockIdOrTag::Number(num) if num > self.block => {
                 return Err(Error::BlockOutOfRange);
             }
             BlockIdOrTag::Hash(hash) => {
-                let block =
-                    self.provider.get_block_with_tx_hashes(BlockIdOrTag::Hash(hash)).await?;
-                if let starknet::core::types::MaybePreConfirmedBlockWithTxHashes::Block(b) = block {
+                let block = self.client.get_block_with_tx_hashes(BlockIdOrTag::Hash(hash)).await?;
+                if let GetBlockWithTxHashesResponse::Block(b) = block {
                     if b.block_number > self.block {
                         return Err(Error::BlockOutOfRange);
                     }
                 }
             }
-            BlockIdOrTag::Tag(_) => {
+            BlockIdOrTag::L1Accepted | BlockIdOrTag::Latest | BlockIdOrTag::PreConfirmed => {
                 return Err(Error::BlockTagNotAllowed);
             }
-            _ => {}
+            BlockIdOrTag::Number(_) => {}
         }
 
-        let state_update = self.provider.get_state_update(block_id).await?;
-        Ok(state_update.into())
+        Ok(self.client.get_state_update(block_id).await?)
     }
 
     // NOTE(kariy): The reason why I don't just use EventFilter as a param, bcs i wanna make sure
@@ -272,38 +257,49 @@ impl<P: Provider> ForkedClient<P> {
         keys: Option<Vec<Vec<Felt>>>,
         continuation_token: Option<String>,
         chunk_size: u64,
-    ) -> Result<EventsPage, Error> {
+    ) -> Result<GetEventsResponse, Error> {
         if from > self.block || to > self.block {
             return Err(Error::BlockOutOfRange);
         }
 
         let from_block = Some(BlockIdOrTag::Number(from));
         let to_block = Some(BlockIdOrTag::Number(to));
-        let address = address.map(Felt::from);
-        let filter = EventFilter { from_block, to_block, address, keys };
 
-        let events = self.provider.get_events(filter, continuation_token, chunk_size).await?;
+        let event_filter = EventFilter { address, from_block, to_block, keys };
+        let result_page_request = ResultPageRequest { chunk_size, continuation_token };
+        let filter = EventFilterWithPage { event_filter, result_page_request };
 
-        Ok(events)
+        Ok(self.client.get_events(filter).await?)
     }
 }
 
 impl From<Error> for StarknetApiError {
     fn from(value: Error) -> Self {
         match value {
-            Error::Provider(provider_error) => provider_error.into(),
+            Error::CallError(error) => StarknetApiError::from(error),
+            Error::ClientError(error) => StarknetApiError::unexpected(error),
             Error::BlockOutOfRange => StarknetApiError::BlockNotFound,
             Error::BlockTagNotAllowed | Error::UnexpectedPendingData => {
-                StarknetApiError::UnexpectedError { reason: value.to_string() }
+                StarknetApiError::unexpected(value)
             }
+        }
+    }
+}
+
+impl From<ClientError> for Error {
+    fn from(error: ClientError) -> Self {
+        if let ClientError::Call(call_error) = error {
+            Self::CallError(call_error)
+        } else {
+            Self::ClientError(error)
         }
     }
 }
 
 #[cfg(test)]
 mod tests {
+    use jsonrpsee::http_client::HttpClientBuilder;
     use katana_primitives::felt;
-    use url::Url;
 
     use super::*;
 
@@ -312,8 +308,8 @@ mod tests {
 
     #[tokio::test]
     async fn get_block_hash() {
-        let url = Url::parse(SEPOLIA_URL).unwrap();
-        let client = ForkedClient::new_http(url, FORK_BLOCK_NUMBER);
+        let http_client = HttpClientBuilder::new().build(SEPOLIA_URL).unwrap();
+        let client = ForkedClient::new(http_client, FORK_BLOCK_NUMBER);
 
         // -----------------------------------------------------------------------
         // Block before the forked block
