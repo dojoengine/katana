@@ -1,6 +1,7 @@
 use starknet::core::utils::{cairo_short_string_to_felt, CairoShortStringToFeltError};
 use starknet::macros::short_string;
 
+use crate::cairo::ShortString;
 use crate::{Felt, FromStrError};
 
 /// Known chain ids that has been assigned a name.
@@ -78,7 +79,7 @@ impl TryFrom<Felt> for NamedChainId {
 pub enum ChainId {
     /// A chain id with a known chain name.
     Named(NamedChainId),
-    Id(Felt),
+    Id(ShortString),
 }
 
 #[derive(Debug, thiserror::Error)]
@@ -108,10 +109,10 @@ impl ChainId {
     }
 
     /// Returns the chain id value.
-    pub const fn id(&self) -> Felt {
+    pub fn id(&self) -> Felt {
         match self {
             ChainId::Named(name) => name.id(),
-            ChainId::Id(id) => *id,
+            ChainId::Id(id) => id.into(),
         }
     }
 }
