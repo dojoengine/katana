@@ -2,13 +2,13 @@ use std::iter;
 
 use alloy_primitives::B256;
 use derive_more::{AsRef, Deref};
-use starknet::core::utils::starknet_keccak;
 use starknet_types_core::hash::{self, StarkHash};
 
 use crate::contract::ContractAddress;
 use crate::execution::VmResources;
 use crate::fee::FeeInfo;
 use crate::transaction::{TxHash, TxType};
+use crate::utils::starknet_keccak;
 use crate::Felt;
 
 #[derive(Debug, Clone, PartialEq, Eq)]

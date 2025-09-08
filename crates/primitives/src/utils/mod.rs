@@ -1,8 +1,7 @@
-use alloy_primitives::U256;
 use starknet_types_core::felt::NonZeroFelt;
 use starknet_types_core::hash::{Pedersen, StarkHash};
 
-use crate::Felt;
+use crate::{Felt, U256};
 
 pub mod class;
 pub mod transaction;
@@ -62,8 +61,51 @@ const ADDR_BOUND: NonZeroFelt = NonZeroFelt::from_raw([
 /// storage tree.
 ///
 /// Implementation reference: https://github.com/starkware-libs/cairo-lang/blob/6d99011f6ef2a3dc178f7c8db4f0ddc6e836f303/src/starkware/starknet/common/storage.cairo#L12-L54
-fn normalize_address(address: Felt) -> Felt {
+pub fn normalize_address(address: Felt) -> Felt {
     address.mod_floor(&ADDR_BOUND)
+}
+
+/// A variant of eth-keccak that computes a value that fits in a Starknet [`Felt`](crate::Felt).
+///
+/// Implementation reference: https://github.com/starkware-libs/cairo-lang/blob/66355d7d99f1962ff9ccba8d0dbacbce3bd79bf8/src/starkware/starknet/public/abi.py#L38-L43
+pub fn starknet_keccak(data: &[u8]) -> Felt {
+    use alloy_primitives::Keccak256;
+
+    let mut hasher = Keccak256::new();
+    hasher.update(data);
+    let hash = hasher.finalize();
+
+    // Safety: The output of the hash function is guaranteed to be 32 bytes long.
+    let mut hash = unsafe { *(hash[..].as_ptr() as *const [u8; 32]) };
+    // Mask the first 6 bits to ensure the result is less than 2**250 - 1
+    hash[0] &= 0b00000011;
+
+    Felt::from_bytes_be(&hash)
+}
+
+/// Error type for non-ASCII storage variable names.
+#[derive(Debug, thiserror::Error)]
+#[error("storage variable name `{name}` is not a valid ASCII string")]
+pub struct NonAsciiNameError {
+    /// The name of the storage variable that caused the error.
+    pub name: String,
+}
+
+/// Returns the storage address of a Starkbet storage variable given its name and arguments.
+///
+/// Implementation reference: https://github.com/starkware-libs/cairo-lang/blob/66355d7d99f1962ff9ccba8d0dbacbce3bd79bf8/src/starkware/starknet/public/abi.py#L75
+pub fn get_storage_var_address(var_name: &str, args: &[Felt]) -> Result<Felt, NonAsciiNameError> {
+    if var_name.is_ascii() {
+        let mut res = starknet_keccak(var_name.as_bytes());
+
+        for arg in args {
+            res = Pedersen::hash(&res, arg);
+        }
+
+        Ok(normalize_address(res))
+    } else {
+        Err(NonAsciiNameError { name: var_name.to_string() })
+    }
 }
 
 #[cfg(test)]

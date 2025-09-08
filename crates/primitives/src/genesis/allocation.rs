@@ -1,19 +1,17 @@
 use std::collections::{BTreeMap, HashMap};
 use std::fmt::Debug;
 
-use alloy_primitives::U256;
 use derive_more::{Deref, DerefMut};
 use rand::rngs::SmallRng;
 use rand::{RngCore, SeedableRng};
 use serde::{Deserialize, Serialize};
-use starknet::core::serde::unsigned_field_element::{UfeHex, UfeHexOption};
-use starknet::core::utils::get_contract_address;
 use starknet::signers::SigningKey;
 
 use super::constant::DEFAULT_ACCOUNT_CLASS_HASH;
 use crate::class::ClassHash;
 use crate::contract::{ContractAddress, StorageKey, StorageValue};
-use crate::{felt, Felt};
+use crate::utils::get_contract_address;
+use crate::{felt, Felt, U256};
 
 /// Represents a contract allocation in the genesis block.
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
@@ -127,7 +125,6 @@ impl GenesisAccountAlloc {
 #[derive(Debug, Default, Clone, Serialize, Deserialize, PartialEq, Eq)]
 pub struct GenesisContractAlloc {
     /// The class hash of the contract.
-    #[serde_as(as = "UfeHexOption")]
     pub class_hash: Option<ClassHash>,
     /// The amount of the fee token allocated to the contract.
     pub balance: Option<U256>,
@@ -145,7 +142,6 @@ pub struct GenesisContractAlloc {
 #[derive(Debug, Default, Clone, Serialize, Deserialize, PartialEq, Eq, Deref, DerefMut)]
 pub struct DevGenesisAccount {
     /// The private key associated with the public key of the account.
-    #[serde_as(as = "UfeHex")]
     pub private_key: Felt,
     #[deref]
     #[deref_mut]
@@ -178,10 +174,8 @@ impl DevGenesisAccount {
 #[derive(Debug, Default, Clone, Serialize, Deserialize, PartialEq, Eq)]
 pub struct GenesisAccount {
     /// The public key associated with the account for validation.
-    #[serde_as(as = "UfeHex")]
     pub public_key: Felt,
     /// The class hash of the account contract.
-    #[serde_as(as = "UfeHex")]
     pub class_hash: ClassHash,
     /// The amount of the fee token allocated to the account.
     pub balance: Option<U256>,

@@ -1,8 +1,8 @@
 use katana_primitives::chain::ChainId;
 use katana_primitives::eth::Address as EthAddress;
 use katana_primitives::execution::EntryPointSelector;
-use katana_primitives::message::L1ToL2Message;
 use katana_primitives::transaction::L1HandlerTx;
+use katana_primitives::utils::transaction::compute_l1_to_l2_message_hash;
 use katana_primitives::{ContractAddress, Felt};
 use serde::{Deserialize, Serialize};
 
@@ -25,14 +25,13 @@ impl MsgFromL1 {
         // for the `starknet_estimateMessageFee` RPC.
         let nonce = Felt::ZERO;
 
-        let message_hash = L1ToL2Message {
+        let message_hash = compute_l1_to_l2_message_hash(
+            self.from_address,
+            self.to_address,
+            self.entry_point_selector,
+            &self.payload,
             nonce,
-            to_address: self.to_address,
-            payload: self.payload.clone(),
-            from_address: self.from_address,
-            entry_point_selector: self.entry_point_selector,
-        }
-        .hash();
+        );
 
         // When executing a l1 handler tx, blockifier just assert that the paid_fee_on_l1 is
         // anything but 0. See: https://github.com/dojoengine/sequencer/blob/d6951f24fc2082c7aa89cdbc063648915b131d74/crates/blockifier/src/transaction/transaction_execution.rs#L140-L145

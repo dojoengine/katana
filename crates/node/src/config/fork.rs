@@ -1,5 +1,5 @@
 use katana_primitives::block::BlockHashOrNumber;
-use starknet::providers::Url;
+use url::Url;
 
 /// Node forking configurations.
 #[derive(Debug, Clone)]

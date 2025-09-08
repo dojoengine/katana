@@ -1,6 +1,5 @@
 use std::sync::Arc;
 
-use alloy_primitives::B256;
 use derive_more::{AsRef, Deref, From};
 
 use crate::chain::ChainId;
@@ -13,7 +12,7 @@ use crate::utils::transaction::{
     compute_declare_v3_tx_hash, compute_deploy_account_v1_tx_hash,
     compute_deploy_account_v3_tx_hash, compute_invoke_v1_tx_hash, compute_l1_handler_tx_hash,
 };
-use crate::{utils, Felt};
+use crate::{utils, Felt, B256};
 
 /// The hash of a transaction.
 pub type TxHash = Felt;
@@ -579,7 +578,7 @@ impl L1HandlerTx {
     pub fn calculate_hash(&self) -> TxHash {
         compute_l1_handler_tx_hash(
             self.version,
-            Felt::from(self.contract_address),
+            self.contract_address,
             self.entry_point_selector,
             &self.calldata,
             self.chain_id.into(),

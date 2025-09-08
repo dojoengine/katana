@@ -2,10 +2,10 @@ use std::fmt;
 use std::str::FromStr;
 
 use num_bigint::BigUint;
-use starknet::core::utils::normalize_address;
 
 use crate::class::ClassHash;
-use crate::Felt;
+use crate::utils::normalize_address;
+use crate::{Felt, U256};
 
 /// Represents the type for a contract storage key.
 pub type StorageKey = Felt;
@@ -84,6 +84,24 @@ impl From<BigUint> for ContractAddress {
     }
 }
 
+impl From<U256> for ContractAddress {
+    fn from(value: U256) -> Self {
+        Self::new(Felt::from_bytes_be(&value.to_be_bytes()))
+    }
+}
+
+impl From<ContractAddress> for U256 {
+    fn from(value: ContractAddress) -> Self {
+        U256::from_be_bytes(value.0.to_bytes_be())
+    }
+}
+
+impl PartialEq<Felt> for ContractAddress {
+    fn eq(&self, other: &Felt) -> bool {
+        self.0 == *other
+    }
+}
+
 impl cainome_cairo_serde::CairoSerde for ContractAddress {
     type RustType = Self;
 
@@ -96,12 +114,6 @@ impl cainome_cairo_serde::CairoSerde for ContractAddress {
         offset: usize,
     ) -> cainome_cairo_serde::Result<Self::RustType> {
         Ok(Self::from(<Felt as cainome_cairo_serde::CairoSerde>::cairo_deserialize(felts, offset)?))
-    }
-}
-
-impl PartialEq<Felt> for ContractAddress {
-    fn eq(&self, other: &Felt) -> bool {
-        self.0 == *other
     }
 }
 
