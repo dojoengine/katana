@@ -1,6 +1,8 @@
 use serde::de::Visitor;
 use serde::{Deserialize, Deserializer};
 
+pub mod base64;
+
 /// Serializes a value as a hexadecimal string with "0x" prefix.
 pub fn serialize_as_hex<S, T>(value: &T, serializer: S) -> std::result::Result<S::Ok, S::Error>
 where

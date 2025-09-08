@@ -6389,7 +6389,6 @@ dependencies = [
  "rstest 0.18.2",
  "serde",
  "serde_json",
- "starknet",
  "thiserror 1.0.69",
 ]
 
@@ -6401,7 +6400,6 @@ dependencies = [
  "katana-primitives",
  "katana-rpc-api",
  "katana-rpc-types",
- "starknet",
  "thiserror 1.0.69",
  "tokio",
 ]
@@ -6410,7 +6408,6 @@ dependencies = [
 name = "katana-rpc-types"
 version = "1.7.0-alpha.3"
 dependencies = [
- "alloy-primitives",
  "assert_matches",
  "cainome",
  "cainome-cairo-serde",
@@ -6436,11 +6433,9 @@ name = "katana-rpc-types-builder"
 version = "1.7.0-alpha.3"
 dependencies = [
  "anyhow",
- "katana-executor",
  "katana-primitives",
  "katana-provider",
  "katana-rpc-types",
- "starknet",
 ]
 
 [[package]]
@@ -9696,6 +9691,7 @@ dependencies = [
 name = "serde-utils"
 version = "1.7.0-alpha.3"
 dependencies = [
+ "base64 0.21.7",
  "serde",
 ]
 

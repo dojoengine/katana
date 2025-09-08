@@ -15,7 +15,7 @@ use katana_primitives::{
 };
 use serde::{Deserialize, Serialize};
 use serde_json_pythonic::to_string_pythonic;
-use starknet::core::serde::byte_array::base64;
+use serde_utils::base64;
 use starknet::core::types::{CompressedLegacyContractClass, FlattenedSierraClass};
 use starknet_api::contract_class::EntryPointType;
 use starknet_api::deprecated_contract_class::{

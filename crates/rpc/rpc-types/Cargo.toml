@@ -22,7 +22,6 @@ starknet.workspace = true
 starknet_api.workspace = true
 thiserror.workspace = true
 
-alloy-primitives.workspace = true
 flate2.workspace = true
 serde_json_pythonic = "0.1.2"
 

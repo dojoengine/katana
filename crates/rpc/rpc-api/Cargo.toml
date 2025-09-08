@@ -16,7 +16,6 @@ anyhow.workspace = true
 jsonrpsee = { workspace = true, features = [ "macros", "server" ] }
 serde.workspace = true
 serde_json.workspace = true
-starknet.workspace = true
 thiserror.workspace = true
 
 [dev-dependencies]

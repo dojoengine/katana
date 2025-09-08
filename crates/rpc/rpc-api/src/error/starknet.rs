@@ -276,8 +276,6 @@ mod impls {
     use katana_pool_api::PoolError;
     use katana_primitives::event::ContinuationTokenError;
     use katana_provider_api::ProviderError;
-    use starknet::core::types::StarknetError as StarknetRsError;
-    use starknet::providers::ProviderError as StarknetRsProviderError;
 
     use super::{
         CompilationFailedData, ContractErrorData, InvalidTransactionNonceData, PageSizeTooBigData,
@@ -465,86 +463,6 @@ mod impls {
                 }
                 InvalidTransactionError::ValidationFailure { error, .. } => {
                     Self::ValidationFailure(ValidationFailureData { reason: error.to_string() })
-                }
-            }
-        }
-    }
-
-    // ---- Forking client error conversion
-
-    impl From<StarknetRsError> for StarknetApiError {
-        fn from(value: StarknetRsError) -> Self {
-            match value {
-                StarknetRsError::FeeBelowMinimum => Self::FeeBelowMinimum,
-                StarknetRsError::ReplacementTransactionUnderpriced => {
-                    Self::ReplacementTransactionUnderpriced
-                }
-                StarknetRsError::FailedToReceiveTransaction => Self::FailedToReceiveTxn,
-                StarknetRsError::NoBlocks => Self::NoBlocks,
-                StarknetRsError::NonAccount => Self::NonAccount,
-                StarknetRsError::BlockNotFound => Self::BlockNotFound,
-                StarknetRsError::PageSizeTooBig => {
-                    Self::PageSizeTooBig(PageSizeTooBigData { requested: 0, max_allowed: 0 })
-                }
-                StarknetRsError::DuplicateTx => Self::DuplicateTransaction,
-                StarknetRsError::ContractNotFound => Self::ContractNotFound,
-                StarknetRsError::ClassHashNotFound => Self::ClassHashNotFound,
-                StarknetRsError::TooManyKeysInFilter => Self::TooManyKeysInFilter,
-                StarknetRsError::InvalidTransactionIndex => Self::InvalidTxnIndex,
-                StarknetRsError::TransactionHashNotFound => Self::TxnHashNotFound,
-                StarknetRsError::ClassAlreadyDeclared => Self::ClassAlreadyDeclared,
-                StarknetRsError::UnexpectedError(reason) => Self::unexpected(reason),
-                StarknetRsError::InvalidContinuationToken => Self::InvalidContinuationToken,
-                StarknetRsError::UnsupportedTxVersion => Self::UnsupportedTransactionVersion,
-                StarknetRsError::CompiledClassHashMismatch => Self::CompiledClassHashMismatch,
-                StarknetRsError::CompilationFailed(reason) => {
-                    Self::CompilationFailed(CompilationFailedData { reason })
-                }
-                StarknetRsError::InsufficientAccountBalance => Self::InsufficientAccountBalance,
-                StarknetRsError::ValidationFailure(reason) => {
-                    Self::ValidationFailure(ValidationFailureData { reason })
-                }
-                StarknetRsError::ContractClassSizeIsTooLarge => Self::ContractClassSizeIsTooLarge,
-                StarknetRsError::EntrypointNotFound => Self::EntrypointNotFound,
-                StarknetRsError::ContractError(..) => {
-                    Self::ContractError(ContractErrorData { revert_error: String::new() })
-                }
-                StarknetRsError::TransactionExecutionError(data) => {
-                    Self::transaction_execution_error(data.transaction_index, String::new())
-                }
-                StarknetRsError::InvalidTransactionNonce(reason) => {
-                    Self::InvalidTransactionNonce(InvalidTransactionNonceData { reason })
-                }
-                StarknetRsError::UnsupportedContractClassVersion => {
-                    Self::UnsupportedContractClassVersion
-                }
-                StarknetRsError::NoTraceAvailable(_) => Self::unexpected("No trace available"),
-                StarknetRsError::StorageProofNotSupported => {
-                    Self::StorageProofNotSupported(StorageProofNotSupportedData {
-                        oldest_block: 0,
-                        requested_block: 0,
-                    })
-                }
-                StarknetRsError::InsufficientResourcesForValidate => {
-                    Self::InsufficientResourcesForValidate
-                }
-                StarknetRsError::InvalidSubscriptionId => Self::InvalidSubscriptionId,
-                StarknetRsError::TooManyAddressesInFilter => Self::TooManyAddressesInFilter,
-                StarknetRsError::TooManyBlocksBack => Self::TooManyBlocksBack,
-            }
-        }
-    }
-
-    impl From<StarknetRsProviderError> for StarknetApiError {
-        fn from(value: StarknetRsProviderError) -> Self {
-            match value {
-                StarknetRsProviderError::StarknetError(error) => error.into(),
-                StarknetRsProviderError::Other(error) => Self::unexpected(error),
-                StarknetRsProviderError::ArrayLengthMismatch => {
-                    Self::unexpected("Forking client: Array length mismatch")
-                }
-                StarknetRsProviderError::RateLimited => {
-                    Self::unexpected("Forking client: Rate limited")
                 }
             }
         }

@@ -11,7 +11,6 @@ katana-rpc-api = { workspace = true, features = [ "client" ] }
 katana-rpc-types.workspace = true
 
 jsonrpsee = { workspace = true, features = [ "client" ] }
-starknet.workspace = true
 thiserror.workspace = true
 
 [dev-dependencies]

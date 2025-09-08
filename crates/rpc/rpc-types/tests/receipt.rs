@@ -1,14 +1,14 @@
 use assert_matches::assert_matches;
+use katana_primitives::alloy::FromHex;
 use katana_primitives::block::FinalityStatus;
 use katana_primitives::fee::PriceUnit;
 use katana_primitives::receipt::Event;
-use katana_primitives::{address, felt, ContractAddress};
+use katana_primitives::{address, felt, ContractAddress, B256};
 use katana_rpc_types::receipt::{
     ExecutionResult, ReceiptBlockInfo, RpcTxReceipt, TxReceiptWithBlockInfo,
 };
 use serde_json::Value;
 use similar_asserts::assert_eq;
-use starknet::core::types::Hash256;
 
 mod fixtures;
 
@@ -333,7 +333,7 @@ fn l1_handler_confirmed_receipt() {
         assert_eq!(rct.execution_resources.l2_gas, 617160);
         assert_eq!(rct.execution_resources.l1_gas, 20163);
 
-        assert_eq!(rct.message_hash, Hash256::from_hex("0xb720c23367e1ebcb73f909ce13c3773d74c9a06b212d6dca1e6f55c3d4b44fde").unwrap());
+        assert_eq!(rct.message_hash, B256::from_hex("0xb720c23367e1ebcb73f909ce13c3773d74c9a06b212d6dca1e6f55c3d4b44fde").unwrap());
     });
 
     let serialized = serde_json::to_value(&full_receipt).unwrap();
@@ -389,7 +389,7 @@ fn l1_handler_preconfirmed_receipt() {
         assert_eq!(rct.execution_resources.l2_gas, 617160);
         assert_eq!(rct.execution_resources.l1_gas, 20163);
 
-        assert_eq!(rct.message_hash, Hash256::from_hex("0xb720c23367e1ebcb73f909ce13c3773d74c9a06b212d6dca1e6f55c3d4b44fde").unwrap());
+        assert_eq!(rct.message_hash, B256::from_hex("0xb720c23367e1ebcb73f909ce13c3773d74c9a06b212d6dca1e6f55c3d4b44fde").unwrap());
     });
 
     let serialized = serde_json::to_value(&full_receipt).unwrap();

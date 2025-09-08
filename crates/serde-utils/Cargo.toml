@@ -7,3 +7,4 @@ version.workspace = true
 
 [dependencies]
 serde.workspace = true
+base64.workspace = true

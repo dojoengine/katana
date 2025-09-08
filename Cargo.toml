@@ -118,7 +118,7 @@ assert_matches = "1.5.0"
 async-trait = "0.1.82"
 auto_impl = "1.2.0"
 backon = { version = "1.5", features = [ "tokio-sleep" ] }
-base64 = "0.21.2"
+base64 = "0.21"
 bigdecimal = "0.4.1"
 bitvec = "1.0.1"
 camino = { version = "1.1.2", features = [ "serde1" ] }

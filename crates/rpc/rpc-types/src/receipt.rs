@@ -2,9 +2,8 @@ use katana_primitives::block::{BlockHash, BlockNumber, FinalityStatus};
 use katana_primitives::fee::{FeeInfo, PriceUnit};
 use katana_primitives::receipt::{self, Event, MessageToL1, Receipt};
 use katana_primitives::transaction::TxHash;
-use katana_primitives::{ContractAddress, Felt};
+use katana_primitives::{ContractAddress, Felt, B256};
 use serde::{Deserialize, Serialize};
-use starknet::core::types::Hash256;
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub struct RpcTxReceiptWithHash {
@@ -127,7 +126,7 @@ pub struct RpcInvokeTxReceipt {
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub struct RpcL1HandlerTxReceipt {
-    pub message_hash: Hash256,
+    pub message_hash: B256,
     pub actual_fee: FeePayment,
     pub finality_status: FinalityStatus,
     pub messages_sent: Vec<MessageToL1>,
@@ -221,7 +220,7 @@ impl RpcTxReceipt {
                     finality_status,
                     actual_fee: rct.fee.into(),
                     execution_resources: rct.execution_resources.into(),
-                    message_hash: Hash256::from_bytes(*rct.message_hash),
+                    message_hash: rct.message_hash,
                     execution_result: if let Some(reason) = rct.revert_error {
                         ExecutionResult::Reverted { reason }
                     } else {

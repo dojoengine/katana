@@ -13,12 +13,10 @@ use katana_primitives::transaction::{
     DeclareTx, DeclareTxV3, DeclareTxWithClass, DeployAccountTx, DeployAccountTxV3, InvokeTx,
     InvokeTxV3, TxHash, TxType,
 };
-use katana_primitives::utils::serde::{
-    deserialize_hex_u128, deserialize_hex_u64, serialize_hex_u128, serialize_hex_u64,
-};
+use katana_primitives::utils::get_contract_address;
 use katana_primitives::{ContractAddress, Felt};
 use serde::{de, Deserialize, Deserializer, Serialize, Serializer};
-use starknet::core::utils::get_contract_address;
+use serde_utils::{deserialize_u128, deserialize_u64, serialize_as_hex};
 
 use crate::class::SierraClass;
 
@@ -643,9 +641,9 @@ enum RpcResourceBoundsMapping {
 
 #[derive(Serialize, Deserialize)]
 struct RpcResourceBounds {
-    #[serde(serialize_with = "serialize_hex_u64", deserialize_with = "deserialize_hex_u64")]
+    #[serde(serialize_with = "serialize_as_hex", deserialize_with = "deserialize_u64")]
     max_amount: u64,
-    #[serde(serialize_with = "serialize_hex_u128", deserialize_with = "deserialize_hex_u128")]
+    #[serde(serialize_with = "serialize_as_hex", deserialize_with = "deserialize_u128")]
     max_price_per_unit: u128,
 }
 
