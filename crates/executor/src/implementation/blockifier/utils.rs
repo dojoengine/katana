@@ -136,7 +136,6 @@ pub fn transact<S: StateReader>(
                     &tx_state,
                     &tx_state_changes_keys,
                     &info.summarize(versioned_constants),
-                    &info.summarize_builtins(),
                     &info.receipt.resources,
                     versioned_constants,
                 )?;

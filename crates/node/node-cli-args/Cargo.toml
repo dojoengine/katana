@@ -11,6 +11,7 @@ katana-chain-spec.workspace = true
 katana-node-defaults.workspace = true
 katana-primitives.workspace = true
 katana-tracing.workspace = true
+serde-utils.workspace = true
 
 anyhow.workspace = true
 clap.workspace = true
