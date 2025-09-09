@@ -483,6 +483,13 @@ fn from_rpc_resource_bounds(
     bounds: starknet::core::types::ResourceBoundsMapping,
 ) -> katana_primitives::fee::ResourceBoundsMapping {
     // If l2_gas and l1_data_gas are zero, treat it as L1Gas only (legacy support)
+    //
+    // this is technically an incorrect way to do this because the l2_gas and l1_data_gas can
+    // technically still be zero even if we're using non-legacy resource bounds (ie all bounds are
+    // set). the only way to do this is to use a different type/variant to represent a legacy
+    // resource bounds mapping. ideally we could just use the ResourceBoundsMapping from
+    // katana-primitives, but the L1Gas (ie legacy) has been incorrectly defined (lack of l2_gas
+    // field) and we can't simply add it because it'll break the type serialization format.
     if bounds.l2_gas.max_amount == 0
         && bounds.l2_gas.max_price_per_unit == 0
         && bounds.l1_data_gas.max_amount == 0
