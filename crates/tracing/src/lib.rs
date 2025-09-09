@@ -1,6 +1,8 @@
+use opentelemetry::trace::Tracer;
 use opentelemetry_gcloud_trace::errors::GcloudTraceError;
 use tracing::subscriber::SetGlobalDefaultError;
 use tracing_log::log::SetLoggerError;
+use tracing_opentelemetry::PreSampledTracer;
 use tracing_subscriber::filter;
 
 mod builder;
@@ -10,6 +12,13 @@ pub mod otlp;
 
 pub use builder::TracingBuilder;
 pub use fmt::LogFormat;
+pub use gcloud::{GCloudTracingBuilder, GcloudConfig};
+pub use otlp::{OtlpConfig, OtlpTracingBuilder};
+
+// pub type Tracer=  Tracer + PreSampledTracer + Send + Sync + 'static;
+
+trait TelemetryTracer: Tracer + PreSampledTracer + Send + Sync + 'static {}
+impl<T> TelemetryTracer for T where T: Tracer + PreSampledTracer + Send + Sync + 'static {}
 
 #[derive(Debug, Clone)]
 pub enum TracerConfig {
@@ -47,31 +56,51 @@ pub enum Error {
 /// Initialize tracing with the given configuration.
 ///
 /// This function is maintained for backward compatibility.
-/// For new code, consider using [`TracingBuilder`] for more flexibility.
+/// For new code, consider using [`TracingBuilder`] with the new telemetry builders.
+///
+/// # Example
+/// ```rust,ignore
+/// use katana_tracing::{OtlpTracingBuilder, TracingBuilder};
+///
+/// // New API (recommended):
+/// let otlp_layer = OtlpTracingBuilder::new()
+///     .service_name("my-service")
+///     .endpoint("http://localhost:4317")
+///     .build()?;
+///
+/// TracingBuilder::new()
+///     .json()
+///     .with_default_filter()?
+///     .init_with_otlp_telemetry(otlp_layer)?;
+/// ```
 pub async fn init(format: LogFormat, telemetry_config: Option<TracerConfig>) -> Result<(), Error> {
-    match format {
-        LogFormat::Full => match telemetry_config {
-            Some(TracerConfig::Otlp(cfg)) => {
-                TracingBuilder::new().full().with_otlp(cfg).try_init().await
+    // Build the base tracing builder with format and filter
+    let builder = TracingBuilder::with_format(format).with_env_filter_or_default()?;
+
+    // Build telemetry layer and initialize based on config type
+    match telemetry_config {
+        Some(TracerConfig::Otlp(cfg)) => {
+            // OTLP is synchronous
+            let mut otlp_builder = OtlpTracingBuilder::new().service_name("katana");
+            if let Some(endpoint) = cfg.endpoint {
+                otlp_builder = otlp_builder.endpoint(endpoint);
             }
-
-            Some(TracerConfig::GCloud(cfg)) => {
-                TracingBuilder::new().full().with_gcloud(cfg).try_init().await
+            let layer = otlp_builder.build()?;
+            builder.init_with_otlp_telemetry(layer)?;
+        }
+        Some(TracerConfig::GCloud(cfg)) => {
+            // GCloud is async
+            let mut gcloud_builder = GCloudTracingBuilder::new().service_name("katana");
+            if let Some(project_id) = cfg.project_id {
+                gcloud_builder = gcloud_builder.project_id(project_id);
             }
-
-            None => TracingBuilder::new().full().try_init().await,
-        },
-
-        LogFormat::Json => match telemetry_config {
-            Some(TracerConfig::Otlp(cfg)) => {
-                TracingBuilder::new().json().with_otlp(cfg).try_init().await
-            }
-
-            Some(TracerConfig::GCloud(cfg)) => {
-                TracingBuilder::new().json().with_gcloud(cfg).try_init().await
-            }
-
-            None => TracingBuilder::new().json().try_init().await,
-        },
+            let layer = gcloud_builder.build().await?;
+            builder.init_with_gcloud_telemetry(layer)?;
+        }
+        None => {
+            builder.try_init()?;
+        }
     }
+
+    Ok(())
 }
