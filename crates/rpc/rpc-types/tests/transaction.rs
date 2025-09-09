@@ -1,12 +1,16 @@
 use assert_matches::assert_matches;
 use katana_primitives::da::DataAvailabilityMode;
-use katana_primitives::fee::Tip;
-use katana_primitives::{address, felt, ContractAddress};
+use katana_primitives::fee::{ResourceBoundsMapping, Tip};
+use katana_primitives::{address, felt, transaction as primitives, ContractAddress};
 use katana_rpc_types::transaction::{
     RpcDeclareTx, RpcDeployAccountTx, RpcInvokeTx, RpcTx, RpcTxWithHash,
 };
+use katana_rpc_types::{
+    RpcDeclareTxV0, RpcDeclareTxV1, RpcDeclareTxV2, RpcDeclareTxV3, RpcDeployAccountTxV1,
+    RpcDeployAccountTxV3, RpcDeployTx, RpcInvokeTxV0, RpcInvokeTxV1, RpcInvokeTxV3, RpcL1HandlerTx,
+};
 use serde_json::Value;
-use starknet::core::types::ResourceBounds;
+use starknet::core::types::ResourceBounds as RpcResourceBounds;
 
 mod fixtures;
 
@@ -44,9 +48,9 @@ fn invoke_transaction() {
         assert_eq!(tx.account_deployment_data, vec![]);
 
         assert_eq!(tx.tip, Tip::new(0x5f5e100));
-        assert_eq!(tx.resource_bounds.l1_data_gas, ResourceBounds { max_amount: 0x2710, max_price_per_unit: 0x8d79883d20000 });
-        assert_eq!(tx.resource_bounds.l1_gas, ResourceBounds { max_amount: 0x249f0, max_price_per_unit: 0x8d79883d20000 });
-        assert_eq!(tx.resource_bounds.l2_gas, ResourceBounds { max_amount: 0x5f5e100, max_price_per_unit: 0xba43b7400 });
+        assert_eq!(tx.resource_bounds.l1_data_gas, RpcResourceBounds { max_amount: 0x2710, max_price_per_unit: 0x8d79883d20000 });
+        assert_eq!(tx.resource_bounds.l1_gas, RpcResourceBounds { max_amount: 0x249f0, max_price_per_unit: 0x8d79883d20000 });
+        assert_eq!(tx.resource_bounds.l2_gas, RpcResourceBounds { max_amount: 0x5f5e100, max_price_per_unit: 0xba43b7400 });
     });
 
     let serialized = serde_json::to_value(&tx).unwrap();
@@ -83,9 +87,9 @@ fn declare_transaction() {
         assert_eq!(tx.paymaster_data, vec![]);
 
         assert_eq!(tx.tip, Tip::new(0x0));
-        assert_eq!(tx.resource_bounds.l1_data_gas, ResourceBounds { max_amount: 0x2710, max_price_per_unit: 0x8d79883d20000 });
-        assert_eq!(tx.resource_bounds.l1_gas, ResourceBounds { max_amount: 0x249f0, max_price_per_unit: 0x8d79883d20000 });
-        assert_eq!(tx.resource_bounds.l2_gas, ResourceBounds { max_amount: 0x6c76900, max_price_per_unit: 0xba43b7400 });
+        assert_eq!(tx.resource_bounds.l1_data_gas, RpcResourceBounds { max_amount: 0x2710, max_price_per_unit: 0x8d79883d20000 });
+        assert_eq!(tx.resource_bounds.l1_gas, RpcResourceBounds { max_amount: 0x249f0, max_price_per_unit: 0x8d79883d20000 });
+        assert_eq!(tx.resource_bounds.l2_gas, RpcResourceBounds { max_amount: 0x6c76900, max_price_per_unit: 0xba43b7400 });
     });
 
     let serialized = serde_json::to_value(&tx).unwrap();
@@ -124,9 +128,9 @@ fn deploy_account_transaction() {
         assert_eq!(tx.paymaster_data, vec![]);
 
         assert_eq!(tx.tip, Tip::new(0x5f5e100));
-        assert_eq!(tx.resource_bounds.l1_data_gas, ResourceBounds { max_amount: 0x2710, max_price_per_unit: 0x8d79883d20000 });
-        assert_eq!(tx.resource_bounds.l1_gas, ResourceBounds { max_amount: 0x249f0, max_price_per_unit: 0x8d79883d20000 });
-        assert_eq!(tx.resource_bounds.l2_gas, ResourceBounds { max_amount: 0x5f5e100, max_price_per_unit: 0xba43b7400 });
+        assert_eq!(tx.resource_bounds.l1_data_gas, RpcResourceBounds { max_amount: 0x2710, max_price_per_unit: 0x8d79883d20000 });
+        assert_eq!(tx.resource_bounds.l1_gas, RpcResourceBounds { max_amount: 0x249f0, max_price_per_unit: 0x8d79883d20000 });
+        assert_eq!(tx.resource_bounds.l2_gas, RpcResourceBounds { max_amount: 0x5f5e100, max_price_per_unit: 0xba43b7400 });
     });
 
     let serialized = serde_json::to_value(&tx).unwrap();
@@ -163,4 +167,448 @@ fn l1_handler_transaction() {
 
     let serialized = serde_json::to_value(&tx).unwrap();
     assert_eq!(serialized, json);
+}
+
+// ========================================================================================
+// Tests for conversions between RPC and primitives types with round-trip verification
+// ========================================================================================
+
+#[test]
+fn rpc_to_primitives_invoke_v3() {
+    let rpc_tx = RpcTxWithHash {
+        transaction_hash: felt!("0x123456"),
+        transaction: RpcTx::Invoke(RpcInvokeTx::V3(RpcInvokeTxV3 {
+            sender_address: address!("0x123"),
+            calldata: vec![felt!("0x1"), felt!("0x2"), felt!("0x3")],
+            signature: vec![felt!("0xabc"), felt!("0xdef")],
+            nonce: felt!("0x5"),
+            resource_bounds: starknet::core::types::ResourceBoundsMapping {
+                l1_gas: RpcResourceBounds { max_amount: 0x1000, max_price_per_unit: 0x100 },
+                l2_gas: RpcResourceBounds { max_amount: 0x2000, max_price_per_unit: 0x200 },
+                l1_data_gas: RpcResourceBounds { max_amount: 0x3000, max_price_per_unit: 0x300 },
+            },
+            tip: Tip::new(0x50),
+            paymaster_data: vec![felt!("0x999")],
+            account_deployment_data: vec![felt!("0x888"), felt!("0x777")],
+            nonce_data_availability_mode: DataAvailabilityMode::L1,
+            fee_data_availability_mode: DataAvailabilityMode::L2,
+        })),
+    };
+
+    let primitives_tx: primitives::TxWithHash = rpc_tx.clone().into();
+
+    assert_eq!(primitives_tx.hash, felt!("0x123456"));
+
+    assert_matches!(&primitives_tx.transaction, primitives::Tx::Invoke(primitives::InvokeTx::V3(tx)) => {
+        assert_eq!(tx.sender_address, address!("0x123"));
+        assert_eq!(tx.calldata, vec![felt!("0x1"), felt!("0x2"), felt!("0x3")]);
+        assert_eq!(tx.signature, vec![felt!("0xabc"), felt!("0xdef")]);
+        assert_eq!(tx.nonce, felt!("0x5"));
+
+        // Check resource bounds
+        assert_matches!(&tx.resource_bounds, ResourceBoundsMapping::All(bounds) => {
+            assert_eq!(bounds.l1_gas.max_amount, 0x1000);
+            assert_eq!(bounds.l1_gas.max_price_per_unit, 0x100);
+            assert_eq!(bounds.l2_gas.max_amount, 0x2000);
+            assert_eq!(bounds.l2_gas.max_price_per_unit, 0x200);
+            assert_eq!(bounds.l1_data_gas.max_amount, 0x3000);
+            assert_eq!(bounds.l1_data_gas.max_price_per_unit, 0x300);
+        });
+
+        assert_eq!(tx.tip, 0x50);
+        assert_eq!(tx.paymaster_data, vec![felt!("0x999")]);
+        assert_eq!(tx.account_deployment_data, vec![felt!("0x888"), felt!("0x777")]);
+        assert_eq!(tx.nonce_data_availability_mode, DataAvailabilityMode::L1);
+        assert_eq!(tx.fee_data_availability_mode, DataAvailabilityMode::L2);
+    });
+
+    let rpc_tx_roundtrip: RpcTxWithHash = primitives_tx.into();
+    assert_eq!(rpc_tx, rpc_tx_roundtrip);
+}
+
+#[test]
+fn rpc_to_primitives_invoke_v1() {
+    let rpc_tx = RpcTxWithHash {
+        transaction_hash: felt!("0xabc123"),
+        transaction: RpcTx::Invoke(RpcInvokeTx::V1(RpcInvokeTxV1 {
+            sender_address: address!("0x456"),
+            calldata: vec![felt!("0xa"), felt!("0xb")],
+            max_fee: felt!("0x1000"),
+            signature: vec![felt!("0x111"), felt!("0x222")],
+            nonce: felt!("0x10"),
+        })),
+    };
+
+    let primitives_tx: primitives::TxWithHash = rpc_tx.clone().into();
+
+    assert_eq!(primitives_tx.hash, felt!("0xabc123"));
+
+    assert_matches!(&primitives_tx.transaction, primitives::Tx::Invoke(primitives::InvokeTx::V1(tx)) => {
+        assert_eq!(tx.sender_address, address!("0x456"));
+        assert_eq!(tx.calldata, vec![felt!("0xa"), felt!("0xb")]);
+        assert_eq!(tx.max_fee, 0x1000);
+        assert_eq!(tx.signature, vec![felt!("0x111"), felt!("0x222")]);
+        assert_eq!(tx.nonce, felt!("0x10"));
+    });
+
+    // Round-trip conversion
+    let rpc_tx_roundtrip: RpcTxWithHash = primitives_tx.into();
+    assert_eq!(rpc_tx, rpc_tx_roundtrip);
+}
+
+#[test]
+fn rpc_to_primitives_invoke_v0() {
+    let rpc_tx = RpcTxWithHash {
+        transaction_hash: felt!("0xdef456"),
+        transaction: RpcTx::Invoke(RpcInvokeTx::V0(RpcInvokeTxV0 {
+            max_fee: felt!("0x2000"),
+            signature: vec![felt!("0x333")],
+            contract_address: address!("0x789"),
+            entry_point_selector: felt!("0xaaa"),
+            calldata: vec![felt!("0xc"), felt!("0xd"), felt!("0xe")],
+        })),
+    };
+
+    let primitives_tx: primitives::TxWithHash = rpc_tx.clone().into();
+
+    assert_eq!(primitives_tx.hash, felt!("0xdef456"));
+
+    assert_matches!(&primitives_tx.transaction, primitives::Tx::Invoke(primitives::InvokeTx::V0(tx)) => {
+        assert_eq!(tx.contract_address, address!("0x789"));
+        assert_eq!(tx.entry_point_selector, felt!("0xaaa"));
+        assert_eq!(tx.calldata, vec![felt!("0xc"), felt!("0xd"), felt!("0xe")]);
+        assert_eq!(tx.signature, vec![felt!("0x333")]);
+        assert_eq!(tx.max_fee, 0x2000);
+    });
+
+    // Round-trip conversion
+    let rpc_tx_roundtrip: RpcTxWithHash = primitives_tx.into();
+    assert_eq!(rpc_tx, rpc_tx_roundtrip);
+}
+
+#[test]
+fn rpc_to_primitives_declare_v3() {
+    let rpc_tx = RpcTxWithHash {
+        transaction_hash: felt!("0x999888"),
+        transaction: RpcTx::Declare(RpcDeclareTx::V3(RpcDeclareTxV3 {
+            sender_address: address!("0xabc"),
+            compiled_class_hash: felt!("0x111222"),
+            signature: vec![felt!("0x444"), felt!("0x555")],
+            nonce: felt!("0x20"),
+            class_hash: felt!("0x666777"),
+            resource_bounds: starknet::core::types::ResourceBoundsMapping {
+                l1_gas: RpcResourceBounds { max_amount: 0x100, max_price_per_unit: 0x10 },
+                l2_gas: RpcResourceBounds { max_amount: 0x200, max_price_per_unit: 0x20 },
+                l1_data_gas: RpcResourceBounds { max_amount: 0x300, max_price_per_unit: 0x30 },
+            },
+            tip: Tip::new(0x99),
+            paymaster_data: vec![felt!("0xfff")],
+            account_deployment_data: vec![felt!("0xeee")],
+            nonce_data_availability_mode: DataAvailabilityMode::L2,
+            fee_data_availability_mode: DataAvailabilityMode::L1,
+        })),
+    };
+
+    let primitives_tx: primitives::TxWithHash = rpc_tx.clone().into();
+
+    assert_eq!(primitives_tx.hash, felt!("0x999888"));
+
+    assert_matches!(&primitives_tx.transaction, primitives::Tx::Declare(primitives::DeclareTx::V3(tx)) => {
+        assert_eq!(tx.sender_address, address!("0xabc"));
+        assert_eq!(tx.compiled_class_hash, felt!("0x111222"));
+        assert_eq!(tx.signature, vec![felt!("0x444"), felt!("0x555")]);
+        assert_eq!(tx.nonce, felt!("0x20"));
+        assert_eq!(tx.class_hash, felt!("0x666777"));
+
+        assert_matches!(&tx.resource_bounds, ResourceBoundsMapping::All(bounds) => {
+            assert_eq!(bounds.l1_gas.max_amount, 0x100);
+            assert_eq!(bounds.l1_gas.max_price_per_unit, 0x10);
+            assert_eq!(bounds.l2_gas.max_amount, 0x200);
+            assert_eq!(bounds.l2_gas.max_price_per_unit, 0x20);
+            assert_eq!(bounds.l1_data_gas.max_amount, 0x300);
+            assert_eq!(bounds.l1_data_gas.max_price_per_unit, 0x30);
+        });
+
+        assert_eq!(tx.tip, 0x99);
+        assert_eq!(tx.paymaster_data, vec![felt!("0xfff")]);
+        assert_eq!(tx.account_deployment_data, vec![felt!("0xeee")]);
+        assert_eq!(tx.nonce_data_availability_mode, DataAvailabilityMode::L2);
+        assert_eq!(tx.fee_data_availability_mode, DataAvailabilityMode::L1);
+    });
+
+    // Round-trip conversion
+    let rpc_tx_roundtrip: RpcTxWithHash = primitives_tx.into();
+    assert_eq!(rpc_tx, rpc_tx_roundtrip);
+}
+
+#[test]
+fn rpc_to_primitives_declare_v2() {
+    let rpc_tx = RpcTxWithHash {
+        transaction_hash: felt!("0x777666"),
+        transaction: RpcTx::Declare(RpcDeclareTx::V2(RpcDeclareTxV2 {
+            sender_address: address!("0xdef"),
+            compiled_class_hash: felt!("0x888999"),
+            max_fee: felt!("0x3000"),
+            signature: vec![felt!("0x666")],
+            nonce: felt!("0x30"),
+            class_hash: felt!("0xaaabbb"),
+        })),
+    };
+
+    let primitives_tx: primitives::TxWithHash = rpc_tx.clone().into();
+
+    assert_eq!(primitives_tx.hash, felt!("0x777666"));
+
+    assert_matches!(&primitives_tx.transaction, primitives::Tx::Declare(primitives::DeclareTx::V2(tx)) => {
+        assert_eq!(tx.sender_address, address!("0xdef"));
+        assert_eq!(tx.compiled_class_hash, felt!("0x888999"));
+        assert_eq!(tx.max_fee, 0x3000);
+        assert_eq!(tx.signature, vec![felt!("0x666")]);
+        assert_eq!(tx.nonce, felt!("0x30"));
+        assert_eq!(tx.class_hash, felt!("0xaaabbb"));
+    });
+
+    // Round-trip conversion
+    let rpc_tx_roundtrip: RpcTxWithHash = primitives_tx.into();
+    assert_eq!(rpc_tx, rpc_tx_roundtrip);
+}
+
+#[test]
+fn rpc_to_primitives_declare_v1() {
+    let rpc_tx = RpcTxWithHash {
+        transaction_hash: felt!("0x555444"),
+        transaction: RpcTx::Declare(RpcDeclareTx::V1(RpcDeclareTxV1 {
+            sender_address: address!("0x123abc"),
+            max_fee: felt!("0x4000"),
+            signature: vec![felt!("0x777"), felt!("0x888")],
+            nonce: felt!("0x40"),
+            class_hash: felt!("0xcccddd"),
+        })),
+    };
+
+    let primitives_tx: primitives::TxWithHash = rpc_tx.clone().into();
+
+    assert_eq!(primitives_tx.hash, felt!("0x555444"));
+
+    assert_matches!(&primitives_tx.transaction, primitives::Tx::Declare(primitives::DeclareTx::V1(tx)) => {
+        assert_eq!(tx.sender_address, address!("0x123abc"));
+        assert_eq!(tx.max_fee, 0x4000);
+        assert_eq!(tx.signature, vec![felt!("0x777"), felt!("0x888")]);
+        assert_eq!(tx.nonce, felt!("0x40"));
+        assert_eq!(tx.class_hash, felt!("0xcccddd"));
+    });
+
+    // Round-trip conversion
+    let rpc_tx_roundtrip: RpcTxWithHash = primitives_tx.into();
+    assert_eq!(rpc_tx, rpc_tx_roundtrip);
+}
+
+#[test]
+fn rpc_to_primitives_declare_v0() {
+    let rpc_tx = RpcTxWithHash {
+        transaction_hash: felt!("0x333222"),
+        transaction: RpcTx::Declare(RpcDeclareTx::V0(RpcDeclareTxV0 {
+            sender_address: address!("0x456def"),
+            max_fee: felt!("0x5000"),
+            signature: vec![felt!("0x999")],
+            class_hash: felt!("0xeeefff"),
+        })),
+    };
+
+    let primitives_tx: primitives::TxWithHash = rpc_tx.clone().into();
+
+    assert_eq!(primitives_tx.hash, felt!("0x333222"));
+
+    assert_matches!(&primitives_tx.transaction, primitives::Tx::Declare(primitives::DeclareTx::V0(tx)) => {
+        assert_eq!(tx.sender_address, address!("0x456def"));
+        assert_eq!(tx.max_fee, 0x5000);
+        assert_eq!(tx.signature, vec![felt!("0x999")]);
+        assert_eq!(tx.class_hash, felt!("0xeeefff"));
+    });
+
+    // Round-trip conversion
+    let rpc_tx_roundtrip: RpcTxWithHash = primitives_tx.into();
+    assert_eq!(rpc_tx, rpc_tx_roundtrip);
+}
+
+#[test]
+fn rpc_to_primitives_deploy_account_v3() {
+    let rpc_tx = RpcTxWithHash {
+        transaction_hash: felt!("0x111222333"),
+        transaction: RpcTx::DeployAccount(RpcDeployAccountTx::V3(RpcDeployAccountTxV3 {
+            signature: vec![felt!("0xaaa"), felt!("0xbbb")],
+            nonce: felt!("0x50"),
+            contract_address_salt: felt!("0xccc"),
+            constructor_calldata: vec![felt!("0xddd"), felt!("0xeee")],
+            class_hash: felt!("0xfff111"),
+            resource_bounds: starknet::core::types::ResourceBoundsMapping {
+                l1_gas: RpcResourceBounds { max_amount: 0x400, max_price_per_unit: 0x40 },
+                l2_gas: RpcResourceBounds { max_amount: 0x500, max_price_per_unit: 0x50 },
+                l1_data_gas: RpcResourceBounds { max_amount: 0x600, max_price_per_unit: 0x60 },
+            },
+            tip: Tip::new(0x88),
+            paymaster_data: vec![felt!("0x222333")],
+            nonce_data_availability_mode: DataAvailabilityMode::L1,
+            fee_data_availability_mode: DataAvailabilityMode::L1,
+        })),
+    };
+
+    let primitives_tx: primitives::TxWithHash = rpc_tx.clone().into();
+
+    assert_eq!(primitives_tx.hash, felt!("0x111222333"));
+
+    assert_matches!(&primitives_tx.transaction, primitives::Tx::DeployAccount(primitives::DeployAccountTx::V3(tx)) => {
+        assert_eq!(tx.signature, vec![felt!("0xaaa"), felt!("0xbbb")]);
+        assert_eq!(tx.nonce, felt!("0x50"));
+        assert_eq!(tx.contract_address_salt, felt!("0xccc"));
+        assert_eq!(tx.constructor_calldata, vec![felt!("0xddd"), felt!("0xeee")]);
+        assert_eq!(tx.class_hash, felt!("0xfff111"));
+
+        assert_matches!(&tx.resource_bounds, ResourceBoundsMapping::All(bounds) => {
+            assert_eq!(bounds.l1_gas.max_amount, 0x400);
+            assert_eq!(bounds.l1_gas.max_price_per_unit, 0x40);
+            assert_eq!(bounds.l2_gas.max_amount, 0x500);
+            assert_eq!(bounds.l2_gas.max_price_per_unit, 0x50);
+            assert_eq!(bounds.l1_data_gas.max_amount, 0x600);
+            assert_eq!(bounds.l1_data_gas.max_price_per_unit, 0x60);
+        });
+
+        assert_eq!(tx.tip, 0x88);
+        assert_eq!(tx.paymaster_data, vec![felt!("0x222333")]);
+        assert_eq!(tx.nonce_data_availability_mode, DataAvailabilityMode::L1);
+        assert_eq!(tx.fee_data_availability_mode, DataAvailabilityMode::L1);
+    });
+
+    // Round-trip conversion (note: contract_address field is lost as it's not in RPC)
+    let rpc_tx_roundtrip: RpcTxWithHash = primitives_tx.into();
+    assert_eq!(rpc_tx, rpc_tx_roundtrip);
+}
+
+#[test]
+fn rpc_to_primitives_deploy_account_v1() {
+    let rpc_tx = RpcTxWithHash {
+        transaction_hash: felt!("0x444555666"),
+        transaction: RpcTx::DeployAccount(RpcDeployAccountTx::V1(RpcDeployAccountTxV1 {
+            max_fee: felt!("0x6000"),
+            signature: vec![felt!("0x111222")],
+            nonce: felt!("0x60"),
+            contract_address_salt: felt!("0x333444"),
+            constructor_calldata: vec![felt!("0x555")],
+            class_hash: felt!("0x666777"),
+        })),
+    };
+
+    let primitives_tx: primitives::TxWithHash = rpc_tx.clone().into();
+
+    assert_eq!(primitives_tx.hash, felt!("0x444555666"));
+
+    assert_matches!(&primitives_tx.transaction, primitives::Tx::DeployAccount(primitives::DeployAccountTx::V1(tx)) => {
+        assert_eq!(tx.max_fee, 0x6000);
+        assert_eq!(tx.signature, vec![felt!("0x111222")]);
+        assert_eq!(tx.nonce, felt!("0x60"));
+        assert_eq!(tx.contract_address_salt, felt!("0x333444"));
+        assert_eq!(tx.constructor_calldata, vec![felt!("0x555")]);
+        assert_eq!(tx.class_hash, felt!("0x666777"));
+    });
+
+    // Round-trip conversion (note: contract_address field is lost as it's not in RPC)
+    let rpc_tx_roundtrip: RpcTxWithHash = primitives_tx.into();
+    assert_eq!(rpc_tx, rpc_tx_roundtrip);
+}
+
+#[test]
+fn rpc_to_primitives_l1_handler() {
+    let rpc_tx = RpcTxWithHash {
+        transaction_hash: felt!("0x777888999"),
+        transaction: RpcTx::L1Handler(RpcL1HandlerTx {
+            version: felt!("0x0"),
+            nonce: felt!("0x70"),
+            contract_address: address!("0xaaabbbccc"),
+            entry_point_selector: felt!("0xdddeee"),
+            calldata: vec![felt!("0xfff"), felt!("0x111"), felt!("0x222")],
+        }),
+    };
+
+    let primitives_tx: primitives::TxWithHash = rpc_tx.clone().into();
+
+    assert_eq!(primitives_tx.hash, felt!("0x777888999"));
+
+    assert_matches!(&primitives_tx.transaction, primitives::Tx::L1Handler(tx) => {
+        assert_eq!(tx.version, felt!("0x0"));
+        assert_eq!(tx.nonce, felt!("0x70"));
+        assert_eq!(tx.contract_address, address!("0xaaabbbccc"));
+        assert_eq!(tx.entry_point_selector, felt!("0xdddeee"));
+        assert_eq!(tx.calldata, vec![felt!("0xfff"), felt!("0x111"), felt!("0x222")]);
+    });
+
+    // Round-trip conversion (note: paid_fee_on_l1 and message_hash are lost as they're not in RPC)
+    let rpc_tx_roundtrip: RpcTxWithHash = primitives_tx.into();
+    assert_eq!(rpc_tx, rpc_tx_roundtrip);
+}
+
+#[test]
+fn rpc_to_primitives_deploy() {
+    let rpc_tx = RpcTxWithHash {
+        transaction_hash: felt!("0xaaabbbccc"),
+        transaction: RpcTx::Deploy(RpcDeployTx {
+            version: felt!("0x1"),
+            contract_address_salt: felt!("0x333"),
+            constructor_calldata: vec![felt!("0x444"), felt!("0x555")],
+            class_hash: felt!("0x666"),
+        }),
+    };
+
+    let primitives_tx: primitives::TxWithHash = rpc_tx.clone().into();
+
+    assert_eq!(primitives_tx.hash, felt!("0xaaabbbccc"));
+
+    assert_matches!(&primitives_tx.transaction, primitives::Tx::Deploy(tx) => {
+        assert_eq!(tx.version, felt!("0x1"));
+        assert_eq!(tx.contract_address_salt, felt!("0x333"));
+        assert_eq!(tx.constructor_calldata, vec![felt!("0x444"), felt!("0x555")]);
+        assert_eq!(tx.class_hash, felt!("0x666"));
+    });
+
+    // Round-trip conversion (note: contract_address field is lost as it's not in RPC)
+    let rpc_tx_roundtrip: RpcTxWithHash = primitives_tx.into();
+    assert_eq!(rpc_tx, rpc_tx_roundtrip);
+}
+
+#[test]
+#[ignore = "we don't have proper support for legacy resource bounds on both RPC and primitives"]
+fn rpc_to_primitives_resource_bounds_l1_only() {
+    // Test the case where only L1 gas bounds are set (legacy support)
+    let rpc_tx = RpcTxWithHash {
+        transaction_hash: felt!("0xdeadbeef"),
+        transaction: RpcTx::Invoke(RpcInvokeTx::V3(RpcInvokeTxV3 {
+            sender_address: address!("0x123"),
+            calldata: vec![],
+            signature: vec![],
+            nonce: felt!("0x1"),
+            resource_bounds: starknet::core::types::ResourceBoundsMapping {
+                l1_gas: RpcResourceBounds { max_amount: 0x1000, max_price_per_unit: 0x100 },
+                l2_gas: RpcResourceBounds { max_amount: 0, max_price_per_unit: 0 },
+                l1_data_gas: RpcResourceBounds { max_amount: 0, max_price_per_unit: 0 },
+            },
+            tip: Tip::new(0),
+            paymaster_data: vec![],
+            account_deployment_data: vec![],
+            nonce_data_availability_mode: DataAvailabilityMode::L1,
+            fee_data_availability_mode: DataAvailabilityMode::L1,
+        })),
+    };
+
+    let primitives_tx: primitives::TxWithHash = rpc_tx.clone().into();
+
+    assert_matches!(&primitives_tx.transaction, primitives::Tx::Invoke(primitives::InvokeTx::V3(tx)) => {
+        // When l2_gas and l1_data_gas are zero, it should be converted to L1Gas variant
+        assert_matches!(&tx.resource_bounds, ResourceBoundsMapping::L1Gas(bounds) => {
+            assert_eq!(bounds.max_amount, 0x1000);
+            assert_eq!(bounds.max_price_per_unit, 0x100);
+        });
+    });
+
+    // Round-trip conversion should maintain the legacy format
+    let rpc_tx_roundtrip: RpcTxWithHash = primitives_tx.into();
+    assert_eq!(rpc_tx, rpc_tx_roundtrip);
 }

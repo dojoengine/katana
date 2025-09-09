@@ -2,7 +2,7 @@ use katana_primitives::class::{ClassHash, CompiledClassHash};
 use katana_primitives::contract::Nonce;
 use katana_primitives::da::DataAvailabilityMode;
 use katana_primitives::execution::EntryPointSelector;
-use katana_primitives::fee::Tip;
+use katana_primitives::fee::{AllResourceBoundsMapping, Tip};
 use katana_primitives::transaction::TxHash;
 use katana_primitives::{transaction as primitives, ContractAddress, Felt};
 use serde::{Deserialize, Serialize};
@@ -35,6 +35,9 @@ pub enum TxStatus {
     AcceptedOnL1(ExecutionResult),
 }
 
+/// Represents a transaction with its hash.
+///
+/// Used as a response for the `starknet_getTransactionByHash` method.
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub struct RpcTxWithHash {
     /// The hash of the transaction.
@@ -472,6 +475,189 @@ fn to_rpc_resource_bounds(
                     max_price_per_unit: 0,
                 },
             }
+        }
+    }
+}
+
+fn from_rpc_resource_bounds(
+    bounds: starknet::core::types::ResourceBoundsMapping,
+) -> katana_primitives::fee::ResourceBoundsMapping {
+    // If l2_gas and l1_data_gas are zero, treat it as L1Gas only (legacy support)
+    //
+    // this is technically an incorrect way to do this because the l2_gas and l1_data_gas can
+    // technically still be zero even if we're using non-legacy resource bounds (ie all bounds are
+    // set). the only way to do this is to use a different type/variant to represent a legacy
+    // resource bounds mapping. ideally we could just use the ResourceBoundsMapping from
+    // katana-primitives, but the L1Gas (ie legacy) has been incorrectly defined (lack of l2_gas
+    // field) and we can't simply add it because it'll break the type serialization format.
+    if bounds.l2_gas.max_amount == 0
+        && bounds.l2_gas.max_price_per_unit == 0
+        && bounds.l1_data_gas.max_amount == 0
+        && bounds.l1_data_gas.max_price_per_unit == 0
+    {
+        katana_primitives::fee::ResourceBoundsMapping::L1Gas(
+            katana_primitives::fee::ResourceBounds {
+                max_amount: bounds.l1_gas.max_amount,
+                max_price_per_unit: bounds.l1_gas.max_price_per_unit,
+            },
+        )
+    } else {
+        katana_primitives::fee::ResourceBoundsMapping::All(AllResourceBoundsMapping {
+            l1_gas: katana_primitives::fee::ResourceBounds {
+                max_amount: bounds.l1_gas.max_amount,
+                max_price_per_unit: bounds.l1_gas.max_price_per_unit,
+            },
+            l2_gas: katana_primitives::fee::ResourceBounds {
+                max_amount: bounds.l2_gas.max_amount,
+                max_price_per_unit: bounds.l2_gas.max_price_per_unit,
+            },
+            l1_data_gas: katana_primitives::fee::ResourceBounds {
+                max_amount: bounds.l1_data_gas.max_amount,
+                max_price_per_unit: bounds.l1_data_gas.max_price_per_unit,
+            },
+        })
+    }
+}
+
+impl From<RpcTxWithHash> for primitives::TxWithHash {
+    fn from(value: RpcTxWithHash) -> Self {
+        primitives::TxWithHash {
+            hash: value.transaction_hash,
+            transaction: value.transaction.into(),
+        }
+    }
+}
+
+impl From<RpcTx> for primitives::Tx {
+    fn from(value: RpcTx) -> Self {
+        match value {
+            RpcTx::Invoke(tx) => primitives::Tx::Invoke(match tx {
+                RpcInvokeTx::V0(tx) => primitives::InvokeTx::V0(primitives::InvokeTxV0 {
+                    contract_address: tx.contract_address,
+                    entry_point_selector: tx.entry_point_selector,
+                    calldata: tx.calldata,
+                    signature: tx.signature,
+                    max_fee: tx.max_fee.try_into().expect("max_fee overflow"),
+                }),
+
+                RpcInvokeTx::V1(tx) => primitives::InvokeTx::V1(primitives::InvokeTxV1 {
+                    chain_id: Default::default(),
+                    sender_address: tx.sender_address,
+                    nonce: tx.nonce,
+                    calldata: tx.calldata,
+                    signature: tx.signature,
+                    max_fee: tx.max_fee.try_into().expect("max_fee overflow"),
+                }),
+
+                RpcInvokeTx::V3(tx) => primitives::InvokeTx::V3(primitives::InvokeTxV3 {
+                    chain_id: Default::default(),
+                    sender_address: tx.sender_address,
+                    nonce: tx.nonce,
+                    calldata: tx.calldata,
+                    signature: tx.signature,
+                    resource_bounds: from_rpc_resource_bounds(tx.resource_bounds),
+                    tip: tx.tip.into(),
+                    paymaster_data: tx.paymaster_data,
+                    account_deployment_data: tx.account_deployment_data,
+                    nonce_data_availability_mode: tx.nonce_data_availability_mode,
+                    fee_data_availability_mode: tx.fee_data_availability_mode,
+                }),
+            }),
+
+            RpcTx::Declare(tx) => primitives::Tx::Declare(match tx {
+                RpcDeclareTx::V0(tx) => primitives::DeclareTx::V0(primitives::DeclareTxV0 {
+                    chain_id: Default::default(),
+                    sender_address: tx.sender_address,
+                    signature: tx.signature,
+                    class_hash: tx.class_hash,
+                    max_fee: tx.max_fee.try_into().expect("max_fee overflow"),
+                }),
+
+                RpcDeclareTx::V1(tx) => primitives::DeclareTx::V1(primitives::DeclareTxV1 {
+                    chain_id: Default::default(),
+                    sender_address: tx.sender_address,
+                    nonce: tx.nonce,
+                    signature: tx.signature,
+                    class_hash: tx.class_hash,
+                    max_fee: tx.max_fee.try_into().expect("max_fee overflow"),
+                }),
+
+                RpcDeclareTx::V2(tx) => primitives::DeclareTx::V2(primitives::DeclareTxV2 {
+                    chain_id: Default::default(),
+                    sender_address: tx.sender_address,
+                    nonce: tx.nonce,
+                    signature: tx.signature,
+                    class_hash: tx.class_hash,
+                    compiled_class_hash: tx.compiled_class_hash,
+                    max_fee: tx.max_fee.try_into().expect("max_fee overflow"),
+                }),
+
+                RpcDeclareTx::V3(tx) => primitives::DeclareTx::V3(primitives::DeclareTxV3 {
+                    chain_id: Default::default(),
+                    sender_address: tx.sender_address,
+                    nonce: tx.nonce,
+                    signature: tx.signature,
+                    class_hash: tx.class_hash,
+                    compiled_class_hash: tx.compiled_class_hash,
+                    resource_bounds: from_rpc_resource_bounds(tx.resource_bounds),
+                    tip: tx.tip.into(),
+                    paymaster_data: tx.paymaster_data,
+                    account_deployment_data: tx.account_deployment_data,
+                    nonce_data_availability_mode: tx.nonce_data_availability_mode,
+                    fee_data_availability_mode: tx.fee_data_availability_mode,
+                }),
+            }),
+
+            RpcTx::L1Handler(tx) => primitives::Tx::L1Handler(primitives::L1HandlerTx {
+                chain_id: Default::default(),
+                nonce: tx.nonce,
+                paid_fee_on_l1: 0,
+                message_hash: Default::default(),
+                version: tx.version,
+                calldata: tx.calldata,
+                contract_address: tx.contract_address,
+                entry_point_selector: tx.entry_point_selector,
+            }),
+
+            RpcTx::DeployAccount(tx) => primitives::Tx::DeployAccount(match tx {
+                RpcDeployAccountTx::V1(tx) => {
+                    primitives::DeployAccountTx::V1(primitives::DeployAccountTxV1 {
+                        chain_id: Default::default(),
+                        nonce: tx.nonce,
+                        signature: tx.signature,
+                        class_hash: tx.class_hash,
+                        contract_address: Default::default(),
+                        contract_address_salt: tx.contract_address_salt,
+                        constructor_calldata: tx.constructor_calldata,
+                        max_fee: tx.max_fee.try_into().expect("max_fee overflow"),
+                    })
+                }
+
+                RpcDeployAccountTx::V3(tx) => {
+                    primitives::DeployAccountTx::V3(primitives::DeployAccountTxV3 {
+                        chain_id: Default::default(),
+                        nonce: tx.nonce,
+                        signature: tx.signature,
+                        class_hash: tx.class_hash,
+                        contract_address: Default::default(),
+                        contract_address_salt: tx.contract_address_salt,
+                        constructor_calldata: tx.constructor_calldata,
+                        resource_bounds: from_rpc_resource_bounds(tx.resource_bounds),
+                        tip: tx.tip.into(),
+                        paymaster_data: tx.paymaster_data,
+                        nonce_data_availability_mode: tx.nonce_data_availability_mode,
+                        fee_data_availability_mode: tx.fee_data_availability_mode,
+                    })
+                }
+            }),
+
+            RpcTx::Deploy(tx) => primitives::Tx::Deploy(primitives::DeployTx {
+                contract_address: Default::default(),
+                contract_address_salt: tx.contract_address_salt,
+                constructor_calldata: tx.constructor_calldata,
+                class_hash: tx.class_hash,
+                version: tx.version,
+            }),
         }
     }
 }
