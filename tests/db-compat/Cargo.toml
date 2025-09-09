@@ -7,12 +7,13 @@ version.workspace = true
 
 [dependencies]
 katana-chain-spec.workspace = true
-katana-cli.workspace = true
 katana-db.workspace = true
 katana-node.workspace = true
+katana-node-cli.workspace = true
 katana-primitives.workspace = true
 katana-provider.workspace = true
 
 anyhow.workspace = true
+clap.workspace = true
 starknet.workspace = true
 tokio = { workspace = true, features = [ "full" ] }

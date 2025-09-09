@@ -3,7 +3,6 @@ use std::future::Future;
 use anyhow::{Context, Result};
 use clap::{Args, CommandFactory, Parser, Subcommand};
 use clap_complete::Shell;
-use katana_cli::NodeArgs;
 use tokio::runtime::Runtime;
 
 mod config;
@@ -23,7 +22,7 @@ pub struct Cli {
     commands: Option<Commands>,
 
     #[command(flatten)]
-    node: NodeArgs,
+    node: katana_node_cli::Cli,
 }
 
 impl Cli {
@@ -39,7 +38,7 @@ impl Cli {
             };
         }
 
-        execute_async(self.node.with_config_file()?.execute())?
+        execute_async(self.node.execute())?
     }
 }
 

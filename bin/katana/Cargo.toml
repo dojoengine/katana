@@ -8,8 +8,8 @@ version.workspace = true
 
 [dependencies]
 katana-chain-spec.workspace = true
-katana-cli.workspace = true
 katana-db = { workspace = true, features = [ "arbitrary" ] }
+katana-node-cli.workspace = true
 katana-primitives.workspace = true
 katana-rpc-client.workspace = true
 katana-rpc-types.workspace = true
@@ -59,12 +59,12 @@ default = [
 	"client",
 	"init-slot",
 	"jemalloc",
-	"katana-cli/explorer",
+	"katana-node-cli/explorer",
 ]
 
-cartridge = [ "katana-cli/cartridge" ]
+cartridge = [ "katana-node-cli/cartridge" ]
 client = [ "dep:colored_json", "dep:serde", "dep:serde_json" ]
 init-custom-settlement-chain = [  ]
 init-slot = [  ]
 jemalloc = [  ]
-native = [ "katana-cli/native" ]
+native = [ "katana-node-cli/native" ]

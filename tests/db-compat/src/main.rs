@@ -1,5 +1,4 @@
 use anyhow::Result;
-use katana_cli::args::Parser;
 use katana_db::version::CURRENT_DB_VERSION;
 use starknet::providers::jsonrpc::HttpTransport;
 use starknet::providers::{JsonRpcClient, Provider, Url};
@@ -12,7 +11,7 @@ async fn main() -> Result<()> {
 
     const TEST_DB_DIR: &str = "tests/fixtures/db/v1_2_2";
 
-    let node = katana_cli::NodeArgs::parse_from(["katana", "--db-dir", TEST_DB_DIR]);
+    let node = katana_node_cli::Cli::parse_from(["katana", "--db-dir", TEST_DB_DIR]);
     let addr = node.rpc_config().unwrap().socket_addr();
     tokio::spawn(async move { node.execute().await });
 

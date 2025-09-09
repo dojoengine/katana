@@ -1,0 +1,32 @@
+[package]
+description = "CLI argument types for Katana"
+edition.workspace = true
+license.workspace = true
+name = "katana-node-cli-args"
+repository.workspace = true
+version.workspace = true
+
+[dependencies]
+katana-chain-spec.workspace = true
+katana-node-defaults.workspace = true
+katana-primitives.workspace = true
+katana-tracing.workspace = true
+serde-utils.workspace = true
+
+anyhow.workspace = true
+clap.workspace = true
+http = { workspace = true, optional = true }
+serde.workspace = true
+shellexpand = "3.1.0"
+toml.workspace = true
+url.workspace = true
+
+[dev-dependencies]
+serde_json.workspace = true
+
+[features]
+cartridge = [  ]
+default = [  ]
+explorer = [  ]
+native = [  ]
+server = [ "dep:http" ]

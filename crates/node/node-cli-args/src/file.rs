@@ -1,7 +1,7 @@
 use std::path::{Path, PathBuf};
 
 use anyhow::Result;
-use katana_messaging::MessagingConfig;
+// use katana_messaging::MessagingConfig;
 use serde::{Deserialize, Serialize};
 
 use crate::options::*;
@@ -14,8 +14,8 @@ pub struct NodeArgsConfig {
     pub block_time: Option<u64>,
     pub block_cairo_steps_limit: Option<u64>,
     pub db_dir: Option<PathBuf>,
-    pub messaging: Option<MessagingConfig>,
     pub logging: Option<LoggingOptions>,
+    pub messaging: Option<MessagingOptions>,
     pub starknet: Option<StarknetOptions>,
     pub gpo: Option<GasPriceOracleOptions>,
     pub forking: Option<ForkingOptions>,
@@ -39,21 +39,23 @@ impl NodeArgsConfig {
 impl TryFrom<NodeArgs> for NodeArgsConfig {
     type Error = anyhow::Error;
 
-    fn try_from(args: NodeArgs) -> Result<Self> {
+    fn try_from(mut args: NodeArgs) -> Result<Self> {
         // Ensure the config file is merged with the CLI arguments.
-        let args = args.with_config_file()?;
+        args.with_config_file()?;
 
         let mut node_config = NodeArgsConfig {
             no_mining: if args.no_mining { Some(true) } else { None },
             block_time: args.block_time,
             block_cairo_steps_limit: args.block_cairo_steps_limit,
             db_dir: args.db_dir,
-            messaging: args.messaging,
+            // messaging: args.messaging,
             ..Default::default()
         };
 
         // Only include the following options if they are not the default.
         // This makes the config file more readable.
+        node_config.messaging =
+            if args.messaging == MessagingOptions::default() { None } else { Some(args.messaging) };
         node_config.logging =
             if args.logging == LoggingOptions::default() { None } else { Some(args.logging) };
         node_config.starknet =

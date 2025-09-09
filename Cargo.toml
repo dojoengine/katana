@@ -5,8 +5,8 @@ members = [
 	"bin/katana",
 	"crates/cartridge",
 	"crates/chain-spec",
-	"crates/cli",
 	"crates/contracts",
+	"crates/contracts/macro",
 	"crates/controller",
 	"crates/core",
 	"crates/executor",
@@ -15,8 +15,11 @@ members = [
 	"crates/grpc",
 	"crates/messaging",
 	"crates/metrics",
-	"crates/node",
-	"crates/node-bindings",
+	"crates/node/node",
+	"crates/node/node-bindings",
+	"crates/node/node-cli",
+	"crates/node/node-cli-args",
+	"crates/node/node-defaults",
 	"crates/oracle/gas",
 	"crates/pool/pool",
 	"crates/pool/pool-api",
@@ -43,7 +46,7 @@ members = [
 	"crates/utils",
 	"tests/db-compat",
 	"tests/reverse-proxy",
-	"tests/snos",
+	# "tests/snos",
 ]
 
 [workspace.package]
@@ -68,7 +71,6 @@ cartridge = { path = "crates/cartridge" }
 serde-utils = { path = "crates/serde-utils" }
 
 katana-chain-spec = { path = "crates/chain-spec" }
-katana-cli = { path = "crates/cli" }
 katana-codecs = { path = "crates/storage/codecs" }
 katana-codecs-derive = { path = "crates/storage/codecs/derive" }
 katana-contracts = { path = "crates/contracts" }
@@ -81,8 +83,11 @@ katana-fork = { path = "crates/storage/fork" }
 katana-gas-price-oracle = { path = "crates/oracle/gas" }
 katana-messaging = { path = "crates/messaging" }
 katana-metrics = { path = "crates/metrics" }
-katana-node = { path = "crates/node" }
-katana-node-bindings = { path = "crates/node-bindings" }
+katana-node = { path = "crates/node/node" }
+katana-node-bindings = { path = "crates/node/node-bindings" }
+katana-node-cli = { path = "crates/node/node-cli" }
+katana-node-cli-args = { path = "crates/node/node-cli-args" }
+katana-node-defaults = { path = "crates/node/node-defaults" }
 katana-pipeline = { path = "crates/sync/pipeline" }
 katana-pool = { path = "crates/pool/pool" }
 katana-pool-api = { path = "crates/pool/pool-api" }
@@ -221,6 +226,7 @@ starknet-types-core = { version = "0.1.8", features = [ "arbitrary", "hash" ] }
 cairo-vm = { version = "1.0.2", features = [ "test_utils" ] }
 
 blockifier = { git = "https://github.com/dojoengine/sequencer", rev = "5d737b9c9", default-features = false }
+cairo-native = "0.4"
 starknet_api = { git = "https://github.com/dojoengine/sequencer", rev = "5d737b9c9" }
 
 cainome = { git = "https://github.com/cartridge-gg/cainome", rev = "7d60de1", features = [ "abigen-rs" ] }

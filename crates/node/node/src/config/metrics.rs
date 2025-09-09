@@ -1,9 +1,6 @@
-use std::net::{IpAddr, Ipv4Addr, SocketAddr};
+use std::net::{IpAddr, SocketAddr};
 
-/// Metrics server default address.
-pub const DEFAULT_METRICS_ADDR: IpAddr = IpAddr::V4(Ipv4Addr::LOCALHOST);
-/// Metrics server default port.
-pub const DEFAULT_METRICS_PORT: u16 = 9100;
+pub use katana_node_defaults::metrics::*;
 
 /// Node metrics configurations.
 #[derive(Debug, Copy, Clone)]

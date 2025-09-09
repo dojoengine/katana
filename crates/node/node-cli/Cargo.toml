@@ -1,7 +1,7 @@
 [package]
 edition.workspace = true
 license.workspace = true
-name = "katana-cli"
+name = "katana-node-cli"
 repository.workspace = true
 version.workspace = true
 
@@ -10,12 +10,11 @@ katana-chain-spec.workspace = true
 katana-core.workspace = true
 katana-messaging.workspace = true
 katana-node.workspace = true
+katana-node-cli-args = { workspace = true, features = [ "cartridge", "server" ] }
 katana-primitives.workspace = true
-katana-rpc.workspace = true
 katana-slot-controller = { workspace = true, optional = true }
 katana-tracing.workspace = true
 katana-utils.workspace = true
-serde-utils.workspace = true
 
 alloy-primitives.workspace = true
 anyhow.workspace = true
@@ -23,11 +22,8 @@ clap.workspace = true
 console.workspace = true
 serde.workspace = true
 serde_json.workspace = true
-shellexpand = "3.1.0"
 tokio.workspace = true
-toml.workspace = true
 tracing.workspace = true
-url.workspace = true
 
 [dev-dependencies]
 assert_matches.workspace = true
@@ -35,12 +31,8 @@ katana-gas-price-oracle.workspace = true
 starknet.workspace = true
 
 [features]
-cartridge = [
-	"dep:katana-slot-controller",
-	"katana-node/cartridge",
-	"katana-rpc/cartridge",
-]
+cartridge = [ "dep:katana-slot-controller", "katana-node/cartridge" ]
 default = [ "cartridge", "server" ]
-explorer = [ "katana-node/explorer" ]
-native = [ "katana-node/native" ]
+explorer = [ "katana-node-cli-args/explorer", "katana-node/explorer" ]
+native = [ "katana-node-cli-args/native", "katana-node/native" ]
 server = [  ]
