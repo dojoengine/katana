@@ -7,9 +7,9 @@ use katana_feeder_gateway::client::{self, SequencerGateway};
 use katana_feeder_gateway::types::BlockId;
 use katana_primitives::block::BlockNumber;
 use katana_primitives::class::{ClassHash, ContractClass};
-use katana_provider::error::ProviderError;
-use katana_provider::traits::contract::ContractClassWriter;
-use katana_provider::traits::state_update::StateUpdateProvider;
+use katana_provider::api::contract::ContractClassWriter;
+use katana_provider::api::state_update::StateUpdateProvider;
+use katana_provider::api::ProviderError;
 use katana_rpc_types::class::ConversionError;
 use tracing::{debug, error, warn};
 

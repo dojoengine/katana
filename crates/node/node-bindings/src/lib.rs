@@ -12,12 +12,12 @@ use std::process::{Child, Command};
 use std::str::FromStr;
 use std::time::{Duration, Instant};
 
-use starknet::core::types::{Felt, FromStrError};
 use starknet::core::utils::cairo_short_string_to_felt;
 use starknet::macros::short_string;
 use starknet::providers::jsonrpc::HttpTransport;
 use starknet::providers::JsonRpcClient;
 use starknet::signers::SigningKey;
+use starknet_types_core::felt::{Felt, FromStrError};
 use thiserror::Error;
 use tracing::trace;
 use url::Url;

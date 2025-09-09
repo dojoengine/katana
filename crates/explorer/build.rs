@@ -54,8 +54,8 @@ fn initialize_submodule(ui_dir: &Path) {
         }
     } else {
         panic!(
-            "UI directory doesn't exist at {} and couldn't fetch it through git submodule (not in \
-             a git repository)",
+            "/ui directory doesn't exist at {} and couldn't fetch it through git submodule (not \
+             in a git repository)",
             ui_dir.display()
         );
     }

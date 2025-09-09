@@ -1,0 +1,125 @@
+use std::path::Path;
+use std::process::Command;
+use std::{env, fs};
+
+fn main() {
+    let manifest_dir = env::var("CARGO_MANIFEST_DIR").unwrap();
+    let controller_dir = Path::new(&manifest_dir).join("controller");
+    let classes_dir = controller_dir.join("account_sdk/artifacts/classes");
+    let dest_path = Path::new(&manifest_dir).join("src/controller.rs");
+
+    // Check if controller/ doesn't exist or is empty
+    let should_update_submodule = !controller_dir.exists()
+        || (controller_dir.exists()
+            && controller_dir.read_dir().map(|mut d| d.next().is_none()).unwrap_or(true));
+
+    if should_update_submodule {
+        initialize_submodule(&controller_dir);
+    }
+
+    let mut generated_code = String::new();
+
+    // Read all .json files from the classes directory
+    if let Ok(entries) = fs::read_dir(&classes_dir) {
+        let mut contracts = Vec::new();
+
+        for entry in entries.flatten() {
+            let path = entry.path();
+            if let Some(extension) = path.extension() {
+                if extension == "json" {
+                    if let Some(file_name) = path.file_stem() {
+                        let file_name_str = file_name.to_string_lossy();
+                        // Only include controller.*.contract_class.json files, not compiled
+                        // ones
+                        if file_name_str.starts_with("controller.")
+                            && file_name_str.ends_with("contract_class")
+                            && !file_name_str.contains("compiled")
+                        {
+                            contracts.push(file_name_str.to_string());
+                        }
+                    }
+                }
+            }
+        }
+
+        // Sort contracts for consistent ordering
+        contracts.sort();
+
+        for file_name in contracts {
+            // Convert filename to struct name (e.g., controller.latest.contract_class ->
+            // ControllerLatest)
+            let struct_name = filename_to_struct_name(&file_name);
+
+            generated_code.push_str(&format!(
+                "::katana_contracts::contract!(\n    {},\n    \
+                 \"{{CARGO_MANIFEST_DIR}}/controller/account_sdk/artifacts/classes/{}.json\"\n);
+                 ",
+                struct_name, file_name
+            ));
+        }
+    }
+
+    fs::write(dest_path, generated_code).unwrap();
+
+    // Tell Cargo to rerun this build script if the classes directory changes
+    println!("cargo:rerun-if-changed={}", classes_dir.display());
+}
+
+fn filename_to_struct_name(filename: &str) -> String {
+    // Split by dots and convert each part to PascalCase
+    let parts: Vec<&str> = filename.split('.').collect();
+    let mut struct_name = String::new();
+
+    for part in parts {
+        if part == "json" || part == "contract_class" || part == "compiled_contract_class" {
+            continue;
+        }
+
+        // Convert to PascalCase
+        let pascal_part = part
+            .split('_')
+            .map(|word| {
+                let mut chars = word.chars();
+                match chars.next() {
+                    None => String::new(),
+                    Some(first) => first.to_uppercase().chain(chars).collect(),
+                }
+            })
+            .collect::<String>();
+
+        struct_name.push_str(&pascal_part);
+    }
+
+    struct_name
+}
+
+fn initialize_submodule(controller_dir: &Path) {
+    // Check if we're in a git repository
+    let git_check = Command::new("git").arg("rev-parse").arg("--git-dir").output();
+    if git_check.is_ok() && git_check.unwrap().status.success() {
+        println!("Controller directory is empty, updating git submodule...");
+
+        let status = Command::new("git")
+            .arg("submodule")
+            .arg("update")
+            .arg("--init")
+            .arg("--recursive")
+            .arg("--force")
+            .arg("controller")
+            .status()
+            .expect("Failed to update git submodule");
+
+        if !status.success() {
+            panic!(
+                "Failed to update git submodule for controller directory at {}",
+                controller_dir.display()
+            );
+        }
+    } else {
+        panic!(
+            "/controller directory doesn't exist at {} and couldn't fetch it through git \
+             submodule (not in a git repository)",
+            controller_dir.display()
+        );
+    }
+}

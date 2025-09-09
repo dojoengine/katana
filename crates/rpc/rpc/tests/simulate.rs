@@ -1,8 +1,9 @@
 use cainome::rs::abigen_legacy;
+use katana_primitives::block::BlockIdOrTag;
 use katana_primitives::genesis::constant::DEFAULT_ETH_FEE_TOKEN_ADDRESS;
 use katana_utils::TestNode;
 use starknet::accounts::{Account, ExecutionEncoding, SingleOwnerAccount};
-use starknet::core::types::{BlockId, BlockTag, Felt};
+use starknet::core::types::Felt;
 use starknet::macros::felt;
 use starknet::providers::Provider;
 use starknet::signers::{LocalWallet, SigningKey};
@@ -32,7 +33,7 @@ async fn simulate_nonce_validation(#[values(None, Some(1000))] block_time: Optio
     let mut config = katana_utils::node::test_config();
     config.sequencing.block_time = block_time;
     let sequencer = TestNode::new_with_config(config).await;
-    let provider = sequencer.starknet_provider();
+    let provider = sequencer.starknet_rpc_client();
     let account = sequencer.account();
 
     let contract = Erc20Contract::new(DEFAULT_ETH_FEE_TOKEN_ADDRESS.into(), &account);
@@ -47,7 +48,7 @@ async fn simulate_nonce_validation(#[values(None, Some(1000))] block_time: Optio
 
     // simulate with current nonce (the expected nonce)
     let nonce =
-        provider.get_nonce(BlockId::Tag(BlockTag::PreConfirmed), account.address()).await.unwrap();
+        provider.get_nonce(BlockIdOrTag::PreConfirmed, account.address().into()).await.unwrap();
     let result = contract.transfer(&recipient, &amount).nonce(nonce).simulate(false, false).await;
     assert!(result.is_ok(), "estimate should succeed with nonce == current nonce");
 

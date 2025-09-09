@@ -3,9 +3,9 @@ use katana_primitives::class::{ClassHash, CompiledClassHash, ContractClass};
 use katana_primitives::contract::{ContractAddress, Nonce, StorageKey, StorageValue};
 use katana_primitives::env::{BlockEnv, CfgEnv};
 use katana_primitives::transaction::{ExecutableTxWithHash, TxWithHash};
-use katana_provider::traits::contract::ContractClassProvider;
-use katana_provider::traits::state::{StateProofProvider, StateProvider, StateRootProvider};
-use katana_provider::ProviderResult;
+use katana_provider::api::contract::ContractClassProvider;
+use katana_provider::api::state::{StateProofProvider, StateProvider, StateRootProvider};
+use katana_provider::api::ProviderResult;
 
 use crate::abstraction::{
     BlockExecutor, ExecutionFlags, ExecutionOutput, ExecutionResult, ExecutorFactory,

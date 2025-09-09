@@ -21,19 +21,23 @@ members = [
 	"crates/node/node-cli-args",
 	"crates/node/node-defaults",
 	"crates/oracle/gas",
-	"crates/pool",
+	"crates/pool/pool",
+	"crates/pool/pool-api",
 	"crates/primitives",
 	"crates/rpc/rpc",
 	"crates/rpc/rpc-api",
+	"crates/rpc/rpc-client",
 	"crates/rpc/rpc-types",
 	"crates/rpc/rpc-types-builder",
 	"crates/runner",
 	"crates/runner/macro",
+	"crates/serde-utils",
 	"crates/storage/codecs",
 	"crates/storage/codecs/derive",
 	"crates/storage/db",
 	"crates/storage/fork",
-	"crates/storage/provider",
+	"crates/storage/provider/provider",
+	"crates/storage/provider/provider-api",
 	"crates/sync/pipeline",
 	"crates/sync/stage",
 	"crates/tasks",
@@ -64,6 +68,7 @@ inherits = "release"
 
 [workspace.dependencies]
 cartridge = { path = "crates/cartridge" }
+serde-utils = { path = "crates/serde-utils" }
 
 katana-chain-spec = { path = "crates/chain-spec" }
 katana-codecs = { path = "crates/storage/codecs" }
@@ -84,11 +89,14 @@ katana-node-cli = { path = "crates/node/node-cli" }
 katana-node-cli-args = { path = "crates/node/node-cli-args" }
 katana-node-defaults = { path = "crates/node/node-defaults" }
 katana-pipeline = { path = "crates/sync/pipeline" }
-katana-pool = { path = "crates/pool" }
+katana-pool = { path = "crates/pool/pool" }
+katana-pool-api = { path = "crates/pool/pool-api" }
 katana-primitives = { path = "crates/primitives" }
-katana-provider = { path = "crates/storage/provider" }
+katana-provider = { path = "crates/storage/provider/provider" }
+katana-provider-api = { path = "crates/storage/provider/provider-api" }
 katana-rpc = { path = "crates/rpc/rpc" }
 katana-rpc-api = { path = "crates/rpc/rpc-api" }
+katana-rpc-client = { path = "crates/rpc/rpc-client" }
 katana-rpc-types = { path = "crates/rpc/rpc-types" }
 katana-rpc-types-builder = { path = "crates/rpc/rpc-types-builder" }
 katana-runner = { path = "crates/runner" }
@@ -115,7 +123,7 @@ assert_matches = "1.5.0"
 async-trait = "0.1.82"
 auto_impl = "1.2.0"
 backon = { version = "1.5", features = [ "tokio-sleep" ] }
-base64 = "0.21.2"
+base64 = "0.21"
 bigdecimal = "0.4.1"
 bitvec = "1.0.1"
 camino = { version = "1.1.2", features = [ "serde1" ] }
@@ -226,6 +234,7 @@ cainome-cairo-serde = { git = "https://github.com/cartridge-gg/cainome", rev = "
 piltover = { git = "https://github.com/kariy/piltover.git", branch = "feat/rpc0.9" }
 
 [patch.crates-io]
+starknet = { git = "https://github.com/kariy/starknet-rs", rev = "2ef3088" }
 # NOTE: remove this patch once this PR is merged <https://github.com/starknet-io/types-rs/pull/132>
 #
 # This patch fixes an issue where we're unable to correctly evaluate the accurate size

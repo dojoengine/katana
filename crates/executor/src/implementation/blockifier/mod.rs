@@ -17,7 +17,7 @@ use katana_primitives::block::{ExecutableBlock, GasPrices as KatanaGasPrices, Pa
 use katana_primitives::env::{BlockEnv, CfgEnv};
 use katana_primitives::transaction::{ExecutableTx, ExecutableTxWithHash, TxWithHash};
 use katana_primitives::version::StarknetVersion;
-use katana_provider::traits::state::StateProvider;
+use katana_provider::api::state::StateProvider;
 use starknet_api::block::{
     BlockInfo, BlockNumber, BlockTimestamp, GasPriceVector, GasPrices, NonzeroGasPrice,
 };

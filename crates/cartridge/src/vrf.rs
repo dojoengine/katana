@@ -22,11 +22,11 @@ use std::sync::Arc;
 
 use ark_ec::short_weierstrass::Affine;
 use katana_primitives::contract::Nonce;
+use katana_primitives::utils::get_contract_address;
 use katana_primitives::{ContractAddress, Felt};
 use num_bigint::{BigInt, BigUint};
 use parking_lot::Mutex;
 use stark_vrf::{generate_public_key, BaseField, StarkCurve, StarkVRF};
-use starknet::core::utils::get_contract_address;
 use starknet::macros::{felt, short_string};
 use tracing::trace;
 

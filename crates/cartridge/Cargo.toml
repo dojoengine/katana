@@ -4,13 +4,16 @@ license.workspace = true
 name = "cartridge"
 repository.workspace = true
 version.workspace = true
+build = "build.rs"
 
 [dependencies]
+katana-contracts.workspace = true
 katana-primitives.workspace = true
 
 anyhow.workspace = true
 ark-ec = "0.4"
 cainome.workspace = true
+lazy_static.workspace = true
 num-bigint.workspace = true
 parking_lot.workspace = true
 reqwest.workspace = true

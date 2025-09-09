@@ -5,11 +5,11 @@ use core::fmt;
 use katana_primitives::block::BlockNumber;
 use katana_primitives::transaction::TxNumber;
 use serde::{Deserialize, Serialize};
-use starknet::core::types::ResultPageRequest;
 
 use crate::block::BlockWithTxHashes;
 use crate::receipt::TxReceiptWithBlockInfo;
-use crate::transaction::Tx;
+use crate::transaction::RpcTxWithHash;
+use crate::ResultPageRequest;
 
 /// Represents a continuation token for implementing paging in block and transaction queries.
 ///
@@ -113,7 +113,7 @@ pub struct GetTransactionsResponse {
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct TransactionListItem {
     /// The transaction - same object returned by `starknet_getTransactionByHash`.
-    pub transaction: Tx,
+    pub transaction: RpcTxWithHash,
     /// The transaction receipt - same object returned by `starknet_getTransactionReceipt`.
     pub receipt: TxReceiptWithBlockInfo,
 }

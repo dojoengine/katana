@@ -150,32 +150,32 @@ pub struct GetTransactionByBlockIdAndIndexArgs {
 
 #[derive(Debug, Args)]
 pub struct GetClassArgs {
+    /// Class hash
+    class_hash: String,
+
     /// Block ID (number, hash, 'latest', or 'pending'). Defaults to 'latest'
     #[arg(default_value = "latest")]
     block_id: BlockIdArg,
-
-    /// Class hash
-    class_hash: String,
 }
 
 #[derive(Debug, Args)]
 pub struct GetClassHashAtArgs {
+    /// Contract address
+    contract_address: String,
+
     /// Block ID (number, hash, 'latest', or 'pending'). Defaults to 'latest'
     #[arg(default_value = "latest")]
     block_id: BlockIdArg,
-
-    /// Contract address
-    contract_address: String,
 }
 
 #[derive(Debug, Args)]
 pub struct GetClassAtArgs {
+    /// Contract address
+    contract_address: String,
+
     /// Block ID (number, hash, 'latest', or 'pending'). Defaults to 'latest'
     #[arg(default_value = "latest")]
     block_id: BlockIdArg,
-
-    /// Contract address
-    contract_address: String,
 }
 
 #[derive(Debug, Args)]
@@ -202,20 +202,16 @@ pub struct GetEventsArgs {
 
 #[derive(Debug, Args)]
 pub struct GetNonceArgs {
+    /// The contract address whose nonce is requested
+    address: String,
+
     /// Block ID (number, hash, 'latest', or 'pending'). Defaults to 'latest'
     #[arg(default_value = "latest")]
     block_id: BlockIdArg,
-
-    /// The contract address whose nonce is requested
-    address: String,
 }
 
 #[derive(Debug, Args)]
 pub struct GetStorageProofArgs {
-    /// Block ID (number, hash, 'latest', or 'pending'). Defaults to 'latest'
-    #[arg(default_value = "latest")]
-    block_id: BlockIdArg,
-
     /// Class hashes JSON array
     #[arg(long)]
     class_hashes: Option<String>,
@@ -227,6 +223,10 @@ pub struct GetStorageProofArgs {
     /// Contract storage keys JSON
     #[arg(long)]
     contracts_storage_keys: Option<String>,
+
+    /// Block ID (number, hash, 'latest', or 'pending'). Defaults to 'latest'
+    #[arg(default_value = "latest")]
+    block_id: BlockIdArg,
 }
 
 #[derive(Debug, Args)]

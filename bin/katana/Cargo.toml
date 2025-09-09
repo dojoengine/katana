@@ -11,6 +11,7 @@ katana-chain-spec.workspace = true
 katana-db = { workspace = true, features = [ "arbitrary" ] }
 katana-node-cli.workspace = true
 katana-primitives.workspace = true
+katana-rpc-client.workspace = true
 katana-rpc-types.workspace = true
 katana-utils.workspace = true
 

@@ -1,0 +1,24 @@
+{
+  "block_number": 1833173,
+  "l1_da_mode": "BLOB",
+  "l1_data_gas_price": {
+    "price_in_fri": "0x8403",
+    "price_in_wei": "0x1"
+  },
+  "l1_gas_price": {
+    "price_in_fri": "0x1ed0472629d4",
+    "price_in_wei": "0x3bc0fd69"
+  },
+  "l2_gas_price": {
+    "price_in_fri": "0xb2d05e00",
+    "price_in_wei": "0x15ac1"
+  },
+  "sequencer_address": "0x1176a1bd84444c89232ec27754698e5d2e7e1a7f1539f12027f28b23ec9f3d8",
+  "starknet_version": "0.14.0",
+  "timestamp": 1756770839,
+  "transactions": [
+    "0x47c73edc595bcd95f804d3a6d52fb5178de9465e64c9598908c24744cd40120",
+    "0x5555ec91184b0c219569e040bbd939af698dbc69b5a017ba63550ee1441b40f",
+    "0x3ac08f22812508465f97c583bba2ca6d75c05484e8fb4b43761fd85ae4bbf3c"
+  ]
+}

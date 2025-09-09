@@ -14,6 +14,7 @@ use config::rpc::RpcModuleKind;
 use config::Config;
 use http::header::CONTENT_TYPE;
 use http::Method;
+use jsonrpsee::http_client::HttpClientBuilder;
 use jsonrpsee::RpcModule;
 use katana_chain_spec::{ChainSpec, SettlementLayer};
 use katana_core::backend::storage::Blockchain;
@@ -142,7 +143,8 @@ impl Node {
 
             // TODO: it'd bee nice if the client can be shared on both the rpc and forked backend
             // side
-            let forked_client = ForkedClient::new_http(cfg.url.clone(), block_num);
+            let rpc_client = HttpClientBuilder::new().build(cfg.url.as_ref())?;
+            let forked_client = ForkedClient::new(rpc_client, block_num);
 
             (bc, db, Some(forked_client))
         } else if let Some(db_path) = &config.db.dir {

@@ -15,7 +15,7 @@ const X_THROTTLING_BYPASS: &str = "X-Throttling-Bypass";
 #[derive(Debug, thiserror::Error)]
 pub enum Error {
     #[error(transparent)]
-    Network(#[from] reqwest::Error),
+    Network(reqwest::Error),
 
     #[error(transparent)]
     Sequencer(SequencerError),
@@ -25,6 +25,18 @@ pub enum Error {
 
     #[error("request rate limited")]
     RateLimited,
+}
+
+impl From<reqwest::Error> for Error {
+    fn from(err: reqwest::Error) -> Self {
+        if let Some(status) = err.status() {
+            if status == StatusCode::TOO_MANY_REQUESTS {
+                return Self::RateLimited;
+            }
+        }
+
+        Self::Network(err)
+    }
 }
 
 impl Error {
@@ -50,14 +62,14 @@ impl SequencerGateway {
     ///
     /// https://docs.starknet.io/tools/important-addresses/#sequencer_base_url
     pub fn sn_mainnet() -> Self {
-        Self::new(Url::parse("https://alpha-mainnet.starknet.io/").unwrap())
+        Self::new(Url::parse("https://feeder.alpha-mainnet.starknet.io/").unwrap())
     }
 
     /// Creates a new gateway client to Starknet sepolia.
     ///
     /// https://docs.starknet.io/tools/important-addresses/#sequencer_base_url
     pub fn sn_sepolia() -> Self {
-        Self::new(Url::parse("https://alpha-sepolia.starknet.io/").unwrap())
+        Self::new(Url::parse("https://feeder.integration-sepolia.starknet.io/").unwrap())
     }
 
     /// Creates a new gateway client at the given base URL.
@@ -156,16 +168,12 @@ impl RequestBuilder<'_> {
             headers.insert(X_THROTTLING_BYPASS, value);
         }
 
-        let response =
-            self.gateway_client.http_client.get(self.url).headers(headers).send().await?;
+        let request = self.gateway_client.http_client.get(self.url).headers(headers);
+        let response = request.send().await?.error_for_status()?;
 
-        if response.status() == StatusCode::TOO_MANY_REQUESTS {
-            Err(Error::RateLimited)
-        } else {
-            match response.json::<Response<T>>().await? {
-                Response::Data(data) => Ok(data),
-                Response::Error(error) => Err(Error::Sequencer(error)),
-            }
+        match response.json::<Response<T>>().await? {
+            Response::Data(data) => Ok(data),
+            Response::Error(error) => Err(Error::Sequencer(error)),
         }
     }
 }

@@ -1,6 +1,8 @@
 use std::collections::{hash_map, HashMap};
 
-pub use blockifier::execution::call_info::{CallExecution, CallInfo, ExecutionSummary};
+pub use blockifier::execution::call_info::{
+    CallExecution, CallInfo, ExecutionSummary, OrderedEvent,
+};
 pub use blockifier::execution::contract_class::TrackedResource;
 pub use blockifier::execution::entry_point::{CallEntryPoint, CallType};
 pub use blockifier::execution::stack_trace::ErrorStack;

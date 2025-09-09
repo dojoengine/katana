@@ -45,15 +45,15 @@ use katana_primitives::genesis::allocation::GenesisAccountAlloc;
 use katana_primitives::genesis::constant::DEFAULT_UDC_ADDRESS;
 use katana_primitives::transaction::{ExecutableTx, ExecutableTxWithHash, InvokeTx, InvokeTxV3};
 use katana_primitives::{ContractAddress, Felt};
-use katana_provider::traits::state::{StateFactoryProvider, StateProvider};
+use katana_provider::api::state::{StateFactoryProvider, StateProvider};
 use katana_rpc_api::cartridge::CartridgeApiServer;
 use katana_rpc_api::error::starknet::StarknetApiError;
 use katana_rpc_types::broadcasted::AddInvokeTransactionResponse;
 use katana_rpc_types::outside_execution::{
     OutsideExecution, OutsideExecutionV2, OutsideExecutionV3,
 };
+use katana_rpc_types::FunctionCall;
 use katana_tasks::TokioTaskSpawner;
-use starknet::core::types::Call;
 use starknet::macros::selector;
 use starknet::signers::{LocalWallet, Signer, SigningKey};
 use tracing::{debug, info};
@@ -142,8 +142,7 @@ impl<EF: ExecutorFactory> CartridgeApi<EF> {
             let pm_private_key = if let GenesisAccountAlloc::DevAccount(pm) = pm_acc {
                 pm.private_key
             } else {
-                let reason = "Paymaster is not a dev account".to_string();
-                return Err(StarknetApiError::UnexpectedError { reason });
+                return Err(StarknetApiError::unexpected("Paymaster is not a dev account"))
             };
 
             // Contract function selector for
@@ -203,7 +202,7 @@ impl<EF: ExecutorFactory> CartridgeApi<EF> {
 
             inner_calldata.extend(Vec::<Felt>::cairo_serialize(&signature));
 
-            let execute_from_outside_call = Call { to: address.into(), selector: entrypoint, calldata: inner_calldata };
+            let execute_from_outside_call = FunctionCall { contract_address: address, entry_point_selector: entrypoint, calldata: inner_calldata };
 
             let chain_id = this.backend.chain_spec.id();
 
@@ -294,11 +293,11 @@ impl<EF: ExecutorFactory> CartridgeApiServer for CartridgeApi<EF> {
 
 /// Encodes the given calls into a vector of Felt values (New encoding, cairo 1),
 /// since controller accounts are Cairo 1 contracts.
-pub fn encode_calls(calls: Vec<Call>) -> Vec<Felt> {
+pub fn encode_calls(calls: Vec<FunctionCall>) -> Vec<Felt> {
     let mut execute_calldata: Vec<Felt> = vec![calls.len().into()];
     for call in calls {
-        execute_calldata.push(call.to);
-        execute_calldata.push(call.selector);
+        execute_calldata.push(call.contract_address.into());
+        execute_calldata.push(call.entry_point_selector);
 
         execute_calldata.push(call.calldata.len().into());
         execute_calldata.extend_from_slice(&call.calldata);
@@ -370,9 +369,9 @@ pub async fn craft_deploy_cartridge_controller_tx(
         .await
         .map_err(|e| anyhow!("Failed to fetch controller constructor calldata: {e}"))?
     {
-        let call = Call {
-            to: DEFAULT_UDC_ADDRESS.into(),
-            selector: selector!("deployContract"),
+        let call = FunctionCall {
+            contract_address: DEFAULT_UDC_ADDRESS,
+            entry_point_selector: selector!("deployContract"),
             calldata: res.constructor_calldata,
         };
 
@@ -419,7 +418,7 @@ async fn handle_vrf_calls(
     outside_execution: &OutsideExecution,
     chain_id: ChainId,
     vrf_ctx: &VrfContext,
-) -> anyhow::Result<Vec<Call>> {
+) -> anyhow::Result<Vec<FunctionCall>> {
     let calls = match outside_execution {
         OutsideExecution::V2(v2) => &v2.calls,
         OutsideExecution::V3(v3) => &v3.calls,
@@ -433,9 +432,7 @@ async fn handle_vrf_calls(
     // cartridge documentation for more details: <https://docs.cartridge.gg/vrf/overview#executing-vrf-transactions>.
     let first_call = calls.first().unwrap();
 
-    if first_call.selector != selector!("request_random")
-        && first_call.to != (*vrf_ctx.address()).into()
-    {
+    if first_call.selector != selector!("request_random") && first_call.to != vrf_ctx.address() {
         return Ok(Vec::new());
     }
 
@@ -465,9 +462,9 @@ async fn handle_vrf_calls(
 
     let proof = vrf_ctx.stark_vrf(seed)?;
 
-    let submit_random_call = Call {
-        to: vrf_ctx.address().into(),
-        selector: selector!("submit_random"),
+    let submit_random_call = FunctionCall {
+        contract_address: vrf_ctx.address(),
+        entry_point_selector: selector!("submit_random"),
         calldata: vec![
             seed,
             Felt::from_hex_unchecked(&proof.gamma_x),
@@ -478,9 +475,9 @@ async fn handle_vrf_calls(
         ],
     };
 
-    let assert_consumed_call = Call {
-        selector: selector!("assert_consumed"),
-        to: vrf_ctx.address().into(),
+    let assert_consumed_call = FunctionCall {
+        entry_point_selector: selector!("assert_consumed"),
+        contract_address: vrf_ctx.address(),
         calldata: vec![seed],
     };
 
@@ -510,8 +507,11 @@ pub async fn craft_deploy_cartridge_vrf_tx(
         public_key_y,
     ];
 
-    let call =
-        Call { to: DEFAULT_UDC_ADDRESS.into(), selector: selector!("deployContract"), calldata };
+    let call = FunctionCall {
+        contract_address: DEFAULT_UDC_ADDRESS,
+        entry_point_selector: selector!("deployContract"),
+        calldata,
+    };
 
     let mut tx = InvokeTxV3 {
         chain_id,

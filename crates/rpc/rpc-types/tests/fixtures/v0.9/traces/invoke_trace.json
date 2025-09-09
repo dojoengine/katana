@@ -1,0 +1,176 @@
+{
+  "execute_invocation": {
+    "call_type": "CALL",
+    "calldata": [
+      "0x2",
+      "0x7a6f440b8632053d221c4bfa7fe9d7896a51f9752981934d8e1fe7c106e910b",
+      "0x382be990ca34815134e64a9ac28f41a907c62e5ad10547f97174362ab94dc89",
+      "0x0",
+      "0x7a6f440b8632053d221c4bfa7fe9d7896a51f9752981934d8e1fe7c106e910b",
+      "0x27c3334165536f239cfd400ed956eabff55fc60de4fb56728b6a4f6b87db01c",
+      "0x4",
+      "0x7a6f440b8632053d221c4bfa7fe9d7896a51f9752981934d8e1fe7c106e910b",
+      "0x5df99ae77df976b4f0e5cf28c7dcfe09bd6e81aab787b19ac0c08e03d928cf",
+      "0x1",
+      "0x365"
+    ],
+    "caller_address": "0x0",
+    "calls": [
+      {
+        "call_type": "CALL",
+        "calldata": [],
+        "caller_address": "0x395a96a5b6343fc0f543692fd36e7034b54c2a276cd1a021e8c0b02aee1f43",
+        "calls": [],
+        "class_hash": "0x626c15d497f8ef78da749cbe21ac3006470829ee8b5d0d166f3a139633c6a93",
+        "contract_address": "0x7a6f440b8632053d221c4bfa7fe9d7896a51f9752981934d8e1fe7c106e910b",
+        "entry_point_selector": "0x382be990ca34815134e64a9ac28f41a907c62e5ad10547f97174362ab94dc89",
+        "entry_point_type": "EXTERNAL",
+        "events": [],
+        "execution_resources": {
+          "l1_gas": 0,
+          "l2_gas": 870555
+        },
+        "is_reverted": false,
+        "messages": [],
+        "result": []
+      },
+      {
+        "call_type": "CALL",
+        "calldata": [
+          "0x7a6f440b8632053d221c4bfa7fe9d7896a51f9752981934d8e1fe7c106e910b",
+          "0x5df99ae77df976b4f0e5cf28c7dcfe09bd6e81aab787b19ac0c08e03d928cf",
+          "0x1",
+          "0x365"
+        ],
+        "caller_address": "0x395a96a5b6343fc0f543692fd36e7034b54c2a276cd1a021e8c0b02aee1f43",
+        "calls": [
+          {
+            "call_type": "CALL",
+            "calldata": [
+              "0x365"
+            ],
+            "caller_address": "0x7a6f440b8632053d221c4bfa7fe9d7896a51f9752981934d8e1fe7c106e910b",
+            "calls": [],
+            "class_hash": "0x626c15d497f8ef78da749cbe21ac3006470829ee8b5d0d166f3a139633c6a93",
+            "contract_address": "0x7a6f440b8632053d221c4bfa7fe9d7896a51f9752981934d8e1fe7c106e910b",
+            "entry_point_selector": "0x5df99ae77df976b4f0e5cf28c7dcfe09bd6e81aab787b19ac0c08e03d928cf",
+            "entry_point_type": "EXTERNAL",
+            "events": [],
+            "execution_resources": {
+              "l1_gas": 0,
+              "l2_gas": 15650
+            },
+            "is_reverted": false,
+            "messages": [],
+            "result": [
+              "0x76ae0bae894c28c926421539e969bc00ced005bef9bc4cee129e505f9dfc2bc"
+            ]
+          }
+        ],
+        "class_hash": "0x626c15d497f8ef78da749cbe21ac3006470829ee8b5d0d166f3a139633c6a93",
+        "contract_address": "0x7a6f440b8632053d221c4bfa7fe9d7896a51f9752981934d8e1fe7c106e910b",
+        "entry_point_selector": "0x27c3334165536f239cfd400ed956eabff55fc60de4fb56728b6a4f6b87db01c",
+        "entry_point_type": "EXTERNAL",
+        "events": [],
+        "execution_resources": {
+          "l1_gas": 0,
+          "l2_gas": 120200
+        },
+        "is_reverted": false,
+        "messages": [],
+        "result": []
+      }
+    ],
+    "class_hash": "0x345354e2d801833068de73d1a2028e2f619f71045dd5229e79469fa7f598038",
+    "contract_address": "0x395a96a5b6343fc0f543692fd36e7034b54c2a276cd1a021e8c0b02aee1f43",
+    "entry_point_selector": "0x15d40a3d6ca2ac30f4031e42be28da9b056fef9bb7357ac5e85627ee876e5ad",
+    "entry_point_type": "EXTERNAL",
+    "events": [],
+    "execution_resources": {
+      "l1_gas": 0,
+      "l2_gas": 1251905
+    },
+    "is_reverted": false,
+    "messages": [],
+    "result": [
+      "0x2",
+      "0x0",
+      "0x0"
+    ]
+  },
+  "execution_resources": {
+    "l1_data_gas": 128,
+    "l1_gas": 0,
+    "l2_gas": 1926180
+  },
+  "fee_transfer_invocation": {
+    "call_type": "CALL",
+    "calldata": [
+      "0x1176a1bd84444c89232ec27754698e5d2e7e1a7f1539f12027f28b23ec9f3d8",
+      "0x1536bcb089b900",
+      "0x0"
+    ],
+    "caller_address": "0x395a96a5b6343fc0f543692fd36e7034b54c2a276cd1a021e8c0b02aee1f43",
+    "calls": [],
+    "class_hash": "0x9524a94b41c4440a16fd96d7c1ef6ad6f44c1c013e96662734502cd4ee9b1f",
+    "contract_address": "0x4718f5a0fc34cc1af16a1cdee98ffb20c31f5cd61d6ab07201858f4287c938d",
+    "entry_point_selector": "0x83afd3f4caedc6eebf44246fe54e38c95e3179a5ec9ea81740eca5b482d12e",
+    "entry_point_type": "EXTERNAL",
+    "events": [
+      {
+        "data": [
+          "0x395a96a5b6343fc0f543692fd36e7034b54c2a276cd1a021e8c0b02aee1f43",
+          "0x1176a1bd84444c89232ec27754698e5d2e7e1a7f1539f12027f28b23ec9f3d8",
+          "0x1536bcb089b900",
+          "0x0"
+        ],
+        "keys": [
+          "0x99cd8bde557814842a3121e8ddfd433a539b8c9f14bf31ebf108d12e6196e9"
+        ],
+        "order": 0
+      }
+    ],
+    "execution_resources": {
+      "l1_gas": 0,
+      "l2_gas": 189030
+    },
+    "is_reverted": false,
+    "messages": [],
+    "result": [
+      "0x1"
+    ]
+  },
+  "type": "INVOKE",
+  "validate_invocation": {
+    "call_type": "CALL",
+    "calldata": [
+      "0x2",
+      "0x7a6f440b8632053d221c4bfa7fe9d7896a51f9752981934d8e1fe7c106e910b",
+      "0x382be990ca34815134e64a9ac28f41a907c62e5ad10547f97174362ab94dc89",
+      "0x0",
+      "0x7a6f440b8632053d221c4bfa7fe9d7896a51f9752981934d8e1fe7c106e910b",
+      "0x27c3334165536f239cfd400ed956eabff55fc60de4fb56728b6a4f6b87db01c",
+      "0x4",
+      "0x7a6f440b8632053d221c4bfa7fe9d7896a51f9752981934d8e1fe7c106e910b",
+      "0x5df99ae77df976b4f0e5cf28c7dcfe09bd6e81aab787b19ac0c08e03d928cf",
+      "0x1",
+      "0x365"
+    ],
+    "caller_address": "0x0",
+    "calls": [],
+    "class_hash": "0x345354e2d801833068de73d1a2028e2f619f71045dd5229e79469fa7f598038",
+    "contract_address": "0x395a96a5b6343fc0f543692fd36e7034b54c2a276cd1a021e8c0b02aee1f43",
+    "entry_point_selector": "0x162da33a4585851fe8d3af3c2a9c60b557814e221e0d4f30ff0b2189d9c7775",
+    "entry_point_type": "EXTERNAL",
+    "events": [],
+    "execution_resources": {
+      "l1_gas": 0,
+      "l2_gas": 87715
+    },
+    "is_reverted": false,
+    "messages": [],
+    "result": [
+      "0x56414c4944"
+    ]
+  }
+}

@@ -9,10 +9,6 @@ use katana_primitives::transaction::{
 use katana_primitives::{ContractAddress, Felt};
 use serde::Deserialize;
 
-use super::serde_utils::{
-    deserialize_optional_u128, deserialize_optional_u64, deserialize_u128, deserialize_u64,
-};
-
 #[derive(Debug, PartialEq, Eq, Deserialize)]
 pub struct ConfirmedTransaction {
     #[serde(rename = "transaction_hash")]
@@ -61,9 +57,9 @@ impl<'de> Deserialize<'de> for DataAvailabilityMode {
 // implementation of its primitive counterpart is different.
 #[derive(Debug, Default, PartialEq, Eq, Deserialize)]
 pub struct ResourceBounds {
-    #[serde(deserialize_with = "deserialize_u64")]
+    #[serde(deserialize_with = "serde_utils::deserialize_u64")]
     pub max_amount: u64,
-    #[serde(deserialize_with = "deserialize_u128")]
+    #[serde(deserialize_with = "serde_utils::deserialize_u128")]
     pub max_price_per_unit: u128,
 }
 
@@ -104,12 +100,12 @@ pub struct RawInvokeTx {
     pub calldata: Vec<Felt>,
     pub signature: Vec<Felt>,
     #[serde(default)]
-    #[serde(deserialize_with = "deserialize_optional_u128")]
+    #[serde(deserialize_with = "serde_utils::deserialize_opt_u128")]
     pub max_fee: Option<u128>,
     #[serde(default)]
     pub resource_bounds: Option<ResourceBoundsMapping>,
     #[serde(default)]
-    #[serde(deserialize_with = "deserialize_optional_u64")]
+    #[serde(deserialize_with = "serde_utils::deserialize_opt_u64")]
     pub tip: Option<u64>,
     #[serde(default)]
     pub paymaster_data: Option<Vec<Felt>>,
@@ -130,12 +126,12 @@ pub struct RawDeclareTx {
     pub class_hash: ClassHash,
     pub compiled_class_hash: Option<CompiledClassHash>,
     #[serde(default)]
-    #[serde(deserialize_with = "deserialize_optional_u128")]
+    #[serde(deserialize_with = "serde_utils::deserialize_opt_u128")]
     pub max_fee: Option<u128>,
     #[serde(default)]
     pub resource_bounds: Option<ResourceBoundsMapping>,
     #[serde(default)]
-    #[serde(deserialize_with = "deserialize_optional_u64")]
+    #[serde(deserialize_with = "serde_utils::deserialize_opt_u64")]
     pub tip: Option<u64>,
     #[serde(default)]
     pub paymaster_data: Option<Vec<Felt>>,
@@ -157,12 +153,12 @@ pub struct RawDeployAccountTx {
     pub contract_address_salt: Felt,
     pub constructor_calldata: Vec<Felt>,
     #[serde(default)]
-    #[serde(deserialize_with = "deserialize_optional_u128")]
+    #[serde(deserialize_with = "serde_utils::deserialize_opt_u128")]
     pub max_fee: Option<u128>,
     #[serde(default)]
     pub resource_bounds: Option<ResourceBoundsMapping>,
     #[serde(default)]
-    #[serde(deserialize_with = "deserialize_optional_u64")]
+    #[serde(deserialize_with = "serde_utils::deserialize_opt_u64")]
     pub tip: Option<u64>,
     #[serde(default)]
     pub paymaster_data: Option<Vec<Felt>>,

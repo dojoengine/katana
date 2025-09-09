@@ -1,0 +1,33 @@
+{
+  "actual_fee": {
+    "amount": "0x7327522833800",
+    "unit": "FRI"
+  },
+  "block_hash": "0x1b6660888efffde8cf3064bdc2d7d826e63850ba6acf67f9b628af472335a6b",
+  "block_number": 1831872,
+  "contract_address": "0x583d1ea19135ccdea1e42c2772687b765bba714b1f2104213c5a3919a2574b",
+  "events": [
+    {
+      "data": [
+        "0x583d1ea19135ccdea1e42c2772687b765bba714b1f2104213c5a3919a2574b",
+        "0x1176a1bd84444c89232ec27754698e5d2e7e1a7f1539f12027f28b23ec9f3d8",
+        "0x7327522833800",
+        "0x0"
+      ],
+      "from_address": "0x4718f5a0fc34cc1af16a1cdee98ffb20c31f5cd61d6ab07201858f4287c938d",
+      "keys": [
+        "0x99cd8bde557814842a3121e8ddfd433a539b8c9f14bf31ebf108d12e6196e9"
+      ]
+    }
+  ],
+  "execution_resources": {
+    "l1_data_gas": 256,
+    "l1_gas": 0,
+    "l2_gas": 653485
+  },
+  "execution_status": "SUCCEEDED",
+  "finality_status": "ACCEPTED_ON_L2",
+  "messages_sent": [],
+  "transaction_hash": "0x7ed8d22d2da21c072a61661888f15cb4039ee2370711d7a82fb142fa805941d",
+  "type": "DEPLOY_ACCOUNT"
+}

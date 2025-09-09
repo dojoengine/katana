@@ -1,0 +1,67 @@
+{
+  "execution_resources": {
+    "l1_data_gas": 192,
+    "l1_gas": 0,
+    "l2_gas": 1575437440
+  },
+  "fee_transfer_invocation": {
+    "call_type": "CALL",
+    "calldata": [
+      "0x1176a1bd84444c89232ec27754698e5d2e7e1a7f1539f12027f28b23ec9f3d8",
+      "0x41973c03b91bc580",
+      "0x0"
+    ],
+    "caller_address": "0x3e6c6f41d833ec5e7d38e6007df5b0ab6b48bc4c2d3dbeac1ed665456ae4766",
+    "calls": [],
+    "class_hash": "0x9524a94b41c4440a16fd96d7c1ef6ad6f44c1c013e96662734502cd4ee9b1f",
+    "contract_address": "0x4718f5a0fc34cc1af16a1cdee98ffb20c31f5cd61d6ab07201858f4287c938d",
+    "entry_point_selector": "0x83afd3f4caedc6eebf44246fe54e38c95e3179a5ec9ea81740eca5b482d12e",
+    "entry_point_type": "EXTERNAL",
+    "events": [
+      {
+        "data": [
+          "0x3e6c6f41d833ec5e7d38e6007df5b0ab6b48bc4c2d3dbeac1ed665456ae4766",
+          "0x1176a1bd84444c89232ec27754698e5d2e7e1a7f1539f12027f28b23ec9f3d8",
+          "0x41973c03b91bc580",
+          "0x0"
+        ],
+        "keys": [
+          "0x99cd8bde557814842a3121e8ddfd433a539b8c9f14bf31ebf108d12e6196e9"
+        ],
+        "order": 0
+      }
+    ],
+    "execution_resources": {
+      "l1_gas": 0,
+      "l2_gas": 189030
+    },
+    "is_reverted": false,
+    "messages": [],
+    "result": [
+      "0x1"
+    ]
+  },
+  "type": "DECLARE",
+  "validate_invocation": {
+    "call_type": "CALL",
+    "calldata": [
+      "0x7947f453169580affc156557222cb32ad91e1f5c59773aec79261a716afdf07"
+    ],
+    "caller_address": "0x0",
+    "calls": [],
+    "class_hash": "0x5b4b537eaa2399e3aa99c4e2e0208ebd6c71bc1467938cd52c798c601e43564",
+    "contract_address": "0x3e6c6f41d833ec5e7d38e6007df5b0ab6b48bc4c2d3dbeac1ed665456ae4766",
+    "entry_point_selector": "0x289da278a8dc833409cabfdad1581e8e7d40e42dcaed693fa4008dcdb4963b3",
+    "entry_point_type": "EXTERNAL",
+    "events": [],
+    "execution_resources": {
+      "l1_gas": 0,
+      "l2_gas": 320000
+    },
+    "is_reverted": false,
+    "messages": [],
+    "result": [
+      "0x56414c4944"
+    ]
+  }
+}

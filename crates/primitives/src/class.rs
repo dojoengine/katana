@@ -4,10 +4,10 @@ use cairo_lang_starknet_classes::abi;
 use cairo_lang_starknet_classes::casm_contract_class::StarknetSierraCompilationError;
 use cairo_lang_starknet_classes::contract_class::{ContractEntryPoint, ContractEntryPoints};
 use serde_json_pythonic::to_string_pythonic;
-use starknet::core::utils::{normalize_address, starknet_keccak};
 use starknet::macros::short_string;
-use starknet_crypto::poseidon_hash_many;
+use starknet_types_core::hash::{Poseidon, StarkHash};
 
+use crate::utils::{normalize_address, starknet_keccak};
 use crate::Felt;
 
 /// The canonical hash of a contract class. This is the identifier of a class.
@@ -170,6 +170,9 @@ pub enum ComputeClassHashError {
     AbiConversion(#[from] serde_json_pythonic::Error),
 }
 
+/// Computes the class hash of a Sierra contract class components.
+///
+/// Implementation reference: https://github.com/starkware-libs/cairo-lang/blob/v0.14.0/src/starkware/starknet/core/os/contract_class/contract_class.cairo
 pub fn compute_sierra_class_hash(
     abi: &str,
     entry_points_by_type: &ContractEntryPoints,
@@ -185,7 +188,7 @@ pub fn compute_sierra_class_hash(
     // Hashes ABI
     hasher.update(starknet_keccak(abi.as_bytes()));
     // Hashes Sierra program
-    hasher.update(poseidon_hash_many(sierra_program));
+    hasher.update(Poseidon::hash_array(sierra_program));
 
     Ok(normalize_address(hasher.finalize()))
 }

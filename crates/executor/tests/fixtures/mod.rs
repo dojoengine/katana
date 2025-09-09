@@ -25,9 +25,9 @@ use katana_primitives::transaction::{
 use katana_primitives::utils::class::{parse_compiled_class, parse_sierra_class};
 use katana_primitives::version::CURRENT_STARKNET_VERSION;
 use katana_primitives::{address, Felt};
+use katana_provider::api::block::BlockWriter;
+use katana_provider::api::state::{StateFactoryProvider, StateProvider};
 use katana_provider::providers::db::DbProvider;
-use katana_provider::traits::block::BlockWriter;
-use katana_provider::traits::state::{StateFactoryProvider, StateProvider};
 use starknet::macros::felt;
 
 // TODO: remove support for legacy contract declaration

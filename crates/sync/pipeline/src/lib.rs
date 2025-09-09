@@ -4,8 +4,8 @@ use core::future::IntoFuture;
 
 use futures::future::BoxFuture;
 use katana_primitives::block::BlockNumber;
-use katana_provider::error::ProviderError;
-use katana_provider::traits::stage::StageCheckpointProvider;
+use katana_provider::api::stage::StageCheckpointProvider;
+use katana_provider::api::ProviderError;
 use katana_stage::{Stage, StageExecutionInput};
 use tokio::sync::watch;
 use tracing::{error, info};
@@ -182,8 +182,8 @@ where
 
 #[cfg(test)]
 mod tests {
+    use katana_provider::api::stage::StageCheckpointProvider;
     use katana_provider::test_utils::test_provider;
-    use katana_provider::traits::stage::StageCheckpointProvider;
     use katana_stage::StageResult;
 
     use super::{Pipeline, Stage, StageExecutionInput};

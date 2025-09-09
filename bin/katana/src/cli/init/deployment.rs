@@ -8,6 +8,8 @@ use katana_primitives::class::{
     ContractClassFromStrError,
 };
 use katana_primitives::{felt, ContractAddress, Felt};
+use katana_rpc_client::starknet::Client as StarknetClient;
+use katana_rpc_client::HttpClientBuilder;
 use katana_rpc_types::class::Class;
 use katana_utils::{TxWaiter, TxWaitingError};
 use piltover::{AppchainContract, AppchainContractReader, ProgramInfo};
@@ -79,6 +81,12 @@ pub async fn deploy_settlement_contract(
     // against invalid state.
     account.set_block_id(BlockId::Tag(BlockTag::PreConfirmed));
 
+    // Create a StarknetClient from the provider's URL for use with TxWaiter
+    let starknet_client = HttpClientBuilder::default()
+        .build(account.provider().url().as_ref())
+        .map(StarknetClient::new)
+        .map_err(|e| anyhow!("failed to build Starknet RPC client: {e}"))?;
+
     let mut sp = Spinner::new(spinners::Dots, "", Color::Blue);
 
     let result = async {
@@ -113,7 +121,7 @@ pub async fn deploy_settlement_contract(
                     })
                     .map_err(ContractInitError::DeclarationError)?;
 
-                TxWaiter::new(res.transaction_hash, account.provider()).await?;
+                TxWaiter::new(res.transaction_hash, &starknet_client).await?;
             }
 
             Err(err) => return Err(ContractInitError::Provider(err)),
@@ -161,25 +169,8 @@ pub async fn deploy_settlement_contract(
             })
             .map_err(ContractInitError::DeploymentError)?;
 
-        // there's a chance that when we query the block number, that there would be a mismatch
-        // between the block info returned by the receipt. so we query both at the same time
-        // to minimize the chance of a mismatch.
-        let (deployment_receipt_res, block_number_res) = tokio::join!(
-            TxWaiter::new(res.transaction_hash, account.provider()),
-            account.provider().block_number()
-        );
-
-        let deployment_receipt = deployment_receipt_res?;
-        let block_number = block_number_res?;
-
-        // If there's no block number in the receipt, that means it's still in the pending block.
-        let deployment_block = if let Some(block) = deployment_receipt.block.block_number() {
-            block
-        } else {
-            // we assume the block_number is the block number of the previous block (latest) so we
-            // add 1 to the block_number as the number of the pending block
-            block_number + 1
-        };
+        let deployment_receipt = TxWaiter::new(res.transaction_hash, &starknet_client).await?;
+        let deployment_block = deployment_receipt.block.block_number();
 
         // -----------------------------------------------------------------------
         // CONTRACT INITIALIZATIONS
@@ -220,7 +211,7 @@ pub async fn deploy_settlement_contract(
             })
             .map_err(ContractInitError::Initialization)?;
 
-        TxWaiter::new(res.transaction_hash, account.provider()).await?;
+        TxWaiter::new(res.transaction_hash, &starknet_client).await?;
 
         // 2. Fact Registry
 
@@ -237,7 +228,7 @@ pub async fn deploy_settlement_contract(
             })
             .map_err(ContractInitError::Initialization)?;
 
-        TxWaiter::new(res.transaction_hash, account.provider()).await?;
+        TxWaiter::new(res.transaction_hash, &starknet_client).await?;
 
         // -----------------------------------------------------------------------
         // FINAL CHECKS
