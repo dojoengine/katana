@@ -11,13 +11,13 @@ use alloy_sol_types::{sol, SolEvent};
 use anyhow::Result;
 use async_trait::async_trait;
 use katana_primitives::chain::ChainId;
+use katana_primitives::message::L1ToL2Message;
 use katana_primitives::receipt::MessageToL1;
 use katana_primitives::transaction::L1HandlerTx;
 use katana_primitives::utils::transaction::{
     compute_l1_to_l2_message_hash, compute_l2_to_l1_message_hash,
 };
-use katana_primitives::Felt;
-use starknet::core::types::EthAddress;
+use katana_primitives::{ContractAddress, Felt};
 use tracing::{debug, trace};
 
 use super::{MessagingConfig, Messenger, MessengerResult, LOG_TARGET};
@@ -151,24 +151,32 @@ impl Messenger for EthereumMessaging {
 fn l1_handler_tx_from_log(log: Log, chain_id: ChainId) -> MessengerResult<L1HandlerTx> {
     let log = LogMessageToL2::decode_log(log.as_ref()).unwrap();
 
-    let from_address = EthAddress::try_from(log.from_address.as_slice()).expect("valid address");
-    let contract_address = felt_from_u256(log.to_address);
+    let from_address = log.from_address;
+    let contract_address = ContractAddress::from(log.to_address);
     let entry_point_selector = felt_from_u256(log.selector);
-    let nonce: u64 = log.nonce.try_into().expect("nonce does not fit into u64.");
+    let nonce = felt_from_u256(log.nonce);
     let paid_fee_on_l1: u128 = log.fee.try_into().expect("Fee does not fit into u128.");
     let payload = log.payload.clone().into_iter().map(felt_from_u256).collect::<Vec<_>>();
 
-    let message_hash = compute_l1_to_l2_message_hash(
-        from_address.clone(),
-        contract_address,
+    let message = L1ToL2Message {
+        from_address,
+        to_address: log.to_address.into(),
         entry_point_selector,
-        &payload,
+        payload: payload.clone(),
         nonce,
+    };
+
+    let message_hash = compute_l1_to_l2_message_hash(
+        message.from_address,
+        message.to_address,
+        message.entry_point_selector,
+        &message.payload,
+        message.nonce,
     );
 
     // In an l1_handler transaction, the first element of the calldata is always the Ethereum
     // address of the sender (msg.sender). https://docs.starknet.io/documentation/architecture_and_concepts/Network_Architecture/messaging-mechanism/#l1-l2-messages
-    let mut calldata = vec![Felt::from(from_address)];
+    let mut calldata = vec![Felt::from_bytes_be_slice(from_address.as_slice())];
     calldata.extend(payload.clone());
 
     Ok(L1HandlerTx {
@@ -176,10 +184,10 @@ fn l1_handler_tx_from_log(log: Log, chain_id: ChainId) -> MessengerResult<L1Hand
         chain_id,
         message_hash,
         paid_fee_on_l1,
-        nonce: nonce.into(),
+        nonce,
         entry_point_selector,
         version: Felt::ZERO,
-        contract_address: contract_address.into(),
+        contract_address,
     })
 }
 
@@ -214,7 +222,7 @@ mod tests {
 
     #[test]
     fn l1_handler_tx_from_log_parse_ok() {
-        let from_address = felt!("0xbe3C44c09bc1a3566F3e1CA12e5AbA0fA4Ca72Be");
+        let from_address = address!("be3C44c09bc1a3566F3e1CA12e5AbA0fA4Ca72Be");
         let to_address = felt!("0x39dc79e64f4bb3289240f88e0bae7d21735bef0d1a51b2bf3c4730cb16983e1");
         let selector = felt!("0x2f15cff7b0eed8b9beb162696cf4e3e0e35fa7032af69cd1b7d2ac67a13f40f");
         let payload = vec![Felt::ONE, Felt::TWO];
@@ -227,7 +235,7 @@ mod tests {
         let event = LogMessageToL2::new(
             (
                 b256!("db80dd488acf86d17c747445b0eabb5d57c541d3bd7b6b87af987858e5066b2b"),
-                address!("be3C44c09bc1a3566F3e1CA12e5AbA0fA4Ca72Be"),
+                from_address,
                 U256::from_be_slice(&to_address.to_bytes_be()),
                 U256::from_be_slice(&selector.to_bytes_be()),
             ),
@@ -244,19 +252,21 @@ mod tests {
 
         // SN_GOERLI.
         let chain_id = ChainId::Named(NamedChainId::Goerli);
-        let from_address = EthAddress::from_felt(&from_address).unwrap();
 
         let message_hash = compute_l1_to_l2_message_hash(
             from_address.clone(),
-            to_address,
+            ContractAddress(to_address),
             selector,
             &payload,
-            nonce,
+            nonce.into(),
         );
 
         // the first element of the calldata is always the Ethereum address of the sender
         // (msg.sender).
-        let calldata = vec![from_address.into()].into_iter().chain(payload.clone()).collect();
+        let calldata = vec![Felt::from_bytes_be_slice(from_address.as_slice())]
+            .into_iter()
+            .chain(payload.clone())
+            .collect();
 
         let expected_tx = L1HandlerTx {
             calldata,

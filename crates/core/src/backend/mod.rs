@@ -32,7 +32,6 @@ use starknet::macros::short_string;
 use starknet_types_core::hash::{self, StarkHash};
 use tracing::info;
 
-pub mod contract;
 pub mod storage;
 
 use self::storage::Blockchain;

@@ -1,5 +1,4 @@
 use std::path::PathBuf;
-use std::str::FromStr;
 use std::time::Duration;
 
 use alloy_primitives::{Uint, U256};
@@ -12,7 +11,7 @@ use katana_primitives::block::BlockIdOrTag;
 use katana_primitives::utils::transaction::{
     compute_l1_handler_tx_hash, compute_l1_to_l2_message_hash,
 };
-use katana_primitives::{eth_address, felt};
+use katana_primitives::{eth_address, felt, ContractAddress};
 use katana_rpc_types::{Class, MsgFromL1};
 use katana_utils::{TestNode, TxWaiter};
 use rand::Rng;
@@ -121,7 +120,7 @@ async fn test_messaging() {
         // The L1 sender address
         let sender = l1_test_contract.address();
         // The L2 contract address to send the message to
-        let recipient = l2_test_contract;
+        let recipient = ContractAddress::from(l2_test_contract);
         // The L2 contract function to call
         let selector = selector!("msg_handler_value");
         // The L2 contract function arguments
@@ -132,8 +131,8 @@ async fn test_messaging() {
         // Send message to L2
         let call = l1_test_contract
             .sendMessage(
-                U256::from_str(&recipient.to_string()).unwrap(),
-                U256::from_str(&selector.to_string()).unwrap(),
+                recipient.into(),
+                U256::from_be_bytes(selector.to_bytes_be()),
                 calldata.iter().map(|x| U256::from(*x)).collect::<Vec<_>>(),
             )
             .gas(12000000)
@@ -179,7 +178,7 @@ async fn test_messaging() {
         };
 
         // Assert the transaction fields
-        assert_eq!(tx.contract_address, recipient);
+        assert_eq!(tx.contract_address, recipient.into());
         assert_eq!(tx.entry_point_selector, selector);
         assert_eq!(tx.calldata, l1_tx_calldata);
 
@@ -201,7 +200,7 @@ async fn test_messaging() {
                     recipient,
                     selector,
                     &calldata.iter().map(|x| Felt::from(*x)).collect::<Vec<_>>(),
-                    nonce.to::<u64>(),
+                    Felt::from_bytes_be(&nonce.to_be_bytes()),
                 );
 
                 let msg_fee = core_contract

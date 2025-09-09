@@ -10,14 +10,12 @@ use std::path::{Path, PathBuf};
 use std::str::FromStr;
 use std::sync::Arc;
 
-use alloy_primitives::U256;
 use base64::prelude::*;
 use cairo_vm::types::errors::program_errors::ProgramError;
 use serde::de::value::MapAccessDeserializer;
 use serde::de::Visitor;
 use serde::{Deserialize, Serialize};
 use serde_json::{Map, Value};
-use starknet::core::types::contract::JsonError;
 
 use super::allocation::{
     DevGenesisAccount, GenesisAccount, GenesisAccountAlloc, GenesisContractAlloc,
@@ -30,7 +28,7 @@ use crate::class::{
     LegacyContractClass, SierraContractClass,
 };
 use crate::contract::{ContractAddress, StorageKey, StorageValue};
-use crate::Felt;
+use crate::{Felt, U256};
 
 type Object = Map<String, Value>;
 
@@ -173,9 +171,6 @@ pub enum GenesisJsonError {
 
     #[error("Missing class entry for class hash {0}")]
     MissingClass(ClassHash),
-
-    #[error("Failed to flatten Sierra contract: {0}")]
-    FlattenSierraClass(#[from] JsonError),
 
     #[error("Unresolved class artifact path {0}")]
     UnresolvedClassPath(PathBuf),

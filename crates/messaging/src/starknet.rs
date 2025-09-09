@@ -3,7 +3,8 @@ use anyhow::Result;
 use async_trait::async_trait;
 use katana_primitives::chain::ChainId;
 use katana_primitives::transaction::L1HandlerTx;
-use starknet::core::types::{BlockId, EmittedEvent, EventFilter, Felt};
+use katana_primitives::Felt;
+use starknet::core::types::{BlockId, EmittedEvent, EventFilter};
 use starknet::macros::selector;
 use starknet::providers::jsonrpc::HttpTransport;
 use starknet::providers::{AnyProvider, JsonRpcClient, Provider};
@@ -221,7 +222,7 @@ mod tests {
 
         let transaction_hash: Felt = compute_l1_handler_tx_hash(
             Felt::ZERO,
-            to_address,
+            to_address.into(),
             selector,
             &calldata,
             chain_id.into(),
