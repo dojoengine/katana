@@ -1,10 +1,21 @@
 use std::path::Path;
+use std::process::Command;
 use std::{env, fs};
 
 fn main() {
     let manifest_dir = env::var("CARGO_MANIFEST_DIR").unwrap();
-    let classes_dir = Path::new(&manifest_dir).join("controller/account_sdk/artifacts/classes");
+    let controller_dir = Path::new(&manifest_dir).join("controller");
+    let classes_dir = controller_dir.join("account_sdk/artifacts/classes");
     let dest_path = Path::new(&manifest_dir).join("src/controller.rs");
+
+    // Check if controller/ doesn't exist or is empty
+    let should_update_submodule = !controller_dir.exists()
+        || (controller_dir.exists()
+            && controller_dir.read_dir().map(|mut d| d.next().is_none()).unwrap_or(true));
+
+    if should_update_submodule {
+        initialize_submodule(&controller_dir);
+    }
 
     let mut generated_code = String::new();
 
@@ -80,4 +91,35 @@ fn filename_to_struct_name(filename: &str) -> String {
     }
 
     struct_name
+}
+
+fn initialize_submodule(controller_dir: &Path) {
+    // Check if we're in a git repository
+    let git_check = Command::new("git").arg("rev-parse").arg("--git-dir").output();
+    if git_check.is_ok() && git_check.unwrap().status.success() {
+        println!("Controller directory is empty, updating git submodule...");
+
+        let status = Command::new("git")
+            .arg("submodule")
+            .arg("update")
+            .arg("--init")
+            .arg("--recursive")
+            .arg("--force")
+            .arg("controller")
+            .status()
+            .expect("Failed to update git submodule");
+
+        if !status.success() {
+            panic!(
+                "Failed to update git submodule for controller directory at {}",
+                controller_dir.display()
+            );
+        }
+    } else {
+        panic!(
+            "/controller directory doesn't exist at {} and couldn't fetch it through git \
+             submodule (not in a git repository)",
+            controller_dir.display()
+        );
+    }
 }
