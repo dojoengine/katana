@@ -1,5 +1,5 @@
 window.BENCHMARK_DATA = {
-  "lastUpdate": 1757138588098,
+  "lastUpdate": 1757446685687,
   "repoUrl": "https://github.com/dojoengine/katana",
   "entries": {
     "Benchmark": [
@@ -5111,6 +5111,66 @@ window.BENCHMARK_DATA = {
             "name": "Invoke.ERC20.transfer/Blockifier.Cold",
             "value": 17165383,
             "range": "± 721000",
+            "unit": "ns/iter"
+          }
+        ]
+      },
+      {
+        "commit": {
+          "author": {
+            "email": "evergreenkary@gmail.com",
+            "name": "Ammar Arif",
+            "username": "kariy"
+          },
+          "committer": {
+            "email": "noreply@github.com",
+            "name": "GitHub",
+            "username": "web-flow"
+          },
+          "distinct": true,
+          "id": "699a81e6303388b806c055dee72d742dfa2bc762",
+          "message": "chore(cartridge): skip formatting on auto-generated code (#267)\n\nThe code generated under [`cartridge/src/controller.rs`] may not comply with the formatting expected by [`rustfmt`]. This can trigger false positives and unnecessary diffs when running formatting checks.\n\nInstead of enforcing formatting, we exclude the file entirely since the code may be rewritten on every build, making formatting noisy.\n\n[`cartridge/src/controller.rs`]:\nhttps://github.com/dojoengine/katana/blob/c4403da82ffbda6ce0143b6f99082d79267a6131/crates/cartridge/src/controller.rs\n[`rustfmt`]:\nhttps://github.com/dojoengine/katana/blob/c4403da82ffbda6ce0143b6f99082d79267a6131/scripts/rust_fmt.sh#L1-L12",
+          "timestamp": "2025-09-10T03:17:51+08:00",
+          "tree_id": "d604847af3685399ec3af21456b825940ebf6275",
+          "url": "https://github.com/dojoengine/katana/commit/699a81e6303388b806c055dee72d742dfa2bc762"
+        },
+        "date": 1757446683830,
+        "tool": "cargo",
+        "benches": [
+          {
+            "name": "Commit.Small/Parallel",
+            "value": 425452,
+            "range": "± 10977",
+            "unit": "ns/iter"
+          },
+          {
+            "name": "Commit.Big/Serial",
+            "value": 94225181,
+            "range": "± 1004162",
+            "unit": "ns/iter"
+          },
+          {
+            "name": "Commit.Big/Parallel",
+            "value": 65691905,
+            "range": "± 2039863",
+            "unit": "ns/iter"
+          },
+          {
+            "name": "compress world contract",
+            "value": 2741525,
+            "range": "± 10132",
+            "unit": "ns/iter"
+          },
+          {
+            "name": "decompress world contract",
+            "value": 3159896,
+            "range": "± 40979",
+            "unit": "ns/iter"
+          },
+          {
+            "name": "Invoke.ERC20.transfer/Blockifier.Cold",
+            "value": 18514428,
+            "range": "± 411828",
             "unit": "ns/iter"
           }
         ]
