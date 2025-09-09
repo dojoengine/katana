@@ -1,6 +1,5 @@
 use std::iter;
 
-use alloy_primitives::B256;
 use derive_more::{AsRef, Deref};
 use starknet_types_core::hash::{self, StarkHash};
 
@@ -9,7 +8,7 @@ use crate::execution::VmResources;
 use crate::fee::FeeInfo;
 use crate::transaction::{TxHash, TxType};
 use crate::utils::starknet_keccak;
-use crate::Felt;
+use crate::{Felt, B256};
 
 #[derive(Debug, Clone, PartialEq, Eq)]
 #[cfg_attr(feature = "arbitrary", derive(arbitrary::Arbitrary))]
