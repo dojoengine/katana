@@ -1,11 +1,10 @@
-use opentelemetry::trace::TracerProvider;
+use opentelemetry::trace::{Tracer, TracerProvider};
 use opentelemetry_otlp::{SpanExporterBuilder, WithExportConfig};
-use opentelemetry_sdk::trace::{RandomIdGenerator, SdkTracerProvider, Tracer};
+use opentelemetry_sdk::trace::{RandomIdGenerator, SdkTracerProvider};
 use opentelemetry_sdk::Resource;
-use tracing_opentelemetry::OpenTelemetryLayer;
-use tracing_subscriber::Registry;
+use tracing_opentelemetry::PreSampledTracer;
 
-use crate::Error;
+use crate::{Error, TelemetryTracer};
 
 #[derive(Debug, Clone)]
 pub struct OtlpConfig {
@@ -14,13 +13,13 @@ pub struct OtlpConfig {
 
 /// Builder for creating an OpenTelemetry layer with OTLP exporter
 #[derive(Debug, Clone)]
-pub struct OtlpTracingBuilder {
+pub struct OtlpTracerBuilder {
     service_name: String,
     endpoint: Option<String>,
     resource: Option<Resource>,
 }
 
-impl OtlpTracingBuilder {
+impl OtlpTracerBuilder {
     /// Create a new OTLP tracing builder
     pub fn new() -> Self {
         Self { service_name: "katana".to_string(), endpoint: None, resource: None }
@@ -45,7 +44,7 @@ impl OtlpTracingBuilder {
     }
 
     /// Build the OpenTelemetry layer
-    pub fn build(self) -> Result<OpenTelemetryLayer<Registry, Tracer>, Error> {
+    pub fn build(self) -> Result<OtlpTracer, Error> {
         // Build resource with service name
         let resource = self.resource.unwrap_or_else(|| {
             Resource::builder().with_service_name(self.service_name.clone()).build()
@@ -61,56 +60,107 @@ impl OtlpTracingBuilder {
         let exporter = exporter_builder.build()?;
 
         // Build provider
-        let provider = SdkTracerProvider::builder()
+        let tracer_provider = SdkTracerProvider::builder()
             .with_id_generator(RandomIdGenerator::default())
             .with_batch_exporter(exporter)
             .with_resource(resource)
             .build();
 
-        // Set global provider
-        opentelemetry::global::set_tracer_provider(provider.clone());
+        // // Set global provider
+        // opentelemetry::global::set_tracer_provider(tracer_provider.clone());
+        let tracer = tracer_provider.tracer(self.service_name);
 
-        // Create tracer
-        let tracer = provider.tracer(self.service_name);
-
-        // Return the layer
-        Ok(tracing_opentelemetry::layer().with_tracer(tracer))
+        Ok(OtlpTracer { tracer, tracer_provider })
     }
 }
 
-impl Default for OtlpTracingBuilder {
+impl Default for OtlpTracerBuilder {
     fn default() -> Self {
         Self::new()
     }
 }
 
-/// Initialize OTLP tracer with custom service name (backward compatibility)
-pub fn init_tracer_with_service(
-    otlp_config: &OtlpConfig,
-    service_name: &str,
-) -> Result<Tracer, Error> {
-    let resource = Resource::builder().with_service_name(service_name.to_string()).build();
+/// Wrapper type for SdkTracer that implements the Tracer trait
+#[derive(Debug, Clone)]
+pub struct OtlpTracer {
+    tracer: opentelemetry_sdk::trace::Tracer,
+    tracer_provider: SdkTracerProvider,
+}
 
-    let mut exporter_builder = SpanExporterBuilder::new().with_tonic();
+impl OtlpTracer {
+    pub fn builder() -> OtlpTracerBuilder {
+        OtlpTracerBuilder::new()
+    }
+}
 
-    if let Some(endpoint) = &otlp_config.endpoint {
-        exporter_builder = exporter_builder.with_endpoint(endpoint);
+impl Tracer for OtlpTracer {
+    type Span = <opentelemetry_sdk::trace::Tracer as Tracer>::Span;
+
+    #[inline]
+    fn build_with_context(
+        &self,
+        builder: opentelemetry::trace::SpanBuilder,
+        parent_cx: &opentelemetry::Context,
+    ) -> Self::Span {
+        self.tracer.build_with_context(builder, parent_cx)
+    }
+}
+
+impl PreSampledTracer for OtlpTracer {
+    #[inline]
+    fn new_span_id(&self) -> opentelemetry::trace::SpanId {
+        self.tracer.new_span_id()
     }
 
-    let exporter = exporter_builder.build()?;
+    #[inline]
+    fn new_trace_id(&self) -> opentelemetry::trace::TraceId {
+        self.tracer.new_trace_id()
+    }
 
-    let provider = SdkTracerProvider::builder()
-        .with_id_generator(RandomIdGenerator::default())
-        .with_batch_exporter(exporter)
-        .with_resource(resource)
-        .build();
-
-    opentelemetry::global::set_tracer_provider(provider.clone());
-
-    Ok(provider.tracer(service_name.to_string()))
+    #[inline]
+    fn sampled_context(
+        &self,
+        data: &mut tracing_opentelemetry::OtelData,
+    ) -> opentelemetry::Context {
+        self.tracer.sampled_context(data)
+    }
 }
 
-/// Initialize OTLP tracer (backward compatibility)
-pub fn init_tracer(otlp_config: &OtlpConfig) -> Result<Tracer, Error> {
-    init_tracer_with_service(otlp_config, "katana")
+impl TelemetryTracer for OtlpTracer {
+    fn init(&self) -> Result<(), Error> {
+        // Set global provider
+        opentelemetry::global::set_tracer_provider(self.tracer_provider.clone());
+        Ok(())
+    }
 }
+
+// /// Initialize OTLP tracer with custom service name (backward compatibility)
+// pub fn init_tracer_with_service(
+//     otlp_config: &OtlpConfig,
+//     service_name: &str,
+// ) -> Result<opentelemetry_sdk::trace::Tracer, Error> {
+//     let resource = Resource::builder().with_service_name(service_name.to_string()).build();
+
+//     let mut exporter_builder = SpanExporterBuilder::new().with_tonic();
+
+//     if let Some(endpoint) = &otlp_config.endpoint {
+//         exporter_builder = exporter_builder.with_endpoint(endpoint);
+//     }
+
+//     let exporter = exporter_builder.build()?;
+
+//     let provider = SdkTracerProvider::builder()
+//         .with_id_generator(RandomIdGenerator::default())
+//         .with_batch_exporter(exporter)
+//         .with_resource(resource)
+//         .build();
+
+//     opentelemetry::global::set_tracer_provider(provider.clone());
+
+//     Ok(provider.tracer(service_name.to_string()))
+// }
+
+// /// Initialize OTLP tracer (backward compatibility)
+// pub fn init_tracer(otlp_config: &OtlpConfig) -> Result<Tracer, Error> {
+//     init_tracer_with_service(otlp_config, "katana")
+// }
