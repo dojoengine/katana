@@ -12,13 +12,20 @@ pub mod otlp;
 
 pub use builder::TracingBuilder;
 pub use fmt::LogFormat;
-pub use gcloud::{GCloudTracingBuilder, GcloudConfig};
-pub use otlp::{OtlpConfig, OtlpTracingBuilder};
+pub use gcloud::{GCloudTracerBuilder, GcloudConfig};
+pub use otlp::{OtlpConfig, OtlpTracerBuilder};
 
-// pub type Tracer=  Tracer + PreSampledTracer + Send + Sync + 'static;
+use crate::builder::NoopTracer;
 
-trait TelemetryTracer: Tracer + PreSampledTracer + Send + Sync + 'static {}
-impl<T> TelemetryTracer for T where T: Tracer + PreSampledTracer + Send + Sync + 'static {}
+trait TelemetryTracer: Tracer + PreSampledTracer + Send + Sync + 'static {
+    fn init(&self) -> Result<(), Error>;
+}
+
+impl TelemetryTracer for NoopTracer {
+    fn init(&self) -> Result<(), Error> {
+        Ok(())
+    }
+}
 
 #[derive(Debug, Clone)]
 pub enum TracerConfig {
@@ -81,7 +88,7 @@ pub async fn init(format: LogFormat, telemetry_config: Option<TracerConfig>) -> 
     match telemetry_config {
         Some(TracerConfig::Otlp(cfg)) => {
             // OTLP is synchronous
-            let mut otlp_builder = OtlpTracingBuilder::new().service_name("katana");
+            let mut otlp_builder = OtlpTracerBuilder::new().service_name("katana");
             if let Some(endpoint) = cfg.endpoint {
                 otlp_builder = otlp_builder.endpoint(endpoint);
             }
@@ -90,7 +97,7 @@ pub async fn init(format: LogFormat, telemetry_config: Option<TracerConfig>) -> 
         }
         Some(TracerConfig::GCloud(cfg)) => {
             // GCloud is async
-            let mut gcloud_builder = GCloudTracingBuilder::new().service_name("katana");
+            let mut gcloud_builder = GCloudTracerBuilder::new().service_name("katana");
             if let Some(project_id) = cfg.project_id {
                 gcloud_builder = gcloud_builder.project_id(project_id);
             }

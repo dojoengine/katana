@@ -1,6 +1,5 @@
 use std::marker::PhantomData;
 
-use opentelemetry::trace::noop::NoopTracer;
 use tracing_opentelemetry::OpenTelemetryLayer;
 use tracing_subscriber::fmt::format::{self};
 use tracing_subscriber::layer::{Layered, SubscriberExt};
@@ -8,9 +7,19 @@ use tracing_subscriber::util::SubscriberInitExt;
 use tracing_subscriber::{fmt, EnvFilter, Layer, Registry};
 
 use crate::fmt::LocalTime;
-use crate::{Error, GCloudTracingBuilder, LogFormat, TelemetryTracer};
+use crate::{Error, LogFormat, TelemetryTracer};
 
-type DefaultFormat = format::Full;
+const DEFAULT_LOG_FILTER: &str = "katana_db::mdbx=trace,cairo_native::compiler=off,pipeline=debug,\
+                                  stage=debug,tasks=debug,executor=trace,forking::backend=trace,\
+                                  blockifier=off,jsonrpsee_server=off,hyper=off,messaging=debug,\
+                                  node=error,explorer=info,rpc=trace,pool=trace,info";
+
+pub type NoopTracer = opentelemetry::trace::noop::NoopTracer;
+
+// Format trait markers
+pub type DefaultFormat = format::Full;
+pub type Full = format::Full;
+pub type Json = format::Json;
 
 type Subscriber<Tracer> = Layered<
     OpenTelemetryLayer<
@@ -28,25 +37,19 @@ type Subscriber<Tracer> = Layered<
 
 struct TracingSubscriber<Fmt, Tracer> {
     subscriber: Subscriber<Tracer>,
+    tracer: Tracer,
     _fmt: PhantomData<Fmt>,
 }
 
 impl<Fmt, Tracer: TelemetryTracer> TracingSubscriber<Fmt, Tracer> {
-    fn init(self) {
-        self.subscriber.init();
+    pub fn init(self) {
+        use tracing_subscriber::registry;
+
+        self.tracer.init().unwrap();
+        registry().with(self.filter).with(self.fmt_layer).with(self.tracer).init();
     }
 }
 
-const DEFAULT_LOG_FILTER: &str = "katana_db::mdbx=trace,cairo_native::compiler=off,pipeline=debug,\
-                                  stage=debug,tasks=debug,executor=trace,forking::backend=trace,\
-                                  blockifier=off,jsonrpsee_server=off,hyper=off,messaging=debug,\
-                                  node=error,explorer=info,rpc=trace,pool=trace,info";
-
-// /// Identity type-state markers for [`TracingBuilder`].
-// #[derive(Debug)]
-// pub struct Identity;
-
-// Main builder struct with type-state for format
 #[derive(Debug)]
 pub struct TracingBuilder<Fmt = format::Full, Telemetry = NoopTracer> {
     log_format: LogFormat,
@@ -146,8 +149,13 @@ impl Default for TracingBuilder {
 #[cfg(test)]
 #[tokio::test]
 async fn foo() {
+    use crate::{GCloudTracerBuilder, OtlpTracerBuilder};
+
     let builder = TracingBuilder::new().build().unwrap();
 
-    let gcloud = GCloudTracingBuilder::new().build().await.unwrap();
-    let builder = TracingBuilder::new().json().with_telemetry(gcloud).build().unwrap();
+    let oltp = OtlpTracerBuilder::new().build().unwrap();
+    let gcloud = GCloudTracerBuilder::new().build().await.unwrap();
+
+    let builder_w_otlp = TracingBuilder::new().json().with_telemetry(oltp).build().unwrap();
+    let builder_w_gcloud = TracingBuilder::new().json().with_telemetry(gcloud).build().unwrap();
 }

@@ -2,19 +2,12 @@ use http::Request;
 use opentelemetry::trace::Tracer;
 use opentelemetry_gcloud_trace::{GcpCloudTraceExporterBuilder, SdkTracer};
 use opentelemetry_http::HeaderExtractor;
-use opentelemetry_sdk::Resource;
+use opentelemetry_sdk::{trace::SdkTracerProvider, Resource};
 use opentelemetry_stackdriver::google_trace_context_propagator::GoogleTraceContextPropagator;
 use tower_http::trace::MakeSpan;
-use tracing_opentelemetry::{OpenTelemetryLayer, OpenTelemetrySpanExt, PreSampledTracer};
-use tracing_subscriber::Registry;
+use tracing_opentelemetry::{OpenTelemetrySpanExt, PreSampledTracer};
 
-use crate::Error;
-
-/// Wrapper type for SdkTracer that implements the Tracer trait
-#[derive(Debug, Clone)]
-pub struct GCloudTracer {
-    tracer: SdkTracer,
-}
+use crate::{Error, TelemetryTracer};
 
 #[derive(Debug, Clone, Default)]
 pub struct GoogleStackDriverMakeSpan;
@@ -45,13 +38,17 @@ pub struct GcloudConfig {
 
 /// Builder for creating an OpenTelemetry layer with Google Cloud Trace exporter
 #[derive(Debug, Clone)]
-pub struct GCloudTracingBuilder {
+pub struct GCloudTracerBuilder {
     service_name: String,
     project_id: Option<String>,
     resource: Option<Resource>,
 }
 
-impl GCloudTracingBuilder {
+/////////////////////////////////////////////////////////////////////////////////
+// GCloudTracerBuilder implementations
+/////////////////////////////////////////////////////////////////////////////////
+
+impl GCloudTracerBuilder {
     /// Create a new Google Cloud tracing builder
     pub fn new() -> Self {
         Self { service_name: "katana".to_string(), project_id: None, resource: None }
@@ -105,19 +102,36 @@ impl GCloudTracingBuilder {
         let tracer_provider = trace_exporter.create_provider().await?;
         let tracer = trace_exporter.install(&tracer_provider).await?;
 
-        // Set the Google Cloud trace context propagator globally
-        // This will handle both extraction and injection of X-Cloud-Trace-Context headers
-        opentelemetry::global::set_text_map_propagator(GoogleTraceContextPropagator::default());
-        opentelemetry::global::set_tracer_provider(tracer_provider.clone());
+        // // Set the Google Cloud trace context propagator globally
+        // // This will handle both extraction and injection of X-Cloud-Trace-Context headers
+        // opentelemetry::global::set_text_map_propagator(GoogleTraceContextPropagator::default());
+        // opentelemetry::global::set_tracer_provider(tracer_provider.clone());
 
         // Return the layer
-        Ok(GCloudTracer { tracer })
+        Ok(GCloudTracer { tracer, tracer_provider })
     }
 }
 
-impl Default for GCloudTracingBuilder {
+impl Default for GCloudTracerBuilder {
     fn default() -> Self {
         Self::new()
+    }
+}
+
+/// Wrapper type for SdkTracer that implements the Tracer trait
+#[derive(Debug, Clone)]
+pub struct GCloudTracer {
+    tracer: SdkTracer,
+    tracer_provider: SdkTracerProvider,
+}
+
+/////////////////////////////////////////////////////////////////////////////////
+// GCloudTracer implementations
+/////////////////////////////////////////////////////////////////////////////////
+
+impl GCloudTracer {
+    pub fn builder() -> GCloudTracerBuilder {
+        GCloudTracerBuilder::new()
     }
 }
 
@@ -154,46 +168,56 @@ impl PreSampledTracer for GCloudTracer {
     }
 }
 
-/// Initialize Google Cloud Trace exporter with custom service name (backward compatibility)
-pub(crate) async fn init_tracer_with_service(
-    gcloud_config: &GcloudConfig,
-    service_name: &str,
-) -> Result<GCloudTracer, Error> {
-    rustls::crypto::ring::default_provider()
-        .install_default()
-        .map_err(|_| Error::InstallCryptoFailed)?;
-
-    let resource = Resource::builder().with_service_name(service_name.to_string()).build();
-
-    let mut trace_exporter = if let Some(project_id) = &gcloud_config.project_id {
-        GcpCloudTraceExporterBuilder::new(project_id.clone())
-    } else {
-        // Default will attempt to find project ID from environment variables in the following
-        // order:
-        // - GCP_PROJECT
-        // - PROJECT_ID
-        // - GCP_PROJECT_ID
-        GcpCloudTraceExporterBuilder::for_default_project_id().await?
-    };
-
-    trace_exporter = trace_exporter.with_resource(resource);
-
-    let tracer_provider = trace_exporter.create_provider().await?;
-    let tracer = trace_exporter.install(&tracer_provider).await?;
-
-    // Set the Google Cloud trace context propagator globally
-    // This will handle both extraction and injection of X-Cloud-Trace-Context headers
-    opentelemetry::global::set_text_map_propagator(GoogleTraceContextPropagator::default());
-    opentelemetry::global::set_tracer_provider(tracer_provider.clone());
-
-    Ok(GCloudTracer::new(tracer))
+impl TelemetryTracer for GCloudTracer {
+    fn init(&self) -> Result<(), Error> {
+        // Set the Google Cloud trace context propagator globally
+        // This will handle both extraction and injection of X-Cloud-Trace-Context headers
+        opentelemetry::global::set_text_map_propagator(GoogleTraceContextPropagator::default());
+        opentelemetry::global::set_tracer_provider(self.tracer_provider.clone());
+        Ok(())
+    }
 }
 
-/// Initialize Google Cloud Trace exporter and OpenTelemetry propagators for Google Cloud trace
-/// context support (backward compatibility).
-///
-/// Make sure to set `GOOGLE_APPLICATION_CREDENTIALS` env var to authenticate to gcloud
-#[allow(dead_code)]
-pub(crate) async fn init_tracer(gcloud_config: &GcloudConfig) -> Result<GCloudTracer, Error> {
-    init_tracer_with_service(gcloud_config, "katana").await
-}
+// /// Initialize Google Cloud Trace exporter with custom service name (backward compatibility)
+// pub(crate) async fn init_tracer_with_service(
+//     gcloud_config: &GcloudConfig,
+//     service_name: &str,
+// ) -> Result<GCloudTracer, Error> {
+//     rustls::crypto::ring::default_provider()
+//         .install_default()
+//         .map_err(|_| Error::InstallCryptoFailed)?;
+
+//     let resource = Resource::builder().with_service_name(service_name.to_string()).build();
+
+//     let mut trace_exporter = if let Some(project_id) = &gcloud_config.project_id {
+//         GcpCloudTraceExporterBuilder::new(project_id.clone())
+//     } else {
+//         // Default will attempt to find project ID from environment variables in the following
+//         // order:
+//         // - GCP_PROJECT
+//         // - PROJECT_ID
+//         // - GCP_PROJECT_ID
+//         GcpCloudTraceExporterBuilder::for_default_project_id().await?
+//     };
+
+//     trace_exporter = trace_exporter.with_resource(resource);
+
+//     let tracer_provider = trace_exporter.create_provider().await?;
+//     let tracer = trace_exporter.install(&tracer_provider).await?;
+
+//     // Set the Google Cloud trace context propagator globally
+//     // This will handle both extraction and injection of X-Cloud-Trace-Context headers
+//     opentelemetry::global::set_text_map_propagator(GoogleTraceContextPropagator::default());
+//     opentelemetry::global::set_tracer_provider(tracer_provider.clone());
+
+//     Ok(GCloudTracer::new(tracer))
+// }
+
+// /// Initialize Google Cloud Trace exporter and OpenTelemetry propagators for Google Cloud trace
+// /// context support (backward compatibility).
+// ///
+// /// Make sure to set `GOOGLE_APPLICATION_CREDENTIALS` env var to authenticate to gcloud
+// #[allow(dead_code)]
+// pub(crate) async fn init_tracer(gcloud_config: &GcloudConfig) -> Result<GCloudTracer, Error> {
+//     init_tracer_with_service(gcloud_config, "katana").await
+// }
