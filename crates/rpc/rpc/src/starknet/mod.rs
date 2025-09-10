@@ -295,9 +295,13 @@ impl<EF: ExecutorFactory> StarknetApi<EF> {
         let state = self.state(&block_id)?;
 
         // Check that contract exist by checking the class hash of the contract,
-        // unless its address 0x1 which is special system contract and does not
-        // have a class. See https://docs.starknet.io/architecture-and-concepts/network-architecture/starknet-state/#address_0x1.
-        if contract_address.0 != Felt::ONE
+        // unless its address 0x1 and 0x2 which are special system contracts and does not
+        // have a class.
+        //
+        // 0x2 is a system contract used for stateful compression.
+        //
+        // See https://docs.starknet.io/learn/protocol/state#special-addresses.
+        if (contract_address.0 != Felt::ONE && contract_address.0 != Felt::TWO)
             && state.class_hash_of_contract(contract_address)?.is_none()
         {
             return Err(StarknetApiError::ContractNotFound);
