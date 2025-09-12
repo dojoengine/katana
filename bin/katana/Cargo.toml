@@ -11,7 +11,6 @@ katana-chain-spec.workspace = true
 katana-cli.workspace = true
 katana-db = { workspace = true, features = [ "arbitrary" ] }
 katana-primitives.workspace = true
-katana-rpc-api.workspace = true
 katana-rpc-client.workspace = true
 katana-rpc-types.workspace = true
 katana-utils.workspace = true
@@ -26,9 +25,9 @@ comfy-table = "7.1.1"
 const_format = "0.2.33"
 indicatif = "0.17.8"
 inquire = "0.7.5"
+jsonrpsee = { workspace = true, features = ["http-client"] }
 piltover.workspace = true
 rand.workspace = true
-reqwest.workspace = true
 shellexpand = "3.1.0"
 spinoff.workspace = true
 strum_macros.workspace = true
