@@ -165,11 +165,8 @@ impl Client {
     }
 
     pub async fn get_class(&self, block_id: Value, class_hash: Felt) -> Result<Value> {
-        self.send_request(
-            GET_CLASS,
-            serde_json::json!([block_id, format!("{:#x}", class_hash)]),
-        )
-        .await
+        self.send_request(GET_CLASS, serde_json::json!([block_id, format!("{:#x}", class_hash)]))
+            .await
     }
 
     pub async fn get_class_hash_at(

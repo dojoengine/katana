@@ -463,7 +463,9 @@ impl ConfirmedBlockIdArg {
         match &self.0 {
             ConfirmedBlockIdOrTag::Latest => serde_json::json!("latest"),
             ConfirmedBlockIdOrTag::L1Accepted => serde_json::json!("l1_accepted"),
-            ConfirmedBlockIdOrTag::Hash(hash) => serde_json::json!({"block_hash": format!("{:#x}", hash)}),
+            ConfirmedBlockIdOrTag::Hash(hash) => {
+                serde_json::json!({"block_hash": format!("{:#x}", hash)})
+            }
             ConfirmedBlockIdOrTag::Number(num) => serde_json::json!({"block_number": num}),
         }
     }
