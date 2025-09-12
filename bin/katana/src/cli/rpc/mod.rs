@@ -21,7 +21,7 @@ impl RpcArgs {
     }
 
     fn client(&self) -> Result<client::Client> {
-        Ok(client::Client::new(Url::parse(&self.server.url)?))
+        client::Client::new(Url::parse(&self.server.url)?)
     }
 }
 
