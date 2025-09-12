@@ -241,4 +241,3 @@ impl Client {
             .map_err(|e| anyhow!("RPC error: {e}"))
     }
 }
-
