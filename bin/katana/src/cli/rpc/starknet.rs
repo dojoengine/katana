@@ -5,7 +5,6 @@ use clap::{Args, Subcommand};
 use katana_primitives::block::{BlockIdOrTag, BlockNumber, ConfirmedBlockIdOrTag};
 use katana_primitives::transaction::TxHash;
 use katana_primitives::Felt;
-use katana_rpc_types::FunctionCall;
 
 use super::client::Client;
 

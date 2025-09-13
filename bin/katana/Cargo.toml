@@ -12,6 +12,7 @@ katana-cli.workspace = true
 katana-db = { workspace = true, features = [ "arbitrary" ] }
 katana-primitives.workspace = true
 katana-rpc-client.workspace = true
+katana-rpc-api.workspace = true
 katana-rpc-types.workspace = true
 katana-utils.workspace = true
 
@@ -30,6 +31,7 @@ piltover.workspace = true
 rand.workspace = true
 shellexpand = "3.1.0"
 spinoff.workspace = true
+starknet.workspace = true
 strum_macros.workspace = true
 thiserror.workspace = true
 tokio.workspace = true
