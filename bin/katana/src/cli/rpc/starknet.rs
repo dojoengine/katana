@@ -275,7 +275,7 @@ impl StarknetCommands {
                 println!("{result}");
             }
             StarknetCommands::GetBlockWithTxs(args) => {
-                let block_id = args.block_id.to_json();
+                let block_id = args.block_id.0;
 
                 if args.receipts {
                     let result = client.get_block_with_receipts(block_id).await?;
@@ -289,14 +289,14 @@ impl StarknetCommands {
                 };
             }
             StarknetCommands::GetStateUpdate(args) => {
-                let block_id = args.block_id.to_json();
+                let block_id = args.block_id.0;
                 let result = client.get_state_update(block_id).await?;
                 println!("{}", colored_json::to_colored_json_auto(&result)?);
             }
             StarknetCommands::GetStorageAt(args) => {
                 let contract_address = Felt::from_str(&args.contract_address)?;
                 let key = Felt::from_str(&args.key)?;
-                let block_id = args.block_id.to_json();
+                let block_id = args.block_id.0;
                 let result = client.get_storage_at(contract_address, key, block_id).await?;
                 println!("{}", colored_json::to_colored_json_auto(&result)?);
             }
@@ -312,7 +312,7 @@ impl StarknetCommands {
                 };
             }
             StarknetCommands::GetTransactionByBlockIdAndIndex(args) => {
-                let block_id = args.block_id.to_json();
+                let block_id = args.block_id.0;
                 let result =
                     client.get_transaction_by_block_id_and_index(block_id, args.index).await?;
                 println!("{}", colored_json::to_colored_json_auto(&result)?);
@@ -324,27 +324,27 @@ impl StarknetCommands {
                 println!("{}", colored_json::to_colored_json_auto(&result)?);
             }
             StarknetCommands::GetClass(args) => {
-                let block_id = args.block_id.to_json();
+                let block_id = args.block_id.0;
                 let class_hash = Felt::from_str(&args.class_hash).context("Invalid class hash")?;
                 let result = client.get_class(block_id, class_hash).await?;
                 println!("{}", colored_json::to_colored_json_auto(&result)?);
             }
             StarknetCommands::GetClassHashAt(args) => {
-                let block_id = args.block_id.to_json();
+                let block_id = args.block_id.0;
                 let contract_address =
                     Felt::from_str(&args.contract_address).context("Invalid contract address")?;
                 let result = client.get_class_hash_at(block_id, contract_address).await?;
                 println!("{}", colored_json::to_colored_json_auto(&result)?);
             }
             StarknetCommands::GetClassAt(args) => {
-                let block_id = args.block_id.to_json();
+                let block_id = args.block_id.0;
                 let contract_address =
                     Felt::from_str(&args.contract_address).context("Invalid contract address")?;
                 let result = client.get_class_at(block_id, contract_address).await?;
                 println!("{}", colored_json::to_colored_json_auto(&result)?);
             }
             StarknetCommands::GetBlockTransactionCount(args) => {
-                let block_id = args.block_id.to_json();
+                let block_id = args.block_id.0;
                 let result = client.get_block_transaction_count(block_id).await?;
                 println!("{}", colored_json::to_colored_json_auto(&result)?);
             }
@@ -360,14 +360,11 @@ impl StarknetCommands {
                     .collect();
                 let calldata = calldata?;
 
-                let request = serde_json::json!({
-                    "contract_address": format!("{:#x}", contract_address),
-                    "entry_point_selector": format!("{:#x}", entry_point_selector),
-                    "calldata": calldata.iter().map(|f| format!("{:#x}", f)).collect::<Vec<_>>()
-                });
+                let function_call =
+                    FunctionCall { contract_address, entry_point_selector, calldata };
 
-                let block_id = args.block_id.to_json();
-                let result = client.call(request, block_id).await?;
+                let block_id = args.block_id.0;
+                let result = client.call(function_call, block_id).await?;
                 println!("{}", colored_json::to_colored_json_auto(&result)?);
             }
             StarknetCommands::BlockNumber => {
@@ -387,7 +384,7 @@ impl StarknetCommands {
                 println!("{}", colored_json::to_colored_json_auto(&result)?);
             }
             StarknetCommands::GetNonce(args) => {
-                let block_id = args.block_id.to_json();
+                let block_id = args.block_id.0;
                 let address = Felt::from_str(&args.address).context("Invalid contract address")?;
                 let result = client.get_nonce(block_id, address).await?;
                 println!("{}", colored_json::to_colored_json_auto(&result)?);
@@ -399,7 +396,7 @@ impl StarknetCommands {
                 println!("{}", colored_json::to_colored_json_auto(&result)?);
             }
             StarknetCommands::TraceBlockTransactions(TraceBlockTransactionsArg { block_id }) => {
-                let result = client.trace_block_transactions(block_id.to_json()).await?;
+                let result = client.trace_block_transactions(block_id.0).await?;
                 println!("{}", colored_json::to_colored_json_auto(&result)?);
             }
         }
@@ -409,19 +406,6 @@ impl StarknetCommands {
 
 #[derive(Debug, Clone)]
 pub struct BlockIdArg(pub BlockIdOrTag);
-
-impl BlockIdArg {
-    /// Convert to JSON value for RPC request
-    pub fn to_json(&self) -> serde_json::Value {
-        match &self.0 {
-            BlockIdOrTag::Latest => serde_json::json!("latest"),
-            BlockIdOrTag::L1Accepted => serde_json::json!("l1_accepted"),
-            BlockIdOrTag::PreConfirmed => serde_json::json!("pre_confirmed"),
-            BlockIdOrTag::Hash(hash) => serde_json::json!({"block_hash": format!("{:#x}", hash)}),
-            BlockIdOrTag::Number(num) => serde_json::json!({"block_number": num}),
-        }
-    }
-}
 
 impl std::str::FromStr for BlockIdArg {
     type Err = anyhow::Error;
@@ -455,20 +439,6 @@ impl Default for BlockIdArg {
 
 #[derive(Debug, Clone)]
 pub struct ConfirmedBlockIdArg(pub ConfirmedBlockIdOrTag);
-
-impl ConfirmedBlockIdArg {
-    /// Convert to JSON value for RPC request
-    pub fn to_json(&self) -> serde_json::Value {
-        match &self.0 {
-            ConfirmedBlockIdOrTag::Latest => serde_json::json!("latest"),
-            ConfirmedBlockIdOrTag::L1Accepted => serde_json::json!("l1_accepted"),
-            ConfirmedBlockIdOrTag::Hash(hash) => {
-                serde_json::json!({"block_hash": format!("{:#x}", hash)})
-            }
-            ConfirmedBlockIdOrTag::Number(num) => serde_json::json!({"block_number": num}),
-        }
-    }
-}
 
 impl std::str::FromStr for ConfirmedBlockIdArg {
     type Err = anyhow::Error;
