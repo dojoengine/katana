@@ -326,7 +326,7 @@ pub fn to_executor_tx(mut tx: ExecutableTxWithHash, mut flags: ExecutionFlags) -
         },
 
         ExecutableTx::Declare(tx) => {
-            let compiled = tx.class.as_ref().clone().compile().expect("failed to compile");
+            let class = tx.class.as_ref().clone();
 
             let tx = match tx.transaction {
                 DeclareTx::V0(tx) => ApiDeclareTransaction::V0(DeclareTransactionV0V1 {
@@ -384,7 +384,7 @@ pub fn to_executor_tx(mut tx: ExecutableTxWithHash, mut flags: ExecutionFlags) -
             };
 
             let tx_hash = TransactionHash(hash);
-            let class_info = to_class_info(compiled).unwrap();
+            let class_info = to_class_info(class).unwrap();
             Transaction::Account(AccountTransaction {
                 tx: ExecTx::Declare(DeclareTransaction { class_info, tx_hash, tx }),
                 execution_flags: flags.into(),
@@ -623,33 +623,27 @@ pub fn to_blk_chain_id(chain_id: katana_primitives::chain::ChainId) -> ChainId {
     }
 }
 
-pub fn to_class_info(class: class::CompiledClass) -> Result<ClassInfo, ProgramError> {
+pub fn to_class_info(class: class::ContractClass) -> Result<ClassInfo, ProgramError> {
     use starknet_api::contract_class::ContractClass;
 
-    // TODO: @kariy not sure of the variant that must be used in this case. Should we change the
-    // return type to include this case of error for contract class conversions?
-    match class {
-        class::CompiledClass::Legacy(legacy) => {
-            // For cairo 0, the sierra_program_length must be 0.
-            Ok(ClassInfo::new(&ContractClass::V0(legacy), 0, 0, SierraVersion::DEPRECATED).unwrap())
+    let sierra_version = class.sierra_version();
+    let sierra_program_len = class.sierra_program_len();
+    let abi_len = class.abi_len();
+
+    let compiled = class.compile().unwrap();
+
+    match compiled {
+        class::CompiledClass::Legacy(casm) => {
+            // It's safe to unwrap here because `ClassInfo::new` will only fail if the
+            // sierra_program_len != 0 for legacy classes and `class.sierra_program_len()` will
+            // always return 0 for legacy classes.
+            let casm = ContractClass::V0(casm);
+            Ok(ClassInfo::new(&casm, sierra_program_len, abi_len, sierra_version).unwrap())
         }
 
-        class::CompiledClass::Class(sierra) => {
-            // NOTE:
-            //
-            // Right now, we're using dummy values for the sierra class info (ie
-            // sierra_program_length, and abi_length). This value affects the fee
-            // calculation so we should use the correct values based on the sierra class itself.
-            //
-            // Make sure these values are the same over on `snos` when it re-executes the
-            // transactions as otherwise the fees would be different.
-
-            let version = SierraVersion::from_str(&sierra.compiler_version).unwrap();
-            let class = ContractClass::V1((sierra, version.clone()));
-            let sierra_program_length = 1;
-            let abi_length = 0;
-
-            Ok(ClassInfo::new(&class, sierra_program_length, abi_length, version).unwrap())
+        class::CompiledClass::Class(casm) => {
+            let class = ContractClass::V1((casm, sierra_version.clone()));
+            Ok(ClassInfo::new(&class, sierra_program_len, abi_len, sierra_version).unwrap())
         }
     }
 }
