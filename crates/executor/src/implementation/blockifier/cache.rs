@@ -1,10 +1,8 @@
-use std::str::FromStr;
 use std::sync::{Arc, OnceLock};
 
 use blockifier::execution::contract_class::{CompiledClassV1, RunnableCompiledClass};
 use katana_primitives::class::{ClassHash, CompiledClass, ContractClass};
 use quick_cache::sync::Cache;
-use starknet_api::contract_class::SierraVersion;
 
 use super::utils::to_class;
 
@@ -256,11 +254,12 @@ impl ClassCache {
                 #[cfg(feature = "native")]
                 let entry_points = sierra.entry_points_by_type.clone();
 
+                let version = class.sierra_version();
+
                 let CompiledClass::Class(casm) = class.compile().unwrap() else {
                     unreachable!("cant be legacy")
                 };
 
-                let version = SierraVersion::from_str(&casm.compiler_version).unwrap();
                 let compiled = CompiledClassV1::try_from((casm, version.clone())).unwrap();
 
                 #[cfg(feature = "native")]
