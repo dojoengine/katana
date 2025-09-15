@@ -1,5 +1,5 @@
 window.BENCHMARK_DATA = {
-  "lastUpdate": 1757446685687,
+  "lastUpdate": 1757961833919,
   "repoUrl": "https://github.com/dojoengine/katana",
   "entries": {
     "Benchmark": [
@@ -5171,6 +5171,66 @@ window.BENCHMARK_DATA = {
             "name": "Invoke.ERC20.transfer/Blockifier.Cold",
             "value": 18514428,
             "range": "± 411828",
+            "unit": "ns/iter"
+          }
+        ]
+      },
+      {
+        "commit": {
+          "author": {
+            "email": "evergreenkary@gmail.com",
+            "name": "Ammar Arif",
+            "username": "kariy"
+          },
+          "committer": {
+            "email": "noreply@github.com",
+            "name": "GitHub",
+            "username": "web-flow"
+          },
+          "distinct": true,
+          "id": "8aafedc7db9c689c98de2002d9fb55c36374042b",
+          "message": "feat: use the actual class info (#269)\n\nCurrently when creating the `ClassInfo` struct from Blockifier, the values used aren't accurate.\n\nFirst, the sierra version is actually the CASM compiler version. The sierra version is encoded into the `sierra_program` field of a Starknet contract class artifact. The `sierra_program` is a list of field elements and the first six elements are reserved for the compilers - first 3 for sierra compiler version and last 3 for casm compiler version. Fyi, Blockifier performs a sierra version check when executing a contract execution to determine what resource to [track].\n\nSecond, we are using mock values for both sierra program length and abi length. I'm not exactly sure what's the specification of the ABI length, but I've referenced with the official StarkWare's [implementation] and it seems to be the length of the ABI in its RPC format i.e., a string of JSON.\n\nThe implementation for getting the ABI length is not optimized and would require to be computed every time the class is fetched from database -> class cache.\n\nThese values are important for ensuring deterministic executions as they affect transaction execution as well as fees.\n\n[track]:\nhttps://github.com/dojoengine/sequencer/blob/3c206344dc64b5a0f150ea94cd2623b2a9a7da63/crates/blockifier/src/execution/contract_class.rs#L258\n[implementation]:\nhttps://github.com/dojoengine/sequencer/blob/3c206344dc64b5a0f150ea94cd2623b2a9a7da63/crates/apollo_rpc/src/v0_8/api/mod.rs#L453-L477",
+          "timestamp": "2025-09-16T02:34:48+08:00",
+          "tree_id": "5d32707dde96150591c3e45893a1262d2e9ed877",
+          "url": "https://github.com/dojoengine/katana/commit/8aafedc7db9c689c98de2002d9fb55c36374042b"
+        },
+        "date": 1757961832720,
+        "tool": "cargo",
+        "benches": [
+          {
+            "name": "Commit.Small/Parallel",
+            "value": 456053,
+            "range": "± 7776",
+            "unit": "ns/iter"
+          },
+          {
+            "name": "Commit.Big/Serial",
+            "value": 94884895,
+            "range": "± 401684",
+            "unit": "ns/iter"
+          },
+          {
+            "name": "Commit.Big/Parallel",
+            "value": 65739343,
+            "range": "± 2643647",
+            "unit": "ns/iter"
+          },
+          {
+            "name": "compress world contract",
+            "value": 2813566,
+            "range": "± 17096",
+            "unit": "ns/iter"
+          },
+          {
+            "name": "decompress world contract",
+            "value": 3052635,
+            "range": "± 16000",
+            "unit": "ns/iter"
+          },
+          {
+            "name": "Invoke.ERC20.transfer/Blockifier.Cold",
+            "value": 17694400,
+            "range": "± 402551",
             "unit": "ns/iter"
           }
         ]
