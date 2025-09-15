@@ -365,6 +365,11 @@ jobs:
         with:
           name: binary
 
+      - name: Download test artifacts
+        uses: actions/download-artifact@v5
+        with:
+          name: test-artifacts
+
       - name: Setup Katana binary
         run: chmod +x ./katana
 
