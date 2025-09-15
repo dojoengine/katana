@@ -214,42 +214,43 @@ jobs:
           token: ${{ secrets.CODECOV_TOKEN }}
           files: lcov.info
 
-  snos-integration-test:
-    needs: [fmt, clippy]
-    runs-on: ubuntu-latest-32-cores
-    timeout-minutes: 30
-    if: github.event_name == 'push' || (github.event_name == 'pull_request' && github.event.pull_request.draft == false)
-    container:
-      image: ghcr.io/dojoengine/katana-dev:latest
-    env:
-      MLIR_SYS_190_PREFIX: /usr/lib/llvm-19/
-      LLVM_SYS_191_PREFIX: /usr/lib/llvm-19/
-      TABLEGEN_190_PREFIX: /usr/lib/llvm-19/
-    steps:
-      - uses: actions/checkout@v3
-        with:
-          submodules: recursive
-      # Workaround for https://github.com/actions/runner-images/issues/6775
-      - run: git config --global --add safe.directory "*"
+  # Should be disabled until we are using the new SNOS implementation
+  # snos-integration-test:
+  #   needs: [fmt, clippy]
+  #   runs-on: ubuntu-latest-32-cores
+  #   timeout-minutes: 30
+  #   if: github.event_name == 'push' || (github.event_name == 'pull_request' && github.event.pull_request.draft == false)
+  #   container:
+  #     image: ghcr.io/dojoengine/katana-dev:latest
+  #   env:
+  #     MLIR_SYS_190_PREFIX: /usr/lib/llvm-19/
+  #     LLVM_SYS_191_PREFIX: /usr/lib/llvm-19/
+  #     TABLEGEN_190_PREFIX: /usr/lib/llvm-19/
+  #   steps:
+  #     - uses: actions/checkout@v3
+  #       with:
+  #         submodules: recursive
+  #     # Workaround for https://github.com/actions/runner-images/issues/6775
+  #     - run: git config --global --add safe.directory "*"
 
-      - uses: Swatinem/rust-cache@v2
-        with:
-          key: ci-${{ github.job }}
-          shared-key: katana-ci-cache
+  #     - uses: Swatinem/rust-cache@v2
+  #       with:
+  #         key: ci-${{ github.job }}
+  #         shared-key: katana-ci-cache
 
-      - name: Download test artifacts
-        uses: actions/download-artifact@v5
-        with:
-          name: test-artifacts
+  #     - name: Download test artifacts
+  #       uses: actions/download-artifact@v5
+  #       with:
+  #         name: test-artifacts
 
-      - name: Prepare SNOS test environment
-        run: |
-          if [ ! -d "./tests/snos/snos/build" ]; then
-            make snos-artifacts
-          fi
+  #     - name: Prepare SNOS test environment
+  #       run: |
+  #         if [ ! -d "./tests/snos/snos/build" ]; then
+  #           make snos-artifacts
+  #         fi
 
-      - run: |
-          cargo run -p snos-integration-test
+  #     - run: |
+  #         cargo run -p snos-integration-test
 
   explorer-reverse-proxy:
     needs: [fmt, clippy, build-katana-binary]

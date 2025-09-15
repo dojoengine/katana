@@ -43,7 +43,7 @@ members = [
 	"crates/utils",
 	"tests/db-compat",
 	"tests/reverse-proxy",
-	"tests/snos",
+	# "tests/snos",
 ]
 
 [workspace.package]
