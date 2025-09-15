@@ -1,6 +1,7 @@
+use std::fmt::Debug;
 use std::marker::PhantomData;
 
-use tracing_opentelemetry::OpenTelemetryLayer;
+// use tracing_opentelemetry::OpenTelemetryLayer;
 use tracing_subscriber::fmt::format::{self};
 use tracing_subscriber::layer::{Layered, SubscriberExt};
 use tracing_subscriber::util::SubscriberInitExt;
@@ -21,32 +22,47 @@ pub type DefaultFormat = format::Full;
 pub type Full = format::Full;
 pub type Json = format::Json;
 
-type Subscriber<Tracer> = Layered<
-    OpenTelemetryLayer<
-        Layered<
-            Box<dyn Layer<Layered<EnvFilter, Registry>> + Send + Sync + 'static>,
-            Layered<EnvFilter, Registry>,
-        >,
-        Tracer,
-    >,
-    Layered<
-        Box<dyn Layer<Layered<EnvFilter, Registry>> + Send + Sync + 'static>,
-        Layered<EnvFilter, Registry>,
-    >,
+// type Subscriber<Telemetry> = Layered<
+//     OpenTelemetryLayer<
+//         Layered<
+//             Box<dyn Layer<Layered<EnvFilter, Registry>> + Send + Sync + 'static>,
+//             Layered<EnvFilter, Registry>,
+//         >,
+//         Telemetry,
+//     >,
+//     Layered<
+//         Box<dyn Layer<Layered<EnvFilter, Registry>> + Send + Sync + 'static>,
+//         Layered<EnvFilter, Registry>,
+//     >,
+// >;
+
+type SubscriberWithNoTelemetry = Layered<
+    Box<dyn Layer<Layered<EnvFilter, Registry>> + Send + Sync + 'static>,
+    Layered<EnvFilter, Registry>,
 >;
 
-struct TracingSubscriber<Fmt, Tracer> {
-    subscriber: Subscriber<Tracer>,
-    tracer: Tracer,
+// #[derive(Clone)]
+struct TracingSubscriber<Fmt, Telemetry> {
+    subscriber_without_telem: SubscriberWithNoTelemetry,
+    tracer: Telemetry,
     _fmt: PhantomData<Fmt>,
 }
 
-impl<Fmt, Tracer: TelemetryTracer> TracingSubscriber<Fmt, Tracer> {
+impl<Fmt, Telemetry: TelemetryTracer> TracingSubscriber<Fmt, Telemetry> {
     pub fn init(self) {
-        use tracing_subscriber::registry;
-
         self.tracer.init().unwrap();
-        registry().with(self.filter).with(self.fmt_layer).with(self.tracer).init();
+
+        let telem = tracing_opentelemetry::layer().with_tracer(self.tracer);
+        self.subscriber_without_telem.with(telem).init();
+    }
+}
+
+impl<Fmt, Telemetry: Debug> Debug for TracingSubscriber<Fmt, Telemetry> {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.debug_struct("TracingSubscriber")
+            .field("subscriber", &"..")
+            .field("tracer", &self.tracer)
+            .finish()
     }
 }
 
@@ -115,16 +131,41 @@ impl<Fmt, Telemetry: TelemetryTracer> TracingBuilder<Fmt, Telemetry> {
             EnvFilter::try_new(DEFAULT_LOG_FILTER).expect("default filter should be valid")
         });
 
-        let fmt_layer = fmt::layer().with_timer(LocalTime::new());
+        let base_layer = fmt::layer().with_timer(LocalTime::new());
+
+        // Use an enum to preserve type information instead of Box<dyn>
+        enum FmtLayer<F, J> {
+            Full(F),
+            Json(J),
+        }
+
+        impl<S, F, J> Layer<S> for FmtLayer<F, J>
+        where
+            S: tracing::Subscriber,
+            F: Layer<S>,
+            J: Layer<S>,
+        {
+            fn on_layer(&mut self, subscriber: &mut S) {
+                match self {
+                    FmtLayer::Full(layer) => layer.on_layer(subscriber),
+                    FmtLayer::Json(layer) => layer.on_layer(subscriber),
+                }
+            }
+        }
+
         let fmt_layer = match self.log_format {
-            LogFormat::Full => fmt_layer.boxed(),
-            LogFormat::Json => fmt_layer.json().boxed(),
+            LogFormat::Full => FmtLayer::Full(base_layer),
+            LogFormat::Json => FmtLayer::Json(base_layer.json()),
         };
 
-        let telem = tracing_opentelemetry::layer().with_tracer(self.tracer);
-        let subscriber = tracing_subscriber::registry().with(filter).with(fmt_layer).with(telem);
+        // let telem = tracing_opentelemetry::layer().with_tracer(self.tracer);
+        let subscriber = tracing_subscriber::registry().with(filter).with(fmt_layer);
 
-        Ok(TracingSubscriber { subscriber, _fmt: PhantomData })
+        Ok(TracingSubscriber {
+            tracer: self.tracer,
+            subscriber_without_telem: subscriber,
+            _fmt: PhantomData,
+        })
     }
 }
 
