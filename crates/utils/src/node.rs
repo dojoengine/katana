@@ -113,6 +113,7 @@ pub fn test_config() -> Config {
 
     let rpc = RpcConfig {
         port: 0,
+        #[cfg(feature = "explorer")]
         explorer: true,
         addr: DEFAULT_RPC_ADDR,
         apis: RpcModulesList::all(),

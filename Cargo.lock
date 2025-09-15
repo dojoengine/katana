@@ -3430,7 +3430,6 @@ dependencies = [
  "katana-chain-spec",
  "katana-cli",
  "katana-db",
- "katana-node",
  "katana-primitives",
  "katana-provider",
  "starknet",

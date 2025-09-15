@@ -9,7 +9,6 @@ version.workspace = true
 katana-chain-spec.workspace = true
 katana-cli.workspace = true
 katana-db.workspace = true
-katana-node.workspace = true
 katana-primitives.workspace = true
 katana-provider.workspace = true
 
