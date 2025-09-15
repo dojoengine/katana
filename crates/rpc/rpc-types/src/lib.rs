@@ -139,18 +139,22 @@ impl Serialize for SyncingResponse {
 impl<'de> Deserialize<'de> for SyncingResponse {
     fn deserialize<D: serde::Deserializer<'de>>(deserializer: D) -> Result<Self, D::Error> {
         use serde::Deserialize;
-        use serde::__private::de::{Content, ContentRefDeserializer};
+        use serde_json::Value;
 
-        let content = <Content<'_> as Deserialize>::deserialize(deserializer)?;
-        let deserializer = ContentRefDeserializer::<D::Error>::new(&content);
+        let content = <Value as Deserialize>::deserialize(deserializer)?;
 
-        if let Ok(bool) = <bool as Deserialize>::deserialize(deserializer) {
-            // The only valid boolean value is `false` which indicates that the node is not syncing.
-            if !bool {
+        match content {
+            Value::Bool(bool) if !bool => {
                 return Ok(Self::NotSyncing);
-            };
-        } else if let Ok(value) = <SyncStatus as Deserialize>::deserialize(deserializer) {
-            return Ok(Self::Syncing(value));
+            }
+
+            Value::Object(object) => {
+                if let Ok(value) = <SyncStatus as Deserialize>::deserialize(object) {
+                    return Ok(Self::Syncing(value));
+                }
+            }
+
+            _ => {}
         }
 
         Err(serde::de::Error::custom(
