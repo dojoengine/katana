@@ -46,21 +46,7 @@ paymaster = [
 	"katana-sequencer-node/paymaster",
 	"katana-rpc-server/paymaster",
 ]
-vrf = [
-	"cartridge",
-	"dep:cartridge",
-	"katana-sequencer-node/vrf",
-	"katana-rpc-server/vrf",
-]
-cartridge = [
-	"katana-sequencer-node/cartridge",
-	"katana-full-node/cartridge",
-	"katana-rpc-server/cartridge",
-	"paymaster",
-]
-grpc = [ "katana-sequencer-node/grpc" ]
-default = ["server", "tee", "vrf", "paymaster", "cartridge", "grpc"]
-explorer = ["katana-sequencer-node/explorer", "katana-full-node/explorer", "katana-utils/explorer"]
-native = ["katana-sequencer-node/native"]
-server = []
-tee = ["dep:katana-tee", "katana-sequencer-node/tee", "katana-sequencer-node/tee-snp", "katana-tee/snp"]
+default = [ "cartridge", "server" ]
+explorer = [ "katana-node/explorer", "katana-utils/explorer" ]
+native = [ "katana-node/native" ]
+server = [  ]

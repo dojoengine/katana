@@ -144,33 +144,23 @@ impl Serialize for SyncingResponse {
 
 impl<'de> Deserialize<'de> for SyncingResponse {
     fn deserialize<D: serde::Deserializer<'de>>(deserializer: D) -> Result<Self, D::Error> {
-        use serde::de::{self, MapAccess, Visitor};
+        use serde::Deserialize;
+        use serde_json::Value;
 
-        struct SyncingResponseVisitor;
+        let content = <Value as Deserialize>::deserialize(deserializer)?;
 
-        impl<'de> Visitor<'de> for SyncingResponseVisitor {
-            type Value = SyncingResponse;
-
-            fn expecting(&self, formatter: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-                formatter.write_str(
-                    "either `false` or an object with fields: starting_block_hash, \
-                     starting_block_num, current_block_hash, current_block_num, \
-                     highest_block_hash, highest_block_num",
-                )
+        match content {
+            Value::Bool(bool) if !bool => {
+                return Ok(Self::NotSyncing);
             }
 
-            fn visit_bool<E: de::Error>(self, value: bool) -> Result<Self::Value, E> {
-                if !value {
-                    Ok(SyncingResponse::NotSyncing)
-                } else {
-                    Err(E::custom("expected `false` for not syncing state"))
+            Value::Object(object) => {
+                if let Ok(value) = <SyncStatus as Deserialize>::deserialize(object) {
+                    return Ok(Self::Syncing(value));
                 }
             }
 
-            fn visit_map<A: MapAccess<'de>>(self, map: A) -> Result<Self::Value, A::Error> {
-                let status = SyncStatus::deserialize(de::value::MapAccessDeserializer::new(map))?;
-                Ok(SyncingResponse::Syncing(status))
-            }
+            _ => {}
         }
 
         deserializer.deserialize_any(SyncingResponseVisitor)

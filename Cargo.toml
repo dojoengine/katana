@@ -51,7 +51,6 @@ members = [
 	"crates/utils",
 	"tests/db-compat",
 	"tests/reverse-proxy",
-	"crates/paymaster",
 	# "tests/snos",
 ]
 
@@ -121,13 +120,13 @@ katana-paymaster = { path = "crates/paymaster" }
 katana-utils = { path = "crates/utils" }
 
 # cairo-lang
-cairo-lang-casm = "2.12.3"
-cairo-lang-runner = "2.12.3"
-cairo-lang-sierra = "2.12.3"
-cairo-lang-sierra-to-casm = "2.12.3"
-cairo-lang-starknet = "2.12.3"
-cairo-lang-starknet-classes = "2.12.3"
-cairo-lang-utils = "2.12.3"
+cairo-lang-casm = "=2.12.0-dev.1"
+cairo-lang-runner = "=2.12.0-dev.1"
+cairo-lang-sierra = "=2.12.0-dev.1"
+cairo-lang-sierra-to-casm = "=2.12.0-dev.1"
+cairo-lang-starknet = "=2.12.0-dev.1"
+cairo-lang-starknet-classes = "=2.12.0-dev.1"
+cairo-lang-utils = "=2.12.0-dev.1"
 
 anyhow = "1.0.89"
 arbitrary = { version = "1.3.2", features = [ "derive" ] }
@@ -238,21 +237,20 @@ opentelemetry-http = "0.30.0"
 opentelemetry-stackdriver = { version = "0.27.0", features = [ "propagator" ] }
 
 # starknet
-starknet = "0.17.0"
-starknet-crypto = "0.8.1"
-starknet-types-core = { version = "=0.2.3", features = [ "arbitrary", "hash" ] }
-stark-vrf = { git = "https://github.com/dojoengine/stark-vrf.git", rev = "96d6d2a" }
+starknet = "0.17.0-rc.2"
+starknet-crypto = "0.7.4"
+starknet-types-core = { version = "0.1.8", features = [ "arbitrary", "hash" ] }
+
+blockifier = { git = "https://github.com/dojoengine/sequencer", branch = "blockifier/v0.15.0-rc.2", default-features = false }
+cairo-native = "0.5.0-rc.6"
+starknet_api = { git = "https://github.com/dojoengine/sequencer", branch = "blockifier/v0.15.0-rc.2" }
 # Some types that we used from cairo-vm implements the `Arbitrary` trait,
 # only under the `test_utils` feature.
-cairo-vm = { version = "2.5.0", features = [ "test_utils" ] }
-
-# branch: blockifier/v0.16.0-rc.0
-blockifier = { git = "https://github.com/dojoengine/sequencer", rev = "d2591bb", default-features = false }
-starknet_api = { git = "https://github.com/dojoengine/sequencer", rev = "d2591bb" }
+cairo-vm = { version = "=2.3.1", features = [ "test_utils" ] }
 
 cainome = { git = "https://github.com/cartridge-gg/cainome", rev = "7d60de1", features = [ "abigen-rs" ] }
 cainome-cairo-serde = { git = "https://github.com/cartridge-gg/cainome", rev = "7d60de1" }
-piltover = { git = "https://github.com/kariy/piltover.git", branch = "feat/rpc0.9" }
+piltover = { git = "https://github.com/kariy/piltover.git", rev = "a908ce2" }
 
 # paymaster
 paymaster-rpc = { git = "https://github.com/cartridge-gg/paymaster", branch = "copenhagen-4cb4" }

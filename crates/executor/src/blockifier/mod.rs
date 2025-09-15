@@ -3,7 +3,7 @@ use std::sync::Arc;
 // Re-export the blockifier crate.
 pub use blockifier;
 use blockifier::blockifier_versioned_constants::VersionedConstants;
-use blockifier::bouncer::{n_steps_to_gas, Bouncer, BouncerConfig, BouncerWeights};
+use blockifier::bouncer::{n_steps_to_gas, Bouncer, BouncerConfig, BouncerWeights, BuiltinWeights};
 
 pub mod cache;
 pub mod call;
@@ -133,7 +133,10 @@ impl StarknetVMProcessor {
         block_max_capacity.sierra_gas =
             n_steps_to_gas(limits.cairo_steps as usize, block_context.versioned_constants());
 
-        let bouncer = Bouncer::new(BouncerConfig { block_max_capacity, ..Default::default() });
+        let bouncer = Bouncer::new(BouncerConfig {
+            block_max_capacity,
+            builtin_weights: BuiltinWeights::default(),
+        });
 
         Self {
             cfg_env,

@@ -2,15 +2,16 @@ use anyhow::Result;
 use katana_db::version::CURRENT_DB_VERSION;
 use katana_node_bindings::Katana;
 use katana_primitives::block::{BlockIdOrTag, ConfirmedBlockIdOrTag};
-use katana_primitives::{address, felt};
-use katana_starknet::rpc::{Client as StarknetClient, Error as RpcError, StarknetApiError};
+use katana_primitives::{address, felt, ContractAddress};
+use katana_rpc_client::starknet::Client as StarknetClient;
+use katana_rpc_client::HttpClientBuilder;
 
 #[tokio::main]
 async fn main() -> Result<()> {
     println!("Testing database compatibility from version 1.6.0");
     println!("Current Katana database version: {CURRENT_DB_VERSION}");
 
-    const TEST_DB_DIR: &str = "tests/fixtures/db/1_6_0";
+    const TEST_DB_DIR: &str = "tests/fixtures/db/db_v1.6.0";
 
     // Get the katana binary path from the environment variable if provided (for CI)
     // Otherwise, assume it's in PATH
@@ -20,7 +21,7 @@ async fn main() -> Result<()> {
         Katana::new()
     };
 
-    let instance = katana.data_dir(TEST_DB_DIR).spawn();
+    let instance = katana.db_dir(TEST_DB_DIR).spawn();
 
     // Create HTTP client for Katana's RPC
     let url = format!("http://{}", instance.rpc_addr());
@@ -29,7 +30,8 @@ async fn main() -> Result<()> {
     // Give the node some time to fully initialize
     tokio::time::sleep(tokio::time::Duration::from_secs(2)).await;
 
-    let client = StarknetClient::new(url.as_str().try_into().unwrap());
+    let http_client = HttpClientBuilder::default().build(&url)?;
+    let client = StarknetClient::new(http_client);
 
     // Run all RPC tests
     test_rpc_queries(&client).await;
@@ -60,30 +62,7 @@ async fn test_rpc_queries(client: &StarknetClient) {
     let _ = client.get_transaction_by_block_id_and_index(BlockIdOrTag::Number(1), 0).await.unwrap();
 
     let tx_hash = felt!("0x722b80b0fd8e4cd177bb565ee73843ce5ffb8cc07114207cd4399cb4e00c9ac");
-    // The v1.6.0 database contains TransactionExecutionInfo serialized with an older blockifier
-    // format. Since #392 (https://github.com/dojoengine/katana/pull/392), the new blockifier
-    // format is incompatible so deserialization fails and the provider returns None, which
-    // surfaces as TxnHashNotFound.
-    //
-    // See the backward-compat handling in DbProvider::transaction_execution():
-    //
-    // ```
-    // match self.0.get::<tables::TxTraces>(num) {
-    //     Ok(Some(execution)) => Ok(Some(execution)),
-    //     Ok(None) => Ok(None),
-    //     // Treat decompress errors as non-existent for backward compatibility
-    //     Err(DatabaseError::Codec(CodecError::Decompress(err))) => {
-    //         warn!(tx_num = %num, %err, "Failed to deserialize transaction trace");
-    //         Ok(None)
-    //     }
-    //     Err(e) => Err(e.into()),
-    // }
-    // ```
-    match client.trace_transaction(tx_hash).await {
-        Ok(_) => {}
-        Err(RpcError::Starknet(StarknetApiError::TxnHashNotFound)) => {}
-        Err(e) => panic!("unexpected error from trace_transaction: {e}"),
-    }
+    let _ = client.trace_transaction(tx_hash).await.unwrap();
     let _ = client.trace_block_transactions(ConfirmedBlockIdOrTag::Number(1)).await.unwrap();
 
     let class_hash = felt!("0x685ed02eefa98fe7e208aa295042e9bbad8029b0d3d6f0ba2b32546efe0a1f9");
