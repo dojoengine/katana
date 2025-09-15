@@ -1,6 +1,8 @@
 use std::str::FromStr;
 use std::sync::Arc;
 
+use blockifier::blockifier_versioned_constants::VersionedConstants;
+use blockifier::bouncer::n_steps_to_sierra_gas;
 use blockifier::context::{BlockContext, TransactionContext};
 use blockifier::execution::call_info::CallInfo;
 use blockifier::execution::entry_point::{
@@ -15,7 +17,7 @@ use blockifier::state::cached_state::CachedState;
 use blockifier::state::state_api::StateReader;
 use blockifier::transaction::objects::{DeprecatedTransactionInfo, TransactionInfo};
 use cairo_vm::vm::runners::cairo_runner::RunResources;
-use katana_primitives::execution::FunctionCall;
+use katana_primitives::execution::{FunctionCall, TrackedResource};
 use katana_primitives::Felt;
 use starknet_api::core::EntryPointSelector;
 use starknet_api::execution_resources::GasAmount;
@@ -25,6 +27,8 @@ use super::utils::to_blk_address;
 use crate::ExecutionError;
 
 /// Perform a function call on a contract and retrieve the return values.
+///
+/// The `max_gas` is the maximum amount of Sierra gas to allocate for the call.
 pub fn execute_call<S: StateReader>(
     request: FunctionCall,
     state: &mut CachedState<S>,
@@ -39,10 +43,10 @@ fn execute_call_inner<S: StateReader>(
     request: FunctionCall,
     state: &mut CachedState<S>,
     block_context: Arc<BlockContext>,
-    max_gas: u64,
+    max_sierra_gas: u64,
 ) -> EntryPointExecutionResult<CallInfo> {
     let call = CallEntryPoint {
-        initial_gas: max_gas,
+        initial_gas: max_sierra_gas,
         calldata: Calldata(Arc::new(request.calldata)),
         storage_address: to_blk_address(request.contract_address),
         entry_point_selector: EntryPointSelector(request.entry_point_selector),
@@ -67,20 +71,30 @@ fn execute_call_inner<S: StateReader>(
         tx_info: TransactionInfo::Deprecated(DeprecatedTransactionInfo::default()),
     });
 
-    let sierra_revert_tracker = SierraGasRevertTracker::new(GasAmount(max_gas));
+    let sierra_revert_tracker = SierraGasRevertTracker::new(GasAmount(max_sierra_gas));
     let mut ctx = EntryPointExecutionContext::new_invoke(
         tx_context,
         limit_steps_by_resources,
         sierra_revert_tracker,
     );
 
-    // manually override the run resources
-    // If `initial_gas` can't fit in a usize, use the maximum.
-    ctx.vm_run_resources = RunResources::new(max_gas.try_into().unwrap_or(usize::MAX));
+    let versioned_constants = block_context.versioned_constants();
+    let l2_gas_per_step = versioned_constants.os_constants.gas_costs.base.step_gas_cost;
+
+    // Convert the sierra gas to cairo steps for the run resources.
+    //
+    // If values can't fit in a usize, use the maximum. This is to mimic the behaviour of
+    // blockifier.
+    //
+    // For reference: https://github.com/dojoengine/sequencer/blob/5d737b9c90a14bdf4483d759d1a1d4ce64aa9fd2/crates/blockifier/src/execution/entry_point.rs#L382C1-L451
+    let n_steps = max_sierra_gas.saturating_div(l2_gas_per_step);
+    let n_steps = n_steps.try_into().unwrap_or(usize::MAX);
+    ctx.vm_run_resources = RunResources::new(n_steps);
+
     let mut remaining_gas = call.initial_gas;
     let call_info = call.execute(state, &mut ctx, &mut remaining_gas)?;
 
-    // In Starknet 0.13.4 calls return error as return data (Ok variant) instead of returning as an
+    // Calls return error as the return data (Ok variant) instead of returning as an
     // Err. Refer to: https://github.com/dojoengine/sequencer/blob/5d737b9c90a14bdf4483d759d1a1d4ce64aa9fd2/crates/blockifier/src/execution/execution_utils.rs#L74
     if call_info.execution.failed {
         match call_info.execution.retdata.0.as_slice() {
@@ -102,6 +116,36 @@ fn execute_call_inner<S: StateReader>(
     Ok(call_info)
 }
 
+/// Returns the Sierra gas consumed by the contract call execution.
+///
+/// Depending on the the Sierra compiler version of the class, the resources used for the contract
+/// call execution may either be tracked as Cairo steps or Sierra gas. Note that `blockifier`
+/// doesn't store the actual tracked resource consumed value in a single variable of the `CallInfo`
+/// struct but as separate variables i.e., `gas_consumed` of [`CallExecution`] and `n_steps` of
+/// [`ExecutionResources`] for Sierra gas and Cairo steps respectively.
+///
+/// For reference: https://github.com/dojoengine/sequencer/blob/5d737b9c90a14bdf4483d759d1a1d4ce64aa9fd2/crates/blockifier/src/execution/entry_point_execution.rs#L367-L433
+///
+/// [`CallExecution`]: blockifier::execution::call_info::CallExecution
+/// [`ExecutionResources`]: cairo_vm::vm::runners::cairo_runner::ExecutionResources
+pub fn get_call_sierra_gas_consumed(
+    info: &CallInfo,
+    versioned_constant: &VersionedConstants,
+) -> u64 {
+    match info.tracked_resource {
+        // If the execution is tracked using Cairo steps, the sierra gas isn't counted
+        // ie `info.execution.gas_consumed` is set to 0. So, we have to convert the cairo
+        // steps to sierra gas.
+        //
+        // https://github.com/dojoengine/sequencer/blob/5d737b9c90a14bdf4483d759d1a1d4ce64aa9fd2/crates/blockifier/src/execution/entry_point_execution.rs#L475-L479
+        TrackedResource::CairoSteps => {
+            n_steps_to_sierra_gas(info.resources.n_steps, versioned_constant).0
+        }
+
+        TrackedResource::SierraGas => info.execution.gas_consumed,
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use std::str::FromStr;
@@ -118,7 +162,7 @@ mod tests {
     use katana_provider::test_utils;
     use starknet::macros::selector;
 
-    use super::execute_call_inner;
+    use super::{execute_call_inner, get_call_sierra_gas_consumed};
     use crate::implementation::blockifier::state::StateProviderDb;
 
     #[test]
@@ -160,8 +204,10 @@ mod tests {
             // ~900,000 gas
             req.calldata = vec![felt!("460")];
             let info = execute_call_inner(req.clone(), &mut state, ctx.clone(), max_gas_1).unwrap();
+            let gas_consumed = get_call_sierra_gas_consumed(&info, ctx.versioned_constants());
+
             assert!(!info.execution.failed);
-            assert!(max_gas_1 >= info.execution.gas_consumed);
+            assert!(max_gas_1 >= gas_consumed);
 
             req.calldata = vec![felt!("600")];
             let result = execute_call_inner(req.clone(), &mut state, ctx.clone(), max_gas_1);
@@ -170,14 +216,16 @@ mod tests {
 
         let max_gas_2 = 10_000_000;
         {
-            // rougly equivalent to 9,000,000 gas
+            // roughly equivalent to 9,000,000 gas
             req.calldata = vec![felt!("4600")];
             let info = execute_call_inner(req.clone(), &mut state, ctx.clone(), max_gas_2).unwrap();
-            assert!(!info.execution.failed);
-            assert!(max_gas_2 >= info.execution.gas_consumed);
-            assert!(max_gas_1 < info.execution.gas_consumed);
+            let gas_consumed = get_call_sierra_gas_consumed(&info, ctx.versioned_constants());
 
-            req.calldata = vec![felt!("5000")];
+            assert!(!info.execution.failed);
+            assert!(max_gas_2 >= gas_consumed);
+            assert!(max_gas_1 < gas_consumed);
+
+            req.calldata = vec![felt!("6000")];
             let result = execute_call_inner(req.clone(), &mut state, ctx.clone(), max_gas_2);
             assert!(result.is_err(), "should fail due to out of run resources")
         }
@@ -186,9 +234,11 @@ mod tests {
         {
             req.calldata = vec![felt!("47000")];
             let info = execute_call_inner(req.clone(), &mut state, ctx.clone(), max_gas_3).unwrap();
+            let gas_consumed = get_call_sierra_gas_consumed(&info, ctx.versioned_constants());
+
             assert!(!info.execution.failed);
-            assert!(max_gas_3 >= info.execution.gas_consumed);
-            assert!(max_gas_2 < info.execution.gas_consumed);
+            assert!(max_gas_3 >= gas_consumed);
+            assert!(max_gas_2 < gas_consumed);
 
             req.calldata = vec![felt!("60000")];
             let result = execute_call_inner(req.clone(), &mut state, ctx.clone(), max_gas_3);

@@ -2,9 +2,12 @@ use std::str::FromStr;
 
 use cairo_lang_starknet_classes::abi;
 use cairo_lang_starknet_classes::casm_contract_class::StarknetSierraCompilationError;
-use cairo_lang_starknet_classes::contract_class::{ContractEntryPoint, ContractEntryPoints};
+use cairo_lang_starknet_classes::contract_class::{
+    version_id_from_serialized_sierra_program, ContractEntryPoint, ContractEntryPoints,
+};
 use serde_json_pythonic::to_string_pythonic;
 use starknet::macros::short_string;
+use starknet_api::contract_class::SierraVersion;
 use starknet_types_core::hash::{Poseidon, StarkHash};
 
 use crate::utils::{normalize_address, starknet_keccak};
@@ -96,6 +99,58 @@ impl ContractClass {
         match self {
             Self::Class(class) => Some(class),
             _ => None,
+        }
+    }
+
+    /// Returns the version of the Sierra program of this class.
+    pub fn sierra_version(&self) -> SierraVersion {
+        match self {
+            Self::Class(class) => {
+                // The sierra program is an array of field elements and the first six elements are
+                // reserved for the compilers version. The array is structured as follows:
+                //
+                // ┌──────────────────────────────────────┐
+                // │ Idx │ Content                        │
+                // ┌──────────────────────────────────────┐
+                // │ 0   │ Sierra major version           │
+                // │ 1   │ Sierra minor version           │
+                // │ 2   │ Sierra patch version           │
+                // │ 3   │ CASM compiler major version    │
+                // │ 4   │ CASM compiler minor version    │
+                // │ 5   │ CASM compiler patch version    │
+                // │ 6+  │ Program data                   │
+                // └──────────────────────────────────────┘
+                //
+
+                let version = version_id_from_serialized_sierra_program(&class.sierra_program)
+                    .map(|(sierra_id, _)| sierra_id)
+                    .expect("invalid sierra program: failed to get version id from sierra program");
+
+                SierraVersion::new(
+                    version.major.try_into().unwrap(),
+                    version.minor.try_into().unwrap(),
+                    version.patch.try_into().unwrap(),
+                )
+            }
+
+            Self::Legacy(..) => SierraVersion::DEPRECATED,
+        }
+    }
+
+    /// Returns the length of the Sierra program.
+    pub fn sierra_program_len(&self) -> usize {
+        match self {
+            Self::Class(class) => class.sierra_program.len(),
+            // For cairo 0, the sierra_program_length must be 0.
+            Self::Legacy(..) => 0,
+        }
+    }
+
+    // TODO(kariy): document the actual definition of the ABI length here.
+    pub fn abi_len(&self) -> usize {
+        match self {
+            Self::Class(class) => to_string_pythonic(&class.abi.as_ref()).unwrap().len(),
+            Self::Legacy(..) => 0,
         }
     }
 }
