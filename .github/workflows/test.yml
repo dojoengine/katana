@@ -344,7 +344,7 @@ jobs:
           tail -n 50 katana.log
 
   db-compatibility-check:
-    needs: [fmt, clippy]
+    needs: [fmt, clippy, build-katana-binary]
     runs-on: ubuntu-latest
     container:
       image: ghcr.io/dojoengine/katana-dev:latest
@@ -360,8 +360,16 @@ jobs:
           key: release-checks-${{ github.job }}
           shared-key: katana-ci-cache
 
+      - name: Download Katana binary
+        uses: actions/download-artifact@v5
+        with:
+          name: binary
+
+      - name: Setup Katana binary
+        run: chmod +x ./katana
+
       - name: Generate test artifacts
         run: make db-compat-artifacts
 
       - name: Run database compatibility check
-        run: cargo run -p db-compat-test
+        run: KATANA_BIN=./katana cargo run -p db-compat-test

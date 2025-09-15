@@ -7,9 +7,11 @@ version.workspace = true
 
 [dependencies]
 katana-chain-spec.workspace = true
-katana-cli.workspace = true
 katana-db.workspace = true
+katana-node-bindings.workspace = true
 katana-primitives.workspace = true
+katana-rpc-client.workspace = true
+katana-rpc-types.workspace = true
 katana-provider.workspace = true
 
 anyhow.workspace = true
