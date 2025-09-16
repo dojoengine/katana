@@ -27,7 +27,6 @@ use katana_node::config::Config;
 use katana_node::Node;
 use katana_primitives::genesis::allocation::DevAllocationsGenerator;
 use katana_primitives::genesis::constant::DEFAULT_PREFUNDED_ACCOUNT_BALANCE;
-use katana_tracing::LogFormat;
 use serde::{Deserialize, Serialize};
 use tracing::info;
 use url::Url;
@@ -130,17 +129,7 @@ impl NodeArgs {
     pub async fn execute(&self) -> Result<()> {
         // Initialize logging with tracer
         let tracer_config = self.tracer_config();
-
-        match self.logging.log_format {
-            LogFormat::Full => {
-                katana_tracing::TracingBuilder::new().build()?;
-            }
-            LogFormat::Json => {
-                katana_tracing::TracingBuilder::new().json().init(tracer_config)?;
-            }
-        }
-
-        // katana_tracing::init(self.logging.log_format, tracer_config).await?;
+        katana_tracing::init(self.logging.log_format, tracer_config).await?;
         self.start_node().await
     }
 
