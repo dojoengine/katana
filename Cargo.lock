@@ -5774,6 +5774,7 @@ dependencies = [
  "const_format",
  "indicatif",
  "inquire",
+ "jsonrpsee",
  "katana-chain-spec",
  "katana-cli",
  "katana-db",
