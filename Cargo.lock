@@ -5780,7 +5780,6 @@ dependencies = [
  "katana-db",
  "katana-primitives",
  "katana-provider",
- "katana-rpc-api",
  "katana-rpc-client",
  "katana-rpc-types",
  "katana-utils",
