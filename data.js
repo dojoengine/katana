@@ -1,5 +1,5 @@
 window.BENCHMARK_DATA = {
-  "lastUpdate": 1757961833919,
+  "lastUpdate": 1758049164532,
   "repoUrl": "https://github.com/dojoengine/katana",
   "entries": {
     "Benchmark": [
@@ -5231,6 +5231,66 @@ window.BENCHMARK_DATA = {
             "name": "Invoke.ERC20.transfer/Blockifier.Cold",
             "value": 17694400,
             "range": "± 402551",
+            "unit": "ns/iter"
+          }
+        ]
+      },
+      {
+        "commit": {
+          "author": {
+            "email": "evergreenkary@gmail.com",
+            "name": "Ammar Arif",
+            "username": "kariy"
+          },
+          "committer": {
+            "email": "noreply@github.com",
+            "name": "GitHub",
+            "username": "web-flow"
+          },
+          "distinct": true,
+          "id": "4f11144786558776963ff5d43b0f33ca8001fd76",
+          "message": "refactor(katana): remove starknet crate dependency from RPC client (#268)\n\n## Summary\n\nRemoved dependency on the `starknet` crate from the Katana RPC debugging client and replaced it with Katana's native types, using `jsonrpsee` for proper JSON-RPC handling.\n\nThis new implementation will also help us better validate our own RPC types.\n\n## Original Instructions\n\nThe user requested the following changes to the Katana RPC client:\n\n1. **Remove all reliance on the `starknet` crate** - The RPC client implementation in `bin/katana/src/cli/rpc/client.rs` was based solely on types from the `starknet` crate\n2. **Use Katana's own RPC types** - Replace starknet types with types from `crates/rpc/rpc-types/src`\n3. **Replace HttpTransport with direct HTTP client usage** - Avoid using `HttpTransport` from starknet crate\n4. **Return raw JSON responses** - The client should display the raw JSON response objects (not deserialize into proper types) as this CLI command is meant to be used primarily as a debugging tool to validate RPC server responses\n5. **Use Katana's error types** - Use the Starknet API error types from `crates/rpc/rpc-api/src/error/starknet.rs`\n\n## Evolution of Implementation\n\n### Initial Implementation (First Commit)\n\nInitially implemented a manual JSON-RPC client using `reqwest`:\n- Created manual JSON-RPC request/response structs\n- Used `reqwest::Client` directly for HTTP requests\n- Manually handled JSON-RPC error conversion to `StarknetApiError`\n- ~270 lines of code with significant boilerplate\n\n### Improved Implementation (Second Commit)\nAfter discussion, refactored to use `jsonrpsee` for cleaner JSON-RPC handling:\n- **Uses `jsonrpsee::http_client::HttpClient`** - Proper JSON-RPC client with built-in protocol handling\n- **Leverages `ClientT::request` method** - Returns raw `serde_json::Value` for debugging\n- **Uses `ArrayParams`** - Type-safe parameter handling from jsonrpsee\n- **Removed manual JSON-RPC code** - No more custom request/response structs\n- **Better error handling** - jsonrpsee handles JSON-RPC errors automatically\n- **~30% less code** - Cleaner, more maintainable implementation\n\n### Final Refinement (Latest Commit)\n\nAligned the client method signatures with the existing starknet client:\n- **Removed `to_json()` methods** - BlockIdOrTag/ConfirmedBlockIdOrTag\nalready implement Serialize/Deserialize\n- **Updated method signatures** to match\n`crates/rpc/rpc-client/src/starknet.rs` exactly:\n- Use proper typed arguments (ContractAddress, StorageKey, ClassHash,\netc.)\n  - Maintain raw `Value` return types for debugging purposes\n- **Improved type safety** - Use FunctionCall struct directly instead of\nmanual JSON construction\n- **Automatic serialization** - Let Serialize trait handle JSON\nconversion\n\n## Thought Process & Alternatives Considered\n\n### Initial Approach\n\nInitially planned to simply replace the `starknet` crate types with Katana types while maintaining the same client structure.\n\n### Alternative Considered: Reusing `katana-rpc-client`\n\nDuring implementation, we considered reusing the existing `katana-rpc-client` (at `crates/rpc/rpc-client/src/starknet.rs`) instead of maintaining two separate client implementations. This client:\n\n- Already uses all Katana's native types\n- Uses `jsonrpsee` with the trait-based API from `katana-rpc-api`\n- Has proper error handling with `StarknetApiError`\n- Would eliminate code duplication\n\n### Why We Kept a Separate Implementation\n\nAfter discussion, we decided to maintain a separate client implementation for the CLI debugging tool because:\n\n1. **Different Purpose**: The CLI client is specifically for debugging and validating raw RPC responses, while `katana-rpc-client` is for programmatic use\n2. **Raw JSON Output Required**: The user explicitly wanted to see raw JSON responses to validate server output, not deserialized typed responses\n3. **Debugging Focus**: A simpler, direct implementation gives better control and visibility for debugging purposes\n4. **Independence**: Having a separate implementation allows the debugging client to evolve independently without affecting the main RPC client\n\n### Final Improvement: Using jsonrpsee\n\nRealized that using `jsonrpsee` (already in the project dependencies)\nwould provide:\n\n- Proper JSON-RPC 2.0 compliance\n- Built-in error handling\n- Less code to maintain\n- Better compatibility with the rest of the codebase\n\n## Final Implementation\n\n- **Dependencies**: Removed `starknet` and `reqwest`, added `jsonrpsee` with `http-client` feature to `bin/katana/Cargo.toml`\n- **RPC Client**: Uses `jsonrpsee` with proper typed method signatures matching the starknet client\n- **Type Replacements**:\n- `starknet::core::types::BlockId` →\n`katana_primitives::block::BlockIdOrTag`\n- `starknet::core::types::ConfirmedBlockId` →\n`katana_primitives::block::ConfirmedBlockIdOrTag`\n  - `starknet::core::types::BlockTag` → Direct enum variants\n- `starknet::core::types::FunctionCall` →\n`katana_rpc_types::FunctionCall`\n- `starknet::providers::jsonrpc::HttpTransport` →\n`jsonrpsee::http_client::HttpClient`\n- ContractAddress, StorageKey, ClassHash, Nonce → All from katana_primitives\n- **Updated `starknet.rs`**: \n  - Removed `to_json()` methods since types already implement Serialize\n  - Uses BlockIdOrTag/ConfirmedBlockIdOrTag directly\n  - Uses FunctionCall struct instead of manual JSON construction\n- **Updated tests**: Changed test assertions to use Katana types\n\n## Motivation\n\nThe RPC client in the Katana binary is primarily used as a debugging tool to validate RPC server responses. By removing the external `starknet` crate dependency and using Katana's own types with proper JSON-RPC handling via `jsonrpsee`, we:\n\n1. Reduce external dependencies\n2. Maintain consistency with the rest of the codebase\n3. Have cleaner, more maintainable code\n4. Get raw JSON responses for better debugging visibility\n5. Ensure proper JSON-RPC 2.0 compliance\n6. Achieve better type safety with proper method signatures\n\n---------\n\nCo-authored-by: Claude <noreply@anthropic.com>",
+          "timestamp": "2025-09-17T02:50:35+08:00",
+          "tree_id": "c990230e7a7fbf17fc452fee04844917483adc96",
+          "url": "https://github.com/dojoengine/katana/commit/4f11144786558776963ff5d43b0f33ca8001fd76"
+        },
+        "date": 1758049163461,
+        "tool": "cargo",
+        "benches": [
+          {
+            "name": "Commit.Small/Parallel",
+            "value": 427132,
+            "range": "± 14860",
+            "unit": "ns/iter"
+          },
+          {
+            "name": "Commit.Big/Serial",
+            "value": 93337631,
+            "range": "± 1399141",
+            "unit": "ns/iter"
+          },
+          {
+            "name": "Commit.Big/Parallel",
+            "value": 65485840,
+            "range": "± 1315671",
+            "unit": "ns/iter"
+          },
+          {
+            "name": "compress world contract",
+            "value": 2753258,
+            "range": "± 13116",
+            "unit": "ns/iter"
+          },
+          {
+            "name": "decompress world contract",
+            "value": 3020736,
+            "range": "± 10476",
+            "unit": "ns/iter"
+          },
+          {
+            "name": "Invoke.ERC20.transfer/Blockifier.Cold",
+            "value": 16360136,
+            "range": "± 61249",
             "unit": "ns/iter"
           }
         ]
