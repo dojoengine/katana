@@ -103,12 +103,6 @@ impl GCloudTracerBuilder {
         let tracer_provider = trace_exporter.create_provider().await?;
         let tracer = trace_exporter.install(&tracer_provider).await?;
 
-        // // Set the Google Cloud trace context propagator globally
-        // // This will handle both extraction and injection of X-Cloud-Trace-Context headers
-        // opentelemetry::global::set_text_map_propagator(GoogleTraceContextPropagator::default());
-        // opentelemetry::global::set_tracer_provider(tracer_provider.clone());
-
-        // Return the layer
         Ok(GCloudTracer { tracer, tracer_provider })
     }
 }
