@@ -6,15 +6,12 @@ use katana_primitives::transaction::{
     DeclareTxV1 as PrimitiveDeclareTxV1, DeclareTxV2 as PrimitiveDeclareTxV2,
     DeclareTxV3 as PrimitiveDeclareTxV3, DeployAccountTx as PrimitiveDeployAccountTx,
     DeployAccountTxV1 as PrimitiveDeployAccountTxV1,
-    DeployAccountTxV3 as PrimitiveDeployAccountTxV3, DeployTx as PrimitiveDeployTx,
-    InvokeTx as PrimitiveInvokeTx, InvokeTxV0 as PrimitiveInvokeTxV0,
-    InvokeTxV1 as PrimitiveInvokeTxV1, InvokeTxV3 as PrimitiveInvokeTxV3,
-    L1HandlerTx as PrimitiveL1HandlerTx, Tx, TxHash, TxType, TxWithHash,
+    DeployAccountTxV3 as PrimitiveDeployAccountTxV3, InvokeTx as PrimitiveInvokeTx,
+    InvokeTxV0 as PrimitiveInvokeTxV0, InvokeTxV1 as PrimitiveInvokeTxV1,
+    InvokeTxV3 as PrimitiveInvokeTxV3, L1HandlerTx as PrimitiveL1HandlerTx, Tx, TxHash, TxType,
+    TxWithHash,
 };
 use katana_primitives::{ContractAddress, Felt};
-use katana_rpc_types::{
-    RpcDeclareTxV0, RpcDeclareTxV1, RpcDeclareTxV2, RpcInvokeTxV0, RpcInvokeTxV1,
-};
 use serde::Deserialize;
 
 #[derive(Debug, PartialEq, Eq, Deserialize)]
@@ -101,14 +98,17 @@ pub struct ResourceBoundsMapping {
 #[serde(tag = "version")]
 pub enum InvokeTx {
     #[serde(rename = "0x0")]
-    V0(RpcInvokeTxV0),
+    V0(InvokeTxV0),
 
     #[serde(rename = "0x1")]
-    V1(RpcInvokeTxV1),
+    V1(InvokeTxV1),
 
     #[serde(rename = "0x3")]
     V3(InvokeTxV3),
 }
+
+pub type InvokeTxV0 = katana_rpc_types::RpcInvokeTxV0;
+pub type InvokeTxV1 = katana_rpc_types::RpcInvokeTxV1;
 
 #[derive(Debug, PartialEq, Eq, Deserialize)]
 pub struct InvokeTxV3 {
@@ -129,17 +129,21 @@ pub struct InvokeTxV3 {
 #[serde(tag = "version")]
 pub enum DeclareTx {
     #[serde(rename = "0x0")]
-    V0(RpcDeclareTxV0),
+    V0(DeclareTxV0),
 
     #[serde(rename = "0x1")]
-    V1(RpcDeclareTxV1),
+    V1(DeclareTxV1),
 
     #[serde(rename = "0x2")]
-    V2(RpcDeclareTxV2),
+    V2(DeclareTxV2),
 
     #[serde(rename = "0x3")]
     V3(DeclareTxV3),
 }
+
+pub type DeclareTxV0 = katana_rpc_types::RpcDeclareTxV0;
+pub type DeclareTxV1 = katana_rpc_types::RpcDeclareTxV1;
+pub type DeclareTxV2 = katana_rpc_types::RpcDeclareTxV2;
 
 #[derive(Debug, PartialEq, Eq, Deserialize)]
 pub struct DeclareTxV3 {
@@ -212,7 +216,7 @@ pub struct L1HandlerTx {
 }
 
 /// Deploy transaction - legacy transaction type
-pub type DeployTx = PrimitiveDeployTx;
+pub type DeployTx = katana_primitives::transaction::DeployTx;
 
 #[derive(Debug, thiserror::Error)]
 pub enum TxTryFromError {
