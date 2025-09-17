@@ -4,7 +4,7 @@ use katana_feeder_gateway::types::{
     ConfirmedReceipt, DeclaredContract, DeployedContract, ExecutionStatus, StateDiff, StorageDiff,
 };
 use katana_primitives::execution::BuiltinName;
-use katana_primitives::{address, felt, ContractAddress};
+use katana_primitives::{address, eth_address, felt, ContractAddress};
 use serde_json::json;
 
 #[test]
@@ -145,6 +145,19 @@ fn receipt_serde_succeeded() {
             }
           },
           "execution_status": "SUCCEEDED",
+          "l1_to_l2_consumed_message": {
+            "from_address": "0xF6080D9fbEEbcd44D89aFfBFd42F098cbFf92816",
+            "nonce": "0x19983e",
+            "payload": [
+              "0xa0b86991c6218b36c1d19d4a2e9eb0ce3606eb48",
+              "0x91fb1ab0d8d4c6c02e53d488f4c15a3717f3fec0",
+              "0x58d59dc23df1146b92c929d387ec3bdba7b499ab1d164af9b688d2cbade4801",
+              "0x4a817c800",
+              "0x0"
+            ],
+            "selector": "0x1b64b1b3b690b43b9b514fb81377518f4039cd3e4f4914d8a6bdf01d679fb19",
+            "to_address": "0x5cd48fccbfd8aa2773fe22c217e808319ffcc1c5a6a463f7d8fa2da48218196"
+          },
           "l2_to_l1_messages": [
             {
               "from_address": "0x5cd48fccbfd8aa2773fe22c217e808319ffcc1c5a6a463f7d8fa2da48218196",
@@ -201,7 +214,28 @@ fn receipt_serde_succeeded() {
 
     // messages
 
-    assert_eq!(receipt.l1_to_l2_consumed_message, None);
+    let l1_msg = receipt.l1_to_l2_consumed_message.expect("`l1_to_l2_consumed_message` missing");
+    assert_eq!(l1_msg.from_address, eth_address!("0xF6080D9fbEEbcd44D89aFfBFd42F098cbFf92816"));
+    assert_eq!(l1_msg.nonce, Some(felt!("0x19983e")));
+    similar_asserts::assert_eq!(
+        l1_msg.payload,
+        vec![
+            felt!("0xa0b86991c6218b36c1d19d4a2e9eb0ce3606eb48"),
+            felt!("0x91fb1ab0d8d4c6c02e53d488f4c15a3717f3fec0"),
+            felt!("0x58d59dc23df1146b92c929d387ec3bdba7b499ab1d164af9b688d2cbade4801"),
+            felt!("0x4a817c800"),
+            felt!("0x0"),
+        ]
+    );
+    assert_eq!(
+        l1_msg.selector,
+        felt!("0x1b64b1b3b690b43b9b514fb81377518f4039cd3e4f4914d8a6bdf01d679fb19")
+    );
+    assert_eq!(
+        l1_msg.to_address,
+        address!("0x5cd48fccbfd8aa2773fe22c217e808319ffcc1c5a6a463f7d8fa2da48218196")
+    );
+
     assert_eq!(receipt.l2_to_l1_messages.len(), 1);
 
     let l2_msg1 = &receipt.l2_to_l1_messages[0];
