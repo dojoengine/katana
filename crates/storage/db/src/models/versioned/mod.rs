@@ -1,5 +1,5 @@
 #[macro_use]
-pub mod macros;
+mod macros;
 
 pub mod block;
 pub mod transaction;

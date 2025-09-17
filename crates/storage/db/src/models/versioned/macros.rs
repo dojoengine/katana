@@ -27,7 +27,6 @@
 ///     }
 /// }
 /// ```
-#[macro_export]
 macro_rules! versioned_type {
     (
         $enum_name:ident {
@@ -139,48 +138,3 @@ macro_rules! versioned_type {
             [$current_version => $current_type $(, $processed_version => $processed_type)*]);
     };
 }
-
-/// Helper macro to define version-specific type modules with minimal boilerplate.
-/// This macro helps create version modules that only define the differences from the current types.
-///
-/// # Example
-///
-/// ```rust
-/// define_version_module! {
-///     mod v8 {
-///         // Import the types we need to redefine
-///         use katana_primitives::{Felt, fee::ResourceBounds};
-///
-///         // Only define the types that changed in this version
-///         #[derive(Debug, Clone, serde::Serialize, serde::Deserialize)]
-///         pub struct ResourceBoundsMapping {
-///             pub l1_gas: ResourceBounds,
-///             pub l2_gas: ResourceBounds,
-///             pub l3_gas: ResourceBounds, // New field in V8
-///         }
-///
-///         // Provide conversion to the current type
-///         impl From<ResourceBoundsMapping> for katana_primitives::fee::ResourceBoundsMapping {
-///             fn from(v8: ResourceBoundsMapping) -> Self {
-///                 // Handle the conversion, e.g., ignoring l3_gas for now
-///                 Self::All(v8.l1_gas, v8.l2_gas)
-///             }
-///         }
-///     }
-/// }
-/// ```
-#[macro_export]
-macro_rules! define_version_module {
-    (
-        mod $mod_name:ident {
-            $($content:tt)*
-        }
-    ) => {
-        pub mod $mod_name {
-            $($content)*
-        }
-    };
-}
-
-// Re-export for convenience
-pub use {define_version_module, versioned_type};

@@ -1,10 +1,7 @@
 use katana_primitives::transaction::Tx;
 
-use crate::versioned_type;
-
 mod v6;
 
-// Use the macro to generate the versioned enum and all implementations
 versioned_type! {
     VersionedTx {
         V6 => v6::Tx,

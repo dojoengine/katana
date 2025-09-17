@@ -1,10 +1,7 @@
 use katana_primitives::block::Header;
 
-use crate::versioned_type;
-
 mod v6;
 
-// Use the macro to generate the versioned enum and all implementations
 versioned_type! {
     VersionedHeader {
         V6 => v6::Header,
@@ -12,7 +9,6 @@ versioned_type! {
     }
 }
 
-// Manually implement Default for VersionedHeader since Header has Default
 impl Default for VersionedHeader {
     fn default() -> Self {
         Self::V7(Default::default())
