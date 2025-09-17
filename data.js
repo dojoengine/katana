@@ -1,5 +1,5 @@
 window.BENCHMARK_DATA = {
-  "lastUpdate": 1758049164532,
+  "lastUpdate": 1758142515394,
   "repoUrl": "https://github.com/dojoengine/katana",
   "entries": {
     "Benchmark": [
@@ -5291,6 +5291,66 @@ window.BENCHMARK_DATA = {
             "name": "Invoke.ERC20.transfer/Blockifier.Cold",
             "value": 16360136,
             "range": "± 61249",
+            "unit": "ns/iter"
+          }
+        ]
+      },
+      {
+        "commit": {
+          "author": {
+            "email": "evergreenkary@gmail.com",
+            "name": "Ammar Arif",
+            "username": "kariy"
+          },
+          "committer": {
+            "email": "noreply@github.com",
+            "name": "GitHub",
+            "username": "web-flow"
+          },
+          "distinct": true,
+          "id": "68de11eb40807400326ba7830c2d87454dda9117",
+          "message": "refactor(feeder-gateway): clean up types + 0.14.0 support (#272)\n\nThis is primarily to update the feeder gateway objects to ensure it is compatible with the recent feeder API [upgrade] of Starknet 0.14.0 and to do some clean up to prevent redundant definitions whenever possible as most of them have similar network format as the RPC types.\n\nThe 0.14.0 upgrade also introduces a new endpoint to the feeder gateway, `get_preconfirmed_block`, but I didn't manage to have it working (keep getting not found and bad request errors on both mainnet and sepolia). But, we're not using method anywhere yet so I don't include it in this commit.\n\n[upgrade]:\nhttps://community.starknet.io/t/sn-0-14-0-pre-release-notes/115618#p-2359352-feeder-api-15",
+          "timestamp": "2025-09-18T04:46:33+08:00",
+          "tree_id": "80b92adf026ee859cb9ade045d02a83311e3f2b5",
+          "url": "https://github.com/dojoengine/katana/commit/68de11eb40807400326ba7830c2d87454dda9117"
+        },
+        "date": 1758142514216,
+        "tool": "cargo",
+        "benches": [
+          {
+            "name": "Commit.Small/Parallel",
+            "value": 424319,
+            "range": "± 9908",
+            "unit": "ns/iter"
+          },
+          {
+            "name": "Commit.Big/Serial",
+            "value": 94453467,
+            "range": "± 648659",
+            "unit": "ns/iter"
+          },
+          {
+            "name": "Commit.Big/Parallel",
+            "value": 65553759,
+            "range": "± 1707829",
+            "unit": "ns/iter"
+          },
+          {
+            "name": "compress world contract",
+            "value": 2749447,
+            "range": "± 6568",
+            "unit": "ns/iter"
+          },
+          {
+            "name": "decompress world contract",
+            "value": 3032493,
+            "range": "± 30808",
+            "unit": "ns/iter"
+          },
+          {
+            "name": "Invoke.ERC20.transfer/Blockifier.Cold",
+            "value": 16393992,
+            "range": "± 157001",
             "unit": "ns/iter"
           }
         ]
