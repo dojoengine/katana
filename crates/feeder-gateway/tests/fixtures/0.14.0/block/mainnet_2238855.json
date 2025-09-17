@@ -22,7 +22,7 @@
   "state_diff_commitment": "0x6ebbd6b11f5e6da4efa9f28fee99c21750892676d577e387f2766b25de5de2f",
   "state_diff_length": 118,
   "state_root": "0x46f299d5e62fca6110bc0801d3f8f6f60f3808652f5b6a924e122ce9f6ef040",
-  "status": "ACCEPTED_ON_L2",
+  "status": "ACCEPTED_ON_L1",
   "timestamp": 1758081973,
   "transaction_commitment": "0x7f0fa3a6e65a3dbab7bded73e7f25fd6c9102bcba71cc5d4cc9bf962d9eac8",
   "transaction_receipts": [

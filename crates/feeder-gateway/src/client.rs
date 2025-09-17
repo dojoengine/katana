@@ -1,7 +1,9 @@
+use std::str::FromStr;
+
 use katana_primitives::class::CasmContractClass;
 use katana_primitives::Felt;
-use reqwest::header::{HeaderMap, HeaderValue};
-use reqwest::{Client, StatusCode};
+use reqwest::header::{HeaderMap, HeaderName, HeaderValue};
+use reqwest::{Client, Method, Request, StatusCode};
 use serde::de::DeserializeOwned;
 use serde::{Deserialize, Serialize};
 use tracing::error;
@@ -17,8 +19,6 @@ const X_THROTTLING_BYPASS: &str = "X-Throttling-Bypass";
 pub struct SequencerGateway {
     /// The feeder gateway base URL.
     base_url: Url,
-    /// The HTTP client used to send the requests.
-    http_client: Client,
     /// The API key used to bypass the rate limiting of the feeder gateway.
     api_key: Option<String>,
 }
@@ -40,9 +40,7 @@ impl SequencerGateway {
 
     /// Creates a new gateway client at the given base URL.
     pub fn new(base_url: Url) -> Self {
-        let api_key = None;
-        let client = Client::new();
-        Self { http_client: client, base_url, api_key }
+        Self { base_url, api_key: None }
     }
 
     /// Sets the API key.
@@ -110,7 +108,7 @@ impl SequencerGateway {
     ///     .send()
     ///     .await?;
     /// ```
-    pub fn feeder_gateway(&self, endpoint: &str) -> RequestBuilder<'_> {
+    fn feeder_gateway(&self, endpoint: &str) -> RequestBuilder<'_> {
         let mut url = self.base_url.clone();
         url.path_segments_mut().expect("invalid base url").extend(["feeder_gateway", endpoint]);
         RequestBuilder::new(self, url)
@@ -202,7 +200,7 @@ pub enum ErrorCode {
 }
 
 #[derive(Debug, Clone)]
-pub struct RequestBuilder<'a> {
+struct RequestBuilder<'a> {
     gateway_client: &'a SequencerGateway,
     block_id: Option<BlockId>,
     url: Url,
@@ -213,7 +211,7 @@ impl<'a> RequestBuilder<'a> {
         Self { gateway_client, block_id: None, url }
     }
 
-    pub fn block_id(mut self, block_id: BlockId) -> Self {
+    fn block_id(mut self, block_id: BlockId) -> Self {
         self.block_id = Some(block_id);
         self
     }
@@ -226,14 +224,28 @@ impl<'a> RequestBuilder<'a> {
 }
 
 impl RequestBuilder<'_> {
-    pub async fn send<T: DeserializeOwned>(mut self) -> Result<T, Error> {
-        if let Some(block_id) = self.block_id {
-            match block_id {
+    /// Send the request.
+    async fn send<T: DeserializeOwned>(self) -> Result<T, Error> {
+        let request = self.build()?;
+        let response = Client::new().execute(request).await?.error_for_status()?;
+
+        match response.json::<Response<T>>().await? {
+            Response::Data(data) => Ok(data),
+            Response::Error(error) => Err(Error::Sequencer(error)),
+        }
+    }
+
+    /// Build the request.
+    fn build(self) -> Result<Request, Error> {
+        let mut url = self.url;
+
+        if let Some(id) = self.block_id {
+            match id {
                 BlockId::Hash(hash) => {
-                    self.url.query_pairs_mut().append_pair("blockHash", &format!("{hash:#x}"));
+                    url.query_pairs_mut().append_pair("blockHash", &format!("{hash:#x}"));
                 }
                 BlockId::Number(num) => {
-                    self.url.query_pairs_mut().append_pair("blockNumber", &num.to_string());
+                    url.query_pairs_mut().append_pair("blockNumber", &num.to_string());
                 }
                 BlockId::Latest => {
                     // latest block is implied, if no block id is specified
@@ -241,21 +253,17 @@ impl RequestBuilder<'_> {
             }
         }
 
-        let mut headers = HeaderMap::new();
+        let mut request = Request::new(Method::GET, url);
 
-        if let Some(key) = self.gateway_client.api_key.as_ref() {
-            let value = HeaderValue::from_str(key)
-                .map_err(|_| Error::InvalidHeaderValue { value: key.to_string() })?;
-            headers.insert(X_THROTTLING_BYPASS, value);
+        if let Some(value) = self.gateway_client.api_key.as_ref() {
+            let key = HeaderName::from_str(X_THROTTLING_BYPASS).expect("valid header name");
+            let value = HeaderValue::from_str(value)
+                .map_err(|_| Error::InvalidHeaderValue { value: value.to_string() })?;
+
+            *request.headers_mut() = HeaderMap::from_iter([(key, value)]);
         }
 
-        let request = self.gateway_client.http_client.get(self.url).headers(headers);
-        let response = request.send().await?.error_for_status()?;
-
-        match response.json::<Response<T>>().await? {
-            Response::Data(data) => Ok(data),
-            Response::Error(error) => Err(Error::Sequencer(error)),
-        }
+        Ok(request)
     }
 }
 
@@ -265,23 +273,25 @@ mod tests {
     use super::*;
 
     #[test]
-    #[ignore]
     fn request_block_id() {
         let base_url = Url::parse("https://example.com/").unwrap();
         let client = SequencerGateway::new(base_url);
-        let req = client.feeder_gateway("test");
+        let builder = client.feeder_gateway("test");
 
         // Test block hash
         let hash = Felt::from(123);
-        let hash_url = req.clone().block_id(BlockId::Hash(hash)).url;
+        let req = builder.clone().block_id(BlockId::Hash(hash)).build().unwrap();
+        let hash_url = req.url();
         assert_eq!(hash_url.query(), Some("blockHash=0x7b"));
 
         // Test block number
-        let num_url = req.clone().block_id(BlockId::Number(42)).url;
+        let req = builder.clone().block_id(BlockId::Number(42)).build().unwrap();
+        let num_url = req.url();
         assert_eq!(num_url.query(), Some("blockNumber=42"));
 
         // Test latest block (should have no query params)
-        let latest_url = req.block_id(BlockId::Latest).url;
+        let req = builder.clone().block_id(BlockId::Latest).build().unwrap();
+        let latest_url = req.url();
         assert_eq!(latest_url.query(), None);
     }
 
@@ -301,5 +311,27 @@ mod tests {
         assert!(query.contains("param1=value1"));
         assert!(query.contains("param2=value2"));
         assert!(query.contains("param3=value3"));
+    }
+
+    #[test]
+    fn api_key_header() {
+        let url = Url::parse("https://example.com/").unwrap();
+
+        // Test with API key set
+        let api_key = "test-api-key-12345";
+        let client_with_key = SequencerGateway::new(url.clone()).with_api_key(api_key.to_string());
+        let req = client_with_key.feeder_gateway("test").build().unwrap();
+
+        // Check that the X-Throttling-Bypass header is set with the correct API key
+        let headers = req.headers();
+        assert_eq!(headers.get(X_THROTTLING_BYPASS).unwrap().to_str().unwrap(), api_key);
+
+        // Test without API key
+        let client_without_key = SequencerGateway::new(url);
+        let req = client_without_key.feeder_gateway("test").build().unwrap();
+
+        // Check that the X-Throttling-Bypass header is not present
+        let headers = req.headers();
+        assert!(headers.get(X_THROTTLING_BYPASS).is_none());
     }
 }
