@@ -233,7 +233,7 @@ fn rpc_to_primitives_invoke_v1() {
         transaction: RpcTx::Invoke(RpcInvokeTx::V1(RpcInvokeTxV1 {
             sender_address: address!("0x456"),
             calldata: vec![felt!("0xa"), felt!("0xb")],
-            max_fee: felt!("0x1000"),
+            max_fee: 0x1000,
             signature: vec![felt!("0x111"), felt!("0x222")],
             nonce: felt!("0x10"),
         })),
@@ -261,7 +261,7 @@ fn rpc_to_primitives_invoke_v0() {
     let rpc_tx = RpcTxWithHash {
         transaction_hash: felt!("0xdef456"),
         transaction: RpcTx::Invoke(RpcInvokeTx::V0(RpcInvokeTxV0 {
-            max_fee: felt!("0x2000"),
+            max_fee: 0x2000,
             signature: vec![felt!("0x333")],
             contract_address: address!("0x789"),
             entry_point_selector: felt!("0xaaa"),
@@ -348,7 +348,7 @@ fn rpc_to_primitives_declare_v2() {
         transaction: RpcTx::Declare(RpcDeclareTx::V2(RpcDeclareTxV2 {
             sender_address: address!("0xdef"),
             compiled_class_hash: felt!("0x888999"),
-            max_fee: felt!("0x3000"),
+            max_fee: 0x3000,
             signature: vec![felt!("0x666")],
             nonce: felt!("0x30"),
             class_hash: felt!("0xaaabbb"),
@@ -379,7 +379,7 @@ fn rpc_to_primitives_declare_v1() {
         transaction_hash: felt!("0x555444"),
         transaction: RpcTx::Declare(RpcDeclareTx::V1(RpcDeclareTxV1 {
             sender_address: address!("0x123abc"),
-            max_fee: felt!("0x4000"),
+            max_fee: 0x4000,
             signature: vec![felt!("0x777"), felt!("0x888")],
             nonce: felt!("0x40"),
             class_hash: felt!("0xcccddd"),
@@ -409,7 +409,7 @@ fn rpc_to_primitives_declare_v0() {
         transaction_hash: felt!("0x333222"),
         transaction: RpcTx::Declare(RpcDeclareTx::V0(RpcDeclareTxV0 {
             sender_address: address!("0x456def"),
-            max_fee: felt!("0x5000"),
+            max_fee: 0x5000,
             signature: vec![felt!("0x999")],
             class_hash: felt!("0xeeefff"),
         })),
@@ -489,7 +489,7 @@ fn rpc_to_primitives_deploy_account_v1() {
     let rpc_tx = RpcTxWithHash {
         transaction_hash: felt!("0x444555666"),
         transaction: RpcTx::DeployAccount(RpcDeployAccountTx::V1(RpcDeployAccountTxV1 {
-            max_fee: felt!("0x6000"),
+            max_fee: 0x6000,
             signature: vec![felt!("0x111222")],
             nonce: felt!("0x60"),
             contract_address_salt: felt!("0x333444"),

@@ -15,6 +15,7 @@ use fixtures::{gateway, test_data};
 #[case::v0_10_0(6500, test_data("0.10.0/block/mainnet_6500.json"))]
 #[case::v0_11_1(65000, test_data("0.11.1/block/mainnet_65000.json"))]
 #[case::v0_13_0(550000, test_data("0.13.0/block/mainnet_550000.json"))]
+#[case::v0_14_0(2238855, test_data("0.14.0/block/mainnet_2238855.json"))]
 #[tokio::test]
 async fn get_block(
     gateway: SequencerGateway,

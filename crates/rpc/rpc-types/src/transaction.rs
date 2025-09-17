@@ -86,7 +86,9 @@ pub enum RpcInvokeTx {
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub struct RpcInvokeTxV0 {
     /// The maximal fee that can be charged for including the transaction
-    pub max_fee: Felt,
+    #[serde(serialize_with = "serde_utils::serialize_as_hex")]
+    #[serde(deserialize_with = "serde_utils::deserialize_u128")]
+    pub max_fee: u128,
     /// Signature
     pub signature: Vec<Felt>,
     /// Contract address
@@ -105,7 +107,9 @@ pub struct RpcInvokeTxV1 {
     /// called contract address and a function selector)
     pub calldata: Vec<Felt>,
     /// The maximal fee that can be charged for including the transaction
-    pub max_fee: Felt,
+    #[serde(serialize_with = "serde_utils::serialize_as_hex")]
+    #[serde(deserialize_with = "serde_utils::deserialize_u128")]
+    pub max_fee: u128,
     /// Signature
     pub signature: Vec<Felt>,
     /// Nonce
@@ -181,7 +185,9 @@ pub struct RpcDeclareTxV0 {
     /// The address of the account contract sending the declaration transaction
     pub sender_address: ContractAddress,
     /// The maximal fee that can be charged for including the transaction
-    pub max_fee: Felt,
+    #[serde(serialize_with = "serde_utils::serialize_as_hex")]
+    #[serde(deserialize_with = "serde_utils::deserialize_u128")]
+    pub max_fee: u128,
     /// Signature
     pub signature: Vec<Felt>,
     /// The hash of the declared class
@@ -193,7 +199,9 @@ pub struct RpcDeclareTxV1 {
     /// The address of the account contract sending the declaration transaction
     pub sender_address: ContractAddress,
     /// The maximal fee that can be charged for including the transaction
-    pub max_fee: Felt,
+    #[serde(serialize_with = "serde_utils::serialize_as_hex")]
+    #[serde(deserialize_with = "serde_utils::deserialize_u128")]
+    pub max_fee: u128,
     /// Signature
     pub signature: Vec<Felt>,
     /// Nonce
@@ -209,7 +217,9 @@ pub struct RpcDeclareTxV2 {
     /// The hash of the cairo assembly resulting from the sierra compilation
     pub compiled_class_hash: ClassHash,
     /// The maximal fee that can be charged for including the transaction
-    pub max_fee: Felt,
+    #[serde(serialize_with = "serde_utils::serialize_as_hex")]
+    #[serde(deserialize_with = "serde_utils::deserialize_u128")]
+    pub max_fee: u128,
     /// Signature
     pub signature: Vec<Felt>,
     /// Nonce
@@ -271,7 +281,9 @@ pub enum RpcDeployAccountTx {
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub struct RpcDeployAccountTxV1 {
     /// The maximal fee that can be charged for including the transaction
-    pub max_fee: Felt,
+    #[serde(serialize_with = "serde_utils::serialize_as_hex")]
+    #[serde(deserialize_with = "serde_utils::deserialize_u128")]
+    pub max_fee: u128,
     /// Signature
     pub signature: Vec<Felt>,
     /// Nonce
@@ -323,7 +335,7 @@ impl From<primitives::Tx> for RpcTx {
                 primitives::InvokeTx::V0(tx) => RpcTx::Invoke(RpcInvokeTx::V0(RpcInvokeTxV0 {
                     calldata: tx.calldata,
                     signature: tx.signature,
-                    max_fee: tx.max_fee.into(),
+                    max_fee: tx.max_fee,
                     contract_address: tx.contract_address,
                     entry_point_selector: tx.entry_point_selector,
                 })),
@@ -332,7 +344,7 @@ impl From<primitives::Tx> for RpcTx {
                     nonce: tx.nonce,
                     calldata: tx.calldata,
                     signature: tx.signature,
-                    max_fee: tx.max_fee.into(),
+                    max_fee: tx.max_fee,
                     sender_address: tx.sender_address,
                 })),
 
@@ -354,7 +366,7 @@ impl From<primitives::Tx> for RpcTx {
                 primitives::DeclareTx::V0(tx) => RpcDeclareTx::V0(RpcDeclareTxV0 {
                     signature: tx.signature,
                     class_hash: tx.class_hash,
-                    max_fee: tx.max_fee.into(),
+                    max_fee: tx.max_fee,
                     sender_address: tx.sender_address,
                 }),
 
@@ -362,7 +374,7 @@ impl From<primitives::Tx> for RpcTx {
                     nonce: tx.nonce,
                     signature: tx.signature,
                     class_hash: tx.class_hash,
-                    max_fee: tx.max_fee.into(),
+                    max_fee: tx.max_fee,
                     sender_address: tx.sender_address,
                 }),
 
@@ -370,7 +382,7 @@ impl From<primitives::Tx> for RpcTx {
                     nonce: tx.nonce,
                     signature: tx.signature,
                     class_hash: tx.class_hash,
-                    max_fee: tx.max_fee.into(),
+                    max_fee: tx.max_fee,
                     sender_address: tx.sender_address,
                     compiled_class_hash: tx.compiled_class_hash,
                 }),
@@ -404,7 +416,7 @@ impl From<primitives::Tx> for RpcTx {
                         nonce: tx.nonce,
                         signature: tx.signature,
                         class_hash: tx.class_hash,
-                        max_fee: tx.max_fee.into(),
+                        max_fee: tx.max_fee,
                         constructor_calldata: tx.constructor_calldata,
                         contract_address_salt: tx.contract_address_salt,
                     })
@@ -537,7 +549,7 @@ impl From<RpcTx> for primitives::Tx {
                     entry_point_selector: tx.entry_point_selector,
                     calldata: tx.calldata,
                     signature: tx.signature,
-                    max_fee: tx.max_fee.try_into().expect("max_fee overflow"),
+                    max_fee: tx.max_fee,
                 }),
 
                 RpcInvokeTx::V1(tx) => primitives::InvokeTx::V1(primitives::InvokeTxV1 {
@@ -546,7 +558,7 @@ impl From<RpcTx> for primitives::Tx {
                     nonce: tx.nonce,
                     calldata: tx.calldata,
                     signature: tx.signature,
-                    max_fee: tx.max_fee.try_into().expect("max_fee overflow"),
+                    max_fee: tx.max_fee,
                 }),
 
                 RpcInvokeTx::V3(tx) => primitives::InvokeTx::V3(primitives::InvokeTxV3 {
@@ -570,7 +582,7 @@ impl From<RpcTx> for primitives::Tx {
                     sender_address: tx.sender_address,
                     signature: tx.signature,
                     class_hash: tx.class_hash,
-                    max_fee: tx.max_fee.try_into().expect("max_fee overflow"),
+                    max_fee: tx.max_fee,
                 }),
 
                 RpcDeclareTx::V1(tx) => primitives::DeclareTx::V1(primitives::DeclareTxV1 {
@@ -579,7 +591,7 @@ impl From<RpcTx> for primitives::Tx {
                     nonce: tx.nonce,
                     signature: tx.signature,
                     class_hash: tx.class_hash,
-                    max_fee: tx.max_fee.try_into().expect("max_fee overflow"),
+                    max_fee: tx.max_fee,
                 }),
 
                 RpcDeclareTx::V2(tx) => primitives::DeclareTx::V2(primitives::DeclareTxV2 {
@@ -589,7 +601,7 @@ impl From<RpcTx> for primitives::Tx {
                     signature: tx.signature,
                     class_hash: tx.class_hash,
                     compiled_class_hash: tx.compiled_class_hash,
-                    max_fee: tx.max_fee.try_into().expect("max_fee overflow"),
+                    max_fee: tx.max_fee,
                 }),
 
                 RpcDeclareTx::V3(tx) => primitives::DeclareTx::V3(primitives::DeclareTxV3 {
@@ -629,7 +641,7 @@ impl From<RpcTx> for primitives::Tx {
                         contract_address: Default::default(),
                         contract_address_salt: tx.contract_address_salt,
                         constructor_calldata: tx.constructor_calldata,
-                        max_fee: tx.max_fee.try_into().expect("max_fee overflow"),
+                        max_fee: tx.max_fee,
                     })
                 }
 
