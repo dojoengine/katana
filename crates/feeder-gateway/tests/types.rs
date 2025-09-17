@@ -97,24 +97,28 @@ fn state_diff_empty_conversion() {
 #[test]
 fn receipt_serde_succeeded() {
     let json = json!({
-          "actual_fee": "0x25756bce009ac0",
+          "actual_fee": "0x220c76e10ea291c8",
           "events": [
             {
-              "data": ["0x1", "0x0"],
-              "from_address": "0x1f51ffc7121aea2093fb95a5995b072b72c89172fbd82acf62498f388e3bde7",
+              "data": [
+                "0x7c730bd4054155d6f6d19db15b24bbf76087f77814a66f80a43ab2b09173b25",
+                "0x51ba9be967d17aaafac92f9bc7ca4b035dfd3c4a97b32be1773f63e27b0526a",
+                "0x5f012ad4535e8000",
+                "0x0"
+              ],
+              "from_address": "0x4718f5a0fc34cc1af16a1cdee98ffb20c31f5cd61d6ab07201858f4287c938d",
               "keys": [
-                "0x1dcde06aabdbca2f80aa51392b345d7549d7757aa855f7e37f5d335ac8243b1",
-                "0x5f505603ff517ab44cd17b531be418a8f29930fbb5877144afc6a090696564b"
+                "0x99cd8bde557814842a3121e8ddfd433a539b8c9f14bf31ebf108d12e6196e9"
               ]
             },
             {
               "data": [
-                "0x438761135b0d7a930694309d61c7e659789921c96434e5b78253af2c5b5b2b5",
-                "0x1176a1bd84444c89232ec27754698e5d2e7e1a7f1539f12027f28b23ec9f3d8",
-                "0x25756bce009ac0",
+                "0x7c730bd4054155d6f6d19db15b24bbf76087f77814a66f80a43ab2b09173b25",
+                "0x0",
+                "0xe60e960",
                 "0x0"
               ],
-              "from_address": "0x4718f5a0fc34cc1af16a1cdee98ffb20c31f5cd61d6ab07201858f4287c938d",
+              "from_address": "0x53c91253bc9682c04929ca02ed00b3e423f6710d2ee7e0d5ebb06f3ecf368a8",
               "keys": [
                 "0x99cd8bde557814842a3121e8ddfd433a539b8c9f14bf31ebf108d12e6196e9"
               ]
@@ -122,29 +126,40 @@ fn receipt_serde_succeeded() {
           ],
           "execution_resources": {
             "builtin_instance_counter": {
-              "bitwise_builtin": 1,
-              "ec_op_builtin": 6,
-              "pedersen_builtin": 30,
-              "poseidon_builtin": 112,
-              "range_check_builtin": 1031
+              "ec_op_builtin": 9,
+              "pedersen_builtin": 16,
+              "poseidon_builtin": 60,
+              "range_check_builtin": 908
             },
             "data_availability": {
-              "l1_data_gas": 384,
+              "l1_data_gas": 576,
               "l1_gas": 0,
               "l2_gas": 0
             },
             "n_memory_holes": 0,
-            "n_steps": 26124,
+            "n_steps": 29184,
             "total_gas_consumed": {
-              "l1_data_gas": 384,
-              "l1_gas": 0,
-              "l2_gas": 3514560
+              "l1_data_gas": 608,
+              "l1_gas": 32284,
+              "l2_gas": 3574720
             }
           },
           "execution_status": "SUCCEEDED",
-          "l2_to_l1_messages": [],
-          "transaction_hash": "0x41c1b94456cb6c340ceaee425cc73a969bb5b5a55ec2406ffda14d7c5b0e1a9",
-          "transaction_index": 0
+          "l2_to_l1_messages": [
+            {
+              "from_address": "0x5cd48fccbfd8aa2773fe22c217e808319ffcc1c5a6a463f7d8fa2da48218196",
+              "payload": [
+                "0x0",
+                "0x6826be6819eee574b89b886289c454c4e9b73b6d",
+                "0xa0b86991c6218b36c1d19d4a2e9eb0ce3606eb48",
+                "0xe60e960",
+                "0x0"
+              ],
+              "to_address": "0xF6080D9fbEEbcd44D89aFfBFd42F098cbFf92816"
+            }
+          ],
+          "transaction_hash": "0x7d5b4a356efb2808d8b7ea83912d8e73fa8649ec34d2db6262a5b9a2826a20b",
+          "transaction_index": 51
         }
     );
 
@@ -153,93 +168,100 @@ fn receipt_serde_succeeded() {
     // Assert transaction_hash
     assert_eq!(
         receipt.transaction_hash,
-        felt!("0x41c1b94456cb6c340ceaee425cc73a969bb5b5a55ec2406ffda14d7c5b0e1a9")
+        felt!("0x7d5b4a356efb2808d8b7ea83912d8e73fa8649ec34d2db6262a5b9a2826a20b")
     );
 
-    assert_eq!(receipt.transaction_index, 0);
+    assert_eq!(receipt.transaction_index, 51);
     assert_eq!(receipt.execution_status, Some(ExecutionStatus::Succeeded));
-    assert_eq!(receipt.actual_fee, felt!("0x25756bce009ac0"));
+    assert_eq!(receipt.actual_fee, felt!("0x220c76e10ea291c8"));
     assert_eq!(receipt.revert_error, None);
 
     // execution_resources
-    assert!(receipt.execution_resources.is_some());
-    let exec_resources = receipt.execution_resources.unwrap();
 
-    // VM resources
-    use katana_primitives::execution::BuiltinName;
-    assert_eq!(
-        exec_resources.vm_resources.builtin_instance_counter.get(&BuiltinName::bitwise),
-        Some(&1)
-    );
-    assert_eq!(
-        exec_resources.vm_resources.builtin_instance_counter.get(&BuiltinName::ec_op),
-        Some(&6)
-    );
-    assert_eq!(
-        exec_resources.vm_resources.builtin_instance_counter.get(&BuiltinName::pedersen),
-        Some(&30)
-    );
-    assert_eq!(
-        exec_resources.vm_resources.builtin_instance_counter.get(&BuiltinName::poseidon),
-        Some(&112)
-    );
-    assert_eq!(
-        exec_resources.vm_resources.builtin_instance_counter.get(&BuiltinName::range_check),
-        Some(&1031)
-    );
-    assert_eq!(exec_resources.vm_resources.n_steps, 26124);
+    let exec_resources = receipt.execution_resources.expect("`execution_resources` missing");
+    let builtin_instance_counter = exec_resources.vm_resources.builtin_instance_counter;
+
+    assert_eq!(builtin_instance_counter.len(), 4);
+    assert_eq!(builtin_instance_counter.get(&BuiltinName::ec_op), Some(&9));
+    assert_eq!(builtin_instance_counter.get(&BuiltinName::pedersen), Some(&16));
+    assert_eq!(builtin_instance_counter.get(&BuiltinName::poseidon), Some(&60));
+    assert_eq!(builtin_instance_counter.get(&BuiltinName::range_check), Some(&908));
+
+    assert_eq!(exec_resources.vm_resources.n_steps, 29184);
     assert_eq!(exec_resources.vm_resources.n_memory_holes, 0);
 
-    // data availability resources
-    assert!(exec_resources.data_availability.is_some());
-    let da_resources = exec_resources.data_availability.unwrap();
-    assert_eq!(da_resources.l1_data_gas, 384);
+    let gas_consumed = exec_resources.total_gas_consumed.expect("`total_gas_consumed` missing");
+    assert_eq!(gas_consumed.l1_data_gas, 608);
+    assert_eq!(gas_consumed.l1_gas, 32284);
+    assert_eq!(gas_consumed.l2_gas, 3574720);
+
+    let da_resources = exec_resources.data_availability.expect("`data_availability` missing");
+    assert_eq!(da_resources.l1_data_gas, 576);
     assert_eq!(da_resources.l1_gas, 0);
 
-    // total gas consumed
-    assert!(exec_resources.total_gas_consumed.is_some());
-    let gas_consumed = exec_resources.total_gas_consumed.unwrap();
-    assert_eq!(gas_consumed.l1_data_gas, 384);
-    assert_eq!(gas_consumed.l1_gas, 0);
-    assert_eq!(gas_consumed.l2_gas, 3514560);
+    // messages
 
     assert_eq!(receipt.l1_to_l2_consumed_message, None);
-    assert_eq!(receipt.l2_to_l1_messages.len(), 0);
+    assert_eq!(receipt.l2_to_l1_messages.len(), 1);
+
+    let l2_msg1 = &receipt.l2_to_l1_messages[0];
+    assert_eq!(l2_msg1.to_address, felt!("0xF6080D9fbEEbcd44D89aFfBFd42F098cbFf92816"));
+    assert_eq!(
+        l2_msg1.from_address,
+        felt!("0x5cd48fccbfd8aa2773fe22c217e808319ffcc1c5a6a463f7d8fa2da48218196")
+    );
+    similar_asserts::assert_eq!(
+        l2_msg1.payload,
+        vec![
+            felt!("0x0"),
+            felt!("0x6826be6819eee574b89b886289c454c4e9b73b6d"),
+            felt!("0xa0b86991c6218b36c1d19d4a2e9eb0ce3606eb48"),
+            felt!("0xe60e960"),
+            felt!("0x0"),
+        ]
+    );
+
+    // events
+
     assert_eq!(receipt.events.len(), 2);
 
     // First event
     let event1 = &receipt.events[0];
     assert_eq!(
         event1.from_address,
-        address!("0x1f51ffc7121aea2093fb95a5995b072b72c89172fbd82acf62498f388e3bde7")
+        address!("0x4718f5a0fc34cc1af16a1cdee98ffb20c31f5cd61d6ab07201858f4287c938d")
     );
     similar_asserts::assert_eq!(
         event1.keys,
+        vec![felt!("0x99cd8bde557814842a3121e8ddfd433a539b8c9f14bf31ebf108d12e6196e9"),]
+    );
+    similar_asserts::assert_eq!(
+        event1.data,
         vec![
-            felt!("0x1dcde06aabdbca2f80aa51392b345d7549d7757aa855f7e37f5d335ac8243b1"),
-            felt!("0x5f505603ff517ab44cd17b531be418a8f29930fbb5877144afc6a090696564b")
+            felt!("0x7c730bd4054155d6f6d19db15b24bbf76087f77814a66f80a43ab2b09173b25"),
+            felt!("0x51ba9be967d17aaafac92f9bc7ca4b035dfd3c4a97b32be1773f63e27b0526a"),
+            felt!("0x5f012ad4535e8000"),
+            felt!("0x0"),
         ]
     );
-    similar_asserts::assert_eq!(event1.data, vec![felt!("0x1"), felt!("0x0")]);
 
     // Second event
     let event2 = &receipt.events[1];
     assert_eq!(
         event2.from_address,
-        address!("0x4718f5a0fc34cc1af16a1cdee98ffb20c31f5cd61d6ab07201858f4287c938d")
+        address!("0x53c91253bc9682c04929ca02ed00b3e423f6710d2ee7e0d5ebb06f3ecf368a8")
     );
     similar_asserts::assert_eq!(
         event2.keys,
         vec![felt!("0x99cd8bde557814842a3121e8ddfd433a539b8c9f14bf31ebf108d12e6196e9")]
     );
-
     similar_asserts::assert_eq!(
         event2.data,
         vec![
-            felt!("0x438761135b0d7a930694309d61c7e659789921c96434e5b78253af2c5b5b2b5"),
-            felt!("0x1176a1bd84444c89232ec27754698e5d2e7e1a7f1539f12027f28b23ec9f3d8"),
-            felt!("0x25756bce009ac0"),
-            felt!("0x0")
+            felt!("0x7c730bd4054155d6f6d19db15b24bbf76087f77814a66f80a43ab2b09173b25"),
+            felt!("0x0"),
+            felt!("0xe60e960"),
+            felt!("0x0"),
         ]
     );
 }
@@ -304,42 +326,35 @@ fn receipt_serde_reverted() {
         Some("Insufficient max L2Gas: max amount: 1152640, actual used: 1192640.".to_string())
     );
 
-    assert!(receipt.execution_resources.is_some());
-    let exec_resources = receipt.execution_resources.unwrap();
-    assert_eq!(
-        exec_resources.vm_resources.builtin_instance_counter.get(&BuiltinName::ecdsa),
-        Some(&1)
-    );
-    assert_eq!(
-        exec_resources.vm_resources.builtin_instance_counter.get(&BuiltinName::pedersen),
-        Some(&4)
-    );
-    assert_eq!(
-        exec_resources.vm_resources.builtin_instance_counter.get(&BuiltinName::poseidon),
-        Some(&20)
-    );
-    assert_eq!(
-        exec_resources.vm_resources.builtin_instance_counter.get(&BuiltinName::range_check),
-        Some(&185)
-    );
+    // execution_resources
+
+    let exec_resources = receipt.execution_resources.expect("`execution_resources` missing");
+    let builtin_instance_counter = exec_resources.vm_resources.builtin_instance_counter;
+
+    assert_eq!(builtin_instance_counter.get(&BuiltinName::ecdsa), Some(&1));
+    assert_eq!(builtin_instance_counter.get(&BuiltinName::pedersen), Some(&4));
+    assert_eq!(builtin_instance_counter.get(&BuiltinName::poseidon), Some(&20));
+    assert_eq!(builtin_instance_counter.get(&BuiltinName::range_check), Some(&185));
+
     assert_eq!(exec_resources.vm_resources.n_steps, 7149);
     assert_eq!(exec_resources.vm_resources.n_memory_holes, 0);
 
-    // data availability resources
-    assert!(exec_resources.data_availability.is_some());
-    let da_resources = exec_resources.data_availability.unwrap();
-    assert_eq!(da_resources.l1_data_gas, 128);
-    assert_eq!(da_resources.l1_gas, 0);
-
-    // total gas consumed
-    assert!(exec_resources.total_gas_consumed.is_some());
-    let gas_consumed = exec_resources.total_gas_consumed.unwrap();
+    let gas_consumed = exec_resources.total_gas_consumed.expect("`total_gas_consumed` missing");
     assert_eq!(gas_consumed.l1_data_gas, 128);
     assert_eq!(gas_consumed.l1_gas, 0);
     assert_eq!(gas_consumed.l2_gas, 776320);
 
+    let da_resources = exec_resources.data_availability.expect("`data_availability` missing");
+    assert_eq!(da_resources.l1_data_gas, 128);
+    assert_eq!(da_resources.l1_gas, 0);
+
+    // messages
+
     assert_eq!(receipt.l1_to_l2_consumed_message, None);
     assert_eq!(receipt.l2_to_l1_messages.len(), 0);
+
+    // events
+
     assert_eq!(receipt.events.len(), 1);
 
     // First event
