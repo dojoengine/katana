@@ -50,13 +50,13 @@ When the primitive types change in a breaking way:
    ```rust
    // crates/storage/db/src/models/versioned/transaction/v7.rs
    use serde::{Deserialize, Serialize};
-   
+
    #[derive(Debug, Clone, Serialize, Deserialize)]
    pub struct NewFieldType {
        pub new_field: u64,
        // ... other fields
    }
-   
+
    // Implement conversion to the current primitive type
    impl From<NewFieldType> for katana_primitives::NewFieldType {
        fn from(v7: NewFieldType) -> Self {
@@ -113,14 +113,14 @@ Here's a complete example of adding V8 when a field type changes:
 // crates/storage/db/src/models/versioned/transaction/v7.rs
 mod v7 {
     use serde::{Deserialize, Serialize};
-    
+
     // This is how ResourceBounds looked in V7
     #[derive(Debug, Clone, Serialize, Deserialize)]
     pub struct ResourceBounds {
         pub max_amount: u64,
         pub max_price: u64,
     }
-    
+
     // Conversion to the new format
     impl From<ResourceBounds> for katana_primitives::ResourceBounds {
         fn from(v7: ResourceBounds) -> Self {
@@ -143,31 +143,3 @@ versioned_type! {
 
 // 3. Update CURRENT_DB_VERSION to 8
 ```
-
-## Testing
-
-Always test version compatibility:
-
-```rust
-#[test]
-fn test_v7_to_v8_migration() {
-    // Create V7 data
-    let v7_tx = v7::Tx { /* ... */ };
-    let versioned = VersionedTx::V7(v7_tx);
-    
-    // Convert to latest
-    let v8_tx: Tx = versioned.into();
-    
-    // Verify conversion worked correctly
-    assert_eq!(v8_tx.field, expected_value);
-}
-```
-
-## Benefits
-
-This macro-based approach reduces version addition from hundreds of lines to just:
-1. One line in the versioned type declaration
-2. A module with only the types that changed
-3. Conversion implementations for those types
-
-The rest is handled automatically!
