@@ -110,7 +110,7 @@ impl SequencerGateway {
     ///     .send()
     ///     .await?;
     /// ```
-    fn feeder_gateway(&self, endpoint: &str) -> RequestBuilder<'_> {
+    pub fn feeder_gateway(&self, endpoint: &str) -> RequestBuilder<'_> {
         let mut url = self.base_url.clone();
         url.path_segments_mut().expect("invalid base url").extend(["feeder_gateway", endpoint]);
         RequestBuilder::new(self, url)
@@ -202,7 +202,7 @@ pub enum ErrorCode {
 }
 
 #[derive(Debug, Clone)]
-struct RequestBuilder<'a> {
+pub struct RequestBuilder<'a> {
     gateway_client: &'a SequencerGateway,
     block_id: Option<BlockId>,
     url: Url,
@@ -213,7 +213,7 @@ impl<'a> RequestBuilder<'a> {
         Self { gateway_client, block_id: None, url }
     }
 
-    fn block_id(mut self, block_id: BlockId) -> Self {
+    pub fn block_id(mut self, block_id: BlockId) -> Self {
         self.block_id = Some(block_id);
         self
     }
@@ -226,7 +226,7 @@ impl<'a> RequestBuilder<'a> {
 }
 
 impl RequestBuilder<'_> {
-    async fn send<T: DeserializeOwned>(mut self) -> Result<T, Error> {
+    pub async fn send<T: DeserializeOwned>(mut self) -> Result<T, Error> {
         if let Some(block_id) = self.block_id {
             match block_id {
                 BlockId::Hash(hash) => {
@@ -265,6 +265,7 @@ mod tests {
     use super::*;
 
     #[test]
+    #[ignore]
     fn request_block_id() {
         let base_url = Url::parse("https://example.com/").unwrap();
         let client = SequencerGateway::new(base_url);

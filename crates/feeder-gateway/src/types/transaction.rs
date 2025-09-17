@@ -12,6 +12,9 @@ use katana_primitives::transaction::{
     L1HandlerTx as PrimitiveL1HandlerTx, Tx, TxHash, TxType, TxWithHash,
 };
 use katana_primitives::{ContractAddress, Felt};
+use katana_rpc_types::{
+    RpcDeclareTxV0, RpcDeclareTxV1, RpcDeclareTxV2, RpcInvokeTxV0, RpcInvokeTxV1,
+};
 use serde::Deserialize;
 
 #[derive(Debug, PartialEq, Eq, Deserialize)]
@@ -40,6 +43,13 @@ pub enum TypedTransaction {
     DeployAccount(DeployAccountTx),
 }
 
+// This is one of the main reason why have to redundantly redefine some of the transaction types
+// instead of using the rpc variations. And the reason why don't just update the serde
+// implementation of `DataAvailabilityMode` in katana-primitives (1) to avoid breaking the database
+// format (though this is not that serious as we can implement a serde impl that works with both
+// formats), (2) bcs this type is also used in the rpc types and adding another serialization format
+// will mean that we can't guarantee rpc format invariant.
+//
 // We redundantly define the `DataAvailabilityMode` enum here because the serde implementation is
 // different from the one in the `katana_primitives` crate. And changing the serde implementation in
 // the `katana_primitives` crate would break the database format. So, we have to define the type
@@ -88,36 +98,16 @@ pub struct ResourceBoundsMapping {
 
 /// Invoke transaction enum with version-specific variants
 #[derive(Debug, PartialEq, Eq, Deserialize)]
-#[serde(untagged)]
+#[serde(tag = "version")]
 pub enum InvokeTx {
     #[serde(rename = "0x0")]
-    V0(InvokeTxV0),
+    V0(RpcInvokeTxV0),
 
     #[serde(rename = "0x1")]
-    V1(InvokeTxV1),
+    V1(RpcInvokeTxV1),
 
     #[serde(rename = "0x3")]
     V3(InvokeTxV3),
-}
-
-#[derive(Debug, PartialEq, Eq, Deserialize)]
-pub struct InvokeTxV0 {
-    pub contract_address: ContractAddress,
-    pub entry_point_selector: Felt,
-    pub calldata: Vec<Felt>,
-    pub signature: Vec<Felt>,
-    #[serde(deserialize_with = "serde_utils::deserialize_u128")]
-    pub max_fee: u128,
-}
-
-#[derive(Debug, PartialEq, Eq, Deserialize)]
-pub struct InvokeTxV1 {
-    pub sender_address: ContractAddress,
-    pub nonce: Nonce,
-    pub calldata: Vec<Felt>,
-    pub signature: Vec<Felt>,
-    #[serde(deserialize_with = "serde_utils::deserialize_u128")]
-    pub max_fee: u128,
 }
 
 #[derive(Debug, PartialEq, Eq, Deserialize)]
@@ -136,49 +126,19 @@ pub struct InvokeTxV3 {
 
 /// Declare transaction enum with version-specific variants
 #[derive(Debug, PartialEq, Eq, Deserialize)]
-#[serde(untagged)]
+#[serde(tag = "version")]
 pub enum DeclareTx {
     #[serde(rename = "0x0")]
-    V0(DeclareTxV0),
+    V0(RpcDeclareTxV0),
 
     #[serde(rename = "0x1")]
-    V1(DeclareTxV1),
+    V1(RpcDeclareTxV1),
 
     #[serde(rename = "0x2")]
-    V2(DeclareTxV2),
+    V2(RpcDeclareTxV2),
 
-    #[serde(rename = "0x2")]
+    #[serde(rename = "0x3")]
     V3(DeclareTxV3),
-}
-
-#[derive(Debug, PartialEq, Eq, Deserialize)]
-pub struct DeclareTxV0 {
-    pub sender_address: ContractAddress,
-    pub signature: Vec<Felt>,
-    pub class_hash: ClassHash,
-    #[serde(deserialize_with = "serde_utils::deserialize_u128")]
-    pub max_fee: u128,
-}
-
-#[derive(Debug, PartialEq, Eq, Deserialize)]
-pub struct DeclareTxV1 {
-    pub sender_address: ContractAddress,
-    pub nonce: Nonce,
-    pub signature: Vec<Felt>,
-    pub class_hash: ClassHash,
-    #[serde(deserialize_with = "serde_utils::deserialize_u128")]
-    pub max_fee: u128,
-}
-
-#[derive(Debug, PartialEq, Eq, Deserialize)]
-pub struct DeclareTxV2 {
-    pub sender_address: ContractAddress,
-    pub nonce: Nonce,
-    pub signature: Vec<Felt>,
-    pub class_hash: ClassHash,
-    pub compiled_class_hash: CompiledClassHash,
-    #[serde(deserialize_with = "serde_utils::deserialize_u128")]
-    pub max_fee: u128,
 }
 
 #[derive(Debug, PartialEq, Eq, Deserialize)]
@@ -198,7 +158,7 @@ pub struct DeclareTxV3 {
 
 /// Deploy account transaction enum with version-specific variants
 #[derive(Debug, PartialEq, Eq, Deserialize)]
-#[serde(untagged)]
+#[serde(tag = "version")]
 pub enum DeployAccountTx {
     #[serde(rename = "0x1")]
     V1(DeployAccountTxV1),
@@ -238,6 +198,8 @@ pub struct DeployAccountTxV3 {
 #[derive(Debug, PartialEq, Eq, Deserialize)]
 pub struct L1HandlerTx {
     /// The L1 to L2 message nonce.
+    // rpc and primitive doesn't use optinoal for this field. hence why we can't use rpc or
+    // primitives transaction types for l1 handler
     pub nonce: Option<Nonce>,
     /// Transaction version.
     pub version: Felt,

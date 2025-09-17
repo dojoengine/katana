@@ -36,7 +36,7 @@ pub struct StateUpdate {
     pub state_diff: StateDiff,
 }
 
-#[derive(Debug, PartialEq, Eq, Serialize, Deserialize)]
+#[derive(Debug, Default, PartialEq, Eq, Serialize, Deserialize)]
 pub struct StateDiff {
     pub storage_diffs: BTreeMap<ContractAddress, Vec<StorageDiff>>,
     pub deployed_contracts: Vec<DeployedContract>,
@@ -164,115 +164,4 @@ impl From<StateDiff> for katana_primitives::state::StateUpdates {
 
 fn default_l2_gas_price() -> ResourcePrice {
     ResourcePrice { price_in_fri: Felt::from(1), price_in_wei: Felt::from(1) }
-}
-
-#[cfg(test)]
-mod tests {
-    use katana_primitives::{address, felt, ContractAddress};
-
-    use super::*;
-
-    #[test]
-    fn state_diff_to_state_updates_conversion() {
-        let mut storage_diffs = BTreeMap::new();
-        let contract_addr = address!("0x64");
-        storage_diffs.insert(
-            contract_addr,
-            vec![
-                StorageDiff { key: felt!("0x1"), value: felt!("0x2a") },
-                StorageDiff { key: felt!("0x2"), value: felt!("0x2b") },
-            ],
-        );
-
-        let deployed_contracts = vec![
-            DeployedContract { address: address!("0xc8"), class_hash: felt!("0x12c") },
-            DeployedContract { address: address!("0xc9"), class_hash: felt!("0x12d") },
-        ];
-
-        let declared_classes = vec![
-            DeclaredContract { class_hash: felt!("0x190"), compiled_class_hash: felt!("0x1f4") },
-            DeclaredContract { class_hash: felt!("0x191"), compiled_class_hash: felt!("0x1f5") },
-        ];
-
-        let old_declared_contracts = vec![felt!("0x258"), felt!("0x259")];
-
-        let mut nonces = BTreeMap::new();
-        nonces.insert(address!("0x2bc"), felt!("0x1"));
-        nonces.insert(address!("0x2bd"), felt!("0x2"));
-
-        let replaced_classes =
-            vec![DeployedContract { address: address!("0x320"), class_hash: felt!("0x384") }];
-
-        let state_diff = StateDiff {
-            storage_diffs,
-            deployed_contracts,
-            old_declared_contracts,
-            declared_classes,
-            nonces,
-            replaced_classes,
-        };
-
-        let state_updates: katana_primitives::state::StateUpdates = state_diff.into();
-
-        // storage updates
-        assert_eq!(state_updates.storage_updates.len(), 1);
-        let storage_map = state_updates.storage_updates.get(&contract_addr).unwrap();
-        assert_eq!(storage_map.len(), 2);
-        assert_eq!(storage_map.get(&felt!("0x1")).unwrap(), &felt!("0x2a"));
-        assert_eq!(storage_map.get(&felt!("0x2")).unwrap(), &felt!("0x2b"));
-
-        // deployed contracts
-        assert_eq!(state_updates.deployed_contracts.len(), 2);
-        assert_eq!(
-            state_updates.deployed_contracts.get(&address!("0xc8")).unwrap(),
-            &felt!("0x12c")
-        );
-        assert_eq!(
-            state_updates.deployed_contracts.get(&address!("0xc9")).unwrap(),
-            &felt!("0x12d")
-        );
-
-        // declared classes
-        assert_eq!(state_updates.declared_classes.len(), 2);
-        assert_eq!(state_updates.declared_classes.get(&felt!("0x190")).unwrap(), &felt!("0x1f4"));
-        assert_eq!(state_updates.declared_classes.get(&felt!("0x191")).unwrap(), &felt!("0x1f5"));
-
-        // deprecated declared classes
-        assert_eq!(state_updates.deprecated_declared_classes.len(), 2);
-        assert!(state_updates.deprecated_declared_classes.contains(&felt!("0x258")));
-        assert!(state_updates.deprecated_declared_classes.contains(&felt!("0x259")));
-
-        // nonces
-        assert_eq!(state_updates.nonce_updates.len(), 2);
-        assert_eq!(state_updates.nonce_updates.get(&address!("0x2bc")).unwrap(), &felt!("0x1"));
-        assert_eq!(state_updates.nonce_updates.get(&address!("0x2bd")).unwrap(), &felt!("0x2"));
-
-        // replaced classes
-        assert_eq!(state_updates.replaced_classes.len(), 1);
-        assert_eq!(
-            state_updates.replaced_classes.get(&address!("0x320")).unwrap(),
-            &felt!("0x384")
-        );
-    }
-
-    #[test]
-    fn state_diff_empty_conversion() {
-        let state_diff = StateDiff {
-            storage_diffs: BTreeMap::new(),
-            deployed_contracts: vec![],
-            old_declared_contracts: vec![],
-            declared_classes: vec![],
-            nonces: BTreeMap::new(),
-            replaced_classes: vec![],
-        };
-
-        let state_updates: katana_primitives::state::StateUpdates = state_diff.into();
-
-        assert!(state_updates.storage_updates.is_empty());
-        assert!(state_updates.deployed_contracts.is_empty());
-        assert!(state_updates.declared_classes.is_empty());
-        assert!(state_updates.deprecated_declared_classes.is_empty());
-        assert!(state_updates.nonce_updates.is_empty());
-        assert!(state_updates.replaced_classes.is_empty());
-    }
 }

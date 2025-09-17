@@ -1,17 +1,22 @@
-use std::collections::HashMap;
-
 use katana_primitives::contract::Nonce;
-use katana_primitives::execution::{BuiltinCounters, BuiltinName, EntryPointSelector, VmResources};
-use katana_primitives::receipt::{DataAvailabilityResources, Event, MessageToL1};
+use katana_primitives::execution::{EntryPointSelector, VmResources};
+use katana_primitives::receipt::{DataAvailabilityResources, Event, GasUsed, MessageToL1};
 use katana_primitives::transaction::TxHash;
 use katana_primitives::{eth, ContractAddress, Felt};
 use serde::{Deserialize, Serialize};
 
-#[derive(Debug, PartialEq, Eq, Deserialize)]
+#[derive(Debug, PartialEq, Eq, Serialize, Deserialize)]
 pub struct ConfirmedReceipt {
+    /// The hash of the transaction the receipt belongs to.
     pub transaction_hash: TxHash,
+    /// The index of the transaction in the block.
     pub transaction_index: u64,
+    /// The status of the transaction execution.
     pub execution_status: Option<ExecutionStatus>,
+    /// The error message if the transaction was reverted.
+    ///
+    /// This field should only be present if the transaction was reverted ie the `execution_status`
+    /// field is `REVERTED`.
     pub revert_error: Option<String>,
     pub execution_resources: Option<ExecutionResources>,
     pub l1_to_l2_consumed_message: Option<L1ToL2Message>,
@@ -29,10 +34,12 @@ pub enum ExecutionStatus {
     Reverted,
 }
 
-#[derive(Debug, PartialEq, Eq)]
+#[derive(Debug, PartialEq, Eq, Serialize, Deserialize)]
 pub struct ExecutionResources {
+    #[serde(flatten)]
     pub vm_resources: VmResources,
     pub data_availability: Option<DataAvailabilityResources>,
+    pub total_gas_consumed: Option<GasUsed>,
 }
 
 #[derive(Debug, PartialEq, Eq, Serialize, Deserialize)]
@@ -43,128 +50,4 @@ pub struct L1ToL2Message {
     pub selector: EntryPointSelector,
     pub payload: Vec<Felt>,
     pub nonce: Option<Nonce>,
-}
-
-impl<'de> Deserialize<'de> for ExecutionResources {
-    fn deserialize<D: serde::Deserializer<'de>>(deserializer: D) -> Result<Self, D::Error> {
-        struct BuiltinCounterHelper(BuiltinCounters);
-
-        impl<'de> Deserialize<'de> for BuiltinCounterHelper {
-            fn deserialize<D: serde::Deserializer<'de>>(deserializer: D) -> Result<Self, D::Error> {
-                enum Field {
-                    Ignore,
-                    Valid(BuiltinName),
-                }
-
-                struct FieldVisitor;
-
-                impl serde::de::Visitor<'_> for FieldVisitor {
-                    type Value = Field;
-
-                    fn expecting(
-                        &self,
-                        formatter: &mut std::fmt::Formatter<'_>,
-                    ) -> std::fmt::Result {
-                        write!(
-                            formatter,
-                            "a builtin type name: 'ecdsa_builtin', 'ec_op_builtin', \
-                             'keccak_builtin', 'output_builtin', 'bitwise_builtin', \
-                             'pedersen_builtin', 'poseidon_builtin', 'range_check_builtin', \
-                             'segment_arena_builtin'"
-                        )
-                    }
-
-                    fn visit_str<E: serde::de::Error>(self, v: &str) -> Result<Self::Value, E> {
-                        match v {
-                            "ecdsa_builtin" => Ok(Field::Valid(BuiltinName::ecdsa)),
-                            "ec_op_builtin" => Ok(Field::Valid(BuiltinName::ec_op)),
-                            "keccak_builtin" => Ok(Field::Valid(BuiltinName::keccak)),
-                            "output_builtin" => Ok(Field::Valid(BuiltinName::output)),
-                            "bitwise_builtin" => Ok(Field::Valid(BuiltinName::bitwise)),
-                            "pedersen_builtin" => Ok(Field::Valid(BuiltinName::pedersen)),
-                            "poseidon_builtin" => Ok(Field::Valid(BuiltinName::poseidon)),
-                            "range_check_builtin" => Ok(Field::Valid(BuiltinName::range_check)),
-                            "segment_arena_builtin" => Ok(Field::Valid(BuiltinName::segment_arena)),
-                            _ => Ok(Field::Ignore),
-                        }
-                    }
-                }
-
-                impl<'de> serde::Deserialize<'de> for Field {
-                    #[inline]
-                    fn deserialize<D: serde::Deserializer<'de>>(
-                        deserializer: D,
-                    ) -> Result<Self, D::Error> {
-                        serde::Deserializer::deserialize_identifier(deserializer, FieldVisitor)
-                    }
-                }
-
-                struct Visitor;
-
-                impl<'de> serde::de::Visitor<'de> for Visitor {
-                    type Value = BuiltinCounterHelper;
-
-                    fn expecting(
-                        &self,
-                        formatter: &mut std::fmt::Formatter<'_>,
-                    ) -> std::fmt::Result {
-                        write!(
-                            formatter,
-                            "an JSON object with builtin names as keys and instance counts as \
-                             values"
-                        )
-                    }
-
-                    fn visit_map<A>(self, mut map: A) -> Result<Self::Value, A::Error>
-                    where
-                        A: serde::de::MapAccess<'de>,
-                    {
-                        let mut builtins: HashMap<BuiltinName, usize> = HashMap::new();
-                        while let Some(key) = map.next_key::<Field>()? {
-                            match key {
-                                Field::Valid(builtin) => {
-                                    if builtins.contains_key(&builtin) {
-                                        return Err(
-                                            <A::Error as serde::de::Error>::duplicate_field(
-                                                builtin.to_str_with_suffix(),
-                                            ),
-                                        );
-                                    }
-
-                                    if let Some(counter) = map.next_value::<Option<u64>>()? {
-                                        builtins.insert(builtin, counter as usize);
-                                    }
-                                }
-
-                                Field::Ignore => {
-                                    let _ = map.next_value::<serde::de::IgnoredAny>()?;
-                                }
-                            }
-                        }
-                        Ok(BuiltinCounterHelper(BuiltinCounters::from(builtins)))
-                    }
-                }
-
-                deserializer.deserialize_map(Visitor)
-            }
-        }
-
-        #[derive(Deserialize)]
-        pub struct Helper {
-            pub n_steps: usize,
-            pub n_memory_holes: usize,
-            pub builtin_instance_counter: BuiltinCounterHelper,
-            pub data_availability: Option<DataAvailabilityResources>,
-        }
-
-        let helper = Helper::deserialize(deserializer)?;
-
-        let vm_resources = VmResources {
-            n_steps: helper.n_steps,
-            n_memory_holes: helper.n_memory_holes,
-            builtin_instance_counter: helper.builtin_instance_counter.0.into(),
-        };
-
-        Ok(Self { data_availability: helper.data_availability, vm_resources })
-    }
 }

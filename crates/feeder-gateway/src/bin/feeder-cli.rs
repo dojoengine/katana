@@ -4,6 +4,7 @@ use clap::{Parser, Subcommand};
 use katana_feeder_gateway::client::{Error, SequencerGateway};
 use katana_feeder_gateway::types::BlockId;
 use katana_primitives::Felt;
+use serde_json::Value;
 
 #[derive(Parser)]
 #[command(name = "feeder-cli")]
@@ -113,30 +114,9 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
             let block_id = parse_block_id(&block_id)?;
             println!("Fetching block {:?}...", block_id);
 
-            match client.get_block(block_id).await {
-                Ok(block) => {
-                    println!("Block retrieved successfully!");
-                    println!("=====================================");
-                    if let Some(hash) = block.block_hash {
-                        println!("Block Hash: {:#x}", hash);
-                    }
-                    if let Some(number) = block.block_number {
-                        println!("Block Number: {}", number);
-                    }
-                    println!("Parent Hash: {:#x}", block.parent_block_hash);
-                    println!("Timestamp: {}", block.timestamp);
-                    println!("Status: {:?}", block.status);
-                    println!("Transaction Count: {}", block.transactions.len());
-                    println!("L1 DA Mode: {:?}", block.l1_da_mode);
-                    if let Some(version) = block.starknet_version {
-                        println!("Starknet Version: {}", version);
-                    }
-                    if let Some(sequencer) = block.sequencer_address {
-                        println!("Sequencer Address: {:#x}", sequencer.0);
-                    }
-                }
-                Err(e) => handle_error(e),
-            }
+            let result: Value =
+                client.feeder_gateway("get_block").block_id(block_id).send().await?;
+            println!("{}", serde_json::to_string_pretty(&result)?)
         }
         Commands::StateUpdate { block_id, include_block } => {
             let block_id = parse_block_id(&block_id)?;
