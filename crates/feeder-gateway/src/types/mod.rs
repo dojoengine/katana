@@ -1,3 +1,22 @@
+//! # Feeder Gateway Types
+//!
+//! This module defines types that mirror the data structures returned by the Starknet feeder
+//! gateway API. Ideally, we would not need to redefine these types, but the feeder gateway requires
+//! its own type definitions due to fundamental serialization incompatibilities with the existing
+//! types in `katana-primitives` and `katana-rpc-types`. For objects that share the same format, we
+//! reuse existing RPC or primitive types whenever possible.
+//!
+//! ## Affected Types
+//!
+//! - [`DataAvailabilityMode`]: Integer-based representation
+//! - [`ResourceBounds`]: Custom numeric handling
+//! - [`ResourceBoundsMapping`]: Uppercase field names, optional `L1_DATA_GAS`
+//! - [`InvokeTxV3`]: Uses the custom DA mode and resource bounds
+//! - [`DeclareTxV3`]: Uses the custom DA mode and resource bounds
+//! - [`DeployAccountTxV1`]: Optional `contract_address` field
+//! - [`DeployAccountTxV3`]: Uses the custom DA mode and resource bounds
+//! - [`L1HandlerTx`]: Optional `nonce` field
+
 use std::collections::{BTreeMap, BTreeSet};
 
 use katana_primitives::block::{BlockHash, BlockNumber};
