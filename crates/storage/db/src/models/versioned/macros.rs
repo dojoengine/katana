@@ -4,7 +4,13 @@
 /// - The versioned enum with all version variants
 /// - `From` trait implementations for conversions
 /// - `Compress` and `Decompress` implementations with fallback chain
-/// - Default implementation that uses the latest version
+/// - Optimized decompression with hot/cold path hints
+///
+/// ## Performance Optimization
+///
+/// The decompression implementation marks older version paths as `#[cold]` and `#[inline(never)]`
+/// to optimize for the common case where most data is in the latest format. This helps the
+/// compiler generate better code for the typical hot path (latest version)
 ///
 /// # Example
 ///
@@ -122,11 +128,8 @@ macro_rules! versioned_type {
 
     (@decompress_chain_inner $enum_name:ident, $bytes:ident, [] [$($version:ident => $type_path:ty),+]) => {
         // Generate the actual deserialization attempts
-        $(
-            if let Ok(value) = postcard::from_bytes::<$type_path>($bytes) {
-                return Ok($enum_name::$version(value));
-            }
-        )+
+        // Split into first (hot path) and rest (cold paths)
+        versioned_type!(@decompress_chain_split $enum_name, $bytes, [$($version => $type_path),+]);
     };
 
     (@decompress_chain_inner $enum_name:ident, $bytes:ident,
@@ -136,5 +139,30 @@ macro_rules! versioned_type {
         versioned_type!(@decompress_chain_inner $enum_name, $bytes,
             [$($rest_version => $rest_type),*]
             [$current_version => $current_type $(, $processed_version => $processed_type)*]);
+    };
+    
+    // Split the versions into hot (latest) and cold (older) paths
+    (@decompress_chain_split $enum_name:ident, $bytes:ident, 
+        [$latest_version:ident => $latest_type:ty $(, $older_version:ident => $older_type:ty)*]) => {
+        // Latest version is the hot path
+        if let Ok(value) = postcard::from_bytes::<$latest_type>($bytes) {
+            return Ok($enum_name::$latest_version(value));
+        }
+        
+        // Older versions are cold paths - mark with #[cold] attribute
+        $(
+            {
+                // Use inline(never) and cold to hint this is unlikely
+                #[inline(never)]
+                #[cold]
+                fn try_deserialize_old(bytes: &[u8]) -> Option<$older_type> {
+                    postcard::from_bytes::<$older_type>(bytes).ok()
+                }
+                
+                if let Some(value) = try_deserialize_old($bytes) {
+                    return Ok($enum_name::$older_version(value));
+                }
+            }
+        )*
     };
 }
