@@ -1,13 +1,15 @@
 use std::collections::HashMap;
 
-use katana_primitives::execution::{BuiltinCounters, BuiltinName, VmResources};
+use katana_primitives::contract::Nonce;
+use katana_primitives::execution::{BuiltinCounters, BuiltinName, EntryPointSelector, VmResources};
 use katana_primitives::receipt::{DataAvailabilityResources, Event, MessageToL1};
-use katana_primitives::{eth, Felt};
-use serde::Deserialize;
+use katana_primitives::transaction::TxHash;
+use katana_primitives::{eth, ContractAddress, Felt};
+use serde::{Deserialize, Serialize};
 
 #[derive(Debug, PartialEq, Eq, Deserialize)]
 pub struct ConfirmedReceipt {
-    pub transaction_hash: Felt,
+    pub transaction_hash: TxHash,
     pub transaction_index: u64,
     pub execution_status: Option<ExecutionStatus>,
     pub revert_error: Option<String>,
@@ -18,10 +20,12 @@ pub struct ConfirmedReceipt {
     pub actual_fee: Felt,
 }
 
-#[derive(Debug, PartialEq, Eq, Deserialize)]
-#[serde(rename_all = "SCREAMING_SNAKE_CASE")]
+#[derive(Debug, PartialEq, Eq, Serialize, Deserialize)]
 pub enum ExecutionStatus {
+    #[serde(rename = "SUCCEEDED")]
     Succeeded,
+
+    #[serde(rename = "REVERTED")]
     Reverted,
 }
 
@@ -31,14 +35,14 @@ pub struct ExecutionResources {
     pub data_availability: Option<DataAvailabilityResources>,
 }
 
-#[derive(Debug, PartialEq, Eq, Deserialize)]
+#[derive(Debug, PartialEq, Eq, Serialize, Deserialize)]
 pub struct L1ToL2Message {
     /// The address of the Ethereum (L1) contract that sent the message.
     pub from_address: eth::Address,
-    pub to_address: Felt,
-    pub selector: Felt,
+    pub to_address: ContractAddress,
+    pub selector: EntryPointSelector,
     pub payload: Vec<Felt>,
-    pub nonce: Option<Felt>,
+    pub nonce: Option<Nonce>,
 }
 
 impl<'de> Deserialize<'de> for ExecutionResources {

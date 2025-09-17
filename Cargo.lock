@@ -6026,6 +6026,7 @@ dependencies = [
 name = "katana-feeder-gateway"
 version = "1.7.0-alpha.4"
 dependencies = [
+ "clap",
  "katana-primitives",
  "katana-rpc-types",
  "reqwest 0.12.22",

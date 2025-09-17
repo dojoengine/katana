@@ -17,8 +17,20 @@ thiserror.workspace = true
 tracing.workspace = true
 url.workspace = true
 
+[dependencies.clap]
+features = ["derive"]
+workspace = true
+
+[dependencies.tokio]
+features = ["macros", "rt-multi-thread"]
+workspace = true
+
 [dev-dependencies]
 rstest.workspace = true
 serde_json.workspace = true
 similar-asserts.workspace = true
 tokio.workspace = true
+
+[[bin]]
+name = "feeder-cli"
+path = "src/bin/feeder-cli.rs"

@@ -5,7 +5,7 @@ use anyhow::Result;
 use backon::{ExponentialBuilder, Retryable};
 use katana_feeder_gateway::client;
 use katana_feeder_gateway::client::SequencerGateway;
-use katana_feeder_gateway::types::{BlockId, StateUpdateWithBlock};
+use katana_feeder_gateway::types::{BlockId, BlockStatus, StateUpdateWithBlock};
 use katana_primitives::block::{
     BlockNumber, FinalityStatus, GasPrices, Header, SealedBlock, SealedBlockWithStatus,
 };
@@ -19,7 +19,6 @@ use katana_primitives::Felt;
 use katana_provider::api::block::BlockWriter;
 use num_traits::ToPrimitive;
 use starknet::core::types::ResourcePrice;
-use starknet::providers::sequencer::models::BlockStatus;
 use tracing::{debug, error, warn};
 
 use super::{Stage, StageExecutionInput, StageResult};
