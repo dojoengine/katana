@@ -1,0 +1,56 @@
+// Example: How to add version V8 when primitive types change
+// 
+// This file demonstrates the minimal code needed to add a new database version.
+// Rename this to v8.rs and uncomment when actually implementing V8.
+
+/*
+// Step 1: Define only the types that changed from V7 to V8
+use katana_primitives::{Felt, fee};
+use serde::{Deserialize, Serialize};
+
+// Example: ResourceBoundsMapping gained a new field in V8
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct ResourceBoundsMapping {
+    pub l1_gas: fee::ResourceBounds,
+    pub l2_gas: fee::ResourceBounds,
+    pub l3_gas: fee::ResourceBounds,  // New in V8!
+}
+
+// Provide conversion to the current primitive type
+impl From<ResourceBoundsMapping> for fee::ResourceBoundsMapping {
+    fn from(v8: ResourceBoundsMapping) -> Self {
+        // Handle the conversion appropriately
+        // This is just an example - adapt to your actual types
+        Self::All(v8.l1_gas, v8.l2_gas, v8.l3_gas)
+    }
+}
+
+// If the whole transaction structure changed, define it here
+// Otherwise, you can reuse types from katana_primitives for unchanged parts
+use katana_primitives::transaction::{InvokeTxV0, InvokeTxV1, /* ... */};
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct InvokeTxV3 {
+    // ... fields with the new ResourceBoundsMapping
+    pub resource_bounds: ResourceBoundsMapping,
+    // ... other fields
+}
+
+// ... Rest of the type definitions that changed
+
+// Step 2: Update the version declaration in the parent module:
+// In transaction/mod.rs:
+// versioned_type! {
+//     VersionedTx {
+//         V6 => v6::Tx,
+//         V7 => v7::Tx,
+//         V8 => v8::Tx,  // Add this line
+//         V9 => katana_primitives::transaction::Tx,  // Latest is now V9
+//     }
+// }
+
+// Step 3: Update CURRENT_DB_VERSION in crates/storage/db/src/version.rs:
+// pub const CURRENT_DB_VERSION: Version = Version::new(9);
+
+// That's it! The macro handles everything else automatically.
+*/
