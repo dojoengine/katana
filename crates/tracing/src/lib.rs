@@ -1,22 +1,44 @@
+use opentelemetry::trace::Tracer;
 use opentelemetry_gcloud_trace::errors::GcloudTraceError;
 use tracing::subscriber::SetGlobalDefaultError;
 use tracing_log::log::SetLoggerError;
-use tracing_subscriber::layer::SubscriberExt;
-use tracing_subscriber::util::SubscriberInitExt;
-use tracing_subscriber::{filter, EnvFilter, Layer};
+use tracing_opentelemetry::PreSampledTracer;
+use tracing_subscriber::filter;
 
+mod builder;
 mod fmt;
 pub mod gcloud;
 pub mod otlp;
 
+pub use builder::TracingBuilder;
 pub use fmt::LogFormat;
+pub use gcloud::{GCloudTracerBuilder, GcloudConfig};
+pub use otlp::{OtlpConfig, OtlpTracerBuilder};
 
-use crate::fmt::LocalTime;
+use crate::builder::NoopTracer;
+
+mod __private {
+    pub trait Sealed {}
+}
+
+pub trait TelemetryTracer:
+    Tracer + PreSampledTracer + Send + Sync + __private::Sealed + 'static
+{
+    fn init(&self) -> Result<(), Error>;
+}
+
+impl __private::Sealed for NoopTracer {}
+
+impl TelemetryTracer for NoopTracer {
+    fn init(&self) -> Result<(), Error> {
+        Ok(())
+    }
+}
 
 #[derive(Debug, Clone)]
 pub enum TracerConfig {
     Otlp(otlp::OtlpConfig),
-    Gcloud(gcloud::GcloudConfig),
+    GCloud(gcloud::GcloudConfig),
 }
 
 #[derive(Debug, thiserror::Error)]
@@ -26,6 +48,9 @@ pub enum Error {
 
     #[error("failed to parse environment filter: {0}")]
     EnvFilterParse(#[from] filter::ParseError),
+
+    #[error("failed to parse environment filter from env: {0}")]
+    EnvFilterFromEnv(#[from] filter::FromEnvError),
 
     #[error("failed to set global dispatcher: {0}")]
     SetGlobalDefault(#[from] SetGlobalDefaultError),
@@ -44,49 +69,38 @@ pub enum Error {
 }
 
 pub async fn init(format: LogFormat, telemetry_config: Option<TracerConfig>) -> Result<(), Error> {
-    const DEFAULT_LOG_FILTER: &str =
-        "katana_db::mdbx=trace,cairo_native::compiler=off,pipeline=debug,stage=debug,tasks=debug,\
-         executor=trace,forking::backend=trace,blockifier=off,jsonrpsee_server=off,hyper=off,\
-         messaging=debug,node=error,explorer=info,rpc=trace,pool=trace,info";
+    let builder = match format {
+        LogFormat::Full => TracingBuilder::new(),
+        LogFormat::Json => TracingBuilder::new().json(),
+    };
 
-    let default_filter = EnvFilter::try_new(DEFAULT_LOG_FILTER);
-    let filter = EnvFilter::try_from_default_env().or(default_filter)?;
+    let builder = builder.with_env_filter_or_default()?;
 
-    // Initialize tracing subscriber with optional telemetry
-    if let Some(telemetry_config) = telemetry_config {
-        // Initialize telemetry layer based on exporter type
-        let telemetry = match telemetry_config {
-            TracerConfig::Gcloud(cfg) => {
-                let tracer = gcloud::init_tracer(&cfg).await?;
-                tracing_opentelemetry::layer().with_tracer(tracer)
+    // Build telemetry layer and initialize based on config type
+    match telemetry_config {
+        Some(TracerConfig::Otlp(cfg)) => {
+            // OTLP is synchronous
+            let mut otlp_builder = OtlpTracerBuilder::new().service_name("katana");
+            if let Some(endpoint) = cfg.endpoint {
+                otlp_builder = otlp_builder.endpoint(endpoint);
             }
-            TracerConfig::Otlp(cfg) => {
-                let tracer = otlp::init_tracer(&cfg)?;
-                tracing_opentelemetry::layer().with_tracer(tracer)
-            }
-        };
+            let layer = otlp_builder.build()?;
+            builder.with_telemetry(layer).build()?.init();
+        }
 
-        let fmt = match format {
-            LogFormat::Full => {
-                tracing_subscriber::fmt::layer().with_timer(LocalTime::new()).boxed()
+        Some(TracerConfig::GCloud(cfg)) => {
+            // GCloud is async
+            let mut gcloud_builder = GCloudTracerBuilder::new().service_name("katana");
+            if let Some(project_id) = cfg.project_id {
+                gcloud_builder = gcloud_builder.project_id(project_id);
             }
-            LogFormat::Json => {
-                tracing_subscriber::fmt::layer().json().with_timer(LocalTime::new()).boxed()
-            }
-        };
+            let layer = gcloud_builder.build().await?;
+            builder.with_telemetry(layer).build()?.init();
+        }
 
-        tracing_subscriber::registry().with(filter).with(telemetry).with(fmt).init();
-    } else {
-        let fmt = match format {
-            LogFormat::Full => {
-                tracing_subscriber::fmt::layer().with_timer(LocalTime::new()).boxed()
-            }
-            LogFormat::Json => {
-                tracing_subscriber::fmt::layer().json().with_timer(LocalTime::new()).boxed()
-            }
-        };
-
-        tracing_subscriber::registry().with(filter).with(fmt).init();
+        None => {
+            builder.build()?.init();
+        }
     }
 
     Ok(())

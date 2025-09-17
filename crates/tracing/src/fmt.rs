@@ -3,6 +3,7 @@ use std::fmt::Display;
 use serde::{Deserialize, Serialize};
 use tracing_subscriber::fmt::format::Writer;
 use tracing_subscriber::fmt::time::{self};
+use tracing_subscriber::Layer;
 
 /// Format for logging output.
 #[derive(Debug, Copy, Clone, PartialEq, Deserialize, Serialize, Default)]
@@ -64,5 +65,25 @@ impl time::FormatTime for LocalTime {
     fn format_time(&self, w: &mut Writer<'_>) -> std::fmt::Result {
         let time = chrono::Local::now();
         write!(w, "{}", time.format(DEFAULT_TIMESTAMP_FORMAT))
+    }
+}
+
+// Use an enum to preserve type information instead of Box<dyn>
+pub enum FmtLayer<F, J> {
+    Full(F),
+    Json(J),
+}
+
+impl<S, F, J> Layer<S> for FmtLayer<F, J>
+where
+    S: tracing::Subscriber,
+    F: Layer<S>,
+    J: Layer<S>,
+{
+    fn on_layer(&mut self, subscriber: &mut S) {
+        match self {
+            FmtLayer::Full(layer) => layer.on_layer(subscriber),
+            FmtLayer::Json(layer) => layer.on_layer(subscriber),
+        }
     }
 }
