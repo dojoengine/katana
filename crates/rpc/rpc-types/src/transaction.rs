@@ -86,6 +86,7 @@ pub enum RpcInvokeTx {
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub struct RpcInvokeTxV0 {
     /// The maximal fee that can be charged for including the transaction
+    #[serde(serialize_with = "serde_utils::serialize_as_hex")]
     #[serde(deserialize_with = "serde_utils::deserialize_u128")]
     pub max_fee: u128,
     /// Signature
@@ -106,6 +107,7 @@ pub struct RpcInvokeTxV1 {
     /// called contract address and a function selector)
     pub calldata: Vec<Felt>,
     /// The maximal fee that can be charged for including the transaction
+    #[serde(serialize_with = "serde_utils::serialize_as_hex")]
     #[serde(deserialize_with = "serde_utils::deserialize_u128")]
     pub max_fee: u128,
     /// Signature
@@ -183,6 +185,7 @@ pub struct RpcDeclareTxV0 {
     /// The address of the account contract sending the declaration transaction
     pub sender_address: ContractAddress,
     /// The maximal fee that can be charged for including the transaction
+    #[serde(serialize_with = "serde_utils::serialize_as_hex")]
     #[serde(deserialize_with = "serde_utils::deserialize_u128")]
     pub max_fee: u128,
     /// Signature
@@ -196,6 +199,7 @@ pub struct RpcDeclareTxV1 {
     /// The address of the account contract sending the declaration transaction
     pub sender_address: ContractAddress,
     /// The maximal fee that can be charged for including the transaction
+    #[serde(serialize_with = "serde_utils::serialize_as_hex")]
     #[serde(deserialize_with = "serde_utils::deserialize_u128")]
     pub max_fee: u128,
     /// Signature
@@ -213,6 +217,7 @@ pub struct RpcDeclareTxV2 {
     /// The hash of the cairo assembly resulting from the sierra compilation
     pub compiled_class_hash: ClassHash,
     /// The maximal fee that can be charged for including the transaction
+    #[serde(serialize_with = "serde_utils::serialize_as_hex")]
     #[serde(deserialize_with = "serde_utils::deserialize_u128")]
     pub max_fee: u128,
     /// Signature
@@ -276,6 +281,7 @@ pub enum RpcDeployAccountTx {
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub struct RpcDeployAccountTxV1 {
     /// The maximal fee that can be charged for including the transaction
+    #[serde(serialize_with = "serde_utils::serialize_as_hex")]
     #[serde(deserialize_with = "serde_utils::deserialize_u128")]
     pub max_fee: u128,
     /// Signature
