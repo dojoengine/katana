@@ -140,15 +140,15 @@ macro_rules! versioned_type {
             [$($rest_version => $rest_type),*]
             [$current_version => $current_type $(, $processed_version => $processed_type)*]);
     };
-    
+
     // Split the versions into hot (latest) and cold (older) paths
-    (@decompress_chain_split $enum_name:ident, $bytes:ident, 
+    (@decompress_chain_split $enum_name:ident, $bytes:ident,
         [$latest_version:ident => $latest_type:ty $(, $older_version:ident => $older_type:ty)*]) => {
         // Latest version is the hot path
         if let Ok(value) = postcard::from_bytes::<$latest_type>($bytes) {
             return Ok($enum_name::$latest_version(value));
         }
-        
+
         // Older versions are cold paths - mark with #[cold] attribute
         $(
             {
@@ -158,7 +158,7 @@ macro_rules! versioned_type {
                 fn try_deserialize_old(bytes: &[u8]) -> Option<$older_type> {
                     postcard::from_bytes::<$older_type>(bytes).ok()
                 }
-                
+
                 if let Some(value) = try_deserialize_old($bytes) {
                     return Ok($enum_name::$older_version(value));
                 }

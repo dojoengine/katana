@@ -102,40 +102,6 @@ pub enum Tx {
     Deploy(transaction::DeployTx),
 }
 
-impl Tx {
-    pub fn version(&self) -> Felt {
-        match self {
-            Tx::Invoke(tx) => match tx {
-                InvokeTx::V0(_) => Felt::ZERO,
-                InvokeTx::V1(_) => Felt::ONE,
-                InvokeTx::V3(_) => Felt::THREE,
-            },
-            Tx::Declare(tx) => match tx {
-                DeclareTx::V0(_) => Felt::ZERO,
-                DeclareTx::V1(_) => Felt::ONE,
-                DeclareTx::V2(_) => Felt::TWO,
-                DeclareTx::V3(_) => Felt::THREE,
-            },
-            Tx::L1Handler(tx) => tx.version,
-            Tx::DeployAccount(tx) => match tx {
-                DeployAccountTx::V1(_) => Felt::ONE,
-                DeployAccountTx::V3(_) => Felt::THREE,
-            },
-            Tx::Deploy(tx) => tx.version,
-        }
-    }
-
-    pub fn r#type(&self) -> transaction::TxType {
-        match self {
-            Self::Invoke(_) => transaction::TxType::Invoke,
-            Self::Deploy(_) => transaction::TxType::Deploy,
-            Self::Declare(_) => transaction::TxType::Declare,
-            Self::L1Handler(_) => transaction::TxType::L1Handler,
-            Self::DeployAccount(_) => transaction::TxType::DeployAccount,
-        }
-    }
-}
-
 impl From<ResourceBoundsMapping> for fee::ResourceBoundsMapping {
     fn from(v6: ResourceBoundsMapping) -> Self {
         Self::L1Gas(v6.l1_gas)
