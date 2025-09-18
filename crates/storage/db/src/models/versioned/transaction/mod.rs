@@ -5,7 +5,6 @@ use crate::codecs::{Compress, Decompress};
 use crate::error::CodecError;
 
 mod v6;
-mod v7;
 
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
 #[cfg_attr(test, derive(::arbitrary::Arbitrary))]

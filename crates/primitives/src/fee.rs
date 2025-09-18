@@ -103,6 +103,7 @@ pub struct FeeInfo {
     /// Units in which the fee is given
     pub unit: PriceUnit,
 }
+
 /// Transaction tip amount.
 #[derive(Debug, Default, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Hash)]
 #[cfg_attr(feature = "arbitrary", derive(::arbitrary::Arbitrary))]
@@ -302,24 +303,23 @@ impl serde::Serialize for ResourceBoundsMapping {
     fn serialize<S: serde::Serializer>(&self, serializer: S) -> Result<S::Ok, S::Error> {
         use serde::ser::SerializeStruct;
 
-        // For human readable formats (primarily targetting JSON), serialize as a unified
-        // object with all possible fields.
+        // For human readable formats (primarily targetting JSON), serialize as a flat object.
         if serializer.is_human_readable() {
-            let mut state = serializer.serialize_struct("ResourceBoundsMapping", 3)?;
-
             match self {
-                ResourceBoundsMapping::L1Gas(mapping) => {
-                    state.serialize_field("l1_gas", &mapping.l1_gas)?;
-                    state.serialize_field("l2_gas", &mapping.l2_gas)?;
+                ResourceBoundsMapping::L1Gas(bounds) => {
+                    let mut state = serializer.serialize_struct("ResourceBoundsMapping", 2)?;
+                    state.serialize_field("l2_gas", &bounds.l2_gas)?;
+                    state.serialize_field("l1_gas", &bounds.l1_gas)?;
+                    state.end()
                 }
-                ResourceBoundsMapping::All(mapping) => {
-                    state.serialize_field("l1_gas", &mapping.l1_gas)?;
-                    state.serialize_field("l2_gas", &mapping.l2_gas)?;
-                    state.serialize_field("l1_data_gas", &mapping.l1_data_gas)?;
+                ResourceBoundsMapping::All(bounds) => {
+                    let mut state = serializer.serialize_struct("ResourceBoundsMapping", 3)?;
+                    state.serialize_field("l2_gas", &bounds.l2_gas)?;
+                    state.serialize_field("l1_gas", &bounds.l1_gas)?;
+                    state.serialize_field("l1_data_gas", &bounds.l1_data_gas)?;
+                    state.end()
                 }
             }
-
-            state.end()
         }
         // For binary formats, use explicit enum tagging:
         //
