@@ -1,11 +1,13 @@
 use katana_primitives::transaction::Tx;
 
 mod v6;
+mod v7;
 
 versioned_type! {
     VersionedTx {
         V6 => v6::Tx,
-        V7 => Tx,
+        V7 => v7::Tx,
+        V8 => Tx,
     }
 }
 
@@ -17,7 +19,7 @@ mod tests {
     use crate::codecs::{Compress, Decompress};
 
     #[test]
-    fn test_versioned_tx_v6_to_v7_conversion() {
+    fn test_versioned_tx_v6_to_v8_conversion() {
         let v6_tx = v6::Tx::Invoke(v6::InvokeTx::V0(Default::default()));
         let versioned = VersionedTx::V6(v6_tx);
 
@@ -27,11 +29,11 @@ mod tests {
     }
 
     #[test]
-    fn test_versioned_tx_v7_from_conversion() {
+    fn test_versioned_tx_v8_from_conversion() {
         let tx = Tx::Invoke(InvokeTx::V1(Default::default()));
         let versioned: VersionedTx = tx.clone().into();
 
-        assert!(matches!(versioned, VersionedTx::V7(_)));
+        assert!(matches!(versioned, VersionedTx::V8(_)));
 
         // Convert back
         let recovered: Tx = versioned.into();
@@ -40,7 +42,7 @@ mod tests {
 
     #[test]
     fn test_versioned_tx_compress_decompress() {
-        let original = VersionedTx::V7(Tx::Invoke(InvokeTx::V1(Default::default())));
+        let original = VersionedTx::V8(Tx::Invoke(InvokeTx::V1(Default::default())));
 
         // Compress
         let compressed = original.clone().compress().unwrap();
