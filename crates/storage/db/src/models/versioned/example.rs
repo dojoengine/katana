@@ -1,16 +1,18 @@
-//! Example demonstrating the Versioned derive macro
-//! 
+//! Example demonstrating the Versioned attribute macro
+//!
 //! This shows how to use the macro to automatically generate versioned types
 //! instead of writing all the boilerplate manually.
 
-use katana_db_versioned_derive::Versioned;
+use katana_db_versioned_derive::versioned;
 use katana_primitives::{chain, class, contract, da, fee, transaction, Felt};
 use serde::{Deserialize, Serialize};
 
 // Define version-specific types that differ from current primitives
-pub mod v6 {
+// These types would be defined elsewhere in the codebase for actual use.
+// Here we'll use separate module names to avoid conflicts
+pub mod types_v6 {
     use super::*;
-    
+
     /// V6 version of ResourceBoundsMapping - only had L1 and L2 gas
     #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
     #[cfg_attr(test, derive(::arbitrary::Arbitrary))]
@@ -18,7 +20,7 @@ pub mod v6 {
         pub l1_gas: fee::ResourceBounds,
         pub l2_gas: fee::ResourceBounds,
     }
-    
+
     // User provides the conversion logic
     impl From<ResourceBoundsMapping> for fee::ResourceBoundsMapping {
         fn from(v6: ResourceBoundsMapping) -> Self {
@@ -31,9 +33,9 @@ pub mod v6 {
     }
 }
 
-pub mod v7 {
+pub mod types_v7 {
     use super::*;
-    
+
     /// V7 version of ResourceBoundsMapping - added enum variants
     #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
     #[cfg_attr(test, derive(::arbitrary::Arbitrary))]
@@ -41,7 +43,7 @@ pub mod v7 {
         L1Gas(fee::ResourceBounds),
         All(fee::AllResourceBoundsMapping),
     }
-    
+
     impl From<ResourceBoundsMapping> for fee::ResourceBoundsMapping {
         fn from(v7: ResourceBoundsMapping) -> Self {
             match v7 {
@@ -51,9 +53,7 @@ pub mod v7 {
                         l2_gas: fee::ResourceBounds::default(),
                     })
                 }
-                ResourceBoundsMapping::All(all) => {
-                    fee::ResourceBoundsMapping::All(all)
-                }
+                ResourceBoundsMapping::All(all) => fee::ResourceBoundsMapping::All(all),
             }
         }
     }
@@ -61,7 +61,6 @@ pub mod v7 {
 
 // Now use the macro to define a versioned struct
 // The macro will generate v6 and v7 modules with appropriate structs
-#[derive(Versioned)]
 #[versioned(current = "katana_primitives::transaction")]
 pub struct InvokeTxV3 {
     pub chain_id: chain::ChainId,
@@ -69,14 +68,11 @@ pub struct InvokeTxV3 {
     pub nonce: Felt,
     pub calldata: Vec<Felt>,
     pub signature: Vec<Felt>,
-    
+
     // This field has different types in different versions
-    #[versioned(
-        v6 = "v6::ResourceBoundsMapping",
-        v7 = "v7::ResourceBoundsMapping"
-    )]
+    #[version(v6 = "types_v6::ResourceBoundsMapping", v7 = "types_v7::ResourceBoundsMapping")]
     pub resource_bounds: fee::ResourceBoundsMapping,
-    
+
     pub tip: u64,
     pub paymaster_data: Vec<Felt>,
     pub account_deployment_data: Vec<Felt>,
@@ -85,7 +81,6 @@ pub struct InvokeTxV3 {
 }
 
 // The macro also works for enums
-#[derive(Versioned)]
 #[versioned(current = "katana_primitives::transaction")]
 pub enum InvokeTx {
     V0(transaction::InvokeTxV0),
@@ -94,22 +89,20 @@ pub enum InvokeTx {
 }
 
 // Example showing field additions
-#[derive(Versioned)]
+#[versioned]
 pub struct SimpleStruct {
     pub field1: String,
     pub field2: u32,
-    
+
     // Field with version-specific types
-    #[versioned(
-        v6 = "v6::ResourceBoundsMapping"
-    )]
+    #[version(v8 = "types_v6::ResourceBoundsMapping")]
     pub bounds: fee::ResourceBoundsMapping,
 }
 
 #[cfg(test)]
 mod tests {
     use super::*;
-    
+
     #[test]
     fn test_versioned_struct() {
         // Create instance using current types
@@ -126,14 +119,14 @@ mod tests {
             nonce_data_availability_mode: da::DataAvailabilityMode::L1,
             fee_data_availability_mode: da::DataAvailabilityMode::L1,
         };
-        
+
         assert_eq!(tx.tip, 0);
     }
-    
+
     #[test]
     fn test_versioned_enum() {
         let invoke = InvokeTx::V0(transaction::InvokeTxV0::default());
-        
+
         match invoke {
             InvokeTx::V0(_) => assert!(true),
             _ => panic!("Wrong variant"),

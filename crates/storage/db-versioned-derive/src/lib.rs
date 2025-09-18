@@ -1,24 +1,24 @@
 use proc_macro::TokenStream;
 use quote::quote;
-use syn::{self, Data, DeriveInput};
+use syn::{self, Data, DeriveInput, ItemEnum, ItemStruct};
 
-mod parse;
+mod entry;
 mod generate;
+mod parse;
 mod utils;
 
+use generate::{generate_enum_versioned, generate_struct_versioned};
 use parse::VersionedInput;
-use generate::{generate_struct_impls, generate_enum_impls};
 
-/// Derives versioned type implementations for database compatibility.
+/// Attribute macro for generating versioned type implementations for database compatibility.
 ///
 /// # Struct Example
 /// ```ignore
-/// #[derive(Versioned)]
 /// #[versioned(current = "katana_primitives::transaction")]
 /// pub struct InvokeTxV3 {
 ///     pub chain_id: ChainId,
-///     
-///     #[versioned(
+///
+///     #[version(
 ///         v6 = "v6::ResourceBoundsMapping",
 ///         v7 = "v7::ResourceBoundsMapping"
 ///     )]
@@ -26,29 +26,49 @@ use generate::{generate_struct_impls, generate_enum_impls};
 /// }
 /// ```
 ///
-/// This will generate version-specific modules with structs and From implementations.
-#[proc_macro_derive(Versioned, attributes(versioned))]
-pub fn derive_versioned(input: TokenStream) -> TokenStream {
-    let input = syn::parse_macro_input!(input as DeriveInput);
-    
-    let result = match input.data {
+/// This will generate the struct along with version-specific modules and From implementations.
+#[proc_macro_attribute]
+pub fn versioned(_attr: TokenStream, input: TokenStream) -> TokenStream {
+    // Parse the input as a DeriveInput first to check what kind of item it is
+    let input_clone = input.clone();
+    let derive_input = syn::parse_macro_input!(input_clone as DeriveInput);
+
+    let result = match derive_input.data {
         Data::Struct(ref data_struct) => {
-            match VersionedInput::from_struct(&input, data_struct) {
-                Ok(versioned) => generate_struct_impls(versioned),
-                Err(err) => err.to_compile_error(),
+            match VersionedInput::from_struct(&derive_input, data_struct) {
+                Ok(versioned) => generate_struct_versioned(versioned, &derive_input),
+                Err(err) => {
+                    let err_tokens = err.to_compile_error();
+                    let original = syn::parse_macro_input!(input as ItemStruct);
+                    quote! {
+                        #original
+                        #err_tokens
+                    }
+                }
             }
         }
-        Data::Enum(ref data_enum) => {
-            match VersionedInput::from_enum(&input, data_enum) {
-                Ok(versioned) => generate_enum_impls(versioned),
-                Err(err) => err.to_compile_error(),
+        Data::Enum(ref data_enum) => match VersionedInput::from_enum(&derive_input, data_enum) {
+            Ok(versioned) => generate_enum_versioned(versioned, &derive_input),
+            Err(err) => {
+                let err_tokens = err.to_compile_error();
+                let original = syn::parse_macro_input!(input as ItemEnum);
+                quote! {
+                    #original
+                    #err_tokens
+                }
             }
-        }
+        },
         Data::Union(_) => {
-            syn::Error::new_spanned(&input, "Versioned can only be derived for structs and enums")
-                .to_compile_error()
+            let err = syn::Error::new_spanned(
+                &derive_input,
+                "Versioned can only be used on structs and enums",
+            )
+            .to_compile_error();
+            quote! {
+                #err
+            }
         }
     };
-    
+
     TokenStream::from(result)
 }

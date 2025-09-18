@@ -6,3 +6,5 @@ pub mod transaction;
 
 #[cfg(test)]
 mod example;
+#[cfg(test)]
+mod example_clean;

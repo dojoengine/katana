@@ -1,9 +1,7 @@
-use proc_macro2::{Ident, Span};
-use quote::ToTokens;
+use proc_macro2::Ident;
 use std::collections::HashMap;
 use syn::{
-    Attribute, DataEnum, DataStruct, DeriveInput, Error, Expr, Field, Fields, Lit, Meta,
-    MetaNameValue, Path, Result, Type,
+    Attribute, DataEnum, DataStruct, DeriveInput, Error, Field, Fields, Lit, Path, Result, Type,
 };
 
 /// Parsed representation of a versioned type
@@ -46,7 +44,7 @@ impl VersionedInput {
     pub fn from_struct(input: &DeriveInput, data: &DataStruct) -> Result<Self> {
         let current_path = parse_current_path(&input.attrs)?;
         let mut all_versions = Vec::new();
-        
+
         let fields = data
             .fields
             .iter()
@@ -71,14 +69,14 @@ impl VersionedInput {
                 Ok(versioned_field)
             })
             .collect::<Result<Vec<_>>>()?;
-        
+
         // Sort versions (v6, v7, v8, etc.)
         all_versions.sort_by(|a, b| {
             let a_num = a.trim_start_matches('v').parse::<u32>().unwrap_or(0);
             let b_num = b.trim_start_matches('v').parse::<u32>().unwrap_or(0);
             a_num.cmp(&b_num)
         });
-        
+
         Ok(VersionedInput {
             ident: input.ident.clone(),
             vis: input.vis.clone(),
@@ -87,21 +85,16 @@ impl VersionedInput {
             versions: all_versions,
         })
     }
-    
+
     pub fn from_enum(input: &DeriveInput, data: &DataEnum) -> Result<Self> {
         let current_path = parse_current_path(&input.attrs)?;
-        
+
         let variants = data
             .variants
             .iter()
-            .map(|v| {
-                Ok(VersionedVariant {
-                    ident: v.ident.clone(),
-                    fields: v.fields.clone(),
-                })
-            })
+            .map(|v| Ok(VersionedVariant { ident: v.ident.clone(), fields: v.fields.clone() }))
             .collect::<Result<Vec<_>>>()?;
-        
+
         Ok(VersionedInput {
             ident: input.ident.clone(),
             vis: input.vis.clone(),
@@ -117,18 +110,20 @@ impl VersionedField {
         let mut versions = HashMap::new();
         let mut added_in = None;
         let mut removed_after = None;
-        
-        // Parse #[versioned(...)] attributes on the field
+
+        // Parse #[version(...)] attributes on the field
         for attr in &field.attrs {
             if !attr.path().is_ident("versioned") {
                 continue;
             }
-            
+
             attr.parse_nested_meta(|meta| {
-                let ident = meta.path.get_ident()
+                let ident = meta
+                    .path
+                    .get_ident()
                     .ok_or_else(|| Error::new_spanned(&meta.path, "expected identifier"))?
                     .to_string();
-                
+
                 if ident == "added_in" {
                     let value = meta.value()?;
                     let lit: Lit = value.parse()?;
@@ -149,11 +144,11 @@ impl VersionedField {
                         versions.insert(ident, s.value());
                     }
                 }
-                
+
                 Ok(())
             })?;
         }
-        
+
         Ok(VersionedField {
             ident: field.ident.clone(),
             vis: field.vis.clone(),
@@ -170,9 +165,9 @@ fn parse_current_path(attrs: &[Attribute]) -> Result<Option<Path>> {
         if !attr.path().is_ident("versioned") {
             continue;
         }
-        
+
         let mut current_path = None;
-        
+
         attr.parse_nested_meta(|meta| {
             if meta.path.is_ident("current") {
                 let value = meta.value()?;
@@ -183,9 +178,9 @@ fn parse_current_path(attrs: &[Attribute]) -> Result<Option<Path>> {
             }
             Ok(())
         })?;
-        
+
         return Ok(current_path);
     }
-    
+
     Ok(None)
 }
