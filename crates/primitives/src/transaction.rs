@@ -6,7 +6,7 @@ use crate::chain::ChainId;
 use crate::class::{ClassHash, CompiledClassHash, ContractClass};
 use crate::contract::{ContractAddress, Nonce};
 use crate::da::DataAvailabilityMode;
-use crate::fee::{ResourceBounds, ResourceBoundsMapping};
+use crate::fee::ResourceBoundsMapping;
 use crate::utils::transaction::{
     compute_declare_v0_tx_hash, compute_declare_v1_tx_hash, compute_declare_v2_tx_hash,
     compute_declare_v3_tx_hash, compute_deploy_account_v1_tx_hash,
@@ -338,8 +338,8 @@ impl InvokeTx {
                         Felt::from(tx.sender_address),
                         &tx.calldata,
                         tx.tip,
-                        bounds,
-                        &ResourceBounds::ZERO,
+                        &bounds.l1_gas,
+                        &bounds.l2_gas,
                         None,
                         &tx.paymaster_data,
                         tx.chain_id.into(),
@@ -533,8 +533,8 @@ impl DeclareTx {
                     tx.class_hash,
                     tx.compiled_class_hash,
                     tx.tip,
-                    bounds,
-                    &ResourceBounds::ZERO,
+                    &bounds.l1_gas,
+                    &bounds.l2_gas,
                     None,
                     &tx.paymaster_data,
                     tx.chain_id.into(),
@@ -702,8 +702,8 @@ impl DeployAccountTx {
                     tx.class_hash,
                     tx.contract_address_salt,
                     tx.tip,
-                    bounds,
-                    &ResourceBounds::ZERO,
+                    &bounds.l1_gas,
+                    &bounds.l2_gas,
                     None,
                     &tx.paymaster_data,
                     tx.chain_id.into(),
