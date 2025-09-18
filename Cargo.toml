@@ -32,6 +32,7 @@ members = [
 	"crates/storage/codecs",
 	"crates/storage/codecs/derive",
 	"crates/storage/db",
+	"crates/storage/db-versioned-derive",
 	"crates/storage/fork",
 	"crates/storage/provider/provider",
 	"crates/storage/provider/provider-api",

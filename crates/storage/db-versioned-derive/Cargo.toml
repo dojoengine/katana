@@ -1,0 +1,17 @@
+[package]
+edition.workspace = true
+name = "katana-db-versioned-derive"
+version.workspace = true
+
+[lib]
+proc-macro = true
+
+[dependencies]
+proc-macro2.workspace = true
+quote.workspace = true
+syn = { version = "2.0", features = ["full", "extra-traits", "parsing", "derive", "proc-macro", "printing"] }
+
+[dev-dependencies]
+katana-primitives = { path = "../../primitives" }
+serde = { workspace = true }
+serde_json = { workspace = true }
