@@ -10,6 +10,7 @@ katana-chain-spec.workspace = true
 katana-core.workspace = true
 katana-db.workspace = true
 katana-executor.workspace = true
+katana-feeder-gateway.workspace = true
 katana-gas-price-oracle.workspace = true
 katana-messaging.workspace = true
 katana-metrics.workspace = true
@@ -40,7 +41,6 @@ strum.workspace = true
 strum_macros.workspace = true
 
 clap = { workspace = true, optional = true }
-katana-feeder-gateway = { workspace = true, optional = true }
 tokio = { workspace = true, features = [ "time" ], optional = true }
 tracing-log = { workspace = true, optional = true }
 tracing-subscriber = { workspace = true, optional = true }
@@ -50,7 +50,7 @@ cartridge = [ "katana-rpc-api/cartridge", "katana-rpc/cartridge" ]
 explorer = [ "katana-rpc/explorer" ]
 native = [ "katana-executor/native" ]
 # experimental feature to test katana full node mode
-full-node = [ "dep:katana-feeder-gateway", "dep:tokio" ]
+full-node = [ "dep:tokio" ]
 
 [[bin]]
 name = "full-node"
