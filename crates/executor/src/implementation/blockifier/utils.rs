@@ -11,6 +11,7 @@ use blockifier::execution::contract_class::{
 use blockifier::fee::fee_utils::get_fee_by_gas_vector;
 use blockifier::state::cached_state::{self, TransactionalState};
 use blockifier::state::state_api::{StateReader, UpdatableState};
+use blockifier::state::stateful_compression::{allocate_aliases_in_storage, compress};
 use blockifier::transaction::account_transaction::{
     AccountTransaction, ExecutionFlags as BlockifierExecutionFlags,
 };
@@ -33,6 +34,7 @@ use starknet_api::block::{
     BlockInfo, BlockNumber, BlockTimestamp, FeeType, GasPriceVector, GasPrices, NonzeroGasPrice,
     StarknetVersion,
 };
+use starknet_api::contract_address;
 use starknet_api::contract_class::{ClassInfo, SierraVersion};
 use starknet_api::core::{
     self, ChainId, ClassHash, CompiledClassHash, ContractAddress, EntryPointSelector, Nonce,
@@ -200,7 +202,7 @@ pub fn to_executor_tx(mut tx: ExecutableTxWithHash, mut flags: ExecutionFlags) -
                     tx: ApiInvokeTransaction::V0(starknet_api::transaction::InvokeTransactionV0 {
                         entry_point_selector: EntryPointSelector(tx.entry_point_selector),
                         contract_address: to_blk_address(tx.contract_address),
-                        signature: TransactionSignature(signature),
+                        signature: TransactionSignature(signature.into()),
                         calldata: Calldata(Arc::new(calldata)),
                         max_fee: Fee(tx.max_fee),
                     }),
@@ -222,7 +224,7 @@ pub fn to_executor_tx(mut tx: ExecutableTxWithHash, mut flags: ExecutionFlags) -
                         max_fee: Fee(tx.max_fee),
                         nonce: Nonce(tx.nonce),
                         sender_address: to_blk_address(tx.sender_address),
-                        signature: TransactionSignature(signature),
+                        signature: TransactionSignature(signature.into()),
                         calldata: Calldata(Arc::new(calldata)),
                     }),
                     tx_hash: TransactionHash(hash),
@@ -248,7 +250,7 @@ pub fn to_executor_tx(mut tx: ExecutableTxWithHash, mut flags: ExecutionFlags) -
                         tip: Tip(tx.tip),
                         nonce: Nonce(tx.nonce),
                         sender_address: to_blk_address(tx.sender_address),
-                        signature: TransactionSignature(signature),
+                        signature: TransactionSignature(signature.into()),
                         calldata: Calldata(Arc::new(calldata)),
                         paymaster_data: PaymasterData(paymaster_data),
                         account_deployment_data: AccountDeploymentData(account_deploy_data),
@@ -278,7 +280,7 @@ pub fn to_executor_tx(mut tx: ExecutableTxWithHash, mut flags: ExecutionFlags) -
                     tx: ApiDeployAccountTransaction::V1(DeployAccountTransactionV1 {
                         max_fee: Fee(tx.max_fee),
                         nonce: Nonce(tx.nonce),
-                        signature: TransactionSignature(signature),
+                        signature: TransactionSignature(signature.into()),
                         class_hash: ClassHash(tx.class_hash),
                         constructor_calldata: Calldata(Arc::new(calldata)),
                         contract_address_salt: salt,
@@ -306,7 +308,7 @@ pub fn to_executor_tx(mut tx: ExecutableTxWithHash, mut flags: ExecutionFlags) -
                     tx: ApiDeployAccountTransaction::V3(DeployAccountTransactionV3 {
                         tip: Tip(tx.tip),
                         nonce: Nonce(tx.nonce),
-                        signature: TransactionSignature(signature),
+                        signature: TransactionSignature(signature.into()),
                         class_hash: ClassHash(tx.class_hash),
                         constructor_calldata: Calldata(Arc::new(calldata)),
                         contract_address_salt: salt,
@@ -333,7 +335,7 @@ pub fn to_executor_tx(mut tx: ExecutableTxWithHash, mut flags: ExecutionFlags) -
                     max_fee: Fee(tx.max_fee),
                     nonce: Nonce::default(),
                     sender_address: to_blk_address(tx.sender_address),
-                    signature: TransactionSignature(tx.signature),
+                    signature: TransactionSignature(tx.signature.into()),
                     class_hash: ClassHash(tx.class_hash),
                 }),
 
@@ -341,7 +343,7 @@ pub fn to_executor_tx(mut tx: ExecutableTxWithHash, mut flags: ExecutionFlags) -
                     max_fee: Fee(tx.max_fee),
                     nonce: Nonce(tx.nonce),
                     sender_address: to_blk_address(tx.sender_address),
-                    signature: TransactionSignature(tx.signature),
+                    signature: TransactionSignature(tx.signature.into()),
                     class_hash: ClassHash(tx.class_hash),
                 }),
 
@@ -352,7 +354,7 @@ pub fn to_executor_tx(mut tx: ExecutableTxWithHash, mut flags: ExecutionFlags) -
                         max_fee: Fee(tx.max_fee),
                         nonce: Nonce(tx.nonce),
                         sender_address: to_blk_address(tx.sender_address),
-                        signature: TransactionSignature(signature),
+                        signature: TransactionSignature(signature.into()),
                         class_hash: ClassHash(tx.class_hash),
                         compiled_class_hash: CompiledClassHash(tx.compiled_class_hash),
                     })
@@ -371,7 +373,7 @@ pub fn to_executor_tx(mut tx: ExecutableTxWithHash, mut flags: ExecutionFlags) -
                         tip: Tip(tx.tip),
                         nonce: Nonce(tx.nonce),
                         sender_address: to_blk_address(tx.sender_address),
-                        signature: TransactionSignature(signature),
+                        signature: TransactionSignature(signature.into()),
                         class_hash: ClassHash(tx.class_hash),
                         account_deployment_data: AccountDeploymentData(account_deploy_data),
                         compiled_class_hash: CompiledClassHash(tx.compiled_class_hash),
@@ -480,6 +482,7 @@ pub fn block_context_from_envs(block_env: &BlockEnv, cfg_env: &CfgEnv) -> BlockC
     // re-execution with `snos`. Otherwise, there might be a mismatch between the calculated
     // fees.
     let sn_version: StarknetVersion = block_env.starknet_version.try_into().expect("valid version");
+    println!("Using starknet version: {}", sn_version);
     let mut versioned_constants = VersionedConstants::get(&sn_version).unwrap().clone();
     apply_versioned_constant_overrides(cfg_env, &mut versioned_constants);
 
@@ -487,8 +490,22 @@ pub fn block_context_from_envs(block_env: &BlockEnv, cfg_env: &CfgEnv) -> BlockC
 }
 
 pub(super) fn state_update_from_cached_state(state: &CachedState<'_>) -> StateUpdatesWithClasses {
-    let state_diff = state.inner.lock().cached_state.to_state_diff().unwrap();
+    // TODO: stateful compression should be applied conditionally
+    //
+    // The state diff here has been applied stateful compression
+    println!("Applying stateful compression");
+    let alias_contract_address = contract_address!("0x2");
+    allocate_aliases_in_storage(&mut state.inner.lock().cached_state, alias_contract_address)
+        .unwrap();
 
+    let state_diff = state.inner.lock().cached_state.to_state_diff().unwrap().state_maps;
+    let state_diff =
+        compress(&state_diff, &state.inner.lock().cached_state, alias_contract_address);
+
+    assert!(state_diff.is_ok(), "failed to compress state diff");
+
+    let state_diff = state.inner.lock().cached_state.to_state_diff().unwrap().state_maps;
+    std::fs::write("state_diff.json", format!("{:#?}", state_diff)).unwrap();
     let mut declared_contract_classes: BTreeMap<
         katana_primitives::class::ClassHash,
         katana_primitives::class::ContractClass,
@@ -499,7 +516,7 @@ pub(super) fn state_update_from_cached_state(state: &CachedState<'_>) -> StateUp
 
     // TODO: Legacy class shouldn't have a compiled class hash. This is a hack we added
     // in our fork of `blockifier. Check if it's possible to remove it now.
-    for (class_hash, compiled_hash) in state_diff.state_maps.compiled_class_hashes {
+    for (class_hash, compiled_hash) in state_diff.compiled_class_hashes {
         let hash = class_hash.0;
         let class = state.class(hash).unwrap().expect("must exist if declared");
 
@@ -514,7 +531,6 @@ pub(super) fn state_update_from_cached_state(state: &CachedState<'_>) -> StateUp
 
     let nonce_updates =
         state_diff
-            .state_maps
             .nonces
             .into_iter()
             .map(|(key, value)| (to_address(key), value.0))
@@ -523,7 +539,7 @@ pub(super) fn state_update_from_cached_state(state: &CachedState<'_>) -> StateUp
                 katana_primitives::contract::Nonce,
             >>();
 
-    let storage_updates = state_diff.state_maps.storage.into_iter().fold(
+    let storage_updates = state_diff.storage.into_iter().fold(
         BTreeMap::new(),
         |mut storage, ((addr, key), value)| {
             let entry: &mut BTreeMap<
@@ -537,7 +553,6 @@ pub(super) fn state_update_from_cached_state(state: &CachedState<'_>) -> StateUp
 
     let deployed_contracts =
         state_diff
-            .state_maps
             .class_hashes
             .into_iter()
             .map(|(key, value)| (to_address(key), value.0))

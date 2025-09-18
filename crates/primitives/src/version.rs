@@ -9,7 +9,7 @@
 /// >=0.13.4. Check out the [release notes] for more info.
 ///
 /// [release notes]: https://community.starknet.io/t/cairo-v2-10-0-is-out/115362
-pub const CURRENT_STARKNET_VERSION: StarknetVersion = StarknetVersion::new([0, 13, 4, 0]);
+pub const CURRENT_STARKNET_VERSION: StarknetVersion = StarknetVersion::new([0, 14, 0, 0]);
 
 /// Starknet protocol version.
 #[derive(Debug, Copy, Clone, PartialEq, Eq)]
