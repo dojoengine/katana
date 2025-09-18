@@ -6,18 +6,14 @@ use katana_primitives::class::{
 };
 use katana_primitives::contract::Nonce;
 use katana_primitives::da::DataAvailabilityMode;
-use katana_primitives::fee::{
-    AllResourceBoundsMapping, L1GasResourceBoundsMapping, ResourceBounds, ResourceBoundsMapping,
-    Tip,
-};
+use katana_primitives::fee::{ResourceBoundsMapping, Tip};
 use katana_primitives::transaction::{
     DeclareTx, DeclareTxV3, DeclareTxWithClass, DeployAccountTx, DeployAccountTxV3, InvokeTx,
     InvokeTxV3, TxHash, TxType,
 };
 use katana_primitives::utils::get_contract_address;
 use katana_primitives::{ContractAddress, Felt};
-use serde::{de, Deserialize, Deserializer, Serialize, Serializer};
-use serde_utils::{deserialize_u128, deserialize_u64, serialize_as_hex};
+use serde::{de, Deserialize, Deserializer, Serialize};
 
 use crate::class::SierraClass;
 
@@ -62,10 +58,6 @@ pub struct UntypedBroadcastedTx {
     pub signature: Vec<Felt>,
     pub tip: Tip,
     pub paymaster_data: Vec<Felt>,
-    #[serde(
-        serialize_with = "serialize_resource_bounds_mapping",
-        deserialize_with = "deserialize_resource_bounds_mapping"
-    )]
     pub resource_bounds: ResourceBoundsMapping,
     pub nonce_data_availability_mode: DataAvailabilityMode,
     pub fee_data_availability_mode: DataAvailabilityMode,
@@ -602,111 +594,6 @@ impl<'de> Deserialize<'de> for BroadcastedDeployAccountTx {
     }
 }
 
-#[derive(Debug, Serialize, Deserialize)]
-#[serde(untagged)]
-enum RpcResourceBoundsMapping {
-    Current {
-        #[serde(
-            serialize_with = "serialize_resource_bounds",
-            deserialize_with = "deserialize_resource_bounds"
-        )]
-        l1_gas: ResourceBounds,
-
-        #[serde(
-            serialize_with = "serialize_resource_bounds",
-            deserialize_with = "deserialize_resource_bounds"
-        )]
-        l2_gas: ResourceBounds,
-
-        #[serde(
-            serialize_with = "serialize_resource_bounds",
-            deserialize_with = "deserialize_resource_bounds"
-        )]
-        l1_data_gas: ResourceBounds,
-    },
-
-    Legacy {
-        #[serde(
-            serialize_with = "serialize_resource_bounds",
-            deserialize_with = "deserialize_resource_bounds"
-        )]
-        l1_gas: ResourceBounds,
-
-        #[serde(
-            serialize_with = "serialize_resource_bounds",
-            deserialize_with = "deserialize_resource_bounds"
-        )]
-        l2_gas: ResourceBounds,
-    },
-}
-
-#[derive(Serialize, Deserialize)]
-struct RpcResourceBounds {
-    #[serde(serialize_with = "serialize_as_hex", deserialize_with = "deserialize_u64")]
-    max_amount: u64,
-    #[serde(serialize_with = "serialize_as_hex", deserialize_with = "deserialize_u128")]
-    max_price_per_unit: u128,
-}
-
-fn serialize_resource_bounds_mapping<S: Serializer>(
-    resource_bounds: &ResourceBoundsMapping,
-    serializer: S,
-) -> Result<S::Ok, S::Error> {
-    let rpc_mapping = match resource_bounds {
-        ResourceBoundsMapping::L1Gas(bounds) => RpcResourceBoundsMapping::Legacy {
-            l1_gas: bounds.l1_gas.clone(),
-            l2_gas: bounds.l2_gas.clone(),
-        },
-
-        ResourceBoundsMapping::All(AllResourceBoundsMapping { l1_gas, l2_gas, l1_data_gas }) => {
-            RpcResourceBoundsMapping::Current {
-                l1_gas: l1_gas.clone(),
-                l2_gas: l2_gas.clone(),
-                l1_data_gas: l1_data_gas.clone(),
-            }
-        }
-    };
-
-    rpc_mapping.serialize(serializer)
-}
-
-fn deserialize_resource_bounds_mapping<'de, D: Deserializer<'de>>(
-    deserializer: D,
-) -> Result<ResourceBoundsMapping, D::Error> {
-    let rpc_mapping = RpcResourceBoundsMapping::deserialize(deserializer)?;
-
-    match rpc_mapping {
-        RpcResourceBoundsMapping::Legacy { l1_gas, l2_gas } => {
-            Ok(ResourceBoundsMapping::L1Gas(L1GasResourceBoundsMapping { l1_gas, l2_gas }))
-        }
-        RpcResourceBoundsMapping::Current { l1_gas, l2_gas, l1_data_gas } => {
-            Ok(ResourceBoundsMapping::All(AllResourceBoundsMapping { l1_gas, l2_gas, l1_data_gas }))
-        }
-    }
-}
-
-fn serialize_resource_bounds<S: Serializer>(
-    resource_bounds: &ResourceBounds,
-    serializer: S,
-) -> Result<S::Ok, S::Error> {
-    let helper = RpcResourceBounds {
-        max_amount: resource_bounds.max_amount,
-        max_price_per_unit: resource_bounds.max_price_per_unit,
-    };
-
-    helper.serialize(serializer)
-}
-
-fn deserialize_resource_bounds<'de, D: Deserializer<'de>>(
-    deserializer: D,
-) -> Result<ResourceBounds, D::Error> {
-    let helper = RpcResourceBounds::deserialize(deserializer)?;
-    Ok(ResourceBounds {
-        max_amount: helper.max_amount,
-        max_price_per_unit: helper.max_price_per_unit,
-    })
-}
-
 #[cfg(test)]
 mod tests {
     use assert_matches::assert_matches;
@@ -718,63 +605,8 @@ mod tests {
     use super::*;
     use crate::broadcasted::{
         AddDeclareTransactionResponse, AddDeployAccountTransactionResponse,
-        AddInvokeTransactionResponse, BroadcastedTx, RpcResourceBoundsMapping,
-        UntypedBroadcastedTxError,
+        AddInvokeTransactionResponse, BroadcastedTx, UntypedBroadcastedTxError,
     };
-
-    #[test]
-    fn legacy_rpc_resource_bounds_serde() {
-        let json = json!({
-            "l1_gas": {
-                "max_amount": "0x1",
-                "max_price_per_unit": "0x1"
-            },
-            "l2_gas": {
-                "max_amount": "0x0",
-                "max_price_per_unit": "0x0"
-            }
-        });
-
-        let resource_bounds: RpcResourceBoundsMapping = serde_json::from_value(json).unwrap();
-
-        assert_matches!(resource_bounds, RpcResourceBoundsMapping::Legacy { l1_gas, l2_gas } => {
-            assert_eq!(l1_gas.max_amount, 1);
-            assert_eq!(l1_gas.max_price_per_unit, 1);
-            assert_eq!(l2_gas.max_amount, 0);
-            assert_eq!(l2_gas.max_price_per_unit, 0);
-        });
-    }
-
-    #[test]
-    fn rpc_resource_bounds_serde() {
-        let json = json!({
-            "l2_gas": {
-                "max_amount": "0xa",
-                "max_price_per_unit": "0xb"
-            },
-            "l1_gas": {
-                "max_amount": "0x1",
-                "max_price_per_unit": "0x2"
-            },
-            "l1_data_gas": {
-                "max_amount": "0xabc",
-                "max_price_per_unit": "0x1337"
-            }
-        });
-
-        let resource_bounds: RpcResourceBoundsMapping = serde_json::from_value(json).unwrap();
-
-        assert_matches!(resource_bounds, RpcResourceBoundsMapping::Current {  l2_gas, l1_gas, l1_data_gas } => {
-            assert_eq!(l2_gas.max_amount, 0xa);
-            assert_eq!(l2_gas.max_price_per_unit, 0xb);
-
-            assert_eq!(l1_gas.max_amount, 0x1);
-            assert_eq!(l1_gas.max_price_per_unit, 0x2);
-
-            assert_eq!(l1_data_gas.max_amount, 0xabc);
-            assert_eq!(l1_data_gas.max_price_per_unit, 0x1337);
-        });
-    }
 
     #[test]
     fn untyped_invoke_tx_serde() {

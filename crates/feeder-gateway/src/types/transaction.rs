@@ -1,6 +1,9 @@
 use katana_primitives::class::{ClassHash, CompiledClassHash};
 use katana_primitives::contract::Nonce;
-use katana_primitives::fee::Tip;
+use katana_primitives::fee::{
+    AllResourceBoundsMapping, L1GasResourceBoundsMapping, ResourceBounds, ResourceBoundsMapping,
+    Tip,
+};
 use katana_primitives::transaction::{
     DeclareTx as PrimitiveDeclareTx, DeclareTxV0 as PrimitiveDeclareTxV0,
     DeclareTxV1 as PrimitiveDeclareTxV1, DeclareTxV2 as PrimitiveDeclareTxV2,
@@ -12,7 +15,7 @@ use katana_primitives::transaction::{
     TxWithHash,
 };
 use katana_primitives::{ContractAddress, Felt};
-use serde::Deserialize;
+use serde::{Deserialize, Deserializer};
 
 #[derive(Debug, PartialEq, Eq, Deserialize)]
 pub struct ConfirmedTransaction {
@@ -70,29 +73,6 @@ impl<'de> Deserialize<'de> for DataAvailabilityMode {
     }
 }
 
-// Same reason as `DataAvailabilityMode` above, this struct is also defined because the serde
-// implementation of its primitive counterpart is different.
-#[derive(Debug, Default, PartialEq, Eq, Deserialize)]
-pub struct ResourceBounds {
-    #[serde(deserialize_with = "serde_utils::deserialize_u64")]
-    pub max_amount: u64,
-    #[serde(deserialize_with = "serde_utils::deserialize_u128")]
-    pub max_price_per_unit: u128,
-}
-
-#[derive(Debug, PartialEq, Eq, Deserialize)]
-pub struct ResourceBoundsMapping {
-    #[serde(rename = "L1_GAS")]
-    pub l1_gas: ResourceBounds,
-
-    #[serde(rename = "L2_GAS")]
-    pub l2_gas: ResourceBounds,
-    /// Marked as optional because prior to 0.13.4, L1 data gas is not a required field in the
-    /// resource bounds.
-    #[serde(rename = "L1_DATA_GAS")]
-    pub l1_data_gas: Option<ResourceBounds>,
-}
-
 /// Invoke transaction enum with version-specific variants
 #[derive(Debug, PartialEq, Eq, Deserialize)]
 #[serde(tag = "version")]
@@ -116,6 +96,7 @@ pub struct InvokeTxV3 {
     pub nonce: Nonce,
     pub calldata: Vec<Felt>,
     pub signature: Vec<Felt>,
+    #[serde(deserialize_with = "deserialize_resource_bounds_mapping")]
     pub resource_bounds: ResourceBoundsMapping,
     pub tip: Tip,
     pub paymaster_data: Vec<Felt>,
@@ -152,6 +133,7 @@ pub struct DeclareTxV3 {
     pub signature: Vec<Felt>,
     pub class_hash: ClassHash,
     pub compiled_class_hash: CompiledClassHash,
+    #[serde(deserialize_with = "deserialize_resource_bounds_mapping")]
     pub resource_bounds: ResourceBoundsMapping,
     pub tip: Tip,
     pub paymaster_data: Vec<Felt>,
@@ -191,6 +173,7 @@ pub struct DeployAccountTxV3 {
     pub contract_address: Option<ContractAddress>,
     pub contract_address_salt: Felt,
     pub constructor_calldata: Vec<Felt>,
+    #[serde(deserialize_with = "deserialize_resource_bounds_mapping")]
     pub resource_bounds: ResourceBoundsMapping,
     pub tip: Tip,
     pub paymaster_data: Vec<Felt>,
@@ -270,7 +253,7 @@ impl TryFrom<InvokeTx> for PrimitiveInvokeTx {
                 calldata: tx.calldata,
                 signature: tx.signature,
                 sender_address: tx.sender_address,
-                resource_bounds: tx.resource_bounds.into(),
+                resource_bounds: tx.resource_bounds,
                 account_deployment_data: tx.account_deployment_data,
                 fee_data_availability_mode: tx.fee_data_availability_mode.into(),
                 nonce_data_availability_mode: tx.nonce_data_availability_mode.into(),
@@ -315,7 +298,7 @@ impl TryFrom<DeclareTx> for PrimitiveDeclareTx {
                 signature: tx.signature,
                 class_hash: tx.class_hash,
                 compiled_class_hash: tx.compiled_class_hash,
-                resource_bounds: tx.resource_bounds.into(),
+                resource_bounds: tx.resource_bounds,
                 tip: tx.tip.into(),
                 paymaster_data: tx.paymaster_data,
                 account_deployment_data: tx.account_deployment_data,
@@ -352,7 +335,7 @@ impl TryFrom<DeployAccountTx> for PrimitiveDeployAccountTx {
                     contract_address: tx.contract_address.unwrap_or_default(),
                     contract_address_salt: tx.contract_address_salt,
                     constructor_calldata: tx.constructor_calldata,
-                    resource_bounds: tx.resource_bounds.into(),
+                    resource_bounds: tx.resource_bounds,
                     tip: tx.tip.into(),
                     paymaster_data: tx.paymaster_data,
                     nonce_data_availability_mode: tx.nonce_data_availability_mode.into(),
@@ -387,38 +370,34 @@ impl From<DataAvailabilityMode> for katana_primitives::da::DataAvailabilityMode 
     }
 }
 
-impl From<ResourceBoundsMapping> for katana_primitives::fee::ResourceBoundsMapping {
-    fn from(bounds: ResourceBoundsMapping) -> Self {
-        use katana_primitives::fee::{
-            AllResourceBoundsMapping, L1GasResourceBoundsMapping, ResourceBounds,
-        };
+fn deserialize_resource_bounds_mapping<'de, D>(
+    deserializer: D,
+) -> Result<ResourceBoundsMapping, D::Error>
+where
+    D: Deserializer<'de>,
+{
+    #[derive(Deserialize)]
+    struct FeederGatewayResourceBounds {
+        #[serde(rename = "L1_GAS")]
+        l1_gas: ResourceBounds,
+        #[serde(rename = "L2_GAS")]
+        l2_gas: ResourceBounds,
+        #[serde(rename = "L1_DATA_GAS")]
+        l1_data_gas: Option<ResourceBounds>,
+    }
 
-        if let Some(l1_data_gas) = bounds.l1_data_gas {
-            Self::All(AllResourceBoundsMapping {
-                l1_gas: ResourceBounds {
-                    max_amount: bounds.l1_gas.max_amount,
-                    max_price_per_unit: bounds.l1_gas.max_price_per_unit,
-                },
-                l2_gas: ResourceBounds {
-                    max_amount: bounds.l2_gas.max_amount,
-                    max_price_per_unit: bounds.l2_gas.max_price_per_unit,
-                },
-                l1_data_gas: ResourceBounds {
-                    max_amount: l1_data_gas.max_amount,
-                    max_price_per_unit: l1_data_gas.max_price_per_unit,
-                },
-            })
-        } else {
-            Self::L1Gas(L1GasResourceBoundsMapping {
-                l1_gas: ResourceBounds {
-                    max_amount: bounds.l1_gas.max_amount,
-                    max_price_per_unit: bounds.l1_gas.max_price_per_unit,
-                },
-                l2_gas: ResourceBounds {
-                    max_amount: bounds.l2_gas.max_amount,
-                    max_price_per_unit: bounds.l2_gas.max_price_per_unit,
-                },
-            })
-        }
+    let bounds = FeederGatewayResourceBounds::deserialize(deserializer)?;
+
+    if let Some(l1_data_gas) = bounds.l1_data_gas {
+        Ok(ResourceBoundsMapping::All(AllResourceBoundsMapping {
+            l1_gas: bounds.l1_gas,
+            l2_gas: bounds.l2_gas,
+            l1_data_gas,
+        }))
+    } else {
+        Ok(ResourceBoundsMapping::L1Gas(L1GasResourceBoundsMapping {
+            l1_gas: bounds.l1_gas,
+            l2_gas: bounds.l2_gas,
+        }))
     }
 }

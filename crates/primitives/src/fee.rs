@@ -11,37 +11,30 @@ impl ResourceBounds {
     pub const ZERO: Self = Self { max_amount: 0, max_price_per_unit: 0 };
 }
 
-// Aliased to match the feeder gateway API
 #[derive(Debug, Clone, PartialEq, Eq, Default)]
 #[cfg_attr(feature = "arbitrary", derive(::arbitrary::Arbitrary))]
 #[cfg_attr(feature = "serde", derive(serde::Serialize, serde::Deserialize))]
 pub struct AllResourceBoundsMapping {
     /// L1 gas bounds - covers L2→L1 messages sent by the transaction
-    #[serde(alias = "L1_GAS")]
     pub l1_gas: ResourceBounds,
     /// L2 gas bounds - covers L2 resources including computation, tx payload, event emission, code
     /// size, etc. Units: 1 Cairo step = 100 L2 gas
-    #[serde(alias = "L2_GAS")]
     pub l2_gas: ResourceBounds,
     /// L1 data gas (blob gas) bounds - covers the cost of submitting state diffs as blobs on L1
-    #[serde(alias = "L1_DATA_GAS")]
     pub l1_data_gas: ResourceBounds,
 }
 
-// Aliased to match the feeder gateway API
 #[derive(Debug, Clone, PartialEq, Eq, Default)]
 #[cfg_attr(feature = "arbitrary", derive(::arbitrary::Arbitrary))]
 #[cfg_attr(feature = "serde", derive(serde::Serialize, serde::Deserialize))]
 pub struct L1GasResourceBoundsMapping {
     /// L1 gas bounds - covers L2→L1 messages sent by the transaction
-    #[serde(alias = "L1_GAS")]
     pub l1_gas: ResourceBounds,
 
     /// L2 gas bounds - covers L2 resources including computation, tx payload, event emission, code
     /// size, etc. Units: 1 Cairo step = 100 L2 gas.
     ///
     /// Pre 0.13.3. this field is signed but never used.
-    #[serde(alias = "L2_GAS")]
     pub l2_gas: ResourceBounds,
 }
 
@@ -193,6 +186,7 @@ impl<'de> serde::Deserialize<'de> for ResourceBounds {
         use std::fmt;
 
         use serde::de::{self, MapAccess, Visitor};
+        use serde_json::Value;
 
         if deserializer.is_human_readable() {
             struct __Visitor;
@@ -214,9 +208,9 @@ impl<'de> serde::Deserialize<'de> for ResourceBounds {
                                 if max_amount.is_some() {
                                     return Err(de::Error::duplicate_field("max_amount"));
                                 }
-                                let value: serde_json::Value = map.next_value()?;
+                                let value: Value = map.next_value()?;
                                 max_amount = Some(match value {
-                                    serde_json::Value::String(s) => {
+                                    Value::String(s) => {
                                         if let Some(hex) = s.strip_prefix("0x") {
                                             u64::from_str_radix(hex, 16)
                                                 .map_err(de::Error::custom)?
@@ -224,23 +218,26 @@ impl<'de> serde::Deserialize<'de> for ResourceBounds {
                                             s.parse().map_err(de::Error::custom)?
                                         }
                                     }
-                                    serde_json::Value::Number(n) => n
+                                    Value::Number(n) => n
                                         .as_u64()
                                         .ok_or_else(|| de::Error::custom("invalid u64"))?,
                                     _ => {
                                         return Err(de::Error::custom(
-                                            "expected string or number for max_amount",
+                                            "expected 0x-prefix hex string or number for \
+                                             max_amount",
                                         ))
                                     }
                                 });
                             }
+
                             "max_price_per_unit" => {
                                 if max_price_per_unit.is_some() {
                                     return Err(de::Error::duplicate_field("max_price_per_unit"));
                                 }
-                                let value: serde_json::Value = map.next_value()?;
+
+                                let value: Value = map.next_value()?;
                                 max_price_per_unit = Some(match value {
-                                    serde_json::Value::String(s) => {
+                                    Value::String(s) => {
                                         if let Some(hex) = s.strip_prefix("0x") {
                                             u128::from_str_radix(hex, 16)
                                                 .map_err(de::Error::custom)?
@@ -248,7 +245,7 @@ impl<'de> serde::Deserialize<'de> for ResourceBounds {
                                             s.parse().map_err(de::Error::custom)?
                                         }
                                     }
-                                    serde_json::Value::Number(n) => {
+                                    Value::Number(n) => {
                                         if let Some(u) = n.as_u64() {
                                             u as u128
                                         } else {
@@ -257,13 +254,15 @@ impl<'de> serde::Deserialize<'de> for ResourceBounds {
                                     }
                                     _ => {
                                         return Err(de::Error::custom(
-                                            "expected string or number for max_price_per_unit",
+                                            "expected 0x-prefix hex string or number for \
+                                             max_price_per_unit",
                                         ))
                                     }
                                 });
                             }
+
                             _ => {
-                                let _: serde_json::Value = map.next_value()?;
+                                let _ = map.next_value::<serde::de::IgnoredAny>()?;
                             }
                         }
                     }
@@ -452,45 +451,62 @@ mod tests {
     #[cfg(feature = "serde")]
     #[test]
     fn resource_bounds_mapping_json_serde() {
-        // Test L1Gas variant JSON serialization
-        let l1_gas_mapping = ResourceBoundsMapping::L1Gas(L1GasResourceBoundsMapping {
+        use serde_json::json;
+
+        // -------------------------------------------
+        // Legacy resource bounds mapping
+
+        let json = json!({
+            "l2_gas": {
+                "max_amount": "0x7d0",
+                "max_price_per_unit": "0xc8"
+            },
+            "l1_gas": {
+                "max_amount": "0x3e8",
+                "max_price_per_unit": "0x64"
+            }
+        });
+
+        let bounds = ResourceBoundsMapping::L1Gas(L1GasResourceBoundsMapping {
             l1_gas: ResourceBounds { max_amount: 1000, max_price_per_unit: 100 },
             l2_gas: ResourceBounds { max_amount: 2000, max_price_per_unit: 200 },
         });
 
-        let json = serde_json::to_string(&l1_gas_mapping).unwrap();
-        let expected = r#"{"l1_gas":{"max_amount":1000,"max_price_per_unit":100},"l2_gas":{"max_amount":2000,"max_price_per_unit":200},"l1_data_gas":null}"#;
-        assert_eq!(json, expected);
+        let serialized = serde_json::to_value(&bounds).unwrap();
+        similar_asserts::assert_eq!(json, serialized);
 
-        // Test deserialization back to L1Gas variant
-        let deserialized: ResourceBoundsMapping = serde_json::from_str(&json).unwrap();
-        assert_eq!(deserialized, l1_gas_mapping);
+        let deserialized: ResourceBoundsMapping = serde_json::from_value(json).unwrap();
+        assert_eq!(deserialized, bounds);
 
-        // Test All variant JSON serialization
-        let all_mapping = ResourceBoundsMapping::All(AllResourceBoundsMapping {
-            l1_gas: ResourceBounds { max_amount: 1000, max_price_per_unit: 100 },
+        // -------------------------------------------
+        // All resource bounds mapping
+
+        let json = json!({
+            "l2_gas": {
+                "max_amount": "0x7d0",
+                "max_price_per_unit": "0xc8"
+            },
+            "l1_gas": {
+                "max_amount": "0x3e8",
+                "max_price_per_unit": "0x64"
+            },
+            "l1_data_gas": {
+                "max_amount": "0xbb8",
+                "max_price_per_unit": "0x12c"
+            }
+        });
+
+        let bounds = ResourceBoundsMapping::All(AllResourceBoundsMapping {
             l2_gas: ResourceBounds { max_amount: 2000, max_price_per_unit: 200 },
+            l1_gas: ResourceBounds { max_amount: 1000, max_price_per_unit: 100 },
             l1_data_gas: ResourceBounds { max_amount: 3000, max_price_per_unit: 300 },
         });
 
-        let json = serde_json::to_string(&all_mapping).unwrap();
-        let expected = r#"{"l1_gas":{"max_amount":1000,"max_price_per_unit":100},"l2_gas":{"max_amount":2000,"max_price_per_unit":200},"l1_data_gas":{"max_amount":3000,"max_price_per_unit":300}}"#;
-        assert_eq!(json, expected);
+        let serialized = serde_json::to_value(&bounds).unwrap();
+        similar_asserts::assert_eq!(json, serialized);
 
-        // Test deserialization back to All variant
-        let deserialized: ResourceBoundsMapping = serde_json::from_str(&json).unwrap();
-        assert_eq!(deserialized, all_mapping);
-
-        // Test deserializing JSON with aliases (uppercase)
-        let json_with_aliases = r#"{"L1_GAS":{"max_amount":1000,"max_price_per_unit":100},"L2_GAS":{"max_amount":2000,"max_price_per_unit":200},"L1_DATA_GAS":{"max_amount":3000,"max_price_per_unit":300}}"#;
-        let deserialized: ResourceBoundsMapping = serde_json::from_str(&json_with_aliases).unwrap();
-        assert_eq!(deserialized, all_mapping);
-
-        // Test deserializing JSON without l1_data_gas (should be L1Gas variant)
-        let json_without_data_gas = r#"{"l1_gas":{"max_amount":1000,"max_price_per_unit":100},"l2_gas":{"max_amount":2000,"max_price_per_unit":200}}"#;
-        let deserialized: ResourceBoundsMapping =
-            serde_json::from_str(&json_without_data_gas).unwrap();
-        assert!(matches!(deserialized, ResourceBoundsMapping::L1Gas(_)));
+        let deserialized: ResourceBoundsMapping = serde_json::from_value(json).unwrap();
+        assert_eq!(deserialized, bounds);
     }
 
     #[cfg(feature = "serde")]
