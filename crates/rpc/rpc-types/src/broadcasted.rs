@@ -7,7 +7,8 @@ use katana_primitives::class::{
 use katana_primitives::contract::Nonce;
 use katana_primitives::da::DataAvailabilityMode;
 use katana_primitives::fee::{
-    AllResourceBoundsMapping, ResourceBounds, ResourceBoundsMapping, Tip,
+    AllResourceBoundsMapping, L1GasResourceBoundsMapping, ResourceBounds, ResourceBoundsMapping,
+    Tip,
 };
 use katana_primitives::transaction::{
     DeclareTx, DeclareTxV3, DeclareTxWithClass, DeployAccountTx, DeployAccountTxV3, InvokeTx,
@@ -652,9 +653,9 @@ fn serialize_resource_bounds_mapping<S: Serializer>(
     serializer: S,
 ) -> Result<S::Ok, S::Error> {
     let rpc_mapping = match resource_bounds {
-        ResourceBoundsMapping::L1Gas(l1_gas) => RpcResourceBoundsMapping::Legacy {
-            l1_gas: l1_gas.clone(),
-            l2_gas: ResourceBounds::default(),
+        ResourceBoundsMapping::L1Gas(bounds) => RpcResourceBoundsMapping::Legacy {
+            l1_gas: bounds.l1_gas.clone(),
+            l2_gas: bounds.l2_gas.clone(),
         },
 
         ResourceBoundsMapping::All(AllResourceBoundsMapping { l1_gas, l2_gas, l1_data_gas }) => {
@@ -675,7 +676,9 @@ fn deserialize_resource_bounds_mapping<'de, D: Deserializer<'de>>(
     let rpc_mapping = RpcResourceBoundsMapping::deserialize(deserializer)?;
 
     match rpc_mapping {
-        RpcResourceBoundsMapping::Legacy { l1_gas, .. } => Ok(ResourceBoundsMapping::L1Gas(l1_gas)),
+        RpcResourceBoundsMapping::Legacy { l1_gas, l2_gas } => {
+            Ok(ResourceBoundsMapping::L1Gas(L1GasResourceBoundsMapping { l1_gas, l2_gas }))
+        }
         RpcResourceBoundsMapping::Current { l1_gas, l2_gas, l1_data_gas } => {
             Ok(ResourceBoundsMapping::All(AllResourceBoundsMapping { l1_gas, l2_gas, l1_data_gas }))
         }
@@ -940,8 +943,10 @@ mod tests {
         assert_eq!(untyped.fee_data_availability_mode, DataAvailabilityMode::L1);
         assert_eq!(untyped.nonce_data_availability_mode, DataAvailabilityMode::L1);
         assert_matches!(&untyped.resource_bounds, ResourceBoundsMapping::L1Gas(bounds) => {
-            assert_eq!(bounds.max_amount, 0x100);
-            assert_eq!(bounds.max_price_per_unit, 0x200);
+            assert_eq!(bounds.l1_gas.max_amount, 0x100);
+            assert_eq!(bounds.l1_gas.max_price_per_unit, 0x200);
+            assert_eq!(bounds.l2_gas.max_amount, 0x0);
+            assert_eq!(bounds.l2_gas.max_price_per_unit, 0x0);
         });
 
         // Tx specific fields
@@ -996,8 +1001,8 @@ mod tests {
                     "max_price_per_unit": "0x200"
                 },
                 "l2_gas": {
-                    "max_amount": "0x0",
-                    "max_price_per_unit": "0x0"
+                    "max_amount": "0x123",
+                    "max_price_per_unit": "0x1337"
                 }
             },
             "nonce_data_availability_mode": "L1",
@@ -1021,8 +1026,10 @@ mod tests {
         assert_eq!(untyped.fee_data_availability_mode, DataAvailabilityMode::L1);
         assert_eq!(untyped.nonce_data_availability_mode, DataAvailabilityMode::L1);
         assert_matches!(&untyped.resource_bounds, ResourceBoundsMapping::L1Gas(bounds) => {
-            assert_eq!(bounds.max_amount, 0x100);
-            assert_eq!(bounds.max_price_per_unit, 0x200);
+            assert_eq!(bounds.l1_gas.max_amount, 0x100);
+            assert_eq!(bounds.l1_gas.max_price_per_unit, 0x200);
+            assert_eq!(bounds.l2_gas.max_amount, 0x123);
+            assert_eq!(bounds.l2_gas.max_price_per_unit, 0x1337);
         });
 
         // Tx specific fields

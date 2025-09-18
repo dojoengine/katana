@@ -1,6 +1,5 @@
 #[derive(Debug, Clone, PartialEq, Eq, Default)]
 #[cfg_attr(feature = "arbitrary", derive(::arbitrary::Arbitrary))]
-#[cfg_attr(feature = "serde", derive(serde::Serialize, serde::Deserialize))]
 pub struct ResourceBounds {
     /// The max amount of the resource that can be used in the tx
     pub max_amount: u64,
@@ -71,133 +70,6 @@ pub enum ResourceBoundsMapping {
     ///
     /// The required format as of Starknet v0.14.0.
     All(AllResourceBoundsMapping),
-}
-
-#[cfg(feature = "serde")]
-impl serde::Serialize for ResourceBoundsMapping {
-    fn serialize<S>(&self, serializer: S) -> Result<S::Ok, S::Error>
-    where
-        S: serde::Serializer,
-    {
-        use serde::ser::SerializeStruct;
-        
-        if serializer.is_human_readable() {
-            // For JSON: serialize as a unified object with all possible fields
-            let mut state = serializer.serialize_struct("ResourceBoundsMapping", 3)?;
-            
-            match self {
-                ResourceBoundsMapping::L1Gas(mapping) => {
-                    state.serialize_field("l1_gas", &mapping.l1_gas)?;
-                    state.serialize_field("l2_gas", &mapping.l2_gas)?;
-                    // L1 data gas is not present in L1Gas variant, serialize as None
-                    state.serialize_field::<Option<ResourceBounds>>("l1_data_gas", &None)?;
-                }
-                ResourceBoundsMapping::All(mapping) => {
-                    state.serialize_field("l1_gas", &mapping.l1_gas)?;
-                    state.serialize_field("l2_gas", &mapping.l2_gas)?;
-                    state.serialize_field("l1_data_gas", &Some(&mapping.l1_data_gas))?;
-                }
-            }
-            
-            state.end()
-        } else {
-            // For binary formats: use explicit enum tagging
-            match self {
-                ResourceBoundsMapping::L1Gas(v) => {
-                    serializer.serialize_newtype_variant(
-                        "ResourceBoundsMapping",
-                        0,
-                        "L1Gas",
-                        v
-                    )
-                }
-                ResourceBoundsMapping::All(v) => {
-                    serializer.serialize_newtype_variant(
-                        "ResourceBoundsMapping",
-                        1,
-                        "All",
-                        v
-                    )
-                }
-            }
-        }
-    }
-}
-
-#[cfg(feature = "serde")]
-impl<'de> serde::Deserialize<'de> for ResourceBoundsMapping {
-    fn deserialize<D>(deserializer: D) -> Result<Self, D::Error>
-    where
-        D: serde::Deserializer<'de>,
-    {
-        if deserializer.is_human_readable() {
-            // For JSON: deserialize from unified object format
-            #[derive(serde::Deserialize)]
-            struct UnifiedResourceBounds {
-                #[serde(alias = "L1_GAS")]
-                l1_gas: ResourceBounds,
-                #[serde(alias = "L2_GAS")]
-                l2_gas: ResourceBounds,
-                #[serde(alias = "L1_DATA_GAS")]
-                l1_data_gas: Option<ResourceBounds>,
-            }
-            
-            let unified = UnifiedResourceBounds::deserialize(deserializer)?;
-            
-            // If l1_data_gas is present, it's the All variant
-            if let Some(l1_data_gas) = unified.l1_data_gas {
-                Ok(ResourceBoundsMapping::All(AllResourceBoundsMapping {
-                    l1_gas: unified.l1_gas,
-                    l2_gas: unified.l2_gas,
-                    l1_data_gas,
-                }))
-            } else {
-                // Otherwise it's the L1Gas variant
-                Ok(ResourceBoundsMapping::L1Gas(L1GasResourceBoundsMapping {
-                    l1_gas: unified.l1_gas,
-                    l2_gas: unified.l2_gas,
-                }))
-            }
-        } else {
-            // For binary formats: use standard enum deserialization
-            use serde::de::{self, Visitor, EnumAccess, VariantAccess};
-            use std::fmt;
-            
-            struct ResourceBoundsMappingVisitor;
-            
-            impl<'de> Visitor<'de> for ResourceBoundsMappingVisitor {
-                type Value = ResourceBoundsMapping;
-                
-                fn expecting(&self, formatter: &mut fmt::Formatter) -> fmt::Result {
-                    formatter.write_str("ResourceBoundsMapping enum")
-                }
-                
-                fn visit_enum<A>(self, data: A) -> Result<Self::Value, A::Error>
-                where
-                    A: EnumAccess<'de>,
-                {
-                    let (variant_idx, variant) = data.variant::<u32>()?;
-                    match variant_idx {
-                        0 => {
-                            let value = variant.newtype_variant::<L1GasResourceBoundsMapping>()?;
-                            Ok(ResourceBoundsMapping::L1Gas(value))
-                        }
-                        1 => {
-                            let value = variant.newtype_variant::<AllResourceBoundsMapping>()?;
-                            Ok(ResourceBoundsMapping::All(value))
-                        }
-                        _ => Err(de::Error::custom("invalid variant index"))
-                    }
-                }
-            }
-            
-            deserializer.deserialize_enum(
-                "ResourceBoundsMapping",
-                &["L1Gas", "All"],
-                ResourceBoundsMappingVisitor
-            )
-        }
-    }
 }
 
 #[derive(Debug, Default, Clone, Copy, PartialEq, Eq)]
@@ -292,6 +164,247 @@ impl<'de> serde::Deserialize<'de> for Tip {
     }
 }
 
+#[cfg(feature = "serde")]
+impl serde::Serialize for ResourceBounds {
+    fn serialize<S: serde::Serializer>(&self, serializer: S) -> Result<S::Ok, S::Error> {
+        use serde::ser::SerializeStruct;
+
+        if serializer.is_human_readable() {
+            let mut state = serializer.serialize_struct("ResourceBounds", 2)?;
+            state.serialize_field("max_amount", &format!("{:#x}", self.max_amount))?;
+            state.serialize_field(
+                "max_price_per_unit",
+                &format!("{:#x}", self.max_price_per_unit),
+            )?;
+            state.end()
+        } else {
+            let mut state = serializer.serialize_struct("ResourceBounds", 2)?;
+            state.serialize_field("max_amount", &self.max_amount)?;
+            state.serialize_field("max_price_per_unit", &self.max_price_per_unit)?;
+            state.end()
+        }
+    }
+}
+
+#[cfg(feature = "serde")]
+impl<'de> serde::Deserialize<'de> for ResourceBounds {
+    fn deserialize<D: serde::Deserializer<'de>>(deserializer: D) -> Result<Self, D::Error> {
+        use std::fmt;
+
+        use serde::de::{self, MapAccess, Visitor};
+
+        if deserializer.is_human_readable() {
+            struct __Visitor;
+
+            impl<'de> Visitor<'de> for __Visitor {
+                type Value = ResourceBounds;
+
+                fn expecting(&self, formatter: &mut fmt::Formatter<'_>) -> fmt::Result {
+                    formatter.write_str("struct ResourceBounds")
+                }
+
+                fn visit_map<A: MapAccess<'de>>(self, mut map: A) -> Result<Self::Value, A::Error> {
+                    let mut max_amount = None;
+                    let mut max_price_per_unit = None;
+
+                    while let Some(key) = map.next_key::<String>()? {
+                        match key.as_str() {
+                            "max_amount" => {
+                                if max_amount.is_some() {
+                                    return Err(de::Error::duplicate_field("max_amount"));
+                                }
+                                let value: serde_json::Value = map.next_value()?;
+                                max_amount = Some(match value {
+                                    serde_json::Value::String(s) => {
+                                        if let Some(hex) = s.strip_prefix("0x") {
+                                            u64::from_str_radix(hex, 16)
+                                                .map_err(de::Error::custom)?
+                                        } else {
+                                            s.parse().map_err(de::Error::custom)?
+                                        }
+                                    }
+                                    serde_json::Value::Number(n) => n
+                                        .as_u64()
+                                        .ok_or_else(|| de::Error::custom("invalid u64"))?,
+                                    _ => {
+                                        return Err(de::Error::custom(
+                                            "expected string or number for max_amount",
+                                        ))
+                                    }
+                                });
+                            }
+                            "max_price_per_unit" => {
+                                if max_price_per_unit.is_some() {
+                                    return Err(de::Error::duplicate_field("max_price_per_unit"));
+                                }
+                                let value: serde_json::Value = map.next_value()?;
+                                max_price_per_unit = Some(match value {
+                                    serde_json::Value::String(s) => {
+                                        if let Some(hex) = s.strip_prefix("0x") {
+                                            u128::from_str_radix(hex, 16)
+                                                .map_err(de::Error::custom)?
+                                        } else {
+                                            s.parse().map_err(de::Error::custom)?
+                                        }
+                                    }
+                                    serde_json::Value::Number(n) => {
+                                        if let Some(u) = n.as_u64() {
+                                            u as u128
+                                        } else {
+                                            return Err(de::Error::custom("invalid u128"));
+                                        }
+                                    }
+                                    _ => {
+                                        return Err(de::Error::custom(
+                                            "expected string or number for max_price_per_unit",
+                                        ))
+                                    }
+                                });
+                            }
+                            _ => {
+                                let _: serde_json::Value = map.next_value()?;
+                            }
+                        }
+                    }
+
+                    let max_amount =
+                        max_amount.ok_or_else(|| de::Error::missing_field("max_amount"))?;
+                    let max_price_per_unit = max_price_per_unit
+                        .ok_or_else(|| de::Error::missing_field("max_price_per_unit"))?;
+
+                    Ok(ResourceBounds { max_amount, max_price_per_unit })
+                }
+            }
+
+            deserializer.deserialize_struct(
+                "ResourceBounds",
+                &["max_amount", "max_price_per_unit"],
+                __Visitor,
+            )
+        } else {
+            #[derive(serde::Deserialize)]
+            struct ResourceBoundsBinary {
+                max_amount: u64,
+                max_price_per_unit: u128,
+            }
+
+            let binary = ResourceBoundsBinary::deserialize(deserializer)?;
+            Ok(ResourceBounds {
+                max_amount: binary.max_amount,
+                max_price_per_unit: binary.max_price_per_unit,
+            })
+        }
+    }
+}
+
+#[cfg(feature = "serde")]
+impl serde::Serialize for ResourceBoundsMapping {
+    fn serialize<S: serde::Serializer>(&self, serializer: S) -> Result<S::Ok, S::Error> {
+        use serde::ser::SerializeStruct;
+
+        // For human readable formats (primarily targetting JSON), serialize as a unified
+        // object with all possible fields.
+        if serializer.is_human_readable() {
+            let mut state = serializer.serialize_struct("ResourceBoundsMapping", 3)?;
+
+            match self {
+                ResourceBoundsMapping::L1Gas(mapping) => {
+                    state.serialize_field("l1_gas", &mapping.l1_gas)?;
+                    state.serialize_field("l2_gas", &mapping.l2_gas)?;
+                }
+                ResourceBoundsMapping::All(mapping) => {
+                    state.serialize_field("l1_gas", &mapping.l1_gas)?;
+                    state.serialize_field("l2_gas", &mapping.l2_gas)?;
+                    state.serialize_field("l1_data_gas", &mapping.l1_data_gas)?;
+                }
+            }
+
+            state.end()
+        }
+        // For binary formats, use explicit enum tagging:
+        //
+        // * ResourceBoundsMapping::L1Gas = 0
+        // * ResourceBoundsMapping::All = 1
+        else {
+            match self {
+                ResourceBoundsMapping::L1Gas(v) => {
+                    serializer.serialize_newtype_variant("ResourceBoundsMapping", 0, "L1Gas", v)
+                }
+                ResourceBoundsMapping::All(v) => {
+                    serializer.serialize_newtype_variant("ResourceBoundsMapping", 1, "All", v)
+                }
+            }
+        }
+    }
+}
+
+#[cfg(feature = "serde")]
+impl<'de> serde::Deserialize<'de> for ResourceBoundsMapping {
+    fn deserialize<D: serde::Deserializer<'de>>(deserializer: D) -> Result<Self, D::Error> {
+        use std::fmt;
+
+        use serde::de::{self, EnumAccess, VariantAccess, Visitor};
+
+        if deserializer.is_human_readable() {
+            // For JSON: deserialize from unified object format
+            #[derive(serde::Deserialize)]
+            struct UnifiedResourceBounds {
+                l1_gas: ResourceBounds,
+                l2_gas: ResourceBounds,
+                l1_data_gas: Option<ResourceBounds>,
+            }
+
+            let unified = UnifiedResourceBounds::deserialize(deserializer)?;
+
+            // If l1_data_gas is present, it's the All variant
+            if let Some(l1_data_gas) = unified.l1_data_gas {
+                Ok(ResourceBoundsMapping::All(AllResourceBoundsMapping {
+                    l1_gas: unified.l1_gas,
+                    l2_gas: unified.l2_gas,
+                    l1_data_gas,
+                }))
+            } else {
+                // Otherwise it's the L1Gas variant
+                Ok(ResourceBoundsMapping::L1Gas(L1GasResourceBoundsMapping {
+                    l1_gas: unified.l1_gas,
+                    l2_gas: unified.l2_gas,
+                }))
+            }
+        }
+        // For binary formats, use standard enum deserialization (when derived using
+        // #[derive(Deserialize)])
+        else {
+            struct __Visitor;
+
+            impl<'de> Visitor<'de> for __Visitor {
+                type Value = ResourceBoundsMapping;
+
+                fn expecting(&self, formatter: &mut fmt::Formatter<'_>) -> fmt::Result {
+                    formatter.write_str("ResourceBoundsMapping enum")
+                }
+
+                fn visit_enum<A: EnumAccess<'de>>(self, data: A) -> Result<Self::Value, A::Error> {
+                    let (variant_idx, variant) = data.variant::<u32>()?;
+
+                    match variant_idx {
+                        0 => {
+                            let value = variant.newtype_variant::<L1GasResourceBoundsMapping>()?;
+                            Ok(ResourceBoundsMapping::L1Gas(value))
+                        }
+                        1 => {
+                            let value = variant.newtype_variant::<AllResourceBoundsMapping>()?;
+                            Ok(ResourceBoundsMapping::All(value))
+                        }
+                        _ => Err(de::Error::custom("invalid variant index; expected 0 or 1")),
+                    }
+                }
+            }
+
+            deserializer.deserialize_enum("ResourceBoundsMapping", &["L1Gas", "All"], __Visitor)
+        }
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -335,7 +448,7 @@ mod tests {
         let deserialized: Tip = serde_json::from_str(&serialized).unwrap();
         assert_eq!(original, deserialized);
     }
-    
+
     #[cfg(feature = "serde")]
     #[test]
     fn resource_bounds_mapping_json_serde() {
@@ -344,41 +457,42 @@ mod tests {
             l1_gas: ResourceBounds { max_amount: 1000, max_price_per_unit: 100 },
             l2_gas: ResourceBounds { max_amount: 2000, max_price_per_unit: 200 },
         });
-        
+
         let json = serde_json::to_string(&l1_gas_mapping).unwrap();
         let expected = r#"{"l1_gas":{"max_amount":1000,"max_price_per_unit":100},"l2_gas":{"max_amount":2000,"max_price_per_unit":200},"l1_data_gas":null}"#;
         assert_eq!(json, expected);
-        
+
         // Test deserialization back to L1Gas variant
         let deserialized: ResourceBoundsMapping = serde_json::from_str(&json).unwrap();
         assert_eq!(deserialized, l1_gas_mapping);
-        
+
         // Test All variant JSON serialization
         let all_mapping = ResourceBoundsMapping::All(AllResourceBoundsMapping {
             l1_gas: ResourceBounds { max_amount: 1000, max_price_per_unit: 100 },
             l2_gas: ResourceBounds { max_amount: 2000, max_price_per_unit: 200 },
             l1_data_gas: ResourceBounds { max_amount: 3000, max_price_per_unit: 300 },
         });
-        
+
         let json = serde_json::to_string(&all_mapping).unwrap();
         let expected = r#"{"l1_gas":{"max_amount":1000,"max_price_per_unit":100},"l2_gas":{"max_amount":2000,"max_price_per_unit":200},"l1_data_gas":{"max_amount":3000,"max_price_per_unit":300}}"#;
         assert_eq!(json, expected);
-        
+
         // Test deserialization back to All variant
         let deserialized: ResourceBoundsMapping = serde_json::from_str(&json).unwrap();
         assert_eq!(deserialized, all_mapping);
-        
+
         // Test deserializing JSON with aliases (uppercase)
         let json_with_aliases = r#"{"L1_GAS":{"max_amount":1000,"max_price_per_unit":100},"L2_GAS":{"max_amount":2000,"max_price_per_unit":200},"L1_DATA_GAS":{"max_amount":3000,"max_price_per_unit":300}}"#;
         let deserialized: ResourceBoundsMapping = serde_json::from_str(&json_with_aliases).unwrap();
         assert_eq!(deserialized, all_mapping);
-        
+
         // Test deserializing JSON without l1_data_gas (should be L1Gas variant)
         let json_without_data_gas = r#"{"l1_gas":{"max_amount":1000,"max_price_per_unit":100},"l2_gas":{"max_amount":2000,"max_price_per_unit":200}}"#;
-        let deserialized: ResourceBoundsMapping = serde_json::from_str(&json_without_data_gas).unwrap();
+        let deserialized: ResourceBoundsMapping =
+            serde_json::from_str(&json_without_data_gas).unwrap();
         assert!(matches!(deserialized, ResourceBoundsMapping::L1Gas(_)));
     }
-    
+
     #[cfg(feature = "serde")]
     #[test]
     fn resource_bounds_mapping_binary_serde() {
@@ -387,28 +501,28 @@ mod tests {
             l1_gas: ResourceBounds { max_amount: 1000, max_price_per_unit: 100 },
             l2_gas: ResourceBounds { max_amount: 2000, max_price_per_unit: 200 },
         });
-        
+
         let binary = postcard::to_stdvec(&l1_gas_mapping).unwrap();
         let deserialized: ResourceBoundsMapping = postcard::from_bytes(&binary).unwrap();
         assert_eq!(deserialized, l1_gas_mapping);
-        
+
         // Test All variant binary serialization
         let all_mapping = ResourceBoundsMapping::All(AllResourceBoundsMapping {
             l1_gas: ResourceBounds { max_amount: 1000, max_price_per_unit: 100 },
             l2_gas: ResourceBounds { max_amount: 2000, max_price_per_unit: 200 },
             l1_data_gas: ResourceBounds { max_amount: 3000, max_price_per_unit: 300 },
         });
-        
+
         let binary = postcard::to_stdvec(&all_mapping).unwrap();
         let deserialized: ResourceBoundsMapping = postcard::from_bytes(&binary).unwrap();
         assert_eq!(deserialized, all_mapping);
-        
+
         // Ensure binary format is different from JSON (uses enum tags)
         // Binary should be more compact than JSON
         let json_size = serde_json::to_string(&all_mapping).unwrap().len();
         assert!(binary.len() < json_size);
     }
-    
+
     #[cfg(feature = "serde")]
     #[test]
     fn resource_bounds_mapping_cross_format() {
@@ -419,17 +533,17 @@ mod tests {
             l2_gas: ResourceBounds { max_amount: 6000, max_price_per_unit: 600 },
             l1_data_gas: ResourceBounds { max_amount: 7000, max_price_per_unit: 700 },
         });
-        
+
         // Serialize to JSON, deserialize, and verify
         let json = serde_json::to_string(&mapping).unwrap();
         let from_json: ResourceBoundsMapping = serde_json::from_str(&json).unwrap();
         assert_eq!(from_json, mapping);
-        
+
         // Serialize to binary, deserialize, and verify
         let binary = postcard::to_stdvec(&mapping).unwrap();
         let from_binary: ResourceBoundsMapping = postcard::from_bytes(&binary).unwrap();
         assert_eq!(from_binary, mapping);
-        
+
         // Verify that JSON and binary deserializations produce the same result
         assert_eq!(from_json, from_binary);
     }
