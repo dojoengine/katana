@@ -25,6 +25,7 @@ use katana_db::Db;
 use katana_executor::implementation::blockifier::cache::ClassCache;
 use katana_executor::implementation::blockifier::BlockifierFactory;
 use katana_executor::ExecutionFlags;
+use katana_feeder_gateway::server::{FeederGatewayServer, FeederGatewayServerHandle};
 use katana_gas_price_oracle::{FixedPriceOracle, GasPriceOracle};
 use katana_metrics::exporters::prometheus::PrometheusRecorder;
 use katana_metrics::sys::DiskReporter;
@@ -63,6 +64,7 @@ pub struct Node {
     pool: TxPool,
     db: katana_db::Db,
     rpc_server: RpcServer,
+    feeder_gateway_server: Option<FeederGatewayServer>,
     task_manager: TaskManager,
     backend: Arc<Backend<BlockifierFactory>>,
     block_producer: BlockProducer<BlockifierFactory>,
@@ -304,11 +306,44 @@ impl Node {
             rpc_server = rpc_server.max_response_body_size(max_response_body_size);
         }
 
+        // --- build feeder gateway server (optional)
+
+        let feeder_gateway_server = if let Some(feeder_config) = &config.feeder_gateway {
+            let addr = if feeder_config.share_rpc_port {
+                // Use RPC server's address when sharing port
+                config.rpc.addr
+            } else {
+                feeder_config.addr
+            };
+
+            let port = if feeder_config.share_rpc_port {
+                // Use RPC server's port when sharing port
+                config.rpc.port
+            } else {
+                feeder_config.port
+            };
+
+            let server = FeederGatewayServer::new(backend.clone()).config(
+                katana_feeder_gateway::server::FeederGatewayConfig {
+                    addr,
+                    port,
+                    timeout: feeder_config
+                        .timeout
+                        .unwrap_or(katana_feeder_gateway::server::DEFAULT_FEEDER_GATEWAY_TIMEOUT),
+                    share_rpc_port: feeder_config.share_rpc_port,
+                },
+            );
+            Some(server)
+        } else {
+            None
+        };
+
         Ok(Node {
             db,
             pool,
             backend,
             rpc_server,
+            feeder_gateway_server,
             block_producer,
             config: Arc::new(config),
             task_manager: TaskManager::current(),
@@ -318,7 +353,7 @@ impl Node {
     /// Start the node.
     ///
     /// This method will start all the node process, running them until the node is stopped.
-    pub async fn launch(self) -> Result<LaunchedNode> {
+    pub async fn launch(mut self) -> Result<LaunchedNode> {
         let chain = self.backend.chain_spec.id();
         info!(%chain, "Starting node.");
 
@@ -361,6 +396,13 @@ impl Node {
 
         let rpc_handle = self.rpc_server.start(self.config.rpc.socket_addr()).await?;
 
+        // --- start the feeder gateway server (if configured)
+
+        let feeder_gateway_handle = match self.feeder_gateway_server.take() {
+            Some(server) => Some(server.start().await?),
+            None => None,
+        };
+
         // --- start the gas oracle worker task
 
         if let Some(worker) = self.backend.gas_oracle.run_worker() {
@@ -374,7 +416,7 @@ impl Node {
 
         info!(target: "node", "Gas price oracle worker started.");
 
-        Ok(LaunchedNode { node: self, rpc: rpc_handle })
+        Ok(LaunchedNode { node: self, rpc: rpc_handle, feeder_gateway: feeder_gateway_handle })
     }
 
     /// Returns a reference to the node's database environment (if any).
@@ -408,6 +450,8 @@ pub struct LaunchedNode {
     node: Node,
     /// Handle to the rpc server.
     rpc: RpcServerHandle,
+    /// Handle to the feeder gateway server (if enabled).
+    feeder_gateway: Option<FeederGatewayServerHandle>,
 }
 
 impl LaunchedNode {
@@ -421,12 +465,23 @@ impl LaunchedNode {
         &self.rpc
     }
 
+    /// Returns a reference to the feeder gateway server handle (if enabled).
+    pub fn feeder_gateway(&self) -> Option<&FeederGatewayServerHandle> {
+        self.feeder_gateway.as_ref()
+    }
+
     /// Stops the node.
     ///
     /// This will instruct the node to stop and wait until it has actually stop.
-    pub async fn stop(&self) -> Result<()> {
+    pub async fn stop(self) -> Result<()> {
         // TODO: wait for the rpc server to stop instead of just stopping it.
         self.rpc.stop()?;
+
+        // Stop feeder gateway server if it's running
+        if let Some(mut handle) = self.feeder_gateway {
+            handle.stop()?;
+        }
+
         self.node.task_manager.shutdown().await;
         Ok(())
     }
