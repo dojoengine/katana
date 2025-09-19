@@ -1,5 +1,5 @@
 window.BENCHMARK_DATA = {
-  "lastUpdate": 1758142515394,
+  "lastUpdate": 1758240572316,
   "repoUrl": "https://github.com/dojoengine/katana",
   "entries": {
     "Benchmark": [
@@ -5351,6 +5351,66 @@ window.BENCHMARK_DATA = {
             "name": "Invoke.ERC20.transfer/Blockifier.Cold",
             "value": 16393992,
             "range": "± 157001",
+            "unit": "ns/iter"
+          }
+        ]
+      },
+      {
+        "commit": {
+          "author": {
+            "email": "evergreenkary@gmail.com",
+            "name": "Ammar Arif",
+            "username": "kariy"
+          },
+          "committer": {
+            "email": "noreply@github.com",
+            "name": "GitHub",
+            "username": "web-flow"
+          },
+          "distinct": true,
+          "id": "a97fc71f70c92388e9c85a33c41430d8a359d204",
+          "message": "feat(primitives): full legacy resource bounds support (#274)\n\n## 'Legacy' Transaction V3\n\nWhen V3 transaction was first introduced in RPC [v0.6.0], the `resource_bounds` field consists of only two fields; `l1_gas` and `l2_gas`. These values are included in the hash computation for the V3 transaction. But RPC [v0.8.0], a new field is added to the mapping,\n`l1_data_gas`. The addition of the new field means there are now two variations of the V3 transaction - with or without `l1_data_gas`. Depending on the presence of the field, the transaction hash is computed differently.\n\nTransaction V3 w/o `l1_data_gas` (legacy) hash:\n\n```\nh(\n  \"prefix\",\n  version,\n  sender_address,\n  h(tip, l1_gas_bounds, l2_gas_bounds),\n  h(paymaster_data),\n  chain_id,\n  nonce,\n  data_availability_modes,\n  h(account_deployment_data),\n  h(calldata)\n)\n```\n\nTransaction V3 w/ `l1_data_gas` hash:\n\n```\nh(\n  \"prefix\",\n  version,\n  sender_address,\n  h(tip, l1_gas_bounds, l2_gas_bounds, l1_data_gas_bounds),\n  h(paymaster_data),\n  chain_id,\n  nonce,\n  data_availability_modes,\n  h(account_deployment_data),\n  h(calldata)\n)\n```\n\nV3 transaction without the `l1_data_gas` is referred to as 'legacy' V3.\n\n## Previous Refactors\n\nWhen pull request [#141] was made, I didn't take into account the possibility that a transaction with 'legacy' resource bounds would have a nonzero `l2_gas`. Hence why in that pull request, the `ResourceBoundsMapping::L1Gas` wraps a `ResourceBounds` struct - intended only for the `l1_gas` field.\n\nCurrently, when computing the hash for transaction that uses the legacy resource bounds mapping, Katana naively assumes that the `l2_gas` bounds is 0. While this is true for most part, because some Starknet client libraries (eg `starknet-rs`) hardcoded the `l2_gas` to 0, but this doesn't fully negate the possibility that a transaction could be submitted with non-zero `l2_gas`.\n\nEven though the `l2_gas` wasn't actually used for execution, it is still used to compute the hash for the transaction. Preserving all the bounds is important if we want to make sure the hashes of transactions stored in the Katana database are reproducible!\n\nHonestly, if we only consider the transaction version that Katana supports now - 0.14.0 compatible transaction where all 3 bounds must be present - then this change really doesn't do anything at all. Transactions using legacy resource bounds will be outright rejected by the RPC server, and we don't have to worry about ensuring their hashes reproducibility. This change only matters once we have Katana running as a full node, syncing from Starknet mainnet/sepolia where transactions with only `l1_gas` and `l2_gas` resource bounds exist. As such, it is important that all details of a transaction is preserved correctly.\n\n## Database Compatibility\n\nThis change isn't compatible with the current database format. As such a database version bump is required!\n\n[v0.6.0]:\nhttps://github.com/starkware-libs/starknet-specs/blob/49665932a97f8fdef7ac5869755d2858c5e3a687/api/starknet_api_openrpc.json#L3714\n[v0.8.0]:\nhttps://github.com/starkware-libs/starknet-specs/blob/b4f81445c79b2a8b2b09ff5bb2b7eddca78a32de/api/starknet_api_openrpc.json#L3494-L3514\n[#141]: https://github.com/dojoengine/katana/pull/141\n\n---------\n\nCo-authored-by: Claude <noreply@anthropic.com>",
+          "timestamp": "2025-09-19T08:00:23+08:00",
+          "tree_id": "b225ffd2a101de60edc3c872dda2eb8f23662f46",
+          "url": "https://github.com/dojoengine/katana/commit/a97fc71f70c92388e9c85a33c41430d8a359d204"
+        },
+        "date": 1758240571138,
+        "tool": "cargo",
+        "benches": [
+          {
+            "name": "Commit.Small/Parallel",
+            "value": 419463,
+            "range": "± 10422",
+            "unit": "ns/iter"
+          },
+          {
+            "name": "Commit.Big/Serial",
+            "value": 94749372,
+            "range": "± 458880",
+            "unit": "ns/iter"
+          },
+          {
+            "name": "Commit.Big/Parallel",
+            "value": 66105776,
+            "range": "± 2769017",
+            "unit": "ns/iter"
+          },
+          {
+            "name": "compress world contract",
+            "value": 2700459,
+            "range": "± 12561",
+            "unit": "ns/iter"
+          },
+          {
+            "name": "decompress world contract",
+            "value": 3040706,
+            "range": "± 11770",
+            "unit": "ns/iter"
+          },
+          {
+            "name": "Invoke.ERC20.transfer/Blockifier.Cold",
+            "value": 16210233,
+            "range": "± 345763",
             "unit": "ns/iter"
           }
         ]
