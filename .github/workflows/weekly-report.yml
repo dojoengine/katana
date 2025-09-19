@@ -14,7 +14,7 @@ on:
 jobs:
   current-main-size:
     name: Current main branch binary size
-    runs-on: ubuntu-latest
+    runs-on: blacksmith-4vcpu-ubuntu-2404
     container:
       image: ghcr.io/dojoengine/katana-dev:latest
     outputs:
@@ -45,7 +45,7 @@ jobs:
 
   latest-release-size:
     name: Latest release binary size
-    runs-on: ubuntu-latest
+    runs-on: blacksmith-4vcpu-ubuntu-2404
     container:
       image: ghcr.io/dojoengine/katana-dev:latest
     outputs:
@@ -85,7 +85,7 @@ jobs:
   generate-report:
     name: Generate binary size report
     needs: [current-main-size, latest-release-size]
-    runs-on: ubuntu-latest
+    runs-on: blacksmith-4vcpu-ubuntu-2404
     container:
       image: ghcr.io/dojoengine/katana-dev:latest
 
