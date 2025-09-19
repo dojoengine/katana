@@ -25,7 +25,10 @@ use katana_db::Db;
 use katana_executor::implementation::blockifier::cache::ClassCache;
 use katana_executor::implementation::blockifier::BlockifierFactory;
 use katana_executor::ExecutionFlags;
-use katana_feeder_gateway::server::{FeederGatewayServer, FeederGatewayServerHandle};
+use katana_feeder_gateway::server::{
+    FeederGatewayConfig, FeederGatewayServer, FeederGatewayServerHandle,
+    DEFAULT_FEEDER_GATEWAY_TIMEOUT,
+};
 use katana_gas_price_oracle::{FixedPriceOracle, GasPriceOracle};
 use katana_metrics::exporters::prometheus::PrometheusRecorder;
 use katana_metrics::sys::DiskReporter;
@@ -308,31 +311,13 @@ impl Node {
 
         // --- build feeder gateway server (optional)
 
-        let feeder_gateway_server = if let Some(feeder_config) = &config.feeder_gateway {
-            let addr = if feeder_config.share_rpc_port {
-                // Use RPC server's address when sharing port
-                config.rpc.addr
-            } else {
-                feeder_config.addr
-            };
+        let feeder_gateway_server = if let Some(config) = &config.feeder_gateway {
+            let server = FeederGatewayServer::new(backend.clone()).timeout(timeout);
 
-            let port = if feeder_config.share_rpc_port {
-                // Use RPC server's port when sharing port
-                config.rpc.port
-            } else {
-                feeder_config.port
-            };
+            if let Some(timeout) = config.timeout {
+                server = server.timeout(timeout);
+            }
 
-            let server = FeederGatewayServer::new(backend.clone()).config(
-                katana_feeder_gateway::server::FeederGatewayConfig {
-                    addr,
-                    port,
-                    timeout: feeder_config
-                        .timeout
-                        .unwrap_or(katana_feeder_gateway::server::DEFAULT_FEEDER_GATEWAY_TIMEOUT),
-                    share_rpc_port: feeder_config.share_rpc_port,
-                },
-            );
             Some(server)
         } else {
             None
@@ -398,8 +383,11 @@ impl Node {
 
         // --- start the feeder gateway server (if configured)
 
-        let feeder_gateway_handle = match self.feeder_gateway_server.take() {
-            Some(server) => Some(server.start().await?),
+        let feeder_gateway_handle = match &self.feeder_gateway_server {
+            Some(server) => {
+                let config = self.config().feeder_gateway.as_ref().expect("qed; must exist");
+                Some(server.start(config.socket_addr()).await?)
+            }
             None => None,
         };
 
