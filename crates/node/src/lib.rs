@@ -309,7 +309,7 @@ impl Node {
         // --- build feeder gateway server (optional)
 
         let feeder_gateway_server = if let Some(config) = &config.feeder_gateway {
-            let server = FeederGatewayServer::new(backend.clone()).timeout(config.timeout);
+            let server = FeederGatewayServer::new(backend.clone());
 
             if let Some(timeout) = config.timeout {
                 server = server.timeout(timeout);
