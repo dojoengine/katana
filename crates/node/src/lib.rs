@@ -25,10 +25,7 @@ use katana_db::Db;
 use katana_executor::implementation::blockifier::cache::ClassCache;
 use katana_executor::implementation::blockifier::BlockifierFactory;
 use katana_executor::ExecutionFlags;
-use katana_feeder_gateway::server::{
-    FeederGatewayConfig, FeederGatewayServer, FeederGatewayServerHandle,
-    DEFAULT_FEEDER_GATEWAY_TIMEOUT,
-};
+use katana_feeder_gateway::server::{FeederGatewayServer, FeederGatewayServerHandle};
 use katana_gas_price_oracle::{FixedPriceOracle, GasPriceOracle};
 use katana_metrics::exporters::prometheus::PrometheusRecorder;
 use katana_metrics::sys::DiskReporter;
@@ -312,7 +309,7 @@ impl Node {
         // --- build feeder gateway server (optional)
 
         let feeder_gateway_server = if let Some(config) = &config.feeder_gateway {
-            let server = FeederGatewayServer::new(backend.clone()).timeout(timeout);
+            let server = FeederGatewayServer::new(backend.clone()).timeout(config.timeout);
 
             if let Some(timeout) = config.timeout {
                 server = server.timeout(timeout);
@@ -338,7 +335,7 @@ impl Node {
     /// Start the node.
     ///
     /// This method will start all the node process, running them until the node is stopped.
-    pub async fn launch(mut self) -> Result<LaunchedNode> {
+    pub async fn launch(self) -> Result<LaunchedNode> {
         let chain = self.backend.chain_spec.id();
         info!(%chain, "Starting node.");
 
@@ -466,7 +463,7 @@ impl LaunchedNode {
         self.rpc.stop()?;
 
         // Stop feeder gateway server if it's running
-        if let Some(mut handle) = self.feeder_gateway {
+        if let Some(handle) = self.feeder_gateway {
             handle.stop()?;
         }
 
