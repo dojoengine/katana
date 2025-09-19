@@ -46,13 +46,13 @@ impl FeederGatewayServerHandle {
     /// Wait until the server has stopped.
     ///
     /// Returns a future that resolves when the server has fully stopped.
-    pub async fn stopped(&self) {
+    pub async fn stopped(self) {
         self.handle.stopped().await
     }
 
     /// Returns the socket address the server is listening on.
-    pub fn addr(&self) -> &SocketAddr {
-        &self.addr
+    pub fn addr(&self) -> SocketAddr {
+        self.addr
     }
 }
 
