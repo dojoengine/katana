@@ -3,6 +3,7 @@ use std::sync::Arc;
 pub mod db;
 pub mod dev;
 pub mod execution;
+pub mod feeder_gateway;
 pub mod fork;
 pub mod metrics;
 #[cfg(feature = "cartridge")]
@@ -13,6 +14,7 @@ pub mod sequencing;
 use db::DbConfig;
 use dev::DevConfig;
 use execution::ExecutionConfig;
+use feeder_gateway::FeederGatewayConfig;
 use fork::ForkingConfig;
 use katana_chain_spec::ChainSpec;
 use katana_messaging::MessagingConfig;
@@ -36,6 +38,9 @@ pub struct Config {
 
     /// Rpc options.
     pub rpc: RpcConfig,
+
+    /// Feeder gateway options.
+    pub feeder_gateway: Option<FeederGatewayConfig>,
 
     /// Metrics options.
     pub metrics: Option<MetricsConfig>,

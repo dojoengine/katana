@@ -6,14 +6,21 @@ repository.workspace = true
 version.workspace = true
 
 [dependencies]
+katana-core.workspace = true
+katana-executor.workspace = true
 katana-primitives.workspace = true
 katana-rpc-types.workspace = true
 serde-utils.workspace = true
 
+axum.workspace = true
 reqwest.workspace = true
 serde.workspace = true
+serde_json.workspace = true
 starknet.workspace = true
 thiserror.workspace = true
+tokio = { workspace = true, features = ["net"] }
+tower.workspace = true
+tower-http.workspace = true
 tracing.workspace = true
 url.workspace = true
 
