@@ -588,8 +588,8 @@ fn to_api_resource_bounds(resource_bounds: fee::ResourceBoundsMapping) -> ValidR
         }
 
         fee::ResourceBoundsMapping::L1Gas(bounds) => ValidResourceBounds::L1Gas(ResourceBounds {
-            max_amount: bounds.max_amount.into(),
-            max_price_per_unit: bounds.max_price_per_unit.into(),
+            max_amount: bounds.l1_gas.max_amount.into(),
+            max_price_per_unit: bounds.l1_gas.max_price_per_unit.into(),
         }),
     }
 }
@@ -723,7 +723,7 @@ pub fn is_zero_resource_bounds(resource_bounds: &ResourceBoundsMapping) -> bool 
         }
 
         ResourceBoundsMapping::L1Gas(bounds) => {
-            (bounds.max_amount as u128 * bounds.max_price_per_unit) == 0
+            (bounds.l1_gas.max_amount as u128 * bounds.l1_gas.max_price_per_unit) == 0
         }
     }
 }
