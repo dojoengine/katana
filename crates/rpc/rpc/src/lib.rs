@@ -165,8 +165,6 @@ impl RpcServer {
         self
     }
 
-
-
     pub fn cors(mut self, cors: Cors) -> Self {
         self.cors = Some(cors);
         self

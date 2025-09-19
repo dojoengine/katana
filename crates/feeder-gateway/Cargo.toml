@@ -12,21 +12,17 @@ katana-primitives.workspace = true
 katana-rpc-types.workspace = true
 serde-utils.workspace = true
 
+axum.workspace = true
 reqwest.workspace = true
 serde.workspace = true
 serde_json.workspace = true
 starknet.workspace = true
 thiserror.workspace = true
 tokio = { workspace = true, features = ["net"] }
+tower.workspace = true
+tower-http.workspace = true
 tracing.workspace = true
 url.workspace = true
-urlencoding = "2.1"
-
-[target.'cfg(unix)'.dependencies]
-libc = "0.2"
-
-[target.'cfg(windows)'.dependencies]
-windows-sys = { version = "0.52", features = ["Win32_Networking_WinSock"] }
 
 [dev-dependencies]
 rstest.workspace = true
