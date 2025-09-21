@@ -33,6 +33,9 @@ jobs:
         with:
           key: weekly-binary-size-main
 
+      - name: Make contracts
+        run: make contracts
+
       - name: Get binary size (main)
         id: binary-size
         run: |
@@ -63,6 +66,9 @@ jobs:
       - uses: Swatinem/rust-cache@v2
         with:
           key: weekly-binary-size-release
+
+      - name: Make contracts
+        run: make contracts
 
       - name: Get latest release and binary size
         id: binary-size
