@@ -638,16 +638,16 @@ mod tests {
         ]);
         assert_matches!(result.args.mode, InitMode::Rollup(config) => {
             assert_eq!(config.settlement_facts_registry_contract, None);
-        });
 
-        let configure_result = result.args.configure_from_args().await;
-        assert!(configure_result.is_some());
-        let configure_result = configure_result.unwrap();
-        assert!(configure_result.is_err());
-        assert_eq!(
-            configure_result.unwrap_err().to_string(),
-            "Specifying the facts registry contract (using `--settlement-facts-registry`) is \
-             required when settling on a custom chain"
-        );
+            let configure_result = config.configure_from_args().await;
+            assert!(configure_result.is_some());
+            let configure_result = configure_result.unwrap();
+            assert!(configure_result.is_err());
+            assert_eq!(
+                configure_result.unwrap_err().to_string(),
+                "Specifying the facts registry contract (using `--settlement-facts-registry`) is \
+                 required when settling on a custom chain"
+            );
+        });
     }
 }
