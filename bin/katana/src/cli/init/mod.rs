@@ -425,11 +425,12 @@ struct SettlementChainTryFromStrError {
 }
 
 /// Supported settlement chain options for rollup initialization.
-#[derive(Debug, Clone, strum_macros::Display, PartialEq, Eq)]
+#[derive(Debug, Clone, strum_macros::Display, PartialEq, Eq, clap::ValueEnum)]
 enum SettlementChain {
     Mainnet,
     Sepolia,
     #[cfg(feature = "init-custom-settlement-chain")]
+    #[value(skip)]
     Custom(Url),
 }
 
