@@ -119,15 +119,30 @@ pub struct RollupArgs {
     #[arg(requires_all = ["settlement_chain", "settlement_account", "settlement_account_private_key"])]
     id: Option<String>,
 
-    /// The settlement chain to be used, where the core contract is deployed.
-    ///
-    /// If a custom settlement chain is provided, setting a custom facts registry is required using
-    /// the `--settlement-facts-registry` option. Otherwise, setting a custom facts registry
-    /// with a known chain is a no-op.
-    #[arg(long = "settlement-chain")]
+    #[arg(
+        long = "settlement-chain",
+        help = "The settlement chain to be used, where the core contract is deployed."
+    )]
+    #[arg(long_help = "The settlement chain to be used, where the core contract is deployed.
+
+Possible values:
+  - `mainnet`, `sn_mainnet`: Starknet mainnet
+  - `sepolia`, `sn_sepolia`: Starknet sepolia")]
+    #[cfg_attr(
+        feature = "init-custom-settlement-chain",
+        arg(long_help = "The settlement chain to be used, where the core contract is deployed.
+
+Possible values:
+  - `mainnet`, `sn_mainnet`: Starknet mainnet
+  - `sepolia`, `sn_sepolia`: Starknet sepolia
+  - <URL>: Custom settlement chain URL (requires --settlement-facts-registry)
+
+If a custom settlement chain is provided, setting a custom facts registry is required using
+the `--settlement-facts-registry` option. Otherwise, setting a custom facts registry
+with a known chain is a no-op for now.")
+    )]
     #[arg(requires = "id")]
     settlement_chain: Option<SettlementChain>,
-
     /// The address of the settlement account to be used to configure the core contract.
     #[arg(long = "settlement-account-address")]
     #[arg(requires = "id")]
@@ -425,17 +440,17 @@ struct SettlementChainTryFromStrError {
 }
 
 /// Supported settlement chain options for rollup initialization.
-#[derive(Debug, Clone, strum_macros::Display, PartialEq, Eq, clap::ValueEnum)]
+#[derive(Debug, Clone, strum_macros::Display, PartialEq, Eq)]
 enum SettlementChain {
     Mainnet,
     Sepolia,
     #[cfg(feature = "init-custom-settlement-chain")]
-    #[value(skip)]
     Custom(Url),
 }
 
 impl std::str::FromStr for SettlementChain {
     type Err = SettlementChainTryFromStrError;
+
     fn from_str(s: &str) -> Result<SettlementChain, <Self as ::core::str::FromStr>::Err> {
         let id = s.to_lowercase();
         if &id == "sepolia" || &id == "sn_sepolia" {
