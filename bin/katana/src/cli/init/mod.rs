@@ -638,8 +638,8 @@ mod tests {
 
         let result = Cli::parse_from([
             "init",
-            "--id",
             "rollup",
+            "--id",
             "wot",
             "--settlement-chain",
             "http://localhost:5050",
