@@ -287,14 +287,14 @@ impl RollupArgs {
                 format!("Failed to get chain id for settlement layer: {settlement_chain}")
             }) {
                 Ok(id) => id,
-                error @ Err(..) => return Some(error),
+                Err(err) => return Some(Err(err)),
             };
 
             let chain_id = match cairo_short_string_to_felt(&id)
                 .with_context(|| format!("Invalid chain id: {id}"))
             {
                 Ok(id) => id,
-                error @ Err(..) => return Some(error),
+                Err(err) => return Some(Err(err)),
             };
 
             let deployment_outcome = if let Some(contract) = self.settlement_contract {
