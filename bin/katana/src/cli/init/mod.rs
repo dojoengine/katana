@@ -299,23 +299,27 @@ impl RollupArgs {
             };
 
             let l1_chain_id = match settlement_provider.chain_id().await.with_context(|| {
-                format!("Failed to get chain id for settlement layer: {settlement_chain}")
+                format!("failed to get chain id for settlement layer `{settlement_chain}`")
             }) {
                 Ok(id) => id,
                 Err(err) => return Some(Err(err)),
             };
 
             let chain_id = match cairo_short_string_to_felt(&id)
-                .with_context(|| format!("Invalid chain id: {id}"))
+                .with_context(|| format!("invalid chain id: {id}"))
             {
                 Ok(id) => id,
                 Err(err) => return Some(Err(err)),
             };
 
             let deployment_outcome = if let Some(contract) = self.settlement_contract {
-                deployment::check_program_info(chain_id, contract.into(), &settlement_provider)
+                match deployment::check_program_info(chain_id, contract, &settlement_provider)
                     .await
-                    .unwrap();
+                    .with_context(|| "settlement contract validation failed.".to_string())
+                {
+                    Ok(..) => (),
+                    Err(err) => return Some(Err(err)),
+                };
 
                 DeploymentOutcome {
                     contract_address: contract,
@@ -334,7 +338,13 @@ impl RollupArgs {
                     ExecutionEncoding::New,
                 );
 
-                deployment::deploy_settlement_contract(account, chain_id).await.unwrap()
+                match deployment::deploy_settlement_contract(account, chain_id)
+                    .await
+                    .with_context(|| "failed to deploy settlement contract".to_string())
+                {
+                    Ok(id) => id,
+                    Err(err) => return Some(Err(err)),
+                }
             };
 
             Some(Ok(PersistentOutcome {
