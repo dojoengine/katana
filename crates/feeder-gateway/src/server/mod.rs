@@ -4,8 +4,9 @@ use std::time::Duration;
 
 use axum::routing::get;
 use axum::Router;
-use katana_core::backend::Backend;
 use katana_executor::implementation::blockifier::BlockifierFactory;
+use katana_rpc::cors::Cors;
+use katana_rpc::starknet::StarknetApi;
 use tokio::net::TcpListener;
 use tokio::sync::watch;
 use tower::ServiceBuilder;
@@ -14,10 +15,14 @@ use tower_http::timeout::TimeoutLayer;
 use tower_http::trace::TraceLayer;
 use tracing::{error, info};
 
-use crate::handlers::{self, AppState};
+mod handlers;
+mod metrics;
+
+use handlers::AppState;
+use metrics::GatewayMetricsLayer;
 
 /// Default timeout for feeder gateway requests
-pub const DEFAULT_FEEDER_GATEWAY_TIMEOUT: Duration = Duration::from_secs(30);
+pub const DEFAULT_GATEWAY_TIMEOUT: Duration = Duration::from_secs(20);
 
 #[derive(Debug, thiserror::Error)]
 pub enum Error {
@@ -29,15 +34,15 @@ pub enum Error {
 }
 
 /// The feeder gateway server handle.
-#[derive(Debug)]
-pub struct FeederGatewayServerHandle {
+#[derive(Debug, Clone)]
+pub struct GatewayServerHandle {
     /// The actual address that the server is bound to.
     addr: SocketAddr,
     /// Handle to stop the server.
     handle: ServerHandle,
 }
 
-impl FeederGatewayServerHandle {
+impl GatewayServerHandle {
     /// Tell the server to stop without waiting for the server to stop.
     pub fn stop(&self) -> Result<(), Error> {
         self.handle.stop()
@@ -50,6 +55,11 @@ impl FeederGatewayServerHandle {
         self.handle.stopped().await
     }
 
+    /// Returns true if the server has stopped.
+    pub fn is_stopped(&self) -> bool {
+        self.handle.is_stopped()
+    }
+
     /// Returns the socket address the server is listening on.
     pub fn addr(&self) -> SocketAddr {
         self.addr
@@ -58,15 +68,25 @@ impl FeederGatewayServerHandle {
 
 /// The feeder gateway server.
 #[derive(Debug)]
-pub struct FeederGatewayServer {
+pub struct GatewayServer {
     timeout: Duration,
-    backend: Arc<Backend<BlockifierFactory>>,
+    cors: Option<Cors>,
+    health_check: bool,
+    metered: bool,
+
+    starknet_api: StarknetApi<BlockifierFactory>,
 }
 
-impl FeederGatewayServer {
+impl GatewayServer {
     /// Create a new feeder gateway server.
-    pub fn new(backend: Arc<Backend<BlockifierFactory>>) -> Self {
-        Self { backend, timeout: DEFAULT_FEEDER_GATEWAY_TIMEOUT }
+    pub fn new(starknet_api: StarknetApi<BlockifierFactory>) -> Self {
+        Self {
+            timeout: DEFAULT_GATEWAY_TIMEOUT,
+            cors: None,
+            health_check: false,
+            metered: false,
+            starknet_api,
+        }
     }
 
     /// Set the request timeout. Default is 30 seconds.
@@ -75,8 +95,31 @@ impl FeederGatewayServer {
         self
     }
 
+    pub fn cors(mut self, cors: Cors) -> Self {
+        self.cors = Some(cors);
+        self
+    }
+
+    /// Enables health checking endpoints.
+    ///
+    /// When enabled, health checks will be available at the following endpoints:
+    /// - `GET /`
+    /// - `GET /health`
+    pub fn health_check(mut self, enable: bool) -> Self {
+        self.health_check = enable;
+        self
+    }
+
+    /// Enables metering for the gateway server.
+    ///
+    /// When enabled, metrics will be collected for each request.
+    pub fn metered(mut self, enable: bool) -> Self {
+        self.metered = enable;
+        self
+    }
+
     /// Start the feeder gateway server.
-    pub async fn start(&self, addr: SocketAddr) -> Result<FeederGatewayServerHandle, Error> {
+    pub async fn start(&self, addr: SocketAddr) -> Result<GatewayServerHandle, Error> {
         let listener = TcpListener::bind(addr).await?;
 
         let app = self.create_app();
@@ -89,26 +132,38 @@ impl FeederGatewayServer {
             });
 
             if let Err(err) = server.await {
-                error!(target: "feeder_gateway", error = ?err, "Feeder gateway server error.");
+                error!(target: "gateway", error = ?err, "Gateway server error.");
             }
         });
 
-        info!(target: "feeder_gateway", addr = %actual_addr, "Feeder gateway server started.");
+        info!(target: "gateway", addr = %actual_addr, "Gateway server started.");
 
-        Ok(FeederGatewayServerHandle { addr: actual_addr, handle: server_handle })
+        Ok(GatewayServerHandle { addr: actual_addr, handle: server_handle })
     }
 
     /// Create the Axum application with all routes configured
     fn create_app(&self) -> Router {
         // Create shared application state
-        let state = AppState { backend: self.backend.clone() };
+        let state = AppState { api: self.starknet_api.clone() };
+
+        let metrics_layer = if self.metered {
+            Some(GatewayMetricsLayer::new([
+                "/feeder_gateway/get_block",
+                "/feeder_gateway/get_state_update",
+                "/feeder_gateway/get_class_by_hash",
+                "/feeder_gateway/get_compiled_class_by_class_hash",
+            ]))
+        } else {
+            None
+        };
 
         let middleware = ServiceBuilder::new()
+            .option_layer(metrics_layer)
             .layer(TraceLayer::new_for_http())
             .layer(CorsLayer::new().allow_origin(Any).allow_headers(Any).allow_methods(Any))
             .layer(TimeoutLayer::new(self.timeout));
 
-        Router::new()
+        let mut router = Router::new()
             .layer(middleware)
             .route("/feeder_gateway/get_block", get(handlers::get_block))
             .route("/feeder_gateway/get_state_update", get(handlers::get_state_update))
@@ -116,8 +171,14 @@ impl FeederGatewayServer {
             .route(
                 "/feeder_gateway/get_compiled_class_by_class_hash",
                 get(handlers::get_compiled_class_by_class_hash),
-            )
-            .with_state(state)
+            );
+
+        if self.health_check {
+            router =
+                router.route("/", get(handlers::health)).route("/health", get(handlers::health));
+        }
+
+        router.with_state(state)
     }
 }
 

@@ -20,7 +20,7 @@ impl<'a> NodeStoppedFuture<'a> {
             handle.node.task_manager.wait_for_shutdown().await;
             handle.rpc.stop()?;
 
-            if let Some(handle) = handle.feeder_gateway.as_ref() {
+            if let Some(handle) = handle.gateway.as_ref() {
                 handle.stop()?;
             }
 

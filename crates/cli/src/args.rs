@@ -17,9 +17,9 @@ use katana_messaging::MessagingConfig;
 use katana_node::config::db::DbConfig;
 use katana_node::config::dev::{DevConfig, FixedL1GasPriceConfig};
 use katana_node::config::execution::ExecutionConfig;
-#[cfg(feature = "server")]
-use katana_node::config::feeder_gateway::FeederGatewayConfig;
 use katana_node::config::fork::ForkingConfig;
+#[cfg(feature = "server")]
+use katana_node::config::gateway::GatewayConfig;
 use katana_node::config::metrics::MetricsConfig;
 #[cfg(feature = "cartridge")]
 use katana_node::config::paymaster::PaymasterConfig;
@@ -104,7 +104,7 @@ pub struct NodeArgs {
 
     #[cfg(feature = "server")]
     #[command(flatten)]
-    pub feeder_gateway: FeederGatewayOptions,
+    pub gateway: GatewayOptions,
 
     #[cfg(feature = "server")]
     #[command(flatten)]
@@ -172,7 +172,7 @@ impl NodeArgs {
         let dev = self.dev_config();
         let (chain, cs_messaging) = self.chain_spec()?;
         let metrics = self.metrics_config();
-        let feeder_gateway = self.feeder_gateway_config();
+        let gateway = self.gateway_config();
         let forking = self.forking_config()?;
         let execution = self.execution_config();
         let sequencing = self.sequencer_config();
@@ -192,7 +192,7 @@ impl NodeArgs {
                 rpc,
                 chain,
                 metrics,
-                feeder_gateway,
+                gateway,
                 forking,
                 execution,
                 messaging,
@@ -402,13 +402,15 @@ impl NodeArgs {
         None
     }
 
-    fn feeder_gateway_config(&self) -> Option<FeederGatewayConfig> {
+    fn gateway_config(&self) -> Option<GatewayConfig> {
         #[cfg(feature = "server")]
-        if self.feeder_gateway.feeder_gateway {
-            Some(FeederGatewayConfig {
-                addr: self.feeder_gateway.feeder_addr,
-                port: self.feeder_gateway.feeder_port,
-                timeout: self.feeder_gateway.feeder_timeout.map(std::time::Duration::from_secs),
+        if self.gateway.gateway_enable {
+            use std::time::Duration;
+
+            Some(GatewayConfig {
+                addr: self.gateway.gateway_addr,
+                port: self.gateway.gateway_port,
+                timeout: Some(Duration::from_secs(self.gateway.gateway_timeout)),
             })
         } else {
             None

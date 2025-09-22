@@ -13,7 +13,7 @@ use katana_rpc_types::event::{
     EventFilter, EventFilterWithPage, GetEventsResponse, ResultPageRequest,
 };
 use katana_rpc_types::receipt::{ReceiptBlockInfo, TxReceiptWithBlockInfo};
-use katana_rpc_types::state_update::GetStateUpdateResponse;
+use katana_rpc_types::state_update::StateUpdate;
 use katana_rpc_types::transaction::RpcTxWithHash;
 use katana_rpc_types::TxStatus;
 
@@ -224,7 +224,7 @@ impl ForkedClient {
     pub async fn get_state_update(
         &self,
         block_id: BlockIdOrTag,
-    ) -> Result<GetStateUpdateResponse, Error> {
+    ) -> Result<StateUpdate, Error> {
         match block_id {
             BlockIdOrTag::Number(num) if num > self.block => {
                 return Err(Error::BlockOutOfRange);

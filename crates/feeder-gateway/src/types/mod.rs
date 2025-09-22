@@ -30,57 +30,23 @@ pub use katana_rpc_types::class::SierraClass;
 use serde::{Deserialize, Serialize};
 use starknet::core::types::ResourcePrice;
 
+mod conversion;
+mod error;
 mod receipt;
 mod transaction;
 
+pub use error::*;
 pub use receipt::*;
 pub use transaction::*;
+
+/// The contract class type returns by `/get_class_by_hash` endpoint.
+pub type ContractClass = katana_rpc_types::Class;
 
 #[derive(Debug, Copy, Clone, PartialEq, Eq)]
 pub enum BlockId {
     Number(BlockNumber),
     Hash(BlockHash),
     Latest,
-}
-
-/// The contract class type returns by `/get_class_by_hash` endpoint.
-pub type ContractClass = katana_rpc_types::Class;
-
-/// The state update type returns by `/get_state_update` endpoint.
-#[derive(Debug, PartialEq, Eq, Serialize, Deserialize)]
-pub struct StateUpdate {
-    pub block_hash: Option<BlockHash>,
-    pub new_root: Option<Felt>,
-    pub old_root: Felt,
-    pub state_diff: StateDiff,
-}
-
-#[derive(Debug, Default, PartialEq, Eq, Serialize, Deserialize)]
-pub struct StateDiff {
-    pub storage_diffs: BTreeMap<ContractAddress, Vec<StorageDiff>>,
-    pub deployed_contracts: Vec<DeployedContract>,
-    pub old_declared_contracts: Vec<Felt>,
-    pub declared_classes: Vec<DeclaredContract>,
-    pub nonces: BTreeMap<ContractAddress, Nonce>,
-    pub replaced_classes: Vec<DeployedContract>,
-}
-
-#[derive(Debug, PartialEq, Eq, Serialize, Deserialize)]
-pub struct StorageDiff {
-    pub key: StorageKey,
-    pub value: StorageValue,
-}
-
-#[derive(Debug, PartialEq, Eq, Serialize, Deserialize)]
-pub struct DeployedContract {
-    pub address: ContractAddress,
-    pub class_hash: ClassHash,
-}
-
-#[derive(Debug, PartialEq, Eq, Serialize, Deserialize)]
-pub struct DeclaredContract {
-    pub class_hash: ClassHash,
-    pub compiled_class_hash: CompiledClassHash,
 }
 
 #[derive(Debug, Clone, Copy, Serialize, Deserialize, PartialEq, Eq)]
@@ -101,86 +67,194 @@ pub enum BlockStatus {
     AcceptedOnL1,
 }
 
-/// The state update type returns by `/get_state_update` endpoint, with `includeBlock=true`.
-#[derive(Debug, PartialEq, Eq, Deserialize)]
-pub struct StateUpdateWithBlock {
-    pub state_update: StateUpdate,
-    pub block: Block,
-}
-
 // The reason why we're not using the GasPrices from the `katana_primitives` crate is because
 // the serde impl is different. So for now, lets just use starknet-rs types. The type isn't
 // that complex anyway so the conversion is simple. But if we can use the primitive types, we
 // should.
-#[derive(Debug, PartialEq, Eq, Deserialize)]
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub struct Block {
+    pub status: BlockStatus,
     #[serde(default)]
     pub block_hash: Option<BlockHash>,
     #[serde(default)]
     pub block_number: Option<BlockNumber>,
     pub parent_block_hash: BlockHash,
+    pub l1_da_mode: L1DataAvailabilityMode,
     pub timestamp: u64,
     pub sequencer_address: Option<ContractAddress>,
     #[serde(default)]
-    pub state_root: Option<Felt>,
-    #[serde(default)]
-    pub transaction_commitment: Option<Felt>,
-    #[serde(default)]
-    pub event_commitment: Option<Felt>,
-    pub status: BlockStatus,
-    pub l1_da_mode: L1DataAvailabilityMode,
+    pub starknet_version: Option<String>,
     #[serde(default = "default_l2_gas_price")]
     pub l2_gas_price: ResourcePrice,
     pub l1_gas_price: ResourcePrice,
     pub l1_data_gas_price: ResourcePrice,
-    pub transactions: Vec<ConfirmedTransaction>,
-    pub transaction_receipts: Vec<ConfirmedReceipt>,
     #[serde(default)]
-    pub starknet_version: Option<StarknetVersion>,
+    pub event_commitment: Option<Felt>,
+    #[serde(default)]
+    pub state_diff_commitment: Option<Felt>,
+    #[serde(default)]
+    pub state_root: Option<Felt>,
+    #[serde(default)]
+    pub transaction_commitment: Option<Felt>,
+    pub transaction_receipts: Vec<ConfirmedReceipt>,
+    pub transactions: Vec<ConfirmedTransaction>,
 }
 
-// -- Conversion to Katana primitive types.
+/// The state update type returns by `/get_state_update` endpoint, with `includeBlock=true`.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct StateUpdateWithBlock {
+    pub state_update: StateUpdate,
+    pub block: Block,
+}
 
-impl From<StateDiff> for katana_primitives::state::StateUpdates {
-    fn from(value: StateDiff) -> Self {
-        let storage_updates = value
-            .storage_diffs
-            .into_iter()
-            .map(|(addr, diffs)| {
-                let storage_map = diffs.into_iter().map(|diff| (diff.key, diff.value)).collect();
-                (addr, storage_map)
-            })
-            .collect();
+// The main reason why aren't using the state update RPC types is because the state diff
+// serialization is different.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize)]
+#[serde(untagged)]
+pub enum StateUpdate {
+    Confirmed(ConfirmedStateUpdate),
+    PreConfirmed(PreConfirmedStateUpdate),
+}
 
-        let deployed_contracts = value
-            .deployed_contracts
-            .into_iter()
-            .map(|contract| (contract.address, contract.class_hash))
-            .collect();
+/// State update of a pre-confirmed block.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct PreConfirmedStateUpdate {
+    /// The previous global state root
+    pub old_root: Felt,
+    /// State diff
+    pub state_diff: StateDiff,
+}
 
-        let declared_classes = value
-            .declared_classes
-            .into_iter()
-            .map(|contract| (contract.class_hash, contract.compiled_class_hash))
-            .collect();
+/// State update of a confirmed block.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct ConfirmedStateUpdate {
+    /// Block hash
+    pub block_hash: BlockHash,
+    /// The new global state root
+    pub new_root: Felt,
+    /// The previous global state root
+    pub old_root: Felt,
+    /// State diff
+    pub state_diff: StateDiff,
+}
 
-        let replaced_classes = value
-            .replaced_classes
-            .into_iter()
-            .map(|contract| (contract.address, contract.class_hash))
-            .collect();
+// todo(kariy): merge the serialization of gateway into the rpc types
+#[derive(Debug, Clone, Default, PartialEq, Eq, Serialize, Deserialize)]
+pub struct StateDiff {
+    pub storage_diffs: BTreeMap<ContractAddress, Vec<StorageDiff>>,
+    pub deployed_contracts: Vec<DeployedContract>,
+    pub old_declared_contracts: Vec<Felt>,
+    pub declared_classes: Vec<DeclaredContract>,
+    pub nonces: BTreeMap<ContractAddress, Nonce>,
+    pub replaced_classes: Vec<DeployedContract>,
+}
 
-        Self {
-            storage_updates,
-            declared_classes,
-            replaced_classes,
-            deployed_contracts,
-            nonce_updates: value.nonces,
-            deprecated_declared_classes: BTreeSet::from_iter(value.old_declared_contracts),
-        }
-    }
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct StorageDiff {
+    pub key: StorageKey,
+    pub value: StorageValue,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct DeployedContract {
+    pub address: ContractAddress,
+    pub class_hash: ClassHash,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct DeclaredContract {
+    pub class_hash: ClassHash,
+    pub compiled_class_hash: CompiledClassHash,
 }
 
 fn default_l2_gas_price() -> ResourcePrice {
     ResourcePrice { price_in_fri: Felt::from(1), price_in_wei: Felt::from(1) }
+}
+
+impl<'de> Deserialize<'de> for StateUpdate {
+    fn deserialize<D: serde::Deserializer<'de>>(deserializer: D) -> Result<Self, D::Error> {
+        struct __Visitor;
+
+        impl<'de> serde::de::Visitor<'de> for __Visitor {
+            type Value = StateUpdate;
+
+            fn expecting(&self, formatter: &mut std::fmt::Formatter) -> std::fmt::Result {
+                formatter.write_str("a state update response")
+            }
+
+            fn visit_map<A: serde::de::MapAccess<'de>>(
+                self,
+                mut map: A,
+            ) -> Result<Self::Value, A::Error> {
+                let mut block_hash: Option<BlockHash> = None;
+                let mut new_root: Option<Felt> = None;
+                let mut old_root: Option<Felt> = None;
+                let mut state_diff: Option<StateDiff> = None;
+
+                while let Some(key) = map.next_key::<String>()? {
+                    match key.as_str() {
+                        "block_hash" => {
+                            if block_hash.is_some() {
+                                return Err(serde::de::Error::duplicate_field("block_hash"));
+                            }
+                            block_hash = Some(map.next_value()?);
+                        }
+
+                        "new_root" => {
+                            if new_root.is_some() {
+                                return Err(serde::de::Error::duplicate_field("new_root"));
+                            }
+                            new_root = Some(map.next_value()?);
+                        }
+
+                        "old_root" => {
+                            if old_root.is_some() {
+                                return Err(serde::de::Error::duplicate_field("old_root"));
+                            }
+                            old_root = Some(map.next_value()?);
+                        }
+
+                        "state_diff" => {
+                            if state_diff.is_some() {
+                                return Err(serde::de::Error::duplicate_field("state_diff"));
+                            }
+                            state_diff = Some(map.next_value()?);
+                        }
+
+                        _ => {
+                            let _ = map.next_value::<serde::de::IgnoredAny>()?;
+                        }
+                    }
+                }
+
+                let old_root =
+                    old_root.ok_or_else(|| serde::de::Error::missing_field("old_root"))?;
+                let state_diff =
+                    state_diff.ok_or_else(|| serde::de::Error::missing_field("state_diff"))?;
+
+                // If block_hash and new_root are not present, deserialize as
+                // PreConfirmedStateUpdate
+                match (block_hash, new_root) {
+                    (None, None) => Ok(StateUpdate::PreConfirmed(PreConfirmedStateUpdate {
+                        old_root,
+                        state_diff,
+                    })),
+
+                    (Some(block_hash), Some(new_root)) => {
+                        Ok(StateUpdate::Confirmed(ConfirmedStateUpdate {
+                            block_hash,
+                            new_root,
+                            old_root,
+                            state_diff,
+                        }))
+                    }
+
+                    (None, Some(_)) => Err(serde::de::Error::missing_field("block_hash")),
+                    (Some(_), None) => Err(serde::de::Error::missing_field("new_root")),
+                }
+            }
+        }
+
+        deserializer.deserialize_map(__Visitor)
+    }
 }

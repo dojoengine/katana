@@ -1,5 +1,6 @@
 //! Server implementation for the Starknet JSON-RPC API.
 
+use std::fmt::Debug;
 use std::sync::Arc;
 
 use katana_core::backend::Backend;
@@ -38,7 +39,7 @@ use katana_rpc_types::list::{
     GetTransactionsRequest, GetTransactionsResponse, TransactionListItem,
 };
 use katana_rpc_types::receipt::{ReceiptBlockInfo, TxReceiptWithBlockInfo};
-use katana_rpc_types::state_update::GetStateUpdateResponse;
+use katana_rpc_types::state_update::StateUpdate;
 use katana_rpc_types::transaction::RpcTxWithHash;
 use katana_rpc_types::trie::{
     ClassesProof, ContractLeafData, ContractStorageKeys, ContractStorageProofs, ContractsProof,
@@ -73,11 +74,12 @@ type StarknetApiResult<T> = Result<T, StarknetApiError>;
 /// [read](katana_rpc_api::starknet::StarknetApi),
 /// [write](katana_rpc_api::starknet::StarknetWriteApi), and
 /// [trace](katana_rpc_api::starknet::StarknetTraceApi) APIs.
-#[allow(missing_debug_implementations)]
+#[derive(Debug)]
 pub struct StarknetApi<EF: ExecutorFactory> {
     inner: Arc<StarknetApiInner<EF>>,
 }
 
+#[derive(Debug)]
 struct StarknetApiInner<EF: ExecutorFactory> {
     pool: TxPool,
     backend: Arc<Backend<EF>>,
@@ -86,6 +88,36 @@ struct StarknetApiInner<EF: ExecutorFactory> {
     block_producer: Option<BlockProducer<EF>>,
     estimate_fee_permit: Permits,
     config: StarknetApiConfig,
+}
+
+impl<EF: ExecutorFactory> StarknetApi<EF> {
+    pub fn pool(&self) -> &TxPool {
+        &self.inner.pool
+    }
+
+    pub fn backend(&self) -> &Arc<Backend<EF>> {
+        &self.inner.backend
+    }
+
+    pub fn forked_client(&self) -> Option<&ForkedClient> {
+        self.inner.forked_client.as_ref()
+    }
+
+    pub fn blocking_task_pool(&self) -> &BlockingTaskPool {
+        &self.inner.blocking_task_pool
+    }
+
+    pub fn block_producer(&self) -> Option<&BlockProducer<EF>> {
+        self.inner.block_producer.as_ref()
+    }
+
+    pub fn estimate_fee_permit(&self) -> &Permits {
+        &self.inner.estimate_fee_permit
+    }
+
+    pub fn config(&self) -> &StarknetApiConfig {
+        &self.inner.config
+    }
 }
 
 impl<EF: ExecutorFactory> StarknetApi<EF> {
@@ -145,7 +177,7 @@ impl<EF: ExecutorFactory> StarknetApi<EF> {
         self.inner.blocking_task_pool.spawn(move || func(this)).await.unwrap()
     }
 
-    async fn on_io_blocking_task<F, T>(&self, func: F) -> T
+    pub async fn on_io_blocking_task<F, T>(&self, func: F) -> T
     where
         F: FnOnce(Self) -> T + Send + 'static,
         T: Send + 'static,
@@ -240,7 +272,7 @@ impl<EF: ExecutorFactory> StarknetApi<EF> {
         Ok(BlockHashAndNumberResponse::new(hash, number))
     }
 
-    async fn class_at_hash(
+    pub async fn class_at_hash(
         &self,
         block_id: BlockIdOrTag,
         class_hash: ClassHash,
@@ -257,7 +289,7 @@ impl<EF: ExecutorFactory> StarknetApi<EF> {
         .await
     }
 
-    async fn class_hash_at_address(
+    pub async fn class_hash_at_address(
         &self,
         block_id: BlockIdOrTag,
         contract_address: ContractAddress,
@@ -276,7 +308,7 @@ impl<EF: ExecutorFactory> StarknetApi<EF> {
         .await
     }
 
-    async fn class_at_address(
+    pub async fn class_at_address(
         &self,
         block_id: BlockIdOrTag,
         contract_address: ContractAddress,
@@ -286,7 +318,7 @@ impl<EF: ExecutorFactory> StarknetApi<EF> {
         Ok(class)
     }
 
-    fn storage_at(
+    pub fn storage_at(
         &self,
         contract_address: ContractAddress,
         storage_key: StorageKey,
@@ -307,7 +339,7 @@ impl<EF: ExecutorFactory> StarknetApi<EF> {
         Ok(value.unwrap_or_default())
     }
 
-    async fn block_tx_count(&self, block_id: BlockIdOrTag) -> StarknetApiResult<u64> {
+    pub async fn block_tx_count(&self, block_id: BlockIdOrTag) -> StarknetApiResult<u64> {
         let count = self
             .on_io_blocking_task(move |this| {
                 let provider = this.inner.backend.blockchain.provider();
@@ -350,7 +382,7 @@ impl<EF: ExecutorFactory> StarknetApi<EF> {
         .await
     }
 
-    async fn nonce_at(
+    pub async fn nonce_at(
         &self,
         block_id: BlockIdOrTag,
         contract_address: ContractAddress,
@@ -584,7 +616,7 @@ impl<EF: ExecutorFactory> StarknetApi<EF> {
         }
     }
 
-    async fn block_with_txs(
+    pub async fn block_with_txs(
         &self,
         block_id: BlockIdOrTag,
     ) -> StarknetApiResult<MaybePreConfirmedBlock> {
@@ -720,7 +752,7 @@ impl<EF: ExecutorFactory> StarknetApi<EF> {
         }
     }
 
-    async fn block_with_tx_hashes(
+    pub async fn block_with_tx_hashes(
         &self,
         block_id: BlockIdOrTag,
     ) -> StarknetApiResult<GetBlockWithTxHashesResponse> {
@@ -788,10 +820,75 @@ impl<EF: ExecutorFactory> StarknetApi<EF> {
         }
     }
 
-    async fn state_update(
-        &self,
-        block_id: BlockIdOrTag,
-    ) -> StarknetApiResult<GetStateUpdateResponse> {
+    // async fn block_with_transactions_and_receipts(
+    //     &self,
+    //     block_id: BlockIdOrTag,
+    // ) -> StarknetApiResult<GetBlockWithReceiptsResponse> {
+    //     let block = self
+    //         .on_io_blocking_task(move |this| {
+    //             let provider = this.inner.backend.blockchain.provider();
+
+    //             if BlockIdOrTag::PreConfirmed == block_id {
+    //                 if let Some(executor) = this.pending_executor() {
+    //                     let block_env = executor.read().block_env();
+    //                     let latest_hash = provider.latest_hash()?;
+
+    //                     let l2_gas_prices = block_env.l2_gas_prices.clone();
+    //                     let l1_gas_prices = block_env.l1_gas_prices.clone();
+    //                     let l1_data_gas_prices = block_env.l1_data_gas_prices.clone();
+
+    //                     let header = PartialHeader {
+    //                         l2_gas_prices,
+    //                         l1_gas_prices,
+    //                         l1_data_gas_prices,
+    //                         number: block_env.number,
+    //                         parent_hash: latest_hash,
+    //                         timestamp: block_env.timestamp,
+    //                         l1_da_mode: L1DataAvailabilityMode::Calldata,
+    //                         sequencer_address: block_env.sequencer_address,
+    //                         starknet_version: CURRENT_STARKNET_VERSION,
+    //                     };
+
+    //                     let receipts = executor
+    //                         .read()
+    //                         .transactions()
+    //                         .iter()
+    //                         .filter_map(|(tx, result)| match result {
+    //                             ExecutionResult::Success { receipt, .. } => {
+    //                                 Some((tx.clone(), receipt.clone()))
+    //                             }
+    //                             ExecutionResult::Failed { .. } => None,
+    //                         })
+    //                         .collect::<Vec<_>>();
+
+    //                     let block =
+    //                         PreConfirmedBlockWithReceipts::new(header, receipts.into_iter());
+    //                     return Ok(Some(GetBlockWithReceiptsResponse::PreConfirmed(block)));
+    //                 }
+    //             }
+
+    //             if let Some(num) = provider.convert_block_id(block_id)? {
+    //                 let block = katana_rpc_types_builder::BlockBuilder::new(num.into(), provider)
+    //                     .build_with_receipts()?
+    //                     .map(GetBlockWithReceiptsResponse::Block);
+
+    //                 StarknetApiResult::Ok(block)
+    //             } else {
+    //                 StarknetApiResult::Ok(None)
+    //             }
+    //         })
+    //         .await?;
+
+    //     if let Some(block) = block {
+    //         Ok(block)
+    //     } else if let Some(client) = &self.inner.forked_client {
+    //         Ok(client.get_block_with_receipts(block_id).await?)
+    //     } else {
+    //         Err(StarknetApiError::BlockNotFound)
+    //     }
+    // }
+
+    pub async fn state_update(&self, block_id: BlockIdOrTag) -> StarknetApiResult<StateUpdate> {
         let state_update = self
             .on_io_blocking_task(move |this| {
                 let provider = this.inner.backend.blockchain.provider();
@@ -811,7 +908,7 @@ impl<EF: ExecutorFactory> StarknetApi<EF> {
                 let state_update =
                     katana_rpc_types_builder::StateUpdateBuilder::new(block_id, provider)
                         .build()?
-                        .map(GetStateUpdateResponse::Update);
+                        .map(StateUpdate::Update);
 
                 StarknetApiResult::Ok(state_update)
             })

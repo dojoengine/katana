@@ -5,11 +5,13 @@ use katana_primitives::Felt;
 use reqwest::header::{HeaderMap, HeaderName, HeaderValue};
 use reqwest::{Client, Method, Request, StatusCode};
 use serde::de::DeserializeOwned;
-use serde::{Deserialize, Serialize};
+use serde::Deserialize;
 use tracing::error;
 use url::Url;
 
-use crate::types::{Block, BlockId, ContractClass, StateUpdate, StateUpdateWithBlock};
+use crate::types::{
+    Block, BlockId, ConfirmedStateUpdate, ContractClass, GatewayError, StateUpdateWithBlock,
+};
 
 /// HTTP request header for the feeder gateway API key. This allow bypassing the rate limiting.
 const X_THROTTLING_BYPASS: &str = "X-Throttling-Bypass";
@@ -53,7 +55,7 @@ impl SequencerGateway {
         self.feeder_gateway("get_block").block_id(block_id).send().await
     }
 
-    pub async fn get_state_update(&self, block_id: BlockId) -> Result<StateUpdate, Error> {
+    pub async fn get_state_update(&self, block_id: BlockId) -> Result<ConfirmedStateUpdate, Error> {
         self.feeder_gateway("get_state_update").block_id(block_id).send().await
     }
 
@@ -121,7 +123,7 @@ pub enum Error {
     Network(reqwest::Error),
 
     #[error(transparent)]
-    Sequencer(SequencerError),
+    Sequencer(GatewayError),
 
     #[error("failed to parse header value '{value}'")]
     InvalidHeaderValue { value: String },
@@ -153,50 +155,7 @@ impl Error {
 #[serde(untagged)]
 pub enum Response<T> {
     Data(T),
-    Error(SequencerError),
-}
-
-#[derive(Debug, thiserror::Error, Deserialize)]
-#[error("{message} ({code:?})")]
-pub struct SequencerError {
-    pub code: ErrorCode,
-    pub message: String,
-}
-
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Deserialize, Serialize)]
-pub enum ErrorCode {
-    #[serde(rename = "StarknetErrorCode.BLOCK_NOT_FOUND")]
-    BlockNotFound,
-    #[serde(rename = "StarknetErrorCode.ENTRY_POINT_NOT_FOUND_IN_CONTRACT")]
-    EntryPointNotFoundInContract,
-    #[serde(rename = "StarknetErrorCode.INVALID_PROGRAM")]
-    InvalidProgram,
-    #[serde(rename = "StarknetErrorCode.TRANSACTION_FAILED")]
-    TransactionFailed,
-    #[serde(rename = "StarknetErrorCode.TRANSACTION_NOT_FOUND")]
-    TransactionNotFound,
-    #[serde(rename = "StarknetErrorCode.UNINITIALIZED_CONTRACT")]
-    UninitializedContract,
-    #[serde(rename = "StarkErrorCode.MALFORMED_REQUEST")]
-    MalformedRequest,
-    #[serde(rename = "StarknetErrorCode.UNDECLARED_CLASS")]
-    UndeclaredClass,
-    #[serde(rename = "StarknetErrorCode.INVALID_TRANSACTION_NONCE")]
-    InvalidTransactionNonce,
-    #[serde(rename = "StarknetErrorCode.VALIDATE_FAILURE")]
-    ValidateFailure,
-    #[serde(rename = "StarknetErrorCode.CLASS_ALREADY_DECLARED")]
-    ClassAlreadyDeclared,
-    #[serde(rename = "StarknetErrorCode.COMPILATION_FAILED")]
-    CompilationFailed,
-    #[serde(rename = "StarknetErrorCode.INVALID_COMPILED_CLASS_HASH")]
-    InvalidCompiledClassHash,
-    #[serde(rename = "StarknetErrorCode.DUPLICATED_TRANSACTION")]
-    DuplicatedTransaction,
-    #[serde(rename = "StarknetErrorCode.INVALID_CONTRACT_CLASS")]
-    InvalidContractClass,
-    #[serde(rename = "StarknetErrorCode.DEPRECATED_ENDPOINT")]
-    DeprecatedEndpoint,
+    Error(GatewayError),
 }
 
 #[derive(Debug, Clone)]

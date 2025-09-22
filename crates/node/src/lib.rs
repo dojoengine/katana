@@ -25,7 +25,7 @@ use katana_db::Db;
 use katana_executor::implementation::blockifier::cache::ClassCache;
 use katana_executor::implementation::blockifier::BlockifierFactory;
 use katana_executor::ExecutionFlags;
-use katana_feeder_gateway::server::{FeederGatewayServer, FeederGatewayServerHandle};
+use katana_feeder_gateway::server::{GatewayServer, GatewayServerHandle};
 use katana_gas_price_oracle::{FixedPriceOracle, GasPriceOracle};
 use katana_metrics::exporters::prometheus::PrometheusRecorder;
 use katana_metrics::sys::DiskReporter;
@@ -64,10 +64,10 @@ pub struct Node {
     pool: TxPool,
     db: katana_db::Db,
     rpc_server: RpcServer,
-    feeder_gateway_server: Option<FeederGatewayServer>,
     task_manager: TaskManager,
     backend: Arc<Backend<BlockifierFactory>>,
     block_producer: BlockProducer<BlockifierFactory>,
+    gateway_server: Option<GatewayServer>,
 }
 
 impl Node {
@@ -242,38 +242,43 @@ impl Node {
             None
         };
 
+        // --- build starknet api
+
+        let starknet_api_cfg = StarknetApiConfig {
+            max_event_page_size: config.rpc.max_event_page_size,
+            max_proof_keys: config.rpc.max_proof_keys,
+            max_call_gas: config.rpc.max_call_gas,
+            max_concurrent_estimate_fee_requests: config.rpc.max_concurrent_estimate_fee_requests,
+            #[cfg(feature = "cartridge")]
+            paymaster,
+        };
+
+        let starknet_api = if let Some(client) = forked_client {
+            StarknetApi::new_forked(
+                backend.clone(),
+                pool.clone(),
+                block_producer.clone(),
+                client,
+                starknet_api_cfg,
+            )
+        } else {
+            StarknetApi::new(
+                backend.clone(),
+                pool.clone(),
+                Some(block_producer.clone()),
+                starknet_api_cfg,
+            )
+        };
+
         if config.rpc.apis.contains(&RpcModuleKind::Starknet) {
-            let cfg = StarknetApiConfig {
-                max_event_page_size: config.rpc.max_event_page_size,
-                max_proof_keys: config.rpc.max_proof_keys,
-                max_call_gas: config.rpc.max_call_gas,
-                max_concurrent_estimate_fee_requests: config
-                    .rpc
-                    .max_concurrent_estimate_fee_requests,
-                #[cfg(feature = "cartridge")]
-                paymaster,
-            };
-
-            let api = if let Some(client) = forked_client {
-                StarknetApi::new_forked(
-                    backend.clone(),
-                    pool.clone(),
-                    block_producer.clone(),
-                    client,
-                    cfg,
-                )
-            } else {
-                StarknetApi::new(backend.clone(), pool.clone(), Some(block_producer.clone()), cfg)
-            };
-
             #[cfg(feature = "explorer")]
             if config.rpc.explorer {
-                rpc_modules.merge(StarknetApiExtServer::into_rpc(api.clone()))?;
+                rpc_modules.merge(StarknetApiExtServer::into_rpc(starknet_api.clone()))?;
             }
 
-            rpc_modules.merge(StarknetApiServer::into_rpc(api.clone()))?;
-            rpc_modules.merge(StarknetWriteApiServer::into_rpc(api.clone()))?;
-            rpc_modules.merge(StarknetTraceApiServer::into_rpc(api))?;
+            rpc_modules.merge(StarknetApiServer::into_rpc(starknet_api.clone()))?;
+            rpc_modules.merge(StarknetWriteApiServer::into_rpc(starknet_api.clone()))?;
+            rpc_modules.merge(StarknetTraceApiServer::into_rpc(starknet_api.clone()))?;
         }
 
         if config.rpc.apis.contains(&RpcModuleKind::Dev) {
@@ -308,10 +313,12 @@ impl Node {
 
         // --- build feeder gateway server (optional)
 
-        let feeder_gateway_server = if let Some(config) = &config.feeder_gateway {
-            let server = FeederGatewayServer::new(backend.clone());
+        let gateway_server = if let Some(gw_config) = &config.gateway {
+            let mut server = GatewayServer::new(starknet_api)
+                .health_check(true)
+                .metered(config.metrics.is_some());
 
-            if let Some(timeout) = config.timeout {
+            if let Some(timeout) = gw_config.timeout {
                 server = server.timeout(timeout);
             }
 
@@ -325,7 +332,7 @@ impl Node {
             pool,
             backend,
             rpc_server,
-            feeder_gateway_server,
+            gateway_server,
             block_producer,
             config: Arc::new(config),
             task_manager: TaskManager::current(),
@@ -380,9 +387,9 @@ impl Node {
 
         // --- start the feeder gateway server (if configured)
 
-        let feeder_gateway_handle = match &self.feeder_gateway_server {
+        let gateway_handle = match &self.gateway_server {
             Some(server) => {
-                let config = self.config().feeder_gateway.as_ref().expect("qed; must exist");
+                let config = self.config().gateway.as_ref().expect("qed; must exist");
                 Some(server.start(config.socket_addr()).await?)
             }
             None => None,
@@ -401,7 +408,7 @@ impl Node {
 
         info!(target: "node", "Gas price oracle worker started.");
 
-        Ok(LaunchedNode { node: self, rpc: rpc_handle, feeder_gateway: feeder_gateway_handle })
+        Ok(LaunchedNode { node: self, rpc: rpc_handle, gateway: gateway_handle })
     }
 
     /// Returns a reference to the node's database environment (if any).
@@ -435,8 +442,8 @@ pub struct LaunchedNode {
     node: Node,
     /// Handle to the rpc server.
     rpc: RpcServerHandle,
-    /// Handle to the feeder gateway server (if enabled).
-    feeder_gateway: Option<FeederGatewayServerHandle>,
+    /// Handle to the gateway server (if enabled).
+    gateway: Option<GatewayServerHandle>,
 }
 
 impl LaunchedNode {
@@ -450,9 +457,9 @@ impl LaunchedNode {
         &self.rpc
     }
 
-    /// Returns a reference to the feeder gateway server handle (if enabled).
-    pub fn feeder_gateway(&self) -> Option<&FeederGatewayServerHandle> {
-        self.feeder_gateway.as_ref()
+    /// Returns a reference to the gateway server handle (if enabled).
+    pub fn gateway(&self) -> Option<&GatewayServerHandle> {
+        self.gateway.as_ref()
     }
 
     /// Stops the node.
@@ -463,7 +470,7 @@ impl LaunchedNode {
         self.rpc.stop()?;
 
         // Stop feeder gateway server if it's running
-        if let Some(handle) = self.feeder_gateway {
+        if let Some(handle) = self.gateway {
             handle.stop()?;
         }
 

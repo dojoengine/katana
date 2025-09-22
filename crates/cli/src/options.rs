@@ -15,8 +15,8 @@ use clap::Args;
 use katana_genesis::Genesis;
 use katana_node::config::execution::{DEFAULT_INVOCATION_MAX_STEPS, DEFAULT_VALIDATION_MAX_STEPS};
 #[cfg(feature = "server")]
-use katana_node::config::feeder_gateway::{
-    DEFAULT_FEEDER_GATEWAY_ADDR, DEFAULT_FEEDER_GATEWAY_PORT,
+use katana_node::config::gateway::{
+    DEFAULT_GATEWAY_ADDR, DEFAULT_GATEWAY_PORT, DEFAULT_GATEWAY_TIMEOUT_SECS,
 };
 #[cfg(feature = "server")]
 use katana_node::config::metrics::{DEFAULT_METRICS_ADDR, DEFAULT_METRICS_PORT};
@@ -82,41 +82,43 @@ impl Default for MetricsOptions {
 
 #[cfg(feature = "server")]
 #[derive(Debug, Args, Clone, Serialize, Deserialize, PartialEq)]
-#[command(next_help_heading = "Feeder Gateway options")]
-pub struct FeederGatewayOptions {
-    /// Enable the feeder gateway server.
-    #[arg(long)]
+#[command(next_help_heading = "Gateway options")]
+pub struct GatewayOptions {
+    /// Enable the gateway server.
+    #[arg(long = "gateway")]
     #[serde(default)]
-    pub feeder_gateway: bool,
+    pub gateway_enable: bool,
 
-    /// Feeder gateway server listening interface.
-    #[arg(requires = "feeder_gateway")]
-    #[arg(long = "feeder.addr", value_name = "ADDRESS")]
-    #[arg(default_value_t = DEFAULT_FEEDER_GATEWAY_ADDR)]
+    /// Gateway server listening interface.
+    #[arg(requires = "gateway_enable")]
+    #[arg(long = "gateway.addr", value_name = "ADDRESS")]
+    #[arg(default_value_t = DEFAULT_GATEWAY_ADDR)]
     #[serde(default = "default_feeder_gateway_addr")]
-    pub feeder_addr: IpAddr,
+    pub gateway_addr: IpAddr,
 
-    /// Feeder gateway server listening port.
-    #[arg(requires = "feeder_gateway")]
-    #[arg(long = "feeder.port", value_name = "PORT")]
-    #[arg(default_value_t = DEFAULT_FEEDER_GATEWAY_PORT)]
+    /// Gateway server listening port.
+    #[arg(requires = "gateway_enable")]
+    #[arg(long = "gateway.port", value_name = "PORT")]
+    #[arg(default_value_t = DEFAULT_GATEWAY_PORT)]
     #[serde(default = "default_feeder_gateway_port")]
-    pub feeder_port: u16,
+    pub gateway_port: u16,
 
-    /// Timeout for feeder gateway requests (in seconds).
-    #[arg(requires = "feeder_gateway")]
-    #[arg(long = "feeder.timeout", value_name = "TIMEOUT")]
-    pub feeder_timeout: Option<u64>,
+    /// Timeout for gateway requests (in seconds).
+    #[arg(requires = "gateway_enable")]
+    #[arg(long = "gateway.timeout", value_name = "TIMEOUT")]
+    #[arg(default_value_t = DEFAULT_GATEWAY_TIMEOUT_SECS)]
+    #[serde(default = "default_feeder_gateway_timeout")]
+    pub gateway_timeout: u64,
 }
 
 #[cfg(feature = "server")]
-impl Default for FeederGatewayOptions {
+impl Default for GatewayOptions {
     fn default() -> Self {
-        FeederGatewayOptions {
-            feeder_gateway: false,
-            feeder_addr: DEFAULT_FEEDER_GATEWAY_ADDR,
-            feeder_port: DEFAULT_FEEDER_GATEWAY_PORT,
-            feeder_timeout: None,
+        GatewayOptions {
+            gateway_enable: false,
+            gateway_addr: DEFAULT_GATEWAY_ADDR,
+            gateway_port: DEFAULT_GATEWAY_PORT,
+            gateway_timeout: DEFAULT_GATEWAY_TIMEOUT_SECS,
         }
     }
 }
@@ -594,12 +596,17 @@ fn default_proof_keys() -> u64 {
 
 #[cfg(feature = "server")]
 fn default_feeder_gateway_addr() -> IpAddr {
-    DEFAULT_FEEDER_GATEWAY_ADDR
+    DEFAULT_GATEWAY_ADDR
 }
 
 #[cfg(feature = "server")]
 fn default_feeder_gateway_port() -> u16 {
-    DEFAULT_FEEDER_GATEWAY_PORT
+    DEFAULT_GATEWAY_PORT
+}
+
+#[cfg(feature = "server")]
+fn default_feeder_gateway_timeout() -> u64 {
+    DEFAULT_GATEWAY_TIMEOUT_SECS
 }
 
 #[cfg(feature = "server")]

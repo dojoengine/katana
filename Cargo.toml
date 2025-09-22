@@ -176,6 +176,7 @@ jsonrpsee = { version = "0.25", default-features = false }
 rustls = "0.23"
 tower = "0.5"
 tower-http = { version = "0.6", features = [ "trace", "cors", "timeout" ] }
+tower-service = "0.3"
 
 # gRPC
 prost = "0.12"
