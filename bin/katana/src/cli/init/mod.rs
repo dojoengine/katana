@@ -92,10 +92,11 @@ pub struct InitCommand {
 /// initialization mode selection for different chain types.
 #[derive(Debug, Subcommand)]
 pub enum InitMode {
-    #[command(about = "Initialize a rollup chain with settlement layer")]
+    #[command(about = "Initialize a rollup chain")]
     Rollup(Box<RollupArgs>),
 
-    #[command(about = "Initialize a sovereign chain with no settlement layer")]
+    #[command(hide = true)]
+    #[command(about = "Initialize a sovereign chain")]
     Sovereign(SovereignArgs),
 }
 
@@ -254,7 +255,7 @@ impl RollupArgs {
                 return None; // Fall back to prompting
             };
 
-            let settlement_provider = match settlement_chain {
+            let settlement_provider = match &settlement_chain {
                 SettlementChain::Mainnet => {
                     let mut provider = SettlementChainProvider::sn_mainnet();
                     if let Some(fact_registry) = self.settlement_facts_registry_contract {
@@ -278,13 +279,23 @@ impl RollupArgs {
                              chain"
                         )));
                     };
-                    SettlementChainProvider::new(url, *fact_registry)
+                    SettlementChainProvider::new(url.clone(), *fact_registry)
                 }
             };
 
-            let l1_chain_id = settlement_provider.chain_id().await.unwrap();
+            let l1_chain_id = match settlement_provider.chain_id().await.with_context(|| {
+                format!("Failed to get chain id for settlement layer: {settlement_chain}")
+            }) {
+                Ok(id) => id,
+                error @ Err(..) => return Some(error),
+            };
 
-            let chain_id = cairo_short_string_to_felt(&id).unwrap();
+            let chain_id = match cairo_short_string_to_felt(&id)
+                .with_context(|| format!("Invalid chain id: {id}"))
+            {
+                Ok(id) => id,
+                error @ Err(..) => return Some(error),
+            };
 
             let deployment_outcome = if let Some(contract) = self.settlement_contract {
                 deployment::check_program_info(chain_id, contract.into(), &settlement_provider)
