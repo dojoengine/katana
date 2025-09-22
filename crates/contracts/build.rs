@@ -12,7 +12,7 @@ fn main() {
     println!("cargo:rerun-if-changed=contracts/messaging");
     println!("cargo:rerun-if-changed=contracts/test-contracts");
     println!("cargo:rerun-if-changed=contracts/vrf");
-    
+
     // Also track the build script itself
     println!("cargo:rerun-if-changed=build.rs");
 
@@ -97,13 +97,13 @@ fn should_skip_build(contracts_dir: &Path, build_dir: &Path) -> bool {
     // Get the oldest modification time from the build directory
     // We use oldest to ensure all build artifacts are newer than sources
     let build_time = get_oldest_mtime_in_dir(build_dir);
-    
+
     if build_time.is_none() {
         return false;
     }
-    
+
     let build_time = build_time.unwrap();
-    
+
     // Check if any source files are newer than the build artifacts
     let source_dirs = [
         contracts_dir.join("account"),
@@ -112,7 +112,7 @@ fn should_skip_build(contracts_dir: &Path, build_dir: &Path) -> bool {
         contracts_dir.join("test-contracts"),
         contracts_dir.join("vrf"),
     ];
-    
+
     for dir in &source_dirs {
         if let Some(source_time) = get_newest_mtime_recursive(dir) {
             if source_time > build_time {
@@ -120,7 +120,7 @@ fn should_skip_build(contracts_dir: &Path, build_dir: &Path) -> bool {
             }
         }
     }
-    
+
     // Check Scarb.toml (but not Scarb.lock)
     if let Ok(metadata) = fs::metadata(contracts_dir.join("Scarb.toml")) {
         if let Ok(source_time) = metadata.modified() {
@@ -129,7 +129,7 @@ fn should_skip_build(contracts_dir: &Path, build_dir: &Path) -> bool {
             }
         }
     }
-    
+
     true
 }
 
@@ -150,11 +150,11 @@ fn get_oldest_mtime_in_dir(path: &Path) -> Option<SystemTime> {
 
 fn get_newest_mtime_recursive(path: &Path) -> Option<SystemTime> {
     let mut latest_time = None;
-    
+
     if let Ok(entries) = fs::read_dir(path) {
         for entry in entries.flatten() {
             let path = entry.path();
-            
+
             if path.is_file() {
                 // Check all source files, not just .cairo
                 // This includes .toml files in subdirectories
@@ -184,7 +184,7 @@ fn get_newest_mtime_recursive(path: &Path) -> Option<SystemTime> {
             }
         }
     }
-    
+
     latest_time
 }
 
