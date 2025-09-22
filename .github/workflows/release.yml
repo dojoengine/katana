@@ -20,7 +20,7 @@ jobs:
   prepare:
     # The prepare-release branch names comes from the release-dispatch.yml workflow.
     if: (github.event.pull_request.merged == true && github.event.pull_request.head.ref == 'prepare-release') || github.event_name == 'workflow_dispatch'
-    runs-on: ubuntu-latest
+    runs-on: blacksmith-4vcpu-ubuntu-2404
     outputs:
       tag_name: ${{ steps.release_info.outputs.tag_name }}
     steps:
@@ -41,7 +41,7 @@ jobs:
           fi
 
   build-contracts:
-    runs-on: ubuntu-latest
+    runs-on: blacksmith-4vcpu-ubuntu-2404
     needs: prepare
     container:
       image: ghcr.io/dojoengine/katana-dev:latest
@@ -76,23 +76,23 @@ jobs:
           # The arch is either 386, arm64 or amd64
           # The svm target platform to use for the binary https://github.com/roynalnaruto/svm-rs/blob/84cbe0ac705becabdc13168bae28a45ad2299749/svm-builds/build.rs#L4-L24
           # Added native_build dimension to control build type
-          - os: ubuntu-latest-8-cores
+          - os: blacksmith-8vcpu-ubuntu-2404
             platform: linux
             target: x86_64-unknown-linux-gnu
             arch: amd64
             native_build: true
-          - os: ubuntu-latest-8-cores
+          - os: blacksmith-8vcpu-ubuntu-2404
             platform: linux
             target: x86_64-unknown-linux-gnu
             arch: amd64
             native_build: false
-          - os: ubuntu-latest-8-cores-arm64
+          - os: blacksmith-8vcpu-ubuntu-2404-arm
             platform: linux
             target: aarch64-unknown-linux-gnu
             arch: arm64
             svm_target_platform: linux-aarch64
             native_build: true
-          - os: ubuntu-latest-8-cores-arm64
+          - os: blacksmith-8vcpu-ubuntu-2404-arm
             platform: linux
             target: aarch64-unknown-linux-gnu
             arch: arm64
@@ -277,7 +277,7 @@ jobs:
           retention-days: 1
 
   create-draft-release:
-    runs-on: ubuntu-latest
+    runs-on: blacksmith-4vcpu-ubuntu-2404
     needs: [prepare, release]
     container:
       image: ghcr.io/dojoengine/katana-dev:latest
@@ -301,7 +301,7 @@ jobs:
       - run: gh release create ${{ steps.version_info.outputs.version }} ./artifacts/* --generate-notes --draft
 
   docker-build-and-push:
-    runs-on: ubuntu-latest-8-cores
+    runs-on: blacksmith-8vcpu-ubuntu-2404
     needs: [prepare, release]
 
     steps:
@@ -315,8 +315,8 @@ jobs:
           path: artifacts/linux
           merge-multiple: true
 
-      - name: Set up Docker Buildx
-        uses: docker/setup-buildx-action@v1
+      - name: Setup Blacksmith Builder
+        uses: useblacksmith/setup-docker-builder@v1
 
       - name: Login to GitHub Container Registry
         uses: docker/login-action@v1
@@ -327,7 +327,7 @@ jobs:
 
       - name: Build and push docker image
         if: ${{ contains(needs.prepare.outputs.tag_name, 'preview') }}
-        uses: docker/build-push-action@v3
+        uses: useblacksmith/build-push-action@v2
         with:
           push: true
           tags: ghcr.io/${{ github.repository }}:${{ needs.prepare.outputs.tag_name }}
@@ -337,7 +337,7 @@ jobs:
 
       - name: Build and push docker image
         if: ${{ !contains(needs.prepare.outputs.tag_name, 'preview') }}
-        uses: docker/build-push-action@v3
+        uses: useblacksmith/build-push-action@v2
         with:
           push: true
           tags: ghcr.io/${{ github.repository }}:latest,ghcr.io/${{ github.repository }}:${{ needs.prepare.outputs.tag_name }}
