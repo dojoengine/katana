@@ -1,19 +1,16 @@
 use std::path::Path;
 use std::process::Command;
-use std::time::SystemTime;
 use std::{env, fs};
 
 fn main() {
     // Track specific source directories and files that should trigger a rebuild
-    // Important: We don't track Scarb.lock as scarb itself updates it
+    // Important: We don't track Scarb.lock as scarb will update it on every `scarb build`
     println!("cargo:rerun-if-changed=contracts/Scarb.toml");
     println!("cargo:rerun-if-changed=contracts/account");
     println!("cargo:rerun-if-changed=contracts/legacy");
     println!("cargo:rerun-if-changed=contracts/messaging");
     println!("cargo:rerun-if-changed=contracts/test-contracts");
     println!("cargo:rerun-if-changed=contracts/vrf");
-
-    // Also track the build script itself
     println!("cargo:rerun-if-changed=build.rs");
 
     let contracts_dir = Path::new("contracts");
@@ -34,13 +31,6 @@ fn main() {
 
     // Only build if we're not in a docs build
     if env::var("DOCS_RS").is_ok() {
-        return;
-    }
-
-    // Check if we need to rebuild by comparing source and target timestamps
-    // This prevents unnecessary scarb runs which update Scarb.lock
-    if should_skip_build(&contracts_dir, &build_dir) {
-        println!("cargo:warning=Contracts are up to date, skipping scarb build");
         return;
     }
 
@@ -86,106 +76,6 @@ fn main() {
     } else {
         println!("cargo:warning=No contract artifacts found in target/dev");
     }
-}
-
-fn should_skip_build(contracts_dir: &Path, build_dir: &Path) -> bool {
-    // If build directory doesn't exist, we need to build
-    if !build_dir.exists() {
-        return false;
-    }
-
-    // Get the oldest modification time from the build directory
-    // We use oldest to ensure all build artifacts are newer than sources
-    let build_time = get_oldest_mtime_in_dir(build_dir);
-
-    if build_time.is_none() {
-        return false;
-    }
-
-    let build_time = build_time.unwrap();
-
-    // Check if any source files are newer than the build artifacts
-    let source_dirs = [
-        contracts_dir.join("account"),
-        contracts_dir.join("legacy"),
-        contracts_dir.join("messaging"),
-        contracts_dir.join("test-contracts"),
-        contracts_dir.join("vrf"),
-    ];
-
-    for dir in &source_dirs {
-        if let Some(source_time) = get_newest_mtime_recursive(dir) {
-            if source_time > build_time {
-                return false;
-            }
-        }
-    }
-
-    // Check Scarb.toml (but not Scarb.lock)
-    if let Ok(metadata) = fs::metadata(contracts_dir.join("Scarb.toml")) {
-        if let Ok(source_time) = metadata.modified() {
-            if source_time > build_time {
-                return false;
-            }
-        }
-    }
-
-    true
-}
-
-fn get_oldest_mtime_in_dir(path: &Path) -> Option<SystemTime> {
-    fs::read_dir(path).ok().and_then(|entries| {
-        entries
-            .filter_map(|e| e.ok())
-            .filter_map(|e| {
-                if e.path().is_file() {
-                    e.metadata().ok().and_then(|m| m.modified().ok())
-                } else {
-                    None
-                }
-            })
-            .min()
-    })
-}
-
-fn get_newest_mtime_recursive(path: &Path) -> Option<SystemTime> {
-    let mut latest_time = None;
-
-    if let Ok(entries) = fs::read_dir(path) {
-        for entry in entries.flatten() {
-            let path = entry.path();
-
-            if path.is_file() {
-                // Check all source files, not just .cairo
-                // This includes .toml files in subdirectories
-                if let Some(ext) = path.extension() {
-                    let ext_str = ext.to_str().unwrap_or("");
-                    if ext_str == "cairo" || ext_str == "toml" {
-                        if let Ok(metadata) = entry.metadata() {
-                            if let Ok(mtime) = metadata.modified() {
-                                latest_time = Some(match latest_time {
-                                    None => mtime,
-                                    Some(t) if mtime > t => mtime,
-                                    Some(t) => t,
-                                });
-                            }
-                        }
-                    }
-                }
-            } else if path.is_dir() {
-                // Recursively check subdirectories
-                if let Some(dir_time) = get_newest_mtime_recursive(&path) {
-                    latest_time = Some(match latest_time {
-                        None => dir_time,
-                        Some(t) if dir_time > t => dir_time,
-                        Some(t) => t,
-                    });
-                }
-            }
-        }
-    }
-
-    latest_time
 }
 
 fn copy_dir_contents(src: &Path, dst: &Path) -> std::io::Result<()> {
