@@ -1,5 +1,5 @@
 window.BENCHMARK_DATA = {
-  "lastUpdate": 1758635525077,
+  "lastUpdate": 1758637328362,
   "repoUrl": "https://github.com/dojoengine/katana",
   "entries": {
     "Benchmark": [
@@ -5471,6 +5471,66 @@ window.BENCHMARK_DATA = {
             "name": "Invoke.ERC20.transfer/Blockifier.Cold",
             "value": 12368513,
             "range": "± 317776",
+            "unit": "ns/iter"
+          }
+        ]
+      },
+      {
+        "commit": {
+          "author": {
+            "email": "evergreenkary@gmail.com",
+            "name": "Ammar Arif",
+            "username": "kariy"
+          },
+          "committer": {
+            "email": "noreply@github.com",
+            "name": "GitHub",
+            "username": "web-flow"
+          },
+          "distinct": true,
+          "id": "c1fd9f003cf36cde9d8cd0145b2d6c47d90d0c9e",
+          "message": "feat(bin): restructure `init` command with explicit rollup/sovereign modes (#280)\n\nRefactor `katana init` command to use explicit subcommands for rollup and sovereign chain modes. Now running `katana init` requires you to select the mode as a subcommand: `katana init rollup` or `katana init sovereign`.\n\nOne of the reason why we made this change is because the CLI argument configurations will always require you to provide the arguments instead of falling back to prompting.\n\nThe expected behaviour when you literally just run `katana init` is for it to prompt the arguments like so:\n\n<img width=\"411\" height=\"51\" alt=\"Screenshot 2025-09-23 at 10 03 49 AM\" src=\"https://github.com/user-attachments/assets/e910a787-e412-4c61-b519-ea574d689382\"\n/>\n\nBut due to how the CLI arguments is being configured, we instead get an error for not providing the arguments using flags:\n\n<img width=\"1030\" height=\"149\" alt=\"Screenshot 2025-09-23 at 10 04\n05 AM\"\nsrc=\"https://github.com/user-attachments/assets/d5ab9ab6-ecb3-43f7-bd80-e4b9b646edfc\"\n/>\n\nThis is mainly because of the `#[arg(required_unless_present = \"sovereign\")]` tag we're using that forces us to provide the options if `--sovereign` is not present.\n\n\nhttps://github.com/dojoengine/katana/blob/d584d4224f75f3648d55d1e4cec773ed638967ff/bin/katana/src/cli/init/mod.rs#L44-L48\n\nAfaik it doesn't seem to be possible to 'fix' this using `clap` derive macro. Even if it does, I believe separating the mode into separate commands feels like a better UX.\n\n## Comparison with current behaviour\n\n- Current: `katana init --id my-chain --settlement-chain sepolia ...`\n- New: `katana init rollup --id my-chain --settlement-chain sepolia ...`",
+          "timestamp": "2025-09-23T22:15:51+08:00",
+          "tree_id": "432d346403ace909eb116c3f076a440952764f56",
+          "url": "https://github.com/dojoengine/katana/commit/c1fd9f003cf36cde9d8cd0145b2d6c47d90d0c9e"
+        },
+        "date": 1758637325391,
+        "tool": "cargo",
+        "benches": [
+          {
+            "name": "Commit.Small/Parallel",
+            "value": 501802,
+            "range": "± 113281",
+            "unit": "ns/iter"
+          },
+          {
+            "name": "Commit.Big/Serial",
+            "value": 124981501,
+            "range": "± 33611516",
+            "unit": "ns/iter"
+          },
+          {
+            "name": "Commit.Big/Parallel",
+            "value": 84891854,
+            "range": "± 14858400",
+            "unit": "ns/iter"
+          },
+          {
+            "name": "compress world contract",
+            "value": 2930266,
+            "range": "± 398201",
+            "unit": "ns/iter"
+          },
+          {
+            "name": "decompress world contract",
+            "value": 2549314,
+            "range": "± 328926",
+            "unit": "ns/iter"
+          },
+          {
+            "name": "Invoke.ERC20.transfer/Blockifier.Cold",
+            "value": 21369222,
+            "range": "± 3531363",
             "unit": "ns/iter"
           }
         ]
