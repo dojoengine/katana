@@ -84,10 +84,6 @@ RUN if [ "$TARGETPLATFORM" = "linux/arm64" ] ; then \
 	rm -r hurl-4.1.0-x86_64-unknown-linux-gnu && rm hurl.tar.gz; \
 	fi
 
-# Install scarb
-RUN curl --proto '=https' --tlsv1.2 -sSf https://docs.swmansion.com/scarb/install.sh | bash -s -- -v 2.8.2
-ENV PATH="/root/.local/bin:$PATH"
-
 # Install bun
 RUN curl -fsSL https://bun.sh/install | bash
 ENV PATH="/root/.bun/bin:$PATH"
@@ -97,6 +93,28 @@ ENV PYENV_ROOT="/root/.pyenv"
 ENV PATH="/root/.pyenv/bin:$PATH"
 RUN curl -fsSL https://pyenv.run | bash
 ENV PATH="/root/.pyenv/shims:$PATH"
+
+# Install asdf from GitHub release
+ARG TARGETPLATFORM
+RUN if [ "$TARGETPLATFORM" = "linux/arm64" ] ; then \
+	wget https://github.com/asdf-vm/asdf/releases/download/v0.18.0/asdf-v0.18.0-linux-arm64.tar.gz && \
+	tar -xzf asdf-v0.18.0-linux-arm64.tar.gz && \
+	mv asdf /usr/local/bin/ && \
+	rm asdf-v0.18.0-linux-arm64.tar.gz; \
+	elif [ "$TARGETPLATFORM" = "linux/amd64" ] ; then \
+	wget https://github.com/asdf-vm/asdf/releases/download/v0.18.0/asdf-v0.18.0-linux-amd64.tar.gz && \
+	tar -xzf asdf-v0.18.0-linux-amd64.tar.gz && \
+	mv asdf /usr/local/bin/ && \
+	rm asdf-v0.18.0-linux-amd64.tar.gz; \
+	fi
+
+# Set up asdf environment
+ENV ASDF_DATA_DIR=/root/.asdf
+RUN mkdir -p $ASDF_DATA_DIR
+ENV PATH="$ASDF_DATA_DIR/shims:$PATH"
+
+# Install scarb via asdf
+RUN asdf plugin add scarb && asdf install scarb 2.8.2 && asdf set scarb 2.8.2
 
 # Install caddy
 RUN curl -1sLf 'https://dl.cloudsmith.io/public/caddy/stable/gpg.key' | gpg --dearmor -o /usr/share/keyrings/caddy-stable-archive-keyring.gpg && \
