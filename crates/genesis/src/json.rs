@@ -12,6 +12,14 @@ use std::sync::Arc;
 
 use base64::prelude::*;
 use cairo_vm::types::errors::program_errors::ProgramError;
+use katana_contracts::contracts::Account;
+use katana_primitives::block::{BlockHash, BlockNumber, GasPrices};
+use katana_primitives::class::{
+    ClassHash, ComputeClassHashError, ContractClass, ContractClassCompilationError,
+    LegacyContractClass, SierraContractClass,
+};
+use katana_primitives::contract::{ContractAddress, StorageKey, StorageValue};
+use katana_primitives::{Felt, U256};
 use serde::de::value::MapAccessDeserializer;
 use serde::de::Visitor;
 use serde::{Deserialize, Serialize};
@@ -20,15 +28,7 @@ use serde_json::{Map, Value};
 use super::allocation::{
     DevGenesisAccount, GenesisAccount, GenesisAccountAlloc, GenesisContractAlloc,
 };
-use super::constant::{DEFAULT_ACCOUNT_CLASS, DEFAULT_ACCOUNT_CLASS_HASH};
 use super::{Genesis, GenesisAllocation};
-use crate::block::{BlockHash, BlockNumber, GasPrices};
-use crate::class::{
-    ClassHash, ComputeClassHashError, ContractClass, ContractClassCompilationError,
-    LegacyContractClass, SierraContractClass,
-};
-use crate::contract::{ContractAddress, StorageKey, StorageValue};
-use crate::{Felt, U256};
 
 type Object = Map<String, Value>;
 
@@ -352,12 +352,12 @@ impl TryFrom<GenesisJson> for Genesis {
                 None => {
                     // check that the default account class exists in the classes field before
                     // inserting it
-                    if let btree_map::Entry::Vacant(e) = classes.entry(DEFAULT_ACCOUNT_CLASS_HASH) {
+                    if let btree_map::Entry::Vacant(e) = classes.entry(Account::HASH) {
                         // insert default account class to the classes map
-                        e.insert(DEFAULT_ACCOUNT_CLASS.clone().into());
+                        e.insert(Account::CLASS.clone().into());
                     }
 
-                    DEFAULT_ACCOUNT_CLASS_HASH
+                    Account::HASH
                 }
             };
 
@@ -588,18 +588,16 @@ fn class_artifact_at_path(
 
 #[cfg(test)]
 mod tests {
+    use katana_contracts::contracts::{Account, LegacyERC20, UniversalDeployer};
+    use katana_primitives::address;
     use starknet::macros::felt;
 
     use super::*;
-    use crate::address;
-    use crate::genesis::constant::{
-        DEFAULT_LEGACY_ERC20_CLASS, DEFAULT_LEGACY_ERC20_CLASS_HASH, DEFAULT_LEGACY_UDC_CLASS,
-        DEFAULT_LEGACY_UDC_CLASS_HASH,
-    };
+    use crate::constant::{DEFAULT_LEGACY_ERC20_CLASS_HASH, DEFAULT_LEGACY_UDC_CLASS_HASH};
 
     #[test]
     fn deserialize_from_json() {
-        let file = File::open("./src/genesis/test-genesis.json").unwrap();
+        let file = File::open("./src/test-genesis.json").unwrap();
         let json: GenesisJson = serde_json::from_reader(file).unwrap();
 
         assert_eq!(json.number, 0);
@@ -699,17 +697,17 @@ mod tests {
             json.classes,
             vec![
                 GenesisClassJson {
-                    class: PathBuf::from("../../../contracts/build/legacy/erc20.json").into(),
+                    class: PathBuf::from("../../contracts/build/legacy/erc20.json").into(),
                     name: Some("MyErc20".to_string()),
                 },
                 GenesisClassJson {
-                    class: PathBuf::from("../../../contracts/build/legacy/universal_deployer.json")
+                    class: PathBuf::from("../../contracts/build/legacy/universal_deployer.json")
                         .into(),
                     name: Some("Foo".to_string()),
                 },
                 GenesisClassJson {
                     class: PathBuf::from(
-                        "../../../contracts/build/katana_account_Account.contract_class.json"
+                        "../../contracts/build/katana_account_Account.contract_class.json"
                     )
                     .into(),
                     name: Some("MyClass".to_string()),
@@ -720,22 +718,22 @@ mod tests {
 
     #[test]
     fn deserialize_from_json_with_class() {
-        let file = File::open("./src/genesis/test-genesis-with-class.json").unwrap();
+        let file = File::open("./src/test-genesis-with-class.json").unwrap();
         let genesis: GenesisJson = serde_json::from_reader(BufReader::new(file)).unwrap();
         similar_asserts::assert_eq!(
             genesis.classes,
             vec![
                 GenesisClassJson {
-                    class: PathBuf::from("../../../contracts/build/legacy/erc20.json").into(),
+                    class: PathBuf::from("../../contracts/build/legacy/erc20.json").into(),
                     name: Some("MyErc20".to_string()),
                 },
                 GenesisClassJson {
-                    class: PathBuf::from("../../../contracts/build/legacy/universal_deployer.json")
+                    class: PathBuf::from("../../contracts/build/legacy/universal_deployer.json")
                         .into(),
                     name: Some("Foo".to_string()),
                 },
                 GenesisClassJson {
-                    class: serde_json::to_value(DEFAULT_ACCOUNT_CLASS.as_sierra().unwrap())
+                    class: serde_json::to_value(Account::CLASS.as_sierra().unwrap())
                         .unwrap()
                         .into(),
                     name: None,
@@ -746,18 +744,16 @@ mod tests {
 
     #[test]
     fn genesis_load_from_json() {
-        let path = PathBuf::from("./src/genesis/test-genesis.json");
+        let path = PathBuf::from("./src/test-genesis.json");
 
         let json = GenesisJson::load(path).unwrap();
         let actual_genesis = Genesis::try_from(json).unwrap();
 
         let mut expected_classes = BTreeMap::new();
 
-        expected_classes
-            .insert(DEFAULT_LEGACY_ERC20_CLASS_HASH, DEFAULT_LEGACY_ERC20_CLASS.clone().into());
-        expected_classes
-            .insert(DEFAULT_LEGACY_UDC_CLASS_HASH, DEFAULT_LEGACY_UDC_CLASS.clone().into());
-        expected_classes.insert(DEFAULT_ACCOUNT_CLASS_HASH, DEFAULT_ACCOUNT_CLASS.clone().into());
+        expected_classes.insert(LegacyERC20::HASH, LegacyERC20::CLASS.clone().into());
+        expected_classes.insert(UniversalDeployer::HASH, UniversalDeployer::CLASS.clone().into());
+        expected_classes.insert(Account::HASH, Account::CLASS.clone().into());
 
         let acc_1 = address!("0x66efb28ac62686966ae85095ff3a772e014e7fbf56d4c5f6fac5606d4dde23a");
         let acc_2 = address!("0x6b86e40118f29ebe393a75469b4d926c7a44c2e2681b6d319520b7c1156d114");
@@ -790,7 +786,7 @@ mod tests {
                 GenesisAllocation::Account(GenesisAccountAlloc::Account(GenesisAccount {
                     public_key: felt!("0x2"),
                     balance: Some(U256::from_str("0xD3C21BCECCEDA1000000").unwrap()),
-                    class_hash: DEFAULT_ACCOUNT_CLASS_HASH,
+                    class_hash: Account::HASH,
                     nonce: None,
                     storage: None,
                     salt: GenesisAccount::DEFAULT_SALT,
@@ -801,7 +797,7 @@ mod tests {
                 GenesisAllocation::Account(GenesisAccountAlloc::Account(GenesisAccount {
                     public_key: felt!("0x3"),
                     balance: None,
-                    class_hash: DEFAULT_ACCOUNT_CLASS_HASH,
+                    class_hash: Account::HASH,
                     nonce: None,
                     storage: None,
                     salt: GenesisAccount::DEFAULT_SALT,
@@ -814,7 +810,7 @@ mod tests {
                     inner: GenesisAccount {
                         public_key: felt!("0x4"),
                         balance: Some(U256::from_str("0xD3C21BCECCEDA1000000").unwrap()),
-                        class_hash: DEFAULT_ACCOUNT_CLASS_HASH,
+                        class_hash: Account::HASH,
                         nonce: None,
                         storage: None,
                         salt: GenesisAccount::DEFAULT_SALT,
@@ -890,7 +886,7 @@ mod tests {
     // structs
     #[test]
     fn genesis_conversion_rt() {
-        let path = PathBuf::from("./src/genesis/test-genesis.json");
+        let path = PathBuf::from("./src/test-genesis.json");
 
         let json = GenesisJson::load(path).unwrap();
         let genesis = Genesis::try_from(json.clone()).unwrap();
@@ -935,14 +931,14 @@ mod tests {
         let actual_genesis = Genesis::try_from(genesis_json).unwrap();
 
         let mut classes = BTreeMap::new();
-        classes.insert(DEFAULT_ACCOUNT_CLASS_HASH, DEFAULT_ACCOUNT_CLASS.clone().into());
+        classes.insert(Account::HASH, (*Account::CLASS).clone().into());
 
         let allocations = BTreeMap::from([(
             address!("0x66efb28ac62686966ae85095ff3a772e014e7fbf56d4c5f6fac5606d4dde23a"),
             GenesisAllocation::Account(GenesisAccountAlloc::Account(GenesisAccount {
                 public_key: felt!("0x1"),
                 balance: Some(U256::from_str("0xD3C21BCECCEDA1000000").unwrap()),
-                class_hash: DEFAULT_ACCOUNT_CLASS_HASH,
+                class_hash: Account::HASH,
                 nonce: None,
                 storage: None,
                 salt: GenesisAccount::DEFAULT_SALT,
@@ -978,7 +974,7 @@ mod tests {
 
     #[test]
     fn genesis_from_json_with_unresolved_paths() {
-        let file = File::open("./src/genesis/test-genesis.json").unwrap();
+        let file = File::open("./src/test-genesis.json").unwrap();
         let json: GenesisJson = serde_json::from_reader(file).unwrap();
         assert!(Genesis::try_from(json)
             .unwrap_err()
@@ -988,7 +984,7 @@ mod tests {
 
     #[test]
     fn encode_decode_genesis_file_to_base64() {
-        let path = PathBuf::from("./src/genesis/test-genesis.json");
+        let path = PathBuf::from("./src/test-genesis.json");
 
         let genesis = GenesisJson::load(path).unwrap();
         let genesis_clone = genesis.clone();
@@ -1024,7 +1020,7 @@ mod tests {
     fn classes_with_duplicate_names() {
         let name = "MyClass";
 
-        let json = GenesisJson::load("./src/genesis/test-genesis-with-duplicate-name.json")
+        let json = GenesisJson::load("./src/test-genesis-with-duplicate-name.json")
             .expect("failed to load genesis file");
 
         let res = Genesis::try_from(json);

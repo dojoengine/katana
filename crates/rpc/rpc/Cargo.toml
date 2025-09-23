@@ -13,6 +13,7 @@ katana-explorer = { workspace = true, features = [ "jsonrpsee" ], optional = tru
 katana-metrics.workspace = true
 katana-pool.workspace = true
 katana-primitives.workspace = true
+katana-genesis = { workspace = true, optional = true }
 katana-provider.workspace = true
 katana-rpc-api = { workspace = true, features = [ "client" ] }
 katana-rpc-types.workspace = true
@@ -74,6 +75,7 @@ url.workspace = true
 cartridge = [
 	"dep:cainome",
 	"dep:cartridge",
+	"dep:katana-genesis",
 	"dep:starknet",
 	"dep:starknet-crypto",
 	"dep:url",

@@ -3,7 +3,7 @@ use std::time::Instant;
 
 use anyhow::Result;
 use cainome::rs::abigen_legacy;
-use katana_primitives::genesis::constant::DEFAULT_ETH_FEE_TOKEN_ADDRESS;
+use katana_genesis::constant::DEFAULT_ETH_FEE_TOKEN_ADDRESS;
 use katana_utils::TestNode;
 use starknet::core::types::Felt;
 use starknet::macros::felt;

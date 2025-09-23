@@ -6,18 +6,14 @@ use std::collections::BTreeMap;
 use std::fmt::Debug;
 use std::sync::Arc;
 
-use constant::DEFAULT_ACCOUNT_CLASS;
+use katana_contracts::contracts::{Account, LegacyERC20, UniversalDeployer};
+use katana_primitives::block::{BlockHash, BlockNumber, GasPrices};
+use katana_primitives::class::{ClassHash, ContractClass};
+use katana_primitives::contract::ContractAddress;
+use katana_primitives::Felt;
 use serde::{Deserialize, Serialize};
 
 use self::allocation::{GenesisAccountAlloc, GenesisAllocation, GenesisContractAlloc};
-use self::constant::{
-    DEFAULT_ACCOUNT_CLASS_HASH, DEFAULT_LEGACY_ERC20_CLASS, DEFAULT_LEGACY_ERC20_CLASS_HASH,
-    DEFAULT_LEGACY_UDC_CLASS, DEFAULT_LEGACY_UDC_CLASS_HASH,
-};
-use crate::block::{BlockHash, BlockNumber, GasPrices};
-use crate::class::{ClassHash, ContractClass};
-use crate::contract::ContractAddress;
-use crate::Felt;
 
 /// Genesis block configuration.
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
@@ -82,11 +78,11 @@ impl Default for Genesis {
 
         classes.extend(BTreeMap::from([
             // Fee token class
-            (DEFAULT_LEGACY_ERC20_CLASS_HASH, DEFAULT_LEGACY_ERC20_CLASS.clone().into()),
+            (LegacyERC20::HASH, LegacyERC20::CLASS.clone().into()),
             // universal depoyer contract class
-            (DEFAULT_LEGACY_UDC_CLASS_HASH, DEFAULT_LEGACY_UDC_CLASS.clone().into()),
+            (UniversalDeployer::HASH, UniversalDeployer::CLASS.clone().into()),
             // predeployed account class
-            (DEFAULT_ACCOUNT_CLASS_HASH, DEFAULT_ACCOUNT_CLASS.clone().into()),
+            (Account::HASH, Account::CLASS.clone().into()),
         ]));
 
         Self {

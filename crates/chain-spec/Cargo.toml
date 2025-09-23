@@ -7,6 +7,7 @@ version.workspace = true
 
 [dependencies]
 katana-contracts.workspace = true
+katana-genesis.workspace = true
 katana-primitives.workspace = true
 
 alloy-primitives.workspace = true

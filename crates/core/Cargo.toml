@@ -39,6 +39,7 @@ url.workspace = true
 alloy-primitives = { workspace = true, features = [ "serde" ] }
 arbitrary.workspace = true
 assert_matches.workspace = true
+katana-genesis.workspace = true
 criterion.workspace = true
 hex.workspace = true
 pprof.workspace = true

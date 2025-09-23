@@ -4,9 +4,9 @@ use std::sync::Arc;
 
 use alloy_primitives::U256;
 use katana_contracts::contracts;
+use katana_genesis::allocation::{DevGenesisAccount, GenesisAccountAlloc};
 use katana_primitives::class::{ClassHash, ContractClass};
 use katana_primitives::contract::{ContractAddress, Nonce};
-use katana_primitives::genesis::allocation::{DevGenesisAccount, GenesisAccountAlloc};
 use katana_primitives::transaction::{
     DeclareTx, DeclareTxV0, DeclareTxV2, DeclareTxWithClass, DeployAccountTx, DeployAccountTxV1,
     ExecutableTx, ExecutableTxWithHash, InvokeTx, InvokeTxV1,
@@ -340,17 +340,15 @@ mod tests {
     use katana_executor::implementation::blockifier::cache::ClassCache;
     use katana_executor::implementation::blockifier::BlockifierFactory;
     use katana_executor::{BlockLimits, ExecutorFactory};
+    use katana_genesis::allocation::{
+        DevAllocationsGenerator, GenesisAccount, GenesisAccountAlloc, GenesisAllocation,
+    };
+    use katana_genesis::constant::{DEFAULT_PREFUNDED_ACCOUNT_BALANCE, DEFAULT_UDC_ADDRESS};
+    use katana_genesis::Genesis;
     use katana_primitives::chain::ChainId;
     use katana_primitives::class::ClassHash;
     use katana_primitives::contract::Nonce;
     use katana_primitives::env::CfgEnv;
-    use katana_primitives::genesis::allocation::{
-        DevAllocationsGenerator, GenesisAccount, GenesisAccountAlloc, GenesisAllocation,
-    };
-    use katana_primitives::genesis::constant::{
-        DEFAULT_PREFUNDED_ACCOUNT_BALANCE, DEFAULT_UDC_ADDRESS,
-    };
-    use katana_primitives::genesis::Genesis;
     use katana_primitives::transaction::TxType;
     use katana_primitives::Felt;
     use katana_provider::api::state::StateFactoryProvider;
