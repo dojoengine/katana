@@ -5,6 +5,10 @@ pub mod contracts {
 
     contract!(LegacyERC20, "{CARGO_MANIFEST_DIR}/build/legacy/erc20.json");
     contract!(GenesisAccount, "{CARGO_MANIFEST_DIR}/build/legacy/account.json");
-    contract!(UniversalDeployer, "{CARGO_MANIFEST_DIR}/build/legacy/universal_deployer.json");
+    contract!(LegacyUniversalDeployer, "{CARGO_MANIFEST_DIR}/build/legacy/universal_deployer.json");
+    contract!(
+        UniversalDeployer,
+        "{CARGO_MANIFEST_DIR}/build/udc_UniversalDeployer.contract_class.json"
+    );
     contract!(Account, "{CARGO_MANIFEST_DIR}/build/katana_account_Account.contract_class.json");
 }

@@ -307,7 +307,7 @@ mod tests {
         let class_hash2 = felt!("0x2");
 
         cache1.insert(class_hash1, contracts::Account::CLASS.clone());
-        cache1.insert(class_hash2, contracts::UniversalDeployer::CLASS.clone());
+        cache1.insert(class_hash2, contracts::LegacyUniversalDeployer::CLASS.clone());
 
         assert!(cache1.get(&class_hash1).is_some());
         assert!(cache1.get(&class_hash2).is_some());
@@ -333,7 +333,7 @@ mod tests {
         let class_hash2 = felt!("0x2");
 
         cache1.insert(class_hash1, contracts::Account::CLASS.clone());
-        cache1.insert(class_hash2, contracts::UniversalDeployer::CLASS.clone());
+        cache1.insert(class_hash2, contracts::LegacyUniversalDeployer::CLASS.clone());
 
         assert!(cache1.get(&class_hash1).is_some());
         assert!(cache1.get(&class_hash2).is_some());

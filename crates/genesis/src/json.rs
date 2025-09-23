@@ -588,7 +588,7 @@ fn class_artifact_at_path(
 
 #[cfg(test)]
 mod tests {
-    use katana_contracts::contracts::{Account, LegacyERC20, UniversalDeployer};
+    use katana_contracts::contracts::{Account, LegacyERC20, LegacyUniversalDeployer};
     use katana_primitives::address;
     use starknet::macros::felt;
 
@@ -752,7 +752,8 @@ mod tests {
         let mut expected_classes = BTreeMap::new();
 
         expected_classes.insert(LegacyERC20::HASH, LegacyERC20::CLASS.clone().into());
-        expected_classes.insert(UniversalDeployer::HASH, UniversalDeployer::CLASS.clone().into());
+        expected_classes
+            .insert(LegacyUniversalDeployer::HASH, LegacyUniversalDeployer::CLASS.clone().into());
         expected_classes.insert(Account::HASH, Account::CLASS.clone().into());
 
         let acc_1 = address!("0x66efb28ac62686966ae85095ff3a772e014e7fbf56d4c5f6fac5606d4dde23a");

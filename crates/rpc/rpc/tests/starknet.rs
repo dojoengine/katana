@@ -8,8 +8,8 @@ use common::split_felt;
 use indexmap::IndexSet;
 use katana_contracts::contracts;
 use katana_genesis::constant::{
-    DEFAULT_ETH_FEE_TOKEN_ADDRESS, DEFAULT_PREFUNDED_ACCOUNT_BALANCE,
-    DEFAULT_STRK_FEE_TOKEN_ADDRESS, DEFAULT_UDC_ADDRESS,
+    DEFAULT_ETH_FEE_TOKEN_ADDRESS, DEFAULT_LEGACY_UDC_ADDRESS, DEFAULT_PREFUNDED_ACCOUNT_BALANCE,
+    DEFAULT_STRK_FEE_TOKEN_ADDRESS,
 };
 use katana_primitives::block::{BlockIdOrTag, ConfirmedBlockIdOrTag};
 use katana_primitives::event::ContinuationToken;
@@ -89,7 +89,7 @@ async fn declare_and_deploy_contract() {
     let res = account
         .execute_v3(vec![Call {
             calldata,
-            to: DEFAULT_UDC_ADDRESS.into(),
+            to: DEFAULT_LEGACY_UDC_ADDRESS.into(),
             selector: selector!("deployContract"),
         }])
         .send()

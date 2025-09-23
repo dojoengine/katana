@@ -6,7 +6,7 @@ use katana_chain_spec::rollup::ChainConfigDir;
 use katana_chain_spec::ChainSpec;
 use katana_genesis::allocation::GenesisAccountAlloc;
 use katana_genesis::constant::{
-    DEFAULT_LEGACY_ERC20_CLASS_HASH, DEFAULT_LEGACY_UDC_CLASS_HASH, DEFAULT_UDC_ADDRESS,
+    DEFAULT_LEGACY_ERC20_CLASS_HASH, DEFAULT_LEGACY_UDC_ADDRESS, DEFAULT_LEGACY_UDC_CLASS_HASH,
 };
 use katana_genesis::json::GenesisJson;
 use katana_genesis::Genesis;
@@ -137,7 +137,7 @@ PREDEPLOYED CONTRACTS
 | Contract        | Universal Deployer
 | Address         | {}
 | Class Hash      | {:#064x}",
-        DEFAULT_UDC_ADDRESS, DEFAULT_LEGACY_UDC_CLASS_HASH
+        DEFAULT_LEGACY_UDC_ADDRESS, DEFAULT_LEGACY_UDC_CLASS_HASH
     );
 
     if let Some(hash) = account_class_hash {
