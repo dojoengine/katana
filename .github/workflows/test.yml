@@ -328,12 +328,15 @@ jobs:
         with:
           scarb-version: "2.12.2"
 
+      - name: Download and setup Sozo binary
+        run: |
+          curl -L https://github.com/dojoengine/dojo/releases/download/v1.7.0/dojo_v1.7.0_linux_amd64.tar.gz | tar -xz
+          chmod +x sozo
+          sudo mv sozo /usr/local/bin/
+
       - name: Build and migrate `spawn-and-move` project
         run: |
-          cd dojo
-          cargo install --path bin/sozo --locked --force
-
-          cd examples/spawn-and-move
+          cd dojo/examples/spawn-and-move
           sozo build && sozo migrate
 
       - name: Output Katana logs on failure
