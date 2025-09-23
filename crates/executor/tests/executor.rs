@@ -7,7 +7,7 @@ use katana_contracts::contracts;
 use katana_executor::{ExecutionOutput, ExecutionResult, ExecutorFactory};
 use katana_primitives::block::ExecutableBlock;
 use katana_primitives::contract::ContractAddress;
-use katana_primitives::genesis::constant::{
+use katana_genesis::constant::{
     DEFAULT_ETH_FEE_TOKEN_ADDRESS, DEFAULT_PREFUNDED_ACCOUNT_BALANCE, DEFAULT_UDC_ADDRESS,
 };
 use katana_primitives::transaction::TxWithHash;

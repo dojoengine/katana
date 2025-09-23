@@ -8,12 +8,12 @@ use katana_primitives::block::{BlockHash, BlockHashOrNumber, BlockNumber};
 use katana_primitives::chain::ChainId;
 use katana_primitives::class::ClassHash;
 use katana_primitives::contract::ContractAddress;
-use katana_primitives::genesis::allocation::GenesisAccountAlloc;
-use katana_primitives::genesis::constant::{
+use katana_genesis::allocation::GenesisAccountAlloc;
+use katana_genesis::constant::{
     DEFAULT_LEGACY_ERC20_CLASS_HASH, DEFAULT_LEGACY_UDC_CLASS_HASH, DEFAULT_UDC_ADDRESS,
 };
-use katana_primitives::genesis::json::GenesisJson;
-use katana_primitives::genesis::Genesis;
+use katana_genesis::json::GenesisJson;
+use katana_genesis::Genesis;
 use katana_rpc::cors::HeaderValue;
 use katana_tracing::LogFormat;
 use serde::{Deserialize, Deserializer, Serializer};

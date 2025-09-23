@@ -11,7 +11,8 @@ pub mod eth;
 pub mod event;
 pub mod execution;
 pub mod fee;
-pub mod genesis;
+// Genesis module has been moved to its own crate: katana-genesis
+// Consuming crates should depend on katana-genesis directly
 pub mod message;
 pub mod receipt;
 pub mod transaction;

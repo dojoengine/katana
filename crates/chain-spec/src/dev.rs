@@ -7,19 +7,21 @@ use katana_primitives::chain::ChainId;
 use katana_primitives::class::ClassHash;
 use katana_primitives::contract::ContractAddress;
 use katana_primitives::da::L1DataAvailabilityMode;
-use katana_primitives::genesis::allocation::{DevAllocationsGenerator, GenesisAllocation};
-use katana_primitives::genesis::constant::{
-    get_fee_token_balance_base_storage_address, DEFAULT_ACCOUNT_CLASS_PUBKEY_STORAGE_SLOT,
-    DEFAULT_ETH_FEE_TOKEN_ADDRESS, DEFAULT_PREFUNDED_ACCOUNT_BALANCE,
-    DEFAULT_STRK_FEE_TOKEN_ADDRESS, DEFAULT_UDC_ADDRESS, ERC20_DECIMAL_STORAGE_SLOT,
-    ERC20_NAME_STORAGE_SLOT, ERC20_SYMBOL_STORAGE_SLOT, ERC20_TOTAL_SUPPLY_STORAGE_SLOT,
+use katana_genesis::allocation::{DevAllocationsGenerator, GenesisAllocation};
+use katana_genesis::constant::{
+    get_fee_token_balance_base_storage_address, init_default_classes,
+    DEFAULT_ACCOUNT_CLASS_PUBKEY_STORAGE_SLOT, DEFAULT_ETH_FEE_TOKEN_ADDRESS,
+    DEFAULT_PREFUNDED_ACCOUNT_BALANCE, DEFAULT_STRK_FEE_TOKEN_ADDRESS, DEFAULT_UDC_ADDRESS,
+    ERC20_DECIMAL_STORAGE_SLOT, ERC20_NAME_STORAGE_SLOT, ERC20_SYMBOL_STORAGE_SLOT,
+    ERC20_TOTAL_SUPPLY_STORAGE_SLOT,
 };
-use katana_primitives::genesis::Genesis;
+use katana_genesis::Genesis;
 use katana_primitives::state::StateUpdatesWithClasses;
 use katana_primitives::utils::split_u256;
 use katana_primitives::version::StarknetVersion;
 use katana_primitives::Felt;
 use lazy_static::lazy_static;
+use once_cell::sync::Once;
 use serde::{Deserialize, Serialize};
 use starknet::core::utils::cairo_short_string_to_felt;
 
@@ -125,9 +127,23 @@ impl Default for ChainSpec {
     }
 }
 
+// Ensures default contract classes are initialized once
+static INIT: Once = Once::new();
+
+fn init_contract_classes() {
+    INIT.call_once(|| {
+        init_default_classes(
+            std::sync::Arc::new(contracts::LegacyERC20::class().unwrap()),
+            std::sync::Arc::new(contracts::UniversalDeployer::class().unwrap()),
+            std::sync::Arc::new(contracts::Account::class().unwrap()),
+        );
+    });
+}
+
 lazy_static! {
     /// The default chain specification in dev mode.
     pub static ref DEV: ChainSpec = {
+        init_contract_classes();
         let mut chain_spec = DEV_UNALLOCATED.clone();
 
         let accounts = DevAllocationsGenerator::new(10)
@@ -142,6 +158,8 @@ lazy_static! {
     ///
     /// Used when we want to create a chain spec with user defined # of allocations.
     pub static ref DEV_UNALLOCATED: ChainSpec = {
+        init_contract_classes();
+        
         let id = ChainId::parse("KATANA").unwrap();
         let genesis = Genesis::default();
         let fee_contracts = FeeContracts { eth: DEFAULT_ETH_FEE_TOKEN_ADDRESS, strk: DEFAULT_STRK_FEE_TOKEN_ADDRESS };
@@ -261,10 +279,10 @@ mod tests {
     use katana_primitives::address;
     use katana_primitives::block::GasPrices;
     use katana_primitives::da::L1DataAvailabilityMode;
-    use katana_primitives::genesis::allocation::{
+    use katana_genesis::allocation::{
         GenesisAccount, GenesisAccountAlloc, GenesisContractAlloc,
     };
-    use katana_primitives::genesis::constant::DEFAULT_ACCOUNT_CLASS_PUBKEY_STORAGE_SLOT;
+    use katana_genesis::constant::DEFAULT_ACCOUNT_CLASS_PUBKEY_STORAGE_SLOT;
     use starknet::macros::felt;
 
     use super::*;

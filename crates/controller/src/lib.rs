@@ -1,5 +1,5 @@
 pub use cartridge::controller::*;
-use katana_primitives::genesis::Genesis;
+use katana_genesis::Genesis;
 use katana_primitives::utils::class::parse_sierra_class;
 
 pub fn add_controller_classes(genesis: &mut Genesis) {

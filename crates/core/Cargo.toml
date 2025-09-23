@@ -11,6 +11,7 @@ katana-chain-spec.workspace = true
 katana-db.workspace = true
 katana-executor.workspace = true
 katana-gas-price-oracle.workspace = true
+katana-genesis.workspace = true
 katana-metrics.workspace = true
 katana-pool.workspace = true
 katana-primitives = { workspace = true, features = [ "arbitrary" ] }

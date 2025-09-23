@@ -8,10 +8,10 @@ use serde::{Deserialize, Serialize};
 use starknet::signers::SigningKey;
 
 use super::constant::DEFAULT_ACCOUNT_CLASS_HASH;
-use crate::class::ClassHash;
-use crate::contract::{ContractAddress, StorageKey, StorageValue};
-use crate::utils::get_contract_address;
-use crate::{felt, Felt, U256};
+use katana_primitives::class::ClassHash;
+use katana_primitives::contract::{ContractAddress, StorageKey, StorageValue};
+use katana_primitives::utils::get_contract_address;
+use katana_primitives::{felt, Felt, U256};
 
 /// Represents a contract allocation in the genesis block.
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]

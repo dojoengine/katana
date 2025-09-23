@@ -23,7 +23,7 @@ use katana_node::config::rpc::{
 };
 use katana_primitives::block::{BlockHashOrNumber, GasPrice};
 use katana_primitives::chain::ChainId;
-use katana_primitives::genesis::Genesis;
+use katana_genesis::Genesis;
 #[cfg(feature = "server")]
 use katana_rpc::cors::HeaderValue;
 use katana_tracing::{gcloud, otlp, LogFormat, TracerConfig};

@@ -3,8 +3,8 @@ use std::io::{self, BufReader, BufWriter};
 use std::path::{Path, PathBuf};
 
 use katana_primitives::chain::ChainId;
-use katana_primitives::genesis::json::GenesisJson;
-use katana_primitives::genesis::Genesis;
+use katana_genesis::json::GenesisJson;
+use katana_genesis::Genesis;
 use serde::{Deserialize, Serialize};
 
 use super::FeeContract;
@@ -38,7 +38,7 @@ pub enum Error {
     IO(#[from] std::io::Error),
 
     #[error(transparent)]
-    GenesisJson(#[from] katana_primitives::genesis::json::GenesisJsonError),
+    GenesisJson(#[from] katana_genesis::json::GenesisJsonError),
 }
 
 /// Read the [`ChainSpec`] of the given `id` from the local config directory.
@@ -287,7 +287,7 @@ mod tests {
     use std::sync::OnceLock;
 
     use katana_primitives::chain::ChainId;
-    use katana_primitives::genesis::Genesis;
+    use katana_genesis::Genesis;
     use katana_primitives::ContractAddress;
     use tempfile::TempDir;
     use url::Url;

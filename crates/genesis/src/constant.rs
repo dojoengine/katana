@@ -1,11 +1,10 @@
-use lazy_static::lazy_static;
+use katana_primitives::class::{ClassHash, ContractClass};
+use katana_primitives::contract::{ContractAddress, StorageKey};
+use katana_primitives::utils::get_storage_var_address;
+use katana_primitives::Felt;
+use once_cell::sync::OnceCell;
 use starknet::macros::felt;
-
-use crate::class::{ClassHash, ContractClass};
-use crate::contract::{ContractAddress, StorageKey};
-use crate::utils::class::{parse_deprecated_compiled_class, parse_sierra_class};
-use crate::utils::get_storage_var_address;
-use crate::Felt;
+use std::sync::Arc;
 
 /// The default universal deployer contract address.
 pub const DEFAULT_UDC_ADDRESS: ContractAddress =
@@ -61,14 +60,21 @@ pub const DEFAULT_LEGACY_UDC_CLASS_HASH: ClassHash =
 pub const DEFAULT_ACCOUNT_CLASS_HASH: ClassHash =
     felt!("0x07dc7899aa655b0aae51eadff6d801a58e97dd99cf4666ee59e704249e51adf2");
 
-// Pre-compiled contract classes
-lazy_static! {
-    // Default fee token contract
-    pub static ref DEFAULT_LEGACY_ERC20_CLASS: ContractClass = read_legacy_class_artifact(include_str!("../../../contracts/build/legacy/erc20.json"));
-    // Default universal deployer
-    pub static ref DEFAULT_LEGACY_UDC_CLASS: ContractClass = read_legacy_class_artifact(include_str!("../../../contracts/build/legacy/universal_deployer.json"));
-    // Default account contract
-    pub static ref DEFAULT_ACCOUNT_CLASS: ContractClass = parse_sierra_class(include_str!("../../../contracts/build/katana_account_Account.contract_class.json")).unwrap();
+// Pre-compiled contract classes - must be initialized by the consuming crate
+pub static DEFAULT_LEGACY_ERC20_CLASS: OnceCell<Arc<ContractClass>> = OnceCell::new();
+pub static DEFAULT_LEGACY_UDC_CLASS: OnceCell<Arc<ContractClass>> = OnceCell::new();
+pub static DEFAULT_ACCOUNT_CLASS: OnceCell<Arc<ContractClass>> = OnceCell::new();
+
+/// Initialize the default contract classes. This must be called by the consuming crate
+/// that has access to the katana-contracts crate.
+pub fn init_default_classes(
+    erc20_class: ContractClass,
+    udc_class: ContractClass,
+    account_class: ContractClass,
+) {
+    DEFAULT_LEGACY_ERC20_CLASS.set(Arc::new(erc20_class)).ok();
+    DEFAULT_LEGACY_UDC_CLASS.set(Arc::new(udc_class)).ok();
+    DEFAULT_ACCOUNT_CLASS.set(Arc::new(account_class)).ok();
 }
 
 /// A helper function to get the base storage address for the fee token balance of a given account.
@@ -77,10 +83,4 @@ lazy_static! {
 /// stored as a U256 value and as such has to be split into two U128 values (low and high).
 pub fn get_fee_token_balance_base_storage_address(address: ContractAddress) -> Felt {
     get_storage_var_address("ERC20_balances", &[address.into()]).unwrap()
-}
-
-fn read_legacy_class_artifact(artifact: &str) -> ContractClass {
-    let value = serde_json::from_str(artifact).unwrap();
-    let class = parse_deprecated_compiled_class(value).unwrap();
-    ContractClass::Legacy(class)
 }

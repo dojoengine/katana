@@ -1,6 +1,6 @@
 use katana_primitives::block::BlockNumber;
 use katana_primitives::chain::ChainId;
-use katana_primitives::genesis::Genesis;
+use katana_genesis::Genesis;
 use katana_primitives::{eth, ContractAddress};
 use serde::{Deserialize, Serialize};
 use url::Url;

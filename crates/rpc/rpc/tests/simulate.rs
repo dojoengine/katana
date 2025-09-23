@@ -1,6 +1,6 @@
 use cainome::rs::abigen_legacy;
 use katana_primitives::block::BlockIdOrTag;
-use katana_primitives::genesis::constant::DEFAULT_ETH_FEE_TOKEN_ADDRESS;
+use katana_genesis::constant::DEFAULT_ETH_FEE_TOKEN_ADDRESS;
 use katana_utils::TestNode;
 use starknet::accounts::{Account, ExecutionEncoding, SingleOwnerAccount};
 use starknet::core::types::Felt;

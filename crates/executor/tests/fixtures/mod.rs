@@ -13,8 +13,8 @@ use katana_primitives::class::{CompiledClass, ContractClass};
 use katana_primitives::contract::ContractAddress;
 use katana_primitives::da::L1DataAvailabilityMode;
 use katana_primitives::env::{CfgEnv, FeeTokenAddressses};
-use katana_primitives::genesis::allocation::DevAllocationsGenerator;
-use katana_primitives::genesis::constant::{
+use katana_genesis::allocation::DevAllocationsGenerator;
+use katana_genesis::constant::{
     DEFAULT_ETH_FEE_TOKEN_ADDRESS, DEFAULT_PREFUNDED_ACCOUNT_BALANCE,
     DEFAULT_STRK_FEE_TOKEN_ADDRESS,
 };

@@ -6,18 +6,17 @@ use std::collections::BTreeMap;
 use std::fmt::Debug;
 use std::sync::Arc;
 
-use constant::DEFAULT_ACCOUNT_CLASS;
 use serde::{Deserialize, Serialize};
 
 use self::allocation::{GenesisAccountAlloc, GenesisAllocation, GenesisContractAlloc};
 use self::constant::{
-    DEFAULT_ACCOUNT_CLASS_HASH, DEFAULT_LEGACY_ERC20_CLASS, DEFAULT_LEGACY_ERC20_CLASS_HASH,
-    DEFAULT_LEGACY_UDC_CLASS, DEFAULT_LEGACY_UDC_CLASS_HASH,
+    DEFAULT_ACCOUNT_CLASS, DEFAULT_ACCOUNT_CLASS_HASH, DEFAULT_LEGACY_ERC20_CLASS,
+    DEFAULT_LEGACY_ERC20_CLASS_HASH, DEFAULT_LEGACY_UDC_CLASS, DEFAULT_LEGACY_UDC_CLASS_HASH,
 };
-use crate::block::{BlockHash, BlockNumber, GasPrices};
-use crate::class::{ClassHash, ContractClass};
-use crate::contract::ContractAddress;
-use crate::Felt;
+use katana_primitives::block::{BlockHash, BlockNumber, GasPrices};
+use katana_primitives::class::{ClassHash, ContractClass};
+use katana_primitives::contract::ContractAddress;
+use katana_primitives::Felt;
 
 /// Genesis block configuration.
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
@@ -80,14 +79,16 @@ impl Default for Genesis {
     fn default() -> Self {
         let mut classes = BTreeMap::new();
 
-        classes.extend(BTreeMap::from([
-            // Fee token class
-            (DEFAULT_LEGACY_ERC20_CLASS_HASH, DEFAULT_LEGACY_ERC20_CLASS.clone().into()),
-            // universal depoyer contract class
-            (DEFAULT_LEGACY_UDC_CLASS_HASH, DEFAULT_LEGACY_UDC_CLASS.clone().into()),
-            // predeployed account class
-            (DEFAULT_ACCOUNT_CLASS_HASH, DEFAULT_ACCOUNT_CLASS.clone().into()),
-        ]));
+        // Add default classes if they have been initialized
+        if let Some(erc20_class) = DEFAULT_LEGACY_ERC20_CLASS.get() {
+            classes.insert(DEFAULT_LEGACY_ERC20_CLASS_HASH, erc20_class.clone());
+        }
+        if let Some(udc_class) = DEFAULT_LEGACY_UDC_CLASS.get() {
+            classes.insert(DEFAULT_LEGACY_UDC_CLASS_HASH, udc_class.clone());
+        }
+        if let Some(account_class) = DEFAULT_ACCOUNT_CLASS.get() {
+            classes.insert(DEFAULT_ACCOUNT_CLASS_HASH, account_class.clone());
+        }
 
         Self {
             parent_hash: Felt::ZERO,
