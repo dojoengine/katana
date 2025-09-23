@@ -14,12 +14,12 @@ use starknet::providers::Provider;
 use starknet::signers::{LocalWallet, SigningKey};
 use tokio::runtime::Handle;
 
-use super::{deployment, AnyOutcome, PersistentOutcome, SovereignOutcome};
+use super::{deployment, PersistentOutcome, SovereignOutcome};
 use crate::cli::init::deployment::DeploymentOutcome;
 use crate::cli::init::settlement::SettlementChainProvider;
 use crate::cli::init::slot::{self, PaymasterAccountArgs};
 
-pub async fn prompt() -> Result<AnyOutcome> {
+pub async fn prompt_rollup() -> Result<PersistentOutcome> {
     let chain_id = CustomType::<String>::new("Id")
     .with_help_message("This will be the id of your rollup chain.")
     // checks that the input is a valid ascii string.
@@ -37,7 +37,6 @@ pub async fn prompt() -> Result<AnyOutcome> {
     enum SettlementChainOpt {
         Mainnet,
         Sepolia,
-        Sovereign,
         #[cfg(feature = "init-custom-settlement-chain")]
         Custom,
     }
@@ -49,7 +48,6 @@ pub async fn prompt() -> Result<AnyOutcome> {
     let network_opts = vec![
         SettlementChainOpt::Mainnet,
         SettlementChainOpt::Sepolia,
-        SettlementChainOpt::Sovereign,
         #[cfg(feature = "init-custom-settlement-chain")]
         SettlementChainOpt::Custom,
     ];
@@ -61,16 +59,6 @@ pub async fn prompt() -> Result<AnyOutcome> {
     let settlement_provider = match network_type {
         SettlementChainOpt::Mainnet => SettlementChainProvider::sn_mainnet(),
         SettlementChainOpt::Sepolia => SettlementChainProvider::sn_sepolia(),
-
-        SettlementChainOpt::Sovereign => {
-            let slot_paymasters = prompt_slot_paymasters()?;
-            return Ok(AnyOutcome::Sovereign(SovereignOutcome {
-                id: chain_id,
-                #[cfg(feature = "init-slot")]
-                slot_paymasters,
-            }));
-        }
-
         // Useful for testing the program flow without having to run it against actual network.
         #[cfg(feature = "init-custom-settlement-chain")]
         SettlementChainOpt::Custom => {
@@ -140,38 +128,35 @@ pub async fn prompt() -> Result<AnyOutcome> {
 
     // The core settlement contract on L1c.
     // Prompt the user whether to deploy the settlement contract or not.
-    let deployment_outcome = if Confirm::new("Deploy settlement contract?")
-        .with_default(true)
-        .prompt()?
-    {
-        let chain_id = cairo_short_string_to_felt(&chain_id)?;
-        deployment::deploy_settlement_contract(account, chain_id).await?
-    }
-    // If denied, prompt the user for an already deployed contract.
-    else {
-        let address = CustomType::<ContractAddress>::new("Settlement contract")
-            .with_parser(contract_exist_parser)
-            .prompt()?;
+    let deployment_outcome =
+        if Confirm::new("Deploy settlement contract?").with_default(true).prompt()? {
+            let chain_id = cairo_short_string_to_felt(&chain_id)?;
+            deployment::deploy_settlement_contract(account, chain_id).await?
+        }
+        // If denied, prompt the user for an already deployed contract.
+        else {
+            let address = CustomType::<ContractAddress>::new("Settlement contract")
+                .with_parser(contract_exist_parser)
+                .prompt()?;
 
-        // Check that the settlement contract has been initialized with the correct program
-        // info.
-        let chain_id = cairo_short_string_to_felt(&chain_id)?;
-        deployment::check_program_info(chain_id, address.into(), &settlement_provider)
-            .await
-            .context(
+            // Check that the settlement contract has been initialized with the correct program
+            // info.
+            let chain_id = cairo_short_string_to_felt(&chain_id)?;
+            deployment::check_program_info(chain_id, address, &settlement_provider).await.context(
                 "Invalid settlement contract. The contract might have been configured incorrectly.",
             )?;
 
-        let block_number = CustomType::<BlockNumber>::new("Settlement contract deployment block")
-            .with_help_message("The block at which the settlement contract was deployed")
-            .prompt()?;
+            let block_number =
+                CustomType::<BlockNumber>::new("Settlement contract deployment block")
+                    .with_help_message("The block at which the settlement contract was deployed")
+                    .prompt()?;
 
-        DeploymentOutcome { contract_address: address, block_number }
-    };
+            DeploymentOutcome { contract_address: address, block_number }
+        };
 
     let slot_paymasters = prompt_slot_paymasters()?;
 
-    Ok(AnyOutcome::Persistent(PersistentOutcome {
+    Ok(PersistentOutcome {
         id: chain_id,
         deployment_outcome,
         rpc_url: settlement_provider.url().clone(),
@@ -179,7 +164,30 @@ pub async fn prompt() -> Result<AnyOutcome> {
         settlement_id: parse_cairo_short_string(&l1_chain_id)?,
         #[cfg(feature = "init-slot")]
         slot_paymasters,
-    }))
+    })
+}
+
+pub async fn prompt_sovereign() -> Result<SovereignOutcome> {
+    let chain_id = CustomType::<String>::new("Id")
+        .with_help_message("This will be the id of your sovereign chain.")
+        // checks that the input is a valid ascii string.
+        .with_parser(&|input| {
+            if !input.is_empty() && input.is_ascii() {
+                Ok(input.to_string())
+            } else {
+                Err(())
+            }
+        })
+        .with_error_message("Must be valid ASCII characters")
+        .prompt()?;
+
+    let slot_paymasters = prompt_slot_paymasters()?;
+
+    Ok(SovereignOutcome {
+        id: chain_id,
+        #[cfg(feature = "init-slot")]
+        slot_paymasters,
+    })
 }
 
 fn prompt_slot_paymasters() -> Result<Option<Vec<slot::PaymasterAccountArgs>>> {
