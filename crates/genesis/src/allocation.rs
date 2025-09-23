@@ -2,16 +2,15 @@ use std::collections::{BTreeMap, HashMap};
 use std::fmt::Debug;
 
 use derive_more::{Deref, DerefMut};
+use katana_contracts::contracts::Account;
+use katana_primitives::class::ClassHash;
+use katana_primitives::contract::{ContractAddress, StorageKey, StorageValue};
+use katana_primitives::utils::get_contract_address;
+use katana_primitives::{felt, Felt, U256};
 use rand::rngs::SmallRng;
 use rand::{RngCore, SeedableRng};
 use serde::{Deserialize, Serialize};
 use starknet::signers::SigningKey;
-
-use super::constant::DEFAULT_ACCOUNT_CLASS_HASH;
-use crate::class::ClassHash;
-use crate::contract::{ContractAddress, StorageKey, StorageValue};
-use crate::utils::get_contract_address;
-use crate::{felt, Felt, U256};
 
 /// Represents a contract allocation in the genesis block.
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
@@ -245,7 +244,7 @@ impl DevAllocationsGenerator {
     ///
     /// This will return a [DevAllocationsGenerator] with the default parameters.
     pub fn new(total: u16) -> Self {
-        Self { total, seed: [0u8; 32], balance: None, class_hash: DEFAULT_ACCOUNT_CLASS_HASH }
+        Self { total, seed: [0u8; 32], balance: None, class_hash: Account::HASH }
     }
 
     pub fn with_class(self, class_hash: ClassHash) -> Self {

@@ -11,6 +11,7 @@ members = [
 	"crates/core",
 	"crates/executor",
 	"crates/explorer",
+	"crates/genesis",
 	"crates/feeder-gateway",
 	"crates/grpc",
 	"crates/messaging",
@@ -79,6 +80,7 @@ katana-explorer = { path = "crates/explorer" }
 katana-feeder-gateway = { path = "crates/feeder-gateway" }
 katana-fork = { path = "crates/storage/fork" }
 katana-gas-price-oracle = { path = "crates/oracle/gas" }
+katana-genesis = { path = "crates/genesis" }
 katana-messaging = { path = "crates/messaging" }
 katana-metrics = { path = "crates/metrics" }
 katana-node = { path = "crates/node" }

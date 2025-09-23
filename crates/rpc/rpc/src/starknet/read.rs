@@ -6,11 +6,11 @@ use anyhow::anyhow;
 use jsonrpsee::core::{async_trait, RpcResult};
 use jsonrpsee::types::ErrorObjectOwned;
 use katana_executor::ExecutorFactory;
+#[cfg(feature = "cartridge")]
+use katana_genesis::allocation::GenesisAccountAlloc;
 use katana_primitives::block::BlockIdOrTag;
 use katana_primitives::class::ClassHash;
 use katana_primitives::contract::{Nonce, StorageKey, StorageValue};
-#[cfg(feature = "cartridge")]
-use katana_primitives::genesis::allocation::GenesisAccountAlloc;
 use katana_primitives::transaction::{ExecutableTx, ExecutableTxWithHash, TxHash};
 use katana_primitives::{ContractAddress, Felt};
 #[cfg(feature = "cartridge")]

@@ -11,6 +11,7 @@ katana-chain-spec = { workspace = true, optional = true }
 katana-db = { workspace = true, features = [ "test-utils" ] }
 katana-fork.workspace = true
 katana-primitives.workspace = true
+katana-genesis.workspace = true
 katana-provider-api.workspace = true
 katana-rpc-client.workspace = true
 katana-trie.workspace = true

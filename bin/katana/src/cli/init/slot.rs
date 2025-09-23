@@ -2,13 +2,9 @@ use std::str::FromStr;
 
 use anyhow::{anyhow, Result};
 use clap::Args;
-use katana_primitives::genesis::allocation::{
-    GenesisAccount, GenesisAccountAlloc, GenesisAllocation,
-};
-use katana_primitives::genesis::constant::{
-    DEFAULT_ACCOUNT_CLASS_HASH, DEFAULT_PREFUNDED_ACCOUNT_BALANCE,
-};
-use katana_primitives::genesis::Genesis;
+use katana_genesis::allocation::{GenesisAccount, GenesisAccountAlloc, GenesisAllocation};
+use katana_genesis::constant::{DEFAULT_ACCOUNT_CLASS_HASH, DEFAULT_PREFUNDED_ACCOUNT_BALANCE};
+use katana_genesis::Genesis;
 use katana_primitives::{ContractAddress, Felt, U256};
 
 #[derive(Debug, Args)]

@@ -27,6 +27,7 @@ starknet_api.workspace = true
 [dev-dependencies]
 katana-chain-spec.workspace = true
 katana-contracts.workspace = true
+katana-genesis.workspace = true
 katana-provider = { workspace = true, features = [ "test-utils" ] }
 katana-rpc-types.workspace = true
 katana-utils.workspace = true

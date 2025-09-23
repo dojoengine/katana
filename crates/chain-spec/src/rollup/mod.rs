@@ -1,8 +1,8 @@
+use katana_genesis::Genesis;
 use katana_primitives::block::{ExecutableBlock, GasPrices, PartialHeader};
 use katana_primitives::chain::ChainId;
 use katana_primitives::contract::ContractAddress;
 use katana_primitives::da::L1DataAvailabilityMode;
-use katana_primitives::genesis::Genesis;
 use katana_primitives::version::CURRENT_STARKNET_VERSION;
 use serde::{Deserialize, Serialize};
 

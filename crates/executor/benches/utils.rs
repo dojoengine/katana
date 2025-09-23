@@ -1,6 +1,6 @@
+use katana_genesis::constant::DEFAULT_ETH_FEE_TOKEN_ADDRESS;
 use katana_primitives::block::GasPrices;
 use katana_primitives::env::{BlockEnv, CfgEnv, FeeTokenAddressses};
-use katana_primitives::genesis::constant::DEFAULT_ETH_FEE_TOKEN_ADDRESS;
 use katana_primitives::transaction::{ExecutableTxWithHash, InvokeTx, InvokeTxV1};
 use katana_primitives::Felt;
 use starknet::macros::{felt, selector};

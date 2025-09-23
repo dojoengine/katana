@@ -1,6 +1,6 @@
+use katana_genesis::allocation::GenesisAccountAlloc;
 use katana_primitives::class::ClassHash;
 use katana_primitives::contract::ContractAddress;
-use katana_primitives::genesis::allocation::GenesisAccountAlloc;
 use katana_primitives::{Felt, U256};
 use serde::{Deserialize, Serialize};
 use serde_with::serde_as;

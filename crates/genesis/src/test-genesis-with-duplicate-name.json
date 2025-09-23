@@ -17,15 +17,15 @@
   "contracts": {},
   "classes": [
     {
-      "class": "../../../contracts/build/legacy/erc20.json",
+      "class": "../../contracts/build/legacy/erc20.json",
       "classHash": "0x8",
       "name": "MyClass"
     },
     {
-      "class": "../../../contracts/build/legacy/universal_deployer.json"
+      "class": "../../contracts/build/legacy/universal_deployer.json"
     },
     {
-      "class": "../../../contracts/build/katana_account_Account.contract_class.json",
+      "class": "../../contracts/build/katana_account_Account.contract_class.json",
       "name": "MyClass"
     }
   ]
