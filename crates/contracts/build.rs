@@ -3,7 +3,15 @@ use std::process::Command;
 use std::{env, fs};
 
 fn main() {
-    println!("cargo:rerun-if-changed=contracts/");
+    // Track specific source directories and files that should trigger a rebuild
+    // Important: We don't track Scarb.lock as scarb will update it on every `scarb build`
+    println!("cargo:rerun-if-changed=contracts/Scarb.toml");
+    println!("cargo:rerun-if-changed=contracts/account");
+    println!("cargo:rerun-if-changed=contracts/legacy");
+    println!("cargo:rerun-if-changed=contracts/messaging");
+    println!("cargo:rerun-if-changed=contracts/test-contracts");
+    println!("cargo:rerun-if-changed=contracts/vrf");
+    println!("cargo:rerun-if-changed=build.rs");
 
     let contracts_dir = Path::new("contracts");
     let target_dir = contracts_dir.join("target/dev");
@@ -21,7 +29,7 @@ fn main() {
         return;
     }
 
-    // Only build if we're not in a docs build or if explicitly requested
+    // Only build if we're not in a docs build
     if env::var("DOCS_RS").is_ok() {
         return;
     }
