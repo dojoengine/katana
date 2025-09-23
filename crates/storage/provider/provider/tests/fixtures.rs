@@ -111,7 +111,10 @@ pub fn mock_state_updates() -> [StateUpdatesWithClasses; 3] {
             deployed_contracts: BTreeMap::from([(address_2, class_hash_2)]),
             ..Default::default()
         },
-        classes: BTreeMap::from([(class_hash_2, contracts::UniversalDeployer::CLASS.clone())]),
+        classes: BTreeMap::from([(
+            class_hash_2,
+            contracts::LegacyUniversalDeployer::CLASS.clone(),
+        )]),
     };
 
     let state_update_3 = StateUpdatesWithClasses {
