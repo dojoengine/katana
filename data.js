@@ -1,5 +1,5 @@
 window.BENCHMARK_DATA = {
-  "lastUpdate": 1758637328362,
+  "lastUpdate": 1758659874364,
   "repoUrl": "https://github.com/dojoengine/katana",
   "entries": {
     "Benchmark": [
@@ -5531,6 +5531,66 @@ window.BENCHMARK_DATA = {
             "name": "Invoke.ERC20.transfer/Blockifier.Cold",
             "value": 21369222,
             "range": "± 3531363",
+            "unit": "ns/iter"
+          }
+        ]
+      },
+      {
+        "commit": {
+          "author": {
+            "email": "evergreenkary@gmail.com",
+            "name": "Ammar Arif",
+            "username": "kariy"
+          },
+          "committer": {
+            "email": "noreply@github.com",
+            "name": "GitHub",
+            "username": "web-flow"
+          },
+          "distinct": true,
+          "id": "c04d68903f446f2a5cede427a37feb0d14710f5d",
+          "message": "refactor: extract genesis module into standalone crate (#283)\n\nRefactor out the genesis module currently located at `crates/primitives/src/genesis` into a standalone crate dedicated solely for genesis related stuff.\n\nBy having this standalone crate, we can finally remove the redundant feature contracts related types in `katana-primitives`:\n\n\nhttps://github.com/dojoengine/katana/blob/c1fd9f003cf36cde9d8cd0145b2d6c47d90d0c9e/crates/primitives/src/genesis/constant.rs#L64-L73\n\nwhich was initially intended to be replaced by the `katana-contracts` crate added in **[#191]**.\n\n[#191]: https://github.com/dojoengine/katana/pull/191",
+          "timestamp": "2025-09-24T04:32:53+08:00",
+          "tree_id": "1a6a8902b4664f1b3f013bef56352c3ccd9067ad",
+          "url": "https://github.com/dojoengine/katana/commit/c04d68903f446f2a5cede427a37feb0d14710f5d"
+        },
+        "date": 1758659872418,
+        "tool": "cargo",
+        "benches": [
+          {
+            "name": "Commit.Small/Parallel",
+            "value": 240760,
+            "range": "± 24424",
+            "unit": "ns/iter"
+          },
+          {
+            "name": "Commit.Big/Serial",
+            "value": 74815423,
+            "range": "± 1113215",
+            "unit": "ns/iter"
+          },
+          {
+            "name": "Commit.Big/Parallel",
+            "value": 53434554,
+            "range": "± 1504561",
+            "unit": "ns/iter"
+          },
+          {
+            "name": "compress world contract",
+            "value": 1756840,
+            "range": "± 94769",
+            "unit": "ns/iter"
+          },
+          {
+            "name": "decompress world contract",
+            "value": 2157571,
+            "range": "± 10590",
+            "unit": "ns/iter"
+          },
+          {
+            "name": "Invoke.ERC20.transfer/Blockifier.Cold",
+            "value": 12680688,
+            "range": "± 727772",
             "unit": "ns/iter"
           }
         ]
