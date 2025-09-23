@@ -1,5 +1,5 @@
 window.BENCHMARK_DATA = {
-  "lastUpdate": 1758240572316,
+  "lastUpdate": 1758635525077,
   "repoUrl": "https://github.com/dojoengine/katana",
   "entries": {
     "Benchmark": [
@@ -5411,6 +5411,66 @@ window.BENCHMARK_DATA = {
             "name": "Invoke.ERC20.transfer/Blockifier.Cold",
             "value": 16210233,
             "range": "± 345763",
+            "unit": "ns/iter"
+          }
+        ]
+      },
+      {
+        "commit": {
+          "author": {
+            "email": "evergreenkary@gmail.com",
+            "name": "Ammar Arif",
+            "username": "kariy"
+          },
+          "committer": {
+            "email": "noreply@github.com",
+            "name": "GitHub",
+            "username": "web-flow"
+          },
+          "distinct": true,
+          "id": "291c572173f32f2fcf9c6ce7dceb5fc57329224a",
+          "message": "fix(contracts): prevent unnecessary build script triggers (#281)\n\nFixes build script triggering on every `cargo build` even when contract files haven't changed\n\n## Problem\n\nThe `katana-contracts` build script was being triggered unnecessarily on every `cargo build` command, even when no files in the `crates/contracts/contracts` directory had changed.\n\n## Root Causes\n\n* The build script was watching the entire `contracts/` directory with `cargo:rerun-if-changed=contracts/`, which is unreliable in Cargo\n* `scarb build` updates `Scarb.lock` file timestamp even when content doesn't change\n\n## Solution\n\nInstead of watching the entire `contracts/` directory, the script watches the nested directories instead to avoid including `Scarb.lock` file in the watch list.\n\n🤖 Generated with [Claude Code](https://claude.ai/code)\n\n---------\n\nCo-authored-by: Claude <noreply@anthropic.com>",
+          "timestamp": "2025-09-23T21:41:52+08:00",
+          "tree_id": "15a153720fb34d78264095ee61aaaba42f37d9cd",
+          "url": "https://github.com/dojoengine/katana/commit/291c572173f32f2fcf9c6ce7dceb5fc57329224a"
+        },
+        "date": 1758635522992,
+        "tool": "cargo",
+        "benches": [
+          {
+            "name": "Commit.Small/Parallel",
+            "value": 285084,
+            "range": "± 63944",
+            "unit": "ns/iter"
+          },
+          {
+            "name": "Commit.Big/Serial",
+            "value": 76392614,
+            "range": "± 4673356",
+            "unit": "ns/iter"
+          },
+          {
+            "name": "Commit.Big/Parallel",
+            "value": 53703911,
+            "range": "± 12665740",
+            "unit": "ns/iter"
+          },
+          {
+            "name": "compress world contract",
+            "value": 1633180,
+            "range": "± 12603",
+            "unit": "ns/iter"
+          },
+          {
+            "name": "decompress world contract",
+            "value": 2150927,
+            "range": "± 17780",
+            "unit": "ns/iter"
+          },
+          {
+            "name": "Invoke.ERC20.transfer/Blockifier.Cold",
+            "value": 12368513,
+            "range": "± 317776",
             "unit": "ns/iter"
           }
         ]
