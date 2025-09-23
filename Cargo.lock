@@ -5778,6 +5778,7 @@ dependencies = [
  "katana-chain-spec",
  "katana-cli",
  "katana-db",
+ "katana-genesis",
  "katana-primitives",
  "katana-provider",
  "katana-rpc-client",
@@ -5811,6 +5812,7 @@ dependencies = [
  "dirs",
  "katana-contracts",
  "katana-executor",
+ "katana-genesis",
  "katana-primitives",
  "katana-provider",
  "lazy_static",
@@ -5838,6 +5840,7 @@ dependencies = [
  "katana-chain-spec",
  "katana-core",
  "katana-gas-price-oracle",
+ "katana-genesis",
  "katana-messaging",
  "katana-node",
  "katana-primitives",
@@ -5915,6 +5918,7 @@ dependencies = [
  "katana-db",
  "katana-executor",
  "katana-gas-price-oracle",
+ "katana-genesis",
  "katana-metrics",
  "katana-pool",
  "katana-primitives",
@@ -5981,6 +5985,7 @@ dependencies = [
  "criterion",
  "katana-chain-spec",
  "katana-contracts",
+ "katana-genesis",
  "katana-primitives",
  "katana-provider",
  "katana-rpc-types",
@@ -6082,6 +6087,25 @@ dependencies = [
  "tokio",
  "tracing",
  "url",
+]
+
+[[package]]
+name = "katana-genesis"
+version = "1.7.0-alpha.4"
+dependencies = [
+ "anyhow",
+ "base64 0.21.7",
+ "cairo-vm 1.0.2 (registry+https://github.com/rust-lang/crates.io-index)",
+ "derive_more 0.99.20",
+ "katana-contracts",
+ "katana-primitives",
+ "rand 0.8.5",
+ "serde",
+ "serde_json",
+ "serde_with",
+ "similar-asserts",
+ "starknet",
+ "thiserror 1.0.69",
 ]
 
 [[package]]
@@ -6247,7 +6271,6 @@ dependencies = [
  "anyhow",
  "arbitrary",
  "assert_matches",
- "base64 0.21.7",
  "blockifier 0.0.0 (git+https://github.com/dojoengine/sequencer?rev=5d737b9c9)",
  "cainome-cairo-serde",
  "cairo-lang-starknet-classes",
@@ -6260,12 +6283,10 @@ dependencies = [
  "num-traits",
  "postcard",
  "pprof",
- "rand 0.8.5",
  "rstest 0.18.2",
  "serde",
  "serde_json",
  "serde_json_pythonic",
- "serde_with",
  "similar-asserts",
  "starknet",
  "starknet-crypto 0.7.4 (registry+https://github.com/rust-lang/crates.io-index)",
@@ -6289,6 +6310,7 @@ dependencies = [
  "katana-contracts",
  "katana-db",
  "katana-fork",
+ "katana-genesis",
  "katana-primitives",
  "katana-provider-api",
  "katana-rpc-client",
@@ -6345,6 +6367,7 @@ dependencies = [
  "katana-core",
  "katana-executor",
  "katana-explorer",
+ "katana-genesis",
  "katana-messaging",
  "katana-metrics",
  "katana-node",
@@ -6415,6 +6438,7 @@ dependencies = [
  "cairo-lang-starknet-classes",
  "cairo-lang-utils",
  "flate2",
+ "katana-genesis",
  "katana-primitives",
  "katana-trie",
  "rstest 0.18.2",
@@ -6466,6 +6490,7 @@ name = "katana-slot-controller"
 version = "1.7.0-alpha.4"
 dependencies = [
  "cartridge",
+ "katana-genesis",
  "katana-primitives",
 ]
 

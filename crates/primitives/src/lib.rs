@@ -11,7 +11,6 @@ pub mod eth;
 pub mod event;
 pub mod execution;
 pub mod fee;
-pub mod genesis;
 pub mod message;
 pub mod receipt;
 pub mod transaction;

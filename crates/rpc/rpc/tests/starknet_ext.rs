@@ -1,5 +1,5 @@
 use assert_matches::assert_matches;
-use katana_primitives::genesis::constant::DEFAULT_STRK_FEE_TOKEN_ADDRESS;
+use katana_genesis::constant::DEFAULT_STRK_FEE_TOKEN_ADDRESS;
 use katana_primitives::Felt;
 use katana_rpc_api::starknet_ext::StarknetApiExtClient;
 use katana_rpc_types::list::{ContinuationToken, GetBlocksRequest, GetTransactionsRequest};
