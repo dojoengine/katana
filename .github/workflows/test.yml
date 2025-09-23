@@ -331,6 +331,12 @@ jobs:
       # Note: We build sozo from source instead of downloading the prebuilt binary
       # because the GitHub release artifacts require GLIBC 2.38/2.39 which is not
       # available in our CI container (ghcr.io/dojoengine/katana-dev:latest)
+      # We need to use Rust 1.88+ due to clap dependency requirements in sozo v1.7.0
+      - name: Install Rust 1.88 for sozo build
+        run: |
+          rustup toolchain install 1.88.0
+          rustup default 1.88.0
+      
       - name: Build sozo from source
         run: |
           cd dojo
