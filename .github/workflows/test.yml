@@ -328,11 +328,13 @@ jobs:
         with:
           scarb-version: "2.12.2"
 
-      - name: Download and setup Sozo binary
+      # Note: We build sozo from source instead of downloading the prebuilt binary
+      # because the GitHub release artifacts require GLIBC 2.38/2.39 which is not
+      # available in our CI container (ghcr.io/dojoengine/katana-dev:latest)
+      - name: Build sozo from source
         run: |
-          curl -L https://github.com/dojoengine/dojo/releases/download/v1.7.0/dojo_v1.7.0_linux_amd64.tar.gz | tar -xz
-          chmod +x sozo
-          mv sozo /usr/local/bin/
+          cd dojo
+          cargo install --path bin/sozo --locked --force
 
       - name: Build and migrate `spawn-and-move` project
         run: |
