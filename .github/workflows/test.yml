@@ -199,12 +199,12 @@ jobs:
       - name: Run tests
         if: github.event_name != 'pull_request'
         run: |
-          cargo nextest run --all-features --workspace --exclude snos-integration-test --build-jobs 20
+          cargo nextest run --all-features --workspace --exclude snos-integration-test --exclude db-compat-test --build-jobs 20
 
       - name: Run tests w/ code coverage
         if: github.event_name == 'pull_request'
         run: |
-          cargo llvm-cov nextest --no-report --all-features --workspace --exclude snos-integration-test --build-jobs 20
+          cargo llvm-cov nextest --no-report --all-features --workspace --exclude snos-integration-test --exclude db-compat-test --build-jobs 20
           cargo llvm-cov report --lcov --output-path lcov.info
 
       - name: Upload code coverage
