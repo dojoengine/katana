@@ -234,7 +234,7 @@ pub async fn deploy_settlement_contract(
         // FINAL CHECKS
         // -----------------------------------------------------------------------
 
-        check_program_info(chain_id, deployed_appchain_contract, account.provider()).await?;
+        check_program_info(chain_id, deployed_appchain_contract.into(), account.provider()).await?;
 
         Ok(DeploymentOutcome {
             block_number: deployment_block,
@@ -262,10 +262,10 @@ pub async fn deploy_settlement_contract(
 /// * Layout bridge program hash
 pub async fn check_program_info(
     chain_id: Felt,
-    appchain_address: Felt,
+    appchain_address: ContractAddress,
     provider: &SettlementChainProvider,
 ) -> Result<(), ContractInitError> {
-    let appchain = AppchainContractReader::new(appchain_address, provider);
+    let appchain = AppchainContractReader::new(appchain_address.into(), provider);
 
     // Compute the chain's config hash
     let config_hash = compute_config_hash(
