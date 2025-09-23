@@ -321,19 +321,30 @@ jobs:
         uses: actions/checkout@v3
         with:
           repository: dojoengine/dojo
-          ref: v1.7.0-alpha.2
+          ref: v1.7.0
           path: dojo
 
       - uses: software-mansion/setup-scarb@v1
         with:
-          scarb-version: "dev-2025-09-05"
+          scarb-version: "2.12.2"
 
-      - name: Build and migrate `spawn-and-move` project
+      # Note: We build sozo from source instead of downloading the prebuilt binary
+      # because the GitHub release artifacts require GLIBC 2.38/2.39 which is not
+      # available in our CI container (ghcr.io/dojoengine/katana-dev:latest)
+      # We need to use Rust 1.88+ due to clap dependency requirements in sozo v1.7.0
+      - name: Install Rust 1.88 for sozo build
+        run: |
+          rustup toolchain install 1.88.0
+          rustup default 1.88.0
+      
+      - name: Build sozo from source
         run: |
           cd dojo
           cargo install --path bin/sozo --locked --force
 
-          cd examples/spawn-and-move
+      - name: Build and migrate `spawn-and-move` project
+        run: |
+          cd dojo/examples/spawn-and-move
           sozo build && sozo migrate
 
       - name: Output Katana logs on failure
