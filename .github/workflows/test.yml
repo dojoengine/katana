@@ -332,7 +332,7 @@ jobs:
         run: |
           curl -L https://github.com/dojoengine/dojo/releases/download/v1.7.0/dojo_v1.7.0_linux_amd64.tar.gz | tar -xz
           chmod +x sozo
-          sudo mv sozo /usr/local/bin/
+          mv sozo /usr/local/bin/
 
       - name: Build and migrate `spawn-and-move` project
         run: |
