@@ -44,10 +44,10 @@ impl AppState {
                         .into_iter()
                         .zip(transactions.iter())
                         .enumerate()
-                        .map(|(idx, (receipt, tx))| {
-                            let transaction_index = idx as u64;
-                            let body = ReceiptBody::from(receipt);
+                        .map(|(index, (receipt, tx))| {
                             let transaction_hash = tx.transaction_hash;
+                            let transaction_index = index as u64;
+                            let body = ReceiptBody::from(receipt);
                             ConfirmedReceipt { transaction_hash, transaction_index, body }
                         })
                         .collect::<Vec<ConfirmedReceipt>>();
