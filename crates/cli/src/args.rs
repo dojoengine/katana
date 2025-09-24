@@ -40,8 +40,8 @@ use crate::utils::{self, parse_chain_config_dir, parse_seed};
 pub(crate) const LOG_TARGET: &str = "katana::cli";
 
 #[derive(Parser, Debug, Serialize, Deserialize, Default, Clone)]
-#[command(next_help_heading = "Node options")]
-pub struct NodeArgs {
+#[command(next_help_heading = "Sequencer node options")]
+pub struct SequencerNodeArgs {
     /// Don't print anything on startup.
     #[arg(long)]
     pub silent: bool,
@@ -131,7 +131,7 @@ pub struct NodeArgs {
     pub cartridge: CartridgeOptions,
 }
 
-impl NodeArgs {
+impl SequencerNodeArgs {
     pub async fn execute(&self) -> Result<()> {
         // Initialize logging with tracer
         let tracer_config = self.tracer_config();
@@ -523,7 +523,7 @@ mod test {
 
     #[test]
     fn test_starknet_config_default() {
-        let args = NodeArgs::parse_from(["katana"]);
+        let args = SequencerNodeArgs::parse_from(["katana"]);
         let config = args.config().unwrap();
 
         assert!(config.dev.fee);
@@ -538,7 +538,7 @@ mod test {
 
     #[test]
     fn test_starknet_config_custom() {
-        let args = NodeArgs::parse_from([
+        let args = SequencerNodeArgs::parse_from([
             "katana",
             "--dev",
             "--dev.no-fee",
@@ -565,11 +565,12 @@ mod test {
 
     #[test]
     fn custom_fixed_gas_prices() {
-        let config = NodeArgs::parse_from(["katana"]).config().unwrap();
+        let config = SequencerNodeArgs::parse_from(["katana"]).config().unwrap();
         assert!(config.dev.fixed_gas_prices.is_none());
 
-        let config =
-            NodeArgs::parse_from(["katana", "--gpo.l1-eth-gas-price", "10"]).config().unwrap();
+        let config = SequencerNodeArgs::parse_from(["katana", "--gpo.l1-eth-gas-price", "10"])
+            .config()
+            .unwrap();
         assert_matches!(config.dev.fixed_gas_prices, Some(prices) => {
             assert_eq!(prices.l1_gas_prices.eth.get(), 10);
             assert_eq!(prices.l1_gas_prices.strk, DEFAULT_ETH_L2_GAS_PRICE);
@@ -577,8 +578,9 @@ mod test {
             assert_eq!(prices.l1_data_gas_prices.strk, DEFAULT_STRK_L1_DATA_GAS_PRICE);
         });
 
-        let config =
-            NodeArgs::parse_from(["katana", "--gpo.l1-strk-gas-price", "20"]).config().unwrap();
+        let config = SequencerNodeArgs::parse_from(["katana", "--gpo.l1-strk-gas-price", "20"])
+            .config()
+            .unwrap();
         assert_matches!(config.dev.fixed_gas_prices, Some(prices) => {
             assert_eq!(prices.l1_gas_prices.eth, DEFAULT_ETH_L1_GAS_PRICE);
             assert_eq!(prices.l1_gas_prices.strk.get(), 20);
@@ -586,8 +588,9 @@ mod test {
             assert_eq!(prices.l1_data_gas_prices.strk, DEFAULT_STRK_L1_DATA_GAS_PRICE);
         });
 
-        let config =
-            NodeArgs::parse_from(["katana", "--gpo.l1-eth-data-gas-price", "2"]).config().unwrap();
+        let config = SequencerNodeArgs::parse_from(["katana", "--gpo.l1-eth-data-gas-price", "2"])
+            .config()
+            .unwrap();
         assert_matches!(config.dev.fixed_gas_prices, Some(prices) => {
             assert_eq!(prices.l1_gas_prices.eth, DEFAULT_ETH_L1_GAS_PRICE);
             assert_eq!(prices.l1_gas_prices.strk, DEFAULT_STRK_L1_GAS_PRICE);
@@ -595,8 +598,9 @@ mod test {
             assert_eq!(prices.l1_data_gas_prices.strk, DEFAULT_STRK_L1_DATA_GAS_PRICE);
         });
 
-        let config =
-            NodeArgs::parse_from(["katana", "--gpo.l1-strk-data-gas-price", "2"]).config().unwrap();
+        let config = SequencerNodeArgs::parse_from(["katana", "--gpo.l1-strk-data-gas-price", "2"])
+            .config()
+            .unwrap();
         assert_matches!(config.dev.fixed_gas_prices, Some(prices) => {
             assert_eq!(prices.l1_gas_prices.eth, DEFAULT_ETH_L1_GAS_PRICE);
             assert_eq!(prices.l1_gas_prices.strk, DEFAULT_STRK_L1_GAS_PRICE);
@@ -604,7 +608,7 @@ mod test {
             assert_eq!(prices.l1_data_gas_prices.strk.get(), 2);
         });
 
-        let config = NodeArgs::parse_from([
+        let config = SequencerNodeArgs::parse_from([
             "katana",
             "--gpo.l1-eth-gas-price",
             "10",
@@ -623,7 +627,7 @@ mod test {
 
         // Set all the gas prices options
 
-        let config = NodeArgs::parse_from([
+        let config = SequencerNodeArgs::parse_from([
             "katana",
             "--gpo.l1-eth-gas-price",
             "10",
@@ -647,7 +651,7 @@ mod test {
 
     #[test]
     fn genesis_with_fixed_gas_prices() {
-        let config = NodeArgs::parse_from([
+        let config = SequencerNodeArgs::parse_from([
             "katana",
             "--genesis",
             "./test-data/genesis.json",
@@ -715,8 +719,11 @@ chain_id.Named = "Mainnet"
             "0x123",
         ];
 
-        let config =
-            NodeArgs::parse_from(args.clone()).with_config_file().unwrap().config().unwrap();
+        let config = SequencerNodeArgs::parse_from(args.clone())
+            .with_config_file()
+            .unwrap()
+            .config()
+            .unwrap();
 
         assert_eq!(config.execution.validation_max_steps, 1234);
         assert_eq!(config.execution.invocation_max_steps, 9988);
@@ -742,7 +749,7 @@ chain_id.Named = "Mainnet"
     fn parse_cors_origins() {
         use katana_rpc::cors::HeaderValue;
 
-        let config = NodeArgs::parse_from([
+        let config = SequencerNodeArgs::parse_from([
             "katana",
             "--http.cors_origins",
             "*,http://localhost:3000,https://example.com",
@@ -761,20 +768,22 @@ chain_id.Named = "Mainnet"
     #[test]
     fn http_modules() {
         // If the `--http.api` isn't specified, only starknet module will be exposed.
-        let config = NodeArgs::parse_from(["katana"]).config().unwrap();
+        let config = SequencerNodeArgs::parse_from(["katana"]).config().unwrap();
         let modules = config.rpc.apis;
         assert_eq!(modules.len(), 1);
         assert!(modules.contains(&RpcModuleKind::Starknet));
 
         // If the `--http.api` is specified, only the ones in the list will be exposed.
-        let config = NodeArgs::parse_from(["katana", "--http.api", "starknet"]).config().unwrap();
+        let config =
+            SequencerNodeArgs::parse_from(["katana", "--http.api", "starknet"]).config().unwrap();
         let modules = config.rpc.apis;
         assert_eq!(modules.len(), 1);
         assert!(modules.contains(&RpcModuleKind::Starknet));
 
         // Specifiying the dev module without enabling dev mode is forbidden.
-        let err =
-            NodeArgs::parse_from(["katana", "--http.api", "starknet,dev"]).config().unwrap_err();
+        let err = SequencerNodeArgs::parse_from(["katana", "--http.api", "starknet,dev"])
+            .config()
+            .unwrap_err();
         assert!(err
             .to_string()
             .contains("The `dev` module can only be enabled in dev mode (ie `--dev` flag)"));
@@ -782,7 +791,7 @@ chain_id.Named = "Mainnet"
 
     #[test]
     fn test_dev_api_enabled() {
-        let args = NodeArgs::parse_from(["katana", "--dev"]);
+        let args = SequencerNodeArgs::parse_from(["katana", "--dev"]);
         let config = args.config().unwrap();
 
         assert!(config.rpc.apis.contains(&RpcModuleKind::Dev));
@@ -791,15 +800,19 @@ chain_id.Named = "Mainnet"
     #[cfg(feature = "cartridge")]
     #[test]
     fn cartridge_paymaster() {
-        let args = NodeArgs::parse_from(["katana", "--cartridge.paymaster"]);
+        let args = SequencerNodeArgs::parse_from(["katana", "--cartridge.paymaster"]);
         let config = args.config().unwrap();
 
         // Verify cartridge module is automatically enabled
         assert!(config.rpc.apis.contains(&RpcModuleKind::Cartridge));
 
         // Test with paymaster explicitly specified in RPC modules
-        let args =
-            NodeArgs::parse_from(["katana", "--cartridge.paymaster", "--http.api", "starknet"]);
+        let args = SequencerNodeArgs::parse_from([
+            "katana",
+            "--cartridge.paymaster",
+            "--http.api",
+            "starknet",
+        ]);
         let config = args.config().unwrap();
 
         // Verify cartridge module is still enabled even when not in explicit RPC list
@@ -821,7 +834,7 @@ chain_id.Named = "Mainnet"
         assert!(config.chain.genesis().classes.get(&ControllerLatest::HASH).is_some());
 
         // Test without paymaster enabled
-        let args = NodeArgs::parse_from(["katana"]);
+        let args = SequencerNodeArgs::parse_from(["katana"]);
         let config = args.config().unwrap();
 
         // Verify cartridge module is not enabled by default

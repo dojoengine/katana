@@ -5,7 +5,7 @@ use katana_messaging::MessagingConfig;
 use serde::{Deserialize, Serialize};
 
 use crate::options::*;
-use crate::NodeArgs;
+use crate::SequencerNodeArgs;
 
 /// Node arguments configuration file.
 #[derive(Debug, Serialize, Deserialize, Default)]
@@ -36,10 +36,10 @@ impl NodeArgsConfig {
     }
 }
 
-impl TryFrom<NodeArgs> for NodeArgsConfig {
+impl TryFrom<SequencerNodeArgs> for NodeArgsConfig {
     type Error = anyhow::Error;
 
-    fn try_from(args: NodeArgs) -> Result<Self> {
+    fn try_from(args: SequencerNodeArgs) -> Result<Self> {
         // Ensure the config file is merged with the CLI arguments.
         let args = args.with_config_file()?;
 
