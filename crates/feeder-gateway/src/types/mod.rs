@@ -177,7 +177,7 @@ impl<'de> Deserialize<'de> for StateUpdate {
         impl<'de> serde::de::Visitor<'de> for __Visitor {
             type Value = StateUpdate;
 
-            fn expecting(&self, formatter: &mut std::fmt::Formatter) -> std::fmt::Result {
+            fn expecting(&self, formatter: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
                 formatter.write_str("a state update response")
             }
 

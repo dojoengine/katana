@@ -126,8 +126,10 @@ impl BlockIdQuery {
 pub struct StateUpdateQuery {
     #[serde(flatten)]
     pub block_query: BlockIdQuery,
+
+    #[serde(default)]
     #[serde(rename = "includeBlock")]
-    pub include_block: Option<bool>,
+    pub include_block: bool,
 }
 
 /// Query parameters for `/get_class_by_hash` and `/get_compiled_class_by_class_hash` endpoints
@@ -135,6 +137,7 @@ pub struct StateUpdateQuery {
 pub struct ClassQuery {
     #[serde(rename = "classHash")]
     pub class_hash: ClassHash,
+
     #[serde(flatten)]
     pub block_query: BlockIdQuery,
 }
@@ -153,13 +156,13 @@ pub async fn get_block(
     State(state): State<AppState>,
     Query(params): Query<BlockIdQuery>,
 ) -> Result<Json<Block>, ApiError> {
-    println!("get block");
     let block_id = params.block_id()?;
     let block = state.get_block(block_id).await?.unwrap();
     Ok(Json(block))
 }
 
 /// The state update type returns by `/get_state_update` endpoint.
+#[allow(clippy::enum_variant_names)]
 #[derive(Debug, PartialEq, Eq, Serialize)]
 #[serde(untagged)]
 pub enum GetStateUpdateResponse {
@@ -174,7 +177,7 @@ pub async fn get_state_update(
     State(state): State<AppState>,
     Query(params): Query<StateUpdateQuery>,
 ) -> Result<Json<GetStateUpdateResponse>, ApiError> {
-    let include_block = params.include_block.unwrap_or(false);
+    let include_block = params.include_block;
     let block_id = params.block_query.block_id()?;
 
     let state_update = state.api.state_update(block_id).await?;

@@ -43,16 +43,6 @@ impl GatewayMetricsLayer {
     pub fn new<I: IntoIterator<Item = &'static str>>(endpoints: I) -> Self {
         Self { metrics: GatewayMetrics::new(endpoints) }
     }
-
-    /// Creates a new instance of `GatewayServerMetrics` for the known endpoints.
-    pub fn new_with_default_endpoints() -> Self {
-        Self::new([
-            "/feeder_gateway/get_block",
-            "/feeder_gateway/get_state_update",
-            "/feeder_gateway/get_class_by_hash",
-            "/feeder_gateway/get_compiled_class_by_class_hash",
-        ])
-    }
 }
 
 impl fmt::Debug for GatewayMetricsLayer {
