@@ -20,7 +20,7 @@ use serde::{Deserialize, Deserializer, Serializer};
 use tracing::info;
 
 use crate::args::LOG_TARGET;
-use crate::NodeArgs;
+use crate::SequencerNodeArgs;
 
 pub fn parse_seed(seed: &str) -> [u8; 32] {
     let seed = seed.as_bytes();
@@ -51,7 +51,7 @@ pub fn parse_block_hash_or_number(value: &str) -> Result<BlockHashOrNumber> {
     }
 }
 
-pub fn print_intro(args: &NodeArgs, chain: &ChainSpec) {
+pub fn print_intro(args: &SequencerNodeArgs, chain: &ChainSpec) {
     let mut accounts = chain.genesis().accounts().peekable();
     let account_class_hash = accounts.peek().map(|e| e.1.class_hash());
     let seed = &args.development.seed;
