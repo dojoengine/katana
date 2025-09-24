@@ -7,8 +7,7 @@ use katana_primitives::{ContractAddress, Felt};
 pub use katana_rpc_api::error::starknet::StarknetApiError;
 use katana_rpc_api::starknet::{StarknetApiClient, StarknetTraceApiClient, StarknetWriteApiClient};
 use katana_rpc_types::block::{
-    BlockHashAndNumberResponse, BlockNumberResponse, BlockTxCount, GetBlockWithReceiptsResponse,
-    GetBlockWithTxHashesResponse, MaybePreConfirmedBlock,
+    BlockHashAndNumberResponse, BlockNumberResponse, BlockTxCount, BlockWithTxHashes,
 };
 use katana_rpc_types::broadcasted::{
     AddDeclareTransactionResponse, AddDeployAccountTransactionResponse,
@@ -19,15 +18,15 @@ use katana_rpc_types::class::Class;
 use katana_rpc_types::event::{EventFilterWithPage, GetEventsResponse};
 use katana_rpc_types::message::MsgFromL1;
 use katana_rpc_types::receipt::TxReceiptWithBlockInfo;
-use katana_rpc_types::state_update::GetStateUpdateResponse;
+use katana_rpc_types::state_update::StateUpdate;
 use katana_rpc_types::trace::{
     SimulatedTransactionsResponse, TraceBlockTransactionsResponse, TxTrace,
 };
 use katana_rpc_types::transaction::RpcTxWithHash;
 use katana_rpc_types::trie::{ContractStorageKeys, GetStorageProofResponse};
 use katana_rpc_types::{
-    CallResponse, EstimateFeeSimulationFlag, EventFilter, FeeEstimate, FunctionCall,
-    ResultPageRequest, SimulationFlag, SyncingResponse, TxStatus,
+    BlockWithReceipts, BlockWithTxs, CallResponse, EstimateFeeSimulationFlag, EventFilter,
+    FeeEstimate, FunctionCall, ResultPageRequest, SimulationFlag, SyncingResponse, TxStatus,
 };
 
 type Result<T> = std::result::Result<T, Error>;
@@ -53,15 +52,12 @@ impl Client {
     pub async fn get_block_with_tx_hashes(
         &self,
         block_id: BlockIdOrTag,
-    ) -> Result<GetBlockWithTxHashesResponse> {
+    ) -> Result<BlockWithTxHashes> {
         self.client.get_block_with_tx_hashes(block_id).await.map_err(Into::into)
     }
 
     /// Get block information with full transactions given the block id.
-    pub async fn get_block_with_txs(
-        &self,
-        block_id: BlockIdOrTag,
-    ) -> Result<MaybePreConfirmedBlock> {
+    pub async fn get_block_with_txs(&self, block_id: BlockIdOrTag) -> Result<BlockWithTxs> {
         self.client.get_block_with_txs(block_id).await.map_err(Into::into)
     }
 
@@ -69,12 +65,12 @@ impl Client {
     pub async fn get_block_with_receipts(
         &self,
         block_id: BlockIdOrTag,
-    ) -> Result<GetBlockWithReceiptsResponse> {
+    ) -> Result<BlockWithReceipts> {
         self.client.get_block_with_receipts(block_id).await.map_err(Into::into)
     }
 
     /// Get the information about the result of executing the requested block.
-    pub async fn get_state_update(&self, block_id: BlockIdOrTag) -> Result<GetStateUpdateResponse> {
+    pub async fn get_state_update(&self, block_id: BlockIdOrTag) -> Result<StateUpdate> {
         self.client.get_state_update(block_id).await.map_err(Into::into)
     }
 

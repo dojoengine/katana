@@ -15,13 +15,13 @@ pub type BlockTxCount = u64;
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
 #[serde(untagged)]
-pub enum MaybePreConfirmedBlock {
-    Confirmed(BlockWithTxs),
+pub enum BlockWithTxs {
+    Confirmed(ConfirmedBlockWithTxs),
     PreConfirmed(PreConfirmedBlockWithTxs),
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
-pub struct BlockWithTxs {
+pub struct ConfirmedBlockWithTxs {
     pub status: FinalityStatus,
     pub block_hash: BlockHash,
     pub parent_hash: BlockHash,
@@ -37,7 +37,7 @@ pub struct BlockWithTxs {
     pub transactions: Vec<RpcTxWithHash>,
 }
 
-impl BlockWithTxs {
+impl ConfirmedBlockWithTxs {
     pub fn new(block_hash: BlockHash, block: Block, finality_status: FinalityStatus) -> Self {
         let l1_gas_price = ResourcePrice {
             price_in_wei: block.header.l1_gas_prices.eth.get().into(),
@@ -120,13 +120,13 @@ impl PreConfirmedBlockWithTxs {
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(untagged)]
-pub enum GetBlockWithTxHashesResponse {
-    Block(BlockWithTxHashes),
+pub enum BlockWithTxHashes {
+    Confirmed(ConfirmedBlockWithTxHashes),
     PreConfirmed(PreConfirmedBlockWithTxHashes),
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
-pub struct BlockWithTxHashes {
+pub struct ConfirmedBlockWithTxHashes {
     pub status: FinalityStatus,
     pub block_hash: BlockHash,
     pub parent_hash: BlockHash,
@@ -142,7 +142,7 @@ pub struct BlockWithTxHashes {
     pub transactions: Vec<TxHash>,
 }
 
-impl BlockWithTxHashes {
+impl ConfirmedBlockWithTxHashes {
     pub fn new(
         block_hash: BlockHash,
         block: katana_primitives::block::BlockWithTxHashes,
@@ -265,12 +265,12 @@ impl BlockHashAndNumberResponse {
 
 #[derive(Debug, Clone, Serialize)]
 #[serde(untagged)]
-pub enum GetBlockWithReceiptsResponse {
-    Block(BlockWithReceipts),
+pub enum BlockWithReceipts {
+    Confirmed(ConfirmedBlockWithReceipts),
     PreConfirmed(PreConfirmedBlockWithReceipts),
 }
 
-impl<'de> Deserialize<'de> for GetBlockWithReceiptsResponse {
+impl<'de> Deserialize<'de> for BlockWithReceipts {
     fn deserialize<D>(deserializer: D) -> Result<Self, D::Error>
     where
         D: serde::Deserializer<'de>,
@@ -310,7 +310,7 @@ impl<'de> Deserialize<'de> for GetBlockWithReceiptsResponse {
             .map_err(|e| serde::de::Error::custom(format!("malformed payload: {e}")))?;
 
         if let Some(block_hash) = block_hash {
-            Ok(GetBlockWithReceiptsResponse::Block(BlockWithReceipts {
+            Ok(BlockWithReceipts::Confirmed(ConfirmedBlockWithReceipts {
                 parent_hash: parent_hash.unwrap(),
                 new_root: new_root.unwrap(),
                 status: status.unwrap(),
@@ -326,7 +326,7 @@ impl<'de> Deserialize<'de> for GetBlockWithReceiptsResponse {
                 transactions,
             }))
         } else {
-            Ok(GetBlockWithReceiptsResponse::PreConfirmed(PreConfirmedBlockWithReceipts {
+            Ok(BlockWithReceipts::PreConfirmed(PreConfirmedBlockWithReceipts {
                 block_number,
                 timestamp,
                 sequencer_address,
@@ -342,7 +342,7 @@ impl<'de> Deserialize<'de> for GetBlockWithReceiptsResponse {
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
-pub struct BlockWithReceipts {
+pub struct ConfirmedBlockWithReceipts {
     pub status: FinalityStatus,
     pub block_hash: BlockHash,
     pub parent_hash: BlockHash,
@@ -358,7 +358,7 @@ pub struct BlockWithReceipts {
     pub transactions: Vec<RpcTxWithReceipt>,
 }
 
-impl BlockWithReceipts {
+impl ConfirmedBlockWithReceipts {
     pub fn new(
         hash: BlockHash,
         header: Header,

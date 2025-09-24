@@ -2,9 +2,7 @@ use std::collections::{BTreeMap, BTreeSet};
 
 use assert_matches::assert_matches;
 use katana_primitives::{address, felt, ContractAddress};
-use katana_rpc_types::state_update::{
-    GetStateUpdateResponse, PreConfirmedStateUpdate, StateUpdate,
-};
+use katana_rpc_types::state_update::{ConfirmedStateUpdate, PreConfirmedStateUpdate, StateUpdate};
 use serde_json::Value;
 
 mod fixtures;
@@ -29,8 +27,8 @@ fn preconfirmed_state_update() {
     let json = fixtures::test_data::<Value>("v0.9/state-updates/preconfirmed_state_update.json");
 
     let state_update: PreConfirmedStateUpdate = serde_json::from_value(json.clone()).unwrap();
-    let as_enum: GetStateUpdateResponse = serde_json::from_value(json.clone()).unwrap();
-    assert_matches!(as_enum, GetStateUpdateResponse::PreConfirmed(as_enum_update) => {
+    let as_enum: StateUpdate = serde_json::from_value(json.clone()).unwrap();
+    assert_matches!(as_enum, StateUpdate::PreConfirmed(as_enum_update) => {
         similar_asserts::assert_eq!(as_enum_update, state_update);
     });
 
@@ -74,13 +72,13 @@ fn preconfirmed_state_update() {
 fn confirmed_state_update() {
     let json = fixtures::test_data::<Value>("v0.9/state-updates/confirmed_state_update.json");
 
-    let state_update: StateUpdate = serde_json::from_value(json.clone()).unwrap();
-    let as_enum: GetStateUpdateResponse = serde_json::from_value(json.clone()).unwrap();
-    assert_matches!(as_enum, GetStateUpdateResponse::Update(as_enum_update) => {
+    let state_update: ConfirmedStateUpdate = serde_json::from_value(json.clone()).unwrap();
+    let as_enum: StateUpdate = serde_json::from_value(json.clone()).unwrap();
+    assert_matches!(as_enum, StateUpdate::Confirmed(as_enum_update) => {
         similar_asserts::assert_eq!(as_enum_update, state_update);
     });
 
-    let StateUpdate { block_hash, new_root, old_root, ref state_diff } = state_update;
+    let ConfirmedStateUpdate { block_hash, new_root, old_root, ref state_diff } = state_update;
     assert_eq!(
         block_hash,
         felt!("0x1149bb6e1ac2c692d82ed6a0320c184f482a6ba0416618e90fd347d57b966c1")

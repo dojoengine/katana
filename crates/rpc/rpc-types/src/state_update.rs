@@ -8,8 +8,8 @@ use serde::{Deserialize, Deserializer, Serialize, Serializer};
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
 #[serde(untagged)]
-pub enum GetStateUpdateResponse {
-    Update(StateUpdate),
+pub enum StateUpdate {
+    Confirmed(ConfirmedStateUpdate),
     PreConfirmed(PreConfirmedStateUpdate),
 }
 
@@ -24,7 +24,7 @@ pub struct PreConfirmedStateUpdate {
 
 /// State update of a confirmed block.
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
-pub struct StateUpdate {
+pub struct ConfirmedStateUpdate {
     /// Block hash
     pub block_hash: BlockHash,
     /// The previous global state root

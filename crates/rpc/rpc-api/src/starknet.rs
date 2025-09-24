@@ -8,8 +8,7 @@ use katana_primitives::contract::{Nonce, StorageKey};
 use katana_primitives::transaction::TxHash;
 use katana_primitives::{ContractAddress, Felt};
 use katana_rpc_types::block::{
-    BlockHashAndNumberResponse, BlockNumberResponse, BlockTxCount, GetBlockWithReceiptsResponse,
-    GetBlockWithTxHashesResponse, MaybePreConfirmedBlock,
+    BlockHashAndNumberResponse, BlockNumberResponse, BlockTxCount, BlockWithTxHashes,
 };
 use katana_rpc_types::broadcasted::{
     AddDeclareTransactionResponse, AddDeployAccountTransactionResponse,
@@ -20,15 +19,15 @@ use katana_rpc_types::class::Class;
 use katana_rpc_types::event::{EventFilterWithPage, GetEventsResponse};
 use katana_rpc_types::message::MsgFromL1;
 use katana_rpc_types::receipt::TxReceiptWithBlockInfo;
-use katana_rpc_types::state_update::GetStateUpdateResponse;
+use katana_rpc_types::state_update::StateUpdate;
 use katana_rpc_types::trace::{
     SimulatedTransactionsResponse, TraceBlockTransactionsResponse, TxTrace,
 };
 use katana_rpc_types::transaction::RpcTxWithHash;
 use katana_rpc_types::trie::{ContractStorageKeys, GetStorageProofResponse};
 use katana_rpc_types::{
-    CallResponse, EstimateFeeSimulationFlag, FeeEstimate, FunctionCall, SimulationFlag,
-    SyncingResponse, TxStatus,
+    BlockWithReceipts, BlockWithTxs, CallResponse, EstimateFeeSimulationFlag, FeeEstimate,
+    FunctionCall, SimulationFlag, SyncingResponse, TxStatus,
 };
 
 /// The currently supported version of the Starknet JSON-RPC specification.
@@ -49,23 +48,20 @@ pub trait StarknetApi {
     async fn get_block_with_tx_hashes(
         &self,
         block_id: BlockIdOrTag,
-    ) -> RpcResult<GetBlockWithTxHashesResponse>;
+    ) -> RpcResult<BlockWithTxHashes>;
 
     /// Get block information with full transactions given the block id.
     #[method(name = "getBlockWithTxs")]
-    async fn get_block_with_txs(&self, block_id: BlockIdOrTag)
-        -> RpcResult<MaybePreConfirmedBlock>;
+    async fn get_block_with_txs(&self, block_id: BlockIdOrTag) -> RpcResult<BlockWithTxs>;
 
     /// Get block information with full transactions and receipts given the block id.
     #[method(name = "getBlockWithReceipts")]
-    async fn get_block_with_receipts(
-        &self,
-        block_id: BlockIdOrTag,
-    ) -> RpcResult<GetBlockWithReceiptsResponse>;
+    async fn get_block_with_receipts(&self, block_id: BlockIdOrTag)
+        -> RpcResult<BlockWithReceipts>;
 
     /// Get the information about the result of executing the requested block.
     #[method(name = "getStateUpdate")]
-    async fn get_state_update(&self, block_id: BlockIdOrTag) -> RpcResult<GetStateUpdateResponse>;
+    async fn get_state_update(&self, block_id: BlockIdOrTag) -> RpcResult<StateUpdate>;
 
     /// Get the value of the storage at the given address and key
     #[method(name = "getStorageAt")]

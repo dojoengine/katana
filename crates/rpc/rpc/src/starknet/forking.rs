@@ -6,14 +6,12 @@ use katana_primitives::transaction::TxHash;
 use katana_primitives::Felt;
 use katana_rpc_api::error::starknet::StarknetApiError;
 use katana_rpc_api::starknet::StarknetApiClient;
-use katana_rpc_types::block::{
-    GetBlockWithReceiptsResponse, GetBlockWithTxHashesResponse, MaybePreConfirmedBlock,
-};
+use katana_rpc_types::block::{BlockWithReceipts, BlockWithTxHashes, BlockWithTxs};
 use katana_rpc_types::event::{
     EventFilter, EventFilterWithPage, GetEventsResponse, ResultPageRequest,
 };
 use katana_rpc_types::receipt::{ReceiptBlockInfo, TxReceiptWithBlockInfo};
-use katana_rpc_types::state_update::GetStateUpdateResponse;
+use katana_rpc_types::state_update::StateUpdate;
 use katana_rpc_types::transaction::RpcTxWithHash;
 use katana_rpc_types::TxStatus;
 
@@ -59,8 +57,8 @@ impl ForkedClient {
 impl ForkedClient {
     pub async fn get_block_number_by_hash(&self, hash: BlockHash) -> Result<BlockNumber, Error> {
         let number = match self.client.get_block_with_tx_hashes(BlockIdOrTag::Hash(hash)).await? {
-            GetBlockWithTxHashesResponse::Block(block) => block.block_number,
-            GetBlockWithTxHashesResponse::PreConfirmed(block) => block.block_number,
+            BlockWithTxHashes::Confirmed(block) => block.block_number,
+            BlockWithTxHashes::PreConfirmed(block) => block.block_number,
         };
 
         if number > self.block {
@@ -122,8 +120,8 @@ impl ForkedClient {
                 );
 
                 let number = match block? {
-                    GetBlockWithTxHashesResponse::Block(block) => block.block_number,
-                    GetBlockWithTxHashesResponse::PreConfirmed(_) => {
+                    BlockWithTxHashes::Confirmed(block) => block.block_number,
+                    BlockWithTxHashes::PreConfirmed(_) => {
                         return Err(Error::UnexpectedPendingData);
                     }
                 };
@@ -141,15 +139,12 @@ impl ForkedClient {
         }
     }
 
-    pub async fn get_block_with_txs(
-        &self,
-        block_id: BlockIdOrTag,
-    ) -> Result<MaybePreConfirmedBlock, Error> {
+    pub async fn get_block_with_txs(&self, block_id: BlockIdOrTag) -> Result<BlockWithTxs, Error> {
         let block = self.client.get_block_with_txs(block_id).await?;
 
         match block {
-            MaybePreConfirmedBlock::PreConfirmed(_) => Err(Error::UnexpectedPendingData),
-            MaybePreConfirmedBlock::Confirmed(ref b) => {
+            BlockWithTxs::PreConfirmed(_) => Err(Error::UnexpectedPendingData),
+            BlockWithTxs::Confirmed(ref b) => {
                 if b.block_number > self.block {
                     Err(Error::BlockOutOfRange)
                 } else {
@@ -162,16 +157,16 @@ impl ForkedClient {
     pub async fn get_block_with_receipts(
         &self,
         block_id: BlockIdOrTag,
-    ) -> Result<GetBlockWithReceiptsResponse, Error> {
+    ) -> Result<BlockWithReceipts, Error> {
         let block = self.client.get_block_with_receipts(block_id).await?;
 
         match block {
-            GetBlockWithReceiptsResponse::Block(ref b) => {
+            BlockWithReceipts::Confirmed(ref b) => {
                 if b.block_number > self.block {
                     return Err(Error::BlockOutOfRange);
                 }
             }
-            GetBlockWithReceiptsResponse::PreConfirmed(_) => {
+            BlockWithReceipts::PreConfirmed(_) => {
                 return Err(Error::UnexpectedPendingData);
             }
         }
@@ -182,16 +177,16 @@ impl ForkedClient {
     pub async fn get_block_with_tx_hashes(
         &self,
         block_id: BlockIdOrTag,
-    ) -> Result<GetBlockWithTxHashesResponse, Error> {
+    ) -> Result<BlockWithTxHashes, Error> {
         let block = self.client.get_block_with_tx_hashes(block_id).await?;
 
         match block {
-            GetBlockWithTxHashesResponse::Block(ref b) => {
+            BlockWithTxHashes::Confirmed(ref b) => {
                 if b.block_number > self.block {
                     return Err(Error::BlockOutOfRange);
                 }
             }
-            GetBlockWithTxHashesResponse::PreConfirmed(_) => {
+            BlockWithTxHashes::PreConfirmed(_) => {
                 return Err(Error::UnexpectedPendingData);
             }
         }
@@ -206,7 +201,7 @@ impl ForkedClient {
             }
             BlockIdOrTag::Hash(hash) => {
                 let block = self.client.get_block_with_tx_hashes(BlockIdOrTag::Hash(hash)).await?;
-                if let GetBlockWithTxHashesResponse::Block(b) = block {
+                if let BlockWithTxHashes::Confirmed(b) = block {
                     if b.block_number > self.block {
                         return Err(Error::BlockOutOfRange);
                     }
@@ -221,17 +216,14 @@ impl ForkedClient {
         Ok(self.client.get_block_transaction_count(block_id).await?)
     }
 
-    pub async fn get_state_update(
-        &self,
-        block_id: BlockIdOrTag,
-    ) -> Result<GetStateUpdateResponse, Error> {
+    pub async fn get_state_update(&self, block_id: BlockIdOrTag) -> Result<StateUpdate, Error> {
         match block_id {
             BlockIdOrTag::Number(num) if num > self.block => {
                 return Err(Error::BlockOutOfRange);
             }
             BlockIdOrTag::Hash(hash) => {
                 let block = self.client.get_block_with_tx_hashes(BlockIdOrTag::Hash(hash)).await?;
-                if let GetBlockWithTxHashesResponse::Block(b) = block {
+                if let BlockWithTxHashes::Confirmed(b) = block {
                     if b.block_number > self.block {
                         return Err(Error::BlockOutOfRange);
                     }

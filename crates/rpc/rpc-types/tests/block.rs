@@ -1,9 +1,7 @@
 use assert_matches::assert_matches;
 use katana_primitives::da::L1DataAvailabilityMode;
 use katana_primitives::{address, felt, ContractAddress};
-use katana_rpc_types::block::{
-    GetBlockWithReceiptsResponse, GetBlockWithTxHashesResponse, MaybePreConfirmedBlock,
-};
+use katana_rpc_types::block::{BlockWithReceipts, BlockWithTxHashes, BlockWithTxs};
 use serde_json::Value;
 use starknet::core::types::ResourcePrice;
 
@@ -12,9 +10,9 @@ mod fixtures;
 #[test]
 fn preconfirmed_block_with_tx_hashes() {
     let json = fixtures::test_data::<Value>("v0.9/blocks/preconfirmed_with_tx_hashes.json");
-    let block: GetBlockWithTxHashesResponse = serde_json::from_value(json.clone()).unwrap();
+    let block: BlockWithTxHashes = serde_json::from_value(json.clone()).unwrap();
 
-    assert_matches!(&block, GetBlockWithTxHashesResponse::PreConfirmed(block) => {
+    assert_matches!(&block, BlockWithTxHashes::PreConfirmed(block) => {
         assert_eq!(block.block_number, 1833173);
         assert_eq!(block.l1_da_mode, L1DataAvailabilityMode::Blob);
 
@@ -40,9 +38,9 @@ fn preconfirmed_block_with_tx_hashes() {
 #[test]
 fn confirmed_block_with_tx_hashes() {
     let json = fixtures::test_data::<Value>("v0.9/blocks/confirmed_with_tx_hashes.json");
-    let block: GetBlockWithTxHashesResponse = serde_json::from_value(json.clone()).unwrap();
+    let block: BlockWithTxHashes = serde_json::from_value(json.clone()).unwrap();
 
-    assert_matches!(&block, GetBlockWithTxHashesResponse::Block(block) => {
+    assert_matches!(&block, BlockWithTxHashes::Confirmed(block) => {
         assert_eq!(block.block_hash, felt!("0x6370ed4eb1232947c90ad4432baf9e4efa34ca721a3ba26e190e96aa098e27a"));
         assert_eq!(block.block_number, 1833241);
         assert_eq!(block.l1_da_mode, L1DataAvailabilityMode::Blob);
@@ -77,9 +75,9 @@ fn confirmed_block_with_tx_hashes() {
 #[test]
 fn preconfirmed_block_with_txs() {
     let json = fixtures::test_data::<Value>("v0.9/blocks/preconfirmed_with_txs.json");
-    let block: MaybePreConfirmedBlock = serde_json::from_value(json.clone()).unwrap();
+    let block: BlockWithTxs = serde_json::from_value(json.clone()).unwrap();
 
-    assert_matches!(&block, MaybePreConfirmedBlock::PreConfirmed(block) => {
+    assert_matches!(&block, BlockWithTxs::PreConfirmed(block) => {
         assert_eq!(block.block_number, 1833278);
         assert_eq!(block.l1_da_mode, L1DataAvailabilityMode::Blob);
 
@@ -101,9 +99,9 @@ fn preconfirmed_block_with_txs() {
 #[test]
 fn confirmed_block_with_txs() {
     let json = fixtures::test_data::<Value>("v0.9/blocks/confirmed_with_txs.json");
-    let block: MaybePreConfirmedBlock = serde_json::from_value(json.clone()).unwrap();
+    let block: BlockWithTxs = serde_json::from_value(json.clone()).unwrap();
 
-    assert_matches!(&block, MaybePreConfirmedBlock::Confirmed(block) => {
+    assert_matches!(&block, BlockWithTxs::Confirmed(block) => {
         assert_eq!(block.block_hash, felt!("0x28357304a645764b85790bf6d138be6fa25a53e2a11a5014edca4bdc24d0a2f"));
         assert_eq!(block.block_number, 1833278);
         assert_eq!(block.l1_da_mode, L1DataAvailabilityMode::Blob);
@@ -128,9 +126,9 @@ fn confirmed_block_with_txs() {
 #[test]
 fn preconfirmed_block_with_receipts() {
     let json = fixtures::test_data::<Value>("v0.9/blocks/preconfirmed_with_receipts.json");
-    let block: GetBlockWithReceiptsResponse = serde_json::from_value(json.clone()).unwrap();
+    let block: BlockWithReceipts = serde_json::from_value(json.clone()).unwrap();
 
-    assert_matches!(&block, GetBlockWithReceiptsResponse::PreConfirmed(block) => {
+    assert_matches!(&block, BlockWithReceipts::PreConfirmed(block) => {
         assert_eq!(block.block_number, 1833338);
         assert_eq!(block.l1_da_mode, L1DataAvailabilityMode::Blob);
 
@@ -152,9 +150,9 @@ fn preconfirmed_block_with_receipts() {
 #[test]
 fn confirmed_block_with_receipts() {
     let json = fixtures::test_data::<Value>("v0.9/blocks/confirmed_with_receipts.json");
-    let block: GetBlockWithReceiptsResponse = serde_json::from_value(json.clone()).unwrap();
+    let block: BlockWithReceipts = serde_json::from_value(json.clone()).unwrap();
 
-    assert_matches!(&block, GetBlockWithReceiptsResponse::Block(block) => {
+    assert_matches!(&block, BlockWithReceipts::Confirmed(block) => {
         assert_eq!(block.block_hash, felt!("0x3ced593414cc5dbf9f0a29c55d208a14b60742a16937cf106842f7ab77ff7cb"));
         assert_eq!(block.block_number, 1833335);
         assert_eq!(block.l1_da_mode, L1DataAvailabilityMode::Blob);

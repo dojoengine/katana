@@ -6,7 +6,7 @@ use katana_primitives::block::BlockNumber;
 use katana_primitives::transaction::TxNumber;
 use serde::{Deserialize, Serialize};
 
-use crate::block::BlockWithTxHashes;
+use crate::block::ConfirmedBlockWithTxHashes;
 use crate::receipt::TxReceiptWithBlockInfo;
 use crate::transaction::RpcTxWithHash;
 use crate::ResultPageRequest;
@@ -73,7 +73,7 @@ pub struct GetBlocksRequest {
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct GetBlocksResponse {
     /// The list of blocks.
-    pub blocks: Vec<BlockWithTxHashes>,
+    pub blocks: Vec<ConfirmedBlockWithTxHashes>,
 
     /// A pointer to the last element of the delivered page, use this token in a subsequent query
     /// to obtain the next page. If the value is `None`, don't add it to the response as

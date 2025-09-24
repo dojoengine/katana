@@ -17,20 +17,18 @@ use katana_primitives::{ContractAddress, Felt};
 use katana_provider::api::state::StateFactoryProvider;
 use katana_rpc_api::error::starknet::StarknetApiError;
 use katana_rpc_api::starknet::StarknetApiServer;
-use katana_rpc_types::block::{
-    BlockHashAndNumberResponse, BlockNumberResponse, GetBlockWithReceiptsResponse,
-    GetBlockWithTxHashesResponse, MaybePreConfirmedBlock,
-};
+use katana_rpc_types::block::{BlockHashAndNumberResponse, BlockNumberResponse, BlockWithTxs};
 use katana_rpc_types::broadcasted::BroadcastedTx;
 use katana_rpc_types::class::Class;
 use katana_rpc_types::event::{EventFilterWithPage, GetEventsResponse};
 use katana_rpc_types::message::MsgFromL1;
 use katana_rpc_types::receipt::TxReceiptWithBlockInfo;
-use katana_rpc_types::state_update::GetStateUpdateResponse;
+use katana_rpc_types::state_update::StateUpdate;
 use katana_rpc_types::transaction::RpcTxWithHash;
 use katana_rpc_types::trie::{ContractStorageKeys, GetStorageProofResponse};
 use katana_rpc_types::{
-    CallResponse, EstimateFeeSimulationFlag, FeeEstimate, FunctionCall, TxStatus,
+    BlockWithReceipts, BlockWithTxHashes, CallResponse, EstimateFeeSimulationFlag, FeeEstimate,
+    FunctionCall, TxStatus,
 };
 
 use super::StarknetApi;
@@ -78,7 +76,7 @@ impl<EF: ExecutorFactory> StarknetApiServer for StarknetApi<EF> {
     async fn get_block_with_tx_hashes(
         &self,
         block_id: BlockIdOrTag,
-    ) -> RpcResult<GetBlockWithTxHashesResponse> {
+    ) -> RpcResult<BlockWithTxHashes> {
         Ok(self.block_with_tx_hashes(block_id).await?)
     }
 
@@ -90,21 +88,18 @@ impl<EF: ExecutorFactory> StarknetApiServer for StarknetApi<EF> {
         Ok(self.transaction_by_block_id_and_index(block_id, index).await?)
     }
 
-    async fn get_block_with_txs(
-        &self,
-        block_id: BlockIdOrTag,
-    ) -> RpcResult<MaybePreConfirmedBlock> {
+    async fn get_block_with_txs(&self, block_id: BlockIdOrTag) -> RpcResult<BlockWithTxs> {
         Ok(self.block_with_txs(block_id).await?)
     }
 
     async fn get_block_with_receipts(
         &self,
         block_id: BlockIdOrTag,
-    ) -> RpcResult<GetBlockWithReceiptsResponse> {
+    ) -> RpcResult<BlockWithReceipts> {
         Ok(self.block_with_receipts(block_id).await?)
     }
 
-    async fn get_state_update(&self, block_id: BlockIdOrTag) -> RpcResult<GetStateUpdateResponse> {
+    async fn get_state_update(&self, block_id: BlockIdOrTag) -> RpcResult<StateUpdate> {
         let state_update = self.state_update(block_id).await?;
         Ok(state_update)
     }

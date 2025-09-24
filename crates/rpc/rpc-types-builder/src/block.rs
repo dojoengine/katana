@@ -2,7 +2,8 @@ use katana_primitives::block::BlockHashOrNumber;
 use katana_provider::api::block::{BlockHashProvider, BlockProvider, BlockStatusProvider};
 use katana_provider::api::transaction::ReceiptProvider;
 use katana_provider::ProviderResult;
-use katana_rpc_types::block::{BlockWithReceipts, BlockWithTxHashes, BlockWithTxs};
+use katana_rpc_types::block::{ConfirmedBlockWithReceipts, ConfirmedBlockWithTxHashes};
+use katana_rpc_types::ConfirmedBlockWithTxs;
 
 /// A builder for building RPC block types.
 #[derive(Debug)]
@@ -21,7 +22,7 @@ impl<P> BlockBuilder<P>
 where
     P: BlockProvider + BlockHashProvider + ReceiptProvider,
 {
-    pub fn build(self) -> ProviderResult<Option<BlockWithTxs>> {
+    pub fn build(self) -> ProviderResult<Option<ConfirmedBlockWithTxs>> {
         let Some(hash) = BlockHashProvider::block_hash_by_id(&self.provider, self.block_id)? else {
             return Ok(None);
         };
@@ -31,10 +32,10 @@ where
         let finality_status = BlockStatusProvider::block_status(&self.provider, self.block_id)?
             .expect("should exist if block exists");
 
-        Ok(Some(BlockWithTxs::new(hash, block, finality_status)))
+        Ok(Some(ConfirmedBlockWithTxs::new(hash, block, finality_status)))
     }
 
-    pub fn build_with_tx_hash(self) -> ProviderResult<Option<BlockWithTxHashes>> {
+    pub fn build_with_tx_hash(self) -> ProviderResult<Option<ConfirmedBlockWithTxHashes>> {
         let Some(hash) = BlockHashProvider::block_hash_by_id(&self.provider, self.block_id)? else {
             return Ok(None);
         };
@@ -44,10 +45,10 @@ where
         let finality_status = BlockStatusProvider::block_status(&self.provider, self.block_id)?
             .expect("should exist if block exists");
 
-        Ok(Some(BlockWithTxHashes::new(hash, block, finality_status)))
+        Ok(Some(ConfirmedBlockWithTxHashes::new(hash, block, finality_status)))
     }
 
-    pub fn build_with_receipts(self) -> ProviderResult<Option<BlockWithReceipts>> {
+    pub fn build_with_receipts(self) -> ProviderResult<Option<ConfirmedBlockWithReceipts>> {
         let Some(hash) = BlockHashProvider::block_hash_by_id(&self.provider, self.block_id)? else {
             return Ok(None);
         };
@@ -61,6 +62,11 @@ where
 
         let receipts_with_txs = block.body.into_iter().zip(receipts);
 
-        Ok(Some(BlockWithReceipts::new(hash, block.header, finality_status, receipts_with_txs)))
+        Ok(Some(ConfirmedBlockWithReceipts::new(
+            hash,
+            block.header,
+            finality_status,
+            receipts_with_txs,
+        )))
     }
 }

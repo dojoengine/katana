@@ -12,8 +12,7 @@ use katana_rpc::HttpClient;
 use katana_rpc_api::error::starknet::StarknetApiError;
 use katana_rpc_client::starknet::Client as StarknetClient;
 use katana_rpc_types::{
-    BlockNumberResponse, EventFilter, GetBlockWithReceiptsResponse, GetBlockWithTxHashesResponse,
-    MaybePreConfirmedBlock,
+    BlockNumberResponse, BlockWithReceipts, BlockWithTxHashes, BlockWithTxs, EventFilter,
 };
 use katana_utils::TestNode;
 use url::Url;
@@ -75,7 +74,7 @@ async fn setup_test_inner(no_mining: bool) -> (TestNode, StarknetClient, LocalTe
             let block_id = BlockIdOrTag::Number(block_num);
             let block = provider.get_block_with_tx_hashes(block_id).await.unwrap();
             let block_hash = match block {
-                GetBlockWithTxHashesResponse::Block(b) => b.block_hash,
+                BlockWithTxHashes::Confirmed(b) => b.block_hash,
                 _ => panic!("Expected a block"),
             };
 
@@ -119,13 +118,13 @@ async fn get_blocks_from_num() -> Result<()> {
     let id = BlockIdOrTag::Number(num);
 
     let block = provider.get_block_with_txs(id).await?;
-    assert_matches!(block, MaybePreConfirmedBlock::Confirmed(b) if b.block_number == num);
+    assert_matches!(block, BlockWithTxs::Confirmed(b) if b.block_number == num);
 
     let block = provider.get_block_with_receipts(id).await?;
-    assert_matches!(block, GetBlockWithReceiptsResponse::Block(b) if b.block_number == num);
+    assert_matches!(block, BlockWithReceipts::Confirmed(b) if b.block_number == num);
 
     let block = provider.get_block_with_tx_hashes(id).await?;
-    assert_matches!(block, GetBlockWithTxHashesResponse::Block(b) if b.block_number == num);
+    assert_matches!(block, BlockWithTxHashes::Confirmed(b) if b.block_number == num);
 
     let result = provider.get_block_transaction_count(id).await;
     assert!(result.is_ok());
@@ -142,13 +141,13 @@ async fn get_blocks_from_num() -> Result<()> {
     let id = BlockIdOrTag::Number(num);
 
     let block = provider.get_block_with_txs(id).await?;
-    assert_matches!(block, MaybePreConfirmedBlock::Confirmed(b) if b.block_number == num);
+    assert_matches!(block, BlockWithTxs::Confirmed(b) if b.block_number == num);
 
     let block = provider.get_block_with_receipts(id).await?;
-    assert_matches!(block, GetBlockWithReceiptsResponse::Block(b) if b.block_number == num);
+    assert_matches!(block, BlockWithReceipts::Confirmed(b) if b.block_number == num);
 
     let block = provider.get_block_with_tx_hashes(id).await?;
-    assert_matches!(block, GetBlockWithTxHashesResponse::Block(b) if b.block_number == num);
+    assert_matches!(block, BlockWithTxHashes::Confirmed(b) if b.block_number == num);
 
     let result = provider.get_block_transaction_count(id).await;
     assert!(result.is_ok());
@@ -164,13 +163,13 @@ async fn get_blocks_from_num() -> Result<()> {
         let id = BlockIdOrTag::Number(num);
 
         let block = provider.get_block_with_txs(id).await?;
-        assert_matches!(block, MaybePreConfirmedBlock::Confirmed(b) if b.block_number == num);
+        assert_matches!(block, BlockWithTxs::Confirmed(b) if b.block_number == num);
 
         let block = provider.get_block_with_receipts(id).await?;
-        assert_matches!(block, GetBlockWithReceiptsResponse::Block(b) if b.block_number == num);
+        assert_matches!(block, BlockWithReceipts::Confirmed(b) if b.block_number == num);
 
         let block = provider.get_block_with_tx_hashes(id).await?;
-        assert_matches!(block, GetBlockWithTxHashesResponse::Block(b) if b.block_number == num);
+        assert_matches!(block, BlockWithTxHashes::Confirmed(b) if b.block_number == num);
 
         let count = provider.get_block_transaction_count(id).await?;
         assert_eq!(count, 1, "all the locally generated blocks should have 1 tx");
@@ -235,13 +234,13 @@ async fn get_blocks_from_hash() {
     let id = BlockIdOrTag::Hash(hash);
 
     let block = provider.get_block_with_txs(id).await.unwrap();
-    assert_matches!(block, MaybePreConfirmedBlock::Confirmed(b) if b.block_hash == hash);
+    assert_matches!(block, BlockWithTxs::Confirmed(b) if b.block_hash == hash);
 
     let block = provider.get_block_with_receipts(id).await.unwrap();
-    assert_matches!(block, GetBlockWithReceiptsResponse::Block(b) if b.block_hash == hash);
+    assert_matches!(block, BlockWithReceipts::Confirmed(b) if b.block_hash == hash);
 
     let block = provider.get_block_with_tx_hashes(id).await.unwrap();
-    assert_matches!(block, GetBlockWithTxHashesResponse::Block(b) if b.block_hash == hash);
+    assert_matches!(block, BlockWithTxHashes::Confirmed(b) if b.block_hash == hash);
 
     let result = provider.get_block_transaction_count(id).await;
     assert!(result.is_ok());
@@ -258,13 +257,13 @@ async fn get_blocks_from_hash() {
     let id = BlockIdOrTag::Hash(hash);
 
     let block = provider.get_block_with_txs(id).await.unwrap();
-    assert_matches!(block, MaybePreConfirmedBlock::Confirmed(b) if b.block_hash == hash);
+    assert_matches!(block, BlockWithTxs::Confirmed(b) if b.block_hash == hash);
 
     let block = provider.get_block_with_receipts(id).await.unwrap();
-    assert_matches!(block, GetBlockWithReceiptsResponse::Block(b) if b.block_hash == hash);
+    assert_matches!(block, BlockWithReceipts::Confirmed(b) if b.block_hash == hash);
 
     let block = provider.get_block_with_tx_hashes(id).await.unwrap();
-    assert_matches!(block, GetBlockWithTxHashesResponse::Block(b) if b.block_hash == hash);
+    assert_matches!(block, BlockWithTxHashes::Confirmed(b) if b.block_hash == hash);
 
     let result = provider.get_block_transaction_count(id).await;
     assert!(result.is_ok());
@@ -280,13 +279,13 @@ async fn get_blocks_from_hash() {
         let id = BlockIdOrTag::Hash(hash);
 
         let block = provider.get_block_with_txs(id).await.unwrap();
-        assert_matches!(block, MaybePreConfirmedBlock::Confirmed(b) if b.block_hash == hash);
+        assert_matches!(block, BlockWithTxs::Confirmed(b) if b.block_hash == hash);
 
         let block = provider.get_block_with_receipts(id).await.unwrap();
-        assert_matches!(block, GetBlockWithReceiptsResponse::Block(b) if b.block_hash == hash);
+        assert_matches!(block, BlockWithReceipts::Confirmed(b) if b.block_hash == hash);
 
         let block = provider.get_block_with_tx_hashes(id).await.unwrap();
-        assert_matches!(block, GetBlockWithTxHashesResponse::Block(b) if b.block_hash == hash);
+        assert_matches!(block, BlockWithTxHashes::Confirmed(b) if b.block_hash == hash);
 
         let result = provider.get_block_transaction_count(id).await;
         assert!(result.is_ok());
