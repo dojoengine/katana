@@ -186,9 +186,18 @@ impl RequestBuilder<'_> {
     /// Send the request.
     async fn send<T: DeserializeOwned>(self) -> Result<T, Error> {
         let request = self.build()?;
-        let response = Client::new().execute(request).await?.error_for_status()?;
+        let response = Client::new().execute(request).await?;
 
-        match response.json::<Response<T>>().await? {
+        // First deserialize as raw JSON
+        let raw_json: serde_json::Value = response.json().await?;
+
+        // Print the raw JSON as pretty string
+        if let Ok(pretty) = serde_json::to_string_pretty(&raw_json) {
+            println!("{}", pretty);
+        }
+
+        // Then deserialize from the raw JSON to the expected type
+        match serde_json::from_value::<Response<T>>(raw_json).unwrap() {
             Response::Data(data) => Ok(data),
             Response::Error(error) => Err(Error::Sequencer(error)),
         }
