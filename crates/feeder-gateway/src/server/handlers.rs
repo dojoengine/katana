@@ -24,6 +24,7 @@ pub struct AppState {
 }
 
 impl AppState {
+    // TODO(kariy): support preconfirmed blocks
     async fn get_block(&self, id: BlockIdOrTag) -> Result<Option<Block>, ApiError> {
         self.api
             .on_io_blocking_task(move |this| {
