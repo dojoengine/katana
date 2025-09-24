@@ -10,7 +10,7 @@ use tracing::error;
 use url::Url;
 
 use crate::types::{
-    Block, BlockId, ConfirmedStateUpdate, ContractClass, GatewayError, StateUpdateWithBlock,
+    Block, BlockId, ContractClass, GatewayError, StateUpdate, StateUpdateWithBlock,
 };
 
 /// HTTP request header for the feeder gateway API key. This allow bypassing the rate limiting.
@@ -55,7 +55,7 @@ impl SequencerGateway {
         self.feeder_gateway("get_block").block_id(block_id).send().await
     }
 
-    pub async fn get_state_update(&self, block_id: BlockId) -> Result<ConfirmedStateUpdate, Error> {
+    pub async fn get_state_update(&self, block_id: BlockId) -> Result<StateUpdate, Error> {
         self.feeder_gateway("get_state_update").block_id(block_id).send().await
     }
 
@@ -187,17 +187,7 @@ impl RequestBuilder<'_> {
     async fn send<T: DeserializeOwned>(self) -> Result<T, Error> {
         let request = self.build()?;
         let response = Client::new().execute(request).await?;
-
-        // First deserialize as raw JSON
-        let raw_json: serde_json::Value = response.json().await?;
-
-        // Print the raw JSON as pretty string
-        if let Ok(pretty) = serde_json::to_string_pretty(&raw_json) {
-            println!("{}", pretty);
-        }
-
-        // Then deserialize from the raw JSON to the expected type
-        match serde_json::from_value::<Response<T>>(raw_json).unwrap() {
+        match response.json().await? {
             Response::Data(data) => Ok(data),
             Response::Error(error) => Err(Error::Sequencer(error)),
         }

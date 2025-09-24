@@ -3,10 +3,11 @@ use axum::http::StatusCode;
 use axum::response::{IntoResponse, Json, Response};
 use katana_executor::implementation::blockifier::BlockifierFactory;
 use katana_primitives::block::{BlockHash, BlockIdOrTag, BlockNumber};
-use katana_primitives::class::{ClassHash, CompiledClass};
+use katana_primitives::class::{ClassHash, CompiledClass, ContractClassCompilationError};
 use katana_provider_api::block::{BlockIdReader, BlockProvider, BlockStatusProvider};
 use katana_provider_api::transaction::ReceiptProvider;
 use katana_rpc::starknet::StarknetApi;
+use katana_rpc_api::error::starknet::StarknetApiError;
 use serde::{Deserialize, Serialize};
 use serde_json::{json, Value};
 use starknet::core::types::ResourcePrice;
@@ -24,8 +25,7 @@ pub struct AppState {
 
 impl AppState {
     async fn get_block(&self, id: BlockIdOrTag) -> Result<Option<Block>, ApiError> {
-        let block = self
-            .api
+        self.api
             .on_io_blocking_task(move |this| {
                 let provider = this.backend().blockchain.provider();
 
@@ -86,22 +86,20 @@ impl AppState {
                     Ok(None)
                 }
             })
-            .await?;
-
-        if let Some(block) = block {
-            Ok(Some(block))
-        } else {
-            Ok(None)
-        }
+            .await
     }
 }
 
 /// Query parameters for block endpoints
 #[derive(Debug, Deserialize)]
 pub struct BlockIdQuery {
+    #[serde(default)]
     #[serde(rename = "blockHash")]
     pub block_hash: Option<BlockHash>,
-    #[serde(rename = "blockNumber", deserialize_with = "serde_utils::deserialize_opt_u64")]
+
+    #[serde(default)]
+    #[serde(rename = "blockNumber")]
+    #[serde(deserialize_with = "serde_utils::deserialize_opt_u64")]
     pub block_number: Option<BlockNumber>,
 }
 
@@ -155,6 +153,7 @@ pub async fn get_block(
     State(state): State<AppState>,
     Query(params): Query<BlockIdQuery>,
 ) -> Result<Json<Block>, ApiError> {
+    println!("get block");
     let block_id = params.block_id()?;
     let block = state.get_block(block_id).await?.unwrap();
     Ok(Json(block))
@@ -178,11 +177,11 @@ pub async fn get_state_update(
     let include_block = params.include_block.unwrap_or(false);
     let block_id = params.block_query.block_id()?;
 
-    let state_update = state.api.state_update(block_id).await.unwrap();
+    let state_update = state.api.state_update(block_id).await?;
     let state_update = StateUpdate::from(state_update);
 
     if include_block {
-        let block = state.get_block(block_id).await.unwrap();
+        let block = state.get_block(block_id).await?.expect("qed; should exist");
         let state_update = StateUpdateWithBlock { state_update, block };
         Ok(Json(GetStateUpdateResponse::StateUpdateWithBlock(state_update)))
     } else {
@@ -199,7 +198,7 @@ pub async fn get_class_by_hash(
 ) -> Result<Json<ContractClass>, ApiError> {
     let class_hash = params.class_hash;
     let block_id = params.block_query.block_id()?;
-    let class = state.api.class_at_hash(block_id, class_hash).await.unwrap();
+    let class = state.api.class_at_hash(block_id, class_hash).await?;
     Ok(Json(class))
 }
 
@@ -213,7 +212,7 @@ pub async fn get_compiled_class_by_class_hash(
     let class_hash = params.class_hash;
     let block_id = params.block_query.block_id()?;
 
-    let class = state
+    state
         .api
         .on_io_blocking_task(move |this| {
             let state = this.state(&block_id)?;
@@ -221,9 +220,7 @@ pub async fn get_compiled_class_by_class_hash(
             Ok(class.compile()?)
         })
         .await
-        .unwrap();
-
-    Ok(Json(class))
+        .map(Json)
 }
 
 /// API error types with proper HTTP status code mapping
@@ -245,7 +242,7 @@ impl ApiError {
     /// Convert to HTTP status code.
     pub fn status_code(&self) -> StatusCode {
         match self {
-            ApiError::Gateway(_) => StatusCode::OK,
+            ApiError::Gateway(_) => StatusCode::BAD_REQUEST,
             ApiError::Internal(_) => StatusCode::INTERNAL_SERVER_ERROR,
         }
     }
@@ -260,5 +257,26 @@ impl IntoResponse for ApiError {
         let status = self.status_code();
         let body = self.body();
         (status, body).into_response()
+    }
+}
+
+impl From<katana_provider_api::ProviderError> for ApiError {
+    fn from(value: katana_provider_api::ProviderError) -> Self {
+        ApiError::Internal(value.to_string())
+    }
+}
+
+impl From<StarknetApiError> for ApiError {
+    fn from(value: StarknetApiError) -> Self {
+        match GatewayError::try_from(value) {
+            Ok(gateway_error) => ApiError::Gateway(gateway_error),
+            Err(starknet_error) => ApiError::Internal(starknet_error.to_string()),
+        }
+    }
+}
+
+impl From<ContractClassCompilationError> for ApiError {
+    fn from(value: ContractClassCompilationError) -> Self {
+        ApiError::Internal(value.to_string())
     }
 }

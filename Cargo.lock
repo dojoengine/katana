@@ -6096,6 +6096,7 @@ dependencies = [
  "katana-primitives",
  "katana-provider-api",
  "katana-rpc",
+ "katana-rpc-api",
  "katana-rpc-types",
  "metrics 0.23.1",
  "reqwest 0.12.22",

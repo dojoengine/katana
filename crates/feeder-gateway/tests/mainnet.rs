@@ -1,5 +1,5 @@
 use katana_feeder_gateway::client::SequencerGateway;
-use katana_feeder_gateway::types::{Block, BlockId, ConfirmedStateUpdate, StateUpdateWithBlock};
+use katana_feeder_gateway::types::{Block, BlockId, StateUpdate, StateUpdateWithBlock};
 use katana_primitives::block::BlockNumber;
 use rstest::rstest;
 
@@ -40,7 +40,7 @@ async fn get_block(
 async fn get_state_update(
     gateway: SequencerGateway,
     #[case] block_number: BlockNumber,
-    #[case] expected: ConfirmedStateUpdate,
+    #[case] expected: StateUpdate,
 ) {
     let id = BlockId::Number(block_number);
     let state_update = gateway.get_state_update(id).await.unwrap();
