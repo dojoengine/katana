@@ -264,7 +264,10 @@ fn add_udc(states: &mut StateUpdatesWithClasses) {
         .entry(contracts::UniversalDeployer::HASH)
         .or_insert_with(|| contracts::UniversalDeployer::CLASS.clone());
 
-    states.state_updates.deprecated_declared_classes.insert(contracts::UniversalDeployer::HASH);
+    states
+        .state_updates
+        .declared_classes
+        .insert(contracts::UniversalDeployer::HASH, contracts::UniversalDeployer::CASM_HASH);
 
     // deploy UDC contract
     states
