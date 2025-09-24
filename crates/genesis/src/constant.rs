@@ -1,13 +1,17 @@
-use katana_contracts::contracts::{Account, LegacyERC20, UniversalDeployer};
+use katana_contracts::contracts::{Account, LegacyERC20, LegacyUniversalDeployer};
 use katana_primitives::class::ClassHash;
 use katana_primitives::contract::{ContractAddress, StorageKey};
 use katana_primitives::utils::get_storage_var_address;
 use katana_primitives::Felt;
 use starknet::macros::felt;
 
+/// The default legacy universal deployer contract address.
+pub const DEFAULT_LEGACY_UDC_ADDRESS: ContractAddress =
+    ContractAddress(felt!("0x041a78e741e5af2fec34b695679bc6891742439f7afb8484ecd7766661ad02bf"));
+
 /// The default universal deployer contract address.
 pub const DEFAULT_UDC_ADDRESS: ContractAddress =
-    ContractAddress(felt!("0x041a78e741e5af2fec34b695679bc6891742439f7afb8484ecd7766661ad02bf"));
+    ContractAddress(felt!("0x02ceed65a4bd731034c01113685c831b01c15d7d432f71afb1cf1634b53a2125"));
 
 /// The default ETH fee token contract address.
 /// See https://github.com/starknet-io/starknet-addresses/blob/master/bridged_tokens/mainnet.json
@@ -51,7 +55,7 @@ pub const DEFAULT_PREFUNDED_ACCOUNT_BALANCE: u128 = 10 * u128::pow(10, 21);
 pub const DEFAULT_LEGACY_ERC20_CLASS_HASH: ClassHash = LegacyERC20::HASH;
 
 /// The class hash of DEFAULT_LEGACY_UDC_CASM.
-pub const DEFAULT_LEGACY_UDC_CLASS_HASH: ClassHash = UniversalDeployer::HASH;
+pub const DEFAULT_LEGACY_UDC_CLASS_HASH: ClassHash = LegacyUniversalDeployer::HASH;
 
 /// The class hash of [`DEFAULT_ACCOUNT_CLASS`].
 pub const DEFAULT_ACCOUNT_CLASS_HASH: ClassHash = Account::HASH;

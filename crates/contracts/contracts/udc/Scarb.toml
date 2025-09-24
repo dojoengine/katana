@@ -1,0 +1,14 @@
+[package]
+name = "udc"
+version = "0.1.0"
+edition = "2023_11"
+
+# See more keys and their definitions at https://docs.swmansion.com/scarb/docs/reference/manifest.html
+
+[dependencies]
+starknet = ">=2.11.4"
+openzeppelin_presets = "2.0.0"
+
+[[target.starknet-contract]]
+build-external-contracts = [ "openzeppelin_presets::universal_deployer::UniversalDeployer"]
+sierra = true

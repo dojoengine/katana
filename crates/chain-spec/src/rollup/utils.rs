@@ -3,7 +3,7 @@ use std::collections::HashSet;
 use std::sync::Arc;
 
 use alloy_primitives::U256;
-use katana_contracts::contracts;
+use katana_contracts::contracts::{self, LegacyUniversalDeployer, UniversalDeployer};
 use katana_genesis::allocation::{DevGenesisAccount, GenesisAccountAlloc};
 use katana_primitives::class::{ClassHash, ContractClass};
 use katana_primitives::contract::{ContractAddress, Nonce};
@@ -265,7 +265,10 @@ impl<'c> GenesisTransactionsBuilder<'c> {
     }
 
     fn build_core_contracts(&mut self) {
-        let udc_class_hash = self.legacy_declare(contracts::UniversalDeployer::CLASS.clone());
+        let legacy_udc_class_hash = self.legacy_declare(LegacyUniversalDeployer::CLASS.clone());
+        self.deploy(legacy_udc_class_hash, Vec::new(), Felt::ZERO);
+
+        let udc_class_hash = self.legacy_declare(UniversalDeployer::CLASS.clone());
         self.deploy(udc_class_hash, Vec::new(), Felt::ZERO);
 
         let master_address = *self.master_address.get().expect("must be initialized first");
@@ -343,7 +346,7 @@ mod tests {
     use katana_genesis::allocation::{
         DevAllocationsGenerator, GenesisAccount, GenesisAccountAlloc, GenesisAllocation,
     };
-    use katana_genesis::constant::{DEFAULT_PREFUNDED_ACCOUNT_BALANCE, DEFAULT_UDC_ADDRESS};
+    use katana_genesis::constant::{DEFAULT_LEGACY_UDC_ADDRESS, DEFAULT_PREFUNDED_ACCOUNT_BALANCE};
     use katana_genesis::Genesis;
     use katana_primitives::chain::ChainId;
     use katana_primitives::class::ClassHash;
@@ -437,7 +440,7 @@ mod tests {
         assert!(genesis_state.class(erc20_class_hash).unwrap().is_some());
 
         // check that the default udc class is declared
-        let udc_class_hash = contracts::UniversalDeployer::HASH;
+        let udc_class_hash = contracts::LegacyUniversalDeployer::HASH;
         assert!(genesis_state.class(udc_class_hash).unwrap().is_some());
 
         // -----------------------------------------------------------------------
@@ -448,7 +451,7 @@ mod tests {
         assert_eq!(res, Some(erc20_class_hash));
 
         // check that the default udc is deployed
-        let res = genesis_state.class_hash_of_contract(DEFAULT_UDC_ADDRESS).unwrap();
+        let res = genesis_state.class_hash_of_contract(DEFAULT_LEGACY_UDC_ADDRESS).unwrap();
         assert_eq!(res, Some(udc_class_hash));
 
         for (address, account) in chain_spec.genesis.accounts() {
