@@ -17,14 +17,13 @@
 //! - [`DeployAccountTxV3`]: Uses the custom DA mode and resource bounds
 //! - [`L1HandlerTx`]: Optional `nonce` field
 
-use std::collections::{BTreeMap, BTreeSet};
+use std::collections::BTreeMap;
 
 use katana_primitives::block::{BlockHash, BlockNumber};
 pub use katana_primitives::class::CasmContractClass;
 use katana_primitives::class::{ClassHash, CompiledClassHash};
 use katana_primitives::contract::{Nonce, StorageKey, StorageValue};
 use katana_primitives::da::L1DataAvailabilityMode;
-use katana_primitives::version::StarknetVersion;
 use katana_primitives::{ContractAddress, Felt};
 pub use katana_rpc_types::class::SierraClass;
 use serde::{Deserialize, Serialize};

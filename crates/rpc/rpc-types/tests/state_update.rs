@@ -2,9 +2,7 @@ use std::collections::{BTreeMap, BTreeSet};
 
 use assert_matches::assert_matches;
 use katana_primitives::{address, felt, ContractAddress};
-use katana_rpc_types::state_update::{
-    ConfirmedStateUpdate, StateUpdate, PreConfirmedStateUpdate,
-};
+use katana_rpc_types::state_update::{ConfirmedStateUpdate, PreConfirmedStateUpdate, StateUpdate};
 use serde_json::Value;
 
 mod fixtures;

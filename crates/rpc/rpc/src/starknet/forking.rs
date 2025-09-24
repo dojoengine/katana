@@ -221,10 +221,7 @@ impl ForkedClient {
         Ok(self.client.get_block_transaction_count(block_id).await?)
     }
 
-    pub async fn get_state_update(
-        &self,
-        block_id: BlockIdOrTag,
-    ) -> Result<StateUpdate, Error> {
+    pub async fn get_state_update(&self, block_id: BlockIdOrTag) -> Result<StateUpdate, Error> {
         match block_id {
             BlockIdOrTag::Number(num) if num > self.block => {
                 return Err(Error::BlockOutOfRange);

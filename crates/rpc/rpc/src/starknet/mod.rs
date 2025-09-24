@@ -209,7 +209,7 @@ impl<EF: ExecutorFactory> StarknetApi<EF> {
         })
     }
 
-    fn state(&self, block_id: &BlockIdOrTag) -> StarknetApiResult<Box<dyn StateProvider>> {
+    pub fn state(&self, block_id: &BlockIdOrTag) -> StarknetApiResult<Box<dyn StateProvider>> {
         let provider = self.inner.backend.blockchain.provider();
 
         let state = match block_id {
@@ -966,10 +966,6 @@ impl<EF: ExecutorFactory> StarknetApi<EF> {
             Ok(events)
         })
         .await
-    }
-
-    fn forked_client(&self) -> Option<&ForkedClient> {
-        self.inner.forked_client.as_ref()
     }
 
     // TODO: should document more and possible find a simpler solution(?)

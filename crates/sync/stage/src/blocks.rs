@@ -5,8 +5,9 @@ use anyhow::Result;
 use backon::{ExponentialBuilder, Retryable};
 use katana_feeder_gateway::client;
 use katana_feeder_gateway::client::SequencerGateway;
-use katana_feeder_gateway::types::StateUpdate as GatewayStateUpdate;
-use katana_feeder_gateway::types::{BlockId, BlockStatus, StateUpdateWithBlock};
+use katana_feeder_gateway::types::{
+    BlockId, BlockStatus, StateUpdate as GatewayStateUpdate, StateUpdateWithBlock,
+};
 use katana_primitives::block::{
     BlockNumber, FinalityStatus, GasPrices, Header, SealedBlock, SealedBlockWithStatus,
 };

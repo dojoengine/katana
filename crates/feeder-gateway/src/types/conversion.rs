@@ -1,11 +1,10 @@
 use std::collections::BTreeSet;
 
 use crate::types::{
-    BlockStatus, ConfirmedReceipt, ConfirmedStateUpdate, ConfirmedTransaction,
-    DataAvailabilityMode, DeclareTx, DeclareTxV3, DeclaredContract, DeployAccountTx,
-    DeployAccountTxV1, DeployAccountTxV3, DeployedContract, ExecutionResources, ExecutionStatus,
-    InvokeTx, InvokeTxV3, L1HandlerTx, PreConfirmedStateUpdate, ReceiptBody, StateDiff,
-    StateUpdate, StorageDiff, TypedTransaction,
+    BlockStatus, ConfirmedStateUpdate, ConfirmedTransaction, DataAvailabilityMode, DeclareTx,
+    DeclareTxV3, DeclaredContract, DeployAccountTx, DeployAccountTxV1, DeployAccountTxV3,
+    DeployedContract, ExecutionResources, ExecutionStatus, InvokeTx, InvokeTxV3, L1HandlerTx,
+    PreConfirmedStateUpdate, ReceiptBody, StateDiff, StateUpdate, StorageDiff, TypedTransaction,
 };
 
 impl From<katana_rpc_types::StateUpdate> for StateUpdate {
@@ -199,7 +198,8 @@ impl From<katana_primitives::receipt::Receipt> for ReceiptBody {
 
         Self {
             execution_resources,
-            l1_to_l2_consumed_message: None, // This would need to be populated from transaction context
+            l1_to_l2_consumed_message: None, /* This would need to be populated from transaction
+                                              * context */
             l2_to_l1_messages: receipt.messages_sent().to_vec(),
             events: receipt.events().to_vec(),
             actual_fee: receipt.fee().overall_fee.into(),

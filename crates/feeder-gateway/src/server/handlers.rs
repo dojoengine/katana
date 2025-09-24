@@ -3,10 +3,8 @@ use axum::http::StatusCode;
 use axum::response::{IntoResponse, Json, Response};
 use katana_executor::implementation::blockifier::BlockifierFactory;
 use katana_primitives::block::{BlockHash, BlockIdOrTag, BlockNumber};
-use katana_primitives::class::ClassHash;
-use katana_provider_api::block::{
-    BlockHashProvider, BlockIdReader, BlockProvider, BlockStatusProvider,
-};
+use katana_primitives::class::{ClassHash, CompiledClass};
+use katana_provider_api::block::{BlockIdReader, BlockProvider, BlockStatusProvider};
 use katana_provider_api::transaction::ReceiptProvider;
 use katana_rpc::starknet::StarknetApi;
 use serde::{Deserialize, Serialize};
@@ -15,7 +13,7 @@ use starknet::core::types::ResourcePrice;
 
 use crate::types::{
     Block, ConfirmedReceipt, ConfirmedTransaction, ContractClass, ErrorCode, GatewayError,
-    StateUpdate, StateUpdateWithBlock,
+    ReceiptBody, StateUpdate, StateUpdateWithBlock,
 };
 
 /// Shared application state containing the backend
@@ -25,32 +23,42 @@ pub struct AppState {
 }
 
 impl AppState {
-    async fn get_block(&self, id: BlockIdOrTag) -> Option<Block> {
+    async fn get_block(&self, id: BlockIdOrTag) -> Result<Option<Block>, ApiError> {
         let block = self
             .api
             .on_io_blocking_task(move |this| {
                 let provider = this.backend().blockchain.provider();
 
-                if let Some(num) = provider.convert_block_id(block_id)? {
-                    let block = provider.block(block_id)?.unwrap();
-                    let receipts = provider.receipts_by_block(block_id)?.unwrap();
-                    let status = provider.block_status(block_id)?.unwrap();
+                if let Some(num) = provider.convert_block_id(id)? {
+                    let block = provider.block(num.into())?.unwrap();
+                    let receipts = provider.receipts_by_block(num.into())?.unwrap();
+                    let status = provider.block_status(num.into())?.unwrap();
 
                     let transactions = block
                         .body
                         .into_iter()
                         .map(Into::into)
                         .collect::<Vec<ConfirmedTransaction>>();
-                    let transaction_receipts =
-                        receipts.into_iter().map(Into::into).collect::<Vec<ConfirmedReceipt>>();
+
+                    let transaction_receipts = receipts
+                        .into_iter()
+                        .zip(transactions.iter())
+                        .enumerate()
+                        .map(|(idx, (receipt, tx))| {
+                            let transaction_index = idx as u64;
+                            let body = ReceiptBody::from(receipt);
+                            let transaction_hash = tx.transaction_hash;
+                            ConfirmedReceipt { transaction_hash, transaction_index, body }
+                        })
+                        .collect::<Vec<ConfirmedReceipt>>();
+
                     let block_hash = block.header.compute_hash();
 
-                    Block {
-                        block_hash,
+                    Ok(Some(Block {
                         transactions,
                         transaction_receipts,
                         status: status.into(),
-                        block_hash: block.header.compute_hash(),
+                        block_hash: Some(block_hash),
                         block_number: Some(block.header.number),
                         event_commitment: Some(block.header.events_commitment),
                         l1_da_mode: block.header.l1_da_mode,
@@ -61,30 +69,29 @@ impl AppState {
                         state_diff_commitment: Some(block.header.state_diff_commitment),
                         parent_block_hash: block.header.parent_hash,
                         starknet_version: Some(block.header.starknet_version.to_string()),
-                        status: block.header.status,
                         l1_data_gas_price: ResourcePrice {
-                            price_in_fri: block.header.l1_data_gas_prices.strk,
-                            price_in_wei: block.header.l1_data_gas_prices.eth,
+                            price_in_fri: block.header.l1_data_gas_prices.strk.get().into(),
+                            price_in_wei: block.header.l1_data_gas_prices.eth.get().into(),
                         },
                         l1_gas_price: ResourcePrice {
-                            price_in_fri: block.header.l1_gas_prices.strk,
-                            price_in_wei: block.header.l1_gas_prices.eth,
+                            price_in_fri: block.header.l1_gas_prices.strk.get().into(),
+                            price_in_wei: block.header.l1_gas_prices.eth.get().into(),
                         },
                         l2_gas_price: ResourcePrice {
-                            price_in_fri: block.header.l2_gas_prices.strk,
-                            price_in_wei: block.header.l2_gas_prices.eth,
+                            price_in_fri: block.header.l2_gas_prices.strk.get().into(),
+                            price_in_wei: block.header.l2_gas_prices.eth.get().into(),
                         },
-                    }
+                    }))
                 } else {
-                    StarknetApiResult::Ok(None)
+                    Ok(None)
                 }
             })
             .await?;
 
         if let Some(block) = block {
-            Ok(block)
+            Ok(Some(block))
         } else {
-            None
+            Ok(None)
         }
     }
 }
@@ -149,7 +156,7 @@ pub async fn get_block(
     Query(params): Query<BlockIdQuery>,
 ) -> Result<Json<Block>, ApiError> {
     let block_id = params.block_id()?;
-    let block = state.get_block(block_id).await.unwrap();
+    let block = state.get_block(block_id).await?.unwrap();
     Ok(Json(block))
 }
 
@@ -202,14 +209,21 @@ pub async fn get_class_by_hash(
 pub async fn get_compiled_class_by_class_hash(
     State(state): State<AppState>,
     Query(params): Query<ClassQuery>,
-) -> Result<Json<serde_json::Value>, ApiError> {
-    // TODO: Implement actual compiled class retrieval
-    // 1. Resolve block_id to get proper state view
-    // 2. Look up compiled class in storage
-    // 3. Return CASM format (only for Cairo 1+ classes)
-    // 4. Handle case where class is Cairo 0 (no CASM equivalent)
+) -> Result<Json<CompiledClass>, ApiError> {
+    let class_hash = params.class_hash;
+    let block_id = params.block_query.block_id()?;
 
-    unimplemented!()
+    let class = state
+        .api
+        .on_io_blocking_task(move |this| {
+            let state = this.state(&block_id)?;
+            let Some(class) = state.class(class_hash)? else { todo!() };
+            Ok(class.compile()?)
+        })
+        .await
+        .unwrap();
+
+    Ok(Json(class))
 }
 
 /// API error types with proper HTTP status code mapping
