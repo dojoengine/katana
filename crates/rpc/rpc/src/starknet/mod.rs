@@ -1,5 +1,6 @@
 //! Server implementation for the Starknet JSON-RPC API.
 
+use std::fmt::Debug;
 use std::future::Future;
 use std::sync::Arc;
 
@@ -39,7 +40,7 @@ use katana_rpc_types::list::{
     GetTransactionsRequest, GetTransactionsResponse, TransactionListItem,
 };
 use katana_rpc_types::receipt::{ReceiptBlockInfo, TxReceiptWithBlockInfo};
-use katana_rpc_types::state_update::GetStateUpdateResponse;
+use katana_rpc_types::state_update::StateUpdate;
 use katana_rpc_types::transaction::RpcTxWithHash;
 use katana_rpc_types::trie::{
     ClassesProof, ContractLeafData, ContractStorageKeys, ContractStorageProofs, ContractsProof,
@@ -74,11 +75,12 @@ type StarknetApiResult<T> = Result<T, StarknetApiError>;
 /// [read](katana_rpc_api::starknet::StarknetApi),
 /// [write](katana_rpc_api::starknet::StarknetWriteApi), and
 /// [trace](katana_rpc_api::starknet::StarknetTraceApi) APIs.
-#[allow(missing_debug_implementations)]
+#[derive(Debug)]
 pub struct StarknetApi<EF: ExecutorFactory> {
     inner: Arc<StarknetApiInner<EF>>,
 }
 
+#[derive(Debug)]
 struct StarknetApiInner<EF: ExecutorFactory> {
     pool: TxPool,
     backend: Arc<Backend<EF>>,
@@ -87,6 +89,32 @@ struct StarknetApiInner<EF: ExecutorFactory> {
     block_producer: Option<BlockProducer<EF>>,
     estimate_fee_permit: Permits,
     config: StarknetApiConfig,
+}
+
+impl<EF: ExecutorFactory> StarknetApi<EF> {
+    pub fn pool(&self) -> &TxPool {
+        &self.inner.pool
+    }
+
+    pub fn backend(&self) -> &Arc<Backend<EF>> {
+        &self.inner.backend
+    }
+
+    pub fn forked_client(&self) -> Option<&ForkedClient> {
+        self.inner.forked_client.as_ref()
+    }
+
+    pub fn block_producer(&self) -> Option<&BlockProducer<EF>> {
+        self.inner.block_producer.as_ref()
+    }
+
+    pub fn estimate_fee_permit(&self) -> &Permits {
+        &self.inner.estimate_fee_permit
+    }
+
+    pub fn config(&self) -> &StarknetApiConfig {
+        &self.inner.config
+    }
 }
 
 impl<EF: ExecutorFactory> StarknetApi<EF> {
@@ -175,7 +203,7 @@ impl<EF: ExecutorFactory> StarknetApi<EF> {
         }
     }
 
-    async fn on_io_blocking_task<F, R>(&self, func: F) -> StarknetApiResult<R>
+    pub async fn on_io_blocking_task<F, R>(&self, func: F) -> StarknetApiResult<R>
     where
         F: FnOnce(Self) -> R + Send + 'static,
         R: Send + 'static,
@@ -221,7 +249,7 @@ impl<EF: ExecutorFactory> StarknetApi<EF> {
         })
     }
 
-    fn state(&self, block_id: &BlockIdOrTag) -> StarknetApiResult<Box<dyn StateProvider>> {
+    pub fn state(&self, block_id: &BlockIdOrTag) -> StarknetApiResult<Box<dyn StateProvider>> {
         let provider = self.inner.backend.blockchain.provider();
 
         let state = match block_id {
@@ -284,7 +312,7 @@ impl<EF: ExecutorFactory> StarknetApi<EF> {
         Ok(BlockHashAndNumberResponse::new(hash, number))
     }
 
-    async fn class_at_hash(
+    pub async fn class_at_hash(
         &self,
         block_id: BlockIdOrTag,
         class_hash: ClassHash,
@@ -301,7 +329,7 @@ impl<EF: ExecutorFactory> StarknetApi<EF> {
         .await?
     }
 
-    async fn class_hash_at_address(
+    pub async fn class_hash_at_address(
         &self,
         block_id: BlockIdOrTag,
         contract_address: ContractAddress,
@@ -320,7 +348,7 @@ impl<EF: ExecutorFactory> StarknetApi<EF> {
         .await?
     }
 
-    async fn class_at_address(
+    pub async fn class_at_address(
         &self,
         block_id: BlockIdOrTag,
         contract_address: ContractAddress,
@@ -330,7 +358,7 @@ impl<EF: ExecutorFactory> StarknetApi<EF> {
         Ok(class)
     }
 
-    async fn compiled_class_at_hash(
+    pub async fn compiled_class_at_hash(
         &self,
         class_hash: ClassHash,
     ) -> StarknetApiResult<CompiledClass> {
@@ -351,7 +379,7 @@ impl<EF: ExecutorFactory> StarknetApi<EF> {
         .await?
     }
 
-    fn storage_at(
+    pub fn storage_at(
         &self,
         contract_address: ContractAddress,
         storage_key: StorageKey,
@@ -372,7 +400,7 @@ impl<EF: ExecutorFactory> StarknetApi<EF> {
         Ok(value.unwrap_or_default())
     }
 
-    async fn block_tx_count(&self, block_id: BlockIdOrTag) -> StarknetApiResult<u64> {
+    pub async fn block_tx_count(&self, block_id: BlockIdOrTag) -> StarknetApiResult<u64> {
         let count = self
             .on_io_blocking_task(move |this| {
                 let provider = this.inner.backend.blockchain.provider();
@@ -415,7 +443,7 @@ impl<EF: ExecutorFactory> StarknetApi<EF> {
         .await?
     }
 
-    async fn nonce_at(
+    pub async fn nonce_at(
         &self,
         block_id: BlockIdOrTag,
         contract_address: ContractAddress,
@@ -649,7 +677,7 @@ impl<EF: ExecutorFactory> StarknetApi<EF> {
         }
     }
 
-    async fn block_with_txs(
+    pub async fn block_with_txs(
         &self,
         block_id: BlockIdOrTag,
     ) -> StarknetApiResult<MaybePreConfirmedBlock> {
@@ -785,7 +813,7 @@ impl<EF: ExecutorFactory> StarknetApi<EF> {
         }
     }
 
-    async fn block_with_tx_hashes(
+    pub async fn block_with_tx_hashes(
         &self,
         block_id: BlockIdOrTag,
     ) -> StarknetApiResult<GetBlockWithTxHashesResponse> {
@@ -853,10 +881,7 @@ impl<EF: ExecutorFactory> StarknetApi<EF> {
         }
     }
 
-    async fn state_update(
-        &self,
-        block_id: BlockIdOrTag,
-    ) -> StarknetApiResult<GetStateUpdateResponse> {
+    pub async fn state_update(&self, block_id: BlockIdOrTag) -> StarknetApiResult<StateUpdate> {
         let state_update = self
             .on_io_blocking_task(move |this| {
                 let provider = this.inner.backend.blockchain.provider();
@@ -876,7 +901,7 @@ impl<EF: ExecutorFactory> StarknetApi<EF> {
                 let state_update =
                     katana_rpc_types_builder::StateUpdateBuilder::new(block_id, provider)
                         .build()?
-                        .map(GetStateUpdateResponse::Update);
+                        .map(StateUpdate::Update);
 
                 StarknetApiResult::Ok(state_update)
             })
@@ -934,10 +959,6 @@ impl<EF: ExecutorFactory> StarknetApi<EF> {
             Ok(events)
         })
         .await?
-    }
-
-    fn forked_client(&self) -> Option<&ForkedClient> {
-        self.inner.forked_client.as_ref()
     }
 
     // TODO: should document more and possible find a simpler solution(?)
