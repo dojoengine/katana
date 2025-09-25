@@ -19,7 +19,7 @@ use katana_rpc_types::class::{CasmClass, Class};
 use katana_rpc_types::event::{EventFilterWithPage, GetEventsResponse};
 use katana_rpc_types::message::MsgFromL1;
 use katana_rpc_types::receipt::TxReceiptWithBlockInfo;
-use katana_rpc_types::state_update::GetStateUpdateResponse;
+use katana_rpc_types::state_update::StateUpdate;
 use katana_rpc_types::trace::{
     SimulatedTransactionsResponse, TraceBlockTransactionsResponse, TxTrace,
 };
@@ -74,7 +74,7 @@ impl Client {
     }
 
     /// Get the information about the result of executing the requested block.
-    pub async fn get_state_update(&self, block_id: BlockIdOrTag) -> Result<GetStateUpdateResponse> {
+    pub async fn get_state_update(&self, block_id: BlockIdOrTag) -> Result<StateUpdate> {
         self.client.get_state_update(block_id).await.map_err(Into::into)
     }
 

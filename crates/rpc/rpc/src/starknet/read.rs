@@ -25,7 +25,7 @@ use katana_rpc_types::broadcasted::BroadcastedTx;
 use katana_rpc_types::event::{EventFilterWithPage, GetEventsResponse};
 use katana_rpc_types::message::MsgFromL1;
 use katana_rpc_types::receipt::TxReceiptWithBlockInfo;
-use katana_rpc_types::state_update::GetStateUpdateResponse;
+use katana_rpc_types::state_update::StateUpdate;
 use katana_rpc_types::transaction::RpcTxWithHash;
 use katana_rpc_types::trie::{ContractStorageKeys, GetStorageProofResponse};
 use katana_rpc_types::{
@@ -103,7 +103,7 @@ impl<EF: ExecutorFactory> StarknetApiServer for StarknetApi<EF> {
         Ok(self.block_with_receipts(block_id).await?)
     }
 
-    async fn get_state_update(&self, block_id: BlockIdOrTag) -> RpcResult<GetStateUpdateResponse> {
+    async fn get_state_update(&self, block_id: BlockIdOrTag) -> RpcResult<StateUpdate> {
         let state_update = self.state_update(block_id).await?;
         Ok(state_update)
     }

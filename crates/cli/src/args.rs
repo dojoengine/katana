@@ -18,6 +18,8 @@ use katana_node::config::db::DbConfig;
 use katana_node::config::dev::{DevConfig, FixedL1GasPriceConfig};
 use katana_node::config::execution::ExecutionConfig;
 use katana_node::config::fork::ForkingConfig;
+#[cfg(feature = "server")]
+use katana_node::config::gateway::GatewayConfig;
 use katana_node::config::metrics::MetricsConfig;
 #[cfg(feature = "cartridge")]
 use katana_node::config::paymaster::PaymasterConfig;
@@ -102,6 +104,10 @@ pub struct NodeArgs {
 
     #[cfg(feature = "server")]
     #[command(flatten)]
+    pub gateway: GatewayOptions,
+
+    #[cfg(feature = "server")]
+    #[command(flatten)]
     pub server: ServerOptions,
 
     #[command(flatten)]
@@ -166,6 +172,7 @@ impl NodeArgs {
         let dev = self.dev_config();
         let (chain, cs_messaging) = self.chain_spec()?;
         let metrics = self.metrics_config();
+        let gateway = self.gateway_config();
         let forking = self.forking_config()?;
         let execution = self.execution_config();
         let sequencing = self.sequencer_config();
@@ -185,6 +192,7 @@ impl NodeArgs {
                 rpc,
                 chain,
                 metrics,
+                gateway,
                 forking,
                 execution,
                 messaging,
@@ -194,7 +202,18 @@ impl NodeArgs {
         }
 
         #[cfg(not(feature = "cartridge"))]
-        Ok(Config { metrics, db, dev, rpc, chain, execution, sequencing, messaging, forking })
+        Ok(Config {
+            metrics,
+            db,
+            dev,
+            rpc,
+            chain,
+            feeder_gateway,
+            execution,
+            sequencing,
+            messaging,
+            forking,
+        })
     }
 
     fn sequencer_config(&self) -> SequencingConfig {
@@ -375,6 +394,24 @@ impl NodeArgs {
         #[cfg(feature = "server")]
         if self.metrics.metrics {
             Some(MetricsConfig { addr: self.metrics.metrics_addr, port: self.metrics.metrics_port })
+        } else {
+            None
+        }
+
+        #[cfg(not(feature = "server"))]
+        None
+    }
+
+    fn gateway_config(&self) -> Option<GatewayConfig> {
+        #[cfg(feature = "server")]
+        if self.gateway.gateway_enable {
+            use std::time::Duration;
+
+            Some(GatewayConfig {
+                addr: self.gateway.gateway_addr,
+                port: self.gateway.gateway_port,
+                timeout: Some(Duration::from_secs(self.gateway.gateway_timeout)),
+            })
         } else {
             None
         }
