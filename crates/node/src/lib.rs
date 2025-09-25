@@ -25,6 +25,7 @@ use katana_db::Db;
 use katana_executor::implementation::blockifier::cache::ClassCache;
 use katana_executor::implementation::blockifier::BlockifierFactory;
 use katana_executor::ExecutionFlags;
+use katana_feeder_gateway::server::{GatewayServer, GatewayServerHandle};
 use katana_gas_price_oracle::{FixedPriceOracle, GasPriceOracle};
 use katana_metrics::exporters::prometheus::PrometheusRecorder;
 use katana_metrics::sys::DiskReporter;
@@ -66,6 +67,7 @@ pub struct Node {
     task_manager: TaskManager,
     backend: Arc<Backend<BlockifierFactory>>,
     block_producer: BlockProducer<BlockifierFactory>,
+    gateway_server: Option<GatewayServer>,
 }
 
 impl Node {
@@ -246,45 +248,45 @@ impl Node {
             None
         };
 
+        // --- build starknet api
+
+        let starknet_api_cfg = StarknetApiConfig {
+            max_event_page_size: config.rpc.max_event_page_size,
+            max_proof_keys: config.rpc.max_proof_keys,
+            max_call_gas: config.rpc.max_call_gas,
+            max_concurrent_estimate_fee_requests: config.rpc.max_concurrent_estimate_fee_requests,
+            #[cfg(feature = "cartridge")]
+            paymaster,
+        };
+
+        let starknet_api = if let Some(client) = forked_client {
+            StarknetApi::new_forked(
+                backend.clone(),
+                pool.clone(),
+                block_producer.clone(),
+                client,
+                task_spawner.clone(),
+                starknet_api_cfg,
+            )
+        } else {
+            StarknetApi::new(
+                backend.clone(),
+                pool.clone(),
+                Some(block_producer.clone()),
+                task_spawner.clone(),
+                starknet_api_cfg,
+            )
+        };
+
         if config.rpc.apis.contains(&RpcModuleKind::Starknet) {
-            let cfg = StarknetApiConfig {
-                max_event_page_size: config.rpc.max_event_page_size,
-                max_proof_keys: config.rpc.max_proof_keys,
-                max_call_gas: config.rpc.max_call_gas,
-                max_concurrent_estimate_fee_requests: config
-                    .rpc
-                    .max_concurrent_estimate_fee_requests,
-                #[cfg(feature = "cartridge")]
-                paymaster,
-            };
-
-            let api = if let Some(client) = forked_client {
-                StarknetApi::new_forked(
-                    backend.clone(),
-                    pool.clone(),
-                    block_producer.clone(),
-                    client,
-                    task_spawner.clone(),
-                    cfg,
-                )
-            } else {
-                StarknetApi::new(
-                    backend.clone(),
-                    pool.clone(),
-                    Some(block_producer.clone()),
-                    task_spawner.clone(),
-                    cfg,
-                )
-            };
-
             #[cfg(feature = "explorer")]
             if config.rpc.explorer {
-                rpc_modules.merge(StarknetApiExtServer::into_rpc(api.clone()))?;
+                rpc_modules.merge(StarknetApiExtServer::into_rpc(starknet_api.clone()))?;
             }
 
-            rpc_modules.merge(StarknetApiServer::into_rpc(api.clone()))?;
-            rpc_modules.merge(StarknetWriteApiServer::into_rpc(api.clone()))?;
-            rpc_modules.merge(StarknetTraceApiServer::into_rpc(api))?;
+            rpc_modules.merge(StarknetApiServer::into_rpc(starknet_api.clone()))?;
+            rpc_modules.merge(StarknetWriteApiServer::into_rpc(starknet_api.clone()))?;
+            rpc_modules.merge(StarknetTraceApiServer::into_rpc(starknet_api.clone()))?;
         }
 
         if config.rpc.apis.contains(&RpcModuleKind::Dev) {
@@ -317,11 +319,28 @@ impl Node {
             rpc_server = rpc_server.max_response_body_size(max_response_body_size);
         }
 
+        // --- build feeder gateway server (optional)
+
+        let gateway_server = if let Some(gw_config) = &config.gateway {
+            let mut server = GatewayServer::new(starknet_api)
+                .health_check(true)
+                .metered(config.metrics.is_some());
+
+            if let Some(timeout) = gw_config.timeout {
+                server = server.timeout(timeout);
+            }
+
+            Some(server)
+        } else {
+            None
+        };
+
         Ok(Node {
             db,
             pool,
             backend,
             rpc_server,
+            gateway_server,
             block_producer,
             config: Arc::new(config),
             task_manager,
@@ -374,6 +393,16 @@ impl Node {
 
         let rpc_handle = self.rpc_server.start(self.config.rpc.socket_addr()).await?;
 
+        // --- start the feeder gateway server (if configured)
+
+        let gateway_handle = match &self.gateway_server {
+            Some(server) => {
+                let config = self.config().gateway.as_ref().expect("qed; must exist");
+                Some(server.start(config.socket_addr()).await?)
+            }
+            None => None,
+        };
+
         // --- start the gas oracle worker task
 
         if let Some(worker) = self.backend.gas_oracle.run_worker() {
@@ -387,7 +416,7 @@ impl Node {
 
         info!(target: "node", "Gas price oracle worker started.");
 
-        Ok(LaunchedNode { node: self, rpc: rpc_handle })
+        Ok(LaunchedNode { node: self, rpc: rpc_handle, gateway: gateway_handle })
     }
 
     /// Returns a reference to the node's database environment (if any).
@@ -421,6 +450,8 @@ pub struct LaunchedNode {
     node: Node,
     /// Handle to the rpc server.
     rpc: RpcServerHandle,
+    /// Handle to the gateway server (if enabled).
+    gateway: Option<GatewayServerHandle>,
 }
 
 impl LaunchedNode {
@@ -434,12 +465,23 @@ impl LaunchedNode {
         &self.rpc
     }
 
+    /// Returns a reference to the gateway server handle (if enabled).
+    pub fn gateway(&self) -> Option<&GatewayServerHandle> {
+        self.gateway.as_ref()
+    }
+
     /// Stops the node.
     ///
     /// This will instruct the node to stop and wait until it has actually stop.
-    pub async fn stop(&self) -> Result<()> {
+    pub async fn stop(self) -> Result<()> {
         // TODO: wait for the rpc server to stop instead of just stopping it.
         self.rpc.stop()?;
+
+        // Stop feeder gateway server if it's running
+        if let Some(handle) = self.gateway {
+            handle.stop()?;
+        }
+
         self.node.task_manager.shutdown().await;
         Ok(())
     }

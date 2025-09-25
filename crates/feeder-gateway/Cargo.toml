@@ -6,19 +6,38 @@ repository.workspace = true
 version.workspace = true
 
 [dependencies]
+katana-executor.workspace = true
+katana-metrics.workspace = true
 katana-primitives.workspace = true
+katana-rpc.workspace = true
+katana-rpc-api.workspace = true
+katana-provider-api.workspace = true
 katana-rpc-types.workspace = true
 serde-utils.workspace = true
 
+axum.workspace = true
 reqwest.workspace = true
+metrics.workspace = true
 serde.workspace = true
+serde_json.workspace = true
 starknet.workspace = true
 thiserror.workspace = true
+tokio = { workspace = true, features = ["net"] }
+tower.workspace = true
+tower-http.workspace = true
+http.workspace = true
+http-body.workspace = true
 tracing.workspace = true
 url.workspace = true
+clap.workspace = true
+anyhow.workspace = true
 
 [dev-dependencies]
+katana-utils.workspace = true
 rstest.workspace = true
-serde_json.workspace = true
 similar-asserts.workspace = true
-tokio.workspace = true
+
+# This binary is mainly for debugging purposes only
+[[bin]]
+name = "gateway"
+path = "src/bin/client.rs"
