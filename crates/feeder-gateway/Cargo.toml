@@ -33,6 +33,7 @@ clap.workspace = true
 anyhow.workspace = true
 
 [dev-dependencies]
+katana-utils.workspace = true
 rstest.workspace = true
 similar-asserts.workspace = true
 
