@@ -325,7 +325,7 @@ impl From<StateDiff> for katana_primitives::state::StateUpdates {
 #[cfg(test)]
 mod from_primitives_test {
     use katana_primitives::transaction::TxWithHash;
-    use katana_primitives::Felt;
+    use katana_primitives::{address, felt, ContractAddress};
     use katana_utils::arbitrary;
 
     use super::*;
@@ -605,25 +605,22 @@ mod from_primitives_test {
     fn state_diff_to_state_updates_conversion() {
         use std::collections::BTreeMap;
 
-        use katana_primitives::class::ClassHash;
-        use katana_primitives::contract::ContractAddress;
-
         let mut storage_diffs = BTreeMap::new();
         storage_diffs.insert(
-            ContractAddress::from(Felt::from(1u8)),
-            vec![StorageDiff { key: Felt::from(10u8), value: Felt::from(20u8) }],
+            address!("0x1"),
+            vec![StorageDiff { key: felt!("0x10"), value: felt!("0x20") }],
         );
 
         let state_diff = StateDiff {
             storage_diffs,
             deployed_contracts: vec![DeployedContract {
-                address: ContractAddress::from(Felt::from(2u8)),
-                class_hash: ClassHash::from(100u8),
+                address: address!("0x2"),
+                class_hash: felt!("0x64"),
             }],
-            old_declared_contracts: vec![ClassHash::from(4u8)],
+            old_declared_contracts: vec![felt!("0x4")],
             declared_classes: vec![DeclaredContract {
-                class_hash: ClassHash::from(3u8),
-                compiled_class_hash: ClassHash::from(200u8),
+                class_hash: felt!("0x3"),
+                compiled_class_hash: felt!("0xc8"),
             }],
             nonces: BTreeMap::new(),
             replaced_classes: vec![],
@@ -633,26 +630,19 @@ mod from_primitives_test {
 
         // Verify storage updates
         assert_eq!(converted.storage_updates.len(), 1);
-        let storage_map =
-            converted.storage_updates.get(&ContractAddress::from(Felt::from(1u8))).unwrap();
-        assert_eq!(storage_map.get(&Felt::from(10u8)), Some(&Felt::from(20u8)));
+        let storage_map = converted.storage_updates.get(&address!("0x1")).unwrap();
+        assert_eq!(storage_map.get(&felt!("0x10")), Some(&felt!("0x20")));
 
         // Verify deployed contracts
         assert_eq!(converted.deployed_contracts.len(), 1);
-        assert_eq!(
-            converted.deployed_contracts.get(&ContractAddress::from(Felt::from(2u8))),
-            Some(&ClassHash::from(100u8))
-        );
+        assert_eq!(converted.deployed_contracts.get(&address!("0x2")), Some(&felt!("0x64")));
 
         // Verify declared classes
         assert_eq!(converted.declared_classes.len(), 1);
-        assert_eq!(
-            converted.declared_classes.get(&ClassHash::from(3u8)),
-            Some(&ClassHash::from(200u8))
-        );
+        assert_eq!(converted.declared_classes.get(&felt!("0x3")), Some(&felt!("0xc8")));
 
         // Verify deprecated declared classes
-        assert!(converted.deprecated_declared_classes.contains(&ClassHash::from(4u8)));
+        assert!(converted.deprecated_declared_classes.contains(&felt!("0x4")));
     }
 }
 
@@ -660,9 +650,8 @@ mod from_primitives_test {
 mod from_rpc_test {
     use std::collections::{BTreeMap, BTreeSet};
 
-    use katana_primitives::class::ClassHash;
     use katana_primitives::contract::ContractAddress;
-    use katana_primitives::Felt;
+    use katana_primitives::{address, felt};
 
     use crate::types::StateDiff;
 
@@ -670,21 +659,18 @@ mod from_rpc_test {
     fn state_diff_conversion() {
         // Create test data
         let mut storage_diffs = BTreeMap::new();
-        storage_diffs.insert(
-            ContractAddress::from(Felt::from(1u8)),
-            BTreeMap::from([(Felt::from(10u8), Felt::from(20u8))]),
-        );
+        storage_diffs.insert(address!("0x1"), BTreeMap::from([(felt!("0x10"), felt!("0x20"))]));
 
         let mut deployed_contracts = BTreeMap::new();
-        deployed_contracts.insert(ContractAddress::from(Felt::from(2u8)), ClassHash::from(100u8));
+        deployed_contracts.insert(address!("0x2"), felt!("0x64"));
 
         let mut declared_classes = BTreeMap::new();
-        declared_classes.insert(ClassHash::from(3u8), ClassHash::from(200u8));
+        declared_classes.insert(felt!("0x3"), felt!("0xc8"));
 
         let rpc_state_diff = katana_rpc_types::StateDiff {
             storage_diffs,
             deployed_contracts,
-            deprecated_declared_classes: BTreeSet::from([ClassHash::from(4u8)]),
+            deprecated_declared_classes: BTreeSet::from([felt!("0x4")]),
             declared_classes,
             nonces: BTreeMap::new(),
             replaced_classes: BTreeMap::new(),
@@ -694,24 +680,23 @@ mod from_rpc_test {
 
         // Verify storage diffs
         assert_eq!(converted.storage_diffs.len(), 1);
-        let storage_entries =
-            converted.storage_diffs.get(&ContractAddress::from(Felt::from(1u8))).unwrap();
+        let storage_entries = converted.storage_diffs.get(&address!("0x1")).unwrap();
         assert_eq!(storage_entries.len(), 1);
-        assert_eq!(storage_entries[0].key, Felt::from(10u8));
-        assert_eq!(storage_entries[0].value, Felt::from(20u8));
+        assert_eq!(storage_entries[0].key, felt!("0x10"));
+        assert_eq!(storage_entries[0].value, felt!("0x20"));
 
         // Verify deployed contracts
         assert_eq!(converted.deployed_contracts.len(), 1);
-        assert_eq!(converted.deployed_contracts[0].address, ContractAddress::from(Felt::from(2u8)));
-        assert_eq!(converted.deployed_contracts[0].class_hash, ClassHash::from(100u8));
+        assert_eq!(converted.deployed_contracts[0].address, address!("0x2"));
+        assert_eq!(converted.deployed_contracts[0].class_hash, felt!("0x64"));
 
         // Verify declared classes
         assert_eq!(converted.declared_classes.len(), 1);
-        assert_eq!(converted.declared_classes[0].class_hash, ClassHash::from(3u8));
-        assert_eq!(converted.declared_classes[0].compiled_class_hash, ClassHash::from(200u8));
+        assert_eq!(converted.declared_classes[0].class_hash, felt!("0x3"));
+        assert_eq!(converted.declared_classes[0].compiled_class_hash, felt!("0xc8"));
 
         // Verify deprecated declared classes
         assert_eq!(converted.old_declared_contracts.len(), 1);
-        assert!(converted.old_declared_contracts.contains(&ClassHash::from(4u8)));
+        assert!(converted.old_declared_contracts.contains(&felt!("0x4")));
     }
 }
