@@ -1,5 +1,5 @@
 window.BENCHMARK_DATA = {
-  "lastUpdate": 1758659874364,
+  "lastUpdate": 1758774288375,
   "repoUrl": "https://github.com/dojoengine/katana",
   "entries": {
     "Benchmark": [
@@ -5591,6 +5591,66 @@ window.BENCHMARK_DATA = {
             "name": "Invoke.ERC20.transfer/Blockifier.Cold",
             "value": 12680688,
             "range": "± 727772",
+            "unit": "ns/iter"
+          }
+        ]
+      },
+      {
+        "commit": {
+          "author": {
+            "email": "evergreenkary@gmail.com",
+            "name": "Ammar Arif",
+            "username": "kariy"
+          },
+          "committer": {
+            "email": "evergreenkary@gmail.com",
+            "name": "Ammar Arif",
+            "username": "kariy"
+          },
+          "distinct": true,
+          "id": "13602bfe43e835d31564a33bf2821d318683818c",
+          "message": "ci: exclude `db-compat-test` from test job builds (#286)\n\n## Summary\n- Excludes `db-compat-test` crate from being built in the test job\n- Reduces unnecessary build time since this crate is not executed by the test harness\n\n## Changes\nAdded `--exclude db-compat-test` flag to both test commands in the workflow:\n- Regular test run (`cargo nextest run`)\n- Code coverage test run (`cargo llvm-cov nextest`)\n\nThis optimization skips building a crate that isn't used during testing, improving CI efficiency.\n\n🤖 Generated with [Claude Code](https://claude.ai/code)\n\n---\n\nCo-authored-by: Claude <noreply@anthropic.com>",
+          "timestamp": "2025-09-25T00:17:31-04:00",
+          "tree_id": "a26bc367be86ddf0be02e710c01914a84fc81880",
+          "url": "https://github.com/dojoengine/katana/commit/13602bfe43e835d31564a33bf2821d318683818c"
+        },
+        "date": 1758774286471,
+        "tool": "cargo",
+        "benches": [
+          {
+            "name": "Commit.Small/Parallel",
+            "value": 278968,
+            "range": "± 21646",
+            "unit": "ns/iter"
+          },
+          {
+            "name": "Commit.Big/Serial",
+            "value": 74356601,
+            "range": "± 1592058",
+            "unit": "ns/iter"
+          },
+          {
+            "name": "Commit.Big/Parallel",
+            "value": 52983581,
+            "range": "± 803449",
+            "unit": "ns/iter"
+          },
+          {
+            "name": "compress world contract",
+            "value": 1706777,
+            "range": "± 13388",
+            "unit": "ns/iter"
+          },
+          {
+            "name": "decompress world contract",
+            "value": 2101839,
+            "range": "± 14969",
+            "unit": "ns/iter"
+          },
+          {
+            "name": "Invoke.ERC20.transfer/Blockifier.Cold",
+            "value": 11436653,
+            "range": "± 89768",
             "unit": "ns/iter"
           }
         ]
