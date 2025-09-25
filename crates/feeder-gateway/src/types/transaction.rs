@@ -15,16 +15,16 @@ use katana_primitives::transaction::{
     TxWithHash,
 };
 use katana_primitives::{ContractAddress, Felt};
-use serde::{Deserialize, Deserializer};
+use serde::{Deserialize, Deserializer, Serialize};
 
-#[derive(Debug, PartialEq, Eq, Deserialize)]
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub struct ConfirmedTransaction {
     pub transaction_hash: TxHash,
     #[serde(flatten)]
     pub transaction: TypedTransaction,
 }
 
-#[derive(Debug, PartialEq, Eq, Deserialize)]
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(tag = "type", rename_all = "SCREAMING_SNAKE_CASE")]
 pub enum TypedTransaction {
     #[serde(rename = "DEPLOY")]
@@ -43,38 +43,8 @@ pub enum TypedTransaction {
     DeployAccount(DeployAccountTx),
 }
 
-// This is one of the main reason why have to redundantly redefine some of the transaction types
-// instead of using the rpc variations. And the reason why don't just update the serde
-// implementation of `DataAvailabilityMode` in katana-primitives (1) to avoid breaking the database
-// format (though this is not that serious as we can implement a serde impl that works with both
-// formats), (2) bcs this type is also used in the rpc types and adding another serialization format
-// will mean that we can't guarantee rpc format invariant.
-//
-// We redundantly define the `DataAvailabilityMode` enum here because the serde implementation is
-// different from the one in the `katana_primitives` crate. And changing the serde implementation in
-// the `katana_primitives` crate would break the database format. So, we have to define the type
-// again. But see if we can remove it once we're okay with breaking the database format.
-#[derive(Debug, PartialEq, Eq)]
-pub enum DataAvailabilityMode {
-    L1,
-    L2,
-}
-
-impl<'de> Deserialize<'de> for DataAvailabilityMode {
-    fn deserialize<D: serde::Deserializer<'de>>(deserializer: D) -> Result<Self, D::Error> {
-        let value = u8::deserialize(deserializer)?;
-        match value {
-            0 => Ok(DataAvailabilityMode::L1),
-            1 => Ok(DataAvailabilityMode::L2),
-            _ => Err(serde::de::Error::custom(format!(
-                "Invalid data availability mode; expected 0 or 1 but got {value}"
-            ))),
-        }
-    }
-}
-
 /// Invoke transaction enum with version-specific variants
-#[derive(Debug, PartialEq, Eq, Deserialize)]
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(tag = "version")]
 pub enum InvokeTx {
     #[serde(rename = "0x0")]
@@ -90,13 +60,16 @@ pub enum InvokeTx {
 pub type InvokeTxV0 = katana_rpc_types::RpcInvokeTxV0;
 pub type InvokeTxV1 = katana_rpc_types::RpcInvokeTxV1;
 
-#[derive(Debug, PartialEq, Eq, Deserialize)]
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub struct InvokeTxV3 {
     pub sender_address: ContractAddress,
     pub nonce: Nonce,
     pub calldata: Vec<Felt>,
     pub signature: Vec<Felt>,
-    #[serde(deserialize_with = "deserialize_resource_bounds_mapping")]
+    #[serde(
+        serialize_with = "serialize_resource_bounds_mapping",
+        deserialize_with = "deserialize_resource_bounds_mapping"
+    )]
     pub resource_bounds: ResourceBoundsMapping,
     pub tip: Tip,
     pub paymaster_data: Vec<Felt>,
@@ -106,7 +79,7 @@ pub struct InvokeTxV3 {
 }
 
 /// Declare transaction enum with version-specific variants
-#[derive(Debug, PartialEq, Eq, Deserialize)]
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(tag = "version")]
 pub enum DeclareTx {
     #[serde(rename = "0x0")]
@@ -126,14 +99,17 @@ pub type DeclareTxV0 = katana_rpc_types::RpcDeclareTxV0;
 pub type DeclareTxV1 = katana_rpc_types::RpcDeclareTxV1;
 pub type DeclareTxV2 = katana_rpc_types::RpcDeclareTxV2;
 
-#[derive(Debug, PartialEq, Eq, Deserialize)]
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub struct DeclareTxV3 {
     pub sender_address: ContractAddress,
     pub nonce: Nonce,
     pub signature: Vec<Felt>,
     pub class_hash: ClassHash,
     pub compiled_class_hash: CompiledClassHash,
-    #[serde(deserialize_with = "deserialize_resource_bounds_mapping")]
+    #[serde(
+        serialize_with = "serialize_resource_bounds_mapping",
+        deserialize_with = "deserialize_resource_bounds_mapping"
+    )]
     pub resource_bounds: ResourceBoundsMapping,
     pub tip: Tip,
     pub paymaster_data: Vec<Felt>,
@@ -143,7 +119,7 @@ pub struct DeclareTxV3 {
 }
 
 /// Deploy account transaction enum with version-specific variants
-#[derive(Debug, PartialEq, Eq, Deserialize)]
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(tag = "version")]
 pub enum DeployAccountTx {
     #[serde(rename = "0x1")]
@@ -153,7 +129,7 @@ pub enum DeployAccountTx {
     V3(DeployAccountTxV3),
 }
 
-#[derive(Debug, PartialEq, Eq, Deserialize)]
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub struct DeployAccountTxV1 {
     pub nonce: Nonce,
     pub signature: Vec<Felt>,
@@ -161,11 +137,14 @@ pub struct DeployAccountTxV1 {
     pub contract_address: Option<ContractAddress>,
     pub contract_address_salt: Felt,
     pub constructor_calldata: Vec<Felt>,
-    #[serde(deserialize_with = "serde_utils::deserialize_u128")]
+    #[serde(
+        serialize_with = "serde_utils::serialize_as_hex",
+        deserialize_with = "serde_utils::deserialize_u128"
+    )]
     pub max_fee: u128,
 }
 
-#[derive(Debug, PartialEq, Eq, Deserialize)]
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub struct DeployAccountTxV3 {
     pub nonce: Nonce,
     pub signature: Vec<Felt>,
@@ -173,7 +152,10 @@ pub struct DeployAccountTxV3 {
     pub contract_address: Option<ContractAddress>,
     pub contract_address_salt: Felt,
     pub constructor_calldata: Vec<Felt>,
-    #[serde(deserialize_with = "deserialize_resource_bounds_mapping")]
+    #[serde(
+        serialize_with = "serialize_resource_bounds_mapping",
+        deserialize_with = "deserialize_resource_bounds_mapping"
+    )]
     pub resource_bounds: ResourceBoundsMapping,
     pub tip: Tip,
     pub paymaster_data: Vec<Felt>,
@@ -182,7 +164,7 @@ pub struct DeployAccountTxV3 {
 }
 
 /// L1 handler transaction
-#[derive(Debug, PartialEq, Eq, Deserialize)]
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub struct L1HandlerTx {
     /// The L1 to L2 message nonce.
     // rpc and primitive doesn't use optinoal for this field. hence why we can't use rpc or
@@ -200,6 +182,46 @@ pub struct L1HandlerTx {
 
 /// Deploy transaction - legacy transaction type
 pub type DeployTx = katana_primitives::transaction::DeployTx;
+
+// This is one of the main reason why have to redundantly redefine some of the transaction types
+// instead of using the rpc variations. And the reason why don't just update the serde
+// implementation of `DataAvailabilityMode` in katana-primitives (1) to avoid breaking the database
+// format (though this is not that serious as we can implement a serde impl that works with both
+// formats), (2) bcs this type is also used in the rpc types and adding another serialization format
+// will mean that we can't guarantee rpc format invariant.
+//
+// We redundantly define the `DataAvailabilityMode` enum here because the serde implementation is
+// different from the one in the `katana_primitives` crate. And changing the serde implementation in
+// the `katana_primitives` crate would break the database format. So, we have to define the type
+// again. But see if we can remove it once we're okay with breaking the database format.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub enum DataAvailabilityMode {
+    L1,
+    L2,
+}
+
+impl Serialize for DataAvailabilityMode {
+    fn serialize<S: serde::Serializer>(&self, serializer: S) -> Result<S::Ok, S::Error> {
+        let value = match self {
+            DataAvailabilityMode::L1 => 0u8,
+            DataAvailabilityMode::L2 => 1u8,
+        };
+        value.serialize(serializer)
+    }
+}
+
+impl<'de> Deserialize<'de> for DataAvailabilityMode {
+    fn deserialize<D: serde::Deserializer<'de>>(deserializer: D) -> Result<Self, D::Error> {
+        let value = u8::deserialize(deserializer)?;
+        match value {
+            0 => Ok(DataAvailabilityMode::L1),
+            1 => Ok(DataAvailabilityMode::L2),
+            _ => Err(serde::de::Error::custom(format!(
+                "Invalid data availability mode; expected 0 or 1 but got {value}"
+            ))),
+        }
+    }
+}
 
 #[derive(Debug, thiserror::Error)]
 pub enum TxTryFromError {
@@ -370,12 +392,9 @@ impl From<DataAvailabilityMode> for katana_primitives::da::DataAvailabilityMode 
     }
 }
 
-fn deserialize_resource_bounds_mapping<'de, D>(
+fn deserialize_resource_bounds_mapping<'de, D: Deserializer<'de>>(
     deserializer: D,
-) -> Result<ResourceBoundsMapping, D::Error>
-where
-    D: Deserializer<'de>,
-{
+) -> Result<ResourceBoundsMapping, D::Error> {
     #[derive(Deserialize)]
     struct FeederGatewayResourceBounds {
         #[serde(rename = "L1_GAS")]
@@ -400,4 +419,34 @@ where
             l2_gas: bounds.l2_gas,
         }))
     }
+}
+
+fn serialize_resource_bounds_mapping<S: serde::Serializer>(
+    bounds: &ResourceBoundsMapping,
+    serializer: S,
+) -> Result<S::Ok, S::Error> {
+    #[derive(Serialize)]
+    struct FeederGatewayResourceBounds<'a> {
+        #[serde(rename = "L1_GAS")]
+        l1_gas: &'a ResourceBounds,
+        #[serde(rename = "L2_GAS")]
+        l2_gas: &'a ResourceBounds,
+        #[serde(rename = "L1_DATA_GAS")]
+        l1_data_gas: Option<&'a ResourceBounds>,
+    }
+
+    let feeder_bounds = match bounds {
+        ResourceBoundsMapping::All(all_bounds) => FeederGatewayResourceBounds {
+            l1_gas: &all_bounds.l1_gas,
+            l2_gas: &all_bounds.l2_gas,
+            l1_data_gas: Some(&all_bounds.l1_data_gas),
+        },
+        ResourceBoundsMapping::L1Gas(l1_gas_bounds) => FeederGatewayResourceBounds {
+            l1_gas: &l1_gas_bounds.l1_gas,
+            l2_gas: &l1_gas_bounds.l2_gas,
+            l1_data_gas: None,
+        },
+    };
+
+    feeder_bounds.serialize(serializer)
 }

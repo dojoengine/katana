@@ -4,6 +4,7 @@ pub mod db;
 pub mod dev;
 pub mod execution;
 pub mod fork;
+pub mod gateway;
 pub mod metrics;
 #[cfg(feature = "cartridge")]
 pub mod paymaster;
@@ -14,6 +15,7 @@ use db::DbConfig;
 use dev::DevConfig;
 use execution::ExecutionConfig;
 use fork::ForkingConfig;
+use gateway::GatewayConfig;
 use katana_chain_spec::ChainSpec;
 use katana_messaging::MessagingConfig;
 use metrics::MetricsConfig;
@@ -36,6 +38,9 @@ pub struct Config {
 
     /// Rpc options.
     pub rpc: RpcConfig,
+
+    /// Feeder gateway options.
+    pub gateway: Option<GatewayConfig>,
 
     /// Metrics options.
     pub metrics: Option<MetricsConfig>,

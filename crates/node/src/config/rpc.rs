@@ -57,7 +57,7 @@ pub struct RpcConfig {
 
 impl RpcConfig {
     /// Returns the [`SocketAddr`] for the RPC server.
-    pub fn socket_addr(&self) -> SocketAddr {
+    pub const fn socket_addr(&self) -> SocketAddr {
         SocketAddr::new(self.addr, self.port)
     }
 }

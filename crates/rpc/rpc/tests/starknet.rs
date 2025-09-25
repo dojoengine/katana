@@ -15,7 +15,7 @@ use katana_primitives::block::{BlockIdOrTag, ConfirmedBlockIdOrTag};
 use katana_primitives::event::ContinuationToken;
 use katana_primitives::Felt;
 use katana_rpc_api::dev::DevApiClient;
-use katana_rpc_types::state_update::GetStateUpdateResponse;
+use katana_rpc_types::state_update::StateUpdate;
 use katana_rpc_types::trace::TxTrace;
 use katana_rpc_types::{
     EventFilter, ExecutionResult, FinalityStatus, GetBlockWithReceiptsResponse,
@@ -62,7 +62,7 @@ async fn declare_and_deploy_contract() {
     // check state update includes class in declared_classes
     let state_update = provider.get_state_update(BlockIdOrTag::Latest).await.unwrap();
     match state_update {
-        GetStateUpdateResponse::Update(update) => {
+        StateUpdate::Update(update) => {
             similar_asserts::assert_eq!(
                 update.state_diff.declared_classes,
                 BTreeMap::from_iter([(class_hash, compiled_class_hash)])

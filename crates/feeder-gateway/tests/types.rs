@@ -185,13 +185,13 @@ fn receipt_serde_succeeded() {
     );
 
     assert_eq!(receipt.transaction_index, 51);
-    assert_eq!(receipt.execution_status, Some(ExecutionStatus::Succeeded));
-    assert_eq!(receipt.actual_fee, felt!("0x220c76e10ea291c8"));
-    assert_eq!(receipt.revert_error, None);
+    assert_eq!(receipt.body.execution_status, Some(ExecutionStatus::Succeeded));
+    assert_eq!(receipt.body.actual_fee, felt!("0x220c76e10ea291c8"));
+    assert_eq!(receipt.body.revert_error, None);
 
     // execution_resources
 
-    let exec_resources = receipt.execution_resources.expect("`execution_resources` missing");
+    let exec_resources = receipt.body.execution_resources.expect("`execution_resources` missing");
     let builtin_instance_counter = exec_resources.vm_resources.builtin_instance_counter;
 
     assert_eq!(builtin_instance_counter.len(), 4);
@@ -214,7 +214,8 @@ fn receipt_serde_succeeded() {
 
     // messages
 
-    let l1_msg = receipt.l1_to_l2_consumed_message.expect("`l1_to_l2_consumed_message` missing");
+    let l1_msg =
+        receipt.body.l1_to_l2_consumed_message.expect("`l1_to_l2_consumed_message` missing");
     assert_eq!(l1_msg.from_address, eth_address!("0xF6080D9fbEEbcd44D89aFfBFd42F098cbFf92816"));
     assert_eq!(l1_msg.nonce, Some(felt!("0x19983e")));
     similar_asserts::assert_eq!(
@@ -236,9 +237,9 @@ fn receipt_serde_succeeded() {
         address!("0x5cd48fccbfd8aa2773fe22c217e808319ffcc1c5a6a463f7d8fa2da48218196")
     );
 
-    assert_eq!(receipt.l2_to_l1_messages.len(), 1);
+    assert_eq!(receipt.body.l2_to_l1_messages.len(), 1);
 
-    let l2_msg1 = &receipt.l2_to_l1_messages[0];
+    let l2_msg1 = &receipt.body.l2_to_l1_messages[0];
     assert_eq!(l2_msg1.to_address, felt!("0xF6080D9fbEEbcd44D89aFfBFd42F098cbFf92816"));
     assert_eq!(
         l2_msg1.from_address,
@@ -257,10 +258,10 @@ fn receipt_serde_succeeded() {
 
     // events
 
-    assert_eq!(receipt.events.len(), 2);
+    assert_eq!(receipt.body.events.len(), 2);
 
     // First event
-    let event1 = &receipt.events[0];
+    let event1 = &receipt.body.events[0];
     assert_eq!(
         event1.from_address,
         address!("0x4718f5a0fc34cc1af16a1cdee98ffb20c31f5cd61d6ab07201858f4287c938d")
@@ -280,7 +281,7 @@ fn receipt_serde_succeeded() {
     );
 
     // Second event
-    let event2 = &receipt.events[1];
+    let event2 = &receipt.body.events[1];
     assert_eq!(
         event2.from_address,
         address!("0x53c91253bc9682c04929ca02ed00b3e423f6710d2ee7e0d5ebb06f3ecf368a8")
@@ -353,16 +354,16 @@ fn receipt_serde_reverted() {
         felt!("0x2a52bf48199ce526b4597c4c84de01b32f403722480cc747045ec869a6f2274")
     );
     assert_eq!(receipt.transaction_index, 16);
-    assert_eq!(receipt.execution_status, Some(ExecutionStatus::Reverted));
-    assert_eq!(receipt.actual_fee, felt!("0xc48f5bda51840"));
+    assert_eq!(receipt.body.execution_status, Some(ExecutionStatus::Reverted));
+    assert_eq!(receipt.body.actual_fee, felt!("0xc48f5bda51840"));
     assert_eq!(
-        receipt.revert_error,
+        receipt.body.revert_error,
         Some("Insufficient max L2Gas: max amount: 1152640, actual used: 1192640.".to_string())
     );
 
     // execution_resources
 
-    let exec_resources = receipt.execution_resources.expect("`execution_resources` missing");
+    let exec_resources = receipt.body.execution_resources.expect("`execution_resources` missing");
     let builtin_instance_counter = exec_resources.vm_resources.builtin_instance_counter;
 
     assert_eq!(builtin_instance_counter.get(&BuiltinName::ecdsa), Some(&1));
@@ -384,15 +385,15 @@ fn receipt_serde_reverted() {
 
     // messages
 
-    assert_eq!(receipt.l1_to_l2_consumed_message, None);
-    assert_eq!(receipt.l2_to_l1_messages.len(), 0);
+    assert_eq!(receipt.body.l1_to_l2_consumed_message, None);
+    assert_eq!(receipt.body.l2_to_l1_messages.len(), 0);
 
     // events
 
-    assert_eq!(receipt.events.len(), 1);
+    assert_eq!(receipt.body.events.len(), 1);
 
     // First event
-    let event1 = &receipt.events[0];
+    let event1 = &receipt.body.events[0];
     assert_eq!(
         event1.from_address,
         address!("0x4718f5a0fc34cc1af16a1cdee98ffb20c31f5cd61d6ab07201858f4287c938d")
