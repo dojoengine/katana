@@ -3,7 +3,7 @@ use std::future::Future;
 use anyhow::{Context, Result};
 use clap::{Args, CommandFactory, Parser, Subcommand};
 use clap_complete::Shell;
-use katana_cli::NodeArgs;
+use katana_cli::{NodeCli, SequencerNodeArgs};
 use tokio::runtime::Runtime;
 
 mod config;
@@ -23,7 +23,7 @@ pub struct Cli {
     commands: Option<Commands>,
 
     #[command(flatten)]
-    node: NodeArgs,
+    node: SequencerNodeArgs,
 }
 
 impl Cli {
@@ -36,6 +36,7 @@ impl Cli {
                 Commands::Init(args) => execute_async(args.execute())?,
                 #[cfg(feature = "client")]
                 Commands::Rpc(args) => execute_async(args.execute())?,
+                Commands::Node(args) => execute_async(args.execute())?,
             };
         }
 
@@ -60,6 +61,9 @@ enum Commands {
     #[cfg(feature = "client")]
     #[command(about = "RPC client for interacting with Katana")]
     Rpc(rpc::RpcArgs),
+
+    #[command(about = "Run and manage Katana nodes")]
+    Node(NodeCli),
 }
 
 #[derive(Debug, Args)]
