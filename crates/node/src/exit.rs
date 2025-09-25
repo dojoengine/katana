@@ -19,6 +19,11 @@ impl<'a> NodeStoppedFuture<'a> {
         let fut = Box::pin(async {
             handle.node.task_manager.wait_for_shutdown().await;
             handle.rpc.stop()?;
+
+            if let Some(handle) = handle.gateway.as_ref() {
+                handle.stop()?;
+            }
+
             Ok(())
         });
         Self { fut }

@@ -5,7 +5,9 @@ use anyhow::Result;
 use backon::{ExponentialBuilder, Retryable};
 use katana_feeder_gateway::client;
 use katana_feeder_gateway::client::SequencerGateway;
-use katana_feeder_gateway::types::{BlockId, BlockStatus, StateUpdateWithBlock};
+use katana_feeder_gateway::types::{
+    BlockId, BlockStatus, StateUpdate as GatewayStateUpdate, StateUpdateWithBlock,
+};
 use katana_primitives::block::{
     BlockNumber, FinalityStatus, GasPrices, Header, SealedBlock, SealedBlockWithStatus,
 };
@@ -180,10 +182,10 @@ fn extract_block_data(
         .into_iter()
         .zip(transactions.iter())
         .map(|(receipt, tx)| {
-            let events = receipt.events;
-            let revert_error = receipt.revert_error;
-            let messages_sent = receipt.l2_to_l1_messages;
-            let overall_fee = receipt.actual_fee.to_u128().expect("valid u128");
+            let events = receipt.body.events;
+            let revert_error = receipt.body.revert_error;
+            let messages_sent = receipt.body.l2_to_l1_messages;
+            let overall_fee = receipt.body.actual_fee.to_u128().expect("valid u128");
 
             let unit = if tx.transaction.version() >= Felt::THREE {
                 PriceUnit::Fri
@@ -247,14 +249,18 @@ fn extract_block_data(
             l2_gas_prices: to_gas_prices(data.block.l2_gas_price),
             state_root: data.block.state_root.unwrap_or_default(),
             l1_data_gas_prices: to_gas_prices(data.block.l1_data_gas_price),
-            starknet_version: data.block.starknet_version.unwrap_or_default(),
+            starknet_version: data.block.starknet_version.unwrap_or_default().try_into().unwrap(),
             events_commitment: data.block.event_commitment.unwrap_or_default(),
             sequencer_address: data.block.sequencer_address.unwrap_or_default(),
             transactions_commitment: data.block.transaction_commitment.unwrap_or_default(),
         },
     };
 
-    let state_updates: StateUpdates = data.state_update.state_diff.into();
+    let state_updates: StateUpdates = match data.state_update {
+        GatewayStateUpdate::Confirmed(update) => update.state_diff.into(),
+        GatewayStateUpdate::PreConfirmed(update) => update.state_diff.into(),
+    };
+
     let state_updates = StateUpdatesWithClasses { state_updates, ..Default::default() };
 
     Ok((SealedBlockWithStatus { block, status }, receipts, state_updates))

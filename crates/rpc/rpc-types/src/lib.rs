@@ -25,9 +25,12 @@ pub use block::*;
 pub use broadcasted::*;
 pub use class::*;
 pub use event::*;
+pub use list::*;
 pub use message::*;
 pub use outside_execution::*;
 pub use receipt::*;
+pub use state_update::*;
+pub use trace::*;
 pub use transaction::*;
 pub use trie::*;
 
