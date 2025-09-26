@@ -46,7 +46,7 @@ use katana_rpc_types::trie::{
 };
 use katana_rpc_types::{FeeEstimate, TxStatus};
 use katana_rpc_types_builder::{BlockBuilder, ReceiptBuilder};
-use katana_tasks::{BlockingTaskPool, TokioTaskSpawner};
+use katana_tasks::TaskManager;
 
 use crate::permit::Permits;
 use crate::utils::events::{Cursor, EventBlockId};
@@ -82,7 +82,7 @@ struct StarknetApiInner<EF: ExecutorFactory> {
     pool: TxPool,
     backend: Arc<Backend<EF>>,
     forked_client: Option<ForkedClient>,
-    blocking_task_pool: BlockingTaskPool,
+    task_manager: TaskManager,
     block_producer: Option<BlockProducer<EF>>,
     estimate_fee_permit: Permits,
     config: StarknetApiConfig,
@@ -93,9 +93,10 @@ impl<EF: ExecutorFactory> StarknetApi<EF> {
         backend: Arc<Backend<EF>>,
         pool: TxPool,
         block_producer: Option<BlockProducer<EF>>,
+        task_manager: TaskManager,
         config: StarknetApiConfig,
     ) -> Self {
-        Self::new_inner(backend, pool, block_producer, None, config)
+        Self::new_inner(backend, pool, block_producer, None, task_manager, config)
     }
 
     pub fn new_forked(
@@ -103,9 +104,17 @@ impl<EF: ExecutorFactory> StarknetApi<EF> {
         pool: TxPool,
         block_producer: BlockProducer<EF>,
         forked_client: ForkedClient,
+        task_manager: TaskManager,
         config: StarknetApiConfig,
     ) -> Self {
-        Self::new_inner(backend, pool, Some(block_producer), Some(forked_client), config)
+        Self::new_inner(
+            backend,
+            pool,
+            Some(block_producer),
+            Some(forked_client),
+            task_manager,
+            config,
+        )
     }
 
     fn new_inner(
@@ -113,11 +122,9 @@ impl<EF: ExecutorFactory> StarknetApi<EF> {
         pool: TxPool,
         block_producer: Option<BlockProducer<EF>>,
         forked_client: Option<ForkedClient>,
+        task_manager: TaskManager,
         config: StarknetApiConfig,
     ) -> Self {
-        let blocking_task_pool =
-            BlockingTaskPool::new().expect("failed to create blocking task pool");
-
         let total_permits = config
             .max_concurrent_estimate_fee_requests
             .unwrap_or(DEFAULT_ESTIMATE_FEE_MAX_CONCURRENT_REQUESTS);
@@ -127,7 +134,7 @@ impl<EF: ExecutorFactory> StarknetApi<EF> {
             pool,
             backend,
             block_producer,
-            blocking_task_pool,
+            task_manager,
             forked_client,
             estimate_fee_permit,
             config,
@@ -142,7 +149,7 @@ impl<EF: ExecutorFactory> StarknetApi<EF> {
         T: Send + 'static,
     {
         let this = self.clone();
-        self.inner.blocking_task_pool.spawn(move || func(this)).await.unwrap()
+        self.inner.task_manager.spawn_blocking(move || func(this)).await.unwrap()
     }
 
     async fn on_io_blocking_task<F, T>(&self, func: F) -> T
@@ -151,7 +158,7 @@ impl<EF: ExecutorFactory> StarknetApi<EF> {
         T: Send + 'static,
     {
         let this = self.clone();
-        TokioTaskSpawner::new().unwrap().spawn_blocking(move || func(this)).await.unwrap()
+        self.inner.task_manager.spawn_io_blocking(move || func(this)).await.unwrap()
     }
 
     fn estimate_fee_with(

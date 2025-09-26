@@ -53,7 +53,6 @@ use katana_rpc_types::outside_execution::{
     OutsideExecution, OutsideExecutionV2, OutsideExecutionV3,
 };
 use katana_rpc_types::FunctionCall;
-use katana_tasks::TokioTaskSpawner;
 use starknet::macros::selector;
 use starknet::signers::{LocalWallet, Signer, SigningKey};
 use tracing::{debug, info};

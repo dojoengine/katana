@@ -29,7 +29,7 @@ use katana_provider::api::block::{BlockHashProvider, BlockNumberProvider};
 use katana_provider::api::env::BlockEnvProvider;
 use katana_provider::api::state::StateFactoryProvider;
 use katana_provider::ProviderError;
-use katana_tasks::{BlockingTaskPool, BlockingTaskResult};
+use katana_tasks::{BlockingTaskResult, TaskSpawner};
 use parking_lot::lock_api::RawMutex;
 use parking_lot::{Mutex, RwLock};
 use tokio::time::{interval_at, Instant, Interval};
@@ -101,24 +101,24 @@ pub struct BlockProducer<EF: ExecutorFactory> {
 
 impl<EF: ExecutorFactory> BlockProducer<EF> {
     /// Creates a block producer that mines a new block every `interval` milliseconds.
-    pub fn interval(backend: Arc<Backend<EF>>, interval: u64) -> Self {
-        let producer = IntervalBlockProducer::new(backend, Some(interval));
+    pub fn interval(backend: Arc<Backend<EF>>, task_spawner: TaskSpawner, interval: u64) -> Self {
+        let producer = IntervalBlockProducer::new(backend, Some(interval), task_spawner);
         let producer = Arc::new(RwLock::new(BlockProducerMode::Interval(producer)));
         Self { producer }
     }
 
     /// Creates a new block producer that will only be possible to mine by calling the
     /// `katana_generateBlock` RPC method.
-    pub fn on_demand(backend: Arc<Backend<EF>>) -> Self {
-        let producer = IntervalBlockProducer::new(backend, None);
+    pub fn on_demand(backend: Arc<Backend<EF>>, task_spawner: TaskSpawner) -> Self {
+        let producer = IntervalBlockProducer::new(backend, None, task_spawner);
         let producer = Arc::new(RwLock::new(BlockProducerMode::Interval(producer)));
         Self { producer }
     }
 
     /// Creates a block producer that mines a new block as soon as there are ready transactions in
     /// the transactions pool.
-    pub fn instant(backend: Arc<Backend<EF>>) -> Self {
-        let producer = InstantBlockProducer::new(backend);
+    pub fn instant(backend: Arc<Backend<EF>>, task_spawner: TaskSpawner) -> Self {
+        let producer = InstantBlockProducer::new(backend, task_spawner);
         let producer = Arc::new(RwLock::new(BlockProducerMode::Instant(producer)));
         Self { producer }
     }
@@ -222,7 +222,7 @@ pub struct IntervalBlockProducer<EF: ExecutorFactory> {
     /// Backlog of sets of transactions ready to be mined
     queued: VecDeque<Vec<ExecutableTxWithHash>>,
     executor: PendingExecutor,
-    blocking_task_spawner: BlockingTaskPool,
+    task_spawner: TaskSpawner,
     ongoing_execution: Option<TxExecutionFuture>,
 
     // Usage with `validator`
@@ -241,7 +241,11 @@ pub struct IntervalBlockProducer<EF: ExecutorFactory> {
 }
 
 impl<EF: ExecutorFactory> IntervalBlockProducer<EF> {
-    pub fn new(backend: Arc<Backend<EF>>, block_time: Option<u64>) -> Self {
+    pub fn new(
+        backend: Arc<Backend<EF>>,
+        block_time: Option<u64>,
+        task_spawner: TaskSpawner,
+    ) -> Self {
         let provider = backend.blockchain.provider();
 
         let latest_num = provider.latest_number().unwrap();
@@ -271,15 +275,15 @@ impl<EF: ExecutorFactory> IntervalBlockProducer<EF> {
             ongoing_execution: None,
             queued: VecDeque::default(),
             executor: PendingExecutor::new(executor),
-            blocking_task_spawner: BlockingTaskPool::new().unwrap(),
+            task_spawner,
         }
     }
 
     /// Creates a new [IntervalBlockProducer] with no `interval`. This mode will not produce blocks
     /// for every fixed interval, although it will still execute all queued transactions and
     /// keep hold of the pending state.
-    pub fn new_no_mining(backend: Arc<Backend<EF>>) -> Self {
-        Self::new(backend, None)
+    pub fn new_no_mining(backend: Arc<Backend<EF>>, task_spawner: TaskSpawner) -> Self {
+        Self::new(backend, None, task_spawner)
     }
 
     pub fn executor(&self) -> PendingExecutor {
@@ -403,7 +407,7 @@ impl<EF: ExecutorFactory> Stream for IntervalBlockProducer<EF> {
                     let backend = pin.backend.clone();
                     let permit = pin.permit.clone();
 
-                    pin.blocking_task_spawner.spawn(|| Self::do_mine(permit, executor, backend))
+                    pin.task_spawner.spawn_blocking(|| Self::do_mine(permit, executor, backend))
                 }));
             } else {
                 pin.timer = Some(timer);
@@ -416,7 +420,7 @@ impl<EF: ExecutorFactory> Stream for IntervalBlockProducer<EF> {
                 let backend = pin.backend.clone();
                 let permit = pin.permit.clone();
 
-                pin.blocking_task_spawner.spawn(|| Self::do_mine(permit, executor, backend))
+                pin.task_spawner.spawn_blocking(|| Self::do_mine(permit, executor, backend))
             }));
 
             pin.is_block_full = false;
@@ -434,8 +438,8 @@ impl<EF: ExecutorFactory> Stream for IntervalBlockProducer<EF> {
                     std::mem::take(&mut pin.queued).into_iter().flatten().collect();
 
                 let fut = pin
-                    .blocking_task_spawner
-                    .spawn(|| Self::execute_transactions(executor, transactions));
+                    .task_spawner
+                    .spawn_blocking(|| Self::execute_transactions(executor, transactions));
 
                 pin.ongoing_execution = Some(Box::pin(fut));
 
@@ -541,7 +545,7 @@ pub struct InstantBlockProducer<EF: ExecutorFactory> {
     /// Backlog of sets of transactions ready to be mined
     queued: VecDeque<Vec<ExecutableTxWithHash>>,
 
-    blocking_task_pool: BlockingTaskPool,
+    task_spawner: TaskSpawner,
 
     permit: Arc<Mutex<()>>,
 
@@ -552,7 +556,7 @@ pub struct InstantBlockProducer<EF: ExecutorFactory> {
 }
 
 impl<EF: ExecutorFactory> InstantBlockProducer<EF> {
-    pub fn new(backend: Arc<Backend<EF>>) -> Self {
+    pub fn new(backend: Arc<Backend<EF>>, task_spawner: TaskSpawner) -> Self {
         let provider = backend.blockchain.provider();
 
         let permit = Arc::new(Mutex::new(()));
@@ -576,7 +580,7 @@ impl<EF: ExecutorFactory> InstantBlockProducer<EF> {
             validator,
             block_mining: None,
             queued: VecDeque::default(),
-            blocking_task_pool: BlockingTaskPool::new().unwrap(),
+            task_spawner,
         }
     }
 
@@ -682,8 +686,8 @@ impl<EF: ExecutorFactory> Stream for InstantBlockProducer<EF> {
                 let backend = pin.backend.clone();
                 let permit = pin.permit.clone();
 
-                pin.blocking_task_pool
-                    .spawn(|| Self::do_mine(validator, permit, backend, transactions))
+                pin.task_spawner
+                    .spawn_blocking(|| Self::do_mine(validator, permit, backend, transactions))
             }));
         }
 

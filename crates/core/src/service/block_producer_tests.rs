@@ -6,6 +6,7 @@ use katana_gas_price_oracle::GasPriceOracle;
 use katana_primitives::transaction::{ExecutableTx, InvokeTx};
 use katana_primitives::Felt;
 use katana_provider::providers::db::DbProvider;
+use katana_tasks::TaskManager;
 
 use super::*;
 use crate::backend::storage::Blockchain;
@@ -23,7 +24,8 @@ fn test_backend() -> Arc<Backend<NoopExecutorFactory>> {
 #[tokio::test]
 async fn interval_initial_state() {
     let backend = test_backend();
-    let producer = IntervalBlockProducer::new(backend, Some(1000));
+    let manager = TaskManager::current();
+    let producer = IntervalBlockProducer::new(backend, Some(1000), manager.task_spawner());
 
     assert!(producer.timer.is_none());
     assert!(producer.queued.is_empty());
@@ -34,8 +36,9 @@ async fn interval_initial_state() {
 #[tokio::test]
 async fn interval_force_mine_without_transactions() {
     let backend = test_backend();
+    let manager = TaskManager::current();
 
-    let mut producer = IntervalBlockProducer::new(backend.clone(), None);
+    let mut producer = IntervalBlockProducer::new(backend.clone(), None, manager.task_spawner());
     producer.force_mine();
 
     let latest_num = backend.blockchain.provider().latest_number().unwrap();
@@ -45,7 +48,9 @@ async fn interval_force_mine_without_transactions() {
 #[tokio::test]
 async fn interval_mine_after_timer() {
     let backend = test_backend();
-    let mut producer = IntervalBlockProducer::new(backend.clone(), Some(1000));
+    let manager = TaskManager::current();
+    let mut producer =
+        IntervalBlockProducer::new(backend.clone(), Some(1000), manager.task_spawner());
     // no timer should be set when no block is opened.
     assert!(producer.timer.is_none());
 
