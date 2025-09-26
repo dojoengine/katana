@@ -196,12 +196,12 @@ impl Node {
         let block_producer =
             if config.sequencing.block_time.is_some() || config.sequencing.no_mining {
                 if let Some(interval) = config.sequencing.block_time {
-                    BlockProducer::interval(Arc::clone(&backend), interval)
+                    BlockProducer::interval(Arc::clone(&backend), task_spawner.clone(), interval)
                 } else {
-                    BlockProducer::on_demand(Arc::clone(&backend))
+                    BlockProducer::on_demand(Arc::clone(&backend), task_spawner.clone())
                 }
             } else {
-                BlockProducer::instant(Arc::clone(&backend))
+                BlockProducer::instant(Arc::clone(&backend), task_spawner.clone())
             };
 
         // --- build transaction pool
@@ -257,11 +257,18 @@ impl Node {
                     backend.clone(),
                     pool.clone(),
                     block_producer.clone(),
+                    task_manager.clone(),
                     client,
                     cfg,
                 )
             } else {
-                StarknetApi::new(backend.clone(), pool.clone(), Some(block_producer.clone()), cfg)
+                StarknetApi::new(
+                    backend.clone(),
+                    pool.clone(),
+                    Some(block_producer.clone()),
+                    task_manager.clone(),
+                    cfg,
+                )
             };
 
             #[cfg(feature = "explorer")]
