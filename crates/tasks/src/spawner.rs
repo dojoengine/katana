@@ -216,20 +216,4 @@ impl CPUBoundTaskSpawner {
         });
         BlockingTaskHandle(rx)
     }
-
-    /// Spawns an async function that is mostly CPU-bound blocking task onto the manager's blocking
-    /// pool.
-    pub fn spawn_async<F>(&self, future: F) -> BlockingTaskHandle<F::Output>
-    where
-        F: Future + Send + 'static,
-        F::Output: Send + 'static,
-    {
-        self.spawn(move || {
-            tokio::runtime::Builder::new_current_thread()
-                .enable_all()
-                .build()
-                .expect("failed to build tokio runtime")
-                .block_on(future)
-        })
-    }
 }

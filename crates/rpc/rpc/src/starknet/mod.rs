@@ -144,14 +144,28 @@ impl<EF: ExecutorFactory> StarknetApi<EF> {
         Self { inner: Arc::new(inner) }
     }
 
+    /// Spawns an async function that is mostly CPU-bound blocking task onto the manager's blocking
+    /// pool.
     async fn on_cpu_bound_task<T, F>(&self, func: T) -> StarknetApiResult<F::Output>
     where
         T: FnOnce(Self) -> F,
         F: Future + Send + 'static,
         F::Output: Send + 'static,
     {
+        use tokio::runtime::Builder;
+
         let this = self.clone();
-        match self.inner.task_spawner.cpu_bound().spawn_async(func(this)).await {
+        let future = func(this);
+
+        let task = move || {
+            Builder::new_current_thread()
+                .enable_all()
+                .build()
+                .expect("failed to build tokio runtime")
+                .block_on(future)
+        };
+
+        match self.inner.task_spawner.cpu_bound().spawn(task).await {
             TaskResult::Ok(result) => Ok(result),
             TaskResult::Err(err) => {
                 Err(StarknetApiError::unexpected(format!("internal task execution failed: {err}")))
