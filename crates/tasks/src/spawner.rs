@@ -19,16 +19,14 @@ pub struct TaskBuilder<'a> {
     /// The name of the task.
     name: Option<String>,
     /// Notifies the task manager to perform a graceful shutdown when the task is finished due to
-    /// completion or cancellation.
+    /// completion.
     graceful_shutdown: bool,
-
-    critical: bool,
 }
 
 impl<'a> TaskBuilder<'a> {
     /// Creates a new task builder associated with the given task manager.
     pub(crate) fn new(spawner: &'a TaskSpawner) -> Self {
-        Self { spawner, name: None, graceful_shutdown: false, critical: false }
+        Self { spawner, name: None, graceful_shutdown: false }
     }
 
     /// Sets the name of the task.
@@ -37,14 +35,10 @@ impl<'a> TaskBuilder<'a> {
         self
     }
 
+    /// Upon the task completion (either successfully or due to a panic), notify the task manager to
+    /// perform a graceful shutdown.
     pub fn graceful_shutdown(mut self) -> TaskBuilder<'a> {
         self.graceful_shutdown = true;
-        self
-    }
-
-    /// Will perform graceful shutdown if the task panic.
-    pub fn critical(mut self) -> TaskBuilder<'a> {
-        self.critical = true;
         self
     }
 
@@ -54,13 +48,7 @@ impl<'a> TaskBuilder<'a> {
         F: Future + Send + 'static,
         F::Output: Send + 'static,
     {
-        let task = self.build_task(fut);
-        if self.critical {
-            let critical_task = self.make_task_critical(task);
-            self.spawner.spawn(critical_task)
-        } else {
-            self.spawner.spawn(task)
-        }
+        self.spawner.spawn(self.build_task(fut))
     }
 
     /// Spawns an blocking task onto the Tokio runtime associated with the manager.
@@ -81,27 +69,21 @@ impl<'a> TaskBuilder<'a> {
     where
         F: Future + Send + 'static,
     {
-        let task_name = self.name.clone();
         let graceful_shutdown = self.graceful_shutdown;
+
+        let task_name = self.name.clone();
         let cancellation_token = self.spawner.cancellation_token().clone();
 
         // Creates a future that will send a cancellation signal to the manager when the future is
         // completed, regardless of success or error.
-        fut.map(move |res| {
+        let fut = fut.map(move |res| {
             if graceful_shutdown {
                 debug!(target: "tasks", task = ?task_name, "Task with graceful shutdown completed.");
                 cancellation_token.cancel();
             }
             res
-        })
-    }
+        });
 
-    /// This method is intended to be called after the task has been built using the
-    /// [`TaskBuilder::build_task`] method.
-    fn make_task_critical<F>(&self, fut: F) -> impl Future<Output = F::Output>
-    where
-        F: Future + Send + 'static,
-    {
         let task_name = self.name.clone();
         let cancellation_token = self.spawner.cancellation_token().clone();
 
@@ -115,8 +97,13 @@ impl<'a> TaskBuilder<'a> {
                     None => "unknown",
                     Some(msg) => msg,
                 };
-                error!(error = %error_msg, task = ?task_name, "Critical task failed.");
-                cancellation_token.cancel();
+
+                error!(target = "tasks", task = ?task_name, error = %error_msg, "Task panicked.");
+
+                if graceful_shutdown {
+                    cancellation_token.cancel();
+                }
+
                 std::panic::resume_unwind(error);
             }
         })

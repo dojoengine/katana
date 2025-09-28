@@ -366,7 +366,7 @@ impl Node {
         self.task_manager
             .task_spawner()
             .build_task()
-            .critical()
+            .graceful_shutdown()
             .name("Sequencing")
             .spawn(sequencing.into_future());
 
@@ -380,7 +380,7 @@ impl Node {
             self.task_manager
                 .task_spawner()
                 .build_task()
-                .critical()
+                .graceful_shutdown()
                 .name("gas oracle")
                 .spawn(worker);
         }
