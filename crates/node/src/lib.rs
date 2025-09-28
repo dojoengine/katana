@@ -345,7 +345,7 @@ impl Node {
             let server = MetricsServer::new(exporter).with_process_metrics().with_reports(reports);
 
             let addr = cfg.socket_addr();
-            let _ = self.task_manager.task_spawner().build_task().spawn(server.start(addr));
+            self.task_manager.task_spawner().build_task().spawn(server.start(addr));
             info!(%addr, "Metrics server started.");
         }
 
