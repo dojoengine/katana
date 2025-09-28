@@ -19,7 +19,7 @@ pub struct TaskBuilder<'a> {
     /// The name of the task.
     name: Option<String>,
     /// Notifies the task manager to perform a graceful shutdown when the task is finished due to
-    /// ompletion or cancellation.
+    /// completion or cancellation.
     graceful_shutdown: bool,
 
     critical: bool,
