@@ -29,7 +29,7 @@ use katana_provider::api::block::{BlockHashProvider, BlockNumberProvider};
 use katana_provider::api::env::BlockEnvProvider;
 use katana_provider::api::state::StateFactoryProvider;
 use katana_provider::ProviderError;
-use katana_tasks::{TaskResult, TaskSpawner};
+use katana_tasks::{Result as TaskResult, TaskSpawner};
 use parking_lot::lock_api::RawMutex;
 use parking_lot::{Mutex, RwLock};
 use tokio::time::{interval_at, Instant, Interval};
@@ -458,7 +458,7 @@ impl<EF: ExecutorFactory> Stream for IntervalBlockProducer<EF> {
             if let Some(mut execution) = pin.ongoing_execution.take() {
                 if let Poll::Ready(executor) = execution.poll_unpin(cx) {
                     match executor {
-                        TaskResult::Completed(Ok((_txs, leftovers))) => {
+                        TaskResult::Ok(Ok((_txs, leftovers))) => {
                             if let Some(leftovers) = leftovers {
                                 pin.is_block_full = true;
 
@@ -473,14 +473,18 @@ impl<EF: ExecutorFactory> Stream for IntervalBlockProducer<EF> {
                             continue;
                         }
 
-                        TaskResult::Completed(Err(e)) => {
+                        TaskResult::Ok(Err(e)) => {
                             return Poll::Ready(Some(Err(e)));
                         }
 
-                        TaskResult::Cancelled => {
-                            return Poll::Ready(Some(Err(
-                                BlockProductionError::ExecutionTaskCancelled,
-                            )));
+                        TaskResult::Err(e) => {
+                            if e.is_cancelled() {
+                                return Poll::Ready(Some(Err(
+                                    BlockProductionError::ExecutionTaskCancelled,
+                                )));
+                            } else {
+                                std::panic::resume_unwind(e.into_panic());
+                            }
                         }
                     }
                 } else {
@@ -495,7 +499,7 @@ impl<EF: ExecutorFactory> Stream for IntervalBlockProducer<EF> {
         if let Some(mut mining) = pin.ongoing_mining.take() {
             if let Poll::Ready(res) = mining.poll_unpin(cx) {
                 match res {
-                    TaskResult::Completed(outcome) => {
+                    TaskResult::Ok(outcome) => {
                         match pin.create_new_executor_for_next_block() {
                             Ok(executor) => {
                                 // update pool validator state here ---------
@@ -521,10 +525,14 @@ impl<EF: ExecutorFactory> Stream for IntervalBlockProducer<EF> {
                         return Poll::Ready(Some(outcome));
                     }
 
-                    TaskResult::Cancelled => {
-                        return Poll::Ready(Some(Err(
-                            BlockProductionError::ExecutionTaskCancelled,
-                        )));
+                    TaskResult::Err(e) => {
+                        if e.is_cancelled() {
+                            return Poll::Ready(Some(Err(
+                                BlockProductionError::ExecutionTaskCancelled,
+                            )));
+                        } else {
+                            std::panic::resume_unwind(e.into_panic());
+                        }
                     }
                 }
             } else {
@@ -696,18 +704,22 @@ impl<EF: ExecutorFactory> Stream for InstantBlockProducer<EF> {
         if let Some(mut mining) = pin.block_mining.take() {
             if let Poll::Ready(outcome) = mining.poll_unpin(cx) {
                 match outcome {
-                    TaskResult::Completed(Ok((outcome, _txs))) => {
+                    TaskResult::Ok(Ok((outcome, _txs))) => {
                         return Poll::Ready(Some(Ok(outcome)));
                     }
 
-                    TaskResult::Completed(Err(e)) => {
+                    TaskResult::Ok(Err(e)) => {
                         return Poll::Ready(Some(Err(e)));
                     }
 
-                    TaskResult::Cancelled => {
-                        return Poll::Ready(Some(Err(
-                            BlockProductionError::ExecutionTaskCancelled,
-                        )));
+                    TaskResult::Err(e) => {
+                        if e.is_cancelled() {
+                            return Poll::Ready(Some(Err(
+                                BlockProductionError::ExecutionTaskCancelled,
+                            )));
+                        } else {
+                            std::panic::resume_unwind(e.into_panic());
+                        }
                     }
                 }
             } else {

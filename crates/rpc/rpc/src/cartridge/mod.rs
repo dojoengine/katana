@@ -53,6 +53,7 @@ use katana_rpc_types::outside_execution::{
     OutsideExecution, OutsideExecutionV2, OutsideExecutionV3,
 };
 use katana_rpc_types::FunctionCall;
+use katana_tasks::{Result as TaskResult, TaskSpawner};
 use starknet::macros::selector;
 use starknet::signers::{LocalWallet, Signer, SigningKey};
 use tracing::{debug, info};
@@ -60,6 +61,7 @@ use url::Url;
 
 #[allow(missing_debug_implementations)]
 pub struct CartridgeApi<EF: ExecutorFactory> {
+    task_spawner: TaskSpawner,
     backend: Arc<Backend<EF>>,
     block_producer: BlockProducer<EF>,
     pool: TxPool,
@@ -74,6 +76,7 @@ where
 {
     fn clone(&self) -> Self {
         Self {
+            task_spawner: self.task_spawner.clone(),
             backend: self.backend.clone(),
             block_producer: self.block_producer.clone(),
             pool: self.pool.clone(),
@@ -88,6 +91,7 @@ impl<EF: ExecutorFactory> CartridgeApi<EF> {
         backend: Arc<Backend<EF>>,
         block_producer: BlockProducer<EF>,
         pool: TxPool,
+        task_spawner: TaskSpawner,
         api_url: Url,
     ) -> Self {
         // Pulling the paymaster address merely to print the VRF contract address.
@@ -105,7 +109,7 @@ impl<EF: ExecutorFactory> CartridgeApi<EF> {
         // The use can still use `rpc::cartridge` in debug to see the random value and the seed.
         info!(target: "rpc::cartridge", paymaster_address = %pm_address, vrf_address = %vrf_ctx.address(), "Cartridge API initialized.");
 
-        Self { backend, block_producer, pool, api_client, vrf_ctx }
+        Self { task_spawner, backend, block_producer, pool, api_client, vrf_ctx }
     }
 
     fn nonce(&self, contract_address: ContractAddress) -> Result<Option<Nonce>, StarknetApiError> {
@@ -126,7 +130,7 @@ impl<EF: ExecutorFactory> CartridgeApi<EF> {
         signature: Vec<Felt>,
     ) -> Result<AddInvokeTransactionResponse, StarknetApiError> {
         debug!(%address, ?outside_execution, "Adding execute outside transaction.");
-        self.on_io_blocking_task(move |this| {
+        self.on_io_bound_task(move |this| {
             // For now, we use the first predeployed account in the genesis as the paymaster
             // account.
             let (pm_address, pm_acc) = this
@@ -265,16 +269,21 @@ impl<EF: ExecutorFactory> CartridgeApi<EF> {
 
             Ok(AddInvokeTransactionResponse {transaction_hash})
         })
-        .await
+        .await?
     }
 
-    async fn on_io_blocking_task<F, T>(&self, func: F) -> T
+    async fn on_io_bound_task<F, R>(&self, func: F) -> Result<R, StarknetApiError>
     where
-        F: FnOnce(Self) -> T + Send + 'static,
-        T: Send + 'static,
+        F: FnOnce(Self) -> R + Send + 'static,
+        R: Send + 'static,
     {
         let this = self.clone();
-        TokioTaskSpawner::new().unwrap().spawn_blocking(move || func(this)).await.unwrap()
+        match self.task_spawner.spawn_blocking(move || func(this)).await {
+            TaskResult::Ok(result) => Ok(result),
+            TaskResult::Err(err) => {
+                Err(StarknetApiError::unexpected(format!("internal task execution failed: {err}")))
+            }
+        }
     }
 }
 

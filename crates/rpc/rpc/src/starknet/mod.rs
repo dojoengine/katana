@@ -47,7 +47,7 @@ use katana_rpc_types::trie::{
 };
 use katana_rpc_types::{FeeEstimate, TxStatus};
 use katana_rpc_types_builder::{BlockBuilder, ReceiptBuilder};
-use katana_tasks::{TaskManager, TaskResult, TaskSpawner};
+use katana_tasks::{Result as TaskResult, TaskSpawner};
 
 use crate::permit::Permits;
 use crate::utils::events::{Cursor, EventBlockId};
@@ -152,8 +152,10 @@ impl<EF: ExecutorFactory> StarknetApi<EF> {
     {
         let this = self.clone();
         match self.inner.task_spawner.cpu_bound().spawn_async(func(this)).await {
-            TaskResult::Completed(result) => Ok(result),
-            TaskResult::Cancelled => Err(StarknetApiError::unexpected("Task cancelled")),
+            TaskResult::Ok(result) => Ok(result),
+            TaskResult::Err(err) => {
+                Err(StarknetApiError::unexpected(format!("internal task execution failed: {err}")))
+            }
         }
     }
 
@@ -164,8 +166,10 @@ impl<EF: ExecutorFactory> StarknetApi<EF> {
     {
         let this = self.clone();
         match self.inner.task_spawner.spawn_blocking(move || func(this)).await {
-            TaskResult::Completed(result) => Ok(result),
-            TaskResult::Cancelled => Err(StarknetApiError::unexpected("Task cancelled")),
+            TaskResult::Ok(result) => Ok(result),
+            TaskResult::Err(err) => {
+                Err(StarknetApiError::unexpected(format!("internal task execution failed: {err}")))
+            }
         }
     }
 

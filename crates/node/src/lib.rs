@@ -82,6 +82,11 @@ impl Node {
             let _ = PrometheusRecorder::install("katana")?;
         }
 
+        // -- build task manager
+
+        let task_manager = TaskManager::current();
+        let task_spawner = task_manager.task_spawner();
+
         // --- build executor factory
 
         let fee_token_addresses = match config.chain.as_ref() {
@@ -230,6 +235,7 @@ impl Node {
                 backend.clone(),
                 block_producer.clone(),
                 pool.clone(),
+                task_spawner.clone(),
                 paymaster.cartridge_api_url.clone(),
             );
 
@@ -257,8 +263,8 @@ impl Node {
                     backend.clone(),
                     pool.clone(),
                     block_producer.clone(),
-                    task_manager.clone(),
                     client,
+                    task_spawner.clone(),
                     cfg,
                 )
             } else {
@@ -266,7 +272,7 @@ impl Node {
                     backend.clone(),
                     pool.clone(),
                     Some(block_producer.clone()),
-                    task_manager.clone(),
+                    task_spawner.clone(),
                     cfg,
                 )
             };
@@ -339,7 +345,7 @@ impl Node {
             let server = MetricsServer::new(exporter).with_process_metrics().with_reports(reports);
 
             let addr = cfg.socket_addr();
-            self.task_manager.task_spawner().build_task().spawn(server.start(addr));
+            let _ = self.task_manager.task_spawner().build_task().spawn(server.start(addr));
             info!(%addr, "Metrics server started.");
         }
 

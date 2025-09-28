@@ -6524,6 +6524,7 @@ version = "1.7.0-alpha.4"
 dependencies = [
  "futures",
  "rayon",
+ "thiserror 1.0.69",
  "tokio",
  "tokio-util",
  "tracing",
