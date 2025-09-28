@@ -44,7 +44,8 @@ impl<EF: ExecutorFactory> Sequencing<EF> {
             let service = MessagingService::new(config, chain_spec, pool).await?;
             let task = MessagingTask::new(service);
 
-            let handle = self.task_spawner.build_task().name("Messaging").spawn(task);
+            let handle =
+                self.task_spawner.build_task().graceful_shutdown().name("Messaging").spawn(task);
             Ok(handle)
         } else {
             let handle = self.task_spawner.build_task().spawn(future::pending::<()>());
@@ -57,7 +58,7 @@ impl<EF: ExecutorFactory> Sequencing<EF> {
         let miner = TransactionMiner::new(self.pool.pending_transactions());
         let block_producer = self.block_producer.clone();
         let service = BlockProductionTask::new(self.pool.clone(), miner, block_producer);
-        self.task_spawner.build_task().name("Block production").spawn(service)
+        self.task_spawner.build_task().graceful_shutdown().name("Block production").spawn(service)
     }
 }
 
