@@ -69,36 +69,25 @@ impl<'a> TaskBuilder<'a> {
     where
         F: Future + Send + 'static,
     {
+        let task_name = self.name.clone();
         let graceful_shutdown = self.graceful_shutdown;
-
-        let task_name = self.name.clone();
-        let cancellation_token = self.spawner.cancellation_token().clone();
-
-        // Creates a future that will send a cancellation signal to the manager when the future is
-        // completed, regardless of success or error.
-        let fut = fut.map(move |res| {
-            if graceful_shutdown {
-                debug!(target: "tasks", task = ?task_name, "Task with graceful shutdown completed.");
-                cancellation_token.cancel();
-            }
-            res
-        });
-
-        let task_name = self.name.clone();
         let cancellation_token = self.spawner.cancellation_token().clone();
 
         // Tokio already catches panics in the spawned task, but we are unable to handle it directly
         // inside the task without awaiting on it. So we catch it ourselves and resume it
         // again for tokio to catch it.
         AssertUnwindSafe(fut).catch_unwind().map(move |result| match result {
-            Ok(value) => value,
+            Ok(value) => {
+	            if graceful_shutdown {
+	                debug!(target: "tasks", task = ?task_name, "Task with graceful shutdown completed.");
+	                cancellation_token.cancel();
+	            }
+	           value
+            },
             Err(error) => {
-                let error_msg = match error.downcast_ref::<String>() {
-                    None => "unknown",
-                    Some(msg) => msg,
-                };
-
-                error!(target = "tasks", task = ?task_name, error = %error_msg, "Task panicked.");
+	            // get the panic reason message
+                let reason = error.downcast_ref::<String>();
+                error!(target = "tasks", task = ?task_name, ?reason, "Task panicked.");
 
                 if graceful_shutdown {
                     cancellation_token.cancel();
