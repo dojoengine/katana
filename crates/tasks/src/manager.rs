@@ -113,11 +113,6 @@ impl TaskManager {
         ShutdownFuture { fut }
     }
 
-    /// Return the handle to the Tokio runtime that the manager is associated with.
-    pub fn handle(&self) -> &Handle {
-        &self.inner.handle
-    }
-
     /// Wait until all spawned tasks are completed.
     #[cfg(test)]
     async fn wait(&self) {
@@ -156,9 +151,10 @@ impl Drop for TaskManager {
 
 #[cfg(test)]
 mod tests {
-    use std::panic::AssertUnwindSafe;
 
-    use futures::{future, FutureExt};
+    use std::future::pending;
+
+    use futures::future;
     use tokio::time::{self, Duration};
 
     use super::*;
@@ -170,9 +166,10 @@ mod tests {
 
         let _ = spawner.build_task().spawn(time::sleep(Duration::from_millis(10)));
         let _ = spawner.build_task().spawn(time::sleep(Duration::from_millis(10)));
-        let _ = spawner.build_task().spawn(time::sleep(Duration::from_millis(10)));
+        let _ = spawner.build_task().critical().spawn(time::sleep(Duration::from_millis(10)));
+        let _ = spawner.build_task().critical().spawn(time::sleep(Duration::from_millis(10)));
 
-        assert_eq!(manager.inner.tracker.len(), 3);
+        assert_eq!(manager.inner.tracker.len(), 4);
 
         manager.wait().await;
 
@@ -187,68 +184,99 @@ mod tests {
         let manager = TaskManager::current();
         let spawner = manager.task_spawner();
 
-        let _ = spawner.build_task().spawn(async {
-            loop {
-                time::sleep(Duration::from_millis(10)).await
-            }
-        });
+        let task1 = spawner.build_task().spawn(pending::<()>());
+        let task2 = spawner.build_task().spawn(pending::<()>());
 
-        let _ = spawner.build_task().spawn(async {
-            loop {
-                time::sleep(Duration::from_millis(10)).await
-            }
-        });
-
+        assert!(!manager.inner.on_cancel.is_cancelled(), "should be cancelled yet");
         assert_eq!(manager.inner.tracker.len(), 2);
 
+        // normal task with graceful shutdown
         let _ = spawner.build_task().graceful_shutdown().spawn(future::ready(()));
 
+        // wait for the task to be picked up and finish execution and trigger graceful shutdown
+        time::sleep(Duration::from_millis(100)).await;
+        assert!(manager.inner.on_cancel.is_cancelled(), "should be cancelled");
+
+        // wait for the task manager to shutdown gracefully
         manager.shutdown().await;
+
+        // all running tasks should be cancelled
+        let task1_result = task1.await.unwrap_err();
+        let task2_result = task2.await.unwrap_err();
+
+        assert!(task1_result.is_cancelled());
+        assert!(task2_result.is_cancelled());
     }
 
     #[tokio::test]
-    async fn critical_task_implicit_graceful_shutdown() {
+    async fn critical_task_with_graceful_shutdown() {
         let manager = TaskManager::current();
-        let _ = manager.task_spawner().build_task().critical().spawn(future::ready(()));
+        let spawner = manager.task_spawner();
+
+        let task1 = spawner.build_task().spawn(pending::<()>());
+        let task2 = spawner.build_task().spawn(pending::<()>());
+
+        assert!(!manager.inner.on_cancel.is_cancelled(), "should be cancelled yet");
+        assert_eq!(manager.inner.tracker.len(), 2);
+
+        // critical task with graceful shutdown
+        let _ = spawner.build_task().critical().graceful_shutdown().spawn(future::ready(()));
+
+        // wait for the task to be picked up and finish execution and trigger graceful shutdown
+        time::sleep(Duration::from_millis(100)).await;
+        assert!(manager.inner.on_cancel.is_cancelled(), "should be cancelled");
+
+        // wait for the task manager to shutdown gracefully
         manager.shutdown().await;
+
+        // all running tasks should be cancelled
+        let task1_result = task1.await.unwrap_err();
+        let task2_result = task2.await.unwrap_err();
+
+        assert!(task1_result.is_cancelled());
+        assert!(task2_result.is_cancelled());
+    }
+
+    #[tokio::test]
+    async fn task_no_graceful_shutdown_on_panicked() {
+        let manager = TaskManager::current();
+        let spawner = manager.task_spawner();
+
+        let result = spawner.build_task().spawn(async { panic!("panicking") }).await;
+        assert!(result.unwrap_err().is_panic());
+
+        // but we can still spawn new tasks, and ongoing tasks shouldn't be cancelled
+
+        assert!(!manager.inner.on_cancel.is_cancelled());
+        let result = spawner.spawn(async { true }).await;
+        assert!(result.is_ok());
     }
 
     #[tokio::test]
     async fn critical_task_graceful_shutdown_on_panicked() {
         let manager = TaskManager::current();
-        let _ = manager.task_spawner().build_task().critical().spawn(async { panic!("panicking") });
-        manager.shutdown().await;
-    }
-
-    #[tokio::test]
-    async fn cpu_blocking_tasks() {
-        let manager = TaskManager::current();
         let spawner = manager.task_spawner();
 
-        let res = spawner.spawn_blocking(|| 1 + 1).await.unwrap();
-        assert_eq!(res, 2);
+        let task1 = spawner.build_task().spawn(pending::<()>());
+        let task2 = spawner.build_task().spawn(pending::<()>());
 
-        let panic_res = spawner.spawn_blocking(|| panic!("test"));
-        let panic = AssertUnwindSafe(async { panic_res.await })
-            .catch_unwind()
-            .await
-            .expect_err("spawn_blocking should propagate panic");
-        assert!(panic.downcast_ref::<&str>().is_some());
-    }
+        assert!(!manager.inner.on_cancel.is_cancelled(), "should be cancelled yet");
+        assert_eq!(manager.inner.tracker.len(), 2);
 
-    #[tokio::test]
-    async fn io_blocking_tasks() {
-        let manager = TaskManager::current();
-        let spawner = manager.task_spawner();
+        let _ = spawner.build_task().critical().spawn(async { panic!("panicking") });
 
-        let handle = spawner.spawn_blocking(|| 41 + 1).await.unwrap();
-        assert_eq!(handle, 42);
+        // wait for the task to be picked up and finish execution and trigger graceful shutdown
+        time::sleep(Duration::from_millis(100)).await;
+        assert!(manager.inner.on_cancel.is_cancelled(), "should be cancelled");
 
-        let panic = AssertUnwindSafe(async { spawner.spawn_blocking(|| panic!("boom")).await })
-            .catch_unwind()
-            .await
-            .expect_err("spawn_io_blocking should propagate panic");
+        // wait for the task manager to shutdown gracefully
+        manager.wait_for_shutdown().await;
 
-        assert!(panic.downcast_ref::<&str>().is_some());
+        // all running tasks should be cancelled
+        let task1_result = task1.await.unwrap_err();
+        let task2_result = task2.await.unwrap_err();
+
+        assert!(task1_result.is_cancelled());
+        assert!(task2_result.is_cancelled());
     }
 }

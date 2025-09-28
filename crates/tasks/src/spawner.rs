@@ -42,6 +42,7 @@ impl<'a> TaskBuilder<'a> {
         self
     }
 
+    /// Will perform graceful shutdown if the task panic.
     pub fn critical(mut self) -> TaskBuilder<'a> {
         self.critical = true;
         self
@@ -63,6 +64,11 @@ impl<'a> TaskBuilder<'a> {
     }
 
     /// Spawns an blocking task onto the Tokio runtime associated with the manager.
+    ///
+    /// # CPU-bound tasks
+    ///
+    /// If need to spawn a CPU-bound blocking task, consider using the
+    /// [`CPUBoundTaskSpawner::spawn`] method instead.
     pub fn spawn_blocking<F, R>(&self, func: F) -> JoinHandle<R>
     where
         F: FnOnce() -> R + Send + 'static,
@@ -162,9 +168,13 @@ impl TaskSpawner {
         F: Future + Send + 'static,
         F::Output: Send + 'static,
     {
-        let task = self.make_cancellable(fut);
+        let cancel_token = self.cancellation_token().clone();
+        let task = cancellable(cancel_token, fut);
+
         let task = self.inner.tracker.track_future(task);
-        JoinHandle(self.inner.handle.spawn(task))
+        let handle = self.inner.handle.spawn(task);
+
+        JoinHandle(handle)
     }
 
     pub fn spawn_blocking<F, R>(&self, task: F) -> JoinHandle<R>
@@ -180,27 +190,14 @@ impl TaskSpawner {
     pub(crate) fn cancellation_token(&self) -> &CancellationToken {
         &self.inner.on_cancel
     }
-
-    fn make_cancellable<F: Future>(
-        &self,
-        fut: F,
-    ) -> impl Future<Output = crate::Result<F::Output>> {
-        let ct = self.inner.on_cancel.clone();
-        async move {
-            tokio::select! {
-                res = fut => Ok(res),
-                _ = ct.cancelled() => Err(JoinError::Cancelled)
-            }
-        }
-    }
 }
 
-/// A task spawner dedicated for spawning CPU-bound blocking tasks onto the manager's blocking pool.
+/// A task spawner dedicated for spawning CPU-bound blocking tasks.
 ///
-/// Tasks spawned by this spawner will be executed on [`TaskManager`]'s `rayon` threadpool.
+/// Tasks spawned by this spawner will be executed on a thread pool dedicated to CPU-bound tasks.
 ///
 /// [`TaskManager`]: crate::manager::TaskManager
-#[derive(Debug)]
+#[derive(Debug, Clone)]
 pub struct CPUBoundTaskSpawner(TaskSpawner);
 
 impl CPUBoundTaskSpawner {
@@ -215,5 +212,81 @@ impl CPUBoundTaskSpawner {
             let _ = tx.send(panic::catch_unwind(AssertUnwindSafe(func)));
         });
         BlockingTaskHandle(rx)
+    }
+}
+
+async fn cancellable<F: Future>(
+    cancellation_token: CancellationToken,
+    fut: F,
+) -> crate::Result<F::Output> {
+    tokio::select! {
+        res = fut => Ok(res),
+        _ = cancellation_token.cancelled() => Err(JoinError::Cancelled)
+    }
+}
+
+#[cfg(test)]
+mod tests {
+
+    use std::future::pending;
+
+    use crate::TaskManager;
+
+    #[tokio::test]
+    async fn task_spawner_task_cancel() {
+        let manager = TaskManager::current();
+        let spawner = manager.task_spawner();
+
+        // task will be running in the background
+        let handle = spawner.spawn(pending::<()>());
+
+        // cancel task using the cancellation token directly
+        spawner.cancellation_token().cancel();
+        let error = handle.await.unwrap_err();
+        assert!(error.is_cancelled());
+
+        let handle = spawner.spawn(pending::<()>());
+
+        // cancel task using the abort method of the handle
+        handle.abort();
+        let error = handle.await.unwrap_err();
+        assert!(error.is_cancelled());
+    }
+
+    #[tokio::test]
+    async fn task_spawner_task_panic() {
+        let manager = TaskManager::current();
+        let spawner = manager.task_spawner();
+
+        // non-blocking task
+
+        let res = spawner.spawn(async { 1 + 1 }).await.unwrap();
+        assert_eq!(res, 2);
+
+        let result = spawner.spawn(async { panic!("test") }).await;
+        let error = result.expect_err("should be panic error");
+        assert!(error.is_panic());
+
+        // blocking task
+
+        let res = spawner.spawn_blocking(|| 1 + 1).await.unwrap();
+        assert_eq!(res, 2);
+
+        let result = spawner.spawn_blocking(|| panic!("test")).await;
+        let error = result.expect_err("should be panic error");
+        assert!(error.is_panic());
+    }
+
+    #[tokio::test]
+    async fn cpu_bound_task_spawner_task_panic() {
+        let manager = TaskManager::current();
+        let spawner = manager.task_spawner().cpu_bound();
+
+        let res = spawner.spawn(|| 1 + 1).await.unwrap();
+        assert_eq!(res, 2);
+
+        let result = spawner.spawn(|| panic!("test")).await;
+        let error = result.expect_err("should be panic error");
+        assert!(error.is_panic());
     }
 }

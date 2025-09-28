@@ -89,26 +89,6 @@ impl JoinError {
     /// `into_panic()` panics if the `Error` does not represent the underlying
     /// task terminating with a panic. Use `is_panic` to check the error reason
     /// or `try_into_panic` for a variant that does not panic.
-    ///
-    /// # Examples
-    ///
-    /// ```should_panic
-    /// use std::panic;
-    ///
-    /// #[tokio::main]
-    /// async fn main() {
-    ///     let err = tokio::spawn(async {
-    ///         panic!("boom");
-    ///     })
-    ///     .await
-    ///     .unwrap_err();
-    ///
-    ///     if err.is_panic() {
-    ///         // Resume the panic on the main task
-    ///         panic::resume_unwind(err.into_panic());
-    ///     }
-    /// }
-    /// ```
     #[track_caller]
     pub fn into_panic(self) -> Box<dyn Any + Send + 'static> {
         self.try_into_panic().expect("`JoinError` reason is not a panic.")
@@ -117,26 +97,6 @@ impl JoinError {
     /// Consumes the join error, returning the object with which the task
     /// panicked if the task terminated due to a panic. Otherwise, `self` is
     /// returned.
-    ///
-    /// # Examples
-    ///
-    /// ```should_panic
-    /// use std::panic;
-    ///
-    /// #[tokio::main]
-    /// async fn main() {
-    ///     let err = tokio::spawn(async {
-    ///         panic!("boom");
-    ///     })
-    ///     .await
-    ///     .unwrap_err();
-    ///
-    ///     if let Ok(reason) = err.try_into_panic() {
-    ///         // Resume the panic on the main task
-    ///         panic::resume_unwind(reason);
-    ///     }
-    /// }
-    /// ```
     pub fn try_into_panic(self) -> std::result::Result<Box<dyn Any + Send + 'static>, JoinError> {
         match self {
             Self::Panic(p) => Ok(p),
