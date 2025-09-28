@@ -9,6 +9,79 @@ use tracing::{debug, error};
 
 use crate::{BlockingTaskHandle, Inner, JoinError, JoinHandle};
 
+/// A spawner for spawning tasks on the [`TaskManager`] that it was derived from.
+///
+/// This is the main way to spawn tasks on a [`TaskManager`]. It can only be created
+/// by calling [`TaskManager::task_spawner`].
+#[derive(Debug, Clone)]
+pub struct TaskSpawner {
+    /// A handle to the [`TaskManager`] that this spawner is associated with.
+    pub(crate) inner: Arc<Inner>,
+}
+
+impl TaskSpawner {
+    /// Returns a new [`TaskBuilder`] for building a task.
+    pub fn build_task(&self) -> TaskBuilder<'_> {
+        TaskBuilder::new(self)
+    }
+
+    /// Returns a new [`CPUBoundTaskSpawner`] for spawningc CPU-bound tasks.
+    pub fn cpu_bound(&self) -> CPUBoundTaskSpawner {
+        CPUBoundTaskSpawner(self.clone())
+    }
+
+    pub fn spawn<F>(&self, fut: F) -> JoinHandle<F::Output>
+    where
+        F: Future + Send + 'static,
+        F::Output: Send + 'static,
+    {
+        let cancel_token = self.cancellation_token().clone();
+        let task = cancellable(cancel_token, fut);
+
+        let task = self.inner.tracker.track_future(task);
+        let handle = self.inner.handle.spawn(task);
+
+        JoinHandle(handle)
+    }
+
+    pub fn spawn_blocking<F, R>(&self, task: F) -> JoinHandle<R>
+    where
+        F: FnOnce() -> R + Send + 'static,
+        R: Send + 'static,
+    {
+        let task = || crate::Result::Ok(task()); // blocking task is not cancellable
+        let handle = self.inner.handle.spawn_blocking(task);
+        JoinHandle(handle)
+    }
+
+    pub(crate) fn cancellation_token(&self) -> &CancellationToken {
+        &self.inner.on_cancel
+    }
+}
+
+/// A task spawner dedicated for spawning CPU-bound blocking tasks.
+///
+/// Tasks spawned by this spawner will be executed on a thread pool dedicated to CPU-bound tasks.
+///
+/// [`TaskManager`]: crate::manager::TaskManager
+#[derive(Debug, Clone)]
+pub struct CPUBoundTaskSpawner(TaskSpawner);
+
+impl CPUBoundTaskSpawner {
+    /// Spawns a CPU-bound blocking task onto the manager's blocking pool.
+    pub fn spawn<F, R>(&self, func: F) -> BlockingTaskHandle<R>
+    where
+        F: FnOnce() -> R + Send + 'static,
+        R: Send + 'static,
+    {
+        let (tx, rx) = oneshot::channel();
+        self.0.inner.blocking_pool.spawn(move || {
+            let _ = tx.send(panic::catch_unwind(AssertUnwindSafe(func)));
+        });
+        BlockingTaskHandle(rx)
+    }
+}
+
 /// A builder for building tasks to be spawned on the associated task manager.
 ///
 /// Can only be created using [`super::TaskSpawner::build_task`].
@@ -115,79 +188,6 @@ impl<'a> TaskBuilder<'a> {
             }
             result
         }
-    }
-}
-
-/// A spawner for spawning tasks on the [`TaskManager`] that it was derived from.
-///
-/// This is the main way to spawn tasks on a [`TaskManager`]. It can only be created
-/// by calling [`TaskManager::task_spawner`].
-#[derive(Debug, Clone)]
-pub struct TaskSpawner {
-    /// A handle to the [`TaskManager`] that this spawner is associated with.
-    pub(crate) inner: Arc<Inner>,
-}
-
-impl TaskSpawner {
-    /// Returns a new [`TaskBuilder`] for building a task.
-    pub fn build_task(&self) -> TaskBuilder<'_> {
-        TaskBuilder::new(self)
-    }
-
-    /// Returns a new [`CPUBoundTaskSpawner`] for spawningc CPU-bound tasks.
-    pub fn cpu_bound(&self) -> CPUBoundTaskSpawner {
-        CPUBoundTaskSpawner(self.clone())
-    }
-
-    pub fn spawn<F>(&self, fut: F) -> JoinHandle<F::Output>
-    where
-        F: Future + Send + 'static,
-        F::Output: Send + 'static,
-    {
-        let cancel_token = self.cancellation_token().clone();
-        let task = cancellable(cancel_token, fut);
-
-        let task = self.inner.tracker.track_future(task);
-        let handle = self.inner.handle.spawn(task);
-
-        JoinHandle(handle)
-    }
-
-    pub fn spawn_blocking<F, R>(&self, task: F) -> JoinHandle<R>
-    where
-        F: FnOnce() -> R + Send + 'static,
-        R: Send + 'static,
-    {
-        let task = || crate::Result::Ok(task()); // blocking task is not cancellable
-        let handle = self.inner.handle.spawn_blocking(task);
-        JoinHandle(handle)
-    }
-
-    pub(crate) fn cancellation_token(&self) -> &CancellationToken {
-        &self.inner.on_cancel
-    }
-}
-
-/// A task spawner dedicated for spawning CPU-bound blocking tasks.
-///
-/// Tasks spawned by this spawner will be executed on a thread pool dedicated to CPU-bound tasks.
-///
-/// [`TaskManager`]: crate::manager::TaskManager
-#[derive(Debug, Clone)]
-pub struct CPUBoundTaskSpawner(TaskSpawner);
-
-impl CPUBoundTaskSpawner {
-    /// Spawns a CPU-bound blocking task onto the manager's blocking pool.
-    pub fn spawn<F, R>(&self, func: F) -> BlockingTaskHandle<R>
-    where
-        F: FnOnce() -> R + Send + 'static,
-        R: Send + 'static,
-    {
-        let (tx, rx) = oneshot::channel();
-        self.0.inner.blocking_pool.spawn(move || {
-            let _ = tx.send(panic::catch_unwind(AssertUnwindSafe(func)));
-        });
-        BlockingTaskHandle(rx)
     }
 }
 
