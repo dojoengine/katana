@@ -29,7 +29,7 @@ use katana_provider::api::block::{BlockHashProvider, BlockNumberProvider};
 use katana_provider::api::env::BlockEnvProvider;
 use katana_provider::api::state::StateFactoryProvider;
 use katana_provider::ProviderError;
-use katana_tasks::{BlockingTaskResult, TaskSpawner};
+use katana_tasks::{TaskResult, TaskSpawner};
 use parking_lot::lock_api::RawMutex;
 use parking_lot::{Mutex, RwLock};
 use tokio::time::{interval_at, Instant, Interval};
@@ -80,7 +80,7 @@ pub struct TxWithOutcome {
     pub exec_info: TransactionExecutionInfo,
 }
 
-type ServiceFuture<T> = Pin<Box<dyn Future<Output = BlockingTaskResult<T>> + Send + Sync>>;
+type ServiceFuture<T> = Pin<Box<dyn Future<Output = TaskResult<T>> + Send + Sync>>;
 
 type BlockProductionResult = Result<MinedBlockOutcome, BlockProductionError>;
 type BlockProductionFuture = ServiceFuture<Result<MinedBlockOutcome, BlockProductionError>>;
@@ -407,7 +407,7 @@ impl<EF: ExecutorFactory> Stream for IntervalBlockProducer<EF> {
                     let backend = pin.backend.clone();
                     let permit = pin.permit.clone();
 
-                    pin.task_spawner.spawn_blocking(|| Self::do_mine(permit, executor, backend))
+                    pin.task_spawner.cpu_bound().spawn(|| Self::do_mine(permit, executor, backend))
                 }));
             } else {
                 pin.timer = Some(timer);
@@ -420,7 +420,7 @@ impl<EF: ExecutorFactory> Stream for IntervalBlockProducer<EF> {
                 let backend = pin.backend.clone();
                 let permit = pin.permit.clone();
 
-                pin.task_spawner.spawn_blocking(|| Self::do_mine(permit, executor, backend))
+                pin.task_spawner.cpu_bound().spawn(|| Self::do_mine(permit, executor, backend))
             }));
 
             pin.is_block_full = false;
@@ -458,7 +458,7 @@ impl<EF: ExecutorFactory> Stream for IntervalBlockProducer<EF> {
             if let Some(mut execution) = pin.ongoing_execution.take() {
                 if let Poll::Ready(executor) = execution.poll_unpin(cx) {
                     match executor {
-                        Ok(Ok((_txs, leftovers))) => {
+                        TaskResult::Completed(Ok((_txs, leftovers))) => {
                             if let Some(leftovers) = leftovers {
                                 pin.is_block_full = true;
 
@@ -473,11 +473,11 @@ impl<EF: ExecutorFactory> Stream for IntervalBlockProducer<EF> {
                             continue;
                         }
 
-                        Ok(Err(e)) => {
+                        TaskResult::Completed(Err(e)) => {
                             return Poll::Ready(Some(Err(e)));
                         }
 
-                        Err(_) => {
+                        TaskResult::Cancelled => {
                             return Poll::Ready(Some(Err(
                                 BlockProductionError::ExecutionTaskCancelled,
                             )));
@@ -495,7 +495,7 @@ impl<EF: ExecutorFactory> Stream for IntervalBlockProducer<EF> {
         if let Some(mut mining) = pin.ongoing_mining.take() {
             if let Poll::Ready(res) = mining.poll_unpin(cx) {
                 match res {
-                    Ok(outcome) => {
+                    TaskResult::Completed(outcome) => {
                         match pin.create_new_executor_for_next_block() {
                             Ok(executor) => {
                                 // update pool validator state here ---------
@@ -521,7 +521,7 @@ impl<EF: ExecutorFactory> Stream for IntervalBlockProducer<EF> {
                         return Poll::Ready(Some(outcome));
                     }
 
-                    Err(_) => {
+                    TaskResult::Cancelled => {
                         return Poll::Ready(Some(Err(
                             BlockProductionError::ExecutionTaskCancelled,
                         )));
@@ -687,7 +687,8 @@ impl<EF: ExecutorFactory> Stream for InstantBlockProducer<EF> {
                 let permit = pin.permit.clone();
 
                 pin.task_spawner
-                    .spawn_blocking(|| Self::do_mine(validator, permit, backend, transactions))
+                    .cpu_bound()
+                    .spawn(|| Self::do_mine(validator, permit, backend, transactions))
             }));
         }
 
@@ -695,15 +696,15 @@ impl<EF: ExecutorFactory> Stream for InstantBlockProducer<EF> {
         if let Some(mut mining) = pin.block_mining.take() {
             if let Poll::Ready(outcome) = mining.poll_unpin(cx) {
                 match outcome {
-                    Ok(Ok((outcome, _txs))) => {
+                    TaskResult::Completed(Ok((outcome, _txs))) => {
                         return Poll::Ready(Some(Ok(outcome)));
                     }
 
-                    Ok(Err(e)) => {
+                    TaskResult::Completed(Err(e)) => {
                         return Poll::Ready(Some(Err(e)));
                     }
 
-                    Err(_) => {
+                    TaskResult::Cancelled => {
                         return Poll::Ready(Some(Err(
                             BlockProductionError::ExecutionTaskCancelled,
                         )));

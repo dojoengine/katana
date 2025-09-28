@@ -1,75 +1,18 @@
 use core::future::Future;
 use core::pin::Pin;
 use core::task::{Context, Poll};
-use std::any::Any;
-use std::panic::{self, AssertUnwindSafe};
 use std::sync::Arc;
 
-use futures::channel::oneshot;
 use futures::future::BoxFuture;
 use futures::FutureExt;
 use rayon::{ThreadPool, ThreadPoolBuilder};
 use tokio::runtime::Handle;
-use tokio::task::JoinHandle;
 use tokio_util::sync::CancellationToken;
 pub use tokio_util::sync::WaitForCancellationFuture as WaitForShutdownFuture;
 use tokio_util::task::TaskTracker;
-use tracing::{trace, Span};
+use tracing::trace;
 
-use crate::task::{TaskBuilder, TaskResult};
-use crate::TaskHandle;
-
-pub type BlockingTaskResult<T> = Result<T, Box<dyn Any + Send>>;
-
-#[derive(Debug)]
-#[must_use = "BlockingTaskHandle does nothing unless polled"]
-pub struct BlockingTaskHandle<T>(oneshot::Receiver<BlockingTaskResult<T>>);
-
-impl<T> Future for BlockingTaskHandle<T> {
-    type Output = BlockingTaskResult<T>;
-
-    fn poll(self: Pin<&mut Self>, cx: &mut Context<'_>) -> Poll<Self::Output> {
-        match Pin::new(&mut self.get_mut().0).poll(cx) {
-            Poll::Ready(Ok(result)) => match result {
-                Ok(value) => Poll::Ready(Ok(value)),
-                Err(err) => panic::resume_unwind(err),
-            },
-            Poll::Ready(Err(cancelled)) => {
-                let err: Box<dyn Any + Send> = Box::new(cancelled);
-                panic::resume_unwind(err)
-            }
-            Poll::Pending => Poll::Pending,
-        }
-    }
-}
-
-#[derive(Debug)]
-#[must_use = "BlockingJoinHandle does nothing unless polled"]
-pub struct BlockingJoinHandle<T>(JoinHandle<T>);
-
-impl<T> BlockingJoinHandle<T> {
-    fn new(inner: JoinHandle<T>) -> Self {
-        Self(inner)
-    }
-
-    /// Checks if the task associated with this JoinHandle has finished.
-    pub fn is_finished(&self) -> bool {
-        self.0.is_finished()
-    }
-}
-
-impl<T> Future for BlockingJoinHandle<T> {
-    type Output = T;
-
-    fn poll(self: Pin<&mut Self>, cx: &mut Context<'_>) -> Poll<Self::Output> {
-        let inner = unsafe { self.map_unchecked_mut(|s| &mut s.0) };
-        match inner.poll(cx) {
-            Poll::Ready(Ok(res)) => Poll::Ready(res),
-            Poll::Ready(Err(err)) => panic::resume_unwind(err.into_panic()),
-            Poll::Pending => Poll::Pending,
-        }
-    }
-}
+use crate::TaskSpawner;
 
 /// Usage for this task manager is mainly to spawn tasks that can be cancelled, and capture
 /// panicked tasks (which in the context of the task manager are considered critical) for graceful
@@ -97,17 +40,17 @@ pub struct TaskManager {
 }
 
 #[derive(Debug)]
-struct Inner {
+pub(crate) struct Inner {
     /// A handle to the Tokio runtime.
-    handle: Handle,
+    pub(crate) handle: Handle,
     /// Keep track of currently running tasks.
-    tracker: TaskTracker,
+    pub(crate) tracker: TaskTracker,
     /// Used to cancel all running tasks.
     ///
     /// This is passed to all the tasks spawned by the manager.
-    on_cancel: CancellationToken,
+    pub(crate) on_cancel: CancellationToken,
     /// Pool dedicated to CPU-bound blocking work.
-    blocking_pool: Arc<ThreadPool>,
+    pub(crate) blocking_pool: Arc<ThreadPool>,
 }
 
 impl TaskManager {
@@ -143,34 +86,6 @@ impl TaskManager {
     /// Returns a [`TaskSpawner`] that can be used to spawn tasks onto the current [`TaskManager`].
     pub fn task_spawner(&self) -> TaskSpawner {
         TaskSpawner { inner: Arc::clone(&self.inner) }
-    }
-
-    /// Spawns a CPU-bound blocking task onto the manager's blocking pool.
-    ///
-    /// For spawing blocking IO-bound tasks, prefer to use [`TaskManager::spawn_io_blocking`]
-    /// instead.
-    ///
-    /// This is a shortcut for [`TaskSpawner::spawn_blocking`].
-    pub fn spawn_blocking<F, R>(&self, func: F) -> BlockingTaskHandle<R>
-    where
-        F: FnOnce() -> R + Send + 'static,
-        R: Send + 'static,
-    {
-        self.task_spawner().spawn_blocking(func)
-    }
-
-    /// Spawns an IO-bound blocking task onto the Tokio runtime associated with the manager.
-    ///
-    /// For running expensive CPU-bound tasks, prefer to use [`TaskManager::spawn_blocking`]
-    /// instead.
-    ///
-    /// This is a shortcut for [`TaskSpawner::spawn_io_blocking`].
-    pub fn spawn_io_blocking<F, R>(&self, func: F) -> BlockingJoinHandle<R>
-    where
-        F: FnOnce() -> R + Send + 'static,
-        R: Send + 'static,
-    {
-        self.task_spawner().spawn_io_blocking(func)
     }
 
     /// Returns a future that can be awaited for the shutdown signal to be received.
@@ -212,101 +127,6 @@ impl TaskManager {
     }
 }
 
-/// A spawner for spawning tasks on the [`TaskManager`] that it was derived from.
-///
-/// This is the main way to spawn tasks on a [`TaskManager`]. It can only be created
-/// by calling [`TaskManager::task_spawner`].
-#[derive(Debug, Clone)]
-pub struct TaskSpawner {
-    /// A handle to the [`TaskManager`] that this spawner is associated with.
-    inner: Arc<Inner>,
-}
-
-impl TaskSpawner {
-    /// Returns a new [`TaskBuilder`] for building a task.
-    pub fn build_task(&self) -> TaskBuilder<'_> {
-        TaskBuilder::new(self)
-    }
-
-    /// Spawns a CPU-bound blocking task onto the manager's blocking pool.
-    pub fn spawn_blocking<F, R>(&self, func: F) -> BlockingTaskHandle<R>
-    where
-        F: FnOnce() -> R + Send + 'static,
-        R: Send + 'static,
-    {
-        let (tx, rx) = oneshot::channel();
-        let span = Span::current();
-        let pool = Arc::clone(&self.inner.blocking_pool);
-
-        pool.spawn(move || {
-            let _guard = span.enter();
-            let _ = tx.send(panic::catch_unwind(AssertUnwindSafe(func)));
-        });
-
-        BlockingTaskHandle(rx)
-    }
-
-    /// Spawns an IO-bound blocking task onto the Tokio runtime associated with the manager.
-    pub fn spawn_io_blocking<F, R>(&self, func: F) -> BlockingJoinHandle<R>
-    where
-        F: FnOnce() -> R + Send + 'static,
-        R: Send + 'static,
-    {
-        let span = Span::current();
-        let handle = self.inner.handle.spawn_blocking(move || {
-            let _guard = span.enter();
-            func()
-        });
-        BlockingJoinHandle::new(handle)
-    }
-
-    pub(crate) fn cancellation_token(&self) -> &CancellationToken {
-        &self.inner.on_cancel
-    }
-
-    pub(crate) fn spawn_on_manager<F>(&self, fut: F) -> TaskHandle<F::Output>
-    where
-        F: Future + Send + 'static,
-        F::Output: Send + 'static,
-    {
-        self.spawn_on_manager_inner(fut)
-    }
-
-    fn spawn_on_manager_inner<F>(&self, task: F) -> TaskHandle<F::Output>
-    where
-        F: Future + Send + 'static,
-        F::Output: Send + 'static,
-    {
-        let task = self.make_cancellable(task);
-        let task = self.inner.tracker.track_future(task);
-        TaskHandle::new(self.inner.handle.spawn(task))
-    }
-
-    fn make_cancellable<F>(&self, fut: F) -> impl Future<Output = TaskResult<F::Output>>
-    where
-        F: Future,
-    {
-        let ct = self.inner.on_cancel.clone();
-        async move {
-            tokio::select! {
-                _ = ct.cancelled() => {
-                    TaskResult::Cancelled
-                },
-                res = fut => {
-                    TaskResult::Completed(res)
-                },
-            }
-        }
-    }
-}
-
-impl Drop for TaskManager {
-    fn drop(&mut self) {
-        trace!(target: "tasks", "Task manager is dropped, cancelling all ongoing tasks.");
-        self.inner.on_cancel.cancel();
-    }
-}
-
 /// A futures that resolves when the [`TaskManager`] is shutdown.
 #[must_use = "futures do nothing unless polled"]
 pub struct ShutdownFuture<'a> {
@@ -327,8 +147,17 @@ impl core::fmt::Debug for ShutdownFuture<'_> {
     }
 }
 
+impl Drop for TaskManager {
+    fn drop(&mut self) {
+        trace!(target: "tasks", "Task manager is dropped, cancelling all ongoing tasks.");
+        self.inner.on_cancel.cancel();
+    }
+}
+
 #[cfg(test)]
 mod tests {
+    use std::panic::AssertUnwindSafe;
+
     use futures::{future, FutureExt};
     use tokio::time::{self, Duration};
 
@@ -394,10 +223,12 @@ mod tests {
     #[tokio::test]
     async fn cpu_blocking_tasks() {
         let manager = TaskManager::current();
-        let res = manager.spawn_blocking(|| 1 + 1).await.unwrap();
+        let spawner = manager.task_spawner();
+
+        let res = spawner.spawn_blocking(|| 1 + 1).await.unwrap();
         assert_eq!(res, 2);
 
-        let panic_res = manager.spawn_blocking(|| panic!("test"));
+        let panic_res = spawner.spawn_blocking(|| panic!("test"));
         let panic = AssertUnwindSafe(async { panic_res.await })
             .catch_unwind()
             .await
@@ -408,13 +239,16 @@ mod tests {
     #[tokio::test]
     async fn io_blocking_tasks() {
         let manager = TaskManager::current();
-        let handle = manager.spawn_io_blocking(|| 41 + 1);
-        assert_eq!(handle.await, 42);
+        let spawner = manager.task_spawner();
 
-        let panic = AssertUnwindSafe(async { manager.spawn_io_blocking(|| panic!("boom")).await })
+        let handle = spawner.spawn_blocking(|| 41 + 1).await.unwrap();
+        assert_eq!(handle, 42);
+
+        let panic = AssertUnwindSafe(async { spawner.spawn_blocking(|| panic!("boom")).await })
             .catch_unwind()
             .await
             .expect_err("spawn_io_blocking should propagate panic");
+
         assert!(panic.downcast_ref::<&str>().is_some());
     }
 }

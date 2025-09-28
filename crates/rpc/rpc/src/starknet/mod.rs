@@ -1,5 +1,6 @@
 //! Server implementation for the Starknet JSON-RPC API.
 
+use std::future::Future;
 use std::sync::Arc;
 
 use katana_core::backend::Backend;
@@ -46,7 +47,7 @@ use katana_rpc_types::trie::{
 };
 use katana_rpc_types::{FeeEstimate, TxStatus};
 use katana_rpc_types_builder::{BlockBuilder, ReceiptBuilder};
-use katana_tasks::TaskManager;
+use katana_tasks::{TaskManager, TaskResult, TaskSpawner};
 
 use crate::permit::Permits;
 use crate::utils::events::{Cursor, EventBlockId};
@@ -82,7 +83,7 @@ struct StarknetApiInner<EF: ExecutorFactory> {
     pool: TxPool,
     backend: Arc<Backend<EF>>,
     forked_client: Option<ForkedClient>,
-    task_manager: TaskManager,
+    task_spawner: TaskSpawner,
     block_producer: Option<BlockProducer<EF>>,
     estimate_fee_permit: Permits,
     config: StarknetApiConfig,
@@ -93,10 +94,10 @@ impl<EF: ExecutorFactory> StarknetApi<EF> {
         backend: Arc<Backend<EF>>,
         pool: TxPool,
         block_producer: Option<BlockProducer<EF>>,
-        task_manager: TaskManager,
+        task_spawner: TaskSpawner,
         config: StarknetApiConfig,
     ) -> Self {
-        Self::new_inner(backend, pool, block_producer, None, task_manager, config)
+        Self::new_inner(backend, pool, block_producer, None, task_spawner, config)
     }
 
     pub fn new_forked(
@@ -104,7 +105,7 @@ impl<EF: ExecutorFactory> StarknetApi<EF> {
         pool: TxPool,
         block_producer: BlockProducer<EF>,
         forked_client: ForkedClient,
-        task_manager: TaskManager,
+        task_spawner: TaskSpawner,
         config: StarknetApiConfig,
     ) -> Self {
         Self::new_inner(
@@ -112,7 +113,7 @@ impl<EF: ExecutorFactory> StarknetApi<EF> {
             pool,
             Some(block_producer),
             Some(forked_client),
-            task_manager,
+            task_spawner,
             config,
         )
     }
@@ -122,7 +123,7 @@ impl<EF: ExecutorFactory> StarknetApi<EF> {
         pool: TxPool,
         block_producer: Option<BlockProducer<EF>>,
         forked_client: Option<ForkedClient>,
-        task_manager: TaskManager,
+        task_spawner: TaskSpawner,
         config: StarknetApiConfig,
     ) -> Self {
         let total_permits = config
@@ -134,7 +135,7 @@ impl<EF: ExecutorFactory> StarknetApi<EF> {
             pool,
             backend,
             block_producer,
-            task_manager,
+            task_spawner,
             forked_client,
             estimate_fee_permit,
             config,
@@ -143,22 +144,29 @@ impl<EF: ExecutorFactory> StarknetApi<EF> {
         Self { inner: Arc::new(inner) }
     }
 
-    async fn on_cpu_blocking_task<F, T>(&self, func: F) -> T
+    async fn on_cpu_bound_task<T, F>(&self, func: T) -> StarknetApiResult<F::Output>
     where
-        F: FnOnce(Self) -> T + Send + 'static,
-        T: Send + 'static,
+        T: FnOnce(Self) -> F,
+        F: Future + Send + 'static,
+        F::Output: Send + 'static,
     {
         let this = self.clone();
-        self.inner.task_manager.spawn_blocking(move || func(this)).await.unwrap()
+        match self.inner.task_spawner.cpu_bound().spawn_async(func(this)).await {
+            TaskResult::Completed(result) => Ok(result),
+            TaskResult::Cancelled => Err(StarknetApiError::unexpected("Task cancelled")),
+        }
     }
 
-    async fn on_io_blocking_task<F, T>(&self, func: F) -> T
+    async fn on_io_bound_task<F, R>(&self, func: F) -> StarknetApiResult<R>
     where
-        F: FnOnce(Self) -> T + Send + 'static,
-        T: Send + 'static,
+        F: FnOnce(Self) -> R + Send + 'static,
+        R: Send + 'static,
     {
         let this = self.clone();
-        self.inner.task_manager.spawn_io_blocking(move || func(this)).await.unwrap()
+        match self.inner.task_spawner.spawn_blocking(move || func(this)).await {
+            TaskResult::Completed(result) => Ok(result),
+            TaskResult::Cancelled => Err(StarknetApiError::unexpected("Task cancelled")),
+        }
     }
 
     fn estimate_fee_with(
@@ -252,7 +260,7 @@ impl<EF: ExecutorFactory> StarknetApi<EF> {
         block_id: BlockIdOrTag,
         class_hash: ClassHash,
     ) -> StarknetApiResult<Class> {
-        self.on_io_blocking_task(move |this| {
+        self.on_io_bound_task(move |this| {
             let state = this.state(&block_id)?;
 
             let Some(class) = state.class(class_hash)? else {
@@ -261,7 +269,7 @@ impl<EF: ExecutorFactory> StarknetApi<EF> {
 
             Ok(Class::try_from(class).unwrap())
         })
-        .await
+        .await?
     }
 
     async fn class_hash_at_address(
@@ -269,7 +277,7 @@ impl<EF: ExecutorFactory> StarknetApi<EF> {
         block_id: BlockIdOrTag,
         contract_address: ContractAddress,
     ) -> StarknetApiResult<ClassHash> {
-        self.on_io_blocking_task(move |this| {
+        self.on_io_bound_task(move |this| {
             // Contract address 0x1 is special system contract and does not
             // have a class. See https://docs.starknet.io/architecture-and-concepts/network-architecture/starknet-state/#address_0x1.
             if contract_address.0 == Felt::ONE {
@@ -280,7 +288,7 @@ impl<EF: ExecutorFactory> StarknetApi<EF> {
             let class_hash = state.class_hash_of_contract(contract_address)?;
             class_hash.ok_or(StarknetApiError::ContractNotFound)
         })
-        .await
+        .await?
     }
 
     async fn class_at_address(
@@ -316,7 +324,7 @@ impl<EF: ExecutorFactory> StarknetApi<EF> {
 
     async fn block_tx_count(&self, block_id: BlockIdOrTag) -> StarknetApiResult<u64> {
         let count = self
-            .on_io_blocking_task(move |this| {
+            .on_io_bound_task(move |this| {
                 let provider = this.inner.backend.blockchain.provider();
 
                 let block_id: BlockHashOrNumber = match block_id {
@@ -337,7 +345,7 @@ impl<EF: ExecutorFactory> StarknetApi<EF> {
                 let count = provider.transaction_count_by_block(block_id)?;
                 Result::<_, StarknetApiError>::Ok(count)
             })
-            .await?;
+            .await??;
 
         if let Some(count) = count {
             Ok(count)
@@ -350,11 +358,11 @@ impl<EF: ExecutorFactory> StarknetApi<EF> {
     }
 
     async fn latest_block_number(&self) -> StarknetApiResult<BlockNumberResponse> {
-        self.on_io_blocking_task(move |this| {
+        self.on_io_bound_task(move |this| {
             let block_number = this.inner.backend.blockchain.provider().latest_number()?;
             Ok(BlockNumberResponse { block_number })
         })
-        .await
+        .await?
     }
 
     async fn nonce_at(
@@ -362,7 +370,7 @@ impl<EF: ExecutorFactory> StarknetApi<EF> {
         block_id: BlockIdOrTag,
         contract_address: ContractAddress,
     ) -> StarknetApiResult<Nonce> {
-        self.on_io_blocking_task(move |this| {
+        self.on_io_bound_task(move |this| {
             // read from the pool state if pending block
             //
             // TODO: this is a temporary solution, we should have a better way to handle this.
@@ -377,7 +385,7 @@ impl<EF: ExecutorFactory> StarknetApi<EF> {
             let nonce = result.ok_or(StarknetApiError::ContractNotFound)?;
             Ok(nonce)
         })
-        .await
+        .await?
     }
 
     async fn transaction_by_block_id_and_index(
@@ -386,7 +394,7 @@ impl<EF: ExecutorFactory> StarknetApi<EF> {
         index: u64,
     ) -> StarknetApiResult<RpcTxWithHash> {
         let tx = self
-            .on_io_blocking_task(move |this| {
+            .on_io_bound_task(move |this| {
                 // TEMP: have to handle pending tag independently for now
                 let tx = if BlockIdOrTag::PreConfirmed == block_id {
                     let Some(executor) = this.pending_executor() else {
@@ -408,7 +416,7 @@ impl<EF: ExecutorFactory> StarknetApi<EF> {
 
                 StarknetApiResult::Ok(tx)
             })
-            .await?;
+            .await??;
 
         if let Some(tx) = tx {
             Ok(tx.into())
@@ -421,7 +429,7 @@ impl<EF: ExecutorFactory> StarknetApi<EF> {
 
     async fn transaction(&self, hash: TxHash) -> StarknetApiResult<RpcTxWithHash> {
         let tx = self
-            .on_io_blocking_task(move |this| {
+            .on_io_bound_task(move |this| {
                 let tx = this
                     .inner
                     .backend
@@ -446,7 +454,7 @@ impl<EF: ExecutorFactory> StarknetApi<EF> {
 
                 Result::<_, StarknetApiError>::Ok(result)
             })
-            .await?;
+            .await??;
 
         if let Some(tx) = tx {
             Ok(tx)
@@ -461,7 +469,7 @@ impl<EF: ExecutorFactory> StarknetApi<EF> {
 
     async fn receipt(&self, hash: Felt) -> StarknetApiResult<TxReceiptWithBlockInfo> {
         let receipt = self
-            .on_io_blocking_task(move |this| {
+            .on_io_bound_task(move |this| {
                 let provider = this.inner.backend.blockchain.provider();
                 let receipt = ReceiptBuilder::new(hash, provider).build()?;
 
@@ -510,7 +518,7 @@ impl<EF: ExecutorFactory> StarknetApi<EF> {
                     }
                 }
             })
-            .await?;
+            .await??;
 
         if let Some(receipt) = receipt {
             Ok(receipt)
@@ -523,7 +531,7 @@ impl<EF: ExecutorFactory> StarknetApi<EF> {
 
     async fn transaction_status(&self, hash: TxHash) -> StarknetApiResult<TxStatus> {
         let status = self
-            .on_io_blocking_task(move |this| {
+            .on_io_bound_task(move |this| {
                 let provider = this.inner.backend.blockchain.provider();
                 let status = provider.transaction_status(hash)?;
 
@@ -579,7 +587,7 @@ impl<EF: ExecutorFactory> StarknetApi<EF> {
                     Ok(None)
                 }
             })
-            .await?;
+            .await??;
 
         if let Some(status) = status {
             Ok(status)
@@ -596,7 +604,7 @@ impl<EF: ExecutorFactory> StarknetApi<EF> {
         block_id: BlockIdOrTag,
     ) -> StarknetApiResult<MaybePreConfirmedBlock> {
         let block = self
-            .on_io_blocking_task(move |this| {
+            .on_io_bound_task(move |this| {
                 let provider = this.inner.backend.blockchain.provider();
 
                 if BlockIdOrTag::PreConfirmed == block_id {
@@ -648,7 +656,7 @@ impl<EF: ExecutorFactory> StarknetApi<EF> {
                     StarknetApiResult::Ok(None)
                 }
             })
-            .await?;
+            .await??;
 
         if let Some(block) = block {
             Ok(block)
@@ -664,7 +672,7 @@ impl<EF: ExecutorFactory> StarknetApi<EF> {
         block_id: BlockIdOrTag,
     ) -> StarknetApiResult<GetBlockWithReceiptsResponse> {
         let block = self
-            .on_io_blocking_task(move |this| {
+            .on_io_bound_task(move |this| {
                 let provider = this.inner.backend.blockchain.provider();
 
                 if BlockIdOrTag::PreConfirmed == block_id {
@@ -716,7 +724,7 @@ impl<EF: ExecutorFactory> StarknetApi<EF> {
                     StarknetApiResult::Ok(None)
                 }
             })
-            .await?;
+            .await??;
 
         if let Some(block) = block {
             Ok(block)
@@ -732,7 +740,7 @@ impl<EF: ExecutorFactory> StarknetApi<EF> {
         block_id: BlockIdOrTag,
     ) -> StarknetApiResult<GetBlockWithTxHashesResponse> {
         let block = self
-            .on_io_blocking_task(move |this| {
+            .on_io_bound_task(move |this| {
                 let provider = this.inner.backend.blockchain.provider();
 
                 if BlockIdOrTag::PreConfirmed == block_id {
@@ -784,7 +792,7 @@ impl<EF: ExecutorFactory> StarknetApi<EF> {
                     StarknetApiResult::Ok(None)
                 }
             })
-            .await?;
+            .await??;
 
         if let Some(block) = block {
             Ok(block)
@@ -800,7 +808,7 @@ impl<EF: ExecutorFactory> StarknetApi<EF> {
         block_id: BlockIdOrTag,
     ) -> StarknetApiResult<GetStateUpdateResponse> {
         let state_update = self
-            .on_io_blocking_task(move |this| {
+            .on_io_bound_task(move |this| {
                 let provider = this.inner.backend.blockchain.provider();
 
                 let block_id = match block_id {
@@ -822,7 +830,7 @@ impl<EF: ExecutorFactory> StarknetApi<EF> {
 
                 StarknetApiResult::Ok(state_update)
             })
-            .await?;
+            .await??;
 
         if let Some(state_update) = state_update {
             Ok(state_update)
@@ -846,7 +854,7 @@ impl<EF: ExecutorFactory> StarknetApi<EF> {
             }
         }
 
-        self.on_io_blocking_task(move |this| {
+        self.on_io_bound_task(move |this| {
             let from = match event_filter.from_block {
                 Some(id) => id,
                 None => BlockIdOrTag::Number(0),
@@ -875,7 +883,7 @@ impl<EF: ExecutorFactory> StarknetApi<EF> {
 
             Ok(events)
         })
-        .await
+        .await?
     }
 
     fn forked_client(&self) -> Option<&ForkedClient> {
@@ -1144,7 +1152,7 @@ impl<EF: ExecutorFactory> StarknetApi<EF> {
         contract_addresses: Option<Vec<ContractAddress>>,
         contracts_storage_keys: Option<Vec<ContractStorageKeys>>,
     ) -> StarknetApiResult<GetStorageProofResponse> {
-        self.on_io_blocking_task(move |this| {
+        self.on_io_bound_task(move |this| {
             let provider = this.inner.backend.blockchain.provider();
 
             let Some(block_num) = provider.convert_block_id(block_id)? else {
@@ -1225,7 +1233,7 @@ impl<EF: ExecutorFactory> StarknetApi<EF> {
                 contracts_storage_proofs,
             })
         })
-        .await
+        .await?
     }
 }
 
@@ -1235,7 +1243,7 @@ impl<EF: ExecutorFactory> StarknetApi<EF> {
 
 impl<EF: ExecutorFactory> StarknetApi<EF> {
     async fn blocks(&self, request: GetBlocksRequest) -> StarknetApiResult<GetBlocksResponse> {
-        self.on_io_blocking_task(move |this| {
+        self.on_io_bound_task(move |this| {
             let provider = this.inner.backend.blockchain.provider();
 
             // Parse continuation token to get starting point
@@ -1303,7 +1311,7 @@ impl<EF: ExecutorFactory> StarknetApi<EF> {
 
             Ok(GetBlocksResponse { blocks, continuation_token })
         })
-        .await
+        .await?
     }
 
     // NOTE: The current implementation of this method doesn't support pending transactions.
@@ -1311,7 +1319,7 @@ impl<EF: ExecutorFactory> StarknetApi<EF> {
         &self,
         request: GetTransactionsRequest,
     ) -> StarknetApiResult<GetTransactionsResponse> {
-        self.on_io_blocking_task(move |this| {
+        self.on_io_bound_task(move |this| {
             let provider = this.inner.backend.blockchain.provider();
 
             // Resolve the starting point for this query.
@@ -1377,16 +1385,16 @@ impl<EF: ExecutorFactory> StarknetApi<EF> {
 
             Ok(GetTransactionsResponse { transactions, continuation_token })
         })
-        .await
+        .await?
     }
 
     async fn total_transactions(&self) -> StarknetApiResult<TxNumber> {
-        self.on_io_blocking_task(move |this| {
+        self.on_io_bound_task(move |this| {
             let provider = this.inner.backend.blockchain.provider();
             let total = provider.total_transactions()? as TxNumber;
             Ok(total)
         })
-        .await
+        .await?
     }
 }
 
