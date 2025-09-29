@@ -17,7 +17,7 @@ impl<EF: ExecutorFactory> StarknetApi<EF> {
         &self,
         tx: BroadcastedInvokeTx,
     ) -> Result<AddInvokeTransactionResponse, StarknetApiError> {
-        self.on_cpu_blocking_task(move |this| {
+        self.on_cpu_blocking_task(|this| async move {
             if tx.is_query() {
                 return Err(StarknetApiError::UnsupportedTransactionVersion);
             }
@@ -28,14 +28,14 @@ impl<EF: ExecutorFactory> StarknetApi<EF> {
 
             Ok(AddInvokeTransactionResponse { transaction_hash })
         })
-        .await
+        .await?
     }
 
     async fn add_declare_transaction_impl(
         &self,
         tx: BroadcastedDeclareTx,
     ) -> Result<AddDeclareTransactionResponse, StarknetApiError> {
-        self.on_cpu_blocking_task(move |this| {
+        self.on_cpu_blocking_task(|this| async move {
             if tx.is_query() {
                 return Err(StarknetApiError::UnsupportedTransactionVersion);
             }
@@ -50,14 +50,14 @@ impl<EF: ExecutorFactory> StarknetApi<EF> {
 
             Ok(AddDeclareTransactionResponse { transaction_hash, class_hash })
         })
-        .await
+        .await?
     }
 
     async fn add_deploy_account_transaction_impl(
         &self,
         tx: BroadcastedDeployAccountTx,
     ) -> Result<AddDeployAccountTransactionResponse, StarknetApiError> {
-        self.on_cpu_blocking_task(move |this| {
+        self.on_cpu_blocking_task(|this| async move {
             if tx.is_query() {
                 return Err(StarknetApiError::UnsupportedTransactionVersion);
             }
@@ -70,7 +70,7 @@ impl<EF: ExecutorFactory> StarknetApi<EF> {
 
             Ok(AddDeployAccountTransactionResponse { transaction_hash, contract_address })
         })
-        .await
+        .await?
     }
 }
 

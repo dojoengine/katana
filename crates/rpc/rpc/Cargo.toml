@@ -47,6 +47,7 @@ katana-node.workspace = true
 katana-rpc-api = { workspace = true, features = [ "client" ] }
 katana-rpc-client.workspace = true
 katana-trie.workspace = true
+katana-genesis.workspace = true
 katana-utils.workspace = true
 
 alloy-contract = { workspace = true, default-features = false }

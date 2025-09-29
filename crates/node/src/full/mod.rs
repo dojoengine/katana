@@ -110,14 +110,14 @@ impl Node {
         self.task_manager
             .task_spawner()
             .build_task()
-            .critical()
+            .graceful_shutdown()
             .name("Chain tip watcher")
             .spawn(tip_watcher.into_future());
 
         self.task_manager
             .task_spawner()
             .build_task()
-            .critical()
+            .graceful_shutdown()
             .name("Pipeline")
             .spawn(self.pipeline.into_future());
 
