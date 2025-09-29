@@ -241,4 +241,38 @@ mod tests {
         assert!(task1_result.is_cancelled());
         assert!(task2_result.is_cancelled());
     }
+
+    #[tokio::test]
+    async fn blocking_task_graceful_shutdown_on_panicked() {
+        let manager = TaskManager::current();
+        let spawner = manager.task_spawner();
+
+        let task1 = spawner.build_task().spawn(pending::<()>());
+        let task2 = spawner.build_task().spawn(pending::<()>());
+        assert!(!manager.inner.on_cancel.is_cancelled(), "should be cancelled yet");
+
+        // normal blocking task panicking shouldn't trigger graceful shutdown
+        let result = spawner.build_task().spawn_blocking(|| panic!("panicking")).await;
+        assert!(result.unwrap_err().is_panic());
+        assert!(!manager.inner.on_cancel.is_cancelled());
+
+        // but we can still spawn new tasks, and ongoing tasks shouldn't be cancelled
+        let result = spawner.spawn_blocking(|| true).await;
+        assert!(result.is_ok());
+
+        // blocking task with graceful shutdown should trigger graceful shutdown on panic
+        let result =
+            spawner.build_task().graceful_shutdown().spawn_blocking(|| panic!("panicking")).await;
+        assert!(result.unwrap_err().is_panic());
+
+        // wait for the task manager to shutdown gracefully
+        manager.wait_for_shutdown().await;
+
+        // all running tasks should be cancelled
+        let task1_result = task1.await.unwrap_err();
+        let task2_result = task2.await.unwrap_err();
+
+        assert!(task1_result.is_cancelled());
+        assert!(task2_result.is_cancelled());
+    }
 }

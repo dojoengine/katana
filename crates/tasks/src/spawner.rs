@@ -153,6 +153,7 @@ impl<'a> TaskBuilder<'a> {
             Ok(value) => {
 	            if graceful_shutdown {
 	                debug!(target: "tasks", task = ?task_name, "Task with graceful shutdown completed.");
+					println!("gracefully shutting down on completion of non-blocking task");
 	                cancellation_token.cancel();
 	            }
 	           value
@@ -163,6 +164,7 @@ impl<'a> TaskBuilder<'a> {
                 error!(target = "tasks", task = ?task_name, ?reason, "Task panicked.");
 
                 if graceful_shutdown {
+                println!("gracefully shutting down on panic of non-blocking task");
                     cancellation_token.cancel();
                 }
 
@@ -181,12 +183,30 @@ impl<'a> TaskBuilder<'a> {
         let cancellation_token = self.spawner.cancellation_token().clone();
 
         move || {
-            let result = func();
-            if graceful_shutdown {
-                debug!(target: "tasks", task = ?task_name, "Task with graceful shutdown completed.");
-                cancellation_token.cancel();
+            match panic::catch_unwind(AssertUnwindSafe(func)) {
+                Ok(value) => {
+                    println!("ohayo_");
+                    if graceful_shutdown {
+                        debug!(target: "tasks", task = ?task_name, "Task with graceful shutdown completed.");
+                        println!("gracefully shutting down on completion of blocking task");
+                        cancellation_token.cancel();
+                    }
+                    value
+                }
+                Err(error) => {
+                    println!("ohayo_error");
+                    // get the panic reason message
+                    let reason = error.downcast_ref::<String>();
+                    error!(target = "tasks", task = ?task_name, ?reason, "Task panicked.");
+
+                    if graceful_shutdown {
+                        println!("gracefully shutting down on panic of blocking task");
+                        cancellation_token.cancel();
+                    }
+
+                    std::panic::resume_unwind(error);
+                }
             }
-            result
         }
     }
 }

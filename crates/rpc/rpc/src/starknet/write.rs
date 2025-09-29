@@ -25,6 +25,7 @@ impl<EF: ExecutorFactory> StarknetApi<EF> {
             let tx = tx.into_inner(this.inner.backend.chain_spec.id());
             let tx = ExecutableTxWithHash::new(ExecutableTx::Invoke(tx));
             let transaction_hash = this.inner.pool.add_transaction(tx)?;
+            println!("tx hash: {:#x}", transaction_hash);
 
             Ok(AddInvokeTransactionResponse { transaction_hash })
         })

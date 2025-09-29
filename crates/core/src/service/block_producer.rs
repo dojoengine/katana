@@ -439,7 +439,8 @@ impl<EF: ExecutorFactory> Stream for IntervalBlockProducer<EF> {
 
                 let fut = pin
                     .task_spawner
-                    .spawn_blocking(|| Self::execute_transactions(executor, transactions));
+                    .cpu_bound()
+                    .spawn(|| Self::execute_transactions(executor, transactions));
 
                 pin.ongoing_execution = Some(Box::pin(fut));
 
