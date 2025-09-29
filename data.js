@@ -1,5 +1,5 @@
 window.BENCHMARK_DATA = {
-  "lastUpdate": 1758774288375,
+  "lastUpdate": 1759185814275,
   "repoUrl": "https://github.com/dojoengine/katana",
   "entries": {
     "Benchmark": [
@@ -5651,6 +5651,66 @@ window.BENCHMARK_DATA = {
             "name": "Invoke.ERC20.transfer/Blockifier.Cold",
             "value": 11436653,
             "range": "± 89768",
+            "unit": "ns/iter"
+          }
+        ]
+      },
+      {
+        "commit": {
+          "author": {
+            "email": "evergreenkary@gmail.com",
+            "name": "Ammar Arif",
+            "username": "kariy"
+          },
+          "committer": {
+            "email": "noreply@github.com",
+            "name": "GitHub",
+            "username": "web-flow"
+          },
+          "distinct": true,
+          "id": "184d6f69255aebb7c857c2641b9281a2c21d875c",
+          "message": "refactor(tasks): unify task execution under `TaskManager` (#289)\n\n## TLDR\n\n* Integrate the `rayon` thread pool into `TaskManager`\n* Standardize on `TaskSpawner` as the API for spawning all tasks (blocking and non-blocking)\n* Support spawning CPU-bound tasks with non-blocking semantics\n\n---\n\nCurrently, task spawning is fragmented across different pools (`TaskManager`, dedicated CPU pool, Tokio ambient runtime). This made it harder to reason about execution paths and introduced duplication in APIs. This PR consolidates everything under `TaskManager`.\n\nThis is primarily an internal refactor. It simplifies the API surface (all tasks now go through `TaskSpawner`) but should not change the current assumptions about how the tasks are being executed.\n\nWe redefine the semantics of what _graceful shutdown_ means for tasks. Currently, a task can be spawned as either _graceful shutdown_ or _critical_. A graceful-shutdown task will trigger the shutdown of `TaskManager` when it completes normally, but not if it panics. In\ncontrast, a critical task triggers shutdown on both normal completion and panic. This distinction feels redundant, since panic is simply another form of task termination (completion). To simplify, we merge these two categories: tasks marked as _graceful shutdown_ will now trigger a shutdown on both normal completion and panic.\n\n## Background \n\nFor handling RPC requests, we processed them on dedicated thread pools depending on whether the request handler is mostly CPU or IO bounded - even if all IO operations in Katana are blocking.\n\n```rust,https://github.com/dojoengine/katana/blob/13602bfe43e835d31564a33bf2821d318683818c/crates/rpc/rpc/src/starknet/mod.rs#L139-L155\nasync fn on_cpu_blocking_task<F, T>(&self, func: F) -> T \nwhere \n    F: FnOnce(Self) -> T + Send + 'static, \n    T: Send + 'static, \n{ \n    let this = self.clone(); \n    self.inner.blocking_task_pool.spawn(move || func(this)).await.unwrap() \n} \n  \nasync fn on_io_blocking_task<F, T>(&self, func: F) -> T \nwhere \n    F: FnOnce(Self) -> T + Send + 'static, \n    T: Send + 'static, \n{ \n    let this = self.clone(); \n    TokioTaskSpawner::new().unwrap().spawn_blocking(move || func(this)).await.unwrap() \n} \n```\n\n### Blocking code\n\nThis [blog](https://ryhl.io/blog/async-what-is-blocking/) post explains it very nicely the nuances between blocking code that is CPU or IO-bound and why not to mix them in the same thread pool. _**TLDR**; it's okay to spawn many threads for running IO-bound tasks because they'll be sleeping most of the time waiting for IO, but not for CPU-bound tasks._\n\nRPC tasks spawned using `on_io_blocking_task` is executed on the ambient Tokio runtime and coincidentally, the `TaskManager` created by the `Node` is also using the same ambient runtime.\n\n```rust,https://github.com/dojoengine/katana/blob/13602bfe43e835d31564a33bf2821d318683818c/crates/node/src/lib.rs#L314\n/// Create a new [`TaskManager`] from the ambient Tokio runtime.\npub fn current() -> Self {\n    Self::new(Handle::current())\n}\n```\n\nAs for the pool dedicated for CPU-bound tasks is created per `StarknetApi` struct and is detached from the `TaskManager` completely.\n\n```rust,https://github.com/dojoengine/katana/blob/13602bfe43e835d31564a33bf2821d318683818c/crates/rpc/rpc/src/starknet/mod.rs#L118-L121\nlet blocking_task_pool = BlockingTaskPool::new().expect(\"failed to create blocking task pool\"); \n```\n\nMerging these into `TaskManager` centralizes task management and makes it easier to reason about where and how tasks are executed.\n\n## Support for non-blocking tasks \n\nThe main motivation for this refactor is the need to support non-blocking tasks within RPC request handlers - regardless whether it's CPU/IO bounded. The methods `on_cpu_blocking_task` and `on_io_blocking_task` right now only accept blocking routine as seen by the trait bound `F: FnOnce(Self) -> T + Send + 'static`.\n\nWe can support this by simply creating a `tokio` runtime inside of the spawned tasks:\n\n```rust\n/// Spawns an async function that is mostly CPU-bound blocking task onto the manager's blocking\n/// pool.\nasync fn on_cpu_bound_task<T, F>(&self, func: T) -> StarknetApiResult<F::Output>\nwhere\n    T: FnOnce(Self) -> F,\n    F: Future + Send + 'static,\n    F::Output: Send + 'static,\n{\n    use tokio::runtime::Builder;\n\n    let this = self.clone();\n    let future = func(this);\n\n    let task = move || {\n        Builder::new_current_thread()\n            .enable_all()\n            .build()\n            .expect(\"failed to build tokio runtime\")\n            .block_on(future)\n    };\n\n    match self.inner.task_spawner.cpu_bound().spawn(task).await {\n        TaskResult::Ok(result) => Ok(result),\n        TaskResult::Err(err) => {\n            Err(StarknetApiError::unexpected(format!(\"internal task execution failed: {err}\")))\n        }\n    }\n}\n```\n\n**Note**: `on_cpu_blocking_task` is still intended for workloads dominated by blocking operations, even if they contain some async steps. Fully async tasks should continue to be spawned via `TaskSpawner::spawn`.\n\n## Thread-pool starvation (nested spawn on blocking pool)\n\nFor this current iteration, `BlockProducer` will be using a separate thread pool from the rest of the system. When I started working on this refactor, I wanted to have a `TaskManager` singleton for the entire system but during testing, I found a deadlock caused by nested tasks submitted by `BlockProducer` to the shared CPU-bound pool.\n\n**Symptom**: Task scheduled by the block producer on the CPU pool spawns child tasks onto the same pool and then blocks their completion. Under load, all workers may be occupied by parents that are waiting, so no worker is available to execute the children which may lead to a deadlock.\n\n**Why this happens**: The `CpuBlockingTaskPool` is fixed-size and intended for compute. If a worker synchronously waits for work queued to the same pool, the pool can become fully occupied by waiters (“thread pool starvation”). The child tasks spawned by `BlockProducer` happens in the call to [`BonsaiTrie::commit`] which then calls a method belongs to the upstream crate `bonsai-trie`:\n\n```rust,https://github.com/dojoengine/bonsai-trie/blob/bfc6ad47b3cb8b75b1326bf630ca16e581f194c5/src/trie/trees.rs#L184-L216\n    pub(crate) fn commit(&mut self) -> Result<(), BonsaiStorageError<DB::DatabaseError>> { #[cfg(feature = \"std\")]\n        use rayon::prelude::*;\n\n        #[cfg(not(feature = \"std\"))]\n        let db_changes = self\n            .trees\n            .iter_mut()\n            .map(|(_, tree)| tree.get_updates::<DB>());\n        #[cfg(feature = \"std\")]\n        let db_changes = self\n            .trees\n            .par_iter_mut()\n            .map(|(_, tree)| tree.get_updates::<DB>())\n            .collect_vec_list()\n            .into_iter()\n            .flatten();\n\n        let mut batch = self.db.create_batch();\n        for changes in db_changes {\n            for (key, value) in changes? {\n                match value {\n                    InsertOrRemove::Insert(value) => {\n                        self.db.insert(&key, &value, Some(&mut batch))?;\n                    }\n                    InsertOrRemove::Remove => {\n                        self.db.remove(&key, Some(&mut batch))?;\n                    }\n                }\n            }\n        }\n        self.db.write_batch(batch)?;\n        Ok(())\n    }\n\n```\n\n\nBecause the pool was shared with the RPC server, it's very easy for the pool to be constantly busy during heavy traffic.\n\nBasically:\n\n1. Block producer spawns a task to the pool. \n2. The task then spawns child tasks on the same pool and await them.\n3. When pool is fully occupied, child tasks may not get executed.\n4. Parent task can't make progress if child tasks don't get executed.\n5. Deadlock\n\n[`BonsaiTrie::commit`]:\nhttps://github.com/dojoengine/katana/blob/13602bfe43e835d31564a33bf2821d318683818c/crates/trie/src/lib.rs#L75",
+          "timestamp": "2025-09-30T06:34:00+08:00",
+          "tree_id": "5cfe02b07380c0d81c9e4b4d4a4dfb51a84abab3",
+          "url": "https://github.com/dojoengine/katana/commit/184d6f69255aebb7c857c2641b9281a2c21d875c"
+        },
+        "date": 1759185812194,
+        "tool": "cargo",
+        "benches": [
+          {
+            "name": "Commit.Small/Parallel",
+            "value": 248651,
+            "range": "± 24592",
+            "unit": "ns/iter"
+          },
+          {
+            "name": "Commit.Big/Serial",
+            "value": 75429900,
+            "range": "± 2280230",
+            "unit": "ns/iter"
+          },
+          {
+            "name": "Commit.Big/Parallel",
+            "value": 53387893,
+            "range": "± 3671254",
+            "unit": "ns/iter"
+          },
+          {
+            "name": "compress world contract",
+            "value": 1708481,
+            "range": "± 9481",
+            "unit": "ns/iter"
+          },
+          {
+            "name": "decompress world contract",
+            "value": 2163023,
+            "range": "± 13497",
+            "unit": "ns/iter"
+          },
+          {
+            "name": "Invoke.ERC20.transfer/Blockifier.Cold",
+            "value": 12565177,
+            "range": "± 338719",
             "unit": "ns/iter"
           }
         ]
