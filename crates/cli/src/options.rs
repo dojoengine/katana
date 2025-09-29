@@ -10,6 +10,7 @@
 #[cfg(feature = "server")]
 use std::net::IpAddr;
 use std::num::NonZeroU128;
+use std::path::PathBuf;
 
 use clap::Args;
 use katana_genesis::Genesis;
@@ -466,6 +467,16 @@ pub struct CartridgeOptions {
     #[arg(default_value = "https://api.cartridge.gg")]
     #[serde(default = "default_api_url")]
     pub api: Url,
+
+    /// Path to the Avnu paymaster configuration file.
+    #[arg(long = "cartridge.paymaster-config", requires = "paymaster")]
+    #[serde(default)]
+    pub paymaster_config: Option<PathBuf>,
+
+    /// Optional default API key forwarded to the paymaster endpoints.
+    #[arg(long = "cartridge.paymaster-api-key", requires = "paymaster")]
+    #[serde(default)]
+    pub paymaster_api_key: Option<String>,
 }
 
 #[cfg(feature = "cartridge")]
@@ -479,6 +490,14 @@ impl CartridgeOptions {
             if self.api == default_api_url() {
                 self.api = other.api.clone();
             }
+
+            if self.paymaster_config.is_none() {
+                self.paymaster_config = other.paymaster_config.clone();
+            }
+
+            if self.paymaster_api_key.is_none() {
+                self.paymaster_api_key = other.paymaster_api_key.clone();
+            }
         }
     }
 }
@@ -490,6 +509,8 @@ impl Default for CartridgeOptions {
             controllers: false,
             paymaster: default_paymaster(),
             api: default_api_url(),
+            paymaster_config: None,
+            paymaster_api_key: None,
         }
     }
 }

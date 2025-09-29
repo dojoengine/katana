@@ -39,7 +39,7 @@ use katana_executor::ExecutorFactory;
 use katana_genesis::allocation::GenesisAccountAlloc;
 use katana_genesis::constant::DEFAULT_UDC_ADDRESS;
 use katana_pool::{TransactionPool, TxPool};
-use katana_primitives::chain::ChainId;
+use katana_primitives::chain::{ChainId, NamedChainId};
 use katana_primitives::contract::Nonce;
 use katana_primitives::da::DataAvailabilityMode;
 use katana_primitives::fee::{AllResourceBoundsMapping, ResourceBoundsMapping};
@@ -54,10 +54,20 @@ use katana_rpc_types::outside_execution::{
 };
 use katana_rpc_types::FunctionCall;
 use katana_tasks::TokioTaskSpawner;
+use starknet::core::types::Call as StarknetCall;
 use starknet::macros::selector;
 use starknet::signers::{LocalWallet, Signer, SigningKey};
 use tracing::{debug, info};
 use url::Url;
+
+use paymaster_starknet::transaction::{
+    Calls as PaymasterCalls, ExecuteFromOutsideMessage as PaymasterExecuteFromOutsideMessage,
+    ExecuteFromOutsideParameters as PaymasterExecuteFromOutsideParameters,
+    PaymasterVersion as AvnuPaymasterVersion, TimeBounds as PaymasterTimeBounds,
+};
+use paymaster_starknet::ChainID as PaymasterChainId;
+
+use super::paymaster::PaymasterService;
 
 #[allow(missing_debug_implementations)]
 pub struct CartridgeApi<EF: ExecutorFactory> {
@@ -67,6 +77,7 @@ pub struct CartridgeApi<EF: ExecutorFactory> {
     vrf_ctx: VrfContext,
     /// The Cartridge API client for paymaster related operations.
     api_client: cartridge::Client,
+    paymaster: Option<Arc<PaymasterService>>,
 }
 
 impl<EF> Clone for CartridgeApi<EF>
@@ -80,6 +91,7 @@ where
             pool: self.pool.clone(),
             api_client: self.api_client.clone(),
             vrf_ctx: self.vrf_ctx.clone(),
+            paymaster: self.paymaster.clone(),
         }
     }
 }
@@ -90,6 +102,7 @@ impl<EF: ExecutorFactory> CartridgeApi<EF> {
         block_producer: BlockProducer<EF>,
         pool: TxPool,
         api_url: Url,
+        paymaster: Option<Arc<PaymasterService>>,
     ) -> Self {
         // Pulling the paymaster address merely to print the VRF contract address.
         let (pm_address, _) = backend
@@ -106,7 +119,54 @@ impl<EF: ExecutorFactory> CartridgeApi<EF> {
         // The use can still use `rpc::cartridge` in debug to see the random value and the seed.
         info!(target: "rpc::cartridge", paymaster_address = %pm_address, vrf_address = %vrf_ctx.address(), "Cartridge API initialized.");
 
-        Self { backend, block_producer, pool, api_client, vrf_ctx }
+        Self { backend, block_producer, pool, api_client, vrf_ctx, paymaster }
+    }
+
+    fn build_execute_call_via_paymaster(
+        &self,
+        address: ContractAddress,
+        outside_execution: &OutsideExecution,
+        signature: &[Felt],
+        chain_id: ChainId,
+    ) -> Option<FunctionCall> {
+        let Some(_paymaster) = self.paymaster.as_ref() else { return None; };
+        let avnu_chain_id = map_chain_id(chain_id)?;
+
+        match outside_execution {
+            OutsideExecution::V2(v2) => {
+                let starknet_calls = v2
+                    .calls
+                    .iter()
+                    .map(|call| StarknetCall {
+                        to: (*call.to).into(),
+                        selector: call.entry_point_selector,
+                        calldata: call.calldata.clone(),
+                    })
+                    .collect();
+
+                let params = PaymasterExecuteFromOutsideParameters {
+                    chain_id: avnu_chain_id,
+                    caller: (*v2.caller).into(),
+                    nonce: v2.nonce,
+                    time_bounds: PaymasterTimeBounds {
+                        execute_after: v2.execute_after,
+                        execute_before: v2.execute_before,
+                    },
+                    calls: PaymasterCalls::new(starknet_calls),
+                };
+
+                let message =
+                    PaymasterExecuteFromOutsideMessage::new(AvnuPaymasterVersion::V2, params);
+                let starknet_call = message.to_call(address.into(), &signature.to_vec());
+
+                Some(FunctionCall {
+                    contract_address: address,
+                    entry_point_selector: starknet_call.selector,
+                    calldata: starknet_call.calldata,
+                })
+            }
+            OutsideExecution::V3(_) => None,
+        }
     }
 
     fn nonce(&self, contract_address: ContractAddress) -> Result<Option<Nonce>, StarknetApiError> {
@@ -191,20 +251,25 @@ impl<EF: ExecutorFactory> CartridgeApi<EF> {
                 nonce += Nonce::ONE;
             }
 
-            let mut inner_calldata = match &outside_execution {
-                OutsideExecution::V2(v2) => {
-                    OutsideExecutionV2::cairo_serialize(v2)
-                }
-                OutsideExecution::V3(v3) => {
-                    OutsideExecutionV3::cairo_serialize(v3)
-                }
-            };
-
-            inner_calldata.extend(Vec::<Felt>::cairo_serialize(&signature));
-
-            let execute_from_outside_call = FunctionCall { contract_address: address, entry_point_selector: entrypoint, calldata: inner_calldata };
-
             let chain_id = this.backend.chain_spec.id();
+
+            let execute_from_outside_call = if let Some(call) = this.build_execute_call_via_paymaster(
+                address,
+                &outside_execution,
+                &signature,
+                chain_id,
+            ) {
+                call
+            } else {
+                let mut inner_calldata = match &outside_execution {
+                    OutsideExecution::V2(v2) => OutsideExecutionV2::cairo_serialize(v2),
+                    OutsideExecution::V3(v3) => OutsideExecutionV3::cairo_serialize(v3),
+                };
+
+                inner_calldata.extend(Vec::<Felt>::cairo_serialize(&signature));
+
+                FunctionCall { contract_address: address, entry_point_selector: entrypoint, calldata: inner_calldata }
+            };
 
             // ======= VRF checks =======
 
@@ -276,6 +341,14 @@ impl<EF: ExecutorFactory> CartridgeApi<EF> {
     {
         let this = self.clone();
         TokioTaskSpawner::new().unwrap().spawn_blocking(move || func(this)).await.unwrap()
+    }
+}
+
+fn map_chain_id(chain_id: ChainId) -> Option<PaymasterChainId> {
+    match chain_id {
+        ChainId::Named(NamedChainId::Mainnet) => Some(PaymasterChainId::Mainnet),
+        ChainId::Named(NamedChainId::Sepolia) => Some(PaymasterChainId::Sepolia),
+        _ => None,
     }
 }
 

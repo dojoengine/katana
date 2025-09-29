@@ -34,6 +34,8 @@ use katana_pool::TxPool;
 use katana_primitives::env::{CfgEnv, FeeTokenAddressses};
 #[cfg(feature = "cartridge")]
 use katana_rpc::cartridge::CartridgeApi;
+#[cfg(feature = "cartridge")]
+use katana_rpc::paymaster::{PaymasterRpc, PaymasterService};
 use katana_rpc::cors::Cors;
 use katana_rpc::dev::DevApi;
 use katana_rpc::starknet::forking::ForkedClient;
@@ -43,6 +45,8 @@ use katana_rpc::starknet::{StarknetApi, StarknetApiConfig};
 use katana_rpc::{RpcServer, RpcServerHandle};
 #[cfg(feature = "cartridge")]
 use katana_rpc_api::cartridge::CartridgeApiServer;
+#[cfg(feature = "cartridge")]
+use katana_rpc_api::paymaster::PaymasterApiServer;
 use katana_rpc_api::dev::DevApiServer;
 use katana_rpc_api::starknet::{StarknetApiServer, StarknetTraceApiServer, StarknetWriteApiServer};
 #[cfg(feature = "explorer")]
@@ -226,14 +230,18 @@ impl Node {
                 "Cartridge API should be enabled when paymaster is set"
             );
 
+            let service = Arc::new(PaymasterService::new(paymaster.paymaster.clone(), paymaster.default_api_key.clone()));
+
             let api = CartridgeApi::new(
                 backend.clone(),
                 block_producer.clone(),
                 pool.clone(),
                 paymaster.cartridge_api_url.clone(),
+                Some(Arc::clone(&service)),
             );
 
             rpc_modules.merge(CartridgeApiServer::into_rpc(api))?;
+            rpc_modules.merge(PaymasterApiServer::into_rpc(PaymasterRpc::new(service)))?;
 
             Some(PaymasterConfig { cartridge_api_url: paymaster.cartridge_api_url.clone() })
         } else {
