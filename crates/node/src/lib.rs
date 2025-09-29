@@ -324,7 +324,7 @@ impl Node {
             rpc_server,
             block_producer,
             config: Arc::new(config),
-            task_manager: TaskManager::current(),
+            task_manager,
         })
     }
 
