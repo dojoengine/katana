@@ -17,7 +17,7 @@ impl<EF: ExecutorFactory> StarknetApi<EF> {
         &self,
         tx: BroadcastedInvokeTx,
     ) -> Result<AddInvokeTransactionResponse, StarknetApiError> {
-        self.on_cpu_bound_task(|this| async move {
+        self.on_cpu_blocking_task(|this| async move {
             if tx.is_query() {
                 return Err(StarknetApiError::UnsupportedTransactionVersion);
             }
@@ -25,7 +25,6 @@ impl<EF: ExecutorFactory> StarknetApi<EF> {
             let tx = tx.into_inner(this.inner.backend.chain_spec.id());
             let tx = ExecutableTxWithHash::new(ExecutableTx::Invoke(tx));
             let transaction_hash = this.inner.pool.add_transaction(tx)?;
-            println!("tx hash: {:#x}", transaction_hash);
 
             Ok(AddInvokeTransactionResponse { transaction_hash })
         })
@@ -36,7 +35,7 @@ impl<EF: ExecutorFactory> StarknetApi<EF> {
         &self,
         tx: BroadcastedDeclareTx,
     ) -> Result<AddDeclareTransactionResponse, StarknetApiError> {
-        self.on_cpu_bound_task(|this| async move {
+        self.on_cpu_blocking_task(|this| async move {
             if tx.is_query() {
                 return Err(StarknetApiError::UnsupportedTransactionVersion);
             }
@@ -58,7 +57,7 @@ impl<EF: ExecutorFactory> StarknetApi<EF> {
         &self,
         tx: BroadcastedDeployAccountTx,
     ) -> Result<AddDeployAccountTransactionResponse, StarknetApiError> {
-        self.on_cpu_bound_task(|this| async move {
+        self.on_cpu_blocking_task(|this| async move {
             if tx.is_query() {
                 return Err(StarknetApiError::UnsupportedTransactionVersion);
             }

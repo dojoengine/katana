@@ -3,7 +3,6 @@ use std::future::Future;
 use std::pin::Pin;
 use std::task::{Context, Poll};
 
-use futures::channel::oneshot;
 use tracing::error;
 
 pub type Result<T> = std::result::Result<T, JoinError>;
@@ -38,26 +37,6 @@ impl<T> Future for JoinHandle<T> {
             Poll::Pending => Poll::Pending,
             Poll::Ready(Ok(res)) => Poll::Ready(res),
             Poll::Ready(Err(err)) => Poll::Ready(Err(err.into())),
-        }
-    }
-}
-
-type BlockingTaskResult<T> = std::result::Result<T, Box<dyn Any + Send>>;
-
-#[derive(Debug)]
-pub struct BlockingTaskHandle<T>(pub(crate) oneshot::Receiver<BlockingTaskResult<T>>);
-
-impl<T> Future for BlockingTaskHandle<T> {
-    type Output = Result<T>;
-
-    fn poll(self: Pin<&mut Self>, cx: &mut Context<'_>) -> Poll<Self::Output> {
-        match Pin::new(&mut self.get_mut().0).poll(cx) {
-            Poll::Ready(Ok(result)) => match result {
-                Ok(value) => Poll::Ready(Ok(value)),
-                Err(panic) => Poll::Ready(Err(JoinError::Panic(panic))),
-            },
-            Poll::Ready(Err(..)) => Poll::Ready(Err(JoinError::Cancelled)),
-            Poll::Pending => Poll::Pending,
         }
     }
 }

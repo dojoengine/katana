@@ -5,14 +5,13 @@ use std::sync::Arc;
 
 use futures::future::BoxFuture;
 use futures::FutureExt;
-use rayon::{ThreadPool, ThreadPoolBuilder};
 use tokio::runtime::Handle;
 use tokio_util::sync::CancellationToken;
 pub use tokio_util::sync::WaitForCancellationFuture as WaitForShutdownFuture;
 use tokio_util::task::TaskTracker;
 use tracing::trace;
 
-use crate::TaskSpawner;
+use crate::{CpuBlockingTaskPool, TaskSpawner};
 
 /// Usage for this task manager is mainly to spawn tasks that can be cancelled, and capture
 /// panicked tasks (which in the context of the task manager are considered critical) for graceful
@@ -50,14 +49,14 @@ pub(crate) struct Inner {
     /// This is passed to all the tasks spawned by the manager.
     pub(crate) on_cancel: CancellationToken,
     /// Pool dedicated to CPU-bound blocking work.
-    pub(crate) blocking_pool: Arc<ThreadPool>,
+    pub(crate) blocking_pool: CpuBlockingTaskPool,
 }
 
 impl TaskManager {
     /// Create a new [`TaskManager`] from the given Tokio runtime handle using the default blocking
     /// pool configuration.
     pub fn new(handle: Handle) -> Self {
-        let blocking_pool = ThreadPoolBuilder::new()
+        let blocking_pool = CpuBlockingTaskPool::builder()
             .thread_name(|i| format!("blocking-thread-pool-{i}"))
             .build()
             .expect("failed to build blocking task thread pool");
@@ -65,9 +64,9 @@ impl TaskManager {
         Self {
             inner: Arc::new(Inner {
                 handle,
+                blocking_pool,
                 tracker: TaskTracker::new(),
                 on_cancel: CancellationToken::new(),
-                blocking_pool: Arc::new(blocking_pool),
             }),
         }
     }

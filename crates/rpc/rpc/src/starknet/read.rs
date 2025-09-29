@@ -72,7 +72,7 @@ impl<EF: ExecutorFactory> StarknetApiServer for StarknetApi<EF> {
     }
 
     async fn block_hash_and_number(&self) -> RpcResult<BlockHashAndNumberResponse> {
-        self.on_io_bound_task(move |this| Ok(this.block_hash_and_number()?)).await?
+        self.on_io_blocking_task(move |this| Ok(this.block_hash_and_number()?)).await?
     }
 
     async fn get_block_with_tx_hashes(
@@ -133,7 +133,7 @@ impl<EF: ExecutorFactory> StarknetApiServer for StarknetApi<EF> {
     }
 
     async fn call(&self, request: FunctionCall, block_id: BlockIdOrTag) -> RpcResult<CallResponse> {
-        self.on_io_bound_task(move |this| {
+        self.on_io_blocking_task(move |this| {
             // get the state and block env at the specified block for function call execution
             let state = this.state(&block_id)?;
             let env = this.block_env_at(&block_id)?;
@@ -152,7 +152,7 @@ impl<EF: ExecutorFactory> StarknetApiServer for StarknetApi<EF> {
         key: StorageKey,
         block_id: BlockIdOrTag,
     ) -> RpcResult<StorageValue> {
-        self.on_io_bound_task(move |this| {
+        self.on_io_blocking_task(move |this| {
             let value = this.storage_at(contract_address, key, block_id)?;
             Ok(value)
         })
@@ -303,7 +303,7 @@ impl<EF: ExecutorFactory> StarknetApiServer for StarknetApi<EF> {
                 StarknetApiError::unexpected(format!("Failed to acquire permit: {e}"))
             })?;
 
-        self.on_cpu_bound_task(move |this| async move {
+        self.on_cpu_blocking_task(move |this| async move {
             let _permit = permit;
             let results = this.estimate_fee_with(transactions, block_id, flags)?;
             Ok(results)
@@ -316,7 +316,7 @@ impl<EF: ExecutorFactory> StarknetApiServer for StarknetApi<EF> {
         message: MsgFromL1,
         block_id: BlockIdOrTag,
     ) -> RpcResult<FeeEstimate> {
-        self.on_cpu_bound_task(move |this| async move {
+        self.on_cpu_blocking_task(move |this| async move {
             let chain_id = this.inner.backend.chain_spec.id();
 
             let tx = message.into_tx_with_chain_id(chain_id);

@@ -146,7 +146,7 @@ impl<EF: ExecutorFactory> StarknetApi<EF> {
 
     /// Spawns an async function that is mostly CPU-bound blocking task onto the manager's blocking
     /// pool.
-    async fn on_cpu_bound_task<T, F>(&self, func: T) -> StarknetApiResult<F::Output>
+    async fn on_cpu_blocking_task<T, F>(&self, func: T) -> StarknetApiResult<F::Output>
     where
         T: FnOnce(Self) -> F,
         F: Future + Send + 'static,
@@ -173,7 +173,7 @@ impl<EF: ExecutorFactory> StarknetApi<EF> {
         }
     }
 
-    async fn on_io_bound_task<F, R>(&self, func: F) -> StarknetApiResult<R>
+    async fn on_io_blocking_task<F, R>(&self, func: F) -> StarknetApiResult<R>
     where
         F: FnOnce(Self) -> R + Send + 'static,
         R: Send + 'static,
@@ -278,7 +278,7 @@ impl<EF: ExecutorFactory> StarknetApi<EF> {
         block_id: BlockIdOrTag,
         class_hash: ClassHash,
     ) -> StarknetApiResult<Class> {
-        self.on_io_bound_task(move |this| {
+        self.on_io_blocking_task(move |this| {
             let state = this.state(&block_id)?;
 
             let Some(class) = state.class(class_hash)? else {
@@ -295,7 +295,7 @@ impl<EF: ExecutorFactory> StarknetApi<EF> {
         block_id: BlockIdOrTag,
         contract_address: ContractAddress,
     ) -> StarknetApiResult<ClassHash> {
-        self.on_io_bound_task(move |this| {
+        self.on_io_blocking_task(move |this| {
             // Contract address 0x1 is special system contract and does not
             // have a class. See https://docs.starknet.io/architecture-and-concepts/network-architecture/starknet-state/#address_0x1.
             if contract_address.0 == Felt::ONE {
@@ -342,7 +342,7 @@ impl<EF: ExecutorFactory> StarknetApi<EF> {
 
     async fn block_tx_count(&self, block_id: BlockIdOrTag) -> StarknetApiResult<u64> {
         let count = self
-            .on_io_bound_task(move |this| {
+            .on_io_blocking_task(move |this| {
                 let provider = this.inner.backend.blockchain.provider();
 
                 let block_id: BlockHashOrNumber = match block_id {
@@ -376,7 +376,7 @@ impl<EF: ExecutorFactory> StarknetApi<EF> {
     }
 
     async fn latest_block_number(&self) -> StarknetApiResult<BlockNumberResponse> {
-        self.on_io_bound_task(move |this| {
+        self.on_io_blocking_task(move |this| {
             let block_number = this.inner.backend.blockchain.provider().latest_number()?;
             Ok(BlockNumberResponse { block_number })
         })
@@ -388,7 +388,7 @@ impl<EF: ExecutorFactory> StarknetApi<EF> {
         block_id: BlockIdOrTag,
         contract_address: ContractAddress,
     ) -> StarknetApiResult<Nonce> {
-        self.on_io_bound_task(move |this| {
+        self.on_io_blocking_task(move |this| {
             // read from the pool state if pending block
             //
             // TODO: this is a temporary solution, we should have a better way to handle this.
@@ -412,7 +412,7 @@ impl<EF: ExecutorFactory> StarknetApi<EF> {
         index: u64,
     ) -> StarknetApiResult<RpcTxWithHash> {
         let tx = self
-            .on_io_bound_task(move |this| {
+            .on_io_blocking_task(move |this| {
                 // TEMP: have to handle pending tag independently for now
                 let tx = if BlockIdOrTag::PreConfirmed == block_id {
                     let Some(executor) = this.pending_executor() else {
@@ -447,7 +447,7 @@ impl<EF: ExecutorFactory> StarknetApi<EF> {
 
     async fn transaction(&self, hash: TxHash) -> StarknetApiResult<RpcTxWithHash> {
         let tx = self
-            .on_io_bound_task(move |this| {
+            .on_io_blocking_task(move |this| {
                 let tx = this
                     .inner
                     .backend
@@ -487,7 +487,7 @@ impl<EF: ExecutorFactory> StarknetApi<EF> {
 
     async fn receipt(&self, hash: Felt) -> StarknetApiResult<TxReceiptWithBlockInfo> {
         let receipt = self
-            .on_io_bound_task(move |this| {
+            .on_io_blocking_task(move |this| {
                 let provider = this.inner.backend.blockchain.provider();
                 let receipt = ReceiptBuilder::new(hash, provider).build()?;
 
@@ -549,7 +549,7 @@ impl<EF: ExecutorFactory> StarknetApi<EF> {
 
     async fn transaction_status(&self, hash: TxHash) -> StarknetApiResult<TxStatus> {
         let status = self
-            .on_io_bound_task(move |this| {
+            .on_io_blocking_task(move |this| {
                 let provider = this.inner.backend.blockchain.provider();
                 let status = provider.transaction_status(hash)?;
 
@@ -622,7 +622,7 @@ impl<EF: ExecutorFactory> StarknetApi<EF> {
         block_id: BlockIdOrTag,
     ) -> StarknetApiResult<MaybePreConfirmedBlock> {
         let block = self
-            .on_io_bound_task(move |this| {
+            .on_io_blocking_task(move |this| {
                 let provider = this.inner.backend.blockchain.provider();
 
                 if BlockIdOrTag::PreConfirmed == block_id {
@@ -690,7 +690,7 @@ impl<EF: ExecutorFactory> StarknetApi<EF> {
         block_id: BlockIdOrTag,
     ) -> StarknetApiResult<GetBlockWithReceiptsResponse> {
         let block = self
-            .on_io_bound_task(move |this| {
+            .on_io_blocking_task(move |this| {
                 let provider = this.inner.backend.blockchain.provider();
 
                 if BlockIdOrTag::PreConfirmed == block_id {
@@ -758,7 +758,7 @@ impl<EF: ExecutorFactory> StarknetApi<EF> {
         block_id: BlockIdOrTag,
     ) -> StarknetApiResult<GetBlockWithTxHashesResponse> {
         let block = self
-            .on_io_bound_task(move |this| {
+            .on_io_blocking_task(move |this| {
                 let provider = this.inner.backend.blockchain.provider();
 
                 if BlockIdOrTag::PreConfirmed == block_id {
@@ -826,7 +826,7 @@ impl<EF: ExecutorFactory> StarknetApi<EF> {
         block_id: BlockIdOrTag,
     ) -> StarknetApiResult<GetStateUpdateResponse> {
         let state_update = self
-            .on_io_bound_task(move |this| {
+            .on_io_blocking_task(move |this| {
                 let provider = this.inner.backend.blockchain.provider();
 
                 let block_id = match block_id {
@@ -872,7 +872,7 @@ impl<EF: ExecutorFactory> StarknetApi<EF> {
             }
         }
 
-        self.on_io_bound_task(move |this| {
+        self.on_io_blocking_task(move |this| {
             let from = match event_filter.from_block {
                 Some(id) => id,
                 None => BlockIdOrTag::Number(0),
@@ -1170,7 +1170,7 @@ impl<EF: ExecutorFactory> StarknetApi<EF> {
         contract_addresses: Option<Vec<ContractAddress>>,
         contracts_storage_keys: Option<Vec<ContractStorageKeys>>,
     ) -> StarknetApiResult<GetStorageProofResponse> {
-        self.on_io_bound_task(move |this| {
+        self.on_io_blocking_task(move |this| {
             let provider = this.inner.backend.blockchain.provider();
 
             let Some(block_num) = provider.convert_block_id(block_id)? else {
@@ -1261,7 +1261,7 @@ impl<EF: ExecutorFactory> StarknetApi<EF> {
 
 impl<EF: ExecutorFactory> StarknetApi<EF> {
     async fn blocks(&self, request: GetBlocksRequest) -> StarknetApiResult<GetBlocksResponse> {
-        self.on_io_bound_task(move |this| {
+        self.on_io_blocking_task(move |this| {
             let provider = this.inner.backend.blockchain.provider();
 
             // Parse continuation token to get starting point
@@ -1337,7 +1337,7 @@ impl<EF: ExecutorFactory> StarknetApi<EF> {
         &self,
         request: GetTransactionsRequest,
     ) -> StarknetApiResult<GetTransactionsResponse> {
-        self.on_io_bound_task(move |this| {
+        self.on_io_blocking_task(move |this| {
             let provider = this.inner.backend.blockchain.provider();
 
             // Resolve the starting point for this query.
@@ -1407,7 +1407,7 @@ impl<EF: ExecutorFactory> StarknetApi<EF> {
     }
 
     async fn total_transactions(&self) -> StarknetApiResult<TxNumber> {
-        self.on_io_bound_task(move |this| {
+        self.on_io_blocking_task(move |this| {
             let provider = this.inner.backend.blockchain.provider();
             let total = provider.total_transactions()? as TxNumber;
             Ok(total)

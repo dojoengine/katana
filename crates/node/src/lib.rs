@@ -201,12 +201,12 @@ impl Node {
         let block_producer =
             if config.sequencing.block_time.is_some() || config.sequencing.no_mining {
                 if let Some(interval) = config.sequencing.block_time {
-                    BlockProducer::interval(Arc::clone(&backend), task_spawner.clone(), interval)
+                    BlockProducer::interval(Arc::clone(&backend), interval)
                 } else {
-                    BlockProducer::on_demand(Arc::clone(&backend), task_spawner.clone())
+                    BlockProducer::on_demand(Arc::clone(&backend))
                 }
             } else {
-                BlockProducer::instant(Arc::clone(&backend), task_spawner.clone())
+                BlockProducer::instant(Arc::clone(&backend))
             };
 
         // --- build transaction pool

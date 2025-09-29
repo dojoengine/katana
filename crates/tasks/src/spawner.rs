@@ -2,12 +2,11 @@ use core::future::Future;
 use std::panic::{self, AssertUnwindSafe};
 use std::sync::Arc;
 
-use futures::channel::oneshot;
 use futures::FutureExt;
 use tokio_util::sync::CancellationToken;
 use tracing::{debug, error};
 
-use crate::{BlockingTaskHandle, Inner, JoinError, JoinHandle};
+use crate::{CpuBlockingJoinHandle, Inner, JoinError, JoinHandle};
 
 /// A spawner for spawning tasks on the [`TaskManager`] that it was derived from.
 ///
@@ -69,18 +68,13 @@ pub struct CPUBoundTaskSpawner(TaskSpawner);
 
 impl CPUBoundTaskSpawner {
     /// Spawns a CPU-bound blocking task onto the manager's blocking pool.
-    pub fn spawn<F, R>(&self, func: F) -> BlockingTaskHandle<R>
+    pub fn spawn<F, R>(&self, func: F) -> CpuBlockingJoinHandle<R>
     where
         F: FnOnce() -> R + Send + 'static,
         R: Send + 'static,
     {
-        let (tx, rx) = oneshot::channel();
-        self.0.inner.blocking_pool.spawn(move || {
-            println!("cpu bound task starting");
-            let _ = tx.send(panic::catch_unwind(AssertUnwindSafe(func)));
-            println!("cpu bound task ending");
-        });
-        BlockingTaskHandle(rx)
+        // TODO(kariy): use TaskBuilder::build_blocking_task to buil the task
+        self.0.inner.blocking_pool.spawn(func)
     }
 }
 
@@ -155,7 +149,6 @@ impl<'a> TaskBuilder<'a> {
             Ok(value) => {
 	            if graceful_shutdown {
 	                debug!(target: "tasks", task = ?task_name, "Task with graceful shutdown completed.");
-					println!("gracefully shutting down on completion of non-blocking task");
 	                cancellation_token.cancel();
 	            }
 	           value
@@ -166,7 +159,6 @@ impl<'a> TaskBuilder<'a> {
                 error!(target = "tasks", task = ?task_name, ?reason, "Task panicked.");
 
                 if graceful_shutdown {
-                println!("gracefully shutting down on panic of non-blocking task");
                     cancellation_token.cancel();
                 }
 
@@ -187,22 +179,18 @@ impl<'a> TaskBuilder<'a> {
         move || {
             match panic::catch_unwind(AssertUnwindSafe(func)) {
                 Ok(value) => {
-                    println!("ohayo_");
                     if graceful_shutdown {
                         debug!(target: "tasks", task = ?task_name, "Task with graceful shutdown completed.");
-                        println!("gracefully shutting down on completion of blocking task");
                         cancellation_token.cancel();
                     }
                     value
                 }
                 Err(error) => {
-                    println!("ohayo_error");
                     // get the panic reason message
                     let reason = error.downcast_ref::<String>();
                     error!(target = "tasks", task = ?task_name, ?reason, "Task panicked.");
 
                     if graceful_shutdown {
-                        println!("gracefully shutting down on panic of blocking task");
                         cancellation_token.cancel();
                     }
 
