@@ -76,7 +76,9 @@ impl CPUBoundTaskSpawner {
     {
         let (tx, rx) = oneshot::channel();
         self.0.inner.blocking_pool.spawn(move || {
+            println!("cpu bound task starting");
             let _ = tx.send(panic::catch_unwind(AssertUnwindSafe(func)));
+            println!("cpu bound task ending");
         });
         BlockingTaskHandle(rx)
     }
@@ -129,7 +131,7 @@ impl<'a> TaskBuilder<'a> {
     /// # CPU-bound tasks
     ///
     /// If need to spawn a CPU-bound blocking task, consider using the
-    /// [`CPUBoundTaskSpawner::spawn`] method instead.
+    /// [`CPUBoundTaskSpawner::spawn`] instead.
     pub fn spawn_blocking<F, R>(&self, func: F) -> JoinHandle<R>
     where
         F: FnOnce() -> R + Send + 'static,
