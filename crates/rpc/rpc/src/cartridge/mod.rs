@@ -54,20 +54,16 @@ use katana_rpc_types::outside_execution::{
 };
 use katana_rpc_types::FunctionCall;
 use katana_tasks::TokioTaskSpawner;
-use starknet::core::types::Call as StarknetCall;
 use starknet::macros::selector;
 use starknet::signers::{LocalWallet, Signer, SigningKey};
 use tracing::{debug, info};
 use url::Url;
 
-use paymaster_starknet::transaction::{
-    Calls as PaymasterCalls, ExecuteFromOutsideMessage as PaymasterExecuteFromOutsideMessage,
-    ExecuteFromOutsideParameters as PaymasterExecuteFromOutsideParameters,
-    PaymasterVersion as AvnuPaymasterVersion, TimeBounds as PaymasterTimeBounds,
-};
-use paymaster_starknet::ChainID as PaymasterChainId;
-
 use super::paymaster::PaymasterService;
+use katana_rpc_api::paymaster::{
+    BuildTransactionRequest, BuildTransactionResponse, ExecuteRequest, ExecuteResponse,
+    InvokeParameters as PaymasterInvokeParams, InvokeTransaction, TransactionParameters,
+};
 
 #[allow(missing_debug_implementations)]
 pub struct CartridgeApi<EF: ExecutorFactory> {
@@ -122,52 +118,6 @@ impl<EF: ExecutorFactory> CartridgeApi<EF> {
         Self { backend, block_producer, pool, api_client, vrf_ctx, paymaster }
     }
 
-    fn build_execute_call_via_paymaster(
-        &self,
-        address: ContractAddress,
-        outside_execution: &OutsideExecution,
-        signature: &[Felt],
-        chain_id: ChainId,
-    ) -> Option<FunctionCall> {
-        let Some(_paymaster) = self.paymaster.as_ref() else { return None; };
-        let avnu_chain_id = map_chain_id(chain_id)?;
-
-        match outside_execution {
-            OutsideExecution::V2(v2) => {
-                let starknet_calls = v2
-                    .calls
-                    .iter()
-                    .map(|call| StarknetCall {
-                        to: (*call.to).into(),
-                        selector: call.entry_point_selector,
-                        calldata: call.calldata.clone(),
-                    })
-                    .collect();
-
-                let params = PaymasterExecuteFromOutsideParameters {
-                    chain_id: avnu_chain_id,
-                    caller: (*v2.caller).into(),
-                    nonce: v2.nonce,
-                    time_bounds: PaymasterTimeBounds {
-                        execute_after: v2.execute_after,
-                        execute_before: v2.execute_before,
-                    },
-                    calls: PaymasterCalls::new(starknet_calls),
-                };
-
-                let message =
-                    PaymasterExecuteFromOutsideMessage::new(AvnuPaymasterVersion::V2, params);
-                let starknet_call = message.to_call(address.into(), &signature.to_vec());
-
-                Some(FunctionCall {
-                    contract_address: address,
-                    entry_point_selector: starknet_call.selector,
-                    calldata: starknet_call.calldata,
-                })
-            }
-            OutsideExecution::V3(_) => None,
-        }
-    }
 
     fn nonce(&self, contract_address: ContractAddress) -> Result<Option<Nonce>, StarknetApiError> {
         Ok(self.pool.validator().pool_nonce(contract_address)?)
@@ -180,6 +130,125 @@ impl<EF: ExecutorFactory> CartridgeApi<EF> {
         }
     }
 
+    async fn execute_outside_via_avnu_paymaster(
+        &self,
+        address: ContractAddress,
+        outside_execution: OutsideExecution,
+        signature: Vec<Felt>,
+        paymaster: Arc<PaymasterService>,
+    ) -> Result<AddInvokeTransactionResponse, StarknetApiError> {
+        debug!(%address, "Executing outside transaction via Avnu paymaster");
+
+        // Extract calls from outside execution
+        let calls = match &outside_execution {
+            OutsideExecution::V2(v2) => {
+                v2.calls.iter().map(|call| starknet::core::types::Call {
+                    to: (*call.to).into(),
+                    selector: call.entry_point_selector,
+                    calldata: call.calldata.clone(),
+                }).collect()
+            }
+            OutsideExecution::V3(v3) => {
+                v3.calls.iter().map(|call| starknet::core::types::Call {
+                    to: (*call.to).into(),
+                    selector: call.entry_point_selector,
+                    calldata: call.calldata.clone(),
+                }).collect()
+            }
+        };
+
+        // Check for VRF calls and handle them
+        let chain_id = self.backend.chain_spec.id();
+        let vrf_calls = futures::executor::block_on(
+            handle_vrf_calls(&outside_execution, chain_id, &self.vrf_ctx)
+        )?;
+
+        // If VRF is involved, wrap the calls appropriately
+        let final_calls = if !vrf_calls.is_empty() {
+            // VRF pattern: submit_random -> execute_from_outside -> assert_consumed
+            let mut all_calls = vec![self.function_call_to_call(&vrf_calls[0])];
+            all_calls.extend(calls);
+            all_calls.push(self.function_call_to_call(&vrf_calls[1]));
+            all_calls
+        } else {
+            calls
+        };
+
+        // Build transaction request for Avnu paymaster
+        let build_request = BuildTransactionRequest {
+            transaction: TransactionParameters::Invoke {
+                invoke: PaymasterInvokeParams {
+                    user_address: address.into(),
+                    calls: final_calls,
+                },
+            },
+            parameters: self.create_execution_parameters(&outside_execution),
+        };
+
+        // Build the transaction using paymaster
+        let build_response = paymaster.build_transaction(build_request).await
+            .map_err(|e| StarknetApiError::unexpected(format!("Failed to build transaction: {}", e)))?;
+
+        // Extract typed data and create execute request
+        let (typed_data, parameters, _fee) = match build_response {
+            BuildTransactionResponse::Invoke(invoke_tx) => {
+                (invoke_tx.typed_data, invoke_tx.parameters, invoke_tx.fee)
+            }
+            _ => return Err(StarknetApiError::unexpected("Unexpected response from build transaction")),
+        };
+
+        // Create execute request with the signature
+        let execute_request = ExecuteRequest {
+            transaction: katana_rpc_api::paymaster::ExecutableTransactionParameters::Invoke {
+                invoke: katana_rpc_api::paymaster::ExecutableInvokeParameters {
+                    user_address: address.into(),
+                    typed_data,
+                    signature,
+                },
+            },
+            parameters,
+        };
+
+        // Execute the transaction
+        let execute_response = paymaster.execute_transaction(execute_request).await
+            .map_err(|e| StarknetApiError::unexpected(format!("Failed to execute transaction: {}", e)))?;
+
+        Ok(AddInvokeTransactionResponse {
+            transaction_hash: execute_response.transaction_hash,
+        })
+    }
+
+    fn function_call_to_call(&self, fc: &FunctionCall) -> starknet::core::types::Call {
+        starknet::core::types::Call {
+            to: fc.contract_address.into(),
+            selector: fc.entry_point_selector,
+            calldata: fc.calldata.clone(),
+        }
+    }
+
+    fn create_execution_parameters(&self, outside_execution: &OutsideExecution) -> katana_rpc_api::paymaster::ExecutionParameters {
+        use katana_rpc_api::paymaster::{ExecutionParameters, FeeMode, TimeBounds};
+
+        let time_bounds = match outside_execution {
+            OutsideExecution::V2(v2) => TimeBounds {
+                execute_after: v2.execute_after.try_into().unwrap_or(0),
+                execute_before: v2.execute_before.try_into().unwrap_or(u64::MAX),
+            },
+            OutsideExecution::V3(v3) => TimeBounds {
+                execute_after: v3.execute_after.try_into().unwrap_or(0),
+                execute_before: v3.execute_before.try_into().unwrap_or(u64::MAX),
+            },
+        };
+
+        ExecutionParameters::V1 {
+            fee_mode: FeeMode::Default {
+                gas_token: Felt::from_hex_unchecked("0x049d36570d4e46f48e99674bd3fcc84644ddd6b96f7c741b1562b82f9e004dc7"), // ETH address
+                tip: katana_rpc_api::paymaster::TipPriority::Normal,
+            },
+            time_bounds: Some(time_bounds),
+        }
+    }
+
     pub async fn execute_outside(
         &self,
         address: ContractAddress,
@@ -187,6 +256,18 @@ impl<EF: ExecutorFactory> CartridgeApi<EF> {
         signature: Vec<Felt>,
     ) -> Result<AddInvokeTransactionResponse, StarknetApiError> {
         debug!(%address, ?outside_execution, "Adding execute outside transaction.");
+
+        // If paymaster is available, use Avnu paymaster for execution
+        if let Some(ref paymaster) = self.paymaster {
+            return self.execute_outside_via_avnu_paymaster(
+                address,
+                outside_execution,
+                signature,
+                paymaster.clone()
+            ).await;
+        }
+
+        // Fallback to original implementation if no paymaster
         self.on_io_blocking_task(move |this| {
             // For now, we use the first predeployed account in the genesis as the paymaster
             // account.
@@ -253,22 +334,18 @@ impl<EF: ExecutorFactory> CartridgeApi<EF> {
 
             let chain_id = this.backend.chain_spec.id();
 
-            let execute_from_outside_call = if let Some(call) = this.build_execute_call_via_paymaster(
-                address,
-                &outside_execution,
-                &signature,
-                chain_id,
-            ) {
-                call
-            } else {
-                let mut inner_calldata = match &outside_execution {
-                    OutsideExecution::V2(v2) => OutsideExecutionV2::cairo_serialize(v2),
-                    OutsideExecution::V3(v3) => OutsideExecutionV3::cairo_serialize(v3),
-                };
+            // Build the execute from outside call
+            let mut inner_calldata = match &outside_execution {
+                OutsideExecution::V2(v2) => OutsideExecutionV2::cairo_serialize(v2),
+                OutsideExecution::V3(v3) => OutsideExecutionV3::cairo_serialize(v3),
+            };
 
-                inner_calldata.extend(Vec::<Felt>::cairo_serialize(&signature));
+            inner_calldata.extend(Vec::<Felt>::cairo_serialize(&signature));
 
-                FunctionCall { contract_address: address, entry_point_selector: entrypoint, calldata: inner_calldata }
+            let execute_from_outside_call = FunctionCall {
+                contract_address: address,
+                entry_point_selector: entrypoint,
+                calldata: inner_calldata
             };
 
             // ======= VRF checks =======
@@ -344,13 +421,6 @@ impl<EF: ExecutorFactory> CartridgeApi<EF> {
     }
 }
 
-fn map_chain_id(chain_id: ChainId) -> Option<PaymasterChainId> {
-    match chain_id {
-        ChainId::Named(NamedChainId::Mainnet) => Some(PaymasterChainId::Mainnet),
-        ChainId::Named(NamedChainId::Sepolia) => Some(PaymasterChainId::Sepolia),
-        _ => None,
-    }
-}
 
 #[async_trait]
 impl<EF: ExecutorFactory> CartridgeApiServer for CartridgeApi<EF> {

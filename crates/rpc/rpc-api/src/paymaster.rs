@@ -6,7 +6,7 @@ pub use paymaster_rpc::endpoint::build::{
     BuildTransactionRequest, BuildTransactionResponse, DeployAndInvokeTransaction, DeployTransaction, FeeEstimate, InvokeParameters, InvokeTransaction,
     TransactionParameters,
 };
-pub use paymaster_rpc::endpoint::common::{DeploymentParameters, ExecutionParameters, FeeMode, TimeBounds};
+pub use paymaster_rpc::endpoint::common::{DeploymentParameters, ExecutionParameters, FeeMode, TimeBounds, TipPriority};
 pub use paymaster_rpc::endpoint::execute::{ExecutableInvokeParameters, ExecutableTransactionParameters, ExecuteRequest, ExecuteResponse};
 pub use paymaster_rpc::endpoint::token::TokenPrice;
 pub use paymaster_rpc::Error;

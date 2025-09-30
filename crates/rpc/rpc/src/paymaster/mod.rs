@@ -45,6 +45,20 @@ impl PaymasterService {
         let request_context = RequestContext::new(&self.context, &extensions);
         (extensions, request_context)
     }
+
+    pub async fn build_transaction(&self, params: BuildTransactionRequest) -> Result<BuildTransactionResponse, katana_rpc_api::paymaster::Error> {
+        let (extensions, ctx) = self.request_context(None);
+        let result = build_transaction_endpoint(&ctx, params).await;
+        drop(extensions);
+        result
+    }
+
+    pub async fn execute_transaction(&self, params: ExecuteRequest) -> Result<ExecuteResponse, katana_rpc_api::paymaster::Error> {
+        let (extensions, ctx) = self.request_context(None);
+        let result = execute_endpoint(&ctx, params).await;
+        drop(extensions);
+        result
+    }
 }
 
 pub struct PaymasterRpc {
