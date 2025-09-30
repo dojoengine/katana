@@ -136,6 +136,7 @@ impl StarknetVMProcessor {
         let bouncer = Bouncer::new(BouncerConfig {
             block_max_capacity,
             builtin_weights: BuiltinWeights::default(),
+            ..Default::default()
         });
 
         Self {

@@ -482,8 +482,11 @@ pub fn block_context_from_envs(
         use_kzg_da: false,
     };
 
-    let chain_info =
-        ChainInfo { fee_token_addresses, chain_id: to_blk_chain_id(chain_spec.id()), is_l3: false };
+    let chain_info = ChainInfo {
+        fee_token_addresses,
+        chain_id: to_blk_chain_id(cfg_env.chain_id),
+        is_l3: false,
+    };
 
     // IMPORTANT:
     //
