@@ -34,7 +34,7 @@ use cartridge::vrf::{
 };
 use jsonrpsee::core::{async_trait, RpcResult};
 use katana_core::backend::Backend;
-use katana_core::service::block_producer::{BlockProducer, BlockProducerMode, PendingExecutor};
+use katana_core::service::block_producer::{BlockProducer, BlockProducerMode};
 use katana_executor::ExecutorFactory;
 use katana_genesis::allocation::GenesisAccountAlloc;
 use katana_genesis::constant::DEFAULT_UDC_ADDRESS;
@@ -56,6 +56,7 @@ use katana_rpc_types::FunctionCall;
 use katana_tasks::{Result as TaskResult, TaskSpawner};
 use starknet::macros::selector;
 use starknet::signers::{LocalWallet, Signer, SigningKey};
+use starknet_crypto::pedersen_hash;
 use tracing::{debug, info};
 use url::Url;
 
@@ -104,7 +105,6 @@ impl<EF: ExecutorFactory> CartridgeApi<EF> {
 
         let api_client = cartridge::Client::new(api_url);
         let vrf_ctx = VrfContext::new(CARTRIDGE_VRF_DEFAULT_PRIVATE_KEY, *pm_address);
-
         // Info to ensure this is visible to the user without changing the default logging level.
         // The use can still use `rpc::cartridge` in debug to see the random value and the seed.
         info!(target: "rpc::cartridge", paymaster_address = %pm_address, vrf_address = %vrf_ctx.address(), "Cartridge API initialized.");
@@ -116,10 +116,10 @@ impl<EF: ExecutorFactory> CartridgeApi<EF> {
         Ok(self.pool.validator().pool_nonce(contract_address)?)
     }
 
-    fn pending_executor(&self) -> Option<PendingExecutor> {
+    fn state(&self) -> Result<Box<dyn StateProvider>, StarknetApiError> {
         match &*self.block_producer.producer.read() {
-            BlockProducerMode::Instant(_) => None,
-            BlockProducerMode::Interval(producer) => Some(producer.executor()),
+            BlockProducerMode::Instant(_) => Ok(self.backend.blockchain.provider().latest()?),
+            BlockProducerMode::Interval(producer) => Ok(producer.executor().read().state()),
         }
     }
 
@@ -160,14 +160,8 @@ impl<EF: ExecutorFactory> CartridgeApi<EF> {
             // ====================== CONTROLLER DEPLOYMENT ======================
             // Check if the controller is already deployed. If not, deploy it.
 
-            let is_controller_deployed = {
-	            match this.pending_executor().as_ref() {
-	                Some(executor) => executor.read().state().class_hash_of_contract(address)?.is_some(),
-	                None => {
-						let provider = this.backend.blockchain.provider();
-						provider.latest()?.class_hash_of_contract(address)?.is_some()},
-	            }
-            };
+            let state = this.state().map(Arc::new)?;
+            let is_controller_deployed = state.class_hash_of_contract(address)?.is_some();
 
             if !is_controller_deployed {
 	           	debug!(target: "rpc::cartridge", controller = %address, "Controller not yet deployed");
@@ -211,8 +205,6 @@ impl<EF: ExecutorFactory> CartridgeApi<EF> {
 
             // ======= VRF checks =======
 
-            let state = this.backend.blockchain.provider().latest().map(Arc::new)?;
-
             let (public_key_x, public_key_y) = this.vrf_ctx.get_public_key_xy_felts();
             let vrf_address = this.vrf_ctx.address();
 
@@ -234,7 +226,7 @@ impl<EF: ExecutorFactory> CartridgeApi<EF> {
                 nonce += Nonce::ONE;
             }
 
-            let vrf_calls = futures::executor::block_on(handle_vrf_calls(&outside_execution, chain_id, &this.vrf_ctx))?;
+            let vrf_calls = futures::executor::block_on(handle_vrf_calls(&outside_execution, chain_id, &this.vrf_ctx, state))?;
 
             let calls = if vrf_calls.is_empty() {
                 vec![execute_from_outside_call]
@@ -426,6 +418,7 @@ async fn handle_vrf_calls(
     outside_execution: &OutsideExecution,
     chain_id: ChainId,
     vrf_ctx: &VrfContext,
+    state: Arc<Box<dyn StateProvider>>,
 ) -> anyhow::Result<Vec<FunctionCall>> {
     let calls = match outside_execution {
         OutsideExecution::V2(v2) => &v2.calls,
@@ -455,8 +448,11 @@ async fn handle_vrf_calls(
     let salt_or_nonce = first_call.calldata[2];
 
     let seed = if salt_or_nonce_selector == Felt::ZERO {
-        let contract_address = salt_or_nonce;
-        let nonce = vrf_ctx.consume_nonce(contract_address.into());
+        // compute storage key of the VRF contract storage member VrfProvider_nonces:
+        // Map<ContractAddress, felt252>
+        let address = salt_or_nonce;
+        let key = pedersen_hash(&selector!("VrfProvider_nonces"), &address);
+        let nonce = state.storage(vrf_ctx.address(), key).unwrap_or_default().unwrap_or_default();
         starknet_crypto::poseidon_hash_many(vec![&nonce, &caller, &chain_id.id()])
     } else if salt_or_nonce_selector == Felt::ONE {
         let salt = salt_or_nonce;
