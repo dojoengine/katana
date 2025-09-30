@@ -6,7 +6,7 @@ use fixtures::{state_provider, valid_blocks};
 use katana_contracts::contracts;
 use katana_executor::{ExecutionOutput, ExecutionResult, ExecutorFactory};
 use katana_genesis::constant::{
-    DEFAULT_ETH_FEE_TOKEN_ADDRESS, DEFAULT_PREFUNDED_ACCOUNT_BALANCE, DEFAULT_UDC_ADDRESS,
+    DEFAULT_ETH_FEE_TOKEN_ADDRESS, DEFAULT_LEGACY_UDC_ADDRESS, DEFAULT_PREFUNDED_ACCOUNT_BALANCE,
 };
 use katana_primitives::block::ExecutableBlock;
 use katana_primitives::contract::ContractAddress;
@@ -191,7 +191,7 @@ fn test_executor_with_valid_blocks_impl<EF: ExecutorFactory>(
         contracts::LegacyERC20::HASH,
         &UdcUniqueness::Unique(UdcUniqueSettings {
             deployer_address: *main_account,
-            udc_contract_address: DEFAULT_UDC_ADDRESS.into(),
+            udc_contract_address: DEFAULT_LEGACY_UDC_ADDRESS.into(),
         }),
         // constructor arguments (refer to the valid_blocks fixture for the contract deployment for
         // the meaning of these values)

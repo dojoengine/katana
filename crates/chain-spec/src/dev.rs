@@ -5,7 +5,7 @@ use katana_contracts::contracts;
 use katana_genesis::allocation::{DevAllocationsGenerator, GenesisAllocation};
 use katana_genesis::constant::{
     get_fee_token_balance_base_storage_address, DEFAULT_ACCOUNT_CLASS_PUBKEY_STORAGE_SLOT,
-    DEFAULT_ETH_FEE_TOKEN_ADDRESS, DEFAULT_PREFUNDED_ACCOUNT_BALANCE,
+    DEFAULT_ETH_FEE_TOKEN_ADDRESS, DEFAULT_LEGACY_UDC_ADDRESS, DEFAULT_PREFUNDED_ACCOUNT_BALANCE,
     DEFAULT_STRK_FEE_TOKEN_ADDRESS, DEFAULT_UDC_ADDRESS, ERC20_DECIMAL_STORAGE_SLOT,
     ERC20_NAME_STORAGE_SLOT, ERC20_SYMBOL_STORAGE_SLOT, ERC20_TOTAL_SUPPLY_STORAGE_SLOT,
 };
@@ -100,8 +100,10 @@ impl ChainSpec {
 
         //-- Fee tokens
         add_default_fee_tokens(&mut states, &self.genesis);
+
         // -- UDC
-        add_default_udc(&mut states);
+        add_udc(&mut states);
+        add_legacy_udc(&mut states);
 
         states
     }
@@ -235,14 +237,37 @@ fn add_fee_token(
     states.state_updates.storage_updates.insert(address, storage);
 }
 
-fn add_default_udc(states: &mut StateUpdatesWithClasses) {
+fn add_legacy_udc(states: &mut StateUpdatesWithClasses) {
+    // declare UDC class
+    states
+        .classes
+        .entry(contracts::LegacyUniversalDeployer::HASH)
+        .or_insert_with(|| contracts::LegacyUniversalDeployer::CLASS.clone());
+
+    states
+        .state_updates
+        .deprecated_declared_classes
+        .insert(contracts::LegacyUniversalDeployer::HASH);
+
+    // deploy UDC contract
+    states
+        .state_updates
+        .deployed_contracts
+        .entry(DEFAULT_LEGACY_UDC_ADDRESS)
+        .or_insert(contracts::LegacyUniversalDeployer::HASH);
+}
+
+fn add_udc(states: &mut StateUpdatesWithClasses) {
     // declare UDC class
     states
         .classes
         .entry(contracts::UniversalDeployer::HASH)
         .or_insert_with(|| contracts::UniversalDeployer::CLASS.clone());
 
-    states.state_updates.deprecated_declared_classes.insert(contracts::UniversalDeployer::HASH);
+    states
+        .state_updates
+        .declared_classes
+        .insert(contracts::UniversalDeployer::HASH, contracts::UniversalDeployer::CASM_HASH);
 
     // deploy UDC contract
     states
@@ -274,8 +299,8 @@ mod tests {
         let classes = BTreeMap::from([
             (contracts::LegacyERC20::HASH, contracts::LegacyERC20::CLASS.clone().into()),
             (
-                contracts::UniversalDeployer::HASH,
-                contracts::UniversalDeployer::CLASS.clone().into(),
+                contracts::LegacyUniversalDeployer::HASH,
+                contracts::LegacyUniversalDeployer::CLASS.clone().into(),
             ),
             (contracts::Account::HASH, contracts::Account::CLASS.clone().into()),
         ]);
@@ -402,8 +427,8 @@ mod tests {
             actual_state_updates
                 .state_updates
                 .deprecated_declared_classes
-                .get(&contracts::UniversalDeployer::HASH),
-            Some(&contracts::UniversalDeployer::HASH),
+                .get(&contracts::LegacyUniversalDeployer::HASH),
+            Some(&contracts::LegacyUniversalDeployer::HASH),
             "The default universal deployer class should be declared"
         );
 
@@ -411,19 +436,19 @@ mod tests {
             actual_state_updates
                 .state_updates
                 .declared_classes
-                .get(&contracts::UniversalDeployer::HASH),
+                .get(&contracts::LegacyUniversalDeployer::HASH),
             None,
             "The udc is a legacy class - legacy class should only be in \
              `deprecated_declared_classes`"
         );
         assert_eq!(
-            actual_state_updates.classes.get(&contracts::UniversalDeployer::HASH),
-            Some(&contracts::UniversalDeployer::CLASS.clone())
+            actual_state_updates.classes.get(&contracts::LegacyUniversalDeployer::HASH),
+            Some(&contracts::LegacyUniversalDeployer::CLASS.clone())
         );
 
         assert_eq!(
-            actual_state_updates.state_updates.deployed_contracts.get(&DEFAULT_UDC_ADDRESS),
-            Some(&contracts::UniversalDeployer::HASH),
+            actual_state_updates.state_updates.deployed_contracts.get(&DEFAULT_LEGACY_UDC_ADDRESS),
+            Some(&contracts::LegacyUniversalDeployer::HASH),
             "The universal deployer contract should be created"
         );
 

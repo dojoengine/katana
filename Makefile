@@ -19,6 +19,8 @@ COMPATIBILITY_DB_DIR ?= $(DB_FIXTURES_DIR)/v1_2_2
 
 CONTRACTS_CRATE := crates/contracts
 CONTRACTS_DIR := $(CONTRACTS_CRATE)/contracts
+# UDC lives outside the contracts workspace, so we build it explicitly
+CONTRACTS_UDC_DIR := $(CONTRACTS_DIR)/udc
 CONTRACTS_BUILD_DIR := $(CONTRACTS_CRATE)/build
 
 # The `scarb` version that is required to compile the feature contracts in katana-contracts
@@ -74,8 +76,20 @@ contracts: $(CONTRACTS_BUILD_DIR)
 $(CONTRACTS_BUILD_DIR): $(shell find $(CONTRACTS_DIR) -type f)
 	@echo "Building contracts..."
 	@cd $(CONTRACTS_DIR) && scarb build
-	@mkdir -p build && \
-		mv $(CONTRACTS_DIR)/target/dev/* $@ || { echo "Contracts build failed!"; exit 1; }
+	# Build UDC separately because it is not part of the contracts workspace
+	@echo "Building UDC contract..."
+	@cd $(CONTRACTS_UDC_DIR) && scarb build
+	@mkdir -p $@
+	@for artifact in $(CONTRACTS_DIR)/target/dev/*; do \
+		if [ -e "$$artifact" ]; then \
+			mv "$$artifact" $@ || { echo "Contracts build failed!"; exit 1; }; \
+		fi; \
+	done
+	@for artifact in $(CONTRACTS_UDC_DIR)/target/dev/*; do \
+		if [ -e "$$artifact" ]; then \
+			mv "$$artifact" $@ || { echo "UDC contract build failed!"; exit 1; }; \
+		fi; \
+	done
 
 $(EXPLORER_UI_DIR):
 	@echo "Initializing Explorer UI submodule..."

@@ -37,7 +37,7 @@ use katana_core::backend::Backend;
 use katana_core::service::block_producer::{BlockProducer, BlockProducerMode, PendingExecutor};
 use katana_executor::ExecutorFactory;
 use katana_genesis::allocation::GenesisAccountAlloc;
-use katana_genesis::constant::DEFAULT_UDC_ADDRESS;
+use katana_genesis::constant::DEFAULT_LEGACY_UDC_ADDRESS;
 use katana_pool::{TransactionPool, TxPool};
 use katana_primitives::chain::ChainId;
 use katana_primitives::contract::Nonce;
@@ -378,7 +378,7 @@ pub async fn craft_deploy_cartridge_controller_tx(
         .map_err(|e| anyhow!("Failed to fetch controller constructor calldata: {e}"))?
     {
         let call = FunctionCall {
-            contract_address: DEFAULT_UDC_ADDRESS,
+            contract_address: DEFAULT_LEGACY_UDC_ADDRESS,
             entry_point_selector: selector!("deployContract"),
             calldata: res.constructor_calldata,
         };
@@ -516,7 +516,7 @@ pub async fn craft_deploy_cartridge_vrf_tx(
     ];
 
     let call = FunctionCall {
-        contract_address: DEFAULT_UDC_ADDRESS,
+        contract_address: DEFAULT_LEGACY_UDC_ADDRESS,
         entry_point_selector: selector!("deployContract"),
         calldata,
     };

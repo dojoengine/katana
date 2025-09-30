@@ -6,7 +6,9 @@ use std::collections::BTreeMap;
 use std::fmt::Debug;
 use std::sync::Arc;
 
-use katana_contracts::contracts::{Account, LegacyERC20, UniversalDeployer};
+use katana_contracts::contracts::{
+    Account, LegacyERC20, LegacyUniversalDeployer, UniversalDeployer,
+};
 use katana_primitives::block::{BlockHash, BlockNumber, GasPrices};
 use katana_primitives::class::{ClassHash, ContractClass};
 use katana_primitives::contract::ContractAddress;
@@ -81,6 +83,8 @@ impl Default for Genesis {
             (LegacyERC20::HASH, LegacyERC20::CLASS.clone().into()),
             // universal depoyer contract class
             (UniversalDeployer::HASH, UniversalDeployer::CLASS.clone().into()),
+            // legacy universal depoyer contract class (for backward compatibility)
+            (LegacyUniversalDeployer::HASH, LegacyUniversalDeployer::CLASS.clone().into()),
             // predeployed account class
             (Account::HASH, Account::CLASS.clone().into()),
         ]));
