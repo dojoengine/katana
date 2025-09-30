@@ -11,6 +11,7 @@ mod tests {
     use katana_primitives::{ContractAddress, Felt};
     use katana_rpc::cartridge::CartridgeApi;
     use katana_rpc::paymaster::{PaymasterRpc, PaymasterService};
+    use katana_tasks::TaskManager;
     use katana_rpc_api::cartridge::CartridgeApiServer;
     use katana_rpc_api::paymaster::{
         BuildTransactionRequest, ExecutableInvokeParameters, ExecutableTransactionParameters,
@@ -29,6 +30,7 @@ mod tests {
         BlockProducer<BlockifierFactory>,
         TxPool,
         Arc<PaymasterService>,
+        TaskManager,
     ) {
         // Create a test chain spec
         let chain_spec = Arc::new(DevChainSpec::default().into());
@@ -47,18 +49,22 @@ mod tests {
         let paymaster_config = PaymasterConfiguration::default();
         let paymaster_service = Arc::new(PaymasterService::new(paymaster_config, None));
 
-        (backend, block_producer, pool, paymaster_service)
+        // Create task manager
+        let task_manager = TaskManager::current();
+
+        (backend, block_producer, pool, paymaster_service, task_manager)
     }
 
     #[tokio::test]
     async fn test_execute_outside_with_avnu_paymaster() {
-        let (backend, block_producer, pool, paymaster_service) = setup_test_environment().await;
+        let (backend, block_producer, pool, paymaster_service, task_manager) = setup_test_environment().await;
 
         // Create CartridgeApi with paymaster
         let cartridge_api = CartridgeApi::new(
             backend.clone(),
             block_producer.clone(),
             pool.clone(),
+            task_manager.task_spawner(),
             Url::parse("https://api.cartridge.gg").unwrap(),
             Some(paymaster_service.clone()),
         );
@@ -96,13 +102,14 @@ mod tests {
 
     #[tokio::test]
     async fn test_execute_outside_with_vrf() {
-        let (backend, block_producer, pool, paymaster_service) = setup_test_environment().await;
+        let (backend, block_producer, pool, paymaster_service, task_manager) = setup_test_environment().await;
 
         // Create CartridgeApi with paymaster
         let cartridge_api = CartridgeApi::new(
             backend.clone(),
             block_producer.clone(),
             pool.clone(),
+            task_manager.task_spawner(),
             Url::parse("https://api.cartridge.gg").unwrap(),
             Some(paymaster_service.clone()),
         );
@@ -148,7 +155,7 @@ mod tests {
 
     #[tokio::test]
     async fn test_build_and_execute_transaction_flow() {
-        let (_, _, _, paymaster_service) = setup_test_environment().await;
+        let (_, _, _, paymaster_service, _) = setup_test_environment().await;
 
         let paymaster_rpc = PaymasterRpc::new(paymaster_service);
 
@@ -190,13 +197,14 @@ mod tests {
 
     #[tokio::test]
     async fn test_execute_outside_without_paymaster() {
-        let (backend, block_producer, pool, _) = setup_test_environment().await;
+        let (backend, block_producer, pool, _, task_manager) = setup_test_environment().await;
 
         // Create CartridgeApi without paymaster (fallback to original implementation)
         let cartridge_api = CartridgeApi::new(
             backend.clone(),
             block_producer.clone(),
             pool.clone(),
+            task_manager.task_spawner(),
             Url::parse("https://api.cartridge.gg").unwrap(),
             None, // No paymaster
         );
