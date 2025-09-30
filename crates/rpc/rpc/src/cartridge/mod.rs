@@ -53,6 +53,7 @@ use katana_rpc_types::outside_execution::{
     OutsideExecution, OutsideExecutionV2, OutsideExecutionV3,
 };
 use katana_rpc_types::FunctionCall;
+use cainome::cairo_serde::CairoSerde;
 use katana_tasks::{Result as TaskResult, TaskSpawner};
 use starknet::macros::selector;
 use starknet::signers::{LocalWallet, Signer, SigningKey};
@@ -142,24 +143,6 @@ impl<EF: ExecutorFactory> CartridgeApi<EF> {
     ) -> Result<AddInvokeTransactionResponse, StarknetApiError> {
         debug!(%address, "Executing outside transaction via Avnu paymaster");
 
-        // Extract calls from outside execution
-        let calls = match &outside_execution {
-            OutsideExecution::V2(v2) => {
-                v2.calls.iter().map(|call| starknet::core::types::Call {
-                    to: (*call.to).into(),
-                    selector: call.entry_point_selector,
-                    calldata: call.calldata.clone(),
-                }).collect()
-            }
-            OutsideExecution::V3(v3) => {
-                v3.calls.iter().map(|call| starknet::core::types::Call {
-                    to: (*call.to).into(),
-                    selector: call.entry_point_selector,
-                    calldata: call.calldata.clone(),
-                }).collect()
-            }
-        };
-
         // Check for VRF calls and handle them
         let chain_id = self.backend.chain_spec.id();
         let state = self.state().map(Arc::new)?;
@@ -167,15 +150,53 @@ impl<EF: ExecutorFactory> CartridgeApi<EF> {
             handle_vrf_calls(&outside_execution, chain_id, &self.vrf_ctx, state)
         )?;
 
-        // If VRF is involved, wrap the calls appropriately
+        // Build the calls for the paymaster transaction
         let final_calls = if !vrf_calls.is_empty() {
-            // VRF pattern: submit_random -> execute_from_outside -> assert_consumed
-            let mut all_calls = vec![self.function_call_to_call(&vrf_calls[0])];
-            all_calls.extend(calls);
-            all_calls.push(self.function_call_to_call(&vrf_calls[1]));
+            // VRF flow: wrap the entire execute_from_outside call
+            // 1. Submit randomness to VRF contract
+            // 2. Call execute_from_outside on the user's account
+            // 3. Assert consumption of randomness
+
+            let mut all_calls = vec![self.function_call_to_call(&vrf_calls[0])]; // submit_random
+
+            // Build the execute_from_outside call to the user's account
+            let entrypoint = match &outside_execution {
+                OutsideExecution::V2(_) => selector!("execute_from_outside_v2"),
+                OutsideExecution::V3(_) => selector!("execute_from_outside_v3"),
+            };
+
+            let mut execute_calldata = match &outside_execution {
+                OutsideExecution::V2(v2) => OutsideExecutionV2::cairo_serialize(v2),
+                OutsideExecution::V3(v3) => OutsideExecutionV3::cairo_serialize(v3),
+            };
+            execute_calldata.extend(Vec::<Felt>::cairo_serialize(&signature));
+
+            all_calls.push(starknet::core::types::Call {
+                to: address.into(),
+                selector: entrypoint,
+                calldata: execute_calldata,
+            });
+
+            all_calls.push(self.function_call_to_call(&vrf_calls[1])); // assert_consumed
             all_calls
         } else {
-            calls
+            // No VRF: directly execute the calls from the outside execution
+            match &outside_execution {
+                OutsideExecution::V2(v2) => {
+                    v2.calls.iter().map(|call| starknet::core::types::Call {
+                        to: (*call.to).into(),
+                        selector: call.entry_point_selector,
+                        calldata: call.calldata.clone(),
+                    }).collect()
+                }
+                OutsideExecution::V3(v3) => {
+                    v3.calls.iter().map(|call| starknet::core::types::Call {
+                        to: (*call.to).into(),
+                        selector: call.entry_point_selector,
+                        calldata: call.calldata.clone(),
+                    }).collect()
+                }
+            }
         };
 
         // Build transaction request for Avnu paymaster

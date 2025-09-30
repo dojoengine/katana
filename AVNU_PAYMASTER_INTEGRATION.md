@@ -57,23 +57,45 @@ sequenceDiagram
 ```
 
 ### VRF-Enabled Transaction Flow
+
+When a client sends an `execute_from_outside` transaction with VRF `request_random` as the first call, Katana detects this and wraps the entire transaction with VRF setup and teardown calls:
+
 ```mermaid
 sequenceDiagram
     participant Client
     participant Katana RPC
     participant VRF Context
     participant Avnu Paymaster
+    participant User Account
+    participant VRF Contract
 
-    Client->>Katana RPC: Execute with VRF call
+    Client->>Katana RPC: execute_from_outside<br/>(first call: request_random)
+    Katana RPC->>Katana RPC: Detect VRF usage
     Katana RPC->>VRF Context: Generate proof for seed
     VRF Context-->>Katana RPC: VRF proof
-    Katana RPC->>Katana RPC: Wrap calls (submit_random → execute → assert_consumed)
-    Katana RPC->>Avnu Paymaster: build_transaction (with VRF calls)
-    Avnu Paymaster-->>Katana RPC: TypedData
+
+    Note over Katana RPC: Build wrapped transaction:<br/>1. VRF.submit_random(proof)<br/>2. UserAccount.execute_from_outside(original)<br/>3. VRF.assert_consumed(seed)
+
+    Katana RPC->>Avnu Paymaster: build_transaction<br/>(wrapped calls)
+    Avnu Paymaster-->>Katana RPC: TypedData + fee estimate
     Katana RPC->>Avnu Paymaster: execute_transaction
+
+    Note over Avnu Paymaster: Execute as paymaster account
+    Avnu Paymaster->>VRF Contract: submit_random(proof)
+    Avnu Paymaster->>User Account: execute_from_outside(original)
+    User Account->>VRF Contract: request_random<br/>(consumes randomness)
+    User Account->>User Account: Execute remaining calls
+    Avnu Paymaster->>VRF Contract: assert_consumed(seed)
+
     Avnu Paymaster-->>Katana RPC: transaction_hash
     Katana RPC-->>Client: transaction_hash
 ```
+
+**Key Points:**
+- The user's `execute_from_outside` transaction is preserved intact
+- The paymaster account wraps it with VRF calls
+- This ensures the randomness is available when the user's contract needs it
+- The entire flow is atomic - if any step fails, the whole transaction reverts
 
 ## Key Features
 
