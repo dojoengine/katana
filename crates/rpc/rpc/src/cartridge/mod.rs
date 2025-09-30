@@ -34,7 +34,7 @@ use cartridge::vrf::{
 };
 use jsonrpsee::core::{async_trait, RpcResult};
 use katana_core::backend::Backend;
-use katana_core::service::block_producer::{BlockProducer, BlockProducerMode, PendingExecutor};
+use katana_core::service::block_producer::{BlockProducer, BlockProducerMode};
 use katana_executor::ExecutorFactory;
 use katana_genesis::allocation::GenesisAccountAlloc;
 use katana_genesis::constant::DEFAULT_UDC_ADDRESS;
@@ -116,10 +116,10 @@ impl<EF: ExecutorFactory> CartridgeApi<EF> {
         Ok(self.pool.validator().pool_nonce(contract_address)?)
     }
 
-    fn pending_executor(&self) -> Option<PendingExecutor> {
+    fn state(&self) -> Result<Box<dyn StateProvider>, StarknetApiError> {
         match &*self.block_producer.producer.read() {
-            BlockProducerMode::Instant(_) => None,
-            BlockProducerMode::Interval(producer) => Some(producer.executor()),
+            BlockProducerMode::Instant(_) => Ok(self.backend.blockchain.provider().latest()?),
+            BlockProducerMode::Interval(producer) => Ok(producer.executor().read().state()),
         }
     }
 
@@ -160,14 +160,8 @@ impl<EF: ExecutorFactory> CartridgeApi<EF> {
             // ====================== CONTROLLER DEPLOYMENT ======================
             // Check if the controller is already deployed. If not, deploy it.
 
-            let is_controller_deployed = {
-	            match this.pending_executor().as_ref() {
-	                Some(executor) => executor.read().state().class_hash_of_contract(address)?.is_some(),
-	                None => {
-						let provider = this.backend.blockchain.provider();
-						provider.latest()?.class_hash_of_contract(address)?.is_some()},
-	            }
-            };
+            let state = this.state().map(Arc::new)?;
+            let is_controller_deployed = state.class_hash_of_contract(address)?.is_some();
 
             if !is_controller_deployed {
 	           	debug!(target: "rpc::cartridge", controller = %address, "Controller not yet deployed");
@@ -210,8 +204,6 @@ impl<EF: ExecutorFactory> CartridgeApi<EF> {
             let chain_id = this.backend.chain_spec.id();
 
             // ======= VRF checks =======
-
-            let state = this.backend.blockchain.provider().latest().map(Arc::new)?;
 
             let (public_key_x, public_key_y) = this.vrf_ctx.get_public_key_xy_felts();
             let vrf_address = this.vrf_ctx.address();
