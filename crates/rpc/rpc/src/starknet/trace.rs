@@ -163,7 +163,7 @@ impl<EF: ExecutorFactory> StarknetApi<EF> {
 #[async_trait]
 impl<EF: ExecutorFactory> StarknetTraceApiServer for StarknetApi<EF> {
     async fn trace_transaction(&self, transaction_hash: TxHash) -> RpcResult<TxTrace> {
-        self.on_io_blocking_task(move |this| Ok(this.trace(transaction_hash)?)).await
+        self.on_io_blocking_task(move |this| Ok(this.trace(transaction_hash)?)).await?
     }
 
     async fn simulate_transactions(
@@ -172,11 +172,11 @@ impl<EF: ExecutorFactory> StarknetTraceApiServer for StarknetApi<EF> {
         transactions: Vec<BroadcastedTx>,
         simulation_flags: Vec<SimulationFlag>,
     ) -> RpcResult<SimulatedTransactionsResponse> {
-        self.on_cpu_blocking_task(move |this| {
+        self.on_cpu_blocking_task(move |this| async move {
             let transactions = this.simulate_txs(block_id, transactions, simulation_flags)?;
             Ok(SimulatedTransactionsResponse { transactions })
         })
-        .await
+        .await?
     }
 
     async fn trace_block_transactions(
@@ -187,6 +187,6 @@ impl<EF: ExecutorFactory> StarknetTraceApiServer for StarknetApi<EF> {
             let traces = this.block_traces(block_id)?;
             Ok(TraceBlockTransactionsResponse { traces })
         })
-        .await
+        .await?
     }
 }

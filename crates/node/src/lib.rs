@@ -86,6 +86,11 @@ impl Node {
             let _ = PrometheusRecorder::install("katana")?;
         }
 
+        // -- build task manager
+
+        let task_manager = TaskManager::current();
+        let task_spawner = task_manager.task_spawner();
+
         // --- build executor factory
 
         let fee_token_addresses = match config.chain.as_ref() {
@@ -236,6 +241,7 @@ impl Node {
                 backend.clone(),
                 block_producer.clone(),
                 pool.clone(),
+                task_spawner.clone(),
                 paymaster.cartridge_api_url.clone(),
                 Some(Arc::clone(&service)),
             );
@@ -266,10 +272,17 @@ impl Node {
                     pool.clone(),
                     block_producer.clone(),
                     client,
+                    task_spawner.clone(),
                     cfg,
                 )
             } else {
-                StarknetApi::new(backend.clone(), pool.clone(), Some(block_producer.clone()), cfg)
+                StarknetApi::new(
+                    backend.clone(),
+                    pool.clone(),
+                    Some(block_producer.clone()),
+                    task_spawner.clone(),
+                    cfg,
+                )
             };
 
             #[cfg(feature = "explorer")]
@@ -319,7 +332,7 @@ impl Node {
             rpc_server,
             block_producer,
             config: Arc::new(config),
-            task_manager: TaskManager::current(),
+            task_manager,
         })
     }
 
@@ -361,7 +374,7 @@ impl Node {
         self.task_manager
             .task_spawner()
             .build_task()
-            .critical()
+            .graceful_shutdown()
             .name("Sequencing")
             .spawn(sequencing.into_future());
 
@@ -375,7 +388,7 @@ impl Node {
             self.task_manager
                 .task_spawner()
                 .build_task()
-                .critical()
+                .graceful_shutdown()
                 .name("gas oracle")
                 .spawn(worker);
         }

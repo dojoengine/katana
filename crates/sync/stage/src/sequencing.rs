@@ -9,7 +9,7 @@ use katana_core::service::{BlockProductionTask, TransactionMiner};
 use katana_executor::ExecutorFactory;
 use katana_messaging::{MessagingConfig, MessagingService, MessagingTask};
 use katana_pool::{TransactionPool, TxPool};
-use katana_tasks::{TaskHandle, TaskSpawner};
+use katana_tasks::{JoinHandle, TaskSpawner};
 use tracing::error;
 
 pub type SequencingFut = BoxFuture<'static, Result<()>>;
@@ -35,7 +35,7 @@ impl<EF: ExecutorFactory> Sequencing<EF> {
         Self { pool, backend, task_spawner, block_producer, messaging_config }
     }
 
-    async fn run_messaging(&self) -> Result<TaskHandle<()>> {
+    async fn run_messaging(&self) -> Result<JoinHandle<()>> {
         if let Some(config) = &self.messaging_config {
             let config = config.clone();
             let pool = self.pool.clone();
@@ -52,7 +52,7 @@ impl<EF: ExecutorFactory> Sequencing<EF> {
         }
     }
 
-    fn run_block_production(&self) -> TaskHandle<Result<(), BlockProductionError>> {
+    fn run_block_production(&self) -> JoinHandle<Result<(), BlockProductionError>> {
         // Create a new transaction miner with a subscription to the pool's pending transactions.
         let miner = TransactionMiner::new(self.pool.pending_transactions());
         let block_producer = self.block_producer.clone();

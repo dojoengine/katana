@@ -6,19 +6,21 @@ use std::sync::Arc;
 use futures::future::BoxFuture;
 use futures::FutureExt;
 use tokio::runtime::Handle;
-use tokio::task::JoinHandle;
 use tokio_util::sync::CancellationToken;
 pub use tokio_util::sync::WaitForCancellationFuture as WaitForShutdownFuture;
 use tokio_util::task::TaskTracker;
 use tracing::trace;
 
-use crate::task::{TaskBuilder, TaskResult};
+use crate::{CpuBlockingTaskPool, TaskSpawner};
 
-pub type TaskHandle<T> = JoinHandle<TaskResult<T>>;
-
-/// Usage for this task manager is mainly to spawn tasks that can be cancelled, and captures
-/// panicked tasks (which in the context of the task manager - a critical task) for graceful
+/// Usage for this task manager is mainly to spawn tasks that can be cancelled, and capture
+/// panicked tasks (which in the context of the task manager are considered critical) for graceful
 /// shutdown.
+///
+/// When dispatching blocking work, prefer [`TaskManager::spawn_blocking`] for CPU-bound jobs (it
+/// runs on a dedicated Rayon pool) and [`TaskManager::spawn_io_blocking`] for IO-heavy operations
+/// that should stay within Tokio's `spawn_blocking` executor. Refer to the [CPU-bound tasks and
+/// blocking code] section of the *tokio* docs and this [blog post] for more information.
 ///
 /// # Spawning tasks
 ///
@@ -28,41 +30,59 @@ pub type TaskHandle<T> = JoinHandle<TaskResult<T>>;
 /// # Tasks cancellation
 ///
 /// When the manager is dropped, all tasks that have yet to complete will be cancelled.
-#[derive(Debug)]
+///
+/// [CPU-bound tasks and blocking code]: https://docs.rs/tokio/latest/tokio/index.html#cpu-bound-tasks-and-blocking-code
+/// [blog post]: https://ryhl.io/blog/async-what-is-blocking/
+#[derive(Debug, Clone)]
 pub struct TaskManager {
     inner: Arc<Inner>,
 }
 
 #[derive(Debug)]
-struct Inner {
+pub(crate) struct Inner {
     /// A handle to the Tokio runtime.
-    handle: Handle,
+    pub(crate) handle: Handle,
     /// Keep track of currently running tasks.
-    tracker: TaskTracker,
+    pub(crate) tracker: TaskTracker,
     /// Used to cancel all running tasks.
     ///
     /// This is passed to all the tasks spawned by the manager.
-    on_cancel: CancellationToken,
+    pub(crate) on_cancel: CancellationToken,
+    /// Pool dedicated to CPU-bound blocking work.
+    pub(crate) blocking_pool: CpuBlockingTaskPool,
 }
 
 impl TaskManager {
-    /// Create a new [`TaskManager`] from the given Tokio runtime handle.
+    /// Create a new [`TaskManager`] from the given Tokio runtime handle using the default blocking
+    /// pool configuration.
     pub fn new(handle: Handle) -> Self {
+        let blocking_pool = CpuBlockingTaskPool::builder()
+            .thread_name(|i| format!("blocking-thread-pool-{i}"))
+            .build()
+            .expect("failed to build blocking task thread pool");
+
         Self {
             inner: Arc::new(Inner {
                 handle,
+                blocking_pool,
                 tracker: TaskTracker::new(),
                 on_cancel: CancellationToken::new(),
             }),
         }
     }
 
-    /// Create a new [`TaskManager`] from the ambient Tokio runtime.
+    /// Create a new [`TaskManager`] from the ambient Tokio runtime using the default blocking pool
+    /// configuration.
+    ///
+    /// # Panics
+    ///
+    /// This will panic if called outside the context of a Tokio runtime. That means that you must
+    /// call this on one of the threads being run by the runtime,
     pub fn current() -> Self {
         Self::new(Handle::current())
     }
 
-    /// Returns a [`TaskSpawner`] that can be used to spawn tasks on the manager.
+    /// Returns a [`TaskSpawner`] that can be used to spawn tasks onto the current [`TaskManager`].
     pub fn task_spawner(&self) -> TaskSpawner {
         TaskSpawner { inner: Arc::clone(&self.inner) }
     }
@@ -92,86 +112,16 @@ impl TaskManager {
         ShutdownFuture { fut }
     }
 
-    /// Return the handle to the Tokio runtime that the manager is associated with.
-    pub fn handle(&self) -> &Handle {
-        &self.inner.handle
-    }
-
     /// Wait until all spawned tasks are completed.
     #[cfg(test)]
     async fn wait(&self) {
-        // need to close the tracker first before waiting
         let _ = self.inner.tracker.close();
         self.inner.tracker.wait().await;
-        // reopen the tracker for spawning future tasks
         let _ = self.inner.tracker.reopen();
     }
 }
 
-/// A spawner for spawning tasks on the [`TaskManager`] that it was derived from.
-///
-/// This is the main way to spawn tasks on a [`TaskManager`]. It can only be created
-/// by calling [`TaskManager::task_spawner`].
-#[derive(Debug, Clone)]
-pub struct TaskSpawner {
-    /// A handle to the [`TaskManager`] that this spawner is associated with.
-    inner: Arc<Inner>,
-}
-
-impl TaskSpawner {
-    /// Returns a new [`TaskBuilder`] for building a task.
-    pub fn build_task(&self) -> TaskBuilder<'_> {
-        TaskBuilder::new(self)
-    }
-
-    pub(crate) fn spawn<F>(&self, fut: F) -> TaskHandle<F::Output>
-    where
-        F: Future + Send + 'static,
-        F::Output: Send + 'static,
-    {
-        self.spawn_inner(fut)
-    }
-
-    pub(crate) fn cancellation_token(&self) -> &CancellationToken {
-        &self.inner.on_cancel
-    }
-
-    fn spawn_inner<F>(&self, task: F) -> TaskHandle<F::Output>
-    where
-        F: Future + Send + 'static,
-        F::Output: Send + 'static,
-    {
-        let task = self.make_cancellable(task);
-        let task = self.inner.tracker.track_future(task);
-        self.inner.handle.spawn(task)
-    }
-
-    fn make_cancellable<F>(&self, fut: F) -> impl Future<Output = TaskResult<F::Output>>
-    where
-        F: Future,
-    {
-        let ct = self.inner.on_cancel.clone();
-        async move {
-            tokio::select! {
-                _ = ct.cancelled() => {
-                    TaskResult::Cancelled
-                },
-                res = fut => {
-                    TaskResult::Completed(res)
-                },
-            }
-        }
-    }
-}
-
-impl Drop for TaskManager {
-    fn drop(&mut self) {
-        trace!(target: "tasks", "Task manager is dropped, cancelling all ongoing tasks.");
-        self.inner.on_cancel.cancel();
-    }
-}
-
-/// A futures that resolves when the [TaskManager] is shutdown.
+/// A futures that resolves when the [`TaskManager`] is shutdown.
 #[must_use = "futures do nothing unless polled"]
 pub struct ShutdownFuture<'a> {
     fut: BoxFuture<'a, ()>,
@@ -191,8 +141,18 @@ impl core::fmt::Debug for ShutdownFuture<'_> {
     }
 }
 
+impl Drop for TaskManager {
+    fn drop(&mut self) {
+        trace!(target: "tasks", "Task manager is dropped, cancelling all ongoing tasks.");
+        self.inner.on_cancel.cancel();
+    }
+}
+
 #[cfg(test)]
 mod tests {
+
+    use std::future::pending;
+
     use futures::future;
     use tokio::time::{self, Duration};
 
@@ -203,14 +163,10 @@ mod tests {
         let manager = TaskManager::current();
         let spawner = manager.task_spawner();
 
-        spawner.build_task().spawn(time::sleep(Duration::from_secs(1)));
-        spawner.build_task().spawn(time::sleep(Duration::from_secs(1)));
-        spawner.build_task().spawn(time::sleep(Duration::from_secs(1)));
+        let _ = spawner.build_task().spawn(time::sleep(Duration::from_millis(10)));
+        let _ = spawner.build_task().spawn(time::sleep(Duration::from_millis(10)));
+        assert_eq!(manager.inner.tracker.len(), 2);
 
-        // 3 tasks should be spawned on the manager
-        assert_eq!(manager.inner.tracker.len(), 3);
-
-        // wait until all task spawned to the manager have been completed
         manager.wait().await;
 
         assert!(
@@ -220,45 +176,102 @@ mod tests {
     }
 
     #[tokio::test]
-    async fn task_with_graceful_shutdown() {
+    async fn task_graceful_shutdown_on_success_completion() {
         let manager = TaskManager::current();
         let spawner = manager.task_spawner();
 
-        // mock long running normal task and a task with graceful shutdown
-        spawner.build_task().spawn(async {
-            loop {
-                time::sleep(Duration::from_secs(1)).await
-            }
-        });
+        let task1 = spawner.build_task().spawn(pending::<()>());
+        let task2 = spawner.build_task().spawn(pending::<()>());
+        assert!(!manager.inner.on_cancel.is_cancelled(), "should be cancelled yet");
 
-        spawner.build_task().spawn(async {
-            loop {
-                time::sleep(Duration::from_secs(1)).await
-            }
-        });
+        // normal task completion shouldn't trigger graceful shutdown
+        let _ = spawner.build_task().spawn(future::ready(())).await;
+        assert!(!manager.inner.on_cancel.is_cancelled());
 
-        // assert that 2 tasks should've been spawned
-        assert_eq!(manager.inner.tracker.len(), 2);
+        // but we can still spawn new tasks, and ongoing tasks shouldn't be cancelled
+        let result = spawner.spawn(async { true }).await;
+        assert!(result.is_ok());
 
-        // Spawn a task with graceful shuwdown that finish immediately.
-        // The long running task should be cancelled due to the graceful shutdown.
-        spawner.build_task().graceful_shutdown().spawn(future::ready(()));
+        // task with graceful shutdown should trigger graceful shutdown on success completion
+        let _ = spawner.build_task().graceful_shutdown().spawn(future::ready(())).await;
+        assert!(manager.inner.on_cancel.is_cancelled());
 
-        // wait until all task spawned to the manager have been completed
-        manager.shutdown().await;
+        // wait for the task manager to shutdown gracefully
+        manager.wait_for_shutdown().await;
+
+        // all running tasks should be cancelled
+        let task1_result = task1.await.unwrap_err();
+        let task2_result = task2.await.unwrap_err();
+
+        assert!(task1_result.is_cancelled());
+        assert!(task2_result.is_cancelled());
     }
 
     #[tokio::test]
-    async fn critical_task_implicit_graceful_shutdown() {
+    async fn task_graceful_shutdown_on_panicked() {
         let manager = TaskManager::current();
-        manager.task_spawner().build_task().critical().spawn(future::ready(()));
-        manager.shutdown().await;
+        let spawner = manager.task_spawner();
+
+        let task1 = spawner.build_task().spawn(pending::<()>());
+        let task2 = spawner.build_task().spawn(pending::<()>());
+        assert!(!manager.inner.on_cancel.is_cancelled(), "should be cancelled yet");
+
+        // normal task panicking shouldn't trigger graceful shutdown
+        let result = spawner.build_task().spawn(async { panic!("panicking") }).await;
+        assert!(result.unwrap_err().is_panic());
+        assert!(!manager.inner.on_cancel.is_cancelled());
+
+        // but we can still spawn new tasks, and ongoing tasks shouldn't be cancelled
+        let result = spawner.spawn(async { true }).await;
+        assert!(result.is_ok());
+
+        // task with graceful shutdown should trigger graceful shutdown on panic
+        let result =
+            spawner.build_task().graceful_shutdown().spawn(async { panic!("panicking") }).await;
+        assert!(result.unwrap_err().is_panic());
+
+        // wait for the task manager to shutdown gracefully
+        manager.wait_for_shutdown().await;
+
+        // all running tasks should be cancelled
+        let task1_result = task1.await.unwrap_err();
+        let task2_result = task2.await.unwrap_err();
+
+        assert!(task1_result.is_cancelled());
+        assert!(task2_result.is_cancelled());
     }
 
     #[tokio::test]
-    async fn critical_task_graceful_shudown_on_panicked() {
+    async fn blocking_task_graceful_shutdown_on_panicked() {
         let manager = TaskManager::current();
-        manager.task_spawner().build_task().critical().spawn(async { panic!("panicking") });
-        manager.shutdown().await;
+        let spawner = manager.task_spawner();
+
+        let task1 = spawner.build_task().spawn(pending::<()>());
+        let task2 = spawner.build_task().spawn(pending::<()>());
+        assert!(!manager.inner.on_cancel.is_cancelled(), "should be cancelled yet");
+
+        // normal blocking task panicking shouldn't trigger graceful shutdown
+        let result = spawner.build_task().spawn_blocking(|| panic!("panicking")).await;
+        assert!(result.unwrap_err().is_panic());
+        assert!(!manager.inner.on_cancel.is_cancelled());
+
+        // but we can still spawn new tasks, and ongoing tasks shouldn't be cancelled
+        let result = spawner.spawn_blocking(|| true).await;
+        assert!(result.is_ok());
+
+        // blocking task with graceful shutdown should trigger graceful shutdown on panic
+        let result =
+            spawner.build_task().graceful_shutdown().spawn_blocking(|| panic!("panicking")).await;
+        assert!(result.unwrap_err().is_panic());
+
+        // wait for the task manager to shutdown gracefully
+        manager.wait_for_shutdown().await;
+
+        // all running tasks should be cancelled
+        let task1_result = task1.await.unwrap_err();
+        let task2_result = task2.await.unwrap_err();
+
+        assert!(task1_result.is_cancelled());
+        assert!(task2_result.is_cancelled());
     }
 }

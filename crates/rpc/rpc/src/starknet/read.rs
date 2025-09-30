@@ -72,7 +72,7 @@ impl<EF: ExecutorFactory> StarknetApiServer for StarknetApi<EF> {
     }
 
     async fn block_hash_and_number(&self) -> RpcResult<BlockHashAndNumberResponse> {
-        self.on_io_blocking_task(move |this| Ok(this.block_hash_and_number()?)).await
+        self.on_io_blocking_task(move |this| Ok(this.block_hash_and_number()?)).await?
     }
 
     async fn get_block_with_tx_hashes(
@@ -143,7 +143,7 @@ impl<EF: ExecutorFactory> StarknetApiServer for StarknetApi<EF> {
             let result = super::blockifier::call(state, env, cfg_env, request, max_call_gas)?;
             Ok(CallResponse { result })
         })
-        .await
+        .await?
     }
 
     async fn get_storage_at(
@@ -156,7 +156,7 @@ impl<EF: ExecutorFactory> StarknetApiServer for StarknetApi<EF> {
             let value = this.storage_at(contract_address, key, block_id)?;
             Ok(value)
         })
-        .await
+        .await?
     }
 
     async fn estimate_fee(
@@ -303,12 +303,12 @@ impl<EF: ExecutorFactory> StarknetApiServer for StarknetApi<EF> {
                 StarknetApiError::unexpected(format!("Failed to acquire permit: {e}"))
             })?;
 
-        self.on_cpu_blocking_task(move |this| {
+        self.on_cpu_blocking_task(move |this| async move {
             let _permit = permit;
             let results = this.estimate_fee_with(transactions, block_id, flags)?;
             Ok(results)
         })
-        .await
+        .await?
     }
 
     async fn estimate_message_fee(
@@ -316,7 +316,7 @@ impl<EF: ExecutorFactory> StarknetApiServer for StarknetApi<EF> {
         message: MsgFromL1,
         block_id: BlockIdOrTag,
     ) -> RpcResult<FeeEstimate> {
-        self.on_cpu_blocking_task(move |this| {
+        self.on_cpu_blocking_task(move |this| async move {
             let chain_id = this.inner.backend.chain_spec.id();
 
             let tx = message.into_tx_with_chain_id(chain_id);
@@ -350,7 +350,7 @@ impl<EF: ExecutorFactory> StarknetApiServer for StarknetApi<EF> {
                 Err(err) => Err(ErrorObjectOwned::from(err)),
             }
         })
-        .await
+        .await?
     }
 
     async fn get_transaction_status(&self, transaction_hash: TxHash) -> RpcResult<TxStatus> {
