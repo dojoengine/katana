@@ -1,5 +1,5 @@
 window.BENCHMARK_DATA = {
-  "lastUpdate": 1759185814275,
+  "lastUpdate": 1759250004427,
   "repoUrl": "https://github.com/dojoengine/katana",
   "entries": {
     "Benchmark": [
@@ -5711,6 +5711,66 @@ window.BENCHMARK_DATA = {
             "name": "Invoke.ERC20.transfer/Blockifier.Cold",
             "value": 12565177,
             "range": "± 338719",
+            "unit": "ns/iter"
+          }
+        ]
+      },
+      {
+        "commit": {
+          "author": {
+            "email": "remy.baranx@gmail.com",
+            "name": "Rémy Baranx",
+            "username": "remybar"
+          },
+          "committer": {
+            "email": "noreply@github.com",
+            "name": "GitHub",
+            "username": "web-flow"
+          },
+          "distinct": true,
+          "id": "7c40a27b13ba6d16a0acfb7b1324a2745c8d1d43",
+          "message": "fix(vrf): fetch nonce directly from vrf contract storage (#290)\n\nCo-authored-by: notV4l <imV4l@proton.me>\nCo-authored-by: Ammar Arif <evergreenkary@gmail.com>",
+          "timestamp": "2025-10-01T00:28:17+08:00",
+          "tree_id": "8625816ddbdda928ce1d25e4598f2445b8caf651",
+          "url": "https://github.com/dojoengine/katana/commit/7c40a27b13ba6d16a0acfb7b1324a2745c8d1d43"
+        },
+        "date": 1759250002560,
+        "tool": "cargo",
+        "benches": [
+          {
+            "name": "Commit.Small/Parallel",
+            "value": 260627,
+            "range": "± 33722",
+            "unit": "ns/iter"
+          },
+          {
+            "name": "Commit.Big/Serial",
+            "value": 75081484,
+            "range": "± 2594227",
+            "unit": "ns/iter"
+          },
+          {
+            "name": "Commit.Big/Parallel",
+            "value": 53301467,
+            "range": "± 757172",
+            "unit": "ns/iter"
+          },
+          {
+            "name": "compress world contract",
+            "value": 1708157,
+            "range": "± 15084",
+            "unit": "ns/iter"
+          },
+          {
+            "name": "decompress world contract",
+            "value": 2123230,
+            "range": "± 11123",
+            "unit": "ns/iter"
+          },
+          {
+            "name": "Invoke.ERC20.transfer/Blockifier.Cold",
+            "value": 11965687,
+            "range": "± 329368",
             "unit": "ns/iter"
           }
         ]
