@@ -37,7 +37,7 @@ impl Client {
     ) -> Result<R, StarknetProviderError>
     where
         P: Serialize + Send + Sync,
-        R: DeserializeOwned,
+        R: DeserializeOwned + Send,
     {
         match self
             .transport

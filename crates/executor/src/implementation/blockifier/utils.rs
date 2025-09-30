@@ -138,6 +138,7 @@ pub fn transact<S: StateReader>(
                     &tx_state,
                     &tx_state_changes_keys,
                     &info.summarize(versioned_constants),
+                    &info.summarize_builtins(),
                     &info.receipt.resources,
                     versioned_constants,
                 )?;
@@ -474,7 +475,11 @@ pub fn block_context_from_envs(block_env: &BlockEnv, cfg_env: &CfgEnv) -> BlockC
         use_kzg_da: false,
     };
 
-    let chain_info = ChainInfo { fee_token_addresses, chain_id: to_blk_chain_id(cfg_env.chain_id) };
+    let chain_info = ChainInfo {
+        fee_token_addresses,
+        chain_id: to_blk_chain_id(cfg_env.chain_id),
+        is_l3: false,
+    };
 
     // IMPORTANT:
     //

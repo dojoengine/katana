@@ -103,13 +103,13 @@ katana-trie = { path = "crates/trie" }
 katana-utils = { path = "crates/utils" }
 
 # cairo-lang
-cairo-lang-casm = "=2.12.0-dev.1"
-cairo-lang-runner = "=2.12.0-dev.1"
-cairo-lang-sierra = "=2.12.0-dev.1"
-cairo-lang-sierra-to-casm = "=2.12.0-dev.1"
-cairo-lang-starknet = "=2.12.0-dev.1"
-cairo-lang-starknet-classes = "=2.12.0-dev.1"
-cairo-lang-utils = "=2.12.0-dev.1"
+cairo-lang-casm = "2.12.3"
+cairo-lang-runner = "2.12.3"
+cairo-lang-sierra = "2.12.3"
+cairo-lang-sierra-to-casm = "2.12.3"
+cairo-lang-starknet = "2.12.3"
+cairo-lang-starknet-classes = "2.12.3"
+cairo-lang-utils = "2.12.3"
 
 anyhow = "1.0.89"
 arbitrary = { version = "1.3.2", features = [ "derive" ] }
@@ -213,25 +213,17 @@ opentelemetry-http = "0.30.0"
 opentelemetry-stackdriver = { version = "0.27.0", features = [ "propagator" ] }
 
 # starknet
-starknet = "0.17.0-rc.2"
-starknet-crypto = "0.7.4"
-starknet-types-core = { version = "0.1.8", features = [ "arbitrary", "hash" ] }
+starknet = "0.17.0"
+starknet-crypto = "0.8.1"
+starknet-types-core = { version = "=0.2.2", features = [ "arbitrary", "hash" ] }
 
-blockifier = { git = "https://github.com/dojoengine/sequencer", branch = "blockifier/v0.15.0-rc.2", default-features = false }
-cairo-native = "0.5.0-rc.6"
-starknet_api = { git = "https://github.com/dojoengine/sequencer", branch = "blockifier/v0.15.0-rc.2" }
+blockifier = { git = "https://github.com/dojoengine/sequencer", branch = "blockifier/v0.16.0-rc.0", default-features = false }
+cairo-native = "0.6.2"
+starknet_api = { git = "https://github.com/dojoengine/sequencer", branch = "blockifier/v0.16.0-rc.0" }
 # Some types that we used from cairo-vm implements the `Arbitrary` trait,
 # only under the `test_utils` feature.
-cairo-vm = { version = "=2.3.1", features = [ "test_utils" ] }
+cairo-vm = { version = "2.5.0", features = [ "test_utils" ] }
 
-cainome = { git = "https://github.com/cartridge-gg/cainome", rev = "7d60de1", features = [ "abigen-rs" ] }
-cainome-cairo-serde = { git = "https://github.com/cartridge-gg/cainome", rev = "7d60de1" }
-piltover = { git = "https://github.com/kariy/piltover.git", rev = "a908ce2" }
-
-[patch.crates-io]
-starknet = { git = "https://github.com/kariy/starknet-rs", rev = "2ef3088" }
-# NOTE: remove this patch once this PR is merged <https://github.com/starknet-io/types-rs/pull/132>
-#
-# This patch fixes an issue where we're unable to correctly evaluate the accurate size
-# for constructing `Felt` from unstructured data (Arbitrary).
-starknet-types-core = { git = "https://github.com/kariy/types-rs", rev = "0f6ae31" }
+cainome = { version = "0.10.0", features = [ "abigen-rs" ] }
+cainome-cairo-serde = { version = "0.4.0" }
+piltover = { git = "https://github.com/kariy/piltover.git", rev = "2b99a6b" }
