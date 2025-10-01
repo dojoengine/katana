@@ -1,5 +1,6 @@
 use core::fmt;
 use std::collections::BTreeSet;
+use std::future::Future;
 use std::sync::Arc;
 
 use futures::channel::mpsc::{channel, Receiver, Sender};
@@ -11,7 +12,7 @@ use katana_pool_api::{
 use katana_primitives::transaction::TxHash;
 use parking_lot::RwLock;
 use tokio::sync::mpsc;
-use tracing::{error, trace, warn};
+use tracing::{error, trace, warn, Instrument};
 
 #[derive(Debug)]
 pub struct Pool<T, V, O>
@@ -122,31 +123,34 @@ where
 impl<T, V, O> TransactionPool for Pool<T, V, O>
 where
     T: PoolTransaction + fmt::Debug,
-    V: Validator<Transaction = T>,
-    O: PoolOrd<Transaction = T>,
+    V: Validator<Transaction = T> + Send + Sync,
+    O: PoolOrd<Transaction = T> + Send + Sync,
+    O::PriorityValue: Send + Sync,
 {
     type Transaction = T;
     type Validator = V;
     type Ordering = O;
 
-    #[tracing::instrument(level = "trace", target = "pool", name = "pool_add", skip_all, fields(tx_hash = format!("{:#x}", tx.hash())))]
-    fn add_transaction(&self, tx: T) -> PoolResult<TxHash> {
+    fn add_transaction(&self, tx: T) -> impl Future<Output = PoolResult<TxHash>> + Send {
+        let pool = self.clone();
+
         let hash = tx.hash();
         let id = TxId::new(tx.sender(), tx.nonce());
 
-        match self.inner.validator.validate(tx) {
+        async move {
+            match pool.inner.validator.validate(tx).await {
             Ok(outcome) => {
                 match outcome {
                     ValidationOutcome::Valid(tx) => {
                         // get the priority of the validated tx
-                        let priority = self.inner.ordering.priority(&tx);
+                        let priority = pool.inner.ordering.priority(&tx);
                         let tx = PendingTx::new(id, tx, priority);
 
                         // insert the tx in the pool
-                        self.inner.transactions.write().insert(tx.clone());
+                        pool.inner.transactions.write().insert(tx.clone());
                         trace!(target: "pool", "Transaction added to the pool");
 
-                        self.notify(tx);
+                        pool.notify(tx);
 
                         Ok(hash)
                     }
@@ -176,7 +180,9 @@ where
                 error!(target: "pool", %error, "Failed to validate transaction.");
                 Err(PoolError::Internal(error.error))
             }
+            }
         }
+        .instrument(tracing::trace_span!(target: "pool", "pool_add", tx_hash = format!("{hash:#x}")))
     }
 
     fn pending_transactions(&self) -> PendingTransactions<Self::Transaction, Self::Ordering> {
@@ -356,9 +362,9 @@ mod tests {
         assert!(pool.inner.transactions.read().is_empty());
 
         // add all the txs to the pool
-        txs.iter().for_each(|tx| {
-            let _ = pool.add_transaction(tx.clone());
-        });
+        for tx in &txs {
+            let _ = pool.add_transaction(tx.clone()).await;
+        }
 
         // all the txs should be in the pool
         assert_eq!(pool.size(), txs.len());
@@ -407,9 +413,9 @@ mod tests {
         let mut listener = pool.add_listener();
 
         // start adding txs to the pool
-        txs.iter().for_each(|tx| {
-            let _ = pool.add_transaction(tx.clone());
-        });
+        for tx in &txs {
+            let _ = pool.add_transaction(tx.clone()).await;
+        }
 
         // the channel should contain all the added txs
         let mut counter = 0;
@@ -422,8 +428,8 @@ mod tests {
         assert_eq!(counter, txs.len());
     }
 
-    #[test]
-    fn remove_transactions() {
+    #[tokio::test]
+    async fn remove_transactions() {
         let pool = TestPool::test();
 
         let txs = [
@@ -438,9 +444,9 @@ mod tests {
         ];
 
         // start adding txs to the pool
-        txs.iter().for_each(|tx| {
-            let _ = pool.add_transaction(tx.clone());
-        });
+        for tx in &txs {
+            let _ = pool.add_transaction(tx.clone()).await;
+        }
 
         // first check that the transaction are indeed in the pool
         txs.iter().for_each(|tx| {
@@ -470,9 +476,9 @@ mod tests {
             .collect();
 
         // Add all transactions to the pool
-        txs.iter().for_each(|tx| {
-            let _ = pool.add_transaction(tx.clone());
-        });
+        for tx in &txs {
+            let _ = pool.add_transaction(tx.clone()).await;
+        }
 
         // Get pending transactions
         let mut pendings = pool.pending_transactions();

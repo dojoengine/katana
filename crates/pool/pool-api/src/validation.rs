@@ -1,3 +1,5 @@
+use std::future::Future;
+
 use katana_primitives::class::ClassHash;
 use katana_primitives::contract::{ContractAddress, Nonce};
 use katana_primitives::execution::Resource;
@@ -151,11 +153,11 @@ pub struct Error {
     /// The hash of the transaction that failed validation.
     pub hash: TxHash,
     /// The actual error object.
-    pub error: Box<dyn std::error::Error>,
+    pub error: Box<dyn std::error::Error + Send>,
 }
 
 impl Error {
-    pub fn new(hash: TxHash, error: Box<dyn std::error::Error>) -> Self {
+    pub fn new(hash: TxHash, error: Box<dyn std::error::Error + Send>) -> Self {
         Self { hash, error }
     }
 }
@@ -172,13 +174,26 @@ pub trait Validator {
     /// errors that occurred during the validation process ie, provider
     /// [error](katana_provider::error::ProviderError), and not for indicating that the
     /// transaction is invalid. For that purpose, use the [`ValidationOutcome::Invalid`] enum.
-    fn validate(&self, tx: Self::Transaction) -> ValidationResult<Self::Transaction>;
+    fn validate(
+        &self,
+        tx: Self::Transaction,
+    ) -> impl Future<Output = ValidationResult<Self::Transaction>> + Send;
 
     /// Validate a batch of transactions.
     fn validate_all(
         &self,
         txs: Vec<Self::Transaction>,
-    ) -> Vec<ValidationResult<Self::Transaction>> {
-        txs.into_iter().map(|tx| self.validate(tx)).collect()
+    ) -> impl Future<Output = Vec<ValidationResult<Self::Transaction>>> + Send
+    where
+        Self: Sync,
+        Self::Transaction: Send,
+    {
+        async move {
+            let mut results = Vec::with_capacity(txs.len());
+            for tx in txs {
+                results.push(self.validate(tx).await);
+            }
+            results
+        }
     }
 }

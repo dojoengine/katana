@@ -1,3 +1,4 @@
+use std::future::Future;
 use std::sync::Arc;
 
 use futures::channel::mpsc::Receiver;
@@ -41,7 +42,10 @@ pub trait TransactionPool {
     type Validator: Validator<Transaction = Self::Transaction>;
 
     /// Add a new transaction to the pool.
-    fn add_transaction(&self, tx: Self::Transaction) -> PoolResult<TxHash>;
+    fn add_transaction(
+        &self,
+        tx: Self::Transaction,
+    ) -> impl Future<Output = PoolResult<TxHash>> + Send;
 
     /// Returns a [`Stream`](futures::Stream) which yields pending transactions - transactions that
     /// can be executed - from the pool.
@@ -67,7 +71,7 @@ pub trait TransactionPool {
 
 // the transaction type is recommended to implement a cheap clone (eg ref-counting) so that it
 // can be cloned around to different pools as necessary.
-pub trait PoolTransaction: Clone {
+pub trait PoolTransaction: Clone + Send + Sync {
     /// return the tx hash.
     fn hash(&self) -> TxHash;
 
