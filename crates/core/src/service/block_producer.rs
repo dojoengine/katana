@@ -257,20 +257,13 @@ impl<EF: ExecutorFactory> IntervalBlockProducer<EF> {
         let state = executor.state();
         let cfg = backend.executor_factory.cfg();
         let flags = backend.executor_factory.execution_flags();
+        let validator =
+            TxValidator::new(state, flags.clone(), cfg.clone(), block_env, permit.clone());
 
         let blocking_task_spawner = CpuBlockingTaskPool::builder()
             .thread_name(|i| format!("block-producer-blocking-pool-{i}"))
             .build()
             .expect("failed to build task pool");
-
-        let validator = TxValidator::new(
-            state,
-            flags.clone(),
-            cfg.clone(),
-            block_env,
-            permit.clone(),
-            blocking_task_spawner.clone(),
-        );
 
         Self {
             is_block_full: false,
@@ -586,20 +579,13 @@ impl<EF: ExecutorFactory> InstantBlockProducer<EF> {
         let state = provider.latest().expect("latest state");
         let cfg = backend.executor_factory.cfg();
         let flags = backend.executor_factory.execution_flags();
+        let validator =
+            TxValidator::new(state, flags.clone(), cfg.clone(), block_env, permit.clone());
 
         let blocking_task_spawner = CpuBlockingTaskPool::builder()
             .thread_name(|i| format!("block-producer-blocking-pool-{i}"))
             .build()
             .expect("failed to build task pool");
-
-        let validator = TxValidator::new(
-            state,
-            flags.clone(),
-            cfg.clone(),
-            block_env,
-            permit.clone(),
-            blocking_task_spawner.clone(),
-        );
 
         Self {
             permit,

@@ -28,7 +28,6 @@ use katana_primitives::transaction::{ExecutableTx, ExecutableTxWithHash};
 use katana_primitives::Felt;
 use katana_provider::api::state::StateProvider;
 use katana_provider::api::ProviderError;
-use katana_tasks::CpuBlockingTaskPool;
 use parking_lot::Mutex;
 
 use super::ValidationResult;
@@ -37,7 +36,6 @@ use super::ValidationResult;
 pub struct TxValidator {
     inner: Arc<Mutex<Inner>>,
     permit: Arc<Mutex<()>>,
-    blocking_pool: CpuBlockingTaskPool,
 }
 
 struct Inner {
@@ -56,7 +54,6 @@ impl TxValidator {
         cfg_env: CfgEnv,
         block_env: BlockEnv,
         permit: Arc<Mutex<()>>,
-        blocking_pool: CpuBlockingTaskPool,
     ) -> Self {
         let inner = Arc::new(Mutex::new(Inner {
             cfg_env,
@@ -65,7 +62,7 @@ impl TxValidator {
             state: Arc::new(state),
             pool_nonces: HashMap::new(),
         }));
-        Self { permit, inner, blocking_pool }
+        Self { permit, inner }
     }
 
     /// Reset the state of the validator with the given params. This method is used to update the
@@ -127,10 +124,9 @@ impl Validator for TxValidator {
     ) -> impl std::future::Future<Output = ValidationResult<Self::Transaction>> + Send {
         let inner = self.inner.clone();
         let permit = self.permit.clone();
-        let blocking_pool = self.blocking_pool.clone();
 
         async move {
-            blocking_pool.spawn(move || {
+            tokio::task::spawn_blocking(move || {
             let _permit = permit.lock();
             let mut this = inner.lock();
 
@@ -194,7 +190,7 @@ impl Validator for TxValidator {
             }
             })
             .await
-            .expect("validation task panicked")
+            .unwrap()
         }
     }
 }
