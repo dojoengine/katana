@@ -1,11 +1,6 @@
 name: generate-test-db-dispatch
 on:
   workflow_dispatch:
-    inputs:
-      katana_version:
-        description: 'Katana version/tag to generate database from'
-        required: true
-        type: string
 
 jobs:
   generate-database:
@@ -21,7 +16,8 @@ jobs:
     steps:
       - uses: actions/checkout@v4
         with:
-          ref: ${{ inputs.katana_version }}
+          ref: v1.6.0
+
       # Workaround for https://github.com/actions/runner-images/issues/6775
       - run: git config --global --add safe.directory "*"
       - uses: Swatinem/rust-cache@v2
@@ -30,12 +26,12 @@ jobs:
         uses: actions/checkout@v4
         with:
           repository: dojoengine/dojo
-          ref: v1.7.0-alpha.2
+          ref: v1.6.0
           path: dojo
 
       - uses: software-mansion/setup-scarb@v1
         with:
-          scarb-version: "dev-2025-09-05"
+          scarb-version: "2.10.1"
 
       - name: Install Sozo
         run: |
@@ -43,7 +39,7 @@ jobs:
           cargo install --path bin/sozo --locked --force
 
       - name: Generate test database
-        run: ./scripts/generate-test-db.sh
+        run: ./scripts/generate-test-db.sh --dojo-tag v1.6.0
 
       - id: version_info
         run: |
