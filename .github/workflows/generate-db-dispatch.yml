@@ -1,6 +1,12 @@
 name: generate-test-db-dispatch
 on:
   workflow_dispatch:
+    inputs:
+      katana_version:
+        description: 'Katana version/tag to generate database from'
+        required: true
+        default: 'v1.6.0'
+        type: string
 
 jobs:
   generate-database:
@@ -15,6 +21,8 @@ jobs:
 
     steps:
       - uses: actions/checkout@v4
+        with:
+          ref: ${{ inputs.katana_version }}
       # Workaround for https://github.com/actions/runner-images/issues/6775
       - run: git config --global --add safe.directory "*"
       - uses: Swatinem/rust-cache@v2
@@ -51,5 +59,5 @@ jobs:
           token: ${{ secrets.CREATE_PR_TOKEN }}
           add-paths: tests/fixtures/katana_db.tar.gz
           branch: db-update-${{ steps.version_info.outputs.version }}
-          title: "chore(test): update test database: ${{ steps.version_info.outputs.version }}"
-          commit-message: "Update test database from Dojo project: ${{ steps.version_info.outputs.version }}"
+          title: "chore(test): update test database for katana ${{ inputs.katana_version }}"
+          commit-message: "Update test database for katana ${{ inputs.katana_version }}"
