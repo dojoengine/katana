@@ -156,8 +156,10 @@ impl<EF: ExecutorFactory> StarknetApi<EF> {
 
         let this = self.clone();
         let future = func(this);
+        let span = tracing::Span::current();
 
         let task = move || {
+            let _enter = span.enter();
             Builder::new_current_thread()
                 .enable_all()
                 .build()
@@ -179,7 +181,11 @@ impl<EF: ExecutorFactory> StarknetApi<EF> {
         R: Send + 'static,
     {
         let this = self.clone();
-        match self.inner.task_spawner.spawn_blocking(move || func(this)).await {
+        let span = tracing::Span::current();
+        match self.inner.task_spawner.spawn_blocking(move || {
+            let _enter = span.enter();
+            func(this)
+        }).await {
             TaskResult::Ok(result) => Ok(result),
             TaskResult::Err(err) => {
                 Err(StarknetApiError::unexpected(format!("internal task execution failed: {err}")))
