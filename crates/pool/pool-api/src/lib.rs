@@ -29,7 +29,6 @@ pub enum PoolError {
 pub type PoolResult<T> = Result<T, PoolError>;
 
 /// Represents a complete transaction pool.
-#[allow(async_fn_in_trait)]
 pub trait TransactionPool {
     /// The pool's transaction type.
     type Transaction: PoolTransaction;
@@ -42,7 +41,10 @@ pub trait TransactionPool {
     type Validator: Validator<Transaction = Self::Transaction>;
 
     /// Add a new transaction to the pool.
-    async fn add_transaction(&self, tx: Self::Transaction) -> PoolResult<TxHash>;
+    fn add_transaction(
+        &self,
+        tx: Self::Transaction,
+    ) -> impl std::future::Future<Output = PoolResult<TxHash>> + Send;
 
     /// Returns a [`Stream`](futures::Stream) which yields pending transactions - transactions that
     /// can be executed - from the pool.
@@ -68,7 +70,7 @@ pub trait TransactionPool {
 
 // the transaction type is recommended to implement a cheap clone (eg ref-counting) so that it
 // can be cloned around to different pools as necessary.
-pub trait PoolTransaction: Clone {
+pub trait PoolTransaction: Clone + Send + Sync {
     /// return the tx hash.
     fn hash(&self) -> TxHash;
 

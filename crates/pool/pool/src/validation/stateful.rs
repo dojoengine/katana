@@ -121,11 +121,16 @@ impl Validator for TxValidator {
     type Transaction = ExecutableTxWithHash;
 
     #[tracing::instrument(level = "trace", target = "pool", name = "pool_validate", skip_all, fields(tx_hash = format!("{:#x}", tx.hash())))]
-    async fn validate(&self, tx: Self::Transaction) -> ValidationResult<Self::Transaction> {
+    fn validate(
+        &self,
+        tx: Self::Transaction,
+    ) -> impl std::future::Future<Output = ValidationResult<Self::Transaction>> + Send {
         let inner = self.inner.clone();
         let permit = self.permit.clone();
+        let blocking_pool = self.blocking_pool.clone();
 
-        self.blocking_pool.spawn(move || {
+        async move {
+            blocking_pool.spawn(move || {
             let _permit = permit.lock();
             let mut this = inner.lock();
 
@@ -187,9 +192,10 @@ impl Validator for TxValidator {
                 }
                 _ => result,
             }
-        })
-        .await
-        .expect("validation task panicked")
+            })
+            .await
+            .expect("validation task panicked")
+        }
     }
 }
 

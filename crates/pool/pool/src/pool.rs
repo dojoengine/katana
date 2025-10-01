@@ -122,31 +122,38 @@ where
 impl<T, V, O> TransactionPool for Pool<T, V, O>
 where
     T: PoolTransaction + fmt::Debug,
-    V: Validator<Transaction = T>,
-    O: PoolOrd<Transaction = T>,
+    V: Validator<Transaction = T> + Send + Sync,
+    O: PoolOrd<Transaction = T> + Send + Sync,
+    O::PriorityValue: Send + Sync,
 {
     type Transaction = T;
     type Validator = V;
     type Ordering = O;
 
     #[tracing::instrument(level = "trace", target = "pool", name = "pool_add", skip_all, fields(tx_hash = format!("{:#x}", tx.hash())))]
-    async fn add_transaction(&self, tx: T) -> PoolResult<TxHash> {
+    fn add_transaction(
+        &self,
+        tx: T,
+    ) -> impl std::future::Future<Output = PoolResult<TxHash>> + Send {
         let hash = tx.hash();
         let id = TxId::new(tx.sender(), tx.nonce());
+        let inner = self.inner.clone();
+        let pool = self.clone();
 
-        match self.inner.validator.validate(tx).await {
+        async move {
+            match inner.validator.validate(tx).await {
             Ok(outcome) => {
                 match outcome {
                     ValidationOutcome::Valid(tx) => {
                         // get the priority of the validated tx
-                        let priority = self.inner.ordering.priority(&tx);
+                        let priority = inner.ordering.priority(&tx);
                         let tx = PendingTx::new(id, tx, priority);
 
                         // insert the tx in the pool
-                        self.inner.transactions.write().insert(tx.clone());
+                        inner.transactions.write().insert(tx.clone());
                         trace!(target: "pool", "Transaction added to the pool");
 
-                        self.notify(tx);
+                        pool.notify(tx);
 
                         Ok(hash)
                     }
@@ -175,6 +182,7 @@ where
             Err(error) => {
                 error!(target: "pool", %error, "Failed to validate transaction.");
                 Err(PoolError::Internal(error.error))
+            }
             }
         }
     }

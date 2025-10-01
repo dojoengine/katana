@@ -163,7 +163,6 @@ impl Error {
 pub type ValidationResult<T> = Result<ValidationOutcome<T>, Error>;
 
 /// A trait for validating transactions before they are added to the transaction pool.
-#[allow(async_fn_in_trait)]
 pub trait Validator {
     type Transaction: PoolTransaction;
 
@@ -173,17 +172,26 @@ pub trait Validator {
     /// errors that occurred during the validation process ie, provider
     /// [error](katana_provider::error::ProviderError), and not for indicating that the
     /// transaction is invalid. For that purpose, use the [`ValidationOutcome::Invalid`] enum.
-    async fn validate(&self, tx: Self::Transaction) -> ValidationResult<Self::Transaction>;
+    fn validate(
+        &self,
+        tx: Self::Transaction,
+    ) -> impl std::future::Future<Output = ValidationResult<Self::Transaction>> + Send;
 
     /// Validate a batch of transactions.
-    async fn validate_all(
+    fn validate_all(
         &self,
         txs: Vec<Self::Transaction>,
-    ) -> Vec<ValidationResult<Self::Transaction>> {
-        let mut results = Vec::with_capacity(txs.len());
-        for tx in txs {
-            results.push(self.validate(tx).await);
+    ) -> impl std::future::Future<Output = Vec<ValidationResult<Self::Transaction>>> + Send
+    where
+        Self: Sync,
+        Self::Transaction: Send,
+    {
+        async move {
+            let mut results = Vec::with_capacity(txs.len());
+            for tx in txs {
+                results.push(self.validate(tx).await);
+            }
+            results
         }
-        results
     }
 }
