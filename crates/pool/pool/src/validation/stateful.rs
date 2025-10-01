@@ -117,13 +117,15 @@ impl Inner {
 impl Validator for TxValidator {
     type Transaction = ExecutableTxWithHash;
 
-    #[tracing::instrument(level = "trace", target = "pool", name = "pool_validate", skip_all, fields(tx_hash = format!("{:#x}", tx.hash())))]
     fn validate(
         &self,
         tx: Self::Transaction,
     ) -> impl std::future::Future<Output = ValidationResult<Self::Transaction>> + Send {
+        use tracing::Instrument;
+
         let inner = self.inner.clone();
         let permit = self.permit.clone();
+        let tx_hash = tx.hash();
 
         async move {
             let _permit = permit.lock();
@@ -188,6 +190,9 @@ impl Validator for TxValidator {
                 _ => result,
             }
         }
+        .instrument(
+            tracing::trace_span!(target: "pool", "pool_validate", tx_hash = format!("{:#x}", tx_hash))
+        )
     }
 }
 

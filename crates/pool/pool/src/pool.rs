@@ -130,11 +130,12 @@ where
     type Validator = V;
     type Ordering = O;
 
-    #[tracing::instrument(level = "trace", target = "pool", name = "pool_add", skip_all, fields(tx_hash = format!("{:#x}", tx.hash())))]
     fn add_transaction(
         &self,
         tx: T,
     ) -> impl std::future::Future<Output = PoolResult<TxHash>> + Send {
+        use tracing::Instrument;
+
         let hash = tx.hash();
         let id = TxId::new(tx.sender(), tx.nonce());
         let inner = self.inner.clone();
@@ -185,6 +186,7 @@ where
             }
             }
         }
+        .instrument(tracing::trace_span!(target: "pool", "pool_add", tx_hash = format!("{:#x}", hash)))
     }
 
     fn pending_transactions(&self) -> PendingTransactions<Self::Transaction, Self::Ordering> {
