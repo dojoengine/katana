@@ -1,3 +1,5 @@
+use std::future::Future;
+
 use katana_primitives::class::ClassHash;
 use katana_primitives::contract::{ContractAddress, Nonce};
 use katana_primitives::execution::Resource;
@@ -175,13 +177,13 @@ pub trait Validator {
     fn validate(
         &self,
         tx: Self::Transaction,
-    ) -> impl std::future::Future<Output = ValidationResult<Self::Transaction>> + Send;
+    ) -> impl Future<Output = ValidationResult<Self::Transaction>> + Send;
 
     /// Validate a batch of transactions.
     fn validate_all(
         &self,
         txs: Vec<Self::Transaction>,
-    ) -> impl std::future::Future<Output = Vec<ValidationResult<Self::Transaction>>> + Send
+    ) -> impl Future<Output = Vec<ValidationResult<Self::Transaction>>> + Send
     where
         Self: Sync,
         Self::Transaction: Send,

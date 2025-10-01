@@ -1,5 +1,6 @@
 use core::fmt;
 use std::collections::BTreeSet;
+use std::future::Future;
 use std::sync::Arc;
 
 use futures::channel::mpsc::{channel, Receiver, Sender};
@@ -11,7 +12,7 @@ use katana_pool_api::{
 use katana_primitives::transaction::TxHash;
 use parking_lot::RwLock;
 use tokio::sync::mpsc;
-use tracing::{error, trace, warn};
+use tracing::{error, trace, warn, Instrument};
 
 #[derive(Debug)]
 pub struct Pool<T, V, O>
@@ -130,28 +131,23 @@ where
     type Validator = V;
     type Ordering = O;
 
-    fn add_transaction(
-        &self,
-        tx: T,
-    ) -> impl std::future::Future<Output = PoolResult<TxHash>> + Send {
-        use tracing::Instrument;
+    fn add_transaction(&self, tx: T) -> impl Future<Output = PoolResult<TxHash>> + Send {
+        let pool = self.clone();
 
         let hash = tx.hash();
         let id = TxId::new(tx.sender(), tx.nonce());
-        let inner = self.inner.clone();
-        let pool = self.clone();
 
         async move {
-            match inner.validator.validate(tx).await {
+            match pool.inner.validator.validate(tx).await {
             Ok(outcome) => {
                 match outcome {
                     ValidationOutcome::Valid(tx) => {
                         // get the priority of the validated tx
-                        let priority = inner.ordering.priority(&tx);
+                        let priority = pool.inner.ordering.priority(&tx);
                         let tx = PendingTx::new(id, tx, priority);
 
                         // insert the tx in the pool
-                        inner.transactions.write().insert(tx.clone());
+                        pool.inner.transactions.write().insert(tx.clone());
                         trace!(target: "pool", "Transaction added to the pool");
 
                         pool.notify(tx);
@@ -186,7 +182,7 @@ where
             }
             }
         }
-        .instrument(tracing::trace_span!(target: "pool", "pool_add", tx_hash = format!("{:#x}", hash)))
+        .instrument(tracing::trace_span!(target: "pool", "pool_add", tx_hash = format!("{hash:#x}")))
     }
 
     fn pending_transactions(&self) -> PendingTransactions<Self::Transaction, Self::Ordering> {

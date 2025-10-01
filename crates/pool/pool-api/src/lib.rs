@@ -1,3 +1,4 @@
+use std::future::Future;
 use std::sync::Arc;
 
 use futures::channel::mpsc::Receiver;
@@ -44,7 +45,7 @@ pub trait TransactionPool {
     fn add_transaction(
         &self,
         tx: Self::Transaction,
-    ) -> impl std::future::Future<Output = PoolResult<TxHash>> + Send;
+    ) -> impl Future<Output = PoolResult<TxHash>> + Send;
 
     /// Returns a [`Stream`](futures::Stream) which yields pending transactions - transactions that
     /// can be executed - from the pool.
