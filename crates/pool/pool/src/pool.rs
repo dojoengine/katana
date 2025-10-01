@@ -130,11 +130,11 @@ where
     type Ordering = O;
 
     #[tracing::instrument(level = "trace", target = "pool", name = "pool_add", skip_all, fields(tx_hash = format!("{:#x}", tx.hash())))]
-    fn add_transaction(&self, tx: T) -> PoolResult<TxHash> {
+    async fn add_transaction(&self, tx: T) -> PoolResult<TxHash> {
         let hash = tx.hash();
         let id = TxId::new(tx.sender(), tx.nonce());
 
-        match self.inner.validator.validate(tx) {
+        match self.inner.validator.validate(tx).await {
             Ok(outcome) => {
                 match outcome {
                     ValidationOutcome::Valid(tx) => {
@@ -356,9 +356,9 @@ mod tests {
         assert!(pool.inner.transactions.read().is_empty());
 
         // add all the txs to the pool
-        txs.iter().for_each(|tx| {
-            let _ = pool.add_transaction(tx.clone());
-        });
+        for tx in &txs {
+            let _ = pool.add_transaction(tx.clone()).await;
+        }
 
         // all the txs should be in the pool
         assert_eq!(pool.size(), txs.len());
@@ -407,9 +407,9 @@ mod tests {
         let mut listener = pool.add_listener();
 
         // start adding txs to the pool
-        txs.iter().for_each(|tx| {
-            let _ = pool.add_transaction(tx.clone());
-        });
+        for tx in &txs {
+            let _ = pool.add_transaction(tx.clone()).await;
+        }
 
         // the channel should contain all the added txs
         let mut counter = 0;
@@ -438,9 +438,9 @@ mod tests {
         ];
 
         // start adding txs to the pool
-        txs.iter().for_each(|tx| {
-            let _ = pool.add_transaction(tx.clone());
-        });
+        for tx in &txs {
+            let _ = pool.add_transaction(tx.clone()).await;
+        }
 
         // first check that the transaction are indeed in the pool
         txs.iter().for_each(|tx| {
@@ -470,9 +470,9 @@ mod tests {
             .collect();
 
         // Add all transactions to the pool
-        txs.iter().for_each(|tx| {
-            let _ = pool.add_transaction(tx.clone());
-        });
+        for tx in &txs {
+            let _ = pool.add_transaction(tx.clone()).await;
+        }
 
         // Get pending transactions
         let mut pendings = pool.pending_transactions();

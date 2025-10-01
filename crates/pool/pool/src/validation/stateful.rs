@@ -118,67 +118,74 @@ impl Validator for TxValidator {
     type Transaction = ExecutableTxWithHash;
 
     #[tracing::instrument(level = "trace", target = "pool", name = "pool_validate", skip_all, fields(tx_hash = format!("{:#x}", tx.hash())))]
-    fn validate(&self, tx: Self::Transaction) -> ValidationResult<Self::Transaction> {
-        let _permit = self.permit.lock();
-        let mut this = self.inner.lock();
+    async fn validate(&self, tx: Self::Transaction) -> ValidationResult<Self::Transaction> {
+        let inner = self.inner.clone();
+        let permit = self.permit.clone();
 
-        let tx_nonce = tx.nonce();
-        let address = tx.sender();
+        tokio::task::spawn_blocking(move || {
+            let _permit = permit.lock();
+            let mut this = inner.lock();
 
-        // For declare transactions, perform a static check if there's already an existing class
-        // with the same hash.
-        if let ExecutableTx::Declare(ref declare_tx) = tx.transaction {
-            let class_hash = declare_tx.class_hash();
-            let class = this.state.class(class_hash).map_err(|e| Error::new(tx.hash, e.into()))?;
+            let tx_nonce = tx.nonce();
+            let address = tx.sender();
 
-            // Return an error if the class already exists.
-            if class.is_some() {
-                let error = InvalidTransactionError::ClassAlreadyDeclared { class_hash };
-                return Ok(ValidationOutcome::Invalid { tx, error });
+            // For declare transactions, perform a static check if there's already an existing class
+            // with the same hash.
+            if let ExecutableTx::Declare(ref declare_tx) = tx.transaction {
+                let class_hash = declare_tx.class_hash();
+                let class = this.state.class(class_hash).map_err(|e| Error::new(tx.hash, Box::new(e)))?;
+
+                // Return an error if the class already exists.
+                if class.is_some() {
+                    let error = InvalidTransactionError::ClassAlreadyDeclared { class_hash };
+                    return Ok(ValidationOutcome::Invalid { tx, error });
+                }
             }
-        }
 
-        // Get the current nonce of the account from the pool or the state
-        let current_nonce = if let Some(nonce) = this.pool_nonces.get(&address) {
-            *nonce
-        } else {
-            this.state.nonce(address).unwrap().unwrap_or_default()
-        };
+            // Get the current nonce of the account from the pool or the state
+            let current_nonce = if let Some(nonce) = this.pool_nonces.get(&address) {
+                *nonce
+            } else {
+                this.state.nonce(address).unwrap().unwrap_or_default()
+            };
 
-        // Check if the transaction nonce is higher than the current account nonce,
-        // if yes, dont't run its validation logic and tag it as a dependent tx.
-        if tx_nonce > current_nonce {
-            return Ok(ValidationOutcome::Dependent { current_nonce, tx_nonce, tx });
-        }
-
-        // Check if validation of an invoke transaction should be skipped due to deploy_account not
-        // being proccessed yet. This feature is used to improve UX for users sending
-        // deploy_account + invoke at once.
-        let skip_validate = match tx.transaction {
-            // we skip validation for invoke tx with nonce 1 and nonce 0 in the state, this
-            ExecutableTx::DeployAccount(_) | ExecutableTx::Declare(_) => false,
-            // we skip validation for invoke tx with nonce 1 and nonce 0 in the state, this
-            _ => tx.nonce() == Nonce::ONE && current_nonce == Nonce::ZERO,
-        };
-
-        // prepare a stateful validator and run the account validation logic (ie __validate__
-        // entrypoint)
-        let result = validate(
-            this.prepare(),
-            tx,
-            !this.execution_flags.account_validation() || skip_validate,
-            !this.execution_flags.fee(),
-        );
-
-        match result {
-            res @ Ok(ValidationOutcome::Valid { .. }) => {
-                // update the nonce of the account in the pool only for valid tx
-                let updated_nonce = current_nonce + Felt::ONE;
-                this.pool_nonces.insert(address, updated_nonce);
-                res
+            // Check if the transaction nonce is higher than the current account nonce,
+            // if yes, dont't run its validation logic and tag it as a dependent tx.
+            if tx_nonce > current_nonce {
+                return Ok(ValidationOutcome::Dependent { current_nonce, tx_nonce, tx });
             }
-            _ => result,
-        }
+
+            // Check if validation of an invoke transaction should be skipped due to deploy_account not
+            // being proccessed yet. This feature is used to improve UX for users sending
+            // deploy_account + invoke at once.
+            let skip_validate = match tx.transaction {
+                // we skip validation for invoke tx with nonce 1 and nonce 0 in the state, this
+                ExecutableTx::DeployAccount(_) | ExecutableTx::Declare(_) => false,
+                // we skip validation for invoke tx with nonce 1 and nonce 0 in the state, this
+                _ => tx.nonce() == Nonce::ONE && current_nonce == Nonce::ZERO,
+            };
+
+            // prepare a stateful validator and run the account validation logic (ie __validate__
+            // entrypoint)
+            let result = validate(
+                this.prepare(),
+                tx,
+                !this.execution_flags.account_validation() || skip_validate,
+                !this.execution_flags.fee(),
+            );
+
+            match result {
+                res @ Ok(ValidationOutcome::Valid { .. }) => {
+                    // update the nonce of the account in the pool only for valid tx
+                    let updated_nonce = current_nonce + Felt::ONE;
+                    this.pool_nonces.insert(address, updated_nonce);
+                    res
+                }
+                _ => result,
+            }
+        })
+        .await
+        .unwrap()
     }
 }
 
@@ -210,7 +217,7 @@ fn validate(
 
 fn map_invalid_tx_err(
     err: StatefulValidatorError,
-) -> Result<InvalidTransactionError, Box<dyn std::error::Error>> {
+) -> Result<InvalidTransactionError, Box<dyn std::error::Error + Send>> {
     match err {
         StatefulValidatorError::StateError(err) => Err(Box::new(err)),
         StatefulValidatorError::TransactionExecutorError(err) => map_executor_err(err),
@@ -221,7 +228,7 @@ fn map_invalid_tx_err(
 
 fn map_fee_err(
     err: TransactionFeeError,
-) -> Result<InvalidTransactionError, Box<dyn std::error::Error>> {
+) -> Result<InvalidTransactionError, Box<dyn std::error::Error + Send>> {
     match err {
         TransactionFeeError::GasBoundsExceedBalance {
             resource,
@@ -278,7 +285,7 @@ fn map_fee_err(
 
 fn map_executor_err(
     err: TransactionExecutorError,
-) -> Result<InvalidTransactionError, Box<dyn std::error::Error>> {
+) -> Result<InvalidTransactionError, Box<dyn std::error::Error + Send>> {
     match err {
         TransactionExecutorError::TransactionExecutionError(e) => match e {
             TransactionExecutionError::TransactionFeeError(e) => map_fee_err(e),
@@ -295,7 +302,7 @@ fn map_executor_err(
 
 fn map_execution_err(
     err: TransactionExecutionError,
-) -> Result<InvalidTransactionError, Box<dyn std::error::Error>> {
+) -> Result<InvalidTransactionError, Box<dyn std::error::Error + Send>> {
     match err {
         e @ TransactionExecutionError::ValidateTransactionError {
             storage_address,
@@ -323,7 +330,7 @@ fn map_execution_err(
 
 fn map_pre_validation_err(
     err: TransactionPreValidationError,
-) -> Result<InvalidTransactionError, Box<dyn std::error::Error>> {
+) -> Result<InvalidTransactionError, Box<dyn std::error::Error + Send>> {
     match err {
         TransactionPreValidationError::TransactionFeeError(err) => map_fee_err(err),
         TransactionPreValidationError::StateError(err) => Err(Box::new(err)),

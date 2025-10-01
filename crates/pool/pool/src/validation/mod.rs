@@ -16,7 +16,7 @@ impl<T> NoopValidator<T> {
 impl<T: PoolTransaction> Validator for NoopValidator<T> {
     type Transaction = T;
 
-    fn validate(&self, tx: Self::Transaction) -> ValidationResult<Self::Transaction> {
+    async fn validate(&self, tx: Self::Transaction) -> ValidationResult<Self::Transaction> {
         ValidationResult::Ok(ValidationOutcome::Valid(tx))
     }
 }

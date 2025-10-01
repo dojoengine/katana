@@ -151,11 +151,11 @@ pub struct Error {
     /// The hash of the transaction that failed validation.
     pub hash: TxHash,
     /// The actual error object.
-    pub error: Box<dyn std::error::Error>,
+    pub error: Box<dyn std::error::Error + Send>,
 }
 
 impl Error {
-    pub fn new(hash: TxHash, error: Box<dyn std::error::Error>) -> Self {
+    pub fn new(hash: TxHash, error: Box<dyn std::error::Error + Send>) -> Self {
         Self { hash, error }
     }
 }
@@ -163,6 +163,7 @@ impl Error {
 pub type ValidationResult<T> = Result<ValidationOutcome<T>, Error>;
 
 /// A trait for validating transactions before they are added to the transaction pool.
+#[allow(async_fn_in_trait)]
 pub trait Validator {
     type Transaction: PoolTransaction;
 
@@ -172,13 +173,17 @@ pub trait Validator {
     /// errors that occurred during the validation process ie, provider
     /// [error](katana_provider::error::ProviderError), and not for indicating that the
     /// transaction is invalid. For that purpose, use the [`ValidationOutcome::Invalid`] enum.
-    fn validate(&self, tx: Self::Transaction) -> ValidationResult<Self::Transaction>;
+    async fn validate(&self, tx: Self::Transaction) -> ValidationResult<Self::Transaction>;
 
     /// Validate a batch of transactions.
-    fn validate_all(
+    async fn validate_all(
         &self,
         txs: Vec<Self::Transaction>,
     ) -> Vec<ValidationResult<Self::Transaction>> {
-        txs.into_iter().map(|tx| self.validate(tx)).collect()
+        let mut results = Vec::with_capacity(txs.len());
+        for tx in txs {
+            results.push(self.validate(tx).await);
+        }
+        results
     }
 }

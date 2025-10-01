@@ -176,7 +176,7 @@ impl<EF: ExecutorFactory> CartridgeApi<EF> {
                     ))?
                 {
                 	debug!(target: "rpc::cartridge", controller = %address, tx = format!("{:#x}", tx.hash),  "Inserting Controller deployment transaction");
-                    this.pool.add_transaction(tx)?;
+                    this.pool.add_transaction(tx).await?;
                 }
             }
 
@@ -220,7 +220,7 @@ impl<EF: ExecutorFactory> CartridgeApi<EF> {
                 ))?;
 
                 debug!(target: "rpc::cartridge", controller = %address, tx = format!("{:#x}", tx.hash),  "Inserting Cartridge VRF deployment transaction.");
-                this.pool.add_transaction(tx)?;
+                this.pool.add_transaction(tx).await?;
 
                 // Ensure the nonce is increment for execution from outside.
                 nonce += Nonce::ONE;
@@ -257,7 +257,7 @@ impl<EF: ExecutorFactory> CartridgeApi<EF> {
             tx.signature = vec![signature.r, signature.s];
 
             let tx = ExecutableTxWithHash::new(ExecutableTx::Invoke(InvokeTx::V3(tx)));
-            let transaction_hash = this.pool.add_transaction(tx)?;
+            let transaction_hash = this.pool.add_transaction(tx).await?;
 
             Ok(AddInvokeTransactionResponse {transaction_hash})
         })
