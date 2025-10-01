@@ -1,5 +1,5 @@
 window.BENCHMARK_DATA = {
-  "lastUpdate": 1759283461355,
+  "lastUpdate": 1759350077498,
   "repoUrl": "https://github.com/dojoengine/katana",
   "entries": {
     "Benchmark": [
@@ -5831,6 +5831,66 @@ window.BENCHMARK_DATA = {
             "name": "Invoke.ERC20.transfer/Blockifier.Cold",
             "value": 11571158,
             "range": "± 182578",
+            "unit": "ns/iter"
+          }
+        ]
+      },
+      {
+        "commit": {
+          "author": {
+            "email": "evergreenkary@gmail.com",
+            "name": "Ammar Arif",
+            "username": "kariy"
+          },
+          "committer": {
+            "email": "noreply@github.com",
+            "name": "GitHub",
+            "username": "web-flow"
+          },
+          "distinct": true,
+          "id": "7b594d33da7db0285ee7fb86c492f876bb8d98fa",
+          "message": "ci: enable database compatibility check for v1.6.0 (#299)\n\nEnable back the database compatibility check - ensuring that `katana@1.6.0` database will be **compatible** with future versions of Katana. The `db-compat-test` is designed so that each RPC call will trigger storage reads targeting certain database tables. If the calls\nare successful, it means the database format is compatible and Katana is able to decode the table values correctly.\n\n---------\n\nCo-authored-by: Claude <noreply@anthropic.com>",
+          "timestamp": "2025-10-02T04:11:45+08:00",
+          "tree_id": "a1d59420ee29c6ed3e0c872cd2d873f4ad36ba48",
+          "url": "https://github.com/dojoengine/katana/commit/7b594d33da7db0285ee7fb86c492f876bb8d98fa"
+        },
+        "date": 1759350075205,
+        "tool": "cargo",
+        "benches": [
+          {
+            "name": "Commit.Small/Parallel",
+            "value": 236662,
+            "range": "± 18091",
+            "unit": "ns/iter"
+          },
+          {
+            "name": "Commit.Big/Serial",
+            "value": 74134921,
+            "range": "± 494240",
+            "unit": "ns/iter"
+          },
+          {
+            "name": "Commit.Big/Parallel",
+            "value": 53078304,
+            "range": "± 681827",
+            "unit": "ns/iter"
+          },
+          {
+            "name": "compress world contract",
+            "value": 1709532,
+            "range": "± 8495",
+            "unit": "ns/iter"
+          },
+          {
+            "name": "decompress world contract",
+            "value": 2117449,
+            "range": "± 8414",
+            "unit": "ns/iter"
+          },
+          {
+            "name": "Invoke.ERC20.transfer/Blockifier.Cold",
+            "value": 11464750,
+            "range": "± 79637",
             "unit": "ns/iter"
           }
         ]
