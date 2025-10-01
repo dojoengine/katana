@@ -19,13 +19,29 @@ jobs:
       - run: git config --global --add safe.directory "*"
       - uses: Swatinem/rust-cache@v2
 
-      - name: Setup Dojo
-        uses: dojoengine/setup-dojo@v0.1.0
+      - name: Checkout Dojo repository
+        uses: actions/checkout@v4
         with:
-          version: 1.5.0
+          repository: dojoengine/dojo
+          ref: v1.7.0-alpha.2
+          path: dojo
+
+      - uses: software-mansion/setup-scarb@v1
+        with:
+          scarb-version: "dev-2025-09-05"
+
+      - name: Install Sozo
+        run: |
+          cd dojo
+          cargo install --path bin/sozo --locked --force
+
+      - name: Checkout Katana repository
+        uses: actions/checkout@v4
+        with:
+          path: katana
 
       - name: Generate test database
-        run: ./scripts/generate-test-db.sh
+        run: ./katana/scripts/generate-test-db.sh
 
       - id: version_info
         run: |
@@ -38,7 +54,7 @@ jobs:
           base: main
           delete-branch: true
           token: ${{ secrets.CREATE_PR_TOKEN }}
-          add-paths: tests/fixtures/katana_db.tar.gz
+          add-paths: katana/tests/fixtures/katana_db.tar.gz
           branch: db-update-${{ steps.version_info.outputs.version }}
           title: "chore(test): update test database: ${{ steps.version_info.outputs.version }}"
           commit-message: "Update test database from Dojo project: ${{ steps.version_info.outputs.version }}"
