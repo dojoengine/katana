@@ -104,6 +104,14 @@ katana-tracing = { path = "crates/tracing" }
 katana-trie = { path = "crates/trie" }
 katana-utils = { path = "crates/utils" }
 
+paymaster-common = { path = "../../../../code/paymaster/crates/paymaster-common" }
+paymaster-execution = { path = "../../../../code/paymaster/crates/paymaster-execution" }
+paymaster-prices = { path = "../../../../code/paymaster/crates/paymaster-prices" }
+paymaster-relayer = { path = "../../../../code/paymaster/crates/paymaster-relayer" }
+paymaster-sponsoring = { path = "../../../../code/paymaster/crates/paymaster-sponsoring" }
+paymaster-starknet = { path = "../../../../code/paymaster/crates/paymaster-starknet" }
+paymaster-rpc = { path = "../../../../code/paymaster/crates/paymaster-rpc" }
+
 # cairo-lang
 cairo-lang-casm = "2.11.2"
 cairo-lang-runner = "2.11.2"

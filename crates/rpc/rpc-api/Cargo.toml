@@ -17,10 +17,11 @@ jsonrpsee = { workspace = true, features = [ "macros", "server" ] }
 serde.workspace = true
 serde_json.workspace = true
 thiserror.workspace = true
+paymaster-rpc = { workspace = true, optional = true }
 
 [dev-dependencies]
 rstest.workspace = true
 
 [features]
-cartridge = [  ]
+cartridge = [ "dep:paymaster-rpc" ]
 client = [ "jsonrpsee/client" ]

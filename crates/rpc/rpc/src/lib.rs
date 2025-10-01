@@ -17,6 +17,8 @@ use tracing::info;
 
 #[cfg(feature = "cartridge")]
 pub mod cartridge;
+#[cfg(feature = "cartridge")]
+pub mod paymaster;
 
 pub mod cors;
 pub mod dev;
