@@ -69,14 +69,15 @@ impl MessagingService {
                     inner.gather_messages(from_block, max_block, chain_id).await?;
                 let txs_count = txs.len();
 
-                txs.into_iter().for_each(|tx| {
+                for tx in txs {
                     let hash = tx.calculate_hash();
                     trace_l1_handler_tx_exec(hash, &tx);
 
                     // ignore result because L1Handler tx will always be valid
-                    let _ =
-                        pool.add_transaction(ExecutableTxWithHash { hash, transaction: tx.into() });
-                });
+                    let _ = pool
+                        .add_transaction(ExecutableTxWithHash { hash, transaction: tx.into() })
+                        .await;
+                }
 
                 Ok((block_num, txs_count))
             }
@@ -86,14 +87,14 @@ impl MessagingService {
                     inner.gather_messages(from_block, max_block, chain_id).await?;
                 let txs_count = txs.len();
 
-                txs.into_iter().for_each(|tx| {
+                for tx in txs {
                     let hash = tx.calculate_hash();
                     trace_l1_handler_tx_exec(hash, &tx);
 
                     // ignore result because L1Handler tx will always be valid
                     let tx = ExecutableTxWithHash { hash, transaction: tx.into() };
-                    let _ = pool.add_transaction(tx);
-                });
+                    let _ = pool.add_transaction(tx).await;
+                }
 
                 Ok((block_num, txs_count))
             }

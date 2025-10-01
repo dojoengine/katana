@@ -16,8 +16,12 @@ impl<T> NoopValidator<T> {
 impl<T: PoolTransaction> Validator for NoopValidator<T> {
     type Transaction = T;
 
-    fn validate(&self, tx: Self::Transaction) -> ValidationResult<Self::Transaction> {
-        ValidationResult::Ok(ValidationOutcome::Valid(tx))
+    #[allow(clippy::manual_async_fn)]
+    fn validate(
+        &self,
+        tx: Self::Transaction,
+    ) -> impl std::future::Future<Output = ValidationResult<Self::Transaction>> + Send {
+        async move { ValidationResult::Ok(ValidationOutcome::Valid(tx)) }
     }
 }
 
