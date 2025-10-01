@@ -126,7 +126,6 @@ impl Validator for TxValidator {
         let permit = self.permit.clone();
 
         async move {
-            tokio::task::spawn_blocking(move || {
             let _permit = permit.lock();
             let mut this = inner.lock();
 
@@ -188,9 +187,6 @@ impl Validator for TxValidator {
                 }
                 _ => result,
             }
-            })
-            .await
-            .unwrap()
         }
     }
 }
