@@ -1,6 +1,9 @@
 use assert_matches::assert_matches;
 use katana_primitives::da::DataAvailabilityMode;
-use katana_primitives::fee::{ResourceBoundsMapping, Tip};
+use katana_primitives::fee::{
+    AllResourceBoundsMapping, L1GasResourceBoundsMapping, ResourceBounds, ResourceBoundsMapping,
+    Tip,
+};
 use katana_primitives::{address, felt, transaction as primitives, ContractAddress};
 use katana_rpc_types::transaction::{
     RpcDeclareTx, RpcDeployAccountTx, RpcInvokeTx, RpcTx, RpcTxWithHash,
@@ -10,7 +13,6 @@ use katana_rpc_types::{
     RpcDeployAccountTxV3, RpcDeployTx, RpcInvokeTxV0, RpcInvokeTxV1, RpcInvokeTxV3, RpcL1HandlerTx,
 };
 use serde_json::Value;
-use starknet::core::types::ResourceBounds as RpcResourceBounds;
 
 mod fixtures;
 
@@ -48,9 +50,11 @@ fn invoke_transaction() {
         assert_eq!(tx.account_deployment_data, vec![]);
 
         assert_eq!(tx.tip, Tip::new(0x5f5e100));
-        assert_eq!(tx.resource_bounds.l1_data_gas, RpcResourceBounds { max_amount: 0x2710, max_price_per_unit: 0x8d79883d20000 });
-        assert_eq!(tx.resource_bounds.l1_gas, RpcResourceBounds { max_amount: 0x249f0, max_price_per_unit: 0x8d79883d20000 });
-        assert_eq!(tx.resource_bounds.l2_gas, RpcResourceBounds { max_amount: 0x5f5e100, max_price_per_unit: 0xba43b7400 });
+        assert_matches!(&tx.resource_bounds, ResourceBoundsMapping::All(bounds) => {
+            assert_eq!(bounds.l1_data_gas, ResourceBounds { max_amount: 0x2710, max_price_per_unit: 0x8d79883d20000 });
+            assert_eq!(bounds.l1_gas, ResourceBounds { max_amount: 0x249f0, max_price_per_unit: 0x8d79883d20000 });
+            assert_eq!(bounds.l2_gas, ResourceBounds { max_amount: 0x5f5e100, max_price_per_unit: 0xba43b7400 });
+        });
     });
 
     let serialized = serde_json::to_value(&tx).unwrap();
@@ -87,9 +91,12 @@ fn declare_transaction() {
         assert_eq!(tx.paymaster_data, vec![]);
 
         assert_eq!(tx.tip, Tip::new(0x0));
-        assert_eq!(tx.resource_bounds.l1_data_gas, RpcResourceBounds { max_amount: 0x2710, max_price_per_unit: 0x8d79883d20000 });
-        assert_eq!(tx.resource_bounds.l1_gas, RpcResourceBounds { max_amount: 0x249f0, max_price_per_unit: 0x8d79883d20000 });
-        assert_eq!(tx.resource_bounds.l2_gas, RpcResourceBounds { max_amount: 0x6c76900, max_price_per_unit: 0xba43b7400 });
+        assert_matches!(&tx.resource_bounds, ResourceBoundsMapping::All(bounds) => {
+            assert_eq!(bounds.l1_data_gas, ResourceBounds { max_amount: 0x2710, max_price_per_unit: 0x8d79883d20000 });
+            assert_eq!(bounds.l1_gas, ResourceBounds { max_amount: 0x249f0, max_price_per_unit: 0x8d79883d20000 });
+            assert_eq!(bounds.l2_gas, ResourceBounds { max_amount: 0x6c76900, max_price_per_unit: 0xba43b7400 });
+        });
+
     });
 
     let serialized = serde_json::to_value(&tx).unwrap();
@@ -128,9 +135,11 @@ fn deploy_account_transaction() {
         assert_eq!(tx.paymaster_data, vec![]);
 
         assert_eq!(tx.tip, Tip::new(0x5f5e100));
-        assert_eq!(tx.resource_bounds.l1_data_gas, RpcResourceBounds { max_amount: 0x2710, max_price_per_unit: 0x8d79883d20000 });
-        assert_eq!(tx.resource_bounds.l1_gas, RpcResourceBounds { max_amount: 0x249f0, max_price_per_unit: 0x8d79883d20000 });
-        assert_eq!(tx.resource_bounds.l2_gas, RpcResourceBounds { max_amount: 0x5f5e100, max_price_per_unit: 0xba43b7400 });
+        assert_matches!(&tx.resource_bounds, ResourceBoundsMapping::All(bounds) => {
+            assert_eq!(bounds.l1_data_gas, ResourceBounds { max_amount: 0x2710, max_price_per_unit: 0x8d79883d20000 });
+            assert_eq!(bounds.l1_gas, ResourceBounds { max_amount: 0x249f0, max_price_per_unit: 0x8d79883d20000 });
+            assert_eq!(bounds.l2_gas, ResourceBounds { max_amount: 0x5f5e100, max_price_per_unit: 0xba43b7400 });
+        });
     });
 
     let serialized = serde_json::to_value(&tx).unwrap();
@@ -182,11 +191,11 @@ fn rpc_to_primitives_invoke_v3() {
             calldata: vec![felt!("0x1"), felt!("0x2"), felt!("0x3")],
             signature: vec![felt!("0xabc"), felt!("0xdef")],
             nonce: felt!("0x5"),
-            resource_bounds: starknet::core::types::ResourceBoundsMapping {
-                l1_gas: RpcResourceBounds { max_amount: 0x1000, max_price_per_unit: 0x100 },
-                l2_gas: RpcResourceBounds { max_amount: 0x2000, max_price_per_unit: 0x200 },
-                l1_data_gas: RpcResourceBounds { max_amount: 0x3000, max_price_per_unit: 0x300 },
-            },
+            resource_bounds: ResourceBoundsMapping::All(AllResourceBoundsMapping {
+                l1_gas: ResourceBounds { max_amount: 0x1000, max_price_per_unit: 0x100 },
+                l2_gas: ResourceBounds { max_amount: 0x2000, max_price_per_unit: 0x200 },
+                l1_data_gas: ResourceBounds { max_amount: 0x3000, max_price_per_unit: 0x300 },
+            }),
             tip: Tip::new(0x50),
             paymaster_data: vec![felt!("0x999")],
             account_deployment_data: vec![felt!("0x888"), felt!("0x777")],
@@ -296,11 +305,11 @@ fn rpc_to_primitives_declare_v3() {
             signature: vec![felt!("0x444"), felt!("0x555")],
             nonce: felt!("0x20"),
             class_hash: felt!("0x666777"),
-            resource_bounds: starknet::core::types::ResourceBoundsMapping {
-                l1_gas: RpcResourceBounds { max_amount: 0x100, max_price_per_unit: 0x10 },
-                l2_gas: RpcResourceBounds { max_amount: 0x200, max_price_per_unit: 0x20 },
-                l1_data_gas: RpcResourceBounds { max_amount: 0x300, max_price_per_unit: 0x30 },
-            },
+            resource_bounds: ResourceBoundsMapping::All(AllResourceBoundsMapping {
+                l1_gas: ResourceBounds { max_amount: 0x100, max_price_per_unit: 0x10 },
+                l2_gas: ResourceBounds { max_amount: 0x200, max_price_per_unit: 0x20 },
+                l1_data_gas: ResourceBounds { max_amount: 0x300, max_price_per_unit: 0x30 },
+            }),
             tip: Tip::new(0x99),
             paymaster_data: vec![felt!("0xfff")],
             account_deployment_data: vec![felt!("0xeee")],
@@ -441,11 +450,11 @@ fn rpc_to_primitives_deploy_account_v3() {
             contract_address_salt: felt!("0xccc"),
             constructor_calldata: vec![felt!("0xddd"), felt!("0xeee")],
             class_hash: felt!("0xfff111"),
-            resource_bounds: starknet::core::types::ResourceBoundsMapping {
-                l1_gas: RpcResourceBounds { max_amount: 0x400, max_price_per_unit: 0x40 },
-                l2_gas: RpcResourceBounds { max_amount: 0x500, max_price_per_unit: 0x50 },
-                l1_data_gas: RpcResourceBounds { max_amount: 0x600, max_price_per_unit: 0x60 },
-            },
+            resource_bounds: ResourceBoundsMapping::All(AllResourceBoundsMapping {
+                l1_gas: ResourceBounds { max_amount: 0x400, max_price_per_unit: 0x40 },
+                l2_gas: ResourceBounds { max_amount: 0x500, max_price_per_unit: 0x50 },
+                l1_data_gas: ResourceBounds { max_amount: 0x600, max_price_per_unit: 0x60 },
+            }),
             tip: Tip::new(0x88),
             paymaster_data: vec![felt!("0x222333")],
             nonce_data_availability_mode: DataAvailabilityMode::L1,
@@ -575,7 +584,6 @@ fn rpc_to_primitives_deploy() {
 }
 
 #[test]
-#[ignore = "we don't have proper support for legacy resource bounds on both RPC and primitives"]
 fn rpc_to_primitives_resource_bounds_l1_only() {
     // Test the case where only L1 gas bounds are set (legacy support)
     let rpc_tx = RpcTxWithHash {
@@ -585,11 +593,10 @@ fn rpc_to_primitives_resource_bounds_l1_only() {
             calldata: vec![],
             signature: vec![],
             nonce: felt!("0x1"),
-            resource_bounds: starknet::core::types::ResourceBoundsMapping {
-                l1_gas: RpcResourceBounds { max_amount: 0x1000, max_price_per_unit: 0x100 },
-                l2_gas: RpcResourceBounds { max_amount: 0, max_price_per_unit: 0 },
-                l1_data_gas: RpcResourceBounds { max_amount: 0, max_price_per_unit: 0 },
-            },
+            resource_bounds: ResourceBoundsMapping::L1Gas(L1GasResourceBoundsMapping {
+                l1_gas: ResourceBounds { max_amount: 0x1000, max_price_per_unit: 0x100 },
+                l2_gas: ResourceBounds { max_amount: 0x99, max_price_per_unit: 0x88 },
+            }),
             tip: Tip::new(0),
             paymaster_data: vec![],
             account_deployment_data: vec![],
@@ -603,8 +610,10 @@ fn rpc_to_primitives_resource_bounds_l1_only() {
     assert_matches!(&primitives_tx.transaction, primitives::Tx::Invoke(primitives::InvokeTx::V3(tx)) => {
         // When l2_gas and l1_data_gas are zero, it should be converted to L1Gas variant
         assert_matches!(&tx.resource_bounds, ResourceBoundsMapping::L1Gas(bounds) => {
-            assert_eq!(bounds.max_amount, 0x1000);
-            assert_eq!(bounds.max_price_per_unit, 0x100);
+            assert_eq!(bounds.l1_gas.max_amount, 0x1000);
+            assert_eq!(bounds.l1_gas.max_price_per_unit, 0x100);
+            assert_eq!(bounds.l2_gas.max_amount, 0x99);
+            assert_eq!(bounds.l2_gas.max_price_per_unit, 0x88);
         });
     });
 
