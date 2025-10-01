@@ -42,7 +42,7 @@ mod tests {
         ];
 
         for tx in &first_batch {
-            pool.add_transaction(tx.clone()).expect("failed to add tx");
+            pool.add_transaction(tx.clone()).await.expect("failed to add tx");
         }
 
         let mut pendings = pool.pending_transactions();
@@ -63,7 +63,7 @@ mod tests {
         ];
 
         for tx in &second_batch {
-            pool.add_transaction(tx.clone()).expect("failed to add tx");
+            pool.add_transaction(tx.clone()).await.expect("failed to add tx");
         }
 
         // exhaust all the first batch transactions
@@ -100,7 +100,7 @@ mod tests {
             }
 
             for tx in txs_clone {
-                pool_clone.add_transaction(tx).expect("failed to add tx");
+                pool_clone.add_transaction(tx).await.expect("failed to add tx");
             }
         });
 
