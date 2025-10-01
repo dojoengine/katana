@@ -3662,11 +3662,12 @@ version = "1.7.0-alpha.4"
 dependencies = [
  "anyhow",
  "katana-chain-spec",
- "katana-cli",
  "katana-db",
- "katana-node",
+ "katana-node-bindings",
  "katana-primitives",
  "katana-provider",
+ "katana-rpc-client",
+ "katana-rpc-types",
  "starknet",
  "tokio",
 ]

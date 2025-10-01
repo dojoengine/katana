@@ -342,25 +342,38 @@ jobs:
           echo "=== Last 50 lines of Katana logs ==="
           tail -n 50 katana.log
 
-  # db-compatibility-check:
-  #   needs: [fmt, clippy]
-  #   runs-on: ubuntu-latest
-  #   container:
-  #     image: ghcr.io/dojoengine/katana-dev:latest
-  #   steps:
-  #     - uses: actions/checkout@v3
-  #       with:
-  #         submodules: recursive
-  #     # Workaround for https://github.com/actions/runner-images/issues/6775
-  #     - run: git config --global --add safe.directory "*"
+  db-compatibility-check:
+    needs: [fmt, clippy, build-katana-binary]
+    runs-on: ubuntu-latest
+    container:
+      image: ghcr.io/dojoengine/katana-dev:latest
+    steps:
+      - uses: actions/checkout@v3
+        with:
+          submodules: recursive
+      # Workaround for https://github.com/actions/runner-images/issues/6775
+      - run: git config --global --add safe.directory "*"
 
-  #     - uses: Swatinem/rust-cache@v2
-  #       with:
-  #         key: release-checks-${{ github.job }}
-  #         shared-key: katana-ci-cache
+      - uses: Swatinem/rust-cache@v2
+        with:
+          key: release-checks-${{ github.job }}
+          shared-key: katana-ci-cache
 
-  #     - name: Generate test artifacts
-  #       run: make db-compat-artifacts
+      - name: Download Katana binary
+        uses: actions/download-artifact@v5
+        with:
+          name: binary
 
-  #     - name: Run database compatibility check
-  #       run: cargo run -p db-compat-test
+      - name: Download test artifacts
+        uses: actions/download-artifact@v5
+        with:
+          name: test-artifacts
+
+      - name: Setup Katana binary
+        run: chmod +x ./katana
+
+      - name: Generate test artifacts
+        run: make db-compat-artifacts
+
+      - name: Run database compatibility check
+        run: KATANA_BIN=./katana cargo run -p db-compat-test

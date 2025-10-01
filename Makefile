@@ -14,8 +14,8 @@ DB_FIXTURES_DIR ?= $(FIXTURES_DIR)/db
 SNOS_DB_TAR ?= $(DB_FIXTURES_DIR)/snos.tar.gz
 SNOS_DB_DIR := $(DB_FIXTURES_DIR)/snos
 
-COMPATIBILITY_DB_TAR ?= $(DB_FIXTURES_DIR)/v1_2_2.tar.gz
-COMPATIBILITY_DB_DIR ?= $(DB_FIXTURES_DIR)/v1_2_2
+COMPATIBILITY_DB_TAR ?= $(DB_FIXTURES_DIR)/1_6_0.tar.gz
+COMPATIBILITY_DB_DIR ?= $(DB_FIXTURES_DIR)/1_6_0
 
 CONTRACTS_CRATE := crates/contracts
 CONTRACTS_DIR := $(CONTRACTS_CRATE)/contracts
@@ -105,7 +105,8 @@ $(SNOS_DB_DIR): $(SNOS_DB_TAR)
 $(COMPATIBILITY_DB_DIR): $(COMPATIBILITY_DB_TAR)
 	@echo "Extracting backward compatibility test database..."
 	@cd $(DB_FIXTURES_DIR) && \
-		tar -xzf v1_2_2.tar.gz || { echo "Failed to extract backward compatibility test database\!"; exit 1; }
+		tar -xzf $(notdir $(COMPATIBILITY_DB_TAR)) && \
+		mv katana_db $(notdir $(COMPATIBILITY_DB_DIR)) || { echo "Failed to extract backward compatibility test database\!"; exit 1; }
 	@echo "Backward compatibility database extracted successfully."
 
 check-llvm:
