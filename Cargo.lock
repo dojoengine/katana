@@ -6313,6 +6313,7 @@ dependencies = [
  "katana-pool-api",
  "katana-primitives",
  "katana-provider",
+ "katana-tasks",
  "parking_lot",
  "rand 0.8.5",
  "starknet",
