@@ -1,5 +1,5 @@
 window.BENCHMARK_DATA = {
-  "lastUpdate": 1759250004427,
+  "lastUpdate": 1759283461355,
   "repoUrl": "https://github.com/dojoengine/katana",
   "entries": {
     "Benchmark": [
@@ -5771,6 +5771,66 @@ window.BENCHMARK_DATA = {
             "name": "Invoke.ERC20.transfer/Blockifier.Cold",
             "value": 11965687,
             "range": "± 329368",
+            "unit": "ns/iter"
+          }
+        ]
+      },
+      {
+        "commit": {
+          "author": {
+            "email": "evergreenkary@gmail.com",
+            "name": "Ammar Arif",
+            "username": "kariy"
+          },
+          "committer": {
+            "email": "noreply@github.com",
+            "name": "GitHub",
+            "username": "web-flow"
+          },
+          "distinct": true,
+          "id": "ac27a452975dea483b47be38f022e5049c088310",
+          "message": "refactor(rpc): enter span context in task spawns (#297)\n\nEnsures `tracing` span context is properly propagated when spawning blocking tasks in RPC handlers.\n\n## Changes\n\n- **`StarknetApi`**: Added span context entry in `on_cpu_blocking_task` and `on_io_blocking_task` methods\n- **`CartridgeApi`**: Added span context entry in `on_io_bound_task` method\n\n## Convention\n\n**Span context entry is handled at the application level (RPC layer), not in the `TaskManager`/`TaskSpawner` infrastructure.** This design keeps the task management layer agnostic to tracing concerns, while allowing application code to maintain proper trace correlation across thread boundaries.\n\nThe implementation captures the current span before spawning tasks and enters it within the spawned closure, ensuring all tracing events in blocking tasks are properly associated with their parent RPC call.\n\n---------\n\nCo-authored-by: Claude <noreply@anthropic.com>",
+          "timestamp": "2025-10-01T09:46:25+08:00",
+          "tree_id": "1c4d34f36d25295b93bb47fadcbf721c9b748198",
+          "url": "https://github.com/dojoengine/katana/commit/ac27a452975dea483b47be38f022e5049c088310"
+        },
+        "date": 1759283459564,
+        "tool": "cargo",
+        "benches": [
+          {
+            "name": "Commit.Small/Parallel",
+            "value": 409411,
+            "range": "± 45371",
+            "unit": "ns/iter"
+          },
+          {
+            "name": "Commit.Big/Serial",
+            "value": 75741190,
+            "range": "± 2186380",
+            "unit": "ns/iter"
+          },
+          {
+            "name": "Commit.Big/Parallel",
+            "value": 53753298,
+            "range": "± 3639643",
+            "unit": "ns/iter"
+          },
+          {
+            "name": "compress world contract",
+            "value": 1778231,
+            "range": "± 393359",
+            "unit": "ns/iter"
+          },
+          {
+            "name": "decompress world contract",
+            "value": 2120860,
+            "range": "± 38244",
+            "unit": "ns/iter"
+          },
+          {
+            "name": "Invoke.ERC20.transfer/Blockifier.Cold",
+            "value": 11571158,
+            "range": "± 182578",
             "unit": "ns/iter"
           }
         ]
