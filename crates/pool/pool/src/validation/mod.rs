@@ -16,6 +16,7 @@ impl<T> NoopValidator<T> {
 impl<T: PoolTransaction> Validator for NoopValidator<T> {
     type Transaction = T;
 
+    #[allow(clippy::manual_async_fn)]
     fn validate(
         &self,
         tx: Self::Transaction,
