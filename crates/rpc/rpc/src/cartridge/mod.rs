@@ -25,6 +25,7 @@
 //!    fee estimate RPC method of [StarknetApi](crate::starknet::StarknetApi) to see how the
 //!    Controller deployment is handled during fee estimation.
 
+use std::future::Future;
 use std::sync::Arc;
 
 use anyhow::anyhow;
@@ -130,7 +131,7 @@ impl<EF: ExecutorFactory> CartridgeApi<EF> {
         signature: Vec<Felt>,
     ) -> Result<AddInvokeTransactionResponse, StarknetApiError> {
         debug!(%address, ?outside_execution, "Adding execute outside transaction.");
-        self.on_io_bound_task(move |this| {
+        self.on_cpu_blocking_task(move |this| async move {
             // For now, we use the first predeployed account in the genesis as the paymaster
             // account.
             let (pm_address, pm_acc) = this
@@ -264,21 +265,30 @@ impl<EF: ExecutorFactory> CartridgeApi<EF> {
         .await?
     }
 
-    async fn on_io_bound_task<F, R>(&self, func: F) -> Result<R, StarknetApiError>
+    /// Spawns an async function that is mostly CPU-bound blocking task onto the manager's blocking
+    /// pool.
+    async fn on_cpu_blocking_task<T, F>(&self, func: T) -> Result<F::Output, StarknetApiError>
     where
-        F: FnOnce(Self) -> R + Send + 'static,
-        R: Send + 'static,
+        T: FnOnce(Self) -> F,
+        F: Future + Send + 'static,
+        F::Output: Send + 'static,
     {
+        use tokio::runtime::Builder;
+
         let this = self.clone();
+        let future = func(this);
         let span = tracing::Span::current();
-        match self
-            .task_spawner
-            .spawn_blocking(move || {
-                let _enter = span.enter();
-                func(this)
-            })
-            .await
-        {
+
+        let task = move || {
+            let _enter = span.enter();
+            Builder::new_current_thread()
+                .enable_all()
+                .build()
+                .expect("failed to build tokio runtime")
+                .block_on(future)
+        };
+
+        match self.task_spawner.cpu_bound().spawn(task).await {
             TaskResult::Ok(result) => Ok(result),
             TaskResult::Err(err) => {
                 Err(StarknetApiError::unexpected(format!("internal task execution failed: {err}")))

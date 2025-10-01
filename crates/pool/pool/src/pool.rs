@@ -428,8 +428,8 @@ mod tests {
         assert_eq!(counter, txs.len());
     }
 
-    #[test]
-    fn remove_transactions() {
+    #[tokio::test]
+    async fn remove_transactions() {
         let pool = TestPool::test();
 
         let txs = [
