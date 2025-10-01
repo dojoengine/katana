@@ -133,7 +133,8 @@ impl Validator for TxValidator {
             // with the same hash.
             if let ExecutableTx::Declare(ref declare_tx) = tx.transaction {
                 let class_hash = declare_tx.class_hash();
-                let class = this.state.class(class_hash).map_err(|e| Error::new(tx.hash, Box::new(e)))?;
+                let class =
+                    this.state.class(class_hash).map_err(|e| Error::new(tx.hash, Box::new(e)))?;
 
                 // Return an error if the class already exists.
                 if class.is_some() {
@@ -155,9 +156,9 @@ impl Validator for TxValidator {
                 return Ok(ValidationOutcome::Dependent { current_nonce, tx_nonce, tx });
             }
 
-            // Check if validation of an invoke transaction should be skipped due to deploy_account not
-            // being proccessed yet. This feature is used to improve UX for users sending
-            // deploy_account + invoke at once.
+            // Check if validation of an invoke transaction should be skipped due to deploy_account
+            // not being proccessed yet. This feature is used to improve UX for users
+            // sending deploy_account + invoke at once.
             let skip_validate = match tx.transaction {
                 // we skip validation for invoke tx with nonce 1 and nonce 0 in the state, this
                 ExecutableTx::DeployAccount(_) | ExecutableTx::Declare(_) => false,
