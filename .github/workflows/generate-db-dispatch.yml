@@ -35,13 +35,8 @@ jobs:
           cd dojo
           cargo install --path bin/sozo --locked --force
 
-      - name: Checkout Katana repository
-        uses: actions/checkout@v4
-        with:
-          path: katana
-
       - name: Generate test database
-        run: ./katana/scripts/generate-test-db.sh
+        run: ./scripts/generate-test-db.sh
 
       - id: version_info
         run: |
@@ -54,7 +49,7 @@ jobs:
           base: main
           delete-branch: true
           token: ${{ secrets.CREATE_PR_TOKEN }}
-          add-paths: katana/tests/fixtures/katana_db.tar.gz
+          add-paths: tests/fixtures/katana_db.tar.gz
           branch: db-update-${{ steps.version_info.outputs.version }}
           title: "chore(test): update test database: ${{ steps.version_info.outputs.version }}"
           commit-message: "Update test database from Dojo project: ${{ steps.version_info.outputs.version }}"
