@@ -271,10 +271,14 @@ impl<EF: ExecutorFactory> CartridgeApi<EF> {
     {
         let this = self.clone();
         let span = tracing::Span::current();
-        match self.task_spawner.spawn_blocking(move || {
-            let _enter = span.enter();
-            func(this)
-        }).await {
+        match self
+            .task_spawner
+            .spawn_blocking(move || {
+                let _enter = span.enter();
+                func(this)
+            })
+            .await
+        {
             TaskResult::Ok(result) => Ok(result),
             TaskResult::Err(err) => {
                 Err(StarknetApiError::unexpected(format!("internal task execution failed: {err}")))
