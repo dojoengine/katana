@@ -1,6 +1,11 @@
 name: generate-test-db-dispatch
 on:
   workflow_dispatch:
+    inputs:
+      katana_version:
+        description: 'Katana version/tag to generate database from'
+        required: true
+        type: string
 
 jobs:
   generate-database:
@@ -15,14 +20,27 @@ jobs:
 
     steps:
       - uses: actions/checkout@v4
+        with:
+          ref: ${{ inputs.katana_version }}
       # Workaround for https://github.com/actions/runner-images/issues/6775
       - run: git config --global --add safe.directory "*"
       - uses: Swatinem/rust-cache@v2
 
-      - name: Setup Dojo
-        uses: dojoengine/setup-dojo@v0.1.0
+      - name: Checkout Dojo repository
+        uses: actions/checkout@v4
         with:
-          version: 1.5.0
+          repository: dojoengine/dojo
+          ref: v1.7.0-alpha.2
+          path: dojo
+
+      - uses: software-mansion/setup-scarb@v1
+        with:
+          scarb-version: "dev-2025-09-05"
+
+      - name: Install Sozo
+        run: |
+          cd dojo
+          cargo install --path bin/sozo --locked --force
 
       - name: Generate test database
         run: ./scripts/generate-test-db.sh
@@ -40,5 +58,5 @@ jobs:
           token: ${{ secrets.CREATE_PR_TOKEN }}
           add-paths: tests/fixtures/katana_db.tar.gz
           branch: db-update-${{ steps.version_info.outputs.version }}
-          title: "chore(test): update test database: ${{ steps.version_info.outputs.version }}"
-          commit-message: "Update test database from Dojo project: ${{ steps.version_info.outputs.version }}"
+          title: "chore(test): update test database for katana ${{ inputs.katana_version }}"
+          commit-message: "Update test database for katana ${{ inputs.katana_version }}"
