@@ -45,7 +45,6 @@ PRIVATE_KEY=${PRIVATE_KEY:-"0x7230b49615d175307d580c33d6fda61fc7b9aec91df0f5c1a5
 DOJO_REPO=${DOJO_REPO:-"https://github.com/dojoengine/dojo.git"}
 DOJO_EXAMPLE=${DOJO_EXAMPLE:-"examples/spawn-and-move"}
 KATANA_DB_PATH=${KATANA_DB_PATH:-"/tmp/katana_db"}
-KATANA_CHAIN_CONFIG_DIR=${KATANA_CHAIN_CONFIG_DIR:-"$(pwd)/tests/fixtures/test-chain"}
 OUTPUT_DIR=${OUTPUT_DIR:-"$(pwd)/tests/fixtures/db"}
 
 KATANA_PID=""
@@ -100,8 +99,8 @@ echo
 echo -e "\033[1mSetting up Katana:\033[0m"
 echo "  * Creating database directory at \`$KATANA_DB_PATH\`"
 mkdir -p $KATANA_DB_PATH
-echo "  * Starting katana: \`$KATANA_BIN --db-dir \"$KATANA_DB_PATH\" --chain \"$KATANA_CHAIN_CONFIG_DIR\"\`"
-$KATANA_BIN --db-dir "$KATANA_DB_PATH" --chain "$KATANA_CHAIN_CONFIG_DIR" > "$KATANA_LOG_FILE" 2>&1 &
+echo "  * Starting katana: \`$KATANA_BIN --db-dir \"$KATANA_DB_PATH\"\`"
+$KATANA_BIN --db-dir "$KATANA_DB_PATH" > "$KATANA_LOG_FILE" 2>&1 &
 KATANA_PID=$!
 sleep 5
 echo
