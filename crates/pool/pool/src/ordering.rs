@@ -213,9 +213,9 @@ mod tests {
         let pool = Pool::new(NoopValidator::new(), FiFo::new());
 
         // Add transactions to the pool
-        txs.iter().for_each(|tx| {
-            let _ = pool.add_transaction(tx.clone());
-        });
+        for tx in &txs {
+            let _ = pool.add_transaction(tx.clone()).await;
+        }
 
         // Get pending transactions
         let mut pendings = pool.pending_transactions();
@@ -246,9 +246,9 @@ mod tests {
         let pool = Pool::new(NoopValidator::new(), ordering::TipOrdering::new());
 
         // Add transactions to the pool
-        txs.iter().for_each(|tx| {
-            let _ = pool.add_transaction(tx.clone());
-        });
+        for tx in &txs {
+            let _ = pool.add_transaction(tx.clone()).await;
+        }
 
         let mut pending = pool.pending_transactions();
 
