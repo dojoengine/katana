@@ -11,7 +11,7 @@ async fn main() -> Result<()> {
     println!("Testing database compatibility from version 1.6.0");
     println!("Current Katana database version: {CURRENT_DB_VERSION}");
 
-    const TEST_DB_DIR: &str = "tests/fixtures/db/db_v1.6.0";
+    const TEST_DB_DIR: &str = "tests/fixtures/db/1_6_0";
 
     // Get the katana binary path from the environment variable if provided (for CI)
     // Otherwise, assume it's in PATH
