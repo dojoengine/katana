@@ -1,6 +1,8 @@
+use std::sync::Arc;
+
 use alloy_primitives::U256;
-use katana_chain_spec::rollup::{self, FeeContract};
-use katana_chain_spec::{dev, ChainSpec, SettlementLayer};
+use katana_chain_spec::rollup::{self};
+use katana_chain_spec::{dev, ChainSpec, FeeContracts, SettlementLayer};
 use katana_core::backend::storage::{Blockchain, Database};
 use katana_core::backend::Backend;
 use katana_executor::implementation::blockifier::cache::ClassCache;
@@ -11,34 +13,36 @@ use katana_genesis::allocation::DevAllocationsGenerator;
 use katana_genesis::constant::DEFAULT_PREFUNDED_ACCOUNT_BALANCE;
 use katana_genesis::Genesis;
 use katana_primitives::chain::ChainId;
-use katana_primitives::env::CfgEnv;
+use katana_primitives::env::VersionedConstantsOverrides;
 use katana_primitives::felt;
 use katana_provider::providers::db::DbProvider;
 use rstest::rstest;
 use url::Url;
 
-fn executor(chain_spec: &ChainSpec) -> BlockifierFactory {
+fn executor(chain_spec: Arc<ChainSpec>) -> BlockifierFactory {
     BlockifierFactory::new(
-        CfgEnv {
-            chain_id: chain_spec.id(),
+        VersionedConstantsOverrides {
             validate_max_n_steps: u32::MAX,
             invoke_tx_max_n_steps: u32::MAX,
             max_recursion_depth: usize::MAX,
-            ..Default::default()
         },
         Default::default(),
         BlockLimits::default(),
         ClassCache::new().unwrap(),
+        chain_spec,
     )
 }
 
-fn backend(chain_spec: &ChainSpec) -> Backend<BlockifierFactory> {
+fn backend(chain_spec: Arc<ChainSpec>) -> Backend<BlockifierFactory> {
     backend_with_db(chain_spec, DbProvider::new_in_memory())
 }
 
-fn backend_with_db(chain_spec: &ChainSpec, provider: impl Database) -> Backend<BlockifierFactory> {
+fn backend_with_db(
+    chain_spec: Arc<ChainSpec>,
+    provider: impl Database,
+) -> Backend<BlockifierFactory> {
     Backend::new(
-        chain_spec.clone().into(),
+        chain_spec.clone(),
         Blockchain::new(provider),
         GasPriceOracle::create_for_testing(),
         executor(chain_spec),
@@ -58,7 +62,7 @@ fn rollup_chain_spec() -> rollup::ChainSpec {
     genesis.extend_allocations(accounts.into_iter().map(|(k, v)| (k, v.into())));
 
     let id = ChainId::parse("KATANA").unwrap();
-    let fee_contract = FeeContract::default();
+    let fee_contracts = FeeContracts::default();
 
     let settlement = SettlementLayer::Starknet {
         block: 0,
@@ -68,14 +72,20 @@ fn rollup_chain_spec() -> rollup::ChainSpec {
         rpc_url: Url::parse("http://localhost:5050").unwrap(),
     };
 
-    rollup::ChainSpec { id, genesis, settlement, fee_contract }
+    rollup::ChainSpec {
+        id,
+        genesis,
+        settlement,
+        fee_contracts,
+        versioned_constants_overrides: None,
+    }
 }
 
 #[rstest]
 #[case::dev(ChainSpec::Dev(dev_chain_spec()))]
 #[case::rollup(ChainSpec::Rollup(rollup_chain_spec()))]
 fn can_initialize_genesis(#[case] chain: ChainSpec) {
-    let backend = backend(&chain);
+    let backend = backend(chain.into());
     backend.init_genesis().expect("failed to initialize genesis");
 }
 
@@ -85,10 +95,10 @@ fn can_initialize_genesis(#[case] chain: ChainSpec) {
 fn can_reinitialize_genesis(#[case] chain: ChainSpec) {
     let db = DbProvider::new_in_memory();
 
-    let backend = backend_with_db(&chain, db.clone());
+    let backend = backend_with_db(chain.clone().into(), db.clone());
     backend.init_genesis().expect("failed to initialize genesis");
 
-    let backend = backend_with_db(&chain, db);
+    let backend = backend_with_db(chain.into(), db);
     backend.init_genesis().unwrap();
 }
 
@@ -97,7 +107,7 @@ fn reinitialize_with_different_rollup_chain_spec() {
     let db = DbProvider::new_in_memory();
 
     let chain1 = ChainSpec::Rollup(rollup_chain_spec());
-    let backend1 = backend_with_db(&chain1, db.clone());
+    let backend1 = backend_with_db(chain1.into(), db.clone());
     backend1.init_genesis().expect("failed to initialize genesis");
 
     // Modify the chain spec so that the resultant genesis block hash will be different.
@@ -107,7 +117,7 @@ fn reinitialize_with_different_rollup_chain_spec() {
         chain
     });
 
-    let backend2 = backend_with_db(&chain2, db);
+    let backend2 = backend_with_db(chain2.into(), db);
     let err = backend2.init_genesis().unwrap_err().to_string();
     assert!(err.as_str().contains("Genesis block hash mismatch"));
 }

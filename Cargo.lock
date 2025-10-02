@@ -6238,7 +6238,6 @@ version = "1.7.0"
 dependencies = [
  "alloy-provider",
  "anyhow",
- "clap",
  "futures",
  "http 1.3.1",
  "jsonrpsee",
@@ -6252,10 +6251,12 @@ dependencies = [
  "katana-metrics",
  "katana-pipeline",
  "katana-pool",
+ "katana-pool-api",
  "katana-primitives",
  "katana-provider",
  "katana-rpc",
  "katana-rpc-api",
+ "katana-rpc-types",
  "katana-stage",
  "katana-starknet",
  "katana-tasks",
@@ -6270,8 +6271,6 @@ dependencies = [
  "tower 0.5.2",
  "tower-http",
  "tracing",
- "tracing-log 0.1.4",
- "tracing-subscriber",
  "url",
 ]
 
@@ -6315,6 +6314,7 @@ version = "1.7.0"
 dependencies = [
  "futures",
  "futures-util",
+ "katana-chain-spec",
  "katana-executor",
  "katana-pool-api",
  "katana-primitives",

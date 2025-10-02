@@ -5,7 +5,7 @@ use criterion::measurement::WallTime;
 use criterion::{criterion_group, criterion_main, BatchSize, BenchmarkGroup, Criterion};
 use katana_executor::implementation::blockifier::state::StateProviderDb;
 use katana_executor::ExecutionFlags;
-use katana_primitives::env::{BlockEnv, CfgEnv};
+use katana_primitives::env::{BlockEnv, VersionedConstantsOverrides};
 use katana_primitives::transaction::ExecutableTxWithHash;
 use katana_provider::api::state::StateFactoryProvider;
 use katana_provider::test_utils;
@@ -32,30 +32,30 @@ fn blockifier(
     group: &mut BenchmarkGroup<'_, WallTime>,
     provider: impl StateFactoryProvider,
     execution_flags: &ExecutionFlags,
-    block_envs: &(BlockEnv, CfgEnv),
+    block_envs: &(BlockEnv, VersionedConstantsOverrides),
     tx: ExecutableTxWithHash,
 ) {
     use katana_executor::implementation::blockifier::utils::{block_context_from_envs, transact};
 
-    // convert to blockifier block context
-    let block_context = block_context_from_envs(&block_envs.0, &block_envs.1);
+    // // convert to blockifier block context
+    // let block_context = block_context_from_envs(&block_envs.0, &block_envs.1);
 
-    group.bench_function("Blockifier.Cold", |b| {
-        // we need to set up the cached state for each iteration as it's not cloneable
-        b.iter_batched(
-            || {
-                // setup state
-                let state = provider.latest().expect("failed to get latest state");
-                let state = CachedState::new(StateProviderDb::new(state));
+    // group.bench_function("Blockifier.Cold", |b| {
+    //     // we need to set up the cached state for each iteration as it's not cloneable
+    //     b.iter_batched(
+    //         || {
+    //             // setup state
+    //             let state = provider.latest().expect("failed to get latest state");
+    //             let state = CachedState::new(StateProviderDb::new(state));
 
-                (state, &block_context, execution_flags, tx.clone())
-            },
-            |(mut state, block_context, flags, tx)| {
-                transact(&mut state, block_context, flags, tx, None)
-            },
-            BatchSize::SmallInput,
-        )
-    });
+    //             (state, &block_context, execution_flags, tx.clone())
+    //         },
+    //         |(mut state, block_context, flags, tx)| {
+    //             transact(&mut state, block_context, flags, tx, None)
+    //         },
+    //         BatchSize::SmallInput,
+    //     )
+    // });
 }
 
 criterion_group! {

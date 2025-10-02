@@ -10,10 +10,7 @@ use katana_rpc_types::list::{
 use super::StarknetApi;
 
 #[async_trait]
-impl<EF> StarknetApiExtServer for StarknetApi<EF>
-where
-    EF: katana_executor::ExecutorFactory,
-{
+impl StarknetApiExtServer for StarknetApi {
     async fn get_blocks(&self, request: GetBlocksRequest) -> RpcResult<GetBlocksResponse> {
         Ok(self.blocks(request).await?)
     }
