@@ -247,7 +247,7 @@ impl<'a> RequestBuilder<'a> {
     }
 }
 
-impl<'a> RequestBuilder<'a, Post> {
+impl RequestBuilder<'_, Post> {
     /// Attach a JSON body to the request.
     fn json<T: serde::Serialize>(mut self, value: &T) -> Self {
         let json = serde_json::to_string_pretty(value).unwrap();
@@ -256,7 +256,7 @@ impl<'a> RequestBuilder<'a, Post> {
     }
 }
 
-impl<'a, Method> RequestBuilder<'a, Method> {
+impl<Method> RequestBuilder<'_, Method> {
     fn block_id(mut self, block_id: BlockId) -> Self {
         match block_id {
             BlockId::Hash(hash) => {
