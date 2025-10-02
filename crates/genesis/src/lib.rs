@@ -16,7 +16,7 @@ use serde::{Deserialize, Serialize};
 use self::allocation::{GenesisAccountAlloc, GenesisAllocation, GenesisContractAlloc};
 
 /// Genesis block configuration.
-#[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
 pub struct Genesis {
     /// The genesis block parent hash.
     pub parent_hash: BlockHash,

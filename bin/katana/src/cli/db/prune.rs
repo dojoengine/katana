@@ -15,6 +15,7 @@ use super::open_db_ro;
 use crate::cli::db::open_db_rw;
 
 #[derive(Debug, Args)]
+#[cfg_attr(test, derive(PartialEq, Eq))]
 pub struct PruneArgs {
     /// Path to the database directory.
     #[arg(short, long)]

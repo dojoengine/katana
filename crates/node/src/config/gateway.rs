@@ -9,7 +9,7 @@ pub const DEFAULT_GATEWAY_PORT: u16 = 5051;
 pub const DEFAULT_GATEWAY_TIMEOUT_SECS: u64 = 20;
 
 /// Configuration for the gateway server.
-#[derive(Debug, Clone, Serialize, Deserialize)]
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
 pub struct GatewayConfig {
     /// The IP address the gateway server will bind to.
     pub addr: IpAddr,

@@ -5,7 +5,7 @@ use tracing_subscriber::fmt::format::Writer;
 use tracing_subscriber::fmt::time::{self};
 
 /// Format for logging output.
-#[derive(Debug, Copy, Clone, PartialEq, Deserialize, Serialize, Default)]
+#[derive(Debug, Copy, Clone, PartialEq, Deserialize, Serialize, Default, Eq)]
 pub enum LogFormat {
     /// Full text format with colors and human-readable layout.
     #[default]

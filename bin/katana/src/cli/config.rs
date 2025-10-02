@@ -5,6 +5,7 @@ use katana_primitives::chain::ChainId;
 use starknet::core::utils::parse_cairo_short_string;
 
 #[derive(Debug, Args)]
+#[cfg_attr(test, derive(PartialEq, Eq))]
 pub struct ConfigArgs {
     /// The chain id.
     #[arg(value_parser = ChainId::parse)]

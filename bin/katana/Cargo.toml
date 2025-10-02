@@ -50,6 +50,7 @@ vergen-gitcl = { version = "1.0.0", features = [ "build", "cargo", "rustc", "si"
 katana-provider.workspace = true
 
 arbitrary.workspace = true
+similar-asserts.workspace = true
 assert_matches.workspace = true
 proptest = "1.0"
 rstest.workspace = true

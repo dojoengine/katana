@@ -89,7 +89,7 @@ impl From<TransportError> for Error {
 }
 
 /// The config used to initialize the messaging service.
-#[derive(Debug, Default, Deserialize, Clone, Serialize, PartialEq)]
+#[derive(Debug, Default, Deserialize, Clone, Serialize, PartialEq, Eq)]
 pub struct MessagingConfig {
     /// The settlement chain.
     pub chain: String,
