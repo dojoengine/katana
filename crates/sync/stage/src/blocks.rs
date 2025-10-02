@@ -19,7 +19,7 @@ use num_traits::ToPrimitive;
 use starknet::core::types::ResourcePrice;
 use tracing::{debug, error};
 
-use super::downloader::{Downloader, Fetchable, RetryConfig};
+use super::downloader::{Downloader, Fetchable};
 use super::{Stage, StageExecutionInput, StageResult};
 
 #[derive(Debug, thiserror::Error)]
@@ -108,19 +108,10 @@ pub struct FeederGatewayBlockDownloader {
 impl FeederGatewayBlockDownloader {
     pub fn new(feeder_gateway: SequencerGateway, download_batch_size: usize) -> Self {
         // Use a longer retry delay for blocks (9 seconds)
-        let retry_config = RetryConfig::new().with_min_delay_secs(9);
-        let downloader =
-            Downloader::with_retry_config(feeder_gateway, download_batch_size, retry_config);
-        Self { downloader }
-    }
-
-    pub fn with_retry_config(
-        feeder_gateway: SequencerGateway,
-        download_batch_size: usize,
-        retry_config: RetryConfig,
-    ) -> Self {
-        let downloader =
-            Downloader::with_retry_config(feeder_gateway, download_batch_size, retry_config);
+        let downloader = Downloader::builder(feeder_gateway)
+            .batch_size(download_batch_size)
+            .min_retry_delay_secs(9)
+            .build();
         Self { downloader }
     }
 }

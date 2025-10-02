@@ -9,7 +9,7 @@ use katana_provider::api::ProviderError;
 use katana_rpc_types::class::ConversionError;
 use tracing::{debug, error};
 
-use super::downloader::{Downloader, Fetchable, RetryConfig};
+use super::downloader::{Downloader, Fetchable};
 use super::{Stage, StageExecutionInput, StageResult};
 
 #[derive(Debug, thiserror::Error)]
@@ -116,17 +116,8 @@ pub struct FeederGatewayClassDownloader {
 
 impl FeederGatewayClassDownloader {
     pub fn new(feeder_gateway: SequencerGateway, download_batch_size: usize) -> Self {
-        let downloader = Downloader::new(feeder_gateway, download_batch_size);
-        Self { downloader }
-    }
-
-    pub fn with_retry_config(
-        feeder_gateway: SequencerGateway,
-        download_batch_size: usize,
-        retry_config: RetryConfig,
-    ) -> Self {
         let downloader =
-            Downloader::with_retry_config(feeder_gateway, download_batch_size, retry_config);
+            Downloader::builder(feeder_gateway).batch_size(download_batch_size).build();
         Self { downloader }
     }
 }

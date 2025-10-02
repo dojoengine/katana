@@ -25,37 +25,19 @@ pub trait Fetchable: Sized + Send {
 
 /// Configuration for retry behavior in the downloader.
 #[derive(Debug, Clone)]
-pub struct RetryConfig {
+struct RetryConfig {
     /// Minimum delay between retries in seconds.
-    pub min_delay_secs: u64,
+    min_delay_secs: u64,
     /// Maximum delay between retries in seconds (optional).
-    pub max_delay_secs: Option<u64>,
+    max_delay_secs: Option<u64>,
     /// Maximum number of retry attempts (None for unlimited).
-    pub max_attempts: Option<usize>,
+    max_attempts: Option<usize>,
 }
 
 impl RetryConfig {
     /// Create a new retry configuration with default values.
-    pub fn new() -> Self {
+    fn new() -> Self {
         Self { min_delay_secs: 3, max_delay_secs: None, max_attempts: None }
-    }
-
-    /// Set the minimum delay between retries.
-    pub fn with_min_delay_secs(mut self, secs: u64) -> Self {
-        self.min_delay_secs = secs;
-        self
-    }
-
-    /// Set the maximum delay between retries.
-    pub fn with_max_delay_secs(mut self, secs: u64) -> Self {
-        self.max_delay_secs = Some(secs);
-        self
-    }
-
-    /// Set the maximum number of retry attempts.
-    pub fn with_max_attempts(mut self, attempts: usize) -> Self {
-        self.max_attempts = Some(attempts);
-        self
     }
 
     /// Create an exponential backoff builder from this configuration.
@@ -91,23 +73,9 @@ pub struct Downloader<T> {
 }
 
 impl<T: Fetchable> Downloader<T> {
-    /// Create a new downloader with default retry configuration.
-    pub fn new(client: SequencerGateway, batch_size: usize) -> Self {
-        Self::with_retry_config(client, batch_size, RetryConfig::default())
-    }
-
-    /// Create a new downloader with custom retry configuration.
-    pub fn with_retry_config(
-        client: SequencerGateway,
-        batch_size: usize,
-        retry_config: RetryConfig,
-    ) -> Self {
-        Self {
-            client: Arc::new(client),
-            batch_size,
-            retry_config,
-            _phantom: std::marker::PhantomData,
-        }
+    /// Create a builder for configuring a new downloader.
+    pub fn builder(client: SequencerGateway) -> DownloaderBuilder<T> {
+        DownloaderBuilder::new(client)
     }
 
     /// Get the batch size.
@@ -116,10 +84,16 @@ impl<T: Fetchable> Downloader<T> {
         self.batch_size
     }
 
-    /// Get the retry configuration.
+    /// Get the retry configuration's min delay.
     #[cfg(test)]
-    pub fn retry_config(&self) -> &RetryConfig {
-        &self.retry_config
+    pub fn retry_min_delay_secs(&self) -> u64 {
+        self.retry_config.min_delay_secs
+    }
+
+    /// Get the retry configuration's max attempts.
+    #[cfg(test)]
+    pub fn retry_max_attempts(&self) -> Option<usize> {
+        self.retry_config.max_attempts
     }
 
     /// Download items in batches.
@@ -200,6 +174,82 @@ impl<T: Fetchable> Downloader<T> {
     }
 }
 
+/// Builder for configuring and creating a `Downloader`.
+///
+/// This builder encapsulates all retry configuration options and provides
+/// a clean, fluent API for constructing downloaders.
+pub struct DownloaderBuilder<T> {
+    client: SequencerGateway,
+    batch_size: usize,
+    min_delay_secs: u64,
+    max_delay_secs: Option<u64>,
+    max_attempts: Option<usize>,
+    _phantom: std::marker::PhantomData<T>,
+}
+
+impl<T: Fetchable> DownloaderBuilder<T> {
+    /// Create a new builder with default configuration.
+    fn new(client: SequencerGateway) -> Self {
+        Self {
+            client,
+            batch_size: 10,
+            min_delay_secs: 3,
+            max_delay_secs: None,
+            max_attempts: None,
+            _phantom: std::marker::PhantomData,
+        }
+    }
+
+    /// Set the batch size for downloading items.
+    ///
+    /// The downloader will fetch this many items concurrently in each batch.
+    pub fn batch_size(mut self, size: usize) -> Self {
+        self.batch_size = size;
+        self
+    }
+
+    /// Set the minimum delay between retries in seconds.
+    ///
+    /// This is the initial delay that will be used with exponential backoff.
+    pub fn min_retry_delay_secs(mut self, secs: u64) -> Self {
+        self.min_delay_secs = secs;
+        self
+    }
+
+    /// Set the maximum delay between retries in seconds.
+    ///
+    /// This caps the exponential backoff at the specified duration.
+    pub fn max_retry_delay_secs(mut self, secs: u64) -> Self {
+        self.max_delay_secs = Some(secs);
+        self
+    }
+
+    /// Set the maximum number of retry attempts.
+    ///
+    /// After this many failed attempts, the download will fail permanently.
+    /// If not set, retries are unlimited.
+    pub fn max_retry_attempts(mut self, attempts: usize) -> Self {
+        self.max_attempts = Some(attempts);
+        self
+    }
+
+    /// Build the configured downloader.
+    pub fn build(self) -> Downloader<T> {
+        let retry_config = RetryConfig {
+            min_delay_secs: self.min_delay_secs,
+            max_delay_secs: self.max_delay_secs,
+            max_attempts: self.max_attempts,
+        };
+
+        Downloader {
+            client: Arc::new(self.client),
+            batch_size: self.batch_size,
+            retry_config,
+            _phantom: std::marker::PhantomData,
+        }
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use std::sync::atomic::{AtomicUsize, Ordering};
@@ -259,39 +309,37 @@ mod tests {
     // to use a mock gateway client or integration tests with a test server.
 
     #[test]
-    fn test_retry_config_builder() {
-        let config =
-            RetryConfig::new().with_min_delay_secs(1).with_max_delay_secs(10).with_max_attempts(5);
-
-        assert_eq!(config.min_delay_secs, 1);
-        assert_eq!(config.max_delay_secs, Some(10));
-        assert_eq!(config.max_attempts, Some(5));
-    }
-
-    #[test]
-    fn test_retry_config_default() {
-        let config = RetryConfig::default();
-        assert_eq!(config.min_delay_secs, 3);
-        assert_eq!(config.max_delay_secs, None);
-        assert_eq!(config.max_attempts, None);
-    }
-
-    #[test]
-    fn test_downloader_configuration() {
+    fn test_downloader_builder() {
         // Create a dummy client for testing configuration
         let client = SequencerGateway::new(
             url::Url::parse("http://localhost:9545").unwrap(),
             url::Url::parse("http://localhost:9545/feeder_gateway").unwrap(),
         );
 
-        let retry_config = RetryConfig::new().with_min_delay_secs(1).with_max_attempts(3);
-
-        let downloader: Downloader<TestData> =
-            Downloader::with_retry_config(client, 10, retry_config.clone());
+        let downloader: Downloader<TestData> = Downloader::builder(client)
+            .batch_size(10)
+            .min_retry_delay_secs(1)
+            .max_retry_delay_secs(30)
+            .max_retry_attempts(5)
+            .build();
 
         assert_eq!(downloader.batch_size(), 10);
-        assert_eq!(downloader.retry_config().min_delay_secs, 1);
-        assert_eq!(downloader.retry_config().max_attempts, Some(3));
+        assert_eq!(downloader.retry_min_delay_secs(), 1);
+        assert_eq!(downloader.retry_max_attempts(), Some(5));
+    }
+
+    #[test]
+    fn test_downloader_builder_defaults() {
+        let client = SequencerGateway::new(
+            url::Url::parse("http://localhost:9545").unwrap(),
+            url::Url::parse("http://localhost:9545/feeder_gateway").unwrap(),
+        );
+
+        let downloader: Downloader<TestData> = Downloader::builder(client).build();
+
+        assert_eq!(downloader.batch_size(), 10);
+        assert_eq!(downloader.retry_min_delay_secs(), 3);
+        assert_eq!(downloader.retry_max_attempts(), None);
     }
 
     #[test]
