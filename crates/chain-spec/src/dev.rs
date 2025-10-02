@@ -15,15 +15,15 @@ use katana_primitives::chain::ChainId;
 use katana_primitives::class::ClassHash;
 use katana_primitives::contract::ContractAddress;
 use katana_primitives::da::L1DataAvailabilityMode;
+use katana_primitives::env::VersionedConstantsOverrides;
 use katana_primitives::state::StateUpdatesWithClasses;
 use katana_primitives::utils::split_u256;
 use katana_primitives::version::StarknetVersion;
 use katana_primitives::Felt;
 use lazy_static::lazy_static;
-use serde::{Deserialize, Serialize};
 use starknet::core::utils::cairo_short_string_to_felt;
 
-use crate::SettlementLayer;
+use crate::{FeeContracts, SettlementLayer};
 
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct ChainSpec {
@@ -37,6 +37,8 @@ pub struct ChainSpec {
     pub fee_contracts: FeeContracts,
 
     pub settlement: Option<SettlementLayer>,
+
+    pub versioned_constants_overrides: Option<VersionedConstantsOverrides>,
 }
 
 //////////////////////////////////////////////////////////////
@@ -106,17 +108,6 @@ impl ChainSpec {
     }
 }
 
-/// Tokens that can be used for transaction fee payments in the chain. As
-/// supported on Starknet.
-// TODO: include both l1 and l2 addresses
-#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
-pub struct FeeContracts {
-    /// L2 ETH fee token address. Used for paying pre-V3 transactions.
-    pub eth: ContractAddress,
-    /// L2 STRK fee token address. Used for paying V3 transactions.
-    pub strk: ContractAddress,
-}
-
 impl Default for ChainSpec {
     fn default() -> Self {
         DEV.clone()
@@ -149,6 +140,7 @@ lazy_static! {
             genesis,
             fee_contracts,
             settlement: None,
+            versioned_constants_overrides: None,
         }
     };
 }
@@ -336,6 +328,7 @@ mod tests {
                 strk: DEFAULT_STRK_FEE_TOKEN_ADDRESS,
             },
             settlement: None,
+            versioned_constants_overrides: None,
         };
 
         // setup expected storage values

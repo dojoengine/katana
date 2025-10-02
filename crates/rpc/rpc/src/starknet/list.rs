@@ -13,8 +13,10 @@ use super::StarknetApi;
 use crate::starknet::pending::PendingBlockProvider;
 
 #[async_trait]
-impl<EF: ExecutorFactory, Pool: TransactionPool + 'static, PP: PendingBlockProvider>
-    StarknetApiExtServer for StarknetApi<EF, Pool, PP>
+impl<Pool, PP> StarknetApiExtServer for StarknetApi<Pool, PP>
+where 
+    Pool: TransactionPool + 'static,
+    PP: PendingBlockProvider
 {
     async fn get_blocks(&self, request: GetBlocksRequest) -> RpcResult<GetBlocksResponse> {
         Ok(self.blocks(request).await?)

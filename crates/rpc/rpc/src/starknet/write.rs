@@ -1,5 +1,4 @@
 use jsonrpsee::core::{async_trait, RpcResult};
-use katana_executor::ExecutorFactory;
 use katana_pool::TransactionPool;
 use katana_rpc_api::error::starknet::StarknetApiError;
 use katana_rpc_api::starknet::StarknetWriteApiServer;
@@ -13,9 +12,8 @@ use katana_rpc_types::{BroadcastedTx, BroadcastedTxWithChainId};
 use super::StarknetApi;
 use crate::starknet::pending::PendingBlockProvider;
 
-impl<EF, Pool, PoolTx, Pending> StarknetApi<EF, Pool, Pending>
+impl<Pool, PoolTx, Pending> StarknetApi<Pool, Pending>
 where
-    EF: ExecutorFactory,
     Pool: TransactionPool<Transaction = PoolTx> + Send + Sync + 'static,
     PoolTx: From<BroadcastedTxWithChainId>,
     Pending: PendingBlockProvider,
@@ -29,7 +27,7 @@ where
                 return Err(StarknetApiError::UnsupportedTransactionVersion);
             }
 
-            let chain_id = this.inner.backend.chain_spec.id();
+            let chain_id = this.inner.chain_spec.id();
             let tx = BroadcastedTxWithChainId { tx: BroadcastedTx::Invoke(tx), chain: chain_id };
 
             let transaction_hash = this.inner.pool.add_transaction(tx.into()).await?;
@@ -47,7 +45,7 @@ where
                 return Err(StarknetApiError::UnsupportedTransactionVersion);
             }
 
-            let chain_id = this.inner.backend.chain_spec.id();
+            let chain_id = this.inner.chain_spec.id();
             let class_hash =
                 tx.contract_class.hash().map_err(|_| StarknetApiError::InvalidContractClass)?;
 
@@ -68,7 +66,7 @@ where
                 return Err(StarknetApiError::UnsupportedTransactionVersion);
             }
 
-            let chain_id = this.inner.backend.chain_spec.id();
+            let chain_id = this.inner.chain_spec.id();
             let contract_address = tx.contract_address();
             let tx =
                 BroadcastedTxWithChainId { tx: BroadcastedTx::DeployAccount(tx), chain: chain_id };
@@ -81,9 +79,8 @@ where
 }
 
 #[async_trait]
-impl<EF, Pool, PoolTx, Pending> StarknetWriteApiServer for StarknetApi<EF, Pool, Pending>
+impl<Pool, PoolTx, Pending> StarknetWriteApiServer for StarknetApi<Pool, Pending>
 where
-    EF: ExecutorFactory,
     Pool: TransactionPool<Transaction = PoolTx> + Send + Sync + 'static,
     PoolTx: From<BroadcastedTxWithChainId>,
     Pending: PendingBlockProvider,

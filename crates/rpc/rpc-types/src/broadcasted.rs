@@ -6,10 +6,13 @@ use katana_primitives::class::{
 };
 use katana_primitives::contract::Nonce;
 use katana_primitives::da::DataAvailabilityMode;
-use katana_primitives::fee::{ResourceBoundsMapping, Tip};
+use katana_primitives::fee::{
+    L1GasResourceBoundsMapping, ResourceBounds, ResourceBoundsMapping, Tip,
+};
 use katana_primitives::transaction::{
-    DeclareTx, DeclareTxV3, DeclareTxWithClass, DeployAccountTx, DeployAccountTxV3, ExecutableTx,
-    ExecutableTxWithHash, InvokeTx, InvokeTxV3, TxHash, TxType,
+    DeclareTx, DeclareTxV0, DeclareTxV1, DeclareTxV2, DeclareTxV3, DeclareTxWithClass,
+    DeployAccountTx, DeployAccountTxV1, DeployAccountTxV3, ExecutableTx, ExecutableTx,
+    ExecutableTxWithHash, InvokeTx, InvokeTxV0, InvokeTxV1, InvokeTxV3, TxHash, TxType,
 };
 use katana_primitives::utils::get_contract_address;
 use katana_primitives::{ContractAddress, Felt};
@@ -318,6 +321,318 @@ impl From<BroadcastedDeployAccountTx> for UntypedBroadcastedTx {
             sender_address: None,
             compiled_class_hash: None,
             account_deployment_data: None,
+        }
+    }
+}
+
+// From implementations for primitive types to broadcasted types
+
+impl From<InvokeTx> for BroadcastedInvokeTx {
+    fn from(tx: InvokeTx) -> Self {
+        match tx {
+            InvokeTx::V0(tx) => tx.into(),
+            InvokeTx::V1(tx) => tx.into(),
+            InvokeTx::V3(tx) => tx.into(),
+        }
+    }
+}
+
+impl From<InvokeTxV0> for BroadcastedInvokeTx {
+    fn from(tx: InvokeTxV0) -> Self {
+        BroadcastedInvokeTx {
+            sender_address: tx.contract_address,
+            calldata: tx.calldata,
+            signature: tx.signature,
+            nonce: Felt::ZERO,
+            paymaster_data: vec![],
+            tip: 0.into(),
+            account_deployment_data: vec![],
+            resource_bounds: ResourceBoundsMapping::L1Gas(L1GasResourceBoundsMapping {
+                l1_gas: ResourceBounds { max_amount: 0, max_price_per_unit: tx.max_fee },
+                l2_gas: ResourceBounds { max_amount: 0, max_price_per_unit: 0 },
+            }),
+            fee_data_availability_mode: DataAvailabilityMode::L1,
+            nonce_data_availability_mode: DataAvailabilityMode::L1,
+            is_query: false,
+        }
+    }
+}
+
+impl From<InvokeTxV1> for BroadcastedInvokeTx {
+    fn from(tx: InvokeTxV1) -> Self {
+        BroadcastedInvokeTx {
+            sender_address: tx.sender_address,
+            calldata: tx.calldata,
+            signature: tx.signature,
+            nonce: tx.nonce,
+            paymaster_data: vec![],
+            tip: 0.into(),
+            account_deployment_data: vec![],
+            resource_bounds: ResourceBoundsMapping::L1Gas(L1GasResourceBoundsMapping {
+                l1_gas: ResourceBounds { max_amount: 0, max_price_per_unit: tx.max_fee },
+                l2_gas: ResourceBounds { max_amount: 0, max_price_per_unit: 0 },
+            }),
+            fee_data_availability_mode: DataAvailabilityMode::L1,
+            nonce_data_availability_mode: DataAvailabilityMode::L1,
+            is_query: false,
+        }
+    }
+}
+
+impl From<InvokeTxV3> for BroadcastedInvokeTx {
+    fn from(tx: InvokeTxV3) -> Self {
+        BroadcastedInvokeTx {
+            sender_address: tx.sender_address,
+            calldata: tx.calldata,
+            signature: tx.signature,
+            nonce: tx.nonce,
+            paymaster_data: tx.paymaster_data,
+            tip: tx.tip.into(),
+            account_deployment_data: tx.account_deployment_data,
+            resource_bounds: tx.resource_bounds,
+            fee_data_availability_mode: tx.fee_data_availability_mode,
+            nonce_data_availability_mode: tx.nonce_data_availability_mode,
+            is_query: false,
+        }
+    }
+}
+
+impl From<DeclareTx> for BroadcastedDeclareTx {
+    fn from(tx: DeclareTx) -> Self {
+        match tx {
+            DeclareTx::V0(tx) => tx.into(),
+            DeclareTx::V1(tx) => tx.into(),
+            DeclareTx::V2(tx) => tx.into(),
+            DeclareTx::V3(tx) => tx.into(),
+        }
+    }
+}
+
+impl From<DeclareTxV0> for BroadcastedDeclareTx {
+    fn from(tx: DeclareTxV0) -> Self {
+        // Note: V0 declare transactions use legacy classes, but BroadcastedDeclareTx expects
+        // Sierra. The actual contract class needs to be provided separately.
+        BroadcastedDeclareTx {
+            sender_address: tx.sender_address,
+            compiled_class_hash: CompiledClassHash::ZERO,
+            signature: tx.signature,
+            nonce: Felt::ZERO,
+            contract_class: Arc::new(SierraClass::default()),
+            paymaster_data: vec![],
+            tip: 0.into(),
+            account_deployment_data: vec![],
+            resource_bounds: ResourceBoundsMapping::L1Gas(L1GasResourceBoundsMapping {
+                l1_gas: ResourceBounds { max_amount: 0, max_price_per_unit: tx.max_fee },
+                l2_gas: ResourceBounds { max_amount: 0, max_price_per_unit: 0 },
+            }),
+            fee_data_availability_mode: DataAvailabilityMode::L1,
+            nonce_data_availability_mode: DataAvailabilityMode::L1,
+            is_query: false,
+        }
+    }
+}
+
+impl From<DeclareTxV1> for BroadcastedDeclareTx {
+    fn from(tx: DeclareTxV1) -> Self {
+        // Note: V1 declare transactions use legacy classes, but BroadcastedDeclareTx expects
+        // Sierra. The actual contract class needs to be provided separately.
+        BroadcastedDeclareTx {
+            sender_address: tx.sender_address,
+            compiled_class_hash: CompiledClassHash::ZERO,
+            signature: tx.signature,
+            nonce: tx.nonce,
+            contract_class: Arc::new(SierraClass::default()),
+            paymaster_data: vec![],
+            tip: 0.into(),
+            account_deployment_data: vec![],
+            resource_bounds: ResourceBoundsMapping::L1Gas(L1GasResourceBoundsMapping {
+                l1_gas: ResourceBounds { max_amount: 0, max_price_per_unit: tx.max_fee },
+                l2_gas: ResourceBounds { max_amount: 0, max_price_per_unit: 0 },
+            }),
+            fee_data_availability_mode: DataAvailabilityMode::L1,
+            nonce_data_availability_mode: DataAvailabilityMode::L1,
+            is_query: false,
+        }
+    }
+}
+
+impl From<DeclareTxV2> for BroadcastedDeclareTx {
+    fn from(tx: DeclareTxV2) -> Self {
+        BroadcastedDeclareTx {
+            sender_address: tx.sender_address,
+            compiled_class_hash: tx.compiled_class_hash,
+            signature: tx.signature,
+            nonce: tx.nonce,
+            contract_class: Arc::new(SierraClass::default()),
+            paymaster_data: vec![],
+            tip: 0.into(),
+            account_deployment_data: vec![],
+            resource_bounds: ResourceBoundsMapping::L1Gas(L1GasResourceBoundsMapping {
+                l1_gas: ResourceBounds { max_amount: 0, max_price_per_unit: tx.max_fee },
+                l2_gas: ResourceBounds { max_amount: 0, max_price_per_unit: 0 },
+            }),
+            fee_data_availability_mode: DataAvailabilityMode::L1,
+            nonce_data_availability_mode: DataAvailabilityMode::L1,
+            is_query: false,
+        }
+    }
+}
+
+impl From<DeclareTxV3> for BroadcastedDeclareTx {
+    fn from(tx: DeclareTxV3) -> Self {
+        BroadcastedDeclareTx {
+            sender_address: tx.sender_address,
+            compiled_class_hash: tx.compiled_class_hash,
+            signature: tx.signature,
+            nonce: tx.nonce,
+            contract_class: Arc::new(SierraClass::default()),
+            paymaster_data: tx.paymaster_data,
+            tip: tx.tip.into(),
+            account_deployment_data: tx.account_deployment_data,
+            resource_bounds: tx.resource_bounds,
+            fee_data_availability_mode: tx.fee_data_availability_mode,
+            nonce_data_availability_mode: tx.nonce_data_availability_mode,
+            is_query: false,
+        }
+    }
+}
+
+impl From<DeclareTxWithClass> for BroadcastedDeclareTx {
+    fn from(tx: DeclareTxWithClass) -> Self {
+        // Convert ContractClass to SierraClass
+        // Note: This conversion may lose information for legacy classes
+        let contract_class = match tx.class.as_ref() {
+            ContractClass::Class(sierra) => {
+                Arc::new(SierraClass::try_from(sierra.clone()).unwrap_or_default())
+            }
+            ContractClass::Legacy(_) => Arc::new(SierraClass::default()),
+        };
+
+        match tx.transaction {
+            DeclareTx::V0(tx) => BroadcastedDeclareTx {
+                sender_address: tx.sender_address,
+                compiled_class_hash: CompiledClassHash::ZERO,
+                signature: tx.signature,
+                nonce: Felt::ZERO,
+                contract_class,
+                paymaster_data: vec![],
+                tip: 0.into(),
+                account_deployment_data: vec![],
+                resource_bounds: ResourceBoundsMapping::L1Gas(L1GasResourceBoundsMapping {
+                    l1_gas: ResourceBounds { max_amount: 0, max_price_per_unit: tx.max_fee },
+                    l2_gas: ResourceBounds { max_amount: 0, max_price_per_unit: 0 },
+                }),
+                fee_data_availability_mode: DataAvailabilityMode::L1,
+                nonce_data_availability_mode: DataAvailabilityMode::L1,
+                is_query: false,
+            },
+            DeclareTx::V1(tx) => BroadcastedDeclareTx {
+                sender_address: tx.sender_address,
+                compiled_class_hash: CompiledClassHash::ZERO,
+                signature: tx.signature,
+                nonce: tx.nonce,
+                contract_class,
+                paymaster_data: vec![],
+                tip: 0.into(),
+                account_deployment_data: vec![],
+                resource_bounds: ResourceBoundsMapping::L1Gas(L1GasResourceBoundsMapping {
+                    l1_gas: ResourceBounds { max_amount: 0, max_price_per_unit: tx.max_fee },
+                    l2_gas: ResourceBounds { max_amount: 0, max_price_per_unit: 0 },
+                }),
+                fee_data_availability_mode: DataAvailabilityMode::L1,
+                nonce_data_availability_mode: DataAvailabilityMode::L1,
+                is_query: false,
+            },
+            DeclareTx::V2(tx) => BroadcastedDeclareTx {
+                sender_address: tx.sender_address,
+                compiled_class_hash: tx.compiled_class_hash,
+                signature: tx.signature,
+                nonce: tx.nonce,
+                contract_class,
+                paymaster_data: vec![],
+                tip: 0.into(),
+                account_deployment_data: vec![],
+                resource_bounds: ResourceBoundsMapping::L1Gas(L1GasResourceBoundsMapping {
+                    l1_gas: ResourceBounds { max_amount: 0, max_price_per_unit: tx.max_fee },
+                    l2_gas: ResourceBounds { max_amount: 0, max_price_per_unit: 0 },
+                }),
+                fee_data_availability_mode: DataAvailabilityMode::L1,
+                nonce_data_availability_mode: DataAvailabilityMode::L1,
+                is_query: false,
+            },
+            DeclareTx::V3(tx) => BroadcastedDeclareTx {
+                sender_address: tx.sender_address,
+                compiled_class_hash: tx.compiled_class_hash,
+                signature: tx.signature,
+                nonce: tx.nonce,
+                contract_class,
+                paymaster_data: tx.paymaster_data,
+                tip: tx.tip.into(),
+                account_deployment_data: tx.account_deployment_data,
+                resource_bounds: tx.resource_bounds,
+                fee_data_availability_mode: tx.fee_data_availability_mode,
+                nonce_data_availability_mode: tx.nonce_data_availability_mode,
+                is_query: false,
+            },
+        }
+    }
+}
+
+impl From<DeployAccountTx> for BroadcastedDeployAccountTx {
+    fn from(tx: DeployAccountTx) -> Self {
+        match tx {
+            DeployAccountTx::V1(tx) => tx.into(),
+            DeployAccountTx::V3(tx) => tx.into(),
+        }
+    }
+}
+
+impl From<DeployAccountTxV1> for BroadcastedDeployAccountTx {
+    fn from(tx: DeployAccountTxV1) -> Self {
+        BroadcastedDeployAccountTx {
+            signature: tx.signature,
+            nonce: tx.nonce,
+            contract_address_salt: tx.contract_address_salt,
+            constructor_calldata: tx.constructor_calldata,
+            class_hash: tx.class_hash,
+            paymaster_data: vec![],
+            tip: 0.into(),
+            resource_bounds: ResourceBoundsMapping::L1Gas(L1GasResourceBoundsMapping {
+                l1_gas: ResourceBounds { max_amount: 0, max_price_per_unit: tx.max_fee },
+                l2_gas: ResourceBounds { max_amount: 0, max_price_per_unit: 0 },
+            }),
+            fee_data_availability_mode: DataAvailabilityMode::L1,
+            nonce_data_availability_mode: DataAvailabilityMode::L1,
+            is_query: false,
+        }
+    }
+}
+
+impl From<DeployAccountTxV3> for BroadcastedDeployAccountTx {
+    fn from(tx: DeployAccountTxV3) -> Self {
+        BroadcastedDeployAccountTx {
+            signature: tx.signature,
+            nonce: tx.nonce,
+            contract_address_salt: tx.contract_address_salt,
+            constructor_calldata: tx.constructor_calldata,
+            class_hash: tx.class_hash,
+            paymaster_data: tx.paymaster_data,
+            tip: tx.tip.into(),
+            resource_bounds: tx.resource_bounds,
+            fee_data_availability_mode: tx.fee_data_availability_mode,
+            nonce_data_availability_mode: tx.nonce_data_availability_mode,
+            is_query: false,
+        }
+    }
+}
+
+impl From<ExecutableTx> for BroadcastedTx {
+    fn from(tx: ExecutableTx) -> Self {
+        match tx {
+            ExecutableTx::Invoke(tx) => BroadcastedTx::Invoke(tx.into()),
+            ExecutableTx::Declare(tx) => BroadcastedTx::Declare(tx.into()),
+            ExecutableTx::DeployAccount(tx) => BroadcastedTx::DeployAccount(tx.into()),
+            ExecutableTx::L1Handler(_) => unimplemented!(),
         }
     }
 }

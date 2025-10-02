@@ -31,7 +31,7 @@ use katana_metrics::sys::DiskReporter;
 use katana_metrics::{Report, Server as MetricsServer};
 use katana_pool::ordering::FiFo;
 use katana_pool::TxPool;
-use katana_primitives::env::{CfgEnv, FeeTokenAddressses};
+use katana_primitives::env::{FeeTokenAddressses, VersionedConstantsOverrides};
 #[cfg(feature = "cartridge")]
 use katana_rpc::cartridge::CartridgeApi;
 use katana_rpc::cors::Cors;
@@ -91,18 +91,16 @@ impl Node {
 
         // --- build executor factory
 
-        let fee_token_addresses = match config.chain.as_ref() {
-            ChainSpec::Dev(cs) => {
-                FeeTokenAddressses { eth: cs.fee_contracts.eth, strk: cs.fee_contracts.strk }
-            }
-            ChainSpec::Rollup(cs) => {
-                FeeTokenAddressses { eth: cs.fee_contract.strk, strk: cs.fee_contract.strk }
-            }
-        };
+        // let fee_token_addresses = match config.chain.as_ref() {
+        //     ChainSpec::Dev(cs) => {
+        //         FeeTokenAddressses { eth: cs.fee_contracts.eth, strk: cs.fee_contracts.strk }
+        //     }
+        //     ChainSpec::Rollup(cs) => {
+        //         FeeTokenAddressses { eth: cs.fee_contracts.eth, strk: cs.fee_contracts.strk }
+        //     }
+        // };
 
-        let cfg_env = CfgEnv {
-            fee_token_addresses,
-            chain_id: config.chain.id(),
+        let cfg_env = VersionedConstantsOverrides {
             invoke_tx_max_n_steps: config.execution.invocation_max_steps,
             validate_max_n_steps: config.execution.validation_max_steps,
             max_recursion_depth: config.execution.max_recursion_depth,
@@ -129,6 +127,7 @@ impl Node {
                 execution_flags,
                 config.sequencing.block_limits(),
                 global_class_cache,
+                config.chain.clone(),
             );
 
             Arc::new(factory)
@@ -256,13 +255,18 @@ impl Node {
             max_proof_keys: config.rpc.max_proof_keys,
             max_call_gas: config.rpc.max_call_gas,
             max_concurrent_estimate_fee_requests: config.rpc.max_concurrent_estimate_fee_requests,
+            simulation_flags: ExecutionFlags::default(),
             #[cfg(feature = "cartridge")]
             paymaster,
         };
 
+        let storage_provider = backend.blockchain.provider().clone();
+        let chain_spec = backend.chain_spec.clone();
+
         let starknet_api = if let Some(client) = forked_client {
             StarknetApi::new_forked(
-                backend.clone(),
+                chain_spec.clone(),
+                storage_provider.clone(),
                 pool.clone(),
                 client,
                 task_spawner.clone(),
@@ -271,7 +275,8 @@ impl Node {
             )
         } else {
             StarknetApi::new(
-                backend.clone(),
+                chain_spec.clone(),
+                storage_provider.clone(),
                 pool.clone(),
                 task_spawner.clone(),
                 starknet_api_cfg,

@@ -40,15 +40,14 @@ use crate::cartridge;
 use crate::starknet::pending::PendingBlockProvider;
 
 #[async_trait]
-impl<EF, Pool, PoolTx, Pending> StarknetApiServer for StarknetApi<EF, Pool, Pending>
+impl<Pool, PoolTx, Pending> StarknetApiServer for StarknetApi<Pool, Pending>
 where
-    EF: ExecutorFactory,
     Pool: TransactionPool<Transaction = PoolTx> + Send + Sync + 'static,
     PoolTx: From<BroadcastedTxWithChainId>,
     Pending: PendingBlockProvider,
 {
     async fn chain_id(&self) -> RpcResult<Felt> {
-        Ok(self.inner.backend.chain_spec.id().id())
+        Ok(self.inner.chain_spec.id().id())
     }
 
     async fn get_nonce(
@@ -149,10 +148,18 @@ where
             // get the state and block env at the specified block for function call execution
             let state = this.state(&block_id)?;
             let env = this.block_env_at(&block_id)?;
-            let cfg_env = this.inner.backend.executor_factory.cfg().clone();
+            // let cfg_env = this.inner.backend.executor_factory.cfg().clone();
+            let cfg_env = this.inner.chain_spec.versioned_constants_overrides().unwrap();
             let max_call_gas = this.inner.config.max_call_gas.unwrap_or(1_000_000_000);
 
-            let result = super::blockifier::call(state, env, cfg_env, request, max_call_gas)?;
+            let result = super::blockifier::call(
+                this.inner.chain_spec.as_ref(),
+                state,
+                env,
+                cfg_env,
+                request,
+                max_call_gas,
+            )?;
             Ok(CallResponse { result })
         })
         .await?
@@ -177,7 +184,7 @@ where
         simulation_flags: Vec<EstimateFeeSimulationFlag>,
         block_id: BlockIdOrTag,
     ) -> RpcResult<Vec<FeeEstimate>> {
-        let chain = self.inner.backend.chain_spec.id();
+        let chain = self.inner.chain_spec.id();
 
         let transactions = request
             .into_iter()
@@ -193,7 +200,8 @@ where
         // If the node is run with transaction validation disabled, then we should not validate
         // transactions when estimating the fee even if the `SKIP_VALIDATE` flag is not set.
         let should_validate = !skip_validate
-            && self.inner.backend.executor_factory.execution_flags().account_validation();
+            // && self.inner.backend.executor_factory.execution_flags().account_validation();
+        && self.inner.config.simulation_flags.account_validation();
 
         // We don't care about the nonce when estimating the fee as the nonce value
         // doesn't affect transaction execution.
@@ -213,7 +221,6 @@ where
             // Paymaster is the first dev account in the genesis.
             let (paymaster_address, paymaster_alloc) = self
                 .inner
-                .backend
                 .chain_spec
                 .genesis()
                 .accounts()
@@ -228,14 +235,8 @@ where
                 return Err(StarknetApiError::unexpected("Paymaster is not a dev account").into());
             };
 
-            let state = self
-                .inner
-                .backend
-                .blockchain
-                .provider()
-                .latest()
-                .map(Arc::new)
-                .map_err(StarknetApiError::from)?;
+            let state =
+                self.inner.storage.latest().map(Arc::new).map_err(StarknetApiError::from)?;
 
             let mut ctrl_deploy_txs = Vec::new();
 
@@ -267,7 +268,7 @@ where
                         paymaster_private_key,
                         paymaster_nonce,
                         tx,
-                        self.inner.backend.chain_spec.id(),
+                        self.inner.chain_spec.id(),
                         state.clone(),
                         &api,
                     )
@@ -308,7 +309,7 @@ where
         block_id: BlockIdOrTag,
     ) -> RpcResult<FeeEstimate> {
         self.on_cpu_blocking_task(move |this| async move {
-            let chain_id = this.inner.backend.chain_spec.id();
+            let chain_id = this.inner.chain_spec.id();
 
             let tx = message.into_tx_with_chain_id(chain_id);
             let hash = tx.calculate_hash();
