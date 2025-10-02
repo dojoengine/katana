@@ -6,8 +6,8 @@ use katana_provider::api::state_update::StateUpdateProvider;
 use tracing::debug;
 
 // Re-export Error and other public types from downloader::classes
-pub use super::downloader::classes::Error;
-use super::downloader::classes::{ClassDownloader, FeederGatewayClassDownloader};
+pub use super::downloader::gateway::classes::Error;
+use super::downloader::gateway::classes::{ClassDownloader, FeederGatewayClassDownloader};
 use super::{Stage, StageExecutionInput, StageResult};
 
 /// A stage for downloading and storing contract classes.

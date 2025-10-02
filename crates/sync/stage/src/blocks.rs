@@ -19,8 +19,8 @@ use starknet::core::types::ResourcePrice;
 use tracing::debug;
 
 // Re-export Error and other public types from downloader::blocks
-pub use super::downloader::blocks::Error;
-use super::downloader::blocks::{BlockDownloader, FeederGatewayBlockDownloader};
+pub use super::downloader::gateway::blocks::Error;
+use super::downloader::gateway::blocks::{BlockDownloader, FeederGatewayBlockDownloader};
 use super::{Stage, StageExecutionInput, StageResult};
 
 /// A stage for downloading and storing blocks.

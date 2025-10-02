@@ -457,6 +457,7 @@ mod tests {
 
     use katana_feeder_gateway::client::SequencerGateway;
     use katana_primitives::block::BlockNumber;
+    use url::Url;
 
     use super::*;
 
@@ -512,8 +513,8 @@ mod tests {
     fn test_downloader_builder() {
         // Create a dummy client for testing configuration
         let client = SequencerGateway::new(
-            url::Url::parse("http://localhost:9545").unwrap(),
-            url::Url::parse("http://localhost:9545/feeder_gateway").unwrap(),
+            Url::parse("http://localhost:9545").unwrap(),
+            Url::parse("http://localhost:9545/feeder_gateway").unwrap(),
         );
 
         let downloader: FeederGatewayDownloader<TestData> =
@@ -532,8 +533,8 @@ mod tests {
     #[test]
     fn test_downloader_builder_defaults() {
         let client = SequencerGateway::new(
-            url::Url::parse("http://localhost:9545").unwrap(),
-            url::Url::parse("http://localhost:9545/feeder_gateway").unwrap(),
+            Url::parse("http://localhost:9545").unwrap(),
+            Url::parse("http://localhost:9545/feeder_gateway").unwrap(),
         );
 
         let downloader: FeederGatewayDownloader<TestData> =
