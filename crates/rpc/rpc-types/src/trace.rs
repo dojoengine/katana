@@ -52,7 +52,7 @@ pub enum TxTrace {
     L1Handler(L1HandlerTxTrace),
 
     #[serde(rename = "DEPLOY_ACCOUNT")]
-    DeployAccount(DeployAccountTxTrace),
+    DeployAccount(Box<DeployAccountTxTrace>),
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
@@ -227,13 +227,13 @@ impl From<katana_primitives::execution::TypedTransactionExecutionInfo> for TxTra
             TxType::DeployAccount => {
                 let constructor_invocation =
                     execute_invocation.expect("should exist if not reverted");
-                TxTrace::DeployAccount(DeployAccountTxTrace {
+                TxTrace::DeployAccount(Box::new(DeployAccountTxTrace {
                     fee_transfer_invocation,
                     constructor_invocation,
                     validate_invocation,
                     execution_resources,
                     state_diff,
-                })
+                }))
             }
 
             TxType::L1Handler => {
