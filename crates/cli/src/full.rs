@@ -1,6 +1,6 @@
 use std::path::PathBuf;
 
-use anyhow::Result;
+use anyhow::{anyhow, Result};
 pub use clap::Parser;
 use serde::{Deserialize, Serialize};
 
@@ -42,6 +42,6 @@ pub struct FullNodeArgs {
 
 impl FullNodeArgs {
     pub async fn execute(&self) -> Result<()> {
-        unimplemented!()
+        Err(anyhow!("Full node is not implemented yet!"))
     }
 }

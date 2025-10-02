@@ -87,3 +87,86 @@ pub fn execute_async<F: Future>(future: F) -> Result<F::Output> {
 fn build_tokio_runtime() -> std::io::Result<Runtime> {
     tokio::runtime::Builder::new_multi_thread().enable_all().build()
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn default_command_is_sequencer() {
+        let cli_no_subcommand = Cli::parse_from(["katana"]);
+        let cli_explicit_sequencer = Cli::parse_from(["katana", "node", "sequencer"]);
+
+        assert!(cli_no_subcommand.commands.is_none());
+        assert!(matches!(cli_explicit_sequencer.commands, Some(Commands::Node(_))));
+
+        let config_default = cli_no_subcommand.node.config().unwrap();
+        let config_explicit =
+            cli_explicit_sequencer.node.with_config_file().unwrap().config().unwrap();
+
+        assert_eq!(config_default.chain.id(), config_explicit.chain.id());
+        assert_eq!(config_default.dev.fee, config_explicit.dev.fee);
+        assert_eq!(config_default.dev.account_validation, config_explicit.dev.account_validation);
+        assert_eq!(config_default.sequencing.block_time, config_explicit.sequencing.block_time);
+        assert_eq!(config_default.sequencing.no_mining, config_explicit.sequencing.no_mining);
+    }
+
+    #[test]
+    fn default_command_with_flags() {
+        let cli_no_subcommand =
+            Cli::parse_from(["katana", "--dev", "--dev.no-fee", "--block-time", "1000"]);
+        let cli_explicit_sequencer = Cli::parse_from([
+            "katana",
+            "node",
+            "sequencer",
+            "--dev",
+            "--dev.no-fee",
+            "--block-time",
+            "1000",
+        ]);
+
+        assert!(cli_no_subcommand.commands.is_none());
+        assert!(matches!(cli_explicit_sequencer.commands, Some(Commands::Node(_))));
+
+        let config_default = cli_no_subcommand.node.config().unwrap();
+        let config_explicit =
+            cli_explicit_sequencer.node.with_config_file().unwrap().config().unwrap();
+
+        assert!(!config_default.dev.fee);
+        assert!(!config_explicit.dev.fee);
+        assert_eq!(config_default.sequencing.block_time, Some(1000));
+        assert_eq!(config_explicit.sequencing.block_time, Some(1000));
+        assert_eq!(config_default.chain.id(), config_explicit.chain.id());
+    }
+
+    #[test]
+    fn default_command_with_multiple_flags() {
+        let cli_no_subcommand = Cli::parse_from([
+            "katana",
+            "--no-mining",
+            "--dev.no-account-validation",
+            "--invoke-max-steps",
+            "500",
+        ]);
+        let cli_explicit_sequencer = Cli::parse_from([
+            "katana",
+            "node",
+            "sequencer",
+            "--no-mining",
+            "--dev.no-account-validation",
+            "--invoke-max-steps",
+            "500",
+        ]);
+
+        let config_default = cli_no_subcommand.node.config().unwrap();
+        let config_explicit =
+            cli_explicit_sequencer.node.with_config_file().unwrap().config().unwrap();
+
+        assert!(config_default.sequencing.no_mining);
+        assert!(config_explicit.sequencing.no_mining);
+        assert!(!config_default.dev.account_validation);
+        assert!(!config_explicit.dev.account_validation);
+        assert_eq!(config_default.execution.invocation_max_steps, 500);
+        assert_eq!(config_explicit.execution.invocation_max_steps, 500);
+    }
+}

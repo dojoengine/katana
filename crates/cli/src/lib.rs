@@ -22,10 +22,11 @@ pub struct NodeCli {
 
 #[derive(Debug, Subcommand)]
 enum NodeSubcommand {
-    #[command(about = "Launch a full node")]
-    Full(FullNodeArgs),
+    #[command(about = "Launch a full node", hide = true)]
+    Full(Box<FullNodeArgs>),
+
     #[command(about = "Launch a sequencer node")]
-    Sequencer(SequencerNodeArgs),
+    Sequencer(Box<SequencerNodeArgs>),
 }
 
 impl NodeCli {
