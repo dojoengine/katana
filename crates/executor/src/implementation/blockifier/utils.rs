@@ -18,8 +18,9 @@ use blockifier::transaction::objects::{HasRelatedFeeType, TransactionExecutionIn
 use blockifier::transaction::transaction_execution::Transaction;
 use blockifier::transaction::transactions::ExecutableTransaction;
 use cairo_vm::types::errors::program_errors::ProgramError;
+use katana_chain_spec::ChainSpec;
 use katana_primitives::chain::NamedChainId;
-use katana_primitives::env::{BlockEnv, CfgEnv};
+use katana_primitives::env::{BlockEnv, VersionedConstantsOverrides};
 use katana_primitives::fee::{FeeInfo, PriceUnit, ResourceBoundsMapping};
 use katana_primitives::state::{StateUpdates, StateUpdatesWithClasses};
 use katana_primitives::transaction::{
@@ -429,10 +430,14 @@ fn set_max_initial_sierra_gas(tx: &mut ExecutableTxWithHash) {
 }
 
 /// Create a block context from the chain environment values.
-pub fn block_context_from_envs(block_env: &BlockEnv, cfg_env: &CfgEnv) -> BlockContext {
+pub fn block_context_from_envs(
+    chain_spec: &ChainSpec,
+    block_env: &BlockEnv,
+    cfg_env: &VersionedConstantsOverrides,
+) -> BlockContext {
     let fee_token_addresses = FeeTokenAddresses {
-        eth_fee_token_address: to_blk_address(cfg_env.fee_token_addresses.eth),
-        strk_fee_token_address: to_blk_address(cfg_env.fee_token_addresses.strk),
+        eth_fee_token_address: to_blk_address(chain_spec.fee_contracts().eth),
+        strk_fee_token_address: to_blk_address(chain_spec.fee_contracts().strk),
     };
 
     let eth_l2_gas_price = NonzeroGasPrice::new(block_env.l2_gas_prices.eth.get().into())
@@ -472,7 +477,7 @@ pub fn block_context_from_envs(block_env: &BlockEnv, cfg_env: &CfgEnv) -> BlockC
         use_kzg_da: false,
     };
 
-    let chain_info = ChainInfo { fee_token_addresses, chain_id: to_blk_chain_id(cfg_env.chain_id) };
+    let chain_info = ChainInfo { fee_token_addresses, chain_id: to_blk_chain_id(chain_spec.id()) };
 
     // IMPORTANT:
     //
@@ -733,7 +738,7 @@ pub fn is_zero_resource_bounds(resource_bounds: &ResourceBoundsMapping) -> bool 
 // These overrides would potentially make the `snos` run be invalid as it doesn't know about the
 // new overridden values.
 pub(crate) fn apply_versioned_constant_overrides(
-    cfg: &CfgEnv,
+    cfg: &VersionedConstantsOverrides,
     versioned_constants: &mut VersionedConstants,
 ) {
     versioned_constants.max_recursion_depth = cfg.max_recursion_depth;
