@@ -1,8 +1,4 @@
-use std::sync::Arc;
-use std::time::Duration;
-
 use anyhow::Result;
-use backon::{ExponentialBuilder, Retryable};
 use katana_feeder_gateway::client::{self, SequencerGateway};
 use katana_feeder_gateway::types::BlockId;
 use katana_primitives::block::BlockNumber;
@@ -11,8 +7,9 @@ use katana_provider::api::contract::ContractClassWriter;
 use katana_provider::api::state_update::StateUpdateProvider;
 use katana_provider::api::ProviderError;
 use katana_rpc_types::class::ConversionError;
-use tracing::{debug, error, warn};
+use tracing::{debug, error};
 
+use super::downloader::{Downloader, Fetchable};
 use super::{Stage, StageExecutionInput, StageResult};
 
 #[derive(Debug, thiserror::Error)]
@@ -38,7 +35,7 @@ pub enum Error {
 #[derive(Debug)]
 pub struct Classes<P> {
     provider: P,
-    downloader: Downloader,
+    downloader: Downloader<ClassWithContext>,
 }
 
 impl<P> Classes<P> {
@@ -58,7 +55,7 @@ where
     }
 
     async fn execute(&mut self, input: &StageExecutionInput) -> StageResult {
-        let mut classes: Vec<(ClassHash, ContractClass)> = Vec::new();
+        let mut keys: Vec<ClassKey> = Vec::new();
 
         for block in input.from..=input.to {
             // get the classes declared at block `i`
@@ -66,17 +63,20 @@ where
                 .provider
                 .declared_classes(block.into())?
                 .ok_or(Error::MissingBlockDeclaredClasses { block })?;
-            let class_hashes = class_hashes.keys().copied().collect::<Vec<_>>();
 
-            // fetch the classes artifacts
-            let class_artifacts = self.downloader.download_classes(&class_hashes, block).await?;
-            classes.extend(class_hashes.into_iter().zip(class_artifacts));
+            // create keys for each class hash with its block number
+            for hash in class_hashes.keys().copied() {
+                keys.push(ClassKey { hash, block });
+            }
         }
 
-        if !classes.is_empty() {
-            debug!(target: "stage", id = self.id(), total = %classes.len(), "Storing class artifacts.");
-            for (hash, class) in classes {
-                self.provider.set_class(hash, class)?;
+        if !keys.is_empty() {
+            // fetch the classes artifacts
+            let class_artifacts = self.downloader.download(&keys).await?;
+
+            debug!(target: "stage", id = self.id(), total = %class_artifacts.len(), "Storing class artifacts.");
+            for class_with_ctx in class_artifacts {
+                self.provider.set_class(class_with_ctx.key.hash, class_with_ctx.class)?;
             }
         }
 
@@ -84,80 +84,38 @@ where
     }
 }
 
-#[derive(Debug, Clone)]
-struct Downloader {
-    batch_size: usize,
-    client: Arc<SequencerGateway>,
+/// A key that identifies a class to fetch, including the block context.
+#[derive(Debug, Clone, Copy)]
+struct ClassKey {
+    hash: ClassHash,
+    block: BlockNumber,
 }
 
-impl Downloader {
-    fn new(client: SequencerGateway, batch_size: usize) -> Self {
-        Self { client: Arc::new(client), batch_size }
-    }
+/// Wrapper type for a fetched class with its associated key.
+#[derive(Debug)]
+struct ClassWithContext {
+    key: ClassKey,
+    class: ContractClass,
+}
 
-    async fn download_classes(
-        &self,
-        hashes: &[ClassHash],
-        block: BlockNumber,
-    ) -> Result<Vec<ContractClass>, Error> {
-        debug!(total = %hashes.len(), %block, "Downloading classes.");
-        let mut classes = Vec::with_capacity(hashes.len());
+// Implement Fetchable trait for ClassWithContext
+#[async_trait::async_trait]
+impl Fetchable for ClassWithContext {
+    type Key = ClassKey;
+    type Error = Error;
 
-        for chunk in hashes.chunks(self.batch_size) {
-            let batch = self.fetch_classes_with_retry(chunk, block).await?;
-            classes.extend(batch);
-        }
-
-        Ok(classes)
-    }
-
-    async fn fetch_classes_with_retry(
-        &self,
-        classes: &[ClassHash],
-        block: BlockNumber,
-    ) -> Result<Vec<ContractClass>, Error> {
-        let request = || async move { self.clone().fetch_classes(classes, block).await };
-
-        // Retry only when being rate limited
-        let backoff = ExponentialBuilder::default().with_min_delay(Duration::from_secs(3));
-        let result = request
-            .retry(backoff)
-            .when(|error| matches!(error, Error::Gateway(client::Error::RateLimited)))
-            .notify(|error, _| {
-                warn!(target: "pipeline", %error, "Retrying class download.");
-            })
-            .await?;
-
-        Ok(result)
-    }
-
-    async fn fetch_classes(
-        &self,
-        classes: &[ClassHash],
-        block: BlockNumber,
-    ) -> Result<Vec<ContractClass>, Error> {
-        let mut requests = Vec::with_capacity(classes.len());
-
-        for class in classes {
-            requests.push(self.fetch_class(*class, block));
-        }
-
-        let results = futures::future::join_all(requests).await;
-        results.into_iter().collect()
-    }
-
-    async fn fetch_class(
-        &self,
-        hash: ClassHash,
-        block_number: BlockNumber,
-    ) -> Result<ContractClass, Error> {
-        let class = self.client.get_class(hash, BlockId::Number(block_number)).await.inspect_err(
+    async fn fetch(client: &SequencerGateway, key: Self::Key) -> Result<Self, Self::Error> {
+        let class = client.get_class(key.hash, BlockId::Number(key.block)).await.inspect_err(
             |error| {
                 if !error.is_rate_limited() {
-	                error!(target: "pipeline", %error, %block_number, class = %format!("{hash:#x}"), "Fetching class.")
+                    error!(target: "pipeline", %error, block = %key.block, class = %format!("{:#x}", key.hash), "Fetching class.")
                 }
             },
         )?;
-        Ok(class.try_into()?)
+        Ok(ClassWithContext { key, class: class.try_into()? })
+    }
+
+    fn retry_min_delay_secs() -> u64 {
+        3
     }
 }
