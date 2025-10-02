@@ -154,7 +154,7 @@ slot = { git = "https://github.com/cartridge-gg/slot", rev = "1298a30" }
 spinoff = "0.8.0"
 strum = "0.25"
 strum_macros = "0.25"
-tempfile = "3.9.0"
+tempfile = "3.20.0"
 thiserror = "1.0.32"
 tokio = { version = "1.39.2", features = [ "full" ] }
 tokio-util = "0.7.12"
