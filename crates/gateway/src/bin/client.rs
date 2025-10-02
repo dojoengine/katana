@@ -2,8 +2,8 @@ use std::str::FromStr;
 
 use anyhow::{anyhow, Context, Result};
 use clap::{Args, Parser, Subcommand, ValueEnum};
-use katana_feeder_gateway::client::{Error as GatewayError, SequencerGateway};
-use katana_feeder_gateway::types::BlockId;
+use katana_gateway::client::{Client, Error as GatewayError};
+use katana_gateway::types::BlockId;
 use katana_primitives::block::{BlockHash, BlockNumber};
 use katana_primitives::class::ClassHash;
 use tracing::error;
@@ -140,15 +140,15 @@ async fn run() -> Result<()> {
     Ok(())
 }
 
-fn build_gateway(cli: &Cli) -> Result<SequencerGateway> {
+fn build_gateway(cli: &Cli) -> Result<Client> {
     if let Some(url) = &cli.base_url {
         let url = Url::parse(url).context("invalid base URL")?;
-        return Ok(SequencerGateway::new(url));
+        return Ok(Client::new(url.clone(), url));
     }
 
     let gateway = match cli.network {
-        Network::Mainnet => SequencerGateway::sn_mainnet(),
-        Network::Sepolia => SequencerGateway::sn_sepolia(),
+        Network::Mainnet => Client::mainnet(),
+        Network::Sepolia => Client::sepolia(),
     };
 
     Ok(gateway)

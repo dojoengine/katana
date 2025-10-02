@@ -8,7 +8,7 @@ version.workspace = true
 [dependencies]
 katana-core.workspace = true
 katana-executor.workspace = true
-katana-feeder-gateway.workspace = true
+katana-gateway.workspace = true
 katana-messaging.workspace = true
 katana-pool.workspace = true
 katana-primitives.workspace = true
