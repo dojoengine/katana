@@ -1,11 +1,10 @@
 use anyhow::Result;
-use katana_feeder_gateway::client;
 use katana_feeder_gateway::client::SequencerGateway;
 use katana_feeder_gateway::types::{
-    BlockId, BlockStatus, StateUpdate as GatewayStateUpdate, StateUpdateWithBlock,
+    BlockStatus, StateUpdate as GatewayStateUpdate, StateUpdateWithBlock,
 };
 use katana_primitives::block::{
-    BlockNumber, FinalityStatus, GasPrices, Header, SealedBlock, SealedBlockWithStatus,
+    FinalityStatus, GasPrices, Header, SealedBlock, SealedBlockWithStatus,
 };
 use katana_primitives::fee::{FeeInfo, PriceUnit};
 use katana_primitives::receipt::{
@@ -17,33 +16,17 @@ use katana_primitives::Felt;
 use katana_provider::api::block::BlockWriter;
 use num_traits::ToPrimitive;
 use starknet::core::types::ResourcePrice;
-use tracing::{debug, error};
+use tracing::debug;
 
-use super::downloader::{Downloader, Fetchable};
+// Re-export Error and other public types from downloader::blocks
+pub use super::downloader::blocks::Error;
+use super::downloader::blocks::{BlockDownloader, FeederGatewayBlockDownloader};
 use super::{Stage, StageExecutionInput, StageResult};
 
-#[derive(Debug, thiserror::Error)]
-pub enum Error {
-    #[error(transparent)]
-    Gateway(#[from] client::Error),
-}
-
-/// Trait for downloading blocks within a range.
+/// A stage for downloading and storing blocks.
 ///
-/// This abstraction allows the Blocks stage to work with different download implementations,
-/// making it easy to test with mock downloaders or swap implementations.
-#[async_trait::async_trait]
-pub trait BlockDownloader: Send + Sync {
-    /// Download blocks in the given range [from, to].
-    ///
-    /// Returns a vector of blocks with their state updates.
-    async fn download(
-        &self,
-        from: BlockNumber,
-        to: BlockNumber,
-    ) -> Result<Vec<StateUpdateWithBlock>, Error>;
-}
-
+/// This stage is generic over the downloader implementation, allowing for different
+/// download strategies (e.g., Feeder Gateway, P2P, L1).
 #[derive(Debug)]
 pub struct Blocks<P, D> {
     provider: P,
@@ -51,6 +34,7 @@ pub struct Blocks<P, D> {
 }
 
 impl<P> Blocks<P, FeederGatewayBlockDownloader> {
+    /// Create a new Blocks stage using the Feeder Gateway downloader.
     pub fn new(provider: P, feeder_gateway: SequencerGateway, download_batch_size: usize) -> Self {
         let downloader = FeederGatewayBlockDownloader::new(feeder_gateway, download_batch_size);
         Self { provider, downloader }
@@ -97,52 +81,6 @@ where
         }
 
         Ok(())
-    }
-}
-
-/// Implementation of BlockDownloader using the feeder gateway.
-pub struct FeederGatewayBlockDownloader {
-    downloader: Downloader<StateUpdateWithBlock>,
-}
-
-impl FeederGatewayBlockDownloader {
-    pub fn new(feeder_gateway: SequencerGateway, download_batch_size: usize) -> Self {
-        // Use a longer retry delay for blocks (9 seconds)
-        let downloader = Downloader::builder(feeder_gateway)
-            .batch_size(download_batch_size)
-            .min_retry_delay_secs(9)
-            .build();
-        Self { downloader }
-    }
-}
-
-#[async_trait::async_trait]
-impl BlockDownloader for FeederGatewayBlockDownloader {
-    async fn download(
-        &self,
-        from: BlockNumber,
-        to: BlockNumber,
-    ) -> Result<Vec<StateUpdateWithBlock>, Error> {
-        let keys: Vec<BlockNumber> = (from..=to).collect();
-        Ok(self.downloader.download(&keys).await?)
-    }
-}
-
-// Implement Fetchable trait for StateUpdateWithBlock
-#[async_trait::async_trait]
-impl Fetchable for StateUpdateWithBlock {
-    type Key = BlockNumber;
-    type Error = Error;
-
-    async fn fetch(client: &SequencerGateway, key: Self::Key) -> Result<Self, Self::Error> {
-        let block = client.get_state_update_with_block(BlockId::Number(key)).await.inspect_err(
-            |error| {
-                if !error.is_rate_limited() {
-                    error!(target: "pipeline", %error, block = %key, "Failed to fetch block.")
-                }
-            },
-        )?;
-        Ok(block)
     }
 }
 

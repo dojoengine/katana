@@ -63,19 +63,23 @@ impl Default for RetryConfig {
     }
 }
 
-/// A generic downloader that fetches data from the sequencer gateway in batches.
+/// A generic downloader that fetches data from the Feeder Gateway in batches.
+///
+/// This downloader is specifically designed to work with the Starknet Feeder Gateway client.
+/// It handles rate limiting, retries, and concurrent batch fetching for any type that
+/// implements the `Fetchable` trait.
 #[derive(Debug, Clone)]
-pub struct Downloader<T> {
+pub struct FeederGatewayDownloader<T> {
     batch_size: usize,
     client: Arc<SequencerGateway>,
     retry_config: RetryConfig,
     _phantom: std::marker::PhantomData<T>,
 }
 
-impl<T: Fetchable> Downloader<T> {
+impl<T: Fetchable> FeederGatewayDownloader<T> {
     /// Create a builder for configuring a new downloader.
-    pub fn builder(client: SequencerGateway) -> DownloaderBuilder<T> {
-        DownloaderBuilder::new(client)
+    pub fn builder(client: SequencerGateway) -> FeederGatewayDownloaderBuilder<T> {
+        FeederGatewayDownloaderBuilder::new(client)
     }
 
     /// Get the batch size.
@@ -174,11 +178,11 @@ impl<T: Fetchable> Downloader<T> {
     }
 }
 
-/// Builder for configuring and creating a `Downloader`.
+/// Builder for configuring and creating a `FeederGatewayDownloader`.
 ///
 /// This builder encapsulates all retry configuration options and provides
 /// a clean, fluent API for constructing downloaders.
-pub struct DownloaderBuilder<T> {
+pub struct FeederGatewayDownloaderBuilder<T> {
     client: SequencerGateway,
     batch_size: usize,
     min_delay_secs: u64,
@@ -187,7 +191,7 @@ pub struct DownloaderBuilder<T> {
     _phantom: std::marker::PhantomData<T>,
 }
 
-impl<T: Fetchable> DownloaderBuilder<T> {
+impl<T: Fetchable> FeederGatewayDownloaderBuilder<T> {
     /// Create a new builder with default configuration.
     fn new(client: SequencerGateway) -> Self {
         Self {
@@ -234,18 +238,214 @@ impl<T: Fetchable> DownloaderBuilder<T> {
     }
 
     /// Build the configured downloader.
-    pub fn build(self) -> Downloader<T> {
+    pub fn build(self) -> FeederGatewayDownloader<T> {
         let retry_config = RetryConfig {
             min_delay_secs: self.min_delay_secs,
             max_delay_secs: self.max_delay_secs,
             max_attempts: self.max_attempts,
         };
 
-        Downloader {
+        FeederGatewayDownloader {
             client: Arc::new(self.client),
             batch_size: self.batch_size,
             retry_config,
             _phantom: std::marker::PhantomData,
+        }
+    }
+}
+
+// ============================================================================
+// Stage-specific downloader implementations
+// ============================================================================
+
+/// Implementation of block downloading using the Feeder Gateway.
+///
+/// This downloader fetches blocks with their state updates from the Feeder Gateway.
+/// It wraps the generic `FeederGatewayDownloader` with block-specific configuration.
+pub mod blocks {
+    use anyhow::Result;
+    use katana_feeder_gateway::client::{self, SequencerGateway};
+    use katana_feeder_gateway::types::{BlockId, StateUpdateWithBlock};
+    use katana_primitives::block::BlockNumber;
+    use tracing::error;
+
+    use super::{FeederGatewayDownloader, Fetchable};
+
+    #[derive(Debug, thiserror::Error)]
+    pub enum Error {
+        #[error(transparent)]
+        Gateway(#[from] client::Error),
+    }
+
+    /// Trait for downloading blocks within a range.
+    #[async_trait::async_trait]
+    pub trait BlockDownloader: Send + Sync {
+        /// Download blocks in the given range [from, to].
+        async fn download(
+            &self,
+            from: BlockNumber,
+            to: BlockNumber,
+        ) -> Result<Vec<StateUpdateWithBlock>, Error>;
+    }
+
+    /// Feeder Gateway implementation of BlockDownloader.
+    pub struct FeederGatewayBlockDownloader {
+        downloader: FeederGatewayDownloader<StateUpdateWithBlock>,
+    }
+
+    impl FeederGatewayBlockDownloader {
+        pub fn new(feeder_gateway: SequencerGateway, download_batch_size: usize) -> Self {
+            // Use a longer retry delay for blocks (9 seconds)
+            let downloader = FeederGatewayDownloader::builder(feeder_gateway)
+                .batch_size(download_batch_size)
+                .min_retry_delay_secs(9)
+                .build();
+            Self { downloader }
+        }
+    }
+
+    #[async_trait::async_trait]
+    impl BlockDownloader for FeederGatewayBlockDownloader {
+        async fn download(
+            &self,
+            from: BlockNumber,
+            to: BlockNumber,
+        ) -> Result<Vec<StateUpdateWithBlock>, Error> {
+            let keys: Vec<BlockNumber> = (from..=to).collect();
+            Ok(self.downloader.download(&keys).await?)
+        }
+    }
+
+    // Implement Fetchable trait for StateUpdateWithBlock
+    #[async_trait::async_trait]
+    impl Fetchable for StateUpdateWithBlock {
+        type Key = BlockNumber;
+        type Error = Error;
+
+        async fn fetch(client: &SequencerGateway, key: Self::Key) -> Result<Self, Self::Error> {
+            let block = client
+                .get_state_update_with_block(BlockId::Number(key))
+                .await
+                .inspect_err(|error| {
+                    if !error.is_rate_limited() {
+                        error!(target: "pipeline", %error, block = %key, "Failed to fetch block.")
+                    }
+                })?;
+            Ok(block)
+        }
+    }
+}
+
+/// Implementation of class downloading using the Feeder Gateway.
+///
+/// This downloader fetches contract classes from the Feeder Gateway.
+/// It wraps the generic `FeederGatewayDownloader` with class-specific configuration.
+pub mod classes {
+    use anyhow::Result;
+    use katana_feeder_gateway::client::{self, SequencerGateway};
+    use katana_feeder_gateway::types::BlockId;
+    use katana_primitives::block::BlockNumber;
+    use katana_primitives::class::{ClassHash, ContractClass};
+    use katana_provider::api::ProviderError;
+    use katana_rpc_types::class::ConversionError;
+    use tracing::error;
+
+    use super::{FeederGatewayDownloader, Fetchable};
+
+    #[derive(Debug, thiserror::Error)]
+    pub enum Error {
+        #[error("missing declared classes for block {block}")]
+        MissingBlockDeclaredClasses {
+            /// The block number whose declared classes are missing.
+            block: BlockNumber,
+        },
+
+        /// Error returnd by the client used to download the classes from.
+        #[error(transparent)]
+        Gateway(#[from] client::Error),
+
+        /// Error that can occur when converting the classes types to the internal types.
+        #[error(transparent)]
+        Conversion(#[from] ConversionError),
+
+        #[error(transparent)]
+        Provider(#[from] ProviderError),
+    }
+
+    /// Trait for downloading contract classes.
+    #[async_trait::async_trait]
+    pub trait ClassDownloader: Send + Sync {
+        /// Download classes for the given class hashes at a specific block.
+        async fn download(
+            &self,
+            classes: &[(ClassHash, BlockNumber)],
+        ) -> Result<Vec<(ClassHash, ContractClass)>, Error>;
+    }
+
+    /// Feeder Gateway implementation of ClassDownloader.
+    pub struct FeederGatewayClassDownloader {
+        downloader: FeederGatewayDownloader<ClassWithContext>,
+    }
+
+    impl FeederGatewayClassDownloader {
+        pub fn new(feeder_gateway: SequencerGateway, download_batch_size: usize) -> Self {
+            let downloader = FeederGatewayDownloader::builder(feeder_gateway)
+                .batch_size(download_batch_size)
+                .build();
+            Self { downloader }
+        }
+    }
+
+    #[async_trait::async_trait]
+    impl ClassDownloader for FeederGatewayClassDownloader {
+        async fn download(
+            &self,
+            classes: &[(ClassHash, BlockNumber)],
+        ) -> Result<Vec<(ClassHash, ContractClass)>, Error> {
+            let keys: Vec<ClassKey> = classes
+                .iter()
+                .map(|(hash, block)| ClassKey { hash: *hash, block: *block })
+                .collect();
+
+            let class_artifacts = self.downloader.download(&keys).await?;
+
+            let result = class_artifacts
+                .into_iter()
+                .map(|class_with_ctx| (class_with_ctx.key.hash, class_with_ctx.class))
+                .collect();
+
+            Ok(result)
+        }
+    }
+
+    /// A key that identifies a class to fetch, including the block context.
+    #[derive(Debug, Clone, Copy)]
+    struct ClassKey {
+        hash: ClassHash,
+        block: BlockNumber,
+    }
+
+    /// Wrapper type for a fetched class with its associated key.
+    #[derive(Debug)]
+    struct ClassWithContext {
+        key: ClassKey,
+        class: ContractClass,
+    }
+
+    // Implement Fetchable trait for ClassWithContext
+    #[async_trait::async_trait]
+    impl Fetchable for ClassWithContext {
+        type Key = ClassKey;
+        type Error = Error;
+
+        async fn fetch(client: &SequencerGateway, key: Self::Key) -> Result<Self, Self::Error> {
+            let class =
+                client.get_class(key.hash, BlockId::Number(key.block)).await.inspect_err(|error| {
+                    if !error.is_rate_limited() {
+                        error!(target: "pipeline", %error, block = %key.block, class = %format!("{:#x}", key.hash), "Fetching class.")
+                    }
+                })?;
+            Ok(ClassWithContext { key, class: class.try_into()? })
         }
     }
 }
@@ -316,12 +516,13 @@ mod tests {
             url::Url::parse("http://localhost:9545/feeder_gateway").unwrap(),
         );
 
-        let downloader: Downloader<TestData> = Downloader::builder(client)
-            .batch_size(10)
-            .min_retry_delay_secs(1)
-            .max_retry_delay_secs(30)
-            .max_retry_attempts(5)
-            .build();
+        let downloader: FeederGatewayDownloader<TestData> =
+            FeederGatewayDownloader::builder(client)
+                .batch_size(10)
+                .min_retry_delay_secs(1)
+                .max_retry_delay_secs(30)
+                .max_retry_attempts(5)
+                .build();
 
         assert_eq!(downloader.batch_size(), 10);
         assert_eq!(downloader.retry_min_delay_secs(), 1);
@@ -335,7 +536,8 @@ mod tests {
             url::Url::parse("http://localhost:9545/feeder_gateway").unwrap(),
         );
 
-        let downloader: Downloader<TestData> = Downloader::builder(client).build();
+        let downloader: FeederGatewayDownloader<TestData> =
+            FeederGatewayDownloader::builder(client).build();
 
         assert_eq!(downloader.batch_size(), 10);
         assert_eq!(downloader.retry_min_delay_secs(), 3);
@@ -346,11 +548,11 @@ mod tests {
     fn test_is_retryable_error() {
         // Test that rate limit errors are retryable
         let rate_limit_error: TestError = client::Error::RateLimited.into();
-        assert!(Downloader::<TestData>::is_retryable_error(&rate_limit_error));
+        assert!(FeederGatewayDownloader::<TestData>::is_retryable_error(&rate_limit_error));
 
         // Test that other errors are not retryable
         let other_error = TestError::Custom("not a rate limit".to_string());
-        assert!(!Downloader::<TestData>::is_retryable_error(&other_error));
+        assert!(!FeederGatewayDownloader::<TestData>::is_retryable_error(&other_error));
     }
 
     // Integration test would require a mock server or test gateway
