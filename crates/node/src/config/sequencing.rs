@@ -1,7 +1,7 @@
 use katana_executor::BlockLimits;
 
 /// Configurations related to block production.
-#[derive(Debug, Clone, Default)]
+#[derive(Debug, Clone, Default, PartialEq, Eq)]
 pub struct SequencingConfig {
     /// The time in milliseconds for a block to be produced.
     pub block_time: Option<u64>,
