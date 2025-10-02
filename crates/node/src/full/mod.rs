@@ -1,6 +1,7 @@
 //! Experimental full node implementation.
 
 mod exit;
+mod pool;
 mod tip_watcher;
 
 use std::future::IntoFuture;
@@ -8,6 +9,8 @@ use std::sync::Arc;
 
 use anyhow::Result;
 use exit::NodeStoppedFuture;
+use http::header::CONTENT_TYPE;
+use http::Method;
 use katana_gateway::client::Client as SequencerGateway;
 use katana_metrics::exporters::prometheus::PrometheusRecorder;
 use katana_metrics::{Report, Server as MetricsServer};
@@ -15,8 +18,11 @@ use katana_pipeline::{Pipeline, PipelineHandle};
 use katana_pool::ordering::FiFo;
 use katana_pool::pool::Pool;
 use katana_pool::validation::NoopValidator;
+use katana_pool::TxPool;
 use katana_primitives::transaction::ExecutableTxWithHash;
 use katana_provider::providers::db::DbProvider;
+use katana_rpc::cors::Cors;
+use katana_rpc::{RpcServer, RpcServerHandle};
 use katana_stage::blocks::BatchBlockDownloader;
 use katana_stage::{Blocks, Classes};
 use katana_tasks::TaskManager;
@@ -25,9 +31,8 @@ use tracing::info;
 
 use crate::config::db::DbConfig;
 use crate::config::metrics::MetricsConfig;
-
-type TxPool =
-    Pool<ExecutableTxWithHash, NoopValidator<ExecutableTxWithHash>, FiFo<ExecutableTxWithHash>>;
+use crate::config::rpc::RpcConfig;
+use crate::full::pool::{FullNodePool, GatewayProxyValidator};
 
 #[derive(Debug, Clone)]
 pub enum Network {
@@ -38,6 +43,7 @@ pub enum Network {
 #[derive(Debug)]
 pub struct Config {
     pub db: DbConfig,
+    pub rpc: RpcConfig,
     pub metrics: Option<MetricsConfig>,
     pub gateway_api_key: Option<String>,
     pub eth_rpc_url: String,
@@ -47,10 +53,12 @@ pub struct Config {
 #[derive(Debug)]
 pub struct Node {
     pub db: katana_db::Db,
-    pub pool: TxPool,
+    pub pool: FullNodePool,
     pub config: Arc<Config>,
     pub task_manager: TaskManager,
     pub pipeline: Pipeline<DbProvider>,
+    pub rpc_server: RpcServer,
+    pub gateway_client: SequencerGateway,
 }
 
 impl Node {
@@ -74,26 +82,43 @@ impl Node {
 
         let provider = DbProvider::new(db.clone());
 
-        // --- build transaction pool
+        // --- build gateway client
 
-        let pool = TxPool::new(NoopValidator::new(), FiFo::new());
-
-        // --- build pipeline
-
-        let fgw = if let Some(ref key) = config.gateway_api_key {
+        let gateway_client = if let Some(ref key) = config.gateway_api_key {
             SequencerGateway::sepolia().with_api_key(key.clone())
         } else {
             SequencerGateway::sepolia()
         };
 
+        // --- build transaction pool
+
+        let validator = GatewayProxyValidator::new(gateway_client.clone());
+        let pool = FullNodePool::new(validator, FiFo::new());
+
+        // --- build pipeline
+
         let (mut pipeline, _) = Pipeline::new(provider.clone(), 64);
-        let block_downloader = BatchBlockDownloader::new_gateway(fgw.clone(), 3);
+        let block_downloader = BatchBlockDownloader::new_gateway(gateway_client.clone(), 3);
         pipeline.add_stage(Blocks::new(provider.clone(), block_downloader));
-        pipeline.add_stage(Classes::new(provider, fgw.clone(), 3));
+        pipeline.add_stage(Classes::new(provider, gateway_client.clone(), 3));
 
-        let node = Node { pool, config: Arc::new(config), task_manager, pipeline, db };
+        let cors = Cors::new()
+        .allow_origins(config.rpc.cors_origins.clone())
+        // Allow `POST` when accessing the resource
+        .allow_methods([Method::POST, Method::GET])
+        .allow_headers([CONTENT_TYPE, "argent-client".parse().unwrap(), "argent-version".parse().unwrap()]);
 
-        Ok(node)
+        let rpc_server = RpcServer::new().metrics(true).health_check(true).cors(cors);
+
+        Ok(Node {
+            db,
+            pool,
+            pipeline,
+            rpc_server,
+            task_manager,
+            gateway_client,
+            config: Arc::new(config),
+        })
     }
 
     pub async fn launch(self) -> Result<LaunchedNode> {
@@ -135,12 +160,16 @@ impl Node {
             .name("Pipeline")
             .spawn(self.pipeline.into_future());
 
+        // --- start the rpc server
+
+        let rpc = self.rpc_server.start(self.config.rpc.socket_addr()).await?;
+
         Ok(LaunchedNode {
             db: self.db,
-            pipeline_handle,
-            pool: self.pool,
             config: self.config,
             task_manager: self.task_manager,
+            pipeline: pipeline_handle,
+            rpc,
         })
     }
 }
@@ -148,14 +177,15 @@ impl Node {
 #[derive(Debug)]
 pub struct LaunchedNode {
     pub db: katana_db::Db,
-    pub pool: TxPool,
     pub task_manager: TaskManager,
     pub config: Arc<Config>,
-    pub pipeline_handle: PipelineHandle,
+    pub rpc: RpcServerHandle,
+    pub pipeline: PipelineHandle,
 }
 
 impl LaunchedNode {
     pub async fn stop(&self) -> Result<()> {
+        self.rpc.stop()?;
         self.task_manager.shutdown().await;
         Ok(())
     }

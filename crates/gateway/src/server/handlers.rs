@@ -20,7 +20,7 @@ use crate::types::{
 /// Shared application state containing the backend
 #[derive(Clone)]
 pub struct AppState {
-    pub api: StarknetApi<BlockifierFactory>,
+    pub api: StarknetApi,
 }
 
 impl AppState {
@@ -28,7 +28,7 @@ impl AppState {
     async fn get_block(&self, id: BlockIdOrTag) -> Result<Option<Block>, ApiError> {
         self.api
             .on_io_blocking_task(move |this| {
-                let provider = this.backend().blockchain.provider();
+                let provider = this.storage();
 
                 if let Some(num) = provider.convert_block_id(id)? {
                     let block = provider.block(num.into())?.unwrap();

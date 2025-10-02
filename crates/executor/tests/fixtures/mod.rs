@@ -17,7 +17,7 @@ use katana_primitives::chain::ChainId;
 use katana_primitives::class::{CompiledClass, ContractClass};
 use katana_primitives::contract::ContractAddress;
 use katana_primitives::da::L1DataAvailabilityMode;
-use katana_primitives::env::{CfgEnv, FeeTokenAddressses};
+use katana_primitives::env::{FeeTokenAddressses, VersionedConstantsOverrides};
 use katana_primitives::transaction::{
     DeclareTx, DeclareTxV2, DeclareTxWithClass, DeployAccountTx, DeployAccountTxV1, ExecutableTx,
     ExecutableTxWithHash, InvokeTx, InvokeTxV1,
@@ -237,18 +237,18 @@ pub fn valid_blocks() -> [ExecutableBlock; 3] {
 }
 
 #[rstest::fixture]
-pub fn cfg() -> CfgEnv {
+pub fn cfg() -> VersionedConstantsOverrides {
     let fee_token_addresses = FeeTokenAddressses {
         eth: DEFAULT_ETH_FEE_TOKEN_ADDRESS,
         strk: DEFAULT_STRK_FEE_TOKEN_ADDRESS,
     };
 
-    CfgEnv {
-        fee_token_addresses,
+    VersionedConstantsOverrides {
+        // fee_token_addresses,
         max_recursion_depth: usize::MAX,
         validate_max_n_steps: u32::MAX,
         invoke_tx_max_n_steps: u32::MAX,
-        chain_id: ChainId::parse("KATANA").unwrap(),
+        // chain_id: ChainId::parse("KATANA").unwrap(),
     }
 }
 
@@ -275,6 +275,10 @@ use katana_executor::implementation::blockifier::BlockifierFactory;
 use katana_executor::BlockLimits;
 
 #[rstest::fixture]
-pub fn factory(cfg: CfgEnv, #[with(true)] flags: ExecutionFlags) -> BlockifierFactory {
-    BlockifierFactory::new(cfg, flags, BlockLimits::default(), ClassCache::new().unwrap())
+pub fn factory(
+    cfg: VersionedConstantsOverrides,
+    #[with(true)] flags: ExecutionFlags,
+) -> BlockifierFactory {
+    // BlockifierFactory::new(cfg, flags, BlockLimits::default(), ClassCache::new().unwrap())
+    todo!()
 }
