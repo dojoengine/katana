@@ -19,7 +19,7 @@ use num_traits::ToPrimitive;
 use starknet::core::types::ResourcePrice;
 use tracing::{debug, error};
 
-use super::downloader::{Downloader, Fetchable};
+use super::downloader::{Downloader, Fetchable, RetryConfig};
 use super::{Stage, StageExecutionInput, StageResult};
 
 #[derive(Debug, thiserror::Error)]
@@ -28,29 +28,57 @@ pub enum Error {
     Gateway(#[from] client::Error),
 }
 
-#[derive(Debug)]
-pub struct Blocks<P> {
-    provider: P,
-    downloader: Downloader<StateUpdateWithBlock>,
+/// Trait for downloading blocks within a range.
+///
+/// This abstraction allows the Blocks stage to work with different download implementations,
+/// making it easy to test with mock downloaders or swap implementations.
+#[async_trait::async_trait]
+pub trait BlockDownloader: Send + Sync {
+    /// Download blocks in the given range [from, to].
+    ///
+    /// Returns a vector of blocks with their state updates.
+    async fn download(
+        &self,
+        from: BlockNumber,
+        to: BlockNumber,
+    ) -> Result<Vec<StateUpdateWithBlock>, Error>;
 }
 
-impl<P> Blocks<P> {
+#[derive(Debug)]
+pub struct Blocks<P, D> {
+    provider: P,
+    downloader: D,
+}
+
+impl<P> Blocks<P, FeederGatewayBlockDownloader> {
     pub fn new(provider: P, feeder_gateway: SequencerGateway, download_batch_size: usize) -> Self {
-        let downloader = Downloader::new(feeder_gateway, download_batch_size);
+        let downloader = FeederGatewayBlockDownloader::new(feeder_gateway, download_batch_size);
+        Self { provider, downloader }
+    }
+}
+
+impl<P, D> Blocks<P, D> {
+    /// Create a new Blocks stage with a custom downloader.
+    ///
+    /// This is useful for testing with mock downloaders.
+    pub fn with_downloader(provider: P, downloader: D) -> Self {
         Self { provider, downloader }
     }
 }
 
 #[async_trait::async_trait]
-impl<P: BlockWriter> Stage for Blocks<P> {
+impl<P, D> Stage for Blocks<P, D>
+where
+    P: BlockWriter,
+    D: BlockDownloader,
+{
     fn id(&self) -> &'static str {
         "Blocks"
     }
 
     async fn execute(&mut self, input: &StageExecutionInput) -> StageResult {
         // Download all blocks from the provided range
-        let keys: Vec<BlockNumber> = (input.from..=input.to).collect();
-        let blocks = self.downloader.download(&keys).await?;
+        let blocks = self.downloader.download(input.from, input.to).await?;
 
         if !blocks.is_empty() {
             debug!(target: "stage", id = %self.id(), total = %blocks.len(), "Storing blocks to storage.");
@@ -72,6 +100,43 @@ impl<P: BlockWriter> Stage for Blocks<P> {
     }
 }
 
+/// Implementation of BlockDownloader using the feeder gateway.
+pub struct FeederGatewayBlockDownloader {
+    downloader: Downloader<StateUpdateWithBlock>,
+}
+
+impl FeederGatewayBlockDownloader {
+    pub fn new(feeder_gateway: SequencerGateway, download_batch_size: usize) -> Self {
+        // Use a longer retry delay for blocks (9 seconds)
+        let retry_config = RetryConfig::new().with_min_delay_secs(9);
+        let downloader =
+            Downloader::with_retry_config(feeder_gateway, download_batch_size, retry_config);
+        Self { downloader }
+    }
+
+    pub fn with_retry_config(
+        feeder_gateway: SequencerGateway,
+        download_batch_size: usize,
+        retry_config: RetryConfig,
+    ) -> Self {
+        let downloader =
+            Downloader::with_retry_config(feeder_gateway, download_batch_size, retry_config);
+        Self { downloader }
+    }
+}
+
+#[async_trait::async_trait]
+impl BlockDownloader for FeederGatewayBlockDownloader {
+    async fn download(
+        &self,
+        from: BlockNumber,
+        to: BlockNumber,
+    ) -> Result<Vec<StateUpdateWithBlock>, Error> {
+        let keys: Vec<BlockNumber> = (from..=to).collect();
+        Ok(self.downloader.download(&keys).await?)
+    }
+}
+
 // Implement Fetchable trait for StateUpdateWithBlock
 #[async_trait::async_trait]
 impl Fetchable for StateUpdateWithBlock {
@@ -87,10 +152,6 @@ impl Fetchable for StateUpdateWithBlock {
             },
         )?;
         Ok(block)
-    }
-
-    fn retry_min_delay_secs() -> u64 {
-        9
     }
 }
 
@@ -209,10 +270,12 @@ fn extract_block_data(
 #[cfg(test)]
 mod tests {
     use katana_feeder_gateway::client::SequencerGateway;
+    use katana_feeder_gateway::types::StateUpdateWithBlock;
+    use katana_primitives::block::BlockNumber;
     use katana_provider::api::block::BlockNumberProvider;
     use katana_provider::test_utils::test_provider;
 
-    use super::Blocks;
+    use super::{BlockDownloader, Blocks, Error};
     use crate::{Stage, StageExecutionInput};
 
     #[tokio::test]
@@ -232,5 +295,33 @@ mod tests {
         // check provider storage
         let block_number = provider.latest_number().expect("failed to get latest block number");
         assert_eq!(block_number, to_block);
+    }
+
+    // Example of how to create a mock downloader for testing
+    struct MockBlockDownloader {
+        blocks: Vec<StateUpdateWithBlock>,
+    }
+
+    #[async_trait::async_trait]
+    impl BlockDownloader for MockBlockDownloader {
+        async fn download(
+            &self,
+            _from: BlockNumber,
+            _to: BlockNumber,
+        ) -> Result<Vec<StateUpdateWithBlock>, Error> {
+            Ok(self.blocks.clone())
+        }
+    }
+
+    #[tokio::test]
+    async fn test_with_mock_downloader() {
+        let provider = test_provider();
+        let mock_downloader = MockBlockDownloader { blocks: vec![] };
+
+        let mut stage = Blocks::with_downloader(&provider, mock_downloader);
+
+        let input = StageExecutionInput { from: 0, to: 10 };
+        // This should succeed with empty blocks
+        stage.execute(&input).await.expect("should execute with mock downloader");
     }
 }
