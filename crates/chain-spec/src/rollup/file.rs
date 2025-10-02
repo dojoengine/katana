@@ -151,7 +151,7 @@ struct ChainSpecFile {
 /// The local directory name where the chain configuration files are stored.
 const KATANA_LOCAL_DIR: &str = "katana";
 
-#[derive(Debug, Clone, Serialize, Deserialize)]
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
 pub enum ChainConfigDir {
     Absolute(PathBuf),
     Local(LocalChainConfigDir),
@@ -202,7 +202,7 @@ impl ChainConfigDir {
 }
 
 // > LOCAL_DIR/$chain_id/
-#[derive(Debug, Clone, Serialize, Deserialize)]
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
 pub struct LocalChainConfigDir(PathBuf);
 
 impl LocalChainConfigDir {

@@ -8,6 +8,7 @@ use katana_genesis::Genesis;
 use katana_primitives::{ContractAddress, Felt, U256};
 
 #[derive(Debug, Args)]
+#[cfg_attr(test, derive(PartialEq, Eq))]
 #[command(next_help_heading = "Slot options")]
 pub struct SlotArgs {
     /// Enable `slot`-specific features.
@@ -33,7 +34,7 @@ pub struct SlotArgs {
     pub paymaster_accounts: Option<Vec<PaymasterAccountArgs>>,
 }
 
-#[derive(Debug, Clone)]
+#[derive(Debug, Clone, PartialEq, Eq)]
 pub struct PaymasterAccountArgs {
     /// The public key of the paymaster account.
     pub public_key: Felt,

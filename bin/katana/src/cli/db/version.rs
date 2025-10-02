@@ -5,6 +5,7 @@ use clap::Args;
 use katana_db::version::{get_db_version, CURRENT_DB_VERSION};
 
 #[derive(Debug, Args)]
+#[cfg_attr(test, derive(PartialEq, Eq))]
 pub struct VersionArgs {
     /// Path to the database directory.
     ///
