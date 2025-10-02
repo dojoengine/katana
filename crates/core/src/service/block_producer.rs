@@ -257,8 +257,14 @@ impl<EF: ExecutorFactory> IntervalBlockProducer<EF> {
         let state = executor.state();
         let cfg = backend.executor_factory.cfg();
         let flags = backend.executor_factory.execution_flags();
-        let validator =
-            TxValidator::new(state, flags.clone(), cfg.clone(), block_env, permit.clone());
+        let validator = TxValidator::new(
+            state,
+            flags.clone(),
+            cfg.clone(),
+            block_env,
+            permit.clone(),
+            backend.chain_spec.clone(),
+        );
 
         let blocking_task_spawner = CpuBlockingTaskPool::builder()
             .thread_name(|i| format!("block-producer-blocking-pool-{i}"))
@@ -579,8 +585,14 @@ impl<EF: ExecutorFactory> InstantBlockProducer<EF> {
         let state = provider.latest().expect("latest state");
         let cfg = backend.executor_factory.cfg();
         let flags = backend.executor_factory.execution_flags();
-        let validator =
-            TxValidator::new(state, flags.clone(), cfg.clone(), block_env, permit.clone());
+        let validator = TxValidator::new(
+            state,
+            flags.clone(),
+            cfg.clone(),
+            block_env,
+            permit.clone(),
+            backend.chain_spec.clone(),
+        );
 
         let blocking_task_spawner = CpuBlockingTaskPool::builder()
             .thread_name(|i| format!("block-producer-blocking-pool-{i}"))

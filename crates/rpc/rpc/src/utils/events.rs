@@ -85,6 +85,7 @@ impl PartialCursor {
     }
 }
 
+#[allow(unused)]
 pub fn fetch_pending_events(
     pending_executor: &PendingExecutor,
     filter: &Filter,
