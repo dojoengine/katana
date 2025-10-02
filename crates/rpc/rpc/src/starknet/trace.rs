@@ -1,5 +1,5 @@
 use jsonrpsee::core::{async_trait, RpcResult};
-use katana_executor::{ExecutionResult, ExecutorFactory, ResultAndStates};
+use katana_executor::{ExecutionResult, ResultAndStates};
 use katana_primitives::block::{BlockHashOrNumber, BlockIdOrTag, ConfirmedBlockIdOrTag};
 use katana_primitives::execution::TypedTransactionExecutionInfo;
 use katana_primitives::transaction::{ExecutableTx, ExecutableTxWithHash, TxHash};
@@ -16,14 +16,14 @@ use katana_rpc_types::SimulationFlag;
 
 use super::StarknetApi;
 
-impl<EF: ExecutorFactory> StarknetApi<EF> {
+impl StarknetApi {
     fn simulate_txs(
         &self,
         block_id: BlockIdOrTag,
         transactions: Vec<BroadcastedTx>,
         simulation_flags: Vec<SimulationFlag>,
     ) -> Result<Vec<SimulatedTransactions>, StarknetApiError> {
-        let chain_id = self.inner.backend.chain_spec.id();
+        let chain_id = self.inner.chain_spec.id();
 
         let executables = transactions
             .into_iter()
@@ -59,12 +59,14 @@ impl<EF: ExecutorFactory> StarknetApi<EF> {
         // If the node is run with transaction validation disabled, then we should not validate
         // even if the `SKIP_VALIDATE` flag is not set.
         let should_validate = !simulation_flags.contains(&SimulationFlag::SkipValidate)
-            && self.inner.backend.executor_factory.execution_flags().account_validation();
+            // && self.inner.backend.executor_factory.execution_flags().account_validation();
+        && self.inner.config.simulation_flags.account_validation();
 
         // If the node is run with fee charge disabled, then we should disable charing fees even
         // if the `SKIP_FEE_CHARGE` flag is not set.
         let should_charge_fee = !simulation_flags.contains(&SimulationFlag::SkipFeeCharge)
-            && self.inner.backend.executor_factory.execution_flags().fee();
+            // && self.inner.backend.executor_factory.execution_flags().fee();
+        && self.inner.config.simulation_flags.fee();
 
         let flags = katana_executor::ExecutionFlags::new()
             .with_account_validation(should_validate)
@@ -76,8 +78,11 @@ impl<EF: ExecutorFactory> StarknetApi<EF> {
         let env = self.block_env_at(&block_id)?;
 
         // use the blockifier utils function
-        let cfg_env = self.inner.backend.executor_factory.cfg().clone();
-        let results = super::blockifier::simulate(state, env, cfg_env, executables, flags);
+        // let cfg_env = self.inner.backend.executor_factory.cfg().clone();
+        let chain_spec = self.inner.chain_spec.as_ref();
+        let cfg_env = self.inner.chain_spec.versioned_constants_overrides().unwrap();
+        let results =
+            super::blockifier::simulate(chain_spec, state, env, cfg_env, executables, flags);
 
         let mut simulated = Vec::with_capacity(results.len());
         for (i, ResultAndStates { result, .. }) in results.into_iter().enumerate() {
@@ -111,7 +116,7 @@ impl<EF: ExecutorFactory> StarknetApi<EF> {
     ) -> Result<Vec<TxTraceWithHash>, StarknetApiError> {
         use StarknetApiError::BlockNotFound;
 
-        let provider = self.inner.backend.blockchain.provider();
+        let provider = &self.inner.storage;
 
         let block_id: BlockHashOrNumber = match block_id {
             ConfirmedBlockIdOrTag::L1Accepted => {
@@ -141,27 +146,27 @@ impl<EF: ExecutorFactory> StarknetApi<EF> {
         use StarknetApiError::TxnHashNotFound;
 
         // Check in the pending block first
-        if let Some(state) = self.pending_executor() {
-            let pending_block = state.read();
-            let tx = pending_block.transactions().iter().find(|(t, _)| t.hash == tx_hash);
+        // if let Some(state) = self.pending_executor() {
+        //     let pending_block = state.read();
+        //     let tx = pending_block.transactions().iter().find(|(t, _)| t.hash == tx_hash);
 
-            if let Some((tx, res)) = tx {
-                if let Some(trace) = res.trace() {
-                    let trace = TypedTransactionExecutionInfo::new(tx.r#type(), trace.clone());
-                    return Ok(TxTrace::from(trace));
-                }
-            }
-        }
+        //     if let Some((tx, res)) = tx {
+        //         if let Some(trace) = res.trace() {
+        //             let trace = TypedTransactionExecutionInfo::new(tx.r#type(), trace.clone());
+        //             return Ok(TxTrace::from(trace));
+        //         }
+        //     }
+        // }
 
         // If not found in pending block, fallback to the provider
-        let provider = self.inner.backend.blockchain.provider();
+        let provider = &self.inner.storage;
         let trace = provider.transaction_execution(tx_hash)?.ok_or(TxnHashNotFound)?;
         Ok(TxTrace::from(trace))
     }
 }
 
 #[async_trait]
-impl<EF: ExecutorFactory> StarknetTraceApiServer for StarknetApi<EF> {
+impl StarknetTraceApiServer for StarknetApi {
     async fn trace_transaction(&self, transaction_hash: TxHash) -> RpcResult<TxTrace> {
         self.on_io_blocking_task(move |this| Ok(this.trace(transaction_hash)?)).await?
     }

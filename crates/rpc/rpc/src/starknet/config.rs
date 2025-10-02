@@ -1,3 +1,5 @@
+use katana_executor::ExecutionFlags;
+
 #[derive(Debug, Clone)]
 pub struct StarknetApiConfig {
     /// The max chunk size that can be served from the `getEvents` method.
@@ -28,6 +30,10 @@ pub struct StarknetApiConfig {
     ///
     /// If `None`, defaults to [`DEFAULT_ESTIMATE_FEE_MAX_CONCURRENT_REQUESTS`].
     pub max_concurrent_estimate_fee_requests: Option<u32>,
+
+    /// Simulation flags used for fee simulation and estimation. (ie starknet_estimateFee and
+    /// starknet_simulateTransactions)
+    pub simulation_flags: ExecutionFlags,
 
     #[cfg(feature = "cartridge")]
     pub paymaster: Option<PaymasterConfig>,
