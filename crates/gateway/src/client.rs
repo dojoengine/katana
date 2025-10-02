@@ -289,6 +289,17 @@ impl<Method> RequestBuilder<'_, Method> {
 impl<Method> RequestBuilder<'_, Method> {
     /// Send the request.
     async fn send<T: DeserializeOwned>(self) -> Result<T, Error> {
+        let request = self.build()?;
+
+        let response = reqwest::Client::new().execute(request).await?;
+        match response.json().await? {
+            Response::Data(data) => Ok(data),
+            Response::Error(error) => Err(Error::Sequencer(error)),
+        }
+    }
+
+    // build the request
+    fn build(self) -> Result<Request, Error> {
         let mut request = self.request;
 
         if let Some(value) = self.client.api_key.as_ref() {
@@ -299,11 +310,7 @@ impl<Method> RequestBuilder<'_, Method> {
             *request.headers_mut() = HeaderMap::from_iter([(key, value)]);
         }
 
-        let response = reqwest::Client::new().execute(request).await?;
-        match response.json().await? {
-            Response::Data(data) => Ok(data),
-            Response::Error(error) => Err(Error::Sequencer(error)),
-        }
+        Ok(request)
     }
 }
 
@@ -369,18 +376,18 @@ mod tests {
         let api_key = "test-api-key-12345";
         let client_with_key =
             Client::new(gateway.clone(), feeder.clone()).with_api_key(api_key.to_string());
-        let builder = client_with_key.feeder_gateway("test");
+        let request = client_with_key.feeder_gateway("test").build().unwrap();
 
         // Check that the X-Throttling-Bypass header is set with the correct API key
-        let headers = builder.request.headers();
+        let headers = request.headers();
         assert_eq!(headers.get(X_THROTTLING_BYPASS).unwrap().to_str().unwrap(), api_key);
 
         // Test without API key
         let client_without_key = Client::new(gateway, feeder);
-        let builder = client_without_key.feeder_gateway("test");
+        let request = client_without_key.feeder_gateway("test").build().unwrap();
 
         // Check that the X-Throttling-Bypass header is not present
-        let headers = builder.request.headers();
+        let headers = request.headers();
         assert!(headers.get(X_THROTTLING_BYPASS).is_none());
     }
 
