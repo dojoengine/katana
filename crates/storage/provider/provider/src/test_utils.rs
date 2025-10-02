@@ -19,7 +19,7 @@ pub fn test_provider() -> DbProvider {
 
 /// Initializes the provider with a genesis block and states.
 fn initialize_test_provider<P: BlockWriter>(provider: &P) {
-    let chain = create_chain_for_testing();
+    let chain = get_chain_for_testing();
 
     let hash = BlockHash::ZERO;
     let status = FinalityStatus::AcceptedOnL2;
@@ -34,7 +34,7 @@ fn initialize_test_provider<P: BlockWriter>(provider: &P) {
 /// Creates a genesis config specifically for testing purposes.
 /// This includes:
 /// - An account with simple `__execute__` function, deployed at address `0x1`.
-fn create_chain_for_testing() -> katana_chain_spec::dev::ChainSpec {
+pub fn get_chain_for_testing() -> katana_chain_spec::dev::ChainSpec {
     let mut chain = katana_chain_spec::dev::DEV_UNALLOCATED.clone();
 
     let class_hash = felt!("0x111");

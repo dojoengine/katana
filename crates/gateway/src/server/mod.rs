@@ -74,12 +74,12 @@ pub struct GatewayServer {
     health_check: bool,
     metered: bool,
 
-    starknet_api: StarknetApi<BlockifierFactory>,
+    starknet_api: StarknetApi,
 }
 
 impl GatewayServer {
     /// Create a new feeder gateway server.
-    pub fn new(starknet_api: StarknetApi<BlockifierFactory>) -> Self {
+    pub fn new(starknet_api: StarknetApi) -> Self {
         Self {
             timeout: DEFAULT_GATEWAY_TIMEOUT,
             cors: None,
