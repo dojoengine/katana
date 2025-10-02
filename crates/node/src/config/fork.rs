@@ -2,7 +2,7 @@ use katana_primitives::block::BlockHashOrNumber;
 use url::Url;
 
 /// Node forking configurations.
-#[derive(Debug, Clone)]
+#[derive(Debug, Clone, PartialEq, Eq)]
 pub struct ForkingConfig {
     /// The JSON-RPC URL of the network to fork from.
     pub url: Url,

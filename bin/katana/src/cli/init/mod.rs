@@ -84,6 +84,7 @@ mod settlement;
 mod slot;
 
 #[derive(Debug, Args)]
+#[cfg_attr(test, derive(PartialEq, Eq))]
 pub struct InitCommand {
     #[command(subcommand)]
     pub mode: InitMode,
@@ -91,6 +92,7 @@ pub struct InitCommand {
 
 /// initialization mode selection for different chain types.
 #[derive(Debug, Subcommand)]
+#[cfg_attr(test, derive(PartialEq, Eq))]
 pub enum InitMode {
     #[command(about = "Initialize a rollup chain")]
     Rollup(Box<RollupArgs>),
@@ -109,6 +111,7 @@ pub enum InitMode {
 ///
 /// If no arguments are provided, the command will prompt interactively for them.
 #[derive(Debug, Args)]
+#[cfg_attr(test, derive(PartialEq, Eq))]
 pub struct RollupArgs {
     /// The id of the new chain to be initialized.
     ///
@@ -183,6 +186,7 @@ with a known chain is a no-op for now.")
 }
 
 #[derive(Debug, Args)]
+#[cfg_attr(test, derive(PartialEq, Eq))]
 pub struct SovereignArgs {
     /// The id of the new chain to be initialized.
     ///

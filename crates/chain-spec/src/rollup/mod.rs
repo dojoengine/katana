@@ -15,8 +15,7 @@ pub use utils::DEFAULT_APPCHAIN_FEE_TOKEN_ADDRESS;
 use crate::SettlementLayer;
 
 /// The rollup chain specification.
-#[derive(Debug, Clone)]
-#[cfg_attr(test, derive(PartialEq))]
+#[derive(Debug, Clone, PartialEq, Eq)]
 pub struct ChainSpec {
     /// The rollup network chain id.
     pub id: ChainId,
@@ -56,8 +55,7 @@ impl ChainSpec {
 }
 
 /// Token that can be used for transaction fee payments on the chain.
-#[derive(Debug, Clone, Serialize, Deserialize)]
-#[cfg_attr(test, derive(PartialEq))]
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
 pub struct FeeContract {
     pub strk: ContractAddress,
 }

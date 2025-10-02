@@ -10,6 +10,7 @@ use katana_primitives::{ContractAddress, Felt};
 use super::client::Client;
 
 #[derive(Debug, Subcommand)]
+#[cfg_attr(test, derive(PartialEq, Eq))]
 pub enum StarknetCommands {
     /// Get Starknet JSON-RPC specification version
     #[command(name = "spec")]
@@ -88,6 +89,7 @@ pub enum StarknetCommands {
 }
 
 #[derive(Debug, Args)]
+#[cfg_attr(test, derive(PartialEq, Eq))]
 pub struct BlockIdArgs {
     /// Block ID (number, hash, 'latest', or 'pending'). Defaults to 'latest'
     #[arg(default_value = "latest")]
@@ -95,6 +97,7 @@ pub struct BlockIdArgs {
 }
 
 #[derive(Debug, Args)]
+#[cfg_attr(test, derive(PartialEq, Eq))]
 pub struct GetBlockArgs {
     /// Block ID (number, hash, 'latest', or 'pending'). Defaults to 'latest'
     #[arg(default_value = "latest")]
@@ -110,6 +113,7 @@ pub struct GetBlockArgs {
 }
 
 #[derive(Debug, Args)]
+#[cfg_attr(test, derive(PartialEq, Eq))]
 pub struct TxHashArgs {
     /// Transaction hash
     #[arg(value_name = "TX_HASH")]
@@ -117,6 +121,7 @@ pub struct TxHashArgs {
 }
 
 #[derive(Debug, Args)]
+#[cfg_attr(test, derive(PartialEq, Eq))]
 pub struct GetTransactionArgs {
     /// Transaction hash
     #[arg(value_name = "TX_HASH")]
@@ -128,6 +133,7 @@ pub struct GetTransactionArgs {
 }
 
 #[derive(Debug, Args)]
+#[cfg_attr(test, derive(PartialEq, Eq))]
 pub struct GetStorageAtArgs {
     /// Contract address
     #[arg(value_name = "ADDRESS")]
@@ -143,6 +149,7 @@ pub struct GetStorageAtArgs {
 }
 
 #[derive(Debug, Args)]
+#[cfg_attr(test, derive(PartialEq, Eq))]
 pub struct GetTransactionByBlockIdAndIndexArgs {
     /// Block ID (number, hash, 'latest', or 'pending'). Defaults to 'latest'
     #[arg(default_value = "latest")]
@@ -153,6 +160,7 @@ pub struct GetTransactionByBlockIdAndIndexArgs {
 }
 
 #[derive(Debug, Args)]
+#[cfg_attr(test, derive(PartialEq, Eq))]
 pub struct GetClassArgs {
     /// Class hash
     #[arg(value_name = "CLASS_HASH")]
@@ -165,6 +173,7 @@ pub struct GetClassArgs {
 }
 
 #[derive(Debug, Args)]
+#[cfg_attr(test, derive(PartialEq, Eq))]
 pub struct GetClassHashAtArgs {
     /// Contract address
     #[arg(value_name = "ADDRESS")]
@@ -177,6 +186,7 @@ pub struct GetClassHashAtArgs {
 }
 
 #[derive(Debug, Args)]
+#[cfg_attr(test, derive(PartialEq, Eq))]
 pub struct GetClassAtArgs {
     /// Contract address
     #[arg(value_name = "ADDRESS")]
@@ -189,6 +199,7 @@ pub struct GetClassAtArgs {
 }
 
 #[derive(Debug, Args)]
+#[cfg_attr(test, derive(PartialEq, Eq))]
 pub struct CallArgs {
     /// Contract address
     #[arg(value_name = "ADDRESS")]
@@ -207,12 +218,14 @@ pub struct CallArgs {
 }
 
 #[derive(Debug, Args)]
+#[cfg_attr(test, derive(PartialEq, Eq))]
 pub struct GetEventsArgs {
     /// Event filter JSON
     filter: String,
 }
 
 #[derive(Debug, Args)]
+#[cfg_attr(test, derive(PartialEq, Eq))]
 pub struct GetNonceArgs {
     /// The contract address whose nonce is requested
     #[arg(value_name = "ADDRESS")]
@@ -225,6 +238,7 @@ pub struct GetNonceArgs {
 }
 
 #[derive(Debug, Args)]
+#[cfg_attr(test, derive(PartialEq, Eq))]
 pub struct GetStorageProofArgs {
     /// Class hashes JSON array
     #[arg(long)]
@@ -245,6 +259,7 @@ pub struct GetStorageProofArgs {
 }
 
 #[derive(Debug, Args)]
+#[cfg_attr(test, derive(PartialEq, Eq))]
 pub struct TraceBlockTransactionsArg {
     /// Block ID (number, hash, 'latest', or 'l1_accepted'). Defaults to 'latest'
     #[arg(default_value = "latest")]
@@ -396,9 +411,11 @@ impl StarknetCommands {
 }
 
 #[derive(Debug, Clone)]
+#[cfg_attr(test, derive(PartialEq, Eq))]
 pub struct BlockIdArg(pub BlockIdOrTag);
 
 #[derive(Debug, Clone)]
+#[cfg_attr(test, derive(PartialEq, Eq))]
 pub struct ConfirmedBlockIdArg(pub ConfirmedBlockIdOrTag);
 
 impl std::str::FromStr for BlockIdArg {

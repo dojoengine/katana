@@ -25,8 +25,7 @@ use starknet::core::utils::cairo_short_string_to_felt;
 
 use crate::SettlementLayer;
 
-#[derive(Debug, Clone)]
-#[cfg_attr(test, derive(PartialEq))]
+#[derive(Debug, Clone, PartialEq, Eq)]
 pub struct ChainSpec {
     /// The rollup network chain id.
     pub id: ChainId,
@@ -110,8 +109,7 @@ impl ChainSpec {
 /// Tokens that can be used for transaction fee payments in the chain. As
 /// supported on Starknet.
 // TODO: include both l1 and l2 addresses
-#[derive(Debug, Clone, Serialize, Deserialize)]
-#[cfg_attr(test, derive(PartialEq))]
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
 pub struct FeeContracts {
     /// L2 ETH fee token address. Used for paying pre-V3 transactions.
     pub eth: ContractAddress,

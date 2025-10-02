@@ -6,6 +6,7 @@ mod client;
 mod starknet;
 
 #[derive(Debug, Args)]
+#[cfg_attr(test, derive(PartialEq, Eq))]
 pub struct RpcArgs {
     #[command(subcommand)]
     command: starknet::StarknetCommands,
@@ -26,6 +27,7 @@ impl RpcArgs {
 }
 
 #[derive(Debug, Args)]
+#[cfg_attr(test, derive(PartialEq, Eq))]
 #[command(next_help_heading = "Server options")]
 pub struct ServerOptions {
     /// Katana RPC endpoint URL

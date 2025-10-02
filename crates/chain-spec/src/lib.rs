@@ -8,7 +8,7 @@ use url::Url;
 pub mod dev;
 pub mod rollup;
 
-#[derive(Debug, Clone)]
+#[derive(Debug, Clone, PartialEq, Eq)]
 pub enum ChainSpec {
     Dev(dev::ChainSpec),
     Rollup(rollup::ChainSpec),
@@ -64,8 +64,7 @@ impl Default for ChainSpec {
     }
 }
 
-#[derive(Debug, Clone, Serialize, Deserialize)]
-#[cfg_attr(test, derive(PartialEq))]
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
 #[serde(rename_all = "kebab-case")]
 pub enum SettlementLayer {
     Ethereum {

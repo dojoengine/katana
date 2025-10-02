@@ -25,7 +25,7 @@ use sequencing::SequencingConfig;
 /// Node configurations.
 ///
 /// List of all possible options that can be used to configure a node.
-#[derive(Debug, Clone, Default)]
+#[derive(Debug, Clone, Default, PartialEq, Eq)]
 pub struct Config {
     /// The chain specification.
     pub chain: Arc<ChainSpec>,
