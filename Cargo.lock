@@ -762,7 +762,7 @@ checksum = "e16d2d3311acee920a9eb8d33b8cbc1787ce4a264e85f964c2404b969bdcd487"
 [[package]]
 name = "apollo_compilation_utils"
 version = "0.16.0-rc.0"
-source = "git+https://github.com/dojoengine/sequencer?branch=blockifier%2Fv0.16.0-rc.0#3a9485d771fb5c66a959e3733141aeb2a44dd9ee"
+source = "git+https://github.com/dojoengine/sequencer?branch=blockifier%2Fv0.16.0-rc.0#d2baeb7289ce99d18468ddc635748fa76cf0827c"
 dependencies = [
  "apollo_infra_utils",
  "cairo-lang-sierra",
@@ -780,7 +780,7 @@ dependencies = [
 [[package]]
 name = "apollo_compile_to_native"
 version = "0.16.0-rc.0"
-source = "git+https://github.com/dojoengine/sequencer?branch=blockifier%2Fv0.16.0-rc.0#3a9485d771fb5c66a959e3733141aeb2a44dd9ee"
+source = "git+https://github.com/dojoengine/sequencer?branch=blockifier%2Fv0.16.0-rc.0#d2baeb7289ce99d18468ddc635748fa76cf0827c"
 dependencies = [
  "apollo_compilation_utils",
  "apollo_compile_to_native_types",
@@ -793,7 +793,7 @@ dependencies = [
 [[package]]
 name = "apollo_compile_to_native_types"
 version = "0.16.0-rc.0"
-source = "git+https://github.com/dojoengine/sequencer?branch=blockifier%2Fv0.16.0-rc.0#3a9485d771fb5c66a959e3733141aeb2a44dd9ee"
+source = "git+https://github.com/dojoengine/sequencer?branch=blockifier%2Fv0.16.0-rc.0#d2baeb7289ce99d18468ddc635748fa76cf0827c"
 dependencies = [
  "apollo_config",
  "serde",
@@ -803,7 +803,7 @@ dependencies = [
 [[package]]
 name = "apollo_config"
 version = "0.16.0-rc.0"
-source = "git+https://github.com/dojoengine/sequencer?branch=blockifier%2Fv0.16.0-rc.0#3a9485d771fb5c66a959e3733141aeb2a44dd9ee"
+source = "git+https://github.com/dojoengine/sequencer?branch=blockifier%2Fv0.16.0-rc.0#d2baeb7289ce99d18468ddc635748fa76cf0827c"
 dependencies = [
  "apollo_infra_utils",
  "clap",
@@ -821,7 +821,7 @@ dependencies = [
 [[package]]
 name = "apollo_infra_utils"
 version = "0.16.0-rc.0"
-source = "git+https://github.com/dojoengine/sequencer?branch=blockifier%2Fv0.16.0-rc.0#3a9485d771fb5c66a959e3733141aeb2a44dd9ee"
+source = "git+https://github.com/dojoengine/sequencer?branch=blockifier%2Fv0.16.0-rc.0#d2baeb7289ce99d18468ddc635748fa76cf0827c"
 dependencies = [
  "apollo_proc_macros",
  "assert-json-diff",
@@ -839,7 +839,7 @@ dependencies = [
 [[package]]
 name = "apollo_metrics"
 version = "0.16.0-rc.0"
-source = "git+https://github.com/dojoengine/sequencer?branch=blockifier%2Fv0.16.0-rc.0#3a9485d771fb5c66a959e3733141aeb2a44dd9ee"
+source = "git+https://github.com/dojoengine/sequencer?branch=blockifier%2Fv0.16.0-rc.0#d2baeb7289ce99d18468ddc635748fa76cf0827c"
 dependencies = [
  "indexmap 2.10.0",
  "metrics 0.24.2",
@@ -851,7 +851,7 @@ dependencies = [
 [[package]]
 name = "apollo_proc_macros"
 version = "0.16.0-rc.0"
-source = "git+https://github.com/dojoengine/sequencer?branch=blockifier%2Fv0.16.0-rc.0#3a9485d771fb5c66a959e3733141aeb2a44dd9ee"
+source = "git+https://github.com/dojoengine/sequencer?branch=blockifier%2Fv0.16.0-rc.0#d2baeb7289ce99d18468ddc635748fa76cf0827c"
 dependencies = [
  "lazy_static",
  "proc-macro2",
@@ -1698,7 +1698,7 @@ dependencies = [
 [[package]]
 name = "blockifier"
 version = "0.16.0-rc.0"
-source = "git+https://github.com/dojoengine/sequencer?branch=blockifier%2Fv0.16.0-rc.0#3a9485d771fb5c66a959e3733141aeb2a44dd9ee"
+source = "git+https://github.com/dojoengine/sequencer?branch=blockifier%2Fv0.16.0-rc.0#d2baeb7289ce99d18468ddc635748fa76cf0827c"
 dependencies = [
  "anyhow",
  "apollo_compilation_utils",
@@ -1749,7 +1749,7 @@ dependencies = [
 [[package]]
 name = "blockifier_test_utils"
 version = "0.16.0-rc.0"
-source = "git+https://github.com/dojoengine/sequencer?branch=blockifier%2Fv0.16.0-rc.0#3a9485d771fb5c66a959e3733141aeb2a44dd9ee"
+source = "git+https://github.com/dojoengine/sequencer?branch=blockifier%2Fv0.16.0-rc.0#d2baeb7289ce99d18468ddc635748fa76cf0827c"
 dependencies = [
  "apollo_infra_utils",
  "cairo-lang-starknet-classes",
@@ -6373,13 +6373,11 @@ dependencies = [
 
 [[package]]
 name = "lambdaworks-crypto"
-version = "0.12.0"
+version = "0.10.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "fce8f59622ed408c318c9b5eca17f1a1154159e3738b5c4d5a22a0dd3700c906"
+checksum = "bbc2a4da0d9e52ccfe6306801a112e81a8fc0c76aa3e4449fefeda7fef72bb34"
 dependencies = [
  "lambdaworks-math",
- "rand 0.8.5",
- "rand_chacha 0.3.1",
  "serde",
  "sha2",
  "sha3",
@@ -6387,12 +6385,10 @@ dependencies = [
 
 [[package]]
 name = "lambdaworks-math"
-version = "0.12.0"
+version = "0.10.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "405d65a26831650ba348a503a2881ed7a0483ef3ec17f66e0fc8e2f9c97fc7ca"
+checksum = "d1bd2632acbd9957afc5aeec07ad39f078ae38656654043bf16e046fa2730e23"
 dependencies = [
- "getrandom 0.2.16",
- "rand 0.8.5",
  "serde",
  "serde_json",
 ]
@@ -7493,7 +7489,7 @@ checksum = "5be167a7af36ee22fe3115051bc51f6e6c7054c9348e28deb4f49bd6f705a315"
 [[package]]
 name = "piltover"
 version = "0.1.0"
-source = "git+https://github.com/kariy/piltover.git?rev=2b99a6b#2b99a6b272d35dd70578414d2c7b3f0e00356558"
+source = "git+https://github.com/cartridge-gg/piltover.git?rev=1dcb9fa4aaf22a23353c9233341ef373d7664929#1dcb9fa4aaf22a23353c9233341ef373d7664929"
 dependencies = [
  "cainome",
  "starknet",
@@ -9830,9 +9826,9 @@ dependencies = [
 
 [[package]]
 name = "starknet-types-core"
-version = "0.2.2"
+version = "0.2.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "92eb6db1a763c350ffa50ed65ea3a92de9888239357cfbcb633e29a4da77f122"
+checksum = "5fa3d91e38f091dbc543d33589eb7716bed2a8eb1c20879e484561977832b60a"
 dependencies = [
  "arbitrary",
  "blake2",
@@ -9844,7 +9840,6 @@ dependencies = [
  "num-integer",
  "num-traits",
  "parity-scale-codec",
- "rand 0.9.2",
  "serde",
  "zeroize",
 ]
@@ -9852,7 +9847,7 @@ dependencies = [
 [[package]]
 name = "starknet_api"
 version = "0.16.0-rc.0"
-source = "git+https://github.com/dojoengine/sequencer?branch=blockifier%2Fv0.16.0-rc.0#3a9485d771fb5c66a959e3733141aeb2a44dd9ee"
+source = "git+https://github.com/dojoengine/sequencer?branch=blockifier%2Fv0.16.0-rc.0#d2baeb7289ce99d18468ddc635748fa76cf0827c"
 dependencies = [
  "apollo_infra_utils",
  "base64 0.13.1",

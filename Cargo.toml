@@ -217,7 +217,7 @@ opentelemetry-stackdriver = { version = "0.27.0", features = [ "propagator" ] }
 # starknet
 starknet = "0.17.0"
 starknet-crypto = "0.8.1"
-starknet-types-core = { version = "=0.2.2", features = [ "arbitrary", "hash" ] }
+starknet-types-core = { version = "=0.2.0", features = [ "arbitrary", "hash" ] }
 
 blockifier = { git = "https://github.com/dojoengine/sequencer", branch = "blockifier/v0.16.0-rc.0", default-features = false }
 cairo-native = "0.6.2"
@@ -228,4 +228,5 @@ cairo-vm = { version = "2.5.0", features = [ "test_utils" ] }
 
 cainome = { version = "0.10.0", features = [ "abigen-rs" ] }
 cainome-cairo-serde = { version = "0.4.0" }
-piltover = { git = "https://github.com/kariy/piltover.git", rev = "2b99a6b" }
+# <https://github.com/cartridge-gg/piltover/tree/starknet-types-0.2.0>
+piltover = { git = "https://github.com/cartridge-gg/piltover.git", rev = "1dcb9fa4aaf22a23353c9233341ef373d7664929" }
