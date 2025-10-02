@@ -173,7 +173,7 @@ pub trait Messenger {
 #[derive(Debug)]
 pub enum MessengerMode {
     Ethereum(EthereumMessaging),
-    Starknet(StarknetMessaging),
+    Starknet(Box<StarknetMessaging>),
 }
 
 impl MessengerMode {
@@ -193,7 +193,7 @@ impl MessengerMode {
             CONFIG_CHAIN_STARKNET => match StarknetMessaging::new(config).await {
                 Ok(m_sn) => {
                     info!(target: LOG_TARGET, "Messaging enabled [Starknet].");
-                    Ok(MessengerMode::Starknet(m_sn))
+                    Ok(MessengerMode::Starknet(Box::new(m_sn)))
                 }
                 Err(e) => {
                     error!(target: LOG_TARGET, error = %e, "Starknet messenger init.");

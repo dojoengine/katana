@@ -107,8 +107,8 @@ fn prune_database(db_path: &str, mode: PruneMode) -> Result<()> {
 
             if blocks > latest_block {
                 eprintln!(
-                    "Warning: Requested to keep {} blocks, but only {} blocks exist",
-                    blocks, latest_block
+                    "Warning: Requested to keep {blocks} blocks, but only {latest_block} blocks \
+                     exist"
                 );
                 return Ok(());
             }
@@ -122,7 +122,7 @@ fn prune_database(db_path: &str, mode: PruneMode) -> Result<()> {
             }
 
             prune_keep_last_n(&tx, cutoff_block)?;
-            println!("Pruned historical data for blocks 0 to {}", cutoff_block);
+            println!("Pruned historical data for blocks 0 to {cutoff_block}");
         }
     }
 
@@ -455,7 +455,7 @@ fn show_confirmation_prompt(stats: &PruningStats, mode: &PruneMode) -> Result<bo
             println!("- Action: Remove ALL historical data, keeping only the latest state");
         }
         PruneMode::KeepLastN { blocks } => {
-            println!("- Action: Keep only the last {} blocks of historical data", blocks);
+            println!("- Action: Keep only the last {blocks} blocks of historical data");
         }
     }
 
