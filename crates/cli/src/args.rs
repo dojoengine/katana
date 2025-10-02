@@ -39,7 +39,7 @@ use crate::utils::{self, parse_chain_config_dir, parse_seed};
 
 pub(crate) const LOG_TARGET: &str = "katana::cli";
 
-#[derive(Parser, Debug, Serialize, Deserialize, Default, Clone)]
+#[derive(Parser, Debug, Serialize, Deserialize, Default, Clone, PartialEq)]
 #[command(next_help_heading = "Sequencer node options")]
 pub struct SequencerNodeArgs {
     /// Don't print anything on startup.

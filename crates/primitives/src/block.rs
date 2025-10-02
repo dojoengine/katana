@@ -51,7 +51,7 @@ pub enum ConfirmedBlockIdOrTag {
     L1Accepted,
 }
 
-#[derive(Debug, Copy, Clone, PartialEq)]
+#[derive(Debug, Copy, Clone, PartialEq, Eq)]
 #[cfg_attr(feature = "serde", derive(serde::Serialize, serde::Deserialize))]
 pub enum BlockHashOrNumber {
     Hash(BlockHash),

@@ -11,12 +11,14 @@ mod stats;
 mod version;
 
 #[derive(Debug, Args)]
+#[cfg_attr(test, derive(PartialEq, Eq))]
 pub struct DbArgs {
     #[command(subcommand)]
     commands: Commands,
 }
 
 #[derive(Debug, Subcommand)]
+#[cfg_attr(test, derive(PartialEq, Eq))]
 enum Commands {
     /// Retrieves database statistics
     Stats(stats::StatsArgs),

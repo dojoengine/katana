@@ -17,6 +17,7 @@ mod rpc;
 use version::{generate_long, generate_short};
 
 #[derive(Debug, Parser)]
+#[cfg_attr(test, derive(PartialEq))]
 #[command(name = "katana", author, version = generate_short(), long_version = generate_long() ,about, long_about = None)]
 pub struct Cli {
     #[command(subcommand)]
@@ -45,7 +46,8 @@ impl Cli {
 }
 
 #[derive(Debug, Subcommand)]
-enum Commands {
+#[cfg_attr(test, derive(PartialEq))]
+pub enum Commands {
     #[command(about = "Initialize chain")]
     Init(Box<init::InitCommand>),
 
@@ -67,8 +69,9 @@ enum Commands {
 }
 
 #[derive(Debug, Args)]
-struct CompletionsArgs {
-    shell: Shell,
+#[cfg_attr(test, derive(PartialEq))]
+pub struct CompletionsArgs {
+    pub shell: Shell,
 }
 
 impl CompletionsArgs {
@@ -90,6 +93,8 @@ fn build_tokio_runtime() -> std::io::Result<Runtime> {
 
 #[cfg(test)]
 mod tests {
+    use katana_cli::NodeSubcommand;
+
     use super::*;
 
     #[test]
@@ -113,60 +118,33 @@ mod tests {
 
     #[test]
     fn default_command_with_flags() {
-        let cli_no_subcommand =
-            Cli::parse_from(["katana", "--dev", "--dev.no-fee", "--block-time", "1000"]);
-        let cli_explicit_sequencer = Cli::parse_from([
-            "katana",
-            "node",
-            "sequencer",
-            "--dev",
-            "--dev.no-fee",
-            "--block-time",
-            "1000",
-        ]);
+        let args_default = ["katana", "--dev", "--dev.no-fee", "--block-time", "1000"];
+        let args_explicit =
+            ["katana", "node", "sequencer", "--dev", "--dev.no-fee", "--block-time", "1000"];
 
-        assert!(cli_no_subcommand.commands.is_none());
-        assert!(matches!(cli_explicit_sequencer.commands, Some(Commands::Node(_))));
+        let cli_default = Cli::parse_from(args_default);
+        let cli_explicit = Cli::parse_from(args_explicit);
 
-        let config_default = cli_no_subcommand.node.config().unwrap();
-        let config_explicit =
-            cli_explicit_sequencer.node.with_config_file().unwrap().config().unwrap();
+        assert!(cli_default.commands.is_none());
+        assert!(matches!(cli_explicit.commands, Some(Commands::Node(_))));
+
+        let Commands::Node(NodeCli { command: NodeSubcommand::Sequencer(explicit_node_args) }) =
+            &cli_explicit.commands.unwrap()
+        else {
+            panic!("Expected Node command");
+        };
+
+        similar_asserts::assert_eq!(&cli_default.node, explicit_node_args.as_ref());
+
+        let config_default = cli_default.node.config().unwrap();
+        let config_explicit = explicit_node_args.config().unwrap();
 
         assert!(!config_default.dev.fee);
         assert!(!config_explicit.dev.fee);
         assert_eq!(config_default.sequencing.block_time, Some(1000));
         assert_eq!(config_explicit.sequencing.block_time, Some(1000));
-        assert_eq!(config_default.chain.id(), config_explicit.chain.id());
-    }
 
-    #[test]
-    fn default_command_with_multiple_flags() {
-        let cli_no_subcommand = Cli::parse_from([
-            "katana",
-            "--no-mining",
-            "--dev.no-account-validation",
-            "--invoke-max-steps",
-            "500",
-        ]);
-        let cli_explicit_sequencer = Cli::parse_from([
-            "katana",
-            "node",
-            "sequencer",
-            "--no-mining",
-            "--dev.no-account-validation",
-            "--invoke-max-steps",
-            "500",
-        ]);
-
-        let config_default = cli_no_subcommand.node.config().unwrap();
-        let config_explicit =
-            cli_explicit_sequencer.node.with_config_file().unwrap().config().unwrap();
-
-        assert!(config_default.sequencing.no_mining);
-        assert!(config_explicit.sequencing.no_mining);
-        assert!(!config_default.dev.account_validation);
-        assert!(!config_explicit.dev.account_validation);
-        assert_eq!(config_default.execution.invocation_max_steps, 500);
-        assert_eq!(config_explicit.execution.invocation_max_steps, 500);
+        // assert that the rest of the configurations is equal
+        similar_asserts::assert_eq!(config_default, config_explicit);
     }
 }

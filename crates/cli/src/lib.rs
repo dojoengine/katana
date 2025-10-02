@@ -14,14 +14,14 @@ pub use options::*;
 
 use crate::full::FullNodeArgs;
 
-#[derive(Debug, Args)]
+#[derive(Debug, Args, PartialEq)]
 pub struct NodeCli {
     #[command(subcommand)]
-    command: NodeSubcommand,
+    pub command: NodeSubcommand,
 }
 
-#[derive(Debug, Subcommand)]
-enum NodeSubcommand {
+#[derive(Debug, Subcommand, PartialEq)]
+pub enum NodeSubcommand {
     #[command(about = "Launch a full node", hide = true)]
     Full(Box<FullNodeArgs>),
 

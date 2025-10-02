@@ -6,7 +6,7 @@ pub const DEFAULT_VALIDATION_MAX_STEPS: u32 = 1_000_000;
 #[cfg(feature = "native")]
 pub const DEFAULT_ENABLE_NATIVE_COMPILATION: bool = false;
 
-#[derive(Debug, Clone)]
+#[derive(Debug, Clone, PartialEq, Eq)]
 pub struct ExecutionConfig {
     pub invocation_max_steps: u32,
     pub validation_max_steps: u32,

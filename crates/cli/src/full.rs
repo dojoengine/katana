@@ -6,7 +6,7 @@ use serde::{Deserialize, Serialize};
 
 use crate::options::*;
 
-#[derive(Parser, Debug, Serialize, Deserialize, Default, Clone)]
+#[derive(Parser, Debug, Serialize, Deserialize, Default, Clone, PartialEq)]
 #[command(next_help_heading = "Full node options")]
 pub struct FullNodeArgs {
     /// Don't print anything on startup.

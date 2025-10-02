@@ -5,7 +5,7 @@ use katana_gas_price_oracle::{
 use katana_primitives::block::GasPrices;
 
 /// Development configuration.
-#[derive(Debug, Clone)]
+#[derive(Debug, Clone, PartialEq, Eq)]
 pub struct DevConfig {
     /// Whether to enable paying fees for transactions.
     ///
@@ -35,7 +35,7 @@ pub struct DevConfig {
 
 // TODO: move to gas oracle options
 /// Fixed gas prices for development.
-#[derive(Debug, Clone)]
+#[derive(Debug, Clone, PartialEq, Eq)]
 pub struct FixedL1GasPriceConfig {
     pub l2_gas_prices: GasPrices,
     pub l1_gas_prices: GasPrices,

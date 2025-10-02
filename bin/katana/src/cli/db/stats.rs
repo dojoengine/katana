@@ -17,6 +17,7 @@ macro_rules! byte_unit {
 }
 
 #[derive(Debug, Args)]
+#[cfg_attr(test, derive(PartialEq, Eq))]
 pub struct StatsArgs {
     /// Path to the database directory.
     #[arg(short, long)]

@@ -37,7 +37,7 @@ pub enum RpcModuleKind {
 }
 
 /// Configuration for the RPC server.
-#[derive(Debug, Clone)]
+#[derive(Debug, Clone, PartialEq, Eq)]
 pub struct RpcConfig {
     pub addr: IpAddr,
     pub port: u16,
