@@ -1,6 +1,6 @@
 use std::collections::BTreeMap;
 
-use katana_feeder_gateway::types::{
+use katana_gateway::types::{
     ConfirmedReceipt, DeclaredContract, DeployedContract, ExecutionStatus, StateDiff, StorageDiff,
 };
 use katana_primitives::execution::BuiltinName;

@@ -1,8 +1,8 @@
 use std::future::Future;
 
 use anyhow::Result;
-use katana_feeder_gateway::client::SequencerGateway;
-use katana_feeder_gateway::types::ContractClass;
+use katana_gateway::client::Client as SequencerGateway;
+use katana_gateway::types::ContractClass;
 use katana_primitives::block::BlockNumber;
 use katana_primitives::class::ClassHash;
 use katana_provider::api::contract::ContractClassWriter;
@@ -93,7 +93,7 @@ pub enum Error {
 
     /// Error returnd by the client used to download the classes from.
     #[error(transparent)]
-    Gateway(#[from] katana_feeder_gateway::client::Error),
+    Gateway(#[from] katana_gateway::client::Error),
 
     /// Error that can occur when converting the classes types to the internal types.
     #[error(transparent)]
@@ -118,7 +118,7 @@ struct ClassDownloadKey {
 impl Downloader for ClassDownloader {
     type Key = ClassDownloadKey;
     type Value = ContractClass;
-    type Error = katana_feeder_gateway::client::Error;
+    type Error = katana_gateway::client::Error;
 
     #[allow(clippy::manual_async_fn)]
     fn download(

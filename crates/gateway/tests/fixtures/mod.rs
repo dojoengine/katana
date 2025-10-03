@@ -4,7 +4,7 @@ use std::fs::File;
 use std::io::BufReader;
 use std::path::PathBuf;
 
-use katana_feeder_gateway::client::SequencerGateway;
+use katana_gateway::client::Client;
 use serde::de::DeserializeOwned;
 
 /// Load test data from a JSON file located in the `/tests/fixtures` directory.
@@ -15,11 +15,11 @@ pub fn test_data<T: DeserializeOwned>(path: &str) -> T {
 }
 
 #[rstest::fixture]
-pub fn gateway() -> SequencerGateway {
-    SequencerGateway::sn_mainnet()
+pub fn gateway() -> Client {
+    Client::mainnet()
 }
 
 #[rstest::fixture]
-pub fn gateway_sepolia() -> SequencerGateway {
-    SequencerGateway::sn_mainnet()
+pub fn gateway_sepolia() -> Client {
+    Client::mainnet()
 }

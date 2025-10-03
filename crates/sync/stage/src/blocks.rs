@@ -1,10 +1,8 @@
 use std::future::Future;
 
 use anyhow::Result;
-use katana_feeder_gateway::client::SequencerGateway;
-use katana_feeder_gateway::types::{
-    BlockStatus, StateUpdate as GatewayStateUpdate, StateUpdateWithBlock,
-};
+use katana_gateway::client::Client as SequencerGateway;
+use katana_gateway::types::{BlockStatus, StateUpdate as GatewayStateUpdate, StateUpdateWithBlock};
 use katana_primitives::block::{
     BlockNumber, FinalityStatus, GasPrices, Header, SealedBlock, SealedBlockWithStatus,
 };
@@ -84,7 +82,7 @@ impl BlockDownloader {
 impl Downloader for BlockDownloader {
     type Key = BlockNumber;
     type Value = StateUpdateWithBlock;
-    type Error = katana_feeder_gateway::client::Error;
+    type Error = katana_gateway::client::Error;
 
     #[allow(clippy::manual_async_fn)]
     fn download(
@@ -105,7 +103,7 @@ impl Downloader for BlockDownloader {
 pub enum Error {
     /// Error returnd by the client used to download the classes from.
     #[error(transparent)]
-    Gateway(#[from] katana_feeder_gateway::client::Error),
+    Gateway(#[from] katana_gateway::client::Error),
 }
 
 fn extract_block_data(
@@ -222,7 +220,7 @@ fn extract_block_data(
 
 #[cfg(test)]
 mod tests {
-    use katana_feeder_gateway::client::SequencerGateway;
+    use katana_gateway::client::Client as SequencerGateway;
     use katana_provider::api::block::BlockNumberProvider;
     use katana_provider::test_utils::test_provider;
 
@@ -236,7 +234,7 @@ mod tests {
         let to_block = from_block + 2;
 
         let provider = test_provider();
-        let feeder_gateway = SequencerGateway::sn_sepolia();
+        let feeder_gateway = SequencerGateway::sepolia();
 
         let mut stage = Blocks::new(&provider, feeder_gateway, 10);
 

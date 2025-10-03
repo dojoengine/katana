@@ -8,7 +8,7 @@ use std::sync::Arc;
 
 use anyhow::Result;
 use exit::NodeStoppedFuture;
-use katana_feeder_gateway::client::SequencerGateway;
+use katana_gateway::client::Client as SequencerGateway;
 use katana_metrics::exporters::prometheus::PrometheusRecorder;
 use katana_metrics::{Report, Server as MetricsServer};
 use katana_pipeline::{Pipeline, PipelineHandle};
@@ -72,9 +72,9 @@ impl Node {
         // --- build pipeline
 
         let fgw = if let Some(ref key) = config.gateway_api_key {
-            SequencerGateway::sn_sepolia().with_api_key(key.clone())
+            SequencerGateway::sepolia().with_api_key(key.clone())
         } else {
-            SequencerGateway::sn_sepolia()
+            SequencerGateway::sepolia()
         };
 
         let (mut pipeline, _) = Pipeline::new(provider.clone(), 64);
@@ -99,9 +99,9 @@ impl Node {
         }
 
         let fgw = if let Some(key) = self.config.gateway_api_key.as_ref() {
-            SequencerGateway::sn_sepolia().with_api_key(key.clone())
+            SequencerGateway::sepolia().with_api_key(key.clone())
         } else {
-            SequencerGateway::sn_sepolia()
+            SequencerGateway::sepolia()
         };
 
         let pipeline_handle = self.pipeline.handle();
