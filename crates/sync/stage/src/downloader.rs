@@ -1,3 +1,9 @@
+//! Batch downloader with automatic retry logic.
+//!
+//! This module provides a generic batch downloader that can download multiple items
+//! concurrently in configurable batch sizes, with automatic retry handling for
+//! transient failures.
+
 use std::future::Future;
 use std::time::Duration;
 
@@ -5,20 +11,69 @@ use anyhow::Result;
 use backon::{BackoffBuilder, ExponentialBuilder};
 use tracing::trace;
 
+/// A batch downloader that processes multiple download requests with retry logic.
+///
+/// `BatchDownloader` splits a list of keys into batches and downloads them concurrently,
+/// with automatic retry handling for failed requests. It distinguishes between transient
+/// failures (which should be retried) and permanent failures (which fail immediately).
+///
+/// # Examples
+///
+/// ```ignore
+/// use katana_stage::downloader::{BatchDownloader, Downloader, DownloaderResult};
+///
+/// // Create a batch downloader with a batch size of 10
+/// let downloader = BatchDownloader::new(my_downloader, 10);
+///
+/// // Download multiple items
+/// let keys = vec![1, 2, 3, 4, 5];
+/// let values = downloader.download(&keys).await?;
+/// ```
 #[derive(Debug, Clone)]
 pub struct BatchDownloader<D, B = ExponentialBuilder> {
+    /// The backoff strategy for retrying failed downloads.
     backoff: B,
+    /// The underlying downloader implementation.
     downloader: D,
+    /// Maximum number of items to download in a single batch.
     batch_size: usize,
 }
 
 impl<D> BatchDownloader<D> {
+    /// Creates a new batch downloader with the specified batch size.
+    ///
+    /// Uses exponential backoff as the default retry strategy with the following parameters:
+    /// - Minimum delay: 3 seconds
+    /// - Maximum delay: 60 seconds
+    /// - Backoff factor: 2.0 (delays double each retry)
+    /// - Maximum retry attempts: 3
+    ///
+    /// This means failed downloads will be retried with delays of approximately 3s, 6s, and 12s
+    /// before giving up (total of 4 attempts including the initial request).
+    ///
+    /// # Arguments
+    ///
+    /// * `downloader` - The downloader implementation to use for individual downloads
+    /// * `batch_size` - Maximum number of items to download concurrently in each batch
     pub fn new(downloader: D, batch_size: usize) -> Self {
         let backoff = ExponentialBuilder::default().with_min_delay(Duration::from_secs(3));
         Self { backoff, downloader, batch_size }
     }
 
-    /// Set the backoff strategy for retrying failed downloads.
+    /// Sets a custom backoff strategy for retrying failed downloads.
+    ///
+    /// # Arguments
+    ///
+    /// * `strategy` - The backoff strategy to use for retries
+    ///
+    /// # Examples
+    ///
+    /// ```ignore
+    /// use backon::ConstantBuilder;
+    ///
+    /// let downloader = BatchDownloader::new(my_downloader, 10)
+    ///     .backoff(ConstantBuilder::default().with_delay(Duration::from_secs(1)));
+    /// ```
     #[cfg(test)]
     pub fn backoff<B>(self, strategy: B) -> BatchDownloader<D, B> {
         BatchDownloader {
@@ -34,6 +89,47 @@ where
     D: Downloader,
     B: BackoffBuilder + Clone,
 {
+    /// Downloads values for all provided keys, processing them in batches.
+    ///
+    /// This method splits the input keys into batches of size `batch_size` and processes
+    /// each batch **sequentially** (one batch completes before the next begins). Within each
+    /// batch, individual downloads happen **concurrently**. Failed downloads are
+    /// automatically retried according to the configured backoff strategy.
+    ///
+    /// # Partial Batch Failure Handling
+    ///
+    /// When some downloads in a batch fail with a retryable error ([`DownloaderResult::Retry`]),
+    /// only the failed individual downloads are retried, not the entire batch. Successful downloads
+    /// within the batch are cached and not re-requested. This optimization avoids wasting resources
+    /// on redundant downloads.
+    ///
+    /// For example, if a batch of 10 items has 8 succeed and 2 fail with retryable errors, only
+    /// those 2 items will be retried while the 8 successful results are preserved.
+    ///
+    /// # Arguments
+    ///
+    /// * `keys` - List of keys to download
+    ///
+    /// # Returns
+    ///
+    /// A vector of downloaded values in the same order as the input keys, or an error
+    /// if any download fails permanently or retries are exhausted.
+    ///
+    /// # Errors
+    ///
+    /// Returns an error if:
+    /// - Any download returns [`DownloaderResult::Err`] (non-retryable error)
+    /// - A retryable download exhausts all retry attempts
+    ///
+    /// # Examples
+    ///
+    /// ```ignore
+    /// // With batch_size=10, this downloads items 1-10 concurrently in the first batch,
+    /// // then items 11-15 concurrently in the second batch
+    /// let keys = vec![1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15];
+    /// let values = downloader.download(&keys).await?;
+    /// assert_eq!(values.len(), 15);
+    /// ```
     pub async fn download(&self, keys: &[D::Key]) -> Result<Vec<D::Value>, D::Error> {
         let mut items = Vec::with_capacity(keys.len());
 
@@ -114,18 +210,93 @@ where
     }
 }
 
+/// The result of a download operation.
+///
+/// This enum distinguishes between successful downloads, permanent failures,
+/// and transient failures that should be retried.
+///
+/// # Variants
+///
+/// * `Ok(T)` - Download succeeded, contains the downloaded value
+/// * `Err(E)` - Permanent failure, should not be retried (e.g., 404 Not Found)
+/// * `Retry(E)` - Transient failure, should be retried (e.g., rate limit exceeded, network timeout)
 #[derive(Debug, Clone)]
 pub enum DownloaderResult<T, E> {
+    /// Download succeeded with the given value.
     Ok(T),
+    /// Permanent error occurred, should not retry.
     Err(E),
+    /// Transient error occurred, should retry after backoff.
     Retry(E),
 }
 
+/// Trait for implementing custom download logic.
+///
+/// Implementors define how individual items are downloaded given a key.
+/// The [`BatchDownloader`] uses this trait to orchestrate batch downloads
+/// with retry logic.
+///
+/// # Associated Types
+///
+/// * `Key` - The type used to identify items to download
+/// * `Value` - The type of the downloaded values
+/// * `Error` - The error type for download failures
+///
+/// # Examples
+///
+/// ```ignore
+/// use katana_stage::downloader::{Downloader, DownloaderResult};
+///
+/// struct HttpDownloader {
+///     client: HttpClient,
+/// }
+///
+/// impl Downloader for HttpDownloader {
+///     type Key = u64;
+///     type Value = Vec<u8>;
+///     type Error = HttpError;
+///
+///     async fn download(&self, key: &Self::Key) -> DownloaderResult<Self::Value, Self::Error> {
+///         match self.client.get(format!("/items/{}", key)).await {
+///             Ok(data) => DownloaderResult::Ok(data),
+///             Err(e) if e.is_retryable() => DownloaderResult::Retry(e),
+///             Err(e) => DownloaderResult::Err(e),
+///         }
+///     }
+/// }
+/// ```
+///
+/// # Implementation Guidelines
+///
+/// When implementing this trait, consider:
+/// - Return [`DownloaderResult::Ok`] for successful downloads
+/// - Return [`DownloaderResult::Retry`] for transient failures (timeouts, rate limits, 5xx errors)
+/// - Return [`DownloaderResult::Err`] for permanent failures (invalid keys, 4xx errors)
+/// - Keep download operations idempotent when possible
 pub trait Downloader {
+    /// The key type used to identify items to download.
     type Key: Clone + PartialEq + Eq + Send + Sync;
+
+    /// The type of values returned by successful downloads.
     type Value: Send + Sync;
+
+    /// The error type for download failures.
     type Error: std::error::Error + Send;
 
+    /// Downloads a single item identified by the given key.
+    ///
+    /// This method should attempt to download the item and return:
+    /// - [`DownloaderResult::Ok`] if successful
+    /// - [`DownloaderResult::Retry`] if the failure is transient
+    /// - [`DownloaderResult::Err`] if the failure is permanent
+    ///
+    /// # Arguments
+    ///
+    /// * `key` - The key identifying the item to download
+    ///
+    /// # Returns
+    ///
+    /// A [`DownloaderResult`] indicating success, transient failure, or permanent failure.
     fn download(
         &self,
         key: &Self::Key,
