@@ -17,6 +17,31 @@ use katana_primitives::transaction::{
 use katana_primitives::{ContractAddress, Felt};
 use serde::{Deserialize, Deserializer, Serialize};
 
+/// API response for an INVOKE_FUNCTION transaction
+#[derive(Clone, Debug, Serialize, Deserialize, PartialEq, Eq)]
+#[serde(deny_unknown_fields)]
+pub struct AddInvokeTransactionResponse {
+    pub transaction_hash: TxHash,
+    pub code: String, // TRANSACTION_RECEIVED
+}
+
+/// API response for a DECLARE transaction
+#[derive(Clone, Debug, Serialize, Deserialize, PartialEq, Eq)]
+#[serde(deny_unknown_fields)]
+pub struct AddDeclareTransactionResponse {
+    pub transaction_hash: TxHash,
+    pub class_hash: ClassHash,
+    pub code: String, // TRANSACTION_RECEIVED
+}
+
+/// API response for a DEPLOY ACCOUNT transaction
+#[derive(Clone, Debug, Serialize, Deserialize, PartialEq, Eq)]
+#[serde(deny_unknown_fields)]
+pub struct AddDeployAccountTransactionResponse {
+    pub transaction_hash: TxHash,
+    pub code: String, // TRANSACTION_RECEIVED
+}
+
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub struct ConfirmedTransaction {
     pub transaction_hash: TxHash,
