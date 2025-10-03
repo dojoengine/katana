@@ -139,6 +139,17 @@ impl PipelineHandle {
     }
 }
 
+impl Drop for PipelineHandle {
+    fn drop(&mut self) {
+        // minus self
+        // because the Pipeline struct itself holds a sender
+        let relevant_sender_count = self.tx.sender_count() - 1 - 1;
+        if relevant_sender_count == 0 {
+            self.stop();
+        }
+    }
+}
+
 /// Syncing pipeline.
 ///
 /// The pipeline drives the execution of stages, running each stage to completion in the order they
@@ -210,6 +221,8 @@ impl<P: StageCheckpointProvider> Pipeline<P> {
     /// for the tip to be updated via the [`PipelineHandle::set_tip`] or until stopped via
     /// [`PipelineHandle::stop`].
     ///
+    /// The pipeline will also stop automatically when all [`PipelineHandle`]s are dropped.
+    ///
     /// # Errors
     ///
     /// Returns an error if any stage execution fails or it an error occurs while reading the
@@ -278,6 +291,12 @@ impl<P: StageCheckpointProvider> Pipeline<P> {
     /// Returns an error if any stage execution fails or if the pipeline fails to read the
     /// checkpoint.
     pub async fn run_to(&mut self, to: BlockNumber) -> PipelineResult<BlockNumber> {
+        if self.stages.is_empty() {
+            return Ok(to);
+        }
+
+        // the `is_empty` check above will guarantee that there should be at least a stage to run
+        // and this will not overflow.
         let last_stage_idx = self.stages.len() - 1;
 
         for (i, stage) in self.stages.iter_mut().enumerate() {

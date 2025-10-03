@@ -6295,6 +6295,7 @@ dependencies = [
 name = "katana-pipeline"
 version = "1.7.0"
 dependencies = [
+ "anyhow",
  "async-trait",
  "futures",
  "katana-primitives",
