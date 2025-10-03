@@ -1,5 +1,68 @@
 #![cfg_attr(not(test), warn(unused_crate_dependencies))]
 
+//! Stage-based blockchain synchronization pipeline.
+//!
+//! This module provides a [`Pipeline`] for executing multiple [`Stage`]s sequentially to
+//! synchronize blockchain data. The pipeline processes blocks in configurable chunks and can be
+//! controlled via a [`PipelineHandle`].
+//!
+//! # Architecture
+//!
+//! The pipeline follows the staged sync architecture inspired by the [Erigon] Ethereum client.
+//! Rather than performing all synchronization tasks concurrently, the sync process is decomposed
+//! into distinct stages that execute sequentially:
+//!
+//! - **Sequential Execution**: Stages run one after another in a defined order, with each stage
+//!   completing its work before the next stage begins.
+//!
+//! - **Isolation**: Each stage focuses on a specific aspect of synchronization (e.g., downloading
+//!   block headers, downloading bodies, executing transactions, computing state). This separation
+//!   makes each stage easier to understand, profile, and optimize independently.
+//!
+//! - **Checkpointing**: The pipeline tracks progress through checkpoints. Each stage maintains its
+//!   own checkpoint, allowing the pipeline to resume from where it left off if interrupted.
+//!
+//! - **Chunked Processing**: Blocks are processed in configurable chunks, allowing for controlled
+//!   progress and efficient resource usage.
+//!
+//! # Example
+//!
+//! ```no_run
+//! use katana_pipeline::Pipeline;
+//! use katana_provider::providers::in_memory::InMemoryProvider;
+//! use katana_stage::Stage;
+//!
+//! # async fn example() -> Result<(), Box<dyn std::error::Error>> {
+//! // Create a provider for stage checkpoint management
+//! let provider = InMemoryProvider::new();
+//!
+//! // Create a pipeline with a chunk size of 100 blocks
+//! let (mut pipeline, handle) = Pipeline::new(provider, 100);
+//!
+//! // Add stages to the pipeline (executed in order)
+//! // pipeline.add_stage(MyDownloadStage::new());
+//! // pipeline.add_stage(MyExecutionStage::new());
+//!
+//! // Spawn the pipeline in a background task
+//! let pipeline_task = tokio::spawn(async move { pipeline.run().await });
+//!
+//! // Set the target tip block to sync to
+//! handle.set_tip(1000);
+//!
+//! // Later, update the tip as new blocks arrive
+//! handle.set_tip(2000);
+//!
+//! // Stop the pipeline gracefully when done
+//! handle.stop();
+//!
+//! // Wait for the pipeline to finish
+//! pipeline_task.await??;
+//! # Ok(())
+//! # }
+//! ```
+//!
+//! [Erigon](https://gfx.cafe/elee/erigon/-/blob/v2022.05.07/eth/stagedsync/README.md)
+
 use core::future::IntoFuture;
 
 use futures::future::BoxFuture;
