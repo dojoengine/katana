@@ -2,8 +2,8 @@ use std::str::FromStr;
 
 use anyhow::{anyhow, Context, Result};
 use clap::{Args, Parser, Subcommand, ValueEnum};
-use katana_feeder_gateway::client::{Error as GatewayError, SequencerGateway};
-use katana_feeder_gateway::types::BlockId;
+use katana_gateway::client::{Client, Error as GatewayError};
+use katana_gateway::types::BlockId;
 use katana_primitives::block::{BlockHash, BlockNumber};
 use katana_primitives::class::ClassHash;
 use tracing::error;
@@ -21,12 +21,18 @@ struct Cli {
     command: Command,
 
     /// Target sequencer network.
-    #[arg(global = true, long, value_enum, default_value_t = Network::Mainnet, conflicts_with = "base_url")]
+    #[arg(global = true, long, value_enum, default_value_t = Network::Mainnet, conflicts_with_all = ["gateway_url", "feeder_gateway_url"])]
     network: Network,
 
-    /// Override the feeder gateway base URL.
+    /// Override the gateway URL.
     #[arg(global = true, long, value_name = "URL", conflicts_with = "network")]
-    base_url: Option<String>,
+    #[arg(requires = "feeder_gateway_url")]
+    gateway_url: Option<String>,
+
+    /// Override the feeder gateway URL.
+    #[arg(global = true, long, value_name = "URL", conflicts_with = "network")]
+    #[arg(requires = "gateway_url")]
+    feeder_gateway_url: Option<String>,
 
     /// Optional gateway API key to bypass rate limiting.
     #[arg(global = true, long)]
@@ -140,15 +146,22 @@ async fn run() -> Result<()> {
     Ok(())
 }
 
-fn build_gateway(cli: &Cli) -> Result<SequencerGateway> {
-    if let Some(url) = &cli.base_url {
-        let url = Url::parse(url).context("invalid base URL")?;
-        return Ok(SequencerGateway::new(url));
+fn build_gateway(cli: &Cli) -> Result<Client> {
+    if let (Some(gateway_url), Some(feeder_url)) = (&cli.gateway_url, &cli.feeder_gateway_url) {
+        let gateway = Url::parse(gateway_url).context("invalid gateway URL")?;
+        let feeder = Url::parse(feeder_url).context("invalid feeder gateway URL")?;
+        return Ok(Client::new(gateway, feeder));
+    }
+
+    if cli.gateway_url.is_some() || cli.feeder_gateway_url.is_some() {
+        return Err(anyhow!(
+            "both --gateway-url and --feeder-gateway-url must be provided when overriding URLs"
+        ));
     }
 
     let gateway = match cli.network {
-        Network::Mainnet => SequencerGateway::sn_mainnet(),
-        Network::Sepolia => SequencerGateway::sn_sepolia(),
+        Network::Mainnet => Client::mainnet(),
+        Network::Sepolia => Client::sepolia(),
     };
 
     Ok(gateway)

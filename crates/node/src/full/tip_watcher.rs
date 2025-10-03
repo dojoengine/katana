@@ -3,8 +3,8 @@ use std::time::Duration;
 
 use anyhow::Result;
 use futures::future::BoxFuture;
-use katana_feeder_gateway::client::SequencerGateway;
-use katana_feeder_gateway::types::BlockId;
+use katana_gateway::client::Client as SequencerGateway;
+use katana_gateway::types::BlockId;
 use katana_pipeline::PipelineHandle;
 use tracing::{error, info, trace};
 
