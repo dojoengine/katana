@@ -8,7 +8,7 @@ use katana_provider::api::stage::StageCheckpointProvider;
 use katana_provider::api::ProviderError;
 use katana_stage::{Stage, StageExecutionInput};
 use tokio::sync::watch;
-use tracing::{error, info};
+use tracing::{debug, error, info, trace};
 
 /// The result of a pipeline execution.
 pub type PipelineResult<T> = Result<T, Error>;
@@ -28,27 +28,50 @@ pub enum Error {
     Provider(#[from] ProviderError),
 }
 
+/// Commands that can be sent to control the pipeline.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+enum PipelineCommand {
+    /// Set the target tip block for the pipeline to sync to.
+    SetTip(BlockNumber),
+    /// Signal the pipeline to stop.
+    Stop,
+}
+
 /// A handle for controlling a running pipeline.
 ///
 /// This handle allows external code to update the target tip block that the pipeline
-/// should sync to.
+/// should sync to, or to stop the pipeline.
 #[derive(Debug, Clone)]
 pub struct PipelineHandle {
-    tx: watch::Sender<Option<BlockNumber>>,
+    tx: watch::Sender<Option<PipelineCommand>>,
 }
 
 impl PipelineHandle {
     /// Sets the target tip block for the pipeline to sync to.
     ///
     /// The pipeline will process all blocks up to and including this block number.
-    /// This method will wake up the pipeline if it's currently waiting for a new tip.
+    /// This method will wake up the pipeline if it's currently waiting for a new command.
     ///
     /// # Panics
     ///
-    /// Panics if the pipeline has been dropped and the channel is closed.
+    /// Panics if the [`Pipeline`] has been dropped.
     pub fn set_tip(&self, tip: BlockNumber) {
         info!(target: "pipeline", %tip, "Setting new tip");
-        self.tx.send(Some(tip)).expect("channel closed");
+        self.tx.send(Some(PipelineCommand::SetTip(tip))).expect("channel closed");
+    }
+
+    /// Signals the pipeline to stop gracefully.
+    ///
+    /// This will cause the pipeline's [`run`](Pipeline::run) method to exit after completing
+    /// the current chunk of work. The pipeline will finish processing any in-flight stages
+    /// before shutting down.
+    ///
+    /// # Panics
+    ///
+    /// Panics if the [`Pipeline`] has been dropped.
+    pub fn stop(&self) {
+        info!(target: "pipeline", "Signaling pipeline to stop");
+        self.tx.send(Some(PipelineCommand::Stop)).expect("channel closed");
     }
 }
 
@@ -56,11 +79,22 @@ impl PipelineHandle {
 ///
 /// The pipeline drives the execution of stages, running each stage to completion in the order they
 /// were added.
+///
+/// # Unwinding
+///
+/// Currently, the pipeline does not support unwinding or chain reorganizations. If a new tip is
+/// set to a lower block number than the previous tip, stages will simply skip execution since
+/// their checkpoints are already beyond the target block.
+///
+/// Proper unwinding support would require each stage to implement rollback logic to revert their
+/// state to an earlier block. This is a significant feature that would need to be designed and
+/// implemented across all stages.
 pub struct Pipeline<P> {
     chunk_size: u64,
     provider: P,
     stages: Vec<Box<dyn Stage>>,
-    tip_watcher: (watch::Receiver<Option<BlockNumber>>, watch::Sender<Option<BlockNumber>>),
+    command_rx: watch::Receiver<Option<PipelineCommand>>,
+    command_tx: watch::Sender<Option<PipelineCommand>>,
 }
 
 impl<P> Pipeline<P> {
@@ -77,7 +111,8 @@ impl<P> Pipeline<P> {
     pub fn new(provider: P, chunk_size: u64) -> (Self, PipelineHandle) {
         let (tx, rx) = watch::channel(None);
         let handle = PipelineHandle { tx: tx.clone() };
-        let pipeline = Self { stages: Vec::new(), tip_watcher: (rx, tx), provider, chunk_size };
+        let pipeline =
+            Self { stages: Vec::new(), command_rx: rx, command_tx: tx, provider, chunk_size };
         (pipeline, handle)
     }
 
@@ -97,44 +132,61 @@ impl<P> Pipeline<P> {
 
     /// Returns a handle for controlling the pipeline.
     ///
-    /// The handle can be used to set the target tip block for the pipeline to sync to.
+    /// The handle can be used to set the target tip block for the pipeline to sync to or to
+    /// stop the pipeline.
     pub fn handle(&self) -> PipelineHandle {
-        PipelineHandle { tx: self.tip_watcher.1.clone() }
+        PipelineHandle { tx: self.command_tx.clone() }
     }
 }
 
 impl<P: StageCheckpointProvider> Pipeline<P> {
     /// Runs the pipeline continuously until signaled to stop.
     ///
-    /// The pipeline processes blocks in chunks up to the current tip, then waits for the tip
-    /// to be updated via the [`PipelineHandle::set_tip`].
+    /// The pipeline processes each stage in chunks up until it reaches the current tip, then waits
+    /// for the tip to be updated via the [`PipelineHandle::set_tip`] or until stopped via
+    /// [`PipelineHandle::stop`].
     ///
     /// # Errors
     ///
-    /// Returns an error if any stage execution fails or if there's a provider error.
+    /// Returns an error if any stage execution fails or it an error occurs while reading the
+    /// checkpoint.
     pub async fn run(&mut self) -> PipelineResult<()> {
         let mut current_chunk_tip = self.chunk_size;
+        let mut current_tip: Option<BlockNumber> = None;
 
         loop {
-            let tip = *self.tip_watcher.0.borrow_and_update();
+            // Check if the handle has sent a signal
+            match *self.command_rx.borrow_and_update() {
+                Some(PipelineCommand::Stop) => {
+                    debug!(target: "pipeline", "Received stop command.");
+                    break;
+                }
+                Some(PipelineCommand::SetTip(tip)) => {
+                    trace!(target: "pipeline", %tip, "Received new tip.");
+                    current_tip = Some(tip);
+                }
+                None => {}
+            }
 
-            while let Some(tip) = tip {
+            // Process blocks if we have a tip
+            if let Some(tip) = current_tip {
                 let to = current_chunk_tip.min(tip);
                 let last_block_processed = self.run_to(to).await?;
 
                 if last_block_processed >= tip {
                     info!(target: "pipeline", %tip, "Finished processing until tip.");
-                    break;
+                    current_tip = None;
+                    current_chunk_tip = last_block_processed;
                 } else {
                     current_chunk_tip = (last_block_processed + self.chunk_size).min(tip);
+                    continue;
                 }
             }
 
-            info!(target: "pipeline", "Waiting for new tip.");
+            debug!(target: "pipeline", "Waiting for new command.");
 
-            // If we reach here, that means we have run the pipeline up until the `tip`.
-            // So, wait until the tip has changed.
-            if self.tip_watcher.0.changed().await.is_err() {
+            // Wait for the next command
+            if self.command_rx.changed().await.is_err() {
                 break;
             }
         }
@@ -217,7 +269,7 @@ where
 {
     fn fmt(&self, f: &mut core::fmt::Formatter<'_>) -> core::fmt::Result {
         f.debug_struct("Pipeline")
-            .field("tip", &self.tip_watcher)
+            .field("command", &self.command_rx)
             .field("provider", &self.provider)
             .field("chunk_size", &self.chunk_size)
             .field("stages", &self.stages.iter().map(|s| s.id()).collect::<Vec<_>>())

@@ -1,10 +1,10 @@
 use std::sync::{Arc, Mutex};
 
-use katana_pipeline::{Pipeline, Stage, StageExecutionInput};
+use katana_pipeline::Pipeline;
 use katana_primitives::block::BlockNumber;
 use katana_provider::api::stage::StageCheckpointProvider;
 use katana_provider::test_utils::test_provider;
-use katana_stage::StageResult;
+use katana_stage::{Stage, StageExecutionInput, StageResult};
 
 // ============================================================================
 // Mock Infrastructure
@@ -86,11 +86,11 @@ impl Stage for FailingStage {
 }
 
 // ============================================================================
-// run_once_until() - Single Stage Tests
+// run_to() - Single Stage Tests
 // ============================================================================
 
 #[tokio::test]
-async fn run_once_until_executes_stage_to_target() {
+async fn run_to_executes_stage_to_target() {
     let provider = test_provider();
     let (mut pipeline, _handle) = Pipeline::new(&provider, 10);
 
@@ -98,7 +98,7 @@ async fn run_once_until_executes_stage_to_target() {
     let executions = stage.executions.clone();
     pipeline.add_stage(stage);
 
-    let result = pipeline.run_once_until(5).await.unwrap();
+    let result = pipeline.run_to(5).await.unwrap();
 
     assert_eq!(result, 5);
     assert_eq!(provider.checkpoint("Stage1").unwrap(), Some(5));
@@ -110,7 +110,7 @@ async fn run_once_until_executes_stage_to_target() {
 }
 
 #[tokio::test]
-async fn run_once_until_skips_stage_when_checkpoint_equals_target() {
+async fn run_to_skips_stage_when_checkpoint_equals_target() {
     let provider = test_provider();
     let (mut pipeline, _handle) = Pipeline::new(&provider, 10);
 
@@ -121,14 +121,14 @@ async fn run_once_until_skips_stage_when_checkpoint_equals_target() {
     // Set initial checkpoint
     provider.set_checkpoint("Stage1", 5).unwrap();
 
-    let result = pipeline.run_once_until(5).await.unwrap();
+    let result = pipeline.run_to(5).await.unwrap();
 
     assert_eq!(result, 5);
     assert_eq!(executions.lock().unwrap().len(), 0); // Not executed
 }
 
 #[tokio::test]
-async fn run_once_until_skips_stage_when_checkpoint_exceeds_target() {
+async fn run_to_skips_stage_when_checkpoint_exceeds_target() {
     let provider = test_provider();
     let (mut pipeline, _handle) = Pipeline::new(&provider, 10);
 
@@ -139,14 +139,14 @@ async fn run_once_until_skips_stage_when_checkpoint_exceeds_target() {
     // Set checkpoint beyond target
     provider.set_checkpoint("Stage1", 10).unwrap();
 
-    let result = pipeline.run_once_until(5).await.unwrap();
+    let result = pipeline.run_to(5).await.unwrap();
 
     assert_eq!(result, 10); // Returns the checkpoint
     assert_eq!(executions.lock().unwrap().len(), 0); // Not executed
 }
 
 #[tokio::test]
-async fn run_once_until_uses_checkpoint_plus_one_as_from() {
+async fn run_to_uses_checkpoint_plus_one_as_from() {
     let provider = test_provider();
     let (mut pipeline, _handle) = Pipeline::new(&provider, 10);
 
@@ -157,7 +157,7 @@ async fn run_once_until_uses_checkpoint_plus_one_as_from() {
     // Set checkpoint to 3
     provider.set_checkpoint("Stage1", 3).unwrap();
 
-    pipeline.run_once_until(10).await.unwrap();
+    pipeline.run_to(10).await.unwrap();
 
     let execs = executions.lock().unwrap();
     assert_eq!(execs.len(), 1);
@@ -166,11 +166,11 @@ async fn run_once_until_uses_checkpoint_plus_one_as_from() {
 }
 
 // ============================================================================
-// run_once_until() - Multiple Stages Tests
+// run_to() - Multiple Stages Tests
 // ============================================================================
 
 #[tokio::test]
-async fn run_once_until_executes_all_stages_in_order() {
+async fn run_to_executes_all_stages_in_order() {
     let provider = test_provider();
     let (mut pipeline, _handle) = Pipeline::new(&provider, 10);
 
@@ -186,7 +186,7 @@ async fn run_once_until_executes_all_stages_in_order() {
     pipeline.add_stage(stage2);
     pipeline.add_stage(stage3);
 
-    pipeline.run_once_until(5).await.unwrap();
+    pipeline.run_to(5).await.unwrap();
 
     // All stages should execute
     assert_eq!(execs1.lock().unwrap().len(), 1);
@@ -200,7 +200,7 @@ async fn run_once_until_executes_all_stages_in_order() {
 }
 
 #[tokio::test]
-async fn run_once_until_with_mixed_checkpoints() {
+async fn run_to_with_mixed_checkpoints() {
     let provider = test_provider();
     let (mut pipeline, _handle) = Pipeline::new(&provider, 10);
 
@@ -222,7 +222,7 @@ async fn run_once_until_with_mixed_checkpoints() {
     provider.set_checkpoint("Stage2", 3).unwrap();
     // Stage3 at checkpoint 0 (should execute)
 
-    pipeline.run_once_until(10).await.unwrap();
+    pipeline.run_to(10).await.unwrap();
 
     // Stage1 should be skipped
     assert_eq!(execs1.lock().unwrap().len(), 0);
@@ -241,7 +241,7 @@ async fn run_once_until_with_mixed_checkpoints() {
 }
 
 #[tokio::test]
-async fn run_once_until_last_stage_skipped_returns_checkpoint() {
+async fn run_to_last_stage_skipped_returns_checkpoint() {
     let provider = test_provider();
     let (mut pipeline, _handle) = Pipeline::new(&provider, 10);
 
@@ -254,14 +254,14 @@ async fn run_once_until_last_stage_skipped_returns_checkpoint() {
     provider.set_checkpoint("Stage1", 5).unwrap();
     provider.set_checkpoint("Stage2", 15).unwrap();
 
-    let result = pipeline.run_once_until(10).await.unwrap();
+    let result = pipeline.run_to(10).await.unwrap();
 
     // Should return stage2's checkpoint since it's the last stage and was skipped
     assert_eq!(result, 15);
 }
 
 #[tokio::test]
-async fn run_once_until_middle_stage_skip_continues() {
+async fn run_to_middle_stage_skip_continues() {
     let provider = test_provider();
     let (mut pipeline, _handle) = Pipeline::new(&provider, 10);
 
@@ -280,7 +280,7 @@ async fn run_once_until_middle_stage_skip_continues() {
     // Middle stage already complete
     provider.set_checkpoint("Stage2", 10).unwrap();
 
-    pipeline.run_once_until(10).await.unwrap();
+    pipeline.run_to(10).await.unwrap();
 
     // Stage1 and Stage3 should execute
     assert_eq!(execs1.lock().unwrap().len(), 1);
@@ -294,8 +294,8 @@ async fn run_once_until_middle_stage_skip_continues() {
 
 #[tokio::test]
 async fn run_processes_single_chunk_to_tip() {
-    let provider = test_provider();
-    let (mut pipeline, handle) = Pipeline::new(&provider, 100);
+    let provider = Arc::new(test_provider());
+    let (mut pipeline, handle) = Pipeline::new(provider.clone(), 100);
 
     let stage = TrackingStage::new("Stage1");
     let executions = stage.executions.clone();
@@ -326,8 +326,8 @@ async fn run_processes_single_chunk_to_tip() {
 
 #[tokio::test]
 async fn run_processes_multiple_chunks_to_tip() {
-    let provider = test_provider();
-    let (mut pipeline, handle) = Pipeline::new(&provider, 10); // Small chunk size
+    let provider = Arc::new(test_provider());
+    let (mut pipeline, handle) = Pipeline::new(provider.clone(), 10); // Small chunk size
 
     let stage = TrackingStage::new("Stage1");
     let executions = stage.executions.clone();
@@ -358,8 +358,8 @@ async fn run_processes_multiple_chunks_to_tip() {
 
 #[tokio::test]
 async fn run_waits_when_no_tip_set() {
-    let provider = test_provider();
-    let (mut pipeline, handle) = Pipeline::new(&provider, 10);
+    let provider = Arc::new(test_provider());
+    let (mut pipeline, handle) = Pipeline::new(provider.clone(), 10);
 
     let stage = TrackingStage::new("Stage1");
     let executions = stage.executions.clone();
@@ -425,8 +425,8 @@ async fn chunking_first_chunk_respects_chunk_size() {
     let executions = stage.executions.clone();
     pipeline.add_stage(stage);
 
-    // Manually test chunk logic by calling run_once_until with chunk boundary
-    pipeline.run_once_until(10).await.unwrap();
+    // Manually test chunk logic by calling run_to with chunk boundary
+    pipeline.run_to(10).await.unwrap();
 
     let execs = executions.lock().unwrap();
     assert_eq!(execs[0].to, 10);
@@ -518,7 +518,7 @@ async fn stage_receives_correct_input_from_checkpoint_plus_one() {
 
     provider.set_checkpoint("Stage1", 7).unwrap();
 
-    pipeline.run_once_until(15).await.unwrap();
+    pipeline.run_to(15).await.unwrap();
 
     let execs = executions.lock().unwrap();
     assert_eq!(execs[0].from, 8); // 7 + 1
@@ -533,7 +533,7 @@ async fn stage_receives_correct_to_parameter() {
     let executions = stage.executions.clone();
     pipeline.add_stage(stage);
 
-    pipeline.run_once_until(42).await.unwrap();
+    pipeline.run_to(42).await.unwrap();
 
     let execs = executions.lock().unwrap();
     assert_eq!(execs[0].to, 42);
@@ -548,7 +548,7 @@ async fn checkpoint_saved_after_successful_execution() {
 
     assert_eq!(provider.checkpoint("Stage1").unwrap(), None);
 
-    pipeline.run_once_until(20).await.unwrap();
+    pipeline.run_to(20).await.unwrap();
 
     assert_eq!(provider.checkpoint("Stage1").unwrap(), Some(20));
 }
@@ -560,7 +560,7 @@ async fn checkpoint_equals_to_parameter() {
 
     pipeline.add_stage(TrackingStage::new("Stage1"));
 
-    pipeline.run_once_until(17).await.unwrap();
+    pipeline.run_to(17).await.unwrap();
 
     assert_eq!(provider.checkpoint("Stage1").unwrap(), Some(17));
 }
@@ -576,7 +576,7 @@ async fn stage_execution_error_stops_pipeline() {
 
     pipeline.add_stage(FailingStage::new("Stage1"));
 
-    let result = pipeline.run_once_until(10).await;
+    let result = pipeline.run_to(10).await;
 
     assert!(result.is_err());
     // Checkpoint should not be set after failure
@@ -591,7 +591,7 @@ async fn stage_error_doesnt_affect_subsequent_runs() {
     pipeline.add_stage(FailingStage::new("FailStage"));
     pipeline.add_stage(TrackingStage::new("Stage2"));
 
-    let result = pipeline.run_once_until(10).await;
+    let result = pipeline.run_to(10).await;
 
     assert!(result.is_err());
     // Stage2 should not execute
@@ -608,7 +608,7 @@ async fn empty_pipeline_returns_target() {
     let (mut pipeline, _handle) = Pipeline::new(&provider, 10);
 
     // No stages added
-    let result = pipeline.run_once_until(10).await.unwrap();
+    let result = pipeline.run_to(10).await.unwrap();
 
     assert_eq!(result, 10);
 }
@@ -624,7 +624,7 @@ async fn tip_equals_checkpoint_no_execution() {
 
     provider.set_checkpoint("Stage1", 10).unwrap();
 
-    pipeline.run_once_until(10).await.unwrap();
+    pipeline.run_to(10).await.unwrap();
 
     assert_eq!(executions.lock().unwrap().len(), 0);
 }
@@ -640,7 +640,7 @@ async fn tip_less_than_checkpoint_skip_all() {
 
     provider.set_checkpoint("Stage1", 20).unwrap();
 
-    let result = pipeline.run_once_until(10).await.unwrap();
+    let result = pipeline.run_to(10).await.unwrap();
 
     assert_eq!(result, 20);
     assert_eq!(executions.lock().unwrap().len(), 0);
@@ -706,19 +706,19 @@ async fn stage_checkpoint() {
     let initial_checkpoint = provider.checkpoint("Mock").unwrap();
     assert_eq!(initial_checkpoint, None);
 
-    pipeline.run_once_until(5).await.expect("failed to run the pipeline once");
+    pipeline.run_to(5).await.expect("failed to run the pipeline once");
 
     // check that the checkpoint was set
     let actual_checkpoint = provider.checkpoint("Mock").unwrap();
     assert_eq!(actual_checkpoint, Some(5));
 
-    pipeline.run_once_until(10).await.expect("failed to run the pipeline once");
+    pipeline.run_to(10).await.expect("failed to run the pipeline once");
 
     // check that the checkpoint was set
     let actual_checkpoint = provider.checkpoint("Mock").unwrap();
     assert_eq!(actual_checkpoint, Some(10));
 
-    pipeline.run_once_until(10).await.expect("failed to run the pipeline once");
+    pipeline.run_to(10).await.expect("failed to run the pipeline once");
 
     // check that the checkpoint doesn't change
     let actual_checkpoint = provider.checkpoint("Mock").unwrap();
