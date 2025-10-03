@@ -28,3 +28,4 @@ tracing.workspace = true
 
 [dev-dependencies]
 katana-provider = { workspace = true, features = [ "test-utils" ] }
+url.workspace = true
