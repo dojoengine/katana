@@ -8,7 +8,7 @@
 //!
 //! # Architecture
 //!
-//! The pipeline follows the staged sync architecture inspired by the [Erigon] Ethereum client.
+//! The pipeline follows the [staged sync] architecture inspired by the [Erigon] Ethereum client.
 //! Rather than performing all synchronization tasks concurrently, the sync process is decomposed
 //! into distinct stages that execute sequentially:
 //!
@@ -61,7 +61,8 @@
 //! # }
 //! ```
 //!
-//! [Erigon](https://gfx.cafe/elee/erigon/-/blob/v2022.05.07/eth/stagedsync/README.md)
+//! [staged sync]: https://ledgerwatch.github.io/turbo_geth_release.html#Staged-sync
+//! [Erigon]: https://github.com/erigontech/erigon
 
 use core::future::IntoFuture;
 
