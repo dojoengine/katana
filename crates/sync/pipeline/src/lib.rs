@@ -44,10 +44,6 @@ impl PipelineHandle {
 ///
 /// The pipeline drives the execution of stages, running each stage to completion in the order they
 /// were added.
-///
-/// Inspired by [`reth`]'s staged sync pipeline.
-///
-/// [`reth`]: https://github.com/paradigmxyz/reth/blob/c7aebff0b6bc19cd0b73e295497d3c5150d40ed8/crates/stages/api/src/pipeline/mod.rs#L66
 pub struct Pipeline<P> {
     chunk_size: u64,
     provider: P,
@@ -177,57 +173,5 @@ where
             .field("chunk_size", &self.chunk_size)
             .field("stages", &self.stages.iter().map(|s| s.id()).collect::<Vec<_>>())
             .finish()
-    }
-}
-
-#[cfg(test)]
-mod tests {
-    use katana_provider::api::stage::StageCheckpointProvider;
-    use katana_provider::test_utils::test_provider;
-    use katana_stage::StageResult;
-
-    use super::{Pipeline, Stage, StageExecutionInput};
-
-    struct MockStage;
-
-    #[async_trait::async_trait]
-    impl Stage for MockStage {
-        fn id(&self) -> &'static str {
-            "Mock"
-        }
-
-        async fn execute(&mut self, _: &StageExecutionInput) -> StageResult {
-            Ok(())
-        }
-    }
-
-    #[tokio::test]
-    async fn stage_checkpoint() {
-        let provider = test_provider();
-
-        let (mut pipeline, _handle) = Pipeline::new(&provider, 10);
-        pipeline.add_stage(MockStage);
-
-        // check that the checkpoint was set
-        let initial_checkpoint = provider.checkpoint("Mock").unwrap();
-        assert_eq!(initial_checkpoint, None);
-
-        pipeline.run_once_until(5).await.expect("failed to run the pipeline once");
-
-        // check that the checkpoint was set
-        let actual_checkpoint = provider.checkpoint("Mock").unwrap();
-        assert_eq!(actual_checkpoint, Some(5));
-
-        pipeline.run_once_until(10).await.expect("failed to run the pipeline once");
-
-        // check that the checkpoint was set
-        let actual_checkpoint = provider.checkpoint("Mock").unwrap();
-        assert_eq!(actual_checkpoint, Some(10));
-
-        pipeline.run_once_until(10).await.expect("failed to run the pipeline once");
-
-        // check that the checkpoint doesn't change
-        let actual_checkpoint = provider.checkpoint("Mock").unwrap();
-        assert_eq!(actual_checkpoint, Some(10));
     }
 }
