@@ -1,13 +1,8 @@
-use std::sync::Arc;
-use std::time::Duration;
+use std::future::Future;
 
 use anyhow::Result;
-use backon::{ExponentialBuilder, Retryable};
-use katana_gateway::client;
 use katana_gateway::client::Client as SequencerGateway;
-use katana_gateway::types::{
-    BlockId, BlockStatus, StateUpdate as GatewayStateUpdate, StateUpdateWithBlock,
-};
+use katana_gateway::types::{BlockStatus, StateUpdate as GatewayStateUpdate, StateUpdateWithBlock};
 use katana_primitives::block::{
     BlockNumber, FinalityStatus, GasPrices, Header, SealedBlock, SealedBlockWithStatus,
 };
@@ -21,25 +16,23 @@ use katana_primitives::Felt;
 use katana_provider::api::block::BlockWriter;
 use num_traits::ToPrimitive;
 use starknet::core::types::ResourcePrice;
-use tracing::{debug, error, warn};
+use tracing::debug;
 
-use super::{Stage, StageExecutionInput, StageResult};
+use crate::downloader::{BatchDownloader, Downloader, DownloaderResult};
+use crate::{Stage, StageExecutionInput, StageResult};
 
-#[derive(Debug, thiserror::Error)]
-pub enum Error {
-    #[error(transparent)]
-    Gateway(#[from] client::Error),
-}
-
+/// A stage for syncing blocks.
 #[derive(Debug)]
 pub struct Blocks<P> {
     provider: P,
-    downloader: Downloader,
+    downloader: BatchDownloader<BlockDownloader>,
 }
 
 impl<P> Blocks<P> {
-    pub fn new(provider: P, feeder_gateway: SequencerGateway, download_batch_size: usize) -> Self {
-        let downloader = Downloader::new(feeder_gateway, download_batch_size);
+    /// Create a new [`Blocks`] stage.
+    pub fn new(provider: P, gateway: SequencerGateway, batch_size: usize) -> Self {
+        let downloader = BlockDownloader::new(gateway);
+        let downloader = BatchDownloader::new(downloader, batch_size);
         Self { provider, downloader }
     }
 }
@@ -51,8 +44,9 @@ impl<P: BlockWriter> Stage for Blocks<P> {
     }
 
     async fn execute(&mut self, input: &StageExecutionInput) -> StageResult {
-        // Download all blocks from the provided range
-        let blocks = self.downloader.download_blocks(input.from, input.to).await?;
+        // convert the range to a list of block keys
+        let block_keys = (input.from..=input.to).collect::<Vec<_>>();
+        let blocks = self.downloader.download(&block_keys).await.map_err(Error::Gateway)?;
 
         if !blocks.is_empty() {
             debug!(target: "stage", id = %self.id(), total = %blocks.len(), "Storing blocks to storage.");
@@ -74,84 +68,42 @@ impl<P: BlockWriter> Stage for Blocks<P> {
     }
 }
 
-#[derive(Debug, Clone)]
-struct Downloader {
-    batch_size: usize,
-    client: Arc<SequencerGateway>,
+#[derive(Debug)]
+struct BlockDownloader {
+    gateway: SequencerGateway,
 }
 
-impl Downloader {
-    fn new(client: SequencerGateway, batch_size: usize) -> Self {
-        Self { client: Arc::new(client), batch_size }
+impl BlockDownloader {
+    fn new(gateway: SequencerGateway) -> Self {
+        Self { gateway }
     }
+}
 
-    /// Fetch blocks in the range [from, to] in batches of `batch_size`.
-    async fn download_blocks(
+impl Downloader for BlockDownloader {
+    type Key = BlockNumber;
+    type Value = StateUpdateWithBlock;
+    type Error = katana_gateway::client::Error;
+
+    #[allow(clippy::manual_async_fn)]
+    fn download(
         &self,
-        from: BlockNumber,
-        to: BlockNumber,
-    ) -> Result<Vec<StateUpdateWithBlock>, Error> {
-        debug!(target: "pipeline", %from, %to, "Downloading blocks.");
-        let mut blocks = Vec::with_capacity(to.saturating_sub(from) as usize);
-
-        for batch_start in (from..=to).step_by(self.batch_size) {
-            let batch_end = (batch_start + self.batch_size as u64 - 1).min(to);
-            let batch = self.fetch_blocks_with_retry(batch_start, batch_end).await?;
-            blocks.extend(batch);
+        key: &Self::Key,
+    ) -> impl Future<Output = DownloaderResult<Self::Value, Self::Error>> {
+        async {
+            match self.gateway.get_state_update_with_block((*key).into()).await {
+                Ok(data) => DownloaderResult::Ok(data),
+                Err(err) if err.is_rate_limited() => DownloaderResult::Retry(err),
+                Err(err) => DownloaderResult::Err(err),
+            }
         }
-
-        Ok(blocks)
     }
+}
 
-    /// Fetch blocks with the given block number with retry mechanism at a batch level.
-    async fn fetch_blocks_with_retry(
-        &self,
-        from: BlockNumber,
-        to: BlockNumber,
-    ) -> Result<Vec<StateUpdateWithBlock>, Error> {
-        let request = || async move { self.clone().fetch_blocks(from, to).await };
-
-        // Retry only when being rate limited
-        let backoff = ExponentialBuilder::default().with_min_delay(Duration::from_secs(9));
-        let result = request
-            .retry(backoff)
-            .when(|error| matches!(error, Error::Gateway(client::Error::RateLimited)))
-            .notify(|error, _| {
-                warn!(target: "pipeline", %from, %to, %error, "Retrying block download.");
-            })
-            .await?;
-
-        Ok(result)
-    }
-
-    async fn fetch_blocks(
-        &self,
-        from: BlockNumber,
-        to: BlockNumber,
-    ) -> Result<Vec<StateUpdateWithBlock>, Error> {
-        let total = to.saturating_sub(from) as usize;
-        let mut requests = Vec::with_capacity(total);
-
-        for i in from..=to {
-            requests.push(self.fetch_block(i));
-        }
-
-        let results = futures::future::join_all(requests).await;
-        results.into_iter().collect()
-    }
-
-    /// Fetch a single block with the given block number.
-    async fn fetch_block(&self, block: BlockNumber) -> Result<StateUpdateWithBlock, Error> {
-        let block =
-            self.client.get_state_update_with_block(BlockId::Number(block)).await.inspect_err(
-                |error| {
-                    if !error.is_rate_limited() {
-                        error!(target: "pipeline", %error, %block, "Failed to fetch block.")
-                    }
-                },
-            )?;
-        Ok(block)
-    }
+#[derive(Debug, thiserror::Error)]
+pub enum Error {
+    /// Error returnd by the client used to download the classes from.
+    #[error(transparent)]
+    Gateway(#[from] katana_gateway::client::Error),
 }
 
 fn extract_block_data(
