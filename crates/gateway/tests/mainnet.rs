@@ -1,5 +1,5 @@
-use katana_feeder_gateway::client::SequencerGateway;
-use katana_feeder_gateway::types::{Block, BlockId, StateUpdate, StateUpdateWithBlock};
+use katana_gateway::client::Client;
+use katana_gateway::types::{Block, BlockId, StateUpdate, StateUpdateWithBlock};
 use katana_primitives::block::BlockNumber;
 use rstest::rstest;
 
@@ -17,11 +17,7 @@ use fixtures::{gateway, test_data};
 #[case::v0_13_0(550000, test_data("0.13.0/block/mainnet_550000.json"))]
 #[case::v0_14_0(2238855, test_data("0.14.0/block/mainnet_2238855.json"))]
 #[tokio::test]
-async fn get_block(
-    gateway: SequencerGateway,
-    #[case] block_number: BlockNumber,
-    #[case] expected: Block,
-) {
+async fn get_block(gateway: Client, #[case] block_number: BlockNumber, #[case] expected: Block) {
     let id = BlockId::Number(block_number);
     let block = gateway.get_block(id).await.unwrap();
     similar_asserts::assert_eq!(block, expected);
@@ -38,7 +34,7 @@ async fn get_block(
 #[case::v0_13_0(550000, test_data("0.13.0/state_update/mainnet_550000.json"))]
 #[tokio::test]
 async fn get_state_update(
-    gateway: SequencerGateway,
+    gateway: Client,
     #[case] block_number: BlockNumber,
     #[case] expected: StateUpdate,
 ) {
@@ -58,7 +54,7 @@ async fn get_state_update(
 #[case::v0_13_0(550000, test_data("0.13.0/state_update_with_block/mainnet_550000.json"))]
 #[tokio::test]
 async fn get_state_update_with_block(
-    gateway: SequencerGateway,
+    gateway: Client,
     #[case] block_number: BlockNumber,
     #[case] expected: StateUpdateWithBlock,
 ) {
