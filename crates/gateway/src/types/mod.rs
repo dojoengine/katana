@@ -48,6 +48,18 @@ pub enum BlockId {
     Latest,
 }
 
+impl From<BlockNumber> for BlockId {
+    fn from(value: BlockNumber) -> Self {
+        BlockId::Number(value)
+    }
+}
+
+impl From<BlockHash> for BlockId {
+    fn from(value: BlockHash) -> Self {
+        BlockId::Hash(value)
+    }
+}
+
 #[derive(Debug, Clone, Copy, Serialize, Deserialize, PartialEq, Eq)]
 pub enum BlockStatus {
     #[serde(rename = "PENDING")]
