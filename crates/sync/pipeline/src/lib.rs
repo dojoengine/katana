@@ -28,12 +28,24 @@ pub enum Error {
     Provider(#[from] ProviderError),
 }
 
+/// A handle for controlling a running pipeline.
+///
+/// This handle allows external code to update the target tip block that the pipeline
+/// should sync to.
 #[derive(Debug, Clone)]
 pub struct PipelineHandle {
     tx: watch::Sender<Option<BlockNumber>>,
 }
 
 impl PipelineHandle {
+    /// Sets the target tip block for the pipeline to sync to.
+    ///
+    /// The pipeline will process all blocks up to and including this block number.
+    /// This method will wake up the pipeline if it's currently waiting for a new tip.
+    ///
+    /// # Panics
+    ///
+    /// Panics if the pipeline has been dropped and the channel is closed.
     pub fn set_tip(&self, tip: BlockNumber) {
         info!(target: "pipeline", %tip, "Setting new tip");
         self.tx.send(Some(tip)).expect("channel closed");
@@ -52,7 +64,16 @@ pub struct Pipeline<P> {
 }
 
 impl<P> Pipeline<P> {
-    /// Create a new empty pipeline.
+    /// Creates a new empty pipeline.
+    ///
+    /// # Arguments
+    ///
+    /// * `provider` - The provider for accessing stage checkpoints
+    /// * `chunk_size` - The maximum number of blocks to process in a single iteration
+    ///
+    /// # Returns
+    ///
+    /// A tuple containing the pipeline instance and a handle for controlling it.
     pub fn new(provider: P, chunk_size: u64) -> (Self, PipelineHandle) {
         let (tx, rx) = watch::channel(None);
         let handle = PipelineHandle { tx: tx.clone() };
@@ -60,25 +81,37 @@ impl<P> Pipeline<P> {
         (pipeline, handle)
     }
 
-    /// Insert a new stage into the pipeline.
+    /// Adds a new stage to the end of the pipeline.
+    ///
+    /// Stages are executed in the order they are added.
     pub fn add_stage<S: Stage + 'static>(&mut self, stage: S) {
         self.stages.push(Box::new(stage));
     }
 
-    /// Insert multiple stages into the pipeline.
+    /// Adds multiple stages to the pipeline.
     ///
-    /// The stages will be executed in the order they are appear in the iterator.
+    /// Stages are executed in the order they appear in the iterator.
     pub fn add_stages(&mut self, stages: impl Iterator<Item = Box<dyn Stage>>) {
         self.stages.extend(stages);
     }
 
+    /// Returns a handle for controlling the pipeline.
+    ///
+    /// The handle can be used to set the target tip block for the pipeline to sync to.
     pub fn handle(&self) -> PipelineHandle {
         PipelineHandle { tx: self.tip_watcher.1.clone() }
     }
 }
 
 impl<P: StageCheckpointProvider> Pipeline<P> {
-    /// Run the pipeline in a loop.
+    /// Runs the pipeline continuously until signaled to stop.
+    ///
+    /// The pipeline processes blocks in chunks up to the current tip, then waits for the tip
+    /// to be updated via the [`PipelineHandle::set_tip`].
+    ///
+    /// # Errors
+    ///
+    /// Returns an error if any stage execution fails or if there's a provider error.
     pub async fn run(&mut self) -> PipelineResult<()> {
         let mut current_chunk_tip = self.chunk_size;
 
@@ -87,7 +120,7 @@ impl<P: StageCheckpointProvider> Pipeline<P> {
 
             while let Some(tip) = tip {
                 let to = current_chunk_tip.min(tip);
-                let last_block_processed = self.run_once_until(to).await?;
+                let last_block_processed = self.run_to(to).await?;
 
                 if last_block_processed >= tip {
                     info!(target: "pipeline", %tip, "Finished processing until tip.");
@@ -111,8 +144,24 @@ impl<P: StageCheckpointProvider> Pipeline<P> {
         Ok(())
     }
 
-    /// Run the pipeline once, until the given block number.
-    async fn run_once_until(&mut self, to: BlockNumber) -> PipelineResult<BlockNumber> {
+    /// Runs all stages in the pipeline up to the specified block number.
+    ///
+    /// Each stage is executed sequentially from its current checkpoint to the target block.
+    /// Stages that have already processed up to or beyond the target block are skipped.
+    ///
+    /// # Arguments
+    ///
+    /// * `to` - The target block number to process up to (inclusive)
+    ///
+    /// # Returns
+    ///
+    /// The last block number that was successfully processed by all stages.
+    ///
+    /// # Errors
+    ///
+    /// Returns an error if any stage execution fails or if the pipeline fails to read the
+    /// checkpoint.
+    pub async fn run_to(&mut self, to: BlockNumber) -> PipelineResult<BlockNumber> {
         let last_stage_idx = self.stages.len() - 1;
 
         for (i, stage) in self.stages.iter_mut().enumerate() {
