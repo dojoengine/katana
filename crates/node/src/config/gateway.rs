@@ -1,7 +1,7 @@
 use std::net::{IpAddr, Ipv4Addr, SocketAddr};
 use std::time::Duration;
 
-use katana_feeder_gateway::server::DEFAULT_GATEWAY_TIMEOUT;
+use katana_gateway::server::DEFAULT_GATEWAY_TIMEOUT;
 use serde::{Deserialize, Serialize};
 
 pub const DEFAULT_GATEWAY_ADDR: IpAddr = IpAddr::V4(Ipv4Addr::LOCALHOST);

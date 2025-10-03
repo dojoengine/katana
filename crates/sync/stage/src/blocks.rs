@@ -3,9 +3,9 @@ use std::time::Duration;
 
 use anyhow::Result;
 use backon::{ExponentialBuilder, Retryable};
-use katana_feeder_gateway::client;
-use katana_feeder_gateway::client::SequencerGateway;
-use katana_feeder_gateway::types::{
+use katana_gateway::client;
+use katana_gateway::client::Client as SequencerGateway;
+use katana_gateway::types::{
     BlockId, BlockStatus, StateUpdate as GatewayStateUpdate, StateUpdateWithBlock,
 };
 use katana_primitives::block::{
@@ -268,7 +268,7 @@ fn extract_block_data(
 
 #[cfg(test)]
 mod tests {
-    use katana_feeder_gateway::client::SequencerGateway;
+    use katana_gateway::client::Client as SequencerGateway;
     use katana_provider::api::block::BlockNumberProvider;
     use katana_provider::test_utils::test_provider;
 
@@ -282,7 +282,7 @@ mod tests {
         let to_block = from_block + 2;
 
         let provider = test_provider();
-        let feeder_gateway = SequencerGateway::sn_sepolia();
+        let feeder_gateway = SequencerGateway::sepolia();
 
         let mut stage = Blocks::new(&provider, feeder_gateway, 10);
 

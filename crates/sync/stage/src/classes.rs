@@ -3,8 +3,8 @@ use std::time::Duration;
 
 use anyhow::Result;
 use backon::{ExponentialBuilder, Retryable};
-use katana_feeder_gateway::client::{self, SequencerGateway};
-use katana_feeder_gateway::types::BlockId;
+use katana_gateway::client::{self, Client as SequencerGateway};
+use katana_gateway::types::BlockId;
 use katana_primitives::block::BlockNumber;
 use katana_primitives::class::{ClassHash, ContractClass};
 use katana_provider::api::contract::ContractClassWriter;
