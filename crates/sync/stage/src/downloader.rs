@@ -5,39 +5,34 @@ use anyhow::Result;
 use backon::{BackoffBuilder, ExponentialBuilder};
 use tracing::trace;
 
-pub trait Downloader {
-    type Key: Clone + PartialEq + Eq + Send + Sync;
-    type Value: Send + Sync;
-    type Error: std::error::Error + Send;
-
-    fn download(
-        &self,
-        key: &Self::Key,
-    ) -> impl Future<Output = DownloaderResult<Self::Value, Self::Error>>;
-}
-
 #[derive(Debug, Clone)]
-pub enum DownloaderResult<T, E> {
-    Ok(T),
-    Err(E),
-    Retry(E),
-}
-
-#[derive(Debug, Clone)]
-pub struct BatchDownloader<D> {
+pub struct BatchDownloader<D, B = ExponentialBuilder> {
+    backoff: B,
     downloader: D,
     batch_size: usize,
-    backoff: ExponentialBuilder,
 }
 
 impl<D> BatchDownloader<D> {
     pub fn new(downloader: D, batch_size: usize) -> Self {
-        let backoff = RetryConfig::new().to_backoff_builder();
+        let backoff = ExponentialBuilder::default().with_min_delay(Duration::from_secs(3));
         Self { backoff, downloader, batch_size }
+    }
+
+    /// Set the backoff strategy for retrying failed downloads.
+    pub fn backoff<B>(self, strategy: B) -> BatchDownloader<D, B> {
+        BatchDownloader {
+            backoff: strategy,
+            downloader: self.downloader,
+            batch_size: self.batch_size,
+        }
     }
 }
 
-impl<D: Downloader> BatchDownloader<D> {
+impl<D, B> BatchDownloader<D, B>
+where
+    D: Downloader,
+    B: BackoffBuilder + Clone,
+{
     pub async fn download(&self, keys: &[D::Key]) -> Result<Vec<D::Value>, D::Error> {
         let mut items = Vec::with_capacity(keys.len());
 
@@ -64,7 +59,7 @@ impl<D: Downloader> BatchDownloader<D> {
         let mut results = Vec::with_capacity(keys.len());
 
         let mut remaining_keys = keys.clone();
-        let mut backoff = self.backoff.build();
+        let mut backoff = self.backoff.clone().build();
 
         loop {
             let batch_result = self.download_batch(&remaining_keys).await;
@@ -116,42 +111,20 @@ impl<D: Downloader> BatchDownloader<D> {
     }
 }
 
-/// Configuration for retry behavior in the downloader.
 #[derive(Debug, Clone)]
-struct RetryConfig {
-    /// Minimum delay between retries in seconds.
-    min_delay_secs: u64,
-    /// Maximum delay between retries in seconds (optional).
-    max_delay_secs: Option<u64>,
-    /// Maximum number of retry attempts (None for unlimited).
-    max_attempts: Option<usize>,
+pub enum DownloaderResult<T, E> {
+    Ok(T),
+    Err(E),
+    Retry(E),
 }
 
-impl RetryConfig {
-    /// Create a new retry configuration with default values.
-    fn new() -> Self {
-        Self { min_delay_secs: 3, max_delay_secs: None, max_attempts: None }
-    }
+pub trait Downloader {
+    type Key: Clone + PartialEq + Eq + Send + Sync;
+    type Value: Send + Sync;
+    type Error: std::error::Error + Send;
 
-    /// Create an exponential backoff builder from this configuration.
-    fn to_backoff_builder(&self) -> ExponentialBuilder {
-        let mut builder =
-            ExponentialBuilder::default().with_min_delay(Duration::from_secs(self.min_delay_secs));
-
-        if let Some(max_delay) = self.max_delay_secs {
-            builder = builder.with_max_delay(Duration::from_secs(max_delay));
-        }
-
-        if let Some(max_attempts) = self.max_attempts {
-            builder = builder.with_max_times(max_attempts);
-        }
-
-        builder
-    }
-}
-
-impl Default for RetryConfig {
-    fn default() -> Self {
-        Self::new()
-    }
+    fn download(
+        &self,
+        key: &Self::Key,
+    ) -> impl Future<Output = DownloaderResult<Self::Value, Self::Error>>;
 }
