@@ -13,8 +13,9 @@ use katana_primitives::execution::TypedTransactionExecutionInfo;
 use katana_primitives::receipt::Receipt;
 use katana_primitives::state::StateUpdatesWithClasses;
 use katana_primitives::{ContractAddress, Felt};
-use katana_provider::api::block::BlockNumberProvider;
+use katana_provider::api::block::{BlockNumberProvider, BlockWriter};
 use katana_provider::test_utils::test_provider;
+use katana_provider::ProviderResult;
 use katana_stage::blocks::{BatchBlockDownloader, BlockDownloader, Blocks};
 use katana_stage::{Stage, StageExecutionInput};
 use starknet::core::types::ResourcePrice;
@@ -146,14 +147,14 @@ impl MockBlockWriter {
     }
 }
 
-impl katana_provider::api::block::BlockWriter for MockBlockWriter {
+impl BlockWriter for MockBlockWriter {
     fn insert_block_with_states_and_receipts(
         &self,
         block: SealedBlockWithStatus,
         states: StateUpdatesWithClasses,
         receipts: Vec<Receipt>,
         _executions: Vec<TypedTransactionExecutionInfo>,
-    ) -> katana_provider::ProviderResult<()> {
+    ) -> ProviderResult<()> {
         if *self.should_fail.lock().unwrap() {
             return Err(katana_provider::ProviderError::Other(
                 self.error_message.lock().unwrap().clone(),
@@ -250,6 +251,30 @@ async fn download_and_store_multiple_blocks() {
     for block_num in from_block..=to_block {
         assert!(stored.contains(&block_num));
     }
+}
+
+#[tokio::test]
+async fn consecutive_ranges_store_in_order() {
+    // Test that blocks are stored in the order they're downloaded
+    let from_block = 200;
+    let to_block = 202;
+
+    let mut downloader = MockBlockDownloader::new();
+    for block_num in from_block..=to_block {
+        downloader = downloader.with_block(block_num, create_test_block(block_num));
+    }
+
+    let provider = MockBlockWriter::new();
+    let mut stage = Blocks::new(provider.clone(), downloader);
+
+    let input = StageExecutionInput { from: from_block, to: to_block };
+    let result = stage.execute(&input).await;
+
+    assert!(result.is_ok());
+
+    // Verify blocks were stored in order
+    let stored = provider.stored_block_numbers();
+    assert_eq!(stored, vec![200, 201, 202]);
 }
 
 #[tokio::test]
@@ -368,35 +393,8 @@ async fn partial_download_failure_stops_execution() {
 
 #[tokio::test]
 async fn stage_id_is_blocks() {
-    let downloader = MockBlockDownloader::new();
-    let provider = MockBlockWriter::new();
-    let stage = Blocks::new(provider, downloader);
-
+    let stage = Blocks::new(MockBlockWriter::new(), MockBlockDownloader::new());
     assert_eq!(stage.id(), "Blocks");
-}
-
-#[tokio::test]
-async fn consecutive_ranges_store_in_order() {
-    // Test that blocks are stored in the order they're downloaded
-    let from_block = 200;
-    let to_block = 202;
-
-    let mut downloader = MockBlockDownloader::new();
-    for block_num in from_block..=to_block {
-        downloader = downloader.with_block(block_num, create_test_block(block_num));
-    }
-
-    let provider = MockBlockWriter::new();
-    let mut stage = Blocks::new(provider.clone(), downloader);
-
-    let input = StageExecutionInput { from: from_block, to: to_block };
-    let result = stage.execute(&input).await;
-
-    assert!(result.is_ok());
-
-    // Verify blocks were stored in order
-    let stored = provider.stored_block_numbers();
-    assert_eq!(stored, vec![200, 201, 202]);
 }
 
 // Integration test with real gateway (requires network)
