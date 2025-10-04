@@ -85,8 +85,8 @@ pub enum Error {
     #[error("Stage not found: {id}")]
     StageNotFound { id: String },
 
-    #[error(transparent)]
-    Stage(#[from] katana_stage::Error),
+    #[error("Stage '{id}' execution failed: {error}")]
+    StageExecution { id: &'static str, error: katana_stage::Error },
 
     #[error(transparent)]
     Provider(#[from] ProviderError),
@@ -199,7 +199,7 @@ impl<P> Pipeline<P> {
     /// Adds multiple stages to the pipeline.
     ///
     /// Stages are executed in the order they appear in the iterator.
-    pub fn add_stages(&mut self, stages: impl Iterator<Item = Box<dyn Stage>>) {
+    pub fn add_stages(&mut self, stages: impl IntoIterator<Item = Box<dyn Stage>>) {
         self.stages.extend(stages);
     }
 
@@ -233,7 +233,7 @@ impl<P: StageCheckpointProvider> Pipeline<P> {
             // Check if the handle has sent a signal
             match *self.command_rx.borrow_and_update() {
                 Some(PipelineCommand::Stop) => {
-                    debug!(target: "pipeline", "Received stop command.");
+                    trace!(target: "pipeline", "Received stop command.");
                     break;
                 }
                 Some(PipelineCommand::SetTip(tip)) => {
@@ -318,7 +318,7 @@ impl<P: StageCheckpointProvider> Pipeline<P> {
 
             // plus 1 because the checkpoint is inclusive
             let input = StageExecutionInput { from: checkpoint + 1, to };
-            stage.execute(&input).await?;
+            stage.execute(&input).await.map_err(|error| Error::StageExecution { id, error })?;
             self.provider.set_checkpoint(id, to)?;
 
             info!(target: "pipeline", %id, from = %checkpoint, %to, "Stage execution completed.");

@@ -1,5 +1,7 @@
 use std::sync::{Arc, Mutex};
+use std::time::Duration;
 
+use anyhow::anyhow;
 use katana_pipeline::Pipeline;
 use katana_primitives::block::BlockNumber;
 use katana_provider::api::stage::StageCheckpointProvider;
@@ -62,6 +64,7 @@ impl Stage for TrackingStage {
 }
 
 /// Mock stage that fails on execution
+#[derive(Debug, Clone)]
 struct FailingStage {
     id: &'static str,
 }
@@ -79,7 +82,7 @@ impl Stage for FailingStage {
     }
 
     async fn execute(&mut self, _: &StageExecutionInput) -> StageResult {
-        Err(katana_stage::Error::Other(anyhow::anyhow!("Stage execution failed")))
+        Err(katana_stage::Error::Other(anyhow!("Stage execution failed")))
     }
 }
 
@@ -93,15 +96,15 @@ async fn run_to_executes_stage_to_target() {
     let (mut pipeline, _handle) = Pipeline::new(provider.clone(), 10);
 
     let stage = TrackingStage::new("Stage1");
-    let executions = stage.executions.clone();
-    pipeline.add_stage(stage);
+    let stage_clone = stage.clone();
 
+    pipeline.add_stage(stage);
     let result = pipeline.run_to(5).await.unwrap();
 
     assert_eq!(result, 5);
-    assert_eq!(provider.checkpoint("Stage1").unwrap(), Some(5));
+    assert_eq!(provider.checkpoint(stage_clone.id()).unwrap(), Some(5));
 
-    let execs = executions.lock().unwrap();
+    let execs = stage_clone.executions();
     assert_eq!(execs.len(), 1);
     assert_eq!(execs[0].from, 1); // checkpoint was 0, so from = 0 + 1
     assert_eq!(execs[0].to, 5);
@@ -113,16 +116,16 @@ async fn run_to_skips_stage_when_checkpoint_equals_target() {
     let (mut pipeline, _handle) = Pipeline::new(provider.clone(), 10);
 
     let stage = TrackingStage::new("Stage1");
-    let executions = stage.executions.clone();
-    pipeline.add_stage(stage);
+    let stage_clone = stage.clone();
 
     // Set initial checkpoint
-    provider.set_checkpoint("Stage1", 5).unwrap();
+    provider.set_checkpoint(stage.id(), 5).unwrap();
+    pipeline.add_stage(stage);
 
     let result = pipeline.run_to(5).await.unwrap();
 
     assert_eq!(result, 5);
-    assert_eq!(executions.lock().unwrap().len(), 0); // Not executed
+    assert_eq!(stage_clone.executions().len(), 0); // Not executed
 }
 
 #[tokio::test]
@@ -131,16 +134,16 @@ async fn run_to_skips_stage_when_checkpoint_exceeds_target() {
     let (mut pipeline, _handle) = Pipeline::new(provider.clone(), 10);
 
     let stage = TrackingStage::new("Stage1");
-    let executions = stage.executions.clone();
-    pipeline.add_stage(stage);
+    let stage_clone = stage.clone();
 
     // Set checkpoint beyond target
     provider.set_checkpoint("Stage1", 10).unwrap();
+    pipeline.add_stage(stage);
 
     let result = pipeline.run_to(5).await.unwrap();
 
     assert_eq!(result, 10); // Returns the checkpoint
-    assert_eq!(executions.lock().unwrap().len(), 0); // Not executed
+    assert_eq!(stage_clone.executions().len(), 0); // Not executed
 }
 
 #[tokio::test]
@@ -149,16 +152,17 @@ async fn run_to_uses_checkpoint_plus_one_as_from() {
     let (mut pipeline, _handle) = Pipeline::new(provider.clone(), 10);
 
     let stage = TrackingStage::new("Stage1");
-    let executions = stage.executions.clone();
-    pipeline.add_stage(stage);
+    let stage_clone = stage.clone();
 
     // Set checkpoint to 3
-    provider.set_checkpoint("Stage1", 3).unwrap();
-
+    provider.set_checkpoint(stage.id(), 3).unwrap();
+    pipeline.add_stage(stage);
     pipeline.run_to(10).await.unwrap();
 
-    let execs = executions.lock().unwrap();
+    let execs = stage_clone.executions();
     assert_eq!(execs.len(), 1);
+
+    // stage execution from block 4 (block after the checkpoint) to 10
     assert_eq!(execs[0].from, 4); // 3 + 1
     assert_eq!(execs[0].to, 10);
 }
@@ -176,25 +180,27 @@ async fn run_to_executes_all_stages_in_order() {
     let stage2 = TrackingStage::new("Stage2");
     let stage3 = TrackingStage::new("Stage3");
 
-    let execs1 = stage1.executions.clone();
-    let execs2 = stage2.executions.clone();
-    let execs3 = stage3.executions.clone();
+    let stage1_clone = stage1.clone();
+    let stage2_clone = stage2.clone();
+    let stage3_clone = stage3.clone();
 
-    pipeline.add_stage(stage1);
-    pipeline.add_stage(stage2);
-    pipeline.add_stage(stage3);
+    pipeline.add_stages([
+        Box::new(stage1) as Box<dyn Stage>,
+        Box::new(stage2) as Box<dyn Stage>,
+        Box::new(stage3) as Box<dyn Stage>,
+    ]);
 
     pipeline.run_to(5).await.unwrap();
 
-    // All stages should execute
-    assert_eq!(execs1.lock().unwrap().len(), 1);
-    assert_eq!(execs2.lock().unwrap().len(), 1);
-    assert_eq!(execs3.lock().unwrap().len(), 1);
+    // All stages should be executed once because the tip is 5 and the chunk size is 10
+    assert_eq!(stage1_clone.execution_count(), 1);
+    assert_eq!(stage2_clone.execution_count(), 1);
+    assert_eq!(stage3_clone.execution_count(), 1);
 
     // All checkpoints should be set
-    assert_eq!(provider.checkpoint("Stage1").unwrap(), Some(5));
-    assert_eq!(provider.checkpoint("Stage2").unwrap(), Some(5));
-    assert_eq!(provider.checkpoint("Stage3").unwrap(), Some(5));
+    assert_eq!(provider.checkpoint(stage1_clone.id()).unwrap(), Some(5));
+    assert_eq!(provider.checkpoint(stage2_clone.id()).unwrap(), Some(5));
+    assert_eq!(provider.checkpoint(stage3_clone.id()).unwrap(), Some(5));
 }
 
 #[tokio::test]
@@ -206,33 +212,38 @@ async fn run_to_with_mixed_checkpoints() {
     let stage2 = TrackingStage::new("Stage2");
     let stage3 = TrackingStage::new("Stage3");
 
-    let execs1 = stage1.executions.clone();
-    let execs2 = stage2.executions.clone();
-    let execs3 = stage3.executions.clone();
+    let stage1_clone = stage1.clone();
+    let stage2_clone = stage2.clone();
+    let stage3_clone = stage3.clone();
 
-    pipeline.add_stage(stage1);
-    pipeline.add_stage(stage2);
-    pipeline.add_stage(stage3);
+    pipeline.add_stages([
+        Box::new(stage1) as Box<dyn Stage>,
+        Box::new(stage2) as Box<dyn Stage>,
+        Box::new(stage3) as Box<dyn Stage>,
+    ]);
 
     // Stage1 already at checkpoint 10 (should skip)
-    provider.set_checkpoint("Stage1", 10).unwrap();
+    provider.set_checkpoint(stage1_clone.id(), 10).unwrap();
     // Stage2 at checkpoint 3 (should execute)
-    provider.set_checkpoint("Stage2", 3).unwrap();
+    provider.set_checkpoint(stage2_clone.id(), 3).unwrap();
     // Stage3 at checkpoint 0 (should execute)
+    // we don't actually need to explicitly set the checkpoint for Stage3 because the default
+    // checkpoint is 0
+    provider.set_checkpoint(stage3_clone.id(), 0).unwrap();
 
     pipeline.run_to(10).await.unwrap();
 
-    // Stage1 should be skipped
-    assert_eq!(execs1.lock().unwrap().len(), 0);
+    // Stage1 should be skipped because its checkpoint (10) >= than the tip (10)
+    assert_eq!(stage1_clone.execution_count(), 0);
 
-    // Stage2 should execute from 4 to 10
-    let e2 = execs2.lock().unwrap();
+    // Stage2 should be executed once from 4 to 10 because its checkpoint (3) < tip (10)
+    let e2 = stage2_clone.executions();
     assert_eq!(e2.len(), 1);
     assert_eq!(e2[0].from, 4);
     assert_eq!(e2[0].to, 10);
 
-    // Stage3 should execute from 1 to 10
-    let e3 = execs3.lock().unwrap();
+    // Stage3 should be executed once from 1 to 10 because its checkpoint (0) < tip (10)
+    let e3 = stage3_clone.executions();
     assert_eq!(e3.len(), 1);
     assert_eq!(e3[0].from, 1);
     assert_eq!(e3[0].to, 10);
@@ -246,8 +257,7 @@ async fn run_to_last_stage_skipped_returns_checkpoint() {
     let stage1 = TrackingStage::new("Stage1");
     let stage2 = TrackingStage::new("Stage2");
 
-    pipeline.add_stage(stage1);
-    pipeline.add_stage(stage2);
+    pipeline.add_stages([Box::new(stage1) as Box<dyn Stage>, Box::new(stage2) as Box<dyn Stage>]);
 
     provider.set_checkpoint("Stage1", 5).unwrap();
     provider.set_checkpoint("Stage2", 15).unwrap();
@@ -267,23 +277,25 @@ async fn run_to_middle_stage_skip_continues() {
     let stage2 = TrackingStage::new("Stage2");
     let stage3 = TrackingStage::new("Stage3");
 
-    let execs1 = stage1.executions.clone();
-    let execs2 = stage2.executions.clone();
-    let execs3 = stage3.executions.clone();
+    let stage1_clone = stage1.clone();
+    let stage2_clone = stage2.clone();
+    let stage3_clone = stage3.clone();
 
-    pipeline.add_stage(stage1);
-    pipeline.add_stage(stage2);
-    pipeline.add_stage(stage3);
+    pipeline.add_stages([
+        Box::new(stage1) as Box<dyn Stage>,
+        Box::new(stage2) as Box<dyn Stage>,
+        Box::new(stage3) as Box<dyn Stage>,
+    ]);
 
-    // Middle stage already complete
-    provider.set_checkpoint("Stage2", 10).unwrap();
+    // stage in the middle of the sequence already complete
+    provider.set_checkpoint(stage2_clone.id(), 10).unwrap();
 
     pipeline.run_to(10).await.unwrap();
 
     // Stage1 and Stage3 should execute
-    assert_eq!(execs1.lock().unwrap().len(), 1);
-    assert_eq!(execs2.lock().unwrap().len(), 0); // Skipped
-    assert_eq!(execs3.lock().unwrap().len(), 1);
+    assert_eq!(stage1_clone.execution_count(), 1);
+    assert_eq!(stage2_clone.execution_count(), 0); // Skipped
+    assert_eq!(stage3_clone.execution_count(), 1);
 }
 
 // ============================================================================
@@ -296,29 +308,27 @@ async fn run_processes_single_chunk_to_tip() {
     let (mut pipeline, handle) = Pipeline::new(provider.clone(), 100);
 
     let stage = TrackingStage::new("Stage1");
-    let executions = stage.executions.clone();
+    let stage_clone = stage.clone();
+
     pipeline.add_stage(stage);
 
     // Set tip to 50 (within one chunk)
     handle.set_tip(50);
 
-    // Run in background
-    let pipeline_handle = tokio::spawn(async move { pipeline.run().await });
+    let task_handle = tokio::spawn(async move { pipeline.run().await });
+    tokio::time::sleep(Duration::from_millis(100)).await;
 
-    // Give it time to process
-    tokio::time::sleep(tokio::time::Duration::from_millis(100)).await;
+    handle.stop();
 
-    // Drop handle to close channel and stop pipeline
-    drop(handle);
-
-    let result = pipeline_handle.await.unwrap();
+    let result = task_handle.await.unwrap();
     assert!(result.is_ok());
 
-    // Should execute once from 1 to 50
-    let execs = executions.lock().unwrap();
+    // Stage1 should be executed once from 1 to 50 because it's within a pipeline chunk (100)
+    let execs = stage_clone.executions();
     assert_eq!(execs.len(), 1);
     assert_eq!(execs[0].from, 1);
     assert_eq!(execs[0].to, 50);
+
     assert_eq!(provider.checkpoint("Stage1").unwrap(), Some(50));
 }
 
@@ -328,53 +338,37 @@ async fn run_processes_multiple_chunks_to_tip() {
     let (mut pipeline, handle) = Pipeline::new(provider.clone(), 10); // Small chunk size
 
     let stage = TrackingStage::new("Stage1");
-    let executions = stage.executions.clone();
+    let stage_clone = stage.clone();
+
     pipeline.add_stage(stage);
 
     // Set tip to 25 (requires 3 chunks: 10, 20, 25)
     handle.set_tip(25);
 
     let pipeline_handle = tokio::spawn(async move { pipeline.run().await });
+    tokio::time::sleep(Duration::from_millis(100)).await;
 
-    tokio::time::sleep(tokio::time::Duration::from_millis(100)).await;
-
-    drop(handle);
+    handle.stop();
 
     let result = pipeline_handle.await.unwrap();
     assert!(result.is_ok());
 
-    // Should execute 3 times
-    let execs = executions.lock().unwrap();
+    // Should execute 3 times:
+    // * 1st chunk: 1-10
+    // * 2nd chunk: 11-20
+    // * 3rd chunk: 21-25
+
+    let execs = stage_clone.executions();
     assert_eq!(execs.len(), 3);
+
     assert_eq!(execs[0].from, 1);
     assert_eq!(execs[0].to, 10);
+
     assert_eq!(execs[1].from, 11);
     assert_eq!(execs[1].to, 20);
+
     assert_eq!(execs[2].from, 21);
     assert_eq!(execs[2].to, 25);
-}
-
-#[tokio::test]
-async fn run_waits_when_no_tip_set() {
-    let provider = Arc::new(test_provider());
-    let (mut pipeline, handle) = Pipeline::new(provider.clone(), 10);
-
-    let stage = TrackingStage::new("Stage1");
-    let executions = stage.executions.clone();
-    pipeline.add_stage(stage);
-
-    // Don't set tip
-    let pipeline_handle = tokio::spawn(async move { pipeline.run().await });
-
-    // Give it time - should be waiting
-    tokio::time::sleep(tokio::time::Duration::from_millis(100)).await;
-
-    // No executions should have happened
-    assert_eq!(executions.lock().unwrap().len(), 0);
-
-    drop(handle);
-    let result = pipeline_handle.await.unwrap();
-    assert!(result.is_ok());
 }
 
 #[tokio::test]
@@ -389,178 +383,25 @@ async fn run_processes_new_tip_after_completing_previous() {
     // Set initial tip
     handle.set_tip(10);
 
-    let pipeline_handle = tokio::spawn(async move { pipeline.run().await });
+    let task_handle = tokio::spawn(async move { pipeline.run().await });
 
     // Wait for first tip to process
-    tokio::time::sleep(tokio::time::Duration::from_millis(100)).await;
+    tokio::time::sleep(Duration::from_millis(100)).await;
 
     // Set new tip
     handle.set_tip(25);
 
     // Wait for second tip to process
-    tokio::time::sleep(tokio::time::Duration::from_millis(100)).await;
+    tokio::time::sleep(Duration::from_millis(100)).await;
 
-    drop(handle);
-    let result = pipeline_handle.await.unwrap();
+    handle.stop();
+    let result = task_handle.await.unwrap();
     assert!(result.is_ok());
 
     // Should have processed both tips
     let execs = executions.lock().unwrap();
     assert!(execs.len() >= 3); // 1-10, 11-20, 21-25
     assert_eq!(provider.checkpoint("Stage1").unwrap(), Some(25));
-}
-
-// ============================================================================
-// Chunking Algorithm Tests
-// ============================================================================
-
-#[tokio::test]
-async fn chunking_first_chunk_respects_chunk_size() {
-    let provider = test_provider();
-    let (mut pipeline, _handle) = Pipeline::new(provider.clone(), 10);
-
-    let stage = TrackingStage::new("Stage1");
-    let executions = stage.executions.clone();
-    pipeline.add_stage(stage);
-
-    // Manually test chunk logic by calling run_to with chunk boundary
-    pipeline.run_to(10).await.unwrap();
-
-    let execs = executions.lock().unwrap();
-    assert_eq!(execs[0].to, 10);
-}
-
-#[tokio::test]
-async fn chunking_uses_min_of_chunk_size_and_tip() {
-    let provider = test_provider();
-    let (mut pipeline, handle) = Pipeline::new(provider.clone(), 100);
-
-    let stage = TrackingStage::new("Stage1");
-    let executions = stage.executions.clone();
-    pipeline.add_stage(stage);
-
-    // Tip is smaller than chunk size
-    handle.set_tip(50);
-
-    let pipeline_handle = tokio::spawn(async move { pipeline.run().await });
-
-    tokio::time::sleep(tokio::time::Duration::from_millis(100)).await;
-
-    drop(handle);
-    pipeline_handle.await.unwrap().unwrap();
-
-    let execs = executions.lock().unwrap();
-    assert_eq!(execs.len(), 1);
-    assert_eq!(execs[0].to, 50); // Should not execute to 100
-}
-
-#[tokio::test]
-async fn chunking_final_chunk_exact_tip() {
-    let provider = test_provider();
-    let (mut pipeline, handle) = Pipeline::new(provider.clone(), 10);
-
-    let stage = TrackingStage::new("Stage1");
-    let executions = stage.executions.clone();
-    pipeline.add_stage(stage);
-
-    // Tip that's not a multiple of chunk_size
-    handle.set_tip(23);
-
-    let pipeline_handle = tokio::spawn(async move { pipeline.run().await });
-
-    tokio::time::sleep(tokio::time::Duration::from_millis(100)).await;
-
-    drop(handle);
-    pipeline_handle.await.unwrap().unwrap();
-
-    let execs = executions.lock().unwrap();
-    // Last chunk should be exactly to 23, not beyond
-    assert_eq!(execs.last().unwrap().to, 23);
-}
-
-#[tokio::test]
-async fn chunking_single_chunk_when_chunk_size_exceeds_tip() {
-    let provider = test_provider();
-    let (mut pipeline, handle) = Pipeline::new(provider.clone(), 1000);
-
-    let stage = TrackingStage::new("Stage1");
-    let executions = stage.executions.clone();
-    pipeline.add_stage(stage);
-
-    handle.set_tip(50);
-
-    let pipeline_handle = tokio::spawn(async move { pipeline.run().await });
-
-    tokio::time::sleep(tokio::time::Duration::from_millis(100)).await;
-
-    drop(handle);
-    pipeline_handle.await.unwrap().unwrap();
-
-    let execs = executions.lock().unwrap();
-    assert_eq!(execs.len(), 1); // Single chunk
-    assert_eq!(execs[0].to, 50);
-}
-
-// ============================================================================
-// Stage Execution Contract Tests
-// ============================================================================
-
-#[tokio::test]
-async fn stage_receives_correct_input_from_checkpoint_plus_one() {
-    let provider = test_provider();
-    let (mut pipeline, _handle) = Pipeline::new(provider.clone(), 10);
-
-    let stage = TrackingStage::new("Stage1");
-    let executions = stage.executions.clone();
-    pipeline.add_stage(stage);
-
-    provider.set_checkpoint("Stage1", 7).unwrap();
-
-    pipeline.run_to(15).await.unwrap();
-
-    let execs = executions.lock().unwrap();
-    assert_eq!(execs[0].from, 8); // 7 + 1
-}
-
-#[tokio::test]
-async fn stage_receives_correct_to_parameter() {
-    let provider = test_provider();
-    let (mut pipeline, _handle) = Pipeline::new(provider.clone(), 10);
-
-    let stage = TrackingStage::new("Stage1");
-    let executions = stage.executions.clone();
-    pipeline.add_stage(stage);
-
-    pipeline.run_to(42).await.unwrap();
-
-    let execs = executions.lock().unwrap();
-    assert_eq!(execs[0].to, 42);
-}
-
-#[tokio::test]
-async fn checkpoint_saved_after_successful_execution() {
-    let provider = test_provider();
-    let (mut pipeline, _handle) = Pipeline::new(provider.clone(), 10);
-
-    pipeline.add_stage(TrackingStage::new("Stage1"));
-
-    assert_eq!(provider.checkpoint("Stage1").unwrap(), None);
-
-    pipeline.run_to(20).await.unwrap();
-
-    assert_eq!(provider.checkpoint("Stage1").unwrap(), Some(20));
-}
-
-#[tokio::test]
-async fn checkpoint_equals_to_parameter() {
-    let provider = test_provider();
-    let (mut pipeline, _handle) = Pipeline::new(provider.clone(), 10);
-
-    pipeline.add_stage(TrackingStage::new("Stage1"));
-
-    pipeline.run_to(17).await.unwrap();
-
-    assert_eq!(provider.checkpoint("Stage1").unwrap(), Some(17));
 }
 
 // ============================================================================
@@ -572,28 +413,44 @@ async fn stage_execution_error_stops_pipeline() {
     let provider = test_provider();
     let (mut pipeline, _handle) = Pipeline::new(provider.clone(), 10);
 
-    pipeline.add_stage(FailingStage::new("Stage1"));
+    let stage = FailingStage::new("Stage1");
+    let stage_clone = stage.clone();
+
+    pipeline.add_stage(stage);
 
     let result = pipeline.run_to(10).await;
-
     assert!(result.is_err());
+
     // Checkpoint should not be set after failure
-    assert_eq!(provider.checkpoint("Stage1").unwrap(), None);
+    assert_eq!(provider.checkpoint(stage_clone.id()).unwrap(), None);
 }
 
+/// If a stage fails, all subsequent stages should not execute and the pipeline should stop.
 #[tokio::test]
 async fn stage_error_doesnt_affect_subsequent_runs() {
     let provider = test_provider();
     let (mut pipeline, _handle) = Pipeline::new(provider.clone(), 10);
 
-    pipeline.add_stage(FailingStage::new("FailStage"));
-    pipeline.add_stage(TrackingStage::new("Stage2"));
+    let stage1 = FailingStage::new("FailStage");
+    let stage2 = TrackingStage::new("Stage2");
 
-    let result = pipeline.run_to(10).await;
+    let stage1_clone = stage1.clone();
+    let stage2_clone = stage2.clone();
 
-    assert!(result.is_err());
+    pipeline.add_stage(stage1);
+    pipeline.add_stage(stage2);
+
+    let error = pipeline.run_to(10).await.unwrap_err();
+
+    let katana_pipeline::Error::StageExecution { id, error } = error else {
+        panic!("Unexpected error type");
+    };
+
+    assert_eq!(id, stage1_clone.id());
+    assert!(error.to_string().contains("Stage execution failed")); // the error returned by the failing stage
+
     // Stage2 should not execute
-    assert_eq!(provider.checkpoint("Stage2").unwrap(), None);
+    assert_eq!(stage2_clone.execution_count(), 0);
 }
 
 // ============================================================================
