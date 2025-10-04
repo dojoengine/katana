@@ -70,7 +70,7 @@ where
         if !declared_classes.is_empty() {
             // fetch the classes artifacts
             let class_artifacts =
-                self.downloader.download(&declared_classes).await.map_err(Error::Gateway)?;
+                self.downloader.download(declared_classes.clone()).await.map_err(Error::Gateway)?;
 
             debug!(target: "stage", id = self.id(), total = %class_artifacts.len(), "Storing class artifacts.");
             for (key, rpc_class) in declared_classes.iter().zip(class_artifacts) {
