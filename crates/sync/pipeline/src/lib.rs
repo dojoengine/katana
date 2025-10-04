@@ -68,8 +68,8 @@ use core::future::IntoFuture;
 
 use futures::future::BoxFuture;
 use katana_primitives::block::BlockNumber;
-use katana_provider::api::stage::StageCheckpointProvider;
-use katana_provider::api::ProviderError;
+use katana_provider_api::stage::StageCheckpointProvider;
+use katana_provider_api::ProviderError;
 use katana_stage::{Stage, StageExecutionInput};
 use tokio::sync::watch;
 use tracing::{debug, error, info, trace};
