@@ -141,10 +141,8 @@ impl PipelineHandle {
 
 impl Drop for PipelineHandle {
     fn drop(&mut self) {
-        // minus self
-        // because the Pipeline struct itself holds a sender
-        let relevant_sender_count = self.tx.sender_count() - 1 - 1;
-        if relevant_sender_count == 0 {
+        //  self + pipeline copy
+        if self.tx.sender_count() == 2 {
             self.stop();
         }
     }

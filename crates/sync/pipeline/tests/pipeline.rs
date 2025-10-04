@@ -6,10 +6,6 @@ use katana_provider::api::stage::StageCheckpointProvider;
 use katana_provider::test_utils::test_provider;
 use katana_stage::{Stage, StageExecutionInput, StageResult};
 
-// ============================================================================
-// Mock Infrastructure
-// ============================================================================
-
 /// Simple mock stage that does nothing
 struct MockStage;
 
@@ -32,8 +28,10 @@ struct ExecutionRecord {
 }
 
 /// Mock stage that tracks execution
+#[derive(Debug, Clone)]
 struct TrackingStage {
     id: &'static str,
+    /// Used to tracks how many times the stage has been executed
     executions: Arc<Mutex<Vec<ExecutionRecord>>>,
 }
 
@@ -620,15 +618,18 @@ async fn tip_equals_checkpoint_no_execution() {
 
     let stage = TrackingStage::new("Stage1");
     let executions = stage.executions.clone();
-    pipeline.add_stage(stage);
 
-    provider.set_checkpoint("Stage1", 10).unwrap();
+    // set checkpoint for Stage1 stage
+    provider.set_checkpoint(stage.id(), 10).unwrap();
+    pipeline.add_stage(stage);
 
     pipeline.run_to(10).await.unwrap();
 
-    assert_eq!(executions.lock().unwrap().len(), 0);
+    assert_eq!(executions.lock().unwrap().len(), 0, "Stage1 should not be executed");
 }
 
+/// If a stage's checkpoint (eg 20) is greater than the tip (eg 10), then the stage should be
+/// skipped, and the [`Pipeline::run_to`] should return the checkpoint of the last stage executed
 #[tokio::test]
 async fn tip_less_than_checkpoint_skip_all() {
     let provider = test_provider();
@@ -636,14 +637,16 @@ async fn tip_less_than_checkpoint_skip_all() {
 
     let stage = TrackingStage::new("Stage1");
     let executions = stage.executions.clone();
-    pipeline.add_stage(stage);
 
-    provider.set_checkpoint("Stage1", 20).unwrap();
+    // set checkpoint for Stage1 stage
+    let checkpoint = 20;
+    provider.set_checkpoint(stage.id(), checkpoint).unwrap();
+    pipeline.add_stage(stage);
 
     let result = pipeline.run_to(10).await.unwrap();
 
-    assert_eq!(result, 20);
-    assert_eq!(executions.lock().unwrap().len(), 0);
+    assert_eq!(result, checkpoint);
+    assert_eq!(executions.lock().unwrap().len(), 0, "Stage1 should not be executed");
 }
 
 #[tokio::test]
@@ -652,24 +655,26 @@ async fn chunk_size_one_executes_block_by_block() {
     let (mut pipeline, handle) = Pipeline::new(provider.clone(), 1);
 
     let stage = TrackingStage::new("Stage1");
-    let executions = stage.executions.clone();
-    pipeline.add_stage(stage);
+    let stage_clone = stage.clone();
 
+    pipeline.add_stage(stage);
     handle.set_tip(3);
 
     let pipeline_handle = tokio::spawn(async move { pipeline.run().await });
-
     tokio::time::sleep(tokio::time::Duration::from_millis(100)).await;
 
-    drop(handle);
+    handle.stop();
     pipeline_handle.await.unwrap().unwrap();
 
-    let execs = executions.lock().unwrap();
+    let execs = stage_clone.executions();
     assert_eq!(execs.len(), 3);
+
     assert_eq!(execs[0].from, 1);
     assert_eq!(execs[0].to, 1);
+
     assert_eq!(execs[1].from, 2);
     assert_eq!(execs[1].to, 2);
+
     assert_eq!(execs[2].from, 3);
     assert_eq!(execs[2].to, 3);
 }
@@ -684,33 +689,24 @@ async fn pipeline_stop_on_all_handle_dropped() {
     let stage = TrackingStage::new("Stage1");
     pipeline.add_stage(stage);
 
-    // Clone handle to keep channel open
     let handle2 = handle.clone();
 
     // Drop first handle - pipeline should continue running
     drop(handle);
 
-    // Spawn pipeline in background
-    let pipeline_handle = tokio::spawn(async move { pipeline.run().await });
-
-    // Give it time - pipeline should still be running
+    let task_handle = tokio::spawn(async move { pipeline.run().await });
     tokio::time::sleep(tokio::time::Duration::from_millis(50)).await;
 
-    // Pipeline should not have completed yet
-    assert!(!pipeline_handle.is_finished());
+    assert!(!task_handle.is_finished(), "Pipeline should not have completed yet");
 
-    // Drop the last handle - now pipeline should stop
+    // Drop the last handle - now pipeline should stop and the task should complete
     drop(handle2);
 
-    let result = pipeline_handle.await.unwrap();
+    // In the opposite case, the task should not complete if the pipeline is still running
+    let result = task_handle.await.unwrap();
 
-    // Should complete gracefully
     assert!(result.is_ok());
 }
-
-// ============================================================================
-// Original Test (kept for compatibility)
-// ============================================================================
 
 #[tokio::test]
 async fn stage_checkpoint() {
