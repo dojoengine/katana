@@ -3,8 +3,8 @@
 use katana_primitives::block::BlockNumber;
 use katana_provider::api::ProviderError;
 
-mod blocks;
-mod classes;
+pub mod blocks;
+pub mod classes;
 mod downloader;
 mod sequencing;
 

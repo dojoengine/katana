@@ -130,7 +130,7 @@ where
     /// let values = downloader.download(&keys).await?;
     /// assert_eq!(values.len(), 15);
     /// ```
-    pub async fn download(&self, keys: &[D::Key]) -> Result<Vec<D::Value>, D::Error> {
+    pub async fn download(&self, keys: Vec<D::Key>) -> Result<Vec<D::Value>, D::Error> {
         let mut items = Vec::with_capacity(keys.len());
 
         for chunk in keys.chunks(self.batch_size) {
@@ -300,7 +300,7 @@ pub trait Downloader {
     fn download(
         &self,
         key: &Self::Key,
-    ) -> impl Future<Output = DownloaderResult<Self::Value, Self::Error>>;
+    ) -> impl Future<Output = DownloaderResult<Self::Value, Self::Error>> + Send;
 }
 
 #[cfg(test)]
@@ -442,7 +442,7 @@ mod tests {
 
         let batch_downloader = BatchDownloader::new(downloader.clone(), 10);
         let keys = vec![1, 2, 3];
-        let result = batch_downloader.download(&keys).await;
+        let result = batch_downloader.download(keys).await;
 
         assert!(result.is_ok());
         let values = result.unwrap();
@@ -459,7 +459,7 @@ mod tests {
         let downloader = MockDownloader::new();
         let batch_downloader = BatchDownloader::new(downloader, 10);
         let keys: Vec<u64> = vec![];
-        let result = batch_downloader.download(&keys).await;
+        let result = batch_downloader.download(keys).await;
 
         assert!(result.is_ok());
         assert_eq!(result.unwrap(), Vec::<String>::new());
@@ -481,7 +481,7 @@ mod tests {
             .backoff(ConstantBuilder::default().with_delay(Duration::from_millis(1)));
 
         let keys = vec![1, 2];
-        let result = batch_downloader.download(&keys).await;
+        let result = batch_downloader.download(keys).await;
 
         assert!(result.is_ok());
         let values = result.unwrap();
@@ -510,7 +510,7 @@ mod tests {
         );
 
         let keys = vec![1];
-        let result = batch_downloader.download(&keys).await;
+        let result = batch_downloader.download(keys).await;
 
         assert!(result.is_ok());
         let values = result.unwrap();
@@ -538,7 +538,7 @@ mod tests {
         );
 
         let keys = vec![1];
-        let result = batch_downloader.download(&keys).await;
+        let result = batch_downloader.download(keys).await;
 
         // Should fail because retries exhausted
         assert!(result.is_err());
@@ -556,7 +556,7 @@ mod tests {
 
         let batch_downloader = BatchDownloader::new(downloader.clone(), 10);
         let keys = vec![1, 2];
-        let result = batch_downloader.download(&keys).await;
+        let result = batch_downloader.download(keys).await;
 
         // Should fail immediately with non-retryable error
         assert!(result.is_err());
@@ -583,7 +583,7 @@ mod tests {
             .backoff(ConstantBuilder::default().with_delay(Duration::from_millis(1)));
 
         let keys = vec![1, 2, 3];
-        let result = batch_downloader.download(&keys).await;
+        let result = batch_downloader.download(keys.clone()).await;
 
         assert!(result.is_ok());
         let values = result.unwrap();
@@ -608,7 +608,7 @@ mod tests {
         // Batch size of 2 means 5 keys will be split into 3 batches: [1,2], [3,4], [5]
         let batch_downloader = BatchDownloader::new(downloader.clone(), 2);
         let keys = vec![1, 2, 3, 4, 5];
-        let result = batch_downloader.download(&keys).await;
+        let result = batch_downloader.download(keys.clone()).await;
 
         assert!(result.is_ok());
         let values = result.unwrap();
@@ -640,7 +640,7 @@ mod tests {
         // Batch size of 2 with 4 keys should create exactly 2 batches
         let batch_downloader = BatchDownloader::new(downloader.clone(), 2);
         let keys = vec![1, 2, 3, 4];
-        let result = batch_downloader.download(&keys).await;
+        let result = batch_downloader.download(keys.clone()).await;
 
         assert!(result.is_ok());
         let values = result.unwrap();
@@ -668,7 +668,7 @@ mod tests {
         // Batch size larger than number of keys
         let batch_downloader = BatchDownloader::new(downloader.clone(), 10);
         let keys = vec![1, 2];
-        let result = batch_downloader.download(&keys).await;
+        let result = batch_downloader.download(keys).await;
 
         assert!(result.is_ok());
         let values = result.unwrap();
@@ -698,7 +698,7 @@ mod tests {
         let batch_downloader = BatchDownloader::new(downloader.clone(), 10).backoff(custom_backoff);
 
         let keys = vec![1];
-        let result = batch_downloader.download(&keys).await;
+        let result = batch_downloader.download(keys).await;
 
         assert!(result.is_ok());
         let values = result.unwrap();
@@ -732,7 +732,7 @@ mod tests {
             .backoff(ConstantBuilder::default().with_delay(Duration::from_millis(1)));
 
         let keys = vec![1, 2, 3, 4];
-        let result = batch_downloader.download(&keys).await;
+        let result = batch_downloader.download(keys).await;
 
         assert!(result.is_ok());
         let values = result.unwrap();
