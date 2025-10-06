@@ -2,6 +2,7 @@ use std::sync::{Arc, Mutex};
 use std::time::Duration;
 
 use anyhow::anyhow;
+use futures::future::BoxFuture;
 use katana_pipeline::Pipeline;
 use katana_primitives::block::BlockNumber;
 use katana_provider::api::stage::StageCheckpointProvider;
@@ -11,14 +12,13 @@ use katana_stage::{Stage, StageExecutionInput, StageResult};
 /// Simple mock stage that does nothing
 struct MockStage;
 
-#[async_trait::async_trait]
 impl Stage for MockStage {
     fn id(&self) -> &'static str {
         "Mock"
     }
 
-    async fn execute(&mut self, _: &StageExecutionInput) -> StageResult {
-        Ok(())
+    fn execute<'a>(&'a mut self, _: &'a StageExecutionInput) -> BoxFuture<'a, StageResult> {
+        Box::pin(async { Ok(()) })
     }
 }
 
@@ -51,15 +51,19 @@ impl TrackingStage {
     }
 }
 
-#[async_trait::async_trait]
 impl Stage for TrackingStage {
     fn id(&self) -> &'static str {
         self.id
     }
 
-    async fn execute(&mut self, input: &StageExecutionInput) -> StageResult {
-        self.executions.lock().unwrap().push(ExecutionRecord { from: input.from, to: input.to });
-        Ok(())
+    fn execute<'a>(&'a mut self, input: &'a StageExecutionInput) -> BoxFuture<'a, StageResult> {
+        let from = input.from;
+        let to = input.to;
+        let executions = self.executions.clone();
+        Box::pin(async move {
+            executions.lock().unwrap().push(ExecutionRecord { from, to });
+            Ok(())
+        })
     }
 }
 
@@ -75,14 +79,13 @@ impl FailingStage {
     }
 }
 
-#[async_trait::async_trait]
 impl Stage for FailingStage {
     fn id(&self) -> &'static str {
         self.id
     }
 
-    async fn execute(&mut self, _: &StageExecutionInput) -> StageResult {
-        Err(katana_stage::Error::Other(anyhow!("Stage execution failed")))
+    fn execute<'a>(&'a mut self, _: &'a StageExecutionInput) -> BoxFuture<'a, StageResult> {
+        Box::pin(async { Err(katana_stage::Error::Other(anyhow!("Stage execution failed"))) })
     }
 }
 

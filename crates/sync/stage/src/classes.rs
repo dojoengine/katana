@@ -1,6 +1,7 @@
 use std::future::Future;
 
 use anyhow::Result;
+use futures::future::BoxFuture;
 use katana_gateway::client::Client as SequencerGateway;
 use katana_gateway::types::ContractClass;
 use katana_primitives::block::BlockNumber;
@@ -55,7 +56,6 @@ impl<P: StateUpdateProvider> Classes<P> {
     }
 }
 
-#[async_trait::async_trait]
 impl<P> Stage for Classes<P>
 where
     P: StateUpdateProvider + ContractClassWriter,
@@ -64,22 +64,27 @@ where
         "Classes"
     }
 
-    async fn execute(&mut self, input: &StageExecutionInput) -> StageResult {
-        let declared_classes = self.get_declared_classes(input.from, input.to)?;
+    fn execute<'a>(&'a mut self, input: &'a StageExecutionInput) -> BoxFuture<'a, StageResult> {
+        Box::pin(async move {
+            let declared_classes = self.get_declared_classes(input.from, input.to)?;
 
-        if !declared_classes.is_empty() {
-            // fetch the classes artifacts
-            let class_artifacts =
-                self.downloader.download(declared_classes.clone()).await.map_err(Error::Gateway)?;
+            if !declared_classes.is_empty() {
+                // fetch the classes artifacts
+                let class_artifacts = self
+                    .downloader
+                    .download(declared_classes.clone())
+                    .await
+                    .map_err(Error::Gateway)?;
 
-            debug!(target: "stage", id = self.id(), total = %class_artifacts.len(), "Storing class artifacts.");
-            for (key, rpc_class) in declared_classes.iter().zip(class_artifacts) {
-                let class = rpc_class.try_into().map_err(Error::Conversion)?;
-                self.provider.set_class(key.class_hash, class)?;
+                debug!(target: "stage", id = self.id(), total = %class_artifacts.len(), "Storing class artifacts.");
+                for (key, rpc_class) in declared_classes.iter().zip(class_artifacts) {
+                    let class = rpc_class.try_into().map_err(Error::Conversion)?;
+                    self.provider.set_class(key.class_hash, class)?;
+                }
             }
-        }
 
-        Ok(())
+            Ok(())
+        })
     }
 }
 
