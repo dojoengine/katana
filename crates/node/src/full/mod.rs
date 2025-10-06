@@ -17,7 +17,8 @@ use katana_pool::pool::Pool;
 use katana_pool::validation::NoopValidator;
 use katana_primitives::transaction::ExecutableTxWithHash;
 use katana_provider::providers::db::DbProvider;
-use katana_stage::{Blocks, Classes, GatewayBlockDownloader};
+use katana_stage::blocks::BatchBlockDownloader;
+use katana_stage::{Blocks, Classes};
 use katana_tasks::TaskManager;
 use tip_watcher::ChainTipWatcher;
 use tracing::info;
@@ -78,7 +79,7 @@ impl Node {
         };
 
         let (mut pipeline, _) = Pipeline::new(provider.clone(), 64);
-        let block_downloader = GatewayBlockDownloader::new(fgw.clone(), 3);
+        let block_downloader = BatchBlockDownloader::new_gateway(fgw.clone(), 3);
         pipeline.add_stage(Blocks::new(provider.clone(), block_downloader));
         pipeline.add_stage(Classes::new(provider, fgw.clone(), 3));
 
