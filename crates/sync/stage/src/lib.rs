@@ -41,11 +41,13 @@ impl StageExecutionInput {
     }
 
     /// Returns the starting block number (inclusive).
+    #[inline]
     pub fn from(&self) -> BlockNumber {
         self.from
     }
 
     /// Returns the ending block number (inclusive).
+    #[inline]
     pub fn to(&self) -> BlockNumber {
         self.to
     }
