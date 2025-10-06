@@ -47,9 +47,6 @@ where
 
     fn execute<'a>(&'a mut self, input: &'a StageExecutionInput) -> BoxFuture<'a, StageResult> {
         Box::pin(async move {
-            // TODO: Implement range validation in the `Pipeline` level - or maybe in each stage as
-            // well?
-            debug_assert!(input.from <= input.to);
 
             let blocks = self
                 .downloader
