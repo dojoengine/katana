@@ -18,6 +18,7 @@ use katana_provider::test_utils::test_provider;
 use katana_provider::ProviderResult;
 use katana_stage::blocks::{BatchBlockDownloader, BlockDownloader, Blocks};
 use katana_stage::{Stage, StageExecutionInput};
+use rstest::rstest;
 use starknet::core::types::ResourcePrice;
 
 /// Mock BlockDownloader implementation for testing.
@@ -204,31 +205,16 @@ fn create_test_block(block_number: BlockNumber) -> StateUpdateWithBlock {
     }
 }
 
+#[rstest]
+#[case(100, 100, vec![100])]
+#[case(100, 105, vec![100, 101, 102, 103, 104, 105])]
+#[case(100, 110, vec![100, 101, 102, 103, 104, 105, 106, 107, 108, 109, 110])]
 #[tokio::test]
-async fn download_and_store_single_block() {
-    let block_number = 100;
-    let test_block = create_test_block(block_number);
-
-    let downloader = MockBlockDownloader::new().with_block(block_number, test_block);
-    let provider = MockBlockWriter::new();
-
-    let mut stage = Blocks::new(provider.clone(), downloader.clone());
-    let input = StageExecutionInput { from: block_number, to: block_number };
-
-    let result = stage.execute(&input).await;
-    assert!(result.is_ok());
-
-    // Verify download_blocks was called with the correct block number
-    assert_eq!(downloader.requested_blocks(), vec![block_number]);
-    // Verify insert_block_with_states_and_receipts was called with the correct block number
-    assert_eq!(provider.stored_block_numbers(), vec![block_number]);
-}
-
-#[tokio::test]
-async fn download_and_store_multiple_blocks() {
-    let from_block = 100;
-    let to_block = 105;
-
+async fn download_and_store_blocks(
+    #[case] from_block: BlockNumber,
+    #[case] to_block: BlockNumber,
+    #[case] expected_blocks: Vec<BlockNumber>,
+) {
     let provider = MockBlockWriter::new();
     let mut downloader = MockBlockDownloader::new();
 
@@ -237,17 +223,16 @@ async fn download_and_store_multiple_blocks() {
     }
 
     let mut stage = Blocks::new(provider.clone(), downloader.clone());
-
     let input = StageExecutionInput { from: from_block, to: to_block };
-    let result = stage.execute(&input).await;
 
+    let result = stage.execute(&input).await;
     assert!(result.is_ok());
 
-    // Verify download_blocks was called with the correct block number in the correct sequence
-    assert_eq!(downloader.requested_blocks(), vec![100, 101, 102, 103, 104, 105]);
-    // Verify insert_block_with_states_and_receipts was called with the correct block number in the
+    // Verify download_blocks was called with the correct block numbers in the correct sequence
+    assert_eq!(downloader.requested_blocks(), expected_blocks);
+    // Verify insert_block_with_states_and_receipts was called with the correct block numbers in the
     // correct sequence
-    assert_eq!(provider.stored_block_numbers(), vec![100, 101, 102, 103, 104, 105]);
+    assert_eq!(provider.stored_block_numbers(), expected_blocks);
 }
 
 #[tokio::test]
@@ -309,14 +294,13 @@ async fn storage_failure_returns_error() {
     assert_eq!(provider.stored_block_count(), 0);
 }
 
-// TODO: Stage input validation should be done on the `Pipeline` level
-//
 // This test is only testing the debug sanity check in Blocks::execute(). Becase the
 // `BlockDownloader` implementation could theoretically return whatever based on the block input
 // because the input of `BlockDownloader::download_blocks` doesn't prohibit invalid block range.
 // Maybe that's a good reason to change its method signature to `fn download_blocks(&self, range:
 // Range<BlockNumber>)` ??
 #[tokio::test]
+#[ignore = "Stage input validation should be done on the `Pipeline` level"]
 async fn empty_range_downloads_nothing() {
     // When from > to, the range is empty
     let downloader = MockBlockDownloader::new();

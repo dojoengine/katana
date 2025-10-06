@@ -6585,6 +6585,7 @@ dependencies = [
  "katana-rpc-types",
  "katana-tasks",
  "num-traits",
+ "rstest 0.18.2",
  "starknet",
  "thiserror 1.0.69",
  "tokio",

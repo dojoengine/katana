@@ -46,7 +46,10 @@ where
     }
 
     async fn execute(&mut self, input: &StageExecutionInput) -> StageResult {
+        // TODO: Implement range validation in the `Pipeline` level - or maybe in each stage as
+        // well?
         debug_assert!(input.from <= input.to);
+
         let blocks =
             self.downloader.download_blocks(input.from, input.to).await.map_err(Error::Gateway)?;
 
