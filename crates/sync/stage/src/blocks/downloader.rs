@@ -1,3 +1,15 @@
+//! Block downloading abstractions and implementations for the Blocks stage.
+//!
+//! This module defines the [`BlockDownloader`] trait, which provides a stage-specific
+//! interface for downloading block data. The trait is designed to be flexible and can
+//! be implemented in various ways depending on the download strategy and data source
+//! (e.g., gateway-based, P2P-based, or custom implementations).
+//!
+//! [`BatchBlockDownloader`] is one such implementation that leverages the generic
+//! [`BatchDownloader`](crate::downloader::BatchDownloader) utility for concurrent
+//! downloads with retry logic. This is suitable for many use cases but is not the
+//! only way to implement block downloading.
+
 use std::future::Future;
 
 use anyhow::Result;
@@ -9,8 +21,12 @@ use crate::downloader::{BatchDownloader, Downloader};
 
 /// Trait for downloading block data.
 ///
-/// This trait abstracts the mechanism for downloading blocks, allowing different
-/// implementations (e.g., gateway-based, P2P-based) to be used with the [`Blocks`] stage.
+/// This trait provides a stage-specific abstraction for downloading blocks, allowing different
+/// implementations (e.g., gateway-based, P2P-based, custom strategies) to be used with the
+/// [`Blocks`](crate::blocks::Blocks) stage.
+///
+/// Implementors can use any download strategy they choose, including but not limited to the
+/// [`BatchDownloader`](crate::downloader::BatchDownloader) utility provided by this crate.
 ///
 /// Currently, it's still coupled with the gateway (as seen by the types used in the trait method)
 /// but this level of abstraction will allow for easier testing and preparation for future
@@ -24,7 +40,11 @@ pub trait BlockDownloader: Send + Sync {
     ) -> impl Future<Output = Result<Vec<StateUpdateWithBlock>, katana_gateway::client::Error>> + Send;
 }
 
-/// [`BatchDownloader`]-based implementation of [`BlockDownloader`].
+/// An implementation of [`BlockDownloader`] that uses the [`BatchDownloader`] utility.
+///
+/// This implementation leverages the generic
+/// [`BatchDownloader`](crate::downloader::BatchDownloader) to download blocks concurrently in
+/// batches with automatic retry logic. It's a straightforward approach suitable for many scenarios.
 #[derive(Debug)]
 pub struct BatchBlockDownloader<D> {
     inner: BatchDownloader<D>,

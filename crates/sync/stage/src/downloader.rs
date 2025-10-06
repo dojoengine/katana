@@ -1,8 +1,12 @@
 //! Batch downloader with automatic retry logic.
 //!
-//! This module provides a generic batch downloader that can download multiple items
+//! This module provides a simple, generic batch downloader that can download multiple items
 //! concurrently in configurable batch sizes, with automatic retry handling for
 //! transient failures.
+//!
+//! **Note:** This is a basic implementation that stages can use for downloading data.
+//! Stages are free to implement their own download strategies that better suit their
+//! specific requirements.
 
 use std::future::Future;
 use std::time::Duration;
@@ -16,6 +20,9 @@ use tracing::trace;
 /// `BatchDownloader` splits a list of keys into batches and downloads them concurrently,
 /// with automatic retry handling for failed requests. It distinguishes between transient
 /// failures (which should be retried) and permanent failures (which fail immediately).
+///
+/// This provides a straightforward download implementation suitable for many use cases.
+/// Stages may choose to use this or implement custom download logic tailored to their needs.
 ///
 /// # Examples
 ///
@@ -233,7 +240,8 @@ pub enum DownloaderResult<T, E> {
 /// Trait for implementing custom download logic.
 ///
 /// Implementors define how individual items are downloaded given a key.
-/// The [`BatchDownloader`] uses this trait to orchestrate batch downloads
+/// Stages can implement this trait for use with [`BatchDownloader`]. The
+/// [`BatchDownloader`] uses this trait to orchestrate batch downloads
 /// with retry logic.
 ///
 /// # Associated Types
