@@ -294,18 +294,6 @@ async fn storage_failure_returns_error() {
     assert_eq!(provider.stored_block_count(), 0);
 }
 
-// This test is only testing the debug sanity check in Blocks::execute(). Becase the
-// `BlockDownloader` implementation could theoretically return whatever based on the block input
-// because the input of `BlockDownloader::download_blocks` doesn't prohibit invalid block range.
-// Maybe that's a good reason to change its method signature to `fn download_blocks(&self, range:
-// Range<BlockNumber>)` ??
-#[tokio::test]
-#[should_panic(expected = "Invalid block range")]
-async fn invalid_range_panics() {
-    // When from > to, the range is invalid and should panic at construction time
-    let _ = StageExecutionInput::new(100, 99);
-}
-
 #[tokio::test]
 async fn partial_download_failure_stops_execution() {
     let from_block = 100;

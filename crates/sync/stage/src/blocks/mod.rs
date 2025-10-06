@@ -47,7 +47,6 @@ where
 
     fn execute<'a>(&'a mut self, input: &'a StageExecutionInput) -> BoxFuture<'a, StageResult> {
         Box::pin(async move {
-
             let blocks = self
                 .downloader
                 .download_blocks(input.from, input.to)
