@@ -1,5 +1,6 @@
 #![cfg_attr(not(test), warn(unused_crate_dependencies))]
 
+use futures::future::BoxFuture;
 use katana_primitives::block::BlockNumber;
 use katana_provider::api::ProviderError;
 
@@ -43,11 +44,10 @@ pub enum Error {
     Other(#[from] anyhow::Error),
 }
 
-#[async_trait::async_trait]
 pub trait Stage: Send + Sync {
     /// Returns the id which uniquely identifies the stage.
     fn id(&self) -> &'static str;
 
     /// Executes the stage.
-    async fn execute(&mut self, input: &StageExecutionInput) -> StageResult;
+    fn execute<'a>(&'a mut self, input: &'a StageExecutionInput) -> BoxFuture<'a, StageResult>;
 }
