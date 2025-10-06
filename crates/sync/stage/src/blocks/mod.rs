@@ -1,4 +1,5 @@
 use anyhow::Result;
+use futures::future::BoxFuture;
 use katana_gateway::types::{BlockStatus, StateUpdate as GatewayStateUpdate, StateUpdateWithBlock};
 use katana_primitives::block::{
     FinalityStatus, GasPrices, Header, SealedBlock, SealedBlockWithStatus,
@@ -35,7 +36,6 @@ impl<P, B> Blocks<P, B> {
     }
 }
 
-#[async_trait::async_trait]
 impl<P, D> Stage for Blocks<P, D>
 where
     P: BlockWriter,
@@ -45,31 +45,36 @@ where
         "Blocks"
     }
 
-    async fn execute(&mut self, input: &StageExecutionInput) -> StageResult {
-        // TODO: Implement range validation in the `Pipeline` level - or maybe in each stage as
-        // well?
-        debug_assert!(input.from <= input.to);
+    fn execute<'a>(&'a mut self, input: &'a StageExecutionInput) -> BoxFuture<'a, StageResult> {
+        Box::pin(async move {
+            // TODO: Implement range validation in the `Pipeline` level - or maybe in each stage as
+            // well?
+            debug_assert!(input.from <= input.to);
 
-        let blocks =
-            self.downloader.download_blocks(input.from, input.to).await.map_err(Error::Gateway)?;
+            let blocks = self
+                .downloader
+                .download_blocks(input.from, input.to)
+                .await
+                .map_err(Error::Gateway)?;
 
-        if !blocks.is_empty() {
-            debug!(target: "stage", id = %self.id(), total = %blocks.len(), "Storing blocks to storage.");
+            if !blocks.is_empty() {
+                debug!(target: "stage", id = %self.id(), total = %blocks.len(), "Storing blocks to storage.");
 
-            // Store blocks to storage
-            for block in blocks {
-                let (block, receipts, state_updates) = extract_block_data(block)?;
+                // Store blocks to storage
+                for block in blocks {
+                    let (block, receipts, state_updates) = extract_block_data(block)?;
 
-                self.provider.insert_block_with_states_and_receipts(
-                    block,
-                    state_updates,
-                    receipts,
-                    Vec::new(),
-                )?;
+                    self.provider.insert_block_with_states_and_receipts(
+                        block,
+                        state_updates,
+                        receipts,
+                        Vec::new(),
+                    )?;
+                }
             }
-        }
 
-        Ok(())
+            Ok(())
+        })
     }
 }
 
