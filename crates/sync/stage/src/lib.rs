@@ -21,11 +21,16 @@ pub type StageResult = Result<(), Error>;
 /// # Invariant
 ///
 /// The `to` field must always be greater than or equal to the `from` field (`to >= from`).
-/// This invariant is enforced at construction time via the [`new`](Self::new) method and must be
-/// maintained by all code paths that create this type.
-#[derive(Debug, Clone, Default)]
+/// This invariant is enforced at construction time via the [`new`](Self::new) method.
+///
+/// **Note**: Since the fields are public, this invariant cannot be fully enforced at the type
+/// level. Code that directly constructs this type via struct literal syntax or modifies the
+/// fields after construction must manually ensure the invariant is maintained. Violating this
+/// invariant may lead to unexpected behavior in [`Stage`] implementations, such as empty
+/// iterations, panics, or incorrect processing logic.
+#[derive(Debug, Clone)]
 pub struct StageExecutionInput {
-    /// The block number to start processing from.
+    /// The block number to start processing from (inclusive).
     pub from: BlockNumber,
     /// The block number to stop processing at (inclusive).
     pub to: BlockNumber,
@@ -39,17 +44,13 @@ impl StageExecutionInput {
     /// Panics if `to < from`, as this violates the type's invariant.
     pub fn new(from: BlockNumber, to: BlockNumber) -> Self {
         assert!(to >= from, "Invalid block range: `to` ({to}) must be >= `from` ({from})");
-        unsafe { Self::new_unchecked(from, to) }
-    }
-
-    /// Creates a new [`StageExecutionInput`] without validating the range invariant.
-    ///
-    /// # Safety
-    ///
-    /// The caller must ensure that `to >= from`. Violating this invariant may lead to
-    /// unexpected behavior in [`Stage`] implementations.
-    pub unsafe fn new_unchecked(from: BlockNumber, to: BlockNumber) -> Self {
         Self { from, to }
+    }
+}
+
+impl Default for StageExecutionInput {
+    fn default() -> Self {
+        Self { from: 0, to: 0 }
     }
 }
 
