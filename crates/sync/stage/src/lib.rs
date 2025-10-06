@@ -3,9 +3,9 @@
 use katana_primitives::block::BlockNumber;
 use katana_provider::api::ProviderError;
 
-mod blocks;
-mod classes;
-mod downloader;
+pub mod blocks;
+pub mod classes;
+pub mod downloader;
 mod sequencing;
 
 pub use blocks::Blocks;

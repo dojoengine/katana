@@ -1,10 +1,7 @@
-use std::future::Future;
-
 use anyhow::Result;
-use katana_gateway::client::Client as SequencerGateway;
 use katana_gateway::types::{BlockStatus, StateUpdate as GatewayStateUpdate, StateUpdateWithBlock};
 use katana_primitives::block::{
-    BlockNumber, FinalityStatus, GasPrices, Header, SealedBlock, SealedBlockWithStatus,
+    FinalityStatus, GasPrices, Header, SealedBlock, SealedBlockWithStatus,
 };
 use katana_primitives::fee::{FeeInfo, PriceUnit};
 use katana_primitives::receipt::{
@@ -18,35 +15,43 @@ use num_traits::ToPrimitive;
 use starknet::core::types::ResourcePrice;
 use tracing::debug;
 
-use crate::downloader::{BatchDownloader, Downloader, DownloaderResult};
 use crate::{Stage, StageExecutionInput, StageResult};
+
+mod downloader;
+
+pub use downloader::{BatchBlockDownloader, BlockDownloader};
 
 /// A stage for syncing blocks.
 #[derive(Debug)]
-pub struct Blocks<P> {
+pub struct Blocks<P, B> {
     provider: P,
-    downloader: BatchDownloader<BlockDownloader>,
+    downloader: B,
 }
 
-impl<P> Blocks<P> {
+impl<P, B> Blocks<P, B> {
     /// Create a new [`Blocks`] stage.
-    pub fn new(provider: P, gateway: SequencerGateway, batch_size: usize) -> Self {
-        let downloader = BlockDownloader::new(gateway);
-        let downloader = BatchDownloader::new(downloader, batch_size);
+    pub fn new(provider: P, downloader: B) -> Self {
         Self { provider, downloader }
     }
 }
 
 #[async_trait::async_trait]
-impl<P: BlockWriter> Stage for Blocks<P> {
+impl<P, D> Stage for Blocks<P, D>
+where
+    P: BlockWriter,
+    D: BlockDownloader,
+{
     fn id(&self) -> &'static str {
         "Blocks"
     }
 
     async fn execute(&mut self, input: &StageExecutionInput) -> StageResult {
-        // convert the range to a list of block keys
-        let block_keys = (input.from..=input.to).collect::<Vec<_>>();
-        let blocks = self.downloader.download(&block_keys).await.map_err(Error::Gateway)?;
+        // TODO: Implement range validation in the `Pipeline` level - or maybe in each stage as
+        // well?
+        debug_assert!(input.from <= input.to);
+
+        let blocks =
+            self.downloader.download_blocks(input.from, input.to).await.map_err(Error::Gateway)?;
 
         if !blocks.is_empty() {
             debug!(target: "stage", id = %self.id(), total = %blocks.len(), "Storing blocks to storage.");
@@ -65,37 +70,6 @@ impl<P: BlockWriter> Stage for Blocks<P> {
         }
 
         Ok(())
-    }
-}
-
-#[derive(Debug)]
-struct BlockDownloader {
-    gateway: SequencerGateway,
-}
-
-impl BlockDownloader {
-    fn new(gateway: SequencerGateway) -> Self {
-        Self { gateway }
-    }
-}
-
-impl Downloader for BlockDownloader {
-    type Key = BlockNumber;
-    type Value = StateUpdateWithBlock;
-    type Error = katana_gateway::client::Error;
-
-    #[allow(clippy::manual_async_fn)]
-    fn download(
-        &self,
-        key: &Self::Key,
-    ) -> impl Future<Output = DownloaderResult<Self::Value, Self::Error>> {
-        async {
-            match self.gateway.get_state_update_with_block((*key).into()).await {
-                Ok(data) => DownloaderResult::Ok(data),
-                Err(err) if err.is_rate_limited() => DownloaderResult::Retry(err),
-                Err(err) => DownloaderResult::Err(err),
-            }
-        }
     }
 }
 
@@ -216,33 +190,4 @@ fn extract_block_data(
     let state_updates = StateUpdatesWithClasses { state_updates, ..Default::default() };
 
     Ok((SealedBlockWithStatus { block, status }, receipts, state_updates))
-}
-
-#[cfg(test)]
-mod tests {
-    use katana_gateway::client::Client as SequencerGateway;
-    use katana_provider::api::block::BlockNumberProvider;
-    use katana_provider::test_utils::test_provider;
-
-    use super::Blocks;
-    use crate::{Stage, StageExecutionInput};
-
-    #[tokio::test]
-    #[ignore = "require external network"]
-    async fn fetch_blocks() {
-        let from_block = 308919;
-        let to_block = from_block + 2;
-
-        let provider = test_provider();
-        let feeder_gateway = SequencerGateway::sepolia();
-
-        let mut stage = Blocks::new(&provider, feeder_gateway, 10);
-
-        let input = StageExecutionInput { from: from_block, to: to_block };
-        stage.execute(&input).await.expect("failed to execute stage");
-
-        // check provider storage
-        let block_number = provider.latest_number().expect("failed to get latest block number");
-        assert_eq!(block_number, to_block);
-    }
 }
