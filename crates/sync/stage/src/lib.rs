@@ -21,19 +21,12 @@ pub type StageResult = Result<(), Error>;
 /// # Invariant
 ///
 /// The `to` field must always be greater than or equal to the `from` field (`to >= from`).
-/// This invariant is enforced at construction time via the [`new`](Self::new) method.
-///
-/// **Note**: Since the fields are public, this invariant cannot be fully enforced at the type
-/// level. Code that directly constructs this type via struct literal syntax or modifies the
-/// fields after construction must manually ensure the invariant is maintained. Violating this
-/// invariant may lead to unexpected behavior in [`Stage`] implementations, such as empty
-/// iterations, panics, or incorrect processing logic.
+/// This invariant is enforced at construction time via the [`new`](Self::new) method and
+/// maintained by keeping the fields private.
 #[derive(Debug, Clone)]
 pub struct StageExecutionInput {
-    /// The block number to start processing from (inclusive).
-    pub from: BlockNumber,
-    /// The block number to stop processing at (inclusive).
-    pub to: BlockNumber,
+    from: BlockNumber,
+    to: BlockNumber,
 }
 
 impl StageExecutionInput {
@@ -45,6 +38,16 @@ impl StageExecutionInput {
     pub fn new(from: BlockNumber, to: BlockNumber) -> Self {
         assert!(to >= from, "Invalid block range: `to` ({to}) must be >= `from` ({from})");
         Self { from, to }
+    }
+
+    /// Returns the starting block number (inclusive).
+    pub fn from(&self) -> BlockNumber {
+        self.from
+    }
+
+    /// Returns the ending block number (inclusive).
+    pub fn to(&self) -> BlockNumber {
+        self.to
     }
 }
 

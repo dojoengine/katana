@@ -49,7 +49,7 @@ where
         Box::pin(async move {
             let blocks = self
                 .downloader
-                .download_blocks(input.from, input.to)
+                .download_blocks(input.from(), input.to())
                 .await
                 .map_err(Error::Gateway)?;
 

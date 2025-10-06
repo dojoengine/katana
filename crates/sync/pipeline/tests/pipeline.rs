@@ -57,11 +57,11 @@ impl Stage for TrackingStage {
     }
 
     fn execute<'a>(&'a mut self, input: &'a StageExecutionInput) -> BoxFuture<'a, StageResult> {
-        let from = input.from;
-        let to = input.to;
-        let executions = self.executions.clone();
         Box::pin(async move {
-            executions.lock().unwrap().push(ExecutionRecord { from, to });
+            self.executions
+                .lock()
+                .unwrap()
+                .push(ExecutionRecord { from: input.from(), to: input.to() });
             Ok(())
         })
     }
