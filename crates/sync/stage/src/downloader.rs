@@ -81,7 +81,6 @@ impl<D> BatchDownloader<D> {
     /// let downloader = BatchDownloader::new(my_downloader, 10)
     ///     .backoff(ConstantBuilder::default().with_delay(Duration::from_secs(1)));
     /// ```
-    #[cfg(test)]
     pub fn backoff<B>(self, strategy: B) -> BatchDownloader<D, B> {
         BatchDownloader {
             backoff: strategy,

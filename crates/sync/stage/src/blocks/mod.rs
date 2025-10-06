@@ -46,6 +46,7 @@ where
     }
 
     async fn execute(&mut self, input: &StageExecutionInput) -> StageResult {
+        debug_assert!(input.from <= input.to);
         let blocks =
             self.downloader.download_blocks(input.from, input.to).await.map_err(Error::Gateway)?;
 

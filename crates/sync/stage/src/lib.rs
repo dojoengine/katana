@@ -5,7 +5,7 @@ use katana_provider::api::ProviderError;
 
 pub mod blocks;
 pub mod classes;
-mod downloader;
+pub mod downloader;
 mod sequencing;
 
 pub use blocks::Blocks;
