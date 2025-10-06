@@ -6572,7 +6572,6 @@ name = "katana-stage"
 version = "1.7.0"
 dependencies = [
  "anyhow",
- "async-trait",
  "backon",
  "futures",
  "katana-core",
