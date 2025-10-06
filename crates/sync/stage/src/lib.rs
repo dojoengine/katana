@@ -23,7 +23,7 @@ pub type StageResult = Result<(), Error>;
 /// The `to` field must always be greater than or equal to the `from` field (`to >= from`).
 /// This invariant is enforced at construction time via the [`new`](Self::new) method and
 /// maintained by keeping the fields private.
-#[derive(Debug, Clone)]
+#[derive(Debug, Clone, Default)]
 pub struct StageExecutionInput {
     from: BlockNumber,
     to: BlockNumber,
@@ -50,12 +50,6 @@ impl StageExecutionInput {
     #[inline]
     pub fn to(&self) -> BlockNumber {
         self.to
-    }
-}
-
-impl Default for StageExecutionInput {
-    fn default() -> Self {
-        Self { from: 0, to: 0 }
     }
 }
 
