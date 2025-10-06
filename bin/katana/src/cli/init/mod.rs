@@ -62,7 +62,8 @@ use anyhow::Context;
 use clap::builder::NonEmptyStringValueParser;
 use clap::{Args, Subcommand};
 use deployment::DeploymentOutcome;
-use katana_chain_spec::rollup::{ChainConfigDir, FeeContract};
+use katana_chain_spec::rollup::ChainConfigDir;
+use katana_chain_spec::FeeContracts;
 use katana_chain_spec::{rollup, SettlementLayer};
 use katana_genesis::allocation::DevAllocationsGenerator;
 use katana_genesis::constant::DEFAULT_PREFUNDED_ACCOUNT_BALANCE;
@@ -246,8 +247,9 @@ impl RollupArgs {
         slot::add_paymasters_to_genesis(&mut genesis, &output.slot_paymasters.unwrap_or_default());
 
         // At the moment, the fee token is limited to a predefined token.
-        let fee_contract = FeeContract::default();
-        let chain_spec = rollup::ChainSpec { id, genesis, settlement, fee_contract };
+        let fee_contracts = FeeContracts::default();
+        let versioned_constants_overrides = None;
+        let chain_spec = rollup::ChainSpec { id, genesis, settlement, fee_contracts, versioned_constants_overrides };
 
         if let Some(path) = self.output_path {
             let dir = ChainConfigDir::create(path)?;
@@ -384,8 +386,9 @@ impl SovereignArgs {
         slot::add_paymasters_to_genesis(&mut genesis, &output.slot_paymasters.unwrap_or_default());
 
         // At the moment, the fee token is limited to a predefined token.
-        let fee_contract = FeeContract::default();
-        let chain_spec = rollup::ChainSpec { id, genesis, settlement, fee_contract };
+        let fee_contracts = FeeContracts::default();
+        let versioned_constants_overrides = None;
+        let chain_spec = rollup::ChainSpec { id, genesis, settlement, fee_contracts, versioned_constants_overrides };
 
         if let Some(path) = self.output_path {
             let dir = ChainConfigDir::create(path)?;
