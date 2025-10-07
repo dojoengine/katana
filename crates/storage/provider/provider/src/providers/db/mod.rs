@@ -113,6 +113,53 @@ impl<Db: Database> DbProvider<Db> {
     pub fn rw_provider(&self) -> ProviderResult<DbRWProvider<Db::TxMut>> {
         Ok(DbRWProvider(self.0.tx_mut()?))
     }
+
+    /// Executes a function with a read-only transaction provider.
+    ///
+    /// This is a convenience method that creates a transaction, passes it to the function,
+    /// and automatically commits it at the end.
+    ///
+    /// # Example
+    /// ```ignore
+    /// let result = db_provider.with_ro(|ro| {
+    ///     let block_num = ro.latest_number()?;
+    ///     let block_hash = ro.block_hash_by_num(block_num)?;
+    ///     let header = ro.header(block_num.into())?;
+    ///     Ok((block_num, block_hash, header))
+    /// })?;
+    /// ```
+    pub fn with_ro<T, F>(&self, f: F) -> ProviderResult<T>
+    where
+        F: FnOnce(&DbROProvider<Db::Tx>) -> ProviderResult<T>,
+    {
+        let ro = self.ro_provider()?;
+        let result = f(&ro)?;
+        ro.commit()?;
+        Ok(result)
+    }
+
+    /// Executes a function with a read-write transaction provider.
+    ///
+    /// This is a convenience method that creates a mutable transaction, passes it to the function,
+    /// and automatically commits it at the end if the function returns Ok.
+    ///
+    /// # Example
+    /// ```ignore
+    /// db_provider.with_rw(|rw| {
+    ///     rw.insert_block_with_states_and_receipts(block, states, receipts, execs)?;
+    ///     rw.set_checkpoint("stage", block_num)?;
+    ///     Ok(())
+    /// })?;
+    /// ```
+    pub fn with_rw<T, F>(&self, f: F) -> ProviderResult<T>
+    where
+        F: FnOnce(&DbRWProvider<Db::TxMut>) -> ProviderResult<T>,
+    {
+        let rw = self.rw_provider()?;
+        let result = f(&rw)?;
+        rw.commit()?;
+        Ok(result)
+    }
 }
 
 impl DbProvider<katana_db::Db> {
