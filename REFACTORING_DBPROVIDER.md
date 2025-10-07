@@ -2,7 +2,7 @@
 
 ## Overview
 
-This refactoring introduces transaction-based provider types (`DbTxProvider` and `DbTxMutProvider`) alongside the existing `DbProvider` to address two key issues:
+This refactoring introduces transaction-based provider types (`DbROProvider` and `DbRWProvider`) alongside the existing `DbProvider` to address two key issues:
 
 1. **Read Consistency**: Multiple consecutive provider calls may see different views of the database when each call creates its own transaction
 2. **Performance**: Creating a new transaction for every provider method call is inefficient when multiple operations need to be performed together
@@ -11,7 +11,7 @@ This refactoring introduces transaction-based provider types (`DbTxProvider` and
 
 ### New Types
 
-#### `DbTxProvider<Tx: DbTx>`
+#### `DbROProvider<Tx: DbTx>`
 A read-only provider that wraps a database transaction directly. All provider trait methods use the same transaction, ensuring a consistent view of the database across multiple calls.
 
 **Key Features:**
@@ -20,7 +20,7 @@ A read-only provider that wraps a database transaction directly. All provider tr
 - Provides consistent snapshot of database state
 - Transaction must be committed explicitly
 
-#### `DbTxMutProvider<Tx: DbTxMut>`
+#### `DbRWProvider<Tx: DbTxMut>`
 A read-write provider that wraps a mutable database transaction for write operations.
 
 **Key Features:**
@@ -53,19 +53,19 @@ let block_num = provider.latest_number()?;
 - Each call creates a new transaction
 - Multiple calls may see different database views
 
-### Pattern 2: Multiple Consistent Reads (use DbTxProvider)
+### Pattern 2: Multiple Consistent Reads (use DbROProvider)
 
 ```rust
 let provider = DbProvider::new(db);
-let tx_provider = provider.tx_provider()?;
+let ro_provider = provider.ro_provider()?;
 
 // All these calls share the same transaction
-let block_num = tx_provider.latest_number()?;
-let block_hash = tx_provider.block_hash_by_num(block_num)?;
-let header = tx_provider.header(block_num.into())?;
-let block = tx_provider.block(block_num.into())?;
+let block_num = ro_provider.latest_number()?;
+let block_hash = ro_provider.block_hash_by_num(block_num)?;
+let header = ro_provider.header(block_num.into())?;
+let block = ro_provider.block(block_num.into())?;
 
-tx_provider.commit()?;
+ro_provider.commit()?;
 ```
 
 **Pros:**
@@ -76,11 +76,11 @@ tx_provider.commit()?;
 **Cons:**
 - Requires explicit transaction management
 
-### Pattern 3: Atomic Writes (use DbTxMutProvider)
+### Pattern 3: Atomic Writes (use DbRWProvider)
 
 ```rust
 let provider = DbProvider::new(db);
-let mut_provider = provider.tx_mut_provider()?;
+let mut_provider = provider.rw_provider()?;
 
 // All writes in the same transaction
 mut_provider.insert_block_with_states_and_receipts(block1, states1, receipts1, executions1)?;
@@ -101,9 +101,9 @@ mut_provider.commit()?;
 
 ### Completed
 
-- ✅ `DbTxProvider<Tx>` and `DbTxMutProvider<Tx>` types created
-- ✅ Factory methods on `DbProvider` (`tx_provider()`, `tx_mut_provider()`)
-- ✅ Trait implementations for `DbTxProvider`:
+- ✅ `DbROProvider<Tx>` and `DbRWProvider<Tx>` types created
+- ✅ Factory methods on `DbProvider` (`ro_provider()`, `rw_provider()`)
+- ✅ Trait implementations for `DbROProvider`:
   - `BlockNumberProvider`
   - `BlockHashProvider`
   - `HeaderProvider`
@@ -113,7 +113,7 @@ mut_provider.commit()?;
 
 ### To Be Completed (Future Work)
 
-The following traits still need implementations on `DbTxProvider<Tx>`:
+The following traits still need implementations on `DbROProvider<Tx>`:
 - `BlockStatusProvider`
 - `StateUpdateProvider`
 - `TransactionProvider`
@@ -124,7 +124,7 @@ The following traits still need implementations on `DbTxProvider<Tx>`:
 - `BlockEnvProvider`
 - `StageCheckpointProvider`
 
-The following traits need implementations on `DbTxMutProvider<Tx>`:
+The following traits need implementations on `DbRWProvider<Tx>`:
 - `BlockWriter`
 - `StateWriter`
 - `ContractClassWriter`
@@ -132,7 +132,7 @@ The following traits need implementations on `DbTxMutProvider<Tx>`:
 
 These can be implemented following the same pattern demonstrated in the completed traits. The pattern is:
 
-1. For `DbTxProvider`: Remove `self.0.tx()?` at the beginning and `db_tx.commit()?` at the end
+1. For `DbROProvider`: Remove `self.0.tx()?` at the beginning and `db_tx.commit()?` at the end
 2. Replace all `db_tx` references with `self.0`
 3. Keep all other logic identical
 
@@ -141,7 +141,7 @@ These can be implemented following the same pattern demonstrated in the complete
 This refactoring is **opt-in** and **backward compatible**:
 
 1. Existing code using `DbProvider` continues to work unchanged
-2. New code can use `DbTxProvider`/`DbTxMutProvider` for consistency guarantees
+2. New code can use `DbROProvider`/`DbRWProvider` for consistency guarantees
 3. Gradual migration can happen on a case-by-case basis
 4. Hot paths that benefit from read consistency can be migrated first
 
@@ -172,14 +172,14 @@ let traces = provider.transaction_executions_by_block(id)?; // Transaction 3
 ### After (consistent reads)
 ```rust
 let provider = DbProvider::new(db);
-let tx_provider = provider.tx_provider()?;
+let ro_provider = provider.ro_provider()?;
 
 // All three calls use the same transaction - guaranteed consistent view
-let block = tx_provider.block(id)?;
-let txs = tx_provider.transactions_by_block(id)?;
-let traces = tx_provider.transaction_executions_by_block(id)?;
+let block = ro_provider.block(id)?;
+let txs = ro_provider.transactions_by_block(id)?;
+let traces = ro_provider.transaction_executions_by_block(id)?;
 
-tx_provider.commit()?;
+ro_provider.commit()?;
 ```
 
 ## Testing
@@ -188,7 +188,7 @@ The refactoring maintains all existing functionality. Existing tests for `DbProv
 
 ## Next Steps
 
-1. Complete remaining trait implementations for `DbTxProvider` and `DbTxMutProvider`
+1. Complete remaining trait implementations for `DbROProvider` and `DbRWProvider`
 2. Identify hot paths in the codebase that would benefit from transaction consistency
 3. Gradually migrate those paths to use the new provider types
 4. Add tests specifically for multi-operation consistency scenarios
