@@ -16,10 +16,41 @@ pub use sequencing::Sequencing;
 /// The result type of a stage execution. See [Stage::execute].
 pub type StageResult = Result<(), Error>;
 
-#[derive(Debug, Default, Clone)]
+/// Input parameters for stage execution.
+///
+/// # Invariant
+///
+/// The `to` field must always be greater than or equal to the `from` field (`to >= from`).
+/// This invariant is enforced at construction time via the [`new`](Self::new) method and
+/// maintained by keeping the fields private.
+#[derive(Debug, Clone, Default)]
 pub struct StageExecutionInput {
-    pub from: BlockNumber,
-    pub to: BlockNumber,
+    from: BlockNumber,
+    to: BlockNumber,
+}
+
+impl StageExecutionInput {
+    /// Creates a new [`StageExecutionInput`] with the given range.
+    ///
+    /// # Panics
+    ///
+    /// Panics if `to < from`, as this violates the type's invariant.
+    pub fn new(from: BlockNumber, to: BlockNumber) -> Self {
+        assert!(to >= from, "Invalid block range: `to` ({to}) must be >= `from` ({from})");
+        Self { from, to }
+    }
+
+    /// Returns the starting block number (inclusive).
+    #[inline]
+    pub fn from(&self) -> BlockNumber {
+        self.from
+    }
+
+    /// Returns the ending block number (inclusive).
+    #[inline]
+    pub fn to(&self) -> BlockNumber {
+        self.to
+    }
 }
 
 #[derive(Debug, Default)]
@@ -50,6 +81,10 @@ pub enum Error {
 /// in the synchronization process (e.g., downloading blocks, downloading classes, executing
 /// transactions).
 ///
+/// Stages are responsible for processing a range of blocks. Each stage implementation can assume
+/// that the block range provided in [`StageExecutionInput`] is valid (i.e., `input.to >=
+/// input.from`).
+///
 /// # Implementation Note
 ///
 /// The [`execute`](Stage::execute) method returns a [`BoxFuture`] instead of `impl Future` to
@@ -62,7 +97,7 @@ pub trait Stage: Send + Sync {
     /// Returns the id which uniquely identifies the stage.
     fn id(&self) -> &'static str;
 
-    /// Executes the stage.
+    /// Executes the stage for the given block range.
     ///
     /// # Arguments
     ///
@@ -71,5 +106,26 @@ pub trait Stage: Send + Sync {
     /// # Returns
     ///
     /// A [`BoxFuture`] that resolves to a [`StageResult`] upon completion.
+    ///
+    /// # Block Range
+    ///
+    /// Implementors can rely on the following guarantees:
+    /// - The `input.to` field will always be greater than or equal to `input.from`
+    /// - The block range `[input.from, input.to]` represents an inclusive range
+    ///
+    /// Implementors are expected to perform any necessary processings on all blocks in the range
+    /// `[input.from, input.to]`.
     fn execute<'a>(&'a mut self, input: &'a StageExecutionInput) -> BoxFuture<'a, StageResult>;
+}
+
+#[cfg(test)]
+mod tests {
+    use crate::StageExecutionInput;
+
+    #[tokio::test]
+    #[should_panic(expected = "Invalid block range")]
+    async fn invalid_range_panics() {
+        // When from > to, the range is invalid and should panic at construction time
+        let _ = StageExecutionInput::new(100, 99);
+    }
 }

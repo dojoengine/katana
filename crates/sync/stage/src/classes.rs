@@ -66,7 +66,7 @@ where
 
     fn execute<'a>(&'a mut self, input: &'a StageExecutionInput) -> BoxFuture<'a, StageResult> {
         Box::pin(async move {
-            let declared_classes = self.get_declared_classes(input.from, input.to)?;
+            let declared_classes = self.get_declared_classes(input.from(), input.to())?;
 
             if !declared_classes.is_empty() {
                 // fetch the classes artifacts
