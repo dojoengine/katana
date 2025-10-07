@@ -73,7 +73,7 @@ use katana_provider_api::stage::StageCheckpointProvider;
 use katana_provider_api::ProviderError;
 use katana_stage::{Stage, StageExecutionInput, StageExecutionOutput};
 use tokio::sync::watch;
-use tracing::{error, info, trace, Instrument};
+use tracing::{error, info, info_span, trace, Instrument};
 
 /// The result of a pipeline execution.
 pub type PipelineResult<T> = Result<T, Error>;
@@ -305,11 +305,12 @@ impl<P: StageCheckpointProvider> Pipeline<P> {
 
             // plus 1 because the checkpoint is inclusive
             let input = StageExecutionInput::new(checkpoint + 1, to);
+            let span = info_span!(target: "pipeline", "stage_execute", stage = %id, from = %checkpoint, to = %to);
 
             let StageExecutionOutput { last_block_processed } =
                 stage
                 .execute(&input)
-                .instrument(tracing::info_span!(target: "pipeline", "stage_execute", stage = %id, from = %checkpoint, to = %to))
+                .instrument(span)
                 .await
                 .map_err(|error| Error::StageExecution { id, error })?;
 
