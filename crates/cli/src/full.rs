@@ -26,7 +26,7 @@ pub struct FullNodeArgs {
     /// previously initialized Katana database.
     #[arg(long)]
     #[arg(value_name = "PATH")]
-    pub db_dir: Option<PathBuf>,
+    pub db_dir: PathBuf,
 
     /// Gateway API key for accessing the sequencer gateway.
     #[arg(long)]
@@ -96,7 +96,7 @@ impl FullNodeArgs {
     }
 
     fn db_config(&self) -> DbConfig {
-        DbConfig { dir: self.db_dir.clone() }
+        DbConfig { dir: Some(self.db_dir.clone()) }
     }
 
     fn rpc_config(&self) -> Result<RpcConfig> {
