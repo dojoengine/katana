@@ -1,5 +1,5 @@
 window.BENCHMARK_DATA = {
-  "lastUpdate": 1759870786695,
+  "lastUpdate": 1759877595388,
   "repoUrl": "https://github.com/dojoengine/katana",
   "entries": {
     "Benchmark": [
@@ -5951,6 +5951,66 @@ window.BENCHMARK_DATA = {
             "name": "Invoke.ERC20.transfer/Blockifier.Cold",
             "value": 11852377,
             "range": "± 295837",
+            "unit": "ns/iter"
+          }
+        ]
+      },
+      {
+        "commit": {
+          "author": {
+            "email": "evergreenkary@gmail.com",
+            "name": "Ammar Arif",
+            "username": "kariy"
+          },
+          "committer": {
+            "email": "noreply@github.com",
+            "name": "GitHub",
+            "username": "web-flow"
+          },
+          "distinct": true,
+          "id": "a3630fe892145c3a58cecc52c54ff6ce03582fbf",
+          "message": "refactor(provider): move state validation out of storage layer (#310)\n\nRefactors the storage layer to remove validation logic and move it to the caller's responsibility.\n\n## Changes\n\n1. **Removed validation from `DbProvider::insert_block_with_states_and_receipts`**\n   - Previously (in #173), the method would fail if declared classes didn't have their artifacts in `states.classes`\n   - Now stores all class artifacts independently without enforcing consistency\n   - The method's responsibility is simply to store the provided data, not validate it\n\n2. **Updated `BlockWriter` trait documentation**\n   - Clarifies that implementors may perform validation, but it's the caller's responsibility to ensure data consistency\n   - Makes it explicit that the method doesn't guarantee validation\n\n3. **Added `StateUpdatesWithClasses::validate_classes()` method**\n   - Provides a convenient way to validate class artifacts consistency\n   - Returns `Err(Vec<ClassHash>)` with missing class hashes if validation fails\n\n4. **Added validation in `Backend::store_block()`**\n   - Calls `validate_classes()` before storing the block\n   - Ensures data consistency at the appropriate layer\n\n## Rationale\n\nThe storage layer should be responsible for storing data, not validating\nbusiness logic. This separation of concerns:\n\n- Makes the storage implementation more flexible\n- Allows callers to make informed decisions about when/how to validate\n- Keeps validation logic at the appropriate layer (business logic, not\nstorage)\n\nSupersedes [#173]\n\n[#173]: https://github.com/dojoengine/katana/pull/173",
+          "timestamp": "2025-10-08T06:47:57+08:00",
+          "tree_id": "54adc270457088e9ab5aa1611c788404e25c3f5c",
+          "url": "https://github.com/dojoengine/katana/commit/a3630fe892145c3a58cecc52c54ff6ce03582fbf"
+        },
+        "date": 1759877593267,
+        "tool": "cargo",
+        "benches": [
+          {
+            "name": "Commit.Small/Parallel",
+            "value": 247953,
+            "range": "± 26482",
+            "unit": "ns/iter"
+          },
+          {
+            "name": "Commit.Big/Serial",
+            "value": 75504750,
+            "range": "± 2601192",
+            "unit": "ns/iter"
+          },
+          {
+            "name": "Commit.Big/Parallel",
+            "value": 53056402,
+            "range": "± 8949177",
+            "unit": "ns/iter"
+          },
+          {
+            "name": "compress world contract",
+            "value": 1693058,
+            "range": "± 55085",
+            "unit": "ns/iter"
+          },
+          {
+            "name": "decompress world contract",
+            "value": 2180609,
+            "range": "± 15346",
+            "unit": "ns/iter"
+          },
+          {
+            "name": "Invoke.ERC20.transfer/Blockifier.Cold",
+            "value": 12427533,
+            "range": "± 1190528",
             "unit": "ns/iter"
           }
         ]
