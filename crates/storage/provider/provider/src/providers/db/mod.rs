@@ -1,3 +1,45 @@
+// ! Database Provider Implementation
+//!
+//! This module provides database-backed implementations of the provider traits.
+//!
+//! # Provider Types
+//!
+//! - [`DbProvider<Db>`]: Wraps the database itself. Each provider method creates a new transaction.
+//!   This is the traditional approach and is still fully supported for backward compatibility.
+//!
+//! - [`DbTxProvider<Tx>`]: Wraps a read-only database transaction. Multiple provider calls share
+//!   the same transaction, ensuring read consistency and potentially improving performance.
+//!
+//! - [`DbTxMutProvider<Tx>`]: Wraps a read-write database transaction for write operations.
+//!
+//! # When to Use Which
+//!
+//! - Use `DbProvider` for simple, one-off queries or when backward compatibility is needed.
+//! - Use `DbTxProvider` when you need multiple reads with a consistent view of the database.
+//! - Use `DbTxMutProvider` for write operations that need to be atomic.
+//!
+//! # Examples
+//!
+//! ## Using DbProvider (traditional approach)
+//! ```ignore
+//! let provider = DbProvider::new(db);
+//! let block = provider.latest_number()?; // Creates and commits a transaction
+//! let hash = provider.latest_hash()?;     // Creates and commits another transaction
+//! ```
+//!
+//! ## Using DbTxProvider (consistent reads)
+//! ```ignore
+//! let provider = DbProvider::new(db);
+//! let tx_provider = provider.tx_provider()?; // Create transaction once
+//!
+//! // All these calls use the same transaction, ensuring consistency
+//! let block_num = tx_provider.latest_number()?;
+//! let block_hash = tx_provider.block_hash_by_num(block_num)?;
+//! let header = tx_provider.header(block_num.into())?;
+//!
+//! tx_provider.commit()?; // Commit once at the end
+//! ```
+
 pub mod state;
 pub mod trie;
 
@@ -61,6 +103,16 @@ impl<Db: Database> DbProvider<Db> {
     pub fn db(&self) -> &Db {
         &self.0
     }
+
+    /// Creates a read-only transaction provider.
+    pub fn tx_provider(&self) -> ProviderResult<DbTxProvider<Db::Tx>> {
+        Ok(DbTxProvider(self.0.tx()?))
+    }
+
+    /// Creates a read-write transaction provider.
+    pub fn tx_mut_provider(&self) -> ProviderResult<DbTxMutProvider<Db::TxMut>> {
+        Ok(DbTxMutProvider(self.0.tx_mut()?))
+    }
 }
 
 impl DbProvider<katana_db::Db> {
@@ -68,6 +120,94 @@ impl DbProvider<katana_db::Db> {
     pub fn new_in_memory() -> Self {
         let db = katana_db::Db::in_memory().expect("Failed to initialize in-memory database");
         Self(db)
+    }
+}
+
+/// A provider implementation that wraps a read-only database transaction.
+///
+/// This type provides a consistent view of the database across multiple provider calls by
+/// sharing the same database transaction. This ensures read consistency and can be more
+/// efficient when performing multiple operations.
+///
+/// # Usage
+///
+/// ```ignore
+/// use katana_provider::providers::db::{DbProvider, DbTxProvider};
+/// use katana_provider_api::block::{BlockNumberProvider, BlockHashProvider};
+///
+/// let db_provider = DbProvider::new(db);
+///
+/// // Without transaction wrapper - each call creates a new transaction
+/// // (may see different database views if database is being modified concurrently)
+/// let block_num = db_provider.latest_number()?;
+/// let block_hash = db_provider.block_hash_by_num(block_num)?;
+///
+/// // With transaction wrapper - consistent view across multiple calls
+/// let tx_provider = db_provider.tx_provider()?;
+/// let block_num = tx_provider.latest_number()?;
+/// let block_hash = tx_provider.block_hash_by_num(block_num)?;
+/// tx_provider.commit()?;
+/// ```
+#[derive(Debug)]
+pub struct DbTxProvider<Tx: DbTx>(pub(crate) Tx);
+
+impl<Tx: DbTx> DbTxProvider<Tx> {
+    /// Creates a new [`DbTxProvider`] from a database transaction.
+    pub fn new(tx: Tx) -> Self {
+        Self(tx)
+    }
+
+    /// Returns a reference to the underlying transaction.
+    pub fn tx(&self) -> &Tx {
+        &self.0
+    }
+
+    /// Commits the underlying transaction.
+    pub fn commit(self) -> Result<bool, katana_db::error::DatabaseError> {
+        self.0.commit()
+    }
+}
+
+/// A provider implementation that wraps a read-write database transaction.
+///
+/// This type provides write operations on the database with transaction semantics. All operations
+/// are performed within a single transaction that must be committed or will be rolled back when
+/// dropped.
+///
+/// # Usage
+///
+/// ```ignore
+/// use katana_provider::providers::db::{DbProvider, DbTxMutProvider};
+/// use katana_provider_api::block::BlockWriter;
+///
+/// let db_provider = DbProvider::new(db);
+///
+/// // Create a mutable transaction provider for write operations
+/// let mut_provider = db_provider.tx_mut_provider()?;
+///
+/// // All write operations use the same transaction
+/// mut_provider.insert_block_with_states_and_receipts(block, states, receipts, executions)?;
+///
+/// // Commit all changes atomically
+/// mut_provider.commit()?;
+/// ```
+#[derive(Debug)]
+pub struct DbTxMutProvider<Tx: DbTxMut>(pub(crate) Tx);
+
+impl<Tx: DbTxMut> DbTxMutProvider<Tx> {
+    /// Creates a new [`DbTxMutProvider`] from a database transaction.
+    pub fn new(tx: Tx) -> Self {
+        Self(tx)
+    }
+
+    /// Returns a reference to the underlying transaction.
+    pub fn tx(&self) -> &Tx {
+        &self.0
+    }
+
+    /// Commits the underlying transaction.
+    pub fn commit(self) -> Result<bool, katana_db::error::DatabaseError> {
+        self.0.commit()
     }
 }
 
@@ -100,6 +240,19 @@ impl<Db: Database> StateFactoryProvider for DbProvider<Db> {
     }
 }
 
+impl<Tx: DbTx> BlockNumberProvider for DbTxProvider<Tx> {
+    fn block_number_by_hash(&self, hash: BlockHash) -> ProviderResult<Option<BlockNumber>> {
+        let block_num = self.0.get::<tables::BlockNumbers>(hash)?;
+        Ok(block_num)
+    }
+
+    fn latest_number(&self) -> ProviderResult<BlockNumber> {
+        let res = self.0.cursor::<tables::BlockHashes>()?.last()?.map(|(num, _)| num);
+        let total_blocks = res.ok_or(ProviderError::MissingLatestBlockNumber)?;
+        Ok(total_blocks)
+    }
+}
+
 impl<Db: Database> BlockNumberProvider for DbProvider<Db> {
     fn block_number_by_hash(&self, hash: BlockHash) -> ProviderResult<Option<BlockNumber>> {
         let db_tx = self.0.tx()?;
@@ -114,6 +267,19 @@ impl<Db: Database> BlockNumberProvider for DbProvider<Db> {
         let total_blocks = res.ok_or(ProviderError::MissingLatestBlockNumber)?;
         db_tx.commit()?;
         Ok(total_blocks)
+    }
+}
+
+impl<Tx: DbTx> BlockHashProvider for DbTxProvider<Tx> {
+    fn latest_hash(&self) -> ProviderResult<BlockHash> {
+        let latest_block = self.latest_number()?;
+        let latest_hash = self.0.get::<tables::BlockHashes>(latest_block)?;
+        latest_hash.ok_or(ProviderError::MissingLatestBlockHash)
+    }
+
+    fn block_hash_by_num(&self, num: BlockNumber) -> ProviderResult<Option<BlockHash>> {
+        let block_hash = self.0.get::<tables::BlockHashes>(num)?;
+        Ok(block_hash)
     }
 }
 
@@ -134,6 +300,23 @@ impl<Db: Database> BlockHashProvider for DbProvider<Db> {
     }
 }
 
+impl<Tx: DbTx> HeaderProvider for DbTxProvider<Tx> {
+    fn header(&self, id: BlockHashOrNumber) -> ProviderResult<Option<Header>> {
+        let num = match id {
+            BlockHashOrNumber::Num(num) => Some(num),
+            BlockHashOrNumber::Hash(hash) => self.0.get::<tables::BlockNumbers>(hash)?,
+        };
+
+        if let Some(num) = num {
+            let header =
+                self.0.get::<tables::Headers>(num)?.ok_or(ProviderError::MissingBlockHeader(num))?;
+            Ok(Some(header.into()))
+        } else {
+            Ok(None)
+        }
+    }
+}
+
 impl<Db: Database> HeaderProvider for DbProvider<Db> {
     fn header(&self, id: BlockHashOrNumber) -> ProviderResult<Option<Header>> {
         let db_tx = self.0.tx()?;
@@ -151,6 +334,75 @@ impl<Db: Database> HeaderProvider for DbProvider<Db> {
         } else {
             Ok(None)
         }
+    }
+}
+
+impl<Tx: DbTx> BlockProvider for DbTxProvider<Tx> {
+    fn block_body_indices(
+        &self,
+        id: BlockHashOrNumber,
+    ) -> ProviderResult<Option<StoredBlockBodyIndices>> {
+        let block_num = match id {
+            BlockHashOrNumber::Num(num) => Some(num),
+            BlockHashOrNumber::Hash(hash) => self.0.get::<tables::BlockNumbers>(hash)?,
+        };
+
+        if let Some(num) = block_num {
+            let indices = self.0.get::<tables::BlockBodyIndices>(num)?;
+            Ok(indices)
+        } else {
+            Ok(None)
+        }
+    }
+
+    fn block(&self, id: BlockHashOrNumber) -> ProviderResult<Option<Block>> {
+        if let Some(header) = self.header(id)? {
+            let res = self.transactions_by_block(id)?;
+            let body = res.ok_or(ProviderError::MissingBlockTxs(header.number))?;
+            Ok(Some(Block { header, body }))
+        } else {
+            Ok(None)
+        }
+    }
+
+    fn block_with_tx_hashes(
+        &self,
+        id: BlockHashOrNumber,
+    ) -> ProviderResult<Option<BlockWithTxHashes>> {
+        let block_num = match id {
+            BlockHashOrNumber::Num(num) => Some(num),
+            BlockHashOrNumber::Hash(hash) => self.0.get::<tables::BlockNumbers>(hash)?,
+        };
+
+        let Some(block_num) = block_num else { return Ok(None) };
+
+        if let Some(header) = self.0.get::<tables::Headers>(block_num)? {
+            let res = self.0.get::<tables::BlockBodyIndices>(block_num)?;
+            let body_indices = res.ok_or(ProviderError::MissingBlockTxs(block_num))?;
+
+            let body = self.transaction_hashes_in_range(Range::from(body_indices))?;
+            let block = BlockWithTxHashes { header: header.into(), body };
+            Ok(Some(block))
+        } else {
+            Ok(None)
+        }
+    }
+
+    fn blocks_in_range(&self, range: RangeInclusive<u64>) -> ProviderResult<Vec<Block>> {
+        let total = range.end().saturating_sub(*range.start()) + 1;
+        let mut blocks = Vec::with_capacity(total as usize);
+
+        for num in range {
+            if let Some(header) = self.0.get::<tables::Headers>(num)? {
+                let res = self.0.get::<tables::BlockBodyIndices>(num)?;
+                let body_indices = res.ok_or(ProviderError::MissingBlockBodyIndices(num))?;
+
+                let body = self.transaction_in_range(Range::from(body_indices))?;
+                blocks.push(Block { header: header.into(), body })
+            }
+        }
+
+        Ok(blocks)
     }
 }
 
@@ -261,13 +513,13 @@ impl<Db: Database> BlockStatusProvider for DbProvider<Db> {
 
 // A helper function that iterates over all entries in a dupsort table and collects the
 // results into `V`. If `key` is not found, `V::default()` is returned.
-fn dup_entries<Db, Tb, V, T>(
-    db_tx: &<Db as Database>::Tx,
+fn dup_entries<Tx, Tb, V, T>(
+    db_tx: &Tx,
     key: <Tb as Table>::Key,
     mut f: impl FnMut(Result<KeyValue<Tb>, DatabaseError>) -> ProviderResult<Option<T>>,
 ) -> ProviderResult<V>
 where
-    Db: Database,
+    Tx: DbTx,
     Tb: DupSort + Debug,
     V: FromIterator<T> + Default,
 {
@@ -286,7 +538,7 @@ impl<Db: Database> StateUpdateProvider for DbProvider<Db> {
 
         if let Some(block_num) = block_num {
             let nonce_updates = dup_entries::<
-                Db,
+                _,
                 tables::NonceChangeHistory,
                 BTreeMap<ContractAddress, Nonce>,
                 _,
@@ -296,7 +548,7 @@ impl<Db: Database> StateUpdateProvider for DbProvider<Db> {
             })?;
 
             let deployed_contracts = dup_entries::<
-                Db,
+                _,
                 tables::ClassChangeHistory,
                 BTreeMap<ContractAddress, ClassHash>,
                 _,
@@ -326,7 +578,7 @@ impl<Db: Database> StateUpdateProvider for DbProvider<Db> {
 
             let storage_updates = {
                 let entries = dup_entries::<
-                    Db,
+                    _,
                     tables::StorageChangeHistory,
                     Vec<(ContractAddress, (StorageKey, StorageValue))>,
                     _,
@@ -368,7 +620,7 @@ impl<Db: Database> StateUpdateProvider for DbProvider<Db> {
 
         if let Some(block_num) = block_num {
             let declared_classes = dup_entries::<
-                Db,
+                _,
                 tables::ClassDeclarations,
                 BTreeMap<ClassHash, CompiledClassHash>,
                 _,
@@ -398,7 +650,7 @@ impl<Db: Database> StateUpdateProvider for DbProvider<Db> {
 
         if let Some(block_num) = block_num {
             let deployed_contracts = dup_entries::<
-                Db,
+                _,
                 tables::ClassChangeHistory,
                 BTreeMap<ContractAddress, ClassHash>,
                 _,
