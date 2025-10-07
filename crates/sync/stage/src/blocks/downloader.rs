@@ -16,6 +16,7 @@ use anyhow::Result;
 use katana_gateway::client::Client as GatewayClient;
 use katana_gateway::types::StateUpdateWithBlock;
 use katana_primitives::block::BlockNumber;
+use tracing::{info, info_span, trace, Instrument};
 
 use crate::downloader::{BatchDownloader, Downloader};
 
@@ -86,9 +87,12 @@ where
         to: BlockNumber,
     ) -> impl Future<Output = Result<Vec<StateUpdateWithBlock>, katana_gateway::client::Error>> + Send
     {
-        // convert the range to a list of block keys
-        let block_keys = (from..=to).collect::<Vec<BlockNumber>>();
-        self.inner.download(block_keys)
+        async move {
+            // convert the range to a list of block keys
+            let block_keys = (from..=to).collect::<Vec<BlockNumber>>();
+            self.inner.download(block_keys).await
+        }
+        .instrument(info_span!("download_blocks", %from, %to))
     }
 }
 
@@ -125,6 +129,7 @@ mod impls {
             &self,
             key: &Self::Key,
         ) -> impl Future<Output = DownloaderResult<Self::Value, Self::Error>> {
+            info!(block = %key, "Downloading block.");
             async {
                 match self.gateway.get_state_update_with_block((*key).into()).await.inspect_err(
                     |error| error!(block = %*key, ?error, "Error downloading block from gateway."),

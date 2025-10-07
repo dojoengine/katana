@@ -65,6 +65,7 @@
 //! [Erigon]: https://github.com/erigontech/erigon
 
 use core::future::IntoFuture;
+use std::sync::atomic::{AtomicU64, Ordering};
 
 use futures::future::BoxFuture;
 use katana_primitives::block::BlockNumber;
@@ -73,7 +74,7 @@ use katana_provider_api::ProviderError;
 use katana_stage::{Stage, StageExecutionInput, StageExecutionOutput};
 use tokio::sync::watch;
 use tokio::task::yield_now;
-use tracing::{debug, error, info, info_span, Instrument};
+use tracing::{debug, error, info, info_span, Instrument, Instrument};
 
 /// The result of a pipeline execution.
 pub type PipelineResult<T> = Result<T, Error>;
