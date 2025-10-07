@@ -16,7 +16,7 @@ use katana_provider_api::state::{
 };
 use katana_provider_api::ProviderError;
 
-use super::DbProvider;
+use super::{DbProvider, DbRWProvider};
 use crate::ProviderResult;
 
 impl<Db: Database> StateWriter for DbProvider<Db> {
@@ -88,6 +88,68 @@ impl<Db: Database> ContractClassWriter for DbProvider<Db> {
             db_tx.put::<tables::CompiledClassHashes>(hash, compiled_hash)?;
             Ok(())
         })?
+    }
+}
+
+impl<Tx: DbTxMut> StateWriter for DbRWProvider<Tx> {
+    fn set_nonce(&self, address: ContractAddress, nonce: Nonce) -> ProviderResult<()> {
+        let value = if let Some(info) = self.0.get::<tables::ContractInfo>(address)? {
+            GenericContractInfo { nonce, ..info }
+        } else {
+            GenericContractInfo { nonce, ..Default::default() }
+        };
+        self.0.put::<tables::ContractInfo>(address, value)?;
+        Ok(())
+    }
+
+    fn set_storage(
+        &self,
+        address: ContractAddress,
+        storage_key: StorageKey,
+        storage_value: StorageValue,
+    ) -> ProviderResult<()> {
+        let mut cursor = self.0.cursor_dup_mut::<tables::ContractStorage>()?;
+        let entry = cursor.seek_by_key_subkey(address, storage_key)?;
+
+        match entry {
+            Some(entry) if entry.key == storage_key => {
+                cursor.delete_current()?;
+            }
+            _ => {}
+        }
+
+        cursor.upsert(address, StorageEntry { key: storage_key, value: storage_value })?;
+        Ok(())
+    }
+
+    fn set_class_hash_of_contract(
+        &self,
+        address: ContractAddress,
+        class_hash: ClassHash,
+    ) -> ProviderResult<()> {
+        let value = if let Some(info) = self.0.get::<tables::ContractInfo>(address)? {
+            GenericContractInfo { class_hash, ..info }
+        } else {
+            GenericContractInfo { class_hash, ..Default::default() }
+        };
+        self.0.put::<tables::ContractInfo>(address, value)?;
+        Ok(())
+    }
+}
+
+impl<Tx: DbTxMut> ContractClassWriter for DbRWProvider<Tx> {
+    fn set_class(&self, hash: ClassHash, class: ContractClass) -> ProviderResult<()> {
+        self.0.put::<tables::Classes>(hash, class)?;
+        Ok(())
+    }
+
+    fn set_compiled_class_hash_of_class_hash(
+        &self,
+        hash: ClassHash,
+        compiled_hash: CompiledClassHash,
+    ) -> ProviderResult<()> {
+        self.0.put::<tables::CompiledClassHashes>(hash, compiled_hash)?;
+        Ok(())
     }
 }
 
