@@ -143,6 +143,41 @@ async fn declaring_already_existing_class() {
     assert_account_starknet_err!(result.unwrap_err(), StarknetError::ClassAlreadyDeclared);
 }
 
+#[tokio::test]
+async fn get_compiled_casm() {
+    let sequencer = TestNode::new().await;
+
+    let account = sequencer.account();
+    let provider = sequencer.starknet_rpc_client();
+
+    ///////////////////////////////////////////////////////////////////////////////////
+    // Declare a Sierra class
+
+    let path: PathBuf = PathBuf::from("tests/test_data/cairo1_contract.json");
+    let (contract, casm_hash) = common::prepare_contract_declaration_params(&path).unwrap();
+
+    let class_hash = contract.class_hash();
+
+    let res = account.declare_v3(contract.clone().into(), casm_hash).send().await.unwrap();
+    katana_utils::TxWaiter::new(res.transaction_hash, &provider).await.unwrap();
+    assert!(provider.get_class(BlockIdOrTag::PreConfirmed, class_hash).await.is_ok());
+
+    ///////////////////////////////////////////////////////////////////////////////////
+    // Setup expected compiled class data to verify against
+
+    use katana_primitives::class::{ContractClass, SierraContractClass};
+    use katana_rpc_types::SierraClass as RpcSierraClass;
+
+    let rpc_class = RpcSierraClass::try_from(contract).unwrap();
+    let class = SierraContractClass::try_from(rpc_class).unwrap();
+    let expected_casm = ContractClass::Class(class).compile().unwrap();
+
+    ///////////////////////////////////////////////////////////////////////////////////
+
+    let casm = sequencer.starknet_rpc_client().get_compiled_casm(class_hash).await.unwrap();
+    assert_eq!(casm, expected_casm);
+}
+
 #[rstest::rstest]
 #[tokio::test]
 async fn deploy_account(
