@@ -1,5 +1,5 @@
 window.BENCHMARK_DATA = {
-  "lastUpdate": 1759350077498,
+  "lastUpdate": 1759870786695,
   "repoUrl": "https://github.com/dojoengine/katana",
   "entries": {
     "Benchmark": [
@@ -5891,6 +5891,66 @@ window.BENCHMARK_DATA = {
             "name": "Invoke.ERC20.transfer/Blockifier.Cold",
             "value": 11464750,
             "range": "± 79637",
+            "unit": "ns/iter"
+          }
+        ]
+      },
+      {
+        "commit": {
+          "author": {
+            "email": "evergreenkary@gmail.com",
+            "name": "Ammar Arif",
+            "username": "kariy"
+          },
+          "committer": {
+            "email": "noreply@github.com",
+            "name": "GitHub",
+            "username": "web-flow"
+          },
+          "distinct": true,
+          "id": "6d4002958e8d5056841304fed00a9a1380e5f8dc",
+          "message": "feat(rpc): implement `starknet_getCompiledCasm` method (#309)\n\nImplements `starknet_getCompiledCasm` method of the Starknet JSON-RPC specification. It was initially introduced in RPC [v0.8.0]. This method returns the CASM i.e., compiled Sierra class, or the legacy contract class type.\n\n[v0.8.0]: https://github.com/starkware-libs/starknet-specs/blob/b4f81445c79b2a8b2b09ff5bb2b7eddca78a32de/api/starknet_executables.json#L10-L40",
+          "timestamp": "2025-10-08T04:48:52+08:00",
+          "tree_id": "69773c30f040d6283a66df6450c0221f243fee61",
+          "url": "https://github.com/dojoengine/katana/commit/6d4002958e8d5056841304fed00a9a1380e5f8dc"
+        },
+        "date": 1759870784650,
+        "tool": "cargo",
+        "benches": [
+          {
+            "name": "Commit.Small/Parallel",
+            "value": 241892,
+            "range": "± 24302",
+            "unit": "ns/iter"
+          },
+          {
+            "name": "Commit.Big/Serial",
+            "value": 75023602,
+            "range": "± 3587416",
+            "unit": "ns/iter"
+          },
+          {
+            "name": "Commit.Big/Parallel",
+            "value": 52883104,
+            "range": "± 23015301",
+            "unit": "ns/iter"
+          },
+          {
+            "name": "compress world contract",
+            "value": 1644090,
+            "range": "± 18700",
+            "unit": "ns/iter"
+          },
+          {
+            "name": "decompress world contract",
+            "value": 2124421,
+            "range": "± 12692",
+            "unit": "ns/iter"
+          },
+          {
+            "name": "Invoke.ERC20.transfer/Blockifier.Cold",
+            "value": 11852377,
+            "range": "± 295837",
             "unit": "ns/iter"
           }
         ]
