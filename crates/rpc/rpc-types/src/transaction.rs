@@ -2,11 +2,10 @@ use katana_primitives::class::{ClassHash, CompiledClassHash};
 use katana_primitives::contract::Nonce;
 use katana_primitives::da::DataAvailabilityMode;
 use katana_primitives::execution::EntryPointSelector;
-use katana_primitives::fee::{AllResourceBoundsMapping, Tip};
+use katana_primitives::fee::{ResourceBoundsMapping, Tip};
 use katana_primitives::transaction::TxHash;
 use katana_primitives::{transaction as primitives, ContractAddress, Felt};
 use serde::{Deserialize, Serialize};
-use starknet::core::types::ResourceBoundsMapping;
 
 use crate::ExecutionResult;
 
@@ -357,7 +356,7 @@ impl From<primitives::Tx> for RpcTx {
                     fee_data_availability_mode: tx.fee_data_availability_mode,
                     nonce_data_availability_mode: tx.nonce_data_availability_mode,
                     paymaster_data: tx.paymaster_data,
-                    resource_bounds: to_rpc_resource_bounds(tx.resource_bounds),
+                    resource_bounds: tx.resource_bounds,
                     tip: tx.tip.into(),
                 })),
             },
@@ -397,7 +396,7 @@ impl From<primitives::Tx> for RpcTx {
                     fee_data_availability_mode: tx.fee_data_availability_mode,
                     nonce_data_availability_mode: tx.nonce_data_availability_mode,
                     paymaster_data: tx.paymaster_data,
-                    resource_bounds: to_rpc_resource_bounds(tx.resource_bounds),
+                    resource_bounds: tx.resource_bounds,
                     tip: tx.tip.into(),
                 }),
             }),
@@ -432,7 +431,7 @@ impl From<primitives::Tx> for RpcTx {
                         fee_data_availability_mode: tx.fee_data_availability_mode,
                         nonce_data_availability_mode: tx.nonce_data_availability_mode,
                         paymaster_data: tx.paymaster_data,
-                        resource_bounds: to_rpc_resource_bounds(tx.resource_bounds),
+                        resource_bounds: tx.resource_bounds,
                         tip: tx.tip.into(),
                     })
                 }
@@ -445,89 +444,6 @@ impl From<primitives::Tx> for RpcTx {
                 version: tx.version,
             }),
         }
-    }
-}
-
-fn to_rpc_resource_bounds(
-    bounds: katana_primitives::fee::ResourceBoundsMapping,
-) -> starknet::core::types::ResourceBoundsMapping {
-    match bounds {
-        katana_primitives::fee::ResourceBoundsMapping::All(all_bounds) => {
-            starknet::core::types::ResourceBoundsMapping {
-                l1_gas: starknet::core::types::ResourceBounds {
-                    max_amount: all_bounds.l1_gas.max_amount,
-                    max_price_per_unit: all_bounds.l1_gas.max_price_per_unit,
-                },
-                l2_gas: starknet::core::types::ResourceBounds {
-                    max_amount: all_bounds.l2_gas.max_amount,
-                    max_price_per_unit: all_bounds.l2_gas.max_price_per_unit,
-                },
-                l1_data_gas: starknet::core::types::ResourceBounds {
-                    max_amount: all_bounds.l1_data_gas.max_amount,
-                    max_price_per_unit: all_bounds.l1_data_gas.max_price_per_unit,
-                },
-            }
-        }
-        // The `l1_data_gas` bounds should actually be ommitted but because `starknet-rs` doesn't
-        // support older RPC spec, we default to zero. This aren't technically accurate so should
-        // find an alternative or completely remove legacy support. But we need to support in order
-        // to maintain backward compatibility from older database version.
-        katana_primitives::fee::ResourceBoundsMapping::L1Gas(l1_gas_bounds) => {
-            starknet::core::types::ResourceBoundsMapping {
-                l1_gas: starknet::core::types::ResourceBounds {
-                    max_amount: l1_gas_bounds.max_amount,
-                    max_price_per_unit: l1_gas_bounds.max_price_per_unit,
-                },
-                l2_gas: starknet::core::types::ResourceBounds {
-                    max_amount: 0,
-                    max_price_per_unit: 0,
-                },
-                l1_data_gas: starknet::core::types::ResourceBounds {
-                    max_amount: 0,
-                    max_price_per_unit: 0,
-                },
-            }
-        }
-    }
-}
-
-fn from_rpc_resource_bounds(
-    bounds: starknet::core::types::ResourceBoundsMapping,
-) -> katana_primitives::fee::ResourceBoundsMapping {
-    // If l2_gas and l1_data_gas are zero, treat it as L1Gas only (legacy support)
-    //
-    // this is technically an incorrect way to do this because the l2_gas and l1_data_gas can
-    // technically still be zero even if we're using non-legacy resource bounds (ie all bounds are
-    // set). the only way to do this is to use a different type/variant to represent a legacy
-    // resource bounds mapping. ideally we could just use the ResourceBoundsMapping from
-    // katana-primitives, but the L1Gas (ie legacy) has been incorrectly defined (lack of l2_gas
-    // field) and we can't simply add it because it'll break the type serialization format.
-    if bounds.l2_gas.max_amount == 0
-        && bounds.l2_gas.max_price_per_unit == 0
-        && bounds.l1_data_gas.max_amount == 0
-        && bounds.l1_data_gas.max_price_per_unit == 0
-    {
-        katana_primitives::fee::ResourceBoundsMapping::L1Gas(
-            katana_primitives::fee::ResourceBounds {
-                max_amount: bounds.l1_gas.max_amount,
-                max_price_per_unit: bounds.l1_gas.max_price_per_unit,
-            },
-        )
-    } else {
-        katana_primitives::fee::ResourceBoundsMapping::All(AllResourceBoundsMapping {
-            l1_gas: katana_primitives::fee::ResourceBounds {
-                max_amount: bounds.l1_gas.max_amount,
-                max_price_per_unit: bounds.l1_gas.max_price_per_unit,
-            },
-            l2_gas: katana_primitives::fee::ResourceBounds {
-                max_amount: bounds.l2_gas.max_amount,
-                max_price_per_unit: bounds.l2_gas.max_price_per_unit,
-            },
-            l1_data_gas: katana_primitives::fee::ResourceBounds {
-                max_amount: bounds.l1_data_gas.max_amount,
-                max_price_per_unit: bounds.l1_data_gas.max_price_per_unit,
-            },
-        })
     }
 }
 
@@ -567,7 +483,7 @@ impl From<RpcTx> for primitives::Tx {
                     nonce: tx.nonce,
                     calldata: tx.calldata,
                     signature: tx.signature,
-                    resource_bounds: from_rpc_resource_bounds(tx.resource_bounds),
+                    resource_bounds: tx.resource_bounds,
                     tip: tx.tip.into(),
                     paymaster_data: tx.paymaster_data,
                     account_deployment_data: tx.account_deployment_data,
@@ -611,7 +527,7 @@ impl From<RpcTx> for primitives::Tx {
                     signature: tx.signature,
                     class_hash: tx.class_hash,
                     compiled_class_hash: tx.compiled_class_hash,
-                    resource_bounds: from_rpc_resource_bounds(tx.resource_bounds),
+                    resource_bounds: tx.resource_bounds,
                     tip: tx.tip.into(),
                     paymaster_data: tx.paymaster_data,
                     account_deployment_data: tx.account_deployment_data,
@@ -654,7 +570,7 @@ impl From<RpcTx> for primitives::Tx {
                         contract_address: Default::default(),
                         contract_address_salt: tx.contract_address_salt,
                         constructor_calldata: tx.constructor_calldata,
-                        resource_bounds: from_rpc_resource_bounds(tx.resource_bounds),
+                        resource_bounds: tx.resource_bounds,
                         tip: tx.tip.into(),
                         paymaster_data: tx.paymaster_data,
                         nonce_data_availability_mode: tx.nonce_data_availability_mode,

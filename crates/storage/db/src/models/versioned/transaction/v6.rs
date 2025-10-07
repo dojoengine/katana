@@ -2,15 +2,25 @@
 //! has been defined in database version 6. Modifying the order will break compatibility with the
 //! version.
 
-use katana_primitives::{chain, class, contract, da, fee, transaction, Felt};
+use katana_primitives::fee::{self};
+use katana_primitives::{chain, class, contract, da, transaction, Felt};
 use serde::{Deserialize, Serialize};
+
+#[repr(u8)]
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[cfg_attr(test, derive(::arbitrary::Arbitrary))]
+pub enum Tx {
+    Invoke(InvokeTx) = 0,
+    Declare(DeclareTx),
+    L1Handler(transaction::L1HandlerTx),
+    DeployAccount(DeployAccountTx),
+    Deploy(transaction::DeployTx),
+}
 
 #[derive(Debug, Clone, PartialEq, Eq, Default, Serialize, Deserialize)]
 #[cfg_attr(test, derive(::arbitrary::Arbitrary))]
 pub struct ResourceBoundsMapping {
-    #[serde(alias = "L1_GAS")]
     pub l1_gas: fee::ResourceBounds,
-    #[serde(alias = "L2_GAS")]
     pub l2_gas: fee::ResourceBounds,
 }
 
@@ -91,54 +101,9 @@ pub enum DeployAccountTx {
     V3(DeployAccountTxV3),
 }
 
-#[repr(u8)]
-#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
-#[cfg_attr(test, derive(::arbitrary::Arbitrary))]
-pub enum Tx {
-    Invoke(InvokeTx) = 0,
-    Declare(DeclareTx),
-    L1Handler(transaction::L1HandlerTx),
-    DeployAccount(DeployAccountTx),
-    Deploy(transaction::DeployTx),
-}
-
-impl Tx {
-    pub fn version(&self) -> Felt {
-        match self {
-            Tx::Invoke(tx) => match tx {
-                InvokeTx::V0(_) => Felt::ZERO,
-                InvokeTx::V1(_) => Felt::ONE,
-                InvokeTx::V3(_) => Felt::THREE,
-            },
-            Tx::Declare(tx) => match tx {
-                DeclareTx::V0(_) => Felt::ZERO,
-                DeclareTx::V1(_) => Felt::ONE,
-                DeclareTx::V2(_) => Felt::TWO,
-                DeclareTx::V3(_) => Felt::THREE,
-            },
-            Tx::L1Handler(tx) => tx.version,
-            Tx::DeployAccount(tx) => match tx {
-                DeployAccountTx::V1(_) => Felt::ONE,
-                DeployAccountTx::V3(_) => Felt::THREE,
-            },
-            Tx::Deploy(tx) => tx.version,
-        }
-    }
-
-    pub fn r#type(&self) -> transaction::TxType {
-        match self {
-            Self::Invoke(_) => transaction::TxType::Invoke,
-            Self::Deploy(_) => transaction::TxType::Deploy,
-            Self::Declare(_) => transaction::TxType::Declare,
-            Self::L1Handler(_) => transaction::TxType::L1Handler,
-            Self::DeployAccount(_) => transaction::TxType::DeployAccount,
-        }
-    }
-}
-
 impl From<ResourceBoundsMapping> for fee::ResourceBoundsMapping {
     fn from(v6: ResourceBoundsMapping) -> Self {
-        Self::L1Gas(v6.l1_gas)
+        Self::L1Gas(fee::L1GasResourceBoundsMapping { l1_gas: v6.l1_gas, l2_gas: v6.l2_gas })
     }
 }
 
@@ -272,8 +237,10 @@ mod tests {
 
         match converted {
             fee::ResourceBoundsMapping::L1Gas(bounds) => {
-                assert_eq!(bounds.max_amount, 1000);
-                assert_eq!(bounds.max_price_per_unit, 100);
+                assert_eq!(bounds.l1_gas.max_amount, 1000);
+                assert_eq!(bounds.l1_gas.max_price_per_unit, 100);
+                assert_eq!(bounds.l2_gas.max_amount, 2000);
+                assert_eq!(bounds.l2_gas.max_price_per_unit, 200);
             }
             fee::ResourceBoundsMapping::All(..) => panic!("wrong variant"),
         }
@@ -306,8 +273,10 @@ mod tests {
 
         match converted.resource_bounds {
             fee::ResourceBoundsMapping::L1Gas(bounds) => {
-                assert_eq!(bounds.max_amount, 1000);
-                assert_eq!(bounds.max_price_per_unit, 100);
+                assert_eq!(bounds.l1_gas.max_amount, 1000);
+                assert_eq!(bounds.l1_gas.max_price_per_unit, 100);
+                assert_eq!(bounds.l2_gas.max_amount, 2000);
+                assert_eq!(bounds.l2_gas.max_price_per_unit, 200);
             }
             fee::ResourceBoundsMapping::All(..) => panic!("wrong variant"),
         }
