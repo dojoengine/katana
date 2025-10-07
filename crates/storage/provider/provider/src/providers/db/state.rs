@@ -21,15 +21,7 @@ use crate::ProviderResult;
 
 impl<Db: Database> StateWriter for DbProvider<Db> {
     fn set_nonce(&self, address: ContractAddress, nonce: Nonce) -> ProviderResult<()> {
-        self.0.update(move |db_tx| -> ProviderResult<()> {
-            let value = if let Some(info) = db_tx.get::<tables::ContractInfo>(address)? {
-                GenericContractInfo { nonce, ..info }
-            } else {
-                GenericContractInfo { nonce, ..Default::default() }
-            };
-            db_tx.put::<tables::ContractInfo>(address, value)?;
-            Ok(())
-        })?
+        self.with_rw(|rw| rw.set_nonce(address, nonce))
     }
 
     fn set_storage(
@@ -38,20 +30,7 @@ impl<Db: Database> StateWriter for DbProvider<Db> {
         storage_key: StorageKey,
         storage_value: StorageValue,
     ) -> ProviderResult<()> {
-        self.0.update(move |db_tx| -> ProviderResult<()> {
-            let mut cursor = db_tx.cursor_dup_mut::<tables::ContractStorage>()?;
-            let entry = cursor.seek_by_key_subkey(address, storage_key)?;
-
-            match entry {
-                Some(entry) if entry.key == storage_key => {
-                    cursor.delete_current()?;
-                }
-                _ => {}
-            }
-
-            cursor.upsert(address, StorageEntry { key: storage_key, value: storage_value })?;
-            Ok(())
-        })?
+        self.with_rw(|rw| rw.set_storage(address, storage_key, storage_value))
     }
 
     fn set_class_hash_of_contract(
@@ -59,24 +38,13 @@ impl<Db: Database> StateWriter for DbProvider<Db> {
         address: ContractAddress,
         class_hash: ClassHash,
     ) -> ProviderResult<()> {
-        self.0.update(move |db_tx| -> ProviderResult<()> {
-            let value = if let Some(info) = db_tx.get::<tables::ContractInfo>(address)? {
-                GenericContractInfo { class_hash, ..info }
-            } else {
-                GenericContractInfo { class_hash, ..Default::default() }
-            };
-            db_tx.put::<tables::ContractInfo>(address, value)?;
-            Ok(())
-        })?
+        self.with_rw(|rw| rw.set_class_hash_of_contract(address, class_hash))
     }
 }
 
 impl<Db: Database> ContractClassWriter for DbProvider<Db> {
     fn set_class(&self, hash: ClassHash, class: ContractClass) -> ProviderResult<()> {
-        self.0.update(move |db_tx| -> ProviderResult<()> {
-            db_tx.put::<tables::Classes>(hash, class)?;
-            Ok(())
-        })?
+        self.with_rw(|rw| rw.set_class(hash, class))
     }
 
     fn set_compiled_class_hash_of_class_hash(
@@ -84,10 +52,7 @@ impl<Db: Database> ContractClassWriter for DbProvider<Db> {
         hash: ClassHash,
         compiled_hash: CompiledClassHash,
     ) -> ProviderResult<()> {
-        self.0.update(move |db_tx| -> ProviderResult<()> {
-            db_tx.put::<tables::CompiledClassHashes>(hash, compiled_hash)?;
-            Ok(())
-        })?
+        self.with_rw(|rw| rw.set_compiled_class_hash_of_class_hash(hash, compiled_hash))
     }
 }
 
