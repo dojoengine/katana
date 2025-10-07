@@ -317,7 +317,7 @@ impl<P: StageCheckpointProvider> Pipeline<P> {
             info!(target: "pipeline", %id, from = %checkpoint, %to, "Executing stage.");
 
             // plus 1 because the checkpoint is inclusive
-            let input = StageExecutionInput { from: checkpoint + 1, to };
+            let input = StageExecutionInput::new(checkpoint + 1, to);
             stage.execute(&input).await.map_err(|error| Error::StageExecution { id, error })?;
             self.provider.set_checkpoint(id, to)?;
 

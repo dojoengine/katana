@@ -223,7 +223,7 @@ async fn download_and_store_blocks(
     }
 
     let mut stage = Blocks::new(provider.clone(), downloader.clone());
-    let input = StageExecutionInput { from: from_block, to: to_block };
+    let input = StageExecutionInput::new(from_block, to_block);
 
     let result = stage.execute(&input).await;
     assert!(result.is_ok());
@@ -244,7 +244,7 @@ async fn download_failure_returns_error() {
     let provider = MockBlockWriter::new();
 
     let mut stage = Blocks::new(provider.clone(), downloader.clone());
-    let input = StageExecutionInput { from: block_number, to: block_number };
+    let input = StageExecutionInput::new(block_number, block_number);
 
     let result = stage.execute(&input).await;
 
@@ -274,7 +274,7 @@ async fn storage_failure_returns_error() {
     let provider = MockBlockWriter::new().with_insert_error(error_msg.clone());
 
     let mut stage = Blocks::new(provider.clone(), downloader.clone());
-    let input = StageExecutionInput { from: block_number, to: block_number };
+    let input = StageExecutionInput::new(block_number, block_number);
 
     let result = stage.execute(&input).await;
 
@@ -294,29 +294,6 @@ async fn storage_failure_returns_error() {
     assert_eq!(provider.stored_block_count(), 0);
 }
 
-// This test is only testing the debug sanity check in Blocks::execute(). Becase the
-// `BlockDownloader` implementation could theoretically return whatever based on the block input
-// because the input of `BlockDownloader::download_blocks` doesn't prohibit invalid block range.
-// Maybe that's a good reason to change its method signature to `fn download_blocks(&self, range:
-// Range<BlockNumber>)` ??
-#[tokio::test]
-#[ignore = "Stage input validation should be done on the `Pipeline` level"]
-async fn empty_range_downloads_nothing() {
-    // When from > to, the range is empty
-    let downloader = MockBlockDownloader::new();
-    let provider = MockBlockWriter::new();
-
-    let mut stage = Blocks::new(provider.clone(), downloader.clone());
-    let input = StageExecutionInput { from: 100, to: 99 };
-
-    let result = stage.execute(&input).await;
-    assert!(result.is_ok());
-
-    // No downloads should occur for empty range
-    assert_eq!(downloader.requested_blocks().len(), 0);
-    assert_eq!(provider.stored_block_count(), 0);
-}
-
 #[tokio::test]
 async fn partial_download_failure_stops_execution() {
     let from_block = 100;
@@ -332,7 +309,7 @@ async fn partial_download_failure_stops_execution() {
     let provider = MockBlockWriter::new();
     let mut stage = Blocks::new(provider.clone(), downloader.clone());
 
-    let input = StageExecutionInput { from: from_block, to: to_block };
+    let input = StageExecutionInput::new(from_block, to_block);
     let result = stage.execute(&input).await;
 
     // Should fail on block 103
@@ -355,7 +332,7 @@ async fn fetch_blocks_from_gateway() {
 
     let mut stage = Blocks::new(&provider, downloader);
 
-    let input = StageExecutionInput { from: from_block, to: to_block };
+    let input = StageExecutionInput::new(from_block, to_block);
     stage.execute(&input).await.expect("failed to execute stage");
 
     // check provider storage
