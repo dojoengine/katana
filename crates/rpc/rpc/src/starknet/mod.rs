@@ -334,14 +334,14 @@ impl<EF: ExecutorFactory> StarknetApi<EF> {
         &self,
         class_hash: ClassHash,
     ) -> StarknetApiResult<CompiledClass> {
-        self.on_io_blocking_task(move |this| {
-            // Get the latest state to retrieve the class
-            let state = this.state(&BlockIdOrTag::Latest)?;
+        let class = self
+            .on_io_blocking_task(move |this| {
+                let state = this.state(&BlockIdOrTag::Latest)?;
+                state.class(class_hash)?.ok_or(StarknetApiError::ClassHashNotFound)
+            })
+            .await??;
 
-            let Some(class) = state.class(class_hash)? else {
-                return Err(StarknetApiError::ClassHashNotFound);
-            };
-
+        self.on_cpu_blocking_task(move |_| async move {
             class.compile().map_err(|e| {
                 StarknetApiError::CompilationError(CompilationErrorData {
                     compilation_error: e.to_string(),
