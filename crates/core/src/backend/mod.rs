@@ -159,6 +159,14 @@ impl<EF: ExecutorFactory> Backend<EF> {
         receipts: Vec<Receipt>,
         traces: Vec<TypedTransactionExecutionInfo>,
     ) -> Result<(), BlockProductionError> {
+        // Validate that all declared classes have their corresponding class artifacts
+        if let Err(missing) = states.validate_classes() {
+            return Err(BlockProductionError::InconsistentState(format!(
+                "missing class artifacts for declared classes: {:#?}",
+                missing,
+            )));
+        }
+
         self.blockchain
             .provider()
             .insert_block_with_states_and_receipts(block, states, receipts, traces)?;

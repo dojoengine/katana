@@ -53,6 +53,9 @@ pub enum BlockProductionError {
 
     #[error("transaction execution error: {0}")]
     TransactionExecutionError(#[from] katana_executor::ExecutorError),
+
+    #[error("inconsistent state updates: {0}")]
+    InconsistentState(String),
 }
 
 impl BlockProductionError {

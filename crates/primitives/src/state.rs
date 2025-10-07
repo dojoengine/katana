@@ -58,6 +58,42 @@ pub struct StateUpdatesWithClasses {
     pub classes: BTreeMap<ClassHash, ContractClass>,
 }
 
+impl StateUpdatesWithClasses {
+    /// Validates that all declared classes have their corresponding class artifacts.
+    ///
+    /// This method checks that:
+    /// - All class hashes in `state_updates.declared_classes` have entries in `classes`
+    /// - All class hashes in `state_updates.deprecated_declared_classes` have entries in `classes`
+    ///
+    /// # Returns
+    ///
+    /// Returns `Ok(())` if all declared classes have their artifacts, otherwise returns an `Error`
+    /// with the list of class hashes whose artifacts are missing.
+    pub fn validate_classes(&self) -> Result<(), Vec<ClassHash>> {
+        let mut missing = Vec::new();
+
+        // Check declared classes
+        for class_hash in self.state_updates.declared_classes.keys() {
+            if !self.classes.contains_key(class_hash) {
+                missing.push(*class_hash);
+            }
+        }
+
+        // Check deprecated declared classes
+        for class_hash in &self.state_updates.deprecated_declared_classes {
+            if !self.classes.contains_key(class_hash) {
+                missing.push(*class_hash);
+            }
+        }
+
+        if missing.is_empty() {
+            Ok(())
+        } else {
+            Err(missing)
+        }
+    }
+}
+
 pub fn compute_state_diff_hash(states: StateUpdates) -> Felt {
     let replaced_classes_len = states.replaced_classes.len();
     let deployed_contracts_len = states.deployed_contracts.len();
