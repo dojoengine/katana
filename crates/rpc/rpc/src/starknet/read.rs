@@ -22,7 +22,6 @@ use katana_rpc_types::block::{
     GetBlockWithTxHashesResponse, MaybePreConfirmedBlock,
 };
 use katana_rpc_types::broadcasted::BroadcastedTx;
-use katana_rpc_types::class::Class;
 use katana_rpc_types::event::{EventFilterWithPage, GetEventsResponse};
 use katana_rpc_types::message::MsgFromL1;
 use katana_rpc_types::receipt::TxReceiptWithBlockInfo;
@@ -30,7 +29,7 @@ use katana_rpc_types::state_update::GetStateUpdateResponse;
 use katana_rpc_types::transaction::RpcTxWithHash;
 use katana_rpc_types::trie::{ContractStorageKeys, GetStorageProofResponse};
 use katana_rpc_types::{
-    CallResponse, EstimateFeeSimulationFlag, FeeEstimate, FunctionCall, TxStatus,
+    CallResponse, CasmClass, Class, EstimateFeeSimulationFlag, FeeEstimate, FunctionCall, TxStatus,
 };
 
 use super::StarknetApi;
@@ -126,6 +125,10 @@ impl<EF: ExecutorFactory> StarknetApiServer for StarknetApi<EF> {
 
     async fn get_class(&self, block_id: BlockIdOrTag, class_hash: ClassHash) -> RpcResult<Class> {
         Ok(self.class_at_hash(block_id, class_hash).await?)
+    }
+
+    async fn get_compiled_casm(&self, class_hash: ClassHash) -> RpcResult<CasmClass> {
+        Ok(self.compiled_class_at_hash(class_hash).await?)
     }
 
     async fn get_events(&self, filter: EventFilterWithPage) -> RpcResult<GetEventsResponse> {

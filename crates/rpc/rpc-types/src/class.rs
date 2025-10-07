@@ -23,6 +23,9 @@ use starknet_api::deprecated_contract_class::{
 };
 use starknet_api::serde_utils::deserialize_optional_contract_class_abi_entry_vector;
 
+/// The return type for the `starknet_getCompiledClass` JSON-RPC method.
+pub type CasmClass = katana_primitives::class::CompiledClass;
+
 /// RPC representation of the Starknet class.
 ///
 /// This is the RPC equivalent of [ContractClass].

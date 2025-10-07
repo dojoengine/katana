@@ -16,7 +16,7 @@ use katana_rpc_types::broadcasted::{
     AddInvokeTransactionResponse, BroadcastedDeclareTx, BroadcastedDeployAccountTx,
     BroadcastedInvokeTx, BroadcastedTx,
 };
-use katana_rpc_types::class::Class;
+use katana_rpc_types::class::{CasmClass, Class};
 use katana_rpc_types::event::{EventFilterWithPage, GetEventsResponse};
 use katana_rpc_types::message::MsgFromL1;
 use katana_rpc_types::receipt::TxReceiptWithBlockInfo;
@@ -120,6 +120,10 @@ pub trait StarknetApi {
         block_id: BlockIdOrTag,
         contract_address: ContractAddress,
     ) -> RpcResult<Class>;
+
+    /// Get the compiled CASM code resulting from compiling a given class.
+    #[method(name = "getCompiledCasm")]
+    async fn get_compiled_casm(&self, class_hash: ClassHash) -> RpcResult<CasmClass>;
 
     /// Get the number of transactions in a block given a block id.
     #[method(name = "getBlockTransactionCount")]
