@@ -143,6 +143,11 @@ pub trait BlockProvider:
 #[auto_impl::auto_impl(&, Box, Arc)]
 pub trait BlockWriter: Send + Sync {
     /// Store an executed block along with its execution output to the storage.
+    ///
+    /// Implementors may choose to perform validation or consistency checks on the
+    /// provided `block` and its associated execution output, but it is the caller's responsibility
+    /// to ensure that the `states`, `receipts`, and `executions` are actually the result of
+    /// executing `block` before calling this method.
     fn insert_block_with_states_and_receipts(
         &self,
         block: SealedBlockWithStatus,
