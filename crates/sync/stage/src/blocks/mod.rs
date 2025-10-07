@@ -15,7 +15,7 @@ use katana_provider::api::block::{BlockHashProvider, BlockWriter};
 use katana_provider::ProviderError;
 use num_traits::ToPrimitive;
 use starknet::core::types::ResourcePrice;
-use tracing::debug;
+use tracing::{debug, info};
 
 use crate::{Stage, StageExecutionInput, StageExecutionOutput, StageResult};
 
@@ -151,8 +151,10 @@ fn extract_block_data(
     data: StateUpdateWithBlock,
 ) -> Result<(SealedBlockWithStatus, Vec<Receipt>, StateUpdatesWithClasses)> {
     fn to_gas_prices(prices: ResourcePrice) -> GasPrices {
-        let eth = prices.price_in_fri.to_u128().expect("valid u128");
+        let eth = prices.price_in_wei.to_u128().expect("valid u128");
         let strk = prices.price_in_fri.to_u128().expect("valid u128");
+        let eth = if eth == 0 { 1 } else { eth };
+        let strk = if strk == 0 { 1 } else { strk };
         unsafe { GasPrices::new_unchecked(eth, strk) }
     }
 

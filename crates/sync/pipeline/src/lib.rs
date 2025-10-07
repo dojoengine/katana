@@ -65,6 +65,7 @@
 //! [Erigon]: https://github.com/erigontech/erigon
 
 use core::future::IntoFuture;
+use std::sync::atomic::{AtomicU64, Ordering};
 
 use futures::future::BoxFuture;
 use katana_primitives::block::BlockNumber;
@@ -72,7 +73,7 @@ use katana_provider_api::stage::StageCheckpointProvider;
 use katana_provider_api::ProviderError;
 use katana_stage::{Stage, StageExecutionInput, StageExecutionOutput};
 use tokio::sync::watch;
-use tracing::{error, info, trace};
+use tracing::{error, info, trace, Instrument};
 
 /// The result of a pipeline execution.
 pub type PipelineResult<T> = Result<T, Error>;
@@ -136,15 +137,6 @@ impl PipelineHandle {
     pub fn stop(&self) {
         info!(target: "pipeline", "Signaling pipeline to stop");
         self.tx.send(Some(PipelineCommand::Stop)).expect("channel closed");
-    }
-}
-
-impl Drop for PipelineHandle {
-    fn drop(&mut self) {
-        //  self + pipeline copy
-        if self.tx.sender_count() == 2 {
-            self.stop();
-        }
     }
 }
 
@@ -247,11 +239,11 @@ impl<P: StageCheckpointProvider> Pipeline<P> {
                     // Check if the handle has sent a signal
                     match *self.command_rx.borrow_and_update() {
                         Some(PipelineCommand::Stop) => {
-                            trace!(target: "pipeline", "Received stop command.");
+                            info!(target: "pipeline", "Received stop command.");
                             break;
                         }
                         Some(PipelineCommand::SetTip(new_tip)) => {
-                            trace!(target: "pipeline", tip = %new_tip, "Received new tip.");
+                            info!(target: "pipeline", tip = %new_tip, "Received new tip.");
                             self.tip = Some(new_tip);
                         }
                         None => {}
@@ -311,12 +303,16 @@ impl<P: StageCheckpointProvider> Pipeline<P> {
                 continue;
             }
 
-            info!(target: "pipeline", %id, from = %checkpoint, %to, "Executing stage.");
-
             // plus 1 because the checkpoint is inclusive
             let input = StageExecutionInput::new(checkpoint + 1, to);
+
             let StageExecutionOutput { last_block_processed } =
-                stage.execute(&input).await.map_err(|error| Error::StageExecution { id, error })?;
+                stage
+                .execute(&input)
+                .instrument(tracing::info_span!(target: "pipeline", "stage_execute", stage = %id, from = %checkpoint, to = %to))
+                .await
+                .map_err(|error| Error::StageExecution { id, error })?;
+
 
             self.provider.set_checkpoint(id, last_block_processed)?;
             last_block_processed_list.push(last_block_processed);
