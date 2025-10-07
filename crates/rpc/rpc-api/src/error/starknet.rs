@@ -61,8 +61,8 @@ pub enum StarknetApiError {
     #[error("Account validation failed")]
     ValidationFailure(ValidationFailureData),
 
-    #[error("Compilation failed")]
-    CompilationFailed(CompilationFailedData),
+    #[error("Failed to compile the contract")]
+    CompilationError(CompilationErrorData),
 
     #[error("Contract class size is too large")]
     ContractClassSizeIsTooLarge,
@@ -158,7 +158,7 @@ impl StarknetApiError {
             StarknetApiError::InsufficientResourcesForValidate => 53,
             StarknetApiError::InsufficientAccountBalance => 54,
             StarknetApiError::ValidationFailure { .. } => 55,
-            StarknetApiError::CompilationFailed { .. } => 56,
+            StarknetApiError::CompilationError { .. } => 100,
             StarknetApiError::ContractClassSizeIsTooLarge => 57,
             StarknetApiError::NonAccount => 58,
             StarknetApiError::DuplicateTransaction => 59,
@@ -186,7 +186,7 @@ impl StarknetApiError {
             StarknetApiError::ContractError { .. }
             | StarknetApiError::PageSizeTooBig { .. }
             | StarknetApiError::UnexpectedError { .. }
-            | StarknetApiError::CompilationFailed { .. }
+            | StarknetApiError::CompilationError { .. }
             | StarknetApiError::ProofLimitExceeded { .. }
             | StarknetApiError::StorageProofNotSupported { .. }
             | StarknetApiError::TransactionExecutionError { .. } => Some(serde_json::json!(self)),
@@ -263,9 +263,9 @@ pub struct ValidationFailureData {
 
 /// Data for the [`StarknetApiError::CompilationFailed`] error.
 #[derive(Debug, Clone, Serialize, Deserialize, Default)]
-pub struct CompilationFailedData {
-    /// The reason for the compilation failure.
-    pub reason: String,
+pub struct CompilationErrorData {
+    /// More data about the compilation failure.
+    pub compilation_error: String,
 }
 
 // Implementations from/to other error types
@@ -278,7 +278,7 @@ mod impls {
     use katana_provider_api::ProviderError;
 
     use super::{
-        CompilationFailedData, ContractErrorData, InvalidTransactionNonceData, PageSizeTooBigData,
+        CompilationErrorData, ContractErrorData, InvalidTransactionNonceData, PageSizeTooBigData,
         StarknetApiError, StorageProofNotSupportedData, ValidationFailureData,
     };
     use crate::error::starknet::{
@@ -363,16 +363,6 @@ mod impls {
 
                     Self::ValidationFailure(data)
                 }
-                56 => {
-                    let data = if let Some(data) = err.data() {
-                        serde_json::from_str::<CompilationFailedData>(data.get())
-                            .unwrap_or_default()
-                    } else {
-                        CompilationFailedData::default()
-                    };
-
-                    Self::CompilationFailed(data)
-                }
                 57 => Self::ContractClassSizeIsTooLarge,
                 58 => Self::NonAccount,
                 59 => Self::DuplicateTransaction,
@@ -393,6 +383,15 @@ mod impls {
                 66 => Self::InvalidSubscriptionId,
                 67 => Self::TooManyAddressesInFilter,
                 68 => Self::TooManyBlocksBack,
+                100 => {
+                    let data = if let Some(data) = err.data() {
+                        serde_json::from_str::<CompilationErrorData>(data.get()).unwrap_or_default()
+                    } else {
+                        CompilationErrorData::default()
+                    };
+
+                    Self::CompilationError(data)
+                }
                 1000 => {
                     let data = if let Some(data) = err.data() {
                         serde_json::from_str::<ProofLimitExceededData>(data.get())
@@ -557,13 +556,13 @@ mod tests {
        	Value::String("Wrong nonce".to_string())
     )]
     #[case(
-    	StarknetApiError::CompilationFailed(CompilationFailedData {
-     		reason: "Failed to compile".to_string()
+    	StarknetApiError::CompilationError(CompilationErrorData {
+     		compilation_error: "Some compilation error".to_string()
     	}),
-     	56,
-      	"Compilation failed",
+     	100,
+      	"Failed to compile the contract",
        json!({
-           "reason": "Failed to compile".to_string()
+           "compilation_error": "Some compilation error".to_string()
        }),
     )]
     #[case(

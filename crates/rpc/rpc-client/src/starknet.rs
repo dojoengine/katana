@@ -15,7 +15,7 @@ use katana_rpc_types::broadcasted::{
     AddInvokeTransactionResponse, BroadcastedDeclareTx, BroadcastedDeployAccountTx,
     BroadcastedInvokeTx, BroadcastedTx,
 };
-use katana_rpc_types::class::Class;
+use katana_rpc_types::class::{CasmClass, Class};
 use katana_rpc_types::event::{EventFilterWithPage, GetEventsResponse};
 use katana_rpc_types::message::MsgFromL1;
 use katana_rpc_types::receipt::TxReceiptWithBlockInfo;
@@ -138,6 +138,11 @@ impl Client {
         contract_address: ContractAddress,
     ) -> Result<Class> {
         self.client.get_class_at(block_id, contract_address).await.map_err(Into::into)
+    }
+
+    /// Get the compiled CASM code resulting from compiling a given class.
+    pub async fn get_compiled_casm(&self, class_hash: ClassHash) -> Result<CasmClass> {
+        self.client.get_compiled_casm(class_hash).await.map_err(Into::into)
     }
 
     /// Get the number of transactions in a block given a block id.

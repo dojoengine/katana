@@ -8,7 +8,7 @@ use katana_core::service::block_producer::{BlockProducer, BlockProducerMode, Pen
 use katana_executor::{ExecutionResult, ExecutorFactory};
 use katana_pool::{TransactionPool, TxPool};
 use katana_primitives::block::{BlockHashOrNumber, BlockIdOrTag, FinalityStatus, PartialHeader};
-use katana_primitives::class::ClassHash;
+use katana_primitives::class::{ClassHash, CompiledClass};
 use katana_primitives::contract::{ContractAddress, Nonce, StorageKey, StorageValue};
 use katana_primitives::da::L1DataAvailabilityMode;
 use katana_primitives::env::BlockEnv;
@@ -25,7 +25,7 @@ use katana_provider::api::transaction::{
 };
 use katana_provider::api::ProviderError;
 use katana_rpc_api::error::starknet::{
-    PageSizeTooBigData, ProofLimitExceededData, StarknetApiError,
+    CompilationErrorData, PageSizeTooBigData, ProofLimitExceededData, StarknetApiError,
 };
 use katana_rpc_types::block::{
     BlockHashAndNumberResponse, BlockNumberResponse, GetBlockWithReceiptsResponse,
@@ -328,6 +328,27 @@ impl<EF: ExecutorFactory> StarknetApi<EF> {
         let hash = self.class_hash_at_address(block_id, contract_address).await?;
         let class = self.class_at_hash(block_id, hash).await?;
         Ok(class)
+    }
+
+    async fn compiled_class_at_hash(
+        &self,
+        class_hash: ClassHash,
+    ) -> StarknetApiResult<CompiledClass> {
+        let class = self
+            .on_io_blocking_task(move |this| {
+                let state = this.state(&BlockIdOrTag::Latest)?;
+                state.class(class_hash)?.ok_or(StarknetApiError::ClassHashNotFound)
+            })
+            .await??;
+
+        self.on_cpu_blocking_task(move |_| async move {
+            class.compile().map_err(|e| {
+                StarknetApiError::CompilationError(CompilationErrorData {
+                    compilation_error: e.to_string(),
+                })
+            })
+        })
+        .await?
     }
 
     fn storage_at(
