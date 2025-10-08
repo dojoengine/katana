@@ -73,13 +73,13 @@ type StarknetApiResult<T> = Result<T, StarknetApiError>;
 /// [write](katana_rpc_api::starknet::StarknetWriteApi), and
 /// [trace](katana_rpc_api::starknet::StarknetTraceApi) APIs.
 #[derive(Debug)]
-pub struct StarknetApi {
-    inner: Arc<StarknetApiInner>,
+pub struct StarknetApi<P: TransactionPool> {
+    inner: Arc<StarknetApiInner<P>>,
 }
 
 #[derive(Debug)]
-struct StarknetApiInner {
-    pool: TxPool,
+struct StarknetApiInner<P: TransactionPool> {
+    pool: P,
     chain_spec: Arc<ChainSpec>,
     storage: BlockchainProvider<Box<dyn Database>>,
     forked_client: Option<ForkedClient>,
@@ -88,8 +88,8 @@ struct StarknetApiInner {
     config: StarknetApiConfig,
 }
 
-impl StarknetApi {
-    pub fn pool(&self) -> &TxPool {
+impl<P: TransactionPool> StarknetApi<P> {
+    pub fn pool(&self) -> &P {
         &self.inner.pool
     }
 
@@ -110,11 +110,14 @@ impl StarknetApi {
     }
 }
 
-impl StarknetApi {
+impl<P> StarknetApi<P>
+where
+    P: TransactionPool + Send + Sync + 'static,
+{
     pub fn new(
         chain_spec: Arc<ChainSpec>,
         storage: BlockchainProvider<Box<dyn Database>>,
-        pool: TxPool,
+        pool: P,
         task_spawner: TaskSpawner,
         config: StarknetApiConfig,
     ) -> Self {
@@ -124,7 +127,7 @@ impl StarknetApi {
     pub fn new_forked(
         chain_spec: Arc<ChainSpec>,
         storage: BlockchainProvider<Box<dyn Database>>,
-        pool: TxPool,
+        pool: P,
         forked_client: ForkedClient,
         task_spawner: TaskSpawner,
         config: StarknetApiConfig,
@@ -135,7 +138,7 @@ impl StarknetApi {
     fn new_inner(
         chain_spec: Arc<ChainSpec>,
         storage: BlockchainProvider<Box<dyn Database>>,
-        pool: TxPool,
+        pool: P,
         forked_client: Option<ForkedClient>,
         task_spawner: TaskSpawner,
         config: StarknetApiConfig,
@@ -401,18 +404,8 @@ impl StarknetApi {
         contract_address: ContractAddress,
     ) -> StarknetApiResult<Nonce> {
         self.on_io_blocking_task(move |this| {
-            // read from the pool state if pending block
-            //
-            // TODO: this is a temporary solution, we should have a better way to handle this.
-            // perhaps a pending/pool state provider that implements all the state provider traits.
-            let result = if let BlockIdOrTag::PreConfirmed = block_id {
-                this.inner.pool.validator().pool_nonce(contract_address)?
-            } else {
-                let state = this.state(&block_id)?;
-                state.nonce(contract_address)?
-            };
-
-            let nonce = result.ok_or(StarknetApiError::ContractNotFound)?;
+            let state = this.state(&block_id)?;
+            let nonce = state.nonce(contract_address)?.ok_or(StarknetApiError::ContractNotFound)?;
             Ok(nonce)
         })
         .await?
@@ -464,9 +457,7 @@ impl StarknetApi {
         } else if let Some(client) = &self.inner.forked_client {
             Ok(client.get_transaction_by_hash(hash).await?)
         } else {
-            let tx = self.inner.pool.get(hash).ok_or(StarknetApiError::TxnHashNotFound)?;
-            let tx = katana_primitives::transaction::TxWithHash::from(tx.as_ref());
-            Ok(RpcTxWithHash::from(tx))
+            Err(StarknetApiError::TxnHashNotFound)
         }
     }
 
@@ -1036,7 +1027,10 @@ impl StarknetApi {
 // `StarknetApiExt` Implementations
 /////////////////////////////////////////////////////
 
-impl StarknetApi {
+impl<P> StarknetApi<P>
+where
+    P: TransactionPool + Send + Sync + 'static,
+{
     async fn blocks(&self, request: GetBlocksRequest) -> StarknetApiResult<GetBlocksResponse> {
         self.on_io_blocking_task(move |this| {
             let provider = &this.inner.storage;
@@ -1193,7 +1187,7 @@ impl StarknetApi {
     }
 }
 
-impl Clone for StarknetApi {
+impl<P: TransactionPool> Clone for StarknetApi<P> {
     fn clone(&self) -> Self {
         Self { inner: Arc::clone(&self.inner) }
     }

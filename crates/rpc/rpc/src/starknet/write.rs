@@ -11,7 +11,10 @@ use katana_rpc_types::broadcasted::{
 
 use super::StarknetApi;
 
-impl StarknetApi {
+impl<P> StarknetApi<P>
+where
+    P: TransactionPool + Send + Sync + 'static,
+{
     async fn add_invoke_transaction_impl(
         &self,
         tx: BroadcastedInvokeTx,
@@ -74,7 +77,10 @@ impl StarknetApi {
 }
 
 #[async_trait]
-impl StarknetWriteApiServer for StarknetApi {
+impl<P> StarknetWriteApiServer for StarknetApi<P>
+where
+    P: TransactionPool + Send + Sync + 'static,
+{
     async fn add_invoke_transaction(
         &self,
         invoke_transaction: BroadcastedInvokeTx,
