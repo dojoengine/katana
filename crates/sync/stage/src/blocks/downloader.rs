@@ -16,7 +16,7 @@ use anyhow::Result;
 use katana_gateway_client::Client as GatewayClient;
 use katana_gateway_types::StateUpdateWithBlock;
 use katana_primitives::block::BlockNumber;
-use tracing::{info, info_span, trace, Instrument};
+use tracing::{info_span, Instrument};
 
 use crate::downloader::{BatchDownloader, Downloader};
 
@@ -129,7 +129,7 @@ mod impls {
             &self,
             key: &Self::Key,
         ) -> impl Future<Output = DownloaderResult<Self::Value, Self::Error>> {
-            info!(block = %key, "Downloading block.");
+            trace!(block = %key, "Downloading block.");
             async {
                 match self.gateway.get_state_update_with_block((*key).into()).await.inspect_err(
                     |error| error!(block = %*key, ?error, "Error downloading block from gateway."),
