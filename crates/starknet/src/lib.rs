@@ -48,6 +48,12 @@ sol! {
         int256 blockNumber,
         uint256 blockHash
     );
+
+    #[sol(rpc)]
+    contract IStarknetCore {
+        /// Returns the current block number.
+        function stateBlockNumber() external view returns (int256);
+    }
 }
 
 /// Rust bindings for the Starknet Core Contract.
@@ -161,6 +167,24 @@ impl<P: Provider> StarknetCore<P> {
             .collect::<Result<_, _>>()?;
 
         Ok(decoded)
+    }
+
+    /// Fetches the current block number from the Starknet Core Contract.
+    ///
+    /// This queries the `stateBlockNumber()` view function which returns the latest
+    /// block number that has been submitted to the contract.
+    ///
+    /// # Returns
+    ///
+    /// The current block number as an `i64`.
+    ///
+    /// # Errors
+    ///
+    /// Returns an error if the RPC request fails or if the contract call fails.
+    pub async fn state_block_number(&self) -> Result<i64> {
+        let contract = IStarknetCore::new(self.contract_address, &self.provider);
+        let result = contract.stateBlockNumber().call().await?;
+        Ok(result._0.as_i64())
     }
 
     /// Fetches raw Ethereum [`Log`] emitted by the contract in the given block range.
