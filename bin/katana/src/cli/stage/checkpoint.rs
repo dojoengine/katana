@@ -1,6 +1,6 @@
 use anyhow::Result;
 use clap::{Args, Subcommand};
-use katana_db::abstraction::DbTxMut;
+use katana_db::abstraction::{Database, DbTx, DbTxMut};
 use katana_db::models::stage::StageCheckpoint;
 use katana_db::tables;
 use katana_primitives::block::BlockNumber;
@@ -28,9 +28,9 @@ struct GetArgs {
     #[arg(value_name = "STAGE_ID")]
     stage_id: String,
 
-    /// Path to the database directory
-    #[arg(short, long, default_value = "~/.katana/db")]
-    db_path: String,
+    /// Path to the database directory.
+    #[arg(short, long)]
+    path: String,
 }
 
 #[derive(Debug, Args)]
@@ -43,9 +43,9 @@ struct SetArgs {
     #[arg(value_name = "BLOCK_NUMBER")]
     block_number: BlockNumber,
 
-    /// Path to the database directory
-    #[arg(short, long, default_value = "~/.katana/db")]
-    db_path: String,
+    /// Path to the database directory.
+    #[arg(short, long)]
+    path: String,
 }
 
 impl CheckpointArgs {
@@ -59,10 +59,10 @@ impl CheckpointArgs {
 
 impl GetArgs {
     fn execute(self) -> Result<()> {
-        let db = db::open_db_ro(&self.db_path)?;
-        let tx = db.tx()?;
+        let result = db::open_db_ro(&self.path)?
+            .view(|tx| tx.get::<tables::StageCheckpoints>(self.stage_id.clone()))??;
 
-        match tx.get::<tables::StageCheckpoints>(self.stage_id.clone())? {
+        match result {
             Some(checkpoint) => {
                 println!("stage '{}' checkpoint: {}", self.stage_id, checkpoint.block);
             }
@@ -71,20 +71,16 @@ impl GetArgs {
             }
         }
 
-        tx.commit()?;
         Ok(())
     }
 }
 
 impl SetArgs {
     fn execute(self) -> Result<()> {
-        let db = db::open_db_rw(&self.db_path)?;
-        let tx = db.tx_mut()?;
-
-        let checkpoint = StageCheckpoint { block: self.block_number };
-        tx.put::<tables::StageCheckpoints>(self.stage_id.clone(), checkpoint)?;
-
-        tx.commit()?;
+        db::open_db_rw(&self.path)?.update(|tx| {
+            let checkpoint = StageCheckpoint { block: self.block_number };
+            tx.put::<tables::StageCheckpoints>(self.stage_id.clone(), checkpoint)
+        })??;
 
         println!("set checkpoint for stage '{}' to block {}", self.stage_id, self.block_number);
 
