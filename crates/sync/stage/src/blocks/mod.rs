@@ -14,7 +14,7 @@ use katana_primitives::Felt;
 use katana_provider::api::block::BlockWriter;
 use num_traits::ToPrimitive;
 use starknet::core::types::ResourcePrice;
-use tracing::{debug, info};
+use tracing::debug;
 
 use crate::{Stage, StageExecutionInput, StageExecutionOutput, StageResult};
 
