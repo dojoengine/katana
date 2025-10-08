@@ -1,5 +1,6 @@
 use jsonrpsee::core::{async_trait, RpcResult};
 use katana_executor::{ExecutionResult, ResultAndStates};
+use katana_pool::TransactionPool;
 use katana_primitives::block::{BlockHashOrNumber, BlockIdOrTag, ConfirmedBlockIdOrTag};
 use katana_primitives::execution::TypedTransactionExecutionInfo;
 use katana_primitives::transaction::{ExecutableTx, ExecutableTxWithHash, TxHash};
@@ -16,7 +17,10 @@ use katana_rpc_types::SimulationFlag;
 
 use super::StarknetApi;
 
-impl StarknetApi {
+impl<P> StarknetApi<P>
+where
+    P: TransactionPool + Send + Sync + 'static,
+{
     fn simulate_txs(
         &self,
         block_id: BlockIdOrTag,
@@ -166,7 +170,10 @@ impl StarknetApi {
 }
 
 #[async_trait]
-impl StarknetTraceApiServer for StarknetApi {
+impl<P> StarknetTraceApiServer for StarknetApi<P>
+where
+    P: TransactionPool + Send + Sync + 'static,
+{
     async fn trace_transaction(&self, transaction_hash: TxHash) -> RpcResult<TxTrace> {
         self.on_io_blocking_task(move |this| Ok(this.trace(transaction_hash)?)).await?
     }
