@@ -8,12 +8,12 @@ pub mod blocks;
 pub mod classes;
 pub mod downloader;
 mod sequencing;
-pub mod state_trie;
+pub mod trie;
 
 pub use blocks::Blocks;
 pub use classes::Classes;
 pub use sequencing::Sequencing;
-pub use state_trie::StateTrie;
+pub use trie::StateTrie;
 
 /// The result type of a stage execution. See [Stage::execute].
 pub type StageResult = Result<(), Error>;
@@ -76,7 +76,7 @@ pub enum Error {
     /// Errors that could happen during the execution of the [`StateTrie`](state_trie::StateTrie)
     /// stage.
     #[error(transparent)]
-    StateTrie(#[from] state_trie::Error),
+    StateTrie(#[from] trie::Error),
 
     #[error(transparent)]
     Other(#[from] anyhow::Error),

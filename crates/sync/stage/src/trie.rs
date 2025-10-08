@@ -1,12 +1,12 @@
 use futures::future::BoxFuture;
-use katana_primitives::block::{BlockHashOrNumber, BlockNumber};
+use katana_primitives::block::BlockNumber;
 use katana_primitives::Felt;
 use katana_provider::api::block::HeaderProvider;
 use katana_provider::api::state_update::StateUpdateProvider;
 use katana_provider::api::trie::TrieWriter;
 use starknet::macros::short_string;
 use starknet_types_core::hash::{Poseidon, StarkHash};
-use tracing::debug;
+use tracing::{error, trace, trace_span};
 
 use crate::{Stage, StageExecutionInput, StageResult};
 
@@ -40,26 +40,14 @@ where
 
     fn execute<'a>(&'a mut self, input: &'a StageExecutionInput) -> BoxFuture<'a, StageResult> {
         Box::pin(async move {
-            debug!(
-                target: "stage",
-                id = %self.id(),
-                from = %input.from(),
-                to = %input.to(),
-                "Computing state roots for blocks."
-            );
-
             for block_number in input.from()..=input.to() {
-                // Fetch the block header to get the expected state root
-                let header = self
-                    .provider
-                    .header(BlockHashOrNumber::Num(block_number))?
-                    .ok_or_else(|| Error::MissingBlockHeader(block_number))?;
+                let span = trace_span!("compute_state_root", %block_number);
+                let _enter = span.enter();
 
-                // Fetch the state update for this block
                 let state_update = self
                     .provider
-                    .state_update(BlockHashOrNumber::Num(block_number))?
-                    .ok_or_else(|| Error::MissingStateUpdate(block_number))?;
+                    .state_update(block_number.into())?
+                    .ok_or(Error::MissingStateUpdate(block_number))?;
 
                 // Compute the state root by inserting the state updates into the tries
                 // This mirrors what `compute_new_state_root` does in the backend
@@ -81,9 +69,23 @@ where
                     class_trie_root,
                 ]);
 
+                let header = self
+                    .provider
+                    .header(block_number.into())?
+                    .ok_or(Error::MissingBlockHeader(block_number))?;
+
+                let expected_state_root = header.state_root;
+
                 // Verify that the computed state root matches the expected state root from the
                 // block header
-                if computed_state_root != header.state_root {
+                if computed_state_root != expected_state_root {
+                    error!(
+                        block = %block_number,
+                        state_root = %format!("{computed_state_root:#x}"),
+                        expected_state_root = %format!("{expected_state_root:#x}"),
+                        "Wrong trie root for block - computed state root does not match expected state root (from header)",
+                    );
+
                     return Err(Error::StateRootMismatch {
                         block_number,
                         expected: header.state_root,
@@ -92,22 +94,12 @@ where
                     .into());
                 }
 
-                debug!(
-                    target: "stage",
-                    id = %self.id(),
-                    block_number = %block_number,
-                    state_root = %computed_state_root,
+                trace!(
+                    block = %block_number,
+                    state_root = %format!("{computed_state_root:#x}"),
                     "State root verified successfully."
                 );
             }
-
-            debug!(
-                target: "stage",
-                id = %self.id(),
-                from = %input.from(),
-                to = %input.to(),
-                "Finished computing state roots."
-            );
 
             Ok(())
         })
