@@ -8,10 +8,12 @@ pub mod blocks;
 pub mod classes;
 pub mod downloader;
 mod sequencing;
+pub mod state_root;
 
 pub use blocks::Blocks;
 pub use classes::Classes;
 pub use sequencing::Sequencing;
+pub use state_root::StateRoot;
 
 /// The result type of a stage execution. See [Stage::execute].
 pub type StageResult = Result<(), Error>;
@@ -70,6 +72,11 @@ pub enum Error {
     /// Errors that could happen during the execution of the [`Classes`](classes::Classes) stage.
     #[error(transparent)]
     Classes(#[from] classes::Error),
+
+    /// Errors that could happen during the execution of the [`StateRoot`](state_root::StateRoot)
+    /// stage.
+    #[error(transparent)]
+    StateRoot(#[from] state_root::Error),
 
     #[error(transparent)]
     Other(#[from] anyhow::Error),
