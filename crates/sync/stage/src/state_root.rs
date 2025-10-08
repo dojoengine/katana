@@ -1,7 +1,11 @@
 use futures::future::BoxFuture;
 use katana_primitives::block::{BlockHashOrNumber, BlockNumber};
+use katana_primitives::Felt;
+use katana_provider::api::block::HeaderProvider;
 use katana_provider::api::state_update::StateUpdateProvider;
 use katana_provider::api::trie::TrieWriter;
+use starknet::macros::short_string;
+use starknet_types_core::hash::{Poseidon, StarkHash};
 use tracing::debug;
 
 use crate::{Stage, StageExecutionInput, StageResult};
@@ -28,7 +32,7 @@ impl<P> StateRoot<P> {
 
 impl<P> Stage for StateRoot<P>
 where
-    P: StateUpdateProvider + TrieWriter,
+    P: StateUpdateProvider + TrieWriter + HeaderProvider,
 {
     fn id(&self) -> &'static str {
         "StateRoot"
@@ -45,6 +49,12 @@ where
             );
 
             for block_number in input.from()..=input.to() {
+                // Fetch the block header to get the expected state root
+                let header = self
+                    .provider
+                    .header(BlockHashOrNumber::Num(block_number))?
+                    .ok_or_else(|| Error::MissingBlockHeader(block_number))?;
+
                 // Fetch the state update for this block
                 let state_update = self
                     .provider
@@ -55,17 +65,40 @@ where
                 // This mirrors what `compute_new_state_root` does in the backend
 
                 // Insert declared classes into the class trie
-                let _class_trie_root = self
+                let class_trie_root = self
                     .provider
                     .trie_insert_declared_classes(block_number, &state_update.declared_classes)?;
 
                 // Insert contract updates into the contract trie
-                let _contract_trie_root =
+                let contract_trie_root =
                     self.provider.trie_insert_contract_updates(block_number, &state_update)?;
 
-                // Note: The actual state root hash computation (combining class_trie_root and
-                // contract_trie_root with "STARKNET_STATE_V0") is done inside the TrieWriter
-                // implementation. We just need to ensure the updates are inserted.
+                // Compute the state root: hash("STARKNET_STATE_V0", contract_trie_root,
+                // class_trie_root)
+                let computed_state_root = Poseidon::hash_array(&[
+                    short_string!("STARKNET_STATE_V0"),
+                    contract_trie_root,
+                    class_trie_root,
+                ]);
+
+                // Verify that the computed state root matches the expected state root from the
+                // block header
+                if computed_state_root != header.state_root {
+                    return Err(Error::StateRootMismatch {
+                        block_number,
+                        expected: header.state_root,
+                        computed: computed_state_root,
+                    }
+                    .into());
+                }
+
+                debug!(
+                    target: "stage",
+                    id = %self.id(),
+                    block_number = %block_number,
+                    state_root = %computed_state_root,
+                    "State root verified successfully."
+                );
             }
 
             debug!(
@@ -83,6 +116,15 @@ where
 
 #[derive(Debug, thiserror::Error)]
 pub enum Error {
+    #[error("Missing block header for block {0}")]
+    MissingBlockHeader(BlockNumber),
+
     #[error("Missing state update for block {0}")]
     MissingStateUpdate(BlockNumber),
+
+    #[error(
+        "State root mismatch at block {block_number}: expected {expected:#x}, computed \
+         {computed:#x}"
+    )]
+    StateRootMismatch { block_number: BlockNumber, expected: Felt, computed: Felt },
 }
