@@ -30,6 +30,7 @@ members = [
 	"crates/runner",
 	"crates/runner/macro",
 	"crates/serde-utils",
+	"crates/starknet",
 	"crates/storage/codecs",
 	"crates/storage/codecs/derive",
 	"crates/storage/db",
@@ -99,6 +100,7 @@ katana-rpc-types-builder = { path = "crates/rpc/rpc-types-builder" }
 katana-runner = { path = "crates/runner" }
 katana-slot-controller = { path = "crates/controller" }
 katana-stage = { path = "crates/sync/stage" }
+katana-starknet = { path = "crates/starknet" }
 katana-tasks = { path = "crates/tasks" }
 katana-tracing = { path = "crates/tracing" }
 katana-trie = { path = "crates/trie" }
