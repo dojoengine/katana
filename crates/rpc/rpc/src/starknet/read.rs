@@ -8,6 +8,7 @@ use jsonrpsee::types::ErrorObjectOwned;
 use katana_executor::ExecutorFactory;
 #[cfg(feature = "cartridge")]
 use katana_genesis::allocation::GenesisAccountAlloc;
+use katana_pool::TransactionPool;
 use katana_primitives::block::BlockIdOrTag;
 use katana_primitives::class::ClassHash;
 use katana_primitives::contract::{Nonce, StorageKey, StorageValue};
@@ -37,7 +38,10 @@ use super::StarknetApi;
 use crate::cartridge;
 
 #[async_trait]
-impl StarknetApiServer for StarknetApi {
+impl<P> StarknetApiServer for StarknetApi<P>
+where
+    P: TransactionPool + Send + Sync + 'static,
+{
     async fn chain_id(&self) -> RpcResult<Felt> {
         Ok(self.inner.chain_spec.id().id())
     }
