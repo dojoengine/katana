@@ -8,12 +8,14 @@ use katana_primitives::block::BlockNumber;
 use crate::cli::db;
 
 #[derive(Debug, Args)]
+#[cfg_attr(test, derive(PartialEq))]
 pub struct CheckpointArgs {
     #[command(subcommand)]
     commands: Commands,
 }
 
 #[derive(Debug, Subcommand)]
+#[cfg_attr(test, derive(PartialEq))]
 enum Commands {
     /// Get the checkpoint block number for a stage
     Get(GetArgs),
@@ -23,6 +25,7 @@ enum Commands {
 }
 
 #[derive(Debug, Args)]
+#[cfg_attr(test, derive(PartialEq))]
 struct GetArgs {
     /// The stage ID to get checkpoint for
     #[arg(value_name = "STAGE_ID")]
@@ -34,6 +37,7 @@ struct GetArgs {
 }
 
 #[derive(Debug, Args)]
+#[cfg_attr(test, derive(PartialEq))]
 struct SetArgs {
     /// The stage ID to set checkpoint for
     #[arg(value_name = "STAGE_ID")]
