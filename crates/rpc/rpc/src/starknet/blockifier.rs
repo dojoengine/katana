@@ -176,7 +176,7 @@ mod tests {
             entry_point_selector: selector!("foo"),
         };
 
-        let result = super::call(&chain_spec, state, block_env, cfg_env, call, max_call_gas);
+        let result = super::call(&chain_spec, state, block_env, &cfg_env, call, max_call_gas);
         assert!(matches!(result, Err(StarknetApiError::ContractNotFound)));
     }
 
@@ -197,7 +197,7 @@ mod tests {
             entry_point_selector: selector!("foobar"),
         };
 
-        let result = super::call(&chain_spec, state, block_env, cfg_env, call, max_call_gas);
+        let result = super::call(&chain_spec, state, block_env, &cfg_env, call, max_call_gas);
         assert!(matches!(result, Err(StarknetApiError::EntrypointNotFound)));
     }
 }
