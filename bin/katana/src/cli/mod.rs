@@ -9,6 +9,7 @@ use tokio::runtime::Runtime;
 mod config;
 pub mod db;
 mod init;
+mod stage;
 mod version;
 
 #[cfg(feature = "client")]
@@ -33,6 +34,7 @@ impl Cli {
             return match cmd {
                 Commands::Db(args) => args.execute(),
                 Commands::Config(args) => args.execute(),
+                Commands::Stage(args) => args.execute(),
                 Commands::Completions(args) => args.execute(),
                 Commands::Init(args) => execute_async(args.execute())?,
                 #[cfg(feature = "client")]
@@ -56,6 +58,9 @@ pub enum Commands {
 
     #[command(about = "Database utilities")]
     Db(db::DbArgs),
+
+    #[command(about = "Syncing stage utilities")]
+    Stage(stage::StageArgs),
 
     #[command(about = "Generate shell completion file for specified shell")]
     Completions(CompletionsArgs),
