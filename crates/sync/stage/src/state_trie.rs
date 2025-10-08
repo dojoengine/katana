@@ -10,7 +10,7 @@ use tracing::debug;
 
 use crate::{Stage, StageExecutionInput, StageResult};
 
-/// A stage for computing and validating state roots.
+/// A stage for computing and validating state tries.
 ///
 /// This stage processes blocks that have been stored by the [`Blocks`](crate::blocks::Blocks)
 /// stage and computes the state root for each block by applying the state updates to the trie.
@@ -19,23 +19,23 @@ use crate::{Stage, StageExecutionInput, StageResult};
 /// into the contract and class tries via the [`TrieWriter`] trait, which computes the new state
 /// root.
 #[derive(Debug)]
-pub struct StateRoot<P> {
+pub struct StateTrie<P> {
     provider: P,
 }
 
-impl<P> StateRoot<P> {
-    /// Create a new [`StateRoot`] stage.
+impl<P> StateTrie<P> {
+    /// Create a new [`StateTrie`] stage.
     pub fn new(provider: P) -> Self {
         Self { provider }
     }
 }
 
-impl<P> Stage for StateRoot<P>
+impl<P> Stage for StateTrie<P>
 where
     P: StateUpdateProvider + TrieWriter + HeaderProvider,
 {
     fn id(&self) -> &'static str {
-        "StateRoot"
+        "StateTrie"
     }
 
     fn execute<'a>(&'a mut self, input: &'a StageExecutionInput) -> BoxFuture<'a, StageResult> {
