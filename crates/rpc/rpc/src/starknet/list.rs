@@ -1,7 +1,6 @@
 //! Implementation of list endpoints for the Starknet API.
 
 use jsonrpsee::core::{async_trait, RpcResult};
-use katana_executor::ExecutorFactory;
 use katana_pool::TransactionPool;
 use katana_primitives::transaction::TxNumber;
 use katana_rpc_api::starknet_ext::StarknetApiExtServer;

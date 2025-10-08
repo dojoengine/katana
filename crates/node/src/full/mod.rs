@@ -6,6 +6,8 @@ use std::sync::Arc;
 use anyhow::Result;
 use http::header::CONTENT_TYPE;
 use http::Method;
+use jsonrpsee::RpcModule;
+use katana_executor::ExecutionFlags;
 use katana_gateway_client::Client as SequencerGateway;
 use katana_metrics::exporters::prometheus::PrometheusRecorder;
 use katana_metrics::{Report, Server as MetricsServer};
@@ -17,7 +19,9 @@ use katana_pool::TxPool;
 use katana_primitives::transaction::ExecutableTxWithHash;
 use katana_provider::providers::db::DbProvider;
 use katana_rpc::cors::Cors;
+use katana_rpc::starknet::{StarknetApi, StarknetApiConfig};
 use katana_rpc::{RpcServer, RpcServerHandle};
+use katana_rpc_api::starknet::{StarknetApiServer, StarknetTraceApiServer, StarknetWriteApiServer};
 use katana_stage::blocks::BatchBlockDownloader;
 use katana_stage::{Blocks, Classes};
 use katana_tasks::TaskManager;
@@ -32,7 +36,7 @@ mod pool;
 
 use exit::NodeStoppedFuture;
 use tip_watcher::ChainTipWatcher;
-use crate::config::rpc::RpcConfig;
+use crate::config::rpc::{RpcConfig, RpcModuleKind};
 use crate::full::pool::{FullNodePool, GatewayProxyValidator};
 
 #[derive(Debug, Clone)]
@@ -73,6 +77,7 @@ impl Node {
         // -- build task manager
 
         let task_manager = TaskManager::current();
+        let task_spawner = task_manager.task_spawner();
 
         // -- build db and storage provider
 
@@ -101,15 +106,76 @@ impl Node {
         let (mut pipeline, _) = Pipeline::new(provider.clone(), 64);
         let block_downloader = BatchBlockDownloader::new_gateway(gateway_client.clone(), 3);
         pipeline.add_stage(Blocks::new(provider.clone(), block_downloader));
-        pipeline.add_stage(Classes::new(provider, gateway_client.clone(), 3));
+        pipeline.add_stage(Classes::new(provider.clone(), gateway_client.clone(), 3));
+
+        // --- build rpc server
+
+        let mut rpc_modules = RpcModule::new(());
 
         let cors = Cors::new()
-        .allow_origins(config.rpc.cors_origins.clone())
-        // Allow `POST` when accessing the resource
-        .allow_methods([Method::POST, Method::GET])
-        .allow_headers([CONTENT_TYPE, "argent-client".parse().unwrap(), "argent-version".parse().unwrap()]);
+	       	.allow_origins(config.rpc.cors_origins.clone())
+	       	// Allow `POST` when accessing the resource
+	       	.allow_methods([Method::POST, Method::GET])
+	       	.allow_headers([CONTENT_TYPE, "argent-client".parse().unwrap(), "argent-version".parse().unwrap()]);
 
-        let rpc_server = RpcServer::new().metrics(true).health_check(true).cors(cors);
+        // // --- build starknet api
+
+        let starknet_api_cfg = StarknetApiConfig {
+            max_event_page_size: config.rpc.max_event_page_size,
+            max_proof_keys: config.rpc.max_proof_keys,
+            max_call_gas: config.rpc.max_call_gas,
+            max_concurrent_estimate_fee_requests: config.rpc.max_concurrent_estimate_fee_requests,
+            simulation_flags: ExecutionFlags::default(),
+            #[cfg(feature = "cartridge")]
+            paymaster: None,
+        };
+
+        let chain_spec = config.chain_spec.clone();
+
+        let starknet_api = StarknetApi::new(
+            chain_spec.clone(),
+            provider.clone(),
+            pool.clone(),
+            task_spawner.clone(),
+            starknet_api_cfg,
+        );
+
+        if config.rpc.apis.contains(&RpcModuleKind::Starknet) {
+            #[cfg(feature = "explorer")]
+            if config.rpc.explorer {
+                use katana_rpc_api::starknet_ext::StarknetApiExtServer;
+                rpc_modules.merge(StarknetApiExtServer::into_rpc(starknet_api.clone()))?;
+            }
+
+            rpc_modules.merge(StarknetApiServer::into_rpc(starknet_api.clone()))?;
+            rpc_modules.merge(StarknetWriteApiServer::into_rpc(starknet_api.clone()))?;
+            rpc_modules.merge(StarknetTraceApiServer::into_rpc(starknet_api.clone()))?;
+        }
+
+        #[allow(unused_mut)]
+        let mut rpc_server =
+            RpcServer::new().metrics(true).health_check(true).cors(cors).module(rpc_modules)?;
+
+        #[cfg(feature = "explorer")]
+        {
+            rpc_server = rpc_server.explorer(config.rpc.explorer);
+        }
+
+        if let Some(timeout) = config.rpc.timeout {
+            rpc_server = rpc_server.timeout(timeout);
+        };
+
+        if let Some(max_connections) = config.rpc.max_connections {
+            rpc_server = rpc_server.max_connections(max_connections);
+        }
+
+        if let Some(max_request_body_size) = config.rpc.max_request_body_size {
+            rpc_server = rpc_server.max_request_body_size(max_request_body_size);
+        }
+
+        if let Some(max_response_body_size) = config.rpc.max_response_body_size {
+            rpc_server = rpc_server.max_response_body_size(max_response_body_size);
+        }
 
         Ok(Node {
             db,
