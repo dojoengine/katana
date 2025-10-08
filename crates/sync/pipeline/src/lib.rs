@@ -138,6 +138,11 @@ impl PipelineHandle {
         info!(target: "pipeline", "Signaling pipeline to stop");
         self.tx.send(Some(PipelineCommand::Stop)).expect("channel closed");
     }
+
+    /// Wait until the [`Pipeline`] has stopped.
+    pub async fn stopped(&self) {
+        self.tx.closed().await;
+    }
 }
 
 /// Syncing pipeline.
