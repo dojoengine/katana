@@ -4,6 +4,13 @@
 //! specifically for fetching `LogStateUpdate` and `LogMessageToL2` events which represent
 //! state updates and L1->L2 messages of the Starknet rollup.
 //!
+//! # Contract Reference
+//!
+//! The Starknet Core Contract is the main L1 contract for Starknet that handles state updates
+//! and L1↔L2 messaging. See:
+//! - Contract addresses: <https://docs.starknet.io/learn/cheatsheets/chain-info#important-addresses>
+//! - Solidity implementation: <https://github.com/starkware-libs/cairo-lang/blob/66355d7d99f1962ff9ccba8d0dbacbce3bd79bf8/src/starkware/starknet/solidity/Starknet.sol#L4>
+//!
 //! # Example
 //!
 //! ```rust,no_run
@@ -11,7 +18,8 @@
 //!
 //! # async fn example() -> anyhow::Result<()> {
 //! // Create a client for the official Starknet mainnet contract
-//! let client = StarknetCore::new_http_mainnet("https://eth-mainnet.g.alchemy.com/v2/YOUR_KEY").await?;
+//! let client =
+//!     StarknetCore::new_http_mainnet("https://eth-mainnet.g.alchemy.com/v2/YOUR_KEY").await?;
 //!
 //! // Fetch state updates from blocks 18000000 to 18000100
 //! let state_updates = client.fetch_decoded_state_updates(18000000, 18000100).await?;
@@ -30,8 +38,8 @@
 //! You can also create a client for a custom contract address (e.g., for testing):
 //!
 //! ```rust,no_run
-//! use katana_messaging::starknet_core::StarknetCore;
 //! use alloy_primitives::address;
+//! use katana_messaging::starknet_core::StarknetCore;
 //!
 //! # async fn example() -> anyhow::Result<()> {
 //! let custom_address = address!("0x1234567890123456789012345678901234567890");
@@ -52,9 +60,17 @@ use tracing::trace;
 
 use super::LOG_TARGET;
 
-// Official Starknet Core Contract address on Ethereum mainnet
+/// Official Starknet Core Contract address on Ethereum mainnet.
+///
+/// Source: <https://docs.starknet.io/learn/cheatsheets/chain-info#important-addresses>
 pub const STARKNET_CORE_CONTRACT_ADDRESS: Address =
     alloy_primitives::address!("c662c410C0ECf747543f5bA90660f6ABeBD9C8c4");
+
+/// Starknet Core Contract address on Ethereum Sepolia testnet.
+///
+/// Source: <https://docs.starknet.io/learn/cheatsheets/chain-info#important-addresses>
+pub const STARKNET_CORE_CONTRACT_ADDRESS_SEPOLIA: Address =
+    alloy_primitives::address!("E2Bb56ee936fd6433DC0F6e7e3b8365C906AA057");
 
 sol! {
     #[derive(Debug, PartialEq)]
@@ -109,6 +125,15 @@ where
     /// * `provider` - The Ethereum provider to use for queries
     pub fn new_mainnet(provider: P) -> Self {
         Self::new(provider, STARKNET_CORE_CONTRACT_ADDRESS)
+    }
+
+    /// Creates a new `StarknetCore` instance using the Sepolia testnet contract address.
+    ///
+    /// # Arguments
+    ///
+    /// * `provider` - The Ethereum provider to use for queries
+    pub fn new_sepolia(provider: P) -> Self {
+        Self::new(provider, STARKNET_CORE_CONTRACT_ADDRESS_SEPOLIA)
     }
 
     /// Fetches all `LogStateUpdate` events emitted by the contract in the given block range.
@@ -287,6 +312,17 @@ impl StarknetCore<RootProvider<Ethereum>> {
         let provider = RootProvider::<Ethereum>::new_http(reqwest::Url::parse(rpc_url.as_ref())?);
         Ok(Self::new_mainnet(provider))
     }
+
+    /// Creates a new `StarknetCore` instance with an HTTP provider using the Sepolia testnet
+    /// contract address.
+    ///
+    /// # Arguments
+    ///
+    /// * `rpc_url` - The HTTP URL of the Ethereum RPC endpoint
+    pub async fn new_http_sepolia(rpc_url: impl AsRef<str>) -> Result<Self> {
+        let provider = RootProvider::<Ethereum>::new_http(reqwest::Url::parse(rpc_url.as_ref())?);
+        Ok(Self::new_sepolia(provider))
+    }
 }
 
 #[cfg(test)]
@@ -300,6 +336,14 @@ mod tests {
         assert_eq!(
             STARKNET_CORE_CONTRACT_ADDRESS,
             address!("c662c410C0ECf747543f5bA90660f6ABeBD9C8c4")
+        );
+    }
+
+    #[test]
+    fn test_sepolia_address() {
+        assert_eq!(
+            STARKNET_CORE_CONTRACT_ADDRESS_SEPOLIA,
+            address!("E2Bb56ee936fd6433DC0F6e7e3b8365C906AA057")
         );
     }
 

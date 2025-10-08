@@ -25,10 +25,7 @@ async fn main() -> Result<()> {
     let from_block = 18000000;
     let to_block = from_block + 100;
 
-    println!(
-        "\nFetching LogStateUpdate events from block {} to {}...",
-        from_block, to_block
-    );
+    println!("\nFetching LogStateUpdate events from block {} to {}...", from_block, to_block);
 
     match client.fetch_decoded_state_updates(from_block, to_block).await {
         Ok(state_updates) => {
