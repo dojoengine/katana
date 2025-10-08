@@ -1,3 +1,5 @@
+#![cfg_attr(not(test), warn(unused_crate_dependencies))]
+
 //! Rust bindings for the Starknet Core Contract on Ethereum.
 //!
 //! This module provides a simple interface to interact with the Starknet Core Contract,
@@ -48,17 +50,12 @@
 //! # }
 //! ```
 
-#![allow(dead_code)]
-
 use alloy_network::Ethereum;
 use alloy_primitives::Address;
 use alloy_provider::{Provider, RootProvider};
 use alloy_rpc_types_eth::{BlockNumberOrTag, Filter, FilterBlockOption, FilterSet, Log, Topic};
 use alloy_sol_types::{sol, SolEvent};
 use anyhow::Result;
-use tracing::trace;
-
-use super::LOG_TARGET;
 
 /// Official Starknet Core Contract address on Ethereum mainnet.
 ///
@@ -102,7 +99,7 @@ pub struct StarknetCore<P> {
     contract_address: Address,
 }
 
-impl<P: Provider> StarknetCore<P> {
+impl<P> StarknetCore<P> {
     /// Creates a new `StarknetCore` instance with a custom contract address.
     ///
     /// # Arguments
@@ -130,7 +127,9 @@ impl<P: Provider> StarknetCore<P> {
     pub fn new_sepolia(provider: P) -> Self {
         Self::new(provider, STARKNET_CORE_CONTRACT_ADDRESS_SEPOLIA)
     }
+}
 
+impl<P: Provider> StarknetCore<P> {
     /// Fetches and decodes all `LogStateUpdate` events in the given block range.
     ///
     /// # Arguments
@@ -208,13 +207,6 @@ impl<P: Provider> StarknetCore<P> {
         from_block: u64,
         to_block: u64,
     ) -> Result<Vec<Log>> {
-        trace!(
-            target: LOG_TARGET,
-            from_block = ?from_block,
-            to_block = ?to_block,
-            "Fetching LogMessageToL2 events."
-        );
-
         let filter = Filter {
             block_option: FilterBlockOption::Range {
                 from_block: Some(BlockNumberOrTag::Number(from_block)),
@@ -259,13 +251,6 @@ impl<P: Provider> StarknetCore<P> {
         from_block: u64,
         to_block: u64,
     ) -> Result<Vec<Log>> {
-        trace!(
-            target: LOG_TARGET,
-            from_block = ?from_block,
-            to_block = ?to_block,
-            "Fetching LogStateUpdate events."
-        );
-
         let filter = Filter {
             block_option: FilterBlockOption::Range {
                 from_block: Some(BlockNumberOrTag::Number(from_block)),

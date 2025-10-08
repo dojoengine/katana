@@ -1,0 +1,18 @@
+[package]
+name = "katana-starknet"
+edition.workspace = true
+license.workspace = true
+license-file.workspace = true
+repository.workspace = true
+version.workspace = true
+
+[dependencies]
+anyhow.workspace = true
+reqwest.workspace = true
+
+alloy-primitives = { workspace = true, features = [ "serde" ] }
+alloy-sol-types = { workspace = true, default-features = false, features = [ "json" ] }
+
+alloy-network = { workspace = true, default-features = false }
+alloy-provider = { workspace = true, default-features = false, features = [ "reqwest", "reqwest-rustls-tls" ] }
+alloy-rpc-types-eth = { workspace = true, default-features = false }

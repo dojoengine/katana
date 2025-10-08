@@ -37,7 +37,6 @@
 mod ethereum;
 mod service;
 mod starknet;
-pub mod starknet_core;
 
 use std::future::Future;
 use std::path::Path;
