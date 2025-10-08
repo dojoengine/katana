@@ -188,7 +188,11 @@ pub struct LaunchedNode {
 impl LaunchedNode {
     pub async fn stop(&self) -> Result<()> {
         self.rpc.stop()?;
+        self.pipeline.stop();
+
+        self.pipeline.stopped().await;
         self.task_manager.shutdown().await;
+
         Ok(())
     }
 

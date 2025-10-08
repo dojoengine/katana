@@ -409,6 +409,34 @@ impl<Db: Database> StateUpdateProvider for DbProvider<Db> {
         }
     }
 
+    fn declared_deprecated_classes(
+        &self,
+        block_id: BlockHashOrNumber,
+    ) -> ProviderResult<Option<Vec<ClassHash>>> {
+        let db_tx = self.0.tx()?;
+        let block_num = self.block_number_by_id(block_id)?;
+
+        if let Some(block_num) = block_num {
+            let declared_classes = dup_entries::<Db, tables::ClassDeclarations, Vec<ClassHash>, _>(
+                &db_tx,
+                block_num,
+                |entry| {
+                    let (_, class_hash) = entry?;
+                    if db_tx.get::<tables::CompiledClassHashes>(class_hash)?.is_none() {
+                        Ok(Some(class_hash))
+                    } else {
+                        Ok(None)
+                    }
+                },
+            )?;
+
+            db_tx.commit()?;
+            Ok(Some(declared_classes))
+        } else {
+            Ok(None)
+        }
+    }
+
     fn deployed_contracts(
         &self,
         block_id: BlockHashOrNumber,
