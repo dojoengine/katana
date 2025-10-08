@@ -1,8 +1,8 @@
 //! Rust bindings for the Starknet Core Contract on Ethereum.
 //!
 //! This module provides a simple interface to interact with the Starknet Core Contract,
-//! specifically for fetching `LogStateUpdate` events which represent state updates of the
-//! Starknet rollup.
+//! specifically for fetching `LogStateUpdate` and `LogMessageToL2` events which represent
+//! state updates and L1->L2 messages of the Starknet rollup.
 //!
 //! # Example
 //!
@@ -65,11 +65,23 @@ sol! {
     );
 }
 
+sol! {
+    #[derive(Debug, PartialEq)]
+    event LogMessageToL2(
+        address indexed from_address,
+        uint256 indexed to_address,
+        uint256 indexed selector,
+        uint256[] payload,
+        uint256 nonce,
+        uint256 fee
+    );
+}
+
 /// Rust bindings for the Starknet Core Contract.
 ///
 /// This provides methods to interact with the Starknet Core Contract deployed on Ethereum,
-/// specifically for fetching `LogStateUpdate` events which represent state updates of the
-/// Starknet rollup.
+/// specifically for fetching `LogStateUpdate` and `LogMessageToL2` events which represent
+/// state updates and L1->L2 messages of the Starknet rollup.
 #[derive(Debug)]
 pub struct StarknetCore<P> {
     provider: P,
@@ -174,6 +186,82 @@ where
 
         Ok(decoded)
     }
+
+    /// Fetches all `LogMessageToL2` events emitted by the contract in the given block range.
+    ///
+    /// # Arguments
+    ///
+    /// * `from_block` - The first block from which to fetch logs (inclusive)
+    /// * `to_block` - The last block from which to fetch logs (inclusive)
+    ///
+    /// # Returns
+    ///
+    /// A vector of `Log` entries containing the `LogMessageToL2` events.
+    ///
+    /// # Errors
+    ///
+    /// Returns an error if the RPC request fails or if the block range is too large.
+    pub async fn fetch_messages_to_l2(&self, from_block: u64, to_block: u64) -> Result<Vec<Log>> {
+        trace!(
+            target: LOG_TARGET,
+            from_block = ?from_block,
+            to_block = ?to_block,
+            "Fetching LogMessageToL2 events."
+        );
+
+        let filter = Filter {
+            block_option: FilterBlockOption::Range {
+                from_block: Some(BlockNumberOrTag::Number(from_block)),
+                to_block: Some(BlockNumberOrTag::Number(to_block)),
+            },
+            address: FilterSet::<Address>::from(self.contract_address),
+            topics: [
+                Topic::from(LogMessageToL2::SIGNATURE_HASH),
+                Default::default(),
+                Default::default(),
+                Default::default(),
+            ],
+        };
+
+        let logs: Vec<Log> = self
+            .provider
+            .get_logs(&filter)
+            .await?
+            .into_iter()
+            .filter(|log| log.block_number.is_some())
+            .collect();
+
+        Ok(logs)
+    }
+
+    /// Fetches and decodes all `LogMessageToL2` events in the given block range.
+    ///
+    /// # Arguments
+    ///
+    /// * `from_block` - The first block from which to fetch logs (inclusive)
+    /// * `to_block` - The last block from which to fetch logs (inclusive)
+    ///
+    /// # Returns
+    ///
+    /// A vector of decoded `LogMessageToL2` events.
+    ///
+    /// # Errors
+    ///
+    /// Returns an error if the RPC request fails or if decoding fails.
+    pub async fn fetch_decoded_messages_to_l2(
+        &self,
+        from_block: u64,
+        to_block: u64,
+    ) -> Result<Vec<LogMessageToL2>> {
+        let logs = self.fetch_messages_to_l2(from_block, to_block).await?;
+
+        let decoded: Vec<LogMessageToL2> = logs
+            .into_iter()
+            .filter_map(|log| LogMessageToL2::decode_log(log.as_ref()).ok())
+            .collect();
+
+        Ok(decoded)
+    }
 }
 
 // Convenience constructor for creating a StarknetCore instance with HTTP provider
@@ -256,5 +344,58 @@ mod tests {
         );
 
         assert_eq!(event.globalRoot, U256::from(1));
+    }
+
+    #[test]
+    fn test_log_message_to_l2_decode() {
+        use std::str::FromStr;
+
+        let from_address = address!("be3C44c09bc1a3566F3e1CA12e5AbA0fA4Ca72Be");
+        let to_address =
+            U256::from_str("0x39dc79e64f4bb3289240f88e0bae7d21735bef0d1a51b2bf3c4730cb16983e1")
+                .unwrap();
+        let selector =
+            U256::from_str("0x2f15cff7b0eed8b9beb162696cf4e3e0e35fa7032af69cd1b7d2ac67a13f40f")
+                .unwrap();
+        let payload = vec![U256::from(1), U256::from(2)];
+        let nonce = U256::from(783082_u64);
+        let fee = U256::from(30000_u128);
+
+        let event = LogMessageToL2::new(
+            (
+                b256!("db80dd488acf86d17c747445b0eabb5d57c541d3bd7b6b87af987858e5066b2b"),
+                from_address,
+                to_address,
+                selector,
+            ),
+            (payload.clone(), nonce, fee),
+        );
+
+        let log = Log {
+            inner: alloy_primitives::Log::<LogData> {
+                address: STARKNET_CORE_CONTRACT_ADDRESS,
+                data: LogData::from(&event),
+            },
+            ..Default::default()
+        };
+
+        let decoded = LogMessageToL2::decode_log(log.as_ref()).unwrap();
+
+        assert_eq!(decoded.from_address, from_address);
+        assert_eq!(decoded.to_address, to_address);
+        assert_eq!(decoded.selector, selector);
+        assert_eq!(decoded.payload, payload);
+        assert_eq!(decoded.nonce, nonce);
+        assert_eq!(decoded.fee, fee);
+    }
+
+    #[test]
+    fn test_log_message_to_l2_signature() {
+        // Verify that the event signature matches the expected hash for:
+        // "LogMessageToL2(address,uint256,uint256,uint256[],uint256,uint256)"
+        let expected_signature =
+            b256!("db80dd488acf86d17c747445b0eabb5d57c541d3bd7b6b87af987858e5066b2b");
+
+        assert_eq!(LogMessageToL2::SIGNATURE_HASH, expected_signature);
     }
 }
