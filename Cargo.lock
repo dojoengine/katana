@@ -6138,6 +6138,7 @@ dependencies = [
  "http-body 1.0.1",
  "katana-executor",
  "katana-metrics",
+ "katana-pool-api",
  "katana-primitives",
  "katana-provider-api",
  "katana-rpc",
