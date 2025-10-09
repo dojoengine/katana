@@ -6586,6 +6586,7 @@ dependencies = [
  "num-traits",
  "rstest 0.18.2",
  "starknet",
+ "starknet-types-core",
  "thiserror 1.0.69",
  "tokio",
  "tracing",
