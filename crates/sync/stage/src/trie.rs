@@ -44,37 +44,31 @@ where
                 let span = trace_span!("compute_state_root", %block_number);
                 let _enter = span.enter();
 
+                let expected_state_root = self
+                    .provider
+                    .header(block_number.into())?
+                    .map(|header| header.state_root)
+                    .ok_or(Error::MissingBlockHeader(block_number))?;
+
                 let state_update = self
                     .provider
                     .state_update(block_number.into())?
                     .ok_or(Error::MissingStateUpdate(block_number))?;
 
-                // Compute the state root by inserting the state updates into the tries
-                // This mirrors what `compute_new_state_root` does in the backend
-
-                // Insert declared classes into the class trie
                 let class_trie_root = self
                     .provider
                     .trie_insert_declared_classes(block_number, &state_update.declared_classes)?;
 
-                // Insert contract updates into the contract trie
                 let contract_trie_root =
                     self.provider.trie_insert_contract_updates(block_number, &state_update)?;
 
-                // Compute the state root: hash("STARKNET_STATE_V0", contract_trie_root,
-                // class_trie_root)
+                // Compute the state root:
+                // hash("STARKNET_STATE_V0", contract_trie_root, class_trie_root)
                 let computed_state_root = Poseidon::hash_array(&[
                     short_string!("STARKNET_STATE_V0"),
                     contract_trie_root,
                     class_trie_root,
                 ]);
-
-                let header = self
-                    .provider
-                    .header(block_number.into())?
-                    .ok_or(Error::MissingBlockHeader(block_number))?;
-
-                let expected_state_root = header.state_root;
 
                 // Verify that the computed state root matches the expected state root from the
                 // block header
@@ -88,7 +82,7 @@ where
 
                     return Err(Error::StateRootMismatch {
                         block_number,
-                        expected: header.state_root,
+                        expected: expected_state_root,
                         computed: computed_state_root,
                     }
                     .into());
@@ -115,8 +109,8 @@ pub enum Error {
     MissingStateUpdate(BlockNumber),
 
     #[error(
-        "State root mismatch at block {block_number}: expected {expected:#x}, computed \
-         {computed:#x}"
+        "State root mismatch at block {block_number}: expected (from header) {expected:#x}, \
+         computed {computed:#x}"
     )]
     StateRootMismatch { block_number: BlockNumber, expected: Felt, computed: Felt },
 }

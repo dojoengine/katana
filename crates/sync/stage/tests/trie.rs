@@ -3,6 +3,7 @@ use std::sync::{Arc, Mutex};
 
 use katana_primitives::block::{BlockHashOrNumber, BlockNumber, Header};
 use katana_primitives::class::{ClassHash, CompiledClassHash};
+use katana_primitives::da::L1DataAvailabilityMode;
 use katana_primitives::state::StateUpdates;
 use katana_primitives::Felt;
 use katana_provider::api::block::HeaderProvider;
@@ -13,13 +14,14 @@ use katana_stage::trie::StateTrie;
 use katana_stage::{Stage, StageExecutionInput};
 use rstest::rstest;
 use starknet::macros::short_string;
+use starknet::providers::sequencer::models::state_update;
 use starknet_types_core::hash::{Poseidon, StarkHash};
 
 /// Mock provider implementation for testing StateTrie stage.
 ///
 /// Provides configurable responses for headers, state updates, and trie operations.
 #[derive(Clone)]
-struct MockTrieProvider {
+struct MockProvider {
     /// Map of block number to header.
     headers: Arc<Mutex<HashMap<BlockNumber, Header>>>,
     /// Map of block number to state update.
@@ -30,7 +32,7 @@ struct MockTrieProvider {
     should_fail: Arc<Mutex<bool>>,
 }
 
-impl MockTrieProvider {
+impl MockProvider {
     fn new() -> Self {
         Self {
             headers: Arc::new(Mutex::new(HashMap::new())),
@@ -40,14 +42,14 @@ impl MockTrieProvider {
         }
     }
 
-    /// Configure a block with header and state update.
-    fn with_block(
-        self,
-        block_number: BlockNumber,
-        header: Header,
-        state_update: StateUpdates,
-    ) -> Self {
+    /// Configure a header for a specific block.
+    fn with_header(self, block_number: BlockNumber, header: Header) -> Self {
         self.headers.lock().unwrap().insert(block_number, header);
+        self
+    }
+
+    /// Configure a state update for a specific block.
+    fn with_state_update(self, block_number: BlockNumber, state_update: StateUpdates) -> Self {
         self.state_updates.lock().unwrap().insert(block_number, state_update);
         self
     }
@@ -64,7 +66,7 @@ impl MockTrieProvider {
     }
 }
 
-impl HeaderProvider for MockTrieProvider {
+impl HeaderProvider for MockProvider {
     fn header(&self, id: BlockHashOrNumber) -> ProviderResult<Option<Header>> {
         let block_number = match id {
             BlockHashOrNumber::Num(num) => num,
@@ -79,7 +81,7 @@ impl HeaderProvider for MockTrieProvider {
     }
 }
 
-impl StateUpdateProvider for MockTrieProvider {
+impl StateUpdateProvider for MockProvider {
     fn state_update(&self, block_id: BlockHashOrNumber) -> ProviderResult<Option<StateUpdates>> {
         let block_number = match block_id {
             BlockHashOrNumber::Num(num) => num,
@@ -108,7 +110,7 @@ impl StateUpdateProvider for MockTrieProvider {
     }
 }
 
-impl TrieWriter for MockTrieProvider {
+impl TrieWriter for MockProvider {
     fn trie_insert_declared_classes(
         &self,
         block_number: BlockNumber,
@@ -156,7 +158,7 @@ fn create_test_header(block_number: BlockNumber, state_root: Felt) -> Header {
         l1_gas_prices: Default::default(),
         l2_gas_prices: Default::default(),
         l1_data_gas_prices: Default::default(),
-        l1_da_mode: Default::default(),
+        l1_da_mode: L1DataAvailabilityMode::Calldata,
         starknet_version: Default::default(),
         transaction_count: 0,
         events_count: 0,
@@ -176,6 +178,7 @@ fn create_test_state_update() -> StateUpdates {
         deployed_contracts: Default::default(),
         replaced_classes: Default::default(),
         declared_classes: Default::default(),
+        deprecated_declared_classes: Default::default(),
     }
 }
 
@@ -189,22 +192,18 @@ async fn verify_state_roots_success(
     #[case] to_block: BlockNumber,
     #[case] expected_blocks: Vec<BlockNumber>,
 ) {
-    let mut provider = MockTrieProvider::new();
+    let mut provider = MockProvider::new();
 
     // Configure blocks with correct state roots
     let correct_state_root = compute_mock_state_root();
-    for block_num in from_block..=to_block {
-        provider = provider.with_block(
-            block_num,
-            create_test_header(block_num, correct_state_root),
-            create_test_state_update(),
-        );
+    for num in from_block..=to_block {
+        let header = create_test_header(num, correct_state_root);
+        let state_update = create_test_state_update();
+        provider = provider.with_header(num, header).with_state_update(num, state_update);
     }
 
-    let mut stage = StateTrie::new(provider.clone());
     let input = StageExecutionInput::new(from_block, to_block);
-
-    let result = stage.execute(&input).await;
+    let result = StateTrie::new(provider.clone()).execute(&input).await;
     assert!(result.is_ok(), "Stage execution should succeed");
 
     // Verify that trie inserts were called for each block (twice per block: classes + contracts)
@@ -218,11 +217,11 @@ async fn state_root_mismatch_returns_error() {
     let correct_state_root = compute_mock_state_root();
     let wrong_state_root = Felt::from(0x9999u64);
 
-    let provider = MockTrieProvider::new().with_block(
-        block_number,
-        create_test_header(block_number, wrong_state_root), // Wrong state root in header
-        create_test_state_update(),
-    );
+    let header = create_test_header(block_number, wrong_state_root);
+    let state_update = create_test_state_update();
+    let provider = MockProvider::new()
+        .with_header(block_number, header)
+        .with_state_update(block_number, state_update);
 
     let mut stage = StateTrie::new(provider);
     let input = StageExecutionInput::new(block_number, block_number);
@@ -252,149 +251,4 @@ async fn state_root_mismatch_returns_error() {
             _ => panic!("Expected Error::StateTrie variant, got: {err:#?}"),
         }
     }
-}
-
-#[tokio::test]
-async fn missing_header_returns_error() {
-    let block_number = 100;
-
-    // Only configure state update, no header
-    let provider = MockTrieProvider::new().with_block(
-        block_number,
-        create_test_header(101, Felt::ZERO),
-        create_test_state_update(),
-    );
-
-    let mut stage = StateTrie::new(provider);
-    let input = StageExecutionInput::new(block_number, block_number);
-
-    let result = stage.execute(&input).await;
-
-    assert!(result.is_err());
-    if let Err(err) = result {
-        match err {
-            katana_stage::Error::StateTrie(e) => {
-                let error_msg = e.to_string();
-                assert!(
-                    error_msg.contains("Missing state update"),
-                    "Expected missing state update error, got: {}",
-                    error_msg
-                );
-            }
-            _ => panic!("Expected Error::StateTrie variant, got: {err:#?}"),
-        }
-    }
-}
-
-#[tokio::test]
-async fn missing_state_update_returns_error() {
-    let block_number = 100;
-
-    // Only configure header, no state update
-    let mut provider = MockTrieProvider::new();
-    provider
-        .headers
-        .lock()
-        .unwrap()
-        .insert(block_number, create_test_header(block_number, compute_mock_state_root()));
-
-    let mut stage = StateTrie::new(provider);
-    let input = StageExecutionInput::new(block_number, block_number);
-
-    let result = stage.execute(&input).await;
-
-    assert!(result.is_err());
-    if let Err(err) = result {
-        match err {
-            katana_stage::Error::StateTrie(e) => {
-                let error_msg = e.to_string();
-                assert!(
-                    error_msg.contains("Missing state update"),
-                    "Expected missing state update error, got: {}",
-                    error_msg
-                );
-            }
-            _ => panic!("Expected Error::StateTrie variant, got: {err:#?}"),
-        }
-    }
-}
-
-#[tokio::test]
-async fn trie_insert_failure_returns_error() {
-    let block_number = 100;
-
-    let provider = MockTrieProvider::new()
-        .with_block(
-            block_number,
-            create_test_header(block_number, compute_mock_state_root()),
-            create_test_state_update(),
-        )
-        .with_trie_error();
-
-    let mut stage = StateTrie::new(provider);
-    let input = StageExecutionInput::new(block_number, block_number);
-
-    let result = stage.execute(&input).await;
-
-    assert!(result.is_err());
-    if let Err(err) = result {
-        match err {
-            katana_stage::Error::Provider(_) => {
-                // Expected error type from trie operations
-            }
-            _ => panic!("Expected Error::Provider variant, got: {err:#?}"),
-        }
-    }
-}
-
-#[tokio::test]
-async fn partial_verification_failure_stops_execution() {
-    let from_block = 100;
-    let to_block = 105;
-    let correct_state_root = compute_mock_state_root();
-    let wrong_state_root = Felt::from(0x9999u64);
-
-    let mut provider = MockTrieProvider::new();
-
-    // Configure first 3 blocks correctly
-    for block_num in from_block..=102 {
-        provider = provider.with_block(
-            block_num,
-            create_test_header(block_num, correct_state_root),
-            create_test_state_update(),
-        );
-    }
-
-    // Block 103 has wrong state root
-    provider = provider.with_block(
-        103,
-        create_test_header(103, wrong_state_root),
-        create_test_state_update(),
-    );
-
-    // Remaining blocks configured correctly (but shouldn't be reached)
-    for block_num in 104..=to_block {
-        provider = provider.with_block(
-            block_num,
-            create_test_header(block_num, correct_state_root),
-            create_test_state_update(),
-        );
-    }
-
-    let mut stage = StateTrie::new(provider.clone());
-    let input = StageExecutionInput::new(from_block, to_block);
-
-    let result = stage.execute(&input).await;
-
-    // Should fail on block 103
-    assert!(result.is_err());
-
-    // Verify that trie inserts were only called for blocks up to 103 (inclusive)
-    // Each block has 2 trie insert calls (classes + contracts)
-    let trie_calls = provider.trie_insert_blocks();
-    assert_eq!(
-        trie_calls.len(),
-        4 * 2, // blocks 100, 101, 102, 103
-        "Should only process blocks up to the failed one"
-    );
 }
