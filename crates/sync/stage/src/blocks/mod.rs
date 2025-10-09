@@ -15,7 +15,7 @@ use katana_provider::api::block::{BlockHashProvider, BlockWriter};
 use katana_provider::ProviderError;
 use num_traits::ToPrimitive;
 use starknet::core::types::ResourcePrice;
-use tracing::debug;
+use tracing::{debug, error, trace};
 
 use crate::{Stage, StageExecutionInput, StageExecutionOutput, StageResult};
 
@@ -105,7 +105,8 @@ where
                 .downloader
                 .download_blocks(input.from(), input.to())
                 .await
-                .map_err(Error::Gateway)?;
+                .map_err(Error::Gateway)
+                .inspect_err(|e| error!(error = %e , "Error downloading blocks."))?;
 
             if !blocks.is_empty() {
                 debug!(target: "stage", id = %self.id(), total = %blocks.len(), "Storing blocks to storage.");
@@ -116,13 +117,18 @@ where
                 // Store blocks to storage
                 for block in blocks {
                     let (block, receipts, state_updates) = extract_block_data(block)?;
+                    let block_number = block.block.header.number;
 
-                    self.provider.insert_block_with_states_and_receipts(
-                        block,
-                        state_updates,
-                        receipts,
-                        Vec::new(),
-                    )?;
+                    self.provider
+                        .insert_block_with_states_and_receipts(
+                            block,
+                            state_updates,
+                            receipts,
+                            Vec::new(),
+                        )
+                        .inspect_err(
+                            |e| error!(error = %e, block = %block_number, "Error storing block."),
+                        )?;
                 }
             }
 
