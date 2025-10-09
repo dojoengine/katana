@@ -1,29 +1,29 @@
 use std::future::IntoFuture;
 use std::time::Duration;
 
+use alloy_provider::Provider;
 use anyhow::Result;
 use futures::future::BoxFuture;
-use katana_gateway::client::Client as SequencerGateway;
-use katana_gateway::types::BlockId;
 use katana_pipeline::PipelineHandle;
+use katana_starknet::StarknetCore;
 use tracing::{error, info, trace};
 
 type TipWatcherFut = BoxFuture<'static, Result<()>>;
 
 #[derive(Debug)]
-pub struct ChainTipWatcher {
-    /// The feeder gateway client for fetching the latest block.
-    client: SequencerGateway,
+pub struct ChainTipWatcher<P> {
+    /// The Starknet Core Contract client for fetching the latest block.
+    core_contract: StarknetCore<P>,
     /// The pipeline handle for setting the tip.
     pipeline_handle: PipelineHandle,
     /// Interval for checking the new tip.
     watch_interval: Duration,
 }
 
-impl ChainTipWatcher {
-    pub fn new(client: SequencerGateway, pipeline_handle: PipelineHandle) -> Self {
+impl<P: alloy_provider::Provider> ChainTipWatcher<P> {
+    pub fn new(core_contract: StarknetCore<P>, pipeline_handle: PipelineHandle) -> Self {
         let watch_interval = Duration::from_secs(30);
-        Self { client, pipeline_handle, watch_interval }
+        Self { core_contract, pipeline_handle, watch_interval }
     }
 
     pub async fn run(&self) -> Result<()> {
@@ -33,12 +33,11 @@ impl ChainTipWatcher {
         let mut prev_tip = 0;
 
         loop {
-            let block = self.client.get_block(BlockId::Latest).await?;
-            let block_number = block.block_number.expect("must exist for latest block");
+            let block_number = self.core_contract.state_block_number().await?;
 
             if prev_tip != block_number {
                 trace!(target: "node", block = %block_number, "New tip received");
-                self.pipeline_handle.set_tip(block_number);
+                self.pipeline_handle.set_tip(block_number as u64);
                 prev_tip = block_number;
             }
 
@@ -47,7 +46,7 @@ impl ChainTipWatcher {
     }
 }
 
-impl IntoFuture for ChainTipWatcher {
+impl<P: Provider + 'static> IntoFuture for ChainTipWatcher<P> {
     type Output = Result<()>;
     type IntoFuture = TipWatcherFut;
 

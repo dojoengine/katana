@@ -44,13 +44,15 @@ clap = { workspace = true, optional = true }
 tokio = { workspace = true, features = [ "time" ], optional = true }
 tracing-log = { workspace = true, optional = true }
 tracing-subscriber = { workspace = true, optional = true }
+katana-starknet = { workspace = true, optional = true }
+alloy-provider = { workspace = true, default-features = false, features = [ "reqwest", "reqwest-rustls-tls" ], optional = true }
 
 [features]
 cartridge = [ "katana-rpc-api/cartridge", "katana-rpc/cartridge" ]
 explorer = [ "katana-rpc/explorer" ]
 native = [ "katana-executor/native" ]
 # experimental feature to test katana full node mode
-full-node = [ "dep:tokio" ]
+full-node = [ "dep:tokio", "dep:alloy-provider", "dep:katana-starknet" ]
 
 [[bin]]
 name = "full-node"
@@ -61,4 +63,6 @@ required-features = [
 	"full-node",
 	"tracing-log",
 	"tracing-subscriber",
+	"alloy-provider",
+	"katana-starknet"
 ]
