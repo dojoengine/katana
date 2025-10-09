@@ -29,11 +29,19 @@ use crate::config::metrics::MetricsConfig;
 type TxPool =
     Pool<ExecutableTxWithHash, NoopValidator<ExecutableTxWithHash>, FiFo<ExecutableTxWithHash>>;
 
+#[derive(Debug, Clone)]
+pub enum Network {
+    Mainnet,
+    Sepolia,
+}
+
 #[derive(Debug)]
 pub struct Config {
     pub db: DbConfig,
     pub metrics: Option<MetricsConfig>,
     pub gateway_api_key: Option<String>,
+    pub eth_rpc_url: String,
+    pub network: Network,
 }
 
 #[derive(Debug)]
@@ -88,7 +96,7 @@ impl Node {
         Ok(node)
     }
 
-    pub fn launch(self) -> Result<LaunchedNode> {
+    pub async fn launch(self) -> Result<LaunchedNode> {
         if let Some(ref cfg) = self.config.metrics {
             let reports: Vec<Box<dyn Report>> = vec![Box::new(self.db.clone()) as Box<dyn Report>];
             let exporter = PrometheusRecorder::current().expect("qed; should exist at this point");
@@ -100,14 +108,18 @@ impl Node {
             info!(%addr, "Metrics server started.");
         }
 
-        let fgw = if let Some(key) = self.config.gateway_api_key.as_ref() {
-            SequencerGateway::sepolia().with_api_key(key.clone())
-        } else {
-            SequencerGateway::sepolia()
+        let pipeline_handle = self.pipeline.handle();
+
+        let core_contract = match self.config.network {
+            Network::Mainnet => {
+                katana_starknet::StarknetCore::new_http_mainnet(&self.config.eth_rpc_url).await?
+            }
+            Network::Sepolia => {
+                katana_starknet::StarknetCore::new_http_sepolia(&self.config.eth_rpc_url).await?
+            }
         };
 
-        let pipeline_handle = self.pipeline.handle();
-        let tip_watcher = ChainTipWatcher::new(fgw, pipeline_handle.clone());
+        let tip_watcher = ChainTipWatcher::new(core_contract, pipeline_handle.clone());
 
         self.task_manager
             .task_spawner()
