@@ -308,9 +308,17 @@ impl<P: StageCheckpointProvider> Pipeline<P> {
                 continue;
             }
 
-            // plus 1 because the checkpoint is inclusive
-            let input = StageExecutionInput::new(checkpoint + 1, to);
-            let span = info_span!(target: "pipeline", "stage_execute", stage = %id, from = %checkpoint, to = %to);
+            let from = if checkpoint == 0 {
+                checkpoint
+            } else {
+                // plus 1 because the checkpoint is inclusive
+                checkpoint + 1
+            };
+
+            let input = StageExecutionInput::new(from, to);
+            let span = info_span!(target: "pipeline", "execute", stage = %id, %from, %to);
+
+            info!(target: "pipeline", %id, %from, %to, "Executing stage.");
 
             let StageExecutionOutput { last_block_processed } =
                 stage
@@ -323,7 +331,7 @@ impl<P: StageCheckpointProvider> Pipeline<P> {
             self.provider.set_checkpoint(id, last_block_processed)?;
             last_block_processed_list.push(last_block_processed);
 
-            info!(target: "pipeline", %id, from = %checkpoint, %to, "Stage execution completed.");
+            info!(target: "pipeline", %id, %from, %to, "Stage execution completed.");
         }
 
         Ok(last_block_processed_list.into_iter().min().unwrap_or(to))
