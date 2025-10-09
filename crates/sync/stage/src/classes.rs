@@ -12,7 +12,7 @@ use katana_provider::api::ProviderError;
 use katana_rpc_types::class::ConversionError;
 use tracing::{debug, error};
 
-use super::{Stage, StageExecutionInput, StageResult};
+use super::{Stage, StageExecutionInput, StageExecutionOutput, StageResult};
 use crate::downloader::{BatchDownloader, Downloader, DownloaderResult};
 
 /// A stage for downloading and storing contract classes.
@@ -83,7 +83,7 @@ where
                 }
             }
 
-            Ok(())
+            Ok(StageExecutionOutput { last_block_processed: input.to() })
         })
     }
 }
