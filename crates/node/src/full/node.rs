@@ -5,7 +5,7 @@ use anyhow::Result;
 use clap::{Args, Parser};
 use katana_node::config::db::DbConfig;
 use katana_node::config::metrics::{DEFAULT_METRICS_ADDR, DEFAULT_METRICS_PORT};
-use katana_node::full::{Config, Node};
+use katana_node::full::{Config, Network, Node};
 
 #[derive(Debug, Args, Clone, PartialEq)]
 #[command(next_help_heading = "Metrics options")]
@@ -40,6 +40,14 @@ pub struct Cli {
     #[arg(value_name = "API_KEY")]
     gateway_api_key: Option<String>,
 
+    #[arg(long)]
+    #[arg(value_name = "URL")]
+    eth_rpc_url: String,
+
+    #[arg(long, default_value = "sepolia")]
+    #[arg(value_parser = ["mainnet", "sepolia"])]
+    network: String,
+
     #[command(flatten)]
     metrics: MetricsOptions,
 }
@@ -68,13 +76,21 @@ async fn main() -> Result<()> {
 
     let cli = Cli::parse();
 
+    let network = match cli.network.as_str() {
+        "mainnet" => Network::Mainnet,
+        "sepolia" => Network::Sepolia,
+        _ => unreachable!("validated by clap"),
+    };
+
     let config = Config {
         metrics: None,
         gateway_api_key: cli.gateway_api_key,
         db: DbConfig { dir: Some(cli.db_dir) },
+        eth_rpc_url: cli.eth_rpc_url,
+        network,
     };
 
-    let node = Node::build(config)?.launch()?;
+    let node = Node::build(config)?.launch().await?;
 
     tokio::select! {
         _ = katana_utils::wait_shutdown_signals() => {
