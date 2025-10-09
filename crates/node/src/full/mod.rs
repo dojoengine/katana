@@ -109,7 +109,7 @@ impl Node {
         let block_downloader = BatchBlockDownloader::new_gateway(gateway_client.clone(), 3);
         pipeline.add_stage(Blocks::new(provider.clone(), block_downloader));
         pipeline.add_stage(Classes::new(provider.clone(), gateway_client.clone(), 3));
-        pipeline.add_stage(StateTrie::new(provider.clone()));
+        // pipeline.add_stage(StateTrie::new(provider.clone()));
 
         // --- build rpc server
 
@@ -190,8 +190,6 @@ impl Node {
     }
 
     pub async fn launch(self) -> Result<LaunchedNode> {
-        println!("Launching node");
-
         if let Some(ref cfg) = self.config.metrics {
             let reports: Vec<Box<dyn Report>> = vec![Box::new(self.db.clone()) as Box<dyn Report>];
             let exporter = PrometheusRecorder::current().expect("qed; should exist at this point");

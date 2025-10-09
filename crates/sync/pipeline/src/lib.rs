@@ -73,7 +73,7 @@ use katana_provider_api::stage::StageCheckpointProvider;
 use katana_provider_api::ProviderError;
 use katana_stage::{Stage, StageExecutionInput, StageExecutionOutput};
 use tokio::sync::watch;
-use tracing::{error, info, info_span, trace, Instrument};
+use tracing::{error, info, info_span, trace, Instrument, Span};
 
 /// The result of a pipeline execution.
 pub type PipelineResult<T> = Result<T, Error>;
@@ -311,27 +311,29 @@ impl<P: StageCheckpointProvider> Pipeline<P> {
             let from = if checkpoint == 0 {
                 checkpoint
             } else {
-                // plus 1 because the checkpoint is inclusive
+                // plus 1 because the checkpoint is the last block processed, so we need to start from the next block
                 checkpoint + 1
             };
 
             let input = StageExecutionInput::new(from, to);
-            let span = info_span!(target: "pipeline", "execute", stage = %id, %from, %to);
+            let span = info_span!(target: "pipeline", "stage.execute", stage = %id, %from, %to);
+            let _guard = span.enter();
 
-            info!(target: "pipeline", %id, %from, %to, "Executing stage.");
+            info!(target: "pipeline", stage = %id, %from, %to, "[{}/{}] Executing stage.", i + 1, last_stage_idx + 1);
 
             let StageExecutionOutput { last_block_processed } =
                 stage
                 .execute(&input)
-                .instrument(span)
+                .instrument(Span::current())
                 .await
                 .map_err(|error| Error::StageExecution { id, error })?;
+
+            info!(target: "pipeline", stage = %id, %from, %to, "Stage execution completed.");
 
 
             self.provider.set_checkpoint(id, last_block_processed)?;
             last_block_processed_list.push(last_block_processed);
-
-            info!(target: "pipeline", %id, %from, %to, "Stage execution completed.");
+            info!(target: "pipeline", stage = %id, checkpoint = %to, "New checkpoint set.");
         }
 
         Ok(last_block_processed_list.into_iter().min().unwrap_or(to))
