@@ -20,7 +20,7 @@ pub struct ChainTipWatcher<P> {
     watch_interval: Duration,
 }
 
-impl<P: Provider> ChainTipWatcher<P> {
+impl<P: alloy_provider::Provider> ChainTipWatcher<P> {
     pub fn new(core_contract: StarknetCore<P>, pipeline_handle: PipelineHandle) -> Self {
         let watch_interval = Duration::from_secs(30);
         Self { core_contract, pipeline_handle, watch_interval }

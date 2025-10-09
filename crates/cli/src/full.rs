@@ -21,16 +21,6 @@ pub struct FullNodeArgs {
     #[arg(value_name = "PATH")]
     pub db_dir: Option<PathBuf>,
 
-    /// Ethereum RPC URL for querying the Starknet Core Contract.
-    #[arg(long)]
-    #[arg(value_name = "URL")]
-    pub eth_rpc_url: String,
-
-    /// Starknet network to sync from (mainnet or sepolia).
-    #[arg(long, default_value = "sepolia")]
-    #[arg(value_parser = ["mainnet", "sepolia"])]
-    pub network: String,
-
     #[command(flatten)]
     pub logging: LoggingOptions,
 

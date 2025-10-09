@@ -184,7 +184,7 @@ impl<P: Provider> StarknetCore<P> {
     pub async fn state_block_number(&self) -> Result<i64> {
         let contract = IStarknetCore::new(self.contract_address, &self.provider);
         let result = contract.stateBlockNumber().call().await?;
-        Ok(result._0.as_i64())
+        Ok(result.as_i64())
     }
 
     /// Fetches raw Ethereum [`Log`] emitted by the contract in the given block range.
