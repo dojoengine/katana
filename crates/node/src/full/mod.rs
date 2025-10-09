@@ -202,8 +202,6 @@ impl Node {
     }
 
     pub async fn launch(self) -> Result<LaunchedNode> {
-        println!("Launching node");
-
         if let Some(ref cfg) = self.config.metrics {
             let reports: Vec<Box<dyn Report>> = vec![Box::new(self.db.clone()) as Box<dyn Report>];
             let exporter = PrometheusRecorder::current().expect("qed; should exist at this point");
