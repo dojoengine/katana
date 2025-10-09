@@ -11,7 +11,7 @@ use katana_primitives::fee::{
 };
 use katana_primitives::transaction::{
     DeclareTx, DeclareTxV0, DeclareTxV1, DeclareTxV2, DeclareTxV3, DeclareTxWithClass,
-    DeployAccountTx, DeployAccountTxV1, DeployAccountTxV3, ExecutableTx, ExecutableTx,
+    DeployAccountTx, DeployAccountTxV1, DeployAccountTxV3, ExecutableTx, 
     ExecutableTxWithHash, InvokeTx, InvokeTxV0, InvokeTxV1, InvokeTxV3, TxHash, TxType,
 };
 use katana_primitives::utils::get_contract_address;

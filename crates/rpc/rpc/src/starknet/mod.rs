@@ -1042,8 +1042,9 @@ where
                     let latest = provider.latest_number()?;
                     let new_cursor = Cursor::new_block(latest);
 
-                let continuation_token = Some(new_cursor.into_rpc_cursor().to_string());
-                Ok(GetEventsResponse { events, continuation_token })
+                    let continuation_token = Some(new_cursor.into_rpc_cursor().to_string());
+                    Ok(GetEventsResponse { events, continuation_token })
+                }
             }
 
             (EventBlockId::Pending, EventBlockId::Num(_)) => Err(StarknetApiError::unexpected(

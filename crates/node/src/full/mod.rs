@@ -7,6 +7,8 @@ use anyhow::Result;
 use http::header::CONTENT_TYPE;
 use http::Method;
 use jsonrpsee::RpcModule;
+use katana_chain_spec::ChainSpec;
+use katana_core::backend::storage::Database;
 use katana_executor::ExecutionFlags;
 use katana_gateway_client::Client as SequencerGateway;
 use katana_metrics::exporters::prometheus::PrometheusRecorder;
@@ -18,12 +20,13 @@ use katana_pool::validation::NoopValidator;
 use katana_pool::TxPool;
 use katana_primitives::transaction::ExecutableTxWithHash;
 use katana_provider::providers::db::DbProvider;
+use katana_provider::BlockchainProvider;
 use katana_rpc::cors::Cors;
 use katana_rpc::starknet::{StarknetApi, StarknetApiConfig};
 use katana_rpc::{RpcServer, RpcServerHandle};
 use katana_rpc_api::starknet::{StarknetApiServer, StarknetTraceApiServer, StarknetWriteApiServer};
 use katana_stage::blocks::BatchBlockDownloader;
-use katana_stage::{Blocks, Classes};
+use katana_stage::{Blocks, Classes, StateTrie};
 use katana_tasks::TaskManager;
 use tracing::{error, info};
 
@@ -107,6 +110,7 @@ impl Node {
         let block_downloader = BatchBlockDownloader::new_gateway(gateway_client.clone(), 3);
         pipeline.add_stage(Blocks::new(provider.clone(), block_downloader));
         pipeline.add_stage(Classes::new(provider.clone(), gateway_client.clone(), 3));
+        pipeline.add_stage(StateTrie::new(provider.clone()));
 
         // --- build rpc server
 
@@ -130,11 +134,9 @@ impl Node {
             paymaster: None,
         };
 
-        let chain_spec = config.chain_spec.clone();
-
         let starknet_api = StarknetApi::new(
-            chain_spec.clone(),
-            provider.clone(),
+            Arc::new(ChainSpec::dev()),
+            BlockchainProvider::new(Box::new(provider.clone())),
             pool.clone(),
             task_spawner.clone(),
             starknet_api_cfg,

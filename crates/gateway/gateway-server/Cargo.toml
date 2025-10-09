@@ -13,6 +13,7 @@ katana-primitives.workspace = true
 katana-metrics.workspace = true
 katana-pool.workspace = true
 katana-rpc.workspace = true
+katana-pool-api.workspace = true
 katana-rpc-api.workspace = true
 katana-provider-api.workspace = true
 serde-utils.workspace = true
