@@ -18,6 +18,12 @@ pub trait StateUpdateProvider: Send + Sync {
         block_id: BlockHashOrNumber,
     ) -> ProviderResult<Option<BTreeMap<ClassHash, CompiledClassHash>>>;
 
+    /// Returns all declared deprecated class hashes at the given block.
+    fn declared_deprecated_classes(
+        &self,
+        block_id: BlockHashOrNumber,
+    ) -> ProviderResult<Option<Vec<ClassHash>>>;
+
     /// Returns all deployed contracts at the given block.
     fn deployed_contracts(
         &self,

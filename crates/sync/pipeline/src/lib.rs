@@ -65,6 +65,7 @@
 //! [Erigon]: https://github.com/erigontech/erigon
 
 use core::future::IntoFuture;
+use std::sync::atomic::{AtomicU64, Ordering};
 
 use futures::future::BoxFuture;
 use katana_primitives::block::BlockNumber;
@@ -72,7 +73,7 @@ use katana_provider_api::stage::StageCheckpointProvider;
 use katana_provider_api::ProviderError;
 use katana_stage::{Stage, StageExecutionInput, StageExecutionOutput};
 use tokio::sync::watch;
-use tracing::{debug, error, info, trace};
+use tracing::{debug, error, info, info_span, trace, Instrument, Span};
 
 /// The result of a pipeline execution.
 pub type PipelineResult<T> = Result<T, Error>;
@@ -137,14 +138,10 @@ impl PipelineHandle {
         info!(target: "pipeline", "Signaling pipeline to stop");
         self.tx.send(Some(PipelineCommand::Stop)).expect("channel closed");
     }
-}
 
-impl Drop for PipelineHandle {
-    fn drop(&mut self) {
-        //  self + pipeline copy
-        if self.tx.sender_count() == 2 {
-            self.stop();
-        }
+    /// Wait until the [`Pipeline`] has stopped.
+    pub async fn stopped(&self) {
+        self.tx.closed().await;
     }
 }
 
@@ -233,11 +230,11 @@ impl<P: StageCheckpointProvider> Pipeline<P> {
             // Check if the handle has sent a signal
             match *self.command_rx.borrow_and_update() {
                 Some(PipelineCommand::Stop) => {
-                    trace!(target: "pipeline", "Received stop command.");
+                    info!(target: "pipeline", "Received stop command.");
                     break;
                 }
                 Some(PipelineCommand::SetTip(tip)) => {
-                    trace!(target: "pipeline", %tip, "Received new tip.");
+                    info!(target: "pipeline", %tip, "Received new tip.");
                     current_tip = Some(tip);
                 }
                 None => {}
@@ -256,13 +253,6 @@ impl<P: StageCheckpointProvider> Pipeline<P> {
                     current_chunk_tip = (last_block_processed + self.chunk_size).min(tip);
                     continue;
                 }
-            }
-
-            debug!(target: "pipeline", "Waiting for new command.");
-
-            // Wait for the next command
-            if self.command_rx.changed().await.is_err() {
-                break;
             }
         }
 
@@ -317,17 +307,32 @@ impl<P: StageCheckpointProvider> Pipeline<P> {
                 continue;
             }
 
-            info!(target: "pipeline", %id, from = %checkpoint, %to, "Executing stage.");
+            let from = if checkpoint == 0 {
+                checkpoint
+            } else {
+                // plus 1 because the checkpoint is the last block processed, so we need to start from the next block
+                checkpoint + 1
+            };
 
-            // plus 1 because the checkpoint is inclusive
-            let input = StageExecutionInput::new(checkpoint + 1, to);
+            let input = StageExecutionInput::new(from, to);
+            let span = info_span!(target: "pipeline", "stage.execute", stage = %id, %from, %to);
+            let _guard = span.enter();
+
+            info!(target: "pipeline", stage = %id, %from, %to, "[{}/{}] Executing stage.", i + 1, last_stage_idx + 1);
+
             let StageExecutionOutput { last_block_processed } =
-                stage.execute(&input).await.map_err(|error| Error::StageExecution { id, error })?;
+                stage
+                .execute(&input)
+                .instrument(Span::current())
+                .await
+                .map_err(|error| Error::StageExecution { id, error })?;
+
+            info!(target: "pipeline", stage = %id, %from, %to, "Stage execution completed.");
+
 
             self.provider.set_checkpoint(id, last_block_processed)?;
             last_block_processed_list.push(last_block_processed);
-
-            info!(target: "pipeline", %id, from = %checkpoint, %to, "Stage execution completed.");
+            info!(target: "pipeline", stage = %id, checkpoint = %to, "New checkpoint set.");
         }
 
         Ok(last_block_processed_list.into_iter().min().unwrap_or(to))

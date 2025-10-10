@@ -14,7 +14,7 @@ use katana_primitives::Felt;
 use katana_provider::api::block::BlockWriter;
 use num_traits::ToPrimitive;
 use starknet::core::types::ResourcePrice;
-use tracing::debug;
+use tracing::{debug, error, trace};
 
 use crate::{Stage, StageExecutionInput, StageExecutionOutput, StageResult};
 
@@ -51,7 +51,8 @@ where
                 .downloader
                 .download_blocks(input.from(), input.to())
                 .await
-                .map_err(Error::Gateway)?;
+                .map_err(Error::Gateway)
+                .inspect_err(|e| error!(error = %e , "Error downloading blocks."))?;
 
             if !blocks.is_empty() {
                 debug!(target: "stage", id = %self.id(), total = %blocks.len(), "Storing blocks to storage.");
@@ -59,13 +60,18 @@ where
                 // Store blocks to storage
                 for block in blocks {
                     let (block, receipts, state_updates) = extract_block_data(block)?;
+                    let block_number = block.block.header.number;
 
-                    self.provider.insert_block_with_states_and_receipts(
-                        block,
-                        state_updates,
-                        receipts,
-                        Vec::new(),
-                    )?;
+                    self.provider
+                        .insert_block_with_states_and_receipts(
+                            block,
+                            state_updates,
+                            receipts,
+                            Vec::new(),
+                        )
+                        .inspect_err(
+                            |e| error!(error = %e, block = %block_number, "Error storing block."),
+                        )?;
                 }
             }
 
@@ -85,8 +91,10 @@ fn extract_block_data(
     data: StateUpdateWithBlock,
 ) -> Result<(SealedBlockWithStatus, Vec<Receipt>, StateUpdatesWithClasses)> {
     fn to_gas_prices(prices: ResourcePrice) -> GasPrices {
-        let eth = prices.price_in_fri.to_u128().expect("valid u128");
+        let eth = prices.price_in_wei.to_u128().expect("valid u128");
         let strk = prices.price_in_fri.to_u128().expect("valid u128");
+        let eth = if eth == 0 { 1 } else { eth };
+        let strk = if strk == 0 { 1 } else { strk };
         unsafe { GasPrices::new_unchecked(eth, strk) }
     }
 

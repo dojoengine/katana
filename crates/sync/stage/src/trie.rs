@@ -6,7 +6,7 @@ use katana_provider::api::state_update::StateUpdateProvider;
 use katana_provider::api::trie::TrieWriter;
 use starknet::macros::short_string;
 use starknet_types_core::hash::{Poseidon, StarkHash};
-use tracing::{error, trace, trace_span};
+use tracing::{error, info_span, trace, trace_span};
 
 use crate::{Stage, StageExecutionInput, StageExecutionOutput, StageResult};
 
@@ -41,7 +41,7 @@ where
     fn execute<'a>(&'a mut self, input: &'a StageExecutionInput) -> BoxFuture<'a, StageResult> {
         Box::pin(async move {
             for block_number in input.from()..=input.to() {
-                let span = trace_span!("compute_state_root", %block_number);
+                let span = info_span!("compute_state_root", %block_number);
                 let _enter = span.enter();
 
                 let expected_state_root = self
