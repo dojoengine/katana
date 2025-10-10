@@ -230,39 +230,77 @@ impl<P: StageCheckpointProvider> Pipeline<P> {
         let mut current_tip: Option<BlockNumber> = None;
 
         loop {
-            // Check if the handle has sent a signal
-            match *self.command_rx.borrow_and_update() {
-                Some(PipelineCommand::Stop) => {
-                    trace!(target: "pipeline", "Received stop command.");
-                    break;
-                }
-                Some(PipelineCommand::SetTip(tip)) => {
-                    trace!(target: "pipeline", %tip, "Received new tip.");
-                    current_tip = Some(tip);
-                }
-                None => {}
-            }
-
             // Process blocks if we have a tip
             if let Some(tip) = current_tip {
                 let to = current_chunk_tip.min(tip);
-                let last_block_processed = self.run_to(to).await?;
+                let chunk_size = self.chunk_size;
 
-                if last_block_processed >= tip {
-                    info!(target: "pipeline", %tip, "Finished processing until tip.");
-                    current_tip = None;
-                    current_chunk_tip = last_block_processed;
-                } else {
-                    current_chunk_tip = (last_block_processed + self.chunk_size).min(tip);
-                    continue;
+                // Clone the command receiver for concurrent access
+                // Note: Cloning a watch::Receiver shares the underlying channel but maintains
+                // independent "seen" state for each receiver
+                let mut command_rx_clone = self.command_rx.clone();
+
+                // Use select! to concurrently wait for either:
+                // 1. A new command to arrive
+                // 2. Stage execution to complete
+                tokio::select! {
+                    // Prioritize command checking to handle stop signals quickly
+                    biased;
+
+                    changed = command_rx_clone.changed() => {
+                        if changed.is_err() {
+                            break;
+                        }
+
+                        // Check what command we received
+                        match *command_rx_clone.borrow_and_update() {
+                            Some(PipelineCommand::Stop) => {
+                                trace!(target: "pipeline", "Received stop command during execution.");
+                                break;
+                            }
+                            Some(PipelineCommand::SetTip(new_tip)) => {
+                                trace!(target: "pipeline", %new_tip, "Received new tip during execution.");
+                                // Update the tip and continue processing
+                                current_tip = Some(new_tip);
+                                continue;
+                            }
+                            None => {}
+                        }
+                    }
+
+                    result = self.run_to(to) => {
+                        let last_block_processed = result?;
+
+                        if last_block_processed >= tip {
+                            info!(target: "pipeline", %tip, "Finished processing until tip.");
+                            current_tip = None;
+                            current_chunk_tip = last_block_processed;
+                        } else {
+                            current_chunk_tip = (last_block_processed + chunk_size).min(tip);
+                            continue;
+                        }
+                    }
                 }
-            }
+            } else {
+                // No tip set, wait for a command
+                debug!(target: "pipeline", "Waiting for new command.");
 
-            debug!(target: "pipeline", "Waiting for new command.");
+                if self.command_rx.changed().await.is_err() {
+                    break;
+                }
 
-            // Wait for the next command
-            if self.command_rx.changed().await.is_err() {
-                break;
+                // Check what command we received
+                match *self.command_rx.borrow_and_update() {
+                    Some(PipelineCommand::Stop) => {
+                        trace!(target: "pipeline", "Received stop command.");
+                        break;
+                    }
+                    Some(PipelineCommand::SetTip(tip)) => {
+                        trace!(target: "pipeline", %tip, "Received new tip.");
+                        current_tip = Some(tip);
+                    }
+                    None => {}
+                }
             }
         }
 
