@@ -8,7 +8,7 @@ use starknet::macros::short_string;
 use starknet_types_core::hash::{Poseidon, StarkHash};
 use tracing::{error, trace, trace_span};
 
-use crate::{Stage, StageExecutionInput, StageResult};
+use crate::{Stage, StageExecutionInput, StageExecutionOutput, StageResult};
 
 /// A stage for computing and validating state tries.
 ///
@@ -95,7 +95,7 @@ where
                 );
             }
 
-            Ok(())
+            Ok(StageExecutionOutput { last_block_processed: input.to() })
         })
     }
 }
