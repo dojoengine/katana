@@ -298,7 +298,11 @@ impl<P: StageCheckpointProvider> Pipeline<P> {
         // This is so that lagging stages (ie stage with a checkpoint that is less than the rest of
         // the stages) will be executed, in the next cycle of `run_to`, with a `to` value
         // whose range from the stages' next checkpoint is equal to the pipeline batch size.
-        let mut min_last_block_processed: Option<BlockNumber> = None;
+        //
+        // This can actually be done without the allocation, but this makes reasoning about the
+        // code easier. The majority of the execution time will be spent in `stage.execute` anyway
+        // so optimizing this doesn't yield significant improvements.
+        let mut last_block_processed_list: Vec<BlockNumber> = Vec::with_capacity(self.stages.len());
 
         for stage in self.stages.iter_mut() {
             let id = stage.id();
@@ -309,11 +313,7 @@ impl<P: StageCheckpointProvider> Pipeline<P> {
             // Skip the stage if the checkpoint is greater than or equal to the target block number
             if checkpoint >= to {
                 info!(target: "pipeline", %id, "Skipping stage.");
-
-                if min_last_block_processed.is_none() {
-                    min_last_block_processed = Some(checkpoint);
-                }
-
+                last_block_processed_list.push(checkpoint);
                 continue;
             }
 
@@ -325,17 +325,12 @@ impl<P: StageCheckpointProvider> Pipeline<P> {
                 stage.execute(&input).await.map_err(|error| Error::StageExecution { id, error })?;
 
             self.provider.set_checkpoint(id, last_block_processed)?;
+            last_block_processed_list.push(last_block_processed);
 
             info!(target: "pipeline", %id, from = %checkpoint, %to, "Stage execution completed.");
-
-            if let Some(last_block) = min_last_block_processed.as_mut() {
-                *last_block = (*last_block).min(last_block_processed);
-            } else {
-                min_last_block_processed = Some(last_block_processed);
-            }
         }
 
-        Ok(min_last_block_processed.unwrap_or(to))
+        Ok(last_block_processed_list.into_iter().min().unwrap_or(to))
     }
 }
 
