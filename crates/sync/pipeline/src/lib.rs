@@ -72,7 +72,7 @@ use katana_provider_api::stage::StageCheckpointProvider;
 use katana_provider_api::ProviderError;
 use katana_stage::{Stage, StageExecutionInput};
 use tokio::sync::watch;
-use tracing::{debug, error, info, trace};
+use tracing::{error, info, trace};
 
 /// The result of a pipeline execution.
 pub type PipelineResult<T> = Result<T, Error>;
@@ -258,8 +258,6 @@ impl<P: StageCheckpointProvider> Pipeline<P> {
                 }
             }
 
-            debug!(target: "pipeline", "Waiting for new command.");
-
             // Wait for the next command
             if self.command_rx.changed().await.is_err() {
                 break;
@@ -318,10 +316,34 @@ impl<P: StageCheckpointProvider> Pipeline<P> {
 
             // plus 1 because the checkpoint is inclusive
             let input = StageExecutionInput::new(checkpoint + 1, to);
-            stage.execute(&input).await.map_err(|error| Error::StageExecution { id, error })?;
-            self.provider.set_checkpoint(id, to)?;
 
-            info!(target: "pipeline", %id, from = %checkpoint, %to, "Stage execution completed.");
+            // Execute stage with select! to allow command reception during execution
+            let stage_fut = stage.execute(&input);
+            let cmd_fut = self.command_rx.changed();
+            tokio::pin!(stage_fut, cmd_fut);
+
+            let command_received = tokio::select! {
+                biased;
+                // Check for commands first
+                _ = &mut cmd_fut => {
+                    // Command received; complete the stage before returning
+                    stage_fut.await.map_err(|error| Error::StageExecution { id, error })?;
+                    self.provider.set_checkpoint(id, to)?;
+                    info!(target: "pipeline", %id, from = %checkpoint, %to, "Stage execution completed.");
+                    true
+                }
+                result = &mut stage_fut => {
+                    result.map_err(|error| Error::StageExecution { id, error })?;
+                    self.provider.set_checkpoint(id, to)?;
+                    info!(target: "pipeline", %id, from = %checkpoint, %to, "Stage execution completed.");
+                    false
+                }
+            };
+
+            // If a command was received, return immediately to handle it in the outer loop
+            if command_received {
+                return Ok(to);
+            }
         }
 
         Ok(to)
