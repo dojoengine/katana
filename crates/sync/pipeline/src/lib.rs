@@ -64,7 +64,8 @@
 //! [staged sync]: https://ledgerwatch.github.io/turbo_geth_release.html#Staged-sync
 //! [Erigon]: https://github.com/erigontech/erigon
 
-use core::future::IntoFuture;
+use core::future::{Future, IntoFuture};
+use core::pin::Pin;
 
 use futures::future::BoxFuture;
 use katana_primitives::block::BlockNumber;
@@ -212,6 +213,58 @@ impl<P> Pipeline<P> {
     }
 }
 
+struct PipelineExecutor<'a, P> {
+    provider: &'a mut P,
+    stages: &'a mut Vec<Box<dyn Stage>>,
+}
+
+impl<'a, P: StageCheckpointProvider> PipelineExecutor<'a, P> {
+    fn new(provider: &'a mut P, stages: &'a mut Vec<Box<dyn Stage>>) -> Self {
+        Self { provider, stages }
+    }
+
+    async fn run_to(&mut self, to: BlockNumber) -> PipelineResult<BlockNumber> {
+        if self.stages.is_empty() {
+            return Ok(to);
+        }
+
+        let last_stage_idx = self.stages.len() - 1;
+
+        for (index, stage) in self.stages.iter_mut().enumerate() {
+            let id = stage.id();
+            let checkpoint = self.provider.checkpoint(id)?.unwrap_or_default();
+
+            if checkpoint >= to {
+                info!(target: "pipeline", %id, "Skipping stage.");
+
+                if index == last_stage_idx {
+                    return Ok(checkpoint);
+                }
+
+                continue;
+            }
+
+            info!(target: "pipeline", %id, from = %checkpoint, %to, "Executing stage.");
+
+            let input = StageExecutionInput::new(checkpoint + 1, to);
+            stage.execute(&input).await.map_err(|error| Error::StageExecution { id, error })?;
+            self.provider.set_checkpoint(id, to)?;
+
+            info!(target: "pipeline", %id, from = %checkpoint, %to, "Stage execution completed.");
+        }
+
+        Ok(to)
+    }
+}
+
+type RunFuture<'a, P> = Pin<
+    Box<dyn Future<Output = (PipelineExecutor<'a, P>, PipelineResult<BlockNumber>)> + Send + 'a>,
+>;
+
+struct ActiveRun<'a, P> {
+    future: RunFuture<'a, P>,
+}
+
 impl<P: StageCheckpointProvider> Pipeline<P> {
     /// Runs the pipeline continuously until signaled to stop.
     ///
@@ -228,13 +281,18 @@ impl<P: StageCheckpointProvider> Pipeline<P> {
     pub async fn run(&mut self) -> PipelineResult<()> {
         let mut current_chunk_tip = self.chunk_size;
         let mut current_tip: Option<BlockNumber> = None;
+        let mut stop_requested = false;
 
-        loop {
-            // Check if the handle has sent a signal
-            match *self.command_rx.borrow_and_update() {
+        let command_rx = &mut self.command_rx;
+        let mut executor = Some(PipelineExecutor::new(&mut self.provider, &mut self.stages));
+        let mut active_run: Option<ActiveRun<'_, P>> = None;
+
+        'outer: loop {
+            match *command_rx.borrow_and_update() {
                 Some(PipelineCommand::Stop) => {
                     trace!(target: "pipeline", "Received stop command.");
-                    break;
+                    stop_requested = true;
+                    current_tip = None;
                 }
                 Some(PipelineCommand::SetTip(tip)) => {
                     trace!(target: "pipeline", %tip, "Received new tip.");
@@ -243,26 +301,73 @@ impl<P: StageCheckpointProvider> Pipeline<P> {
                 None => {}
             }
 
-            // Process blocks if we have a tip
-            if let Some(tip) = current_tip {
-                let to = current_chunk_tip.min(tip);
-                let last_block_processed = self.run_to(to).await?;
+            if stop_requested && active_run.is_none() {
+                break;
+            }
 
-                if last_block_processed >= tip {
-                    info!(target: "pipeline", %tip, "Finished processing until tip.");
-                    current_tip = None;
-                    current_chunk_tip = last_block_processed;
-                } else {
-                    current_chunk_tip = (last_block_processed + self.chunk_size).min(tip);
-                    continue;
+            if active_run.is_none() && !stop_requested {
+                if let Some(tip) = current_tip {
+                    if let Some(mut exec) = executor.take() {
+                        let chunk_tip = current_chunk_tip.min(tip);
+                        debug!(target: "pipeline", %chunk_tip, "Processing chunk.");
+                        let future = Box::pin(async move {
+                            let result = exec.run_to(chunk_tip).await;
+                            (exec, result)
+                        });
+                        active_run = Some(ActiveRun { future });
+                    }
                 }
             }
 
-            debug!(target: "pipeline", "Waiting for new command.");
+            match active_run.take() {
+                Some(mut run) => {
+                    tokio::select! {
+                        output = &mut run.future => {
+                            let (exec, run_result) = output;
+                            executor = Some(exec);
+                            let last_block_processed = run_result?;
 
-            // Wait for the next command
-            if self.command_rx.changed().await.is_err() {
-                break;
+                            if let Some(latest_tip) = current_tip {
+                                if last_block_processed >= latest_tip {
+                                    info!(target: "pipeline", tip = %latest_tip, "Finished processing until tip.");
+                                    current_tip = None;
+                                    current_chunk_tip = last_block_processed;
+                                } else {
+                                    current_chunk_tip = (last_block_processed + self.chunk_size).min(latest_tip);
+                                }
+                            } else {
+                                current_chunk_tip = last_block_processed;
+                            }
+
+                            if stop_requested {
+                                break 'outer;
+                            }
+
+                            continue 'outer;
+                        }
+                        changed = command_rx.changed() => {
+                            if changed.is_err() {
+                                break 'outer;
+                            }
+                            active_run = Some(run);
+                            continue 'outer;
+                        }
+                    }
+                }
+                None => {
+                    if stop_requested {
+                        break;
+                    }
+
+                    debug!(target: "pipeline", "Waiting for new command.");
+
+                    if command_rx.changed().await.is_err() {
+                        break;
+                    }
+
+                    active_run = None;
+                    continue 'outer;
+                }
             }
         }
 
@@ -289,42 +394,7 @@ impl<P: StageCheckpointProvider> Pipeline<P> {
     /// Returns an error if any stage execution fails or if the pipeline fails to read the
     /// checkpoint.
     pub async fn run_to(&mut self, to: BlockNumber) -> PipelineResult<BlockNumber> {
-        if self.stages.is_empty() {
-            return Ok(to);
-        }
-
-        // the `is_empty` check above will guarantee that there should be at least a stage to run
-        // and this will not overflow.
-        let last_stage_idx = self.stages.len() - 1;
-
-        for (i, stage) in self.stages.iter_mut().enumerate() {
-            let id = stage.id();
-
-            // Get the checkpoint for the stage, otherwise default to block number 0
-            let checkpoint = self.provider.checkpoint(id)?.unwrap_or_default();
-
-            // Skip the stage if the checkpoint is greater than or equal to the target block number
-            if checkpoint >= to {
-                info!(target: "pipeline", %id, "Skipping stage.");
-
-                if i == last_stage_idx {
-                    return Ok(checkpoint);
-                }
-
-                continue;
-            }
-
-            info!(target: "pipeline", %id, from = %checkpoint, %to, "Executing stage.");
-
-            // plus 1 because the checkpoint is inclusive
-            let input = StageExecutionInput::new(checkpoint + 1, to);
-            stage.execute(&input).await.map_err(|error| Error::StageExecution { id, error })?;
-            self.provider.set_checkpoint(id, to)?;
-
-            info!(target: "pipeline", %id, from = %checkpoint, %to, "Stage execution completed.");
-        }
-
-        Ok(to)
+        PipelineExecutor::new(&mut self.provider, &mut self.stages).run_to(to).await
     }
 }
 
