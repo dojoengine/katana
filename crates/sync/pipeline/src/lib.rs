@@ -70,7 +70,7 @@ use futures::future::BoxFuture;
 use katana_primitives::block::BlockNumber;
 use katana_provider_api::stage::StageCheckpointProvider;
 use katana_provider_api::ProviderError;
-use katana_stage::{Stage, StageExecutionInput};
+use katana_stage::{Stage, StageExecutionInput, StageExecutionOutput};
 use tokio::sync::watch;
 use tracing::{debug, error, info, trace};
 
@@ -282,7 +282,9 @@ impl<P: StageCheckpointProvider> Pipeline<P> {
     ///
     /// # Returns
     ///
-    /// The last block number that was successfully processed by all stages.
+    /// The minimum of the last block numbers processed by all stages. This represents the
+    /// lower bound for the range of block the pipeline has successfully processed in this single
+    /// run (aggregated across all stages).
     ///
     /// # Errors
     ///
@@ -293,11 +295,16 @@ impl<P: StageCheckpointProvider> Pipeline<P> {
             return Ok(to);
         }
 
-        // the `is_empty` check above will guarantee that there should be at least a stage to run
-        // and this will not overflow.
-        let last_stage_idx = self.stages.len() - 1;
+        // This is so that lagging stages (ie stage with a checkpoint that is less than the rest of
+        // the stages) will be executed, in the next cycle of `run_to`, with a `to` value
+        // whose range from the stages' next checkpoint is equal to the pipeline batch size.
+        //
+        // This can actually be done without the allocation, but this makes reasoning about the
+        // code easier. The majority of the execution time will be spent in `stage.execute` anyway
+        // so optimizing this doesn't yield significant improvements.
+        let mut last_block_processed_list: Vec<BlockNumber> = Vec::with_capacity(self.stages.len());
 
-        for (i, stage) in self.stages.iter_mut().enumerate() {
+        for stage in self.stages.iter_mut() {
             let id = stage.id();
 
             // Get the checkpoint for the stage, otherwise default to block number 0
@@ -306,11 +313,7 @@ impl<P: StageCheckpointProvider> Pipeline<P> {
             // Skip the stage if the checkpoint is greater than or equal to the target block number
             if checkpoint >= to {
                 info!(target: "pipeline", %id, "Skipping stage.");
-
-                if i == last_stage_idx {
-                    return Ok(checkpoint);
-                }
-
+                last_block_processed_list.push(checkpoint);
                 continue;
             }
 
@@ -318,13 +321,16 @@ impl<P: StageCheckpointProvider> Pipeline<P> {
 
             // plus 1 because the checkpoint is inclusive
             let input = StageExecutionInput::new(checkpoint + 1, to);
-            stage.execute(&input).await.map_err(|error| Error::StageExecution { id, error })?;
-            self.provider.set_checkpoint(id, to)?;
+            let StageExecutionOutput { last_block_processed } =
+                stage.execute(&input).await.map_err(|error| Error::StageExecution { id, error })?;
+
+            self.provider.set_checkpoint(id, last_block_processed)?;
+            last_block_processed_list.push(last_block_processed);
 
             info!(target: "pipeline", %id, from = %checkpoint, %to, "Stage execution completed.");
         }
 
-        Ok(to)
+        Ok(last_block_processed_list.into_iter().min().unwrap_or(to))
     }
 }
 

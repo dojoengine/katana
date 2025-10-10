@@ -7,7 +7,7 @@ use katana_pipeline::Pipeline;
 use katana_primitives::block::BlockNumber;
 use katana_provider::api::stage::StageCheckpointProvider;
 use katana_provider::test_utils::test_provider;
-use katana_stage::{Stage, StageExecutionInput, StageResult};
+use katana_stage::{Stage, StageExecutionInput, StageExecutionOutput, StageResult};
 
 /// Simple mock stage that does nothing
 struct MockStage;
@@ -17,8 +17,8 @@ impl Stage for MockStage {
         "Mock"
     }
 
-    fn execute<'a>(&'a mut self, _: &'a StageExecutionInput) -> BoxFuture<'a, StageResult> {
-        Box::pin(async { Ok(()) })
+    fn execute<'a>(&'a mut self, input: &'a StageExecutionInput) -> BoxFuture<'a, StageResult> {
+        Box::pin(async move { Ok(StageExecutionOutput { last_block_processed: input.to() }) })
     }
 }
 
@@ -62,7 +62,8 @@ impl Stage for TrackingStage {
                 .lock()
                 .unwrap()
                 .push(ExecutionRecord { from: input.from(), to: input.to() });
-            Ok(())
+
+            Ok(StageExecutionOutput { last_block_processed: input.to() })
         })
     }
 }
@@ -86,6 +87,47 @@ impl Stage for FailingStage {
 
     fn execute<'a>(&'a mut self, _: &'a StageExecutionInput) -> BoxFuture<'a, StageResult> {
         Box::pin(async { Err(katana_stage::Error::Other(anyhow!("Stage execution failed"))) })
+    }
+}
+
+/// Mock stage that always reports a fixed `last_block_processed`.
+#[derive(Debug, Clone)]
+struct FixedOutputStage {
+    id: &'static str,
+    last_block_processed: BlockNumber,
+    executions: Arc<Mutex<Vec<ExecutionRecord>>>,
+}
+
+impl FixedOutputStage {
+    fn new(id: &'static str, last_block_processed: BlockNumber) -> Self {
+        Self { id, last_block_processed, executions: Arc::new(Mutex::new(Vec::new())) }
+    }
+
+    fn execution_count(&self) -> usize {
+        self.executions.lock().unwrap().len()
+    }
+}
+
+impl Stage for FixedOutputStage {
+    fn id(&self) -> &'static str {
+        self.id
+    }
+
+    fn execute<'a>(&'a mut self, input: &'a StageExecutionInput) -> BoxFuture<'a, StageResult> {
+        let executions = self.executions.clone();
+        let last_block_processed = self.last_block_processed;
+
+        Box::pin(async move {
+            executions.lock().unwrap().push(ExecutionRecord { from: input.from(), to: input.to() });
+
+            assert!(
+                last_block_processed <= input.to(),
+                "Configured last block {last_block_processed} exceeds the provided end block {}",
+                input.to()
+            );
+
+            Ok(StageExecutionOutput { last_block_processed })
+        })
     }
 }
 
@@ -253,22 +295,35 @@ async fn run_to_with_mixed_checkpoints() {
 }
 
 #[tokio::test]
-async fn run_to_last_stage_skipped_returns_checkpoint() {
+async fn run_to_returns_minimum_last_block_processed() {
     let provider = test_provider();
     let (mut pipeline, _handle) = Pipeline::new(provider.clone(), 10);
 
-    let stage1 = TrackingStage::new("Stage1");
-    let stage2 = TrackingStage::new("Stage2");
+    let stage1 = FixedOutputStage::new("Stage1", 10);
+    let stage2 = FixedOutputStage::new("Stage2", 5);
+    let stage3 = FixedOutputStage::new("Stage3", 20);
 
-    pipeline.add_stages([Box::new(stage1) as Box<dyn Stage>, Box::new(stage2) as Box<dyn Stage>]);
+    let stage1_clone = stage1.clone();
+    let stage2_clone = stage2.clone();
+    let stage3_clone = stage3.clone();
 
-    provider.set_checkpoint("Stage1", 5).unwrap();
-    provider.set_checkpoint("Stage2", 15).unwrap();
+    pipeline.add_stages([
+        Box::new(stage1) as Box<dyn Stage>,
+        Box::new(stage2) as Box<dyn Stage>,
+        Box::new(stage3) as Box<dyn Stage>,
+    ]);
 
-    let result = pipeline.run_to(10).await.unwrap();
+    let result = pipeline.run_to(20).await.unwrap();
 
-    // Should return stage2's checkpoint since it's the last stage and was skipped
-    assert_eq!(result, 15);
+    // make sure that all the stages were executed once
+    assert_eq!(stage1_clone.execution_count(), 1);
+    assert_eq!(stage2_clone.execution_count(), 1);
+    assert_eq!(stage3_clone.execution_count(), 1);
+
+    assert_eq!(result, 5);
+    assert_eq!(provider.checkpoint(stage1_clone.id()).unwrap(), Some(10));
+    assert_eq!(provider.checkpoint(stage2_clone.id()).unwrap(), Some(5));
+    assert_eq!(provider.checkpoint(stage3_clone.id()).unwrap(), Some(20));
 }
 
 #[tokio::test]

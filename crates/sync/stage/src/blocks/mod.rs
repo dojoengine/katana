@@ -16,7 +16,7 @@ use num_traits::ToPrimitive;
 use starknet::core::types::ResourcePrice;
 use tracing::debug;
 
-use crate::{Stage, StageExecutionInput, StageResult};
+use crate::{Stage, StageExecutionInput, StageExecutionOutput, StageResult};
 
 mod downloader;
 
@@ -69,7 +69,7 @@ where
                 }
             }
 
-            Ok(())
+            Ok(StageExecutionOutput { last_block_processed: input.to() })
         })
     }
 }

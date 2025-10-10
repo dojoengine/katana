@@ -16,7 +16,7 @@ pub use sequencing::Sequencing;
 pub use trie::StateTrie;
 
 /// The result type of a stage execution. See [Stage::execute].
-pub type StageResult = Result<(), Error>;
+pub type StageResult = Result<StageExecutionOutput, Error>;
 
 /// Input parameters for stage execution.
 ///
@@ -55,8 +55,10 @@ impl StageExecutionInput {
     }
 }
 
+/// Output from a stage execution containing the progress information.
 #[derive(Debug, Default)]
 pub struct StageExecutionOutput {
+    /// The last block number that was successfully processed by the stage.
     pub last_block_processed: BlockNumber,
 }
 
@@ -112,7 +114,8 @@ pub trait Stage: Send + Sync {
     ///
     /// # Returns
     ///
-    /// A [`BoxFuture`] that resolves to a [`StageResult`] upon completion.
+    /// A future that resolves to a [`StageResult`] containing [`StageExecutionOutput`]
+    /// with the last successfully processed block number of the stage.
     ///
     /// # Block Range
     ///
