@@ -72,7 +72,7 @@ use katana_provider_api::stage::StageCheckpointProvider;
 use katana_provider_api::ProviderError;
 use katana_stage::{Stage, StageExecutionInput, StageExecutionOutput};
 use tokio::sync::watch;
-use tracing::{debug, error, info, trace};
+use tracing::{error, info, trace};
 
 /// The result of a pipeline execution.
 pub type PipelineResult<T> = Result<T, Error>;
@@ -168,6 +168,7 @@ pub struct Pipeline<P> {
     stages: Vec<Box<dyn Stage>>,
     command_rx: watch::Receiver<Option<PipelineCommand>>,
     command_tx: watch::Sender<Option<PipelineCommand>>,
+    tip: Option<BlockNumber>,
 }
 
 impl<P> Pipeline<P> {
@@ -184,8 +185,14 @@ impl<P> Pipeline<P> {
     pub fn new(provider: P, chunk_size: u64) -> (Self, PipelineHandle) {
         let (tx, rx) = watch::channel(None);
         let handle = PipelineHandle { tx: tx.clone() };
-        let pipeline =
-            Self { stages: Vec::new(), command_rx: rx, command_tx: tx, provider, chunk_size };
+        let pipeline = Self {
+            stages: Vec::new(),
+            command_rx: rx,
+            command_tx: tx,
+            provider,
+            chunk_size,
+            tip: None,
+        };
         (pipeline, handle)
     }
 
@@ -226,43 +233,30 @@ impl<P: StageCheckpointProvider> Pipeline<P> {
     /// Returns an error if any stage execution fails or it an error occurs while reading the
     /// checkpoint.
     pub async fn run(&mut self) -> PipelineResult<()> {
-        let mut current_chunk_tip = self.chunk_size;
-        let mut current_tip: Option<BlockNumber> = None;
+        let mut command_rx = self.command_rx.clone();
 
         loop {
-            // Check if the handle has sent a signal
-            match *self.command_rx.borrow_and_update() {
-                Some(PipelineCommand::Stop) => {
-                    trace!(target: "pipeline", "Received stop command.");
-                    break;
+            tokio::select! {
+                _ = self.run_loop() => { }
+
+                changed = command_rx.changed() => {
+                    if changed.is_err() {
+                        break;
+                    }
+
+                    // Check if the handle has sent a signal
+                    match *self.command_rx.borrow_and_update() {
+                        Some(PipelineCommand::Stop) => {
+                            trace!(target: "pipeline", "Received stop command.");
+                            break;
+                        }
+                        Some(PipelineCommand::SetTip(new_tip)) => {
+                            trace!(target: "pipeline", tip = %new_tip, "Received new tip.");
+                            self.tip = Some(new_tip);
+                        }
+                        None => {}
+                    }
                 }
-                Some(PipelineCommand::SetTip(tip)) => {
-                    trace!(target: "pipeline", %tip, "Received new tip.");
-                    current_tip = Some(tip);
-                }
-                None => {}
-            }
-
-            // Process blocks if we have a tip
-            if let Some(tip) = current_tip {
-                let to = current_chunk_tip.min(tip);
-                let last_block_processed = self.run_to(to).await?;
-
-                if last_block_processed >= tip {
-                    info!(target: "pipeline", %tip, "Finished processing until tip.");
-                    current_tip = None;
-                    current_chunk_tip = last_block_processed;
-                } else {
-                    current_chunk_tip = (last_block_processed + self.chunk_size).min(tip);
-                    continue;
-                }
-            }
-
-            debug!(target: "pipeline", "Waiting for new command.");
-
-            // Wait for the next command
-            if self.command_rx.changed().await.is_err() {
-                break;
             }
         }
 
@@ -290,7 +284,7 @@ impl<P: StageCheckpointProvider> Pipeline<P> {
     ///
     /// Returns an error if any stage execution fails or if the pipeline fails to read the
     /// checkpoint.
-    pub async fn run_to(&mut self, to: BlockNumber) -> PipelineResult<BlockNumber> {
+    pub async fn run_once(&mut self, to: BlockNumber) -> PipelineResult<BlockNumber> {
         if self.stages.is_empty() {
             return Ok(to);
         }
@@ -331,6 +325,37 @@ impl<P: StageCheckpointProvider> Pipeline<P> {
         }
 
         Ok(last_block_processed_list.into_iter().min().unwrap_or(to))
+    }
+
+    /// Run the pipeline loop.
+    async fn run_loop(&mut self) -> PipelineResult<()> {
+        let mut current_chunk_tip = self.chunk_size;
+
+        loop {
+            // Process blocks if we have a tip
+            if let Some(tip) = self.tip {
+                let to = current_chunk_tip.min(tip);
+                let last_block_processed = self.run_once(to).await?;
+
+                if last_block_processed >= tip {
+                    info!(target: "pipeline", %tip, "Finished processing until tip.");
+                    self.tip = None;
+                    current_chunk_tip = last_block_processed;
+                } else {
+                    current_chunk_tip = (last_block_processed + self.chunk_size).min(tip);
+                }
+
+                continue;
+            }
+
+            info!(target: "pipeline", "Waiting for new tip.");
+
+            // block until a new tip is set
+            self.command_rx
+                .wait_for(|c| matches!(c, &Some(PipelineCommand::SetTip(_))))
+                .await
+                .expect("qed; channel closed");
+        }
     }
 }
 
