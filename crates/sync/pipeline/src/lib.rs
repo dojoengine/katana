@@ -311,7 +311,8 @@ impl<P: StageCheckpointProvider> Pipeline<P> {
             let from = if checkpoint == 0 {
                 checkpoint
             } else {
-                // plus 1 because the checkpoint is the last block processed, so we need to start from the next block
+                // plus 1 because the checkpoint is the last block processed, so we need to start
+                // from the next block
                 checkpoint + 1
             };
 
@@ -321,15 +322,13 @@ impl<P: StageCheckpointProvider> Pipeline<P> {
 
             info!(target: "pipeline", stage = %id, %from, %to, "[{}/{}] Executing stage.", i + 1, last_stage_idx + 1);
 
-            let StageExecutionOutput { last_block_processed } =
-                stage
+            let StageExecutionOutput { last_block_processed } = stage
                 .execute(&input)
                 .instrument(Span::current())
                 .await
                 .map_err(|error| Error::StageExecution { id, error })?;
 
             info!(target: "pipeline", stage = %id, %from, %to, "Stage execution completed.");
-
 
             self.provider.set_checkpoint(id, last_block_processed)?;
             last_block_processed_list.push(last_block_processed);
