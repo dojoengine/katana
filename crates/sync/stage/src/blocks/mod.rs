@@ -50,20 +50,22 @@ impl<P, B> Blocks<P, B> {
 
         // Validate the first block against its parent in storage (if not block 0)
         let first_block = &blocks[0].block;
-        let first_block_num = first_block.block_number.unwrap_or_default();
+        let first_block_num =
+            first_block.block_number.expect("only confirmed blocks are synced atm");
 
         if first_block_num > 0 {
             let parent_block_num = first_block_num - 1;
-            let expected_parent_hash = self.provider.block_hash_by_num(parent_block_num)?;
+            let expected_parent_hash = self
+                .provider
+                .block_hash_by_num(parent_block_num)?
+                .ok_or(ProviderError::MissingBlockHash(parent_block_num))?;
 
-            if let Some(expected_hash) = expected_parent_hash {
-                if first_block.parent_block_hash != expected_hash {
-                    return Err(Error::ChainInvariantViolation {
-                        block_num: first_block_num,
-                        parent_hash: first_block.parent_block_hash,
-                        expected_hash,
-                    });
-                }
+            if first_block.parent_block_hash != expected_parent_hash {
+                return Err(Error::ChainInvariantViolation {
+                    block_num: first_block_num,
+                    parent_hash: first_block.parent_block_hash,
+                    expected_hash: expected_parent_hash,
+                });
             }
         }
 

@@ -652,49 +652,4 @@ mod tests {
         let actual = Header::concat_counts(0xFFFFFFFF, 0, 0, L1DataAvailabilityMode::Calldata);
         assert_eq!(actual, expected);
     }
-
-    /// Helper function to create a minimal test `SealedBlockWithStatus`.
-    ///
-    /// Creates a block with the given number and automatically sets the parent hash
-    /// to the hash of block N-1 (using `Felt::from(block_number - 1)`).
-    pub fn create_sealed_block_with_status(block_number: BlockNumber) -> SealedBlockWithStatus {
-        create_sealed_block_with_status_and_parent(
-            block_number,
-            Felt::from(block_number.saturating_sub(1)),
-        )
-    }
-
-    /// Helper function to create a test `SealedBlockWithStatus` with a specific parent hash.
-    ///
-    /// Useful for testing scenarios where you need to control the parent hash explicitly,
-    /// such as testing chain invariant violations.
-    pub fn create_sealed_block_with_status_and_parent(
-        block_number: BlockNumber,
-        parent_hash: Felt,
-    ) -> SealedBlockWithStatus {
-        let header = Header {
-            number: block_number,
-            parent_hash,
-            timestamp: block_number,
-            sequencer_address: ContractAddress::default(),
-            l1_gas_prices: GasPrices::default(),
-            l1_data_gas_prices: GasPrices::default(),
-            l2_gas_prices: GasPrices::default(),
-            l1_da_mode: L1DataAvailabilityMode::Calldata,
-            starknet_version: StarknetVersion::LATEST,
-            state_root: Felt::ZERO,
-            state_diff_commitment: Felt::ZERO,
-            transactions_commitment: Felt::ZERO,
-            receipts_commitment: Felt::ZERO,
-            events_commitment: Felt::ZERO,
-            transaction_count: 0,
-            events_count: 0,
-            state_diff_length: 0,
-        };
-
-        SealedBlockWithStatus {
-            block: SealedBlock { hash: Felt::from(block_number), header, body: Vec::new() },
-            status: FinalityStatus::AcceptedOnL2,
-        }
-    }
 }
