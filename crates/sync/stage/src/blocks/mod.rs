@@ -106,8 +106,7 @@ where
                 .download_blocks(input.from(), input.to())
                 .instrument(info_span!(target: "stage", "blocks.download", from = %input.from(), to = %input.to()))
                 .await
-                .map_err(Error::Gateway)
-                .inspect_err(|e| error!(error = %e , "Error downloading blocks."))?;
+                .map_err(Error::Gateway)?;
 
             let span = info_span!(target: "stage", "blocks.insert", from = %input.from(), to = %input.to());
             let _enter = span.enter();
