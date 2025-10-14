@@ -3,11 +3,14 @@ use std::future::Future;
 use anyhow::Result;
 use futures::channel::oneshot;
 use futures::future::BoxFuture;
+use katana_db::abstraction::{Database, DbCursor, DbTxMut};
+use katana_db::tables;
 use katana_gateway::client::Client as SequencerGateway;
 use katana_gateway::types::ContractClass as GatewayContractClass;
 use katana_primitives::block::BlockNumber;
 use katana_primitives::class::{ClassHash, ContractClass};
 use katana_provider::api::contract::ContractClassWriter;
+use katana_provider::api::stage::StageCheckpointProvider;
 use katana_provider::api::state_update::StateUpdateProvider;
 use katana_provider::api::ProviderError;
 use katana_rpc_types::class::ConversionError;
@@ -15,6 +18,7 @@ use rayon::prelude::*;
 use tracing::{debug, error, info, info_span, Instrument};
 
 use super::{Stage, StageExecutionInput, StageExecutionOutput, StageResult};
+use crate::blocks::DatabaseProvider;
 use crate::downloader::{BatchDownloader, Downloader, DownloaderResult};
 
 /// A stage for downloading and storing contract classes.
@@ -47,6 +51,48 @@ impl<P> Classes<P> {
             .expect("Failed to create verification thread pool");
 
         Self { provider, downloader, verification_pool }
+    }
+
+    /// Unwinds class data by removing all classes declared after the specified block number.
+    ///
+    /// This removes entries from the following tables:
+    /// - CompiledClassHashes, Classes, ClassDeclarationBlock, ClassDeclarations
+    fn unwind_classes<Db: Database>(db: &Db, unwind_to: BlockNumber) -> Result<(), crate::Error> {
+        db.update(|db_tx| -> Result<(), katana_provider::api::ProviderError> {
+            // Find all classes declared after unwind_to
+            let mut classes_to_remove = Vec::new();
+            let mut cursor = db_tx.cursor_dup_mut::<tables::ClassDeclarations>()?;
+
+            // Find all blocks after unwind_to that have class declarations
+            if let Some((block_num, class_hash)) = cursor.seek(unwind_to + 1)? {
+                classes_to_remove.push((block_num, class_hash));
+
+                while let Some((block_num, class_hash)) = cursor.next()? {
+                    classes_to_remove.push((block_num, class_hash));
+                }
+            }
+            drop(cursor);
+
+            // Remove class declarations for blocks after unwind_to
+            for (block_num, class_hash) in &classes_to_remove {
+                // Delete from ClassDeclarations (dupsort table)
+                db_tx.delete::<tables::ClassDeclarations>(*block_num, Some(*class_hash))?;
+
+                // Delete from ClassDeclarationBlock
+                db_tx.delete::<tables::ClassDeclarationBlock>(*class_hash, None)?;
+
+                // Delete the class itself from Classes
+                db_tx.delete::<tables::Classes>(*class_hash, None)?;
+
+                // Delete compiled class hash
+                db_tx.delete::<tables::CompiledClassHashes>(*class_hash, None)?;
+            }
+
+            Ok(())
+        })
+        .map_err(katana_provider::api::ProviderError::from)??;
+
+        Ok(())
     }
 
     /// Returns the hashes of the classes declared in the given range of blocks.
@@ -120,7 +166,7 @@ impl<P> Classes<P> {
 
 impl<P> Stage for Classes<P>
 where
-    P: StateUpdateProvider + ContractClassWriter,
+    P: StateUpdateProvider + ContractClassWriter + DatabaseProvider + StageCheckpointProvider,
 {
     fn id(&self) -> &'static str {
         "Classes"
@@ -157,6 +203,20 @@ where
             }
 
             Ok(StageExecutionOutput { last_block_processed: input.to() })
+        })
+    }
+
+    fn unwind<'a>(&'a mut self, unwind_to: BlockNumber) -> BoxFuture<'a, StageResult> {
+        Box::pin(async move {
+            debug!(target: "stage", id = %self.id(), unwind_to = %unwind_to, "Unwinding classes.");
+
+            // Unwind classes
+            Self::unwind_classes(self.provider.db(), unwind_to)?;
+
+            // Update checkpoint
+            self.provider.set_checkpoint(self.id(), unwind_to)?;
+
+            Ok(StageExecutionOutput { last_block_processed: unwind_to })
         })
     }
 }

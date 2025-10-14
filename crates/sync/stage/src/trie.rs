@@ -8,7 +8,7 @@ use katana_rpc_types::class;
 use katana_trie::CommitId;
 use starknet::macros::short_string;
 use starknet_types_core::hash::{Poseidon, StarkHash};
-use tracing::{debug, debug_span, error};
+use tracing::{debug, debug_span, error, warn};
 
 use crate::{Stage, StageExecutionInput, StageExecutionOutput, StageResult};
 
@@ -107,6 +107,19 @@ where
             }
 
             Ok(StageExecutionOutput { last_block_processed: input.to() })
+        })
+    }
+
+    fn unwind<'a>(&'a mut self, unwind_to: BlockNumber) -> BoxFuture<'a, StageResult> {
+        Box::pin(async move {
+            warn!(
+                target: "stage",
+                id = %self.id(),
+                unwind_to = %unwind_to,
+                "StateTrie unwinding not implemented - requires complex trie unwinding logic"
+            );
+
+            unimplemented!("StateTrie unwinding requires complex trie unwinding logic")
         })
     }
 }

@@ -10,7 +10,7 @@ pub mod downloader;
 mod sequencing;
 pub mod trie;
 
-pub use blocks::Blocks;
+pub use blocks::{Blocks, DatabaseProvider};
 pub use classes::Classes;
 pub use sequencing::Sequencing;
 pub use trie::StateTrie;
@@ -126,6 +126,29 @@ pub trait Stage: Send + Sync {
     /// Implementors are expected to perform any necessary processings on all blocks in the range
     /// `[input.from, input.to]`.
     fn execute<'a>(&'a mut self, input: &'a StageExecutionInput) -> BoxFuture<'a, StageResult>;
+
+    /// Unwinds the stage to the specified block number.
+    ///
+    /// This method is called during chain reorganizations to revert the chain state back to a
+    /// specific block. All blocks after the `unwind_to` block should be removed, and the
+    /// resulting database state should be as if the stage had only synced up to `unwind_to`.
+    ///
+    /// # Arguments
+    ///
+    /// * `unwind_to` - The target block number to unwind to. All blocks after this will be removed.
+    ///
+    /// # Returns
+    ///
+    /// A future that resolves to a [`StageResult`] containing [`StageExecutionOutput`]
+    /// with the last block number after unwinding (should equal `unwind_to`).
+    ///
+    /// # Implementation Requirements
+    ///
+    /// Implementors must ensure that:
+    /// - All data for blocks > `unwind_to` is removed from relevant database tables
+    /// - The stage checkpoint is updated to reflect the unwound state
+    /// - Database invariants are maintained after the unwind operation
+    fn unwind<'a>(&'a mut self, unwind_to: BlockNumber) -> BoxFuture<'a, StageResult>;
 }
 
 #[cfg(test)]

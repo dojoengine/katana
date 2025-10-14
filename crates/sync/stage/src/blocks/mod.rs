@@ -1,8 +1,10 @@
 use anyhow::Result;
 use futures::future::BoxFuture;
+use katana_db::abstraction::{Database, DbCursor, DbTx, DbTxMut};
+use katana_db::tables;
 use katana_gateway::types::{BlockStatus, StateUpdate as GatewayStateUpdate, StateUpdateWithBlock};
 use katana_primitives::block::{
-    FinalityStatus, GasPrices, Header, SealedBlock, SealedBlockWithStatus,
+    BlockNumber, FinalityStatus, GasPrices, Header, SealedBlock, SealedBlockWithStatus,
 };
 use katana_primitives::fee::{FeeInfo, PriceUnit};
 use katana_primitives::receipt::{
@@ -13,6 +15,7 @@ use katana_primitives::transaction::{Tx, TxWithHash};
 use katana_primitives::Felt;
 use katana_provider::api::block::{BlockHashProvider, BlockWriter};
 use katana_provider::ProviderError;
+use katana_provider::api::stage::StageCheckpointProvider;
 use num_traits::ToPrimitive;
 use starknet::core::types::ResourcePrice;
 use tracing::{error, info_span, Instrument};
@@ -88,11 +91,105 @@ impl<P, B> Blocks<P, B> {
 
         Ok(())
     }
+
+    /// Unwinds block data by removing all blocks after the specified block number.
+    ///
+    /// This removes entries from the following tables:
+    /// - Headers, BlockHashes, BlockNumbers, BlockBodyIndices, BlockStatusses
+    /// - TxNumbers, TxBlocks, TxHashes, TxTraces, Transactions, Receipts
+    fn unwind_blocks<Db: Database>(db: &Db, unwind_to: BlockNumber) -> Result<(), crate::Error> {
+        db.update(|db_tx| -> Result<(), katana_provider::api::ProviderError> {
+            // Get the tx_offset for the unwind_to block to know where to start deleting txs
+            let mut last_tx_num = None;
+            if let Some(indices) = db_tx.get::<tables::BlockBodyIndices>(unwind_to)? {
+                last_tx_num = Some(indices.tx_offset + indices.tx_count);
+            }
+
+            // Remove all blocks after unwind_to
+            let mut blocks_to_remove = Vec::new();
+            let mut cursor = db_tx.cursor_mut::<tables::Headers>()?;
+
+            // Find all blocks after unwind_to
+            if let Some((block_num, _)) = cursor.seek(unwind_to + 1)? {
+                blocks_to_remove.push(block_num);
+                while let Some((block_num, _)) = cursor.next()? {
+                    blocks_to_remove.push(block_num);
+                }
+            }
+            drop(cursor);
+
+            // Remove block data
+            for block_num in blocks_to_remove {
+                // Get block hash before deleting
+                let block_hash = db_tx.get::<tables::BlockHashes>(block_num)?;
+
+                db_tx.delete::<tables::Headers>(block_num, None)?;
+                db_tx.delete::<tables::BlockHashes>(block_num, None)?;
+                db_tx.delete::<tables::BlockBodyIndices>(block_num, None)?;
+                db_tx.delete::<tables::BlockStatusses>(block_num, None)?;
+
+                if let Some(hash) = block_hash {
+                    db_tx.delete::<tables::BlockNumbers>(hash, None)?;
+                }
+            }
+
+            // Remove transaction data if we have a last_tx_num
+            if let Some(start_tx_num) = last_tx_num {
+                let mut txs_to_remove = Vec::new();
+                let mut cursor = db_tx.cursor_mut::<tables::Transactions>()?;
+
+                if let Some((tx_num, _)) = cursor.seek(start_tx_num)? {
+                    txs_to_remove.push(tx_num);
+                    while let Some((tx_num, _)) = cursor.next()? {
+                        txs_to_remove.push(tx_num);
+                    }
+                }
+                drop(cursor);
+
+                for tx_num in txs_to_remove {
+                    // Get tx hash before deleting
+                    let tx_hash = db_tx.get::<tables::TxHashes>(tx_num)?;
+
+                    db_tx.delete::<tables::Transactions>(tx_num, None)?;
+                    db_tx.delete::<tables::TxHashes>(tx_num, None)?;
+                    db_tx.delete::<tables::TxBlocks>(tx_num, None)?;
+                    db_tx.delete::<tables::Receipts>(tx_num, None)?;
+                    db_tx.delete::<tables::TxTraces>(tx_num, None)?;
+
+                    if let Some(hash) = tx_hash {
+                        db_tx.delete::<tables::TxNumbers>(hash, None)?;
+                    }
+                }
+            }
+
+            Ok(())
+        })
+        .map_err(katana_provider::api::ProviderError::from)??;
+
+        Ok(())
+    }
+}
+
+/// Trait for accessing the database from a provider.
+pub trait DatabaseProvider {
+    /// The database type.
+    type Db: Database;
+
+    /// Returns a reference to the underlying database.
+    fn db(&self) -> &Self::Db;
+}
+
+impl<Db: Database> DatabaseProvider for katana_provider::providers::db::DbProvider<Db> {
+    type Db = Db;
+
+    fn db(&self) -> &Self::Db {
+        katana_provider::providers::db::DbProvider::db(self)
+    }
 }
 
 impl<P, D> Stage for Blocks<P, D>
 where
-    P: BlockWriter + BlockHashProvider,
+    P: BlockWriter + BlockHashProvider + DatabaseProvider + StageCheckpointProvider,
     D: BlockDownloader,
 {
     fn id(&self) -> &'static str {
@@ -131,6 +228,20 @@ where
             }
 
             Ok(StageExecutionOutput { last_block_processed: input.to() })
+        })
+    }
+
+    fn unwind<'a>(&'a mut self, unwind_to: BlockNumber) -> BoxFuture<'a, StageResult> {
+        Box::pin(async move {
+            debug!(target: "stage", id = %self.id(), unwind_to = %unwind_to, "Unwinding blocks.");
+
+            // Unwind blocks
+            Self::unwind_blocks(self.provider.db(), unwind_to)?;
+
+            // Update checkpoint
+            self.provider.set_checkpoint(self.id(), unwind_to)?;
+
+            Ok(StageExecutionOutput { last_block_processed: unwind_to })
         })
     }
 }
