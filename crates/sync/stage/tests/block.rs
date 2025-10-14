@@ -99,12 +99,14 @@ impl BlockDownloader for MockBlockDownloader {
                         return Err(katana_gateway::client::Error::Sequencer(GatewayError {
                             code: ErrorCode::BlockNotFound,
                             message: error.clone(),
+                            problems: None,
                         }))
                     }
                     None => {
                         return Err(katana_gateway::client::Error::Sequencer(GatewayError {
                             code: ErrorCode::BlockNotFound,
                             message: format!("No response configured for block {}", block_num),
+                            problems: None,
                         }))
                     }
                 }
