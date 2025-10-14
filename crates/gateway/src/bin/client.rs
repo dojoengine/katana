@@ -55,6 +55,10 @@ enum Command {
     GetClass(ClassCommand),
     /// Fetch a compiled class by hash.
     GetCompiledClass(ClassCommand),
+    /// Fetch the public key for a sequencer address.
+    GetPublicKey,
+    /// Fetch the signature of a block.
+    GetSignature(GetSignatureCommand),
 }
 
 #[derive(Debug, Args)]
@@ -81,6 +85,13 @@ struct ClassCommand {
     #[arg(value_name = "HASH")]
     class_hash: ClassHash,
 
+    /// Block ID (number, hash, 'latest'). Defaults to 'latest'
+    #[arg(long, default_value = "latest")]
+    block: BlockIdArg,
+}
+
+#[derive(Debug, Args)]
+struct GetSignatureCommand {
     /// Block ID (number, hash, 'latest'). Defaults to 'latest'
     #[arg(long, default_value = "latest")]
     block: BlockIdArg,
@@ -140,6 +151,15 @@ async fn run() -> Result<()> {
                 .await
                 .map_err(map_gateway_error)?;
             print_json(class)?;
+        }
+        Command::GetPublicKey => {
+            let public_key = gateway.get_public_key().await.map_err(map_gateway_error)?;
+            println!("{public_key:#x}")
+        }
+        Command::GetSignature(cmd) => {
+            let block_id = cmd.block.0;
+            let signature = gateway.get_signature(block_id).await.map_err(map_gateway_error)?;
+            print_json(signature)?;
         }
     }
 
