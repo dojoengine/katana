@@ -7,13 +7,13 @@ use katana_gateway::types::{
     Block, BlockStatus, ConfirmedStateUpdate, ErrorCode, GatewayError, StateDiff, StateUpdate,
     StateUpdateWithBlock,
 };
-use katana_primitives::block::{BlockNumber, SealedBlockWithStatus};
+use katana_primitives::block::{BlockHash, BlockNumber, SealedBlockWithStatus};
 use katana_primitives::da::L1DataAvailabilityMode;
 use katana_primitives::execution::TypedTransactionExecutionInfo;
 use katana_primitives::receipt::Receipt;
 use katana_primitives::state::StateUpdatesWithClasses;
 use katana_primitives::{ContractAddress, Felt};
-use katana_provider::api::block::{BlockNumberProvider, BlockWriter};
+use katana_provider::api::block::{BlockHashProvider, BlockNumberProvider, BlockWriter};
 use katana_provider::test_utils::test_provider;
 use katana_provider::ProviderResult;
 use katana_stage::blocks::{BatchBlockDownloader, BlockDownloader, Blocks};
@@ -174,13 +174,42 @@ impl BlockWriter for MockBlockWriter {
     }
 }
 
+impl BlockHashProvider for MockBlockWriter {
+    fn latest_hash(&self) -> ProviderResult<BlockHash> {
+        self.blocks
+            .lock()
+            .unwrap()
+            .last()
+            .map(|(block, _, _)| block.block.hash)
+            .ok_or_else(|| katana_provider::ProviderError::MissingBlock)
+    }
+
+    fn block_hash_by_num(&self, num: BlockNumber) -> ProviderResult<Option<BlockHash>> {
+        Ok(self
+            .blocks
+            .lock()
+            .unwrap()
+            .iter()
+            .find(|(block, _, _)| block.block.header.number == num)
+            .map(|(block, _, _)| block.block.hash))
+    }
+}
+
 /// Helper function to create a minimal test block.
 fn create_test_block(block_number: BlockNumber) -> StateUpdateWithBlock {
+    create_test_block_with_parent(block_number, Felt::from(block_number.saturating_sub(1)))
+}
+
+/// Helper function to create a test block with a specific parent hash.
+fn create_test_block_with_parent(
+    block_number: BlockNumber,
+    parent_hash: Felt,
+) -> StateUpdateWithBlock {
     StateUpdateWithBlock {
         block: Block {
             status: BlockStatus::AcceptedOnL2,
             block_hash: Some(Felt::from(block_number)),
-            parent_block_hash: Felt::from(block_number.saturating_sub(1)),
+            parent_block_hash: parent_hash,
             block_number: Some(block_number),
             l1_gas_price: ResourcePrice { price_in_fri: Felt::ONE, price_in_wei: Felt::ONE },
             l2_gas_price: ResourcePrice { price_in_fri: Felt::ONE, price_in_wei: Felt::ONE },
@@ -338,4 +367,77 @@ async fn fetch_blocks_from_gateway() {
     // check provider storage
     let block_number = provider.latest_number().expect("failed to get latest block number");
     assert_eq!(block_number, to_block);
+}
+
+#[tokio::test]
+async fn chain_invariant_violation_within_batch() {
+    let provider = MockBlockWriter::new();
+    let mut downloader = MockBlockDownloader::new();
+
+    // Create blocks where block 102 has an invalid parent hash
+    downloader = downloader.with_block(100, create_test_block(100));
+    downloader = downloader.with_block(101, create_test_block(101));
+    // Block 102 with incorrect parent hash (should be Felt::from(101))
+    downloader = downloader.with_block(102, create_test_block_with_parent(102, Felt::from(999)));
+
+    let mut stage = Blocks::new(provider.clone(), downloader.clone());
+    let input = StageExecutionInput::new(100, 102);
+
+    let result = stage.execute(&input).await;
+
+    // Should fail with chain invariant violation
+    assert!(result.is_err());
+    if let Err(err) = result {
+        match err {
+            katana_stage::Error::Blocks(e) => {
+                let err_str = e.to_string();
+                assert!(err_str.contains("chain invariant violation"));
+                assert!(err_str.contains("block 102"));
+            }
+            _ => panic!("Expected Error::Blocks variant, got: {err:#?}"),
+        }
+    }
+
+    // Verify no blocks were stored due to validation failure
+    assert_eq!(provider.stored_block_count(), 0);
+}
+
+#[tokio::test]
+async fn chain_invariant_violation_with_storage() {
+    let provider = MockBlockWriter::new();
+
+    // First, store block 100 in storage
+    let mut downloader = MockBlockDownloader::new();
+    downloader = downloader.with_block(100, create_test_block(100));
+    let mut stage = Blocks::new(provider.clone(), downloader.clone());
+    let input = StageExecutionInput::new(100, 100);
+    stage.execute(&input).await.expect("should store block 100");
+    assert_eq!(provider.stored_block_count(), 1);
+
+    // Now try to download block 101 with incorrect parent hash
+    let mut downloader = MockBlockDownloader::new();
+    // Block 101 with incorrect parent hash (should be Felt::from(100))
+    downloader = downloader.with_block(101, create_test_block_with_parent(101, Felt::from(999)));
+
+    let mut stage = Blocks::new(provider.clone(), downloader.clone());
+    let input = StageExecutionInput::new(101, 101);
+
+    let result = stage.execute(&input).await;
+
+    // Should fail with chain invariant violation
+    assert!(result.is_err());
+    if let Err(err) = result {
+        match err {
+            katana_stage::Error::Blocks(e) => {
+                let err_str = e.to_string();
+                assert!(err_str.contains("chain invariant violation"));
+                assert!(err_str.contains("block 101"));
+            }
+            _ => panic!("Expected Error::Blocks variant, got: {err:#?}"),
+        }
+    }
+
+    // Verify block 101 was not stored (only block 100 should exist)
+    assert_eq!(provider.stored_block_count(), 1);
+    assert_eq!(provider.stored_block_numbers(), vec![100]);
 }
