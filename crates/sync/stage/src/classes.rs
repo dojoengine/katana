@@ -130,7 +130,9 @@ where
         Box::pin(async move {
             let declared_class_hashes = self.get_declared_classes(input.from(), input.to())?;
 
-            if !declared_class_hashes.is_empty() {
+            if declared_class_hashes.is_empty() {
+                debug!("No classes declared within the block range", from = %input.from(), to = %input.to());
+            } else {
                 let total_classes = declared_classes.len();
 
                 // fetch the classes artifacts
@@ -151,7 +153,6 @@ where
                 for (key, class) in declared_class_hashes.iter().zip(verified_classes.into_iter()) {
                     self.provider.set_class(key.class_hash, class)?;
                 }
-            } else {
             }
 
             Ok(StageExecutionOutput { last_block_processed: input.to() })
