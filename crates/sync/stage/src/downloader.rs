@@ -51,9 +51,9 @@ impl<D> BatchDownloader<D> {
     ///
     /// Uses exponential backoff as the default retry strategy with the following parameters:
     /// - Minimum delay: 3 seconds
-    /// - Maximum delay: 60 seconds
+    /// - Maximum delay: 1 minute
     /// - Backoff factor: 2.0 (delays double each retry)
-    /// - Maximum retry attempts: 3
+    /// - Maximum retry attempts: no limit
     ///
     /// This means failed downloads will be retried with delays of approximately 3s, 6s, and 12s
     /// before giving up (total of 4 attempts including the initial request).
@@ -63,7 +63,10 @@ impl<D> BatchDownloader<D> {
     /// * `downloader` - The downloader implementation to use for individual downloads
     /// * `batch_size` - Maximum number of items to download concurrently in each batch
     pub fn new(downloader: D, batch_size: usize) -> Self {
-        let backoff = ExponentialBuilder::default().with_min_delay(Duration::from_secs(3));
+        let backoff = ExponentialBuilder::default()
+            .with_min_delay(Duration::from_secs(3))
+            .with_max_delay(Duration::from_secs(60))
+            .without_max_times();
         Self { backoff, downloader, batch_size }
     }
 
@@ -137,12 +140,44 @@ where
     /// assert_eq!(values.len(), 15);
     /// ```
     pub async fn download(&self, keys: Vec<D::Key>) -> Result<Vec<D::Value>, D::Error> {
+        let total_items = keys.len();
+        let total_batches = (total_items + self.batch_size - 1) / self.batch_size;
+
+        trace!(
+            total_items = %total_items,
+            batch_size = %self.batch_size,
+            total_batches = %total_batches,
+            "Starting batch download."
+        );
+
         let mut items = Vec::with_capacity(keys.len());
 
-        for chunk in keys.chunks(self.batch_size) {
+        for (batch_idx, chunk) in keys.chunks(self.batch_size).enumerate() {
+            let batch_num = batch_idx + 1;
+            trace!(
+                batch = %batch_num,
+                total_batches = %total_batches,
+                batch_size = %chunk.len(),
+                "Processing batch."
+            );
+
             let batch = self.download_batch_with_retry(chunk.to_vec()).await?;
             items.extend(batch);
+
+            trace!(
+                batch = %batch_num,
+                total_batches = %total_batches,
+                downloaded = %items.len(),
+                total = %total_items,
+                "Completed batch."
+            );
         }
+
+        trace!(
+            total_items = %total_items,
+            total_batches = %total_batches,
+            "Batch download completed successfully."
+        );
 
         Ok(items)
     }
@@ -163,6 +198,7 @@ where
 
         let mut remaining_keys = keys.clone();
         let mut backoff = self.backoff.clone().build();
+        let mut retry_attempt = 0;
 
         loop {
             let batch_result = self.download_batch(&remaining_keys).await;
@@ -198,8 +234,15 @@ where
 
             // Check if we should retry
             if let Some(delay) = backoff.next() {
+                retry_attempt += 1;
                 if let Some(ref error) = last_error {
-                    trace!(%error, failed_keys = %failed_keys.len(), "Retrying download for failed keys.");
+                    trace!(
+                        %error,
+                        failed_keys = %failed_keys.len(),
+                        retry_attempt = %retry_attempt,
+                        delay_secs = %delay.as_secs(),
+                        "Retrying downloads."
+                    );
                 }
 
                 tokio::time::sleep(delay).await;

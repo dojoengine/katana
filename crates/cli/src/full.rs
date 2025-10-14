@@ -2,10 +2,10 @@ use std::path::PathBuf;
 
 use anyhow::{Context, Result};
 pub use clap::Parser;
-use katana_node::config::db::DbConfig;
 use katana_node::config::metrics::MetricsConfig;
 use katana_node::config::rpc::RpcConfig;
 use katana_node::full;
+use katana_node::{config::db::DbConfig, full::Network};
 use serde::{Deserialize, Serialize};
 use tracing::info;
 
@@ -27,6 +27,13 @@ pub struct FullNodeArgs {
     #[arg(long)]
     #[arg(value_name = "PATH")]
     pub db_dir: PathBuf,
+
+    #[arg(long = "eth.rpc")]
+    #[arg(value_name = "PATH")]
+    pub eth_rpc_url: String,
+
+    #[arg(long)]
+    pub network: Network,
 
     /// Gateway API key for accessing the sequencer gateway.
     #[arg(long)]
@@ -92,7 +99,14 @@ impl FullNodeArgs {
         let rpc = self.rpc_config()?;
         let metrics = self.metrics_config();
 
-        Ok(full::Config { db, rpc, metrics, gateway_api_key: self.gateway_api_key.clone() })
+        Ok(full::Config {
+            db,
+            rpc,
+            metrics,
+            network: self.network,
+            eth_rpc_url: self.eth_rpc_url.clone(),
+            gateway_api_key: self.gateway_api_key.clone(),
+        })
     }
 
     fn db_config(&self) -> DbConfig {

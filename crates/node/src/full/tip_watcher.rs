@@ -28,7 +28,7 @@ impl<P: alloy_provider::Provider> ChainTipWatcher<P> {
 
     pub async fn run(&self) -> Result<()> {
         let interval_in_secs = self.watch_interval.as_secs();
-        info!(target: "node", interval = %interval_in_secs, "Chain tip watcher started.");
+        info!(interval = %interval_in_secs, "Chain tip watcher started.");
 
         let mut prev_tip = 0;
 
@@ -36,7 +36,7 @@ impl<P: alloy_provider::Provider> ChainTipWatcher<P> {
             let block_number = self.core_contract.state_block_number().await?;
 
             if prev_tip != block_number {
-                trace!(target: "node", block = %block_number, "New tip received");
+                info!(block = %block_number, "New tip found.");
                 self.pipeline_handle.set_tip(block_number as u64);
                 prev_tip = block_number;
             }

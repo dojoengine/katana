@@ -65,15 +65,14 @@
 //! [Erigon]: https://github.com/erigontech/erigon
 
 use core::future::IntoFuture;
-use std::sync::atomic::{AtomicU64, Ordering};
 
 use futures::future::BoxFuture;
 use katana_primitives::block::BlockNumber;
 use katana_provider_api::stage::StageCheckpointProvider;
 use katana_provider_api::ProviderError;
 use katana_stage::{Stage, StageExecutionInput, StageExecutionOutput};
-use tokio::sync::watch;
-use tracing::{error, info, info_span, trace, Instrument, Span};
+use tokio::{sync::watch, task::yield_now};
+use tracing::{debug, error, info, info_span, trace, Instrument, Span};
 
 /// The result of a pipeline execution.
 pub type PipelineResult<T> = Result<T, Error>;
@@ -234,7 +233,7 @@ impl<P: StageCheckpointProvider> Pipeline<P> {
 
         loop {
             tokio::select! {
-                _ = self.run_loop() => { }
+                biased;
 
                 changed = command_rx.changed() => {
                     if changed.is_err() {
@@ -244,16 +243,19 @@ impl<P: StageCheckpointProvider> Pipeline<P> {
                     // Check if the handle has sent a signal
                     match *self.command_rx.borrow_and_update() {
                         Some(PipelineCommand::Stop) => {
-                            info!(target: "pipeline", "Received stop command.");
+                            debug!(target: "pipeline", "Received stop command.");
                             break;
                         }
                         Some(PipelineCommand::SetTip(new_tip)) => {
-                            info!(target: "pipeline", tip = %new_tip, "Received new tip.");
+                            debug!(target: "pipeline", tip = %new_tip, "Received new tip.");
                             self.tip = Some(new_tip);
                         }
                         None => {}
                     }
                 }
+
+                _ = self.run_loop() => { }
+
             }
         }
 
@@ -282,6 +284,8 @@ impl<P: StageCheckpointProvider> Pipeline<P> {
     /// Returns an error if any stage execution fails or if the pipeline fails to read the
     /// checkpoint.
     pub async fn run_once(&mut self, to: BlockNumber) -> PipelineResult<BlockNumber> {
+        let tip = self.tip.expect("qed; should exist by now");
+
         if self.stages.is_empty() {
             return Ok(to);
         }
@@ -301,9 +305,12 @@ impl<P: StageCheckpointProvider> Pipeline<P> {
             // Get the checkpoint for the stage, otherwise default to block number 0
             let checkpoint = self.provider.checkpoint(id)?.unwrap_or_default();
 
+            let span = info_span!(target: "pipeline", "stage.execute", stage = %id, current_target = %to, %tip);
+            let enter = span.entered();
+
             // Skip the stage if the checkpoint is greater than or equal to the target block number
             if checkpoint >= to {
-                info!(target: "pipeline", %id, "Skipping stage.");
+                info!(target: "pipeline", %checkpoint, "Skipping stage - target already reached.");
                 last_block_processed_list.push(checkpoint);
                 continue;
             }
@@ -317,22 +324,21 @@ impl<P: StageCheckpointProvider> Pipeline<P> {
             };
 
             let input = StageExecutionInput::new(from, to);
-            let span = info_span!(target: "pipeline", "stage.execute", stage = %id, %from, %to);
-            let _guard = span.enter();
+            info!(target: "pipeline", %from, %to, "Executing stage.");
 
-            info!(target: "pipeline", stage = %id, %from, %to, "[{}/{}] Executing stage.", i + 1, last_stage_idx + 1);
-
+            let span = enter.exit();
             let StageExecutionOutput { last_block_processed } = stage
                 .execute(&input)
-                .instrument(Span::current())
+                .instrument(span.clone())
                 .await
                 .map_err(|error| Error::StageExecution { id, error })?;
 
-            info!(target: "pipeline", stage = %id, %from, %to, "Stage execution completed.");
+            let _enter = span.enter();
+            info!(target: "pipeline", %from, %to, "Stage execution completed.");
 
             self.provider.set_checkpoint(id, last_block_processed)?;
             last_block_processed_list.push(last_block_processed);
-            info!(target: "pipeline", stage = %id, checkpoint = %to, "New checkpoint set.");
+            info!(target: "pipeline", checkpoint = %last_block_processed, "New checkpoint set.");
         }
 
         Ok(last_block_processed_list.into_iter().min().unwrap_or(to))
@@ -349,7 +355,7 @@ impl<P: StageCheckpointProvider> Pipeline<P> {
                 let last_block_processed = self.run_once(to).await?;
 
                 if last_block_processed >= tip {
-                    info!(target: "pipeline", %tip, "Finished processing until tip.");
+                    info!(target: "pipeline", %tip, "Finished syncing until tip.");
                     self.tip = None;
                     current_chunk_tip = last_block_processed;
                 } else {
@@ -359,13 +365,15 @@ impl<P: StageCheckpointProvider> Pipeline<P> {
                 continue;
             }
 
-            info!(target: "pipeline", "Waiting for new tip.");
+            info!(target: "pipeline", "Waiting to receive new tip.");
 
             // block until a new tip is set
             self.command_rx
                 .wait_for(|c| matches!(c, &Some(PipelineCommand::SetTip(_))))
                 .await
                 .expect("qed; channel closed");
+
+            yield_now().await;
         }
     }
 }

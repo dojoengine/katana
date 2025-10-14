@@ -15,7 +15,7 @@ use katana_provider::api::block::{BlockHashProvider, BlockWriter};
 use katana_provider::ProviderError;
 use num_traits::ToPrimitive;
 use starknet::core::types::ResourcePrice;
-use tracing::{debug, error, trace};
+use tracing::{debug, error, info_span, trace, Instrument};
 
 use crate::{Stage, StageExecutionInput, StageExecutionOutput, StageResult};
 
@@ -104,12 +104,13 @@ where
             let blocks = self
                 .downloader
                 .download_blocks(input.from(), input.to())
+                .instrument(info_span!(target: "stage", "blocks.download", to = %input.to(), from = %input.from()))
                 .await
-                .map_err(Error::Gateway)
-                .inspect_err(|e| error!(error = %e , "Error downloading blocks."))?;
+                .map_err(Error::Gateway)?;
 
             if !blocks.is_empty() {
-                debug!(target: "stage", id = %self.id(), total = %blocks.len(), "Storing blocks to storage.");
+                let span = info_span!(target: "stage", "blocks.insert", to = %input.to(), from = %input.from());
+                let _enter = span.enter();
 
                 // Validate chain invariant before storing
                 self.validate_chain_invariant(&blocks)?;

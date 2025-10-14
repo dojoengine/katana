@@ -300,9 +300,14 @@ impl<Method> RequestBuilder<'_, Method> {
         let request = self.build()?;
 
         let response = reqwest::Client::new().execute(request).await?;
-        match response.json().await? {
+        let raw_string = response.text().await?;
+
+        match serde_json::from_str(&raw_string).unwrap() {
             Response::Data(data) => Ok(data),
-            Response::Error(error) => Err(Error::Sequencer(error)),
+            Response::Error(error) => {
+                println!("unknown format: {raw_string}");
+                Err(Error::Sequencer(error))
+            }
         }
     }
 
