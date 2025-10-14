@@ -11,7 +11,7 @@ use katana_primitives::receipt::{
 use katana_primitives::state::{StateUpdates, StateUpdatesWithClasses};
 use katana_primitives::transaction::{Tx, TxWithHash};
 use katana_primitives::Felt;
-use katana_provider::api::block::BlockWriter;
+use katana_provider::api::block::{BlockHashProvider, BlockWriter};
 use num_traits::ToPrimitive;
 use starknet::core::types::ResourcePrice;
 use tracing::debug;
@@ -34,11 +34,65 @@ impl<P, B> Blocks<P, B> {
     pub fn new(provider: P, downloader: B) -> Self {
         Self { provider, downloader }
     }
+
+    /// Validates that the downloaded blocks form a valid chain.
+    ///
+    /// This method checks the chain invariant: block N's parent hash must be block N-1's hash.
+    /// For the first block in the list (if not block 0), it fetches the parent hash from storage.
+    fn validate_chain_invariant(&self, blocks: &[StateUpdateWithBlock]) -> Result<(), Error>
+    where
+        P: BlockHashProvider,
+    {
+        if blocks.is_empty() {
+            return Ok(());
+        }
+
+        // Validate the first block against its parent in storage (if not block 0)
+        let first_block = &blocks[0].block;
+        let first_block_num = first_block.block_number.unwrap_or_default();
+
+        if first_block_num > 0 {
+            let parent_block_num = first_block_num - 1;
+            let expected_parent_hash = self
+                .provider
+                .block_hash_by_num(parent_block_num)
+                .map_err(|e| anyhow::anyhow!("Failed to fetch parent block hash: {}", e))?;
+
+            if let Some(expected_hash) = expected_parent_hash {
+                if first_block.parent_block_hash != expected_hash {
+                    return Err(Error::ChainInvariantViolation {
+                        block_num: first_block_num,
+                        parent_hash: first_block.parent_block_hash,
+                        expected_hash,
+                    });
+                }
+            }
+        }
+
+        // Validate the rest of the blocks in the list
+        for window in blocks.windows(2) {
+            let prev_block = &window[0].block;
+            let curr_block = &window[1].block;
+
+            let prev_hash = prev_block.block_hash.unwrap_or_default();
+            let curr_block_num = curr_block.block_number.unwrap_or_default();
+
+            if curr_block.parent_block_hash != prev_hash {
+                return Err(Error::ChainInvariantViolation {
+                    block_num: curr_block_num,
+                    parent_hash: curr_block.parent_block_hash,
+                    expected_hash: prev_hash,
+                });
+            }
+        }
+
+        Ok(())
+    }
 }
 
 impl<P, D> Stage for Blocks<P, D>
 where
-    P: BlockWriter,
+    P: BlockWriter + BlockHashProvider,
     D: BlockDownloader,
 {
     fn id(&self) -> &'static str {
@@ -55,6 +109,9 @@ where
 
             if !blocks.is_empty() {
                 debug!(target: "stage", id = %self.id(), total = %blocks.len(), "Storing blocks to storage.");
+
+                // Validate chain invariant before storing
+                self.validate_chain_invariant(&blocks)?;
 
                 // Store blocks to storage
                 for block in blocks {
@@ -79,6 +136,12 @@ pub enum Error {
     /// Error returnd by the client used to download the classes from.
     #[error(transparent)]
     Gateway(#[from] katana_gateway::client::Error),
+    #[error("chain invariant violation: block {block_num} parent hash {parent_hash:#x} does not match previous block hash {expected_hash:#x}")]
+    ChainInvariantViolation {
+        block_num: u64,
+        parent_hash: Felt,
+        expected_hash: Felt,
+    },
 }
 
 fn extract_block_data(
