@@ -42,9 +42,9 @@ url.workspace = true
 strum.workspace = true
 strum_macros.workspace = true
 
-tokio={workspace = true, features = ["time"], default-features = false}
-katana-starknet = { workspace = true, optional = true }
-alloy-provider = { workspace = true, default-features = false, features = [ "reqwest", "reqwest-rustls-tls" ], optional = true }
+tokio={ workspace = true, features = ["time"], default-features = false }
+katana-starknet.workspace = true
+alloy-provider = { workspace = true, default-features = false, features = [ "reqwest", "reqwest-rustls-tls" ] }
 
 [features]
 cartridge = [ "katana-rpc-api/cartridge", "katana-rpc/cartridge" ]

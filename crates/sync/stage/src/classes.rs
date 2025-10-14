@@ -12,7 +12,7 @@ use katana_provider::api::state_update::StateUpdateProvider;
 use katana_provider::api::ProviderError;
 use katana_rpc_types::class::ConversionError;
 use rayon::prelude::*;
-use tracing::{debug, error};
+use tracing::{debug, error, info, info_span, Instrument};
 
 use super::{Stage, StageExecutionInput, StageExecutionOutput, StageResult};
 use crate::downloader::{BatchDownloader, Downloader, DownloaderResult};
@@ -131,10 +131,13 @@ where
             let declared_class_hashes = self.get_declared_classes(input.from(), input.to())?;
 
             if !declared_class_hashes.is_empty() {
+                let total_classes = declared_classes.len();
+
                 // fetch the classes artifacts
                 let class_artifacts = self
                     .downloader
                     .download(declared_class_hashes.clone())
+                    .instrument(info_span!(target: "stage", "classes.download", %total_classes))
                     .await
                     .map_err(Error::Gateway)?;
 
@@ -148,6 +151,7 @@ where
                 for (key, class) in declared_class_hashes.iter().zip(verified_classes.into_iter()) {
                     self.provider.set_class(key.class_hash, class)?;
                 }
+            } else {
             }
 
             Ok(StageExecutionOutput { last_block_processed: input.to() })
