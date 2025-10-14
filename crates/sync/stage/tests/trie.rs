@@ -102,6 +102,13 @@ impl StateUpdateProvider for MockProvider {
         Ok(None)
     }
 
+    fn declared_deprecated_classes(
+        &self,
+        block_id: BlockHashOrNumber,
+    ) -> ProviderResult<Option<Vec<ClassHash>>> {
+        Ok(None)
+    }
+
     fn deployed_contracts(
         &self,
         _block_id: BlockHashOrNumber,

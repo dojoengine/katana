@@ -44,10 +44,7 @@ url.workspace = true
 strum.workspace = true
 strum_macros.workspace = true
 
-clap.workspace = true
-tokio = { workspace = true, features = [ "time" ] }
-tracing-log.workspace = true
-tracing-subscriber.workspace = true
+tokio={ workspace = true, features = ["time"], default-features = false }
 katana-starknet.workspace = true
 alloy-provider = { workspace = true, default-features = false, features = [ "reqwest", "reqwest-rustls-tls" ] }
 

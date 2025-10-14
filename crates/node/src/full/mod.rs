@@ -42,8 +42,19 @@ use tip_watcher::ChainTipWatcher;
 use crate::config::rpc::{RpcConfig, RpcModuleKind};
 use crate::full::pool::{FullNodePool, GatewayProxyValidator};
 
-#[derive(Debug, Clone)]
+#[derive(
+    Debug,
+    Copy,
+    Clone,
+    serde::Serialize,
+    serde::Deserialize,
+    PartialEq,
+    Default,
+    strum::Display,
+    strum::EnumString,
+)]
 pub enum Network {
+    #[default]
     Mainnet,
     Sepolia,
 }
@@ -106,8 +117,8 @@ impl Node {
 
         // --- build pipeline
 
-        let (mut pipeline, _) = Pipeline::new(provider.clone(), 64);
-        let block_downloader = BatchBlockDownloader::new_gateway(gateway_client.clone(), 3);
+        let (mut pipeline, _) = Pipeline::new(provider.clone(), 100);
+        let block_downloader = BatchBlockDownloader::new_gateway(gateway_client.clone(), 10);
         pipeline.add_stage(Blocks::new(provider.clone(), block_downloader));
         pipeline.add_stage(Classes::new(provider.clone(), gateway_client.clone(), 3));
         // pipeline.add_stage(StateTrie::new(provider.clone()));
