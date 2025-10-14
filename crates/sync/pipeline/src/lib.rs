@@ -65,7 +65,6 @@
 //! [Erigon]: https://github.com/erigontech/erigon
 
 use core::future::IntoFuture;
-use std::sync::atomic::{AtomicU64, Ordering};
 
 use futures::future::BoxFuture;
 use katana_primitives::block::BlockNumber;
@@ -291,6 +290,8 @@ impl<P: StageCheckpointProvider> Pipeline<P> {
     /// Returns an error if any stage execution fails or if the pipeline fails to read the
     /// checkpoint.
     pub async fn run_once(&mut self, to: BlockNumber) -> PipelineResult<BlockNumber> {
+        let tip = self.tip.expect("qed; should exist by now");
+
         if self.stages.is_empty() {
             return Ok(to);
         }

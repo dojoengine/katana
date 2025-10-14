@@ -47,7 +47,7 @@ pub async fn init(format: LogFormat, telemetry_config: Option<TracerConfig>) -> 
     const DEFAULT_LOG_FILTER: &str =
         "katana_db::mdbx=trace,cairo_native::compiler=off,pipeline=debug,stage=debug,tasks=debug,\
          executor=trace,forking::backend=trace,blockifier=off,jsonrpsee_server=off,hyper=off,\
-         messaging=debug,node=error,explorer=info,rpc=trace,pool=trace,info";
+         messaging=debug,node=error,explorer=info,rpc=trace,pool=trace,katana_stage::downloader=trace,info";
 
     let default_filter = EnvFilter::try_new(DEFAULT_LOG_FILTER);
     let filter = EnvFilter::try_from_default_env().or(default_filter)?;
