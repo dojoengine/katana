@@ -12,6 +12,7 @@ use katana_primitives::state::{StateUpdates, StateUpdatesWithClasses};
 use katana_primitives::transaction::{Tx, TxWithHash};
 use katana_primitives::Felt;
 use katana_provider::api::block::{BlockHashProvider, BlockWriter};
+use katana_provider::ProviderError;
 use num_traits::ToPrimitive;
 use starknet::core::types::ResourcePrice;
 use tracing::debug;
@@ -53,10 +54,7 @@ impl<P, B> Blocks<P, B> {
 
         if first_block_num > 0 {
             let parent_block_num = first_block_num - 1;
-            let expected_parent_hash = self
-                .provider
-                .block_hash_by_num(parent_block_num)
-                .map_err(|e| anyhow::anyhow!("Failed to fetch parent block hash: {}", e))?;
+            let expected_parent_hash = self.provider.block_hash_by_num(parent_block_num)?;
 
             if let Some(expected_hash) = expected_parent_hash {
                 if first_block.parent_block_hash != expected_hash {
@@ -136,12 +134,15 @@ pub enum Error {
     /// Error returnd by the client used to download the classes from.
     #[error(transparent)]
     Gateway(#[from] katana_gateway::client::Error),
-    #[error("chain invariant violation: block {block_num} parent hash {parent_hash:#x} does not match previous block hash {expected_hash:#x}")]
-    ChainInvariantViolation {
-        block_num: u64,
-        parent_hash: Felt,
-        expected_hash: Felt,
-    },
+
+    #[error(transparent)]
+    Provider(#[from] ProviderError),
+
+    #[error(
+        "chain invariant violation: block {block_num} parent hash {parent_hash:#x} does not match \
+         previous block hash {expected_hash:#x}"
+    )]
+    ChainInvariantViolation { block_num: u64, parent_hash: Felt, expected_hash: Felt },
 }
 
 fn extract_block_data(
