@@ -6578,6 +6578,7 @@ dependencies = [
  "backon",
  "futures",
  "katana-core",
+ "katana-db",
  "katana-executor",
  "katana-gateway",
  "katana-messaging",
