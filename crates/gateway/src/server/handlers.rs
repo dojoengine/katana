@@ -240,7 +240,7 @@ pub enum ApiError {
 
 impl ApiError {
     pub fn gateway_error(code: ErrorCode, message: impl Into<String>) -> Self {
-        Self::Gateway(GatewayError { code, message: message.into() })
+        Self::Gateway(GatewayError { code, message: message.into(), problems: None })
     }
 
     /// Convert to HTTP status code.
