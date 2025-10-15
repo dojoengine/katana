@@ -131,7 +131,7 @@ where
             let declared_class_hashes = self.get_declared_classes(input.from(), input.to())?;
 
             if declared_class_hashes.is_empty() {
-                debug!("No classes declared within the block range", from = %input.from(), to = %input.to());
+                debug!(from = %input.from(), to = %input.to(), "No classes declared within the block range");
             } else {
                 let total_classes = declared_classes.len();
 
