@@ -6586,6 +6586,7 @@ dependencies = [
  "katana-rpc-types",
  "katana-tasks",
  "num-traits",
+ "rayon",
  "rstest 0.18.2",
  "starknet",
  "starknet-types-core",
