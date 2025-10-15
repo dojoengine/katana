@@ -82,10 +82,10 @@ pub type PipelineFut = BoxFuture<'static, PipelineResult<()>>;
 
 #[derive(Debug, thiserror::Error)]
 pub enum Error {
-    #[error("Stage not found: {id}")]
+    #[error("stage not found: {id}")]
     StageNotFound { id: String },
 
-    #[error("Stage '{id}' execution failed: {error}")]
+    #[error("stage {id} execution failed: {error}")]
     StageExecution { id: &'static str, error: katana_stage::Error },
 
     #[error(transparent)]
@@ -135,7 +135,7 @@ impl PipelineHandle {
     /// Panics if the [`Pipeline`] has been dropped.
     pub fn stop(&self) {
         info!(target: "pipeline", "Signaling pipeline to stop");
-        self.tx.send(Some(PipelineCommand::Stop)).expect("channel closed");
+        let _ = self.tx.send(Some(PipelineCommand::Stop));
     }
 
     /// Wait until the [`Pipeline`] has stopped.
@@ -254,12 +254,17 @@ impl<P: StageCheckpointProvider> Pipeline<P> {
                     }
                 }
 
-                _ = self.run_loop() => { }
+                result = self.run_loop() => {
+                    if let Err(error) = result {
+                        error!(target: "pipeline", %error, "Pipeline finished due to error.");
+                        break;
+                    }
+                }
 
             }
         }
 
-        info!(target: "pipeline", "Pipeline finished.");
+        info!(target: "pipeline", "Pipeline shutting down.");
 
         Ok(())
     }

@@ -104,12 +104,12 @@ where
             let blocks = self
                 .downloader
                 .download_blocks(input.from(), input.to())
-                .instrument(info_span!(target: "stage", "blocks.download", to = %input.to(), from = %input.from()))
+                .instrument(info_span!(target: "stage", "blocks.download", from = %input.from(), to = %input.to()))
                 .await
                 .map_err(Error::Gateway)?;
 
             if !blocks.is_empty() {
-                let span = info_span!(target: "stage", "blocks.insert", to = %input.to(), from = %input.from());
+                let span = info_span!(target: "stage", "blocks.insert", from = %input.from(), to = %input.to());
                 let _enter = span.enter();
 
                 // Validate chain invariant before storing

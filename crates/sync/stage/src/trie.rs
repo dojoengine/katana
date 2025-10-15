@@ -4,9 +4,10 @@ use katana_primitives::Felt;
 use katana_provider::api::block::HeaderProvider;
 use katana_provider::api::state_update::StateUpdateProvider;
 use katana_provider::api::trie::TrieWriter;
+use katana_rpc_types::class;
 use starknet::macros::short_string;
 use starknet_types_core::hash::{Poseidon, StarkHash};
-use tracing::{error, info_span, trace, trace_span};
+use tracing::{debug, error, info_span, trace, trace_span};
 
 use crate::{Stage, StageExecutionInput, StageExecutionOutput, StageResult};
 
@@ -41,7 +42,7 @@ where
     fn execute<'a>(&'a mut self, input: &'a StageExecutionInput) -> BoxFuture<'a, StageResult> {
         Box::pin(async move {
             for block_number in input.from()..=input.to() {
-                let span = info_span!("compute_state_root", %block_number);
+                let span = info_span!("state_trie.compute_state_root", %block_number);
                 let _enter = span.enter();
 
                 let expected_state_root = self
@@ -55,20 +56,27 @@ where
                     .state_update(block_number.into())?
                     .ok_or(Error::MissingStateUpdate(block_number))?;
 
-                let class_trie_root = self
-                    .provider
-                    .trie_insert_declared_classes(block_number, &state_update.declared_classes)?;
-
                 let contract_trie_root =
                     self.provider.trie_insert_contract_updates(block_number, &state_update)?;
 
-                // Compute the state root:
-                // hash("STARKNET_STATE_V0", contract_trie_root, class_trie_root)
-                let computed_state_root = Poseidon::hash_array(&[
-                    short_string!("STARKNET_STATE_V0"),
-                    contract_trie_root,
-                    class_trie_root,
-                ]);
+                let computed_state_root = if dbg!(!state_update.declared_classes.is_empty()) {
+                    let class_trie_root = self.provider.trie_insert_declared_classes(
+                        block_number,
+                        dbg!(&state_update.declared_classes),
+                    )?;
+
+                    // Compute the state root:
+                    // hash("STARKNET_STATE_V0", contract_trie_root, class_trie_root)
+                    let computed_state_root = Poseidon::hash_array(&[
+                        short_string!("STARKNET_STATE_V0"),
+                        dbg!(contract_trie_root),
+                        dbg!(class_trie_root),
+                    ]);
+
+                    computed_state_root
+                } else {
+                    contract_trie_root
+                };
 
                 // Verify that the computed state root matches the expected state root from the
                 // block header
@@ -88,11 +96,7 @@ where
                     .into());
                 }
 
-                trace!(
-                    block = %block_number,
-                    state_root = %format!("{computed_state_root:#x}"),
-                    "State root verified successfully."
-                );
+                debug!(block = %block_number, "State root verified successfully.");
             }
 
             Ok(StageExecutionOutput { last_block_processed: input.to() })
