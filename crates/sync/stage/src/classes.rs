@@ -1,11 +1,12 @@
 use std::future::Future;
 
 use anyhow::Result;
+use futures::channel::oneshot;
 use futures::future::BoxFuture;
 use katana_gateway::client::Client as SequencerGateway;
-use katana_gateway::types::ContractClass;
+use katana_gateway::types::ContractClass as GatewayContractClass;
 use katana_primitives::block::BlockNumber;
-use katana_primitives::class::ClassHash;
+use katana_primitives::class::{ClassHash, ContractClass};
 use katana_provider::api::contract::ContractClassWriter;
 use katana_provider::api::state_update::StateUpdateProvider;
 use katana_provider::api::ProviderError;
@@ -40,22 +41,23 @@ impl<P> Classes<P> {
         let downloader = ClassDownloader { gateway };
         let downloader = BatchDownloader::new(downloader, batch_size);
 
-        // Create a dedicated thread pool for class hash verification
-        // Use the number of available CPUs for optimal parallelization
+        // A dedicated thread pool for class hash verification
         let verification_pool = rayon::ThreadPoolBuilder::new()
             .build()
             .expect("Failed to create verification thread pool");
 
         Self { provider, downloader, verification_pool }
     }
-}
 
-impl<P: StateUpdateProvider> Classes<P> {
+    /// Returns the hashes of the classes declared in the given range of blocks.
     fn get_declared_classes(
         &self,
         from_block: BlockNumber,
         to_block: BlockNumber,
-    ) -> Result<Vec<ClassDownloadKey>, Error> {
+    ) -> Result<Vec<ClassDownloadKey>, Error>
+    where
+        P: StateUpdateProvider,
+    {
         let mut classes_keys: Vec<ClassDownloadKey> = Vec::new();
 
         for block in from_block..=to_block {
@@ -73,6 +75,47 @@ impl<P: StateUpdateProvider> Classes<P> {
 
         Ok(classes_keys)
     }
+
+    async fn verify_class_hashes(
+        &self,
+        class_hashes: &[ClassDownloadKey],
+        class_artifacts: Vec<GatewayContractClass>,
+    ) -> Result<Vec<ContractClass>, Error> {
+        let (tx, rx) = oneshot::channel();
+        let class_hashes = class_hashes.to_vec();
+
+        self.verification_pool.spawn(move || {
+            let result = class_hashes
+                .par_iter()
+                .zip(class_artifacts.into_par_iter())
+                .map(|(key, gateway_class)| {
+                    let block = key.block;
+                    let expected_hash = key.class_hash;
+
+                    let class: ContractClass =
+                        gateway_class.try_into().map_err(Error::Conversion)?;
+
+                    let computed_hash = class.class_hash().map_err(|source| {
+                        Error::ClassHashComputation { class_hash: expected_hash, source, block }
+                    })?;
+
+                    if computed_hash != expected_hash {
+                        return Err(Error::ClassHashMismatch {
+                            expected: expected_hash,
+                            actual: computed_hash,
+                            block,
+                        });
+                    }
+
+                    Ok(class)
+                })
+                .collect::<Result<Vec<_>, Error>>();
+
+            let _ = tx.send(result);
+        });
+
+        rx.await.unwrap()
+    }
 }
 
 impl<P> Stage for Classes<P>
@@ -85,62 +128,24 @@ where
 
     fn execute<'a>(&'a mut self, input: &'a StageExecutionInput) -> BoxFuture<'a, StageResult> {
         Box::pin(async move {
-            let declared_classes = self.get_declared_classes(input.from(), input.to())?;
+            let declared_class_hashes = self.get_declared_classes(input.from(), input.to())?;
 
-            if !declared_classes.is_empty() {
+            if !declared_class_hashes.is_empty() {
                 // fetch the classes artifacts
                 let class_artifacts = self
                     .downloader
-                    .download(declared_classes.clone())
+                    .download(declared_class_hashes.clone())
                     .await
                     .map_err(Error::Gateway)?;
 
-                debug!(target: "stage", id = self.id(), total = %class_artifacts.len(), "Verifying class artifacts.");
-
-                // First pass: verify class hashes in parallel using the dedicated thread pool
-                // We need to convert to primitives types for verification
-                let verification_results: Vec<
-                    Result<katana_primitives::class::ContractClass, Error>,
-                > = {
-                    let pool = &self.verification_pool;
-                    pool.install(|| {
-                        declared_classes
-                            .par_iter()
-                            .zip(class_artifacts.par_iter())
-                            .map(|(key, rpc_class)| {
-                                // Convert to primitives type
-                                let class: katana_primitives::class::ContractClass =
-                                    rpc_class.clone().try_into().map_err(Error::Conversion)?;
-
-                                // Compute the class hash
-                                let computed_hash = class.class_hash().map_err(|source| {
-                                    Error::ClassHashComputation { block: key.block, source }
-                                })?;
-
-                                // Verify it matches the expected hash
-                                if computed_hash != key.class_hash {
-                                    return Err(Error::ClassHashMismatch {
-                                        expected: key.class_hash,
-                                        actual: computed_hash,
-                                        block: key.block,
-                                    });
-                                }
-
-                                Ok(class)
-                            })
-                            .collect()
-                    })
-                };
-
-                // Check if any verification failed
-                let verified_classes: Vec<_> =
-                    verification_results.into_iter().collect::<Result<Vec<_>, _>>()?;
+                let verified_classes =
+                    self.verify_class_hashes(&declared_class_hashes, class_artifacts).await?;
 
                 debug!(target: "stage", id = self.id(), total = %verified_classes.len(), "Storing class artifacts.");
 
                 // Second pass: insert the verified classes into storage
                 // This must be done sequentially as database only supports single write transaction
-                for (key, class) in declared_classes.iter().zip(verified_classes) {
+                for (key, class) in declared_class_hashes.iter().zip(verified_classes.into_iter()) {
                     self.provider.set_class(key.class_hash, class)?;
                 }
             }
@@ -164,7 +169,7 @@ pub enum Error {
 
     /// Error that can occur when converting the classes types to the internal types.
     #[error(transparent)]
-    Conversion(#[from] ConversionError),
+    Conversion(ConversionError),
 
     #[error(transparent)]
     Provider(#[from] ProviderError),
@@ -174,19 +179,21 @@ pub enum Error {
         "class hash mismatch for class at block {block}: expected {expected:#x}, got {actual:#x}"
     )]
     ClassHashMismatch {
+        /// The block number where the class was declared
+        block: BlockNumber,
         /// The expected class hash
         expected: ClassHash,
         /// The actual computed class hash
         actual: ClassHash,
-        /// The block number where the class was declared
-        block: BlockNumber,
     },
 
     /// Error when computing the class hash
-    #[error("failed to compute class hash for class at block {block}: {source}")]
+    #[error("failed to recompute class hash for class {class_hash} at block {block}: {source}")]
     ClassHashComputation {
         /// The block number where the class was declared
         block: BlockNumber,
+        /// The hash of the class
+        class_hash: ClassHash,
         /// The underlying error
         #[source]
         source: katana_primitives::class::ComputeClassHashError,
@@ -207,7 +214,7 @@ struct ClassDownloadKey {
 
 impl Downloader for ClassDownloader {
     type Key = ClassDownloadKey;
-    type Value = ContractClass;
+    type Value = GatewayContractClass;
     type Error = katana_gateway::client::Error;
 
     #[allow(clippy::manual_async_fn)]
