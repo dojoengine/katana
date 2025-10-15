@@ -15,8 +15,8 @@ use url::Url;
 
 use crate::types::{
     AddDeclareTransactionResponse, AddDeployAccountTransactionResponse,
-    AddInvokeTransactionResponse, Block, BlockId, ContractClass, GatewayError, StateUpdate,
-    StateUpdateWithBlock,
+    AddInvokeTransactionResponse, Block, BlockId, BlockSignature, ContractClass, GatewayError,
+    SequencerPublicKey, StateUpdate, StateUpdateWithBlock,
 };
 
 /// HTTP request header for the feeder gateway API key. This allow bypassing the rate limiting.
@@ -112,6 +112,14 @@ impl Client {
             .block_id(block_id)
             .send()
             .await
+    }
+
+    pub async fn get_public_key(&self) -> Result<SequencerPublicKey, Error> {
+        self.feeder_gateway("get_public_key").send().await
+    }
+
+    pub async fn get_signature(&self, block_id: BlockId) -> Result<BlockSignature, Error> {
+        self.feeder_gateway("get_signature").block_id(block_id).send().await
     }
 
     pub async fn add_invoke_transaction(

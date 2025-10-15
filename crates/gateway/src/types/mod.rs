@@ -41,6 +41,9 @@ pub use transaction::*;
 /// The contract class type returns by `/get_class_by_hash` endpoint.
 pub type ContractClass = katana_rpc_types::Class;
 
+/// Sequencer public key returned by the `/get_public_key` endpoint.
+pub type SequencerPublicKey = Felt;
+
 #[derive(Debug, Copy, Clone, PartialEq, Eq)]
 pub enum BlockId {
     Number(BlockNumber),
@@ -76,6 +79,13 @@ pub enum BlockStatus {
 
     #[serde(rename = "ACCEPTED_ON_L1")]
     AcceptedOnL1,
+}
+
+/// Block signature returned by the `/signature` endpoint.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct BlockSignature {
+    pub block_hash: BlockHash,
+    pub signature: [Felt; 2],
 }
 
 // The reason why we're not using the GasPrices from the `katana_primitives` crate is because
