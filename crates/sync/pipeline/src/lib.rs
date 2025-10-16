@@ -120,8 +120,7 @@ impl PipelineHandle {
     ///
     /// Panics if the [`Pipeline`] has been dropped.
     pub fn set_tip(&self, tip: BlockNumber) {
-        info!(target: "pipeline", %tip, "Setting new tip");
-        self.tx.send(Some(PipelineCommand::SetTip(tip))).expect("channel closed");
+        self.tx.send(Some(PipelineCommand::SetTip(tip))).expect("pipeline is no longer running");
     }
 
     /// Signals the pipeline to stop gracefully.
@@ -134,7 +133,7 @@ impl PipelineHandle {
     ///
     /// Panics if the [`Pipeline`] has been dropped.
     pub fn stop(&self) {
-        info!(target: "pipeline", "Signaling pipeline to stop");
+        debug!(target: "pipeline", "Signaling pipeline to stop");
         let _ = self.tx.send(Some(PipelineCommand::Stop));
     }
 
