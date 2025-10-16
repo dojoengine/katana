@@ -2,7 +2,9 @@ use std::cmp::Ordering;
 use std::sync::Arc;
 
 use katana_db::abstraction::{Database, DbTx, DbTxMut};
-use katana_db::models::contract::{ContractClassChange, ContractNonceChange};
+use katana_db::models::contract::{
+    ContractClassChange, ContractClassChangeType, ContractNonceChange,
+};
 use katana_db::models::storage::{ContractStorageEntry, ContractStorageKey, StorageEntry};
 use katana_db::tables;
 use katana_fork::BackendClient;
@@ -270,7 +272,11 @@ impl<Db: Database> StateProvider for HistoricalStateProvider<Db> {
             Ok(res)
         } else if let res @ Some(class_hash) = self.backend.get_class_hash_at(address)? {
             let block = self.provider.block();
-            let entry = ContractClassChange { contract_address: address, class_hash };
+            let entry = ContractClassChange {
+                r#type: ContractClassChangeType::Deployed,
+                contract_address: address,
+                class_hash,
+            };
 
             self.db.db().tx_mut()?.put::<tables::ClassChangeHistory>(block, entry)?;
             Ok(res)
