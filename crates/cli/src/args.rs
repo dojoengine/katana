@@ -177,7 +177,7 @@ impl NodeArgs {
 
         #[cfg(feature = "cartridge")]
         {
-            let paymaster = self.cartridge_config();
+            let paymaster = self.cartridge_config()?;
 
             Ok(Config {
                 db,
@@ -384,12 +384,33 @@ impl NodeArgs {
     }
 
     #[cfg(feature = "cartridge")]
-    fn cartridge_config(&self) -> Option<PaymasterConfig> {
-        if self.cartridge.paymaster {
-            Some(PaymasterConfig { cartridge_api_url: self.cartridge.api.clone() })
-        } else {
-            None
+    fn cartridge_config(&self) -> Result<Option<PaymasterConfig>> {
+        if !self.cartridge.paymaster {
+            return Ok(None);
         }
+
+        let path = self
+            .cartridge
+            .paymaster_config
+            .as_ref()
+            .with_context(|| "--cartridge.paymaster-config is required when enabling the paymaster")?;
+
+        let contents = std::fs::read_to_string(path)
+            .with_context(|| format!("failed to read paymaster configuration from {}", path.display()))?;
+
+        let configuration = if path.extension().and_then(|ext| ext.to_str()).map(|s| s.eq_ignore_ascii_case("json")).unwrap_or(false) {
+            serde_json::from_str(&contents)
+                .with_context(|| format!("failed to parse JSON paymaster configuration from {}", path.display()))?
+        } else {
+            toml::from_str(&contents)
+                .with_context(|| format!("failed to parse TOML paymaster configuration from {}", path.display()))?
+        };
+
+        Ok(Some(PaymasterConfig {
+            cartridge_api_url: self.cartridge.api.clone(),
+            paymaster: configuration,
+            default_api_key: self.cartridge.paymaster_api_key.clone(),
+        }))
     }
 
     /// Parse the node config from the command line arguments and the config file,

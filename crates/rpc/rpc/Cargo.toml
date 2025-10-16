@@ -36,6 +36,13 @@ tracing.workspace = true
 
 cainome = { workspace = true, optional = true }
 cartridge = { workspace = true, optional = true }
+paymaster-common = { workspace = true, optional = true }
+paymaster-execution = { workspace = true, optional = true }
+paymaster-prices = { workspace = true, optional = true }
+paymaster-relayer = { workspace = true, optional = true }
+paymaster-sponsoring = { workspace = true, optional = true }
+paymaster-starknet = { workspace = true, optional = true }
+paymaster-rpc = { workspace = true, optional = true }
 starknet-crypto = { workspace = true, optional = true }
 url = { workspace = true, optional = true }
 
@@ -76,6 +83,13 @@ url.workspace = true
 cartridge = [
 	"dep:cainome",
 	"dep:cartridge",
+	"dep:paymaster-common",
+	"dep:paymaster-execution",
+	"dep:paymaster-prices",
+	"dep:paymaster-relayer",
+	"dep:paymaster-sponsoring",
+	"dep:paymaster-starknet",
+	"dep:paymaster-rpc",
 	"dep:katana-genesis",
 	"dep:starknet",
 	"dep:starknet-crypto",
