@@ -133,7 +133,7 @@ where
             if declared_class_hashes.is_empty() {
                 debug!(from = %input.from(), to = %input.to(), "No classes declared within the block range");
             } else {
-                let total_classes = declared_classes.len();
+                let total_classes = declared_class_hashes.len();
 
                 // fetch the classes artifacts
                 let class_artifacts = self
