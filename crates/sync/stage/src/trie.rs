@@ -56,33 +56,40 @@ where
                     .state_update(block_number.into())?
                     .ok_or(Error::MissingStateUpdate(block_number))?;
 
-                let contract_trie_root =
+                let computed_contract_trie_root =
                     self.provider.trie_insert_contract_updates(block_number, &state_update)?;
 
-                let computed_state_root = if dbg!(!state_update.declared_classes.is_empty()) {
-                    let class_trie_root = self.provider.trie_insert_declared_classes(
-                        block_number,
-                        dbg!(&state_update.declared_classes),
-                    )?;
+                debug!(
+                    target: "stage",
+                    contract_trie_root = format!("{computed_contract_trie_root:#x}"),
+                    "Computed contract trie root."
+                );
 
-                    // Compute the state root:
-                    // hash("STARKNET_STATE_V0", contract_trie_root, class_trie_root)
-                    let computed_state_root = Poseidon::hash_array(&[
-                        short_string!("STARKNET_STATE_V0"),
-                        dbg!(contract_trie_root),
-                        dbg!(class_trie_root),
-                    ]);
+                let computed_class_trie_root = self
+                    .provider
+                    .trie_insert_declared_classes(block_number, &state_update.declared_classes)?;
 
-                    computed_state_root
+                debug!(
+                    target: "stage",
+                    classes_tri_root = format!("{computed_class_trie_root:#x}"),
+                    "Computed classes trie root."
+                );
+
+                let computed_state_root = if computed_class_trie_root == Felt::ZERO {
+                    computed_contract_trie_root
                 } else {
-                    contract_trie_root
+                    Poseidon::hash_array(&[
+                        short_string!("STARKNET_STATE_V0"),
+                        computed_contract_trie_root,
+                        computed_class_trie_root,
+                    ])
                 };
 
                 // Verify that the computed state root matches the expected state root from the
                 // block header
                 if computed_state_root != expected_state_root {
                     error!(
-                        block = %block_number,
+                        target: "stage",
                         state_root = %format!("{computed_state_root:#x}"),
                         expected_state_root = %format!("{expected_state_root:#x}"),
                         "Wrong trie root for block - computed state root does not match expected state root (from header)",
@@ -96,7 +103,7 @@ where
                     .into());
                 }
 
-                debug!(block = %block_number, "State root verified successfully.");
+                debug!(target: "stage", "State root verified successfully.");
             }
 
             Ok(StageExecutionOutput { last_block_processed: input.to() })
