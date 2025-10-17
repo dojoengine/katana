@@ -30,4 +30,12 @@ impl<Db: Database> TrieWriter for ForkedProvider<Db> {
         let _ = updates;
         Ok(Felt::ZERO)
     }
+
+    fn unwind_classes_trie(&self, unwind_to: BlockNumber) -> ProviderResult<Felt> {
+        self.provider.unwind_classes_trie(unwind_to)
+    }
+
+    fn unwind_contracts_trie(&self, unwind_to: BlockNumber) -> ProviderResult<Felt> {
+        self.provider.unwind_contracts_trie(unwind_to)
+    }
 }

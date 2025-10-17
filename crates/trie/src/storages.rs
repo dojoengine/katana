@@ -27,7 +27,7 @@ impl<DB: BonsaiDatabase> StoragesTrie<DB> {
     }
 
     pub fn revert_to(&mut self, block: BlockNumber, latest_block: BlockNumber) {
-        self.trie.revert_to(block.into(), latest_block.into());
+        self.trie.revert_to(block, latest_block);
     }
 }
 

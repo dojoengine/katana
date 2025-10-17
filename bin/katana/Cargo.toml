@@ -17,7 +17,6 @@ katana-rpc-client.workspace = true
 katana-rpc-types.workspace = true
 katana-utils.workspace = true
 katana-stage.workspace = true
-katana-provider.workspace = true
 
 anyhow.workspace = true
 async-trait.workspace = true
