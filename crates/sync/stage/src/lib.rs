@@ -152,9 +152,7 @@ pub trait Stage: Send + Sync {
     /// - All data for blocks > `unwind_to` is removed from relevant database tables
     /// - The stage checkpoint is updated to reflect the unwound state
     /// - Database invariants are maintained after the unwind operation
-    fn unwind<'a>(&'a mut self, unwind_to: BlockNumber) -> BoxFuture<'a, StageResult> {
-        unimplemented!()
-    }
+    fn unwind<'a>(&'a mut self, unwind_to: BlockNumber) -> BoxFuture<'a, StageResult>;
 }
 
 #[cfg(test)]
