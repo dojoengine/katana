@@ -133,6 +133,9 @@ pub trait Stage: Send + Sync {
     /// specific block. All blocks after the `unwind_to` block should be removed, and the
     /// resulting database state should be as if the stage had only synced up to `unwind_to`.
     ///
+    /// If the `unwind_to` block is larger than the state's checkpoint, this method will be a no-op
+    /// and should return the checkpoint block number.
+    ///
     /// # Arguments
     ///
     /// * `unwind_to` - The target block number to unwind to. All blocks after this will be removed.
@@ -140,7 +143,8 @@ pub trait Stage: Send + Sync {
     /// # Returns
     ///
     /// A future that resolves to a [`StageResult`] containing [`StageExecutionOutput`]
-    /// with the last block number after unwinding (should equal `unwind_to`).
+    /// with the last block number after unwinding or the checkpoint block number (if the stage's
+    /// checkpoint is smaller than the unwind target).
     ///
     /// # Implementation Requirements
     ///

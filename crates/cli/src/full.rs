@@ -2,6 +2,7 @@ use std::path::PathBuf;
 
 use anyhow::{Context, Result};
 pub use clap::Parser;
+use katana_node::config::db::DbConfig;
 use katana_node::config::metrics::MetricsConfig;
 use katana_node::config::rpc::RpcConfig;
 use katana_node::full;
