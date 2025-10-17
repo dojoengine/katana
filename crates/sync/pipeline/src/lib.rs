@@ -71,7 +71,8 @@ use katana_primitives::block::BlockNumber;
 use katana_provider_api::stage::StageCheckpointProvider;
 use katana_provider_api::ProviderError;
 use katana_stage::{Stage, StageExecutionInput, StageExecutionOutput};
-use tokio::{sync::watch, task::yield_now};
+use tokio::sync::watch;
+use tokio::task::yield_now;
 use tracing::{debug, error, info, info_span, trace, Instrument, Span};
 
 /// The result of a pipeline execution.
