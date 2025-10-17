@@ -145,7 +145,7 @@ async fn run_to_executes_stage_to_target() {
     let stage_clone = stage.clone();
 
     pipeline.add_stage(stage);
-    let result = pipeline.run_once(5).await.unwrap();
+    let result = pipeline.execute_once(5).await.unwrap();
 
     assert_eq!(result, 5);
     assert_eq!(provider.checkpoint(stage_clone.id()).unwrap(), Some(5));
@@ -168,7 +168,7 @@ async fn run_to_skips_stage_when_checkpoint_equals_target() {
     provider.set_checkpoint(stage.id(), 5).unwrap();
     pipeline.add_stage(stage);
 
-    let result = pipeline.run_once(5).await.unwrap();
+    let result = pipeline.execute_once(5).await.unwrap();
 
     assert_eq!(result, 5);
     assert_eq!(stage_clone.executions().len(), 0); // Not executed
@@ -186,7 +186,7 @@ async fn run_to_skips_stage_when_checkpoint_exceeds_target() {
     provider.set_checkpoint("Stage1", 10).unwrap();
     pipeline.add_stage(stage);
 
-    let result = pipeline.run_once(5).await.unwrap();
+    let result = pipeline.execute_once(5).await.unwrap();
 
     assert_eq!(result, 10); // Returns the checkpoint
     assert_eq!(stage_clone.executions().len(), 0); // Not executed
@@ -203,7 +203,7 @@ async fn run_to_uses_checkpoint_plus_one_as_from() {
     // Set checkpoint to 3
     provider.set_checkpoint(stage.id(), 3).unwrap();
     pipeline.add_stage(stage);
-    pipeline.run_once(10).await.unwrap();
+    pipeline.execute_once(10).await.unwrap();
 
     let execs = stage_clone.executions();
     assert_eq!(execs.len(), 1);
@@ -236,7 +236,7 @@ async fn run_to_executes_all_stages_in_order() {
         Box::new(stage3) as Box<dyn Stage>,
     ]);
 
-    pipeline.run_once(5).await.unwrap();
+    pipeline.execute_once(5).await.unwrap();
 
     // All stages should be executed once because the tip is 5 and the chunk size is 10
     assert_eq!(stage1_clone.execution_count(), 1);
@@ -277,7 +277,7 @@ async fn run_to_with_mixed_checkpoints() {
     // checkpoint is 0
     provider.set_checkpoint(stage3_clone.id(), 0).unwrap();
 
-    pipeline.run_once(10).await.unwrap();
+    pipeline.execute_once(10).await.unwrap();
 
     // Stage1 should be skipped because its checkpoint (10) >= than the tip (10)
     assert_eq!(stage1_clone.execution_count(), 0);
@@ -314,7 +314,7 @@ async fn run_to_returns_minimum_last_block_processed() {
         Box::new(stage3) as Box<dyn Stage>,
     ]);
 
-    let result = pipeline.run_once(20).await.unwrap();
+    let result = pipeline.execute_once(20).await.unwrap();
 
     // make sure that all the stages were executed once
     assert_eq!(stage1_clone.execution_count(), 1);
@@ -349,7 +349,7 @@ async fn run_to_middle_stage_skip_continues() {
     // stage in the middle of the sequence already complete
     provider.set_checkpoint(stage2_clone.id(), 10).unwrap();
 
-    pipeline.run_once(10).await.unwrap();
+    pipeline.execute_once(10).await.unwrap();
 
     // Stage1 and Stage3 should execute
     assert_eq!(stage1_clone.execution_count(), 1);
@@ -521,7 +521,7 @@ async fn stage_execution_error_stops_pipeline() {
 
     pipeline.add_stage(stage);
 
-    let result = pipeline.run_once(10).await;
+    let result = pipeline.execute_once(10).await;
     assert!(result.is_err());
 
     // Checkpoint should not be set after failure
@@ -543,7 +543,7 @@ async fn stage_error_doesnt_affect_subsequent_runs() {
     pipeline.add_stage(stage1);
     pipeline.add_stage(stage2);
 
-    let error = pipeline.run_once(10).await.unwrap_err();
+    let error = pipeline.execute_once(10).await.unwrap_err();
 
     let katana_pipeline::Error::StageExecution { id, error } = error else {
         panic!("Unexpected error type");
@@ -566,7 +566,7 @@ async fn empty_pipeline_returns_target() {
     let (mut pipeline, _handle) = Pipeline::new(provider.clone(), 10);
 
     // No stages added
-    let result = pipeline.run_once(10).await.unwrap();
+    let result = pipeline.execute_once(10).await.unwrap();
 
     assert_eq!(result, 10);
 }
@@ -583,7 +583,7 @@ async fn tip_equals_checkpoint_no_execution() {
     provider.set_checkpoint(stage.id(), 10).unwrap();
     pipeline.add_stage(stage);
 
-    pipeline.run_once(10).await.unwrap();
+    pipeline.execute_once(10).await.unwrap();
 
     assert_eq!(executions.lock().unwrap().len(), 0, "Stage1 should not be executed");
 }
@@ -603,7 +603,7 @@ async fn tip_less_than_checkpoint_skip_all() {
     provider.set_checkpoint(stage.id(), checkpoint).unwrap();
     pipeline.add_stage(stage);
 
-    let result = pipeline.run_once(10).await.unwrap();
+    let result = pipeline.execute_once(10).await.unwrap();
 
     assert_eq!(result, checkpoint);
     assert_eq!(executions.lock().unwrap().len(), 0, "Stage1 should not be executed");
@@ -679,19 +679,19 @@ async fn stage_checkpoint() {
     let initial_checkpoint = provider.checkpoint("Mock").unwrap();
     assert_eq!(initial_checkpoint, None);
 
-    pipeline.run_once(5).await.expect("failed to run the pipeline once");
+    pipeline.execute_once(5).await.expect("failed to run the pipeline once");
 
     // check that the checkpoint was set
     let actual_checkpoint = provider.checkpoint("Mock").unwrap();
     assert_eq!(actual_checkpoint, Some(5));
 
-    pipeline.run_once(10).await.expect("failed to run the pipeline once");
+    pipeline.execute_once(10).await.expect("failed to run the pipeline once");
 
     // check that the checkpoint was set
     let actual_checkpoint = provider.checkpoint("Mock").unwrap();
     assert_eq!(actual_checkpoint, Some(10));
 
-    pipeline.run_once(10).await.expect("failed to run the pipeline once");
+    pipeline.execute_once(10).await.expect("failed to run the pipeline once");
 
     // check that the checkpoint doesn't change
     let actual_checkpoint = provider.checkpoint("Mock").unwrap();

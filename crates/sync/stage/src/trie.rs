@@ -111,16 +111,7 @@ where
     }
 
     fn unwind<'a>(&'a mut self, unwind_to: BlockNumber) -> BoxFuture<'a, StageResult> {
-        Box::pin(async move {
-            warn!(
-                target: "stage",
-                id = %self.id(),
-                unwind_to = %unwind_to,
-                "StateTrie unwinding not implemented - requires complex trie unwinding logic"
-            );
-
-            unimplemented!("StateTrie unwinding requires complex trie unwinding logic")
-        })
+        todo!()
     }
 }
 

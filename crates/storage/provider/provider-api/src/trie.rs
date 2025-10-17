@@ -20,4 +20,12 @@ pub trait TrieWriter: Send + Sync {
         block_number: BlockNumber,
         state_updates: &StateUpdates,
     ) -> ProviderResult<Felt>;
+
+    fn unwind_classes_trie(&self, unwind_to: BlockNumber) -> ProviderResult<Felt> {
+        unimplemented!()
+    }
+
+    fn unwind_contracts_trie(&self, unwind_to: BlockNumber) -> ProviderResult<Felt> {
+        unimplemented!()
+    }
 }

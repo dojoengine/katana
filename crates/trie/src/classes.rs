@@ -47,6 +47,10 @@ impl<DB: BonsaiDatabase> ClassesTrie<DB> {
     pub fn multiproof(&mut self, class_hashes: Vec<ClassHash>) -> MultiProof {
         self.trie.multiproof(Self::BONSAI_IDENTIFIER, class_hashes)
     }
+
+    pub fn revert_to(&mut self, block: BlockNumber, latest_block: BlockNumber) {
+        self.trie.revert_to(block.into(), latest_block.into());
+    }
 }
 
 impl<DB> ClassesTrie<DB>
