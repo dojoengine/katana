@@ -224,6 +224,6 @@ starknet_api = { git = "https://github.com/dojoengine/sequencer", branch = "bloc
 # only under the `test_utils` feature.
 cairo-vm = { version = "2.5.0", features = [ "test_utils" ] }
 
-cainome = { version = "0.10.0", features = [ "abigen-rs" ] }
+cainome = { version = "0.10.1", features = [ "abigen-rs" ] }
 cainome-cairo-serde = { version = "0.4.0" }
-piltover = { git = "https://github.com/kariy/piltover.git", rev = "2b99a6b" }
+piltover = { git = "https://github.com/cartridge-gg/piltover", rev = "3d3426c" }
