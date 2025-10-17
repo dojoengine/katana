@@ -111,7 +111,11 @@ where
     }
 
     fn unwind<'a>(&'a mut self, unwind_to: BlockNumber) -> BoxFuture<'a, StageResult> {
-        todo!()
+        Box::pin(async move {
+            self.provider.unwind_classes_trie(unwind_to)?;
+            self.provider.unwind_contracts_trie(unwind_to)?;
+            Ok(StageExecutionOutput { last_block_processed: unwind_to })
+        })
     }
 }
 

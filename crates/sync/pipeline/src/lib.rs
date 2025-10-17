@@ -308,8 +308,6 @@ impl<P: StageCheckpointProvider> Pipeline<P> {
     /// Returns an error if any stage execution fails or if the pipeline fails to read the
     /// checkpoint.
     pub async fn execute_once(&mut self, to: BlockNumber) -> PipelineResult<BlockNumber> {
-        let tip = self.tip.expect("qed; should exist by now");
-
         if self.stages.is_empty() {
             return Ok(to);
         }
@@ -415,50 +413,6 @@ impl<P: StageCheckpointProvider> Pipeline<P> {
         Ok(last_block_processed_list.into_iter().max().unwrap_or(to))
     }
 
-    pub async fn unwind_once(&mut self, to: BlockNumber) -> PipelineResult<BlockNumber> {
-        if self.stages.is_empty() {
-            return Ok(to);
-        }
-
-        // This is so that lagging stages (ie stage with a checkpoint that is less than the rest of
-        // the stages) will be executed, in the next cycle of `run_to`, with a `to` value
-        // whose range from the stages' next checkpoint is equal to the pipeline batch size.
-        //
-        // This can actually be done without the allocation, but this makes reasoning about the
-        // code easier. The majority of the execution time will be spent in `stage.execute` anyway
-        // so optimizing this doesn't yield significant improvements.
-        let mut last_block_processed_list: Vec<BlockNumber> = Vec::with_capacity(self.stages.len());
-
-        for stage in self.stages.iter_mut() {
-            let id = stage.id();
-
-            // Get the checkpoint for the stage, otherwise default to block number 0
-            let checkpoint = self.provider.checkpoint(id)?.unwrap_or_default();
-
-            // Skip the stage if the checkpoint is greater than or equal to the target block number
-            if checkpoint <= to {
-                info!(target: "pipeline", %id, "Skipping stage.");
-                last_block_processed_list.push(checkpoint);
-                continue;
-            }
-
-            info!(target: "pipeline", %id, from = %checkpoint, %to, "Unwinding stage.");
-
-            let input = StageExecutionInput::new(checkpoint, to);
-            let StageExecutionOutput { last_block_processed } =
-                stage.execute(&input).await.map_err(|error| Error::StageExecution { id, error })?;
-
-            debug_assert!(last_block_processed <= checkpoint);
-
-            self.provider.set_checkpoint(id, last_block_processed)?;
-            last_block_processed_list.push(last_block_processed);
-
-            info!(target: "pipeline", %id, from = %checkpoint, %to, "Stage execution completed.");
-        }
-
-        Ok(last_block_processed_list.into_iter().max().unwrap_or(to))
-    }
-
     /// Run the pipeline loop.
     async fn run_loop(&mut self) -> PipelineResult<()> {
         loop {
@@ -471,13 +425,14 @@ impl<P: StageCheckpointProvider> Pipeline<P> {
                         info!(target: "pipeline", %tip, "Finished syncing until tip.");
                         self.status = PipelineStatus::Idling;
                     } else {
-                        let new_target = (last_block_processed + self.chunk_size).min(tip);
+                        let new_target =
+                            last_block_processed.saturating_add(self.chunk_size).min(tip);
                         self.status =
                             PipelineStatus::Syncing { tip, current_target: Some(new_target) };
                     }
                 }
 
-                PipelineStatus::Unwinding { to, ref mut current_target } => {
+                PipelineStatus::Unwinding { to, current_target } => {
                     let local_to = current_target.unwrap_or(self.chunk_size).max(to);
                     let last_block_processed = self.unwind_once(local_to).await?;
 
@@ -485,7 +440,8 @@ impl<P: StageCheckpointProvider> Pipeline<P> {
                         info!(target: "pipeline", %to, "Finished unwinding.");
                         self.status = PipelineStatus::Idling;
                     } else {
-                        let new_target = (last_block_processed - self.chunk_size).max(to);
+                        let new_target =
+                            last_block_processed.saturating_sub(self.chunk_size).max(to);
                         self.status =
                             PipelineStatus::Unwinding { to, current_target: Some(new_target) };
                     }
@@ -497,8 +453,6 @@ impl<P: StageCheckpointProvider> Pipeline<P> {
                         .wait_for(|c| matches!(c, &Some(PipelineCommand::Sync(_))))
                         .await
                         .expect("qed; channel closed");
-
-                        c2-small-x86-nyc-1
                 }
             }
         }
