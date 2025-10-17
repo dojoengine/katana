@@ -3,8 +3,8 @@ pub use bonsai::{BitVec, MultiProof, Path, ProofNode};
 pub use bonsai_trie::databases::HashMapDb;
 use bonsai_trie::BonsaiStorage;
 pub use bonsai_trie::{BonsaiDatabase, BonsaiPersistentDatabase, BonsaiStorageConfig};
-use katana_primitives::class::ClassHash;
 use katana_primitives::Felt;
+use katana_primitives::{block::BlockNumber, class::ClassHash};
 use starknet_types_core::hash::{Pedersen, StarkHash};
 pub use {bitvec, bonsai_trie as bonsai};
 
@@ -40,7 +40,7 @@ where
     pub fn new(db: DB) -> Self {
         let config = BonsaiStorageConfig {
             // we have our own implementation of storing trie changes
-            max_saved_trie_logs: Some(0),
+            max_saved_trie_logs: None,
             // in the bonsai-trie crate, this field seems to be only used in rocksdb impl.
             // i dont understand why would they add a config thats implementation specific ????
             //
@@ -60,6 +60,10 @@ where
     pub fn multiproof(&mut self, id: &[u8], keys: Vec<Felt>) -> MultiProof {
         let keys = keys.into_iter().map(|key| key.to_bytes_be().as_bits()[5..].to_owned());
         self.storage.get_multi_proof(id, keys).expect("failed to get multiproof")
+    }
+
+    pub fn revert_to(&mut self, block: BlockNumber, latest_block: BlockNumber) {
+        self.storage.revert_to(block.into(), latest_block.into()).expect("failed to revert trie");
     }
 }
 
@@ -168,5 +172,55 @@ mod tests {
         let expected = felt!("0x7161b591c893836263a64f2a7e0d829c92f6956148a60ce5e99a3f55c7973f3");
 
         assert_eq!(result, expected);
+    }
+
+    #[test]
+    fn test_revert_to() {
+        use bonsai_trie::databases;
+
+        // the identifier for the trie
+        const IDENTIFIER: &[u8] = b"test_trie";
+
+        // Create a BonsaiStorage with in-memory database and trie logs enabled
+        let bonsai_db = databases::HashMapDb::<CommitId>::default();
+        let mut trie = BonsaiTrie::<_, hash::Pedersen>::new(bonsai_db);
+
+        // Insert values at block 0
+        trie.insert(IDENTIFIER, Felt::from(1), Felt::from(100));
+        trie.insert(IDENTIFIER, Felt::from(2), Felt::from(200));
+        trie.commit(0.into());
+        let root_at_block_0 = trie.root(IDENTIFIER);
+
+        // Insert more values at block 1
+        trie.insert(IDENTIFIER, Felt::from(3), Felt::from(300));
+        trie.insert(IDENTIFIER, Felt::from(4), Felt::from(400));
+        trie.commit(1.into());
+        let root_at_block_1 = trie.root(IDENTIFIER);
+
+        // Roots should be different
+        assert_ne!(root_at_block_0, root_at_block_1);
+
+        // Insert even more values at block 2
+        trie.insert(IDENTIFIER, Felt::from(5), Felt::from(500));
+        trie.commit(2.into());
+        let root_at_block_2 = trie.root(IDENTIFIER);
+
+        // Roots should be different
+        assert_ne!(root_at_block_1, root_at_block_2);
+        assert_ne!(root_at_block_0, root_at_block_2);
+
+        // Revert to block 1
+        trie.revert_to(1, 2);
+        let root_after_revert = trie.root(IDENTIFIER);
+
+        // After revert, root should match block 1
+        assert_eq!(root_after_revert, root_at_block_1);
+
+        // Revert to block 0
+        trie.revert_to(0, 1);
+        let root_after_second_revert = trie.root(IDENTIFIER);
+
+        // After revert, root should match block 0
+        assert_eq!(root_after_second_revert, root_at_block_0);
     }
 }
