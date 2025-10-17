@@ -71,8 +71,8 @@ use katana_primitives::block::BlockNumber;
 use katana_provider_api::stage::StageCheckpointProvider;
 use katana_provider_api::ProviderError;
 use katana_stage::{Stage, StageExecutionInput, StageExecutionOutput};
-use tokio::sync::watch;
-use tracing::{error, info, trace};
+use tokio::{sync::watch, task::yield_now};
+use tracing::{debug, error, info, info_span, trace, Instrument, Span};
 
 /// The result of a pipeline execution.
 pub type PipelineResult<T> = Result<T, Error>;
@@ -82,10 +82,10 @@ pub type PipelineFut = BoxFuture<'static, PipelineResult<()>>;
 
 #[derive(Debug, thiserror::Error)]
 pub enum Error {
-    #[error("Stage not found: {id}")]
+    #[error("stage not found: {id}")]
     StageNotFound { id: String },
 
-    #[error("Stage '{id}' execution failed: {error}")]
+    #[error("stage {id} execution failed: {error}")]
     StageExecution { id: &'static str, error: katana_stage::Error },
 
     #[error(transparent)]
@@ -120,8 +120,7 @@ impl PipelineHandle {
     ///
     /// Panics if the [`Pipeline`] has been dropped.
     pub fn set_tip(&self, tip: BlockNumber) {
-        info!(target: "pipeline", %tip, "Setting new tip");
-        self.tx.send(Some(PipelineCommand::SetTip(tip))).expect("channel closed");
+        self.tx.send(Some(PipelineCommand::SetTip(tip))).expect("pipeline is no longer running");
     }
 
     /// Signals the pipeline to stop gracefully.
@@ -134,17 +133,13 @@ impl PipelineHandle {
     ///
     /// Panics if the [`Pipeline`] has been dropped.
     pub fn stop(&self) {
-        info!(target: "pipeline", "Signaling pipeline to stop");
-        self.tx.send(Some(PipelineCommand::Stop)).expect("channel closed");
+        debug!(target: "pipeline", "Signaling pipeline to stop");
+        let _ = self.tx.send(Some(PipelineCommand::Stop));
     }
-}
 
-impl Drop for PipelineHandle {
-    fn drop(&mut self) {
-        //  self + pipeline copy
-        if self.tx.sender_count() == 2 {
-            self.stop();
-        }
+    /// Wait until the [`Pipeline`] has stopped.
+    pub async fn stopped(&self) {
+        self.tx.closed().await;
     }
 }
 
@@ -237,7 +232,7 @@ impl<P: StageCheckpointProvider> Pipeline<P> {
 
         loop {
             tokio::select! {
-                _ = self.run_loop() => { }
+                biased;
 
                 changed = command_rx.changed() => {
                     if changed.is_err() {
@@ -247,20 +242,28 @@ impl<P: StageCheckpointProvider> Pipeline<P> {
                     // Check if the handle has sent a signal
                     match *self.command_rx.borrow_and_update() {
                         Some(PipelineCommand::Stop) => {
-                            trace!(target: "pipeline", "Received stop command.");
+                            debug!(target: "pipeline", "Received stop command.");
                             break;
                         }
                         Some(PipelineCommand::SetTip(new_tip)) => {
-                            trace!(target: "pipeline", tip = %new_tip, "Received new tip.");
+                            debug!(target: "pipeline", tip = %new_tip, "Received new tip.");
                             self.tip = Some(new_tip);
                         }
                         None => {}
                     }
                 }
+
+                result = self.run_loop() => {
+                    if let Err(error) = result {
+                        error!(target: "pipeline", %error, "Pipeline finished due to error.");
+                        break;
+                    }
+                }
+
             }
         }
 
-        info!(target: "pipeline", "Pipeline finished.");
+        info!(target: "pipeline", "Pipeline shutting down.");
 
         Ok(())
     }
@@ -285,6 +288,8 @@ impl<P: StageCheckpointProvider> Pipeline<P> {
     /// Returns an error if any stage execution fails or if the pipeline fails to read the
     /// checkpoint.
     pub async fn run_once(&mut self, to: BlockNumber) -> PipelineResult<BlockNumber> {
+        let tip = self.tip.expect("qed; should exist by now");
+
         if self.stages.is_empty() {
             return Ok(to);
         }
@@ -304,24 +309,40 @@ impl<P: StageCheckpointProvider> Pipeline<P> {
             // Get the checkpoint for the stage, otherwise default to block number 0
             let checkpoint = self.provider.checkpoint(id)?.unwrap_or_default();
 
+            let span = info_span!(target: "pipeline", "stage.execute", stage = %id, current_target = %to, %tip);
+            let enter = span.entered();
+
             // Skip the stage if the checkpoint is greater than or equal to the target block number
             if checkpoint >= to {
-                info!(target: "pipeline", %id, "Skipping stage.");
+                info!(target: "pipeline", %checkpoint, "Skipping stage - target already reached.");
                 last_block_processed_list.push(checkpoint);
                 continue;
             }
 
-            info!(target: "pipeline", %id, from = %checkpoint, %to, "Executing stage.");
+            let from = if checkpoint == 0 {
+                checkpoint
+            } else {
+                // plus 1 because the checkpoint is the last block processed, so we need to start
+                // from the next block
+                checkpoint + 1
+            };
 
-            // plus 1 because the checkpoint is inclusive
-            let input = StageExecutionInput::new(checkpoint + 1, to);
-            let StageExecutionOutput { last_block_processed } =
-                stage.execute(&input).await.map_err(|error| Error::StageExecution { id, error })?;
+            let input = StageExecutionInput::new(from, to);
+            info!(target: "pipeline", %from, %to, "Executing stage.");
+
+            let span = enter.exit();
+            let StageExecutionOutput { last_block_processed } = stage
+                .execute(&input)
+                .instrument(span.clone())
+                .await
+                .map_err(|error| Error::StageExecution { id, error })?;
+
+            let _enter = span.enter();
+            info!(target: "pipeline", %from, %to, "Stage execution completed.");
 
             self.provider.set_checkpoint(id, last_block_processed)?;
             last_block_processed_list.push(last_block_processed);
-
-            info!(target: "pipeline", %id, from = %checkpoint, %to, "Stage execution completed.");
+            info!(target: "pipeline", checkpoint = %last_block_processed, "New checkpoint set.");
         }
 
         Ok(last_block_processed_list.into_iter().min().unwrap_or(to))
@@ -338,7 +359,7 @@ impl<P: StageCheckpointProvider> Pipeline<P> {
                 let last_block_processed = self.run_once(to).await?;
 
                 if last_block_processed >= tip {
-                    info!(target: "pipeline", %tip, "Finished processing until tip.");
+                    info!(target: "pipeline", %tip, "Finished syncing until tip.");
                     self.tip = None;
                     current_chunk_tip = last_block_processed;
                 } else {
@@ -348,13 +369,15 @@ impl<P: StageCheckpointProvider> Pipeline<P> {
                 continue;
             }
 
-            info!(target: "pipeline", "Waiting for new tip.");
+            info!(target: "pipeline", "Waiting to receive new tip.");
 
             // block until a new tip is set
             self.command_rx
                 .wait_for(|c| matches!(c, &Some(PipelineCommand::SetTip(_))))
                 .await
                 .expect("qed; channel closed");
+
+            yield_now().await;
         }
     }
 }

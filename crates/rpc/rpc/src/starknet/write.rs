@@ -1,5 +1,4 @@
 use jsonrpsee::core::{async_trait, RpcResult};
-use katana_executor::ExecutorFactory;
 use katana_pool::TransactionPool;
 use katana_primitives::transaction::{ExecutableTx, ExecutableTxWithHash};
 use katana_rpc_api::error::starknet::StarknetApiError;
@@ -12,7 +11,10 @@ use katana_rpc_types::broadcasted::{
 
 use super::StarknetApi;
 
-impl<EF: ExecutorFactory> StarknetApi<EF> {
+impl<P> StarknetApi<P>
+where
+    P: TransactionPool + Send + Sync + 'static,
+{
     async fn add_invoke_transaction_impl(
         &self,
         tx: BroadcastedInvokeTx,
@@ -22,11 +24,13 @@ impl<EF: ExecutorFactory> StarknetApi<EF> {
                 return Err(StarknetApiError::UnsupportedTransactionVersion);
             }
 
-            let tx = tx.into_inner(this.inner.backend.chain_spec.id());
+            let tx = tx.into_inner(this.inner.chain_spec.id());
             let tx = ExecutableTxWithHash::new(ExecutableTx::Invoke(tx));
-            let transaction_hash = this.inner.pool.add_transaction(tx).await?;
+            // let transaction_hash = this.inner.pool.add_transaction(tx).await?;
 
-            Ok(AddInvokeTransactionResponse { transaction_hash })
+            // Ok(AddInvokeTransactionResponse { transaction_hash })
+
+            todo!()
         })
         .await?
     }
@@ -41,14 +45,15 @@ impl<EF: ExecutorFactory> StarknetApi<EF> {
             }
 
             let tx = tx
-                .into_inner(this.inner.backend.chain_spec.id())
+                .into_inner(this.inner.chain_spec.id())
                 .map_err(|_| StarknetApiError::InvalidContractClass)?;
 
             let class_hash = tx.class_hash();
             let tx = ExecutableTxWithHash::new(ExecutableTx::Declare(tx));
-            let transaction_hash = this.inner.pool.add_transaction(tx).await?;
+            // let transaction_hash = this.inner.pool.add_transaction(tx).await?;
 
-            Ok(AddDeclareTransactionResponse { transaction_hash, class_hash })
+            // Ok(AddDeclareTransactionResponse { transaction_hash, class_hash })
+            todo!()
         })
         .await?
     }
@@ -62,20 +67,24 @@ impl<EF: ExecutorFactory> StarknetApi<EF> {
                 return Err(StarknetApiError::UnsupportedTransactionVersion);
             }
 
-            let tx = tx.into_inner(this.inner.backend.chain_spec.id());
+            let tx = tx.into_inner(this.inner.chain_spec.id());
             let contract_address = tx.contract_address();
 
             let tx = ExecutableTxWithHash::new(ExecutableTx::DeployAccount(tx));
-            let transaction_hash = this.inner.pool.add_transaction(tx).await?;
+            // let transaction_hash = this.inner.pool.add_transaction(tx).await?;
 
-            Ok(AddDeployAccountTransactionResponse { transaction_hash, contract_address })
+            // Ok(AddDeployAccountTransactionResponse { transaction_hash, contract_address })
+            todo!()
         })
         .await?
     }
 }
 
 #[async_trait]
-impl<EF: ExecutorFactory> StarknetWriteApiServer for StarknetApi<EF> {
+impl<P> StarknetWriteApiServer for StarknetApi<P>
+where
+    P: TransactionPool + Send + Sync + 'static,
+{
     async fn add_invoke_transaction(
         &self,
         invoke_transaction: BroadcastedInvokeTx,

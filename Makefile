@@ -24,27 +24,113 @@ CONTRACTS_BUILD_DIR := $(CONTRACTS_CRATE)/build
 # The `scarb` version that is required to compile the feature contracts in katana-contracts
 SCARB_VERSION := 2.8.4
 
+# Detect LLVM paths based on OS
+ifeq ($(UNAME), Darwin)
+	LLVM_PREFIX := $(shell brew --prefix llvm@19 2>/dev/null || echo "/opt/homebrew/opt/llvm@19")
+else ifeq ($(UNAME), Linux)
+	LLVM_PREFIX := /usr/lib/llvm-19
+else
+	LLVM_PREFIX :=
+endif
+
+# Environment for cargo builds
+CARGO_ENV := MLIR_SYS_190_PREFIX=$(LLVM_PREFIX) LLVM_SYS_191_PREFIX=$(LLVM_PREFIX) TABLEGEN_190_PREFIX=$(LLVM_PREFIX)
+
+# Ensure scarb is in PATH (add common installation locations)
+SCARB_PATH := $(HOME)/.local/bin:$(HOME)/.cargo/bin:$(PATH)
+
 .DEFAULT_GOAL := usage
 .SILENT: clean
-.PHONY: usage help check-llvm native-deps native-deps-macos native-deps-linux native-deps-windows build-explorer contracts clean deps install-scarb test-artifacts snos-artifacts db-compat-artifacts
+.PHONY: usage help check-llvm native-deps native-deps-macos native-deps-linux native-deps-windows build-explorer contracts clean deps install-scarb test-artifacts snos-artifacts db-compat-artifacts install-protoc test-deps all
 
 usage help:
-	@echo "Usage:"
-	@echo "    deps:                      Install all required dependencies for building Katana with all features."
-	@echo "    build-explorer:            Build the explorer."
-	@echo "    contracts:                 Build the contracts."
-	@echo "    test-artifacts:            Prepare tests artifacts (including test database)."
-	@echo "    snos-artifacts:            Prepare SNOS tests artifacts."
-	@echo "    db-compat-artifacts:       Prepare database compatibility test artifacts."
-	@echo "    native-deps-macos:         Install cairo-native dependencies for macOS."
-	@echo "    native-deps-linux:         Install cairo-native dependencies for Linux."
-	@echo "    native-deps-windows:       Install cairo-native dependencies for Windows."
-	@echo "    check-llvm:                Check if LLVM is properly configured."
-	@echo "    clean:                     Clean up generated files and artifacts."
-	@echo "    help:                      Show this help message."
+	@echo "=========================================="
+	@echo "Katana Build System - Dependency Setup"
+	@echo "=========================================="
+	@echo ""
+	@echo "Main Commands:"
+	@echo "    all                        Install ALL dependencies and build required artifacts."
+	@echo "    deps                       Install system dependencies (Scarb, LLVM)."
+	@echo "    test-deps                  Install dependencies for running tests (includes protoc)."
+	@echo ""
+	@echo "Artifact Building:"
+	@echo "    contracts                  Build the contracts (required before cargo build)."
+	@echo "    build-explorer             Build the explorer UI."
+	@echo "    test-artifacts             Prepare test artifacts (including test database)."
+	@echo ""
+	@echo "Individual Dependency Installation:"
+	@echo "    install-scarb              Install Scarb (Cairo package manager)."
+	@echo "    install-protoc             Install Protocol Buffers compiler."
+	@echo "    native-deps-macos          Install LLVM 19 for macOS."
+	@echo "    native-deps-linux          Install LLVM 19 for Linux."
+	@echo "    native-deps-windows        Install LLVM 19 for Windows."
+	@echo ""
+	@echo "Other Commands:"
+	@echo "    check-llvm                 Check if LLVM is properly configured."
+	@echo "    clean                      Clean up generated files and artifacts."
+	@echo "    help                       Show this help message."
+	@echo ""
+	@echo "=========================================="
+	@echo "Quick Start:"
+	@echo "=========================================="
+	@echo "  1. Install all dependencies:"
+	@echo "     make all"
+	@echo ""
+	@echo "  2. Setup environment variables:"
+	@echo "     source scripts/cairo-native.env.sh"
+	@echo ""
+	@echo "  3. Build Katana:"
+	@echo "     cargo build"
+	@echo "=========================================="
+
+all: deps contracts
+	@echo ""
+	@echo "=========================================="
+	@echo "✓ All dependencies installed successfully!"
+	@echo "=========================================="
+	@echo ""
+	@echo "Dependencies installed:"
+	@echo "  ✓ Scarb $(SCARB_VERSION)"
+	@echo "  ✓ LLVM 19"
+	@echo "  ✓ Contracts built"
+	@echo ""
+	@echo "Next steps:"
+	@echo "  1. Setup environment variables:"
+	@echo "     source scripts/cairo-native.env.sh"
+	@echo ""
+	@echo "  2. Build Katana:"
+	@echo "     cargo build"
+	@echo ""
+	@echo "  3. (Optional) For release build:"
+	@echo "     cargo build --release"
+	@echo ""
+	@echo "  4. (Optional) For tests:"
+	@echo "     make test-deps && cargo build --tests"
+	@echo "=========================================="
 
 deps: install-scarb native-deps
-	@echo "All dependencies installed successfully."
+	@echo "✓ System dependencies installed successfully."
+
+install-protoc:
+	@echo "Checking for protoc..."
+	@if which protoc > /dev/null 2>&1; then \
+		echo "protoc is already installed: $$(protoc --version)"; \
+	else \
+		echo "Installing protoc..."; \
+		if [ "$(UNAME)" = "Linux" ]; then \
+			sudo apt-get update && sudo apt-get install -y protobuf-compiler; \
+		elif [ "$(UNAME)" = "Darwin" ]; then \
+			brew install protobuf; \
+		else \
+			echo "Please install protoc manually from https://github.com/protocolbuffers/protobuf/releases"; \
+			exit 1; \
+		fi; \
+	fi
+
+test-deps: deps install-protoc
+	@echo ""
+	@echo "Test dependencies installed. Note: SNOS tests also require Python 3 and pyenv."
+	@echo "To install pyenv, visit: https://github.com/pyenv/pyenv#installation"
 
 install-scarb:
 	@if scarb --version 2>/dev/null | grep -q "^scarb $(SCARB_VERSION)"; then \
@@ -73,9 +159,9 @@ contracts: $(CONTRACTS_BUILD_DIR)
 # Generate the list of sources dynamically to make sure Make can track all files in all nested subdirs
 $(CONTRACTS_BUILD_DIR): $(shell find $(CONTRACTS_DIR) -type f)
 	@echo "Building contracts..."
-	@cd $(CONTRACTS_DIR) && scarb build
-	@mkdir -p build && \
-		mv $(CONTRACTS_DIR)/target/dev/* $@ || { echo "Contracts build failed!"; exit 1; }
+	@PATH="$(SCARB_PATH)" cd $(CONTRACTS_DIR) && scarb build
+	@mkdir -p $(CONTRACTS_BUILD_DIR) && \
+		mv $(CONTRACTS_DIR)/target/dev/* $(CONTRACTS_BUILD_DIR)/ || { echo "Contracts build failed!"; exit 1; }
 
 $(EXPLORER_UI_DIR):
 	@echo "Initializing Explorer UI submodule..."
