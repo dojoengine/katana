@@ -263,7 +263,7 @@ impl<P: StageCheckpointProvider> Pipeline<P> {
                             break;
                         }
                         Some(PipelineCommand::Sync(new_tip)) => {
-                            trace!(target: "pipeline", tip = %new_tip, "Received new tip.");
+                            debug!(target: "pipeline", tip = %new_tip, "Received new tip.");
                             self.status = PipelineStatus::Syncing { tip: new_tip, current_target: None };
                         }
                         Some(PipelineCommand::Unwind(new_tip)) => {
@@ -389,6 +389,10 @@ impl<P: StageCheckpointProvider> Pipeline<P> {
             // Get the checkpoint for the stage, otherwise default to block number 0
             let checkpoint = self.provider.checkpoint(id)?.unwrap_or_default();
 
+            let span =
+                info_span!(target: "pipeline", "stage.unwind", stage = %id, current_target = %to);
+            let enter = span.entered();
+
             // Skip the stage if the checkpoint is greater than or equal to the target block number
             if checkpoint <= to {
                 info!(target: "pipeline", %id, "Skipping stage.");
@@ -396,13 +400,20 @@ impl<P: StageCheckpointProvider> Pipeline<P> {
                 continue;
             }
 
+            let input = StageExecutionInput::new(checkpoint, to);
             info!(target: "pipeline", %id, from = %checkpoint, %to, "Unwinding stage.");
 
-            let input = StageExecutionInput::new(checkpoint, to);
-            let StageExecutionOutput { last_block_processed } =
-                stage.execute(&input).await.map_err(|error| Error::StageExecution { id, error })?;
+            let span = enter.exit();
+            let StageExecutionOutput { last_block_processed } = stage
+                .execute(&input)
+                .instrument(span.clone())
+                .await
+                .map_err(|error| Error::StageExecution { id, error })?;
 
             debug_assert!(last_block_processed <= checkpoint);
+
+            let _enter = span.enter();
+            info!(target: "pipeline", from = %checkpoint, %to, "Stage unwinding completed.");
 
             self.provider.set_checkpoint(id, last_block_processed)?;
             last_block_processed_list.push(last_block_processed);
@@ -450,9 +461,14 @@ impl<P: StageCheckpointProvider> Pipeline<P> {
                 PipelineStatus::Idling => {
                     // block until a new tip is set
                     self.command_rx
-                        .wait_for(|c| matches!(c, &Some(PipelineCommand::Sync(_))))
+                        .wait_for(|c| {
+                            matches!(c, &Some(PipelineCommand::Sync(_)))
+                                || matches!(c, &Some(PipelineCommand::Unwind(_)))
+                        })
                         .await
                         .expect("qed; channel closed");
+
+                    yield_now().await;
                 }
             }
         }

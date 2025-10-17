@@ -26,7 +26,7 @@ impl StageArgs {
     pub fn execute(self) -> Result<()> {
         match self.commands {
             Commands::Checkpoint(args) => args.execute(),
-            Commands::Unwind(args) => execute_async(args.execute()),
+            Commands::Unwind(args) => execute_async(args.execute())?,
         }
     }
 }
