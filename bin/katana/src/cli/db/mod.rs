@@ -8,6 +8,7 @@ use comfy_table::Table;
 
 mod prune;
 mod stats;
+mod trie;
 mod version;
 
 #[derive(Debug, Args)]
@@ -28,6 +29,9 @@ enum Commands {
 
     /// Prune historical trie data.
     Prune(prune::PruneArgs),
+
+    /// Inspect trie roots stored in the database.
+    Trie(trie::TrieArgs),
 }
 
 impl DbArgs {
@@ -36,6 +40,7 @@ impl DbArgs {
             Commands::Prune(args) => args.execute(),
             Commands::Stats(args) => args.execute(),
             Commands::Version(args) => args.execute(),
+            Commands::Trie(args) => args.execute(),
         }
     }
 }
