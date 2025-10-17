@@ -285,6 +285,13 @@ where
         self.provider.declared_classes(block_id)
     }
 
+    fn declared_deprecated_classes(
+        &self,
+        block_id: BlockHashOrNumber,
+    ) -> ProviderResult<Option<Vec<ClassHash>>> {
+        self.provider.declared_deprecated_classes(block_id)
+    }
+
     fn deployed_contracts(
         &self,
         block_id: BlockHashOrNumber,
@@ -367,6 +374,14 @@ where
         state_updates: &StateUpdates,
     ) -> ProviderResult<Felt> {
         self.provider.trie_insert_contract_updates(block_number, state_updates)
+    }
+
+    fn unwind_classes_trie(&self, unwind_to: BlockNumber) -> ProviderResult<Felt> {
+        self.provider.unwind_classes_trie(unwind_to)
+    }
+
+    fn unwind_contracts_trie(&self, unwind_to: BlockNumber) -> ProviderResult<Felt> {
+        self.provider.unwind_contracts_trie(unwind_to)
     }
 }
 

@@ -127,7 +127,7 @@ PREDEPLOYED CONTRACTS
 | Contract        | STRK Fee Token
 | Address         | {}
 | Class Hash      | {:#064x}",
-                cs.fee_contract.strk, DEFAULT_LEGACY_ERC20_CLASS_HASH,
+                cs.fee_contracts.strk, DEFAULT_LEGACY_ERC20_CLASS_HASH,
             );
         }
     }
