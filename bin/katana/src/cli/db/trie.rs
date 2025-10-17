@@ -58,7 +58,7 @@ impl TrieArgs {
                 let address = storage.address;
                 state_provider
                     .storage_root(address)?
-                    .ok_or_else(|| anyhow!("storage trie not found for contract {address:#x}"))?
+                    .ok_or_else(|| anyhow!("storage trie not found for contract {address}"))?
             }
         };
 
