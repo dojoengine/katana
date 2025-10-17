@@ -1,6 +1,6 @@
 use std::collections::{BTreeMap, BTreeSet, HashMap};
 
-use katana_db::abstraction::{Database, DbCursor, DbDupSortCursor, DbTx, DbTxRef};
+use katana_db::abstraction::{Database, DbDupSortCursor, DbTx};
 use katana_db::tables;
 use katana_db::trie::TrieDbMut;
 use katana_primitives::block::BlockNumber;

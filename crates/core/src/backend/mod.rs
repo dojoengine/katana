@@ -656,4 +656,12 @@ impl TrieWriter for GenesisTrieWriter {
         trie.commit(block_number);
         Ok(trie.root())
     }
+
+    fn unwind_classes_trie(&self, _: BlockNumber) -> katana_provider::ProviderResult<Felt> {
+        unimplemented!()
+    }
+
+    fn unwind_contracts_trie(&self, _: BlockNumber) -> katana_provider::ProviderResult<Felt> {
+        unimplemented!()
+    }
 }
