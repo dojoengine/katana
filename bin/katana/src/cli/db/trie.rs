@@ -11,6 +11,9 @@ use super::open_db_ro;
 #[derive(Debug, Args)]
 #[cfg_attr(test, derive(PartialEq, Eq, Clone))]
 pub struct TrieArgs {
+    #[command(subcommand)]
+    pub command: TrieCommand,
+
     /// Path to the database directory.
     #[arg(short, long)]
     pub path: String,
@@ -18,9 +21,6 @@ pub struct TrieArgs {
     /// Block number to inspect. Defaults to the latest state when omitted.
     #[arg(short, long)]
     pub block: Option<u64>,
-
-    #[command(subcommand)]
-    pub command: TrieCommand,
 }
 
 #[derive(Debug, Subcommand)]
