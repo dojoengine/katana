@@ -48,8 +48,8 @@ where
                 .into_inner(this.inner.chain_spec.id())
                 .map_err(|_| StarknetApiError::InvalidContractClass)?;
 
-            let class_hash = tx.class_hash();
-            let tx = ExecutableTxWithHash::new(ExecutableTx::Declare(tx));
+            let _ = tx.class_hash();
+            let _ = ExecutableTxWithHash::new(ExecutableTx::Declare(tx));
             // let transaction_hash = this.inner.pool.add_transaction(tx).await?;
 
             // Ok(AddDeclareTransactionResponse { transaction_hash, class_hash })
@@ -68,9 +68,9 @@ where
             }
 
             let tx = tx.into_inner(this.inner.chain_spec.id());
-            let contract_address = tx.contract_address();
+            let _ = tx.contract_address();
 
-            let tx = ExecutableTxWithHash::new(ExecutableTx::DeployAccount(tx));
+            let _ = ExecutableTxWithHash::new(ExecutableTx::DeployAccount(tx));
             // let transaction_hash = this.inner.pool.add_transaction(tx).await?;
 
             // Ok(AddDeployAccountTransactionResponse { transaction_hash, contract_address })

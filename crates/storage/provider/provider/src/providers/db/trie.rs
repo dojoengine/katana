@@ -1,6 +1,6 @@
 use std::collections::{BTreeMap, BTreeSet, HashMap};
 
-use katana_db::abstraction::{Database, DbDupSortCursor, DbTx};
+use katana_db::abstraction::{Database, DbCursor, DbDupSortCursor, DbTx};
 use katana_db::tables;
 use katana_db::trie::TrieDbMut;
 use katana_primitives::block::BlockNumber;
@@ -125,7 +125,7 @@ impl<Db: Database> TrieWriter for DbProvider<Db> {
 
         self.0.update(|tx| {
             let mut cursor = tx.cursor_dup::<tables::StorageChangeHistory>()?;
-            let iterator = cursor.walk_dup(None, None)?.unwrap();
+            let iterator = cursor.walk(Some(unwind_to))?;
 
             let mut addresses = BTreeSet::new();
 
@@ -136,6 +136,8 @@ impl<Db: Database> TrieWriter for DbProvider<Db> {
                     addresses.insert(change_entry.key.contract_address);
                 }
             }
+
+            dbg!(addresses.len());
 
             for addr in addresses {
                 let trie_db = TrieDbMut::<tables::StoragesTrie, _>::new(tx);

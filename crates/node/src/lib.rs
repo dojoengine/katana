@@ -31,7 +31,7 @@ use katana_metrics::sys::DiskReporter;
 use katana_metrics::{Report, Server as MetricsServer};
 use katana_pool::ordering::FiFo;
 use katana_pool::TxPool;
-use katana_primitives::env::{FeeTokenAddressses, VersionedConstantsOverrides};
+use katana_primitives::env::VersionedConstantsOverrides;
 #[cfg(feature = "cartridge")]
 use katana_rpc::cartridge::CartridgeApi;
 use katana_rpc::cors::Cors;

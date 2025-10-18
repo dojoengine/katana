@@ -9,7 +9,7 @@ use katana_executor::implementation::blockifier::utils::{self, block_context_fro
 use katana_executor::{ExecutionError, ExecutionFlags, ExecutionResult, ResultAndStates};
 use katana_primitives::env::{BlockEnv, VersionedConstantsOverrides};
 use katana_primitives::transaction::ExecutableTxWithHash;
-use katana_primitives::{chain, Felt};
+use katana_primitives::Felt;
 use katana_provider::api::state::StateProvider;
 use katana_rpc_api::error::starknet::{ContractErrorData, StarknetApiError};
 use katana_rpc_types::{FeeEstimate, FunctionCall};

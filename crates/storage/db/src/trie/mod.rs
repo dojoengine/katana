@@ -163,7 +163,7 @@ where
     fn create_batch(&self) -> Self::Batch {}
 
     fn remove_by_prefix(&mut self, _: &DatabaseKey<'_>) -> Result<(), Self::DatabaseError> {
-        Ok(())
+        unimplemented!()
     }
 
     fn get(&self, key: &DatabaseKey<'_>) -> Result<Option<ByteVec>, Self::DatabaseError> {
@@ -566,5 +566,22 @@ mod tests {
 
         // After revert, root should match block 0
         assert_eq!(root_after_second_revert, root_at_block_0);
+
+        // Insert more values at block 1
+        trie.insert(felt!("0x3"), felt!("0x300"));
+        trie.insert(felt!("0x4"), felt!("0x400"));
+        trie.commit(1);
+        let root_at_block_1_after_insert = trie.root();
+
+        // After insertion, root should match block 1
+        assert_eq!(root_at_block_1_after_insert, root_at_block_1);
+
+        // Insert even more values at block 2
+        trie.insert(felt!("0x5"), felt!("0x500"));
+        trie.commit(2);
+        let root_at_block_2_after_insert = trie.root();
+
+        // After insertion, root should match block 2
+        assert_eq!(root_at_block_2_after_insert, root_at_block_2);
     }
 }

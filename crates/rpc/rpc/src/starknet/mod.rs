@@ -6,7 +6,7 @@ use std::sync::Arc;
 
 use katana_chain_spec::ChainSpec;
 use katana_core::backend::storage::Database;
-use katana_pool::{TransactionPool, TxPool};
+use katana_pool::TransactionPool;
 use katana_primitives::block::{BlockHashOrNumber, BlockIdOrTag, FinalityStatus};
 use katana_primitives::class::{ClassHash, CompiledClass};
 use katana_primitives::contract::{ContractAddress, Nonce, StorageKey, StorageValue};
