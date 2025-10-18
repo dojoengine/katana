@@ -1,13 +1,12 @@
 use futures::future::BoxFuture;
 use katana_primitives::block::BlockNumber;
 use katana_primitives::Felt;
-use katana_provider::api::block::HeaderProvider;
 use katana_provider::api::state_update::StateUpdateProvider;
 use katana_provider::api::trie::TrieWriter;
-use katana_rpc_types::class;
+use katana_provider::api::{block::HeaderProvider, state::StateFactoryProvider};
 use starknet::macros::short_string;
 use starknet_types_core::hash::{Poseidon, StarkHash};
-use tracing::{debug, error, info_span, trace, trace_span, warn};
+use tracing::{debug, error, info_span};
 
 use crate::{Stage, StageExecutionInput, StageExecutionOutput, StageResult};
 
@@ -33,7 +32,7 @@ impl<P> StateTrie<P> {
 
 impl<P> Stage for StateTrie<P>
 where
-    P: StateUpdateProvider + TrieWriter + HeaderProvider,
+    P: StateUpdateProvider + TrieWriter + HeaderProvider + StateFactoryProvider,
 {
     fn id(&self) -> &'static str {
         "StateTrie"
@@ -56,11 +55,14 @@ where
                     .state_update(block_number.into())?
                     .ok_or(Error::MissingStateUpdate(block_number))?;
 
+                let prev_contract_trie_root = self.provider.latest()?.contracts_root()?;
+
                 let computed_contract_trie_root =
                     self.provider.trie_insert_contract_updates(block_number, &state_update)?;
 
                 debug!(
                     target: "stage",
+                    prev_contract_trie_root = format!("{prev_contract_trie_root:#x}"),
                     contract_trie_root = format!("{computed_contract_trie_root:#x}"),
                     "Computed contract trie root."
                 );

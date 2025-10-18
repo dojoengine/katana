@@ -5,7 +5,6 @@ use std::sync::Arc;
 use anyhow::anyhow;
 use jsonrpsee::core::{async_trait, RpcResult};
 use jsonrpsee::types::ErrorObjectOwned;
-use katana_executor::ExecutorFactory;
 #[cfg(feature = "cartridge")]
 use katana_genesis::allocation::GenesisAccountAlloc;
 use katana_pool::TransactionPool;
