@@ -49,6 +49,7 @@ pub enum BlockId {
     Number(BlockNumber),
     Hash(BlockHash),
     Latest,
+    Pending,
 }
 
 impl From<BlockNumber> for BlockId {
@@ -65,6 +66,9 @@ impl From<BlockHash> for BlockId {
 
 #[derive(Debug, Clone, Copy, Serialize, Deserialize, PartialEq, Eq)]
 pub enum BlockStatus {
+    #[serde(rename = "PRE_CONFIRMED")]
+    PreConfirmed,
+
     #[serde(rename = "PENDING")]
     Pending,
 
@@ -86,6 +90,21 @@ pub enum BlockStatus {
 pub struct BlockSignature {
     pub block_hash: BlockHash,
     pub signature: [Felt; 2],
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct PreConfirmedBlock {
+    pub timestamp: u64,
+    pub status: BlockStatus,
+    pub sequencer_address: ContractAddress,
+    pub l2_gas_price: ResourcePrice,
+    pub l1_gas_price: ResourcePrice,
+    pub l1_data_gas_price: ResourcePrice,
+    pub starknet_version: String,
+    pub l1_da_mode: L1DataAvailabilityMode,
+    pub transactions: Vec<ConfirmedTransaction>,
+    pub transaction_receipts: Vec<Option<ConfirmedReceipt>>,
+    pub transaction_state_diffs: Vec<Option<StateDiff>>,
 }
 
 // The reason why we're not using the GasPrices from the `katana_primitives` crate is because

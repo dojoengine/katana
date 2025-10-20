@@ -1,6 +1,7 @@
 use std::marker::PhantomData;
 use std::str::FromStr;
 
+use katana_primitives::block::BlockNumber;
 use katana_primitives::class::CasmContractClass;
 use katana_primitives::Felt;
 use katana_rpc_types::{
@@ -16,7 +17,7 @@ use url::Url;
 use crate::types::{
     AddDeclareTransactionResponse, AddDeployAccountTransactionResponse,
     AddInvokeTransactionResponse, Block, BlockId, BlockSignature, ContractClass, GatewayError,
-    SequencerPublicKey, StateUpdate, StateUpdateWithBlock,
+    PreConfirmedBlock, SequencerPublicKey, StateUpdate, StateUpdateWithBlock,
 };
 
 /// HTTP request header for the feeder gateway API key. This allow bypassing the rate limiting.
@@ -73,6 +74,16 @@ impl Client {
     pub fn with_api_key(mut self, api_key: String) -> Self {
         self.api_key = Some(api_key);
         self
+    }
+
+    pub async fn get_preconfirmed_block(
+        &self,
+        block_number: BlockNumber,
+    ) -> Result<PreConfirmedBlock, Error> {
+        self.feeder_gateway("get_preconfirmed_block")
+            .block_id(BlockId::Number(block_number))
+            .send()
+            .await
     }
 
     pub async fn get_block(&self, block_id: BlockId) -> Result<Block, Error> {
@@ -281,6 +292,9 @@ impl<Method> RequestBuilder<'_, Method> {
             }
             BlockId::Latest => {
                 // latest block is implied, if no block id is specified
+            }
+            BlockId::Pending => {
+                self.request.url_mut().query_pairs_mut().append_pair("blockNumber", "pending");
             }
         }
 

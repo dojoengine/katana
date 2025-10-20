@@ -1,7 +1,8 @@
 use std::collections::BTreeMap;
 
 use katana_gateway::types::{
-    ConfirmedReceipt, DeclaredContract, DeployedContract, ExecutionStatus, StateDiff, StorageDiff,
+    ConfirmedReceipt, DeclaredContract, DeployedContract, ExecutionStatus, PreConfirmedBlock,
+    StateDiff, StorageDiff,
 };
 use katana_primitives::execution::BuiltinName;
 use katana_primitives::{address, eth_address, felt, ContractAddress};
@@ -411,4 +412,31 @@ fn receipt_serde_reverted() {
             felt!("0x0")
         ]
     );
+}
+
+#[test]
+fn preconfirmed_block_serde() {
+    let json_str = include_str!("fixtures/0.14.0/preconfirmed_block/mainnet.json");
+    let block: PreConfirmedBlock = serde_json::from_str(json_str).unwrap();
+
+    // Assert basic block metadata
+    assert_eq!(block.timestamp, 1761000654);
+    assert_eq!(block.starknet_version, "0.14.0");
+    assert_eq!(
+        block.sequencer_address,
+        address!("0x1176a1bd84444c89232ec27754698e5d2e7e1a7f1539f12027f28b23ec9f3d8")
+    );
+
+    // Assert gas prices
+    assert_eq!(block.l2_gas_price.price_in_fri, felt!("0xb2d05e00"));
+    assert_eq!(block.l2_gas_price.price_in_wei, felt!("0x17943"));
+    assert_eq!(block.l1_gas_price.price_in_fri, felt!("0x1f20e677b7aa"));
+    assert_eq!(block.l1_gas_price.price_in_wei, felt!("0x41acf3e3"));
+    assert_eq!(block.l1_data_gas_price.price_in_fri, felt!("0x7956"));
+    assert_eq!(block.l1_data_gas_price.price_in_wei, felt!("0x1"));
+
+    // Assert transactions, receipts, and state diffs arrays are non-empty and have matching lengths
+    assert!(!block.transactions.is_empty());
+    assert_eq!(block.transactions.len(), block.transaction_receipts.len());
+    assert_eq!(block.transactions.len(), block.transaction_state_diffs.len());
 }
