@@ -9,7 +9,7 @@ use katana_db::abstraction::{Database, DbCursor, DbCursorMut, DbDupSortCursor, D
 use katana_db::error::DatabaseError;
 use katana_db::models::block::StoredBlockBodyIndices;
 use katana_db::models::contract::{
-    ContractClassChange, ContractInfoChangeList, ContractNonceChange,
+    ContractClassChange, ContractClassChangeType, ContractInfoChangeList, ContractNonceChange,
 };
 use katana_db::models::list::BlockList;
 use katana_db::models::stage::StageCheckpoint;
@@ -301,8 +301,28 @@ impl<Db: Database> StateUpdateProvider for DbProvider<Db> {
                 BTreeMap<ContractAddress, ClassHash>,
                 _,
             >(&db_tx, block_num, |entry| {
-                let (_, ContractClassChange { contract_address, class_hash }) = entry?;
-                Ok(Some((contract_address, class_hash)))
+                let (_, ContractClassChange { r#type, contract_address, class_hash }) = entry?;
+
+                if r#type == ContractClassChangeType::Deployed {
+                    Ok(Some((contract_address, class_hash)))
+                } else {
+                    Ok(None)
+                }
+            })?;
+
+            let replaced_classes = dup_entries::<
+                Db,
+                tables::ClassChangeHistory,
+                BTreeMap<ContractAddress, ClassHash>,
+                _,
+            >(&db_tx, block_num, |entry| {
+                let (_, ContractClassChange { r#type, contract_address, class_hash }) = entry?;
+
+                if r#type == ContractClassChangeType::Replaced {
+                    Ok(Some((contract_address, class_hash)))
+                } else {
+                    Ok(None)
+                }
             })?;
 
             let mut declared_classes = BTreeMap::new();
@@ -351,8 +371,8 @@ impl<Db: Database> StateUpdateProvider for DbProvider<Db> {
                 storage_updates,
                 deployed_contracts,
                 declared_classes,
+                replaced_classes,
                 deprecated_declared_classes,
-                replaced_classes: BTreeMap::default(),
             }))
         } else {
             Ok(None)
@@ -403,8 +423,12 @@ impl<Db: Database> StateUpdateProvider for DbProvider<Db> {
                 BTreeMap<ContractAddress, ClassHash>,
                 _,
             >(&db_tx, block_num, |entry| {
-                let (_, ContractClassChange { contract_address, class_hash }) = entry?;
-                Ok(Some((contract_address, class_hash)))
+                let (_, ContractClassChange { r#type, contract_address, class_hash }) = entry?;
+                if r#type == ContractClassChangeType::Deployed {
+                    Ok(Some((contract_address, class_hash)))
+                } else {
+                    Ok(None)
+                }
             })?;
 
             db_tx.commit()?;
@@ -807,9 +831,22 @@ impl<Db: Database> BlockWriter for DbProvider<Db> {
 
                 db_tx.put::<tables::ContractInfo>(addr, value)?;
 
-                let class_change_key = ContractClassChange { contract_address: addr, class_hash };
+                let class_change_key = ContractClassChange::deployed(addr, class_hash);
                 db_tx.put::<tables::ClassChangeHistory>(block_number, class_change_key)?;
                 db_tx.put::<tables::ContractInfoChangeSet>(addr, new_change_set)?;
+            }
+
+            for (addr, new_class_hash) in states.state_updates.replaced_classes {
+                let mut info = db_tx.get::<tables::ContractInfo>(addr)?.unwrap();
+                info.class_hash = new_class_hash;
+                db_tx.put::<tables::ContractInfo>(addr, info)?;
+
+                let mut change_set = db_tx.get::<tables::ContractInfoChangeSet>(addr)?.unwrap();
+                change_set.class_change_list.insert(block_number);
+                db_tx.put::<tables::ContractInfoChangeSet>(addr, change_set)?;
+
+                let class_change_key = ContractClassChange::replaced(addr, new_class_hash);
+                db_tx.put::<tables::ClassChangeHistory>(block_number, class_change_key)?;
             }
 
             for (addr, nonce) in states.state_updates.nonce_updates {
