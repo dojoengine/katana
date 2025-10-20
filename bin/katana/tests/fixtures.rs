@@ -101,14 +101,13 @@ fn populate_db(db: &TempDb) {
         }
 
         let mut deployed_contracts = BTreeMap::new();
-
-        for _ in 0..10 {
-            deployed_contracts.insert(arbitrary!(ContractAddress), arbitrary!(ClassHash));
-        }
-
         let mut replaced_classes = BTreeMap::new();
+
+        // this is to ensure that the contract addresses in replaced_classes exist ie is deployed.
         for _ in 0..10 {
-            replaced_classes.insert(arbitrary!(ContractAddress), arbitrary!(ClassHash));
+            let address = arbitrary!(ContractAddress);
+            deployed_contracts.insert(address, arbitrary!(ClassHash));
+            replaced_classes.insert(address, arbitrary!(ClassHash));
         }
 
         let state_updates = StateUpdates {

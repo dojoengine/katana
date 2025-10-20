@@ -102,6 +102,20 @@ pub enum ProviderError {
         storage_key: StorageKey,
     },
 
+    /// Error when a contract info is not found but is expected to exist.
+    #[error("Missing contract info for contract {address}")]
+    MissingContractInfo {
+        /// The address of contract whose `ContractInfo` table entry is missing.
+        address: ContractAddress,
+    },
+
+    /// Error when a contract info change set is not found but is expected to exist.
+    #[error("Missing contract info change set for contract {address}")]
+    MissingContractInfoChangeSet {
+        /// The address of contract whose `ContractInfoChangeSet` table entry is missing.
+        address: ContractAddress,
+    },
+
     #[error("Missing class hash for contract {address}")]
     MissingContractClassHash { address: ContractAddress },
 
