@@ -1,0 +1,289 @@
+name: manual release for SNOS integration
+
+on:
+  workflow_dispatch:
+    inputs:
+      preview:
+        description: "Preview tag for SNOS integration. Must be in format vX.Y.Z-snos.X"
+        type: string
+        required: true
+
+env:
+  RUST_VERSION: 1.86.0
+  CARGO_TERM_COLOR: always
+  REGISTRY_IMAGE: ghcr.io/${{ github.repository }}
+
+jobs:
+  prepare:
+    runs-on: ubuntu-latest
+    outputs:
+      tag_name: ${{ steps.release_info.outputs.tag_name }}
+    steps:
+      - uses: actions/checkout@v4
+      - name: Get version
+        id: release_info
+        run: |
+          # Validate that the tag follows the vX.Y.Z-snos.X format
+          if [[ ! "${{ inputs.preview }}" =~ ^v[0-9]+\.[0-9]+\.[0-9]+-snos\.[0-9]+$ ]]; then
+            echo "Invalid tag format. Must be in format vX.Y.Z-snos.X (e.g., v1.0.0-snos.1)"
+            exit 1
+          fi
+          echo "tag_name=${{ inputs.preview }}" >> $GITHUB_OUTPUT
+
+  build-contracts:
+    runs-on: ubuntu-latest
+    needs: prepare
+    container:
+      image: ghcr.io/dojoengine/katana-dev:latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Build contracts
+        run: make contracts
+
+      - name: Upload contract artifacts
+        uses: actions/upload-artifact@v4
+        with:
+          name: contract-artifacts
+          path: ./crates/contracts/build
+          retention-days: 1
+
+  release:
+    name: ${{ matrix.job.target }} (${{ matrix.job.os }}${{ matrix.job.native_build == true && ', native' || '' }})
+    needs: [prepare, build-contracts]
+    runs-on: ${{ matrix.job.os }}
+    env:
+      PLATFORM_NAME: ${{ matrix.job.platform }}
+      TARGET: ${{ matrix.job.target }}
+      ARCH: ${{ matrix.job.arch }}
+      NATIVE_BUILD: ${{ matrix.job.native_build }}
+    strategy:
+      matrix:
+        job:
+          # The OS is used for the runner
+          # The platform is a generic platform name
+          # The target is used by Cargo
+          # The arch is either 386, arm64 or amd64
+          # The svm target platform to use for the binary https://github.com/roynalnaruto/svm-rs/blob/84cbe0ac705becabdc13168bae28a45ad2299749/svm-builds/build.rs#L4-L24
+          # Added native_build dimension to control build type
+          - os: ubuntu-latest-8-cores
+            platform: linux
+            target: x86_64-unknown-linux-gnu
+            arch: amd64
+            native_build: false
+          - os: ubuntu-latest-8-cores-arm64
+            platform: linux
+            target: aarch64-unknown-linux-gnu
+            arch: arm64
+            svm_target_platform: linux-aarch64
+            native_build: false
+          - os: macos-latest-xlarge
+            platform: darwin
+            target: aarch64-apple-darwin
+            arch: arm64
+            native_build: false
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Download contract artifacts
+        uses: actions/download-artifact@v4
+        with:
+          name: contract-artifacts
+          path: ./crates/contracts/build
+
+      - uses: actions-rust-lang/setup-rust-toolchain@v1
+        name: Rust Toolchain Setup
+        with:
+          toolchain: ${{ env.RUST_VERSION }}
+          target: ${{ matrix.job.target }}
+          cache-on-failure: true
+          cache-key: ${{ matrix.job.target }}
+
+      - uses: oven-sh/setup-bun@v2
+        with:
+          bun-version: latest
+
+      - name: Install LLVM ( Linux )
+        if: ${{ matrix.job.platform == 'linux' && matrix.job.native_build == true }}
+        run: |
+          wget https://apt.llvm.org/llvm.sh
+          chmod +x llvm.sh
+          sudo ./llvm.sh 19
+          sudo apt-get update -y
+          sudo apt-get install -y g++ llvm-19 llvm-19-dev llvm-19-runtime clang-19 clang-tools-19 lld-19 libpolly-19-dev libmlir-19-dev mlir-19-tools
+          echo "MLIR_SYS_190_PREFIX=/usr/lib/llvm-19" >> $GITHUB_ENV
+          echo "LLVM_SYS_191_PREFIX=/usr/lib/llvm-19" >> $GITHUB_ENV
+          echo "TABLEGEN_190_PREFIX=/usr/lib/llvm-19" >> $GITHUB_ENV
+
+      - name: Install LLVM ( macOS )
+        if: ${{ matrix.job.platform == 'darwin' && matrix.job.native_build == true }}
+        run: |
+          brew install llvm@19 --quiet
+          brew install zstd
+          echo "MLIR_SYS_190_PREFIX=$(brew --prefix llvm@19)" >> $GITHUB_ENV
+          echo "LLVM_SYS_191_PREFIX=$(brew --prefix llvm@19)" >> $GITHUB_ENV
+          echo "TABLEGEN_190_PREFIX=$(brew --prefix llvm@19)" >> $GITHUB_ENV
+          echo "LIBRARY_PATH=$(brew --prefix zstd)/lib:$LIBRARY_PATH" >> $GITHUB_ENV
+          echo "CPATH=$(brew --prefix zstd)/include:$CPATH" >> $GITHUB_ENV
+
+      # - name: Install LLVM ( Windows )
+      #   if: ${{ matrix.job.platform == 'win32' && matrix.job.native_build == true }}
+      #   run: |
+      #     $llvmUrl = "https://github.com/llvm/llvm-project/releases/download/llvmorg-19.1.7/clang+llvm-19.1.7-x86_64-pc-windows-msvc.tar.xz"
+      #     $llvmDir = "C:\Program Files (x86)\LLVM"
+      #     $llvmDirBin = "C:\Program Files (x86)\LLVM\bin"
+      #
+      #     Write-Host "Downloading LLVM from $llvmUrl"
+      #     Invoke-WebRequest -Uri $llvmUrl -OutFile llvm.tar.xz
+      #
+      #     Write-Host "Creating LLVM directory"
+      #     New-Item -ItemType Directory -Path $llvmDir -Force
+      #
+      #     Write-Host "Extracting LLVM"
+      #     tar -xf llvm.tar.xz -C $llvmDir --strip-components=1
+      #
+      #     Write-Host "LLVM installed successfully to $llvmDir"
+      #
+      #     Write-Host "Listing files in LLVM directory"
+      #     Get-ChildItem -Path "$llvmDirBin" | ForEach-Object { Write-Host $_.Name }
+
+      # # On Windows, use powershell syntax to write the env var to the file.
+      # # https://github.com/actions/runner/issues/1636#issuecomment-1024531638
+      # - name: Set cairo-native LLVM environment variables ( Windows )
+      #   if: ${{ matrix.job.platform == 'win32' && matrix.job.native_build == true }}
+      #   run: |
+      #     echo "MLIR_SYS_190_PREFIX=C:\Program Files (x86)\LLVM" | Out-File -FilePath $env:GITHUB_ENV -Append
+      #     echo "LLVM_SYS_191_PREFIX=C:\Program Files (x86)\LLVM" | Out-File -FilePath $env:GITHUB_ENV -Append
+      #     echo "TABLEGEN_190_PREFIX=C:\Program Files (x86)\LLVM" | Out-File -FilePath $env:GITHUB_ENV -Append
+
+      - name: Apple M1 setup
+        if: ${{ matrix.job.target == 'aarch64-apple-darwin' }}
+        run: |
+          echo "SDKROOT=$(xcrun -sdk macosx --show-sdk-path)" >> $GITHUB_ENV
+          echo "MACOSX_DEPLOYMENT_TARGET=$(xcrun -sdk macosx --show-sdk-platform-version)" >> $GITHUB_ENV
+
+      - name: Linux ARM setup
+        if: ${{ matrix.job.target == 'aarch64-unknown-linux-gnu' }}
+        run: |
+          sudo apt-get update -y
+          sudo apt-get install -y gcc-aarch64-linux-gnu libssl-dev
+          # We build jemalloc with 64KB pagesize so that it works for all linux/arm64 pagesize variants
+          # See: https://github.com/jemalloc/jemalloc/issues/467
+          echo "JEMALLOC_SYS_WITH_LG_PAGE=16" >> $GITHUB_ENV
+
+      - name: Build binary
+        if: ${{ matrix.job.native_build == false }}
+        shell: bash
+        run: |
+          cargo build --bin katana --profile performance --target ${{ matrix.job.target }}
+
+      - name: Build binary ( w/ cairo-native )
+        if: ${{ matrix.job.native_build == true }}
+        shell: bash
+        run: |
+          cargo build --bin katana --profile performance --features native --target ${{ matrix.job.target }}
+
+      - name: Archive binaries
+        id: artifacts
+        env:
+          VERSION_NAME: ${{ needs.prepare.outputs.tag_name }}
+        run: |
+          if [ "$NATIVE_BUILD" == "true" ]; then
+            SUFFIX="_native"
+          else
+            SUFFIX=""
+          fi
+
+          if [ "$PLATFORM_NAME" == "linux" ]; then
+            tar -czvf "katana_${VERSION_NAME}_${PLATFORM_NAME}_${ARCH}${SUFFIX}.tar.gz" -C ./target/${TARGET}/performance katana
+            echo "file_name=katana_${VERSION_NAME}_${PLATFORM_NAME}_${ARCH}${SUFFIX}.tar.gz" >> $GITHUB_OUTPUT
+          elif [ "$PLATFORM_NAME" == "darwin" ]; then
+            # We need to use gtar here otherwise the archive is corrupt.
+            # See: https://github.com/actions/virtual-environments/issues/2619
+            gtar -czvf "katana_${VERSION_NAME}_${PLATFORM_NAME}_${ARCH}${SUFFIX}.tar.gz" -C ./target/${TARGET}/performance katana
+            echo "file_name=katana_${VERSION_NAME}_${PLATFORM_NAME}_${ARCH}${SUFFIX}.tar.gz" >> $GITHUB_OUTPUT
+          fi
+        shell: bash
+
+      # We move binaries so they match $TARGETPLATFORM in the Docker build
+      # Only move native binaries for Docker (we want the native version for Docker)
+      - name: Move binaries for Docker
+        if: ${{ env.PLATFORM_NAME == 'linux' && matrix.job.native_build == true }}
+        shell: bash
+        run: |
+          mkdir -p $PLATFORM_NAME/$ARCH
+          mv target/${TARGET}/performance/katana $PLATFORM_NAME/$ARCH
+
+      - name: Upload Docker binaries
+        if: ${{ env.PLATFORM_NAME == 'linux' && matrix.job.native_build == true }}
+        uses: actions/upload-artifact@v4
+        with:
+          name: binaries-${{ matrix.job.target }}
+          path: ${{ env.PLATFORM_NAME }}
+          retention-days: 1
+
+      - name: Upload release artifacts
+        uses: actions/upload-artifact@v4
+        with:
+          name: artifacts-${{ matrix.job.target }}${{ matrix.job.native_build == true && '-native' || '' }}
+          path: ${{ steps.artifacts.outputs.file_name }}
+          retention-days: 1
+
+  create-draft-release:
+    runs-on: ubuntu-latest
+    needs: [prepare, release]
+    container:
+      image: ghcr.io/dojoengine/katana-dev:latest
+    env:
+      GITHUB_USER: ${{ github.repository_owner }}
+      GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+    steps:
+      - uses: actions/checkout@v4
+      - run: git config --global --add safe.directory "*"
+
+      - uses: actions/download-artifact@v4
+        with:
+          pattern: artifacts-*
+          path: artifacts
+          merge-multiple: true
+      - id: version_info
+        run: |
+          echo "version=v$(cargo get workspace.package.version)" >> $GITHUB_OUTPUT
+      - name: Display structure of downloaded files
+        run: ls -R artifacts
+      - run: gh release create ${{ steps.version_info.outputs.version }} ./artifacts/* --generate-notes --draft
+
+  docker-build-and-push:
+    runs-on: ubuntu-latest-8-cores
+    needs: [prepare, release]
+
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v2
+
+      - name: Download binaries
+        uses: actions/download-artifact@v4
+        with:
+          pattern: binaries-*
+          path: artifacts/linux
+          merge-multiple: true
+
+      - name: Set up Docker Buildx
+        uses: docker/setup-buildx-action@v1
+
+      - name: Login to GitHub Container Registry
+        uses: docker/login-action@v1
+        with:
+          registry: ghcr.io
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Build and push docker image
+        uses: docker/build-push-action@v3
+        with:
+          push: true
+          tags: ghcr.io/${{ github.repository }}:${{ needs.prepare.outputs.tag_name }}
+          platforms: linux/amd64,linux/arm64
+          build-contexts: |
+            artifacts=artifacts
