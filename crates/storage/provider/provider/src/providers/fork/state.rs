@@ -22,15 +22,13 @@ use super::ForkedProvider;
 use crate::providers::db::DbProvider;
 use crate::ProviderResult;
 
-impl<Db> StateFactoryProvider for ForkedProvider<Db>
+impl<Tx> StateFactoryProvider for ForkedProvider<Tx>
 where
-    Db: Database + 'static,
+    Tx: DbTxMut + Clone + Send + Sync + 'static,
 {
     fn latest(&self) -> ProviderResult<Box<dyn StateProvider>> {
-        let tx = self.provider.db().tx()?;
-        let db = self.provider.clone();
-        let provider = db::state::LatestStateProvider::new(tx);
-        Ok(Box::new(LatestStateProvider { db, backend: self.backend.clone(), provider }))
+        let provider = db::state::LatestStateProvider::new(self.provider.0.clone());
+        Ok(Box::new(LatestStateProvider { backend: self.backend.clone(), provider }))
     }
 
     fn historical(
@@ -54,7 +52,7 @@ where
         let Some(block) = block_number else { return Ok(None) };
 
         let db = self.provider.clone();
-        let tx = db.db().tx()?;
+        let tx = db.tx().tx()?;
         let client = self.backend.clone();
 
         Ok(Some(Box::new(HistoricalStateProvider::new(db, tx, block, client))))
@@ -62,21 +60,20 @@ where
 }
 
 #[derive(Debug)]
-struct LatestStateProvider<Db: Database> {
-    db: Arc<DbProvider<Db>>,
+struct LatestStateProvider<Tx: DbTx> {
     backend: BackendClient,
-    provider: db::state::LatestStateProvider<Db::Tx>,
+    provider: db::state::LatestStateProvider<Tx>,
 }
 
-impl<Db> ContractClassProvider for LatestStateProvider<Db>
+impl<Tx> ContractClassProvider for LatestStateProvider<Tx>
 where
-    Db: Database,
+    Tx: DbTxMut + Send + Sync,
 {
     fn class(&self, hash: ClassHash) -> ProviderResult<Option<ContractClass>> {
         if let Some(class) = self.provider.class(hash)? {
             Ok(Some(class))
         } else if let Some(class) = self.backend.get_class_at(hash)? {
-            self.db.db().update(|tx| tx.put::<tables::Classes>(hash, class.clone()))??;
+            self.provider.0.put::<tables::Classes>(hash, class.clone())?;
             Ok(Some(class))
         } else {
             Ok(None)
@@ -90,9 +87,7 @@ where
         if let res @ Some(..) = self.provider.compiled_class_hash_of_class_hash(hash)? {
             Ok(res)
         } else if let Some(compiled_hash) = self.backend.get_compiled_class_hash(hash)? {
-            self.db
-                .db()
-                .update(|tx| tx.put::<tables::CompiledClassHashes>(hash, compiled_hash))??;
+            self.provider.0.put::<tables::CompiledClassHashes>(hash, compiled_hash)?;
             Ok(Some(compiled_hash))
         } else {
             Ok(None)
@@ -100,9 +95,9 @@ where
     }
 }
 
-impl<Db> StateProvider for LatestStateProvider<Db>
+impl<Tx> StateProvider for LatestStateProvider<Tx>
 where
-    Db: Database,
+    Tx: DbTxMut + Send + Sync,
 {
     fn nonce(&self, address: ContractAddress) -> ProviderResult<Option<Nonce>> {
         if let res @ Some(..) = self.provider.nonce(address)? {
@@ -114,7 +109,7 @@ where
                 .ok_or(ProviderError::MissingContractClassHash { address })?;
 
             let entry = GenericContractInfo { nonce, class_hash };
-            self.db.db().update(|tx| tx.put::<tables::ContractInfo>(address, entry))??;
+            self.provider.0.put::<tables::ContractInfo>(address, entry)?;
 
             Ok(Some(nonce))
         } else {
@@ -135,7 +130,7 @@ where
                 .ok_or(ProviderError::MissingContractNonce { address })?;
 
             let entry = GenericContractInfo { class_hash, nonce };
-            self.db.db().update(|tx| tx.put::<tables::ContractInfo>(address, entry))??;
+            self.provider.0.put::<tables::ContractInfo>(address, entry)?;
 
             Ok(Some(class_hash))
         } else {
@@ -152,7 +147,7 @@ where
             Ok(res)
         } else if let Some(value) = self.backend.get_storage(address, key)? {
             let entry = StorageEntry { key, value };
-            self.db.db().update(|tx| tx.put::<tables::ContractStorage>(address, entry))??;
+            self.provider.0.put::<tables::ContractStorage>(address, entry)?;
             Ok(Some(value))
         } else {
             Ok(None)
@@ -225,7 +220,7 @@ impl<Db: Database> ContractClassProvider for HistoricalStateProvider<Db> {
         if let res @ Some(..) = self.provider.class(hash)? {
             Ok(res)
         } else if let Some(class) = self.backend.get_class_at(hash)? {
-            self.db.db().tx_mut()?.put::<tables::Classes>(hash, class.clone())?;
+            self.db.tx().tx_mut()?.put::<tables::Classes>(hash, class.clone())?;
             Ok(Some(class))
         } else {
             Ok(None)
@@ -239,7 +234,7 @@ impl<Db: Database> ContractClassProvider for HistoricalStateProvider<Db> {
         if let res @ Some(..) = self.provider.compiled_class_hash_of_class_hash(hash)? {
             Ok(res)
         } else if let Some(compiled_hash) = self.backend.get_compiled_class_hash(hash)? {
-            self.db.db().tx_mut()?.put::<tables::CompiledClassHashes>(hash, compiled_hash)?;
+            self.db.tx().tx_mut()?.put::<tables::CompiledClassHashes>(hash, compiled_hash)?;
             Ok(Some(compiled_hash))
         } else {
             Ok(None)
@@ -255,7 +250,7 @@ impl<Db: Database> StateProvider for HistoricalStateProvider<Db> {
             let block = self.provider.block();
             let entry = ContractNonceChange { contract_address: address, nonce };
 
-            self.db.db().tx_mut()?.put::<tables::NonceChangeHistory>(block, entry)?;
+            self.db.tx().tx_mut()?.put::<tables::NonceChangeHistory>(block, entry)?;
             Ok(res)
         } else {
             Ok(None)
@@ -272,7 +267,7 @@ impl<Db: Database> StateProvider for HistoricalStateProvider<Db> {
             let block = self.provider.block();
             let entry = ContractClassChange { contract_address: address, class_hash };
 
-            self.db.db().tx_mut()?.put::<tables::ClassChangeHistory>(block, entry)?;
+            self.db.tx().tx_mut()?.put::<tables::ClassChangeHistory>(block, entry)?;
             Ok(res)
         } else {
             Ok(None)
@@ -294,9 +289,9 @@ impl<Db: Database> StateProvider for HistoricalStateProvider<Db> {
             let mut block_list = block_list.unwrap_or_default();
             block_list.insert(block);
 
-            self.db.db().tx_mut()?.put::<tables::StorageChangeSet>(key.clone(), block_list)?;
+            self.db.tx().tx_mut()?.put::<tables::StorageChangeSet>(key.clone(), block_list)?;
             let change_entry = ContractStorageEntry { key, value };
-            self.db.db().tx_mut()?.put::<tables::StorageChangeHistory>(block, change_entry)?;
+            self.db.tx().tx_mut()?.put::<tables::StorageChangeHistory>(block, change_entry)?;
 
             Ok(res)
         } else {

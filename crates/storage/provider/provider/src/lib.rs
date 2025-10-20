@@ -2,6 +2,7 @@ use std::collections::BTreeMap;
 use std::ops::{Range, RangeInclusive};
 use std::sync::Arc;
 
+use katana_db::abstraction::Database;
 use katana_db::models::block::StoredBlockBodyIndices;
 use katana_primitives::block::{
     Block, BlockHash, BlockHashOrNumber, BlockNumber, BlockWithTxHashes, FinalityStatus, Header,
@@ -31,6 +32,7 @@ use katana_provider_api::transaction::{
 use katana_provider_api::trie::TrieWriter;
 pub use katana_provider_api::{ProviderError, ProviderResult};
 
+pub mod factory;
 pub mod providers;
 #[cfg(any(test, feature = "test-utils"))]
 pub mod test_utils;

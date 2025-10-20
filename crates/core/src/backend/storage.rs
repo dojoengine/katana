@@ -14,6 +14,7 @@ use katana_provider::api::transaction::{
     TransactionsProviderExt,
 };
 use katana_provider::api::trie::TrieWriter;
+use katana_provider::factory::ProviderFactory;
 use katana_provider::providers::db::DbProvider;
 use katana_provider::providers::fork::ForkedProvider;
 use katana_provider::BlockchainProvider;
@@ -27,23 +28,24 @@ use url::Url;
 
 pub trait Database:
     BlockProvider
-    + BlockWriter
     + TransactionProvider
     + TransactionStatusProvider
     + TransactionTraceProvider
     + TransactionsProviderExt
     + ReceiptProvider
     + StateUpdateProvider
-    + StateWriter
-    + ContractClassWriter
     + StateFactoryProvider
     + BlockEnvProvider
-    + TrieWriter
     + StageCheckpointProvider
     + 'static
     + Send
     + Sync
     + core::fmt::Debug
+{
+}
+
+pub trait DatabaseMut:
+    Database + BlockWriter + StateWriter + ContractClassWriter + TrieWriter
 {
 }
 
@@ -69,14 +71,20 @@ impl<T> Database for T where
 {
 }
 
+impl<T> DatabaseMut for T where
+    T: Database + BlockWriter + StateWriter + ContractClassWriter + TrieWriter
+{
+}
+
 #[derive(Debug, Clone)]
 pub struct Blockchain {
-    inner: BlockchainProvider<Box<dyn Database>>,
+    factory: Box<dyn ProviderFactory>,
 }
 
 impl Blockchain {
     pub fn new(provider: impl Database) -> Self {
-        Self { inner: BlockchainProvider::new(Box::new(provider)) }
+        // Self { inner: BlockchainProvider::new(Box::new(provider)) }
+        todo!()
     }
 
     /// Creates a new [Blockchain] from a database at `path` and `genesis` state.

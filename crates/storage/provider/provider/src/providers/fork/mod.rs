@@ -2,7 +2,7 @@ use std::collections::BTreeMap;
 use std::ops::{Range, RangeInclusive};
 use std::sync::Arc;
 
-use katana_db::abstraction::Database;
+use katana_db::abstraction::{Database, DbTx, DbTxMut};
 use katana_db::models::block::StoredBlockBodyIndices;
 use katana_fork::{Backend, BackendClient};
 use katana_primitives::block::{
@@ -36,18 +36,21 @@ mod state;
 mod trie;
 
 #[derive(Debug)]
-pub struct ForkedProvider<Db: Database = katana_db::Db> {
+pub struct ForkedProvider<Tx> {
     backend: BackendClient,
-    provider: Arc<DbProvider<Db>>,
+    provider: Arc<DbProvider<Tx>>,
 }
 
-impl<Db: Database> ForkedProvider<Db> {
+impl<Tx> ForkedProvider<Tx>
+where
+    Tx: DbTx + Send + Sync + 'static,
+{
     /// ## Arguments
     ///
     /// - `db`: The database to use for the provider.
     /// - `block_id`: The block number or hash to use as the fork point.
     /// - `provider`: The Starknet JSON-RPC client to use for the provider.
-    pub fn new(db: Db, block_id: BlockHashOrNumber, provider: StarknetClient) -> Self {
+    pub fn new(db: Tx, block_id: BlockHashOrNumber, provider: StarknetClient) -> Self {
         let backend = Backend::new(provider, block_id).expect("failed to create backend");
         let provider = Arc::new(DbProvider::new(db));
         Self { provider, backend }
@@ -61,13 +64,18 @@ impl<Db: Database> ForkedProvider<Db> {
 impl ForkedProvider<katana_db::Db> {
     /// Creates a new [`ForkedProvider`] using an ephemeral database.
     pub fn new_ephemeral(block_id: BlockHashOrNumber, provider: StarknetClient) -> Self {
-        let backend = Backend::new(provider, block_id).expect("failed to create backend");
-        let provider = Arc::new(DbProvider::new_in_memory());
-        Self { provider, backend }
+        // let backend = Backend::new(provider, block_id).expect("failed to create backend");
+        // let provider = Arc::new(DbProvider::new_in_memory());
+        // Self { provider, backend }
+
+        todo!()
     }
 }
 
-impl<Db: Database> BlockNumberProvider for ForkedProvider<Db> {
+impl<Tx> BlockNumberProvider for ForkedProvider<Tx>
+where
+    Tx: DbTx + Send + Sync + 'static,
+{
     fn block_number_by_hash(&self, hash: BlockHash) -> ProviderResult<Option<BlockNumber>> {
         self.provider.block_number_by_hash(hash)
     }
@@ -77,7 +85,10 @@ impl<Db: Database> BlockNumberProvider for ForkedProvider<Db> {
     }
 }
 
-impl<Db: Database> BlockHashProvider for ForkedProvider<Db> {
+impl<Tx> BlockHashProvider for ForkedProvider<Tx>
+where
+    Tx: DbTx + Send + Sync + 'static,
+{
     fn latest_hash(&self) -> ProviderResult<BlockHash> {
         self.provider.latest_hash()
     }
@@ -87,13 +98,19 @@ impl<Db: Database> BlockHashProvider for ForkedProvider<Db> {
     }
 }
 
-impl<Db: Database> HeaderProvider for ForkedProvider<Db> {
+impl<Tx> HeaderProvider for ForkedProvider<Tx>
+where
+    Tx: DbTx + Send + Sync + 'static,
+{
     fn header(&self, id: BlockHashOrNumber) -> ProviderResult<Option<Header>> {
         self.provider.header(id)
     }
 }
 
-impl<Db: Database> BlockProvider for ForkedProvider<Db> {
+impl<Tx> BlockProvider for ForkedProvider<Tx>
+where
+    Tx: DbTx + Send + Sync + 'static,
+{
     fn block_body_indices(
         &self,
         id: BlockHashOrNumber,
@@ -117,13 +134,19 @@ impl<Db: Database> BlockProvider for ForkedProvider<Db> {
     }
 }
 
-impl<Db: Database> BlockStatusProvider for ForkedProvider<Db> {
+impl<Tx> BlockStatusProvider for ForkedProvider<Tx>
+where
+    Tx: DbTx + Send + Sync + 'static,
+{
     fn block_status(&self, id: BlockHashOrNumber) -> ProviderResult<Option<FinalityStatus>> {
         self.provider.block_status(id)
     }
 }
 
-impl<Db: Database> StateUpdateProvider for ForkedProvider<Db> {
+impl<Tx> StateUpdateProvider for ForkedProvider<Tx>
+where
+    Tx: DbTx + Send + Sync + 'static,
+{
     fn state_update(&self, block_id: BlockHashOrNumber) -> ProviderResult<Option<StateUpdates>> {
         self.provider.state_update(block_id)
     }
@@ -143,7 +166,10 @@ impl<Db: Database> StateUpdateProvider for ForkedProvider<Db> {
     }
 }
 
-impl<Db: Database> TransactionProvider for ForkedProvider<Db> {
+impl<Tx> TransactionProvider for ForkedProvider<Tx>
+where
+    Tx: DbTx + Send + Sync + 'static,
+{
     fn transaction_by_hash(&self, hash: TxHash) -> ProviderResult<Option<TxWithHash>> {
         self.provider.transaction_by_hash(hash)
     }
@@ -182,7 +208,10 @@ impl<Db: Database> TransactionProvider for ForkedProvider<Db> {
     }
 }
 
-impl<Db: Database> TransactionsProviderExt for ForkedProvider<Db> {
+impl<Tx> TransactionsProviderExt for ForkedProvider<Tx>
+where
+    Tx: DbTx + Send + Sync + 'static,
+{
     fn transaction_hashes_in_range(&self, range: Range<TxNumber>) -> ProviderResult<Vec<TxHash>> {
         self.provider.transaction_hashes_in_range(range)
     }
@@ -192,13 +221,19 @@ impl<Db: Database> TransactionsProviderExt for ForkedProvider<Db> {
     }
 }
 
-impl<Db: Database> TransactionStatusProvider for ForkedProvider<Db> {
+impl<Tx> TransactionStatusProvider for ForkedProvider<Tx>
+where
+    Tx: DbTx + Send + Sync + 'static,
+{
     fn transaction_status(&self, hash: TxHash) -> ProviderResult<Option<FinalityStatus>> {
         self.provider.transaction_status(hash)
     }
 }
 
-impl<Db: Database> TransactionTraceProvider for ForkedProvider<Db> {
+impl<Tx> TransactionTraceProvider for ForkedProvider<Tx>
+where
+    Tx: DbTx + Send + Sync + 'static,
+{
     fn transaction_execution(
         &self,
         hash: TxHash,
@@ -221,7 +256,10 @@ impl<Db: Database> TransactionTraceProvider for ForkedProvider<Db> {
     }
 }
 
-impl<Db: Database> ReceiptProvider for ForkedProvider<Db> {
+impl<Tx> ReceiptProvider for ForkedProvider<Tx>
+where
+    Tx: DbTx + Send + Sync + 'static,
+{
     fn receipt_by_hash(&self, hash: TxHash) -> ProviderResult<Option<Receipt>> {
         self.provider.receipt_by_hash(hash)
     }
@@ -234,13 +272,19 @@ impl<Db: Database> ReceiptProvider for ForkedProvider<Db> {
     }
 }
 
-impl<Db: Database> BlockEnvProvider for ForkedProvider<Db> {
+impl<Tx> BlockEnvProvider for ForkedProvider<Tx>
+where
+    Tx: DbTx + Send + Sync + 'static,
+{
     fn block_env_at(&self, block_id: BlockHashOrNumber) -> ProviderResult<Option<BlockEnv>> {
         self.provider.block_env_at(block_id)
     }
 }
 
-impl<Db: Database> BlockWriter for ForkedProvider<Db> {
+impl<Tx> BlockWriter for ForkedProvider<Tx>
+where
+    Tx: DbTxMut + Send + Sync + 'static,
+{
     fn insert_block_with_states_and_receipts(
         &self,
         block: SealedBlockWithStatus,
@@ -252,7 +296,10 @@ impl<Db: Database> BlockWriter for ForkedProvider<Db> {
     }
 }
 
-impl<Db: Database> StageCheckpointProvider for ForkedProvider<Db> {
+impl<Tx> StageCheckpointProvider for ForkedProvider<Tx>
+where
+    Tx: DbTxMut + Send + Sync + 'static,
+{
     fn checkpoint(&self, id: &str) -> ProviderResult<Option<BlockNumber>> {
         self.provider.checkpoint(id)
     }

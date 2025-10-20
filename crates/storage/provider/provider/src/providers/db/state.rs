@@ -1,4 +1,4 @@
-use katana_db::abstraction::{Database, DbCursorMut, DbDupSortCursor, DbTx, DbTxMut};
+use katana_db::abstraction::{DbCursorMut, DbDupSortCursor, DbTx, DbTxMut};
 use katana_db::models::contract::ContractInfoChangeList;
 use katana_db::models::list::BlockList;
 use katana_db::models::storage::{ContractStorageKey, StorageEntry};
@@ -19,17 +19,18 @@ use katana_provider_api::ProviderError;
 use super::DbProvider;
 use crate::ProviderResult;
 
-impl<Db: Database> StateWriter for DbProvider<Db> {
+impl<Tx> StateWriter for DbProvider<Tx>
+where
+    Tx: DbTxMut + Send + Sync,
+{
     fn set_nonce(&self, address: ContractAddress, nonce: Nonce) -> ProviderResult<()> {
-        self.0.update(move |db_tx| -> ProviderResult<()> {
-            let value = if let Some(info) = db_tx.get::<tables::ContractInfo>(address)? {
-                GenericContractInfo { nonce, ..info }
-            } else {
-                GenericContractInfo { nonce, ..Default::default() }
-            };
-            db_tx.put::<tables::ContractInfo>(address, value)?;
-            Ok(())
-        })?
+        let value = if let Some(info) = self.tx().get::<tables::ContractInfo>(address)? {
+            GenericContractInfo { nonce, ..info }
+        } else {
+            GenericContractInfo { nonce, ..Default::default() }
+        };
+        self.tx().put::<tables::ContractInfo>(address, value)?;
+        Ok(())
     }
 
     fn set_storage(
@@ -38,20 +39,18 @@ impl<Db: Database> StateWriter for DbProvider<Db> {
         storage_key: StorageKey,
         storage_value: StorageValue,
     ) -> ProviderResult<()> {
-        self.0.update(move |db_tx| -> ProviderResult<()> {
-            let mut cursor = db_tx.cursor_dup_mut::<tables::ContractStorage>()?;
-            let entry = cursor.seek_by_key_subkey(address, storage_key)?;
+        let mut cursor = self.tx().cursor_dup_mut::<tables::ContractStorage>()?;
+        let entry = cursor.seek_by_key_subkey(address, storage_key)?;
 
-            match entry {
-                Some(entry) if entry.key == storage_key => {
-                    cursor.delete_current()?;
-                }
-                _ => {}
+        match entry {
+            Some(entry) if entry.key == storage_key => {
+                cursor.delete_current()?;
             }
+            _ => {}
+        }
 
-            cursor.upsert(address, StorageEntry { key: storage_key, value: storage_value })?;
-            Ok(())
-        })?
+        cursor.upsert(address, StorageEntry { key: storage_key, value: storage_value })?;
+        Ok(())
     }
 
     fn set_class_hash_of_contract(
@@ -59,24 +58,23 @@ impl<Db: Database> StateWriter for DbProvider<Db> {
         address: ContractAddress,
         class_hash: ClassHash,
     ) -> ProviderResult<()> {
-        self.0.update(move |db_tx| -> ProviderResult<()> {
-            let value = if let Some(info) = db_tx.get::<tables::ContractInfo>(address)? {
-                GenericContractInfo { class_hash, ..info }
-            } else {
-                GenericContractInfo { class_hash, ..Default::default() }
-            };
-            db_tx.put::<tables::ContractInfo>(address, value)?;
-            Ok(())
-        })?
+        let value = if let Some(info) = self.tx().get::<tables::ContractInfo>(address)? {
+            GenericContractInfo { class_hash, ..info }
+        } else {
+            GenericContractInfo { class_hash, ..Default::default() }
+        };
+        self.tx().put::<tables::ContractInfo>(address, value)?;
+        Ok(())
     }
 }
 
-impl<Db: Database> ContractClassWriter for DbProvider<Db> {
+impl<Tx> ContractClassWriter for DbProvider<Tx>
+where
+    Tx: DbTxMut + Send + Sync,
+{
     fn set_class(&self, hash: ClassHash, class: ContractClass) -> ProviderResult<()> {
-        self.0.update(move |db_tx| -> ProviderResult<()> {
-            db_tx.put::<tables::Classes>(hash, class)?;
-            Ok(())
-        })?
+        self.tx().put::<tables::Classes>(hash, class)?;
+        Ok(())
     }
 
     fn set_compiled_class_hash_of_class_hash(
@@ -84,16 +82,14 @@ impl<Db: Database> ContractClassWriter for DbProvider<Db> {
         hash: ClassHash,
         compiled_hash: CompiledClassHash,
     ) -> ProviderResult<()> {
-        self.0.update(move |db_tx| -> ProviderResult<()> {
-            db_tx.put::<tables::CompiledClassHashes>(hash, compiled_hash)?;
-            Ok(())
-        })?
+        self.tx().put::<tables::CompiledClassHashes>(hash, compiled_hash)?;
+        Ok(())
     }
 }
 
 /// A state provider that provides the latest states from the database.
 #[derive(Debug)]
-pub(crate) struct LatestStateProvider<Tx: DbTx>(Tx);
+pub(crate) struct LatestStateProvider<Tx: DbTx>(pub(crate) Tx);
 
 impl<Tx: DbTx> LatestStateProvider<Tx> {
     pub fn new(tx: Tx) -> Self {
