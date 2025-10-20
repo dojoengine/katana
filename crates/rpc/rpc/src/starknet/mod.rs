@@ -17,6 +17,7 @@ use katana_primitives::Felt;
 use katana_provider::api::block::{BlockHashProvider, BlockIdReader, BlockNumberProvider};
 use katana_provider::api::contract::ContractClassProvider;
 use katana_provider::api::env::BlockEnvProvider;
+use katana_provider::api::pending::PendingBlockProvider;
 use katana_provider::api::state::{StateFactoryProvider, StateProvider, StateRootProvider};
 use katana_provider::api::transaction::{
     ReceiptProvider, TransactionProvider, TransactionStatusProvider, TransactionsProviderExt,
@@ -79,8 +80,9 @@ pub struct StarknetApi<P: TransactionPool> {
 
 #[derive(Debug)]
 struct StarknetApiInner<P: TransactionPool> {
-    pool: P,
     chain_spec: Arc<ChainSpec>,
+    pool: P,
+    pending_provider: Arc<dyn PendingBlockProvider>,
     storage: BlockchainProvider<Box<dyn Database>>,
     forked_client: Option<ForkedClient>,
     task_spawner: TaskSpawner,
@@ -110,10 +112,7 @@ impl<P: TransactionPool> StarknetApi<P> {
     }
 }
 
-impl<P> StarknetApi<P>
-where
-    P: TransactionPool + Send + Sync + 'static,
-{
+impl<P: TransactionPool> StarknetApi<P> {
     pub fn new(
         chain_spec: Arc<ChainSpec>,
         storage: BlockchainProvider<Box<dyn Database>>,
@@ -1027,10 +1026,7 @@ where
 // `StarknetApiExt` Implementations
 /////////////////////////////////////////////////////
 
-impl<P> StarknetApi<P>
-where
-    P: TransactionPool + Send + Sync + 'static,
-{
+impl<P: TransactionPool> StarknetApi<P> {
     async fn blocks(&self, request: GetBlocksRequest) -> StarknetApiResult<GetBlocksResponse> {
         self.on_io_blocking_task(move |this| {
             let provider = &this.inner.storage;
