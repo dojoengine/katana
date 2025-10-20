@@ -19,6 +19,7 @@ use katana_primitives::Felt;
 use katana_provider::api::block::{BlockHashProvider, BlockIdReader, BlockNumberProvider};
 use katana_provider::api::contract::ContractClassProvider;
 use katana_provider::api::env::BlockEnvProvider;
+use katana_provider::api::pending::PendingBlockProvider;
 use katana_provider::api::state::{StateFactoryProvider, StateProvider, StateRootProvider};
 use katana_provider::api::transaction::{
     ReceiptProvider, TransactionProvider, TransactionStatusProvider, TransactionsProviderExt,
@@ -93,6 +94,8 @@ where
 {
     pool: Pool,
     chain_spec: Arc<ChainSpec>,
+    pool: P,
+    pending_provider: Arc<dyn PendingBlockProvider>,
     storage: BlockchainProvider<Box<dyn Database>>,
     forked_client: Option<ForkedClient>,
     task_spawner: TaskSpawner,
