@@ -30,7 +30,7 @@ pub enum PoolError {
 pub type PoolResult<T> = Result<T, PoolError>;
 
 /// Represents a complete transaction pool.
-pub trait TransactionPool {
+pub trait TransactionPool: Send + Sync + 'static {
     /// The pool's transaction type.
     type Transaction: PoolTransaction;
 
