@@ -270,7 +270,9 @@ impl<Db: Database> StateProvider for HistoricalStateProvider<Db> {
             Ok(res)
         } else if let res @ Some(class_hash) = self.backend.get_class_hash_at(address)? {
             let block = self.provider.block();
-            let entry = ContractClassChange { contract_address: address, class_hash };
+            // TODO: this is technically wrong, we probably should insert the `ClassChangeHistory`
+            // entry on the state update level instead.
+            let entry = ContractClassChange::deployed(address, class_hash);
 
             self.db.db().tx_mut()?.put::<tables::ClassChangeHistory>(block, entry)?;
             Ok(res)
