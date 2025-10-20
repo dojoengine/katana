@@ -50,9 +50,9 @@ impl ContractClassChange {
     }
 
     fn decompress_current(bytes: &[u8]) -> Result<Self, CodecError> {
-        let r#type = ContractClassChangeType::decompress(&bytes[0..1])?;
-        let contract_address = ContractAddress::decode(&bytes[1..33])?;
-        let class_hash = ClassHash::decompress(&bytes[33..])?;
+        let contract_address = ContractAddress::decode(&bytes[0..32])?;
+        let class_hash = ClassHash::decompress(&bytes[32..64])?;
+        let r#type = ContractClassChangeType::decompress(&bytes[64..])?;
         Ok(Self { r#type, contract_address, class_hash })
     }
 
@@ -100,9 +100,9 @@ impl Compress for ContractClassChange {
 
     fn compress(self) -> Result<Self::Compressed, CodecError> {
         let mut buf = Vec::new();
-        buf.extend(self.r#type.compress()?);
-        buf.extend(self.contract_address.encode());
+        buf.extend(self.contract_address.encode()); // this must be encoded first becase it's the subkey
         buf.extend(self.class_hash.compress()?);
+        buf.extend(self.r#type.compress()?);
         Ok(buf)
     }
 }

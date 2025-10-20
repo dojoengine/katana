@@ -837,11 +837,17 @@ impl<Db: Database> BlockWriter for DbProvider<Db> {
             }
 
             for (addr, new_class_hash) in states.state_updates.replaced_classes {
-                let mut info = db_tx.get::<tables::ContractInfo>(addr)?.unwrap();
+                let mut info = db_tx
+                    .get::<tables::ContractInfo>(addr)?
+                    .ok_or(ProviderError::MissingContractInfo { address: addr })?;
+
                 info.class_hash = new_class_hash;
                 db_tx.put::<tables::ContractInfo>(addr, info)?;
 
-                let mut change_set = db_tx.get::<tables::ContractInfoChangeSet>(addr)?.unwrap();
+                let mut change_set = db_tx
+                    .get::<tables::ContractInfoChangeSet>(addr)?
+                    .ok_or(ProviderError::MissingContractInfoChangeSet { address: addr })?;
+
                 change_set.class_change_list.insert(block_number);
                 db_tx.put::<tables::ContractInfoChangeSet>(addr, change_set)?;
 
