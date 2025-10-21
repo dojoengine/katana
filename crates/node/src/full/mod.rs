@@ -1,6 +1,7 @@
 //! Experimental full node implementation.
 
 mod exit;
+mod pending;
 mod pool;
 mod tip_watcher;
 

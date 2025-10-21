@@ -90,7 +90,10 @@ struct StarknetApiInner<P: TransactionPool> {
     config: StarknetApiConfig,
 }
 
-impl<P: TransactionPool> StarknetApi<P> {
+impl<P> StarknetApi<P>
+where
+    P: TransactionPool + 'static,
+{
     pub fn pool(&self) -> &P {
         &self.inner.pool
     }
@@ -112,7 +115,10 @@ impl<P: TransactionPool> StarknetApi<P> {
     }
 }
 
-impl<P: TransactionPool> StarknetApi<P> {
+impl<P> StarknetApi<P>
+where
+    P: TransactionPool + 'static,
+{
     pub fn new(
         chain_spec: Arc<ChainSpec>,
         storage: BlockchainProvider<Box<dyn Database>>,
@@ -1026,7 +1032,10 @@ impl<P: TransactionPool> StarknetApi<P> {
 // `StarknetApiExt` Implementations
 /////////////////////////////////////////////////////
 
-impl<P: TransactionPool> StarknetApi<P> {
+impl<P> StarknetApi<P>
+where
+    P: TransactionPool + 'static,
+{
     async fn blocks(&self, request: GetBlocksRequest) -> StarknetApiResult<GetBlocksResponse> {
         self.on_io_blocking_task(move |this| {
             let provider = &this.inner.storage;
