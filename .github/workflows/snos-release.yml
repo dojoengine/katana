@@ -209,14 +209,14 @@ jobs:
       # We move binaries so they match $TARGETPLATFORM in the Docker build
       # Only move native binaries for Docker (we want the native version for Docker)
       - name: Move binaries for Docker
-        if: ${{ env.PLATFORM_NAME == 'linux' && matrix.job.native_build == true }}
+        if: ${{ env.PLATFORM_NAME == 'linux' }}
         shell: bash
         run: |
           mkdir -p $PLATFORM_NAME/$ARCH
           mv target/${TARGET}/performance/katana $PLATFORM_NAME/$ARCH
 
       - name: Upload Docker binaries
-        if: ${{ env.PLATFORM_NAME == 'linux' && matrix.job.native_build == true }}
+        if: ${{ env.PLATFORM_NAME == 'linux' }}
         uses: actions/upload-artifact@v4
         with:
           name: binaries-${{ matrix.job.target }}
