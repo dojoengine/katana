@@ -4,7 +4,6 @@ use std::time::Duration;
 
 use axum::routing::get;
 use axum::Router;
-use katana_executor::implementation::blockifier::BlockifierFactory;
 use katana_pool_api::TransactionPool;
 use katana_rpc::cors::Cors;
 use katana_rpc::starknet::StarknetApi;

@@ -40,7 +40,7 @@ use crate::cartridge;
 #[async_trait]
 impl<P> StarknetApiServer for StarknetApi<P>
 where
-    P: TransactionPool + Send + Sync + 'static,
+    P: TransactionPool + 'static,
 {
     async fn chain_id(&self) -> RpcResult<Felt> {
         Ok(self.inner.chain_spec.id().id())

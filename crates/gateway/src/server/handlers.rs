@@ -1,7 +1,6 @@
 use axum::extract::{Query, State};
 use axum::http::StatusCode;
 use axum::response::{IntoResponse, Json, Response};
-use katana_executor::implementation::blockifier::BlockifierFactory;
 use katana_pool_api::TransactionPool;
 use katana_primitives::block::{BlockHash, BlockIdOrTag, BlockNumber};
 use katana_primitives::class::{ClassHash, CompiledClass, ContractClassCompilationError};
