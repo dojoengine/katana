@@ -7,7 +7,7 @@ use katana_primitives::Felt;
 use katana_provider::api::contract::ContractClassProvider;
 use katana_provider::api::state::{StateProofProvider, StateProvider, StateRootProvider};
 use katana_provider::{ProviderError, ProviderResult};
-use katana_trie::MultiProof;
+use katana_rpc_types::ConversionError;
 use tokio::runtime;
 
 pub struct PendingStateProvider {
@@ -65,11 +65,13 @@ impl ContractClassProvider for PendingStateProvider {
         let result = runtime::Builder::new_current_thread()
             .build()
             .unwrap()
-            .block_on(self.gateway.get_class(hash, block_id));
+            .block_on(self.gateway.get_class(hash, katana_gateway::types::BlockId::Pending));
 
         match result {
             Ok(class) => {
-                let class = class.try_into().map_err(|e| ProviderError::Other(e.to_string()))?;
+                let class = class
+                    .try_into()
+                    .map_err(|e: ConversionError| ProviderError::Other(e.to_string()))?;
                 Ok(Some(class))
             }
 
@@ -99,3 +101,7 @@ impl ContractClassProvider for PendingStateProvider {
         self.base.compiled_class_hash_of_class_hash(hash)
     }
 }
+
+impl StateRootProvider for PendingStateProvider {}
+
+impl StateProofProvider for PendingStateProvider {}
