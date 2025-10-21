@@ -6644,6 +6644,7 @@ dependencies = [
  "katana-provider",
  "katana-rpc-types",
  "katana-tasks",
+ "katana-trie",
  "num-traits",
  "rayon",
  "rstest 0.18.2",

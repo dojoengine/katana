@@ -12,6 +12,7 @@ katana-gateway-client.workspace = true
 katana-gateway-types.workspace = true
 katana-messaging.workspace = true
 katana-pool.workspace = true
+katana-trie.workspace = true
 katana-primitives.workspace = true
 katana-provider.workspace = true
 katana-rpc-types.workspace = true

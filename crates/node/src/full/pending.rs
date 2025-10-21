@@ -103,5 +103,4 @@ impl ContractClassProvider for PendingStateProvider {
 }
 
 impl StateRootProvider for PendingStateProvider {}
-
 impl StateProofProvider for PendingStateProvider {}
