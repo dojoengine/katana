@@ -15,7 +15,7 @@ use katana_utils::{TxWaiter, TxWaitingError};
 use piltover::{AppchainContract, AppchainContractReader, ProgramInfo};
 use spinoff::{spinners, Color, Spinner};
 use starknet::accounts::{Account, AccountError, ConnectedAccount, SingleOwnerAccount};
-use starknet::contract::ContractFactory;
+use starknet::contract::{ContractFactory, UdcSelector};
 use starknet::core::crypto::compute_hash_on_elements;
 use starknet::core::types::{BlockId, BlockTag, FlattenedSierraClass, StarknetError};
 use starknet::macros::short_string;
@@ -130,7 +130,7 @@ pub async fn deploy_settlement_contract(
         sp.update_text("Deploying contract...");
 
         let salt = Felt::from(rand::random::<u64>());
-        let factory = ContractFactory::new(class_hash, &account);
+        let factory = ContractFactory::new_with_udc(class_hash, &account, UdcSelector::Legacy);
 
         const INITIAL_STATE_ROOT: Felt = Felt::ZERO;
         /// When updating the piltover contract with the genesis block (ie block number 0), in the
