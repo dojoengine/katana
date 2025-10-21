@@ -6,7 +6,7 @@ use anyhow::Result;
 use futures::future::BoxFuture;
 use katana_pipeline::PipelineHandle;
 use katana_starknet::StarknetCore;
-use tracing::{error, info, trace};
+use tracing::{error, info};
 
 type TipWatcherFut = BoxFuture<'static, Result<()>>;
 
