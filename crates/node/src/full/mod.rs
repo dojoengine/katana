@@ -36,6 +36,7 @@ use crate::config::metrics::MetricsConfig;
 mod exit;
 pub mod tip_watcher;
 mod pool;
+mod pending;
 
 use exit::NodeStoppedFuture;
 use tip_watcher::ChainTipWatcher;

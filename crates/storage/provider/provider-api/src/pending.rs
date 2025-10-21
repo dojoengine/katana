@@ -13,9 +13,7 @@ pub trait PendingBlockProvider: Send + Sync {
 
     fn block_env(&self) -> ProviderResult<Option<BlockEnv>>;
 
-    fn transaction(&self, hash: TxHash) -> ProviderResult<Option<TxWithHash>>;
-
-    fn receipt(&self, hash: TxHash) -> ProviderResult<Option<Receipt>>;
+    fn transactions(&self) -> ProviderResult<Vec<(TxWithHash, Option<Receipt>)>>;
 
     fn state_update(&self) -> ProviderResult<Option<StateUpdates>>;
 }
