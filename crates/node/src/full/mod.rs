@@ -236,7 +236,6 @@ impl Node {
         self.task_manager
             .task_spawner()
             .build_task()
-            .graceful_shutdown()
             .name("Pipeline")
             .spawn(self.pipeline.into_future());
 

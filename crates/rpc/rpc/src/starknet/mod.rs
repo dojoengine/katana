@@ -82,7 +82,7 @@ pub struct StarknetApi<P: TransactionPool> {
 struct StarknetApiInner<P: TransactionPool> {
     chain_spec: Arc<ChainSpec>,
     pool: P,
-    pending_provider: Arc<dyn PendingBlockProvider>,
+    // pending_provider: Arc<dyn PendingBlockProvider>,
     storage: BlockchainProvider<Box<dyn Database>>,
     forked_client: Option<ForkedClient>,
     task_spawner: TaskSpawner,

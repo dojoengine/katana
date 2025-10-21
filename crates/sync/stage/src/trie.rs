@@ -45,16 +45,23 @@ where
                 let span = debug_span!("state_trie.compute_state_root", %block_number);
                 let _enter = span.enter();
 
-                let expected_state_root = self
+                let header = self
                     .provider
                     .header(block_number.into())?
-                    .map(|header| header.state_root)
                     .ok_or(Error::MissingBlockHeader(block_number))?;
+
+                dbg!(&header);
+
+                let expected_state_root = header.state_root;
 
                 let state_update = self
                     .provider
                     .state_update(block_number.into())?
                     .ok_or(Error::MissingStateUpdate(block_number))?;
+
+                if header.number >= 12400 {
+                    println!("{:#?}", state_update);
+                }
 
                 let computed_contract_trie_root =
                     self.provider.trie_insert_contract_updates(block_number, &state_update)?;
@@ -73,7 +80,7 @@ where
                     "Computed classes trie root."
                 );
 
-                let computed_state_root = if computed_class_trie_root == Felt::ZERO {
+                let computed_state_root = if dbg!(computed_class_trie_root == Felt::ZERO) {
                     computed_contract_trie_root
                 } else {
                     Poseidon::hash_array(&[
