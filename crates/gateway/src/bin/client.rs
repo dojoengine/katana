@@ -49,6 +49,8 @@ enum Network {
 enum Command {
     /// Fetch a block.
     GetBlock(BlockCommand),
+    /// Fetch a preconfirmed block.
+    GetPreconfirmedBlock(PreConfirmedBlockCommand),
     /// Fetch state update information for a block.
     GetStateUpdate(StateUpdateCommand),
     /// Fetch a class definition by hash.
@@ -66,6 +68,12 @@ struct BlockCommand {
     /// Block ID (number, hash, 'latest'). Defaults to 'latest'
     #[arg(default_value = "latest")]
     block: BlockIdArg,
+}
+
+#[derive(Debug, Args)]
+struct PreConfirmedBlockCommand {
+    /// The pre-confirmed block number.
+    block: BlockNumber,
 }
 
 #[derive(Debug, Args)]
@@ -122,6 +130,12 @@ async fn run() -> Result<()> {
         Command::GetBlock(cmd) => {
             let block_id = cmd.block.0;
             let block = gateway.get_block(block_id).await.map_err(map_gateway_error)?;
+            print_json(block)?;
+        }
+        Command::GetPreconfirmedBlock(cmd) => {
+            let block_id = cmd.block;
+            let block =
+                gateway.get_preconfirmed_block(block_id).await.map_err(map_gateway_error)?;
             print_json(block)?;
         }
         Command::GetStateUpdate(cmd) => {
@@ -193,6 +207,8 @@ impl FromStr for BlockIdArg {
     fn from_str(s: &str) -> Result<Self> {
         let id = match s {
             "latest" => BlockId::Latest,
+
+            "pending" => BlockId::Pending,
 
             hash if s.starts_with("0x") => BlockHash::from_hex(hash)
                 .map(BlockId::Hash)
