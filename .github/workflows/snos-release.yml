@@ -1,0 +1,8 @@
+# Due to workflow limitation of github, this file is merely here
+# to support triggering the workflow on a dev branch, without having
+# to merge it into main.
+#
+# gh workflow run snos-release.yml --ref feat/update-gen-and-statefull-compr -f preview=v1.7.0-snos.1
+#
+# This can be deleted once the development branch is merged back to main.
+#
