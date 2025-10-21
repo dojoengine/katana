@@ -50,8 +50,6 @@ where
                     .header(block_number.into())?
                     .ok_or(Error::MissingBlockHeader(block_number))?;
 
-                dbg!(&header);
-
                 let expected_state_root = header.state_root;
 
                 let state_update = self
@@ -60,6 +58,7 @@ where
                     .ok_or(Error::MissingStateUpdate(block_number))?;
 
                 if header.number >= 12400 {
+                    dbg!(&header);
                     println!("{:#?}", state_update);
                 }
 
