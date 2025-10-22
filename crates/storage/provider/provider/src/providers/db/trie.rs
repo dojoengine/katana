@@ -13,6 +13,7 @@ use katana_provider_api::ProviderError;
 use katana_trie::{
     compute_contract_state_hash, ClassesTrie, ContractLeaf, ContractsTrie, StoragesTrie,
 };
+use starknet::providers::Provider;
 
 use crate::providers::db::DbProvider;
 use crate::ProviderResult;
@@ -114,6 +115,7 @@ fn contract_state_leaf_hash(
     provider: impl StateProvider,
     address: &ContractAddress,
     contract_leaf: &ContractLeaf,
+    block_number: BlockNumber,
 ) -> Felt {
     let nonce =
         contract_leaf.nonce.unwrap_or(provider.nonce(*address).unwrap().unwrap_or_default());
@@ -124,5 +126,18 @@ fn contract_state_leaf_hash(
 
     let storage_root = contract_leaf.storage_root.expect("root need to set");
 
-    compute_contract_state_hash(&class_hash, &storage_root, &nonce)
+    let root = compute_contract_state_hash(&class_hash, &storage_root, &nonce);
+
+    if block_number >= 6481 {
+        println!("----------------------------------------");
+        println!("block {block_number}");
+        println!("address: {address}");
+        println!("class hash : {class_hash:#x}");
+        println!("nonce : {nonce:#x}");
+        println!("storage root : {storage_root:#x}");
+        println!("Contract state hash: {root}");
+        println!("----------------------------------------");
+    }
+
+    root
 }
