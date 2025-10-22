@@ -1,7 +1,8 @@
 use anyhow::Result;
 use clap::Args;
 use katana_primitives::block::BlockNumber;
-use katana_provider::{api::stage::StageCheckpointProvider, providers::db::DbProvider};
+use katana_provider::api::stage::StageCheckpointProvider;
+use katana_provider::providers::db::DbProvider;
 use katana_stage::Stage;
 
 use crate::cli::db::open_db_rw;

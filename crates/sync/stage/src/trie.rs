@@ -1,9 +1,10 @@
 use futures::future::BoxFuture;
 use katana_primitives::block::BlockNumber;
 use katana_primitives::Felt;
+use katana_provider::api::block::HeaderProvider;
+use katana_provider::api::state::StateFactoryProvider;
 use katana_provider::api::state_update::StateUpdateProvider;
 use katana_provider::api::trie::TrieWriter;
-use katana_provider::api::{block::HeaderProvider, state::StateFactoryProvider};
 use katana_trie::CommitId;
 use starknet::macros::short_string;
 use starknet_types_core::hash::{Poseidon, StarkHash};
