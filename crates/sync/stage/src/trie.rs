@@ -75,7 +75,7 @@ where
                     "Computed classes trie root."
                 );
 
-                let computed_state_root = if dbg!(computed_class_trie_root == Felt::ZERO) {
+                let computed_state_root = if computed_class_trie_root == Felt::ZERO {
                     computed_contract_trie_root
                 } else {
                     Poseidon::hash_array(&[
