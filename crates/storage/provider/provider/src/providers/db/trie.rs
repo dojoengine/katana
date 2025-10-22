@@ -126,18 +126,5 @@ fn contract_state_leaf_hash(
 
     let storage_root = contract_leaf.storage_root.expect("root need to set");
 
-    let root = compute_contract_state_hash(&class_hash, &storage_root, &nonce);
-
-    if block_number >= 6481 {
-        println!("----------------------------------------");
-        println!("block {block_number}");
-        println!("address: {address}");
-        println!("class hash : {class_hash:#x}");
-        println!("nonce : {nonce:#x}");
-        println!("storage root : {storage_root:#x}");
-        println!("Contract state hash: {root}");
-        println!("----------------------------------------");
-    }
-
-    root
+    compute_contract_state_hash(&class_hash, &storage_root, &nonce)
 }
