@@ -58,11 +58,6 @@ where
                     .state_update(block_number.into())?
                     .ok_or(Error::MissingStateUpdate(block_number))?;
 
-                if header.number >= 12400 {
-                    dbg!(&header);
-                    println!("{:#?}", state_update);
-                }
-
                 let computed_contract_trie_root =
                     self.provider.trie_insert_contract_updates(block_number, &state_update)?;
 
