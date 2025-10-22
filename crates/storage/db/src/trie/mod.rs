@@ -258,8 +258,29 @@ where
         // iterate over all entries in the table
         for entry in walker {
             let (key, _) = entry?;
-            if key.key.starts_with(prefix.as_slice()) {
-                keys_to_remove.push(key);
+
+            match key.r#type {
+                TrieDatabaseKeyType::Flat => {
+                    if let DatabaseKey::Flat(prefix_key) = prefix {
+                        if key.key.starts_with(prefix_key) {
+                            keys_to_remove.push(key);
+                        }
+                    }
+                }
+                TrieDatabaseKeyType::Trie => {
+                    if let DatabaseKey::Trie(prefix_key) = prefix {
+                        if key.key.starts_with(prefix_key) {
+                            keys_to_remove.push(key);
+                        }
+                    }
+                }
+                TrieDatabaseKeyType::TrieLog => {
+                    if let DatabaseKey::TrieLog(prefix_key) = prefix {
+                        if key.key.starts_with(prefix_key) {
+                            keys_to_remove.push(key);
+                        }
+                    }
+                }
             }
         }
 
