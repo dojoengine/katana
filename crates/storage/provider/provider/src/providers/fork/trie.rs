@@ -16,7 +16,9 @@ impl<Db: Database> TrieWriter for ForkedProvider<Db> {
         block_number: BlockNumber,
         state_updates: &StateUpdates,
     ) -> ProviderResult<Felt> {
-        self.provider.trie_insert_contract_updates(block_number, state_updates)
+        let _ = block_number;
+        let _ = state_updates;
+        Ok(Felt::ZERO)
     }
 
     fn trie_insert_declared_classes(
@@ -24,6 +26,8 @@ impl<Db: Database> TrieWriter for ForkedProvider<Db> {
         block_number: BlockNumber,
         updates: &BTreeMap<ClassHash, CompiledClassHash>,
     ) -> ProviderResult<Felt> {
-        self.provider.trie_insert_declared_classes(block_number, updates)
+        let _ = block_number;
+        let _ = updates;
+        Ok(Felt::ZERO)
     }
 }
