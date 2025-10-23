@@ -1,0 +1,181 @@
+name: explorer-reverse-proxy
+
+on:
+  push:
+    branches:
+      - main
+    paths:
+      - "crates/explorer/**"
+      - ".github/workflows/explorer-reverse-proxy.yml"
+
+  pull_request:
+    types: [opened, synchronize, ready_for_review]
+    paths:
+      - "crates/explorer/**"
+      - ".github/workflows/explorer-reverse-proxy.yml"
+
+# Cancel in progress workflow when a new one is triggered by running in a concurrency group
+# https://docs.github.com/en/actions/writing-workflows/choosing-what-your-workflow-does/control-the-concurrency-of-workflows-and-jobs
+concurrency:
+  group: ${{ github.workflow }}-${{ github.event.pull_request.number || github.ref }}
+  cancel-in-progress: true
+
+env:
+  CARGO_TERM_COLOR: always
+
+jobs:
+  fmt:
+    runs-on: blacksmith-4vcpu-ubuntu-2404
+    if: github.event_name == 'push' || (github.event_name == 'pull_request' && github.event.pull_request.draft == false)
+    container:
+      image: ghcr.io/dojoengine/katana-dev:latest
+    steps:
+      - uses: actions/checkout@v3
+      - run: scripts/rust_fmt.sh --check
+
+  generate-test-artifacts:
+    needs: [fmt]
+    runs-on: blacksmith-4vcpu-ubuntu-2404
+    if: github.event_name == 'push' || (github.event_name == 'pull_request' && github.event.pull_request.draft == false)
+    container:
+      image: ghcr.io/dojoengine/katana-dev:latest
+    steps:
+      - uses: actions/checkout@v3
+        with:
+          submodules: recursive
+      # Workaround for https://github.com/actions/runner-images/issues/6775
+      - run: git config --global --add safe.directory "*"
+
+      - name: Check if test artifacts need to be generated
+        id: check-files
+        run: |
+          if [[ $(git diff --name-only HEAD^ | grep -q "^tests/snos/snos/") ]]; then
+            echo "files_changed=true" >> $GITHUB_OUTPUT
+          else
+            echo "files_changed=false" >> $GITHUB_OUTPUT
+          fi
+
+      - name: Try to restore cached test artifacts
+        id: download
+        uses: actions/download-artifact@v5
+        continue-on-error: true
+        with:
+          name: test-artifacts
+
+      # Only generate the test artifacts if the snos submodule changes or the downloading the artifacts failed
+      - name: Generate test artifacts
+        if: steps.check-files.outputs.files_changed == 'true' || steps.download.outcome == 'failure'
+        run: make test-artifacts
+
+      - name: Cache test artifacts
+        if: steps.check-files.outputs.files_changed == 'true' || steps.download.outcome == 'failure'
+        uses: actions/upload-artifact@v4
+        with:
+          name: test-artifacts
+          overwrite: true
+          retention-days: 14
+          if-no-files-found: error
+          path: |
+            ./tests/snos/snos/build
+            ./crates/contracts/build
+
+  clippy:
+    needs: [generate-test-artifacts]
+    runs-on: blacksmith-4vcpu-ubuntu-2404
+    if: github.event_name == 'push' || (github.event_name == 'pull_request' && github.event.pull_request.draft == false)
+    container:
+      image: ghcr.io/dojoengine/katana-dev:latest
+    env:
+      MLIR_SYS_190_PREFIX: /usr/lib/llvm-19/
+      LLVM_SYS_191_PREFIX: /usr/lib/llvm-19/
+      TABLEGEN_190_PREFIX: /usr/lib/llvm-19/
+    steps:
+      - uses: actions/checkout@v3
+        with:
+          submodules: recursive
+      # Workaround for https://github.com/actions/runner-images/issues/6775
+      - run: git config --global --add safe.directory "*"
+
+      - uses: Swatinem/rust-cache@v2
+        with:
+          key: ci-${{ github.job }}
+          shared-key: katana-ci-cache
+
+      - name: Download test artifacts
+        uses: actions/download-artifact@v5
+        with:
+          name: test-artifacts
+
+      - name: Run Clippy
+        run: ./scripts/clippy.sh
+
+  build-katana-binary:
+    needs: [fmt, clippy, generate-test-artifacts]
+    runs-on: blacksmith-32vcpu-ubuntu-2404
+    if: github.event_name == 'push' || (github.event_name == 'pull_request' && github.event.pull_request.draft == false)
+    container:
+      image: ghcr.io/dojoengine/katana-dev:latest
+    env:
+      MLIR_SYS_190_PREFIX: /usr/lib/llvm-19/
+      LLVM_SYS_191_PREFIX: /usr/lib/llvm-19/
+      TABLEGEN_190_PREFIX: /usr/lib/llvm-19/
+    steps:
+      - uses: actions/checkout@v3
+        with:
+          submodules: recursive
+      # Workaround for https://github.com/actions/runner-images/issues/6775
+      - run: git config --global --add safe.directory "*"
+
+      - uses: Swatinem/rust-cache@v2
+        with:
+          key: ci-${{ github.job }}
+          shared-key: katana-ci-cache
+
+      - name: Download contract artifacts
+        uses: actions/download-artifact@v5
+        with:
+          name: test-artifacts
+
+      - name: Build binary with all features
+        run: cargo build --bin katana --all-features
+
+      - name: Upload binary
+        uses: actions/upload-artifact@v4
+        with:
+          name: binary
+          overwrite: true
+          retention-days: 1
+          if-no-files-found: error
+          path: ./target/debug/katana
+
+  explorer-reverse-proxy:
+    needs: [fmt, clippy, build-katana-binary]
+    runs-on: blacksmith-4vcpu-ubuntu-2404
+    if: github.event_name == 'push' || (github.event_name == 'pull_request' && github.event.pull_request.draft == false)
+    container:
+      image: ghcr.io/dojoengine/katana-dev:latest
+    steps:
+      - uses: actions/checkout@v3
+        with:
+          submodules: recursive
+      # Workaround for https://github.com/actions/runner-images/issues/6775
+      - run: git config --global --add safe.directory "*"
+      - uses: Swatinem/rust-cache@v2
+        with:
+          key: ci-${{ github.job }}
+          shared-key: katana-ci-cache
+
+      - name: Download Katana binary
+        uses: actions/download-artifact@v5
+        with:
+          name: binary
+
+      - name: Setup Katana binary
+        run: chmod +x ./katana
+
+      # chrome executable required by puppeteer
+      - uses: browser-actions/setup-chrome@v1
+
+      - name: Run reverse proxy test
+        run: |
+          KATANA_BIN=./katana ./scripts/reverse-proxy-test.sh
