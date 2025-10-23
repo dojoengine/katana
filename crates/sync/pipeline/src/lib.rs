@@ -543,20 +543,31 @@ impl Pipeline {
         for stage in self.stages.iter_mut() {
             let id = stage.id();
 
-            // Get the checkpoint for the stage, otherwise default to block number 0
-            let checkpoint =
-                self.storage_provider.provider_mut().execution_checkpoint(id)?.unwrap_or_default();
+            // Get the checkpoint for the stage
+            let checkpoint = self.storage_provider.provider_mut().execution_checkpoint(id)?;
 
-            let span =
-                info_span!(target: "pipeline", "stage.unwind", stage = %id, current_target = %to);
+            let span = info_span!(target: "pipeline", "stage.unwind", stage = %id, %to);
             let enter = span.entered();
 
             // Skip the stage if the checkpoint is greater than or equal to the target block number
-            if checkpoint <= to {
-                info!(target: "pipeline", %id, "Skipping stage.");
-                last_block_processed_list.push(checkpoint);
+            let checkpoint = if let Some(checkpoint) = checkpoint {
+                debug!(target: "pipeline", %checkpoint, "Found checkpoint.");
+
+                // Skip the stage if the checkpoint is greater than or equal to the target block
+                // number
+                if checkpoint <= to {
+                    info!(target: "pipeline", %checkpoint, "Skipping stage - target already reached.");
+                    last_block_processed_list.push(checkpoint);
+                    continue;
+                }
+
+                // plus 1 because the checkpoint is the last block processed, so we need to start
+                // from the next block
+                checkpoint + 1
+            } else {
+                info!(target: "pipeline", "Unable to unwind - stage has no progress.");
                 continue;
-            }
+            };
 
             let input = StageExecutionInput::new(checkpoint, to);
             info!(target: "pipeline", %id, from = %checkpoint, %to, "Unwinding stage.");
@@ -638,7 +649,7 @@ impl Pipeline {
                     let last_block_processed = self.unwind_once(local_to).await?;
 
                     if last_block_processed <= to {
-                        info!(target: "pipeline", %to, "Finished unwinding.");
+                        info!(target: "pipeline", block = %to, "Finished unwinding to block.");
                         self.status = PipelineStatus::Idling;
                     } else {
                         let new_target =
@@ -649,7 +660,7 @@ impl Pipeline {
                 }
 
                 PipelineStatus::Idling => {
-                    // block until a new command is set
+                    // block until a new tip is set either for syncing or unwinding
                     self.cmd_rx
                         .wait_for(|c| {
                             matches!(c, &Some(PipelineCommand::Sync(_)))
