@@ -68,7 +68,7 @@ pub fn db() -> TempDb {
 fn populate_db(db: &TempDb) {
     let provider = db.provider_rw();
 
-    for num in 1..=15u64 {
+    for num in 0..=15u64 {
         let mut classes = BTreeMap::new();
 
         let mut declared_classes = BTreeMap::new();
