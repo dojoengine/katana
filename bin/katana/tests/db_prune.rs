@@ -91,7 +91,7 @@ fn prune_keep_last_n_blocks(db: TempDb) {
     // block -> (classes root, contracts root)
     let mut historical_roots_reg = HashMap::new();
 
-    for num in 1..=latest_block {
+    for num in 0..=latest_block {
         let (classes_root, contracts_root) = historical_roots(&provider, num).unwrap();
         assert!(classes_root != Felt::ZERO, "classes root for block {num} cannot be zero");
         assert!(contracts_root != Felt::ZERO, "contracts root for block {num} cannot be zero");
@@ -148,7 +148,7 @@ fn prune_keep_last_n_blocks_exceeds_available(db: TempDb) {
     let mut historical_roots_reg = HashMap::new();
 
     // Verify all historical states are accessible before pruning
-    for num in 1..=latest_block {
+    for num in 0..=latest_block {
         let (classes_root, contracts_root) = historical_roots(&provider, num).unwrap();
         assert!(classes_root != Felt::ZERO, "classes root for block {num} cannot be zero");
         assert!(contracts_root != Felt::ZERO, "contracts root for block {num} cannot be zero");
@@ -180,7 +180,7 @@ fn prune_keep_last_n_blocks_exceeds_available(db: TempDb) {
     let (final_classes_root, final_contracts_root) = latest_roots(&provider).unwrap();
 
     // Verify that NO pruning occurred - all historical states should still be accessible
-    for num in 1..=latest_block {
+    for num in 0..=latest_block {
         let (classes_root, contracts_root) = historical_roots(&provider, num).unwrap();
         let (expected_classes_root, expected_contracts_root) =
             historical_roots_reg.get(&num).unwrap();
