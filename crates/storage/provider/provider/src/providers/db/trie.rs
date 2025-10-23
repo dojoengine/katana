@@ -85,9 +85,12 @@ impl<Db: Database> TrieWriter for DbProvider<Db> {
                         let storage_root = storage_trie.root();
                         leaf.storage_root = Some(storage_root);
 
-                        let state = self
-                            .historical(block_number.into())?
-                            .expect("historical state should exist");
+                        let state = if block_number == 0 {
+                            self.latest()?
+                        } else {
+                            self.historical(block_number.into())?
+                                .expect("historical state should exist")
+                        };
 
                         let leaf_hash = contract_state_leaf_hash(state, &address, &leaf);
 
