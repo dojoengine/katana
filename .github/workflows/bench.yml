@@ -15,7 +15,7 @@ permissions:
 
 jobs:
   bench:
-    runs-on: blacksmith-4vcpu-ubuntu-2404
+    runs-on: ubuntu-latest
     container:
       image: ghcr.io/dojoengine/katana-dev:latest
     steps:

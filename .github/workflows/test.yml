@@ -34,7 +34,7 @@ env:
 
 jobs:
   fmt:
-    runs-on: blacksmith-4vcpu-ubuntu-2404
+    runs-on: ubuntu-latest
     if: github.event_name == 'push' || (github.event_name == 'pull_request' && github.event.pull_request.draft == false)
     container:
       image: ghcr.io/dojoengine/katana-dev:latest
@@ -44,7 +44,7 @@ jobs:
 
   generate-test-artifacts:
     needs: [fmt]
-    runs-on: blacksmith-4vcpu-ubuntu-2404
+    runs-on: ubuntu-latest
     if: github.event_name == 'push' || (github.event_name == 'pull_request' && github.event.pull_request.draft == false)
     container:
       image: ghcr.io/dojoengine/katana-dev:latest
@@ -90,7 +90,7 @@ jobs:
 
   build-katana-binary:
     needs: [fmt, clippy, generate-test-artifacts]
-    runs-on: blacksmith-32vcpu-ubuntu-2404
+    runs-on: ubuntu-latest-32-cores
     if: github.event_name == 'push' || (github.event_name == 'pull_request' && github.event.pull_request.draft == false)
     container:
       image: ghcr.io/dojoengine/katana-dev:latest
@@ -129,7 +129,7 @@ jobs:
 
   clippy:
     needs: [generate-test-artifacts]
-    runs-on: blacksmith-4vcpu-ubuntu-2404
+    runs-on: ubuntu-latest-4-cores
     if: github.event_name == 'push' || (github.event_name == 'pull_request' && github.event.pull_request.draft == false)
     container:
       image: ghcr.io/dojoengine/katana-dev:latest
@@ -159,7 +159,7 @@ jobs:
 
   test:
     needs: [fmt, clippy, generate-test-artifacts, build-katana-binary]
-    runs-on: blacksmith-32vcpu-ubuntu-2404
+    runs-on: ubuntu-latest-32-cores
     timeout-minutes: 30
     if: github.event_name == 'push' || (github.event_name == 'pull_request' && github.event.pull_request.draft == false)
     container:
@@ -217,7 +217,7 @@ jobs:
 
   snos-integration-test:
     needs: [fmt, clippy]
-    runs-on: blacksmith-32vcpu-ubuntu-2404
+    runs-on: ubuntu-latest-32-cores
     timeout-minutes: 30
     if: github.event_name == 'push' || (github.event_name == 'pull_request' && github.event.pull_request.draft == false)
     container:
@@ -254,7 +254,7 @@ jobs:
 
   explorer-reverse-proxy:
     needs: [fmt, clippy, build-katana-binary]
-    runs-on: blacksmith-4vcpu-ubuntu-2404
+    runs-on: ubuntu-latest
     if: github.event_name == 'push' || (github.event_name == 'pull_request' && github.event.pull_request.draft == false)
     container:
       image: ghcr.io/dojoengine/katana-dev:latest
@@ -286,7 +286,7 @@ jobs:
 
   dojo-integration-test:
     needs: [fmt, clippy, build-katana-binary]
-    runs-on: blacksmith-32vcpu-ubuntu-2404
+    runs-on: ubuntu-latest-32-cores
     if: github.event_name == 'push' || (github.event_name == 'pull_request' && github.event.pull_request.draft == false)
     container:
       image: ghcr.io/dojoengine/katana-dev:latest
