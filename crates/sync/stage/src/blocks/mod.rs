@@ -15,7 +15,7 @@ use katana_provider::api::block::{BlockHashProvider, BlockWriter};
 use katana_provider::ProviderError;
 use num_traits::ToPrimitive;
 use starknet::core::types::ResourcePrice;
-use tracing::debug;
+use tracing::{error, info_span, Instrument};
 
 use crate::{Stage, StageExecutionInput, StageExecutionOutput, StageResult};
 
@@ -104,26 +104,30 @@ where
             let blocks = self
                 .downloader
                 .download_blocks(input.from(), input.to())
+                .instrument(info_span!(target: "stage", "blocks.download", from = %input.from(), to = %input.to()))
                 .await
                 .map_err(Error::Gateway)?;
 
-            if !blocks.is_empty() {
-                debug!(target: "stage", id = %self.id(), total = %blocks.len(), "Storing blocks to storage.");
+            let span = info_span!(target: "stage", "blocks.insert", from = %input.from(), to = %input.to());
+            let _enter = span.enter();
 
-                // Validate chain invariant before storing
-                self.validate_chain_invariant(&blocks)?;
+            // TODO: spawn onto a blocking thread pool
+            self.validate_chain_invariant(&blocks)?;
 
-                // Store blocks to storage
-                for block in blocks {
-                    let (block, receipts, state_updates) = extract_block_data(block)?;
+            for block in blocks {
+                let (block, receipts, state_updates) = extract_block_data(block)?;
+                let block_number = block.block.header.number;
 
-                    self.provider.insert_block_with_states_and_receipts(
+                self.provider
+                    .insert_block_with_states_and_receipts(
                         block,
                         state_updates,
                         receipts,
                         Vec::new(),
+                    )
+                    .inspect_err(
+                        |e| error!(error = %e, block = %block_number, "Error storing block."),
                     )?;
-                }
             }
 
             Ok(StageExecutionOutput { last_block_processed: input.to() })
@@ -151,8 +155,13 @@ fn extract_block_data(
     data: StateUpdateWithBlock,
 ) -> Result<(SealedBlockWithStatus, Vec<Receipt>, StateUpdatesWithClasses)> {
     fn to_gas_prices(prices: ResourcePrice) -> GasPrices {
-        let eth = prices.price_in_fri.to_u128().expect("valid u128");
+        let eth = prices.price_in_wei.to_u128().expect("valid u128");
         let strk = prices.price_in_fri.to_u128().expect("valid u128");
+        // older blocks might have zero gas prices (recent Starknet upgrade has made the minimum gas
+        // prices to 1) we may need to handle this case if we want to be able to compute the
+        // block hash correctly
+        let eth = if eth == 0 { 1 } else { eth };
+        let strk = if strk == 0 { 1 } else { strk };
         unsafe { GasPrices::new_unchecked(eth, strk) }
     }
 
