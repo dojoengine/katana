@@ -2,6 +2,7 @@ use futures::future::BoxFuture;
 use katana_primitives::block::BlockNumber;
 use katana_primitives::Felt;
 use katana_provider::api::block::HeaderProvider;
+use katana_provider::api::state::StateFactoryProvider;
 use katana_provider::api::state_update::StateUpdateProvider;
 use katana_provider::api::trie::TrieWriter;
 use starknet::macros::short_string;
@@ -32,7 +33,7 @@ impl<P> StateTrie<P> {
 
 impl<P> Stage for StateTrie<P>
 where
-    P: StateUpdateProvider + TrieWriter + HeaderProvider,
+    P: StateUpdateProvider + TrieWriter + HeaderProvider + StateFactoryProvider,
 {
     fn id(&self) -> &'static str {
         "StateTrie"
@@ -104,6 +105,14 @@ where
             }
 
             Ok(StageExecutionOutput { last_block_processed: input.to() })
+        })
+    }
+
+    fn unwind(&mut self, unwind_to: BlockNumber) -> BoxFuture<'_, StageResult> {
+        Box::pin(async move {
+            self.provider.unwind_classes_trie(unwind_to)?;
+            self.provider.unwind_contracts_trie(unwind_to)?;
+            Ok(StageExecutionOutput { last_block_processed: unwind_to })
         })
     }
 }
