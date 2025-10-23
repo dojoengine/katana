@@ -215,6 +215,9 @@ pub enum Error {
 
     #[error("request rate limited")]
     RateLimited,
+
+    #[error("gateway returned unknown response format: status {status_code}, body: {body}")]
+    UnknownFormat { status_code: u16, body: String },
 }
 
 impl From<reqwest::Error> for Error {
@@ -314,9 +317,14 @@ impl<Method> RequestBuilder<'_, Method> {
         let request = self.build()?;
 
         let response = reqwest::Client::new().execute(request).await?;
-        match response.json().await? {
-            Response::Data(data) => Ok(data),
-            Response::Error(error) => Err(Error::Sequencer(error)),
+
+        let status_code = response.status().as_u16();
+        let body = response.text().await?;
+
+        match serde_json::from_str::<Response<T>>(&body) {
+            Ok(Response::Data(data)) => Ok(data),
+            Ok(Response::Error(error)) => Err(Error::Sequencer(error)),
+            Err(_) => Err(Error::UnknownFormat { status_code, body }),
         }
     }
 
@@ -423,5 +431,49 @@ mod tests {
 
         let expected_body = serde_json::to_string_pretty(&body).unwrap();
         assert_eq!(request_body.as_bytes().unwrap(), expected_body.as_bytes());
+    }
+
+    #[tokio::test]
+    async fn unknown_format_response() {
+        use wiremock::matchers::{method, path};
+        use wiremock::{Mock, MockServer, ResponseTemplate};
+
+        let mock_server = MockServer::start().await;
+
+        // Test with HTML error response (e.g., 502 Bad Gateway)
+        let html_error = r#"<html><head>
+<meta http-equiv="content-type" content="text/html;charset=utf-8">
+<title>502 Server Error</title>
+</head>
+<body text=#000000 bgcolor=#ffffff>
+<h1>Error: Server Error</h1>
+<h2>The server encountered a temporary error and could not complete your request.<p>Please try
+again in 30 seconds.</h2> <h2></h2></body></html>"#;
+
+        Mock::given(method("GET"))
+            .and(path("/feeder_gateway/get_block"))
+            .respond_with(
+                ResponseTemplate::new(502)
+                    .set_body_string(html_error)
+                    .insert_header("content-type", "text/html; charset=utf-8"),
+            )
+            .mount(&mock_server)
+            .await;
+
+        let gateway = Url::parse(&format!("{}/gateway", mock_server.uri())).unwrap();
+        let feeder = Url::parse(&format!("{}/feeder_gateway", mock_server.uri())).unwrap();
+        let client = Client::new(gateway, feeder);
+
+        let result = client.get_block(BlockId::Latest).await;
+
+        assert!(result.is_err());
+        match result.unwrap_err() {
+            Error::UnknownFormat { status_code, body } => {
+                assert_eq!(status_code, 502);
+                assert!(body.contains("502 Server Error"));
+                assert!(body.contains("temporary error"));
+            }
+            other => panic!("Expected UnknownFormat error, got: {:?}", other),
+        }
     }
 }
