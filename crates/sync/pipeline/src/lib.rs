@@ -141,11 +141,6 @@ impl PipelineHandle {
     pub async fn stopped(&self) {
         self.tx.closed().await;
     }
-
-    /// Wait until the [`Pipeline`] has stopped.
-    pub async fn stopped(&self) {
-        self.tx.closed().await;
-    }
 }
 
 /// Syncing pipeline.
