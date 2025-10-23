@@ -86,9 +86,9 @@ impl<Db: Database> TrieWriter for DbProvider<Db> {
                         leaf.storage_root = Some(storage_root);
 
                         let state = if block_number == 0 {
-                            self.latest()?
+                            self.latest()? // this will just default to an empty state
                         } else {
-                            self.historical(block_number.into())?
+                            self.historical((block_number - 1).into())?
                                 .expect("historical state should exist")
                         };
 
