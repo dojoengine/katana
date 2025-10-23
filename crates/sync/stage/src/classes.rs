@@ -199,7 +199,6 @@ where
                 for (key, class) in declared_class_hashes.iter().zip(verified_classes.into_iter()) {
                     self.provider.set_class(key.class_hash, class)?;
                 }
-            } else {
             }
 
             Ok(StageExecutionOutput { last_block_processed: input.to() })

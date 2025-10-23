@@ -18,7 +18,7 @@ use katana_provider::api::stage::StageCheckpointProvider;
 use katana_provider::ProviderError;
 use num_traits::ToPrimitive;
 use starknet::core::types::ResourcePrice;
-use tracing::{error, info_span, Instrument};
+use tracing::{debug, error, info_span, Instrument};
 
 use crate::{Stage, StageExecutionInput, StageExecutionOutput, StageResult};
 
