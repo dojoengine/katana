@@ -40,6 +40,10 @@ pub trait BlockDownloader: Send + Sync {
     ) -> impl Future<Output = Result<Vec<StateUpdateWithBlock>, katana_gateway::client::Error>> + Send;
 }
 
+///////////////////////////////////////////////////////////////////////////////////
+// Implementations
+///////////////////////////////////////////////////////////////////////////////////
+
 /// An implementation of [`BlockDownloader`] that uses the [`BatchDownloader`] utility.
 ///
 /// This implementation leverages the generic
@@ -91,9 +95,10 @@ where
 mod impls {
     use std::future::Future;
 
-    use katana_gateway::client::Client as GatewayClient;
+    use katana_gateway::client::{Client as GatewayClient, Error as GatewayClientError};
     use katana_gateway::types::StateUpdateWithBlock;
     use katana_primitives::block::BlockNumber;
+    use tracing::error;
 
     use crate::downloader::{Downloader, DownloaderResult};
 
@@ -121,10 +126,15 @@ mod impls {
             key: &Self::Key,
         ) -> impl Future<Output = DownloaderResult<Self::Value, Self::Error>> {
             async {
-                match self.gateway.get_state_update_with_block((*key).into()).await {
+                match self.gateway.get_state_update_with_block((*key).into()).await.inspect_err(
+                    |error| error!(block = %*key, ?error, "Error downloading block from gateway."),
+                ) {
                     Ok(data) => DownloaderResult::Ok(data),
-                    Err(err) if err.is_rate_limited() => DownloaderResult::Retry(err),
-                    Err(err) => DownloaderResult::Err(err),
+                    Err(err) => match err {
+                        GatewayClientError::RateLimited
+                        | GatewayClientError::UnknownFormat { .. } => DownloaderResult::Retry(err),
+                        _ => DownloaderResult::Err(err),
+                    },
                 }
             }
         }
