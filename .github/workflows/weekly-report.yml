@@ -14,7 +14,7 @@ on:
 jobs:
   current-main-size:
     name: Current main branch binary size
-    runs-on: blacksmith-4vcpu-ubuntu-2404
+    runs-on: ubuntu-latest
     container:
       image: ghcr.io/dojoengine/katana-dev:latest
     outputs:
@@ -33,9 +33,6 @@ jobs:
         with:
           key: weekly-binary-size-main
 
-      - name: Make contracts
-        run: make contracts
-
       - name: Get binary size (main)
         id: binary-size
         run: |
@@ -48,7 +45,7 @@ jobs:
 
   latest-release-size:
     name: Latest release binary size
-    runs-on: blacksmith-4vcpu-ubuntu-2404
+    runs-on: ubuntu-latest
     container:
       image: ghcr.io/dojoengine/katana-dev:latest
     outputs:
@@ -66,9 +63,6 @@ jobs:
       - uses: Swatinem/rust-cache@v2
         with:
           key: weekly-binary-size-release
-
-      - name: Make contracts
-        run: make contracts
 
       - name: Get latest release and binary size
         id: binary-size
@@ -91,7 +85,7 @@ jobs:
   generate-report:
     name: Generate binary size report
     needs: [current-main-size, latest-release-size]
-    runs-on: blacksmith-4vcpu-ubuntu-2404
+    runs-on: ubuntu-latest
     container:
       image: ghcr.io/dojoengine/katana-dev:latest
 
