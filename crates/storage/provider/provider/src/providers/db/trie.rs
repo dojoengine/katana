@@ -1,12 +1,13 @@
-use std::collections::{BTreeMap, HashMap};
+use std::collections::{BTreeMap, BTreeSet, HashMap};
 
-use katana_db::abstraction::DbTxMut;
+use katana_db::abstraction::{DbCursor, DbTxMut};
 use katana_db::tables;
 use katana_db::trie::TrieDbMut;
 use katana_primitives::block::BlockNumber;
 use katana_primitives::class::{ClassHash, CompiledClassHash};
 use katana_primitives::state::StateUpdates;
 use katana_primitives::{ContractAddress, Felt};
+use katana_provider_api::block::BlockNumberProvider;
 use katana_provider_api::state::{StateFactoryProvider, StateProvider};
 use katana_provider_api::trie::TrieWriter;
 use katana_provider_api::ProviderError;
@@ -103,6 +104,42 @@ impl<Tx: DbTxMut> TrieWriter for DbProvider<Tx> {
         }
 
         contract_trie_db.commit(block_number);
+        Ok(contract_trie_db.root())
+    }
+
+    fn unwind_classes_trie(&self, unwind_to: BlockNumber) -> ProviderResult<Felt> {
+        let latest_block_number = self.latest_number()?;
+        let mut trie = ClassesTrie::new(TrieDbMut::<tables::ClassesTrie, _>::new(self.0.clone()));
+        trie.revert_to(unwind_to, latest_block_number);
+        Ok(trie.root())
+    }
+
+    fn unwind_contracts_trie(&self, unwind_to: BlockNumber) -> ProviderResult<Felt> {
+        let latest_block_number = self.latest_number()?;
+
+        let mut cursor = self.0.cursor_dup::<tables::StorageChangeHistory>()?;
+        let iterator = cursor.walk(Some(unwind_to))?;
+
+        let mut addresses = BTreeSet::new();
+
+        for entry in iterator {
+            let (block, change_entry) = entry?;
+
+            if block > unwind_to {
+                addresses.insert(change_entry.key.contract_address);
+            }
+        }
+
+        for addr in addresses {
+            let trie_db = TrieDbMut::<tables::StoragesTrie, _>::new(self.0.clone());
+            let mut storage_trie = StoragesTrie::new(trie_db, addr);
+            storage_trie.revert_to(unwind_to, latest_block_number);
+        }
+
+        let mut contract_trie_db =
+            ContractsTrie::new(TrieDbMut::<tables::ContractsTrie, _>::new(self.0.clone()));
+        contract_trie_db.revert_to(unwind_to, latest_block_number);
+
         Ok(contract_trie_db.root())
     }
 }

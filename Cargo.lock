@@ -5811,6 +5811,7 @@ dependencies = [
  "katana-provider",
  "katana-rpc-client",
  "katana-rpc-types",
+ "katana-stage",
  "katana-utils",
  "piltover",
  "proptest",

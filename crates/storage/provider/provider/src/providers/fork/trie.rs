@@ -30,4 +30,14 @@ impl<Tx1: DbTxMut> TrieWriter for ForkedProvider<Tx1> {
         let _ = updates;
         Ok(Felt::ZERO)
     }
+
+    fn unwind_classes_trie(&self, unwind_to: BlockNumber) -> ProviderResult<Felt> {
+        let _ = unwind_to;
+        Ok(Felt::ZERO)
+    }
+
+    fn unwind_contracts_trie(&self, unwind_to: BlockNumber) -> ProviderResult<Felt> {
+        let _ = unwind_to;
+        Ok(Felt::ZERO)
+    }
 }

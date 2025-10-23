@@ -193,6 +193,16 @@ impl Stage for StateTrie {
             Ok(PruneOutput { pruned_count })
         })
     }
+
+    fn unwind(&mut self, unwind_to: BlockNumber) -> BoxFuture<'_, StageResult> {
+        Box::pin(async move {
+            let provider_mut = self.storage_provider.provider_mut();
+            provider_mut.unwind_classes_trie(unwind_to)?;
+            provider_mut.unwind_contracts_trie(unwind_to)?;
+            provider_mut.commit()?;
+            Ok(StageExecutionOutput { last_block_processed: unwind_to })
+        })
+    }
 }
 
 #[derive(Debug, thiserror::Error)]
