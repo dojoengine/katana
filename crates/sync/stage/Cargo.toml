@@ -13,6 +13,7 @@ katana-messaging.workspace = true
 katana-pool.workspace = true
 katana-primitives.workspace = true
 katana-provider.workspace = true
+katana-db.workspace = true
 katana-rpc-types.workspace = true
 katana-tasks.workspace = true
 

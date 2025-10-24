@@ -97,7 +97,9 @@ pub enum Error {
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 enum PipelineCommand {
     /// Set the target tip block for the pipeline to sync to.
-    SetTip(BlockNumber),
+    Sync(BlockNumber),
+    /// Set the target tip block for the pipeline to unwind to.
+    Unwind(BlockNumber),
     /// Signal the pipeline to stop.
     Stop,
 }
@@ -121,7 +123,13 @@ impl PipelineHandle {
     ///
     /// Panics if the [`Pipeline`] has been dropped.
     pub fn set_tip(&self, tip: BlockNumber) {
-        self.tx.send(Some(PipelineCommand::SetTip(tip))).expect("pipeline is no longer running");
+        let cmd = PipelineCommand::Sync(tip);
+        self.tx.send(Some(cmd)).expect("pipeline is no longer running");
+    }
+
+    pub fn unwind(&self, target: BlockNumber) {
+        let cmd = PipelineCommand::Unwind(target);
+        self.tx.send(Some(cmd)).expect("pipeline is not longer running");
     }
 
     /// Signals the pipeline to stop gracefully.
@@ -163,7 +171,14 @@ pub struct Pipeline<P> {
     stages: Vec<Box<dyn Stage>>,
     command_rx: watch::Receiver<Option<PipelineCommand>>,
     command_tx: watch::Sender<Option<PipelineCommand>>,
-    tip: Option<BlockNumber>,
+    status: PipelineStatus,
+}
+
+#[derive(Debug, Clone)]
+enum PipelineStatus {
+    Idling,
+    Syncing { tip: BlockNumber, current_target: Option<BlockNumber> },
+    Unwinding { to: BlockNumber, current_target: Option<BlockNumber> },
 }
 
 impl<P> Pipeline<P> {
@@ -186,7 +201,7 @@ impl<P> Pipeline<P> {
             command_tx: tx,
             provider,
             chunk_size,
-            tip: None,
+            status: PipelineStatus::Idling,
         };
         (pipeline, handle)
     }
@@ -243,9 +258,13 @@ impl<P: StageCheckpointProvider> Pipeline<P> {
                             debug!(target: "pipeline", "Received stop command.");
                             break;
                         }
-                        Some(PipelineCommand::SetTip(new_tip)) => {
+                        Some(PipelineCommand::Sync(new_tip)) => {
+                            debug!(target: "pipeline", tip = %new_tip, "Received new tip.");
+                            self.status = PipelineStatus::Syncing { tip: new_tip, current_target: None };
+                        }
+                        Some(PipelineCommand::Unwind(new_tip)) => {
                             info!(target: "pipeline", tip = %new_tip, "A new tip has been set.");
-                            self.tip = Some(new_tip);
+                            self.status = PipelineStatus::Unwinding { to: new_tip, current_target: None };
                         }
                         None => {}
                     }
@@ -284,7 +303,7 @@ impl<P: StageCheckpointProvider> Pipeline<P> {
     ///
     /// Returns an error if any stage execution fails or if the pipeline fails to read the
     /// checkpoint.
-    pub async fn run_once(&mut self, to: BlockNumber) -> PipelineResult<BlockNumber> {
+    pub async fn execute_once(&mut self, to: BlockNumber) -> PipelineResult<BlockNumber> {
         if self.stages.is_empty() {
             return Ok(to);
         }
@@ -346,36 +365,114 @@ impl<P: StageCheckpointProvider> Pipeline<P> {
         Ok(last_block_processed_list.into_iter().min().unwrap_or(to))
     }
 
-    /// Run the pipeline loop.
-    async fn run_loop(&mut self) -> PipelineResult<()> {
-        let mut current_chunk_tip = self.chunk_size;
+    pub async fn unwind_once(&mut self, to: BlockNumber) -> PipelineResult<BlockNumber> {
+        if self.stages.is_empty() {
+            return Ok(to);
+        }
 
-        loop {
-            // Process blocks if we have a tip
-            if let Some(tip) = self.tip {
-                let to = current_chunk_tip.min(tip);
-                let last_block_processed = self.run_once(to).await?;
+        // This is so that lagging stages (ie stage with a checkpoint that is less than the rest of
+        // the stages) will be executed, in the next cycle of `run_to`, with a `to` value
+        // whose range from the stages' next checkpoint is equal to the pipeline batch size.
+        //
+        // This can actually be done without the allocation, but this makes reasoning about the
+        // code easier. The majority of the execution time will be spent in `stage.execute` anyway
+        // so optimizing this doesn't yield significant improvements.
+        let mut last_block_processed_list: Vec<BlockNumber> = Vec::with_capacity(self.stages.len());
 
-                if last_block_processed >= tip {
-                    info!(target: "pipeline", %tip, "Finished syncing until tip.");
-                    self.tip = None;
-                    current_chunk_tip = last_block_processed;
-                } else {
-                    current_chunk_tip = (last_block_processed + self.chunk_size).min(tip);
-                }
+        for stage in self.stages.iter_mut() {
+            let id = stage.id();
 
+            // Get the checkpoint for the stage, otherwise default to block number 0
+            let checkpoint = self.provider.checkpoint(id)?;
+
+            let span = info_span!(target: "pipeline", "stage.unwind", stage = %id, %to);
+            let enter = span.entered();
+
+            let Some(checkpoint) = checkpoint else {
+                info!(target: "pipeline", "Unable to unwind - stage has no progress.");
+                continue;
+            };
+
+            debug!(target: "pipeline", %checkpoint, "Found checkpoint.");
+
+            // Skip the stage if the checkpoint is greater than or equal to the target block number
+            if checkpoint <= to {
+                info!(target: "pipeline", %checkpoint, "Skipping stage - target already reached.");
+                last_block_processed_list.push(checkpoint);
                 continue;
             }
 
-            info!(target: "pipeline", "Waiting to receive new tip.");
+            let input = StageExecutionInput::new(checkpoint, to);
+            info!(target: "pipeline", %id, from = %checkpoint, %to, "Unwinding stage.");
 
-            // block until a new tip is set
-            self.command_rx
-                .wait_for(|c| matches!(c, &Some(PipelineCommand::SetTip(_))))
+            let span = enter.exit();
+            let StageExecutionOutput { last_block_processed } = stage
+                .execute(&input)
+                .instrument(span.clone())
                 .await
-                .expect("qed; channel closed");
+                .map_err(|error| Error::StageExecution { id, error })?;
 
-            yield_now().await;
+            debug_assert!(last_block_processed <= checkpoint);
+
+            let _enter = span.enter();
+            info!(target: "pipeline", from = %checkpoint, %to, "Stage unwinding completed.");
+
+            self.provider.set_checkpoint(id, last_block_processed)?;
+            last_block_processed_list.push(last_block_processed);
+
+            info!(target: "pipeline", %id, from = %checkpoint, %to, "Stage unwinding completed.");
+        }
+
+        Ok(last_block_processed_list.into_iter().max().unwrap_or(to))
+    }
+
+    /// Run the pipeline loop.
+    async fn run_loop(&mut self) -> PipelineResult<()> {
+        loop {
+            match self.status {
+                PipelineStatus::Syncing { tip, current_target } => {
+                    let local_to = current_target.unwrap_or(self.chunk_size).min(tip);
+                    let last_block_processed = self.execute_once(local_to).await?;
+
+                    if last_block_processed >= tip {
+                        info!(target: "pipeline", %tip, "Finished syncing until tip.");
+                        self.status = PipelineStatus::Idling;
+                    } else {
+                        let new_target =
+                            last_block_processed.saturating_add(self.chunk_size).min(tip);
+                        self.status =
+                            PipelineStatus::Syncing { tip, current_target: Some(new_target) };
+                    }
+                }
+
+                PipelineStatus::Unwinding { to, current_target } => {
+                    let local_to = current_target.unwrap_or(self.chunk_size).max(to);
+                    let last_block_processed = self.unwind_once(local_to).await?;
+
+                    if last_block_processed <= to {
+                        info!(target: "pipeline", block = %to, "Finished unwinding to block.");
+                        self.status = PipelineStatus::Idling;
+                    } else {
+                        let new_target =
+                            last_block_processed.saturating_sub(self.chunk_size).max(to);
+                        self.status =
+                            PipelineStatus::Unwinding { to, current_target: Some(new_target) };
+                    }
+                }
+
+                PipelineStatus::Idling => {
+                    // block until a new tip is set either for syncing or unwinding
+                    self.command_rx
+                        .wait_for(|c| {
+                            matches!(c, &Some(PipelineCommand::Sync(_)))
+                                || matches!(c, &Some(PipelineCommand::Unwind(_)))
+                        })
+                        .await
+                        .expect("qed; channel closed");
+
+                    yield_now().await;
+                }
+            }
         }
     }
 }

@@ -173,9 +173,22 @@ where
 
     fn get_by_prefix(
         &self,
-        _: &DatabaseKey<'_>,
+        prefix: &DatabaseKey<'_>,
     ) -> Result<Vec<(ByteVec, ByteVec)>, Self::DatabaseError> {
-        todo!()
+        let mut results = Vec::new();
+
+        let mut cursor = self.tx.cursor::<Tb>()?;
+        let walker = cursor.walk(None)?;
+
+        for entry in walker {
+            let (TrieDatabaseKey { key, .. }, value) = entry?;
+
+            if key.starts_with(prefix.as_slice()) {
+                results.push((key.to_smallvec(), value));
+            }
+        }
+
+        Ok(results)
     }
 
     fn insert(
@@ -300,8 +313,7 @@ where
         &self,
         prefix: &DatabaseKey<'_>,
     ) -> Result<Vec<(ByteVec, ByteVec)>, Self::DatabaseError> {
-        let _ = prefix;
-        todo!()
+        TrieDb::<Tb, Tx>::new(self.tx.clone()).get_by_prefix(prefix)
     }
 
     fn insert(
@@ -508,5 +520,68 @@ mod tests {
 
             assert_eq!(vec![value0, value1], result);
         }
+    }
+
+    #[test]
+    fn revert_to() {
+        let db = test_utils::create_test_db();
+        let db_tx = db.tx_mut().expect("failed to get tx");
+
+        let mut trie = ClassesTrie::new(TrieDbMut::<tables::ClassesTrie, _>::new(&db_tx));
+
+        // Insert values at block 0
+        trie.insert(felt!("0x1"), felt!("0x100"));
+        trie.insert(felt!("0x2"), felt!("0x200"));
+        trie.commit(0);
+        let root_at_block_0 = trie.root();
+
+        // Insert more values at block 1
+        trie.insert(felt!("0x3"), felt!("0x300"));
+        trie.insert(felt!("0x4"), felt!("0x400"));
+        trie.commit(1);
+        let root_at_block_1 = trie.root();
+
+        // Roots should be different
+        assert_ne!(root_at_block_0, root_at_block_1);
+
+        // Insert even more values at block 2
+        trie.insert(felt!("0x5"), felt!("0x500"));
+        trie.commit(2);
+        let root_at_block_2 = trie.root();
+
+        // Roots should be different
+        assert_ne!(root_at_block_1, root_at_block_2);
+        assert_ne!(root_at_block_0, root_at_block_2);
+
+        // Revert to block 1
+        trie.revert_to(1, 2);
+        let root_after_revert = trie.root();
+
+        // After revert, root should match block 1
+        assert_eq!(root_after_revert, root_at_block_1);
+
+        // Revert to block 0
+        trie.revert_to(0, 1);
+        let root_after_second_revert = trie.root();
+
+        // After revert, root should match block 0
+        assert_eq!(root_after_second_revert, root_at_block_0);
+
+        // Insert more values at block 1
+        trie.insert(felt!("0x3"), felt!("0x300"));
+        trie.insert(felt!("0x4"), felt!("0x400"));
+        trie.commit(1);
+        let root_at_block_1_after_insert = trie.root();
+
+        // After insertion, root should match block 1
+        assert_eq!(root_at_block_1_after_insert, root_at_block_1);
+
+        // Insert even more values at block 2
+        trie.insert(felt!("0x5"), felt!("0x500"));
+        trie.commit(2);
+        let root_at_block_2_after_insert = trie.root();
+
+        // After insertion, root should match block 2
+        assert_eq!(root_at_block_2_after_insert, root_at_block_2);
     }
 }
