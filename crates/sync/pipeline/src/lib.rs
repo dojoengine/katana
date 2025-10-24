@@ -549,25 +549,19 @@ impl Pipeline {
             let span = info_span!(target: "pipeline", "stage.unwind", stage = %id, %to);
             let enter = span.entered();
 
-            // Skip the stage if the checkpoint is greater than or equal to the target block number
-            let checkpoint = if let Some(checkpoint) = checkpoint {
-                debug!(target: "pipeline", %checkpoint, "Found checkpoint.");
-
-                // Skip the stage if the checkpoint is greater than or equal to the target block
-                // number
-                if checkpoint <= to {
-                    info!(target: "pipeline", %checkpoint, "Skipping stage - target already reached.");
-                    last_block_processed_list.push(checkpoint);
-                    continue;
-                }
-
-                // plus 1 because the checkpoint is the last block processed, so we need to start
-                // from the next block
-                checkpoint + 1
-            } else {
+            let Some(checkpoint) = checkpoint else {
                 info!(target: "pipeline", "Unable to unwind - stage has no progress.");
                 continue;
             };
+
+            debug!(target: "pipeline", %checkpoint, "Found checkpoint.");
+
+            // Skip the stage if the checkpoint is greater than or equal to the target block number
+            if checkpoint <= to {
+                info!(target: "pipeline", %checkpoint, "Skipping stage - target already reached.");
+                last_block_processed_list.push(checkpoint);
+                continue;
+            }
 
             let input = StageExecutionInput::new(checkpoint, to);
             info!(target: "pipeline", %id, from = %checkpoint, %to, "Unwinding stage.");
