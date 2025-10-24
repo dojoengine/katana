@@ -69,6 +69,7 @@ pub enum Commands {
     #[command(about = "RPC client for interacting with Katana")]
     Rpc(rpc::RpcArgs),
 
+    #[command(hide = true)]
     #[command(about = "Run and manage Katana nodes")]
     Node(NodeCli),
 }
