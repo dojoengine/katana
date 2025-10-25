@@ -119,7 +119,8 @@ impl Node {
             }
         };
 
-        let tip_watcher = ChainTipWatcher::new(core_contract, pipeline_handle.clone());
+        let tip_watcher = ChainTipWatcher::new(core_contract);
+        let mut tip_subscription = tip_watcher.subscribe();
 
         self.task_manager
             .task_spawner()
@@ -128,12 +129,22 @@ impl Node {
             .name("Chain tip watcher")
             .spawn(tip_watcher.into_future());
 
-        self.task_manager
-            .task_spawner()
-            .build_task()
-            .graceful_shutdown()
-            .name("Pipeline")
-            .spawn(self.pipeline.into_future());
+        // Subscribe to tip updates and update the pipeline
+        let pipeline_handle_clone = pipeline_handle.clone();
+        self.task_manager.task_spawner().build_task().name("Pipeline").spawn(async move {
+            loop {
+                tokio::select! {
+                    res = tip_subscription.changed() => {
+                        match res {
+                            Ok(new_tip) => pipeline_handle_clone.set_tip(new_tip),
+                            Err(err) => error!(error = ?err, "Error updating pipeline tip.")
+                        }
+                    }
+                    _ = self.pipeline.into_future() => {},
+                }
+            }
+            Ok(())
+        });
 
         Ok(LaunchedNode {
             db: self.db,
