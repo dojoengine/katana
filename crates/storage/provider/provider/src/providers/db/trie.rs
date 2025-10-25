@@ -115,7 +115,6 @@ fn contract_state_leaf_hash(
     provider: impl StateProvider,
     address: &ContractAddress,
     contract_leaf: &ContractLeaf,
-    block_number: BlockNumber,
 ) -> Felt {
     let nonce =
         contract_leaf.nonce.unwrap_or(provider.nonce(*address).unwrap().unwrap_or_default());

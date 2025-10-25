@@ -10,14 +10,14 @@ use katana_provider::{ProviderError, ProviderResult};
 use katana_rpc_types::ConversionError;
 use tokio::runtime;
 
-pub struct PendingStateProvider {
-    base: Box<dyn StateProvider>,
-    pending_block_id: BlockNumber,
-    pending_state_updates: StateUpdates,
-    gateway: katana_gateway::client::Client,
+pub struct PreconfStateProvider {
+    pub base: Box<dyn StateProvider>,
+    pub pending_block_id: BlockNumber,
+    pub pending_state_updates: StateUpdates,
+    pub gateway: katana_gateway::client::Client,
 }
 
-impl StateProvider for PendingStateProvider {
+impl StateProvider for PreconfStateProvider {
     fn nonce(&self, address: ContractAddress) -> ProviderResult<Option<Nonce>> {
         if let Some(nonce) = self.pending_state_updates.nonce_updates.get(&address) {
             return Ok(Some(*nonce));
@@ -56,7 +56,7 @@ impl StateProvider for PendingStateProvider {
     }
 }
 
-impl ContractClassProvider for PendingStateProvider {
+impl ContractClassProvider for PreconfStateProvider {
     fn class(&self, hash: ClassHash) -> ProviderResult<Option<ContractClass>> {
         if let Some(class) = self.base.class(hash)? {
             return Ok(Some(class));
@@ -102,5 +102,5 @@ impl ContractClassProvider for PendingStateProvider {
     }
 }
 
-impl StateRootProvider for PendingStateProvider {}
-impl StateProofProvider for PendingStateProvider {}
+impl StateRootProvider for PreconfStateProvider {}
+impl StateProofProvider for PreconfStateProvider {}
