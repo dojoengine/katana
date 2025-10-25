@@ -6318,6 +6318,7 @@ dependencies = [
  "katana-starknet",
  "katana-tasks",
  "katana-tracing",
+ "parking_lot",
  "serde",
  "serde_json",
  "strum 0.25.0",
