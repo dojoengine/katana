@@ -1,13 +1,9 @@
 //! Experimental full node implementation.
 
-mod exit;
-mod tip_watcher;
-
 use std::future::IntoFuture;
 use std::sync::Arc;
 
 use anyhow::Result;
-use exit::NodeStoppedFuture;
 use katana_gateway::client::Client as SequencerGateway;
 use katana_metrics::exporters::prometheus::PrometheusRecorder;
 use katana_metrics::{Report, Server as MetricsServer};
@@ -20,11 +16,16 @@ use katana_provider::providers::db::DbProvider;
 use katana_stage::blocks::BatchBlockDownloader;
 use katana_stage::{Blocks, Classes};
 use katana_tasks::TaskManager;
-use tip_watcher::ChainTipWatcher;
-use tracing::info;
+use tracing::{error, info};
 
 use crate::config::db::DbConfig;
 use crate::config::metrics::MetricsConfig;
+
+mod exit;
+pub mod tip_watcher;
+
+use exit::NodeStoppedFuture;
+use tip_watcher::ChainTipWatcher;
 
 type TxPool =
     Pool<ExecutableTxWithHash, NoopValidator<ExecutableTxWithHash>, FiFo<ExecutableTxWithHash>>;
@@ -119,7 +120,16 @@ impl Node {
             }
         };
 
-        let tip_watcher = ChainTipWatcher::new(core_contract, pipeline_handle.clone());
+        let tip_watcher = ChainTipWatcher::new(core_contract);
+
+        let mut tip_subscription = tip_watcher.subscribe();
+        let pipeline_handle_clone = pipeline_handle.clone();
+
+        self.task_manager
+            .task_spawner()
+            .build_task()
+            .name("Pipeline")
+            .spawn(self.pipeline.into_future());
 
         self.task_manager
             .task_spawner()
@@ -128,12 +138,18 @@ impl Node {
             .name("Chain tip watcher")
             .spawn(tip_watcher.into_future());
 
-        self.task_manager
-            .task_spawner()
-            .build_task()
-            .graceful_shutdown()
-            .name("Pipeline")
-            .spawn(self.pipeline.into_future());
+        // spawn a task for updating the pipeline's tip based on chain tip changes
+        self.task_manager.task_spawner().spawn(async move {
+            loop {
+                match tip_subscription.changed().await {
+                    Ok(new_tip) => pipeline_handle_clone.set_tip(new_tip),
+                    Err(err) => {
+                        error!(error = ?err, "Error updating pipeline tip.");
+                        break;
+                    }
+                }
+            }
+        });
 
         Ok(LaunchedNode {
             db: self.db,
