@@ -96,6 +96,105 @@ fn state_diff_empty_conversion() {
 }
 
 #[test]
+fn state_diff_merge_merges_entries() {
+    let contract_a = address!("0x1");
+    let contract_b = address!("0x2");
+
+    let mut base_storage = BTreeMap::new();
+    base_storage.insert(
+        contract_a,
+        vec![
+            StorageDiff { key: felt!("0x10"), value: felt!("0x100") },
+            StorageDiff { key: felt!("0x11"), value: felt!("0x101") },
+        ],
+    );
+
+    let deployed_a = DeployedContract { address: address!("0x300"), class_hash: felt!("0xaaa") };
+    let base = StateDiff {
+        storage_diffs: base_storage,
+        deployed_contracts: vec![deployed_a.clone()],
+        old_declared_contracts: vec![felt!("0x400")],
+        declared_classes: vec![DeclaredContract {
+            class_hash: felt!("0x500"),
+            compiled_class_hash: felt!("0x501"),
+        }],
+        nonces: BTreeMap::from([(contract_a, felt!("0x1"))]),
+        replaced_classes: vec![DeployedContract {
+            address: address!("0x350"),
+            class_hash: felt!("0x900"),
+        }],
+    };
+
+    let mut other_storage = BTreeMap::new();
+    other_storage.insert(
+        contract_a,
+        vec![
+            StorageDiff { key: felt!("0x11"), value: felt!("0x202") },
+            StorageDiff { key: felt!("0x12"), value: felt!("0x203") },
+        ],
+    );
+    other_storage
+        .insert(contract_b, vec![StorageDiff { key: felt!("0x20"), value: felt!("0x204") }]);
+
+    let other = StateDiff {
+        storage_diffs: other_storage,
+        deployed_contracts: vec![
+            DeployedContract { address: deployed_a.address, class_hash: felt!("0xbbb") },
+            DeployedContract { address: address!("0x301"), class_hash: felt!("0xccc") },
+        ],
+        old_declared_contracts: vec![felt!("0x400"), felt!("0x401")],
+        declared_classes: vec![
+            DeclaredContract { class_hash: felt!("0x500"), compiled_class_hash: felt!("0x999") },
+            DeclaredContract { class_hash: felt!("0x502"), compiled_class_hash: felt!("0x503") },
+        ],
+        nonces: BTreeMap::from([(contract_a, felt!("0x5")), (contract_b, felt!("0x6"))]),
+        replaced_classes: vec![
+            DeployedContract { address: address!("0x350"), class_hash: felt!("0x901") },
+            DeployedContract { address: address!("0x351"), class_hash: felt!("0x902") },
+        ],
+    };
+
+    let merged = base.merge(other);
+
+    // storage diff merge
+    let merged_storage_a = merged.storage_diffs.get(&contract_a).expect("storage for contract A");
+    assert_eq!(merged_storage_a.len(), 3);
+    assert_eq!(merged_storage_a[1].value, felt!("0x202"));
+    assert_eq!(merged_storage_a[2].key, felt!("0x12"));
+    assert_eq!(
+        merged.storage_diffs.get(&contract_b).expect("storage for contract B")[0].value,
+        felt!("0x204")
+    );
+
+    // deployed contracts updated
+    let deployed_by_addr: BTreeMap<_, _> =
+        merged.deployed_contracts.iter().map(|c| (c.address, c.class_hash)).collect();
+    assert_eq!(deployed_by_addr.get(&deployed_a.address), Some(&felt!("0xbbb")));
+    assert_eq!(deployed_by_addr.get(&address!("0x301")), Some(&felt!("0xccc")));
+
+    // replaced contracts updated
+    let replaced_by_addr: BTreeMap<_, _> =
+        merged.replaced_classes.iter().map(|c| (c.address, c.class_hash)).collect();
+    assert_eq!(replaced_by_addr.get(&address!("0x350")), Some(&felt!("0x901")));
+    assert_eq!(replaced_by_addr.get(&address!("0x351")), Some(&felt!("0x902")));
+
+    // declared classes merged
+    let declared_by_hash: BTreeMap<_, _> =
+        merged.declared_classes.iter().map(|c| (c.class_hash, c.compiled_class_hash)).collect();
+    assert_eq!(declared_by_hash.get(&felt!("0x500")), Some(&felt!("0x999")));
+    assert_eq!(declared_by_hash.get(&felt!("0x502")), Some(&felt!("0x503")));
+
+    // deprecated declared classes deduplicated
+    assert!(merged.old_declared_contracts.contains(&felt!("0x400")));
+    assert!(merged.old_declared_contracts.contains(&felt!("0x401")));
+    assert_eq!(merged.old_declared_contracts.iter().filter(|&&h| h == felt!("0x400")).count(), 1);
+
+    // nonces override and extend
+    assert_eq!(merged.nonces.get(&contract_a), Some(&felt!("0x5")));
+    assert_eq!(merged.nonces.get(&contract_b), Some(&felt!("0x6")));
+}
+
+#[test]
 fn receipt_serde_succeeded() {
     let json = json!({
           "actual_fee": "0x220c76e10ea291c8",

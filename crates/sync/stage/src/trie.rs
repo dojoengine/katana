@@ -4,6 +4,8 @@ use katana_primitives::Felt;
 use katana_provider::api::block::HeaderProvider;
 use katana_provider::api::state_update::StateUpdateProvider;
 use katana_provider::api::trie::TrieWriter;
+use katana_rpc_types::class;
+use katana_trie::CommitId;
 use starknet::macros::short_string;
 use starknet_types_core::hash::{Poseidon, StarkHash};
 use tracing::{debug, debug_span, error};
@@ -44,11 +46,12 @@ where
                 let span = debug_span!("state_trie.compute_state_root", %block_number);
                 let _enter = span.enter();
 
-                let expected_state_root = self
+                let header = self
                     .provider
                     .header(block_number.into())?
-                    .map(|header| header.state_root)
                     .ok_or(Error::MissingBlockHeader(block_number))?;
+
+                let expected_state_root = header.state_root;
 
                 let state_update = self
                     .provider

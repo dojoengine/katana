@@ -13,6 +13,7 @@ use katana_provider_api::ProviderError;
 use katana_trie::{
     compute_contract_state_hash, ClassesTrie, ContractLeaf, ContractsTrie, StoragesTrie,
 };
+use starknet::providers::Provider;
 
 use crate::providers::db::DbProvider;
 use crate::ProviderResult;
