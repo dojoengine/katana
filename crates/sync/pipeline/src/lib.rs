@@ -44,14 +44,12 @@
 //! // pipeline.add_stage(MyExecutionStage::new());
 //!
 //! // Subscribe to block notifications to monitor sync progress
-//! let mut block_rx = handle.subscribe_blocks();
+//! let mut block_subscription = handle.subscribe_blocks();
 //!
 //! // Spawn a task to monitor synced blocks
 //! tokio::spawn(async move {
-//!     while block_rx.changed().await.is_ok() {
-//!         if let Some(block_num) = *block_rx.borrow() {
-//!             println!("Pipeline synced up to block: {}", block_num);
-//!         }
+//!     while let Ok(Some(block_num)) = block_subscription.changed().await {
+//!         println!("Pipeline synced up to block: {}", block_num);
 //!     }
 //! });
 //!
@@ -114,6 +112,39 @@ enum PipelineCommand {
     Stop,
 }
 
+/// A subscription to pipeline block updates.
+///
+/// This subscription receives notifications whenever the pipeline completes processing
+/// a block through all stages. The block number represents the highest block that has
+/// been successfully processed by all pipeline stages for a given batch.
+pub struct PipelineBlockSubscription {
+    rx: watch::Receiver<Option<BlockNumber>>,
+}
+
+impl PipelineBlockSubscription {
+    /// Get the current processed block number, if any.
+    ///
+    /// Returns `None` if no blocks have been processed yet.
+    pub fn block(&self) -> Option<BlockNumber> {
+        *self.rx.borrow()
+    }
+
+    /// Wait for the next block to be processed and return its number.
+    ///
+    /// This method waits for the pipeline to process a new block and returns the block number.
+    /// If the pipeline has been dropped, this returns an error.
+    pub async fn changed(&mut self) -> Result<Option<BlockNumber>, watch::error::RecvError> {
+        self.rx.changed().await?;
+        Ok(*self.rx.borrow_and_update())
+    }
+}
+
+impl std::fmt::Debug for PipelineBlockSubscription {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.debug_struct("BlockSubscription").field("current_block", &self.block()).finish()
+    }
+}
+
 /// A handle for controlling a running pipeline.
 ///
 /// This handle allows external code to update the target tip block that the pipeline
@@ -157,13 +188,13 @@ impl PipelineHandle {
 
     /// Subscribes to block notifications from the pipeline.
     ///
-    /// Returns a receiver that will be notified whenever the pipeline completes processing
+    /// Returns a subscription that will be notified whenever the pipeline completes processing
     /// a block through all stages. The block number represents the highest block that has
     /// been successfully processed by all pipeline stages.
     ///
-    /// The receiver initially contains `None` until the first block is processed.
-    pub fn subscribe_blocks(&self) -> watch::Receiver<Option<BlockNumber>> {
-        self.block_tx.subscribe()
+    /// The subscription initially contains `None` until the first block is processed.
+    pub fn subscribe_blocks(&self) -> PipelineBlockSubscription {
+        PipelineBlockSubscription { rx: self.block_tx.subscribe() }
     }
 }
 
