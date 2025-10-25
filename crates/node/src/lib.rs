@@ -1,6 +1,5 @@
 // #![cfg_attr(not(test), warn(unused_crate_dependencies))]
 
-#[cfg(feature = "full-node")]
 pub mod full;
 
 pub mod config;
