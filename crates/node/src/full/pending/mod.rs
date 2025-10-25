@@ -25,7 +25,7 @@ pub struct PreconfBlockWatcher {
     gateway_client: Client,
 
     // from pipeline
-    latest_synced_block: watch::Receiver<(BlockNumber, BlockHash)>,
+    latest_synced_block: watch::Receiver<BlockNumber>,
     // from tip watcher (actual tip of the chain)
     latest_block: TipSubscription,
 
@@ -55,7 +55,11 @@ impl PreconfBlockWatcher {
                             .transaction_state_diffs
                             .into_iter()
                             .fold(StateDiff::default(), |acc, diff| {
-                                diff.and_then(|diff| acc.merge(diff))
+                                if let Some(diff) = diff {
+                                    acc.merge(diff)
+                                } else {
+                                    acc
+                                }
                             })
                             .into();
 
