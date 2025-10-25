@@ -43,6 +43,16 @@
 //! // pipeline.add_stage(MyDownloadStage::new());
 //! // pipeline.add_stage(MyExecutionStage::new());
 //!
+//! // Subscribe to block notifications to monitor sync progress
+//! let mut block_subscription = handle.subscribe_blocks();
+//!
+//! // Spawn a task to monitor synced blocks
+//! tokio::spawn(async move {
+//!     while let Ok(Some(block_num)) = block_subscription.changed().await {
+//!         println!("Pipeline synced up to block: {}", block_num);
+//!     }
+//! });
+//!
 //! // Spawn the pipeline in a background task
 //! let pipeline_task = tokio::spawn(async move { pipeline.run().await });
 //!
@@ -102,6 +112,39 @@ enum PipelineCommand {
     Stop,
 }
 
+/// A subscription to pipeline block updates.
+///
+/// This subscription receives notifications whenever the pipeline completes processing
+/// a block through all stages. The block number represents the highest block that has
+/// been successfully processed by all pipeline stages for a given batch.
+pub struct PipelineBlockSubscription {
+    rx: watch::Receiver<Option<BlockNumber>>,
+}
+
+impl PipelineBlockSubscription {
+    /// Get the current processed block number, if any.
+    ///
+    /// Returns `None` if no blocks have been processed yet.
+    pub fn block(&self) -> Option<BlockNumber> {
+        *self.rx.borrow()
+    }
+
+    /// Wait for the next block to be processed and return its number.
+    ///
+    /// This method waits for the pipeline to process a new block and returns the block number.
+    /// If the pipeline has been dropped, this returns an error.
+    pub async fn changed(&mut self) -> Result<Option<BlockNumber>, watch::error::RecvError> {
+        self.rx.changed().await?;
+        Ok(*self.rx.borrow_and_update())
+    }
+}
+
+impl std::fmt::Debug for PipelineBlockSubscription {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.debug_struct("BlockSubscription").field("current_block", &self.block()).finish()
+    }
+}
+
 /// A handle for controlling a running pipeline.
 ///
 /// This handle allows external code to update the target tip block that the pipeline
@@ -109,6 +152,7 @@ enum PipelineCommand {
 #[derive(Debug, Clone)]
 pub struct PipelineHandle {
     tx: watch::Sender<Option<PipelineCommand>>,
+    block_tx: watch::Sender<Option<BlockNumber>>,
 }
 
 impl PipelineHandle {
@@ -141,6 +185,17 @@ impl PipelineHandle {
     pub async fn stopped(&self) {
         self.tx.closed().await;
     }
+
+    /// Subscribes to block notifications from the pipeline.
+    ///
+    /// Returns a subscription that will be notified whenever the pipeline completes processing
+    /// a block through all stages. The block number represents the highest block that has
+    /// been successfully processed by all pipeline stages.
+    ///
+    /// The subscription initially contains `None` until the first block is processed.
+    pub fn subscribe_blocks(&self) -> PipelineBlockSubscription {
+        PipelineBlockSubscription { rx: self.block_tx.subscribe() }
+    }
 }
 
 /// Syncing pipeline.
@@ -163,6 +218,7 @@ pub struct Pipeline<P> {
     stages: Vec<Box<dyn Stage>>,
     command_rx: watch::Receiver<Option<PipelineCommand>>,
     command_tx: watch::Sender<Option<PipelineCommand>>,
+    block_tx: watch::Sender<Option<BlockNumber>>,
     tip: Option<BlockNumber>,
 }
 
@@ -179,11 +235,13 @@ impl<P> Pipeline<P> {
     /// A tuple containing the pipeline instance and a handle for controlling it.
     pub fn new(provider: P, chunk_size: u64) -> (Self, PipelineHandle) {
         let (tx, rx) = watch::channel(None);
-        let handle = PipelineHandle { tx: tx.clone() };
+        let (block_tx, _block_rx) = watch::channel(None);
+        let handle = PipelineHandle { tx: tx.clone(), block_tx: block_tx.clone() };
         let pipeline = Self {
             stages: Vec::new(),
             command_rx: rx,
             command_tx: tx,
+            block_tx,
             provider,
             chunk_size,
             tip: None,
@@ -210,7 +268,7 @@ impl<P> Pipeline<P> {
     /// The handle can be used to set the target tip block for the pipeline to sync to or to
     /// stop the pipeline.
     pub fn handle(&self) -> PipelineHandle {
-        PipelineHandle { tx: self.command_tx.clone() }
+        PipelineHandle { tx: self.command_tx.clone(), block_tx: self.block_tx.clone() }
     }
 }
 
@@ -355,6 +413,9 @@ impl<P: StageCheckpointProvider> Pipeline<P> {
             if let Some(tip) = self.tip {
                 let to = current_chunk_tip.min(tip);
                 let last_block_processed = self.run_once(to).await?;
+
+                // Notify subscribers about the newly processed block
+                let _ = self.block_tx.send(Some(last_block_processed));
 
                 if last_block_processed >= tip {
                     info!(target: "pipeline", %tip, "Finished syncing until tip.");
