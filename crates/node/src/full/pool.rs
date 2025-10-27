@@ -1,22 +1,13 @@
 use std::future::Future;
 
-use katana_pool::ordering::FiFo;
+use katana_pool::ordering::TipOrdering;
 use katana_pool::pool::Pool;
-use katana_pool::validation::stateful::TxValidator;
-use katana_pool::PoolTransaction;
 use katana_pool_api::validation::{ValidationOutcome, ValidationResult, Validator};
-use katana_primitives::chain::ChainId;
-use katana_primitives::fee::ResourceBoundsMapping;
-use katana_primitives::transaction::{
-    DeclareTx, DeployAccountTx, ExecutableTxWithHash, InvokeTx, TxHash,
-};
-use katana_primitives::{ContractAddress, Felt};
-use katana_rpc_types::{
-    BroadcastedDeclareTx, BroadcastedDeployAccountTx, BroadcastedInvokeTx, BroadcastedTx,
-};
+use katana_primitives::transaction::ExecutableTxWithHash;
+use katana_rpc_types::BroadcastedTx;
 
 pub type FullNodePool =
-    Pool<ExecutableTxWithHash, GatewayProxyValidator, FiFo<ExecutableTxWithHash>>;
+    Pool<ExecutableTxWithHash, GatewayProxyValidator, TipOrdering<ExecutableTxWithHash>>;
 
 /// This is an implementation of the [`Validator`] trait that proxies incoming transactions to a
 /// Starknet sequencer via the gateway endpoint.

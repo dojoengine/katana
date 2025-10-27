@@ -15,7 +15,7 @@ use katana_gateway_client::Client as SequencerGateway;
 use katana_metrics::exporters::prometheus::PrometheusRecorder;
 use katana_metrics::{Report, Server as MetricsServer};
 use katana_pipeline::{Pipeline, PipelineHandle};
-use katana_pool::ordering::FiFo;
+use katana_pool::ordering::{FiFo, TipOrdering};
 use katana_provider::providers::db::DbProvider;
 use katana_provider::BlockchainProvider;
 use katana_rpc::cors::Cors;
@@ -114,7 +114,7 @@ impl Node {
         // --- build transaction pool
 
         let validator = GatewayProxyValidator::new(gateway_client.clone());
-        let pool = FullNodePool::new(validator, FiFo::new());
+        let pool = FullNodePool::new(validator, TipOrdering::new());
 
         // --- build pipeline
 

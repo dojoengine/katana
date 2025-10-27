@@ -1,7 +1,6 @@
 use std::sync::Arc;
 
 use katana_chain_spec::ChainSpec;
-use katana_executor::implementation::blockifier::blockifier::context::BlockContext;
 use katana_executor::implementation::blockifier::cache::ClassCache;
 use katana_executor::implementation::blockifier::call::execute_call;
 use katana_executor::implementation::blockifier::state::CachedState;
@@ -9,18 +8,12 @@ use katana_executor::implementation::blockifier::utils::{self, block_context_fro
 use katana_executor::{ExecutionError, ExecutionFlags, ExecutionResult, ResultAndStates};
 use katana_primitives::env::{BlockEnv, VersionedConstantsOverrides};
 use katana_primitives::transaction::ExecutableTxWithHash;
-use katana_primitives::{chain, Felt};
+use katana_primitives::Felt;
 use katana_provider::api::state::StateProvider;
 use katana_rpc_api::error::starknet::{ContractErrorData, StarknetApiError};
 use katana_rpc_types::{FeeEstimate, FunctionCall};
 
 use crate::starknet::StarknetApiResult;
-
-pub struct ExecutionCtx {
-    state: Box<dyn StateProvider>,
-    block_context: Arc<BlockContext>,
-    simulation_flags: ExecutionFlags,
-}
 
 #[tracing::instrument(level = "trace", target = "rpc", skip_all, fields(total_txs = transactions.len()))]
 pub fn simulate(
