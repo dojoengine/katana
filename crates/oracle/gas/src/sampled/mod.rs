@@ -12,25 +12,32 @@ use tracing::{error, warn};
 use url::Url;
 
 mod buffer;
-mod ethereum;
-mod starknet;
+pub mod ethereum;
+pub mod starknet;
 
 const DEFAULT_SAMPLING_INTERVAL: Duration = Duration::from_secs(60);
+
+/// Trait for sampling gas prices from different blockchain networks.
+#[auto_impl::auto_impl(Box)]
+pub trait Sampler: Send + Sync {
+    /// Sample gas prices from the underlying network.
+    fn sample(&self) -> impl Future<Output = anyhow::Result<SampledPrices>> + Send;
+}
 
 #[derive(Debug, Clone)]
 pub struct SampledPriceOracle {
     inner: Arc<SampledPriceOracleInner>,
 }
 
-#[derive(Debug)]
 struct SampledPriceOracleInner {
     samples: Mutex<Samples>,
-    sampler: Sampler,
+    sampler: Box<dyn Sampler>,
 }
 
 impl SampledPriceOracle {
-    pub fn new(sampler: Sampler) -> Self {
+    pub fn new(sampler: impl Sampler + 'static) -> Self {
         let samples = Mutex::new(Samples::new());
+        let sampler = Box::new(sampler);
         let inner = Arc::new(SampledPriceOracleInner { samples, sampler });
         Self { inner }
     }
@@ -100,37 +107,6 @@ impl Samples {
             l2_gas_prices: GasPricesBuffer::new(),
             l1_gas_prices: GasPricesBuffer::new(),
             l1_data_gas_prices: GasPricesBuffer::new(),
-        }
-    }
-}
-
-/// Gas oracle that samples prices from different blockchain networks.
-#[derive(Debug, Clone)]
-pub enum Sampler {
-    /// Samples gas prices from an Ethereum-based network.
-    Ethereum(ethereum::EthSampler),
-    /// Samples gas prices from a Starknet-based network.
-    Starknet(starknet::StarknetSampler),
-}
-
-impl Sampler {
-    /// Creates a new sampler for Starknet.
-    pub fn starknet(url: Url) -> Self {
-        let provider = ::starknet::providers::JsonRpcClient::new(HttpTransport::new(url));
-        Self::Starknet(starknet::StarknetSampler::new(provider))
-    }
-
-    /// Creates a new sampler for Ethereum.
-    pub fn ethereum(url: Url) -> Self {
-        let provider = alloy_provider::RootProvider::<network::Ethereum>::new_http(url);
-        Self::Ethereum(ethereum::EthSampler::new(provider))
-    }
-
-    /// Sample gas prices from the underlying network.
-    pub async fn sample(&self) -> anyhow::Result<SampledPrices> {
-        match self {
-            Sampler::Ethereum(sampler) => sampler.sample().await,
-            Sampler::Starknet(sampler) => sampler.sample().await,
         }
     }
 }

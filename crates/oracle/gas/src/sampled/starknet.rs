@@ -21,7 +21,7 @@ impl<P> StarknetSampler<P> {
 }
 
 impl<P: starknet::providers::Provider> StarknetSampler<P> {
-    pub async fn sample(&self) -> anyhow::Result<SampledPrices> {
+    async fn sample_prices(&self) -> anyhow::Result<SampledPrices> {
         let block_id = BlockId::Tag(BlockTag::Latest);
         let block = self.provider.get_block_with_tx_hashes(block_id).await?;
 
@@ -50,6 +50,15 @@ impl<P: starknet::providers::Provider> StarknetSampler<P> {
         );
 
         Ok(SampledPrices { l2_gas_prices, l1_gas_prices, l1_data_gas_prices })
+    }
+}
+
+impl<P> super::Sampler for StarknetSampler<P>
+where
+    P: starknet::providers::Provider + Send + Sync,
+{
+    async fn sample(&self) -> anyhow::Result<SampledPrices> {
+        self.sample_prices().await
     }
 }
 
@@ -97,7 +106,7 @@ mod tests {
     #[tokio::test]
     async fn sample_gas_prices() {
         let sampler = StarknetSampler::new(MockGasProvider::new());
-        let sampled_prices = sampler.sample().await.unwrap();
+        let sampled_prices = sampler.sample_prices().await.unwrap();
 
         assert_eq!(sampled_prices.l2_gas_prices.eth.get(), 500);
         assert_eq!(sampled_prices.l2_gas_prices.strk.get(), 750);

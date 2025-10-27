@@ -21,7 +21,7 @@ impl<P> EthSampler<P> {
 
 // The alloy Provider trait is only implemented for the Ethereum network provider.
 impl<P: alloy_provider::Provider<network::Ethereum>> EthSampler<P> {
-    pub async fn sample(&self) -> anyhow::Result<SampledPrices> {
+    async fn sample_prices(&self) -> anyhow::Result<SampledPrices> {
         let block = self.provider.get_block_number().await?;
         let fee_history = self.provider.get_fee_history(1, block.into(), &[]).await?;
 
@@ -43,5 +43,14 @@ impl<P: alloy_provider::Provider<network::Ethereum>> EthSampler<P> {
         let l2_gas_prices = l1_gas_prices.clone();
 
         Ok(SampledPrices { l2_gas_prices, l1_gas_prices, l1_data_gas_prices })
+    }
+}
+
+impl<P> super::Sampler for EthSampler<P>
+where
+    P: alloy_provider::Provider<network::Ethereum> + Send + Sync,
+{
+    async fn sample(&self) -> anyhow::Result<SampledPrices> {
+        self.sample_prices().await
     }
 }

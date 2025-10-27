@@ -1,7 +1,9 @@
 use std::fmt::Debug;
 use std::future::Future;
 
+use alloy_provider::network;
 use katana_primitives::block::GasPrices;
+use starknet::providers::jsonrpc::HttpTransport;
 use url::Url;
 
 mod fixed;
@@ -12,6 +14,8 @@ pub use fixed::{
     DEFAULT_ETH_L2_GAS_PRICE, DEFAULT_STRK_L1_DATA_GAS_PRICE, DEFAULT_STRK_L1_GAS_PRICE,
     DEFAULT_STRK_L2_GAS_PRICE,
 };
+pub use sampled::ethereum::EthSampler;
+pub use sampled::starknet::StarknetSampler;
 pub use sampled::{SampledPriceOracle, Sampler};
 
 #[derive(Debug)]
@@ -35,14 +39,16 @@ impl GasPriceOracle {
 
     /// Creates a new gas oracle that samples the gas prices from an Ethereum chain.
     pub fn sampled_ethereum(url: Url) -> Self {
-        let sampler = sampled::Sampler::ethereum(url);
+        let provider = alloy_provider::RootProvider::<network::Ethereum>::new_http(url);
+        let sampler = sampled::ethereum::EthSampler::new(provider);
         let oracle = sampled::SampledPriceOracle::new(sampler);
         Self::Sampled(oracle)
     }
 
     /// Creates a new gas oracle that samples the gas prices from a Starknet chain.
     pub fn sampled_starknet(url: Url) -> Self {
-        let sampler = sampled::Sampler::starknet(url);
+        let provider = starknet::providers::JsonRpcClient::new(HttpTransport::new(url));
+        let sampler = sampled::starknet::StarknetSampler::new(provider);
         let oracle = sampled::SampledPriceOracle::new(sampler);
         Self::Sampled(oracle)
     }

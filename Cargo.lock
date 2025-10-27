@@ -6131,6 +6131,7 @@ dependencies = [
  "alloy-transport-http",
  "anyhow",
  "async-trait",
+ "auto_impl",
  "backon",
  "katana-primitives",
  "katana-tasks",
