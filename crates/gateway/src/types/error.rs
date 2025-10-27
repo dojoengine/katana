@@ -1,5 +1,6 @@
 use std::fmt;
 
+#[cfg(feature = "server")]
 use katana_rpc_api::error::starknet::StarknetApiError;
 use serde::{Deserialize, Serialize};
 
@@ -34,6 +35,7 @@ pub enum ErrorCode {
     Unknown(String),
 }
 
+#[cfg(feature = "server")]
 impl TryFrom<StarknetApiError> for GatewayError {
     type Error = StarknetApiError;
 
