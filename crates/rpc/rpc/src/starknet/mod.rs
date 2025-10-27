@@ -8,6 +8,8 @@ use katana_core::backend::Backend;
 use katana_executor::ExecutorFactory;
 use katana_chain_spec::ChainSpec;
 use katana_core::backend::storage::Database;
+use katana_core::utils::get_current_timestamp;
+use katana_gas_price_oracle::GasPriceOracle;
 use katana_pool::TransactionPool;
 use katana_primitives::block::{BlockHashOrNumber, BlockIdOrTag, FinalityStatus, GasPrices};
 use katana_primitives::class::{ClassHash, CompiledClass};
@@ -15,11 +17,11 @@ use katana_primitives::contract::{ContractAddress, Nonce, StorageKey, StorageVal
 use katana_primitives::env::BlockEnv;
 use katana_primitives::event::MaybeForkedContinuationToken;
 use katana_primitives::transaction::{ExecutableTxWithHash, TxHash, TxNumber};
+use katana_primitives::version::CURRENT_STARKNET_VERSION;
 use katana_primitives::Felt;
 use katana_provider::api::block::{BlockHashProvider, BlockIdReader, BlockNumberProvider};
 use katana_provider::api::contract::ContractClassProvider;
 use katana_provider::api::env::BlockEnvProvider;
-use katana_provider::api::pending::PendingBlockProvider;
 use katana_provider::api::state::{StateFactoryProvider, StateProvider, StateRootProvider};
 use katana_provider::api::transaction::{
     ReceiptProvider, TransactionProvider, TransactionStatusProvider, TransactionsProviderExt,
@@ -68,6 +70,7 @@ mod write;
 pub use config::PaymasterConfig;
 pub use config::StarknetApiConfig;
 use forking::ForkedClient;
+pub use pending::PendingBlockProvider;
 
 type StarknetApiResult<T> = Result<T, StarknetApiError>;
 
@@ -95,7 +98,8 @@ where
     pool: Pool,
     chain_spec: Arc<ChainSpec>,
     pool: P,
-    // pending_provider: Arc<dyn PendingBlockProvider>,
+    gas_oracle: GasPriceOracle,
+    preconf_provider: Arc<dyn PendingBlockProvider>,
     storage: BlockchainProvider<Box<dyn Database>>,
     forked_client: Option<ForkedClient>,
     task_spawner: TaskSpawner,
@@ -142,8 +146,18 @@ where
         task_spawner: TaskSpawner,
         config: StarknetApiConfig,
         pending_block_provider: PP,
+        gas_oracle: GasPriceOracle,
     ) -> Self {
-        Self::new_inner(chain_spec, storage, pool, None, task_spawner, config, pending_block_provider)
+        Self::new_inner(
+            chain_spec,
+            storage,
+            pool,
+            None,
+            task_spawner,
+            config, 
+            pending_block_provider,
+            gas_oracle,
+        )
     }
 
     pub fn new_forked(
@@ -154,8 +168,18 @@ where
         task_spawner: TaskSpawner,
         config: StarknetApiConfig,
         pending_block_provider: PP,
+        gas_oracle: GasPriceOracle,
     ) -> Self {
-        Self::new_inner(chain_spec, storage, pool, Some(forked_client), task_spawner, config, pending_block_provider)
+        Self::new_inner(
+            chain_spec,
+            storage,
+            pool,
+            Some(forked_client),
+            task_spawner,
+            config,
+            pending_block_provider,
+            gas_oracle,
+        )
     }
 
     fn new_inner(
@@ -166,6 +190,7 @@ where
         task_spawner: TaskSpawner,
         config: StarknetApiConfig,
         pending_block_provider: PP,
+        gas_oracle: GasPriceOracle,
     ) -> Self {
         let total_permits = config
             .max_concurrent_estimate_fee_requests
@@ -181,6 +206,7 @@ where
             estimate_fee_permit,
             config,
             pending_block_provider,
+            gas_oracle,
         };
 
         Self { inner: Arc::new(inner) }

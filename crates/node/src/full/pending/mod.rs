@@ -13,8 +13,10 @@ use tracing::error;
 use crate::full::pending::state::PreconfStateProvider;
 use crate::full::tip_watcher::TipSubscription;
 
+mod provider;
 pub mod state;
 
+#[derive(Debug)]
 pub struct PreconfStateFactory<P: StateFactoryProvider> {
     // from pipeline
     latest_synced_block: watch::Receiver<BlockNumber>,

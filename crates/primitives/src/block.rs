@@ -116,6 +116,14 @@ pub struct PartialHeader {
     pub starknet_version: StarknetVersion,
 }
 
+#[derive(Debug, Clone, PartialEq, Eq)]
+#[cfg_attr(feature = "arbitrary", derive(::arbitrary::Arbitrary))]
+#[cfg_attr(feature = "serde", derive(serde::Serialize, serde::Deserialize))]
+pub struct PendingBlock {
+    pub header: PartialHeader,
+    pub body: Vec<TxWithHash>,
+}
+
 #[derive(Debug, Copy, Clone, PartialEq, Eq)]
 #[cfg_attr(feature = "arbitrary", derive(::arbitrary::Arbitrary))]
 #[cfg_attr(feature = "serde", derive(serde::Serialize, serde::Deserialize))]

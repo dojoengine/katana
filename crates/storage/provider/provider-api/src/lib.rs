@@ -6,7 +6,6 @@ pub mod block;
 pub mod contract;
 pub mod env;
 mod error;
-pub mod pending;
 pub mod stage;
 pub mod state;
 pub mod state_update;

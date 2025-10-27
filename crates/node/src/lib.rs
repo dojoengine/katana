@@ -189,7 +189,7 @@ impl Node {
 
         let block_context_generator = BlockContextGenerator::default().into();
         let backend = Arc::new(Backend {
-            gas_oracle,
+            gas_oracle: gas_oracle.clone(),
             blockchain,
             executor_factory,
             block_context_generator,
@@ -272,6 +272,7 @@ impl Node {
                 task_spawner.clone(),
                 starknet_api_cfg,
                 block_producer.clone(),
+                gas_oracle.clone(),
             )
         } else {
             StarknetApi::new(
@@ -281,6 +282,7 @@ impl Node {
                 task_spawner.clone(),
                 starknet_api_cfg,
                 block_producer.clone(),
+                gas_oracle.clone(),
             )
         };
 
