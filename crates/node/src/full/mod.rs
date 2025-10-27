@@ -8,17 +8,12 @@ use http::header::CONTENT_TYPE;
 use http::Method;
 use jsonrpsee::RpcModule;
 use katana_chain_spec::ChainSpec;
-use katana_core::backend::storage::Database;
 use katana_executor::ExecutionFlags;
 use katana_gateway_client::Client as SequencerGateway;
 use katana_metrics::exporters::prometheus::PrometheusRecorder;
 use katana_metrics::{Report, Server as MetricsServer};
 use katana_pipeline::{Pipeline, PipelineHandle};
 use katana_pool::ordering::FiFo;
-use katana_pool::pool::Pool;
-use katana_pool::validation::NoopValidator;
-use katana_pool::TxPool;
-use katana_primitives::transaction::ExecutableTxWithHash;
 use katana_provider::providers::db::DbProvider;
 use katana_provider::BlockchainProvider;
 use katana_rpc::cors::Cors;
@@ -34,12 +29,13 @@ use crate::config::db::DbConfig;
 use crate::config::metrics::MetricsConfig;
 
 mod exit;
-pub mod tip_watcher;
-mod pool;
 mod pending;
+mod pool;
+pub mod tip_watcher;
 
 use exit::NodeStoppedFuture;
 use tip_watcher::ChainTipWatcher;
+
 use crate::config::rpc::{RpcConfig, RpcModuleKind};
 use crate::full::pool::{FullNodePool, GatewayProxyValidator};
 

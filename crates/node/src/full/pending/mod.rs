@@ -2,11 +2,8 @@ use std::sync::Arc;
 use std::time::Duration;
 
 use katana_gateway::client::Client;
-use katana_gateway::types::{
-    ConfirmedTransaction, ErrorCode, GatewayError, PreConfirmedBlock, StateDiff,
-    StateUpdateWithBlock,
-};
-use katana_primitives::block::{BlockHash, BlockNumber};
+use katana_gateway::types::{ConfirmedTransaction, ErrorCode, PreConfirmedBlock, StateDiff};
+use katana_primitives::block::BlockNumber;
 use katana_primitives::state::StateUpdates;
 use katana_provider::api::state::StateFactoryProvider;
 use parking_lot::Mutex;
@@ -18,9 +15,99 @@ use crate::full::tip_watcher::TipSubscription;
 
 pub mod state;
 
+pub struct PreconfStateFactory<P: StateFactoryProvider> {
+    // from pipeline
+    latest_synced_block: watch::Receiver<BlockNumber>,
+    gateway_client: Client,
+    provider: P,
+
+    // shared state
+    shared_preconf_block: SharedPreconfBlockData,
+}
+
+impl<P: StateFactoryProvider> PreconfStateFactory<P> {
+    pub fn new(
+        state_factory_provider: P,
+        gateway_client: Client,
+        latest_synced_block: watch::Receiver<BlockNumber>,
+        tip_subscription: TipSubscription,
+    ) -> Self {
+        let shared_preconf_block = SharedPreconfBlockData::default();
+
+        let mut worker = PreconfBlockWatcher {
+            interval: DEFAULT_INTERVAL,
+            latest_block: tip_subscription,
+            gateway_client: gateway_client.clone(),
+            latest_synced_block: latest_synced_block.clone(),
+            shared_preconf_block: shared_preconf_block.clone(),
+        };
+
+        tokio::spawn(async move { worker.run().await });
+
+        Self {
+            gateway_client,
+            latest_synced_block,
+            shared_preconf_block,
+            provider: state_factory_provider,
+        }
+    }
+
+    pub fn state(&self) -> PreconfStateProvider {
+        let latest_block_num = *self.latest_synced_block.borrow();
+        let base = self.provider.historical(latest_block_num.into()).unwrap().unwrap();
+
+        let preconf_block = self.shared_preconf_block.inner.lock();
+        let preconf_block_id = preconf_block.as_ref().map(|b| b.preconf_block_id);
+        let preconf_state_updates = preconf_block.as_ref().map(|b| b.preconf_state_updates.clone());
+
+        PreconfStateProvider {
+            base,
+            preconf_block_id,
+            preconf_state_updates,
+            gateway: self.gateway_client.clone(),
+        }
+    }
+
+    pub fn state_updates(&self) -> Option<StateUpdates> {
+        if let Some(preconf_data) = self.shared_preconf_block.inner.lock().as_ref() {
+            Some(preconf_data.preconf_state_updates.clone())
+        } else {
+            None
+        }
+    }
+
+    pub fn block(&self) -> Option<PreConfirmedBlock> {
+        if let Some(preconf_data) = self.shared_preconf_block.inner.lock().as_ref() {
+            Some(preconf_data.preconf_block.clone())
+        } else {
+            None
+        }
+    }
+
+    pub fn transactions(&self) -> Option<Vec<ConfirmedTransaction>> {
+        if let Some(preconf_data) = self.shared_preconf_block.inner.lock().as_ref() {
+            Some(preconf_data.preconf_block.transactions.clone())
+        } else {
+            None
+        }
+    }
+}
+
+#[derive(Debug, Default, Clone)]
+struct SharedPreconfBlockData {
+    inner: Arc<Mutex<Option<PreconfBlockData>>>,
+}
+
+#[derive(Debug)]
+struct PreconfBlockData {
+    preconf_block_id: BlockNumber,
+    preconf_block: PreConfirmedBlock,
+    preconf_state_updates: StateUpdates,
+}
+
 const DEFAULT_INTERVAL: Duration = Duration::from_millis(500);
 
-pub struct PreconfBlockWatcher {
+struct PreconfBlockWatcher {
     interval: Duration,
     gateway_client: Client,
 
@@ -30,29 +117,20 @@ pub struct PreconfBlockWatcher {
     latest_block: TipSubscription,
 
     // shared state
-    pending_block_id: Arc<Mutex<BlockNumber>>,
-    pending_state_updates: Arc<Mutex<StateUpdates>>,
+    shared_preconf_block: SharedPreconfBlockData,
 }
 
 impl PreconfBlockWatcher {
-    pub fn new(gateway_client: Client, tip_subscription: TipSubscription) -> Self {
-        todo!()
-    }
-
-    pub async fn run(&mut self) {
-        let mut current_preconf_block_num = 0;
+    async fn run(&mut self) {
+        let mut current_preconf_block_num = *self.latest_synced_block.borrow() + 1;
 
         loop {
-            let latest_chain_tip = self.latest_block.tip();
-            let latest_synced_block_num = *self.latest_synced_block.borrow();
-
-            if latest_synced_block_num >= latest_chain_tip {
-                let preconf_block_num = latest_synced_block_num + 1;
-
-                match self.gateway_client.get_preconfirmed_block(preconf_block_num).await {
+            if current_preconf_block_num >= self.latest_block.tip() {
+                match self.gateway_client.get_preconfirmed_block(current_preconf_block_num).await {
                     Ok(preconf_block) => {
                         let preconf_state_diff: StateUpdates = preconf_block
                             .transaction_state_diffs
+                            .clone()
                             .into_iter()
                             .fold(StateDiff::default(), |acc, diff| {
                                 if let Some(diff) = diff {
@@ -64,11 +142,18 @@ impl PreconfBlockWatcher {
                             .into();
 
                         // update shared state
-                        *self.pending_block_id.lock() = current_preconf_block_num;
-                        *self.pending_state_updates.lock() = preconf_state_diff;
-
-                        // increment to get the next preconf block number
-                        current_preconf_block_num = preconf_block_num + 1;
+                        let mut shared_data_lock = self.shared_preconf_block.inner.lock();
+                        if let Some(block) = shared_data_lock.as_mut() {
+                            block.preconf_block = preconf_block;
+                            block.preconf_block_id = current_preconf_block_num;
+                            block.preconf_state_updates = preconf_state_diff;
+                        } else {
+                            *shared_data_lock = Some(PreconfBlockData {
+                                preconf_block,
+                                preconf_state_updates: preconf_state_diff,
+                                preconf_block_id: current_preconf_block_num,
+                            })
+                        }
                     }
 
                     // this could either be because the latest block is still not synced to the
@@ -92,56 +177,15 @@ impl PreconfBlockWatcher {
                         error!(error = ?err, "Error receiving latest block number.");
                         break;
                     }
+
+                    let latest_synced_block_num = *self.latest_synced_block.borrow();
+                    current_preconf_block_num = latest_synced_block_num + 1;
                 }
 
-                _ = tokio::time::sleep(self.interval) => {}
+                _ = tokio::time::sleep(self.interval) => {
+                    current_preconf_block_num += 1;
+                }
             }
         }
-    }
-}
-
-pub struct PreconfStateFactory<P: StateFactoryProvider> {
-    // from pipeline
-    latest_synced_block: watch::Receiver<BlockNumber>,
-    gateway_client: Client,
-    provider: P,
-
-    // shared state
-    preconf_block_id: Arc<Mutex<BlockNumber>>,
-    preconf_block: Arc<Mutex<PreConfirmedBlock>>,
-    preconf_state_updates: Arc<Mutex<StateUpdates>>,
-}
-
-impl<P: StateFactoryProvider> PreconfStateFactory<P> {
-    pub fn new(
-        state_factory_provider: P,
-        gateway_client: Client,
-        chain_tip_subscription: TipSubscription,
-    ) -> Self {
-        todo!()
-    }
-
-    pub fn state(&self) -> PreconfStateProvider {
-        let latest_block_num = *self.latest_synced_block.borrow();
-        let latest_state = self.provider.historical(latest_block_num.into()).unwrap().unwrap();
-
-        PreconfStateProvider {
-            base: latest_state,
-            gateway: self.gateway_client.clone(),
-            pending_block_id: self.preconf_block_id.lock().clone(),
-            pending_state_updates: self.preconf_state_updates.lock().clone(),
-        }
-    }
-
-    pub fn state_updates(&self) -> StateUpdates {
-        self.preconf_state_updates.lock().clone()
-    }
-
-    pub fn block(&self) -> PreConfirmedBlock {
-        self.preconf_block.lock().clone()
-    }
-
-    pub fn transactions(&self) -> Vec<ConfirmedTransaction> {
-        self.preconf_block.lock().transactions.clone()
     }
 }
