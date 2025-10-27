@@ -117,6 +117,7 @@ enum PipelineCommand {
 /// This subscription receives notifications whenever the pipeline completes processing
 /// a block through all stages. The block number represents the highest block that has
 /// been successfully processed by all pipeline stages for a given batch.
+#[derive(Clone)]
 pub struct PipelineBlockSubscription {
     rx: watch::Receiver<Option<BlockNumber>>,
 }

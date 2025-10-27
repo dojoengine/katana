@@ -6,7 +6,6 @@ use katana_gas_price_oracle::GasPriceOracle;
 use katana_primitives::transaction::{ExecutableTx, InvokeTx};
 use katana_primitives::Felt;
 use katana_provider::providers::db::DbProvider;
-use katana_tasks::TaskManager;
 
 use super::*;
 use crate::backend::storage::Blockchain;

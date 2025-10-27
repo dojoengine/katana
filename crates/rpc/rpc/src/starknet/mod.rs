@@ -4,11 +4,11 @@ use std::fmt::Debug;
 use std::future::Future;
 use std::sync::Arc;
 
-use katana_core::backend::Backend;
-use katana_executor::ExecutorFactory;
 use katana_chain_spec::ChainSpec;
 use katana_core::backend::storage::Database;
+use katana_core::backend::Backend;
 use katana_core::utils::get_current_timestamp;
+use katana_executor::ExecutorFactory;
 use katana_gas_price_oracle::GasPriceOracle;
 use katana_pool::TransactionPool;
 use katana_primitives::block::{BlockHashOrNumber, BlockIdOrTag, FinalityStatus, GasPrices};
@@ -53,7 +53,6 @@ use katana_rpc_types_builder::{BlockBuilder, ReceiptBuilder};
 use katana_tasks::{Result as TaskResult, TaskSpawner};
 
 use crate::permit::Permits;
-use crate::starknet::pending::PendingBlockProvider;
 use crate::utils::events::{Cursor, EventBlockId};
 use crate::{utils, DEFAULT_ESTIMATE_FEE_MAX_CONCURRENT_REQUESTS};
 
@@ -97,9 +96,8 @@ where
 {
     pool: Pool,
     chain_spec: Arc<ChainSpec>,
-    pool: P,
+    pool: Pool,
     gas_oracle: GasPriceOracle,
-    preconf_provider: Box<dyn PendingBlockProvider>,
     storage: BlockchainProvider<Box<dyn Database>>,
     forked_client: Option<ForkedClient>,
     task_spawner: TaskSpawner,
@@ -154,7 +152,7 @@ where
             pool,
             None,
             task_spawner,
-            config, 
+            config,
             pending_block_provider,
             gas_oracle,
         )

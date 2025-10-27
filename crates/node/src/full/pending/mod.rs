@@ -3,11 +3,11 @@ use std::time::Duration;
 
 use katana_gateway::client::Client;
 use katana_gateway::types::{ConfirmedTransaction, ErrorCode, PreConfirmedBlock, StateDiff};
+use katana_pipeline::PipelineBlockSubscription;
 use katana_primitives::block::BlockNumber;
 use katana_primitives::state::StateUpdates;
 use katana_provider::api::state::StateFactoryProvider;
 use parking_lot::Mutex;
-use tokio::sync::watch;
 use tracing::error;
 
 use crate::full::pending::state::PreconfStateProvider;
@@ -19,7 +19,7 @@ pub mod state;
 #[derive(Debug)]
 pub struct PreconfStateFactory<P: StateFactoryProvider> {
     // from pipeline
-    latest_synced_block: watch::Receiver<BlockNumber>,
+    latest_synced_block: PipelineBlockSubscription,
     gateway_client: Client,
     provider: P,
 
@@ -31,7 +31,7 @@ impl<P: StateFactoryProvider> PreconfStateFactory<P> {
     pub fn new(
         state_factory_provider: P,
         gateway_client: Client,
-        latest_synced_block: watch::Receiver<BlockNumber>,
+        latest_synced_block: PipelineBlockSubscription,
         tip_subscription: TipSubscription,
     ) -> Self {
         let shared_preconf_block = SharedPreconfBlockData::default();
@@ -55,7 +55,7 @@ impl<P: StateFactoryProvider> PreconfStateFactory<P> {
     }
 
     pub fn state(&self) -> PreconfStateProvider {
-        let latest_block_num = *self.latest_synced_block.borrow();
+        let latest_block_num = self.latest_synced_block.block().unwrap();
         let base = self.provider.historical(latest_block_num.into()).unwrap().unwrap();
 
         let preconf_block = self.shared_preconf_block.inner.lock();
@@ -114,7 +114,7 @@ struct PreconfBlockWatcher {
     gateway_client: Client,
 
     // from pipeline
-    latest_synced_block: watch::Receiver<BlockNumber>,
+    latest_synced_block: PipelineBlockSubscription,
     // from tip watcher (actual tip of the chain)
     latest_block: TipSubscription,
 
@@ -124,7 +124,8 @@ struct PreconfBlockWatcher {
 
 impl PreconfBlockWatcher {
     async fn run(&mut self) {
-        let mut current_preconf_block_num = *self.latest_synced_block.borrow() + 1;
+        let mut current_preconf_block_num =
+            self.latest_synced_block.block().map(|b| b + 1).unwrap_or(0);
 
         loop {
             if current_preconf_block_num >= self.latest_block.tip() {
@@ -180,7 +181,7 @@ impl PreconfBlockWatcher {
                         break;
                     }
 
-                    let latest_synced_block_num = *self.latest_synced_block.borrow();
+                    let latest_synced_block_num = self.latest_synced_block.block().unwrap();
                     current_preconf_block_num = latest_synced_block_num + 1;
                 }
 

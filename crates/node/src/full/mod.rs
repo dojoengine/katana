@@ -3,12 +3,14 @@
 use std::future::IntoFuture;
 use std::sync::Arc;
 
+use alloy_provider::RootProvider;
 use anyhow::Result;
 use http::header::CONTENT_TYPE;
 use http::Method;
 use jsonrpsee::RpcModule;
 use katana_chain_spec::ChainSpec;
 use katana_executor::ExecutionFlags;
+use katana_gas_price_oracle::GasPriceOracle;
 use katana_gateway_client::Client as SequencerGateway;
 use katana_metrics::exporters::prometheus::PrometheusRecorder;
 use katana_metrics::{Report, Server as MetricsServer};
@@ -27,6 +29,7 @@ use tracing::{error, info};
 
 use crate::config::db::DbConfig;
 use crate::config::metrics::MetricsConfig;
+use crate::full::pending::PreconfStateFactory;
 
 mod exit;
 mod pending;
@@ -75,6 +78,7 @@ pub struct Node {
     pub pipeline: Pipeline<DbProvider>,
     pub rpc_server: RpcServer,
     pub gateway_client: SequencerGateway,
+    pub chain_tip_watcher: ChainTipWatcher<RootProvider>,
 }
 
 impl Node {
@@ -114,11 +118,31 @@ impl Node {
 
         // --- build pipeline
 
-        let (mut pipeline, _) = Pipeline::new(provider.clone(), 50);
+        let (mut pipeline, pipeline_handle) = Pipeline::new(provider.clone(), 50);
         let block_downloader = BatchBlockDownloader::new_gateway(gateway_client.clone(), 8);
         pipeline.add_stage(Blocks::new(provider.clone(), block_downloader));
         pipeline.add_stage(Classes::new(provider.clone(), gateway_client.clone(), 8));
         pipeline.add_stage(StateTrie::new(provider.clone()));
+
+        // --
+
+        let core_contract = match config.network {
+            Network::Mainnet => {
+                katana_starknet::StarknetCore::new_http_mainnet(&config.eth_rpc_url)?
+            }
+            Network::Sepolia => {
+                katana_starknet::StarknetCore::new_http_sepolia(&config.eth_rpc_url)?
+            }
+        };
+
+        let chain_tip_watcher = ChainTipWatcher::new(core_contract);
+
+        let preconf_factory = PreconfStateFactory::new(
+            provider.clone(),
+            gateway_client.clone(),
+            pipeline_handle.subscribe_blocks(),
+            chain_tip_watcher.subscribe(),
+        );
 
         // --- build rpc server
 
@@ -148,6 +172,8 @@ impl Node {
             pool.clone(),
             task_spawner.clone(),
             starknet_api_cfg,
+            Box::new(preconf_factory),
+            GasPriceOracle::create_for_testing(),
         );
 
         if config.rpc.apis.contains(&RpcModuleKind::Starknet) {
@@ -194,6 +220,7 @@ impl Node {
             rpc_server,
             task_manager,
             gateway_client,
+            chain_tip_watcher,
             config: Arc::new(config),
         })
     }
@@ -212,18 +239,7 @@ impl Node {
 
         let pipeline_handle = self.pipeline.handle();
 
-        let core_contract = match self.config.network {
-            Network::Mainnet => {
-                katana_starknet::StarknetCore::new_http_mainnet(&self.config.eth_rpc_url).await?
-            }
-            Network::Sepolia => {
-                katana_starknet::StarknetCore::new_http_sepolia(&self.config.eth_rpc_url).await?
-            }
-        };
-
-        let tip_watcher = ChainTipWatcher::new(core_contract);
-
-        let mut tip_subscription = tip_watcher.subscribe();
+        let mut tip_subscription = self.chain_tip_watcher.subscribe();
         let pipeline_handle_clone = pipeline_handle.clone();
 
         self.task_manager
@@ -237,7 +253,7 @@ impl Node {
             .build_task()
             .graceful_shutdown()
             .name("Chain tip watcher")
-            .spawn(tip_watcher.into_future());
+            .spawn(self.chain_tip_watcher.into_future());
 
         // spawn a task for updating the pipeline's tip based on chain tip changes
         self.task_manager.task_spawner().spawn(async move {
