@@ -2,9 +2,7 @@ use std::cmp::Ordering;
 use std::sync::Arc;
 
 use katana_db::abstraction::{Database, DbTx, DbTxMut};
-use katana_db::models::contract::{
-    ContractClassChange, ContractClassChangeType, ContractNonceChange,
-};
+use katana_db::models::contract::{ContractClassChange, ContractNonceChange};
 use katana_db::models::storage::{ContractStorageEntry, ContractStorageKey, StorageEntry};
 use katana_db::tables;
 use katana_fork::BackendClient;

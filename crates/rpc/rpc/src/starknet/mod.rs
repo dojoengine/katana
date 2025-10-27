@@ -99,7 +99,7 @@ where
     chain_spec: Arc<ChainSpec>,
     pool: P,
     gas_oracle: GasPriceOracle,
-    preconf_provider: Arc<dyn PendingBlockProvider>,
+    preconf_provider: Box<dyn PendingBlockProvider>,
     storage: BlockchainProvider<Box<dyn Database>>,
     forked_client: Option<ForkedClient>,
     task_spawner: TaskSpawner,

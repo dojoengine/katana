@@ -83,7 +83,7 @@ use katana_provider_api::ProviderError;
 use katana_stage::{Stage, StageExecutionInput, StageExecutionOutput};
 use tokio::sync::watch;
 use tokio::task::yield_now;
-use tracing::{debug, error, info, info_span, Instrument, Span};
+use tracing::{debug, error, info, info_span, Instrument};
 
 /// The result of a pipeline execution.
 pub type PipelineResult<T> = Result<T, Error>;
