@@ -15,7 +15,6 @@ pub use fixed::{
     DEFAULT_STRK_L2_GAS_PRICE,
 };
 pub use sampled::ethereum::EthSampler;
-pub use sampled::starknet::StarknetSampler;
 pub use sampled::{SampledPriceOracle, Sampler};
 
 #[derive(Debug)]
@@ -45,11 +44,17 @@ impl GasPriceOracle {
         Self::Sampled(oracle)
     }
 
-    /// Creates a new gas oracle that samples the gas prices from a Starknet chain.
+    /// Creates a new gas oracle that samples the gas prices from a Starknet chain via RPC.
     pub fn sampled_starknet(url: Url) -> Self {
         let provider = starknet::providers::JsonRpcClient::new(HttpTransport::new(url));
-        let sampler = sampled::starknet::StarknetSampler::new(provider);
-        let oracle = sampled::SampledPriceOracle::new(sampler);
+        let oracle = sampled::SampledPriceOracle::new(provider);
+        Self::Sampled(oracle)
+    }
+
+    /// Creates a new gas oracle that samples the gas prices from a Starknet chain via feeder
+    /// gateway.
+    pub fn sampled_starknet_gateway(gateway: katana_gateway::client::Client) -> Self {
+        let oracle = sampled::SampledPriceOracle::new(gateway);
         Self::Sampled(oracle)
     }
 

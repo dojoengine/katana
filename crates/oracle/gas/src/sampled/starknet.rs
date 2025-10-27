@@ -1,29 +1,19 @@
-use std::fmt::Debug;
-
+use katana_gateway::client::Client as GatewayClient;
+use katana_gateway::types::BlockId as GatewayBlockId;
 use katana_primitives::block::GasPrices;
 use num_traits::ToPrimitive;
 use starknet::core::types::{BlockId, BlockTag, MaybePreConfirmedBlockWithTxHashes};
-use starknet::providers::jsonrpc::HttpTransport;
-use starknet::providers::JsonRpcClient;
 
 use super::SampledPrices;
 
-#[derive(Debug, Clone)]
-pub struct StarknetSampler<P = JsonRpcClient<HttpTransport>> {
-    provider: P,
-}
-
-impl<P> StarknetSampler<P> {
-    /// Creates a new [`StarknetGasPriceSampler`] using the given provider.
-    pub fn new(provider: P) -> Self {
-        Self { provider }
-    }
-}
-
-impl<P: starknet::providers::Provider> StarknetSampler<P> {
-    async fn sample_prices(&self) -> anyhow::Result<SampledPrices> {
+/// Implement `Sampler` for any type that implements `starknet::providers::Provider`.
+impl<P> super::Sampler for P
+where
+    P: starknet::providers::Provider + Send + Sync,
+{
+    async fn sample(&self) -> anyhow::Result<SampledPrices> {
         let block_id = BlockId::Tag(BlockTag::Latest);
-        let block = self.provider.get_block_with_tx_hashes(block_id).await?;
+        let block = self.get_block_with_tx_hashes(block_id).await?;
 
         let (l1_gas_price, l2_gas_price, l1_data_gas_price) = match block {
             MaybePreConfirmedBlockWithTxHashes::Block(block) => {
@@ -53,12 +43,27 @@ impl<P: starknet::providers::Provider> StarknetSampler<P> {
     }
 }
 
-impl<P> super::Sampler for StarknetSampler<P>
-where
-    P: starknet::providers::Provider + Send + Sync,
-{
+/// Implement `Sampler` for the feeder gateway client.
+impl super::Sampler for GatewayClient {
     async fn sample(&self) -> anyhow::Result<SampledPrices> {
-        self.sample_prices().await
+        let block = self.get_block(GatewayBlockId::Latest).await?;
+
+        let l2_gas_prices = GasPrices::new(
+            block.l2_gas_price.price_in_wei.to_u128().unwrap().try_into()?,
+            block.l2_gas_price.price_in_fri.to_u128().unwrap().try_into()?,
+        );
+
+        let l1_gas_prices = GasPrices::new(
+            block.l1_gas_price.price_in_wei.to_u128().unwrap().try_into()?,
+            block.l1_gas_price.price_in_fri.to_u128().unwrap().try_into()?,
+        );
+
+        let l1_data_gas_prices = GasPrices::new(
+            block.l1_data_gas_price.price_in_wei.to_u128().unwrap().try_into()?,
+            block.l1_data_gas_price.price_in_fri.to_u128().unwrap().try_into()?,
+        );
+
+        Ok(SampledPrices { l2_gas_prices, l1_gas_prices, l1_data_gas_prices })
     }
 }
 
@@ -70,7 +75,7 @@ mod tests {
         MaybePreConfirmedBlockWithTxHashes, ResourcePrice,
     };
 
-    use crate::sampled::starknet::StarknetSampler;
+    use crate::sampled::Sampler;
 
     mock_provider! {
         MockGasProvider,
@@ -105,8 +110,8 @@ mod tests {
 
     #[tokio::test]
     async fn sample_gas_prices() {
-        let sampler = StarknetSampler::new(MockGasProvider::new());
-        let sampled_prices = sampler.sample_prices().await.unwrap();
+        let provider = MockGasProvider::new();
+        let sampled_prices = provider.sample().await.unwrap();
 
         assert_eq!(sampled_prices.l2_gas_prices.eth.get(), 500);
         assert_eq!(sampled_prices.l2_gas_prices.strk.get(), 750);

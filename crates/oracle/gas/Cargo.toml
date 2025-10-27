@@ -6,6 +6,7 @@ repository.workspace = true
 version.workspace = true
 
 [dependencies]
+katana-gateway.workspace = true
 katana-primitives.workspace = true
 katana-tasks.workspace = true
 
