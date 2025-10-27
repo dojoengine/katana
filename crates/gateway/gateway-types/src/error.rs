@@ -1,5 +1,6 @@
 use std::fmt;
 
+#[cfg(feature = "server")]
 use katana_rpc_api::error::starknet::StarknetApiError;
 use serde::{Deserialize, Serialize};
 
