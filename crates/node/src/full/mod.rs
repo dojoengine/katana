@@ -172,7 +172,7 @@ impl Node {
             pool.clone(),
             task_spawner.clone(),
             starknet_api_cfg,
-            Box::new(preconf_factory),
+            preconf_factory,
             GasPriceOracle::create_for_testing(),
         );
 
