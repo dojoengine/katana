@@ -1,3 +1,5 @@
+use std::fmt::Debug;
+
 use futures::future::BoxFuture;
 use katana_gateway_client::Client as GatewayClient;
 use katana_gateway_types::BlockId as GatewayBlockId;
@@ -5,17 +7,37 @@ use katana_primitives::block::GasPrices;
 use num_traits::ToPrimitive;
 use starknet::core::types::{BlockId, BlockTag, MaybePreConfirmedBlockWithTxHashes};
 use starknet::providers::jsonrpc::HttpTransport;
-use starknet::providers::{JsonRpcClient, Provider};
+use starknet::providers::JsonRpcClient;
 
 use crate::sampled::SampledPrices;
 use crate::Sampler;
 
-impl Sampler for JsonRpcClient<HttpTransport> {
+#[derive(Debug, Clone)]
+pub struct StarknetJsonRpcSampler<T = JsonRpcClient<HttpTransport>> {
+    client: T,
+}
+
+impl<T> StarknetJsonRpcSampler<T> {
+    pub fn new(client: T) -> Self {
+        Self { client }
+    }
+}
+
+impl StarknetJsonRpcSampler<JsonRpcClient<HttpTransport>> {
+    pub fn new_http(url: url::Url) -> StarknetJsonRpcSampler<JsonRpcClient<HttpTransport>> {
+        StarknetJsonRpcSampler::new(JsonRpcClient::new(HttpTransport::new(url)))
+    }
+}
+
+impl<T> Sampler for StarknetJsonRpcSampler<T>
+where
+    T: ::starknet::providers::Provider + Debug + Send + Sync,
+{
     fn sample(&self) -> BoxFuture<'_, anyhow::Result<SampledPrices>> {
         Box::pin(async {
             let block_id = BlockId::Tag(BlockTag::Latest);
 
-            let block = self.get_block_with_tx_hashes(block_id).await?;
+            let block = self.client.get_block_with_tx_hashes(block_id).await?;
 
             let (l1_gas_price, l2_gas_price, l1_data_gas_price) = match block {
                 MaybePreConfirmedBlockWithTxHashes::Block(block) => {
@@ -46,10 +68,21 @@ impl Sampler for JsonRpcClient<HttpTransport> {
     }
 }
 
-impl Sampler for GatewayClient {
+#[derive(Debug, Clone)]
+pub struct StarknetGatewaySampler {
+    client: GatewayClient,
+}
+
+impl StarknetGatewaySampler {
+    pub fn new(client: GatewayClient) -> Self {
+        Self { client }
+    }
+}
+
+impl Sampler for StarknetGatewaySampler {
     fn sample(&self) -> BoxFuture<'_, anyhow::Result<SampledPrices>> {
         Box::pin(async {
-            let block = self.get_block(GatewayBlockId::Latest).await?;
+            let block = self.client.get_block(GatewayBlockId::Latest).await?;
 
             let l2_gas_prices = GasPrices::new(
                 block.l2_gas_price.price_in_wei.to_u128().unwrap().try_into()?,
@@ -79,6 +112,7 @@ mod tests {
         MaybePreConfirmedBlockWithTxHashes, ResourcePrice,
     };
 
+    use crate::sampled::starknet::StarknetJsonRpcSampler;
     use crate::sampled::Sampler;
 
     mock_provider! {
@@ -114,8 +148,8 @@ mod tests {
 
     #[tokio::test]
     async fn sample_gas_prices() {
-        let provider = MockGasProvider::new();
-        let sampled_prices = provider.sample().await.unwrap();
+        let sampler = StarknetJsonRpcSampler::new(MockGasProvider::new());
+        let sampled_prices = sampler.sample().await.unwrap();
 
         assert_eq!(sampled_prices.l2_gas_prices.eth.get(), 500);
         assert_eq!(sampled_prices.l2_gas_prices.strk.get(), 750);

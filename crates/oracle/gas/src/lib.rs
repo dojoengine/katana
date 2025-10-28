@@ -2,8 +2,6 @@ use std::fmt::Debug;
 use std::future::Future;
 
 use katana_primitives::block::GasPrices;
-use starknet::providers::jsonrpc::HttpTransport;
-use starknet::providers::JsonRpcClient;
 use url::Url;
 
 mod fixed;
@@ -16,6 +14,8 @@ pub use fixed::{
 };
 use sampled::ethereum::EthereumSampler;
 pub use sampled::{SampledPriceOracle, Sampler};
+
+use crate::sampled::starknet::{StarknetGatewaySampler, StarknetJsonRpcSampler};
 
 #[derive(Debug)]
 pub enum GasPriceOracle {
@@ -45,7 +45,7 @@ impl GasPriceOracle {
 
     /// Creates a new gas oracle that samples the gas prices from a Starknet chain via RPC.
     pub fn sampled_starknet(url: Url) -> Self {
-        let provider: Box<dyn Sampler> = Box::new(JsonRpcClient::new(HttpTransport::new(url)));
+        let provider: Box<dyn Sampler> = Box::new(StarknetJsonRpcSampler::new_http(url));
         let oracle = sampled::SampledPriceOracle::new(provider);
         Self::Sampled(oracle)
     }
@@ -53,7 +53,7 @@ impl GasPriceOracle {
     /// Creates a new gas oracle that samples the gas prices from a Starknet chain via feeder
     /// gateway.
     pub fn sampled_starknet_gateway(gateway: katana_gateway_client::Client) -> Self {
-        let gateway: Box<dyn Sampler> = Box::new(gateway);
+        let gateway: Box<dyn Sampler> = Box::new(StarknetGatewaySampler::new(gateway));
         let oracle = sampled::SampledPriceOracle::new(gateway);
         Self::Sampled(oracle)
     }
