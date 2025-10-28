@@ -1,55 +1,106 @@
 use std::fmt::Debug;
 
+use futures::future::BoxFuture;
+use katana_gateway_client::Client as GatewayClient;
+use katana_gateway_types::BlockId as GatewayBlockId;
 use katana_primitives::block::GasPrices;
 use num_traits::ToPrimitive;
 use starknet::core::types::{BlockId, BlockTag, MaybePreConfirmedBlockWithTxHashes};
 use starknet::providers::jsonrpc::HttpTransport;
 use starknet::providers::JsonRpcClient;
 
-use super::SampledPrices;
+use crate::sampled::SampledPrices;
+use crate::Sampler;
 
 #[derive(Debug, Clone)]
-pub struct StarknetSampler<P = JsonRpcClient<HttpTransport>> {
-    provider: P,
+pub struct StarknetJsonRpcSampler<T = JsonRpcClient<HttpTransport>> {
+    client: T,
 }
 
-impl<P> StarknetSampler<P> {
-    /// Creates a new [`StarknetGasPriceSampler`] using the given provider.
-    pub fn new(provider: P) -> Self {
-        Self { provider }
+impl<T> StarknetJsonRpcSampler<T> {
+    pub fn new(client: T) -> Self {
+        Self { client }
     }
 }
 
-impl<P: starknet::providers::Provider> StarknetSampler<P> {
-    pub async fn sample(&self) -> anyhow::Result<SampledPrices> {
-        let block_id = BlockId::Tag(BlockTag::Latest);
-        let block = self.provider.get_block_with_tx_hashes(block_id).await?;
+impl StarknetJsonRpcSampler<JsonRpcClient<HttpTransport>> {
+    pub fn new_http(url: url::Url) -> StarknetJsonRpcSampler<JsonRpcClient<HttpTransport>> {
+        StarknetJsonRpcSampler::new(JsonRpcClient::new(HttpTransport::new(url)))
+    }
+}
 
-        let (l1_gas_price, l2_gas_price, l1_data_gas_price) = match block {
-            MaybePreConfirmedBlockWithTxHashes::Block(block) => {
-                (block.l1_gas_price, block.l2_gas_price, block.l1_data_gas_price)
-            }
-            MaybePreConfirmedBlockWithTxHashes::PreConfirmedBlock(pending) => {
-                (pending.l1_gas_price, pending.l2_gas_price, pending.l1_data_gas_price)
-            }
-        };
+impl<T> Sampler for StarknetJsonRpcSampler<T>
+where
+    T: ::starknet::providers::Provider + Debug + Send + Sync,
+{
+    fn sample(&self) -> BoxFuture<'_, anyhow::Result<SampledPrices>> {
+        Box::pin(async {
+            let block_id = BlockId::Tag(BlockTag::Latest);
 
-        let l2_gas_prices = GasPrices::new(
-            l2_gas_price.price_in_wei.to_u128().unwrap().try_into()?,
-            l2_gas_price.price_in_fri.to_u128().unwrap().try_into()?,
-        );
+            let block = self.client.get_block_with_tx_hashes(block_id).await?;
 
-        let l1_gas_prices = GasPrices::new(
-            l1_gas_price.price_in_wei.to_u128().unwrap().try_into()?,
-            l1_gas_price.price_in_fri.to_u128().unwrap().try_into()?,
-        );
+            let (l1_gas_price, l2_gas_price, l1_data_gas_price) = match block {
+                MaybePreConfirmedBlockWithTxHashes::Block(block) => {
+                    (block.l1_gas_price, block.l2_gas_price, block.l1_data_gas_price)
+                }
+                MaybePreConfirmedBlockWithTxHashes::PreConfirmedBlock(pending) => {
+                    (pending.l1_gas_price, pending.l2_gas_price, pending.l1_data_gas_price)
+                }
+            };
 
-        let l1_data_gas_prices = GasPrices::new(
-            l1_data_gas_price.price_in_wei.to_u128().unwrap().try_into()?,
-            l1_data_gas_price.price_in_fri.to_u128().unwrap().try_into()?,
-        );
+            let l2_gas_prices = GasPrices::new(
+                l2_gas_price.price_in_wei.to_u128().unwrap().try_into()?,
+                l2_gas_price.price_in_fri.to_u128().unwrap().try_into()?,
+            );
 
-        Ok(SampledPrices { l2_gas_prices, l1_gas_prices, l1_data_gas_prices })
+            let l1_gas_prices = GasPrices::new(
+                l1_gas_price.price_in_wei.to_u128().unwrap().try_into()?,
+                l1_gas_price.price_in_fri.to_u128().unwrap().try_into()?,
+            );
+
+            let l1_data_gas_prices = GasPrices::new(
+                l1_data_gas_price.price_in_wei.to_u128().unwrap().try_into()?,
+                l1_data_gas_price.price_in_fri.to_u128().unwrap().try_into()?,
+            );
+
+            Ok(SampledPrices { l2_gas_prices, l1_gas_prices, l1_data_gas_prices })
+        })
+    }
+}
+
+#[derive(Debug, Clone)]
+pub struct StarknetGatewaySampler {
+    client: GatewayClient,
+}
+
+impl StarknetGatewaySampler {
+    pub fn new(client: GatewayClient) -> Self {
+        Self { client }
+    }
+}
+
+impl Sampler for StarknetGatewaySampler {
+    fn sample(&self) -> BoxFuture<'_, anyhow::Result<SampledPrices>> {
+        Box::pin(async {
+            let block = self.client.get_block(GatewayBlockId::Latest).await?;
+
+            let l2_gas_prices = GasPrices::new(
+                block.l2_gas_price.price_in_wei.to_u128().unwrap().try_into()?,
+                block.l2_gas_price.price_in_fri.to_u128().unwrap().try_into()?,
+            );
+
+            let l1_gas_prices = GasPrices::new(
+                block.l1_gas_price.price_in_wei.to_u128().unwrap().try_into()?,
+                block.l1_gas_price.price_in_fri.to_u128().unwrap().try_into()?,
+            );
+
+            let l1_data_gas_prices = GasPrices::new(
+                block.l1_data_gas_price.price_in_wei.to_u128().unwrap().try_into()?,
+                block.l1_data_gas_price.price_in_fri.to_u128().unwrap().try_into()?,
+            );
+
+            Ok(SampledPrices { l2_gas_prices, l1_gas_prices, l1_data_gas_prices })
+        })
     }
 }
 
@@ -61,7 +112,8 @@ mod tests {
         MaybePreConfirmedBlockWithTxHashes, ResourcePrice,
     };
 
-    use crate::sampled::starknet::StarknetSampler;
+    use crate::sampled::starknet::StarknetJsonRpcSampler;
+    use crate::sampled::Sampler;
 
     mock_provider! {
         MockGasProvider,
@@ -96,7 +148,7 @@ mod tests {
 
     #[tokio::test]
     async fn sample_gas_prices() {
-        let sampler = StarknetSampler::new(MockGasProvider::new());
+        let sampler = StarknetJsonRpcSampler::new(MockGasProvider::new());
         let sampled_prices = sampler.sample().await.unwrap();
 
         assert_eq!(sampled_prices.l2_gas_prices.eth.get(), 500);
