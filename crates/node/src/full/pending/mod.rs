@@ -1,8 +1,8 @@
 use std::sync::Arc;
 use std::time::Duration;
 
-use katana_gateway::client::Client;
-use katana_gateway::types::{ConfirmedTransaction, ErrorCode, PreConfirmedBlock, StateDiff};
+use katana_gateway_client::Client;
+use katana_gateway_types::{ConfirmedTransaction, ErrorCode, PreConfirmedBlock, StateDiff};
 use katana_pipeline::PipelineBlockSubscription;
 use katana_primitives::block::BlockNumber;
 use katana_primitives::state::StateUpdates;
@@ -162,7 +162,7 @@ impl PreconfBlockWatcher {
                     // this could either be because the latest block is still not synced to the
                     // chain's tip, in which case we just skip to the next
                     // iteration.
-                    Err(katana_gateway::client::Error::Sequencer(error))
+                    Err(katana_gateway_client::Error::Sequencer(error))
                         if error.code == ErrorCode::BlockNotFound =>
                     {
                         continue

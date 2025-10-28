@@ -6301,6 +6301,7 @@ dependencies = [
  "katana-gas-price-oracle",
  "katana-gateway-client",
  "katana-gateway-server",
+ "katana-gateway-types",
  "katana-messaging",
  "katana-metrics",
  "katana-pipeline",

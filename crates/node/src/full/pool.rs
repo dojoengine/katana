@@ -15,11 +15,11 @@ pub type FullNodePool =
 /// Any transaction validation is performed by the Starknet sequencer.
 #[derive(Debug)]
 pub struct GatewayProxyValidator {
-    gateway_client: katana_gateway::client::Client,
+    gateway_client: katana_gateway_client::Client,
 }
 
 impl GatewayProxyValidator {
-    pub fn new(gateway_client: katana_gateway::client::Client) -> Self {
+    pub fn new(gateway_client: katana_gateway_client::Client) -> Self {
         Self { gateway_client }
     }
 }

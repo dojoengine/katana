@@ -1,6 +1,6 @@
 use std::fmt::Debug;
 
-use katana_gateway::types::TxTryFromError;
+use katana_gateway_types::TxTryFromError;
 use katana_primitives::block::{GasPrices, PartialHeader, PendingBlock};
 use katana_primitives::transaction::TxWithHash;
 use katana_primitives::Felt;

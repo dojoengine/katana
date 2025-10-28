@@ -1,4 +1,4 @@
-use katana_gateway::types::{ErrorCode, GatewayError};
+use katana_gateway_types::{ErrorCode, GatewayError};
 use katana_primitives::block::BlockNumber;
 use katana_primitives::class::{ClassHash, CompiledClassHash, ContractClass};
 use katana_primitives::contract::{ContractAddress, Nonce, StorageKey, StorageValue};
@@ -13,7 +13,7 @@ pub struct PreconfStateProvider {
     pub base: Box<dyn StateProvider>,
     pub preconf_block_id: Option<BlockNumber>,
     pub preconf_state_updates: Option<StateUpdates>,
-    pub gateway: katana_gateway::client::Client,
+    pub gateway: katana_gateway_client::Client,
 }
 
 impl StateProvider for PreconfStateProvider {
@@ -80,7 +80,7 @@ impl ContractClassProvider for PreconfStateProvider {
         let result = runtime::Builder::new_current_thread()
             .build()
             .unwrap()
-            .block_on(self.gateway.get_class(hash, katana_gateway::types::BlockId::Pending));
+            .block_on(self.gateway.get_class(hash, katana_gateway_types::BlockId::Pending));
 
         match result {
             Ok(class) => {
@@ -91,7 +91,7 @@ impl ContractClassProvider for PreconfStateProvider {
             }
 
             Err(error) => {
-                if let katana_gateway::client::Error::Sequencer(GatewayError {
+                if let katana_gateway_client::Error::Sequencer(GatewayError {
                     code: ErrorCode::UndeclaredClass,
                     ..
                 }) = error

@@ -12,6 +12,7 @@ katana-db.workspace = true
 katana-executor.workspace = true
 katana-gateway-server.workspace = true
 katana-gateway-client.workspace = true
+katana-gateway-types.workspace = true
 katana-gas-price-oracle.workspace = true
 katana-messaging.workspace = true
 katana-metrics.workspace = true
