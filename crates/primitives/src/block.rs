@@ -2,6 +2,7 @@ use std::fmt::{Display, LowerHex};
 use std::num::NonZeroU128;
 use std::str::FromStr;
 
+use num_traits::ToPrimitive;
 use starknet::core::utils::cairo_short_string_to_felt;
 use starknet::macros::short_string;
 
@@ -167,16 +168,31 @@ impl LowerHex for GasPrice {
 }
 
 #[derive(thiserror::Error, Debug)]
-#[error("gas price cannot be zero")]
-pub struct GasPriceIsZeroError;
+pub enum GasPriceTryFromError {
+    #[error("gas price cannot be zero")]
+    IsZero,
+    #[error("gas price cannot be more than a u128")]
+    Overflow,
+}
 
 impl TryFrom<u128> for GasPrice {
-    type Error = GasPriceIsZeroError;
+    type Error = GasPriceTryFromError;
 
     fn try_from(value: u128) -> Result<Self, Self::Error> {
         match NonZeroU128::new(value) {
             Some(non_zero) => Ok(Self(non_zero)),
-            None => Err(GasPriceIsZeroError),
+            None => Err(GasPriceTryFromError::IsZero),
+        }
+    }
+}
+
+impl TryFrom<Felt> for GasPrice {
+    type Error = GasPriceTryFromError;
+
+    fn try_from(value: Felt) -> Result<Self, Self::Error> {
+        match NonZeroU128::new(value.to_u128().ok_or(GasPriceTryFromError::Overflow)?) {
+            Some(non_zero) => Ok(Self(non_zero)),
+            None => Err(GasPriceTryFromError::IsZero),
         }
     }
 }

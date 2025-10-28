@@ -15,8 +15,9 @@ use katana_rpc_types::trace::{
 use katana_rpc_types::SimulationFlag;
 
 use super::StarknetApi;
+use crate::starknet::pending::PendingBlockProvider;
 
-impl<EF: ExecutorFactory> StarknetApi<EF> {
+impl<EF: ExecutorFactory, P: PendingBlockProvider> StarknetApi<EF, P> {
     fn simulate_txs(
         &self,
         block_id: BlockIdOrTag,
@@ -161,7 +162,7 @@ impl<EF: ExecutorFactory> StarknetApi<EF> {
 }
 
 #[async_trait]
-impl<EF: ExecutorFactory> StarknetTraceApiServer for StarknetApi<EF> {
+impl<EF: ExecutorFactory, P: PendingBlockProvider> StarknetTraceApiServer for StarknetApi<EF, P> {
     async fn trace_transaction(&self, transaction_hash: TxHash) -> RpcResult<TxTrace> {
         self.on_io_blocking_task(move |this| Ok(this.trace(transaction_hash)?)).await?
     }

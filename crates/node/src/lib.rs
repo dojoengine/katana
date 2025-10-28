@@ -266,6 +266,7 @@ impl Node {
                 client,
                 task_spawner.clone(),
                 starknet_api_cfg,
+                block_producer.clone(),
             )
         } else {
             StarknetApi::new(
@@ -274,6 +275,7 @@ impl Node {
                 Some(block_producer.clone()),
                 task_spawner.clone(),
                 starknet_api_cfg,
+                block_producer.clone(),
             )
         };
 
