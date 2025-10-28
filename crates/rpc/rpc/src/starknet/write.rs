@@ -11,8 +11,9 @@ use katana_rpc_types::broadcasted::{
 };
 
 use super::StarknetApi;
+use crate::starknet::pending::PendingBlockProvider;
 
-impl<EF: ExecutorFactory> StarknetApi<EF> {
+impl<EF: ExecutorFactory, P: PendingBlockProvider> StarknetApi<EF, P> {
     async fn add_invoke_transaction_impl(
         &self,
         tx: BroadcastedInvokeTx,
@@ -75,7 +76,7 @@ impl<EF: ExecutorFactory> StarknetApi<EF> {
 }
 
 #[async_trait]
-impl<EF: ExecutorFactory> StarknetWriteApiServer for StarknetApi<EF> {
+impl<EF: ExecutorFactory, P: PendingBlockProvider> StarknetWriteApiServer for StarknetApi<EF, P> {
     async fn add_invoke_transaction(
         &self,
         invoke_transaction: BroadcastedInvokeTx,

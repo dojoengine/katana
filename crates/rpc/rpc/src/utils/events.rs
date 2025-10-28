@@ -2,7 +2,6 @@ use std::cmp::Ordering;
 use std::ops::RangeInclusive;
 
 use anyhow::Context;
-use katana_core::service::block_producer::PendingExecutor;
 use katana_primitives::block::{BlockHash, BlockNumber};
 use katana_primitives::contract::ContractAddress;
 use katana_primitives::event::ContinuationToken;
@@ -14,6 +13,7 @@ use katana_provider::api::transaction::ReceiptProvider;
 use katana_provider::api::ProviderError;
 use katana_rpc_api::error::starknet::StarknetApiError;
 use katana_rpc_types::event::EmittedEvent;
+use katana_rpc_types::PreConfirmedBlockWithReceipts;
 
 pub type EventQueryResult<T> = Result<T, Error>;
 
@@ -86,23 +86,20 @@ impl PartialCursor {
 }
 
 pub fn fetch_pending_events(
-    pending_executor: &PendingExecutor,
+    pending_block: &PreConfirmedBlockWithReceipts,
     filter: &Filter,
     chunk_size: u64,
     cursor: Option<Cursor>,
     buffer: &mut Vec<EmittedEvent>,
 ) -> EventQueryResult<Cursor> {
-    let pending_block = pending_executor.read();
-
-    let block_env = pending_block.block_env();
-    let txs = pending_block.transactions();
-    let cursor = cursor.unwrap_or(Cursor::new_block(block_env.number));
+    let cursor = cursor.unwrap_or(Cursor::new_block(pending_block.block_number));
 
     // process individual transactions in the block.
     // the iterator will start with txn index == cursor.txn.idx
-    for (tx_idx, (tx_hash, events)) in txs
+    for (tx_idx, (tx_hash, events)) in pending_block
+        .transactions
         .iter()
-        .filter_map(|(tx, res)| res.receipt().map(|receipt| (tx.hash, receipt.events())))
+        .map(|receipt| (receipt.receipt.transaction_hash, receipt.receipt.receipt.events()))
         .enumerate()
         .skip(cursor.txn.idx)
     {
@@ -128,14 +125,14 @@ pub fn fetch_pending_events(
         )?;
 
         if let Some(c) = partial_cursor {
-            return Ok(c.into_full(block_env.number));
+            return Ok(c.into_full(pending_block.block_number));
         }
     }
 
     // if we reach here, it means we have processed all the transactions in the pending block.
     // we return a cursor that points to the next tx in the pending block.
-    let next_pending_tx_idx = txs.len();
-    Ok(Cursor::new(block_env.number, next_pending_tx_idx, 0))
+    let next_pending_tx_idx = pending_block.transactions.len();
+    Ok(Cursor::new(pending_block.block_number, next_pending_tx_idx, 0))
 }
 
 /// Returns `true` if reach the end of the block range.

@@ -101,8 +101,10 @@ impl PreConfirmedBlockWithTxs {
             price_in_fri: header.l2_gas_prices.strk.get().into(),
         };
 
-        let l1_data_gas_price =
-            ResourcePrice { price_in_fri: Default::default(), price_in_wei: Default::default() };
+        let l1_data_gas_price = ResourcePrice {
+            price_in_fri: header.l1_data_gas_prices.eth.get().into(),
+            price_in_wei: header.l1_data_gas_prices.strk.get().into(),
+        };
 
         Self {
             transactions,

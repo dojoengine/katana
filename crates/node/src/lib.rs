@@ -262,18 +262,18 @@ impl Node {
             StarknetApi::new_forked(
                 backend.clone(),
                 pool.clone(),
-                block_producer.clone(),
                 client,
                 task_spawner.clone(),
                 starknet_api_cfg,
+                block_producer.clone(),
             )
         } else {
             StarknetApi::new(
                 backend.clone(),
                 pool.clone(),
-                Some(block_producer.clone()),
                 task_spawner.clone(),
                 starknet_api_cfg,
+                block_producer.clone(),
             )
         };
 

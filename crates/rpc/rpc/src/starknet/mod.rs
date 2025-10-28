@@ -5,17 +5,14 @@ use std::future::Future;
 use std::sync::Arc;
 
 use katana_core::backend::Backend;
-use katana_core::service::block_producer::{BlockProducer, BlockProducerMode, PendingExecutor};
-use katana_executor::{ExecutionResult, ExecutorFactory};
+use katana_executor::ExecutorFactory;
 use katana_pool::{TransactionPool, TxPool};
-use katana_primitives::block::{BlockHashOrNumber, BlockIdOrTag, FinalityStatus, PartialHeader};
+use katana_primitives::block::{BlockHashOrNumber, BlockIdOrTag, FinalityStatus, GasPrices};
 use katana_primitives::class::{ClassHash, CompiledClass};
 use katana_primitives::contract::{ContractAddress, Nonce, StorageKey, StorageValue};
-use katana_primitives::da::L1DataAvailabilityMode;
 use katana_primitives::env::BlockEnv;
 use katana_primitives::event::MaybeForkedContinuationToken;
 use katana_primitives::transaction::{ExecutableTxWithHash, TxHash, TxNumber};
-use katana_primitives::version::CURRENT_STARKNET_VERSION;
 use katana_primitives::Felt;
 use katana_provider::api::block::{BlockHashProvider, BlockIdReader, BlockNumberProvider};
 use katana_provider::api::contract::ContractClassProvider;
@@ -30,8 +27,7 @@ use katana_rpc_api::error::starknet::{
 };
 use katana_rpc_types::block::{
     BlockHashAndNumberResponse, BlockNumberResponse, GetBlockWithReceiptsResponse,
-    GetBlockWithTxHashesResponse, MaybePreConfirmedBlock, PreConfirmedBlockWithReceipts,
-    PreConfirmedBlockWithTxHashes, PreConfirmedBlockWithTxs,
+    GetBlockWithTxHashesResponse, MaybePreConfirmedBlock,
 };
 use katana_rpc_types::class::Class;
 use katana_rpc_types::event::{EventFilterWithPage, GetEventsResponse, ResultPageRequest};
@@ -39,7 +35,7 @@ use katana_rpc_types::list::{
     ContinuationToken as ListContinuationToken, GetBlocksRequest, GetBlocksResponse,
     GetTransactionsRequest, GetTransactionsResponse, TransactionListItem,
 };
-use katana_rpc_types::receipt::{ReceiptBlockInfo, TxReceiptWithBlockInfo};
+use katana_rpc_types::receipt::TxReceiptWithBlockInfo;
 use katana_rpc_types::state_update::StateUpdate;
 use katana_rpc_types::transaction::RpcTxWithHash;
 use katana_rpc_types::trie::{
@@ -51,6 +47,7 @@ use katana_rpc_types_builder::{BlockBuilder, ReceiptBuilder};
 use katana_tasks::{Result as TaskResult, TaskSpawner};
 
 use crate::permit::Permits;
+use crate::starknet::pending::PendingBlockProvider;
 use crate::utils::events::{Cursor, EventBlockId};
 use crate::{utils, DEFAULT_ESTIMATE_FEE_MAX_CONCURRENT_REQUESTS};
 
@@ -58,6 +55,7 @@ mod blockifier;
 mod config;
 pub mod forking;
 mod list;
+mod pending;
 mod read;
 mod trace;
 mod write;
@@ -76,22 +74,22 @@ type StarknetApiResult<T> = Result<T, StarknetApiError>;
 /// [write](katana_rpc_api::starknet::StarknetWriteApi), and
 /// [trace](katana_rpc_api::starknet::StarknetTraceApi) APIs.
 #[derive(Debug)]
-pub struct StarknetApi<EF: ExecutorFactory> {
-    inner: Arc<StarknetApiInner<EF>>,
+pub struct StarknetApi<EF: ExecutorFactory, P: PendingBlockProvider> {
+    inner: Arc<StarknetApiInner<EF, P>>,
 }
 
 #[derive(Debug)]
-struct StarknetApiInner<EF: ExecutorFactory> {
+struct StarknetApiInner<EF: ExecutorFactory, P: PendingBlockProvider> {
     pool: TxPool,
     backend: Arc<Backend<EF>>,
     forked_client: Option<ForkedClient>,
     task_spawner: TaskSpawner,
-    block_producer: Option<BlockProducer<EF>>,
     estimate_fee_permit: Permits,
     config: StarknetApiConfig,
+    pending_block_provider: P,
 }
 
-impl<EF: ExecutorFactory> StarknetApi<EF> {
+impl<EF: ExecutorFactory, P: PendingBlockProvider> StarknetApi<EF, P> {
     pub fn pool(&self) -> &TxPool {
         &self.inner.pool
     }
@@ -104,10 +102,6 @@ impl<EF: ExecutorFactory> StarknetApi<EF> {
         self.inner.forked_client.as_ref()
     }
 
-    pub fn block_producer(&self) -> Option<&BlockProducer<EF>> {
-        self.inner.block_producer.as_ref()
-    }
-
     pub fn estimate_fee_permit(&self) -> &Permits {
         &self.inner.estimate_fee_permit
     }
@@ -117,42 +111,42 @@ impl<EF: ExecutorFactory> StarknetApi<EF> {
     }
 }
 
-impl<EF: ExecutorFactory> StarknetApi<EF> {
+impl<EF: ExecutorFactory, P: PendingBlockProvider> StarknetApi<EF, P> {
     pub fn new(
         backend: Arc<Backend<EF>>,
         pool: TxPool,
-        block_producer: Option<BlockProducer<EF>>,
         task_spawner: TaskSpawner,
         config: StarknetApiConfig,
+        pending_block_provider: P,
     ) -> Self {
-        Self::new_inner(backend, pool, block_producer, None, task_spawner, config)
+        Self::new_inner(backend, pool, None, task_spawner, config, pending_block_provider)
     }
 
     pub fn new_forked(
         backend: Arc<Backend<EF>>,
         pool: TxPool,
-        block_producer: BlockProducer<EF>,
         forked_client: ForkedClient,
         task_spawner: TaskSpawner,
         config: StarknetApiConfig,
+        pending_block_provider: P,
     ) -> Self {
         Self::new_inner(
             backend,
             pool,
-            Some(block_producer),
             Some(forked_client),
             task_spawner,
             config,
+            pending_block_provider,
         )
     }
 
     fn new_inner(
         backend: Arc<Backend<EF>>,
         pool: TxPool,
-        block_producer: Option<BlockProducer<EF>>,
         forked_client: Option<ForkedClient>,
         task_spawner: TaskSpawner,
         config: StarknetApiConfig,
+        pending_block_provider: P,
     ) -> Self {
         let total_permits = config
             .max_concurrent_estimate_fee_requests
@@ -162,11 +156,11 @@ impl<EF: ExecutorFactory> StarknetApi<EF> {
         let inner = StarknetApiInner {
             pool,
             backend,
-            block_producer,
             task_spawner,
             forked_client,
             estimate_fee_permit,
             config,
+            pending_block_provider,
         };
 
         Self { inner: Arc::new(inner) }
@@ -241,30 +235,22 @@ impl<EF: ExecutorFactory> StarknetApi<EF> {
         blockifier::estimate_fees(state, env, cfg_env, transactions, flags)
     }
 
-    /// Returns the pending state if the sequencer is running in _interval_ mode. Otherwise `None`.
-    fn pending_executor(&self) -> Option<PendingExecutor> {
-        self.inner.block_producer.as_ref().and_then(|bp| match &*bp.producer.read() {
-            BlockProducerMode::Instant(_) => None,
-            BlockProducerMode::Interval(producer) => Some(producer.executor()),
-        })
-    }
-
     pub fn state(&self, block_id: &BlockIdOrTag) -> StarknetApiResult<Box<dyn StateProvider>> {
         let provider = self.inner.backend.blockchain.provider();
 
         let state = match block_id {
-            BlockIdOrTag::L1Accepted => None,
-
-            BlockIdOrTag::Latest => Some(provider.latest()?),
-
             BlockIdOrTag::PreConfirmed => {
-                if let Some(exec) = self.pending_executor() {
-                    Some(exec.read().state())
+                if let pending_state @ Some(..) =
+                    self.inner.pending_block_provider.pending_state()?
+                {
+                    pending_state
                 } else {
                     Some(provider.latest()?)
                 }
             }
 
+            BlockIdOrTag::L1Accepted => None,
+            BlockIdOrTag::Latest => Some(provider.latest()?),
             BlockIdOrTag::Hash(hash) => provider.historical((*hash).into())?,
             BlockIdOrTag::Number(num) => provider.historical((*num).into())?,
         };
@@ -276,12 +262,28 @@ impl<EF: ExecutorFactory> StarknetApi<EF> {
         let provider = self.inner.backend.blockchain.provider();
 
         let env = match block_id {
-            BlockIdOrTag::L1Accepted => None,
-
             BlockIdOrTag::PreConfirmed => {
-                // If there is a pending block, use the block env of the pending block.
-                if let Some(exec) = self.pending_executor() {
-                    Some(exec.read().block_env())
+                if let Some(block) =
+                    self.inner.pending_block_provider.get_pending_block_with_txs()?
+                {
+                    Some(BlockEnv {
+                        number: block.block_number,
+                        timestamp: block.timestamp,
+                        l1_gas_prices: GasPrices {
+                            eth: block.l1_gas_price.price_in_wei.try_into().unwrap(),
+                            strk: block.l1_gas_price.price_in_fri.try_into().unwrap(),
+                        },
+                        l2_gas_prices: GasPrices {
+                            eth: block.l2_gas_price.price_in_wei.try_into().unwrap(),
+                            strk: block.l2_gas_price.price_in_fri.try_into().unwrap(),
+                        },
+                        l1_data_gas_prices: GasPrices {
+                            eth: block.l1_data_gas_price.price_in_wei.try_into().unwrap(),
+                            strk: block.l1_data_gas_price.price_in_fri.try_into().unwrap(),
+                        },
+                        starknet_version: block.starknet_version.try_into().unwrap(),
+                        sequencer_address: block.sequencer_address,
+                    })
                 }
                 // else, we create a new block env and update the values to reflect the current
                 // state.
@@ -293,11 +295,8 @@ impl<EF: ExecutorFactory> StarknetApi<EF> {
                 }
             }
 
-            BlockIdOrTag::Latest => {
-                let num = provider.latest_number()?;
-                provider.block_env_at(num.into())?
-            }
-
+            BlockIdOrTag::L1Accepted => None,
+            BlockIdOrTag::Latest => provider.block_env_at(provider.latest_number()?.into())?,
             BlockIdOrTag::Hash(hash) => provider.block_env_at((*hash).into())?,
             BlockIdOrTag::Number(num) => provider.block_env_at((*num).into())?,
         };
@@ -408,13 +407,15 @@ impl<EF: ExecutorFactory> StarknetApi<EF> {
                 let block_id: BlockHashOrNumber = match block_id {
                     BlockIdOrTag::L1Accepted => return Ok(None),
 
-                    BlockIdOrTag::PreConfirmed => match this.pending_executor() {
-                        Some(exec) => {
-                            let count = exec.read().transactions().len() as u64;
-                            return Ok(Some(count));
+                    BlockIdOrTag::PreConfirmed => {
+                        if let Some(block) =
+                            this.inner.pending_block_provider.get_pending_block_with_tx_hashes()?
+                        {
+                            return Ok(Some(block.transactions.len() as u64));
+                        } else {
+                            return Ok(None);
                         }
-                        None => provider.latest_hash()?.into(),
-                    },
+                    }
                     BlockIdOrTag::Latest => provider.latest_number()?.into(),
                     BlockIdOrTag::Number(num) => num.into(),
                     BlockIdOrTag::Hash(hash) => hash.into(),
@@ -475,21 +476,18 @@ impl<EF: ExecutorFactory> StarknetApi<EF> {
             .on_io_blocking_task(move |this| {
                 // TEMP: have to handle pending tag independently for now
                 let tx = if BlockIdOrTag::PreConfirmed == block_id {
-                    let Some(executor) = this.pending_executor() else {
-                        return Err(StarknetApiError::BlockNotFound);
-                    };
-
-                    let executor = executor.read();
-                    let pending_txs = executor.transactions();
-                    pending_txs.get(index as usize).map(|(tx, _)| tx.clone())
+                    this.inner.pending_block_provider.get_pending_transaction_by_index(index)?
                 } else {
                     let provider = &this.inner.backend.blockchain.provider();
 
-                    let block_num = BlockIdReader::convert_block_id(provider, block_id)?
+                    let block_num = provider
+                        .convert_block_id(block_id)?
                         .map(BlockHashOrNumber::Num)
                         .ok_or(StarknetApiError::BlockNotFound)?;
 
-                    provider.transaction_by_block_and_idx(block_num, index)?
+                    provider
+                        .transaction_by_block_and_idx(block_num, index)?
+                        .map(RpcTxWithHash::from)
                 };
 
                 StarknetApiResult::Ok(tx)
@@ -497,7 +495,7 @@ impl<EF: ExecutorFactory> StarknetApi<EF> {
             .await??;
 
         if let Some(tx) = tx {
-            Ok(tx.into())
+            Ok(tx)
         } else if let Some(client) = &self.inner.forked_client {
             Ok(client.get_transaction_by_block_id_and_index(block_id, index).await?)
         } else {
@@ -508,29 +506,21 @@ impl<EF: ExecutorFactory> StarknetApi<EF> {
     async fn transaction(&self, hash: TxHash) -> StarknetApiResult<RpcTxWithHash> {
         let tx = self
             .on_io_blocking_task(move |this| {
-                let tx = this
-                    .inner
-                    .backend
-                    .blockchain
-                    .provider()
-                    .transaction_by_hash(hash)?
-                    .map(RpcTxWithHash::from);
+                if let pending_tx @ Some(..) =
+                    this.inner.pending_block_provider.get_pending_transaction(hash)?
+                {
+                    Result::<_, StarknetApiError>::Ok(pending_tx)
+                } else {
+                    let tx = this
+                        .inner
+                        .backend
+                        .blockchain
+                        .provider()
+                        .transaction_by_hash(hash)?
+                        .map(RpcTxWithHash::from);
 
-                let result = match tx {
-                    tx @ Some(_) => tx,
-                    None => {
-                        // check if the transaction is in the pending block
-                        this.pending_executor().as_ref().and_then(|exec| {
-                            exec.read()
-                                .transactions()
-                                .iter()
-                                .find(|(tx, _)| tx.hash == hash)
-                                .map(|(tx, _)| RpcTxWithHash::from(tx.clone()))
-                        })
-                    }
-                };
-
-                Result::<_, StarknetApiError>::Ok(result)
+                    Result::<_, StarknetApiError>::Ok(tx)
+                }
             })
             .await??;
 
@@ -539,61 +529,20 @@ impl<EF: ExecutorFactory> StarknetApi<EF> {
         } else if let Some(client) = &self.inner.forked_client {
             Ok(client.get_transaction_by_hash(hash).await?)
         } else {
-            let tx = self.inner.pool.get(hash).ok_or(StarknetApiError::TxnHashNotFound)?;
-            let tx = katana_primitives::transaction::TxWithHash::from(tx.as_ref());
-            Ok(RpcTxWithHash::from(tx))
+            Err(StarknetApiError::TxnHashNotFound)
         }
     }
 
     async fn receipt(&self, hash: Felt) -> StarknetApiResult<TxReceiptWithBlockInfo> {
         let receipt = self
             .on_io_blocking_task(move |this| {
-                let provider = this.inner.backend.blockchain.provider();
-                let receipt = ReceiptBuilder::new(hash, provider).build()?;
-
-                // If receipt is not found, check the pending block.
-                match receipt {
-                    Some(receipt) => Ok(Some(receipt)),
-                    None => {
-                        let executor = this.pending_executor();
-
-                        let Some(executor) = executor else { return StarknetApiResult::Ok(None) };
-                        let executor_lock = executor.read();
-
-                        // Find the transaction in the pending block that matches the hash
-                        let receipt = executor_lock.transactions().iter().find_map(|(tx, res)| {
-                            if tx.hash == hash {
-                                // If the transaction is found, only return the receipt if it's
-                                // successful
-                                match res {
-                                    ExecutionResult::Failed { .. } => None,
-                                    ExecutionResult::Success { receipt, .. } => {
-                                        Some(receipt.clone())
-                                    }
-                                }
-                            } else {
-                                None
-                            }
-                        });
-
-                        if let Some(receipt) = receipt {
-                            let pending_block_env = executor_lock.block_env();
-                            let pending_block_number = pending_block_env.number;
-
-                            let receipt = TxReceiptWithBlockInfo::new(
-                                ReceiptBlockInfo::PreConfirmed {
-                                    block_number: pending_block_number,
-                                },
-                                hash,
-                                FinalityStatus::AcceptedOnL2,
-                                receipt,
-                            );
-
-                            StarknetApiResult::Ok(Some(receipt))
-                        } else {
-                            StarknetApiResult::Ok(None)
-                        }
-                    }
+                if let pending_receipt @ Some(..) =
+                    this.inner.pending_block_provider.get_pending_receipt(hash)?
+                {
+                    StarknetApiResult::Ok(pending_receipt)
+                } else {
+                    let provider = this.inner.backend.blockchain.provider();
+                    StarknetApiResult::Ok(ReceiptBuilder::new(hash, provider).build()?)
                 }
             })
             .await??;
@@ -639,28 +588,10 @@ impl<EF: ExecutorFactory> StarknetApi<EF> {
                 }
 
                 // seach in the pending block if the transaction is not found
-                if let Some(pending_executor) = this.pending_executor() {
-                    let pending_executor = pending_executor.read();
-                    let pending_txs = pending_executor.transactions();
-
-                    let Some((_, res)) = pending_txs.iter().find(|(tx, ..)| tx.hash == hash) else {
-                        return Ok(None);
-                    };
-
-                    let ExecutionResult::Success { receipt, .. } = res else {
-                        return Ok(None);
-                    };
-
-                    // TODO: maybe should do impl From<ExecutionResult> for TransactionStatus
-                    let status = if let Some(reason) = receipt.revert_reason() {
-                        TxStatus::AcceptedOnL2(katana_rpc_types::ExecutionResult::Reverted {
-                            reason: reason.to_string(),
-                        })
-                    } else {
-                        TxStatus::AcceptedOnL2(katana_rpc_types::ExecutionResult::Succeeded)
-                    };
-
-                    Ok(Some(status))
+                if let Some(receipt) =
+                    this.inner.pending_block_provider.get_pending_receipt(hash)?
+                {
+                    Ok(Some(TxStatus::PreConfirmed(receipt.receipt.execution_result().clone())))
                 } else {
                     Ok(None)
                 }
@@ -686,40 +617,9 @@ impl<EF: ExecutorFactory> StarknetApi<EF> {
                 let provider = this.inner.backend.blockchain.provider();
 
                 if BlockIdOrTag::PreConfirmed == block_id {
-                    if let Some(executor) = this.pending_executor() {
-                        let block_env = executor.read().block_env();
-                        let latest_hash = provider.latest_hash().map_err(StarknetApiError::from)?;
-
-                        let l2_gas_prices = block_env.l2_gas_prices.clone();
-                        let l1_gas_prices = block_env.l1_gas_prices.clone();
-                        let l1_data_gas_prices = block_env.l1_data_gas_prices.clone();
-
-                        let header = PartialHeader {
-                            l1_da_mode: L1DataAvailabilityMode::Calldata,
-                            l2_gas_prices,
-                            l1_gas_prices,
-                            l1_data_gas_prices,
-                            number: block_env.number,
-                            parent_hash: latest_hash,
-                            timestamp: block_env.timestamp,
-                            sequencer_address: block_env.sequencer_address,
-                            starknet_version: CURRENT_STARKNET_VERSION,
-                        };
-
-                        // TODO(kariy): create a method that can perform this filtering for us
-                        // instead of doing it manually.
-
-                        // A block should only include successful transactions, we filter out the
-                        // failed ones (didn't pass validation stage).
-                        let transactions = executor
-                            .read()
-                            .transactions()
-                            .iter()
-                            .filter(|(_, receipt)| receipt.is_success())
-                            .map(|(tx, _)| tx.clone())
-                            .collect::<Vec<_>>();
-
-                        let block = PreConfirmedBlockWithTxs::new(header, transactions);
+                    if let Some(block) =
+                        this.inner.pending_block_provider.get_pending_block_with_txs()?
+                    {
                         return Ok(Some(MaybePreConfirmedBlock::PreConfirmed(block)));
                     }
                 }
@@ -754,40 +654,9 @@ impl<EF: ExecutorFactory> StarknetApi<EF> {
                 let provider = this.inner.backend.blockchain.provider();
 
                 if BlockIdOrTag::PreConfirmed == block_id {
-                    if let Some(executor) = this.pending_executor() {
-                        let block_env = executor.read().block_env();
-                        let latest_hash = provider.latest_hash()?;
-
-                        let l2_gas_prices = block_env.l2_gas_prices.clone();
-                        let l1_gas_prices = block_env.l1_gas_prices.clone();
-                        let l1_data_gas_prices = block_env.l1_data_gas_prices.clone();
-
-                        let header = PartialHeader {
-                            l2_gas_prices,
-                            l1_gas_prices,
-                            l1_data_gas_prices,
-                            number: block_env.number,
-                            parent_hash: latest_hash,
-                            timestamp: block_env.timestamp,
-                            l1_da_mode: L1DataAvailabilityMode::Calldata,
-                            sequencer_address: block_env.sequencer_address,
-                            starknet_version: CURRENT_STARKNET_VERSION,
-                        };
-
-                        let receipts = executor
-                            .read()
-                            .transactions()
-                            .iter()
-                            .filter_map(|(tx, result)| match result {
-                                ExecutionResult::Success { receipt, .. } => {
-                                    Some((tx.clone(), receipt.clone()))
-                                }
-                                ExecutionResult::Failed { .. } => None,
-                            })
-                            .collect::<Vec<_>>();
-
-                        let block =
-                            PreConfirmedBlockWithReceipts::new(header, receipts.into_iter());
+                    if let Some(block) =
+                        this.inner.pending_block_provider.get_pending_block_with_receipts()?
+                    {
                         return Ok(Some(GetBlockWithReceiptsResponse::PreConfirmed(block)));
                     }
                 }
@@ -822,40 +691,9 @@ impl<EF: ExecutorFactory> StarknetApi<EF> {
                 let provider = this.inner.backend.blockchain.provider();
 
                 if BlockIdOrTag::PreConfirmed == block_id {
-                    if let Some(executor) = this.pending_executor() {
-                        let block_env = executor.read().block_env();
-                        let latest_hash = provider.latest_hash().map_err(StarknetApiError::from)?;
-
-                        let l2_gas_prices = block_env.l2_gas_prices.clone();
-                        let l1_gas_prices = block_env.l1_gas_prices.clone();
-                        let l1_data_gas_prices = block_env.l1_data_gas_prices.clone();
-
-                        let header = PartialHeader {
-                            l1_da_mode: L1DataAvailabilityMode::Calldata,
-                            l1_data_gas_prices,
-                            l2_gas_prices,
-                            l1_gas_prices,
-                            number: block_env.number,
-                            parent_hash: latest_hash,
-                            timestamp: block_env.timestamp,
-                            starknet_version: CURRENT_STARKNET_VERSION,
-                            sequencer_address: block_env.sequencer_address,
-                        };
-
-                        // TODO(kariy): create a method that can perform this filtering for us
-                        // instead of doing it manually.
-
-                        // A block should only include successful transactions, we filter out the
-                        // failed ones (didn't pass validation stage).
-                        let transactions = executor
-                            .read()
-                            .transactions()
-                            .iter()
-                            .filter(|(_, receipt)| receipt.is_success())
-                            .map(|(tx, _)| tx.hash)
-                            .collect::<Vec<_>>();
-
-                        let block = PreConfirmedBlockWithTxHashes::new(header, transactions);
+                    if let Some(block) =
+                        this.inner.pending_block_provider.get_pending_block_with_tx_hashes()?
+                    {
                         return Ok(Some(GetBlockWithTxHashesResponse::PreConfirmed(block)));
                     }
                 }
@@ -889,12 +727,22 @@ impl<EF: ExecutorFactory> StarknetApi<EF> {
                 let block_id = match block_id {
                     BlockIdOrTag::Number(num) => BlockHashOrNumber::Num(num),
                     BlockIdOrTag::Hash(hash) => BlockHashOrNumber::Hash(hash),
-
                     BlockIdOrTag::Latest => provider.latest_number().map(BlockHashOrNumber::Num)?,
 
                     // TODO: Implement for L1 accepted and preconfirmed block id
-                    BlockIdOrTag::L1Accepted | BlockIdOrTag::PreConfirmed => {
+                    BlockIdOrTag::L1Accepted => {
                         return Err(StarknetApiError::BlockNotFound);
+                    }
+
+                    BlockIdOrTag::PreConfirmed => {
+                        if let Some(state_update) =
+                            this.inner.pending_block_provider.get_pending_state_update()?
+                        {
+                            let state_update = StateUpdate::PreConfirmed(state_update);
+                            return StarknetApiResult::Ok(Some(state_update));
+                        } else {
+                            return StarknetApiResult::Ok(None);
+                        }
                     }
                 };
 
@@ -1131,9 +979,11 @@ impl<EF: ExecutorFactory> StarknetApi<EF> {
                     return Ok(GetEventsResponse { events, continuation_token });
                 }
 
-                if let Some(executor) = self.pending_executor() {
+                if let Some(block) =
+                    self.inner.pending_block_provider.get_pending_block_with_receipts()?
+                {
                     let cursor = utils::events::fetch_pending_events(
-                        &executor,
+                        &block,
                         &filter,
                         chunk_size,
                         cursor,
@@ -1150,10 +1000,12 @@ impl<EF: ExecutorFactory> StarknetApi<EF> {
             }
 
             (EventBlockId::Pending, EventBlockId::Pending) => {
-                if let Some(executor) = self.pending_executor() {
+                if let Some(block) =
+                    self.inner.pending_block_provider.get_pending_block_with_receipts()?
+                {
                     let cursor = continuation_token.and_then(|t| t.to_token().map(|t| t.into()));
                     let new_cursor = utils::events::fetch_pending_events(
-                        &executor,
+                        &block,
                         &filter,
                         chunk_size,
                         cursor,
@@ -1312,7 +1164,7 @@ impl<EF: ExecutorFactory> StarknetApi<EF> {
 // `StarknetApiExt` Implementations
 /////////////////////////////////////////////////////
 
-impl<EF: ExecutorFactory> StarknetApi<EF> {
+impl<EF: ExecutorFactory, P: PendingBlockProvider> StarknetApi<EF, P> {
     async fn blocks(&self, request: GetBlocksRequest) -> StarknetApiResult<GetBlocksResponse> {
         self.on_io_blocking_task(move |this| {
             let provider = this.inner.backend.blockchain.provider();
@@ -1469,7 +1321,7 @@ impl<EF: ExecutorFactory> StarknetApi<EF> {
     }
 }
 
-impl<EF: ExecutorFactory> Clone for StarknetApi<EF> {
+impl<EF: ExecutorFactory, P: PendingBlockProvider> Clone for StarknetApi<EF, P> {
     fn clone(&self) -> Self {
         Self { inner: Arc::clone(&self.inner) }
     }

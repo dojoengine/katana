@@ -1,6 +1,7 @@
 use axum::extract::{Query, State};
 use axum::http::StatusCode;
 use axum::response::{IntoResponse, Json, Response};
+use katana_core::service::block_producer::BlockProducer;
 use katana_executor::implementation::blockifier::BlockifierFactory;
 use katana_gateway_types::{
     Block, ConfirmedReceipt, ConfirmedTransaction, ContractClass, ErrorCode, GatewayError,
@@ -19,7 +20,7 @@ use starknet::core::types::ResourcePrice;
 /// Shared application state containing the backend
 #[derive(Clone)]
 pub struct AppState {
-    pub api: StarknetApi<BlockifierFactory>,
+    pub api: StarknetApi<BlockifierFactory, BlockProducer<BlockifierFactory>>,
 }
 
 impl AppState {

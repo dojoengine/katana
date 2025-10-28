@@ -35,9 +35,10 @@ use katana_rpc_types::{
 use super::StarknetApi;
 #[cfg(feature = "cartridge")]
 use crate::cartridge;
+use crate::starknet::pending::PendingBlockProvider;
 
 #[async_trait]
-impl<EF: ExecutorFactory> StarknetApiServer for StarknetApi<EF> {
+impl<EF: ExecutorFactory, P: PendingBlockProvider> StarknetApiServer for StarknetApi<EF, P> {
     async fn chain_id(&self) -> RpcResult<Felt> {
         Ok(self.inner.backend.chain_spec.id().id())
     }
