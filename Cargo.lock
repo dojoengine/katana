@@ -6405,6 +6405,7 @@ dependencies = [
  "anyhow",
  "arbitrary",
  "assert_matches",
+ "bincode 1.3.3",
  "blockifier 0.0.0 (git+https://github.com/dojoengine/sequencer?rev=5d737b9c9)",
  "cainome-cairo-serde",
  "cairo-lang-starknet-classes",

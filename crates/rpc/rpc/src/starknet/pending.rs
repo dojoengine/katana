@@ -7,7 +7,6 @@ use katana_primitives::da::L1DataAvailabilityMode;
 use katana_primitives::execution::TypedTransactionExecutionInfo;
 use katana_primitives::transaction::{TxHash, TxNumber};
 use katana_primitives::version::CURRENT_STARKNET_VERSION;
-use katana_primitives::{block::PartialHeader, transaction::TxNumber};
 use katana_provider::api::state::StateProvider;
 use katana_rpc_types::{
     FinalityStatus, PreConfirmedBlockWithReceipts, PreConfirmedBlockWithTxHashes,
