@@ -48,11 +48,14 @@ use katana_rpc_types::trie::{
     ClassesProof, ContractLeafData, ContractStorageKeys, ContractStorageProofs, ContractsProof,
     GetStorageProofResponse, GlobalRoots, Nodes,
 };
-use katana_rpc_types::{FeeEstimate, TxStatus};
+use katana_rpc_types::{
+    FeeEstimate, PreConfirmedBlockWithReceipts, PreConfirmedBlockWithTxs, TxStatus,
+};
 use katana_rpc_types_builder::{BlockBuilder, ReceiptBuilder};
 use katana_tasks::{Result as TaskResult, TaskSpawner};
 
 use crate::permit::Permits;
+use crate::starknet::pending::PendingBlockProvider2;
 use crate::utils::events::{Cursor, EventBlockId};
 use crate::{utils, DEFAULT_ESTIMATE_FEE_MAX_CONCURRENT_REQUESTS};
 
@@ -341,7 +344,13 @@ where
                 else {
                     let num = provider.latest_number()?;
                     let mut env = provider.block_env_at(num.into())?.expect("missing block env");
-                    self.inner.backend.update_block_env(&mut env);
+
+                    env.number += 1;
+                    env.timestamp = get_current_timestamp().as_secs() as u64;
+                    env.l2_gas_prices = self.inner.gas_oracle.l2_gas_prices();
+                    env.l1_gas_prices = self.inner.gas_oracle.l1_gas_prices();
+                    env.l1_data_gas_prices = self.inner.gas_oracle.l1_data_gas_prices();
+
                     Some(env)
                 }
             }
@@ -680,9 +689,11 @@ where
                         .build()?
                         .map(MaybePreConfirmedBlock::Confirmed);
 
-                    StarknetApiResult::Ok(block)
-                } else {
-                    StarknetApiResult::Ok(None)
+                            StarknetApiResult::Ok(block)
+                        } else {
+                            StarknetApiResult::Ok(None)
+                        }
+                    }
                 }
             })
             .await??;
@@ -717,9 +728,11 @@ where
                         .build_with_receipts()?
                         .map(GetBlockWithReceiptsResponse::Block);
 
-                    StarknetApiResult::Ok(block)
-                } else {
-                    StarknetApiResult::Ok(None)
+                            StarknetApiResult::Ok(block)
+                        } else {
+                            StarknetApiResult::Ok(None)
+                        }
+                    }
                 }
             })
             .await??;
@@ -754,9 +767,11 @@ where
                         .build_with_tx_hash()?
                         .map(GetBlockWithTxHashesResponse::Block);
 
-                    StarknetApiResult::Ok(block)
-                } else {
-                    StarknetApiResult::Ok(None)
+                            StarknetApiResult::Ok(block)
+                        } else {
+                            StarknetApiResult::Ok(None)
+                        }
+                    }
                 }
             })
             .await??;

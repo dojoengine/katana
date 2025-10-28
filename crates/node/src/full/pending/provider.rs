@@ -26,7 +26,7 @@ impl<P: StateFactoryProvider + Debug> PendingBlockProvider for PreconfStateFacto
                     number: 0,
                     parent_hash: Felt::ZERO,
                 },
-                body: preconf_block
+                transactions: preconf_block
                     .transactions
                     .clone()
                     .into_iter()
