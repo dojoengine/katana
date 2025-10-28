@@ -643,29 +643,22 @@ impl<EF: ExecutorFactory, P: PendingBlockProvider> StarknetApi<EF, P> {
             .on_io_blocking_task(move |this| {
                 let provider = this.inner.backend.blockchain.provider();
 
-                match block_id {
-                    BlockIdOrTag::PreConfirmed => {
-                        if let Some(block) =
-                            this.inner.pending_block_provider.get_pending_block_with_txs()?
-                        {
-                            Ok(Some(MaybePreConfirmedBlock::PreConfirmed(block)))
-                        } else {
-                            Ok(None)
-                        }
+                if BlockIdOrTag::PreConfirmed == block_id {
+                    if let Some(block) =
+                        this.inner.pending_block_provider.get_pending_block_with_txs()?
+                    {
+                        return Ok(Some(MaybePreConfirmedBlock::PreConfirmed(block)));
                     }
+                }
 
-                    _ => {
-                        if let Some(num) = provider.convert_block_id(block_id)? {
-                            let block =
-                                katana_rpc_types_builder::BlockBuilder::new(num.into(), provider)
-                                    .build()?
-                                    .map(MaybePreConfirmedBlock::Confirmed);
+                if let Some(num) = provider.convert_block_id(block_id)? {
+                    let block = katana_rpc_types_builder::BlockBuilder::new(num.into(), provider)
+                        .build()?
+                        .map(MaybePreConfirmedBlock::Confirmed);
 
-                            StarknetApiResult::Ok(block)
-                        } else {
-                            StarknetApiResult::Ok(None)
-                        }
-                    }
+                    StarknetApiResult::Ok(block)
+                } else {
+                    StarknetApiResult::Ok(None)
                 }
             })
             .await??;
@@ -687,29 +680,22 @@ impl<EF: ExecutorFactory, P: PendingBlockProvider> StarknetApi<EF, P> {
             .on_io_blocking_task(move |this| {
                 let provider = this.inner.backend.blockchain.provider();
 
-                match block_id {
-                    BlockIdOrTag::PreConfirmed => {
-                        if let Some(block) =
-                            this.inner.pending_block_provider.get_pending_block_with_receipts()?
-                        {
-                            Ok(Some(GetBlockWithReceiptsResponse::PreConfirmed(block)))
-                        } else {
-                            Ok(None)
-                        }
+                if BlockIdOrTag::PreConfirmed == block_id {
+                    if let Some(block) =
+                        this.inner.pending_block_provider.get_pending_block_with_receipts()?
+                    {
+                        return Ok(Some(GetBlockWithReceiptsResponse::PreConfirmed(block)));
                     }
+                }
 
-                    _ => {
-                        if let Some(num) = provider.convert_block_id(block_id)? {
-                            let block =
-                                katana_rpc_types_builder::BlockBuilder::new(num.into(), provider)
-                                    .build_with_receipts()?
-                                    .map(GetBlockWithReceiptsResponse::Block);
+                if let Some(num) = provider.convert_block_id(block_id)? {
+                    let block = katana_rpc_types_builder::BlockBuilder::new(num.into(), provider)
+                        .build_with_receipts()?
+                        .map(GetBlockWithReceiptsResponse::Block);
 
-                            StarknetApiResult::Ok(block)
-                        } else {
-                            StarknetApiResult::Ok(None)
-                        }
-                    }
+                    StarknetApiResult::Ok(block)
+                } else {
+                    StarknetApiResult::Ok(None)
                 }
             })
             .await??;
@@ -731,29 +717,22 @@ impl<EF: ExecutorFactory, P: PendingBlockProvider> StarknetApi<EF, P> {
             .on_io_blocking_task(move |this| {
                 let provider = this.inner.backend.blockchain.provider();
 
-                match block_id {
-                    BlockIdOrTag::PreConfirmed => {
-                        if let Some(block) =
-                            this.inner.pending_block_provider.get_pending_block_with_tx_hashes()?
-                        {
-                            Ok(Some(GetBlockWithTxHashesResponse::PreConfirmed(block)))
-                        } else {
-                            Ok(None)
-                        }
+                if BlockIdOrTag::PreConfirmed == block_id {
+                    if let Some(block) =
+                        this.inner.pending_block_provider.get_pending_block_with_tx_hashes()?
+                    {
+                        return Ok(Some(GetBlockWithTxHashesResponse::PreConfirmed(block)));
                     }
+                }
 
-                    _ => {
-                        if let Some(num) = provider.convert_block_id(block_id)? {
-                            let block =
-                                katana_rpc_types_builder::BlockBuilder::new(num.into(), provider)
-                                    .build_with_tx_hash()?
-                                    .map(GetBlockWithTxHashesResponse::Block);
+                if let Some(num) = provider.convert_block_id(block_id)? {
+                    let block = katana_rpc_types_builder::BlockBuilder::new(num.into(), provider)
+                        .build_with_tx_hash()?
+                        .map(GetBlockWithTxHashesResponse::Block);
 
-                            StarknetApiResult::Ok(block)
-                        } else {
-                            StarknetApiResult::Ok(None)
-                        }
-                    }
+                    StarknetApiResult::Ok(block)
+                } else {
+                    StarknetApiResult::Ok(None)
                 }
             })
             .await??;
