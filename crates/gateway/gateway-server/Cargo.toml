@@ -8,6 +8,8 @@ version.workspace = true
 [dependencies]
 katana-gateway-types.workspace = true
 katana-primitives.workspace = true
+katana-executor.workspace = true
+katana-core.workspace = true
 katana-metrics.workspace = true
 katana-pool.workspace = true
 katana-rpc.workspace = true

@@ -8,7 +8,10 @@ use katana_rpc_types::RpcTxWithHash;
 
 use crate::full::pending::PreconfStateFactory;
 
-impl<P: StateFactoryProvider + Debug> PendingBlockProvider for PreconfStateFactory<P> {
+impl<P> PendingBlockProvider for PreconfStateFactory<P>
+where
+    P: StateFactoryProvider + Debug + 'static,
+{
     fn get_pending_block_with_txs(
         &self,
     ) -> StarknetApiResult<Option<katana_rpc_types::PreConfirmedBlockWithTxs>> {
@@ -113,5 +116,12 @@ impl<P: StateFactoryProvider + Debug> PendingBlockProvider for PreconfStateFacto
 
     fn pending_state(&self) -> StarknetApiResult<Option<Box<dyn StateProvider>>> {
         Ok(Some(Box::new(self.state())))
+    }
+
+    fn get_pending_trace(
+        &self,
+        hash: TxHash,
+    ) -> StarknetApiResult<Option<katana_rpc_types::TxTrace>> {
+        Ok(None)
     }
 }

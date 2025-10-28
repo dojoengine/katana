@@ -567,14 +567,7 @@ where
                 {
                     Result::<_, StarknetApiError>::Ok(pending_tx)
                 } else {
-                    let tx = this
-                        .inner
-                        .backend
-                        .blockchain
-                        .provider()
-                        .transaction_by_hash(hash)?
-                        .map(RpcTxWithHash::from);
-
+                    let tx = this.inner.storage.transaction_by_hash(hash)?.map(RpcTxWithHash::from);
                     Result::<_, StarknetApiError>::Ok(tx)
                 }
             })
@@ -597,7 +590,7 @@ where
                 {
                     StarknetApiResult::Ok(pending_receipt)
                 } else {
-                    let provider = this.inner.backend.blockchain.provider();
+                    let provider = &this.inner.storage;
                     StarknetApiResult::Ok(ReceiptBuilder::new(hash, provider).build()?)
                 }
             })
@@ -685,11 +678,9 @@ where
                         .build()?
                         .map(MaybePreConfirmedBlock::Confirmed);
 
-                            StarknetApiResult::Ok(block)
-                        } else {
-                            StarknetApiResult::Ok(None)
-                        }
-                    }
+                    StarknetApiResult::Ok(block)
+                } else {
+                    StarknetApiResult::Ok(None)
                 }
             })
             .await??;
@@ -724,11 +715,9 @@ where
                         .build_with_receipts()?
                         .map(GetBlockWithReceiptsResponse::Block);
 
-                            StarknetApiResult::Ok(block)
-                        } else {
-                            StarknetApiResult::Ok(None)
-                        }
-                    }
+                    StarknetApiResult::Ok(block)
+                } else {
+                    StarknetApiResult::Ok(None)
                 }
             })
             .await??;
@@ -763,11 +752,9 @@ where
                         .build_with_tx_hash()?
                         .map(GetBlockWithTxHashesResponse::Block);
 
-                            StarknetApiResult::Ok(block)
-                        } else {
-                            StarknetApiResult::Ok(None)
-                        }
-                    }
+                    StarknetApiResult::Ok(block)
+                } else {
+                    StarknetApiResult::Ok(None)
                 }
             })
             .await??;

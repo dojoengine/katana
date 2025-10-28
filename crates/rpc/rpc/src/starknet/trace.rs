@@ -135,8 +135,8 @@ where
             Ok(pending_trace)
         } else {
             // If not found in pending block, fallback to the provider
-            let provider = self.inner.backend.blockchain.provider();
-            let trace = provider.transaction_execution(tx_hash)?.ok_or(TxnHashNotFound)?;
+            let trace =
+                self.inner.storage.transaction_execution(tx_hash)?.ok_or(TxnHashNotFound)?;
             Ok(TxTrace::from(trace))
         }
     }

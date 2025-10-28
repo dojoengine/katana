@@ -6177,6 +6177,8 @@ dependencies = [
  "axum 0.7.9",
  "http 1.3.1",
  "http-body 1.0.1",
+ "katana-core",
+ "katana-executor",
  "katana-gateway-types",
  "katana-metrics",
  "katana-pool",
