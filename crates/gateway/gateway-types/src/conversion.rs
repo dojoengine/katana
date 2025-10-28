@@ -1,6 +1,6 @@
 use std::collections::BTreeSet;
 
-use crate::types::{
+use crate::{
     BlockStatus, ConfirmedStateUpdate, ConfirmedTransaction, DataAvailabilityMode, DeclareTx,
     DeclareTxV3, DeclaredContract, DeployAccountTx, DeployAccountTxV1, DeployAccountTxV3,
     DeployedContract, ExecutionResources, ExecutionStatus, InvokeTx, InvokeTxV3, L1HandlerTx,
@@ -653,7 +653,7 @@ mod from_rpc_test {
     use katana_primitives::contract::ContractAddress;
     use katana_primitives::{address, felt};
 
-    use crate::types::StateDiff;
+    use crate::StateDiff;
 
     #[test]
     fn state_diff_conversion() {

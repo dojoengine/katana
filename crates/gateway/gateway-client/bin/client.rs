@@ -2,8 +2,8 @@ use std::str::FromStr;
 
 use anyhow::{anyhow, Context, Result};
 use clap::{Args, Parser, Subcommand, ValueEnum};
-use katana_gateway::client::{Client, Error as GatewayError};
-use katana_gateway::types::BlockId;
+use katana_gateway_client::{Client, Error as GatewayError};
+use katana_gateway_types::BlockId;
 use katana_primitives::block::{BlockHash, BlockNumber};
 use katana_primitives::class::ClassHash;
 use tracing::error;

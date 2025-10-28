@@ -1,3 +1,5 @@
+#![cfg_attr(not(test), warn(unused_crate_dependencies))]
+
 //! # Feeder Gateway Types
 //!
 //! This module defines types that mirror the data structures returned by the Starknet feeder

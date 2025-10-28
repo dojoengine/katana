@@ -6146,37 +6146,66 @@ dependencies = [
 ]
 
 [[package]]
-name = "katana-gateway"
+name = "katana-gateway-client"
 version = "1.7.0"
 dependencies = [
  "anyhow",
- "axum 0.7.9",
  "clap",
+ "katana-gateway-types",
+ "katana-primitives",
+ "katana-rpc-types",
+ "reqwest 0.12.22",
+ "rstest 0.18.2",
+ "serde",
+ "serde_json",
+ "similar-asserts",
+ "thiserror 1.0.69",
+ "tokio",
+ "tracing",
+ "url",
+ "wiremock",
+]
+
+[[package]]
+name = "katana-gateway-server"
+version = "1.7.0"
+dependencies = [
+ "axum 0.7.9",
  "http 1.3.1",
  "http-body 1.0.1",
  "katana-executor",
+ "katana-gateway-types",
  "katana-metrics",
  "katana-primitives",
  "katana-provider-api",
  "katana-rpc",
  "katana-rpc-api",
- "katana-rpc-types",
- "katana-utils",
  "metrics 0.23.1",
- "reqwest 0.12.22",
- "rstest 0.18.2",
  "serde",
  "serde-utils",
  "serde_json",
- "similar-asserts",
  "starknet",
  "thiserror 1.0.69",
  "tokio",
  "tower 0.5.2",
  "tower-http",
  "tracing",
- "url",
- "wiremock",
+]
+
+[[package]]
+name = "katana-gateway-types"
+version = "1.7.0"
+dependencies = [
+ "katana-primitives",
+ "katana-rpc-api",
+ "katana-rpc-types",
+ "katana-utils",
+ "serde",
+ "serde-utils",
+ "serde_json",
+ "similar-asserts",
+ "starknet",
+ "thiserror 1.0.69",
 ]
 
 [[package]]
@@ -6266,7 +6295,8 @@ dependencies = [
  "katana-db",
  "katana-executor",
  "katana-gas-price-oracle",
- "katana-gateway",
+ "katana-gateway-client",
+ "katana-gateway-server",
  "katana-messaging",
  "katana-metrics",
  "katana-pipeline",
@@ -6597,7 +6627,8 @@ dependencies = [
  "futures",
  "katana-core",
  "katana-executor",
- "katana-gateway",
+ "katana-gateway-client",
+ "katana-gateway-types",
  "katana-messaging",
  "katana-pool",
  "katana-primitives",

@@ -13,8 +13,8 @@
 use std::future::Future;
 
 use anyhow::Result;
-use katana_gateway::client::Client as GatewayClient;
-use katana_gateway::types::StateUpdateWithBlock;
+use katana_gateway_client::Client as GatewayClient;
+use katana_gateway_types::StateUpdateWithBlock;
 use katana_primitives::block::BlockNumber;
 
 use crate::downloader::{BatchDownloader, Downloader};
@@ -37,7 +37,7 @@ pub trait BlockDownloader: Send + Sync {
         &self,
         from: BlockNumber,
         to: BlockNumber,
-    ) -> impl Future<Output = Result<Vec<StateUpdateWithBlock>, katana_gateway::client::Error>> + Send;
+    ) -> impl Future<Output = Result<Vec<StateUpdateWithBlock>, katana_gateway_client::Error>> + Send;
 }
 
 ///////////////////////////////////////////////////////////////////////////////////
@@ -76,7 +76,7 @@ where
     D: Downloader<
         Key = BlockNumber,
         Value = StateUpdateWithBlock,
-        Error = katana_gateway::client::Error,
+        Error = katana_gateway_client::Error,
     >,
     D: Send + Sync,
 {
@@ -84,7 +84,7 @@ where
         &self,
         from: BlockNumber,
         to: BlockNumber,
-    ) -> impl Future<Output = Result<Vec<StateUpdateWithBlock>, katana_gateway::client::Error>> + Send
+    ) -> impl Future<Output = Result<Vec<StateUpdateWithBlock>, katana_gateway_client::Error>> + Send
     {
         // convert the range to a list of block keys
         let block_keys = (from..=to).collect::<Vec<BlockNumber>>();
@@ -95,8 +95,8 @@ where
 mod impls {
     use std::future::Future;
 
-    use katana_gateway::client::{Client as GatewayClient, Error as GatewayClientError};
-    use katana_gateway::types::StateUpdateWithBlock;
+    use katana_gateway_client::{Client as GatewayClient, Error as GatewayClientError};
+    use katana_gateway_types::StateUpdateWithBlock;
     use katana_primitives::block::BlockNumber;
     use tracing::error;
 
@@ -118,7 +118,7 @@ mod impls {
     impl Downloader for GatewayDownloader {
         type Key = BlockNumber;
         type Value = StateUpdateWithBlock;
-        type Error = katana_gateway::client::Error;
+        type Error = katana_gateway_client::Error;
 
         #[allow(clippy::manual_async_fn)]
         fn download(

@@ -25,7 +25,7 @@ use katana_executor::implementation::blockifier::cache::ClassCache;
 use katana_executor::implementation::blockifier::BlockifierFactory;
 use katana_executor::ExecutionFlags;
 use katana_gas_price_oracle::{FixedPriceOracle, GasPriceOracle};
-use katana_gateway::server::{GatewayServer, GatewayServerHandle};
+use katana_gateway_server::{GatewayServer, GatewayServerHandle};
 use katana_metrics::exporters::prometheus::PrometheusRecorder;
 use katana_metrics::sys::DiskReporter;
 use katana_metrics::{Report, Server as MetricsServer};

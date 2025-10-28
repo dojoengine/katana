@@ -1,5 +1,5 @@
-use katana_gateway::client::Client;
-use katana_gateway::types::{Block, BlockId, StateUpdate, StateUpdateWithBlock};
+use katana_gateway_client::Client;
+use katana_gateway_types::{Block, BlockId, StateUpdate, StateUpdateWithBlock};
 use katana_primitives::block::BlockNumber;
 use rstest::rstest;
 

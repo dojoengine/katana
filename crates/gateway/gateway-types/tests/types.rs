@@ -1,6 +1,6 @@
 use std::collections::BTreeMap;
 
-use katana_gateway::types::{
+use katana_gateway_types::{
     ConfirmedReceipt, DeclaredContract, DeployedContract, ExecutionStatus, PreConfirmedBlock,
     StateDiff, StorageDiff,
 };
@@ -416,7 +416,8 @@ fn receipt_serde_reverted() {
 
 #[test]
 fn preconfirmed_block_serde() {
-    let json_str = include_str!("fixtures/0.14.0/preconfirmed_block/mainnet.json");
+    let json_str =
+        include_str!("../../gateway-client/tests/fixtures/0.14.0/preconfirmed_block/mainnet.json");
     let block: PreConfirmedBlock = serde_json::from_str(json_str).unwrap();
 
     // Assert basic block metadata

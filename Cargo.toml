@@ -12,7 +12,9 @@ members = [
 	"crates/executor",
 	"crates/explorer",
 	"crates/genesis",
-	"crates/gateway",
+	"crates/gateway/gateway-types",
+	"crates/gateway/gateway-client",
+	"crates/gateway/gateway-server",
 	"crates/grpc",
 	"crates/messaging",
 	"crates/metrics",
@@ -78,7 +80,9 @@ katana-core = { path = "crates/core" }
 katana-db = { path = "crates/storage/db" }
 katana-executor = { path = "crates/executor" }
 katana-explorer = { path = "crates/explorer" }
-katana-gateway = { path = "crates/gateway" }
+katana-gateway-types = { path = "crates/gateway/gateway-types" }
+katana-gateway-client = { path = "crates/gateway/gateway-client" }
+katana-gateway-server = { path = "crates/gateway/gateway-server" }
 katana-fork = { path = "crates/storage/fork" }
 katana-gas-price-oracle = { path = "crates/oracle/gas" }
 katana-genesis = { path = "crates/genesis" }

@@ -34,32 +34,6 @@ pub enum ErrorCode {
     Unknown(String),
 }
 
-impl TryFrom<StarknetApiError> for GatewayError {
-    type Error = StarknetApiError;
-
-    fn try_from(value: StarknetApiError) -> Result<Self, Self::Error> {
-        let code = match &value {
-            StarknetApiError::BlockNotFound => ErrorCode::BlockNotFound,
-            StarknetApiError::EntrypointNotFound => ErrorCode::EntryPointNotFoundInContract,
-            StarknetApiError::TxnHashNotFound => ErrorCode::TransactionNotFound,
-            StarknetApiError::ClassHashNotFound => ErrorCode::UndeclaredClass,
-            StarknetApiError::InvalidTransactionNonce(_) => ErrorCode::InvalidTransactionNonce,
-            StarknetApiError::ValidationFailure(_) => ErrorCode::ValidateFailure,
-            StarknetApiError::ClassAlreadyDeclared => ErrorCode::ClassAlreadyDeclared,
-            StarknetApiError::CompilationError(_) => ErrorCode::CompilationFailed,
-            StarknetApiError::CompiledClassHashMismatch => ErrorCode::InvalidCompiledClassHash,
-            StarknetApiError::DuplicateTransaction => ErrorCode::DuplicatedTransaction,
-            StarknetApiError::InvalidContractClass => ErrorCode::InvalidContractClass,
-            StarknetApiError::TransactionExecutionError(_) => ErrorCode::TransactionFailed,
-            StarknetApiError::ContractNotFound => ErrorCode::UninitializedContract,
-            StarknetApiError::InvalidCallData => ErrorCode::MalformedRequest,
-            _ => return Err(value), // Return back the error for unmapped variants
-        };
-
-        Ok(GatewayError { code, message: value.to_string(), problems: None })
-    }
-}
-
 impl ErrorCode {
     fn as_str(&self) -> &str {
         match self {
@@ -126,6 +100,32 @@ impl<'de> Deserialize<'de> for ErrorCode {
         };
 
         Ok(code)
+    }
+}
+
+impl TryFrom<StarknetApiError> for GatewayError {
+    type Error = StarknetApiError;
+
+    fn try_from(value: StarknetApiError) -> Result<Self, Self::Error> {
+        let code = match &value {
+            StarknetApiError::BlockNotFound => ErrorCode::BlockNotFound,
+            StarknetApiError::EntrypointNotFound => ErrorCode::EntryPointNotFoundInContract,
+            StarknetApiError::TxnHashNotFound => ErrorCode::TransactionNotFound,
+            StarknetApiError::ClassHashNotFound => ErrorCode::UndeclaredClass,
+            StarknetApiError::InvalidTransactionNonce(_) => ErrorCode::InvalidTransactionNonce,
+            StarknetApiError::ValidationFailure(_) => ErrorCode::ValidateFailure,
+            StarknetApiError::ClassAlreadyDeclared => ErrorCode::ClassAlreadyDeclared,
+            StarknetApiError::CompilationError(_) => ErrorCode::CompilationFailed,
+            StarknetApiError::CompiledClassHashMismatch => ErrorCode::InvalidCompiledClassHash,
+            StarknetApiError::DuplicateTransaction => ErrorCode::DuplicatedTransaction,
+            StarknetApiError::InvalidContractClass => ErrorCode::InvalidContractClass,
+            StarknetApiError::TransactionExecutionError(_) => ErrorCode::TransactionFailed,
+            StarknetApiError::ContractNotFound => ErrorCode::UninitializedContract,
+            StarknetApiError::InvalidCallData => ErrorCode::MalformedRequest,
+            _ => return Err(value), // Return back the error for unmapped variants
+        };
+
+        Ok(GatewayError { code, message: value.to_string(), problems: None })
     }
 }
 

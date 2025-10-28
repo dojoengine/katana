@@ -2,6 +2,10 @@ use axum::extract::{Query, State};
 use axum::http::StatusCode;
 use axum::response::{IntoResponse, Json, Response};
 use katana_executor::implementation::blockifier::BlockifierFactory;
+use katana_gateway_types::{
+    Block, ConfirmedReceipt, ConfirmedTransaction, ContractClass, ErrorCode, GatewayError,
+    ReceiptBody, StateUpdate, StateUpdateWithBlock,
+};
 use katana_primitives::block::{BlockHash, BlockIdOrTag, BlockNumber};
 use katana_primitives::class::{ClassHash, CompiledClass, ContractClassCompilationError};
 use katana_provider_api::block::{BlockIdReader, BlockProvider, BlockStatusProvider};
@@ -11,11 +15,6 @@ use katana_rpc_api::error::starknet::StarknetApiError;
 use serde::{Deserialize, Serialize};
 use serde_json::{json, Value};
 use starknet::core::types::ResourcePrice;
-
-use crate::types::{
-    Block, ConfirmedReceipt, ConfirmedTransaction, ContractClass, ErrorCode, GatewayError,
-    ReceiptBody, StateUpdate, StateUpdateWithBlock,
-};
 
 /// Shared application state containing the backend
 #[derive(Clone)]

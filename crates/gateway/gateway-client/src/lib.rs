@@ -1,6 +1,11 @@
 use std::marker::PhantomData;
 use std::str::FromStr;
 
+use katana_gateway_types::{
+    AddDeclareTransactionResponse, AddDeployAccountTransactionResponse,
+    AddInvokeTransactionResponse, Block, BlockId, BlockSignature, ContractClass, GatewayError,
+    PreConfirmedBlock, SequencerPublicKey, StateUpdate, StateUpdateWithBlock,
+};
 use katana_primitives::block::BlockNumber;
 use katana_primitives::class::CasmContractClass;
 use katana_primitives::Felt;
@@ -13,12 +18,6 @@ use serde::de::DeserializeOwned;
 use serde::Deserialize;
 use tracing::error;
 use url::Url;
-
-use crate::types::{
-    AddDeclareTransactionResponse, AddDeployAccountTransactionResponse,
-    AddInvokeTransactionResponse, Block, BlockId, BlockSignature, ContractClass, GatewayError,
-    PreConfirmedBlock, SequencerPublicKey, StateUpdate, StateUpdateWithBlock,
-};
 
 /// HTTP request header for the feeder gateway API key. This allow bypassing the rate limiting.
 const X_THROTTLING_BYPASS: &str = "X-Throttling-Bypass";
