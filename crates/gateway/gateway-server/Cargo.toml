@@ -1,0 +1,29 @@
+[package]
+name = "katana-gateway-server"
+edition.workspace = true
+license.workspace = true
+repository.workspace = true
+version.workspace = true
+
+[dependencies]
+katana-gateway-types.workspace = true
+katana-executor.workspace = true
+katana-primitives.workspace = true
+katana-metrics.workspace = true
+katana-rpc.workspace = true
+katana-rpc-api.workspace = true
+katana-provider-api.workspace = true
+serde-utils.workspace = true
+
+axum.workspace = true
+starknet.workspace = true
+metrics.workspace = true
+tokio = { workspace = true, features = ["net"] }
+tower.workspace = true
+tracing.workspace = true
+serde_json.workspace = true
+thiserror.workspace = true
+tower-http.workspace = true
+serde.workspace = true
+http.workspace = true
+http-body.workspace = true

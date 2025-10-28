@@ -4,7 +4,7 @@ use std::fs::File;
 use std::io::BufReader;
 use std::path::PathBuf;
 
-use katana_gateway::client::Client;
+use katana_gateway_client::Client;
 use serde::de::DeserializeOwned;
 
 /// Load test data from a JSON file located in the `/tests/fixtures` directory.

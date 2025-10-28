@@ -4,7 +4,7 @@ use std::future::IntoFuture;
 use std::sync::Arc;
 
 use anyhow::Result;
-use katana_gateway::client::Client as SequencerGateway;
+use katana_gateway_client::Client as SequencerGateway;
 use katana_metrics::exporters::prometheus::PrometheusRecorder;
 use katana_metrics::{Report, Server as MetricsServer};
 use katana_pipeline::{Pipeline, PipelineHandle};

@@ -1,6 +1,6 @@
 use anyhow::Result;
 use futures::future::BoxFuture;
-use katana_gateway::types::{BlockStatus, StateUpdate as GatewayStateUpdate, StateUpdateWithBlock};
+use katana_gateway_types::{BlockStatus, StateUpdate as GatewayStateUpdate, StateUpdateWithBlock};
 use katana_primitives::block::{
     FinalityStatus, GasPrices, Header, SealedBlock, SealedBlockWithStatus,
 };
@@ -139,7 +139,7 @@ where
 pub enum Error {
     /// Error returnd by the client used to download the classes from.
     #[error(transparent)]
-    Gateway(#[from] katana_gateway::client::Error),
+    Gateway(#[from] katana_gateway_client::Error),
 
     #[error(transparent)]
     Provider(#[from] ProviderError),

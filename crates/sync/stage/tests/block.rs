@@ -2,8 +2,8 @@ use std::collections::HashMap;
 use std::future::Future;
 use std::sync::{Arc, Mutex};
 
-use katana_gateway::client::Client as SequencerGateway;
-use katana_gateway::types::{
+use katana_gateway_client::Client as SequencerGateway;
+use katana_gateway_types::{
     Block, BlockStatus, ConfirmedStateUpdate, ErrorCode, GatewayError, StateDiff, StateUpdate,
     StateUpdateWithBlock,
 };
@@ -83,7 +83,7 @@ impl BlockDownloader for MockBlockDownloader {
         &self,
         from: BlockNumber,
         to: BlockNumber,
-    ) -> impl Future<Output = Result<Vec<StateUpdateWithBlock>, katana_gateway::client::Error>> + Send
+    ) -> impl Future<Output = Result<Vec<StateUpdateWithBlock>, katana_gateway_client::Error>> + Send
     {
         async move {
             let block_numbers: Vec<BlockNumber> = (from..=to).collect();
@@ -98,14 +98,14 @@ impl BlockDownloader for MockBlockDownloader {
                 match responses.get(&block_num) {
                     Some(Ok(block_data)) => results.push(block_data.clone()),
                     Some(Err(error)) => {
-                        return Err(katana_gateway::client::Error::Sequencer(GatewayError {
+                        return Err(katana_gateway_client::Error::Sequencer(GatewayError {
                             code: ErrorCode::BlockNotFound,
                             message: error.clone(),
                             problems: None,
                         }))
                     }
                     None => {
-                        return Err(katana_gateway::client::Error::Sequencer(GatewayError {
+                        return Err(katana_gateway_client::Error::Sequencer(GatewayError {
                             code: ErrorCode::BlockNotFound,
                             message: format!("No response configured for block {}", block_num),
                             problems: None,

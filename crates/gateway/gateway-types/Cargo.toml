@@ -1,0 +1,21 @@
+[package]
+name = "katana-gateway-types"
+edition.workspace = true
+license.workspace = true
+repository.workspace = true
+version.workspace = true
+
+[dependencies]
+katana-primitives.workspace = true
+katana-rpc-types.workspace = true
+katana-rpc-api.workspace = true
+serde-utils.workspace = true
+
+serde.workspace = true
+starknet.workspace = true
+thiserror.workspace = true
+
+[dev-dependencies]
+serde_json.workspace = true
+similar-asserts.workspace = true
+katana-utils.workspace = true

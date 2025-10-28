@@ -1,0 +1,30 @@
+[package]
+name = "katana-gateway-client"
+edition.workspace = true
+license.workspace = true
+repository.workspace = true
+version.workspace = true
+
+[dependencies]
+katana-primitives.workspace = true
+katana-rpc-types.workspace = true
+katana-gateway-types.workspace = true
+
+clap.workspace = true
+anyhow.workspace = true
+reqwest.workspace = true
+serde.workspace = true
+tracing.workspace = true
+serde_json.workspace = true
+thiserror.workspace = true
+url.workspace = true
+
+[dev-dependencies]
+rstest.workspace = true
+similar-asserts.workspace = true
+wiremock = "0.6"
+tokio = { workspace = true, features = ["macros", "rt"] }
+
+[[bin]]
+name = "gateway"
+path = "bin/client.rs"
