@@ -1,69 +1,73 @@
-use katana_gateway::client::Client as GatewayClient;
-use katana_gateway::types::BlockId as GatewayBlockId;
+use futures::future::BoxFuture;
+use katana_gateway_client::Client as GatewayClient;
+use katana_gateway_types::BlockId as GatewayBlockId;
 use katana_primitives::block::GasPrices;
 use num_traits::ToPrimitive;
 use starknet::core::types::{BlockId, BlockTag, MaybePreConfirmedBlockWithTxHashes};
+use starknet::providers::jsonrpc::HttpTransport;
+use starknet::providers::{JsonRpcClient, Provider};
 
-use super::SampledPrices;
+use crate::sampled::SampledPrices;
+use crate::Sampler;
 
-/// Implement `Sampler` for any type that implements `starknet::providers::Provider`.
-impl<P> super::Sampler for P
-where
-    P: starknet::providers::Provider + Send + Sync,
-{
-    async fn sample(&self) -> anyhow::Result<SampledPrices> {
-        let block_id = BlockId::Tag(BlockTag::Latest);
-        let block = self.get_block_with_tx_hashes(block_id).await?;
+impl Sampler for JsonRpcClient<HttpTransport> {
+    fn sample(&self) -> BoxFuture<'_, anyhow::Result<SampledPrices>> {
+        Box::pin(async {
+            let block_id = BlockId::Tag(BlockTag::Latest);
 
-        let (l1_gas_price, l2_gas_price, l1_data_gas_price) = match block {
-            MaybePreConfirmedBlockWithTxHashes::Block(block) => {
-                (block.l1_gas_price, block.l2_gas_price, block.l1_data_gas_price)
-            }
-            MaybePreConfirmedBlockWithTxHashes::PreConfirmedBlock(pending) => {
-                (pending.l1_gas_price, pending.l2_gas_price, pending.l1_data_gas_price)
-            }
-        };
+            let block = self.get_block_with_tx_hashes(block_id).await?;
 
-        let l2_gas_prices = GasPrices::new(
-            l2_gas_price.price_in_wei.to_u128().unwrap().try_into()?,
-            l2_gas_price.price_in_fri.to_u128().unwrap().try_into()?,
-        );
+            let (l1_gas_price, l2_gas_price, l1_data_gas_price) = match block {
+                MaybePreConfirmedBlockWithTxHashes::Block(block) => {
+                    (block.l1_gas_price, block.l2_gas_price, block.l1_data_gas_price)
+                }
+                MaybePreConfirmedBlockWithTxHashes::PreConfirmedBlock(pending) => {
+                    (pending.l1_gas_price, pending.l2_gas_price, pending.l1_data_gas_price)
+                }
+            };
 
-        let l1_gas_prices = GasPrices::new(
-            l1_gas_price.price_in_wei.to_u128().unwrap().try_into()?,
-            l1_gas_price.price_in_fri.to_u128().unwrap().try_into()?,
-        );
+            let l2_gas_prices = GasPrices::new(
+                l2_gas_price.price_in_wei.to_u128().unwrap().try_into()?,
+                l2_gas_price.price_in_fri.to_u128().unwrap().try_into()?,
+            );
 
-        let l1_data_gas_prices = GasPrices::new(
-            l1_data_gas_price.price_in_wei.to_u128().unwrap().try_into()?,
-            l1_data_gas_price.price_in_fri.to_u128().unwrap().try_into()?,
-        );
+            let l1_gas_prices = GasPrices::new(
+                l1_gas_price.price_in_wei.to_u128().unwrap().try_into()?,
+                l1_gas_price.price_in_fri.to_u128().unwrap().try_into()?,
+            );
 
-        Ok(SampledPrices { l2_gas_prices, l1_gas_prices, l1_data_gas_prices })
+            let l1_data_gas_prices = GasPrices::new(
+                l1_data_gas_price.price_in_wei.to_u128().unwrap().try_into()?,
+                l1_data_gas_price.price_in_fri.to_u128().unwrap().try_into()?,
+            );
+
+            Ok(SampledPrices { l2_gas_prices, l1_gas_prices, l1_data_gas_prices })
+        })
     }
 }
 
-/// Implement `Sampler` for the feeder gateway client.
-impl super::Sampler for GatewayClient {
-    async fn sample(&self) -> anyhow::Result<SampledPrices> {
-        let block = self.get_block(GatewayBlockId::Latest).await?;
+impl Sampler for GatewayClient {
+    fn sample(&self) -> BoxFuture<'_, anyhow::Result<SampledPrices>> {
+        Box::pin(async {
+            let block = self.get_block(GatewayBlockId::Latest).await?;
 
-        let l2_gas_prices = GasPrices::new(
-            block.l2_gas_price.price_in_wei.to_u128().unwrap().try_into()?,
-            block.l2_gas_price.price_in_fri.to_u128().unwrap().try_into()?,
-        );
+            let l2_gas_prices = GasPrices::new(
+                block.l2_gas_price.price_in_wei.to_u128().unwrap().try_into()?,
+                block.l2_gas_price.price_in_fri.to_u128().unwrap().try_into()?,
+            );
 
-        let l1_gas_prices = GasPrices::new(
-            block.l1_gas_price.price_in_wei.to_u128().unwrap().try_into()?,
-            block.l1_gas_price.price_in_fri.to_u128().unwrap().try_into()?,
-        );
+            let l1_gas_prices = GasPrices::new(
+                block.l1_gas_price.price_in_wei.to_u128().unwrap().try_into()?,
+                block.l1_gas_price.price_in_fri.to_u128().unwrap().try_into()?,
+            );
 
-        let l1_data_gas_prices = GasPrices::new(
-            block.l1_data_gas_price.price_in_wei.to_u128().unwrap().try_into()?,
-            block.l1_data_gas_price.price_in_fri.to_u128().unwrap().try_into()?,
-        );
+            let l1_data_gas_prices = GasPrices::new(
+                block.l1_data_gas_price.price_in_wei.to_u128().unwrap().try_into()?,
+                block.l1_data_gas_price.price_in_fri.to_u128().unwrap().try_into()?,
+            );
 
-        Ok(SampledPrices { l2_gas_prices, l1_gas_prices, l1_data_gas_prices })
+            Ok(SampledPrices { l2_gas_prices, l1_gas_prices, l1_data_gas_prices })
+        })
     }
 }
 

@@ -1,9 +1,9 @@
 use std::fmt::Debug;
 use std::future::Future;
 
-use alloy_provider::network;
 use katana_primitives::block::GasPrices;
 use starknet::providers::jsonrpc::HttpTransport;
+use starknet::providers::JsonRpcClient;
 use url::Url;
 
 mod fixed;
@@ -14,13 +14,13 @@ pub use fixed::{
     DEFAULT_ETH_L2_GAS_PRICE, DEFAULT_STRK_L1_DATA_GAS_PRICE, DEFAULT_STRK_L1_GAS_PRICE,
     DEFAULT_STRK_L2_GAS_PRICE,
 };
-pub use sampled::ethereum::EthSampler;
+use sampled::ethereum::EthereumSampler;
 pub use sampled::{SampledPriceOracle, Sampler};
 
 #[derive(Debug)]
 pub enum GasPriceOracle {
     Fixed(fixed::FixedPriceOracle),
-    Sampled(sampled::SampledPriceOracle),
+    Sampled(sampled::SampledPriceOracle<Box<dyn Sampler + 'static>>),
 }
 
 impl GasPriceOracle {
@@ -38,22 +38,22 @@ impl GasPriceOracle {
 
     /// Creates a new gas oracle that samples the gas prices from an Ethereum chain.
     pub fn sampled_ethereum(url: Url) -> Self {
-        let provider = alloy_provider::RootProvider::<network::Ethereum>::new_http(url);
-        let sampler = sampled::ethereum::EthSampler::new(provider);
+        let sampler: Box<dyn Sampler> = Box::new(EthereumSampler::new_http(url));
         let oracle = sampled::SampledPriceOracle::new(sampler);
         Self::Sampled(oracle)
     }
 
     /// Creates a new gas oracle that samples the gas prices from a Starknet chain via RPC.
     pub fn sampled_starknet(url: Url) -> Self {
-        let provider = starknet::providers::JsonRpcClient::new(HttpTransport::new(url));
+        let provider: Box<dyn Sampler> = Box::new(JsonRpcClient::new(HttpTransport::new(url)));
         let oracle = sampled::SampledPriceOracle::new(provider);
         Self::Sampled(oracle)
     }
 
     /// Creates a new gas oracle that samples the gas prices from a Starknet chain via feeder
     /// gateway.
-    pub fn sampled_starknet_gateway(gateway: katana_gateway::client::Client) -> Self {
+    pub fn sampled_starknet_gateway(gateway: katana_gateway_client::Client) -> Self {
+        let gateway: Box<dyn Sampler> = Box::new(gateway);
         let oracle = sampled::SampledPriceOracle::new(gateway);
         Self::Sampled(oracle)
     }

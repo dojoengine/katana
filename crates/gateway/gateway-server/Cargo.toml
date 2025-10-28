@@ -5,23 +5,6 @@ license.workspace = true
 repository.workspace = true
 version.workspace = true
 
-[features]
-default = ["server"]
-server = [
-    "dep:katana-executor",
-    "dep:katana-metrics",
-    "dep:katana-rpc",
-    "dep:katana-rpc-api",
-    "dep:katana-provider-api",
-    "dep:axum",
-    "dep:metrics",
-    "dep:tokio",
-    "dep:tower",
-    "dep:tower-http",
-    "dep:http",
-    "dep:http-body",
-]
-
 [dependencies]
 katana-gateway-types.workspace = true
 katana-executor.workspace = true

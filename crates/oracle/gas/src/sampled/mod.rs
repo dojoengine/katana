@@ -1,15 +1,14 @@
+use std::fmt::Debug;
 use std::future::Future;
 use std::sync::Arc;
 use std::time::Duration;
 
-use ::starknet::providers::jsonrpc::HttpTransport;
-use alloy_provider::network;
 use backon::{ExponentialBuilder, Retryable};
 use buffer::GasPricesBuffer;
+use futures::future::BoxFuture;
 use katana_primitives::block::GasPrices;
 use parking_lot::Mutex;
 use tracing::{error, warn};
-use url::Url;
 
 mod buffer;
 pub mod ethereum;
@@ -19,25 +18,25 @@ const DEFAULT_SAMPLING_INTERVAL: Duration = Duration::from_secs(60);
 
 /// Trait for sampling gas prices from different blockchain networks.
 #[auto_impl::auto_impl(Box)]
-pub trait Sampler: Send + Sync {
+pub trait Sampler: Debug + Send + Sync {
     /// Sample gas prices from the underlying network.
-    fn sample(&self) -> impl Future<Output = anyhow::Result<SampledPrices>> + Send;
+    fn sample(&self) -> BoxFuture<'_, anyhow::Result<SampledPrices>>;
 }
 
 #[derive(Debug, Clone)]
-pub struct SampledPriceOracle {
-    inner: Arc<SampledPriceOracleInner>,
+pub struct SampledPriceOracle<S: Sampler> {
+    inner: Arc<SampledPriceOracleInner<S>>,
 }
 
-struct SampledPriceOracleInner {
+#[derive(Debug)]
+struct SampledPriceOracleInner<S> {
     samples: Mutex<Samples>,
-    sampler: Box<dyn Sampler>,
+    sampler: S,
 }
 
-impl SampledPriceOracle {
-    pub fn new(sampler: impl Sampler + 'static) -> Self {
+impl<S: Sampler> SampledPriceOracle<S> {
+    pub fn new(sampler: S) -> Self {
         let samples = Mutex::new(Samples::new());
-        let sampler = Box::new(sampler);
         let inner = Arc::new(SampledPriceOracleInner { samples, sampler });
         Self { inner }
     }
@@ -56,7 +55,9 @@ impl SampledPriceOracle {
     pub fn avg_l1_data_gas_prices(&self) -> GasPrices {
         self.inner.samples.lock().l1_data_gas_prices.average()
     }
+}
 
+impl<S: Sampler + 'static> SampledPriceOracle<S> {
     /// Runs the worker that samples gas prices from the configured network.
     pub fn run_worker(&self) -> impl Future<Output = ()> + 'static {
         let inner = self.inner.clone();
@@ -69,7 +70,7 @@ impl SampledPriceOracle {
             loop {
                 interval.tick().await;
 
-                let request = || async { inner.sampler.clone().sample().await };
+                let request = || async { inner.sampler.sample().await };
                 let backoff = ExponentialBuilder::default().with_min_delay(Duration::from_secs(3));
                 let future = request.retry(backoff).notify(|error, _| {
                     warn!(target: "gas_oracle", %error, "Retrying gas prices sampling.");
