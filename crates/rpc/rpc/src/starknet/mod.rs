@@ -17,7 +17,6 @@ use katana_primitives::contract::{ContractAddress, Nonce, StorageKey, StorageVal
 use katana_primitives::env::BlockEnv;
 use katana_primitives::event::MaybeForkedContinuationToken;
 use katana_primitives::transaction::{ExecutableTxWithHash, TxHash, TxNumber};
-use katana_primitives::version::CURRENT_STARKNET_VERSION;
 use katana_primitives::Felt;
 use katana_provider::api::block::{BlockHashProvider, BlockIdReader, BlockNumberProvider};
 use katana_provider::api::contract::ContractClassProvider;
@@ -48,14 +47,11 @@ use katana_rpc_types::trie::{
     ClassesProof, ContractLeafData, ContractStorageKeys, ContractStorageProofs, ContractsProof,
     GetStorageProofResponse, GlobalRoots, Nodes,
 };
-use katana_rpc_types::{
-    FeeEstimate, PreConfirmedBlockWithReceipts, PreConfirmedBlockWithTxs, TxStatus,
-};
+use katana_rpc_types::{FeeEstimate, TxStatus};
 use katana_rpc_types_builder::{BlockBuilder, ReceiptBuilder};
 use katana_tasks::{Result as TaskResult, TaskSpawner};
 
 use crate::permit::Permits;
-use crate::starknet::pending::PendingBlockProvider2;
 use crate::utils::events::{Cursor, EventBlockId};
 use crate::{utils, DEFAULT_ESTIMATE_FEE_MAX_CONCURRENT_REQUESTS};
 
@@ -74,7 +70,7 @@ pub use config::StarknetApiConfig;
 use forking::ForkedClient;
 pub use pending::PendingBlockProvider;
 
-type StarknetApiResult<T> = Result<T, StarknetApiError>;
+pub type StarknetApiResult<T> = Result<T, StarknetApiError>;
 
 /// Handler for the Starknet JSON-RPC server.
 ///
