@@ -142,22 +142,14 @@ impl<EF: ExecutorFactory, P: PendingBlockProvider> StarknetApi<EF, P> {
         use StarknetApiError::TxnHashNotFound;
 
         // Check in the pending block first
-        if let Some(state) = self.pending_executor() {
-            let pending_block = state.read();
-            let tx = pending_block.transactions().iter().find(|(t, _)| t.hash == tx_hash);
-
-            if let Some((tx, res)) = tx {
-                if let Some(trace) = res.trace() {
-                    let trace = TypedTransactionExecutionInfo::new(tx.r#type(), trace.clone());
-                    return Ok(TxTrace::from(trace));
-                }
-            }
+        if let Some(pending_trace) = self.inner.pending_block_provider.get_pending_trace(tx_hash)? {
+            Ok(pending_trace)
+        } else {
+            // If not found in pending block, fallback to the provider
+            let provider = self.inner.backend.blockchain.provider();
+            let trace = provider.transaction_execution(tx_hash)?.ok_or(TxnHashNotFound)?;
+            Ok(TxTrace::from(trace))
         }
-
-        // If not found in pending block, fallback to the provider
-        let provider = self.inner.backend.blockchain.provider();
-        let trace = provider.transaction_execution(tx_hash)?.ok_or(TxnHashNotFound)?;
-        Ok(TxTrace::from(trace))
     }
 }
 

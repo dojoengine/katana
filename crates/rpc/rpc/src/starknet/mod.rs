@@ -5,7 +5,6 @@ use std::future::Future;
 use std::sync::Arc;
 
 use katana_core::backend::Backend;
-use katana_core::service::block_producer::{BlockProducer, BlockProducerMode, PendingExecutor};
 use katana_executor::ExecutorFactory;
 use katana_pool::{TransactionPool, TxPool};
 use katana_primitives::block::{BlockHashOrNumber, BlockIdOrTag, FinalityStatus, GasPrices};
@@ -85,7 +84,6 @@ struct StarknetApiInner<EF: ExecutorFactory, P: PendingBlockProvider> {
     backend: Arc<Backend<EF>>,
     forked_client: Option<ForkedClient>,
     task_spawner: TaskSpawner,
-    block_producer: Option<BlockProducer<EF>>,
     estimate_fee_permit: Permits,
     config: StarknetApiConfig,
     pending_block_provider: P,
@@ -104,10 +102,6 @@ impl<EF: ExecutorFactory, P: PendingBlockProvider> StarknetApi<EF, P> {
         self.inner.forked_client.as_ref()
     }
 
-    pub fn block_producer(&self) -> Option<&BlockProducer<EF>> {
-        self.inner.block_producer.as_ref()
-    }
-
     pub fn estimate_fee_permit(&self) -> &Permits {
         &self.inner.estimate_fee_permit
     }
@@ -121,26 +115,16 @@ impl<EF: ExecutorFactory, P: PendingBlockProvider> StarknetApi<EF, P> {
     pub fn new(
         backend: Arc<Backend<EF>>,
         pool: TxPool,
-        block_producer: Option<BlockProducer<EF>>,
         task_spawner: TaskSpawner,
         config: StarknetApiConfig,
         pending_block_provider: P,
     ) -> Self {
-        Self::new_inner(
-            backend,
-            pool,
-            block_producer,
-            None,
-            task_spawner,
-            config,
-            pending_block_provider,
-        )
+        Self::new_inner(backend, pool, None, task_spawner, config, pending_block_provider)
     }
 
     pub fn new_forked(
         backend: Arc<Backend<EF>>,
         pool: TxPool,
-        block_producer: BlockProducer<EF>,
         forked_client: ForkedClient,
         task_spawner: TaskSpawner,
         config: StarknetApiConfig,
@@ -149,7 +133,6 @@ impl<EF: ExecutorFactory, P: PendingBlockProvider> StarknetApi<EF, P> {
         Self::new_inner(
             backend,
             pool,
-            Some(block_producer),
             Some(forked_client),
             task_spawner,
             config,
@@ -160,7 +143,6 @@ impl<EF: ExecutorFactory, P: PendingBlockProvider> StarknetApi<EF, P> {
     fn new_inner(
         backend: Arc<Backend<EF>>,
         pool: TxPool,
-        block_producer: Option<BlockProducer<EF>>,
         forked_client: Option<ForkedClient>,
         task_spawner: TaskSpawner,
         config: StarknetApiConfig,
@@ -174,7 +156,6 @@ impl<EF: ExecutorFactory, P: PendingBlockProvider> StarknetApi<EF, P> {
         let inner = StarknetApiInner {
             pool,
             backend,
-            block_producer,
             task_spawner,
             forked_client,
             estimate_fee_permit,
@@ -252,14 +233,6 @@ impl<EF: ExecutorFactory, P: PendingBlockProvider> StarknetApi<EF, P> {
 
         // do estimations
         blockifier::estimate_fees(state, env, cfg_env, transactions, flags)
-    }
-
-    /// Returns the pending state if the sequencer is running in _interval_ mode. Otherwise `None`.
-    fn pending_executor(&self) -> Option<PendingExecutor> {
-        self.inner.block_producer.as_ref().and_then(|bp| match &*bp.producer.read() {
-            BlockProducerMode::Instant(_) => None,
-            BlockProducerMode::Interval(producer) => Some(producer.executor()),
-        })
     }
 
     pub fn state(&self, block_id: &BlockIdOrTag) -> StarknetApiResult<Box<dyn StateProvider>> {

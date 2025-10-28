@@ -4,13 +4,14 @@ use katana_core::service::block_producer::{BlockProducer, BlockProducerMode};
 use katana_executor::ExecutorFactory;
 use katana_primitives::block::PartialHeader;
 use katana_primitives::da::L1DataAvailabilityMode;
+use katana_primitives::execution::TypedTransactionExecutionInfo;
 use katana_primitives::transaction::{TxHash, TxNumber};
 use katana_primitives::version::CURRENT_STARKNET_VERSION;
 use katana_provider::api::state::StateProvider;
 use katana_rpc_types::{
     FinalityStatus, PreConfirmedBlockWithReceipts, PreConfirmedBlockWithTxHashes,
     PreConfirmedBlockWithTxs, PreConfirmedStateUpdate, ReceiptBlockInfo, RpcTxWithHash,
-    TxReceiptWithBlockInfo,
+    TxReceiptWithBlockInfo, TxTrace,
 };
 
 use crate::starknet::StarknetApiResult;
@@ -37,6 +38,8 @@ pub trait PendingBlockProvider: Debug + Send + Sync + 'static {
         &self,
         hash: TxHash,
     ) -> StarknetApiResult<Option<TxReceiptWithBlockInfo>>;
+
+    fn get_pending_trace(&self, hash: TxHash) -> StarknetApiResult<Option<TxTrace>>;
 
     fn get_pending_transaction_by_index(
         &self,
@@ -216,6 +219,27 @@ impl<EF: ExecutorFactory> PendingBlockProvider for BlockProducer<EF> {
                 } else {
                     StarknetApiResult::Ok(None)
                 }
+            }
+        }
+    }
+
+    fn get_pending_trace(&self, hash: TxHash) -> StarknetApiResult<Option<TxTrace>> {
+        match &*self.producer.read() {
+            BlockProducerMode::Instant(_) => Ok(None),
+            BlockProducerMode::Interval(producer) => {
+                let executor = producer.executor();
+                let executor_lock = executor.read();
+
+                let result = executor_lock.transactions().iter().find(|(t, _)| t.hash == hash);
+
+                if let Some((tx, res)) = result {
+                    if let Some(trace) = res.trace() {
+                        let trace = TypedTransactionExecutionInfo::new(tx.r#type(), trace.clone());
+                        return Ok(Some(TxTrace::from(trace)));
+                    }
+                }
+
+                Ok(None)
             }
         }
     }
