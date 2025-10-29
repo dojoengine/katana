@@ -62,10 +62,10 @@ where
 }
 
 #[derive(Debug)]
-struct LatestStateProvider<Db: Database> {
-    db: Arc<DbProvider<Db>>,
-    backend: BackendClient,
-    provider: db::state::LatestStateProvider<Db::Tx>,
+pub struct LatestStateProvider<Db: Database> {
+    pub(crate) db: Arc<DbProvider<Db>>,
+    pub(crate) backend: BackendClient,
+    pub(crate) provider: db::state::LatestStateProvider<Db::Tx>,
 }
 
 impl<Db> ContractClassProvider for LatestStateProvider<Db>
@@ -202,10 +202,10 @@ where
 }
 
 #[derive(Debug)]
-struct HistoricalStateProvider<Db: Database> {
-    db: Arc<DbProvider<Db>>,
-    backend: BackendClient,
-    provider: db::state::HistoricalStateProvider<Db::Tx>,
+pub struct HistoricalStateProvider<Db: Database> {
+    pub(crate) db: Arc<DbProvider<Db>>,
+    pub(crate) backend: BackendClient,
+    pub(crate) provider: db::state::HistoricalStateProvider<Db::Tx>,
 }
 
 impl<Db: Database> HistoricalStateProvider<Db> {

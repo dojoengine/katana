@@ -23,9 +23,15 @@ pub trait Sampler: Debug + Send + Sync {
     fn sample(&self) -> BoxFuture<'_, anyhow::Result<SampledPrices>>;
 }
 
-#[derive(Debug, Clone)]
+#[derive(Debug)]
 pub struct SampledPriceOracle<S: Sampler> {
     inner: Arc<SampledPriceOracleInner<S>>,
+}
+
+impl<S: Sampler> Clone for SampledPriceOracle<S> {
+    fn clone(&self) -> Self {
+        Self { inner: Arc::clone(&self.inner) }
+    }
 }
 
 #[derive(Debug)]

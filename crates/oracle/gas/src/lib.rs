@@ -17,7 +17,7 @@ pub use sampled::{SampledPriceOracle, Sampler};
 
 use crate::sampled::starknet::{StarknetGatewaySampler, StarknetJsonRpcSampler};
 
-#[derive(Debug)]
+#[derive(Debug, Clone)]
 pub enum GasPriceOracle {
     Fixed(fixed::FixedPriceOracle),
     Sampled(sampled::SampledPriceOracle<Box<dyn Sampler + 'static>>),
