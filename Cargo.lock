@@ -6310,6 +6310,7 @@ dependencies = [
  "katana-provider",
  "katana-rpc",
  "katana-rpc-api",
+ "katana-rpc-client",
  "katana-stage",
  "katana-starknet",
  "katana-tasks",
