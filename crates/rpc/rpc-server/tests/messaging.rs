@@ -23,6 +23,7 @@ use starknet::macros::selector;
 use starknet::providers::Provider;
 
 mod common;
+use common::prepare_contract_declaration_params;
 
 sol!(
     #[allow(missing_docs)]
@@ -75,7 +76,7 @@ async fn test_messaging() {
     let l2_test_contract = {
         // Prepare contract declaration params
         let path = PathBuf::from("tests/test_data/cairo_l1_msg_contract.json");
-        let (contract, compiled_hash) = common::prepare_contract_declaration_params(&path).unwrap();
+        let (contract, compiled_hash) = prepare_contract_declaration_params(&path).unwrap();
 
         // Declare the contract
         let class_hash = contract.class_hash();
@@ -233,7 +234,7 @@ async fn estimate_message_fee() -> Result<()> {
 
     // Declare and deploy a l1 handler contract
     let path = PathBuf::from("tests/test_data/cairo_l1_msg_contract.json");
-    let (contract, compiled_hash) = common::prepare_contract_declaration_params(&path)?;
+    let (contract, compiled_hash) = prepare_contract_declaration_params(&path)?;
     let class_hash = contract.class_hash();
 
     let res = account.declare_v3(contract.into(), compiled_hash).send().await?;

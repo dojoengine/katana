@@ -25,14 +25,11 @@ use katana_stage::downloader::{BatchDownloader, Downloader, DownloaderResult};
 ///
 /// In a real application, you would use an actual HTTP client like `reqwest`.
 #[derive(Clone)]
-struct HttpClient {
-    base_url: String,
-    timeout: Duration,
-}
+struct HttpClient;
 
 impl HttpClient {
-    fn new(base_url: impl Into<String>) -> Self {
-        Self { base_url: base_url.into(), timeout: Duration::from_secs(10) }
+    fn new() -> Self {
+        Self {}
     }
 
     /// Simulates an HTTP GET request to fetch user data.
@@ -136,8 +133,8 @@ struct UserDownloader {
 }
 
 impl UserDownloader {
-    fn new(base_url: impl Into<String>) -> Self {
-        Self { client: HttpClient::new(base_url) }
+    fn new() -> Self {
+        Self { client: HttpClient::new() }
     }
 }
 
@@ -198,7 +195,7 @@ async fn main() -> anyhow::Result<()> {
     println!("for downloading user data from a REST API.\n");
 
     // Create a downloader with a batch size of 5
-    let downloader = UserDownloader::new("https://api.example.com");
+    let downloader = UserDownloader::new();
     let batch_downloader = BatchDownloader::new(downloader, 5);
 
     println!("Configuration:");

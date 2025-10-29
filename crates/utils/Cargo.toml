@@ -32,6 +32,7 @@ starknet = { workspace = true, optional = true }
 tempfile = { workspace = true, optional = true }
 
 [features]
+cartridge = [  ]
 explorer = [ "katana-node/explorer", "node" ]
 node = [
 	"katana-chain-spec",

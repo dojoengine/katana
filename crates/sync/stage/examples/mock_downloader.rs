@@ -108,6 +108,7 @@ impl MockDownloader {
     }
 
     /// Resets all attempt counters.
+    #[allow(dead_code)]
     fn reset_attempts(&self) {
         for counter in self.attempts.lock().unwrap().values() {
             counter.store(0, Ordering::SeqCst);

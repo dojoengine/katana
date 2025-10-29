@@ -17,9 +17,6 @@ use tower::{Layer, ServiceBuilder};
 use tower_http::trace::TraceLayer;
 use tracing::info;
 
-#[cfg(feature = "cartridge")]
-pub mod cartridge;
-
 #[cfg(feature = "tee")]
 pub mod tee;
 
@@ -35,7 +32,6 @@ mod utils;
 use cors::Cors;
 use health::HealthCheck;
 pub use jsonrpsee::core::middleware::RpcServiceBuilder;
-#[cfg(feature = "client")]
 pub use jsonrpsee::http_client::HttpClient;
 pub use katana_rpc_api as api;
 

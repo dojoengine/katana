@@ -2,16 +2,9 @@ use katana_primitives::class::{ClassHash, CompiledClassHash};
 use katana_primitives::contract::Nonce;
 use katana_primitives::da::DataAvailabilityMode;
 use katana_primitives::execution::EntryPointSelector;
-use katana_primitives::fee::{AllResourceBoundsMapping, ResourceBounds, ResourceBoundsMapping};
 use katana_primitives::fee::{ResourceBoundsMapping, Tip};
 use katana_primitives::transaction::TxHash;
-use katana_primitives::transaction::{
-    DeclareTx, DeclareTxV3, DeclareTxWithClass, DeployAccountTx, DeployAccountTxV3, InvokeTx,
-    TxHash, TxWithHash,
-};
-use katana_primitives::Felt;
 use katana_primitives::{transaction as primitives, ContractAddress, Felt};
-use num_traits::ToPrimitive;
 use serde::{Deserialize, Serialize};
 
 use crate::ExecutionResult;

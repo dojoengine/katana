@@ -7,6 +7,7 @@ use katana_chain_spec::{dev, ChainSpec};
 use katana_core::backend::Backend;
 use katana_executor::implementation::blockifier::BlockifierFactory;
 use katana_node::config::dev::DevConfig;
+#[cfg(feature = "cartridge")]
 use katana_node::config::paymaster::PaymasterConfig;
 use katana_node::config::rpc::{RpcConfig, RpcModulesList, DEFAULT_RPC_ADDR};
 use katana_node::config::sequencing::SequencingConfig;
@@ -297,14 +298,15 @@ pub fn test_config() -> Config {
         ..Default::default()
     };
 
-    let cartridge_api_url = Url::parse("http://localhost:6969").unwrap();
-
     Config {
         sequencing,
         rpc,
         dev,
         chain: ChainSpec::Dev(chain).into(),
-        paymaster: Some(PaymasterConfig { cartridge_api_url }),
+        #[cfg(feature = "cartridge")]
+        paymaster: Some(PaymasterConfig {
+            cartridge_api_url: Url::parse("http://localhost:6969").unwrap(),
+        }),
         ..Default::default()
     }
 }

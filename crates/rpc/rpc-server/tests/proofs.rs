@@ -20,6 +20,7 @@ use starknet::providers::JsonRpcClient;
 use starknet::signers::LocalWallet;
 
 mod common;
+use common::prepare_contract_declaration_params;
 
 #[tokio::test]
 async fn proofs_limit() {
@@ -262,7 +263,7 @@ async fn declare(
     account: &SingleOwnerAccount<JsonRpcClient<HttpTransport>, LocalWallet>,
     path: impl Into<PathBuf>,
 ) -> (ClassHash, CompiledClassHash) {
-    let (contract, compiled_class_hash) = common::prepare_contract_declaration_params(&path.into())
+    let (contract, compiled_class_hash) = prepare_contract_declaration_params(&path.into())
         .expect("failed to prepare class declaration params");
 
     let class_hash = contract.class_hash();

@@ -7,8 +7,6 @@ use starknet::accounts::{Account, ExecutionEncoding, SingleOwnerAccount};
 use starknet::providers::Provider;
 use starknet::signers::{LocalWallet, SigningKey};
 
-mod common;
-
 abigen_legacy!(Erc20Contract, "crates/contracts/build/legacy/erc20.json", derives(Clone));
 
 #[tokio::test]

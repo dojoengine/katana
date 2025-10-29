@@ -635,9 +635,7 @@ fn parse_contract_storage_keys(storages: &[String]) -> Result<Vec<ContractStorag
 
         if parts.len() != 2 {
             anyhow::bail!(
-                "invalid storage format at position {}: '{}'. Expected 'address,key'",
-                i,
-                pair
+                "invalid storage format at position {i}: '{pair}'. Expected 'address,key'",
             );
         }
 

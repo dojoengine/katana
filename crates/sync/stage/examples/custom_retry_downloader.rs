@@ -71,6 +71,7 @@ impl ConfigurableDownloader {
     }
 
     /// Creates a downloader that always fails permanently.
+    #[allow(dead_code)]
     fn with_permanent_failure() -> Self {
         Self {
             attempts_before_success: Arc::new(AtomicUsize::new(0)),
@@ -80,11 +81,13 @@ impl ConfigurableDownloader {
     }
 
     /// Creates a downloader that always succeeds immediately.
+    #[allow(dead_code)]
     fn immediate_success() -> Self {
         Self::with_retries(0)
     }
 
     /// Reset the attempt counter.
+    #[allow(dead_code)]
     fn reset(&self) {
         self.current_attempts.store(0, Ordering::SeqCst);
     }
@@ -135,6 +138,7 @@ where
     let start = Instant::now();
     let result = f.await;
     let duration = start.elapsed();
+    println!("{}", name);
     println!("⏱️  Time taken: {:.2}s\n", duration.as_secs_f64());
     result
 }

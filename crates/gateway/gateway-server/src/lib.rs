@@ -4,6 +4,7 @@ use std::time::Duration;
 
 use axum::routing::get;
 use axum::Router;
+use http::StatusCode;
 use katana_core::service::block_producer::BlockProducer;
 use katana_executor::implementation::blockifier::BlockifierFactory;
 use katana_pool_api::TransactionPool;
@@ -176,7 +177,7 @@ where
             .option_layer(metrics_layer)
             .layer(TraceLayer::new_for_http())
             .layer(CorsLayer::new().allow_origin(Any).allow_headers(Any).allow_methods(Any))
-            .layer(TimeoutLayer::new(self.timeout));
+            .layer(TimeoutLayer::with_status_code(StatusCode::REQUEST_TIMEOUT, self.timeout));
 
         let mut router = Router::new()
             .layer(middleware)
