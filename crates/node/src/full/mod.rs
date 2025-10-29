@@ -15,7 +15,7 @@ use katana_gateway_client::Client as SequencerGateway;
 use katana_metrics::exporters::prometheus::PrometheusRecorder;
 use katana_metrics::{Report, Server as MetricsServer};
 use katana_pipeline::{Pipeline, PipelineHandle};
-use katana_pool::ordering::{FiFo, TipOrdering};
+use katana_pool::ordering::TipOrdering;
 use katana_provider::providers::db::DbProvider;
 use katana_provider::BlockchainProvider;
 use katana_rpc::cors::Cors;
@@ -105,10 +105,15 @@ impl Node {
 
         // --- build gateway client
 
+        let gateway_client = match config.network {
+            Network::Mainnet => SequencerGateway::mainnet(),
+            Network::Sepolia => SequencerGateway::sepolia(),
+        };
+
         let gateway_client = if let Some(ref key) = config.gateway_api_key {
-            SequencerGateway::sepolia().with_api_key(key.clone())
+            gateway_client.with_api_key(key.clone())
         } else {
-            SequencerGateway::sepolia()
+            gateway_client
         };
 
         // --- build transaction pool

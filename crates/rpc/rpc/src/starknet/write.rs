@@ -9,6 +9,7 @@ use katana_rpc_types::broadcasted::{
 };
 use katana_rpc_types::{BroadcastedTx, BroadcastedTxWithChainId};
 
+use super::StarknetApi;
 use crate::starknet::pending::PendingBlockProvider;
 
 impl<Pool, PoolTx, Pending> StarknetApi<Pool, Pending>
