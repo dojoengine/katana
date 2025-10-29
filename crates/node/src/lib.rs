@@ -1,6 +1,7 @@
 // #![cfg_attr(not(test), warn(unused_crate_dependencies))]
 
 pub mod full;
+pub mod optimistic;
 
 pub mod config;
 pub mod exit;
@@ -191,7 +192,7 @@ impl Node {
         let block_context_generator = BlockContextGenerator::default().into();
         let backend = Arc::new(Backend {
             gas_oracle,
-            blockchain,
+            blockchain: blockchain.clone(),
             executor_factory,
             block_context_generator,
             chain_spec: config.chain.clone(),
@@ -268,6 +269,7 @@ impl Node {
                 task_spawner.clone(),
                 starknet_api_cfg,
                 block_producer.clone(),
+                blockchain,
             )
         } else {
             StarknetApi::new(
@@ -276,6 +278,7 @@ impl Node {
                 task_spawner.clone(),
                 starknet_api_cfg,
                 block_producer.clone(),
+                blockchain,
             )
         };
 

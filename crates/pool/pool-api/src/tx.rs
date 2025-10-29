@@ -6,6 +6,9 @@ use katana_primitives::contract::{ContractAddress, Nonce};
 use katana_primitives::transaction::{
     DeclareTx, DeployAccountTx, ExecutableTx, ExecutableTxWithHash, InvokeTx, TxHash,
 };
+use katana_primitives::utils::get_contract_address;
+use katana_primitives::Felt;
+use katana_rpc_types::broadcasted::BroadcastedTx;
 
 use crate::ordering::PoolOrd;
 use crate::PoolTransaction;
@@ -180,6 +183,80 @@ impl PoolTransaction for ExecutableTxWithHash {
                 DeployAccountTx::V3(v3) => v3.tip,
                 _ => 0,
             },
+        }
+    }
+}
+
+impl PoolTransaction for BroadcastedTx {
+    fn hash(&self) -> TxHash {
+        // BroadcastedTx doesn't have a precomputed hash, so we compute a deterministic
+        // hash from the transaction content for pool identification purposes.
+        use starknet_types_core::hash::{Poseidon, StarkHash};
+
+        match self {
+            BroadcastedTx::Invoke(tx) => {
+                // Hash based on sender, nonce, and calldata
+                let mut data = vec![tx.sender_address.into(), tx.nonce];
+                data.extend_from_slice(&tx.calldata);
+                Poseidon::hash_array(&data)
+            }
+            BroadcastedTx::Declare(tx) => {
+                // Hash based on sender, nonce, and compiled class hash
+                let data = [tx.sender_address.into(), tx.nonce, tx.compiled_class_hash.into()];
+                Poseidon::hash_array(&data)
+            }
+            BroadcastedTx::DeployAccount(tx) => {
+                // Hash based on computed contract address, nonce, and class hash
+                let contract_address = get_contract_address(
+                    tx.contract_address_salt,
+                    tx.class_hash,
+                    &tx.constructor_calldata,
+                    Felt::ZERO,
+                );
+                let data = [contract_address, tx.nonce, tx.class_hash.into()];
+                Poseidon::hash_array(&data)
+            }
+        }
+    }
+
+    fn nonce(&self) -> Nonce {
+        match self {
+            BroadcastedTx::Invoke(tx) => tx.nonce,
+            BroadcastedTx::Declare(tx) => tx.nonce,
+            BroadcastedTx::DeployAccount(tx) => tx.nonce,
+        }
+    }
+
+    fn sender(&self) -> ContractAddress {
+        match self {
+            BroadcastedTx::Invoke(tx) => tx.sender_address,
+            BroadcastedTx::Declare(tx) => tx.sender_address,
+            BroadcastedTx::DeployAccount(tx) => {
+                // Compute the contract address for deploy account transactions
+                get_contract_address(
+                    tx.contract_address_salt,
+                    tx.class_hash,
+                    &tx.constructor_calldata,
+                    Felt::ZERO,
+                )
+                .into()
+            }
+        }
+    }
+
+    fn max_fee(&self) -> u128 {
+        // BroadcastedTx only supports V3 transactions which use resource bounds instead of max_fee.
+        // For V3 transactions, we can derive an equivalent max fee from resource bounds,
+        // but for simplicity in the pool, we return 0.
+        // The actual fee validation happens on the remote node.
+        0
+    }
+
+    fn tip(&self) -> u64 {
+        match self {
+            BroadcastedTx::Invoke(tx) => tx.tip.into(),
+            BroadcastedTx::Declare(tx) => tx.tip.into(),
+            BroadcastedTx::DeployAccount(tx) => tx.tip.into(),
         }
     }
 }

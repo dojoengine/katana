@@ -2,7 +2,7 @@ use std::fmt::Debug;
 
 use katana_core::service::block_producer::{BlockProducer, BlockProducerMode};
 use katana_executor::ExecutorFactory;
-use katana_primitives::block::PartialHeader;
+use katana_primitives::block::{BlockIdOrTag, PartialHeader};
 use katana_primitives::da::L1DataAvailabilityMode;
 use katana_primitives::execution::TypedTransactionExecutionInfo;
 use katana_primitives::transaction::{TxHash, TxNumber};
@@ -270,5 +270,126 @@ impl<EF: ExecutorFactory> PendingBlockProvider for BlockProducer<EF> {
                 }
             }
         }
+    }
+}
+
+impl PendingBlockProvider for katana_rpc_client::starknet::Client {
+    fn get_pending_state_update(&self) -> StarknetApiResult<Option<PreConfirmedStateUpdate>> {
+        let result = futures::executor::block_on(async {
+            self.get_state_update(BlockIdOrTag::PreConfirmed).await
+        });
+
+        match result {
+            Ok(state_update) => match state_update {
+                katana_rpc_types::state_update::StateUpdate::PreConfirmed(update) => {
+                    Ok(Some(update))
+                }
+                _ => Ok(None),
+            },
+            Err(_) => Ok(None),
+        }
+    }
+
+    fn get_pending_block_with_txs(&self) -> StarknetApiResult<Option<PreConfirmedBlockWithTxs>> {
+        let result = futures::executor::block_on(async {
+            self.get_block_with_txs(BlockIdOrTag::PreConfirmed).await
+        });
+
+        match result {
+            Ok(block) => match block {
+                katana_rpc_types::block::MaybePreConfirmedBlock::PreConfirmed(block) => {
+                    Ok(Some(block))
+                }
+                _ => Ok(None),
+            },
+            Err(_) => Ok(None),
+        }
+    }
+
+    fn get_pending_block_with_receipts(
+        &self,
+    ) -> StarknetApiResult<Option<PreConfirmedBlockWithReceipts>> {
+        let result = futures::executor::block_on(async {
+            self.get_block_with_receipts(BlockIdOrTag::PreConfirmed).await
+        });
+
+        match result {
+            Ok(block) => match block {
+                katana_rpc_types::block::GetBlockWithReceiptsResponse::PreConfirmed(block) => {
+                    Ok(Some(block))
+                }
+                _ => Ok(None),
+            },
+            Err(_) => Ok(None),
+        }
+    }
+
+    fn get_pending_block_with_tx_hashes(
+        &self,
+    ) -> StarknetApiResult<Option<PreConfirmedBlockWithTxHashes>> {
+        let result = futures::executor::block_on(async {
+            self.get_block_with_tx_hashes(BlockIdOrTag::PreConfirmed).await
+        });
+
+        match result {
+            Ok(block) => match block {
+                katana_rpc_types::block::GetBlockWithTxHashesResponse::PreConfirmed(block) => {
+                    Ok(Some(block))
+                }
+                _ => Ok(None),
+            },
+            Err(_) => Ok(None),
+        }
+    }
+
+    fn get_pending_transaction(&self, hash: TxHash) -> StarknetApiResult<Option<RpcTxWithHash>> {
+        let result =
+            futures::executor::block_on(async { self.get_transaction_by_hash(hash).await });
+
+        match result {
+            Ok(tx) => Ok(Some(tx)),
+            Err(_) => Ok(None),
+        }
+    }
+
+    fn get_pending_receipt(
+        &self,
+        hash: TxHash,
+    ) -> StarknetApiResult<Option<TxReceiptWithBlockInfo>> {
+        let result =
+            futures::executor::block_on(async { self.get_transaction_receipt(hash).await });
+
+        match result {
+            Ok(receipt) => Ok(Some(receipt)),
+            Err(_) => Ok(None),
+        }
+    }
+
+    fn get_pending_trace(&self, hash: TxHash) -> StarknetApiResult<Option<TxTrace>> {
+        let result = futures::executor::block_on(async { self.trace_transaction(hash).await });
+
+        match result {
+            Ok(trace) => Ok(Some(trace)),
+            Err(_) => Ok(None),
+        }
+    }
+
+    fn get_pending_transaction_by_index(
+        &self,
+        index: TxNumber,
+    ) -> StarknetApiResult<Option<RpcTxWithHash>> {
+        let result = futures::executor::block_on(async {
+            self.get_transaction_by_block_id_and_index(BlockIdOrTag::PreConfirmed, index).await
+        });
+
+        match result {
+            Ok(tx) => Ok(Some(tx)),
+            Err(_) => Ok(None),
+        }
+    }
+
+    fn pending_state(&self) -> StarknetApiResult<Option<Box<dyn StateProvider>>> {
+        // Client-based pending block provider doesn't provide state access
+        Ok(None)
     }
 }

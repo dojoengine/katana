@@ -17,11 +17,13 @@ katana-messaging.workspace = true
 katana-metrics.workspace = true
 katana-pipeline.workspace = true
 katana-pool.workspace = true
+katana-pool-api.workspace = true
 katana-primitives.workspace = true
 katana-provider.workspace = true
 katana-rpc-server = { workspace = true }
 katana-rpc-api.workspace = true
 katana-rpc-client.workspace = true
+katana-rpc-types.workspace = true
 katana-stage.workspace = true
 katana-tasks.workspace = true
 katana-tracing.workspace = true

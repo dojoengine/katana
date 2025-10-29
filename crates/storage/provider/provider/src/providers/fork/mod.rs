@@ -32,13 +32,13 @@ use katana_rpc_client::starknet::Client as StarknetClient;
 use super::db::{self, DbProvider};
 use crate::ProviderResult;
 
-mod state;
-mod trie;
+pub mod state;
+pub mod trie;
 
-#[derive(Debug)]
+#[derive(Debug, Clone)]
 pub struct ForkedProvider<Db: Database = katana_db::Db> {
     backend: BackendClient,
-    provider: Arc<DbProvider<Db>>,
+    pub(crate) provider: Arc<DbProvider<Db>>,
 }
 
 impl<Db: Database> ForkedProvider<Db> {
@@ -55,6 +55,11 @@ impl<Db: Database> ForkedProvider<Db> {
 
     pub fn backend(&self) -> &BackendClient {
         &self.backend
+    }
+
+    /// Returns a reference to the underlying [`DbProvider`].
+    pub fn db_provider(&self) -> &DbProvider<Db> {
+        &self.provider
     }
 }
 
