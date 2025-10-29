@@ -47,6 +47,7 @@ use katana_rpc_api::dev::DevApiServer;
 use katana_rpc_api::starknet::{StarknetApiServer, StarknetTraceApiServer, StarknetWriteApiServer};
 #[cfg(feature = "explorer")]
 use katana_rpc_api::starknet_ext::StarknetApiExtServer;
+use katana_rpc_client::starknet::Client as StarknetClient;
 use katana_stage::Sequencing;
 use katana_tasks::TaskManager;
 use tracing::info;
@@ -149,7 +150,8 @@ impl Node {
 
             // TODO: it'd bee nice if the client can be shared on both the rpc and forked backend
             // side
-            let rpc_client = HttpClientBuilder::new().build(cfg.url.as_ref())?;
+            let http_client = HttpClientBuilder::new().build(cfg.url.as_ref())?;
+            let rpc_client = StarknetClient::new(http_client);
             let forked_client = ForkedClient::new(rpc_client, block_num);
 
             (bc, db, Some(forked_client))

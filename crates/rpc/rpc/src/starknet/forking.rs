@@ -1,17 +1,13 @@
-use jsonrpsee::core::ClientError;
-use jsonrpsee::http_client::HttpClient;
 use katana_primitives::block::{BlockHash, BlockIdOrTag, BlockNumber};
 use katana_primitives::contract::ContractAddress;
 use katana_primitives::transaction::TxHash;
 use katana_primitives::Felt;
 use katana_rpc_api::error::starknet::StarknetApiError;
-use katana_rpc_api::starknet::StarknetApiClient;
+use katana_rpc_client::starknet::Client;
 use katana_rpc_types::block::{
     GetBlockWithReceiptsResponse, GetBlockWithTxHashesResponse, MaybePreConfirmedBlock,
 };
-use katana_rpc_types::event::{
-    EventFilter, EventFilterWithPage, GetEventsResponse, ResultPageRequest,
-};
+use katana_rpc_types::event::{EventFilter, GetEventsResponse};
 use katana_rpc_types::receipt::{ReceiptBlockInfo, TxReceiptWithBlockInfo};
 use katana_rpc_types::state_update::StateUpdate;
 use katana_rpc_types::transaction::RpcTxWithHash;
@@ -19,12 +15,8 @@ use katana_rpc_types::TxStatus;
 
 #[derive(Debug, thiserror::Error)]
 pub enum Error {
-    #[error("client error: {0}")]
-    ClientError(ClientError),
-
-    /// Error that occurs in the JSON-RPC call itself.
-    #[error("call error: {0}")]
-    CallError(jsonrpsee::types::ErrorObjectOwned),
+    #[error("rpc client error: {0}")]
+    RpcClient(#[from] katana_rpc_client::starknet::Error),
 
     #[error("block out of range")]
     BlockOutOfRange,
@@ -41,12 +33,12 @@ pub struct ForkedClient {
     /// The block number where the node is forked from.
     block: BlockNumber,
     /// The Starknet JSON-RPC client for doing the request to the forked network.
-    client: HttpClient,
+    client: Client,
 }
 
 impl ForkedClient {
-    /// Creates a new forked client from the given [`Provider`] and block number.
-    pub fn new(client: HttpClient, block: BlockNumber) -> Self {
+    /// Creates a new forked client from the given [`Client`] and block number.
+    pub fn new(client: Client, block: BlockNumber) -> Self {
         Self { block, client }
     }
 
@@ -263,32 +255,20 @@ impl ForkedClient {
         let to_block = Some(BlockIdOrTag::Number(to));
 
         let event_filter = EventFilter { address, from_block, to_block, keys };
-        let result_page_request = ResultPageRequest { chunk_size, continuation_token };
-        let filter = EventFilterWithPage { event_filter, result_page_request };
 
-        Ok(self.client.get_events(filter).await?)
+        Ok(self.client.get_events(event_filter, continuation_token, chunk_size).await?)
     }
 }
 
 impl From<Error> for StarknetApiError {
     fn from(value: Error) -> Self {
         match value {
-            Error::CallError(error) => StarknetApiError::from(error),
-            Error::ClientError(error) => StarknetApiError::unexpected(error),
+            Error::RpcClient(katana_rpc_client::starknet::Error::Starknet(err)) => err,
+            Error::RpcClient(err) => StarknetApiError::unexpected(err),
             Error::BlockOutOfRange => StarknetApiError::BlockNotFound,
             Error::BlockTagNotAllowed | Error::UnexpectedPendingData => {
                 StarknetApiError::unexpected(value)
             }
-        }
-    }
-}
-
-impl From<ClientError> for Error {
-    fn from(error: ClientError) -> Self {
-        if let ClientError::Call(call_error) = error {
-            Self::CallError(call_error)
-        } else {
-            Self::ClientError(error)
         }
     }
 }
@@ -306,7 +286,8 @@ mod tests {
     #[tokio::test]
     async fn get_block_hash() {
         let http_client = HttpClientBuilder::new().build(SEPOLIA_URL).unwrap();
-        let client = ForkedClient::new(http_client, FORK_BLOCK_NUMBER);
+        let rpc_client = Client::new(http_client);
+        let client = ForkedClient::new(rpc_client, FORK_BLOCK_NUMBER);
 
         // -----------------------------------------------------------------------
         // Block before the forked block
