@@ -2,7 +2,7 @@ use std::collections::HashSet;
 use std::net::{IpAddr, Ipv4Addr, SocketAddr};
 use std::time::Duration;
 
-use katana_rpc::cors::HeaderValue;
+use katana_rpc_server::cors::HeaderValue;
 use serde::{Deserialize, Serialize};
 
 pub const DEFAULT_RPC_ADDR: IpAddr = IpAddr::V4(Ipv4Addr::LOCALHOST);

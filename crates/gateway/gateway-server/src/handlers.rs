@@ -12,7 +12,7 @@ use katana_primitives::block::{BlockHash, BlockIdOrTag, BlockNumber};
 use katana_primitives::class::{ClassHash, CompiledClass, ContractClassCompilationError};
 use katana_provider_api::block::{BlockIdReader, BlockProvider, BlockStatusProvider};
 use katana_provider_api::transaction::ReceiptProvider;
-use katana_rpc::starknet::StarknetApi;
+use katana_rpc_server::starknet::StarknetApi;
 use katana_rpc_api::error::starknet::StarknetApiError;
 use serde::{Deserialize, Serialize};
 use serde_json::{json, Value};

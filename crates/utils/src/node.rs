@@ -13,7 +13,7 @@ use katana_node::{LaunchedNode, Node};
 use katana_primitives::chain::ChainId;
 use katana_primitives::{address, ContractAddress};
 use katana_provider::BlockchainProvider;
-use katana_rpc::HttpClient;
+use katana_rpc_server::HttpClient;
 use starknet::accounts::{ExecutionEncoding, SingleOwnerAccount};
 use starknet::core::types::BlockTag;
 pub use starknet::core::types::StarknetError;
