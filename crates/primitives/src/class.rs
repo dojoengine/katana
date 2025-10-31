@@ -62,7 +62,7 @@ impl ContractClass {
                     .map(|f| f.value.clone().into())
                     .collect::<Vec<Felt>>();
 
-                compute_sierra_class_hash(&abi_str, &class.entry_points_by_type, sierra_program)
+                Ok(compute_sierra_class_hash(&abi_str, &class.entry_points_by_type, sierra_program))
             }
 
             Self::Legacy(class) => compute_legacy_class_hash(class),
@@ -232,7 +232,7 @@ pub fn compute_sierra_class_hash(
     abi: &str,
     entry_points_by_type: &ContractEntryPoints,
     sierra_program: &[Felt],
-) -> Result<Felt, ComputeClassHashError> {
+) -> Felt {
     let mut hasher = starknet_crypto::PoseidonHasher::new();
     hasher.update(short_string!("CONTRACT_CLASS_V0.1.0"));
 
@@ -245,7 +245,7 @@ pub fn compute_sierra_class_hash(
     // Hashes Sierra program
     hasher.update(Poseidon::hash_array(sierra_program));
 
-    Ok(normalize_address(hasher.finalize()))
+    normalize_address(hasher.finalize())
 }
 
 /// Computes the hash of a legacy contract class.

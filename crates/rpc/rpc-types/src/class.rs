@@ -50,7 +50,7 @@ pub enum ConversionError {
 
 // -- SIERRA CLASS
 
-#[derive(Debug, Serialize, Deserialize, Clone, PartialEq, Eq, Default)]
+#[derive(Debug, Clone, PartialEq, Eq, Default, Serialize, Deserialize)]
 pub struct SierraClass {
     pub sierra_program: Vec<Felt>,
     pub contract_class_version: String,
@@ -58,7 +58,8 @@ pub struct SierraClass {
     /// The class ABI.
     ///
     /// The ABI is serialized as Pythonic JSON.
-    pub abi: String,
+    #[serde(serialize_with = "serialize_abi", deserialize_with = "deserialize_abi", default)]
+    pub abi: Option<cairo_lang_starknet_classes::abi::Contract>,
 }
 
 //////////////////////////////////////////////////
@@ -68,46 +69,39 @@ pub struct SierraClass {
 impl SierraClass {
     /// Computes the hash of the Sierra class.
     pub fn hash(&self) -> Result<ClassHash, ComputeClassHashError> {
-        compute_sierra_class_hash(&self.abi, &self.entry_points_by_type, &self.sierra_program)
+        let abi_str = to_string_pythonic(self.abi.as_ref().unwrap_or(&Default::default()))?;
+        Ok(compute_sierra_class_hash(&abi_str, &self.entry_points_by_type, &self.sierra_program))
     }
 }
 
-impl TryFrom<SierraContractClass> for SierraClass {
-    type Error = ConversionError;
-
-    fn try_from(value: SierraContractClass) -> Result<Self, Self::Error> {
-        let abi = to_string_pythonic(&value.abi.unwrap_or_default())?;
+impl From<SierraContractClass> for SierraClass {
+    fn from(value: SierraContractClass) -> Self {
         let program = value.sierra_program.into_iter().map(|f| f.value.into()).collect::<Vec<_>>();
 
-        Ok(Self {
-            abi,
+        Self {
+            abi: value.abi,
             sierra_program: program,
             entry_points_by_type: value.entry_points_by_type,
             contract_class_version: value.contract_class_version,
-        })
+        }
     }
 }
 
-impl TryFrom<SierraClass> for SierraContractClass {
-    type Error = ConversionError;
-
-    fn try_from(value: SierraClass) -> Result<Self, Self::Error> {
-        use cairo_lang_starknet_classes::abi;
-
-        let abi = serde_json::from_str::<Option<abi::Contract>>(&value.abi)?;
+impl From<SierraClass> for SierraContractClass {
+    fn from(value: SierraClass) -> Self {
         let program = value
             .sierra_program
             .into_iter()
             .map(|f| BigUintAsHex { value: f.to_biguint() })
             .collect::<Vec<_>>();
 
-        Ok(Self {
-            abi,
+        Self {
+            abi: value.abi,
             sierra_program: program,
             sierra_program_debug_info: None,
             entry_points_by_type: value.entry_points_by_type,
             contract_class_version: value.contract_class_version,
-        })
+        }
     }
 }
 
@@ -164,6 +158,22 @@ fn decompress_legacy_program(compressed_data: &[u8]) -> Result<LegacyProgram, Co
     Ok(serde_json::from_slice::<LegacyProgram>(&decompressed)?)
 }
 
+fn serialize_abi<S: serde::Serializer>(
+    abi: &Option<cairo_lang_starknet_classes::abi::Contract>,
+    serializer: S,
+) -> Result<S::Ok, S::Error> {
+    let abi_str = to_string_pythonic(abi.as_ref().unwrap_or(&Default::default()));
+    serializer.serialize_str(&abi_str.map_err(serde::ser::Error::custom)?)
+}
+
+fn deserialize_abi<'de, D: serde::Deserializer<'de>>(
+    deserializer: D,
+) -> Result<Option<cairo_lang_starknet_classes::abi::Contract>, D::Error> {
+    let abi_str = String::deserialize(deserializer)?;
+    serde_json::from_str(&abi_str)
+        .map_err(|e| serde::de::Error::custom(format!("invalid abi: {e}")))
+}
+
 // Round-trip conversion between RPC and katana-primitives types
 
 impl TryFrom<ContractClass> for Class {
@@ -171,7 +181,7 @@ impl TryFrom<ContractClass> for Class {
 
     fn try_from(value: ContractClass) -> Result<Self, Self::Error> {
         match value {
-            ContractClass::Class(class) => Ok(Self::Sierra(SierraClass::try_from(class)?)),
+            ContractClass::Class(class) => Ok(Self::Sierra(SierraClass::from(class))),
             ContractClass::Legacy(class) => Ok(Self::Legacy(LegacyClass::try_from(class)?)),
         }
     }
@@ -182,7 +192,7 @@ impl TryFrom<Class> for ContractClass {
 
     fn try_from(value: Class) -> Result<Self, Self::Error> {
         match value {
-            Class::Sierra(class) => Ok(Self::Class(SierraContractClass::try_from(class)?)),
+            Class::Sierra(class) => Ok(Self::Class(SierraContractClass::from(class))),
             Class::Legacy(class) => Ok(Self::Legacy(LegacyContractClass::try_from(class)?)),
         }
     }

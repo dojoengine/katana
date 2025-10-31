@@ -2,6 +2,7 @@
 
 use jsonrpsee::core::{async_trait, RpcResult};
 use katana_executor::ExecutorFactory;
+use katana_pool::TransactionPool;
 use katana_primitives::transaction::TxNumber;
 use katana_rpc_api::starknet_ext::StarknetApiExtServer;
 use katana_rpc_types::list::{
@@ -12,7 +13,9 @@ use super::StarknetApi;
 use crate::starknet::pending::PendingBlockProvider;
 
 #[async_trait]
-impl<EF: ExecutorFactory, P: PendingBlockProvider> StarknetApiExtServer for StarknetApi<EF, P> {
+impl<EF: ExecutorFactory, Pool: TransactionPool + 'static, PP: PendingBlockProvider>
+    StarknetApiExtServer for StarknetApi<EF, Pool, PP>
+{
     async fn get_blocks(&self, request: GetBlocksRequest) -> RpcResult<GetBlocksResponse> {
         Ok(self.blocks(request).await?)
     }

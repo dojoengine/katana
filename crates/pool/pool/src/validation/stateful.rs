@@ -27,7 +27,6 @@ use katana_primitives::env::{BlockEnv, CfgEnv};
 use katana_primitives::transaction::{ExecutableTx, ExecutableTxWithHash};
 use katana_primitives::Felt;
 use katana_provider::api::state::StateProvider;
-use katana_provider::api::ProviderError;
 use parking_lot::Mutex;
 
 use super::ValidationResult;
@@ -71,19 +70,6 @@ impl TxValidator {
         let mut this = self.inner.lock();
         this.block_env = block_env;
         this.state = Arc::new(new_state);
-    }
-
-    // NOTE:
-    // If you check the get_nonce method of StatefulValidator in blockifier, under the hood it
-    // unwraps the Option to get the state of the TransactionExecutor struct. StatefulValidator
-    // guaranteees that the state will always be present so it is safe to uwnrap. However, this
-    // safety is not guaranteed by TransactionExecutor itself.
-    pub fn pool_nonce(&self, address: ContractAddress) -> Result<Option<Nonce>, ProviderError> {
-        let this = self.inner.lock();
-        match this.pool_nonces.get(&address) {
-            Some(nonce) => Ok(Some(*nonce)),
-            None => Ok(this.state.nonce(address)?),
-        }
     }
 }
 

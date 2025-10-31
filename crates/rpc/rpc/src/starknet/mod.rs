@@ -6,7 +6,7 @@ use std::sync::Arc;
 
 use katana_core::backend::Backend;
 use katana_executor::ExecutorFactory;
-use katana_pool::{TransactionPool, TxPool};
+use katana_pool::TransactionPool;
 use katana_primitives::block::{BlockHashOrNumber, BlockIdOrTag, FinalityStatus, GasPrices};
 use katana_primitives::class::{ClassHash, CompiledClass};
 use katana_primitives::contract::{ContractAddress, Nonce, StorageKey, StorageValue};
@@ -74,23 +74,38 @@ type StarknetApiResult<T> = Result<T, StarknetApiError>;
 /// [write](katana_rpc_api::starknet::StarknetWriteApi), and
 /// [trace](katana_rpc_api::starknet::StarknetTraceApi) APIs.
 #[derive(Debug)]
-pub struct StarknetApi<EF: ExecutorFactory, P: PendingBlockProvider> {
-    inner: Arc<StarknetApiInner<EF, P>>,
+pub struct StarknetApi<EF, Pool, PP>
+where
+    EF: ExecutorFactory,
+    Pool: TransactionPool,
+    PP: PendingBlockProvider,
+{
+    inner: Arc<StarknetApiInner<EF, Pool, PP>>,
 }
 
 #[derive(Debug)]
-struct StarknetApiInner<EF: ExecutorFactory, P: PendingBlockProvider> {
-    pool: TxPool,
+struct StarknetApiInner<EF, Pool, PP>
+where
+    EF: ExecutorFactory,
+    Pool: TransactionPool,
+    PP: PendingBlockProvider,
+{
+    pool: Pool,
     backend: Arc<Backend<EF>>,
     forked_client: Option<ForkedClient>,
     task_spawner: TaskSpawner,
     estimate_fee_permit: Permits,
     config: StarknetApiConfig,
-    pending_block_provider: P,
+    pending_block_provider: PP,
 }
 
-impl<EF: ExecutorFactory, P: PendingBlockProvider> StarknetApi<EF, P> {
-    pub fn pool(&self) -> &TxPool {
+impl<EF, Pool, PP> StarknetApi<EF, Pool, PP>
+where
+    EF: ExecutorFactory,
+    Pool: TransactionPool,
+    PP: PendingBlockProvider,
+{
+    pub fn pool(&self) -> &Pool {
         &self.inner.pool
     }
 
@@ -111,24 +126,29 @@ impl<EF: ExecutorFactory, P: PendingBlockProvider> StarknetApi<EF, P> {
     }
 }
 
-impl<EF: ExecutorFactory, P: PendingBlockProvider> StarknetApi<EF, P> {
+impl<EF, Pool, PP> StarknetApi<EF, Pool, PP>
+where
+    EF: ExecutorFactory,
+    Pool: TransactionPool + 'static,
+    PP: PendingBlockProvider,
+{
     pub fn new(
         backend: Arc<Backend<EF>>,
-        pool: TxPool,
+        pool: Pool,
         task_spawner: TaskSpawner,
         config: StarknetApiConfig,
-        pending_block_provider: P,
+        pending_block_provider: PP,
     ) -> Self {
         Self::new_inner(backend, pool, None, task_spawner, config, pending_block_provider)
     }
 
     pub fn new_forked(
         backend: Arc<Backend<EF>>,
-        pool: TxPool,
+        pool: Pool,
         forked_client: ForkedClient,
         task_spawner: TaskSpawner,
         config: StarknetApiConfig,
-        pending_block_provider: P,
+        pending_block_provider: PP,
     ) -> Self {
         Self::new_inner(
             backend,
@@ -142,11 +162,11 @@ impl<EF: ExecutorFactory, P: PendingBlockProvider> StarknetApi<EF, P> {
 
     fn new_inner(
         backend: Arc<Backend<EF>>,
-        pool: TxPool,
+        pool: Pool,
         forked_client: Option<ForkedClient>,
         task_spawner: TaskSpawner,
         config: StarknetApiConfig,
-        pending_block_provider: P,
+        pending_block_provider: PP,
     ) -> Self {
         let total_permits = config
             .max_concurrent_estimate_fee_requests
@@ -450,19 +470,19 @@ impl<EF: ExecutorFactory, P: PendingBlockProvider> StarknetApi<EF, P> {
         contract_address: ContractAddress,
     ) -> StarknetApiResult<Nonce> {
         self.on_io_blocking_task(move |this| {
-            // read from the pool state if pending block
-            //
-            // TODO: this is a temporary solution, we should have a better way to handle this.
-            // perhaps a pending/pool state provider that implements all the state provider traits.
-            let result = if let BlockIdOrTag::PreConfirmed = block_id {
-                this.inner.pool.validator().pool_nonce(contract_address)?
+            let pending_nonce = if matches!(block_id, BlockIdOrTag::PreConfirmed) {
+                this.inner.pool.get_nonce(contract_address)
             } else {
-                let state = this.state(&block_id)?;
-                state.nonce(contract_address)?
+                None
             };
 
-            let nonce = result.ok_or(StarknetApiError::ContractNotFound)?;
-            Ok(nonce)
+            match pending_nonce {
+                Some(pending_nonce) => Ok(pending_nonce),
+                None => {
+                    let state = this.state(&block_id)?;
+                    state.nonce(contract_address)?.ok_or(StarknetApiError::ContractNotFound)
+                }
+            }
         })
         .await?
     }
@@ -1164,7 +1184,12 @@ impl<EF: ExecutorFactory, P: PendingBlockProvider> StarknetApi<EF, P> {
 // `StarknetApiExt` Implementations
 /////////////////////////////////////////////////////
 
-impl<EF: ExecutorFactory, P: PendingBlockProvider> StarknetApi<EF, P> {
+impl<EF, Pool, PP> StarknetApi<EF, Pool, PP>
+where
+    EF: ExecutorFactory,
+    Pool: TransactionPool + 'static,
+    PP: PendingBlockProvider,
+{
     async fn blocks(&self, request: GetBlocksRequest) -> StarknetApiResult<GetBlocksResponse> {
         self.on_io_blocking_task(move |this| {
             let provider = this.inner.backend.blockchain.provider();
@@ -1321,7 +1346,12 @@ impl<EF: ExecutorFactory, P: PendingBlockProvider> StarknetApi<EF, P> {
     }
 }
 
-impl<EF: ExecutorFactory, P: PendingBlockProvider> Clone for StarknetApi<EF, P> {
+impl<EF, Pool, PP> Clone for StarknetApi<EF, Pool, PP>
+where
+    EF: ExecutorFactory,
+    Pool: TransactionPool,
+    PP: PendingBlockProvider,
+{
     fn clone(&self) -> Self {
         Self { inner: Arc::clone(&self.inner) }
     }
