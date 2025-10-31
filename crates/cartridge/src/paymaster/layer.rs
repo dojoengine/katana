@@ -104,6 +104,10 @@ where
     fn intercept_add_outside_execution(&self, request: &Request<'_>) -> Option<MethodResponse> {
         let params = request.params();
 
+        // TODO RBA: outside_execution and signature are not used.
+        // Should we just ignore them (and remove parsing of these data)
+        // or provide them to handle_add_outside_execution() to let the paymaster
+        // uses or not these data ?
         let (controller_address, ..) = if params.is_object() {
             #[derive(Deserialize)]
             struct ParamsObject {
@@ -140,8 +144,8 @@ where
             (address, outside_execution, signature)
         };
 
-        match self.paymaster.deploy_controller(controller_address) {
-            Ok(tx_hash) => {
+        match self.paymaster.handle_add_outside_execution(controller_address) {
+            Ok(Some(tx_hash)) => {
                 trace!(
                     target: "paymaster",
                     tx_hash = format!("{tx_hash:#x}"),
@@ -150,6 +154,7 @@ where
 
                 None
             }
+            Ok(None) => None,
             Err(Error::ControllerNotFound(..)) => None,
             Err(error) => panic!("{error}"),
         }

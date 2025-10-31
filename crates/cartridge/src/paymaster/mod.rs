@@ -1,3 +1,5 @@
+use std::collections::HashSet;
+
 use futures::executor::block_on;
 use katana_executor::ExecutorFactory;
 use katana_pool::{TransactionPool, TxPool};
@@ -66,27 +68,40 @@ impl<EF: ExecutorFactory> Paymaster<EF> {
         Self { starknet_api, cartridge_api, pool, chain_id, paymaster_key, paymaster_address }
     }
 
+    /// Handle the intercept of the 'cartridge_addExecuteOutsideTransaction' end point.
+    ///
     /// Deploys the account contract of a Controller account.
     ///
     /// This will submit a transaction to the pool for deploying the Controller account contract
     /// associated with `address`.
-    pub fn deploy_controller(&self, address: ContractAddress) -> PaymasterResult<TxHash> {
+    pub fn handle_add_outside_execution(
+        &self,
+        address: ContractAddress,
+    ) -> PaymasterResult<Option<TxHash>> {
+        // if the address is not a controller, just ignore the tx
+        let controller_calldata = match self.get_controller_ctor_calldata(address)? {
+            Some(calldata) => calldata,
+            None => return Ok(None),
+        };
+
         // Create a Controller deploy transaction against the latest state of the network.
         let block_id = BlockIdOrTag::Tag(BlockTag::Pending);
-        let tx = self.get_controller_deploy_tx(address, block_id)?;
+        let tx = self.get_controller_deploy_tx(controller_calldata, block_id)?;
 
         let tx = ExecutableTxWithHash::new(tx);
         let tx_hash = self.pool.add_transaction(tx).map_err(Error::FailedToAddTransaction)?;
 
-        Ok(tx_hash)
+        Ok(Some(tx_hash))
     }
 
+    /// Handle the intercept of the 'starknet_estimateFee' end point.
     pub fn handle_estimate_fees(
         &self,
         block_id: BlockIdOrTag,
         transactions: Vec<BroadcastedTx>,
     ) -> PaymasterResult<Vec<BroadcastedTx>> {
         let mut new_transactions = Vec::with_capacity(transactions.len());
+        let mut deployed_controllers: HashSet<ContractAddress> = HashSet::new();
 
         for tx in transactions {
             let address = match &tx {
@@ -95,10 +110,21 @@ impl<EF: ExecutorFactory> Paymaster<EF> {
                 _ => continue,
             };
 
+            // if the address has already been processed this txs batch, just ignore the tx
+            if deployed_controllers.contains(&address) {
+                continue;
+            }
+
             // Check if the address has already been deployed
             if block_on(self.starknet_api.class_hash_at_address(block_id, address)).is_ok() {
                 continue;
             }
+
+            // If the address is not a controller, just ignore the tx
+            let controller_calldata = match self.get_controller_ctor_calldata(address)? {
+                Some(calldata) => calldata,
+                None => continue,
+            };
 
             // Handles the deployment of a cartridge controller if the estimate fee is requested
             // for a cartridge controller.
@@ -106,8 +132,9 @@ impl<EF: ExecutorFactory> Paymaster<EF> {
             // The controller accounts are created with a specific version of the controller.
             // To ensure address determinism, the controller account must be deployed with the same
             // version, which is included in the calldata retrieved from the Cartridge API.
-            match self.get_controller_deploy_tx(address, block_id) {
+            match self.get_controller_deploy_tx(controller_calldata, block_id) {
                 Ok(tx) => {
+                    deployed_controllers.insert(address);
                     new_transactions.push(BroadcastedTx::from(tx));
                 }
                 Err(Error::ControllerNotFound(..)) => continue,
@@ -125,17 +152,23 @@ impl<EF: ExecutorFactory> Paymaster<EF> {
         PaymasterLayer { paymaster: self }
     }
 
+    // Get the constructor calldata for a controller account or None if the address is not a controller.
+    fn get_controller_ctor_calldata(
+        &self,
+        address: ContractAddress,
+    ) -> PaymasterResult<Option<Vec<Felt>>> {
+        let result = block_on(self.cartridge_api.get_account_calldata(address))?;
+        Ok(result.map(|r| r.constructor_calldata))
+    }
+
     /// Crafts a deploy controller transaction for a cartridge controller.
     ///
     /// Returns None if the provided `controller_address` is not registered in the Cartridge API.
     fn get_controller_deploy_tx(
         &self,
-        address: ContractAddress,
+        controller_calldata: Vec<Felt>,
         block_id: BlockIdOrTag,
     ) -> PaymasterResult<ExecutableTx> {
-        let result = block_on(self.cartridge_api.get_account_calldata(address))?;
-        let account = result.ok_or(Error::ControllerNotFound(address))?;
-
         // Check if any of the transactions are sent from an address associated with a Cartridge
         // Controller account. If yes, we craft a Controller deployment transaction
         // for each of the unique sender and push it at the beginning of the
@@ -155,7 +188,7 @@ impl<EF: ExecutorFactory> Paymaster<EF> {
             pm_address,
             self.paymaster_key.clone(),
             pm_nonce,
-            account.constructor_calldata,
+            controller_calldata,
             self.chain_id,
         )
     }
