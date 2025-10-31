@@ -6699,6 +6699,7 @@ dependencies = [
  "rustls 0.23.31",
  "serde",
  "thiserror 1.0.69",
+ "tokio",
  "tower-http",
  "tracing",
  "tracing-log 0.1.4",
