@@ -720,14 +720,17 @@ pub struct TxWithHash {
 
 impl From<ExecutableTxWithHash> for TxWithHash {
     fn from(tx: ExecutableTxWithHash) -> Self {
-        Self {
-            hash: tx.hash,
-            transaction: match tx.transaction {
-                ExecutableTx::Invoke(tx) => Tx::Invoke(tx),
-                ExecutableTx::Declare(tx) => Tx::Declare(tx.transaction),
-                ExecutableTx::L1Handler(tx) => Tx::L1Handler(tx),
-                ExecutableTx::DeployAccount(tx) => Tx::DeployAccount(tx),
-            },
+        Self { hash: tx.hash, transaction: tx.transaction.into() }
+    }
+}
+
+impl From<ExecutableTx> for Tx {
+    fn from(tx: ExecutableTx) -> Self {
+        match tx {
+            ExecutableTx::Invoke(tx) => Tx::Invoke(tx),
+            ExecutableTx::L1Handler(tx) => Tx::L1Handler(tx),
+            ExecutableTx::Declare(tx) => Tx::Declare(tx.transaction),
+            ExecutableTx::DeployAccount(tx) => Tx::DeployAccount(tx),
         }
     }
 }
