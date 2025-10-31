@@ -108,25 +108,6 @@ impl Tx {
     }
 }
 
-#[derive(Debug)]
-pub enum TxRef<'a> {
-    Invoke(&'a InvokeTx),
-    Declare(&'a DeclareTx),
-    L1Handler(&'a L1HandlerTx),
-    DeployAccount(&'a DeployAccountTx),
-}
-
-impl<'a> From<TxRef<'a>> for Tx {
-    fn from(value: TxRef<'a>) -> Self {
-        match value {
-            TxRef::Invoke(tx) => Tx::Invoke(tx.clone()),
-            TxRef::Declare(tx) => Tx::Declare(tx.clone()),
-            TxRef::L1Handler(tx) => Tx::L1Handler(tx.clone()),
-            TxRef::DeployAccount(tx) => Tx::DeployAccount(tx.clone()),
-        }
-    }
-}
-
 /// Represents a transaction that has all the necessary data to be executed.
 #[derive(Debug, Clone, From, PartialEq, Eq)]
 pub enum ExecutableTx {
@@ -143,15 +124,6 @@ impl ExecutableTx {
             Self::Invoke(tx) => tx.calculate_hash(is_query),
             Self::Declare(tx) => tx.calculate_hash(is_query),
             Self::DeployAccount(tx) => tx.calculate_hash(is_query),
-        }
-    }
-
-    pub fn tx_ref(&self) -> TxRef<'_> {
-        match self {
-            ExecutableTx::Invoke(tx) => TxRef::Invoke(tx),
-            ExecutableTx::L1Handler(tx) => TxRef::L1Handler(tx),
-            ExecutableTx::Declare(tx) => TxRef::Declare(tx),
-            ExecutableTx::DeployAccount(tx) => TxRef::DeployAccount(tx),
         }
     }
 
@@ -748,12 +720,17 @@ pub struct TxWithHash {
 
 impl From<ExecutableTxWithHash> for TxWithHash {
     fn from(tx: ExecutableTxWithHash) -> Self {
-        Self { hash: tx.hash, transaction: tx.tx_ref().into() }
+        Self { hash: tx.hash, transaction: tx.transaction.into() }
     }
 }
 
-impl From<&ExecutableTxWithHash> for TxWithHash {
-    fn from(tx: &ExecutableTxWithHash) -> Self {
-        Self { hash: tx.hash, transaction: tx.tx_ref().into() }
+impl From<ExecutableTx> for Tx {
+    fn from(tx: ExecutableTx) -> Self {
+        match tx {
+            ExecutableTx::Invoke(tx) => Tx::Invoke(tx),
+            ExecutableTx::L1Handler(tx) => Tx::L1Handler(tx),
+            ExecutableTx::Declare(tx) => Tx::Declare(tx.transaction),
+            ExecutableTx::DeployAccount(tx) => Tx::DeployAccount(tx),
+        }
     }
 }
