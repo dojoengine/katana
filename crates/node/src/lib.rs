@@ -33,6 +33,13 @@ use katana_pool::ordering::FiFo;
 use katana_pool::TxPool;
 use katana_primitives::env::{CfgEnv, FeeTokenAddressses};
 #[cfg(feature = "cartridge")]
+use katana_rpc_api::cartridge::CartridgeApiServer;
+use katana_rpc_api::dev::DevApiServer;
+use katana_rpc_api::starknet::{StarknetApiServer, StarknetTraceApiServer, StarknetWriteApiServer};
+#[cfg(feature = "explorer")]
+use katana_rpc_api::starknet_ext::StarknetApiExtServer;
+use katana_rpc_client::starknet::Client as StarknetClient;
+#[cfg(feature = "cartridge")]
 use katana_rpc_server::cartridge::CartridgeApi;
 use katana_rpc_server::cors::Cors;
 use katana_rpc_server::dev::DevApi;
@@ -41,13 +48,6 @@ use katana_rpc_server::starknet::forking::ForkedClient;
 use katana_rpc_server::starknet::PaymasterConfig;
 use katana_rpc_server::starknet::{StarknetApi, StarknetApiConfig};
 use katana_rpc_server::{RpcServer, RpcServerHandle};
-#[cfg(feature = "cartridge")]
-use katana_rpc_api::cartridge::CartridgeApiServer;
-use katana_rpc_api::dev::DevApiServer;
-use katana_rpc_api::starknet::{StarknetApiServer, StarknetTraceApiServer, StarknetWriteApiServer};
-#[cfg(feature = "explorer")]
-use katana_rpc_api::starknet_ext::StarknetApiExtServer;
-use katana_rpc_client::starknet::Client as StarknetClient;
 use katana_stage::Sequencing;
 use katana_tasks::TaskManager;
 use tracing::info;
