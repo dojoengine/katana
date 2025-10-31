@@ -9,6 +9,7 @@ use katana_primitives::transaction::{
 use katana_primitives::utils::get_contract_address;
 use katana_primitives::Felt;
 use katana_rpc_types::broadcasted::BroadcastedTx;
+use katana_rpc_types::BroadcastedTxWithChainId;
 
 use crate::ordering::PoolOrd;
 use crate::PoolTransaction;
@@ -187,7 +188,7 @@ impl PoolTransaction for ExecutableTxWithHash {
     }
 }
 
-impl PoolTransaction for BroadcastedTx {
+impl PoolTransaction for BroadcastedTxWithChainId {
     fn hash(&self) -> TxHash {
         // BroadcastedTx doesn't have a precomputed hash, so we compute a deterministic
         // hash from the transaction content for pool identification purposes.
