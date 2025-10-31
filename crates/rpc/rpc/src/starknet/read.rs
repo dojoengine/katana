@@ -29,7 +29,8 @@ use katana_rpc_types::state_update::StateUpdate;
 use katana_rpc_types::transaction::RpcTxWithHash;
 use katana_rpc_types::trie::{ContractStorageKeys, GetStorageProofResponse};
 use katana_rpc_types::{
-    CallResponse, CasmClass, Class, EstimateFeeSimulationFlag, FeeEstimate, FunctionCall, TxStatus,
+    BroadcastedTxWithChainId, CallResponse, CasmClass, Class, EstimateFeeSimulationFlag,
+    FeeEstimate, FunctionCall, TxStatus,
 };
 
 use super::StarknetApi;
@@ -38,7 +39,13 @@ use crate::cartridge;
 use crate::starknet::pending::PendingBlockProvider;
 
 #[async_trait]
-impl<EF: ExecutorFactory, P: PendingBlockProvider> StarknetApiServer for StarknetApi<EF, P> {
+impl<EF, Pool, PoolTx, Pending> StarknetApiServer for StarknetApi<EF, P> 
+where  
+    EF: ExecutorFactory,
+    Pool: TransactionPool<Transaction = PoolTx> + Send + Sync + 'static,
+    PoolTx: From<BroadcastedTxWithChainId>,
+    Pending: PendingBlockProvider,
+{
     async fn chain_id(&self) -> RpcResult<Felt> {
         Ok(self.inner.backend.chain_spec.id().id())
     }
@@ -169,35 +176,15 @@ impl<EF: ExecutorFactory, P: PendingBlockProvider> StarknetApiServer for Starkne
         simulation_flags: Vec<EstimateFeeSimulationFlag>,
         block_id: BlockIdOrTag,
     ) -> RpcResult<Vec<FeeEstimate>> {
-        let chain_id = self.inner.backend.chain_spec.id();
+        let chain = self.inner.backend.chain_spec.id();
 
         let transactions = request
             .into_iter()
             .map(|tx| {
-                let tx = match tx {
-                    BroadcastedTx::Invoke(tx) => {
-                        let is_query = tx.is_query();
-                        let tx = tx.into_inner(chain_id);
-                        ExecutableTxWithHash::new_query(ExecutableTx::Invoke(tx), is_query)
-                    }
-
-                    BroadcastedTx::DeployAccount(tx) => {
-                        let is_query = tx.is_query();
-                        let tx = tx.into_inner(chain_id);
-                        ExecutableTxWithHash::new_query(ExecutableTx::DeployAccount(tx), is_query)
-                    }
-
-                    BroadcastedTx::Declare(tx) => {
-                        let is_query = tx.is_query();
-                        let tx = tx
-                            .into_inner(chain_id)
-                            .map_err(|_| StarknetApiError::InvalidContractClass)?;
-
-                        ExecutableTxWithHash::new_query(ExecutableTx::Declare(tx), is_query)
-                    }
-                };
-
-                Result::<ExecutableTxWithHash, StarknetApiError>::Ok(tx)
+                let is_query = tx.is_query();
+                ExecutableTx::try_from(BroadcastedTxWithChainId { tx, chain })
+                    .map(|tx| ExecutableTxWithHash::new_query(tx, is_query))
+                    .map_err(|_| StarknetApiError::InvalidContractClass)
             })
             .collect::<Result<Vec<_>, _>>()?;
 

@@ -1321,7 +1321,12 @@ impl<EF: ExecutorFactory, P: PendingBlockProvider> StarknetApi<EF, P> {
     }
 }
 
-impl<EF: ExecutorFactory, P: PendingBlockProvider> Clone for StarknetApi<EF, P> {
+impl<EF: ExecutorFactory, Pool, Pending: PendingBlockProvider> Clone for StarknetApi<EF, P> 
+where  
+    EF: ExecutorFactory, 
+    Pool: TransactionPool,
+    Pending: PendingBlockProvider,
+{
     fn clone(&self) -> Self {
         Self { inner: Arc::clone(&self.inner) }
     }

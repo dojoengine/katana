@@ -8,8 +8,8 @@ use katana_primitives::contract::Nonce;
 use katana_primitives::da::DataAvailabilityMode;
 use katana_primitives::fee::{ResourceBoundsMapping, Tip};
 use katana_primitives::transaction::{
-    DeclareTx, DeclareTxV3, DeclareTxWithClass, DeployAccountTx, DeployAccountTxV3, InvokeTx,
-    InvokeTxV3, TxHash, TxType,
+    DeclareTx, DeclareTxV3, DeclareTxWithClass, DeployAccountTx, DeployAccountTxV3, ExecutableTxWithHash,
+    InvokeTx, InvokeTxV3, TxHash, TxType,
 };
 use katana_primitives::utils::get_contract_address;
 use katana_primitives::{ContractAddress, Felt};
@@ -324,11 +324,28 @@ impl From<BroadcastedDeployAccountTx> for UntypedBroadcastedTx {
 
 /// A broadcasted transaction.
 #[derive(Debug, Clone, Serialize)]
+pub struct BroadcastedTxWithChainId {
+    pub tx: BroadcastedTx,
+    pub chain: ChainId,
+}
+
+/// A broadcasted transaction.
+#[derive(Debug, Clone, Serialize)]
 #[serde(untagged)]
 pub enum BroadcastedTx {
     Invoke(BroadcastedInvokeTx),
     Declare(BroadcastedDeclareTx),
     DeployAccount(BroadcastedDeployAccountTx),
+}
+
+impl BroadcastedTx {
+    pub fn is_query(&self) -> bool {
+        match self {
+            BroadcastedTx::Invoke(tx) => tx.is_query(),
+            BroadcastedTx::Declare(tx) => tx.is_query(),
+            BroadcastedTx::DeployAccount(tx) => tx.is_query(),
+        }
+    }
 }
 
 /// A broadcasted `INVOKE` transaction.
@@ -370,22 +387,6 @@ pub struct BroadcastedInvokeTx {
 impl BroadcastedInvokeTx {
     pub fn is_query(&self) -> bool {
         self.is_query
-    }
-
-    pub fn into_inner(self, chain_id: ChainId) -> InvokeTx {
-        InvokeTx::V3(InvokeTxV3 {
-            chain_id,
-            tip: self.tip.into(),
-            nonce: self.nonce,
-            calldata: self.calldata,
-            signature: self.signature,
-            sender_address: self.sender_address,
-            paymaster_data: self.paymaster_data,
-            resource_bounds: self.resource_bounds,
-            account_deployment_data: self.account_deployment_data,
-            fee_data_availability_mode: self.fee_data_availability_mode,
-            nonce_data_availability_mode: self.nonce_data_availability_mode,
-        })
     }
 }
 
@@ -434,33 +435,6 @@ impl BroadcastedDeclareTx {
     pub fn is_query(&self) -> bool {
         self.is_query
     }
-
-    pub fn into_inner(
-        self,
-        chain_id: ChainId,
-    ) -> Result<DeclareTxWithClass, BroadcastedDeclareTxError> {
-        let class_hash = self.contract_class.hash()?;
-
-        let rpc_class = Arc::unwrap_or_clone(self.contract_class);
-        let class = ContractClass::Class(SierraContractClass::try_from(rpc_class)?);
-
-        let tx = DeclareTx::V3(DeclareTxV3 {
-            chain_id,
-            class_hash,
-            tip: self.tip.into(),
-            nonce: self.nonce,
-            signature: self.signature,
-            paymaster_data: self.paymaster_data,
-            sender_address: self.sender_address,
-            resource_bounds: self.resource_bounds,
-            compiled_class_hash: self.compiled_class_hash,
-            account_deployment_data: self.account_deployment_data,
-            fee_data_availability_mode: self.fee_data_availability_mode,
-            nonce_data_availability_mode: self.nonce_data_availability_mode,
-        });
-
-        Ok(DeclareTxWithClass::new(tx, class))
-    }
 }
 
 /// A broadcasted `DEPLOY_ACCOUNT` transaction.
@@ -496,28 +470,15 @@ impl BroadcastedDeployAccountTx {
         self.is_query
     }
 
-    pub fn into_inner(self, chain_id: ChainId) -> DeployAccountTx {
-        let contract_address = get_contract_address(
+    /// Get the address of the account contract that will be deployed.
+    pub fn contract_address(&self) -> ContractAddress {
+        get_contract_address(
             self.contract_address_salt,
             self.class_hash,
             &self.constructor_calldata,
             Felt::ZERO,
-        );
-
-        DeployAccountTx::V3(DeployAccountTxV3 {
-            chain_id,
-            tip: self.tip.into(),
-            nonce: self.nonce,
-            signature: self.signature,
-            class_hash: self.class_hash,
-            paymaster_data: self.paymaster_data,
-            resource_bounds: self.resource_bounds,
-            contract_address: contract_address.into(),
-            constructor_calldata: self.constructor_calldata,
-            contract_address_salt: self.contract_address_salt,
-            fee_data_availability_mode: self.fee_data_availability_mode,
-            nonce_data_availability_mode: self.nonce_data_availability_mode,
-        })
+        )
+        .into()
     }
 }
 
@@ -591,6 +552,83 @@ impl<'de> Deserialize<'de> for BroadcastedDeployAccountTx {
         UntypedBroadcastedTx::deserialize(deserializer)?
             .try_into_deploy_account()
             .map_err(de::Error::custom)
+    }
+}
+
+impl From<BroadcastedTxWithChainId> for ExecutableTx {
+    fn from(value: BroadcastedTxWithChainId) -> Self {
+        match value.tx {
+            BroadcastedTx::Invoke(tx) => {
+                let invoke_tx = InvokeTx::V3(InvokeTxV3 {
+                    chain_id: value.chain,
+                    tip: tx.tip.into(),
+                    nonce: tx.nonce,
+                    calldata: tx.calldata,
+                    signature: tx.signature,
+                    sender_address: tx.sender_address,
+                    paymaster_data: tx.paymaster_data,
+                    resource_bounds: tx.resource_bounds,
+                    account_deployment_data: tx.account_deployment_data,
+                    fee_data_availability_mode: tx.fee_data_availability_mode,
+                    nonce_data_availability_mode: tx.nonce_data_availability_mode,
+                });
+
+                ExecutableTx::Invoke(invoke_tx)
+            }
+
+            BroadcastedTx::Declare(tx) => {
+                let class_hash = tx.contract_class.hash().expect("failed to compute class hash");
+
+                let rpc_class = Arc::unwrap_or_clone(tx.contract_class);
+                let class = ContractClass::Class(SierraContractClass::from(rpc_class));
+
+                let declare_tx = DeclareTx::V3(DeclareTxV3 {
+                    chain_id: value.chain,
+                    class_hash,
+                    tip: tx.tip.into(),
+                    nonce: tx.nonce,
+                    signature: tx.signature,
+                    paymaster_data: tx.paymaster_data,
+                    sender_address: tx.sender_address,
+                    resource_bounds: tx.resource_bounds,
+                    compiled_class_hash: tx.compiled_class_hash,
+                    account_deployment_data: tx.account_deployment_data,
+                    fee_data_availability_mode: tx.fee_data_availability_mode,
+                    nonce_data_availability_mode: tx.nonce_data_availability_mode,
+                });
+
+                ExecutableTx::Declare(DeclareTxWithClass::new(declare_tx, class))
+            }
+
+            BroadcastedTx::DeployAccount(tx) => {
+                let contract_address = tx.contract_address();
+
+                let deploy_account_tx = DeployAccountTx::V3(DeployAccountTxV3 {
+                    chain_id: value.chain,
+                    tip: tx.tip.into(),
+                    nonce: tx.nonce,
+                    contract_address,
+                    signature: tx.signature,
+                    class_hash: tx.class_hash,
+                    paymaster_data: tx.paymaster_data,
+                    contract_address_salt: tx.contract_address_salt,
+                    constructor_calldata: tx.constructor_calldata,
+                    resource_bounds: tx.resource_bounds,
+                    fee_data_availability_mode: tx.fee_data_availability_mode,
+                    nonce_data_availability_mode: tx.nonce_data_availability_mode,
+                });
+
+                ExecutableTx::DeployAccount(deploy_account_tx)
+            }
+        }
+    }
+}
+
+impl From<BroadcastedTxWithChainId> for ExecutableTxWithHash {
+    fn from(value: BroadcastedTxWithChainId) -> Self {
+        let is_query = value.tx.is_query();
+        let tx = ExecutableTx::from(value);
+        ExecutableTxWithHash::new_query(tx, is_query)
     }
 }
 

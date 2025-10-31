@@ -1,7 +1,6 @@
 use jsonrpsee::core::{async_trait, RpcResult};
 use katana_executor::ExecutorFactory;
 use katana_pool::TransactionPool;
-use katana_primitives::transaction::{ExecutableTx, ExecutableTxWithHash};
 use katana_rpc_api::error::starknet::StarknetApiError;
 use katana_rpc_api::starknet::StarknetWriteApiServer;
 use katana_rpc_types::broadcasted::{
@@ -9,11 +8,18 @@ use katana_rpc_types::broadcasted::{
     AddInvokeTransactionResponse, BroadcastedDeclareTx, BroadcastedDeployAccountTx,
     BroadcastedInvokeTx,
 };
+use katana_rpc_types::{BroadcastedTx, BroadcastedTxWithChainId};
 
 use super::StarknetApi;
 use crate::starknet::pending::PendingBlockProvider;
 
-impl<EF: ExecutorFactory, P: PendingBlockProvider> StarknetApi<EF, P> {
+impl<EF, Pool, PoolTx, Pending> StarknetApi<EF, Pool, Pending>
+where
+    EF: ExecutorFactory,
+    Pool: TransactionPool<Transaction = PoolTx> + Send + Sync + 'static,
+    PoolTx: From<BroadcastedTxWithChainId>,
+    Pending: PendingBlockProvider,
+{
     async fn add_invoke_transaction_impl(
         &self,
         tx: BroadcastedInvokeTx,
@@ -23,10 +29,10 @@ impl<EF: ExecutorFactory, P: PendingBlockProvider> StarknetApi<EF, P> {
                 return Err(StarknetApiError::UnsupportedTransactionVersion);
             }
 
-            let tx = tx.into_inner(this.inner.backend.chain_spec.id());
-            let tx = ExecutableTxWithHash::new(ExecutableTx::Invoke(tx));
-            let transaction_hash = this.inner.pool.add_transaction(tx).await?;
+            let chain_id = this.inner.backend.chain_spec.id();
+            let tx = BroadcastedTxWithChainId { tx: BroadcastedTx::Invoke(tx), chain: chain_id };
 
+            let transaction_hash = this.inner.pool.add_transaction(tx.into()).await?;
             Ok(AddInvokeTransactionResponse { transaction_hash })
         })
         .await?
@@ -41,14 +47,13 @@ impl<EF: ExecutorFactory, P: PendingBlockProvider> StarknetApi<EF, P> {
                 return Err(StarknetApiError::UnsupportedTransactionVersion);
             }
 
-            let tx = tx
-                .into_inner(this.inner.backend.chain_spec.id())
-                .map_err(|_| StarknetApiError::InvalidContractClass)?;
+            let chain_id = this.inner.backend.chain_spec.id();
+            let class_hash =
+                tx.contract_class.hash().map_err(|_| StarknetApiError::InvalidContractClass)?;
 
-            let class_hash = tx.class_hash();
-            let tx = ExecutableTxWithHash::new(ExecutableTx::Declare(tx));
-            let transaction_hash = this.inner.pool.add_transaction(tx).await?;
+            let tx = BroadcastedTxWithChainId { tx: BroadcastedTx::Declare(tx), chain: chain_id };
 
+            let transaction_hash = this.inner.pool.add_transaction(tx.into()).await?;
             Ok(AddDeclareTransactionResponse { transaction_hash, class_hash })
         })
         .await?
@@ -63,12 +68,12 @@ impl<EF: ExecutorFactory, P: PendingBlockProvider> StarknetApi<EF, P> {
                 return Err(StarknetApiError::UnsupportedTransactionVersion);
             }
 
-            let tx = tx.into_inner(this.inner.backend.chain_spec.id());
+            let chain_id = this.inner.backend.chain_spec.id();
             let contract_address = tx.contract_address();
+            let tx =
+                BroadcastedTxWithChainId { tx: BroadcastedTx::DeployAccount(tx), chain: chain_id };
 
-            let tx = ExecutableTxWithHash::new(ExecutableTx::DeployAccount(tx));
-            let transaction_hash = this.inner.pool.add_transaction(tx).await?;
-
+            let transaction_hash = this.inner.pool.add_transaction(tx.into()).await?;
             Ok(AddDeployAccountTransactionResponse { transaction_hash, contract_address })
         })
         .await?
@@ -76,7 +81,13 @@ impl<EF: ExecutorFactory, P: PendingBlockProvider> StarknetApi<EF, P> {
 }
 
 #[async_trait]
-impl<EF: ExecutorFactory, P: PendingBlockProvider> StarknetWriteApiServer for StarknetApi<EF, P> {
+impl<EF, Pool, PoolTx, Pending> StarknetWriteApiServer for StarknetApi<EF, Pool, Pending>
+where
+    EF: ExecutorFactory,
+    Pool: TransactionPool<Transaction = PoolTx> + Send + Sync + 'static,
+    PoolTx: From<BroadcastedTxWithChainId>,
+    Pending: PendingBlockProvider,
+{
     async fn add_invoke_transaction(
         &self,
         invoke_transaction: BroadcastedInvokeTx,

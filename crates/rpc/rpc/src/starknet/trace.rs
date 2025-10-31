@@ -12,48 +12,33 @@ use katana_rpc_types::trace::{
     to_rpc_fee_estimate, SimulatedTransactions, SimulatedTransactionsResponse,
     TraceBlockTransactionsResponse, TxTrace, TxTraceWithHash,
 };
-use katana_rpc_types::SimulationFlag;
+use katana_rpc_types::{BroadcastedTxWithChainId, SimulationFlag};
 
 use super::StarknetApi;
 use crate::starknet::pending::PendingBlockProvider;
 
-impl<EF: ExecutorFactory, P: PendingBlockProvider> StarknetApi<EF, P> {
+impl<EF, Pool, PoolTx, Pending> StarknetApi<EF, Pool, Pending>
+where
+    EF: ExecutorFactory,
+    Pool: TransactionPool<Transaction = PoolTx> + Send + Sync + 'static,
+    PoolTx: From<BroadcastedTxWithChainId>,
+    Pending: PendingBlockProvider,
+{
     fn simulate_txs(
         &self,
         block_id: BlockIdOrTag,
         transactions: Vec<BroadcastedTx>,
         simulation_flags: Vec<SimulationFlag>,
     ) -> Result<Vec<SimulatedTransactions>, StarknetApiError> {
-        let chain_id = self.inner.backend.chain_spec.id();
+        let chain = self.inner.backend.chain_spec.id();
 
         let executables = transactions
             .into_iter()
             .map(|tx| {
-                let tx = match tx {
-                    BroadcastedTx::Invoke(tx) => {
-                        let is_query = tx.is_query();
-                        ExecutableTxWithHash::new_query(
-                            ExecutableTx::Invoke(tx.into_inner(chain_id)),
-                            is_query,
-                        )
-                    }
-                    BroadcastedTx::Declare(tx) => {
-                        let is_query = tx.is_query();
-                        let tx = tx
-                            .into_inner(chain_id)
-                            .map_err(|_| StarknetApiError::InvalidContractClass)?;
-
-                        ExecutableTxWithHash::new_query(ExecutableTx::Declare(tx), is_query)
-                    }
-                    BroadcastedTx::DeployAccount(tx) => {
-                        let is_query = tx.is_query();
-                        ExecutableTxWithHash::new_query(
-                            ExecutableTx::DeployAccount(tx.into_inner(chain_id)),
-                            is_query,
-                        )
-                    }
-                };
-                Result::<ExecutableTxWithHash, StarknetApiError>::Ok(tx)
+                let is_query = tx.is_query();
+                ExecutableTx::try_from(BroadcastedTxWithChainId { tx, chain })
+                    .map(|tx| ExecutableTxWithHash::new_query(tx, is_query))
+                    .map_err(|_| StarknetApiError::InvalidContractClass)
             })
             .collect::<Result<Vec<_>, _>>()?;
 
@@ -154,7 +139,13 @@ impl<EF: ExecutorFactory, P: PendingBlockProvider> StarknetApi<EF, P> {
 }
 
 #[async_trait]
-impl<EF: ExecutorFactory, P: PendingBlockProvider> StarknetTraceApiServer for StarknetApi<EF, P> {
+impl<EF, Pool, PoolTx, Pending> StarknetTraceApiServer for StarknetApi<EF, Pool, Pending>
+where
+    EF: ExecutorFactory,
+    Pool: TransactionPool<Transaction = PoolTx> + Send + Sync + 'static,
+    PoolTx: From<BroadcastedTxWithChainId>,
+    Pending: PendingBlockProvider,
+{
     async fn trace_transaction(&self, transaction_hash: TxHash) -> RpcResult<TxTrace> {
         self.on_io_blocking_task(move |this| Ok(this.trace(transaction_hash)?)).await?
     }

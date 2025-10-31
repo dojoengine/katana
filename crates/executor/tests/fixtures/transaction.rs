@@ -10,6 +10,7 @@ use katana_primitives::transaction::ExecutableTxWithHash;
 use katana_primitives::utils::transaction::compute_invoke_v3_tx_hash;
 use katana_primitives::Felt;
 use katana_rpc_types::broadcasted::BroadcastedInvokeTx;
+use katana_rpc_types::{BroadcastedTx, BroadcastedTxWithChainId};
 use starknet::accounts::{Account, ExecutionEncoder, ExecutionEncoding, SingleOwnerAccount};
 use starknet::core::types::{BlockId, BlockTag, Call};
 use starknet::macros::{felt, selector};
@@ -119,7 +120,7 @@ pub fn invoke_executable_tx(
         broadcasted_tx.signature = vec![]
     }
 
-    ExecutableTxWithHash::new(broadcasted_tx.into_inner(chain_id).into())
+    BroadcastedTxWithChainId { tx: BroadcastedTx::Invoke(broadcasted_tx), chain: chain_id }.into()
 }
 
 #[rstest::fixture]
