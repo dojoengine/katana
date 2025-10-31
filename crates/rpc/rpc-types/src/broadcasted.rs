@@ -8,8 +8,8 @@ use katana_primitives::contract::Nonce;
 use katana_primitives::da::DataAvailabilityMode;
 use katana_primitives::fee::{ResourceBoundsMapping, Tip};
 use katana_primitives::transaction::{
-    DeclareTx, DeclareTxV3, DeclareTxWithClass, DeployAccountTx, DeployAccountTxV3, ExecutableTxWithHash,
-    InvokeTx, InvokeTxV3, TxHash, TxType,
+    DeclareTx, DeclareTxV3, DeclareTxWithClass, DeployAccountTx, DeployAccountTxV3, ExecutableTx,
+    ExecutableTxWithHash, InvokeTx, InvokeTxV3, TxHash, TxType,
 };
 use katana_primitives::utils::get_contract_address;
 use katana_primitives::{ContractAddress, Felt};

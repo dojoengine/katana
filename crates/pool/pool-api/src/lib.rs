@@ -30,7 +30,7 @@ pub enum PoolError {
 pub type PoolResult<T> = Result<T, PoolError>;
 
 /// Represents a complete transaction pool.
-pub trait TransactionPool {
+pub trait TransactionPool: Send + Sync {
     /// The pool's transaction type.
     type Transaction: PoolTransaction;
 
@@ -67,6 +67,13 @@ pub trait TransactionPool {
 
     /// Get a reference to the pool's validator.
     fn validator(&self) -> &Self::Validator;
+
+    /// Get the next expected nonce for an account based on pending transactions in the pool.
+    ///
+    /// Returns `Some(nonce)` if there are pending transactions for this account,
+    /// where nonce is the next expected nonce (highest pending nonce + 1).
+    /// Returns `None` if no pending transactions exist for this account.
+    fn get_nonce(&self, address: ContractAddress) -> Option<Nonce>;
 }
 
 // the transaction type is recommended to implement a cheap clone (eg ref-counting) so that it

@@ -7,6 +7,7 @@ use katana_gateway_types::{
     Block, ConfirmedReceipt, ConfirmedTransaction, ContractClass, ErrorCode, GatewayError,
     ReceiptBody, StateUpdate, StateUpdateWithBlock,
 };
+use katana_pool::TxPool;
 use katana_primitives::block::{BlockHash, BlockIdOrTag, BlockNumber};
 use katana_primitives::class::{ClassHash, CompiledClass, ContractClassCompilationError};
 use katana_provider_api::block::{BlockIdReader, BlockProvider, BlockStatusProvider};
@@ -20,7 +21,7 @@ use starknet::core::types::ResourcePrice;
 /// Shared application state containing the backend
 #[derive(Clone)]
 pub struct AppState {
-    pub api: StarknetApi<BlockifierFactory, BlockProducer<BlockifierFactory>>,
+    pub api: StarknetApi<BlockifierFactory, TxPool, BlockProducer<BlockifierFactory>>,
 }
 
 impl AppState {

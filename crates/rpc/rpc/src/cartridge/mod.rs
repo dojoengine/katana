@@ -113,8 +113,11 @@ impl<EF: ExecutorFactory> CartridgeApi<EF> {
         Self { task_spawner, backend, block_producer, pool, api_client, vrf_ctx }
     }
 
-    fn nonce(&self, contract_address: ContractAddress) -> Result<Option<Nonce>, StarknetApiError> {
-        Ok(self.pool.validator().pool_nonce(contract_address)?)
+    fn nonce(&self, address: ContractAddress) -> Result<Option<Nonce>, StarknetApiError> {
+        match self.pool.get_nonce(address) {
+            pending_nonce @ Some(..) => Ok(pending_nonce),
+            None => Ok(self.state()?.nonce(address)?),
+        }
     }
 
     fn state(&self) -> Result<Box<dyn StateProvider>, StarknetApiError> {

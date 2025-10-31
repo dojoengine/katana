@@ -9,7 +9,9 @@ use katana_pool_api::{
     PendingTransactions, PendingTx, PoolError, PoolOrd, PoolResult, PoolTransaction, Subscription,
     TransactionPool, TxId,
 };
+use katana_primitives::contract::Nonce;
 use katana_primitives::transaction::TxHash;
+use katana_primitives::ContractAddress;
 use parking_lot::RwLock;
 use tokio::sync::mpsc;
 use tracing::{error, trace, warn, Instrument};
@@ -226,6 +228,17 @@ where
 
     fn validator(&self) -> &Self::Validator {
         &self.inner.validator
+    }
+
+    fn get_nonce(&self, address: ContractAddress) -> Option<Nonce> {
+        self.inner
+            .transactions
+            .read()
+            .iter()
+            .filter(|tx| tx.tx.sender() == address)
+            .map(|tx| tx.tx.nonce())
+            .max()
+            .map(|max_nonce| max_nonce + 1)
     }
 }
 
@@ -494,4 +507,97 @@ mod tests {
     #[test]
     #[ignore = "Txs dependency management not fully implemented yet"]
     fn dependent_txs_random_insertion() {}
+
+    #[tokio::test]
+    async fn get_nonce_returns_none_for_unknown_address() {
+        let pool = TestPool::test();
+        let unknown_address = ContractAddress::from(Felt::from_hex("0xdead").unwrap());
+        assert_eq!(pool.get_nonce(unknown_address), None);
+    }
+
+    #[tokio::test]
+    async fn get_nonce_returns_next_nonce_for_single_pending_tx() {
+        let pool = TestPool::test();
+        let sender = ContractAddress::from(Felt::from_hex("0x1337").unwrap());
+        let nonce = Nonce::from(5u128);
+
+        let tx = PoolTx::new().with_sender(sender).with_nonce(nonce);
+        pool.add_transaction(tx).await.unwrap();
+
+        // Should return nonce + 1
+        assert_eq!(pool.get_nonce(sender), Some(Nonce::from(6u128)));
+    }
+
+    #[tokio::test]
+    async fn get_nonce_returns_highest_nonce_plus_one_for_multiple_txs() {
+        let pool = TestPool::test();
+        let sender = ContractAddress::from(Felt::from_hex("0x1337").unwrap());
+
+        // Add transactions with nonces 1, 5, 3 (out of order)
+        let tx1 = PoolTx::new().with_sender(sender).with_nonce(Nonce::from(1u128));
+        let tx2 = PoolTx::new().with_sender(sender).with_nonce(Nonce::from(3u128));
+        let tx3 = PoolTx::new().with_sender(sender).with_nonce(Nonce::from(2u128));
+
+        pool.add_transaction(tx1).await.unwrap();
+        pool.add_transaction(tx2).await.unwrap();
+        pool.add_transaction(tx3).await.unwrap();
+
+        // Should return max(1, 3, 2) + 1 = 4
+        assert_eq!(pool.get_nonce(sender), Some(Nonce::from(4u128)));
+    }
+
+    #[tokio::test]
+    async fn get_nonce_isolated_per_address() {
+        let pool = TestPool::test();
+
+        let sender1 = ContractAddress::from(Felt::from_hex("0x1").unwrap());
+        let sender2 = ContractAddress::from(Felt::from_hex("0x2").unwrap());
+        let sender3 = ContractAddress::from(Felt::from_hex("0x3").unwrap());
+
+        // Add transactions from different senders
+        let tx1 = PoolTx::new().with_sender(sender1).with_nonce(Nonce::from(10u128));
+        let tx2 = PoolTx::new().with_sender(sender2).with_nonce(Nonce::from(20u128));
+        let tx3 = PoolTx::new().with_sender(sender1).with_nonce(Nonce::from(15u128));
+
+        pool.add_transaction(tx1).await.unwrap();
+        pool.add_transaction(tx2).await.unwrap();
+        pool.add_transaction(tx3).await.unwrap();
+
+        // Each sender should have their own max nonce
+        assert_eq!(pool.get_nonce(sender1), Some(Nonce::from(16u128))); // max(10, 15) + 1
+        assert_eq!(pool.get_nonce(sender2), Some(Nonce::from(21u128))); // 20 + 1
+        assert_eq!(pool.get_nonce(sender3), None); // No txs from sender3
+    }
+
+    #[tokio::test]
+    async fn get_nonce_updates_after_transaction_removal() {
+        let pool = TestPool::test();
+        let sender = ContractAddress::from(Felt::from_hex("0x1337").unwrap());
+
+        let tx1 = PoolTx::new().with_sender(sender).with_nonce(Nonce::from(1u128));
+        let tx2 = PoolTx::new().with_sender(sender).with_nonce(Nonce::from(2u128));
+        let tx3 = PoolTx::new().with_sender(sender).with_nonce(Nonce::from(3u128));
+
+        let hash1 = tx1.hash();
+        let hash3 = tx3.hash();
+
+        pool.add_transaction(tx1).await.unwrap();
+        pool.add_transaction(tx2.clone()).await.unwrap();
+        pool.add_transaction(tx3).await.unwrap();
+
+        // Should be 4 (max nonce 3 + 1)
+        assert_eq!(pool.get_nonce(sender), Some(Nonce::from(4u128)));
+
+        // Remove transactions with nonce 1 and 3
+        pool.remove_transactions(&[hash1, hash3]);
+
+        // Should now be 3 (only tx with nonce 2 remains)
+        assert_eq!(pool.get_nonce(sender), Some(Nonce::from(3u128)));
+
+        // Remove last transaction
+        pool.remove_transactions(&[tx2.hash()]);
+
+        // Should be None (no transactions left)
+        assert_eq!(pool.get_nonce(sender), None);
+    }
 }

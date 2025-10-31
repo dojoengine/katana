@@ -1,5 +1,6 @@
 use jsonrpsee::core::{async_trait, RpcResult};
 use katana_executor::{ExecutionResult, ExecutorFactory, ResultAndStates};
+use katana_pool::TransactionPool;
 use katana_primitives::block::{BlockHashOrNumber, BlockIdOrTag, ConfirmedBlockIdOrTag};
 use katana_primitives::execution::TypedTransactionExecutionInfo;
 use katana_primitives::transaction::{ExecutableTx, ExecutableTxWithHash, TxHash};
@@ -36,11 +37,10 @@ where
             .into_iter()
             .map(|tx| {
                 let is_query = tx.is_query();
-                ExecutableTx::try_from(BroadcastedTxWithChainId { tx, chain })
-                    .map(|tx| ExecutableTxWithHash::new_query(tx, is_query))
-                    .map_err(|_| StarknetApiError::InvalidContractClass)
+                let tx = ExecutableTx::from(BroadcastedTxWithChainId { tx, chain });
+                ExecutableTxWithHash::new_query(tx, is_query)
             })
-            .collect::<Result<Vec<_>, _>>()?;
+            .collect::<Vec<_>>();
 
         // If the node is run with transaction validation disabled, then we should not validate
         // even if the `SKIP_VALIDATE` flag is not set.

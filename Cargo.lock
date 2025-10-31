@@ -6181,6 +6181,7 @@ dependencies = [
  "katana-executor",
  "katana-gateway-types",
  "katana-metrics",
+ "katana-pool",
  "katana-primitives",
  "katana-provider-api",
  "katana-rpc",

@@ -8,6 +8,7 @@ use jsonrpsee::types::ErrorObjectOwned;
 use katana_executor::ExecutorFactory;
 #[cfg(feature = "cartridge")]
 use katana_genesis::allocation::GenesisAccountAlloc;
+use katana_pool::TransactionPool;
 use katana_primitives::block::BlockIdOrTag;
 use katana_primitives::class::ClassHash;
 use katana_primitives::contract::{Nonce, StorageKey, StorageValue};
@@ -39,8 +40,8 @@ use crate::cartridge;
 use crate::starknet::pending::PendingBlockProvider;
 
 #[async_trait]
-impl<EF, Pool, PoolTx, Pending> StarknetApiServer for StarknetApi<EF, P> 
-where  
+impl<EF, Pool, PoolTx, Pending> StarknetApiServer for StarknetApi<EF, Pool, Pending>
+where
     EF: ExecutorFactory,
     Pool: TransactionPool<Transaction = PoolTx> + Send + Sync + 'static,
     PoolTx: From<BroadcastedTxWithChainId>,
@@ -182,11 +183,10 @@ where
             .into_iter()
             .map(|tx| {
                 let is_query = tx.is_query();
-                ExecutableTx::try_from(BroadcastedTxWithChainId { tx, chain })
-                    .map(|tx| ExecutableTxWithHash::new_query(tx, is_query))
-                    .map_err(|_| StarknetApiError::InvalidContractClass)
+                let tx = ExecutableTx::from(BroadcastedTxWithChainId { tx, chain });
+                ExecutableTxWithHash::new_query(tx, is_query)
             })
-            .collect::<Result<Vec<_>, _>>()?;
+            .collect::<Vec<_>>();
 
         let skip_validate = simulation_flags.contains(&EstimateFeeSimulationFlag::SkipValidate);
 
