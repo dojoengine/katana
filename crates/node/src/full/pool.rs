@@ -2,12 +2,13 @@ use std::future::Future;
 
 use katana_pool::ordering::TipOrdering;
 use katana_pool::pool::Pool;
+use katana_pool_api::validation::Error as ValidationError;
 use katana_pool_api::validation::{ValidationOutcome, ValidationResult, Validator};
 use katana_primitives::transaction::ExecutableTxWithHash;
-use katana_rpc_types::BroadcastedTx;
+use katana_rpc_types::{BroadcastedTx, BroadcastedTxWithChainId};
 
 pub type FullNodePool =
-    Pool<ExecutableTxWithHash, GatewayProxyValidator, TipOrdering<ExecutableTxWithHash>>;
+    Pool<BroadcastedTxWithChainId, GatewayProxyValidator, TipOrdering<BroadcastedTxWithChainId>>;
 
 /// This is an implementation of the [`Validator`] trait that proxies incoming transactions to a
 /// Starknet sequencer via the gateway endpoint.
@@ -25,7 +26,7 @@ impl GatewayProxyValidator {
 }
 
 impl Validator for GatewayProxyValidator {
-    type Transaction = ExecutableTxWithHash;
+    type Transaction = BroadcastedTxWithChainId;
 
     fn validate(
         &self,
@@ -34,7 +35,7 @@ impl Validator for GatewayProxyValidator {
         let gateway_client = self.gateway_client.clone();
 
         async move {
-            match BroadcastedTx::from(tx.transaction.clone()) {
+            match tx.tx.clone() {
                 BroadcastedTx::Invoke(invoke_tx) => {
                     gateway_client.add_invoke_transaction(invoke_tx).await.unwrap();
                 }
