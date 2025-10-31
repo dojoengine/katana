@@ -329,6 +329,68 @@ pub struct BroadcastedTxWithChainId {
     pub chain: ChainId,
 }
 
+impl BroadcastedTxWithChainId {
+    /// Compute the hash of the transaction.
+    pub fn calculate_hash(&self) -> TxHash {
+        let is_query = self.tx.is_query();
+        match &self.tx {
+            BroadcastedTx::Invoke(tx) => {
+                let invoke_tx = InvokeTx::V3(InvokeTxV3 {
+                    chain_id: self.chain,
+                    tip: tx.tip.into(),
+                    nonce: tx.nonce,
+                    calldata: tx.calldata.clone(),
+                    signature: tx.signature.clone(),
+                    sender_address: tx.sender_address,
+                    paymaster_data: tx.paymaster_data.clone(),
+                    resource_bounds: tx.resource_bounds.clone(),
+                    account_deployment_data: tx.account_deployment_data.clone(),
+                    fee_data_availability_mode: tx.fee_data_availability_mode,
+                    nonce_data_availability_mode: tx.nonce_data_availability_mode,
+                });
+                invoke_tx.calculate_hash(is_query)
+            }
+
+            BroadcastedTx::Declare(tx) => {
+                let declare_tx = DeclareTx::V3(DeclareTxV3 {
+                    chain_id: self.chain,
+                    class_hash: tx.contract_class.hash().expect("failed to compute class hash"),
+                    tip: tx.tip.into(),
+                    nonce: tx.nonce,
+                    signature: tx.signature.clone(),
+                    paymaster_data: tx.paymaster_data.clone(),
+                    sender_address: tx.sender_address,
+                    resource_bounds: tx.resource_bounds.clone(),
+                    compiled_class_hash: tx.compiled_class_hash,
+                    account_deployment_data: tx.account_deployment_data.clone(),
+                    fee_data_availability_mode: tx.fee_data_availability_mode,
+                    nonce_data_availability_mode: tx.nonce_data_availability_mode,
+                });
+                declare_tx.calculate_hash(is_query)
+            }
+
+            BroadcastedTx::DeployAccount(tx) => {
+                let contract_address = tx.contract_address();
+                let deploy_account_tx = DeployAccountTx::V3(DeployAccountTxV3 {
+                    chain_id: self.chain,
+                    tip: tx.tip.into(),
+                    nonce: tx.nonce,
+                    contract_address,
+                    signature: tx.signature.clone(),
+                    class_hash: tx.class_hash,
+                    paymaster_data: tx.paymaster_data.clone(),
+                    contract_address_salt: tx.contract_address_salt,
+                    constructor_calldata: tx.constructor_calldata.clone(),
+                    resource_bounds: tx.resource_bounds.clone(),
+                    fee_data_availability_mode: tx.fee_data_availability_mode,
+                    nonce_data_availability_mode: tx.nonce_data_availability_mode,
+                });
+                deploy_account_tx.calculate_hash(is_query)
+            }
+        }
+    }
+}
+
 /// A broadcasted transaction.
 #[derive(Debug, Clone, Serialize)]
 #[serde(untagged)]
@@ -1214,6 +1276,76 @@ mod tests {
 
         let actual = serde_json::to_value(&deploy_result).unwrap();
         similar_asserts::assert_eq!(actual, expected);
+    }
+
+    #[test]
+    fn broadcasted_tx_with_chain_id_calculate_hash() {
+        use katana_primitives::chain::ChainId;
+
+        // Test with an Invoke transaction
+        let invoke_json = json!({
+            "type": "INVOKE",
+            "version": "0x3",
+            "signature": [],
+            "tip": "0x0",
+            "paymaster_data": [],
+            "resource_bounds": {
+                "l1_gas": {
+                    "max_amount": "0x100",
+                    "max_price_per_unit": "0x200"
+                },
+                "l2_gas": {
+                    "max_amount": "0x0",
+                    "max_price_per_unit": "0x0"
+                }
+            },
+            "nonce_data_availability_mode": "L1",
+            "fee_data_availability_mode": "L1",
+            "sender_address": "0x123",
+            "calldata": ["0x1", "0x2"],
+            "nonce": "0x0",
+            "account_deployment_data": []
+        });
+
+        let invoke_tx: BroadcastedTx = serde_json::from_value(invoke_json).unwrap();
+        let tx_with_chain = BroadcastedTxWithChainId { tx: invoke_tx, chain: ChainId::SEPOLIA };
+
+        // The hash should be computed successfully
+        let hash = tx_with_chain.calculate_hash();
+        assert_ne!(hash, Felt::ZERO);
+
+        // Test with a DeployAccount transaction
+        let deploy_account_json = json!({
+            "type": "DEPLOY_ACCOUNT",
+            "version": "0x3",
+            "signature": ["0x1", "0x2", "0x3"],
+            "tip": "0x1",
+            "paymaster_data": [],
+            "resource_bounds": {
+                "l1_gas": {
+                    "max_amount": "0x100",
+                    "max_price_per_unit": "0x200"
+                },
+                "l2_gas": {
+                    "max_amount": "0x123",
+                    "max_price_per_unit": "0x1337"
+                }
+            },
+            "nonce_data_availability_mode": "L1",
+            "fee_data_availability_mode": "L1",
+            "nonce": "0x0",
+            "contract_address_salt": "0xabc",
+            "constructor_calldata": ["0x1", "0x2"],
+            "class_hash": "0xdef"
+        });
+
+        let deploy_account_tx: BroadcastedTx = serde_json::from_value(deploy_account_json).unwrap();
+        let tx_with_chain =
+            BroadcastedTxWithChainId { tx: deploy_account_tx, chain: ChainId::SEPOLIA };
+
+        // The hash should be computed successfully
+        let hash = tx_with_chain.calculate_hash();
+        assert_ne!(hash, Felt::ZERO);
     }
 
     // This will currently fail because the l2 gas on legacy resource bounds format are not
