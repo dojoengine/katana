@@ -105,33 +105,6 @@ where
 impl<EF, Pool, PP> StarknetApi<EF, Pool, PP>
 where
     EF: ExecutorFactory,
-    Pool: TransactionPool,
-    PP: PendingBlockProvider,
-{
-    pub fn pool(&self) -> &Pool {
-        &self.inner.pool
-    }
-
-    pub fn backend(&self) -> &Arc<Backend<EF>> {
-        &self.inner.backend
-    }
-
-    pub fn forked_client(&self) -> Option<&ForkedClient> {
-        self.inner.forked_client.as_ref()
-    }
-
-    pub fn estimate_fee_permit(&self) -> &Permits {
-        &self.inner.estimate_fee_permit
-    }
-
-    pub fn config(&self) -> &StarknetApiConfig {
-        &self.inner.config
-    }
-}
-
-impl<EF, Pool, PP> StarknetApi<EF, Pool, PP>
-where
-    EF: ExecutorFactory,
     Pool: TransactionPool + 'static,
     PP: PendingBlockProvider,
 {
@@ -256,6 +229,34 @@ where
         }
     }
 
+    pub fn pool(&self) -> &Pool {
+        &self.inner.pool
+    }
+
+    pub fn backend(&self) -> &Arc<Backend<EF>> {
+        &self.inner.backend
+    }
+
+    pub fn forked_client(&self) -> Option<&ForkedClient> {
+        self.inner.forked_client.as_ref()
+    }
+
+    pub fn estimate_fee_permit(&self) -> &Permits {
+        &self.inner.estimate_fee_permit
+    }
+
+    pub fn config(&self) -> &StarknetApiConfig {
+        &self.inner.config
+    }
+}
+
+impl<EF, Pool, PP> StarknetApi<EF, Pool, PP>
+where
+    EF: ExecutorFactory,
+    Pool: TransactionPool + 'static,
+    <Pool as TransactionPool>::Transaction: Into<RpcTxWithHash>,
+    PP: PendingBlockProvider,
+{
     fn estimate_fee_with(
         &self,
         transactions: Vec<ExecutableTxWithHash>,
@@ -564,8 +565,7 @@ where
             Ok(client.get_transaction_by_hash(hash).await?)
         } else {
             let pool_tx = self.inner.pool.get(hash).ok_or(StarknetApiError::TxnHashNotFound)?;
-            let tx = TxWithHash::from(pool_tx.as_ref().clone());
-            Ok(RpcTxWithHash::from(tx))
+            Ok(Into::into(pool_tx.as_ref().clone()))
         }
     }
 

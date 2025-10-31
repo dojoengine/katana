@@ -24,17 +24,11 @@ use katana_metrics::sys::DiskReporter;
 use katana_metrics::{Report, Server as MetricsServer};
 use katana_pool::ordering::FiFo;
 use katana_primitives::env::{CfgEnv, FeeTokenAddressses};
-#[cfg(feature = "cartridge")]
-use katana_rpc::cartridge::CartridgeApi;
 use katana_rpc::cors::Cors;
 use katana_rpc::dev::DevApi;
 use katana_rpc::starknet::forking::ForkedClient;
-#[cfg(feature = "cartridge")]
-use katana_rpc::starknet::PaymasterConfig;
 use katana_rpc::starknet::{StarknetApi, StarknetApiConfig};
 use katana_rpc::{RpcServer, RpcServerHandle};
-#[cfg(feature = "cartridge")]
-use katana_rpc_api::cartridge::CartridgeApiServer;
 use katana_rpc_api::dev::DevApiServer;
 use katana_rpc_api::starknet::{StarknetApiServer, StarknetTraceApiServer, StarknetWriteApiServer};
 #[cfg(feature = "explorer")]
@@ -47,9 +41,10 @@ mod config;
 mod executor;
 mod pool;
 
+use config::Config;
+
 use crate::exit::NodeStoppedFuture;
 use crate::optimistic::pool::{PoolValidator, TxPool};
-use config::Config;
 
 #[derive(Debug)]
 pub struct Node {

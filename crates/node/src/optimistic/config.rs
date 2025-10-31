@@ -2,9 +2,12 @@ use std::sync::Arc;
 
 use katana_chain_spec::ChainSpec;
 
+use crate::config::db::DbConfig;
+use crate::config::fork::ForkingConfig;
+use crate::config::metrics::MetricsConfig;
 #[cfg(feature = "cartridge")]
 use crate::config::paymaster;
-use crate::config::{db::DbConfig, fork::ForkingConfig, metrics::MetricsConfig, rpc::RpcConfig};
+use crate::config::rpc::RpcConfig;
 
 /// Node configurations.
 ///

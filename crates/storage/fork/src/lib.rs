@@ -14,7 +14,7 @@ use futures::channel::mpsc::{channel as async_channel, Receiver, SendError, Send
 use futures::future::BoxFuture;
 use futures::stream::Stream;
 use futures::{Future, FutureExt};
-use katana_primitives::block::{BlockHashOrNumber, BlockIdOrTag};
+use katana_primitives::block::BlockIdOrTag;
 use katana_primitives::class::{
     ClassHash, CompiledClassHash, ComputeClassHashError, ContractClass,
     ContractClassCompilationError,
@@ -140,7 +140,7 @@ pub struct Backend {
     /// A channel for receiving requests from the [BackendHandle]s.
     incoming: Receiver<BackendRequest>,
     /// Pinned block id for all requests.
-    block_id: BlockHashOrNumber,
+    block_id: BlockIdOrTag,
 }
 
 /////////////////////////////////////////////////////////////////
@@ -155,7 +155,7 @@ impl Backend {
     #[allow(clippy::new_ret_no_self)]
     pub fn new(
         provider: StarknetClient,
-        block_id: BlockHashOrNumber,
+        block_id: BlockIdOrTag,
     ) -> Result<BackendClient, BackendError> {
         let (handle, backend) = Self::new_inner(provider, block_id);
 
@@ -175,10 +175,7 @@ impl Backend {
         Ok(handle)
     }
 
-    fn new_inner(
-        provider: StarknetClient,
-        block_id: BlockHashOrNumber,
-    ) -> (BackendClient, Backend) {
+    fn new_inner(provider: StarknetClient, block_id: BlockIdOrTag) -> (BackendClient, Backend) {
         // Create async channel to receive requests from the handle.
         let (tx, rx) = async_channel(100);
         let backend = Backend {
@@ -196,7 +193,7 @@ impl Backend {
     /// This method is responsible for transforming the incoming request
     /// sent from a [BackendHandle] into a RPC request to the remote network.
     fn handle_requests(&mut self, request: BackendRequest) {
-        let block_id = BlockIdOrTag::from(self.block_id);
+        let block_id = self.block_id;
         let provider = self.provider.clone();
 
         // Check if there are similar requests in the queue before sending the request
