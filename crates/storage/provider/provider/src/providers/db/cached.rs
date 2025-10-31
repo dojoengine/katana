@@ -1,12 +1,12 @@
 use std::collections::{BTreeMap, HashMap};
 use std::ops::{Range, RangeInclusive};
-use std::sync::{Arc, RwLock};
+use std::sync::Arc;
 
 use katana_db::abstraction::Database;
 use katana_db::models::block::StoredBlockBodyIndices;
 use katana_primitives::block::{
-    Block, BlockHash, BlockHashOrNumber, BlockNumber, BlockWithTxHashes, FinalityStatus, Header,
-    SealedBlockWithStatus,
+    Block, BlockHash, BlockHashOrNumber, BlockIdOrTag, BlockNumber, BlockWithTxHashes,
+    FinalityStatus, Header, SealedBlockWithStatus,
 };
 use katana_primitives::class::{ClassHash, CompiledClassHash, ContractClass};
 use katana_primitives::contract::{ContractAddress, Nonce, StorageKey, StorageValue};
@@ -22,12 +22,15 @@ use katana_provider_api::block::{
 use katana_provider_api::contract::{ContractClassProvider, ContractClassWriter};
 use katana_provider_api::env::BlockEnvProvider;
 use katana_provider_api::stage::StageCheckpointProvider;
-use katana_provider_api::state::{StateFactoryProvider, StateProvider, StateWriter};
+use katana_provider_api::state::{
+    StateFactoryProvider, StateProofProvider, StateProvider, StateRootProvider, StateWriter,
+};
 use katana_provider_api::state_update::StateUpdateProvider;
 use katana_provider_api::transaction::{
     ReceiptProvider, TransactionProvider, TransactionStatusProvider, TransactionTraceProvider,
     TransactionsProviderExt,
 };
+use parking_lot::RwLock;
 
 use crate::providers::fork::state::HistoricalStateProvider as ForkHistoricalStateProvider;
 use crate::providers::fork::ForkedProvider;
@@ -69,64 +72,33 @@ impl StateCache {
     }
 
     fn get_nonce(&self, address: ContractAddress) -> Option<Nonce> {
-        self.inner.read().ok()?.nonces.get(&address).copied()
-    }
-
-    fn set_nonce(&self, address: ContractAddress, nonce: Nonce) {
-        if let Ok(mut cache) = self.inner.write() {
-            cache.nonces.insert(address, nonce);
-        }
+        self.inner.read().nonces.get(&address).copied()
     }
 
     fn get_storage(&self, address: ContractAddress, key: StorageKey) -> Option<StorageValue> {
-        self.inner.read().ok()?.storage.get(&(address, key)).copied()
-    }
-
-    fn set_storage(&self, address: ContractAddress, key: StorageKey, value: StorageValue) {
-        if let Ok(mut cache) = self.inner.write() {
-            cache.storage.insert((address, key), value);
-        }
+        self.inner.read().storage.get(&(address, key)).copied()
     }
 
     fn get_class_hash(&self, address: ContractAddress) -> Option<ClassHash> {
-        self.inner.read().ok()?.class_hashes.get(&address).copied()
-    }
-
-    fn set_class_hash(&self, address: ContractAddress, class_hash: ClassHash) {
-        if let Ok(mut cache) = self.inner.write() {
-            cache.class_hashes.insert(address, class_hash);
-        }
+        self.inner.read().class_hashes.get(&address).copied()
     }
 
     fn get_class(&self, hash: ClassHash) -> Option<ContractClass> {
-        self.inner.read().ok()?.classes.get(&hash).cloned()
-    }
-
-    fn set_class(&self, hash: ClassHash, class: ContractClass) {
-        if let Ok(mut cache) = self.inner.write() {
-            cache.classes.insert(hash, class);
-        }
+        self.inner.read().classes.get(&hash).cloned()
     }
 
     fn get_compiled_class_hash(&self, hash: ClassHash) -> Option<CompiledClassHash> {
-        self.inner.read().ok()?.compiled_class_hashes.get(&hash).copied()
-    }
-
-    fn set_compiled_class_hash(&self, hash: ClassHash, compiled_hash: CompiledClassHash) {
-        if let Ok(mut cache) = self.inner.write() {
-            cache.compiled_class_hashes.insert(hash, compiled_hash);
-        }
+        self.inner.read().compiled_class_hashes.get(&hash).copied()
     }
 
     /// Clears all cached data.
     pub fn clear(&self) {
-        if let Ok(mut cache) = self.inner.write() {
-            cache.nonces.clear();
-            cache.storage.clear();
-            cache.class_hashes.clear();
-            cache.classes.clear();
-            cache.compiled_class_hashes.clear();
-        }
+        let mut cache = self.inner.write();
+        cache.nonces.clear();
+        cache.storage.clear();
+        cache.class_hashes.clear();
+        cache.classes.clear();
+        cache.compiled_class_hashes.clear();
     }
 }
 
@@ -146,8 +118,13 @@ pub struct CachedDbProvider<Db: Database> {
 
 impl<Db: Database> CachedDbProvider<Db> {
     /// Creates a new [`CachedDbProvider`] wrapping the given [`ForkedProvider`].
-    pub fn new(provider: ForkedProvider<Db>) -> Self {
-        Self { inner: provider, cache: StateCache::new() }
+    pub fn new(
+        db: Db,
+        block_id: BlockIdOrTag,
+        starknet_client: katana_rpc_client::starknet::Client,
+    ) -> Self {
+        let inner = ForkedProvider::new(db, block_id, starknet_client);
+        Self { inner, cache: StateCache::new() }
     }
 
     /// Returns a reference to the underlying [`ForkedProvider`].
@@ -165,6 +142,38 @@ impl<Db: Database> CachedDbProvider<Db> {
     /// Clears all cached data.
     pub fn clear_cache(&self) {
         self.cache.clear();
+    }
+
+    /// Merges state updates into the cache.
+    pub fn merge_state_updates(&self, updates: &StateUpdatesWithClasses) {
+        let mut cache = self.cache.inner.write();
+        let state = &updates.state_updates;
+
+        for (address, nonce) in &state.nonce_updates {
+            cache.nonces.insert(*address, *nonce);
+        }
+
+        for (address, storage) in &state.storage_updates {
+            for (key, value) in storage {
+                cache.storage.insert((*address, *key), *value);
+            }
+        }
+
+        for (address, class_hash) in &state.deployed_contracts {
+            cache.class_hashes.insert(*address, *class_hash);
+        }
+
+        for (address, class_hash) in &state.replaced_classes {
+            cache.class_hashes.insert(*address, *class_hash);
+        }
+
+        for (class_hash, compiled_hash) in &state.declared_classes {
+            cache.compiled_class_hashes.insert(*class_hash, *compiled_hash);
+        }
+
+        for (class_hash, class) in &updates.classes {
+            cache.classes.insert(*class_hash, class.clone());
+        }
     }
 }
 
@@ -427,15 +436,13 @@ struct CachedStateProvider<S: StateProvider> {
 
 impl<S: StateProvider> ContractClassProvider for CachedStateProvider<S> {
     fn class(&self, hash: ClassHash) -> ProviderResult<Option<ContractClass>> {
-        // Check cache first
         if let Some(class) = self.cache.get_class(hash) {
             return Ok(Some(class));
         }
 
-        // Query database and cache the result
         let class = self.state.class(hash)?;
-        if let Some(ref c) = class {
-            self.cache.set_class(hash, c.clone());
+        if let Some(ref c) = &class {
+            self.cache.inner.write().classes.insert(hash, c.clone());
         }
         Ok(class)
     }
@@ -444,15 +451,13 @@ impl<S: StateProvider> ContractClassProvider for CachedStateProvider<S> {
         &self,
         hash: ClassHash,
     ) -> ProviderResult<Option<CompiledClassHash>> {
-        // Check cache first
         if let Some(compiled_hash) = self.cache.get_compiled_class_hash(hash) {
             return Ok(Some(compiled_hash));
         }
 
-        // Query database and cache the result
         let compiled_hash = self.state.compiled_class_hash_of_class_hash(hash)?;
         if let Some(ch) = compiled_hash {
-            self.cache.set_compiled_class_hash(hash, ch);
+            self.cache.inner.write().compiled_class_hashes.insert(hash, ch);
         }
         Ok(compiled_hash)
     }
@@ -460,17 +465,11 @@ impl<S: StateProvider> ContractClassProvider for CachedStateProvider<S> {
 
 impl<S: StateProvider> StateProvider for CachedStateProvider<S> {
     fn nonce(&self, address: ContractAddress) -> ProviderResult<Option<Nonce>> {
-        // Check cache first
         if let Some(nonce) = self.cache.get_nonce(address) {
-            return Ok(Some(nonce));
+            Ok(Some(nonce))
+        } else {
+            Ok(self.state.nonce(address)?)
         }
-
-        // Query database and cache the result
-        let nonce = self.state.nonce(address)?;
-        if let Some(n) = nonce {
-            self.cache.set_nonce(address, n);
-        }
-        Ok(nonce)
     }
 
     fn storage(
@@ -478,72 +477,26 @@ impl<S: StateProvider> StateProvider for CachedStateProvider<S> {
         address: ContractAddress,
         storage_key: StorageKey,
     ) -> ProviderResult<Option<StorageValue>> {
-        // Check cache first
         if let Some(value) = self.cache.get_storage(address, storage_key) {
-            return Ok(Some(value));
+            Ok(Some(value))
+        } else {
+            Ok(self.state.storage(address, storage_key)?)
         }
-
-        // Query database and cache the result
-        let value = self.state.storage(address, storage_key)?;
-        if let Some(v) = value {
-            self.cache.set_storage(address, storage_key, v);
-        }
-        Ok(value)
     }
 
     fn class_hash_of_contract(
         &self,
         address: ContractAddress,
     ) -> ProviderResult<Option<ClassHash>> {
-        // Check cache first
         if let Some(class_hash) = self.cache.get_class_hash(address) {
             return Ok(Some(class_hash));
         }
 
-        // Query database and cache the result
         let class_hash = self.state.class_hash_of_contract(address)?;
         if let Some(ch) = class_hash {
-            self.cache.set_class_hash(address, ch);
+            self.cache.inner.write().class_hashes.insert(address, ch);
         }
         Ok(class_hash)
-    }
-}
-
-impl<S: StateProvider> katana_provider_api::state::StateProofProvider for CachedStateProvider<S> {
-    fn class_multiproof(&self, classes: Vec<ClassHash>) -> ProviderResult<katana_trie::MultiProof> {
-        self.state.class_multiproof(classes)
-    }
-
-    fn contract_multiproof(
-        &self,
-        addresses: Vec<ContractAddress>,
-    ) -> ProviderResult<katana_trie::MultiProof> {
-        self.state.contract_multiproof(addresses)
-    }
-
-    fn storage_multiproof(
-        &self,
-        address: ContractAddress,
-        storage_keys: Vec<StorageKey>,
-    ) -> ProviderResult<katana_trie::MultiProof> {
-        self.state.storage_multiproof(address, storage_keys)
-    }
-}
-
-impl<S: StateProvider> katana_provider_api::state::StateRootProvider for CachedStateProvider<S> {
-    fn classes_root(&self) -> ProviderResult<katana_primitives::Felt> {
-        self.state.classes_root()
-    }
-
-    fn contracts_root(&self) -> ProviderResult<katana_primitives::Felt> {
-        self.state.contracts_root()
-    }
-
-    fn storage_root(
-        &self,
-        contract: ContractAddress,
-    ) -> ProviderResult<Option<katana_primitives::Felt>> {
-        self.state.storage_root(contract)
     }
 }
 
@@ -557,50 +510,32 @@ struct CachedHistoricalStateProvider<Db: Database> {
 
 impl<Db: Database> ContractClassProvider for CachedHistoricalStateProvider<Db> {
     fn class(&self, hash: ClassHash) -> ProviderResult<Option<ContractClass>> {
-        // Check cache first
         if let Some(class) = self.cache.get_class(hash) {
-            return Ok(Some(class));
+            Ok(Some(class))
+        } else {
+            Ok(self.inner.class(hash)?)
         }
-
-        // Query database and cache the result
-        let class = self.inner.class(hash)?;
-        if let Some(ref c) = class {
-            self.cache.set_class(hash, c.clone());
-        }
-        Ok(class)
     }
 
     fn compiled_class_hash_of_class_hash(
         &self,
         hash: ClassHash,
     ) -> ProviderResult<Option<CompiledClassHash>> {
-        // Check cache first
         if let Some(compiled_hash) = self.cache.get_compiled_class_hash(hash) {
-            return Ok(Some(compiled_hash));
+            Ok(Some(compiled_hash))
+        } else {
+            Ok(self.inner.compiled_class_hash_of_class_hash(hash)?)
         }
-
-        // Query database and cache the result
-        let compiled_hash = self.inner.compiled_class_hash_of_class_hash(hash)?;
-        if let Some(ch) = compiled_hash {
-            self.cache.set_compiled_class_hash(hash, ch);
-        }
-        Ok(compiled_hash)
     }
 }
 
 impl<Db: Database> StateProvider for CachedHistoricalStateProvider<Db> {
     fn nonce(&self, address: ContractAddress) -> ProviderResult<Option<Nonce>> {
-        // Check cache first
         if let Some(nonce) = self.cache.get_nonce(address) {
-            return Ok(Some(nonce));
+            Ok(Some(nonce))
+        } else {
+            Ok(self.inner.nonce(address)?)
         }
-
-        // Query database and cache the result
-        let nonce = self.inner.nonce(address)?;
-        if let Some(n) = nonce {
-            self.cache.set_nonce(address, n);
-        }
-        Ok(nonce)
     }
 
     fn storage(
@@ -608,79 +543,26 @@ impl<Db: Database> StateProvider for CachedHistoricalStateProvider<Db> {
         address: ContractAddress,
         storage_key: StorageKey,
     ) -> ProviderResult<Option<StorageValue>> {
-        // Check cache first
         if let Some(value) = self.cache.get_storage(address, storage_key) {
-            return Ok(Some(value));
+            Ok(Some(value))
+        } else {
+            Ok(self.inner.storage(address, storage_key)?)
         }
-
-        // Query database and cache the result
-        let value = self.inner.storage(address, storage_key)?;
-        if let Some(v) = value {
-            self.cache.set_storage(address, storage_key, v);
-        }
-        Ok(value)
     }
 
     fn class_hash_of_contract(
         &self,
         address: ContractAddress,
     ) -> ProviderResult<Option<ClassHash>> {
-        // Check cache first
         if let Some(class_hash) = self.cache.get_class_hash(address) {
-            return Ok(Some(class_hash));
+            Ok(Some(class_hash))
+        } else {
+            Ok(self.inner.class_hash_of_contract(address)?)
         }
-
-        // Query database and cache the result
-        let class_hash = self.inner.class_hash_of_contract(address)?;
-        if let Some(ch) = class_hash {
-            self.cache.set_class_hash(address, ch);
-        }
-        Ok(class_hash)
     }
 }
 
-impl<Db: Database> katana_provider_api::state::StateProofProvider
-    for CachedHistoricalStateProvider<Db>
-{
-    fn class_multiproof(&self, classes: Vec<ClassHash>) -> ProviderResult<katana_trie::MultiProof> {
-        self.inner.class_multiproof(classes)
-    }
-
-    fn contract_multiproof(
-        &self,
-        addresses: Vec<ContractAddress>,
-    ) -> ProviderResult<katana_trie::MultiProof> {
-        self.inner.contract_multiproof(addresses)
-    }
-
-    fn storage_multiproof(
-        &self,
-        address: ContractAddress,
-        storage_keys: Vec<StorageKey>,
-    ) -> ProviderResult<katana_trie::MultiProof> {
-        self.inner.storage_multiproof(address, storage_keys)
-    }
-}
-
-impl<Db: Database> katana_provider_api::state::StateRootProvider
-    for CachedHistoricalStateProvider<Db>
-{
-    fn classes_root(&self) -> ProviderResult<katana_primitives::Felt> {
-        self.inner.classes_root()
-    }
-
-    fn contracts_root(&self) -> ProviderResult<katana_primitives::Felt> {
-        self.inner.contracts_root()
-    }
-
-    fn storage_root(
-        &self,
-        contract: ContractAddress,
-    ) -> ProviderResult<Option<katana_primitives::Felt>> {
-        self.inner.storage_root(contract)
-    }
-
-    fn state_root(&self) -> ProviderResult<katana_primitives::Felt> {
-        self.inner.state_root()
-    }
-}
+impl<S: StateProvider> StateProofProvider for CachedStateProvider<S> {}
+impl<S: StateProvider> StateRootProvider for CachedStateProvider<S> {}
+impl<Db: Database> StateProofProvider for CachedHistoricalStateProvider<Db> {}
+impl<Db: Database> StateRootProvider for CachedHistoricalStateProvider<Db> {}

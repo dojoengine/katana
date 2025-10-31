@@ -44,7 +44,7 @@ impl<EF, Pool, PoolTx, Pending> StarknetApiServer for StarknetApi<EF, Pool, Pend
 where
     EF: ExecutorFactory,
     Pool: TransactionPool<Transaction = PoolTx> + Send + Sync + 'static,
-    PoolTx: From<BroadcastedTxWithChainId>,
+    <Pool as TransactionPool>::Transaction: Into<RpcTxWithHash>,
     Pending: PendingBlockProvider,
 {
     async fn chain_id(&self) -> RpcResult<Felt> {

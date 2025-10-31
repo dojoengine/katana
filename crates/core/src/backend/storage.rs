@@ -1,6 +1,6 @@
 use anyhow::{bail, Context, Result};
 use katana_primitives::block::{
-    BlockHashOrNumber, BlockIdOrTag, BlockNumber, FinalityStatus, GasPrices, Header, SealedBlock,
+    BlockIdOrTag, BlockNumber, FinalityStatus, GasPrices, Header, SealedBlock,
     SealedBlockWithStatus,
 };
 use katana_provider::api::block::{BlockProvider, BlockWriter};
@@ -88,7 +88,7 @@ impl Blockchain {
     pub async fn new_from_forked(
         db: katana_db::Db,
         fork_url: Url,
-        fork_block: Option<BlockHashOrNumber>,
+        fork_block: Option<BlockIdOrTag>,
         chain: &mut katana_chain_spec::dev::ChainSpec,
     ) -> Result<(Self, BlockNumber)> {
         let provider = StarknetClient::new(HttpClientBuilder::new().build(fork_url)?);
@@ -102,17 +102,12 @@ impl Blockchain {
 
         // If the fork block number is not specified, we use the latest accepted block on the forked
         // network.
-        let block_id = if let Some(id) = fork_block {
-            id
-        } else {
-            let res = provider.block_number().await?;
-            BlockHashOrNumber::Num(res.block_number)
-        };
+        let block_id = if let Some(id) = fork_block { id } else { BlockIdOrTag::Latest };
 
         info!(chain = %parsed_id, block = %block_id, "Forking chain.");
 
         let block = provider
-            .get_block_with_tx_hashes(BlockIdOrTag::from(block_id))
+            .get_block_with_tx_hashes(block_id)
             .await
             .context("failed to fetch forked block")?;
 

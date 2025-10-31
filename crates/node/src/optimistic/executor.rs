@@ -4,29 +4,28 @@ use std::sync::Arc;
 use std::task::{Context, Poll};
 
 use futures::stream::StreamExt;
+use katana_core::backend::storage::Blockchain;
 use katana_core::backend::Backend;
 use katana_executor::implementation::blockifier::BlockifierFactory;
 use katana_executor::{ExecutionResult, ExecutorFactory};
-use katana_pool::{PendingTransactions, PoolOrd, PoolTransaction, TransactionPool, TxPool};
+use katana_pool::ordering::FiFo;
+use katana_pool::{PendingTransactions, PoolOrd, PoolTransaction, TransactionPool};
 use katana_primitives::transaction::ExecutableTxWithHash;
 use katana_provider::api::state::StateFactoryProvider;
+use katana_provider::providers::db::cached::CachedDbProvider;
+use katana_rpc_types::{BroadcastedTx, BroadcastedTxWithChainId};
 use katana_tasks::{JoinHandle, TaskSpawner};
 use tracing::{debug, error, info, trace, warn};
 
+use crate::optimistic::pool::TxPool;
+
 const LOG_TARGET: &str = "optimistic_executor";
 
-/// The `OptimisticExecutor` is an actor-based component that listens to incoming transactions
-/// from the pool and executes them optimistically as they arrive.
-///
-/// This component subscribes to the pool's pending transaction stream and processes each
-/// transaction as soon as it's available, without waiting for block production.
-#[allow(missing_debug_implementations)]
+#[derive(Debug)]
 pub struct OptimisticExecutor {
-    /// The transaction pool to subscribe to
     pool: TxPool,
-    /// The backend containing the executor factory and blockchain state
-    backend: Arc<Backend<BlockifierFactory>>,
-    /// Task spawner for running the executor actor
+    optimistic_state: CachedDbProvider<katana_db::Db>,
+    executor_factory: Arc<BlockifierFactory>,
     task_spawner: TaskSpawner,
 }
 
@@ -40,10 +39,11 @@ impl OptimisticExecutor {
     /// * `task_spawner` - The task spawner used to run the executor actor
     pub fn new(
         pool: TxPool,
-        backend: Arc<Backend<BlockifierFactory>>,
+        optimistic_state: CachedDbProvider<katana_db::Db>,
+        executor_factory: Arc<BlockifierFactory>,
         task_spawner: TaskSpawner,
     ) -> Self {
-        Self { pool, backend, task_spawner }
+        Self { pool, optimistic_state, executor_factory, task_spawner }
     }
 
     /// Spawns the optimistic executor actor task.
@@ -55,49 +55,37 @@ impl OptimisticExecutor {
     ///
     /// A `JoinHandle` to the spawned executor task.
     pub fn spawn(self) -> JoinHandle<()> {
-        info!(target: LOG_TARGET, "Starting optimistic executor");
-
-        let pending_txs = self.pool.pending_transactions();
-        let actor = OptimisticExecutorActor::new(pending_txs, self.backend);
-
+        let actor =
+            OptimisticExecutorActor::new(self.pool, self.optimistic_state, self.executor_factory);
         self.task_spawner.build_task().name("Optimistic Executor").spawn(actor)
     }
 }
 
-/// The internal actor that processes transactions from the pending transactions stream.
-#[allow(missing_debug_implementations)]
-struct OptimisticExecutorActor<O>
-where
-    O: PoolOrd<Transaction = ExecutableTxWithHash>,
-{
+#[derive(Debug)]
+struct OptimisticExecutorActor {
+    pool: TxPool,
+    optimistic_state: CachedDbProvider<katana_db::Db>,
     /// Stream of pending transactions from the pool
-    pending_txs: PendingTransactions<ExecutableTxWithHash, O>,
-    /// The backend for executing transactions
-    backend: Arc<Backend<BlockifierFactory>>,
+    pending_txs: PendingTransactions<BroadcastedTx, FiFo<BroadcastedTx>>,
+    storage: Blockchain,
+    executor_factory: Arc<BlockifierFactory>,
 }
 
-impl<O> OptimisticExecutorActor<O>
-where
-    O: PoolOrd<Transaction = ExecutableTxWithHash>,
-{
+impl OptimisticExecutorActor {
     /// Creates a new executor actor with the given pending transactions stream.
     fn new(
-        pending_txs: PendingTransactions<ExecutableTxWithHash, O>,
-        backend: Arc<Backend<BlockifierFactory>>,
+        pool: TxPool,
+        optimistic_state: CachedDbProvider<katana_db::Db>,
+        executor_factory: Arc<BlockifierFactory>,
     ) -> Self {
-        Self { pending_txs, backend }
+        let pending_txs = pool.pending_transactions();
+        Self { pool, optimistic_state, pending_txs, storage, executor_factory }
     }
 
     /// Execute a single transaction optimistically against the latest state.
-    fn execute_transaction(&self, tx: ExecutableTxWithHash) -> Result<ExecutionResult, String> {
-        let provider = self.backend.blockchain.provider();
-
-        // Get the latest state to execute against
-        let latest_state =
-            provider.latest().map_err(|e| format!("Failed to get latest state: {e}"))?;
-
-        // Create an executor with the latest state
-        let mut executor = self.backend.executor_factory.with_state(latest_state);
+    fn execute_transaction(&self, tx: BroadcastedTxWithChainId) -> Result<ExecutionResult, String> {
+        let latest_state = self.optimistic_state.latest().unwrap();
+        let mut executor = self.executor_factory.with_state(latest_state);
 
         // Execute the transaction
         let result = executor.execute_transactions(vec![tx.clone()]);
@@ -123,16 +111,20 @@ where
                 } else {
                     Err("No execution result found".to_string())
                 }
+
+                let output = executor.take_execution_output().unwrap();
+                self.optimistic_state.merge_state_updates(&output.states);
+
+                // remove from pool
+                self.pool.remove_transactions();
             }
+
             Err(e) => Err(format!("Execution failed: {e}")),
         }
     }
 }
 
-impl<O> Future for OptimisticExecutorActor<O>
-where
-    O: PoolOrd<Transaction = ExecutableTxWithHash>,
-{
+impl Future for OptimisticExecutorActor {
     type Output = ();
 
     fn poll(self: Pin<&mut Self>, cx: &mut Context<'_>) -> Poll<Self::Output> {

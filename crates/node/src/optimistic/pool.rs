@@ -7,9 +7,9 @@ use katana_pool_api::validation::{
 };
 use katana_primitives::utils::get_contract_address;
 use katana_rpc_client::starknet::Client;
-use katana_rpc_types::BroadcastedTx;
+use katana_rpc_types::{BroadcastedTx, BroadcastedTxWithChainId};
 
-pub type TxPool = Pool<BroadcastedTx, PoolValidator, FiFo<BroadcastedTx>>;
+pub type TxPool = Pool<BroadcastedTxWithChainId, PoolValidator, FiFo<BroadcastedTxWithChainId>>;
 
 /// A validator that forwards transactions to a remote Starknet RPC endpoint.
 #[derive(Debug, Clone)]
@@ -28,14 +28,14 @@ impl PoolValidator {
 }
 
 impl Validator for PoolValidator {
-    type Transaction = BroadcastedTx;
+    type Transaction = BroadcastedTxWithChainId;
 
     async fn validate(
         &self,
         tx: Self::Transaction,
     ) -> Result<ValidationOutcome<Self::Transaction>, ValidationError> {
         // Forward the transaction to the remote node
-        let result = match &tx {
+        let result = match &tx.tx {
             BroadcastedTx::Invoke(invoke_tx) => {
                 self.client.add_invoke_transaction(invoke_tx.clone()).await.map(|_| ())
             }
@@ -52,19 +52,11 @@ impl Validator for PoolValidator {
         match result {
             Ok(_) => Ok(ValidationOutcome::Valid(tx)),
             Err(err) => {
-                // For client-based validation, any error from the remote node
-                // indicates the transaction is invalid
                 let error = InvalidTransactionError::ValidationFailure {
-                    address: match &tx {
+                    address: match &tx.tx {
                         BroadcastedTx::Invoke(tx) => tx.sender_address,
                         BroadcastedTx::Declare(tx) => tx.sender_address,
-                        BroadcastedTx::DeployAccount(tx) => get_contract_address(
-                            tx.contract_address_salt,
-                            tx.class_hash,
-                            &tx.constructor_calldata,
-                            katana_primitives::Felt::ZERO,
-                        )
-                        .into(),
+                        BroadcastedTx::DeployAccount(tx) => tx.contract_address(),
                     },
                     class_hash: Default::default(),
                     error: err.to_string(),
