@@ -170,7 +170,8 @@ fn deserialize_abi<'de, D: serde::Deserializer<'de>>(
     deserializer: D,
 ) -> Result<Option<cairo_lang_starknet_classes::abi::Contract>, D::Error> {
     let abi_str = String::deserialize(deserializer)?;
-    serde_json::from_str(&abi_str).map_err(serde::de::Error::custom)
+    serde_json::from_str(&abi_str)
+        .map_err(|e| serde::de::Error::custom(format!("invalid abi: {e}")))
 }
 
 // Round-trip conversion between RPC and katana-primitives types

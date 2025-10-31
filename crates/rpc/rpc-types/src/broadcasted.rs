@@ -797,7 +797,7 @@ mod tests {
                     "L1_HANDLER": [],
                     "CONSTRUCTOR": []
                 },
-                "abi": ""
+                "abi": "[]"
             }
         });
 
