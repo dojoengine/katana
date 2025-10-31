@@ -14,7 +14,6 @@ use katana_stage::trie::StateTrie;
 use katana_stage::{Stage, StageExecutionInput};
 use rstest::rstest;
 use starknet::macros::short_string;
-use starknet::providers::sequencer::models::state_update;
 use starknet_types_core::hash::{Poseidon, StarkHash};
 
 /// Mock provider implementation for testing StateTrie stage.
@@ -99,6 +98,13 @@ impl StateUpdateProvider for MockProvider {
         &self,
         _block_id: BlockHashOrNumber,
     ) -> ProviderResult<Option<BTreeMap<ClassHash, CompiledClassHash>>> {
+        Ok(None)
+    }
+
+    fn declared_deprecated_classes(
+        &self,
+        block_id: BlockHashOrNumber,
+    ) -> ProviderResult<Option<Vec<ClassHash>>> {
         Ok(None)
     }
 

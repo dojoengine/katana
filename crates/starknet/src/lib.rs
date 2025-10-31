@@ -14,7 +14,8 @@
 
 use alloy_network::Ethereum;
 use alloy_primitives::Address;
-use alloy_provider::{Provider, RootProvider};
+use alloy_provider::Provider;
+pub use alloy_provider::RootProvider;
 use alloy_rpc_types_eth::{Filter, FilterBlockOption, FilterSet, Log, Topic};
 use alloy_sol_types::{sol, SolEvent};
 use anyhow::Result;
@@ -225,7 +226,7 @@ impl StarknetCore<RootProvider<Ethereum>> {
     ///
     /// * `rpc_url` - The HTTP URL of the Ethereum RPC endpoint
     /// * `contract_address` - The address of the Starknet Core Contract
-    pub async fn new_http(rpc_url: impl AsRef<str>, contract_address: Address) -> Result<Self> {
+    pub fn new_http(rpc_url: impl AsRef<str>, contract_address: Address) -> Result<Self> {
         let provider = RootProvider::<Ethereum>::new_http(reqwest::Url::parse(rpc_url.as_ref())?);
         Ok(Self::new(provider, contract_address))
     }
@@ -236,7 +237,7 @@ impl StarknetCore<RootProvider<Ethereum>> {
     /// # Arguments
     ///
     /// * `rpc_url` - The HTTP URL of the Ethereum RPC endpoint
-    pub async fn new_http_mainnet(rpc_url: impl AsRef<str>) -> Result<Self> {
+    pub fn new_http_mainnet(rpc_url: impl AsRef<str>) -> Result<Self> {
         let provider = RootProvider::<Ethereum>::new_http(reqwest::Url::parse(rpc_url.as_ref())?);
         Ok(Self::new_mainnet(provider))
     }
@@ -247,7 +248,7 @@ impl StarknetCore<RootProvider<Ethereum>> {
     /// # Arguments
     ///
     /// * `rpc_url` - The HTTP URL of the Ethereum RPC endpoint
-    pub async fn new_http_sepolia(rpc_url: impl AsRef<str>) -> Result<Self> {
+    pub fn new_http_sepolia(rpc_url: impl AsRef<str>) -> Result<Self> {
         let provider = RootProvider::<Ethereum>::new_http(reqwest::Url::parse(rpc_url.as_ref())?);
         Ok(Self::new_sepolia(provider))
     }

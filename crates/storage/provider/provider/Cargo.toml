@@ -19,6 +19,7 @@ katana-trie.workspace = true
 anyhow.workspace = true
 auto_impl.workspace = true
 bitvec.workspace = true
+lazy_static.workspace = true
 parking_lot.workspace = true
 starknet.workspace = true
 starknet-types-core.workspace = true

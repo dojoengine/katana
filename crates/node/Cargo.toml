@@ -12,26 +12,32 @@ katana-db.workspace = true
 katana-executor.workspace = true
 katana-gateway-server.workspace = true
 katana-gateway-client.workspace = true
+katana-gateway-types.workspace = true
 katana-gas-price-oracle.workspace = true
 katana-messaging.workspace = true
 katana-metrics.workspace = true
 katana-pipeline.workspace = true
 katana-pool.workspace = true
+katana-pool-api.workspace = true
 katana-primitives.workspace = true
 katana-provider.workspace = true
-katana-rpc = { workspace = true }
+katana-rpc.workspace = true
 katana-rpc-api.workspace = true
+katana-rpc-types.workspace = true
 katana-rpc-client.workspace = true
 katana-stage.workspace = true
 katana-tasks.workspace = true
 katana-tracing.workspace = true
 
 anyhow.workspace = true
+starknet.workspace = true
+num-traits.workspace = true
 futures.workspace = true
 http.workspace = true
 jsonrpsee.workspace = true
 serde.workspace = true
 serde_json.workspace = true
+parking_lot.workspace = true
 thiserror.workspace = true
 toml.workspace = true
 tower = { workspace = true, features = [ "full" ] }
@@ -42,10 +48,7 @@ url.workspace = true
 strum.workspace = true
 strum_macros.workspace = true
 
-clap.workspace = true
-tokio = { workspace = true, features = [ "time" ] }
-tracing-log.workspace = true
-tracing-subscriber.workspace = true
+tokio={ workspace = true, features = ["time"], default-features = false }
 katana-starknet.workspace = true
 alloy-provider = { workspace = true, default-features = false, features = [ "reqwest", "reqwest-rustls-tls" ] }
 

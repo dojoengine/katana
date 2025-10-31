@@ -19,7 +19,7 @@
 //! - [`DeployAccountTxV3`]: Uses the custom DA mode and resource bounds
 //! - [`L1HandlerTx`]: Optional `nonce` field
 
-use std::collections::BTreeMap;
+use std::collections::{BTreeMap, BTreeSet};
 
 use katana_primitives::block::{BlockHash, BlockNumber};
 pub use katana_primitives::class::CasmContractClass;
@@ -180,17 +180,6 @@ pub struct ConfirmedStateUpdate {
     pub state_diff: StateDiff,
 }
 
-// todo(kariy): merge the serialization of gateway into the rpc types
-#[derive(Debug, Clone, Default, PartialEq, Eq, Serialize, Deserialize)]
-pub struct StateDiff {
-    pub storage_diffs: BTreeMap<ContractAddress, Vec<StorageDiff>>,
-    pub deployed_contracts: Vec<DeployedContract>,
-    pub old_declared_contracts: Vec<Felt>,
-    pub declared_classes: Vec<DeclaredContract>,
-    pub nonces: BTreeMap<ContractAddress, Nonce>,
-    pub replaced_classes: Vec<DeployedContract>,
-}
-
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub struct StorageDiff {
     pub key: StorageKey,
@@ -211,6 +200,105 @@ pub struct DeclaredContract {
 
 fn default_l2_gas_price() -> ResourcePrice {
     ResourcePrice { price_in_fri: Felt::from(1), price_in_wei: Felt::from(1) }
+}
+
+// todo(kariy): merge the serialization of gateway into the rpc types
+#[derive(Debug, Clone, Default, PartialEq, Eq, Serialize, Deserialize)]
+pub struct StateDiff {
+    pub storage_diffs: BTreeMap<ContractAddress, Vec<StorageDiff>>,
+    pub deployed_contracts: Vec<DeployedContract>,
+    pub old_declared_contracts: Vec<Felt>,
+    pub declared_classes: Vec<DeclaredContract>,
+    pub nonces: BTreeMap<ContractAddress, Nonce>,
+    pub replaced_classes: Vec<DeployedContract>,
+}
+
+impl StateDiff {
+    /// Returns a new [`StateDiff`] that contains all updates from `self` and `other`,
+    /// preferring the values from `other` when both diffs touch the same entry.
+    pub fn merge(mut self, other: StateDiff) -> StateDiff {
+        let StateDiff {
+            storage_diffs,
+            deployed_contracts,
+            old_declared_contracts,
+            declared_classes,
+            nonces,
+            replaced_classes,
+        } = other;
+
+        Self::merge_storage_diffs(&mut self.storage_diffs, storage_diffs);
+        Self::merge_deployed_contracts(&mut self.deployed_contracts, deployed_contracts);
+        Self::merge_deployed_contracts(&mut self.replaced_classes, replaced_classes);
+        Self::merge_declared_classes(&mut self.declared_classes, declared_classes);
+        Self::merge_old_declared_contracts(
+            &mut self.old_declared_contracts,
+            old_declared_contracts,
+        );
+        self.nonces.extend(nonces);
+
+        self
+    }
+
+    fn merge_storage_diffs(
+        target: &mut BTreeMap<ContractAddress, Vec<StorageDiff>>,
+        updates: BTreeMap<ContractAddress, Vec<StorageDiff>>,
+    ) {
+        for (address, diffs) in updates {
+            let entry = target.entry(address).or_default();
+            let mut index_by_key: BTreeMap<StorageKey, usize> =
+                entry.iter().enumerate().map(|(idx, diff)| (diff.key, idx)).collect();
+
+            for diff in diffs {
+                if let Some(idx) = index_by_key.get(&diff.key).copied() {
+                    entry[idx] = diff;
+                } else {
+                    index_by_key.insert(diff.key, entry.len());
+                    entry.push(diff);
+                }
+            }
+        }
+    }
+
+    fn merge_deployed_contracts(
+        target: &mut Vec<DeployedContract>,
+        incoming: Vec<DeployedContract>,
+    ) {
+        let mut index_by_address: BTreeMap<ContractAddress, usize> =
+            target.iter().enumerate().map(|(idx, contract)| (contract.address, idx)).collect();
+
+        for contract in incoming {
+            if let Some(idx) = index_by_address.get(&contract.address).copied() {
+                target[idx] = contract;
+            } else {
+                index_by_address.insert(contract.address, target.len());
+                target.push(contract);
+            }
+        }
+    }
+
+    fn merge_declared_classes(target: &mut Vec<DeclaredContract>, incoming: Vec<DeclaredContract>) {
+        let mut index_by_hash: BTreeMap<ClassHash, usize> =
+            target.iter().enumerate().map(|(idx, contract)| (contract.class_hash, idx)).collect();
+
+        for declared in incoming {
+            if let Some(idx) = index_by_hash.get(&declared.class_hash).copied() {
+                target[idx] = declared;
+            } else {
+                index_by_hash.insert(declared.class_hash, target.len());
+                target.push(declared);
+            }
+        }
+    }
+
+    fn merge_old_declared_contracts(target: &mut Vec<Felt>, incoming: Vec<Felt>) {
+        let mut seen: BTreeSet<Felt> = target.iter().copied().collect();
+
+        for class_hash in incoming {
+            if seen.insert(class_hash) {
+                target.push(class_hash);
+            }
+        }
+    }
 }
 
 impl<'de> Deserialize<'de> for StateUpdate {

@@ -42,7 +42,7 @@ impl<P: alloy_provider::Provider> ChainTipWatcher<P> {
 
     pub async fn run(&self) -> Result<()> {
         let interval_in_secs = self.watch_interval.as_secs();
-        info!(target: "node", interval = %interval_in_secs, "Chain tip watcher started.");
+        info!(interval = %interval_in_secs, "Chain tip watcher started.");
 
         let mut prev_tip: BlockNumber = 0;
 
