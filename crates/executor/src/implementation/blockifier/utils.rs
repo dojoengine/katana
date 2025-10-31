@@ -143,7 +143,7 @@ pub fn transact<S: StateReader>(
 
             tx_state.commit();
 
-            let receipt = build_receipt(tx.tx_ref(), fee, &info);
+            let receipt = build_receipt(&tx.transaction, fee, &info);
             Ok(ExecutionResult::new_success(receipt, info))
         }
 
