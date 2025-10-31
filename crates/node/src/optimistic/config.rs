@@ -12,7 +12,7 @@ use crate::config::rpc::RpcConfig;
 /// Node configurations.
 ///
 /// List of all possible options that can be used to configure a node.
-#[derive(Debug, Clone, Default, PartialEq, Eq)]
+#[derive(Debug, Clone, PartialEq, Eq)]
 pub struct Config {
     /// The chain specification.
     pub chain: Arc<ChainSpec>,
