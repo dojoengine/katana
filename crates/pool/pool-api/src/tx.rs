@@ -190,38 +190,11 @@ impl PoolTransaction for ExecutableTxWithHash {
 
 impl PoolTransaction for BroadcastedTxWithChainId {
     fn hash(&self) -> TxHash {
-        // BroadcastedTx doesn't have a precomputed hash, so we compute a deterministic
-        // hash from the transaction content for pool identification purposes.
-        use starknet_types_core::hash::{Poseidon, StarkHash};
-
-        match self {
-            BroadcastedTx::Invoke(tx) => {
-                // Hash based on sender, nonce, and calldata
-                let mut data = vec![tx.sender_address.into(), tx.nonce];
-                data.extend_from_slice(&tx.calldata);
-                Poseidon::hash_array(&data)
-            }
-            BroadcastedTx::Declare(tx) => {
-                // Hash based on sender, nonce, and compiled class hash
-                let data = [tx.sender_address.into(), tx.nonce, tx.compiled_class_hash.into()];
-                Poseidon::hash_array(&data)
-            }
-            BroadcastedTx::DeployAccount(tx) => {
-                // Hash based on computed contract address, nonce, and class hash
-                let contract_address = get_contract_address(
-                    tx.contract_address_salt,
-                    tx.class_hash,
-                    &tx.constructor_calldata,
-                    Felt::ZERO,
-                );
-                let data = [contract_address, tx.nonce, tx.class_hash.into()];
-                Poseidon::hash_array(&data)
-            }
-        }
+        self.calculate_hash()
     }
 
     fn nonce(&self) -> Nonce {
-        match self {
+        match &self.tx {
             BroadcastedTx::Invoke(tx) => tx.nonce,
             BroadcastedTx::Declare(tx) => tx.nonce,
             BroadcastedTx::DeployAccount(tx) => tx.nonce,
@@ -229,19 +202,10 @@ impl PoolTransaction for BroadcastedTxWithChainId {
     }
 
     fn sender(&self) -> ContractAddress {
-        match self {
+        match &self.tx {
             BroadcastedTx::Invoke(tx) => tx.sender_address,
             BroadcastedTx::Declare(tx) => tx.sender_address,
-            BroadcastedTx::DeployAccount(tx) => {
-                // Compute the contract address for deploy account transactions
-                get_contract_address(
-                    tx.contract_address_salt,
-                    tx.class_hash,
-                    &tx.constructor_calldata,
-                    Felt::ZERO,
-                )
-                .into()
-            }
+            BroadcastedTx::DeployAccount(tx) => tx.contract_address(),
         }
     }
 
@@ -254,7 +218,7 @@ impl PoolTransaction for BroadcastedTxWithChainId {
     }
 
     fn tip(&self) -> u64 {
-        match self {
+        match &self.tx {
             BroadcastedTx::Invoke(tx) => tx.tip.into(),
             BroadcastedTx::Declare(tx) => tx.tip.into(),
             BroadcastedTx::DeployAccount(tx) => tx.tip.into(),

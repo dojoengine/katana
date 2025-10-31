@@ -5,17 +5,15 @@ use std::task::{Context, Poll};
 
 use futures::stream::StreamExt;
 use katana_core::backend::storage::Blockchain;
-use katana_core::backend::Backend;
 use katana_executor::implementation::blockifier::BlockifierFactory;
-use katana_executor::{ExecutionResult, ExecutorFactory};
+use katana_executor::ExecutorFactory;
 use katana_pool::ordering::FiFo;
-use katana_pool::{PendingTransactions, PoolOrd, PoolTransaction, TransactionPool};
-use katana_primitives::transaction::ExecutableTxWithHash;
+use katana_pool::{PendingTransactions, PoolTransaction, TransactionPool};
 use katana_provider::api::state::StateFactoryProvider;
 use katana_provider::providers::db::cached::CachedDbProvider;
-use katana_rpc_types::{BroadcastedTx, BroadcastedTxWithChainId};
+use katana_rpc_types::BroadcastedTxWithChainId;
 use katana_tasks::{JoinHandle, TaskSpawner};
-use tracing::{debug, error, info, trace, warn};
+use tracing::{debug, error, info, trace};
 
 use crate::optimistic::pool::TxPool;
 
@@ -26,6 +24,7 @@ pub struct OptimisticExecutor {
     pool: TxPool,
     optimistic_state: CachedDbProvider<katana_db::Db>,
     executor_factory: Arc<BlockifierFactory>,
+    storage: Blockchain,
     task_spawner: TaskSpawner,
 }
 
@@ -39,11 +38,12 @@ impl OptimisticExecutor {
     /// * `task_spawner` - The task spawner used to run the executor actor
     pub fn new(
         pool: TxPool,
+        storage: Blockchain,
         optimistic_state: CachedDbProvider<katana_db::Db>,
         executor_factory: Arc<BlockifierFactory>,
         task_spawner: TaskSpawner,
     ) -> Self {
-        Self { pool, optimistic_state, executor_factory, task_spawner }
+        Self { pool, optimistic_state, executor_factory, task_spawner, storage }
     }
 
     /// Spawns the optimistic executor actor task.
@@ -55,9 +55,14 @@ impl OptimisticExecutor {
     ///
     /// A `JoinHandle` to the spawned executor task.
     pub fn spawn(self) -> JoinHandle<()> {
-        let actor =
-            OptimisticExecutorActor::new(self.pool, self.optimistic_state, self.executor_factory);
-        self.task_spawner.build_task().name("Optimistic Executor").spawn(actor)
+        self.task_spawner.build_task().name("Optimistic Executor").spawn(
+            OptimisticExecutorActor::new(
+                self.pool,
+                self.storage,
+                self.optimistic_state,
+                self.executor_factory,
+            ),
+        )
     }
 }
 
@@ -66,7 +71,7 @@ struct OptimisticExecutorActor {
     pool: TxPool,
     optimistic_state: CachedDbProvider<katana_db::Db>,
     /// Stream of pending transactions from the pool
-    pending_txs: PendingTransactions<BroadcastedTx, FiFo<BroadcastedTx>>,
+    pending_txs: PendingTransactions<BroadcastedTxWithChainId, FiFo<BroadcastedTxWithChainId>>,
     storage: Blockchain,
     executor_factory: Arc<BlockifierFactory>,
 }
@@ -75,6 +80,7 @@ impl OptimisticExecutorActor {
     /// Creates a new executor actor with the given pending transactions stream.
     fn new(
         pool: TxPool,
+        storage: Blockchain,
         optimistic_state: CachedDbProvider<katana_db::Db>,
         executor_factory: Arc<BlockifierFactory>,
     ) -> Self {
@@ -83,44 +89,20 @@ impl OptimisticExecutorActor {
     }
 
     /// Execute a single transaction optimistically against the latest state.
-    fn execute_transaction(&self, tx: BroadcastedTxWithChainId) -> Result<ExecutionResult, String> {
+    fn execute_transaction(&self, tx: BroadcastedTxWithChainId) -> anyhow::Result<()> {
         let latest_state = self.optimistic_state.latest().unwrap();
         let mut executor = self.executor_factory.with_state(latest_state);
 
         // Execute the transaction
-        let result = executor.execute_transactions(vec![tx.clone()]);
+        let tx_hash = tx.hash();
 
-        match result {
-            Ok((executed_count, limit_error)) => {
-                if executed_count == 0 {
-                    return Err("Transaction was not executed".to_string());
-                }
+        let _ = executor.execute_transactions(vec![tx.into()]).unwrap();
 
-                // Get the execution result from the executor
-                let transactions = executor.transactions();
-                if let Some((_, exec_result)) = transactions.last() {
-                    if let Some(err) = limit_error {
-                        warn!(
-                            target: LOG_TARGET,
-                            tx_hash = format!("{:#x}", tx.hash),
-                            error = %err,
-                            "Transaction execution hit limits"
-                        );
-                    }
-                    Ok(exec_result.clone())
-                } else {
-                    Err("No execution result found".to_string())
-                }
+        let output = executor.take_execution_output().unwrap();
+        self.optimistic_state.merge_state_updates(&output.states);
+        self.pool.remove_transactions(&[tx_hash]);
 
-                let output = executor.take_execution_output().unwrap();
-                self.optimistic_state.merge_state_updates(&output.states);
-
-                // remove from pool
-                self.pool.remove_transactions();
-            }
-
-            Err(e) => Err(format!("Execution failed: {e}")),
-        }
+        Ok(())
     }
 }
 
@@ -141,7 +123,7 @@ impl Future for OptimisticExecutorActor {
                 Poll::Ready(Some(pending_tx)) => {
                     let tx = pending_tx.tx.as_ref().clone();
 
-                    let tx_hash = tx.hash;
+                    let tx_hash = tx.hash();
                     let tx_sender = tx.sender();
                     let tx_nonce = tx.nonce();
 
@@ -161,32 +143,7 @@ impl Future for OptimisticExecutorActor {
 
                     // Execute the transaction optimistically
                     match this.execute_transaction(tx) {
-                        Ok(ExecutionResult::Success { receipt, .. }) => {
-                            if let Some(reason) = receipt.revert_reason() {
-                                warn!(
-                                    target: LOG_TARGET,
-                                    tx_hash = format!("{:#x}", tx_hash),
-                                    reason = %reason,
-                                    "Transaction reverted"
-                                );
-                            } else {
-                                debug!(
-                                    target: LOG_TARGET,
-                                    tx_hash = format!("{:#x}", tx_hash),
-                                    l1_gas = receipt.resources_used().gas.l1_gas,
-                                    cairo_steps = receipt.resources_used().computation_resources.n_steps,
-                                    "Transaction executed successfully"
-                                );
-                            }
-                        }
-                        Ok(ExecutionResult::Failed { error }) => {
-                            error!(
-                                target: LOG_TARGET,
-                                tx_hash = format!("{:#x}", tx_hash),
-                                error = %error,
-                                "Transaction execution failed"
-                            );
-                        }
+                        Ok(()) => {}
                         Err(e) => {
                             error!(
                                 target: LOG_TARGET,
