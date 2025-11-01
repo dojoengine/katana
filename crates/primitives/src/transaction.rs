@@ -109,7 +109,6 @@ impl Tx {
 }
 
 /// Represents a transaction that has all the necessary data to be executed.
-///
 #[derive(Debug, Clone, From, PartialEq, Eq)]
 pub enum ExecutableTx {
     Invoke(InvokeTx),

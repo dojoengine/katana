@@ -13,7 +13,7 @@ use katana_primitives::class::{ClassHash, CompiledClass};
 use katana_primitives::contract::{ContractAddress, Nonce, StorageKey, StorageValue};
 use katana_primitives::env::BlockEnv;
 use katana_primitives::event::MaybeForkedContinuationToken;
-use katana_primitives::transaction::{ExecutableTxWithHash, TxHash, TxNumber, TxWithHash};
+use katana_primitives::transaction::{ExecutableTxWithHash, TxHash, TxNumber};
 use katana_primitives::Felt;
 use katana_provider::api::block::{BlockHashProvider, BlockIdReader, BlockNumberProvider};
 use katana_provider::api::contract::ContractClassProvider;
@@ -23,7 +23,6 @@ use katana_provider::api::transaction::{
     ReceiptProvider, TransactionProvider, TransactionStatusProvider, TransactionsProviderExt,
 };
 use katana_provider::api::ProviderError;
-use katana_provider::BlockchainProvider;
 use katana_rpc_api::error::starknet::{
     CompilationErrorData, PageSizeTooBigData, ProofLimitExceededData, StarknetApiError,
 };
