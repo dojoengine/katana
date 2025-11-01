@@ -5,10 +5,10 @@ use katana_executor::ExecutorFactory;
 use katana_pool::TransactionPool;
 use katana_primitives::transaction::TxNumber;
 use katana_rpc_api::starknet_ext::StarknetApiExtServer;
-use katana_rpc_types::{
-    list::{GetBlocksRequest, GetBlocksResponse, GetTransactionsRequest, GetTransactionsResponse},
-    RpcTxWithHash,
+use katana_rpc_types::list::{
+    GetBlocksRequest, GetBlocksResponse, GetTransactionsRequest, GetTransactionsResponse,
 };
+use katana_rpc_types::RpcTxWithHash;
 
 use super::StarknetApi;
 use crate::starknet::pending::PendingBlockProvider;

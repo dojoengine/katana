@@ -30,6 +30,7 @@ use katana_provider_api::transaction::{
     ReceiptProvider, TransactionProvider, TransactionStatusProvider, TransactionTraceProvider,
     TransactionsProviderExt,
 };
+use katana_provider_api::trie::TrieWriter;
 use parking_lot::RwLock;
 
 use crate::providers::fork::state::HistoricalStateProvider as ForkHistoricalStateProvider;
@@ -566,3 +567,21 @@ impl<S: StateProvider> StateProofProvider for CachedStateProvider<S> {}
 impl<S: StateProvider> StateRootProvider for CachedStateProvider<S> {}
 impl<Db: Database> StateProofProvider for CachedHistoricalStateProvider<Db> {}
 impl<Db: Database> StateRootProvider for CachedHistoricalStateProvider<Db> {}
+
+impl<Db: Database> TrieWriter for CachedDbProvider<Db> {
+    fn trie_insert_contract_updates(
+        &self,
+        block_number: BlockNumber,
+        state_updates: &StateUpdates,
+    ) -> ProviderResult<katana_primitives::Felt> {
+        todo!()
+    }
+
+    fn trie_insert_declared_classes(
+        &self,
+        block_number: BlockNumber,
+        updates: &BTreeMap<ClassHash, CompiledClassHash>,
+    ) -> ProviderResult<katana_primitives::Felt> {
+        todo!()
+    }
+}

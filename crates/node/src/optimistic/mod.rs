@@ -1,49 +1,40 @@
-use std::future::IntoFuture;
 use std::sync::Arc;
 
-use anyhow::{Context, Result};
+use anyhow::Result;
 use http::header::CONTENT_TYPE;
 use http::Method;
 use jsonrpsee::http_client::HttpClientBuilder;
 use jsonrpsee::RpcModule;
-use katana_chain_spec::{ChainSpec, SettlementLayer};
+use katana_chain_spec::ChainSpec;
 use katana_core::backend::storage::Blockchain;
 use katana_core::backend::Backend;
 use katana_core::env::BlockContextGenerator;
-use katana_core::service::block_producer::BlockProducer;
-use katana_db::Db;
 use katana_executor::implementation::blockifier::cache::ClassCache;
 use katana_executor::implementation::blockifier::BlockifierFactory;
 use katana_executor::{BlockLimits, ExecutionFlags};
-use katana_gas_price_oracle::{FixedPriceOracle, GasPriceOracle};
-use katana_gateway_server::{GatewayServer, GatewayServerHandle};
+use katana_gas_price_oracle::GasPriceOracle;
 use katana_metrics::exporters::prometheus::PrometheusRecorder;
 use katana_metrics::sys::DiskReporter;
 use katana_metrics::{Report, Server as MetricsServer};
 use katana_pool::ordering::FiFo;
+use katana_primitives::block::BlockIdOrTag;
 use katana_primitives::env::{CfgEnv, FeeTokenAddressses};
 use katana_rpc::cors::Cors;
-use katana_rpc::dev::DevApi;
 use katana_rpc::starknet::forking::ForkedClient;
 use katana_rpc::starknet::{StarknetApi, StarknetApiConfig};
 use katana_rpc::{RpcServer, RpcServerHandle};
-use katana_rpc_api::dev::DevApiServer;
 use katana_rpc_api::starknet::{StarknetApiServer, StarknetTraceApiServer, StarknetWriteApiServer};
-#[cfg(feature = "explorer")]
-use katana_rpc_api::starknet_ext::StarknetApiExtServer;
-use katana_rpc_client::starknet::Client as StarknetClient;
-use katana_stage::Sequencing;
-use katana_tasks::TaskManager;
+use katana_tasks::{JoinHandle, TaskManager};
 use tracing::info;
 
 mod config;
 mod executor;
 mod pool;
 
-use crate::config::rpc::RpcModuleKind;
 use config::Config;
 
-use crate::exit::NodeStoppedFuture;
+use crate::config::rpc::RpcModuleKind;
+use crate::optimistic::executor::OptimisticExecutor;
 use crate::optimistic::pool::{PoolValidator, TxPool};
 
 #[derive(Debug)]
@@ -53,6 +44,7 @@ pub struct Node {
     db: katana_db::Db,
     rpc_server: RpcServer,
     task_manager: TaskManager,
+    executor: OptimisticExecutor,
     backend: Arc<Backend<BlockifierFactory>>,
 }
 
@@ -120,10 +112,10 @@ impl Node {
         };
 
         let db = katana_db::Db::in_memory()?;
-        let (blockchain, block_num) = Blockchain::new_from_forked(
+        let blockchain = Blockchain::new_from_forked(
             db.clone(),
             config.forking.url.clone(),
-            config.forking.block,
+            Some(BlockIdOrTag::Latest),
             chain_spec,
         )
         .await?;
@@ -148,6 +140,16 @@ impl Node {
 
         let pool_validator = PoolValidator::new(starknet_client.clone());
         let pool = TxPool::new(pool_validator, FiFo::new());
+
+        // -- build executor
+
+        let executor = OptimisticExecutor::new(
+            pool.clone(),
+            blockchain,
+            optimistic_state,
+            executor_factory.clone(),
+            task_spawner.clone(),
+        );
 
         // --- build rpc server
 
@@ -206,7 +208,7 @@ impl Node {
             rpc_server = rpc_server.max_response_body_size(max_response_body_size);
         }
 
-        Ok(Node { db, pool, backend, rpc_server, config: config.into(), task_manager })
+        Ok(Node { db, pool, backend, rpc_server, config: config.into(), task_manager, executor })
     }
 
     pub async fn launch(self) -> Result<LaunchedNode> {
@@ -244,12 +246,29 @@ impl Node {
 
         info!(target: "node", "Gas price oracle worker started.");
 
-        Ok(LaunchedNode { node: self, rpc: rpc_handle })
+        let executor_handle = self.executor.spawn();
+
+        Ok(LaunchedNode {
+            rpc: rpc_handle,
+            backend: self.backend,
+            config: self.config,
+            db: self.db,
+            executor: executor_handle,
+            task_manager: self.task_manager,
+            pool: self.pool,
+            rpc_server: self.rpc_server,
+        })
     }
 }
 
 #[derive(Debug)]
 pub struct LaunchedNode {
-    node: Node,
+    config: Arc<Config>,
+    pool: TxPool,
+    db: katana_db::Db,
+    rpc_server: RpcServer,
+    task_manager: TaskManager,
+    backend: Arc<Backend<BlockifierFactory>>,
     rpc: RpcServerHandle,
+    executor: JoinHandle<()>,
 }
