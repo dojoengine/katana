@@ -38,7 +38,7 @@ sol!(
     "tests/test_data/solidity/Contract1Compiled.json"
 );
 
-abigen!(CairoMessagingContract, "crates/rpc/rpc/tests/test_data/cairo_l1_msg_contract.json");
+abigen!(CairoMessagingContract, "crates/rpc/rpc-server/tests/test_data/cairo_l1_msg_contract.json");
 
 #[tokio::test(flavor = "multi_thread")]
 async fn test_messaging() {

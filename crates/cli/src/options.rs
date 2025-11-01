@@ -29,7 +29,7 @@ use katana_node::config::rpc::{
 use katana_primitives::block::{BlockHashOrNumber, GasPrice};
 use katana_primitives::chain::ChainId;
 #[cfg(feature = "server")]
-use katana_rpc::cors::HeaderValue;
+use katana_rpc_server::cors::HeaderValue;
 use katana_tracing::{gcloud, otlp, LogFormat, TracerConfig};
 use serde::{Deserialize, Serialize};
 use serde_utils::serialize_opt_as_hex;
