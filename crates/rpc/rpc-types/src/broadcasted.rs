@@ -694,6 +694,63 @@ impl From<BroadcastedTxWithChainId> for ExecutableTxWithHash {
     }
 }
 
+impl From<BroadcastedTxWithChainId> for crate::transaction::RpcTxWithHash {
+    fn from(value: BroadcastedTxWithChainId) -> Self {
+        use crate::transaction::{
+            RpcDeclareTx, RpcDeclareTxV3, RpcDeployAccountTx, RpcDeployAccountTxV3, RpcInvokeTx,
+            RpcInvokeTxV3, RpcTx,
+        };
+
+        let transaction_hash = value.calculate_hash();
+        let transaction = match value.tx {
+            BroadcastedTx::Invoke(tx) => RpcTx::Invoke(RpcInvokeTx::V3(RpcInvokeTxV3 {
+                sender_address: tx.sender_address,
+                calldata: tx.calldata,
+                signature: tx.signature,
+                nonce: tx.nonce,
+                resource_bounds: tx.resource_bounds,
+                tip: tx.tip,
+                paymaster_data: tx.paymaster_data,
+                account_deployment_data: tx.account_deployment_data,
+                nonce_data_availability_mode: tx.nonce_data_availability_mode,
+                fee_data_availability_mode: tx.fee_data_availability_mode,
+            })),
+            BroadcastedTx::Declare(tx) => {
+                let class_hash = tx.contract_class.hash().expect("failed to compute class hash");
+                RpcTx::Declare(RpcDeclareTx::V3(RpcDeclareTxV3 {
+                    sender_address: tx.sender_address,
+                    compiled_class_hash: tx.compiled_class_hash,
+                    signature: tx.signature,
+                    nonce: tx.nonce,
+                    class_hash,
+                    resource_bounds: tx.resource_bounds,
+                    tip: tx.tip,
+                    paymaster_data: tx.paymaster_data,
+                    account_deployment_data: tx.account_deployment_data,
+                    nonce_data_availability_mode: tx.nonce_data_availability_mode,
+                    fee_data_availability_mode: tx.fee_data_availability_mode,
+                }))
+            }
+            BroadcastedTx::DeployAccount(tx) => {
+                RpcTx::DeployAccount(RpcDeployAccountTx::V3(RpcDeployAccountTxV3 {
+                    signature: tx.signature,
+                    nonce: tx.nonce,
+                    contract_address_salt: tx.contract_address_salt,
+                    constructor_calldata: tx.constructor_calldata,
+                    class_hash: tx.class_hash,
+                    paymaster_data: tx.paymaster_data,
+                    tip: tx.tip,
+                    resource_bounds: tx.resource_bounds,
+                    nonce_data_availability_mode: tx.nonce_data_availability_mode,
+                    fee_data_availability_mode: tx.fee_data_availability_mode,
+                }))
+            }
+        };
+
+        crate::transaction::RpcTxWithHash { transaction_hash, transaction }
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use assert_matches::assert_matches;
