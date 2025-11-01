@@ -2,8 +2,6 @@ use std::future::IntoFuture;
 use std::sync::Arc;
 
 use anyhow::{Context, Result};
-use config::rpc::RpcModuleKind;
-use config::Config;
 use http::header::CONTENT_TYPE;
 use http::Method;
 use jsonrpsee::http_client::HttpClientBuilder;
@@ -16,7 +14,7 @@ use katana_core::service::block_producer::BlockProducer;
 use katana_db::Db;
 use katana_executor::implementation::blockifier::cache::ClassCache;
 use katana_executor::implementation::blockifier::BlockifierFactory;
-use katana_executor::ExecutionFlags;
+use katana_executor::{BlockLimits, ExecutionFlags};
 use katana_gas_price_oracle::{FixedPriceOracle, GasPriceOracle};
 use katana_gateway_server::{GatewayServer, GatewayServerHandle};
 use katana_metrics::exporters::prometheus::PrometheusRecorder;
@@ -33,6 +31,7 @@ use katana_rpc_api::dev::DevApiServer;
 use katana_rpc_api::starknet::{StarknetApiServer, StarknetTraceApiServer, StarknetWriteApiServer};
 #[cfg(feature = "explorer")]
 use katana_rpc_api::starknet_ext::StarknetApiExtServer;
+use katana_rpc_client::starknet::Client as StarknetClient;
 use katana_stage::Sequencing;
 use katana_tasks::TaskManager;
 use tracing::info;
@@ -41,6 +40,7 @@ mod config;
 mod executor;
 mod pool;
 
+use crate::config::rpc::RpcModuleKind;
 use config::Config;
 
 use crate::exit::NodeStoppedFuture;
@@ -85,9 +85,9 @@ impl Node {
         let cfg_env = CfgEnv {
             fee_token_addresses,
             chain_id: config.chain.id(),
-            invoke_tx_max_n_steps: config.execution.invocation_max_steps,
-            validate_max_n_steps: config.execution.validation_max_steps,
-            max_recursion_depth: config.execution.max_recursion_depth,
+            invoke_tx_max_n_steps: 10_000_000,
+            validate_max_n_steps: 10_000_000,
+            max_recursion_depth: 100,
         };
 
         let executor_factory = {
@@ -105,7 +105,7 @@ impl Node {
             let factory = BlockifierFactory::new(
                 cfg_env,
                 ExecutionFlags::new(),
-                config.sequencing.block_limits(),
+                BlockLimits::default(),
                 global_class_cache,
             );
 
@@ -128,10 +128,10 @@ impl Node {
         )
         .await?;
 
-        // TODO: it'd bee nice if the client can be shared on both the rpc and forked backend
-        // side
-        let rpc_client = HttpClientBuilder::new().build(config.forking.url.as_ref())?;
-        let forked_client = ForkedClient::new(rpc_client, block_num);
+        let http_client = HttpClientBuilder::new().build(config.forking.url.as_str())?;
+        let starknet_client = katana_rpc_client::starknet::Client::new(http_client);
+
+        let forked_client = ForkedClient::new(starknet_client.clone(), block_num);
 
         let gpo = GasPriceOracle::sampled_starknet(config.forking.url.clone());
 
@@ -145,9 +145,6 @@ impl Node {
         });
 
         // --- build transaction pool
-
-        let http_client = HttpClientBuilder::new().build(config.forking.url.as_str())?;
-        let starknet_client = katana_rpc_client::starknet::Client::new(http_client);
 
         let pool_validator = PoolValidator::new(starknet_client.clone());
         let pool = TxPool::new(pool_validator, FiFo::new());
