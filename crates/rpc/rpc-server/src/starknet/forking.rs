@@ -222,20 +222,15 @@ impl ForkedClient {
     // BlockId in some way?
     pub async fn get_events(
         &self,
-        from: BlockNumber,
-        to: BlockNumber,
+        from: BlockIdOrTag,
+        to: BlockIdOrTag,
         address: Option<ContractAddress>,
         keys: Option<Vec<Vec<Felt>>>,
         continuation_token: Option<String>,
         chunk_size: u64,
     ) -> Result<GetEventsResponse, Error> {
-        // if from > self.block || to > self.block {
-        //     return Err(Error::BlockOutOfRange);
-        // }
-
-        let from_block = Some(BlockIdOrTag::Number(from));
-        let to_block = Some(BlockIdOrTag::Number(to));
-
+        let from_block = Some(from);
+        let to_block = Some(to);
         let event_filter = EventFilter { address, from_block, to_block, keys };
 
         Ok(self.client.get_events(event_filter, continuation_token, chunk_size).await?)
@@ -269,7 +264,7 @@ mod tests {
     async fn get_block_hash() {
         let http_client = HttpClientBuilder::new().build(SEPOLIA_URL).unwrap();
         let rpc_client = Client::new(http_client);
-        let client = ForkedClient::new(rpc_client, FORK_BLOCK_NUMBER);
+        let client = ForkedClient::new(rpc_client, FORK_BLOCK_NUMBER.into());
 
         // -----------------------------------------------------------------------
         // Block before the forked block

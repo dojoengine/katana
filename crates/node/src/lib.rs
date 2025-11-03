@@ -153,7 +153,7 @@ impl Node {
             // side
             let http_client = HttpClientBuilder::new().build(cfg.url.as_ref())?;
             let rpc_client = StarknetClient::new(http_client);
-            let forked_client = ForkedClient::new(rpc_client, block_num);
+            let forked_client = ForkedClient::new(rpc_client, block_num.into());
 
             (bc, db, Some(forked_client))
         } else if let Some(db_path) = &config.db.dir {

@@ -19,6 +19,7 @@ use katana_metrics::{Report, Server as MetricsServer};
 use katana_pool::ordering::FiFo;
 use katana_primitives::block::BlockIdOrTag;
 use katana_primitives::env::{CfgEnv, FeeTokenAddressses};
+use katana_provider::providers::db::cached::CachedDbProvider;
 use katana_rpc::cors::Cors;
 use katana_rpc::starknet::forking::ForkedClient;
 use katana_rpc::starknet::{StarknetApi, StarknetApiConfig};
@@ -106,24 +107,16 @@ impl Node {
 
         // --- build backend
 
-        let chain_spec = Arc::get_mut(&mut config.chain).expect("get mut Arc");
-        let ChainSpec::Dev(chain_spec) = chain_spec else {
-            return Err(anyhow::anyhow!("Forking is only supported in dev mode for now"));
-        };
-
-        let db = katana_db::Db::in_memory()?;
-        let blockchain = Blockchain::new_from_forked(
-            db.clone(),
-            config.forking.url.clone(),
-            Some(BlockIdOrTag::Latest),
-            chain_spec,
-        )
-        .await?;
-
         let http_client = HttpClientBuilder::new().build(config.forking.url.as_str())?;
         let starknet_client = katana_rpc_client::starknet::Client::new(http_client);
 
-        let forked_client = ForkedClient::new(starknet_client.clone(), block_num);
+        let db = katana_db::Db::in_memory()?;
+        let forked_block_id = BlockIdOrTag::Latest;
+
+        let database = CachedDbProvider::new(db.clone(), forked_block_id, starknet_client.clone());
+        let blockchain = Blockchain::new(database.clone());
+
+        let forked_client = ForkedClient::new(starknet_client.clone(), forked_block_id);
 
         let gpo = GasPriceOracle::sampled_starknet(config.forking.url.clone());
 
@@ -131,7 +124,7 @@ impl Node {
         let backend = Arc::new(Backend {
             gas_oracle: gpo.clone(),
             blockchain: blockchain.clone(),
-            executor_factory,
+            executor_factory: executor_factory.clone(),
             block_context_generator,
             chain_spec: config.chain.clone(),
         });
@@ -145,8 +138,8 @@ impl Node {
 
         let executor = OptimisticExecutor::new(
             pool.clone(),
-            blockchain,
-            optimistic_state,
+            blockchain.clone(),
+            database.clone(),
             executor_factory.clone(),
             task_spawner.clone(),
         );
