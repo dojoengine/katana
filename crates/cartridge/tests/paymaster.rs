@@ -5,6 +5,8 @@
 // - when cartridge_addExecuteOutsideTransaction is called, the paymaster should deploy
 //   the controller account if not already deployed.
 
+use katana_primitives::genesis::constant::DEFAULT_UDC_ADDRESS;
+
 use assert_matches::assert_matches;
 use katana_core::service::block_producer::BlockProducer;
 use katana_executor::implementation::blockifier::BlockifierFactory;
@@ -16,6 +18,7 @@ use katana_rpc::starknet::{StarknetApi, StarknetApiConfig};
 use katana_rpc_types::broadcasted::{BroadcastedInvokeTx, BroadcastedTx};
 use katana_utils::node::{test_config, TestNode};
 use serde_json::json;
+use starknet::macros::selector;
 use starknet::signers::SigningKey;
 use std::sync::Arc;
 use url::Url;
@@ -31,6 +34,10 @@ use katana_primitives::Felt;
 const CONTROLLER_ADDRESS_1: &str = "0xb0b";
 const CONTROLLER_ADDRESS_2: &str = "0xa11ce";
 
+fn build_calldata(address: &str) -> Vec<&str> {
+    vec![address, "0x42", address]
+}
+
 fn build_response(address: &str, is_controller: bool) -> String {
     if !is_controller {
         return "Address not found".to_string();
@@ -39,29 +46,44 @@ fn build_response(address: &str, is_controller: bool) -> String {
     json!({
         "address": address,
         "username": "user",
-        "calldata": ["0x01", "0x02", "0x03"]
+        "calldata": build_calldata(address)
     })
     .to_string()
 }
 
-async fn setup_cartridge(addresses: &[(&str, bool)]) -> (mockito::ServerGuard, Vec<mockito::Mock>) {
-    let mut server = mockito::Server::new_async().await;
+async fn build_mock(
+    server: &mut mockito::ServerGuard,
+    address: &str,
+    is_controller: bool,
+    expected_call_count: usize,
+) -> mockito::Mock {
+    let body = build_response(address, is_controller);
+    server
+        .mock("POST", "/accounts/calldata")
+        .match_body(mockito::Matcher::Regex(address.to_string()))
+        .with_body(body)
+        .expect_at_least(expected_call_count)
+        .create_async()
+        .await
+}
+
+// spawn a mocked cartridge server
+async fn setup_cartridge_server() -> mockito::ServerGuard {
+    mockito::Server::new_async().await
+}
+
+// setup the mocks for the cartridge server
+async fn setup_mocks(
+    server: &mut mockito::ServerGuard,
+    addresses: &[(&str, bool, bool)],
+) -> Vec<mockito::Mock> {
     let mut mocks: Vec<mockito::Mock> = Vec::new();
 
-    for (address, is_controller) in addresses {
-        let expected_call_count = if *is_controller { 1 } else { 0 };
-        mocks.push(
-            server
-                .mock("POST", "/accounts/calldata")
-                .match_body(mockito::Matcher::Regex(address.to_string()))
-                .with_body(build_response(address, *is_controller))
-                .expect_at_least(expected_call_count)
-                .create_async()
-                .await,
-        );
+    for (address, is_controller, must_be_called) in addresses {
+        let expected_call_count = if *must_be_called { 1 } else { 0 };
+        mocks.push(build_mock(server, address, *is_controller, expected_call_count).await);
     }
-
-    (server, mocks)
+    mocks
 }
 
 /// Setup the test node and the paymaster.
@@ -89,7 +111,7 @@ async fn setup(
     let client = Client::new(Url::parse(cartridge_url).unwrap());
 
     // use the first genesis account as the paymaster account
-    let (account_address, _) = sequencer
+    let (account_address, account) = sequencer
         .backend()
         .chain_spec
         .genesis()
@@ -97,13 +119,15 @@ async fn setup(
         .nth(0)
         .expect("must have at least one account");
 
+    let private_key = account.private_key().expect("must exist");
+
     let paymaster = Paymaster::new(
         starknet_api,
         client,
         TxPool::new(validator.clone(), FiFo::new()),
         ChainId::Id(Felt::ONE),
         paymaster_address.unwrap_or(*account_address),
-        SigningKey::from_secret_scalar(Felt::ZERO),
+        SigningKey::from_secret_scalar(private_key),
     );
 
     (sequencer, paymaster)
@@ -130,9 +154,34 @@ fn invoke_tx(sender_address: ContractAddress) -> BroadcastedTx {
     })
 }
 
+fn assert_mocks(mocks: &[mockito::Mock]) {
+    mocks.iter().for_each(|mock| mock.assert());
+}
+
+fn assert_tx(tx: &BroadcastedTx, address: &str) {
+    if let BroadcastedTx::Invoke(tx) = tx {
+        let calldata: Vec<Felt> =
+            build_calldata(address).into_iter().map(|s| Felt::from_hex(&s).unwrap()).collect();
+        assert_eq!(
+            tx.calldata,
+            vec![
+                Felt::ONE,
+                DEFAULT_UDC_ADDRESS.into(),
+                selector!("deployContract"),
+                calldata.len().into()
+            ]
+            .into_iter()
+            .chain(calldata.into_iter())
+            .collect::<Vec<Felt>>()
+        );
+    } else {
+        panic!("expected invoke tx");
+    };
+}
+
 #[tokio::test(flavor = "multi_thread")]
 async fn test_starknet_estimate_fee_without_txs() {
-    let (server, _) = setup_cartridge(&[]).await;
+    let server = setup_cartridge_server().await;
     let (_, paymaster) = setup(&server.url(), None).await;
 
     let res = paymaster.handle_estimate_fees(BlockIdOrTag::Tag(BlockTag::Pending), vec![]);
@@ -143,8 +192,10 @@ async fn test_starknet_estimate_fee_without_txs() {
 
 #[tokio::test(flavor = "multi_thread")]
 async fn test_starknet_estimate_fee_when_sender_is_not_a_controller() {
-    let (server, mocks) = setup_cartridge(&[(CONTROLLER_ADDRESS_1, false)]).await;
+    let mut server = setup_cartridge_server().await;
     let (_, paymaster) = setup(&server.url(), None).await;
+
+    let mocks = setup_mocks(&mut server, &[(CONTROLLER_ADDRESS_1, false, true)]).await;
 
     let sender_address = ContractAddress::from(Felt::from_hex(CONTROLLER_ADDRESS_1).unwrap());
     let tx = invoke_tx(sender_address);
@@ -153,12 +204,12 @@ async fn test_starknet_estimate_fee_when_sender_is_not_a_controller() {
 
     assert!(res.is_ok());
     assert_eq!(res.unwrap().len(), 0);
-    mocks.iter().for_each(|mock| mock.assert());
+    assert_mocks(&mocks);
 }
 
 #[tokio::test(flavor = "multi_thread")]
 async fn test_starknet_estimate_fee_when_sender_is_an_already_deployed_controller() {
-    let (server, _) = setup_cartridge(&[(CONTROLLER_ADDRESS_1, true)]).await;
+    let mut server = setup_cartridge_server().await;
     let (node, paymaster) = setup(&server.url(), None).await;
 
     let (sender_address, _) = node
@@ -169,17 +220,24 @@ async fn test_starknet_estimate_fee_when_sender_is_an_already_deployed_controlle
         .nth(0)
         .expect("must have at least one account");
 
+    let mocks =
+        setup_mocks(&mut server, &[(sender_address.to_string().as_str(), true, false)]).await;
+
     let tx = invoke_tx(*sender_address);
     let res = paymaster.handle_estimate_fees(BlockIdOrTag::Tag(BlockTag::Pending), vec![tx]);
 
     assert!(res.is_ok());
     assert_eq!(res.unwrap().len(), 0);
+
+    assert_mocks(&mocks);
 }
 
 #[tokio::test(flavor = "multi_thread")]
 async fn test_starknet_estimate_fee_when_sender_is_a_not_yet_deployed_controller() {
-    let (server, mocks) = setup_cartridge(&[(CONTROLLER_ADDRESS_1, true)]).await;
+    let mut server = setup_cartridge_server().await;
     let (_, paymaster) = setup(&server.url(), None).await;
+
+    let mocks = setup_mocks(&mut server, &[(CONTROLLER_ADDRESS_1, true, true)]).await;
 
     let sender_address = ContractAddress::from(Felt::from_hex(CONTROLLER_ADDRESS_1).unwrap());
     let tx = invoke_tx(sender_address);
@@ -187,14 +245,19 @@ async fn test_starknet_estimate_fee_when_sender_is_a_not_yet_deployed_controller
     let res = paymaster.handle_estimate_fees(BlockIdOrTag::Tag(BlockTag::Pending), vec![tx]);
 
     assert!(res.is_ok());
-    assert_eq!(res.unwrap().len(), 1);
-    mocks.iter().for_each(|mock| mock.assert());
+    let res = res.unwrap();
+    assert_eq!(res.len(), 1);
+    assert_tx(&res[0], CONTROLLER_ADDRESS_1);
+
+    assert_mocks(&mocks);
 }
 
 #[tokio::test(flavor = "multi_thread")]
 async fn test_starknet_estimate_fee_when_several_txs_with_the_same_not_yet_deployed_controller() {
-    let (server, mocks) = setup_cartridge(&[(CONTROLLER_ADDRESS_1, true)]).await;
+    let mut server = setup_cartridge_server().await;
     let (_, paymaster) = setup(&server.url(), None).await;
+
+    let mocks = setup_mocks(&mut server, &[(CONTROLLER_ADDRESS_1, true, true)]).await;
 
     let sender_address = ContractAddress::from(Felt::from_hex(CONTROLLER_ADDRESS_1).unwrap());
     let txs = vec![invoke_tx(sender_address), invoke_tx(sender_address)];
@@ -202,15 +265,23 @@ async fn test_starknet_estimate_fee_when_several_txs_with_the_same_not_yet_deplo
     let res = paymaster.handle_estimate_fees(BlockIdOrTag::Tag(BlockTag::Pending), txs);
 
     assert!(res.is_ok());
-    assert_eq!(res.unwrap().len(), 1);
-    mocks.iter().for_each(|mock| mock.assert());
+
+    let res = res.unwrap();
+    assert_eq!(res.len(), 1);
+    assert_tx(&res[0], CONTROLLER_ADDRESS_1);
+    assert_mocks(&mocks);
 }
 
 #[tokio::test(flavor = "multi_thread")]
 async fn test_starknet_estimate_fee_when_several_txs_with_several_controllers() {
-    let (server, mocks) =
-        setup_cartridge(&[(CONTROLLER_ADDRESS_1, true), (CONTROLLER_ADDRESS_2, true)]).await;
+    let mut server = setup_cartridge_server().await;
     let (_, paymaster) = setup(&server.url(), None).await;
+
+    let mocks = setup_mocks(
+        &mut server,
+        &[(CONTROLLER_ADDRESS_1, true, true), (CONTROLLER_ADDRESS_2, true, true)],
+    )
+    .await;
 
     let txs = vec![
         invoke_tx(ContractAddress::from(Felt::from_hex(CONTROLLER_ADDRESS_1).unwrap())),
@@ -220,17 +291,24 @@ async fn test_starknet_estimate_fee_when_several_txs_with_several_controllers() 
     let res = paymaster.handle_estimate_fees(BlockIdOrTag::Tag(BlockTag::Pending), txs);
 
     assert!(res.is_ok());
-    assert_eq!(res.unwrap().len(), 2);
-    mocks.iter().for_each(|mock| mock.assert());
+
+    let res = res.unwrap();
+    assert_eq!(res.len(), 2);
+    assert_tx(&res[0], CONTROLLER_ADDRESS_1);
+    assert_tx(&res[1], CONTROLLER_ADDRESS_2);
+
+    assert_mocks(&mocks);
 }
 
 #[tokio::test(flavor = "multi_thread")]
 async fn test_starknet_estimate_fee_sender_with_invalid_paymaster_config() {
-    let (server, _) = setup_cartridge(&[(CONTROLLER_ADDRESS_1, true)]).await;
+    let mut server = setup_cartridge_server().await;
 
     // configure a wrong paymaster address
     let wrong_paymaster_address = ContractAddress::from(Felt::THREE);
     let (_, paymaster) = setup(&server.url(), Some(wrong_paymaster_address)).await;
+
+    let mocks = setup_mocks(&mut server, &[(CONTROLLER_ADDRESS_1, true, true)]).await;
 
     let sender_address = ContractAddress::from(Felt::from_hex(CONTROLLER_ADDRESS_1).unwrap());
     let tx = invoke_tx(sender_address);
@@ -239,18 +317,24 @@ async fn test_starknet_estimate_fee_sender_with_invalid_paymaster_config() {
 
     assert!(res.is_err());
     assert_matches!(res.unwrap_err(), Error::PaymasterNotFound(_));
+    assert_mocks(&mocks);
 }
 
 #[tokio::test(flavor = "multi_thread")]
 async fn test_starknet_estimate_fee_with_a_mix_of_txs() {
-    let (server, mocks) = setup_cartridge(&[
-        ("0x12345", false),
-        ("0x67890", false),
-        (CONTROLLER_ADDRESS_1, true),
-        (CONTROLLER_ADDRESS_2, true),
-    ])
-    .await;
+    let mut server = setup_cartridge_server().await;
     let (_, paymaster) = setup(&server.url(), None).await;
+
+    let mocks = setup_mocks(
+        &mut server,
+        &[
+            ("0x12345", false, false),
+            ("0x67890", false, false),
+            (CONTROLLER_ADDRESS_1, true, true),
+            (CONTROLLER_ADDRESS_2, true, true),
+        ],
+    )
+    .await;
 
     let txs = vec![
         invoke_tx(ContractAddress::from(Felt::from_hex("0x67890").unwrap())),
@@ -263,20 +347,88 @@ async fn test_starknet_estimate_fee_with_a_mix_of_txs() {
 
     let res = paymaster.handle_estimate_fees(BlockIdOrTag::Tag(BlockTag::Pending), txs);
 
-    println!("res: {:?}", res);
     assert!(res.is_ok());
-    assert_eq!(res.unwrap().len(), 2);
-    mocks.iter().for_each(|mock| mock.assert());
+
+    let res = res.unwrap();
+    assert_eq!(res.len(), 2);
+    assert_tx(&res[0], CONTROLLER_ADDRESS_2);
+    assert_tx(&res[1], CONTROLLER_ADDRESS_1);
+
+    assert_mocks(&mocks);
 }
 
 #[tokio::test(flavor = "multi_thread")]
-#[ignore]
-async fn test_cartridge_add_execute_outside_transaction_handling() {
+async fn test_cartridge_outside_transaction_when_caller_is_not_a_controller() {
+    let mut server = setup_cartridge_server().await;
+    let (_, paymaster) = setup(&server.url(), None).await;
 
-    // 1. the caller is not a controller account => nothing special
-    // 2. the caller is a controller account already deployed => nothing special
-    // 3. the caller is a controller account not already deployed => deploy it
-    // 4. paymaster not properly configured => error
+    let mocks = setup_mocks(&mut server, &[(CONTROLLER_ADDRESS_1, false, false)]).await;
 
-    //    paymaster.handle_add_outside_execution(ContractAddress::new(0));
+    let res = paymaster.handle_add_outside_execution(ContractAddress::from(
+        Felt::from_hex(CONTROLLER_ADDRESS_1).unwrap(),
+    ));
+
+    assert!(res.is_ok());
+    assert!(res.unwrap().is_none());
+
+    assert_mocks(&mocks);
+}
+
+#[tokio::test(flavor = "multi_thread")]
+async fn test_cartridge_outside_transaction_when_caller_is_an_already_deployed_controller() {
+    let mut server = setup_cartridge_server().await;
+    let (node, paymaster) = setup(&server.url(), None).await;
+
+    let (caller_address, _) = node
+        .backend()
+        .chain_spec
+        .genesis()
+        .accounts()
+        .nth(0)
+        .expect("must have at least one account");
+
+    let mocks =
+        setup_mocks(&mut server, &[(caller_address.to_string().as_str(), true, false)]).await;
+
+    let res = paymaster.handle_add_outside_execution(*caller_address);
+
+    assert!(res.is_ok());
+    assert!(res.unwrap().is_none());
+
+    assert_mocks(&mocks);
+}
+
+#[tokio::test(flavor = "multi_thread")]
+async fn test_cartridge_outside_transaction_when_caller_is_a_not_yet_deployed_controller() {
+    let mut server = setup_cartridge_server().await;
+    let (_, paymaster) = setup(&server.url(), None).await;
+
+    let mocks = setup_mocks(&mut server, &[(CONTROLLER_ADDRESS_2, true, true)]).await;
+
+    let res = paymaster.handle_add_outside_execution(ContractAddress::from(
+        Felt::from_hex(CONTROLLER_ADDRESS_2).unwrap(),
+    ));
+
+    println!("res: {:?}", res);
+
+    assert!(res.is_ok());
+    assert!(res.unwrap().is_some());
+
+    assert_mocks(&mocks);
+}
+
+#[tokio::test(flavor = "multi_thread")]
+async fn test_cartridge_outside_transaction_when_paymaster_is_not_properly_configured() {
+    let mut server = setup_cartridge_server().await;
+    let (_, paymaster) = setup(&server.url(), Some(ContractAddress::from(Felt::THREE))).await;
+
+    let mocks = setup_mocks(&mut server, &[(CONTROLLER_ADDRESS_1, true, true)]).await;
+
+    let res = paymaster.handle_add_outside_execution(ContractAddress::from(
+        Felt::from_hex(CONTROLLER_ADDRESS_1).unwrap(),
+    ));
+
+    assert!(res.is_err());
+    assert_matches!(res.unwrap_err(), Error::PaymasterNotFound(_));
+    assert_mocks(&mocks);
 }

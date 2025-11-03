@@ -84,8 +84,14 @@ impl<EF: ExecutorFactory> Paymaster<EF> {
             None => return Ok(None),
         };
 
-        // Create a Controller deploy transaction against the latest state of the network.
         let block_id = BlockIdOrTag::Tag(BlockTag::Pending);
+
+        // Check if the address has already been deployed
+        if block_on(self.starknet_api.class_hash_at_address(block_id, address)).is_ok() {
+            return Ok(None);
+        }
+
+        // Create a Controller deploy transaction against the latest state of the network.
         let tx = self.get_controller_deploy_tx(controller_calldata, block_id)?;
 
         let tx = ExecutableTxWithHash::new(tx);
