@@ -22,6 +22,7 @@ use starknet::signers::{LocalWallet, Signer, SigningKey};
 
 pub mod layer;
 
+use crate::rpc::types::OutsideExecution;
 use crate::utils::encode_calls;
 use crate::Client;
 
@@ -77,6 +78,8 @@ impl<EF: ExecutorFactory> Paymaster<EF> {
     pub fn handle_add_outside_execution(
         &self,
         address: ContractAddress,
+        outside_execution: OutsideExecution,
+        signature: Vec<Felt>,
     ) -> PaymasterResult<Option<TxHash>> {
         let block_id = BlockIdOrTag::Tag(BlockTag::Pending);
 

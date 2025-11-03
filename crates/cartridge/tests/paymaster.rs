@@ -5,6 +5,7 @@
 // - when cartridge_addExecuteOutsideTransaction is called, the paymaster should deploy
 //   the controller account if not already deployed.
 
+use cartridge::rpc::types::{OutsideExecution, OutsideExecutionV2};
 use katana_primitives::genesis::constant::DEFAULT_UDC_ADDRESS;
 
 use assert_matches::assert_matches;
@@ -33,6 +34,16 @@ use katana_primitives::Felt;
 
 const CONTROLLER_ADDRESS_1: &str = "0xb0b";
 const CONTROLLER_ADDRESS_2: &str = "0xa11ce";
+
+fn default_outside_execution() -> OutsideExecution {
+    OutsideExecution::V2(OutsideExecutionV2 {
+        caller: ContractAddress::from(Felt::ZERO),
+        nonce: Felt::ZERO,
+        execute_after: 0,
+        execute_before: 0,
+        calls: vec![],
+    })
+}
 
 fn build_calldata(address: &str) -> Vec<&str> {
     vec![address, "0x42", address]
@@ -365,9 +376,11 @@ async fn test_cartridge_outside_transaction_when_caller_is_not_a_controller() {
 
     let mocks = setup_mocks(&mut server, &[(CONTROLLER_ADDRESS_1, false, false)]).await;
 
-    let res = paymaster.handle_add_outside_execution(ContractAddress::from(
-        Felt::from_hex(CONTROLLER_ADDRESS_1).unwrap(),
-    ));
+    let res = paymaster.handle_add_outside_execution(
+        ContractAddress::from(Felt::from_hex(CONTROLLER_ADDRESS_1).unwrap()),
+        default_outside_execution(),
+        vec![],
+    );
 
     assert!(res.is_ok());
     assert!(res.unwrap().is_none());
@@ -391,7 +404,11 @@ async fn test_cartridge_outside_transaction_when_caller_is_an_already_deployed_c
     let mocks =
         setup_mocks(&mut server, &[(caller_address.to_string().as_str(), true, false)]).await;
 
-    let res = paymaster.handle_add_outside_execution(*caller_address);
+    let res = paymaster.handle_add_outside_execution(
+        *caller_address,
+        default_outside_execution(),
+        vec![],
+    );
 
     assert!(res.is_ok());
     assert!(res.unwrap().is_none());
@@ -406,9 +423,11 @@ async fn test_cartridge_outside_transaction_when_caller_is_a_not_yet_deployed_co
 
     let mocks = setup_mocks(&mut server, &[(CONTROLLER_ADDRESS_2, true, true)]).await;
 
-    let res = paymaster.handle_add_outside_execution(ContractAddress::from(
-        Felt::from_hex(CONTROLLER_ADDRESS_2).unwrap(),
-    ));
+    let res = paymaster.handle_add_outside_execution(
+        ContractAddress::from(Felt::from_hex(CONTROLLER_ADDRESS_2).unwrap()),
+        default_outside_execution(),
+        vec![],
+    );
 
     assert!(res.is_ok());
     assert!(res.unwrap().is_some());
@@ -425,9 +444,11 @@ async fn test_cartridge_outside_transaction_when_caller_is_a_not_yet_deployed_bu
 
     let mocks = setup_mocks(&mut server, &[(CONTROLLER_ADDRESS_2, true, true)]).await;
 
-    let res = paymaster.handle_add_outside_execution(ContractAddress::from(
-        Felt::from_hex(CONTROLLER_ADDRESS_2).unwrap(),
-    ));
+    let res = paymaster.handle_add_outside_execution(
+        ContractAddress::from(Felt::from_hex(CONTROLLER_ADDRESS_2).unwrap()),
+        default_outside_execution(),
+        vec![],
+    );
 
     assert!(res.is_err());
     assert_matches!(res.unwrap_err(), Error::FailedToAddTransaction(_));
@@ -441,9 +462,11 @@ async fn test_cartridge_outside_transaction_when_paymaster_is_not_properly_confi
 
     let mocks = setup_mocks(&mut server, &[(CONTROLLER_ADDRESS_1, true, true)]).await;
 
-    let res = paymaster.handle_add_outside_execution(ContractAddress::from(
-        Felt::from_hex(CONTROLLER_ADDRESS_1).unwrap(),
-    ));
+    let res = paymaster.handle_add_outside_execution(
+        ContractAddress::from(Felt::from_hex(CONTROLLER_ADDRESS_1).unwrap()),
+        default_outside_execution(),
+        vec![],
+    );
 
     assert!(res.is_err());
     assert_matches!(res.unwrap_err(), Error::PaymasterNotFound(_));
