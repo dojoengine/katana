@@ -90,6 +90,7 @@ async fn setup_mocks(
 async fn setup(
     cartridge_url: &str,
     paymaster_address: Option<ContractAddress>,
+    paymaster_private_key: Option<SigningKey>,
 ) -> (TestNode, Paymaster<BlockifierFactory>) {
     let sequencer = TestNode::new().await;
     let block_producer = BlockProducer::instant(Arc::clone(&sequencer.backend()));
@@ -127,7 +128,7 @@ async fn setup(
         TxPool::new(validator.clone(), FiFo::new()),
         ChainId::Id(Felt::ONE),
         paymaster_address.unwrap_or(*account_address),
-        SigningKey::from_secret_scalar(private_key),
+        paymaster_private_key.unwrap_or(SigningKey::from_secret_scalar(private_key)),
     );
 
     (sequencer, paymaster)
@@ -182,7 +183,7 @@ fn assert_tx(tx: &BroadcastedTx, address: &str) {
 #[tokio::test(flavor = "multi_thread")]
 async fn test_starknet_estimate_fee_without_txs() {
     let server = setup_cartridge_server().await;
-    let (_, paymaster) = setup(&server.url(), None).await;
+    let (_, paymaster) = setup(&server.url(), None, None).await;
 
     let res = paymaster.handle_estimate_fees(BlockIdOrTag::Tag(BlockTag::Pending), vec![]);
 
@@ -193,7 +194,7 @@ async fn test_starknet_estimate_fee_without_txs() {
 #[tokio::test(flavor = "multi_thread")]
 async fn test_starknet_estimate_fee_when_sender_is_not_a_controller() {
     let mut server = setup_cartridge_server().await;
-    let (_, paymaster) = setup(&server.url(), None).await;
+    let (_, paymaster) = setup(&server.url(), None, None).await;
 
     let mocks = setup_mocks(&mut server, &[(CONTROLLER_ADDRESS_1, false, true)]).await;
 
@@ -210,7 +211,7 @@ async fn test_starknet_estimate_fee_when_sender_is_not_a_controller() {
 #[tokio::test(flavor = "multi_thread")]
 async fn test_starknet_estimate_fee_when_sender_is_an_already_deployed_controller() {
     let mut server = setup_cartridge_server().await;
-    let (node, paymaster) = setup(&server.url(), None).await;
+    let (node, paymaster) = setup(&server.url(), None, None).await;
 
     let (sender_address, _) = node
         .backend()
@@ -235,7 +236,7 @@ async fn test_starknet_estimate_fee_when_sender_is_an_already_deployed_controlle
 #[tokio::test(flavor = "multi_thread")]
 async fn test_starknet_estimate_fee_when_sender_is_a_not_yet_deployed_controller() {
     let mut server = setup_cartridge_server().await;
-    let (_, paymaster) = setup(&server.url(), None).await;
+    let (_, paymaster) = setup(&server.url(), None, None).await;
 
     let mocks = setup_mocks(&mut server, &[(CONTROLLER_ADDRESS_1, true, true)]).await;
 
@@ -255,7 +256,7 @@ async fn test_starknet_estimate_fee_when_sender_is_a_not_yet_deployed_controller
 #[tokio::test(flavor = "multi_thread")]
 async fn test_starknet_estimate_fee_when_several_txs_with_the_same_not_yet_deployed_controller() {
     let mut server = setup_cartridge_server().await;
-    let (_, paymaster) = setup(&server.url(), None).await;
+    let (_, paymaster) = setup(&server.url(), None, None).await;
 
     let mocks = setup_mocks(&mut server, &[(CONTROLLER_ADDRESS_1, true, true)]).await;
 
@@ -275,7 +276,7 @@ async fn test_starknet_estimate_fee_when_several_txs_with_the_same_not_yet_deplo
 #[tokio::test(flavor = "multi_thread")]
 async fn test_starknet_estimate_fee_when_several_txs_with_several_controllers() {
     let mut server = setup_cartridge_server().await;
-    let (_, paymaster) = setup(&server.url(), None).await;
+    let (_, paymaster) = setup(&server.url(), None, None).await;
 
     let mocks = setup_mocks(
         &mut server,
@@ -306,7 +307,7 @@ async fn test_starknet_estimate_fee_sender_with_invalid_paymaster_config() {
 
     // configure a wrong paymaster address
     let wrong_paymaster_address = ContractAddress::from(Felt::THREE);
-    let (_, paymaster) = setup(&server.url(), Some(wrong_paymaster_address)).await;
+    let (_, paymaster) = setup(&server.url(), Some(wrong_paymaster_address), None).await;
 
     let mocks = setup_mocks(&mut server, &[(CONTROLLER_ADDRESS_1, true, true)]).await;
 
@@ -323,7 +324,7 @@ async fn test_starknet_estimate_fee_sender_with_invalid_paymaster_config() {
 #[tokio::test(flavor = "multi_thread")]
 async fn test_starknet_estimate_fee_with_a_mix_of_txs() {
     let mut server = setup_cartridge_server().await;
-    let (_, paymaster) = setup(&server.url(), None).await;
+    let (_, paymaster) = setup(&server.url(), None, None).await;
 
     let mocks = setup_mocks(
         &mut server,
@@ -360,7 +361,7 @@ async fn test_starknet_estimate_fee_with_a_mix_of_txs() {
 #[tokio::test(flavor = "multi_thread")]
 async fn test_cartridge_outside_transaction_when_caller_is_not_a_controller() {
     let mut server = setup_cartridge_server().await;
-    let (_, paymaster) = setup(&server.url(), None).await;
+    let (_, paymaster) = setup(&server.url(), None, None).await;
 
     let mocks = setup_mocks(&mut server, &[(CONTROLLER_ADDRESS_1, false, false)]).await;
 
@@ -377,7 +378,7 @@ async fn test_cartridge_outside_transaction_when_caller_is_not_a_controller() {
 #[tokio::test(flavor = "multi_thread")]
 async fn test_cartridge_outside_transaction_when_caller_is_an_already_deployed_controller() {
     let mut server = setup_cartridge_server().await;
-    let (node, paymaster) = setup(&server.url(), None).await;
+    let (node, paymaster) = setup(&server.url(), None, None).await;
 
     let (caller_address, _) = node
         .backend()
@@ -401,15 +402,13 @@ async fn test_cartridge_outside_transaction_when_caller_is_an_already_deployed_c
 #[tokio::test(flavor = "multi_thread")]
 async fn test_cartridge_outside_transaction_when_caller_is_a_not_yet_deployed_controller() {
     let mut server = setup_cartridge_server().await;
-    let (_, paymaster) = setup(&server.url(), None).await;
+    let (_, paymaster) = setup(&server.url(), None, None).await;
 
     let mocks = setup_mocks(&mut server, &[(CONTROLLER_ADDRESS_2, true, true)]).await;
 
     let res = paymaster.handle_add_outside_execution(ContractAddress::from(
         Felt::from_hex(CONTROLLER_ADDRESS_2).unwrap(),
     ));
-
-    println!("res: {:?}", res);
 
     assert!(res.is_ok());
     assert!(res.unwrap().is_some());
@@ -418,9 +417,27 @@ async fn test_cartridge_outside_transaction_when_caller_is_a_not_yet_deployed_co
 }
 
 #[tokio::test(flavor = "multi_thread")]
+async fn test_cartridge_outside_transaction_when_caller_is_a_not_yet_deployed_but_wrong_paymaster_pkey(
+) {
+    let mut server = setup_cartridge_server().await;
+    let (_, paymaster) =
+        setup(&server.url(), None, Some(SigningKey::from_secret_scalar(Felt::THREE))).await;
+
+    let mocks = setup_mocks(&mut server, &[(CONTROLLER_ADDRESS_2, true, true)]).await;
+
+    let res = paymaster.handle_add_outside_execution(ContractAddress::from(
+        Felt::from_hex(CONTROLLER_ADDRESS_2).unwrap(),
+    ));
+
+    assert!(res.is_err());
+    assert_matches!(res.unwrap_err(), Error::FailedToAddTransaction(_));
+    assert_mocks(&mocks);
+}
+
+#[tokio::test(flavor = "multi_thread")]
 async fn test_cartridge_outside_transaction_when_paymaster_is_not_properly_configured() {
     let mut server = setup_cartridge_server().await;
-    let (_, paymaster) = setup(&server.url(), Some(ContractAddress::from(Felt::THREE))).await;
+    let (_, paymaster) = setup(&server.url(), Some(ContractAddress::from(Felt::THREE)), None).await;
 
     let mocks = setup_mocks(&mut server, &[(CONTROLLER_ADDRESS_1, true, true)]).await;
 
