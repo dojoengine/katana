@@ -47,7 +47,7 @@ members = [
 	"crates/utils",
 	"tests/db-compat",
 	"tests/reverse-proxy",
-	"tests/snos",
+	"tests/snos", "crates/optimistic",
 ]
 
 [workspace.package]
@@ -73,6 +73,7 @@ serde-utils = { path = "crates/serde-utils" }
 
 katana-chain-spec = { path = "crates/chain-spec" }
 katana-cli = { path = "crates/cli" }
+katana-optimistic = { path = "crates/optimistic" }
 katana-codecs = { path = "crates/storage/codecs" }
 katana-codecs-derive = { path = "crates/storage/codecs/derive" }
 katana-contracts = { path = "crates/contracts" }

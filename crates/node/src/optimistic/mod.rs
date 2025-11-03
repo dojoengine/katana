@@ -16,6 +16,8 @@ use katana_gas_price_oracle::GasPriceOracle;
 use katana_metrics::exporters::prometheus::PrometheusRecorder;
 use katana_metrics::sys::DiskReporter;
 use katana_metrics::{Report, Server as MetricsServer};
+use katana_optimistic::executor::{OptimisticExecutor, OptimisticState};
+use katana_optimistic::pool::{PoolValidator, TxPool};
 use katana_pool::ordering::FiFo;
 use katana_primitives::block::BlockIdOrTag;
 use katana_primitives::env::{CfgEnv, FeeTokenAddressses};
@@ -29,14 +31,10 @@ use katana_tasks::{JoinHandle, TaskManager};
 use tracing::info;
 
 mod config;
-mod executor;
-mod pool;
 
 use config::Config;
 
 use crate::config::rpc::RpcModuleKind;
-use crate::optimistic::executor::OptimisticExecutor;
-use crate::optimistic::pool::{PoolValidator, TxPool};
 
 #[derive(Debug)]
 pub struct Node {
@@ -51,8 +49,6 @@ pub struct Node {
 
 impl Node {
     pub async fn build(config: Config) -> Result<Node> {
-        let mut config = config;
-
         if config.metrics.is_some() {
             // Metrics recorder must be initialized before calling any of the metrics macros, in
             // order for it to be registered.
@@ -136,10 +132,12 @@ impl Node {
 
         // -- build executor
 
+        let optimistic_state = OptimisticState::new(database.clone());
+
         let executor = OptimisticExecutor::new(
             pool.clone(),
             blockchain.clone(),
-            database.clone(),
+            optimistic_state.clone(),
             executor_factory.clone(),
             task_spawner.clone(),
         );
@@ -173,6 +171,7 @@ impl Node {
             starknet_api_cfg,
             starknet_client.clone(),
             blockchain,
+            optimistic_state.clone(),
         );
 
         if config.rpc.apis.contains(&RpcModuleKind::Starknet) {

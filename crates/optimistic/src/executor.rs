@@ -4,25 +4,40 @@ use std::sync::Arc;
 use std::task::{Context, Poll};
 
 use futures::stream::StreamExt;
+use futures::FutureExt;
 use katana_core::backend::storage::Blockchain;
 use katana_executor::implementation::blockifier::BlockifierFactory;
-use katana_executor::ExecutorFactory;
+use katana_executor::{ExecutionResult, ExecutorFactory};
 use katana_pool::ordering::FiFo;
 use katana_pool::{PendingTransactions, PoolTransaction, TransactionPool};
+use katana_primitives::transaction::TxWithHash;
 use katana_provider::api::state::StateFactoryProvider;
 use katana_provider::providers::db::cached::CachedDbProvider;
 use katana_rpc_types::BroadcastedTxWithChainId;
-use katana_tasks::{JoinHandle, TaskSpawner};
+use katana_tasks::{CpuBlockingJoinHandle, JoinHandle, Result as TaskResult, TaskSpawner};
+use parking_lot::RwLock;
 use tracing::{debug, error, info, trace};
 
-use crate::optimistic::pool::TxPool;
+use crate::pool::TxPool;
 
 const LOG_TARGET: &str = "optimistic_executor";
+
+#[derive(Debug, Clone)]
+pub struct OptimisticState {
+    pub state: CachedDbProvider<katana_db::Db>,
+    pub transactions: Arc<RwLock<Vec<(TxWithHash, ExecutionResult)>>>,
+}
+
+impl OptimisticState {
+    pub fn new(state: CachedDbProvider<katana_db::Db>) -> Self {
+        Self { state, transactions: Arc::new(RwLock::new(Vec::new())) }
+    }
+}
 
 #[derive(Debug)]
 pub struct OptimisticExecutor {
     pool: TxPool,
-    optimistic_state: CachedDbProvider<katana_db::Db>,
+    optimistic_state: OptimisticState,
     executor_factory: Arc<BlockifierFactory>,
     storage: Blockchain,
     task_spawner: TaskSpawner,
@@ -39,7 +54,7 @@ impl OptimisticExecutor {
     pub fn new(
         pool: TxPool,
         storage: Blockchain,
-        optimistic_state: CachedDbProvider<katana_db::Db>,
+        optimistic_state: OptimisticState,
         executor_factory: Arc<BlockifierFactory>,
         task_spawner: TaskSpawner,
     ) -> Self {
@@ -61,6 +76,7 @@ impl OptimisticExecutor {
                 self.storage,
                 self.optimistic_state,
                 self.executor_factory,
+                self.task_spawner.clone(),
             ),
         )
     }
@@ -69,11 +85,12 @@ impl OptimisticExecutor {
 #[derive(Debug)]
 struct OptimisticExecutorActor {
     pool: TxPool,
-    optimistic_state: CachedDbProvider<katana_db::Db>,
-    /// Stream of pending transactions from the pool
+    optimistic_state: OptimisticState,
     pending_txs: PendingTransactions<BroadcastedTxWithChainId, FiFo<BroadcastedTxWithChainId>>,
     storage: Blockchain,
     executor_factory: Arc<BlockifierFactory>,
+    task_spawner: TaskSpawner,
+    ongoing_execution: Option<CpuBlockingJoinHandle<anyhow::Result<()>>>,
 }
 
 impl OptimisticExecutorActor {
@@ -81,17 +98,31 @@ impl OptimisticExecutorActor {
     fn new(
         pool: TxPool,
         storage: Blockchain,
-        optimistic_state: CachedDbProvider<katana_db::Db>,
+        optimistic_state: OptimisticState,
         executor_factory: Arc<BlockifierFactory>,
+        task_spawner: TaskSpawner,
     ) -> Self {
         let pending_txs = pool.pending_transactions();
-        Self { pool, optimistic_state, pending_txs, storage, executor_factory }
+        Self {
+            pool,
+            optimistic_state,
+            pending_txs,
+            storage,
+            executor_factory,
+            task_spawner,
+            ongoing_execution: None,
+        }
     }
 
     /// Execute a single transaction optimistically against the latest state.
-    fn execute_transaction(&self, tx: BroadcastedTxWithChainId) -> anyhow::Result<()> {
-        let latest_state = self.optimistic_state.latest().unwrap();
-        let mut executor = self.executor_factory.with_state(latest_state);
+    fn execute_transaction(
+        pool: TxPool,
+        optimistic_state: OptimisticState,
+        executor_factory: Arc<BlockifierFactory>,
+        tx: BroadcastedTxWithChainId,
+    ) -> anyhow::Result<()> {
+        let latest_state = optimistic_state.state.latest().unwrap();
+        let mut executor = executor_factory.with_state(latest_state);
 
         // Execute the transaction
         let tx_hash = tx.hash();
@@ -99,8 +130,10 @@ impl OptimisticExecutorActor {
         let _ = executor.execute_transactions(vec![tx.into()]).unwrap();
 
         let output = executor.take_execution_output().unwrap();
-        self.optimistic_state.merge_state_updates(&output.states);
-        self.pool.remove_transactions(&[tx_hash]);
+        optimistic_state.state.merge_state_updates(&output.states);
+        optimistic_state.transactions;
+
+        pool.remove_transactions(&[tx_hash]);
 
         Ok(())
     }
@@ -112,13 +145,42 @@ impl Future for OptimisticExecutorActor {
     fn poll(self: Pin<&mut Self>, cx: &mut Context<'_>) -> Poll<Self::Output> {
         let this = self.get_mut();
 
-        // Drain all available transactions from the stream until it's exhausted (Poll::Pending)
-        // or the stream ends (Poll::Ready(None)).
-        //
-        // This ensures we process all pending transactions in a batch before yielding control
-        // back to the executor, which is more efficient than processing one transaction at a
-        // time.
         loop {
+            // First, poll any ongoing execution to completion before processing new transactions
+            if let Some(mut execution) = this.ongoing_execution.take() {
+                match execution.poll_unpin(cx) {
+                    Poll::Ready(result) => {
+                        match result {
+                            TaskResult::Ok(Ok(())) => {
+                                // Execution completed successfully, continue to next transaction
+                                trace!(target: LOG_TARGET, "Transaction execution completed successfully");
+                            }
+                            TaskResult::Ok(Err(e)) => {
+                                error!(
+                                    target: LOG_TARGET,
+                                    error = %e,
+                                    "Error executing transaction"
+                                );
+                            }
+                            TaskResult::Err(e) => {
+                                if e.is_cancelled() {
+                                    error!(target: LOG_TARGET, "Transaction execution task cancelled");
+                                } else {
+                                    std::panic::resume_unwind(e.into_panic());
+                                }
+                            }
+                        }
+                        // Continue to process next transaction
+                    }
+                    Poll::Pending => {
+                        // Execution is still ongoing, restore it and yield
+                        this.ongoing_execution = Some(execution);
+                        return Poll::Pending;
+                    }
+                }
+            }
+
+            // Process new transactions from the stream
             match this.pending_txs.poll_next_unpin(cx) {
                 Poll::Ready(Some(pending_tx)) => {
                     let tx = pending_tx.tx.as_ref().clone();
@@ -138,23 +200,24 @@ impl Future for OptimisticExecutorActor {
                     debug!(
                         target: LOG_TARGET,
                         tx_hash = format!("{:#x}", tx_hash),
-                        "Executing transaction optimistically"
+                        "Spawning transaction execution on blocking pool"
                     );
 
-                    // Execute the transaction optimistically
-                    match this.execute_transaction(tx) {
-                        Ok(()) => {}
-                        Err(e) => {
-                            error!(
-                                target: LOG_TARGET,
-                                tx_hash = format!("{:#x}", tx_hash),
-                                error = %e,
-                                "Error executing transaction"
-                            );
-                        }
-                    }
+                    // Spawn the transaction execution on the blocking CPU pool
+                    let pool = this.pool.clone();
+                    let optimistic_state = this.optimistic_state.clone();
+                    let executor_factory = this.executor_factory.clone();
 
-                    // Continue the loop to process the next transaction
+                    let execution_future = this.task_spawner.cpu_bound().spawn(move || {
+                        Self::execute_transaction(pool, optimistic_state, executor_factory, tx)
+                    });
+
+                    this.ongoing_execution = Some(execution_future);
+
+                    // Wake the task to poll the execution immediately
+                    cx.waker().wake_by_ref();
+
+                    // Continue the loop to poll the execution
                     continue;
                 }
 
@@ -173,7 +236,3 @@ impl Future for OptimisticExecutorActor {
         }
     }
 }
-
-// Tests are intentionally omitted as they would require a full backend setup with
-// blockchain state. Integration tests should be written separately to properly test
-// the optimistic executor with a real backend instance.

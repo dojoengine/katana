@@ -270,6 +270,7 @@ impl Node {
                 starknet_api_cfg,
                 block_producer.clone(),
                 blockchain,
+                None,
             )
         } else {
             StarknetApi::new(
@@ -279,6 +280,7 @@ impl Node {
                 starknet_api_cfg,
                 block_producer.clone(),
                 blockchain,
+                None,
             )
         };
 

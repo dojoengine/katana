@@ -5,7 +5,6 @@ use katana_pool::pool::Pool;
 use katana_pool_api::validation::{
     Error as ValidationError, InvalidTransactionError, ValidationOutcome, Validator,
 };
-use katana_primitives::utils::get_contract_address;
 use katana_rpc_client::starknet::Client;
 use katana_rpc_types::{BroadcastedTx, BroadcastedTxWithChainId};
 

@@ -4,9 +4,10 @@ use std::fmt::Debug;
 use std::future::Future;
 use std::sync::Arc;
 
-use katana_core::backend::storage::{Blockchain, Database};
+use katana_core::backend::storage::Blockchain;
 use katana_core::backend::Backend;
 use katana_executor::ExecutorFactory;
+use katana_optimistic::executor::OptimisticState;
 use katana_pool::TransactionPool;
 use katana_primitives::block::{BlockHashOrNumber, BlockIdOrTag, FinalityStatus, GasPrices};
 use katana_primitives::class::{ClassHash, CompiledClass};
@@ -49,7 +50,7 @@ use katana_tasks::{Result as TaskResult, TaskSpawner};
 
 use crate::permit::Permits;
 use crate::starknet::pending::PendingBlockProvider;
-use crate::utils::events::{Cursor, EventBlockId};
+use crate::utils::events::{fetch_events_at_blocks, fetch_tx_events, Cursor, EventBlockId, Filter};
 use crate::{utils, DEFAULT_ESTIMATE_FEE_MAX_CONCURRENT_REQUESTS};
 
 mod blockifier;
@@ -99,6 +100,7 @@ where
     estimate_fee_permit: Permits,
     config: StarknetApiConfig,
     pending_block_provider: PP,
+    optimistic_state: Option<OptimisticState>,
 }
 
 impl<EF, Pool, PP> StarknetApi<EF, Pool, PP>
@@ -114,6 +116,7 @@ where
         config: StarknetApiConfig,
         pending_block_provider: PP,
         storage_provider: Blockchain,
+        optimistic_state: Option<OptimisticState>,
     ) -> Self {
         Self::new_inner(
             backend,
@@ -123,6 +126,7 @@ where
             task_spawner,
             config,
             pending_block_provider,
+            optimistic_state,
         )
     }
 
@@ -134,6 +138,7 @@ where
         config: StarknetApiConfig,
         pending_block_provider: PP,
         storage_provider: Blockchain,
+        optimistic_state: Option<OptimisticState>,
     ) -> Self {
         Self::new_inner(
             backend,
@@ -143,6 +148,7 @@ where
             task_spawner,
             config,
             pending_block_provider,
+            optimistic_state,
         )
     }
 
@@ -154,6 +160,7 @@ where
         task_spawner: TaskSpawner,
         config: StarknetApiConfig,
         pending_block_provider: PP,
+        optimistic_state: Option<OptimisticState>,
     ) -> Self {
         let total_permits = config
             .max_concurrent_estimate_fee_requests
@@ -169,6 +176,7 @@ where
             estimate_fee_permit,
             config,
             pending_block_provider,
+            optimistic_state,
         };
 
         Self { inner: Arc::new(inner) }
@@ -858,9 +866,44 @@ where
         let client = self.inner.forked_client.as_ref().unwrap();
         let token = continuation_token.map(|token| token.to_string());
 
-        let result = futures::executor::block_on(
-            client.get_events(from_block, to_block, address, keys, token, chunk_size),
-        )?;
+        let mut result = futures::executor::block_on(client.get_events(
+            from_block,
+            to_block,
+            address,
+            keys.clone(),
+            token,
+            chunk_size,
+        ))?;
+
+        if let BlockIdOrTag::PreConfirmed = to_block {
+            // Handle pre-confirmed block logic here
+            if let Some(optimistic_state) = self.inner.optimistic_state.as_ref() {
+                let optimistic_txs = optimistic_state.transactions.read();
+                let tx_filter = Filter { address, keys };
+
+                for (idx, tx, receipt) in
+                    optimistic_txs.iter().enumerate().filter_map(|(idx, (tx, result))| {
+                        if let Some(receipt) = result.receipt() {
+                            Some((idx, tx, receipt))
+                        } else {
+                            None
+                        }
+                    })
+                {
+                    let partial_cursor = fetch_tx_events(
+                        0,
+                        None,
+                        None,
+                        idx,
+                        tx.hash,
+                        receipt.events(),
+                        &tx_filter,
+                        chunk_size as usize,
+                        &mut result.events,
+                    )?;
+                }
+            }
+        }
 
         Ok(result)
 
@@ -873,7 +916,7 @@ where
         // let mut events = Vec::with_capacity(chunk_size as usize);
         // let filter = utils::events::Filter { address, keys: keys.clone() };
 
-        // match (from, to) {
+        // match (from, to) ick th
         //     (EventBlockId::Num(from), EventBlockId::Num(to)) => {
         //         // 1. check if the from and to block is lower than the forked block
         //         // 2. if both are lower, then we can fetch the events from the provider
