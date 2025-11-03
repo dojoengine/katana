@@ -2,6 +2,7 @@ use std::future::Future;
 use std::pin::Pin;
 use std::sync::Arc;
 use std::task::{Context, Poll};
+use std::time::Duration;
 
 use futures::stream::StreamExt;
 use futures::FutureExt;
@@ -10,12 +11,15 @@ use katana_executor::implementation::blockifier::BlockifierFactory;
 use katana_executor::{ExecutionResult, ExecutorFactory};
 use katana_pool::ordering::FiFo;
 use katana_pool::{PendingTransactions, PoolTransaction, TransactionPool};
+use katana_primitives::block::BlockIdOrTag;
 use katana_primitives::transaction::TxWithHash;
 use katana_provider::api::state::StateFactoryProvider;
 use katana_provider::providers::db::cached::CachedDbProvider;
+use katana_rpc_client::starknet::Client;
 use katana_rpc_types::BroadcastedTxWithChainId;
 use katana_tasks::{CpuBlockingJoinHandle, JoinHandle, Result as TaskResult, TaskSpawner};
 use parking_lot::RwLock;
+use tokio::time::sleep;
 use tracing::{debug, error, info, trace};
 
 use crate::pool::TxPool;
@@ -41,6 +45,7 @@ pub struct OptimisticExecutor {
     executor_factory: Arc<BlockifierFactory>,
     storage: Blockchain,
     task_spawner: TaskSpawner,
+    client: Client,
 }
 
 impl OptimisticExecutor {
@@ -51,14 +56,16 @@ impl OptimisticExecutor {
     /// * `pool` - The transaction pool to monitor for new transactions
     /// * `backend` - The backend containing the executor factory and blockchain state
     /// * `task_spawner` - The task spawner used to run the executor actor
+    /// * `client` - The RPC client used to poll for confirmed blocks
     pub fn new(
         pool: TxPool,
         storage: Blockchain,
         optimistic_state: OptimisticState,
         executor_factory: Arc<BlockifierFactory>,
         task_spawner: TaskSpawner,
+        client: Client,
     ) -> Self {
-        Self { pool, optimistic_state, executor_factory, task_spawner, storage }
+        Self { pool, optimistic_state, executor_factory, task_spawner, storage, client }
     }
 
     /// Spawns the optimistic executor actor task.
@@ -70,15 +77,84 @@ impl OptimisticExecutor {
     ///
     /// A `JoinHandle` to the spawned executor task.
     pub fn spawn(self) -> JoinHandle<()> {
-        self.task_spawner.build_task().name("Optimistic Executor").spawn(
+        // Spawn the transaction execution task
+        let executor_handle = self.task_spawner.build_task().name("Optimistic Executor").spawn(
             OptimisticExecutorActor::new(
                 self.pool,
                 self.storage,
-                self.optimistic_state,
+                self.optimistic_state.clone(),
                 self.executor_factory,
                 self.task_spawner.clone(),
             ),
-        )
+        );
+
+        // Spawn the block polling task
+        let client = self.client;
+        let optimistic_state = self.optimistic_state;
+        self.task_spawner.build_task().name("Block Polling").spawn(async move {
+            Self::poll_confirmed_blocks(client, optimistic_state).await;
+        });
+
+        executor_handle
+    }
+
+    /// Polls for confirmed blocks every 2 seconds and removes transactions from the optimistic
+    /// state when they appear in confirmed blocks.
+    async fn poll_confirmed_blocks(client: Client, optimistic_state: OptimisticState) {
+        loop {
+            sleep(Duration::from_secs(2)).await;
+
+            match client.get_block_with_tx_hashes(BlockIdOrTag::Latest).await {
+                Ok(block_response) => {
+                    use katana_rpc_types::block::GetBlockWithTxHashesResponse;
+
+                    let (block_number, block_tx_hashes) = match block_response {
+                        GetBlockWithTxHashesResponse::Block(block) => {
+                            (block.block_number, block.transactions)
+                        }
+                        GetBlockWithTxHashesResponse::PreConfirmed(block) => {
+                            (block.block_number, block.transactions)
+                        }
+                    };
+
+                    if block_tx_hashes.is_empty() {
+                        continue;
+                    }
+
+                    trace!(
+                        target: LOG_TARGET,
+                        block_number = block_number,
+                        tx_count = block_tx_hashes.len(),
+                        "Polling confirmed block"
+                    );
+
+                    // Get the current optimistic transactions
+                    let mut optimistic_txs = optimistic_state.transactions.write();
+
+                    // Filter out transactions that are confirmed in this block
+                    let initial_count = optimistic_txs.len();
+                    optimistic_txs.retain(|(tx, _)| !block_tx_hashes.contains(&tx.hash));
+
+                    let removed_count = initial_count - optimistic_txs.len();
+                    if removed_count > 0 {
+                        info!(
+                            target: LOG_TARGET,
+                            block_number = block_number,
+                            removed_count = removed_count,
+                            remaining_count = optimistic_txs.len(),
+                            "Removed confirmed transactions from optimistic state"
+                        );
+                    }
+                }
+                Err(e) => {
+                    error!(
+                        target: LOG_TARGET,
+                        error = %e,
+                        "Error polling for confirmed blocks"
+                    );
+                }
+            }
+        }
     }
 }
 
@@ -131,7 +207,11 @@ impl OptimisticExecutorActor {
 
         let output = executor.take_execution_output().unwrap();
         optimistic_state.state.merge_state_updates(&output.states);
-        optimistic_state.transactions;
+
+        // Add the executed transactions to the optimistic state
+        for (tx, result) in output.transactions {
+            optimistic_state.transactions.write().push((tx, result));
+        }
 
         pool.remove_transactions(&[tx_hash]);
 

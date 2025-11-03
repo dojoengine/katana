@@ -32,7 +32,9 @@ use katana_rpc_types::block::{
     GetBlockWithTxHashesResponse, MaybePreConfirmedBlock,
 };
 use katana_rpc_types::class::Class;
-use katana_rpc_types::event::{EventFilterWithPage, GetEventsResponse, ResultPageRequest};
+use katana_rpc_types::event::{
+    EmittedEvent, EventFilterWithPage, GetEventsResponse, ResultPageRequest,
+};
 use katana_rpc_types::list::{
     ContinuationToken as ListContinuationToken, GetBlocksRequest, GetBlocksResponse,
     GetTransactionsRequest, GetTransactionsResponse, TransactionListItem,
@@ -47,6 +49,7 @@ use katana_rpc_types::trie::{
 use katana_rpc_types::{FeeEstimate, TxStatus};
 use katana_rpc_types_builder::{BlockBuilder, ReceiptBuilder};
 use katana_tasks::{Result as TaskResult, TaskSpawner};
+use tracing::trace;
 
 use crate::permit::Permits;
 use crate::starknet::pending::PendingBlockProvider;
@@ -853,6 +856,122 @@ where
         .await?
     }
 
+    /// Extracts and filters events from the optimistic state transactions.
+    /// Returns a continuation token if there are more events to fetch.
+    fn fetch_optimistic_events(
+        &self,
+        address: Option<ContractAddress>,
+        keys: &Option<Vec<Vec<Felt>>>,
+        events_buffer: &mut Vec<EmittedEvent>,
+        chunk_size: u64,
+        continuation_token: Option<&katana_primitives::event::ContinuationToken>,
+    ) -> StarknetApiResult<Option<katana_primitives::event::ContinuationToken>> {
+        if let Some(optimistic_state) = &self.inner.optimistic_state {
+            let transactions = optimistic_state.transactions.read();
+
+            // Determine starting position from continuation token
+            let (start_txn_idx, start_event_idx) = if let Some(token) = continuation_token {
+                // If transaction hash is present, use it to find the transaction
+                if let Some(tx_hash) = &token.transaction_hash {
+                    // Find the transaction by hash
+                    if let Some(idx) = transactions.iter().position(|(tx, _)| &tx.hash == tx_hash) {
+                        (idx, token.event_n as usize)
+                    } else {
+                        // Transaction not found (likely removed by poll_confirmed_blocks)
+                        // Start from the beginning
+                        trace!(
+                            target: "rpc::starknet",
+                            tx_hash = format!("{:#x}", tx_hash),
+                            "Transaction from continuation token not found in optimistic state, starting from beginning"
+                        );
+                        (0, 0)
+                    }
+                } else {
+                    // // Use txn_n index if no hash is provided (backward compatibility)
+                    // (token.txn_n as usize, token.event_n as usize)
+                    unimplemented!()
+                }
+            } else {
+                (0, 0)
+            };
+
+            for (tx_idx, (tx, result)) in transactions.iter().enumerate() {
+                // Skip transactions before the continuation token
+                if tx_idx < start_txn_idx {
+                    continue;
+                }
+
+                // Stop if we've reached the chunk size limit
+                if events_buffer.len() >= chunk_size as usize {
+                    break;
+                }
+
+                // Only process successful executions
+                if let katana_executor::ExecutionResult::Success { receipt, .. } = result {
+                    for (event_idx, event) in receipt.events().iter().enumerate() {
+                        // Skip events before the continuation token in the current transaction
+                        if tx_idx == start_txn_idx && event_idx < start_event_idx {
+                            continue;
+                        }
+                        // Apply address filter
+                        if let Some(filter_address) = address {
+                            if event.from_address != filter_address {
+                                continue;
+                            }
+                        }
+
+                        // Apply keys filter
+                        if let Some(filter_keys) = keys {
+                            let mut matches = true;
+                            for (i, key_set) in filter_keys.iter().enumerate() {
+                                if !key_set.is_empty() {
+                                    if let Some(event_key) = event.keys.get(i) {
+                                        if !key_set.contains(event_key) {
+                                            matches = false;
+                                            break;
+                                        }
+                                    } else {
+                                        matches = false;
+                                        break;
+                                    }
+                                }
+                            }
+
+                            if !matches {
+                                continue;
+                            }
+                        }
+
+                        // Event matches the filter, add it to the buffer
+                        events_buffer.push(EmittedEvent {
+                            from_address: event.from_address,
+                            keys: event.keys.clone(),
+                            data: event.data.clone(),
+                            block_hash: None, // Optimistic transactions don't have a block hash yet
+                            block_number: None, /* Optimistic transactions don't have a block
+                                               * number yet */
+                            transaction_hash: tx.hash,
+                        });
+
+                        // Stop if we've reached the chunk size limit
+                        if events_buffer.len() >= chunk_size as usize {
+                            // Return a continuation token with the current position
+                            let next_event_idx = event_idx + 1;
+                            let token = katana_primitives::event::ContinuationToken {
+                                block_n: 0, // Not used for optimistic transactions
+                                txn_n: tx_idx as u64,
+                                event_n: next_event_idx as u64,
+                                transaction_hash: Some(tx.hash),
+                            };
+                            return Ok(Some(token));
+                        }
+                    }
+                }
+            }
+        }
+        Ok(None)
+    }
+
     // TODO: should document more and possible find a simpler solution(?)
     fn events_inner(
         &self,
@@ -863,258 +982,149 @@ where
         continuation_token: Option<MaybeForkedContinuationToken>,
         chunk_size: u64,
     ) -> StarknetApiResult<GetEventsResponse> {
-        let client = self.inner.forked_client.as_ref().unwrap();
-        let token = continuation_token.map(|token| token.to_string());
+        let provider = self.inner.backend.blockchain.provider();
 
-        let mut result = futures::executor::block_on(client.get_events(
-            from_block,
-            to_block,
-            address,
-            keys.clone(),
-            token,
-            chunk_size,
-        ))?;
+        let from = self.resolve_event_block_id_if_forked(from_block)?;
+        let to = self.resolve_event_block_id_if_forked(to_block)?;
 
-        if let BlockIdOrTag::PreConfirmed = to_block {
-            // Handle pre-confirmed block logic here
-            if let Some(optimistic_state) = self.inner.optimistic_state.as_ref() {
-                let optimistic_txs = optimistic_state.transactions.read();
-                let tx_filter = Filter { address, keys };
-
-                for (idx, tx, receipt) in
-                    optimistic_txs.iter().enumerate().filter_map(|(idx, (tx, result))| {
-                        if let Some(receipt) = result.receipt() {
-                            Some((idx, tx, receipt))
-                        } else {
-                            None
-                        }
-                    })
-                {
-                    let partial_cursor = fetch_tx_events(
-                        0,
-                        None,
-                        None,
-                        idx,
-                        tx.hash,
-                        receipt.events(),
-                        &tx_filter,
-                        chunk_size as usize,
-                        &mut result.events,
-                    )?;
-                }
-            }
-        }
-
-        Ok(result)
-
-        // let provider = &self.inner.storage_provider.provider();
-
-        // let from = self.resolve_event_block_id_if_forked(from_block)?;
-        // let to = self.resolve_event_block_id_if_forked(to_block)?;
-
-        // // reserved buffer to fill up with events to avoid reallocations
-        // let mut events = Vec::with_capacity(chunk_size as usize);
+        // reserved buffer to fill up with events to avoid reallocations
+        let mut events = Vec::with_capacity(chunk_size as usize);
         // let filter = utils::events::Filter { address, keys: keys.clone() };
 
-        // match (from, to) ick th
-        //     (EventBlockId::Num(from), EventBlockId::Num(to)) => {
-        //         // 1. check if the from and to block is lower than the forked block
-        //         // 2. if both are lower, then we can fetch the events from the provider
+        match (from, to) {
+            (EventBlockId::Num(from), EventBlockId::Num(to)) => {
+                // Check if continuation token is a native (non-forked) token
+                let is_native_token = continuation_token
+                    .as_ref()
+                    .map_or(false, |t| matches!(t, MaybeForkedContinuationToken::Token(_)));
 
-        //         // first determine whether the continuation token is from the forked client
-        //         let from_after_forked_if_any = if let Some(client) = &self.inner.forked_client {
-        //             let forked_block = *client.block();
+                // Only fetch from forked client if we don't have a native continuation token
+                if !is_native_token {
+                    let client = &self.inner.forked_client.as_ref().unwrap();
+                    // Extract forked token if present
+                    let forked_token = continuation_token.as_ref().and_then(|t| match t {
+                        MaybeForkedContinuationToken::Forked(token) => Some(token.clone()),
+                        _ => None,
+                    });
 
-        //             // if the from block is lower than the forked block, we fetch events from the
-        //             // forked client
-        //             if from <= forked_block {
-        //                 // if the to_block is greater than the forked block, we limit the to_block
-        //                 // up until the forked block
-        //                 let to = if to <= forked_block { to } else { forked_block };
+                    let forked_result = futures::executor::block_on(client.get_events(
+                        BlockIdOrTag::Number(from),
+                        BlockIdOrTag::Number(to),
+                        address,
+                        keys.clone(),
+                        forked_token,
+                        chunk_size,
+                    ))?;
 
-        //                 // basically this is to determine that if the token is a katana native
-        //                 // token, then we can skip fetching from the forked
-        //                 // network. but if theres no token at all, or the
-        //                 // token is a forked token, then we need to fetch from the forked network.
-        //                 //
-        //                 // TODO: simplify this
-        //                 let forked_token = Some(continuation_token.clone()).and_then(|t| match t {
-        //                     None => Some(None),
-        //                     Some(t) => match t {
-        //                         MaybeForkedContinuationToken::Token(_) => None,
-        //                         MaybeForkedContinuationToken::Forked(t) => {
-        //                             Some(Some(t.to_string()))
-        //                         }
-        //                     },
-        //                 });
+                    events.extend(forked_result.events);
 
-        //                 // check if the continuation token is a forked continuation token
-        //                 // if not we skip fetching from forked network
-        //                 if let Some(token) = forked_token {
-        //                     let forked_result = futures::executor::block_on(
-        //                         client.get_events(from, to, address, keys, token, chunk_size),
-        //                     )?;
+                    // Return early if there's a continuation token from forked network
+                    if let Some(token) = forked_result.continuation_token {
+                        let token = Some(MaybeForkedContinuationToken::Forked(token).to_string());
+                        return Ok(GetEventsResponse { events, continuation_token: token });
+                    }
+                }
 
-        //                     events.extend(forked_result.events);
+                // Fetch events from optimistic state transactions
+                // Extract native token if present
+                let native_token = continuation_token.as_ref().and_then(|t| match t {
+                    MaybeForkedContinuationToken::Token(token) => Some(token),
+                    _ => None,
+                });
+                let opt_token = self.fetch_optimistic_events(
+                    address,
+                    &keys,
+                    &mut events,
+                    chunk_size,
+                    native_token,
+                )?;
 
-        //                     // return early if a token is present
-        //                     if let Some(token) = forked_result.continuation_token {
-        //                         let token = MaybeForkedContinuationToken::Forked(token);
-        //                         let continuation_token = Some(token.to_string());
-        //                         return Ok(GetEventsResponse { events, continuation_token });
-        //                     }
-        //                 }
-        //             }
+                let continuation_token =
+                    opt_token.map(|t| MaybeForkedContinuationToken::Token(t).to_string());
+                Ok(GetEventsResponse { events, continuation_token })
+            }
 
-        //             // we start from block + 1 because we dont have the events locally and we may
-        //             // have fetched it from the forked network earlier
-        //             *client.block() + 1
-        //         } else {
-        //             from
-        //         };
+            (EventBlockId::Num(from), EventBlockId::Pending) => {
+                // Check if continuation token is a native (non-forked) token
+                let is_native_token = continuation_token
+                    .as_ref()
+                    .map_or(false, |t| matches!(t, MaybeForkedContinuationToken::Token(_)));
 
-        //         let cursor = continuation_token.and_then(|t| t.to_token().map(|t| t.into()));
-        //         let block_range = from_after_forked_if_any..=to;
+                // Only fetch from forked client if we don't have a native continuation token
+                if !is_native_token {
+                    let client = &self.inner.forked_client.as_ref().unwrap();
+                    // Extract forked token if present
+                    let forked_token = continuation_token.as_ref().and_then(|t| match t {
+                        MaybeForkedContinuationToken::Forked(token) => Some(token.clone()),
+                        _ => None,
+                    });
 
-        //         let cursor = utils::events::fetch_events_at_blocks(
-        //             provider,
-        //             block_range,
-        //             &filter,
-        //             chunk_size,
-        //             cursor,
-        //             &mut events,
-        //         )?;
+                    let forked_result = futures::executor::block_on(client.get_events(
+                        BlockIdOrTag::Number(from),
+                        BlockIdOrTag::Latest,
+                        address,
+                        keys.clone(),
+                        forked_token,
+                        chunk_size,
+                    ))?;
 
-        //         let continuation_token = cursor.map(|c| c.into_rpc_cursor().to_string());
-        //         let events_page = GetEventsResponse { events, continuation_token };
+                    events.extend(forked_result.events);
 
-        //         Ok(events_page)
-        //     }
+                    // Return early if there's a continuation token from forked network
+                    if let Some(token) = forked_result.continuation_token {
+                        let token = MaybeForkedContinuationToken::Forked(token);
+                        return Ok(GetEventsResponse {
+                            events,
+                            continuation_token: Some(token.to_string()),
+                        });
+                    }
+                }
 
-        //     (EventBlockId::Num(from), EventBlockId::Pending) => {
-        //         // 1. check if the from and to block is lower than the forked block
-        //         // 2. if both are lower, then we can fetch the events from the provider
+                // Fetch events from optimistic state transactions (which serve as "pending"
+                // transactions)
+                // Extract native token if present
+                let native_token = continuation_token.as_ref().and_then(|t| match t {
+                    MaybeForkedContinuationToken::Token(token) => Some(token),
+                    _ => None,
+                });
+                let opt_token = self.fetch_optimistic_events(
+                    address,
+                    &keys,
+                    &mut events,
+                    chunk_size,
+                    native_token,
+                )?;
 
-        //         // first determine whether the continuation token is from the forked client
-        //         let from_after_forked_if_any = if let Some(client) = &self.inner.forked_client {
-        //             let forked_block = *client.block();
+                let continuation_token =
+                    opt_token.map(|t| MaybeForkedContinuationToken::Token(t).to_string());
+                Ok(GetEventsResponse { events, continuation_token })
+            }
 
-        //             // if the from block is lower than the forked block, we fetch events from the
-        //             // forked client
-        //             if from <= forked_block {
-        //                 // we limit the to_block up until the forked block bcs pending block is
-        //                 // pointing to a locally block
-        //                 let to = forked_block;
+            (EventBlockId::Pending, EventBlockId::Pending) => {
+                // Fetch events from optimistic state transactions (which represent pending
+                // transactions)
+                // Extract native token if present
+                let native_token = continuation_token.as_ref().and_then(|t| match t {
+                    MaybeForkedContinuationToken::Token(token) => Some(token),
+                    _ => None,
+                });
+                let opt_token = self.fetch_optimistic_events(
+                    address,
+                    &keys,
+                    &mut events,
+                    chunk_size,
+                    native_token,
+                )?;
 
-        //                 // basically this is to determine that if the token is a katana native
-        //                 // token, then we can skip fetching from the forked
-        //                 // network. but if theres no token at all, or the
-        //                 // token is a forked token, then we need to fetch from the forked network.
-        //                 //
-        //                 // TODO: simplify this
-        //                 let forked_token = Some(continuation_token.clone()).and_then(|t| match t {
-        //                     None => Some(None),
-        //                     Some(t) => match t {
-        //                         MaybeForkedContinuationToken::Token(_) => None,
-        //                         MaybeForkedContinuationToken::Forked(t) => {
-        //                             Some(Some(t.to_string()))
-        //                         }
-        //                     },
-        //                 });
+                let continuation_token =
+                    opt_token.map(|t| MaybeForkedContinuationToken::Token(t).to_string());
+                Ok(GetEventsResponse { events, continuation_token })
+            }
 
-        //                 // check if the continuation token is a forked continuation token
-        //                 // if not we skip fetching from forked network
-        //                 if let Some(token) = forked_token {
-        //                     let forked_result = futures::executor::block_on(
-        //                         client.get_events(from, to, address, keys, token, chunk_size),
-        //                     )?;
-
-        //                     events.extend(forked_result.events);
-
-        //                     // return early if a token is present
-        //                     if let Some(token) = forked_result.continuation_token {
-        //                         let token = MaybeForkedContinuationToken::Forked(token);
-        //                         let continuation_token = Some(token.to_string());
-        //                         return Ok(GetEventsResponse { events, continuation_token });
-        //                     }
-        //                 }
-        //             }
-
-        //             // we start from block + 1 because we dont have the events locally and we may
-        //             // have fetched it from the forked network earlier
-        //             *client.block() + 1
-        //         } else {
-        //             from
-        //         };
-
-        //         let cursor = continuation_token.and_then(|t| t.to_token().map(|t| t.into()));
-        //         let latest = provider.latest_number()?;
-        //         let block_range = from_after_forked_if_any..=latest;
-
-        //         let int_cursor = utils::events::fetch_events_at_blocks(
-        //             provider,
-        //             block_range,
-        //             &filter,
-        //             chunk_size,
-        //             cursor.clone(),
-        //             &mut events,
-        //         )?;
-
-        //         // if the internal cursor is Some, meaning the buffer is full and we havent
-        //         // reached the latest block.
-        //         if let Some(c) = int_cursor {
-        //             let continuation_token = Some(c.into_rpc_cursor().to_string());
-        //             return Ok(GetEventsResponse { events, continuation_token });
-        //         }
-
-        //         if let Some(block) =
-        //             self.inner.pending_block_provider.get_pending_block_with_receipts()?
-        //         {
-        //             let cursor = utils::events::fetch_pending_events(
-        //                 &block,
-        //                 &filter,
-        //                 chunk_size,
-        //                 cursor,
-        //                 &mut events,
-        //             )?;
-
-        //             let continuation_token = Some(cursor.into_rpc_cursor().to_string());
-        //             Ok(GetEventsResponse { events, continuation_token })
-        //         } else {
-        //             let cursor = Cursor::new_block(latest + 1);
-        //             let continuation_token = Some(cursor.into_rpc_cursor().to_string());
-        //             Ok(GetEventsResponse { events, continuation_token })
-        //         }
-        //     }
-
-        //     (EventBlockId::Pending, EventBlockId::Pending) => {
-        //         if let Some(block) =
-        //             self.inner.pending_block_provider.get_pending_block_with_receipts()?
-        //         {
-        //             let cursor = continuation_token.and_then(|t| t.to_token().map(|t| t.into()));
-        //             let new_cursor = utils::events::fetch_pending_events(
-        //                 &block,
-        //                 &filter,
-        //                 chunk_size,
-        //                 cursor,
-        //                 &mut events,
-        //             )?;
-
-        //             let continuation_token = Some(new_cursor.into_rpc_cursor().to_string());
-        //             Ok(GetEventsResponse { events, continuation_token })
-        //         } else {
-        //             let latest = provider.latest_number()?;
-        //             let new_cursor = Cursor::new_block(latest);
-
-        //             let continuation_token = Some(new_cursor.into_rpc_cursor().to_string());
-        //             Ok(GetEventsResponse { events, continuation_token })
-        //         }
-        //     }
-
-        //     (EventBlockId::Pending, EventBlockId::Num(_)) => Err(StarknetApiError::unexpected(
-        //         "Invalid block range; `from` block must be lower than `to`",
-        //     )),
-        // }
+            (EventBlockId::Pending, EventBlockId::Num(_)) => Err(StarknetApiError::unexpected(
+                "Invalid block range; `from` block must be lower than `to`",
+            )),
+        }
     }
 
     // Determine the block number based on its Id. In the case where the block id is a hash, we need

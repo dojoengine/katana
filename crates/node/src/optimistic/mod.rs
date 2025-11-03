@@ -30,10 +30,11 @@ use katana_rpc_api::starknet::{StarknetApiServer, StarknetTraceApiServer, Starkn
 use katana_tasks::{JoinHandle, TaskManager};
 use tracing::info;
 
-mod config;
+pub mod config;
 
 use config::Config;
 
+pub use self::config::*;
 use crate::config::rpc::RpcModuleKind;
 
 #[derive(Debug)]
@@ -140,6 +141,7 @@ impl Node {
             optimistic_state.clone(),
             executor_factory.clone(),
             task_spawner.clone(),
+            starknet_client.clone(),
         );
 
         // --- build rpc server
@@ -171,7 +173,7 @@ impl Node {
             starknet_api_cfg,
             starknet_client.clone(),
             blockchain,
-            optimistic_state.clone(),
+            Some(optimistic_state.clone()),
         );
 
         if config.rpc.apis.contains(&RpcModuleKind::Starknet) {

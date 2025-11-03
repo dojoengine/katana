@@ -66,6 +66,7 @@ impl Cursor {
             block_n: self.block,
             txn_n: self.txn.idx as u64,
             event_n: self.txn.event as u64,
+            transaction_hash: None,
         }
     }
 }

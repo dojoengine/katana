@@ -20,3 +20,4 @@ katana-pool-api.workspace = true
 parking_lot.workspace = true
 tracing.workspace = true
 katana-db.workspace = true
+tokio.workspace = true
