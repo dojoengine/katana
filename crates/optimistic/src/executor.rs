@@ -12,7 +12,9 @@ use katana_executor::{ExecutionResult, ExecutorFactory};
 use katana_pool::ordering::FiFo;
 use katana_pool::{PendingTransactions, PoolTransaction, TransactionPool};
 use katana_primitives::block::BlockIdOrTag;
+use katana_primitives::env::BlockEnv;
 use katana_primitives::transaction::TxWithHash;
+use katana_provider::api::env::BlockEnvProvider;
 use katana_provider::api::state::{StateFactoryProvider, StateProvider};
 use katana_provider::providers::db::cached::{CachedStateProvider, SharedStateCache};
 use katana_rpc_client::starknet::Client;
@@ -51,6 +53,7 @@ pub struct OptimisticExecutor {
     storage: Blockchain,
     task_spawner: TaskSpawner,
     client: Client,
+    block_env: Arc<RwLock<BlockEnv>>,
 }
 
 impl OptimisticExecutor {
@@ -62,6 +65,7 @@ impl OptimisticExecutor {
     /// * `backend` - The backend containing the executor factory and blockchain state
     /// * `task_spawner` - The task spawner used to run the executor actor
     /// * `client` - The RPC client used to poll for confirmed blocks
+    /// * `block_env` - The initial block environment
     pub fn new(
         pool: TxPool,
         storage: Blockchain,
@@ -69,8 +73,17 @@ impl OptimisticExecutor {
         executor_factory: Arc<BlockifierFactory>,
         task_spawner: TaskSpawner,
         client: Client,
+        block_env: BlockEnv,
     ) -> Self {
-        Self { pool, optimistic_state, executor_factory, task_spawner, storage, client }
+        Self {
+            pool,
+            optimistic_state,
+            executor_factory,
+            task_spawner,
+            storage,
+            client,
+            block_env: Arc::new(RwLock::new(block_env)),
+        }
     }
 
     /// Spawns the optimistic executor actor task.
@@ -86,26 +99,34 @@ impl OptimisticExecutor {
         let executor_handle = self.task_spawner.build_task().name("Optimistic Executor").spawn(
             OptimisticExecutorActor::new(
                 self.pool,
-                self.storage,
+                self.storage.clone(),
                 self.optimistic_state.clone(),
                 self.executor_factory,
                 self.task_spawner.clone(),
+                self.block_env.clone(),
             ),
         );
 
         // Spawn the block polling task
         let client = self.client;
         let optimistic_state = self.optimistic_state;
+        let block_env = self.block_env;
+        let storage = self.storage;
         self.task_spawner.build_task().name("Block Polling").spawn(async move {
-            Self::poll_confirmed_blocks(client, optimistic_state).await;
+            Self::poll_confirmed_blocks(client, optimistic_state, block_env, storage).await;
         });
 
         executor_handle
     }
 
     /// Polls for confirmed blocks every 2 seconds and removes transactions from the optimistic
-    /// state when they appear in confirmed blocks.
-    async fn poll_confirmed_blocks(client: Client, optimistic_state: OptimisticState) {
+    /// state when they appear in confirmed blocks. Also updates the block environment.
+    async fn poll_confirmed_blocks(
+        client: Client,
+        optimistic_state: OptimisticState,
+        block_env: Arc<RwLock<BlockEnv>>,
+        storage: Blockchain,
+    ) {
         let mut last_block_number = None;
 
         loop {
@@ -133,6 +154,14 @@ impl OptimisticExecutor {
                     // Update the last seen block number
                     last_block_number = Some(block_number);
                     info!(%block_number, "New block received.");
+
+                    // Update the block environment for the next optimistic execution
+                    if let Ok(provider) = storage.provider().block_env_at(block_number.into()) {
+                        if let Some(new_block_env) = provider {
+                            *block_env.write() = new_block_env;
+                            trace!(target: LOG_TARGET, block_number, "Updated block environment");
+                        }
+                    }
 
                     if block_tx_hashes.is_empty() {
                         continue;
@@ -184,6 +213,7 @@ struct OptimisticExecutorActor {
     executor_factory: Arc<BlockifierFactory>,
     task_spawner: TaskSpawner,
     ongoing_execution: Option<CpuBlockingJoinHandle<anyhow::Result<()>>>,
+    block_env: Arc<RwLock<BlockEnv>>,
 }
 
 impl OptimisticExecutorActor {
@@ -194,6 +224,7 @@ impl OptimisticExecutorActor {
         optimistic_state: OptimisticState,
         executor_factory: Arc<BlockifierFactory>,
         task_spawner: TaskSpawner,
+        block_env: Arc<RwLock<BlockEnv>>,
     ) -> Self {
         let pending_txs = pool.pending_transactions();
         Self {
@@ -204,6 +235,7 @@ impl OptimisticExecutorActor {
             executor_factory,
             task_spawner,
             ongoing_execution: None,
+            block_env,
         }
     }
 
@@ -213,12 +245,16 @@ impl OptimisticExecutorActor {
         storage: Blockchain,
         optimistic_state: OptimisticState,
         executor_factory: Arc<BlockifierFactory>,
+        block_env: Arc<RwLock<BlockEnv>>,
         tx: BroadcastedTxWithChainId,
     ) -> anyhow::Result<()> {
         let latest_state = storage.provider().latest()?;
         let state = optimistic_state.get_optimistic_state(latest_state);
 
-        let mut executor = executor_factory.with_state(state);
+        // Get the current block environment
+        let current_block_env = block_env.read().clone();
+
+        let mut executor = executor_factory.with_state_and_block_env(state, current_block_env);
 
         // Execute the transaction
         let tx_hash = tx.hash();
@@ -308,6 +344,7 @@ impl Future for OptimisticExecutorActor {
                     let storage = this.storage.clone();
                     let optimistic_state = this.optimistic_state.clone();
                     let executor_factory = this.executor_factory.clone();
+                    let block_env = this.block_env.clone();
 
                     let execution_future = this.task_spawner.cpu_bound().spawn(move || {
                         Self::execute_transaction(
@@ -315,6 +352,7 @@ impl Future for OptimisticExecutorActor {
                             storage,
                             optimistic_state,
                             executor_factory,
+                            block_env,
                             tx,
                         )
                     });

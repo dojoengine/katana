@@ -21,6 +21,8 @@ use katana_optimistic::pool::{PoolValidator, TxPool};
 use katana_pool::ordering::FiFo;
 use katana_primitives::block::BlockIdOrTag;
 use katana_primitives::env::{CfgEnv, FeeTokenAddressses};
+use katana_provider::api::block::BlockNumberProvider;
+use katana_provider::api::env::BlockEnvProvider;
 use katana_provider::providers::fork::ForkedProvider;
 use katana_rpc::cors::Cors;
 use katana_rpc::starknet::forking::ForkedClient;
@@ -134,6 +136,16 @@ impl Node {
 
         let optimistic_state = OptimisticState::new();
 
+        // Get the initial block environment from the latest block
+        let latest_num = blockchain.provider().latest_number()?;
+        let mut initial_block_env = blockchain
+            .provider()
+            .block_env_at(latest_num.into())?
+            .ok_or_else(|| anyhow::anyhow!("Failed to get initial block environment"))?;
+
+        // Update the block environment to the next block
+        backend.update_block_env(&mut initial_block_env);
+
         // this is the component that will populate the optimistic state
         let executor = OptimisticExecutor::new(
             pool.clone(),
@@ -142,6 +154,7 @@ impl Node {
             executor_factory.clone(),
             task_spawner.clone(),
             starknet_client.clone(),
+            initial_block_env,
         );
 
         // --- build rpc server
