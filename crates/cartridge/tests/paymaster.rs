@@ -26,6 +26,7 @@ use url::Url;
 
 use cartridge::client::Client;
 use cartridge::paymaster::{Error, Paymaster};
+use cartridge::vrf::{VrfContext, CARTRIDGE_VRF_DEFAULT_PRIVATE_KEY};
 use katana_pool::TxPool;
 use katana_primitives::contract::ContractAddress;
 use katana_primitives::da::DataAvailabilityMode;
@@ -123,7 +124,7 @@ async fn setup(
     let client = Client::new(Url::parse(cartridge_url).unwrap());
 
     // use the first genesis account as the paymaster account
-    let (account_address, account) = sequencer
+    let (pm_address, pm_account) = sequencer
         .backend()
         .chain_spec
         .genesis()
@@ -131,15 +132,16 @@ async fn setup(
         .nth(0)
         .expect("must have at least one account");
 
-    let private_key = account.private_key().expect("must exist");
+    let private_key = pm_account.private_key().expect("must exist");
 
     let paymaster = Paymaster::new(
         starknet_api,
         client,
         TxPool::new(validator.clone(), FiFo::new()),
         ChainId::Id(Felt::ONE),
-        paymaster_address.unwrap_or(*account_address),
+        paymaster_address.unwrap_or(*pm_address),
         paymaster_private_key.unwrap_or(SigningKey::from_secret_scalar(private_key)),
+        VrfContext::new(CARTRIDGE_VRF_DEFAULT_PRIVATE_KEY, *pm_address),
     );
 
     (sequencer, paymaster)
@@ -320,7 +322,7 @@ async fn test_starknet_estimate_fee_sender_with_invalid_paymaster_config() {
     let wrong_paymaster_address = ContractAddress::from(Felt::THREE);
     let (_, paymaster) = setup(&server.url(), Some(wrong_paymaster_address), None).await;
 
-    let mocks = setup_mocks(&mut server, &[(CONTROLLER_ADDRESS_1, true, true)]).await;
+    let mocks = setup_mocks(&mut server, &[(CONTROLLER_ADDRESS_1, true, false)]).await;
 
     let sender_address = ContractAddress::from(Felt::from_hex(CONTROLLER_ADDRESS_1).unwrap());
     let tx = invoke_tx(sender_address);
@@ -374,7 +376,7 @@ async fn test_cartridge_outside_transaction_when_caller_is_not_a_controller() {
     let mut server = setup_cartridge_server().await;
     let (_, paymaster) = setup(&server.url(), None, None).await;
 
-    let mocks = setup_mocks(&mut server, &[(CONTROLLER_ADDRESS_1, false, false)]).await;
+    let mocks = setup_mocks(&mut server, &[(CONTROLLER_ADDRESS_1, false, true)]).await;
 
     let res = paymaster.handle_add_outside_execution(
         ContractAddress::from(Felt::from_hex(CONTROLLER_ADDRESS_1).unwrap()),
@@ -383,7 +385,6 @@ async fn test_cartridge_outside_transaction_when_caller_is_not_a_controller() {
     );
 
     assert!(res.is_ok());
-    assert!(res.unwrap().is_none());
 
     assert_mocks(&mocks);
 }
@@ -411,7 +412,6 @@ async fn test_cartridge_outside_transaction_when_caller_is_an_already_deployed_c
     );
 
     assert!(res.is_ok());
-    assert!(res.unwrap().is_none());
 
     assert_mocks(&mocks);
 }
@@ -430,7 +430,6 @@ async fn test_cartridge_outside_transaction_when_caller_is_a_not_yet_deployed_co
     );
 
     assert!(res.is_ok());
-    assert!(res.unwrap().is_some());
 
     assert_mocks(&mocks);
 }
@@ -460,7 +459,7 @@ async fn test_cartridge_outside_transaction_when_paymaster_is_not_properly_confi
     let mut server = setup_cartridge_server().await;
     let (_, paymaster) = setup(&server.url(), Some(ContractAddress::from(Felt::THREE)), None).await;
 
-    let mocks = setup_mocks(&mut server, &[(CONTROLLER_ADDRESS_1, true, true)]).await;
+    let mocks = setup_mocks(&mut server, &[(CONTROLLER_ADDRESS_1, true, false)]).await;
 
     let res = paymaster.handle_add_outside_execution(
         ContractAddress::from(Felt::from_hex(CONTROLLER_ADDRESS_1).unwrap()),

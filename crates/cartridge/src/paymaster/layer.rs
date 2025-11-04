@@ -11,7 +11,6 @@ use katana_primitives::{ContractAddress, Felt};
 use katana_rpc_types::broadcasted::BroadcastedTx;
 use serde::Deserialize;
 use starknet::core::types::SimulationFlagForEstimateFee;
-use tracing::trace;
 
 use super::{Error, Paymaster};
 use crate::rpc::types::OutsideExecution;
@@ -101,7 +100,7 @@ where
         request.params = params;
     }
 
-    fn intercept_add_outside_execution(&self, request: &Request<'_>) -> Option<MethodResponse> {
+    fn intercept_add_outside_execution(&self, request: &mut Request<'_>) {
         let params = request.params();
 
         let (controller_address, outside_execution, signature) = if params.is_object() {
@@ -115,7 +114,7 @@ where
 
             let parsed: ParamsObject = match params.parse() {
                 Ok(p) => p,
-                Err(..) => return None,
+                Err(..) => return,
             };
 
             (parsed.address, parsed.outside_execution, parsed.signature)
@@ -124,17 +123,17 @@ where
 
             let address = match seq.next::<ContractAddress>() {
                 Ok(v) => v,
-                Err(..) => return None,
+                Err(..) => return,
             };
 
             let outside_execution = match seq.next::<OutsideExecution>() {
                 Ok(v) => v,
-                Err(..) => return None,
+                Err(..) => return,
             };
 
             let signature = match seq.next::<Vec<Felt>>() {
                 Ok(v) => v,
-                Err(..) => return None,
+                Err(..) => return,
             };
 
             (address, outside_execution, signature)
@@ -145,17 +144,20 @@ where
             outside_execution,
             signature,
         ) {
-            Ok(Some(tx_hash)) => {
-                trace!(
-                    target: "paymaster",
-                    tx_hash = format!("{tx_hash:#x}"),
-                    "Controller deploy transaction submitted",
-                );
+            Ok(Some((outside_execution, signature))) => {
+                let new_params = {
+                    let mut params = jsonrpsee::core::params::ArrayParams::new();
+                    params.insert(controller_address).unwrap();
+                    params.insert(outside_execution).unwrap();
+                    params.insert(signature).unwrap();
+                    params
+                };
 
-                None
+                let params = new_params.to_rpc_params().unwrap();
+                let params = params.map(Cow::Owned);
+                request.params = params;
             }
-            Ok(None) => None,
-            Err(Error::ControllerNotFound(..)) => None,
+            Ok(None) | Err(Error::ControllerNotFound(..)) => {}
             Err(error) => panic!("{error}"),
         }
     }
@@ -194,7 +196,7 @@ where
         if request.method_name() == "starknet_estimateFee" {
             self.intercept_estimate_fee(&mut request);
         } else if request.method_name() == "cartridge_addExecuteOutsideTransaction" {
-            self.intercept_add_outside_execution(&request);
+            self.intercept_add_outside_execution(&mut request);
         }
 
         self.service.call(request)

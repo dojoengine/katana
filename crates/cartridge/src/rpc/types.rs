@@ -17,10 +17,12 @@ use cainome::cairo_serde::{deserialize_from_hex, serialize_as_hex};
 use cainome::cairo_serde_derive::CairoSerde;
 use katana_primitives::{ContractAddress, Felt};
 use serde::{Deserialize, Serialize};
+use starknet::core::types::Call as StarknetCall;
 
 /// A single call to be executed as part of an outside execution.
-///
-/// _(kariy): how do we remove the redundacy with starknet-rs's Call type?
+/// Note: it's not possible to directly use the Call type from starknet-rs as
+/// we can implement external traits like CairoSerde.
+/// Use Into/From traits implementation instead.
 #[derive(Clone, CairoSerde, Serialize, Deserialize, PartialEq, Debug)]
 pub struct Call {
     /// Contract address to call.
@@ -31,12 +33,24 @@ pub struct Call {
     pub calldata: Vec<Felt>,
 }
 
+impl From<StarknetCall> for Call {
+    fn from(call: StarknetCall) -> Self {
+        Self { to: call.to.into(), selector: call.selector, calldata: call.calldata }
+    }
+}
+
 /// Nonce channel
 #[derive(Clone, CairoSerde, PartialEq, Debug, Serialize, Deserialize)]
 pub struct NonceChannel(
     Felt,
     #[serde(serialize_with = "serialize_as_hex", deserialize_with = "deserialize_from_hex")] u128,
 );
+
+impl NonceChannel {
+    pub fn copy_with_other_nonce(&self, nonce: Felt) -> Self {
+        Self(nonce, self.1)
+    }
+}
 
 /// Outside execution version 2 (SNIP-9 standard).
 #[derive(Clone, CairoSerde, Serialize, Deserialize, PartialEq, Debug)]

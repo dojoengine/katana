@@ -269,6 +269,8 @@ where
                 config.chain.id(),
                 *pm_address,
                 SigningKey::from_secret_scalar(pm_private_key),
+                // TODO RBA: should we get the private key from the config?
+                VrfContext::new(CARTRIDGE_VRF_DEFAULT_PRIVATE_KEY, *pm_address),
             ))
         } else {
             None
