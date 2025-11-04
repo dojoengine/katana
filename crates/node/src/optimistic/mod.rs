@@ -21,10 +21,10 @@ use katana_optimistic::pool::{PoolValidator, TxPool};
 use katana_pool::ordering::FiFo;
 use katana_primitives::block::BlockIdOrTag;
 use katana_primitives::env::{CfgEnv, FeeTokenAddressses};
-use katana_provider::providers::db::cached::CachedDbProvider;
+use katana_provider::providers::fork::ForkedProvider;
 use katana_rpc::cors::Cors;
 use katana_rpc::starknet::forking::ForkedClient;
-use katana_rpc::starknet::{StarknetApi, StarknetApiConfig};
+use katana_rpc::starknet::{OptimisticPendingBlockProvider, StarknetApi, StarknetApiConfig};
 use katana_rpc::{RpcServer, RpcServerHandle};
 use katana_rpc_api::starknet::{StarknetApiServer, StarknetTraceApiServer, StarknetWriteApiServer};
 use katana_tasks::{JoinHandle, TaskManager};
@@ -110,14 +110,13 @@ impl Node {
         let db = katana_db::Db::in_memory()?;
         let forked_block_id = BlockIdOrTag::Latest;
 
-        let database = CachedDbProvider::new(db.clone(), forked_block_id, starknet_client.clone());
-        let blockchain = Blockchain::new(database.clone());
-
+        let storage_p = ForkedProvider::new(db.clone(), forked_block_id, starknet_client.clone());
         let forked_client = ForkedClient::new(starknet_client.clone(), forked_block_id);
 
+        let blockchain = Blockchain::new(storage_p.clone());
         let gpo = GasPriceOracle::sampled_starknet(config.forking.url.clone());
-
         let block_context_generator = BlockContextGenerator::default().into();
+
         let backend = Arc::new(Backend {
             gas_oracle: gpo.clone(),
             blockchain: blockchain.clone(),
@@ -133,8 +132,9 @@ impl Node {
 
         // -- build executor
 
-        let optimistic_state = OptimisticState::new(database.clone());
+        let optimistic_state = OptimisticState::new();
 
+        // this is the component that will populate the optimistic state
         let executor = OptimisticExecutor::new(
             pool.clone(),
             blockchain.clone(),
@@ -165,13 +165,20 @@ impl Node {
             paymaster: None,
         };
 
+        // Create the optimistic pending block provider
+        let pending_block_provider = OptimisticPendingBlockProvider::new(
+            optimistic_state.clone(),
+            starknet_client.clone(),
+            blockchain.clone(),
+        );
+
         let starknet_api = StarknetApi::new_forked(
             backend.clone(),
             pool.clone(),
             forked_client,
             task_spawner.clone(),
             starknet_api_cfg,
-            starknet_client.clone(),
+            pending_block_provider,
             blockchain,
             Some(optimistic_state.clone()),
         );
@@ -201,6 +208,8 @@ impl Node {
         if let Some(max_response_body_size) = config.rpc.max_response_body_size {
             rpc_server = rpc_server.max_response_body_size(max_response_body_size);
         }
+
+        info!("Build complete.");
 
         Ok(Node { db, pool, backend, rpc_server, config: config.into(), task_manager, executor })
     }

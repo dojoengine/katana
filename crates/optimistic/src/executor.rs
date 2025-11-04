@@ -13,9 +13,10 @@ use katana_pool::ordering::FiFo;
 use katana_pool::{PendingTransactions, PoolTransaction, TransactionPool};
 use katana_primitives::block::BlockIdOrTag;
 use katana_primitives::transaction::TxWithHash;
-use katana_provider::api::state::StateFactoryProvider;
-use katana_provider::providers::db::cached::CachedDbProvider;
+use katana_provider::api::state::{StateFactoryProvider, StateProvider};
+use katana_provider::providers::db::cached::{CachedStateProvider, SharedStateCache};
 use katana_rpc_client::starknet::Client;
+use katana_rpc_types::block::GetBlockWithTxHashesResponse;
 use katana_rpc_types::BroadcastedTxWithChainId;
 use katana_tasks::{CpuBlockingJoinHandle, JoinHandle, Result as TaskResult, TaskSpawner};
 use parking_lot::RwLock;
@@ -28,13 +29,17 @@ const LOG_TARGET: &str = "optimistic_executor";
 
 #[derive(Debug, Clone)]
 pub struct OptimisticState {
-    pub state: CachedDbProvider<katana_db::Db>,
+    pub state: SharedStateCache,
     pub transactions: Arc<RwLock<Vec<(TxWithHash, ExecutionResult)>>>,
 }
 
 impl OptimisticState {
-    pub fn new(state: CachedDbProvider<katana_db::Db>) -> Self {
-        Self { state, transactions: Arc::new(RwLock::new(Vec::new())) }
+    pub fn new() -> Self {
+        Self { state: SharedStateCache::default(), transactions: Arc::new(RwLock::new(Vec::new())) }
+    }
+
+    pub fn get_optimistic_state(&self, base: Box<dyn StateProvider>) -> Box<dyn StateProvider> {
+        Box::new(CachedStateProvider::new(base, self.state.clone()))
     }
 }
 
@@ -101,13 +106,13 @@ impl OptimisticExecutor {
     /// Polls for confirmed blocks every 2 seconds and removes transactions from the optimistic
     /// state when they appear in confirmed blocks.
     async fn poll_confirmed_blocks(client: Client, optimistic_state: OptimisticState) {
+        let mut last_block_number = None;
+
         loop {
             sleep(Duration::from_secs(2)).await;
 
             match client.get_block_with_tx_hashes(BlockIdOrTag::Latest).await {
                 Ok(block_response) => {
-                    use katana_rpc_types::block::GetBlockWithTxHashesResponse;
-
                     let (block_number, block_tx_hashes) = match block_response {
                         GetBlockWithTxHashesResponse::Block(block) => {
                             (block.block_number, block.transactions)
@@ -116,6 +121,18 @@ impl OptimisticExecutor {
                             (block.block_number, block.transactions)
                         }
                     };
+
+                    // Check if this is a new block
+                    if let Some(last_num) = last_block_number {
+                        if block_number <= last_num {
+                            // Same block, skip processing
+                            continue;
+                        }
+                    }
+
+                    // Update the last seen block number
+                    last_block_number = Some(block_number);
+                    info!(%block_number, "New block received.");
 
                     if block_tx_hashes.is_empty() {
                         continue;
@@ -193,12 +210,15 @@ impl OptimisticExecutorActor {
     /// Execute a single transaction optimistically against the latest state.
     fn execute_transaction(
         pool: TxPool,
+        storage: Blockchain,
         optimistic_state: OptimisticState,
         executor_factory: Arc<BlockifierFactory>,
         tx: BroadcastedTxWithChainId,
     ) -> anyhow::Result<()> {
-        let latest_state = optimistic_state.state.latest().unwrap();
-        let mut executor = executor_factory.with_state(latest_state);
+        let latest_state = storage.provider().latest()?;
+        let state = optimistic_state.get_optimistic_state(latest_state);
+
+        let mut executor = executor_factory.with_state(state);
 
         // Execute the transaction
         let tx_hash = tx.hash();
@@ -285,11 +305,18 @@ impl Future for OptimisticExecutorActor {
 
                     // Spawn the transaction execution on the blocking CPU pool
                     let pool = this.pool.clone();
+                    let storage = this.storage.clone();
                     let optimistic_state = this.optimistic_state.clone();
                     let executor_factory = this.executor_factory.clone();
 
                     let execution_future = this.task_spawner.cpu_bound().spawn(move || {
-                        Self::execute_transaction(pool, optimistic_state, executor_factory, tx)
+                        Self::execute_transaction(
+                            pool,
+                            storage,
+                            optimistic_state,
+                            executor_factory,
+                            tx,
+                        )
                     });
 
                     this.ongoing_execution = Some(execution_future);

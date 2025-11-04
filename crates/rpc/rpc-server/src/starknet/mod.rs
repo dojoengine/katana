@@ -69,6 +69,7 @@ mod write;
 pub use config::PaymasterConfig;
 pub use config::StarknetApiConfig;
 use forking::ForkedClient;
+pub use pending::OptimisticPendingBlockProvider;
 
 type StarknetApiResult<T> = Result<T, StarknetApiError>;
 
@@ -553,6 +554,18 @@ where
     async fn transaction(&self, hash: TxHash) -> StarknetApiResult<RpcTxWithHash> {
         let tx = self
             .on_io_blocking_task(move |this| {
+                // First, check optimistic state for the transaction
+                if let Some(optimistic_state) = &this.inner.optimistic_state {
+                    let transactions = optimistic_state.transactions.read();
+                    if let Some((tx, _result)) = transactions.iter().find(|(tx, _)| tx.hash == hash)
+                    {
+                        return Result::<_, StarknetApiError>::Ok(Some(RpcTxWithHash::from(
+                            tx.clone(),
+                        )));
+                    }
+                }
+
+                // Check pending block provider
                 if let pending_tx @ Some(..) =
                     this.inner.pending_block_provider.get_pending_transaction(hash)?
                 {
@@ -583,6 +596,35 @@ where
     async fn receipt(&self, hash: Felt) -> StarknetApiResult<TxReceiptWithBlockInfo> {
         let receipt = self
             .on_io_blocking_task(move |this| {
+                // First, check optimistic state for the receipt
+                if let Some(optimistic_state) = &this.inner.optimistic_state {
+                    let transactions = optimistic_state.transactions.read();
+                    if let Some((_tx, result)) = transactions.iter().find(|(tx, _)| tx.hash == hash)
+                    {
+                        if let katana_executor::ExecutionResult::Success { receipt, .. } = result {
+                            // Get the latest block number to use as reference
+                            let provider = &this.inner.storage_provider.provider();
+                            let latest_num = provider.latest_number()?;
+
+                            // Create block info as PreConfirmed (optimistic tx not yet in a block)
+                            let block = katana_rpc_types::receipt::ReceiptBlockInfo::PreConfirmed {
+                                block_number: latest_num + 1,
+                            };
+
+                            // Create receipt with block info
+                            let receipt_with_block = TxReceiptWithBlockInfo::new(
+                                block,
+                                hash,
+                                FinalityStatus::PreConfirmed,
+                                receipt.clone(),
+                            );
+
+                            return StarknetApiResult::Ok(Some(receipt_with_block));
+                        }
+                    }
+                }
+
+                // Check pending block provider
                 if let pending_receipt @ Some(..) =
                     this.inner.pending_block_provider.get_pending_receipt(hash)?
                 {
@@ -606,6 +648,31 @@ where
     async fn transaction_status(&self, hash: TxHash) -> StarknetApiResult<TxStatus> {
         let status = self
             .on_io_blocking_task(move |this| {
+                // First, check optimistic state for the transaction
+                if let Some(optimistic_state) = &this.inner.optimistic_state {
+                    let transactions = optimistic_state.transactions.read();
+                    if let Some((_tx, result)) = transactions.iter().find(|(tx, _)| tx.hash == hash)
+                    {
+                        let exec_status = match result {
+                            katana_executor::ExecutionResult::Success { receipt, .. } => {
+                                if let Some(reason) = receipt.revert_reason() {
+                                    katana_rpc_types::ExecutionResult::Reverted {
+                                        reason: reason.to_string(),
+                                    }
+                                } else {
+                                    katana_rpc_types::ExecutionResult::Succeeded
+                                }
+                            }
+                            katana_executor::ExecutionResult::Failed { error } => {
+                                katana_rpc_types::ExecutionResult::Reverted {
+                                    reason: error.to_string(),
+                                }
+                            }
+                        };
+                        return Ok(Some(TxStatus::PreConfirmed(exec_status)));
+                    }
+                }
+
                 let provider = &this.inner.storage_provider.provider();
                 let status = provider.transaction_status(hash)?;
 
@@ -745,15 +812,17 @@ where
                     }
                 }
 
-                if let Some(num) = provider.convert_block_id(block_id)? {
-                    let block = katana_rpc_types_builder::BlockBuilder::new(num.into(), provider)
-                        .build_with_tx_hash()?
-                        .map(GetBlockWithTxHashesResponse::Block);
+                // if let Some(num) = provider.convert_block_id(block_id)? {
+                //     let block = katana_rpc_types_builder::BlockBuilder::new(num.into(), provider)
+                //         .build_with_tx_hash()?
+                //         .map(GetBlockWithTxHashesResponse::Block);
 
-                    StarknetApiResult::Ok(block)
-                } else {
-                    StarknetApiResult::Ok(None)
-                }
+                //     StarknetApiResult::Ok(block)
+                // } else {
+                // StarknetApiResult::Ok(None)
+                // }
+
+                StarknetApiResult::Ok(None)
             })
             .await??;
 

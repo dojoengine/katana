@@ -14,7 +14,6 @@ use katana_provider::api::transaction::{
     TransactionsProviderExt,
 };
 use katana_provider::api::trie::TrieWriter;
-use katana_provider::providers::db::cached::CachedDbProvider;
 use katana_provider::providers::db::DbProvider;
 use katana_provider::providers::fork::ForkedProvider;
 use katana_provider::BlockchainProvider;

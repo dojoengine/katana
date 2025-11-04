@@ -45,6 +45,12 @@ pub struct OptimisticNodeArgs {
 
 impl OptimisticNodeArgs {
     pub async fn execute(&self) -> Result<()> {
+        let tracer_config = self.tracer_config();
+        katana_tracing::init(self.logging.log_format, tracer_config).await?;
+        self.start_node().await
+    }
+
+    async fn start_node(&self) -> Result<()> {
         let config = self.config()?;
 
         #[cfg(feature = "server")]
@@ -74,6 +80,10 @@ impl OptimisticNodeArgs {
         let forking = self.forking_config();
         let metrics = self.metrics_config()?;
         Ok(katana_node::optimistic::config::Config { chain, rpc, forking, metrics })
+    }
+
+    fn tracer_config(&self) -> Option<katana_tracing::TracerConfig> {
+        self.tracer.config()
     }
 
     fn chain_spec(&self) -> Result<Arc<ChainSpec>> {
