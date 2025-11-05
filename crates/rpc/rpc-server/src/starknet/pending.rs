@@ -340,15 +340,9 @@ impl PendingBlockProvider for OptimisticPendingBlockProvider {
         let transactions = self.optimistic_state.transactions.read();
         if let Some((_tx, result)) = transactions.iter().find(|(tx, _)| tx.hash == hash) {
             if let katana_executor::ExecutionResult::Success { receipt, .. } = result {
-                // Get the latest block number to use as reference
-                let latest_num = self.storage.provider().latest_number().map_err(|e| {
-                    crate::starknet::StarknetApiError::unexpected(format!(
-                        "Failed to get latest block number: {e}"
-                    ))
-                })?;
+                println!("receipt found in optimsitic state. hash: {hash:#x}");
 
-                // Create block info as PreConfirmed (optimistic tx not yet in a block)
-                let block = ReceiptBlockInfo::PreConfirmed { block_number: latest_num + 1 };
+                let block = ReceiptBlockInfo::PreConfirmed { block_number: 0 };
 
                 // Create receipt with block info
                 let receipt_with_block = TxReceiptWithBlockInfo::new(
@@ -360,9 +354,12 @@ impl PendingBlockProvider for OptimisticPendingBlockProvider {
 
                 return Ok(Some(receipt_with_block));
             }
+        } else {
+            println!("receipt not found in optimsitic state. hash: {hash:#x}");
         }
 
         // Fall back to client
+        println!("falling back to forked client to find receipt hash: {hash:#x}");
         self.client.get_pending_receipt(hash)
     }
 

@@ -485,11 +485,28 @@ where
     }
 
     async fn latest_block_number(&self) -> StarknetApiResult<BlockNumberResponse> {
-        self.on_io_blocking_task(move |this| {
-            let block_number = this.inner.storage_provider.provider().latest_number()?;
-            Ok(BlockNumberResponse { block_number })
-        })
-        .await?
+        let result = self
+            .inner
+            .forked_client
+            .as_ref()
+            .unwrap()
+            .get_block_with_tx_hashes(BlockIdOrTag::PreConfirmed)
+            .await?;
+
+        match result {
+            GetBlockWithTxHashesResponse::Block(block) => {
+                Ok(BlockNumberResponse { block_number: block.block_number })
+            }
+            GetBlockWithTxHashesResponse::PreConfirmed(block) => {
+                Ok(BlockNumberResponse { block_number: block.block_number })
+            }
+        }
+
+        // self.on_io_blocking_task(move |this| {
+        //     let block_number = this.inner.storage_provider.provider().latest_number()?;
+        //     Ok(BlockNumberResponse { block_number })
+        // })
+        // .await?
     }
 
     pub async fn nonce_at(
@@ -594,36 +611,9 @@ where
     }
 
     async fn receipt(&self, hash: Felt) -> StarknetApiResult<TxReceiptWithBlockInfo> {
+        println!("requesting receipt for tx {hash:#x}");
         let receipt = self
             .on_io_blocking_task(move |this| {
-                // First, check optimistic state for the receipt
-                if let Some(optimistic_state) = &this.inner.optimistic_state {
-                    let transactions = optimistic_state.transactions.read();
-                    if let Some((_tx, result)) = transactions.iter().find(|(tx, _)| tx.hash == hash)
-                    {
-                        if let katana_executor::ExecutionResult::Success { receipt, .. } = result {
-                            // Get the latest block number to use as reference
-                            let provider = &this.inner.storage_provider.provider();
-                            let latest_num = provider.latest_number()?;
-
-                            // Create block info as PreConfirmed (optimistic tx not yet in a block)
-                            let block = katana_rpc_types::receipt::ReceiptBlockInfo::PreConfirmed {
-                                block_number: latest_num + 1,
-                            };
-
-                            // Create receipt with block info
-                            let receipt_with_block = TxReceiptWithBlockInfo::new(
-                                block,
-                                hash,
-                                FinalityStatus::PreConfirmed,
-                                receipt.clone(),
-                            );
-
-                            return StarknetApiResult::Ok(Some(receipt_with_block));
-                        }
-                    }
-                }
-
                 // Check pending block provider
                 if let pending_receipt @ Some(..) =
                     this.inner.pending_block_provider.get_pending_receipt(hash)?
@@ -648,66 +638,43 @@ where
     async fn transaction_status(&self, hash: TxHash) -> StarknetApiResult<TxStatus> {
         let status = self
             .on_io_blocking_task(move |this| {
-                // First, check optimistic state for the transaction
-                if let Some(optimistic_state) = &this.inner.optimistic_state {
-                    let transactions = optimistic_state.transactions.read();
-                    if let Some((_tx, result)) = transactions.iter().find(|(tx, _)| tx.hash == hash)
-                    {
-                        let exec_status = match result {
-                            katana_executor::ExecutionResult::Success { receipt, .. } => {
-                                if let Some(reason) = receipt.revert_reason() {
-                                    katana_rpc_types::ExecutionResult::Reverted {
-                                        reason: reason.to_string(),
-                                    }
-                                } else {
-                                    katana_rpc_types::ExecutionResult::Succeeded
-                                }
-                            }
-                            katana_executor::ExecutionResult::Failed { error } => {
-                                katana_rpc_types::ExecutionResult::Reverted {
-                                    reason: error.to_string(),
-                                }
-                            }
-                        };
-                        return Ok(Some(TxStatus::PreConfirmed(exec_status)));
-                    }
-                }
-
-                let provider = &this.inner.storage_provider.provider();
-                let status = provider.transaction_status(hash)?;
-
-                if let Some(status) = status {
-                    // TODO: this might not work once we allow querying for 'failed' transactions
-                    // from the provider
-                    let Some(receipt) = provider.receipt_by_hash(hash)? else {
-                        let error = StarknetApiError::unexpected(
-                            "Transaction hash exist, but the receipt is missing",
-                        );
-                        return Err(error);
-                    };
-
-                    let exec_status = if let Some(reason) = receipt.revert_reason() {
-                        katana_rpc_types::ExecutionResult::Reverted { reason: reason.to_string() }
-                    } else {
-                        katana_rpc_types::ExecutionResult::Succeeded
-                    };
-
-                    let status = match status {
-                        FinalityStatus::AcceptedOnL1 => TxStatus::AcceptedOnL1(exec_status),
-                        FinalityStatus::AcceptedOnL2 => TxStatus::AcceptedOnL2(exec_status),
-                        FinalityStatus::PreConfirmed => TxStatus::PreConfirmed(exec_status),
-                    };
-
-                    return Ok(Some(status));
-                }
-
                 // seach in the pending block if the transaction is not found
                 if let Some(receipt) =
                     this.inner.pending_block_provider.get_pending_receipt(hash)?
                 {
                     Ok(Some(TxStatus::PreConfirmed(receipt.receipt.execution_result().clone())))
                 } else {
-                    Ok(None)
+                    let provider = &this.inner.storage_provider.provider();
+                    let status = provider.transaction_status(hash)?;
+
+                    if let Some(status) = status {
+                        // TODO: this might not work once we allow querying for 'failed' transactions
+                        // from the provider
+                        let Some(receipt) = provider.receipt_by_hash(hash)? else {
+                            let error = StarknetApiError::unexpected(
+                                "Transaction hash exist, but the receipt is missing",
+                            );
+                            return Err(error);
+                        };
+
+                        let exec_status = if let Some(reason) = receipt.revert_reason() {
+                            katana_rpc_types::ExecutionResult::Reverted {
+                                reason: reason.to_string(),
+                            }
+                        } else {
+                            katana_rpc_types::ExecutionResult::Succeeded
+                        };
+
+                        let status = match status {
+                            FinalityStatus::AcceptedOnL1 => TxStatus::AcceptedOnL1(exec_status),
+                            FinalityStatus::AcceptedOnL2 => TxStatus::AcceptedOnL2(exec_status),
+                            FinalityStatus::PreConfirmed => TxStatus::PreConfirmed(exec_status),
+                        };
+
+                        Ok(Some(status))
+                    } else {
+                        Ok(None)
+                    }
                 }
             })
             .await??;

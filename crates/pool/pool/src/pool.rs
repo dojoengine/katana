@@ -160,7 +160,7 @@ where
                     // TODO: create a small cache for rejected transactions to respect the rpc spec
                     // `getTransactionStatus`
                     ValidationOutcome::Invalid { error, .. } => {
-                        warn!(target: "pool", %error, "Invalid transaction.");
+                        warn!(target: "pool", ?error, "Invalid transaction.");
                         Err(PoolError::InvalidTransaction(Box::new(error)))
                     }
 

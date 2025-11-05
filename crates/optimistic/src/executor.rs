@@ -11,9 +11,10 @@ use katana_executor::implementation::blockifier::BlockifierFactory;
 use katana_executor::{ExecutionResult, ExecutorFactory};
 use katana_pool::ordering::FiFo;
 use katana_pool::{PendingTransactions, PoolTransaction, TransactionPool};
-use katana_primitives::block::BlockIdOrTag;
+use katana_primitives::block::{BlockIdOrTag, GasPrices};
 use katana_primitives::env::BlockEnv;
 use katana_primitives::transaction::TxWithHash;
+use katana_primitives::version::StarknetVersion;
 use katana_provider::api::env::BlockEnvProvider;
 use katana_provider::api::state::{StateFactoryProvider, StateProvider};
 use katana_provider::providers::db::cached::{CachedStateProvider, SharedStateCache};
@@ -111,9 +112,8 @@ impl OptimisticExecutor {
         let client = self.client;
         let optimistic_state = self.optimistic_state;
         let block_env = self.block_env;
-        let storage = self.storage;
         self.task_spawner.build_task().name("Block Polling").spawn(async move {
-            Self::poll_confirmed_blocks(client, optimistic_state, block_env, storage).await;
+            Self::poll_confirmed_blocks(client, optimistic_state, block_env).await;
         });
 
         executor_handle
@@ -125,7 +125,6 @@ impl OptimisticExecutor {
         client: Client,
         optimistic_state: OptimisticState,
         block_env: Arc<RwLock<BlockEnv>>,
-        storage: Blockchain,
     ) {
         let mut last_block_number = None;
 
@@ -134,12 +133,50 @@ impl OptimisticExecutor {
 
             match client.get_block_with_tx_hashes(BlockIdOrTag::Latest).await {
                 Ok(block_response) => {
-                    let (block_number, block_tx_hashes) = match block_response {
+                    let (block_number, block_tx_hashes, new_block_env) = match &block_response {
                         GetBlockWithTxHashesResponse::Block(block) => {
-                            (block.block_number, block.transactions)
+                            let env = BlockEnv {
+                                number: block.block_number,
+                                timestamp: block.timestamp,
+                                l2_gas_prices: GasPrices {
+                                    eth: block.l2_gas_price.price_in_wei.try_into().unwrap(),
+                                    strk: block.l2_gas_price.price_in_fri.try_into().unwrap(),
+                                },
+                                l1_gas_prices: GasPrices {
+                                    eth: block.l1_gas_price.price_in_wei.try_into().unwrap(),
+                                    strk: block.l1_gas_price.price_in_fri.try_into().unwrap(),
+                                },
+                                l1_data_gas_prices: GasPrices {
+                                    eth: block.l1_data_gas_price.price_in_wei.try_into().unwrap(),
+                                    strk: block.l1_data_gas_price.price_in_fri.try_into().unwrap(),
+                                },
+                                sequencer_address: block.sequencer_address,
+                                starknet_version: StarknetVersion::parse(&block.starknet_version)
+                                    .unwrap_or_default(),
+                            };
+                            (block.block_number, block.transactions.clone(), env)
                         }
                         GetBlockWithTxHashesResponse::PreConfirmed(block) => {
-                            (block.block_number, block.transactions)
+                            let env = BlockEnv {
+                                number: block.block_number,
+                                timestamp: block.timestamp,
+                                l2_gas_prices: GasPrices {
+                                    eth: block.l2_gas_price.price_in_wei.try_into().unwrap(),
+                                    strk: block.l2_gas_price.price_in_fri.try_into().unwrap(),
+                                },
+                                l1_gas_prices: GasPrices {
+                                    eth: block.l1_gas_price.price_in_wei.try_into().unwrap(),
+                                    strk: block.l1_gas_price.price_in_fri.try_into().unwrap(),
+                                },
+                                l1_data_gas_prices: GasPrices {
+                                    eth: block.l1_data_gas_price.price_in_wei.try_into().unwrap(),
+                                    strk: block.l1_data_gas_price.price_in_fri.try_into().unwrap(),
+                                },
+                                sequencer_address: block.sequencer_address,
+                                starknet_version: StarknetVersion::parse(&block.starknet_version)
+                                    .unwrap_or_default(),
+                            };
+                            (block.block_number, block.transactions.clone(), env)
                         }
                     };
 
@@ -156,12 +193,8 @@ impl OptimisticExecutor {
                     info!(%block_number, "New block received.");
 
                     // Update the block environment for the next optimistic execution
-                    if let Ok(provider) = storage.provider().block_env_at(block_number.into()) {
-                        if let Some(new_block_env) = provider {
-                            *block_env.write() = new_block_env;
-                            trace!(target: LOG_TARGET, block_number, "Updated block environment");
-                        }
-                    }
+                    *block_env.write() = new_block_env;
+                    trace!(target: LOG_TARGET, block_number, "Updated block environment");
 
                     if block_tx_hashes.is_empty() {
                         continue;
@@ -289,7 +322,7 @@ impl Future for OptimisticExecutorActor {
                         match result {
                             TaskResult::Ok(Ok(())) => {
                                 // Execution completed successfully, continue to next transaction
-                                trace!(target: LOG_TARGET, "Transaction execution completed successfully");
+                                info!(target: LOG_TARGET, "Transaction execution completed successfully");
                             }
                             TaskResult::Ok(Err(e)) => {
                                 error!(

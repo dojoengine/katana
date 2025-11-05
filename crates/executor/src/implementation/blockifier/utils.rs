@@ -469,7 +469,7 @@ pub fn block_context_from_envs(block_env: &BlockEnv, cfg_env: &CfgEnv) -> BlockC
         block_timestamp: BlockTimestamp(block_env.timestamp),
         sequencer_address: to_blk_address(block_env.sequencer_address),
         gas_prices,
-        use_kzg_da: false,
+        use_kzg_da: true,
     };
 
     let chain_info = ChainInfo { fee_token_addresses, chain_id: to_blk_chain_id(cfg_env.chain_id) };

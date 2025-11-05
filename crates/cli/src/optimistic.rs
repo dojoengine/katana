@@ -3,6 +3,7 @@ use std::sync::Arc;
 use anyhow::Result;
 pub use clap::Parser;
 use katana_chain_spec::ChainSpec;
+use katana_primitives::chain::ChainId;
 use serde::{Deserialize, Serialize};
 use tracing::info;
 use url::Url;
@@ -87,8 +88,9 @@ impl OptimisticNodeArgs {
     }
 
     fn chain_spec(&self) -> Result<Arc<ChainSpec>> {
-        // Always use dev chain spec for optimistic node
-        Ok(Arc::new(ChainSpec::Dev(Default::default())))
+        let mut dev_chain_spec = katana_chain_spec::dev::ChainSpec::default();
+        dev_chain_spec.id = ChainId::SEPOLIA;
+        Ok(Arc::new(ChainSpec::Dev(dev_chain_spec)))
     }
 
     fn forking_config(&self) -> katana_node::optimistic::config::ForkingConfig {

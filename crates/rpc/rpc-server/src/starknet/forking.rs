@@ -193,18 +193,18 @@ impl ForkedClient {
     ) -> Result<GetBlockWithTxHashesResponse, Error> {
         let block = self.client.get_block_with_tx_hashes(block_id).await?;
 
-        match block {
-            GetBlockWithTxHashesResponse::Block(ref b) => {
-                if let BlockIdOrTag::Number(fork_num) = self.block {
-                    if b.block_number > fork_num {
-                        return Err(Error::BlockOutOfRange);
-                    }
-                }
-            }
-            GetBlockWithTxHashesResponse::PreConfirmed(_) => {
-                return Err(Error::UnexpectedPendingData);
-            }
-        }
+        // match block {
+        //     GetBlockWithTxHashesResponse::Block(ref b) => {
+        //         if let BlockIdOrTag::Number(fork_num) = self.block {
+        //             if b.block_number > fork_num {
+        //                 return Err(Error::BlockOutOfRange);
+        //             }
+        //         }
+        //     }
+        //     GetBlockWithTxHashesResponse::PreConfirmed(_) => {
+        //         return Err(Error::UnexpectedPendingData);
+        //     }
+        // }
 
         Ok(block)
     }

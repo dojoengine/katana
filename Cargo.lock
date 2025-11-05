@@ -6364,6 +6364,7 @@ dependencies = [
  "katana-core",
  "katana-db",
  "katana-executor",
+ "katana-gateway-client",
  "katana-pool",
  "katana-pool-api",
  "katana-primitives",

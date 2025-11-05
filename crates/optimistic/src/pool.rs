@@ -7,6 +7,7 @@ use katana_pool_api::validation::{
 };
 use katana_rpc_client::starknet::Client;
 use katana_rpc_types::{BroadcastedTx, BroadcastedTxWithChainId};
+use tracing::{debug, info};
 
 pub type TxPool = Pool<BroadcastedTxWithChainId, PoolValidator, FiFo<BroadcastedTxWithChainId>>;
 
@@ -14,15 +15,16 @@ pub type TxPool = Pool<BroadcastedTxWithChainId, PoolValidator, FiFo<Broadcasted
 #[derive(Debug, Clone)]
 pub struct PoolValidator {
     client: Arc<Client>,
+    gateway_client: katana_gateway_client::Client,
 }
 
 impl PoolValidator {
     pub fn new(client: Client) -> Self {
-        Self { client: Arc::new(client) }
+        Self { client: Arc::new(client), gateway_client: katana_gateway_client::Client::sepolia() }
     }
 
     pub fn new_shared(client: Arc<Client>) -> Self {
-        Self { client }
+        Self { client, gateway_client: katana_gateway_client::Client::sepolia() }
     }
 }
 
@@ -36,21 +38,28 @@ impl Validator for PoolValidator {
         // Forward the transaction to the remote node
         let result = match &tx.tx {
             BroadcastedTx::Invoke(invoke_tx) => {
-                self.client.add_invoke_transaction(invoke_tx.clone()).await.map(|_| ())
+                self.gateway_client.add_invoke_transaction(invoke_tx.clone()).await.map(|_| ())
+                // self.client.add_invoke_transaction(invoke_tx.clone()).await.map(|_| ())
             }
             BroadcastedTx::Declare(declare_tx) => {
-                self.client.add_declare_transaction(declare_tx.clone()).await.map(|_| ())
+                self.gateway_client.add_declare_transaction(declare_tx.clone()).await.map(|_| ())
+                // self.client.add_declare_transaction(declare_tx.clone()).await.map(|_| ())
             }
             BroadcastedTx::DeployAccount(deploy_account_tx) => self
-                .client
+                .gateway_client
                 .add_deploy_account_transaction(deploy_account_tx.clone())
                 .await
-                .map(|_| ()),
+                .map(|_| ()), /* self
+                               * .client
+                               * .add_deploy_account_transaction(deploy_account_tx.clone())
+                               * .await
+                               * .map(|_| ()), */
         };
 
         match result {
             Ok(_) => Ok(ValidationOutcome::Valid(tx)),
             Err(err) => {
+                info!(error = ?err, "Gateway validation failure.");
                 let error = InvalidTransactionError::ValidationFailure {
                     address: match &tx.tx {
                         BroadcastedTx::Invoke(tx) => tx.sender_address,

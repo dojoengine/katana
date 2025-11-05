@@ -126,13 +126,9 @@ impl<S: StateProvider> ContractClassProvider for CachedStateProvider<S> {
     fn class(&self, hash: ClassHash) -> ProviderResult<Option<ContractClass>> {
         if let Some(class) = self.cache.get_class(hash) {
             return Ok(Some(class));
+        } else {
+            Ok(self.state.class(hash)?)
         }
-
-        let class = self.state.class(hash)?;
-        if let Some(ref c) = &class {
-            self.cache.inner.write().classes.insert(hash, c.clone());
-        }
-        Ok(class)
     }
 
     fn compiled_class_hash_of_class_hash(
@@ -144,9 +140,6 @@ impl<S: StateProvider> ContractClassProvider for CachedStateProvider<S> {
         }
 
         let compiled_hash = self.state.compiled_class_hash_of_class_hash(hash)?;
-        if let Some(ch) = compiled_hash {
-            self.cache.inner.write().compiled_class_hashes.insert(hash, ch);
-        }
         Ok(compiled_hash)
     }
 }
@@ -178,13 +171,9 @@ impl<S: StateProvider> StateProvider for CachedStateProvider<S> {
     ) -> ProviderResult<Option<ClassHash>> {
         if let Some(class_hash) = self.cache.get_class_hash(address) {
             return Ok(Some(class_hash));
+        } else {
+            Ok(dbg!(self.state.class_hash_of_contract(address)?))
         }
-
-        let class_hash = self.state.class_hash_of_contract(address)?;
-        if let Some(ch) = class_hash {
-            self.cache.inner.write().class_hashes.insert(address, ch);
-        }
-        Ok(class_hash)
     }
 }
 

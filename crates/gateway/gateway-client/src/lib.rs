@@ -132,21 +132,21 @@ impl Client {
 
     pub async fn add_invoke_transaction(
         &self,
-        transaction: BroadcastedInvokeTx,
+        transaction: katana_rpc_types::broadcasted::BroadcastedInvokeTx,
     ) -> Result<AddInvokeTransactionResponse, Error> {
         self.gateway("add_transaction").json(&transaction).send().await
     }
 
     pub async fn add_declare_transaction(
         &self,
-        transaction: BroadcastedDeclareTx,
+        transaction: katana_rpc_types::broadcasted::BroadcastedDeclareTx,
     ) -> Result<AddDeclareTransactionResponse, Error> {
         self.gateway("add_transaction").json(&transaction).send().await
     }
 
     pub async fn add_deploy_account_transaction(
         &self,
-        transaction: BroadcastedDeployAccountTx,
+        transaction: katana_rpc_types::broadcasted::BroadcastedDeployAccountTx,
     ) -> Result<AddDeployAccountTransactionResponse, Error> {
         self.gateway("add_transaction").json(&transaction).send().await
     }
