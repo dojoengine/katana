@@ -147,7 +147,7 @@ where
     async fn call(&self, request: FunctionCall, block_id: BlockIdOrTag) -> RpcResult<CallResponse> {
         self.on_io_blocking_task(move |this| {
             // get the state and block env at the specified block for function call execution
-            let state = this.state(dbg!(&block_id))?;
+            let state = this.state(&block_id)?;
             let env = this.block_env_at(&block_id)?;
             let cfg_env = this.inner.backend.executor_factory.cfg().clone();
             let max_call_gas = this.inner.config.max_call_gas.unwrap_or(1_000_000_000);

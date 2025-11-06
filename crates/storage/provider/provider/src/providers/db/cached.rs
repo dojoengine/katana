@@ -172,7 +172,7 @@ impl<S: StateProvider> StateProvider for CachedStateProvider<S> {
         if let Some(class_hash) = self.cache.get_class_hash(address) {
             return Ok(Some(class_hash));
         } else {
-            Ok(dbg!(self.state.class_hash_of_contract(address)?))
+            Ok(self.state.class_hash_of_contract(address)?)
         }
     }
 }

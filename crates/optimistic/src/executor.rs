@@ -15,7 +15,6 @@ use katana_primitives::block::{BlockIdOrTag, GasPrices};
 use katana_primitives::env::BlockEnv;
 use katana_primitives::transaction::TxWithHash;
 use katana_primitives::version::StarknetVersion;
-use katana_provider::api::env::BlockEnvProvider;
 use katana_provider::api::state::{StateFactoryProvider, StateProvider};
 use katana_provider::providers::db::cached::{CachedStateProvider, SharedStateCache};
 use katana_rpc_client::starknet::Client;
@@ -28,7 +27,7 @@ use tracing::{debug, error, info, trace};
 
 use crate::pool::TxPool;
 
-const LOG_TARGET: &str = "optimistic_executor";
+const LOG_TARGET: &str = "optimistic";
 
 #[derive(Debug, Clone)]
 pub struct OptimisticState {
@@ -190,7 +189,7 @@ impl OptimisticExecutor {
 
                     // Update the last seen block number
                     last_block_number = Some(block_number);
-                    info!(%block_number, "New block received.");
+                    debug!(target: LOG_TARGET, %block_number, "New block received.");
 
                     // Update the block environment for the next optimistic execution
                     *block_env.write() = new_block_env;
@@ -199,13 +198,6 @@ impl OptimisticExecutor {
                     if block_tx_hashes.is_empty() {
                         continue;
                     }
-
-                    trace!(
-                        target: LOG_TARGET,
-                        block_number = block_number,
-                        tx_count = block_tx_hashes.len(),
-                        "Polling confirmed block"
-                    );
 
                     // Get the current optimistic transactions
                     let mut optimistic_txs = optimistic_state.transactions.write();
@@ -216,7 +208,7 @@ impl OptimisticExecutor {
 
                     let removed_count = initial_count - optimistic_txs.len();
                     if removed_count > 0 {
-                        info!(
+                        debug!(
                             target: LOG_TARGET,
                             block_number = block_number,
                             removed_count = removed_count,
@@ -322,7 +314,7 @@ impl Future for OptimisticExecutorActor {
                         match result {
                             TaskResult::Ok(Ok(())) => {
                                 // Execution completed successfully, continue to next transaction
-                                info!(target: LOG_TARGET, "Transaction execution completed successfully");
+                                trace!(target: LOG_TARGET, "Transaction execution completed successfully");
                             }
                             TaskResult::Ok(Err(e)) => {
                                 error!(
@@ -364,12 +356,6 @@ impl Future for OptimisticExecutorActor {
                         sender = %tx_sender,
                         nonce = %tx_nonce,
                         "Received transaction from pool"
-                    );
-
-                    debug!(
-                        target: LOG_TARGET,
-                        tx_hash = format!("{:#x}", tx_hash),
-                        "Spawning transaction execution on blocking pool"
                     );
 
                     // Spawn the transaction execution on the blocking CPU pool
