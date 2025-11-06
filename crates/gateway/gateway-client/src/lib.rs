@@ -3,10 +3,10 @@ use std::str::FromStr;
 
 use katana_gateway_types::{
     AddDeclareTransactionResponse, AddDeployAccountTransactionResponse,
-    AddInvokeTransactionResponse, Block, BlockId, BlockSignature, ContractClass, GatewayError,
+    AddInvokeTransactionResponse, Block, BlockId, BlockSignature, BroadcastedDeclareTx,
+    BroadcastedDeployAccountTx, BroadcastedInvokeTx, ContractClass, GatewayError,
     PreConfirmedBlock, SequencerPublicKey, StateUpdate, StateUpdateWithBlock,
 };
-use katana_gateway_types::{BroadcastedDeclareTx, BroadcastedDeployAccountTx, BroadcastedInvokeTx};
 use katana_primitives::block::BlockNumber;
 use katana_primitives::class::CasmContractClass;
 use katana_primitives::Felt;
