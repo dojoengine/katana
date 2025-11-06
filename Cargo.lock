@@ -6202,6 +6202,9 @@ dependencies = [
 name = "katana-gateway-types"
 version = "1.7.0"
 dependencies = [
+ "base64 0.21.7",
+ "cairo-lang-starknet-classes",
+ "flate2",
  "katana-primitives",
  "katana-rpc-api",
  "katana-rpc-types",

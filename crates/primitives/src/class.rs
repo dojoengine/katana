@@ -26,6 +26,9 @@ pub type LegacyContractClass = starknet_api::deprecated_contract_class::Contract
 /// The canonical compiled Sierra contract class type.
 pub type CasmContractClass = cairo_lang_starknet_classes::casm_contract_class::CasmContractClass;
 
+/// ABI for Sierra-based classes.
+pub type ContractAbi = cairo_lang_starknet_classes::abi::Contract;
+
 #[derive(Debug, thiserror::Error)]
 pub enum ContractClassCompilationError {
     #[error(transparent)]
