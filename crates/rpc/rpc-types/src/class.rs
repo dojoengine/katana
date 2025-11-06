@@ -7,8 +7,7 @@ use std::io::{self, Write};
 use cairo_lang_starknet_classes::contract_class::ContractEntryPoints;
 use cairo_lang_utils::bigint::BigUintAsHex;
 use katana_primitives::class::{
-    compute_sierra_class_hash, ClassHash, ComputeClassHashError, ContractClass,
-    LegacyContractClass, SierraContractClass,
+    compute_sierra_class_hash, ClassHash, ContractClass, LegacyContractClass, SierraContractClass,
 };
 use katana_primitives::{
     Felt, {self},
@@ -51,13 +50,13 @@ pub enum ConversionError {
 // -- SIERRA CLASS
 
 /// The ABI is serialized as Pythonic JSON.
-#[derive(Debug, Clone, PartialEq, Eq, Default)]
+#[derive(Debug, Clone, PartialEq, Eq, Default, derive_more::Deref, derive_more::From)]
 pub struct SierraClassAbi(katana_primitives::class::ContractAbi);
 
 impl std::fmt::Display for SierraClassAbi {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         let s = to_string_pythonic(&self.0).map_err(|_| std::fmt::Error)?;
-        write!(f, "{}", s)
+        write!(f, "{s}")
     }
 }
 
@@ -72,7 +71,7 @@ impl<'de> Deserialize<'de> for SierraClassAbi {
         let str = String::deserialize(deserializer)?;
         serde_json::from_str::<katana_primitives::class::ContractAbi>(&str)
             .map(Self)
-            .map_err(|e| serde::de::Error::custom(format!("invalid abi: {e}")))
+            .map_err(|e| serde::de::Error::custom(format!("invalid abi format: {e}")))
     }
 }
 
@@ -122,7 +121,7 @@ impl From<SierraClass> for SierraContractClass {
             .collect::<Vec<_>>();
 
         Self {
-            abi: Some(value.abi.0),
+            abi: value.abi.0.into(),
             sierra_program: program,
             sierra_program_debug_info: None,
             entry_points_by_type: value.entry_points_by_type,
@@ -182,22 +181,6 @@ fn decompress_legacy_program(compressed_data: &[u8]) -> Result<LegacyProgram, Co
     let mut decompressed = Vec::new();
     std::io::Read::read_to_end(&mut decoder, &mut decompressed)?;
     Ok(serde_json::from_slice::<LegacyProgram>(&decompressed)?)
-}
-
-fn serialize_abi<S: serde::Serializer>(
-    abi: &cairo_lang_starknet_classes::abi::Contract,
-    serializer: S,
-) -> Result<S::Ok, S::Error> {
-    let abi_str = to_string_pythonic(abi);
-    serializer.serialize_str(&abi_str.map_err(serde::ser::Error::custom)?)
-}
-
-fn deserialize_abi<'de, D: serde::Deserializer<'de>>(
-    deserializer: D,
-) -> Result<cairo_lang_starknet_classes::abi::Contract, D::Error> {
-    let abi_str = String::deserialize(deserializer)?;
-    serde_json::from_str(&abi_str)
-        .map_err(|e| serde::de::Error::custom(format!("invalid abi: {e}")))
 }
 
 // Round-trip conversion between RPC and katana-primitives types

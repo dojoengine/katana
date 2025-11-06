@@ -1,7 +1,7 @@
-use std::io::Read;
-use std::io::Write;
+use std::io::{Read, Write};
 use std::sync::Arc;
 
+use base64::engine::general_purpose::STANDARD;
 use base64::Engine;
 use cairo_lang_starknet_classes::contract_class::ContractEntryPoints;
 use flate2::read::GzDecoder;
@@ -24,10 +24,9 @@ use katana_primitives::transaction::{
     TxWithHash,
 };
 use katana_primitives::{ContractAddress, Felt};
+use katana_rpc_types::class::SierraClass;
 use katana_rpc_types::SierraClassAbi;
-use serde::de;
-use serde::ser::SerializeStruct;
-use serde::{Deserialize, Deserializer, Serialize};
+use serde::{de, Deserialize, Deserializer, Serialize};
 
 /// API response for an INVOKE_FUNCTION transaction
 #[derive(Clone, Debug, Serialize, Deserialize, PartialEq, Eq)]
@@ -66,13 +65,11 @@ pub struct BroadcastedInvokeTx {
     pub calldata: Vec<Felt>,
     pub signature: Vec<Felt>,
     pub nonce: Felt,
-    pub tip: katana_primitives::fee::Tip,
+    pub tip: Tip,
     pub paymaster_data: Vec<Felt>,
     pub account_deployment_data: Vec<Felt>,
-    #[serde(
-        serialize_with = "serialize_resource_bounds_mapping",
-        deserialize_with = "deserialize_resource_bounds_mapping"
-    )]
+    #[serde(serialize_with = "serialize_resource_bounds_mapping")]
+    #[serde(deserialize_with = "deserialize_resource_bounds_mapping")]
     pub resource_bounds: ResourceBoundsMapping,
     pub nonce_data_availability_mode: DataAvailabilityMode,
     pub fee_data_availability_mode: DataAvailabilityMode,
@@ -88,18 +85,14 @@ pub struct BroadcastedDeclareTx {
     pub compiled_class_hash: CompiledClassHash,
     pub signature: Vec<Felt>,
     pub nonce: Nonce,
-    #[serde(
-        serialize_with = "serialize_contract_class",
-        deserialize_with = "deserialize_contract_class"
-    )]
-    pub contract_class: std::sync::Arc<katana_rpc_types::class::SierraClass>,
-    pub tip: katana_primitives::fee::Tip,
+    #[serde(deserialize_with = "deserialize_contract_class")]
+    #[serde(serialize_with = "serialize_contract_class")]
+    pub contract_class: Arc<SierraClass>,
+    pub tip: Tip,
     pub paymaster_data: Vec<Felt>,
     pub account_deployment_data: Vec<Felt>,
-    #[serde(
-        serialize_with = "serialize_resource_bounds_mapping",
-        deserialize_with = "deserialize_resource_bounds_mapping"
-    )]
+    #[serde(serialize_with = "serialize_resource_bounds_mapping")]
+    #[serde(deserialize_with = "deserialize_resource_bounds_mapping")]
     pub resource_bounds: ResourceBoundsMapping,
     pub nonce_data_availability_mode: DataAvailabilityMode,
     pub fee_data_availability_mode: DataAvailabilityMode,
@@ -116,12 +109,10 @@ pub struct BroadcastedDeployAccountTx {
     pub contract_address_salt: Felt,
     pub constructor_calldata: Vec<Felt>,
     pub class_hash: ClassHash,
-    pub tip: katana_primitives::fee::Tip,
+    pub tip: Tip,
     pub paymaster_data: Vec<Felt>,
-    #[serde(
-        serialize_with = "serialize_resource_bounds_mapping",
-        deserialize_with = "deserialize_resource_bounds_mapping"
-    )]
+    #[serde(serialize_with = "serialize_resource_bounds_mapping")]
+    #[serde(deserialize_with = "deserialize_resource_bounds_mapping")]
     pub resource_bounds: ResourceBoundsMapping,
     pub nonce_data_availability_mode: DataAvailabilityMode,
     pub fee_data_availability_mode: DataAvailabilityMode,
@@ -588,41 +579,60 @@ impl From<DataAvailabilityMode> for katana_primitives::da::DataAvailabilityMode 
 
 // Custom serialization for contract class with gzip + base64 encoded sierra program
 fn serialize_contract_class<S: serde::Serializer>(
-    class: &Arc<katana_rpc_types::class::SierraClass>,
+    class: &Arc<SierraClass>,
     serializer: S,
 ) -> Result<S::Ok, S::Error> {
-    let mut state = serializer.serialize_struct("GatewaySierraClass", 4)?;
+    use serde::ser::Error;
 
-    // Convert sierra_program (Vec<Felt>) to JSON array, then gzip compress, then base64 encode
-    let program_json =
-        serde_json::to_string(&class.sierra_program).map_err(serde::ser::Error::custom)?;
+    /// Data transfer object of the Sierra class for the gateway.
+    ///
+    /// This struct is used to serialize a Sierra class in the format expected by the gateway API,
+    /// where the sierra_program field is base64-encoded and gzip-compressed.
+    #[derive(Serialize)]
+    struct GatewaySierraClassSerialized<'a> {
+        /// Base64-encoded gzip-compressed JSON representation of the sierra program.
+        sierra_program: &'a str,
+        contract_class_version: &'a str,
+        entry_points_by_type: &'a ContractEntryPoints,
+        /// Pythonic JSON string representation of the ABI (similar to the RPC serialization)
+        abi: String,
+    }
 
-    // Gzip compress the JSON
+    // 1. Convert sierra_program ( Vec<Felt> ) to JSON array
+    let sierra_program = serde_json::to_string(&class.sierra_program).map_err(Error::custom)?;
+
+    // 2. Gzip compress the JSON
     let mut encoder = GzEncoder::new(Vec::new(), Compression::default());
     encoder
-        .write_all(program_json.as_bytes())
-        .map_err(|e| serde::ser::Error::custom(format!("gzip compression failed: {e}")))?;
-    let compressed_bytes = encoder
-        .finish()
-        .map_err(|e| serde::ser::Error::custom(format!("gzip finish failed: {e}")))?;
+        .write_all(sierra_program.as_bytes())
+        .map_err(|e| Error::custom(format!("gzip compression failed: {e}")))?;
 
-    // Base64 encode
-    let program_base64 = base64::engine::general_purpose::STANDARD.encode(&compressed_bytes);
+    let sierra_program =
+        encoder.finish().map_err(|e| Error::custom(format!("gzip finish failed: {e}")))?;
 
-    state.serialize_field("sierra_program", &program_base64)?;
-    state.serialize_field("contract_class_version", &class.contract_class_version)?;
-    state.serialize_field("entry_points_by_type", &class.entry_points_by_type)?;
+    // 3. Base64 encode the compressed bytes
+    let sierra_program = STANDARD.encode(&sierra_program);
 
-    // Serialize ABI - it's already in pythonic JSON format via SierraClassAbi's Serialize impl
-    let abi_str = class.abi.to_string();
-    state.serialize_field("abi", &abi_str)?;
+    let gateway_class = GatewaySierraClassSerialized {
+        sierra_program: &sierra_program,
+        contract_class_version: &class.contract_class_version,
+        entry_points_by_type: &class.entry_points_by_type,
+        abi: class.abi.to_string(),
+    };
 
-    state.end()
+    gateway_class.serialize(serializer)
 }
 
+/// Custom deserialization for contract class with gzip + base64 encoded sierra program.
+///
+/// This function reverses the serialization process by:
+/// 1. Base64 decoding the sierra_program string
+/// 2. Gzip decompressing the decoded bytes
+/// 3. Parsing the decompressed JSON into Vec<Felt>
 fn deserialize_contract_class<'de, D: serde::Deserializer<'de>>(
     deserializer: D,
 ) -> Result<Arc<katana_rpc_types::class::SierraClass>, D::Error> {
+    /// Data transfer object for deserializing Sierra class from the gateway format.
     #[derive(Deserialize)]
     struct GatewaySierraClass {
         sierra_program: String,
@@ -633,32 +643,26 @@ fn deserialize_contract_class<'de, D: serde::Deserializer<'de>>(
 
     let gateway_class = GatewaySierraClass::deserialize(deserializer)?;
 
-    // Base64 decode
-    let compressed_bytes = base64::engine::general_purpose::STANDARD
+    // 1. Base64 decode
+    let sierra_program = base64::engine::general_purpose::STANDARD
         .decode(&gateway_class.sierra_program)
         .map_err(|e| de::Error::custom(format!("failed to decode base64 sierra_program: {e}")))?;
 
-    // Gzip decompress
-    let mut decoder = GzDecoder::new(&compressed_bytes[..]);
-    let mut decompressed = String::new();
+    // 2. Gzip decompress
+    let mut decoder = GzDecoder::new(&sierra_program[..]);
+    let mut sierra_program = String::new();
     decoder
-        .read_to_string(&mut decompressed)
+        .read_to_string(&mut sierra_program)
         .map_err(|e| de::Error::custom(format!("failed to decompress sierra_program: {e}")))?;
 
-    // Parse JSON array to Vec<Felt>
-    let sierra_program: Vec<Felt> = serde_json::from_str(&decompressed)
+    // 3. Parse JSON array to Vec<Felt>
+    let sierra_program: Vec<Felt> = serde_json::from_str(&sierra_program)
         .map_err(|e| de::Error::custom(format!("failed to parse sierra_program JSON: {e}")))?;
 
-    // Deserialize ABI from pythonic JSON string
-    let abi: katana_rpc_types::class::SierraClassAbi =
-        if gateway_class.abi.is_empty() || gateway_class.abi == "[]" {
-            Default::default()
-        } else {
-            serde_json::from_str(&gateway_class.abi)
-                .map_err(|e| de::Error::custom(format!("invalid abi: {e}")))?
-        };
+    let abi: SierraClassAbi = serde_json::from_str(&gateway_class.abi)
+        .map_err(|e| de::Error::custom(format!("invalid abi: {e}")))?;
 
-    Ok(std::sync::Arc::new(katana_rpc_types::class::SierraClass {
+    Ok(Arc::new(SierraClass {
         sierra_program,
         contract_class_version: gateway_class.contract_class_version,
         entry_points_by_type: gateway_class.entry_points_by_type,
