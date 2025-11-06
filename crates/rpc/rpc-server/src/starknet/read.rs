@@ -80,7 +80,7 @@ where
     }
 
     async fn block_hash_and_number(&self) -> RpcResult<BlockHashAndNumberResponse> {
-        self.on_io_blocking_task(move |this| Ok(this.block_hash_and_number()?)).await?
+        Ok(self.get_block_hash_and_number().await?)
     }
 
     async fn get_block_with_tx_hashes(

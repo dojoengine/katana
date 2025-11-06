@@ -104,7 +104,7 @@ impl Blockchain {
         // network.
         let block_id = if let Some(id) = fork_block { id } else { BlockIdOrTag::Latest };
 
-        info!(chain = %parsed_id, block = %block_id, "Forking chain.");
+        info!(chain = %parsed_id, block = ?block_id, "Forking chain.");
 
         let block = provider
             .get_block_with_tx_hashes(block_id)

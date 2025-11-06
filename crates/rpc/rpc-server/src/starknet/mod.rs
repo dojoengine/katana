@@ -352,11 +352,13 @@ where
         env.ok_or(StarknetApiError::BlockNotFound)
     }
 
-    fn block_hash_and_number(&self) -> StarknetApiResult<BlockHashAndNumberResponse> {
-        let provider = &self.inner.storage_provider.provider();
-        let hash = provider.latest_hash()?;
-        let number = provider.latest_number()?;
-        Ok(BlockHashAndNumberResponse::new(hash, number))
+    pub async fn get_block_hash_and_number(&self) -> StarknetApiResult<BlockHashAndNumberResponse> {
+        // let provider = &self.inner.storage_provider.provider();
+        // let hash = provider.latest_hash()?;
+        // let number = provider.latest_number()?;
+        // Ok(BlockHashAndNumberResponse::new(hash, number))
+
+        Ok(self.inner.forked_client.as_ref().unwrap().block_hash_and_number().await?)
     }
 
     pub async fn class_at_hash(
