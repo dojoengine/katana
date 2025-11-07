@@ -17,7 +17,7 @@ use serde::{de, Deserialize, Deserializer, Serialize};
 
 use crate::class::SierraClass;
 
-const QUERY_VERSION_OFFSET: Felt =
+pub const QUERY_VERSION_OFFSET: Felt =
     Felt::from_raw([576460752142434320, 18446744073709551584, 17407, 18446744073700081665]);
 
 macro_rules! expect_field {
@@ -354,7 +354,7 @@ impl BroadcastedTxWithChainId {
             BroadcastedTx::Declare(tx) => {
                 let declare_tx = DeclareTx::V3(DeclareTxV3 {
                     chain_id: self.chain,
-                    class_hash: tx.contract_class.hash().expect("failed to compute class hash"),
+                    class_hash: tx.contract_class.hash(),
                     tip: tx.tip.into(),
                     nonce: tx.nonce,
                     signature: tx.signature.clone(),
@@ -639,7 +639,7 @@ impl From<BroadcastedTxWithChainId> for ExecutableTx {
             }
 
             BroadcastedTx::Declare(tx) => {
-                let class_hash = tx.contract_class.hash().expect("failed to compute class hash");
+                let class_hash = tx.contract_class.hash();
 
                 let rpc_class = Arc::unwrap_or_clone(tx.contract_class);
                 let class = ContractClass::Class(SierraContractClass::from(rpc_class));

@@ -6157,7 +6157,6 @@ dependencies = [
  "clap",
  "katana-gateway-types",
  "katana-primitives",
- "katana-rpc-types",
  "reqwest 0.12.22",
  "rstest 0.18.2",
  "serde",
@@ -6202,6 +6201,9 @@ dependencies = [
 name = "katana-gateway-types"
 version = "1.7.0"
 dependencies = [
+ "base64 0.21.7",
+ "cairo-lang-starknet-classes",
+ "flate2",
  "katana-primitives",
  "katana-rpc-api",
  "katana-rpc-types",
@@ -6569,6 +6571,7 @@ dependencies = [
  "cainome-cairo-serde",
  "cairo-lang-starknet-classes",
  "cairo-lang-utils",
+ "derive_more 0.99.20",
  "flate2",
  "katana-genesis",
  "katana-primitives",
