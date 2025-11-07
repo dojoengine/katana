@@ -24,9 +24,8 @@ use katana_primitives::transaction::{
     TxWithHash,
 };
 use katana_primitives::{ContractAddress, Felt};
-use katana_rpc_types::class::SierraClass;
 use katana_rpc_types::SierraClassAbi;
-use serde::{de, Deserialize, Deserializer, Serialize};
+use serde::{Deserialize, Deserializer, Serialize};
 
 /// API response for an INVOKE_FUNCTION transaction
 #[derive(Clone, Debug, Serialize, Deserialize, PartialEq, Eq)]
@@ -85,9 +84,7 @@ pub struct BroadcastedDeclareTx {
     pub compiled_class_hash: CompiledClassHash,
     pub signature: Vec<Felt>,
     pub nonce: Nonce,
-    #[serde(deserialize_with = "deserialize_contract_class")]
-    #[serde(serialize_with = "serialize_contract_class")]
-    pub contract_class: Arc<SierraClass>,
+    pub contract_class: Arc<CompressedSierraClass>,
     pub tip: Tip,
     pub paymaster_data: Vec<Felt>,
     pub account_deployment_data: Vec<Felt>,
@@ -151,13 +148,16 @@ impl From<katana_rpc_types::broadcasted::BroadcastedDeclareTx> for BroadcastedDe
             Felt::THREE
         };
 
+        let contract_class = Arc::unwrap_or_clone(tx.contract_class);
+        let contract_class = CompressedSierraClass::try_from(contract_class).unwrap();
+
         Self {
             version,
             sender_address: tx.sender_address,
             compiled_class_hash: tx.compiled_class_hash,
             signature: tx.signature,
             nonce: tx.nonce,
-            contract_class: tx.contract_class,
+            contract_class: contract_class.into(),
             tip: tx.tip,
             paymaster_data: tx.paymaster_data,
             account_deployment_data: tx.account_deployment_data,
@@ -194,12 +194,94 @@ impl From<katana_rpc_types::broadcasted::BroadcastedDeployAccountTx>
     }
 }
 
+#[derive(Debug, Clone, thiserror::Error)]
+pub enum CompressedSierraProgramError {
+    #[error("failed to serialize sierra program to JSON: {0}")]
+    Serialization(String),
+    #[error("failed to compress sierra program: {0}")]
+    Compression(String),
+    #[error("failed to decode base64: {0}")]
+    Base64Decode(String),
+    #[error("failed to decompress sierra program: {0}")]
+    Decompression(String),
+    #[error("failed to deserialize sierra program from JSON: {0}")]
+    Deserialization(String),
+}
+
 #[derive(Debug, Clone, PartialEq, Eq, Default, Serialize, Deserialize)]
-pub struct GatewaySierraClass {
-    pub sierra_program: Vec<Felt>,
+#[serde(transparent)]
+pub struct CompressedSierraProgram(String);
+
+impl CompressedSierraProgram {
+    pub fn compress(sierra_program: &[Felt]) -> Result<Self, CompressedSierraProgramError> {
+        // 1. Convert sierra_program to JSON array
+        let sierra_program = serde_json::to_string(sierra_program)
+            .map_err(|e| CompressedSierraProgramError::Serialization(e.to_string()))?;
+
+        // 2. Gzip compress the JSON
+        let mut encoder = GzEncoder::new(Vec::new(), Compression::default());
+        encoder
+            .write_all(sierra_program.as_bytes())
+            .map_err(|e| CompressedSierraProgramError::Compression(e.to_string()))?;
+        let sierra_program = encoder
+            .finish()
+            .map_err(|e| CompressedSierraProgramError::Compression(e.to_string()))?;
+
+        // 3. Base64 encode the compressed bytes
+        let sierra_program = STANDARD.encode(&sierra_program);
+
+        Ok(Self(sierra_program))
+    }
+
+    pub fn uncompress(&self) -> Result<Vec<Felt>, CompressedSierraProgramError> {
+        // 1. Base64 decode the compressed bytes
+        let sierra_program = STANDARD
+            .decode(&self.0)
+            .map_err(|e| CompressedSierraProgramError::Base64Decode(e.to_string()))?;
+
+        // 2. Gzip decompress the bytes
+        let mut decoder = GzDecoder::new(&sierra_program[..]);
+        let mut sierra_program = Vec::new();
+        decoder
+            .read_to_end(&mut sierra_program)
+            .map_err(|e| CompressedSierraProgramError::Decompression(e.to_string()))?;
+
+        // 3. Parse the JSON array
+        serde_json::from_slice(&sierra_program)
+            .map_err(|e| CompressedSierraProgramError::Deserialization(e.to_string()))
+    }
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Default, Serialize, Deserialize)]
+pub struct CompressedSierraClass {
+    pub sierra_program: CompressedSierraProgram,
     pub contract_class_version: String,
     pub entry_points_by_type: ContractEntryPoints,
     pub abi: SierraClassAbi,
+}
+
+impl TryFrom<katana_rpc_types::class::SierraClass> for CompressedSierraClass {
+    type Error = CompressedSierraProgramError;
+
+    fn try_from(value: katana_rpc_types::class::SierraClass) -> Result<Self, Self::Error> {
+        let abi = value.abi;
+        let entry_points_by_type = value.entry_points_by_type;
+        let contract_class_version = value.contract_class_version;
+        let sierra_program = CompressedSierraProgram::compress(&value.sierra_program)?;
+        Ok(Self { sierra_program, contract_class_version, entry_points_by_type, abi })
+    }
+}
+
+impl TryFrom<CompressedSierraClass> for katana_rpc_types::class::SierraClass {
+    type Error = CompressedSierraProgramError;
+
+    fn try_from(value: CompressedSierraClass) -> Result<Self, Self::Error> {
+        let abi = value.abi;
+        let sierra_program = value.sierra_program.uncompress()?;
+        let entry_points_by_type = value.entry_points_by_type;
+        let contract_class_version = value.contract_class_version;
+        Ok(Self { sierra_program, contract_class_version, entry_points_by_type, abi })
+    }
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
@@ -577,99 +659,6 @@ impl From<DataAvailabilityMode> for katana_primitives::da::DataAvailabilityMode 
     }
 }
 
-// Custom serialization for contract class with gzip + base64 encoded sierra program
-fn serialize_contract_class<S: serde::Serializer>(
-    class: &Arc<SierraClass>,
-    serializer: S,
-) -> Result<S::Ok, S::Error> {
-    use serde::ser::Error;
-
-    /// Data transfer object of the Sierra class for the gateway.
-    ///
-    /// This struct is used to serialize a Sierra class in the format expected by the gateway API,
-    /// where the sierra_program field is base64-encoded and gzip-compressed.
-    #[derive(Serialize)]
-    struct GatewaySierraClassSerialized<'a> {
-        /// Base64-encoded gzip-compressed JSON representation of the sierra program.
-        sierra_program: &'a str,
-        contract_class_version: &'a str,
-        entry_points_by_type: &'a ContractEntryPoints,
-        /// Pythonic JSON string representation of the ABI (similar to the RPC serialization)
-        abi: String,
-    }
-
-    // 1. Convert sierra_program ( Vec<Felt> ) to JSON array
-    let sierra_program = serde_json::to_string(&class.sierra_program).map_err(Error::custom)?;
-
-    // 2. Gzip compress the JSON
-    let mut encoder = GzEncoder::new(Vec::new(), Compression::default());
-    encoder
-        .write_all(sierra_program.as_bytes())
-        .map_err(|e| Error::custom(format!("gzip compression failed: {e}")))?;
-
-    let sierra_program =
-        encoder.finish().map_err(|e| Error::custom(format!("gzip finish failed: {e}")))?;
-
-    // 3. Base64 encode the compressed bytes
-    let sierra_program = STANDARD.encode(&sierra_program);
-
-    let gateway_class = GatewaySierraClassSerialized {
-        sierra_program: &sierra_program,
-        contract_class_version: &class.contract_class_version,
-        entry_points_by_type: &class.entry_points_by_type,
-        abi: class.abi.to_string(),
-    };
-
-    gateway_class.serialize(serializer)
-}
-
-/// Custom deserialization for contract class with gzip + base64 encoded sierra program.
-///
-/// This function reverses the serialization process by:
-/// 1. Base64 decoding the sierra_program string
-/// 2. Gzip decompressing the decoded bytes
-/// 3. Parsing the decompressed JSON into Vec<Felt>
-fn deserialize_contract_class<'de, D: serde::Deserializer<'de>>(
-    deserializer: D,
-) -> Result<Arc<katana_rpc_types::class::SierraClass>, D::Error> {
-    /// Data transfer object for deserializing Sierra class from the gateway format.
-    #[derive(Deserialize)]
-    struct GatewaySierraClass {
-        sierra_program: String,
-        contract_class_version: String,
-        entry_points_by_type: cairo_lang_starknet_classes::contract_class::ContractEntryPoints,
-        abi: String,
-    }
-
-    let gateway_class = GatewaySierraClass::deserialize(deserializer)?;
-
-    // 1. Base64 decode
-    let sierra_program = base64::engine::general_purpose::STANDARD
-        .decode(&gateway_class.sierra_program)
-        .map_err(|e| de::Error::custom(format!("failed to decode base64 sierra_program: {e}")))?;
-
-    // 2. Gzip decompress
-    let mut decoder = GzDecoder::new(&sierra_program[..]);
-    let mut sierra_program = String::new();
-    decoder
-        .read_to_string(&mut sierra_program)
-        .map_err(|e| de::Error::custom(format!("failed to decompress sierra_program: {e}")))?;
-
-    // 3. Parse JSON array to Vec<Felt>
-    let sierra_program: Vec<Felt> = serde_json::from_str(&sierra_program)
-        .map_err(|e| de::Error::custom(format!("failed to parse sierra_program JSON: {e}")))?;
-
-    let abi: SierraClassAbi = serde_json::from_str(&gateway_class.abi)
-        .map_err(|e| de::Error::custom(format!("invalid abi: {e}")))?;
-
-    Ok(Arc::new(SierraClass {
-        sierra_program,
-        contract_class_version: gateway_class.contract_class_version,
-        entry_points_by_type: gateway_class.entry_points_by_type,
-        abi,
-    }))
-}
-
 fn deserialize_resource_bounds_mapping<'de, D: Deserializer<'de>>(
     deserializer: D,
 ) -> Result<ResourceBoundsMapping, D::Error> {
@@ -734,140 +723,15 @@ mod tests {
     use std::sync::Arc;
 
     use katana_primitives::fee::{ResourceBounds, ResourceBoundsMapping, Tip};
-    use katana_primitives::Felt;
-    use serde_json::json;
+    use katana_primitives::{address, Felt};
+    use katana_rpc_types::SierraClass;
 
     use super::*;
 
     #[test]
-    fn test_gateway_invoke_tx_serialization() {
-        let gateway_tx = BroadcastedInvokeTx {
-            version: Felt::THREE,
-            sender_address: ContractAddress::from(Felt::from(0x123)),
-            calldata: vec![Felt::ONE, Felt::TWO],
-            signature: vec![],
-            nonce: Felt::ZERO,
-            tip: Tip::from(0),
-            paymaster_data: vec![],
-            account_deployment_data: vec![],
-            resource_bounds: ResourceBoundsMapping::L1Gas(
-                katana_primitives::fee::L1GasResourceBoundsMapping {
-                    l1_gas: ResourceBounds { max_amount: 100, max_price_per_unit: 200 },
-                    l2_gas: ResourceBounds { max_amount: 0, max_price_per_unit: 0 },
-                },
-            ),
-            fee_data_availability_mode: katana_primitives::da::DataAvailabilityMode::L1.into(),
-            nonce_data_availability_mode: katana_primitives::da::DataAvailabilityMode::L1.into(),
-        };
-
-        let serialized = serde_json::to_value(&gateway_tx).unwrap();
-
-        // Verify that the type field is "INVOKE_FUNCTION"
-        assert_eq!(serialized["type"], "INVOKE_FUNCTION");
-        assert_eq!(serialized["version"], "0x3");
-        assert_eq!(serialized["sender_address"], "0x123");
-    }
-
-    #[test]
-    fn test_gateway_invoke_tx_deserialization() {
-        let json = json!({
-            "type": "INVOKE_FUNCTION",
-            "version": "0x3",
-            "sender_address": "0x123",
-            "calldata": ["0x1", "0x2"],
-            "signature": [],
-            "nonce": "0x0",
-            "paymaster_data": [],
-            "tip": "0x0",
-            "account_deployment_data": [],
-            "resource_bounds": {
-                "L1_GAS": {
-                    "max_amount": "0x100",
-                    "max_price_per_unit": "0x200"
-                },
-                "L2_GAS": {
-                    "max_amount": "0x0",
-                    "max_price_per_unit": "0x0"
-                }
-            },
-            "fee_data_availability_mode": 0,
-            "nonce_data_availability_mode": 0
-        });
-
-        let gateway_tx: BroadcastedInvokeTx = serde_json::from_value(json).unwrap();
-        assert_eq!(gateway_tx.version, Felt::THREE);
-        assert_eq!(gateway_tx.sender_address, ContractAddress::from(Felt::from(0x123)));
-        assert_eq!(gateway_tx.calldata, vec![Felt::ONE, Felt::TWO]);
-    }
-
-    #[test]
-    fn test_gateway_declare_tx_serialization() {
-        let sierra_class = Arc::new(katana_rpc_types::class::SierraClass {
-            sierra_program: vec![Felt::ONE, Felt::TWO],
-            contract_class_version: "0.1.0".to_string(),
-            entry_points_by_type: Default::default(),
-            abi: Default::default(),
-        });
-
-        let gateway_tx = BroadcastedDeclareTx {
-            version: Felt::THREE,
-            sender_address: ContractAddress::from(Felt::from(0x456)),
-            compiled_class_hash: Felt::from(0x789),
-            signature: vec![],
-            nonce: Felt::ONE,
-            contract_class: sierra_class,
-            tip: Tip::from(0),
-            paymaster_data: vec![],
-            account_deployment_data: vec![],
-            resource_bounds: ResourceBoundsMapping::L1Gas(
-                katana_primitives::fee::L1GasResourceBoundsMapping {
-                    l1_gas: ResourceBounds { max_amount: 100, max_price_per_unit: 200 },
-                    l2_gas: ResourceBounds { max_amount: 0, max_price_per_unit: 0 },
-                },
-            ),
-            fee_data_availability_mode: katana_primitives::da::DataAvailabilityMode::L1.into(),
-            nonce_data_availability_mode: katana_primitives::da::DataAvailabilityMode::L1.into(),
-        };
-
-        let serialized = serde_json::to_value(&gateway_tx).unwrap();
-
-        // Verify that the type field is "DECLARE"
-        assert_eq!(serialized["type"], "DECLARE");
-        assert_eq!(serialized["version"], "0x3");
-    }
-
-    #[test]
-    fn test_gateway_deploy_account_tx_serialization() {
-        let gateway_tx = BroadcastedDeployAccountTx {
-            version: Felt::THREE,
-            signature: vec![Felt::ONE, Felt::TWO],
-            nonce: Felt::ZERO,
-            contract_address_salt: Felt::from(0xabc),
-            constructor_calldata: vec![Felt::ONE, Felt::TWO],
-            class_hash: Felt::from(0xdef),
-            tip: Tip::from(0),
-            paymaster_data: vec![],
-            resource_bounds: ResourceBoundsMapping::L1Gas(
-                katana_primitives::fee::L1GasResourceBoundsMapping {
-                    l1_gas: ResourceBounds { max_amount: 100, max_price_per_unit: 200 },
-                    l2_gas: ResourceBounds { max_amount: 0, max_price_per_unit: 0 },
-                },
-            ),
-            fee_data_availability_mode: katana_primitives::da::DataAvailabilityMode::L1.into(),
-            nonce_data_availability_mode: katana_primitives::da::DataAvailabilityMode::L1.into(),
-        };
-
-        let serialized = serde_json::to_value(&gateway_tx).unwrap();
-
-        // Verify that the type field is "DEPLOY_ACCOUNT"
-        assert_eq!(serialized["type"], "DEPLOY_ACCOUNT");
-        assert_eq!(serialized["version"], "0x3");
-    }
-
-    #[test]
-    fn test_conversion_from_rpc_invoke_tx() {
+    fn test_conversion_from_rpc_query_invoke_tx() {
         let rpc_tx = katana_rpc_types::broadcasted::BroadcastedInvokeTx {
-            sender_address: ContractAddress::from(Felt::from(0x123)),
+            sender_address: address!("0x123"),
             calldata: vec![Felt::ONE, Felt::TWO],
             signature: vec![],
             nonce: Felt::ZERO,
@@ -885,46 +749,29 @@ mod tests {
             is_query: false,
         };
 
-        let gateway_tx: BroadcastedInvokeTx = rpc_tx.into();
+        // convert from rpc -> gateway type
+        let gateway_tx: BroadcastedInvokeTx = rpc_tx.clone().into();
+
+        // Query version should
         assert_eq!(gateway_tx.version, Felt::THREE);
-        assert_eq!(gateway_tx.sender_address, ContractAddress::from(Felt::from(0x123)));
 
-        // Test serialization produces correct type tag
-        let serialized = serde_json::to_value(&gateway_tx).unwrap();
-        assert_eq!(serialized["type"], "INVOKE_FUNCTION");
-    }
-
-    #[test]
-    fn test_conversion_from_rpc_query_invoke_tx() {
-        let rpc_tx = katana_rpc_types::broadcasted::BroadcastedInvokeTx {
-            sender_address: ContractAddress::from(Felt::from(0x123)),
-            calldata: vec![Felt::ONE, Felt::TWO],
-            signature: vec![],
-            nonce: Felt::ZERO,
-            paymaster_data: vec![],
-            tip: Tip::from(0),
-            account_deployment_data: vec![],
-            resource_bounds: ResourceBoundsMapping::L1Gas(
-                katana_primitives::fee::L1GasResourceBoundsMapping {
-                    l1_gas: ResourceBounds { max_amount: 100, max_price_per_unit: 200 },
-                    l2_gas: ResourceBounds { max_amount: 0, max_price_per_unit: 0 },
-                },
-            ),
-            fee_data_availability_mode: katana_primitives::da::DataAvailabilityMode::L1,
-            nonce_data_availability_mode: katana_primitives::da::DataAvailabilityMode::L1,
-            is_query: true,
-        };
-
-        let gateway_tx: BroadcastedInvokeTx = rpc_tx.into();
-        // Query version should have offset added
+        assert_eq!(gateway_tx.sender_address, rpc_tx.sender_address);
+        assert_eq!(gateway_tx.calldata, rpc_tx.calldata);
+        assert_eq!(gateway_tx.signature, rpc_tx.signature);
+        assert_eq!(gateway_tx.nonce, rpc_tx.nonce);
+        assert_eq!(gateway_tx.tip, rpc_tx.tip);
+        assert_eq!(gateway_tx.paymaster_data, rpc_tx.paymaster_data);
+        assert_eq!(gateway_tx.account_deployment_data, rpc_tx.account_deployment_data);
+        assert_eq!(gateway_tx.resource_bounds, rpc_tx.resource_bounds);
         assert_eq!(
-            gateway_tx.version,
-            Felt::THREE + katana_rpc_types::broadcasted::QUERY_VERSION_OFFSET
+            gateway_tx.nonce_data_availability_mode,
+            rpc_tx.nonce_data_availability_mode.into()
         );
+        assert_eq!(gateway_tx.fee_data_availability_mode, rpc_tx.fee_data_availability_mode.into());
     }
 
     #[test]
-    fn test_sierra_program_base64_encoding() {
+    fn test_conversion_from_rpc_query_declare_tx() {
         let sierra_class = Arc::new(katana_rpc_types::class::SierraClass {
             sierra_program: vec![Felt::from(0x123), Felt::from(0x456)],
             contract_class_version: "0.1.0".to_string(),
@@ -932,33 +779,91 @@ mod tests {
             abi: Default::default(),
         });
 
-        let gateway_tx = BroadcastedDeclareTx {
-            version: Felt::THREE,
-            sender_address: ContractAddress::from(Felt::from(0x789)),
+        let rpc_tx = katana_rpc_types::broadcasted::BroadcastedDeclareTx {
+            sender_address: address!("0x789"),
             compiled_class_hash: Felt::from(0xabc),
-            signature: vec![],
-            nonce: Felt::ONE,
+            signature: vec![Felt::ONE, Felt::TWO],
+            nonce: Felt::from(5),
             contract_class: sierra_class.clone(),
-            tip: Tip::from(0),
-            paymaster_data: vec![],
-            account_deployment_data: vec![],
+            tip: Tip::from(10),
+            paymaster_data: vec![Felt::from(0x11), Felt::from(0x22)],
+            account_deployment_data: vec![Felt::from(0x33)],
             resource_bounds: ResourceBoundsMapping::L1Gas(
                 katana_primitives::fee::L1GasResourceBoundsMapping {
-                    l1_gas: ResourceBounds { max_amount: 100, max_price_per_unit: 200 },
+                    l1_gas: ResourceBounds { max_amount: 200, max_price_per_unit: 300 },
+                    l2_gas: ResourceBounds { max_amount: 50, max_price_per_unit: 75 },
+                },
+            ),
+            fee_data_availability_mode: katana_primitives::da::DataAvailabilityMode::L2,
+            nonce_data_availability_mode: katana_primitives::da::DataAvailabilityMode::L1,
+            is_query: false,
+        };
+
+        // convert from rpc -> gateway type
+        let gateway_tx: BroadcastedDeclareTx = rpc_tx.clone().into();
+
+        // Query version should be v3
+        assert_eq!(gateway_tx.version, Felt::THREE);
+
+        assert_eq!(gateway_tx.sender_address, rpc_tx.sender_address);
+        assert_eq!(gateway_tx.compiled_class_hash, rpc_tx.compiled_class_hash);
+        assert_eq!(gateway_tx.signature, rpc_tx.signature);
+        assert_eq!(gateway_tx.nonce, rpc_tx.nonce);
+        assert_eq!(gateway_tx.tip, rpc_tx.tip);
+        assert_eq!(gateway_tx.paymaster_data, rpc_tx.paymaster_data);
+        assert_eq!(gateway_tx.account_deployment_data, rpc_tx.account_deployment_data);
+        assert_eq!(gateway_tx.resource_bounds, rpc_tx.resource_bounds);
+        assert_eq!(
+            gateway_tx.nonce_data_availability_mode,
+            rpc_tx.nonce_data_availability_mode.into()
+        );
+        assert_eq!(gateway_tx.fee_data_availability_mode, rpc_tx.fee_data_availability_mode.into());
+
+        // convert the gateway contract class to rpc contract class and ensure they are equal
+        let converted_sierra_class: SierraClass =
+            gateway_tx.contract_class.as_ref().clone().try_into().unwrap();
+        assert_eq!(converted_sierra_class, sierra_class.as_ref().clone());
+    }
+
+    #[test]
+    fn test_conversion_from_rpc_query_deploy_account_tx() {
+        let rpc_tx = katana_rpc_types::broadcasted::BroadcastedDeployAccountTx {
+            signature: vec![Felt::from(0x111), Felt::from(0x222)],
+            nonce: Felt::ZERO,
+            contract_address_salt: Felt::from(0xabc),
+            constructor_calldata: vec![Felt::from(0x1), Felt::from(0x2), Felt::from(0x3)],
+            class_hash: Felt::from(0xdef),
+            paymaster_data: vec![],
+            tip: Tip::from(5),
+            resource_bounds: ResourceBoundsMapping::L1Gas(
+                katana_primitives::fee::L1GasResourceBoundsMapping {
+                    l1_gas: ResourceBounds { max_amount: 150, max_price_per_unit: 250 },
                     l2_gas: ResourceBounds { max_amount: 0, max_price_per_unit: 0 },
                 },
             ),
-            fee_data_availability_mode: katana_primitives::da::DataAvailabilityMode::L1.into(),
-            nonce_data_availability_mode: katana_primitives::da::DataAvailabilityMode::L1.into(),
+            fee_data_availability_mode: katana_primitives::da::DataAvailabilityMode::L1,
+            nonce_data_availability_mode: katana_primitives::da::DataAvailabilityMode::L1,
+            is_query: false,
         };
 
-        let serialized = serde_json::to_value(&gateway_tx).unwrap();
+        // convert from rpc -> gateway type
+        let gateway_tx: BroadcastedDeployAccountTx = rpc_tx.clone().into();
 
-        // Verify sierra_program is a base64 string, not an array
-        assert!(serialized["contract_class"]["sierra_program"].is_string());
+        // Query version should be v3
+        assert_eq!(gateway_tx.version, Felt::THREE);
 
-        // Verify we can deserialize it back
-        let deserialized: BroadcastedDeclareTx = serde_json::from_value(serialized).unwrap();
-        assert_eq!(deserialized.contract_class.sierra_program, sierra_class.sierra_program);
+        assert_eq!(gateway_tx.signature, rpc_tx.signature);
+        assert_eq!(gateway_tx.nonce, rpc_tx.nonce);
+        assert_eq!(gateway_tx.contract_address_salt, rpc_tx.contract_address_salt);
+        assert_eq!(gateway_tx.constructor_calldata, rpc_tx.constructor_calldata);
+        assert_eq!(gateway_tx.class_hash, rpc_tx.class_hash);
+        assert_eq!(gateway_tx.paymaster_data, rpc_tx.paymaster_data);
+        assert_eq!(gateway_tx.tip, rpc_tx.tip);
+        assert_eq!(gateway_tx.resource_bounds, rpc_tx.resource_bounds);
+        assert_eq!(
+            gateway_tx.nonce_data_availability_mode,
+            rpc_tx.nonce_data_availability_mode.into()
+        );
+        assert_eq!(gateway_tx.fee_data_availability_mode, rpc_tx.fee_data_availability_mode.into());
     }
 }
