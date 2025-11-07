@@ -7,7 +7,6 @@ version.workspace = true
 
 [dependencies]
 katana-primitives.workspace = true
-katana-rpc-types.workspace = true
 katana-gateway-types.workspace = true
 
 clap.workspace = true
