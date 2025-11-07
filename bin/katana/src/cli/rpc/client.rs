@@ -7,6 +7,7 @@ use katana_primitives::block::{BlockIdOrTag, ConfirmedBlockIdOrTag};
 use katana_primitives::class::ClassHash;
 use katana_primitives::contract::{ContractAddress, StorageKey};
 use katana_primitives::transaction::TxHash;
+use katana_rpc_types::event::EventFilterWithPage;
 use katana_rpc_types::FunctionCall;
 use serde_json::value::RawValue;
 use serde_json::Value;
@@ -88,6 +89,7 @@ const BLOCK_HASH_AND_NUMBER: &str = "starknet_blockHashAndNumber";
 const CHAIN_ID: &str = "starknet_chainId";
 const SYNCING: &str = "starknet_syncing";
 const GET_NONCE: &str = "starknet_getNonce";
+const GET_EVENTS: &str = "starknet_getEvents";
 const TRACE_TRANSACTION: &str = "starknet_traceTransaction";
 const TRACE_BLOCK_TRANSACTIONS: &str = "starknet_traceBlockTransactions";
 
@@ -193,6 +195,10 @@ impl Client {
         contract_address: ContractAddress,
     ) -> Result<Value> {
         self.send_request(GET_NONCE, rpc_params!(block_id, contract_address)).await
+    }
+
+    pub async fn get_events(&self, filter: EventFilterWithPage) -> Result<Value> {
+        self.send_request(GET_EVENTS, rpc_params!(filter)).await
     }
 
     // Trace API methods
