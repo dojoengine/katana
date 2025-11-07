@@ -6,6 +6,7 @@ use katana_primitives::contract::StorageKey;
 use katana_primitives::execution::{EntryPointSelector, FunctionCall};
 use katana_primitives::transaction::TxHash;
 use katana_primitives::{ContractAddress, Felt};
+use katana_rpc_types::event::{EventFilter, EventFilterWithPage, ResultPageRequest};
 
 use super::client::Client;
 
@@ -78,6 +79,10 @@ pub enum StarknetCommands {
     /// Get nonce for address
     #[command(name = "nonce")]
     GetNonce(GetNonceArgs),
+
+    /// Get events matching filter criteria
+    #[command(name = "events")]
+    GetEvents(GetEventsArgs),
 
     /// Get transaction execution trace
     #[command(name = "trace")]
@@ -220,8 +225,30 @@ pub struct CallArgs {
 #[derive(Debug, Args)]
 #[cfg_attr(test, derive(PartialEq, Eq))]
 pub struct GetEventsArgs {
-    /// Event filter JSON
-    filter: String,
+    /// From block (number, hash, 'latest', or 'pending')
+    #[arg(long)]
+    from: Option<BlockIdArg>,
+
+    /// To block (number, hash, 'latest', or 'pending')
+    #[arg(long)]
+    to: Option<BlockIdArg>,
+
+    /// Contract address to filter events from
+    #[arg(long)]
+    address: Option<ContractAddress>,
+
+    /// Event keys filter. Each key group is comma-separated, groups are space-separated.
+    /// Example: --keys 0x1 0x2,0x3 represents [[0x1], [0x2, 0x3]]
+    #[arg(long, num_args = 0..)]
+    keys: Vec<String>,
+
+    /// Continuation token from previous query for pagination
+    #[arg(long)]
+    continuation_token: Option<String>,
+
+    /// Number of events to return per page
+    #[arg(long, default_value = "10")]
+    chunk_size: u64,
 }
 
 #[derive(Debug, Args)]
@@ -395,6 +422,29 @@ impl StarknetCommands {
                 println!("{}", colored_json::to_colored_json_auto(&result)?);
             }
 
+            StarknetCommands::GetEvents(args) => {
+                // Parse keys if provided
+                let keys: Option<Vec<Vec<Felt>>> =
+                    if !args.keys.is_empty() { Some(parse_event_keys(&args.keys)?) } else { None };
+
+                let event_filter = EventFilter {
+                    keys,
+                    address: args.address,
+                    to_block: args.to.map(|b| b.0),
+                    from_block: args.from.map(|b| b.0),
+                };
+
+                let result_page_request = ResultPageRequest {
+                    chunk_size: args.chunk_size,
+                    continuation_token: args.continuation_token,
+                };
+
+                let filter = EventFilterWithPage { event_filter, result_page_request };
+
+                let result = client.get_events(filter).await?;
+                println!("{}", colored_json::to_colored_json_auto(&result)?);
+            }
+
             StarknetCommands::TraceTransaction(args) => {
                 let tx_hash = args.tx_hash;
                 let result = client.trace_transaction(tx_hash).await?;
@@ -475,6 +525,26 @@ impl Default for ConfirmedBlockIdArg {
     }
 }
 
+/// Parses event keys from CLI arguments.
+///
+/// Format: Each argument is a comma-separated list of felts.
+/// Example: ["0x1", "0x2,0x3", "0x4"] => [[0x1], [0x2, 0x3], [0x4]]
+fn parse_event_keys(keys: &[String]) -> Result<Vec<Vec<Felt>>> {
+    keys.iter()
+        .enumerate()
+        .map(|(i, group)| {
+            group
+                .split(',')
+                .map(|s| {
+                    s.trim()
+                        .parse::<Felt>()
+                        .with_context(|| format!("invalid felt in key group {}: '{}'", i, s))
+                })
+                .collect::<Result<Vec<Felt>>>()
+        })
+        .collect()
+}
+
 #[cfg(test)]
 mod tests {
     use std::str::FromStr;
@@ -550,5 +620,65 @@ mod tests {
     fn confirmed_block_id_arg_default() {
         let default = ConfirmedBlockIdArg::default();
         assert_matches!(default.0, ConfirmedBlockIdOrTag::Latest);
+    }
+
+    use clap::Parser;
+
+    use super::{parse_event_keys, GetEventsArgs};
+
+    #[derive(Debug, Parser)]
+    struct TestCli {
+        #[command(flatten)]
+        args: GetEventsArgs,
+    }
+
+    #[test]
+    fn get_events_args_single_keys() {
+        let args = TestCli::try_parse_from(["test", "--keys", "0x1", "0x2", "0x3"]).unwrap();
+
+        let keys = parse_event_keys(&args.args.keys).unwrap();
+        assert_eq!(keys.len(), 3);
+        assert_eq!(keys[0], vec![felt!("0x1")]);
+        assert_eq!(keys[1], vec![felt!("0x2")]);
+        assert_eq!(keys[2], vec![felt!("0x3")]);
+    }
+
+    #[test]
+    fn get_events_args_multiple_keys() {
+        let args =
+            TestCli::try_parse_from(["test", "--keys", "0x9", "0x1,0x2,0x3", "0x4,0x5"]).unwrap();
+
+        let keys = parse_event_keys(&args.args.keys).unwrap();
+        assert_eq!(keys.len(), 3);
+        assert_eq!(keys[0], vec![felt!("0x9")]);
+        assert_eq!(keys[1], vec![felt!("0x1"), felt!("0x2"), felt!("0x3")]);
+        assert_eq!(keys[2], vec![felt!("0x4"), felt!("0x5")]);
+    }
+
+    #[test]
+    fn get_events_args_keys_with_whitespace() {
+        let args = TestCli::try_parse_from(["test", "--keys", "0x1, 0x2 , 0x3"]).unwrap();
+
+        let keys = parse_event_keys(&args.args.keys).unwrap();
+        assert_eq!(keys.len(), 1);
+        assert_eq!(keys[0], vec![felt!("0x1"), felt!("0x2"), felt!("0x3")]);
+    }
+
+    #[test]
+    fn get_events_args_invalid_felt() {
+        let args = TestCli::try_parse_from(["test", "--keys", "0x1", "invalid"]).unwrap();
+
+        let result = parse_event_keys(&args.args.keys);
+        assert!(result.is_err());
+        assert!(result.unwrap_err().to_string().contains("invalid felt in key group"));
+    }
+
+    #[test]
+    fn get_events_args_invalid_hex() {
+        let args = TestCli::try_parse_from(["test", "--keys", "0x1,0xGGG"]).unwrap();
+
+        let result = parse_event_keys(&args.args.keys);
+        assert!(result.is_err());
+        assert!(result.unwrap_err().to_string().contains("invalid felt in key group 0"));
     }
 }
