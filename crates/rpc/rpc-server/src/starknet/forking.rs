@@ -11,7 +11,7 @@ use katana_rpc_types::event::{EventFilter, GetEventsResponse};
 use katana_rpc_types::receipt::{ReceiptBlockInfo, TxReceiptWithBlockInfo};
 use katana_rpc_types::state_update::StateUpdate;
 use katana_rpc_types::transaction::RpcTxWithHash;
-use katana_rpc_types::{BlockHashAndNumberResponse, TxStatus};
+use katana_rpc_types::{BlockHashAndNumberResponse, BlockNumberResponse, TxStatus};
 
 #[derive(Debug, thiserror::Error)]
 pub enum Error {
@@ -49,6 +49,10 @@ impl ForkedClient {
 }
 
 impl ForkedClient {
+    pub async fn block_number(&self) -> Result<BlockNumber, Error> {
+        Ok(self.client.block_number().await?.block_number)
+    }
+
     pub async fn block_hash_and_number(&self) -> Result<BlockHashAndNumberResponse, Error> {
         Ok(self.client.block_hash_and_number().await?)
     }

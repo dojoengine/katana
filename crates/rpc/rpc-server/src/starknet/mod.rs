@@ -933,6 +933,7 @@ where
                 (0, 0)
             };
 
+            dbg!(transactions.len());
             for (tx_idx, (tx, result)) in transactions.iter().enumerate() {
                 // Skip transactions before the continuation token
                 if tx_idx < start_txn_idx {
@@ -943,7 +944,6 @@ where
                 if events_buffer.len() >= chunk_size as usize {
                     break;
                 }
-
                 // Only process successful executions
                 if let katana_executor::ExecutionResult::Success { receipt, .. } = result {
                     for (event_idx, event) in receipt.events().iter().enumerate() {
@@ -1006,7 +1006,21 @@ where
                     }
                 }
             }
+
+            // if we already exhaust all the optimistic transactions then we return a continuation token pointing to the next optimistic transaction
+            return Ok(Some(katana_primitives::event::ContinuationToken {
+                block_n: 0, // Not used for optimistic transactions
+                txn_n: transactions.len() as u64,
+                event_n: transactions
+                    .last()
+                    .and_then(|(.., result)| {
+                        result.receipt().map(|receipt| receipt.events().len() as u64)
+                    })
+                    .unwrap_or(0),
+                transaction_hash: transactions.last().map(|(tx, ..)| tx.hash),
+            }));
         }
+
         Ok(None)
     }
 
@@ -1020,16 +1034,13 @@ where
         continuation_token: Option<MaybeForkedContinuationToken>,
         chunk_size: u64,
     ) -> StarknetApiResult<GetEventsResponse> {
-        let provider = self.inner.backend.blockchain.provider();
-
         let from = self.resolve_event_block_id_if_forked(from_block)?;
         let to = self.resolve_event_block_id_if_forked(to_block)?;
 
         // reserved buffer to fill up with events to avoid reallocations
         let mut events = Vec::with_capacity(chunk_size as usize);
-        // let filter = utils::events::Filter { address, keys: keys.clone() };
 
-        match (from, to) {
+        match dbg!((from, to)) {
             (EventBlockId::Num(from), EventBlockId::Num(to)) => {
                 // Check if continuation token is a native (non-forked) token
                 let is_native_token = continuation_token
@@ -1063,34 +1074,24 @@ where
                     }
                 }
 
-                // Fetch events from optimistic state transactions
-                // Extract native token if present
-                let native_token = continuation_token.as_ref().and_then(|t| match t {
-                    MaybeForkedContinuationToken::Token(token) => Some(token),
-                    _ => None,
+                return Ok(GetEventsResponse {
+                    events,
+                    continuation_token: continuation_token.map(|t| t.to_string()),
                 });
-                let opt_token = self.fetch_optimistic_events(
-                    address,
-                    &keys,
-                    &mut events,
-                    chunk_size,
-                    native_token,
-                )?;
-
-                let continuation_token =
-                    opt_token.map(|t| MaybeForkedContinuationToken::Token(t).to_string());
-                Ok(GetEventsResponse { events, continuation_token })
             }
 
             (EventBlockId::Num(from), EventBlockId::Pending) => {
                 // Check if continuation token is a native (non-forked) token
-                let is_native_token = continuation_token
+                let fetch_from_fork = continuation_token
                     .as_ref()
-                    .map_or(false, |t| matches!(t, MaybeForkedContinuationToken::Token(_)));
+                    // if not token is supplied then we need to fetch from forked client, or
+                    // if token is a forked token
+                    .map_or(true, |t| matches!(t, MaybeForkedContinuationToken::Forked(_)));
 
                 // Only fetch from forked client if we don't have a native continuation token
-                if !is_native_token {
+                if dbg!(fetch_from_fork) {
                     let client = &self.inner.forked_client.as_ref().unwrap();
+
                     // Extract forked token if present
                     let forked_token = continuation_token.as_ref().and_then(|t| match t {
                         MaybeForkedContinuationToken::Forked(token) => Some(token.clone()),
@@ -1109,12 +1110,15 @@ where
                     events.extend(forked_result.events);
 
                     // Return early if there's a continuation token from forked network
+
                     if let Some(token) = forked_result.continuation_token {
-                        let token = MaybeForkedContinuationToken::Forked(token);
-                        return Ok(GetEventsResponse {
-                            events,
-                            continuation_token: Some(token.to_string()),
-                        });
+                        if dbg!(events.len() as u64 >= chunk_size) {
+                            let token = MaybeForkedContinuationToken::Forked(token);
+                            return Ok(GetEventsResponse {
+                                events,
+                                continuation_token: Some(token.to_string()),
+                            });
+                        }
                     }
                 }
 
@@ -1125,6 +1129,8 @@ where
                     MaybeForkedContinuationToken::Token(token) => Some(token),
                     _ => None,
                 });
+
+                println!("fetching optimistic events");
                 let opt_token = self.fetch_optimistic_events(
                     address,
                     &keys,
@@ -1133,12 +1139,16 @@ where
                     native_token,
                 )?;
 
+                dbg!(&opt_token);
+
                 let continuation_token =
                     opt_token.map(|t| MaybeForkedContinuationToken::Token(t).to_string());
                 Ok(GetEventsResponse { events, continuation_token })
             }
 
             (EventBlockId::Pending, EventBlockId::Pending) => {
+                println!("fetching optimistic events - pending - pending");
+
                 // Fetch events from optimistic state transactions (which represent pending
                 // transactions)
                 // Extract native token if present
@@ -1172,25 +1182,32 @@ where
         &self,
         id: BlockIdOrTag,
     ) -> StarknetApiResult<EventBlockId> {
-        let provider = &self.inner.storage_provider.provider();
-
         let id = match id {
             BlockIdOrTag::L1Accepted => EventBlockId::Pending,
             BlockIdOrTag::PreConfirmed => EventBlockId::Pending,
             BlockIdOrTag::Number(num) => EventBlockId::Num(num),
 
             BlockIdOrTag::Latest => {
-                let num = provider.convert_block_id(id)?;
-                EventBlockId::Num(num.ok_or(StarknetApiError::BlockNotFound)?)
+                // let num = provider.convert_block_id(id)?;
+                // EventBlockId::Num(num.ok_or(StarknetApiError::BlockNotFound)?)
+                if let Some(client) = self.forked_client() {
+                    let num = futures::executor::block_on(client.block_number())?;
+                    EventBlockId::Num(num)
+                }
+                // Otherwise the block hash is not found.
+                else {
+                    return Err(StarknetApiError::BlockNotFound);
+                }
             }
 
             BlockIdOrTag::Hash(hash) => {
-                // Check first if the block hash belongs to a local block.
-                if let Some(num) = provider.convert_block_id(id)? {
-                    EventBlockId::Num(num)
-                }
+                // // Check first if the block hash belongs to a local block.
+                // if let Some(num) = provider.convert_block_id(id)? {
+                //     EventBlockId::Num(num)
+                // }
                 // If not, check if the block hash belongs to a forked block.
-                else if let Some(client) = self.forked_client() {
+                // else
+                if let Some(client) = self.forked_client() {
                     let num = futures::executor::block_on(client.get_block_number_by_hash(hash))?;
                     EventBlockId::Num(num)
                 }
