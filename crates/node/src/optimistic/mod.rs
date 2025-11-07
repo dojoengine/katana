@@ -21,14 +21,12 @@ use katana_optimistic::pool::{PoolValidator, TxPool};
 use katana_pool::ordering::FiFo;
 use katana_primitives::block::BlockIdOrTag;
 use katana_primitives::env::{CfgEnv, FeeTokenAddressses};
-use katana_provider::api::block::BlockNumberProvider;
-use katana_provider::api::env::BlockEnvProvider;
 use katana_provider::providers::fork::ForkedProvider;
-use katana_rpc::cors::Cors;
-use katana_rpc::starknet::forking::ForkedClient;
-use katana_rpc::starknet::{OptimisticPendingBlockProvider, StarknetApi, StarknetApiConfig};
-use katana_rpc::{RpcServer, RpcServerHandle};
 use katana_rpc_api::starknet::{StarknetApiServer, StarknetTraceApiServer, StarknetWriteApiServer};
+use katana_rpc_server::cors::Cors;
+use katana_rpc_server::starknet::forking::ForkedClient;
+use katana_rpc_server::starknet::{OptimisticPendingBlockProvider, StarknetApi, StarknetApiConfig};
+use katana_rpc_server::{RpcServer, RpcServerHandle};
 use katana_tasks::{JoinHandle, TaskManager};
 use tracing::info;
 

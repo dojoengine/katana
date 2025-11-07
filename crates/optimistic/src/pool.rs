@@ -38,22 +38,17 @@ impl Validator for PoolValidator {
         // Forward the transaction to the remote node
         let result = match &tx.tx {
             BroadcastedTx::Invoke(invoke_tx) => {
-                self.gateway_client.add_invoke_transaction(invoke_tx.clone()).await.map(|_| ())
-                // self.client.add_invoke_transaction(invoke_tx.clone()).await.map(|_| ())
+                let gateway_tx = invoke_tx.clone().into();
+                self.gateway_client.add_invoke_transaction(gateway_tx).await.map(|_| ())
             }
             BroadcastedTx::Declare(declare_tx) => {
-                self.gateway_client.add_declare_transaction(declare_tx.clone()).await.map(|_| ())
-                // self.client.add_declare_transaction(declare_tx.clone()).await.map(|_| ())
+                let gateway_tx = declare_tx.clone().into();
+                self.gateway_client.add_declare_transaction(gateway_tx).await.map(|_| ())
             }
-            BroadcastedTx::DeployAccount(deploy_account_tx) => self
-                .gateway_client
-                .add_deploy_account_transaction(deploy_account_tx.clone())
-                .await
-                .map(|_| ()), /* self
-                               * .client
-                               * .add_deploy_account_transaction(deploy_account_tx.clone())
-                               * .await
-                               * .map(|_| ()), */
+            BroadcastedTx::DeployAccount(deploy_account_tx) => {
+                let gateway_tx = deploy_account_tx.clone().into();
+                self.gateway_client.add_deploy_account_transaction(gateway_tx).await.map(|_| ())
+            }
         };
 
         match result {

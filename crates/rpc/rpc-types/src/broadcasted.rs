@@ -716,7 +716,7 @@ impl From<BroadcastedTxWithChainId> for crate::transaction::RpcTxWithHash {
                 fee_data_availability_mode: tx.fee_data_availability_mode,
             })),
             BroadcastedTx::Declare(tx) => {
-                let class_hash = tx.contract_class.hash().expect("failed to compute class hash");
+                let class_hash = tx.contract_class.hash();
                 RpcTx::Declare(RpcDeclareTx::V3(RpcDeclareTxV3 {
                     sender_address: tx.sender_address,
                     compiled_class_hash: tx.compiled_class_hash,
