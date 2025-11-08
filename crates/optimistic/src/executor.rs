@@ -128,7 +128,7 @@ impl OptimisticExecutor {
         let mut last_block_number = None;
 
         loop {
-            sleep(Duration::from_secs(2)).await;
+            sleep(Duration::from_secs(5)).await;
 
             match client.get_block_with_tx_hashes(BlockIdOrTag::Latest).await {
                 Ok(block_response) => {

@@ -2,7 +2,7 @@ use std::fmt::Debug;
 
 use katana_core::service::block_producer::{BlockProducer, BlockProducerMode};
 use katana_executor::ExecutorFactory;
-use katana_primitives::block::{BlockIdOrTag, PartialHeader};
+use katana_primitives::block::{BlockIdOrTag, FinalityStatus, PartialHeader};
 use katana_primitives::da::L1DataAvailabilityMode;
 use katana_primitives::execution::TypedTransactionExecutionInfo;
 use katana_primitives::transaction::{TxHash, TxNumber};
@@ -12,9 +12,9 @@ use katana_provider::api::state::{StateFactoryProvider, StateProvider};
 use katana_provider::providers::db::cached::CachedStateProvider;
 use katana_rpc_client::starknet::Client;
 use katana_rpc_types::{
-    FinalityStatus, PreConfirmedBlockWithReceipts, PreConfirmedBlockWithTxHashes,
-    PreConfirmedBlockWithTxs, PreConfirmedStateUpdate, ReceiptBlockInfo, RpcTxWithHash,
-    TxReceiptWithBlockInfo, TxTrace,
+    PreConfirmedBlockWithReceipts, PreConfirmedBlockWithTxHashes, PreConfirmedBlockWithTxs,
+    PreConfirmedStateUpdate, ReceiptBlockInfo, RpcTx, RpcTxReceiptWithHash, RpcTxWithHash,
+    RpcTxWithReceipt, TxReceiptWithBlockInfo, TxTrace,
 };
 
 use crate::starknet::StarknetApiResult;
@@ -306,13 +306,54 @@ impl PendingBlockProvider for OptimisticPendingBlockProvider {
     }
 
     fn get_pending_block_with_txs(&self) -> StarknetApiResult<Option<PreConfirmedBlockWithTxs>> {
-        self.client.get_pending_block_with_txs()
+        if let Some(block) = self.client.get_pending_block_with_txs()? {
+            let optimistic_transactions = self
+                .optimistic_state
+                .transactions
+                .read()
+                .iter()
+                .map(|(tx, ..)| tx.clone())
+                .map(RpcTxWithHash::from)
+                .collect::<Vec<RpcTxWithHash>>();
+
+            Ok(Some(PreConfirmedBlockWithTxs { transactions: optimistic_transactions, ..block }))
+        } else {
+            Ok(None)
+        }
     }
 
     fn get_pending_block_with_receipts(
         &self,
     ) -> StarknetApiResult<Option<PreConfirmedBlockWithReceipts>> {
-        self.client.get_pending_block_with_receipts()
+        if let Some(block) = self.client.get_pending_block_with_receipts()? {
+            let optimistic_transactions = self
+                .optimistic_state
+                .transactions
+                .read()
+                .iter()
+                .filter_map(|(tx, result)| {
+                    if let Some(receipt) = result.receipt() {
+                        let transaction = RpcTx::from(tx.transaction.clone());
+                        let receipt = RpcTxReceiptWithHash::new(
+                            tx.hash,
+                            receipt.clone(),
+                            FinalityStatus::PreConfirmed,
+                        );
+
+                        Some(RpcTxWithReceipt { transaction, receipt })
+                    } else {
+                        None
+                    }
+                })
+                .collect::<Vec<RpcTxWithReceipt>>();
+
+            Ok(Some(PreConfirmedBlockWithReceipts {
+                transactions: optimistic_transactions,
+                ..block
+            }))
+        } else {
+            Ok(None)
+        }
     }
 
     fn get_pending_block_with_tx_hashes(
