@@ -48,6 +48,7 @@ where
     #[inline]
     #[tracing::instrument(target = "rpc", level = "trace", name = "rpc_batch", skip_all, fields(batch_size = batch.len()) )]
     fn batch<'a>(&self, batch: Batch<'a>) -> impl Future<Output = Self::BatchResponse> + Send + 'a {
+        info!(batch_size = batch.len(), "Batch rpc called.");
         self.service.batch(batch).in_current_span()
     }
 

@@ -17,7 +17,7 @@ pub type BlockNumber = u64;
 /// Block hash type.
 pub type BlockHash = Felt;
 
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
 pub enum BlockIdOrTag {
     Hash(BlockHash),
     Number(BlockNumber),

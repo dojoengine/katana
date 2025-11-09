@@ -41,13 +41,14 @@ where
             BlockHashOrNumber::Hash(hash) => self.provider.block_number_by_hash(hash)?,
 
             BlockHashOrNumber::Num(num) => {
-                let latest_num = self.provider.latest_number()?;
+                // let latest_num = self.provider.latest_number()?;
 
-                match num.cmp(&latest_num) {
-                    Ordering::Less => Some(num),
-                    Ordering::Greater => return Ok(None),
-                    Ordering::Equal => return self.latest().map(Some),
-                }
+                // match num.cmp(&latest_num) {
+                //     Ordering::Less => Some(num),
+                //     Ordering::Greater => return Ok(None),
+                //     Ordering::Equal => return self.latest().map(Some),
+                // }
+                Some(num)
             }
         };
 

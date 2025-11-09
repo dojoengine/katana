@@ -4,7 +4,7 @@ use katana_primitives::{ContractAddress, Felt};
 use serde::{Deserialize, Serialize};
 
 /// Events request.
-#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[derive(Debug, Clone, PartialEq, Eq, Hash, Serialize, Deserialize)]
 pub struct EventFilterWithPage {
     #[serde(flatten)]
     pub event_filter: EventFilter,
@@ -15,7 +15,7 @@ pub struct EventFilterWithPage {
 /// Event filter.
 ///
 /// An event filter/query.
-#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[derive(Debug, Clone, PartialEq, Eq, Hash, Serialize, Deserialize)]
 pub struct EventFilter {
     /// From block
     #[serde(skip_serializing_if = "Option::is_none")]
@@ -32,7 +32,7 @@ pub struct EventFilter {
 }
 
 /// Result page request.
-#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[derive(Debug, Clone, PartialEq, Eq, Hash, Serialize, Deserialize)]
 pub struct ResultPageRequest {
     /// The token returned from the previous query. If no token is provided the first page is
     /// returned.

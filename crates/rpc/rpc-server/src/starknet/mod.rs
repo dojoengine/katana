@@ -740,18 +740,21 @@ where
                     if let Some(block) =
                         this.inner.pending_block_provider.get_pending_block_with_receipts()?
                     {
-                        return Ok(Some(GetBlockWithReceiptsResponse::PreConfirmed(block)));
+                        Ok(Some(GetBlockWithReceiptsResponse::PreConfirmed(block)))
+                    } else {
+                        Ok(None)
                     }
-                }
-
-                if let Some(num) = provider.convert_block_id(block_id)? {
-                    let block = katana_rpc_types_builder::BlockBuilder::new(num.into(), provider)
-                        .build_with_receipts()?
-                        .map(GetBlockWithReceiptsResponse::Block);
-
-                    StarknetApiResult::Ok(block)
                 } else {
+                    // if let Some(num) = provider.convert_block_id(block_id)? {
+                    //     let block =
+                    //         katana_rpc_types_builder::BlockBuilder::new(num.into(), provider)
+                    //             .build_with_receipts()?
+                    //             .map(GetBlockWithReceiptsResponse::Block);
+
+                    //     StarknetApiResult::Ok(block)
+                    // } else {
                     StarknetApiResult::Ok(None)
+                    // }
                 }
             })
             .await??;
@@ -1040,7 +1043,7 @@ where
         // reserved buffer to fill up with events to avoid reallocations
         let mut events = Vec::with_capacity(chunk_size as usize);
 
-        match dbg!((from, to)) {
+        match (from, to) {
             (EventBlockId::Num(from), EventBlockId::Num(to)) => {
                 // Check if continuation token is a native (non-forked) token
                 let is_native_token = continuation_token
@@ -1074,10 +1077,7 @@ where
                     }
                 }
 
-                return Ok(GetEventsResponse {
-                    events,
-                    continuation_token: continuation_token.map(|t| t.to_string()),
-                });
+                return Ok(GetEventsResponse { events, continuation_token: None });
             }
 
             (EventBlockId::Num(from), EventBlockId::Pending) => {

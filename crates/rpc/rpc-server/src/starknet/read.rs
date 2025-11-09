@@ -141,7 +141,32 @@ where
     }
 
     async fn get_events(&self, filter: EventFilterWithPage) -> RpcResult<GetEventsResponse> {
-        Ok(self.events(filter).await?)
+        use std::collections::HashMap;
+        use std::sync::LazyLock;
+        use std::sync::Mutex;
+
+        // Function-local static cache for events
+        static EVENTS_CACHE: LazyLock<Mutex<HashMap<EventFilterWithPage, GetEventsResponse>>> =
+            LazyLock::new(|| Mutex::new(HashMap::new()));
+
+        // Check cache first
+        {
+            let cache = EVENTS_CACHE.lock().unwrap();
+            if let Some(cached_result) = cache.get(&filter) {
+                return Ok(cached_result.clone());
+            }
+        }
+
+        // If not in cache, fetch the events
+        let result = self.events(filter.clone()).await?;
+
+        // Store in cache
+        {
+            let mut cache = EVENTS_CACHE.lock().unwrap();
+            cache.insert(filter, result.clone());
+        }
+
+        Ok(result)
     }
 
     async fn call(&self, request: FunctionCall, block_id: BlockIdOrTag) -> RpcResult<CallResponse> {

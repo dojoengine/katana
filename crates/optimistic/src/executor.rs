@@ -111,9 +111,9 @@ impl OptimisticExecutor {
         let client = self.client;
         let optimistic_state = self.optimistic_state;
         let block_env = self.block_env;
-        self.task_spawner.build_task().name("Block Polling").spawn(async move {
-            Self::poll_confirmed_blocks(client, optimistic_state, block_env).await;
-        });
+        // self.task_spawner.build_task().name("Block Polling").spawn(async move {
+        //     Self::poll_confirmed_blocks(client, optimistic_state, block_env).await;
+        // });
 
         executor_handle
     }
