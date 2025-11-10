@@ -3,7 +3,7 @@ use std::fmt::Debug;
 use katana_gateway_types::TxTryFromError;
 use katana_primitives::transaction::{TxHash, TxNumber, TxWithHash};
 use katana_provider::api::state::{StateFactoryProvider, StateProvider};
-use katana_rpc::starknet::{PendingBlockProvider, StarknetApiResult};
+use katana_rpc_server::starknet::{PendingBlockProvider, StarknetApiResult};
 use katana_rpc_types::RpcTxWithHash;
 
 use crate::full::pending::PreconfStateFactory;
