@@ -8,7 +8,6 @@ use starknet::macros::short_string;
 
 use crate::contract::ContractAddress;
 use crate::da::L1DataAvailabilityMode;
-use crate::receipt::Receipt;
 use crate::transaction::{ExecutableTxWithHash, TxHash, TxWithHash};
 use crate::version::StarknetVersion;
 use crate::Felt;
@@ -115,15 +114,6 @@ pub struct PartialHeader {
     pub l2_gas_prices: GasPrices,
     pub l1_da_mode: L1DataAvailabilityMode,
     pub starknet_version: StarknetVersion,
-}
-
-#[derive(Debug, Clone, PartialEq, Eq)]
-#[cfg_attr(feature = "arbitrary", derive(::arbitrary::Arbitrary))]
-#[cfg_attr(feature = "serde", derive(serde::Serialize, serde::Deserialize))]
-pub struct PendingBlock {
-    pub header: PartialHeader,
-    pub transactions: Vec<TxWithHash>,
-    pub receipts: Vec<Receipt>,
 }
 
 #[derive(Debug, Copy, Clone, PartialEq, Eq)]
