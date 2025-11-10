@@ -13,9 +13,9 @@ use crate::starknet::pending::PendingBlockProvider;
 
 #[async_trait]
 impl<Pool, PP> StarknetApiExtServer for StarknetApi<Pool, PP>
-where 
+where
     Pool: TransactionPool + 'static,
-    PP: PendingBlockProvider
+    PP: PendingBlockProvider,
 {
     async fn get_blocks(&self, request: GetBlocksRequest) -> RpcResult<GetBlocksResponse> {
         Ok(self.blocks(request).await?)

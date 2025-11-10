@@ -84,9 +84,7 @@ where
     Pool: TransactionPool + Clone + Send + Sync + 'static,
 {
     /// Create a new feeder gateway server.
-    pub fn new(
-        starknet_api: StarknetApi<Pool, BlockProducer<BlockifierFactory>>,
-    ) -> Self {
+    pub fn new(starknet_api: StarknetApi<Pool, BlockProducer<BlockifierFactory>>) -> Self {
         Self {
             timeout: DEFAULT_GATEWAY_TIMEOUT,
             cors: None,

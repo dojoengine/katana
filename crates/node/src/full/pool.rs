@@ -2,9 +2,9 @@ use std::future::Future;
 
 use katana_pool::ordering::TipOrdering;
 use katana_pool::pool::Pool;
-use katana_pool_api::validation::Error as ValidationError;
-use katana_pool_api::validation::{ValidationOutcome, ValidationResult, Validator};
-use katana_primitives::transaction::ExecutableTxWithHash;
+use katana_pool_api::validation::{
+    Error as ValidationError, ValidationOutcome, ValidationResult, Validator,
+};
 use katana_rpc_types::{BroadcastedTx, BroadcastedTxWithChainId};
 
 pub type FullNodePool =
@@ -35,19 +35,24 @@ impl Validator for GatewayProxyValidator {
         let gateway_client = self.gateway_client.clone();
 
         async move {
-            match tx.tx.clone() {
-                BroadcastedTx::Invoke(invoke_tx) => {
-                    gateway_client.add_invoke_transaction(invoke_tx).await.unwrap();
-                }
-                BroadcastedTx::Declare(declare_tx) => {
-                    gateway_client.add_declare_transaction(declare_tx).await.unwrap();
-                }
-                BroadcastedTx::DeployAccount(deploy_account_tx) => {
-                    gateway_client.add_deploy_account_transaction(deploy_account_tx).await.unwrap();
-                }
-            }
+            let hash = tx.calculate_hash();
 
-            ValidationResult::Ok(ValidationOutcome::Valid(tx))
+            let result = match tx.tx.clone() {
+                BroadcastedTx::Invoke(inner_tx) => {
+                    gateway_client.add_invoke_transaction(inner_tx.into()).await.map(|_| ())
+                }
+                BroadcastedTx::Declare(inner_tx) => {
+                    gateway_client.add_declare_transaction(inner_tx.into()).await.map(|_| ())
+                }
+                BroadcastedTx::DeployAccount(inner_tx) => {
+                    gateway_client.add_deploy_account_transaction(inner_tx.into()).await.map(|_| ())
+                }
+            };
+
+            match result {
+                Ok(_) => ValidationResult::Ok(ValidationOutcome::Valid(tx)),
+                Err(e) => ValidationResult::Err(ValidationError::new(hash, Box::new(e))),
+            }
         }
     }
 }
