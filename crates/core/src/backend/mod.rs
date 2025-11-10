@@ -76,6 +76,11 @@ impl<EF: ExecutorFactory> Backend<EF> {
         match self.chain_spec.as_ref() {
             ChainSpec::Dev(cs) => self.init_dev_genesis(cs),
             ChainSpec::Rollup(cs) => self.init_rollup_genesis(cs),
+            ChainSpec::FullNode(_) => {
+                // Full nodes sync from the network, so we skip genesis initialization
+                info!("Full node mode: genesis initialization skipped, will sync from network");
+                Ok(())
+            }
         }
     }
 

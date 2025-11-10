@@ -6,15 +6,13 @@ use std::sync::Arc;
 
 use katana_chain_spec::ChainSpec;
 use katana_core::backend::storage::Database;
-use katana_core::backend::Backend;
 use katana_core::utils::get_current_timestamp;
-use katana_executor::ExecutorFactory;
 use katana_gas_price_oracle::GasPriceOracle;
 use katana_pool::TransactionPool;
 use katana_primitives::block::{BlockHashOrNumber, BlockIdOrTag, FinalityStatus, GasPrices};
 use katana_primitives::class::{ClassHash, CompiledClass};
 use katana_primitives::contract::{ContractAddress, Nonce, StorageKey, StorageValue};
-use katana_primitives::env::BlockEnv;
+use katana_primitives::env::{BlockEnv, VersionedConstantsOverrides};
 use katana_primitives::event::MaybeForkedContinuationToken;
 use katana_primitives::transaction::{ExecutableTxWithHash, TxHash, TxNumber};
 use katana_primitives::Felt;
@@ -102,6 +100,7 @@ where
     estimate_fee_permit: Permits,
     config: StarknetApiConfig,
     pending_block_provider: PP,
+    versioned_constant_overrides: Option<VersionedConstantsOverrides>,
 }
 
 impl<Pool, PP> StarknetApi<Pool, PP>
@@ -135,6 +134,7 @@ where
     Pool: TransactionPool + 'static,
     PP: PendingBlockProvider,
 {
+    #[allow(clippy::too_many_arguments)]
     pub fn new(
         chain_spec: Arc<ChainSpec>,
         storage: BlockchainProvider<Box<dyn Database>>,
@@ -143,6 +143,7 @@ where
         config: StarknetApiConfig,
         pending_block_provider: PP,
         gas_oracle: GasPriceOracle,
+        versioned_constant_overrides: Option<VersionedConstantsOverrides>,
     ) -> Self {
         Self::new_inner(
             chain_spec,
@@ -153,9 +154,11 @@ where
             config,
             pending_block_provider,
             gas_oracle,
+            versioned_constant_overrides,
         )
     }
 
+    #[allow(clippy::too_many_arguments)]
     pub fn new_forked(
         chain_spec: Arc<ChainSpec>,
         storage: BlockchainProvider<Box<dyn Database>>,
@@ -165,6 +168,7 @@ where
         config: StarknetApiConfig,
         pending_block_provider: PP,
         gas_oracle: GasPriceOracle,
+        versioned_constant_overrides: Option<VersionedConstantsOverrides>,
     ) -> Self {
         Self::new_inner(
             chain_spec,
@@ -175,9 +179,11 @@ where
             config,
             pending_block_provider,
             gas_oracle,
+            versioned_constant_overrides,
         )
     }
 
+    #[allow(clippy::too_many_arguments)]
     fn new_inner(
         chain_spec: Arc<ChainSpec>,
         storage: BlockchainProvider<Box<dyn Database>>,
@@ -187,6 +193,7 @@ where
         config: StarknetApiConfig,
         pending_block_provider: PP,
         gas_oracle: GasPriceOracle,
+        versioned_constant_overrides: Option<VersionedConstantsOverrides>,
     ) -> Self {
         let total_permits = config
             .max_concurrent_estimate_fee_requests
@@ -203,6 +210,7 @@ where
             config,
             pending_block_provider,
             gas_oracle,
+            versioned_constant_overrides,
         };
 
         Self { inner: Arc::new(inner) }
@@ -271,14 +279,14 @@ where
         // get the state and block env at the specified block for execution
         let state = self.state(&block_id)?;
         let env = self.block_env_at(&block_id)?;
-        let cfg_env = self.inner.chain_spec.versioned_constants_overrides().unwrap();
+        let versioned_constant_overrides = self.inner.versioned_constant_overrides.as_ref();
 
         // do estimations
         blockifier::estimate_fees(
             self.inner.chain_spec.as_ref(),
             state,
             env,
-            cfg_env,
+            versioned_constant_overrides,
             transactions,
             flags,
         )

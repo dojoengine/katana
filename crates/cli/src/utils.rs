@@ -130,6 +130,8 @@ PREDEPLOYED CONTRACTS
                 cs.fee_contracts.strk, DEFAULT_LEGACY_ERC20_CLASS_HASH,
             );
         }
+
+        ChainSpec::FullNode(..) => {}
     }
 
     println!(

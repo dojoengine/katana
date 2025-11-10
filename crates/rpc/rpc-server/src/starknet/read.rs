@@ -148,7 +148,7 @@ where
             let state = this.state(&block_id)?;
             let env = this.block_env_at(&block_id)?;
             // let cfg_env = this.inner.backend.executor_factory.cfg().clone();
-            let cfg_env = this.inner.chain_spec.versioned_constants_overrides().unwrap();
+            let cfg_env = this.inner.versioned_constant_overrides.as_ref();
             let max_call_gas = this.inner.config.max_call_gas.unwrap_or(1_000_000_000);
 
             let result = super::blockifier::call(

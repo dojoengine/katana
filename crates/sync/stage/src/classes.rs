@@ -12,7 +12,7 @@ use katana_provider::api::state_update::StateUpdateProvider;
 use katana_provider::api::ProviderError;
 use katana_rpc_types::class::ConversionError;
 use rayon::prelude::*;
-use tracing::{debug, error, info, info_span, Instrument};
+use tracing::{debug, error, info_span, Instrument};
 
 use super::{Stage, StageExecutionInput, StageExecutionOutput, StageResult};
 use crate::downloader::{BatchDownloader, Downloader, DownloaderResult};

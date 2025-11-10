@@ -263,7 +263,7 @@ impl<EF: ExecutorFactory> IntervalBlockProducer<EF> {
         let validator = TxValidator::new(
             state,
             flags.clone(),
-            cfg.clone(),
+            cfg.cloned(),
             block_env,
             permit.clone(),
             backend.chain_spec.clone(),
@@ -591,7 +591,7 @@ impl<EF: ExecutorFactory> InstantBlockProducer<EF> {
         let validator = TxValidator::new(
             state,
             flags.clone(),
-            cfg.clone(),
+            cfg.cloned(),
             block_env,
             permit.clone(),
             backend.chain_spec.clone(),

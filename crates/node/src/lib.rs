@@ -23,7 +23,7 @@ use katana_core::service::block_producer::BlockProducer;
 use katana_db::Db;
 use katana_executor::implementation::blockifier::cache::ClassCache;
 use katana_executor::implementation::blockifier::BlockifierFactory;
-use katana_executor::ExecutionFlags;
+use katana_executor::{ExecutionFlags, ExecutorFactory};
 use katana_gas_price_oracle::{FixedPriceOracle, GasPriceOracle};
 use katana_gateway_server::{GatewayServer, GatewayServerHandle};
 use katana_metrics::exporters::prometheus::PrometheusRecorder;
@@ -31,7 +31,7 @@ use katana_metrics::sys::DiskReporter;
 use katana_metrics::{Report, Server as MetricsServer};
 use katana_pool::ordering::FiFo;
 use katana_pool::TxPool;
-use katana_primitives::env::{FeeTokenAddressses, VersionedConstantsOverrides};
+use katana_primitives::env::VersionedConstantsOverrides;
 #[cfg(feature = "cartridge")]
 use katana_rpc_api::cartridge::CartridgeApiServer;
 use katana_rpc_api::dev::DevApiServer;
@@ -91,20 +91,12 @@ impl Node {
 
         // --- build executor factory
 
-        // let fee_token_addresses = match config.chain.as_ref() {
-        //     ChainSpec::Dev(cs) => {
-        //         FeeTokenAddressses { eth: cs.fee_contracts.eth, strk: cs.fee_contracts.strk }
-        //     }
-        //     ChainSpec::Rollup(cs) => {
-        //         FeeTokenAddressses { eth: cs.fee_contracts.eth, strk: cs.fee_contracts.strk }
-        //     }
-        // };
-
-        let cfg_env = VersionedConstantsOverrides {
-            invoke_tx_max_n_steps: config.execution.invocation_max_steps,
-            validate_max_n_steps: config.execution.validation_max_steps,
-            max_recursion_depth: config.execution.max_recursion_depth,
-        };
+        // Create versioned constants overrides from config
+        let cfg_env = Some(VersionedConstantsOverrides {
+            invoke_tx_max_n_steps: Some(config.execution.invocation_max_steps),
+            validate_max_n_steps: Some(config.execution.validation_max_steps),
+            max_recursion_depth: Some(config.execution.max_recursion_depth),
+        });
 
         let execution_flags = ExecutionFlags::new()
             .with_account_validation(config.dev.account_validation)
@@ -187,6 +179,9 @@ impl Node {
             GasPriceOracle::Fixed(FixedPriceOracle::default())
         };
 
+        // Get cfg_env before moving executor_factory into Backend
+        let cfg_env = executor_factory.cfg().cloned();
+
         let block_context_generator = BlockContextGenerator::default().into();
         let backend = Arc::new(Backend {
             gas_oracle: gas_oracle.clone(),
@@ -263,16 +258,17 @@ impl Node {
         let storage_provider = backend.blockchain.provider().clone();
         let chain_spec = backend.chain_spec.clone();
 
-        let starknet_api = if let Some(client) = forked_client {
+        let starknet_api = if let Some(forked_client) = forked_client {
             StarknetApi::new_forked(
                 chain_spec.clone(),
                 storage_provider.clone(),
                 pool.clone(),
-                client,
+                forked_client,
                 task_spawner.clone(),
                 starknet_api_cfg,
                 block_producer.clone(),
                 gas_oracle.clone(),
+                cfg_env.clone(),
             )
         } else {
             StarknetApi::new(
@@ -283,6 +279,7 @@ impl Node {
                 starknet_api_cfg,
                 block_producer.clone(),
                 gas_oracle.clone(),
+                cfg_env,
             )
         };
 

@@ -503,9 +503,7 @@ impl From<DeclareTxWithClass> for BroadcastedDeclareTx {
         // Convert ContractClass to SierraClass
         // Note: This conversion may lose information for legacy classes
         let contract_class = match tx.class.as_ref() {
-            ContractClass::Class(sierra) => {
-                Arc::new(SierraClass::try_from(sierra.clone()).unwrap_or_default())
-            }
+            ContractClass::Class(sierra) => Arc::new(SierraClass::from(sierra.clone())),
             ContractClass::Legacy(_) => Arc::new(SierraClass::default()),
         };
 

@@ -65,7 +65,7 @@ where
         // use the blockifier utils function
         // let cfg_env = self.inner.backend.executor_factory.cfg().clone();
         let chain_spec = self.inner.chain_spec.as_ref();
-        let cfg_env = self.inner.chain_spec.versioned_constants_overrides().unwrap();
+        let cfg_env = self.inner.versioned_constant_overrides.as_ref();
         let results =
             super::blockifier::simulate(chain_spec, state, env, cfg_env, executables, flags);
 

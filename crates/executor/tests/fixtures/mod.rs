@@ -245,10 +245,9 @@ pub fn cfg() -> VersionedConstantsOverrides {
 
     VersionedConstantsOverrides {
         // fee_token_addresses,
-        max_recursion_depth: usize::MAX,
-        validate_max_n_steps: u32::MAX,
-        invoke_tx_max_n_steps: u32::MAX,
-        // chain_id: ChainId::parse("KATANA").unwrap(),
+        max_recursion_depth: Some(usize::MAX),
+        validate_max_n_steps: Some(u32::MAX),
+        invoke_tx_max_n_steps: Some(u32::MAX),
     }
 }
 

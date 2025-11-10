@@ -171,14 +171,20 @@ impl Node {
             paymaster: None,
         };
 
+        let chain_spec = match config.network {
+            Network::Mainnet => ChainSpec::mainnet(),
+            Network::Sepolia => ChainSpec::sepolia(),
+        };
+
         let starknet_api = StarknetApi::new(
-            Arc::new(ChainSpec::dev()),
+            Arc::new(chain_spec),
             BlockchainProvider::new(Box::new(provider.clone())),
             pool.clone(),
             task_spawner.clone(),
             starknet_api_cfg,
             preconf_factory,
             GasPriceOracle::create_for_testing(),
+            None, // Full nodes don't have versioned constants overrides
         );
 
         if config.rpc.apis.contains(&RpcModuleKind::Starknet) {

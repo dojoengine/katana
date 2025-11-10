@@ -23,7 +23,7 @@ pub trait ExecutorFactory: Send + Sync + 'static + core::fmt::Debug {
         P: StateProvider + 'a;
 
     /// Returns the configuration environment of the factory.
-    fn cfg(&self) -> &VersionedConstantsOverrides;
+    fn cfg(&self) -> Option<&VersionedConstantsOverrides>;
 
     /// Returns the execution flags set by the factory.
     fn execution_flags(&self) -> &ExecutionFlags;

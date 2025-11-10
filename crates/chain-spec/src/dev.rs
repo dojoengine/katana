@@ -15,7 +15,6 @@ use katana_primitives::chain::ChainId;
 use katana_primitives::class::ClassHash;
 use katana_primitives::contract::ContractAddress;
 use katana_primitives::da::L1DataAvailabilityMode;
-use katana_primitives::env::VersionedConstantsOverrides;
 use katana_primitives::state::StateUpdatesWithClasses;
 use katana_primitives::utils::split_u256;
 use katana_primitives::version::StarknetVersion;
@@ -37,8 +36,6 @@ pub struct ChainSpec {
     pub fee_contracts: FeeContracts,
 
     pub settlement: Option<SettlementLayer>,
-
-    pub versioned_constants_overrides: Option<VersionedConstantsOverrides>,
 }
 
 //////////////////////////////////////////////////////////////
@@ -140,7 +137,6 @@ lazy_static! {
             genesis,
             fee_contracts,
             settlement: None,
-            versioned_constants_overrides: None,
         }
     };
 }
@@ -328,7 +324,6 @@ mod tests {
                 strk: DEFAULT_STRK_FEE_TOKEN_ADDRESS,
             },
             settlement: None,
-            versioned_constants_overrides: None,
         };
 
         // setup expected storage values

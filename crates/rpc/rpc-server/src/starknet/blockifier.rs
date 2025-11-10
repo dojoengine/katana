@@ -20,11 +20,11 @@ pub fn simulate(
     chain_spec: &ChainSpec,
     state: impl StateProvider,
     block_env: BlockEnv,
-    cfg_env: &VersionedConstantsOverrides,
+    overrides: Option<&VersionedConstantsOverrides>,
     transactions: Vec<ExecutableTxWithHash>,
     flags: ExecutionFlags,
 ) -> Vec<ResultAndStates> {
-    let block_context = Arc::new(block_context_from_envs(chain_spec, &block_env, &cfg_env));
+    let block_context = Arc::new(block_context_from_envs(chain_spec, &block_env, overrides));
     let state = CachedState::new(state, ClassCache::global().clone());
     let mut results = Vec::with_capacity(transactions.len());
 
@@ -59,12 +59,12 @@ pub fn estimate_fees(
     chain_spec: &ChainSpec,
     state: impl StateProvider,
     block_env: BlockEnv,
-    cfg_env: &VersionedConstantsOverrides,
+    overrides: Option<&VersionedConstantsOverrides>,
     transactions: Vec<ExecutableTxWithHash>,
     flags: ExecutionFlags,
 ) -> StarknetApiResult<Vec<FeeEstimate>> {
     let flags = flags.with_fee(false);
-    let block_context = block_context_from_envs(chain_spec, &block_env, cfg_env);
+    let block_context = block_context_from_envs(chain_spec, &block_env, overrides);
     let state = CachedState::new(state, ClassCache::global().clone());
 
     state.with_mut_cached_state(|state| {
@@ -116,11 +116,11 @@ pub fn call<P: StateProvider>(
     chain_spec: &ChainSpec,
     state: P,
     block_env: BlockEnv,
-    cfg_env: &VersionedConstantsOverrides,
+    overrides: Option<&VersionedConstantsOverrides>,
     call: FunctionCall,
     max_call_gas: u64,
 ) -> Result<Vec<Felt>, StarknetApiError> {
-    let block_context = Arc::new(block_context_from_envs(chain_spec, &block_env, &cfg_env));
+    let block_context = Arc::new(block_context_from_envs(chain_spec, &block_env, overrides));
 
     // `ClassCache::try_global` could only fail if the global cache has not been initialized.
     // This won't happen in a normal execution flow as we guarantee that the global cache is

@@ -21,11 +21,11 @@ use url::Url;
 
 fn executor(chain_spec: Arc<ChainSpec>) -> BlockifierFactory {
     BlockifierFactory::new(
-        VersionedConstantsOverrides {
-            validate_max_n_steps: u32::MAX,
-            invoke_tx_max_n_steps: u32::MAX,
-            max_recursion_depth: usize::MAX,
-        },
+        Some(VersionedConstantsOverrides {
+            validate_max_n_steps: Some(u32::MAX),
+            invoke_tx_max_n_steps: Some(u32::MAX),
+            max_recursion_depth: Some(usize::MAX),
+        }),
         Default::default(),
         BlockLimits::default(),
         ClassCache::new().unwrap(),
@@ -72,13 +72,7 @@ fn rollup_chain_spec() -> rollup::ChainSpec {
         rpc_url: Url::parse("http://localhost:5050").unwrap(),
     };
 
-    rollup::ChainSpec {
-        id,
-        genesis,
-        settlement,
-        fee_contracts,
-        versioned_constants_overrides: None,
-    }
+    rollup::ChainSpec { id, genesis, settlement, fee_contracts }
 }
 
 #[rstest]

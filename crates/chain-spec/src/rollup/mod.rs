@@ -2,7 +2,6 @@ use katana_genesis::Genesis;
 use katana_primitives::block::{ExecutableBlock, GasPrices, PartialHeader};
 use katana_primitives::chain::ChainId;
 use katana_primitives::da::L1DataAvailabilityMode;
-use katana_primitives::env::VersionedConstantsOverrides;
 use katana_primitives::version::CURRENT_STARKNET_VERSION;
 
 mod file;
@@ -27,8 +26,6 @@ pub struct ChainSpec {
 
     /// The chain's settlement layer configurations.
     pub settlement: SettlementLayer,
-
-    pub versioned_constants_overrides: Option<VersionedConstantsOverrides>,
 }
 
 //////////////////////////////////////////////////////////////

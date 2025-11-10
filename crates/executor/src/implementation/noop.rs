@@ -16,7 +16,7 @@ use crate::ExecutorError;
 /// A no-op executor factory. Creates an executor that does nothing.
 #[derive(Debug, Default)]
 pub struct NoopExecutorFactory {
-    cfg: VersionedConstantsOverrides,
+    cfg: Option<VersionedConstantsOverrides>,
     execution_flags: ExecutionFlags,
 }
 
@@ -49,8 +49,8 @@ impl ExecutorFactory for NoopExecutorFactory {
         Box::new(NoopExecutor { block_env })
     }
 
-    fn cfg(&self) -> &VersionedConstantsOverrides {
-        &self.cfg
+    fn cfg(&self) -> Option<&VersionedConstantsOverrides> {
+        self.cfg.as_ref()
     }
 
     fn execution_flags(&self) -> &ExecutionFlags {

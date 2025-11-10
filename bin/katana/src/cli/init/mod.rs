@@ -247,14 +247,7 @@ impl RollupArgs {
 
         // At the moment, the fee token is limited to a predefined token.
         let fee_contracts = FeeContracts::default();
-        let versioned_constants_overrides = None;
-        let chain_spec = rollup::ChainSpec {
-            id,
-            genesis,
-            settlement,
-            fee_contracts,
-            versioned_constants_overrides,
-        };
+        let chain_spec = rollup::ChainSpec { id, genesis, settlement, fee_contracts };
 
         if let Some(path) = self.output_path {
             let dir = ChainConfigDir::create(path)?;
@@ -392,14 +385,7 @@ impl SovereignArgs {
 
         // At the moment, the fee token is limited to a predefined token.
         let fee_contracts = FeeContracts::default();
-        let versioned_constants_overrides = None;
-        let chain_spec = rollup::ChainSpec {
-            id,
-            genesis,
-            settlement,
-            fee_contracts,
-            versioned_constants_overrides,
-        };
+        let chain_spec = rollup::ChainSpec { id, genesis, settlement, fee_contracts };
 
         if let Some(path) = self.output_path {
             let dir = ChainConfigDir::create(path)?;

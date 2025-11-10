@@ -40,7 +40,7 @@ pub struct TxValidator {
 
 struct Inner {
     // execution context
-    cfg_env: VersionedConstantsOverrides,
+    cfg_env: Option<VersionedConstantsOverrides>,
     block_env: BlockEnv,
     execution_flags: ExecutionFlags,
     state: Arc<Box<dyn StateProvider>>,
@@ -52,7 +52,7 @@ impl TxValidator {
     pub fn new(
         state: Box<dyn StateProvider>,
         execution_flags: ExecutionFlags,
-        cfg_env: VersionedConstantsOverrides,
+        cfg_env: Option<VersionedConstantsOverrides>,
         block_env: BlockEnv,
         permit: Arc<Mutex<()>>,
         chain_spec: Arc<ChainSpec>,
@@ -98,7 +98,8 @@ impl Inner {
         let state_provider = StateProviderDb::new_with_class_cache(state, class_cache);
 
         let cached_state = CachedState::new(state_provider);
-        let context = block_context_from_envs(&self.chain_spec, &self.block_env, &self.cfg_env);
+        let context =
+            block_context_from_envs(&self.chain_spec, &self.block_env, self.cfg_env.as_ref());
 
         StatefulValidator::create(cached_state, context)
     }

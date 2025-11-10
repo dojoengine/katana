@@ -87,7 +87,6 @@ pub fn read(dir: &ChainConfigDir) -> Result<ChainSpec, Error> {
         id: chain_spec.id,
         settlement: chain_spec.settlement,
         fee_contracts: chain_spec.fee_contract.into(),
-        versioned_constants_overrides: None,
     })
 }
 
@@ -355,7 +354,6 @@ mod tests {
                 eth: ContractAddress::default(),
                 strk: ContractAddress::default(),
             },
-            versioned_constants_overrides: None,
             settlement: SettlementLayer::Starknet {
                 block: 0,
                 id: ChainId::default(),
