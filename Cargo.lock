@@ -5919,7 +5919,7 @@ dependencies = [
  "katana-messaging",
  "katana-node",
  "katana-primitives",
- "katana-rpc",
+ "katana-rpc-server",
  "katana-slot-controller",
  "katana-tracing",
  "katana-utils",
@@ -6157,7 +6157,6 @@ dependencies = [
  "clap",
  "katana-gateway-types",
  "katana-primitives",
- "katana-rpc-types",
  "reqwest 0.12.22",
  "rstest 0.18.2",
  "serde",
@@ -6185,8 +6184,8 @@ dependencies = [
  "katana-pool-api",
  "katana-primitives",
  "katana-provider-api",
- "katana-rpc",
  "katana-rpc-api",
+ "katana-rpc-server",
  "metrics 0.23.1",
  "serde",
  "serde-utils",
@@ -6203,6 +6202,9 @@ dependencies = [
 name = "katana-gateway-types"
 version = "1.7.0"
 dependencies = [
+ "base64 0.21.7",
+ "cairo-lang-starknet-classes",
+ "flate2",
  "katana-primitives",
  "katana-rpc-api",
  "katana-rpc-types",
@@ -6311,9 +6313,9 @@ dependencies = [
  "katana-pool-api",
  "katana-primitives",
  "katana-provider",
- "katana-rpc",
  "katana-rpc-api",
  "katana-rpc-client",
+ "katana-rpc-server",
  "katana-rpc-types",
  "katana-stage",
  "katana-starknet",
@@ -6482,7 +6484,35 @@ dependencies = [
 ]
 
 [[package]]
-name = "katana-rpc"
+name = "katana-rpc-api"
+version = "1.7.0"
+dependencies = [
+ "anyhow",
+ "jsonrpsee",
+ "katana-pool-api",
+ "katana-primitives",
+ "katana-provider-api",
+ "katana-rpc-types",
+ "rstest 0.18.2",
+ "serde",
+ "serde_json",
+ "thiserror 1.0.69",
+]
+
+[[package]]
+name = "katana-rpc-client"
+version = "1.7.0"
+dependencies = [
+ "jsonrpsee",
+ "katana-primitives",
+ "katana-rpc-api",
+ "katana-rpc-types",
+ "thiserror 1.0.69",
+ "tokio",
+]
+
+[[package]]
+name = "katana-rpc-server"
 version = "1.7.0"
 dependencies = [
  "alloy-contract",
@@ -6540,34 +6570,6 @@ dependencies = [
 ]
 
 [[package]]
-name = "katana-rpc-api"
-version = "1.7.0"
-dependencies = [
- "anyhow",
- "jsonrpsee",
- "katana-pool-api",
- "katana-primitives",
- "katana-provider-api",
- "katana-rpc-types",
- "rstest 0.18.2",
- "serde",
- "serde_json",
- "thiserror 1.0.69",
-]
-
-[[package]]
-name = "katana-rpc-client"
-version = "1.7.0"
-dependencies = [
- "jsonrpsee",
- "katana-primitives",
- "katana-rpc-api",
- "katana-rpc-types",
- "thiserror 1.0.69",
- "tokio",
-]
-
-[[package]]
 name = "katana-rpc-types"
 version = "1.7.0"
 dependencies = [
@@ -6576,6 +6578,7 @@ dependencies = [
  "cainome-cairo-serde",
  "cairo-lang-starknet-classes",
  "cairo-lang-utils",
+ "derive_more 0.99.20",
  "flate2",
  "katana-genesis",
  "katana-primitives",
@@ -6744,9 +6747,9 @@ dependencies = [
  "katana-node",
  "katana-primitives",
  "katana-provider",
- "katana-rpc",
  "katana-rpc-api",
  "katana-rpc-client",
+ "katana-rpc-server",
  "katana-rpc-types",
  "katana-utils-macro",
  "rand 0.8.5",

@@ -95,7 +95,6 @@ where
 {
     pool: Pool,
     chain_spec: Arc<ChainSpec>,
-    pool: Pool,
     gas_oracle: GasPriceOracle,
     storage: BlockchainProvider<Box<dyn Database>>,
     forked_client: Option<ForkedClient>,
