@@ -747,7 +747,7 @@ chain_id.Named = "Mainnet"
     #[test]
     #[cfg(feature = "server")]
     fn parse_cors_origins() {
-        use katana_rpc::cors::HeaderValue;
+        use katana_rpc_server::cors::HeaderValue;
 
         let config = SequencerNodeArgs::parse_from([
             "katana",

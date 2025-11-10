@@ -46,8 +46,7 @@ where
             }
 
             let chain_id = this.inner.chain_spec.id();
-            let class_hash =
-                tx.contract_class.hash().map_err(|_| StarknetApiError::InvalidContractClass)?;
+            let class_hash = tx.contract_class.hash();
 
             let tx = BroadcastedTxWithChainId { tx: BroadcastedTx::Declare(tx), chain: chain_id };
 

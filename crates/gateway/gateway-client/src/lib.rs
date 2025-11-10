@@ -3,15 +3,13 @@ use std::str::FromStr;
 
 use katana_gateway_types::{
     AddDeclareTransactionResponse, AddDeployAccountTransactionResponse,
-    AddInvokeTransactionResponse, Block, BlockId, BlockSignature, ContractClass, GatewayError,
+    AddInvokeTransactionResponse, Block, BlockId, BlockSignature, BroadcastedDeclareTx,
+    BroadcastedDeployAccountTx, BroadcastedInvokeTx, ContractClass, GatewayError,
     PreConfirmedBlock, SequencerPublicKey, StateUpdate, StateUpdateWithBlock,
 };
 use katana_primitives::block::BlockNumber;
 use katana_primitives::class::CasmContractClass;
 use katana_primitives::Felt;
-use katana_rpc_types::{
-    BroadcastedDeclareTx, BroadcastedDeployAccountTx, BroadcastedInvokeTx, BroadcastedTx,
-};
 use reqwest::header::{HeaderMap, HeaderName, HeaderValue};
 use reqwest::{Method, Request, StatusCode};
 use serde::de::DeserializeOwned;
@@ -136,24 +134,21 @@ impl Client {
         &self,
         transaction: BroadcastedInvokeTx,
     ) -> Result<AddInvokeTransactionResponse, Error> {
-        self.gateway("add_transaction").json(&BroadcastedTx::Invoke(transaction)).send().await
+        self.gateway("add_transaction").json(&transaction).send().await
     }
 
     pub async fn add_declare_transaction(
         &self,
         transaction: BroadcastedDeclareTx,
     ) -> Result<AddDeclareTransactionResponse, Error> {
-        self.gateway("add_transaction").json(&BroadcastedTx::Declare(transaction)).send().await
+        self.gateway("add_transaction").json(&transaction).send().await
     }
 
     pub async fn add_deploy_account_transaction(
         &self,
         transaction: BroadcastedDeployAccountTx,
     ) -> Result<AddDeployAccountTransactionResponse, Error> {
-        self.gateway("add_transaction")
-            .json(&BroadcastedTx::DeployAccount(transaction))
-            .send()
-            .await
+        self.gateway("add_transaction").json(&transaction).send().await
     }
 
     /// Creates a [`RequestBuilder`] for a gateway endpoint.

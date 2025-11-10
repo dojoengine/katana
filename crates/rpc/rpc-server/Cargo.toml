@@ -2,7 +2,7 @@
 description = "Katana RPC Implementation."
 edition.workspace = true
 license-file.workspace = true
-name = "katana-rpc"
+name = "katana-rpc-server"
 repository.workspace = true
 version.workspace = true
 

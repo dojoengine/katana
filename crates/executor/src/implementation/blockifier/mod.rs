@@ -233,7 +233,7 @@ impl<'a> BlockExecutor<'a> for StarknetVMProcessor<'a> {
                 None
             };
 
-            let tx = TxWithHash::from(&exec_tx);
+            let tx = TxWithHash::from(exec_tx.clone());
             let hash = tx.hash;
             let result = utils::transact(
                 &mut state.cached_state,

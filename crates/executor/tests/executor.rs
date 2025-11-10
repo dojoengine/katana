@@ -41,7 +41,7 @@ fn test_executor_with_valid_blocks_impl<EF: ExecutorFactory>(
     //
 
     let block = &blocks[0];
-    expected_txs.extend(block.body.iter().map(|t| t.into()));
+    expected_txs.extend(block.body.iter().map(|t| t.clone().into()));
 
     executor.execute_block(block.clone()).unwrap();
 
@@ -125,7 +125,7 @@ fn test_executor_with_valid_blocks_impl<EF: ExecutorFactory>(
     //
 
     let block = &blocks[1];
-    expected_txs.extend(block.body.iter().map(|t| t.into()));
+    expected_txs.extend(block.body.iter().map(|t| t.clone().into()));
 
     executor.execute_block(block.clone()).unwrap();
 
@@ -172,7 +172,7 @@ fn test_executor_with_valid_blocks_impl<EF: ExecutorFactory>(
     //
 
     let block = &blocks[2];
-    expected_txs.extend(block.body.iter().map(|t| t.into()));
+    expected_txs.extend(block.body.iter().map(|t| t.clone().into()));
 
     executor.execute_block(block.clone()).unwrap();
 

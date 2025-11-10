@@ -38,7 +38,7 @@ sol!(
     "tests/test_data/solidity/Contract1Compiled.json"
 );
 
-abigen!(CairoMessagingContract, "crates/rpc/rpc/tests/test_data/cairo_l1_msg_contract.json");
+abigen!(CairoMessagingContract, "crates/rpc/rpc-server/tests/test_data/cairo_l1_msg_contract.json");
 
 #[tokio::test(flavor = "multi_thread")]
 async fn test_messaging() {
@@ -89,7 +89,7 @@ async fn test_messaging() {
         let actual_class = rpc_client.get_class(block_id, class_hash).await.unwrap();
 
         let Class::Sierra(class) = actual_class else { panic!("Invalid class type") };
-        assert_eq!(class.hash().unwrap(), class_hash, "invalid declared class"); // just to make sure the rpc returns the correct class
+        assert_eq!(class.hash(), class_hash, "invalid declared class"); // just to make sure the rpc returns the correct class
 
         // Compute the contract address
         let address = get_contract_address(Felt::ZERO, class_hash, &[], Felt::ZERO);

@@ -5,7 +5,7 @@ use katana_primitives::receipt::{
     self, DataAvailabilityResources, DeclareTxReceipt, DeployAccountTxReceipt, Event, GasUsed,
     InvokeTxReceipt, L1HandlerTxReceipt, MessageToL1, Receipt,
 };
-use katana_primitives::transaction::TxRef;
+use katana_primitives::transaction::ExecutableTx;
 use tracing::trace;
 
 pub(crate) const LOG_TARGET: &str = "executor";
@@ -27,7 +27,7 @@ pub fn log_resources(resources: &TransactionResources) {
 }
 
 pub(crate) fn build_receipt(
-    tx: TxRef<'_>,
+    tx: &ExecutableTx,
     fee: FeeInfo,
     info: &TransactionExecutionInfo,
 ) -> Receipt {
@@ -37,7 +37,7 @@ pub(crate) fn build_receipt(
     let revert_error = info.revert_error.as_ref().map(|e| e.to_string());
 
     match tx {
-        TxRef::Invoke(_) => Receipt::Invoke(InvokeTxReceipt {
+        ExecutableTx::Invoke(_) => Receipt::Invoke(InvokeTxReceipt {
             events,
             fee,
             revert_error,
@@ -45,7 +45,7 @@ pub(crate) fn build_receipt(
             execution_resources,
         }),
 
-        TxRef::Declare(_) => Receipt::Declare(DeclareTxReceipt {
+        ExecutableTx::Declare(_) => Receipt::Declare(DeclareTxReceipt {
             events,
             fee,
             revert_error,
@@ -53,7 +53,7 @@ pub(crate) fn build_receipt(
             execution_resources,
         }),
 
-        TxRef::L1Handler(tx) => Receipt::L1Handler(L1HandlerTxReceipt {
+        ExecutableTx::L1Handler(tx) => Receipt::L1Handler(L1HandlerTxReceipt {
             events,
             fee,
             revert_error,
@@ -62,7 +62,7 @@ pub(crate) fn build_receipt(
             execution_resources,
         }),
 
-        TxRef::DeployAccount(tx) => Receipt::DeployAccount(DeployAccountTxReceipt {
+        ExecutableTx::DeployAccount(tx) => Receipt::DeployAccount(DeployAccountTxReceipt {
             events,
             fee,
             revert_error,
