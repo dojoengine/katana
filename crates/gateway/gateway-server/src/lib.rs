@@ -75,18 +75,13 @@ pub struct GatewayServer {
     health_check: bool,
     metered: bool,
 
-    starknet_api:
-        StarknetApi<BlockifierFactory, katana_pool::TxPool, BlockProducer<BlockifierFactory>>,
+    starknet_api: StarknetApi<katana_pool::TxPool, BlockProducer<BlockifierFactory>>,
 }
 
 impl GatewayServer {
     /// Create a new feeder gateway server.
     pub fn new(
-        starknet_api: StarknetApi<
-            BlockifierFactory,
-            katana_pool::TxPool,
-            BlockProducer<BlockifierFactory>,
-        >,
+        starknet_api: StarknetApi<katana_pool::TxPool, BlockProducer<BlockifierFactory>>,
     ) -> Self {
         Self {
             timeout: DEFAULT_GATEWAY_TIMEOUT,

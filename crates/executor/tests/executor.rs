@@ -19,13 +19,11 @@ use starknet::core::utils::{
 };
 use starknet::macros::felt;
 
-fn test_executor_with_valid_blocks_impl<EF: ExecutorFactory>(
-    factory: EF,
+fn test_executor_with_valid_blocks_impl(
+    factory: BlockifierFactory,
     state: Box<dyn StateProvider>,
     blocks: [ExecutableBlock; 3],
 ) {
-    let cfg_env = factory.cfg();
-
     // the contract address of the main account used to send most of the transactions (see the
     // `valid_blocks` fixture)
     let main_account =
@@ -78,7 +76,7 @@ fn test_executor_with_valid_blocks_impl<EF: ExecutorFactory>(
 
     let updated_main_acc_balance = state_provider
         .storage(
-            cfg_env.fee_token_addresses.eth,
+            factory.chain().fee_contracts().eth,
             // the storage slot of the lower half of the fee balance
             get_storage_var_address("ERC20_balances", &[main_account.into()]).unwrap(), // felt!("0x6e78596cd9cb5c7ef89ba020ffb848c0926c43c652ac5f9e219d0c8267caefe"),
         )
@@ -87,7 +85,7 @@ fn test_executor_with_valid_blocks_impl<EF: ExecutorFactory>(
 
     let actual_new_acc_balance = state_provider
         .storage(
-            cfg_env.fee_token_addresses.eth,
+            factory.chain().fee_contracts().eth,
             // the storage slot of the lower half of the fee balance
             get_storage_var_address("ERC20_balances", &[new_acc.into()]).unwrap(),
         )
@@ -155,7 +153,7 @@ fn test_executor_with_valid_blocks_impl<EF: ExecutorFactory>(
 
     let updated_new_acc_balance = state_provider
         .storage(
-            cfg_env.fee_token_addresses.eth,
+            factory.chain().fee_contracts().eth,
             // the storage slot of the lower half of the fee balance
             felt!("0x7c8bacc8c8a7db5e5d4e22ab58750239183ae3e08b17a07a486f85fe8aee391"),
         )

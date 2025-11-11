@@ -3,7 +3,7 @@ use std::num::NonZeroU128;
 
 use katana_primitives::block::{GasPrice, GasPrices};
 
-#[derive(Debug)]
+#[derive(Debug, Clone)]
 pub struct FixedPriceOracle {
     l2_gas_prices: GasPrices,
     l1_gas_prices: GasPrices,
