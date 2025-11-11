@@ -44,14 +44,12 @@ where
         // If the node is run with transaction validation disabled, then we should not validate
         // even if the `SKIP_VALIDATE` flag is not set.
         let should_validate = !simulation_flags.contains(&SimulationFlag::SkipValidate)
-            // && self.inner.backend.executor_factory.execution_flags().account_validation();
-        && self.inner.config.simulation_flags.account_validation();
+            && self.inner.config.simulation_flags.account_validation();
 
         // If the node is run with fee charge disabled, then we should disable charing fees even
         // if the `SKIP_FEE_CHARGE` flag is not set.
         let should_charge_fee = !simulation_flags.contains(&SimulationFlag::SkipFeeCharge)
-            // && self.inner.backend.executor_factory.execution_flags().fee();
-        && self.inner.config.simulation_flags.fee();
+            && self.inner.config.simulation_flags.fee();
 
         let flags = katana_executor::ExecutionFlags::new()
             .with_account_validation(should_validate)

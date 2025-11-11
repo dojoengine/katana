@@ -89,6 +89,38 @@ impl Node {
         let task_manager = TaskManager::current();
         let task_spawner = task_manager.task_spawner();
 
+        // --- build backend
+
+        let (blockchain, db, forked_client) = if let Some(cfg) = &config.forking {
+            // NOTE: because the chain spec will be cloned for the BlockifierFactory (see below),
+            // this mutation must be performed before the chain spec is cloned. Otherwise
+            // this will panic.
+            let chain_spec = Arc::get_mut(&mut config.chain).expect("get mut Arc");
+
+            let ChainSpec::Dev(chain_spec) = chain_spec else {
+                return Err(anyhow::anyhow!("Forking is only supported in dev mode for now"));
+            };
+
+            let db = katana_db::Db::in_memory()?;
+            let (bc, block_num) =
+                Blockchain::new_from_forked(db.clone(), cfg.url.clone(), cfg.block, chain_spec)
+                    .await?;
+
+            // TODO: it'd bee nice if the client can be shared on both the rpc and forked backend
+            // side
+            let http_client = HttpClientBuilder::new().build(cfg.url.as_ref())?;
+            let rpc_client = StarknetClient::new(http_client);
+            let forked_client = ForkedClient::new(rpc_client, block_num);
+
+            (bc, db, Some(forked_client))
+        } else if let Some(db_path) = &config.db.dir {
+            let db = katana_db::Db::new(db_path)?;
+            (Blockchain::new_with_db(db.clone()), db, None)
+        } else {
+            let db = katana_db::Db::in_memory()?;
+            (Blockchain::new_with_db(db.clone()), db, None)
+        };
+
         // --- build executor factory
 
         // Create versioned constants overrides from config
@@ -116,42 +148,13 @@ impl Node {
 
             let factory = BlockifierFactory::new(
                 overrides,
-                execution_flags,
+                execution_flags.clone(),
                 config.sequencing.block_limits(),
                 global_class_cache,
                 config.chain.clone(),
             );
 
             Arc::new(factory)
-        };
-
-        // --- build backend
-
-        let (blockchain, db, forked_client) = if let Some(cfg) = &config.forking {
-            let chain_spec = Arc::get_mut(&mut config.chain).expect("get mut Arc");
-
-            let ChainSpec::Dev(chain_spec) = chain_spec else {
-                return Err(anyhow::anyhow!("Forking is only supported in dev mode for now"));
-            };
-
-            let db = katana_db::Db::in_memory()?;
-            let (bc, block_num) =
-                Blockchain::new_from_forked(db.clone(), cfg.url.clone(), cfg.block, chain_spec)
-                    .await?;
-
-            // TODO: it'd bee nice if the client can be shared on both the rpc and forked backend
-            // side
-            let http_client = HttpClientBuilder::new().build(cfg.url.as_ref())?;
-            let rpc_client = StarknetClient::new(http_client);
-            let forked_client = ForkedClient::new(rpc_client, block_num);
-
-            (bc, db, Some(forked_client))
-        } else if let Some(db_path) = &config.db.dir {
-            let db = katana_db::Db::new(db_path)?;
-            (Blockchain::new_with_db(db.clone()), db, None)
-        } else {
-            let db = katana_db::Db::in_memory()?;
-            (Blockchain::new_with_db(db.clone()), db, None)
         };
 
         // --- build l1 gas oracle
@@ -250,7 +253,7 @@ impl Node {
             max_proof_keys: config.rpc.max_proof_keys,
             max_call_gas: config.rpc.max_call_gas,
             max_concurrent_estimate_fee_requests: config.rpc.max_concurrent_estimate_fee_requests,
-            simulation_flags: ExecutionFlags::default(),
+            simulation_flags: execution_flags,
             versioned_constant_overrides,
             #[cfg(feature = "cartridge")]
             paymaster,
