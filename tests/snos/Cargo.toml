@@ -17,7 +17,7 @@ either = "1.15.0"
 
 katana-chain-spec.workspace = true
 katana-messaging.workspace = true
-katana-node.workspace = true
+katana-sequencer.workspace = true
 katana-primitives.workspace = true
 katana-provider.workspace = true
 

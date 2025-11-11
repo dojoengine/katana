@@ -13,23 +13,25 @@ use std::num::NonZeroU128;
 
 use clap::Args;
 use katana_genesis::Genesis;
-use katana_node::config::execution::{DEFAULT_INVOCATION_MAX_STEPS, DEFAULT_VALIDATION_MAX_STEPS};
-#[cfg(feature = "server")]
-use katana_node::config::gateway::{
-    DEFAULT_GATEWAY_ADDR, DEFAULT_GATEWAY_PORT, DEFAULT_GATEWAY_TIMEOUT_SECS,
-};
-#[cfg(feature = "server")]
-use katana_node::config::metrics::{DEFAULT_METRICS_ADDR, DEFAULT_METRICS_PORT};
-#[cfg(feature = "server")]
-use katana_node::config::rpc::{RpcModulesList, DEFAULT_RPC_MAX_PROOF_KEYS};
-#[cfg(feature = "server")]
-use katana_node::config::rpc::{
-    DEFAULT_RPC_ADDR, DEFAULT_RPC_MAX_CALL_GAS, DEFAULT_RPC_MAX_EVENT_PAGE_SIZE, DEFAULT_RPC_PORT,
-};
 use katana_primitives::block::{BlockHashOrNumber, GasPrice};
 use katana_primitives::chain::ChainId;
 #[cfg(feature = "server")]
 use katana_rpc_server::cors::HeaderValue;
+use katana_sequencer::config::execution::{
+    DEFAULT_INVOCATION_MAX_STEPS, DEFAULT_VALIDATION_MAX_STEPS,
+};
+#[cfg(feature = "server")]
+use katana_sequencer::config::gateway::{
+    DEFAULT_GATEWAY_ADDR, DEFAULT_GATEWAY_PORT, DEFAULT_GATEWAY_TIMEOUT_SECS,
+};
+#[cfg(feature = "server")]
+use katana_sequencer::config::metrics::{DEFAULT_METRICS_ADDR, DEFAULT_METRICS_PORT};
+#[cfg(feature = "server")]
+use katana_sequencer::config::rpc::{RpcModulesList, DEFAULT_RPC_MAX_PROOF_KEYS};
+#[cfg(feature = "server")]
+use katana_sequencer::config::rpc::{
+    DEFAULT_RPC_ADDR, DEFAULT_RPC_MAX_CALL_GAS, DEFAULT_RPC_MAX_EVENT_PAGE_SIZE, DEFAULT_RPC_PORT,
+};
 use katana_tracing::{gcloud, otlp, LogFormat, TracerConfig};
 use serde::{Deserialize, Serialize};
 use serde_utils::serialize_opt_as_hex;
@@ -591,7 +593,7 @@ fn default_page_size() -> u64 {
 
 #[cfg(feature = "server")]
 fn default_proof_keys() -> u64 {
-    katana_node::config::rpc::DEFAULT_RPC_MAX_PROOF_KEYS
+    katana_sequencer::config::rpc::DEFAULT_RPC_MAX_PROOF_KEYS
 }
 
 #[cfg(feature = "server")]

@@ -18,7 +18,8 @@ members = [
 	"crates/grpc",
 	"crates/messaging",
 	"crates/metrics",
-	"crates/node",
+	"crates/node/full-node",
+	"crates/node/sequencer",
 	"crates/node-bindings",
 	"crates/oracle/gas",
 	"crates/pool/pool",
@@ -47,7 +48,7 @@ members = [
 	"crates/utils",
 	"tests/db-compat",
 	"tests/reverse-proxy",
-	"tests/snos",
+	"tests/snos"
 ]
 
 [workspace.package]
@@ -88,7 +89,8 @@ katana-gas-price-oracle = { path = "crates/oracle/gas" }
 katana-genesis = { path = "crates/genesis" }
 katana-messaging = { path = "crates/messaging" }
 katana-metrics = { path = "crates/metrics" }
-katana-node = { path = "crates/node" }
+katana-full-node = { path = "crates/node/full-node" }
+katana-sequencer = { path = "crates/node/sequencer" }
 katana-node-bindings = { path = "crates/node-bindings" }
 katana-pipeline = { path = "crates/sync/pipeline" }
 katana-pool = { path = "crates/pool/pool" }

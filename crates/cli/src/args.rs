@@ -14,21 +14,21 @@ use katana_core::constants::DEFAULT_SEQUENCER_ADDRESS;
 use katana_genesis::allocation::DevAllocationsGenerator;
 use katana_genesis::constant::DEFAULT_PREFUNDED_ACCOUNT_BALANCE;
 use katana_messaging::MessagingConfig;
-use katana_node::config::db::DbConfig;
-use katana_node::config::dev::{DevConfig, FixedL1GasPriceConfig};
-use katana_node::config::execution::ExecutionConfig;
-use katana_node::config::fork::ForkingConfig;
+use katana_sequencer::config::db::DbConfig;
+use katana_sequencer::config::dev::{DevConfig, FixedL1GasPriceConfig};
+use katana_sequencer::config::execution::ExecutionConfig;
+use katana_sequencer::config::fork::ForkingConfig;
 #[cfg(feature = "server")]
-use katana_node::config::gateway::GatewayConfig;
-use katana_node::config::metrics::MetricsConfig;
+use katana_sequencer::config::gateway::GatewayConfig;
+use katana_sequencer::config::metrics::MetricsConfig;
 #[cfg(feature = "cartridge")]
-use katana_node::config::paymaster::PaymasterConfig;
-use katana_node::config::rpc::RpcConfig;
+use katana_sequencer::config::paymaster::PaymasterConfig;
+use katana_sequencer::config::rpc::RpcConfig;
 #[cfg(feature = "server")]
-use katana_node::config::rpc::{RpcModuleKind, RpcModulesList};
-use katana_node::config::sequencing::SequencingConfig;
-use katana_node::config::Config;
-use katana_node::Node;
+use katana_sequencer::config::rpc::{RpcModuleKind, RpcModulesList};
+use katana_sequencer::config::sequencing::SequencingConfig;
+use katana_sequencer::config::Config;
+use katana_sequencer::Node;
 use serde::{Deserialize, Serialize};
 use tracing::info;
 use url::Url;
@@ -166,7 +166,7 @@ impl SequencerNodeArgs {
         Ok(())
     }
 
-    pub fn config(&self) -> Result<katana_node::config::Config> {
+    pub fn config(&self) -> Result<katana_sequencer::config::Config> {
         let db = self.db_config();
         let rpc = self.rpc_config()?;
         let dev = self.dev_config();
@@ -512,12 +512,12 @@ mod test {
         DEFAULT_ETH_L1_DATA_GAS_PRICE, DEFAULT_ETH_L1_GAS_PRICE, DEFAULT_ETH_L2_GAS_PRICE,
         DEFAULT_STRK_L1_DATA_GAS_PRICE, DEFAULT_STRK_L1_GAS_PRICE,
     };
-    use katana_node::config::execution::{
-        DEFAULT_INVOCATION_MAX_STEPS, DEFAULT_VALIDATION_MAX_STEPS,
-    };
-    use katana_node::config::rpc::RpcModuleKind;
     use katana_primitives::chain::ChainId;
     use katana_primitives::{address, felt, ContractAddress, Felt};
+    use katana_sequencer::config::execution::{
+        DEFAULT_INVOCATION_MAX_STEPS, DEFAULT_VALIDATION_MAX_STEPS,
+    };
+    use katana_sequencer::config::rpc::RpcModuleKind;
 
     use super::*;
 

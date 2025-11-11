@@ -5,12 +5,12 @@ use cairo_vm::types::layout_name::LayoutName;
 use katana_chain_spec::rollup::{self, ChainConfigDir};
 use katana_chain_spec::ChainSpec;
 use katana_messaging::MessagingConfig;
-use katana_node::config::db::DbConfig;
-use katana_node::config::Config;
-use katana_node::{LaunchedNode, Node};
 use katana_primitives::block::BlockNumber;
 use katana_primitives::{address, ContractAddress, Felt};
 use katana_provider::api::block::BlockNumberProvider;
+use katana_sequencer::config::db::DbConfig;
+use katana_sequencer::config::Config;
+use katana_sequencer::{LaunchedNode, Node};
 
 #[tokio::main]
 async fn main() {

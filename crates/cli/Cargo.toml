@@ -9,7 +9,7 @@ version.workspace = true
 katana-chain-spec.workspace = true
 katana-core.workspace = true
 katana-messaging.workspace = true
-katana-node.workspace = true
+katana-sequencer.workspace = true
 katana-genesis.workspace = true
 katana-primitives.workspace = true
 katana-rpc-server.workspace = true
@@ -38,10 +38,10 @@ starknet.workspace = true
 [features]
 cartridge = [
 	"dep:katana-slot-controller",
-	"katana-node/cartridge",
+	"katana-sequencer/cartridge",
 	"katana-rpc-server/cartridge",
 ]
 default = [ "cartridge", "server" ]
-explorer = [ "katana-node/explorer", "katana-utils/explorer" ]
-native = [ "katana-node/native" ]
+explorer = [ "katana-sequencer/explorer", "katana-utils/explorer" ]
+native = [ "katana-sequencer/native" ]
 server = [  ]

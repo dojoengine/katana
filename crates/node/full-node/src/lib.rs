@@ -1,4 +1,6 @@
-//! Experimental full node implementation.
+#![cfg_attr(not(test), warn(unused_crate_dependencies))]
+
+//! Katana full node implementation.
 
 use std::future::IntoFuture;
 use std::sync::Arc;
