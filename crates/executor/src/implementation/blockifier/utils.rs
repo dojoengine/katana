@@ -433,7 +433,7 @@ fn set_max_initial_sierra_gas(tx: &mut ExecutableTxWithHash) {
 pub fn block_context_from_envs(
     chain_spec: &ChainSpec,
     block_env: &BlockEnv,
-    cfg_env: Option<&VersionedConstantsOverrides>,
+    overrides: Option<&VersionedConstantsOverrides>,
 ) -> BlockContext {
     let fee_token_addresses = FeeTokenAddresses {
         eth_fee_token_address: to_blk_address(chain_spec.fee_contracts().eth),
@@ -488,8 +488,8 @@ pub fn block_context_from_envs(
     let mut versioned_constants = VersionedConstants::get(&sn_version).unwrap().clone();
 
     // Only apply overrides if provided
-    if let Some(cfg) = cfg_env {
-        apply_versioned_constant_overrides(cfg, &mut versioned_constants);
+    if let Some(overrides) = overrides {
+        apply_versioned_constant_overrides(overrides, &mut versioned_constants);
     }
 
     BlockContext::new(block_info, chain_info, versioned_constants, BouncerConfig::max())
