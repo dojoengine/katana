@@ -6,8 +6,6 @@ use katana_primitives::contract::{ContractAddress, Nonce};
 use katana_primitives::transaction::{
     DeclareTx, DeployAccountTx, ExecutableTx, ExecutableTxWithHash, InvokeTx, TxHash,
 };
-use katana_primitives::utils::get_contract_address;
-use katana_primitives::Felt;
 use katana_rpc_types::broadcasted::BroadcastedTx;
 use katana_rpc_types::BroadcastedTxWithChainId;
 

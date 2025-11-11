@@ -660,7 +660,7 @@ impl From<DataAvailabilityMode> for katana_primitives::da::DataAvailabilityMode 
 }
 
 // Custom serialization for contract class with gzip + base64 encoded sierra program
-fn serialize_contract_class<S: serde::Serializer>(
+fn _serialize_contract_class<S: serde::Serializer>(
     class: &std::sync::Arc<katana_rpc_types::class::SierraClass>,
     serializer: S,
 ) -> Result<S::Ok, S::Error> {
@@ -700,7 +700,7 @@ fn serialize_contract_class<S: serde::Serializer>(
     state.end()
 }
 
-fn deserialize_contract_class<'de, D: serde::Deserializer<'de>>(
+fn _deserialize_contract_class<'de, D: serde::Deserializer<'de>>(
     deserializer: D,
 ) -> Result<std::sync::Arc<katana_rpc_types::class::SierraClass>, D::Error> {
     use std::io::Read;
@@ -709,6 +709,7 @@ fn deserialize_contract_class<'de, D: serde::Deserializer<'de>>(
     use flate2::read::GzDecoder;
     use serde::de;
 
+    #[allow(dead_code)]
     #[derive(Deserialize)]
     struct GatewaySierraClass {
         sierra_program: String,

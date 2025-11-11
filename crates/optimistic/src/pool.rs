@@ -7,11 +7,12 @@ use katana_pool_api::validation::{
 };
 use katana_rpc_client::starknet::Client;
 use katana_rpc_types::{BroadcastedTx, BroadcastedTxWithChainId};
-use tracing::{debug, info};
+use tracing::info;
 
 pub type TxPool = Pool<BroadcastedTxWithChainId, PoolValidator, FiFo<BroadcastedTxWithChainId>>;
 
 /// A validator that forwards transactions to a remote Starknet RPC endpoint.
+#[allow(dead_code)]
 #[derive(Debug, Clone)]
 pub struct PoolValidator {
     client: Arc<Client>,

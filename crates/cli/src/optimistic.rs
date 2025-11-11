@@ -87,6 +87,7 @@ impl OptimisticNodeArgs {
         self.tracer.config()
     }
 
+    #[allow(clippy::field_reassign_with_default)]
     fn chain_spec(&self) -> Result<Arc<ChainSpec>> {
         let mut dev_chain_spec = katana_chain_spec::dev::ChainSpec::default();
         dev_chain_spec.id = ChainId::SEPOLIA;

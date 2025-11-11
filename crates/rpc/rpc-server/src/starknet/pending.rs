@@ -1,3 +1,5 @@
+#![allow(clippy::collapsible_match)]
+
 use std::fmt::Debug;
 
 use katana_core::service::block_producer::{BlockProducer, BlockProducerMode};

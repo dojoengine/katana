@@ -34,7 +34,7 @@ pub mod config;
 
 use config::Config;
 
-pub use self::config::*;
+// pub use self::config::*;
 use crate::config::rpc::RpcModuleKind;
 
 #[derive(Debug)]
@@ -84,11 +84,12 @@ impl Node {
             #[allow(unused_mut)]
             let mut class_cache = ClassCache::builder();
 
-            #[cfg(feature = "native")]
-            {
-                info!(enabled = config.execution.compile_native, "Cairo native compilation");
-                class_cache = class_cache.compile_native(config.execution.compile_native);
-            }
+            // Ignore native for now in optimistic node.
+            // #[cfg(feature = "native")]
+            // {
+            // info!(enabled = config.execution.compile_native, "Cairo native compilation");
+            // class_cache = class_cache.compile_native(config.execution.compile_native);
+            // }
 
             let global_class_cache = class_cache.build_global()?;
 
@@ -266,6 +267,7 @@ impl Node {
 }
 
 #[derive(Debug)]
+#[allow(dead_code)]
 pub struct LaunchedNode {
     config: Arc<Config>,
     pool: TxPool,

@@ -142,8 +142,7 @@ where
 
     async fn get_events(&self, filter: EventFilterWithPage) -> RpcResult<GetEventsResponse> {
         use std::collections::HashMap;
-        use std::sync::LazyLock;
-        use std::sync::Mutex;
+        use std::sync::{LazyLock, Mutex};
 
         // Function-local static cache for events
         static EVENTS_CACHE: LazyLock<Mutex<HashMap<EventFilterWithPage, GetEventsResponse>>> =

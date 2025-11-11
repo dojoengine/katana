@@ -1,4 +1,3 @@
-use std::cmp::Ordering;
 use std::sync::Arc;
 
 use katana_db::abstraction::{Database, DbTx, DbTxMut};

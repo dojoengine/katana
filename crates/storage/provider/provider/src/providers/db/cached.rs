@@ -125,7 +125,7 @@ impl<S: StateProvider> CachedStateProvider<S> {
 impl<S: StateProvider> ContractClassProvider for CachedStateProvider<S> {
     fn class(&self, hash: ClassHash) -> ProviderResult<Option<ContractClass>> {
         if let Some(class) = self.cache.get_class(hash) {
-            return Ok(Some(class));
+            Ok(Some(class))
         } else {
             Ok(self.state.class(hash)?)
         }
@@ -170,7 +170,7 @@ impl<S: StateProvider> StateProvider for CachedStateProvider<S> {
         address: ContractAddress,
     ) -> ProviderResult<Option<ClassHash>> {
         if let Some(class_hash) = self.cache.get_class_hash(address) {
-            return Ok(Some(class_hash));
+            Ok(Some(class_hash))
         } else {
             Ok(self.state.class_hash_of_contract(address)?)
         }

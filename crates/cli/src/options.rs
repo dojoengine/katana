@@ -26,7 +26,7 @@ use katana_node::config::rpc::{RpcModulesList, DEFAULT_RPC_MAX_PROOF_KEYS};
 use katana_node::config::rpc::{
     DEFAULT_RPC_ADDR, DEFAULT_RPC_MAX_CALL_GAS, DEFAULT_RPC_MAX_EVENT_PAGE_SIZE, DEFAULT_RPC_PORT,
 };
-use katana_primitives::block::{BlockHashOrNumber, BlockIdOrTag, GasPrice};
+use katana_primitives::block::{BlockIdOrTag, GasPrice};
 use katana_primitives::chain::ChainId;
 #[cfg(feature = "server")]
 use katana_rpc_server::cors::HeaderValue;
@@ -37,7 +37,7 @@ use url::Url;
 
 #[cfg(feature = "server")]
 use crate::utils::{deserialize_cors_origins, serialize_cors_origins};
-use crate::utils::{parse_block_hash_or_number, parse_block_id_or_tag, parse_genesis};
+use crate::utils::{parse_block_id_or_tag, parse_genesis};
 
 const DEFAULT_DEV_SEED: &str = "0";
 const DEFAULT_DEV_ACCOUNTS: u16 = 10;

@@ -1,3 +1,6 @@
+#![allow(unused_imports)]
+#![allow(clippy::too_many_arguments)]
+#![allow(clippy::unnecessary_map_or)]
 //! Server implementation for the Starknet JSON-RPC API.
 
 use std::fmt::Debug;
@@ -650,8 +653,8 @@ where
                     let status = provider.transaction_status(hash)?;
 
                     if let Some(status) = status {
-                        // TODO: this might not work once we allow querying for 'failed' transactions
-                        // from the provider
+                        // TODO: this might not work once we allow querying for 'failed'
+                        // transactions from the provider
                         let Some(receipt) = provider.receipt_by_hash(hash)? else {
                             let error = StarknetApiError::unexpected(
                                 "Transaction hash exist, but the receipt is missing",
@@ -734,7 +737,7 @@ where
     ) -> StarknetApiResult<GetBlockWithReceiptsResponse> {
         let block = self
             .on_io_blocking_task(move |this| {
-                let provider = &this.inner.storage_provider.provider();
+                let _provider = &this.inner.storage_provider.provider();
 
                 if BlockIdOrTag::PreConfirmed == block_id {
                     if let Some(block) =
@@ -774,7 +777,7 @@ where
     ) -> StarknetApiResult<GetBlockWithTxHashesResponse> {
         let block = self
             .on_io_blocking_task(move |this| {
-                let provider = &this.inner.storage_provider.provider();
+                let _provider = &this.inner.storage_provider.provider();
 
                 if BlockIdOrTag::PreConfirmed == block_id {
                     if let Some(block) =
@@ -1010,7 +1013,8 @@ where
                 }
             }
 
-            // if we already exhaust all the optimistic transactions then we return a continuation token pointing to the next optimistic transaction
+            // if we already exhaust all the optimistic transactions then we return a continuation
+            // token pointing to the next optimistic transaction
             return Ok(Some(katana_primitives::event::ContinuationToken {
                 block_n: 0, // Not used for optimistic transactions
                 txn_n: transactions.len() as u64,
@@ -1077,7 +1081,7 @@ where
                     }
                 }
 
-                return Ok(GetEventsResponse { events, continuation_token: None });
+                Ok(GetEventsResponse { events, continuation_token: None })
             }
 
             (EventBlockId::Num(from), EventBlockId::Pending) => {
