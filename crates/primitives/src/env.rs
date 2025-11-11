@@ -1,5 +1,4 @@
 use crate::block::{BlockNumber, GasPrices};
-use crate::chain::ChainId;
 use crate::contract::ContractAddress;
 use crate::version::StarknetVersion;
 
@@ -23,18 +22,14 @@ pub struct BlockEnv {
 }
 
 /// The chain configuration values.
-#[derive(Debug, Clone, Default)]
-pub struct CfgEnv {
-    /// The chain id.
-    pub chain_id: ChainId,
-    /// The contract addresses of the fee tokens.
-    pub fee_token_addresses: FeeTokenAddressses,
+#[derive(Debug, Clone, Default, PartialEq, Eq)]
+pub struct VersionedConstantsOverrides {
     /// The maximum number of steps allowed for an invoke transaction.
-    pub invoke_tx_max_n_steps: u32,
+    pub invoke_tx_max_n_steps: Option<u32>,
     /// The maximum number of steps allowed for transaction validation.
-    pub validate_max_n_steps: u32,
+    pub validate_max_n_steps: Option<u32>,
     /// The maximum recursion depth allowed.
-    pub max_recursion_depth: usize,
+    pub max_recursion_depth: Option<usize>,
 }
 
 /// The contract addresses of the tokens used for the fees.

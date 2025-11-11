@@ -1,5 +1,5 @@
 use jsonrpsee::core::{async_trait, RpcResult};
-use katana_executor::{ExecutionResult, ExecutorFactory, ResultAndStates};
+use katana_executor::{ExecutionResult, ResultAndStates};
 use katana_pool::TransactionPool;
 use katana_primitives::block::{BlockHashOrNumber, BlockIdOrTag, ConfirmedBlockIdOrTag};
 use katana_primitives::execution::TypedTransactionExecutionInfo;
@@ -18,9 +18,8 @@ use katana_rpc_types::{BroadcastedTxWithChainId, SimulationFlag};
 use super::StarknetApi;
 use crate::starknet::pending::PendingBlockProvider;
 
-impl<EF, Pool, PoolTx, Pending> StarknetApi<EF, Pool, Pending>
+impl<Pool, PoolTx, Pending> StarknetApi<Pool, Pending>
 where
-    EF: ExecutorFactory,
     Pool: TransactionPool<Transaction = PoolTx> + Send + Sync + 'static,
     PoolTx: From<BroadcastedTxWithChainId>,
     Pending: PendingBlockProvider,
@@ -31,7 +30,7 @@ where
         transactions: Vec<BroadcastedTx>,
         simulation_flags: Vec<SimulationFlag>,
     ) -> Result<Vec<SimulatedTransactions>, StarknetApiError> {
-        let chain = self.inner.backend.chain_spec.id();
+        let chain = self.inner.chain_spec.id();
 
         let executables = transactions
             .into_iter()
@@ -45,12 +44,12 @@ where
         // If the node is run with transaction validation disabled, then we should not validate
         // even if the `SKIP_VALIDATE` flag is not set.
         let should_validate = !simulation_flags.contains(&SimulationFlag::SkipValidate)
-            && self.inner.backend.executor_factory.execution_flags().account_validation();
+            && self.inner.config.simulation_flags.account_validation();
 
         // If the node is run with fee charge disabled, then we should disable charing fees even
         // if the `SKIP_FEE_CHARGE` flag is not set.
         let should_charge_fee = !simulation_flags.contains(&SimulationFlag::SkipFeeCharge)
-            && self.inner.backend.executor_factory.execution_flags().fee();
+            && self.inner.config.simulation_flags.fee();
 
         let flags = katana_executor::ExecutionFlags::new()
             .with_account_validation(should_validate)
@@ -62,8 +61,10 @@ where
         let env = self.block_env_at(&block_id)?;
 
         // use the blockifier utils function
-        let cfg_env = self.inner.backend.executor_factory.cfg().clone();
-        let results = super::blockifier::simulate(state, env, cfg_env, executables, flags);
+        let chain_spec = self.inner.chain_spec.as_ref();
+        let overrides = self.inner.config.versioned_constant_overrides.as_ref();
+        let results =
+            super::blockifier::simulate(chain_spec, state, env, overrides, executables, flags);
 
         let mut simulated = Vec::with_capacity(results.len());
         for (i, ResultAndStates { result, .. }) in results.into_iter().enumerate() {
@@ -96,7 +97,8 @@ where
         block_id: ConfirmedBlockIdOrTag,
     ) -> Result<Vec<TxTraceWithHash>, StarknetApiError> {
         use StarknetApiError::BlockNotFound;
-        let provider = self.inner.backend.blockchain.provider();
+        let provider = &self.inner.storage;
+
         let block_id: BlockHashOrNumber = match block_id {
             ConfirmedBlockIdOrTag::L1Accepted => {
                 unimplemented!("l1 accepted block id")
@@ -127,17 +129,16 @@ where
             Ok(pending_trace)
         } else {
             // If not found in pending block, fallback to the provider
-            let provider = self.inner.backend.blockchain.provider();
-            let trace = provider.transaction_execution(tx_hash)?.ok_or(TxnHashNotFound)?;
+            let trace =
+                self.inner.storage.transaction_execution(tx_hash)?.ok_or(TxnHashNotFound)?;
             Ok(TxTrace::from(trace))
         }
     }
 }
 
 #[async_trait]
-impl<EF, Pool, PoolTx, Pending> StarknetTraceApiServer for StarknetApi<EF, Pool, Pending>
+impl<Pool, PoolTx, Pending> StarknetTraceApiServer for StarknetApi<Pool, Pending>
 where
-    EF: ExecutorFactory,
     Pool: TransactionPool<Transaction = PoolTx> + Send + Sync + 'static,
     PoolTx: From<BroadcastedTxWithChainId>,
     Pending: PendingBlockProvider,

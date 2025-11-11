@@ -1,7 +1,7 @@
 use katana_primitives::block::ExecutableBlock;
 use katana_primitives::class::{ClassHash, CompiledClassHash, ContractClass};
 use katana_primitives::contract::{ContractAddress, Nonce, StorageKey, StorageValue};
-use katana_primitives::env::{BlockEnv, CfgEnv};
+use katana_primitives::env::{BlockEnv, VersionedConstantsOverrides};
 use katana_primitives::transaction::{ExecutableTxWithHash, TxWithHash};
 use katana_provider::api::contract::ContractClassProvider;
 use katana_provider::api::state::{StateProofProvider, StateProvider, StateRootProvider};
@@ -16,7 +16,6 @@ use crate::ExecutorError;
 /// A no-op executor factory. Creates an executor that does nothing.
 #[derive(Debug, Default)]
 pub struct NoopExecutorFactory {
-    cfg: CfgEnv,
     execution_flags: ExecutionFlags,
 }
 
@@ -49,8 +48,8 @@ impl ExecutorFactory for NoopExecutorFactory {
         Box::new(NoopExecutor { block_env })
     }
 
-    fn cfg(&self) -> &CfgEnv {
-        &self.cfg
+    fn overrides(&self) -> Option<&VersionedConstantsOverrides> {
+        None
     }
 
     fn execution_flags(&self) -> &ExecutionFlags {

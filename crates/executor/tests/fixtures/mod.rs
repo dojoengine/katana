@@ -6,10 +6,7 @@ use katana_contracts::contracts;
 use katana_executor::implementation::noop::NoopExecutorFactory;
 use katana_executor::{ExecutionFlags, ExecutorFactory};
 use katana_genesis::allocation::DevAllocationsGenerator;
-use katana_genesis::constant::{
-    DEFAULT_ETH_FEE_TOKEN_ADDRESS, DEFAULT_PREFUNDED_ACCOUNT_BALANCE,
-    DEFAULT_STRK_FEE_TOKEN_ADDRESS,
-};
+use katana_genesis::constant::DEFAULT_PREFUNDED_ACCOUNT_BALANCE;
 use katana_primitives::block::{
     Block, ExecutableBlock, FinalityStatus, GasPrices, PartialHeader, SealedBlockWithStatus,
 };
@@ -17,7 +14,7 @@ use katana_primitives::chain::ChainId;
 use katana_primitives::class::{CompiledClass, ContractClass};
 use katana_primitives::contract::ContractAddress;
 use katana_primitives::da::L1DataAvailabilityMode;
-use katana_primitives::env::{CfgEnv, FeeTokenAddressses};
+use katana_primitives::env::VersionedConstantsOverrides;
 use katana_primitives::transaction::{
     DeclareTx, DeclareTxV2, DeclareTxWithClass, DeployAccountTx, DeployAccountTxV1, ExecutableTx,
     ExecutableTxWithHash, InvokeTx, InvokeTxV1,
@@ -237,18 +234,11 @@ pub fn valid_blocks() -> [ExecutableBlock; 3] {
 }
 
 #[rstest::fixture]
-pub fn cfg() -> CfgEnv {
-    let fee_token_addresses = FeeTokenAddressses {
-        eth: DEFAULT_ETH_FEE_TOKEN_ADDRESS,
-        strk: DEFAULT_STRK_FEE_TOKEN_ADDRESS,
-    };
-
-    CfgEnv {
-        fee_token_addresses,
-        max_recursion_depth: usize::MAX,
-        validate_max_n_steps: u32::MAX,
-        invoke_tx_max_n_steps: u32::MAX,
-        chain_id: ChainId::parse("KATANA").unwrap(),
+pub fn overrides() -> VersionedConstantsOverrides {
+    VersionedConstantsOverrides {
+        max_recursion_depth: Some(usize::MAX),
+        validate_max_n_steps: Some(u32::MAX),
+        invoke_tx_max_n_steps: Some(u32::MAX),
     }
 }
 
@@ -275,6 +265,15 @@ use katana_executor::implementation::blockifier::BlockifierFactory;
 use katana_executor::BlockLimits;
 
 #[rstest::fixture]
-pub fn factory(cfg: CfgEnv, #[with(true)] flags: ExecutionFlags) -> BlockifierFactory {
-    BlockifierFactory::new(cfg, flags, BlockLimits::default(), ClassCache::new().unwrap())
+pub fn factory(
+    overrides: VersionedConstantsOverrides,
+    #[with(true)] flags: ExecutionFlags,
+) -> BlockifierFactory {
+    BlockifierFactory::new(
+        Some(overrides),
+        flags,
+        BlockLimits::default(),
+        ClassCache::new().unwrap(),
+        ChainSpec::dev().into(),
+    )
 }
