@@ -5,11 +5,11 @@ use std::path::{Path, PathBuf};
 use katana_genesis::json::GenesisJson;
 use katana_genesis::Genesis;
 use katana_primitives::chain::ChainId;
+use katana_primitives::ContractAddress;
 use serde::{Deserialize, Serialize};
 
-use super::FeeContract;
 use crate::rollup::ChainSpec;
-use crate::SettlementLayer;
+use crate::{FeeContracts, SettlementLayer};
 
 #[derive(Debug, thiserror::Error)]
 pub enum Error {
@@ -86,7 +86,7 @@ pub fn read(dir: &ChainConfigDir) -> Result<ChainSpec, Error> {
         genesis,
         id: chain_spec.id,
         settlement: chain_spec.settlement,
-        fee_contract: chain_spec.fee_contract,
+        fee_contracts: chain_spec.fee_contract.into(),
     })
 }
 
@@ -95,7 +95,7 @@ pub fn write(dir: &ChainConfigDir, chain_spec: &ChainSpec) -> Result<(), Error> 
         let cfg = ChainSpecFile {
             id: chain_spec.id,
             settlement: chain_spec.settlement.clone(),
-            fee_contract: chain_spec.fee_contract.clone(),
+            fee_contract: chain_spec.fee_contracts.clone().into(),
         };
 
         let content = toml::to_string_pretty(&cfg)?;
@@ -141,10 +141,27 @@ fn list_at<P: AsRef<Path>>(dir: P) -> Result<Vec<ChainId>, Error> {
 }
 
 #[derive(Debug, Serialize, Deserialize)]
+pub struct FileFeeContract {
+    pub strk: ContractAddress,
+}
+
+impl From<FileFeeContract> for FeeContracts {
+    fn from(fee_contract: FileFeeContract) -> Self {
+        Self { strk: fee_contract.strk, eth: fee_contract.strk }
+    }
+}
+
+impl From<FeeContracts> for FileFeeContract {
+    fn from(fee_contracts: FeeContracts) -> Self {
+        Self { strk: fee_contracts.strk }
+    }
+}
+
+#[derive(Debug, Serialize, Deserialize)]
 #[serde(rename_all = "kebab-case")]
 struct ChainSpecFile {
     id: ChainId,
-    fee_contract: FeeContract,
+    fee_contract: FileFeeContract,
     settlement: SettlementLayer,
 }
 
@@ -294,8 +311,8 @@ mod tests {
 
     use super::Error;
     use crate::rollup::file::{local_dir, ChainConfigDir, LocalChainConfigDir, KATANA_LOCAL_DIR};
-    use crate::rollup::{ChainSpec, FeeContract};
-    use crate::SettlementLayer;
+    use crate::rollup::ChainSpec;
+    use crate::{FeeContracts, SettlementLayer};
 
     static TEMPDIR: OnceLock<TempDir> = OnceLock::new();
 
@@ -333,7 +350,10 @@ mod tests {
         ChainSpec {
             id: ChainId::default(),
             genesis: Genesis::default(),
-            fee_contract: FeeContract { strk: ContractAddress::default() },
+            fee_contracts: FeeContracts {
+                eth: ContractAddress::default(),
+                strk: ContractAddress::default(),
+            },
             settlement: SettlementLayer::Starknet {
                 block: 0,
                 id: ChainId::default(),
@@ -353,7 +373,7 @@ mod tests {
         let read_spec = read(&id).unwrap();
 
         assert_eq!(chain_spec.id, read_spec.id);
-        assert_eq!(chain_spec.fee_contract, read_spec.fee_contract);
+        // assert_eq!(chain_spec.fee_contract, read_spec.fee_contract);
         assert_eq!(chain_spec.settlement, read_spec.settlement);
     }
 

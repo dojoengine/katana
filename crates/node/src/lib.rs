@@ -1,4 +1,4 @@
-// #![cfg_attr(not(test), warn(unused_crate_dependencies))]
+#![cfg_attr(not(test), warn(unused_crate_dependencies))]
 
 pub mod full;
 
@@ -23,7 +23,7 @@ use katana_core::service::block_producer::BlockProducer;
 use katana_db::Db;
 use katana_executor::implementation::blockifier::cache::ClassCache;
 use katana_executor::implementation::blockifier::BlockifierFactory;
-use katana_executor::ExecutionFlags;
+use katana_executor::{ExecutionFlags, ExecutorFactory};
 use katana_gas_price_oracle::{FixedPriceOracle, GasPriceOracle};
 use katana_gateway_server::{GatewayServer, GatewayServerHandle};
 use katana_metrics::exporters::prometheus::PrometheusRecorder;
@@ -31,7 +31,7 @@ use katana_metrics::sys::DiskReporter;
 use katana_metrics::{Report, Server as MetricsServer};
 use katana_pool::ordering::FiFo;
 use katana_pool::TxPool;
-use katana_primitives::env::{CfgEnv, FeeTokenAddressses};
+use katana_primitives::env::VersionedConstantsOverrides;
 #[cfg(feature = "cartridge")]
 use katana_rpc_api::cartridge::CartridgeApiServer;
 use katana_rpc_api::dev::DevApiServer;
@@ -91,22 +91,12 @@ impl Node {
 
         // --- build executor factory
 
-        let fee_token_addresses = match config.chain.as_ref() {
-            ChainSpec::Dev(cs) => {
-                FeeTokenAddressses { eth: cs.fee_contracts.eth, strk: cs.fee_contracts.strk }
-            }
-            ChainSpec::Rollup(cs) => {
-                FeeTokenAddressses { eth: cs.fee_contract.strk, strk: cs.fee_contract.strk }
-            }
-        };
-
-        let cfg_env = CfgEnv {
-            fee_token_addresses,
-            chain_id: config.chain.id(),
-            invoke_tx_max_n_steps: config.execution.invocation_max_steps,
-            validate_max_n_steps: config.execution.validation_max_steps,
-            max_recursion_depth: config.execution.max_recursion_depth,
-        };
+        // Create versioned constants overrides from config
+        let overrides = Some(VersionedConstantsOverrides {
+            invoke_tx_max_n_steps: Some(config.execution.invocation_max_steps),
+            validate_max_n_steps: Some(config.execution.validation_max_steps),
+            max_recursion_depth: Some(config.execution.max_recursion_depth),
+        });
 
         let execution_flags = ExecutionFlags::new()
             .with_account_validation(config.dev.account_validation)
@@ -125,10 +115,11 @@ impl Node {
             let global_class_cache = class_cache.build_global()?;
 
             let factory = BlockifierFactory::new(
-                cfg_env,
+                overrides,
                 execution_flags,
                 config.sequencing.block_limits(),
                 global_class_cache,
+                config.chain.clone(),
             );
 
             Arc::new(factory)
@@ -188,9 +179,12 @@ impl Node {
             GasPriceOracle::Fixed(FixedPriceOracle::default())
         };
 
+        // Get cfg_env before moving executor_factory into Backend
+        let versioned_constant_overrides = executor_factory.overrides().cloned();
+
         let block_context_generator = BlockContextGenerator::default().into();
         let backend = Arc::new(Backend {
-            gas_oracle,
+            gas_oracle: gas_oracle.clone(),
             blockchain,
             executor_factory,
             block_context_generator,
@@ -256,26 +250,35 @@ impl Node {
             max_proof_keys: config.rpc.max_proof_keys,
             max_call_gas: config.rpc.max_call_gas,
             max_concurrent_estimate_fee_requests: config.rpc.max_concurrent_estimate_fee_requests,
+            simulation_flags: ExecutionFlags::default(),
+            versioned_constant_overrides,
             #[cfg(feature = "cartridge")]
             paymaster,
         };
 
-        let starknet_api = if let Some(client) = forked_client {
+        let storage_provider = backend.blockchain.provider().clone();
+        let chain_spec = backend.chain_spec.clone();
+
+        let starknet_api = if let Some(forked_client) = forked_client {
             StarknetApi::new_forked(
-                backend.clone(),
+                chain_spec.clone(),
+                storage_provider.clone(),
                 pool.clone(),
-                client,
+                forked_client,
                 task_spawner.clone(),
-                starknet_api_cfg,
                 block_producer.clone(),
+                gas_oracle.clone(),
+                starknet_api_cfg,
             )
         } else {
             StarknetApi::new(
-                backend.clone(),
+                chain_spec.clone(),
+                storage_provider.clone(),
                 pool.clone(),
                 task_spawner.clone(),
-                starknet_api_cfg,
                 block_producer.clone(),
+                gas_oracle.clone(),
+                starknet_api_cfg,
             )
         };
 

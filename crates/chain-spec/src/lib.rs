@@ -44,6 +44,13 @@ impl ChainSpec {
             Self::Rollup(spec) => Some(&spec.settlement),
         }
     }
+
+    pub fn fee_contracts(&self) -> &FeeContracts {
+        match self {
+            Self::Dev(spec) => &spec.fee_contracts,
+            Self::Rollup(spec) => &spec.fee_contracts,
+        }
+    }
 }
 
 impl From<dev::ChainSpec> for ChainSpec {
@@ -105,4 +112,15 @@ pub enum SettlementLayer {
         // Once Katana can sync from data availability layer, we can add the details of the data
         // availability layer to the chain spec for Katana to sync from it.
     },
+}
+
+/// Tokens that can be used for transaction fee payments in the chain. As
+/// supported on Starknet.
+// TODO: include both l1 and l2 addresses
+#[derive(Debug, Clone, Serialize, Deserialize, Default, PartialEq, Eq)]
+pub struct FeeContracts {
+    /// L2 ETH fee token address. Used for paying pre-V3 transactions.
+    pub eth: ContractAddress,
+    /// L2 STRK fee token address. Used for paying V3 transactions.
+    pub strk: ContractAddress,
 }

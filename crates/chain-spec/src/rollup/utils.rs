@@ -335,6 +335,8 @@ impl<'c> GenesisTransactionsBuilder<'c> {
 #[cfg(test)]
 mod tests {
 
+    use std::sync::Arc;
+
     use alloy_primitives::U256;
     use katana_contracts::contracts;
     use katana_executor::implementation::blockifier::cache::ClassCache;
@@ -348,7 +350,7 @@ mod tests {
     use katana_primitives::chain::ChainId;
     use katana_primitives::class::ClassHash;
     use katana_primitives::contract::Nonce;
-    use katana_primitives::env::CfgEnv;
+    use katana_primitives::env::VersionedConstantsOverrides;
     use katana_primitives::transaction::TxType;
     use katana_primitives::Felt;
     use katana_provider::api::state::StateFactoryProvider;
@@ -356,8 +358,8 @@ mod tests {
     use url::Url;
 
     use super::GenesisTransactionsBuilder;
-    use crate::rollup::{ChainSpec, FeeContract, DEFAULT_APPCHAIN_FEE_TOKEN_ADDRESS};
-    use crate::SettlementLayer;
+    use crate::rollup::{ChainSpec, DEFAULT_APPCHAIN_FEE_TOKEN_ADDRESS};
+    use crate::{FeeContracts, SettlementLayer};
 
     fn chain_spec(n_dev_accounts: u16, with_balance: bool) -> ChainSpec {
         let accounts = if with_balance {
@@ -372,7 +374,10 @@ mod tests {
         genesis.extend_allocations(accounts.into_iter().map(|(k, v)| (k, v.into())));
 
         let id = ChainId::parse("KATANA").unwrap();
-        let fee_contract = FeeContract::default();
+        let fee_contracts = FeeContracts {
+            eth: DEFAULT_APPCHAIN_FEE_TOKEN_ADDRESS,
+            strk: DEFAULT_APPCHAIN_FEE_TOKEN_ADDRESS,
+        };
 
         let settlement = SettlementLayer::Starknet {
             block: 0,
@@ -382,30 +387,29 @@ mod tests {
             rpc_url: Url::parse("http://localhost:5050").unwrap(),
         };
 
-        ChainSpec { id, genesis, settlement, fee_contract }
+        ChainSpec { id, genesis, settlement, fee_contracts }
     }
 
-    fn executor(chain_spec: &ChainSpec) -> BlockifierFactory {
+    fn executor(chain_spec: Arc<ChainSpec>) -> BlockifierFactory {
         BlockifierFactory::new(
-            CfgEnv {
-                chain_id: chain_spec.id,
+            VersionedConstantsOverrides {
                 validate_max_n_steps: u32::MAX,
                 invoke_tx_max_n_steps: u32::MAX,
                 max_recursion_depth: usize::MAX,
-                ..Default::default()
             },
             Default::default(),
             BlockLimits::default(),
             ClassCache::new().unwrap(),
+            chain_spec,
         )
     }
 
     #[test]
     fn valid_transactions() {
-        let chain_spec = chain_spec(1, true);
+        let chain_spec = Arc::new(chain_spec(1, true));
 
         let provider = DbProvider::new_in_memory();
-        let ef = executor(&chain_spec);
+        let ef = executor(chain_spec.clone());
 
         let mut executor = ef.with_state(provider.latest().unwrap());
         executor.execute_block(chain_spec.block()).expect("failed to execute genesis block");
@@ -419,10 +423,10 @@ mod tests {
 
     #[test]
     fn genesis_states() {
-        let chain_spec = chain_spec(1, true);
+        let chain_spec = Arc::new(chain_spec(1, true));
 
         let provider = DbProvider::new_in_memory();
-        let ef = executor(&chain_spec);
+        let ef = executor(chain_spec.clone());
 
         let mut executor = ef.with_state(provider.latest().unwrap());
         executor.execute_block(chain_spec.block()).expect("failed to execute genesis block");

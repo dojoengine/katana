@@ -20,6 +20,8 @@ katana-rpc-client.workspace = true
 katana-rpc-types.workspace = true
 katana-rpc-types-builder.workspace = true
 katana-tasks.workspace = true
+katana-gas-price-oracle.workspace = true
+katana-chain-spec.workspace = true
 katana-tracing.workspace = true
 
 anyhow.workspace = true
