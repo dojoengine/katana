@@ -61,11 +61,10 @@ where
         let env = self.block_env_at(&block_id)?;
 
         // use the blockifier utils function
-        // let cfg_env = self.inner.backend.executor_factory.cfg().clone();
         let chain_spec = self.inner.chain_spec.as_ref();
-        let cfg_env = self.inner.config.versioned_constant_overrides.as_ref();
+        let overrides = self.inner.config.versioned_constant_overrides.as_ref();
         let results =
-            super::blockifier::simulate(chain_spec, state, env, cfg_env, executables, flags);
+            super::blockifier::simulate(chain_spec, state, env, overrides, executables, flags);
 
         let mut simulated = Vec::with_capacity(results.len());
         for (i, ResultAndStates { result, .. }) in results.into_iter().enumerate() {
