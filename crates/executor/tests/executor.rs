@@ -92,12 +92,11 @@ fn test_executor_with_valid_blocks_impl(
         .unwrap()
         .expect("storage should exist");
 
-    // assert!(
-    //     updated_main_acc_balance < Felt::from(DEFAULT_PREFUNDED_ACCOUNT_BALANCE),
-    //     "sender balance should decrease"
-    // );
-    // assert_eq!(actual_new_acc_balance, felt!("0x9999999999999999"), "account balance is
-    // updated");
+    assert!(
+        updated_main_acc_balance < Felt::from(DEFAULT_PREFUNDED_ACCOUNT_BALANCE),
+        "sender balance should decrease"
+    );
+    assert_eq!(actual_new_acc_balance, felt!("0x9999999999999999"), "account balance is updated");
 
     // assert that the sierra class is declared
     let expected_class_hash = felt!("0x420");
@@ -161,10 +160,10 @@ fn test_executor_with_valid_blocks_impl(
         .unwrap()
         .expect("storage should exist");
 
-    // assert!(
-    //     updated_new_acc_balance < felt!("0x9999999999999999"),
-    //     "account balance should be updated"
-    // );
+    assert!(
+        updated_new_acc_balance < felt!("0x9999999999999999"),
+        "account balance should be updated"
+    );
 
     // block 3
     //

@@ -285,13 +285,6 @@ where
         self.provider.declared_classes(block_id)
     }
 
-    fn declared_deprecated_classes(
-        &self,
-        block_id: BlockHashOrNumber,
-    ) -> ProviderResult<Option<Vec<ClassHash>>> {
-        self.provider.declared_deprecated_classes(block_id)
-    }
-
     fn deployed_contracts(
         &self,
         block_id: BlockHashOrNumber,

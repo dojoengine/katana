@@ -12,7 +12,7 @@ use katana_pool::TransactionPool;
 use katana_primitives::block::{BlockHashOrNumber, BlockIdOrTag, FinalityStatus, GasPrices};
 use katana_primitives::class::{ClassHash, CompiledClass};
 use katana_primitives::contract::{ContractAddress, Nonce, StorageKey, StorageValue};
-use katana_primitives::env::{BlockEnv, VersionedConstantsOverrides};
+use katana_primitives::env::BlockEnv;
 use katana_primitives::event::MaybeForkedContinuationToken;
 use katana_primitives::transaction::{ExecutableTxWithHash, TxHash, TxNumber};
 use katana_primitives::Felt;
