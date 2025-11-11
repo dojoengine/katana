@@ -4,8 +4,8 @@ use katana_primitives::chain::ChainId;
 use katana_primitives::da::L1DataAvailabilityMode;
 use katana_primitives::version::CURRENT_STARKNET_VERSION;
 
-mod file;
-mod utils;
+pub mod file;
+pub mod utils;
 
 pub use file::*;
 pub use utils::DEFAULT_APPCHAIN_FEE_TOKEN_ADDRESS;
