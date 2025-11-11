@@ -309,7 +309,7 @@ mod tests {
     use tempfile::TempDir;
     use url::Url;
 
-    use super::{Error, FileFeeContract};
+    use super::Error;
     use crate::rollup::file::{local_dir, ChainConfigDir, LocalChainConfigDir, KATANA_LOCAL_DIR};
     use crate::rollup::ChainSpec;
     use crate::{FeeContracts, SettlementLayer};
