@@ -8,16 +8,17 @@ use katana_rpc_types::broadcasted::{
     AddInvokeTransactionResponse, BroadcastedDeclareTx, BroadcastedDeployAccountTx,
     BroadcastedInvokeTx,
 };
-use katana_rpc_types::{BroadcastedTx, BroadcastedTxWithChainId};
+use katana_rpc_types::{BroadcastedTx, BroadcastedTxWithChainId, RpcTxWithHash};
 
 use super::StarknetApi;
 use crate::starknet::pending::PendingBlockProvider;
 
-impl<EF, Pool, PoolTx, Pending> StarknetApi<EF, Pool, Pending>
+impl<EF, Pool, Pending> StarknetApi<EF, Pool, Pending>
 where
     EF: ExecutorFactory,
-    Pool: TransactionPool<Transaction = PoolTx> + Send + Sync + 'static,
-    PoolTx: From<BroadcastedTxWithChainId>,
+    Pool: TransactionPool + Send + Sync + 'static,
+    <Pool as TransactionPool>::Transaction: From<BroadcastedTxWithChainId>,
+    <Pool as TransactionPool>::Transaction: Into<RpcTxWithHash>,
     Pending: PendingBlockProvider,
 {
     async fn add_invoke_transaction_impl(
@@ -80,11 +81,12 @@ where
 }
 
 #[async_trait]
-impl<EF, Pool, PoolTx, Pending> StarknetWriteApiServer for StarknetApi<EF, Pool, Pending>
+impl<EF, Pool, Pending> StarknetWriteApiServer for StarknetApi<EF, Pool, Pending>
 where
     EF: ExecutorFactory,
-    Pool: TransactionPool<Transaction = PoolTx> + Send + Sync + 'static,
-    PoolTx: From<BroadcastedTxWithChainId>,
+    Pool: TransactionPool + Send + Sync + 'static,
+    <Pool as TransactionPool>::Transaction: From<BroadcastedTxWithChainId>,
+    RpcTxWithHash: From<<Pool as TransactionPool>::Transaction>,
     Pending: PendingBlockProvider,
 {
     async fn add_invoke_transaction(

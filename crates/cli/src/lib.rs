@@ -6,6 +6,7 @@ use clap::{Args, Subcommand};
 pub mod args;
 pub mod file;
 pub mod full;
+pub mod optimistic;
 pub mod options;
 pub mod utils;
 
@@ -13,6 +14,7 @@ pub use args::SequencerNodeArgs;
 pub use options::*;
 
 use crate::full::FullNodeArgs;
+use crate::optimistic::OptimisticNodeArgs;
 
 #[derive(Debug, Args, PartialEq)]
 pub struct NodeCli {
@@ -27,6 +29,9 @@ pub enum NodeSubcommand {
 
     #[command(about = "Launch a sequencer node")]
     Sequencer(Box<SequencerNodeArgs>),
+
+    #[command(about = "Launch an optimistic node")]
+    Optimistic(Box<OptimisticNodeArgs>),
 }
 
 impl NodeCli {
@@ -34,6 +39,7 @@ impl NodeCli {
         match self.command {
             NodeSubcommand::Full(args) => args.execute().await,
             NodeSubcommand::Sequencer(args) => args.with_config_file()?.execute().await,
+            NodeSubcommand::Optimistic(args) => args.execute().await,
         }
     }
 }

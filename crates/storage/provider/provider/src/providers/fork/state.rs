@@ -1,4 +1,3 @@
-use std::cmp::Ordering;
 use std::sync::Arc;
 
 use katana_db::abstraction::{Database, DbTx, DbTxMut};
@@ -41,13 +40,14 @@ where
             BlockHashOrNumber::Hash(hash) => self.provider.block_number_by_hash(hash)?,
 
             BlockHashOrNumber::Num(num) => {
-                let latest_num = self.provider.latest_number()?;
+                // let latest_num = self.provider.latest_number()?;
 
-                match num.cmp(&latest_num) {
-                    Ordering::Less => Some(num),
-                    Ordering::Greater => return Ok(None),
-                    Ordering::Equal => return self.latest().map(Some),
-                }
+                // match num.cmp(&latest_num) {
+                //     Ordering::Less => Some(num),
+                //     Ordering::Greater => return Ok(None),
+                //     Ordering::Equal => return self.latest().map(Some),
+                // }
+                Some(num)
             }
         };
 
@@ -62,10 +62,10 @@ where
 }
 
 #[derive(Debug)]
-struct LatestStateProvider<Db: Database> {
-    db: Arc<DbProvider<Db>>,
-    backend: BackendClient,
-    provider: db::state::LatestStateProvider<Db::Tx>,
+pub struct LatestStateProvider<Db: Database> {
+    pub(crate) db: Arc<DbProvider<Db>>,
+    pub(crate) backend: BackendClient,
+    pub(crate) provider: db::state::LatestStateProvider<Db::Tx>,
 }
 
 impl<Db> ContractClassProvider for LatestStateProvider<Db>
@@ -202,10 +202,10 @@ where
 }
 
 #[derive(Debug)]
-struct HistoricalStateProvider<Db: Database> {
-    db: Arc<DbProvider<Db>>,
-    backend: BackendClient,
-    provider: db::state::HistoricalStateProvider<Db::Tx>,
+pub struct HistoricalStateProvider<Db: Database> {
+    pub(crate) db: Arc<DbProvider<Db>>,
+    pub(crate) backend: BackendClient,
+    pub(crate) provider: db::state::HistoricalStateProvider<Db::Tx>,
 }
 
 impl<Db: Database> HistoricalStateProvider<Db> {

@@ -11,7 +11,7 @@ use katana_rpc_types::event::{EventFilter, GetEventsResponse};
 use katana_rpc_types::receipt::{ReceiptBlockInfo, TxReceiptWithBlockInfo};
 use katana_rpc_types::state_update::StateUpdate;
 use katana_rpc_types::transaction::RpcTxWithHash;
-use katana_rpc_types::TxStatus;
+use katana_rpc_types::{BlockHashAndNumberResponse, BlockNumberResponse, TxStatus};
 
 #[derive(Debug, thiserror::Error)]
 pub enum Error {
@@ -31,34 +31,47 @@ pub enum Error {
 #[derive(Debug, Clone)]
 pub struct ForkedClient {
     /// The block number where the node is forked from.
-    block: BlockNumber,
+    block: BlockIdOrTag,
     /// The Starknet JSON-RPC client for doing the request to the forked network.
     client: Client,
 }
 
 impl ForkedClient {
     /// Creates a new forked client from the given [`Client`] and block number.
-    pub fn new(client: Client, block: BlockNumber) -> Self {
+    pub fn new(client: Client, block: BlockIdOrTag) -> Self {
         Self { block, client }
     }
 
     /// Returns the block number of the forked client.
-    pub fn block(&self) -> &BlockNumber {
+    pub fn block(&self) -> &BlockIdOrTag {
         &self.block
     }
 }
 
 impl ForkedClient {
+    pub async fn block_number(&self) -> Result<BlockNumber, Error> {
+        Ok(self.client.block_number().await?.block_number)
+    }
+
+    pub async fn block_hash_and_number(&self) -> Result<BlockHashAndNumberResponse, Error> {
+        Ok(self.client.block_hash_and_number().await?)
+    }
+
     pub async fn get_block_number_by_hash(&self, hash: BlockHash) -> Result<BlockNumber, Error> {
         let number = match self.client.get_block_with_tx_hashes(BlockIdOrTag::Hash(hash)).await? {
             GetBlockWithTxHashesResponse::Block(block) => block.block_number,
             GetBlockWithTxHashesResponse::PreConfirmed(block) => block.block_number,
         };
 
-        if number > self.block {
-            Err(Error::BlockOutOfRange)
-        } else {
-            Ok(number)
+        match self.block {
+            BlockIdOrTag::Number(fork_num) => {
+                if number > fork_num {
+                    Err(Error::BlockOutOfRange)
+                } else {
+                    Ok(number)
+                }
+            }
+            _ => Ok(number),
         }
     }
 
@@ -73,8 +86,10 @@ impl ForkedClient {
         let receipt = self.client.get_transaction_receipt(hash).await?;
 
         if let ReceiptBlockInfo::Block { block_number, .. } = receipt.block {
-            if block_number > self.block {
-                return Err(Error::BlockOutOfRange);
+            if let BlockIdOrTag::Number(fork_num) = self.block {
+                if block_number > fork_num {
+                    return Err(Error::BlockOutOfRange);
+                }
             }
         }
 
@@ -100,8 +115,10 @@ impl ForkedClient {
     ) -> Result<RpcTxWithHash, Error> {
         match block_id {
             BlockIdOrTag::Number(num) => {
-                if num > self.block {
-                    return Err(Error::BlockOutOfRange);
+                if let BlockIdOrTag::Number(fork_num) = self.block {
+                    if num > fork_num {
+                        return Err(Error::BlockOutOfRange);
+                    }
                 }
 
                 Ok(self.client.get_transaction_by_block_id_and_index(block_id, idx).await?)
@@ -120,8 +137,10 @@ impl ForkedClient {
                     }
                 };
 
-                if number > self.block {
-                    return Err(Error::BlockOutOfRange);
+                if let BlockIdOrTag::Number(fork_num) = self.block {
+                    if number > fork_num {
+                        return Err(Error::BlockOutOfRange);
+                    }
                 }
 
                 Ok(tx?)
@@ -138,17 +157,20 @@ impl ForkedClient {
         block_id: BlockIdOrTag,
     ) -> Result<MaybePreConfirmedBlock, Error> {
         let block = self.client.get_block_with_txs(block_id).await?;
+        Ok(block)
 
-        match block {
-            MaybePreConfirmedBlock::PreConfirmed(_) => Err(Error::UnexpectedPendingData),
-            MaybePreConfirmedBlock::Confirmed(ref b) => {
-                if b.block_number > self.block {
-                    Err(Error::BlockOutOfRange)
-                } else {
-                    Ok(block)
-                }
-            }
-        }
+        // match block {
+        //     MaybePreConfirmedBlock::PreConfirmed(_) => Err(Error::UnexpectedPendingData),
+        //     MaybePreConfirmedBlock::Confirmed(ref b) => {
+        //         if let BlockIdOrTag::Number(fork_num) = self.block {
+        //             if b.block_number > fork_num {
+        //                 return Err(Error::BlockOutOfRange);
+        //             }
+        //         }
+
+        //         Ok(block)
+        //     }
+        // }
     }
 
     pub async fn get_block_with_receipts(
@@ -157,16 +179,18 @@ impl ForkedClient {
     ) -> Result<GetBlockWithReceiptsResponse, Error> {
         let block = self.client.get_block_with_receipts(block_id).await?;
 
-        match block {
-            GetBlockWithReceiptsResponse::Block(ref b) => {
-                if b.block_number > self.block {
-                    return Err(Error::BlockOutOfRange);
-                }
-            }
-            GetBlockWithReceiptsResponse::PreConfirmed(_) => {
-                return Err(Error::UnexpectedPendingData);
-            }
-        }
+        // match block {
+        //     GetBlockWithReceiptsResponse::Block(ref b) => {
+        //         if let BlockIdOrTag::Number(fork_num) = self.block {
+        //             if b.block_number > fork_num {
+        //                 return Err(Error::BlockOutOfRange);
+        //             }
+        //         }
+        //     }
+        //     GetBlockWithReceiptsResponse::PreConfirmed(_) => {
+        //         return Err(Error::UnexpectedPendingData);
+        //     }
+        // }
 
         Ok(block)
     }
@@ -177,61 +201,27 @@ impl ForkedClient {
     ) -> Result<GetBlockWithTxHashesResponse, Error> {
         let block = self.client.get_block_with_tx_hashes(block_id).await?;
 
-        match block {
-            GetBlockWithTxHashesResponse::Block(ref b) => {
-                if b.block_number > self.block {
-                    return Err(Error::BlockOutOfRange);
-                }
-            }
-            GetBlockWithTxHashesResponse::PreConfirmed(_) => {
-                return Err(Error::UnexpectedPendingData);
-            }
-        }
+        // match block {
+        //     GetBlockWithTxHashesResponse::Block(ref b) => {
+        //         if let BlockIdOrTag::Number(fork_num) = self.block {
+        //             if b.block_number > fork_num {
+        //                 return Err(Error::BlockOutOfRange);
+        //             }
+        //         }
+        //     }
+        //     GetBlockWithTxHashesResponse::PreConfirmed(_) => {
+        //         return Err(Error::UnexpectedPendingData);
+        //     }
+        // }
 
         Ok(block)
     }
 
     pub async fn get_block_transaction_count(&self, block_id: BlockIdOrTag) -> Result<u64, Error> {
-        match block_id {
-            BlockIdOrTag::Number(num) if num > self.block => {
-                return Err(Error::BlockOutOfRange);
-            }
-            BlockIdOrTag::Hash(hash) => {
-                let block = self.client.get_block_with_tx_hashes(BlockIdOrTag::Hash(hash)).await?;
-                if let GetBlockWithTxHashesResponse::Block(b) = block {
-                    if b.block_number > self.block {
-                        return Err(Error::BlockOutOfRange);
-                    }
-                }
-            }
-            BlockIdOrTag::L1Accepted | BlockIdOrTag::Latest | BlockIdOrTag::PreConfirmed => {
-                return Err(Error::BlockTagNotAllowed);
-            }
-            BlockIdOrTag::Number(_) => {}
-        }
-
         Ok(self.client.get_block_transaction_count(block_id).await?)
     }
 
     pub async fn get_state_update(&self, block_id: BlockIdOrTag) -> Result<StateUpdate, Error> {
-        match block_id {
-            BlockIdOrTag::Number(num) if num > self.block => {
-                return Err(Error::BlockOutOfRange);
-            }
-            BlockIdOrTag::Hash(hash) => {
-                let block = self.client.get_block_with_tx_hashes(BlockIdOrTag::Hash(hash)).await?;
-                if let GetBlockWithTxHashesResponse::Block(b) = block {
-                    if b.block_number > self.block {
-                        return Err(Error::BlockOutOfRange);
-                    }
-                }
-            }
-            BlockIdOrTag::L1Accepted | BlockIdOrTag::Latest | BlockIdOrTag::PreConfirmed => {
-                return Err(Error::BlockTagNotAllowed);
-            }
-            BlockIdOrTag::Number(_) => {}
-        }
-
         Ok(self.client.get_state_update(block_id).await?)
     }
 
@@ -240,20 +230,15 @@ impl ForkedClient {
     // BlockId in some way?
     pub async fn get_events(
         &self,
-        from: BlockNumber,
-        to: BlockNumber,
+        from: BlockIdOrTag,
+        to: BlockIdOrTag,
         address: Option<ContractAddress>,
         keys: Option<Vec<Vec<Felt>>>,
         continuation_token: Option<String>,
         chunk_size: u64,
     ) -> Result<GetEventsResponse, Error> {
-        if from > self.block || to > self.block {
-            return Err(Error::BlockOutOfRange);
-        }
-
-        let from_block = Some(BlockIdOrTag::Number(from));
-        let to_block = Some(BlockIdOrTag::Number(to));
-
+        let from_block = Some(from);
+        let to_block = Some(to);
         let event_filter = EventFilter { address, from_block, to_block, keys };
 
         Ok(self.client.get_events(event_filter, continuation_token, chunk_size).await?)
@@ -287,7 +272,7 @@ mod tests {
     async fn get_block_hash() {
         let http_client = HttpClientBuilder::new().build(SEPOLIA_URL).unwrap();
         let rpc_client = Client::new(http_client);
-        let client = ForkedClient::new(rpc_client, FORK_BLOCK_NUMBER);
+        let client = ForkedClient::new(rpc_client, FORK_BLOCK_NUMBER.into());
 
         // -----------------------------------------------------------------------
         // Block before the forked block

@@ -6,9 +6,11 @@ version.workspace = true
 
 [dependencies]
 katana-primitives.workspace = true
+katana-rpc-types.workspace = true
 
 futures.workspace = true
 parking_lot.workspace = true
+starknet-types-core.workspace = true
 thiserror.workspace = true
 tokio = { workspace = true, features = [ "sync" ] }
 

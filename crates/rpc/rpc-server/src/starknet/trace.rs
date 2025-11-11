@@ -13,16 +13,16 @@ use katana_rpc_types::trace::{
     to_rpc_fee_estimate, SimulatedTransactions, SimulatedTransactionsResponse,
     TraceBlockTransactionsResponse, TxTrace, TxTraceWithHash,
 };
-use katana_rpc_types::{BroadcastedTxWithChainId, SimulationFlag};
+use katana_rpc_types::{BroadcastedTxWithChainId, RpcTxWithHash, SimulationFlag};
 
 use super::StarknetApi;
 use crate::starknet::pending::PendingBlockProvider;
 
-impl<EF, Pool, PoolTx, Pending> StarknetApi<EF, Pool, Pending>
+impl<EF, Pool, Pending> StarknetApi<EF, Pool, Pending>
 where
     EF: ExecutorFactory,
-    Pool: TransactionPool<Transaction = PoolTx> + Send + Sync + 'static,
-    PoolTx: From<BroadcastedTxWithChainId>,
+    Pool: TransactionPool + Send + Sync + 'static,
+    <Pool as TransactionPool>::Transaction: Into<RpcTxWithHash>,
     Pending: PendingBlockProvider,
 {
     fn simulate_txs(
@@ -97,7 +97,7 @@ where
     ) -> Result<Vec<TxTraceWithHash>, StarknetApiError> {
         use StarknetApiError::BlockNotFound;
 
-        let provider = self.inner.backend.blockchain.provider();
+        let provider = self.inner.storage_provider.provider();
 
         let block_id: BlockHashOrNumber = match block_id {
             ConfirmedBlockIdOrTag::L1Accepted => {
@@ -131,7 +131,7 @@ where
             Ok(pending_trace)
         } else {
             // If not found in pending block, fallback to the provider
-            let provider = self.inner.backend.blockchain.provider();
+            let provider = self.inner.storage_provider.provider();
             let trace = provider.transaction_execution(tx_hash)?.ok_or(TxnHashNotFound)?;
             Ok(TxTrace::from(trace))
         }
@@ -139,11 +139,11 @@ where
 }
 
 #[async_trait]
-impl<EF, Pool, PoolTx, Pending> StarknetTraceApiServer for StarknetApi<EF, Pool, Pending>
+impl<EF, Pool, Pending> StarknetTraceApiServer for StarknetApi<EF, Pool, Pending>
 where
     EF: ExecutorFactory,
-    Pool: TransactionPool<Transaction = PoolTx> + Send + Sync + 'static,
-    PoolTx: From<BroadcastedTxWithChainId>,
+    Pool: TransactionPool + Send + Sync + 'static,
+    <Pool as TransactionPool>::Transaction: Into<RpcTxWithHash>,
     Pending: PendingBlockProvider,
 {
     async fn trace_transaction(&self, transaction_hash: TxHash) -> RpcResult<TxTrace> {

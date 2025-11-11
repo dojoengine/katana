@@ -1,0 +1,24 @@
+[package]
+name = "katana-optimistic"
+edition.workspace = true
+license.workspace = true
+repository.workspace = true
+version.workspace = true
+
+[dependencies]
+futures.workspace = true
+anyhow.workspace = true
+katana-core.workspace = true
+katana-executor.workspace = true
+katana-pool.workspace = true
+katana-gateway-client.workspace = true
+katana-primitives.workspace = true
+katana-provider.workspace = true
+katana-rpc-types.workspace = true
+katana-rpc-client.workspace = true
+katana-tasks.workspace = true
+katana-pool-api.workspace = true
+parking_lot.workspace = true
+tracing.workspace = true
+katana-db.workspace = true
+tokio.workspace = true

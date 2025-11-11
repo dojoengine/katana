@@ -1,6 +1,9 @@
 use core::fmt;
 use std::num::ParseIntError;
 
+use crate::transaction::TxHash;
+use crate::Felt;
+
 /// Represents a continuation token for implementing paging in event queries.
 ///
 /// This struct stores the necessary information to resume fetching events
@@ -17,6 +20,8 @@ pub struct ContinuationToken {
     pub txn_n: u64,
     /// The event number within the transaction to continue from.
     pub event_n: u64,
+    /// The transaction hash to continue from. Used for optimistic transactions.
+    pub transaction_hash: Option<TxHash>,
 }
 
 #[derive(PartialEq, Eq, Debug, thiserror::Error)]
@@ -30,7 +35,7 @@ pub enum ContinuationTokenError {
 impl ContinuationToken {
     pub fn parse(token: &str) -> Result<Self, ContinuationTokenError> {
         let arr: Vec<&str> = token.split(',').collect();
-        if arr.len() != 3 {
+        if arr.len() != 3 && arr.len() != 4 {
             return Err(ContinuationTokenError::InvalidToken);
         }
         let block_n =
@@ -40,13 +45,29 @@ impl ContinuationToken {
         let event_n =
             u64::from_str_radix(arr[2], 16).map_err(ContinuationTokenError::ParseFailed)?;
 
-        Ok(ContinuationToken { block_n, txn_n: receipt_n, event_n })
+        // Parse optional transaction hash (4th field)
+        let transaction_hash = if arr.len() == 4 {
+            let hash_str = arr[3];
+            if hash_str.is_empty() {
+                None
+            } else {
+                Some(Felt::from_hex(hash_str).map_err(|_| ContinuationTokenError::InvalidToken)?)
+            }
+        } else {
+            None
+        };
+
+        Ok(ContinuationToken { block_n, txn_n: receipt_n, event_n, transaction_hash })
     }
 }
 
 impl fmt::Display for ContinuationToken {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
-        write!(f, "{:x},{:x},{:x}", self.block_n, self.txn_n, self.event_n)
+        if let Some(tx_hash) = &self.transaction_hash {
+            write!(f, "{:x},{:x},{:x},{:#x}", self.block_n, self.txn_n, self.event_n, tx_hash)
+        } else {
+            write!(f, "{:x},{:x},{:x}", self.block_n, self.txn_n, self.event_n)
+        }
     }
 }
 
@@ -108,11 +129,17 @@ mod test {
     #[test]
     fn to_string_works() {
         fn helper(block_n: u64, txn_n: u64, event_n: u64) -> String {
-            ContinuationToken { block_n, txn_n, event_n }.to_string()
+            ContinuationToken { block_n, txn_n, event_n, transaction_hash: None }.to_string()
         }
 
         assert_eq!(helper(0, 0, 0), "0,0,0");
         assert_eq!(helper(30, 255, 4), "1e,ff,4");
+
+        // Test with transaction hash
+        let tx_hash = Felt::from_hex("0x123abc").unwrap();
+        let token =
+            ContinuationToken { block_n: 0, txn_n: 0, event_n: 0, transaction_hash: Some(tx_hash) };
+        assert_eq!(token.to_string(), "0,0,0,0x123abc");
     }
 
     #[test]
@@ -120,8 +147,22 @@ mod test {
         fn helper(token: &str) -> ContinuationToken {
             ContinuationToken::parse(token).unwrap()
         }
-        assert_eq!(helper("0,0,0"), ContinuationToken { block_n: 0, txn_n: 0, event_n: 0 });
-        assert_eq!(helper("1e,ff,4"), ContinuationToken { block_n: 30, txn_n: 255, event_n: 4 });
+        assert_eq!(
+            helper("0,0,0"),
+            ContinuationToken { block_n: 0, txn_n: 0, event_n: 0, transaction_hash: None }
+        );
+        assert_eq!(
+            helper("1e,ff,4"),
+            ContinuationToken { block_n: 30, txn_n: 255, event_n: 4, transaction_hash: None }
+        );
+
+        // Test parsing with transaction hash
+        let tx_hash = Felt::from_hex("0x123abc").unwrap();
+        let token = helper("0,0,0,0x123abc");
+        assert_eq!(
+            token,
+            ContinuationToken { block_n: 0, txn_n: 0, event_n: 0, transaction_hash: Some(tx_hash) }
+        );
     }
 
     #[test]
@@ -170,6 +211,17 @@ mod test {
             assert_eq!(t.block_n, 30);
             assert_eq!(t.txn_n, 255);
             assert_eq!(t.event_n, 4);
+            assert_eq!(t.transaction_hash, None);
+        });
+
+        // Test with transaction hash
+        let regular_token_with_hash = "1e,ff,4,0x123abc";
+        let parsed = MaybeForkedContinuationToken::parse(regular_token_with_hash).unwrap();
+        assert_matches!(parsed, MaybeForkedContinuationToken::Token(t) => {
+            assert_eq!(t.block_n, 30);
+            assert_eq!(t.txn_n, 255);
+            assert_eq!(t.event_n, 4);
+            assert_eq!(t.transaction_hash, Some(Felt::from_hex("0x123abc").unwrap()));
         });
     }
 }

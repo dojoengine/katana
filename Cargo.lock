@@ -6307,17 +6307,21 @@ dependencies = [
  "katana-gateway-server",
  "katana-messaging",
  "katana-metrics",
+ "katana-optimistic",
  "katana-pipeline",
  "katana-pool",
+ "katana-pool-api",
  "katana-primitives",
  "katana-provider",
  "katana-rpc-api",
  "katana-rpc-client",
  "katana-rpc-server",
+ "katana-rpc-types",
  "katana-stage",
  "katana-starknet",
  "katana-tasks",
  "katana-tracing",
+ "parking_lot",
  "serde",
  "serde_json",
  "strum 0.25.0",
@@ -6349,6 +6353,28 @@ dependencies = [
  "tokio",
  "tracing",
  "url",
+]
+
+[[package]]
+name = "katana-optimistic"
+version = "1.7.0"
+dependencies = [
+ "anyhow",
+ "futures",
+ "katana-core",
+ "katana-db",
+ "katana-executor",
+ "katana-gateway-client",
+ "katana-pool",
+ "katana-pool-api",
+ "katana-primitives",
+ "katana-provider",
+ "katana-rpc-client",
+ "katana-rpc-types",
+ "katana-tasks",
+ "parking_lot",
+ "tokio",
+ "tracing",
 ]
 
 [[package]]
@@ -6391,7 +6417,9 @@ dependencies = [
  "futures",
  "futures-util",
  "katana-primitives",
+ "katana-rpc-types",
  "parking_lot",
+ "starknet-types-core",
  "thiserror 1.0.69",
  "tokio",
 ]
@@ -6533,6 +6561,7 @@ dependencies = [
  "katana-messaging",
  "katana-metrics",
  "katana-node",
+ "katana-optimistic",
  "katana-pool",
  "katana-primitives",
  "katana-provider",
