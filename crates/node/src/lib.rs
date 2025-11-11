@@ -89,45 +89,12 @@ impl Node {
         let task_manager = TaskManager::current();
         let task_spawner = task_manager.task_spawner();
 
-        // --- build executor factory
-
-        // Create versioned constants overrides from config
-        let cfg_env = Some(VersionedConstantsOverrides {
-            invoke_tx_max_n_steps: Some(config.execution.invocation_max_steps),
-            validate_max_n_steps: Some(config.execution.validation_max_steps),
-            max_recursion_depth: Some(config.execution.max_recursion_depth),
-        });
-
-        let execution_flags = ExecutionFlags::new()
-            .with_account_validation(config.dev.account_validation)
-            .with_fee(config.dev.fee);
-
-        let executor_factory = {
-            #[allow(unused_mut)]
-            let mut class_cache = ClassCache::builder();
-
-            #[cfg(feature = "native")]
-            {
-                info!(enabled = config.execution.compile_native, "Cairo native compilation");
-                class_cache = class_cache.compile_native(config.execution.compile_native);
-            }
-
-            let global_class_cache = class_cache.build_global()?;
-
-            let factory = BlockifierFactory::new(
-                cfg_env,
-                execution_flags,
-                config.sequencing.block_limits(),
-                global_class_cache,
-                config.chain.clone(),
-            );
-
-            Arc::new(factory)
-        };
-
         // --- build backend
 
         let (blockchain, db, forked_client) = if let Some(cfg) = &config.forking {
+            // NOTE: because the chain spec will be cloned for the BlockifierFactory (see below),
+            // this mutation must be performed before the chain spec is cloned. Otherwise
+            // this will panic.
             let chain_spec = Arc::get_mut(&mut config.chain).expect("get mut Arc");
 
             let ChainSpec::Dev(chain_spec) = chain_spec else {
@@ -152,6 +119,42 @@ impl Node {
         } else {
             let db = katana_db::Db::in_memory()?;
             (Blockchain::new_with_db(db.clone()), db, None)
+        };
+
+        // --- build executor factory
+
+        // Create versioned constants overrides from config
+        let overrides = Some(VersionedConstantsOverrides {
+            invoke_tx_max_n_steps: Some(config.execution.invocation_max_steps),
+            validate_max_n_steps: Some(config.execution.validation_max_steps),
+            max_recursion_depth: Some(config.execution.max_recursion_depth),
+        });
+
+        let execution_flags = ExecutionFlags::new()
+            .with_account_validation(config.dev.account_validation)
+            .with_fee(config.dev.fee);
+
+        let executor_factory = {
+            #[allow(unused_mut)]
+            let mut class_cache = ClassCache::builder();
+
+            #[cfg(feature = "native")]
+            {
+                info!(enabled = config.execution.compile_native, "Cairo native compilation");
+                class_cache = class_cache.compile_native(config.execution.compile_native);
+            }
+
+            let global_class_cache = class_cache.build_global()?;
+
+            let factory = BlockifierFactory::new(
+                overrides,
+                execution_flags.clone(),
+                config.sequencing.block_limits(),
+                global_class_cache,
+                config.chain.clone(),
+            );
+
+            Arc::new(factory)
         };
 
         // --- build l1 gas oracle
@@ -180,7 +183,7 @@ impl Node {
         };
 
         // Get cfg_env before moving executor_factory into Backend
-        let cfg_env = executor_factory.cfg().cloned();
+        let versioned_constant_overrides = executor_factory.overrides().cloned();
 
         let block_context_generator = BlockContextGenerator::default().into();
         let backend = Arc::new(Backend {
@@ -250,7 +253,8 @@ impl Node {
             max_proof_keys: config.rpc.max_proof_keys,
             max_call_gas: config.rpc.max_call_gas,
             max_concurrent_estimate_fee_requests: config.rpc.max_concurrent_estimate_fee_requests,
-            simulation_flags: ExecutionFlags::default(),
+            simulation_flags: execution_flags,
+            versioned_constant_overrides,
             #[cfg(feature = "cartridge")]
             paymaster,
         };
@@ -265,10 +269,9 @@ impl Node {
                 pool.clone(),
                 forked_client,
                 task_spawner.clone(),
-                starknet_api_cfg,
                 block_producer.clone(),
                 gas_oracle.clone(),
-                cfg_env.clone(),
+                starknet_api_cfg,
             )
         } else {
             StarknetApi::new(
@@ -276,10 +279,9 @@ impl Node {
                 storage_provider.clone(),
                 pool.clone(),
                 task_spawner.clone(),
-                starknet_api_cfg,
                 block_producer.clone(),
                 gas_oracle.clone(),
-                cfg_env,
+                starknet_api_cfg,
             )
         };
 

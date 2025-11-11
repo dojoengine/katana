@@ -4,8 +4,8 @@ use katana_primitives::chain::ChainId;
 use katana_primitives::da::L1DataAvailabilityMode;
 use katana_primitives::version::CURRENT_STARKNET_VERSION;
 
-mod file;
-mod utils;
+pub mod file;
+pub mod utils;
 
 pub use file::*;
 pub use utils::DEFAULT_APPCHAIN_FEE_TOKEN_ADDRESS;
@@ -51,16 +51,3 @@ impl ChainSpec {
         ExecutableBlock { header, body: transactions }
     }
 }
-
-// /// Token that can be used for transaction fee payments on the chain.
-// #[derive(Debug, Clone, Serialize, Deserialize)]
-// #[cfg_attr(test, derive(PartialEq))]
-// pub struct FeeContract {
-//     pub strk: ContractAddress,
-// }
-
-// impl Default for FeeContract {
-//     fn default() -> Self {
-//         Self { strk: DEFAULT_APPCHAIN_FEE_TOKEN_ADDRESS }
-//     }
-// }

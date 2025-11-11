@@ -433,7 +433,7 @@ fn set_max_initial_sierra_gas(tx: &mut ExecutableTxWithHash) {
 pub fn block_context_from_envs(
     chain_spec: &ChainSpec,
     block_env: &BlockEnv,
-    cfg_env: Option<&VersionedConstantsOverrides>,
+    overrides: Option<&VersionedConstantsOverrides>,
 ) -> BlockContext {
     let fee_token_addresses = FeeTokenAddresses {
         eth_fee_token_address: to_blk_address(chain_spec.fee_contracts().eth),
@@ -488,8 +488,8 @@ pub fn block_context_from_envs(
     let mut versioned_constants = VersionedConstants::get(&sn_version).unwrap().clone();
 
     // Only apply overrides if provided
-    if let Some(cfg) = cfg_env {
-        apply_versioned_constant_overrides(cfg, &mut versioned_constants);
+    if let Some(overrides) = overrides {
+        apply_versioned_constant_overrides(overrides, &mut versioned_constants);
     }
 
     BlockContext::new(block_info, chain_info, versioned_constants, BouncerConfig::max())
@@ -742,24 +742,24 @@ pub fn is_zero_resource_bounds(resource_bounds: &ResourceBoundsMapping) -> bool 
 // These overrides would potentially make the `snos` run be invalid as it doesn't know about the
 // new overridden values.
 pub(crate) fn apply_versioned_constant_overrides(
-    cfg: &VersionedConstantsOverrides,
+    overrides: &VersionedConstantsOverrides,
     versioned_constants: &mut VersionedConstants,
 ) {
     // Only apply overrides for fields that are provided (Some)
-    if let Some(max_recursion_depth) = cfg.max_recursion_depth {
+    if let Some(max_recursion_depth) = overrides.max_recursion_depth {
         versioned_constants.max_recursion_depth = max_recursion_depth;
     }
 
-    if let Some(validate_max_n_steps) = cfg.validate_max_n_steps {
+    if let Some(validate_max_n_steps) = overrides.validate_max_n_steps {
         versioned_constants.validate_max_n_steps = validate_max_n_steps;
     }
 
-    if let Some(invoke_tx_max_n_steps) = cfg.invoke_tx_max_n_steps {
+    if let Some(invoke_tx_max_n_steps) = overrides.invoke_tx_max_n_steps {
         versioned_constants.invoke_tx_max_n_steps = invoke_tx_max_n_steps;
     }
 
     // Only update sierra gas limits if at least one of the step limits is provided
-    if cfg.invoke_tx_max_n_steps.is_some() || cfg.validate_max_n_steps.is_some() {
+    if overrides.invoke_tx_max_n_steps.is_some() || overrides.validate_max_n_steps.is_some() {
         // Convert the steps to L2 gas.
         //
         // Reference: https://github.com/dojoengine/sequencer/blob/5d737b9c90a14bdf4483d759d1a1d4ce64aa9fd2/crates/blockifier/src/execution/entry_point.rs#L431-L440
@@ -767,7 +767,7 @@ pub(crate) fn apply_versioned_constant_overrides(
 
         let mut os_constants = versioned_constants.os_constants.as_ref().clone();
 
-        if let Some(invoke_tx_max_n_steps) = cfg.invoke_tx_max_n_steps {
+        if let Some(invoke_tx_max_n_steps) = overrides.invoke_tx_max_n_steps {
             let execute_max_sierra_gas = if l2_gas_per_step.is_zero() {
                 u64::MAX
             } else {
@@ -776,7 +776,7 @@ pub(crate) fn apply_versioned_constant_overrides(
             os_constants.execute_max_sierra_gas = execute_max_sierra_gas.into();
         }
 
-        if let Some(validate_max_n_steps) = cfg.validate_max_n_steps {
+        if let Some(validate_max_n_steps) = overrides.validate_max_n_steps {
             let validate_max_sierra_gas = if l2_gas_per_step.is_zero() {
                 u64::MAX
             } else {

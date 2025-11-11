@@ -98,9 +98,8 @@ where
     forked_client: Option<ForkedClient>,
     task_spawner: TaskSpawner,
     estimate_fee_permit: Permits,
-    config: StarknetApiConfig,
     pending_block_provider: PP,
-    versioned_constant_overrides: Option<VersionedConstantsOverrides>,
+    config: StarknetApiConfig,
 }
 
 impl<Pool, PP> StarknetApi<Pool, PP>
@@ -140,10 +139,9 @@ where
         storage: BlockchainProvider<Box<dyn Database>>,
         pool: Pool,
         task_spawner: TaskSpawner,
-        config: StarknetApiConfig,
         pending_block_provider: PP,
         gas_oracle: GasPriceOracle,
-        versioned_constant_overrides: Option<VersionedConstantsOverrides>,
+        config: StarknetApiConfig,
     ) -> Self {
         Self::new_inner(
             chain_spec,
@@ -154,7 +152,6 @@ where
             config,
             pending_block_provider,
             gas_oracle,
-            versioned_constant_overrides,
         )
     }
 
@@ -165,10 +162,9 @@ where
         pool: Pool,
         forked_client: ForkedClient,
         task_spawner: TaskSpawner,
-        config: StarknetApiConfig,
         pending_block_provider: PP,
         gas_oracle: GasPriceOracle,
-        versioned_constant_overrides: Option<VersionedConstantsOverrides>,
+        config: StarknetApiConfig,
     ) -> Self {
         Self::new_inner(
             chain_spec,
@@ -179,7 +175,6 @@ where
             config,
             pending_block_provider,
             gas_oracle,
-            versioned_constant_overrides,
         )
     }
 
@@ -193,7 +188,6 @@ where
         config: StarknetApiConfig,
         pending_block_provider: PP,
         gas_oracle: GasPriceOracle,
-        versioned_constant_overrides: Option<VersionedConstantsOverrides>,
     ) -> Self {
         let total_permits = config
             .max_concurrent_estimate_fee_requests
@@ -210,7 +204,6 @@ where
             config,
             pending_block_provider,
             gas_oracle,
-            versioned_constant_overrides,
         };
 
         Self { inner: Arc::new(inner) }
@@ -279,7 +272,7 @@ where
         // get the state and block env at the specified block for execution
         let state = self.state(&block_id)?;
         let env = self.block_env_at(&block_id)?;
-        let versioned_constant_overrides = self.inner.versioned_constant_overrides.as_ref();
+        let versioned_constant_overrides = self.inner.config.versioned_constant_overrides.as_ref();
 
         // do estimations
         blockifier::estimate_fees(

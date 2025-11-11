@@ -27,7 +27,6 @@ katana-rpc-types.workspace = true
 katana-rpc-client.workspace = true
 katana-stage.workspace = true
 katana-tasks.workspace = true
-katana-tracing.workspace = true
 
 anyhow.workspace = true
 starknet.workspace = true
@@ -36,19 +35,15 @@ futures.workspace = true
 http.workspace = true
 jsonrpsee.workspace = true
 serde.workspace = true
-serde_json.workspace = true
 parking_lot.workspace = true
 thiserror.workspace = true
-toml.workspace = true
-tower = { workspace = true, features = [ "full" ] }
-tower-http = { workspace = true, features = [ "full" ] }
 tracing.workspace = true
 url.workspace = true
 
 strum.workspace = true
 strum_macros.workspace = true
 
-tokio={ workspace = true, features = ["time"], default-features = false }
+tokio = { workspace = true, features = [ "time" ] }
 katana-starknet.workspace = true
 alloy-provider = { workspace = true, default-features = false, features = [ "reqwest", "reqwest-rustls-tls" ] }
 

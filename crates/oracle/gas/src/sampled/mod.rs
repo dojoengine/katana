@@ -30,7 +30,7 @@ pub struct SampledPriceOracle<S: Sampler> {
 
 impl<S: Sampler> Clone for SampledPriceOracle<S> {
     fn clone(&self) -> Self {
-        Self { inner: self.inner.clone() }
+        Self { inner: Arc::clone(&self.inner) }
     }
 }
 

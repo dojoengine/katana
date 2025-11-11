@@ -35,11 +35,11 @@ pub(crate) const LOG_TARGET: &str = "katana::executor::blockifier";
 
 #[derive(Debug)]
 pub struct BlockifierFactory {
-    cfg: Option<VersionedConstantsOverrides>,
     flags: ExecutionFlags,
     limits: BlockLimits,
     class_cache: ClassCache,
     chain_spec: Arc<ChainSpec>,
+    overrides: Option<VersionedConstantsOverrides>,
 }
 
 impl BlockifierFactory {
@@ -51,7 +51,11 @@ impl BlockifierFactory {
         class_cache: ClassCache,
         chain_spec: Arc<ChainSpec>,
     ) -> Self {
-        Self { cfg, flags, limits, class_cache, chain_spec }
+        Self { overrides: cfg, flags, limits, class_cache, chain_spec }
+    }
+
+    pub fn chain(&self) -> &Arc<ChainSpec> {
+        &self.chain_spec
     }
 }
 
@@ -71,7 +75,7 @@ impl ExecutorFactory for BlockifierFactory {
     where
         P: StateProvider + 'a,
     {
-        let cfg_env = self.cfg.clone();
+        let cfg_env = self.overrides.clone();
         let flags = self.flags.clone();
         let limits = self.limits.clone();
         Box::new(StarknetVMProcessor::new(
@@ -85,8 +89,8 @@ impl ExecutorFactory for BlockifierFactory {
         ))
     }
 
-    fn cfg(&self) -> Option<&VersionedConstantsOverrides> {
-        self.cfg.as_ref()
+    fn overrides(&self) -> Option<&VersionedConstantsOverrides> {
+        self.overrides.as_ref()
     }
 
     /// Returns the execution flags set by the factory.

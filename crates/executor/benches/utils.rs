@@ -1,6 +1,6 @@
 use katana_genesis::constant::DEFAULT_ETH_FEE_TOKEN_ADDRESS;
 use katana_primitives::block::GasPrices;
-use katana_primitives::env::{BlockEnv, FeeTokenAddressses, VersionedConstantsOverrides};
+use katana_primitives::env::BlockEnv;
 use katana_primitives::transaction::{ExecutableTxWithHash, InvokeTx, InvokeTxV1};
 use katana_primitives::Felt;
 use starknet::macros::{felt, selector};
@@ -23,22 +23,10 @@ pub fn tx() -> ExecutableTxWithHash {
     ExecutableTxWithHash::new(invoke.into())
 }
 
-pub fn envs() -> (BlockEnv, VersionedConstantsOverrides) {
-    let block = BlockEnv {
+pub fn envs() -> BlockEnv {
+    BlockEnv {
         l1_gas_prices: GasPrices::MIN,
         sequencer_address: felt!("0x1337").into(),
         ..Default::default()
-    };
-    let cfg = VersionedConstantsOverrides {
-        max_recursion_depth: Some(100),
-        validate_max_n_steps: Some(4_000_000),
-        invoke_tx_max_n_steps: Some(4_000_000),
-        // fee_token_addresses: FeeTokenAddressses {
-        //     eth: DEFAULT_ETH_FEE_TOKEN_ADDRESS,
-        //     strk: DEFAULT_ETH_FEE_TOKEN_ADDRESS,
-        // },
-        ..Default::default()
-    };
-
-    (block, cfg)
+    }
 }

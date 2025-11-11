@@ -373,7 +373,7 @@ mod tests {
         let read_spec = read(&id).unwrap();
 
         assert_eq!(chain_spec.id, read_spec.id);
-        // assert_eq!(chain_spec.fee_contract, read_spec.fee_contract);
+        assert_eq!(chain_spec.fee_contracts, read_spec.fee_contracts);
         assert_eq!(chain_spec.settlement, read_spec.settlement);
     }
 

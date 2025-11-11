@@ -147,8 +147,7 @@ where
             // get the state and block env at the specified block for function call execution
             let state = this.state(&block_id)?;
             let env = this.block_env_at(&block_id)?;
-            // let cfg_env = this.inner.backend.executor_factory.cfg().clone();
-            let cfg_env = this.inner.versioned_constant_overrides.as_ref();
+            let cfg_env = this.inner.config.versioned_constant_overrides.as_ref();
             let max_call_gas = this.inner.config.max_call_gas.unwrap_or(1_000_000_000);
 
             let result = super::blockifier::call(
@@ -198,9 +197,8 @@ where
 
         // If the node is run with transaction validation disabled, then we should not validate
         // transactions when estimating the fee even if the `SKIP_VALIDATE` flag is not set.
-        let should_validate = !skip_validate
-            // && self.inner.backend.executor_factory.execution_flags().account_validation();
-        && self.inner.config.simulation_flags.account_validation();
+        let should_validate =
+            !skip_validate && self.inner.config.simulation_flags.account_validation();
 
         // We don't care about the nonce when estimating the fee as the nonce value
         // doesn't affect transaction execution.

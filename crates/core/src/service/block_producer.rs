@@ -258,7 +258,7 @@ impl<EF: ExecutorFactory> IntervalBlockProducer<EF> {
 
         // -- build the validator using the same state and envs as the executor
         let state = executor.state();
-        let cfg = backend.executor_factory.cfg();
+        let cfg = backend.executor_factory.overrides();
         let flags = backend.executor_factory.execution_flags();
         let validator = TxValidator::new(
             state,
@@ -586,7 +586,7 @@ impl<EF: ExecutorFactory> InstantBlockProducer<EF> {
         backend.update_block_env(&mut block_env);
 
         let state = provider.latest().expect("latest state");
-        let cfg = backend.executor_factory.cfg();
+        let cfg = backend.executor_factory.overrides();
         let flags = backend.executor_factory.execution_flags();
         let validator = TxValidator::new(
             state,

@@ -3,9 +3,10 @@ use std::time::Duration;
 use blockifier::state::cached_state::CachedState;
 use criterion::measurement::WallTime;
 use criterion::{criterion_group, criterion_main, BatchSize, BenchmarkGroup, Criterion};
+use katana_chain_spec::ChainSpec;
 use katana_executor::implementation::blockifier::state::StateProviderDb;
 use katana_executor::ExecutionFlags;
-use katana_primitives::env::{BlockEnv, VersionedConstantsOverrides};
+use katana_primitives::env::BlockEnv;
 use katana_primitives::transaction::ExecutableTxWithHash;
 use katana_provider::api::state::StateFactoryProvider;
 use katana_provider::test_utils;
@@ -24,21 +25,23 @@ fn executor_transact(c: &mut Criterion) {
 
     let tx = tx();
     let envs = envs();
+    let cs = ChainSpec::dev();
 
-    blockifier(&mut group, &provider, &flags, &envs, tx);
+    blockifier(&mut group, &provider, &flags, &envs, &cs, tx);
 }
 
 fn blockifier(
     group: &mut BenchmarkGroup<'_, WallTime>,
     provider: impl StateFactoryProvider,
     execution_flags: &ExecutionFlags,
-    block_envs: &(BlockEnv, VersionedConstantsOverrides),
+    block_envs: &BlockEnv,
+    chain_spec: &ChainSpec,
     tx: ExecutableTxWithHash,
 ) {
     use katana_executor::implementation::blockifier::utils::{block_context_from_envs, transact};
 
-    // // convert to blockifier block context
-    // let block_context = block_context_from_envs(&block_envs.0, &block_envs.1);
+    // convert to blockifier block context
+    let block_context = block_context_from_envs(chain_spec, block_envs, None);
 
     // group.bench_function("Blockifier.Cold", |b| {
     //     // we need to set up the cached state for each iteration as it's not cloneable

@@ -167,6 +167,7 @@ impl Node {
             max_call_gas: config.rpc.max_call_gas,
             max_concurrent_estimate_fee_requests: config.rpc.max_concurrent_estimate_fee_requests,
             simulation_flags: ExecutionFlags::default(),
+            versioned_constant_overrides: None,
             #[cfg(feature = "cartridge")]
             paymaster: None,
         };
@@ -181,10 +182,9 @@ impl Node {
             BlockchainProvider::new(Box::new(provider.clone())),
             pool.clone(),
             task_spawner.clone(),
-            starknet_api_cfg,
             preconf_factory,
             GasPriceOracle::create_for_testing(),
-            None, // Full nodes don't have versioned constants overrides
+            starknet_api_cfg,
         );
 
         if config.rpc.apis.contains(&RpcModuleKind::Starknet) {
