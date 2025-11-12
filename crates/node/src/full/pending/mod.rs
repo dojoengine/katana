@@ -71,27 +71,27 @@ impl<P: StateFactoryProvider> PreconfStateFactory<P> {
     }
 
     pub fn state_updates(&self) -> Option<StateUpdates> {
-        if let Some(preconf_data) = self.shared_preconf_block.inner.lock().as_ref() {
-            Some(preconf_data.preconf_state_updates.clone())
-        } else {
-            None
-        }
+        self.shared_preconf_block
+            .inner
+            .lock()
+            .as_ref()
+            .map(|preconf_data| preconf_data.preconf_state_updates.clone())
     }
 
     pub fn block(&self) -> Option<PreConfirmedBlock> {
-        if let Some(preconf_data) = self.shared_preconf_block.inner.lock().as_ref() {
-            Some(preconf_data.preconf_block.clone())
-        } else {
-            None
-        }
+        self.shared_preconf_block
+            .inner
+            .lock()
+            .as_ref()
+            .map(|preconf_data| preconf_data.preconf_block.clone())
     }
 
     pub fn transactions(&self) -> Option<Vec<ConfirmedTransaction>> {
-        if let Some(preconf_data) = self.shared_preconf_block.inner.lock().as_ref() {
-            Some(preconf_data.preconf_block.transactions.clone())
-        } else {
-            None
-        }
+        self.shared_preconf_block
+            .inner
+            .lock()
+            .as_ref()
+            .map(|preconf_data| preconf_data.preconf_block.transactions.clone())
     }
 }
 

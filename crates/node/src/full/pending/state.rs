@@ -9,6 +9,7 @@ use katana_provider::{ProviderError, ProviderResult};
 use katana_rpc_types::ConversionError;
 use tokio::runtime;
 
+#[allow(unused)]
 pub struct PreconfStateProvider {
     pub base: Box<dyn StateProvider>,
     pub preconf_block_id: Option<BlockNumber>,

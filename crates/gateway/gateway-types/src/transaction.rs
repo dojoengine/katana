@@ -310,6 +310,19 @@ pub enum TypedTransaction {
     DeployAccount(DeployAccountTx),
 }
 
+impl TypedTransaction {
+    /// Returns the type of the transaction.
+    pub fn r#type(&self) -> TxType {
+        match self {
+            TypedTransaction::Deploy(_) => TxType::Deploy,
+            TypedTransaction::Declare(_) => TxType::Declare,
+            TypedTransaction::L1Handler(_) => TxType::L1Handler,
+            TypedTransaction::InvokeFunction(_) => TxType::Invoke,
+            TypedTransaction::DeployAccount(_) => TxType::DeployAccount,
+        }
+    }
+}
+
 /// Invoke transaction enum with version-specific variants
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(tag = "version")]
@@ -490,27 +503,94 @@ impl<'de> Deserialize<'de> for DataAvailabilityMode {
     }
 }
 
+fn deserialize_resource_bounds_mapping<'de, D: Deserializer<'de>>(
+    deserializer: D,
+) -> Result<ResourceBoundsMapping, D::Error> {
+    #[derive(Deserialize)]
+    struct FeederGatewayResourceBounds {
+        #[serde(rename = "L1_GAS")]
+        l1_gas: ResourceBounds,
+        #[serde(rename = "L2_GAS")]
+        l2_gas: ResourceBounds,
+        #[serde(rename = "L1_DATA_GAS")]
+        l1_data_gas: Option<ResourceBounds>,
+    }
+
+    let bounds = FeederGatewayResourceBounds::deserialize(deserializer)?;
+
+    if let Some(l1_data_gas) = bounds.l1_data_gas {
+        Ok(ResourceBoundsMapping::All(AllResourceBoundsMapping {
+            l1_gas: bounds.l1_gas,
+            l2_gas: bounds.l2_gas,
+            l1_data_gas,
+        }))
+    } else {
+        Ok(ResourceBoundsMapping::L1Gas(L1GasResourceBoundsMapping {
+            l1_gas: bounds.l1_gas,
+            l2_gas: bounds.l2_gas,
+        }))
+    }
+}
+
+fn serialize_resource_bounds_mapping<S: serde::Serializer>(
+    bounds: &ResourceBoundsMapping,
+    serializer: S,
+) -> Result<S::Ok, S::Error> {
+    #[derive(Serialize)]
+    struct FeederGatewayResourceBounds<'a> {
+        #[serde(rename = "L1_GAS")]
+        l1_gas: &'a ResourceBounds,
+        #[serde(rename = "L2_GAS")]
+        l2_gas: &'a ResourceBounds,
+        #[serde(rename = "L1_DATA_GAS")]
+        l1_data_gas: Option<&'a ResourceBounds>,
+    }
+
+    let feeder_bounds = match bounds {
+        ResourceBoundsMapping::All(all_bounds) => FeederGatewayResourceBounds {
+            l1_gas: &all_bounds.l1_gas,
+            l2_gas: &all_bounds.l2_gas,
+            l1_data_gas: Some(&all_bounds.l1_data_gas),
+        },
+        ResourceBoundsMapping::L1Gas(l1_gas_bounds) => FeederGatewayResourceBounds {
+            l1_gas: &l1_gas_bounds.l1_gas,
+            l2_gas: &l1_gas_bounds.l2_gas,
+            l1_data_gas: None,
+        },
+    };
+
+    feeder_bounds.serialize(serializer)
+}
+
+////////////////////////////////////////////////////////////////////////////////
+// Conversion to katana-primitives types
+////////////////////////////////////////////////////////////////////////////////
+
 #[derive(Debug, thiserror::Error)]
 pub enum TxTryFromError {
     #[error("unsupported transaction version; type: {r#type:?}, version: {version:#x}")]
     UnsupportedVersion { r#type: TxType, version: Felt },
 }
 
-// -- Conversion to Katana primitive types.
-
 impl TryFrom<ConfirmedTransaction> for TxWithHash {
     type Error = TxTryFromError;
 
     fn try_from(tx: ConfirmedTransaction) -> Result<Self, Self::Error> {
-        let transaction = match tx.transaction {
+        Ok(TxWithHash { hash: tx.transaction_hash, transaction: tx.transaction.try_into()? })
+    }
+}
+
+impl TryFrom<TypedTransaction> for Tx {
+    type Error = TxTryFromError;
+
+    fn try_from(tx: TypedTransaction) -> Result<Self, Self::Error> {
+        Ok(match tx {
             TypedTransaction::Deploy(tx) => Tx::Deploy(tx),
-            TypedTransaction::Declare(tx) => Tx::Declare(tx.try_into()?),
             TypedTransaction::L1Handler(tx) => Tx::L1Handler(tx.into()),
+            TypedTransaction::Declare(tx) => Tx::Declare(tx.try_into()?),
             TypedTransaction::InvokeFunction(tx) => Tx::Invoke(tx.try_into()?),
             TypedTransaction::DeployAccount(tx) => Tx::DeployAccount(tx.try_into()?),
-        };
-
-        Ok(TxWithHash { hash: tx.transaction_hash, transaction })
+        })
     }
 }
 
@@ -659,63 +739,142 @@ impl From<DataAvailabilityMode> for katana_primitives::da::DataAvailabilityMode 
     }
 }
 
-fn deserialize_resource_bounds_mapping<'de, D: Deserializer<'de>>(
-    deserializer: D,
-) -> Result<ResourceBoundsMapping, D::Error> {
-    #[derive(Deserialize)]
-    struct FeederGatewayResourceBounds {
-        #[serde(rename = "L1_GAS")]
-        l1_gas: ResourceBounds,
-        #[serde(rename = "L2_GAS")]
-        l2_gas: ResourceBounds,
-        #[serde(rename = "L1_DATA_GAS")]
-        l1_data_gas: Option<ResourceBounds>,
-    }
+////////////////////////////////////////////////////////////////////////////////
+//  Conversion to katana-rpc-types types
+////////////////////////////////////////////////////////////////////////////////
 
-    let bounds = FeederGatewayResourceBounds::deserialize(deserializer)?;
-
-    if let Some(l1_data_gas) = bounds.l1_data_gas {
-        Ok(ResourceBoundsMapping::All(AllResourceBoundsMapping {
-            l1_gas: bounds.l1_gas,
-            l2_gas: bounds.l2_gas,
-            l1_data_gas,
-        }))
-    } else {
-        Ok(ResourceBoundsMapping::L1Gas(L1GasResourceBoundsMapping {
-            l1_gas: bounds.l1_gas,
-            l2_gas: bounds.l2_gas,
-        }))
+impl From<ConfirmedTransaction> for katana_rpc_types::RpcTxWithHash {
+    fn from(value: ConfirmedTransaction) -> Self {
+        Self { transaction_hash: value.transaction_hash, transaction: value.transaction.into() }
     }
 }
 
-fn serialize_resource_bounds_mapping<S: serde::Serializer>(
-    bounds: &ResourceBoundsMapping,
-    serializer: S,
-) -> Result<S::Ok, S::Error> {
-    #[derive(Serialize)]
-    struct FeederGatewayResourceBounds<'a> {
-        #[serde(rename = "L1_GAS")]
-        l1_gas: &'a ResourceBounds,
-        #[serde(rename = "L2_GAS")]
-        l2_gas: &'a ResourceBounds,
-        #[serde(rename = "L1_DATA_GAS")]
-        l1_data_gas: Option<&'a ResourceBounds>,
+impl From<TypedTransaction> for katana_rpc_types::RpcTx {
+    fn from(value: TypedTransaction) -> Self {
+        match value {
+            TypedTransaction::Deploy(tx) => {
+                katana_rpc_types::RpcTx::Deploy(katana_rpc_types::RpcDeployTx {
+                    version: tx.version,
+                    class_hash: tx.class_hash,
+                    constructor_calldata: tx.constructor_calldata,
+                    contract_address_salt: tx.contract_address_salt,
+                })
+            }
+            TypedTransaction::L1Handler(tx) => katana_rpc_types::RpcTx::L1Handler(tx.into()),
+            TypedTransaction::Declare(tx) => katana_rpc_types::RpcTx::Declare(tx.into()),
+            TypedTransaction::InvokeFunction(tx) => katana_rpc_types::RpcTx::Invoke(tx.into()),
+            TypedTransaction::DeployAccount(tx) => {
+                katana_rpc_types::RpcTx::DeployAccount(tx.into())
+            }
+        }
     }
+}
 
-    let feeder_bounds = match bounds {
-        ResourceBoundsMapping::All(all_bounds) => FeederGatewayResourceBounds {
-            l1_gas: &all_bounds.l1_gas,
-            l2_gas: &all_bounds.l2_gas,
-            l1_data_gas: Some(&all_bounds.l1_data_gas),
-        },
-        ResourceBoundsMapping::L1Gas(l1_gas_bounds) => FeederGatewayResourceBounds {
-            l1_gas: &l1_gas_bounds.l1_gas,
-            l2_gas: &l1_gas_bounds.l2_gas,
-            l1_data_gas: None,
-        },
-    };
+impl From<InvokeTx> for katana_rpc_types::RpcInvokeTx {
+    fn from(value: InvokeTx) -> Self {
+        match value {
+            InvokeTx::V0(tx) => katana_rpc_types::RpcInvokeTx::V0(tx),
+            InvokeTx::V1(tx) => katana_rpc_types::RpcInvokeTx::V1(tx),
+            InvokeTx::V3(tx) => katana_rpc_types::RpcInvokeTx::V3(tx.into()),
+        }
+    }
+}
 
-    feeder_bounds.serialize(serializer)
+impl From<InvokeTxV3> for katana_rpc_types::RpcInvokeTxV3 {
+    fn from(value: InvokeTxV3) -> Self {
+        Self {
+            sender_address: value.sender_address,
+            calldata: value.calldata,
+            signature: value.signature,
+            nonce: value.nonce,
+            resource_bounds: value.resource_bounds,
+            tip: value.tip,
+            paymaster_data: value.paymaster_data,
+            account_deployment_data: value.account_deployment_data,
+            nonce_data_availability_mode: value.nonce_data_availability_mode.into(),
+            fee_data_availability_mode: value.fee_data_availability_mode.into(),
+        }
+    }
+}
+
+impl From<DeclareTx> for katana_rpc_types::RpcDeclareTx {
+    fn from(value: DeclareTx) -> Self {
+        match value {
+            DeclareTx::V0(tx) => katana_rpc_types::RpcDeclareTx::V0(tx),
+            DeclareTx::V1(tx) => katana_rpc_types::RpcDeclareTx::V1(tx),
+            DeclareTx::V2(tx) => katana_rpc_types::RpcDeclareTx::V2(tx),
+            DeclareTx::V3(tx) => katana_rpc_types::RpcDeclareTx::V3(tx.into()),
+        }
+    }
+}
+
+impl From<DeclareTxV3> for katana_rpc_types::RpcDeclareTxV3 {
+    fn from(value: DeclareTxV3) -> Self {
+        Self {
+            sender_address: value.sender_address,
+            compiled_class_hash: value.compiled_class_hash,
+            signature: value.signature,
+            nonce: value.nonce,
+            class_hash: value.class_hash,
+            resource_bounds: value.resource_bounds,
+            tip: value.tip,
+            paymaster_data: value.paymaster_data,
+            account_deployment_data: value.account_deployment_data,
+            nonce_data_availability_mode: value.nonce_data_availability_mode.into(),
+            fee_data_availability_mode: value.fee_data_availability_mode.into(),
+        }
+    }
+}
+
+impl From<DeployAccountTx> for katana_rpc_types::RpcDeployAccountTx {
+    fn from(value: DeployAccountTx) -> Self {
+        match value {
+            DeployAccountTx::V1(tx) => katana_rpc_types::RpcDeployAccountTx::V1(tx.into()),
+            DeployAccountTx::V3(tx) => katana_rpc_types::RpcDeployAccountTx::V3(tx.into()),
+        }
+    }
+}
+
+impl From<DeployAccountTxV1> for katana_rpc_types::RpcDeployAccountTxV1 {
+    fn from(value: DeployAccountTxV1) -> Self {
+        Self {
+            max_fee: value.max_fee,
+            signature: value.signature,
+            nonce: value.nonce,
+            contract_address_salt: value.contract_address_salt,
+            constructor_calldata: value.constructor_calldata,
+            class_hash: value.class_hash,
+        }
+    }
+}
+
+impl From<DeployAccountTxV3> for katana_rpc_types::RpcDeployAccountTxV3 {
+    fn from(value: DeployAccountTxV3) -> Self {
+        Self {
+            signature: value.signature,
+            nonce: value.nonce,
+            contract_address_salt: value.contract_address_salt,
+            constructor_calldata: value.constructor_calldata,
+            class_hash: value.class_hash,
+            resource_bounds: value.resource_bounds,
+            tip: value.tip,
+            paymaster_data: value.paymaster_data,
+            nonce_data_availability_mode: value.nonce_data_availability_mode.into(),
+            fee_data_availability_mode: value.fee_data_availability_mode.into(),
+        }
+    }
+}
+
+impl From<L1HandlerTx> for katana_rpc_types::RpcL1HandlerTx {
+    fn from(value: L1HandlerTx) -> Self {
+        Self {
+            version: value.version,
+            nonce: value.nonce.unwrap_or_default(),
+            contract_address: value.contract_address,
+            entry_point_selector: value.entry_point_selector,
+            calldata: value.calldata,
+        }
+    }
 }
 
 #[cfg(test)]
