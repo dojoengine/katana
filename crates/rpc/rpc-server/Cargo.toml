@@ -28,12 +28,17 @@ anyhow.workspace = true
 auto_impl.workspace = true
 futures.workspace = true
 http.workspace = true
+hyper.workspace = true
 jsonrpsee = { workspace = true, features = [ "client", "server" ] }
 metrics.workspace = true
+rcgen.workspace = true
+rustls = {workspace = true,  features = [ "ring"]}
+rustls-pemfile.workspace = true
 serde_json.workspace = true
 starknet = { workspace = true, optional = true }
 thiserror.workspace = true
 tokio.workspace = true
+tokio-rustls = {workspace = true, features = [ "ring"]}
 tower.workspace = true
 tower-http = { workspace = true, features = [ "cors", "trace" ] }
 tracing.workspace = true

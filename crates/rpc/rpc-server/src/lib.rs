@@ -24,8 +24,10 @@ pub mod health;
 pub mod metrics;
 pub mod permit;
 pub mod starknet;
+pub mod tls;
 
 mod logger;
+mod tls_proxy;
 mod utils;
 use cors::Cors;
 use health::HealthCheck;
@@ -60,12 +62,17 @@ pub enum Error {
 }
 
 /// The RPC server handle.
-#[derive(Debug, Clone)]
+#[derive(Debug)]
 pub struct RpcServerHandle {
     /// The actual address that the server is binded to.
     addr: SocketAddr,
     /// The handle to the spawned [`jsonrpsee::server::Server`].
     handle: ServerHandle,
+    /// Whether TLS/HTTPS is enabled.
+    tls_enabled: bool,
+    /// Handle to the TLS proxy task (if TLS is enabled).
+    #[allow(dead_code)]
+    tls_proxy_handle: Option<tokio::task::JoinHandle<()>>,
 }
 
 impl RpcServerHandle {
@@ -87,7 +94,8 @@ impl RpcServerHandle {
     /// Returns a HTTP client associated with the server.
     pub fn http_client(&self) -> Result<HttpClient, Error> {
         use jsonrpsee::http_client::HttpClientBuilder;
-        let url = format!("http://{}", self.addr);
+        let scheme = if self.tls_enabled { "https" } else { "http" };
+        let url = format!("{}://{}", scheme, self.addr);
         Ok(HttpClientBuilder::default().build(url)?)
     }
 }
@@ -98,6 +106,7 @@ pub struct RpcServer {
     cors: Option<Cors>,
     health_check: bool,
     explorer: bool,
+    tls: Option<tls::TlsConfig>,
 
     module: RpcModule<()>,
     max_connections: u32,
@@ -113,6 +122,7 @@ impl RpcServer {
             metrics: false,
             explorer: false,
             health_check: false,
+            tls: None,
             module: RpcModule::new(()),
             max_connections: 100,
             max_request_body_size: TEN_MB_SIZE_BYTES,
@@ -170,6 +180,15 @@ impl RpcServer {
         self
     }
 
+    /// Enable TLS/HTTPS support with the given configuration.
+    ///
+    /// When TLS is enabled, the server will accept HTTPS connections.
+    /// The certificate and private key files must be in PEM format.
+    pub fn tls(mut self, config: tls::TlsConfig) -> Self {
+        self.tls = Some(config);
+        self
+    }
+
     /// Adds a new RPC module to the server.
     ///
     /// This can be chained with other calls to `module` to add multiple modules.
@@ -223,30 +242,66 @@ impl RpcServer {
             .max_response_body_size(self.max_response_body_size)
             .build();
 
-        let server = Server::builder()
-            .set_http_middleware(http_middleware)
-            .set_rpc_middleware(rpc_middleware)
-            .set_config(cfg)
-            .build(addr)
-            .await?;
+        // If TLS is enabled, start the RPC server on localhost and create a TLS proxy
+        if let Some(ref tls_config) = self.tls {
+            // Start jsonrpsee on localhost with a dynamic port
+            let localhost_addr = SocketAddr::from(([127, 0, 0, 1], 0));
+            let server = Server::builder()
+                .set_http_middleware(http_middleware)
+                .set_rpc_middleware(rpc_middleware)
+                .set_config(cfg)
+                .build(localhost_addr)
+                .await?;
 
-        let actual_addr = server.local_addr()?;
-        let handle = server.start(modules);
+            let backend_addr = server.local_addr()?;
+            let server_handle = server.start(modules);
 
-        let handle = RpcServerHandle { handle, addr: actual_addr };
+            info!(target: "rpc", addr = %backend_addr, "RPC server started (backend).");
 
-        // The socket address that we log out must be from the RPC handle, in the case that the
-        // `addr` passed to this method has port number 0. As the 0 port will be resolved to
-        // a free port during the call to `ServerBuilder::build(addr)`.
+            // Create TLS proxy
+            let proxy = tls_proxy::TlsProxy::new(addr, backend_addr, tls_config.clone()).await?;
+            let proxy_addr = proxy.local_addr()?;
+            let proxy_handle = proxy.start();
 
-        info!(target: "rpc", addr = %handle.addr, "RPC server started.");
+            info!(target: "rpc", addr = %proxy_addr, "HTTPS server started.");
 
-        if self.explorer {
-            let addr = format!("{}/explorer", handle.addr);
-            info!(target: "explorer", %addr, "Explorer started.");
+            if self.explorer {
+                let addr = format!("https://{}/explorer", proxy_addr);
+                info!(target: "explorer", %addr, "Explorer started.");
+            }
+
+            Ok(RpcServerHandle {
+                handle: server_handle,
+                addr: proxy_addr,
+                tls_enabled: true,
+                tls_proxy_handle: Some(proxy_handle),
+            })
+        } else {
+            // Start jsonrpsee normally without TLS
+            let server = Server::builder()
+                .set_http_middleware(http_middleware)
+                .set_rpc_middleware(rpc_middleware)
+                .set_config(cfg)
+                .build(addr)
+                .await?;
+
+            let actual_addr = server.local_addr()?;
+            let server_handle = server.start(modules);
+
+            info!(target: "rpc", addr = %actual_addr, "RPC server started.");
+
+            if self.explorer {
+                let addr = format!("http://{}/explorer", actual_addr);
+                info!(target: "explorer", %addr, "Explorer started.");
+            }
+
+            Ok(RpcServerHandle {
+                handle: server_handle,
+                addr: actual_addr,
+                tls_enabled: false,
+                tls_proxy_handle: None,
+            })
         }
-
-        Ok(handle)
     }
 }
 

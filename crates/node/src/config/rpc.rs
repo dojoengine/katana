@@ -1,5 +1,6 @@
 use std::collections::HashSet;
 use std::net::{IpAddr, Ipv4Addr, SocketAddr};
+use std::path::PathBuf;
 use std::time::Duration;
 
 use katana_rpc_server::cors::HeaderValue;
@@ -36,6 +37,17 @@ pub enum RpcModuleKind {
     Cartridge,
 }
 
+/// TLS configuration for HTTPS support.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct TlsConfig {
+    /// Path to the TLS certificate file (PEM format).
+    pub cert_path: PathBuf,
+    /// Path to the TLS private key file (PEM format).
+    pub key_path: PathBuf,
+    /// Whether this is using auto-generated self-signed certificates.
+    pub is_self_signed: bool,
+}
+
 /// Configuration for the RPC server.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct RpcConfig {
@@ -53,6 +65,8 @@ pub struct RpcConfig {
     pub max_proof_keys: Option<u64>,
     pub max_event_page_size: Option<u64>,
     pub max_call_gas: Option<u64>,
+    /// TLS configuration for HTTPS support (optional).
+    pub tls: Option<TlsConfig>,
 }
 
 impl RpcConfig {
@@ -79,6 +93,7 @@ impl Default for RpcConfig {
             max_event_page_size: Some(DEFAULT_RPC_MAX_EVENT_PAGE_SIZE),
             max_proof_keys: Some(DEFAULT_RPC_MAX_PROOF_KEYS),
             max_call_gas: Some(DEFAULT_RPC_MAX_CALL_GAS),
+            tls: None,
         }
     }
 }

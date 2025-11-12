@@ -263,6 +263,42 @@ impl SequencerNodeArgs {
 
             let cors_origins = self.server.http_cors_origins.clone();
 
+            // Build TLS config
+            let tls = if let (Some(cert_path), Some(key_path)) =
+                (&self.server.tls_cert, &self.server.tls_key)
+            {
+                // Use explicitly provided certificate paths
+                Some(katana_node::config::rpc::TlsConfig {
+                    cert_path: cert_path.clone(),
+                    key_path: key_path.clone(),
+                    is_self_signed: false,
+                })
+            } else if self.server.https {
+                // Auto-generate self-signed certificate for development
+                let tls_dir = std::path::PathBuf::from(".katana/tls");
+
+                // Check if certificates already exist
+                let cert_path = tls_dir.join("cert.pem");
+                let key_path = tls_dir.join("key.pem");
+
+                if cert_path.exists() && key_path.exists() {
+                    info!(target: LOG_TARGET, "Using existing self-signed certificates from .katana/tls/");
+                } else {
+                    info!(target: LOG_TARGET, "Generating self-signed certificates for HTTPS...");
+                    let (cert, key) = katana_rpc_server::tls::generate_self_signed_cert(&tls_dir)
+                        .context("failed to generate self-signed certificates")?;
+                    info!(target: LOG_TARGET, cert = %cert.display(), key = %key.display(), "Self-signed certificates generated");
+                }
+
+                Some(katana_node::config::rpc::TlsConfig {
+                    cert_path,
+                    key_path,
+                    is_self_signed: true,
+                })
+            } else {
+                None
+            };
+
             Ok(RpcConfig {
                 apis: modules,
                 port: self.server.http_port,
@@ -278,6 +314,7 @@ impl SequencerNodeArgs {
                 max_event_page_size: Some(self.server.max_event_page_size),
                 max_proof_keys: Some(self.server.max_proof_keys),
                 max_call_gas: Some(self.server.max_call_gas),
+                tls,
             })
         }
 

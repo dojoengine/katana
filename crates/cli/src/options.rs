@@ -10,6 +10,7 @@
 #[cfg(feature = "server")]
 use std::net::IpAddr;
 use std::num::NonZeroU128;
+use std::path::PathBuf;
 
 use clap::Args;
 use katana_genesis::Genesis;
@@ -188,6 +189,29 @@ pub struct ServerOptions {
     #[arg(default_value_t = DEFAULT_RPC_MAX_CALL_GAS)]
     #[serde(default = "default_max_call_gas")]
     pub max_call_gas: u64,
+
+    /// Enable HTTPS with auto-generated self-signed certificates.
+    ///
+    /// When this flag is set, Katana will automatically generate a self-signed certificate
+    /// and private key for development purposes. The certificates will be stored in the
+    /// `.katana/tls` directory.
+    ///
+    /// Note: This is for development only. For production, use `--http.tls-cert` and
+    /// `--http.tls-key` with proper certificates from a trusted CA.
+    #[arg(long = "https")]
+    #[arg(conflicts_with_all = ["tls_cert", "tls_key"])]
+    #[serde(default)]
+    pub https: bool,
+
+    /// Path to TLS certificate file (PEM format) for HTTPS.
+    #[arg(long = "http.tls-cert", value_name = "PATH")]
+    #[arg(requires = "tls_key")]
+    pub tls_cert: Option<PathBuf>,
+
+    /// Path to TLS private key file (PEM format) for HTTPS.
+    #[arg(long = "http.tls-key", value_name = "PATH")]
+    #[arg(requires = "tls_cert")]
+    pub tls_key: Option<PathBuf>,
 }
 
 #[cfg(feature = "server")]
@@ -205,6 +229,9 @@ impl Default for ServerOptions {
             max_response_body_size: None,
             timeout: None,
             max_call_gas: DEFAULT_RPC_MAX_CALL_GAS,
+            https: false,
+            tls_cert: None,
+            tls_key: None,
         }
     }
 }
@@ -245,6 +272,15 @@ impl ServerOptions {
             }
             if self.max_call_gas == DEFAULT_RPC_MAX_CALL_GAS {
                 self.max_call_gas = other.max_call_gas;
+            }
+            if !self.https {
+                self.https = other.https;
+            }
+            if self.tls_cert.is_none() {
+                self.tls_cert = other.tls_cert.clone();
+            }
+            if self.tls_key.is_none() {
+                self.tls_key = other.tls_key.clone();
             }
         }
     }

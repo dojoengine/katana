@@ -326,6 +326,18 @@ impl Node {
             rpc_server = rpc_server.max_response_body_size(max_response_body_size);
         }
 
+        if let Some(ref tls_config) = config.rpc.tls {
+            let tls = if tls_config.is_self_signed {
+                katana_rpc_server::tls::TlsConfig::new_self_signed(
+                    &tls_config.cert_path,
+                    &tls_config.key_path,
+                )
+            } else {
+                katana_rpc_server::tls::TlsConfig::new(&tls_config.cert_path, &tls_config.key_path)
+            };
+            rpc_server = rpc_server.tls(tls);
+        }
+
         // --- build feeder gateway server (optional)
 
         let gateway_server = if let Some(gw_config) = &config.gateway {
