@@ -404,22 +404,20 @@ fn prepare_contract_declaration_params(
 // NOTE: The reason why we're using the same address for both fee tokens is because we don't yet
 // support having native fee token on the chain.
 fn compute_config_hash(chain_id: Felt, fee_token: Felt) -> Felt {
-    compute_starknet_os_config_hash(chain_id, fee_token, fee_token)
+    compute_starknet_os_config_hash(chain_id, fee_token)
 }
 
 // https://github.com/starkware-libs/cairo-lang/blob/a86e92bfde9c171c0856d7b46580c66e004922f3/src/starkware/starknet/core/os/os_config/os_config.cairo#L1-L39
 fn compute_starknet_os_config_hash(
     chain_id: Felt,
-    deprecated_fee_token: Felt,
     fee_token: Felt,
 ) -> Felt {
     // A constant representing the StarkNet OS config version.
-    const STARKNET_OS_CONFIG_VERSION: Felt = short_string!("StarknetOsConfig2");
+    const STARKNET_OS_CONFIG_VERSION: Felt = short_string!("StarknetOsConfig3");
 
     compute_hash_on_elements(&[
         STARKNET_OS_CONFIG_VERSION,
         chain_id,
-        deprecated_fee_token,
         fee_token,
     ])
 }
@@ -431,20 +429,18 @@ mod tests {
 
     use super::compute_starknet_os_config_hash;
 
-    const ETH_FEE_TOKEN: Felt =
-        felt!("0x049d36570d4e46f48e99674bd3fcc84644ddd6b96f7c741b1562b82f9e004dc7");
     const STRK_FEE_TOKEN: Felt =
         felt!("0x04718f5a0fc34cc1af16a1cdee98ffb20c31f5cd61d6ab07201858f4287c938d");
 
     // Source:
     //
-    // - https://github.com/starkware-libs/cairo-lang/blob/8e11b8cc65ae1d0959328b1b4a40b92df8b58595/src/starkware/starknet/core/os/os_config/os_config_hash.json#L4
+    // - https://github.com/starkware-libs/cairo-lang/blob/v0.14.0.1/src/starkware/starknet/core/os/os_config/os_config_hash.json
     // - https://docs.starknet.io/tools/important-addresses/#fee_tokens
     #[rstest::rstest]
-    #[case::mainnet(felt!("0x5ba2078240f1585f96424c2d1ee48211da3b3f9177bf2b9880b4fc91d59e9a2"), MAINNET)]
-    #[case::testnet(felt!("0x504fa6e5eb930c0d8329d4a77d98391f2730dab8516600aeaf733a6123432"), SEPOLIA)]
+    #[case::mainnet(felt!("0x70c7b342f93155315d1cb2da7a4e13a3c2430f51fb5696c1b224c3da5508dfb"), MAINNET)]
+    #[case::testnet(felt!("0x1b9900f77ff5923183a7795fcfbb54ed76917bc1ddd4160cc77fa96e36cf8c5"), SEPOLIA)]
     fn calculate_config_hash(#[case] config_hash: Felt, #[case] chain: Felt) {
-        let computed = compute_starknet_os_config_hash(chain, ETH_FEE_TOKEN, STRK_FEE_TOKEN);
+        let computed = compute_starknet_os_config_hash(chain,STRK_FEE_TOKEN);
         assert_eq!(computed, config_hash);
     }
 }
