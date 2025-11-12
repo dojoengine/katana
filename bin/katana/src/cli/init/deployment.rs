@@ -35,7 +35,7 @@ type SettlementInitializerAccount = SingleOwnerAccount<SettlementChainProvider, 
 ///
 /// This program can be found here: <https://github.com/starkware-libs/cairo-lang/blob/a86e92bfde9c171c0856d7b46580c66e004922f3/src/starkware/starknet/core/os/os.cairo>.
 const SNOS_PROGRAM_HASH: Felt =
-    felt!("0x6228ae335151708cc9290c9940dc17f14f870056c1ae919af238e247d500ad4");
+    felt!("0x10e5341a417427d140af8f5def7d2cc687d84591ff8ec241623c590b5ca8c80");
 
 /// To execute the SNOS program, a specific layout named "all_cairo" is required.
 /// However, this layout can't be verified by the Cairo verifier that lives on Starknet.
