@@ -356,8 +356,27 @@ where
         contracts_storage_keys: Option<Vec<ContractStorageKeys>>,
     ) -> RpcResult<GetStorageProofResponse> {
         let proofs = self
-            .get_proofs(block_id, class_hashes, contract_addresses, contracts_storage_keys)
-            .await?;
-        Ok(proofs)
+            .get_proofs(
+                block_id,
+                class_hashes.clone(),
+                contract_addresses.clone(),
+                contracts_storage_keys.clone(),
+            )
+            .await;
+        if let Ok(proofs) = proofs {
+            return Ok(proofs);
+        } else if let Some(client) = &self.inner.forked_client {
+            return Ok(client
+                .get_storage_proof(
+                    block_id,
+                    class_hashes,
+                    contract_addresses,
+                    contracts_storage_keys,
+                )
+                .await
+                .unwrap());
+        } else {
+            Err(StarknetApiError::BlockNotFound.into())
+        }
     }
 }

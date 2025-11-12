@@ -31,10 +31,11 @@ async fn main() {
 }
 
 async fn run_snos(block: BlockNumber, rpc_url: &str) -> Result<()> {
-    const DEFAULT_COMPILED_OS: &[u8] = include_bytes!("../snos/build/os_latest.json");
+    // const DEFAULT_COMPILED_OS: &[u8] = include_bytes!("../snos/build/os_latest.json");
     const LAYOUT: LayoutName = LayoutName::all_cairo;
-
-    let (.., output) = snos::prove_block(DEFAULT_COMPILED_OS, block, rpc_url, LAYOUT, true).await?;
+    
+    let DEFAULT_COMPILED_OS = vec![];
+    let (.., output) = snos::prove_block(&DEFAULT_COMPILED_OS, block, rpc_url, LAYOUT, true).await?;
 
     if block == 0 {
         assert_eq!(output.prev_block_number, Felt::MAX);

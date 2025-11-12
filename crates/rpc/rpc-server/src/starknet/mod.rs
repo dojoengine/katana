@@ -29,7 +29,7 @@ use katana_rpc_types::block::{
     BlockHashAndNumberResponse, BlockNumberResponse, GetBlockWithReceiptsResponse,
     GetBlockWithTxHashesResponse, MaybePreConfirmedBlock,
 };
-use katana_rpc_types::class::Class;
+use katana_rpc_types::class::{self, Class};
 use katana_rpc_types::event::{EventFilterWithPage, GetEventsResponse, ResultPageRequest};
 use katana_rpc_types::list::{
     ContinuationToken as ListContinuationToken, GetBlocksRequest, GetBlocksResponse,
@@ -416,6 +416,7 @@ where
         }
 
         let value = state.storage(contract_address, storage_key)?;
+      
         Ok(value.unwrap_or_default())
     }
 
@@ -469,22 +470,27 @@ where
         block_id: BlockIdOrTag,
         contract_address: ContractAddress,
     ) -> StarknetApiResult<Nonce> {
-        self.on_io_blocking_task(move |this| {
-            let pending_nonce = if matches!(block_id, BlockIdOrTag::PreConfirmed) {
-                this.inner.pool.get_nonce(contract_address)
-            } else {
-                None
-            };
+        let nonce = self
+            .on_io_blocking_task(move |this| {
+                let pending_nonce = if matches!(block_id, BlockIdOrTag::PreConfirmed) {
+                    this.inner.pool.get_nonce(contract_address)
+                } else {
+                    None
+                };
 
-            match pending_nonce {
-                Some(pending_nonce) => Ok(pending_nonce),
-                None => {
-                    let state = this.state(&block_id)?;
-                    state.nonce(contract_address)?.ok_or(StarknetApiError::ContractNotFound)
+                match pending_nonce {
+                    Some(pending_nonce) => Ok(pending_nonce),
+                    None => Err(StarknetApiError::ContractNotFound),
                 }
-            }
-        })
-        .await?
+            })
+            .await?;
+        if let Ok(nonce) = nonce {
+            Ok(nonce)
+        } else if let Some(client) = &self.inner.forked_client {
+            Ok(client.get_nonce(block_id, contract_address).await?)
+        } else {
+            Err(StarknetApiError::ContractNotFound)
+        }
     }
 
     async fn transaction_by_block_id_and_index(

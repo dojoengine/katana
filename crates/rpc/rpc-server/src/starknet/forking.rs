@@ -1,4 +1,5 @@
-use katana_primitives::block::{BlockHash, BlockIdOrTag, BlockNumber};
+use katana_primitives::block::{BlockHash, BlockIdOrTag, BlockNumber, ConfirmedBlockIdOrTag};
+use katana_primitives::class::ClassHash;
 use katana_primitives::contract::ContractAddress;
 use katana_primitives::transaction::TxHash;
 use katana_primitives::Felt;
@@ -11,7 +12,9 @@ use katana_rpc_types::event::{EventFilter, GetEventsResponse};
 use katana_rpc_types::receipt::{ReceiptBlockInfo, TxReceiptWithBlockInfo};
 use katana_rpc_types::state_update::StateUpdate;
 use katana_rpc_types::transaction::RpcTxWithHash;
-use katana_rpc_types::TxStatus;
+use katana_rpc_types::{
+    ContractStorageKeys, GetStorageProofResponse, TraceBlockTransactionsResponse, TxStatus,
+};
 
 #[derive(Debug, thiserror::Error)]
 pub enum Error {
@@ -257,6 +260,113 @@ impl ForkedClient {
         let event_filter = EventFilter { address, from_block, to_block, keys };
 
         Ok(self.client.get_events(event_filter, continuation_token, chunk_size).await?)
+    }
+
+    pub async fn get_storage_proof(
+        &self,
+        block_id: BlockIdOrTag,
+        class_hashes: Option<Vec<ClassHash>>,
+        contract_addresses: Option<Vec<ContractAddress>>,
+        contracts_storage_keys: Option<Vec<ContractStorageKeys>>,
+    ) -> Result<GetStorageProofResponse, Error> {
+        match block_id {
+            BlockIdOrTag::Number(num) if num > self.block => {
+                return Err(Error::BlockOutOfRange);
+            }
+            BlockIdOrTag::Hash(hash) => {
+                let block = self.client.get_block_with_tx_hashes(BlockIdOrTag::Hash(hash)).await?;
+                if let GetBlockWithTxHashesResponse::Block(b) = block {
+                    if b.block_number > self.block {
+                        return Err(Error::BlockOutOfRange);
+                    }
+                }
+            }
+            BlockIdOrTag::L1Accepted | BlockIdOrTag::Latest | BlockIdOrTag::PreConfirmed => {
+                return Err(Error::BlockTagNotAllowed);
+            }
+            BlockIdOrTag::Number(_) => {}
+        }
+
+        Ok(self
+            .client
+            .get_storage_proof(block_id, class_hashes, contract_addresses, contracts_storage_keys)
+            .await?)
+    }
+
+    pub async fn trace_block_transactions(
+        &self,
+        block_id: ConfirmedBlockIdOrTag,
+    ) -> Result<TraceBlockTransactionsResponse, Error> {
+        match block_id {
+            ConfirmedBlockIdOrTag::Number(num) if num > self.block => {
+                return Err(Error::BlockOutOfRange);
+            }
+            ConfirmedBlockIdOrTag::Hash(hash) => {
+                let block = self.client.get_block_with_tx_hashes(BlockIdOrTag::Hash(hash)).await?;
+                if let GetBlockWithTxHashesResponse::Block(b) = block {
+                    if b.block_number > self.block {
+                        return Err(Error::BlockOutOfRange);
+                    }
+                }
+            }
+            ConfirmedBlockIdOrTag::L1Accepted | ConfirmedBlockIdOrTag::Latest => {
+                return Err(Error::BlockTagNotAllowed);
+            }
+            ConfirmedBlockIdOrTag::Number(_) => {}
+        }
+        Ok(self.client.trace_block_transactions(block_id).await?)
+    }
+
+    pub async fn get_nonce(
+        &self,
+        block_id: BlockIdOrTag,
+        contract_address: ContractAddress,
+    ) -> Result<Felt, Error> {
+        match block_id {
+            BlockIdOrTag::Number(num) if num > self.block => {
+                return Err(Error::BlockOutOfRange);
+            }
+            BlockIdOrTag::Hash(hash) => {
+                let block = self.client.get_block_with_tx_hashes(BlockIdOrTag::Hash(hash)).await?;
+                if let GetBlockWithTxHashesResponse::Block(b) = block {
+                    if b.block_number > self.block {
+                        return Err(Error::BlockOutOfRange);
+                    }
+                }
+            }
+            BlockIdOrTag::L1Accepted | BlockIdOrTag::Latest | BlockIdOrTag::PreConfirmed => {
+                return Err(Error::BlockTagNotAllowed);
+            }
+            BlockIdOrTag::Number(_) => {}
+        }
+
+        Ok(self.client.get_nonce(block_id, contract_address).await?)
+    }
+    pub async fn get_storage_at(
+        &self,
+        block_id: BlockIdOrTag,
+        contract_address: ContractAddress,
+        key: Felt,
+    ) -> Result<Felt, Error> {
+        match block_id {
+            BlockIdOrTag::Number(num) if num > self.block => {
+                return Err(Error::BlockOutOfRange);
+            }
+            BlockIdOrTag::Hash(hash) => {
+                let block = self.client.get_block_with_tx_hashes(BlockIdOrTag::Hash(hash)).await?;
+                if let GetBlockWithTxHashesResponse::Block(b) = block {
+                    if b.block_number > self.block {
+                        return Err(Error::BlockOutOfRange);
+                    }
+                }
+            }
+            BlockIdOrTag::L1Accepted | BlockIdOrTag::Latest | BlockIdOrTag::PreConfirmed => {
+                return Err(Error::BlockTagNotAllowed);
+            }
+            BlockIdOrTag::Number(_) => {}
+        }
+
+        Ok(self.client.get_storage_at(contract_address, key, block_id).await?)
     }
 }
 

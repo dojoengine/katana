@@ -96,9 +96,7 @@ where
         block_id: ConfirmedBlockIdOrTag,
     ) -> Result<Vec<TxTraceWithHash>, StarknetApiError> {
         use StarknetApiError::BlockNotFound;
-
         let provider = self.inner.backend.blockchain.provider();
-
         let block_id: BlockHashOrNumber = match block_id {
             ConfirmedBlockIdOrTag::L1Accepted => {
                 unimplemented!("l1 accepted block id")
@@ -110,7 +108,6 @@ where
 
         let indices = provider.block_body_indices(block_id)?.ok_or(BlockNotFound)?;
         let tx_hashes = provider.transaction_hashes_in_range(indices.into())?;
-
         let traces = provider.transaction_executions_by_block(block_id)?.ok_or(BlockNotFound)?;
         let traces = traces.into_iter().map(TxTrace::from);
 
@@ -119,7 +116,6 @@ where
             .zip(traces)
             .map(|(h, r)| TxTraceWithHash { transaction_hash: h, trace_root: r })
             .collect::<Vec<_>>();
-
         Ok(result)
     }
 
@@ -167,10 +163,13 @@ where
         &self,
         block_id: ConfirmedBlockIdOrTag,
     ) -> RpcResult<TraceBlockTransactionsResponse> {
-        self.on_io_blocking_task(move |this| {
-            let traces = this.block_traces(block_id)?;
-            Ok(TraceBlockTransactionsResponse { traces })
-        })
-        .await?
+        let traces = self.on_io_blocking_task(move |this| this.block_traces(block_id)).await?;
+        if let Ok(traces) = traces {
+            return Ok(TraceBlockTransactionsResponse { traces });
+        } else if let Some(client) = &self.inner.forked_client {
+            Ok(client.trace_block_transactions(block_id).await.unwrap())
+        } else {
+            Err(StarknetApiError::BlockNotFound.into())
+        }
     }
 }
