@@ -98,7 +98,6 @@ where
     ) -> Result<Vec<TxTraceWithHash>, StarknetApiError> {
         use StarknetApiError::BlockNotFound;
         let provider = &self.inner.storage;
-
         let block_id: BlockHashOrNumber = match block_id {
             ConfirmedBlockIdOrTag::L1Accepted => {
                 unimplemented!("l1 accepted block id")
