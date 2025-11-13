@@ -85,6 +85,7 @@ impl PartialCursor {
     }
 }
 
+#[allow(unused)]
 pub fn fetch_pending_events(
     pending_block: &PreConfirmedBlockWithReceipts,
     filter: &Filter,

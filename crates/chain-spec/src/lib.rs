@@ -6,12 +6,14 @@ use serde::{Deserialize, Serialize};
 use url::Url;
 
 pub mod dev;
+pub mod full_node;
 pub mod rollup;
 
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub enum ChainSpec {
     Dev(dev::ChainSpec),
     Rollup(rollup::ChainSpec),
+    FullNode(full_node::ChainSpec),
 }
 
 //////////////////////////////////////////////////////////////
@@ -24,10 +26,21 @@ impl ChainSpec {
         Self::Dev(dev::DEV.clone())
     }
 
+    /// Creates a new [`ChainSpec`] for Starknet mainnet.
+    pub fn mainnet() -> Self {
+        Self::FullNode(full_node::ChainSpec::mainnet())
+    }
+
+    /// Creates a new [`ChainSpec`] for Starknet sepolia testnet.
+    pub fn sepolia() -> Self {
+        Self::FullNode(full_node::ChainSpec::sepolia())
+    }
+
     pub fn id(&self) -> ChainId {
         match self {
             Self::Dev(spec) => spec.id,
             Self::Rollup(spec) => spec.id,
+            Self::FullNode(spec) => spec.id,
         }
     }
 
@@ -35,6 +48,7 @@ impl ChainSpec {
         match self {
             Self::Dev(spec) => &spec.genesis,
             Self::Rollup(spec) => &spec.genesis,
+            Self::FullNode(spec) => &spec.genesis,
         }
     }
 
@@ -42,6 +56,7 @@ impl ChainSpec {
         match self {
             Self::Dev(spec) => spec.settlement.as_ref(),
             Self::Rollup(spec) => Some(&spec.settlement),
+            Self::FullNode(spec) => spec.settlement.as_ref(),
         }
     }
 
@@ -49,6 +64,7 @@ impl ChainSpec {
         match self {
             Self::Dev(spec) => &spec.fee_contracts,
             Self::Rollup(spec) => &spec.fee_contracts,
+            Self::FullNode(spec) => &spec.fee_contracts,
         }
     }
 }
@@ -62,6 +78,12 @@ impl From<dev::ChainSpec> for ChainSpec {
 impl From<rollup::ChainSpec> for ChainSpec {
     fn from(spec: rollup::ChainSpec) -> Self {
         Self::Rollup(spec)
+    }
+}
+
+impl From<full_node::ChainSpec> for ChainSpec {
+    fn from(spec: full_node::ChainSpec) -> Self {
+        Self::FullNode(spec)
     }
 }
 
