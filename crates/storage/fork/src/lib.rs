@@ -14,7 +14,7 @@ use futures::channel::mpsc::{channel as async_channel, Receiver, SendError, Send
 use futures::future::BoxFuture;
 use futures::stream::Stream;
 use futures::{Future, FutureExt};
-use katana_primitives::block::{BlockHashOrNumber, BlockIdOrTag};
+use katana_primitives::block::{BlockIdOrTag, BlockNumber};
 use katana_primitives::class::{
     ClassHash, CompiledClassHash, ComputeClassHashError, ContractClass,
     ContractClassCompilationError,
@@ -68,10 +68,10 @@ struct Request<P> {
 /// Each request consists of a payload and the sender half of a oneshot channel that will be used
 /// to send the result back to the backend handle.
 enum BackendRequest {
-    Nonce(Request<ContractAddress>),
-    Class(Request<ClassHash>),
-    ClassHash(Request<ContractAddress>),
-    Storage(Request<(ContractAddress, StorageKey)>),
+    Nonce(Request<(ContractAddress, BlockNumber)>),
+    Class(Request<(ClassHash, BlockNumber)>),
+    ClassHash(Request<(ContractAddress, BlockNumber)>),
+    Storage(Request<((ContractAddress, StorageKey), BlockNumber)>),
     // Test-only request kind for requesting the backend stats
     #[cfg(test)]
     Stats(OneshotSender<usize>),
@@ -79,30 +79,40 @@ enum BackendRequest {
 
 impl BackendRequest {
     /// Create a new request for fetching the nonce of a contract.
-    fn nonce(address: ContractAddress) -> (BackendRequest, OneshotReceiver<BackendResponse>) {
+    fn nonce(
+        address: ContractAddress,
+        block_id: BlockNumber,
+    ) -> (BackendRequest, OneshotReceiver<BackendResponse>) {
         let (sender, receiver) = oneshot();
-        (BackendRequest::Nonce(Request { payload: address, sender }), receiver)
+        (BackendRequest::Nonce(Request { payload: (address, block_id), sender }), receiver)
     }
 
     /// Create a new request for fetching the class definitions of a contract.
-    fn class(hash: ClassHash) -> (BackendRequest, OneshotReceiver<BackendResponse>) {
+    fn class(
+        hash: ClassHash,
+        block_id: BlockNumber,
+    ) -> (BackendRequest, OneshotReceiver<BackendResponse>) {
         let (sender, receiver) = oneshot();
-        (BackendRequest::Class(Request { payload: hash, sender }), receiver)
+        (BackendRequest::Class(Request { payload: (hash, block_id), sender }), receiver)
     }
 
     /// Create a new request for fetching the class hash of a contract.
-    fn class_hash(address: ContractAddress) -> (BackendRequest, OneshotReceiver<BackendResponse>) {
+    fn class_hash(
+        address: ContractAddress,
+        block_id: BlockNumber,
+    ) -> (BackendRequest, OneshotReceiver<BackendResponse>) {
         let (sender, receiver) = oneshot();
-        (BackendRequest::ClassHash(Request { payload: address, sender }), receiver)
+        (BackendRequest::ClassHash(Request { payload: (address, block_id), sender }), receiver)
     }
 
     /// Create a new request for fetching the storage value of a contract.
     fn storage(
         address: ContractAddress,
         key: StorageKey,
+        block_id: BlockNumber,
     ) -> (BackendRequest, OneshotReceiver<BackendResponse>) {
         let (sender, receiver) = oneshot();
-        (BackendRequest::Storage(Request { payload: (address, key), sender }), receiver)
+        (BackendRequest::Storage(Request { payload: ((address, key), block_id), sender }), receiver)
     }
 
     #[cfg(test)]
@@ -118,10 +128,10 @@ type BackendRequestFuture = BoxFuture<'static, BackendResponse>;
 // This is used for request deduplication.
 #[derive(Eq, Hash, PartialEq, Clone, Copy, Debug)]
 enum BackendRequestIdentifier {
-    Nonce(ContractAddress),
-    Class(ClassHash),
-    ClassHash(ContractAddress),
-    Storage((ContractAddress, StorageKey)),
+    Nonce(ContractAddress, BlockNumber),
+    Class(ClassHash, BlockNumber),
+    ClassHash(ContractAddress, BlockNumber),
+    Storage((ContractAddress, StorageKey), BlockNumber),
 }
 
 /// The backend for the forked provider.
@@ -139,8 +149,6 @@ pub struct Backend {
     queued_requests: VecDeque<BackendRequest>,
     /// A channel for receiving requests from the [BackendHandle]s.
     incoming: Receiver<BackendRequest>,
-    /// Pinned block id for all requests.
-    block_id: BlockHashOrNumber,
 }
 
 /////////////////////////////////////////////////////////////////
@@ -150,14 +158,11 @@ pub struct Backend {
 impl Backend {
     // TODO(kariy): create a `.start()` method start running the backend logic and let the users
     // choose which thread to running it on instead of spawning the thread ourselves.
-    /// Create a new [Backend] with the given provider and block id, and returns a handle to it. The
-    /// backend will start processing requests immediately upon creation.
+    /// Create a new [Backend] with the given provider and returns a handle to it. The backend
+    /// will start processing requests immediately upon creation.
     #[allow(clippy::new_ret_no_self)]
-    pub fn new(
-        provider: StarknetClient,
-        block_id: BlockHashOrNumber,
-    ) -> Result<BackendClient, BackendError> {
-        let (handle, backend) = Self::new_inner(provider, block_id);
+    pub fn new(provider: StarknetClient) -> Result<BackendClient, BackendError> {
+        let (handle, backend) = Self::new_inner(provider);
 
         thread::Builder::new()
             .name("forking-backend".into())
@@ -175,14 +180,10 @@ impl Backend {
         Ok(handle)
     }
 
-    fn new_inner(
-        provider: StarknetClient,
-        block_id: BlockHashOrNumber,
-    ) -> (BackendClient, Backend) {
+    fn new_inner(provider: StarknetClient) -> (BackendClient, Backend) {
         // Create async channel to receive requests from the handle.
         let (tx, rx) = async_channel(100);
         let backend = Backend {
-            block_id,
             incoming: rx,
             provider: Arc::new(provider),
             request_dedup_map: HashMap::new(),
@@ -196,20 +197,20 @@ impl Backend {
     /// This method is responsible for transforming the incoming request
     /// sent from a [BackendHandle] into a RPC request to the remote network.
     fn handle_requests(&mut self, request: BackendRequest) {
-        let block_id = BlockIdOrTag::from(self.block_id);
         let provider = self.provider.clone();
 
         // Check if there are similar requests in the queue before sending the request
         match request {
-            BackendRequest::Nonce(Request { payload, sender }) => {
-                let req_key = BackendRequestIdentifier::Nonce(payload);
+            BackendRequest::Nonce(Request { payload: (address, block_id), sender }) => {
+                let req_key = BackendRequestIdentifier::Nonce(address, block_id);
+                let block_id = BlockIdOrTag::from(block_id);
 
                 self.dedup_request(
                     req_key,
                     sender,
                     Box::pin(async move {
                         let res = provider
-                            .get_nonce(block_id, payload)
+                            .get_nonce(block_id, address)
                             .await
                             .map_err(|e| BackendError::StarknetProvider(Arc::new(e)));
 
@@ -218,8 +219,9 @@ impl Backend {
                 );
             }
 
-            BackendRequest::Storage(Request { payload: (addr, key), sender }) => {
-                let req_key = BackendRequestIdentifier::Storage((addr, key));
+            BackendRequest::Storage(Request { payload: ((addr, key), block_id), sender }) => {
+                let req_key = BackendRequestIdentifier::Storage((addr, key), block_id);
+                let block_id = BlockIdOrTag::from(block_id);
 
                 self.dedup_request(
                     req_key,
@@ -235,15 +237,16 @@ impl Backend {
                 );
             }
 
-            BackendRequest::ClassHash(Request { payload, sender }) => {
-                let req_key = BackendRequestIdentifier::ClassHash(payload);
+            BackendRequest::ClassHash(Request { payload: (address, block_id), sender }) => {
+                let req_key = BackendRequestIdentifier::ClassHash(address, block_id);
+                let block_id = BlockIdOrTag::from(block_id);
 
                 self.dedup_request(
                     req_key,
                     sender,
                     Box::pin(async move {
                         let res = provider
-                            .get_class_hash_at(block_id, payload)
+                            .get_class_hash_at(block_id, address)
                             .await
                             .map_err(|e| BackendError::StarknetProvider(Arc::new(e)));
 
@@ -252,15 +255,16 @@ impl Backend {
                 );
             }
 
-            BackendRequest::Class(Request { payload, sender }) => {
-                let req_key = BackendRequestIdentifier::Class(payload);
+            BackendRequest::Class(Request { payload: (hash, block_id), sender }) => {
+                let req_key = BackendRequestIdentifier::Class(hash, block_id);
+                let block_id = BlockIdOrTag::from(block_id);
 
                 self.dedup_request(
                     req_key,
                     sender,
                     Box::pin(async move {
                         let res = provider
-                            .get_class(block_id, payload)
+                            .get_class(block_id, hash)
                             .await
                             .map_err(|e| BackendError::StarknetProvider(Arc::new(e)));
 
@@ -370,7 +374,6 @@ impl Debug for Backend {
             .field("pending_requests", &self.pending_requests.len())
             .field("queued_requests", &self.queued_requests.len())
             .field("incoming", &self.incoming)
-            .field("block", &self.block_id)
             .finish()
     }
 }
@@ -417,9 +420,13 @@ impl Clone for BackendClient {
 /////////////////////////////////////////////////////////////////
 
 impl BackendClient {
-    pub fn get_nonce(&self, address: ContractAddress) -> Result<Option<Nonce>, BackendClientError> {
+    pub fn get_nonce(
+        &self,
+        address: ContractAddress,
+        block_id: BlockNumber,
+    ) -> Result<Option<Nonce>, BackendClientError> {
         trace!(target: LOG_TARGET, %address, "Requesting contract nonce.");
-        let (req, rx) = BackendRequest::nonce(address);
+        let (req, rx) = BackendRequest::nonce(address, block_id);
         self.request(req)?;
         match rx.recv()? {
             BackendResponse::Nonce(res) => handle_not_found_err(res),
@@ -431,9 +438,10 @@ impl BackendClient {
         &self,
         address: ContractAddress,
         key: StorageKey,
+        block_id: BlockNumber,
     ) -> Result<Option<StorageValue>, BackendClientError> {
         trace!(target: LOG_TARGET, %address, key = %format!("{key:#x}"), "Requesting contract storage.");
-        let (req, rx) = BackendRequest::storage(address, key);
+        let (req, rx) = BackendRequest::storage(address, key, block_id);
         self.request(req)?;
         match rx.recv()? {
             BackendResponse::Storage(res) => handle_not_found_err(res),
@@ -444,9 +452,10 @@ impl BackendClient {
     pub fn get_class_hash_at(
         &self,
         address: ContractAddress,
+        block_id: BlockNumber,
     ) -> Result<Option<ClassHash>, BackendClientError> {
         trace!(target: LOG_TARGET, %address, "Requesting contract class hash.");
-        let (req, rx) = BackendRequest::class_hash(address);
+        let (req, rx) = BackendRequest::class_hash(address, block_id);
         self.request(req)?;
         match rx.recv()? {
             BackendResponse::ClassHashAt(res) => handle_not_found_err(res),
@@ -457,9 +466,10 @@ impl BackendClient {
     pub fn get_class_at(
         &self,
         class_hash: ClassHash,
+        block_id: BlockNumber,
     ) -> Result<Option<ContractClass>, BackendClientError> {
         trace!(target: LOG_TARGET, class_hash = %format!("{class_hash:#x}"), "Requesting class.");
-        let (req, rx) = BackendRequest::class(class_hash);
+        let (req, rx) = BackendRequest::class(class_hash, block_id);
         self.request(req)?;
         match rx.recv()? {
             BackendResponse::ClassAt(res) => {
@@ -476,9 +486,10 @@ impl BackendClient {
     pub fn get_compiled_class_hash(
         &self,
         class_hash: ClassHash,
+        block_id: BlockNumber,
     ) -> Result<Option<CompiledClassHash>, BackendClientError> {
         trace!(target: LOG_TARGET, class_hash = %format!("{class_hash:#x}"), "Requesting compiled class hash.");
-        if let Some(class) = self.get_class_at(class_hash)? {
+        if let Some(class) = self.get_class_at(class_hash, block_id)? {
             let class = class.compile()?;
             Ok(Some(class.class_hash()?))
         } else {
@@ -526,7 +537,6 @@ pub(crate) mod test_utils {
 
     use std::sync::mpsc::{sync_channel, SyncSender};
 
-    use katana_primitives::block::BlockNumber;
     use katana_rpc_client::HttpClientBuilder;
     use serde_json::{json, Value};
     use tokio::io::{AsyncReadExt, AsyncWriteExt};
@@ -535,10 +545,10 @@ pub(crate) mod test_utils {
 
     use super::*;
 
-    pub fn create_forked_backend(rpc_url: &str, block_num: BlockNumber) -> BackendClient {
+    pub fn create_forked_backend(rpc_url: &str) -> BackendClient {
         let url = Url::parse(rpc_url).expect("valid url");
         let provider = StarknetClient::new(HttpClientBuilder::new().build(url).unwrap());
-        Backend::new(provider, block_num.into()).unwrap()
+        Backend::new(provider).unwrap()
     }
 
     // Starts a TCP server that never close the connection.
@@ -570,10 +580,14 @@ pub(crate) mod test_utils {
         use tokio::runtime::Builder;
 
         let (tx, rx) = sync_channel::<()>(1);
+        let (ready_tx, ready_rx) = sync_channel::<()>(1);
 
         thread::spawn(move || {
             Builder::new_current_thread().enable_all().build().unwrap().block_on(async move {
                 let listener = TcpListener::bind(addr).await.unwrap();
+
+                // Signal that the server is ready
+                ready_tx.send(()).unwrap();
 
                 loop {
                     let (mut socket, _) = listener.accept().await.unwrap();
@@ -621,6 +635,9 @@ pub(crate) mod test_utils {
             });
         });
 
+        // Wait for the server to be ready
+        ready_rx.recv().unwrap();
+
         // Returning the sender to allow controlling the response timing.
         tx
     }
@@ -650,7 +667,8 @@ mod tests {
         // start a mock remote network
         start_tcp_server("127.0.0.1:8080".to_string());
 
-        let handle = create_forked_backend("http://127.0.0.1:8080", 1);
+        let handle = create_forked_backend("http://127.0.0.1:8080");
+        let block_id = 1;
 
         // check no pending requests
         let stats = handle.stats().expect(ERROR_STATS);
@@ -659,23 +677,23 @@ mod tests {
         // send requests to the backend
         let h1 = handle.clone();
         thread::spawn(move || {
-            h1.get_nonce(felt!("0x1").into()).expect(ERROR_SEND_REQUEST);
+            h1.get_nonce(felt!("0x1").into(), block_id).expect(ERROR_SEND_REQUEST);
         });
         let h2 = handle.clone();
         thread::spawn(move || {
-            h2.get_class_at(felt!("0x1")).expect(ERROR_SEND_REQUEST);
+            h2.get_class_at(felt!("0x1"), block_id).expect(ERROR_SEND_REQUEST);
         });
         let h3 = handle.clone();
         thread::spawn(move || {
-            h3.get_compiled_class_hash(felt!("0x2")).expect(ERROR_SEND_REQUEST);
+            h3.get_compiled_class_hash(felt!("0x2"), block_id).expect(ERROR_SEND_REQUEST);
         });
         let h4 = handle.clone();
         thread::spawn(move || {
-            h4.get_class_hash_at(felt!("0x1").into()).expect(ERROR_SEND_REQUEST);
+            h4.get_class_hash_at(felt!("0x1").into(), block_id).expect(ERROR_SEND_REQUEST);
         });
         let h5 = handle.clone();
         thread::spawn(move || {
-            h5.get_storage(felt!("0x1").into(), felt!("0x1")).expect(ERROR_SEND_REQUEST);
+            h5.get_storage(felt!("0x1").into(), felt!("0x1"), block_id).expect(ERROR_SEND_REQUEST);
         });
 
         // wait for the requests to be handled
@@ -691,7 +709,8 @@ mod tests {
         // start a mock remote network
         start_tcp_server("127.0.0.1:8081".to_string());
 
-        let handle = create_forked_backend("http://127.0.0.1:8081", 1);
+        let handle = create_forked_backend("http://127.0.0.1:8081");
+        let block_id = 1;
 
         // check no pending requests
         let stats = handle.stats().expect(ERROR_STATS);
@@ -700,11 +719,11 @@ mod tests {
         // send requests to the backend
         let h1 = handle.clone();
         thread::spawn(move || {
-            h1.get_nonce(felt!("0x1").into()).expect(ERROR_SEND_REQUEST);
+            h1.get_nonce(felt!("0x1").into(), block_id).expect(ERROR_SEND_REQUEST);
         });
         let h2 = handle.clone();
         thread::spawn(move || {
-            h2.get_nonce(felt!("0x1").into()).expect(ERROR_SEND_REQUEST);
+            h2.get_nonce(felt!("0x1").into(), block_id).expect(ERROR_SEND_REQUEST);
         });
 
         // wait for the requests to be handled
@@ -717,7 +736,7 @@ mod tests {
         // Different request, should be counted
         let h3 = handle.clone();
         thread::spawn(move || {
-            h3.get_nonce(felt!("0x2").into()).expect(ERROR_SEND_REQUEST);
+            h3.get_nonce(felt!("0x2").into(), block_id).expect(ERROR_SEND_REQUEST);
         });
 
         // wait for the requests to be handled
@@ -733,7 +752,8 @@ mod tests {
         // start a mock remote network
         start_tcp_server("127.0.0.1:8082".to_string());
 
-        let handle = create_forked_backend("http://127.0.0.1:8082", 1);
+        let handle = create_forked_backend("http://127.0.0.1:8082");
+        let block_id = 1;
 
         // check no pending requests
         let stats = handle.stats().expect(ERROR_STATS);
@@ -742,11 +762,11 @@ mod tests {
         // send requests to the backend
         let h1 = handle.clone();
         thread::spawn(move || {
-            h1.get_class_at(felt!("0x1")).expect(ERROR_SEND_REQUEST);
+            h1.get_class_at(felt!("0x1"), block_id).expect(ERROR_SEND_REQUEST);
         });
         let h2 = handle.clone();
         thread::spawn(move || {
-            h2.get_class_at(felt!("0x1")).expect(ERROR_SEND_REQUEST);
+            h2.get_class_at(felt!("0x1"), block_id).expect(ERROR_SEND_REQUEST);
         });
 
         // wait for the requests to be handled
@@ -759,7 +779,7 @@ mod tests {
         // Different request, should be counted
         let h3 = handle.clone();
         thread::spawn(move || {
-            h3.get_class_at(felt!("0x2")).expect(ERROR_SEND_REQUEST);
+            h3.get_class_at(felt!("0x2"), block_id).expect(ERROR_SEND_REQUEST);
         });
 
         // wait for the requests to be handled
@@ -775,7 +795,8 @@ mod tests {
         // start a mock remote network
         start_tcp_server("127.0.0.1:8083".to_string());
 
-        let handle = create_forked_backend("http://127.0.0.1:8083", 1);
+        let handle = create_forked_backend("http://127.0.0.1:8083");
+        let block_id = 1;
 
         // check no pending requests
         let stats = handle.stats().expect(ERROR_STATS);
@@ -784,11 +805,11 @@ mod tests {
         // send requests to the backend
         let h1 = handle.clone();
         thread::spawn(move || {
-            h1.get_compiled_class_hash(felt!("0x1")).expect(ERROR_SEND_REQUEST);
+            h1.get_compiled_class_hash(felt!("0x1"), block_id).expect(ERROR_SEND_REQUEST);
         });
         let h2 = handle.clone();
         thread::spawn(move || {
-            h2.get_compiled_class_hash(felt!("0x1")).expect(ERROR_SEND_REQUEST);
+            h2.get_compiled_class_hash(felt!("0x1"), block_id).expect(ERROR_SEND_REQUEST);
         });
 
         // wait for the requests to be handled
@@ -801,7 +822,7 @@ mod tests {
         // Different request, should be counted
         let h3 = handle.clone();
         thread::spawn(move || {
-            h3.get_compiled_class_hash(felt!("0x2")).expect(ERROR_SEND_REQUEST);
+            h3.get_compiled_class_hash(felt!("0x2"), block_id).expect(ERROR_SEND_REQUEST);
         });
 
         // wait for the requests to be handled
@@ -817,7 +838,8 @@ mod tests {
         // start a mock remote network
         start_tcp_server("127.0.0.1:8084".to_string());
 
-        let handle = create_forked_backend("http://127.0.0.1:8084", 1);
+        let handle = create_forked_backend("http://127.0.0.1:8084");
+        let block_id = 1;
 
         // check no pending requests
         let stats = handle.stats().expect(ERROR_STATS);
@@ -826,12 +848,12 @@ mod tests {
         // send requests to the backend
         let h1 = handle.clone();
         thread::spawn(move || {
-            h1.get_class_at(felt!("0x1")).expect(ERROR_SEND_REQUEST);
+            h1.get_class_at(felt!("0x1"), block_id).expect(ERROR_SEND_REQUEST);
         });
         // Since this also calls to the same request as the previous one, it should be deduped
         let h2 = handle.clone();
         thread::spawn(move || {
-            h2.get_compiled_class_hash(felt!("0x1")).expect(ERROR_SEND_REQUEST);
+            h2.get_compiled_class_hash(felt!("0x1"), block_id).expect(ERROR_SEND_REQUEST);
         });
 
         // wait for the requests to be handled
@@ -844,7 +866,7 @@ mod tests {
         // Different request, should be counted
         let h3 = handle.clone();
         thread::spawn(move || {
-            h3.get_class_at(felt!("0x2")).expect(ERROR_SEND_REQUEST);
+            h3.get_class_at(felt!("0x2"), block_id).expect(ERROR_SEND_REQUEST);
         });
 
         // wait for the requests to be handled
@@ -860,7 +882,8 @@ mod tests {
         // start a mock remote network
         start_tcp_server("127.0.0.1:8085".to_string());
 
-        let handle = create_forked_backend("http://127.0.0.1:8085", 1);
+        let handle = create_forked_backend("http://127.0.0.1:8085");
+        let block_id = 1;
 
         // check no pending requests
         let stats = handle.stats().expect(ERROR_STATS);
@@ -869,11 +892,11 @@ mod tests {
         // send requests to the backend
         let h1 = handle.clone();
         thread::spawn(move || {
-            h1.get_class_hash_at(felt!("0x1").into()).expect(ERROR_SEND_REQUEST);
+            h1.get_class_hash_at(felt!("0x1").into(), block_id).expect(ERROR_SEND_REQUEST);
         });
         let h2 = handle.clone();
         thread::spawn(move || {
-            h2.get_class_hash_at(felt!("0x1").into()).expect(ERROR_SEND_REQUEST);
+            h2.get_class_hash_at(felt!("0x1").into(), block_id).expect(ERROR_SEND_REQUEST);
         });
 
         // wait for the requests to be handled
@@ -886,7 +909,7 @@ mod tests {
         // Different request, should be counted
         let h3 = handle.clone();
         thread::spawn(move || {
-            h3.get_class_hash_at(felt!("0x2").into()).expect(ERROR_SEND_REQUEST);
+            h3.get_class_hash_at(felt!("0x2").into(), block_id).expect(ERROR_SEND_REQUEST);
         });
 
         // wait for the requests to be handled
@@ -902,7 +925,8 @@ mod tests {
         // start a mock remote network
         start_tcp_server("127.0.0.1:8086".to_string());
 
-        let handle = create_forked_backend("http://127.0.0.1:8086", 1);
+        let handle = create_forked_backend("http://127.0.0.1:8086");
+        let block_id = 1;
 
         // check no pending requests
         let stats = handle.stats().expect(ERROR_STATS);
@@ -911,11 +935,11 @@ mod tests {
         // send requests to the backend
         let h1 = handle.clone();
         thread::spawn(move || {
-            h1.get_storage(felt!("0x1").into(), felt!("0x1")).expect(ERROR_SEND_REQUEST);
+            h1.get_storage(felt!("0x1").into(), felt!("0x1"), block_id).expect(ERROR_SEND_REQUEST);
         });
         let h2 = handle.clone();
         thread::spawn(move || {
-            h2.get_storage(felt!("0x1").into(), felt!("0x1")).expect(ERROR_SEND_REQUEST);
+            h2.get_storage(felt!("0x1").into(), felt!("0x1"), block_id).expect(ERROR_SEND_REQUEST);
         });
 
         // wait for the requests to be handled
@@ -928,7 +952,7 @@ mod tests {
         // Different request, should be counted
         let h3 = handle.clone();
         thread::spawn(move || {
-            h3.get_storage(felt!("0x2").into(), felt!("0x3")).expect(ERROR_SEND_REQUEST);
+            h3.get_storage(felt!("0x2").into(), felt!("0x3"), block_id).expect(ERROR_SEND_REQUEST);
         });
 
         // wait for the requests to be handled
@@ -944,7 +968,8 @@ mod tests {
         // start a mock remote network
         start_tcp_server("127.0.0.1:8087".to_string());
 
-        let handle = create_forked_backend("http://127.0.0.1:8087", 1);
+        let handle = create_forked_backend("http://127.0.0.1:8087");
+        let block_id = 1;
 
         // check no pending requests
         let stats = handle.stats().expect(ERROR_STATS);
@@ -953,11 +978,11 @@ mod tests {
         // send requests to the backend
         let h1 = handle.clone();
         thread::spawn(move || {
-            h1.get_storage(felt!("0x1").into(), felt!("0x1")).expect(ERROR_SEND_REQUEST);
+            h1.get_storage(felt!("0x1").into(), felt!("0x1"), block_id).expect(ERROR_SEND_REQUEST);
         });
         let h2 = handle.clone();
         thread::spawn(move || {
-            h2.get_storage(felt!("0x1").into(), felt!("0x1")).expect(ERROR_SEND_REQUEST);
+            h2.get_storage(felt!("0x1").into(), felt!("0x1"), block_id).expect(ERROR_SEND_REQUEST);
         });
 
         // wait for the requests to be handled
@@ -970,12 +995,12 @@ mod tests {
         // Different request, should be counted
         let h3 = handle.clone();
         thread::spawn(move || {
-            h3.get_storage(felt!("0x1").into(), felt!("0x3")).expect(ERROR_SEND_REQUEST);
+            h3.get_storage(felt!("0x1").into(), felt!("0x3"), block_id).expect(ERROR_SEND_REQUEST);
         });
         // Different request, should be counted
         let h4 = handle.clone();
         thread::spawn(move || {
-            h4.get_storage(felt!("0x1").into(), felt!("0x6")).expect(ERROR_SEND_REQUEST);
+            h4.get_storage(felt!("0x1").into(), felt!("0x6"), block_id).expect(ERROR_SEND_REQUEST);
         });
 
         // wait for the requests to be handled
@@ -988,7 +1013,7 @@ mod tests {
         // Same request as the last one, shouldn't be counted
         let h5 = handle.clone();
         thread::spawn(move || {
-            h5.get_storage(felt!("0x1").into(), felt!("0x6")).expect(ERROR_SEND_REQUEST);
+            h5.get_storage(felt!("0x1").into(), felt!("0x6"), block_id).expect(ERROR_SEND_REQUEST);
         });
 
         // wait for the requests to be handled
@@ -1005,7 +1030,8 @@ mod tests {
         let result = "0x123";
         let sender = start_mock_rpc_server("127.0.0.1:8090".to_string(), result.to_string());
 
-        let handle = create_forked_backend("http://127.0.0.1:8090", 1);
+        let handle = create_forked_backend("http://127.0.0.1:8090");
+        let block_id = 1;
         let addr = ContractAddress(felt!("0x1"));
 
         // Collect results from multiple identical nonce requests
@@ -1016,7 +1042,7 @@ mod tests {
                 let h = handle.clone();
                 let results = results.clone();
                 thread::spawn(move || {
-                    let res = h.get_nonce(addr);
+                    let res = h.get_nonce(addr, block_id);
                     results.lock().unwrap().push(res);
                 })
             })

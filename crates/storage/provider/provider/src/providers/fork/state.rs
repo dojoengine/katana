@@ -30,7 +30,12 @@ where
         let tx = self.provider.db().tx()?;
         let db = self.provider.clone();
         let provider = db::state::LatestStateProvider::new(tx);
-        Ok(Box::new(LatestStateProvider { db, backend: self.backend.clone(), provider }))
+        Ok(Box::new(LatestStateProvider {
+            db,
+            backend: self.backend.clone(),
+            provider,
+            forked_block_id: self.block_id,
+        }))
     }
 
     fn historical(
@@ -57,7 +62,14 @@ where
         let tx = db.db().tx()?;
         let client = self.backend.clone();
 
-        Ok(Some(Box::new(HistoricalStateProvider::new(db, tx, block, client))))
+        Ok(Some(Box::new(HistoricalStateProvider::new(
+            db,
+            tx,
+            block,
+            client,
+            block,
+            self.block_id,
+        ))))
     }
 }
 
@@ -66,6 +78,7 @@ struct LatestStateProvider<Db: Database> {
     db: Arc<DbProvider<Db>>,
     backend: BackendClient,
     provider: db::state::LatestStateProvider<Db::Tx>,
+    forked_block_id: BlockNumber,
 }
 
 impl<Db> ContractClassProvider for LatestStateProvider<Db>
@@ -75,7 +88,7 @@ where
     fn class(&self, hash: ClassHash) -> ProviderResult<Option<ContractClass>> {
         if let Some(class) = self.provider.class(hash)? {
             Ok(Some(class))
-        } else if let Some(class) = self.backend.get_class_at(hash)? {
+        } else if let Some(class) = self.backend.get_class_at(hash, self.forked_block_id)? {
             self.db.db().update(|tx| tx.put::<tables::Classes>(hash, class.clone().into()))??;
             Ok(Some(class))
         } else {
@@ -89,7 +102,9 @@ where
     ) -> ProviderResult<Option<CompiledClassHash>> {
         if let res @ Some(..) = self.provider.compiled_class_hash_of_class_hash(hash)? {
             Ok(res)
-        } else if let Some(compiled_hash) = self.backend.get_compiled_class_hash(hash)? {
+        } else if let Some(compiled_hash) =
+            self.backend.get_compiled_class_hash(hash, self.forked_block_id)?
+        {
             self.db
                 .db()
                 .update(|tx| tx.put::<tables::CompiledClassHashes>(hash, compiled_hash))??;
@@ -107,10 +122,10 @@ where
     fn nonce(&self, address: ContractAddress) -> ProviderResult<Option<Nonce>> {
         if let res @ Some(..) = self.provider.nonce(address)? {
             Ok(res)
-        } else if let Some(nonce) = self.backend.get_nonce(address)? {
+        } else if let Some(nonce) = self.backend.get_nonce(address, self.forked_block_id)? {
             let class_hash = self
                 .backend
-                .get_class_hash_at(address)?
+                .get_class_hash_at(address, self.forked_block_id)?
                 .ok_or(ProviderError::MissingContractClassHash { address })?;
 
             let entry = GenericContractInfo { nonce, class_hash };
@@ -128,10 +143,12 @@ where
     ) -> ProviderResult<Option<ClassHash>> {
         if let res @ Some(..) = self.provider.class_hash_of_contract(address)? {
             Ok(res)
-        } else if let Some(class_hash) = self.backend.get_class_hash_at(address)? {
+        } else if let Some(class_hash) =
+            self.backend.get_class_hash_at(address, self.forked_block_id)?
+        {
             let nonce = self
                 .backend
-                .get_nonce(address)?
+                .get_nonce(address, self.forked_block_id)?
                 .ok_or(ProviderError::MissingContractNonce { address })?;
 
             let entry = GenericContractInfo { class_hash, nonce };
@@ -150,7 +167,7 @@ where
     ) -> ProviderResult<Option<StorageValue>> {
         if let res @ Some(..) = self.provider.storage(address, key)? {
             Ok(res)
-        } else if let Some(value) = self.backend.get_storage(address, key)? {
+        } else if let Some(value) = self.backend.get_storage(address, key, self.forked_block_id)? {
             let entry = StorageEntry { key, value };
             self.db.db().update(|tx| tx.put::<tables::ContractStorage>(address, entry))??;
             Ok(Some(value))
@@ -206,27 +223,36 @@ struct HistoricalStateProvider<Db: Database> {
     db: Arc<DbProvider<Db>>,
     backend: BackendClient,
     provider: db::state::HistoricalStateProvider<Db::Tx>,
+    block_number: BlockNumber,
+    forked_block_number: BlockNumber,
 }
 
 impl<Db: Database> HistoricalStateProvider<Db> {
-    pub fn new(
+    fn new(
         db: Arc<DbProvider<Db>>,
         tx: Db::Tx,
         block: BlockNumber,
         backend: BackendClient,
+        block_number: BlockNumber,
+        forked_block_number: BlockNumber,
     ) -> Self {
         let provider = db::state::HistoricalStateProvider::new(tx, block);
-        Self { db, backend, provider }
+        Self { db, backend, provider, block_number, forked_block_number }
     }
 }
 
 impl<Db: Database> ContractClassProvider for HistoricalStateProvider<Db> {
     fn class(&self, hash: ClassHash) -> ProviderResult<Option<ContractClass>> {
         if let res @ Some(..) = self.provider.class(hash)? {
-            Ok(res)
-        } else if let Some(class) = self.backend.get_class_at(hash)? {
-            self.db.db().tx_mut()?.put::<tables::Classes>(hash, class.clone().into())?;
-            Ok(Some(class))
+            return Ok(res);
+        }
+
+        if self.block_number > self.forked_block_number {
+            return Ok(None);
+        }
+
+        if let class @ Some(..) = self.backend.get_class_at(hash, self.block_number)? {
+            Ok(class)
         } else {
             Ok(None)
         }
@@ -237,8 +263,16 @@ impl<Db: Database> ContractClassProvider for HistoricalStateProvider<Db> {
         hash: ClassHash,
     ) -> ProviderResult<Option<CompiledClassHash>> {
         if let res @ Some(..) = self.provider.compiled_class_hash_of_class_hash(hash)? {
-            Ok(res)
-        } else if let Some(compiled_hash) = self.backend.get_compiled_class_hash(hash)? {
+            return Ok(res);
+        }
+
+        if self.block_number > self.forked_block_number {
+            return Ok(None);
+        }
+
+        if let Some(compiled_hash) =
+            self.backend.get_compiled_class_hash(hash, self.block_number)?
+        {
             self.db.db().tx_mut()?.put::<tables::CompiledClassHashes>(hash, compiled_hash)?;
             Ok(Some(compiled_hash))
         } else {
@@ -250,8 +284,14 @@ impl<Db: Database> ContractClassProvider for HistoricalStateProvider<Db> {
 impl<Db: Database> StateProvider for HistoricalStateProvider<Db> {
     fn nonce(&self, address: ContractAddress) -> ProviderResult<Option<Nonce>> {
         if let res @ Some(..) = self.provider.nonce(address)? {
-            Ok(res)
-        } else if let res @ Some(nonce) = self.backend.get_nonce(address)? {
+            return Ok(res);
+        }
+
+        if self.block_number > self.forked_block_number {
+            return Ok(None);
+        }
+
+        if let res @ Some(nonce) = self.backend.get_nonce(address, self.block_number)? {
             let block = self.provider.block();
             let entry = ContractNonceChange { contract_address: address, nonce };
 
@@ -267,12 +307,18 @@ impl<Db: Database> StateProvider for HistoricalStateProvider<Db> {
         address: ContractAddress,
     ) -> ProviderResult<Option<ClassHash>> {
         if let res @ Some(..) = self.provider.class_hash_of_contract(address)? {
-            Ok(res)
-        } else if let res @ Some(class_hash) = self.backend.get_class_hash_at(address)? {
+            return Ok(res);
+        }
+
+        if self.block_number > self.forked_block_number {
+            return Ok(None);
+        }
+
+        if let res @ Some(hash) = self.backend.get_class_hash_at(address, self.block_number)? {
             let block = self.provider.block();
-            // TODO: this is technically wrong, we probably should insert the `ClassChangeHistory`
-            // entry on the state update level instead.
-            let entry = ContractClassChange::deployed(address, class_hash);
+            // TODO: this is technically wrong, we probably should insert the
+            // `ClassChangeHistory` entry on the state update level instead.
+            let entry = ContractClassChange::deployed(address, hash);
 
             self.db.db().tx_mut()?.put::<tables::ClassChangeHistory>(block, entry)?;
             Ok(res)
@@ -287,8 +333,14 @@ impl<Db: Database> StateProvider for HistoricalStateProvider<Db> {
         key: StorageKey,
     ) -> ProviderResult<Option<StorageValue>> {
         if let res @ Some(..) = self.provider.storage(address, key)? {
-            Ok(res)
-        } else if let res @ Some(value) = self.backend.get_storage(address, key)? {
+            return Ok(res);
+        }
+
+        if self.block_number > self.forked_block_number {
+            return Ok(None);
+        }
+
+        if let res @ Some(value) = self.backend.get_storage(address, key, self.block_number)? {
             let key = ContractStorageKey { contract_address: address, key };
             let block = self.provider.block();
 
