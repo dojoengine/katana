@@ -42,8 +42,6 @@ strum.workspace = true
 strum_macros.workspace = true
 
 tokio = { workspace = true, features = [ "time" ] }
-katana-starknet.workspace = true
-alloy-provider = { workspace = true, default-features = false, features = [ "reqwest", "reqwest-rustls-tls" ] }
 
 [features]
 cartridge = [ "katana-rpc-api/cartridge", "katana-rpc-server/cartridge" ]

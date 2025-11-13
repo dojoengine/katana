@@ -29,10 +29,6 @@ pub struct FullNodeArgs {
     #[arg(value_name = "PATH")]
     pub db_dir: PathBuf,
 
-    #[arg(long = "eth.rpc")]
-    #[arg(value_name = "PATH")]
-    pub eth_rpc_url: String,
-
     #[arg(long)]
     pub network: Network,
 
@@ -105,7 +101,6 @@ impl FullNodeArgs {
             rpc,
             metrics,
             network: self.network,
-            eth_rpc_url: self.eth_rpc_url.clone(),
             gateway_api_key: self.gateway_api_key.clone(),
         })
     }
