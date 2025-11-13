@@ -744,7 +744,7 @@ impl<Db: Database> BlockWriter for DbProvider<Db> {
 
             // insert all class artifacts
             for (class_hash, class) in states.classes {
-                db_tx.put::<tables::Classes>(class_hash, class)?;
+                db_tx.put::<tables::Classes>(class_hash, class.into())?;
             }
 
             // insert compiled class hashes and declarations for declared classes

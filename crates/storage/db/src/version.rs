@@ -6,7 +6,7 @@ use std::mem;
 use std::path::{Path, PathBuf};
 
 /// Current version of the database.
-pub const CURRENT_DB_VERSION: Version = Version::new(7);
+pub const CURRENT_DB_VERSION: Version = Version::new(8);
 
 /// Name of the version file.
 const DB_VERSION_FILE_NAME: &str = "db.version";
@@ -92,6 +92,6 @@ mod tests {
     #[test]
     fn test_current_version() {
         use super::CURRENT_DB_VERSION;
-        assert_eq!(CURRENT_DB_VERSION.0, 7, "Invalid current database version")
+        assert_eq!(CURRENT_DB_VERSION.0, 8, "Invalid current database version")
     }
 }

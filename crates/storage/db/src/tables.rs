@@ -1,5 +1,5 @@
 use katana_primitives::block::{BlockHash, BlockNumber, FinalityStatus};
-use katana_primitives::class::{ClassHash, CompiledClassHash, ContractClass};
+use katana_primitives::class::{ClassHash, CompiledClassHash};
 use katana_primitives::contract::{ContractAddress, GenericContractInfo, StorageKey};
 use katana_primitives::execution::TypedTransactionExecutionInfo;
 use katana_primitives::receipt::Receipt;
@@ -12,7 +12,7 @@ use crate::models::list::BlockList;
 use crate::models::stage::{StageCheckpoint, StageId};
 use crate::models::storage::{ContractStorageEntry, ContractStorageKey, StorageEntry};
 use crate::models::trie::{TrieDatabaseKey, TrieDatabaseValue, TrieHistoryEntry};
-use crate::models::{VersionedHeader, VersionedTx};
+use crate::models::{VersionedContractClass, VersionedHeader, VersionedTx};
 
 pub trait Key: Encode + Decode + Clone + std::fmt::Debug {}
 pub trait Value: Compress + Decompress + std::fmt::Debug {}
@@ -219,7 +219,7 @@ tables! {
     /// Store compiled classes
     CompiledClassHashes: (ClassHash) => CompiledClassHash,
     /// Store contract classes according to its class hash
-    Classes: (ClassHash) => ContractClass,
+    Classes: (ClassHash) => VersionedContractClass,
     /// Store contract information according to its contract address
     ContractInfo: (ContractAddress) => GenericContractInfo,
     /// Store contract storage

@@ -13,7 +13,6 @@ use katana_primitives::{
     Felt, {self},
 };
 use serde::{Deserialize, Serialize};
-use serde_json_pythonic::to_string_pythonic;
 use serde_utils::base64;
 use starknet::core::types::{CompressedLegacyContractClass, FlattenedSierraClass};
 use starknet_api::contract_class::EntryPointType;
@@ -31,8 +30,8 @@ pub type CasmClass = katana_primitives::class::CompiledClass;
 #[derive(Debug, Clone, Serialize, Deserialize)]
 #[serde(untagged)]
 pub enum Class {
-    Sierra(SierraClass),
-    Legacy(LegacyClass),
+    Sierra(RpcSierraContractClass),
+    Legacy(RpcLegacyContractClass),
 }
 
 #[derive(Debug, thiserror::Error)]
@@ -49,58 +48,32 @@ pub enum ConversionError {
 
 // -- SIERRA CLASS
 
-/// The ABI is serialized as Pythonic JSON.
-#[derive(Debug, Clone, PartialEq, Eq, Default, derive_more::Deref, derive_more::From)]
-pub struct SierraClassAbi(katana_primitives::class::ContractAbi);
-
-impl std::fmt::Display for SierraClassAbi {
-    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        let s = to_string_pythonic(&self.0).map_err(|_| std::fmt::Error)?;
-        write!(f, "{s}")
-    }
-}
-
-impl Serialize for SierraClassAbi {
-    fn serialize<S: serde::Serializer>(&self, serializer: S) -> Result<S::Ok, S::Error> {
-        serializer.serialize_str(&self.to_string())
-    }
-}
-
-impl<'de> Deserialize<'de> for SierraClassAbi {
-    fn deserialize<D: serde::Deserializer<'de>>(deserializer: D) -> Result<Self, D::Error> {
-        let str = String::deserialize(deserializer)?;
-        serde_json::from_str::<katana_primitives::class::ContractAbi>(&str)
-            .map(Self)
-            .map_err(|e| serde::de::Error::custom(format!("invalid abi format: {e}")))
-    }
-}
-
 #[derive(Debug, Clone, PartialEq, Eq, Default, Serialize, Deserialize)]
-pub struct SierraClass {
+pub struct RpcSierraContractClass {
     pub sierra_program: Vec<Felt>,
     pub contract_class_version: String,
     pub entry_points_by_type: ContractEntryPoints,
-    pub abi: SierraClassAbi,
+    pub abi: Option<String>,
 }
 
 //////////////////////////////////////////////////
 // SierraClass implementations
 //////////////////////////////////////////////////
 
-impl SierraClass {
+impl RpcSierraContractClass {
     /// Computes the hash of the Sierra class.
     pub fn hash(&self) -> ClassHash {
         compute_sierra_class_hash(
-            &self.abi.to_string(),
+            self.abi.as_deref().unwrap_or(""),
             &self.entry_points_by_type,
             &self.sierra_program,
         )
     }
 }
 
-impl From<SierraContractClass> for SierraClass {
+impl From<SierraContractClass> for RpcSierraContractClass {
     fn from(value: SierraContractClass) -> Self {
-        let abi = value.abi.map(SierraClassAbi).unwrap_or_default();
+        let abi = value.abi.map(|abi| abi.to_string());
         let program = value.sierra_program.into_iter().map(|f| f.value.into()).collect::<Vec<_>>();
 
         Self {
@@ -112,16 +85,18 @@ impl From<SierraContractClass> for SierraClass {
     }
 }
 
-impl From<SierraClass> for SierraContractClass {
-    fn from(value: SierraClass) -> Self {
+impl From<RpcSierraContractClass> for SierraContractClass {
+    fn from(value: RpcSierraContractClass) -> Self {
         let program = value
             .sierra_program
             .into_iter()
             .map(|f| BigUintAsHex { value: f.to_biguint() })
             .collect::<Vec<_>>();
 
+        let abi = value.abi.map(|abi| abi.into());
+
         Self {
-            abi: value.abi.0.into(),
+            abi,
             sierra_program: program,
             sierra_program_debug_info: None,
             entry_points_by_type: value.entry_points_by_type,
@@ -133,7 +108,7 @@ impl From<SierraClass> for SierraContractClass {
 // -- LEGACY CLASS
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
-pub struct LegacyClass {
+pub struct RpcLegacyContractClass {
     /// A base64 representation of the compressed program code
     #[serde(with = "base64")]
     pub program: Vec<u8>,
@@ -148,7 +123,7 @@ pub struct LegacyClass {
 // LegacyClass implementations
 //////////////////////////////////////////////////
 
-impl TryFrom<LegacyContractClass> for LegacyClass {
+impl TryFrom<LegacyContractClass> for RpcLegacyContractClass {
     type Error = ConversionError;
 
     fn try_from(value: LegacyContractClass) -> Result<Self, Self::Error> {
@@ -157,10 +132,10 @@ impl TryFrom<LegacyContractClass> for LegacyClass {
     }
 }
 
-impl TryFrom<LegacyClass> for LegacyContractClass {
+impl TryFrom<RpcLegacyContractClass> for LegacyContractClass {
     type Error = ConversionError;
 
-    fn try_from(value: LegacyClass) -> Result<Self, Self::Error> {
+    fn try_from(value: RpcLegacyContractClass) -> Result<Self, Self::Error> {
         let program = decompress_legacy_program(&value.program)?;
         Ok(Self { program, abi: value.abi, entry_points_by_type: value.entry_points_by_type })
     }
@@ -190,8 +165,10 @@ impl TryFrom<ContractClass> for Class {
 
     fn try_from(value: ContractClass) -> Result<Self, Self::Error> {
         match value {
-            ContractClass::Class(class) => Ok(Self::Sierra(SierraClass::from(class))),
-            ContractClass::Legacy(class) => Ok(Self::Legacy(LegacyClass::try_from(class)?)),
+            ContractClass::Class(class) => Ok(Self::Sierra(RpcSierraContractClass::from(class))),
+            ContractClass::Legacy(class) => {
+                Ok(Self::Legacy(RpcLegacyContractClass::try_from(class)?))
+            }
         }
     }
 }
@@ -220,10 +197,10 @@ impl TryFrom<starknet::core::types::ContractClass> for Class {
     fn try_from(value: starknet::core::types::ContractClass) -> Result<Self, Self::Error> {
         match value {
             starknet::core::types::ContractClass::Legacy(class) => {
-                Ok(Self::Legacy(LegacyClass::try_from(class)?))
+                Ok(Self::Legacy(RpcLegacyContractClass::try_from(class)?))
             }
             starknet::core::types::ContractClass::Sierra(class) => {
-                Ok(Self::Sierra(SierraClass::try_from(class)?))
+                Ok(Self::Sierra(RpcSierraContractClass::try_from(class)?))
             }
         }
     }
@@ -242,7 +219,7 @@ impl TryFrom<Class> for starknet::core::types::ContractClass {
     }
 }
 
-impl TryFrom<FlattenedSierraClass> for SierraClass {
+impl TryFrom<FlattenedSierraClass> for RpcSierraContractClass {
     type Error = ConversionError;
 
     fn try_from(value: FlattenedSierraClass) -> Result<Self, Self::Error> {
@@ -252,17 +229,17 @@ impl TryFrom<FlattenedSierraClass> for SierraClass {
     }
 }
 
-impl TryFrom<SierraClass> for FlattenedSierraClass {
+impl TryFrom<RpcSierraContractClass> for FlattenedSierraClass {
     type Error = ConversionError;
 
-    fn try_from(value: SierraClass) -> Result<Self, Self::Error> {
+    fn try_from(value: RpcSierraContractClass) -> Result<Self, Self::Error> {
         let value = serde_json::to_value(value)?;
         let class = serde_json::from_value::<Self>(value)?;
         Ok(class)
     }
 }
 
-impl TryFrom<CompressedLegacyContractClass> for LegacyClass {
+impl TryFrom<CompressedLegacyContractClass> for RpcLegacyContractClass {
     type Error = ConversionError;
 
     fn try_from(value: CompressedLegacyContractClass) -> Result<Self, Self::Error> {
@@ -272,10 +249,10 @@ impl TryFrom<CompressedLegacyContractClass> for LegacyClass {
     }
 }
 
-impl TryFrom<LegacyClass> for CompressedLegacyContractClass {
+impl TryFrom<RpcLegacyContractClass> for CompressedLegacyContractClass {
     type Error = ConversionError;
 
-    fn try_from(value: LegacyClass) -> Result<Self, Self::Error> {
+    fn try_from(value: RpcLegacyContractClass) -> Result<Self, Self::Error> {
         let value = serde_json::to_value(value)?;
         let class = serde_json::from_value::<Self>(value)?;
         Ok(class)
@@ -284,12 +261,16 @@ impl TryFrom<LegacyClass> for CompressedLegacyContractClass {
 
 #[cfg(test)]
 mod tests {
-    use katana_primitives::class::{ContractClass, LegacyContractClass, SierraContractClass};
+    use katana_primitives::class::{
+        ContractAbi, ContractClass, LegacyContractClass, MaybeInvalidSierraContractAbi,
+        SierraContractClass,
+    };
+    use serde_json::json;
     use starknet::core::types::contract::legacy::LegacyContractClass as StarknetRsLegacyContractClass;
     use starknet::core::types::contract::SierraClass as StarknetRsSierraClass;
 
-    use super::LegacyClass;
-    use crate::class::SierraClass;
+    use super::RpcLegacyContractClass;
+    use crate::class::RpcSierraContractClass;
 
     #[test]
     fn rt() {
@@ -297,7 +278,7 @@ mod tests {
             include_str!("../../../contracts/build/katana_account_Account.contract_class.json");
         let class = serde_json::from_str::<SierraContractClass>(json).unwrap();
 
-        let rpc = SierraClass::try_from(class.clone()).unwrap();
+        let rpc = RpcSierraContractClass::try_from(class.clone()).unwrap();
         let rt = SierraContractClass::try_from(rpc).unwrap();
 
         assert_eq!(class.abi, rt.abi);
@@ -311,7 +292,7 @@ mod tests {
         let json = include_str!("../../../contracts/build/legacy/account.json");
         let class = serde_json::from_str::<LegacyContractClass>(json).unwrap();
 
-        let rpc = LegacyClass::try_from(class.clone()).unwrap();
+        let rpc = RpcLegacyContractClass::try_from(class.clone()).unwrap();
         let rt = LegacyContractClass::try_from(rpc).unwrap();
 
         assert_eq!(class.abi, rt.abi);
@@ -342,7 +323,7 @@ mod tests {
 
         // -- katana
 
-        let rpc = SierraClass::try_from(starknet_rpc).unwrap();
+        let rpc = RpcSierraContractClass::try_from(starknet_rpc).unwrap();
         let class = SierraContractClass::try_from(rpc).unwrap();
         let hash = ContractClass::Class(class.clone()).class_hash().unwrap();
 
@@ -371,7 +352,7 @@ mod tests {
 
         // -- katana
 
-        let rpc = serde_json::from_str::<LegacyClass>(&json).unwrap();
+        let rpc = serde_json::from_str::<RpcLegacyContractClass>(&json).unwrap();
         let class = LegacyContractClass::try_from(rpc).unwrap();
         let hash = ContractClass::Legacy(class.clone()).class_hash().unwrap();
 
@@ -396,12 +377,105 @@ mod tests {
             include_str!("../../../contracts/build/katana_account_Account.contract_class.json");
         let class = serde_json::from_str::<SierraContractClass>(json).unwrap();
 
-        let rpc_class = SierraClass::try_from(class.clone()).unwrap();
+        let rpc_class = RpcSierraContractClass::try_from(class.clone()).unwrap();
         let rpc_class_hash = rpc_class.hash();
 
         let primitive = ContractClass::Class(SierraContractClass::try_from(rpc_class).unwrap());
         let primitive_class_hash = primitive.class_hash().unwrap();
 
         assert_eq!(rpc_class_hash, primitive_class_hash);
+    }
+
+    #[test]
+    fn rpc_sierra_class_with_valid_abi() {
+        let raw_abi_string =
+            "[{\"type\": \"constructor\", \"name\": \"constructor\", \"inputs\": []}, {\"type\": \
+             \"function\", \"name\": \"Ekubo\", \"inputs\": [], \"outputs\": [], \
+             \"state_mutability\": \"external\"}, {\"type\": \"event\", \"name\": \
+             \"ekubo_spammer::EkuboSpammer::EkuboEvent\", \"kind\": \"struct\", \"members\": []}, \
+             {\"type\": \"event\", \"name\": \"ekubo_spammer::EkuboSpammer::Event\", \"kind\": \
+             \"enum\", \"variants\": [{\"name\": \"Ekubo\", \"type\": \
+             \"ekubo_spammer::EkuboSpammer::EkuboEvent\", \"kind\": \"nested\"}]}]";
+
+        let json = json!({
+            "sierra_program": ["0x1", "0x2"],
+            "contract_class_version": "0.1.0",
+            "entry_points_by_type": {
+                "EXTERNAL": [],
+                "L1_HANDLER": [],
+                "CONSTRUCTOR": []
+            },
+            "abi": &raw_abi_string
+        });
+
+        let rpc_class = serde_json::from_value::<RpcSierraContractClass>(json).unwrap();
+        let rpc_class_hash = rpc_class.hash();
+
+        assert_eq!(rpc_class.abi, Some(raw_abi_string.to_string()));
+
+        // convert to primitive and ensure the conversion preserves the exact ABI string
+        let primitive_class = SierraContractClass::from(rpc_class);
+        let primitive_class_hash = primitive_class.hash();
+
+        let exected_abi = serde_json::from_str::<ContractAbi>(raw_abi_string).unwrap();
+
+        assert_eq!(rpc_class_hash, primitive_class_hash);
+        assert_eq!(primitive_class.abi, Some(MaybeInvalidSierraContractAbi::Valid(exected_abi)));
+    }
+
+    #[test]
+    fn rpc_sierra_class_with_arbitrary_abi_str() {
+        let raw_abi_string = "hello world!";
+
+        let json = json!({
+            "sierra_program": ["0x1", "0x2"],
+            "contract_class_version": "0.1.0",
+            "entry_points_by_type": {
+                "EXTERNAL": [],
+                "L1_HANDLER": [],
+                "CONSTRUCTOR": []
+            },
+            "abi": &raw_abi_string
+        });
+
+        let rpc_class = serde_json::from_value::<RpcSierraContractClass>(json).unwrap();
+        let rpc_class_hash = rpc_class.hash();
+
+        assert_eq!(rpc_class.abi, Some(raw_abi_string.to_string()));
+
+        // convert to primitive and ensure the conversion preserves the exact ABI string
+        let primitive_class = SierraContractClass::from(rpc_class);
+        let primitive_class_hash = primitive_class.hash();
+
+        assert_eq!(rpc_class_hash, primitive_class_hash);
+        assert_eq!(
+            primitive_class.abi,
+            Some(MaybeInvalidSierraContractAbi::Invalid(raw_abi_string.to_string()))
+        );
+    }
+
+    #[test]
+    fn rpc_sierra_class_with_empty_abi() {
+        let json = json!({
+            "sierra_program": ["0x1", "0x2"],
+            "contract_class_version": "0.1.0",
+            "entry_points_by_type": {
+                "EXTERNAL": [],
+                "L1_HANDLER": [],
+                "CONSTRUCTOR": []
+            },
+        });
+
+        let rpc_class = serde_json::from_value::<RpcSierraContractClass>(json).unwrap();
+        let rpc_class_hash = rpc_class.hash();
+
+        assert!(rpc_class.abi.is_none());
+
+        // convert to primitive and ensure the conversion preserves the exact ABI string
+        let primitive_class = SierraContractClass::from(rpc_class);
+        let primitive_class_hash = primitive_class.hash();
+
+        assert_eq!(rpc_class_hash, primitive_class_hash);
+        assert_eq!(primitive_class.abi, None);
     }
 }
