@@ -137,7 +137,8 @@ where
         })
     }
 
-    fn prune<'a>(&'a mut self, _input: &'a PruneInput) -> BoxFuture<'a, PruneResult> {
+    fn prune<'a>(&'a mut self, input: &'a PruneInput) -> BoxFuture<'a, PruneResult> {
+        let _ = input;
         Box::pin(async move {
             // TODO: Implement block pruning once the BlockWriter provider API supports it.
             // For now, this is a no-op. Block pruning would involve:

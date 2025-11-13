@@ -393,7 +393,7 @@ impl<P: StageCheckpointProvider> Pipeline<P> {
     ///
     /// Returns an error if any stage execution fails or if the pipeline fails to read the
     /// checkpoint.
-    pub async fn run_once(&mut self, to: BlockNumber) -> PipelineResult<BlockNumber> {
+    pub async fn execute(&mut self, to: BlockNumber) -> PipelineResult<BlockNumber> {
         if self.stages.is_empty() {
             return Ok(to);
         }
@@ -455,6 +455,39 @@ impl<P: StageCheckpointProvider> Pipeline<P> {
         Ok(last_block_processed_list.into_iter().min().unwrap_or(to))
     }
 
+    /// Runs pruning on all stages.
+    pub async fn prune(&mut self, tip: BlockNumber) -> PipelineResult<()> {
+        if self.stages.is_empty() {
+            return Ok(());
+        }
+
+        for stage in self.stages.iter_mut() {
+            let id = stage.id();
+
+            let span = info_span!(target: "pipeline", "stage.prune", stage = %id, %tip);
+            let enter = span.entered();
+
+            if let Some(checkpoint) = self.provider.checkpoint(id)? {
+                let prune_input = PruneInput::new(checkpoint, self.pruning_config.mode);
+                info!(target: "pipeline", mode = ?self.pruning_config.mode, "Pruning stage.");
+
+                let span_inner = enter.exit();
+                let PruneOutput { pruned_count } = stage
+                    .prune(&prune_input)
+                    .instrument(span_inner.clone())
+                    .await
+                    .map_err(|error| Error::StagePruning { id, error })?;
+
+                let _enter = span_inner.enter();
+                info!(target: "pipeline", %pruned_count, "Stage pruning completed.");
+            } else {
+                info!(target: "pipeline", "Skipping stage - no data to prune (no checkpoint).");
+            }
+        }
+
+        Ok(())
+    }
+
     /// Run the pipeline loop.
     async fn run_loop(&mut self) -> PipelineResult<()> {
         let mut current_chunk_tip = self.chunk_size;
@@ -463,7 +496,7 @@ impl<P: StageCheckpointProvider> Pipeline<P> {
             // Process blocks if we have a tip
             if let Some(tip) = self.tip {
                 let to = current_chunk_tip.min(tip);
-                let last_block_processed = self.run_once(to).await?;
+                let last_block_processed = self.execute(to).await?;
 
                 // Notify subscribers about the newly processed block
                 let _ = self.block_tx.send(Some(last_block_processed));
@@ -513,35 +546,6 @@ impl<P: StageCheckpointProvider> Pipeline<P> {
             Some(last_pruned) => current_block.saturating_sub(last_pruned) >= interval,
             None => current_block >= interval,
         }
-    }
-
-    /// Runs pruning on all stages.
-    async fn prune(&mut self, tip: BlockNumber) -> PipelineResult<()> {
-        if self.stages.is_empty() {
-            return Ok(());
-        }
-
-        let prune_input = PruneInput::new(tip, self.pruning_config.mode);
-
-        for stage in self.stages.iter_mut() {
-            let id = stage.id();
-            let span = info_span!(target: "pipeline", "stage.prune", stage = %id, %tip);
-            let enter = span.entered();
-
-            info!(target: "pipeline", mode = ?self.pruning_config.mode, "Pruning stage.");
-
-            let span_inner = enter.exit();
-            let PruneOutput { pruned_count } = stage
-                .prune(&prune_input)
-                .instrument(span_inner.clone())
-                .await
-                .map_err(|error| Error::StagePruning { id, error })?;
-
-            let _enter = span_inner.enter();
-            info!(target: "pipeline", %pruned_count, "Stage pruning completed.");
-        }
-
-        Ok(())
     }
 }
 
