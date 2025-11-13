@@ -75,6 +75,11 @@ impl Stage for TrackingStage {
             Ok(StageExecutionOutput { last_block_processed: input.to() })
         })
     }
+
+    fn prune<'a>(&'a mut self, input: &'a PruneInput) -> BoxFuture<'a, PruneResult> {
+        let _ = input;
+        Box::pin(async move { Ok(PruneOutput::default()) })
+    }
 }
 
 /// Mock stage that fails on execution
@@ -96,6 +101,11 @@ impl Stage for FailingStage {
 
     fn execute<'a>(&'a mut self, _: &'a StageExecutionInput) -> BoxFuture<'a, StageResult> {
         Box::pin(async { Err(katana_stage::Error::Other(anyhow!("Stage execution failed"))) })
+    }
+
+    fn prune<'a>(&'a mut self, input: &'a PruneInput) -> BoxFuture<'a, PruneResult> {
+        let _ = input;
+        Box::pin(async move { Ok(PruneOutput::default()) })
     }
 }
 
@@ -137,6 +147,11 @@ impl Stage for FixedOutputStage {
 
             Ok(StageExecutionOutput { last_block_processed })
         })
+    }
+
+    fn prune<'a>(&'a mut self, input: &'a PruneInput) -> BoxFuture<'a, PruneResult> {
+        let _ = input;
+        Box::pin(async move { Ok(PruneOutput::default()) })
     }
 }
 
@@ -496,6 +511,11 @@ async fn run_should_be_cancelled_if_stop_requested() {
                 *self.executed.lock().unwrap() = true;
                 Ok(StageExecutionOutput { last_block_processed: 100 })
             })
+        }
+
+        fn prune<'a>(&'a mut self, input: &'a PruneInput) -> BoxFuture<'a, PruneResult> {
+            let _ = input;
+            Box::pin(async move { Ok(PruneOutput::default()) })
         }
     }
 

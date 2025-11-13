@@ -256,6 +256,7 @@ pub struct Pipeline<P> {
     block_tx: watch::Sender<Option<BlockNumber>>,
     tip: Option<BlockNumber>,
     pruning_config: PruningConfig,
+    /// The block at which the pipeline was last pruned.
     last_pruned_block: Option<BlockNumber>,
 }
 
@@ -456,7 +457,7 @@ impl<P: StageCheckpointProvider> Pipeline<P> {
     }
 
     /// Runs pruning on all stages.
-    pub async fn prune(&mut self, tip: BlockNumber) -> PipelineResult<()> {
+    pub async fn prune(&mut self) -> PipelineResult<()> {
         if self.stages.is_empty() {
             return Ok(());
         }
@@ -464,7 +465,7 @@ impl<P: StageCheckpointProvider> Pipeline<P> {
         for stage in self.stages.iter_mut() {
             let id = stage.id();
 
-            let span = info_span!(target: "pipeline", "stage.prune", stage = %id, %tip);
+            let span = info_span!(target: "pipeline", "stage.prune", stage = %id);
             let enter = span.entered();
 
             if let Some(checkpoint) = self.provider.checkpoint(id)? {
@@ -504,7 +505,7 @@ impl<P: StageCheckpointProvider> Pipeline<P> {
                 // Check if we should run pruning
                 if self.should_prune(last_block_processed) {
                     info!(target: "pipeline", block = %last_block_processed, "Starting pruning.");
-                    self.prune(last_block_processed).await?;
+                    self.prune().await?;
                     self.last_pruned_block = Some(last_block_processed);
                 }
 
