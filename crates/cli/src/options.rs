@@ -719,3 +719,60 @@ impl TracerOptions {
         self
     }
 }
+
+#[derive(Debug, Args, Clone, Serialize, Deserialize, PartialEq)]
+#[command(next_help_heading = "Pruning options")]
+pub struct PruningOptions {
+    /// State pruning mode.
+    ///
+    /// Determines how much historical state to retain:
+    /// - 'full': Keep all historical state (no pruning, default)
+    /// - 'archive:N': Keep last N blocks of historical state
+    /// - 'latest': Keep only the latest state
+    #[arg(long = "pruning.mode", value_name = "MODE")]
+    #[arg(value_parser = parse_pruning_mode)]
+    #[serde(default)]
+    pub mode: Option<PruningMode>,
+
+    /// Number of blocks to process between pruning runs.
+    ///
+    /// Pruning will be triggered after every N blocks are synced.
+    /// If not specified, pruning is disabled even if a pruning mode is set.
+    #[arg(long = "pruning.interval", value_name = "BLOCKS")]
+    #[serde(default)]
+    pub interval: Option<u64>,
+}
+
+impl Default for PruningOptions {
+    fn default() -> Self {
+        Self { mode: None, interval: None }
+    }
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
+#[serde(rename_all = "lowercase")]
+pub enum PruningMode {
+    Full,
+    Archive(u64),
+    Latest,
+}
+
+fn parse_pruning_mode(s: &str) -> Result<PruningMode, String> {
+    match s.to_lowercase().as_str() {
+        "full" => Ok(PruningMode::Full),
+        "latest" => Ok(PruningMode::Latest),
+        s if s.starts_with("archive:") => {
+            let n = s
+                .strip_prefix("archive:")
+                .and_then(|n| n.parse::<u64>().ok())
+                .ok_or_else(|| {
+                    format!("Invalid archive format. Use 'archive:N' where N is a number")
+                })?;
+            Ok(PruningMode::Archive(n))
+        }
+        _ => Err(format!(
+            "Invalid pruning mode '{}'. Valid modes are: 'full', 'latest', 'archive:N'",
+            s
+        )),
+    }
+}
