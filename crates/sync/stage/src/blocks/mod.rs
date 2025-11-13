@@ -17,7 +17,10 @@ use num_traits::ToPrimitive;
 use starknet::core::types::ResourcePrice;
 use tracing::{error, info_span, Instrument};
 
-use crate::{PruneInput, PruneOutput, PruneResult, Stage, StageExecutionInput, StageExecutionOutput, StageResult};
+use crate::{
+    PruneInput, PruneOutput, PruneResult, Stage, StageExecutionInput, StageExecutionOutput,
+    StageResult,
+};
 
 mod downloader;
 

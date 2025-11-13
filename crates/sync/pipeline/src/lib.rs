@@ -80,7 +80,9 @@ use futures::future::BoxFuture;
 use katana_primitives::block::BlockNumber;
 use katana_provider_api::stage::StageCheckpointProvider;
 use katana_provider_api::ProviderError;
-use katana_stage::{PruneInput, PruneOutput, PruningMode, Stage, StageExecutionInput, StageExecutionOutput};
+use katana_stage::{
+    PruneInput, PruneOutput, PruningMode, Stage, StageExecutionInput, StageExecutionOutput,
+};
 use tokio::sync::watch;
 use tokio::task::yield_now;
 use tracing::{debug, error, info, info_span, Instrument};

@@ -14,7 +14,10 @@ use katana_rpc_types::class::ConversionError;
 use rayon::prelude::*;
 use tracing::{debug, error, info_span, Instrument};
 
-use super::{PruneInput, PruneOutput, PruneResult, Stage, StageExecutionInput, StageExecutionOutput, StageResult};
+use super::{
+    PruneInput, PruneOutput, PruneResult, Stage, StageExecutionInput, StageExecutionOutput,
+    StageResult,
+};
 use crate::downloader::{BatchDownloader, Downloader, DownloaderResult};
 
 /// A stage for downloading and storing contract classes.

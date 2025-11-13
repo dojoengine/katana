@@ -8,7 +8,10 @@ use starknet::macros::short_string;
 use starknet_types_core::hash::{Poseidon, StarkHash};
 use tracing::{debug, debug_span, error};
 
-use crate::{PruneInput, PruneOutput, PruneResult, Stage, StageExecutionInput, StageExecutionOutput, StageResult};
+use crate::{
+    PruneInput, PruneOutput, PruneResult, Stage, StageExecutionInput, StageExecutionOutput,
+    StageResult,
+};
 
 /// A stage for computing and validating state tries.
 ///
