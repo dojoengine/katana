@@ -6301,6 +6301,7 @@ dependencies = [
  "anyhow",
  "async-trait",
  "futures",
+ "katana-metrics",
  "katana-primitives",
  "katana-provider",
  "katana-provider-api",

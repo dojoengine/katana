@@ -85,6 +85,9 @@ use tokio::sync::watch::{self};
 use tokio::task::yield_now;
 use tracing::{debug, error, info, info_span, Instrument};
 
+pub mod metrics;
+pub use metrics::PipelineMetrics;
+
 /// The result of a pipeline execution.
 pub type PipelineResult<T> = Result<T, Error>;
 
@@ -224,6 +227,7 @@ pub struct Pipeline<P> {
     cmd_tx: watch::Sender<Option<PipelineCommand>>,
     block_tx: watch::Sender<Option<BlockNumber>>,
     tip: Option<BlockNumber>,
+    metrics: PipelineMetrics,
 }
 
 impl<P> Pipeline<P> {
@@ -249,6 +253,7 @@ impl<P> Pipeline<P> {
             provider,
             chunk_size,
             tip: None,
+            metrics: PipelineMetrics::new(),
         };
         (pipeline, handle)
     }
@@ -273,6 +278,11 @@ impl<P> Pipeline<P> {
     /// stop the pipeline.
     pub fn handle(&self) -> PipelineHandle {
         PipelineHandle { tx: self.cmd_tx.clone(), block_tx: self.block_tx.clone() }
+    }
+
+    /// Returns a reference to the pipeline metrics.
+    pub fn metrics(&self) -> &PipelineMetrics {
+        &self.metrics
     }
 }
 
@@ -352,6 +362,7 @@ impl<P: StageCheckpointProvider> Pipeline<P> {
 
         for stage in self.stages.iter_mut() {
             let id = stage.id();
+            let stage_metrics = self.metrics.stage(id);
 
             // Get the checkpoint for the stage, otherwise default to block number 0
             let checkpoint = self.provider.checkpoint(id)?;
@@ -361,11 +372,13 @@ impl<P: StageCheckpointProvider> Pipeline<P> {
 
             let from = if let Some(checkpoint) = checkpoint {
                 debug!(target: "pipeline", %checkpoint, "Found checkpoint.");
+                stage_metrics.set_checkpoint(checkpoint);
 
                 // Skip the stage if the checkpoint is greater than or equal to the target block
                 // number
                 if checkpoint >= to {
                     info!(target: "pipeline", %checkpoint, "Skipping stage - target already reached.");
+                    stage_metrics.record_skipped();
                     last_block_processed_list.push(checkpoint);
                     continue;
                 }
@@ -374,6 +387,7 @@ impl<P: StageCheckpointProvider> Pipeline<P> {
                 // from the next block
                 checkpoint + 1
             } else {
+                stage_metrics.set_checkpoint(0);
                 0
             };
 
@@ -381,6 +395,7 @@ impl<P: StageCheckpointProvider> Pipeline<P> {
             info!(target: "pipeline", %from, %to, "Executing stage.");
 
             let span = enter.exit();
+            let _guard = stage_metrics.execution_started();
             let StageExecutionOutput { last_block_processed } = stage
                 .execute(&input)
                 .instrument(span.clone())
@@ -390,9 +405,22 @@ impl<P: StageCheckpointProvider> Pipeline<P> {
             let _enter = span.enter();
             info!(target: "pipeline", %from, %to, "Stage execution completed.");
 
+            // Record blocks processed by this stage in this execution
+            let blocks_processed = last_block_processed.saturating_sub(from.saturating_sub(1));
+            stage_metrics.record_blocks_processed(blocks_processed);
+
             self.provider.set_checkpoint(id, last_block_processed)?;
+            stage_metrics.set_checkpoint(last_block_processed);
             last_block_processed_list.push(last_block_processed);
             info!(target: "pipeline", checkpoint = %last_block_processed, "New checkpoint set.");
+        }
+
+        // Update overall pipeline checkpoint metrics
+        if let Some(&min_checkpoint) = last_block_processed_list.iter().min() {
+            self.metrics.set_lowest_checkpoint(min_checkpoint);
+        }
+        if let Some(&max_checkpoint) = last_block_processed_list.iter().max() {
+            self.metrics.set_highest_checkpoint(max_checkpoint);
         }
 
         Ok(last_block_processed_list.into_iter().min().unwrap_or(to))
@@ -406,13 +434,22 @@ impl<P: StageCheckpointProvider> Pipeline<P> {
             // Process blocks if we have a tip
             if let Some(tip) = self.tip {
                 let to = current_chunk_tip.min(tip);
+                let iteration_start = std::time::Instant::now();
                 let last_block_processed = self.run_once(to).await?;
+                let iteration_duration = iteration_start.elapsed().as_secs_f64();
+
+                // Record pipeline metrics for this iteration
+                self.metrics.record_iteration_time(iteration_duration);
+                let blocks_in_iteration =
+                    to.saturating_sub(current_chunk_tip.saturating_sub(self.chunk_size));
+                self.metrics.record_chunk(blocks_in_iteration);
 
                 // Notify subscribers about the newly processed block
                 let _ = self.block_tx.send(Some(last_block_processed));
 
                 if last_block_processed >= tip {
                     info!(target: "pipeline", %tip, "Finished syncing until tip.");
+                    self.metrics.record_run_complete();
                     self.tip = None;
                     current_chunk_tip = last_block_processed;
                 } else {
@@ -430,6 +467,7 @@ impl<P: StageCheckpointProvider> Pipeline<P> {
             {
                 info!(target: "pipeline", tip = %new_tip, "A new tip has been set.");
                 self.tip = Some(new_tip);
+                self.metrics.set_tip(new_tip);
             }
 
             yield_now().await;
