@@ -38,7 +38,7 @@ impl Default for VersionedContractClass {
 impl Compress for VersionedContractClass {
     type Compressed = Vec<u8>;
     fn compress(self) -> Result<Self::Compressed, CodecError> {
-        postcard::to_stdvec(&self).map_err(|e| CodecError::Compress(e.to_string()))
+        serde_json::to_vec(&self).map_err(|e| CodecError::Compress(e.to_string()))
     }
 }
 
@@ -46,16 +46,16 @@ impl Decompress for VersionedContractClass {
     fn decompress<B: AsRef<[u8]>>(bytes: B) -> Result<Self, CodecError> {
         let bytes = bytes.as_ref();
 
-        if let Ok(class) = postcard::from_bytes::<Self>(bytes) {
+        if let Ok(class) = serde_json::from_slice::<Self>(bytes) {
             return Ok(class);
         }
 
         // Try deserializing as V8 (current) first, then fall back to V7
-        if let Ok(class) = postcard::from_bytes::<V8ContractClass>(bytes) {
+        if let Ok(class) = serde_json::from_slice::<V8ContractClass>(bytes) {
             return Ok(VersionedContractClass::V8(class));
         }
 
-        if let Ok(class) = postcard::from_bytes::<v7::ContractClass>(bytes) {
+        if let Ok(class) = serde_json::from_slice::<v7::ContractClass>(bytes) {
             return Ok(VersionedContractClass::V7(class));
         }
 

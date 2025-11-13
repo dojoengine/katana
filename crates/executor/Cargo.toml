@@ -50,7 +50,7 @@ pprof.workspace = true
 rayon.workspace = true
 
 [features]
-native = [ "blockifier/cairo_native", "dep:cairo-native", "dep:rayon" ]
+native = [ "blockifier/cairo_native", "dep:cairo-native", "dep:rayon", "dep:cairo-lang-starknet-classes" ]
 
 [[bench]]
 harness = false
