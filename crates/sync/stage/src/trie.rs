@@ -8,7 +8,7 @@ use starknet::macros::short_string;
 use starknet_types_core::hash::{Poseidon, StarkHash};
 use tracing::{debug, debug_span, error};
 
-use crate::{Stage, StageExecutionInput, StageExecutionOutput, StageResult};
+use crate::{PruneInput, PruneOutput, PruneResult, Stage, StageExecutionInput, StageExecutionOutput, StageResult};
 
 /// A stage for computing and validating state tries.
 ///
@@ -105,6 +105,17 @@ where
             }
 
             Ok(StageExecutionOutput { last_block_processed: input.to() })
+        })
+    }
+
+    fn prune<'a>(&'a mut self, _input: &'a PruneInput) -> BoxFuture<'a, PruneResult> {
+        Box::pin(async move {
+            // TODO: Implement trie pruning once the TrieWriter provider API supports it.
+            // For now, this is a no-op. Trie pruning would involve:
+            // 1. Identifying trie nodes that are only referenced by blocks before the prune point
+            // 2. Removing those trie nodes from storage
+            // 3. Keeping nodes that are still referenced by blocks after the prune point
+            Ok(PruneOutput::default())
         })
     }
 }

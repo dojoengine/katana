@@ -80,7 +80,7 @@ use futures::future::BoxFuture;
 use katana_primitives::block::BlockNumber;
 use katana_provider_api::stage::StageCheckpointProvider;
 use katana_provider_api::ProviderError;
-use katana_stage::{Stage, StageExecutionInput, StageExecutionOutput};
+use katana_stage::{PruneInput, PruneOutput, PruningMode, Stage, StageExecutionInput, StageExecutionOutput};
 use tokio::sync::watch;
 use tokio::task::yield_now;
 use tracing::{debug, error, info, info_span, Instrument};
@@ -98,6 +98,9 @@ pub enum Error {
 
     #[error("stage {id} execution failed: {error}")]
     StageExecution { id: &'static str, error: katana_stage::Error },
+
+    #[error("stage {id} pruning failed: {error}")]
+    StagePruning { id: &'static str, error: katana_stage::Error },
 
     #[error(transparent)]
     Provider(#[from] ProviderError),
@@ -199,6 +202,35 @@ impl PipelineHandle {
     }
 }
 
+/// Configuration for pruning behavior in the pipeline.
+#[derive(Debug, Clone)]
+pub struct PruningConfig {
+    /// The pruning mode to use.
+    pub mode: PruningMode,
+    /// How many blocks to process between pruning runs.
+    /// Pruning will be triggered after every `interval` blocks are synced.
+    /// If `None`, pruning is disabled.
+    pub interval: Option<u64>,
+}
+
+impl Default for PruningConfig {
+    fn default() -> Self {
+        Self { mode: PruningMode::Full, interval: None }
+    }
+}
+
+impl PruningConfig {
+    /// Creates a new pruning configuration with the specified mode and interval.
+    pub fn new(mode: PruningMode, interval: Option<u64>) -> Self {
+        Self { mode, interval }
+    }
+
+    /// Returns whether pruning is enabled.
+    pub fn is_enabled(&self) -> bool {
+        !matches!(self.mode, PruningMode::Full) && self.interval.is_some()
+    }
+}
+
 /// Syncing pipeline.
 ///
 /// The pipeline drives the execution of stages, running each stage to completion in the order they
@@ -221,6 +253,8 @@ pub struct Pipeline<P> {
     command_tx: watch::Sender<Option<PipelineCommand>>,
     block_tx: watch::Sender<Option<BlockNumber>>,
     tip: Option<BlockNumber>,
+    pruning_config: PruningConfig,
+    last_pruned_block: Option<BlockNumber>,
 }
 
 impl<P> Pipeline<P> {
@@ -246,8 +280,22 @@ impl<P> Pipeline<P> {
             provider,
             chunk_size,
             tip: None,
+            pruning_config: PruningConfig::default(),
+            last_pruned_block: None,
         };
         (pipeline, handle)
+    }
+
+    /// Sets the pruning configuration for the pipeline.
+    ///
+    /// This controls how and when historical state is pruned during synchronization.
+    pub fn set_pruning_config(&mut self, config: PruningConfig) {
+        self.pruning_config = config;
+    }
+
+    /// Returns the current pruning configuration.
+    pub fn pruning_config(&self) -> &PruningConfig {
+        &self.pruning_config
     }
 
     /// Adds a new stage to the end of the pipeline.
@@ -418,6 +466,13 @@ impl<P: StageCheckpointProvider> Pipeline<P> {
                 // Notify subscribers about the newly processed block
                 let _ = self.block_tx.send(Some(last_block_processed));
 
+                // Check if we should run pruning
+                if self.should_prune(last_block_processed) {
+                    info!(target: "pipeline", block = %last_block_processed, "Starting pruning.");
+                    self.prune(last_block_processed).await?;
+                    self.last_pruned_block = Some(last_block_processed);
+                }
+
                 if last_block_processed >= tip {
                     info!(target: "pipeline", %tip, "Finished syncing until tip.");
                     self.tip = None;
@@ -439,6 +494,52 @@ impl<P: StageCheckpointProvider> Pipeline<P> {
 
             yield_now().await;
         }
+    }
+
+    /// Determines if pruning should be performed based on the current block and configuration.
+    fn should_prune(&self, current_block: BlockNumber) -> bool {
+        if !self.pruning_config.is_enabled() {
+            return false;
+        }
+
+        let interval = match self.pruning_config.interval {
+            Some(i) => i,
+            None => return false,
+        };
+
+        match self.last_pruned_block {
+            Some(last_pruned) => current_block.saturating_sub(last_pruned) >= interval,
+            None => current_block >= interval,
+        }
+    }
+
+    /// Runs pruning on all stages.
+    async fn prune(&mut self, tip: BlockNumber) -> PipelineResult<()> {
+        if self.stages.is_empty() {
+            return Ok(());
+        }
+
+        let prune_input = PruneInput::new(tip, self.pruning_config.mode);
+
+        for stage in self.stages.iter_mut() {
+            let id = stage.id();
+            let span = info_span!(target: "pipeline", "stage.prune", stage = %id, %tip);
+            let enter = span.entered();
+
+            info!(target: "pipeline", mode = ?self.pruning_config.mode, "Pruning stage.");
+
+            let span_inner = enter.exit();
+            let PruneOutput { pruned_count } = stage
+                .prune(&prune_input)
+                .instrument(span_inner.clone())
+                .await
+                .map_err(|error| Error::StagePruning { id, error })?;
+
+            let _enter = span_inner.enter();
+            info!(target: "pipeline", %pruned_count, "Stage pruning completed.");
+        }
+
+        Ok(())
     }
 }
 
@@ -467,6 +568,8 @@ where
             .field("command", &self.command_rx)
             .field("provider", &self.provider)
             .field("chunk_size", &self.chunk_size)
+            .field("pruning_config", &self.pruning_config)
+            .field("last_pruned_block", &self.last_pruned_block)
             .field("stages", &self.stages.iter().map(|s| s.id()).collect::<Vec<_>>())
             .finish()
     }

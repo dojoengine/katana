@@ -14,7 +14,7 @@ use katana_rpc_types::class::ConversionError;
 use rayon::prelude::*;
 use tracing::{debug, error, info_span, Instrument};
 
-use super::{Stage, StageExecutionInput, StageExecutionOutput, StageResult};
+use super::{PruneInput, PruneOutput, PruneResult, Stage, StageExecutionInput, StageExecutionOutput, StageResult};
 use crate::downloader::{BatchDownloader, Downloader, DownloaderResult};
 
 /// A stage for downloading and storing contract classes.
@@ -156,6 +156,15 @@ where
             }
 
             Ok(StageExecutionOutput { last_block_processed: input.to() })
+        })
+    }
+
+    fn prune<'a>(&'a mut self, _input: &'a PruneInput) -> BoxFuture<'a, PruneResult> {
+        Box::pin(async move {
+            // Classes are immutable once declared and don't need pruning.
+            // A class declared at block N can still be used to deploy contracts at block N+1000.
+            // Therefore, we cannot safely prune classes based on block age alone.
+            Ok(PruneOutput::default())
         })
     }
 }

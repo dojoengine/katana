@@ -17,7 +17,7 @@ use num_traits::ToPrimitive;
 use starknet::core::types::ResourcePrice;
 use tracing::{error, info_span, Instrument};
 
-use crate::{Stage, StageExecutionInput, StageExecutionOutput, StageResult};
+use crate::{PruneInput, PruneOutput, PruneResult, Stage, StageExecutionInput, StageExecutionOutput, StageResult};
 
 mod downloader;
 
@@ -131,6 +131,17 @@ where
             }
 
             Ok(StageExecutionOutput { last_block_processed: input.to() })
+        })
+    }
+
+    fn prune<'a>(&'a mut self, _input: &'a PruneInput) -> BoxFuture<'a, PruneResult> {
+        Box::pin(async move {
+            // TODO: Implement block pruning once the BlockWriter provider API supports it.
+            // For now, this is a no-op. Block pruning would involve:
+            // 1. Determining which blocks to prune based on input.prune_before()
+            // 2. Removing block headers, bodies, receipts, and state updates for those blocks
+            // 3. Ensuring the chain tip and recent blocks remain intact
+            Ok(PruneOutput::default())
         })
     }
 }
