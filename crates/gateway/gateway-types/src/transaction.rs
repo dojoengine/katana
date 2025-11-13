@@ -24,7 +24,6 @@ use katana_primitives::transaction::{
     TxWithHash,
 };
 use katana_primitives::{ContractAddress, Felt};
-use katana_rpc_types::SierraClassAbi;
 use serde::{Deserialize, Deserializer, Serialize};
 
 /// API response for an INVOKE_FUNCTION transaction
@@ -257,13 +256,15 @@ pub struct CompressedSierraClass {
     pub sierra_program: CompressedSierraProgram,
     pub contract_class_version: String,
     pub entry_points_by_type: ContractEntryPoints,
-    pub abi: SierraClassAbi,
+    pub abi: Option<String>,
 }
 
-impl TryFrom<katana_rpc_types::class::SierraClass> for CompressedSierraClass {
+impl TryFrom<katana_rpc_types::class::RpcSierraContractClass> for CompressedSierraClass {
     type Error = CompressedSierraProgramError;
 
-    fn try_from(value: katana_rpc_types::class::SierraClass) -> Result<Self, Self::Error> {
+    fn try_from(
+        value: katana_rpc_types::class::RpcSierraContractClass,
+    ) -> Result<Self, Self::Error> {
         let abi = value.abi;
         let entry_points_by_type = value.entry_points_by_type;
         let contract_class_version = value.contract_class_version;
@@ -272,7 +273,7 @@ impl TryFrom<katana_rpc_types::class::SierraClass> for CompressedSierraClass {
     }
 }
 
-impl TryFrom<CompressedSierraClass> for katana_rpc_types::class::SierraClass {
+impl TryFrom<CompressedSierraClass> for katana_rpc_types::class::RpcSierraContractClass {
     type Error = CompressedSierraProgramError;
 
     fn try_from(value: CompressedSierraClass) -> Result<Self, Self::Error> {
@@ -724,7 +725,7 @@ mod tests {
 
     use katana_primitives::fee::{ResourceBounds, ResourceBoundsMapping, Tip};
     use katana_primitives::{address, Felt};
-    use katana_rpc_types::SierraClass;
+    use katana_rpc_types::RpcSierraContractClass;
 
     use super::*;
 
@@ -772,7 +773,7 @@ mod tests {
 
     #[test]
     fn test_conversion_from_rpc_query_declare_tx() {
-        let sierra_class = Arc::new(katana_rpc_types::class::SierraClass {
+        let sierra_class = Arc::new(katana_rpc_types::class::RpcSierraContractClass {
             sierra_program: vec![Felt::from(0x123), Felt::from(0x456)],
             contract_class_version: "0.1.0".to_string(),
             entry_points_by_type: Default::default(),
@@ -820,7 +821,7 @@ mod tests {
         assert_eq!(gateway_tx.fee_data_availability_mode, rpc_tx.fee_data_availability_mode.into());
 
         // convert the gateway contract class to rpc contract class and ensure they are equal
-        let converted_sierra_class: SierraClass =
+        let converted_sierra_class: RpcSierraContractClass =
             gateway_tx.contract_class.as_ref().clone().try_into().unwrap();
         assert_eq!(converted_sierra_class, sierra_class.as_ref().clone());
     }

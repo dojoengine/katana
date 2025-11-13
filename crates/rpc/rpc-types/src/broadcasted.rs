@@ -15,7 +15,7 @@ use katana_primitives::utils::get_contract_address;
 use katana_primitives::{ContractAddress, Felt};
 use serde::{de, Deserialize, Deserializer, Serialize};
 
-use crate::class::SierraClass;
+use crate::class::RpcSierraContractClass;
 
 pub const QUERY_VERSION_OFFSET: Felt =
     Felt::from_raw([576460752142434320, 18446744073709551584, 17407, 18446744073700081665]);
@@ -71,7 +71,7 @@ pub struct UntypedBroadcastedTx {
     pub compiled_class_hash: Option<CompiledClassHash>,
 
     #[serde(default, skip_serializing_if = "Option::is_none")]
-    pub contract_class: Option<Arc<SierraClass>>,
+    pub contract_class: Option<Arc<RpcSierraContractClass>>,
 
     // Invoke & Declare only field
     #[serde(default, skip_serializing_if = "Option::is_none")]
@@ -476,7 +476,7 @@ pub struct BroadcastedDeclareTx {
     /// a transaction to be valid for execution, the nonce must be equal to the account's current
     /// nonce.
     pub nonce: Nonce,
-    pub contract_class: Arc<SierraClass>,
+    pub contract_class: Arc<RpcSierraContractClass>,
     /// Data needed to allow the paymaster to pay for the transaction in native tokens.
     pub paymaster_data: Vec<Felt>,
     /// The tip for the transaction.

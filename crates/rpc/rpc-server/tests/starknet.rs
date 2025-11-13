@@ -166,9 +166,9 @@ async fn get_compiled_casm() {
     // Setup expected compiled class data to verify against
 
     use katana_primitives::class::{ContractClass, SierraContractClass};
-    use katana_rpc_types::SierraClass as RpcSierraClass;
+    use katana_rpc_types::RpcSierraContractClass;
 
-    let rpc_class = RpcSierraClass::try_from(contract).unwrap();
+    let rpc_class = RpcSierraContractClass::try_from(contract).unwrap();
     let class = SierraContractClass::try_from(rpc_class).unwrap();
     let expected_casm = ContractClass::Class(class).compile().unwrap();
 

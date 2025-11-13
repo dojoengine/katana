@@ -7,12 +7,15 @@ version.workspace = true
 # See more keys and their definitions at https://doc.rust-lang.org/cargo/reference/manifest.html
 
 [dependencies]
+cairo-vm.workspace = true
+cairo-lang-sierra.workspace = true
+cairo-lang-utils.workspace = true
+cairo-lang-starknet-classes.workspace = true
+
 anyhow.workspace = true
 arbitrary = { workspace = true, optional = true }
 blockifier = { workspace = true, features = [ "testing" ] } # some Clone derives are gated behind 'testing' feature
 cainome-cairo-serde.workspace = true
-cairo-lang-starknet-classes.workspace = true
-cairo-vm.workspace = true
 derive_more.workspace = true
 heapless = { version = "0.8.0", features = [ "serde" ] }
 lazy_static.workspace = true

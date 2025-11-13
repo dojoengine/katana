@@ -12,7 +12,6 @@ katana-genesis.workspace = true
 katana-trie.workspace = true
 serde-utils.workspace = true
 
-derive_more.workspace = true
 cainome.workspace = true
 cainome-cairo-serde.workspace = true
 cairo-lang-starknet-classes.workspace = true
