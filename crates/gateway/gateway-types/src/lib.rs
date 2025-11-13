@@ -27,7 +27,7 @@ use katana_primitives::class::{ClassHash, CompiledClassHash};
 use katana_primitives::contract::{Nonce, StorageKey, StorageValue};
 use katana_primitives::da::L1DataAvailabilityMode;
 use katana_primitives::{ContractAddress, Felt};
-pub use katana_rpc_types::class::SierraClass;
+pub use katana_rpc_types::class::RpcSierraContractClass;
 use serde::{Deserialize, Serialize};
 use starknet::core::types::ResourcePrice;
 

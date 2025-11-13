@@ -74,7 +74,7 @@ impl<Db: Database> StateWriter for DbProvider<Db> {
 impl<Db: Database> ContractClassWriter for DbProvider<Db> {
     fn set_class(&self, hash: ClassHash, class: ContractClass) -> ProviderResult<()> {
         self.0.update(move |db_tx| -> ProviderResult<()> {
-            db_tx.put::<tables::Classes>(hash, class)?;
+            db_tx.put::<tables::Classes>(hash, class.into())?;
             Ok(())
         })?
     }
@@ -106,7 +106,7 @@ where
     Tx: DbTx + Send + Sync,
 {
     fn class(&self, hash: ClassHash) -> ProviderResult<Option<ContractClass>> {
-        Ok(self.0.get::<tables::Classes>(hash)?)
+        Ok(self.0.get::<tables::Classes>(hash)?.map(|class| class.into()))
     }
 
     fn compiled_class_hash_of_class_hash(
@@ -236,7 +236,7 @@ where
 {
     fn class(&self, hash: ClassHash) -> ProviderResult<Option<ContractClass>> {
         if self.is_class_declared_before_block(hash)? {
-            Ok(self.tx.get::<tables::Classes>(hash)?)
+            Ok(self.tx.get::<tables::Classes>(hash)?.map(Into::into))
         } else {
             Ok(None)
         }

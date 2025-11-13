@@ -250,7 +250,12 @@ impl ClassCache {
                 use cairo_native::OptLevel;
 
                 #[cfg(feature = "native")]
-                let program = sierra.extract_sierra_program().unwrap();
+                let program = cairo_lang_starknet_classes::contract_class::ContractClass::from(
+                    sierra.clone(), // TODO: avoid cloning here
+                )
+                .extract_sierra_program()
+                .unwrap();
+
                 #[cfg(feature = "native")]
                 let entry_points = sierra.entry_points_by_type.clone();
 

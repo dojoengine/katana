@@ -76,7 +76,7 @@ where
         if let Some(class) = self.provider.class(hash)? {
             Ok(Some(class))
         } else if let Some(class) = self.backend.get_class_at(hash)? {
-            self.db.db().update(|tx| tx.put::<tables::Classes>(hash, class.clone()))??;
+            self.db.db().update(|tx| tx.put::<tables::Classes>(hash, class.clone().into()))??;
             Ok(Some(class))
         } else {
             Ok(None)
@@ -225,7 +225,7 @@ impl<Db: Database> ContractClassProvider for HistoricalStateProvider<Db> {
         if let res @ Some(..) = self.provider.class(hash)? {
             Ok(res)
         } else if let Some(class) = self.backend.get_class_at(hash)? {
-            self.db.db().tx_mut()?.put::<tables::Classes>(hash, class.clone())?;
+            self.db.db().tx_mut()?.put::<tables::Classes>(hash, class.clone().into())?;
             Ok(Some(class))
         } else {
             Ok(None)
