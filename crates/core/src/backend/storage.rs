@@ -141,7 +141,7 @@ impl Blockchain {
 
         // TODO: convert this to block number instead of BlockHashOrNumber so that it is easier to
         // check if the requested block is within the supported range or not.
-        let database = ForkedProvider::new(db, block_id, provider.clone());
+        let database = ForkedProvider::new(db, block_num, provider.clone());
 
         // initialize parent fork block
         //
