@@ -3,7 +3,6 @@
 use std::future::IntoFuture;
 use std::sync::Arc;
 
-use alloy_provider::RootProvider;
 use anyhow::Result;
 use http::header::CONTENT_TYPE;
 use http::Method;
@@ -65,7 +64,6 @@ pub struct Config {
     pub rpc: RpcConfig,
     pub metrics: Option<MetricsConfig>,
     pub gateway_api_key: Option<String>,
-    pub eth_rpc_url: String,
     pub network: Network,
 }
 
@@ -78,7 +76,7 @@ pub struct Node {
     pub pipeline: Pipeline<DbProvider>,
     pub rpc_server: RpcServer,
     pub gateway_client: SequencerGateway,
-    pub chain_tip_watcher: ChainTipWatcher<RootProvider>,
+    pub chain_tip_watcher: ChainTipWatcher<SequencerGateway>,
 }
 
 impl Node {
@@ -129,18 +127,9 @@ impl Node {
         pipeline.add_stage(Classes::new(provider.clone(), gateway_client.clone(), 8));
         pipeline.add_stage(StateTrie::new(provider.clone()));
 
-        // --
+        // -- build chain tip watcher using gateway client
 
-        let core_contract = match config.network {
-            Network::Mainnet => {
-                katana_starknet::StarknetCore::new_http_mainnet(&config.eth_rpc_url)?
-            }
-            Network::Sepolia => {
-                katana_starknet::StarknetCore::new_http_sepolia(&config.eth_rpc_url)?
-            }
-        };
-
-        let chain_tip_watcher = ChainTipWatcher::new(core_contract);
+        let chain_tip_watcher = ChainTipWatcher::new(gateway_client.clone());
 
         let preconf_factory = PreconfStateFactory::new(
             provider.clone(),
