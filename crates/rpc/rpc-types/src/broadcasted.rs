@@ -1,5 +1,6 @@
 use std::sync::Arc;
 
+use katana_pool_api::PoolTransaction;
 use katana_primitives::chain::ChainId;
 use katana_primitives::class::{
     ClassHash, CompiledClassHash, ComputeClassHashError, ContractClass, SierraContractClass,
@@ -387,6 +388,41 @@ impl BroadcastedTxWithChainId {
                 });
                 deploy_account_tx.calculate_hash(is_query)
             }
+        }
+    }
+}
+
+impl PoolTransaction for BroadcastedTxWithChainId {
+    fn hash(&self) -> TxHash {
+        self.calculate_hash()
+    }
+
+    fn nonce(&self) -> Nonce {
+        match &self.tx {
+            BroadcastedTx::Invoke(tx) => tx.nonce,
+            BroadcastedTx::Declare(tx) => tx.nonce,
+            BroadcastedTx::DeployAccount(tx) => tx.nonce,
+        }
+    }
+
+    fn sender(&self) -> ContractAddress {
+        match &self.tx {
+            BroadcastedTx::Invoke(tx) => tx.sender_address,
+            BroadcastedTx::Declare(tx) => tx.sender_address,
+            BroadcastedTx::DeployAccount(tx) => tx.contract_address(),
+        }
+    }
+
+    fn max_fee(&self) -> u128 {
+        // V3 transactions don't have max_fee, they use resource bounds instead
+        0
+    }
+
+    fn tip(&self) -> u64 {
+        match &self.tx {
+            BroadcastedTx::Invoke(tx) => tx.tip.into(),
+            BroadcastedTx::Declare(tx) => tx.tip.into(),
+            BroadcastedTx::DeployAccount(tx) => tx.tip.into(),
         }
     }
 }

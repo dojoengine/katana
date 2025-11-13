@@ -14,7 +14,6 @@ use katana_stage::trie::StateTrie;
 use katana_stage::{Stage, StageExecutionInput};
 use rstest::rstest;
 use starknet::macros::short_string;
-use starknet::providers::sequencer::models::state_update;
 use starknet_types_core::hash::{Poseidon, StarkHash};
 
 /// Mock provider implementation for testing StateTrie stage.

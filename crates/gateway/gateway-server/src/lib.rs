@@ -6,6 +6,7 @@ use axum::routing::get;
 use axum::Router;
 use katana_core::service::block_producer::BlockProducer;
 use katana_executor::implementation::blockifier::BlockifierFactory;
+use katana_pool_api::TransactionPool;
 use katana_rpc_server::cors::Cors;
 use katana_rpc_server::starknet::StarknetApi;
 use tokio::net::TcpListener;
@@ -69,20 +70,21 @@ impl GatewayServerHandle {
 
 /// The feeder gateway server.
 #[derive(Debug)]
-pub struct GatewayServer {
+pub struct GatewayServer<Pool: TransactionPool> {
     timeout: Duration,
     cors: Option<Cors>,
     health_check: bool,
     metered: bool,
 
-    starknet_api: StarknetApi<katana_pool::TxPool, BlockProducer<BlockifierFactory>>,
+    starknet_api: StarknetApi<Pool, BlockProducer<BlockifierFactory>>,
 }
 
-impl GatewayServer {
+impl<Pool> GatewayServer<Pool>
+where
+    Pool: TransactionPool + Clone + Send + Sync + 'static,
+{
     /// Create a new feeder gateway server.
-    pub fn new(
-        starknet_api: StarknetApi<katana_pool::TxPool, BlockProducer<BlockifierFactory>>,
-    ) -> Self {
+    pub fn new(starknet_api: StarknetApi<Pool, BlockProducer<BlockifierFactory>>) -> Self {
         Self {
             timeout: DEFAULT_GATEWAY_TIMEOUT,
             cors: None,

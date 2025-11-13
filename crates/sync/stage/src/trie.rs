@@ -44,11 +44,12 @@ where
                 let span = debug_span!("state_trie.compute_state_root", %block_number);
                 let _enter = span.enter();
 
-                let expected_state_root = self
+                let header = self
                     .provider
                     .header(block_number.into())?
-                    .map(|header| header.state_root)
                     .ok_or(Error::MissingBlockHeader(block_number))?;
+
+                let expected_state_root = header.state_root;
 
                 let state_update = self
                     .provider

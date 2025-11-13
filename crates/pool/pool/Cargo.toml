@@ -8,10 +8,10 @@ version.workspace = true
 
 [dependencies]
 katana-executor.workspace = true
+katana-chain-spec.workspace = true
 katana-pool-api.workspace = true
 katana-primitives.workspace = true
 katana-provider.workspace = true
-katana-chain-spec.workspace = true
 
 futures.workspace = true
 parking_lot.workspace = true

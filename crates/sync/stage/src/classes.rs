@@ -12,7 +12,7 @@ use katana_provider::api::state_update::StateUpdateProvider;
 use katana_provider::api::ProviderError;
 use katana_rpc_types::class::ConversionError;
 use rayon::prelude::*;
-use tracing::{debug, error};
+use tracing::{debug, error, info_span, Instrument};
 
 use super::{Stage, StageExecutionInput, StageExecutionOutput, StageResult};
 use crate::downloader::{BatchDownloader, Downloader, DownloaderResult};
@@ -130,11 +130,16 @@ where
         Box::pin(async move {
             let declared_class_hashes = self.get_declared_classes(input.from(), input.to())?;
 
-            if !declared_class_hashes.is_empty() {
+            if declared_class_hashes.is_empty() {
+                debug!(from = %input.from(), to = %input.to(), "No classes declared within the block range");
+            } else {
+                let total_classes = declared_class_hashes.len();
+
                 // fetch the classes artifacts
                 let class_artifacts = self
                     .downloader
                     .download(declared_class_hashes.clone())
+                    .instrument(info_span!(target: "stage", "classes.download", %total_classes))
                     .await
                     .map_err(Error::Gateway)?;
 

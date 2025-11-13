@@ -1,5 +1,6 @@
 use bitvec::view::AsBits;
 pub use bonsai::{BitVec, MultiProof, Path, ProofNode};
+pub use bonsai_trie::databases::HashMapDb;
 use bonsai_trie::BonsaiStorage;
 pub use bonsai_trie::{BonsaiDatabase, BonsaiPersistentDatabase, BonsaiStorageConfig};
 use katana_primitives::class::ClassHash;

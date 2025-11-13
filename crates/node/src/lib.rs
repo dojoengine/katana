@@ -67,7 +67,7 @@ pub struct Node {
     task_manager: TaskManager,
     backend: Arc<Backend<BlockifierFactory>>,
     block_producer: BlockProducer<BlockifierFactory>,
-    gateway_server: Option<GatewayServer>,
+    gateway_server: Option<GatewayServer<TxPool>>,
 }
 
 impl Node {
