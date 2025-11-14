@@ -53,12 +53,6 @@ impl MockProvider {
         self
     }
 
-    /// Configure the mock to fail on trie operations.
-    fn with_trie_error(self) -> Self {
-        *self.should_fail.lock().unwrap() = true;
-        self
-    }
-
     /// Get all block numbers that had trie inserts called.
     fn trie_insert_blocks(&self) -> Vec<BlockNumber> {
         self.trie_insert_calls.lock().unwrap().clone()
