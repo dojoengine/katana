@@ -11,7 +11,7 @@ use crate::paymaster::{Error, Paymaster};
 use crate::rpc::types::{
     Call, NonceChannel, OutsideExecution, OutsideExecutionV2, OutsideExecutionV3,
 };
-use crate::vrf::{VrfContext, CARTRIDGE_VRF_CLASS_HASH, CARTRIDGE_VRF_SALT};
+use crate::vrf::{StarkVrfProof, VrfContext, CARTRIDGE_VRF_CLASS_HASH, CARTRIDGE_VRF_SALT};
 use assert_matches::assert_matches;
 use futures::StreamExt;
 use katana_core::service::block_producer::BlockProducer;
@@ -306,6 +306,8 @@ fn assert_outside_execution_v2(
     expected_nonce: Felt,
     vrf_address: ContractAddress,
     paymaster_address: ContractAddress,
+    seed: Option<Felt>,
+    proof: Option<StarkVrfProof>,
 ) {
     assert_eq!(new_outside_execution.caller(), paymaster_address);
 
@@ -319,6 +321,18 @@ fn assert_outside_execution_v2(
         assert_eq!(v2.calls[0].to, vrf_address);
         assert_eq!(v2.calls[0].selector, selector!("submit_random"));
         assert_eq!(v2.calls[0].calldata.len(), 6);
+
+        if let Some(seed) = seed {
+            assert_eq!(v2.calls[0].calldata[0], seed);
+        }
+
+        if let Some(proof) = proof {
+            assert_eq!(v2.calls[0].calldata[1], Felt::from_hex_unchecked(&proof.gamma_x));
+            assert_eq!(v2.calls[0].calldata[2], Felt::from_hex_unchecked(&proof.gamma_y));
+            assert_eq!(v2.calls[0].calldata[3], Felt::from_hex_unchecked(&proof.c));
+            assert_eq!(v2.calls[0].calldata[4], Felt::from_hex_unchecked(&proof.s));
+            assert_eq!(v2.calls[0].calldata[5], Felt::from_hex_unchecked(&proof.sqrt_ratio));
+        }
 
         // second call should be the request_random from the initial outside execution
         assert_eq!(v2.calls[1].to, vrf_address);
@@ -343,6 +357,10 @@ fn assert_outside_execution_v2(
         assert_eq!(v2.calls[last_call_index].to, vrf_address);
         assert_eq!(v2.calls[last_call_index].selector, selector!("assert_consumed"));
         assert_eq!(v2.calls[last_call_index].calldata.len(), 1);
+
+        if let Some(seed) = seed {
+            assert_eq!(v2.calls[last_call_index].calldata[0], seed);
+        }
     } else {
         panic!("expected OutsideExecution::V2");
     }
@@ -354,6 +372,8 @@ fn assert_outside_execution_v3(
     expected_nonce: Felt,
     vrf_address: ContractAddress,
     paymaster_address: ContractAddress,
+    seed: Option<Felt>,
+    proof: Option<StarkVrfProof>,
 ) {
     assert_eq!(new_outside_execution.caller(), paymaster_address);
 
@@ -367,6 +387,18 @@ fn assert_outside_execution_v3(
         assert_eq!(v3.calls[0].to, vrf_address);
         assert_eq!(v3.calls[0].selector, selector!("submit_random"));
         assert_eq!(v3.calls[0].calldata.len(), 6);
+
+        if let Some(seed) = seed {
+            assert_eq!(v3.calls[0].calldata[0], seed);
+        }
+
+        if let Some(proof) = proof {
+            assert_eq!(v3.calls[0].calldata[1], Felt::from_hex_unchecked(&proof.gamma_x));
+            assert_eq!(v3.calls[0].calldata[2], Felt::from_hex_unchecked(&proof.gamma_y));
+            assert_eq!(v3.calls[0].calldata[3], Felt::from_hex_unchecked(&proof.c));
+            assert_eq!(v3.calls[0].calldata[4], Felt::from_hex_unchecked(&proof.s));
+            assert_eq!(v3.calls[0].calldata[5], Felt::from_hex_unchecked(&proof.sqrt_ratio));
+        }
 
         // second call should be the request_random from the initial outside execution
         assert_eq!(v3.calls[1].to, vrf_address);
@@ -391,6 +423,10 @@ fn assert_outside_execution_v3(
         assert_eq!(v3.calls[last_call_index].to, vrf_address);
         assert_eq!(v3.calls[last_call_index].selector, selector!("assert_consumed"));
         assert_eq!(v3.calls[last_call_index].calldata.len(), 1);
+
+        if let Some(seed) = seed {
+            assert_eq!(v3.calls[last_call_index].calldata[0], seed);
+        }
     } else {
         panic!("expected OutsideExecution::V3");
     }
@@ -737,13 +773,23 @@ async fn test_cartridge_outside_execution_when_vrf_is_not_deployed() {
         setup_mocks(&mut server, &[(&CONTROLLER_ADDRESS_2.to_hex_string(), true, true)]).await;
 
     let fake_calls_count = 3;
+
+    // use a salt source
+    let salt = felt!("0xdeadbeef");
     let outside_execution = craft_valid_outside_execution_v2(
         ContractAddress::from(CONTROLLER_ADDRESS_2),
         vrf_address,
         fake_calls_count,
         None,
-        None,
+        Some(vec![CONTROLLER_ADDRESS_2, Felt::ONE, salt]),
     );
+
+    let expected_seed = starknet_crypto::poseidon_hash_many(vec![
+        &salt,
+        &CONTROLLER_ADDRESS_2,
+        &paymaster.chain_id.id(),
+    ]);
+    let expected_proof = paymaster.vrf_ctx.stark_vrf(expected_seed).unwrap();
 
     let res = paymaster
         .handle_add_outside_execution(
@@ -760,6 +806,8 @@ async fn test_cartridge_outside_execution_when_vrf_is_not_deployed() {
         Felt::TWO,
         vrf_address,
         paymaster.paymaster_address,
+        Some(expected_seed),
+        Some(expected_proof),
     );
 
     assert_eq!(paymaster.pool.size(), 2);
@@ -800,13 +848,27 @@ async fn test_cartridge_outside_execution_when_vrf_is_already_deployed() {
         setup_mocks(&mut server, &[(&controller_address.to_hex_string(), true, true)]).await;
 
     let fake_calls_count = 3;
+
+    // consume some nonces to ensure the nonce is not 0
+    paymaster.vrf_ctx.consume_nonce(CONTROLLER_ADDRESS_1.into());
+    paymaster.vrf_ctx.consume_nonce(CONTROLLER_ADDRESS_1.into());
+    let nonce = paymaster.vrf_ctx.consume_nonce(CONTROLLER_ADDRESS_1.into());
+
+    // use a nonce source
     let outside_execution = craft_valid_outside_execution_v3(
         *controller_address,
         vrf_address,
         fake_calls_count,
         None,
-        None,
+        Some(vec![CONTROLLER_ADDRESS_1, Felt::ZERO, CONTROLLER_ADDRESS_1]),
     );
+
+    let expected_seed = starknet_crypto::poseidon_hash_many(vec![
+        &(nonce + Felt::ONE),
+        &CONTROLLER_ADDRESS_1,
+        &paymaster.chain_id.id(),
+    ]);
+    let expected_proof = paymaster.vrf_ctx.stark_vrf(expected_seed).unwrap();
 
     let res = paymaster
         .handle_add_outside_execution(*controller_address, outside_execution, vec![])
@@ -819,6 +881,8 @@ async fn test_cartridge_outside_execution_when_vrf_is_already_deployed() {
         Felt::ZERO,
         vrf_address,
         paymaster.paymaster_address,
+        Some(expected_seed),
+        Some(expected_proof),
     );
 
     assert_eq!(paymaster.pool.size(), 0);
@@ -1000,6 +1064,3 @@ async fn test_cartridge_outside_execution_when_paymaster_is_not_properly_configu
     assert_matches!(res.unwrap_err(), Error::PaymasterNotFound(_));
     assert_mocks(&mocks);
 }
-
-// TODO:
-// - check VRF mechanism with nonce storage
