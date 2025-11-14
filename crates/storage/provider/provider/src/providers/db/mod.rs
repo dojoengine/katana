@@ -823,7 +823,7 @@ mod tests {
     use katana_provider_api::transaction::TransactionProvider;
     use starknet::macros::felt;
 
-    use super::DbProvider;
+    use crate::{DbProviderFactory, ProviderFactory};
 
     fn create_dummy_block() -> SealedBlockWithStatus {
         let header = Header { parent_hash: 199u8.into(), number: 0, ..Default::default() };
@@ -888,31 +888,32 @@ mod tests {
         }
     }
 
-    fn create_db_provider() -> DbProvider {
-        DbProvider::new_in_memory()
+    fn create_db_provider() -> DbProviderFactory {
+        DbProviderFactory::new_in_memory()
     }
 
     #[test]
     fn insert_block() {
         let provider = create_db_provider();
+        let provider = provider.provider_mut();
         let block = create_dummy_block();
         let state_updates = create_dummy_state_updates();
 
         // insert block
-        BlockWriter::insert_block_with_states_and_receipts(
-            &provider,
-            block.clone(),
-            state_updates,
-            vec![Receipt::Invoke(InvokeTxReceipt {
-                revert_error: None,
-                events: Vec::new(),
-                messages_sent: Vec::new(),
-                fee: FeeInfo::default(),
-                execution_resources: Default::default(),
-            })],
-            vec![TypedTransactionExecutionInfo::default()],
-        )
-        .expect("failed to insert block");
+        provider
+            .insert_block_with_states_and_receipts(
+                block.clone(),
+                state_updates,
+                vec![Receipt::Invoke(InvokeTxReceipt {
+                    revert_error: None,
+                    events: Vec::new(),
+                    messages_sent: Vec::new(),
+                    fee: FeeInfo::default(),
+                    execution_resources: Default::default(),
+                })],
+                vec![TypedTransactionExecutionInfo::default()],
+            )
+            .expect("failed to insert block");
 
         // get values
 
@@ -929,7 +930,7 @@ mod tests {
         let tx_hash: TxHash = 24u8.into();
         let tx = provider.transaction_by_hash(tx_hash).unwrap().unwrap();
 
-        let state_prov = StateFactoryProvider::latest(&provider).unwrap();
+        let state_prov = provider.latest().unwrap();
 
         let nonce1 = state_prov.nonce(address!("1")).unwrap().unwrap();
         let nonce2 = state_prov.nonce(address!("2")).unwrap().unwrap();
@@ -975,42 +976,43 @@ mod tests {
     #[test]
     fn storage_updated_correctly() {
         let provider = create_db_provider();
+        let provider = provider.provider_mut();
 
         let block = create_dummy_block();
         let state_updates1 = create_dummy_state_updates();
         let state_updates2 = create_dummy_state_updates_2();
 
         // insert block
-        BlockWriter::insert_block_with_states_and_receipts(
-            &provider,
-            block.clone(),
-            state_updates1,
-            vec![Receipt::Invoke(InvokeTxReceipt {
-                revert_error: None,
-                events: Vec::new(),
-                messages_sent: Vec::new(),
-                fee: FeeInfo::default(),
-                execution_resources: Default::default(),
-            })],
-            vec![TypedTransactionExecutionInfo::default()],
-        )
-        .expect("failed to insert block");
+        provider
+            .insert_block_with_states_and_receipts(
+                block.clone(),
+                state_updates1,
+                vec![Receipt::Invoke(InvokeTxReceipt {
+                    revert_error: None,
+                    events: Vec::new(),
+                    messages_sent: Vec::new(),
+                    fee: FeeInfo::default(),
+                    execution_resources: Default::default(),
+                })],
+                vec![TypedTransactionExecutionInfo::default()],
+            )
+            .expect("failed to insert block");
 
         // insert another block
-        BlockWriter::insert_block_with_states_and_receipts(
-            &provider,
-            block,
-            state_updates2,
-            vec![Receipt::Invoke(InvokeTxReceipt {
-                revert_error: None,
-                events: Vec::new(),
-                messages_sent: Vec::new(),
-                fee: FeeInfo::default(),
-                execution_resources: Default::default(),
-            })],
-            vec![TypedTransactionExecutionInfo::default()],
-        )
-        .expect("failed to insert block");
+        provider
+            .insert_block_with_states_and_receipts(
+                block,
+                state_updates2,
+                vec![Receipt::Invoke(InvokeTxReceipt {
+                    revert_error: None,
+                    events: Vec::new(),
+                    messages_sent: Vec::new(),
+                    fee: FeeInfo::default(),
+                    execution_resources: Default::default(),
+                })],
+                vec![TypedTransactionExecutionInfo::default()],
+            )
+            .expect("failed to insert block");
 
         // assert storage is updated correctly
 

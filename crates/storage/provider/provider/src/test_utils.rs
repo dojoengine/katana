@@ -8,12 +8,12 @@ use katana_primitives::utils::class::parse_sierra_class;
 use katana_primitives::{address, felt, U256};
 use katana_provider_api::block::BlockWriter;
 
-use crate::providers::db::DbProvider;
+use crate::{DbProviderFactory, ProviderFactory};
 
 /// Creates a persistent storage provider with initial states loaded for testin.
-pub fn test_provider() -> DbProvider {
-    let provider = DbProvider::new_in_memory();
-    initialize_test_provider(&provider);
+pub fn test_provider() -> DbProviderFactory<katana_db::Db> {
+    let provider = DbProviderFactory::new_in_memory();
+    initialize_test_provider(&provider.provider_mut());
     provider
 }
 

@@ -6,6 +6,7 @@ use katana_gas_price_oracle::GasPriceOracle;
 use katana_primitives::transaction::{ExecutableTx, InvokeTx};
 use katana_primitives::Felt;
 use katana_provider::providers::db::DbProvider;
+use katana_provider::DbProviderFactory;
 
 use super::*;
 use crate::backend::storage::Blockchain;
@@ -13,7 +14,7 @@ use crate::backend::storage::Blockchain;
 fn test_backend() -> Arc<Backend<NoopExecutorFactory>> {
     let chain_spec = Arc::new(ChainSpec::dev());
     let executor_factory = NoopExecutorFactory::new();
-    let blockchain = Blockchain::new(DbProvider::new_in_memory());
+    let blockchain = Blockchain::new(DbProviderFactory::new_in_memory());
     let gas_oracle = GasPriceOracle::create_for_testing();
     let backend = Arc::new(Backend::new(chain_spec, blockchain, gas_oracle, executor_factory));
     backend.init_genesis().expect("failed to initialize genesis");

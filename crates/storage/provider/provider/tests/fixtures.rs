@@ -11,7 +11,6 @@ use katana_primitives::state::{StateUpdates, StateUpdatesWithClasses};
 use katana_provider::api::block::BlockWriter;
 use katana_provider::api::state::StateFactoryProvider;
 use katana_provider::providers::db::DbProvider;
-use katana_provider::BlockchainProvider;
 use lazy_static::lazy_static;
 use starknet::macros::felt;
 

@@ -16,7 +16,6 @@ use katana_provider::api::transaction::{
 use katana_provider::api::trie::TrieWriter;
 use katana_provider::providers::db::DbProvider;
 use katana_provider::providers::fork::ForkedProvider;
-use katana_provider::BlockchainProvider;
 use katana_rpc_client::starknet::Client as StarknetClient;
 use katana_rpc_client::HttpClientBuilder;
 use katana_rpc_types::GetBlockWithTxHashesResponse;
@@ -76,11 +75,11 @@ impl<T> DatabaseRW for T where
 
 #[derive(Debug, Clone)]
 pub struct Blockchain {
-    inner: BlockchainProvider<Box<dyn Database>>,
+    inner: BlockchainProvider<Box<dyn DatabaseRW>>,
 }
 
 impl Blockchain {
-    pub fn new(provider: impl Database) -> Self {
+    pub fn new(provider: impl DatabaseRW) -> Self {
         Self { inner: BlockchainProvider::new(Box::new(provider)) }
     }
 

@@ -1,6 +1,6 @@
 use std::collections::BTreeMap;
 
-use katana_db::abstraction::{Database, DbTxMut};
+use katana_db::abstraction::DbTxMut;
 use katana_primitives::block::BlockNumber;
 use katana_primitives::class::{ClassHash, CompiledClassHash};
 use katana_primitives::state::StateUpdates;

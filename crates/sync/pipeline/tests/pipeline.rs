@@ -8,6 +8,7 @@ use katana_pipeline::Pipeline;
 use katana_primitives::block::BlockNumber;
 use katana_provider::api::stage::StageCheckpointProvider;
 use katana_provider::test_utils::test_provider;
+use katana_provider::ProviderFactory;
 use katana_stage::{Stage, StageExecutionInput, StageExecutionOutput, StageResult};
 
 /// Simple mock stage that does nothing
@@ -139,6 +140,7 @@ impl Stage for FixedOutputStage {
 #[tokio::test]
 async fn run_to_executes_stage_to_target() {
     let provider = test_provider();
+    let provider = provider.provider_mut();
     let (mut pipeline, handle) = Pipeline::new(provider.clone(), 10);
 
     let stage = TrackingStage::new("Stage1");
@@ -160,6 +162,7 @@ async fn run_to_executes_stage_to_target() {
 #[tokio::test]
 async fn run_to_skips_stage_when_checkpoint_equals_target() {
     let provider = test_provider();
+    let provider = provider.provider_mut();
     let (mut pipeline, handle) = Pipeline::new(provider.clone(), 10);
 
     let stage = TrackingStage::new("Stage1");
@@ -179,6 +182,7 @@ async fn run_to_skips_stage_when_checkpoint_equals_target() {
 #[tokio::test]
 async fn run_to_skips_stage_when_checkpoint_exceeds_target() {
     let provider = test_provider();
+    let provider = provider.provider_mut();
     let (mut pipeline, handle) = Pipeline::new(provider.clone(), 10);
 
     let stage = TrackingStage::new("Stage1");
@@ -198,6 +202,7 @@ async fn run_to_skips_stage_when_checkpoint_exceeds_target() {
 #[tokio::test]
 async fn run_to_uses_checkpoint_plus_one_as_from() {
     let provider = test_provider();
+    let provider = provider.provider_mut();
     let (mut pipeline, handle) = Pipeline::new(provider.clone(), 10);
 
     let stage = TrackingStage::new("Stage1");
@@ -224,6 +229,7 @@ async fn run_to_uses_checkpoint_plus_one_as_from() {
 #[tokio::test]
 async fn run_to_executes_all_stages_in_order() {
     let provider = test_provider();
+    let provider = provider.provider_mut();
     let (mut pipeline, handle) = Pipeline::new(provider.clone(), 10);
 
     let stage1 = TrackingStage::new("Stage1");
@@ -257,6 +263,7 @@ async fn run_to_executes_all_stages_in_order() {
 #[tokio::test]
 async fn run_to_with_mixed_checkpoints() {
     let provider = test_provider();
+    let provider = provider.provider_mut();
     let (mut pipeline, handle) = Pipeline::new(provider.clone(), 10);
 
     let stage1 = TrackingStage::new("Stage1");
@@ -300,6 +307,7 @@ async fn run_to_with_mixed_checkpoints() {
 #[tokio::test]
 async fn run_to_returns_minimum_last_block_processed() {
     let provider = test_provider();
+    let provider = provider.provider_mut();
     let (mut pipeline, handle) = Pipeline::new(provider.clone(), 10);
 
     let stage1 = FixedOutputStage::new("Stage1", 10);
@@ -333,6 +341,7 @@ async fn run_to_returns_minimum_last_block_processed() {
 #[tokio::test]
 async fn run_to_middle_stage_skip_continues() {
     let provider = test_provider();
+    let provider = provider.provider_mut();
     let (mut pipeline, handle) = Pipeline::new(provider.clone(), 10);
 
     let stage1 = TrackingStage::new("Stage1");
@@ -437,6 +446,7 @@ async fn run_processes_multiple_chunks_to_tip() {
 #[tokio::test]
 async fn run_processes_new_tip_after_completing_previous() {
     let provider = test_provider();
+    let provider = provider.provider_mut();
     let (mut pipeline, handle) = Pipeline::new(provider.clone(), 10);
 
     let stage = TrackingStage::new("Stage1");
@@ -518,6 +528,7 @@ async fn run_should_be_cancelled_if_stop_requested() {
 #[tokio::test]
 async fn stage_execution_error_stops_pipeline() {
     let provider = test_provider();
+    let provider = provider.provider_mut();
     let (mut pipeline, handle) = Pipeline::new(provider.clone(), 10);
 
     let stage = FailingStage::new("Stage1");
@@ -537,6 +548,7 @@ async fn stage_execution_error_stops_pipeline() {
 #[tokio::test]
 async fn stage_error_doesnt_affect_subsequent_runs() {
     let provider = test_provider();
+    let provider = provider.provider_mut();
     let (mut pipeline, handle) = Pipeline::new(provider.clone(), 10);
 
     let stage1 = FailingStage::new("FailStage");
@@ -569,6 +581,7 @@ async fn stage_error_doesnt_affect_subsequent_runs() {
 #[tokio::test]
 async fn empty_pipeline_returns_target() {
     let provider = test_provider();
+    let provider = provider.provider_mut();
     let (mut pipeline, handle) = Pipeline::new(provider.clone(), 10);
 
     // No stages added
@@ -581,6 +594,7 @@ async fn empty_pipeline_returns_target() {
 #[tokio::test]
 async fn tip_equals_checkpoint_no_execution() {
     let provider = test_provider();
+    let provider = provider.provider_mut();
     let (mut pipeline, handle) = Pipeline::new(provider.clone(), 10);
 
     let stage = TrackingStage::new("Stage1");
@@ -601,6 +615,7 @@ async fn tip_equals_checkpoint_no_execution() {
 #[tokio::test]
 async fn tip_less_than_checkpoint_skip_all() {
     let provider = test_provider();
+    let provider = provider.provider_mut();
     let (mut pipeline, handle) = Pipeline::new(provider.clone(), 10);
 
     let stage = TrackingStage::new("Stage1");
@@ -621,6 +636,7 @@ async fn tip_less_than_checkpoint_skip_all() {
 #[tokio::test]
 async fn chunk_size_one_executes_block_by_block() {
     let provider = test_provider();
+    let provider = provider.provider_mut();
     let (mut pipeline, handle) = Pipeline::new(provider.clone(), 1);
 
     let stage = TrackingStage::new("Stage1");
@@ -651,6 +667,7 @@ async fn chunk_size_one_executes_block_by_block() {
 #[tokio::test]
 async fn stage_checkpoint() {
     let provider = test_provider();
+    let provider = provider.provider_mut();
 
     let (mut pipeline, handle) = Pipeline::new(provider.clone(), 10);
     pipeline.add_stage(MockStage);

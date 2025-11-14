@@ -20,6 +20,7 @@ use katana_primitives::transaction::TxType;
 use katana_primitives::Felt;
 use katana_provider::api::state::StateFactoryProvider;
 use katana_provider::providers::db::DbProvider;
+use katana_provider::{DbProviderFactory, ProviderFactory};
 use url::Url;
 
 fn chain_spec(n_dev_accounts: u16, with_balance: bool) -> ChainSpec {
@@ -65,7 +66,8 @@ fn executor(chain_spec: ChainSpec) -> BlockifierFactory {
 fn valid_transactions() {
     let chain_spec = chain_spec(1, true);
 
-    let provider = DbProvider::new_in_memory();
+    let provider = DbProviderFactory::new_in_memory();
+    let provider = provider.provider();
     let ef = executor(chain_spec.clone());
 
     let mut executor = ef.with_state(provider.latest().unwrap());
@@ -82,7 +84,8 @@ fn valid_transactions() {
 fn genesis_states() {
     let chain_spec = chain_spec(1, true);
 
-    let provider = DbProvider::new_in_memory();
+    let provider = DbProviderFactory::new_in_memory();
+    let provider = provider.provider();
     let ef = executor(chain_spec.clone());
 
     let mut executor = ef.with_state(provider.latest().unwrap());

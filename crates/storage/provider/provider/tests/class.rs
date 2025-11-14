@@ -6,7 +6,6 @@ use katana_primitives::block::{BlockHashOrNumber, BlockNumber};
 use katana_primitives::class::{ClassHash, CompiledClassHash, ContractClass};
 use katana_provider::api::contract::ContractClassProviderExt;
 use katana_provider::api::state::{StateFactoryProvider, StateProvider};
-use katana_provider::BlockchainProvider;
 use rstest_reuse::{self, *};
 use starknet::macros::felt;
 

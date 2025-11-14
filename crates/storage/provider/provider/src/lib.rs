@@ -23,7 +23,7 @@ pub trait ProviderFactory {
     fn provider_mut(&self) -> Self::ProviderMut;
 }
 
-#[derive(Debug)]
+#[derive(Debug, Clone)]
 pub struct DbProviderFactory<Db: Database = katana_db::Db> {
     db: Db,
 }
@@ -31,6 +31,12 @@ pub struct DbProviderFactory<Db: Database = katana_db::Db> {
 impl<Db: Database> DbProviderFactory<Db> {
     pub fn new(db: Db) -> Self {
         Self { db }
+    }
+}
+
+impl DbProviderFactory<katana_db::Db> {
+    pub fn new_in_memory() -> DbProviderFactory<katana_db::Db> {
+        Self::new(katana_db::Db::in_memory().unwrap())
     }
 }
 
