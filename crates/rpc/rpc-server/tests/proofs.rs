@@ -10,6 +10,7 @@ use katana_primitives::contract::{StorageKey, StorageValue};
 use katana_primitives::{hash, ContractAddress, Felt};
 use katana_rpc_api::starknet::StarknetApiClient;
 use katana_rpc_types::trie::ContractStorageKeys;
+use katana_test_utils::prepare_contract_declaration_params;
 use katana_trie::{
     compute_classes_trie_value, compute_contract_state_hash, ClassesMultiProof, MultiProof,
 };
@@ -18,8 +19,6 @@ use starknet::accounts::{Account, SingleOwnerAccount};
 use starknet::providers::jsonrpc::HttpTransport;
 use starknet::providers::JsonRpcClient;
 use starknet::signers::LocalWallet;
-
-mod common;
 
 #[tokio::test]
 async fn proofs_limit() {
@@ -262,7 +261,7 @@ async fn declare(
     account: &SingleOwnerAccount<JsonRpcClient<HttpTransport>, LocalWallet>,
     path: impl Into<PathBuf>,
 ) -> (ClassHash, CompiledClassHash) {
-    let (contract, compiled_class_hash) = common::prepare_contract_declaration_params(&path.into())
+    let (contract, compiled_class_hash) = prepare_contract_declaration_params(&path.into())
         .expect("failed to prepare class declaration params");
 
     let class_hash = contract.class_hash();

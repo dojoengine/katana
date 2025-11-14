@@ -1,7 +1,7 @@
 use std::collections::HashSet;
+use std::iter::once;
 
 use cainome_cairo_serde::CairoSerde;
-use futures::executor::block_on;
 use katana_executor::ExecutorFactory;
 use katana_pool::{TransactionPool, TxPool};
 use katana_primitives::block::{BlockIdOrTag, BlockTag};
@@ -21,6 +21,9 @@ use starknet::signers::{LocalWallet, Signer, SigningKey};
 use tracing::trace;
 
 pub mod layer;
+
+#[cfg(test)]
+mod tests;
 
 use crate::rpc::types::{
     Call as OutsideExecutionCall, OutsideExecution, OutsideExecutionV2, OutsideExecutionV3,
@@ -93,21 +96,22 @@ impl<EF: ExecutorFactory> Paymaster<EF> {
     ///
     /// This might submit new transactions to the pool for deploying the Controller account contract
     /// and/or the VRF provider contract.
-    pub fn handle_add_outside_execution(
+    pub async fn handle_add_outside_execution(
         &self,
         address: ContractAddress,
         outside_execution: OutsideExecution,
-        signature: Vec<Felt>,
+        _signature: Vec<Felt>,
     ) -> PaymasterResult<Option<(OutsideExecution, Vec<Felt>)>> {
         let block_id = BlockIdOrTag::Tag(BlockTag::Pending);
-        let mut paymaster_nonce = self.get_paymaster_nonce(block_id)?;
+        let mut paymaster_nonce = self.get_paymaster_nonce(block_id).await?;
 
         // craft a controller deploy tx if needed
-        match self.craft_controller_deploy_tx(address, block_id) {
+        match self.craft_controller_deploy_tx(address, block_id).await {
             Ok(Some(tx)) => {
                 let tx = ExecutableTxWithHash::new(tx);
                 let tx_hash =
                     self.pool.add_transaction(tx).map_err(Error::FailedToAddTransaction)?;
+
                 trace!(
                     target: "paymaster",
                     tx_hash = format!("{tx_hash:#x}"),
@@ -122,28 +126,27 @@ impl<EF: ExecutorFactory> Paymaster<EF> {
 
         // get VRF calls
         let vrf_calls =
-            block_on(self.get_vrf_calls(&outside_execution, self.chain_id, &self.vrf_ctx))?;
+            self.get_vrf_calls(&outside_execution, self.chain_id, &self.vrf_ctx).await?;
 
-        if !vrf_calls.is_empty() {
-            assert!(vrf_calls.len() == 2);
-
+        if let Some(vrf_calls) = vrf_calls {
             // deploy VRF provider if not deployed yet
-            match block_on(
-                self.starknet_api.class_hash_at_address(
-                    BlockIdOrTag::Tag(BlockTag::Latest),
-                    self.vrf_ctx.address(),
-                ),
-            ) {
+            match self
+                .starknet_api
+                .class_hash_at_address(BlockIdOrTag::Tag(BlockTag::Latest), self.vrf_ctx.address())
+                .await
+            {
                 Err(StarknetApiError::ContractNotFound) => {
                     let (public_key_x, public_key_y) = self.vrf_ctx.get_public_key_xy_felts();
-                    let tx = block_on(self.craft_vrf_provider_deploy_tx(
-                        self.paymaster_address,
-                        self.paymaster_key.secret_scalar(),
-                        self.chain_id,
-                        self.vrf_ctx.consume_nonce(self.paymaster_address),
-                        public_key_x,
-                        public_key_y,
-                    ))?;
+                    let tx = self
+                        .craft_vrf_provider_deploy_tx(
+                            self.paymaster_address,
+                            self.paymaster_key.secret_scalar(),
+                            self.chain_id,
+                            paymaster_nonce,
+                            public_key_x,
+                            public_key_y,
+                        )
+                        .await?;
                     let tx_hash =
                         self.pool.add_transaction(tx).map_err(Error::FailedToAddTransaction)?;
 
@@ -159,12 +162,9 @@ impl<EF: ExecutorFactory> Paymaster<EF> {
                 Ok(_) => {}
             }
 
-            let (new_outside_execution, new_signature) = self.craft_new_outside_execution(
-                paymaster_nonce,
-                outside_execution,
-                signature,
-                vrf_calls,
-            )?;
+            let (new_outside_execution, new_signature) = self
+                .craft_new_outside_execution(paymaster_nonce, outside_execution, &vrf_calls)
+                .await?;
 
             return Ok(Some((new_outside_execution, new_signature)));
         }
@@ -173,7 +173,7 @@ impl<EF: ExecutorFactory> Paymaster<EF> {
     }
 
     /// Handle the intercept of the 'starknet_estimateFee' end point.
-    pub fn handle_estimate_fees(
+    pub async fn handle_estimate_fees(
         &self,
         block_id: BlockIdOrTag,
         transactions: Vec<BroadcastedTx>,
@@ -193,7 +193,7 @@ impl<EF: ExecutorFactory> Paymaster<EF> {
                 continue;
             }
 
-            match self.craft_controller_deploy_tx(address, block_id) {
+            match self.craft_controller_deploy_tx(address, block_id).await {
                 Ok(Some(tx)) => {
                     deployed_controllers.insert(address);
                     new_transactions.push(BroadcastedTx::from(tx));
@@ -216,24 +216,24 @@ impl<EF: ExecutorFactory> Paymaster<EF> {
     /// Crafts a deploy controller transaction for a cartridge controller.
     ///
     /// Returns None if the provided `controller_address` is not registered in the Cartridge API.
-    fn craft_controller_deploy_tx(
+    async fn craft_controller_deploy_tx(
         &self,
         address: ContractAddress,
         block_id: BlockIdOrTag,
     ) -> PaymasterResult<Option<ExecutableTx>> {
         // if the address is not a controller, just ignore the tx
-        let controller_calldata = match self.get_controller_ctor_calldata(address)? {
+        let controller_calldata = match self.get_controller_ctor_calldata(address).await? {
             Some(calldata) => calldata,
             None => return Ok(None),
         };
 
         // Check if the address has already been deployed
-        if block_on(self.starknet_api.class_hash_at_address(block_id, address)).is_ok() {
+        if self.starknet_api.class_hash_at_address(block_id, address).await.is_ok() {
             return Ok(None);
         }
 
         // Create a Controller deploy transaction against the latest state of the network.
-        let paymaster_nonce = self.get_paymaster_nonce(block_id)?;
+        let paymaster_nonce = self.get_paymaster_nonce(block_id).await?;
 
         let tx = create_deploy_tx(
             self.paymaster_address,
@@ -241,17 +241,19 @@ impl<EF: ExecutorFactory> Paymaster<EF> {
             paymaster_nonce,
             controller_calldata,
             self.chain_id,
-        )?;
+        )
+        .await?;
 
         Ok(Some(tx))
     }
 
-    // Get the constructor calldata for a controller account or None if the address is not a controller.
-    fn get_controller_ctor_calldata(
+    // Get the constructor calldata for a controller account or None if the address is not a
+    // controller.
+    async fn get_controller_ctor_calldata(
         &self,
         address: ContractAddress,
     ) -> PaymasterResult<Option<Vec<Felt>>> {
-        let result = block_on(self.cartridge_api.get_account_calldata(address))?;
+        let result = self.cartridge_api.get_account_calldata(address).await?;
         Ok(result.map(|r| r.constructor_calldata))
     }
 
@@ -315,14 +317,14 @@ impl<EF: ExecutorFactory> Paymaster<EF> {
         outside_execution: &OutsideExecution,
         chain_id: ChainId,
         vrf_ctx: &VrfContext,
-    ) -> PaymasterResult<Vec<Call>> {
+    ) -> PaymasterResult<Option<[Call; 2]>> {
         let calls = match outside_execution {
             OutsideExecution::V2(v2) => &v2.calls,
             OutsideExecution::V3(v3) => &v3.calls,
         };
 
         if calls.is_empty() {
-            return Ok(Vec::new());
+            return Ok(None);
         }
 
         // Refer to the module documentation for why this is expected and
@@ -332,9 +334,9 @@ impl<EF: ExecutorFactory> Paymaster<EF> {
         let first_call = calls.first().unwrap();
 
         if first_call.selector != selector!("request_random")
-            && first_call.to != (*vrf_ctx.address()).into()
+            || first_call.to != (*vrf_ctx.address()).into()
         {
-            return Ok(Vec::new());
+            return Ok(None);
         }
 
         if first_call.calldata.len() != 3 {
@@ -344,10 +346,16 @@ impl<EF: ExecutorFactory> Paymaster<EF> {
             )));
         }
 
+        // if request_random targeting the VRF provider is the only call, just ignore it
+        // as the generated random value will not be consumed.
+        if calls.len() == 1 {
+            return Ok(None);
+        }
+
         let caller = first_call.calldata[0];
         let salt_or_nonce_selector = first_call.calldata[1];
-        // Salt or nonce being the salt for the `Salt` variant, and the contract address for the `Nonce`
-        // variant.
+        // Salt or nonce being the salt for the `Salt` variant, and the contract address for the
+        // `Nonce` variant.
         let salt_or_nonce = first_call.calldata[2];
 
         let seed = if salt_or_nonce_selector == Felt::ZERO {
@@ -385,29 +393,25 @@ impl<EF: ExecutorFactory> Paymaster<EF> {
             calldata: vec![seed],
         };
 
-        Ok(vec![submit_random_call, assert_consumed_call])
+        Ok(Some([submit_random_call, assert_consumed_call]))
     }
 
-    fn craft_new_outside_execution(
+    async fn craft_new_outside_execution(
         &self,
         paymaster_nonce: Nonce,
         outside_execution: OutsideExecution,
-        signature: Vec<Felt>,
-        vrf_calls: Vec<Call>,
+        vrf_calls: &[Call; 2],
     ) -> PaymasterResult<(OutsideExecution, Vec<Felt>)> {
-        let (selector, to) = match &outside_execution {
-            OutsideExecution::V2(v2) => (selector!("execute_from_outside_v2"), v2.caller),
-            OutsideExecution::V3(v3) => (selector!("execute_from_outside_v3"), v3.caller),
-        };
-        let mut calldata = OutsideExecution::cairo_serialize(&outside_execution);
-
-        calldata.extend(Vec::<Felt>::cairo_serialize(&signature));
-
-        let calls: Vec<OutsideExecutionCall> = vec![
-            vrf_calls[0].clone().into(),
-            OutsideExecutionCall { to, selector, calldata },
-            vrf_calls[1].clone().into(),
-        ];
+        fn pack_calls(
+            calls: &Vec<OutsideExecutionCall>,
+            vrf_calls: &[Call; 2],
+        ) -> Vec<OutsideExecutionCall> {
+            let [submit_call, assert_call] = vrf_calls;
+            once(submit_call.into())
+                .chain(calls.clone().into_iter())
+                .chain(once(assert_call.into()))
+                .collect::<Vec<_>>()
+        }
 
         let new_outside_execution = match &outside_execution {
             OutsideExecution::V2(v2) => OutsideExecution::V2(OutsideExecutionV2 {
@@ -415,14 +419,14 @@ impl<EF: ExecutorFactory> Paymaster<EF> {
                 nonce: paymaster_nonce,
                 execute_after: v2.execute_after,
                 execute_before: v2.execute_before,
-                calls,
+                calls: pack_calls(&v2.calls, vrf_calls),
             }),
             OutsideExecution::V3(v3) => OutsideExecution::V3(OutsideExecutionV3 {
                 caller: self.paymaster_address,
                 nonce: v3.nonce.copy_with_other_nonce(paymaster_nonce),
                 execute_after: v3.execute_after,
                 execute_before: v3.execute_before,
-                calls,
+                calls: pack_calls(&v3.calls, vrf_calls),
             }),
         };
 
@@ -432,7 +436,9 @@ impl<EF: ExecutorFactory> Paymaster<EF> {
             starknet_crypto::poseidon_hash_many(&serialized_outside_execution);
 
         let signer = LocalWallet::from(self.paymaster_key.clone());
-        let new_signature = futures::executor::block_on(signer.sign_hash(&outside_execution_hash))
+        let new_signature = signer
+            .sign_hash(&outside_execution_hash)
+            .await
             .map_err(|e| Error::SigningError(e.to_string()))?;
 
         let new_signature = vec![new_signature.r, new_signature.s];
@@ -440,16 +446,18 @@ impl<EF: ExecutorFactory> Paymaster<EF> {
         Ok((new_outside_execution, new_signature))
     }
 
-    fn get_paymaster_nonce(&self, block_id: BlockIdOrTag) -> PaymasterResult<Felt> {
-        let res: PaymasterResult<Felt> =
-            block_on(self.starknet_api.nonce_at(block_id, self.paymaster_address))
-                .map(|nonce| nonce.into())
-                .map_err(|e| match e {
-                    StarknetApiError::ContractNotFound => {
-                        Error::PaymasterNotFound(self.paymaster_address)
-                    }
-                    _ => Error::StarknetApi(e),
-                });
+    async fn get_paymaster_nonce(&self, block_id: BlockIdOrTag) -> PaymasterResult<Felt> {
+        let res: PaymasterResult<Felt> = self
+            .starknet_api
+            .nonce_at(block_id, self.paymaster_address)
+            .await
+            .map(|nonce| nonce.into())
+            .map_err(|e| match e {
+                StarknetApiError::ContractNotFound => {
+                    Error::PaymasterNotFound(self.paymaster_address)
+                }
+                _ => Error::StarknetApi(e),
+            });
         res
     }
 }
@@ -468,7 +476,7 @@ impl<EF: ExecutorFactory> Clone for Paymaster<EF> {
     }
 }
 
-fn create_deploy_tx(
+async fn create_deploy_tx(
     deployer: ContractAddress,
     deployer_pk: SigningKey,
     nonce: Nonce,
@@ -504,7 +512,7 @@ fn create_deploy_tx(
     let tx_hash = InvokeTx::V3(tx.clone()).calculate_hash(false);
 
     let signer = LocalWallet::from(deployer_pk);
-    let signature = block_on(signer.sign_hash(&tx_hash)).unwrap();
+    let signature = signer.sign_hash(&tx_hash).await.unwrap();
     tx.signature = vec![signature.r, signature.s];
 
     Ok(ExecutableTx::Invoke(InvokeTx::V3(tx)))
