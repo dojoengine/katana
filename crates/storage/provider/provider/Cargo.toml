@@ -26,16 +26,14 @@ starknet-types-core.workspace = true
 thiserror.workspace = true
 tracing.workspace = true
 
-# fork provider deps
-futures = { workspace = true, optional = true }
-tokio = { workspace = true, optional = true }
+# fork provider only deps
+futures.workspace = true
+tokio.workspace = true
 
 alloy-primitives = { workspace = true, optional = true }
 serde_json.workspace = true
 
 [features]
-fork = [ "dep:futures", "dep:tokio" ]
-in-memory = [  ]
 test-utils = [ "dep:alloy-primitives", "dep:katana-chain-spec" ]
 
 [dev-dependencies]

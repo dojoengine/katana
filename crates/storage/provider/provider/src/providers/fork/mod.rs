@@ -1,10 +1,9 @@
 use std::collections::BTreeMap;
 use std::ops::{Range, RangeInclusive};
-use std::sync::Arc;
 
-use katana_db::abstraction::Database;
+use katana_db::abstraction::{DbTx, DbTxMut};
 use katana_db::models::block::StoredBlockBodyIndices;
-use katana_fork::{Backend, BackendClient};
+use katana_fork::BackendClient;
 use katana_primitives::block::{
     Block, BlockHash, BlockHashOrNumber, BlockNumber, BlockWithTxHashes, FinalityStatus, Header,
     SealedBlockWithStatus,
@@ -27,7 +26,6 @@ use katana_provider_api::transaction::{
     ReceiptProvider, TransactionProvider, TransactionStatusProvider, TransactionTraceProvider,
     TransactionsProviderExt,
 };
-use katana_rpc_client::starknet::Client as StarknetClient;
 
 use super::db::{self, DbProvider};
 use crate::ProviderResult;
@@ -36,43 +34,28 @@ mod state;
 mod trie;
 
 #[derive(Debug)]
-pub struct ForkedProvider<Db: Database = katana_db::Db> {
-    backend: BackendClient,
-    provider: Arc<DbProvider<Db>>,
+pub struct ForkedProvider<Tx: DbTx> {
     block_id: BlockNumber,
+    provider: DbProvider<Tx>,
+    backend_client: BackendClient,
 }
 
-impl<Db: Database> ForkedProvider<Db> {
-    /// ## Arguments
-    ///
-    /// - `db`: The database to use for the provider.
-    /// - `block_id`: The block number or hash to use as the fork point.
-    /// - `provider`: The Starknet JSON-RPC client to use for the provider.
-    pub fn new(db: Db, block_id: BlockNumber, provider: StarknetClient) -> Self {
-        let backend = Backend::new(provider).expect("failed to create backend");
-        let provider = Arc::new(DbProvider::new(db));
-        Self { provider, backend, block_id }
+impl<Tx: DbTx> ForkedProvider<Tx> {
+    pub fn new(
+        block_id: BlockNumber,
+        provider: DbProvider<Tx>,
+        backend_client: BackendClient,
+    ) -> Self {
+        Self { block_id, provider, backend_client }
     }
 
-    pub fn backend(&self) -> &BackendClient {
-        &self.backend
-    }
-
+    /// Returns the block id this fork provider is based on.
     pub fn block_id(&self) -> BlockNumber {
         self.block_id
     }
 }
 
-impl ForkedProvider<katana_db::Db> {
-    /// Creates a new [`ForkedProvider`] using an ephemeral database.
-    pub fn new_ephemeral(block_id: BlockNumber, provider: StarknetClient) -> Self {
-        let backend = Backend::new(provider).expect("failed to create backend");
-        let provider = Arc::new(DbProvider::new_in_memory());
-        Self { provider, backend, block_id }
-    }
-}
-
-impl<Db: Database> BlockNumberProvider for ForkedProvider<Db> {
+impl<Tx: DbTx> BlockNumberProvider for ForkedProvider<Tx> {
     fn block_number_by_hash(&self, hash: BlockHash) -> ProviderResult<Option<BlockNumber>> {
         self.provider.block_number_by_hash(hash)
     }
@@ -82,7 +65,7 @@ impl<Db: Database> BlockNumberProvider for ForkedProvider<Db> {
     }
 }
 
-impl<Db: Database> BlockHashProvider for ForkedProvider<Db> {
+impl<Tx: DbTx> BlockHashProvider for ForkedProvider<Tx> {
     fn latest_hash(&self) -> ProviderResult<BlockHash> {
         self.provider.latest_hash()
     }
@@ -92,13 +75,13 @@ impl<Db: Database> BlockHashProvider for ForkedProvider<Db> {
     }
 }
 
-impl<Db: Database> HeaderProvider for ForkedProvider<Db> {
+impl<Tx: DbTx> HeaderProvider for ForkedProvider<Tx> {
     fn header(&self, id: BlockHashOrNumber) -> ProviderResult<Option<Header>> {
         self.provider.header(id)
     }
 }
 
-impl<Db: Database> BlockProvider for ForkedProvider<Db> {
+impl<Tx: DbTx> BlockProvider for ForkedProvider<Tx> {
     fn block_body_indices(
         &self,
         id: BlockHashOrNumber,
@@ -122,13 +105,13 @@ impl<Db: Database> BlockProvider for ForkedProvider<Db> {
     }
 }
 
-impl<Db: Database> BlockStatusProvider for ForkedProvider<Db> {
+impl<Tx: DbTx> BlockStatusProvider for ForkedProvider<Tx> {
     fn block_status(&self, id: BlockHashOrNumber) -> ProviderResult<Option<FinalityStatus>> {
         self.provider.block_status(id)
     }
 }
 
-impl<Db: Database> StateUpdateProvider for ForkedProvider<Db> {
+impl<Tx: DbTx> StateUpdateProvider for ForkedProvider<Tx> {
     fn state_update(&self, block_id: BlockHashOrNumber) -> ProviderResult<Option<StateUpdates>> {
         self.provider.state_update(block_id)
     }
@@ -148,7 +131,7 @@ impl<Db: Database> StateUpdateProvider for ForkedProvider<Db> {
     }
 }
 
-impl<Db: Database> TransactionProvider for ForkedProvider<Db> {
+impl<Tx: DbTx> TransactionProvider for ForkedProvider<Tx> {
     fn transaction_by_hash(&self, hash: TxHash) -> ProviderResult<Option<TxWithHash>> {
         self.provider.transaction_by_hash(hash)
     }
@@ -187,7 +170,7 @@ impl<Db: Database> TransactionProvider for ForkedProvider<Db> {
     }
 }
 
-impl<Db: Database> TransactionsProviderExt for ForkedProvider<Db> {
+impl<Tx: DbTx> TransactionsProviderExt for ForkedProvider<Tx> {
     fn transaction_hashes_in_range(&self, range: Range<TxNumber>) -> ProviderResult<Vec<TxHash>> {
         self.provider.transaction_hashes_in_range(range)
     }
@@ -197,13 +180,13 @@ impl<Db: Database> TransactionsProviderExt for ForkedProvider<Db> {
     }
 }
 
-impl<Db: Database> TransactionStatusProvider for ForkedProvider<Db> {
+impl<Tx: DbTx> TransactionStatusProvider for ForkedProvider<Tx> {
     fn transaction_status(&self, hash: TxHash) -> ProviderResult<Option<FinalityStatus>> {
         self.provider.transaction_status(hash)
     }
 }
 
-impl<Db: Database> TransactionTraceProvider for ForkedProvider<Db> {
+impl<Tx: DbTx> TransactionTraceProvider for ForkedProvider<Tx> {
     fn transaction_execution(
         &self,
         hash: TxHash,
@@ -226,7 +209,7 @@ impl<Db: Database> TransactionTraceProvider for ForkedProvider<Db> {
     }
 }
 
-impl<Db: Database> ReceiptProvider for ForkedProvider<Db> {
+impl<Tx: DbTx> ReceiptProvider for ForkedProvider<Tx> {
     fn receipt_by_hash(&self, hash: TxHash) -> ProviderResult<Option<Receipt>> {
         self.provider.receipt_by_hash(hash)
     }
@@ -239,13 +222,13 @@ impl<Db: Database> ReceiptProvider for ForkedProvider<Db> {
     }
 }
 
-impl<Db: Database> BlockEnvProvider for ForkedProvider<Db> {
+impl<Tx: DbTx> BlockEnvProvider for ForkedProvider<Tx> {
     fn block_env_at(&self, block_id: BlockHashOrNumber) -> ProviderResult<Option<BlockEnv>> {
         self.provider.block_env_at(block_id)
     }
 }
 
-impl<Db: Database> BlockWriter for ForkedProvider<Db> {
+impl<Tx: DbTxMut> BlockWriter for ForkedProvider<Tx> {
     fn insert_block_with_states_and_receipts(
         &self,
         block: SealedBlockWithStatus,
@@ -257,7 +240,7 @@ impl<Db: Database> BlockWriter for ForkedProvider<Db> {
     }
 }
 
-impl<Db: Database> StageCheckpointProvider for ForkedProvider<Db> {
+impl<Tx: DbTxMut> StageCheckpointProvider for ForkedProvider<Tx> {
     fn checkpoint(&self, id: &str) -> ProviderResult<Option<BlockNumber>> {
         self.provider.checkpoint(id)
     }

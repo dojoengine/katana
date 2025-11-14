@@ -25,21 +25,16 @@ use starknet::core::utils::parse_cairo_short_string;
 use tracing::info;
 use url::Url;
 
-pub trait Database:
+pub trait DatabaseRO:
     BlockProvider
-    + BlockWriter
     + TransactionProvider
     + TransactionStatusProvider
     + TransactionTraceProvider
     + TransactionsProviderExt
     + ReceiptProvider
     + StateUpdateProvider
-    + StateWriter
-    + ContractClassWriter
     + StateFactoryProvider
     + BlockEnvProvider
-    + TrieWriter
-    + StageCheckpointProvider
     + 'static
     + Send
     + Sync
@@ -47,25 +42,35 @@ pub trait Database:
 {
 }
 
-impl<T> Database for T where
+pub trait DatabaseRW:
+    DatabaseRO + BlockWriter + StateWriter + ContractClassWriter + TrieWriter + StageCheckpointProvider
+{
+}
+
+impl<T> DatabaseRO for T where
     T: BlockProvider
-        + BlockWriter
         + TransactionProvider
         + TransactionStatusProvider
         + TransactionTraceProvider
         + TransactionsProviderExt
         + ReceiptProvider
         + StateUpdateProvider
-        + StateWriter
-        + ContractClassWriter
         + StateFactoryProvider
         + BlockEnvProvider
-        + TrieWriter
-        + StageCheckpointProvider
         + 'static
         + Send
         + Sync
         + core::fmt::Debug
+{
+}
+
+impl<T> DatabaseRW for T where
+    T: DatabaseRO
+        + BlockWriter
+        + StateWriter
+        + ContractClassWriter
+        + TrieWriter
+        + StageCheckpointProvider
 {
 }
 

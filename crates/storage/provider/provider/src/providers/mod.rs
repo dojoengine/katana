@@ -1,5 +1,4 @@
 pub mod db;
-#[cfg(feature = "fork")]
 pub mod fork;
 
 use katana_primitives::class::{ClassHash, CompiledClassHash, ContractClass};

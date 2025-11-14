@@ -1,35 +1,35 @@
-use katana_db::abstraction::{Database, DbCursorMut, DbDupSortCursor, DbTx, DbTxMut};
+use katana_db::abstraction::{DbCursorMut, DbDupSortCursor, DbTx, DbTxMut};
 use katana_db::models::contract::ContractInfoChangeList;
 use katana_db::models::list::BlockList;
 use katana_db::models::storage::{ContractStorageKey, StorageEntry};
 use katana_db::tables;
 use katana_db::trie::TrieDbFactory;
-use katana_primitives::block::BlockNumber;
+use katana_primitives::block::{BlockHashOrNumber, BlockNumber};
 use katana_primitives::class::{ClassHash, CompiledClassHash, ContractClass};
 use katana_primitives::contract::{
     ContractAddress, GenericContractInfo, Nonce, StorageKey, StorageValue,
 };
 use katana_primitives::Felt;
+use katana_provider_api::block::BlockNumberProvider;
 use katana_provider_api::contract::{ContractClassProvider, ContractClassWriter};
 use katana_provider_api::state::{
-    StateProofProvider, StateProvider, StateRootProvider, StateWriter,
+    StateFactoryProvider, StateProofProvider, StateProvider, StateRootProvider, StateWriter,
 };
 use katana_provider_api::ProviderError;
 
 use super::DbProvider;
 use crate::ProviderResult;
 
-impl<Db: Database> StateWriter for DbProvider<Db> {
+impl<Tx: DbTxMut> StateWriter for DbProvider<Tx> {
     fn set_nonce(&self, address: ContractAddress, nonce: Nonce) -> ProviderResult<()> {
-        self.0.update(move |db_tx| -> ProviderResult<()> {
-            let value = if let Some(info) = db_tx.get::<tables::ContractInfo>(address)? {
-                GenericContractInfo { nonce, ..info }
-            } else {
-                GenericContractInfo { nonce, ..Default::default() }
-            };
-            db_tx.put::<tables::ContractInfo>(address, value)?;
-            Ok(())
-        })?
+        let value = if let Some(info) = self.0.get::<tables::ContractInfo>(address)? {
+            GenericContractInfo { nonce, ..info }
+        } else {
+            GenericContractInfo { nonce, ..Default::default() }
+        };
+
+        self.0.put::<tables::ContractInfo>(address, value)?;
+        Ok(())
     }
 
     fn set_storage(
@@ -38,20 +38,18 @@ impl<Db: Database> StateWriter for DbProvider<Db> {
         storage_key: StorageKey,
         storage_value: StorageValue,
     ) -> ProviderResult<()> {
-        self.0.update(move |db_tx| -> ProviderResult<()> {
-            let mut cursor = db_tx.cursor_dup_mut::<tables::ContractStorage>()?;
-            let entry = cursor.seek_by_key_subkey(address, storage_key)?;
+        let mut cursor = self.0.cursor_dup_mut::<tables::ContractStorage>()?;
+        let entry = cursor.seek_by_key_subkey(address, storage_key)?;
 
-            match entry {
-                Some(entry) if entry.key == storage_key => {
-                    cursor.delete_current()?;
-                }
-                _ => {}
+        match entry {
+            Some(entry) if entry.key == storage_key => {
+                cursor.delete_current()?;
             }
+            _ => {}
+        }
 
-            cursor.upsert(address, StorageEntry { key: storage_key, value: storage_value })?;
-            Ok(())
-        })?
+        cursor.upsert(address, StorageEntry { key: storage_key, value: storage_value })?;
+        Ok(())
     }
 
     fn set_class_hash_of_contract(
@@ -59,24 +57,21 @@ impl<Db: Database> StateWriter for DbProvider<Db> {
         address: ContractAddress,
         class_hash: ClassHash,
     ) -> ProviderResult<()> {
-        self.0.update(move |db_tx| -> ProviderResult<()> {
-            let value = if let Some(info) = db_tx.get::<tables::ContractInfo>(address)? {
-                GenericContractInfo { class_hash, ..info }
-            } else {
-                GenericContractInfo { class_hash, ..Default::default() }
-            };
-            db_tx.put::<tables::ContractInfo>(address, value)?;
-            Ok(())
-        })?
+        let value = if let Some(info) = self.0.get::<tables::ContractInfo>(address)? {
+            GenericContractInfo { class_hash, ..info }
+        } else {
+            GenericContractInfo { class_hash, ..Default::default() }
+        };
+
+        self.0.put::<tables::ContractInfo>(address, value)?;
+        Ok(())
     }
 }
 
-impl<Db: Database> ContractClassWriter for DbProvider<Db> {
+impl<Tx: DbTxMut> ContractClassWriter for DbProvider<Tx> {
     fn set_class(&self, hash: ClassHash, class: ContractClass) -> ProviderResult<()> {
-        self.0.update(move |db_tx| -> ProviderResult<()> {
-            db_tx.put::<tables::Classes>(hash, class.into())?;
-            Ok(())
-        })?
+        self.0.put::<tables::Classes>(hash, class.into())?;
+        Ok(())
     }
 
     fn set_compiled_class_hash_of_class_hash(
@@ -84,27 +79,45 @@ impl<Db: Database> ContractClassWriter for DbProvider<Db> {
         hash: ClassHash,
         compiled_hash: CompiledClassHash,
     ) -> ProviderResult<()> {
-        self.0.update(move |db_tx| -> ProviderResult<()> {
-            db_tx.put::<tables::CompiledClassHashes>(hash, compiled_hash)?;
-            Ok(())
-        })?
+        self.0.put::<tables::CompiledClassHashes>(hash, compiled_hash)?;
+        Ok(())
+    }
+}
+
+impl<Tx: DbTx> StateFactoryProvider for DbProvider<Tx> {
+    fn latest(&self) -> ProviderResult<Box<dyn StateProvider>> {
+        Ok(Box::new(LatestStateProvider(self.0.clone())))
+    }
+
+    fn historical(
+        &self,
+        block_id: BlockHashOrNumber,
+    ) -> ProviderResult<Option<Box<dyn StateProvider>>> {
+        let block_number = match block_id {
+            BlockHashOrNumber::Num(num) => {
+                let latest_num = self.latest_number()?;
+
+                match num.cmp(&latest_num) {
+                    std::cmp::Ordering::Less => Some(num),
+                    std::cmp::Ordering::Greater => return Ok(None),
+                    std::cmp::Ordering::Equal => return self.latest().map(Some),
+                }
+            }
+
+            BlockHashOrNumber::Hash(hash) => self.block_number_by_hash(hash)?,
+        };
+
+        let Some(num) = block_number else { return Ok(None) };
+
+        Ok(Some(Box::new(HistoricalStateProvider::new(self.0.clone(), num))))
     }
 }
 
 /// A state provider that provides the latest states from the database.
 #[derive(Debug)]
-pub(crate) struct LatestStateProvider<Tx: DbTx>(Tx);
+pub(crate) struct LatestStateProvider<Tx: DbTx>(pub(crate) Tx);
 
-impl<Tx: DbTx> LatestStateProvider<Tx> {
-    pub fn new(tx: Tx) -> Self {
-        Self(tx)
-    }
-}
-
-impl<Tx> ContractClassProvider for LatestStateProvider<Tx>
-where
-    Tx: DbTx + Send + Sync,
-{
+impl<Tx: DbTx> ContractClassProvider for LatestStateProvider<Tx> {
     fn class(&self, hash: ClassHash) -> ProviderResult<Option<ContractClass>> {
         Ok(self.0.get::<tables::Classes>(hash)?.map(|class| class.into()))
     }
@@ -118,10 +131,7 @@ where
     }
 }
 
-impl<Tx> StateProvider for LatestStateProvider<Tx>
-where
-    Tx: DbTx + Send + Sync,
-{
+impl<Tx: DbTx> StateProvider for LatestStateProvider<Tx> {
     fn nonce(&self, address: ContractAddress) -> ProviderResult<Option<Nonce>> {
         let info = self.0.get::<tables::ContractInfo>(address)?;
         Ok(info.map(|info| info.nonce))
@@ -149,10 +159,7 @@ where
     }
 }
 
-impl<Tx> StateProofProvider for LatestStateProvider<Tx>
-where
-    Tx: DbTx + Send + Sync,
-{
+impl<Tx: DbTx> StateProofProvider for LatestStateProvider<Tx> {
     fn class_multiproof(&self, classes: Vec<ClassHash>) -> ProviderResult<katana_trie::MultiProof> {
         let mut trie = TrieDbFactory::new(&self.0).latest().classes_trie();
         let proofs = trie.multiproof(classes);
@@ -179,10 +186,7 @@ where
     }
 }
 
-impl<Tx> StateRootProvider for LatestStateProvider<Tx>
-where
-    Tx: DbTx + Send + Sync,
-{
+impl<Tx: DbTx> StateRootProvider for LatestStateProvider<Tx> {
     fn classes_root(&self) -> ProviderResult<Felt> {
         let trie = TrieDbFactory::new(&self.0).latest().classes_trie();
         Ok(trie.root())
@@ -230,10 +234,7 @@ impl<Tx: DbTx> HistoricalStateProvider<Tx> {
     }
 }
 
-impl<Tx> ContractClassProvider for HistoricalStateProvider<Tx>
-where
-    Tx: DbTx + Send + Sync,
-{
+impl<Tx: DbTx> ContractClassProvider for HistoricalStateProvider<Tx> {
     fn class(&self, hash: ClassHash) -> ProviderResult<Option<ContractClass>> {
         if self.is_class_declared_before_block(hash)? {
             Ok(self.tx.get::<tables::Classes>(hash)?.map(Into::into))
@@ -254,10 +255,7 @@ where
     }
 }
 
-impl<Tx> StateProvider for HistoricalStateProvider<Tx>
-where
-    Tx: DbTx + Send + Sync,
-{
+impl<Tx: DbTx> StateProvider for HistoricalStateProvider<Tx> {
     fn nonce(&self, address: ContractAddress) -> ProviderResult<Option<Nonce>> {
         let change_list = self.tx.get::<tables::ContractInfoChangeSet>(address)?;
 
@@ -335,10 +333,7 @@ where
     }
 }
 
-impl<Tx> StateProofProvider for HistoricalStateProvider<Tx>
-where
-    Tx: DbTx + Send + Sync,
-{
+impl<Tx: DbTx> StateProofProvider for HistoricalStateProvider<Tx> {
     fn class_multiproof(&self, classes: Vec<ClassHash>) -> ProviderResult<katana_trie::MultiProof> {
         let proofs = TrieDbFactory::new(&self.tx)
             .historical(self.block_number)
@@ -374,10 +369,7 @@ where
     }
 }
 
-impl<Tx> StateRootProvider for HistoricalStateProvider<Tx>
-where
-    Tx: DbTx + Send + Sync,
-{
+impl<Tx: DbTx> StateRootProvider for HistoricalStateProvider<Tx> {
     fn classes_root(&self) -> ProviderResult<katana_primitives::Felt> {
         let root = TrieDbFactory::new(&self.tx)
             .historical(self.block_number)

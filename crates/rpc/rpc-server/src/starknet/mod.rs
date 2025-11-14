@@ -5,7 +5,7 @@ use std::future::Future;
 use std::sync::Arc;
 
 use katana_chain_spec::ChainSpec;
-use katana_core::backend::storage::Database;
+use katana_core::backend::storage::{Database, DatabaseRO, DatabaseRW};
 use katana_core::utils::get_current_timestamp;
 use katana_gas_price_oracle::GasPriceOracle;
 use katana_pool::TransactionPool;
@@ -24,7 +24,7 @@ use katana_provider::api::transaction::{
     ReceiptProvider, TransactionProvider, TransactionStatusProvider, TransactionsProviderExt,
 };
 use katana_provider::api::ProviderError;
-use katana_provider::BlockchainProvider;
+use katana_provider::{BlockchainProvider, ProviderFactory};
 use katana_rpc_api::error::starknet::{
     CompilationErrorData, PageSizeTooBigData, ProofLimitExceededData, StarknetApiError,
 };
@@ -77,24 +77,27 @@ pub type StarknetApiResult<T> = Result<T, StarknetApiError>;
 /// [write](katana_rpc_api::starknet::StarknetWriteApi), and
 /// [trace](katana_rpc_api::starknet::StarknetTraceApi) APIs.
 #[derive(Debug)]
-pub struct StarknetApi<Pool, PP>
+pub struct StarknetApi<Pool, PP, S>
 where
     Pool: TransactionPool,
     PP: PendingBlockProvider,
+    S: ProviderFactory,
 {
-    inner: Arc<StarknetApiInner<Pool, PP>>,
+    inner: Arc<StarknetApiInner<Pool, PP, S>>,
 }
 
 #[derive(Debug)]
-struct StarknetApiInner<Pool, PP>
+struct StarknetApiInner<Pool, PP, S>
 where
     Pool: TransactionPool,
     PP: PendingBlockProvider,
+    S: ProviderFactory,
 {
     pool: Pool,
     chain_spec: Arc<ChainSpec>,
     gas_oracle: GasPriceOracle,
     storage: BlockchainProvider<Box<dyn Database>>,
+    storage2: S,
     forked_client: Option<ForkedClient>,
     task_spawner: TaskSpawner,
     estimate_fee_permit: Permits,
@@ -106,12 +109,17 @@ impl<Pool, PP> StarknetApi<Pool, PP>
 where
     Pool: TransactionPool,
     PP: PendingBlockProvider,
+    S: ProviderFactory,
 {
     pub fn pool(&self) -> &Pool {
         &self.inner.pool
     }
 
     pub fn storage(&self) -> &BlockchainProvider<Box<dyn Database>> {
+        &self.inner.storage
+    }
+
+    pub fn storage2(&self) -> &S {
         &self.inner.storage
     }
 
@@ -128,10 +136,13 @@ where
     }
 }
 
-impl<Pool, PP> StarknetApi<Pool, PP>
+impl<Pool, PP, S> StarknetApi<Pool, PP, S>
 where
     Pool: TransactionPool + 'static,
     PP: PendingBlockProvider,
+    S: ProviderFactory,
+    <S as ProviderFactory>::Provider: DatabaseRO,
+    <S as ProviderFactory>::ProviderMut: DatabaseRW,
 {
     #[allow(clippy::too_many_arguments)]
     pub fn new(
@@ -286,7 +297,7 @@ where
     }
 
     pub fn state(&self, block_id: &BlockIdOrTag) -> StarknetApiResult<Box<dyn StateProvider>> {
-        let provider = &self.inner.storage;
+        let provider = self.inner.storage2.provider();
 
         let state = match block_id {
             BlockIdOrTag::PreConfirmed => {
@@ -309,7 +320,7 @@ where
     }
 
     fn block_env_at(&self, block_id: &BlockIdOrTag) -> StarknetApiResult<BlockEnv> {
-        let provider = &self.inner.storage;
+        let provider = self.inner.storage2.provider();
 
         let env = match block_id {
             BlockIdOrTag::PreConfirmed => {
@@ -361,7 +372,7 @@ where
     }
 
     fn block_hash_and_number(&self) -> StarknetApiResult<BlockHashAndNumberResponse> {
-        let provider = &self.inner.storage;
+        let provider = self.inner.storage2.provider();
         let hash = provider.latest_hash()?;
         let number = provider.latest_number()?;
         Ok(BlockHashAndNumberResponse::new(hash, number))
@@ -458,7 +469,7 @@ where
     pub async fn block_tx_count(&self, block_id: BlockIdOrTag) -> StarknetApiResult<u64> {
         let count = self
             .on_io_blocking_task(move |this| {
-                let provider = &this.inner.storage;
+                let provider = this.storage2().provider();
 
                 let block_id: BlockHashOrNumber = match block_id {
                     BlockIdOrTag::L1Accepted => return Ok(None),
@@ -494,7 +505,7 @@ where
 
     async fn latest_block_number(&self) -> StarknetApiResult<BlockNumberResponse> {
         self.on_io_blocking_task(move |this| {
-            let block_number = this.inner.storage.latest_number()?;
+            let block_number = this.storage2().provider().latest_number()?;
             Ok(BlockNumberResponse { block_number })
         })
         .await?
@@ -534,7 +545,7 @@ where
                 let tx = if BlockIdOrTag::PreConfirmed == block_id {
                     this.inner.pending_block_provider.get_pending_transaction_by_index(index)?
                 } else {
-                    let provider = &this.inner.storage;
+                    let provider = this.storage2().provider();
 
                     let block_num = provider
                         .convert_block_id(block_id)?
@@ -590,7 +601,7 @@ where
                 {
                     StarknetApiResult::Ok(pending_receipt)
                 } else {
-                    let provider = &this.inner.storage;
+                    let provider = this.storage2().provider();
                     StarknetApiResult::Ok(ReceiptBuilder::new(hash, provider).build()?)
                 }
             })
@@ -608,7 +619,7 @@ where
     async fn transaction_status(&self, hash: TxHash) -> StarknetApiResult<TxStatus> {
         let status = self
             .on_io_blocking_task(move |this| {
-                let provider = &this.inner.storage;
+                let provider = this.storage2().provider();
                 let status = provider.transaction_status(hash)?;
 
                 if let Some(status) = status {
@@ -663,7 +674,7 @@ where
     ) -> StarknetApiResult<MaybePreConfirmedBlock> {
         let block = self
             .on_io_blocking_task(move |this| {
-                let provider = &this.inner.storage;
+                let provider = this.storage2().provider();
 
                 if BlockIdOrTag::PreConfirmed == block_id {
                     if let Some(block) =
@@ -700,7 +711,7 @@ where
     ) -> StarknetApiResult<GetBlockWithReceiptsResponse> {
         let block = self
             .on_io_blocking_task(move |this| {
-                let provider = &this.inner.storage;
+                let provider = this.storage2().provider();
 
                 if BlockIdOrTag::PreConfirmed == block_id {
                     if let Some(block) =
@@ -737,7 +748,7 @@ where
     ) -> StarknetApiResult<GetBlockWithTxHashesResponse> {
         let block = self
             .on_io_blocking_task(move |this| {
-                let provider = &this.inner.storage;
+                let provider = this.storage2().provider();
 
                 if BlockIdOrTag::PreConfirmed == block_id {
                     if let Some(block) =
@@ -771,7 +782,7 @@ where
     pub async fn state_update(&self, block_id: BlockIdOrTag) -> StarknetApiResult<StateUpdate> {
         let state_update = self
             .on_io_blocking_task(move |this| {
-                let provider = &this.inner.storage;
+                let provider = this.storage2().provider();
 
                 let block_id = match block_id {
                     BlockIdOrTag::Number(num) => BlockHashOrNumber::Num(num),
@@ -1125,7 +1136,7 @@ where
         contracts_storage_keys: Option<Vec<ContractStorageKeys>>,
     ) -> StarknetApiResult<GetStorageProofResponse> {
         self.on_io_blocking_task(move |this| {
-            let provider = &this.inner.storage;
+            let provider = this.storage2().provider();
 
             let Some(block_num) = provider.convert_block_id(block_id)? else {
                 return Err(StarknetApiError::BlockNotFound);
@@ -1213,14 +1224,17 @@ where
 // `StarknetApiExt` Implementations
 /////////////////////////////////////////////////////
 
-impl<Pool, PP> StarknetApi<Pool, PP>
+impl<Pool, PP, S> StarknetApi<Pool, PP, S>
 where
     Pool: TransactionPool + 'static,
     PP: PendingBlockProvider,
+    S: ProviderFactory,
+    <S as ProviderFactory>::Provider: DatabaseRO,
+    <S as ProviderFactory>::ProviderMut: DatabaseRW,
 {
     async fn blocks(&self, request: GetBlocksRequest) -> StarknetApiResult<GetBlocksResponse> {
         self.on_io_blocking_task(move |this| {
-            let provider = &this.inner.storage;
+            let provider = this.storage2().provider();
 
             // Parse continuation token to get starting point
             let start_from = if let Some(token_str) = request.result_page_request.continuation_token
@@ -1296,7 +1310,7 @@ where
         request: GetTransactionsRequest,
     ) -> StarknetApiResult<GetTransactionsResponse> {
         self.on_io_blocking_task(move |this| {
-            let provider = &this.inner.storage;
+            let provider = this.storage2().provider();
 
             // Resolve the starting point for this query.
             let start_from = if let Some(token_str) = request.result_page_request.continuation_token
@@ -1366,7 +1380,7 @@ where
 
     async fn total_transactions(&self) -> StarknetApiResult<TxNumber> {
         self.on_io_blocking_task(move |this| {
-            let provider = &this.inner.storage;
+            let provider = this.storage2().provider();
             let total = provider.total_transactions()? as TxNumber;
             Ok(total)
         })

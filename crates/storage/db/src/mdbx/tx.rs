@@ -1,6 +1,7 @@
 //! Transaction wrapper for libmdbx-sys.
 
 use std::str::FromStr;
+use std::sync::Arc;
 
 use libmdbx::ffi::DBI;
 use libmdbx::{TransactionKind, WriteFlags, RW};
@@ -28,13 +29,13 @@ pub struct Tx<K: TransactionKind> {
     /// Libmdbx-sys transaction.
     pub(super) inner: libmdbx::Transaction<K>,
     /// Database table handle cache.
-    db_handles: RwLock<[Option<DBI>; NUM_TABLES]>,
+    db_handles: Arc<RwLock<[Option<DBI>; NUM_TABLES]>>,
 }
 
 impl<K: TransactionKind> Tx<K> {
     /// Creates new `Tx` object with a `RO` or `RW` transaction.
     pub fn new(inner: libmdbx::Transaction<K>) -> Self {
-        Self { inner, db_handles: RwLock::new([None; NUM_TABLES]) }
+        Self { inner, db_handles: Default::default() }
     }
 
     pub fn get_dbi<T: Table>(&self) -> Result<DBI, DatabaseError> {
@@ -55,6 +56,12 @@ impl<K: TransactionKind> Tx<K> {
         let dbi = self.get_dbi::<T>()?;
         let stat = self.inner.db_stat_with_dbi(dbi).map_err(DatabaseError::Stat)?;
         Ok(TableStat::new(stat))
+    }
+}
+
+impl<K: TransactionKind> Clone for Tx<K> {
+    fn clone(&self) -> Self {
+        Self { inner: self.inner.clone(), db_handles: self.db_handles.clone() }
     }
 }
 
