@@ -66,19 +66,27 @@ pub struct StageExecutionOutput {
 }
 
 /// Pruning mode configuration that determines how much historical state to retain.
+///
+/// Naming follows the Erigon Ethereum client conventions:
+/// - `Archive`: Keep complete historical state (like Erigon's archive mode)
+/// - `Full`: Keep last N blocks of state (like Erigon's full mode with configurable distance)
+/// - `Minimal`: Keep only latest state (like Erigon's minimal mode for validators)
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum PruningMode {
     /// Keep all historical state since genesis (no pruning).
-    Full,
+    /// Equivalent to Erigon's `--prune.mode=archive`.
+    Archive,
     /// Keep only the last N blocks of historical state.
-    HistoricalBlocks(u64),
+    /// Similar to Erigon's `--prune.mode=full` with `--prune.distance=N`.
+    Full(u64),
     /// Keep only the latest state, pruning all historical data.
-    LatestOnly,
+    /// Equivalent to Erigon's `--prune.mode=minimal`.
+    Minimal,
 }
 
 impl Default for PruningMode {
     fn default() -> Self {
-        Self::Full
+        Self::Archive
     }
 }
 
@@ -111,13 +119,13 @@ impl PruneInput {
 
     /// Calculates the block number before which all state should be pruned.
     ///
-    /// Returns `None` if no pruning should occur (e.g., in `Full` mode).
+    /// Returns `None` if no pruning should occur (e.g., in `Archive` mode).
     /// Returns `Some(block_number)` indicating that all state before this block can be pruned.
     pub fn prune_before(&self) -> Option<BlockNumber> {
         match self.mode {
-            PruningMode::Full => None,
-            PruningMode::LatestOnly => Some(self.tip.saturating_sub(1)),
-            PruningMode::HistoricalBlocks(n) => {
+            PruningMode::Archive => None,
+            PruningMode::Minimal => Some(self.tip.saturating_sub(1)),
+            PruningMode::Full(n) => {
                 if self.tip > n {
                     Some(self.tip - n)
                 } else {
@@ -239,33 +247,33 @@ mod tests {
     }
 
     #[test]
-    fn prune_before_full_mode() {
-        let input = PruneInput::new(1000, PruningMode::Full);
+    fn prune_before_archive_mode() {
+        let input = PruneInput::new(1000, PruningMode::Archive);
         assert_eq!(input.prune_before(), None);
     }
 
     #[test]
-    fn prune_before_latest_only() {
-        let input = PruneInput::new(1000, PruningMode::LatestOnly);
+    fn prune_before_minimal_mode() {
+        let input = PruneInput::new(1000, PruningMode::Minimal);
         assert_eq!(input.prune_before(), Some(999));
 
         // Edge case: tip at block 0
-        let input = PruneInput::new(0, PruningMode::LatestOnly);
+        let input = PruneInput::new(0, PruningMode::Minimal);
         assert_eq!(input.prune_before(), Some(0));
     }
 
     #[test]
-    fn prune_before_historical_blocks() {
+    fn prune_before_full_mode() {
         // Keep last 100 blocks, tip at 1000
-        let input = PruneInput::new(1000, PruningMode::HistoricalBlocks(100));
+        let input = PruneInput::new(1000, PruningMode::Full(100));
         assert_eq!(input.prune_before(), Some(900));
 
         // Keep last 100 blocks, tip at 50 (not enough blocks yet)
-        let input = PruneInput::new(50, PruningMode::HistoricalBlocks(100));
+        let input = PruneInput::new(50, PruningMode::Full(100));
         assert_eq!(input.prune_before(), None);
 
         // Keep last 100 blocks, tip at exactly 100
-        let input = PruneInput::new(100, PruningMode::HistoricalBlocks(100));
+        let input = PruneInput::new(100, PruningMode::Full(100));
         assert_eq!(input.prune_before(), Some(0));
     }
 }

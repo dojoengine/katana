@@ -217,7 +217,7 @@ pub struct PruningConfig {
 
 impl Default for PruningConfig {
     fn default() -> Self {
-        Self { mode: PruningMode::Full, interval: None }
+        Self { mode: PruningMode::Archive, interval: None }
     }
 }
 
@@ -229,7 +229,7 @@ impl PruningConfig {
 
     /// Returns whether pruning is enabled.
     pub fn is_enabled(&self) -> bool {
-        !matches!(self.mode, PruningMode::Full) && self.interval.is_some()
+        !matches!(self.mode, PruningMode::Archive) && self.interval.is_some()
     }
 }
 

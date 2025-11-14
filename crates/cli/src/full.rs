@@ -114,9 +114,9 @@ impl FullNodeArgs {
         use crate::options::PruningMode as CliPruningMode;
 
         let mode = match self.pruning.mode.as_ref()? {
-            CliPruningMode::Full => katana_stage::PruningMode::Full,
-            CliPruningMode::Latest => katana_stage::PruningMode::LatestOnly,
-            CliPruningMode::Archive(n) => katana_stage::PruningMode::HistoricalBlocks(*n),
+            CliPruningMode::Archive => katana_stage::PruningMode::Archive,
+            CliPruningMode::Minimal => katana_stage::PruningMode::Minimal,
+            CliPruningMode::Full(n) => katana_stage::PruningMode::Full(*n),
         };
 
         Some(full::PruningConfig { mode, interval: self.pruning.interval })

@@ -723,13 +723,13 @@ impl TracerOptions {
 #[derive(Debug, Args, Clone, Serialize, Deserialize, PartialEq)]
 #[command(next_help_heading = "Pruning options")]
 pub struct PruningOptions {
-    /// State pruning mode.
+    /// State pruning mode (follows Erigon conventions).
     ///
     /// Determines how much historical state to retain:
-    /// - 'full': Keep all historical state (no pruning, default)
-    /// - 'archive:N': Keep last N blocks of historical state
-    /// - 'latest': Keep only the latest state
-    #[arg(long = "pruning.mode", value_name = "MODE")]
+    /// - 'archive': Keep all historical state (no pruning, default)
+    /// - 'full:N': Keep last N blocks of historical state
+    /// - 'minimal': Keep only the latest state
+    #[arg(long = "prune.mode", value_name = "MODE")]
     #[arg(value_parser = parse_pruning_mode)]
     #[serde(default)]
     pub mode: Option<PruningMode>,
@@ -738,7 +738,7 @@ pub struct PruningOptions {
     ///
     /// Pruning will be triggered after every N blocks are synced.
     /// If not specified, pruning is disabled even if a pruning mode is set.
-    #[arg(long = "pruning.interval", value_name = "BLOCKS")]
+    #[arg(long = "prune.interval", value_name = "BLOCKS")]
     #[serde(default)]
     pub interval: Option<u64>,
 }
@@ -752,26 +752,26 @@ impl Default for PruningOptions {
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
 #[serde(rename_all = "lowercase")]
 pub enum PruningMode {
-    Full,
-    Archive(u64),
-    Latest,
+    Archive,
+    Full(u64),
+    Minimal,
 }
 
 fn parse_pruning_mode(s: &str) -> Result<PruningMode, String> {
     match s.to_lowercase().as_str() {
-        "full" => Ok(PruningMode::Full),
-        "latest" => Ok(PruningMode::Latest),
-        s if s.starts_with("archive:") => {
+        "archive" => Ok(PruningMode::Archive),
+        "minimal" => Ok(PruningMode::Minimal),
+        s if s.starts_with("full:") => {
             let n = s
-                .strip_prefix("archive:")
+                .strip_prefix("full:")
                 .and_then(|n| n.parse::<u64>().ok())
                 .ok_or_else(|| {
-                    format!("Invalid archive format. Use 'archive:N' where N is a number")
+                    format!("Invalid full format. Use 'full:N' where N is the number of blocks to keep")
                 })?;
-            Ok(PruningMode::Archive(n))
+            Ok(PruningMode::Full(n))
         }
         _ => Err(format!(
-            "Invalid pruning mode '{}'. Valid modes are: 'full', 'latest', 'archive:N'",
+            "Invalid pruning mode '{}'. Valid modes are: 'archive', 'minimal', 'full:N'",
             s
         )),
     }
