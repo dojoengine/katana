@@ -5,7 +5,7 @@ use std::future::Future;
 use std::sync::Arc;
 
 use katana_chain_spec::ChainSpec;
-use katana_core::backend::storage::{Database, DatabaseRO, DatabaseRW};
+use katana_core::backend::storage::GenericStorageProvider;
 use katana_core::utils::get_current_timestamp;
 use katana_gas_price_oracle::GasPriceOracle;
 use katana_pool::TransactionPool;
@@ -24,7 +24,7 @@ use katana_provider::api::transaction::{
     ReceiptProvider, TransactionProvider, TransactionStatusProvider, TransactionsProviderExt,
 };
 use katana_provider::api::ProviderError;
-use katana_provider::{BlockchainProvider, ProviderFactory};
+use katana_provider::ProviderFactory;
 use katana_rpc_api::error::starknet::{
     CompilationErrorData, PageSizeTooBigData, ProofLimitExceededData, StarknetApiError,
 };
@@ -77,27 +77,24 @@ pub type StarknetApiResult<T> = Result<T, StarknetApiError>;
 /// [write](katana_rpc_api::starknet::StarknetWriteApi), and
 /// [trace](katana_rpc_api::starknet::StarknetTraceApi) APIs.
 #[derive(Debug)]
-pub struct StarknetApi<Pool, PP, S>
+pub struct StarknetApi<Pool, PP>
 where
     Pool: TransactionPool,
     PP: PendingBlockProvider,
-    S: ProviderFactory,
 {
-    inner: Arc<StarknetApiInner<Pool, PP, S>>,
+    inner: Arc<StarknetApiInner<Pool, PP>>,
 }
 
 #[derive(Debug)]
-struct StarknetApiInner<Pool, PP, S>
+struct StarknetApiInner<Pool, PP>
 where
     Pool: TransactionPool,
     PP: PendingBlockProvider,
-    S: ProviderFactory,
 {
     pool: Pool,
     chain_spec: Arc<ChainSpec>,
     gas_oracle: GasPriceOracle,
-    storage: BlockchainProvider<Box<dyn Database>>,
-    storage2: S,
+    storage2: GenericStorageProvider,
     forked_client: Option<ForkedClient>,
     task_spawner: TaskSpawner,
     estimate_fee_permit: Permits,
@@ -109,18 +106,13 @@ impl<Pool, PP> StarknetApi<Pool, PP>
 where
     Pool: TransactionPool,
     PP: PendingBlockProvider,
-    S: ProviderFactory,
 {
     pub fn pool(&self) -> &Pool {
         &self.inner.pool
     }
 
-    pub fn storage(&self) -> &BlockchainProvider<Box<dyn Database>> {
-        &self.inner.storage
-    }
-
-    pub fn storage2(&self) -> &S {
-        &self.inner.storage
+    pub fn storage2(&self) -> &GenericStorageProvider {
+        &self.inner.storage2
     }
 
     pub fn forked_client(&self) -> Option<&ForkedClient> {
@@ -136,69 +128,66 @@ where
     }
 }
 
-impl<Pool, PP, S> StarknetApi<Pool, PP, S>
+impl<Pool, PP> StarknetApi<Pool, PP>
 where
     Pool: TransactionPool + 'static,
     PP: PendingBlockProvider,
-    S: ProviderFactory,
-    <S as ProviderFactory>::Provider: DatabaseRO,
-    <S as ProviderFactory>::ProviderMut: DatabaseRW,
 {
     #[allow(clippy::too_many_arguments)]
     pub fn new(
         chain_spec: Arc<ChainSpec>,
-        storage: BlockchainProvider<Box<dyn Database>>,
         pool: Pool,
         task_spawner: TaskSpawner,
         pending_block_provider: PP,
         gas_oracle: GasPriceOracle,
         config: StarknetApiConfig,
+        storage2: GenericStorageProvider,
     ) -> Self {
         Self::new_inner(
             chain_spec,
-            storage,
             pool,
             None,
             task_spawner,
             config,
             pending_block_provider,
             gas_oracle,
+            storage2,
         )
     }
 
     #[allow(clippy::too_many_arguments)]
     pub fn new_forked(
         chain_spec: Arc<ChainSpec>,
-        storage: BlockchainProvider<Box<dyn Database>>,
         pool: Pool,
         forked_client: ForkedClient,
         task_spawner: TaskSpawner,
         pending_block_provider: PP,
         gas_oracle: GasPriceOracle,
         config: StarknetApiConfig,
+        storage2: GenericStorageProvider,
     ) -> Self {
         Self::new_inner(
             chain_spec,
-            storage,
             pool,
             Some(forked_client),
             task_spawner,
             config,
             pending_block_provider,
             gas_oracle,
+            storage2,
         )
     }
 
     #[allow(clippy::too_many_arguments)]
     fn new_inner(
         chain_spec: Arc<ChainSpec>,
-        storage: BlockchainProvider<Box<dyn Database>>,
         pool: Pool,
         forked_client: Option<ForkedClient>,
         task_spawner: TaskSpawner,
         config: StarknetApiConfig,
         pending_block_provider: PP,
         gas_oracle: GasPriceOracle,
+        storage2: GenericStorageProvider,
     ) -> Self {
         let total_permits = config
             .max_concurrent_estimate_fee_requests
@@ -207,7 +196,6 @@ where
 
         let inner = StarknetApiInner {
             chain_spec,
-            storage,
             pool,
             task_spawner,
             forked_client,
@@ -215,6 +203,7 @@ where
             config,
             pending_block_provider,
             gas_oracle,
+            storage2,
         };
 
         Self { inner: Arc::new(inner) }
@@ -297,7 +286,7 @@ where
     }
 
     pub fn state(&self, block_id: &BlockIdOrTag) -> StarknetApiResult<Box<dyn StateProvider>> {
-        let provider = self.inner.storage2.provider();
+        let provider = self.storage2().provider();
 
         let state = match block_id {
             BlockIdOrTag::PreConfirmed => {
@@ -320,7 +309,7 @@ where
     }
 
     fn block_env_at(&self, block_id: &BlockIdOrTag) -> StarknetApiResult<BlockEnv> {
-        let provider = self.inner.storage2.provider();
+        let provider = self.storage2().provider();
 
         let env = match block_id {
             BlockIdOrTag::PreConfirmed => {
@@ -372,7 +361,7 @@ where
     }
 
     fn block_hash_and_number(&self) -> StarknetApiResult<BlockHashAndNumberResponse> {
-        let provider = self.inner.storage2.provider();
+        let provider = self.storage2().provider();
         let hash = provider.latest_hash()?;
         let number = provider.latest_number()?;
         Ok(BlockHashAndNumberResponse::new(hash, number))
@@ -578,7 +567,12 @@ where
                 {
                     Result::<_, StarknetApiError>::Ok(pending_tx)
                 } else {
-                    let tx = this.inner.storage.transaction_by_hash(hash)?.map(RpcTxWithHash::from);
+                    let tx = this
+                        .storage2()
+                        .provider()
+                        .transaction_by_hash(hash)?
+                        .map(RpcTxWithHash::from);
+
                     Result::<_, StarknetApiError>::Ok(tx)
                 }
             })
@@ -879,7 +873,7 @@ where
         continuation_token: Option<MaybeForkedContinuationToken>,
         chunk_size: u64,
     ) -> StarknetApiResult<GetEventsResponse> {
-        let provider = &self.inner.storage;
+        let provider = self.storage2().provider();
 
         let from = self.resolve_event_block_id_if_forked(from_block)?;
         let to = self.resolve_event_block_id_if_forked(to_block)?;
@@ -1096,7 +1090,7 @@ where
         &self,
         id: BlockIdOrTag,
     ) -> StarknetApiResult<EventBlockId> {
-        let provider = &self.inner.storage;
+        let provider = &self.storage2().provider();
 
         let id = match id {
             BlockIdOrTag::L1Accepted => EventBlockId::Pending,
@@ -1224,13 +1218,10 @@ where
 // `StarknetApiExt` Implementations
 /////////////////////////////////////////////////////
 
-impl<Pool, PP, S> StarknetApi<Pool, PP, S>
+impl<Pool, PP> StarknetApi<Pool, PP>
 where
     Pool: TransactionPool + 'static,
     PP: PendingBlockProvider,
-    S: ProviderFactory,
-    <S as ProviderFactory>::Provider: DatabaseRO,
-    <S as ProviderFactory>::ProviderMut: DatabaseRW,
 {
     async fn blocks(&self, request: GetBlocksRequest) -> StarknetApiResult<GetBlocksResponse> {
         self.on_io_blocking_task(move |this| {
@@ -1357,7 +1348,7 @@ where
                         StarknetApiError::unexpected(format!("transaction is missing; {hash:#}")),
                     )?;
 
-                let receipt = ReceiptBuilder::new(hash, provider).build()?.ok_or(
+                let receipt = ReceiptBuilder::new(hash, &provider).build()?.ok_or(
                     StarknetApiError::unexpected(format!("transaction is missing; {hash:#}")),
                 )?;
 

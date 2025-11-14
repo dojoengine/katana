@@ -19,7 +19,6 @@ lazy_static! {
         serde_json::from_str(include_str!("./fixtures/dojo_world_240.json")).unwrap();
 }
 
-#[cfg(feature = "fork")]
 pub mod fork {
 
     use katana_provider::providers::fork::ForkedProvider;

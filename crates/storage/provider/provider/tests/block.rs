@@ -300,7 +300,6 @@ fn test_read_state_update<Db>(
 ) {
 }
 
-#[cfg(feature = "fork")]
 mod fork {
     use fixtures::fork::{fork_provider, fork_provider_with_spawned_fork_network};
     use katana_provider::providers::fork::ForkedProvider;

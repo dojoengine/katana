@@ -1,9 +1,11 @@
+use std::sync::Arc;
+
 use anyhow::{bail, Context, Result};
 use katana_primitives::block::{
     BlockHashOrNumber, BlockIdOrTag, BlockNumber, FinalityStatus, GasPrices, Header, SealedBlock,
     SealedBlockWithStatus,
 };
-use katana_provider::api::block::{BlockProvider, BlockWriter};
+use katana_provider::api::block::{BlockIdReader, BlockProvider, BlockWriter};
 use katana_provider::api::contract::ContractClassWriter;
 use katana_provider::api::env::BlockEnvProvider;
 use katana_provider::api::stage::StageCheckpointProvider;
@@ -14,8 +16,7 @@ use katana_provider::api::transaction::{
     TransactionsProviderExt,
 };
 use katana_provider::api::trie::TrieWriter;
-use katana_provider::providers::db::DbProvider;
-use katana_provider::providers::fork::ForkedProvider;
+use katana_provider::{DbProviderFactory, ForkProviderFactory, ProviderFactory};
 use katana_rpc_client::starknet::Client as StarknetClient;
 use katana_rpc_client::HttpClientBuilder;
 use katana_rpc_types::GetBlockWithTxHashesResponse;
@@ -24,79 +25,39 @@ use starknet::core::utils::parse_cairo_short_string;
 use tracing::info;
 use url::Url;
 
-pub trait DatabaseRO:
-    BlockProvider
-    + TransactionProvider
-    + TransactionStatusProvider
-    + TransactionTraceProvider
-    + TransactionsProviderExt
-    + ReceiptProvider
-    + StateUpdateProvider
-    + StateFactoryProvider
-    + BlockEnvProvider
-    + 'static
-    + Send
-    + Sync
-    + core::fmt::Debug
-{
-}
-
-pub trait DatabaseRW:
-    DatabaseRO + BlockWriter + StateWriter + ContractClassWriter + TrieWriter + StageCheckpointProvider
-{
-}
-
-impl<T> DatabaseRO for T where
-    T: BlockProvider
-        + TransactionProvider
-        + TransactionStatusProvider
-        + TransactionTraceProvider
-        + TransactionsProviderExt
-        + ReceiptProvider
-        + StateUpdateProvider
-        + StateFactoryProvider
-        + BlockEnvProvider
-        + 'static
-        + Send
-        + Sync
-        + core::fmt::Debug
-{
-}
-
-impl<T> DatabaseRW for T where
-    T: DatabaseRO
-        + BlockWriter
-        + StateWriter
-        + ContractClassWriter
-        + TrieWriter
-        + StageCheckpointProvider
-{
-}
+pub type GenericStorageProvider =
+    Arc<dyn ProviderFactory<Provider = Box<dyn DatabaseRO>, ProviderMut = Box<dyn DatabaseRW>>>;
 
 #[derive(Debug, Clone)]
-pub struct Blockchain {
-    inner: BlockchainProvider<Box<dyn DatabaseRW>>,
+pub struct StorageProvider<P> {
+    provider_factory: P,
 }
 
-impl Blockchain {
-    pub fn new(provider: impl DatabaseRW) -> Self {
-        Self { inner: BlockchainProvider::new(Box::new(provider)) }
+impl<P: ProviderFactory> StorageProvider<P> {
+    pub fn new(provider_factory: P) -> Self {
+        Self { provider_factory }
     }
+}
 
-    /// Creates a new [Blockchain] from a database at `path` and `genesis` state.
+impl StorageProvider<DbProviderFactory<katana_db::Db>> {
     pub fn new_with_db(db: katana_db::Db) -> Self {
-        Self::new(DbProvider::new(db))
+        Self::new(DbProviderFactory::new(db))
     }
 
+    pub fn new_in_memory() -> Self {
+        Self::new(DbProviderFactory::new_in_memory())
+    }
+}
+
+impl StorageProvider<ForkProviderFactory<katana_db::Db>> {
     /// Builds a new blockchain with a forked block.
-    pub async fn new_from_forked(
+    pub async fn new_forked(
         db: katana_db::Db,
-        fork_url: Url,
+        client: StarknetClient,
         fork_block: Option<BlockHashOrNumber>,
         chain: &mut katana_chain_spec::dev::ChainSpec,
     ) -> Result<(Self, BlockNumber)> {
-        let provider = StarknetClient::new(HttpClientBuilder::new().build(fork_url)?);
-        let chain_id = provider.chain_id().await.context("failed to fetch forked network id")?;
+        let chain_id = client.chain_id().await.context("failed to fetch forked network id")?;
 
         // if the id is not in ASCII encoding, we display the chain id as is in hex.
         let parsed_id = match parse_cairo_short_string(&chain_id) {
@@ -109,13 +70,13 @@ impl Blockchain {
         let block_id = if let Some(id) = fork_block {
             id
         } else {
-            let res = provider.block_number().await?;
+            let res = client.block_number().await?;
             BlockHashOrNumber::Num(res.block_number)
         };
 
         info!(chain = %parsed_id, block = %block_id, "Forking chain.");
 
-        let block = provider
+        let block = client
             .get_block_with_tx_hashes(BlockIdOrTag::from(block_id))
             .await
             .context("failed to fetch forked block")?;
@@ -145,7 +106,7 @@ impl Blockchain {
 
         // TODO: convert this to block number instead of BlockHashOrNumber so that it is easier to
         // check if the requested block is within the supported range or not.
-        let database = ForkedProvider::new(db, block_num, provider.clone());
+        let provider_factory = ForkProviderFactory::new(db, block_num, client.clone());
 
         // initialize parent fork block
         //
@@ -153,7 +114,7 @@ impl Blockchain {
         // `Backend::do_mine_block`.
         {
             let parent_block_id = BlockIdOrTag::from(forked_block.parent_hash);
-            let parent_block = provider.get_block_with_tx_hashes(parent_block_id).await?;
+            let parent_block = client.get_block_with_tx_hashes(parent_block_id).await?;
 
             let GetBlockWithTxHashesResponse::Block(parent_block) = parent_block else {
                 bail!("parent block is a preconfirmed block");
@@ -175,7 +136,8 @@ impl Blockchain {
                 status: FinalityStatus::AcceptedOnL2,
             };
 
-            database
+            provider_factory
+                .provider_mut()
                 .insert_block_with_states_and_receipts(
                     parent_block,
                     Default::default(),
@@ -201,10 +163,75 @@ impl Blockchain {
 
         block.header.l1_da_mode = forked_block.l1_da_mode;
 
-        Ok((Self::new(database), block_num))
+        Ok((Self::new(provider_factory), block_num))
+    }
+}
+
+impl<P> ProviderFactory for StorageProvider<P>
+where
+    P: ProviderFactory,
+    <P as ProviderFactory>::Provider: DatabaseRO,
+    <P as ProviderFactory>::ProviderMut: DatabaseRW,
+{
+    type Provider = Box<dyn DatabaseRO>;
+    type ProviderMut = Box<dyn DatabaseRW>;
+
+    fn provider(&self) -> Self::Provider {
+        Box::new(self.provider_factory.provider_mut())
     }
 
-    pub fn provider(&self) -> &BlockchainProvider<Box<dyn Database>> {
-        &self.inner
+    fn provider_mut(&self) -> Self::ProviderMut {
+        Box::new(self.provider_factory.provider_mut())
     }
+}
+
+pub trait DatabaseRO:
+    BlockIdReader
+    + BlockProvider
+    + TransactionProvider
+    + TransactionStatusProvider
+    + TransactionTraceProvider
+    + TransactionsProviderExt
+    + ReceiptProvider
+    + StateUpdateProvider
+    + StateFactoryProvider
+    + BlockEnvProvider
+    + 'static
+    + Send
+    + Sync
+    + core::fmt::Debug
+{
+}
+
+pub trait DatabaseRW:
+    DatabaseRO + BlockWriter + StateWriter + ContractClassWriter + TrieWriter + StageCheckpointProvider
+{
+}
+
+impl<T> DatabaseRO for T where
+    T: BlockProvider
+        + BlockIdReader
+        + TransactionProvider
+        + TransactionStatusProvider
+        + TransactionTraceProvider
+        + TransactionsProviderExt
+        + ReceiptProvider
+        + StateUpdateProvider
+        + StateFactoryProvider
+        + BlockEnvProvider
+        + 'static
+        + Send
+        + Sync
+        + core::fmt::Debug
+{
+}
+
+impl<T> DatabaseRW for T where
+    T: DatabaseRO
+        + BlockWriter
+        + StateWriter
+        + ContractClassWriter
+        + TrieWriter
+        + StageCheckpointProvider
+{
 }

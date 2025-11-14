@@ -122,7 +122,7 @@ impl<EF: ExecutorFactory> CartridgeApi<EF> {
 
     fn state(&self) -> Result<Box<dyn StateProvider>, StarknetApiError> {
         match &*self.block_producer.producer.read() {
-            BlockProducerMode::Instant(_) => Ok(self.backend.blockchain.provider().latest()?),
+            BlockProducerMode::Instant(_) => Ok(self.backend.storage.provider().latest()?),
             BlockProducerMode::Interval(producer) => Ok(producer.executor().read().state()),
         }
     }

@@ -377,7 +377,8 @@ async fn run_to_middle_stage_skip_continues() {
 #[tokio::test]
 async fn run_processes_single_chunk_to_tip() {
     let provider = Arc::new(test_provider());
-    let (mut pipeline, handle) = Pipeline::new(provider.clone(), 100);
+
+    let (mut pipeline, handle) = Pipeline::new(provider.provider_mut(), 100);
 
     let stage = TrackingStage::new("Stage1");
     let stage_clone = stage.clone();
@@ -401,7 +402,7 @@ async fn run_processes_single_chunk_to_tip() {
     assert_eq!(execs[0].from, 0);
     assert_eq!(execs[0].to, 50);
 
-    assert_eq!(provider.checkpoint("Stage1").unwrap(), Some(50));
+    assert_eq!(provider.provider_mut().checkpoint("Stage1").unwrap(), Some(50));
 }
 
 #[tokio::test]

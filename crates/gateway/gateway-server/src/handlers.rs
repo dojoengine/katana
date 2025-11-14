@@ -32,7 +32,7 @@ where
     async fn get_block(&self, id: BlockIdOrTag) -> Result<Option<Block>, ApiError> {
         self.api
             .on_io_blocking_task(move |this| {
-                let provider = this.storage();
+                let provider = this.storage2().provider();
 
                 if let Some(num) = provider.convert_block_id(id)? {
                     let block = provider.block(num.into())?.unwrap();

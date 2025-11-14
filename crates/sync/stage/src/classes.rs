@@ -57,7 +57,8 @@ impl<P> Classes<P> {
         to_block: BlockNumber,
     ) -> Result<Vec<ClassDownloadKey>, Error>
     where
-        P: ProviderFactory<Provider = impl StateUpdateProvider>,
+        P: ProviderFactory,
+        <P as ProviderFactory>::Provider: StateUpdateProvider,
     {
         let mut classes_keys: Vec<ClassDownloadKey> = Vec::new();
 
@@ -122,7 +123,9 @@ impl<P> Classes<P> {
 
 impl<P> Stage for Classes<P>
 where
-    P: ProviderFactory<Provider = impl StateUpdateProvider, ProviderMut = impl ContractClassWriter>,
+    P: ProviderFactory,
+    <P as ProviderFactory>::Provider: StateUpdateProvider,
+    <P as ProviderFactory>::ProviderMut: ContractClassWriter,
 {
     fn id(&self) -> &'static str {
         "Classes"

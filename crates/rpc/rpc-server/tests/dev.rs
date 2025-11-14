@@ -7,7 +7,7 @@ use katana_utils::TestNode;
 async fn test_next_block_timestamp_in_past() {
     let sequencer = TestNode::new().await;
     let backend = sequencer.backend();
-    let provider = backend.blockchain.provider();
+    let provider = backend.storage.provider();
 
     // Create a jsonrpsee client for the DevApi
     let client = sequencer.rpc_http_client();
@@ -34,7 +34,7 @@ async fn test_next_block_timestamp_in_past() {
 async fn test_set_next_block_timestamp_in_future() {
     let sequencer = TestNode::new().await;
     let backend = sequencer.backend();
-    let provider = backend.blockchain.provider();
+    let provider = backend.storage.provider();
 
     // Create a jsonrpsee client for the DevApi
     let client = sequencer.rpc_http_client();
@@ -62,7 +62,7 @@ async fn test_set_next_block_timestamp_in_future() {
 async fn test_increase_next_block_timestamp() {
     let sequencer = TestNode::new().await;
     let backend = sequencer.backend();
-    let provider = backend.blockchain.provider();
+    let provider = backend.storage.provider();
 
     // Create a jsonrpsee client for the DevApi
     let client = sequencer.rpc_http_client();

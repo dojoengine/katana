@@ -60,7 +60,7 @@ impl TestNode {
 
     /// Returns a reference to the blockchain provider.
     pub fn blockchain(&self) -> &BlockchainProvider<Box<dyn Database>> {
-        self.backend().blockchain.provider()
+        self.backend().storage.provider()
     }
 
     /// Returns a reference to the launched node handle.

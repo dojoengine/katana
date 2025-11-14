@@ -16,7 +16,7 @@ use katana_provider::api::block::BlockNumberProvider;
 async fn main() {
     let node = node().await;
 
-    let provider = node.node().backend().blockchain.provider();
+    let provider = node.node().backend().storage.provider();
     let url = format!("http://{}", node.rpc().addr());
 
     let latest_block = provider.latest_number().expect("failed to get latest block number");

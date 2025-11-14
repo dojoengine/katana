@@ -19,7 +19,6 @@ use katana_primitives::contract::Nonce;
 use katana_primitives::transaction::TxType;
 use katana_primitives::Felt;
 use katana_provider::api::state::StateFactoryProvider;
-use katana_provider::providers::db::DbProvider;
 use katana_provider::{DbProviderFactory, ProviderFactory};
 use url::Url;
 

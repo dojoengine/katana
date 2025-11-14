@@ -31,8 +31,8 @@ use katana_primitives::receipt::Receipt;
 use katana_primitives::state::{StateUpdates, StateUpdatesWithClasses};
 use katana_primitives::transaction::{TxHash, TxNumber, TxWithHash};
 use katana_provider_api::block::{
-    BlockHashProvider, BlockNumberProvider, BlockProvider, BlockStatusProvider, BlockWriter,
-    HeaderProvider,
+    BlockHashProvider, BlockIdReader, BlockNumberProvider, BlockProvider, BlockStatusProvider,
+    BlockWriter, HeaderProvider,
 };
 use katana_provider_api::env::BlockEnvProvider;
 use katana_provider_api::stage::StageCheckpointProvider;
@@ -80,6 +80,8 @@ impl<Tx: DbTx> BlockNumberProvider for DbProvider<Tx> {
         Ok(total_blocks)
     }
 }
+
+impl<Tx: DbTx> BlockIdReader for DbProvider<Tx> {}
 
 impl<Tx: DbTx> BlockHashProvider for DbProvider<Tx> {
     fn latest_hash(&self) -> ProviderResult<BlockHash> {

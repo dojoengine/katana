@@ -16,7 +16,6 @@ use katana_metrics::{Report, Server as MetricsServer};
 use katana_pipeline::{Pipeline, PipelineHandle};
 use katana_pool::ordering::TipOrdering;
 use katana_provider::providers::db::DbProvider;
-use katana_provider::BlockchainProvider;
 use katana_rpc_api::starknet::{StarknetApiServer, StarknetTraceApiServer, StarknetWriteApiServer};
 use katana_rpc_server::cors::Cors;
 use katana_rpc_server::starknet::{StarknetApi, StarknetApiConfig};
@@ -168,7 +167,6 @@ impl Node {
 
         let starknet_api = StarknetApi::new(
             Arc::new(chain_spec),
-            BlockchainProvider::new(Box::new(provider.clone())),
             pool.clone(),
             task_spawner.clone(),
             preconf_factory,

@@ -3,7 +3,6 @@ use std::sync::Arc;
 use alloy_primitives::U256;
 use katana_chain_spec::rollup::{self};
 use katana_chain_spec::{dev, ChainSpec, FeeContracts, SettlementLayer};
-use katana_core::backend::storage::{Blockchain, Database};
 use katana_core::backend::Backend;
 use katana_executor::implementation::blockifier::cache::ClassCache;
 use katana_executor::implementation::blockifier::BlockifierFactory;

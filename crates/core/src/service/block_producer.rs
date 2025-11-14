@@ -245,7 +245,7 @@ pub struct IntervalBlockProducer<EF: ExecutorFactory> {
 
 impl<EF: ExecutorFactory> IntervalBlockProducer<EF> {
     pub fn new(backend: Arc<Backend<EF>>, block_time: Option<u64>) -> Self {
-        let provider = backend.blockchain.provider();
+        let provider = backend.storage.provider();
 
         let latest_num = provider.latest_number().unwrap();
         let mut block_env = provider.block_env_at(latest_num.into()).unwrap().unwrap();
@@ -310,7 +310,7 @@ impl<EF: ExecutorFactory> IntervalBlockProducer<EF> {
 
                 // update pool validator state here ---------
 
-                let provider = self.backend.blockchain.provider();
+                let provider = self.backend.storage.provider();
                 let state = self.executor.0.read().state();
                 let num = provider.latest_number().unwrap();
                 let block_env = provider.block_env_at(num.into()).unwrap().unwrap();
@@ -379,7 +379,7 @@ impl<EF: ExecutorFactory> IntervalBlockProducer<EF> {
 
     fn create_new_executor_for_next_block(&self) -> Result<PendingExecutor, BlockProductionError> {
         let backend = &self.backend;
-        let provider = backend.blockchain.provider();
+        let provider = backend.storage.provider();
 
         let latest_num = provider.latest_number()?;
         let updated_state = provider.latest()?;
@@ -514,7 +514,7 @@ impl<EF: ExecutorFactory> Stream for IntervalBlockProducer<EF> {
                             Ok(executor) => {
                                 // update pool validator state here ---------
 
-                                let provider = pin.backend.blockchain.provider();
+                                let provider = pin.backend.storage.provider();
                                 let state = executor.0.read().state();
                                 let num = provider.latest_number()?;
                                 let block_env = provider.block_env_at(num.into()).unwrap().unwrap();
@@ -574,7 +574,7 @@ pub struct InstantBlockProducer<EF: ExecutorFactory> {
 
 impl<EF: ExecutorFactory> InstantBlockProducer<EF> {
     pub fn new(backend: Arc<Backend<EF>>) -> Self {
-        let provider = backend.blockchain.provider();
+        let provider = backend.storage.provider();
 
         let permit = Arc::new(Mutex::new(()));
 
@@ -638,7 +638,7 @@ impl<EF: ExecutorFactory> InstantBlockProducer<EF> {
 
         let transactions = transactions.into_iter().flatten().collect::<Vec<_>>();
 
-        let provider = backend.blockchain.provider();
+        let provider = backend.storage.provider();
 
         // TODO: don't use the previous block env, we should create on based on the current state of
         // the l1 (to determine the proper gas prices)
@@ -685,7 +685,7 @@ impl<EF: ExecutorFactory> InstantBlockProducer<EF> {
 
         // update pool validator state here ---------
 
-        let provider = backend.blockchain.provider();
+        let provider = backend.storage.provider();
         let state = provider.latest()?;
         let latest_num = provider.latest_number()?;
         let block_env = provider.block_env_at(latest_num.into())?.expect("latest");

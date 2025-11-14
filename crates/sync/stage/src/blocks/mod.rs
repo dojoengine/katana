@@ -42,7 +42,8 @@ impl<PF, B> Blocks<PF, B> {
     /// For the first block in the list (if not block 0), it fetches the parent hash from storage.
     fn validate_chain_invariant(&self, blocks: &[StateUpdateWithBlock]) -> Result<(), Error>
     where
-        PF: ProviderFactory<Provider = impl BlockHashProvider>,
+        PF: ProviderFactory,
+        <PF as ProviderFactory>::Provider: BlockHashProvider,
     {
         if blocks.is_empty() {
             return Ok(());
@@ -93,7 +94,9 @@ impl<PF, B> Blocks<PF, B> {
 
 impl<PF, D> Stage for Blocks<PF, D>
 where
-    PF: ProviderFactory<Provider = impl BlockHashProvider, ProviderMut = impl BlockWriter>,
+    PF: ProviderFactory,
+    <PF as ProviderFactory>::Provider: BlockHashProvider,
+    <PF as ProviderFactory>::ProviderMut: BlockWriter,
     D: BlockDownloader,
 {
     fn id(&self) -> &'static str {

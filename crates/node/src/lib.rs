@@ -16,10 +16,11 @@ use http::Method;
 use jsonrpsee::http_client::HttpClientBuilder;
 use jsonrpsee::RpcModule;
 use katana_chain_spec::{ChainSpec, SettlementLayer};
-use katana_core::backend::storage::Blockchain;
+use katana_core::backend::storage::{GenericStorageProvider, StorageProvider};
 use katana_core::backend::Backend;
 use katana_core::env::BlockContextGenerator;
 use katana_core::service::block_producer::BlockProducer;
+use katana_db::models::storage;
 use katana_db::Db;
 use katana_executor::implementation::blockifier::cache::ClassCache;
 use katana_executor::implementation::blockifier::BlockifierFactory;
@@ -32,6 +33,7 @@ use katana_metrics::{Report, Server as MetricsServer};
 use katana_pool::ordering::FiFo;
 use katana_pool::TxPool;
 use katana_primitives::env::VersionedConstantsOverrides;
+use katana_provider::DbProviderFactory;
 #[cfg(feature = "cartridge")]
 use katana_rpc_api::cartridge::CartridgeApiServer;
 use katana_rpc_api::dev::DevApiServer;
@@ -91,7 +93,7 @@ impl Node {
 
         // --- build backend
 
-        let (blockchain, db, forked_client) = if let Some(cfg) = &config.forking {
+        let (storage, db, forked_client) = if let Some(cfg) = &config.forking {
             // NOTE: because the chain spec will be cloned for the BlockifierFactory (see below),
             // this mutation must be performed before the chain spec is cloned. Otherwise
             // this will panic.
@@ -102,24 +104,54 @@ impl Node {
             };
 
             let db = katana_db::Db::in_memory()?;
-            let (bc, block_num) =
-                Blockchain::new_from_forked(db.clone(), cfg.url.clone(), cfg.block, chain_spec)
+            let rpc_client = StarknetClient::new(HttpClientBuilder::new().build(cfg.url.as_ref())?);
+
+            let (provider, block_num) =
+                StorageProvider::new_forked(db.clone(), rpc_client.clone(), cfg.block, chain_spec)
                     .await?;
 
             // TODO: it'd bee nice if the client can be shared on both the rpc and forked backend
             // side
-            let http_client = HttpClientBuilder::new().build(cfg.url.as_ref())?;
-            let rpc_client = StarknetClient::new(http_client);
             let forked_client = ForkedClient::new(rpc_client, block_num);
 
-            (bc, db, Some(forked_client))
+            (Arc::new(provider) as GenericStorageProvider, db, Some(forked_client))
         } else if let Some(db_path) = &config.db.dir {
             let db = katana_db::Db::new(db_path)?;
-            (Blockchain::new_with_db(db.clone()), db, None)
+            (Arc::new(StorageProvider::new_with_db(db.clone())) as GenericStorageProvider, db, None)
         } else {
             let db = katana_db::Db::in_memory()?;
-            (Blockchain::new_with_db(db.clone()), db, None)
+            (Arc::new(StorageProvider::new_with_db(db.clone())) as GenericStorageProvider, db, None)
         };
+
+        // let (blockchain, db, forked_client) = if let Some(cfg) = &config.forking {
+        //     // NOTE: because the chain spec will be cloned for the BlockifierFactory (see below),
+        //     // this mutation must be performed before the chain spec is cloned. Otherwise
+        //     // this will panic.
+        //     let chain_spec = Arc::get_mut(&mut config.chain).expect("get mut Arc");
+
+        //     let ChainSpec::Dev(chain_spec) = chain_spec else {
+        //         return Err(anyhow::anyhow!("Forking is only supported in dev mode for now"));
+        //     };
+
+        //     let db = katana_db::Db::in_memory()?;
+        //     let (bc, block_num) =
+        //         Blockchain::new_from_forked(db.clone(), cfg.url.clone(), cfg.block, chain_spec)
+        //             .await?;
+
+        //     // TODO: it'd bee nice if the client can be shared on both the rpc and forked backend
+        //     // side
+        //     let http_client = HttpClientBuilder::new().build(cfg.url.as_ref())?;
+        //     let rpc_client = StarknetClient::new(http_client);
+        //     let forked_client = ForkedClient::new(rpc_client, block_num);
+
+        //     (bc, db, Some(forked_client))
+        // } else if let Some(db_path) = &config.db.dir {
+        //     let db = katana_db::Db::new(db_path)?;
+        //     (Blockchain::new_with_db(db.clone()), db, None)
+        // } else {
+        //     let db = katana_db::Db::in_memory()?;
+        //     (Blockchain::new_with_db(db.clone()), db, None)
+        // };
 
         // --- build executor factory
 
@@ -188,7 +220,7 @@ impl Node {
         let block_context_generator = BlockContextGenerator::default().into();
         let backend = Arc::new(Backend {
             gas_oracle: gas_oracle.clone(),
-            blockchain,
+            storage,
             executor_factory,
             block_context_generator,
             chain_spec: config.chain.clone(),
@@ -259,29 +291,28 @@ impl Node {
             paymaster,
         };
 
-        let storage_provider = backend.blockchain.provider().clone();
         let chain_spec = backend.chain_spec.clone();
 
         let starknet_api = if let Some(forked_client) = forked_client {
             StarknetApi::new_forked(
                 chain_spec.clone(),
-                storage_provider.clone(),
                 pool.clone(),
                 forked_client,
                 task_spawner.clone(),
                 block_producer.clone(),
                 gas_oracle.clone(),
                 starknet_api_cfg,
+                storage.clone(),
             )
         } else {
             StarknetApi::new(
                 chain_spec.clone(),
-                storage_provider.clone(),
                 pool.clone(),
                 task_spawner.clone(),
                 block_producer.clone(),
                 gas_oracle.clone(),
                 starknet_api_cfg,
+                storage.clone(),
             )
         };
 

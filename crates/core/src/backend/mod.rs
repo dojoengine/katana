@@ -34,18 +34,17 @@ use tracing::info;
 
 pub mod storage;
 
-use self::storage::Blockchain;
+use crate::backend::storage::GenericStorageProvider;
 use crate::env::BlockContextGenerator;
 use crate::service::block_producer::{BlockProductionError, MinedBlockOutcome};
 use crate::utils::get_current_timestamp;
 
 pub(crate) const LOG_TARGET: &str = "katana::core::backend";
 
-#[derive(Debug)]
 pub struct Backend<EF> {
     pub chain_spec: Arc<ChainSpec>,
     /// stores all block related data in memory
-    pub blockchain: Blockchain,
+    pub storage: GenericStorageProvider,
     /// The block context generator.
     pub block_context_generator: RwLock<BlockContextGenerator>,
 
@@ -54,15 +53,27 @@ pub struct Backend<EF> {
     pub gas_oracle: GasPriceOracle,
 }
 
+impl<EF> std::fmt::Debug for Backend<EF> {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.debug_struct("Backend")
+            .field("chain_spec", &self.chain_spec)
+            .field("storage", &"..")
+            .field("block_context_generator", &self.block_context_generator)
+            .field("executor_factory", &"Arc<EF>")
+            .field("gas_oracle", &self.gas_oracle)
+            .finish()
+    }
+}
+
 impl<EF> Backend<EF> {
     pub fn new(
         chain_spec: Arc<ChainSpec>,
-        blockchain: Blockchain,
+        storage: GenericStorageProvider,
         gas_oracle: GasPriceOracle,
         executor_factory: EF,
     ) -> Self {
         Self {
-            blockchain,
+            storage,
             chain_spec,
             gas_oracle,
             executor_factory: Arc::new(executor_factory),
@@ -110,7 +121,7 @@ impl<EF: ExecutorFactory> Backend<EF> {
             BlockHash::ZERO
         } else {
             let parent_block_num = block_env.number - 1;
-            self.blockchain
+            self.storage
                 .provider()
                 .block_hash_by_num(parent_block_num)?
                 .expect("qed; missing block hash for parent block")
@@ -129,7 +140,7 @@ impl<EF: ExecutorFactory> Backend<EF> {
             l1_data_gas_prices: block_env.l1_data_gas_prices.clone(),
         };
 
-        let provider = self.blockchain.provider();
+        let provider = self.storage.provider_mut();
         let block = commit_block(
             provider,
             partial_header,
@@ -172,8 +183,8 @@ impl<EF: ExecutorFactory> Backend<EF> {
             )));
         }
 
-        self.blockchain
-            .provider()
+        self.storage
+            .provider_mut()
             .insert_block_with_states_and_receipts(block, states, receipts, traces)?;
         Ok(())
     }
@@ -217,7 +228,7 @@ impl<EF: ExecutorFactory> Backend<EF> {
         &self,
         chain_spec: &katana_chain_spec::dev::ChainSpec,
     ) -> anyhow::Result<()> {
-        let provider = self.blockchain.provider();
+        let provider = self.storage.provider();
 
         // check whether the genesis block has been initialized
         let local_hash = provider.block_hash_by_num(chain_spec.genesis.number)?;
@@ -275,7 +286,7 @@ impl<EF: ExecutorFactory> Backend<EF> {
         &self,
         chain_spec: &katana_chain_spec::rollup::ChainSpec,
     ) -> anyhow::Result<()> {
-        let provider = self.blockchain.provider();
+        let provider = self.storage.provider();
 
         let block = chain_spec.block();
         let header = block.header.clone();
@@ -323,7 +334,7 @@ impl<EF: ExecutorFactory> Backend<EF> {
             info!("Genesis has already been initialized");
         } else {
             let block = commit_genesis_block(
-                self.blockchain.provider(),
+                self.storage.provider_mut(),
                 header,
                 transactions,
                 &receipts,

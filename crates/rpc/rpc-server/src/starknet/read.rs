@@ -232,8 +232,12 @@ where
                 return Err(StarknetApiError::unexpected("Paymaster is not a dev account").into());
             };
 
-            let state =
-                self.inner.storage.latest().map(Arc::new).map_err(StarknetApiError::from)?;
+            let state = self
+                .storage2()
+                .provider()
+                .latest()
+                .map(Arc::new)
+                .map_err(StarknetApiError::from)?;
 
             let mut ctrl_deploy_txs = Vec::new();
 

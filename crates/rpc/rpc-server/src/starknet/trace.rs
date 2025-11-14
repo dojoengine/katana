@@ -98,7 +98,7 @@ where
     ) -> Result<Vec<TxTraceWithHash>, StarknetApiError> {
         use StarknetApiError::BlockNotFound;
 
-        let provider = &self.inner.storage;
+        let provider = &self.storage2().provider();
 
         let block_id: BlockHashOrNumber = match block_id {
             ConfirmedBlockIdOrTag::L1Accepted => {
@@ -132,8 +132,11 @@ where
             Ok(pending_trace)
         } else {
             // If not found in pending block, fallback to the provider
-            let trace =
-                self.inner.storage.transaction_execution(tx_hash)?.ok_or(TxnHashNotFound)?;
+            let trace = self
+                .storage2()
+                .provider()
+                .transaction_execution(tx_hash)?
+                .ok_or(TxnHashNotFound)?;
             Ok(TxTrace::from(trace))
         }
     }
