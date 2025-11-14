@@ -8,7 +8,6 @@ use std::sync::mpsc::{
 use std::sync::Arc;
 use std::task::{Context, Poll};
 use std::{io, thread};
-
 use anyhow::anyhow;
 use futures::channel::mpsc::{channel as async_channel, Receiver, SendError, Sender};
 use futures::future::BoxFuture;
@@ -24,10 +23,12 @@ use katana_rpc_client::starknet::{
     Client as StarknetClient, Error as StarknetClientError, StarknetApiError,
 };
 use katana_rpc_types::class::Class;
-use katana_rpc_types::trie::{ContractStorageKeys, GetStorageProofResponse};
+pub use katana_rpc_types::trie::{ContractStorageKeys, GetStorageProofResponse};
 use parking_lot::Mutex;
-use serde_json;
+use jsonrpsee::rpc_params;
 use tracing::{error, trace};
+use jsonrpsee::core::client::ClientT;
+use jsonrpsee::http_client::HttpClientBuilder;
 
 const LOG_TARGET: &str = "forking::backend";
 
@@ -70,7 +71,7 @@ pub enum BackendError {
     #[error("unexpected received result: {0}")]
     UnexpectedReceiveResult(Arc<anyhow::Error>),
     #[error("jsonrpsee error: {0}")]
-    JsonrpseeError(#[from] Arc<jsonrpsee::core::Error>),
+    JsonrpseeError(#[from] Arc<jsonrpsee::core::client::Error>),
 }
 
 struct Request<P> {
@@ -121,9 +122,7 @@ impl BackendRequest {
         (BackendRequest::Storage(Request { payload: (address, key), sender }), receiver)
     }
 
-    fn storage_proof(
-        payload: StorageProofPayload,
-    ) -> (BackendRequest, OneshotReceiver<BackendResponse>) {
+    fn storage_proof(payload: StorageProofPayload) -> (BackendRequest, OneshotReceiver<BackendResponse>) {
         let (sender, rx) = oneshot();
         (BackendRequest::StorageProof(Request { payload, sender }), rx)
     }
@@ -303,12 +302,12 @@ impl Backend {
                         let client = HttpClientBuilder::default()
                             .build(&payload.fork_url)
                             .expect("failed to create HTTP client");
-
+                                
                         let res = client
                             .request(
                                 "starknet_getStorageProof",
                                 rpc_params![
-                                    BlockIdOrTag::Tag(BlockTag::Latest),
+                                    BlockIdOrTag::Latest,
                                     payload.class_hashes,
                                     payload.contract_addresses,
                                     payload.contracts_storage_keys

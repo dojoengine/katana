@@ -403,9 +403,9 @@ where
 {
     fn class(&self, hash: ClassHash) -> ProviderResult<Option<ContractClass>> {
         if let Some(class) = self.tx.get::<tables::Classes>(hash)? {
-            Ok(Some(class))
+            Ok(Some(class.into()))
         } else if let Some(class) = self.backend.get_class_at(hash)? {
-            self.tx.put::<tables::Classes>(hash, class.clone())?;
+            self.tx.put::<tables::Classes>(hash, class.clone().into())?;
             Ok(Some(class))
         } else {
             Ok(None)

@@ -3,7 +3,6 @@
 use std::fmt::Debug;
 use std::future::Future;
 use std::sync::Arc;
-
 use katana_chain_spec::ChainSpec;
 use katana_core::backend::storage::Database;
 use katana_core::utils::get_current_timestamp;

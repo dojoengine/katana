@@ -26,7 +26,7 @@ futures.workspace = true
 rand.workspace = true
 starknet.workspace = true
 thiserror.workspace = true
-tokio = { workspace = true, features = [ "macros", "signal", "time" ], default-features = false }
+tokio = { workspace = true, features = [ "macros", "signal", "time" ] }
 
 [features]
 explorer = [ "katana-node/explorer" ]

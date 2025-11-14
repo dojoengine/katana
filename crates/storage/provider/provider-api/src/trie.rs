@@ -5,7 +5,6 @@ use katana_primitives::class::{ClassHash, CompiledClassHash};
 use katana_primitives::hash::StarkHash;
 use katana_primitives::state::StateUpdates;
 use katana_primitives::{ContractAddress, Felt};
-use katana_rpc_types::trie::ContractLeafData;
 use katana_trie::{ContractLeaf, MultiProof};
 
 use crate::ProviderResult;

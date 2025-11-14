@@ -14,8 +14,7 @@ katana-primitives.workspace = true
 katana-genesis.workspace = true
 katana-provider-api.workspace = true
 katana-rpc-client.workspace = true
-# katana-rpc-api = { workspace = true, features = [ "client" ] }
-katana-rpc-types.workspace = true
+# katana-rpc-types.workspace = true
 katana-trie.workspace = true
 
 anyhow.workspace = true
@@ -27,8 +26,8 @@ starknet.workspace = true
 starknet-types-core.workspace = true
 thiserror.workspace = true
 tracing.workspace = true
-url.workspace = true
-jsonrpsee = { workspace = true, features = ["client", "http-client"] }
+# url.workspace = true
+# jsonrpsee = { workspace = true, features = ["client", "http-client"] }
 
 # fork provider deps
 futures = { workspace = true, optional = true }

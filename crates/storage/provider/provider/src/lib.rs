@@ -30,6 +30,7 @@ use katana_provider_api::transaction::{
 };
 use katana_provider_api::trie::TrieWriter;
 pub use katana_provider_api::{ProviderError, ProviderResult};
+use katana_trie::ContractLeaf;
 
 pub mod providers;
 #[cfg(any(test, feature = "test-utils"))]

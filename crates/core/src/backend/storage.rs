@@ -141,13 +141,14 @@ impl Blockchain {
 
         // TODO: convert this to block number instead of BlockHashOrNumber so that it is easier to
         // check if the requested block is within the supported range or not.
-        let database = ForkedProvider::new(db, block_id, provider.clone());
+        let database = ForkedProvider::new(db, block_id, provider.clone(), fork_url.clone());
 
         // initialize parent fork block
         //
-        // NOTE: this is just a workaround for allowing forked genesis block to be initialize using
-        // `Backend::do_mine_block`.
-        {
+        // NOTE: this is just a workaround for allowing forked blocks to be initialized using
+        // `Backend::do_mine_block`. The parent block is needed for the mining logic to work correctly.
+        // Skip parent block initialization for genesis block (block 0) as it doesn't have a parent.
+        if block_num > 0 {
             let parent_block_id = BlockIdOrTag::from(forked_block.parent_hash);
             let parent_block = provider.get_block_with_tx_hashes(parent_block_id).await?;
 

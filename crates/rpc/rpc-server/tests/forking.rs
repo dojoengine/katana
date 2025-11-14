@@ -7,7 +7,6 @@ use katana_primitives::block::{BlockHash, BlockIdOrTag, BlockNumber};
 use katana_primitives::chain::NamedChainId;
 use katana_primitives::event::MaybeForkedContinuationToken;
 use katana_primitives::transaction::TxHash;
-use katana_primitives::ContractAddress;
 use katana_primitives::{felt, Felt};
 use katana_rpc_api::error::starknet::StarknetApiError;
 use katana_rpc_client::starknet::Client as StarknetClient;
@@ -18,14 +17,7 @@ use katana_rpc_types::{
 };
 use katana_utils::TestNode;
 use url::Url;
-use katana_provider::providers::fork::ForkedProvider;
-use katana_provider::traits::state::StateProvider;
-use katana_primitives::state::StateUpdates;
-use katana_provider::traits::trie::TrieWriter;
-use katana_runner::KatanaRunner;
-use katana_provider::BlockchainProvider;
-use std::sync::Arc;
-use url::Url;
+use katana_provider::api::state::StateProvider;
 
 mod common;
 

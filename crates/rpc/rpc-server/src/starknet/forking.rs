@@ -1,9 +1,9 @@
-use jsonrpsee::core::Error as JsonRpcseError;
+use jsonrpsee::core::client::Error as JsonRpcseError;
 use katana_primitives::block::{BlockHash, BlockIdOrTag, BlockNumber};
 use katana_primitives::contract::ContractAddress;
 use katana_primitives::transaction::TxHash;
 use katana_primitives::Felt;
-use katana_provider::error::ProviderError;
+use katana_provider::ProviderError;
 use katana_rpc_api::error::starknet::StarknetApiError;
 use katana_rpc_client::starknet::Client;
 use katana_rpc_types::block::{
@@ -15,10 +15,7 @@ use katana_rpc_types::state_update::StateUpdate;
 use katana_rpc_types::transaction::RpcTxWithHash;
 use katana_rpc_types::TxStatus;
 use jsonrpsee::http_client::HttpClientBuilder;
-use katana_rpc_api::starknet::StarknetApiClient;
-use jsonrpsee::core::Error as JsonRpcseError;
-use crate::starknet::BlockTag;
-use katana_rpc_types::trie::{ContractStorageKeys, GetStorageProofResponse};
+use katana_rpc_api::error::starknet::UnexpectedErrorData;
 
 #[derive(Debug, thiserror::Error)]
 pub enum Error {
@@ -50,7 +47,7 @@ pub struct ForkedClient {
     /// The Starknet JSON-RPC client for doing the request to the forked network.
     client: Client,
     /// The URL of the forked network (only set when using JsonRpcClient<HttpTransport>).
-    url: Option<Url>,
+    url: Option<String>,
 }
 
 impl ForkedClient {
@@ -67,11 +64,12 @@ impl ForkedClient {
 
 impl ForkedClient {
        /// Creates a new forked client from the given HTTP URL and block number.
-       pub fn new_http(url: Url, block: BlockNumber) -> Self {
+       pub fn new_http(url: impl Into<String>, block: BlockNumber) -> Self {
+        let url_str = url.into();
         Self { 
-            client: Client::new(HttpClientBuilder::new().build(url.clone()).unwrap()), 
+            client: Client::new(HttpClientBuilder::new().build(&url_str).unwrap()), 
             block,
-            url: Some(url),
+            url: Some(url_str),
         }
     }
 
@@ -296,7 +294,7 @@ impl From<Error> for StarknetApiError {
                 StarknetApiError::unexpected(value)
             }
             Error::JsonRpc(json_rpc_error) => {
-                StarknetApiError::UnexpectedError { reason: json_rpc_error.to_string() }
+                StarknetApiError::UnexpectedError(UnexpectedErrorData { reason: json_rpc_error.to_string() })
             }
             Error::KatanaProvider(provider_error) => provider_error.into(),
         }
@@ -309,8 +307,8 @@ mod tests {
     use katana_primitives::felt;
     use katana_primitives::state::StateUpdates;
     use katana_provider::providers::fork::ForkedProvider;
-    use katana_provider::traits::block::BlockNumberProvider;
-    use katana_provider::traits::trie::TrieWriter;
+    use katana_provider::api::block::BlockNumberProvider;
+    use katana_provider::api::trie::TrieWriter;
     use katana_utils::node::test_config_forking;
     use katana_utils::TestNode;
     use proptest::arbitrary::any;
@@ -324,6 +322,14 @@ mod tests {
     use std::collections::BTreeSet;
     use std::sync::Arc;
     use url::Url;
+    use crate::starknet::forking::BlockNumber;
+    use crate::starknet::ForkedClient;
+    use crate::starknet::forking::Client;
+    use katana_primitives::Felt;
+    use katana_core::service::block_producer::IntervalBlockProducer;
+    use crate::starknet::forking::Error;
+    use katana_primitives::class::ClassHash;
+    use katana_primitives::ContractAddress;
 
     // const SEPOLIA_URL: &str = "https://api.cartridge.gg/x/starknet/sepolia";
     const SEPOLIA_URL: &str = "https://rpc.starknet-testnet.lava.build:443";
@@ -355,14 +361,10 @@ mod tests {
     }
     #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
     async fn test_commit_new_state_root_mainnet_blockchain_and_forked_provider() {
-        use katana_primitives::state::StateUpdates;
-        use katana_provider::traits::block::BlockNumberProvider;
-        use katana_provider::traits::trie::TrieWriter;
         use katana_utils::TestNode;
 
         let sequencer = TestNode::new().await;
         let backend = sequencer.backend();
-        let starknet_provider = sequencer.starknet_provider();
         let provider = backend.blockchain.provider();
 
         let url = format!("http://{}", sequencer.rpc_addr());
@@ -398,11 +400,12 @@ mod tests {
             fork_minimal_updates.replaced_classes.len()
         );
 
-        let db = katana_db::init_ephemeral_db().unwrap();
+        let db = katana_db::Db::in_memory().unwrap();
+        let starknet_rpc_client = sequencer.starknet_rpc_client();
         let forked_provider = ForkedProvider::new(
             db.clone(),
             katana_primitives::block::BlockHashOrNumber::Num(block_number),
-            starknet_provider,
+            starknet_rpc_client,
             url.clone(),
         );
 
@@ -494,7 +497,7 @@ mod tests {
         (address, class_hash, storage, nonce)
     }
 
-    /// To run this test you need to comment out global cache part in Node::buil()
+    /// To run this test you need to comment out global cache part in Node::build() "let global_class_cache = class_cache.build_global()?";
     #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
     async fn test_commit_new_state_root_two_katana_instances() {
         let mainnet_handle = tokio::spawn(async {
@@ -601,14 +604,6 @@ mod tests {
 
         producer.force_mine();
         fork_producer.force_mine();
-
-        let cleanup = tokio::join!(
-            tokio::spawn(async move { sequencer.handle().stop().await }),
-            tokio::spawn(async move { fork_sequencer.handle().stop().await })
-        );
-
-        cleanup.0.unwrap().unwrap();
-        cleanup.1.unwrap().unwrap();
     }
 
     fn arb_felt() -> impl Strategy<Value = Felt> {
@@ -679,7 +674,6 @@ mod tests {
             let _ = rt.block_on(async {
                 let sequencer = TestNode::new().await;
                 let backend = sequencer.backend();
-                let starknet_provider = sequencer.starknet_provider();
                 let provider = backend.blockchain.provider();
 
                 let url = format!("http://{}", sequencer.rpc_addr());
@@ -693,11 +687,12 @@ mod tests {
                 producer.force_mine();
                 block_number = provider.latest_number().unwrap();
 
-                let db = katana_db::init_ephemeral_db().unwrap();
+                let db = katana_db::Db::in_memory().unwrap();
+                let starknet_rpc_client = sequencer.starknet_rpc_client();
                 let forked_provider = ForkedProvider::new(
                     db.clone(),
                     katana_primitives::block::BlockHashOrNumber::Num(block_number),
-                    starknet_provider,
+                    starknet_rpc_client,
                     url.clone(),
                 );
 

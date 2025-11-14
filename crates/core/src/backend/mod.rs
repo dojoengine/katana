@@ -253,38 +253,53 @@ impl<EF: ExecutorFactory> Backend<EF> {
                 // The genesis block in chain_spec is already set to the forked block data
                 info!("Initializing forked genesis block from RPC data");
 
-                let block = chain_spec.block().seal();
-                let mut block =
-                    SealedBlockWithStatus { block, status: FinalityStatus::AcceptedOnL1 };
-                let block_number = block.block.header.number;
+                // let block = chain_spec.block().seal();
+                let block = chain_spec.block();
+                // let mut block =
+                //     SealedBlockWithStatus { block, status: FinalityStatus::AcceptedOnL1 };
+                let block_number = block.header.number;
                 let empty_states = StateUpdatesWithClasses::default();
 
-                let genesis_state_root = self
-                    .blockchain
-                    .provider()
-                    .compute_state_root(block_number, &empty_states.state_updates)?;
-                println!("genesis_state_root: {:?}", genesis_state_root);
+                // let genesis_state_root = self
+                //     .blockchain
+                //     .provider()
+                //     .compute_state_root(block_number, &empty_states.state_updates)?;
+                // println!("genesis_state_root: {:?}", genesis_state_root);
 
-                block.block.header.state_root = genesis_state_root;
+                // block.header.state_root = genesis_state_root;
 
                 // Insert the forked block with empty state (no dev accounts)
                 // State will be fetched from RPC as needed
 
-                provider.insert_block_with_states_and_receipts(
-                    block,
-                    empty_states,
-                    vec![],
-                    vec![],
+                // provider.insert_block_with_states_and_receipts(
+                //     block,
+                //     empty_states,
+                //     vec![],
+                //     vec![],
+                // )?;
+
+                let outcome = self.do_mine_block(
+                    &BlockEnv {
+                        number: block.header.number,
+                        timestamp: block.header.timestamp,
+                        l2_gas_prices: block.header.l2_gas_prices,
+                        l1_gas_prices: block.header.l1_gas_prices,
+                        l1_data_gas_prices: block.header.l1_data_gas_prices,
+                        sequencer_address: block.header.sequencer_address,
+                        starknet_version: block.header.starknet_version,
+                    },
+                    ExecutionOutput { states: empty_states, ..Default::default() },
                 )?;
+
                 info!("Forked genesis block inserted from RPC");
             } else {
                 // Initialize the dev genesis block with dev accounts
-                let block = chain_spec.block().seal();
-                let block = SealedBlockWithStatus { block, status: FinalityStatus::AcceptedOnL1 };
+                let block = chain_spec.block();
+                // let block = SealedBlockWithStatus { block, status: FinalityStatus::AcceptedOnL1 };
                 let states = chain_spec.state_updates();
 
                 let mut block = block;
-                let block_number = block.block.header.number;
+                let block_number = block.header.number;
 
                 let class_trie_root = provider
                     .trie_insert_declared_classes(
@@ -297,15 +312,29 @@ impl<EF: ExecutorFactory> Backend<EF> {
                     .trie_insert_contract_updates(block_number, &states.state_updates)
                     .context("failed to update contract trie")?;
 
-                let genesis_state_root = hash::Poseidon::hash_array(&[
-                    short_string!("STARKNET_STATE_V0"),
-                    contract_trie_root,
-                    class_trie_root,
-                ]);
+                // let genesis_state_root = hash::Poseidon::hash_array(&[
+                //     short_string!("STARKNET_STATE_V0"),
+                //     contract_trie_root,
+                //     class_trie_root,
+                // ]);
 
-                block.block.header.state_root = genesis_state_root;
+                // block.header.state_root = genesis_state_root;
 
-                provider.insert_block_with_states_and_receipts(block, states, vec![], vec![])?;
+                // provider.insert_block_with_states_and_receipts(block, states, vec![], vec![])?;
+                let outcome = self.do_mine_block(
+                    &BlockEnv {
+                        number: block.header.number,
+                        timestamp: block.header.timestamp,
+                        l2_gas_prices: block.header.l2_gas_prices,
+                        l1_gas_prices: block.header.l1_gas_prices,
+                        l1_data_gas_prices: block.header.l1_data_gas_prices,
+                        sequencer_address: block.header.sequencer_address,
+                        starknet_version: block.header.starknet_version,
+                    },
+                    ExecutionOutput { states, ..Default::default() },
+                )?;
+
+                info!(genesis_hash = %outcome.block_hash, "Genesis initialized");
                 info!("Genesis initialized with dev accounts");
             }
         }

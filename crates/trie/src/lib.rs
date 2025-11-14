@@ -74,41 +74,11 @@ where
 
         Self { storage: BonsaiStorage::new_partial(db, config, 251) }
     }
-}
 
     pub fn root(&self, id: &[u8]) -> Felt {
         self.storage.root_hash(id).expect("failed to get trie root")
     }
 
-    pub fn multiproof(&mut self, id: &[u8], keys: Vec<Felt>) -> MultiProof {
-        let keys = keys.into_iter().map(|key| key.to_bytes_be().as_bits()[5..].to_owned());
-        self.storage.get_multi_proof(id, keys).expect("failed to get multiproof")
-    }
-}
-
-impl<DB, Hash> PartialBonsaiTrie<DB, Hash>
-where
-    DB: BonsaiDatabase,
-    Hash: StarkHash + Send + Sync,
-{
-    pub fn root(&self, id: &[u8]) -> Felt {
-        self.storage.root_hash(id).expect("failed to get trie root")
-    }
-}
-
-impl<DB, Hash> BonsaiTrie<DB, Hash>
-where
-    DB: BonsaiDatabase + BonsaiPersistentDatabase<CommitId>,
-    Hash: StarkHash + Send + Sync,
-{
-    pub fn insert(&mut self, id: &[u8], key: Felt, value: Felt) {
-        let key: BitVec = key.to_bytes_be().as_bits()[5..].to_owned();
-        self.storage.insert(id, &key, &value).unwrap();
-    }
-
-    pub fn commit(&mut self, id: CommitId) {
-        self.storage.commit(id).expect("failed to commit trie");
-    }
 }
 
 impl<DB, Hash> PartialBonsaiTrie<DB, Hash>
@@ -132,6 +102,39 @@ where
         self.storage.commit(id).expect("failed to commit trie");
     }
 }
+
+
+impl<DB, Hash> BonsaiTrie<DB, Hash>
+where
+    DB: BonsaiDatabase,
+    Hash: StarkHash + Send + Sync,
+{
+    pub fn root(&self, id: &[u8]) -> Felt {
+        self.storage.root_hash(id).expect("failed to get trie root")
+    }
+
+    pub fn multiproof(&mut self, id: &[u8], keys: Vec<Felt>) -> MultiProof {
+        let keys = keys.into_iter().map(|key| key.to_bytes_be().as_bits()[5..].to_owned());
+        self.storage.get_multi_proof(id, keys).expect("failed to get multiproof")
+    }
+}
+
+impl<DB, Hash> BonsaiTrie<DB, Hash>
+where
+    DB: BonsaiDatabase + BonsaiPersistentDatabase<CommitId>,
+    Hash: StarkHash + Send + Sync,
+{
+    pub fn insert(&mut self, id: &[u8], key: Felt, value: Felt) {
+        let key: BitVec = key.to_bytes_be().as_bits()[5..].to_owned();
+        self.storage.insert(id, &key, &value).unwrap();
+    }
+
+    pub fn commit(&mut self, id: CommitId) {
+        self.storage.commit(id).expect("failed to commit trie");
+    }
+}
+
+
 
 impl<DB, Hash> std::fmt::Debug for BonsaiTrie<DB, Hash>
 where

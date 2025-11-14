@@ -56,15 +56,8 @@ katana-utils.workspace = true
 katana-db.workspace = true
 katana-runner.workspace = true
 
-<<<<<<< HEAD:crates/rpc/rpc-server/Cargo.toml
 alloy-contract = { workspace = true, default-features = false }
 alloy-node-bindings = "1.0.24"
-=======
-alloy-contract.workspace = true
-alloy-network.workspace = true
-alloy-provider.workspace = true
-# alloy = { git = "https://github.com/alloy-rs/alloy", features = [ "contract", "network", "node-bindings", "provider-http", "providers", "signer-local" ] }
->>>>>>> c79ca319 (cleaning):crates/rpc/rpc/Cargo.toml
 alloy-primitives = { workspace = true, features = [ "serde" ] }
 alloy-provider = { workspace = true, default-features = false, features = [ "anvil-node", "reqwest", "reqwest-rustls-tls" ] }
 alloy-sol-types.workspace = true

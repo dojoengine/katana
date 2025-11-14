@@ -14,6 +14,7 @@ use katana_provider::providers::db::DbProvider;
 use katana_provider::BlockchainProvider;
 use lazy_static::lazy_static;
 use starknet::macros::felt;
+use starknet::providers::Url;
 
 lazy_static! {
     pub static ref DOJO_WORLD_SIERRA_CLASS: SierraContractClass =
@@ -45,15 +46,16 @@ pub mod fork {
         #[default(0)] block_num: u64,
     ) -> BlockchainProvider<ForkedProvider> {
         let provider = StarknetClient::new(HttpClientBuilder::new().build(rpc).unwrap());
-        let provider = ForkedProvider::new_ephemeral(block_num.into(), provider);
+        let provider = ForkedProvider::new_ephemeral(block_num.into(), provider, Url::parse(rpc).unwrap());
         BlockchainProvider::new(provider)
     }
 
     #[rstest::fixture]
     pub fn fork_provider_with_spawned_fork_network(
+        #[default("http://127.0.0.1:5050")] rpc: &str,
         #[default(0)] block_num: u64,
     ) -> BlockchainProvider<ForkedProvider> {
-        let provider = ForkedProvider::new_ephemeral(block_num.into(), FORKED_PROVIDER.1.clone());
+        let provider = ForkedProvider::new_ephemeral(block_num.into(), FORKED_PROVIDER.1.clone(), Url::parse(rpc).unwrap());
         BlockchainProvider::new(provider)
     }
 }
