@@ -3026,6 +3026,7 @@ dependencies = [
  "katana-contracts",
  "katana-core",
  "katana-executor",
+ "katana-node",
  "katana-pool",
  "katana-primitives",
  "katana-provider",
@@ -3033,6 +3034,7 @@ dependencies = [
  "katana-rpc-api",
  "katana-rpc-types",
  "katana-tasks",
+ "katana-test-utils",
  "katana-utils",
  "mockito",
  "num-bigint",
@@ -6529,6 +6531,7 @@ dependencies = [
  "katana-rpc-types",
  "katana-rpc-types-builder",
  "katana-tasks",
+ "katana-test-utils",
  "katana-tracing",
  "katana-trie",
  "katana-utils",
@@ -6674,6 +6677,17 @@ dependencies = [
  "tokio",
  "tokio-util",
  "tracing",
+]
+
+[[package]]
+name = "katana-test-utils"
+version = "1.6.3"
+dependencies = [
+ "anyhow",
+ "cairo-lang-starknet-classes",
+ "katana-primitives",
+ "serde_json",
+ "starknet 0.15.1",
 ]
 
 [[package]]
