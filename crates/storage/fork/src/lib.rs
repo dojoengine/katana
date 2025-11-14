@@ -18,7 +18,7 @@ use futures::stream::Stream;
 use futures::{Future, FutureExt};
 use katana_metrics::metrics::Gauge;
 use katana_metrics::{metrics, Metrics};
-use katana_primitives::block::{BlockIdOrTag, BlockNumber};
+use katana_primitives::block::{BlockHashOrNumber, BlockIdOrTag, BlockNumber};
 use katana_primitives::class::{
     ClassHash, CompiledClassHash, ComputeClassHashError, ContractClass,
     ContractClassCompilationError,
@@ -28,6 +28,7 @@ use katana_rpc_client::starknet::{
     Client as StarknetClient, Error as StarknetClientError, StarknetApiError,
 };
 use katana_rpc_types::class::Class;
+use katana_rpc_types::{GetBlockWithReceiptsResponse, StateUpdate};
 use parking_lot::Mutex;
 use tracing::{error, trace};
 
@@ -45,6 +46,8 @@ type BackendResult<T> = Result<T, BackendError>;
 /// sender in the deduplication vector.
 #[derive(Debug, Clone)]
 enum BackendResponse {
+    Block(BackendResult<GetBlockWithReceiptsResponse>),
+    StateUpdate(BackendResult<StateUpdate>),
     Nonce(BackendResult<Nonce>),
     Storage(BackendResult<StorageValue>),
     ClassHashAt(BackendResult<ClassHash>),
@@ -72,6 +75,8 @@ struct Request<P> {
 /// Each request consists of a payload and the sender half of a oneshot channel that will be used
 /// to send the result back to the backend handle.
 enum BackendRequest {
+    Block(Request<BlockHashOrNumber>),
+    StateUpdate(Request<BlockHashOrNumber>),
     Nonce(Request<(ContractAddress, BlockNumber)>),
     Class(Request<(ClassHash, BlockNumber)>),
     ClassHash(Request<(ContractAddress, BlockNumber)>),
@@ -79,6 +84,19 @@ enum BackendRequest {
 }
 
 impl BackendRequest {
+    /// Create a new request for fetching the nonce of a contract.
+    fn block(block_id: BlockHashOrNumber) -> (BackendRequest, OneshotReceiver<BackendResponse>) {
+        let (sender, receiver) = oneshot();
+        (BackendRequest::Block(Request { payload: block_id, sender }), receiver)
+    }
+
+    fn state_update(
+        block_id: BlockHashOrNumber,
+    ) -> (BackendRequest, OneshotReceiver<BackendResponse>) {
+        let (sender, receiver) = oneshot();
+        (BackendRequest::StateUpdate(Request { payload: block_id, sender }), receiver)
+    }
+
     /// Create a new request for fetching the nonce of a contract.
     fn nonce(
         address: ContractAddress,
@@ -123,6 +141,8 @@ type BackendRequestFuture = BoxFuture<'static, BackendResponse>;
 // This is used for request deduplication.
 #[derive(Eq, Hash, PartialEq, Clone, Copy, Debug)]
 enum BackendRequestIdentifier {
+    Block(BlockHashOrNumber),
+    StateUpdate(BlockHashOrNumber),
     Nonce(ContractAddress, BlockNumber),
     Class(ClassHash, BlockNumber),
     ClassHash(ContractAddress, BlockNumber),
@@ -253,6 +273,42 @@ impl Backend {
 
         // Check if there are similar requests in the queue before sending the request
         match request {
+            BackendRequest::Block(Request { payload: block_id, sender }) => {
+                let req_key = BackendRequestIdentifier::Block(block_id);
+                let block_id = BlockIdOrTag::from(block_id);
+
+                self.dedup_request(
+                    req_key,
+                    sender,
+                    Box::pin(async move {
+                        let res = provider
+                            .get_block_with_receipts(block_id)
+                            .await
+                            .map_err(|e| BackendError::StarknetProvider(Arc::new(e)));
+
+                        BackendResponse::Block(res)
+                    }),
+                );
+            }
+
+            BackendRequest::StateUpdate(Request { payload: block_id, sender }) => {
+                let req_key = BackendRequestIdentifier::StateUpdate(block_id);
+                let block_id = BlockIdOrTag::from(block_id);
+
+                self.dedup_request(
+                    req_key,
+                    sender,
+                    Box::pin(async move {
+                        let res = provider
+                            .get_state_update(block_id)
+                            .await
+                            .map_err(|e| BackendError::StarknetProvider(Arc::new(e)));
+
+                        BackendResponse::StateUpdate(res)
+                    }),
+                );
+            }
+
             BackendRequest::Nonce(Request { payload: (address, block_id), sender }) => {
                 let req_key = BackendRequestIdentifier::Nonce(address, block_id);
                 let block_id = BlockIdOrTag::from(block_id);
@@ -543,6 +599,32 @@ impl Clone for BackendClient {
 /////////////////////////////////////////////////////////////////
 
 impl BackendClient {
+    pub fn get_block(
+        &self,
+        block_id: BlockHashOrNumber,
+    ) -> Result<Option<GetBlockWithReceiptsResponse>, BackendClientError> {
+        trace!(target: LOG_TARGET, %block_id, "Requesting block.");
+        let (req, rx) = BackendRequest::block(block_id);
+        self.request(req)?;
+        match rx.recv()? {
+            BackendResponse::Block(res) => handle_not_found_err(res),
+            response => Err(BackendClientError::UnexpectedResponse(anyhow!("{response:?}"))),
+        }
+    }
+
+    pub fn get_state_update(
+        &self,
+        block_id: BlockHashOrNumber,
+    ) -> Result<Option<StateUpdate>, BackendClientError> {
+        trace!(target: LOG_TARGET, %block_id, "Requesting state update.");
+        let (req, rx) = BackendRequest::state_update(block_id);
+        self.request(req)?;
+        match rx.recv()? {
+            BackendResponse::StateUpdate(res) => handle_not_found_err(res),
+            response => Err(BackendClientError::UnexpectedResponse(anyhow!("{response:?}"))),
+        }
+    }
+
     pub fn get_nonce(
         &self,
         address: ContractAddress,
