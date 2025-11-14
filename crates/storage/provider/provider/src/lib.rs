@@ -18,6 +18,7 @@ pub mod test_utils;
 use crate::providers::db::DbProvider;
 use crate::providers::fork::ForkedProvider;
 
+#[auto_impl::auto_impl(&, Box, Arc)]
 pub trait ProviderFactory: Send + Sync + Debug {
     type Provider;
     type ProviderMut;

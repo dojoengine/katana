@@ -4,7 +4,7 @@ use katana_primitives::block::BlockHashOrNumber;
 use katana_primitives::contract::ContractAddress;
 use katana_primitives::Felt;
 use katana_provider::api::state::{StateFactoryProvider, StateProvider, StateRootProvider};
-use katana_provider::providers::db::DbProvider;
+use katana_provider::{DbProviderFactory, ProviderFactory};
 
 use super::open_db_ro;
 
@@ -66,7 +66,8 @@ impl TrieArgs {
     }
 
     fn state_provider(&self) -> Result<Box<dyn StateProvider>> {
-        let provider = DbProvider::new(open_db_ro(&self.path)?);
+        let pf = DbProviderFactory::new(open_db_ro(&self.path)?);
+        let provider = pf.provider();
 
         match self.block {
             Some(block) => provider

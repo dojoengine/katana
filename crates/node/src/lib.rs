@@ -220,7 +220,7 @@ impl Node {
         let block_context_generator = BlockContextGenerator::default().into();
         let backend = Arc::new(Backend {
             gas_oracle: gas_oracle.clone(),
-            storage,
+            storage: storage.clone(),
             executor_factory,
             block_context_generator,
             chain_spec: config.chain.clone(),

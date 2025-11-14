@@ -18,12 +18,10 @@ use katana_provider::api::transaction::{
 use katana_provider::api::trie::TrieWriter;
 use katana_provider::{DbProviderFactory, ForkProviderFactory, ProviderFactory};
 use katana_rpc_client::starknet::Client as StarknetClient;
-use katana_rpc_client::HttpClientBuilder;
 use katana_rpc_types::GetBlockWithTxHashesResponse;
 use num_traits::ToPrimitive;
 use starknet::core::utils::parse_cairo_short_string;
 use tracing::info;
-use url::Url;
 
 pub type GenericStorageProvider =
     Arc<dyn ProviderFactory<Provider = Box<dyn DatabaseRO>, ProviderMut = Box<dyn DatabaseRW>>>;

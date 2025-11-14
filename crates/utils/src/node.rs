@@ -2,7 +2,6 @@ use std::net::SocketAddr;
 use std::sync::Arc;
 
 use katana_chain_spec::{dev, ChainSpec};
-use katana_core::backend::storage::Database;
 use katana_core::backend::Backend;
 use katana_executor::implementation::blockifier::BlockifierFactory;
 use katana_node::config::dev::DevConfig;
@@ -12,7 +11,6 @@ use katana_node::config::Config;
 use katana_node::{LaunchedNode, Node};
 use katana_primitives::chain::ChainId;
 use katana_primitives::{address, ContractAddress};
-use katana_provider::BlockchainProvider;
 use katana_rpc_server::HttpClient;
 use starknet::accounts::{ExecutionEncoding, SingleOwnerAccount};
 use starknet::core::types::BlockTag;
@@ -56,11 +54,6 @@ impl TestNode {
 
     pub fn backend(&self) -> &Arc<Backend<BlockifierFactory>> {
         self.node.node().backend()
-    }
-
-    /// Returns a reference to the blockchain provider.
-    pub fn blockchain(&self) -> &BlockchainProvider<Box<dyn Database>> {
-        self.backend().storage.provider()
     }
 
     /// Returns a reference to the launched node handle.

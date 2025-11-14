@@ -78,6 +78,7 @@ use core::future::IntoFuture;
 
 use futures::future::BoxFuture;
 use katana_primitives::block::BlockNumber;
+use katana_provider::ProviderFactory;
 use katana_provider_api::stage::StageCheckpointProvider;
 use katana_provider_api::ProviderError;
 use katana_stage::{Stage, StageExecutionInput, StageExecutionOutput};
@@ -215,7 +216,7 @@ impl PipelineHandle {
 /// implemented across all stages.
 pub struct Pipeline<P> {
     chunk_size: u64,
-    provider: P,
+    storage_provider: P,
     stages: Vec<Box<dyn Stage>>,
     command_rx: watch::Receiver<Option<PipelineCommand>>,
     command_tx: watch::Sender<Option<PipelineCommand>>,
@@ -243,7 +244,7 @@ impl<P> Pipeline<P> {
             command_rx: rx,
             command_tx: tx,
             block_tx,
-            provider,
+            storage_provider: provider,
             chunk_size,
             tip: None,
         };
@@ -273,7 +274,11 @@ impl<P> Pipeline<P> {
     }
 }
 
-impl<P: StageCheckpointProvider> Pipeline<P> {
+impl<P> Pipeline<P>
+where
+    P: ProviderFactory,
+    <P as ProviderFactory>::ProviderMut: StageCheckpointProvider,
+{
     /// Runs the pipeline continuously until signaled to stop.
     ///
     /// The pipeline processes each stage in chunks up until it reaches the current tip, then waits
@@ -361,7 +366,7 @@ impl<P: StageCheckpointProvider> Pipeline<P> {
             let id = stage.id();
 
             // Get the checkpoint for the stage, otherwise default to block number 0
-            let checkpoint = self.provider.checkpoint(id)?;
+            let checkpoint = self.storage_provider.provider_mut().checkpoint(id)?;
 
             let span = info_span!(target: "pipeline", "stage.execute", stage = %id, %to);
             let enter = span.entered();
@@ -397,7 +402,7 @@ impl<P: StageCheckpointProvider> Pipeline<P> {
             let _enter = span.enter();
             info!(target: "pipeline", %from, %to, "Stage execution completed.");
 
-            self.provider.set_checkpoint(id, last_block_processed)?;
+            self.storage_provider.provider_mut().set_checkpoint(id, last_block_processed)?;
             last_block_processed_list.push(last_block_processed);
             info!(target: "pipeline", checkpoint = %last_block_processed, "New checkpoint set.");
         }
@@ -444,7 +449,8 @@ impl<P: StageCheckpointProvider> Pipeline<P> {
 
 impl<P> IntoFuture for Pipeline<P>
 where
-    P: StageCheckpointProvider + 'static,
+    P: ProviderFactory + 'static,
+    <P as ProviderFactory>::ProviderMut: StageCheckpointProvider,
 {
     type Output = PipelineResult<()>;
     type IntoFuture = PipelineFut;
@@ -465,7 +471,7 @@ where
     fn fmt(&self, f: &mut core::fmt::Formatter<'_>) -> core::fmt::Result {
         f.debug_struct("Pipeline")
             .field("command", &self.command_rx)
-            .field("provider", &self.provider)
+            .field("provider", &self.storage_provider)
             .field("chunk_size", &self.chunk_size)
             .field("stages", &self.stages.iter().map(|s| s.id()).collect::<Vec<_>>())
             .finish()

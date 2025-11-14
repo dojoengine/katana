@@ -13,10 +13,7 @@ use katana_rpc_types::{
 
 use crate::full::pending::PreconfStateFactory;
 
-impl<P> PendingBlockProvider for PreconfStateFactory<P>
-where
-    P: StateFactoryProvider + Debug + 'static,
-{
+impl PendingBlockProvider for PreconfStateFactory {
     fn get_pending_block_with_txs(
         &self,
     ) -> StarknetApiResult<Option<katana_rpc_types::PreConfirmedBlockWithTxs>> {

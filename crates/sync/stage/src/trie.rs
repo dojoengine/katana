@@ -4,6 +4,7 @@ use katana_primitives::Felt;
 use katana_provider::api::block::HeaderProvider;
 use katana_provider::api::state_update::StateUpdateProvider;
 use katana_provider::api::trie::TrieWriter;
+use katana_provider::ProviderFactory;
 use starknet::macros::short_string;
 use starknet_types_core::hash::{Poseidon, StarkHash};
 use tracing::{debug, debug_span, error};
@@ -20,19 +21,21 @@ use crate::{Stage, StageExecutionInput, StageExecutionOutput, StageResult};
 /// root.
 #[derive(Debug)]
 pub struct StateTrie<P> {
-    provider: P,
+    storage_provider: P,
 }
 
 impl<P> StateTrie<P> {
     /// Create a new [`StateTrie`] stage.
-    pub fn new(provider: P) -> Self {
-        Self { provider }
+    pub fn new(storage_provider: P) -> Self {
+        Self { storage_provider }
     }
 }
 
 impl<P> Stage for StateTrie<P>
 where
-    P: StateUpdateProvider + TrieWriter + HeaderProvider,
+    P: ProviderFactory,
+    <P as ProviderFactory>::Provider: StateUpdateProvider + HeaderProvider,
+    <P as ProviderFactory>::ProviderMut: TrieWriter,
 {
     fn id(&self) -> &'static str {
         "StateTrie"
@@ -45,19 +48,23 @@ where
                 let _enter = span.enter();
 
                 let header = self
-                    .provider
+                    .storage_provider
+                    .provider()
                     .header(block_number.into())?
                     .ok_or(Error::MissingBlockHeader(block_number))?;
 
                 let expected_state_root = header.state_root;
 
                 let state_update = self
-                    .provider
+                    .storage_provider
+                    .provider()
                     .state_update(block_number.into())?
                     .ok_or(Error::MissingStateUpdate(block_number))?;
 
-                let computed_contract_trie_root =
-                    self.provider.trie_insert_contract_updates(block_number, &state_update)?;
+                let computed_contract_trie_root = self
+                    .storage_provider
+                    .provider_mut()
+                    .trie_insert_contract_updates(block_number, &state_update)?;
 
                 debug!(
                     contract_trie_root = format!("{computed_contract_trie_root:#x}"),
@@ -65,7 +72,8 @@ where
                 );
 
                 let computed_class_trie_root = self
-                    .provider
+                    .storage_provider
+                    .provider_mut()
                     .trie_insert_declared_classes(block_number, &state_update.declared_classes)?;
 
                 debug!(
