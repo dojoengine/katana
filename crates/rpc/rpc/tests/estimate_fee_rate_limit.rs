@@ -9,8 +9,6 @@ use starknet::core::types::Felt;
 use starknet::macros::felt;
 use tokio::sync::Mutex;
 
-mod common;
-
 abigen_legacy!(Erc20Contract, "crates/contracts/build/legacy/erc20.json", derives(Clone));
 
 #[tokio::test(flavor = "multi_thread")]

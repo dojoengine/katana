@@ -34,6 +34,7 @@ members = [
 	"crates/sync/pipeline",
 	"crates/sync/stage",
 	"crates/tasks",
+	"crates/test-utils",
 	"crates/tracing",
 	"crates/trie",
 	"crates/utils",
@@ -90,6 +91,7 @@ katana-runner = { path = "crates/runner" }
 katana-slot-controller = { path = "crates/controller" }
 katana-stage = { path = "crates/sync/stage" }
 katana-tasks = { path = "crates/tasks" }
+katana-test-utils = { path = "crates/test-utils" }
 katana-tracing = { path = "crates/tracing" }
 katana-trie = { path = "crates/trie" }
 katana-utils = { path = "crates/utils" }

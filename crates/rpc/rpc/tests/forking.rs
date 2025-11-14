@@ -8,13 +8,12 @@ use katana_primitives::event::MaybeForkedContinuationToken;
 use katana_primitives::genesis::constant::DEFAULT_STRK_FEE_TOKEN_ADDRESS;
 use katana_primitives::transaction::TxHash;
 use katana_primitives::{felt, Felt};
+use katana_test_utils::assert_provider_starknet_err;
 use katana_utils::TestNode;
 use starknet::core::types::{EventFilter, MaybePendingBlockWithTxHashes, StarknetError};
 use starknet::providers::jsonrpc::HttpTransport;
 use starknet::providers::{JsonRpcClient, Provider, ProviderError};
 use url::Url;
-
-mod common;
 
 const SEPOLIA_CHAIN_ID: Felt = NamedChainId::SN_SEPOLIA;
 const SEPOLIA_URL: &str = "https://api.cartridge.gg/x/starknet/sepolia/rpc/v0_8";

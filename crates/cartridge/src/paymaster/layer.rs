@@ -1,7 +1,7 @@
 use std::borrow::Cow;
 use std::future::Future;
 
-use jsonrpsee::core::middleware::{self, Batch, Notification, RpcServiceT};
+use jsonrpsee::core::middleware::{Batch, Notification, RpcServiceT};
 use jsonrpsee::core::traits::ToRpcParams;
 use jsonrpsee::types::Request;
 use jsonrpsee::MethodResponse;
@@ -42,14 +42,14 @@ pub struct PaymasterService<S, EF: ExecutorFactory> {
 
 impl<S, EF> PaymasterService<S, EF>
 where
-    S: middleware::RpcServiceT + Send + Sync + Clone + 'static,
+    S: RpcServiceT + Send + Sync + Clone + 'static,
     EF: ExecutorFactory,
 {
-    fn intercept_estimate_fee(&self, request: &mut Request<'_>) {
+    async fn intercept_estimate_fee(paymaster: Paymaster<EF>, request: &mut Request<'_>) {
         let params = request.params();
 
         let (txs, simulation_flags, block_id) = if params.is_object() {
-            #[derive(serde::Deserialize)]
+            #[derive(Deserialize)]
             struct ParamsObject {
                 request: Vec<BroadcastedTx>,
                 #[serde(alias = "simulationFlags")]
@@ -67,40 +67,32 @@ where
         } else {
             let mut seq = params.sequence();
 
-            let request: Vec<BroadcastedTx> = match seq.next() {
-                Ok(v) => v,
-                Err(..) => return,
-            };
+            let txs_result: Result<Vec<BroadcastedTx>, _> = seq.next();
+            let simulation_flags_result: Result<Vec<SimulationFlagForEstimateFee>, _> = seq.next();
+            let block_id_result: Result<BlockIdOrTag, _> = seq.next();
 
-            let simulation_flags: Vec<SimulationFlagForEstimateFee> = match seq.next() {
-                Ok(v) => v,
-                Err(..) => return,
-            };
-
-            let block_id: BlockIdOrTag = match seq.next() {
-                Ok(v) => v,
-                Err(..) => return,
-            };
-
-            (request, simulation_flags, block_id)
+            match (txs_result, simulation_flags_result, block_id_result) {
+                (Ok(txs), Ok(simulation_flags), Ok(block_id)) => (txs, simulation_flags, block_id),
+                _ => return,
+            }
         };
 
-        let new_txs = self.paymaster.handle_estimate_fees(block_id, txs).unwrap();
+        if let Ok(new_txs) = paymaster.handle_estimate_fees(block_id, txs).await {
+            let new_params = {
+                let mut params = jsonrpsee::core::params::ArrayParams::new();
+                params.insert(new_txs).unwrap();
+                params.insert(simulation_flags).unwrap();
+                params.insert(block_id).unwrap();
+                params
+            };
 
-        let new_params = {
-            let mut params = jsonrpsee::core::params::ArrayParams::new();
-            params.insert(new_txs).unwrap();
-            params.insert(simulation_flags).unwrap();
-            params.insert(block_id).unwrap();
-            params
-        };
-
-        let params = new_params.to_rpc_params().unwrap();
-        let params = params.map(Cow::Owned);
-        request.params = params;
+            let params = new_params.to_rpc_params().unwrap();
+            let params = params.map(Cow::Owned);
+            request.params = params;
+        }
     }
 
-    fn intercept_add_outside_execution(&self, request: &mut Request<'_>) {
+    async fn intercept_add_outside_execution(paymaster: Paymaster<EF>, request: &mut Request<'_>) {
         let params = request.params();
 
         let (controller_address, outside_execution, signature) = if params.is_object() {
@@ -121,29 +113,22 @@ where
         } else {
             let mut seq = params.sequence();
 
-            let address = match seq.next::<ContractAddress>() {
-                Ok(v) => v,
-                Err(..) => return,
-            };
+            let address_result: Result<ContractAddress, _> = seq.next();
+            let outside_execution_result: Result<OutsideExecution, _> = seq.next();
+            let signature_result: Result<Vec<Felt>, _> = seq.next();
 
-            let outside_execution = match seq.next::<OutsideExecution>() {
-                Ok(v) => v,
-                Err(..) => return,
-            };
-
-            let signature = match seq.next::<Vec<Felt>>() {
-                Ok(v) => v,
-                Err(..) => return,
-            };
-
-            (address, outside_execution, signature)
+            match (address_result, outside_execution_result, signature_result) {
+                (Ok(address), Ok(outside_execution), Ok(signature)) => {
+                    (address, outside_execution, signature)
+                }
+                _ => return,
+            }
         };
 
-        match self.paymaster.handle_add_outside_execution(
-            controller_address,
-            outside_execution,
-            signature,
-        ) {
+        match paymaster
+            .handle_add_outside_execution(controller_address, outside_execution, signature)
+            .await
+        {
             Ok(Some((outside_execution, signature))) => {
                 let new_params = {
                     let mut params = jsonrpsee::core::params::ArrayParams::new();
@@ -193,13 +178,18 @@ where
         &self,
         mut request: Request<'a>,
     ) -> impl Future<Output = Self::MethodResponse> + Send + 'a {
-        if request.method_name() == "starknet_estimateFee" {
-            self.intercept_estimate_fee(&mut request);
-        } else if request.method_name() == "cartridge_addExecuteOutsideTransaction" {
-            self.intercept_add_outside_execution(&mut request);
-        }
+        let service = self.service.clone();
+        let paymaster = self.paymaster.clone();
 
-        self.service.call(request)
+        async move {
+            if request.method_name() == "starknet_estimateFee" {
+                Self::intercept_estimate_fee(paymaster.clone(), &mut request).await;
+            } else if request.method_name() == "cartridge_addExecuteOutsideTransaction" {
+                Self::intercept_add_outside_execution(paymaster, &mut request).await;
+            }
+
+            service.call(request).await
+        }
     }
 
     fn batch<'a>(

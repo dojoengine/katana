@@ -39,6 +39,16 @@ impl From<StarknetCall> for Call {
     }
 }
 
+impl From<&StarknetCall> for Call {
+    fn from(call: &StarknetCall) -> Self {
+        Self {
+            to: call.to.into(),
+            selector: call.selector.clone(),
+            calldata: call.calldata.clone(),
+        }
+    }
+}
+
 /// Nonce channel
 #[derive(Clone, CairoSerde, PartialEq, Debug, Serialize, Deserialize)]
 pub struct NonceChannel(
@@ -47,6 +57,10 @@ pub struct NonceChannel(
 );
 
 impl NonceChannel {
+    pub fn new(nonce: Felt, channel: u128) -> Self {
+        Self(nonce, channel)
+    }
+
     pub fn copy_with_other_nonce(&self, nonce: Felt) -> Self {
         Self(nonce, self.1)
     }
