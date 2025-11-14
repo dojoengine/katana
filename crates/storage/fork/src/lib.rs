@@ -1,6 +1,7 @@
 use std::collections::hash_map::Entry;
 use std::collections::{HashMap, VecDeque};
 use std::fmt::Debug;
+use std::io;
 use std::pin::Pin;
 #[cfg(test)]
 use std::sync::atomic::Ordering;
@@ -9,7 +10,6 @@ use std::sync::mpsc::{
 };
 use std::sync::Arc;
 use std::task::{Context, Poll};
-use std::{io, thread};
 
 use anyhow::anyhow;
 use futures::channel::mpsc::{channel as async_channel, Receiver, SendError, Sender};
@@ -32,9 +32,219 @@ use katana_rpc_types::{GetBlockWithReceiptsResponse, StateUpdate};
 use parking_lot::Mutex;
 use tracing::{error, trace};
 
-const LOG_TARGET: &str = "forking::backend";
+/// Default maximum number of concurrent requests that can be processed.
+/// This is a reasonable default to prevent overwhelming the remote RPC provider.
+const DEFAULT_WORKER_MAX_CONCURRENT_REQUESTS: usize = 50;
 
 type BackendResult<T> = Result<T, BackendError>;
+
+pub struct Backend {
+    sender: Mutex<Sender<BackendRequest>>,
+    metrics: BackendMetrics,
+    #[cfg(test)]
+    stats: BackendStats,
+}
+
+impl std::fmt::Debug for Backend {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        #[cfg(not(test))]
+        {
+            f.debug_struct("BackendClient")
+                .field("sender", &self.sender)
+                .field("metrics", &"<metrics>")
+                .finish()
+        }
+
+        #[cfg(test)]
+        {
+            f.debug_struct("BackendClient")
+                .field("sender", &self.sender)
+                .field("metrics", &"<metrics>")
+                .field("stats", &self.stats)
+                .finish()
+        }
+    }
+}
+
+impl Clone for Backend {
+    fn clone(&self) -> Self {
+        Self {
+            sender: Mutex::new(self.sender.lock().clone()),
+            metrics: self.metrics.clone(),
+            #[cfg(test)]
+            stats: self.stats.clone(),
+        }
+    }
+}
+
+/////////////////////////////////////////////////////////////////
+// Backend implementation
+/////////////////////////////////////////////////////////////////
+
+impl Backend {
+    pub fn new(provider: StarknetClient) -> Result<Self, BackendError> {
+        Self::new_with_config(provider, DEFAULT_WORKER_MAX_CONCURRENT_REQUESTS)
+    }
+
+    pub fn new_with_config(
+        provider: StarknetClient,
+        max_concurrent_requests: usize,
+    ) -> Result<Self, BackendError> {
+        let (request_tx, request_rx) = async_channel(100);
+        let metrics = BackendMetrics::default();
+
+        #[cfg(test)]
+        let stats = BackendStats::default();
+
+        let worker = BackendWorker {
+            incoming: request_rx,
+            metrics: metrics.clone(),
+            starknet_client: Arc::new(provider),
+            pending_requests: Vec::new(),
+            request_dedup_map: HashMap::new(),
+            queued_requests: VecDeque::new(),
+            max_concurrent_requests,
+            #[cfg(test)]
+            stats: stats.clone(),
+        };
+
+        std::thread::Builder::new()
+            .name("forking-backend-worker".into())
+            .spawn(move || {
+                tokio::runtime::Builder::new_current_thread()
+                    .enable_all()
+                    .build()
+                    .expect("failed to create tokio runtime")
+                    .block_on(worker);
+            })
+            .map_err(|e| BackendError::BackendThreadInit(Arc::new(e)))?;
+
+        trace!("Forking backend worker started.");
+
+        Ok(Backend {
+            metrics,
+            sender: Mutex::new(request_tx),
+            #[cfg(test)]
+            stats,
+        })
+    }
+
+    pub fn get_block(
+        &self,
+        block_id: BlockHashOrNumber,
+    ) -> Result<Option<GetBlockWithReceiptsResponse>, BackendClientError> {
+        trace!(%block_id, "Requesting block.");
+        let (req, rx) = BackendRequest::block(block_id);
+        self.request(req)?;
+        match rx.recv()? {
+            BackendResponse::Block(res) => handle_not_found_err(res),
+            response => Err(BackendClientError::UnexpectedResponse(anyhow!("{response:?}"))),
+        }
+    }
+
+    pub fn get_state_update(
+        &self,
+        block_id: BlockHashOrNumber,
+    ) -> Result<Option<StateUpdate>, BackendClientError> {
+        trace!(%block_id, "Requesting state update.");
+        let (req, rx) = BackendRequest::state_update(block_id);
+        self.request(req)?;
+        match rx.recv()? {
+            BackendResponse::StateUpdate(res) => handle_not_found_err(res),
+            response => Err(BackendClientError::UnexpectedResponse(anyhow!("{response:?}"))),
+        }
+    }
+
+    pub fn get_nonce(
+        &self,
+        address: ContractAddress,
+        block_id: BlockNumber,
+    ) -> Result<Option<Nonce>, BackendClientError> {
+        trace!(%address, "Requesting contract nonce.");
+        let (req, rx) = BackendRequest::nonce(address, block_id);
+        self.request(req)?;
+        match rx.recv()? {
+            BackendResponse::Nonce(res) => handle_not_found_err(res),
+            response => Err(BackendClientError::UnexpectedResponse(anyhow!("{response:?}"))),
+        }
+    }
+
+    pub fn get_storage(
+        &self,
+        address: ContractAddress,
+        key: StorageKey,
+        block_id: BlockNumber,
+    ) -> Result<Option<StorageValue>, BackendClientError> {
+        trace!(%address, key = %format!("{key:#x}"), "Requesting contract storage.");
+        let (req, rx) = BackendRequest::storage(address, key, block_id);
+        self.request(req)?;
+        match rx.recv()? {
+            BackendResponse::Storage(res) => handle_not_found_err(res),
+            response => Err(BackendClientError::UnexpectedResponse(anyhow!("{response:?}"))),
+        }
+    }
+
+    pub fn get_class_hash_at(
+        &self,
+        address: ContractAddress,
+        block_id: BlockNumber,
+    ) -> Result<Option<ClassHash>, BackendClientError> {
+        trace!(%address, "Requesting contract class hash.");
+        let (req, rx) = BackendRequest::class_hash(address, block_id);
+        self.request(req)?;
+        match rx.recv()? {
+            BackendResponse::ClassHashAt(res) => handle_not_found_err(res),
+            response => Err(BackendClientError::UnexpectedResponse(anyhow!("{response:?}"))),
+        }
+    }
+
+    pub fn get_class_at(
+        &self,
+        class_hash: ClassHash,
+        block_id: BlockNumber,
+    ) -> Result<Option<ContractClass>, BackendClientError> {
+        trace!(class_hash = %format!("{class_hash:#x}"), "Requesting class.");
+        let (req, rx) = BackendRequest::class(class_hash, block_id);
+        self.request(req)?;
+        match rx.recv()? {
+            BackendResponse::ClassAt(res) => {
+                if let Some(class) = handle_not_found_err(res)? {
+                    Ok(Some(ContractClass::try_from(class)?))
+                } else {
+                    Ok(None)
+                }
+            }
+            response => Err(BackendClientError::UnexpectedResponse(anyhow!("{response:?}"))),
+        }
+    }
+
+    pub fn get_compiled_class_hash(
+        &self,
+        class_hash: ClassHash,
+        block_id: BlockNumber,
+    ) -> Result<Option<CompiledClassHash>, BackendClientError> {
+        trace!(class_hash = %format!("{class_hash:#x}"), "Requesting compiled class hash.");
+        if let Some(class) = self.get_class_at(class_hash, block_id)? {
+            let class = class.compile()?;
+            Ok(Some(class.class_hash()?))
+        } else {
+            Ok(None)
+        }
+    }
+
+    /// Send a request to the backend thread.
+    fn request(&self, req: BackendRequest) -> Result<(), BackendClientError> {
+        self.sender.lock().try_send(req).map_err(|e| e.into_send_error())?;
+        Ok(())
+    }
+
+    /// Get the current number of pending requests.
+    /// This is a test-only method that reads the atomic counter.
+    #[cfg(test)]
+    fn stats(&self) -> &BackendStats {
+        &self.stats
+    }
+}
 
 /// The types of response from [`Backend`].
 ///
@@ -159,20 +369,24 @@ pub struct BackendMetrics {
     pub queued_requests: Gauge,
 }
 
+/////////////////////////////////////////////////////////////////
+// BackendWorker
+/////////////////////////////////////////////////////////////////
+
 /// The backend for the forked provider.
 ///
 /// It is responsible for processing [requests](BackendRequest) to fetch data from the remote
 /// provider.
-pub struct Backend {
+struct BackendWorker {
     /// The Starknet RPC provider that will be used to fetch data from.
-    provider: Arc<StarknetClient>,
+    starknet_client: Arc<StarknetClient>,
     // HashMap that keep track of current requests, for dedup purposes.
     request_dedup_map: HashMap<BackendRequestIdentifier, Vec<OneshotSender<BackendResponse>>>,
     /// Requests that are currently being poll.
     pending_requests: Vec<(BackendRequestIdentifier, BackendRequestFuture)>,
     /// Requests that are queued to be polled.
     queued_requests: VecDeque<BackendRequest>,
-    /// A channel for receiving requests from the [BackendHandle]s.
+    /// A channel for receiving requests from the [Backend]s.
     incoming: Receiver<BackendRequest>,
     /// Maximum number of concurrent requests that can be processed.
     max_concurrent_requests: usize,
@@ -183,93 +397,14 @@ pub struct Backend {
 }
 
 /////////////////////////////////////////////////////////////////
-// Backend implementation
+// BackendWorker implementation
 /////////////////////////////////////////////////////////////////
 
-impl Backend {
-    /// Default maximum number of concurrent requests that can be processed.
-    /// This is a reasonable default to prevent overwhelming the remote RPC provider.
-    pub const DEFAULT_MAX_CONCURRENT_REQUESTS: usize = 50;
-
-    // TODO(kariy): create a `.start()` method start running the backend logic and let the users
-    // choose which thread to running it on instead of spawning the thread ourselves.
-    /// Create a new [Backend] with the given provider and returns a handle to it. The backend
-    /// will start processing requests immediately upon creation.
-    ///
-    /// Uses the default maximum concurrent requests limit of
-    /// [`Self::DEFAULT_MAX_CONCURRENT_REQUESTS`].
-    #[allow(clippy::new_ret_no_self)]
-    pub fn new(provider: StarknetClient) -> Result<BackendClient, BackendError> {
-        Self::new_with_config(provider, Self::DEFAULT_MAX_CONCURRENT_REQUESTS)
-    }
-
-    /// Create a new [Backend] with the given provider and configuration. Returns a handle to it.
-    /// The backend will start processing requests immediately upon creation.
-    ///
-    /// # Arguments
-    ///
-    /// * `provider` - The Starknet RPC client to use for fetching data
-    /// * `max_concurrent_requests` - Maximum number of concurrent requests that can be processed
-    #[allow(clippy::new_ret_no_self)]
-    pub fn new_with_config(
-        provider: StarknetClient,
-        max_concurrent_requests: usize,
-    ) -> Result<BackendClient, BackendError> {
-        let (handle, backend) = Self::new_inner(provider, max_concurrent_requests);
-
-        thread::Builder::new()
-            .name("forking-backend".into())
-            .spawn(move || {
-                tokio::runtime::Builder::new_current_thread()
-                    .enable_all()
-                    .build()
-                    .expect("failed to create tokio runtime")
-                    .block_on(backend);
-            })
-            .map_err(|e| BackendError::BackendThreadInit(Arc::new(e)))?;
-
-        trace!(target: LOG_TARGET, max_concurrent_requests, "Forking backend started.");
-
-        Ok(handle)
-    }
-
-    fn new_inner(
-        provider: StarknetClient,
-        max_concurrent_requests: usize,
-    ) -> (BackendClient, Backend) {
-        // Create async channel to receive requests from the handle.
-        let (tx, rx) = async_channel(100);
-        let metrics = BackendMetrics::default();
-
-        #[cfg(test)]
-        let stats = BackendStats::default();
-
-        let backend = Backend {
-            incoming: rx,
-            provider: Arc::new(provider),
-            request_dedup_map: HashMap::new(),
-            pending_requests: Vec::new(),
-            queued_requests: VecDeque::new(),
-            max_concurrent_requests,
-            metrics: metrics.clone(),
-            #[cfg(test)]
-            stats: stats.clone(),
-        };
-
-        let client = BackendClient {
-            sender: Mutex::new(tx),
-            metrics,
-            #[cfg(test)]
-            stats,
-        };
-
-        (client, backend)
-    }
-
+impl BackendWorker {
     /// This method is responsible for transforming the incoming request
-    /// sent from a [BackendHandle] into a RPC request to the remote network.
+    /// sent from a [Backend] into a RPC request to the remote network.
     fn handle_requests(&mut self, request: BackendRequest) {
-        let provider = self.provider.clone();
+        let provider = self.starknet_client.clone();
 
         // Check if there are similar requests in the queue before sending the request
         match request {
@@ -400,14 +535,14 @@ impl Backend {
                 None => {
                     // Log this and do nothing here, as this should never happen.
                     // If this does happen it is an unexpected bug.
-                    error!(target: LOG_TARGET, "failed to get current request dedup vector");
+                    error!("failed to get current request dedup vector");
                 }
             }
         }
     }
 }
 
-impl Future for Backend {
+impl Future for BackendWorker {
     type Output = ();
 
     fn poll(self: Pin<&mut Self>, cx: &mut Context<'_>) -> Poll<Self::Output> {
@@ -466,9 +601,9 @@ impl Future for Backend {
 
                         // Send the response to all the senders waiting on the same request
                         sender_vec.iter().for_each(|sender| {
-                            sender.send(res.clone()).unwrap_or_else(|error| {
-                            	error!(target: LOG_TARGET, key = ?fut_key, %error, "Failed to send result.")
-                            });
+                            sender.send(res.clone()).unwrap_or_else(
+                                |error| error!(key = ?fut_key, %error, "Failed to send result."),
+                            );
                         });
 
                         pin.request_dedup_map.remove(&fut_key);
@@ -496,10 +631,10 @@ impl Future for Backend {
     }
 }
 
-impl Debug for Backend {
+impl std::fmt::Debug for BackendWorker {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         f.debug_struct("Backend")
-            .field("provider", &self.provider)
+            .field("provider", &self.starknet_client)
             .field("request_dedup_map", &self.request_dedup_map)
             .field("pending_requests", &self.pending_requests.len())
             .field("queued_requests", &self.queued_requests.len())
@@ -551,171 +686,6 @@ pub enum BackendClientError {
     UnexpectedResponse(anyhow::Error),
 }
 
-/// A thread safe handler to [`Backend`].
-///
-/// This is the primary interface for sending request to the backend to fetch data from the remote
-/// network.
-pub struct BackendClient {
-    sender: Mutex<Sender<BackendRequest>>,
-    metrics: BackendMetrics,
-    #[cfg(test)]
-    stats: BackendStats,
-}
-
-impl std::fmt::Debug for BackendClient {
-    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        #[cfg(not(test))]
-        {
-            f.debug_struct("BackendClient")
-                .field("sender", &self.sender)
-                .field("metrics", &"<metrics>")
-                .finish()
-        }
-
-        #[cfg(test)]
-        {
-            f.debug_struct("BackendClient")
-                .field("sender", &self.sender)
-                .field("metrics", &"<metrics>")
-                .field("stats", &self.stats)
-                .finish()
-        }
-    }
-}
-
-impl Clone for BackendClient {
-    fn clone(&self) -> Self {
-        Self {
-            sender: Mutex::new(self.sender.lock().clone()),
-            metrics: self.metrics.clone(),
-            #[cfg(test)]
-            stats: self.stats.clone(),
-        }
-    }
-}
-
-/////////////////////////////////////////////////////////////////
-// BackendHandle implementation
-/////////////////////////////////////////////////////////////////
-
-impl BackendClient {
-    pub fn get_block(
-        &self,
-        block_id: BlockHashOrNumber,
-    ) -> Result<Option<GetBlockWithReceiptsResponse>, BackendClientError> {
-        trace!(target: LOG_TARGET, %block_id, "Requesting block.");
-        let (req, rx) = BackendRequest::block(block_id);
-        self.request(req)?;
-        match rx.recv()? {
-            BackendResponse::Block(res) => handle_not_found_err(res),
-            response => Err(BackendClientError::UnexpectedResponse(anyhow!("{response:?}"))),
-        }
-    }
-
-    pub fn get_state_update(
-        &self,
-        block_id: BlockHashOrNumber,
-    ) -> Result<Option<StateUpdate>, BackendClientError> {
-        trace!(target: LOG_TARGET, %block_id, "Requesting state update.");
-        let (req, rx) = BackendRequest::state_update(block_id);
-        self.request(req)?;
-        match rx.recv()? {
-            BackendResponse::StateUpdate(res) => handle_not_found_err(res),
-            response => Err(BackendClientError::UnexpectedResponse(anyhow!("{response:?}"))),
-        }
-    }
-
-    pub fn get_nonce(
-        &self,
-        address: ContractAddress,
-        block_id: BlockNumber,
-    ) -> Result<Option<Nonce>, BackendClientError> {
-        trace!(target: LOG_TARGET, %address, "Requesting contract nonce.");
-        let (req, rx) = BackendRequest::nonce(address, block_id);
-        self.request(req)?;
-        match rx.recv()? {
-            BackendResponse::Nonce(res) => handle_not_found_err(res),
-            response => Err(BackendClientError::UnexpectedResponse(anyhow!("{response:?}"))),
-        }
-    }
-
-    pub fn get_storage(
-        &self,
-        address: ContractAddress,
-        key: StorageKey,
-        block_id: BlockNumber,
-    ) -> Result<Option<StorageValue>, BackendClientError> {
-        trace!(target: LOG_TARGET, %address, key = %format!("{key:#x}"), "Requesting contract storage.");
-        let (req, rx) = BackendRequest::storage(address, key, block_id);
-        self.request(req)?;
-        match rx.recv()? {
-            BackendResponse::Storage(res) => handle_not_found_err(res),
-            response => Err(BackendClientError::UnexpectedResponse(anyhow!("{response:?}"))),
-        }
-    }
-
-    pub fn get_class_hash_at(
-        &self,
-        address: ContractAddress,
-        block_id: BlockNumber,
-    ) -> Result<Option<ClassHash>, BackendClientError> {
-        trace!(target: LOG_TARGET, %address, "Requesting contract class hash.");
-        let (req, rx) = BackendRequest::class_hash(address, block_id);
-        self.request(req)?;
-        match rx.recv()? {
-            BackendResponse::ClassHashAt(res) => handle_not_found_err(res),
-            response => Err(BackendClientError::UnexpectedResponse(anyhow!("{response:?}"))),
-        }
-    }
-
-    pub fn get_class_at(
-        &self,
-        class_hash: ClassHash,
-        block_id: BlockNumber,
-    ) -> Result<Option<ContractClass>, BackendClientError> {
-        trace!(target: LOG_TARGET, class_hash = %format!("{class_hash:#x}"), "Requesting class.");
-        let (req, rx) = BackendRequest::class(class_hash, block_id);
-        self.request(req)?;
-        match rx.recv()? {
-            BackendResponse::ClassAt(res) => {
-                if let Some(class) = handle_not_found_err(res)? {
-                    Ok(Some(ContractClass::try_from(class)?))
-                } else {
-                    Ok(None)
-                }
-            }
-            response => Err(BackendClientError::UnexpectedResponse(anyhow!("{response:?}"))),
-        }
-    }
-
-    pub fn get_compiled_class_hash(
-        &self,
-        class_hash: ClassHash,
-        block_id: BlockNumber,
-    ) -> Result<Option<CompiledClassHash>, BackendClientError> {
-        trace!(target: LOG_TARGET, class_hash = %format!("{class_hash:#x}"), "Requesting compiled class hash.");
-        if let Some(class) = self.get_class_at(class_hash, block_id)? {
-            let class = class.compile()?;
-            Ok(Some(class.class_hash()?))
-        } else {
-            Ok(None)
-        }
-    }
-
-    /// Send a request to the backend thread.
-    fn request(&self, req: BackendRequest) -> Result<(), BackendClientError> {
-        self.sender.lock().try_send(req).map_err(|e| e.into_send_error())?;
-        Ok(())
-    }
-
-    /// Get the current number of pending requests.
-    /// This is a test-only method that reads the atomic counter.
-    #[cfg(test)]
-    fn stats(&self) -> &BackendStats {
-        &self.stats
-    }
-}
-
 /// A helper function to convert a contract/class not found error returned by the RPC provider into
 /// a `Option::None`.
 ///
@@ -751,7 +721,7 @@ pub(crate) mod test_utils {
 
     use super::*;
 
-    pub fn create_forked_backend(rpc_url: &str) -> BackendClient {
+    pub fn create_forked_backend(rpc_url: &str) -> Backend {
         let url = Url::parse(rpc_url).expect("valid url");
         let provider = StarknetClient::new(HttpClientBuilder::new().build(url).unwrap());
         Backend::new(provider).unwrap()
@@ -760,7 +730,7 @@ pub(crate) mod test_utils {
     pub fn create_forked_backend_with_config(
         rpc_url: &str,
         max_concurrent_requests: usize,
-    ) -> BackendClient {
+    ) -> Backend {
         let url = Url::parse(rpc_url).expect("valid url");
         let provider = StarknetClient::new(HttpClientBuilder::new().build(url).unwrap());
         Backend::new_with_config(provider, max_concurrent_requests).unwrap()
