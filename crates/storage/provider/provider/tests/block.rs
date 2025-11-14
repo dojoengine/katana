@@ -15,6 +15,7 @@ use katana_provider::api::transaction::{
     ReceiptProvider, TransactionProvider, TransactionStatusProvider, TransactionTraceProvider,
 };
 use katana_provider::providers::db::DbProvider;
+use katana_provider::ProviderFactory;
 use rstest_reuse::{self, *};
 
 mod fixtures;
@@ -39,15 +40,16 @@ fn insert_block_empty_with_db_provider(
     insert_block_empty_test_impl(provider, block_count)
 }
 
-fn insert_block_test_impl<Db>(provider: BlockchainProvider<Db>, count: u64) -> Result<()>
+fn insert_block_test_impl<P>(provider: P, count: u64) -> Result<()>
 where
-    Db: BlockProvider
-        + BlockWriter
+    P: ProviderFactory,
+    <P as ProviderFactory>::Provider: BlockProvider
         + ReceiptProvider
         + StateFactoryProvider
         + TransactionStatusProvider
         + TransactionTraceProvider
         + BlockEnvProvider,
+    <P as ProviderFactory>::ProviderMut: BlockWriter,
 {
     let blocks = utils::generate_dummy_blocks_and_receipts(count);
     let txs: Vec<TxWithHash> =
@@ -55,16 +57,19 @@ where
     let total_txs = txs.len() as u64;
 
     for (block, receipts, executions) in &blocks {
-        provider.insert_block_with_states_and_receipts(
+        provider.provider_mut().insert_block_with_states_and_receipts(
             block.clone(),
             Default::default(),
             receipts.clone(),
             executions.clone(),
         )?;
 
+        let provider = provider.provider();
         assert_eq!(provider.latest_number().unwrap(), block.block.header.number);
         assert_eq!(provider.latest_hash().unwrap(), block.block.hash);
     }
+
+    let provider = provider.provider();
 
     let actual_transactions_in_range = provider.transaction_in_range(0..total_txs).unwrap();
     let actual_blocks_in_range = provider.blocks_in_range(0..=count)?;
@@ -151,15 +156,16 @@ where
     Ok(())
 }
 
-fn insert_block_empty_test_impl<Db>(provider: BlockchainProvider<Db>, count: u64) -> Result<()>
+fn insert_block_empty_test_impl<P>(provider: P, count: u64) -> Result<()>
 where
-    Db: BlockProvider
-        + BlockWriter
+    P: ProviderFactory,
+    <P as ProviderFactory>::Provider: BlockProvider
         + ReceiptProvider
         + StateFactoryProvider
         + TransactionStatusProvider
         + TransactionTraceProvider
         + BlockEnvProvider,
+    <P as ProviderFactory>::ProviderMut: BlockWriter,
 {
     let blocks = utils::generate_dummy_blocks_empty(count);
     let txs: Vec<TxWithHash> = blocks.iter().flat_map(|block| block.block.body.clone()).collect();
@@ -168,7 +174,8 @@ where
     assert_eq!(total_txs, 0);
 
     for block in &blocks {
-        provider.insert_block_with_states_and_receipts(
+        let provider_mut = provider.provider_mut();
+        provider_mut.insert_block_with_states_and_receipts(
             block.clone(),
             Default::default(),
             vec![],
