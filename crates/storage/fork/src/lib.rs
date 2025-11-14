@@ -2,6 +2,8 @@ use std::collections::hash_map::Entry;
 use std::collections::{HashMap, VecDeque};
 use std::fmt::Debug;
 use std::pin::Pin;
+#[cfg(test)]
+use std::sync::atomic::Ordering;
 use std::sync::mpsc::{
     channel as oneshot, Receiver as OneshotReceiver, RecvError, Sender as OneshotSender,
 };
@@ -14,6 +16,8 @@ use futures::channel::mpsc::{channel as async_channel, Receiver, SendError, Send
 use futures::future::BoxFuture;
 use futures::stream::Stream;
 use futures::{Future, FutureExt};
+use katana_metrics::metrics::Gauge;
+use katana_metrics::{metrics, Metrics};
 use katana_primitives::block::{BlockIdOrTag, BlockNumber};
 use katana_primitives::class::{
     ClassHash, CompiledClassHash, ComputeClassHashError, ContractClass,
@@ -72,9 +76,6 @@ enum BackendRequest {
     Class(Request<(ClassHash, BlockNumber)>),
     ClassHash(Request<(ContractAddress, BlockNumber)>),
     Storage(Request<((ContractAddress, StorageKey), BlockNumber)>),
-    // Test-only request kind for requesting the backend stats
-    #[cfg(test)]
-    Stats(OneshotSender<usize>),
 }
 
 impl BackendRequest {
@@ -114,12 +115,6 @@ impl BackendRequest {
         let (sender, receiver) = oneshot();
         (BackendRequest::Storage(Request { payload: ((address, key), block_id), sender }), receiver)
     }
-
-    #[cfg(test)]
-    fn stats() -> (BackendRequest, OneshotReceiver<usize>) {
-        let (sender, receiver) = oneshot();
-        (BackendRequest::Stats(sender), receiver)
-    }
 }
 
 type BackendRequestFuture = BoxFuture<'static, BackendResponse>;
@@ -132,6 +127,16 @@ enum BackendRequestIdentifier {
     Class(ClassHash, BlockNumber),
     ClassHash(ContractAddress, BlockNumber),
     Storage((ContractAddress, StorageKey), BlockNumber),
+}
+
+/// Metrics for the forking backend.
+#[derive(Metrics, Clone)]
+#[metrics(scope = "forking.backend")]
+pub struct BackendMetrics {
+    /// Number of requests currently being processed (pending)
+    pub pending_requests: Gauge,
+    /// Number of requests queued and waiting to be processed
+    pub queued_requests: Gauge,
 }
 
 /// The backend for the forked provider.
@@ -149,6 +154,12 @@ pub struct Backend {
     queued_requests: VecDeque<BackendRequest>,
     /// A channel for receiving requests from the [BackendHandle]s.
     incoming: Receiver<BackendRequest>,
+    /// Maximum number of concurrent requests that can be processed.
+    max_concurrent_requests: usize,
+    /// Metrics for the backend.
+    metrics: BackendMetrics,
+    #[cfg(test)]
+    stats: BackendStats,
 }
 
 /////////////////////////////////////////////////////////////////
@@ -156,13 +167,35 @@ pub struct Backend {
 /////////////////////////////////////////////////////////////////
 
 impl Backend {
+    /// Default maximum number of concurrent requests that can be processed.
+    /// This is a reasonable default to prevent overwhelming the remote RPC provider.
+    pub const DEFAULT_MAX_CONCURRENT_REQUESTS: usize = 50;
+
     // TODO(kariy): create a `.start()` method start running the backend logic and let the users
     // choose which thread to running it on instead of spawning the thread ourselves.
     /// Create a new [Backend] with the given provider and returns a handle to it. The backend
     /// will start processing requests immediately upon creation.
+    ///
+    /// Uses the default maximum concurrent requests limit of
+    /// [`Self::DEFAULT_MAX_CONCURRENT_REQUESTS`].
     #[allow(clippy::new_ret_no_self)]
     pub fn new(provider: StarknetClient) -> Result<BackendClient, BackendError> {
-        let (handle, backend) = Self::new_inner(provider);
+        Self::new_with_config(provider, Self::DEFAULT_MAX_CONCURRENT_REQUESTS)
+    }
+
+    /// Create a new [Backend] with the given provider and configuration. Returns a handle to it.
+    /// The backend will start processing requests immediately upon creation.
+    ///
+    /// # Arguments
+    ///
+    /// * `provider` - The Starknet RPC client to use for fetching data
+    /// * `max_concurrent_requests` - Maximum number of concurrent requests that can be processed
+    #[allow(clippy::new_ret_no_self)]
+    pub fn new_with_config(
+        provider: StarknetClient,
+        max_concurrent_requests: usize,
+    ) -> Result<BackendClient, BackendError> {
+        let (handle, backend) = Self::new_inner(provider, max_concurrent_requests);
 
         thread::Builder::new()
             .name("forking-backend".into())
@@ -175,23 +208,42 @@ impl Backend {
             })
             .map_err(|e| BackendError::BackendThreadInit(Arc::new(e)))?;
 
-        trace!(target: LOG_TARGET, "Forking backend started.");
+        trace!(target: LOG_TARGET, max_concurrent_requests, "Forking backend started.");
 
         Ok(handle)
     }
 
-    fn new_inner(provider: StarknetClient) -> (BackendClient, Backend) {
+    fn new_inner(
+        provider: StarknetClient,
+        max_concurrent_requests: usize,
+    ) -> (BackendClient, Backend) {
         // Create async channel to receive requests from the handle.
         let (tx, rx) = async_channel(100);
+        let metrics = BackendMetrics::default();
+
+        #[cfg(test)]
+        let stats = BackendStats::default();
+
         let backend = Backend {
             incoming: rx,
             provider: Arc::new(provider),
             request_dedup_map: HashMap::new(),
             pending_requests: Vec::new(),
             queued_requests: VecDeque::new(),
+            max_concurrent_requests,
+            metrics: metrics.clone(),
+            #[cfg(test)]
+            stats: stats.clone(),
         };
 
-        (BackendClient(Mutex::new(tx)), backend)
+        let client = BackendClient {
+            sender: Mutex::new(tx),
+            metrics,
+            #[cfg(test)]
+            stats,
+        };
+
+        (client, backend)
     }
 
     /// This method is responsible for transforming the incoming request
@@ -272,12 +324,6 @@ impl Backend {
                     }),
                 );
             }
-
-            #[cfg(test)]
-            BackendRequest::Stats(sender) => {
-                let total_ongoing_request = self.pending_requests.len();
-                sender.send(total_ongoing_request).expect("failed to send backend stats");
-            }
         }
     }
 
@@ -311,9 +357,25 @@ impl Future for Backend {
     fn poll(self: Pin<&mut Self>, cx: &mut Context<'_>) -> Poll<Self::Output> {
         let pin = self.get_mut();
         loop {
-            // convert all queued requests into futures to be polled
-            while let Some(req) = pin.queued_requests.pop_front() {
-                pin.handle_requests(req);
+            // convert queued requests into futures to be polled, respecting the concurrent limit
+            while !pin.queued_requests.is_empty()
+                && pin.pending_requests.len() < pin.max_concurrent_requests
+            {
+                if let Some(req) = pin.queued_requests.pop_front() {
+                    pin.handle_requests(req);
+                }
+            }
+
+            // Update metrics and atomic counters
+            let pending_count = pin.pending_requests.len();
+            let queued_count = pin.queued_requests.len();
+            pin.metrics.pending_requests.set(pending_count as f64);
+            pin.metrics.queued_requests.set(queued_count as f64);
+
+            #[cfg(test)]
+            {
+                pin.stats.pending_requests_count.store(pending_count, Ordering::Relaxed);
+                pin.stats.queued_requests_count.store(queued_count, Ordering::Relaxed);
             }
 
             loop {
@@ -358,6 +420,18 @@ impl Future for Backend {
                 }
             }
 
+            // Update metrics and atomic counters after processing
+            let pending_count = pin.pending_requests.len();
+            let queued_count = pin.queued_requests.len();
+            pin.metrics.pending_requests.set(pending_count as f64);
+            pin.metrics.queued_requests.set(queued_count as f64);
+
+            #[cfg(test)]
+            {
+                pin.stats.pending_requests_count.store(pending_count, Ordering::Relaxed);
+                pin.stats.queued_requests_count.store(queued_count, Ordering::Relaxed);
+            }
+
             // if no queued requests, then yield
             if pin.queued_requests.is_empty() {
                 return Poll::Pending;
@@ -374,7 +448,26 @@ impl Debug for Backend {
             .field("pending_requests", &self.pending_requests.len())
             .field("queued_requests", &self.queued_requests.len())
             .field("incoming", &self.incoming)
+            .field("max_concurrent_requests", &self.max_concurrent_requests)
             .finish()
+    }
+}
+
+#[cfg(test)]
+#[derive(Debug, Clone, Default)]
+struct BackendStats {
+    pending_requests_count: Arc<std::sync::atomic::AtomicUsize>,
+    queued_requests_count: Arc<std::sync::atomic::AtomicUsize>,
+}
+
+#[cfg(test)]
+impl BackendStats {
+    fn pending_requests_count(&self) -> usize {
+        self.pending_requests_count.load(Ordering::Relaxed)
+    }
+
+    fn queued_requests_count(&self) -> usize {
+        self.queued_requests_count.load(Ordering::Relaxed)
     }
 }
 
@@ -406,12 +499,42 @@ pub enum BackendClientError {
 ///
 /// This is the primary interface for sending request to the backend to fetch data from the remote
 /// network.
-#[derive(Debug)]
-pub struct BackendClient(Mutex<Sender<BackendRequest>>);
+pub struct BackendClient {
+    sender: Mutex<Sender<BackendRequest>>,
+    metrics: BackendMetrics,
+    #[cfg(test)]
+    stats: BackendStats,
+}
+
+impl std::fmt::Debug for BackendClient {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        #[cfg(not(test))]
+        {
+            f.debug_struct("BackendClient")
+                .field("sender", &self.sender)
+                .field("metrics", &"<metrics>")
+                .finish()
+        }
+
+        #[cfg(test)]
+        {
+            f.debug_struct("BackendClient")
+                .field("sender", &self.sender)
+                .field("metrics", &"<metrics>")
+                .field("stats", &self.stats)
+                .finish()
+        }
+    }
+}
 
 impl Clone for BackendClient {
     fn clone(&self) -> Self {
-        Self(Mutex::new(self.0.lock().clone()))
+        Self {
+            sender: Mutex::new(self.sender.lock().clone()),
+            metrics: self.metrics.clone(),
+            #[cfg(test)]
+            stats: self.stats.clone(),
+        }
     }
 }
 
@@ -499,15 +622,15 @@ impl BackendClient {
 
     /// Send a request to the backend thread.
     fn request(&self, req: BackendRequest) -> Result<(), BackendClientError> {
-        self.0.lock().try_send(req).map_err(|e| e.into_send_error())?;
+        self.sender.lock().try_send(req).map_err(|e| e.into_send_error())?;
         Ok(())
     }
 
+    /// Get the current number of pending requests.
+    /// This is a test-only method that reads the atomic counter.
     #[cfg(test)]
-    fn stats(&self) -> Result<usize, BackendClientError> {
-        let (req, rx) = BackendRequest::stats();
-        self.request(req)?;
-        Ok(rx.recv()?)
+    fn stats(&self) -> &BackendStats {
+        &self.stats
     }
 }
 
@@ -536,6 +659,7 @@ fn handle_not_found_err<T>(
 pub(crate) mod test_utils {
 
     use std::sync::mpsc::{sync_channel, SyncSender};
+    use std::time::Duration;
 
     use katana_rpc_client::HttpClientBuilder;
     use serde_json::{json, Value};
@@ -549,6 +673,15 @@ pub(crate) mod test_utils {
         let url = Url::parse(rpc_url).expect("valid url");
         let provider = StarknetClient::new(HttpClientBuilder::new().build(url).unwrap());
         Backend::new(provider).unwrap()
+    }
+
+    pub fn create_forked_backend_with_config(
+        rpc_url: &str,
+        max_concurrent_requests: usize,
+    ) -> BackendClient {
+        let url = Url::parse(rpc_url).expect("valid url");
+        let provider = StarknetClient::new(HttpClientBuilder::new().build(url).unwrap());
+        Backend::new_with_config(provider, max_concurrent_requests).unwrap()
     }
 
     // Starts a TCP server that never close the connection.
@@ -579,49 +712,69 @@ pub(crate) mod test_utils {
     pub fn start_mock_rpc_server(addr: String, result: String) -> SyncSender<()> {
         use tokio::runtime::Builder;
 
-        let (tx, rx) = sync_channel::<()>(1);
-        let (ready_tx, ready_rx) = sync_channel::<()>(1);
+        let (resp_signal_tx, resp_signal_rx) = sync_channel::<()>(100);
+        let (server_ready_tx, server_ready_rx) = sync_channel::<()>(1);
 
         thread::spawn(move || {
             Builder::new_current_thread().enable_all().build().unwrap().block_on(async move {
                 let listener = TcpListener::bind(addr).await.unwrap();
+                let pending_requests = Arc::new(Mutex::new(VecDeque::new()));
 
-                // Signal that the server is ready
-                ready_tx.send(()).unwrap();
+                server_ready_tx.send(()).unwrap();
 
+                // Spawn a task to accept incoming connections
+                let pending_requests_accept = pending_requests.clone();
+                let accept_task_handle = tokio::spawn(async move {
+                    loop {
+                        let (mut socket, _) = listener.accept().await.unwrap();
+
+                        // Read the request
+                        let mut buffer = [0; 1024];
+                        let n = socket.read(&mut buffer).await.unwrap();
+
+                        // Parse the HTTP request to extract the JSON-RPC body
+                        let request_str = String::from_utf8_lossy(&buffer[..n]);
+                        let id = if let Some(body_start) = request_str.rfind("\r\n\r\n") {
+                            let body = &request_str[body_start + 4..];
+                            let request = serde_json::from_str::<Value>(body).unwrap();
+                            request.get("id").unwrap().clone()
+                        } else {
+                            json!(1)
+                        };
+
+                        // Store the socket and ID for later processing (the ID needs to be equal in
+                        // both request and response as per JSON-RPC spec)
+                        pending_requests_accept.lock().push_back((socket, id));
+                    }
+                });
+
+                // Process requests in FIFO order based on signals
                 loop {
-                    let (mut socket, _) = listener.accept().await.unwrap();
+                    // Wait for a signal to process the next request triggered by consumer
+                    if resp_signal_rx.recv().is_err() {
+                        break;
+                    }
 
-                    // Read the request, so hyper would not close the connection
-                    let mut buffer = [0; 1024];
-                    let n = socket.read(&mut buffer).await.unwrap();
+                    // Get the next pending request
+                    let (mut socket, id) = {
+                        let mut queue = pending_requests.lock();
+                        // Wait until there's a request to process
+                        while queue.is_empty() {
+                            drop(queue);
+                            tokio::time::sleep(Duration::from_millis(10)).await;
+                            queue = pending_requests.lock();
+                        }
 
-                    // Parse the HTTP request to extract the JSON-RPC body
-                    //
-                    // The response ID must match the request ID
-                    let request_str = String::from_utf8_lossy(&buffer[..n]);
-                    let id = if let Some(body_start) = request_str.rfind("\r\n\r\n") {
-                        let body = &request_str[body_start + 4..];
-                        // Extract the ID from the parsed JSON
-                        let request = serde_json::from_str::<Value>(body).unwrap();
-                        request.get("id").unwrap().clone()
-                    } else {
-                        json!(1)
+                        queue.pop_front().unwrap()
                     };
 
-                    // Wait for a signal to return the response.
-                    rx.recv().unwrap();
-
-                    // Build the JSON-RPC response with the provided result and extracted ID
-                    let response_obj = serde_json::json!({
+                    let json_response = serde_json::to_string(&json!({
                         "id": id,
                         "jsonrpc": "2.0",
                         "result": result
-                    });
+                    }))
+                    .unwrap();
 
-                    let json_response = serde_json::to_string(&response_obj).unwrap();
-
-                    // After reading, we send the response with correct ID
                     let http_response = format!(
                         "HTTP/1.1 200 OK\r\ncontent-length: {}\r\ncontent-type: \
                          application/json\r\n\r\n{}",
@@ -632,14 +785,16 @@ pub(crate) mod test_utils {
                     socket.write_all(http_response.as_bytes()).await.unwrap();
                     socket.flush().await.unwrap();
                 }
+
+                accept_task_handle.abort();
             });
         });
 
         // Wait for the server to be ready
-        ready_rx.recv().unwrap();
+        server_ready_rx.recv().unwrap();
 
         // Returning the sender to allow controlling the response timing.
-        tx
+        resp_signal_tx
     }
 }
 
@@ -660,7 +815,6 @@ mod tests {
     use super::*;
 
     const ERROR_SEND_REQUEST: &str = "Failed to send request to backend";
-    const ERROR_STATS: &str = "Failed to get stats";
 
     #[test]
     fn handle_incoming_requests() {
@@ -671,8 +825,8 @@ mod tests {
         let block_id = 1;
 
         // check no pending requests
-        let stats = handle.stats().expect(ERROR_STATS);
-        assert_eq!(stats, 0, "Backend should not have any ongoing requests.");
+        let pending_requests_count = handle.stats().pending_requests_count();
+        assert_eq!(pending_requests_count, 0, "Backend should not have any ongoing requests.");
 
         // send requests to the backend
         let h1 = handle.clone();
@@ -700,8 +854,8 @@ mod tests {
         thread::sleep(Duration::from_secs(1));
 
         // check request are handled
-        let stats = handle.stats().expect(ERROR_STATS);
-        assert_eq!(stats, 5, "Backend should have 5 ongoing requests.")
+        let pending_requests_count = handle.stats().pending_requests_count();
+        assert_eq!(pending_requests_count, 5, "Backend should have 5 ongoing requests.")
     }
 
     #[test]
@@ -713,8 +867,8 @@ mod tests {
         let block_id = 1;
 
         // check no pending requests
-        let stats = handle.stats().expect(ERROR_STATS);
-        assert_eq!(stats, 0, "Backend should not have any ongoing requests.");
+        let pending_requests_count = handle.stats().pending_requests_count();
+        assert_eq!(pending_requests_count, 0, "Backend should not have any ongoing requests.");
 
         // send requests to the backend
         let h1 = handle.clone();
@@ -730,8 +884,8 @@ mod tests {
         thread::sleep(Duration::from_secs(1));
 
         // check current request count
-        let stats = handle.stats().expect(ERROR_STATS);
-        assert_eq!(stats, 1, "Backend should have 1 ongoing requests.");
+        let pending_requests_count = handle.stats().pending_requests_count();
+        assert_eq!(pending_requests_count, 1, "Backend should have 1 ongoing requests.");
 
         // Different request, should be counted
         let h3 = handle.clone();
@@ -743,8 +897,8 @@ mod tests {
         thread::sleep(Duration::from_secs(1));
 
         // check request are handled
-        let stats = handle.stats().expect(ERROR_STATS);
-        assert_eq!(stats, 2, "Backend should only have 2 ongoing requests.")
+        let pending_requests_count = handle.stats().pending_requests_count();
+        assert_eq!(pending_requests_count, 2, "Backend should only have 2 ongoing requests.")
     }
 
     #[test]
@@ -756,8 +910,8 @@ mod tests {
         let block_id = 1;
 
         // check no pending requests
-        let stats = handle.stats().expect(ERROR_STATS);
-        assert_eq!(stats, 0, "Backend should not have any ongoing requests.");
+        let pending_requests_count = handle.stats().pending_requests_count();
+        assert_eq!(pending_requests_count, 0, "Backend should not have any ongoing requests.");
 
         // send requests to the backend
         let h1 = handle.clone();
@@ -773,8 +927,8 @@ mod tests {
         thread::sleep(Duration::from_secs(1));
 
         // check current request count
-        let stats = handle.stats().expect(ERROR_STATS);
-        assert_eq!(stats, 1, "Backend should have 1 ongoing requests.");
+        let pending_requests_count = handle.stats().pending_requests_count();
+        assert_eq!(pending_requests_count, 1, "Backend should have 1 ongoing requests.");
 
         // Different request, should be counted
         let h3 = handle.clone();
@@ -786,8 +940,8 @@ mod tests {
         thread::sleep(Duration::from_secs(1));
 
         // check request are handled
-        let stats = handle.stats().expect(ERROR_STATS);
-        assert_eq!(stats, 2, "Backend should only have 2 ongoing requests.")
+        let pending_requests_count = handle.stats().pending_requests_count();
+        assert_eq!(pending_requests_count, 2, "Backend should only have 2 ongoing requests.")
     }
 
     #[test]
@@ -799,8 +953,8 @@ mod tests {
         let block_id = 1;
 
         // check no pending requests
-        let stats = handle.stats().expect(ERROR_STATS);
-        assert_eq!(stats, 0, "Backend should not have any ongoing requests.");
+        let pending_requests_count = handle.stats().pending_requests_count();
+        assert_eq!(pending_requests_count, 0, "Backend should not have any ongoing requests.");
 
         // send requests to the backend
         let h1 = handle.clone();
@@ -816,8 +970,8 @@ mod tests {
         thread::sleep(Duration::from_secs(1));
 
         // check current request count
-        let stats = handle.stats().expect(ERROR_STATS);
-        assert_eq!(stats, 1, "Backend should have 1 ongoing requests.");
+        let pending_requests_count = handle.stats().pending_requests_count();
+        assert_eq!(pending_requests_count, 1, "Backend should have 1 ongoing requests.");
 
         // Different request, should be counted
         let h3 = handle.clone();
@@ -829,8 +983,8 @@ mod tests {
         thread::sleep(Duration::from_secs(1));
 
         // check request are handled
-        let stats = handle.stats().expect(ERROR_STATS);
-        assert_eq!(stats, 2, "Backend should only have 2 ongoing requests.")
+        let pending_requests_count = handle.stats().pending_requests_count();
+        assert_eq!(pending_requests_count, 2, "Backend should only have 2 ongoing requests.")
     }
 
     #[test]
@@ -842,8 +996,8 @@ mod tests {
         let block_id = 1;
 
         // check no pending requests
-        let stats = handle.stats().expect(ERROR_STATS);
-        assert_eq!(stats, 0, "Backend should not have any ongoing requests.");
+        let pending_requests_count = handle.stats().pending_requests_count();
+        assert_eq!(pending_requests_count, 0, "Backend should not have any ongoing requests.");
 
         // send requests to the backend
         let h1 = handle.clone();
@@ -860,8 +1014,8 @@ mod tests {
         thread::sleep(Duration::from_secs(1));
 
         // check current request count
-        let stats = handle.stats().expect(ERROR_STATS);
-        assert_eq!(stats, 1, "Backend should have 1 ongoing requests.");
+        let pending_requests_count = handle.stats().pending_requests_count();
+        assert_eq!(pending_requests_count, 1, "Backend should have 1 ongoing requests.");
 
         // Different request, should be counted
         let h3 = handle.clone();
@@ -873,8 +1027,8 @@ mod tests {
         thread::sleep(Duration::from_secs(1));
 
         // check request are handled
-        let stats = handle.stats().expect(ERROR_STATS);
-        assert_eq!(stats, 2, "Backend should only have 2 ongoing requests.")
+        let pending_requests_count = handle.stats().pending_requests_count();
+        assert_eq!(pending_requests_count, 2, "Backend should only have 2 ongoing requests.")
     }
 
     #[test]
@@ -886,8 +1040,8 @@ mod tests {
         let block_id = 1;
 
         // check no pending requests
-        let stats = handle.stats().expect(ERROR_STATS);
-        assert_eq!(stats, 0, "Backend should not have any ongoing requests.");
+        let pending_requests_count = handle.stats().pending_requests_count();
+        assert_eq!(pending_requests_count, 0, "Backend should not have any ongoing requests.");
 
         // send requests to the backend
         let h1 = handle.clone();
@@ -903,8 +1057,8 @@ mod tests {
         thread::sleep(Duration::from_secs(1));
 
         // check current request count
-        let stats = handle.stats().expect(ERROR_STATS);
-        assert_eq!(stats, 1, "Backend should have 1 ongoing requests.");
+        let pending_requests_count = handle.stats().pending_requests_count();
+        assert_eq!(pending_requests_count, 1, "Backend should have 1 ongoing requests.");
 
         // Different request, should be counted
         let h3 = handle.clone();
@@ -916,8 +1070,8 @@ mod tests {
         thread::sleep(Duration::from_secs(1));
 
         // check request are handled
-        let stats = handle.stats().expect(ERROR_STATS);
-        assert_eq!(stats, 2, "Backend should only have 2 ongoing requests.")
+        let pending_requests_count = handle.stats().pending_requests_count();
+        assert_eq!(pending_requests_count, 2, "Backend should only have 2 ongoing requests.")
     }
 
     #[test]
@@ -929,8 +1083,8 @@ mod tests {
         let block_id = 1;
 
         // check no pending requests
-        let stats = handle.stats().expect(ERROR_STATS);
-        assert_eq!(stats, 0, "Backend should not have any ongoing requests.");
+        let pending_requests_count = handle.stats().pending_requests_count();
+        assert_eq!(pending_requests_count, 0, "Backend should not have any ongoing requests.");
 
         // send requests to the backend
         let h1 = handle.clone();
@@ -946,8 +1100,8 @@ mod tests {
         thread::sleep(Duration::from_secs(1));
 
         // check current request count
-        let stats = handle.stats().expect(ERROR_STATS);
-        assert_eq!(stats, 1, "Backend should have 1 ongoing requests.");
+        let pending_requests_count = handle.stats().pending_requests_count();
+        assert_eq!(pending_requests_count, 1, "Backend should have 1 ongoing requests.");
 
         // Different request, should be counted
         let h3 = handle.clone();
@@ -959,8 +1113,8 @@ mod tests {
         thread::sleep(Duration::from_secs(1));
 
         // check request are handled
-        let stats = handle.stats().expect(ERROR_STATS);
-        assert_eq!(stats, 2, "Backend should only have 2 ongoing requests.")
+        let pending_requests_count = handle.stats().pending_requests_count();
+        assert_eq!(pending_requests_count, 2, "Backend should only have 2 ongoing requests.")
     }
 
     #[test]
@@ -972,8 +1126,8 @@ mod tests {
         let block_id = 1;
 
         // check no pending requests
-        let stats = handle.stats().expect(ERROR_STATS);
-        assert_eq!(stats, 0, "Backend should not have any ongoing requests.");
+        let pending_requests_count = handle.stats().pending_requests_count();
+        assert_eq!(pending_requests_count, 0, "Backend should not have any ongoing requests.");
 
         // send requests to the backend
         let h1 = handle.clone();
@@ -989,8 +1143,8 @@ mod tests {
         thread::sleep(Duration::from_secs(1));
 
         // check current request count
-        let stats = handle.stats().expect(ERROR_STATS);
-        assert_eq!(stats, 1, "Backend should have 1 ongoing requests.");
+        let pending_requests_count = handle.stats().pending_requests_count();
+        assert_eq!(pending_requests_count, 1, "Backend should have 1 ongoing requests.");
 
         // Different request, should be counted
         let h3 = handle.clone();
@@ -1007,8 +1161,8 @@ mod tests {
         thread::sleep(Duration::from_secs(1));
 
         // check current request count
-        let stats = handle.stats().expect(ERROR_STATS);
-        assert_eq!(stats, 3, "Backend should have 3 ongoing requests.");
+        let pending_requests_count = handle.stats().pending_requests_count();
+        assert_eq!(pending_requests_count, 3, "Backend should have 3 ongoing requests.");
 
         // Same request as the last one, shouldn't be counted
         let h5 = handle.clone();
@@ -1020,8 +1174,8 @@ mod tests {
         thread::sleep(Duration::from_secs(1));
 
         // check request are handled
-        let stats = handle.stats().expect(ERROR_STATS);
-        assert_eq!(stats, 3, "Backend should only have 3 ongoing requests.")
+        let pending_requests_count = handle.stats().pending_requests_count();
+        assert_eq!(pending_requests_count, 3, "Backend should only have 3 ongoing requests.")
     }
 
     #[test]
@@ -1052,8 +1206,8 @@ mod tests {
         thread::sleep(Duration::from_secs(1));
 
         // Check that there's only one request, meaning it is deduplicated.
-        let stats = handle.stats().expect(ERROR_STATS);
-        assert_eq!(stats, 1, "Backend should only have 1 ongoing requests.");
+        let pending_requests_count = handle.stats().pending_requests_count();
+        assert_eq!(pending_requests_count, 1, "Backend should only have 1 ongoing requests.");
 
         // Send the signal to tell the mock rpc server to return the response
         sender.send(()).unwrap();
@@ -1070,5 +1224,103 @@ mod tests {
                 "All deduplicated nonce requests should return the same result"
             );
         }
+    }
+
+    #[test]
+    fn test_concurrent_request_limit() {
+        // Start a mock remote network that never responds
+        start_tcp_server("127.0.0.1:8091".to_string());
+
+        // Create a backend with a low concurrent request limit
+        let max_concurrent = 3;
+        let handle = create_forked_backend_with_config("http://127.0.0.1:8091", max_concurrent);
+        let block_id = 1;
+
+        // Check no pending requests initially
+        let pending_requests_count = handle.stats().pending_requests_count();
+        assert_eq!(pending_requests_count, 0, "Backend should not have any ongoing requests.");
+
+        // Send more requests than the limit (each with different parameters to avoid deduplication)
+        let addresses = [
+            felt!("0x1"),
+            felt!("0x2"),
+            felt!("0x3"),
+            felt!("0x4"),
+            felt!("0x5"),
+            felt!("0x6"),
+            felt!("0x7"),
+            felt!("0x8"),
+            felt!("0x9"),
+            felt!("0xa"),
+        ];
+
+        for address in addresses {
+            let h = handle.clone();
+            thread::spawn(move || {
+                let _ = h.get_nonce(address.into(), block_id);
+            });
+        }
+
+        // Wait for requests to be processed
+        thread::sleep(Duration::from_secs(1));
+
+        // Verify that the number of pending requests does not exceed the limit
+        let pending_requests_count = handle.stats().pending_requests_count();
+        assert_eq!(
+            pending_requests_count, max_concurrent,
+            "Backend should respect the max concurrent requests limit"
+        );
+
+        let ongoing_requests_count = handle.stats().queued_requests_count();
+        assert_eq!(ongoing_requests_count, addresses.len() - max_concurrent,);
+    }
+
+    #[test]
+    fn test_requests_are_processed_after_limit_freed() {
+        // Start mock server with a predefined result
+        let result = "0x456";
+        let sender = start_mock_rpc_server("127.0.0.1:8092".to_string(), result.to_string());
+
+        // Create a backend with a limit of 2 concurrent requests
+        let max_concurrent = 2;
+        let handle = create_forked_backend_with_config("http://127.0.0.1:8092", max_concurrent);
+        let block_id = 1;
+
+        // Send 4 different requests (more than the limit)
+        let addresses = [felt!("0x1"), felt!("0x2"), felt!("0x3"), felt!("0x4")];
+        for address in addresses {
+            let h = handle.clone();
+            thread::spawn(move || {
+                let _ = h.get_nonce(address.into(), block_id);
+            });
+        }
+
+        // Wait for requests to be queued
+        thread::sleep(Duration::from_secs(1));
+
+        // Initially should only have max_concurrent pending
+        let pending_requests_count = handle.stats().pending_requests_count();
+        assert_eq!(
+            pending_requests_count, max_concurrent,
+            "Backend should have max_concurrent ongoing requests"
+        );
+
+        // Send signals to complete the first batch of requests
+        sender.send(()).unwrap();
+        sender.send(()).unwrap();
+
+        // Wait for the first batch to complete and next batch to start
+        thread::sleep(Duration::from_secs(1));
+
+        // Now the remaining requests should be processing
+        let pending_requests_count = handle.stats().pending_requests_count();
+        assert_eq!(
+            pending_requests_count, max_concurrent,
+            "Backend should process remaining queued requests up to the limit"
+        );
+
+        // Complete the remaining requests
+        sender.send(()).unwrap();
+        sender.send(()).unwrap();
     }
 }

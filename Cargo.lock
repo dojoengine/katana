@@ -6055,6 +6055,7 @@ version = "1.7.0"
 dependencies = [
  "anyhow",
  "futures",
+ "katana-metrics",
  "katana-primitives",
  "katana-provider-api",
  "katana-rpc-client",
