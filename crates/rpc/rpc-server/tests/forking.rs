@@ -14,6 +14,7 @@ use katana_rpc_types::{
     BlockNumberResponse, EventFilter, GetBlockWithReceiptsResponse, GetBlockWithTxHashesResponse,
     MaybePreConfirmedBlock,
 };
+use katana_test_utils::assert_provider_starknet_err;
 use katana_utils::node::ForkTestNode;
 use katana_utils::TestNode;
 use url::Url;

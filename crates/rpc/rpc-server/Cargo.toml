@@ -54,6 +54,7 @@ katana-messaging.workspace = true
 katana-node.workspace = true
 katana-rpc-api = { workspace = true, features = [ "client" ] }
 katana-rpc-client.workspace = true
+katana-test-utils.workspace = true
 katana-trie.workspace = true
 katana-utils = { workspace = true, features = [ "node" ] }
 
