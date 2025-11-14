@@ -1,10 +1,10 @@
+use katana_test_utils::{assert_account_starknet_err, prepare_contract_declaration_params};
 use std::collections::BTreeMap;
 use std::path::PathBuf;
 use std::sync::Arc;
 
 use assert_matches::assert_matches;
 use cainome::rs::{abigen, abigen_legacy};
-use common::split_felt;
 use indexmap::IndexSet;
 use katana_contracts::contracts;
 use katana_genesis::constant::{
@@ -22,6 +22,7 @@ use katana_rpc_types::{
     GetBlockWithTxHashesResponse, GetEventsResponse, MaybePreConfirmedBlock, RpcDeclareTxReceipt,
     RpcDeployAccountTxReceipt, RpcTxReceipt,
 };
+use katana_test_utils::split_felt;
 use katana_utils::node::StarknetError;
 use katana_utils::TestNode;
 use num_traits::ToPrimitive;
@@ -36,8 +37,6 @@ use starknet::providers::{Provider, ProviderError};
 use starknet::signers::{LocalWallet, SigningKey};
 use tokio::sync::Mutex;
 
-mod common;
-
 #[tokio::test]
 async fn declare_and_deploy_contract() {
     let sequencer = TestNode::new().await;
@@ -46,8 +45,7 @@ async fn declare_and_deploy_contract() {
     let provider = sequencer.starknet_rpc_client();
 
     let path: PathBuf = PathBuf::from("tests/test_data/cairo1_contract.json");
-    let (contract, compiled_class_hash) =
-        common::prepare_contract_declaration_params(&path).unwrap();
+    let (contract, compiled_class_hash) = prepare_contract_declaration_params(&path).unwrap();
 
     let class_hash = contract.class_hash();
     let res = account.declare_v3(contract.into(), compiled_class_hash).send().await.unwrap();
@@ -112,7 +110,7 @@ async fn declaring_already_existing_class() {
     let provider = sequencer.starknet_rpc_client();
 
     let path = PathBuf::from("tests/test_data/cairo1_contract.json");
-    let (contract, compiled_hash) = common::prepare_contract_declaration_params(&path).unwrap();
+    let (contract, compiled_hash) = prepare_contract_declaration_params(&path).unwrap();
     let class_hash = contract.class_hash();
 
     // Declare the class for the first time.

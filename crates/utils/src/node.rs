@@ -49,7 +49,6 @@ impl TestNode {
                 .expect("failed to launch node"),
         }
     }
-
     /// Returns the address of the node's RPC server.
     pub fn rpc_addr(&self) -> &SocketAddr {
         self.node.rpc().addr()

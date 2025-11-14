@@ -12,7 +12,9 @@ use katana_primitives::utils::transaction::{
     compute_l1_handler_tx_hash, compute_l1_to_l2_message_hash,
 };
 use katana_primitives::{eth_address, felt, ContractAddress};
+use katana_rpc_types::receipt::ReceiptBlock;
 use katana_rpc_types::{Class, MsgFromL1};
+use katana_test_utils::prepare_contract_declaration_params;
 use katana_utils::{TestNode, TxWaiter};
 use rand::Rng;
 use starknet::accounts::{Account, ConnectedAccount};
@@ -21,8 +23,6 @@ use starknet::core::types::{Felt, Hash256, ReceiptBlock, Transaction, Transactio
 use starknet::core::utils::get_contract_address;
 use starknet::macros::selector;
 use starknet::providers::Provider;
-
-mod common;
 
 sol!(
     #[allow(missing_docs)]
@@ -75,7 +75,7 @@ async fn test_messaging() {
     let l2_test_contract = {
         // Prepare contract declaration params
         let path = PathBuf::from("tests/test_data/cairo_l1_msg_contract.json");
-        let (contract, compiled_hash) = common::prepare_contract_declaration_params(&path).unwrap();
+        let (contract, compiled_hash) = prepare_contract_declaration_params(&path).unwrap();
 
         // Declare the contract
         let class_hash = contract.class_hash();
@@ -232,7 +232,7 @@ async fn estimate_message_fee() -> Result<()> {
 
     // Declare and deploy a l1 handler contract
     let path = PathBuf::from("tests/test_data/cairo_l1_msg_contract.json");
-    let (contract, compiled_hash) = common::prepare_contract_declaration_params(&path)?;
+    let (contract, compiled_hash) = prepare_contract_declaration_params(&path)?;
     let class_hash = contract.class_hash();
 
     let res = account.declare_v3(contract.into(), compiled_hash).send().await?;
