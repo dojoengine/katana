@@ -15,7 +15,6 @@ use katana_provider::api::transaction::{
     ReceiptProvider, TransactionProvider, TransactionStatusProvider, TransactionTraceProvider,
 };
 use katana_provider::providers::db::DbProvider;
-
 use rstest_reuse::{self, *};
 
 mod fixtures;

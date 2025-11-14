@@ -13,7 +13,8 @@ pub mod providers;
 #[cfg(any(test, feature = "test-utils"))]
 pub mod test_utils;
 
-use crate::providers::{db::DbProvider, fork::ForkedProvider};
+use crate::providers::db::DbProvider;
+use crate::providers::fork::ForkedProvider;
 
 pub trait ProviderFactory {
     type Provider;
