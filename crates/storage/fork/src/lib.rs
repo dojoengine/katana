@@ -737,6 +737,8 @@ fn handle_not_found_err<T>(
         Ok(value) => Ok(Some(value)),
 
         Err(BackendError::StarknetProvider(err)) => match err.as_ref() {
+            StarknetClientError::Starknet(StarknetApiError::BlockNotFound) => Ok(None),
+            StarknetClientError::Starknet(StarknetApiError::TxnHashNotFound) => Ok(None),
             StarknetClientError::Starknet(StarknetApiError::ContractNotFound) => Ok(None),
             StarknetClientError::Starknet(StarknetApiError::ClassHashNotFound) => Ok(None),
             _ => Err(BackendClientError::BackendError(BackendError::StarknetProvider(err))),
