@@ -138,18 +138,25 @@ impl<Db: Database> HeaderProvider for DbProvider<Db> {
     fn header(&self, id: BlockHashOrNumber) -> ProviderResult<Option<Header>> {
         let db_tx = self.0.tx()?;
 
-        let num = match id {
-            BlockHashOrNumber::Num(num) => Some(num),
-            BlockHashOrNumber::Hash(hash) => db_tx.get::<tables::BlockNumbers>(hash)?,
-        };
+        match id {
+            BlockHashOrNumber::Num(num) => {
+                let header = db_tx.get::<tables::Headers>(num)?.map(Header::from);
+                db_tx.commit()?;
+                Ok(header)
+            }
 
-        if let Some(num) = num {
-            let header =
-                db_tx.get::<tables::Headers>(num)?.ok_or(ProviderError::MissingBlockHeader(num))?;
-            db_tx.commit()?;
-            Ok(Some(header.into()))
-        } else {
-            Ok(None)
+            BlockHashOrNumber::Hash(hash) => {
+                if let Some(num) = db_tx.get::<tables::BlockNumbers>(hash)? {
+                    let header = db_tx
+                        .get::<tables::Headers>(num)?
+                        .ok_or(ProviderError::MissingBlockHeader(num))?;
+
+                    db_tx.commit()?;
+                    Ok(Some(header.into()))
+                } else {
+                    Ok(None)
+                }
+            }
         }
     }
 }

@@ -27,16 +27,14 @@ thiserror.workspace = true
 tracing.workspace = true
 
 # fork provider deps
-futures = { workspace = true, optional = true }
-tokio = { workspace = true, optional = true }
-katana-rpc-types = { workspace = true, optional = true }
+futures.workspace = true
+tokio.workspace = true
+katana-rpc-types.workspace = true
 
 alloy-primitives = { workspace = true, optional = true }
 serde_json.workspace = true
 
 [features]
-fork = [ "dep:futures", "dep:tokio", "dep:katana-rpc-types" ]
-in-memory = [  ]
 test-utils = [ "dep:alloy-primitives", "dep:katana-chain-spec" ]
 
 [dev-dependencies]
@@ -52,4 +50,5 @@ rstest_reuse.workspace = true
 serde_json.workspace = true
 starknet.workspace = true
 tempfile.workspace = true
+tokio.workspace = true
 url.workspace = true

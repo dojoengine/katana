@@ -61,6 +61,10 @@ impl<Db: Database> ForkedProvider<Db> {
         self.block_id
     }
 
+    pub fn forked_db(&self) -> Arc<DbProvider> {
+        self.fork_db.clone()
+    }
+
     /// Checks if a block number is before the fork point (and thus should be fetched externally)
     fn should_fetch_externally(&self, block_num: BlockNumber) -> bool {
         block_num < self.block_id
@@ -344,20 +348,20 @@ impl<Db: Database> StateUpdateProvider for ForkedProvider<Db> {
         &self,
         block_id: BlockHashOrNumber,
     ) -> ProviderResult<Option<BTreeMap<ClassHash, CompiledClassHash>>> {
-        // Try local DB first
         if let Some(classes) = self.local_db.declared_classes(block_id)? {
             return Ok(Some(classes));
         }
 
-        #[cfg(feature = "fork")]
-        {
-            // Fetch state update and extract declared classes
-            if let Some(updates) = self.state_update(block_id)? {
-                return Ok(Some(updates.declared_classes));
-            }
+        if let Some(value) = self.fork_db.declared_classes(block_id)? {
+            return Ok(Some(value));
         }
 
-        Ok(None)
+        if self.fetch_historical_blocks(block_id)? {
+            let value = self.fork_db.declared_classes(block_id)?.unwrap();
+            Ok(Some(value))
+        } else {
+            Ok(None)
+        }
     }
 
     fn deployed_contracts(
