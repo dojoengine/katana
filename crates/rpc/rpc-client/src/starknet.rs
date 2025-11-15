@@ -42,7 +42,9 @@ impl Client {
         Client { client }
     }
 
+    ////////////////////////////////////////////////////////////////////////////
     // Read API methods
+    ////////////////////////////////////////////////////////////////////////////
 
     /// Returns the version of the Starknet JSON-RPC specification being used.
     pub async fn spec_version(&self) -> Result<String> {
@@ -236,7 +238,9 @@ impl Client {
             .map_err(Into::into)
     }
 
+    ////////////////////////////////////////////////////////////////////////////
     // Write API methods
+    ////////////////////////////////////////////////////////////////////////////
 
     /// Submit a new transaction to be added to the chain.
     pub async fn add_invoke_transaction(
@@ -265,7 +269,9 @@ impl Client {
             .map_err(Into::into)
     }
 
+    ////////////////////////////////////////////////////////////////////////////
     // Trace API methods
+    ////////////////////////////////////////////////////////////////////////////
 
     /// Returns the execution trace of the transaction designated by the input hash.
     pub async fn trace_transaction(&self, transaction_hash: TxHash) -> Result<TxTrace> {

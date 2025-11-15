@@ -24,11 +24,12 @@ use katana_primitives::class::{
     ContractClassCompilationError,
 };
 use katana_primitives::contract::{ContractAddress, Nonce, StorageKey, StorageValue};
+use katana_primitives::transaction::TxHash;
 use katana_rpc_client::starknet::{
     Client as StarknetClient, Error as StarknetClientError, StarknetApiError,
 };
 use katana_rpc_types::class::Class;
-use katana_rpc_types::{GetBlockWithReceiptsResponse, StateUpdate};
+use katana_rpc_types::{GetBlockWithReceiptsResponse, StateUpdate, TxReceiptWithBlockInfo};
 use parking_lot::Mutex;
 use tracing::{error, trace};
 
@@ -155,6 +156,19 @@ impl Backend {
         }
     }
 
+    pub fn get_receipt(
+        &self,
+        tx_hash: TxHash,
+    ) -> Result<Option<TxReceiptWithBlockInfo>, BackendClientError> {
+        trace!(%tx_hash, "Requesting block.");
+        let (req, rx) = BackendRequest::receipt(tx_hash);
+        self.request(req)?;
+        match rx.recv()? {
+            BackendResponse::Receipt(res) => handle_not_found_err(res),
+            response => Err(BackendClientError::UnexpectedResponse(anyhow!("{response:?}"))),
+        }
+    }
+
     pub fn get_nonce(
         &self,
         address: ContractAddress,
@@ -256,6 +270,7 @@ impl Backend {
 /// sender in the deduplication vector.
 #[derive(Debug, Clone)]
 enum BackendResponse {
+    Receipt(BackendResult<TxReceiptWithBlockInfo>),
     Block(BackendResult<GetBlockWithReceiptsResponse>),
     StateUpdate(BackendResult<StateUpdate>),
     Nonce(BackendResult<Nonce>),
@@ -285,6 +300,7 @@ struct Request<P> {
 /// Each request consists of a payload and the sender half of a oneshot channel that will be used
 /// to send the result back to the backend handle.
 enum BackendRequest {
+    Receipt(Request<TxHash>),
     Block(Request<BlockHashOrNumber>),
     StateUpdate(Request<BlockHashOrNumber>),
     Nonce(Request<(ContractAddress, BlockNumber)>),
@@ -294,6 +310,11 @@ enum BackendRequest {
 }
 
 impl BackendRequest {
+    fn receipt(tx_hash: TxHash) -> (BackendRequest, OneshotReceiver<BackendResponse>) {
+        let (sender, receiver) = oneshot();
+        (BackendRequest::Receipt(Request { payload: tx_hash, sender }), receiver)
+    }
+
     /// Create a new request for fetching the nonce of a contract.
     fn block(block_id: BlockHashOrNumber) -> (BackendRequest, OneshotReceiver<BackendResponse>) {
         let (sender, receiver) = oneshot();
@@ -351,6 +372,7 @@ type BackendRequestFuture = BoxFuture<'static, BackendResponse>;
 // This is used for request deduplication.
 #[derive(Eq, Hash, PartialEq, Clone, Copy, Debug)]
 enum BackendRequestIdentifier {
+    Receipt(TxHash),
     Block(BlockHashOrNumber),
     StateUpdate(BlockHashOrNumber),
     Nonce(ContractAddress, BlockNumber),
@@ -408,6 +430,23 @@ impl BackendWorker {
 
         // Check if there are similar requests in the queue before sending the request
         match request {
+            BackendRequest::Receipt(Request { payload: tx_hash, sender }) => {
+                let req_key = BackendRequestIdentifier::Receipt(tx_hash);
+
+                self.dedup_request(
+                    req_key,
+                    sender,
+                    Box::pin(async move {
+                        let res = provider
+                            .get_transaction_receipt(tx_hash)
+                            .await
+                            .map_err(|e| BackendError::StarknetProvider(Arc::new(e)));
+
+                        BackendResponse::Receipt(res)
+                    }),
+                );
+            }
+
             BackendRequest::Block(Request { payload: block_id, sender }) => {
                 let req_key = BackendRequestIdentifier::Block(block_id);
                 let block_id = BlockIdOrTag::from(block_id);
@@ -741,7 +780,7 @@ pub(crate) mod test_utils {
         use tokio::runtime::Builder;
 
         let (tx, rx) = sync_channel::<()>(1);
-        thread::spawn(move || {
+        std::thread::spawn(move || {
             Builder::new_current_thread().enable_all().build().unwrap().block_on(async move {
                 let listener = TcpListener::bind(addr).await.unwrap();
                 let mut connections = Vec::new();
@@ -767,7 +806,7 @@ pub(crate) mod test_utils {
         let (resp_signal_tx, resp_signal_rx) = sync_channel::<()>(100);
         let (server_ready_tx, server_ready_rx) = sync_channel::<()>(1);
 
-        thread::spawn(move || {
+        std::thread::spawn(move || {
             Builder::new_current_thread().enable_all().build().unwrap().block_on(async move {
                 let listener = TcpListener::bind(addr).await.unwrap();
                 let pending_requests = Arc::new(Mutex::new(VecDeque::new()));
@@ -882,28 +921,28 @@ mod tests {
 
         // send requests to the backend
         let h1 = handle.clone();
-        thread::spawn(move || {
+        std::thread::spawn(move || {
             h1.get_nonce(felt!("0x1").into(), block_id).expect(ERROR_SEND_REQUEST);
         });
         let h2 = handle.clone();
-        thread::spawn(move || {
+        std::thread::spawn(move || {
             h2.get_class_at(felt!("0x1"), block_id).expect(ERROR_SEND_REQUEST);
         });
         let h3 = handle.clone();
-        thread::spawn(move || {
+        std::thread::spawn(move || {
             h3.get_compiled_class_hash(felt!("0x2"), block_id).expect(ERROR_SEND_REQUEST);
         });
         let h4 = handle.clone();
-        thread::spawn(move || {
+        std::thread::spawn(move || {
             h4.get_class_hash_at(felt!("0x1").into(), block_id).expect(ERROR_SEND_REQUEST);
         });
         let h5 = handle.clone();
-        thread::spawn(move || {
+        std::thread::spawn(move || {
             h5.get_storage(felt!("0x1").into(), felt!("0x1"), block_id).expect(ERROR_SEND_REQUEST);
         });
 
         // wait for the requests to be handled
-        thread::sleep(Duration::from_secs(1));
+        std::thread::sleep(Duration::from_secs(1));
 
         // check request are handled
         let pending_requests_count = handle.stats().pending_requests_count();
@@ -924,16 +963,16 @@ mod tests {
 
         // send requests to the backend
         let h1 = handle.clone();
-        thread::spawn(move || {
+        std::thread::spawn(move || {
             h1.get_nonce(felt!("0x1").into(), block_id).expect(ERROR_SEND_REQUEST);
         });
         let h2 = handle.clone();
-        thread::spawn(move || {
+        std::thread::spawn(move || {
             h2.get_nonce(felt!("0x1").into(), block_id).expect(ERROR_SEND_REQUEST);
         });
 
         // wait for the requests to be handled
-        thread::sleep(Duration::from_secs(1));
+        std::thread::sleep(Duration::from_secs(1));
 
         // check current request count
         let pending_requests_count = handle.stats().pending_requests_count();
@@ -941,12 +980,12 @@ mod tests {
 
         // Different request, should be counted
         let h3 = handle.clone();
-        thread::spawn(move || {
+        std::thread::spawn(move || {
             h3.get_nonce(felt!("0x2").into(), block_id).expect(ERROR_SEND_REQUEST);
         });
 
         // wait for the requests to be handled
-        thread::sleep(Duration::from_secs(1));
+        std::thread::sleep(Duration::from_secs(1));
 
         // check request are handled
         let pending_requests_count = handle.stats().pending_requests_count();
@@ -967,16 +1006,16 @@ mod tests {
 
         // send requests to the backend
         let h1 = handle.clone();
-        thread::spawn(move || {
+        std::thread::spawn(move || {
             h1.get_class_at(felt!("0x1"), block_id).expect(ERROR_SEND_REQUEST);
         });
         let h2 = handle.clone();
-        thread::spawn(move || {
+        std::thread::spawn(move || {
             h2.get_class_at(felt!("0x1"), block_id).expect(ERROR_SEND_REQUEST);
         });
 
         // wait for the requests to be handled
-        thread::sleep(Duration::from_secs(1));
+        std::thread::sleep(Duration::from_secs(1));
 
         // check current request count
         let pending_requests_count = handle.stats().pending_requests_count();
@@ -984,12 +1023,12 @@ mod tests {
 
         // Different request, should be counted
         let h3 = handle.clone();
-        thread::spawn(move || {
+        std::thread::spawn(move || {
             h3.get_class_at(felt!("0x2"), block_id).expect(ERROR_SEND_REQUEST);
         });
 
         // wait for the requests to be handled
-        thread::sleep(Duration::from_secs(1));
+        std::thread::sleep(Duration::from_secs(1));
 
         // check request are handled
         let pending_requests_count = handle.stats().pending_requests_count();
@@ -1010,16 +1049,16 @@ mod tests {
 
         // send requests to the backend
         let h1 = handle.clone();
-        thread::spawn(move || {
+        std::thread::spawn(move || {
             h1.get_compiled_class_hash(felt!("0x1"), block_id).expect(ERROR_SEND_REQUEST);
         });
         let h2 = handle.clone();
-        thread::spawn(move || {
+        std::thread::spawn(move || {
             h2.get_compiled_class_hash(felt!("0x1"), block_id).expect(ERROR_SEND_REQUEST);
         });
 
         // wait for the requests to be handled
-        thread::sleep(Duration::from_secs(1));
+        std::thread::sleep(Duration::from_secs(1));
 
         // check current request count
         let pending_requests_count = handle.stats().pending_requests_count();
@@ -1027,12 +1066,12 @@ mod tests {
 
         // Different request, should be counted
         let h3 = handle.clone();
-        thread::spawn(move || {
+        std::thread::spawn(move || {
             h3.get_compiled_class_hash(felt!("0x2"), block_id).expect(ERROR_SEND_REQUEST);
         });
 
         // wait for the requests to be handled
-        thread::sleep(Duration::from_secs(1));
+        std::thread::sleep(Duration::from_secs(1));
 
         // check request are handled
         let pending_requests_count = handle.stats().pending_requests_count();
@@ -1053,17 +1092,17 @@ mod tests {
 
         // send requests to the backend
         let h1 = handle.clone();
-        thread::spawn(move || {
+        std::thread::spawn(move || {
             h1.get_class_at(felt!("0x1"), block_id).expect(ERROR_SEND_REQUEST);
         });
         // Since this also calls to the same request as the previous one, it should be deduped
         let h2 = handle.clone();
-        thread::spawn(move || {
+        std::thread::spawn(move || {
             h2.get_compiled_class_hash(felt!("0x1"), block_id).expect(ERROR_SEND_REQUEST);
         });
 
         // wait for the requests to be handled
-        thread::sleep(Duration::from_secs(1));
+        std::thread::sleep(Duration::from_secs(1));
 
         // check current request count
         let pending_requests_count = handle.stats().pending_requests_count();
@@ -1071,12 +1110,12 @@ mod tests {
 
         // Different request, should be counted
         let h3 = handle.clone();
-        thread::spawn(move || {
+        std::thread::spawn(move || {
             h3.get_class_at(felt!("0x2"), block_id).expect(ERROR_SEND_REQUEST);
         });
 
         // wait for the requests to be handled
-        thread::sleep(Duration::from_secs(1));
+        std::thread::sleep(Duration::from_secs(1));
 
         // check request are handled
         let pending_requests_count = handle.stats().pending_requests_count();
@@ -1097,16 +1136,16 @@ mod tests {
 
         // send requests to the backend
         let h1 = handle.clone();
-        thread::spawn(move || {
+        std::thread::spawn(move || {
             h1.get_class_hash_at(felt!("0x1").into(), block_id).expect(ERROR_SEND_REQUEST);
         });
         let h2 = handle.clone();
-        thread::spawn(move || {
+        std::thread::spawn(move || {
             h2.get_class_hash_at(felt!("0x1").into(), block_id).expect(ERROR_SEND_REQUEST);
         });
 
         // wait for the requests to be handled
-        thread::sleep(Duration::from_secs(1));
+        std::thread::sleep(Duration::from_secs(1));
 
         // check current request count
         let pending_requests_count = handle.stats().pending_requests_count();
@@ -1114,12 +1153,12 @@ mod tests {
 
         // Different request, should be counted
         let h3 = handle.clone();
-        thread::spawn(move || {
+        std::thread::spawn(move || {
             h3.get_class_hash_at(felt!("0x2").into(), block_id).expect(ERROR_SEND_REQUEST);
         });
 
         // wait for the requests to be handled
-        thread::sleep(Duration::from_secs(1));
+        std::thread::sleep(Duration::from_secs(1));
 
         // check request are handled
         let pending_requests_count = handle.stats().pending_requests_count();
@@ -1140,16 +1179,16 @@ mod tests {
 
         // send requests to the backend
         let h1 = handle.clone();
-        thread::spawn(move || {
+        std::thread::spawn(move || {
             h1.get_storage(felt!("0x1").into(), felt!("0x1"), block_id).expect(ERROR_SEND_REQUEST);
         });
         let h2 = handle.clone();
-        thread::spawn(move || {
+        std::thread::spawn(move || {
             h2.get_storage(felt!("0x1").into(), felt!("0x1"), block_id).expect(ERROR_SEND_REQUEST);
         });
 
         // wait for the requests to be handled
-        thread::sleep(Duration::from_secs(1));
+        std::thread::sleep(Duration::from_secs(1));
 
         // check current request count
         let pending_requests_count = handle.stats().pending_requests_count();
@@ -1157,12 +1196,12 @@ mod tests {
 
         // Different request, should be counted
         let h3 = handle.clone();
-        thread::spawn(move || {
+        std::thread::spawn(move || {
             h3.get_storage(felt!("0x2").into(), felt!("0x3"), block_id).expect(ERROR_SEND_REQUEST);
         });
 
         // wait for the requests to be handled
-        thread::sleep(Duration::from_secs(1));
+        std::thread::sleep(Duration::from_secs(1));
 
         // check request are handled
         let pending_requests_count = handle.stats().pending_requests_count();
@@ -1183,16 +1222,16 @@ mod tests {
 
         // send requests to the backend
         let h1 = handle.clone();
-        thread::spawn(move || {
+        std::thread::spawn(move || {
             h1.get_storage(felt!("0x1").into(), felt!("0x1"), block_id).expect(ERROR_SEND_REQUEST);
         });
         let h2 = handle.clone();
-        thread::spawn(move || {
+        std::thread::spawn(move || {
             h2.get_storage(felt!("0x1").into(), felt!("0x1"), block_id).expect(ERROR_SEND_REQUEST);
         });
 
         // wait for the requests to be handled
-        thread::sleep(Duration::from_secs(1));
+        std::thread::sleep(Duration::from_secs(1));
 
         // check current request count
         let pending_requests_count = handle.stats().pending_requests_count();
@@ -1200,17 +1239,17 @@ mod tests {
 
         // Different request, should be counted
         let h3 = handle.clone();
-        thread::spawn(move || {
+        std::thread::spawn(move || {
             h3.get_storage(felt!("0x1").into(), felt!("0x3"), block_id).expect(ERROR_SEND_REQUEST);
         });
         // Different request, should be counted
         let h4 = handle.clone();
-        thread::spawn(move || {
+        std::thread::spawn(move || {
             h4.get_storage(felt!("0x1").into(), felt!("0x6"), block_id).expect(ERROR_SEND_REQUEST);
         });
 
         // wait for the requests to be handled
-        thread::sleep(Duration::from_secs(1));
+        std::thread::sleep(Duration::from_secs(1));
 
         // check current request count
         let pending_requests_count = handle.stats().pending_requests_count();
@@ -1218,12 +1257,12 @@ mod tests {
 
         // Same request as the last one, shouldn't be counted
         let h5 = handle.clone();
-        thread::spawn(move || {
+        std::thread::spawn(move || {
             h5.get_storage(felt!("0x1").into(), felt!("0x6"), block_id).expect(ERROR_SEND_REQUEST);
         });
 
         // wait for the requests to be handled
-        thread::sleep(Duration::from_secs(1));
+        std::thread::sleep(Duration::from_secs(1));
 
         // check request are handled
         let pending_requests_count = handle.stats().pending_requests_count();
@@ -1247,7 +1286,7 @@ mod tests {
             .map(|_| {
                 let h = handle.clone();
                 let results = results.clone();
-                thread::spawn(move || {
+                std::thread::spawn(move || {
                     let res = h.get_nonce(addr, block_id);
                     results.lock().unwrap().push(res);
                 })
@@ -1255,7 +1294,7 @@ mod tests {
             .collect();
 
         // wait for the requests to be sent to the rpc server
-        thread::sleep(Duration::from_secs(1));
+        std::thread::sleep(Duration::from_secs(1));
 
         // Check that there's only one request, meaning it is deduplicated.
         let pending_requests_count = handle.stats().pending_requests_count();
@@ -1308,13 +1347,13 @@ mod tests {
 
         for address in addresses {
             let h = handle.clone();
-            thread::spawn(move || {
+            std::thread::spawn(move || {
                 let _ = h.get_nonce(address.into(), block_id);
             });
         }
 
         // Wait for requests to be processed
-        thread::sleep(Duration::from_secs(1));
+        std::thread::sleep(Duration::from_secs(1));
 
         // Verify that the number of pending requests does not exceed the limit
         let pending_requests_count = handle.stats().pending_requests_count();
@@ -1342,13 +1381,13 @@ mod tests {
         let addresses = [felt!("0x1"), felt!("0x2"), felt!("0x3"), felt!("0x4")];
         for address in addresses {
             let h = handle.clone();
-            thread::spawn(move || {
+            std::thread::spawn(move || {
                 let _ = h.get_nonce(address.into(), block_id);
             });
         }
 
         // Wait for requests to be queued
-        thread::sleep(Duration::from_secs(1));
+        std::thread::sleep(Duration::from_secs(1));
 
         // Initially should only have max_concurrent pending
         let pending_requests_count = handle.stats().pending_requests_count();
@@ -1362,7 +1401,7 @@ mod tests {
         sender.send(()).unwrap();
 
         // Wait for the first batch to complete and next batch to start
-        thread::sleep(Duration::from_secs(1));
+        std::thread::sleep(Duration::from_secs(1));
 
         // Now the remaining requests should be processing
         let pending_requests_count = handle.stats().pending_requests_count();

@@ -5,7 +5,7 @@ use katana_db::abstraction::{Database, DbTx, DbTxMut};
 use katana_db::models::contract::{ContractClassChange, ContractNonceChange};
 use katana_db::models::storage::{ContractStorageEntry, ContractStorageKey, StorageEntry};
 use katana_db::tables;
-use katana_fork::BackendClient;
+use katana_fork::Backend;
 use katana_primitives::block::{BlockHashOrNumber, BlockNumber};
 use katana_primitives::class::{ClassHash, CompiledClassHash, ContractClass};
 use katana_primitives::contract::{GenericContractInfo, Nonce, StorageKey, StorageValue};
@@ -27,8 +27,8 @@ where
     Db: Database + 'static,
 {
     fn latest(&self) -> ProviderResult<Box<dyn StateProvider>> {
-        let tx = self.provider.db().tx()?;
-        let db = self.provider.clone();
+        let tx = self.local_db.db().tx()?;
+        let db = self.local_db.clone();
         let provider = db::state::LatestStateProvider::new(tx);
         Ok(Box::new(LatestStateProvider {
             db,
@@ -43,10 +43,10 @@ where
         block_id: BlockHashOrNumber,
     ) -> ProviderResult<Option<Box<dyn StateProvider>>> {
         let block_number = match block_id {
-            BlockHashOrNumber::Hash(hash) => self.provider.block_number_by_hash(hash)?,
+            BlockHashOrNumber::Hash(hash) => self.local_db.block_number_by_hash(hash)?,
 
             BlockHashOrNumber::Num(num) => {
-                let latest_num = self.provider.latest_number()?;
+                let latest_num = self.local_db.latest_number()?;
 
                 match num.cmp(&latest_num) {
                     Ordering::Less => Some(num),
@@ -58,7 +58,7 @@ where
 
         let Some(block) = block_number else { return Ok(None) };
 
-        let db = self.provider.clone();
+        let db = self.local_db.clone();
         let tx = db.db().tx()?;
         let client = self.backend.clone();
 
@@ -76,7 +76,7 @@ where
 #[derive(Debug)]
 struct LatestStateProvider<Db: Database> {
     db: Arc<DbProvider<Db>>,
-    backend: BackendClient,
+    backend: Backend,
     provider: db::state::LatestStateProvider<Db::Tx>,
     forked_block_id: BlockNumber,
 }
@@ -221,7 +221,7 @@ where
 #[derive(Debug)]
 struct HistoricalStateProvider<Db: Database> {
     db: Arc<DbProvider<Db>>,
-    backend: BackendClient,
+    backend: Backend,
     provider: db::state::HistoricalStateProvider<Db::Tx>,
     block_number: BlockNumber,
     forked_block_number: BlockNumber,
@@ -232,7 +232,7 @@ impl<Db: Database> HistoricalStateProvider<Db> {
         db: Arc<DbProvider<Db>>,
         tx: Db::Tx,
         block: BlockNumber,
-        backend: BackendClient,
+        backend: Backend,
         block_number: BlockNumber,
         forked_block_number: BlockNumber,
     ) -> Self {
@@ -400,11 +400,11 @@ impl<Db: Database> StateWriter for ForkedProvider<Db> {
         address: ContractAddress,
         class_hash: ClassHash,
     ) -> ProviderResult<()> {
-        self.provider.set_class_hash_of_contract(address, class_hash)
+        self.local_db.set_class_hash_of_contract(address, class_hash)
     }
 
     fn set_nonce(&self, address: ContractAddress, nonce: Nonce) -> ProviderResult<()> {
-        self.provider.set_nonce(address, nonce)
+        self.local_db.set_nonce(address, nonce)
     }
 
     fn set_storage(
@@ -413,13 +413,13 @@ impl<Db: Database> StateWriter for ForkedProvider<Db> {
         storage_key: StorageKey,
         storage_value: StorageValue,
     ) -> ProviderResult<()> {
-        self.provider.set_storage(address, storage_key, storage_value)
+        self.local_db.set_storage(address, storage_key, storage_value)
     }
 }
 
 impl<Db: Database> ContractClassWriter for ForkedProvider<Db> {
     fn set_class(&self, hash: ClassHash, class: ContractClass) -> ProviderResult<()> {
-        self.provider.set_class(hash, class)
+        self.local_db.set_class(hash, class)
     }
 
     fn set_compiled_class_hash_of_class_hash(
@@ -427,6 +427,6 @@ impl<Db: Database> ContractClassWriter for ForkedProvider<Db> {
         hash: ClassHash,
         compiled_hash: CompiledClassHash,
     ) -> ProviderResult<()> {
-        self.provider.set_compiled_class_hash_of_class_hash(hash, compiled_hash)
+        self.local_db.set_compiled_class_hash_of_class_hash(hash, compiled_hash)
     }
 }

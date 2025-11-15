@@ -612,3 +612,16 @@ impl From<katana_primitives::state::StateUpdates> for StateDiff {
         }
     }
 }
+
+impl From<StateDiff> for katana_primitives::state::StateUpdates {
+    fn from(value: StateDiff) -> Self {
+        Self {
+            nonce_updates: value.nonces,
+            storage_updates: value.storage_diffs,
+            replaced_classes: value.replaced_classes,
+            declared_classes: value.declared_classes,
+            deployed_contracts: value.deployed_contracts,
+            deprecated_declared_classes: value.deprecated_declared_classes,
+        }
+    }
+}

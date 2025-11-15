@@ -6393,6 +6393,7 @@ dependencies = [
  "katana-primitives",
  "katana-provider-api",
  "katana-rpc-client",
+ "katana-rpc-types",
  "katana-runner",
  "katana-trie",
  "lazy_static",

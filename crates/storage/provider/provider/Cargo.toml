@@ -29,12 +29,13 @@ tracing.workspace = true
 # fork provider deps
 futures = { workspace = true, optional = true }
 tokio = { workspace = true, optional = true }
+katana-rpc-types = { workspace = true, optional = true }
 
 alloy-primitives = { workspace = true, optional = true }
 serde_json.workspace = true
 
 [features]
-fork = [ "dep:futures", "dep:tokio" ]
+fork = [ "dep:futures", "dep:tokio", "dep:katana-rpc-types" ]
 in-memory = [  ]
 test-utils = [ "dep:alloy-primitives", "dep:katana-chain-spec" ]
 
