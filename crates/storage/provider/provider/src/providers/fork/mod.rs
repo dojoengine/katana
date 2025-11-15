@@ -57,14 +57,14 @@ impl ForkedDb {
 
     /// Fetches historical blocks before the fork point.
     fn fetch_historical_blocks(&self, block_id: BlockHashOrNumber) -> ProviderResult<bool> {
-        let block = match block_id {
+        let block = match dbg!(block_id) {
             BlockHashOrNumber::Num(number) => {
                 if !self.should_fetch_externally(number) {
                     return Ok(false);
                 }
 
                 // should exist if block id is older than fork point
-                let block = self.backend.get_block(number.into())?.unwrap();
+                let block = dbg!(self.backend.get_block(number.into())?).unwrap();
                 let GetBlockWithReceiptsResponse::Block(block) = block else { unreachable!() };
 
                 block
@@ -85,7 +85,7 @@ impl ForkedDb {
             }
         };
 
-        let state_update = self.backend.get_state_update(block_id)?.unwrap(); // should exist if block exist
+        let state_update = dbg!(self.backend.get_state_update(block_id))?.unwrap(); // should exist if block exist
         let StateUpdate::Update(state_update) = state_update else { unreachable!() };
 
         let header = Header {
@@ -218,15 +218,15 @@ impl<Db: Database> BlockHashProvider for ForkedProvider<Db> {
             return Ok(Some(hash));
         }
 
-        if num > self.block_id() {
+        if dbg!(num > self.block_id()) {
             return Ok(None);
         }
 
-        if let Some(hash) = self.fork_db.db.block_hash_by_num(num)? {
+        if let Some(hash) = dbg!(self.fork_db.db.block_hash_by_num(num)?) {
             return Ok(Some(hash));
         }
 
-        if self.fork_db.fetch_historical_blocks(num.into())? {
+        if dbg!(self.fork_db.fetch_historical_blocks(num.into())?) {
             let num = self.fork_db.db.block_hash_by_num(num)?.unwrap();
             Ok(Some(num))
         } else {

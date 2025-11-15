@@ -80,7 +80,7 @@ fn rollup_chain_spec() -> rollup::ChainSpec {
 #[case::rollup(ChainSpec::Rollup(rollup_chain_spec()))]
 fn can_initialize_genesis(#[case] chain: ChainSpec) {
     let backend = backend(chain.into());
-    backend.init_genesis().expect("failed to initialize genesis");
+    backend.init_genesis(false).expect("failed to initialize genesis");
 }
 
 #[rstest]
@@ -90,10 +90,10 @@ fn can_reinitialize_genesis(#[case] chain: ChainSpec) {
     let db = DbProvider::new_in_memory();
 
     let backend = backend_with_db(chain.clone().into(), db.clone());
-    backend.init_genesis().expect("failed to initialize genesis");
+    backend.init_genesis(false).expect("failed to initialize genesis");
 
     let backend = backend_with_db(chain.into(), db);
-    backend.init_genesis().unwrap();
+    backend.init_genesis(false).unwrap();
 }
 
 #[test]
@@ -102,7 +102,7 @@ fn reinitialize_with_different_rollup_chain_spec() {
 
     let chain1 = ChainSpec::Rollup(rollup_chain_spec());
     let backend1 = backend_with_db(chain1.into(), db.clone());
-    backend1.init_genesis().expect("failed to initialize genesis");
+    backend1.init_genesis(false).expect("failed to initialize genesis");
 
     // Modify the chain spec so that the resultant genesis block hash will be different.
     let chain2 = ChainSpec::Rollup({
@@ -112,6 +112,6 @@ fn reinitialize_with_different_rollup_chain_spec() {
     });
 
     let backend2 = backend_with_db(chain2.into(), db);
-    let err = backend2.init_genesis().unwrap_err().to_string();
+    let err = backend2.init_genesis(false).unwrap_err().to_string();
     assert!(err.as_str().contains("Genesis block hash mismatch"));
 }

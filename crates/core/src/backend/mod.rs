@@ -72,9 +72,9 @@ impl<EF> Backend<EF> {
 }
 
 impl<EF: ExecutorFactory> Backend<EF> {
-    pub fn init_genesis(&self) -> anyhow::Result<()> {
+    pub fn init_genesis(&self, is_forking: bool) -> anyhow::Result<()> {
         match self.chain_spec.as_ref() {
-            ChainSpec::Dev(cs) => self.init_dev_genesis(cs),
+            ChainSpec::Dev(cs) => self.init_dev_genesis(cs, is_forking),
             ChainSpec::Rollup(cs) => self.init_rollup_genesis(cs),
             ChainSpec::FullNode(_) => {
                 // Full nodes sync from the network, so we skip genesis initialization
@@ -216,13 +216,16 @@ impl<EF: ExecutorFactory> Backend<EF> {
     fn init_dev_genesis(
         &self,
         chain_spec: &katana_chain_spec::dev::ChainSpec,
+        is_forking: bool,
     ) -> anyhow::Result<()> {
         let provider = self.blockchain.provider();
 
         // check whether the genesis block has been initialized
         let local_hash = provider.block_hash_by_num(chain_spec.genesis.number)?;
 
-        if let Some(local_hash) = local_hash {
+        if local_hash.is_some() && !is_forking {
+            let local_hash = local_hash.unwrap();
+
             let genesis_block = chain_spec.block();
             let mut genesis_state_updates = chain_spec.state_updates();
 

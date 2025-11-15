@@ -21,7 +21,7 @@ use url::Url;
 mod common;
 
 const SEPOLIA_CHAIN_ID: Felt = NamedChainId::SN_SEPOLIA;
-const SEPOLIA_URL: &str = "https://api.cartridge.gg/x/starknet/sepolia/rpc/v0_8";
+const SEPOLIA_URL: &str = "https://api.cartridge.gg/x/starknet/sepolia";
 const FORK_BLOCK_NUMBER: BlockNumber = 268_471;
 const FORK_BLOCK_HASH: BlockHash =
     felt!("0x208950cfcbba73ecbda1c14e4d58d66a8d60655ea1b9dcf07c16014ae8a93cd");
@@ -94,7 +94,7 @@ async fn setup_test_pending() -> (TestNode, StarknetClient, LocalTestVector) {
     setup_test_inner(true).await
 }
 
-#[tokio::test]
+#[tokio::test(flavor = "multi_thread")]
 async fn can_fork() -> Result<()> {
     let (_sequencer, provider, _) = setup_test().await;
 
@@ -107,7 +107,7 @@ async fn can_fork() -> Result<()> {
     Ok(())
 }
 
-#[tokio::test]
+#[tokio::test(flavor = "multi_thread")]
 async fn get_blocks_from_num() -> Result<()> {
     let (_sequencer, provider, local_only_block) = setup_test().await;
 
@@ -223,7 +223,7 @@ async fn get_blocks_from_num() -> Result<()> {
     Ok(())
 }
 
-#[tokio::test]
+#[tokio::test(flavor = "multi_thread")]
 async fn get_blocks_from_hash() {
     let (_sequencer, provider, local_only_block) = setup_test().await;
 
@@ -337,7 +337,7 @@ async fn get_blocks_from_hash() {
     assert_provider_starknet_err!(result, StarknetApiError::BlockNotFound);
 }
 
-#[tokio::test]
+#[tokio::test(flavor = "multi_thread")]
 async fn get_transactions() -> Result<()> {
     let (_sequencer, provider, local_only_data) = setup_test().await;
 
@@ -402,7 +402,7 @@ async fn get_transactions() -> Result<()> {
     Ok(())
 }
 
-#[tokio::test]
+#[tokio::test(flavor = "multi_thread")]
 #[rstest::rstest]
 #[case(BlockIdOrTag::Number(FORK_BLOCK_NUMBER))]
 #[case(BlockIdOrTag::Hash(felt!("0x208950cfcbba73ecbda1c14e4d58d66a8d60655ea1b9dcf07c16014ae8a93cd")))]
@@ -447,7 +447,7 @@ async fn get_events_partially_from_forked(#[case] block_id: BlockIdOrTag) -> Res
     Ok(())
 }
 
-#[tokio::test]
+#[tokio::test(flavor = "multi_thread")]
 #[rstest::rstest]
 #[case(BlockIdOrTag::Number(FORK_BLOCK_NUMBER))]
 #[case(BlockIdOrTag::Hash(felt!("0x208950cfcbba73ecbda1c14e4d58d66a8d60655ea1b9dcf07c16014ae8a93cd")))]
@@ -490,7 +490,7 @@ async fn get_events_all_from_forked(#[case] block_id: BlockIdOrTag) {
     }
 }
 
-#[tokio::test]
+#[tokio::test(flavor = "multi_thread")]
 async fn get_events_local() {
     let (_sequencer, provider, local_only_data) = setup_test().await;
 
@@ -518,7 +518,7 @@ async fn get_events_local() {
     }
 }
 
-#[tokio::test]
+#[tokio::test(flavor = "multi_thread")]
 async fn get_events_pending_exhaustive() {
     let (_sequencer, provider, local_only_data) = setup_test_pending().await;
 
@@ -547,7 +547,7 @@ async fn get_events_pending_exhaustive() {
     }
 }
 
-#[tokio::test]
+#[tokio::test(flavor = "multi_thread")]
 #[rstest::rstest]
 #[case(BlockIdOrTag::Number(FORK_BLOCK_NUMBER))]
 #[case(BlockIdOrTag::Hash(felt!("0x208950cfcbba73ecbda1c14e4d58d66a8d60655ea1b9dcf07c16014ae8a93cd")))] // FORK_BLOCK_NUMBER hash
@@ -599,7 +599,7 @@ async fn get_events_forked_and_local_boundary_exhaustive(#[case] block_id: Block
     }
 }
 
-#[tokio::test]
+#[tokio::test(flavor = "multi_thread")]
 #[rstest::rstest]
 #[case(BlockIdOrTag::Number(FORK_BLOCK_NUMBER - 1))]
 #[case(BlockIdOrTag::Hash(felt!("0x4a6a79bfefceb03af4f78758785b0c40ddf9f757e9a8f72f01ecb0aad11e298")))] // FORK_BLOCK_NUMBER - 1 hash
@@ -637,7 +637,7 @@ async fn get_events_forked_and_local_boundary_non_exhaustive(#[case] block_id: B
     similar_asserts::assert_eq!(katana_events, forked_events);
 }
 
-#[tokio::test]
+#[tokio::test(flavor = "multi_thread")]
 #[rstest::rstest]
 #[case::doesnt_exist_at_all(felt!("0x123"))]
 #[case::after_forked_block_but_on_the_forked_chain(felt!("0x21f4c20f9cc721dbaee2eaf44c79342b37c60f55ac37c13a4bdd6785ac2a5e5"))]

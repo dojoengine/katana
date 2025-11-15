@@ -16,7 +16,7 @@ fn test_backend() -> Arc<Backend<NoopExecutorFactory>> {
     let blockchain = Blockchain::new(DbProvider::new_in_memory());
     let gas_oracle = GasPriceOracle::create_for_testing();
     let backend = Arc::new(Backend::new(chain_spec, blockchain, gas_oracle, executor_factory));
-    backend.init_genesis().expect("failed to initialize genesis");
+    backend.init_genesis(false).expect("failed to initialize genesis");
     backend
 }
 
