@@ -1,6 +1,6 @@
 use anyhow::{bail, Context, Result};
 use katana_primitives::block::{
-    BlockHashOrNumber, BlockIdOrTag, BlockNumber, FinalityStatus, GasPrices, Header, SealedBlock,
+    BlockHashOrNumber, BlockIdOrTag, FinalityStatus, GasPrices, Header, SealedBlock,
     SealedBlockWithStatus,
 };
 use katana_provider::api::block::{BlockProvider, BlockWriter};
@@ -90,7 +90,7 @@ impl Blockchain {
         fork_url: Url,
         fork_block: Option<BlockHashOrNumber>,
         chain: &mut katana_chain_spec::dev::ChainSpec,
-    ) -> Result<(Self, BlockNumber)> {
+    ) -> Result<Self> {
         let provider = StarknetClient::new(HttpClientBuilder::new().build(fork_url)?);
         let chain_id = provider.chain_id().await.context("failed to fetch forked network id")?;
 
@@ -197,7 +197,7 @@ impl Blockchain {
 
         block.header.l1_da_mode = forked_block.l1_da_mode;
 
-        Ok((Self::new(database), block_num))
+        Ok(Self::new(database))
     }
 
     pub fn provider(&self) -> &BlockchainProvider<Box<dyn Database>> {
