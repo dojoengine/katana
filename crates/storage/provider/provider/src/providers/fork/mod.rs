@@ -302,8 +302,15 @@ impl<Db: Database> BlockProvider for ForkedProvider<Db> {
     }
 
     fn blocks_in_range(&self, range: RangeInclusive<u64>) -> ProviderResult<Vec<Block>> {
-        // Same limitation as block() - requires complete Headers
-        self.local_db.blocks_in_range(range)
+        let mut blocks = Vec::new();
+
+        for num in range {
+            if let Some(block) = self.block(num.into())? {
+                blocks.push(block);
+            }
+        }
+
+        Ok(blocks)
     }
 }
 
@@ -424,7 +431,8 @@ impl<Db: Database> TransactionProvider for ForkedProvider<Db> {
     }
 
     fn transaction_in_range(&self, range: Range<TxNumber>) -> ProviderResult<Vec<TxWithHash>> {
-        self.local_db.transaction_in_range(range)
+        let _ = range;
+        unimplemented!()
     }
 
     fn transaction_block_num_and_hash(
@@ -491,10 +499,12 @@ impl<Db: Database> TransactionProvider for ForkedProvider<Db> {
 
 impl<Db: Database> TransactionsProviderExt for ForkedProvider<Db> {
     fn transaction_hashes_in_range(&self, range: Range<TxNumber>) -> ProviderResult<Vec<TxHash>> {
-        self.local_db.transaction_hashes_in_range(range)
+        let _ = range;
+        unimplemented!()
     }
 
     fn total_transactions(&self) -> ProviderResult<usize> {
+        // NOTE: this only returns the total number of transactions in the local database
         self.local_db.total_transactions()
     }
 }
@@ -523,21 +533,34 @@ impl<Db: Database> TransactionTraceProvider for ForkedProvider<Db> {
         &self,
         hash: TxHash,
     ) -> ProviderResult<Option<TypedTransactionExecutionInfo>> {
-        self.local_db.transaction_execution(hash)
+        if let Some(result) = self.local_db.transaction_execution(hash)? {
+            return Ok(Some(result));
+        }
+
+        // TODO: fetch from remote
+
+        Ok(None)
     }
 
     fn transaction_executions_by_block(
         &self,
         block_id: BlockHashOrNumber,
     ) -> ProviderResult<Option<Vec<TypedTransactionExecutionInfo>>> {
-        self.local_db.transaction_executions_by_block(block_id)
+        if let Some(result) = self.local_db.transaction_executions_by_block(block_id)? {
+            return Ok(Some(result));
+        }
+
+        // TODO: fetch from remote
+
+        Ok(None)
     }
 
     fn transaction_executions_in_range(
         &self,
         range: Range<TxNumber>,
     ) -> ProviderResult<Vec<TypedTransactionExecutionInfo>> {
-        self.local_db.transaction_executions_in_range(range)
+        let _ = range;
+        unimplemented!()
     }
 }
 
