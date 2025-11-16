@@ -105,7 +105,8 @@ impl<Tx: DbTx> HeaderProvider for DbProvider<Tx> {
 
             BlockHashOrNumber::Hash(hash) => {
                 if let Some(num) = self.0.get::<tables::BlockNumbers>(hash)? {
-                    let header = self.0
+                    let header = self
+                        .0
                         .get::<tables::Headers>(num)?
                         .ok_or(ProviderError::MissingBlockHeader(num))?;
 

@@ -16,7 +16,7 @@ pub mod providers;
 pub mod test_utils;
 
 use crate::providers::db::DbProvider;
-use crate::providers::fork::ForkedProvider;
+use crate::providers::fork::{ForkedDb, ForkedProvider};
 
 #[auto_impl::auto_impl(&, Box, Arc)]
 pub trait ProviderFactory: Send + Sync + Debug {
@@ -36,15 +36,15 @@ impl<Db: Database> Debug for DbProviderFactory<Db> {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         f.debug_struct("DbProviderFactory").finish_non_exhaustive()
     }
-
-    pub fn inner(&self) -> &Db {
-        &self.provider
-    }
 }
 
 impl<Db: Database> DbProviderFactory<Db> {
     pub fn new(db: Db) -> Self {
         Self { db }
+    }
+
+    pub fn inner(&self) -> &Db {
+        &self.provider
     }
 }
 
@@ -68,23 +68,27 @@ impl<Db: Database> ProviderFactory for DbProviderFactory<Db> {
 }
 
 #[derive(Clone)]
-pub struct ForkProviderFactory<Db: Database = katana_db::Db> {
-    base_factory: DbProviderFactory<Db>,
-    backend: BackendClient,
+pub struct ForkProviderFactory {
+    backend: Backend,
     block_id: BlockNumber,
+    local_factory: DbProviderFactory<katana_db::Db>,
+    fork_factory: DbProviderFactory<katana_db::Db>,
 }
 
-impl<Db: Database> Debug for ForkProviderFactory<Db> {
+impl Debug for ForkProviderFactory {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         f.debug_struct("ForkProviderFactory").finish_non_exhaustive()
     }
 }
 
-impl<Db: Database> ForkProviderFactory<Db> {
-    pub fn new(db: Db, block_id: BlockNumber, provider: StarknetClient) -> Self {
-        let base_factory = DbProviderFactory::new(db);
+impl ForkProviderFactory {
+    pub fn new(block_id: BlockNumber, provider: StarknetClient) -> Self {
         let backend = Backend::new(provider).expect("failed to create backend");
-        Self { base_factory, backend, block_id }
+
+        let local_factory = DbProviderFactory::new_in_memory();
+        let fork_factory = DbProviderFactory::new_in_memory();
+
+        Self { local_factory, fork_factory, backend, block_id }
     }
 
     pub fn block(&self) -> BlockNumber {
@@ -92,15 +96,24 @@ impl<Db: Database> ForkProviderFactory<Db> {
     }
 }
 
-impl<Db: Database> ProviderFactory for ForkProviderFactory<Db> {
-    type Provider = ForkedProvider<Db::TxMut>;
-    type ProviderMut = ForkedProvider<Db::TxMut>;
+impl ProviderFactory for ForkProviderFactory {
+    type Provider =
+        ForkedProvider<<katana_db::Db as Database>::Tx, <katana_db::Db as Database>::TxMut>;
+
+    type ProviderMut =
+        ForkedProvider<<katana_db::Db as Database>::TxMut, <katana_db::Db as Database>::TxMut>;
 
     fn provider(&self) -> Self::Provider {
-        ForkedProvider::new(self.block_id, self.base_factory.provider_mut(), self.backend.clone())
+        ForkedProvider::new(
+            self.local_factory.provider(),
+            ForkedDb::new(self.backend.clone(), self.block_id, self.fork_factory.provider_mut()),
+        )
     }
 
     fn provider_mut(&self) -> Self::ProviderMut {
-        ForkedProvider::new(self.block_id, self.base_factory.provider_mut(), self.backend.clone())
+        ForkedProvider::new(
+            self.local_factory.provider_mut(),
+            ForkedDb::new(self.backend.clone(), self.block_id, self.fork_factory.provider_mut()),
+        )
     }
 }
