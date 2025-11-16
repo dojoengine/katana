@@ -34,7 +34,7 @@ pub mod fork {
         pub static ref FORKED_PROVIDER: (KatanaRunner, StarknetClient) = {
             let runner = katana_runner::KatanaRunner::new().unwrap();
             let url = runner.url();
-            (runner, StarknetClient::new(HttpClientBuilder::new().build(url).unwrap()))
+            (runner, StarknetClient::new(url))
         };
     }
 
@@ -43,7 +43,7 @@ pub mod fork {
         #[default("https://api.cartridge.gg/x/starknet/sepolia")] rpc: &str,
         #[default(2888618)] block_num: u64,
     ) -> BlockchainProvider<ForkedProvider> {
-        let provider = StarknetClient::new(HttpClientBuilder::new().build(rpc).unwrap());
+        let provider = StarknetClient::new(rpc.try_into().unwrap());
         let provider = ForkedProvider::new_ephemeral(block_num.into(), provider);
         BlockchainProvider::new(provider)
     }

@@ -17,8 +17,7 @@ const FORK_BLOCK_NUMBER: u64 = 2888618;
 /// (before the fork point), the provider successfully fetches it from the remote network.
 #[tokio::test]
 async fn block_from_forked_network() {
-    let http_client = HttpClientBuilder::new().build(SEPOLIA_RPC_URL).unwrap();
-    let starknet_client = StarknetClient::new(http_client);
+    let starknet_client = StarknetClient::new(SEPOLIA_RPC_URL.try_into().unwrap());
     let provider = ForkedProvider::new_ephemeral(FORK_BLOCK_NUMBER, starknet_client);
 
     // Request a block that should exist on the forked network (before the fork point)
@@ -63,8 +62,7 @@ async fn block_from_forked_network() {
 async fn block_hash_from_forked_network() {
     let expected_hash = felt!("0x4f3db32fa485be6e8ed6ac7ce715a8739e9a28d67ea575c502e25036b5f178a");
 
-    let http_client = HttpClientBuilder::new().build(SEPOLIA_RPC_URL).unwrap();
-    let starknet_client = StarknetClient::new(http_client);
+    let starknet_client = StarknetClient::new(SEPOLIA_RPC_URL.try_into().unwrap());
     let provider = ForkedProvider::new_ephemeral(FORK_BLOCK_NUMBER, starknet_client);
 
     let block_num = 2888611;
@@ -76,8 +74,7 @@ async fn block_hash_from_forked_network() {
 
 #[tokio::test]
 async fn block_after_fork_point_returns_none() {
-    let http_client = HttpClientBuilder::new().build(SEPOLIA_RPC_URL).unwrap();
-    let starknet_client = StarknetClient::new(http_client);
+    let starknet_client = StarknetClient::new(SEPOLIA_RPC_URL.try_into().unwrap());
 
     let provider = ForkedProvider::new_ephemeral(FORK_BLOCK_NUMBER, starknet_client);
 
@@ -93,8 +90,7 @@ async fn block_after_fork_point_returns_none() {
 
 #[tokio::test]
 async fn transaction_from_forked_network() {
-    let http_client = HttpClientBuilder::new().build(SEPOLIA_RPC_URL).unwrap();
-    let starknet_client = StarknetClient::new(http_client);
+    let starknet_client = StarknetClient::new(SEPOLIA_RPC_URL.try_into().unwrap());
     let provider = ForkedProvider::new_ephemeral(FORK_BLOCK_NUMBER, starknet_client);
 
     let block_id = BlockHashOrNumber::Num(2888610);
