@@ -1,6 +1,6 @@
 use std::str::FromStr;
 
-use anyhow::{anyhow, Context, Result};
+use anyhow::{anyhow, Result};
 use cainome::cairo_serde;
 use katana_primitives::block::{BlockHash, BlockNumber};
 use katana_primitives::class::{
@@ -9,7 +9,6 @@ use katana_primitives::class::{
 };
 use katana_primitives::{felt, ContractAddress, Felt};
 use katana_rpc_client::starknet::Client as StarknetClient;
-use katana_rpc_client::HttpClientBuilder;
 use katana_rpc_types::class::Class;
 use katana_utils::{TxWaiter, TxWaitingError};
 use piltover::{AppchainContract, AppchainContractReader, ProgramInfo};
