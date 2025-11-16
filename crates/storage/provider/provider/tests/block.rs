@@ -40,11 +40,7 @@ fn insert_block_empty_with_db_provider(
     insert_block_empty_test_impl(provider, 0, block_count)
 }
 
-fn insert_block_test_impl<P>(
-    provider: P,
-    start: BlockNumber,
-    end: BlockNumber,
-) -> Result<()>
+fn insert_block_test_impl<P>(provider: P, start: BlockNumber, end: BlockNumber) -> Result<()>
 where
     P: ProviderFactory,
     <P as ProviderFactory>::Provider: BlockProvider
@@ -154,7 +150,7 @@ where
 }
 
 fn insert_block_empty_test_impl<P>(
-    provider: P,
+    storage_provider: P,
     start: BlockNumber,
     end: BlockNumber,
 ) -> Result<()>
@@ -175,7 +171,7 @@ where
     assert_eq!(total_txs, 0);
 
     for block in &blocks {
-        let provider_mut = provider.provider_mut();
+        let provider_mut = storage_provider.provider_mut();
         provider_mut.insert_block_with_states_and_receipts(
             block.clone(),
             Default::default(),
@@ -183,10 +179,12 @@ where
             vec![],
         )?;
 
+        let provider = storage_provider.provider();
         assert_eq!(provider.latest_number().unwrap(), block.block.header.number);
         assert_eq!(provider.latest_hash().unwrap(), block.block.hash);
     }
 
+    let provider = storage_provider.provider();
     let actual_blocks_in_range = provider.blocks_in_range(start..=end)?;
 
     assert_eq!(actual_blocks_in_range.len(), (end - start + 1) as usize); // because the start and end are inclusive

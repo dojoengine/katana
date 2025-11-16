@@ -44,7 +44,7 @@ impl StorageProvider<DbProviderFactory<katana_db::Db>> {
     }
 }
 
-impl StorageProvider<ForkProviderFactory<katana_db::Db>> {
+impl StorageProvider<ForkProviderFactory> {
     /// Builds a new blockchain with a forked block.
     pub async fn new_forked(
         db: katana_db::Db,

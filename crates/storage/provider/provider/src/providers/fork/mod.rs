@@ -627,7 +627,7 @@ impl<Tx1: DbTx, Tx2: DbTxMut> BlockEnvProvider for ForkedProvider<Tx1, Tx2> {
     }
 }
 
-impl<Tx: DbTxMut> BlockWriter for ForkedProvider<Tx1, Tx2> {
+impl<Tx1: DbTxMut, Tx2: DbTxMut> BlockWriter for ForkedProvider<Tx1, Tx2> {
     fn insert_block_with_states_and_receipts(
         &self,
         block: SealedBlockWithStatus,
@@ -639,7 +639,7 @@ impl<Tx: DbTxMut> BlockWriter for ForkedProvider<Tx1, Tx2> {
     }
 }
 
-impl<Tx: DbTxMut> StageCheckpointProvider for ForkedProvider<Tx1, Tx2> {
+impl<Tx1: DbTxMut, Tx2: DbTxMut> StageCheckpointProvider for ForkedProvider<Tx1, Tx2> {
     fn checkpoint(&self, id: &str) -> ProviderResult<Option<BlockNumber>> {
         self.local_db.checkpoint(id)
     }

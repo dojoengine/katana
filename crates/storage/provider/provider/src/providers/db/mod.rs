@@ -193,7 +193,7 @@ impl<Tx: DbTx> BlockStatusProvider for DbProvider<Tx> {
     fn block_status(&self, id: BlockHashOrNumber) -> ProviderResult<Option<FinalityStatus>> {
         match id {
             BlockHashOrNumber::Num(num) => {
-                let status = sel.0.get::<tables::BlockStatusses>(num)?;
+                let status = self.0.get::<tables::BlockStatusses>(num)?;
                 Ok(status)
             }
 

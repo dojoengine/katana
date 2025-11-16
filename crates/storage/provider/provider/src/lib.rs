@@ -1,7 +1,7 @@
 use std::fmt::Debug;
 
 use katana_db::abstraction::Database;
-use katana_fork::{Backend, BackendClient};
+use katana_fork::Backend;
 use katana_primitives::block::BlockNumber;
 pub use katana_provider_api::{ProviderError, ProviderResult};
 use katana_rpc_client::starknet::Client as StarknetClient;
@@ -44,7 +44,7 @@ impl<Db: Database> DbProviderFactory<Db> {
     }
 
     pub fn inner(&self) -> &Db {
-        &self.provider
+        &self.db
     }
 }
 
