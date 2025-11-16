@@ -140,44 +140,6 @@ impl Blockchain {
         // check if the requested block is within the supported range or not.
         let database = ForkedProvider::new(db, block_num, provider.clone());
 
-        // // initialize parent fork block
-        // //
-        // // NOTE: this is just a workaround for allowing forked genesis block to be initialize
-        // using // `Backend::do_mine_block`.
-        // {
-        //     let parent_block_id = BlockIdOrTag::from(forked_block.parent_hash);
-        //     let parent_block = provider.get_block_with_tx_hashes(parent_block_id).await?;
-
-        //     let GetBlockWithTxHashesResponse::Block(parent_block) = parent_block else {
-        //         bail!("parent block is a preconfirmed block");
-        //     };
-
-        //     let parent_block = SealedBlockWithStatus {
-        //         block: SealedBlock {
-        //             hash: parent_block.block_hash,
-        //             body: Vec::new(),
-        //             header: Header {
-        //                 parent_hash: parent_block.parent_hash,
-        //                 timestamp: parent_block.timestamp,
-        //                 number: parent_block.block_number,
-        //                 state_root: parent_block.new_root,
-        //                 sequencer_address: parent_block.sequencer_address,
-        //                 ..Default::default()
-        //             },
-        //         },
-        //         status: FinalityStatus::AcceptedOnL2,
-        //     };
-
-        //     database
-        //         .insert_block_with_states_and_receipts(
-        //             parent_block,
-        //             Default::default(),
-        //             Default::default(),
-        //             Default::default(),
-        //         )
-        //         .context("failed to initialize provider with the parent of the forked block")?;
-        // }
-
         // update the genesis block with the forked block's data
         // we dont update the `l1_gas_price` bcs its already done when we set the `gas_prices` in
         // genesis. this flow is kinda flawed, we should probably refactor it out of the
