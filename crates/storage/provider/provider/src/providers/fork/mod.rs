@@ -29,7 +29,7 @@ use katana_provider_api::transaction::{
 use katana_rpc_types::{GetBlockWithReceiptsResponse, RpcTxWithReceipt, StateUpdate};
 
 use super::db::{self, DbProvider};
-use crate::ProviderResult;
+use crate::{MutableProvider, ProviderResult};
 
 mod state;
 mod trie;
@@ -151,6 +151,14 @@ impl<Tx: DbTxMut> ForkedDb<Tx> {
     }
 }
 
+impl<Tx1: DbTxMut, Tx2: DbTxMut> MutableProvider for ForkedProvider<Tx1, Tx2> {
+    fn commit(self) -> ProviderResult<()> {
+        let _ = self.local_db.commit()?;
+        let _ = self.fork_db.db.commit()?;
+        Ok(())
+    }
+}
+
 impl<Tx1: DbTx, Tx2: DbTxMut> ForkedProvider<Tx1, Tx2> {
     pub fn new(local_db: DbProvider<Tx1>, fork_db: ForkedDb<Tx2>) -> Self {
         Self { local_db, fork_db }
@@ -164,18 +172,6 @@ impl<Tx1: DbTx, Tx2: DbTxMut> ForkedProvider<Tx1, Tx2> {
         &self.fork_db.db
     }
 }
-
-// impl ForkedProvider<katana_db::Db> {
-//     /// Creates a new [`ForkedProvider`] using an ephemeral database.
-//     pub fn new_ephemeral(block_id: BlockNumber, starknet_client: StarknetClient) -> Self {
-//         let local_db = Arc::new(DbProvider::new_in_memory());
-
-//         let backend = Backend::new(starknet_client).expect("failed to create backend");
-//         let fork_db = Arc::new(ForkedDb { block_id, db: DbProvider::new_in_memory(), backend });
-
-//         Self { local_db, fork_db }
-//     }
-// }
 
 impl<Tx1: DbTx, Tx2: DbTxMut> BlockNumberProvider for ForkedProvider<Tx1, Tx2> {
     fn block_number_by_hash(&self, hash: BlockHash) -> ProviderResult<Option<BlockNumber>> {

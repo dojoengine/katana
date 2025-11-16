@@ -3,7 +3,7 @@ pub mod trie;
 
 use std::collections::{BTreeMap, BTreeSet};
 use std::fmt::Debug;
-use std::ops::{Range, RangeInclusive};
+use std::ops::{Deref, Range, RangeInclusive};
 
 use katana_db::abstraction::{DbCursor, DbCursorMut, DbDupSortCursor, DbTx, DbTxMut};
 use katana_db::error::DatabaseError;
@@ -43,12 +43,20 @@ use katana_provider_api::transaction::{
 };
 use katana_provider_api::ProviderError;
 
-use crate::ProviderResult;
+use crate::{MutableProvider, ProviderResult};
 
 /// A provider implementation that uses a persistent database as the backend.
 // TODO: remove the default generic type
 #[derive(Clone)]
 pub struct DbProvider<Tx: DbTx>(Tx);
+
+impl<Tx: DbTx> Deref for DbProvider<Tx> {
+    type Target = Tx;
+
+    fn deref(&self) -> &Self::Target {
+        &self.0
+    }
+}
 
 impl<Tx: DbTx + Debug> Debug for DbProvider<Tx> {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
@@ -65,6 +73,13 @@ impl<Tx: DbTx> DbProvider<Tx> {
     /// Returns the [`DbTx`] associated with this provider.
     pub fn tx(&self) -> &Tx {
         &self.0
+    }
+}
+
+impl<Tx: DbTxMut> MutableProvider for DbProvider<Tx> {
+    fn commit(self) -> ProviderResult<()> {
+        let _ = self.0.commit()?;
+        Ok(())
     }
 }
 

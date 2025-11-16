@@ -13,7 +13,7 @@ use katana_provider::api::transaction::{
     TransactionsProviderExt,
 };
 use katana_provider::api::trie::TrieWriter;
-use katana_provider::{DbProviderFactory, ForkProviderFactory, ProviderFactory};
+use katana_provider::{DbProviderFactory, ForkProviderFactory, MutableProvider, ProviderFactory};
 use katana_rpc_client::starknet::Client as StarknetClient;
 use katana_rpc_types::GetBlockWithTxHashesResponse;
 use num_traits::ToPrimitive;
@@ -163,7 +163,13 @@ pub trait DatabaseRO:
 }
 
 pub trait DatabaseRW:
-    DatabaseRO + BlockWriter + StateWriter + ContractClassWriter + TrieWriter + StageCheckpointProvider
+    MutableProvider
+    + DatabaseRO
+    + BlockWriter
+    + StateWriter
+    + ContractClassWriter
+    + TrieWriter
+    + StageCheckpointProvider
 {
 }
 
@@ -187,6 +193,7 @@ impl<T> DatabaseRO for T where
 
 impl<T> DatabaseRW for T where
     T: DatabaseRO
+        + MutableProvider
         + BlockWriter
         + StateWriter
         + ContractClassWriter

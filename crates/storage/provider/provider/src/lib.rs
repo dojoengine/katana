@@ -21,10 +21,15 @@ use crate::providers::fork::{ForkedDb, ForkedProvider};
 #[auto_impl::auto_impl(&, Box, Arc)]
 pub trait ProviderFactory: Send + Sync + Debug {
     type Provider;
-    type ProviderMut;
+    type ProviderMut: MutableProvider;
 
     fn provider(&self) -> Self::Provider;
     fn provider_mut(&self) -> Self::ProviderMut;
+}
+
+#[auto_impl::auto_impl(Box)]
+pub trait MutableProvider: Sized + Send + Sync + 'static {
+    fn commit(self) -> ProviderResult<()>;
 }
 
 #[derive(Clone)]
@@ -71,14 +76,8 @@ impl<Db: Database> ProviderFactory for DbProviderFactory<Db> {
 pub struct ForkProviderFactory {
     backend: Backend,
     block_id: BlockNumber,
-    local_factory: DbProviderFactory<katana_db::Db>,
     fork_factory: DbProviderFactory<katana_db::Db>,
-}
-
-impl Debug for ForkProviderFactory {
-    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        f.debug_struct("ForkProviderFactory").finish_non_exhaustive()
-    }
+    local_factory: DbProviderFactory<katana_db::Db>,
 }
 
 impl ForkProviderFactory {
@@ -93,6 +92,12 @@ impl ForkProviderFactory {
 
     pub fn block(&self) -> BlockNumber {
         self.block_id
+    }
+}
+
+impl Debug for ForkProviderFactory {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.debug_struct("ForkProviderFactory").finish_non_exhaustive()
     }
 }
 
