@@ -6055,6 +6055,7 @@ version = "1.7.0"
 dependencies = [
  "anyhow",
  "futures",
+ "katana-metrics",
  "katana-primitives",
  "katana-provider-api",
  "katana-rpc-client",
@@ -6260,7 +6261,6 @@ dependencies = [
  "katana-primitives",
  "katana-provider",
  "katana-rpc-api",
- "katana-rpc-client",
  "katana-rpc-server",
  "katana-rpc-types",
  "katana-stage",
@@ -6392,6 +6392,7 @@ dependencies = [
  "katana-primitives",
  "katana-provider-api",
  "katana-rpc-client",
+ "katana-rpc-types",
  "katana-runner",
  "katana-trie",
  "lazy_static",
@@ -6448,6 +6449,7 @@ dependencies = [
  "katana-rpc-types",
  "thiserror 1.0.69",
  "tokio",
+ "url",
 ]
 
 [[package]]

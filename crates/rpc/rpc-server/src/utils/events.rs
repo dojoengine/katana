@@ -2,7 +2,7 @@ use std::cmp::Ordering;
 use std::ops::RangeInclusive;
 
 use anyhow::Context;
-use katana_primitives::block::{BlockHash, BlockNumber};
+use katana_primitives::block::{BlockHash, BlockHashOrNumber, BlockNumber};
 use katana_primitives::contract::ContractAddress;
 use katana_primitives::event::ContinuationToken;
 use katana_primitives::receipt::Event;
@@ -152,11 +152,15 @@ pub fn fetch_events_at_blocks(
 
     for block_num in block_range {
         // collect all receipts at `block_num` block.
-        let block_hash = provider.block_hash_by_num(block_num)?.context("Missing block hash")?;
-        let receipts = provider.receipts_by_block(block_num.into())?.context("Missing receipts")?;
-        let body_index =
-            provider.block_body_indices(block_num.into())?.context("Missing block body index")?;
-        let tx_hashes = provider.transaction_hashes_in_range(body_index.into())?;
+        let block_hash =
+            provider.block_hash_by_num(block_num)?.context("Block hash should exist")?;
+
+        let block_id = BlockHashOrNumber::from(block_num);
+        let receipts =
+            provider.receipts_by_block(block_id)?.context("Block receipts should exist")?;
+        let txs =
+            provider.transactions_by_block(block_id)?.context("Block transactions should exist")?;
+        let tx_hashes = txs.into_iter().map(|tx| tx.hash).collect::<Vec<TxHash>>();
 
         if block_num == cursor.block {
             match receipts.len().cmp(&cursor.txn.idx) {
