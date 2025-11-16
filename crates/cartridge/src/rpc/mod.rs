@@ -40,7 +40,6 @@ use katana_pool::{TransactionPool, TxPool};
 use katana_primitives::contract::Nonce;
 use katana_primitives::da::DataAvailabilityMode;
 use katana_primitives::fee::{AllResourceBoundsMapping, ResourceBoundsMapping};
-use katana_primitives::genesis::allocation::GenesisAccountAlloc;
 use katana_primitives::transaction::{ExecutableTx, ExecutableTxWithHash, InvokeTx, InvokeTxV3};
 use katana_primitives::transaction::{ExecutableTx, ExecutableTxWithHash, InvokeTx, InvokeTxV3};
 use katana_primitives::{ContractAddress, Felt};
@@ -108,20 +107,12 @@ impl<EF: ExecutorFactory> CartridgeApi<EF> {
         self.on_cpu_blocking_task(move |this| async move {
             // For now, we use the first predeployed account in the genesis as the paymaster
             // account.
-            let (pm_address, pm_acc) = this
+            let (pm_address, pm_account) = this
                 .backend
                 .chain_spec
                 .genesis()
-                .accounts()
-                .nth(0)
+                .paymaster_account()
                 .ok_or(anyhow!("Cartridge paymaster account doesn't exist"))?;
-
-            // TODO: create a dedicated types for aux accounts (eg paymaster)
-            let pm_private_key = if let GenesisAccountAlloc::DevAccount(pm) = pm_acc {
-                pm.private_key
-            } else {
-                return Err(StarknetApiError::unexpected("Paymaster is not a dev account"));
-            };
 
             // Contract function selector for
             let entrypoint = match outside_execution {
@@ -130,7 +121,7 @@ impl<EF: ExecutorFactory> CartridgeApi<EF> {
             };
 
             // Get the current nonce of the paymaster account.
-            let nonce = this.nonce(*pm_address)?.unwrap_or_default();
+            let nonce = this.nonce(pm_address)?.unwrap_or_default();
 
             let mut inner_calldata = OutsideExecution::cairo_serialize(&outside_execution);
             inner_calldata.extend(Vec::<Felt>::cairo_serialize(&signature));
@@ -148,7 +139,7 @@ impl<EF: ExecutorFactory> CartridgeApi<EF> {
                 chain_id,
                 calldata: encode_calls(vec![execute_from_outside_call]),
                 signature: vec![],
-                sender_address: *pm_address,
+                sender_address: pm_address,
                 tip: 0_u64,
                 paymaster_data: vec![],
                 account_deployment_data: vec![],
@@ -158,7 +149,7 @@ impl<EF: ExecutorFactory> CartridgeApi<EF> {
             };
             let tx_hash = InvokeTx::V3(tx.clone()).calculate_hash(false);
 
-            let signer = LocalWallet::from(SigningKey::from_secret_scalar(pm_private_key));
+            let signer = LocalWallet::from(SigningKey::from_secret_scalar(pm_account.private_key));
             let signature =
                 futures::executor::block_on(signer.sign_hash(&tx_hash)).map_err(|e| anyhow!(e))?;
             tx.signature = vec![signature.r, signature.s];

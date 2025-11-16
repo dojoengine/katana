@@ -67,6 +67,20 @@ impl Genesis {
             }
         })
     }
+
+    pub fn paymaster_account(&self) -> Option<(ContractAddress, &DevGenesisAccount)> {
+        // TODO: deploy a dedicated account for the paymaster instead of using the first dev account
+        match self.accounts().nth(0) {
+            Some((addr, account)) => {
+                if let GenesisAccountAlloc::DevAccount(account) = account {
+                    Some((*addr, account))
+                } else {
+                    None
+                }
+            }
+            None => None,
+        }
+    }
 }
 
 impl Default for Genesis {

@@ -241,31 +241,20 @@ where
 
             let cartridge_api_client = cartridge::Client::new(paymaster.cartridge_api_url.clone());
 
-            // For now, we use the first predeployed account in the genesis as the paymaster
-            // account.
-            let (pm_address, pm_acc) = config
+            let (pm_address, pm_account) = config
                 .chain
                 .genesis()
-                .accounts()
-                .nth(0)
+                .paymaster_account()
                 .ok_or(anyhow!("Cartridge paymaster account doesn't exist"))?;
-
-            // TODO: create a dedicated types for aux accounts (eg paymaster)
-            let pm_private_key = if let GenesisAccountAlloc::DevAccount(pm) = pm_acc {
-                pm.private_key
-            } else {
-                bail!("Paymaster is not a dev account")
-            };
 
             Some(Paymaster::new(
                 starknet_api,
                 cartridge_api_client,
                 pool.clone(),
                 config.chain.id(),
-                *pm_address,
-                SigningKey::from_secret_scalar(pm_private_key),
-                // TODO RBA: should we get the private key from the config?
-                VrfContext::new(CARTRIDGE_VRF_DEFAULT_PRIVATE_KEY, *pm_address),
+                pm_address,
+                SigningKey::from_secret_scalar(pm_account.private_key),
+                VrfContext::new(CARTRIDGE_VRF_DEFAULT_PRIVATE_KEY, pm_address),
             ))
         } else {
             None
