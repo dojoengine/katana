@@ -1,7 +1,12 @@
-use katana_primitives::block::BlockHashOrNumber;
-use katana_primitives::felt;
+use katana_primitives::block::{
+    Block, BlockHashOrNumber, FinalityStatus, Header, SealedBlockWithStatus,
+};
 use katana_primitives::transaction::TxType;
-use katana_provider::api::block::{BlockHashProvider, BlockProvider};
+use katana_primitives::{address, felt, ContractAddress};
+use katana_provider::api::block::{
+    BlockHashProvider, BlockNumberProvider, BlockProvider, BlockWriter,
+};
+use katana_provider::api::state::StateFactoryProvider;
 use katana_provider::api::state_update::StateUpdateProvider;
 use katana_provider::api::transaction::{ReceiptProvider, TransactionProvider};
 use katana_provider::providers::fork::ForkedProvider;
@@ -9,6 +14,42 @@ use katana_rpc_client::starknet::Client as StarknetClient;
 
 const SEPOLIA_RPC_URL: &str = "https://api.cartridge.gg/x/starknet/sepolia";
 const FORK_BLOCK_NUMBER: u64 = 2888618;
+
+#[tokio::test]
+async fn forked_provider_latest_number() {
+    let fork_block_number = 2906771;
+
+    let starknet_client = StarknetClient::new(SEPOLIA_RPC_URL.try_into().unwrap());
+    let provider = ForkedProvider::new_ephemeral(fork_block_number, starknet_client);
+
+    let expected_latest_number = fork_block_number;
+    let actual_latest_number = provider.latest_number().unwrap();
+
+    assert_eq!(actual_latest_number, expected_latest_number);
+
+    let new_block_number = fork_block_number + 1;
+
+    provider
+        .insert_block_with_states_and_receipts(
+            SealedBlockWithStatus {
+                block: Block {
+                    header: Header { number: new_block_number, ..Default::default() },
+                    body: Vec::new(),
+                }
+                .seal(),
+                status: FinalityStatus::AcceptedOnL2,
+            },
+            Default::default(),
+            Default::default(),
+            Default::default(),
+        )
+        .unwrap();
+
+    let expected_latest_number = new_block_number;
+    let actual_latest_number = provider.latest_number().unwrap();
+
+    assert_eq!(actual_latest_number, expected_latest_number);
+}
 
 /// Test that the ForkedProvider can fetch block data from the forked network.
 ///
@@ -135,4 +176,121 @@ async fn transaction_from_forked_network() {
 
     let state_updates = forked_db.state_update(block_id).unwrap();
     assert!(state_updates.is_some());
+}
+
+#[tokio::test]
+async fn latest_fork_state() {
+    let fork_block_number = 2906771;
+
+    let starknet_client = StarknetClient::new(SEPOLIA_RPC_URL.try_into().unwrap());
+    let provider = ForkedProvider::new_ephemeral(fork_block_number, starknet_client);
+
+    // because we forked at block 2906771, `provider.latest()` will return state at block 2906771
+    let state = provider.latest().unwrap();
+
+    // Class declared at block 2892448
+    // https://sepolia.voyager.online/class/0x00e022115a73679D4E215Da00F53D8f681F5C52B488bf18C71fEA115e92181b1
+    let class_hash = felt!("0x00e022115a73679d4e215da00f53d8f681f5c52b488bf18c71fea115e92181b1");
+    let result1 = state.class(class_hash).unwrap();
+    let result2 = state.compiled_class_hash_of_class_hash(class_hash).unwrap();
+
+    assert!(result1.is_some());
+    assert!(result2.is_some());
+
+    // Contract deployed at block 2906741
+    // https://sepolia.voyager.online/contract/0x0164b86b8fC5C0c84d3c53Bc95760F290420Ea2a32ed49A44fd046683a1CaAc2#readStorage
+    let address = address!("0x0164b86b8fC5C0c84d3c53Bc95760F290420Ea2a32ed49A44fd046683a1CaAc2");
+    let result1 = state.nonce(address).unwrap().expect("must exist");
+    let result2 = state.class_hash_of_contract(address).unwrap().expect("must exist");
+
+    assert_eq!(result1, felt!("0x0"));
+    assert_eq!(result2, felt!("0xe824b9f2aa225812cf230d276784b99f182ec95066d84be90cd1682e4ad069"));
+}
+
+#[tokio::test]
+async fn historical_fork_state() {
+    let fork_block_number = 2906771;
+
+    let starknet_client = StarknetClient::new(SEPOLIA_RPC_URL.try_into().unwrap());
+    let provider = ForkedProvider::new_ephemeral(fork_block_number, starknet_client);
+
+    ////////////////////////////////////////////////////////////////////////////////////
+    // Class
+    ////////////////////////////////////////////////////////////////////////////////////
+
+    let declared_block = 2892448;
+    let class_hash = felt!("0x00e022115a73679d4e215da00f53d8f681f5c52b488bf18c71fea115e92181b1");
+
+    // class must not exist before the block it was declared in
+
+    let block_id = BlockHashOrNumber::Num(declared_block - 1);
+    let state = provider.historical(block_id).unwrap().expect("historical state must exist");
+
+    let result1 = state.class(class_hash).unwrap();
+    let result2 = state.compiled_class_hash_of_class_hash(class_hash).unwrap();
+
+    assert!(result1.is_none());
+    assert!(result2.is_none());
+
+    // class must exist at the block it was declared in
+
+    let block_id = BlockHashOrNumber::Num(declared_block);
+    let state = provider.historical(block_id).unwrap().expect("historical state must exist");
+
+    let result1 = state.class(class_hash).unwrap();
+    let result2 = state.class(class_hash).unwrap();
+
+    assert!(result1.is_some());
+    assert!(result2.is_some());
+
+    // class must exist after the block it was declared in
+
+    let block_id = BlockHashOrNumber::Num(declared_block + 1);
+    let state = provider.historical(block_id).unwrap().expect("historical state must exist");
+
+    let result1 = state.class(class_hash).unwrap();
+    let result2 = state.class(class_hash).unwrap();
+
+    assert!(result1.is_some());
+    assert!(result2.is_some());
+
+    ////////////////////////////////////////////////////////////////////////////////////
+    // Contract
+    ////////////////////////////////////////////////////////////////////////////////////
+
+    let contract_deployed_block = 2906741; // the block the contract was deployed in
+    let address = address!("0x0164b86b8fC5C0c84d3c53Bc95760F290420Ea2a32ed49A44fd046683a1CaAc2");
+
+    // contract must not exist before the block it was deployed in
+
+    let block_id = BlockHashOrNumber::Num(contract_deployed_block - 1);
+    let state = provider.historical(block_id).unwrap().expect("historical state must exist");
+
+    let result1 = state.nonce(address).unwrap();
+    let result2 = state.class_hash_of_contract(address).unwrap();
+
+    assert!(result1.is_none());
+    assert!(result2.is_none());
+
+    // contract must exist at the block it was deployed in
+
+    let block_id = BlockHashOrNumber::Num(contract_deployed_block);
+    let state = provider.historical(block_id).unwrap().expect("historical state must exist");
+
+    let result1 = state.nonce(address).unwrap();
+    let result2 = state.class_hash_of_contract(address).unwrap();
+
+    assert!(result1.is_some());
+    assert!(result2.is_some());
+
+    // contract must exist after the block it was deployed in
+
+    let block_id = BlockHashOrNumber::Num(contract_deployed_block + 1);
+    let state = provider.historical(block_id).unwrap().expect("historical state must exist");
+
+    let result1 = state.nonce(address).unwrap();
+    let result2 = state.class_hash_of_contract(address).unwrap();
+
+    assert!(result1.is_some());
+    assert!(result2.is_some());
 }

@@ -27,6 +27,7 @@ use katana_provider_api::transaction::{
     ReceiptProvider, TransactionProvider, TransactionStatusProvider, TransactionTraceProvider,
     TransactionsProviderExt,
 };
+use katana_provider_api::ProviderError;
 use katana_rpc_client::starknet::Client as StarknetClient;
 use katana_rpc_types::{GetBlockWithReceiptsResponse, RpcTxWithReceipt, StateUpdate};
 
@@ -204,7 +205,14 @@ impl<Db: Database> BlockNumberProvider for ForkedProvider<Db> {
     }
 
     fn latest_number(&self) -> ProviderResult<BlockNumber> {
-        self.local_db.latest_number()
+        match self.local_db.latest_number() {
+            Ok(num) => Ok(num),
+            // return the fork block number if local db return this error. this can only happen whne
+            // the ForkedProvider is constructed without inserting any locally produced
+            // blocks.
+            Err(ProviderError::MissingLatestBlockNumber) => Ok(self.block_id()),
+            Err(err) => Err(err),
+        }
     }
 }
 
