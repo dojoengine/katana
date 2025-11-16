@@ -1,6 +1,6 @@
 use std::str::FromStr;
 
-use anyhow::{anyhow, Result};
+use anyhow::{anyhow, Context, Result};
 use cainome::cairo_serde;
 use katana_primitives::block::{BlockHash, BlockNumber};
 use katana_primitives::class::{
@@ -82,10 +82,7 @@ pub async fn deploy_settlement_contract(
     account.set_block_id(BlockId::Tag(BlockTag::PreConfirmed));
 
     // Create a StarknetClient from the provider's URL for use with TxWaiter
-    let starknet_client = HttpClientBuilder::default()
-        .build(account.provider().url().as_ref())
-        .map(StarknetClient::new)
-        .map_err(|e| anyhow!("failed to build Starknet RPC client: {e}"))?;
+    let starknet_client = StarknetClient::new(account.provider().url().clone());
 
     let mut sp = Spinner::new(spinners::Dots, "", Color::Blue);
 

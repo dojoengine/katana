@@ -17,7 +17,6 @@ katana-primitives.workspace = true
 katana-genesis = { workspace = true, optional = true }
 katana-provider = { workspace = true, features = [ "test-utils" ] }
 katana-rpc-api = { workspace = true, features = [ "client" ] }
-katana-rpc-client.workspace = true
 katana-rpc-types.workspace = true
 katana-rpc-types-builder.workspace = true
 katana-tasks.workspace = true
@@ -26,7 +25,6 @@ katana-tracing.workspace = true
 
 anyhow.workspace = true
 auto_impl.workspace = true
-futures.workspace = true
 http.workspace = true
 jsonrpsee = { workspace = true, features = [ "client", "server" ] }
 metrics.workspace = true

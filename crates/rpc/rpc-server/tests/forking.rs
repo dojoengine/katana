@@ -10,7 +10,6 @@ use katana_primitives::transaction::TxHash;
 use katana_primitives::{felt, Felt};
 use katana_rpc_api::error::starknet::StarknetApiError;
 use katana_rpc_client::starknet::Client as StarknetClient;
-use katana_rpc_server::HttpClient;
 use katana_rpc_types::{
     BlockNumberResponse, EventFilter, GetBlockWithReceiptsResponse, GetBlockWithTxHashesResponse,
     MaybePreConfirmedBlock,
@@ -102,7 +101,7 @@ async fn can_fork() -> Result<()> {
     let chain = provider.chain_id().await?;
 
     assert_eq!(chain, SEPOLIA_CHAIN_ID);
-    assert_eq!(block_number, FORK_BLOCK_NUMBER + 10);
+    assert_eq!(block_number, FORK_BLOCK_NUMBER + 11); // fork block + genesis + 10 blocks
 
     Ok(())
 }
@@ -408,7 +407,7 @@ async fn get_transactions() -> Result<()> {
 #[case(BlockIdOrTag::Hash(felt!("0x208950cfcbba73ecbda1c14e4d58d66a8d60655ea1b9dcf07c16014ae8a93cd")))]
 async fn get_events_partially_from_forked(#[case] block_id: BlockIdOrTag) -> Result<()> {
     let (_sequencer, provider, _) = setup_test().await;
-    let forked_provider = StarknetClient::new(HttpClient::builder().build(SEPOLIA_URL).unwrap());
+    let forked_provider = StarknetClient::new(SEPOLIA_URL.try_into().unwrap());
 
     // -----------------------------------------------------------------------
     // Fetch events partially from forked block.
@@ -453,7 +452,7 @@ async fn get_events_partially_from_forked(#[case] block_id: BlockIdOrTag) -> Res
 #[case(BlockIdOrTag::Hash(felt!("0x208950cfcbba73ecbda1c14e4d58d66a8d60655ea1b9dcf07c16014ae8a93cd")))]
 async fn get_events_all_from_forked(#[case] block_id: BlockIdOrTag) {
     let (_sequencer, provider, _) = setup_test().await;
-    let forked_provider = StarknetClient::new(HttpClient::builder().build(SEPOLIA_URL).unwrap());
+    let forked_provider = StarknetClient::new(SEPOLIA_URL.try_into().unwrap());
 
     // -----------------------------------------------------------------------
     // Fetch events from the forked block (ie `FORK_BLOCK_NUMBER`) only.
@@ -553,7 +552,7 @@ async fn get_events_pending_exhaustive() {
 #[case(BlockIdOrTag::Hash(felt!("0x208950cfcbba73ecbda1c14e4d58d66a8d60655ea1b9dcf07c16014ae8a93cd")))] // FORK_BLOCK_NUMBER hash
 async fn get_events_forked_and_local_boundary_exhaustive(#[case] block_id: BlockIdOrTag) {
     let (_sequencer, provider, local_only_data) = setup_test().await;
-    let forked_provider = StarknetClient::new(HttpClient::builder().build(SEPOLIA_URL).unwrap());
+    let forked_provider = StarknetClient::new(SEPOLIA_URL.try_into().unwrap());
 
     // -----------------------------------------------------------------------
     // Get events from that cross the boundaries between forked and local chain block.
@@ -594,8 +593,8 @@ async fn get_events_forked_and_local_boundary_exhaustive(#[case] block_id: Block
         let (block_number, block_hash) = block;
 
         assert_eq!(event.transaction_hash, *tx);
-        assert_eq!(event.block_hash, Some(*block_hash));
         assert_eq!(event.block_number, Some(*block_number));
+        assert_eq!(event.block_hash, Some(*block_hash));
     }
 }
 
@@ -605,7 +604,7 @@ async fn get_events_forked_and_local_boundary_exhaustive(#[case] block_id: Block
 #[case(BlockIdOrTag::Hash(felt!("0x4a6a79bfefceb03af4f78758785b0c40ddf9f757e9a8f72f01ecb0aad11e298")))] // FORK_BLOCK_NUMBER - 1 hash
 async fn get_events_forked_and_local_boundary_non_exhaustive(#[case] block_id: BlockIdOrTag) {
     let (_sequencer, provider, _) = setup_test().await;
-    let forked_provider = StarknetClient::new(HttpClient::builder().build(SEPOLIA_URL).unwrap());
+    let forked_provider = StarknetClient::new(SEPOLIA_URL.try_into().unwrap());
 
     // -----------------------------------------------------------------------
     // Get events that cross the boundaries between forked and local chain block, but

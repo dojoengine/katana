@@ -29,6 +29,7 @@ use katana_rpc_types::{
     CallResponse, EstimateFeeSimulationFlag, EventFilter, FeeEstimate, FunctionCall,
     ResultPageRequest, SimulationFlag, SyncingResponse, TxStatus,
 };
+use url::Url;
 
 type Result<T> = std::result::Result<T, Error>;
 
@@ -38,7 +39,11 @@ pub struct Client {
 }
 
 impl Client {
-    pub fn new(client: HttpClient) -> Self {
+    pub fn new(url: Url) -> Self {
+        Client::new_with_client(HttpClient::builder().build(url).unwrap())
+    }
+
+    pub fn new_with_client(client: HttpClient) -> Self {
         Client { client }
     }
 

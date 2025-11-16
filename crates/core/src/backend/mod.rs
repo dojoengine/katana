@@ -223,6 +223,8 @@ impl<EF: ExecutorFactory> Backend<EF> {
         // check whether the genesis block has been initialized
         let local_hash = provider.block_hash_by_num(chain_spec.genesis.number)?;
 
+        // NOTE: right now forking mode is not persistent, both `local_hash.is_some()` and
+        // `is_forking` can never be true at the same time.
         if local_hash.is_some() && !is_forking {
             let local_hash = local_hash.unwrap();
 

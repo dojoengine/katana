@@ -218,15 +218,15 @@ impl<Db: Database> BlockHashProvider for ForkedProvider<Db> {
             return Ok(Some(hash));
         }
 
-        if dbg!(num > self.block_id()) {
+        if num > self.block_id() {
             return Ok(None);
         }
 
-        if let Some(hash) = dbg!(self.fork_db.db.block_hash_by_num(num)?) {
+        if let Some(hash) = self.fork_db.db.block_hash_by_num(num)? {
             return Ok(Some(hash));
         }
 
-        if dbg!(self.fork_db.fetch_historical_blocks(num.into())?) {
+        if self.fork_db.fetch_historical_blocks(num.into())? {
             let num = self.fork_db.db.block_hash_by_num(num)?.unwrap();
             Ok(Some(num))
         } else {
@@ -284,7 +284,7 @@ impl<Db: Database> BlockProvider for ForkedProvider<Db> {
             return Ok(Some(value));
         }
 
-        if self.fork_db.fetch_historical_blocks(id)? {
+        if dbg!(self.fork_db.fetch_historical_blocks(id)?) {
             let value = self.fork_db.db.block(id)?.unwrap();
             Ok(Some(value))
         } else {
@@ -335,7 +335,7 @@ impl<Db: Database> BlockStatusProvider for ForkedProvider<Db> {
             return Ok(Some(value));
         }
 
-        if self.fork_db.fetch_historical_blocks(id)? {
+        if dbg!(self.fork_db.fetch_historical_blocks(id)?) {
             let value = self.fork_db.db.block_status(id)?.unwrap();
             Ok(Some(value))
         } else {

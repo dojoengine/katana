@@ -249,19 +249,23 @@ impl<Db: Database> BlockStatusProvider for DbProvider<Db> {
     fn block_status(&self, id: BlockHashOrNumber) -> ProviderResult<Option<FinalityStatus>> {
         let db_tx = self.0.tx()?;
 
-        let block_num = match id {
-            BlockHashOrNumber::Num(num) => Some(num),
-            BlockHashOrNumber::Hash(hash) => self.block_number_by_hash(hash)?,
-        };
+        match id {
+            BlockHashOrNumber::Num(num) => {
+                let status = db_tx.get::<tables::BlockStatusses>(num)?;
+                db_tx.commit()?;
+                Ok(status)
+            }
 
-        if let Some(block_num) = block_num {
-            let res = db_tx.get::<tables::BlockStatusses>(block_num)?;
-            let status = res.ok_or(ProviderError::MissingBlockStatus(block_num))?;
-
-            db_tx.commit()?;
-            Ok(Some(status))
-        } else {
-            Ok(None)
+            BlockHashOrNumber::Hash(hash) => {
+                if let Some(num) = self.block_number_by_hash(hash)? {
+                    let res = db_tx.get::<tables::BlockStatusses>(num)?;
+                    let status = res.ok_or(ProviderError::MissingBlockStatus(num))?;
+                    db_tx.commit()?;
+                    Ok(Some(status))
+                } else {
+                    Ok(None)
+                }
+            }
         }
     }
 }

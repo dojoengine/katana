@@ -55,7 +55,6 @@ use crate::{utils, DEFAULT_ESTIMATE_FEE_MAX_CONCURRENT_REQUESTS};
 
 mod blockifier;
 mod config;
-pub mod forking;
 mod list;
 mod pending;
 mod read;
