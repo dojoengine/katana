@@ -69,16 +69,20 @@ async fn setup_test_inner(no_mining: bool) -> (TestNode, StarknetClient, LocalTe
             let res = contract.transfer(&Felt::ONE, &amount).send().await.unwrap();
             let _ = katana_utils::TxWaiter::new(res.transaction_hash, &provider).await.unwrap();
 
-            let block_num = FORK_BLOCK_NUMBER + i;
+            let block_num = (FORK_BLOCK_NUMBER + 1) + i; // plus 1 because fork genesis is FORK_BLOCK_NUMBER + 1
 
             let block_id = BlockIdOrTag::Number(block_num);
             let block = provider.get_block_with_tx_hashes(block_id).await.unwrap();
             let block_hash = match block {
-                GetBlockWithTxHashesResponse::Block(b) => b.block_hash,
+                GetBlockWithTxHashesResponse::Block(b) => {
+                    assert_eq!(b.transactions.len(), 1);
+                    b.block_hash
+                }
+
                 _ => panic!("Expected a block"),
             };
 
-            txs_vector.push(((FORK_BLOCK_NUMBER + i, block_hash), res.transaction_hash));
+            txs_vector.push((((FORK_BLOCK_NUMBER + 1) + i, block_hash), res.transaction_hash));
         }
     }
 
@@ -430,7 +434,7 @@ async fn get_events_partially_from_forked(#[case] block_id: BlockIdOrTag) -> Res
     let forked_events = result.events;
 
     let token = MaybeForkedContinuationToken::parse(&result.continuation_token.unwrap())?;
-    assert_matches!(token, MaybeForkedContinuationToken::Forked(_));
+    assert_matches!(token, MaybeForkedContinuationToken::Token(_));
 
     for (a, b) in events.iter().zip(forked_events) {
         assert_eq!(a.block_number, Some(FORK_BLOCK_NUMBER));
@@ -632,7 +636,7 @@ async fn get_events_forked_and_local_boundary_non_exhaustive(#[case] block_id: B
     let katana_events = result.events;
 
     let token = MaybeForkedContinuationToken::parse(&result.continuation_token.unwrap()).unwrap();
-    assert_matches!(token, MaybeForkedContinuationToken::Forked(_));
+    assert_matches!(token, MaybeForkedContinuationToken::Token(_));
     similar_asserts::assert_eq!(katana_events, forked_events);
 }
 
