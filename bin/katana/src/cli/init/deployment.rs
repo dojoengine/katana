@@ -9,7 +9,6 @@ use katana_primitives::class::{
 };
 use katana_primitives::{felt, ContractAddress, Felt};
 use katana_rpc_client::starknet::Client as StarknetClient;
-use katana_rpc_client::HttpClientBuilder;
 use katana_rpc_types::class::Class;
 use katana_utils::{TxWaiter, TxWaitingError};
 use piltover::{AppchainContract, AppchainContractReader, ProgramInfo};
@@ -82,10 +81,7 @@ pub async fn deploy_settlement_contract(
     account.set_block_id(BlockId::Tag(BlockTag::PreConfirmed));
 
     // Create a StarknetClient from the provider's URL for use with TxWaiter
-    let starknet_client = HttpClientBuilder::default()
-        .build(account.provider().url().as_ref())
-        .map(StarknetClient::new)
-        .map_err(|e| anyhow!("failed to build Starknet RPC client: {e}"))?;
+    let starknet_client = StarknetClient::new(account.provider().url().clone());
 
     let mut sp = Spinner::new(spinners::Dots, "", Color::Blue);
 

@@ -10,6 +10,7 @@ katana-primitives.workspace = true
 katana-rpc-api = { workspace = true, features = [ "client" ] }
 katana-rpc-types.workspace = true
 
+url.workspace = true
 jsonrpsee = { workspace = true, features = [ "client" ] }
 thiserror.workspace = true
 

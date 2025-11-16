@@ -3,6 +3,7 @@ use std::num::NonZeroU128;
 use std::str::FromStr;
 
 use num_traits::ToPrimitive;
+use starknet::core::types::ResourcePrice;
 use starknet::core::utils::cairo_short_string_to_felt;
 use starknet::macros::short_string;
 
@@ -155,6 +156,12 @@ impl GasPrice {
     }
 }
 
+impl Default for GasPrice {
+    fn default() -> Self {
+        Self::MIN
+    }
+}
+
 impl Display for GasPrice {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         write!(f, "{:#x}", self.0)
@@ -194,6 +201,12 @@ impl TryFrom<Felt> for GasPrice {
             Some(non_zero) => Ok(Self(non_zero)),
             None => Err(GasPriceTryFromError::IsZero),
         }
+    }
+}
+
+impl From<GasPrice> for Felt {
+    fn from(value: GasPrice) -> Self {
+        value.get().into()
     }
 }
 
@@ -239,6 +252,21 @@ impl GasPrices {
 impl Default for GasPrices {
     fn default() -> Self {
         Self::MIN
+    }
+}
+
+impl From<GasPrices> for ResourcePrice {
+    fn from(value: GasPrices) -> Self {
+        ResourcePrice { price_in_fri: value.strk.into(), price_in_wei: value.eth.into() }
+    }
+}
+
+impl From<ResourcePrice> for GasPrices {
+    fn from(value: ResourcePrice) -> Self {
+        GasPrices {
+            eth: value.price_in_wei.try_into().unwrap_or_default(),
+            strk: value.price_in_fri.try_into().unwrap_or_default(),
+        }
     }
 }
 

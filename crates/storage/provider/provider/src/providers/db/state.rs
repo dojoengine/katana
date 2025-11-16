@@ -406,7 +406,10 @@ where
     }
 
     fn state_root(&self) -> ProviderResult<katana_primitives::Felt> {
-        let header = self.tx.get::<tables::Headers>(self.block_number)?.expect("should exist");
+        let header = self
+            .tx
+            .get::<tables::Headers>(self.block_number)?
+            .ok_or(ProviderError::MissingBlockHeader(self.block_number))?;
         let header: katana_primitives::block::Header = header.into();
         Ok(header.state_root)
     }
