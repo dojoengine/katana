@@ -24,7 +24,6 @@ pub mod fork {
 
     use katana_provider::providers::fork::ForkedProvider;
     use katana_rpc_client::starknet::Client as StarknetClient;
-    use katana_rpc_client::HttpClientBuilder;
     use katana_runner::KatanaRunner;
     use lazy_static::lazy_static;
 

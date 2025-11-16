@@ -754,7 +754,6 @@ pub(crate) mod test_utils {
     use std::sync::mpsc::{sync_channel, SyncSender};
     use std::time::Duration;
 
-    use katana_rpc_client::HttpClientBuilder;
     use serde_json::{json, Value};
     use tokio::io::{AsyncReadExt, AsyncWriteExt};
     use tokio::net::TcpListener;
@@ -764,7 +763,7 @@ pub(crate) mod test_utils {
 
     pub fn create_forked_backend(rpc_url: &str) -> Backend {
         let url = Url::parse(rpc_url).expect("valid url");
-        let provider = StarknetClient::new(HttpClientBuilder::new().build(url).unwrap());
+        let provider = StarknetClient::new(url);
         Backend::new(provider).unwrap()
     }
 
@@ -773,7 +772,7 @@ pub(crate) mod test_utils {
         max_concurrent_requests: usize,
     ) -> Backend {
         let url = Url::parse(rpc_url).expect("valid url");
-        let provider = StarknetClient::new(HttpClientBuilder::new().build(url).unwrap());
+        let provider = StarknetClient::new(url);
         Backend::new_with_config(provider, max_concurrent_requests).unwrap()
     }
 
