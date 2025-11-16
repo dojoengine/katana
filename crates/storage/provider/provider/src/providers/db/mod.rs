@@ -97,20 +97,23 @@ impl<Tx: DbTx> BlockHashProvider for DbProvider<Tx> {
 
 impl<Tx: DbTx> HeaderProvider for DbProvider<Tx> {
     fn header(&self, id: BlockHashOrNumber) -> ProviderResult<Option<Header>> {
-        let num = match id {
-            BlockHashOrNumber::Num(num) => Some(num),
-            BlockHashOrNumber::Hash(hash) => self.0.get::<tables::BlockNumbers>(hash)?,
-        };
+        match id {
+            BlockHashOrNumber::Num(num) => {
+                let header = self.0.get::<tables::Headers>(num)?.map(Header::from);
+                Ok(header)
+            }
 
-        if let Some(num) = num {
-            let header = self
-                .0
-                .get::<tables::Headers>(num)?
-                .ok_or(ProviderError::MissingBlockHeader(num))?;
+            BlockHashOrNumber::Hash(hash) => {
+                if let Some(num) = self.0.get::<tables::BlockNumbers>(hash)? {
+                    let header = self.0
+                        .get::<tables::Headers>(num)?
+                        .ok_or(ProviderError::MissingBlockHeader(num))?;
 
-            Ok(Some(header.into()))
-        } else {
-            Ok(None)
+                    Ok(Some(header.into()))
+                } else {
+                    Ok(None)
+                }
+            }
         }
     }
 }
@@ -187,17 +190,21 @@ impl<Tx: DbTx> BlockProvider for DbProvider<Tx> {
 
 impl<Tx: DbTx> BlockStatusProvider for DbProvider<Tx> {
     fn block_status(&self, id: BlockHashOrNumber) -> ProviderResult<Option<FinalityStatus>> {
-        let block_num = match id {
-            BlockHashOrNumber::Num(num) => Some(num),
-            BlockHashOrNumber::Hash(hash) => self.block_number_by_hash(hash)?,
-        };
+        match id {
+            BlockHashOrNumber::Num(num) => {
+                let status = sel.0.get::<tables::BlockStatusses>(num)?;
+                Ok(status)
+            }
 
-        if let Some(block_num) = block_num {
-            let res = self.0.get::<tables::BlockStatusses>(block_num)?;
-            let status = res.ok_or(ProviderError::MissingBlockStatus(block_num))?;
-            Ok(Some(status))
-        } else {
-            Ok(None)
+            BlockHashOrNumber::Hash(hash) => {
+                if let Some(num) = self.block_number_by_hash(hash)? {
+                    let res = self.0.get::<tables::BlockStatusses>(num)?;
+                    let status = res.ok_or(ProviderError::MissingBlockStatus(num))?;
+                    Ok(Some(status))
+                } else {
+                    Ok(None)
+                }
+            }
         }
     }
 }

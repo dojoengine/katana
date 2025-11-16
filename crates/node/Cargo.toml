@@ -24,7 +24,6 @@ katana-provider.workspace = true
 katana-rpc-server.workspace = true
 katana-rpc-api.workspace = true
 katana-rpc-types.workspace = true
-katana-rpc-client.workspace = true
 katana-stage.workspace = true
 katana-tasks.workspace = true
 

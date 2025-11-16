@@ -1,10 +1,7 @@
 use std::sync::Arc;
 
 use anyhow::{bail, Context, Result};
-use katana_primitives::block::{
-    BlockHashOrNumber, BlockIdOrTag, BlockNumber, FinalityStatus, GasPrices, Header, SealedBlock,
-    SealedBlockWithStatus,
-};
+use katana_primitives::block::{BlockHashOrNumber, BlockIdOrTag, GasPrices};
 use katana_provider::api::block::{BlockIdReader, BlockProvider, BlockWriter};
 use katana_provider::api::contract::ContractClassWriter;
 use katana_provider::api::env::BlockEnvProvider;
@@ -54,7 +51,7 @@ impl StorageProvider<ForkProviderFactory<katana_db::Db>> {
         client: StarknetClient,
         fork_block: Option<BlockHashOrNumber>,
         chain: &mut katana_chain_spec::dev::ChainSpec,
-    ) -> Result<(Self, BlockNumber)> {
+    ) -> Result<Self> {
         let chain_id = client.chain_id().await.context("failed to fetch forked network id")?;
 
         // if the id is not in ASCII encoding, we display the chain id as is in hex.
@@ -84,13 +81,14 @@ impl StorageProvider<ForkProviderFactory<katana_db::Db>> {
         };
 
         let block_num = forked_block.block_number;
+        let genesis_block_num = block_num + 1;
 
         chain.id = chain_id.into();
 
         // adjust the genesis to match the forked block
         chain.genesis.timestamp = forked_block.timestamp;
-        chain.genesis.number = forked_block.block_number;
-        chain.genesis.state_root = forked_block.new_root;
+        chain.genesis.number = genesis_block_num;
+        chain.genesis.state_root = Default::default();
         chain.genesis.parent_hash = forked_block.parent_hash;
         chain.genesis.sequencer_address = forked_block.sequencer_address;
 
@@ -105,45 +103,6 @@ impl StorageProvider<ForkProviderFactory<katana_db::Db>> {
         // TODO: convert this to block number instead of BlockHashOrNumber so that it is easier to
         // check if the requested block is within the supported range or not.
         let provider_factory = ForkProviderFactory::new(db, block_num, client.clone());
-
-        // initialize parent fork block
-        //
-        // NOTE: this is just a workaround for allowing forked genesis block to be initialize using
-        // `Backend::do_mine_block`.
-        {
-            let parent_block_id = BlockIdOrTag::from(forked_block.parent_hash);
-            let parent_block = client.get_block_with_tx_hashes(parent_block_id).await?;
-
-            let GetBlockWithTxHashesResponse::Block(parent_block) = parent_block else {
-                bail!("parent block is a preconfirmed block");
-            };
-
-            let parent_block = SealedBlockWithStatus {
-                block: SealedBlock {
-                    hash: parent_block.block_hash,
-                    body: Vec::new(),
-                    header: Header {
-                        parent_hash: parent_block.parent_hash,
-                        timestamp: parent_block.timestamp,
-                        number: parent_block.block_number,
-                        state_root: parent_block.new_root,
-                        sequencer_address: parent_block.sequencer_address,
-                        ..Default::default()
-                    },
-                },
-                status: FinalityStatus::AcceptedOnL2,
-            };
-
-            provider_factory
-                .provider_mut()
-                .insert_block_with_states_and_receipts(
-                    parent_block,
-                    Default::default(),
-                    Default::default(),
-                    Default::default(),
-                )
-                .context("failed to initialize provider with the parent of the forked block")?;
-        }
 
         // update the genesis block with the forked block's data
         // we dont update the `l1_gas_price` bcs its already done when we set the `gas_prices` in
@@ -161,7 +120,7 @@ impl StorageProvider<ForkProviderFactory<katana_db::Db>> {
 
         block.header.l1_da_mode = forked_block.l1_da_mode;
 
-        Ok((Self::new(provider_factory), block_num))
+        Ok(Self::new(provider_factory))
     }
 }
 

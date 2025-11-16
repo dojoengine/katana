@@ -26,9 +26,10 @@ starknet-types-core.workspace = true
 thiserror.workspace = true
 tracing.workspace = true
 
-# fork provider only deps
+# fork provider deps
 futures.workspace = true
 tokio.workspace = true
+katana-rpc-types.workspace = true
 
 alloy-primitives = { workspace = true, optional = true }
 serde_json.workspace = true
@@ -49,4 +50,5 @@ rstest_reuse.workspace = true
 serde_json.workspace = true
 starknet.workspace = true
 tempfile.workspace = true
+tokio.workspace = true
 url.workspace = true

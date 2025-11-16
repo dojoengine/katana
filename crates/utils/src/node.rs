@@ -93,7 +93,7 @@ impl TestNode {
     /// Returns a HTTP client to the JSON-RPC server.
     pub fn starknet_rpc_client(&self) -> katana_rpc_client::starknet::Client {
         let client = self.rpc_http_client();
-        katana_rpc_client::starknet::Client::new(client)
+        katana_rpc_client::starknet::Client::new_with_client(client)
     }
 }
 

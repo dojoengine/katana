@@ -147,7 +147,6 @@ mod historical {
     ) {
     }
 
-    #[cfg(feature = "fork")]
     mod fork {
         use fixtures::fork::fork_provider_with_spawned_fork_network;
         use katana_provider::providers::fork::ForkedProvider;

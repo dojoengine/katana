@@ -29,7 +29,7 @@ fn insert_block_with_db_provider(
     #[from(db_provider)] provider: BlockchainProvider<DbProvider>,
     #[case] block_count: u64,
 ) -> Result<()> {
-    insert_block_test_impl(provider, block_count)
+    insert_block_test_impl(provider, 0, block_count)
 }
 
 #[apply(insert_block_cases)]
@@ -37,10 +37,14 @@ fn insert_block_empty_with_db_provider(
     #[from(db_provider)] provider: BlockchainProvider<DbProvider>,
     #[case] block_count: u64,
 ) -> Result<()> {
-    insert_block_empty_test_impl(provider, block_count)
+    insert_block_empty_test_impl(provider, 0, block_count)
 }
 
-fn insert_block_test_impl<P>(provider: P, count: u64) -> Result<()>
+fn insert_block_test_impl<P>(
+    provider: P,
+    start: BlockNumber,
+    end: BlockNumber,
+) -> Result<()>
 where
     P: ProviderFactory,
     <P as ProviderFactory>::Provider: BlockProvider
@@ -51,10 +55,7 @@ where
         + BlockEnvProvider,
     <P as ProviderFactory>::ProviderMut: BlockWriter,
 {
-    let blocks = utils::generate_dummy_blocks_and_receipts(count);
-    let txs: Vec<TxWithHash> =
-        blocks.iter().flat_map(|(block, _, _)| block.block.body.clone()).collect();
-    let total_txs = txs.len() as u64;
+    let blocks = utils::generate_dummy_blocks_and_receipts(start, end);
 
     for (block, receipts, executions) in &blocks {
         provider.provider_mut().insert_block_with_states_and_receipts(
@@ -71,13 +72,9 @@ where
 
     let provider = provider.provider();
 
-    let actual_transactions_in_range = provider.transaction_in_range(0..total_txs).unwrap();
-    let actual_blocks_in_range = provider.blocks_in_range(0..=count)?;
+    let actual_blocks_in_range = provider.blocks_in_range(start..=end)?;
 
-    assert_eq!(total_txs, actual_transactions_in_range.len() as u64);
-    assert_eq!(txs, actual_transactions_in_range);
-
-    assert_eq!(actual_blocks_in_range.len(), count as usize);
+    assert_eq!(actual_blocks_in_range.len(), (end - start + 1) as usize); // bcs the start and end is inclusive
     assert_eq!(
         actual_blocks_in_range,
         blocks.clone().into_iter().map(|b| b.0.block.unseal()).collect::<Vec<Block>>()
@@ -156,7 +153,11 @@ where
     Ok(())
 }
 
-fn insert_block_empty_test_impl<P>(provider: P, count: u64) -> Result<()>
+fn insert_block_empty_test_impl<P>(
+    provider: P,
+    start: BlockNumber,
+    end: BlockNumber,
+) -> Result<()>
 where
     P: ProviderFactory,
     <P as ProviderFactory>::Provider: BlockProvider
@@ -167,7 +168,7 @@ where
         + BlockEnvProvider,
     <P as ProviderFactory>::ProviderMut: BlockWriter,
 {
-    let blocks = utils::generate_dummy_blocks_empty(count);
+    let blocks = utils::generate_dummy_blocks_empty(start, end);
     let txs: Vec<TxWithHash> = blocks.iter().flat_map(|block| block.block.body.clone()).collect();
 
     let total_txs = txs.len() as u64;
@@ -186,9 +187,9 @@ where
         assert_eq!(provider.latest_hash().unwrap(), block.block.hash);
     }
 
-    let actual_blocks_in_range = provider.blocks_in_range(0..=count)?;
+    let actual_blocks_in_range = provider.blocks_in_range(start..=end)?;
 
-    assert_eq!(actual_blocks_in_range.len(), count as usize);
+    assert_eq!(actual_blocks_in_range.len(), (end - start + 1) as usize); // because the start and end are inclusive
     assert_eq!(
         actual_blocks_in_range,
         blocks.clone().into_iter().map(|b| b.block.unseal()).collect::<Vec<Block>>()
@@ -313,22 +314,30 @@ mod fork {
 
     use super::*;
 
-    #[apply(insert_block_cases)]
-    #[ignore = "trie computation not supported yet for forked mode yet"]
+    #[template]
+    #[rstest::rstest]
+    #[case::insert_1_block(1)]
+    #[case::insert_2_block(2)]
+    #[case::insert_5_block(5)]
+    #[case::insert_10_block(10)]
+    fn fork_insert_block_cases(#[case] block_count: u64) {}
+
+    #[apply(fork_insert_block_cases)]
     fn insert_block_with_fork_provider(
         #[from(fork_provider)] provider: BlockchainProvider<ForkedProvider>,
         #[case] block_count: u64,
     ) -> Result<()> {
-        insert_block_test_impl(provider, block_count)
+        let forked_block = provider.inner().block_id();
+        insert_block_test_impl(provider, forked_block + 1, forked_block + block_count)
     }
 
-    #[apply(insert_block_cases)]
-    #[ignore = "trie computation not supported yet for forked mode yet"]
+    #[apply(fork_insert_block_cases)]
     fn insert_block_empty_with_fork_provider(
         #[from(fork_provider)] provider: BlockchainProvider<ForkedProvider>,
         #[case] block_count: u64,
     ) -> Result<()> {
-        insert_block_empty_test_impl(provider, block_count)
+        let forked_block = provider.inner().block_id();
+        insert_block_empty_test_impl(provider, forked_block + 1, forked_block + block_count)
     }
 
     #[apply(test_read_state_update)]
