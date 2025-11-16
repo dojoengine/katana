@@ -41,7 +41,14 @@ where
             BlockHashOrNumber::Hash(hash) => self.local_db.block_number_by_hash(hash)?,
 
             BlockHashOrNumber::Num(num) => {
-                let latest_num = self.local_db.latest_number()?;
+                let latest_num = match self.local_db.latest_number() {
+                    Ok(num) => num,
+                    // return the fork block number if local db return this error. this can only
+                    // happen whne the ForkedProvider is constructed without
+                    // inserting any locally produced blocks.
+                    Err(ProviderError::MissingLatestBlockNumber) => self.block_id(),
+                    Err(err) => return Err(err),
+                };
 
                 match num.cmp(&latest_num) {
                     Ordering::Less => Some(num),
