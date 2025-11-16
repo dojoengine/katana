@@ -25,6 +25,7 @@ use katana_primitives::{address, Felt};
 use katana_provider::api::block::BlockWriter;
 use katana_provider::api::state::{StateFactoryProvider, StateProvider};
 use katana_provider::providers::db::DbProvider;
+use katana_provider::{DbProviderFactory, ProviderFactory};
 use starknet::macros::felt;
 
 // TODO: remove support for legacy contract declaration
@@ -71,7 +72,8 @@ pub fn state_provider(chain: &ChainSpec) -> Box<dyn StateProvider> {
     let ChainSpec::Dev(chain) = chain else { panic!("should be dev chain spec") };
 
     let states = chain.state_updates();
-    let provider = DbProvider::new_in_memory();
+    let provider_factory = DbProviderFactory::new_in_memory();
+    let provider_mut = provider_factory.provider_mut();
 
     let block = SealedBlockWithStatus {
         status: FinalityStatus::AcceptedOnL2,
@@ -82,7 +84,7 @@ pub fn state_provider(chain: &ChainSpec) -> Box<dyn StateProvider> {
         .insert_block_with_states_and_receipts(block, states, vec![], vec![])
         .expect("able to insert block");
 
-    provider.latest().unwrap()
+    provider_factory.provider().latest().unwrap()
 }
 
 // TODO: update the txs to include valid signatures

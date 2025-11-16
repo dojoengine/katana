@@ -82,10 +82,10 @@ impl Debug for ForkProviderFactory {
 }
 
 impl ForkProviderFactory {
-    pub fn new(block_id: BlockNumber, provider: StarknetClient) -> Self {
-        let backend = Backend::new(provider).expect("failed to create backend");
+    pub fn new(db: katana_db::Db, block_id: BlockNumber, starknet_client: StarknetClient) -> Self {
+        let backend = Backend::new(starknet_client).expect("failed to create backend");
 
-        let local_factory = DbProviderFactory::new_in_memory();
+        let local_factory = DbProviderFactory::new(db);
         let fork_factory = DbProviderFactory::new_in_memory();
 
         Self { local_factory, fork_factory, backend, block_id }

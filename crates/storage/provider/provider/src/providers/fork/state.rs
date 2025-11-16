@@ -57,7 +57,6 @@ impl<Tx1: DbTx, Tx2: DbTxMut> StateFactoryProvider for ForkedProvider<Tx1, Tx2> 
 
         let local_provider =
             db::state::HistoricalStateProvider::new(self.local_db.tx().clone(), block);
-        let db = self.local_db.historical(block_id)?;
 
         Ok(Some(Box::new(HistoricalStateProvider {
             local_provider,

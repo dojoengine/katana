@@ -19,6 +19,7 @@ use katana_rpc_types::GetBlockWithTxHashesResponse;
 use num_traits::ToPrimitive;
 use starknet::core::utils::parse_cairo_short_string;
 use tracing::info;
+use url::Url;
 
 pub type GenericStorageProvider =
     Arc<dyn ProviderFactory<Provider = Box<dyn DatabaseRO>, ProviderMut = Box<dyn DatabaseRW>>>;
@@ -48,10 +49,11 @@ impl StorageProvider<ForkProviderFactory> {
     /// Builds a new blockchain with a forked block.
     pub async fn new_forked(
         db: katana_db::Db,
-        client: StarknetClient,
+        fork_url: Url,
         fork_block: Option<BlockHashOrNumber>,
         chain: &mut katana_chain_spec::dev::ChainSpec,
     ) -> Result<Self> {
+        let client = StarknetClient::new(fork_url);
         let chain_id = client.chain_id().await.context("failed to fetch forked network id")?;
 
         // if the id is not in ASCII encoding, we display the chain id as is in hex.
