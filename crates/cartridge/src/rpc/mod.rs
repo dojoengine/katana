@@ -37,11 +37,13 @@ use katana_executor::ExecutorFactory;
 use katana_genesis::allocation::GenesisAccountAlloc;
 use katana_genesis::constant::DEFAULT_UDC_ADDRESS;
 use katana_pool::{TransactionPool, TxPool};
-use katana_primitives::chain::ChainId;
 use katana_primitives::contract::Nonce;
 use katana_primitives::da::DataAvailabilityMode;
 use katana_primitives::fee::{AllResourceBoundsMapping, ResourceBoundsMapping};
+use katana_primitives::genesis::allocation::GenesisAccountAlloc;
 use katana_primitives::transaction::{ExecutableTx, ExecutableTxWithHash, InvokeTx, InvokeTxV3};
+use katana_primitives::transaction::{ExecutableTx, ExecutableTxWithHash, InvokeTx, InvokeTxV3};
+use katana_primitives::{ContractAddress, Felt};
 use katana_primitives::{ContractAddress, Felt};
 use katana_provider::api::state::{StateFactoryProvider, StateProvider};
 use katana_provider::traits::state::{StateFactoryProvider, StateProvider};
@@ -62,7 +64,6 @@ use starknet::signers::{LocalWallet, Signer, SigningKey};
 use starknet_crypto::pedersen_hash;
 use tracing::{debug, info};
 use types::OutsideExecution;
-use url::Url;
 
 mod api;
 pub mod types;
@@ -70,10 +71,6 @@ pub mod types;
 pub use api::*;
 
 use crate::utils::encode_calls;
-use crate::vrf::{
-    VrfContext, CARTRIDGE_VRF_CLASS_HASH, CARTRIDGE_VRF_DEFAULT_PRIVATE_KEY, CARTRIDGE_VRF_SALT,
-};
-use crate::Client as CartridgeClient;
 
 #[allow(missing_debug_implementations)]
 pub struct CartridgeApi<EF: ExecutorFactory> {
@@ -82,30 +79,9 @@ pub struct CartridgeApi<EF: ExecutorFactory> {
     pool: TxPool,
 }
 
-impl<EF> Clone for CartridgeApi<EF>
-where
-    EF: ExecutorFactory,
-{
-    fn clone(&self) -> Self {
-        Self {
-            task_spawner: self.task_spawner.clone(),
-            backend: self.backend.clone(),
-            pool: self.pool.clone(),
-        }
-    }
-}
-
 impl<EF: ExecutorFactory> CartridgeApi<EF> {
-    pub fn new(backend: Arc<Backend<EF>>, pool: TxPool, task_spawner: TaskSpawner) -> Self {
-        // Pulling the paymaster address merely to print the VRF contract address.
-        let (pm_address, _) = backend
-            .chain_spec
-            .genesis()
-            .accounts()
-            .nth(0)
-            .expect("Cartridge paymaster account should exist");
-
-        Self { task_spawner, backend, pool }
+    pub fn new(backend: Arc<Backend<EF>>, pool: TxPool) -> Self {
+        Self { backend, pool }
     }
 
     fn nonce(&self, address: ContractAddress) -> Result<Option<Nonce>, StarknetApiError> {
@@ -154,7 +130,7 @@ impl<EF: ExecutorFactory> CartridgeApi<EF> {
             };
 
             // Get the current nonce of the paymaster account.
-            let mut nonce = this.nonce(*pm_address)?.unwrap_or_default();
+            let nonce = this.nonce(*pm_address)?.unwrap_or_default();
 
             let mut inner_calldata = OutsideExecution::cairo_serialize(&outside_execution);
             inner_calldata.extend(Vec::<Felt>::cairo_serialize(&signature));
@@ -224,6 +200,12 @@ impl<EF: ExecutorFactory> CartridgeApi<EF> {
                 Err(StarknetApiError::unexpected(format!("internal task execution failed: {err}")))
             }
         }
+    }
+}
+
+impl<EF: ExecutorFactory> Clone for CartridgeApi<EF> {
+    fn clone(&self) -> Self {
+        Self { pool: self.pool.clone(), backend: self.backend.clone() }
     }
 }
 

@@ -233,16 +233,11 @@ where
                 "Cartridge API should be enabled when paymaster is set"
             );
 
-            let api = CartridgeApi::new(
-                backend.clone(),
-                block_producer.clone(),
-                pool.clone(),
-                paymaster.cartridge_api_url.clone(),
-            );
+            let api = CartridgeApi::new(backend.clone(), pool.clone());
 
             rpc_modules.merge(CartridgeApiServer::into_rpc(api))?;
 
-            // build cartridge paymaster
+            // build cartridge client
 
             let cartridge_api_client = cartridge::Client::new(paymaster.cartridge_api_url.clone());
 
