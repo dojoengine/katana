@@ -2,7 +2,7 @@ use std::cmp::Ordering;
 use std::sync::Arc;
 
 use katana_db::abstraction::{
-    Database, DbCursorMut, DbDupSortCursor, DbDupSortCursorMut, DbTx, DbTxMut, DbTxMutRef,
+    Database, DbCursorMut, DbDupSortCursor, DbTx, DbTxMut,
 };
 use katana_db::models::contract::{ContractClassChange, ContractNonceChange};
 use katana_db::models::storage::{ContractStorageEntry, ContractStorageKey, StorageEntry};
@@ -11,7 +11,6 @@ use katana_fork::BackendClient;
 use katana_primitives::block::{BlockHashOrNumber, BlockNumber};
 use katana_primitives::class::{ClassHash, CompiledClassHash, ContractClass};
 use katana_primitives::contract::{GenericContractInfo, Nonce, StorageKey, StorageValue};
-use katana_primitives::transaction::Tx;
 use katana_primitives::{ContractAddress, Felt};
 use katana_provider_api::block::BlockNumberProvider;
 use katana_provider_api::contract::{ContractClassProvider, ContractClassWriter};

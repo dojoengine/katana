@@ -20,7 +20,6 @@ use katana_provider_api::block::{
     BlockHashProvider, BlockNumberProvider, BlockProvider, BlockStatusProvider, BlockWriter,
     HeaderProvider,
 };
-use starknet::providers::Url;
 use katana_provider_api::env::BlockEnvProvider;
 use katana_provider_api::stage::StageCheckpointProvider;
 use katana_provider_api::state_update::StateUpdateProvider;
@@ -29,6 +28,7 @@ use katana_provider_api::transaction::{
     TransactionsProviderExt,
 };
 use katana_rpc_client::starknet::Client as StarknetClient;
+use starknet::providers::Url;
 
 use super::db::{self, DbProvider};
 use crate::ProviderResult;
@@ -49,7 +49,12 @@ impl<Db: Database> ForkedProvider<Db> {
     /// - `db`: The database to use for the provider.
     /// - `block_id`: The block number or hash to use as the fork point.
     /// - `provider`: The Starknet JSON-RPC client to use for the provider.
-    pub fn new(db: Db, block_id: BlockHashOrNumber, provider: StarknetClient, fork_url: Url) -> Self {
+    pub fn new(
+        db: Db,
+        block_id: BlockHashOrNumber,
+        provider: StarknetClient,
+        fork_url: Url,
+    ) -> Self {
         let backend = Backend::new(provider.clone(), block_id).expect("failed to create backend");
         let db_provider = Arc::new(DbProvider::new(db));
         Self { provider: db_provider, backend, fork_url }
@@ -66,14 +71,14 @@ impl<Db: Database> ForkedProvider<Db> {
 
 impl ForkedProvider<katana_db::Db> {
     /// Creates a new [`ForkedProvider`] using an ephemeral database.
-    pub fn new_ephemeral(block_id: BlockHashOrNumber, provider: StarknetClient, fork_url: Url) -> Self {
+    pub fn new_ephemeral(
+        block_id: BlockHashOrNumber,
+        provider: StarknetClient,
+        fork_url: Url,
+    ) -> Self {
         let backend = Backend::new(provider.clone(), block_id).expect("failed to create backend");
         let db_provider = Arc::new(DbProvider::new_in_memory());
-        Self { 
-            provider: db_provider, 
-            backend, 
-            fork_url,
-        }
+        Self { provider: db_provider, backend, fork_url }
     }
 }
 

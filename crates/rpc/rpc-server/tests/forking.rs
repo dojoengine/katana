@@ -8,6 +8,7 @@ use katana_primitives::chain::NamedChainId;
 use katana_primitives::event::MaybeForkedContinuationToken;
 use katana_primitives::transaction::TxHash;
 use katana_primitives::{felt, Felt};
+use katana_provider::api::state::StateProvider;
 use katana_rpc_api::error::starknet::StarknetApiError;
 use katana_rpc_client::starknet::Client as StarknetClient;
 use katana_rpc_server::HttpClient;
@@ -17,7 +18,6 @@ use katana_rpc_types::{
 };
 use katana_utils::TestNode;
 use url::Url;
-use katana_provider::api::state::StateProvider;
 
 mod common;
 

@@ -33,6 +33,7 @@ rand.workspace = true
 shellexpand = "3.1.0"
 spinoff.workspace = true
 starknet.workspace = true
+starknet-contract = { git = "https://github.com/kariy/starknet-rs", rev = "2ef3088" }
 strum_macros.workspace = true
 thiserror.workspace = true
 tokio.workspace = true
@@ -70,3 +71,11 @@ init-custom-settlement-chain = [  ]
 init-slot = [  ]
 jemalloc = [  ]
 native = [ "katana-cli/native" ]
+
+[[bin]]
+name = "test_fork_transaction"
+path = "../../scripts/test_fork_transaction.rs"
+
+[[bin]]
+name = "deploy_call_test"
+path = "../../scripts/deploy_call_test.rs"

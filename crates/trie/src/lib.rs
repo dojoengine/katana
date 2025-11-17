@@ -78,7 +78,6 @@ where
     pub fn root(&self, id: &[u8]) -> Felt {
         self.storage.root_hash(id).expect("failed to get trie root")
     }
-
 }
 
 impl<DB, Hash> PartialBonsaiTrie<DB, Hash>
@@ -102,7 +101,6 @@ where
         self.storage.commit(id).expect("failed to commit trie");
     }
 }
-
 
 impl<DB, Hash> BonsaiTrie<DB, Hash>
 where
@@ -133,8 +131,6 @@ where
         self.storage.commit(id).expect("failed to commit trie");
     }
 }
-
-
 
 impl<DB, Hash> std::fmt::Debug for BonsaiTrie<DB, Hash>
 where

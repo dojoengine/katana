@@ -28,7 +28,6 @@ use katana_trie::{
 };
 use parking_lot::RwLock;
 use rayon::prelude::*;
-use starknet::macros::short_string;
 use starknet_types_core::hash::{self, StarkHash};
 use tracing::info;
 
@@ -252,33 +251,10 @@ impl<EF: ExecutorFactory> Backend<EF> {
                 // In forked mode, we need to insert the forked block into local database
                 // The genesis block in chain_spec is already set to the forked block data
                 info!("Initializing forked genesis block from RPC data");
-
-                // let block = chain_spec.block().seal();
                 let block = chain_spec.block();
-                // let mut block =
-                //     SealedBlockWithStatus { block, status: FinalityStatus::AcceptedOnL1 };
-                let block_number = block.header.number;
                 let empty_states = StateUpdatesWithClasses::default();
 
-                // let genesis_state_root = self
-                //     .blockchain
-                //     .provider()
-                //     .compute_state_root(block_number, &empty_states.state_updates)?;
-                // println!("genesis_state_root: {:?}", genesis_state_root);
-
-                // block.header.state_root = genesis_state_root;
-
-                // Insert the forked block with empty state (no dev accounts)
-                // State will be fetched from RPC as needed
-
-                // provider.insert_block_with_states_and_receipts(
-                //     block,
-                //     empty_states,
-                //     vec![],
-                //     vec![],
-                // )?;
-
-                let outcome = self.do_mine_block(
+                self.do_mine_block(
                     &BlockEnv {
                         number: block.header.number,
                         timestamp: block.header.timestamp,
@@ -295,32 +271,20 @@ impl<EF: ExecutorFactory> Backend<EF> {
             } else {
                 // Initialize the dev genesis block with dev accounts
                 let block = chain_spec.block();
-                // let block = SealedBlockWithStatus { block, status: FinalityStatus::AcceptedOnL1 };
                 let states = chain_spec.state_updates();
-
-                let mut block = block;
                 let block_number = block.header.number;
 
-                let class_trie_root = provider
+                provider
                     .trie_insert_declared_classes(
                         block_number,
                         &states.state_updates.declared_classes,
                     )
                     .context("failed to update class trie")?;
 
-                let contract_trie_root = provider
+                provider
                     .trie_insert_contract_updates(block_number, &states.state_updates)
                     .context("failed to update contract trie")?;
 
-                // let genesis_state_root = hash::Poseidon::hash_array(&[
-                //     short_string!("STARKNET_STATE_V0"),
-                //     contract_trie_root,
-                //     class_trie_root,
-                // ]);
-
-                // block.header.state_root = genesis_state_root;
-
-                // provider.insert_block_with_states_and_receipts(block, states, vec![], vec![])?;
                 let outcome = self.do_mine_block(
                     &BlockEnv {
                         number: block.header.number,

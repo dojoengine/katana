@@ -1,10 +1,12 @@
 use jsonrpsee::core::client::Error as JsonRpcseError;
+use jsonrpsee::http_client::HttpClientBuilder;
 use katana_primitives::block::{BlockHash, BlockIdOrTag, BlockNumber};
 use katana_primitives::contract::ContractAddress;
 use katana_primitives::transaction::TxHash;
 use katana_primitives::Felt;
 use katana_provider::ProviderError;
 use katana_rpc_api::error::starknet::StarknetApiError;
+use katana_rpc_api::error::starknet::UnexpectedErrorData;
 use katana_rpc_client::starknet::Client;
 use katana_rpc_types::block::{
     GetBlockWithReceiptsResponse, GetBlockWithTxHashesResponse, MaybePreConfirmedBlock,
@@ -14,8 +16,6 @@ use katana_rpc_types::receipt::{ReceiptBlockInfo, TxReceiptWithBlockInfo};
 use katana_rpc_types::state_update::StateUpdate;
 use katana_rpc_types::transaction::RpcTxWithHash;
 use katana_rpc_types::TxStatus;
-use jsonrpsee::http_client::HttpClientBuilder;
-use katana_rpc_api::error::starknet::UnexpectedErrorData;
 
 #[derive(Debug, thiserror::Error)]
 pub enum Error {
@@ -63,11 +63,11 @@ impl ForkedClient {
 }
 
 impl ForkedClient {
-       /// Creates a new forked client from the given HTTP URL and block number.
-       pub fn new_http(url: impl Into<String>, block: BlockNumber) -> Self {
+    /// Creates a new forked client from the given HTTP URL and block number.
+    pub fn new_http(url: impl Into<String>, block: BlockNumber) -> Self {
         let url_str = url.into();
-        Self { 
-            client: Client::new(HttpClientBuilder::new().build(&url_str).unwrap()), 
+        Self {
+            client: Client::new(HttpClientBuilder::new().build(&url_str).unwrap()),
             block,
             url: Some(url_str),
         }
@@ -294,7 +294,9 @@ impl From<Error> for StarknetApiError {
                 StarknetApiError::unexpected(value)
             }
             Error::JsonRpc(json_rpc_error) => {
-                StarknetApiError::UnexpectedError(UnexpectedErrorData { reason: json_rpc_error.to_string() })
+                StarknetApiError::UnexpectedError(UnexpectedErrorData {
+                    reason: json_rpc_error.to_string(),
+                })
             }
             Error::KatanaProvider(provider_error) => provider_error.into(),
         }
@@ -303,12 +305,20 @@ impl From<Error> for StarknetApiError {
 
 #[cfg(test)]
 mod tests {
+    use crate::starknet::forking::BlockNumber;
+    use crate::starknet::forking::Client;
+    use crate::starknet::forking::Error;
+    use crate::starknet::ForkedClient;
     use jsonrpsee::http_client::HttpClientBuilder;
+    use katana_core::service::block_producer::IntervalBlockProducer;
+    use katana_primitives::class::ClassHash;
     use katana_primitives::felt;
     use katana_primitives::state::StateUpdates;
-    use katana_provider::providers::fork::ForkedProvider;
+    use katana_primitives::ContractAddress;
+    use katana_primitives::Felt;
     use katana_provider::api::block::BlockNumberProvider;
     use katana_provider::api::trie::TrieWriter;
+    use katana_provider::providers::fork::ForkedProvider;
     use katana_utils::node::test_config_forking;
     use katana_utils::TestNode;
     use proptest::arbitrary::any;
@@ -322,14 +332,6 @@ mod tests {
     use std::collections::BTreeSet;
     use std::sync::Arc;
     use url::Url;
-    use crate::starknet::forking::BlockNumber;
-    use crate::starknet::ForkedClient;
-    use crate::starknet::forking::Client;
-    use katana_primitives::Felt;
-    use katana_core::service::block_producer::IntervalBlockProducer;
-    use crate::starknet::forking::Error;
-    use katana_primitives::class::ClassHash;
-    use katana_primitives::ContractAddress;
 
     // const SEPOLIA_URL: &str = "https://api.cartridge.gg/x/starknet/sepolia";
     const SEPOLIA_URL: &str = "https://rpc.starknet-testnet.lava.build:443";
@@ -371,34 +373,15 @@ mod tests {
         let url = Url::parse(&url).unwrap();
 
         let block_number = provider.latest_number().unwrap();
-        println!("Block number from provider: {:?}", block_number);
 
         // Generate random state updates
         let state_updates = setup_mainnet_updates_randomized(5);
-
-        println!("📊 Enhanced state updates with {} contracts, {} storage entries, {} nonces, {} declared classes, {} deprecated classes, {} replaced classes", 
-            state_updates.deployed_contracts.len(),
-            state_updates.storage_updates.values().map(|s| s.len()).sum::<usize>(),
-            state_updates.nonce_updates.len(),
-            state_updates.declared_classes.len(),
-            state_updates.deprecated_declared_classes.len(),
-            state_updates.replaced_classes.len()
-        );
 
         let mainnet_provider = provider;
         //init first state for mainnet
         mainnet_provider.compute_state_root(block_number, &state_updates).unwrap();
 
         let fork_minimal_updates = setup_mainnet_updates_randomized(5);
-
-        println!("📊 Minimal fork updates with {} contracts, {} storage entries, {} nonces, {} declared classes, {} deprecated classes, {} replaced classes", 
-            fork_minimal_updates.deployed_contracts.len(),
-            fork_minimal_updates.storage_updates.values().map(|s| s.len()).sum::<usize>(),
-            fork_minimal_updates.nonce_updates.len(),
-            fork_minimal_updates.declared_classes.len(),
-            fork_minimal_updates.deprecated_declared_classes.len(),
-            fork_minimal_updates.replaced_classes.len()
-        );
 
         let db = katana_db::Db::in_memory().unwrap();
         let starknet_rpc_client = sequencer.starknet_rpc_client();
@@ -411,23 +394,16 @@ mod tests {
 
         let state_root =
             forked_provider.compute_state_root(block_number, &fork_minimal_updates).unwrap();
-        println!("Forked state root: {:?}", state_root);
 
         let mainnet_state_root_same_updates =
             mainnet_provider.compute_state_root(block_number, &fork_minimal_updates).unwrap();
-        println!(
-            "Mainnet state root same updates to compare: {:?}",
-            mainnet_state_root_same_updates
-        );
 
-        if state_root == mainnet_state_root_same_updates {
-            println!("✅ State roots match!");
-        } else {
-            println!("❌ State roots do NOT match!");
-        }
-        assert!(
-            state_root == mainnet_state_root_same_updates,
-            "State roots do not match on first run"
+        assert_eq!(
+            state_root,
+            mainnet_state_root_same_updates,
+            "State roots do not match on first run: fork={:?}, mainnet={:?}",
+            state_root,
+            mainnet_state_root_same_updates
         );
 
         // Second iteration with new random updates
@@ -439,15 +415,13 @@ mod tests {
         let mainnet_state_root =
             mainnet_provider.compute_state_root(block_number, &state_updates).unwrap();
 
-        println!("Mainnet state root: {:?}", mainnet_state_root);
-        println!("Fork state root: {:?}", fork_state_root);
-
-        if mainnet_state_root == fork_state_root {
-            println!("✅ State roots match!");
-        } else {
-            println!("❌ State roots do NOT match!");
-        }
-        assert!(mainnet_state_root == fork_state_root, "State roots do not match on second run");
+        assert_eq!(
+            mainnet_state_root,
+            fork_state_root,
+            "State roots do not match on second run: fork={:?}, mainnet={:?}",
+            fork_state_root,
+            mainnet_state_root
+        );
     }
 
     fn setup_mainnet_updates_randomized(num_contracts: usize) -> StateUpdates {
@@ -531,9 +505,6 @@ mod tests {
         let (fork_provider, fork_sequencer) = fork_handle.await.unwrap();
 
         let block_number = provider.latest_number().unwrap();
-        println!("Mainnet block number: {:?}", block_number);
-        let fork_block_number = fork_provider.latest_number().unwrap();
-        println!("Fork block number: {:?}", fork_block_number);
 
         let state_updates = setup_mainnet_updates_randomized(5);
         //Initialize genesis
@@ -546,9 +517,7 @@ mod tests {
         fork_producer.force_mine();
 
         let block_number = provider.latest_number().unwrap();
-        println!("Mainnet block number after genesis: {:?}", block_number);
         let fork_block_number = fork_provider.latest_number().unwrap();
-        println!("Fork block number after genesis: {:?}", fork_block_number);
 
         let fork_minimal_updates = setup_mainnet_updates_randomized(5);
         let state_root =
@@ -559,16 +528,12 @@ mod tests {
         producer.force_mine();
         fork_producer.force_mine();
 
-        let block_number = provider.latest_number().unwrap();
-        println!("Mainnet block number after first run: {:?}", block_number);
-        let fork_block_number = fork_provider.latest_number().unwrap();
-        println!("Fork block number after first run: {:?}", fork_block_number);
-
-        println!("Forked state root first run: {:?}", state_root);
-        println!("Mainnet state root first run: {:?}", mainnet_state_root_same_updates);
-        assert!(
-            state_root == mainnet_state_root_same_updates,
-            "State roots do not match on first run"
+        assert_eq!(
+            state_root,
+            mainnet_state_root_same_updates,
+            "State roots do not match on first run: fork={:?}, mainnet={:?}",
+            state_root,
+            mainnet_state_root_same_updates
         );
 
         let state_updates = setup_mainnet_updates_randomized(5);
@@ -579,28 +544,29 @@ mod tests {
         producer.force_mine();
         fork_producer.force_mine();
 
-        let block_number = provider.latest_number().unwrap();
-        println!("Mainnet block number after second run: {:?}", block_number);
-        let fork_block_number = fork_provider.latest_number().unwrap();
-        println!("Fork block number after second run: {:?}", fork_block_number);
+        assert_eq!(
+            fork_state_root,
+            mainnet_state_root,
+            "State roots do not match on second run: fork={:?}, mainnet={:?}",
+            fork_state_root,
+            mainnet_state_root
+        );
 
-        println!("Forked state root second run: {:?}", fork_state_root);
-        println!("Mainnet state root second run: {:?}", mainnet_state_root);
-        assert!(fork_state_root == mainnet_state_root, "State roots do not match on second run");
-
         let block_number = provider.latest_number().unwrap();
-        println!("Mainnet block number after third run: {:?}", block_number);
         let fork_block_number = fork_provider.latest_number().unwrap();
-        println!("Fork block number after third run: {:?}", fork_block_number);
 
         let state_updates = setup_mainnet_updates_randomized(5);
         let fork_state_root =
             fork_provider.compute_state_root(fork_block_number, &state_updates).unwrap();
         let mainnet_state_root = provider.compute_state_root(block_number, &state_updates).unwrap();
 
-        println!("Forked state root third run: {:?}", fork_state_root);
-        println!("Mainnet state root third run: {:?}", mainnet_state_root);
-        assert!(fork_state_root == mainnet_state_root, "State roots do not match on third run");
+        assert_eq!(
+            fork_state_root,
+            mainnet_state_root,
+            "State roots do not match on third run: fork={:?}, mainnet={:?}",
+            fork_state_root,
+            mainnet_state_root
+        );
 
         producer.force_mine();
         fork_producer.force_mine();

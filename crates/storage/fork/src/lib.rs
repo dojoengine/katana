@@ -1,19 +1,12 @@
-use std::collections::hash_map::Entry;
-use std::collections::{HashMap, VecDeque};
-use std::fmt::Debug;
-use std::pin::Pin;
-use std::sync::mpsc::{
-    channel as oneshot, Receiver as OneshotReceiver, RecvError, Sender as OneshotSender,
-};
-use std::sync::Arc;
-use std::task::{Context, Poll};
-use std::{io, thread};
 use anyhow::anyhow;
 use futures::channel::mpsc::{channel as async_channel, Receiver, SendError, Sender};
 use futures::future::BoxFuture;
 use futures::stream::Stream;
 use futures::{Future, FutureExt};
-use katana_primitives::block::{BlockHashOrNumber, BlockNumber, BlockIdOrTag};
+use jsonrpsee::core::client::ClientT;
+use jsonrpsee::http_client::HttpClientBuilder;
+use jsonrpsee::rpc_params;
+use katana_primitives::block::{BlockHashOrNumber, BlockIdOrTag, BlockNumber};
 use katana_primitives::class::{
     ClassHash, CompiledClassHash, ComputeClassHashError, ContractClass,
     ContractClassCompilationError,
@@ -25,10 +18,17 @@ use katana_rpc_client::starknet::{
 use katana_rpc_types::class::Class;
 pub use katana_rpc_types::trie::{ContractStorageKeys, GetStorageProofResponse};
 use parking_lot::Mutex;
-use jsonrpsee::rpc_params;
+use std::collections::hash_map::Entry;
+use std::collections::{HashMap, VecDeque};
+use std::fmt::Debug;
+use std::pin::Pin;
+use std::sync::mpsc::{
+    channel as oneshot, Receiver as OneshotReceiver, RecvError, Sender as OneshotSender,
+};
+use std::sync::Arc;
+use std::task::{Context, Poll};
+use std::{io, thread};
 use tracing::{error, trace};
-use jsonrpsee::core::client::ClientT;
-use jsonrpsee::http_client::HttpClientBuilder;
 
 const LOG_TARGET: &str = "forking::backend";
 
@@ -122,7 +122,9 @@ impl BackendRequest {
         (BackendRequest::Storage(Request { payload: (address, key), sender }), receiver)
     }
 
-    fn storage_proof(payload: StorageProofPayload) -> (BackendRequest, OneshotReceiver<BackendResponse>) {
+    fn storage_proof(
+        payload: StorageProofPayload,
+    ) -> (BackendRequest, OneshotReceiver<BackendResponse>) {
         let (sender, rx) = oneshot();
         (BackendRequest::StorageProof(Request { payload, sender }), rx)
     }
@@ -302,7 +304,7 @@ impl Backend {
                         let client = HttpClientBuilder::default()
                             .build(&payload.fork_url)
                             .expect("failed to create HTTP client");
-                                
+
                         let res = client
                             .request(
                                 "starknet_getStorageProof",

@@ -46,7 +46,8 @@ pub mod fork {
         #[default(0)] block_num: u64,
     ) -> BlockchainProvider<ForkedProvider> {
         let provider = StarknetClient::new(HttpClientBuilder::new().build(rpc).unwrap());
-        let provider = ForkedProvider::new_ephemeral(block_num.into(), provider, Url::parse(rpc).unwrap());
+        let provider =
+            ForkedProvider::new_ephemeral(block_num.into(), provider, Url::parse(rpc).unwrap());
         BlockchainProvider::new(provider)
     }
 
@@ -55,7 +56,11 @@ pub mod fork {
         #[default("http://127.0.0.1:5050")] rpc: &str,
         #[default(0)] block_num: u64,
     ) -> BlockchainProvider<ForkedProvider> {
-        let provider = ForkedProvider::new_ephemeral(block_num.into(), FORKED_PROVIDER.1.clone(), Url::parse(rpc).unwrap());
+        let provider = ForkedProvider::new_ephemeral(
+            block_num.into(),
+            FORKED_PROVIDER.1.clone(),
+            Url::parse(rpc).unwrap(),
+        );
         BlockchainProvider::new(provider)
     }
 }

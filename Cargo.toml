@@ -244,3 +244,4 @@ starknet = { git = "https://github.com/kariy/starknet-rs", rev = "2ef3088" }
 # This patch fixes an issue where we're unable to correctly evaluate the accurate size
 # for constructing `Felt` from unstructured data (Arbitrary).
 starknet-types-core = { git = "https://github.com/kariy/types-rs", rev = "0f6ae31" }
+starknet-contract = { git = "https://github.com/kariy/starknet-rs", rev = "2ef3088" }

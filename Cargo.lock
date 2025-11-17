@@ -5813,6 +5813,7 @@ dependencies = [
  "similar-asserts",
  "spinoff",
  "starknet",
+ "starknet-contract",
  "strum_macros 0.25.3",
  "tempfile",
  "thiserror 1.0.69",

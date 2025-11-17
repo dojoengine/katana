@@ -1,8 +1,5 @@
 //! Server implementation for the Starknet JSON-RPC API.
 
-use std::fmt::Debug;
-use std::future::Future;
-use std::sync::Arc;
 use katana_chain_spec::ChainSpec;
 use katana_core::backend::storage::Database;
 use katana_core::utils::get_current_timestamp;
@@ -47,6 +44,9 @@ use katana_rpc_types::trie::{
 use katana_rpc_types::{FeeEstimate, TxStatus};
 use katana_rpc_types_builder::{BlockBuilder, ReceiptBuilder};
 use katana_tasks::{Result as TaskResult, TaskSpawner};
+use std::fmt::Debug;
+use std::future::Future;
+use std::sync::Arc;
 
 use crate::permit::Permits;
 use crate::utils::events::{Cursor, EventBlockId};
