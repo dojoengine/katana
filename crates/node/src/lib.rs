@@ -234,8 +234,6 @@ where
             max_concurrent_estimate_fee_requests: config.rpc.max_concurrent_estimate_fee_requests,
             simulation_flags: execution_flags,
             versioned_constant_overrides,
-            #[cfg(feature = "cartridge")]
-            paymaster,
         };
 
         let chain_spec = backend.chain_spec.clone();
@@ -273,7 +271,7 @@ where
                 "Cartridge API should be enabled when paymaster is set"
             );
 
-            let api = CartridgeApi::new(backend.clone(), pool.clone());
+            let api = CartridgeApi::new(backend.clone(), pool.clone(), task_spawner.clone());
 
             rpc_modules.merge(CartridgeApiServer::into_rpc(api))?;
 
