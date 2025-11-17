@@ -99,7 +99,7 @@ impl Node {
     /// Build the node components from the given [`Config`].
     ///
     /// This returns a [`Node`] instance which can be launched with the all the necessary components
-    /// configred.
+    /// configured.
     pub async fn build(config: Config) -> Result<Node> {
         let mut config = config;
 
@@ -252,8 +252,6 @@ impl Node {
             max_concurrent_estimate_fee_requests: config.rpc.max_concurrent_estimate_fee_requests,
             simulation_flags: execution_flags,
             versioned_constant_overrides,
-            #[cfg(feature = "cartridge")]
-            paymaster,
         };
 
         let storage_provider = backend.blockchain.provider().clone();
@@ -292,7 +290,7 @@ impl Node {
                 "Cartridge API should be enabled when paymaster is set"
             );
 
-            let api = CartridgeApi::new(backend.clone(), pool.clone());
+            let api = CartridgeApi::new(backend.clone(), pool.clone(), task_spawner.clone());
 
             rpc_modules.merge(CartridgeApiServer::into_rpc(api))?;
 

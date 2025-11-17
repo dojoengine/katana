@@ -36,11 +36,7 @@ katana-gas-price-oracle.workspace = true
 starknet.workspace = true
 
 [features]
-cartridge = [
-	"dep:katana-slot-controller",
-	"katana-node/cartridge",
-	"katana-rpc-server/cartridge",
-]
+cartridge = [ "dep:katana-slot-controller", "katana-node/cartridge" ]
 default = [ "cartridge", "server" ]
 explorer = [ "katana-node/explorer", "katana-utils/explorer" ]
 native = [ "katana-node/native" ]
