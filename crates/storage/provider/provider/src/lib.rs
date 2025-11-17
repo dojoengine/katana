@@ -19,7 +19,7 @@ use crate::providers::db::DbProvider;
 use crate::providers::fork::{ForkedDb, ForkedProvider};
 
 #[auto_impl::auto_impl(&, Box, Arc)]
-pub trait ProviderFactory: Send + Sync + Debug {
+pub trait ProviderFactory: Send + Sync + Debug + 'static {
     type Provider;
     type ProviderMut: MutableProvider;
 
@@ -59,7 +59,7 @@ impl DbProviderFactory<katana_db::Db> {
     }
 }
 
-impl<Db: Database> ProviderFactory for DbProviderFactory<Db> {
+impl<Db: Database + 'static> ProviderFactory for DbProviderFactory<Db> {
     type Provider = DbProvider<Db::Tx>;
     type ProviderMut = DbProvider<Db::TxMut>;
 

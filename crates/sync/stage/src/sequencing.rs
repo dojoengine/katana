@@ -1,14 +1,17 @@
+use std::fmt::Debug;
 use std::future::IntoFuture;
 use std::sync::Arc;
 
 use anyhow::Result;
 use futures::future::{self, BoxFuture};
+use katana_core::backend::storage::{DatabaseRO, DatabaseRW};
 use katana_core::backend::Backend;
 use katana_core::service::block_producer::{BlockProducer, BlockProductionError};
 use katana_core::service::{BlockProductionTask, TransactionMiner};
 use katana_executor::ExecutorFactory;
 use katana_messaging::{MessagingConfig, MessagingService, MessagingTask};
 use katana_pool::{TransactionPool, TxPool};
+use katana_provider::ProviderFactory;
 use katana_tasks::{JoinHandle, TaskSpawner};
 use tracing::error;
 
@@ -16,20 +19,30 @@ pub type SequencingFut = BoxFuture<'static, Result<()>>;
 
 /// The sequencing stage is responsible for advancing the chain state.
 #[allow(missing_debug_implementations)]
-pub struct Sequencing<EF: ExecutorFactory> {
+pub struct Sequencing<EF, PF>
+where
+    EF: ExecutorFactory,
+    PF: ProviderFactory,
+{
     pool: TxPool,
-    backend: Arc<Backend<EF>>,
+    backend: Arc<Backend<EF, PF>>,
     task_spawner: TaskSpawner,
-    block_producer: BlockProducer<EF>,
+    block_producer: BlockProducer<EF, PF>,
     messaging_config: Option<MessagingConfig>,
 }
 
-impl<EF: ExecutorFactory> Sequencing<EF> {
+impl<EF, PF> Sequencing<EF, PF>
+where
+    EF: ExecutorFactory,
+    PF: ProviderFactory,
+    <PF as ProviderFactory>::Provider: DatabaseRO + Debug,
+    <PF as ProviderFactory>::ProviderMut: DatabaseRW + Debug,
+{
     pub fn new(
         pool: TxPool,
-        backend: Arc<Backend<EF>>,
+        backend: Arc<Backend<EF, PF>>,
         task_spawner: TaskSpawner,
-        block_producer: BlockProducer<EF>,
+        block_producer: BlockProducer<EF, PF>,
         messaging_config: Option<MessagingConfig>,
     ) -> Self {
         Self { pool, backend, task_spawner, block_producer, messaging_config }
@@ -61,7 +74,13 @@ impl<EF: ExecutorFactory> Sequencing<EF> {
     }
 }
 
-impl<EF: ExecutorFactory> IntoFuture for Sequencing<EF> {
+impl<EF, PF> IntoFuture for Sequencing<EF, PF>
+where
+    EF: ExecutorFactory,
+    PF: ProviderFactory,
+    <PF as ProviderFactory>::Provider: DatabaseRO + Debug,
+    <PF as ProviderFactory>::ProviderMut: DatabaseRW + Debug,
+{
     type Output = Result<()>;
     type IntoFuture = SequencingFut;
 

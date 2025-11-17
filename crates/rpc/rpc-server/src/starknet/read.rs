@@ -5,6 +5,7 @@ use std::sync::Arc;
 use anyhow::anyhow;
 use jsonrpsee::core::{async_trait, RpcResult};
 use jsonrpsee::types::ErrorObjectOwned;
+use katana_core::backend::storage::DatabaseRO;
 #[cfg(feature = "cartridge")]
 use katana_genesis::allocation::GenesisAccountAlloc;
 use katana_pool::TransactionPool;
@@ -15,6 +16,7 @@ use katana_primitives::transaction::{ExecutableTx, ExecutableTxWithHash, TxHash}
 use katana_primitives::{ContractAddress, Felt};
 #[cfg(feature = "cartridge")]
 use katana_provider::api::state::StateFactoryProvider;
+use katana_provider::ProviderFactory;
 use katana_rpc_api::error::starknet::StarknetApiError;
 use katana_rpc_api::starknet::StarknetApiServer;
 use katana_rpc_types::block::{
@@ -39,11 +41,13 @@ use crate::cartridge;
 use crate::starknet::pending::PendingBlockProvider;
 
 #[async_trait]
-impl<Pool, PoolTx, Pending> StarknetApiServer for StarknetApi<Pool, Pending>
+impl<Pool, PoolTx, Pending, PF> StarknetApiServer for StarknetApi<Pool, Pending, PF>
 where
     Pool: TransactionPool<Transaction = PoolTx> + Send + Sync + 'static,
     PoolTx: From<BroadcastedTxWithChainId>,
     Pending: PendingBlockProvider,
+    PF: ProviderFactory,
+    <PF as ProviderFactory>::Provider: DatabaseRO,
 {
     async fn chain_id(&self) -> RpcResult<Felt> {
         Ok(self.inner.chain_spec.id().id())
@@ -232,12 +236,8 @@ where
                 return Err(StarknetApiError::unexpected("Paymaster is not a dev account").into());
             };
 
-            let state = self
-                .storage2()
-                .provider()
-                .latest()
-                .map(Arc::new)
-                .map_err(StarknetApiError::from)?;
+            let state =
+                self.storage().provider().latest().map(Arc::new).map_err(StarknetApiError::from)?;
 
             let mut ctrl_deploy_txs = Vec::new();
 

@@ -1,4 +1,5 @@
 use jsonrpsee::core::{async_trait, RpcResult};
+use katana_core::backend::storage::DatabaseRO;
 use katana_executor::{ExecutionResult, ResultAndStates};
 use katana_pool::TransactionPool;
 use katana_primitives::block::{BlockHashOrNumber, BlockIdOrTag, ConfirmedBlockIdOrTag};
@@ -6,6 +7,7 @@ use katana_primitives::execution::TypedTransactionExecutionInfo;
 use katana_primitives::transaction::{ExecutableTx, ExecutableTxWithHash, TxHash};
 use katana_provider::api::block::{BlockNumberProvider, BlockProvider};
 use katana_provider::api::transaction::{TransactionTraceProvider, TransactionsProviderExt};
+use katana_provider::ProviderFactory;
 use katana_rpc_api::error::starknet::StarknetApiError;
 use katana_rpc_api::starknet::StarknetTraceApiServer;
 use katana_rpc_types::broadcasted::BroadcastedTx;
@@ -18,11 +20,13 @@ use katana_rpc_types::{BroadcastedTxWithChainId, SimulationFlag};
 use super::StarknetApi;
 use crate::starknet::pending::PendingBlockProvider;
 
-impl<Pool, PoolTx, Pending> StarknetApi<Pool, Pending>
+impl<Pool, PoolTx, Pending, PF> StarknetApi<Pool, Pending, PF>
 where
     Pool: TransactionPool<Transaction = PoolTx> + Send + Sync + 'static,
     PoolTx: From<BroadcastedTxWithChainId>,
     Pending: PendingBlockProvider,
+    PF: ProviderFactory,
+    <PF as ProviderFactory>::Provider: DatabaseRO,
 {
     fn simulate_txs(
         &self,
@@ -98,7 +102,7 @@ where
     ) -> Result<Vec<TxTraceWithHash>, StarknetApiError> {
         use StarknetApiError::BlockNotFound;
 
-        let provider = &self.storage2().provider();
+        let provider = &self.storage().provider();
 
         let block_id: BlockHashOrNumber = match block_id {
             ConfirmedBlockIdOrTag::L1Accepted => {
@@ -132,22 +136,21 @@ where
             Ok(pending_trace)
         } else {
             // If not found in pending block, fallback to the provider
-            let trace = self
-                .storage2()
-                .provider()
-                .transaction_execution(tx_hash)?
-                .ok_or(TxnHashNotFound)?;
+            let trace =
+                self.storage().provider().transaction_execution(tx_hash)?.ok_or(TxnHashNotFound)?;
             Ok(TxTrace::from(trace))
         }
     }
 }
 
 #[async_trait]
-impl<Pool, PoolTx, Pending> StarknetTraceApiServer for StarknetApi<Pool, Pending>
+impl<Pool, PoolTx, Pending, PF> StarknetTraceApiServer for StarknetApi<Pool, Pending, PF>
 where
     Pool: TransactionPool<Transaction = PoolTx> + Send + Sync + 'static,
     PoolTx: From<BroadcastedTxWithChainId>,
     Pending: PendingBlockProvider,
+    PF: ProviderFactory,
+    <PF as ProviderFactory>::Provider: DatabaseRO,
 {
     async fn trace_transaction(&self, transaction_hash: TxHash) -> RpcResult<TxTrace> {
         self.on_io_blocking_task(move |this| Ok(this.trace(transaction_hash)?)).await?

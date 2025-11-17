@@ -21,6 +21,7 @@ use katana_primitives::{address, ContractAddress, Felt};
 use katana_provider::api::block::{BlockHashProvider, BlockWriter};
 use katana_provider::api::trie::TrieWriter;
 use katana_provider::providers::EmptyStateProvider;
+use katana_provider::{MutableProvider, ProviderFactory};
 use katana_trie::bonsai::databases::HashMapDb;
 use katana_trie::{
     compute_contract_state_hash, compute_merkle_root, ClassesTrie, CommitId, ContractLeaf,
@@ -34,26 +35,22 @@ use tracing::info;
 
 pub mod storage;
 
-use crate::backend::storage::GenericStorageProvider;
+use crate::backend::storage::{DatabaseRO, DatabaseRW};
 use crate::env::BlockContextGenerator;
 use crate::service::block_producer::{BlockProductionError, MinedBlockOutcome};
 use crate::utils::get_current_timestamp;
 
 pub(crate) const LOG_TARGET: &str = "katana::core::backend";
 
-pub struct Backend<EF> {
+pub struct Backend<EF, PF> {
     pub chain_spec: Arc<ChainSpec>,
-    /// stores all block related data in memory
-    pub storage: GenericStorageProvider,
-    /// The block context generator.
+    pub storage: PF,
     pub block_context_generator: RwLock<BlockContextGenerator>,
-
     pub executor_factory: Arc<EF>,
-
     pub gas_oracle: GasPriceOracle,
 }
 
-impl<EF> std::fmt::Debug for Backend<EF> {
+impl<EF, PF> std::fmt::Debug for Backend<EF, PF> {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         f.debug_struct("Backend")
             .field("chain_spec", &self.chain_spec)
@@ -65,10 +62,10 @@ impl<EF> std::fmt::Debug for Backend<EF> {
     }
 }
 
-impl<EF> Backend<EF> {
+impl<EF, PF> Backend<EF, PF> {
     pub fn new(
         chain_spec: Arc<ChainSpec>,
-        storage: GenericStorageProvider,
+        storage: PF,
         gas_oracle: GasPriceOracle,
         executor_factory: EF,
     ) -> Self {
@@ -82,7 +79,48 @@ impl<EF> Backend<EF> {
     }
 }
 
-impl<EF: ExecutorFactory> Backend<EF> {
+impl<EF, PF> Backend<EF, PF>
+where
+    EF: ExecutorFactory,
+    PF: ProviderFactory,
+    <PF as ProviderFactory>::Provider: DatabaseRO,
+{
+    pub fn update_block_env(&self, block_env: &mut BlockEnv) {
+        let mut context_gen = self.block_context_generator.write();
+        let current_timestamp_secs = get_current_timestamp().as_secs() as i64;
+
+        let timestamp = if context_gen.next_block_start_time == 0 {
+            (current_timestamp_secs + context_gen.block_timestamp_offset) as u64
+        } else {
+            let timestamp = context_gen.next_block_start_time;
+            context_gen.block_timestamp_offset = timestamp as i64 - current_timestamp_secs;
+            context_gen.next_block_start_time = 0;
+            timestamp
+        };
+
+        block_env.number += 1;
+        block_env.timestamp = timestamp;
+        block_env.starknet_version = CURRENT_STARKNET_VERSION;
+
+        // update the gas prices
+        self.update_block_gas_prices(block_env);
+    }
+
+    /// Updates the gas prices in the block environment.
+    pub fn update_block_gas_prices(&self, block_env: &mut BlockEnv) {
+        block_env.l2_gas_prices = self.gas_oracle.l2_gas_prices();
+        block_env.l1_gas_prices = self.gas_oracle.l1_gas_prices();
+        block_env.l1_data_gas_prices = self.gas_oracle.l1_data_gas_prices();
+    }
+}
+
+impl<EF, PF> Backend<EF, PF>
+where
+    EF: ExecutorFactory,
+    PF: ProviderFactory,
+    <PF as ProviderFactory>::Provider: DatabaseRO,
+    <PF as ProviderFactory>::ProviderMut: DatabaseRW,
+{
     pub fn init_genesis(&self, is_forking: bool) -> anyhow::Result<()> {
         match self.chain_spec.as_ref() {
             ChainSpec::Dev(cs) => self.init_dev_genesis(cs, is_forking),
@@ -183,38 +221,11 @@ impl<EF: ExecutorFactory> Backend<EF> {
             )));
         }
 
-        self.storage
-            .provider_mut()
-            .insert_block_with_states_and_receipts(block, states, receipts, traces)?;
+        let provider_mut = self.storage.provider_mut();
+        provider_mut.insert_block_with_states_and_receipts(block, states, receipts, traces)?;
+        provider_mut.commit()?;
+
         Ok(())
-    }
-
-    pub fn update_block_env(&self, block_env: &mut BlockEnv) {
-        let mut context_gen = self.block_context_generator.write();
-        let current_timestamp_secs = get_current_timestamp().as_secs() as i64;
-
-        let timestamp = if context_gen.next_block_start_time == 0 {
-            (current_timestamp_secs + context_gen.block_timestamp_offset) as u64
-        } else {
-            let timestamp = context_gen.next_block_start_time;
-            context_gen.block_timestamp_offset = timestamp as i64 - current_timestamp_secs;
-            context_gen.next_block_start_time = 0;
-            timestamp
-        };
-
-        block_env.number += 1;
-        block_env.timestamp = timestamp;
-        block_env.starknet_version = CURRENT_STARKNET_VERSION;
-
-        // update the gas prices
-        self.update_block_gas_prices(block_env);
-    }
-
-    /// Updates the gas prices in the block environment.
-    pub fn update_block_gas_prices(&self, block_env: &mut BlockEnv) {
-        block_env.l2_gas_prices = self.gas_oracle.l2_gas_prices();
-        block_env.l1_gas_prices = self.gas_oracle.l1_gas_prices();
-        block_env.l1_data_gas_prices = self.gas_oracle.l1_data_gas_prices();
     }
 
     pub fn mine_empty_block(

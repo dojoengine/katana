@@ -1,5 +1,6 @@
 use jsonrpsee::core::{async_trait, RpcResult};
 use katana_pool::TransactionPool;
+use katana_provider::ProviderFactory;
 use katana_rpc_api::error::starknet::StarknetApiError;
 use katana_rpc_api::starknet::StarknetWriteApiServer;
 use katana_rpc_types::broadcasted::{
@@ -12,11 +13,12 @@ use katana_rpc_types::{BroadcastedTx, BroadcastedTxWithChainId};
 use super::StarknetApi;
 use crate::starknet::pending::PendingBlockProvider;
 
-impl<Pool, PoolTx, Pending> StarknetApi<Pool, Pending>
+impl<Pool, PoolTx, Pending, PF> StarknetApi<Pool, Pending, PF>
 where
     Pool: TransactionPool<Transaction = PoolTx> + Send + Sync + 'static,
     PoolTx: From<BroadcastedTxWithChainId>,
     Pending: PendingBlockProvider,
+    PF: ProviderFactory,
 {
     async fn add_invoke_transaction_impl(
         &self,
@@ -78,11 +80,12 @@ where
 }
 
 #[async_trait]
-impl<Pool, PoolTx, Pending> StarknetWriteApiServer for StarknetApi<Pool, Pending>
+impl<Pool, PoolTx, Pending, PF> StarknetWriteApiServer for StarknetApi<Pool, Pending, PF>
 where
     Pool: TransactionPool<Transaction = PoolTx> + Send + Sync + 'static,
     PoolTx: From<BroadcastedTxWithChainId>,
     Pending: PendingBlockProvider,
+    PF: ProviderFactory,
 {
     async fn add_invoke_transaction(
         &self,

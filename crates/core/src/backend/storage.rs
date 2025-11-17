@@ -126,23 +126,23 @@ impl StorageProvider<ForkProviderFactory> {
     }
 }
 
-impl<P> ProviderFactory for StorageProvider<P>
-where
-    P: ProviderFactory,
-    <P as ProviderFactory>::Provider: DatabaseRO,
-    <P as ProviderFactory>::ProviderMut: DatabaseRW,
-{
-    type Provider = Box<dyn DatabaseRO>;
-    type ProviderMut = Box<dyn DatabaseRW>;
+// impl<P> ProviderFactory for StorageProvider<P>
+// where
+//     P: ProviderFactory,
+//     <P as ProviderFactory>::Provider: DatabaseRO,
+//     <P as ProviderFactory>::ProviderMut: DatabaseRW,
+// {
+//     type Provider = Box<dyn DatabaseRO>;
+//     type ProviderMut = Box<dyn DatabaseRW>;
 
-    fn provider(&self) -> Self::Provider {
-        Box::new(self.provider_factory.provider_mut())
-    }
+//     fn provider(&self) -> Self::Provider {
+//         Box::new(self.provider_factory.provider_mut())
+//     }
 
-    fn provider_mut(&self) -> Self::ProviderMut {
-        Box::new(self.provider_factory.provider_mut())
-    }
-}
+//     fn provider_mut(&self) -> Self::ProviderMut {
+//         Box::new(self.provider_factory.provider_mut())
+//     }
+// }
 
 pub trait DatabaseRO:
     BlockIdReader

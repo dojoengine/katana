@@ -15,6 +15,7 @@ katana-pool.workspace = true
 katana-rpc-server.workspace = true
 katana-pool-api.workspace = true
 katana-rpc-api.workspace = true
+katana-provider.workspace = true
 katana-provider-api.workspace = true
 serde-utils.workspace = true
 

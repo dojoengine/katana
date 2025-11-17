@@ -7,7 +7,10 @@ use futures::stream::StreamExt;
 use katana_executor::ExecutorFactory;
 use katana_pool::{PendingTransactions, PoolOrd, TransactionPool, TxPool};
 use katana_primitives::transaction::ExecutableTxWithHash;
+use katana_provider::ProviderFactory;
 use tracing::{error, info};
+
+use crate::backend::storage::{DatabaseRO, DatabaseRW};
 
 use self::block_producer::BlockProducer;
 use self::metrics::BlockProducerMetrics;
@@ -24,13 +27,14 @@ pub(crate) const LOG_TARGET: &str = "node";
 /// to construct a new block.
 #[must_use = "BlockProductionTask does nothing unless polled"]
 #[allow(missing_debug_implementations)]
-pub struct BlockProductionTask<EF, O>
+pub struct BlockProductionTask<EF, O, PF>
 where
     EF: ExecutorFactory,
     O: PoolOrd<Transaction = ExecutableTxWithHash>,
+    PF: ProviderFactory,
 {
     /// creates new blocks
-    pub(crate) block_producer: BlockProducer<EF>,
+    pub(crate) block_producer: BlockProducer<EF, PF>,
     /// the miner responsible to select transactions from the `pool´
     pub(crate) miner: TransactionMiner<O>,
     /// the pool that holds all transactions
@@ -39,24 +43,28 @@ where
     metrics: BlockProducerMetrics,
 }
 
-impl<EF, O> BlockProductionTask<EF, O>
+impl<EF, O, PF> BlockProductionTask<EF, O, PF>
 where
     EF: ExecutorFactory,
     O: PoolOrd<Transaction = ExecutableTxWithHash>,
+    PF: ProviderFactory,
 {
     pub fn new(
         pool: TxPool,
         miner: TransactionMiner<O>,
-        block_producer: BlockProducer<EF>,
+        block_producer: BlockProducer<EF, PF>,
     ) -> Self {
         Self { block_producer, miner, pool, metrics: BlockProducerMetrics::default() }
     }
 }
 
-impl<EF, O> Future for BlockProductionTask<EF, O>
+impl<EF, O, PF> Future for BlockProductionTask<EF, O, PF>
 where
     EF: ExecutorFactory,
     O: PoolOrd<Transaction = ExecutableTxWithHash>,
+    PF: ProviderFactory,
+    <PF as ProviderFactory>::Provider: DatabaseRO,
+    <PF as ProviderFactory>::ProviderMut: DatabaseRW,
 {
     type Output = Result<(), BlockProductionError>;
 
