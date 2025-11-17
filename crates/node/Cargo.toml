@@ -45,7 +45,7 @@ strum_macros.workspace = true
 tokio = { workspace = true, features = [ "time" ] }
 
 [features]
-cartridge = [ "katana-rpc-api/cartridge", "katana-rpc-server/cartridge" ]
+cartridge = [  ]
 explorer = [ "katana-rpc-server/explorer" ]
 grpc = [ "dep:katana-grpc" ]
 native = [ "katana-executor/native" ]

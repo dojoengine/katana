@@ -1,4 +1,6 @@
-use katana_test_utils::{assert_account_starknet_err, prepare_contract_declaration_params};
+use katana_test_utils::{
+    assert_account_starknet_err, prepare_contract_declaration_params, split_felt,
+};
 use std::collections::BTreeMap;
 use std::path::PathBuf;
 use std::sync::Arc;
@@ -22,7 +24,6 @@ use katana_rpc_types::{
     GetBlockWithTxHashesResponse, GetEventsResponse, MaybePreConfirmedBlock, RpcDeclareTxReceipt,
     RpcDeployAccountTxReceipt, RpcTxReceipt,
 };
-use katana_test_utils::split_felt;
 use katana_utils::node::StarknetError;
 use katana_utils::TestNode;
 use num_traits::ToPrimitive;

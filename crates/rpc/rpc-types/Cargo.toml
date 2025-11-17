@@ -13,7 +13,6 @@ katana-primitives = { workspace = true, features = [ "serde" ] }
 katana-trie.workspace = true
 serde-utils.workspace = true
 
-anyhow.workspace = true
 cainome.workspace = true
 cairo-lang-starknet-classes.workspace = true
 cairo-lang-utils.workspace = true

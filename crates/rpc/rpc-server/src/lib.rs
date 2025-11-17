@@ -35,7 +35,6 @@ mod utils;
 use cors::Cors;
 use health::HealthCheck;
 pub use jsonrpsee::core::middleware::RpcServiceBuilder;
-#[cfg(feature = "client")]
 pub use jsonrpsee::http_client::HttpClient;
 pub use katana_rpc_api as api;
 

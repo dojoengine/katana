@@ -269,8 +269,6 @@ where
             max_concurrent_estimate_fee_requests: config.rpc.max_concurrent_estimate_fee_requests,
             simulation_flags: execution_flags,
             versioned_constant_overrides,
-            #[cfg(feature = "cartridge")]
-            paymaster,
         };
 
         let chain_spec = backend.chain_spec.clone();
