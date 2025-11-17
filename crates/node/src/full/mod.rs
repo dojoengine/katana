@@ -232,9 +232,9 @@ impl Node {
 
             let addr = cfg.socket_addr();
             let server = MetricsServer::new(exporter).with_process_metrics().with_reports(reports);
-            self.task_manager.task_spawner().build_task().spawn(server.start(addr));
 
-            info!(%addr, "Metrics server started.");
+            // Start the metrics server and discard the handle since full node doesn't track it
+            let _ = server.start(addr).await?;
         }
 
         let pipeline_handle = self.pipeline.handle();
