@@ -54,7 +54,6 @@ use crate::{utils, DEFAULT_ESTIMATE_FEE_MAX_CONCURRENT_REQUESTS};
 
 mod blockifier;
 mod config;
-pub mod forking;
 mod list;
 mod pending;
 mod read;
@@ -64,7 +63,6 @@ mod write;
 #[cfg(feature = "cartridge")]
 pub use config::PaymasterConfig;
 pub use config::StarknetApiConfig;
-use forking::ForkedClient;
 pub use pending::PendingBlockProvider;
 
 pub type StarknetApiResult<T> = Result<T, StarknetApiError>;
@@ -94,7 +92,6 @@ where
     chain_spec: Arc<ChainSpec>,
     gas_oracle: GasPriceOracle,
     storage: BlockchainProvider<Box<dyn Database>>,
-    forked_client: Option<ForkedClient>,
     task_spawner: TaskSpawner,
     estimate_fee_permit: Permits,
     pending_block_provider: PP,
@@ -112,10 +109,6 @@ where
 
     pub fn storage(&self) -> &BlockchainProvider<Box<dyn Database>> {
         &self.inner.storage
-    }
-
-    pub fn forked_client(&self) -> Option<&ForkedClient> {
-        self.inner.forked_client.as_ref()
     }
 
     pub fn estimate_fee_permit(&self) -> &Permits {
@@ -146,30 +139,6 @@ where
             chain_spec,
             storage,
             pool,
-            None,
-            task_spawner,
-            config,
-            pending_block_provider,
-            gas_oracle,
-        )
-    }
-
-    #[allow(clippy::too_many_arguments)]
-    pub fn new_forked(
-        chain_spec: Arc<ChainSpec>,
-        storage: BlockchainProvider<Box<dyn Database>>,
-        pool: Pool,
-        forked_client: ForkedClient,
-        task_spawner: TaskSpawner,
-        pending_block_provider: PP,
-        gas_oracle: GasPriceOracle,
-        config: StarknetApiConfig,
-    ) -> Self {
-        Self::new_inner(
-            chain_spec,
-            storage,
-            pool,
-            Some(forked_client),
             task_spawner,
             config,
             pending_block_provider,
@@ -182,7 +151,6 @@ where
         chain_spec: Arc<ChainSpec>,
         storage: BlockchainProvider<Box<dyn Database>>,
         pool: Pool,
-        forked_client: Option<ForkedClient>,
         task_spawner: TaskSpawner,
         config: StarknetApiConfig,
         pending_block_provider: PP,
@@ -198,7 +166,6 @@ where
             storage,
             pool,
             task_spawner,
-            forked_client,
             estimate_fee_permit,
             config,
             pending_block_provider,
@@ -483,9 +450,6 @@ where
 
         if let Some(count) = count {
             Ok(count)
-        } else if let Some(client) = &self.inner.forked_client {
-            let status = client.get_block_transaction_count(block_id).await?;
-            Ok(status)
         } else {
             Err(StarknetApiError::BlockNotFound)
         }
@@ -551,8 +515,6 @@ where
 
         if let Some(tx) = tx {
             Ok(tx)
-        } else if let Some(client) = &self.inner.forked_client {
-            Ok(client.get_transaction_by_block_id_and_index(block_id, index).await?)
         } else {
             Err(StarknetApiError::InvalidTxnIndex)
         }
@@ -574,8 +536,6 @@ where
 
         if let Some(tx) = tx {
             Ok(tx)
-        } else if let Some(client) = &self.inner.forked_client {
-            Ok(client.get_transaction_by_hash(hash).await?)
         } else {
             Err(StarknetApiError::TxnHashNotFound)
         }
@@ -597,8 +557,6 @@ where
 
         if let Some(receipt) = receipt {
             Ok(receipt)
-        } else if let Some(client) = &self.inner.forked_client {
-            Ok(client.get_transaction_receipt(hash).await?)
         } else {
             Err(StarknetApiError::TxnHashNotFound)
         }
@@ -648,8 +606,6 @@ where
 
         if let Some(status) = status {
             Ok(status)
-        } else if let Some(client) = &self.inner.forked_client {
-            Ok(client.get_transaction_status(hash).await?)
         } else {
             let _ = self.inner.pool.get(hash).ok_or(StarknetApiError::TxnHashNotFound)?;
             Ok(TxStatus::Received)
@@ -686,8 +642,6 @@ where
 
         if let Some(block) = block {
             Ok(block)
-        } else if let Some(client) = &self.inner.forked_client {
-            Ok(client.get_block_with_txs(block_id).await?)
         } else {
             Err(StarknetApiError::BlockNotFound)
         }
@@ -723,8 +677,6 @@ where
 
         if let Some(block) = block {
             Ok(block)
-        } else if let Some(client) = &self.inner.forked_client {
-            Ok(client.get_block_with_receipts(block_id).await?)
         } else {
             Err(StarknetApiError::BlockNotFound)
         }
@@ -760,8 +712,6 @@ where
 
         if let Some(block) = block {
             Ok(block)
-        } else if let Some(client) = &self.inner.forked_client {
-            Ok(client.get_block_with_tx_hashes(block_id).await?)
         } else {
             Err(StarknetApiError::BlockNotFound)
         }
@@ -805,8 +755,6 @@ where
 
         if let Some(state_update) = state_update {
             Ok(state_update)
-        } else if let Some(client) = &self.inner.forked_client {
-            Ok(client.get_state_update(block_id).await?)
         } else {
             Err(StarknetApiError::BlockNotFound)
         }
@@ -878,60 +826,7 @@ where
 
         match (from, to) {
             (EventBlockId::Num(from), EventBlockId::Num(to)) => {
-                // 1. check if the from and to block is lower than the forked block
-                // 2. if both are lower, then we can fetch the events from the provider
-
-                // first determine whether the continuation token is from the forked client
-                let from_after_forked_if_any = if let Some(client) = &self.inner.forked_client {
-                    let forked_block = *client.block();
-
-                    // if the from block is lower than the forked block, we fetch events from the
-                    // forked client
-                    if from <= forked_block {
-                        // if the to_block is greater than the forked block, we limit the to_block
-                        // up until the forked block
-                        let to = if to <= forked_block { to } else { forked_block };
-
-                        // basically this is to determine that if the token is a katana native
-                        // token, then we can skip fetching from the forked
-                        // network. but if theres no token at all, or the
-                        // token is a forked token, then we need to fetch from the forked network.
-                        //
-                        // TODO: simplify this
-                        let forked_token = Some(continuation_token.clone()).and_then(|t| match t {
-                            None => Some(None),
-                            Some(t) => match t {
-                                MaybeForkedContinuationToken::Token(_) => None,
-                                MaybeForkedContinuationToken::Forked(t) => {
-                                    Some(Some(t.to_string()))
-                                }
-                            },
-                        });
-
-                        // check if the continuation token is a forked continuation token
-                        // if not we skip fetching from forked network
-                        if let Some(token) = forked_token {
-                            let forked_result = futures::executor::block_on(
-                                client.get_events(from, to, address, keys, token, chunk_size),
-                            )?;
-
-                            events.extend(forked_result.events);
-
-                            // return early if a token is present
-                            if let Some(token) = forked_result.continuation_token {
-                                let token = MaybeForkedContinuationToken::Forked(token);
-                                let continuation_token = Some(token.to_string());
-                                return Ok(GetEventsResponse { events, continuation_token });
-                            }
-                        }
-                    }
-
-                    // we start from block + 1 because we dont have the events locally and we may
-                    // have fetched it from the forked network earlier
-                    *client.block() + 1
-                } else {
-                    from
-                };
+                let from_after_forked_if_any = from;
 
                 let cursor = continuation_token.and_then(|t| t.to_token().map(|t| t.into()));
                 let block_range = from_after_forked_if_any..=to;
@@ -952,60 +847,7 @@ where
             }
 
             (EventBlockId::Num(from), EventBlockId::Pending) => {
-                // 1. check if the from and to block is lower than the forked block
-                // 2. if both are lower, then we can fetch the events from the provider
-
-                // first determine whether the continuation token is from the forked client
-                let from_after_forked_if_any = if let Some(client) = &self.inner.forked_client {
-                    let forked_block = *client.block();
-
-                    // if the from block is lower than the forked block, we fetch events from the
-                    // forked client
-                    if from <= forked_block {
-                        // we limit the to_block up until the forked block bcs pending block is
-                        // pointing to a locally block
-                        let to = forked_block;
-
-                        // basically this is to determine that if the token is a katana native
-                        // token, then we can skip fetching from the forked
-                        // network. but if theres no token at all, or the
-                        // token is a forked token, then we need to fetch from the forked network.
-                        //
-                        // TODO: simplify this
-                        let forked_token = Some(continuation_token.clone()).and_then(|t| match t {
-                            None => Some(None),
-                            Some(t) => match t {
-                                MaybeForkedContinuationToken::Token(_) => None,
-                                MaybeForkedContinuationToken::Forked(t) => {
-                                    Some(Some(t.to_string()))
-                                }
-                            },
-                        });
-
-                        // check if the continuation token is a forked continuation token
-                        // if not we skip fetching from forked network
-                        if let Some(token) = forked_token {
-                            let forked_result = futures::executor::block_on(
-                                client.get_events(from, to, address, keys, token, chunk_size),
-                            )?;
-
-                            events.extend(forked_result.events);
-
-                            // return early if a token is present
-                            if let Some(token) = forked_result.continuation_token {
-                                let token = MaybeForkedContinuationToken::Forked(token);
-                                let continuation_token = Some(token.to_string());
-                                return Ok(GetEventsResponse { events, continuation_token });
-                            }
-                        }
-                    }
-
-                    // we start from block + 1 because we dont have the events locally and we may
-                    // have fetched it from the forked network earlier
-                    *client.block() + 1
-                } else {
-                    from
-                };
+                let from_after_forked_if_any = from;
 
                 let cursor = continuation_token.and_then(|t| t.to_token().map(|t| t.into()));
                 let latest = provider.latest_number()?;
@@ -1096,18 +938,11 @@ where
                 EventBlockId::Num(num.ok_or(StarknetApiError::BlockNotFound)?)
             }
 
-            BlockIdOrTag::Hash(hash) => {
+            BlockIdOrTag::Hash(..) => {
                 // Check first if the block hash belongs to a local block.
                 if let Some(num) = provider.convert_block_id(id)? {
                     EventBlockId::Num(num)
-                }
-                // If not, check if the block hash belongs to a forked block.
-                else if let Some(client) = self.forked_client() {
-                    let num = futures::executor::block_on(client.get_block_number_by_hash(hash))?;
-                    EventBlockId::Num(num)
-                }
-                // Otherwise the block hash is not found.
-                else {
+                } else {
                     return Err(StarknetApiError::BlockNotFound);
                 }
             }

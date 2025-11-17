@@ -21,12 +21,10 @@ lazy_static! {
         serde_json::from_str(include_str!("./fixtures/dojo_world_240.json")).unwrap();
 }
 
-#[cfg(feature = "fork")]
 pub mod fork {
 
     use katana_provider::providers::fork::ForkedProvider;
     use katana_rpc_client::starknet::Client as StarknetClient;
-    use katana_rpc_client::HttpClientBuilder;
     use katana_runner::KatanaRunner;
     use lazy_static::lazy_static;
 
@@ -36,18 +34,17 @@ pub mod fork {
         pub static ref FORKED_PROVIDER: (KatanaRunner, StarknetClient) = {
             let runner = katana_runner::KatanaRunner::new().unwrap();
             let url = runner.url();
-            (runner, StarknetClient::new(HttpClientBuilder::new().build(url).unwrap()))
+            (runner, StarknetClient::new(url))
         };
     }
 
     #[rstest::fixture]
     pub fn fork_provider(
-        #[default("http://127.0.0.1:5050")] rpc: &str,
-        #[default(0)] block_num: u64,
+        #[default("https://api.cartridge.gg/x/starknet/sepolia")] rpc: &str,
+        #[default(2888618)] block_num: u64,
     ) -> BlockchainProvider<ForkedProvider> {
-        let provider = StarknetClient::new(HttpClientBuilder::new().build(rpc).unwrap());
-        let provider =
-            ForkedProvider::new_ephemeral(block_num.into(), provider, Url::parse(rpc).unwrap());
+        let provider = StarknetClient::new(rpc.try_into().unwrap());
+        let provider = ForkedProvider::new_ephemeral(block_num.into(), provider);
         BlockchainProvider::new(provider)
     }
 

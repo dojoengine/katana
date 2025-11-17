@@ -53,6 +53,10 @@ impl<Db> BlockchainProvider<Db> {
     pub fn new(provider: Db) -> Self {
         Self { provider: Arc::new(provider) }
     }
+
+    pub fn inner(&self) -> &Db {
+        &self.provider
+    }
 }
 
 impl<Db> Clone for BlockchainProvider<Db> {
