@@ -4,9 +4,8 @@
 //!   FORK_RPC=http://127.0.0.1:5051
 //!   DEPLOY_SALT=0x1234567890abcdef
 
-use std::{fmt::Display, sync::Arc, time::Duration};
-use starknet::accounts::Account;
 use katana_primitives::class::{ContractClass, SierraContractClass};
+use starknet::accounts::Account;
 use starknet::{
     accounts::{ConnectedAccount, ExecutionEncoding, SingleOwnerAccount},
     core::types::{
@@ -19,6 +18,7 @@ use starknet::{
     signers::{LocalWallet, SigningKey},
 };
 use starknet_contract::ContractFactory;
+use std::{fmt::Display, sync::Arc, time::Duration};
 use tokio::time::sleep;
 use url::Url;
 
@@ -128,10 +128,7 @@ async fn declare_and_deploy_call_test(
             .declare_v3(artifacts.flattened.clone(), artifacts.compiled_class_hash)
             .send()
             .await?;
-        info(
-            &format!("{label} declare tx"),
-            format!("{:#x}", declare_res.transaction_hash),
-        );
+        info(&format!("{label} declare tx"), format!("{:#x}", declare_res.transaction_hash));
         sleep(Duration::from_secs(2)).await;
     }
 
@@ -140,14 +137,8 @@ async fn declare_and_deploy_call_test(
     let deployment = factory.deploy_v3(Vec::new(), deploy_salt, true);
     let deployed_address = deployment.deployed_address();
     let deploy_res = deployment.send().await?;
-    info(
-        &format!("{label} deploy tx"),
-        format!("{:#x}", deploy_res.transaction_hash),
-    );
-    info(
-        &format!("{label} contract"),
-        format!("{:#x}", deployed_address),
-    );
+    info(&format!("{label} deploy tx"), format!("{:#x}", deploy_res.transaction_hash));
+    info(&format!("{label} contract"), format!("{:#x}", deployed_address));
     sleep(Duration::from_secs(2)).await;
 
     Ok(())
@@ -160,4 +151,3 @@ fn section(title: &str) {
 fn info(label: &str, value: impl Display) {
     println!("{label:>24}: {value}");
 }
-

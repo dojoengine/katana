@@ -1,9 +1,7 @@
 use std::cmp::Ordering;
 use std::sync::Arc;
 
-use katana_db::abstraction::{
-    Database, DbCursorMut, DbDupSortCursor, DbTx, DbTxMut,
-};
+use katana_db::abstraction::{Database, DbCursorMut, DbDupSortCursor, DbTx, DbTxMut};
 use katana_db::models::contract::{ContractClassChange, ContractNonceChange};
 use katana_db::models::storage::{ContractStorageEntry, ContractStorageKey, StorageEntry};
 use katana_db::tables;

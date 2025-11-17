@@ -70,10 +70,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
     let fork_account = build_account(fork_provider.clone(), signer, account_address).await?;
 
     section("Prerequisites");
-    info(
-        "CallTest contract",
-        "expected to be declared & deployed on both nodes",
-    );
+    info("CallTest contract", "expected to be declared & deployed on both nodes");
     info("Helper", "run `deploy_call_test` binary if setup is missing");
 
     let storage_base = get_storage_var_address("ERC20_balances", &[recipient])?;
@@ -123,10 +120,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
 
     let mainnet_block_final = mainnet_provider.block_number().await?;
     let fork_block_final = fork_provider.block_number().await?;
-    info(
-        "Blocks after fork tx",
-        format!("mainnet {mainnet_block_final}, fork {fork_block_final}"),
-    );
+    info("Blocks after fork tx", format!("mainnet {mainnet_block_final}, fork {fork_block_final}"));
 
     // ---------------------------------------------------------------------
     section("Final balances");

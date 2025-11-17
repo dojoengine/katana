@@ -399,11 +399,9 @@ mod tests {
             mainnet_provider.compute_state_root(block_number, &fork_minimal_updates).unwrap();
 
         assert_eq!(
-            state_root,
-            mainnet_state_root_same_updates,
+            state_root, mainnet_state_root_same_updates,
             "State roots do not match on first run: fork={:?}, mainnet={:?}",
-            state_root,
-            mainnet_state_root_same_updates
+            state_root, mainnet_state_root_same_updates
         );
 
         // Second iteration with new random updates
@@ -416,11 +414,9 @@ mod tests {
             mainnet_provider.compute_state_root(block_number, &state_updates).unwrap();
 
         assert_eq!(
-            mainnet_state_root,
-            fork_state_root,
+            mainnet_state_root, fork_state_root,
             "State roots do not match on second run: fork={:?}, mainnet={:?}",
-            fork_state_root,
-            mainnet_state_root
+            fork_state_root, mainnet_state_root
         );
     }
 
@@ -529,11 +525,9 @@ mod tests {
         fork_producer.force_mine();
 
         assert_eq!(
-            state_root,
-            mainnet_state_root_same_updates,
+            state_root, mainnet_state_root_same_updates,
             "State roots do not match on first run: fork={:?}, mainnet={:?}",
-            state_root,
-            mainnet_state_root_same_updates
+            state_root, mainnet_state_root_same_updates
         );
 
         let state_updates = setup_mainnet_updates_randomized(5);
@@ -545,11 +539,9 @@ mod tests {
         fork_producer.force_mine();
 
         assert_eq!(
-            fork_state_root,
-            mainnet_state_root,
+            fork_state_root, mainnet_state_root,
             "State roots do not match on second run: fork={:?}, mainnet={:?}",
-            fork_state_root,
-            mainnet_state_root
+            fork_state_root, mainnet_state_root
         );
 
         let block_number = provider.latest_number().unwrap();
@@ -561,11 +553,9 @@ mod tests {
         let mainnet_state_root = provider.compute_state_root(block_number, &state_updates).unwrap();
 
         assert_eq!(
-            fork_state_root,
-            mainnet_state_root,
+            fork_state_root, mainnet_state_root,
             "State roots do not match on third run: fork={:?}, mainnet={:?}",
-            fork_state_root,
-            mainnet_state_root
+            fork_state_root, mainnet_state_root
         );
 
         producer.force_mine();
