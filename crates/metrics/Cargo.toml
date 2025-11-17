@@ -8,6 +8,7 @@ version.workspace = true
 [dependencies]
 hyper = { workspace = true, features = [ "http1", "http2", "server", "tcp" ] }
 thiserror.workspace = true
+tokio.workspace = true
 tracing.workspace = true
 
 # Metrics
