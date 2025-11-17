@@ -1,6 +1,6 @@
 use std::fmt::Debug;
 
-use katana_core::backend::storage::{DatabaseRO, DatabaseRW};
+use katana_core::backend::storage::DatabaseRO;
 use katana_core::service::block_producer::{BlockProducer, BlockProducerMode};
 use katana_executor::ExecutorFactory;
 use katana_primitives::block::PartialHeader;
@@ -54,7 +54,6 @@ where
     EF: ExecutorFactory,
     PF: ProviderFactory,
     <PF as ProviderFactory>::Provider: DatabaseRO,
-    <PF as ProviderFactory>::ProviderMut: DatabaseRW,
 {
     fn pending_state(&self) -> StarknetApiResult<Option<Box<dyn StateProvider>>> {
         match &*self.producer.read() {

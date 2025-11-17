@@ -98,7 +98,11 @@ type BlockProductionWithTxnsFuture =
 
 /// The type which responsible for block production.
 #[must_use = "BlockProducer does nothing unless polled"]
-pub struct BlockProducer<EF: ExecutorFactory, PF: ProviderFactory> {
+pub struct BlockProducer<EF, PF>
+where
+    EF: ExecutorFactory,
+    PF: ProviderFactory,
+{
     /// The inner mode of mining.
     pub producer: Arc<RwLock<BlockProducerMode<EF, PF>>>,
 }
@@ -212,7 +216,11 @@ where
 /// resulting state. The block context is only updated every time a new block is mined as opposed to
 /// updating it when the block is opened (in _interval_ mode).
 #[allow(missing_debug_implementations)]
-pub enum BlockProducerMode<EF: ExecutorFactory, PF: ProviderFactory> {
+pub enum BlockProducerMode<EF, PF>
+where
+    EF: ExecutorFactory,
+    PF: ProviderFactory,
+{
     Interval(IntervalBlockProducer<EF, PF>),
     Instant(InstantBlockProducer<EF, PF>),
 }
