@@ -10,10 +10,9 @@ use katana_primitives::transaction::ExecutableTxWithHash;
 use katana_provider::ProviderFactory;
 use tracing::{error, info};
 
-use crate::backend::storage::{DatabaseRO, DatabaseRW};
-
 use self::block_producer::BlockProducer;
 use self::metrics::BlockProducerMetrics;
+use crate::backend::storage::{DatabaseRO, DatabaseRW};
 
 pub mod block_producer;
 mod metrics;

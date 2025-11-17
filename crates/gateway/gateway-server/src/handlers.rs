@@ -21,7 +21,6 @@ use serde_json::{json, Value};
 use starknet::core::types::ResourcePrice;
 
 /// Shared application state containing the backend
-#[derive(Clone)]
 pub struct AppState<Pool, PF>
 where
     Pool: TransactionPool,
@@ -30,6 +29,18 @@ where
     <PF as ProviderFactory>::ProviderMut: DatabaseRW,
 {
     pub api: StarknetApi<Pool, BlockProducer<BlockifierFactory, PF>, PF>,
+}
+
+impl<Pool, PF> Clone for AppState<Pool, PF>
+where
+    Pool: TransactionPool,
+    PF: ProviderFactory,
+    <PF as ProviderFactory>::Provider: DatabaseRO,
+    <PF as ProviderFactory>::ProviderMut: DatabaseRW,
+{
+    fn clone(&self) -> Self {
+        Self { api: self.api.clone() }
+    }
 }
 
 impl<P, PF> AppState<P, PF>

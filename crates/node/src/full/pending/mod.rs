@@ -1,14 +1,13 @@
 use std::sync::Arc;
 use std::time::Duration;
 
-use katana_core::backend::storage::GenericStorageProvider;
 use katana_gateway_client::Client;
 use katana_gateway_types::{ConfirmedTransaction, ErrorCode, PreConfirmedBlock, StateDiff};
 use katana_pipeline::PipelineBlockSubscription;
 use katana_primitives::block::BlockNumber;
 use katana_primitives::state::StateUpdates;
 use katana_provider::api::state::StateFactoryProvider;
-use katana_provider::ProviderFactory;
+use katana_provider::{DbProviderFactory, ProviderFactory};
 use parking_lot::Mutex;
 use tracing::error;
 
@@ -23,7 +22,7 @@ pub struct PreconfStateFactory {
     // from pipeline
     latest_synced_block: PipelineBlockSubscription,
     gateway_client: Client,
-    storage_provider: GenericStorageProvider,
+    storage_provider: DbProviderFactory<katana_db::Db>,
 
     // shared state
     shared_preconf_block: SharedPreconfBlockData,
@@ -31,7 +30,7 @@ pub struct PreconfStateFactory {
 
 impl PreconfStateFactory {
     pub fn new(
-        storage_provider: GenericStorageProvider,
+        storage_provider: DbProviderFactory<katana_db::Db>,
         gateway_client: Client,
         latest_synced_block: PipelineBlockSubscription,
         tip_subscription: TipSubscription,

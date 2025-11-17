@@ -8,7 +8,6 @@ use http::header::CONTENT_TYPE;
 use http::Method;
 use jsonrpsee::RpcModule;
 use katana_chain_spec::ChainSpec;
-use katana_core::backend::storage::{GenericStorageProvider, StorageProvider};
 use katana_executor::ExecutionFlags;
 use katana_gas_price_oracle::GasPriceOracle;
 use katana_gateway_client::Client as SequencerGateway;
@@ -16,7 +15,6 @@ use katana_metrics::exporters::prometheus::PrometheusRecorder;
 use katana_metrics::{Report, Server as MetricsServer};
 use katana_pipeline::{Pipeline, PipelineHandle};
 use katana_pool::ordering::TipOrdering;
-use katana_provider::providers::db::DbProvider;
 use katana_provider::DbProviderFactory;
 use katana_rpc_api::starknet::{StarknetApiServer, StarknetTraceApiServer, StarknetWriteApiServer};
 use katana_rpc_server::cors::Cors;
@@ -70,11 +68,12 @@ pub struct Config {
 
 #[derive(Debug)]
 pub struct Node {
+    pub provider: DbProviderFactory<katana_db::Db>,
     pub db: katana_db::Db,
     pub pool: FullNodePool,
     pub config: Arc<Config>,
     pub task_manager: TaskManager,
-    pub pipeline: Pipeline<GenericStorageProvider>,
+    pub pipeline: Pipeline<DbProviderFactory<katana_db::Db>>,
     pub rpc_server: RpcServer,
     pub gateway_client: SequencerGateway,
     pub chain_tip_watcher: ChainTipWatcher<SequencerGateway>,
@@ -98,10 +97,9 @@ impl Node {
         let path = config.db.dir.clone().expect("database path must exist");
 
         info!(target: "node", path = %path.display(), "Initializing database.");
-        let db = katana_db::Db::new(path)?;
 
-        let storage_provider = StorageProvider::new_with_db(db.clone());
-        let storage_provider: GenericStorageProvider = Arc::new(storage_provider);
+        let db = katana_db::Db::new(path)?;
+        let storage_provider = DbProviderFactory::new(db.clone());
 
         // --- build gateway client
 
@@ -175,7 +173,7 @@ impl Node {
             preconf_factory,
             GasPriceOracle::create_for_testing(),
             starknet_api_cfg,
-            storage_provider,
+            storage_provider.clone(),
         );
 
         if config.rpc.apis.contains(&RpcModuleKind::Starknet) {
@@ -217,6 +215,7 @@ impl Node {
 
         Ok(Node {
             db,
+            provider: storage_provider,
             pool,
             pipeline,
             rpc_server,

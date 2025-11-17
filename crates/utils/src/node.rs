@@ -11,6 +11,7 @@ use katana_node::config::Config;
 use katana_node::{LaunchedNode, Node};
 use katana_primitives::chain::ChainId;
 use katana_primitives::{address, ContractAddress};
+use katana_provider::DbProviderFactory;
 use katana_rpc_server::HttpClient;
 use starknet::accounts::{ExecutionEncoding, SingleOwnerAccount};
 use starknet::core::types::BlockTag;
@@ -22,7 +23,7 @@ use starknet::signers::{LocalWallet, SigningKey};
 
 #[derive(Debug)]
 pub struct TestNode {
-    node: LaunchedNode,
+    node: LaunchedNode<DbProviderFactory>,
 }
 
 impl TestNode {
@@ -39,7 +40,6 @@ impl TestNode {
     pub async fn new_with_config(config: Config) -> Self {
         Self {
             node: Node::build(config)
-                .await
                 .expect("failed to build node")
                 .launch()
                 .await
@@ -52,12 +52,12 @@ impl TestNode {
         self.node.rpc().addr()
     }
 
-    pub fn backend(&self) -> &Arc<Backend<BlockifierFactory>> {
+    pub fn backend(&self) -> &Arc<Backend<BlockifierFactory, DbProviderFactory>> {
         self.node.node().backend()
     }
 
     /// Returns a reference to the launched node handle.
-    pub fn handle(&self) -> &LaunchedNode {
+    pub fn handle(&self) -> &LaunchedNode<DbProviderFactory> {
         &self.node
     }
 

@@ -89,8 +89,8 @@ where
 
 impl<Pool, PF> GatewayServer<Pool, PF>
 where
-    Pool: TransactionPool + Clone + Send + Sync + 'static,
-    PF: ProviderFactory + Clone,
+    Pool: TransactionPool + Send + Sync + 'static,
+    PF: ProviderFactory,
     <PF as ProviderFactory>::Provider: DatabaseRO,
     <PF as ProviderFactory>::ProviderMut: DatabaseRW,
 {
