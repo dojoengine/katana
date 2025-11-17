@@ -79,8 +79,8 @@ pub struct CartridgeApi<EF: ExecutorFactory> {
 }
 
 impl<EF: ExecutorFactory> CartridgeApi<EF> {
-    pub fn new(backend: Arc<Backend<EF>>, pool: TxPool) -> Self {
-        Self { backend, pool }
+    pub fn new(backend: Arc<Backend<EF>>, pool: TxPool, task_spawner: TaskSpawner) -> Self {
+        Self { backend, pool, task_spawner }
     }
 
     fn nonce(&self, address: ContractAddress) -> Result<Option<Nonce>, StarknetApiError> {
@@ -105,8 +105,6 @@ impl<EF: ExecutorFactory> CartridgeApi<EF> {
     ) -> Result<AddInvokeTransactionResponse, StarknetApiError> {
         debug!(%address, ?outside_execution, "Adding execute outside transaction.");
         self.on_cpu_blocking_task(move |this| async move {
-            // For now, we use the first predeployed account in the genesis as the paymaster
-            // account.
             let (pm_address, pm_account) = this
                 .backend
                 .chain_spec
@@ -196,7 +194,11 @@ impl<EF: ExecutorFactory> CartridgeApi<EF> {
 
 impl<EF: ExecutorFactory> Clone for CartridgeApi<EF> {
     fn clone(&self) -> Self {
-        Self { pool: self.pool.clone(), backend: self.backend.clone() }
+        Self {
+            pool: self.pool.clone(),
+            backend: self.backend.clone(),
+            task_spawner: self.task_spawner.clone(),
+        }
     }
 }
 
@@ -210,18 +212,4 @@ impl<EF: ExecutorFactory> CartridgeApiServer for CartridgeApi<EF> {
     ) -> RpcResult<AddInvokeTransactionResponse> {
         Ok(self.execute_outside(address, outside_execution, signature).await?)
     }
-}
-/// Encodes the given calls into a vector of Felt values (New encoding, cairo 1),
-/// since controller accounts are Cairo 1 contracts.
-pub fn encode_calls(calls: Vec<FunctionCall>) -> Vec<Felt> {
-    let mut execute_calldata: Vec<Felt> = vec![calls.len().into()];
-    for call in calls {
-        execute_calldata.push(call.contract_address.into());
-        execute_calldata.push(call.entry_point_selector);
-
-        execute_calldata.push(call.calldata.len().into());
-        execute_calldata.extend_from_slice(&call.calldata);
-    }
-
-    execute_calldata
 }
