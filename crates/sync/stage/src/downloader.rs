@@ -185,7 +185,15 @@ where
     }
 
     async fn download_batch(&self, keys: &[D::Key]) -> Vec<DownloaderResult<D::Value, D::Error>> {
-        join_all(keys.iter().map(|key| self.downloader.download(key))).await
+        join_all(keys.iter().map(|key| async move {
+            let start = std::time::Instant::now();
+            let result = self.downloader.download(key).await;
+            let elapsed = start.elapsed();
+            println!("elapsed_ms = {}", elapsed.as_millis());
+
+            result
+        }))
+        .await
     }
 
     async fn download_batch_with_retry(
@@ -226,7 +234,7 @@ where
             }
 
             // if not failed keys, all requests succeeded
-            if failed_keys.is_empty() {
+            if dbg!(failed_keys.is_empty()) {
                 break;
             }
 
