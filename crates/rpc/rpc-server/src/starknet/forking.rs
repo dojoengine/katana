@@ -1,5 +1,4 @@
 use jsonrpsee::core::client::Error as JsonRpcseError;
-use jsonrpsee::http_client::HttpClientBuilder;
 use katana_primitives::block::{BlockHash, BlockIdOrTag, BlockNumber};
 use katana_primitives::contract::ContractAddress;
 use katana_primitives::transaction::TxHash;
@@ -46,14 +45,12 @@ pub struct ForkedClient {
     block: BlockNumber,
     /// The Starknet JSON-RPC client for doing the request to the forked network.
     client: Client,
-    /// The URL of the forked network (only set when using JsonRpcClient<HttpTransport>).
-    url: Option<String>,
 }
 
 impl ForkedClient {
     /// Creates a new forked client from the given [`Client`] and block number.
     pub fn new(client: Client, block: BlockNumber) -> Self {
-        Self { block, client, url: None }
+        Self { block, client }
     }
 
     /// Returns the block number of the forked client.
@@ -63,16 +60,6 @@ impl ForkedClient {
 }
 
 impl ForkedClient {
-    /// Creates a new forked client from the given HTTP URL and block number.
-    pub fn new_http(url: impl Into<String>, block: BlockNumber) -> Self {
-        let url_str = url.into();
-        Self {
-            client: Client::new(HttpClientBuilder::new().build(&url_str).unwrap()),
-            block,
-            url: Some(url_str),
-        }
-    }
-
     pub async fn get_block_number_by_hash(&self, hash: BlockHash) -> Result<BlockNumber, Error> {
         let number = match self.client.get_block_with_tx_hashes(BlockIdOrTag::Hash(hash)).await? {
             GetBlockWithTxHashesResponse::Block(block) => block.block_number,

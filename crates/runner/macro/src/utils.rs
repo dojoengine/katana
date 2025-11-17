@@ -42,5 +42,5 @@ pub fn parse_int(int: Lit, span: proc_macro2::Span, field: &str) -> Result<usize
 }
 
 pub fn attr_ends_with(attr: &Attribute, segment: &PathSegment) -> bool {
-    attr.path().segments.iter().last() == Some(segment)
+    attr.path().segments.iter().next_back() == Some(segment)
 }

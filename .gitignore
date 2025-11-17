@@ -40,3 +40,4 @@ crates/contracts/build/
 
 **/.claude/settings.local.json
 /programs/
+.cargo/

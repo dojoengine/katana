@@ -75,10 +75,11 @@ impl<Db: Database + 'static> TrieWriter for ForkedProvider<Db> {
             let mut contract_leafs: HashMap<ContractAddress, ContractLeaf> = HashMap::new();
 
             for (address, leaf_data) in &contract_leaves_map {
-                let mut leaf = ContractLeaf::default();
-                leaf.storage_root = leaf_data.storage_root;
-                leaf.nonce = leaf_data.nonce;
-                leaf.class_hash = leaf_data.class_hash;
+                let leaf = ContractLeaf {
+                    storage_root: leaf_data.storage_root,
+                    nonce: leaf_data.nonce,
+                    class_hash: leaf_data.class_hash,
+                };
                 contract_leafs.insert(*address, leaf);
             }
 
@@ -108,7 +109,7 @@ impl<Db: Database + 'static> TrieWriter for ForkedProvider<Db> {
                     for (key, value) in storage_entries {
                         storage_trie_db.insert(*key, *value, storage_proof.clone(), original_root);
                     }
-                    contract_leafs.entry(*address).or_insert(ContractLeaf::default());
+                    contract_leafs.entry(*address).or_default();
                     storage_trie_db.commit(block_number);
                 }
 
@@ -176,9 +177,9 @@ impl<Db: Database + 'static> TrieWriter for ForkedProvider<Db> {
                 };
 
                 if let Some(port) = default_port {
-                    fork_url
-                        .set_port(Some(port))
-                        .map_err(|_| ProviderError::ParsingError(format!("Failed to set port")))?;
+                    fork_url.set_port(Some(port)).map_err(|_| {
+                        ProviderError::ParsingError("Failed to set port".to_string())
+                    })?;
                 }
             }
 
@@ -253,10 +254,11 @@ impl<Db: Database + 'static> TrieWriter for ForkedProvider<Db> {
                     .iter()
                     .zip(contract_addresses.iter())
                     .map(|(leaf_data, &addr)| {
-                        let mut leaf = ContractLeaf::default();
-                        leaf.storage_root = Some(leaf_data.storage_root);
-                        leaf.nonce = Some(leaf_data.nonce);
-                        leaf.class_hash = Some(leaf_data.class_hash);
+                        let leaf = ContractLeaf {
+                            storage_root: Some(leaf_data.storage_root),
+                            nonce: Some(leaf_data.nonce),
+                            class_hash: Some(leaf_data.class_hash),
+                        };
                         (addr, leaf)
                     })
                     .collect();
@@ -304,7 +306,7 @@ impl<Db: Database + 'static> TrieWriter for ForkedProvider<Db> {
             }
             Ok((None, _)) => {
                 tracing::error!("Failed to get storage proof for block {}", block_number);
-                Err(ProviderError::ParsingError(format!("Storage proof failed")))
+                Err(ProviderError::ParsingError("Storage proof failed".to_string()))
             }
             Err(e) => {
                 tracing::error!("Failed to get storage proof for block {}: {:?}", block_number, e);

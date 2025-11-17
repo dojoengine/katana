@@ -45,6 +45,7 @@ enum Network {
     Sepolia,
 }
 
+#[allow(clippy::enum_variant_names)]
 #[derive(Debug, Subcommand)]
 enum Command {
     /// Fetch a block.

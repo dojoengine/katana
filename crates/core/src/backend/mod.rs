@@ -246,61 +246,56 @@ impl<EF: ExecutorFactory> Backend<EF> {
             }
 
             info!(genesis_hash = %local_hash, "Genesis has already been initialized");
+        } else if is_forked {
+            // In forked mode, we need to insert the forked block into local database
+            // The genesis block in chain_spec is already set to the forked block data
+            info!("Initializing forked genesis block from RPC data");
+            let block = chain_spec.block();
+            let empty_states = StateUpdatesWithClasses::default();
+
+            self.do_mine_block(
+                &BlockEnv {
+                    number: block.header.number,
+                    timestamp: block.header.timestamp,
+                    l2_gas_prices: block.header.l2_gas_prices,
+                    l1_gas_prices: block.header.l1_gas_prices,
+                    l1_data_gas_prices: block.header.l1_data_gas_prices,
+                    sequencer_address: block.header.sequencer_address,
+                    starknet_version: block.header.starknet_version,
+                },
+                ExecutionOutput { states: empty_states, ..Default::default() },
+            )?;
+
+            info!("Forked genesis block inserted from RPC");
         } else {
-            if is_forked {
-                // In forked mode, we need to insert the forked block into local database
-                // The genesis block in chain_spec is already set to the forked block data
-                info!("Initializing forked genesis block from RPC data");
-                let block = chain_spec.block();
-                let empty_states = StateUpdatesWithClasses::default();
+            // Initialize the dev genesis block with dev accounts
+            let block = chain_spec.block();
+            let states = chain_spec.state_updates();
+            let block_number = block.header.number;
 
-                self.do_mine_block(
-                    &BlockEnv {
-                        number: block.header.number,
-                        timestamp: block.header.timestamp,
-                        l2_gas_prices: block.header.l2_gas_prices,
-                        l1_gas_prices: block.header.l1_gas_prices,
-                        l1_data_gas_prices: block.header.l1_data_gas_prices,
-                        sequencer_address: block.header.sequencer_address,
-                        starknet_version: block.header.starknet_version,
-                    },
-                    ExecutionOutput { states: empty_states, ..Default::default() },
-                )?;
+            provider
+                .trie_insert_declared_classes(block_number, &states.state_updates.declared_classes)
+                .context("failed to update class trie")?;
 
-                info!("Forked genesis block inserted from RPC");
-            } else {
-                // Initialize the dev genesis block with dev accounts
-                let block = chain_spec.block();
-                let states = chain_spec.state_updates();
-                let block_number = block.header.number;
+            provider
+                .trie_insert_contract_updates(block_number, &states.state_updates)
+                .context("failed to update contract trie")?;
 
-                provider
-                    .trie_insert_declared_classes(
-                        block_number,
-                        &states.state_updates.declared_classes,
-                    )
-                    .context("failed to update class trie")?;
+            let outcome = self.do_mine_block(
+                &BlockEnv {
+                    number: block.header.number,
+                    timestamp: block.header.timestamp,
+                    l2_gas_prices: block.header.l2_gas_prices,
+                    l1_gas_prices: block.header.l1_gas_prices,
+                    l1_data_gas_prices: block.header.l1_data_gas_prices,
+                    sequencer_address: block.header.sequencer_address,
+                    starknet_version: block.header.starknet_version,
+                },
+                ExecutionOutput { states, ..Default::default() },
+            )?;
 
-                provider
-                    .trie_insert_contract_updates(block_number, &states.state_updates)
-                    .context("failed to update contract trie")?;
-
-                let outcome = self.do_mine_block(
-                    &BlockEnv {
-                        number: block.header.number,
-                        timestamp: block.header.timestamp,
-                        l2_gas_prices: block.header.l2_gas_prices,
-                        l1_gas_prices: block.header.l1_gas_prices,
-                        l1_data_gas_prices: block.header.l1_data_gas_prices,
-                        sequencer_address: block.header.sequencer_address,
-                        starknet_version: block.header.starknet_version,
-                    },
-                    ExecutionOutput { states, ..Default::default() },
-                )?;
-
-                info!(genesis_hash = %outcome.block_hash, "Genesis initialized");
-                info!("Genesis initialized with dev accounts");
-            }
+            info!(genesis_hash = %outcome.block_hash, "Genesis initialized");
+            info!("Genesis initialized with dev accounts");
         }
 
         Ok(())

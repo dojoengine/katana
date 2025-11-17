@@ -394,7 +394,7 @@ pub struct MutableLatestStateProvider<'a, Db: Database> {
     pub tx: &'a Db::TxMut,
 }
 
-impl<'a, Db> ContractClassProvider for MutableLatestStateProvider<'a, Db>
+impl<Db> ContractClassProvider for MutableLatestStateProvider<'_, Db>
 where
     Db: Database,
 {
@@ -424,7 +424,7 @@ where
     }
 }
 
-impl<'a, Db> StateProvider for MutableLatestStateProvider<'a, Db>
+impl<Db> StateProvider for MutableLatestStateProvider<'_, Db>
 where
     Db: Database,
 {
@@ -485,7 +485,7 @@ where
     }
 }
 
-impl<'a, Db> StateProofProvider for MutableLatestStateProvider<'a, Db>
+impl<Db> StateProofProvider for MutableLatestStateProvider<'_, Db>
 where
     Db: Database,
 {
@@ -515,7 +515,7 @@ where
     }
 }
 
-impl<'a, Db> StateRootProvider for MutableLatestStateProvider<'a, Db>
+impl<Db> StateRootProvider for MutableLatestStateProvider<'_, Db>
 where
     Db: Database,
 {

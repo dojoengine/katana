@@ -108,9 +108,9 @@ impl Node {
 
             // TODO: it'd bee nice if the client can be shared on both the rpc and forked backend
             // side
-            // let http_client = HttpClientBuilder::new().build(cfg.url.as_ref())?;
-            // let rpc_client = StarknetClient::new(http_client);
-            let forked_client = ForkedClient::new_http(cfg.url.clone(), block_num);
+            let http_client = HttpClientBuilder::new().build(cfg.url.as_ref())?;
+            let rpc_client = StarknetClient::new(http_client);
+            let forked_client = ForkedClient::new(rpc_client, block_num);
 
             (bc, db, Some(forked_client))
         } else if let Some(db_path) = &config.db.dir {

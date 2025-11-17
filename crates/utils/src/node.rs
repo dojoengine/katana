@@ -12,7 +12,6 @@ use katana_node::config::sequencing::SequencingConfig;
 use katana_node::config::Config;
 use katana_node::{LaunchedNode, Node};
 use katana_primitives::block::BlockHashOrNumber;
-use katana_primitives::block::BlockNumber;
 use katana_primitives::chain::ChainId;
 use katana_primitives::{address, ContractAddress};
 use katana_provider::BlockchainProvider;
