@@ -12,7 +12,7 @@ use katana_primitives::state::{StateUpdates, StateUpdatesWithClasses};
 use katana_primitives::transaction::{Tx, TxWithHash};
 use katana_primitives::Felt;
 use katana_provider::api::block::{BlockHashProvider, BlockWriter};
-use katana_provider::{ProviderError, ProviderFactory};
+use katana_provider::{MutableProvider, ProviderError, ProviderFactory};
 use num_traits::ToPrimitive;
 use starknet::core::types::ResourcePrice;
 use tracing::{error, info_span, Instrument};
@@ -118,12 +118,13 @@ where
             // TODO: spawn onto a blocking thread pool
             self.validate_chain_invariant(&blocks)?;
 
+            let provider_mut = self.provider.provider_mut();
+
             for block in blocks {
                 let (block, receipts, state_updates) = extract_block_data(block)?;
                 let block_number = block.block.header.number;
 
-                self.provider
-                    .provider_mut()
+                provider_mut
                     .insert_block_with_states_and_receipts(
                         block,
                         state_updates,
@@ -134,6 +135,8 @@ where
                         |e| error!(error = %e, block = %block_number, "Error storing block."),
                     )?;
             }
+
+            provider_mut.commit()?;
 
             Ok(StageExecutionOutput { last_block_processed: input.to() })
         })
