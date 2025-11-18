@@ -8,7 +8,7 @@ pub mod exit;
 use std::future::IntoFuture;
 use std::sync::Arc;
 
-use anyhow::{anyhow, bail, Context, Result};
+use anyhow::{anyhow, Context, Result};
 #[cfg(feature = "cartridge")]
 use cartridge::paymaster::layer::PaymasterLayer;
 #[cfg(feature = "cartridge")]
@@ -40,29 +40,17 @@ use katana_metrics::{Report, Server as MetricsServer};
 use katana_pool::ordering::FiFo;
 use katana_pool::TxPool;
 use katana_primitives::env::VersionedConstantsOverrides;
-use katana_primitives::env::{CfgEnv, FeeTokenAddressses};
-use katana_primitives::genesis::allocation::GenesisAccountAlloc;
-use katana_rpc::cors::Cors;
-use katana_rpc::dev::DevApi;
-use katana_rpc::logger::RpcLoggerLayer;
-use katana_rpc::metrics::RpcServerMetricsLayer;
-use katana_rpc::starknet::forking::ForkedClient;
-use katana_rpc::starknet::{StarknetApi, StarknetApiConfig};
-use katana_rpc::{RpcServer, RpcServerHandle, RpcServiceBuilder};
-#[cfg(feature = "cartridge")]
-use katana_rpc_api::cartridge::CartridgeApiServer;
 use katana_rpc_api::dev::DevApiServer;
 use katana_rpc_api::starknet::{StarknetApiServer, StarknetTraceApiServer, StarknetWriteApiServer};
 #[cfg(feature = "explorer")]
 use katana_rpc_api::starknet_ext::StarknetApiExtServer;
 #[cfg(feature = "cartridge")]
-use katana_rpc_server::cartridge::CartridgeApi;
 use katana_rpc_server::cors::Cors;
 use katana_rpc_server::dev::DevApi;
-#[cfg(feature = "cartridge")]
-use katana_rpc_server::starknet::PaymasterConfig;
+use katana_rpc_server::logger::RpcLoggerLayer;
+use katana_rpc_server::metrics::RpcServerMetricsLayer;
 use katana_rpc_server::starknet::{StarknetApi, StarknetApiConfig};
-use katana_rpc_server::{RpcServer, RpcServerHandle};
+use katana_rpc_server::{RpcServer, RpcServerHandle, RpcServiceBuilder};
 use katana_stage::Sequencing;
 use katana_tasks::TaskManager;
 use starknet::signers::SigningKey;
@@ -73,7 +61,7 @@ use crate::exit::NodeStoppedFuture;
 
 /// The concrete type of of the RPC middleware stack used by the node.
 type NodeRpcMiddleware = Stack<
-    Either<PaymasterLayer<BlockifierFactory>, Identity>,
+    Either<PaymasterLayer<TxPool, BlockProducer<BlockifierFactory>>, Identity>,
     Stack<RpcLoggerLayer, Stack<RpcServerMetricsLayer, Identity>>,
 >;
 
@@ -290,7 +278,12 @@ impl Node {
                 "Cartridge API should be enabled when paymaster is set"
             );
 
-            let api = CartridgeApi::new(backend.clone(), pool.clone(), task_spawner.clone());
+            let api = CartridgeApi::new(
+                backend.clone(),
+                block_producer.clone(),
+                pool.clone(),
+                task_spawner.clone(),
+            );
 
             rpc_modules.merge(CartridgeApiServer::into_rpc(api))?;
 
@@ -305,7 +298,7 @@ impl Node {
                 .ok_or(anyhow!("Cartridge paymaster account doesn't exist"))?;
 
             Some(Paymaster::new(
-                starknet_api,
+                starknet_api.clone(),
                 cartridge_api_client,
                 pool.clone(),
                 config.chain.id(),
@@ -321,10 +314,10 @@ impl Node {
 
         let rpc_middleware = RpcServiceBuilder::new()
             .layer(RpcServerMetricsLayer::new(&rpc_modules))
-            .layer(katana_rpc::logger::RpcLoggerLayer::new())
+            .layer(RpcLoggerLayer::new())
             .option_layer(paymaster.map(|p| p.layer()));
 
-        let mut rpc_server = katana_rpc::RpcServer::new()
+        let mut rpc_server = RpcServer::new()
             .rpc_middleware(rpc_middleware)
             .health_check(true)
             .cors(cors)

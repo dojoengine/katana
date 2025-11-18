@@ -10,13 +10,9 @@ use katana_primitives::da::DataAvailabilityMode;
 use katana_primitives::fee::{ResourceBoundsMapping, Tip};
 use katana_primitives::transaction::{
     DeclareTx, DeclareTxV3, DeclareTxWithClass, DeployAccountTx, DeployAccountTxV3, ExecutableTx,
-    ExecutableTxWithHash, InvokeTx, InvokeTx, InvokeTxV3, InvokeTxV3, TxHash, TxHash, TxType,
-    TxType,
+    ExecutableTxWithHash, InvokeTx, InvokeTxV3, TxHash, TxType,
 };
 use katana_primitives::utils::get_contract_address;
-use katana_primitives::utils::serde::{
-    deserialize_hex_u128, deserialize_hex_u64, serialize_hex_u128, serialize_hex_u64,
-};
 use katana_primitives::{ContractAddress, Felt};
 use serde::{de, Deserialize, Deserializer, Serialize};
 
@@ -369,7 +365,7 @@ impl From<ExecutableTx> for BroadcastedTx {
                     signature,
                     nonce,
                     paymaster_data,
-                    tip,
+                    tip: Tip::new(tip),
                     account_deployment_data,
                     resource_bounds,
                     fee_data_availability_mode,
@@ -428,7 +424,7 @@ impl From<ExecutableTx> for BroadcastedTx {
                     nonce,
                     contract_class,
                     paymaster_data,
-                    tip,
+                    tip: Tip::new(tip),
                     account_deployment_data,
                     resource_bounds,
                     fee_data_availability_mode,
@@ -473,7 +469,7 @@ impl From<ExecutableTx> for BroadcastedTx {
                     constructor_calldata,
                     class_hash,
                     paymaster_data,
-                    tip,
+                    tip: Tip::new(tip),
                     resource_bounds,
                     fee_data_availability_mode,
                     nonce_data_availability_mode,

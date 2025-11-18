@@ -2,22 +2,24 @@ use std::collections::HashSet;
 use std::iter::once;
 
 use cainome_cairo_serde::CairoSerde;
-use katana_executor::ExecutorFactory;
+use katana_genesis::constant::DEFAULT_UDC_ADDRESS;
 use katana_pool::{TransactionPool, TxPool};
-use katana_primitives::block::{BlockIdOrTag, BlockTag};
+use katana_pool_api::PoolError;
 use katana_primitives::chain::ChainId;
 use katana_primitives::contract::Nonce;
+use katana_primitives::execution::FunctionCall;
 use katana_primitives::fee::{AllResourceBoundsMapping, ResourceBoundsMapping};
-use katana_primitives::genesis::constant::DEFAULT_UDC_ADDRESS;
 use katana_primitives::transaction::{ExecutableTx, ExecutableTxWithHash, InvokeTx, InvokeTxV3};
 use katana_primitives::{ContractAddress, Felt};
-use katana_rpc::starknet::StarknetApi;
 use katana_rpc_api::error::starknet::StarknetApiError;
+use katana_rpc_server::starknet::{PendingBlockProvider, StarknetApi};
 use katana_rpc_types::broadcasted::BroadcastedTx;
+use katana_rpc_types::BlockIdOrTag;
 use layer::PaymasterLayer;
 use starknet::core::types::Call;
 use starknet::macros::selector;
 use starknet::signers::{LocalWallet, Signer, SigningKey};
+use starknet_crypto::pedersen_hash;
 use tracing::trace;
 
 pub mod layer;
@@ -55,12 +57,12 @@ pub enum Error {
     SigningError(String),
 
     #[error("failed to add deploy controller transaction to the pool: {0}")]
-    FailedToAddTransaction(#[from] katana_pool::PoolError),
+    FailedToAddTransaction(#[from] PoolError),
 }
 
 #[derive(Debug)]
-pub struct Paymaster<EF: ExecutorFactory> {
-    starknet_api: StarknetApi<EF>,
+pub struct Paymaster<Pool: TransactionPool, PP: PendingBlockProvider> {
+    starknet_api: StarknetApi<Pool, PP>,
     cartridge_api: Client,
     pool: TxPool,
     chain_id: ChainId,
@@ -69,9 +71,9 @@ pub struct Paymaster<EF: ExecutorFactory> {
     vrf_ctx: VrfContext,
 }
 
-impl<EF: ExecutorFactory> Paymaster<EF> {
+impl<Pool: TransactionPool + 'static, PP: PendingBlockProvider> Paymaster<Pool, PP> {
     pub fn new(
-        starknet_api: StarknetApi<EF>,
+        starknet_api: StarknetApi<Pool, PP>,
         cartridge_api: Client,
         pool: TxPool,
         chain_id: ChainId,
@@ -102,27 +104,28 @@ impl<EF: ExecutorFactory> Paymaster<EF> {
         outside_execution: OutsideExecution,
         _signature: Vec<Felt>,
     ) -> PaymasterResult<Option<(OutsideExecution, Vec<Felt>)>> {
-        let block_id = BlockIdOrTag::Tag(BlockTag::Pending);
+        let block_id = BlockIdOrTag::PreConfirmed;
         let mut paymaster_nonce = self.get_paymaster_nonce(block_id).await?;
 
         // craft a controller deploy tx if needed
-        match self.craft_controller_deploy_tx(address, block_id).await {
-            Ok(Some(tx)) => {
-                let tx = ExecutableTxWithHash::new(tx);
-                let tx_hash =
-                    self.pool.add_transaction(tx).map_err(Error::FailedToAddTransaction)?;
-
-                trace!(
-                    target: "paymaster",
-                    tx_hash = format!("{tx_hash:#x}"),
-                    "Controller deploy transaction submitted",
-                );
-
-                paymaster_nonce += Nonce::ONE;
-            }
-            Ok(None) => { /* Controller already deployed, skip */ }
+        let tx_option = match self.craft_controller_deploy_tx(address, block_id).await {
+            Ok(opt) => opt,
             Err(err) => return Err(err),
         };
+
+        if let Some(tx) = tx_option {
+            let tx = ExecutableTxWithHash::new(tx);
+            let tx_hash =
+                self.pool.add_transaction(tx).await.map_err(Error::FailedToAddTransaction)?;
+
+            trace!(
+                target: "paymaster",
+                tx_hash = format!("{tx_hash:#x}"),
+                "Controller deploy transaction submitted",
+            );
+
+            paymaster_nonce += Nonce::ONE;
+        }
 
         // get VRF calls
         let vrf_calls =
@@ -130,11 +133,12 @@ impl<EF: ExecutorFactory> Paymaster<EF> {
 
         if let Some(vrf_calls) = vrf_calls {
             // deploy VRF provider if not deployed yet
-            match self
+            let class_hash_result = self
                 .starknet_api
-                .class_hash_at_address(BlockIdOrTag::Tag(BlockTag::Latest), self.vrf_ctx.address())
-                .await
-            {
+                .class_hash_at_address(BlockIdOrTag::Latest, self.vrf_ctx.address())
+                .await;
+
+            match class_hash_result {
                 Err(StarknetApiError::ContractNotFound) => {
                     let (public_key_x, public_key_y) = self.vrf_ctx.get_public_key_xy_felts();
                     let tx = self
@@ -147,8 +151,11 @@ impl<EF: ExecutorFactory> Paymaster<EF> {
                             public_key_y,
                         )
                         .await?;
-                    let tx_hash =
-                        self.pool.add_transaction(tx).map_err(Error::FailedToAddTransaction)?;
+                    let tx_hash = self
+                        .pool
+                        .add_transaction(tx)
+                        .await
+                        .map_err(Error::FailedToAddTransaction)?;
 
                     trace!(
                         target: "paymaster",
@@ -209,7 +216,7 @@ impl<EF: ExecutorFactory> Paymaster<EF> {
     /// Returns a [`Layer`](tower::Layer) implementation of [`Paymaster`].
     ///
     /// This allows the paymaster to be used as a middleware in Katana RPC stack.
-    pub fn layer(self) -> PaymasterLayer<EF> {
+    pub fn layer(self) -> PaymasterLayer<Pool, PP> {
         PaymasterLayer { paymaster: self }
     }
 
@@ -280,9 +287,9 @@ impl<EF: ExecutorFactory> Paymaster<EF> {
             public_key_y,
         ];
 
-        let call = Call {
-            to: DEFAULT_UDC_ADDRESS.into(),
-            selector: selector!("deployContract"),
+        let call = FunctionCall {
+            contract_address: DEFAULT_UDC_ADDRESS.into(),
+            entry_point_selector: selector!("deployContract"),
             calldata,
         };
 
@@ -333,8 +340,7 @@ impl<EF: ExecutorFactory> Paymaster<EF> {
 
         let first_call = calls.first().unwrap();
 
-        if first_call.selector != selector!("request_random")
-            || first_call.to != (*vrf_ctx.address()).into()
+        if first_call.selector != selector!("request_random") || first_call.to != *vrf_ctx.address()
         {
             return Ok(None);
         }
@@ -358,13 +364,15 @@ impl<EF: ExecutorFactory> Paymaster<EF> {
         // `Nonce` variant.
         let salt_or_nonce = first_call.calldata[2];
 
-        let seed = if salt_or_nonce_selector == Felt::ZERO {
+        let source = if salt_or_nonce_selector == Felt::ZERO {
             let contract_address = salt_or_nonce;
-            let nonce = vrf_ctx.consume_nonce(contract_address.into());
-            starknet_crypto::poseidon_hash_many(vec![&nonce, &caller, &chain_id.id()])
+            let state =
+                self.starknet_api.state(&BlockIdOrTag::Latest).map_err(Error::StarknetApi)?;
+
+            let key = pedersen_hash(&selector!("VrfProvider_nonces"), &contract_address);
+            state.storage(vrf_ctx.address(), key).unwrap_or_default().unwrap_or_default()
         } else if salt_or_nonce_selector == Felt::ONE {
-            let salt = salt_or_nonce;
-            starknet_crypto::poseidon_hash_many(vec![&salt, &caller, &chain_id.id()])
+            salt_or_nonce
         } else {
             return Err(Error::Vrf(format!(
                 "Invalid salt or nonce for VRF request, expecting 0 or 1, got {}",
@@ -372,6 +380,7 @@ impl<EF: ExecutorFactory> Paymaster<EF> {
             )));
         };
 
+        let seed = starknet_crypto::poseidon_hash_many(vec![&source, &caller, &chain_id.id()]);
         let proof = vrf_ctx.stark_vrf(seed).map_err(|e| Error::Vrf(e.to_string()))?;
 
         let submit_random_call = Call {
@@ -462,7 +471,7 @@ impl<EF: ExecutorFactory> Paymaster<EF> {
     }
 }
 
-impl<EF: ExecutorFactory> Clone for Paymaster<EF> {
+impl<Pool: TransactionPool, PP: PendingBlockProvider> Clone for Paymaster<Pool, PP> {
     fn clone(&self) -> Self {
         Self {
             pool: self.pool.clone(),
@@ -489,10 +498,10 @@ async fn create_deploy_tx(
     // transaction list so that all the requested transactions are executed against a state
     // with the Controller accounts deployed.
 
-    let call = Call {
+    let call = FunctionCall {
+        contract_address: DEFAULT_UDC_ADDRESS.into(),
+        entry_point_selector: selector!("deployContract"),
         calldata: constructor_calldata,
-        to: DEFAULT_UDC_ADDRESS.into(),
-        selector: selector!("deployContract"),
     };
 
     let mut tx = InvokeTxV3 {

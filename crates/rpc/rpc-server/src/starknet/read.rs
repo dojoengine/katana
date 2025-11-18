@@ -1,16 +1,12 @@
 use jsonrpsee::core::{async_trait, RpcResult};
 use jsonrpsee::types::ErrorObjectOwned;
-#[cfg(feature = "cartridge")]
-use katana_genesis::allocation::GenesisAccountAlloc;
 use katana_pool::TransactionPool;
 use katana_primitives::block::BlockIdOrTag;
 use katana_primitives::class::ClassHash;
 use katana_primitives::contract::{Nonce, StorageKey, StorageValue};
 use katana_primitives::transaction::{ExecutableTx, ExecutableTxWithHash, TxHash};
 use katana_primitives::{ContractAddress, Felt};
-#[cfg(feature = "cartridge")]
-use katana_provider::api::state::StateFactoryProvider;
-use katana_rpc_api::error::starknet::StarknetApiError;
+use katana_rpc_api::error::starknet::{StarknetApiError, UnexpectedErrorData};
 use katana_rpc_api::starknet::StarknetApiServer;
 use katana_rpc_types::block::{
     BlockHashAndNumberResponse, BlockNumberResponse, GetBlockWithReceiptsResponse,
@@ -29,8 +25,6 @@ use katana_rpc_types::{
 };
 
 use super::StarknetApi;
-#[cfg(feature = "cartridge")]
-use crate::cartridge;
 use crate::starknet::pending::PendingBlockProvider;
 
 #[async_trait]
@@ -205,7 +199,9 @@ where
             .with_nonce_check(false);
 
         let permit = self.inner.estimate_fee_permit.acquire().await.map_err(|e| {
-            StarknetApiError::UnexpectedError { reason: format!("Failed to acquire permit: {e}") }
+            StarknetApiError::UnexpectedError(UnexpectedErrorData {
+                reason: format!("Failed to acquire permit: {e}"),
+            })
         })?;
 
         self.on_cpu_blocking_task(move |this| async move {
