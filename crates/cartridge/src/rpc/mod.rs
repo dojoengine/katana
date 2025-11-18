@@ -34,34 +34,20 @@ use jsonrpsee::core::{async_trait, RpcResult};
 use katana_core::backend::Backend;
 use katana_core::service::block_producer::{BlockProducer, BlockProducerMode};
 use katana_executor::ExecutorFactory;
-use katana_genesis::allocation::GenesisAccountAlloc;
-use katana_genesis::constant::DEFAULT_UDC_ADDRESS;
 use katana_pool::{TransactionPool, TxPool};
 use katana_primitives::contract::Nonce;
 use katana_primitives::da::DataAvailabilityMode;
 use katana_primitives::fee::{AllResourceBoundsMapping, ResourceBoundsMapping};
 use katana_primitives::transaction::{ExecutableTx, ExecutableTxWithHash, InvokeTx, InvokeTxV3};
-use katana_primitives::transaction::{ExecutableTx, ExecutableTxWithHash, InvokeTx, InvokeTxV3};
-use katana_primitives::{ContractAddress, Felt};
 use katana_primitives::{ContractAddress, Felt};
 use katana_provider::api::state::{StateFactoryProvider, StateProvider};
-use katana_provider::traits::state::{StateFactoryProvider, StateProvider};
-use katana_rpc_api::cartridge::CartridgeApiServer;
-use katana_rpc_api::error::starknet::StarknetApiError;
 use katana_rpc_api::error::starknet::StarknetApiError;
 use katana_rpc_types::broadcasted::AddInvokeTransactionResponse;
-use katana_rpc_types::outside_execution::{
-    OutsideExecution, OutsideExecutionV2, OutsideExecutionV3,
-};
-use katana_rpc_types::transaction::InvokeTxResult;
 use katana_rpc_types::FunctionCall;
-use katana_tasks::TokioTaskSpawner;
 use katana_tasks::{Result as TaskResult, TaskSpawner};
-use starknet::core::types::Call;
 use starknet::macros::selector;
 use starknet::signers::{LocalWallet, Signer, SigningKey};
-use starknet_crypto::pedersen_hash;
-use tracing::{debug, info};
+use tracing::debug;
 use types::OutsideExecution;
 
 mod api;
@@ -74,13 +60,19 @@ use crate::utils::encode_calls;
 #[allow(missing_debug_implementations)]
 pub struct CartridgeApi<EF: ExecutorFactory> {
     task_spawner: TaskSpawner,
+    block_producer: BlockProducer<EF>,
     backend: Arc<Backend<EF>>,
     pool: TxPool,
 }
 
 impl<EF: ExecutorFactory> CartridgeApi<EF> {
-    pub fn new(backend: Arc<Backend<EF>>, pool: TxPool, task_spawner: TaskSpawner) -> Self {
-        Self { backend, pool, task_spawner }
+    pub fn new(
+        backend: Arc<Backend<EF>>,
+        block_producer: BlockProducer<EF>,
+        pool: TxPool,
+        task_spawner: TaskSpawner,
+    ) -> Self {
+        Self { backend, block_producer, pool, task_spawner }
     }
 
     fn nonce(&self, address: ContractAddress) -> Result<Option<Nonce>, StarknetApiError> {
@@ -196,6 +188,7 @@ impl<EF: ExecutorFactory> Clone for CartridgeApi<EF> {
     fn clone(&self) -> Self {
         Self {
             pool: self.pool.clone(),
+            block_producer: self.block_producer.clone(),
             backend: self.backend.clone(),
             task_spawner: self.task_spawner.clone(),
         }

@@ -27,6 +27,8 @@ katana-rpc-server.workspace = true
 katana-rpc-types.workspace = true
 katana-stage.workspace = true
 katana-tasks.workspace = true
+starknet.workspace = true
+tower.workspace = true
 
 anyhow.workspace = true
 backon.workspace = true
