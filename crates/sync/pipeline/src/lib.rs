@@ -404,7 +404,7 @@ where
 
             let provider_mut = self.storage_provider.provider_mut();
             provider_mut.set_checkpoint(id, last_block_processed)?;
-            provider_mut.commit();
+            provider_mut.commit()?;
 
             last_block_processed_list.push(last_block_processed);
             info!(target: "pipeline", checkpoint = %last_block_processed, "New checkpoint set.");

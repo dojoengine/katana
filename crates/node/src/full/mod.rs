@@ -121,7 +121,7 @@ impl Node {
 
         // --- build pipeline
 
-        let (mut pipeline, pipeline_handle) = Pipeline::new(storage_provider.clone(), 50);
+        let (mut pipeline, pipeline_handle) = Pipeline::new(storage_provider.clone(), 256);
         let block_downloader = BatchBlockDownloader::new_gateway(gateway_client.clone(), 20);
         pipeline.add_stage(Blocks::new(storage_provider.clone(), block_downloader));
         pipeline.add_stage(Classes::new(storage_provider.clone(), gateway_client.clone(), 20));
