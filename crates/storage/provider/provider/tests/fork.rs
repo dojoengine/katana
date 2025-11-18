@@ -1,3 +1,4 @@
+use assert_matches::assert_matches;
 use katana_primitives::block::{
     Block, BlockHashOrNumber, FinalityStatus, Header, SealedBlockWithStatus,
 };
@@ -10,7 +11,9 @@ use katana_provider::api::state::StateFactoryProvider;
 use katana_provider::api::state_update::StateUpdateProvider;
 use katana_provider::api::transaction::{ReceiptProvider, TransactionProvider};
 use katana_provider::providers::fork::ForkedProvider;
+use katana_provider::ProviderError;
 use katana_rpc_client::starknet::Client as StarknetClient;
+use katana_rpc_types::Nodes;
 
 const SEPOLIA_RPC_URL: &str = "https://api.cartridge.gg/x/starknet/sepolia";
 const FORK_BLOCK_NUMBER: u64 = 2888618;
@@ -293,4 +296,72 @@ async fn historical_fork_state() {
 
     assert!(result1.is_some());
     assert!(result2.is_some());
+}
+
+#[tokio::test]
+async fn pre_fork_state_proof() {
+    let starknet_client = StarknetClient::new(SEPOLIA_RPC_URL.try_into().unwrap());
+
+    // always use the latest block number of the forked chain because most nodes may not support
+    // proofs for too old blocks
+    let latest_block_number = starknet_client.block_number().await.unwrap().block_number;
+    let provider = ForkedProvider::new_ephemeral(latest_block_number, starknet_client.clone());
+
+    let state = provider.latest().unwrap();
+
+    let classes = vec![felt!("0x00e022115a73679d4e215da00f53d8f681f5c52b488bf18c71fea115e92181b1")];
+    let proofs = state.class_multiproof(classes.clone()).unwrap();
+
+    let expected_proofs = starknet_client
+        .get_storage_proof(latest_block_number.into(), Some(classes), None, None)
+        .await
+        .unwrap();
+
+    assert_eq!(Nodes::from(proofs), expected_proofs.classes_proof.nodes);
+
+    let contracts =
+        vec![address!("0x0164b86b8fC5C0c84d3c53Bc95760F290420Ea2a32ed49A44fd046683a1CaAc2")];
+    let proofs = state.contract_multiproof(contracts.clone()).unwrap();
+
+    let expected_proofs = starknet_client
+        .get_storage_proof(latest_block_number.into(), None, Some(contracts), None)
+        .await
+        .unwrap();
+
+    assert_eq!(Nodes::from(proofs), expected_proofs.classes_proof.nodes);
+}
+
+#[tokio::test]
+async fn post_fork_state_proof_should_not_be_supported() {
+    let fork_block_number = 2906771;
+
+    let starknet_client = StarknetClient::new(SEPOLIA_RPC_URL.try_into().unwrap());
+    let provider = ForkedProvider::new_ephemeral(fork_block_number, starknet_client);
+
+    let new_block_number = fork_block_number + 1;
+    provider
+        .insert_block_with_states_and_receipts(
+            SealedBlockWithStatus {
+                block: Block {
+                    header: Header { number: new_block_number, ..Default::default() },
+                    body: Vec::new(),
+                }
+                .seal(),
+                status: FinalityStatus::AcceptedOnL2,
+            },
+            Default::default(),
+            Default::default(),
+            Default::default(),
+        )
+        .unwrap();
+
+    let state = provider.latest().unwrap();
+
+    let class_hash = felt!("0x00e022115a73679d4e215da00f53d8f681f5c52b488bf18c71fea115e92181b1");
+    let result = state.class_multiproof(vec![class_hash]);
+    assert_matches!(result, Err(ProviderError::StateProofNotSupported));
+
+    let address = address!("0x0164b86b8fC5C0c84d3c53Bc95760F290420Ea2a32ed49A44fd046683a1CaAc2");
+    let result = state.contract_multiproof(vec![address]);
+    assert_matches!(result, Err(ProviderError::StateProofNotSupported));
 }
