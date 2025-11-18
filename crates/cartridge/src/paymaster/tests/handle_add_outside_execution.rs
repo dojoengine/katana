@@ -1,12 +1,11 @@
-use katana_pool::TransactionPool;
-use starknet_crypto::Felt;
-
-use crate::paymaster::Error;
 use assert_matches::assert_matches;
 use futures::StreamExt;
+use katana_pool::TransactionPool;
 use katana_primitives::contract::ContractAddress;
+use katana_provider::api::state::StateWriter;
 use starknet::macros::{felt, selector};
 use starknet::signers::SigningKey;
+use starknet_crypto::{pedersen_hash, Felt};
 
 use super::utils::{
     assert_controller_deploy_tx, assert_mocks, assert_outside_execution_v2,
@@ -14,6 +13,7 @@ use super::utils::{
     craft_valid_outside_execution_v3, default_outside_execution, deploy_vrf_provider, setup,
     setup_cartridge_server, setup_mocks, CONTROLLER_ADDRESS_1, CONTROLLER_ADDRESS_2,
 };
+use crate::paymaster::Error;
 
 #[tokio::test(flavor = "multi_thread")]
 async fn test_cartridge_outside_execution_when_caller_is_not_a_controller() {
@@ -182,10 +182,15 @@ async fn test_cartridge_outside_execution_when_vrf_is_already_deployed() {
 
     let fake_calls_count = 3;
 
-    // consume some nonces to ensure the nonce is not 0
-    paymaster.vrf_ctx.consume_nonce(CONTROLLER_ADDRESS_1.into());
-    paymaster.vrf_ctx.consume_nonce(CONTROLLER_ADDRESS_1.into());
-    let nonce = paymaster.vrf_ctx.consume_nonce(CONTROLLER_ADDRESS_1.into());
+    // Set a non-zero nonce for the controller which calls the VRF provider
+    let controller_nonce = Felt::TWO;
+    node.blockchain()
+        .set_storage(
+            vrf_address,
+            pedersen_hash(&selector!("VrfProvider_nonces"), &controller_address),
+            controller_nonce,
+        )
+        .expect("failed to set caller nonce");
 
     // use a nonce source
     let outside_execution = craft_valid_outside_execution_v3(
@@ -193,12 +198,12 @@ async fn test_cartridge_outside_execution_when_vrf_is_already_deployed() {
         vrf_address,
         fake_calls_count,
         None,
-        Some(vec![CONTROLLER_ADDRESS_1, Felt::ZERO, CONTROLLER_ADDRESS_1]),
+        Some(vec![(*controller_address).into(), Felt::ZERO, (*controller_address).into()]),
     );
 
     let expected_seed = starknet_crypto::poseidon_hash_many(vec![
-        &(nonce + Felt::ONE),
-        &CONTROLLER_ADDRESS_1,
+        &controller_nonce,
+        &controller_address,
         &paymaster.chain_id.id(),
     ]);
     let expected_proof = paymaster.vrf_ctx.stark_vrf(expected_seed).unwrap();

@@ -13,6 +13,8 @@ use katana_primitives::contract::ContractAddress;
 use katana_primitives::Felt;
 use serde::{Deserialize, Serialize};
 
+use crate::allocation::DevGenesisAccount;
+
 use self::allocation::{GenesisAccountAlloc, GenesisAllocation, GenesisContractAlloc};
 
 /// Genesis block configuration.
