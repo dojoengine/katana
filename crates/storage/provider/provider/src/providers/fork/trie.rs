@@ -23,7 +23,7 @@ impl<Db: Database + 'static> TrieWriter for ForkedProvider<Db> {
         block_number: BlockNumber,
         updates: &BTreeMap<ClassHash, CompiledClassHash>,
     ) -> ProviderResult<Felt> {
-        self.provider.trie_insert_declared_classes(block_number, updates)
+        self.fork_db.db.trie_insert_declared_classes(block_number, updates)
     }
 
     fn trie_insert_declared_classes_with_proof(
@@ -33,7 +33,7 @@ impl<Db: Database + 'static> TrieWriter for ForkedProvider<Db> {
         proof: MultiProof,
         original_root: Felt,
     ) -> ProviderResult<Felt> {
-        self.provider.0.update(|tx| {
+        self.fork_db.db.0.update(|tx| {
             let mut trie = ClassesTrie::<
                 _,
                 PartialMerkleTrees<katana_primitives::hash::Poseidon, _, katana_trie::CommitId>,
@@ -53,7 +53,7 @@ impl<Db: Database + 'static> TrieWriter for ForkedProvider<Db> {
         block_number: BlockNumber,
         state_updates: &StateUpdates,
     ) -> ProviderResult<Felt> {
-        self.provider.trie_insert_contract_updates(block_number, state_updates)
+        self.fork_db.db.trie_insert_contract_updates(block_number, state_updates)
     }
 
     fn trie_insert_contract_updates_with_proof(
@@ -65,7 +65,7 @@ impl<Db: Database + 'static> TrieWriter for ForkedProvider<Db> {
         contract_leaves_map: HashMap<ContractAddress, ContractLeaf>,
         contracts_storage_proofs: Vec<MultiProof>,
     ) -> ProviderResult<Felt> {
-        self.provider.0.update(|tx| {
+        self.fork_db.db.0.update(|tx| {
             let mut contract_trie_db =
                 ContractsTrie::<
                     _,
@@ -160,28 +160,8 @@ impl<Db: Database + 'static> TrieWriter for ForkedProvider<Db> {
         state_updates: &StateUpdates,
     ) -> ProviderResult<Felt> {
         let result: Result<(Option<GetStorageProofResponse>, Vec<ContractAddress>), ProviderError> = {
-            let mut fork_url = self.fork_url.clone();
+            let starknet_client = self.starknet_client.clone();
             let state_updates_clone = state_updates.clone();
-
-            // Set default ports only if no port is already specified
-            if fork_url.port().is_none() {
-                let default_port = match fork_url.scheme() {
-                    "https" => Some(443),
-                    "http" => Some(80),
-                    _ => {
-                        return Err(ProviderError::ParsingError(format!(
-                            "Unsupported URL scheme: {}",
-                            fork_url.scheme()
-                        )))
-                    }
-                };
-
-                if let Some(port) = default_port {
-                    fork_url.set_port(Some(port)).map_err(|_| {
-                        ProviderError::ParsingError("Failed to set port".to_string())
-                    })?;
-                }
-            }
 
             // Collect storage proof data
             let mut class_hashes = Vec::new();
@@ -213,17 +193,16 @@ impl<Db: Database + 'static> TrieWriter for ForkedProvider<Db> {
             let contract_addresses: Vec<_> = contract_addresses.into_iter().collect();
             let contract_addresses_clone = contract_addresses.clone();
 
-            let response = self.backend.get_storage_proof(StorageProofPayload {
+            let response = self.fork_db.backend.get_storage_proof(StorageProofPayload {
                 block_number,
                 class_hashes: Some(class_hashes),
                 contract_addresses: Some(contract_addresses),
                 contracts_storage_keys: Some(contracts_storage_keys),
-                fork_url: fork_url.to_string(),
+                starknet_client,
             })?;
             Ok((response, contract_addresses_clone))
         };
 
-        // println!("\nResult of starknet_getStorageProof: {:?}\n", result);
         match result {
             Ok((Some(proof), contract_addresses)) => {
                 // Extract proofs from the response

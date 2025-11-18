@@ -16,12 +16,12 @@ use futures::channel::mpsc::{channel as async_channel, Receiver, SendError, Send
 use futures::future::BoxFuture;
 use futures::stream::Stream;
 use futures::{Future, FutureExt};
-use katana_metrics::metrics::Gauge;
-use katana_metrics::{metrics, Metrics};
 use jsonrpsee::core::client::ClientT;
 use jsonrpsee::http_client::HttpClientBuilder;
 use jsonrpsee::rpc_params;
-use katana_primitives::block::{BlockHashOrNumber, BlockIdOrTag, BlockNumber, BlockNumber};
+use katana_metrics::metrics::Gauge;
+use katana_metrics::{metrics, Metrics};
+use katana_primitives::block::{BlockHashOrNumber, BlockIdOrTag, BlockNumber};
 use katana_primitives::class::{
     ClassHash, CompiledClassHash, ComputeClassHashError, ContractClass,
     ContractClassCompilationError,
@@ -32,19 +32,19 @@ use katana_rpc_client::starknet::{
     Client as StarknetClient, Error as StarknetClientError, StarknetApiError,
 };
 use katana_rpc_types::class::Class;
-use katana_rpc_types::{GetBlockWithReceiptsResponse, StateUpdate, TxReceiptWithBlockInfo};
 pub use katana_rpc_types::trie::{ContractStorageKeys, GetStorageProofResponse};
+use katana_rpc_types::{GetBlockWithReceiptsResponse, StateUpdate, TxReceiptWithBlockInfo};
 use parking_lot::Mutex;
-use std::collections::hash_map::Entry;
-use std::collections::{HashMap, VecDeque};
-use std::fmt::Debug;
-use std::pin::Pin;
-use std::sync::mpsc::{
-    channel as oneshot, Receiver as OneshotReceiver, RecvError, Sender as OneshotSender,
-};
-use std::sync::Arc;
-use std::task::{Context, Poll};
-use std::{io, thread};
+// use std::collections::hash_map::Entry;
+// use std::collections::{HashMap, VecDeque};
+// use std::fmt::Debug;
+// use std::pin::Pin;
+// use std::sync::mpsc::{
+//     channel as oneshot, Receiver as OneshotReceiver, RecvError, Sender as OneshotSender,
+// };
+// use std::sync::Arc;
+// use std::task::{Context, Poll};
+// use std::{io, thread};
 use tracing::{error, trace};
 
 /// Default maximum number of concurrent requests that can be processed.
@@ -293,7 +293,7 @@ pub struct StorageProofPayload {
     pub class_hashes: Option<Vec<ClassHash>>,
     pub contract_addresses: Option<Vec<ContractAddress>>,
     pub contracts_storage_keys: Option<Vec<ContractStorageKeys>>,
-    pub fork_url: String,
+    pub starknet_client: StarknetClient,
 }
 
 /// The types of response from [`Backend`].
@@ -610,9 +610,7 @@ impl BackendWorker {
                     req_key,
                     sender,
                     Box::pin(async move {
-                        let client = HttpClientBuilder::default()
-                            .build(&payload.fork_url)
-                            .expect("failed to create HTTP client");
+                        let client = payload.starknet_client.client;
 
                         let res = client
                             .request(

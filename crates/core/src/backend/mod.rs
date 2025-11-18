@@ -109,10 +109,12 @@ impl<EF: ExecutorFactory> Backend<EF> {
             BlockHash::ZERO
         } else {
             let parent_block_num = block_env.number - 1;
-            self.blockchain
+            let parent_hash = self
+                .blockchain
                 .provider()
                 .block_hash_by_num(parent_block_num)?
-                .expect("qed; missing block hash for parent block")
+                .expect("qed; missing block hash for parent block");
+            parent_hash
         };
 
         // create a new block and compute its commitment
@@ -224,7 +226,7 @@ impl<EF: ExecutorFactory> Backend<EF> {
 
         // NOTE: right now forking mode is not persistent, both `local_hash.is_some()` and
         // `is_forking` can never be true at the same time.
-        if local_hash.is_some() && !is_forking {
+        if local_hash.is_some() && !is_forked {
             let local_hash = local_hash.unwrap();
 
             let genesis_block = chain_spec.block();
@@ -272,18 +274,10 @@ impl<EF: ExecutorFactory> Backend<EF> {
 
             info!("Forked genesis block inserted from RPC");
         } else {
-            // Initialize the dev genesis block with dev accounts
+            // Initialize the dev genesis block
+
             let block = chain_spec.block();
             let states = chain_spec.state_updates();
-            let block_number = block.header.number;
-
-            provider
-                .trie_insert_declared_classes(block_number, &states.state_updates.declared_classes)
-                .context("failed to update class trie")?;
-
-            provider
-                .trie_insert_contract_updates(block_number, &states.state_updates)
-                .context("failed to update contract trie")?;
 
             let outcome = self.do_mine_block(
                 &BlockEnv {
@@ -299,7 +293,6 @@ impl<EF: ExecutorFactory> Backend<EF> {
             )?;
 
             info!(genesis_hash = %outcome.block_hash, "Genesis initialized");
-            info!("Genesis initialized with dev accounts");
         }
 
         Ok(())

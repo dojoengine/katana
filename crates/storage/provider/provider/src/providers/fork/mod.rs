@@ -41,6 +41,7 @@ mod trie;
 pub struct ForkedProvider<Db: Database = katana_db::Db> {
     local_db: Arc<DbProvider<Db>>,
     fork_db: Arc<ForkedDb>,
+    starknet_client: StarknetClient,
 }
 
 #[derive(Debug, Clone)]
@@ -61,13 +62,16 @@ impl ForkedDb {
         let block = match block_id {
             BlockHashOrNumber::Num(number) => {
                 if !self.should_fetch_externally(number) {
+                    println!("Block number is before fork point");
                     return Ok(false);
                 }
 
+                println!("Fetching block from backend: {}", number);
                 // should exist if block id is older than fork point
                 let block = self.backend.get_block(number.into())?.unwrap();
                 let GetBlockWithReceiptsResponse::Block(block) = block else { unreachable!() };
 
+                println!("Block fetched from backend: {}", block.block_number);
                 block
             }
 
@@ -159,10 +163,10 @@ impl<Db: Database> ForkedProvider<Db> {
     pub fn new(db: Db, block_id: BlockNumber, starknet_client: StarknetClient) -> Self {
         let local_db = Arc::new(DbProvider::new(db));
 
-        let backend = Backend::new(starknet_client).expect("failed to create backend");
+        let backend = Backend::new(starknet_client.clone()).expect("failed to create backend");
         let fork_db = Arc::new(ForkedDb { block_id, db: DbProvider::new_in_memory(), backend });
 
-        Self { local_db, fork_db }
+        Self { local_db, fork_db, starknet_client: starknet_client.clone() }
     }
 
     pub fn block_id(&self) -> BlockNumber {
@@ -179,10 +183,10 @@ impl ForkedProvider<katana_db::Db> {
     pub fn new_ephemeral(block_id: BlockNumber, starknet_client: StarknetClient) -> Self {
         let local_db = Arc::new(DbProvider::new_in_memory());
 
-        let backend = Backend::new(starknet_client).expect("failed to create backend");
+        let backend = Backend::new(starknet_client.clone()).expect("failed to create backend");
         let fork_db = Arc::new(ForkedDb { block_id, db: DbProvider::new_in_memory(), backend });
 
-        Self { local_db, fork_db }
+        Self { local_db, fork_db, starknet_client: starknet_client.clone() }
     }
 }
 
@@ -222,20 +226,25 @@ impl<Db: Database> BlockHashProvider for ForkedProvider<Db> {
     }
 
     fn block_hash_by_num(&self, num: BlockNumber) -> ProviderResult<Option<BlockHash>> {
+        println!("Block hash by num: {}", num);
         if let Some(hash) = self.local_db.block_hash_by_num(num)? {
+            println!("Local db block hash: {}", hash);
             return Ok(Some(hash));
         }
 
         if num > self.block_id() {
+            println!("Block number is greater than fork point");
             return Ok(None);
         }
 
         if let Some(hash) = self.fork_db.db.block_hash_by_num(num)? {
+            println!("Fork db block hash: {}", hash);
             return Ok(Some(hash));
         }
 
         if self.fork_db.fetch_historical_blocks(num.into())? {
             let num = self.fork_db.db.block_hash_by_num(num)?.unwrap();
+            println!("Fetched historical blocks: {}", num);
             Ok(Some(num))
         } else {
             Ok(None)

@@ -35,7 +35,7 @@ type Result<T> = std::result::Result<T, Error>;
 
 #[derive(Debug, Clone)]
 pub struct Client {
-    client: HttpClient,
+    pub client: HttpClient,
 }
 
 impl Client {
