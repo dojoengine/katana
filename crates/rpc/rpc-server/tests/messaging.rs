@@ -12,7 +12,6 @@ use katana_primitives::utils::transaction::{
     compute_l1_handler_tx_hash, compute_l1_to_l2_message_hash,
 };
 use katana_primitives::{eth_address, felt, ContractAddress};
-use katana_rpc_types::receipt::ReceiptBlock;
 use katana_rpc_types::{Class, MsgFromL1};
 use katana_test_utils::prepare_contract_declaration_params;
 use katana_utils::{TestNode, TxWaiter};
