@@ -5,9 +5,10 @@ use jsonrpsee::core::middleware::{Batch, Notification, RpcServiceT};
 use jsonrpsee::core::traits::ToRpcParams;
 use jsonrpsee::types::Request;
 use jsonrpsee::MethodResponse;
-use katana_executor::ExecutorFactory;
+use katana_pool::TransactionPool;
 use katana_primitives::block::BlockIdOrTag;
 use katana_primitives::{ContractAddress, Felt};
+use katana_rpc_server::starknet::PendingBlockProvider;
 use katana_rpc_types::broadcasted::BroadcastedTx;
 use serde::Deserialize;
 use starknet::core::types::SimulationFlagForEstimateFee;
@@ -16,18 +17,20 @@ use super::{Error, Paymaster};
 use crate::rpc::types::OutsideExecution;
 
 #[derive(Debug)]
-pub struct PaymasterLayer<EF: ExecutorFactory> {
-    pub(crate) paymaster: Paymaster<EF>,
+pub struct PaymasterLayer<Pool: TransactionPool, PP: PendingBlockProvider> {
+    pub(crate) paymaster: Paymaster<Pool, PP>,
 }
 
-impl<EF: ExecutorFactory> Clone for PaymasterLayer<EF> {
+impl<Pool: TransactionPool, PP: PendingBlockProvider> Clone for PaymasterLayer<Pool, PP> {
     fn clone(&self) -> Self {
         Self { paymaster: self.paymaster.clone() }
     }
 }
 
-impl<S, EF: ExecutorFactory> tower::Layer<S> for PaymasterLayer<EF> {
-    type Service = PaymasterService<S, EF>;
+impl<S, Pool: TransactionPool, PP: PendingBlockProvider> tower::Layer<S>
+    for PaymasterLayer<Pool, PP>
+{
+    type Service = PaymasterService<S, Pool, PP>;
 
     fn layer(&self, service: S) -> Self::Service {
         PaymasterService { service, paymaster: self.paymaster.clone() }
@@ -35,17 +38,16 @@ impl<S, EF: ExecutorFactory> tower::Layer<S> for PaymasterLayer<EF> {
 }
 
 #[derive(Debug)]
-pub struct PaymasterService<S, EF: ExecutorFactory> {
+pub struct PaymasterService<S, Pool: TransactionPool, PP: PendingBlockProvider> {
     service: S,
-    paymaster: Paymaster<EF>,
+    paymaster: Paymaster<Pool, PP>,
 }
 
-impl<S, EF> PaymasterService<S, EF>
+impl<S, Pool: TransactionPool + 'static, PP: PendingBlockProvider> PaymasterService<S, Pool, PP>
 where
     S: RpcServiceT + Send + Sync + Clone + 'static,
-    EF: ExecutorFactory,
 {
-    async fn intercept_estimate_fee(paymaster: Paymaster<EF>, request: &mut Request<'_>) {
+    async fn intercept_estimate_fee(paymaster: Paymaster<Pool, PP>, request: &mut Request<'_>) {
         let params = request.params();
 
         let (txs, simulation_flags, block_id) = if params.is_object() {
@@ -92,7 +94,10 @@ where
         }
     }
 
-    async fn intercept_add_outside_execution(paymaster: Paymaster<EF>, request: &mut Request<'_>) {
+    async fn intercept_add_outside_execution(
+        paymaster: Paymaster<Pool, PP>,
+        request: &mut Request<'_>,
+    ) {
         let params = request.params();
 
         let (controller_address, outside_execution, signature) = if params.is_object() {
@@ -148,19 +153,18 @@ where
     }
 }
 
-impl<S, EF> Clone for PaymasterService<S, EF>
+impl<S, Pool: TransactionPool, PP: PendingBlockProvider> Clone for PaymasterService<S, Pool, PP>
 where
     S: Clone,
-    EF: ExecutorFactory + Clone,
 {
     fn clone(&self) -> Self {
         Self { service: self.service.clone(), paymaster: self.paymaster.clone() }
     }
 }
 
-impl<S, EF> RpcServiceT for PaymasterService<S, EF>
+impl<S, Pool: TransactionPool + 'static, PP: PendingBlockProvider> RpcServiceT
+    for PaymasterService<S, Pool, PP>
 where
-    EF: ExecutorFactory,
     S: RpcServiceT<
             MethodResponse = MethodResponse,
             BatchResponse = MethodResponse,

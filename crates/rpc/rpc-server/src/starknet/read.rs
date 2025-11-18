@@ -30,8 +30,6 @@ use katana_rpc_types::{
 };
 
 use super::StarknetApi;
-#[cfg(feature = "cartridge")]
-use crate::cartridge;
 use crate::starknet::pending::PendingBlockProvider;
 
 #[async_trait]
@@ -187,7 +185,9 @@ where
             .with_nonce_check(false);
 
         let permit = self.inner.estimate_fee_permit.acquire().await.map_err(|e| {
-            StarknetApiError::UnexpectedError { reason: format!("Failed to acquire permit: {e}") }
+            StarknetApiError::UnexpectedError(UnexpectedErrorData {
+                reason: format!("Failed to acquire permit: {e}"),
+            })
         })?;
 
         self.on_cpu_blocking_task(move |this| async move {

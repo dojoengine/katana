@@ -117,7 +117,7 @@ where
 
     pub fn account(&self) -> SingleOwnerAccount<JsonRpcClient<HttpTransport>, LocalWallet> {
         let (address, account) =
-            self.backend().chain_spec.genesis().accounts().next().expect("must have at least one");
+            self.backend().chain_spec.genesis().accounts().nth(1).expect("must have at least two");
         let private_key = account.private_key().expect("must exist");
         let signer = LocalWallet::from_signing_key(SigningKey::from_secret_scalar(private_key));
 

@@ -1,24 +1,22 @@
+use assert_matches::assert_matches;
+use katana_primitives::address;
 use katana_primitives::block::BlockIdOrTag;
 use katana_primitives::contract::ContractAddress;
-use katana_primitives::address;
-use starknet::core::types::BlockTag;
 use starknet_crypto::Felt;
-
-use crate::paymaster::tests::utils::setup;
-use crate::paymaster::Error;
-use assert_matches::assert_matches;
 
 use super::utils::{
     assert_mocks, assert_tx, invoke_tx, setup_cartridge_server, setup_mocks,
     ALREADY_DEPLOYED_CONTROLLER_ADDRESS, CONTROLLER_ADDRESS_1, CONTROLLER_ADDRESS_2,
 };
+use crate::paymaster::tests::utils::setup;
+use crate::paymaster::Error;
 
 #[tokio::test(flavor = "multi_thread")]
 async fn test_starknet_estimate_fee_without_txs() {
     let server = setup_cartridge_server().await;
     let (_, paymaster, _) = setup(&server.url(), None, None).await;
 
-    let res = paymaster.handle_estimate_fees(BlockIdOrTag::Tag(BlockTag::Pending), vec![]).await;
+    let res = paymaster.handle_estimate_fees(BlockIdOrTag::PreConfirmed, vec![]).await;
 
     assert!(res.is_ok());
     assert_eq!(res.unwrap().len(), 0);
@@ -35,7 +33,7 @@ async fn test_starknet_estimate_fee_when_sender_is_not_a_controller() {
     let sender_address = CONTROLLER_ADDRESS_1.into();
     let tx = invoke_tx(sender_address);
 
-    let res = paymaster.handle_estimate_fees(BlockIdOrTag::Tag(BlockTag::Pending), vec![tx]).await;
+    let res = paymaster.handle_estimate_fees(BlockIdOrTag::PreConfirmed, vec![tx]).await;
 
     assert!(res.is_ok());
     assert_eq!(res.unwrap().len(), 0);
@@ -54,7 +52,7 @@ async fn test_starknet_estimate_fee_when_sender_is_an_already_deployed_controlle
     .await;
 
     let tx = invoke_tx(ALREADY_DEPLOYED_CONTROLLER_ADDRESS.into());
-    let res = paymaster.handle_estimate_fees(BlockIdOrTag::Tag(BlockTag::Pending), vec![tx]).await;
+    let res = paymaster.handle_estimate_fees(BlockIdOrTag::PreConfirmed, vec![tx]).await;
 
     assert!(res.is_ok());
     assert_eq!(res.unwrap().len(), 0);
@@ -73,7 +71,7 @@ async fn test_starknet_estimate_fee_when_sender_is_a_not_yet_deployed_controller
     let sender_address = ContractAddress::from(CONTROLLER_ADDRESS_1);
     let tx = invoke_tx(sender_address);
 
-    let res = paymaster.handle_estimate_fees(BlockIdOrTag::Tag(BlockTag::Pending), vec![tx]).await;
+    let res = paymaster.handle_estimate_fees(BlockIdOrTag::PreConfirmed, vec![tx]).await;
 
     assert!(res.is_ok());
     let res = res.unwrap();
@@ -94,7 +92,7 @@ async fn test_starknet_estimate_fee_when_several_txs_with_the_same_not_yet_deplo
     let sender_address = ContractAddress::from(CONTROLLER_ADDRESS_1);
     let txs = vec![invoke_tx(sender_address), invoke_tx(sender_address)];
 
-    let res = paymaster.handle_estimate_fees(BlockIdOrTag::Tag(BlockTag::Pending), txs).await;
+    let res = paymaster.handle_estimate_fees(BlockIdOrTag::PreConfirmed, txs).await;
 
     assert!(res.is_ok());
 
@@ -123,7 +121,7 @@ async fn test_starknet_estimate_fee_when_several_txs_with_several_controllers() 
         invoke_tx(ContractAddress::from(CONTROLLER_ADDRESS_2)),
     ];
 
-    let res = paymaster.handle_estimate_fees(BlockIdOrTag::Tag(BlockTag::Pending), txs).await;
+    let res = paymaster.handle_estimate_fees(BlockIdOrTag::PreConfirmed, txs).await;
 
     assert!(res.is_ok());
 
@@ -149,7 +147,7 @@ async fn test_starknet_estimate_fee_sender_with_invalid_paymaster_config() {
     let sender_address = ContractAddress::from(CONTROLLER_ADDRESS_1);
     let tx = invoke_tx(sender_address);
 
-    let res = paymaster.handle_estimate_fees(BlockIdOrTag::Tag(BlockTag::Pending), vec![tx]).await;
+    let res = paymaster.handle_estimate_fees(BlockIdOrTag::PreConfirmed, vec![tx]).await;
 
     assert!(res.is_err());
     assert_matches!(res.unwrap_err(), Error::PaymasterNotFound(_));
@@ -181,7 +179,7 @@ async fn test_starknet_estimate_fee_with_a_mix_of_txs() {
         invoke_tx(ContractAddress::from(CONTROLLER_ADDRESS_2)),
     ];
 
-    let res = paymaster.handle_estimate_fees(BlockIdOrTag::Tag(BlockTag::Pending), txs).await;
+    let res = paymaster.handle_estimate_fees(BlockIdOrTag::PreConfirmed, txs).await;
 
     assert!(res.is_ok());
 

@@ -72,7 +72,6 @@ impl VrfContext {
     pub fn get_public_key_xy_felts(&self) -> (Felt, Felt) {
         let x = Felt::from_hex(&format(self.public_key.x)).unwrap();
         let y = Felt::from_hex(&format(self.public_key.y)).unwrap();
-
         (x, y)
     }
 

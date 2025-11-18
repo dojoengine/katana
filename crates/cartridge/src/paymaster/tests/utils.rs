@@ -1,10 +1,36 @@
 use std::path::PathBuf;
-
-use katana_test_utils::prepare_contract_declaration_params;
-use starknet::core::utils::get_selector_from_name;
-use starknet_crypto::Felt;
-
 use std::sync::Arc;
+
+use katana_core::service::block_producer::BlockProducer;
+use katana_executor::implementation::blockifier::BlockifierFactory;
+use katana_executor::ExecutionFlags;
+use katana_gas_price_oracle::GasPriceOracle;
+use katana_genesis::constant::DEFAULT_UDC_ADDRESS;
+use katana_pool::ordering::FiFo;
+use katana_pool::TxPool;
+use katana_primitives::chain::ChainId;
+use katana_primitives::contract::ContractAddress;
+use katana_primitives::da::DataAvailabilityMode;
+use katana_primitives::fee::{
+    AllResourceBoundsMapping, ResourceBounds, ResourceBoundsMapping, Tip,
+};
+use katana_primitives::transaction::{ExecutableTx, InvokeTx};
+use katana_provider::BlockchainProvider;
+use katana_rpc_client::starknet::Client as StarknetClient;
+use katana_rpc_server::starknet::{StarknetApi, StarknetApiConfig};
+use katana_rpc_types::broadcasted::{BroadcastedInvokeTx, BroadcastedTx};
+use katana_tasks::TaskManager;
+use katana_test_utils::prepare_contract_declaration_params;
+use katana_utils::node::{test_config, TestNode};
+use katana_utils::TxWaiter;
+use serde_json::json;
+use starknet::accounts::Account;
+use starknet::core::types::Call as StarknetCall;
+use starknet::core::utils::get_selector_from_name;
+use starknet::macros::{felt, selector};
+use starknet::signers::SigningKey;
+use starknet_crypto::Felt;
+use url::Url;
 
 use crate::client::Client;
 use crate::paymaster::Paymaster;
@@ -12,26 +38,6 @@ use crate::rpc::types::{
     Call, NonceChannel, OutsideExecution, OutsideExecutionV2, OutsideExecutionV3,
 };
 use crate::vrf::{StarkVrfProof, VrfContext, CARTRIDGE_VRF_CLASS_HASH, CARTRIDGE_VRF_SALT};
-use katana_core::service::block_producer::BlockProducer;
-use katana_executor::implementation::blockifier::BlockifierFactory;
-use katana_pool::ordering::FiFo;
-use katana_pool::TxPool;
-use katana_primitives::chain::ChainId;
-use katana_primitives::contract::ContractAddress;
-use katana_primitives::da::DataAvailabilityMode;
-use katana_primitives::fee::{AllResourceBoundsMapping, ResourceBounds, ResourceBoundsMapping};
-use katana_primitives::genesis::constant::DEFAULT_UDC_ADDRESS;
-use katana_primitives::transaction::{ExecutableTx, InvokeTx};
-use katana_rpc::starknet::{StarknetApi, StarknetApiConfig};
-use katana_rpc_types::broadcasted::{BroadcastedInvokeTx, BroadcastedTx};
-use katana_utils::node::{test_config, TestNode};
-use katana_utils::TxWaiter;
-use serde_json::json;
-use starknet::accounts::Account;
-use starknet::core::types::Call as StarknetCall;
-use starknet::macros::{felt, selector};
-use starknet::signers::SigningKey;
-use url::Url;
 
 pub const DEFAULT_NONCE_CHANNEL: u128 = 10;
 
@@ -45,9 +51,9 @@ pub const VRF_PROVIDER_CLASS_PATH: &str =
     "src/paymaster/tests/test_data/cartridge_vrf_VrfProvider.contract_class.json";
 pub const VRF_PRIVATE_KEY_FOR_TESTS: Felt = felt!("0xdeadbeef");
 pub const VRF_PUBLIC_KEY_X: Felt =
-    felt!("0x57641624f71ce549c59b6d7245c9df254f7a2b183c296d0a64fcee941e753f7");
+    felt!("0x5eeb3e0d88756352e5b7015667431490b631ea109bb6e31d65bb3bef604c186");
 pub const VRF_PUBLIC_KEY_Y: Felt =
-    felt!("0x24d0c384cc7471e2a68e7d8085f8c25a171863eeb2b6e433da036e287932fe");
+    felt!("0x30aab4c6959ff79d796cdebf33aa567e01fd0e757a4e560e2d89141b4de1141");
 
 pub fn default_outside_execution() -> OutsideExecution {
     OutsideExecution::V2(OutsideExecutionV2 {
@@ -187,20 +193,28 @@ pub async fn setup(
     cartridge_url: &str,
     paymaster_address: Option<ContractAddress>,
     paymaster_private_key: Option<SigningKey>,
-) -> (TestNode, Paymaster<BlockifierFactory>, ContractAddress) {
+) -> (TestNode, Paymaster<TxPool, BlockProducer<BlockifierFactory>>, ContractAddress) {
     let config = test_config();
     let sequencer = TestNode::new_with_config(config.clone()).await;
     let block_producer = BlockProducer::instant(Arc::clone(&sequencer.backend()));
     let validator = block_producer.validator();
+
+    let task_spawner = TaskManager::current().task_spawner();
+
     let starknet_api = StarknetApi::new(
-        sequencer.backend().clone(),
+        sequencer.backend().chain_spec.clone(),
+        BlockchainProvider::new(Box::new(sequencer.backend().blockchain.provider().clone())),
         TxPool::new(validator.clone(), FiFo::new()),
-        None,
+        task_spawner,
+        block_producer.clone(),
+        GasPriceOracle::create_for_testing(),
         StarknetApiConfig {
             max_call_gas: config.rpc.max_call_gas,
             max_proof_keys: config.rpc.max_proof_keys,
             max_event_page_size: config.rpc.max_event_page_size,
             max_concurrent_estimate_fee_requests: config.rpc.max_concurrent_estimate_fee_requests,
+            simulation_flags: ExecutionFlags::default(),
+            versioned_constant_overrides: None,
         },
     );
 
@@ -233,7 +247,9 @@ pub async fn setup(
 
 pub async fn deploy_vrf_provider(node: &TestNode, paymaster_address: ContractAddress) {
     let account = node.account();
-    let provider = node.starknet_provider();
+
+    let url = Url::parse(&format!("http://{}", node.rpc_addr())).expect("failed to parse url");
+    let starknet_client = StarknetClient::new(url);
 
     let path = PathBuf::from(VRF_PROVIDER_CLASS_PATH);
 
@@ -246,7 +262,7 @@ pub async fn deploy_vrf_provider(node: &TestNode, paymaster_address: ContractAdd
         .await
         .expect("failed to send declare tx");
 
-    katana_utils::TxWaiter::new(res.transaction_hash, &provider)
+    katana_utils::TxWaiter::new(res.transaction_hash, &starknet_client)
         .await
         .expect("failed to wait on tx");
 
@@ -268,7 +284,7 @@ pub async fn deploy_vrf_provider(node: &TestNode, paymaster_address: ContractAdd
         .await
         .expect("failed to send execute tx");
 
-    TxWaiter::new(tx.transaction_hash, &provider).await.expect("failed to wait on tx");
+    TxWaiter::new(tx.transaction_hash, &starknet_client).await.expect("failed to wait on tx");
 }
 
 /// Just build a fake invoke transaction.
@@ -279,7 +295,7 @@ pub fn invoke_tx(sender_address: ContractAddress) -> BroadcastedTx {
         signature: vec![],
         nonce: Felt::ZERO,
         paymaster_data: vec![],
-        tip: 0,
+        tip: Tip::new(0),
         account_deployment_data: vec![],
         is_query: false,
         resource_bounds: ResourceBoundsMapping::All(AllResourceBoundsMapping {

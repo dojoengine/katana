@@ -47,11 +47,10 @@ use katana_rpc_api::starknet_ext::StarknetApiExtServer;
 use katana_rpc_api::tee::TeeApiServer;
 use katana_rpc_client::starknet::Client as StarknetClient;
 #[cfg(feature = "cartridge")]
-use katana_rpc_server::cartridge::CartridgeApi;
 use katana_rpc_server::cors::Cors;
 use katana_rpc_server::dev::DevApi;
-#[cfg(feature = "cartridge")]
-use katana_rpc_server::starknet::PaymasterConfig;
+use katana_rpc_server::logger::RpcLoggerLayer;
+use katana_rpc_server::metrics::RpcServerMetricsLayer;
 use katana_rpc_server::starknet::{StarknetApi, StarknetApiConfig};
 #[cfg(feature = "tee")]
 use katana_rpc_server::tee::TeeApi;
@@ -68,7 +67,7 @@ use crate::exit::NodeStoppedFuture;
 
 /// The concrete type of of the RPC middleware stack used by the node.
 type NodeRpcMiddleware = Stack<
-    Either<PaymasterLayer<BlockifierFactory>, Identity>,
+    Either<PaymasterLayer<TxPool, BlockProducer<BlockifierFactory>>, Identity>,
     Stack<RpcLoggerLayer, Stack<RpcServerMetricsLayer, Identity>>,
 >;
 
@@ -334,7 +333,7 @@ where
 
         let rpc_middleware = RpcServiceBuilder::new()
             .layer(RpcServerMetricsLayer::new(&rpc_modules))
-            .layer(katana_rpc::logger::RpcLoggerLayer::new())
+            .layer(RpcLoggerLayer::new())
             .option_layer(paymaster.map(|p| p.layer()));
 
         #[allow(unused_mut)]
