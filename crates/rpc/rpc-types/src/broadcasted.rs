@@ -375,12 +375,9 @@ impl From<ExecutableTx> for BroadcastedTx {
             }
             ExecutableTx::Declare(declare_tx_with_class) => {
                 let declare_tx = declare_tx_with_class.transaction;
-                let contract_class = Arc::new(
-                    RpcSierraContractClass::try_from(
-                        declare_tx_with_class.class.as_sierra().cloned().unwrap(),
-                    )
-                    .unwrap(),
-                );
+                let contract_class = Arc::new(RpcSierraContractClass::from(
+                    declare_tx_with_class.class.as_sierra().cloned().unwrap(),
+                ));
 
                 let (
                     sender_address,

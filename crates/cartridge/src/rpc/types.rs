@@ -41,11 +41,7 @@ impl From<StarknetCall> for Call {
 
 impl From<&StarknetCall> for Call {
     fn from(call: &StarknetCall) -> Self {
-        Self {
-            to: call.to.into(),
-            selector: call.selector.clone(),
-            calldata: call.calldata.clone(),
-        }
+        Self { to: call.to.into(), selector: call.selector, calldata: call.calldata.clone() }
     }
 }
 

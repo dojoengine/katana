@@ -2,11 +2,9 @@ use katana_primitives::class::{ClassHash, CompiledClassHash};
 use katana_primitives::contract::Nonce;
 use katana_primitives::da::DataAvailabilityMode;
 use katana_primitives::execution::EntryPointSelector;
-use katana_primitives::fee::ResourceBoundsMapping;
-use katana_primitives::fee::Tip;
+use katana_primitives::fee::{ResourceBoundsMapping, Tip};
 use katana_primitives::transaction::TxHash;
-use katana_primitives::Felt;
-use katana_primitives::{transaction as primitives, ContractAddress};
+use katana_primitives::{transaction as primitives, ContractAddress, Felt};
 use serde::{Deserialize, Serialize};
 
 use crate::ExecutionResult;
