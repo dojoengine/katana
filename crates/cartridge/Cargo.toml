@@ -25,27 +25,27 @@ katana-tasks.workspace = true
 
 anyhow.workspace = true
 ark-ec = "0.4"
+cainome.workspace = true
+cainome-cairo-serde.workspace = true
 futures.workspace = true
+jsonrpsee = { workspace = true, features = [ "server" ] }
 lazy_static.workspace = true
 num-bigint.workspace = true
 parking_lot.workspace = true
 reqwest.workspace = true
 serde.workspace = true
 serde_json.workspace = true
-starknet.workspace = true
-starknet-crypto.workspace = true
-thiserror.workspace = true
-tracing.workspace = true
-url.workspace = true
+
 # Use a specific revision of stark-vrf to avoid unwanted breaking changes.
 stark-vrf = { git = "https://github.com/dojoengine/stark-vrf.git", rev = "96d6d2a" }
 
-jsonrpsee = { workspace = true, features = [ "server" ] }
-tower.workspace = true
-
-cainome.workspace = true
-cainome-cairo-serde.workspace = true
+starknet.workspace = true
+starknet-crypto.workspace = true
+thiserror.workspace = true
 tokio.workspace = true
+tower.workspace = true
+tracing.workspace = true
+url.workspace = true
 
 [dev-dependencies]
 assert_matches.workspace = true
