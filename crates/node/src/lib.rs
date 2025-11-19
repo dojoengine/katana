@@ -291,6 +291,13 @@ where
                 .paymaster_account()
                 .ok_or(anyhow!("Cartridge paymaster account doesn't exist"))?;
 
+            let vrf_ctx = VrfContext::new(CARTRIDGE_VRF_DEFAULT_PRIVATE_KEY, pm_address);
+
+            // Info to ensure this is visible to the user without changing the default logging
+            // level. The use can still use `rpc::cartridge` in debug to see the random
+            // value and the seed.
+            info!(target: "cartridge", paymaster_address = %pm_address, vrf_address = %vrf_ctx.address(), "Cartridge API initialized.");
+
             Some(Paymaster::new(
                 starknet_api.clone(),
                 cartridge_api_client,
@@ -298,7 +305,7 @@ where
                 config.chain.id(),
                 pm_address,
                 SigningKey::from_secret_scalar(pm_account.private_key),
-                VrfContext::new(CARTRIDGE_VRF_DEFAULT_PRIVATE_KEY, pm_address),
+                vrf_ctx,
             ))
         } else {
             None
