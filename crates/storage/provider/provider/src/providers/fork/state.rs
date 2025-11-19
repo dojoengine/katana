@@ -472,7 +472,7 @@ impl<Db: Database> StateProofProvider for HistoricalStateProvider<Db> {
             return Err(ProviderError::StateProofNotSupported);
         }
 
-        let result = self.fork_db.backend.get_classes_proofs(classes, self.fork_db.block_id)?;
+        let result = self.fork_db.backend.get_classes_proofs(classes, self.provider.block())?;
         let proofs = result.expect("block should exist");
 
         Ok(proofs.classes_proof.nodes.into())
@@ -487,7 +487,7 @@ impl<Db: Database> StateProofProvider for HistoricalStateProvider<Db> {
             return Err(ProviderError::StateProofNotSupported);
         }
 
-        let result = self.fork_db.backend.get_contracts_proofs(addresses, self.fork_db.block_id)?;
+        let result = self.fork_db.backend.get_contracts_proofs(addresses, self.provider.block())?;
         let proofs = result.expect("block should exist");
 
         Ok(proofs.classes_proof.nodes.into())
@@ -504,7 +504,7 @@ impl<Db: Database> StateProofProvider for HistoricalStateProvider<Db> {
         }
 
         let key = vec![ContractStorageKeys { address, keys: storage_keys }];
-        let result = self.fork_db.backend.get_storages_proofs(key, self.fork_db.block_id)?;
+        let result = self.fork_db.backend.get_storages_proofs(key, self.provider.block())?;
 
         let mut proofs = result.expect("block should exist");
         let proofs = proofs.contracts_storage_proofs.nodes.pop().unwrap();
@@ -543,7 +543,7 @@ impl<Db: Database> StateRootProvider for HistoricalStateProvider<Db> {
             return Ok(Felt::ZERO);
         }
 
-        let result = self.fork_db.backend.get_global_roots(self.fork_db.block_id)?;
+        let result = self.fork_db.backend.get_global_roots(self.provider.block())?;
         let roots = result.expect("block should exist");
         Ok(roots.global_roots.classes_tree_root)
     }
@@ -554,7 +554,7 @@ impl<Db: Database> StateRootProvider for HistoricalStateProvider<Db> {
             return Ok(Felt::ZERO);
         }
 
-        let result = self.fork_db.backend.get_global_roots(self.fork_db.block_id)?;
+        let result = self.fork_db.backend.get_global_roots(self.provider.block())?;
         let roots = result.expect("block should exist");
         Ok(roots.global_roots.contracts_tree_root)
     }
@@ -565,7 +565,7 @@ impl<Db: Database> StateRootProvider for HistoricalStateProvider<Db> {
             return Ok(None);
         }
 
-        let result = self.fork_db.backend.get_storage_root(contract, self.fork_db.block_id)?;
+        let result = self.fork_db.backend.get_storage_root(contract, self.provider.block())?;
         Ok(result)
     }
 }
