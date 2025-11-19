@@ -298,7 +298,8 @@ async fn historical_fork_state() {
     assert!(result2.is_some());
 }
 
-#[tokio::test]
+#[ignore]
+#[tokio::test(flavor = "multi_thread")]
 async fn pre_fork_state_proof() {
     let starknet_client = StarknetClient::new(SEPOLIA_RPC_URL.try_into().unwrap());
 

@@ -206,7 +206,14 @@ impl<Db: Database> StateProofProvider for LatestStateProvider<Db> {
         addresses: Vec<ContractAddress>,
     ) -> ProviderResult<katana_trie::MultiProof> {
         let fork_point = self.fork_db.block_id;
-        let latest_block_number = self.db.latest_number()?;
+        let latest_block_number = match self.db.latest_number() {
+            Ok(num) => num,
+            // return the fork block number if local db return this error. this can only happen whne
+            // the ForkedProvider is constructed without inserting any locally produced
+            // blocks.
+            Err(ProviderError::MissingLatestBlockNumber) => self.fork_db.block_id,
+            Err(err) => return Err(err),
+        };
 
         if latest_block_number == fork_point {
             let result = self.fork_db.backend.get_contracts_proofs(addresses, fork_point)?;
@@ -224,7 +231,14 @@ impl<Db: Database> StateProofProvider for LatestStateProvider<Db> {
         storage_keys: Vec<StorageKey>,
     ) -> ProviderResult<katana_trie::MultiProof> {
         let fork_point = self.fork_db.block_id;
-        let latest_block_number = self.db.latest_number()?;
+        let latest_block_number = match self.db.latest_number() {
+            Ok(num) => num,
+            // return the fork block number if local db return this error. this can only happen whne
+            // the ForkedProvider is constructed without inserting any locally produced
+            // blocks.
+            Err(ProviderError::MissingLatestBlockNumber) => self.fork_db.block_id,
+            Err(err) => return Err(err),
+        };
 
         if latest_block_number == fork_point {
             let key = vec![ContractStorageKeys { address, keys: storage_keys }];
