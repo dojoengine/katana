@@ -2,6 +2,7 @@ use jsonrpsee::core::RpcResult;
 use jsonrpsee::proc_macros::rpc;
 use katana_primitives::{ContractAddress, Felt};
 use katana_rpc_types::broadcasted::AddInvokeTransactionResponse;
+
 use crate::rpc::types::OutsideExecution;
 
 /// Cartridge API to support paymaster in local Katana development.
