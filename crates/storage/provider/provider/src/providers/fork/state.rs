@@ -256,15 +256,65 @@ impl<Db: Database> StateProofProvider for LatestStateProvider<Db> {
 
 impl<Db: Database> StateRootProvider for LatestStateProvider<Db> {
     fn classes_root(&self) -> ProviderResult<Felt> {
-        self.provider.classes_root()
+        let fork_point = self.fork_db.block_id;
+        let latest_block_number = match self.db.latest_number() {
+            Ok(num) => num,
+            // return the fork block number if local db return this error. this can only happen whne
+            // the ForkedProvider is constructed without inserting any locally produced
+            // blocks.
+            Err(ProviderError::MissingLatestBlockNumber) => self.fork_db.block_id,
+            Err(err) => return Err(err),
+        };
+
+        if latest_block_number == fork_point {
+            let result = self.fork_db.backend.get_global_roots(fork_point)?;
+            let roots = result.expect("proofs should exist for block");
+
+            Ok(roots.global_roots.classes_tree_root)
+        } else {
+            Ok(Felt::ZERO)
+        }
     }
 
     fn contracts_root(&self) -> ProviderResult<Felt> {
-        self.provider.contracts_root()
+        let fork_point = self.fork_db.block_id;
+        let latest_block_number = match self.db.latest_number() {
+            Ok(num) => num,
+            // return the fork block number if local db return this error. this can only happen whne
+            // the ForkedProvider is constructed without inserting any locally produced
+            // blocks.
+            Err(ProviderError::MissingLatestBlockNumber) => self.fork_db.block_id,
+            Err(err) => return Err(err),
+        };
+
+        if latest_block_number == fork_point {
+            let result = self.fork_db.backend.get_global_roots(fork_point)?;
+            let roots = result.expect("proofs should exist for block");
+
+            Ok(roots.global_roots.contracts_tree_root)
+        } else {
+            Ok(Felt::ZERO)
+        }
     }
 
     fn storage_root(&self, contract: ContractAddress) -> ProviderResult<Option<Felt>> {
-        self.provider.storage_root(contract)
+        let fork_point = self.fork_db.block_id;
+        let latest_block_number = match self.db.latest_number() {
+            Ok(num) => num,
+            // return the fork block number if local db return this error. this can only happen whne
+            // the ForkedProvider is constructed without inserting any locally produced
+            // blocks.
+            Err(ProviderError::MissingLatestBlockNumber) => self.fork_db.block_id,
+            Err(err) => return Err(err),
+        };
+
+        if latest_block_number == fork_point {
+            let result = self.fork_db.backend.get_storage_root(contract, fork_point)?;
+            let root = result.expect("proofs should exist for block");
+            Ok(root)
+        } else {
+            Ok(Felt::ZERO)
+        }
     }
 }
 
