@@ -298,10 +298,10 @@ async fn historical_fork_state() {
     assert!(result2.is_some());
 }
 
-#[ignore]
+// #[ignore]
 #[tokio::test(flavor = "multi_thread")]
 async fn pre_fork_state_proof() {
-    let starknet_client = StarknetClient::new(SEPOLIA_RPC_URL.try_into().unwrap());
+    let starknet_client = StarknetClient::new("http://localhost:5050".try_into().unwrap());
 
     // always use the latest block number of the forked chain because most nodes may not support
     // proofs for too old blocks
@@ -323,6 +323,7 @@ async fn pre_fork_state_proof() {
     let contracts =
         vec![address!("0x0164b86b8fC5C0c84d3c53Bc95760F290420Ea2a32ed49A44fd046683a1CaAc2")];
     let proofs = state.contract_multiproof(contracts.clone()).unwrap();
+    let root = dbg!(state.contracts_root().unwrap());
 
     let expected_proofs = starknet_client
         .get_storage_proof(latest_block_number.into(), None, Some(contracts), None)
