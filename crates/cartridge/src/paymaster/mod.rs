@@ -1,3 +1,30 @@
+//! Handles management of Cartridge controller accounts.
+//!
+//! When a Controller account is created, the username is used as a salt,
+//! and the latest controller class hash is used.
+//! This ensures that the controller account address is deterministic.
+//!
+//! A consequence of that, is that all the controller class hashes must be
+//! known by Katana to ensure it can first deploy the controller account with the
+//! correct address, and then upgrade it to the latest version.
+//!
+//! This module contains the function to work around this behavior, which also relies
+//! on the updated code into `katana-primitives` to ensure all the controller class hashes
+//! are available.
+//!
+//! Two flows:
+//!
+//! 1. When a Controller account is created, an execution from outside is received from the very
+//!    first transaction that the user will want to achieve using the session. In this case, this
+//!    module will hook the execution from outside to ensure the controller account is deployed.
+//!
+//! 2. When a Controller account is already deployed, and the user logs in, the client code of
+//!    controller is actually performing a `estimate_fee` to estimate the fee for the account
+//!    upgrade. In this case, this module contains the code to hook the fee estimation, and return
+//!    the associated transaction to be executed in order to deploy the controller account. See the
+//!    fee estimate RPC method of [StarknetApi](crate::starknet::StarknetApi) to see how the
+//!    Controller deployment is handled during fee estimation.
+
 use std::collections::HashSet;
 use std::iter::once;
 
@@ -195,7 +222,7 @@ impl<Pool: TransactionPool + 'static, PP: PendingBlockProvider> Paymaster<Pool, 
                 _ => continue,
             };
 
-            // if the address has already been processed this txs batch, just ignore the tx
+            // if the address has already been processed in this txs batch, just ignore the tx
             if deployed_controllers.contains(&address) {
                 continue;
             }
@@ -222,7 +249,8 @@ impl<Pool: TransactionPool + 'static, PP: PendingBlockProvider> Paymaster<Pool, 
 
     /// Crafts a deploy controller transaction for a cartridge controller.
     ///
-    /// Returns None if the provided `controller_address` is not registered in the Cartridge API.
+    /// Returns None if the provided `controller_address` is not registered in the Cartridge API,
+    /// or if it has already been deployed.
     async fn craft_controller_deploy_tx(
         &self,
         address: ContractAddress,
@@ -254,8 +282,8 @@ impl<Pool: TransactionPool + 'static, PP: PendingBlockProvider> Paymaster<Pool, 
         Ok(Some(tx))
     }
 
-    // Get the constructor calldata for a controller account or None if the address is not a
-    // controller.
+    /// Get the constructor calldata for a controller account or None if the address is not a
+    /// controller.
     async fn get_controller_ctor_calldata(
         &self,
         address: ContractAddress,
@@ -264,6 +292,9 @@ impl<Pool: TransactionPool + 'static, PP: PendingBlockProvider> Paymaster<Pool, 
         Ok(result.map(|r| r.constructor_calldata))
     }
 
+    /// Crafts a deploy VRF provider transaction.
+    ///
+    /// Returns None if the VRF provider has already been deployed.
     async fn craft_vrf_provider_deploy_tx(
         &self,
         paymaster_address: ContractAddress,
@@ -319,6 +350,10 @@ impl<Pool: TransactionPool + 'static, PP: PendingBlockProvider> Paymaster<Pool, 
         Ok(tx)
     }
 
+    /// Get the VRF calls for a given outside execution.
+    ///
+    /// Returns None if the outside execution does not contain any 'request_random' VRF call
+    /// targeting the VRF provider contract.
     async fn get_vrf_calls(
         &self,
         outside_execution: &OutsideExecution,
@@ -405,6 +440,9 @@ impl<Pool: TransactionPool + 'static, PP: PendingBlockProvider> Paymaster<Pool, 
         Ok(Some([submit_random_call, assert_consumed_call]))
     }
 
+    /// Crafts a new outside execution with the VRF calls sandwitched between the original calls.
+    ///
+    /// Returns the new outside execution and the signature for the new outside execution.
     async fn craft_new_outside_execution(
         &self,
         paymaster_nonce: Nonce,
@@ -455,6 +493,7 @@ impl<Pool: TransactionPool + 'static, PP: PendingBlockProvider> Paymaster<Pool, 
         Ok((new_outside_execution, new_signature))
     }
 
+    /// Get the nonce of the paymaster account.
     async fn get_paymaster_nonce(&self, block_id: BlockIdOrTag) -> PaymasterResult<Felt> {
         let res: PaymasterResult<Felt> =
             self.starknet_api.nonce_at(block_id, self.paymaster_address).await.map_err(
@@ -483,6 +522,9 @@ impl<Pool: TransactionPool, PP: PendingBlockProvider> Clone for Paymaster<Pool, 
     }
 }
 
+/// Crafts a deploy controller transaction.
+///
+/// Returns the deploy controller transaction.
 async fn create_deploy_tx(
     deployer: ContractAddress,
     deployer_pk: SigningKey,
@@ -490,12 +532,6 @@ async fn create_deploy_tx(
     constructor_calldata: Vec<Felt>,
     chain_id: ChainId,
 ) -> PaymasterResult<ExecutableTx> {
-    // Check if any of the transactions are sent from an address associated with a Cartridge
-    // Controller account. If yes, we craft a Controller deployment transaction
-    // for each of the unique sender and push it at the beginning of the
-    // transaction list so that all the requested transactions are executed against a state
-    // with the Controller accounts deployed.
-
     let call = FunctionCall {
         contract_address: DEFAULT_UDC_ADDRESS,
         entry_point_selector: selector!("deployContract"),
