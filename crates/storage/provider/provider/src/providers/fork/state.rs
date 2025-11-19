@@ -311,9 +311,9 @@ impl<Db: Database> StateRootProvider for LatestStateProvider<Db> {
         if latest_block_number == fork_point {
             let result = self.fork_db.backend.get_storage_root(contract, fork_point)?;
             let root = result.expect("proofs should exist for block");
-            Ok(root)
+            Ok(Some(root))
         } else {
-            Ok(Felt::ZERO)
+            Ok(None)
         }
     }
 }
