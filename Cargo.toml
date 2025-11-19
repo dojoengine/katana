@@ -223,9 +223,9 @@ opentelemetry-http = "0.30.0"
 opentelemetry-stackdriver = { version = "0.27.0", features = [ "propagator" ] }
 
 # starknet
-starknet = "0.17.0-rc.2"
-starknet-crypto = "0.7.4"
-starknet-types-core = { version = "0.1.8", features = [ "arbitrary", "hash" ] }
+starknet = {git = "https://github.com/dojoengine/starknet-rs.git", branch = "feat/types-rs-100-blake2s"}
+starknet-crypto = {git = "https://github.com/dojoengine/starknet-rs.git", branch = "feat/types-rs-100-blake2s"}
+starknet-types-core = { version = "1.0.0", features = [ "arbitrary", "hash" ] }
 # Some types that we used from cairo-vm implements the `Arbitrary` trait,
 # only under the `test_utils` feature.
 cairo-vm = { version = "1.0.2", features = [ "test_utils" ] }
