@@ -47,7 +47,7 @@ use starknet::core::types::Call;
 use starknet::macros::selector;
 use starknet::signers::{LocalWallet, Signer, SigningKey};
 use starknet_crypto::pedersen_hash;
-use tracing::trace;
+use tracing::{debug, trace};
 
 pub mod layer;
 
@@ -146,7 +146,8 @@ impl<Pool: TransactionPool + 'static, PP: PendingBlockProvider> Paymaster<Pool, 
                 self.pool.add_transaction(tx).await.map_err(Error::FailedToAddTransaction)?;
 
             trace!(
-                target: "paymaster",
+                target: "cartridge",
+                controller = %address,
                 tx_hash = format!("{tx_hash:#x}"),
                 "Controller deploy transaction submitted",
             );
@@ -185,7 +186,8 @@ impl<Pool: TransactionPool + 'static, PP: PendingBlockProvider> Paymaster<Pool, 
                         .map_err(Error::FailedToAddTransaction)?;
 
                     trace!(
-                        target: "paymaster",
+                        target: "cartridge",
+                        vrf_provider = %self.vrf_ctx.address(),
                         tx_hash = format!("{tx_hash:#x}"),
                         "VRF Provider deploy transaction submitted",
                     );
@@ -231,6 +233,12 @@ impl<Pool: TransactionPool + 'static, PP: PendingBlockProvider> Paymaster<Pool, 
                 Ok(Some(tx)) => {
                     deployed_controllers.insert(address);
                     new_transactions.push(BroadcastedTx::from(tx));
+
+                    trace!(
+                        target: "cartridge",
+                        controller = %address,
+                        "Controller deploy transaction submitted",
+                    );
                 }
                 Ok(None) | Err(Error::ControllerNotFound(..)) => continue,
                 Err(err) => return Err(err),
@@ -269,6 +277,8 @@ impl<Pool: TransactionPool + 'static, PP: PendingBlockProvider> Paymaster<Pool, 
 
         // Create a Controller deploy transaction against the latest state of the network.
         let paymaster_nonce = self.get_paymaster_nonce(block_id).await?;
+
+        debug!(target: "cartridge", controller = %address, "Crafting controller deploy transaction");
 
         let tx = create_deploy_tx(
             self.paymaster_address,
