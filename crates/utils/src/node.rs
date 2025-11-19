@@ -6,6 +6,7 @@ use katana_core::backend::storage::Database;
 use katana_core::backend::Backend;
 use katana_executor::implementation::blockifier::BlockifierFactory;
 use katana_node::config::dev::DevConfig;
+use katana_node::config::paymaster::PaymasterConfig;
 use katana_node::config::rpc::{RpcConfig, RpcModulesList, DEFAULT_RPC_ADDR};
 use katana_node::config::sequencing::SequencingConfig;
 use katana_node::config::Config;
@@ -48,7 +49,6 @@ impl TestNode {
                 .expect("failed to launch node"),
         }
     }
-
     /// Returns the address of the node's RPC server.
     pub fn rpc_addr(&self) -> &SocketAddr {
         self.node.rpc().addr()
@@ -75,7 +75,7 @@ impl TestNode {
 
     pub fn account(&self) -> SingleOwnerAccount<JsonRpcClient<HttpTransport>, LocalWallet> {
         let (address, account) =
-            self.backend().chain_spec.genesis().accounts().next().expect("must have at least one");
+            self.backend().chain_spec.genesis().accounts().nth(1).expect("must have at least two");
         let private_key = account.private_key().expect("must exist");
         let signer = LocalWallet::from_signing_key(SigningKey::from_secret_scalar(private_key));
 
@@ -123,5 +123,14 @@ pub fn test_config() -> Config {
         ..Default::default()
     };
 
-    Config { sequencing, rpc, dev, chain: ChainSpec::Dev(chain).into(), ..Default::default() }
+    let cartridge_api_url = Url::parse("http://localhost:6969").unwrap();
+
+    Config {
+        sequencing,
+        rpc,
+        dev,
+        chain: ChainSpec::Dev(chain).into(),
+        paymaster: Some(PaymasterConfig { cartridge_api_url }),
+        ..Default::default()
+    }
 }

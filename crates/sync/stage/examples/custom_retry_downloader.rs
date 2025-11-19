@@ -135,6 +135,7 @@ where
     let start = Instant::now();
     let result = f.await;
     let duration = start.elapsed();
+    println!("{}", name);
     println!("⏱️  Time taken: {:.2}s\n", duration.as_secs_f64());
     result
 }
