@@ -288,7 +288,7 @@ impl<Pool: TransactionPool + 'static, PP: PendingBlockProvider> Paymaster<Pool, 
         ];
 
         let call = FunctionCall {
-            contract_address: DEFAULT_UDC_ADDRESS.into(),
+            contract_address: DEFAULT_UDC_ADDRESS,
             entry_point_selector: selector!("deployContract"),
             calldata,
         };
@@ -412,12 +412,12 @@ impl<Pool: TransactionPool + 'static, PP: PendingBlockProvider> Paymaster<Pool, 
         vrf_calls: &[Call; 2],
     ) -> PaymasterResult<(OutsideExecution, Vec<Felt>)> {
         fn pack_calls(
-            calls: &Vec<OutsideExecutionCall>,
+            calls: &[OutsideExecutionCall],
             vrf_calls: &[Call; 2],
         ) -> Vec<OutsideExecutionCall> {
             let [submit_call, assert_call] = vrf_calls;
             once(submit_call.into())
-                .chain(calls.clone().into_iter())
+                .chain(calls.iter().cloned())
                 .chain(once(assert_call.into()))
                 .collect::<Vec<_>>()
         }
@@ -456,17 +456,15 @@ impl<Pool: TransactionPool + 'static, PP: PendingBlockProvider> Paymaster<Pool, 
     }
 
     async fn get_paymaster_nonce(&self, block_id: BlockIdOrTag) -> PaymasterResult<Felt> {
-        let res: PaymasterResult<Felt> = self
-            .starknet_api
-            .nonce_at(block_id, self.paymaster_address)
-            .await
-            .map(|nonce| nonce.into())
-            .map_err(|e| match e {
-                StarknetApiError::ContractNotFound => {
-                    Error::PaymasterNotFound(self.paymaster_address)
-                }
-                _ => Error::StarknetApi(e),
-            });
+        let res: PaymasterResult<Felt> =
+            self.starknet_api.nonce_at(block_id, self.paymaster_address).await.map_err(
+                |e| match e {
+                    StarknetApiError::ContractNotFound => {
+                        Error::PaymasterNotFound(self.paymaster_address)
+                    }
+                    _ => Error::StarknetApi(e),
+                },
+            );
         res
     }
 }
@@ -499,7 +497,7 @@ async fn create_deploy_tx(
     // with the Controller accounts deployed.
 
     let call = FunctionCall {
-        contract_address: DEFAULT_UDC_ADDRESS.into(),
+        contract_address: DEFAULT_UDC_ADDRESS,
         entry_point_selector: selector!("deployContract"),
         calldata: constructor_calldata,
     };
