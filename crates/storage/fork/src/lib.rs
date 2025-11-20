@@ -25,11 +25,15 @@ use katana_primitives::class::{
 };
 use katana_primitives::contract::{ContractAddress, Nonce, StorageKey, StorageValue};
 use katana_primitives::transaction::TxHash;
+use katana_primitives::Felt;
 use katana_rpc_client::starknet::{
     Client as StarknetClient, Error as StarknetClientError, StarknetApiError,
 };
 use katana_rpc_types::class::Class;
-use katana_rpc_types::{GetBlockWithReceiptsResponse, StateUpdate, TxReceiptWithBlockInfo};
+use katana_rpc_types::{
+    ContractStorageKeys, GetBlockWithReceiptsResponse, GetStorageProofResponse, StateUpdate,
+    TxReceiptWithBlockInfo,
+};
 use parking_lot::Mutex;
 use tracing::{error, trace};
 
@@ -246,6 +250,105 @@ impl Backend {
         }
     }
 
+    pub fn get_classes_proofs(
+        &self,
+        classes: Vec<ClassHash>,
+        block_id: BlockNumber,
+    ) -> Result<Option<GetStorageProofResponse>, BackendClientError> {
+        trace!(classes = %classes.len(), block = %block_id, "Requesting classes proofs.");
+        let (req, rx) = BackendRequest::classes_proof(classes, block_id);
+        self.request(req)?;
+        match rx.recv()? {
+            BackendResponse::Proofs(res) => {
+                if let Some(proofs) = handle_not_found_err(res)? {
+                    Ok(Some(proofs))
+                } else {
+                    Ok(None)
+                }
+            }
+            response => Err(BackendClientError::UnexpectedResponse(anyhow!("{response:?}"))),
+        }
+    }
+
+    pub fn get_contracts_proofs(
+        &self,
+        contracts: Vec<ContractAddress>,
+        block_id: BlockNumber,
+    ) -> Result<Option<GetStorageProofResponse>, BackendClientError> {
+        trace!(contracts = %contracts.len(), block = %block_id, "Requesting contracts proofs.");
+        let (req, rx) = BackendRequest::contracts_proof(contracts, block_id);
+        self.request(req)?;
+        match rx.recv()? {
+            BackendResponse::Proofs(res) => {
+                if let Some(proofs) = handle_not_found_err(res)? {
+                    Ok(Some(proofs))
+                } else {
+                    Ok(None)
+                }
+            }
+            response => Err(BackendClientError::UnexpectedResponse(anyhow!("{response:?}"))),
+        }
+    }
+
+    pub fn get_storages_proofs(
+        &self,
+        storages: Vec<ContractStorageKeys>,
+        block_id: BlockNumber,
+    ) -> Result<Option<GetStorageProofResponse>, BackendClientError> {
+        trace!(contracts = %storages.len(), block = %block_id, "Requesting storages proofs.");
+        let (req, rx) = BackendRequest::storages_proof(storages, block_id);
+        self.request(req)?;
+        match rx.recv()? {
+            BackendResponse::Proofs(res) => {
+                if let Some(proofs) = handle_not_found_err(res)? {
+                    Ok(Some(proofs))
+                } else {
+                    Ok(None)
+                }
+            }
+            response => Err(BackendClientError::UnexpectedResponse(anyhow!("{response:?}"))),
+        }
+    }
+
+    pub fn get_global_roots(
+        &self,
+        block_id: BlockNumber,
+    ) -> Result<Option<GetStorageProofResponse>, BackendClientError> {
+        trace!(block = %block_id, "Requesting state roots.");
+        let (req, rx) = BackendRequest::global_roots(block_id);
+        self.request(req)?;
+        match rx.recv()? {
+            BackendResponse::GlobalRoots(res) => {
+                if let Some(roots) = handle_not_found_err(res)? {
+                    Ok(Some(roots))
+                } else {
+                    Ok(None)
+                }
+            }
+            response => Err(BackendClientError::UnexpectedResponse(anyhow!("{response:?}"))),
+        }
+    }
+
+    pub fn get_storage_root(
+        &self,
+        contract: ContractAddress,
+        block_id: BlockNumber,
+    ) -> Result<Option<Felt>, BackendClientError> {
+        trace!(%contract, block = %block_id, "Requesting storage root.");
+        let (req, rx) = BackendRequest::storage_root(contract, block_id);
+        self.request(req)?;
+        match rx.recv()? {
+            BackendResponse::StorageRoot(res) => {
+                if let Some(root) = handle_not_found_err(res)? {
+                    Ok(Some(root))
+                } else {
+                    Ok(None)
+                }
+            }
+            response => Err(BackendClientError::UnexpectedResponse(anyhow!("{response:?}"))),
+        }
+    }
+
     /// Send a request to the backend thread.
     fn request(&self, req: BackendRequest) -> Result<(), BackendClientError> {
         self.sender.lock().try_send(req).map_err(|e| e.into_send_error())?;
@@ -277,6 +380,9 @@ enum BackendResponse {
     Storage(BackendResult<StorageValue>),
     ClassHashAt(BackendResult<ClassHash>),
     ClassAt(BackendResult<Class>),
+    StorageRoot(BackendResult<Felt>),
+    GlobalRoots(BackendResult<GetStorageProofResponse>),
+    Proofs(BackendResult<GetStorageProofResponse>),
 }
 
 /// Errors that can occur when interacting with the backend.
@@ -295,16 +401,26 @@ struct Request<P> {
     sender: OneshotSender<BackendResponse>,
 }
 
+#[derive(Eq, Hash, PartialEq, Clone, Debug)]
+enum ProofsType {
+    Classes(Vec<ClassHash>),
+    Contracts(Vec<ContractAddress>),
+    Storages(Vec<ContractStorageKeys>),
+}
+
 /// The types of request that can be sent to [`Backend`].
 ///
 /// Each request consists of a payload and the sender half of a oneshot channel that will be used
 /// to send the result back to the backend handle.
 enum BackendRequest {
     Receipt(Request<TxHash>),
+    GlobalRoots(Request<BlockNumber>),
+    StorageRoot(Request<(ContractAddress, BlockNumber)>),
     Block(Request<BlockHashOrNumber>),
     StateUpdate(Request<BlockHashOrNumber>),
-    Nonce(Request<(ContractAddress, BlockNumber)>),
     Class(Request<(ClassHash, BlockNumber)>),
+    Proofs(Request<(ProofsType, BlockNumber)>),
+    Nonce(Request<(ContractAddress, BlockNumber)>),
     ClassHash(Request<(ContractAddress, BlockNumber)>),
     Storage(Request<((ContractAddress, StorageKey), BlockNumber)>),
 }
@@ -364,16 +480,59 @@ impl BackendRequest {
         let (sender, receiver) = oneshot();
         (BackendRequest::Storage(Request { payload: ((address, key), block_id), sender }), receiver)
     }
+
+    fn classes_proof(
+        classes: Vec<ClassHash>,
+        block_id: BlockNumber,
+    ) -> (BackendRequest, OneshotReceiver<BackendResponse>) {
+        let (sender, receiver) = oneshot();
+        let payload = (ProofsType::Classes(classes), block_id);
+        (BackendRequest::Proofs(Request { payload, sender }), receiver)
+    }
+
+    fn contracts_proof(
+        contracts: Vec<ContractAddress>,
+        block_id: BlockNumber,
+    ) -> (BackendRequest, OneshotReceiver<BackendResponse>) {
+        let (sender, receiver) = oneshot();
+        let payload = (ProofsType::Contracts(contracts), block_id);
+        (BackendRequest::Proofs(Request { payload, sender }), receiver)
+    }
+
+    fn storages_proof(
+        storages: Vec<ContractStorageKeys>,
+        block_id: BlockNumber,
+    ) -> (BackendRequest, OneshotReceiver<BackendResponse>) {
+        let (sender, receiver) = oneshot();
+        let payload = (ProofsType::Storages(storages), block_id);
+        (BackendRequest::Proofs(Request { payload, sender }), receiver)
+    }
+
+    fn global_roots(block_id: BlockNumber) -> (BackendRequest, OneshotReceiver<BackendResponse>) {
+        let (sender, receiver) = oneshot();
+        (BackendRequest::GlobalRoots(Request { payload: block_id, sender }), receiver)
+    }
+
+    fn storage_root(
+        contract: ContractAddress,
+        block_id: BlockNumber,
+    ) -> (BackendRequest, OneshotReceiver<BackendResponse>) {
+        let (sender, receiver) = oneshot();
+        (BackendRequest::StorageRoot(Request { payload: (contract, block_id), sender }), receiver)
+    }
 }
 
 type BackendRequestFuture = BoxFuture<'static, BackendResponse>;
 
 // Identifier for pending requests.
 // This is used for request deduplication.
-#[derive(Eq, Hash, PartialEq, Clone, Copy, Debug)]
+#[derive(Eq, Hash, PartialEq, Clone, Debug)]
 enum BackendRequestIdentifier {
     Receipt(TxHash),
+    GlobalRoots(BlockNumber),
+    StorageRoot(ContractAddress, BlockNumber),
     Block(BlockHashOrNumber),
+    Proofs(ProofsType, BlockNumber),
     StateUpdate(BlockHashOrNumber),
     Nonce(ContractAddress, BlockNumber),
     Class(ClassHash, BlockNumber),
@@ -554,6 +713,86 @@ impl BackendWorker {
                     }),
                 );
             }
+
+            BackendRequest::Proofs(Request { payload: (r#type, block_id), sender }) => {
+                let req_key = BackendRequestIdentifier::Proofs(r#type.clone(), block_id);
+                let block_id = BlockIdOrTag::from(block_id);
+
+                let request: BoxFuture<'static, BackendResponse> = match r#type {
+                    ProofsType::Classes(classes) => Box::pin(async move {
+                        let res = provider
+                            .get_storage_proof(block_id, Some(classes), None, None)
+                            .await
+                            .map_err(|e| BackendError::StarknetProvider(Arc::new(e)));
+
+                        BackendResponse::Proofs(res)
+                    }),
+
+                    ProofsType::Contracts(contracts) => Box::pin(async move {
+                        let res = provider
+                            .get_storage_proof(block_id, None, Some(contracts), None)
+                            .await
+                            .map_err(|e| BackendError::StarknetProvider(Arc::new(e)));
+
+                        BackendResponse::Proofs(res)
+                    }),
+
+                    ProofsType::Storages(storage_keys) => Box::pin(async move {
+                        let res = provider
+                            .get_storage_proof(block_id, None, None, Some(storage_keys))
+                            .await
+                            .map_err(|e| BackendError::StarknetProvider(Arc::new(e)));
+
+                        BackendResponse::Proofs(res)
+                    }),
+                };
+
+                self.dedup_request(req_key, sender, request);
+            }
+
+            BackendRequest::GlobalRoots(Request { payload: block_id, sender }) => {
+                let req_key = BackendRequestIdentifier::GlobalRoots(block_id);
+                let block_id = BlockIdOrTag::from(block_id);
+
+                self.dedup_request(
+                    req_key,
+                    sender,
+                    Box::pin(async move {
+                        let res = provider
+                            .get_storage_proof(block_id, None, None, None)
+                            .await
+                            .map_err(|e| BackendError::StarknetProvider(Arc::new(e)));
+
+                        BackendResponse::GlobalRoots(res)
+                    }),
+                );
+            }
+
+            BackendRequest::StorageRoot(Request { payload: (contract, block_id), sender }) => {
+                let req_key = BackendRequestIdentifier::StorageRoot(contract, block_id);
+                let block_id = BlockIdOrTag::from(block_id);
+
+                self.dedup_request(
+                    req_key,
+                    sender,
+                    Box::pin(async move {
+                        let res = provider
+                            .get_storage_proof(block_id, None, Some(vec![contract]), None)
+                            .await
+                            .map(|mut proof| {
+                                proof
+                                    .contracts_proof
+                                    .contract_leaves_data
+                                    .pop()
+                                    .expect("must exist")
+                                    .storage_root
+                            })
+                            .map_err(|e| BackendError::StarknetProvider(Arc::new(e)));
+
+                        BackendResponse::StorageRoot(res)
+                    }),
+                );
+            }
         }
     }
 
@@ -563,7 +802,7 @@ impl BackendWorker {
         sender: OneshotSender<BackendResponse>,
         rpc_call_future: BoxFuture<'static, BackendResponse>,
     ) {
-        if let Entry::Vacant(e) = self.request_dedup_map.entry(req_key) {
+        if let Entry::Vacant(e) = self.request_dedup_map.entry(req_key.clone()) {
             self.pending_requests.push((req_key, rpc_call_future));
             e.insert(vec![sender]);
         } else {
