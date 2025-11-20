@@ -1,10 +1,10 @@
 use futures::future::BoxFuture;
 use katana_primitives::block::BlockNumber;
 use katana_primitives::Felt;
+use katana_provider::api::block::HeaderProvider;
 use katana_provider::api::state_update::StateUpdateProvider;
 use katana_provider::api::trie::TrieWriter;
-use katana_provider::ProviderFactory;
-use katana_provider::{api::block::HeaderProvider, MutableProvider};
+use katana_provider::{MutableProvider, ProviderFactory};
 use starknet::macros::short_string;
 use starknet_types_core::hash::{Poseidon, StarkHash};
 use tracing::{debug, debug_span, error};

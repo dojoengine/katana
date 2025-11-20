@@ -475,8 +475,9 @@ where
         //     let disk_metrics = Box::new(DiskReporter::new(self.db.path())?) as Box<dyn Report>;
         //     let reports: Vec<Box<dyn Report>> = vec![db_metrics, disk_metrics];
 
-        //     let exporter = PrometheusRecorder::current().expect("qed; should exist at this point");
-        //     let server = MetricsServer::new(exporter).with_process_metrics().with_reports(reports);
+        //     let exporter = PrometheusRecorder::current().expect("qed; should exist at this
+        // point");     let server =
+        // MetricsServer::new(exporter).with_process_metrics().with_reports(reports);
 
         //     let addr = cfg.socket_addr();
         //     self.task_manager.task_spawner().build_task().spawn(server.start(addr));
