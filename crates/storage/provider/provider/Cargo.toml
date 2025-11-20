@@ -17,6 +17,7 @@ katana-rpc-client.workspace = true
 katana-trie.workspace = true
 
 anyhow.workspace = true
+assert_matches.workspace = true
 auto_impl.workspace = true
 bitvec.workspace = true
 lazy_static.workspace = true

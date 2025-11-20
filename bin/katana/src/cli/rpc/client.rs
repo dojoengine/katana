@@ -8,6 +8,7 @@ use katana_primitives::class::ClassHash;
 use katana_primitives::contract::{ContractAddress, StorageKey};
 use katana_primitives::transaction::TxHash;
 use katana_rpc_types::event::EventFilterWithPage;
+use katana_rpc_types::trie::ContractStorageKeys;
 use katana_rpc_types::FunctionCall;
 use serde_json::value::RawValue;
 use serde_json::Value;
@@ -90,6 +91,7 @@ const CHAIN_ID: &str = "starknet_chainId";
 const SYNCING: &str = "starknet_syncing";
 const GET_NONCE: &str = "starknet_getNonce";
 const GET_EVENTS: &str = "starknet_getEvents";
+const GET_STORAGE_PROOF: &str = "starknet_getStorageProof";
 const TRACE_TRANSACTION: &str = "starknet_traceTransaction";
 const TRACE_BLOCK_TRANSACTIONS: &str = "starknet_traceBlockTransactions";
 
@@ -209,5 +211,19 @@ impl Client {
 
     pub async fn trace_block_transactions(&self, block_id: ConfirmedBlockIdOrTag) -> Result<Value> {
         self.send_request(TRACE_BLOCK_TRANSACTIONS, rpc_params!(block_id)).await
+    }
+
+    pub async fn get_storage_proof(
+        &self,
+        block_id: BlockIdOrTag,
+        class_hashes: Option<Vec<ClassHash>>,
+        contract_addresses: Option<Vec<ContractAddress>>,
+        contracts_storage_keys: Option<Vec<ContractStorageKeys>>,
+    ) -> Result<Value> {
+        self.send_request(
+            GET_STORAGE_PROOF,
+            rpc_params!(block_id, class_hashes, contract_addresses, contracts_storage_keys),
+        )
+        .await
     }
 }

@@ -6385,6 +6385,7 @@ version = "1.7.0"
 dependencies = [
  "alloy-primitives",
  "anyhow",
+ "assert_matches",
  "auto_impl",
  "bitvec",
  "futures",
