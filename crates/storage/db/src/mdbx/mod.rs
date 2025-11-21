@@ -101,7 +101,7 @@ impl DbEnvBuilder {
         let dir = path.as_ref().to_path_buf();
         let metrics = DbMetrics::new();
 
-        Ok(DbEnv { inner: Arc::new(DbEnvInner { env, dir, metrics }) }.with_metrics())
+        Ok(DbEnv { inner: Arc::new(DbEnvInner { env, dir, metrics }) })
     }
 }
 
@@ -161,30 +161,6 @@ impl DbEnv {
     pub fn path(&self) -> &Path {
         &self.inner.dir
     }
-
-    pub(super) fn with_metrics(self) -> Self {
-        ::metrics::describe_gauge!(
-            "db.table_size",
-            ::metrics::Unit::Bytes,
-            "Total size of the table"
-        );
-        ::metrics::describe_gauge!(
-            "db.table_pages",
-            ::metrics::Unit::Count,
-            "Number of pages in the table"
-        );
-        ::metrics::describe_gauge!(
-            "db.table_entries",
-            ::metrics::Unit::Count,
-            "Number of entries in the table"
-        );
-        ::metrics::describe_gauge!(
-            "db.freelist",
-            ::metrics::Unit::Bytes,
-            "Size of the database freelist"
-        );
-        self
-    }
 }
 
 impl Database for DbEnv {
@@ -194,20 +170,16 @@ impl Database for DbEnv {
 
     #[tracing::instrument(level = "trace", name = "db_txn_ro_create", skip_all)]
     fn tx(&self) -> Result<Self::Tx, DatabaseError> {
-        self.inner.metrics.record_tx_create(false);
-        Ok(Tx::new(
-            self.inner.env.begin_ro_txn().map_err(DatabaseError::CreateROTx)?,
-            self.inner.metrics.clone(),
-        ))
+        let tx = self.inner.env.begin_ro_txn().map_err(DatabaseError::CreateROTx)?;
+        self.inner.metrics.record_ro_tx_create();
+        Ok(Tx::new(tx, self.inner.metrics.clone()))
     }
 
     #[tracing::instrument(level = "trace", name = "db_txn_rw_create", skip_all)]
     fn tx_mut(&self) -> Result<Self::TxMut, DatabaseError> {
-        self.inner.metrics.record_tx_create(true);
-        Ok(Tx::new(
-            self.inner.env.begin_rw_txn().map_err(DatabaseError::CreateRWTx)?,
-            self.inner.metrics.clone(),
-        ))
+        let tx = self.inner.env.begin_rw_txn().map_err(DatabaseError::CreateRWTx)?;
+        self.inner.metrics.record_rw_tx_create();
+        Ok(Tx::new(tx, self.inner.metrics.clone()))
     }
 
     fn stats(&self) -> Result<Self::Stats, DatabaseError> {
