@@ -86,7 +86,7 @@ impl<Tx: DbTxMut> ContractClassWriter for DbProvider<Tx> {
 
 impl<Tx: DbTx> StateFactoryProvider for DbProvider<Tx> {
     fn latest(&self) -> ProviderResult<Box<dyn StateProvider>> {
-        Ok(Box::new(LatestStateProvider(self.0.clone())))
+        Ok(Box::new(LatestStateProvider(self.clone())))
     }
 
     fn historical(
@@ -115,7 +115,7 @@ impl<Tx: DbTx> StateFactoryProvider for DbProvider<Tx> {
 
 /// A state provider that provides the latest states from the database.
 #[derive(Debug)]
-pub(crate) struct LatestStateProvider<Tx: DbTx>(pub(crate) Tx);
+pub(crate) struct LatestStateProvider<Tx: DbTx>(pub(crate) DbProvider<Tx>);
 
 impl<Tx: DbTx> ContractClassProvider for LatestStateProvider<Tx> {
     fn class(&self, hash: ClassHash) -> ProviderResult<Option<ContractClass>> {
@@ -161,7 +161,7 @@ impl<Tx: DbTx> StateProvider for LatestStateProvider<Tx> {
 
 impl<Tx: DbTx> StateProofProvider for LatestStateProvider<Tx> {
     fn class_multiproof(&self, classes: Vec<ClassHash>) -> ProviderResult<katana_trie::MultiProof> {
-        let mut trie = TrieDbFactory::new(&self.0).latest().classes_trie();
+        let mut trie = TrieDbFactory::new(self.0.tx()).latest().classes_trie();
         let proofs = trie.multiproof(classes);
         Ok(proofs)
     }
@@ -170,7 +170,7 @@ impl<Tx: DbTx> StateProofProvider for LatestStateProvider<Tx> {
         &self,
         addresses: Vec<ContractAddress>,
     ) -> ProviderResult<katana_trie::MultiProof> {
-        let mut trie = TrieDbFactory::new(&self.0).latest().contracts_trie();
+        let mut trie = TrieDbFactory::new(self.0.tx()).latest().contracts_trie();
         let proofs = trie.multiproof(addresses);
         Ok(proofs)
     }
@@ -180,7 +180,7 @@ impl<Tx: DbTx> StateProofProvider for LatestStateProvider<Tx> {
         address: ContractAddress,
         storage_keys: Vec<StorageKey>,
     ) -> ProviderResult<katana_trie::MultiProof> {
-        let mut trie = TrieDbFactory::new(&self.0).latest().storages_trie(address);
+        let mut trie = TrieDbFactory::new(self.0.tx()).latest().storages_trie(address);
         let proofs = trie.multiproof(storage_keys);
         Ok(proofs)
     }
@@ -188,17 +188,17 @@ impl<Tx: DbTx> StateProofProvider for LatestStateProvider<Tx> {
 
 impl<Tx: DbTx> StateRootProvider for LatestStateProvider<Tx> {
     fn classes_root(&self) -> ProviderResult<Felt> {
-        let trie = TrieDbFactory::new(&self.0).latest().classes_trie();
+        let trie = TrieDbFactory::new(self.0.tx()).latest().classes_trie();
         Ok(trie.root())
     }
 
     fn contracts_root(&self) -> ProviderResult<Felt> {
-        let trie = TrieDbFactory::new(&self.0).latest().contracts_trie();
+        let trie = TrieDbFactory::new(self.0.tx()).latest().contracts_trie();
         Ok(trie.root())
     }
 
     fn storage_root(&self, contract: ContractAddress) -> ProviderResult<Option<Felt>> {
-        let trie = TrieDbFactory::new(&self.0).latest().storages_trie(contract);
+        let trie = TrieDbFactory::new(self.0.tx()).latest().storages_trie(contract);
         Ok(Some(trie.root()))
     }
 }

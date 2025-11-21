@@ -23,7 +23,7 @@ use crate::ProviderResult;
 
 impl<Tx1: DbTx, Tx2: DbTxMut> StateFactoryProvider for ForkedProvider<Tx1, Tx2> {
     fn latest(&self) -> ProviderResult<Box<dyn StateProvider>> {
-        let local_provider = db::state::LatestStateProvider(self.local_db.tx().clone());
+        let local_provider = db::state::LatestStateProvider(self.local_db.clone());
         let fork_provider = self.fork_db.clone();
         Ok(Box::new(LatestStateProvider { local_provider, fork_provider }))
     }
@@ -178,7 +178,7 @@ impl<Tx1: DbTx, Tx2: DbTxMut> StateProvider for LatestStateProvider<Tx1, Tx2> {
 impl<Tx1: DbTx, Tx2: DbTxMut> StateProofProvider for LatestStateProvider<Tx1, Tx2> {
     fn class_multiproof(&self, classes: Vec<ClassHash>) -> ProviderResult<katana_trie::MultiProof> {
         let fork_point = self.fork_provider.block_id;
-        let latest_block_number = match self.local_provider.latest_number() {
+        let latest_block_number = match self.local_provider.0.latest_number() {
             Ok(num) => num,
             // return the fork block number if local db return this error. this can only happen whne
             // the ForkedProvider is constructed without inserting any locally produced
@@ -202,7 +202,7 @@ impl<Tx1: DbTx, Tx2: DbTxMut> StateProofProvider for LatestStateProvider<Tx1, Tx
         addresses: Vec<ContractAddress>,
     ) -> ProviderResult<katana_trie::MultiProof> {
         let fork_point = self.fork_provider.block_id;
-        let latest_block_number = match self.local_provider.latest_number() {
+        let latest_block_number = match self.local_provider.0.latest_number() {
             Ok(num) => num,
             // return the fork block number if local db return this error. this can only happen whne
             // the ForkedProvider is constructed without inserting any locally produced
@@ -227,7 +227,7 @@ impl<Tx1: DbTx, Tx2: DbTxMut> StateProofProvider for LatestStateProvider<Tx1, Tx
         storage_keys: Vec<StorageKey>,
     ) -> ProviderResult<katana_trie::MultiProof> {
         let fork_point = self.fork_provider.block_id;
-        let latest_block_number = match self.local_provider.latest_number() {
+        let latest_block_number = match self.local_provider.0.latest_number() {
             Ok(num) => num,
             // return the fork block number if local db return this error. this can only happen whne
             // the ForkedProvider is constructed without inserting any locally produced
@@ -253,7 +253,7 @@ impl<Tx1: DbTx, Tx2: DbTxMut> StateProofProvider for LatestStateProvider<Tx1, Tx
 impl<Tx1: DbTx, Tx2: DbTxMut> StateRootProvider for LatestStateProvider<Tx1, Tx2> {
     fn classes_root(&self) -> ProviderResult<Felt> {
         let fork_point = self.fork_provider.block_id;
-        let latest_block_number = match self.local_provider.latest_number() {
+        let latest_block_number = match self.local_provider.0.latest_number() {
             Ok(num) => num,
             // return the fork block number if local db return this error. this can only happen whne
             // the ForkedProvider is constructed without inserting any locally produced
@@ -274,7 +274,7 @@ impl<Tx1: DbTx, Tx2: DbTxMut> StateRootProvider for LatestStateProvider<Tx1, Tx2
 
     fn contracts_root(&self) -> ProviderResult<Felt> {
         let fork_point = self.fork_provider.block_id;
-        let latest_block_number = match self.local_provider.latest_number() {
+        let latest_block_number = match self.local_provider.0.latest_number() {
             Ok(num) => num,
             // return the fork block number if local db return this error. this can only happen whne
             // the ForkedProvider is constructed without inserting any locally produced
@@ -295,7 +295,7 @@ impl<Tx1: DbTx, Tx2: DbTxMut> StateRootProvider for LatestStateProvider<Tx1, Tx2
 
     fn storage_root(&self, contract: ContractAddress) -> ProviderResult<Option<Felt>> {
         let fork_point = self.fork_provider.block_id;
-        let latest_block_number = match self.local_provider.latest_number() {
+        let latest_block_number = match self.local_provider.0.latest_number() {
             Ok(num) => num,
             // return the fork block number if local db return this error. this can only happen whne
             // the ForkedProvider is constructed without inserting any locally produced
