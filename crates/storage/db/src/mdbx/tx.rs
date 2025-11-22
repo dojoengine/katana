@@ -69,7 +69,11 @@ impl<K: TransactionKind> Tx<K> {
 
 impl<K: TransactionKind> Clone for Tx<K> {
     fn clone(&self) -> Self {
-        Self { inner: self.inner.clone(), db_handles: self.db_handles.clone() }
+        Self {
+            inner: self.inner.clone(),
+            metrics: self.metrics.clone(),
+            db_handles: self.db_handles.clone(),
+        }
     }
 }
 
