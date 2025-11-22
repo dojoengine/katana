@@ -5,7 +5,6 @@ use std::sync::Arc;
 use katana_metrics::metrics::gauge;
 pub use libmdbx;
 use libmdbx::{DatabaseFlags, EnvironmentFlags, Geometry, PageSize, SyncMode, RO, RW};
-use metrics::{describe_gauge, Label};
 use tracing::error;
 
 use crate::abstraction::Database;
@@ -14,9 +13,11 @@ use crate::tables::{TableType, Tables, NUM_TABLES};
 use crate::{utils, GIGABYTE, TERABYTE};
 
 pub mod cursor;
+pub mod metrics;
 pub mod stats;
 pub mod tx;
 
+use self::metrics::DbMetrics;
 use self::stats::{Stats, TableStat};
 use self::tx::Tx;
 
@@ -98,8 +99,9 @@ impl DbEnvBuilder {
 
         let env = builder.open(path.as_ref()).map_err(DatabaseError::OpenEnv)?;
         let dir = path.as_ref().to_path_buf();
+        let metrics = DbMetrics::new();
 
-        Ok(DbEnv { inner: Arc::new(DbEnvInner { env, dir }) }.with_metrics())
+        Ok(DbEnv { inner: Arc::new(DbEnvInner { env, dir, metrics }) })
     }
 }
 
@@ -110,17 +112,30 @@ impl Default for DbEnvBuilder {
 }
 
 /// Wrapper for `libmdbx-sys` environment.
-#[derive(Debug, Clone)]
+#[derive(Clone)]
 pub struct DbEnv {
     pub(crate) inner: Arc<DbEnvInner>,
 }
 
-#[derive(Debug)]
 pub(super) struct DbEnvInner {
     /// The handle to the MDBX environment.
     pub(super) env: libmdbx::Environment,
     /// The path where the database environemnt is stored at.
     pub(super) dir: PathBuf,
+    /// Metrics for database operations.
+    pub(super) metrics: DbMetrics,
+}
+
+impl std::fmt::Debug for DbEnv {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.debug_struct("DbEnv").field("dir", &self.inner.dir).finish_non_exhaustive()
+    }
+}
+
+impl std::fmt::Debug for DbEnvInner {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.debug_struct("DbEnvInner").field("dir", &self.dir).finish_non_exhaustive()
+    }
 }
 
 impl DbEnv {
@@ -146,14 +161,6 @@ impl DbEnv {
     pub fn path(&self) -> &Path {
         &self.inner.dir
     }
-
-    pub(super) fn with_metrics(self) -> Self {
-        describe_gauge!("db.table_size", metrics::Unit::Bytes, "Total size of the table");
-        describe_gauge!("db.table_pages", metrics::Unit::Count, "Number of pages in the table");
-        describe_gauge!("db.table_entries", metrics::Unit::Count, "Number of entries in the table");
-        describe_gauge!("db.freelist", metrics::Unit::Bytes, "Size of the database freelist");
-        self
-    }
 }
 
 impl Database for DbEnv {
@@ -163,12 +170,16 @@ impl Database for DbEnv {
 
     #[tracing::instrument(level = "trace", name = "db_txn_ro_create", skip_all)]
     fn tx(&self) -> Result<Self::Tx, DatabaseError> {
-        Ok(Tx::new(self.inner.env.begin_ro_txn().map_err(DatabaseError::CreateROTx)?))
+        let tx = self.inner.env.begin_ro_txn().map_err(DatabaseError::CreateROTx)?;
+        self.inner.metrics.record_ro_tx_create();
+        Ok(Tx::new(tx, self.inner.metrics.clone()))
     }
 
     #[tracing::instrument(level = "trace", name = "db_txn_rw_create", skip_all)]
     fn tx_mut(&self) -> Result<Self::TxMut, DatabaseError> {
-        Ok(Tx::new(self.inner.env.begin_rw_txn().map_err(DatabaseError::CreateRWTx)?))
+        let tx = self.inner.env.begin_rw_txn().map_err(DatabaseError::CreateRWTx)?;
+        self.inner.metrics.record_rw_tx_create();
+        Ok(Tx::new(tx, self.inner.metrics.clone()))
     }
 
     fn stats(&self) -> Result<Self::Stats, DatabaseError> {
@@ -195,28 +206,37 @@ impl katana_metrics::Report for DbEnv {
                 let mut pgsize = 0;
 
                 for (table, stat) in stats.table_stats() {
-                    gauge!("db.table_size", vec![Label::new("table", *table)])
+                    gauge!("db.table_size", vec![::metrics::Label::new("table", *table)])
                         .set(stat.total_size() as f64);
 
                     gauge!(
                         "db.table_pages",
-                        vec![Label::new("table", *table), Label::new("type", "leaf")]
+                        vec![
+                            ::metrics::Label::new("table", *table),
+                            ::metrics::Label::new("type", "leaf")
+                        ]
                     )
                     .set(stat.leaf_pages() as f64);
 
                     gauge!(
                         "db.table_pages",
-                        vec![Label::new("table", *table), Label::new("type", "branch")]
+                        vec![
+                            ::metrics::Label::new("table", *table),
+                            ::metrics::Label::new("type", "branch")
+                        ]
                     )
                     .set(stat.branch_pages() as f64);
 
                     gauge!(
                         "db.table_pages",
-                        vec![Label::new("table", *table), Label::new("type", "overflow")]
+                        vec![
+                            ::metrics::Label::new("table", *table),
+                            ::metrics::Label::new("type", "overflow")
+                        ]
                     )
                     .set(stat.overflow_pages() as f64);
 
-                    gauge!("db.table_entries", vec![Label::new("table", *table)])
+                    gauge!("db.table_entries", vec![::metrics::Label::new("table", *table)])
                         .set(stat.entries() as f64);
 
                     if pgsize == 0 {
