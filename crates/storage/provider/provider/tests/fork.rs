@@ -13,7 +13,7 @@ use katana_provider::api::transaction::{ReceiptProvider, TransactionProvider};
 use katana_provider::providers::fork::ForkedProvider;
 use katana_provider::ProviderError;
 use katana_rpc_client::starknet::Client as StarknetClient;
-use katana_rpc_types::Nodes;
+use katana_rpc_types::MerkleNode;
 
 const SEPOLIA_RPC_URL: &str = "https://api.cartridge.gg/x/starknet/sepolia";
 const FORK_BLOCK_NUMBER: u64 = 2888618;
@@ -298,14 +298,16 @@ async fn historical_fork_state() {
     assert!(result2.is_some());
 }
 
-#[ignore]
 #[tokio::test(flavor = "multi_thread")]
 async fn pre_fork_state_proof() {
     let starknet_client = StarknetClient::new(SEPOLIA_RPC_URL.try_into().unwrap());
 
     // always use the latest block number of the forked chain because most nodes may not support
     // proofs for too old blocks
-    let latest_block_number = starknet_client.block_number().await.unwrap().block_number;
+    //
+    // we take the previous block because there were some instances where the latest block was not
+    // available or supported by the node.
+    let latest_block_number = starknet_client.block_number().await.unwrap().block_number - 1;
     let provider = ForkedProvider::new_ephemeral(latest_block_number, starknet_client.clone());
 
     let state = provider.latest().unwrap();
@@ -318,10 +320,17 @@ async fn pre_fork_state_proof() {
         .await
         .unwrap();
 
-    assert_eq!(Nodes::from(proofs), expected_proofs.classes_proof.nodes);
+    // TODO: assert the nodes ordering - ensure they are in the same order. currently, pathfinder
+    // doesn't return the nodes in the same order as katana.
+    assert_eq!(proofs.0.len(), expected_proofs.classes_proof.nodes.len());
+    for expected_node in expected_proofs.classes_proof.nodes.0.into_iter() {
+        let node_hash = expected_node.node_hash;
+        let actual_node = proofs.0.get(&node_hash).cloned().map(MerkleNode::from);
+        assert_eq!(Some(expected_node.node), actual_node)
+    }
 
     let contracts =
-        vec![address!("0x0164b86b8fC5C0c84d3c53Bc95760F290420Ea2a32ed49A44fd046683a1CaAc2")];
+        vec![address!("0x04f4e29add19afa12c868ba1f4439099f225403ff9a71fe667eebb50e13518d3")];
     let proofs = state.contract_multiproof(contracts.clone()).unwrap();
 
     let expected_proofs = starknet_client
@@ -329,7 +338,14 @@ async fn pre_fork_state_proof() {
         .await
         .unwrap();
 
-    assert_eq!(Nodes::from(proofs), expected_proofs.classes_proof.nodes);
+    // TODO: assert the nodes ordering - ensure they are in the same order. currently, pathfinder
+    // doesn't return the nodes in the same order as katana.
+    assert_eq!(proofs.0.len(), expected_proofs.contracts_proof.nodes.len());
+    for expected_node in expected_proofs.contracts_proof.nodes.0.into_iter() {
+        let node_hash = expected_node.node_hash;
+        let actual_node = proofs.0.get(&node_hash).cloned().map(MerkleNode::from);
+        assert_eq!(Some(expected_node.node), actual_node)
+    }
 }
 
 #[tokio::test]
