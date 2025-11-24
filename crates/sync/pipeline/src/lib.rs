@@ -445,8 +445,11 @@ where
     }
 }
 
-impl<P: ProviderFactory + 'static,
-    <P as ProviderFactory>::ProviderMut: StageCheckpointProvider> IntoFuture for Pipeline<P> {
+impl<P> IntoFuture for Pipeline<P>
+where
+    P: ProviderFactory + 'static,
+    <P as ProviderFactory>::ProviderMut: StageCheckpointProvider,
+{
     type Output = PipelineResult<()>;
     type IntoFuture = PipelineFut;
 
