@@ -326,7 +326,13 @@ pub enum Error {
 impl From<jsonrpsee::core::client::Error> for Error {
     fn from(err: jsonrpsee::core::client::Error) -> Self {
         match err {
-            jsonrpsee::core::client::Error::Call(err_obj) => Error::Starknet(err_obj.into()),
+            jsonrpsee::core::client::Error::Call(ref err_obj) => {
+                if let Some(sn_err) = StarknetApiError::from_error_object(err_obj) {
+                    Error::Starknet(sn_err)
+                } else {
+                    Error::Client(err)
+                }
+            }
             _ => Error::Client(err),
         }
     }
