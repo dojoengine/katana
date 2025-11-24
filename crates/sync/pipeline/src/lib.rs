@@ -101,6 +101,9 @@ pub enum Error {
 
     #[error(transparent)]
     Provider(#[from] ProviderError),
+
+    #[error("command channel closed")]
+    CommandChannelClosed,
 }
 
 /// Commands that can be sent to control the pipeline.
@@ -416,18 +419,17 @@ impl<P: StageCheckpointProvider> Pipeline<P> {
                     current_chunk_tip = (last_block_processed + self.chunk_size).min(tip);
                 }
             } else {
-                // block until a new tip is set
                 info!(target: "pipeline", "Waiting to receive new tip.");
-                self.cmd_rx
-                    .wait_for(|c| matches!(c, &Some(PipelineCommand::SetTip(_))))
-                    .await
-                    .expect("qed; channel closed");
             }
-            if self.cmd_rx.has_changed().unwrap_or(false) {
-                if let Some(PipelineCommand::SetTip(new_tip)) = *self.cmd_rx.borrow_and_update() {
-                    info!(target: "pipeline", tip = %new_tip, "A new tip has been set.");
-                    self.tip = Some(new_tip);
-                }
+
+            if let Some(PipelineCommand::SetTip(new_tip)) = *self
+                .cmd_rx
+                .wait_for(|c| matches!(c, &Some(PipelineCommand::SetTip(_))))
+                .await
+                .map_err(|_| Error::CommandChannelClosed)?
+            {
+                info!(target: "pipeline", tip = %new_tip, "A new tip has been set.");
+                self.tip = Some(new_tip);
             }
 
             yield_now().await;
