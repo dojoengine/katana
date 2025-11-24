@@ -219,7 +219,7 @@ impl<Db: Database> StateProofProvider for LatestStateProvider<Db> {
             let result = self.fork_db.backend.get_contracts_proofs(addresses, fork_point)?;
             let proofs = result.expect("proofs should exist for block");
 
-            Ok(proofs.classes_proof.nodes.into())
+            Ok(proofs.contracts_proof.nodes.into())
         } else {
             Err(ProviderError::StateProofNotSupported)
         }
@@ -490,7 +490,7 @@ impl<Db: Database> StateProofProvider for HistoricalStateProvider<Db> {
         let result = self.fork_db.backend.get_contracts_proofs(addresses, self.provider.block())?;
         let proofs = result.expect("block should exist");
 
-        Ok(proofs.classes_proof.nodes.into())
+        Ok(proofs.contracts_proof.nodes.into())
     }
 
     fn storage_multiproof(
