@@ -75,17 +75,12 @@
 //! [Erigon]: https://github.com/erigontech/erigon
 
 use core::future::IntoFuture;
-use std::future::Future;
-use std::pin::Pin;
-use std::task::Poll;
 
 use futures::future::BoxFuture;
-use futures::FutureExt;
 use katana_primitives::block::BlockNumber;
 use katana_provider_api::stage::StageCheckpointProvider;
 use katana_provider_api::ProviderError;
 use katana_stage::{Stage, StageExecutionInput, StageExecutionOutput};
-use tokio::sync::watch::error::RecvError;
 use tokio::sync::watch::{self};
 use tokio::task::yield_now;
 use tracing::{debug, error, info, info_span, Instrument};
@@ -296,23 +291,13 @@ impl<P: StageCheckpointProvider> Pipeline<P> {
             tokio::select! {
                 biased;
 
-                changed = command_rx.changed() => {
+                changed = command_rx.wait_for(|c| matches!(c, &Some(PipelineCommand::Stop))) => {
                     if changed.is_err() {
                         break;
                     }
 
-                    // Check if the handle has sent a signal
-                    match *self.cmd_rx.borrow_and_update() {
-                        Some(PipelineCommand::Stop) => {
-                            debug!(target: "pipeline", "Received stop command.");
-                            break;
-                        }
-                        Some(PipelineCommand::SetTip(new_tip)) => {
-                            info!(target: "pipeline", tip = %new_tip, "A new tip has been set.");
-                            self.tip = Some(new_tip);
-                        }
-                        None => {}
-                    }
+                    debug!(target: "pipeline", "Received stop command.");
+                    break;
                 }
 
                 result = self.run_loop() => {
@@ -430,27 +415,27 @@ impl<P: StageCheckpointProvider> Pipeline<P> {
                 } else {
                     current_chunk_tip = (last_block_processed + self.chunk_size).min(tip);
                 }
-
-                continue;
+            } else {
+                // block until a new tip is set
+                info!(target: "pipeline", "Waiting to receive new tip.");
+                self.cmd_rx
+                    .wait_for(|c| matches!(c, &Some(PipelineCommand::SetTip(_))))
+                    .await
+                    .expect("qed; channel closed");
             }
-
-            info!(target: "pipeline", "Waiting to receive new tip.");
-
-            // block until a new tip is set
-            self.cmd_rx
-                .wait_for(|c| matches!(c, &Some(PipelineCommand::SetTip(_))))
-                .await
-                .expect("qed; channel closed");
+            if self.cmd_rx.has_changed().unwrap_or(false) {
+                if let Some(PipelineCommand::SetTip(new_tip)) = *self.cmd_rx.borrow_and_update() {
+                    info!(target: "pipeline", tip = %new_tip, "A new tip has been set.");
+                    self.tip = Some(new_tip);
+                }
+            }
 
             yield_now().await;
         }
     }
 }
 
-impl<P> IntoFuture for Pipeline<P>
-where
-    P: StageCheckpointProvider + 'static,
-{
+impl<P: StageCheckpointProvider + 'static> IntoFuture for Pipeline<P> {
     type Output = PipelineResult<()>;
     type IntoFuture = PipelineFut;
 
@@ -463,10 +448,7 @@ where
     }
 }
 
-impl<P> core::fmt::Debug for Pipeline<P>
-where
-    P: core::fmt::Debug,
-{
+impl<P: core::fmt::Debug> core::fmt::Debug for Pipeline<P> {
     fn fmt(&self, f: &mut core::fmt::Formatter<'_>) -> core::fmt::Result {
         f.debug_struct("Pipeline")
             .field("command", &self.cmd_rx)
