@@ -285,30 +285,30 @@ mod impls {
         ProofLimitExceededData, TransactionExecutionErrorData, UnexpectedErrorData,
     };
 
-    impl From<ErrorObjectOwned> for StarknetApiError {
-        fn from(err: ErrorObjectOwned) -> Self {
+    impl StarknetApiError {
+        pub fn from_error_object(err: &ErrorObjectOwned) -> Option<Self> {
             match err.code() {
-                1 => Self::FailedToReceiveTxn,
-                20 => Self::ContractNotFound,
-                21 => Self::EntrypointNotFound,
-                22 => Self::InvalidCallData,
-                24 => Self::BlockNotFound,
-                27 => Self::InvalidTxnIndex,
-                28 => Self::ClassHashNotFound,
-                29 => Self::TxnHashNotFound,
+                1 => Some(Self::FailedToReceiveTxn),
+                20 => Some(Self::ContractNotFound),
+                21 => Some(Self::EntrypointNotFound),
+                22 => Some(Self::InvalidCallData),
+                24 => Some(Self::BlockNotFound),
+                27 => Some(Self::InvalidTxnIndex),
+                28 => Some(Self::ClassHashNotFound),
+                29 => Some(Self::TxnHashNotFound),
                 31 => {
                     if let Some(data) = err.data() {
                         if let Ok(data) = serde_json::from_str::<PageSizeTooBigData>(data.get()) {
-                            return Self::PageSizeTooBig(data);
+                            return Some(Self::PageSizeTooBig(data));
                         }
                     }
 
-                    Self::PageSizeTooBig(Default::default())
+                    Some(Self::PageSizeTooBig(Default::default()))
                 }
-                32 => Self::NoBlocks,
-                33 => Self::InvalidContinuationToken,
-                34 => Self::TooManyKeysInFilter,
-                38 => Self::FailedToFetchPendingTransactions,
+                32 => Some(Self::NoBlocks),
+                33 => Some(Self::InvalidContinuationToken),
+                34 => Some(Self::TooManyKeysInFilter),
+                38 => Some(Self::FailedToFetchPendingTransactions),
                 40 => {
                     let data = if let Some(data) = err.data() {
                         serde_json::from_str::<ContractErrorData>(data.get()).unwrap_or_default()
@@ -316,7 +316,7 @@ mod impls {
                         ContractErrorData::default()
                     };
 
-                    Self::ContractError(data)
+                    Some(Self::ContractError(data))
                 }
                 41 => {
                     let data = if let Some(data) = err.data() {
@@ -326,21 +326,21 @@ mod impls {
                         TransactionExecutionErrorData::default()
                     };
 
-                    Self::TransactionExecutionError(data)
+                    Some(Self::TransactionExecutionError(data))
                 }
                 42 => {
                     if let Some(data) = err.data() {
                         if let Ok(data) =
                             serde_json::from_str::<StorageProofNotSupportedData>(data.get())
                         {
-                            return Self::StorageProofNotSupported(data);
+                            return Some(Self::StorageProofNotSupported(data));
                         }
                     }
 
-                    Self::StorageProofNotSupported(StorageProofNotSupportedData::default())
+                    Some(Self::StorageProofNotSupported(StorageProofNotSupportedData::default()))
                 }
-                50 => Self::InvalidContractClass,
-                51 => Self::ClassAlreadyDeclared,
+                50 => Some(Self::InvalidContractClass),
+                51 => Some(Self::ClassAlreadyDeclared),
                 52 => {
                     let data = if let Some(value) = err.data() {
                         serde_json::from_str::<InvalidTransactionNonceData>(value.get())
@@ -349,10 +349,10 @@ mod impls {
                         InvalidTransactionNonceData::default()
                     };
 
-                    Self::InvalidTransactionNonce(data)
+                    Some(Self::InvalidTransactionNonce(data))
                 }
-                53 => Self::InsufficientResourcesForValidate,
-                54 => Self::InsufficientAccountBalance,
+                53 => Some(Self::InsufficientResourcesForValidate),
+                54 => Some(Self::InsufficientAccountBalance),
                 55 => {
                     let data = if let Some(data) = err.data() {
                         serde_json::from_str::<ValidationFailureData>(data.get())
@@ -361,14 +361,14 @@ mod impls {
                         ValidationFailureData::default()
                     };
 
-                    Self::ValidationFailure(data)
+                    Some(Self::ValidationFailure(data))
                 }
-                57 => Self::ContractClassSizeIsTooLarge,
-                58 => Self::NonAccount,
-                59 => Self::DuplicateTransaction,
-                60 => Self::CompiledClassHashMismatch,
-                61 => Self::UnsupportedTransactionVersion,
-                62 => Self::UnsupportedContractClassVersion,
+                57 => Some(Self::ContractClassSizeIsTooLarge),
+                58 => Some(Self::NonAccount),
+                59 => Some(Self::DuplicateTransaction),
+                60 => Some(Self::CompiledClassHashMismatch),
+                61 => Some(Self::UnsupportedTransactionVersion),
+                62 => Some(Self::UnsupportedContractClassVersion),
                 63 => {
                     let data = if let Some(data) = err.data() {
                         serde_json::from_str::<UnexpectedErrorData>(data.get()).unwrap_or_default()
@@ -376,13 +376,13 @@ mod impls {
                         UnexpectedErrorData::default()
                     };
 
-                    Self::UnexpectedError(data)
+                    Some(Self::UnexpectedError(data))
                 }
-                64 => Self::ReplacementTransactionUnderpriced,
-                65 => Self::FeeBelowMinimum,
-                66 => Self::InvalidSubscriptionId,
-                67 => Self::TooManyAddressesInFilter,
-                68 => Self::TooManyBlocksBack,
+                64 => Some(Self::ReplacementTransactionUnderpriced),
+                65 => Some(Self::FeeBelowMinimum),
+                66 => Some(Self::InvalidSubscriptionId),
+                67 => Some(Self::TooManyAddressesInFilter),
+                68 => Some(Self::TooManyBlocksBack),
                 100 => {
                     let data = if let Some(data) = err.data() {
                         serde_json::from_str::<CompilationErrorData>(data.get()).unwrap_or_default()
@@ -390,7 +390,7 @@ mod impls {
                         CompilationErrorData::default()
                     };
 
-                    Self::CompilationError(data)
+                    Some(Self::CompilationError(data))
                 }
                 1000 => {
                     let data = if let Some(data) = err.data() {
@@ -400,10 +400,10 @@ mod impls {
                         ProofLimitExceededData::default()
                     };
 
-                    Self::ProofLimitExceeded(data)
+                    Some(Self::ProofLimitExceeded(data))
                 }
 
-                _ => Self::unexpected(err),
+                _ => None,
             }
         }
     }
