@@ -75,13 +75,18 @@
 //! [Erigon]: https://github.com/erigontech/erigon
 
 use core::future::IntoFuture;
+use std::future::Future;
+use std::pin::Pin;
+use std::task::Poll;
 
 use futures::future::BoxFuture;
+use futures::FutureExt;
 use katana_primitives::block::BlockNumber;
 use katana_provider_api::stage::StageCheckpointProvider;
 use katana_provider_api::ProviderError;
 use katana_stage::{Stage, StageExecutionInput, StageExecutionOutput};
-use tokio::sync::watch;
+use tokio::sync::watch::error::RecvError;
+use tokio::sync::watch::{self};
 use tokio::task::yield_now;
 use tracing::{debug, error, info, info_span, Instrument};
 
@@ -217,8 +222,8 @@ pub struct Pipeline<P> {
     chunk_size: u64,
     provider: P,
     stages: Vec<Box<dyn Stage>>,
-    command_rx: watch::Receiver<Option<PipelineCommand>>,
-    command_tx: watch::Sender<Option<PipelineCommand>>,
+    cmd_rx: watch::Receiver<Option<PipelineCommand>>,
+    cmd_tx: watch::Sender<Option<PipelineCommand>>,
     block_tx: watch::Sender<Option<BlockNumber>>,
     tip: Option<BlockNumber>,
 }
@@ -240,8 +245,8 @@ impl<P> Pipeline<P> {
         let handle = PipelineHandle { tx: tx.clone(), block_tx: block_tx.clone() };
         let pipeline = Self {
             stages: Vec::new(),
-            command_rx: rx,
-            command_tx: tx,
+            cmd_rx: rx,
+            cmd_tx: tx,
             block_tx,
             provider,
             chunk_size,
@@ -269,7 +274,7 @@ impl<P> Pipeline<P> {
     /// The handle can be used to set the target tip block for the pipeline to sync to or to
     /// stop the pipeline.
     pub fn handle(&self) -> PipelineHandle {
-        PipelineHandle { tx: self.command_tx.clone(), block_tx: self.block_tx.clone() }
+        PipelineHandle { tx: self.cmd_tx.clone(), block_tx: self.block_tx.clone() }
     }
 }
 
@@ -285,7 +290,7 @@ impl<P: StageCheckpointProvider> Pipeline<P> {
     /// Returns an error if any stage execution fails or it an error occurs while reading the
     /// checkpoint.
     pub async fn run(&mut self) -> PipelineResult<()> {
-        let mut command_rx = self.command_rx.clone();
+        let mut command_rx = self.cmd_rx.clone();
 
         loop {
             tokio::select! {
@@ -297,7 +302,7 @@ impl<P: StageCheckpointProvider> Pipeline<P> {
                     }
 
                     // Check if the handle has sent a signal
-                    match *self.command_rx.borrow_and_update() {
+                    match *self.cmd_rx.borrow_and_update() {
                         Some(PipelineCommand::Stop) => {
                             debug!(target: "pipeline", "Received stop command.");
                             break;
@@ -432,7 +437,7 @@ impl<P: StageCheckpointProvider> Pipeline<P> {
             info!(target: "pipeline", "Waiting to receive new tip.");
 
             // block until a new tip is set
-            self.command_rx
+            self.cmd_rx
                 .wait_for(|c| matches!(c, &Some(PipelineCommand::SetTip(_))))
                 .await
                 .expect("qed; channel closed");
@@ -464,7 +469,7 @@ where
 {
     fn fmt(&self, f: &mut core::fmt::Formatter<'_>) -> core::fmt::Result {
         f.debug_struct("Pipeline")
-            .field("command", &self.command_rx)
+            .field("command", &self.cmd_rx)
             .field("provider", &self.provider)
             .field("chunk_size", &self.chunk_size)
             .field("stages", &self.stages.iter().map(|s| s.id()).collect::<Vec<_>>())
