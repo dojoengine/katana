@@ -237,8 +237,15 @@ impl Client {
         contract_addresses: Option<Vec<ContractAddress>>,
         contracts_storage_keys: Option<Vec<ContractStorageKeys>>,
     ) -> Result<GetStorageProofResponse> {
+        // temp: pathfinder expects an empty vector instead of an explicit null even
+        // though the spec allows it
         self.client
-            .get_storage_proof(block_id, class_hashes, contract_addresses, contracts_storage_keys)
+            .get_storage_proof(
+                block_id,
+                Some(class_hashes.unwrap_or_default()),
+                Some(contract_addresses.unwrap_or_default()),
+                Some(contracts_storage_keys.unwrap_or_default()),
+            )
             .await
             .map_err(Into::into)
     }

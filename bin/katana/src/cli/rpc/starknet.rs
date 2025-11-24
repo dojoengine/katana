@@ -484,7 +484,9 @@ impl StarknetCommands {
                             .collect::<Result<Vec<_>>>()?,
                     )
                 } else {
-                    None
+                    // temp: pathfinder expects an empty vector instead of an explicit null even
+                    // though the spec allows it
+                    Some(Vec::new())
                 };
 
                 // Parse contract_addresses if provided
@@ -502,7 +504,9 @@ impl StarknetCommands {
                             .collect::<Result<Vec<_>>>()?,
                     )
                 } else {
-                    None
+                    // temp: pathfinder expects an empty vector instead of an explicit null even
+                    // though the spec allows it
+                    Some(Vec::new())
                 };
 
                 // Parse contracts_storage_keys if provided
@@ -510,7 +514,9 @@ impl StarknetCommands {
                     if !args.storages.is_empty() {
                         Some(parse_contract_storage_keys(&args.storages)?)
                     } else {
-                        None
+                        // temp: pathfinder expects an empty vector instead of an explicit null even
+                        // though the spec allows it
+                        Some(Vec::new())
                     };
 
                 let result = client
