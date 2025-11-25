@@ -17,7 +17,7 @@ use katana_primitives::state::StateUpdatesWithClasses;
 use katana_primitives::{felt, ContractAddress, Felt};
 use katana_provider::api::block::{BlockHashProvider, BlockNumberProvider, BlockWriter};
 use katana_provider::test_utils::test_provider;
-use katana_provider::{ProviderError, ProviderResult};
+use katana_provider::{ProviderError, ProviderFactory, ProviderResult};
 use katana_stage::blocks::{BatchBlockDownloader, BlockDownloader, Blocks};
 use katana_stage::{Stage, StageExecutionInput};
 use rstest::rstest;
@@ -119,7 +119,76 @@ impl BlockDownloader for MockBlockDownloader {
     }
 }
 
-/// Mock BlockWriter implementation for testing.
+/// Mock provider implementation for testing.
+///
+/// Tracks all insert operations and can be configured to return errors.
+#[derive(Clone, Debug)]
+struct MockInnerProvider {
+    /// Stored blocks with their receipts and state updates.
+    blocks: Arc<Mutex<Vec<(SealedBlockWithStatus, StateUpdatesWithClasses, Vec<Receipt>)>>>,
+    /// Whether to return an error on insert.
+    should_fail: Arc<Mutex<bool>>,
+    /// Error message to return when should_fail is true.
+    error_message: Arc<Mutex<String>>,
+}
+
+impl MockInnerProvider {
+    fn new(
+        blocks: Arc<Mutex<Vec<(SealedBlockWithStatus, StateUpdatesWithClasses, Vec<Receipt>)>>>,
+        should_fail: Arc<Mutex<bool>>,
+        error_message: Arc<Mutex<String>>,
+    ) -> Self {
+        Self { blocks, should_fail, error_message }
+    }
+}
+
+impl BlockWriter for MockInnerProvider {
+    fn insert_block_with_states_and_receipts(
+        &self,
+        block: SealedBlockWithStatus,
+        states: StateUpdatesWithClasses,
+        receipts: Vec<Receipt>,
+        _executions: Vec<TypedTransactionExecutionInfo>,
+    ) -> ProviderResult<()> {
+        if *self.should_fail.lock().unwrap() {
+            return Err(katana_provider::ProviderError::Other(
+                self.error_message.lock().unwrap().clone(),
+            ));
+        }
+
+        self.blocks.lock().unwrap().push((block, states, receipts));
+        Ok(())
+    }
+}
+
+impl BlockHashProvider for MockInnerProvider {
+    fn latest_hash(&self) -> ProviderResult<BlockHash> {
+        self.blocks
+            .lock()
+            .unwrap()
+            .last()
+            .map(|(block, _, _)| block.block.hash)
+            .ok_or(ProviderError::MissingLatestBlockHash)
+    }
+
+    fn block_hash_by_num(&self, num: BlockNumber) -> ProviderResult<Option<BlockHash>> {
+        Ok(self
+            .blocks
+            .lock()
+            .unwrap()
+            .iter()
+            .find(|(block, _, _)| block.block.header.number == num)
+            .map(|(block, _, _)| block.block.hash))
+    }
+}
+
+impl katana_provider::MutableProvider for MockInnerProvider {
+    fn commit(self) -> ProviderResult<()> {
+        Ok(())
+    }
+}
+
+/// Mock ProviderFactory implementation for testing.
 ///
 /// Tracks all insert operations and can be configured to return errors.
 #[derive(Clone)]
@@ -130,6 +199,12 @@ struct MockProvider {
     should_fail: Arc<Mutex<bool>>,
     /// Error message to return when should_fail is true.
     error_message: Arc<Mutex<String>>,
+}
+
+impl std::fmt::Debug for MockProvider {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.debug_struct("MockProvider").finish_non_exhaustive()
+    }
 }
 
 impl MockProvider {
@@ -165,43 +240,24 @@ impl MockProvider {
     }
 }
 
-impl BlockWriter for MockProvider {
-    fn insert_block_with_states_and_receipts(
-        &self,
-        block: SealedBlockWithStatus,
-        states: StateUpdatesWithClasses,
-        receipts: Vec<Receipt>,
-        _executions: Vec<TypedTransactionExecutionInfo>,
-    ) -> ProviderResult<()> {
-        if *self.should_fail.lock().unwrap() {
-            return Err(katana_provider::ProviderError::Other(
-                self.error_message.lock().unwrap().clone(),
-            ));
-        }
+impl katana_provider::ProviderFactory for MockProvider {
+    type Provider = MockInnerProvider;
+    type ProviderMut = MockInnerProvider;
 
-        self.blocks.lock().unwrap().push((block, states, receipts));
-        Ok(())
-    }
-}
-
-impl BlockHashProvider for MockProvider {
-    fn latest_hash(&self) -> ProviderResult<BlockHash> {
-        self.blocks
-            .lock()
-            .unwrap()
-            .last()
-            .map(|(block, _, _)| block.block.hash)
-            .ok_or(ProviderError::MissingLatestBlockHash)
+    fn provider(&self) -> Self::Provider {
+        MockInnerProvider::new(
+            Arc::clone(&self.blocks),
+            Arc::clone(&self.should_fail),
+            Arc::clone(&self.error_message),
+        )
     }
 
-    fn block_hash_by_num(&self, num: BlockNumber) -> ProviderResult<Option<BlockHash>> {
-        Ok(self
-            .blocks
-            .lock()
-            .unwrap()
-            .iter()
-            .find(|(block, _, _)| block.block.header.number == num)
-            .map(|(block, _, _)| block.block.hash))
+    fn provider_mut(&self) -> Self::ProviderMut {
+        MockInnerProvider::new(
+            Arc::clone(&self.blocks),
+            Arc::clone(&self.should_fail),
+            Arc::clone(&self.error_message),
+        )
     }
 }
 
@@ -403,13 +459,14 @@ async fn fetch_blocks_from_gateway() {
     let feeder_gateway = SequencerGateway::sepolia();
     let downloader = BatchBlockDownloader::new_gateway(feeder_gateway, 10);
 
-    let mut stage = Blocks::new(&provider, downloader);
+    let mut stage = Blocks::new(provider.clone(), downloader);
 
     let input = StageExecutionInput::new(from_block, to_block);
     stage.execute(&input).await.expect("failed to execute stage");
 
     // check provider storage
-    let block_number = provider.latest_number().expect("failed to get latest block number");
+    let block_number =
+        provider.provider().latest_number().expect("failed to get latest block number");
     assert_eq!(block_number, to_block);
 }
 
