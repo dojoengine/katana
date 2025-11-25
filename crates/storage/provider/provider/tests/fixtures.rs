@@ -140,7 +140,7 @@ pub fn mock_state_updates() -> [StateUpdatesWithClasses; 3] {
 #[rstest::fixture]
 #[default(DbProviderFactory)]
 pub fn provider_with_states<PF>(
-    #[default(db_provider())] provider: PF,
+    #[default(db_provider())] provider_factory: PF,
     #[from(mock_state_updates)] state_updates: [StateUpdatesWithClasses; 3],
 ) -> PF
 where
@@ -148,7 +148,7 @@ where
     <PF as ProviderFactory>::Provider: StateFactoryProvider,
     <PF as ProviderFactory>::ProviderMut: BlockWriter,
 {
-    let provider_mut = provider.provider_mut();
+    let provider_mut = provider_factory.provider_mut();
 
     for i in 0..=5 {
         let block_id = BlockHashOrNumber::from(i);
@@ -179,5 +179,5 @@ where
 
     provider_mut.commit().expect("failed to commit");
 
-    provider
+    provider_factory
 }

@@ -14,8 +14,7 @@ use katana_provider::api::state_update::StateUpdateProvider;
 use katana_provider::api::transaction::{
     ReceiptProvider, TransactionProvider, TransactionStatusProvider, TransactionTraceProvider,
 };
-use katana_provider::providers::db::DbProvider;
-use katana_provider::ProviderFactory;
+use katana_provider::{DbProviderFactory, ProviderFactory};
 use rstest_reuse::{self, *};
 
 mod fixtures;
@@ -26,21 +25,25 @@ use katana_primitives::Felt;
 
 #[apply(insert_block_cases)]
 fn insert_block_with_db_provider(
-    #[from(db_provider)] provider: BlockchainProvider<DbProvider>,
+    #[from(db_provider)] provider_factory: DbProviderFactory,
     #[case] block_count: u64,
 ) -> Result<()> {
-    insert_block_test_impl(provider, 0, block_count)
+    insert_block_test_impl(provider_factory, 0, block_count)
 }
 
 #[apply(insert_block_cases)]
 fn insert_block_empty_with_db_provider(
-    #[from(db_provider)] provider: BlockchainProvider<DbProvider>,
+    #[from(db_provider)] provider_factory: DbProviderFactory,
     #[case] block_count: u64,
 ) -> Result<()> {
-    insert_block_empty_test_impl(provider, 0, block_count)
+    insert_block_empty_test_impl(provider_factory, 0, block_count)
 }
 
-fn insert_block_test_impl<P>(provider: P, start: BlockNumber, end: BlockNumber) -> Result<()>
+fn insert_block_test_impl<P>(
+    provider_factory: P,
+    start: BlockNumber,
+    end: BlockNumber,
+) -> Result<()>
 where
     P: ProviderFactory,
     <P as ProviderFactory>::Provider: BlockProvider
@@ -54,19 +57,19 @@ where
     let blocks = utils::generate_dummy_blocks_and_receipts(start, end);
 
     for (block, receipts, executions) in &blocks {
-        provider.provider_mut().insert_block_with_states_and_receipts(
+        provider_factory.provider_mut().insert_block_with_states_and_receipts(
             block.clone(),
             Default::default(),
             receipts.clone(),
             executions.clone(),
         )?;
 
-        let provider = provider.provider();
+        let provider = provider_factory.provider();
         assert_eq!(provider.latest_number().unwrap(), block.block.header.number);
         assert_eq!(provider.latest_hash().unwrap(), block.block.hash);
     }
 
-    let provider = provider.provider();
+    let provider = provider_factory.provider();
 
     let actual_blocks_in_range = provider.blocks_in_range(start..=end)?;
 
@@ -265,21 +268,19 @@ where
 
 #[apply(test_read_state_update)]
 fn test_read_state_update_with_db_provider(
-    #[with(db_provider())] provider: BlockchainProvider<DbProvider>,
+    #[with(db_provider())] provider_factory: DbProviderFactory,
     #[case] block_num: BlockNumber,
     #[case] expected_state_update: StateUpdatesWithClasses,
 ) -> Result<()> {
+    let provider = provider_factory.provider();
     test_read_state_update_impl(provider, block_num, expected_state_update)
 }
 
-fn test_read_state_update_impl<Db>(
-    provider: BlockchainProvider<Db>,
+fn test_read_state_update_impl(
+    provider: impl StateUpdateProvider,
     block_num: BlockNumber,
     expected_state_update: StateUpdatesWithClasses,
-) -> Result<()>
-where
-    Db: StateUpdateProvider,
-{
+) -> Result<()> {
     let actual_state_update = provider.state_update(BlockHashOrNumber::from(block_num))?;
     assert_eq!(actual_state_update, Some(expected_state_update.state_updates));
     Ok(())
@@ -299,8 +300,8 @@ fn insert_block_cases(#[case] block_count: u64) {}
 #[case::state_update_at_block_2(2, mock_state_updates()[1].clone())]
 #[case::state_update_at_block_3(3, StateUpdatesWithClasses::default())]
 #[case::state_update_at_block_5(5, mock_state_updates()[2].clone())]
-fn test_read_state_update<Db>(
-    #[from(provider_with_states)] provider: BlockchainProvider<Db>,
+fn test_read_state_update(
+    #[from(provider_with_states)] provider_factory: impl ProviderFactory,
     #[case] block_num: BlockNumber,
     #[case] expected_state_update: StateUpdatesWithClasses,
 ) {
@@ -308,7 +309,7 @@ fn test_read_state_update<Db>(
 
 mod fork {
     use fixtures::fork::{fork_provider, fork_provider_with_spawned_fork_network};
-    use katana_provider::providers::fork::ForkedProvider;
+    use katana_provider::ForkProviderFactory;
 
     use super::*;
 
@@ -322,30 +323,30 @@ mod fork {
 
     #[apply(fork_insert_block_cases)]
     fn insert_block_with_fork_provider(
-        #[from(fork_provider)] provider: BlockchainProvider<ForkedProvider>,
+        #[from(fork_provider)] provider_factory: ForkProviderFactory,
         #[case] block_count: u64,
     ) -> Result<()> {
-        let forked_block = provider.inner().block_id();
-        insert_block_test_impl(provider, forked_block + 1, forked_block + block_count)
+        let forked_block = provider_factory.block();
+        insert_block_test_impl(provider_factory, forked_block + 1, forked_block + block_count)
     }
 
     #[apply(fork_insert_block_cases)]
     fn insert_block_empty_with_fork_provider(
-        #[from(fork_provider)] provider: BlockchainProvider<ForkedProvider>,
+        #[from(fork_provider)] provider_factory: ForkProviderFactory,
         #[case] block_count: u64,
     ) -> Result<()> {
-        let forked_block = provider.inner().block_id();
-        insert_block_empty_test_impl(provider, forked_block + 1, forked_block + block_count)
+        let forked_block = provider_factory.block();
+        insert_block_empty_test_impl(provider_factory, forked_block + 1, forked_block + block_count)
     }
 
     #[apply(test_read_state_update)]
     fn test_read_state_update_with_fork_provider(
-        #[with(fork_provider_with_spawned_fork_network::default())] provider: BlockchainProvider<
-            ForkedProvider,
-        >,
+        #[with(fork_provider_with_spawned_fork_network::default())]
+        provider_factory: ForkProviderFactory,
         #[case] block_num: BlockNumber,
         #[case] expected_state_update: StateUpdatesWithClasses,
     ) -> Result<()> {
+        let provider = provider_factory.provider();
         test_read_state_update_impl(provider, block_num, expected_state_update)
     }
 }

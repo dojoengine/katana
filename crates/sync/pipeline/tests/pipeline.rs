@@ -589,8 +589,7 @@ async fn stage_error_doesnt_affect_subsequent_runs() {
 #[tokio::test]
 async fn empty_pipeline_returns_target() {
     let provider_factory = test_provider();
-    let provider = provider.provider_mut();
-    let (mut pipeline, handle) = Pipeline::new(provider.clone(), 10);
+    let (mut pipeline, handle) = Pipeline::new(provider_factory, 10);
 
     // No stages added
     handle.set_tip(10);

@@ -5942,7 +5942,6 @@ dependencies = [
  "katana-pool",
  "katana-primitives",
  "katana-provider",
- "katana-rpc-types",
  "katana-tasks",
  "katana-trie",
  "lazy_static",
