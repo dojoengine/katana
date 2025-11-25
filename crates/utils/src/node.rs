@@ -2,6 +2,7 @@ use std::net::SocketAddr;
 use std::sync::Arc;
 
 use katana_chain_spec::{dev, ChainSpec};
+use katana_core::backend::storage::{ProviderRO, ProviderRW};
 use katana_core::backend::Backend;
 use katana_executor::implementation::blockifier::BlockifierFactory;
 use katana_node::config::dev::DevConfig;
@@ -11,7 +12,7 @@ use katana_node::config::Config;
 use katana_node::{LaunchedNode, Node};
 use katana_primitives::chain::ChainId;
 use katana_primitives::{address, ContractAddress};
-use katana_provider::DbProviderFactory;
+use katana_provider::{DbProviderFactory, ForkProviderFactory, ProviderFactory};
 use katana_rpc_server::HttpClient;
 use starknet::accounts::{ExecutionEncoding, SingleOwnerAccount};
 use starknet::core::types::BlockTag;
@@ -21,9 +22,16 @@ use starknet::providers::{JsonRpcClient, Url};
 pub use starknet::providers::{Provider, ProviderError};
 use starknet::signers::{LocalWallet, SigningKey};
 
+pub type ForkTestNode = TestNode<ForkProviderFactory>;
+
 #[derive(Debug)]
-pub struct TestNode {
-    node: LaunchedNode<DbProviderFactory>,
+pub struct TestNode<P = DbProviderFactory>
+where
+    P: ProviderFactory,
+    <P as ProviderFactory>::Provider: ProviderRO,
+    <P as ProviderFactory>::ProviderMut: ProviderRW,
+{
+    node: LaunchedNode<P>,
 }
 
 impl TestNode {
@@ -46,18 +54,38 @@ impl TestNode {
                 .expect("failed to launch node"),
         }
     }
+}
 
+impl ForkTestNode {
+    pub async fn new_forked_with_config(config: Config) -> Self {
+        Self {
+            node: Node::build_forked(config)
+                .await
+                .expect("failed to build node")
+                .launch()
+                .await
+                .expect("failed to launch node"),
+        }
+    }
+}
+
+impl<P> TestNode<P>
+where
+    P: ProviderFactory,
+    <P as ProviderFactory>::Provider: ProviderRO,
+    <P as ProviderFactory>::ProviderMut: ProviderRW,
+{
     /// Returns the address of the node's RPC server.
     pub fn rpc_addr(&self) -> &SocketAddr {
         self.node.rpc().addr()
     }
 
-    pub fn backend(&self) -> &Arc<Backend<BlockifierFactory, DbProviderFactory>> {
+    pub fn backend(&self) -> &Arc<Backend<BlockifierFactory, P>> {
         self.node.node().backend()
     }
 
     /// Returns a reference to the launched node handle.
-    pub fn handle(&self) -> &LaunchedNode<DbProviderFactory> {
+    pub fn handle(&self) -> &LaunchedNode<P> {
         &self.node
     }
 

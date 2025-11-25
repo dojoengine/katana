@@ -156,7 +156,7 @@ async fn transaction_from_forked_network() {
     // the related block should be fetched too.
     // assert that all related data is populated and can be fetched correctly.
 
-    let forked_db = provider.forked_db(); // bypass the ForkedProvider
+    let forked_db = provider.forked_db().db().provider(); // bypass the ForkedProvider
 
     let result = forked_db.block(block_id).unwrap();
     let block = result.expect("block should be populated");

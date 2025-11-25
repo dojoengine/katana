@@ -106,23 +106,22 @@ impl Debug for ForkProviderFactory {
 }
 
 impl ProviderFactory for ForkProviderFactory {
-    type Provider =
-        ForkedProvider<<katana_db::Db as Database>::Tx, <katana_db::Db as Database>::TxMut>;
+    type Provider = ForkedProvider<<katana_db::Db as Database>::Tx>;
 
-    type ProviderMut =
-        ForkedProvider<<katana_db::Db as Database>::TxMut, <katana_db::Db as Database>::TxMut>;
+    type ProviderMut = ForkedProvider<<katana_db::Db as Database>::TxMut>;
 
     fn provider(&self) -> Self::Provider {
         ForkedProvider::new(
             self.local_factory.provider(),
-            ForkedDb::new(self.backend.clone(), self.block_id, self.fork_factory.provider_mut()),
+            ForkedDb::new(self.backend.clone(), self.block_id, self.fork_factory.clone()),
         )
     }
 
     fn provider_mut(&self) -> Self::ProviderMut {
+        dbg!("creating provider_mut");
         ForkedProvider::new(
             self.local_factory.provider_mut(),
-            ForkedDb::new(self.backend.clone(), self.block_id, self.fork_factory.provider_mut()),
+            ForkedDb::new(self.backend.clone(), self.block_id, self.fork_factory.clone()),
         )
     }
 }

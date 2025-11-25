@@ -178,9 +178,9 @@ where
             l1_data_gas_prices: block_env.l1_data_gas_prices.clone(),
         };
 
-        let provider = self.storage.provider_mut();
+        let provider_mut = self.storage.provider_mut();
         let block = commit_block(
-            provider,
+            &provider_mut,
             partial_header,
             transactions,
             &receipts,
@@ -194,9 +194,11 @@ where
         // TODO: maybe should change the arguments for insert_block_with_states_and_receipts to
         // accept ReceiptWithTxHash instead to avoid this conversion.
         let receipts = receipts.into_iter().map(|r| r.receipt).collect::<Vec<_>>();
-        self.store_block(block, execution_output.states, receipts, traces)?;
+        store_block(&provider_mut, block, execution_output.states, receipts, traces)?;
 
         info!(target: LOG_TARGET, %block_number, %tx_count, "Block mined.");
+
+        provider_mut.commit()?;
 
         Ok(MinedBlockOutcome {
             block_hash,
@@ -204,28 +206,6 @@ where
             txs: tx_hashes,
             stats: execution_output.stats,
         })
-    }
-
-    fn store_block(
-        &self,
-        block: SealedBlockWithStatus,
-        states: StateUpdatesWithClasses,
-        receipts: Vec<Receipt>,
-        traces: Vec<TypedTransactionExecutionInfo>,
-    ) -> Result<(), BlockProductionError> {
-        // Validate that all declared classes have their corresponding class artifacts
-        if let Err(missing) = states.validate_classes() {
-            return Err(BlockProductionError::InconsistentState(format!(
-                "missing class artifacts for declared classes: {:#?}",
-                missing,
-            )));
-        }
-
-        let provider_mut = self.storage.provider_mut();
-        provider_mut.insert_block_with_states_and_receipts(block, states, receipts, traces)?;
-        provider_mut.commit()?;
-
-        Ok(())
     }
 
     pub fn mine_empty_block(
@@ -349,8 +329,10 @@ where
 
             info!("Genesis has already been initialized");
         } else {
+            let provider_mut = self.storage.provider_mut();
+
             let block = commit_genesis_block(
-                self.storage.provider_mut(),
+                &provider_mut,
                 header,
                 transactions,
                 &receipts,
@@ -362,8 +344,9 @@ where
             // TODO: maybe should change the arguments for insert_block_with_states_and_receipts to
             // accept ReceiptWithTxHash instead to avoid this conversion.
             let receipts = receipts.into_iter().map(|r| r.receipt).collect::<Vec<_>>();
-            self.store_block(block, output.states, receipts, traces)?;
+            store_block(&provider_mut, block, output.states, receipts, traces)?;
 
+            provider_mut.commit()?;
             info!("Genesis initialized");
         }
 
@@ -558,6 +541,25 @@ impl<'a, P: TrieWriter> UncommittedBlock<'a, P> {
     }
 }
 
+fn store_block(
+    provider_mut: &impl BlockWriter,
+    block: SealedBlockWithStatus,
+    states: StateUpdatesWithClasses,
+    receipts: Vec<Receipt>,
+    traces: Vec<TypedTransactionExecutionInfo>,
+) -> Result<(), BlockProductionError> {
+    // Validate that all declared classes have their corresponding class artifacts
+    if let Err(missing) = states.validate_classes() {
+        return Err(BlockProductionError::InconsistentState(format!(
+            "missing class artifacts for declared classes: {:#?}",
+            missing,
+        )));
+    }
+
+    provider_mut.insert_block_with_states_and_receipts(block, states, receipts, traces)?;
+    Ok(())
+}
+
 // TODO: create a dedicated struct for this contract.
 // https://docs.starknet.io/architecture-and-concepts/network-architecture/starknet-state/#address_0x1
 fn update_block_hash_registry_contract(
@@ -587,8 +589,8 @@ fn update_block_hash_registry_contract(
     Ok(())
 }
 
-fn commit_block(
-    provider: impl ProviderRW,
+fn commit_block<P: BlockHashProvider + TrieWriter>(
+    provider: P,
     header: PartialHeader,
     transactions: Vec<TxWithHash>,
     receipts: &[ReceiptWithTxHash],

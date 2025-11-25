@@ -19,9 +19,9 @@ use katana_rpc_types::ContractStorageKeys;
 use super::db::{self};
 use super::ForkedProvider;
 use crate::providers::fork::ForkedDb;
-use crate::ProviderResult;
+use crate::{ProviderFactory, ProviderResult};
 
-impl<Tx1: DbTx, Tx2: DbTxMut> StateFactoryProvider for ForkedProvider<Tx1, Tx2> {
+impl<Tx1: DbTx> StateFactoryProvider for ForkedProvider<Tx1> {
     fn latest(&self) -> ProviderResult<Box<dyn StateProvider>> {
         let local_provider = db::state::LatestStateProvider(self.local_db.clone());
         let fork_provider = self.fork_db.clone();
@@ -53,7 +53,9 @@ impl<Tx1: DbTx, Tx2: DbTxMut> StateFactoryProvider for ForkedProvider<Tx1, Tx2> 
             BlockHashOrNumber::Hash(hash) => {
                 if let num @ Some(..) = self.local_db.block_number_by_hash(hash)? {
                     num
-                } else if let num @ Some(..) = self.fork_db.db.block_number_by_hash(hash)? {
+                } else if let num @ Some(..) =
+                    self.fork_db.db.provider().block_number_by_hash(hash)?
+                {
                     num
                 } else {
                     None
@@ -74,19 +76,24 @@ impl<Tx1: DbTx, Tx2: DbTxMut> StateFactoryProvider for ForkedProvider<Tx1, Tx2> 
 }
 
 #[derive(Debug)]
-struct LatestStateProvider<Tx1: DbTx, Tx2: DbTxMut> {
+struct LatestStateProvider<Tx1: DbTx> {
     local_provider: db::state::LatestStateProvider<Tx1>,
-    fork_provider: ForkedDb<Tx2>,
+    fork_provider: ForkedDb,
 }
 
-impl<Tx1: DbTx, Tx2: DbTxMut> ContractClassProvider for LatestStateProvider<Tx1, Tx2> {
+impl<Tx1: DbTx> ContractClassProvider for LatestStateProvider<Tx1> {
     fn class(&self, hash: ClassHash) -> ProviderResult<Option<ContractClass>> {
         if let Some(class) = self.local_provider.class(hash)? {
             Ok(Some(class))
         } else if let Some(class) =
             self.fork_provider.backend.get_class_at(hash, self.fork_provider.block_id)?
         {
-            self.fork_provider.db.tx().put::<tables::Classes>(hash, class.clone().into())?;
+            self.fork_provider
+                .db
+                .provider_mut()
+                .tx()
+                .put::<tables::Classes>(hash, class.clone().into())?;
+
             Ok(Some(class))
         } else {
             Ok(None)
@@ -102,7 +109,12 @@ impl<Tx1: DbTx, Tx2: DbTxMut> ContractClassProvider for LatestStateProvider<Tx1,
         } else if let Some(compiled_hash) =
             self.fork_provider.backend.get_compiled_class_hash(hash, self.fork_provider.block_id)?
         {
-            self.fork_provider.db.tx().put::<tables::CompiledClassHashes>(hash, compiled_hash)?;
+            self.fork_provider
+                .db
+                .provider_mut()
+                .tx()
+                .put::<tables::CompiledClassHashes>(hash, compiled_hash)?;
+
             Ok(Some(compiled_hash))
         } else {
             Ok(None)
@@ -110,7 +122,7 @@ impl<Tx1: DbTx, Tx2: DbTxMut> ContractClassProvider for LatestStateProvider<Tx1,
     }
 }
 
-impl<Tx1: DbTx, Tx2: DbTxMut> StateProvider for LatestStateProvider<Tx1, Tx2> {
+impl<Tx1: DbTx> StateProvider for LatestStateProvider<Tx1> {
     fn nonce(&self, address: ContractAddress) -> ProviderResult<Option<Nonce>> {
         if let res @ Some(..) = self.local_provider.nonce(address)? {
             Ok(res)
@@ -124,7 +136,7 @@ impl<Tx1: DbTx, Tx2: DbTxMut> StateProvider for LatestStateProvider<Tx1, Tx2> {
                 .ok_or(ProviderError::MissingContractClassHash { address })?;
 
             let entry = GenericContractInfo { nonce, class_hash };
-            self.fork_provider.db.tx().put::<tables::ContractInfo>(address, entry)?;
+            self.fork_provider.db.provider().tx().put::<tables::ContractInfo>(address, entry)?;
 
             Ok(Some(nonce))
         } else {
@@ -148,7 +160,11 @@ impl<Tx1: DbTx, Tx2: DbTxMut> StateProvider for LatestStateProvider<Tx1, Tx2> {
                 .ok_or(ProviderError::MissingContractNonce { address })?;
 
             let entry = GenericContractInfo { class_hash, nonce };
-            self.fork_provider.db.tx().put::<tables::ContractInfo>(address, entry)?;
+            self.fork_provider
+                .db
+                .provider_mut()
+                .tx()
+                .put::<tables::ContractInfo>(address, entry)?;
 
             Ok(Some(class_hash))
         } else {
@@ -167,7 +183,7 @@ impl<Tx1: DbTx, Tx2: DbTxMut> StateProvider for LatestStateProvider<Tx1, Tx2> {
             self.fork_provider.backend.get_storage(address, key, self.fork_provider.block_id)?
         {
             let entry = StorageEntry { key, value };
-            self.fork_provider.db.tx().put::<tables::ContractStorage>(address, entry)?;
+            self.fork_provider.db.provider().tx().put::<tables::ContractStorage>(address, entry)?;
             Ok(Some(value))
         } else {
             Ok(None)
@@ -175,7 +191,7 @@ impl<Tx1: DbTx, Tx2: DbTxMut> StateProvider for LatestStateProvider<Tx1, Tx2> {
     }
 }
 
-impl<Tx1: DbTx, Tx2: DbTxMut> StateProofProvider for LatestStateProvider<Tx1, Tx2> {
+impl<Tx1: DbTx> StateProofProvider for LatestStateProvider<Tx1> {
     fn class_multiproof(&self, classes: Vec<ClassHash>) -> ProviderResult<katana_trie::MultiProof> {
         let fork_point = self.fork_provider.block_id;
         let latest_block_number = match self.local_provider.0.latest_number() {
@@ -250,7 +266,7 @@ impl<Tx1: DbTx, Tx2: DbTxMut> StateProofProvider for LatestStateProvider<Tx1, Tx
     }
 }
 
-impl<Tx1: DbTx, Tx2: DbTxMut> StateRootProvider for LatestStateProvider<Tx1, Tx2> {
+impl<Tx1: DbTx> StateRootProvider for LatestStateProvider<Tx1> {
     fn classes_root(&self) -> ProviderResult<Felt> {
         let fork_point = self.fork_provider.block_id;
         let latest_block_number = match self.local_provider.0.latest_number() {
@@ -315,12 +331,12 @@ impl<Tx1: DbTx, Tx2: DbTxMut> StateRootProvider for LatestStateProvider<Tx1, Tx2
 }
 
 #[derive(Debug)]
-struct HistoricalStateProvider<Tx1: DbTx, Tx2: DbTxMut> {
+struct HistoricalStateProvider<Tx1: DbTx> {
     local_provider: db::state::HistoricalStateProvider<Tx1>,
-    fork_provider: ForkedDb<Tx2>,
+    fork_provider: ForkedDb,
 }
 
-impl<Tx1: DbTx, Tx2: DbTxMut> ContractClassProvider for HistoricalStateProvider<Tx1, Tx2> {
+impl<Tx1: DbTx> ContractClassProvider for HistoricalStateProvider<Tx1> {
     fn class(&self, hash: ClassHash) -> ProviderResult<Option<ContractClass>> {
         if let res @ Some(..) = self.local_provider.class(hash)? {
             return Ok(res);
@@ -354,7 +370,12 @@ impl<Tx1: DbTx, Tx2: DbTxMut> ContractClassProvider for HistoricalStateProvider<
         if let Some(compiled_hash) =
             self.fork_provider.backend.get_compiled_class_hash(hash, self.local_provider.block())?
         {
-            self.fork_provider.db.tx().put::<tables::CompiledClassHashes>(hash, compiled_hash)?;
+            self.fork_provider
+                .db
+                .provider_mut()
+                .tx()
+                .put::<tables::CompiledClassHashes>(hash, compiled_hash)?;
+
             Ok(Some(compiled_hash))
         } else {
             Ok(None)
@@ -362,7 +383,7 @@ impl<Tx1: DbTx, Tx2: DbTxMut> ContractClassProvider for HistoricalStateProvider<
     }
 }
 
-impl<Tx1: DbTx, Tx2: DbTxMut> StateProvider for HistoricalStateProvider<Tx1, Tx2> {
+impl<Tx1: DbTx> StateProvider for HistoricalStateProvider<Tx1> {
     fn nonce(&self, address: ContractAddress) -> ProviderResult<Option<Nonce>> {
         if let res @ Some(..) = self.local_provider.nonce(address)? {
             return Ok(res);
@@ -378,7 +399,12 @@ impl<Tx1: DbTx, Tx2: DbTxMut> StateProvider for HistoricalStateProvider<Tx1, Tx2
             let block = self.local_provider.block();
             let entry = ContractNonceChange { contract_address: address, nonce };
 
-            self.fork_provider.db.tx().put::<tables::NonceChangeHistory>(block, entry)?;
+            self.fork_provider
+                .db
+                .provider_mut()
+                .tx()
+                .put::<tables::NonceChangeHistory>(block, entry)?;
+
             Ok(res)
         } else {
             Ok(None)
@@ -405,7 +431,12 @@ impl<Tx1: DbTx, Tx2: DbTxMut> StateProvider for HistoricalStateProvider<Tx1, Tx2
             // `ClassChangeHistory` entry on the state update level instead.
             let entry = ContractClassChange::deployed(address, hash);
 
-            self.fork_provider.db.tx().put::<tables::ClassChangeHistory>(block, entry)?;
+            self.fork_provider
+                .db
+                .provider_mut()
+                .tx()
+                .put::<tables::ClassChangeHistory>(block, entry)?;
+
             Ok(res)
         } else {
             Ok(None)
@@ -436,9 +467,19 @@ impl<Tx1: DbTx, Tx2: DbTxMut> StateProvider for HistoricalStateProvider<Tx1, Tx2
             let mut block_list = block_list.unwrap_or_default();
             block_list.insert(block);
 
-            self.fork_provider.db.tx().put::<tables::StorageChangeSet>(key.clone(), block_list)?;
+            self.fork_provider
+                .db
+                .provider_mut()
+                .tx()
+                .put::<tables::StorageChangeSet>(key.clone(), block_list)?;
+
             let change_entry = ContractStorageEntry { key, value };
-            self.fork_provider.db.tx().put::<tables::StorageChangeHistory>(block, change_entry)?;
+
+            self.fork_provider
+                .db
+                .provider_mut()
+                .tx()
+                .put::<tables::StorageChangeHistory>(block, change_entry)?;
 
             Ok(res)
         } else {
@@ -447,7 +488,7 @@ impl<Tx1: DbTx, Tx2: DbTxMut> StateProvider for HistoricalStateProvider<Tx1, Tx2
     }
 }
 
-impl<Tx1: DbTx, Tx2: DbTxMut> StateProofProvider for HistoricalStateProvider<Tx1, Tx2> {
+impl<Tx1: DbTx> StateProofProvider for HistoricalStateProvider<Tx1> {
     fn class_multiproof(&self, classes: Vec<ClassHash>) -> ProviderResult<katana_trie::MultiProof> {
         // we don't have a way to construct state proofs for locally generated state yet
         if self.local_provider.block() > self.fork_provider.block_id {
@@ -500,7 +541,7 @@ impl<Tx1: DbTx, Tx2: DbTxMut> StateProofProvider for HistoricalStateProvider<Tx1
     }
 }
 
-impl<Tx1: DbTx, Tx2: DbTxMut> StateRootProvider for HistoricalStateProvider<Tx1, Tx2> {
+impl<Tx1: DbTx> StateRootProvider for HistoricalStateProvider<Tx1> {
     fn state_root(&self) -> ProviderResult<Felt> {
         match self.local_provider.state_root() {
             Ok(root) => Ok(root),
@@ -508,12 +549,12 @@ impl<Tx1: DbTx, Tx2: DbTxMut> StateRootProvider for HistoricalStateProvider<Tx1,
             Err(ProviderError::MissingBlockHeader(..)) => {
                 let block_id = BlockHashOrNumber::from(self.local_provider.block());
 
-                if let Some(header) = self.fork_provider.db.header(block_id)? {
+                if let Some(header) = self.fork_provider.db.provider().header(block_id)? {
                     return Ok(header.state_root);
                 }
 
                 if self.fork_provider.fetch_historical_blocks(block_id)? {
-                    let header = self.fork_provider.db.header(block_id)?.unwrap();
+                    let header = self.fork_provider.db.provider().header(block_id)?.unwrap();
                     Ok(header.state_root)
                 } else {
                     Err(ProviderError::MissingBlockHeader(self.local_provider.block()))
@@ -558,7 +599,7 @@ impl<Tx1: DbTx, Tx2: DbTxMut> StateRootProvider for HistoricalStateProvider<Tx1,
     }
 }
 
-impl<Tx1: DbTxMut, Tx2: DbTxMut> StateWriter for ForkedProvider<Tx1, Tx2> {
+impl<Tx1: DbTxMut> StateWriter for ForkedProvider<Tx1> {
     fn set_class_hash_of_contract(
         &self,
         address: ContractAddress,
@@ -581,7 +622,7 @@ impl<Tx1: DbTxMut, Tx2: DbTxMut> StateWriter for ForkedProvider<Tx1, Tx2> {
     }
 }
 
-impl<Tx1: DbTxMut, Tx2: DbTxMut> ContractClassWriter for ForkedProvider<Tx1, Tx2> {
+impl<Tx1: DbTxMut> ContractClassWriter for ForkedProvider<Tx1> {
     fn set_class(&self, hash: ClassHash, class: ContractClass) -> ProviderResult<()> {
         self.local_db.set_class(hash, class)
     }

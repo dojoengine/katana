@@ -14,6 +14,7 @@ use katana_rpc_types::{
     BlockNumberResponse, EventFilter, GetBlockWithReceiptsResponse, GetBlockWithTxHashesResponse,
     MaybePreConfirmedBlock,
 };
+use katana_utils::node::ForkTestNode;
 use katana_utils::TestNode;
 use url::Url;
 
@@ -36,12 +37,12 @@ type LocalTestVector = Vec<((BlockNumber, BlockHash), TxHash)>;
 /// a single transaction.
 ///
 /// The returned [`TestVector`] is a list of all the locally created blocks and transactions.
-async fn setup_test_inner(no_mining: bool) -> (TestNode, StarknetClient, LocalTestVector) {
+async fn setup_test_inner(no_mining: bool) -> (ForkTestNode, StarknetClient, LocalTestVector) {
     let mut config = katana_utils::node::test_config();
     config.sequencing.no_mining = no_mining;
     config.forking = Some(forking_cfg());
 
-    let sequencer = TestNode::new_with_config(config).await;
+    let sequencer = TestNode::new_forked_with_config(config).await;
     let provider = sequencer.starknet_rpc_client();
 
     let mut txs_vector: LocalTestVector = Vec::new();
@@ -72,7 +73,7 @@ async fn setup_test_inner(no_mining: bool) -> (TestNode, StarknetClient, LocalTe
             let block_num = (FORK_BLOCK_NUMBER + 1) + i; // plus 1 because fork genesis is FORK_BLOCK_NUMBER + 1
 
             let block_id = BlockIdOrTag::Number(block_num);
-            let block = provider.get_block_with_tx_hashes(block_id).await.unwrap();
+            let block = provider.get_block_with_tx_hashes(dbg!(block_id)).await.unwrap();
             let block_hash = match block {
                 GetBlockWithTxHashesResponse::Block(b) => {
                     assert_eq!(b.transactions.len(), 1);
@@ -89,11 +90,11 @@ async fn setup_test_inner(no_mining: bool) -> (TestNode, StarknetClient, LocalTe
     (sequencer, provider, txs_vector)
 }
 
-async fn setup_test() -> (TestNode, StarknetClient, LocalTestVector) {
+async fn setup_test() -> (ForkTestNode, StarknetClient, LocalTestVector) {
     setup_test_inner(false).await
 }
 
-async fn setup_test_pending() -> (TestNode, StarknetClient, LocalTestVector) {
+async fn setup_test_pending() -> (ForkTestNode, StarknetClient, LocalTestVector) {
     setup_test_inner(true).await
 }
 

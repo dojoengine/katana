@@ -10,7 +10,7 @@ use katana_provider_api::trie::TrieWriter;
 use super::ForkedProvider;
 use crate::ProviderResult;
 
-impl<Tx1: DbTxMut, Tx2: DbTxMut> TrieWriter for ForkedProvider<Tx1, Tx2> {
+impl<Tx1: DbTxMut> TrieWriter for ForkedProvider<Tx1> {
     fn trie_insert_contract_updates(
         &self,
         block_number: BlockNumber,
