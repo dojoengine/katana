@@ -28,6 +28,7 @@ use std::time::Instant;
 
 use katana_metrics::metrics::{self, Counter, Gauge, Histogram};
 use katana_metrics::Metrics;
+use parking_lot::Mutex;
 
 /// Metrics for the sync pipeline.
 #[derive(Clone)]
@@ -97,7 +98,7 @@ struct PipelineMetricsInner {
     /// Overall pipeline metrics
     pipeline: PipelineOverallMetrics,
     /// Per-stage metrics
-    stages: std::sync::Mutex<HashMap<&'static str, StageMetrics>>,
+    stages: Mutex<HashMap<&'static str, StageMetrics>>,
 }
 
 /// Metrics for the overall pipeline execution.
