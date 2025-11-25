@@ -27,7 +27,7 @@ use katana_gas_price_oracle::{FixedPriceOracle, GasPriceOracle};
 use katana_gateway_server::{GatewayServer, GatewayServerHandle};
 use katana_metrics::exporters::prometheus::{Prometheus, PrometheusRecorder};
 use katana_metrics::sys::DiskReporter;
-use katana_metrics::{MetricsServerHandle, Report, Server as MetricsServer};
+use katana_metrics::{MetricsServer, MetricsServerHandle, Report};
 use katana_pool::ordering::FiFo;
 use katana_pool::TxPool;
 use katana_primitives::env::VersionedConstantsOverrides;
@@ -329,7 +329,7 @@ impl Node {
             let reports: Vec<Box<dyn Report>> = vec![db_metrics, disk_metrics];
 
             let exporter = PrometheusRecorder::current().expect("qed; should exist at this point");
-            let server = MetricsServer::new(exporter).with_process_metrics().with_reports(reports);
+            let server = MetricsServer::new(exporter).with_process_metrics().reports(reports);
 
             Some(server)
         } else {
@@ -359,9 +359,10 @@ impl Node {
         // --- start the metrics server (if configured)
 
         let metrics_handle = if let Some(ref server) = self.metrics_server {
+            // safe to unwrap here because metrics_server can only be Some if the metrics config exists
             let cfg = self.config.metrics.as_ref().expect("qed; must exist");
             let addr = cfg.socket_addr();
-            Some(server.start(addr).await?)
+            Some(server.start(addr)?)
         } else {
             None
         };

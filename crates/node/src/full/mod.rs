@@ -11,8 +11,9 @@ use katana_chain_spec::ChainSpec;
 use katana_executor::ExecutionFlags;
 use katana_gas_price_oracle::GasPriceOracle;
 use katana_gateway_client::Client as SequencerGateway;
-use katana_metrics::exporters::prometheus::PrometheusRecorder;
-use katana_metrics::{Report, Server as MetricsServer};
+use katana_metrics::exporters::prometheus::{Prometheus, PrometheusRecorder};
+use katana_metrics::sys::DiskReporter;
+use katana_metrics::{MetricsServer, MetricsServerHandle, Report};
 use katana_pipeline::{Pipeline, PipelineHandle};
 use katana_pool::ordering::TipOrdering;
 use katana_provider::providers::db::DbProvider;
@@ -76,6 +77,7 @@ pub struct Node {
     pub pipeline: Pipeline<DbProvider>,
     pub rpc_server: RpcServer,
     pub gateway_client: SequencerGateway,
+    pub metrics_server: Option<MetricsServer<Prometheus>>,
     pub chain_tip_watcher: ChainTipWatcher<SequencerGateway>,
 }
 
@@ -213,6 +215,21 @@ impl Node {
             rpc_server = rpc_server.max_response_body_size(max_response_body_size);
         }
 
+        // --- build metrics server (optional)
+
+        let metrics_server = if config.metrics.is_some() {
+            let db_metrics = Box::new(db.clone()) as Box<dyn Report>;
+            let disk_metrics = Box::new(DiskReporter::new(db.path())?) as Box<dyn Report>;
+            let reports: Vec<Box<dyn Report>> = vec![db_metrics, disk_metrics];
+
+            let exporter = PrometheusRecorder::current().expect("qed; should exist at this point");
+            let server = MetricsServer::new(exporter).with_process_metrics().reports(reports);
+
+            Some(server)
+        } else {
+            None
+        };
+
         Ok(Node {
             db,
             pool,
@@ -220,22 +237,23 @@ impl Node {
             rpc_server,
             task_manager,
             gateway_client,
+            metrics_server,
             chain_tip_watcher,
             config: Arc::new(config),
         })
     }
 
     pub async fn launch(self) -> Result<LaunchedNode> {
-        if let Some(ref cfg) = self.config.metrics {
-            let reports: Vec<Box<dyn Report>> = vec![Box::new(self.db.clone()) as Box<dyn Report>];
-            let exporter = PrometheusRecorder::current().expect("qed; should exist at this point");
+        // --- start the metrics server (if configured)
 
+        let metrics_handle = if let Some(ref server) = self.metrics_server {
+            // safe to unwrap here because metrics_server can only be Some if the metrics config exists
+            let cfg = self.config.metrics.as_ref().expect("qed; must exist");
             let addr = cfg.socket_addr();
-            let server = MetricsServer::new(exporter).with_process_metrics().with_reports(reports);
-
-            // Start the metrics server and discard the handle since full node doesn't track it
-            let _ = server.start(addr).await?;
-        }
+            Some(server.start(addr)?)
+        } else {
+            None
+        };
 
         let pipeline_handle = self.pipeline.handle();
 
@@ -277,6 +295,7 @@ impl Node {
             config: self.config,
             task_manager: self.task_manager,
             pipeline: pipeline_handle,
+            metrics: metrics_handle,
             rpc,
         })
     }
@@ -289,6 +308,8 @@ pub struct LaunchedNode {
     pub config: Arc<Config>,
     pub rpc: RpcServerHandle,
     pub pipeline: PipelineHandle,
+    /// Handle to the metrics server (if enabled).
+    pub metrics: Option<MetricsServerHandle>,
 }
 
 impl LaunchedNode {
