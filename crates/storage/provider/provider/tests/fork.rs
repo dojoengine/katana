@@ -398,3 +398,149 @@ async fn post_fork_state_proof_should_not_be_supported() {
     let result = state.contract_multiproof(vec![address]);
     assert_matches!(result, Err(ProviderError::StateProofNotSupported));
 }
+
+#[tokio::test(flavor = "multi_thread")]
+async fn pre_fork_state_root() {
+    let starknet_client = StarknetClient::new(SEPOLIA_RPC_URL.try_into().unwrap());
+
+    // always use the latest block number of the forked chain because most nodes may not support
+    // proofs for too old blocks
+    //
+    // we take the previous block because there were some instances where the latest block was not
+    // available or supported by the node.
+    let latest_block_number = starknet_client.block_number().await.unwrap().block_number - 1;
+    let provider_factory =
+        ForkProviderFactory::new_in_memory(latest_block_number, starknet_client.clone());
+    let provider = provider_factory.provider();
+
+    //////////////////////////////////////////////////////////////////////////////
+    // latest state
+    //////////////////////////////////////////////////////////////////////////////
+
+    // this will return the latest state exactly at the forked block
+    let state = provider.latest().unwrap();
+
+    //--------------------------------------------------------
+    // classes root
+
+    let actual_classes_root = state.classes_root().unwrap();
+    let expected_classes_root = starknet_client
+        .get_storage_proof(latest_block_number.into(), None, None, None)
+        .await
+        .map(|res| res.global_roots.classes_tree_root)
+        .unwrap();
+
+    assert_eq!(actual_classes_root, expected_classes_root);
+
+    //--------------------------------------------------------
+    // contracts root
+
+    let actual_contracts_root = state.contracts_root().unwrap();
+    let expected_contracts_root = starknet_client
+        .get_storage_proof(latest_block_number.into(), None, None, None)
+        .await
+        .map(|res| res.global_roots.contracts_tree_root)
+        .unwrap();
+
+    assert_eq!(actual_contracts_root, expected_contracts_root);
+
+    //--------------------------------------------------------
+    // contract storage root
+
+    let contract1 = address!("0x049D36570D4e46f48e99674bd3fcc84644DdD6b96F7C741B1562B82f9e004dC7"); // Ether Token
+    let contract2 = address!("0x04718f5a0Fc34cC1AF16A1cdee98fFB20C31f5cD61D6Ab07201858f4287c938D"); // Starknet Token
+    let contract3 = address!("0x053C91253BC9682c04929cA02ED00b3E423f6710D2ee7e0D5EBB06F3eCF368A8"); // USDC Token
+
+    let actual_contract1_root = state.storage_root(contract1).unwrap().unwrap();
+    let actual_contract2_root = state.storage_root(contract2).unwrap().unwrap();
+    let actual_contract3_root = state.storage_root(contract3).unwrap().unwrap();
+
+    let (expected_contract1_root, expected_contract2_root, expected_contract3_root) =
+        starknet_client
+            .get_storage_proof(
+                latest_block_number.into(),
+                None,
+                Some(vec![contract1, contract2, contract3]),
+                None,
+            )
+            .await
+            .map(|res| {
+                (
+                    // the leave must be ordered based on the order of the contracts in the request
+                    res.contracts_proof.contract_leaves_data[0].storage_root,
+                    res.contracts_proof.contract_leaves_data[1].storage_root,
+                    res.contracts_proof.contract_leaves_data[2].storage_root,
+                )
+            })
+            .unwrap();
+
+    assert_eq!(actual_contract1_root, expected_contract1_root);
+    assert_eq!(actual_contract2_root, expected_contract2_root);
+    assert_eq!(actual_contract3_root, expected_contract3_root);
+
+    //////////////////////////////////////////////////////////////////////////////
+    // historical state
+    //////////////////////////////////////////////////////////////////////////////
+
+    // this will return the latest state exactly at the forked block
+    let historical_block = latest_block_number - 5;
+    let state = provider.historical(historical_block.into()).unwrap().unwrap();
+
+    //--------------------------------------------------------
+    // classes root
+
+    let actual_classes_root = state.classes_root().unwrap();
+    let expected_classes_root = starknet_client
+        .get_storage_proof(historical_block.into(), None, None, None)
+        .await
+        .map(|res| res.global_roots.classes_tree_root)
+        .unwrap();
+
+    assert_eq!(actual_classes_root, expected_classes_root);
+
+    //--------------------------------------------------------
+    // contracts root
+
+    let actual_contracts_root = state.contracts_root().unwrap();
+    let expected_contracts_root = starknet_client
+        .get_storage_proof(historical_block.into(), None, None, None)
+        .await
+        .map(|res| res.global_roots.contracts_tree_root)
+        .unwrap();
+
+    assert_eq!(actual_contracts_root, expected_contracts_root);
+
+    //--------------------------------------------------------
+    // contract storage root
+
+    let contract1 = address!("0x049D36570D4e46f48e99674bd3fcc84644DdD6b96F7C741B1562B82f9e004dC7"); // Ether Token
+    let contract2 = address!("0x04718f5a0Fc34cC1AF16A1cdee98fFB20C31f5cD61D6Ab07201858f4287c938D"); // Starknet Token
+    let contract3 = address!("0x053C91253BC9682c04929cA02ED00b3E423f6710D2ee7e0D5EBB06F3eCF368A8"); // USDC Token
+
+    let actual_contract1_root = state.storage_root(contract1).unwrap().unwrap();
+    let actual_contract2_root = state.storage_root(contract2).unwrap().unwrap();
+    let actual_contract3_root = state.storage_root(contract3).unwrap().unwrap();
+
+    let (expected_contract1_root, expected_contract2_root, expected_contract3_root) =
+        starknet_client
+            .get_storage_proof(
+                historical_block.into(),
+                None,
+                Some(vec![contract1, contract2, contract3]),
+                None,
+            )
+            .await
+            .map(|res| {
+                (
+                    // the leave must be ordered based on the order of the contracts in the request
+                    res.contracts_proof.contract_leaves_data[0].storage_root,
+                    res.contracts_proof.contract_leaves_data[1].storage_root,
+                    res.contracts_proof.contract_leaves_data[2].storage_root,
+                )
+            })
+            .unwrap();
+
+    assert_eq!(actual_contract1_root, expected_contract1_root);
+    assert_eq!(actual_contract2_root, expected_contract2_root);
+    assert_eq!(actual_contract3_root, expected_contract3_root);
+}
