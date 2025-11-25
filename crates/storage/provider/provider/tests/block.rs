@@ -14,7 +14,7 @@ use katana_provider::api::state_update::StateUpdateProvider;
 use katana_provider::api::transaction::{
     ReceiptProvider, TransactionProvider, TransactionStatusProvider, TransactionTraceProvider,
 };
-use katana_provider::{DbProviderFactory, ProviderFactory};
+use katana_provider::{DbProviderFactory, MutableProvider, ProviderFactory};
 use rstest_reuse::{self, *};
 
 mod fixtures;
@@ -59,12 +59,14 @@ where
     let blocks = utils::generate_dummy_blocks_and_receipts(start, end);
 
     for (block, receipts, executions) in &blocks {
-        provider_factory.provider_mut().insert_block_with_states_and_receipts(
+        let povider_mut = provider_factory.provider_mut();
+        povider_mut.insert_block_with_states_and_receipts(
             block.clone(),
             Default::default(),
             receipts.clone(),
             executions.clone(),
         )?;
+        povider_mut.commit().unwrap();
 
         let provider = provider_factory.provider();
         assert_eq!(provider.latest_number().unwrap(), block.block.header.number);
@@ -183,6 +185,7 @@ where
             vec![],
             vec![],
         )?;
+        provider_mut.commit().unwrap();
 
         let provider = storage_provider.provider();
         assert_eq!(provider.latest_number().unwrap(), block.block.header.number);
