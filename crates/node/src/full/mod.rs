@@ -247,7 +247,8 @@ impl Node {
         // --- start the metrics server (if configured)
 
         let metrics_handle = if let Some(ref server) = self.metrics_server {
-            // safe to unwrap here because metrics_server can only be Some if the metrics config exists
+            // safe to unwrap here because metrics_server can only be Some if the metrics config
+            // exists
             let cfg = self.config.metrics.as_ref().expect("qed; must exist");
             let addr = cfg.socket_addr();
             Some(server.start(addr)?)
