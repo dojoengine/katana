@@ -154,8 +154,8 @@ impl<Tx: DbTxMut> ForkedDb<Tx> {
 
 impl<Tx1: DbTxMut, Tx2: DbTxMut> MutableProvider for ForkedProvider<Tx1, Tx2> {
     fn commit(self) -> ProviderResult<()> {
-        let _ = self.local_db.commit()?;
-        let _ = self.fork_db.db.commit()?;
+        self.local_db.commit()?;
+        self.fork_db.db.commit()?;
         Ok(())
     }
 }
