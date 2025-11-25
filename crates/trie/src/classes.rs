@@ -1,4 +1,7 @@
-use bonsai_trie::{BonsaiDatabase, BonsaiPersistentDatabase, MultiProof};
+use bonsai_trie::{
+    trie::trees::{FullMerkleTrees, PartialMerkleTrees},
+    BonsaiDatabase, BonsaiPersistentDatabase, MultiProof,
+};
 use katana_primitives::block::BlockNumber;
 use katana_primitives::class::{ClassHash, CompiledClassHash};
 use katana_primitives::hash::{Poseidon, StarkHash};
@@ -24,28 +27,29 @@ impl From<MultiProof> for ClassesMultiProof {
     }
 }
 
-#[derive(Debug)]
-pub struct ClassesTrie<DB: BonsaiDatabase> {
-    trie: crate::BonsaiTrie<DB, Poseidon>,
+const CLASSES_IDENTIFIER: &[u8] = b"classes";
+
+pub struct ClassesTrie<DB: BonsaiDatabase, TreeType = FullMerkleTrees<Poseidon, DB, CommitId>> {
+    trie: crate::BonsaiTrie<DB, Poseidon, TreeType>,
 }
+
+pub type PartialClassesTrie<DB> = ClassesTrie<DB, PartialMerkleTrees<Poseidon, DB, CommitId>>;
 
 //////////////////////////////////////////////////////////////
 // 	ClassesTrie implementations
 //////////////////////////////////////////////////////////////
 
 impl<DB: BonsaiDatabase> ClassesTrie<DB> {
-    const BONSAI_IDENTIFIER: &'static [u8] = b"classes";
-
     pub fn new(db: DB) -> Self {
         Self { trie: crate::BonsaiTrie::new(db) }
     }
 
     pub fn root(&self) -> Felt {
-        self.trie.root(Self::BONSAI_IDENTIFIER)
+        self.trie.root(CLASSES_IDENTIFIER)
     }
 
     pub fn multiproof(&mut self, class_hashes: Vec<ClassHash>) -> MultiProof {
-        self.trie.multiproof(Self::BONSAI_IDENTIFIER, class_hashes)
+        self.trie.multiproof(CLASSES_IDENTIFIER, class_hashes)
     }
 }
 
@@ -55,11 +59,47 @@ where
 {
     pub fn insert(&mut self, hash: ClassHash, compiled_hash: CompiledClassHash) {
         let value = compute_classes_trie_value(compiled_hash);
-        self.trie.insert(Self::BONSAI_IDENTIFIER, hash, value)
+        self.trie.insert(CLASSES_IDENTIFIER, hash, value)
     }
 
     pub fn commit(&mut self, block: BlockNumber) {
         self.trie.commit(block.into())
+    }
+}
+
+impl<DB: BonsaiDatabase> PartialClassesTrie<DB> {
+    pub fn new_partial(db: DB) -> Self {
+        Self { trie: crate::PartialBonsaiTrie::new_partial(db) }
+    }
+
+    pub fn root(&self) -> Felt {
+        self.trie.root(CLASSES_IDENTIFIER)
+    }
+}
+
+impl<DB> PartialClassesTrie<DB>
+where
+    DB: BonsaiDatabase + BonsaiPersistentDatabase<CommitId>,
+{
+    pub fn insert(
+        &mut self,
+        hash: ClassHash,
+        compiled_hash: CompiledClassHash,
+        proof: MultiProof,
+        original_root: Felt,
+    ) {
+        let value = compute_classes_trie_value(compiled_hash);
+        self.trie.insert(CLASSES_IDENTIFIER, hash, value, proof, original_root)
+    }
+
+    pub fn commit(&mut self, block: BlockNumber) {
+        self.trie.commit(block.into())
+    }
+}
+
+impl<DB: BonsaiDatabase, TreeType> std::fmt::Debug for ClassesTrie<DB, TreeType> {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.debug_struct("ClassesTrie").field("trie", &"<BonsaiTrie>").finish()
     }
 }
 
