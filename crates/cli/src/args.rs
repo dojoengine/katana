@@ -144,14 +144,14 @@ impl SequencerNodeArgs {
         let config = self.config()?;
 
         if config.forking.is_some() {
-            let node = Node::build(config).context("failed to build node")?;
+            let node = Node::build_forked(config).await.context("failed to build forked node")?;
 
             if !self.silent {
                 utils::print_intro(self, &node.backend().chain_spec);
             }
 
             // Launch the node
-            let handle = node.launch().await.context("failed to launch node")?;
+            let handle = node.launch().await.context("failed to launch forked node")?;
 
             // Wait until an OS signal (ie SIGINT, SIGTERM) is received or the node is shutdown.
             tokio::select! {
@@ -163,7 +163,7 @@ impl SequencerNodeArgs {
                 _ = handle.stopped() => { }
             }
         } else {
-            let node = Node::build_forked(config).await.context("failed to build node")?;
+            let node = Node::build(config).context("failed to build node")?;
 
             if !self.silent {
                 utils::print_intro(self, &node.backend().chain_spec);
