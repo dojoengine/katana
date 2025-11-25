@@ -6231,6 +6231,7 @@ dependencies = [
  "metrics-util",
  "sysinfo 0.35.2",
  "thiserror 1.0.69",
+ "tokio",
  "tracing",
 ]
 

@@ -24,7 +24,9 @@ use katana_executor::implementation::blockifier::BlockifierFactory;
 use katana_executor::{ExecutionFlags, ExecutorFactory};
 use katana_gas_price_oracle::{FixedPriceOracle, GasPriceOracle};
 use katana_gateway_server::{GatewayServer, GatewayServerHandle};
-use katana_metrics::exporters::prometheus::PrometheusRecorder;
+use katana_metrics::exporters::prometheus::{Prometheus, PrometheusRecorder};
+use katana_metrics::sys::DiskReporter;
+use katana_metrics::{MetricsServer, MetricsServerHandle, Report};
 use katana_pool::ordering::FiFo;
 use katana_pool::TxPool;
 use katana_primitives::block::{BlockHashOrNumber, GasPrices};
@@ -73,6 +75,7 @@ where
     backend: Arc<Backend<BlockifierFactory, P>>,
     block_producer: BlockProducer<BlockifierFactory, P>,
     gateway_server: Option<GatewayServer<TxPool, P>>,
+    metrics_server: Option<MetricsServer<Prometheus>>,
 }
 
 impl<P> Node<P>
@@ -306,6 +309,21 @@ where
             None
         };
 
+        // --- build metrics server (optional)
+
+        let metrics_server = if config.metrics.is_some() {
+            let db_metrics = Box::new(db.clone()) as Box<dyn Report>;
+            let disk_metrics = Box::new(DiskReporter::new(db.path())?) as Box<dyn Report>;
+            let reports: Vec<Box<dyn Report>> = vec![db_metrics, disk_metrics];
+
+            let exporter = PrometheusRecorder::current().expect("qed; should exist at this point");
+            let server = MetricsServer::new(exporter).with_process_metrics().reports(reports);
+
+            Some(server)
+        } else {
+            None
+        };
+
         Ok(Node {
             provider,
             pool,
@@ -313,6 +331,7 @@ where
             rpc_server,
             gateway_server,
             block_producer,
+            metrics_server,
             config: Arc::new(config),
             task_manager,
         })
@@ -436,20 +455,17 @@ where
         let chain = self.backend.chain_spec.id();
         info!(%chain, "Starting node.");
 
-        // // TODO: maybe move this to the build stage
-        // if let Some(ref cfg) = self.config.metrics {
-        //     let db_metrics = Box::new(self.db.clone()) as Box<dyn Report>;
-        //     let disk_metrics = Box::new(DiskReporter::new(self.db.path())?) as Box<dyn Report>;
-        //     let reports: Vec<Box<dyn Report>> = vec![db_metrics, disk_metrics];
+        // --- start the metrics server (if configured)
 
-        //     let exporter = PrometheusRecorder::current().expect("qed; should exist at this
-        // point");     let server =
-        // MetricsServer::new(exporter).with_process_metrics().with_reports(reports);
-
-        //     let addr = cfg.socket_addr();
-        //     self.task_manager.task_spawner().build_task().spawn(server.start(addr));
-        //     info!(%addr, "Metrics server started.");
-        // }
+        let metrics_handle = if let Some(ref server) = self.metrics_server {
+            // safe to unwrap here because metrics_server can only be Some if the metrics config
+            // exists
+            let cfg = self.config.metrics.as_ref().expect("qed; must exist");
+            let addr = cfg.socket_addr();
+            Some(server.start(addr)?)
+        } else {
+            None
+        };
 
         let pool = self.pool.clone();
         let backend = self.backend.clone();
@@ -499,7 +515,12 @@ where
 
         info!(target: "node", "Gas price oracle worker started.");
 
-        Ok(LaunchedNode { node: self, rpc: rpc_handle, gateway: gateway_handle })
+        Ok(LaunchedNode {
+            node: self,
+            rpc: rpc_handle,
+            gateway: gateway_handle,
+            metrics: metrics_handle,
+        })
     }
 
     /// Returns a reference to the node's database environment (if any).
@@ -540,6 +561,8 @@ where
     rpc: RpcServerHandle,
     /// Handle to the gateway server (if enabled).
     gateway: Option<GatewayServerHandle>,
+    /// Handle to the metrics server (if enabled).
+    metrics: Option<MetricsServerHandle>,
 }
 
 impl<P> LaunchedNode<P>
@@ -563,6 +586,11 @@ where
         self.gateway.as_ref()
     }
 
+    /// Returns a reference to the metrics server handle (if enabled).
+    pub fn metrics(&self) -> Option<&MetricsServerHandle> {
+        self.metrics.as_ref()
+    }
+
     /// Stops the node.
     ///
     /// This will instruct the node to stop and wait until it has actually stop.
@@ -572,6 +600,11 @@ where
 
         // Stop feeder gateway server if it's running
         if let Some(handle) = self.gateway {
+            handle.stop()?;
+        }
+
+        // Stop metrics server if it's running
+        if let Some(mut handle) = self.metrics {
             handle.stop()?;
         }
 
