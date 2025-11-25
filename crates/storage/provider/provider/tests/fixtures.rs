@@ -53,11 +53,25 @@ pub mod fork {
             FORKED_PROVIDER.1.clone(),
         )
     }
+
+    #[rstest::fixture]
+    pub fn fork_provider_with_spawned_fork_network_and_states(
+        #[with(0)] fork_provider_with_spawned_fork_network: ForkProviderFactory,
+    ) -> ForkProviderFactory {
+        super::provider_with_states(fork_provider_with_spawned_fork_network)
+    }
 }
 
 #[rstest::fixture]
 pub fn db_provider() -> DbProviderFactory {
     DbProviderFactory::new_in_memory()
+}
+
+#[rstest::fixture]
+pub fn db_provider_with_states(
+    #[from(db_provider)] provider_factory: DbProviderFactory,
+) -> DbProviderFactory {
+    provider_with_states(provider_factory)
 }
 
 #[rstest::fixture]
@@ -137,17 +151,13 @@ pub fn mock_state_updates() -> [StateUpdatesWithClasses; 3] {
     [state_update_1, state_update_2, state_update_3]
 }
 
-#[rstest::fixture]
-#[default(DbProviderFactory)]
-pub fn provider_with_states<PF>(
-    #[default(db_provider())] provider_factory: PF,
-    #[from(mock_state_updates)] state_updates: [StateUpdatesWithClasses; 3],
-) -> PF
+pub fn provider_with_states<PF>(provider_factory: PF) -> PF
 where
     PF: ProviderFactory,
     <PF as ProviderFactory>::Provider: StateFactoryProvider,
     <PF as ProviderFactory>::ProviderMut: BlockWriter,
 {
+    let state_updates = mock_state_updates::get();
     let provider_mut = provider_factory.provider_mut();
 
     for i in 0..=5 {

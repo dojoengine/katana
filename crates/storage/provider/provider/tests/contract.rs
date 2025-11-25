@@ -1,13 +1,14 @@
 mod fixtures;
 
 use anyhow::Result;
-use fixtures::{db_provider, provider_with_states};
 use katana_primitives::block::{BlockHashOrNumber, BlockNumber};
 use katana_primitives::class::ClassHash;
 use katana_primitives::contract::{ContractAddress, Nonce};
 use katana_provider::api::state::{StateFactoryProvider, StateProvider};
 use rstest_reuse::{self, *};
 use starknet::macros::felt;
+
+use crate::fixtures::db_provider_with_states;
 
 fn assert_state_provider_contract_info(
     state_provider: Box<dyn StateProvider>,
@@ -46,20 +47,19 @@ mod latest {
         ]
     )]
     fn test_latest_contract_info_read(
-        #[from(provider_with_states)] provider_factory: impl ProviderFactory,
         #[case] expected_contract_info: Vec<(ContractAddress, Option<ClassHash>, Option<Nonce>)>,
     ) {
     }
 
     mod fork {
-        use fixtures::fork::fork_provider_with_spawned_fork_network;
-        use katana_provider::{ForkProviderFactory, ProviderFactory};
+        use fixtures::fork::fork_provider_with_spawned_fork_network_and_states;
+        use katana_provider::ForkProviderFactory;
 
         use super::*;
 
         #[apply(test_latest_contract_info_read)]
         fn read_storage_from_fork_provider(
-            #[with(fork_provider_with_spawned_fork_network::default())]
+            #[from(fork_provider_with_spawned_fork_network_and_states)]
             provider_factory: ForkProviderFactory,
             #[case] expected_contract_info: Vec<(
                 ContractAddress,
@@ -74,7 +74,7 @@ mod latest {
 
     #[apply(test_latest_contract_info_read)]
     fn read_storage_from_db_provider(
-        #[with(db_provider())] provider_factory: DbProviderFactory,
+        #[from(db_provider_with_states)] provider_factory: DbProviderFactory,
         #[case] expected_contract_info: Vec<(ContractAddress, Option<ClassHash>, Option<Nonce>)>,
     ) -> Result<()> {
         let provider = provider_factory.provider();
@@ -131,21 +131,20 @@ mod historical {
     ])
 ]
     fn test_historical_storage_read(
-        #[from(provider_with_states)] provider_factory: impl ProviderFactory,
         #[case] block_num: BlockNumber,
         #[case] expected_contract_info: Vec<(ContractAddress, Option<ClassHash>, Option<Nonce>)>,
     ) {
     }
 
     mod fork {
-        use fixtures::fork::fork_provider_with_spawned_fork_network;
+        use fixtures::fork::fork_provider_with_spawned_fork_network_and_states;
         use katana_provider::ForkProviderFactory;
 
         use super::*;
 
         #[apply(test_historical_storage_read)]
         fn read_storage_from_fork_provider(
-            #[with(fork_provider_with_spawned_fork_network::default())]
+            #[from(fork_provider_with_spawned_fork_network_and_states)]
             provider_factory: ForkProviderFactory,
             #[case] block_num: BlockNumber,
             #[case] expected_contract_info: Vec<(
@@ -161,7 +160,7 @@ mod historical {
 
     #[apply(test_historical_storage_read)]
     fn read_storage_from_db_provider(
-        #[with(db_provider())] provider_factory: DbProviderFactory,
+        #[from(db_provider_with_states)] provider_factory: DbProviderFactory,
         #[case] block_num: BlockNumber,
         #[case] expected_contract_info: Vec<(ContractAddress, Option<ClassHash>, Option<Nonce>)>,
     ) -> Result<()> {

@@ -20,8 +20,10 @@ use rstest_reuse::{self, *};
 mod fixtures;
 mod utils;
 
-use fixtures::{db_provider, mock_state_updates, provider_with_states};
+use fixtures::{db_provider, mock_state_updates};
 use katana_primitives::Felt;
+
+use crate::fixtures::db_provider_with_states;
 
 #[apply(insert_block_cases)]
 fn insert_block_with_db_provider(
@@ -268,7 +270,7 @@ where
 
 #[apply(test_read_state_update)]
 fn test_read_state_update_with_db_provider(
-    #[with(db_provider())] provider_factory: DbProviderFactory,
+    #[from(db_provider_with_states)] provider_factory: DbProviderFactory,
     #[case] block_num: BlockNumber,
     #[case] expected_state_update: StateUpdatesWithClasses,
 ) -> Result<()> {
@@ -301,14 +303,13 @@ fn insert_block_cases(#[case] block_count: u64) {}
 #[case::state_update_at_block_3(3, StateUpdatesWithClasses::default())]
 #[case::state_update_at_block_5(5, mock_state_updates()[2].clone())]
 fn test_read_state_update(
-    #[from(provider_with_states)] provider_factory: impl ProviderFactory,
     #[case] block_num: BlockNumber,
     #[case] expected_state_update: StateUpdatesWithClasses,
 ) {
 }
 
 mod fork {
-    use fixtures::fork::{fork_provider, fork_provider_with_spawned_fork_network};
+    use fixtures::fork::{fork_provider, fork_provider_with_spawned_fork_network_and_states};
     use katana_provider::ForkProviderFactory;
 
     use super::*;
@@ -341,7 +342,7 @@ mod fork {
 
     #[apply(test_read_state_update)]
     fn test_read_state_update_with_fork_provider(
-        #[with(fork_provider_with_spawned_fork_network::default())]
+        #[from(fork_provider_with_spawned_fork_network_and_states)]
         provider_factory: ForkProviderFactory,
         #[case] block_num: BlockNumber,
         #[case] expected_state_update: StateUpdatesWithClasses,

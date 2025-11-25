@@ -24,7 +24,6 @@ use katana_primitives::version::CURRENT_STARKNET_VERSION;
 use katana_primitives::{address, Felt};
 use katana_provider::api::block::BlockWriter;
 use katana_provider::api::state::{StateFactoryProvider, StateProvider};
-use katana_provider::providers::db::DbProvider;
 use katana_provider::{DbProviderFactory, MutableProvider, ProviderFactory};
 use starknet::macros::felt;
 

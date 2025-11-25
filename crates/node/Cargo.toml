@@ -34,7 +34,6 @@ futures.workspace = true
 http.workspace = true
 jsonrpsee.workspace = true
 serde.workspace = true
-starknet.workspace = true
 parking_lot.workspace = true
 thiserror.workspace = true
 tracing.workspace = true

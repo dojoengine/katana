@@ -68,7 +68,6 @@ where
     provider: P,
     config: Arc<Config>,
     pool: TxPool,
-    // db: katana_db::Db,
     rpc_server: RpcServer,
     task_manager: TaskManager,
     backend: Arc<Backend<BlockifierFactory, P>>,
@@ -87,8 +86,6 @@ where
     /// This returns a [`Node`] instance which can be launched with the all the necessary components
     /// configured.
     pub fn build_with_provider(provider: P, config: Config) -> Result<Node<P>> {
-        let mut config = config;
-
         if config.metrics.is_some() {
             // Metrics recorder must be initialized before calling any of the metrics macros, in
             // order for it to be registered.
@@ -99,33 +96,6 @@ where
 
         let task_manager = TaskManager::current();
         let task_spawner = task_manager.task_spawner();
-
-        // --- build backend
-
-        // let (storage, db) = if let Some(cfg) = &config.forking {
-        //     // NOTE: because the chain spec will be cloned for the BlockifierFactory (see below),
-        //     // this mutation must be performed before the chain spec is cloned. Otherwise
-        //     // this will panic.
-        //     let chain_spec = Arc::get_mut(&mut config.chain).expect("get mut Arc");
-
-        //     let ChainSpec::Dev(chain_spec) = chain_spec else {
-        //         return Err(anyhow::anyhow!("Forking is only supported in dev mode for now"));
-        //     };
-
-        //     let db = katana_db::Db::in_memory()?;
-
-        //     let provider =
-        //         StorageProvider::new_forked(db.clone(), cfg.url.clone(), cfg.block, chain_spec)
-        //             .await?;
-
-        //     (Arc::new(provider) as GenericStorageProvider, db)
-        // } else if let Some(db_path) = &config.db.dir {
-        //     let db = katana_db::Db::new(db_path)?;
-        //     (Arc::new(StorageProvider::new_with_db(db.clone())) as GenericStorageProvider, db)
-        // } else {
-        //     let db = katana_db::Db::in_memory()?;
-        //     (Arc::new(StorageProvider::new_with_db(db.clone())) as GenericStorageProvider, db)
-        // };
 
         // --- build executor factory
 
@@ -190,6 +160,8 @@ where
 
         // Get cfg_env before moving executor_factory into Backend
         let versioned_constant_overrides = executor_factory.overrides().cloned();
+
+        // --- build backend
 
         let block_context_generator = BlockContextGenerator::default().into();
         let backend = Arc::new(Backend {
@@ -530,10 +502,10 @@ where
         Ok(LaunchedNode { node: self, rpc: rpc_handle, gateway: gateway_handle })
     }
 
-    // /// Returns a reference to the node's database environment (if any).
-    // pub fn db(&self) -> &Db {
-    //     &self.db
-    // }
+    /// Returns a reference to the node's database environment (if any).
+    pub fn provider(&self) -> &P {
+        &self.provider
+    }
 
     pub fn backend(&self) -> &Arc<Backend<BlockifierFactory, P>> {
         &self.backend

@@ -1,13 +1,14 @@
 mod fixtures;
 
 use anyhow::Result;
-use fixtures::{provider_with_states, DOJO_WORLD_SIERRA_CLASS};
 use katana_primitives::block::{BlockHashOrNumber, BlockNumber};
 use katana_primitives::class::{ClassHash, CompiledClassHash, ContractClass};
 use katana_provider::api::contract::ContractClassProviderExt;
 use katana_provider::api::state::{StateFactoryProvider, StateProvider};
 use rstest_reuse::{self, *};
 use starknet::macros::felt;
+
+use crate::fixtures::{db_provider_with_states, DOJO_WORLD_SIERRA_CLASS};
 
 type ClassHashAndClasses = (ClassHash, Option<CompiledClassHash>, Option<ContractClass>);
 
@@ -36,7 +37,6 @@ mod latest {
     use katana_provider::{DbProviderFactory, ProviderFactory};
 
     use super::*;
-    use crate::fixtures::db_provider;
 
     fn assert_latest_class(
         provider: impl StateFactoryProvider,
@@ -55,21 +55,17 @@ mod latest {
             (felt!("33"), Some(felt!("3000")), Some(ContractClass::Class((*DOJO_WORLD_SIERRA_CLASS).clone()))),
         ]
     )]
-    fn test_latest_class_read(
-        #[from(provider_with_states)] provider_factory: impl ProviderFactory,
-        #[case] expected_class: Vec<ClassHashAndClasses>,
-    ) {
-    }
+    fn test_latest_class_read(#[case] expected_class: Vec<ClassHashAndClasses>) {}
 
     mod fork {
-        use fixtures::fork::fork_provider_with_spawned_fork_network;
-        use katana_provider::{ForkProviderFactory, ProviderFactory};
+        use fixtures::fork::fork_provider_with_spawned_fork_network_and_states;
+        use katana_provider::ForkProviderFactory;
 
         use super::*;
 
         #[apply(test_latest_class_read)]
         fn read_class_from_fork_provider(
-            #[with(fork_provider_with_spawned_fork_network::default())]
+            #[from(fork_provider_with_spawned_fork_network_and_states)]
             provider_factory: ForkProviderFactory,
             #[case] expected_classes: Vec<ClassHashAndClasses>,
         ) -> Result<()> {
@@ -80,7 +76,7 @@ mod latest {
 
     #[apply(test_latest_class_read)]
     fn read_class_from_db_provider(
-        #[with(db_provider())] provider_factory: DbProviderFactory,
+        #[from(db_provider_with_states)] provider_factory: DbProviderFactory,
         #[case] expected_classes: Vec<ClassHashAndClasses>,
     ) -> Result<()> {
         let provider = provider_factory.provider();
@@ -93,7 +89,6 @@ mod historical {
     use katana_provider::{DbProviderFactory, ProviderFactory};
 
     use super::*;
-    use crate::fixtures::db_provider;
 
     fn assert_historical_class(
         provider: impl StateFactoryProvider,
@@ -143,21 +138,20 @@ mod historical {
         ])
     ]
     fn test_historical_class_read(
-        #[from(provider_with_states)] provider_factory: impl ProviderFactory,
         #[case] block_num: BlockNumber,
         #[case] expected_class: Vec<ClassHashAndClasses>,
     ) {
     }
 
     mod fork {
-        use fixtures::fork::fork_provider_with_spawned_fork_network;
-        use katana_provider::{ForkProviderFactory, ProviderFactory};
+        use fixtures::fork::fork_provider_with_spawned_fork_network_and_states;
+        use katana_provider::ForkProviderFactory;
 
         use super::*;
 
         #[apply(test_historical_class_read)]
         fn read_class_from_fork_provider(
-            #[with(fork_provider_with_spawned_fork_network::default())]
+            #[from(fork_provider_with_spawned_fork_network_and_states)]
             provider_factory: ForkProviderFactory,
             #[case] block_num: BlockNumber,
             #[case] expected_classes: Vec<ClassHashAndClasses>,
@@ -169,7 +163,7 @@ mod historical {
 
     #[apply(test_historical_class_read)]
     fn read_class_from_db_provider(
-        #[with(db_provider())] provider_factory: DbProviderFactory,
+        #[from(db_provider_with_states)] provider_factory: DbProviderFactory,
         #[case] block_num: BlockNumber,
         #[case] expected_classes: Vec<ClassHashAndClasses>,
     ) -> Result<()> {
