@@ -172,9 +172,7 @@ where
             chain_spec: config.chain.clone(),
         });
 
-        println!("initializing genesis");
         backend.init_genesis(config.forking.is_some()).context("failed to initialize genesis")?;
-        println!("genesis initialized");
 
         // --- build block producer
 
@@ -308,8 +306,6 @@ where
             None
         };
 
-        println!("node built");
-
         Ok(Node {
             provider,
             pool,
@@ -423,7 +419,6 @@ impl Node<ForkProviderFactory> {
 
         block.header.l1_da_mode = forked_block.l1_da_mode;
 
-        println!("ohayo");
         Self::build_with_provider(provider_factory, config)
     }
 }

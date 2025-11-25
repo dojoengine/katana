@@ -19,7 +19,7 @@ use katana_rpc_types::ContractStorageKeys;
 use super::db::{self};
 use super::ForkedProvider;
 use crate::providers::fork::ForkedDb;
-use crate::{ProviderFactory, ProviderResult};
+use crate::{MutableProvider, ProviderFactory, ProviderResult};
 
 impl<Tx1: DbTx> StateFactoryProvider for ForkedProvider<Tx1> {
     fn latest(&self) -> ProviderResult<Box<dyn StateProvider>> {
@@ -88,11 +88,9 @@ impl<Tx1: DbTx> ContractClassProvider for LatestStateProvider<Tx1> {
         } else if let Some(class) =
             self.fork_provider.backend.get_class_at(hash, self.fork_provider.block_id)?
         {
-            self.fork_provider
-                .db
-                .provider_mut()
-                .tx()
-                .put::<tables::Classes>(hash, class.clone().into())?;
+            let provider_mut = self.fork_provider.db.provider_mut();
+            provider_mut.tx().put::<tables::Classes>(hash, class.clone().into())?;
+            provider_mut.commit()?;
 
             Ok(Some(class))
         } else {
@@ -109,11 +107,9 @@ impl<Tx1: DbTx> ContractClassProvider for LatestStateProvider<Tx1> {
         } else if let Some(compiled_hash) =
             self.fork_provider.backend.get_compiled_class_hash(hash, self.fork_provider.block_id)?
         {
-            self.fork_provider
-                .db
-                .provider_mut()
-                .tx()
-                .put::<tables::CompiledClassHashes>(hash, compiled_hash)?;
+            let provider_mut = self.fork_provider.db.provider_mut();
+            provider_mut.tx().put::<tables::CompiledClassHashes>(hash, compiled_hash)?;
+            provider_mut.commit()?;
 
             Ok(Some(compiled_hash))
         } else {
@@ -136,7 +132,10 @@ impl<Tx1: DbTx> StateProvider for LatestStateProvider<Tx1> {
                 .ok_or(ProviderError::MissingContractClassHash { address })?;
 
             let entry = GenericContractInfo { nonce, class_hash };
-            self.fork_provider.db.provider().tx().put::<tables::ContractInfo>(address, entry)?;
+
+            let provider_mut = self.fork_provider.db.provider_mut();
+            provider_mut.tx().put::<tables::ContractInfo>(address, entry)?;
+            provider_mut.commit()?;
 
             Ok(Some(nonce))
         } else {
@@ -160,11 +159,10 @@ impl<Tx1: DbTx> StateProvider for LatestStateProvider<Tx1> {
                 .ok_or(ProviderError::MissingContractNonce { address })?;
 
             let entry = GenericContractInfo { class_hash, nonce };
-            self.fork_provider
-                .db
-                .provider_mut()
-                .tx()
-                .put::<tables::ContractInfo>(address, entry)?;
+
+            let provider_mut = self.fork_provider.db.provider_mut();
+            provider_mut.tx().put::<tables::ContractInfo>(address, entry)?;
+            provider_mut.commit()?;
 
             Ok(Some(class_hash))
         } else {
@@ -183,7 +181,11 @@ impl<Tx1: DbTx> StateProvider for LatestStateProvider<Tx1> {
             self.fork_provider.backend.get_storage(address, key, self.fork_provider.block_id)?
         {
             let entry = StorageEntry { key, value };
-            self.fork_provider.db.provider().tx().put::<tables::ContractStorage>(address, entry)?;
+
+            let provider_mut = self.fork_provider.db.provider_mut();
+            provider_mut.tx().put::<tables::ContractStorage>(address, entry)?;
+            provider_mut.commit()?;
+
             Ok(Some(value))
         } else {
             Ok(None)
@@ -370,11 +372,9 @@ impl<Tx1: DbTx> ContractClassProvider for HistoricalStateProvider<Tx1> {
         if let Some(compiled_hash) =
             self.fork_provider.backend.get_compiled_class_hash(hash, self.local_provider.block())?
         {
-            self.fork_provider
-                .db
-                .provider_mut()
-                .tx()
-                .put::<tables::CompiledClassHashes>(hash, compiled_hash)?;
+            let provider_mut = self.fork_provider.db.provider_mut();
+            provider_mut.tx().put::<tables::CompiledClassHashes>(hash, compiled_hash)?;
+            provider_mut.commit()?;
 
             Ok(Some(compiled_hash))
         } else {
@@ -399,11 +399,9 @@ impl<Tx1: DbTx> StateProvider for HistoricalStateProvider<Tx1> {
             let block = self.local_provider.block();
             let entry = ContractNonceChange { contract_address: address, nonce };
 
-            self.fork_provider
-                .db
-                .provider_mut()
-                .tx()
-                .put::<tables::NonceChangeHistory>(block, entry)?;
+            let provider_mut = self.fork_provider.db.provider_mut();
+            provider_mut.tx().put::<tables::NonceChangeHistory>(block, entry)?;
+            provider_mut.commit()?;
 
             Ok(res)
         } else {
@@ -431,11 +429,9 @@ impl<Tx1: DbTx> StateProvider for HistoricalStateProvider<Tx1> {
             // `ClassChangeHistory` entry on the state update level instead.
             let entry = ContractClassChange::deployed(address, hash);
 
-            self.fork_provider
-                .db
-                .provider_mut()
-                .tx()
-                .put::<tables::ClassChangeHistory>(block, entry)?;
+            let provider_mut = self.fork_provider.db.provider_mut();
+            provider_mut.tx().put::<tables::ClassChangeHistory>(block, entry)?;
+            provider_mut.commit()?;
 
             Ok(res)
         } else {
@@ -467,19 +463,12 @@ impl<Tx1: DbTx> StateProvider for HistoricalStateProvider<Tx1> {
             let mut block_list = block_list.unwrap_or_default();
             block_list.insert(block);
 
-            self.fork_provider
-                .db
-                .provider_mut()
-                .tx()
-                .put::<tables::StorageChangeSet>(key.clone(), block_list)?;
+            let change_entry = ContractStorageEntry { key: key.clone(), value };
 
-            let change_entry = ContractStorageEntry { key, value };
-
-            self.fork_provider
-                .db
-                .provider_mut()
-                .tx()
-                .put::<tables::StorageChangeHistory>(block, change_entry)?;
+            let provider_mut = self.fork_provider.db.provider_mut();
+            provider_mut.tx().put::<tables::StorageChangeSet>(key, block_list)?;
+            provider_mut.tx().put::<tables::StorageChangeHistory>(block, change_entry)?;
+            provider_mut.commit()?;
 
             Ok(res)
         } else {

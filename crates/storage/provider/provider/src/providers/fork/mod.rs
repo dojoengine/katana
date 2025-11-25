@@ -291,7 +291,7 @@ impl<Tx1: DbTx> BlockProvider for ForkedProvider<Tx1> {
             return Ok(Some(value));
         }
 
-        if dbg!(self.fork_db.fetch_historical_blocks(id)?) {
+        if self.fork_db.fetch_historical_blocks(id)? {
             let value = self.fork_db.db.provider().block(id)?.unwrap();
             Ok(Some(value))
         } else {
@@ -342,7 +342,7 @@ impl<Tx1: DbTx> BlockStatusProvider for ForkedProvider<Tx1> {
             return Ok(Some(value));
         }
 
-        if dbg!(self.fork_db.fetch_historical_blocks(id)?) {
+        if self.fork_db.fetch_historical_blocks(id)? {
             let value = self.fork_db.db.provider().block_status(id)?.unwrap();
             Ok(Some(value))
         } else {

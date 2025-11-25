@@ -694,7 +694,7 @@ where
 
         // TODO: don't use the previous block env, we should create on based on the current state of
         // the l1 (to determine the proper gas prices)
-        let latest_num = dbg!(provider.latest_number()?);
+        let latest_num = provider.latest_number()?;
         let mut block_env = provider.block_env_at(BlockHashOrNumber::Num(latest_num))?.unwrap();
         backend.update_block_env(&mut block_env);
 

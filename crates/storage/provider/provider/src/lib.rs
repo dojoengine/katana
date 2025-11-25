@@ -118,7 +118,6 @@ impl ProviderFactory for ForkProviderFactory {
     }
 
     fn provider_mut(&self) -> Self::ProviderMut {
-        dbg!("creating provider_mut");
         ForkedProvider::new(
             self.local_factory.provider_mut(),
             ForkedDb::new(self.backend.clone(), self.block_id, self.fork_factory.clone()),

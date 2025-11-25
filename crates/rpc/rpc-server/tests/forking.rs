@@ -73,7 +73,7 @@ async fn setup_test_inner(no_mining: bool) -> (ForkTestNode, StarknetClient, Loc
             let block_num = (FORK_BLOCK_NUMBER + 1) + i; // plus 1 because fork genesis is FORK_BLOCK_NUMBER + 1
 
             let block_id = BlockIdOrTag::Number(block_num);
-            let block = provider.get_block_with_tx_hashes(dbg!(block_id)).await.unwrap();
+            let block = provider.get_block_with_tx_hashes(block_id).await.unwrap();
             let block_hash = match block {
                 GetBlockWithTxHashesResponse::Block(b) => {
                     assert_eq!(b.transactions.len(), 1);

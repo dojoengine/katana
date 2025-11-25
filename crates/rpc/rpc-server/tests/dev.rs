@@ -8,24 +8,33 @@ use katana_utils::TestNode;
 async fn test_next_block_timestamp_in_past() {
     let sequencer = TestNode::new().await;
     let backend = sequencer.backend();
-    let provider = backend.storage.provider();
 
     // Create a jsonrpsee client for the DevApi
     let client = sequencer.rpc_http_client();
 
-    let block_num = provider.latest_number().unwrap();
-    let mut block_env = provider.block_env_at(block_num.into()).unwrap().unwrap();
-    backend.update_block_env(&mut block_env);
+    let block1 = {
+        let provider = backend.storage.provider();
 
-    let block1 = backend.mine_empty_block(&block_env).unwrap().block_number;
+        let block_num = provider.latest_number().unwrap();
+        let mut block_env = provider.block_env_at(block_num.into()).unwrap().unwrap();
+        backend.update_block_env(&mut block_env);
+        backend.mine_empty_block(&block_env).unwrap().block_number
+    };
+
+    let block2 = {
+        let provider = backend.storage.provider();
+
+        let block1_timestamp = provider.block(block1.into()).unwrap().unwrap().header.timestamp;
+        client.set_next_block_timestamp(block1_timestamp - 1000).await.unwrap();
+
+        let block_num = provider.latest_number().unwrap();
+        let mut block_env = provider.block_env_at(block_num.into()).unwrap().unwrap();
+        backend.update_block_env(&mut block_env);
+        backend.mine_empty_block(&block_env).unwrap().block_number
+    };
+
+    let provider = backend.storage.provider();
     let block1_timestamp = provider.block(block1.into()).unwrap().unwrap().header.timestamp;
-    client.set_next_block_timestamp(block1_timestamp - 1000).await.unwrap();
-
-    let block_num = provider.latest_number().unwrap();
-    let mut block_env = provider.block_env_at(block_num.into()).unwrap().unwrap();
-    backend.update_block_env(&mut block_env);
-
-    let block2 = backend.mine_empty_block(&block_env).unwrap().block_number;
     let block2_timestamp = provider.block(block2.into()).unwrap().unwrap().header.timestamp;
 
     assert_eq!(block2_timestamp, block1_timestamp - 1000, "timestamp should be updated");
@@ -35,25 +44,32 @@ async fn test_next_block_timestamp_in_past() {
 async fn test_set_next_block_timestamp_in_future() {
     let sequencer = TestNode::new().await;
     let backend = sequencer.backend();
-    let provider = backend.storage.provider();
-
     // Create a jsonrpsee client for the DevApi
     let client = sequencer.rpc_http_client();
 
-    let block_num = provider.latest_number().unwrap();
-    let mut block_env = provider.block_env_at(block_num.into()).unwrap().unwrap();
-    backend.update_block_env(&mut block_env);
-    let block1 = backend.mine_empty_block(&block_env).unwrap().block_number;
+    let block1 = {
+        let provider = backend.storage.provider();
 
+        let block_num = provider.latest_number().unwrap();
+        let mut block_env = provider.block_env_at(block_num.into()).unwrap().unwrap();
+        backend.update_block_env(&mut block_env);
+        backend.mine_empty_block(&block_env).unwrap().block_number
+    };
+
+    let block2 = {
+        let provider = backend.storage.provider();
+
+        let block1_timestamp = provider.block(block1.into()).unwrap().unwrap().header.timestamp;
+        client.set_next_block_timestamp(block1_timestamp + 1000).await.unwrap();
+
+        let block_num = provider.latest_number().unwrap();
+        let mut block_env = provider.block_env_at(block_num.into()).unwrap().unwrap();
+        backend.update_block_env(&mut block_env);
+        backend.mine_empty_block(&block_env).unwrap().block_number
+    };
+
+    let provider = backend.storage.provider();
     let block1_timestamp = provider.block(block1.into()).unwrap().unwrap().header.timestamp;
-
-    client.set_next_block_timestamp(block1_timestamp + 1000).await.unwrap();
-
-    let block_num = provider.latest_number().unwrap();
-    let mut block_env = provider.block_env_at(block_num.into()).unwrap().unwrap();
-    backend.update_block_env(&mut block_env);
-    let block2 = backend.mine_empty_block(&block_env).unwrap().block_number;
-
     let block2_timestamp = provider.block(block2.into()).unwrap().unwrap().header.timestamp;
 
     assert_eq!(block2_timestamp, block1_timestamp + 1000, "timestamp should be updated");
@@ -63,25 +79,31 @@ async fn test_set_next_block_timestamp_in_future() {
 async fn test_increase_next_block_timestamp() {
     let sequencer = TestNode::new().await;
     let backend = sequencer.backend();
-    let provider = backend.storage.provider();
-
     // Create a jsonrpsee client for the DevApi
     let client = sequencer.rpc_http_client();
 
-    let block_num = provider.latest_number().unwrap();
-    let mut block_env = provider.block_env_at(block_num.into()).unwrap().unwrap();
-    backend.update_block_env(&mut block_env);
-    let block1 = backend.mine_empty_block(&block_env).unwrap().block_number;
+    let block1 = {
+        let provider = backend.storage.provider();
 
+        let block_num = provider.latest_number().unwrap();
+        let mut block_env = provider.block_env_at(block_num.into()).unwrap().unwrap();
+        backend.update_block_env(&mut block_env);
+        backend.mine_empty_block(&block_env).unwrap().block_number
+    };
+
+    let block2 = {
+        let provider = backend.storage.provider();
+
+        client.increase_next_block_timestamp(1000).await.unwrap();
+
+        let block_num = provider.latest_number().unwrap();
+        let mut block_env = provider.block_env_at(block_num.into()).unwrap().unwrap();
+        backend.update_block_env(&mut block_env);
+        backend.mine_empty_block(&block_env).unwrap().block_number
+    };
+
+    let provider = backend.storage.provider();
     let block1_timestamp = provider.block(block1.into()).unwrap().unwrap().header.timestamp;
-
-    client.increase_next_block_timestamp(1000).await.unwrap();
-
-    let block_num = provider.latest_number().unwrap();
-    let mut block_env = provider.block_env_at(block_num.into()).unwrap().unwrap();
-    backend.update_block_env(&mut block_env);
-    let block2 = backend.mine_empty_block(&block_env).unwrap().block_number;
-
     let block2_timestamp = provider.block(block2.into()).unwrap().unwrap().header.timestamp;
 
     // Depending on the current time and the machine we run on, we may have 1 sec difference
