@@ -15,7 +15,7 @@ use http::header::CONTENT_TYPE;
 use http::Method;
 use jsonrpsee::RpcModule;
 use katana_chain_spec::{ChainSpec, SettlementLayer};
-use katana_core::backend::storage::{DatabaseRO, DatabaseRW};
+use katana_core::backend::storage::{ProviderRO, ProviderRW};
 use katana_core::backend::Backend;
 use katana_core::env::BlockContextGenerator;
 use katana_core::service::block_producer::BlockProducer;
@@ -62,8 +62,8 @@ use crate::exit::NodeStoppedFuture;
 pub struct Node<P>
 where
     P: ProviderFactory,
-    <P as ProviderFactory>::Provider: DatabaseRO,
-    <P as ProviderFactory>::ProviderMut: DatabaseRW,
+    <P as ProviderFactory>::Provider: ProviderRO,
+    <P as ProviderFactory>::ProviderMut: ProviderRW,
 {
     provider: P,
     config: Arc<Config>,
@@ -78,8 +78,8 @@ where
 impl<P> Node<P>
 where
     P: ProviderFactory + Clone,
-    <P as ProviderFactory>::Provider: DatabaseRO,
-    <P as ProviderFactory>::ProviderMut: DatabaseRW,
+    <P as ProviderFactory>::Provider: ProviderRO,
+    <P as ProviderFactory>::ProviderMut: ProviderRW,
 {
     /// Build the node components from the given [`Config`].
     ///
@@ -426,8 +426,8 @@ impl Node<ForkProviderFactory> {
 impl<P> Node<P>
 where
     P: ProviderFactory,
-    <P as ProviderFactory>::Provider: DatabaseRO,
-    <P as ProviderFactory>::ProviderMut: DatabaseRW,
+    <P as ProviderFactory>::Provider: ProviderRO,
+    <P as ProviderFactory>::ProviderMut: ProviderRW,
 {
     /// Start the node.
     ///
@@ -532,8 +532,8 @@ where
 pub struct LaunchedNode<P>
 where
     P: ProviderFactory,
-    <P as ProviderFactory>::Provider: DatabaseRO,
-    <P as ProviderFactory>::ProviderMut: DatabaseRW,
+    <P as ProviderFactory>::Provider: ProviderRO,
+    <P as ProviderFactory>::ProviderMut: ProviderRW,
 {
     node: Node<P>,
     /// Handle to the rpc server.
@@ -545,8 +545,8 @@ where
 impl<P> LaunchedNode<P>
 where
     P: ProviderFactory,
-    <P as ProviderFactory>::Provider: DatabaseRO,
-    <P as ProviderFactory>::ProviderMut: DatabaseRW,
+    <P as ProviderFactory>::Provider: ProviderRO,
+    <P as ProviderFactory>::ProviderMut: ProviderRW,
 {
     /// Returns a reference to the [`Node`] handle.
     pub fn node(&self) -> &Node<P> {

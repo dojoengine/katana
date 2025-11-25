@@ -9,8 +9,8 @@ use katana_primitives::receipt::ReceiptWithTxHash;
 use katana_primitives::state::StateUpdates;
 use katana_primitives::transaction::TxWithHash;
 use katana_primitives::{ContractAddress, Felt};
-use katana_provider::providers::db::DbProvider;
-use katana_provider::DbProviderFactory;
+use katana_provider::api::trie::TrieWriter;
+use katana_provider::{DbProviderFactory, ProviderFactory};
 use pprof::criterion::{Output, PProfProfiler};
 
 struct BlockConfig {
@@ -43,11 +43,11 @@ const BIG_BLOCK_CONFIG: BlockConfig = BlockConfig {
     nb_of_contracts: 100,
 };
 
-fn commit(block: UncommittedBlock<'_, DbProviderFactory>) {
+fn commit<P: TrieWriter>(block: UncommittedBlock<'_, P>) {
     let _ = block.commit();
 }
 
-fn commit_parallel(block: UncommittedBlock<'_, DbProviderFactory>) {
+fn commit_parallel<P: TrieWriter>(block: UncommittedBlock<'_, P>) {
     let _ = block.commit_parallel();
 }
 
@@ -135,6 +135,9 @@ fn commit_small(c: &mut Criterion) {
     let mut c = c.benchmark_group("Commit.Small");
     c.warm_up_time(Duration::from_secs(1));
 
+    let provider_factory = DbProviderFactory::new_in_memory();
+    let provider_mut = provider_factory.provider_mut();
+
     let (header, small_transactions, small_receipts, small_state_updates) =
         build_block(SMALL_BLOCK_CONFIG);
 
@@ -143,7 +146,7 @@ fn commit_small(c: &mut Criterion) {
         small_transactions,
         small_receipts.as_slice(),
         &small_state_updates,
-        DbProvider::new_in_memory(),
+        provider_mut,
     );
 
     c.bench_function("Serial", |b| {
@@ -163,13 +166,16 @@ fn commit_big(c: &mut Criterion) {
     let mut c = c.benchmark_group("Commit.Big");
     c.warm_up_time(Duration::from_secs(1));
 
+    let provider_factory = DbProviderFactory::new_in_memory();
+    let provider_mut = provider_factory.provider_mut();
+
     let (header, big_transactions, big_receipts, big_state_updates) = build_block(BIG_BLOCK_CONFIG);
     let block = UncommittedBlock::new(
         header,
         big_transactions,
         big_receipts.as_slice(),
         &big_state_updates,
-        DbProvider::new_in_memory(),
+        provider_mut,
     );
 
     c.bench_function("Serial", |b| {

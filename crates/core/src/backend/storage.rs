@@ -11,7 +11,7 @@ use katana_provider::api::transaction::{
 use katana_provider::api::trie::TrieWriter;
 use katana_provider::MutableProvider;
 
-pub trait DatabaseRO:
+pub trait ProviderRO:
     BlockIdReader
     + BlockProvider
     + TransactionProvider
@@ -29,9 +29,9 @@ pub trait DatabaseRO:
 {
 }
 
-pub trait DatabaseRW:
+pub trait ProviderRW:
     MutableProvider
-    + DatabaseRO
+    + ProviderRO
     + BlockWriter
     + StateWriter
     + ContractClassWriter
@@ -40,7 +40,7 @@ pub trait DatabaseRW:
 {
 }
 
-impl<T> DatabaseRO for T where
+impl<T> ProviderRO for T where
     T: BlockProvider
         + BlockIdReader
         + TransactionProvider
@@ -58,8 +58,8 @@ impl<T> DatabaseRO for T where
 {
 }
 
-impl<T> DatabaseRW for T where
-    T: DatabaseRO
+impl<T> ProviderRW for T where
+    T: ProviderRO
         + MutableProvider
         + BlockWriter
         + StateWriter

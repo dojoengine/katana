@@ -12,7 +12,7 @@ use tracing::{error, info};
 
 use self::block_producer::BlockProducer;
 use self::metrics::BlockProducerMetrics;
-use crate::backend::storage::{DatabaseRO, DatabaseRW};
+use crate::backend::storage::{ProviderRO, ProviderRW};
 
 pub mod block_producer;
 mod metrics;
@@ -62,8 +62,8 @@ where
     EF: ExecutorFactory,
     O: PoolOrd<Transaction = ExecutableTxWithHash>,
     PF: ProviderFactory,
-    <PF as ProviderFactory>::Provider: DatabaseRO,
-    <PF as ProviderFactory>::ProviderMut: DatabaseRW,
+    <PF as ProviderFactory>::Provider: ProviderRO,
+    <PF as ProviderFactory>::ProviderMut: ProviderRW,
 {
     type Output = Result<(), BlockProductionError>;
 

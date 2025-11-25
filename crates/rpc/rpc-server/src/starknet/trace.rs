@@ -1,5 +1,5 @@
 use jsonrpsee::core::{async_trait, RpcResult};
-use katana_core::backend::storage::DatabaseRO;
+use katana_core::backend::storage::ProviderRO;
 use katana_executor::{ExecutionResult, ResultAndStates};
 use katana_pool::TransactionPool;
 use katana_primitives::block::{BlockHashOrNumber, BlockIdOrTag, ConfirmedBlockIdOrTag};
@@ -26,7 +26,7 @@ where
     PoolTx: From<BroadcastedTxWithChainId>,
     Pending: PendingBlockProvider,
     PF: ProviderFactory,
-    <PF as ProviderFactory>::Provider: DatabaseRO,
+    <PF as ProviderFactory>::Provider: ProviderRO,
 {
     fn simulate_txs(
         &self,
@@ -150,7 +150,7 @@ where
     PoolTx: From<BroadcastedTxWithChainId>,
     Pending: PendingBlockProvider,
     PF: ProviderFactory,
-    <PF as ProviderFactory>::Provider: DatabaseRO,
+    <PF as ProviderFactory>::Provider: ProviderRO,
 {
     async fn trace_transaction(&self, transaction_hash: TxHash) -> RpcResult<TxTrace> {
         self.on_io_blocking_task(move |this| Ok(this.trace(transaction_hash)?)).await?

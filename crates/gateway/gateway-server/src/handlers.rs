@@ -1,7 +1,7 @@
 use axum::extract::{Query, State};
 use axum::http::StatusCode;
 use axum::response::{IntoResponse, Json, Response};
-use katana_core::backend::storage::{DatabaseRO, DatabaseRW};
+use katana_core::backend::storage::{ProviderRO, ProviderRW};
 use katana_core::service::block_producer::BlockProducer;
 use katana_executor::implementation::blockifier::BlockifierFactory;
 use katana_gateway_types::{
@@ -25,8 +25,8 @@ pub struct AppState<Pool, PF>
 where
     Pool: TransactionPool,
     PF: ProviderFactory,
-    <PF as ProviderFactory>::Provider: DatabaseRO,
-    <PF as ProviderFactory>::ProviderMut: DatabaseRW,
+    <PF as ProviderFactory>::Provider: ProviderRO,
+    <PF as ProviderFactory>::ProviderMut: ProviderRW,
 {
     pub api: StarknetApi<Pool, BlockProducer<BlockifierFactory, PF>, PF>,
 }
@@ -35,8 +35,8 @@ impl<Pool, PF> Clone for AppState<Pool, PF>
 where
     Pool: TransactionPool,
     PF: ProviderFactory,
-    <PF as ProviderFactory>::Provider: DatabaseRO,
-    <PF as ProviderFactory>::ProviderMut: DatabaseRW,
+    <PF as ProviderFactory>::Provider: ProviderRO,
+    <PF as ProviderFactory>::ProviderMut: ProviderRW,
 {
     fn clone(&self) -> Self {
         Self { api: self.api.clone() }
@@ -47,8 +47,8 @@ impl<P, PF> AppState<P, PF>
 where
     P: TransactionPool + Send + Sync + 'static,
     PF: ProviderFactory,
-    <PF as ProviderFactory>::Provider: DatabaseRO,
-    <PF as ProviderFactory>::ProviderMut: DatabaseRW,
+    <PF as ProviderFactory>::Provider: ProviderRO,
+    <PF as ProviderFactory>::ProviderMut: ProviderRW,
 {
     // TODO(kariy): support preconfirmed blocks
     async fn get_block(&self, id: BlockIdOrTag) -> Result<Option<Block>, ApiError> {
@@ -186,8 +186,8 @@ pub async fn get_block<P, PF>(
 where
     P: TransactionPool + Send + Sync + 'static,
     PF: ProviderFactory,
-    <PF as ProviderFactory>::Provider: DatabaseRO,
-    <PF as ProviderFactory>::ProviderMut: DatabaseRW,
+    <PF as ProviderFactory>::Provider: ProviderRO,
+    <PF as ProviderFactory>::ProviderMut: ProviderRW,
 {
     let block_id = params.block_id()?;
     let block = state.get_block(block_id).await?.unwrap();
@@ -213,8 +213,8 @@ pub async fn get_state_update<P, PF>(
 where
     P: TransactionPool + Send + Sync + 'static,
     PF: ProviderFactory,
-    <PF as ProviderFactory>::Provider: DatabaseRO,
-    <PF as ProviderFactory>::ProviderMut: DatabaseRW,
+    <PF as ProviderFactory>::Provider: ProviderRO,
+    <PF as ProviderFactory>::ProviderMut: ProviderRW,
 {
     let include_block = params.include_block;
     let block_id = params.block_query.block_id()?;
@@ -241,8 +241,8 @@ pub async fn get_class_by_hash<P, PF>(
 where
     P: TransactionPool + Send + Sync + 'static,
     PF: ProviderFactory,
-    <PF as ProviderFactory>::Provider: DatabaseRO,
-    <PF as ProviderFactory>::ProviderMut: DatabaseRW,
+    <PF as ProviderFactory>::Provider: ProviderRO,
+    <PF as ProviderFactory>::ProviderMut: ProviderRW,
 {
     let class_hash = params.class_hash;
     let block_id = params.block_query.block_id()?;
@@ -260,8 +260,8 @@ pub async fn get_compiled_class_by_class_hash<P, PF>(
 where
     P: TransactionPool + Send + Sync + 'static,
     PF: ProviderFactory,
-    <PF as ProviderFactory>::Provider: DatabaseRO,
-    <PF as ProviderFactory>::ProviderMut: DatabaseRW,
+    <PF as ProviderFactory>::Provider: ProviderRO,
+    <PF as ProviderFactory>::ProviderMut: ProviderRW,
 {
     let class_hash = params.class_hash;
     let block_id = params.block_query.block_id()?;

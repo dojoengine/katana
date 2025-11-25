@@ -5,7 +5,7 @@ use std::future::Future;
 use std::sync::Arc;
 
 use katana_chain_spec::ChainSpec;
-use katana_core::backend::storage::DatabaseRO;
+use katana_core::backend::storage::ProviderRO;
 use katana_core::utils::get_current_timestamp;
 use katana_gas_price_oracle::GasPriceOracle;
 use katana_pool::TransactionPool;
@@ -240,7 +240,7 @@ where
     Pool: TransactionPool + 'static,
     PP: PendingBlockProvider,
     PF: ProviderFactory,
-    <PF as ProviderFactory>::Provider: DatabaseRO,
+    <PF as ProviderFactory>::Provider: ProviderRO,
 {
     fn estimate_fee_with(
         &self,
@@ -1070,7 +1070,7 @@ where
     Pool: TransactionPool + 'static,
     PP: PendingBlockProvider,
     PF: ProviderFactory,
-    <PF as ProviderFactory>::Provider: DatabaseRO,
+    <PF as ProviderFactory>::Provider: ProviderRO,
 {
     async fn blocks(&self, request: GetBlocksRequest) -> StarknetApiResult<GetBlocksResponse> {
         self.on_io_blocking_task(move |this| {

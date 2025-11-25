@@ -34,7 +34,7 @@ use cartridge::vrf::{
     VrfContext, CARTRIDGE_VRF_CLASS_HASH, CARTRIDGE_VRF_DEFAULT_PRIVATE_KEY, CARTRIDGE_VRF_SALT,
 };
 use jsonrpsee::core::{async_trait, RpcResult};
-use katana_core::backend::storage::{DatabaseRO, DatabaseRW};
+use katana_core::backend::storage::{ProviderRO, ProviderRW};
 use katana_core::backend::Backend;
 use katana_core::service::block_producer::{BlockProducer, BlockProducerMode};
 use katana_executor::ExecutorFactory;
@@ -95,8 +95,8 @@ impl<EF, PF> CartridgeApi<EF, PF>
 where
     EF: ExecutorFactory,
     PF: ProviderFactory,
-    <PF as ProviderFactory>::Provider: DatabaseRO,
-    <PF as ProviderFactory>::ProviderMut: DatabaseRW,
+    <PF as ProviderFactory>::Provider: ProviderRO,
+    <PF as ProviderFactory>::ProviderMut: ProviderRW,
 {
     pub fn new(
         backend: Arc<Backend<EF, PF>>,
@@ -314,8 +314,8 @@ impl<EF, PF> CartridgeApiServer for CartridgeApi<EF, PF>
 where
     EF: ExecutorFactory,
     PF: ProviderFactory,
-    <PF as ProviderFactory>::Provider: DatabaseRO,
-    <PF as ProviderFactory>::ProviderMut: DatabaseRW,
+    <PF as ProviderFactory>::Provider: ProviderRO,
+    <PF as ProviderFactory>::ProviderMut: ProviderRW,
 {
     async fn add_execute_outside_transaction(
         &self,

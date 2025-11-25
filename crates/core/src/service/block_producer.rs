@@ -35,7 +35,7 @@ use parking_lot::{Mutex, RwLock};
 use tokio::time::{interval_at, Instant, Interval};
 use tracing::{error, info, trace};
 
-use crate::backend::storage::{DatabaseRO, DatabaseRW};
+use crate::backend::storage::{ProviderRO, ProviderRW};
 use crate::backend::Backend;
 
 #[cfg(test)]
@@ -111,8 +111,8 @@ impl<EF, PF> BlockProducer<EF, PF>
 where
     EF: ExecutorFactory,
     PF: ProviderFactory,
-    <PF as ProviderFactory>::Provider: DatabaseRO,
-    <PF as ProviderFactory>::ProviderMut: DatabaseRW,
+    <PF as ProviderFactory>::Provider: ProviderRO,
+    <PF as ProviderFactory>::ProviderMut: ProviderRW,
 {
     /// Creates a block producer that mines a new block every `interval` milliseconds.
     pub fn interval(backend: Arc<Backend<EF, PF>>, interval: u64) -> Self {
@@ -274,7 +274,7 @@ impl<EF, PF> IntervalBlockProducer<EF, PF>
 where
     EF: ExecutorFactory,
     PF: ProviderFactory,
-    <PF as ProviderFactory>::Provider: DatabaseRO,
+    <PF as ProviderFactory>::Provider: ProviderRO,
 {
     pub fn new(backend: Arc<Backend<EF, PF>>, block_time: Option<u64>) -> Self {
         let provider = backend.storage.provider();
@@ -337,8 +337,8 @@ impl<EF, PF> IntervalBlockProducer<EF, PF>
 where
     EF: ExecutorFactory,
     PF: ProviderFactory,
-    <PF as ProviderFactory>::Provider: DatabaseRO,
-    <PF as ProviderFactory>::ProviderMut: DatabaseRW,
+    <PF as ProviderFactory>::Provider: ProviderRO,
+    <PF as ProviderFactory>::ProviderMut: ProviderRW,
 {
     /// Force mine a new block. It will only able to mine if there is no ongoing mining process.
     pub fn force_mine(&mut self) {
@@ -436,8 +436,8 @@ impl<EF, PF> Stream for IntervalBlockProducer<EF, PF>
 where
     EF: ExecutorFactory,
     PF: ProviderFactory,
-    <PF as ProviderFactory>::Provider: DatabaseRO,
-    <PF as ProviderFactory>::ProviderMut: DatabaseRW,
+    <PF as ProviderFactory>::Provider: ProviderRO,
+    <PF as ProviderFactory>::ProviderMut: ProviderRW,
 {
     // mined block outcome and the new state
     type Item = Result<MinedBlockOutcome, BlockProductionError>;
@@ -622,8 +622,8 @@ impl<EF, PF> InstantBlockProducer<EF, PF>
 where
     EF: ExecutorFactory,
     PF: ProviderFactory,
-    <PF as ProviderFactory>::Provider: DatabaseRO,
-    <PF as ProviderFactory>::ProviderMut: DatabaseRW,
+    <PF as ProviderFactory>::Provider: ProviderRO,
+    <PF as ProviderFactory>::ProviderMut: ProviderRW,
 {
     pub fn new(backend: Arc<Backend<EF, PF>>) -> Self {
         let provider = backend.storage.provider();
@@ -755,8 +755,8 @@ impl<EF, PF> Stream for InstantBlockProducer<EF, PF>
 where
     EF: ExecutorFactory,
     PF: ProviderFactory,
-    <PF as ProviderFactory>::Provider: DatabaseRO,
-    <PF as ProviderFactory>::ProviderMut: DatabaseRW,
+    <PF as ProviderFactory>::Provider: ProviderRO,
+    <PF as ProviderFactory>::ProviderMut: ProviderRW,
 {
     // mined block outcome and the new state
     type Item = Result<MinedBlockOutcome, BlockProductionError>;

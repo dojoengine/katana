@@ -5,7 +5,7 @@ use std::sync::Arc;
 use anyhow::anyhow;
 use jsonrpsee::core::{async_trait, RpcResult};
 use jsonrpsee::types::ErrorObjectOwned;
-use katana_core::backend::storage::DatabaseRO;
+use katana_core::backend::storage::ProviderRO;
 #[cfg(feature = "cartridge")]
 use katana_genesis::allocation::GenesisAccountAlloc;
 use katana_pool::TransactionPool;
@@ -47,7 +47,7 @@ where
     PoolTx: From<BroadcastedTxWithChainId>,
     Pending: PendingBlockProvider,
     PF: ProviderFactory,
-    <PF as ProviderFactory>::Provider: DatabaseRO,
+    <PF as ProviderFactory>::Provider: ProviderRO,
 {
     async fn chain_id(&self) -> RpcResult<Felt> {
         Ok(self.inner.chain_spec.id().id())

@@ -4,7 +4,7 @@ use std::time::Duration;
 
 use axum::routing::get;
 use axum::Router;
-use katana_core::backend::storage::{DatabaseRO, DatabaseRW};
+use katana_core::backend::storage::{ProviderRO, ProviderRW};
 use katana_core::service::block_producer::BlockProducer;
 use katana_executor::implementation::blockifier::BlockifierFactory;
 use katana_pool_api::TransactionPool;
@@ -76,8 +76,8 @@ pub struct GatewayServer<Pool, PF>
 where
     Pool: TransactionPool,
     PF: ProviderFactory,
-    <PF as ProviderFactory>::Provider: DatabaseRO,
-    <PF as ProviderFactory>::ProviderMut: DatabaseRW,
+    <PF as ProviderFactory>::Provider: ProviderRO,
+    <PF as ProviderFactory>::ProviderMut: ProviderRW,
 {
     timeout: Duration,
     cors: Option<Cors>,
@@ -91,8 +91,8 @@ impl<Pool, PF> GatewayServer<Pool, PF>
 where
     Pool: TransactionPool + Send + Sync + 'static,
     PF: ProviderFactory,
-    <PF as ProviderFactory>::Provider: DatabaseRO,
-    <PF as ProviderFactory>::ProviderMut: DatabaseRW,
+    <PF as ProviderFactory>::Provider: ProviderRO,
+    <PF as ProviderFactory>::ProviderMut: ProviderRW,
 {
     /// Create a new feeder gateway server.
     pub fn new(starknet_api: StarknetApi<Pool, BlockProducer<BlockifierFactory, PF>, PF>) -> Self {

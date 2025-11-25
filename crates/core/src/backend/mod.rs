@@ -35,7 +35,7 @@ use tracing::info;
 
 pub mod storage;
 
-use crate::backend::storage::{DatabaseRO, DatabaseRW};
+use crate::backend::storage::{ProviderRO, ProviderRW};
 use crate::env::BlockContextGenerator;
 use crate::service::block_producer::{BlockProductionError, MinedBlockOutcome};
 use crate::utils::get_current_timestamp;
@@ -83,7 +83,7 @@ impl<EF, PF> Backend<EF, PF>
 where
     EF: ExecutorFactory,
     PF: ProviderFactory,
-    <PF as ProviderFactory>::Provider: DatabaseRO,
+    <PF as ProviderFactory>::Provider: ProviderRO,
 {
     pub fn update_block_env(&self, block_env: &mut BlockEnv) {
         let mut context_gen = self.block_context_generator.write();
@@ -118,8 +118,8 @@ impl<EF, PF> Backend<EF, PF>
 where
     EF: ExecutorFactory,
     PF: ProviderFactory,
-    <PF as ProviderFactory>::Provider: DatabaseRO,
-    <PF as ProviderFactory>::ProviderMut: DatabaseRW,
+    <PF as ProviderFactory>::Provider: ProviderRO,
+    <PF as ProviderFactory>::ProviderMut: ProviderRW,
 {
     pub fn init_genesis(&self, is_forking: bool) -> anyhow::Result<()> {
         match self.chain_spec.as_ref() {
@@ -587,19 +587,16 @@ fn update_block_hash_registry_contract(
     Ok(())
 }
 
-fn commit_block<P>(
-    provider: P,
+fn commit_block(
+    provider: impl ProviderRW,
     header: PartialHeader,
     transactions: Vec<TxWithHash>,
     receipts: &[ReceiptWithTxHash],
     state_updates: &mut StateUpdates,
-) -> Result<SealedBlock, BlockProductionError>
-where
-    P: BlockHashProvider + TrieWriter,
-{
+) -> Result<SealedBlock, BlockProductionError> {
     // Update special contract address 0x1
     update_block_hash_registry_contract(&provider, state_updates, header.number)?;
-    Ok(UncommittedBlock::new(header, transactions, receipts, state_updates, &provider).commit())
+    Ok(UncommittedBlock::new(header, transactions, receipts, state_updates, provider).commit())
 }
 
 fn commit_genesis_block(
@@ -609,7 +606,7 @@ fn commit_genesis_block(
     receipts: &[ReceiptWithTxHash],
     state_updates: &mut StateUpdates,
 ) -> Result<SealedBlock, BlockProductionError> {
-    Ok(UncommittedBlock::new(header, transactions, receipts, state_updates, &provider).commit())
+    Ok(UncommittedBlock::new(header, transactions, receipts, state_updates, provider).commit())
 }
 
 #[derive(Debug)]

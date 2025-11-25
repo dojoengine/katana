@@ -4,7 +4,7 @@ use std::sync::Arc;
 
 use anyhow::Result;
 use futures::future::{self, BoxFuture};
-use katana_core::backend::storage::{DatabaseRO, DatabaseRW};
+use katana_core::backend::storage::{ProviderRO, ProviderRW};
 use katana_core::backend::Backend;
 use katana_core::service::block_producer::{BlockProducer, BlockProductionError};
 use katana_core::service::{BlockProductionTask, TransactionMiner};
@@ -35,8 +35,8 @@ impl<EF, PF> Sequencing<EF, PF>
 where
     EF: ExecutorFactory,
     PF: ProviderFactory,
-    <PF as ProviderFactory>::Provider: DatabaseRO + Debug,
-    <PF as ProviderFactory>::ProviderMut: DatabaseRW + Debug,
+    <PF as ProviderFactory>::Provider: ProviderRO + Debug,
+    <PF as ProviderFactory>::ProviderMut: ProviderRW + Debug,
 {
     pub fn new(
         pool: TxPool,
@@ -78,8 +78,8 @@ impl<EF, PF> IntoFuture for Sequencing<EF, PF>
 where
     EF: ExecutorFactory,
     PF: ProviderFactory,
-    <PF as ProviderFactory>::Provider: DatabaseRO + Debug,
-    <PF as ProviderFactory>::ProviderMut: DatabaseRW + Debug,
+    <PF as ProviderFactory>::Provider: ProviderRO + Debug,
+    <PF as ProviderFactory>::ProviderMut: ProviderRW + Debug,
 {
     type Output = Result<()>;
     type IntoFuture = SequencingFut;
