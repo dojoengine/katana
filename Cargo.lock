@@ -6406,6 +6406,7 @@ dependencies = [
  "rstest 0.18.2",
  "rstest_reuse 0.6.0",
  "serde_json",
+ "similar-asserts",
  "starknet",
  "starknet-types-core",
  "tempfile",

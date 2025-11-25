@@ -215,7 +215,7 @@ impl<Tx1: DbTx, Tx2: DbTxMut> StateProofProvider for LatestStateProvider<Tx1, Tx
             let result = self.fork_provider.backend.get_contracts_proofs(addresses, fork_point)?;
             let proofs = result.expect("proofs should exist for block");
 
-            Ok(proofs.classes_proof.nodes.into())
+            Ok(proofs.contracts_proof.nodes.into())
         } else {
             Err(ProviderError::StateProofNotSupported)
         }
@@ -476,7 +476,7 @@ impl<Tx1: DbTx, Tx2: DbTxMut> StateProofProvider for HistoricalStateProvider<Tx1
             .get_contracts_proofs(addresses, self.local_provider.block())?;
         let proofs = result.expect("block should exist");
 
-        Ok(proofs.classes_proof.nodes.into())
+        Ok(proofs.contracts_proof.nodes.into())
     }
 
     fn storage_multiproof(
