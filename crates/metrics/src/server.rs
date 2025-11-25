@@ -11,6 +11,16 @@ use tracing::info;
 use crate::exporters::Exporter;
 use crate::{Error, Report};
 
+/// A helper trait for defining the type for hooks that are called when the metrics are being
+/// collected by the server.
+trait Hook: Fn() + Send + Sync {}
+impl<T: Fn() + Send + Sync> Hook for T {}
+
+/// A shared hook that can be cloned.
+type SharedHook = Arc<dyn Hook<Output = ()>>;
+/// A list of shared hooks.
+type Hooks = Vec<SharedHook>;
+
 /// A handle to the metrics server.
 #[derive(Debug)]
 pub struct MetricsServerHandle {
@@ -45,40 +55,27 @@ impl MetricsServerHandle {
     }
 }
 
-/// A helper trait for defining the type for hooks that are called when the metrics are being
-/// collected by the server.
-trait Hook: Fn() + Send + Sync {}
-impl<T: Fn() + Send + Sync> Hook for T {}
-
-/// A shared hook that can be cloned.
-type SharedHook = Arc<dyn Hook<Output = ()>>;
-/// A list of shared hooks.
-type Hooks = Vec<SharedHook>;
-
 /// Server for serving metrics.
 // TODO: allow configuring the server executor to allow cancelling on invidiual connection tasks.
 // See, [hyper::server::server::Builder::executor]
-pub struct Server<MetricsExporter> {
+pub struct MetricsServer<E> {
     /// Hooks or callable functions for collecting metrics in the cases where
     /// the metrics are not being collected in the main program flow.
     ///
     /// These are called when metrics are being served through the server.
     hooks: Hooks,
     /// The exporter that is used to export the collected metrics.
-    exporter: MetricsExporter,
+    exporter: E,
 }
 
-impl<MetricsExporter> Server<MetricsExporter>
-where
-    MetricsExporter: Exporter + 'static,
-{
+impl<E: Exporter + 'static> MetricsServer<E> {
     /// Creates a new metrics server using the given exporter.
-    pub fn new(exporter: MetricsExporter) -> Self {
+    pub fn new(exporter: E) -> Self {
         Self { exporter, hooks: Vec::new() }
     }
 
     /// Add new metrics reporter to the server.
-    pub fn with_reports<I>(mut self, reports: I) -> Self
+    pub fn reports<I>(mut self, reports: I) -> Self
     where
         I: IntoIterator<Item = Box<dyn Report>>,
     {
@@ -105,7 +102,7 @@ where
     /// Starts an endpoint at the given address to serve Prometheus metrics.
     ///
     /// Returns a handle that can be used to stop the server and wait for it to finish.
-    pub async fn start(&self, addr: SocketAddr) -> Result<MetricsServerHandle, Error> {
+    pub fn start(&self, addr: SocketAddr) -> Result<MetricsServerHandle, Error> {
         // Clone the hooks (clones the Arc references, not the closures themselves)
         let hooks = self.hooks.clone();
         let exporter = self.exporter.clone();
@@ -137,6 +134,7 @@ where
         let actual_addr = server.local_addr();
 
         // Spawn the server with graceful shutdown
+        // TODO: spawn on a task manager
         let task_handle = tokio::spawn(async move {
             server
                 .with_graceful_shutdown(async {
@@ -152,7 +150,7 @@ where
     }
 }
 
-impl<MetricsExporter> fmt::Debug for Server<MetricsExporter> {
+impl<E> fmt::Debug for MetricsServer<E> {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         f.debug_struct("Server")
             .field("hooks", &format_args!("{} hook(s)", self.hooks.len()))
