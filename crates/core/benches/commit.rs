@@ -10,6 +10,7 @@ use katana_primitives::state::StateUpdates;
 use katana_primitives::transaction::TxWithHash;
 use katana_primitives::{ContractAddress, Felt};
 use katana_provider::providers::db::DbProvider;
+use katana_provider::DbProviderFactory;
 use pprof::criterion::{Output, PProfProfiler};
 
 struct BlockConfig {
@@ -42,11 +43,11 @@ const BIG_BLOCK_CONFIG: BlockConfig = BlockConfig {
     nb_of_contracts: 100,
 };
 
-fn commit(block: UncommittedBlock<'_, DbProvider>) {
+fn commit(block: UncommittedBlock<'_, DbProviderFactory>) {
     let _ = block.commit();
 }
 
-fn commit_parallel(block: UncommittedBlock<'_, DbProvider>) {
+fn commit_parallel(block: UncommittedBlock<'_, DbProviderFactory>) {
     let _ = block.commit_parallel();
 }
 

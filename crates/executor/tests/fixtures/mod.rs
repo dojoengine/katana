@@ -25,7 +25,7 @@ use katana_primitives::{address, Felt};
 use katana_provider::api::block::BlockWriter;
 use katana_provider::api::state::{StateFactoryProvider, StateProvider};
 use katana_provider::providers::db::DbProvider;
-use katana_provider::{DbProviderFactory, ProviderFactory};
+use katana_provider::{DbProviderFactory, MutableProvider, ProviderFactory};
 use starknet::macros::felt;
 
 // TODO: remove support for legacy contract declaration
@@ -80,9 +80,10 @@ pub fn state_provider(chain: &ChainSpec) -> Box<dyn StateProvider> {
         block: Block::default().seal_with_hash(123u64.into()),
     };
 
-    provider
+    provider_mut
         .insert_block_with_states_and_receipts(block, states, vec![], vec![])
         .expect("able to insert block");
+    provider_mut.commit().unwrap();
 
     provider_factory.provider().latest().unwrap()
 }

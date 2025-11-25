@@ -25,12 +25,12 @@ fn assert_state_provider_contract_info(
 }
 
 mod latest {
-    use katana_provider::providers::db::DbProvider;
+    use katana_provider::{DbProviderFactory, ProviderFactory};
 
     use super::*;
 
-    fn assert_latest_contract_info<Db: StateFactoryProvider>(
-        provider: BlockchainProvider<Db>,
+    fn assert_latest_contract_info(
+        provider: impl StateFactoryProvider,
         expected_contract_info: Vec<(ContractAddress, Option<ClassHash>, Option<Nonce>)>,
     ) -> Result<()> {
         let state_provider = provider.latest()?;
@@ -45,48 +45,50 @@ mod latest {
             (ContractAddress::from(felt!("80085")), Some(felt!("33")), Some(felt!("2"))),
         ]
     )]
-    fn test_latest_contract_info_read<Db>(
-        #[from(provider_with_states)] provider: BlockchainProvider<Db>,
+    fn test_latest_contract_info_read(
+        #[from(provider_with_states)] provider_factory: impl ProviderFactory,
         #[case] expected_contract_info: Vec<(ContractAddress, Option<ClassHash>, Option<Nonce>)>,
     ) {
     }
 
     mod fork {
         use fixtures::fork::fork_provider_with_spawned_fork_network;
-        use katana_provider::providers::fork::ForkedProvider;
+        use katana_provider::{ForkProviderFactory, ProviderFactory};
 
         use super::*;
 
         #[apply(test_latest_contract_info_read)]
         fn read_storage_from_fork_provider(
             #[with(fork_provider_with_spawned_fork_network::default())]
-            provider: BlockchainProvider<ForkedProvider>,
+            provider_factory: ForkProviderFactory,
             #[case] expected_contract_info: Vec<(
                 ContractAddress,
                 Option<ClassHash>,
                 Option<Nonce>,
             )>,
         ) -> Result<()> {
+            let provider = provider_factory.provider();
             assert_latest_contract_info(provider, expected_contract_info)
         }
     }
 
     #[apply(test_latest_contract_info_read)]
     fn read_storage_from_db_provider(
-        #[with(db_provider())] provider: BlockchainProvider<DbProvider>,
+        #[with(db_provider())] provider_factory: DbProviderFactory,
         #[case] expected_contract_info: Vec<(ContractAddress, Option<ClassHash>, Option<Nonce>)>,
     ) -> Result<()> {
+        let provider = provider_factory.provider();
         assert_latest_contract_info(provider, expected_contract_info)
     }
 }
 
 mod historical {
-    use katana_provider::providers::db::DbProvider;
+    use katana_provider::{DbProviderFactory, ProviderFactory};
 
     use super::*;
 
-    fn assert_historical_contract_info<Db: StateFactoryProvider>(
-        provider: BlockchainProvider<Db>,
+    fn assert_historical_contract_info(
+        provider: impl StateFactoryProvider,
         block_num: BlockNumber,
         expected_contract_info: Vec<(ContractAddress, Option<ClassHash>, Option<Nonce>)>,
     ) -> Result<()> {
@@ -129,7 +131,7 @@ mod historical {
     ])
 ]
     fn test_historical_storage_read(
-        #[from(provider_with_states)] provider: BlockchainProvider<InMemoryProvider>,
+        #[from(provider_with_states)] provider_factory: impl ProviderFactory,
         #[case] block_num: BlockNumber,
         #[case] expected_contract_info: Vec<(ContractAddress, Option<ClassHash>, Option<Nonce>)>,
     ) {
@@ -137,15 +139,14 @@ mod historical {
 
     mod fork {
         use fixtures::fork::fork_provider_with_spawned_fork_network;
-        use katana_provider::providers::fork::ForkedProvider;
-        use katana_provider::BlockchainProvider;
+        use katana_provider::ForkProviderFactory;
 
         use super::*;
 
         #[apply(test_historical_storage_read)]
         fn read_storage_from_fork_provider(
             #[with(fork_provider_with_spawned_fork_network::default())]
-            provider: BlockchainProvider<ForkedProvider>,
+            provider_factory: ForkProviderFactory,
             #[case] block_num: BlockNumber,
             #[case] expected_contract_info: Vec<(
                 ContractAddress,
@@ -153,16 +154,18 @@ mod historical {
                 Option<Nonce>,
             )>,
         ) -> Result<()> {
+            let provider = provider_factory.provider();
             assert_historical_contract_info(provider, block_num, expected_contract_info)
         }
     }
 
     #[apply(test_historical_storage_read)]
     fn read_storage_from_db_provider(
-        #[with(db_provider())] provider: BlockchainProvider<DbProvider>,
+        #[with(db_provider())] provider_factory: DbProviderFactory,
         #[case] block_num: BlockNumber,
         #[case] expected_contract_info: Vec<(ContractAddress, Option<ClassHash>, Option<Nonce>)>,
     ) -> Result<()> {
+        let provider = provider_factory.provider();
         assert_historical_contract_info(provider, block_num, expected_contract_info)
     }
 }

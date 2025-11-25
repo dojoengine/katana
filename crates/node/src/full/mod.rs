@@ -68,12 +68,12 @@ pub struct Config {
 
 #[derive(Debug)]
 pub struct Node {
-    pub provider: DbProviderFactory<katana_db::Db>,
+    pub provider: DbProviderFactory,
     pub db: katana_db::Db,
     pub pool: FullNodePool,
     pub config: Arc<Config>,
     pub task_manager: TaskManager,
-    pub pipeline: Pipeline<DbProviderFactory<katana_db::Db>>,
+    pub pipeline: Pipeline<DbProviderFactory>,
     pub rpc_server: RpcServer,
     pub gateway_client: SequencerGateway,
     pub chain_tip_watcher: ChainTipWatcher<SequencerGateway>,

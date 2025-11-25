@@ -9,12 +9,12 @@ use katana_provider::DbProviderFactory;
 
 use super::*;
 
-fn test_backend() -> Arc<Backend<NoopExecutorFactory>> {
+fn test_backend() -> Arc<Backend<NoopExecutorFactory, DbProviderFactory>> {
     let chain_spec = Arc::new(ChainSpec::dev());
     let executor_factory = NoopExecutorFactory::new();
-    let blockchain = Blockchain::new(DbProviderFactory::new_in_memory());
+    let storage = DbProviderFactory::new_in_memory();
     let gas_oracle = GasPriceOracle::create_for_testing();
-    let backend = Arc::new(Backend::new(chain_spec, blockchain, gas_oracle, executor_factory));
+    let backend = Arc::new(Backend::new(chain_spec, storage, gas_oracle, executor_factory));
     backend.init_genesis(false).expect("failed to initialize genesis");
     backend
 }

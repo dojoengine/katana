@@ -33,35 +33,35 @@ pub trait MutableProvider: Sized + Send + Sync + 'static {
 }
 
 #[derive(Clone)]
-pub struct DbProviderFactory<Db: Database = katana_db::Db> {
-    db: Db,
+pub struct DbProviderFactory {
+    db: katana_db::Db,
 }
 
-impl<Db: Database> Debug for DbProviderFactory<Db> {
+impl Debug for DbProviderFactory {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         f.debug_struct("DbProviderFactory").finish_non_exhaustive()
     }
 }
 
-impl<Db: Database> DbProviderFactory<Db> {
-    pub fn new(db: Db) -> Self {
+impl DbProviderFactory {
+    pub fn new(db: katana_db::Db) -> Self {
         Self { db }
     }
 
-    pub fn inner(&self) -> &Db {
+    pub fn new_in_memory() -> Self {
+        Self::new(katana_db::Db::in_memory().unwrap())
+    }
+
+    pub fn inner(&self) -> &katana_db::Db {
         &self.db
     }
 }
 
-impl DbProviderFactory<katana_db::Db> {
-    pub fn new_in_memory() -> DbProviderFactory<katana_db::Db> {
-        Self::new(katana_db::Db::in_memory().unwrap())
-    }
-}
+impl DbProviderFactory {}
 
-impl<Db: Database + 'static> ProviderFactory for DbProviderFactory<Db> {
-    type Provider = DbProvider<Db::Tx>;
-    type ProviderMut = DbProvider<Db::TxMut>;
+impl ProviderFactory for DbProviderFactory {
+    type Provider = DbProvider<<katana_db::Db as Database>::Tx>;
+    type ProviderMut = DbProvider<<katana_db::Db as Database>::TxMut>;
 
     fn provider(&self) -> Self::Provider {
         DbProvider::new(self.db.tx().unwrap())
@@ -76,8 +76,8 @@ impl<Db: Database + 'static> ProviderFactory for DbProviderFactory<Db> {
 pub struct ForkProviderFactory {
     backend: Backend,
     block_id: BlockNumber,
-    fork_factory: DbProviderFactory<katana_db::Db>,
-    local_factory: DbProviderFactory<katana_db::Db>,
+    fork_factory: DbProviderFactory,
+    local_factory: DbProviderFactory,
 }
 
 impl ForkProviderFactory {
@@ -88,6 +88,10 @@ impl ForkProviderFactory {
         let fork_factory = DbProviderFactory::new_in_memory();
 
         Self { local_factory, fork_factory, backend, block_id }
+    }
+
+    pub fn new_in_memory(block_id: BlockNumber, starknet_client: StarknetClient) -> Self {
+        Self::new(katana_db::Db::in_memory().unwrap(), block_id, starknet_client)
     }
 
     pub fn block(&self) -> BlockNumber {

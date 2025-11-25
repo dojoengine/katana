@@ -33,13 +33,13 @@ fn assert_state_provider_class(
 
 mod latest {
     use katana_contracts::contracts;
-    use katana_provider::providers::db::DbProvider;
+    use katana_provider::{DbProviderFactory, ProviderFactory};
 
     use super::*;
     use crate::fixtures::db_provider;
 
-    fn assert_latest_class<Db: StateFactoryProvider>(
-        provider: BlockchainProvider<Db>,
+    fn assert_latest_class(
+        provider: impl StateFactoryProvider,
         expected_class: Vec<ClassHashAndClasses>,
     ) -> Result<()> {
         let state_provider = provider.latest()?;
@@ -55,46 +55,48 @@ mod latest {
             (felt!("33"), Some(felt!("3000")), Some(ContractClass::Class((*DOJO_WORLD_SIERRA_CLASS).clone()))),
         ]
     )]
-    fn test_latest_class_read<Db>(
-        #[from(provider_with_states)] provider: BlockchainProvider<Db>,
+    fn test_latest_class_read(
+        #[from(provider_with_states)] provider_factory: impl ProviderFactory,
         #[case] expected_class: Vec<ClassHashAndClasses>,
     ) {
     }
 
     mod fork {
         use fixtures::fork::fork_provider_with_spawned_fork_network;
-        use katana_provider::providers::fork::ForkedProvider;
+        use katana_provider::{ForkProviderFactory, ProviderFactory};
 
         use super::*;
 
         #[apply(test_latest_class_read)]
         fn read_class_from_fork_provider(
             #[with(fork_provider_with_spawned_fork_network::default())]
-            provider: BlockchainProvider<ForkedProvider>,
+            provider_factory: ForkProviderFactory,
             #[case] expected_classes: Vec<ClassHashAndClasses>,
         ) -> Result<()> {
+            let provider = provider_factory.provider();
             assert_latest_class(provider, expected_classes)
         }
     }
 
     #[apply(test_latest_class_read)]
     fn read_class_from_db_provider(
-        #[with(db_provider())] provider: BlockchainProvider<DbProvider>,
+        #[with(db_provider())] provider_factory: DbProviderFactory,
         #[case] expected_classes: Vec<ClassHashAndClasses>,
     ) -> Result<()> {
+        let provider = provider_factory.provider();
         assert_latest_class(provider, expected_classes)
     }
 }
 
 mod historical {
     use katana_contracts::contracts;
-    use katana_provider::providers::db::DbProvider;
+    use katana_provider::{DbProviderFactory, ProviderFactory};
 
     use super::*;
     use crate::fixtures::db_provider;
 
-    fn assert_historical_class<Db: StateFactoryProvider>(
-        provider: BlockchainProvider<Db>,
+    fn assert_historical_class(
+        provider: impl StateFactoryProvider,
         block_num: BlockNumber,
         expected_class: Vec<ClassHashAndClasses>,
     ) -> Result<()> {
@@ -141,7 +143,7 @@ mod historical {
         ])
     ]
     fn test_historical_class_read(
-        #[from(provider_with_states)] provider: BlockchainProvider<InMemoryProvider>,
+        #[from(provider_with_states)] provider_factory: impl ProviderFactory,
         #[case] block_num: BlockNumber,
         #[case] expected_class: Vec<ClassHashAndClasses>,
     ) {
@@ -149,27 +151,29 @@ mod historical {
 
     mod fork {
         use fixtures::fork::fork_provider_with_spawned_fork_network;
-        use katana_provider::providers::fork::ForkedProvider;
+        use katana_provider::{ForkProviderFactory, ProviderFactory};
 
         use super::*;
 
         #[apply(test_historical_class_read)]
         fn read_class_from_fork_provider(
             #[with(fork_provider_with_spawned_fork_network::default())]
-            provider: BlockchainProvider<ForkedProvider>,
+            provider_factory: ForkProviderFactory,
             #[case] block_num: BlockNumber,
             #[case] expected_classes: Vec<ClassHashAndClasses>,
         ) -> Result<()> {
+            let provider = provider_factory.provider();
             assert_historical_class(provider, block_num, expected_classes)
         }
     }
 
     #[apply(test_historical_class_read)]
     fn read_class_from_db_provider(
-        #[with(db_provider())] provider: BlockchainProvider<DbProvider>,
+        #[with(db_provider())] provider_factory: DbProviderFactory,
         #[case] block_num: BlockNumber,
         #[case] expected_classes: Vec<ClassHashAndClasses>,
     ) -> Result<()> {
+        let provider = provider_factory.provider();
         assert_historical_class(provider, block_num, expected_classes)
     }
 }

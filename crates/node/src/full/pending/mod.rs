@@ -22,7 +22,7 @@ pub struct PreconfStateFactory {
     // from pipeline
     latest_synced_block: PipelineBlockSubscription,
     gateway_client: Client,
-    storage_provider: DbProviderFactory<katana_db::Db>,
+    storage_provider: DbProviderFactory,
 
     // shared state
     shared_preconf_block: SharedPreconfBlockData,
@@ -30,7 +30,7 @@ pub struct PreconfStateFactory {
 
 impl PreconfStateFactory {
     pub fn new(
-        storage_provider: DbProviderFactory<katana_db::Db>,
+        storage_provider: DbProviderFactory,
         gateway_client: Client,
         latest_synced_block: PipelineBlockSubscription,
         tip_subscription: TipSubscription,
