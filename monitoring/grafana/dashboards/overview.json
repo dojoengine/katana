@@ -2442,7 +2442,7 @@
     },
     {
       "datasource": "Prometheus",
-      "description": "Distribution of pipeline iteration durations",
+      "description": "Distribution of pipeline iteration durations. X-axis: time, Y-axis: duration buckets, Color: frequency of iterations in each bucket (darker = more frequent)",
       "fieldConfig": {
         "defaults": {
           "custom": {
@@ -2473,14 +2473,14 @@
           "unit": "s"
         },
         "color": {
-          "exponent": 0.2,
+          "exponent": 0.5,
           "fill": "dark-orange",
           "min": 0,
-          "mode": "opacity",
+          "mode": "scheme",
           "reverse": false,
           "scale": "exponential",
           "scheme": "Oranges",
-          "steps": 128
+          "steps": 64
         },
         "exemplars": {
           "color": "rgba(255,0,255,0.7)"
@@ -2497,14 +2497,14 @@
         },
         "tooltip": {
           "mode": "single",
-          "showColorScale": false,
-          "yHistogram": false
+          "showColorScale": true,
+          "yHistogram": true
         },
         "yAxis": {
-          "axisLabel": "Quantile",
+          "axisLabel": "Duration",
           "axisPlacement": "left",
           "reverse": false,
-          "unit": "percentunit"
+          "unit": "s"
         }
       },
       "pluginVersion": "11.2.0",
@@ -2516,10 +2516,10 @@
           },
           "editorMode": "code",
           "exemplar": false,
-          "expr": "avg(max_over_time(katana_sync_pipeline_iteration_duration_seconds{instance=~\"$instance\"}[$__rate_interval]) > 0) by (quantile)",
-          "format": "time_series",
+          "expr": "sum(rate(katana_sync_pipeline_iteration_duration_seconds_bucket{instance=~\"$instance\"}[$__rate_interval])) by (le)",
+          "format": "heatmap",
           "instant": false,
-          "legendFormat": "{{quantile}}",
+          "legendFormat": "{{le}}",
           "range": true,
           "refId": "A"
         }
