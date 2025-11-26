@@ -422,12 +422,14 @@ where
             info!(target: "pipeline", checkpoint = %last_block_processed, "New checkpoint set.");
         }
 
+        let min_last_block_processed = last_block_processed_list.into_iter().min();
+
         // Update overall pipeline sync position (minimum checkpoint across all stages)
-        if let Some(&min_checkpoint) = last_block_processed_list.iter().min() {
+        if let Some(min_checkpoint) = min_last_block_processed {
             self.metrics.set_sync_position(min_checkpoint);
         }
 
-        Ok(last_block_processed_list.into_iter().min().unwrap_or(to))
+        Ok(min_last_block_processed.unwrap_or(to))
     }
 
     /// Run the pipeline loop.
