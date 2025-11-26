@@ -32,32 +32,27 @@ pub trait MutableProvider: Sized + Send + Sync + 'static {
     fn commit(self) -> ProviderResult<()>;
 }
 
-#[derive(Clone)]
+#[derive(Clone, Debug)]
 pub struct DbProviderFactory {
     db: katana_db::Db,
 }
 
-impl Debug for DbProviderFactory {
-    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        f.debug_struct("DbProviderFactory").finish_non_exhaustive()
-    }
-}
-
 impl DbProviderFactory {
+    /// Creates a new [`DbProviderFactory`] with the given database.
     pub fn new(db: katana_db::Db) -> Self {
         Self { db }
     }
 
+    /// Creates a new [`DbProviderFactory`] with an in-memory database.
     pub fn new_in_memory() -> Self {
         Self::new(katana_db::Db::in_memory().unwrap())
     }
 
-    pub fn inner(&self) -> &katana_db::Db {
+    /// Returns a reference to the underlying database.
+    pub fn db(&self) -> &katana_db::Db {
         &self.db
     }
 }
-
-impl DbProviderFactory {}
 
 impl ProviderFactory for DbProviderFactory {
     type Provider = DbProvider<<katana_db::Db as Database>::Tx>;
@@ -72,7 +67,7 @@ impl ProviderFactory for DbProviderFactory {
     }
 }
 
-#[derive(Clone)]
+#[derive(Clone, Debug)]
 pub struct ForkProviderFactory {
     backend: Backend,
     block_id: BlockNumber,
@@ -94,14 +89,14 @@ impl ForkProviderFactory {
         Self::new(katana_db::Db::in_memory().unwrap(), block_id, starknet_client)
     }
 
+    /// Returns a reference to the underlying database where the local-only data is stored.
+    pub fn db(&self) -> &katana_db::Db {
+        self.local_factory.db()
+    }
+
+    /// Returns the block number the provider is forked at.
     pub fn block(&self) -> BlockNumber {
         self.block_id
-    }
-}
-
-impl Debug for ForkProviderFactory {
-    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        f.debug_struct("ForkProviderFactory").finish_non_exhaustive()
     }
 }
 

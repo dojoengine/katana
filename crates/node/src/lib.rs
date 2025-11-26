@@ -67,6 +67,7 @@ where
     <P as ProviderFactory>::Provider: ProviderRO,
     <P as ProviderFactory>::ProviderMut: ProviderRW,
 {
+    db: katana_db::Db,
     provider: P,
     config: Arc<Config>,
     pool: TxPool,
@@ -88,7 +89,7 @@ where
     ///
     /// This returns a [`Node`] instance which can be launched with the all the necessary components
     /// configured.
-    pub fn build_with_provider(provider: P, config: Config) -> Result<Node<P>> {
+    pub fn build_with_provider(db: katana_db::Db, provider: P, config: Config) -> Result<Node<P>> {
         if config.metrics.is_some() {
             // Metrics recorder must be initialized before calling any of the metrics macros, in
             // order for it to be registered.
@@ -325,6 +326,7 @@ where
         };
 
         Ok(Node {
+            db,
             provider,
             pool,
             backend,
@@ -340,13 +342,17 @@ where
 
 impl Node<DbProviderFactory> {
     pub fn build(config: Config) -> Result<Self> {
-        let provider = if let Some(path) = &config.db.dir {
-            DbProviderFactory::new(katana_db::Db::new(path)?)
+        let (provider, db) = if let Some(path) = &config.db.dir {
+            let db = katana_db::Db::new(path)?;
+            let factory = DbProviderFactory::new(db.clone());
+            (factory, db)
         } else {
-            DbProviderFactory::new_in_memory()
+            let factory = DbProviderFactory::new_in_memory();
+            let db = factory.db().clone();
+            (factory, db)
         };
 
-        Self::build_with_provider(provider, config)
+        Self::build_with_provider(db, provider, config)
     }
 }
 
@@ -420,7 +426,7 @@ impl Node<ForkProviderFactory> {
 
         // TODO: convert this to block number instead of BlockHashOrNumber so that it is easier to
         // check if the requested block is within the supported range or not.
-        let provider_factory = ForkProviderFactory::new(db, block_num, client.clone());
+        let provider_factory = ForkProviderFactory::new(db.clone(), block_num, client.clone());
 
         // update the genesis block with the forked block's data
         // we dont update the `l1_gas_price` bcs its already done when we set the `gas_prices` in
@@ -438,7 +444,7 @@ impl Node<ForkProviderFactory> {
 
         block.header.l1_da_mode = forked_block.l1_da_mode;
 
-        Self::build_with_provider(provider_factory, config)
+        Self::build_with_provider(db, provider_factory, config)
     }
 }
 
@@ -540,6 +546,11 @@ where
     /// Returns a reference to the node's JSON-RPC server.
     pub fn rpc(&self) -> &RpcServer {
         &self.rpc_server
+    }
+
+    /// Returns a reference to the node's database.
+    pub fn db(&self) -> &katana_db::Db {
+        &self.db
     }
 
     /// Returns a reference to the node's configuration.
