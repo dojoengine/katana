@@ -1,3 +1,4 @@
+use std::collections::{BTreeMap, HashMap};
 use std::str::FromStr;
 
 use cairo_lang_starknet_classes::casm_contract_class::StarknetSierraCompilationError;
@@ -5,13 +6,30 @@ use cairo_lang_starknet_classes::contract_class::{
     version_id_from_serialized_sierra_program, ContractEntryPoint, ContractEntryPoints,
 };
 use cairo_lang_utils::bigint::BigUintAsHex;
+use cairo_vm::serde::deserialize_program::{
+    ApTracking,
+    FlowTrackingData,
+    HintParams,
+    Member,
+    ReferenceManager,
+    // Identifier,
+};
+use cairo_vm::types::builtin_name::BuiltinName;
+use derive_more::{Deref, DerefMut, From};
+use serde::{Deserialize, Serialize, Serializer};
 use serde_json_pythonic::to_string_pythonic;
+use serde_with::{serde_as, SerializeAs};
 use starknet::macros::short_string;
-use starknet_api::contract_class::SierraVersion;
-use starknet_types_core::hash::{Poseidon, StarkHash};
+use starknet_api::contract_class::{EntryPointType, SierraVersion};
+use starknet_api::deprecated_contract_class::EntryPointV0;
+use starknet_api::serde_utils::deserialize_optional_contract_class_abi_entry_vector;
+use starknet_types_core::felt::FromStrError;
+use starknet_types_core::hash::{Pedersen, Poseidon, StarkHash};
 
 use crate::utils::{normalize_address, starknet_keccak};
 use crate::Felt;
+
+pub type LegacyContractEntryPoint = EntryPointV0;
 
 /// The canonical hash of a contract class. This is the identifier of a class.
 pub type ClassHash = Felt;
@@ -20,6 +38,284 @@ pub type CompiledClassHash = Felt;
 
 /// The canonical legacy class (Cairo 0) type.
 pub type LegacyContractClass = starknet_api::deprecated_contract_class::ContractClass;
+
+pub type LegacyContractClassAbiEntry =
+    starknet_api::deprecated_contract_class::ContractClassAbiEntry;
+
+#[derive(Clone, Debug, Serialize, Deserialize, PartialEq, Eq)]
+pub struct Attribute {
+    pub name: String,
+    pub start_pc: u64,
+    pub end_pc: u64,
+    pub value: String,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub flow_tracking_data: Option<FlowTrackingData>,
+    #[serde(default)]
+    pub accessible_scopes: Vec<String>,
+}
+
+/// Cairo 0 [references](https://docs.cairo-lang.org/how_cairo_works/consts.html#references).
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct Reference {
+    pub ap_tracking_data: ApTracking,
+    pub pc: u64,
+    pub value: String,
+}
+
+/// Legacy (Cairo 0) program identifiers.
+///
+/// These are needed mostly to allow Python hints to work, as hints are allowed to reference Cairo
+/// identifiers (e.g. variables) by name, which would otherwise be lost during compilation.
+#[derive(Debug, Clone, ::serde::Serialize, ::serde::Deserialize)]
+pub struct Identifier {
+    // #[serde(skip_serializing_if = "Option::is_none")]
+    pub decorators: Option<Vec<String>>,
+    // #[serde(skip_serializing_if = "Option::is_none")]
+    pub cairo_type: Option<String>,
+    // #[serde(skip_serializing_if = "Option::is_none")]
+    pub full_name: Option<String>,
+    // #[serde(skip_serializing_if = "Option::is_none")]
+    pub members: Option<BTreeMap<String, Member>>,
+    // #[serde(skip_serializing_if = "Option::is_none")]
+    pub references: Option<Vec<Reference>>,
+    // #[serde(skip_serializing_if = "Option::is_none")]
+    pub size: Option<u64>,
+    // #[serde(skip_serializing_if = "Option::is_none")]
+    pub pc: Option<u64>,
+    // #[serde(skip_serializing_if = "Option::is_none")]
+    pub destination: Option<String>,
+    pub r#type: String,
+    // #[serde(skip_serializing_if = "Option::is_none")]
+    pub value: Option<Box<serde_json::value::RawValue>>,
+}
+
+/// A program corresponding to a [ContractClass](`crate::deprecated_contract_class::ContractClass`).
+pub struct LegacyProgram {
+    // #[serde(skip_serializing_if = "Option::is_none")]
+    pub attributes: Vec<Attribute>,
+    pub builtins: Vec<BuiltinName>,
+    // #[serde(skip_serializing_if = "Option::is_none")]
+    pub compiler_version: Option<String>,
+    pub data: Vec<Felt>,
+    // #[serde(default)]
+    pub debug_info: Option<serde_json::Value>,
+    // #[serde(serialize_with = "serialize_hints_sorted")]
+    pub hints: BTreeMap<u64, Vec<HintParams>>,
+    pub identifiers: BTreeMap<String, Identifier>,
+    pub main_scope: String,
+    pub prime: String,
+    pub reference_manager: ReferenceManager,
+}
+
+#[derive(Clone, Default, Debug, PartialEq, Eq)]
+pub struct LegacyContractEntryPoints {
+    // #[serde(rename = "EXTERNAL")]
+    pub external: Vec<LegacyContractEntryPoint>,
+    // #[serde(rename = "L1_HANDLER")]
+    pub l1_handler: Vec<LegacyContractEntryPoint>,
+    // #[serde(rename = "CONSTRUCTOR")]
+    pub constructor: Vec<LegacyContractEntryPoint>,
+}
+
+pub struct LegacyContractClass2 {
+    pub abi: Option<Vec<LegacyContractClassAbiEntry>>,
+    pub program: LegacyProgram,
+    pub entry_points_by_type: LegacyContractEntryPoints,
+}
+
+impl LegacyContractClass2 {
+    /// Computes the class hash of the legacy (Cairo 0) class.
+    pub fn hash(&self) -> ClassHash {
+        const API_VERSION: Felt = Felt::ZERO;
+
+        let mut elements = Vec::new();
+        elements.push(API_VERSION);
+
+        // Hashes external entry points
+        elements.push(legacy_entrypoints_hash(&self.entry_points_by_type.external));
+        // Hashes l1 handler entry points
+        elements.push(legacy_entrypoints_hash(&self.entry_points_by_type.l1_handler));
+        // Hashes constructor entry points
+        elements.push(legacy_entrypoints_hash(&self.entry_points_by_type.constructor));
+
+        fn builtins_hash(builtins: &[BuiltinName]) -> Felt {
+            let mut hasher = starknet_crypto::PedersenHasher::new();
+            for builtin in builtins.iter().map(|b| b.to_str()) {
+                hasher.update(Felt::from_str(builtin).unwrap());
+            }
+            hasher.finalize()
+        }
+
+        elements.push(builtins_hash(&self.program.builtins));
+
+        // // Hashes hinted_class_hash
+        // elements.push(self.hinted_class_hash()?);
+
+        // Hashes bytecode
+        elements.push(Pedersen::hash_array(&self.program.data));
+
+        Pedersen::hash_array(&elements)
+    }
+
+    /// Computes the "hinted" class hash of the legacy (Cairo 0) class.
+    ///
+    /// This is known as the "hinted" hash as it isn't possible to directly calculate, and thus
+    /// prove the correctness of, this hash, since it involves JSON serialization. Instead, this
+    /// hash is always calculated outside of the Cairo VM, and then fed to the Cairo program as a
+    /// hinted value.
+    pub fn hinted_class_hash(&self) -> Result<Felt, ComputeClassHashError> {
+        #[derive(serde::Serialize)]
+        struct ContractArtifactForHash<'a> {
+            // abi: &'a Vec<RawLegacyAbiEntry>,
+            #[serde(serialize_with = "serialize_program_for_hinted_hash")]
+            program: &'a LegacyProgram,
+        }
+
+        let serialized =
+            to_string_pythonic(&ContractArtifactForHash { program: &self.program }).unwrap();
+
+        // Ok(starknet_keccak(serialized.as_bytes()))
+
+        todo!()
+    }
+}
+
+fn serialize_attribute_for_hinted_hash<S: Serializer>(
+    source: &Vec<Attribute>,
+    serializer: S,
+) -> Result<S::Ok, S::Error> {
+    use serde::ser::SerializeSeq;
+
+    #[derive(Serialize)]
+    struct Helper<'a> {
+        #[serde(skip_serializing_if = "Vec::is_empty")]
+        accessible_scopes: &'a Vec<String>,
+        #[serde(skip_serializing_if = "Option::is_none")]
+        flow_tracking_data: &'a Option<FlowTrackingData>,
+        name: &'a String,
+        start_pc: &'a u64,
+        end_pc: &'a u64,
+        value: &'a String,
+    }
+
+    let mut seq = serializer.serialize_seq(Some(source.len()))?;
+
+    for attribute in source {
+        seq.serialize_element(&Helper {
+            accessible_scopes: &attribute.accessible_scopes,
+            end_pc: &attribute.end_pc,
+            flow_tracking_data: &attribute.flow_tracking_data,
+            name: &attribute.name,
+            start_pc: &attribute.start_pc,
+            value: &attribute.value,
+        })?;
+    }
+
+    seq.end()
+}
+
+fn serialize_program_for_hinted_hash<S: Serializer>(
+    source: &LegacyProgram,
+    serializer: S,
+) -> Result<S::Ok, S::Error> {
+    #[serde_as]
+    #[derive(::serde::Serialize)]
+    struct Helper<'a> {
+        #[serde(skip_serializing_if = "Vec::is_empty")]
+        #[serde(serialize_with = "serialize_attribute_for_hinted_hash")]
+        attributes: &'a Vec<Attribute>,
+        builtins: &'a Vec<BuiltinName>,
+        #[serde(skip_serializing_if = "Option::is_none")]
+        compiler_version: &'a Option<String>,
+        data: &'a Vec<Felt>,
+        debug_info: &'a Option<serde_json::Value>,
+        hints: &'a BTreeMap<u64, Vec<HintParams>>,
+        identifiers: &'a BTreeMap<String, Identifier>,
+        main_scope: &'a String,
+        prime: &'a String,
+        reference_manager: &'a ReferenceManager,
+    }
+
+    if source.compiler_version.is_some() {
+        // Anything since 0.10.0 can be hashed directly. No extra overhead incurred.
+
+        Helper::serialize(
+            &Helper {
+                attributes: &source.attributes,
+                builtins: &source.builtins,
+                compiler_version: &source.compiler_version,
+                data: &source.data,
+                debug_info: &None,
+                hints: &source.hints,
+                identifiers: &source.identifiers,
+                main_scope: &source.main_scope,
+                prime: &source.prime,
+                reference_manager: &source.reference_manager,
+            },
+            serializer,
+        )
+    } else {
+        // This is needed for backward compatibility with pre-0.10.0 contract artifacts.
+
+        // We're cloning the entire `identifiers` here as a temporary patch. This is not
+        // optimal, as it should technically be possible to avoid the cloning. This only
+        // affects very old contract artifacts though.
+        // TODO: optimize this to remove cloning.
+
+        let patched_identifiers = source
+            .identifiers
+            .iter()
+            .map(|(key, value)| {
+                (
+                    key.to_owned(),
+                    Identifier {
+                        decorators: value.decorators.to_owned(),
+                        cairo_type: value
+                            .cairo_type
+                            .to_owned()
+                            .map(|content| content.replace(": ", " : ")),
+                        full_name: value.full_name.to_owned(),
+                        members: value.members.to_owned().map(|map| {
+                            map.iter()
+                                .map(|(key, value)| {
+                                    (
+                                        key.to_owned(),
+                                        Member {
+                                            cairo_type: value.cairo_type.replace(": ", " : "),
+                                            offset: value.offset,
+                                        },
+                                    )
+                                })
+                                .collect()
+                        }),
+                        references: value.references.to_owned(),
+                        size: value.size,
+                        pc: value.pc,
+                        destination: value.destination.to_owned(),
+                        r#type: value.r#type.to_owned(),
+                        value: value.value.to_owned(),
+                    },
+                )
+            })
+            .collect::<BTreeMap<_, _>>();
+
+        Helper::serialize(
+            &Helper {
+                attributes: &source.attributes,
+                builtins: &source.builtins,
+                compiler_version: &source.compiler_version,
+                data: &source.data,
+                debug_info: &None,
+                hints: &source.hints,
+                identifiers: &patched_identifiers,
+                main_scope: &source.main_scope,
+                prime: &source.prime,
+                reference_manager: &source.reference_manager,
+            },
+            serializer,
+        )
+    }
+}
 
 /// The canonical compiled Sierra contract class type.
 pub type CasmContractClass = cairo_lang_starknet_classes::casm_contract_class::CasmContractClass;
@@ -329,7 +625,9 @@ pub fn compute_sierra_class_hash(
 /// This function delegates the computation to the `starknet-rs` library. Don't really care about
 /// performance here because it's only for legacy classes, but we should definitely find to improve
 /// this without introducing too much complexity.
-fn compute_legacy_class_hash(class: &LegacyContractClass) -> Result<Felt, ComputeClassHashError> {
+pub fn compute_legacy_class_hash(
+    class: &LegacyContractClass,
+) -> Result<Felt, ComputeClassHashError> {
     pub use starknet::core::types::contract::legacy::LegacyContractClass as StarknetRsLegacyContractClass;
 
     let value = serde_json::to_value(class).unwrap();
@@ -341,14 +639,184 @@ fn compute_legacy_class_hash(class: &LegacyContractClass) -> Result<Felt, Comput
 
 fn entrypoints_hash(entrypoints: &[ContractEntryPoint]) -> Felt {
     let mut hasher = starknet_crypto::PoseidonHasher::new();
-
     for entry in entrypoints {
         hasher.update(entry.selector.clone().into());
         hasher.update(entry.function_idx.into());
     }
-
     hasher.finalize()
 }
+
+fn legacy_entrypoints_hash(entrypoints: &[LegacyContractEntryPoint]) -> Felt {
+    let mut hasher = starknet_crypto::PedersenHasher::new();
+    for entry in entrypoints {
+        hasher.update(entry.selector.0);
+        hasher.update(entry.offset.0.into());
+    }
+    hasher.finalize()
+}
+
+// struct ProgramForHintedHash;
+// struct AttributeForHintedHash;
+
+// /// Computes the "hinted" class hash of the legacy (Cairo 0) class.
+// ///
+// /// This is known as the "hinted" hash as it isn't possible to directly calculate, and thus
+// /// prove the correctness of, this hash, since it involves JSON serialization. Instead, this
+// /// hash is always calculated outside of the Cairo VM, and then fed to the Cairo program as a
+// /// hinted value.
+// pub fn hinted_class_hash(&self) -> Result<Felt, ComputeClassHashError> {
+//     #[serde_as]
+//     #[derive(Serialize)]
+//     struct ContractArtifactForHash<'a> {
+//         abi: &'a Vec<RawLegacyAbiEntry>,
+//         #[serde_as(as = "ProgramForHintedHash")]
+//         program: &'a LegacyProgram,
+//     }
+
+//     let serialized =
+//         to_string_pythonic(&ContractArtifactForHash { abi: &self.abi, program: &self.program })
+//             .map_err(|err| ComputeClassHashError::Json(JsonError { message: format!("{err}")
+// }))?;
+
+//     Ok(starknet_keccak(serialized.as_bytes()))
+// }
+
+// impl SerializeAs<LegacyProgram> for ProgramForHintedHash {
+//     fn serialize_as<S>(source: &LegacyProgram, serializer: S) -> Result<S::Ok, S::Error>
+//     where
+//         S: Serializer,
+//     {
+//         #[serde_as]
+//         #[derive(Serialize)]
+//         struct HashVo<'a> {
+//             #[serde(skip_serializing_if = "should_skip_attributes_for_hinted_hash")]
+//             #[serde_as(as = "Option<Vec<AttributeForHintedHash>>")]
+//             attributes: &'a Option<Vec<LegacyAttribute>>,
+//             builtins: &'a Vec<String>,
+//             #[serde(skip_serializing_if = "Option::is_none")]
+//             compiler_version: &'a Option<String>,
+//             #[serde_as(as = "Vec<UfeHex>")]
+//             data: &'a Vec<Felt>,
+//             debug_info: &'a Option<LegacyDebugInfo>,
+//             hints: &'a BTreeMap<u64, Vec<LegacyHint>>,
+//             identifiers: &'a BTreeMap<String, LegacyIdentifier>,
+//             main_scope: &'a String,
+//             prime: &'a String,
+//             reference_manager: &'a LegacyReferenceManager,
+//         }
+
+//         if source.compiler_version.is_some() {
+//             // Anything since 0.10.0 can be hashed directly. No extra overhead incurred.
+
+//             HashVo::serialize(
+//                 &HashVo {
+//                     attributes: &source.attributes,
+//                     builtins: &source.builtins,
+//                     compiler_version: &source.compiler_version,
+//                     data: &source.data,
+//                     debug_info: &None,
+//                     hints: &source.hints,
+//                     identifiers: &source.identifiers,
+//                     main_scope: &source.main_scope,
+//                     prime: &source.prime,
+//                     reference_manager: &source.reference_manager,
+//                 },
+//                 serializer,
+//             )
+//         } else {
+//             // This is needed for backward compatibility with pre-0.10.0 contract artifacts.
+
+//             // We're cloning the entire `identifiers` here as a temporary patch. This is not
+//             // optimal, as it should technically be possible to avoid the cloning. This only
+//             // affects very old contract artifacts though.
+//             // TODO: optimize this to remove cloning.
+
+//             let patched_identifiers = source
+//                 .identifiers
+//                 .iter()
+//                 .map(|(key, value)| {
+//                     (
+//                         key.to_owned(),
+//                         LegacyIdentifier {
+//                             decorators: value.decorators.to_owned(),
+//                             cairo_type: value
+//                                 .cairo_type
+//                                 .to_owned()
+//                                 .map(|content| content.replace(": ", " : ")),
+//                             full_name: value.full_name.to_owned(),
+//                             members: value.members.to_owned().map(|map| {
+//                                 map.iter()
+//                                     .map(|(key, value)| {
+//                                         (
+//                                             key.to_owned(),
+//                                             LegacyIdentifierMember {
+//                                                 cairo_type: value.cairo_type.replace(": ", " :
+// "),                                                 offset: value.offset,
+//                                             },
+//                                         )
+//                                     })
+//                                     .collect()
+//                             }),
+//                             references: value.references.to_owned(),
+//                             size: value.size,
+//                             pc: value.pc,
+//                             destination: value.destination.to_owned(),
+//                             r#type: value.r#type.to_owned(),
+//                             value: value.value.to_owned(),
+//                         },
+//                     )
+//                 })
+//                 .collect::<BTreeMap<_, _>>();
+
+//             HashVo::serialize(
+//                 &HashVo {
+//                     attributes: &source.attributes,
+//                     builtins: &source.builtins,
+//                     compiler_version: &source.compiler_version,
+//                     data: &source.data,
+//                     debug_info: &None,
+//                     hints: &source.hints,
+//                     identifiers: &patched_identifiers,
+//                     main_scope: &source.main_scope,
+//                     prime: &source.prime,
+//                     reference_manager: &source.reference_manager,
+//                 },
+//                 serializer,
+//             )
+//         }
+//     }
+// }
+
+// impl SerializeAs<LegacyAttribute> for AttributeForHintedHash {
+//     fn serialize_as<S>(source: &LegacyAttribute, serializer: S) -> Result<S::Ok, S::Error>
+//     where
+//         S: Serializer,
+//     {
+//         #[derive(Serialize)]
+//         struct HashVo<'a> {
+//             #[serde(skip_serializing_if = "Vec::is_empty")]
+//             accessible_scopes: &'a Vec<String>,
+//             end_pc: &'a u64,
+//             #[serde(skip_serializing_if = "Option::is_none")]
+//             flow_tracking_data: &'a Option<LegacyFlowTrackingData>,
+//             name: &'a String,
+//             start_pc: &'a u64,
+//             value: &'a String,
+//         }
+
+//         HashVo::serialize(
+//             &HashVo {
+//                 accessible_scopes: &source.accessible_scopes,
+//                 end_pc: &source.end_pc,
+//                 flow_tracking_data: &source.flow_tracking_data,
+//                 name: &source.name,
+//                 start_pc: &source.start_pc,
+//                 value: &source.value,
+//             },
+//             serializer,
+//         )
+//     }
+// }
 
 #[cfg(test)]
 mod tests {

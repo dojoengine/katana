@@ -341,6 +341,7 @@ impl<Method> RequestBuilder<'_, Method> {
 #[cfg(test)]
 mod tests {
 
+    use katana_primitives::{felt, Felt};
     use serde_json::json;
 
     use super::*;
@@ -469,5 +470,24 @@ again in 30 seconds.</h2> <h2></h2></body></html>"#;
             }
             other => panic!("Expected UnknownFormat error, got: {:?}", other),
         }
+    }
+
+    #[tokio::test]
+    async fn get_class_and_verify_hash() {
+        use katana_primitives::class::ContractClass as PrimitivesContractClass;
+
+        let client = Client::sepolia();
+        let class_hash = felt!("0x58fe1025c53f5f067256b76857e89902544f3ae54231ba476285c0ab62d3ffa");
+
+        let contract_class = client.get_class(class_hash, BlockId::Latest).await.unwrap();
+        let primitives_class: PrimitivesContractClass = contract_class.try_into().unwrap();
+
+        // Compute the class hash locally
+        let computed_hash = primitives_class.class_hash().expect("failed to compute class hash");
+
+        assert_eq!(
+            computed_hash, class_hash,
+            "Computed class hash {computed_hash:#x} does not match expected hash {class_hash:#x}"
+        );
     }
 }

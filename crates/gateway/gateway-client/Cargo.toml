@@ -20,6 +20,7 @@ url.workspace = true
 tokio = { workspace = true, features = ["macros", "rt"] }
 
 [dev-dependencies]
+starknet.workspace = true
 rstest.workspace = true
 similar-asserts.workspace = true
 wiremock = "0.6"
