@@ -1,26 +1,34 @@
 //! Metrics for the sync pipeline.
 //!
-//! This module provides comprehensive metrics collection for the synchronization pipeline,
+//! This module provides metrics collection for the synchronization pipeline,
 //! enabling monitoring and visualization of both individual stages and overall pipeline progress.
 //!
 //! ## Pipeline Metrics
 //!
 //! Pipeline-level metrics track the overall synchronization process:
 //!
-//! - Total chunks processed across all stages
-//! - Total blocks processed across all pipeline runs
-//! - Total time spent syncing
-//! - Current tip block being synced to
-//! - Pipeline runs completed
+//! - Current sync target (tip block)
+//! - Current sync position (lowest checkpoint across all stages)
+//! - Iteration duration
+//! - Error count
 //!
 //! ## Stage Metrics
 //!
 //! Stage-level metrics are collected per stage and include:
 //!
-//! - Number of executions for each stage
-//! - Total blocks processed by each stage
-//! - Execution time for each stage execution
-//! - Checkpoint updates for each stage
+//! - Blocks processed by each stage
+//! - Execution duration for each stage
+//! - Current checkpoint for each stage
+//! - Error count for each stage
+//!
+//! ## Derived Metrics
+//!
+//! From these base metrics, the following can be derived:
+//!
+//! - **Sync progress**: `sync_position / sync_target`
+//! - **Blocks behind**: `sync_target - sync_position`
+//! - **Stage progress**: `stage.checkpoint / sync_target`
+//! - **Stage throughput**: `rate(stage.blocks_processed_total)`
 
 use std::collections::HashMap;
 use std::sync::Arc;
@@ -49,42 +57,31 @@ impl PipelineMetrics {
 
     /// Get or create metrics for a specific stage.
     pub fn stage(&self, stage_id: &'static str) -> StageMetrics {
-        let mut stages = self.inner.stages.lock().unwrap();
+        let mut stages = self.inner.stages.lock();
         stages
             .entry(stage_id)
             .or_insert_with(|| StageMetrics::new_with_labels(&[("stage", stage_id)]))
             .clone()
     }
 
-    /// Record a chunk being processed by the pipeline.
-    pub fn record_chunk(&self, blocks_in_chunk: u64) {
-        self.inner.pipeline.chunks_processed_total.increment(1);
-        self.inner.pipeline.blocks_processed_total.increment(blocks_in_chunk);
+    /// Update the sync target (tip block).
+    pub fn set_sync_target(&self, tip: u64) {
+        self.inner.pipeline.sync_target.set(tip as f64);
     }
 
-    /// Update the current tip being synced to.
-    pub fn set_tip(&self, tip: u64) {
-        self.inner.pipeline.current_tip.set(tip as f64);
+    /// Update the sync position (lowest checkpoint across all stages).
+    pub fn set_sync_position(&self, position: u64) {
+        self.inner.pipeline.sync_position.set(position as f64);
     }
 
-    /// Record a pipeline run completing.
-    pub fn record_run_complete(&self) {
-        self.inner.pipeline.runs_completed_total.increment(1);
+    /// Record the duration of a pipeline iteration.
+    pub fn record_iteration_duration(&self, duration_seconds: f64) {
+        self.inner.pipeline.iteration_duration_seconds.record(duration_seconds);
     }
 
-    /// Record the time taken for a pipeline iteration.
-    pub fn record_iteration_time(&self, duration_seconds: f64) {
-        self.inner.pipeline.iteration_time_seconds.record(duration_seconds);
-    }
-
-    /// Update the lowest checkpoint across all stages.
-    pub fn set_lowest_checkpoint(&self, checkpoint: u64) {
-        self.inner.pipeline.lowest_checkpoint.set(checkpoint as f64);
-    }
-
-    /// Update the highest checkpoint across all stages.
-    pub fn set_highest_checkpoint(&self, checkpoint: u64) {
-        self.inner.pipeline.highest_checkpoint.set(checkpoint as f64);
+    /// Record a pipeline error.
+    pub fn record_error(&self) {
+        self.inner.pipeline.errors_total.increment(1);
     }
 }
 
@@ -105,42 +102,34 @@ struct PipelineMetricsInner {
 #[derive(Metrics, Clone)]
 #[metrics(scope = "sync.pipeline")]
 struct PipelineOverallMetrics {
-    /// Total number of chunks processed by the pipeline
-    chunks_processed_total: Counter,
-    /// Total number of blocks processed by the pipeline
-    blocks_processed_total: Counter,
-    /// Total number of pipeline runs completed
-    runs_completed_total: Counter,
-    /// Current tip block being synced to
-    current_tip: Gauge,
-    /// Lowest checkpoint across all stages
-    lowest_checkpoint: Gauge,
-    /// Highest checkpoint across all stages
-    highest_checkpoint: Gauge,
-    /// Time taken for each pipeline iteration
-    iteration_time_seconds: Histogram,
+    /// Target tip block being synced to
+    sync_target: Gauge,
+    /// Current fully-synced position (minimum checkpoint across all stages)
+    sync_position: Gauge,
+    /// Duration of each pipeline iteration
+    iteration_duration_seconds: Histogram,
+    /// Total number of pipeline errors
+    errors_total: Counter,
 }
 
 /// Metrics for individual stage execution.
 #[derive(Metrics, Clone)]
 #[metrics(scope = "sync.stage")]
 pub struct StageMetrics {
-    /// Number of times the stage has been executed
-    executions_total: Counter,
-    /// Total number of blocks processed by this stage
-    blocks_processed_total: Counter,
-    /// Number of times the stage was skipped (checkpoint >= target)
-    skipped_total: Counter,
-    /// Time taken for each stage execution
-    execution_time_seconds: Histogram,
     /// Current checkpoint for this stage
     checkpoint: Gauge,
+    /// Total number of blocks processed by this stage
+    blocks_processed_total: Counter,
+    /// Duration of each stage execution
+    execution_duration_seconds: Histogram,
+    /// Total number of errors encountered by this stage
+    errors_total: Counter,
 }
 
 impl StageMetrics {
-    /// Record a stage execution starting.
+    /// Record a stage execution starting. Returns a guard that records
+    /// the execution duration when dropped.
     pub fn execution_started(&self) -> StageExecutionGuard {
-        self.executions_total.increment(1);
         StageExecutionGuard { metrics: self.clone(), started_at: Instant::now() }
     }
 
@@ -149,18 +138,18 @@ impl StageMetrics {
         self.blocks_processed_total.increment(count);
     }
 
-    /// Record a stage being skipped.
-    pub fn record_skipped(&self) {
-        self.skipped_total.increment(1);
-    }
-
     /// Update the checkpoint for this stage.
     pub fn set_checkpoint(&self, checkpoint: u64) {
         self.checkpoint.set(checkpoint as f64);
     }
+
+    /// Record a stage error.
+    pub fn record_error(&self) {
+        self.errors_total.increment(1);
+    }
 }
 
-/// Guard that records the execution time when dropped.
+/// Guard that records the execution duration when dropped.
 pub struct StageExecutionGuard {
     metrics: StageMetrics,
     started_at: Instant,
@@ -169,6 +158,6 @@ pub struct StageExecutionGuard {
 impl Drop for StageExecutionGuard {
     fn drop(&mut self) {
         let duration = self.started_at.elapsed().as_secs_f64();
-        self.metrics.execution_time_seconds.record(duration);
+        self.metrics.execution_duration_seconds.record(duration);
     }
 }

@@ -3,5 +3,5 @@ scrape_configs:
     metrics_path: "/"
     scrape_interval: 5s
     static_configs:
-      - targets: ["host.docker.internal:9001", "localhost:9100"]
+      - targets: ["host.docker.internal:9100", "localhost:9100"]
     fallback_scrape_protocol: PrometheusText1.0.0

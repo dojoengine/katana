@@ -12,7 +12,7 @@ katana-provider-api.workspace = true
 katana-stage.workspace = true
 
 futures.workspace = true
-parking-lot.workspace = true
+parking_lot.workspace = true
 thiserror.workspace = true
 tokio.workspace = true
 tracing.workspace = true

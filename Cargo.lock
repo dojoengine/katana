@@ -6306,6 +6306,7 @@ dependencies = [
  "katana-provider",
  "katana-provider-api",
  "katana-stage",
+ "parking_lot",
  "thiserror 1.0.69",
  "tokio",
  "tracing",
