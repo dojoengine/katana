@@ -410,9 +410,13 @@ where
         let state = self.state(&block_id)?;
 
         // Check that contract exist by checking the class hash of the contract,
-        // unless its address 0x1 which is special system contract and does not
-        // have a class. See https://docs.starknet.io/architecture-and-concepts/network-architecture/starknet-state/#address_0x1.
-        if contract_address.0 != Felt::ONE
+        // unless its address 0x1 or 0x2 which are special system contracts and does not
+        // have a class.
+        // See:
+        //  https://docs.starknet.io/learn/protocol/state#address-0x1.
+        //  https://docs.starknet.io/learn/protocol/data-availability#v0-13-4
+        
+        if contract_address.0 != Felt::ONE && contract_address.0 != Felt::TWO
             && state.class_hash_of_contract(contract_address)?.is_none()
         {
             return Err(StarknetApiError::ContractNotFound);
@@ -1168,8 +1172,9 @@ where
             // We use `next_txn_idx` because the range is non-inclusive - we want to include the
             // transaction pointed by `abs_end`.
             let tx_range = start_from..next_txn_idx;
+            println!("11");
             let tx_hashes = provider.transaction_hashes_in_range(tx_range)?;
-
+            println!("22");
             let mut transactions: Vec<TransactionListItem> = Vec::with_capacity(tx_hashes.len());
 
             for hash in tx_hashes {
