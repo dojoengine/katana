@@ -16,8 +16,7 @@ use katana_metrics::sys::DiskReporter;
 use katana_metrics::{MetricsServer, MetricsServerHandle, Report};
 use katana_pipeline::{Pipeline, PipelineHandle};
 use katana_pool::ordering::TipOrdering;
-use katana_provider::providers::db::DbProvider;
-use katana_provider::BlockchainProvider;
+use katana_provider::DbProviderFactory;
 use katana_rpc_api::starknet::{StarknetApiServer, StarknetTraceApiServer, StarknetWriteApiServer};
 use katana_rpc_server::cors::Cors;
 use katana_rpc_server::starknet::{StarknetApi, StarknetApiConfig};
@@ -70,11 +69,12 @@ pub struct Config {
 
 #[derive(Debug)]
 pub struct Node {
+    pub provider: DbProviderFactory,
     pub db: katana_db::Db,
     pub pool: FullNodePool,
     pub config: Arc<Config>,
     pub task_manager: TaskManager,
-    pub pipeline: Pipeline<DbProvider>,
+    pub pipeline: Pipeline<DbProviderFactory>,
     pub rpc_server: RpcServer,
     pub gateway_client: SequencerGateway,
     pub metrics_server: Option<MetricsServer<Prometheus>>,
@@ -99,9 +99,9 @@ impl Node {
         let path = config.db.dir.clone().expect("database path must exist");
 
         info!(target: "node", path = %path.display(), "Initializing database.");
-        let db = katana_db::Db::new(path)?;
 
-        let provider = DbProvider::new(db.clone());
+        let db = katana_db::Db::new(path)?;
+        let storage_provider = DbProviderFactory::new(db.clone());
 
         // --- build gateway client
 
@@ -123,18 +123,18 @@ impl Node {
 
         // --- build pipeline
 
-        let (mut pipeline, pipeline_handle) = Pipeline::new(provider.clone(), 50);
-        let block_downloader = BatchBlockDownloader::new_gateway(gateway_client.clone(), 8);
-        pipeline.add_stage(Blocks::new(provider.clone(), block_downloader));
-        pipeline.add_stage(Classes::new(provider.clone(), gateway_client.clone(), 8));
-        pipeline.add_stage(StateTrie::new(provider.clone()));
+        let (mut pipeline, pipeline_handle) = Pipeline::new(storage_provider.clone(), 256);
+        let block_downloader = BatchBlockDownloader::new_gateway(gateway_client.clone(), 20);
+        pipeline.add_stage(Blocks::new(storage_provider.clone(), block_downloader));
+        pipeline.add_stage(Classes::new(storage_provider.clone(), gateway_client.clone(), 20));
+        pipeline.add_stage(StateTrie::new(storage_provider.clone()));
 
         // -- build chain tip watcher using gateway client
 
         let chain_tip_watcher = ChainTipWatcher::new(gateway_client.clone());
 
         let preconf_factory = PreconfStateFactory::new(
-            provider.clone(),
+            storage_provider.clone(),
             gateway_client.clone(),
             pipeline_handle.subscribe_blocks(),
             chain_tip_watcher.subscribe(),
@@ -170,12 +170,12 @@ impl Node {
 
         let starknet_api = StarknetApi::new(
             Arc::new(chain_spec),
-            BlockchainProvider::new(Box::new(provider.clone())),
             pool.clone(),
             task_spawner.clone(),
             preconf_factory,
             GasPriceOracle::create_for_testing(),
             starknet_api_cfg,
+            storage_provider.clone(),
         );
 
         if config.rpc.apis.contains(&RpcModuleKind::Starknet) {
@@ -232,6 +232,7 @@ impl Node {
 
         Ok(Node {
             db,
+            provider: storage_provider,
             pool,
             pipeline,
             rpc_server,

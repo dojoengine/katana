@@ -4,6 +4,7 @@ use katana_primitives::Felt;
 use katana_provider::api::block::HeaderProvider;
 use katana_provider::api::state_update::StateUpdateProvider;
 use katana_provider::api::trie::TrieWriter;
+use katana_provider::{MutableProvider, ProviderFactory};
 use starknet::macros::short_string;
 use starknet_types_core::hash::{Poseidon, StarkHash};
 use tracing::{debug, debug_span, error};
@@ -20,19 +21,20 @@ use crate::{Stage, StageExecutionInput, StageExecutionOutput, StageResult};
 /// root.
 #[derive(Debug)]
 pub struct StateTrie<P> {
-    provider: P,
+    storage_provider: P,
 }
 
 impl<P> StateTrie<P> {
     /// Create a new [`StateTrie`] stage.
-    pub fn new(provider: P) -> Self {
-        Self { provider }
+    pub fn new(storage_provider: P) -> Self {
+        Self { storage_provider }
     }
 }
 
 impl<P> Stage for StateTrie<P>
 where
-    P: StateUpdateProvider + TrieWriter + HeaderProvider,
+    P: ProviderFactory,
+    <P as ProviderFactory>::ProviderMut: StateUpdateProvider + HeaderProvider + TrieWriter,
 {
     fn id(&self) -> &'static str {
         "StateTrie"
@@ -40,32 +42,31 @@ where
 
     fn execute<'a>(&'a mut self, input: &'a StageExecutionInput) -> BoxFuture<'a, StageResult> {
         Box::pin(async move {
+            let provider_mut = self.storage_provider.provider_mut();
+
             for block_number in input.from()..=input.to() {
                 let span = debug_span!("state_trie.compute_state_root", %block_number);
                 let _enter = span.enter();
 
-                let header = self
-                    .provider
+                let header = provider_mut
                     .header(block_number.into())?
                     .ok_or(Error::MissingBlockHeader(block_number))?;
 
                 let expected_state_root = header.state_root;
 
-                let state_update = self
-                    .provider
+                let state_update = provider_mut
                     .state_update(block_number.into())?
                     .ok_or(Error::MissingStateUpdate(block_number))?;
 
                 let computed_contract_trie_root =
-                    self.provider.trie_insert_contract_updates(block_number, &state_update)?;
+                    provider_mut.trie_insert_contract_updates(block_number, &state_update)?;
 
                 debug!(
                     contract_trie_root = format!("{computed_contract_trie_root:#x}"),
                     "Computed contract trie root."
                 );
 
-                let computed_class_trie_root = self
-                    .provider
+                let computed_class_trie_root = provider_mut
                     .trie_insert_declared_classes(block_number, &state_update.declared_classes)?;
 
                 debug!(
@@ -88,6 +89,7 @@ where
                 if computed_state_root != expected_state_root {
                     error!(
                         target: "stage",
+                        block = %block_number,
                         state_root = %format!("{computed_state_root:#x}"),
                         expected_state_root = %format!("{expected_state_root:#x}"),
                         "Bad state trie root for block - computed state root does not match expected state root (from header)",
@@ -103,6 +105,8 @@ where
 
                 debug!("State root verified successfully.");
             }
+
+            provider_mut.commit()?;
 
             Ok(StageExecutionOutput { last_block_processed: input.to() })
         })

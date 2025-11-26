@@ -218,7 +218,7 @@ impl Future for TxWaiter<'_> {
                         Err(StarknetClientError::Starknet(StarknetApiError::TxnHashNotFound)) => {}
 
                         Err(e) => {
-                            return Poll::Ready(Err(TxWaitingError::Client(dbg!(e))));
+                            return Poll::Ready(Err(TxWaitingError::Client(e)));
                         }
                     },
 
@@ -239,7 +239,7 @@ impl Future for TxWaiter<'_> {
                     Poll::Ready(res) => match res {
                         Err(StarknetClientError::Starknet(StarknetApiError::TxnHashNotFound)) => {}
                         Err(e) => {
-                            return Poll::Ready(Err(TxWaitingError::Client(dbg!(e))));
+                            return Poll::Ready(Err(TxWaitingError::Client(e)));
                         }
 
                         Ok(res) => {

@@ -155,13 +155,16 @@ mod tests {
     use katana_primitives::{address, ContractAddress};
     use katana_provider::api::state::StateFactoryProvider;
     use katana_provider::test_utils::test_provider;
+    use katana_provider::ProviderFactory;
     use katana_rpc_api::error::starknet::StarknetApiError;
     use katana_rpc_types::FunctionCall;
     use starknet::macros::selector;
 
     #[test]
     fn call_on_contract_not_deployed() {
-        let provider = test_provider();
+        let provider_factory = test_provider();
+        let provider = provider_factory.provider();
+
         let state = provider.latest().unwrap();
 
         let max_call_gas = 1_000_000_000;
@@ -179,7 +182,9 @@ mod tests {
 
     #[test]
     fn call_on_entry_point_not_found() {
-        let provider = test_provider();
+        let provider_factory = test_provider();
+        let provider = provider_factory.provider();
+
         let state = provider.latest().unwrap();
 
         let max_call_gas = 1_000_000_000;

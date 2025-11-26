@@ -10,8 +10,7 @@ use katana_provider::api::block::{
 use katana_provider::api::state::StateFactoryProvider;
 use katana_provider::api::state_update::StateUpdateProvider;
 use katana_provider::api::transaction::{ReceiptProvider, TransactionProvider};
-use katana_provider::providers::fork::ForkedProvider;
-use katana_provider::ProviderError;
+use katana_provider::{ForkProviderFactory, MutableProvider, ProviderError, ProviderFactory};
 use katana_rpc_client::starknet::Client as StarknetClient;
 use katana_rpc_types::MerkleNode;
 
@@ -21,18 +20,19 @@ const FORK_BLOCK_NUMBER: u64 = 2888618;
 #[tokio::test]
 async fn forked_provider_latest_number() {
     let fork_block_number = 2906771;
-
     let starknet_client = StarknetClient::new(SEPOLIA_RPC_URL.try_into().unwrap());
-    let provider = ForkedProvider::new_ephemeral(fork_block_number, starknet_client);
+
+    let provider_factory = ForkProviderFactory::new_in_memory(fork_block_number, starknet_client);
+    let provider_mut = provider_factory.provider_mut();
 
     let expected_latest_number = fork_block_number;
-    let actual_latest_number = provider.latest_number().unwrap();
+    let actual_latest_number = provider_mut.latest_number().unwrap();
 
     assert_eq!(actual_latest_number, expected_latest_number);
 
     let new_block_number = fork_block_number + 1;
 
-    provider
+    provider_mut
         .insert_block_with_states_and_receipts(
             SealedBlockWithStatus {
                 block: Block {
@@ -48,6 +48,9 @@ async fn forked_provider_latest_number() {
         )
         .unwrap();
 
+    provider_mut.commit().unwrap();
+    let provider = provider_factory.provider();
+
     let expected_latest_number = new_block_number;
     let actual_latest_number = provider.latest_number().unwrap();
 
@@ -61,7 +64,9 @@ async fn forked_provider_latest_number() {
 #[tokio::test]
 async fn block_from_forked_network() {
     let starknet_client = StarknetClient::new(SEPOLIA_RPC_URL.try_into().unwrap());
-    let provider = ForkedProvider::new_ephemeral(FORK_BLOCK_NUMBER, starknet_client);
+    let provider_factory = ForkProviderFactory::new_in_memory(FORK_BLOCK_NUMBER, starknet_client);
+
+    let provider = provider_factory.provider();
 
     // Request a block that should exist on the forked network (before the fork point)
     // Using a block number that is well before the fork point
@@ -106,7 +111,8 @@ async fn block_hash_from_forked_network() {
     let expected_hash = felt!("0x4f3db32fa485be6e8ed6ac7ce715a8739e9a28d67ea575c502e25036b5f178a");
 
     let starknet_client = StarknetClient::new(SEPOLIA_RPC_URL.try_into().unwrap());
-    let provider = ForkedProvider::new_ephemeral(FORK_BLOCK_NUMBER, starknet_client);
+    let provider_factory = ForkProviderFactory::new_in_memory(FORK_BLOCK_NUMBER, starknet_client);
+    let provider = provider_factory.provider();
 
     let block_num = 2888611;
     let result = provider.block_hash_by_num(block_num).unwrap();
@@ -119,7 +125,8 @@ async fn block_hash_from_forked_network() {
 async fn block_after_fork_point_returns_none() {
     let starknet_client = StarknetClient::new(SEPOLIA_RPC_URL.try_into().unwrap());
 
-    let provider = ForkedProvider::new_ephemeral(FORK_BLOCK_NUMBER, starknet_client);
+    let provider_factory = ForkProviderFactory::new_in_memory(FORK_BLOCK_NUMBER, starknet_client);
+    let provider = provider_factory.provider();
 
     // Request a block after the fork point (should not exist locally)
     // The block might exist on the forked network, but since it's after the fork point,
@@ -134,7 +141,8 @@ async fn block_after_fork_point_returns_none() {
 #[tokio::test]
 async fn transaction_from_forked_network() {
     let starknet_client = StarknetClient::new(SEPOLIA_RPC_URL.try_into().unwrap());
-    let provider = ForkedProvider::new_ephemeral(FORK_BLOCK_NUMBER, starknet_client);
+    let provider_factory = ForkProviderFactory::new_in_memory(FORK_BLOCK_NUMBER, starknet_client);
+    let provider = provider_factory.provider();
 
     let block_id = BlockHashOrNumber::Num(2888610);
     let tx_hash = felt!("0x40042d86e1b52896f3c695b713f3114ca53905890df0e14d09b4c1d51e2b1b0");
@@ -148,7 +156,7 @@ async fn transaction_from_forked_network() {
     // the related block should be fetched too.
     // assert that all related data is populated and can be fetched correctly.
 
-    let forked_db = provider.forked_db(); // bypass the ForkedProvider
+    let forked_db = provider.forked_db().db().provider(); // bypass the ForkedProvider
 
     let result = forked_db.block(block_id).unwrap();
     let block = result.expect("block should be populated");
@@ -186,7 +194,8 @@ async fn latest_fork_state() {
     let fork_block_number = 2906771;
 
     let starknet_client = StarknetClient::new(SEPOLIA_RPC_URL.try_into().unwrap());
-    let provider = ForkedProvider::new_ephemeral(fork_block_number, starknet_client);
+    let provider_factory = ForkProviderFactory::new_in_memory(fork_block_number, starknet_client);
+    let provider = provider_factory.provider();
 
     // because we forked at block 2906771, `provider.latest()` will return state at block 2906771
     let state = provider.latest().unwrap();
@@ -215,7 +224,8 @@ async fn historical_fork_state() {
     let fork_block_number = 2906771;
 
     let starknet_client = StarknetClient::new(SEPOLIA_RPC_URL.try_into().unwrap());
-    let provider = ForkedProvider::new_ephemeral(fork_block_number, starknet_client);
+    let provider_factory = ForkProviderFactory::new_in_memory(fork_block_number, starknet_client);
+    let provider = provider_factory.provider();
 
     ////////////////////////////////////////////////////////////////////////////////////
     // Class
@@ -308,7 +318,9 @@ async fn pre_fork_state_proof() {
     // we take the previous block because there were some instances where the latest block was not
     // available or supported by the node.
     let latest_block_number = starknet_client.block_number().await.unwrap().block_number - 1;
-    let provider = ForkedProvider::new_ephemeral(latest_block_number, starknet_client.clone());
+    let provider_factory =
+        ForkProviderFactory::new_in_memory(latest_block_number, starknet_client.clone());
+    let provider = provider_factory.provider();
 
     let state = provider.latest().unwrap();
 
@@ -353,10 +365,12 @@ async fn post_fork_state_proof_should_not_be_supported() {
     let fork_block_number = 2906771;
 
     let starknet_client = StarknetClient::new(SEPOLIA_RPC_URL.try_into().unwrap());
-    let provider = ForkedProvider::new_ephemeral(fork_block_number, starknet_client);
+    let provider_factory = ForkProviderFactory::new_in_memory(fork_block_number, starknet_client);
+
+    let provider_mut = provider_factory.provider_mut();
 
     let new_block_number = fork_block_number + 1;
-    provider
+    provider_mut
         .insert_block_with_states_and_receipts(
             SealedBlockWithStatus {
                 block: Block {
@@ -371,7 +385,9 @@ async fn post_fork_state_proof_should_not_be_supported() {
             Default::default(),
         )
         .unwrap();
+    provider_mut.commit().unwrap();
 
+    let provider = provider_factory.provider();
     let state = provider.latest().unwrap();
 
     let class_hash = felt!("0x00e022115a73679d4e215da00f53d8f681f5c52b488bf18c71fea115e92181b1");
@@ -381,4 +397,150 @@ async fn post_fork_state_proof_should_not_be_supported() {
     let address = address!("0x0164b86b8fC5C0c84d3c53Bc95760F290420Ea2a32ed49A44fd046683a1CaAc2");
     let result = state.contract_multiproof(vec![address]);
     assert_matches!(result, Err(ProviderError::StateProofNotSupported));
+}
+
+#[tokio::test(flavor = "multi_thread")]
+async fn pre_fork_state_root() {
+    let starknet_client = StarknetClient::new(SEPOLIA_RPC_URL.try_into().unwrap());
+
+    // always use the latest block number of the forked chain because most nodes may not support
+    // proofs for too old blocks
+    //
+    // we take the previous block because there were some instances where the latest block was not
+    // available or supported by the node.
+    let latest_block_number = starknet_client.block_number().await.unwrap().block_number - 1;
+    let provider_factory =
+        ForkProviderFactory::new_in_memory(latest_block_number, starknet_client.clone());
+    let provider = provider_factory.provider();
+
+    //////////////////////////////////////////////////////////////////////////////
+    // latest state
+    //////////////////////////////////////////////////////////////////////////////
+
+    // this will return the latest state exactly at the forked block
+    let state = provider.latest().unwrap();
+
+    //--------------------------------------------------------
+    // classes root
+
+    let actual_classes_root = state.classes_root().unwrap();
+    let expected_classes_root = starknet_client
+        .get_storage_proof(latest_block_number.into(), None, None, None)
+        .await
+        .map(|res| res.global_roots.classes_tree_root)
+        .unwrap();
+
+    assert_eq!(actual_classes_root, expected_classes_root);
+
+    //--------------------------------------------------------
+    // contracts root
+
+    let actual_contracts_root = state.contracts_root().unwrap();
+    let expected_contracts_root = starknet_client
+        .get_storage_proof(latest_block_number.into(), None, None, None)
+        .await
+        .map(|res| res.global_roots.contracts_tree_root)
+        .unwrap();
+
+    assert_eq!(actual_contracts_root, expected_contracts_root);
+
+    //--------------------------------------------------------
+    // contract storage root
+
+    let contract1 = address!("0x049D36570D4e46f48e99674bd3fcc84644DdD6b96F7C741B1562B82f9e004dC7"); // Ether Token
+    let contract2 = address!("0x04718f5a0Fc34cC1AF16A1cdee98fFB20C31f5cD61D6Ab07201858f4287c938D"); // Starknet Token
+    let contract3 = address!("0x053C91253BC9682c04929cA02ED00b3E423f6710D2ee7e0D5EBB06F3eCF368A8"); // USDC Token
+
+    let actual_contract1_root = state.storage_root(contract1).unwrap().unwrap();
+    let actual_contract2_root = state.storage_root(contract2).unwrap().unwrap();
+    let actual_contract3_root = state.storage_root(contract3).unwrap().unwrap();
+
+    let (expected_contract1_root, expected_contract2_root, expected_contract3_root) =
+        starknet_client
+            .get_storage_proof(
+                latest_block_number.into(),
+                None,
+                Some(vec![contract1, contract2, contract3]),
+                None,
+            )
+            .await
+            .map(|res| {
+                (
+                    // the leave must be ordered based on the order of the contracts in the request
+                    res.contracts_proof.contract_leaves_data[0].storage_root,
+                    res.contracts_proof.contract_leaves_data[1].storage_root,
+                    res.contracts_proof.contract_leaves_data[2].storage_root,
+                )
+            })
+            .unwrap();
+
+    assert_eq!(actual_contract1_root, expected_contract1_root);
+    assert_eq!(actual_contract2_root, expected_contract2_root);
+    assert_eq!(actual_contract3_root, expected_contract3_root);
+
+    //////////////////////////////////////////////////////////////////////////////
+    // historical state
+    //////////////////////////////////////////////////////////////////////////////
+
+    // this will return the latest state exactly at the forked block
+    let historical_block = latest_block_number - 5;
+    let state = provider.historical(historical_block.into()).unwrap().unwrap();
+
+    //--------------------------------------------------------
+    // classes root
+
+    let actual_classes_root = state.classes_root().unwrap();
+    let expected_classes_root = starknet_client
+        .get_storage_proof(historical_block.into(), None, None, None)
+        .await
+        .map(|res| res.global_roots.classes_tree_root)
+        .unwrap();
+
+    assert_eq!(actual_classes_root, expected_classes_root);
+
+    //--------------------------------------------------------
+    // contracts root
+
+    let actual_contracts_root = state.contracts_root().unwrap();
+    let expected_contracts_root = starknet_client
+        .get_storage_proof(historical_block.into(), None, None, None)
+        .await
+        .map(|res| res.global_roots.contracts_tree_root)
+        .unwrap();
+
+    assert_eq!(actual_contracts_root, expected_contracts_root);
+
+    //--------------------------------------------------------
+    // contract storage root
+
+    let contract1 = address!("0x049D36570D4e46f48e99674bd3fcc84644DdD6b96F7C741B1562B82f9e004dC7"); // Ether Token
+    let contract2 = address!("0x04718f5a0Fc34cC1AF16A1cdee98fFB20C31f5cD61D6Ab07201858f4287c938D"); // Starknet Token
+    let contract3 = address!("0x053C91253BC9682c04929cA02ED00b3E423f6710D2ee7e0D5EBB06F3eCF368A8"); // USDC Token
+
+    let actual_contract1_root = state.storage_root(contract1).unwrap().unwrap();
+    let actual_contract2_root = state.storage_root(contract2).unwrap().unwrap();
+    let actual_contract3_root = state.storage_root(contract3).unwrap().unwrap();
+
+    let (expected_contract1_root, expected_contract2_root, expected_contract3_root) =
+        starknet_client
+            .get_storage_proof(
+                historical_block.into(),
+                None,
+                Some(vec![contract1, contract2, contract3]),
+                None,
+            )
+            .await
+            .map(|res| {
+                (
+                    // the leave must be ordered based on the order of the contracts in the request
+                    res.contracts_proof.contract_leaves_data[0].storage_root,
+                    res.contracts_proof.contract_leaves_data[1].storage_root,
+                    res.contracts_proof.contract_leaves_data[2].storage_root,
+                )
+            })
+            .unwrap();
+
+    assert_eq!(actual_contract1_root, expected_contract1_root);
+    assert_eq!(actual_contract2_root, expected_contract2_root);
+    assert_eq!(actual_contract3_root, expected_contract3_root);
 }
