@@ -39,6 +39,7 @@ use katana_metrics::Metrics;
 use parking_lot::Mutex;
 
 /// Metrics for the sync pipeline.
+#[allow(missing_debug_implementations)]
 #[derive(Clone)]
 pub struct PipelineMetrics {
     inner: Arc<PipelineMetricsInner>,
@@ -91,6 +92,7 @@ impl Default for PipelineMetrics {
     }
 }
 
+#[allow(missing_debug_implementations)]
 struct PipelineMetricsInner {
     /// Overall pipeline metrics
     pipeline: PipelineOverallMetrics,
@@ -150,6 +152,7 @@ impl StageMetrics {
 }
 
 /// Guard that records the execution duration when dropped.
+#[allow(missing_debug_implementations)]
 pub struct StageExecutionGuard {
     metrics: StageMetrics,
     started_at: Instant,
