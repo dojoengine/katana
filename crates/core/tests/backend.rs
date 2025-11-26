@@ -3,7 +3,6 @@ use std::sync::Arc;
 use alloy_primitives::U256;
 use katana_chain_spec::rollup::{self};
 use katana_chain_spec::{dev, ChainSpec, FeeContracts, SettlementLayer};
-use katana_core::backend::storage::{Blockchain, Database};
 use katana_core::backend::Backend;
 use katana_executor::implementation::blockifier::cache::ClassCache;
 use katana_executor::implementation::blockifier::BlockifierFactory;
@@ -15,7 +14,7 @@ use katana_genesis::Genesis;
 use katana_primitives::chain::ChainId;
 use katana_primitives::env::VersionedConstantsOverrides;
 use katana_primitives::felt;
-use katana_provider::providers::db::DbProvider;
+use katana_provider::DbProviderFactory;
 use rstest::rstest;
 use url::Url;
 
@@ -33,17 +32,17 @@ fn executor(chain_spec: Arc<ChainSpec>) -> BlockifierFactory {
     )
 }
 
-fn backend(chain_spec: Arc<ChainSpec>) -> Backend<BlockifierFactory> {
-    backend_with_db(chain_spec, DbProvider::new_in_memory())
+fn backend(chain_spec: Arc<ChainSpec>) -> Backend<BlockifierFactory, DbProviderFactory> {
+    backend_with_db(chain_spec, DbProviderFactory::new_in_memory())
 }
 
 fn backend_with_db(
     chain_spec: Arc<ChainSpec>,
-    provider: impl Database,
-) -> Backend<BlockifierFactory> {
+    provider: DbProviderFactory,
+) -> Backend<BlockifierFactory, DbProviderFactory> {
     Backend::new(
         chain_spec.clone(),
-        Blockchain::new(provider),
+        provider,
         GasPriceOracle::create_for_testing(),
         executor(chain_spec),
     )
@@ -87,7 +86,7 @@ fn can_initialize_genesis(#[case] chain: ChainSpec) {
 #[case::dev(ChainSpec::Dev(dev_chain_spec()))]
 #[case::rollup(ChainSpec::Rollup(rollup_chain_spec()))]
 fn can_reinitialize_genesis(#[case] chain: ChainSpec) {
-    let db = DbProvider::new_in_memory();
+    let db = DbProviderFactory::new_in_memory();
 
     let backend = backend_with_db(chain.clone().into(), db.clone());
     backend.init_genesis(false).expect("failed to initialize genesis");
@@ -98,7 +97,7 @@ fn can_reinitialize_genesis(#[case] chain: ChainSpec) {
 
 #[test]
 fn reinitialize_with_different_rollup_chain_spec() {
-    let db = DbProvider::new_in_memory();
+    let db = DbProviderFactory::new_in_memory();
 
     let chain1 = ChainSpec::Rollup(rollup_chain_spec());
     let backend1 = backend_with_db(chain1.into(), db.clone());

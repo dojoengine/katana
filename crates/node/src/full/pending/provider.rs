@@ -1,11 +1,9 @@
-use std::fmt::Debug;
-
 use katana_gateway_types::TxTryFromError;
 use katana_primitives::block::FinalityStatus;
 use katana_primitives::fee::PriceUnit;
 use katana_primitives::transaction::{TxHash, TxNumber, TxType, TxWithHash};
 use katana_primitives::Felt;
-use katana_provider::api::state::{StateFactoryProvider, StateProvider};
+use katana_provider::api::state::StateProvider;
 use katana_rpc_server::starknet::{PendingBlockProvider, StarknetApiResult};
 use katana_rpc_types::{
     PreConfirmedStateUpdate, ReceiptBlockInfo, RpcTxReceipt, RpcTxWithHash, TxReceiptWithBlockInfo,
@@ -13,10 +11,7 @@ use katana_rpc_types::{
 
 use crate::full::pending::PreconfStateFactory;
 
-impl<P> PendingBlockProvider for PreconfStateFactory<P>
-where
-    P: StateFactoryProvider + Debug + 'static,
-{
+impl PendingBlockProvider for PreconfStateFactory {
     fn get_pending_block_with_txs(
         &self,
     ) -> StarknetApiResult<Option<katana_rpc_types::PreConfirmedBlockWithTxs>> {

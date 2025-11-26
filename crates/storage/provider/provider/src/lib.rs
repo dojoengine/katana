@@ -1,388 +1,121 @@
-use std::collections::BTreeMap;
-use std::ops::{Range, RangeInclusive};
-use std::sync::Arc;
+use std::fmt::Debug;
 
-use katana_db::models::block::StoredBlockBodyIndices;
-use katana_primitives::block::{
-    Block, BlockHash, BlockHashOrNumber, BlockNumber, BlockWithTxHashes, FinalityStatus, Header,
-    SealedBlockWithStatus,
-};
-use katana_primitives::class::{ClassHash, CompiledClassHash, ContractClass};
-use katana_primitives::contract::{ContractAddress, StorageKey, StorageValue};
-use katana_primitives::env::BlockEnv;
-use katana_primitives::execution::TypedTransactionExecutionInfo;
-use katana_primitives::receipt::Receipt;
-use katana_primitives::state::{StateUpdates, StateUpdatesWithClasses};
-use katana_primitives::transaction::{TxHash, TxNumber, TxWithHash};
-use katana_primitives::Felt;
-use katana_provider_api::block::{
-    BlockHashProvider, BlockIdReader, BlockNumberProvider, BlockProvider, BlockStatusProvider,
-    BlockWriter, HeaderProvider,
-};
-use katana_provider_api::contract::ContractClassWriter;
-use katana_provider_api::env::BlockEnvProvider;
-use katana_provider_api::stage::StageCheckpointProvider;
-use katana_provider_api::state::{StateFactoryProvider, StateProvider, StateWriter};
-use katana_provider_api::state_update::StateUpdateProvider;
-use katana_provider_api::transaction::{
-    ReceiptProvider, TransactionProvider, TransactionStatusProvider, TransactionTraceProvider,
-    TransactionsProviderExt,
-};
-use katana_provider_api::trie::TrieWriter;
+use katana_db::abstraction::Database;
+use katana_fork::Backend;
+use katana_primitives::block::BlockNumber;
 pub use katana_provider_api::{ProviderError, ProviderResult};
+use katana_rpc_client::starknet::Client as StarknetClient;
+
+// Re-export the API module
+pub mod api {
+    pub use katana_provider_api::*;
+}
 
 pub mod providers;
 #[cfg(any(test, feature = "test-utils"))]
 pub mod test_utils;
 
-pub mod api {
-    pub use katana_provider_api::*;
+use crate::providers::db::DbProvider;
+use crate::providers::fork::{ForkedDb, ForkedProvider};
+
+#[auto_impl::auto_impl(&, Box, Arc)]
+pub trait ProviderFactory: Send + Sync + Debug + 'static {
+    type Provider;
+    type ProviderMut: MutableProvider;
+
+    fn provider(&self) -> Self::Provider;
+    fn provider_mut(&self) -> Self::ProviderMut;
 }
 
-/// A blockchain provider that can be used to access the storage.
-///
-/// Serves as the main entrypoint for interacting with the storage storage. Every read/write
-/// operation is done through this provider.
-#[derive(Debug)]
-pub struct BlockchainProvider<Db> {
-    provider: Arc<Db>,
+#[auto_impl::auto_impl(Box)]
+pub trait MutableProvider: Sized + Send + Sync + 'static {
+    fn commit(self) -> ProviderResult<()>;
 }
 
-impl<Db> BlockchainProvider<Db> {
-    pub fn new(provider: Db) -> Self {
-        Self { provider: Arc::new(provider) }
-    }
-
-    pub fn inner(&self) -> &Db {
-        &self.provider
-    }
+#[derive(Clone, Debug)]
+pub struct DbProviderFactory {
+    db: katana_db::Db,
 }
 
-impl<Db> Clone for BlockchainProvider<Db> {
-    fn clone(&self) -> Self {
-        Self { provider: self.provider.clone() }
-    }
-}
-
-impl<Db> BlockProvider for BlockchainProvider<Db>
-where
-    Db: BlockProvider,
-{
-    fn block(&self, id: BlockHashOrNumber) -> ProviderResult<Option<Block>> {
-        self.provider.block(id)
+impl DbProviderFactory {
+    /// Creates a new [`DbProviderFactory`] with the given database.
+    pub fn new(db: katana_db::Db) -> Self {
+        Self { db }
     }
 
-    fn block_with_tx_hashes(
-        &self,
-        id: BlockHashOrNumber,
-    ) -> ProviderResult<Option<BlockWithTxHashes>> {
-        self.provider.block_with_tx_hashes(id)
+    /// Creates a new [`DbProviderFactory`] with an in-memory database.
+    pub fn new_in_memory() -> Self {
+        Self::new(katana_db::Db::in_memory().unwrap())
     }
 
-    fn blocks_in_range(&self, range: RangeInclusive<u64>) -> ProviderResult<Vec<Block>> {
-        self.provider.blocks_in_range(range)
-    }
-
-    fn block_body_indices(
-        &self,
-        id: BlockHashOrNumber,
-    ) -> ProviderResult<Option<StoredBlockBodyIndices>> {
-        self.provider.block_body_indices(id)
+    /// Returns a reference to the underlying database.
+    pub fn db(&self) -> &katana_db::Db {
+        &self.db
     }
 }
 
-impl<Db> HeaderProvider for BlockchainProvider<Db>
-where
-    Db: HeaderProvider,
-{
-    fn header(&self, id: BlockHashOrNumber) -> ProviderResult<Option<Header>> {
-        self.provider.header(id)
+impl ProviderFactory for DbProviderFactory {
+    type Provider = DbProvider<<katana_db::Db as Database>::Tx>;
+    type ProviderMut = DbProvider<<katana_db::Db as Database>::TxMut>;
+
+    fn provider(&self) -> Self::Provider {
+        DbProvider::new(self.db.tx().unwrap())
+    }
+
+    fn provider_mut(&self) -> Self::ProviderMut {
+        DbProvider::new(self.db.tx_mut().unwrap())
     }
 }
 
-impl<Db> BlockNumberProvider for BlockchainProvider<Db>
-where
-    Db: BlockNumberProvider,
-{
-    fn latest_number(&self) -> ProviderResult<BlockNumber> {
-        self.provider.latest_number()
+#[derive(Clone, Debug)]
+pub struct ForkProviderFactory {
+    backend: Backend,
+    block_id: BlockNumber,
+    fork_factory: DbProviderFactory,
+    local_factory: DbProviderFactory,
+}
+
+impl ForkProviderFactory {
+    pub fn new(db: katana_db::Db, block_id: BlockNumber, starknet_client: StarknetClient) -> Self {
+        let backend = Backend::new(starknet_client).expect("failed to create backend");
+
+        let local_factory = DbProviderFactory::new(db);
+        let fork_factory = DbProviderFactory::new_in_memory();
+
+        Self { local_factory, fork_factory, backend, block_id }
     }
 
-    fn block_number_by_hash(&self, hash: BlockHash) -> ProviderResult<Option<BlockNumber>> {
-        self.provider.block_number_by_hash(hash)
+    pub fn new_in_memory(block_id: BlockNumber, starknet_client: StarknetClient) -> Self {
+        Self::new(katana_db::Db::in_memory().unwrap(), block_id, starknet_client)
+    }
+
+    /// Returns a reference to the underlying database where the local-only data is stored.
+    pub fn db(&self) -> &katana_db::Db {
+        self.local_factory.db()
+    }
+
+    /// Returns the block number the provider is forked at.
+    pub fn block(&self) -> BlockNumber {
+        self.block_id
     }
 }
 
-impl<Db> BlockHashProvider for BlockchainProvider<Db>
-where
-    Db: BlockHashProvider,
-{
-    fn latest_hash(&self) -> ProviderResult<BlockHash> {
-        self.provider.latest_hash()
+impl ProviderFactory for ForkProviderFactory {
+    type Provider = ForkedProvider<<katana_db::Db as Database>::Tx>;
+
+    type ProviderMut = ForkedProvider<<katana_db::Db as Database>::TxMut>;
+
+    fn provider(&self) -> Self::Provider {
+        ForkedProvider::new(
+            self.local_factory.provider(),
+            ForkedDb::new(self.backend.clone(), self.block_id, self.fork_factory.clone()),
+        )
     }
 
-    fn block_hash_by_num(&self, num: BlockNumber) -> ProviderResult<Option<BlockHash>> {
-        self.provider.block_hash_by_num(num)
-    }
-}
-
-impl<Db> BlockIdReader for BlockchainProvider<Db> where Db: BlockNumberProvider {}
-
-impl<Db> BlockStatusProvider for BlockchainProvider<Db>
-where
-    Db: BlockStatusProvider,
-{
-    fn block_status(&self, id: BlockHashOrNumber) -> ProviderResult<Option<FinalityStatus>> {
-        self.provider.block_status(id)
-    }
-}
-
-impl<Db> BlockWriter for BlockchainProvider<Db>
-where
-    Db: BlockWriter,
-{
-    fn insert_block_with_states_and_receipts(
-        &self,
-        block: SealedBlockWithStatus,
-        states: StateUpdatesWithClasses,
-        receipts: Vec<Receipt>,
-        executions: Vec<TypedTransactionExecutionInfo>,
-    ) -> ProviderResult<()> {
-        self.provider.insert_block_with_states_and_receipts(block, states, receipts, executions)
-    }
-}
-
-impl<Db> TransactionProvider for BlockchainProvider<Db>
-where
-    Db: TransactionProvider,
-{
-    fn transaction_by_hash(&self, hash: TxHash) -> ProviderResult<Option<TxWithHash>> {
-        self.provider.transaction_by_hash(hash)
-    }
-
-    fn transactions_by_block(
-        &self,
-        block_id: BlockHashOrNumber,
-    ) -> ProviderResult<Option<Vec<TxWithHash>>> {
-        self.provider.transactions_by_block(block_id)
-    }
-
-    fn transaction_by_block_and_idx(
-        &self,
-        block_id: BlockHashOrNumber,
-        idx: u64,
-    ) -> ProviderResult<Option<TxWithHash>> {
-        self.provider.transaction_by_block_and_idx(block_id, idx)
-    }
-
-    fn transaction_count_by_block(
-        &self,
-        block_id: BlockHashOrNumber,
-    ) -> ProviderResult<Option<u64>> {
-        self.provider.transaction_count_by_block(block_id)
-    }
-
-    fn transaction_block_num_and_hash(
-        &self,
-        hash: TxHash,
-    ) -> ProviderResult<Option<(BlockNumber, BlockHash)>> {
-        TransactionProvider::transaction_block_num_and_hash(&self.provider, hash)
-    }
-
-    fn transaction_in_range(&self, range: Range<TxNumber>) -> ProviderResult<Vec<TxWithHash>> {
-        self.provider.transaction_in_range(range)
-    }
-}
-
-impl<Db> TransactionStatusProvider for BlockchainProvider<Db>
-where
-    Db: TransactionStatusProvider,
-{
-    fn transaction_status(&self, hash: TxHash) -> ProviderResult<Option<FinalityStatus>> {
-        TransactionStatusProvider::transaction_status(&self.provider, hash)
-    }
-}
-
-impl<Db> TransactionTraceProvider for BlockchainProvider<Db>
-where
-    Db: TransactionTraceProvider,
-{
-    fn transaction_execution(
-        &self,
-        hash: TxHash,
-    ) -> ProviderResult<Option<TypedTransactionExecutionInfo>> {
-        TransactionTraceProvider::transaction_execution(&self.provider, hash)
-    }
-
-    fn transaction_executions_by_block(
-        &self,
-        block_id: BlockHashOrNumber,
-    ) -> ProviderResult<Option<Vec<TypedTransactionExecutionInfo>>> {
-        TransactionTraceProvider::transaction_executions_by_block(&self.provider, block_id)
-    }
-
-    fn transaction_executions_in_range(
-        &self,
-        range: Range<TxNumber>,
-    ) -> ProviderResult<Vec<TypedTransactionExecutionInfo>> {
-        TransactionTraceProvider::transaction_executions_in_range(&self.provider, range)
-    }
-}
-
-impl<Db> TransactionsProviderExt for BlockchainProvider<Db>
-where
-    Db: TransactionsProviderExt,
-{
-    fn transaction_hashes_in_range(&self, range: Range<TxNumber>) -> ProviderResult<Vec<TxHash>> {
-        TransactionsProviderExt::transaction_hashes_in_range(&self.provider, range)
-    }
-
-    fn total_transactions(&self) -> ProviderResult<usize> {
-        TransactionsProviderExt::total_transactions(&self.provider)
-    }
-}
-
-impl<Db> ReceiptProvider for BlockchainProvider<Db>
-where
-    Db: ReceiptProvider,
-{
-    fn receipt_by_hash(&self, hash: TxHash) -> ProviderResult<Option<Receipt>> {
-        self.provider.receipt_by_hash(hash)
-    }
-
-    fn receipts_by_block(
-        &self,
-        block_id: BlockHashOrNumber,
-    ) -> ProviderResult<Option<Vec<Receipt>>> {
-        self.provider.receipts_by_block(block_id)
-    }
-}
-
-impl<Db> StateFactoryProvider for BlockchainProvider<Db>
-where
-    Db: StateFactoryProvider,
-{
-    fn latest(&self) -> ProviderResult<Box<dyn StateProvider>> {
-        self.provider.latest()
-    }
-
-    fn historical(
-        &self,
-        block_id: BlockHashOrNumber,
-    ) -> ProviderResult<Option<Box<dyn StateProvider>>> {
-        self.provider.historical(block_id)
-    }
-}
-
-impl<Db> StateUpdateProvider for BlockchainProvider<Db>
-where
-    Db: StateUpdateProvider,
-{
-    fn state_update(&self, block_id: BlockHashOrNumber) -> ProviderResult<Option<StateUpdates>> {
-        self.provider.state_update(block_id)
-    }
-
-    fn declared_classes(
-        &self,
-        block_id: BlockHashOrNumber,
-    ) -> ProviderResult<Option<BTreeMap<ClassHash, CompiledClassHash>>> {
-        self.provider.declared_classes(block_id)
-    }
-
-    fn deployed_contracts(
-        &self,
-        block_id: BlockHashOrNumber,
-    ) -> ProviderResult<Option<BTreeMap<ContractAddress, ClassHash>>> {
-        self.provider.deployed_contracts(block_id)
-    }
-}
-
-impl<Db> ContractClassWriter for BlockchainProvider<Db>
-where
-    Db: ContractClassWriter,
-{
-    fn set_class(&self, hash: ClassHash, class: ContractClass) -> ProviderResult<()> {
-        self.provider.set_class(hash, class)
-    }
-
-    fn set_compiled_class_hash_of_class_hash(
-        &self,
-        hash: ClassHash,
-        compiled_hash: CompiledClassHash,
-    ) -> ProviderResult<()> {
-        self.provider.set_compiled_class_hash_of_class_hash(hash, compiled_hash)
-    }
-}
-
-impl<Db> StateWriter for BlockchainProvider<Db>
-where
-    Db: StateWriter,
-{
-    fn set_storage(
-        &self,
-        address: ContractAddress,
-        storage_key: StorageKey,
-        storage_value: StorageValue,
-    ) -> ProviderResult<()> {
-        self.provider.set_storage(address, storage_key, storage_value)
-    }
-
-    fn set_class_hash_of_contract(
-        &self,
-        address: ContractAddress,
-        class_hash: ClassHash,
-    ) -> ProviderResult<()> {
-        self.provider.set_class_hash_of_contract(address, class_hash)
-    }
-
-    fn set_nonce(
-        &self,
-        address: ContractAddress,
-        nonce: katana_primitives::contract::Nonce,
-    ) -> ProviderResult<()> {
-        self.provider.set_nonce(address, nonce)
-    }
-}
-
-impl<Db> BlockEnvProvider for BlockchainProvider<Db>
-where
-    Db: BlockEnvProvider,
-{
-    fn block_env_at(&self, id: BlockHashOrNumber) -> ProviderResult<Option<BlockEnv>> {
-        self.provider.block_env_at(id)
-    }
-}
-
-impl<Db> TrieWriter for BlockchainProvider<Db>
-where
-    Db: TrieWriter,
-{
-    fn trie_insert_declared_classes(
-        &self,
-        block_number: BlockNumber,
-        updates: &BTreeMap<ClassHash, CompiledClassHash>,
-    ) -> ProviderResult<Felt> {
-        self.provider.trie_insert_declared_classes(block_number, updates)
-    }
-
-    fn trie_insert_contract_updates(
-        &self,
-        block_number: BlockNumber,
-        state_updates: &StateUpdates,
-    ) -> ProviderResult<Felt> {
-        self.provider.trie_insert_contract_updates(block_number, state_updates)
-    }
-}
-
-impl<Db> StageCheckpointProvider for BlockchainProvider<Db>
-where
-    Db: StageCheckpointProvider,
-{
-    fn checkpoint(&self, id: &str) -> ProviderResult<Option<BlockNumber>> {
-        self.provider.checkpoint(id)
-    }
-
-    fn set_checkpoint(&self, id: &str, block_number: BlockNumber) -> ProviderResult<()> {
-        self.provider.set_checkpoint(id, block_number)
+    fn provider_mut(&self) -> Self::ProviderMut {
+        ForkedProvider::new(
+            self.local_factory.provider_mut(),
+            ForkedDb::new(self.backend.clone(), self.block_id, self.fork_factory.clone()),
+        )
     }
 }

@@ -1,8 +1,7 @@
 use std::collections::BTreeMap;
 use std::ops::{Range, RangeInclusive};
-use std::sync::Arc;
 
-use katana_db::abstraction::Database;
+use katana_db::abstraction::{DbTx, DbTxMut};
 use katana_db::models::block::StoredBlockBodyIndices;
 use katana_fork::Backend;
 use katana_primitives::block::{
@@ -17,8 +16,8 @@ use katana_primitives::receipt::Receipt;
 use katana_primitives::state::{StateUpdates, StateUpdatesWithClasses};
 use katana_primitives::transaction::{TxHash, TxNumber, TxWithHash};
 use katana_provider_api::block::{
-    BlockHashProvider, BlockNumberProvider, BlockProvider, BlockStatusProvider, BlockWriter,
-    HeaderProvider,
+    BlockHashProvider, BlockIdReader, BlockNumberProvider, BlockProvider, BlockStatusProvider,
+    BlockWriter, HeaderProvider,
 };
 use katana_provider_api::env::BlockEnvProvider;
 use katana_provider_api::stage::StageCheckpointProvider;
@@ -28,29 +27,40 @@ use katana_provider_api::transaction::{
     TransactionsProviderExt,
 };
 use katana_provider_api::ProviderError;
-use katana_rpc_client::starknet::Client as StarknetClient;
 use katana_rpc_types::{GetBlockWithReceiptsResponse, RpcTxWithReceipt, StateUpdate};
 
 use super::db::{self, DbProvider};
-use crate::ProviderResult;
+use crate::{DbProviderFactory, MutableProvider, ProviderFactory, ProviderResult};
 
 mod state;
 mod trie;
 
 #[derive(Debug)]
-pub struct ForkedProvider<Db: Database = katana_db::Db> {
-    local_db: Arc<DbProvider<Db>>,
-    fork_db: Arc<ForkedDb>,
+pub struct ForkedProvider<Tx: DbTx> {
+    local_db: DbProvider<Tx>,
+    fork_db: ForkedDb,
 }
 
 #[derive(Debug, Clone)]
-struct ForkedDb {
+pub struct ForkedDb {
     backend: Backend,
     block_id: BlockNumber,
-    db: DbProvider<katana_db::Db>,
+    db: DbProviderFactory,
 }
 
 impl ForkedDb {
+    pub fn new(backend: Backend, block_id: BlockNumber, db: DbProviderFactory) -> Self {
+        Self { backend, block_id, db }
+    }
+
+    pub fn block_id(&self) -> BlockNumber {
+        self.block_id
+    }
+
+    pub fn db(&self) -> &DbProviderFactory {
+        &self.db
+    }
+
     /// Checks if a block number is before the fork point (and thus should be fetched externally)
     fn should_fetch_externally(&self, block_num: BlockNumber) -> bool {
         block_num <= self.block_id
@@ -130,12 +140,14 @@ impl ForkedDb {
             classes: Default::default(),
         };
 
-        self.db.insert_block_with_states_and_receipts(
+        let provider_mut = self.db.provider_mut();
+        provider_mut.insert_block_with_states_and_receipts(
             block,
             state_updates,
             receipts,
             Vec::new(),
         )?;
+        provider_mut.commit()?;
 
         Ok(true)
     }
@@ -150,18 +162,15 @@ impl ForkedDb {
     }
 }
 
-impl<Db: Database> ForkedProvider<Db> {
-    /// ## Arguments
-    ///
-    /// - `db`: The database to use for the provider.
-    /// - `block_id`: The block number or hash to use as the fork point.
-    /// - `starknet_client`: The Starknet JSON-RPC client to use for the provider.
-    pub fn new(db: Db, block_id: BlockNumber, starknet_client: StarknetClient) -> Self {
-        let local_db = Arc::new(DbProvider::new(db));
+impl<Tx1: DbTxMut> MutableProvider for ForkedProvider<Tx1> {
+    fn commit(self) -> ProviderResult<()> {
+        self.local_db.commit()?;
+        Ok(())
+    }
+}
 
-        let backend = Backend::new(starknet_client).expect("failed to create backend");
-        let fork_db = Arc::new(ForkedDb { block_id, db: DbProvider::new_in_memory(), backend });
-
+impl<Tx1: DbTx> ForkedProvider<Tx1> {
+    pub fn new(local_db: DbProvider<Tx1>, fork_db: ForkedDb) -> Self {
         Self { local_db, fork_db }
     }
 
@@ -169,35 +178,23 @@ impl<Db: Database> ForkedProvider<Db> {
         self.fork_db.block_id
     }
 
-    pub fn forked_db(&self) -> &DbProvider {
-        &self.fork_db.db
+    pub fn forked_db(&self) -> &ForkedDb {
+        &self.fork_db
     }
 }
 
-impl ForkedProvider<katana_db::Db> {
-    /// Creates a new [`ForkedProvider`] using an ephemeral database.
-    pub fn new_ephemeral(block_id: BlockNumber, starknet_client: StarknetClient) -> Self {
-        let local_db = Arc::new(DbProvider::new_in_memory());
-
-        let backend = Backend::new(starknet_client).expect("failed to create backend");
-        let fork_db = Arc::new(ForkedDb { block_id, db: DbProvider::new_in_memory(), backend });
-
-        Self { local_db, fork_db }
-    }
-}
-
-impl<Db: Database> BlockNumberProvider for ForkedProvider<Db> {
+impl<Tx1: DbTx> BlockNumberProvider for ForkedProvider<Tx1> {
     fn block_number_by_hash(&self, hash: BlockHash) -> ProviderResult<Option<BlockNumber>> {
         if let Some(num) = self.local_db.block_number_by_hash(hash)? {
             return Ok(Some(num));
         }
 
-        if let Some(num) = self.fork_db.db.block_number_by_hash(hash)? {
+        if let Some(num) = self.fork_db.db.provider().block_number_by_hash(hash)? {
             return Ok(Some(num));
         }
 
         if self.fork_db.fetch_historical_blocks(hash.into())? {
-            let num = self.fork_db.db.block_number_by_hash(hash)?.unwrap();
+            let num = self.fork_db.db.provider().block_number_by_hash(hash)?.unwrap();
             Ok(Some(num))
         } else {
             Ok(None)
@@ -216,7 +213,9 @@ impl<Db: Database> BlockNumberProvider for ForkedProvider<Db> {
     }
 }
 
-impl<Db: Database> BlockHashProvider for ForkedProvider<Db> {
+impl<Tx1: DbTx> BlockIdReader for ForkedProvider<Tx1> {}
+
+impl<Tx1: DbTx> BlockHashProvider for ForkedProvider<Tx1> {
     fn latest_hash(&self) -> ProviderResult<BlockHash> {
         self.local_db.latest_hash()
     }
@@ -230,12 +229,12 @@ impl<Db: Database> BlockHashProvider for ForkedProvider<Db> {
             return Ok(None);
         }
 
-        if let Some(hash) = self.fork_db.db.block_hash_by_num(num)? {
+        if let Some(hash) = self.fork_db.db.provider().block_hash_by_num(num)? {
             return Ok(Some(hash));
         }
 
         if self.fork_db.fetch_historical_blocks(num.into())? {
-            let num = self.fork_db.db.block_hash_by_num(num)?.unwrap();
+            let num = self.fork_db.db.provider().block_hash_by_num(num)?.unwrap();
             Ok(Some(num))
         } else {
             Ok(None)
@@ -243,18 +242,18 @@ impl<Db: Database> BlockHashProvider for ForkedProvider<Db> {
     }
 }
 
-impl<Db: Database> HeaderProvider for ForkedProvider<Db> {
+impl<Tx1: DbTx> HeaderProvider for ForkedProvider<Tx1> {
     fn header(&self, id: BlockHashOrNumber) -> ProviderResult<Option<Header>> {
         if let Some(header) = self.local_db.header(id)? {
             return Ok(Some(header));
         }
 
-        if let Some(header) = self.fork_db.db.header(id)? {
+        if let Some(header) = self.fork_db.db.provider().header(id)? {
             return Ok(Some(header));
         }
 
         if self.fork_db.fetch_historical_blocks(id)? {
-            let header = self.fork_db.db.header(id)?.unwrap();
+            let header = self.fork_db.db.provider().header(id)?.unwrap();
             Ok(Some(header))
         } else {
             Ok(None)
@@ -262,7 +261,7 @@ impl<Db: Database> HeaderProvider for ForkedProvider<Db> {
     }
 }
 
-impl<Db: Database> BlockProvider for ForkedProvider<Db> {
+impl<Tx1: DbTx> BlockProvider for ForkedProvider<Tx1> {
     fn block_body_indices(
         &self,
         id: BlockHashOrNumber,
@@ -271,12 +270,12 @@ impl<Db: Database> BlockProvider for ForkedProvider<Db> {
             return Ok(Some(value));
         }
 
-        if let Some(value) = self.fork_db.db.block_body_indices(id)? {
+        if let Some(value) = self.fork_db.db.provider().block_body_indices(id)? {
             return Ok(Some(value));
         }
 
         if self.fork_db.fetch_historical_blocks(id)? {
-            let value = self.fork_db.db.block_body_indices(id)?.unwrap();
+            let value = self.fork_db.db.provider().block_body_indices(id)?.unwrap();
             Ok(Some(value))
         } else {
             Ok(None)
@@ -288,12 +287,12 @@ impl<Db: Database> BlockProvider for ForkedProvider<Db> {
             return Ok(Some(value));
         }
 
-        if let Some(value) = self.fork_db.db.block(id)? {
+        if let Some(value) = self.fork_db.db.provider().block(id)? {
             return Ok(Some(value));
         }
 
-        if dbg!(self.fork_db.fetch_historical_blocks(id)?) {
-            let value = self.fork_db.db.block(id)?.unwrap();
+        if self.fork_db.fetch_historical_blocks(id)? {
+            let value = self.fork_db.db.provider().block(id)?.unwrap();
             Ok(Some(value))
         } else {
             Ok(None)
@@ -308,12 +307,12 @@ impl<Db: Database> BlockProvider for ForkedProvider<Db> {
             return Ok(Some(value));
         }
 
-        if let Some(value) = self.fork_db.db.block_with_tx_hashes(id)? {
+        if let Some(value) = self.fork_db.db.provider().block_with_tx_hashes(id)? {
             return Ok(Some(value));
         }
 
         if self.fork_db.fetch_historical_blocks(id)? {
-            let value = self.fork_db.db.block_with_tx_hashes(id)?.unwrap();
+            let value = self.fork_db.db.provider().block_with_tx_hashes(id)?.unwrap();
             Ok(Some(value))
         } else {
             Ok(None)
@@ -333,18 +332,18 @@ impl<Db: Database> BlockProvider for ForkedProvider<Db> {
     }
 }
 
-impl<Db: Database> BlockStatusProvider for ForkedProvider<Db> {
+impl<Tx1: DbTx> BlockStatusProvider for ForkedProvider<Tx1> {
     fn block_status(&self, id: BlockHashOrNumber) -> ProviderResult<Option<FinalityStatus>> {
         if let Some(value) = self.local_db.block_status(id)? {
             return Ok(Some(value));
         }
 
-        if let Some(value) = self.fork_db.db.block_status(id)? {
+        if let Some(value) = self.fork_db.db.provider().block_status(id)? {
             return Ok(Some(value));
         }
 
-        if dbg!(self.fork_db.fetch_historical_blocks(id)?) {
-            let value = self.fork_db.db.block_status(id)?.unwrap();
+        if self.fork_db.fetch_historical_blocks(id)? {
+            let value = self.fork_db.db.provider().block_status(id)?.unwrap();
             Ok(Some(value))
         } else {
             Ok(None)
@@ -352,18 +351,18 @@ impl<Db: Database> BlockStatusProvider for ForkedProvider<Db> {
     }
 }
 
-impl<Db: Database> StateUpdateProvider for ForkedProvider<Db> {
+impl<Tx1: DbTx> StateUpdateProvider for ForkedProvider<Tx1> {
     fn state_update(&self, block_id: BlockHashOrNumber) -> ProviderResult<Option<StateUpdates>> {
         if let Some(value) = self.local_db.state_update(block_id)? {
             return Ok(Some(value));
         }
 
-        if let Some(value) = self.fork_db.db.state_update(block_id)? {
+        if let Some(value) = self.fork_db.db.provider().state_update(block_id)? {
             return Ok(Some(value));
         }
 
         if self.fork_db.fetch_historical_blocks(block_id)? {
-            let value = self.fork_db.db.state_update(block_id)?.unwrap();
+            let value = self.fork_db.db.provider().state_update(block_id)?.unwrap();
             Ok(Some(value))
         } else {
             Ok(None)
@@ -378,12 +377,12 @@ impl<Db: Database> StateUpdateProvider for ForkedProvider<Db> {
             return Ok(Some(classes));
         }
 
-        if let Some(value) = self.fork_db.db.declared_classes(block_id)? {
+        if let Some(value) = self.fork_db.db.provider().declared_classes(block_id)? {
             return Ok(Some(value));
         }
 
         if self.fork_db.fetch_historical_blocks(block_id)? {
-            let value = self.fork_db.db.declared_classes(block_id)?.unwrap();
+            let value = self.fork_db.db.provider().declared_classes(block_id)?.unwrap();
             Ok(Some(value))
         } else {
             Ok(None)
@@ -398,12 +397,12 @@ impl<Db: Database> StateUpdateProvider for ForkedProvider<Db> {
             return Ok(Some(value));
         }
 
-        if let Some(value) = self.fork_db.db.deployed_contracts(block_id)? {
+        if let Some(value) = self.fork_db.db.provider().deployed_contracts(block_id)? {
             return Ok(Some(value));
         }
 
         if self.fork_db.fetch_historical_blocks(block_id)? {
-            let value = self.fork_db.db.deployed_contracts(block_id)?.unwrap();
+            let value = self.fork_db.db.provider().deployed_contracts(block_id)?.unwrap();
             Ok(Some(value))
         } else {
             Ok(None)
@@ -411,18 +410,18 @@ impl<Db: Database> StateUpdateProvider for ForkedProvider<Db> {
     }
 }
 
-impl<Db: Database> TransactionProvider for ForkedProvider<Db> {
+impl<Tx1: DbTx> TransactionProvider for ForkedProvider<Tx1> {
     fn transaction_by_hash(&self, hash: TxHash) -> ProviderResult<Option<TxWithHash>> {
         if let Some(tx) = self.local_db.transaction_by_hash(hash)? {
             return Ok(Some(tx));
         }
 
-        if let Some(value) = self.fork_db.db.transaction_by_hash(hash)? {
+        if let Some(value) = self.fork_db.db.provider().transaction_by_hash(hash)? {
             return Ok(Some(value));
         }
 
         if self.fork_db.fetch_block_by_transaction_hash(hash)? {
-            let value = self.fork_db.db.transaction_by_hash(hash)?.unwrap();
+            let value = self.fork_db.db.provider().transaction_by_hash(hash)?.unwrap();
             Ok(Some(value))
         } else {
             Ok(None)
@@ -437,12 +436,12 @@ impl<Db: Database> TransactionProvider for ForkedProvider<Db> {
             return Ok(Some(txs));
         }
 
-        if let Some(value) = self.fork_db.db.transactions_by_block(block_id)? {
+        if let Some(value) = self.fork_db.db.provider().transactions_by_block(block_id)? {
             return Ok(Some(value));
         }
 
         if self.fork_db.fetch_historical_blocks(block_id)? {
-            let value = self.fork_db.db.transactions_by_block(block_id)?.unwrap();
+            let value = self.fork_db.db.provider().transactions_by_block(block_id)?.unwrap();
             Ok(Some(value))
         } else {
             Ok(None)
@@ -462,12 +461,12 @@ impl<Db: Database> TransactionProvider for ForkedProvider<Db> {
             return Ok(Some(result));
         }
 
-        if let Some(value) = self.fork_db.db.transaction_block_num_and_hash(hash)? {
+        if let Some(value) = self.fork_db.db.provider().transaction_block_num_and_hash(hash)? {
             return Ok(Some(value));
         }
 
         if self.fork_db.fetch_block_by_transaction_hash(hash)? {
-            let value = self.fork_db.db.transaction_block_num_and_hash(hash)?.unwrap();
+            let value = self.fork_db.db.provider().transaction_block_num_and_hash(hash)?.unwrap();
             Ok(Some(value))
         } else {
             Ok(None)
@@ -483,12 +482,15 @@ impl<Db: Database> TransactionProvider for ForkedProvider<Db> {
             return Ok(Some(tx));
         }
 
-        if let Some(value) = self.fork_db.db.transaction_by_block_and_idx(block_id, idx)? {
+        if let Some(value) =
+            self.fork_db.db.provider().transaction_by_block_and_idx(block_id, idx)?
+        {
             return Ok(Some(value));
         }
 
         if self.fork_db.fetch_historical_blocks(block_id)? {
-            let value = self.fork_db.db.transaction_by_block_and_idx(block_id, idx)?.unwrap();
+            let value =
+                self.fork_db.db.provider().transaction_by_block_and_idx(block_id, idx)?.unwrap();
             Ok(Some(value))
         } else {
             Ok(None)
@@ -503,12 +505,12 @@ impl<Db: Database> TransactionProvider for ForkedProvider<Db> {
             return Ok(Some(count));
         }
 
-        if let Some(value) = self.fork_db.db.transaction_count_by_block(block_id)? {
+        if let Some(value) = self.fork_db.db.provider().transaction_count_by_block(block_id)? {
             return Ok(Some(value));
         }
 
         if self.fork_db.fetch_historical_blocks(block_id)? {
-            let value = self.fork_db.db.transaction_count_by_block(block_id)?.unwrap();
+            let value = self.fork_db.db.provider().transaction_count_by_block(block_id)?.unwrap();
             Ok(Some(value))
         } else {
             Ok(None)
@@ -516,7 +518,7 @@ impl<Db: Database> TransactionProvider for ForkedProvider<Db> {
     }
 }
 
-impl<Db: Database> TransactionsProviderExt for ForkedProvider<Db> {
+impl<Tx1: DbTx> TransactionsProviderExt for ForkedProvider<Tx1> {
     fn transaction_hashes_in_range(&self, range: Range<TxNumber>) -> ProviderResult<Vec<TxHash>> {
         let _ = range;
         unimplemented!()
@@ -528,18 +530,18 @@ impl<Db: Database> TransactionsProviderExt for ForkedProvider<Db> {
     }
 }
 
-impl<Db: Database> TransactionStatusProvider for ForkedProvider<Db> {
+impl<Tx1: DbTx> TransactionStatusProvider for ForkedProvider<Tx1> {
     fn transaction_status(&self, hash: TxHash) -> ProviderResult<Option<FinalityStatus>> {
         if let Some(result) = self.local_db.transaction_status(hash)? {
             return Ok(Some(result));
         }
 
-        if let Some(value) = self.fork_db.db.transaction_status(hash)? {
+        if let Some(value) = self.fork_db.db.provider().transaction_status(hash)? {
             return Ok(Some(value));
         }
 
         if self.fork_db.fetch_block_by_transaction_hash(hash)? {
-            let value = self.fork_db.db.transaction_status(hash)?.unwrap();
+            let value = self.fork_db.db.provider().transaction_status(hash)?.unwrap();
             Ok(Some(value))
         } else {
             Ok(None)
@@ -547,7 +549,7 @@ impl<Db: Database> TransactionStatusProvider for ForkedProvider<Db> {
     }
 }
 
-impl<Db: Database> TransactionTraceProvider for ForkedProvider<Db> {
+impl<Tx1: DbTx> TransactionTraceProvider for ForkedProvider<Tx1> {
     fn transaction_execution(
         &self,
         hash: TxHash,
@@ -583,18 +585,18 @@ impl<Db: Database> TransactionTraceProvider for ForkedProvider<Db> {
     }
 }
 
-impl<Db: Database> ReceiptProvider for ForkedProvider<Db> {
+impl<Tx1: DbTx> ReceiptProvider for ForkedProvider<Tx1> {
     fn receipt_by_hash(&self, hash: TxHash) -> ProviderResult<Option<Receipt>> {
         if let Some(result) = self.local_db.receipt_by_hash(hash)? {
             return Ok(Some(result));
         }
 
-        if let Some(value) = self.fork_db.db.receipt_by_hash(hash)? {
+        if let Some(value) = self.fork_db.db.provider().receipt_by_hash(hash)? {
             return Ok(Some(value));
         }
 
         if self.fork_db.fetch_block_by_transaction_hash(hash)? {
-            let value = self.fork_db.db.receipt_by_hash(hash)?.unwrap();
+            let value = self.fork_db.db.provider().receipt_by_hash(hash)?.unwrap();
             Ok(Some(value))
         } else {
             Ok(None)
@@ -609,12 +611,12 @@ impl<Db: Database> ReceiptProvider for ForkedProvider<Db> {
             return Ok(Some(result));
         }
 
-        if let Some(value) = self.fork_db.db.receipts_by_block(block_id)? {
+        if let Some(value) = self.fork_db.db.provider().receipts_by_block(block_id)? {
             return Ok(Some(value));
         }
 
         if self.fork_db.fetch_historical_blocks(block_id)? {
-            let value = self.fork_db.db.receipts_by_block(block_id)?.unwrap();
+            let value = self.fork_db.db.provider().receipts_by_block(block_id)?.unwrap();
             Ok(Some(value))
         } else {
             Ok(None)
@@ -622,18 +624,18 @@ impl<Db: Database> ReceiptProvider for ForkedProvider<Db> {
     }
 }
 
-impl<Db: Database> BlockEnvProvider for ForkedProvider<Db> {
+impl<Tx1: DbTx> BlockEnvProvider for ForkedProvider<Tx1> {
     fn block_env_at(&self, block_id: BlockHashOrNumber) -> ProviderResult<Option<BlockEnv>> {
         if let Some(result) = self.local_db.block_env_at(block_id)? {
             return Ok(Some(result));
         }
 
-        if let Some(value) = self.fork_db.db.block_env_at(block_id)? {
+        if let Some(value) = self.fork_db.db.provider().block_env_at(block_id)? {
             return Ok(Some(value));
         }
 
         if self.fork_db.fetch_historical_blocks(block_id)? {
-            let value = self.fork_db.db.block_env_at(block_id)?.unwrap();
+            let value = self.fork_db.db.provider().block_env_at(block_id)?.unwrap();
             Ok(Some(value))
         } else {
             Ok(None)
@@ -641,7 +643,7 @@ impl<Db: Database> BlockEnvProvider for ForkedProvider<Db> {
     }
 }
 
-impl<Db: Database> BlockWriter for ForkedProvider<Db> {
+impl<Tx1: DbTxMut> BlockWriter for ForkedProvider<Tx1> {
     fn insert_block_with_states_and_receipts(
         &self,
         block: SealedBlockWithStatus,
@@ -653,7 +655,7 @@ impl<Db: Database> BlockWriter for ForkedProvider<Db> {
     }
 }
 
-impl<Db: Database> StageCheckpointProvider for ForkedProvider<Db> {
+impl<Tx1: DbTxMut> StageCheckpointProvider for ForkedProvider<Tx1> {
     fn checkpoint(&self, id: &str) -> ProviderResult<Option<BlockNumber>> {
         self.local_db.checkpoint(id)
     }

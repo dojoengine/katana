@@ -9,18 +9,75 @@ use katana_primitives::Felt;
 use katana_provider::api::block::HeaderProvider;
 use katana_provider::api::state_update::StateUpdateProvider;
 use katana_provider::api::trie::TrieWriter;
-use katana_provider::ProviderResult;
+use katana_provider::{ProviderFactory, ProviderResult};
 use katana_stage::trie::StateTrie;
 use katana_stage::{Stage, StageExecutionInput};
 use rstest::rstest;
 use starknet::macros::short_string;
 use starknet_types_core::hash::{Poseidon, StarkHash};
 
-/// Mock provider implementation for testing StateTrie stage.
+/// Mock ProviderFactory implementation for testing StateTrie stage.
 ///
 /// Provides configurable responses for headers, state updates, and trie operations.
 #[derive(Clone)]
 struct MockProvider {
+    inner: MockInnerProvider,
+}
+
+impl std::fmt::Debug for MockProvider {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.debug_struct("MockProvider").finish_non_exhaustive()
+    }
+}
+
+impl MockProvider {
+    fn new() -> Self {
+        Self {
+            inner: MockInnerProvider {
+                headers: Arc::new(Mutex::new(HashMap::new())),
+                state_updates: Arc::new(Mutex::new(HashMap::new())),
+                trie_insert_calls: Arc::new(Mutex::new(Vec::new())),
+                should_fail: Arc::new(Mutex::new(false)),
+            },
+        }
+    }
+
+    /// Configure a header for a specific block.
+    fn with_header(self, block_number: BlockNumber, header: Header) -> Self {
+        self.inner.headers.lock().unwrap().insert(block_number, header);
+        self
+    }
+
+    /// Configure a state update for a specific block.
+    fn with_state_update(self, block_number: BlockNumber, state_update: StateUpdates) -> Self {
+        self.inner.state_updates.lock().unwrap().insert(block_number, state_update);
+        self
+    }
+
+    /// Get all block numbers that had trie inserts called.
+    fn trie_insert_blocks(&self) -> Vec<BlockNumber> {
+        self.inner.trie_insert_calls.lock().unwrap().clone()
+    }
+}
+
+impl ProviderFactory for MockProvider {
+    type Provider = MockInnerProvider;
+    type ProviderMut = MockInnerProvider;
+
+    fn provider(&self) -> Self::Provider {
+        self.inner.clone()
+    }
+
+    fn provider_mut(&self) -> Self::ProviderMut {
+        self.inner.clone()
+    }
+}
+
+/// Mock inner provider implementation for testing StateTrie stage.
+///
+/// Provides configurable responses for headers, state updates, and trie operations.
+#[derive(Clone, Debug)]
+struct MockInnerProvider {
     /// Map of block number to header.
     headers: Arc<Mutex<HashMap<BlockNumber, Header>>>,
     /// Map of block number to state update.
@@ -31,41 +88,7 @@ struct MockProvider {
     should_fail: Arc<Mutex<bool>>,
 }
 
-impl MockProvider {
-    fn new() -> Self {
-        Self {
-            headers: Arc::new(Mutex::new(HashMap::new())),
-            state_updates: Arc::new(Mutex::new(HashMap::new())),
-            trie_insert_calls: Arc::new(Mutex::new(Vec::new())),
-            should_fail: Arc::new(Mutex::new(false)),
-        }
-    }
-
-    /// Configure a header for a specific block.
-    fn with_header(self, block_number: BlockNumber, header: Header) -> Self {
-        self.headers.lock().unwrap().insert(block_number, header);
-        self
-    }
-
-    /// Configure a state update for a specific block.
-    fn with_state_update(self, block_number: BlockNumber, state_update: StateUpdates) -> Self {
-        self.state_updates.lock().unwrap().insert(block_number, state_update);
-        self
-    }
-
-    /// Configure the mock to fail on trie operations.
-    fn with_trie_error(self) -> Self {
-        *self.should_fail.lock().unwrap() = true;
-        self
-    }
-
-    /// Get all block numbers that had trie inserts called.
-    fn trie_insert_blocks(&self) -> Vec<BlockNumber> {
-        self.trie_insert_calls.lock().unwrap().clone()
-    }
-}
-
-impl HeaderProvider for MockProvider {
+impl HeaderProvider for MockInnerProvider {
     fn header(&self, id: BlockHashOrNumber) -> ProviderResult<Option<Header>> {
         let block_number = match id {
             BlockHashOrNumber::Num(num) => num,
@@ -80,7 +103,7 @@ impl HeaderProvider for MockProvider {
     }
 }
 
-impl StateUpdateProvider for MockProvider {
+impl StateUpdateProvider for MockInnerProvider {
     fn state_update(&self, block_id: BlockHashOrNumber) -> ProviderResult<Option<StateUpdates>> {
         let block_number = match block_id {
             BlockHashOrNumber::Num(num) => num,
@@ -109,7 +132,7 @@ impl StateUpdateProvider for MockProvider {
     }
 }
 
-impl TrieWriter for MockProvider {
+impl TrieWriter for MockInnerProvider {
     fn trie_insert_declared_classes(
         &self,
         block_number: BlockNumber,
@@ -136,6 +159,12 @@ impl TrieWriter for MockProvider {
         self.trie_insert_calls.lock().unwrap().push(block_number);
         // Return a mock contract trie root
         Ok(Felt::from(0x5678u64))
+    }
+}
+
+impl katana_provider::MutableProvider for MockInnerProvider {
+    fn commit(self) -> ProviderResult<()> {
+        Ok(())
     }
 }
 
