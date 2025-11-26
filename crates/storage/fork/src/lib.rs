@@ -31,8 +31,7 @@ use katana_rpc_client::starknet::{
 };
 use katana_rpc_types::class::Class;
 use katana_rpc_types::{
-    ContractStorageKeys, GetBlockWithReceiptsResponse, GetStorageProofResponse, StateUpdate,
-    TxReceiptWithBlockInfo,
+    ConfirmedBlockIdOrTag, ContractStorageKeys, GetBlockWithReceiptsResponse, GetStorageProofResponse, StateUpdate, TraceBlockTransactionsResponse, TxReceiptWithBlockInfo
 };
 use parking_lot::Mutex;
 use tracing::{error, trace};
@@ -349,6 +348,24 @@ impl Backend {
         }
     }
 
+    pub fn get_block_transactions_traces(
+        &self,
+        block_id: BlockHashOrNumber,
+    ) -> Result<Option<TraceBlockTransactionsResponse>, BackendClientError> {
+        trace!( block = %block_id, "Requesting trace block.");
+        let (req, rx) = BackendRequest::trace(block_id);
+        self.request(req)?;
+        match rx.recv()? {
+            BackendResponse::TraceBlockTransactions(res) => {
+                 if let Some(res) = handle_not_found_err(res)? {
+                    Ok(Some(res))
+                } else {
+                    Ok(None)
+                }
+}
+            response => Err(BackendClientError::UnexpectedResponse(anyhow!("{response:?}"))),
+        }
+    }
     /// Send a request to the backend thread.
     fn request(&self, req: BackendRequest) -> Result<(), BackendClientError> {
         self.sender.lock().try_send(req).map_err(|e| e.into_send_error())?;
@@ -383,6 +400,7 @@ enum BackendResponse {
     StorageRoot(BackendResult<Felt>),
     GlobalRoots(BackendResult<GetStorageProofResponse>),
     Proofs(BackendResult<GetStorageProofResponse>),
+    TraceBlockTransactions(BackendResult<TraceBlockTransactionsResponse>),
 }
 
 /// Errors that can occur when interacting with the backend.
@@ -423,6 +441,7 @@ enum BackendRequest {
     Nonce(Request<(ContractAddress, BlockNumber)>),
     ClassHash(Request<(ContractAddress, BlockNumber)>),
     Storage(Request<((ContractAddress, StorageKey), BlockNumber)>),
+    Trace(Request<BlockHashOrNumber>),
 }
 
 impl BackendRequest {
@@ -520,6 +539,11 @@ impl BackendRequest {
         let (sender, receiver) = oneshot();
         (BackendRequest::StorageRoot(Request { payload: (contract, block_id), sender }), receiver)
     }
+
+    fn trace(block_id: BlockHashOrNumber) -> (BackendRequest, OneshotReceiver<BackendResponse>) {
+        let (sender, receiver) = oneshot();
+        (BackendRequest::Trace(Request { payload: block_id, sender }), receiver)
+    }
 }
 
 type BackendRequestFuture = BoxFuture<'static, BackendResponse>;
@@ -538,6 +562,7 @@ enum BackendRequestIdentifier {
     Class(ClassHash, BlockNumber),
     ClassHash(ContractAddress, BlockNumber),
     Storage((ContractAddress, StorageKey), BlockNumber),
+    Trace(BlockHashOrNumber),
 }
 
 /// Metrics for the forking backend.
@@ -790,6 +815,25 @@ impl BackendWorker {
                             .map_err(|e| BackendError::StarknetProvider(Arc::new(e)));
 
                         BackendResponse::StorageRoot(res)
+                    }),
+                );
+            }
+            BackendRequest::Trace(Request { payload: block_id, sender }) => {
+                let req_key = BackendRequestIdentifier::Trace(block_id);
+                let block_id = match block_id {
+                    BlockHashOrNumber::Hash(h) => ConfirmedBlockIdOrTag::Hash(h),
+                    BlockHashOrNumber::Num(n) => ConfirmedBlockIdOrTag::Number(n),
+                };
+                
+                self.dedup_request(
+                    req_key,
+                    sender,
+                    Box::pin(async move {
+                        let result = provider
+                            .trace_block_transactions(block_id)
+                            .await
+                            .map_err(|e| BackendError::StarknetProvider(Arc::new(e)));
+                        BackendResponse::TraceBlockTransactions(result)
                     }),
                 );
             }

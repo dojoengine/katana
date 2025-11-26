@@ -43,6 +43,7 @@ use katana_provider_api::transaction::{
     TransactionsProviderExt,
 };
 use katana_provider_api::ProviderError;
+use katana_rpc_types::{TxTrace, TxTraceWithHash};
 
 use crate::ProviderResult;
 
@@ -619,9 +620,19 @@ impl<Db: Database> TransactionTraceProvider for DbProvider<Db> {
     fn transaction_executions_by_block(
         &self,
         block_id: BlockHashOrNumber,
-    ) -> ProviderResult<Option<Vec<TypedTransactionExecutionInfo>>> {
+    ) -> ProviderResult<Option<Vec<TxTraceWithHash>>> {
         if let Some(index) = self.block_body_indices(block_id)? {
-            let traces = self.transaction_executions_in_range(index.into())?;
+            let traces = self.transaction_executions_in_range(index.clone().into())?;
+            let traces = traces.into_iter().map(TxTrace::from);
+
+            let tx_hashes = self.transaction_hashes_in_range(index.into())?;
+
+            let traces = tx_hashes
+                .into_iter()
+                .zip(traces)
+                .map(|(h, r)| TxTraceWithHash { transaction_hash: h, trace_root: r })
+                .collect::<Vec<_>>();
+
             Ok(Some(traces))
         } else {
             Ok(None)

@@ -30,6 +30,7 @@ use katana_provider_api::transaction::{
 };
 use katana_provider_api::trie::TrieWriter;
 pub use katana_provider_api::{ProviderError, ProviderResult};
+use katana_rpc_types::TxTraceWithHash;
 
 pub mod providers;
 #[cfg(any(test, feature = "test-utils"))]
@@ -217,7 +218,7 @@ where
     fn transaction_executions_by_block(
         &self,
         block_id: BlockHashOrNumber,
-    ) -> ProviderResult<Option<Vec<TypedTransactionExecutionInfo>>> {
+    ) -> ProviderResult<Option<Vec<TxTraceWithHash>>> {
         TransactionTraceProvider::transaction_executions_by_block(&self.provider, block_id)
     }
 
