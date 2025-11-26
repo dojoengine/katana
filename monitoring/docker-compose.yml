@@ -1,23 +1,23 @@
 name: "katana"
 
 services:
-  # katana:
-  #   restart: unless-stopped
-  #   image: ghcr.io/dojoengine/dojo:v1.0.12
-  #   ports:
-  #     - "5050:5050" # rpc
-  #     - "9001:9001" # metrics
-  #   command: >
-  #     katana
-  #     --db-dir .katana/data-dir
-  #     --http.addr 0.0.0.0 --http.port 5050
-  #     --metrics --metrics.addr 0.0.0.0 --metrics.port 9001
+  katana:
+    restart: unless-stopped
+    image: ghcr.io/dojoengine/dojo:v1.0.12
+    ports:
+      - "5050:5050" # rpc
+      - "9100:9100" # metrics
+    command: >
+      katana
+      --db-dir .katana/data-dir
+      --http.addr 0.0.0.0 --http.port 5050
+      --metrics --metrics.addr 0.0.0.0 --metrics.port 9100
 
   prometheus:
     restart: unless-stopped
     image: prom/prometheus:v3.1.0
-    # depends_on:
-    #   - katana
+    depends_on:
+      - katana
     ports:
       - 9090:9090
     volumes:
