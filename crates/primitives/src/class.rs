@@ -1,4 +1,4 @@
-use std::collections::{BTreeMap, HashMap};
+use std::collections::BTreeMap;
 use std::str::FromStr;
 
 use cairo_lang_starknet_classes::casm_contract_class::StarknetSierraCompilationError;
@@ -15,15 +15,11 @@ use cairo_vm::serde::deserialize_program::{
     // Identifier,
 };
 use cairo_vm::types::builtin_name::BuiltinName;
-use derive_more::{Deref, DerefMut, From};
 use serde::{Deserialize, Serialize, Serializer};
 use serde_json_pythonic::to_string_pythonic;
-use serde_with::{serde_as, SerializeAs};
 use starknet::macros::short_string;
-use starknet_api::contract_class::{EntryPointType, SierraVersion};
+use starknet_api::contract_class::SierraVersion;
 use starknet_api::deprecated_contract_class::EntryPointV0;
-use starknet_api::serde_utils::deserialize_optional_contract_class_abi_entry_vector;
-use starknet_types_core::felt::FromStrError;
 use starknet_types_core::hash::{Pedersen, Poseidon, StarkHash};
 
 use crate::utils::{normalize_address, starknet_keccak};
@@ -68,38 +64,37 @@ pub struct Reference {
 /// identifiers (e.g. variables) by name, which would otherwise be lost during compilation.
 #[derive(Debug, Clone, ::serde::Serialize, ::serde::Deserialize)]
 pub struct Identifier {
-    // #[serde(skip_serializing_if = "Option::is_none")]
-    pub decorators: Option<Vec<String>>,
-    // #[serde(skip_serializing_if = "Option::is_none")]
-    pub cairo_type: Option<String>,
-    // #[serde(skip_serializing_if = "Option::is_none")]
-    pub full_name: Option<String>,
-    // #[serde(skip_serializing_if = "Option::is_none")]
-    pub members: Option<BTreeMap<String, Member>>,
-    // #[serde(skip_serializing_if = "Option::is_none")]
-    pub references: Option<Vec<Reference>>,
-    // #[serde(skip_serializing_if = "Option::is_none")]
-    pub size: Option<u64>,
-    // #[serde(skip_serializing_if = "Option::is_none")]
-    pub pc: Option<u64>,
-    // #[serde(skip_serializing_if = "Option::is_none")]
-    pub destination: Option<String>,
     pub r#type: String,
-    // #[serde(skip_serializing_if = "Option::is_none")]
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub decorators: Option<Vec<String>>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub cairo_type: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub full_name: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub members: Option<BTreeMap<String, Member>>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub references: Option<Vec<Reference>>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub size: Option<u64>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub pc: Option<u64>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub destination: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
     pub value: Option<Box<serde_json::value::RawValue>>,
 }
 
-/// A program corresponding to a [ContractClass](`crate::deprecated_contract_class::ContractClass`).
+#[derive(Debug, Clone, ::serde::Serialize, ::serde::Deserialize)]
 pub struct LegacyProgram {
-    // #[serde(skip_serializing_if = "Option::is_none")]
+    #[serde(skip_serializing_if = "Vec::is_empty")]
     pub attributes: Vec<Attribute>,
     pub builtins: Vec<BuiltinName>,
-    // #[serde(skip_serializing_if = "Option::is_none")]
+    #[serde(skip_serializing_if = "Option::is_none")]
     pub compiler_version: Option<String>,
     pub data: Vec<Felt>,
-    // #[serde(default)]
+    #[serde(default)]
     pub debug_info: Option<serde_json::Value>,
-    // #[serde(serialize_with = "serialize_hints_sorted")]
     pub hints: BTreeMap<u64, Vec<HintParams>>,
     pub identifiers: BTreeMap<String, Identifier>,
     pub main_scope: String,
@@ -107,13 +102,13 @@ pub struct LegacyProgram {
     pub reference_manager: ReferenceManager,
 }
 
-#[derive(Clone, Default, Debug, PartialEq, Eq)]
+#[derive(Clone, Default, Debug, PartialEq, Eq, ::serde::Serialize, ::serde::Deserialize)]
 pub struct LegacyContractEntryPoints {
-    // #[serde(rename = "EXTERNAL")]
+    #[serde(rename = "EXTERNAL")]
     pub external: Vec<LegacyContractEntryPoint>,
-    // #[serde(rename = "L1_HANDLER")]
+    #[serde(rename = "L1_HANDLER")]
     pub l1_handler: Vec<LegacyContractEntryPoint>,
-    // #[serde(rename = "CONSTRUCTOR")]
+    #[serde(rename = "CONSTRUCTOR")]
     pub constructor: Vec<LegacyContractEntryPoint>,
 }
 
@@ -146,11 +141,10 @@ impl LegacyContractClass2 {
             hasher.finalize()
         }
 
+        // Hashes builtins
         elements.push(builtins_hash(&self.program.builtins));
-
-        // // Hashes hinted_class_hash
-        // elements.push(self.hinted_class_hash()?);
-
+        // Hashes hinted_class_hash
+        elements.push(self.hinted_class_hash());
         // Hashes bytecode
         elements.push(Pedersen::hash_array(&self.program.data));
 
@@ -163,21 +157,139 @@ impl LegacyContractClass2 {
     /// prove the correctness of, this hash, since it involves JSON serialization. Instead, this
     /// hash is always calculated outside of the Cairo VM, and then fed to the Cairo program as a
     /// hinted value.
-    pub fn hinted_class_hash(&self) -> Result<Felt, ComputeClassHashError> {
+    pub fn hinted_class_hash(&self) -> ClassHash {
         #[derive(serde::Serialize)]
         struct ContractArtifactForHash<'a> {
-            // abi: &'a Vec<RawLegacyAbiEntry>,
+            #[serde(serialize_with = "serialize_abi_for_hinted_hash")]
+            abi: &'a Vec<LegacyContractClassAbiEntry>,
             #[serde(serialize_with = "serialize_program_for_hinted_hash")]
             program: &'a LegacyProgram,
         }
 
-        let serialized =
-            to_string_pythonic(&ContractArtifactForHash { program: &self.program }).unwrap();
+        static EMPTY_ABI: Vec<LegacyContractClassAbiEntry> = Vec::new();
+        let abi = self.abi.as_ref().unwrap_or(&EMPTY_ABI);
+        let object = ContractArtifactForHash { abi, program: &self.program };
 
-        // Ok(starknet_keccak(serialized.as_bytes()))
+        let serialized = to_string_pythonic(&object).unwrap();
+        let serialized_bytes = serialized.as_bytes();
 
-        todo!()
+        starknet_keccak(serialized_bytes)
     }
+}
+
+/// Serializes legacy ABI entries in "raw" format (without the `type` field).
+///
+/// The "raw" format is used by starknet-rs and differs from the starknet_api format
+/// in that it doesn't include the `type` discriminator field in each ABI entry.
+fn serialize_abi_for_hinted_hash<S: Serializer>(
+    source: &Vec<LegacyContractClassAbiEntry>,
+    serializer: S,
+) -> Result<S::Ok, S::Error> {
+    use serde::ser::SerializeSeq;
+    use starknet_api::deprecated_contract_class::{
+        ContractClassAbiEntry, EventAbiEntry, StructAbiEntry, TypedParameter,
+    };
+
+    let entries = source;
+
+    // Raw format structs.
+
+    #[derive(Serialize)]
+    struct RawTypedParameter<'a> {
+        name: &'a String,
+        r#type: &'a String,
+    }
+
+    #[derive(Serialize)]
+    struct RawStructMember<'a> {
+        name: &'a String,
+        offset: usize,
+        r#type: &'a String,
+    }
+
+    #[derive(Serialize)]
+    struct RawConstructor<'a> {
+        name: &'a String,
+        inputs: Vec<RawTypedParameter<'a>>,
+        outputs: Vec<RawTypedParameter<'a>>,
+    }
+
+    #[derive(Serialize)]
+    #[serde(rename_all = "camelCase")]
+    struct RawFunction<'a> {
+        name: &'a String,
+        inputs: Vec<RawTypedParameter<'a>>,
+        outputs: Vec<RawTypedParameter<'a>>,
+        #[serde(skip_serializing_if = "Option::is_none")]
+        state_mutability:
+            Option<&'a starknet_api::deprecated_contract_class::FunctionStateMutability>,
+    }
+
+    #[derive(Serialize)]
+    struct RawStruct<'a> {
+        name: &'a String,
+        size: usize,
+        members: Vec<RawStructMember<'a>>,
+    }
+
+    #[derive(Serialize)]
+    struct RawL1Handler<'a> {
+        name: &'a String,
+        inputs: Vec<RawTypedParameter<'a>>,
+        outputs: Vec<RawTypedParameter<'a>>,
+    }
+
+    #[derive(Serialize)]
+    struct RawEvent<'a> {
+        data: Vec<RawTypedParameter<'a>>,
+        keys: Vec<RawTypedParameter<'a>>,
+        name: &'a String,
+    }
+
+    fn convert_typed_params(params: &[TypedParameter]) -> Vec<RawTypedParameter<'_>> {
+        params.iter().map(|p| RawTypedParameter { name: &p.name, r#type: &p.r#type }).collect()
+    }
+
+    let mut seq = serializer.serialize_seq(Some(entries.len()))?;
+
+    for entry in entries {
+        match entry {
+            ContractClassAbiEntry::Constructor(f) => {
+                let inputs = convert_typed_params(&f.inputs);
+                let outputs = convert_typed_params(&f.outputs);
+                seq.serialize_element(&RawConstructor { inputs, name: &f.name, outputs })?;
+            }
+            ContractClassAbiEntry::Function(f) => {
+                let inputs = convert_typed_params(&f.inputs);
+                let outputs = convert_typed_params(&f.outputs);
+                seq.serialize_element(&RawFunction {
+                    inputs,
+                    name: &f.name,
+                    outputs,
+                    state_mutability: f.state_mutability.as_ref(),
+                })?;
+            }
+            ContractClassAbiEntry::L1Handler(f) => {
+                let inputs = convert_typed_params(&f.inputs);
+                let outputs = convert_typed_params(&f.outputs);
+                seq.serialize_element(&RawL1Handler { inputs, name: &f.name, outputs })?;
+            }
+            ContractClassAbiEntry::Event(EventAbiEntry { data, keys, name, .. }) => {
+                let data = convert_typed_params(data);
+                let keys = convert_typed_params(keys);
+                seq.serialize_element(&RawEvent { data, keys, name })?;
+            }
+            ContractClassAbiEntry::Struct(StructAbiEntry { members, name, size, .. }) => {
+                let members: Vec<_> = members
+                    .iter()
+                    .map(|m| RawStructMember { name: &m.name, offset: m.offset, r#type: &m.r#type })
+                    .collect();
+                seq.serialize_element(&RawStruct { members, name, size: *size })?;
+            }
+        }
+    }
+
+    seq.end()
 }
 
 fn serialize_attribute_for_hinted_hash<S: Serializer>(
@@ -218,7 +330,6 @@ fn serialize_program_for_hinted_hash<S: Serializer>(
     source: &LegacyProgram,
     serializer: S,
 ) -> Result<S::Ok, S::Error> {
-    #[serde_as]
     #[derive(::serde::Serialize)]
     struct Helper<'a> {
         #[serde(skip_serializing_if = "Vec::is_empty")]
@@ -654,169 +765,6 @@ fn legacy_entrypoints_hash(entrypoints: &[LegacyContractEntryPoint]) -> Felt {
     }
     hasher.finalize()
 }
-
-// struct ProgramForHintedHash;
-// struct AttributeForHintedHash;
-
-// /// Computes the "hinted" class hash of the legacy (Cairo 0) class.
-// ///
-// /// This is known as the "hinted" hash as it isn't possible to directly calculate, and thus
-// /// prove the correctness of, this hash, since it involves JSON serialization. Instead, this
-// /// hash is always calculated outside of the Cairo VM, and then fed to the Cairo program as a
-// /// hinted value.
-// pub fn hinted_class_hash(&self) -> Result<Felt, ComputeClassHashError> {
-//     #[serde_as]
-//     #[derive(Serialize)]
-//     struct ContractArtifactForHash<'a> {
-//         abi: &'a Vec<RawLegacyAbiEntry>,
-//         #[serde_as(as = "ProgramForHintedHash")]
-//         program: &'a LegacyProgram,
-//     }
-
-//     let serialized =
-//         to_string_pythonic(&ContractArtifactForHash { abi: &self.abi, program: &self.program })
-//             .map_err(|err| ComputeClassHashError::Json(JsonError { message: format!("{err}")
-// }))?;
-
-//     Ok(starknet_keccak(serialized.as_bytes()))
-// }
-
-// impl SerializeAs<LegacyProgram> for ProgramForHintedHash {
-//     fn serialize_as<S>(source: &LegacyProgram, serializer: S) -> Result<S::Ok, S::Error>
-//     where
-//         S: Serializer,
-//     {
-//         #[serde_as]
-//         #[derive(Serialize)]
-//         struct HashVo<'a> {
-//             #[serde(skip_serializing_if = "should_skip_attributes_for_hinted_hash")]
-//             #[serde_as(as = "Option<Vec<AttributeForHintedHash>>")]
-//             attributes: &'a Option<Vec<LegacyAttribute>>,
-//             builtins: &'a Vec<String>,
-//             #[serde(skip_serializing_if = "Option::is_none")]
-//             compiler_version: &'a Option<String>,
-//             #[serde_as(as = "Vec<UfeHex>")]
-//             data: &'a Vec<Felt>,
-//             debug_info: &'a Option<LegacyDebugInfo>,
-//             hints: &'a BTreeMap<u64, Vec<LegacyHint>>,
-//             identifiers: &'a BTreeMap<String, LegacyIdentifier>,
-//             main_scope: &'a String,
-//             prime: &'a String,
-//             reference_manager: &'a LegacyReferenceManager,
-//         }
-
-//         if source.compiler_version.is_some() {
-//             // Anything since 0.10.0 can be hashed directly. No extra overhead incurred.
-
-//             HashVo::serialize(
-//                 &HashVo {
-//                     attributes: &source.attributes,
-//                     builtins: &source.builtins,
-//                     compiler_version: &source.compiler_version,
-//                     data: &source.data,
-//                     debug_info: &None,
-//                     hints: &source.hints,
-//                     identifiers: &source.identifiers,
-//                     main_scope: &source.main_scope,
-//                     prime: &source.prime,
-//                     reference_manager: &source.reference_manager,
-//                 },
-//                 serializer,
-//             )
-//         } else {
-//             // This is needed for backward compatibility with pre-0.10.0 contract artifacts.
-
-//             // We're cloning the entire `identifiers` here as a temporary patch. This is not
-//             // optimal, as it should technically be possible to avoid the cloning. This only
-//             // affects very old contract artifacts though.
-//             // TODO: optimize this to remove cloning.
-
-//             let patched_identifiers = source
-//                 .identifiers
-//                 .iter()
-//                 .map(|(key, value)| {
-//                     (
-//                         key.to_owned(),
-//                         LegacyIdentifier {
-//                             decorators: value.decorators.to_owned(),
-//                             cairo_type: value
-//                                 .cairo_type
-//                                 .to_owned()
-//                                 .map(|content| content.replace(": ", " : ")),
-//                             full_name: value.full_name.to_owned(),
-//                             members: value.members.to_owned().map(|map| {
-//                                 map.iter()
-//                                     .map(|(key, value)| {
-//                                         (
-//                                             key.to_owned(),
-//                                             LegacyIdentifierMember {
-//                                                 cairo_type: value.cairo_type.replace(": ", " :
-// "),                                                 offset: value.offset,
-//                                             },
-//                                         )
-//                                     })
-//                                     .collect()
-//                             }),
-//                             references: value.references.to_owned(),
-//                             size: value.size,
-//                             pc: value.pc,
-//                             destination: value.destination.to_owned(),
-//                             r#type: value.r#type.to_owned(),
-//                             value: value.value.to_owned(),
-//                         },
-//                     )
-//                 })
-//                 .collect::<BTreeMap<_, _>>();
-
-//             HashVo::serialize(
-//                 &HashVo {
-//                     attributes: &source.attributes,
-//                     builtins: &source.builtins,
-//                     compiler_version: &source.compiler_version,
-//                     data: &source.data,
-//                     debug_info: &None,
-//                     hints: &source.hints,
-//                     identifiers: &patched_identifiers,
-//                     main_scope: &source.main_scope,
-//                     prime: &source.prime,
-//                     reference_manager: &source.reference_manager,
-//                 },
-//                 serializer,
-//             )
-//         }
-//     }
-// }
-
-// impl SerializeAs<LegacyAttribute> for AttributeForHintedHash {
-//     fn serialize_as<S>(source: &LegacyAttribute, serializer: S) -> Result<S::Ok, S::Error>
-//     where
-//         S: Serializer,
-//     {
-//         #[derive(Serialize)]
-//         struct HashVo<'a> {
-//             #[serde(skip_serializing_if = "Vec::is_empty")]
-//             accessible_scopes: &'a Vec<String>,
-//             end_pc: &'a u64,
-//             #[serde(skip_serializing_if = "Option::is_none")]
-//             flow_tracking_data: &'a Option<LegacyFlowTrackingData>,
-//             name: &'a String,
-//             start_pc: &'a u64,
-//             value: &'a String,
-//         }
-
-//         HashVo::serialize(
-//             &HashVo {
-//                 accessible_scopes: &source.accessible_scopes,
-//                 end_pc: &source.end_pc,
-//                 flow_tracking_data: &source.flow_tracking_data,
-//                 name: &source.name,
-//                 start_pc: &source.start_pc,
-//                 value: &source.value,
-//             },
-//             serializer,
-//         )
-//     }
-// }
 
 #[cfg(test)]
 mod tests {
