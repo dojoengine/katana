@@ -478,7 +478,7 @@ pub fn block_context_from_envs(block_env: &BlockEnv, cfg_env: &CfgEnv) -> BlockC
     let chain_info = ChainInfo {
         fee_token_addresses,
         chain_id: to_blk_chain_id(cfg_env.chain_id),
-        is_l3: false,
+        is_l3: cfg_env.is_l3,
     };
 
     // IMPORTANT:

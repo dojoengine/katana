@@ -60,6 +60,7 @@ default = [
 	"init-slot",
 	"jemalloc",
 	"katana-cli/explorer",
+	"init-custom-settlement-chain",
 ]
 
 cartridge = [ "katana-cli/cartridge" ]

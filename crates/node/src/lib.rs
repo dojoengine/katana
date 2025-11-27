@@ -93,12 +93,25 @@ impl Node {
             }
         };
 
+        let is_l3 = match config.chain.as_ref() {
+            ChainSpec::Dev(_) => false,
+            ChainSpec::Rollup(cs) => {
+                match cs.settlement {
+                    // This ensures that the to_address of message sent to L1 can be a Felt and not
+                    // limited to an EthAddress.
+                    SettlementLayer::Starknet { .. } => true,
+                    _ => false,
+                }
+            },
+        };
+
         let cfg_env = CfgEnv {
             fee_token_addresses,
             chain_id: config.chain.id(),
             invoke_tx_max_n_steps: config.execution.invocation_max_steps,
             validate_max_n_steps: config.execution.validation_max_steps,
             max_recursion_depth: config.execution.max_recursion_depth,
+            is_l3,
         };
 
         let execution_flags = ExecutionFlags::new()

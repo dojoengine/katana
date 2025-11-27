@@ -259,6 +259,7 @@ impl<'a> BlockExecutor<'a> for StarknetVMProcessor<'a> {
                             }
 
                             crate::utils::log_resources(&trace.receipt.resources);
+                            crate::utils::log_messages(&receipt.messages_sent());
                         }
 
                         ExecutionResult::Failed { error } => {

@@ -28,6 +28,16 @@ pub fn log_resources(resources: &TransactionResources) {
     trace!(target: LOG_TARGET, usage = mapped_strings.join(" | "), "Transaction resource usage.");
 }
 
+pub fn log_messages(messages: &[MessageToL1]) {
+    let mut mapped_strings = Vec::new();
+
+    for message in messages {
+        mapped_strings.push(format!("from: {:?} to: {:?} payload: {:?}", message.from_address, message.to_address, message.payload));
+    }
+
+    trace!(target: "messaging", messages = mapped_strings.join(" | "), "Transaction messages.");
+}
+
 pub(crate) fn build_receipt(
     tx: TxRef<'_>,
     fee: FeeInfo,
