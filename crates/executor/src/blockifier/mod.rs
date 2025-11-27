@@ -258,11 +258,8 @@ impl Executor for StarknetVMProcessor {
                                 state.declared_classes.insert(class_hash, class.as_ref().clone());
                             }
 
-                            if let Some(reason) = receipt.revert_reason() {
-                                info!(target: LOG_TARGET, hash = format!("{hash:#x}"), type = ?receipt.r#type(), revert_reason = %reason, "Transaction executed (reverted).");
-                            } else {
-                                info!(target: LOG_TARGET, hash = format!("{hash:#x}"), type = ?receipt.r#type(), "Transaction executed.");
-                            }
+                            crate::utils::log_resources(&trace.receipt.resources);
+                            crate::utils::log_messages(&receipt.messages_sent());
                         }
 
                         ExecutionResult::Failed { error } => {

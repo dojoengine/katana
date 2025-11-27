@@ -484,8 +484,8 @@ pub fn block_context_from_envs(
 
     let chain_info = ChainInfo {
         fee_token_addresses,
-        chain_id: to_blk_chain_id(cfg_env.chain_id),
-        is_l3: false,
+        chain_id: to_blk_chain_id(chain_spec.id()),
+        is_l3: overrides.map_or(false, |overrides| overrides.is_l3),
     };
 
     // IMPORTANT:
