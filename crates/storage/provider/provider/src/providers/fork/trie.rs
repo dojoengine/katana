@@ -7,7 +7,7 @@ use katana_primitives::block::BlockNumber;
 use katana_primitives::class::{ClassHash, CompiledClassHash};
 use katana_primitives::state::StateUpdates;
 use katana_primitives::{ContractAddress, Felt};
-use katana_provider_api::state::{StateFactoryProvider, StateProvider, StateRootProvider};
+use katana_provider_api::state::{StateProvider, StateRootProvider};
 use katana_provider_api::trie::TrieWriter;
 use katana_provider_api::ProviderError;
 use katana_rpc_types::ContractStorageKeys;
@@ -78,6 +78,8 @@ impl<Tx1: DbTxMut> TrieWriter for ForkedProvider<Tx1> {
                     "storage updates/proofs count mismatch".to_string(),
                 ));
             }
+
+            let latest_state = self.latest_with_tx(tx)?;
 
             let leaf_hashes: Vec<_> = {
                 // First handle storage updates with proofs
@@ -152,21 +154,12 @@ impl<Tx1: DbTxMut> TrieWriter for ForkedProvider<Tx1> {
                             }
                         }
 
-                        let state = if block_number == 0 {
-                            StateFactoryProvider::latest(&*self.local_db)? // this will just default to an empty state
-                        } else {
-                            StateFactoryProvider::historical(
-                                &*self.local_db,
-                                (block_number - 1).into(),
-                            )?
-                            .expect("historical state should exist")
-                        };
-
                         // If storage_root is still None, get it from the previous state
                         // This handles cases where contract has nonce/class changes but no storage updates
                         // and the contract wasn't in the remote proof response
                         if leaf.storage_root.is_none() {
-                            if let Ok(Some(prev_storage_root)) = state.storage_root(address) {
+                            if let Ok(Some(prev_storage_root)) = latest_state.storage_root(address)
+                            {
                                 leaf.storage_root = Some(prev_storage_root);
                             } else {
                                 // If no previous storage root exists, use ZERO (empty storage)
@@ -174,7 +167,7 @@ impl<Tx1: DbTxMut> TrieWriter for ForkedProvider<Tx1> {
                             }
                         }
 
-                        let leaf_hash = contract_state_leaf_hash(state, &address, &leaf);
+                        let leaf_hash = contract_state_leaf_hash(&latest_state, &address, &leaf);
 
                         Ok((address, leaf_hash))
                     })

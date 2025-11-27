@@ -6478,6 +6478,7 @@ dependencies = [
  "katana-chain-spec",
  "katana-contracts",
  "katana-core",
+ "katana-db",
  "katana-executor",
  "katana-explorer",
  "katana-gas-price-oracle",
@@ -6498,6 +6499,7 @@ dependencies = [
  "katana-utils",
  "metrics 0.23.1",
  "num-traits",
+ "proptest",
  "rand 0.8.5",
  "rstest 0.18.2",
  "serde",
@@ -6511,6 +6513,7 @@ dependencies = [
  "tower 0.5.2",
  "tower-http",
  "tracing",
+ "tracing-subscriber",
  "url",
 ]
 
