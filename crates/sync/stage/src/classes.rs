@@ -93,14 +93,9 @@ impl<P> Classes<P> {
                 .zip(class_artifacts.into_par_iter())
                 .map(|(key, gateway_class)| {
                     let block = key.block;
+
                     let expected_hash = key.class_hash;
-
-                    let class: ContractClass =
-                        gateway_class.try_into().map_err(Error::Conversion)?;
-
-                    let computed_hash = class.class_hash().map_err(|source| {
-                        Error::ClassHashComputation { class_hash: expected_hash, source, block }
-                    })?;
+                    let computed_hash = gateway_class.hash();
 
                     if computed_hash != expected_hash {
                         return Err(Error::ClassHashMismatch {
@@ -110,7 +105,7 @@ impl<P> Classes<P> {
                         });
                     }
 
-                    Ok(class)
+                    ContractClass::try_from(gateway_class).map_err(Error::Conversion)
                 })
                 .collect::<Result<Vec<_>, Error>>();
 

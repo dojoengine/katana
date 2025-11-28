@@ -7,7 +7,8 @@ use std::io::{self, Write};
 use cairo_lang_starknet_classes::contract_class::ContractEntryPoints;
 use cairo_lang_utils::bigint::BigUintAsHex;
 use katana_primitives::class::{
-    compute_sierra_class_hash, ClassHash, ContractClass, LegacyContractClass, SierraContractClass,
+    compute_legacy_class_hash, compute_sierra_class_hash, ClassHash, ComputeClassHashError,
+    ContractClass, LegacyContractClass, SierraContractClass,
 };
 use katana_primitives::{
     Felt, {self},
@@ -32,6 +33,15 @@ pub type CasmClass = katana_primitives::class::CompiledClass;
 pub enum Class {
     Sierra(RpcSierraContractClass),
     Legacy(RpcLegacyContractClass),
+}
+
+impl Class {
+    pub fn hash(&self) -> ClassHash {
+        match self {
+            Class::Sierra(class) => class.hash(),
+            Class::Legacy(class) => class.hash().unwrap(),
+        }
+    }
 }
 
 #[derive(Debug, thiserror::Error)]
@@ -117,6 +127,12 @@ pub struct RpcLegacyContractClass {
     // Starknet does not verify the abi. If we can't parse it, we set it to None.
     #[serde(default, deserialize_with = "deserialize_optional_contract_class_abi_entry_vector")]
     pub abi: Option<Vec<ContractClassAbiEntry>>,
+}
+
+impl RpcLegacyContractClass {
+    pub fn hash(&self) -> Result<ClassHash, ComputeClassHashError> {
+        compute_legacy_class_hash(&LegacyContractClass::try_from(self.clone()).unwrap())
+    }
 }
 
 //////////////////////////////////////////////////

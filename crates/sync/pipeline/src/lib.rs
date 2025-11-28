@@ -86,6 +86,9 @@ use tokio::sync::watch::{self};
 use tokio::task::yield_now;
 use tracing::{debug, error, info, info_span, Instrument};
 
+pub mod metrics;
+pub use metrics::PipelineMetrics;
+
 /// The result of a pipeline execution.
 pub type PipelineResult<T> = Result<T, Error>;
 
@@ -225,6 +228,7 @@ pub struct Pipeline<P> {
     cmd_tx: watch::Sender<Option<PipelineCommand>>,
     block_tx: watch::Sender<Option<BlockNumber>>,
     tip: Option<BlockNumber>,
+    metrics: PipelineMetrics,
 }
 
 impl<P> Pipeline<P> {
@@ -250,6 +254,7 @@ impl<P> Pipeline<P> {
             storage_provider: provider,
             chunk_size,
             tip: None,
+            metrics: PipelineMetrics::new(),
         };
         (pipeline, handle)
     }
@@ -274,6 +279,11 @@ impl<P> Pipeline<P> {
     /// stop the pipeline.
     pub fn handle(&self) -> PipelineHandle {
         PipelineHandle { tx: self.cmd_tx.clone(), block_tx: self.block_tx.clone() }
+    }
+
+    /// Returns a reference to the pipeline metrics.
+    pub fn metrics(&self) -> &PipelineMetrics {
+        &self.metrics
     }
 }
 
@@ -357,6 +367,7 @@ where
 
         for stage in self.stages.iter_mut() {
             let id = stage.id();
+            let stage_metrics = self.metrics.stage(id);
 
             // Get the checkpoint for the stage, otherwise default to block number 0
             let checkpoint = self.storage_provider.provider_mut().checkpoint(id)?;
@@ -366,6 +377,7 @@ where
 
             let from = if let Some(checkpoint) = checkpoint {
                 debug!(target: "pipeline", %checkpoint, "Found checkpoint.");
+                stage_metrics.set_checkpoint(checkpoint);
 
                 // Skip the stage if the checkpoint is greater than or equal to the target block
                 // number
@@ -379,6 +391,7 @@ where
                 // from the next block
                 checkpoint + 1
             } else {
+                stage_metrics.set_checkpoint(0);
                 0
             };
 
@@ -386,6 +399,7 @@ where
             info!(target: "pipeline", %from, %to, "Executing stage.");
 
             let span = enter.exit();
+            let _guard = stage_metrics.execution_started();
             let StageExecutionOutput { last_block_processed } = stage
                 .execute(&input)
                 .instrument(span.clone())
@@ -395,15 +409,27 @@ where
             let _enter = span.enter();
             info!(target: "pipeline", %from, %to, "Stage execution completed.");
 
+            // Record blocks processed by this stage in this execution
+            let blocks_processed = last_block_processed.saturating_sub(from.saturating_sub(1));
+            stage_metrics.record_blocks_processed(blocks_processed);
+
             let provider_mut = self.storage_provider.provider_mut();
             provider_mut.set_checkpoint(id, last_block_processed)?;
             provider_mut.commit()?;
 
+            stage_metrics.set_checkpoint(last_block_processed);
             last_block_processed_list.push(last_block_processed);
             info!(target: "pipeline", checkpoint = %last_block_processed, "New checkpoint set.");
         }
 
-        Ok(last_block_processed_list.into_iter().min().unwrap_or(to))
+        let min_last_block_processed = last_block_processed_list.into_iter().min();
+
+        // Update overall pipeline sync position (minimum checkpoint across all stages)
+        if let Some(min_checkpoint) = min_last_block_processed {
+            self.metrics.set_sync_position(min_checkpoint);
+        }
+
+        Ok(min_last_block_processed.unwrap_or(to))
     }
 
     /// Run the pipeline loop.
@@ -414,7 +440,12 @@ where
             // Process blocks if we have a tip
             if let Some(tip) = self.tip {
                 let to = current_chunk_tip.min(tip);
+                let iteration_start = std::time::Instant::now();
                 let last_block_processed = self.run_once(to).await?;
+                let iteration_duration = iteration_start.elapsed().as_secs_f64();
+
+                // Record pipeline metrics for this iteration
+                self.metrics.record_iteration_duration(iteration_duration);
 
                 // Notify subscribers about the newly processed block
                 let _ = self.block_tx.send(Some(last_block_processed));
@@ -438,6 +469,7 @@ where
             {
                 info!(target: "pipeline", tip = %new_tip, "A new tip has been set.");
                 self.tip = Some(new_tip);
+                self.metrics.set_sync_target(new_tip);
             }
 
             yield_now().await;
