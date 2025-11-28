@@ -786,7 +786,7 @@ mod tests {
     }
 
     /// To run this test you need to comment out global cache part in Node::build() "let global_class_cache = class_cache.build_global()?";
-    #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+    #[tokio::test(flavor = "multi_thread", worker_threads = 1)]
     async fn test_commit_new_state_root_two_katana_instances() {
         let sequencer = TestNode::new().await;
         let provider = sequencer.backend().blockchain.provider().clone();
@@ -817,9 +817,6 @@ mod tests {
         let fork_sequencer = TestNode::new_with_config(fork_config).await;
         let fork_provider = fork_sequencer.backend().blockchain.provider().clone();
         let mut fork_producer = IntervalBlockProducer::new(fork_sequencer.backend().clone(), None);
-
-        // mine the first block on the fork to ensure consistent state
-        fork_producer.force_mine();
 
         let block_number = provider.latest_number().unwrap();
         let fork_block_number = fork_provider.latest_number().unwrap();

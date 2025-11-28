@@ -16,6 +16,7 @@ use katana_provider_api::state::{
 };
 use katana_provider_api::ProviderError;
 use katana_rpc_types::ContractStorageKeys;
+use tracing::debug;
 
 use super::db::{self};
 use super::ForkedProvider;

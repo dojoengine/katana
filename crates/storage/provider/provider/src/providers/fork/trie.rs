@@ -16,6 +16,7 @@ use katana_trie::{
     PartialContractsTrie, PartialStoragesTrie,
 };
 use starknet::macros::short_string;
+use tracing::{debug, warn};
 
 use super::ForkedProvider;
 use crate::ProviderResult;
@@ -380,12 +381,21 @@ fn contract_state_leaf_hash(
     address: &ContractAddress,
     contract_leaf: &ContractLeaf,
 ) -> Felt {
-    let nonce =
-        contract_leaf.nonce.unwrap_or(provider.nonce(*address).unwrap().unwrap_or_default());
+    let nonce = contract_leaf.nonce.unwrap_or_else(|| {
+        provider
+            .nonce(*address)
+            .ok()
+            .flatten()
+            .unwrap_or_default()
+    });
 
-    let class_hash = contract_leaf
-        .class_hash
-        .unwrap_or(provider.class_hash_of_contract(*address).unwrap().unwrap_or_default());
+    let class_hash = contract_leaf.class_hash.unwrap_or_else(|| {
+        provider
+            .class_hash_of_contract(*address)
+            .ok()
+            .flatten()
+            .unwrap_or_default()
+    });
 
     let storage_root = contract_leaf.storage_root.expect("root need to set");
 
