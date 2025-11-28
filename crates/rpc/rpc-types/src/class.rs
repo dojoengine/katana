@@ -1,13 +1,14 @@
 //! The types used are intentionally chosen so that they can be easily converted from RPC to the
 //! internal types without having to rely on intermediary representation.
 
-use std::collections::HashMap;
 use std::io::{self, Write};
 
 use cairo_lang_starknet_classes::contract_class::ContractEntryPoints;
 use cairo_lang_utils::bigint::BigUintAsHex;
+use katana_primitives::class::deprecated::Program;
 use katana_primitives::class::{
-    compute_sierra_class_hash, ClassHash, ContractClass, LegacyContractClass, SierraContractClass,
+    compute_sierra_class_hash, deprecated, ClassHash, ContractClass, LegacyContractClass,
+    SierraContractClass,
 };
 use katana_primitives::{
     Felt, {self},
@@ -15,10 +16,7 @@ use katana_primitives::{
 use serde::{Deserialize, Serialize};
 use serde_utils::base64;
 use starknet::core::types::{CompressedLegacyContractClass, FlattenedSierraClass};
-use starknet_api::contract_class::EntryPointType;
-use starknet_api::deprecated_contract_class::{
-    ContractClassAbiEntry, EntryPointV0, Program as LegacyProgram,
-};
+use starknet_api::deprecated_contract_class::ContractClassAbiEntry;
 use starknet_api::serde_utils::deserialize_optional_contract_class_abi_entry_vector;
 
 /// The return type for the `starknet_getCompiledClass` JSON-RPC method.
@@ -113,7 +111,7 @@ pub struct RpcLegacyContractClass {
     #[serde(with = "base64")]
     pub program: Vec<u8>,
     /// The selector of each entry point is a unique identifier in the program.
-    pub entry_points_by_type: HashMap<EntryPointType, Vec<EntryPointV0>>,
+    pub entry_points_by_type: deprecated::ContractEntryPoints,
     // Starknet does not verify the abi. If we can't parse it, we set it to None.
     #[serde(default, deserialize_with = "deserialize_optional_contract_class_abi_entry_vector")]
     pub abi: Option<Vec<ContractClassAbiEntry>>,
@@ -141,9 +139,9 @@ impl TryFrom<RpcLegacyContractClass> for LegacyContractClass {
     }
 }
 
-fn compress_legacy_program(mut program: LegacyProgram) -> Result<Vec<u8>, ConversionError> {
+fn compress_legacy_program(mut program: Program) -> Result<Vec<u8>, ConversionError> {
     // We don't need the debug info in the compressed program.
-    program.debug_info = serde_json::to_value::<Option<()>>(None)?;
+    program.debug_info = None;
 
     let bytes = serde_json::to_vec(&program)?;
     let mut gzip_encoder = flate2::write::GzEncoder::new(Vec::new(), flate2::Compression::fast());
@@ -151,11 +149,11 @@ fn compress_legacy_program(mut program: LegacyProgram) -> Result<Vec<u8>, Conver
     Ok(gzip_encoder.finish()?)
 }
 
-fn decompress_legacy_program(compressed_data: &[u8]) -> Result<LegacyProgram, ConversionError> {
+fn decompress_legacy_program(compressed_data: &[u8]) -> Result<Program, ConversionError> {
     let mut decoder = flate2::read::GzDecoder::new(compressed_data);
     let mut decompressed = Vec::new();
     std::io::Read::read_to_end(&mut decoder, &mut decompressed)?;
-    Ok(serde_json::from_slice::<LegacyProgram>(&decompressed)?)
+    Ok(serde_json::from_slice::<Program>(&decompressed)?)
 }
 
 // Round-trip conversion between RPC and katana-primitives types
@@ -306,7 +304,7 @@ mod tests {
         assert_eq!(class.program.prime, rt.program.prime);
         assert_eq!(class.program.reference_manager, rt.program.reference_manager);
         // The debug info is stripped when converting to RPC format.
-        assert_eq!(serde_json::to_value::<Option<()>>(None).unwrap(), rt.program.debug_info);
+        assert_eq!(None, rt.program.debug_info);
     }
 
     #[test]
@@ -368,7 +366,7 @@ mod tests {
         assert_eq!(expected_class.program.prime, class.program.prime);
         assert_eq!(expected_class.program.reference_manager, class.program.reference_manager);
         // The debug info is stripped when converting to RPC format.
-        assert_eq!(serde_json::to_value::<Option<()>>(None).unwrap(), class.program.debug_info);
+        assert_eq!(None, class.program.debug_info);
     }
 
     #[test]

@@ -1,0 +1,412 @@
+use std::str::FromStr;
+
+use cairo_lang_starknet_classes::casm_contract_class::StarknetSierraCompilationError;
+use cairo_lang_starknet_classes::contract_class::{
+    version_id_from_serialized_sierra_program, ContractEntryPoint, ContractEntryPoints,
+};
+use cairo_lang_utils::bigint::BigUintAsHex;
+use serde_json_pythonic::to_string_pythonic;
+use starknet::macros::short_string;
+use starknet_api::contract_class::SierraVersion;
+use starknet_types_core::hash::{Poseidon, StarkHash};
+
+use crate::utils::{normalize_address, starknet_keccak};
+use crate::Felt;
+
+pub mod deprecated;
+
+/// The canonical hash of a contract class. This is the identifier of a class.
+pub type ClassHash = Felt;
+/// The hash of a compiled contract class.
+pub type CompiledClassHash = Felt;
+
+/// The canonical legacy class (Cairo 0) type.
+pub type LegacyContractClass = deprecated::ContractClass;
+
+/// The canonical compiled Sierra contract class type.
+pub type CasmContractClass = cairo_lang_starknet_classes::casm_contract_class::CasmContractClass;
+
+/// ABI for Sierra-based classes.
+pub type ContractAbi = cairo_lang_starknet_classes::abi::Contract;
+
+#[derive(Debug, Clone, Eq, PartialEq)]
+#[cfg_attr(feature = "serde", derive(::serde::Serialize, ::serde::Deserialize), serde(untagged))]
+pub enum MaybeInvalidSierraContractAbi {
+    Valid(ContractAbi),
+    Invalid(String),
+}
+
+impl std::fmt::Display for MaybeInvalidSierraContractAbi {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        match self {
+            MaybeInvalidSierraContractAbi::Valid(abi) => {
+                let s = to_string_pythonic(abi).expect("failed to serialize abi");
+                write!(f, "{}", s)
+            }
+            MaybeInvalidSierraContractAbi::Invalid(abi) => write!(f, "{}", abi),
+        }
+    }
+}
+
+impl From<String> for MaybeInvalidSierraContractAbi {
+    fn from(value: String) -> Self {
+        match serde_json::from_str::<ContractAbi>(&value) {
+            Ok(abi) => MaybeInvalidSierraContractAbi::Valid(abi),
+            Err(..) => MaybeInvalidSierraContractAbi::Invalid(value),
+        }
+    }
+}
+
+impl From<&str> for MaybeInvalidSierraContractAbi {
+    fn from(value: &str) -> Self {
+        match serde_json::from_str::<ContractAbi>(value) {
+            Ok(abi) => MaybeInvalidSierraContractAbi::Valid(abi),
+            Err(..) => MaybeInvalidSierraContractAbi::Invalid(value.to_string()),
+        }
+    }
+}
+
+/// Represents a contract in the Starknet network.
+///
+/// The canonical contract class (Sierra) type.
+#[derive(Clone, Debug, PartialEq, Eq)]
+#[cfg_attr(feature = "serde", derive(::serde::Serialize, ::serde::Deserialize))]
+pub struct SierraContractClass {
+    pub sierra_program: Vec<BigUintAsHex>,
+    pub sierra_program_debug_info: Option<cairo_lang_sierra::debug_info::DebugInfo>,
+    pub contract_class_version: String,
+    pub entry_points_by_type: ContractEntryPoints,
+    pub abi: Option<MaybeInvalidSierraContractAbi>,
+}
+
+impl SierraContractClass {
+    /// Computes the hash of the Sierra contract class.
+    pub fn hash(&self) -> ClassHash {
+        let Self { sierra_program, abi, entry_points_by_type, .. } = self;
+
+        let program: Vec<Felt> = sierra_program.iter().map(|f| f.value.clone().into()).collect();
+        let abi: String = abi.as_ref().map(|abi| abi.to_string()).unwrap_or_default();
+
+        compute_sierra_class_hash(&abi, entry_points_by_type, &program)
+    }
+}
+
+impl From<SierraContractClass> for cairo_lang_starknet_classes::contract_class::ContractClass {
+    fn from(value: SierraContractClass) -> Self {
+        let abi = value.abi.and_then(|abi| match abi {
+            MaybeInvalidSierraContractAbi::Invalid(..) => None,
+            MaybeInvalidSierraContractAbi::Valid(abi) => Some(abi),
+        });
+
+        cairo_lang_starknet_classes::contract_class::ContractClass {
+            abi,
+            sierra_program: value.sierra_program,
+            entry_points_by_type: value.entry_points_by_type,
+            contract_class_version: value.contract_class_version,
+            sierra_program_debug_info: value.sierra_program_debug_info,
+        }
+    }
+}
+
+impl From<cairo_lang_starknet_classes::contract_class::ContractClass> for SierraContractClass {
+    fn from(value: cairo_lang_starknet_classes::contract_class::ContractClass) -> Self {
+        SierraContractClass {
+            abi: value.abi.map(MaybeInvalidSierraContractAbi::Valid),
+            sierra_program: value.sierra_program,
+            entry_points_by_type: value.entry_points_by_type,
+            contract_class_version: value.contract_class_version,
+            sierra_program_debug_info: value.sierra_program_debug_info,
+        }
+    }
+}
+
+#[derive(Debug, thiserror::Error)]
+pub enum ContractClassCompilationError {
+    #[error(transparent)]
+    SierraCompilation(#[from] StarknetSierraCompilationError),
+}
+
+// NOTE:
+// Ideally, we can implement this enum as an untagged `serde` enum, so that we can deserialize from
+// the raw JSON class artifact directly into this (ie
+// `serde_json::from_str::<ContractClass>(json)`). But that is not possible due to a limitation with untagged enums derivation (see https://github.com/serde-rs/serde/pull/2781).
+#[allow(clippy::large_enum_variant)]
+#[derive(Debug, Clone, Eq, PartialEq)]
+#[cfg_attr(feature = "serde", derive(::serde::Serialize, ::serde::Deserialize))]
+pub enum ContractClass {
+    Class(SierraContractClass),
+    Legacy(LegacyContractClass),
+}
+
+impl ContractClass {
+    /// Computes the hash of the class.
+    pub fn class_hash(&self) -> Result<ClassHash, ComputeClassHashError> {
+        match self {
+            Self::Class(class) => Ok(class.hash()),
+            Self::Legacy(class) => Ok(class.hash()),
+        }
+    }
+
+    /// Compiles the contract class.
+    pub fn compile(self) -> Result<CompiledClass, ContractClassCompilationError> {
+        match self {
+            Self::Legacy(class) => Ok(CompiledClass::Legacy(class)),
+            Self::Class(class) => {
+                let casm = CasmContractClass::from_contract_class(class.into(), true, usize::MAX)?;
+                let casm = CompiledClass::Class(casm);
+                Ok(casm)
+            }
+        }
+    }
+
+    /// Checks if this contract class is a Cairo 0 legacy class.
+    ///
+    /// Returns `true` if the contract class is a legacy class, `false` otherwise.
+    pub fn is_legacy(&self) -> bool {
+        self.as_legacy().is_some()
+    }
+
+    pub fn as_legacy(&self) -> Option<&LegacyContractClass> {
+        match self {
+            Self::Legacy(class) => Some(class),
+            _ => None,
+        }
+    }
+
+    pub fn as_sierra(&self) -> Option<&SierraContractClass> {
+        match self {
+            Self::Class(class) => Some(class),
+            _ => None,
+        }
+    }
+
+    /// Returns the version of the Sierra program of this class.
+    pub fn sierra_version(&self) -> SierraVersion {
+        match self {
+            Self::Class(class) => {
+                // The sierra program is an array of field elements and the first six elements are
+                // reserved for the compilers version. The array is structured as follows:
+                //
+                // ┌──────────────────────────────────────┐
+                // │ Idx │ Content                        │
+                // ┌──────────────────────────────────────┐
+                // │ 0   │ Sierra major version           │
+                // │ 1   │ Sierra minor version           │
+                // │ 2   │ Sierra patch version           │
+                // │ 3   │ CASM compiler major version    │
+                // │ 4   │ CASM compiler minor version    │
+                // │ 5   │ CASM compiler patch version    │
+                // │ 6+  │ Program data                   │
+                // └──────────────────────────────────────┘
+                //
+
+                let version = version_id_from_serialized_sierra_program(&class.sierra_program)
+                    .map(|(sierra_id, _)| sierra_id)
+                    .expect("invalid sierra program: failed to get version id from sierra program");
+
+                SierraVersion::new(
+                    version.major.try_into().unwrap(),
+                    version.minor.try_into().unwrap(),
+                    version.patch.try_into().unwrap(),
+                )
+            }
+
+            Self::Legacy(..) => SierraVersion::DEPRECATED,
+        }
+    }
+
+    /// Returns the length of the Sierra program.
+    pub fn sierra_program_len(&self) -> usize {
+        match self {
+            Self::Class(class) => class.sierra_program.len(),
+            // For cairo 0, the sierra_program_length must be 0.
+            Self::Legacy(..) => 0,
+        }
+    }
+
+    // TODO(kariy): document the actual definition of the ABI length here.
+    pub fn abi_len(&self) -> usize {
+        match self {
+            Self::Class(class) => to_string_pythonic(&class.abi.as_ref()).unwrap().len(),
+            Self::Legacy(..) => 0,
+        }
+    }
+}
+
+#[derive(Debug, thiserror::Error)]
+pub enum ContractClassFromStrError {
+    #[error(transparent)]
+    Json(#[from] serde_json::Error),
+
+    #[cfg(debug_assertions)]
+    #[error("{0}")]
+    JsonPath(#[from] serde_path_to_error::Error<serde_json::Error>),
+
+    #[error("data did not match any variant of ContractClass (Sierra or Legacy)")]
+    NoVariantMatch,
+}
+
+#[cfg(feature = "serde")]
+impl FromStr for ContractClass {
+    type Err = ContractClassFromStrError;
+
+    fn from_str(s: &str) -> Result<Self, Self::Err> {
+        #[cfg(debug_assertions)]
+        {
+            let deserializer = &mut serde_json::Deserializer::from_str(s);
+            if let Ok(class) =
+                serde_path_to_error::deserialize::<_, SierraContractClass>(deserializer)
+            {
+                return Ok(Self::Class(class));
+            }
+
+            let deserializer = &mut serde_json::Deserializer::from_str(s);
+            let class: LegacyContractClass = serde_path_to_error::deserialize(deserializer)?;
+            Ok(Self::Legacy(class))
+        }
+
+        #[cfg(not(debug_assertions))]
+        {
+            if let Ok(class) = serde_json::from_str::<SierraContractClass>(s) {
+                return Ok(Self::Class(class));
+            }
+
+            match serde_json::from_str::<LegacyContractClass>(s) {
+                Ok(class) => Ok(Self::Legacy(class)),
+                Err(_) => Err(ContractClassFromStrError::NoVariantMatch),
+            }
+        }
+    }
+}
+
+/// Compiled version of [`ContractClass`].
+///
+/// This is the CASM format that can be used for execution. TO learn more about CASM, check out the
+/// [Starknet docs].
+///
+/// [Starknet docs]: https://docs.starknet.io/architecture-and-concepts/smart-contracts/cairo-and-sierra/#why_do_we_need_casm
+#[allow(clippy::large_enum_variant)]
+#[derive(Debug, Clone, Eq, PartialEq, derive_more::From)]
+#[cfg_attr(feature = "serde", derive(::serde::Serialize, ::serde::Deserialize), serde(untagged))]
+pub enum CompiledClass {
+    /// The compiled Sierra contract class ie CASM.
+    Class(CasmContractClass),
+
+    /// The compiled legacy contract class.
+    ///
+    /// This is the same as the uncompiled legacy class because prior to Sierra,
+    /// the classes were already in CASM format.
+    Legacy(LegacyContractClass),
+}
+
+impl CompiledClass {
+    /// Computes the hash of the compiled class.
+    pub fn class_hash(&self) -> Result<CompiledClassHash, ComputeClassHashError> {
+        match self {
+            Self::Class(class) => Ok(class.compiled_class_hash()),
+            Self::Legacy(class) => Ok(class.hash()),
+        }
+    }
+
+    /// Checks if the compiled contract class is a legacy (Cairo 0) class.
+    ///
+    /// Returns `true` if the compiled contract class is a legacy class, `false` otherwise.
+    pub fn is_legacy(&self) -> bool {
+        matches!(self, Self::Legacy(_))
+    }
+}
+
+#[derive(Debug, thiserror::Error)]
+pub enum ComputeClassHashError {
+    #[error(transparent)]
+    AbiConversion(#[from] serde_json_pythonic::Error),
+}
+
+/// Computes the class hash of a Sierra contract class components.
+///
+/// Implementation reference: https://github.com/starkware-libs/cairo-lang/blob/v0.14.0/src/starkware/starknet/core/os/contract_class/contract_class.cairo
+pub fn compute_sierra_class_hash(
+    abi: &str,
+    entry_points_by_type: &ContractEntryPoints,
+    sierra_program: &[Felt],
+) -> Felt {
+    let mut hasher = starknet_crypto::PoseidonHasher::new();
+    hasher.update(short_string!("CONTRACT_CLASS_V0.1.0"));
+
+    // Hashes entry points
+    hasher.update(entrypoints_hash(&entry_points_by_type.external));
+    hasher.update(entrypoints_hash(&entry_points_by_type.l1_handler));
+    hasher.update(entrypoints_hash(&entry_points_by_type.constructor));
+    // Hashes ABI
+    hasher.update(starknet_keccak(abi.as_bytes()));
+    // Hashes Sierra program
+    hasher.update(Poseidon::hash_array(sierra_program));
+
+    normalize_address(hasher.finalize())
+}
+
+fn entrypoints_hash(entrypoints: &[ContractEntryPoint]) -> Felt {
+    let mut hasher = starknet_crypto::PoseidonHasher::new();
+    for entry in entrypoints {
+        hasher.update(entry.selector.clone().into());
+        hasher.update(entry.function_idx.into());
+    }
+    hasher.finalize()
+}
+
+#[cfg(test)]
+mod tests {
+
+    use starknet::core::types::contract::SierraClass as StarknetRsSierraContractClass;
+
+    use super::{ContractClass, SierraContractClass};
+
+    #[test]
+    fn compute_class_hash() {
+        let artifact =
+            include_str!("../../../contracts/build/katana_account_Account.contract_class.json");
+
+        let class = serde_json::from_str::<SierraContractClass>(artifact).unwrap();
+        let actual_hash = ContractClass::Class(class).class_hash().unwrap();
+
+        // Compare it against the hash computed using `starknet-rs` types
+
+        let class = serde_json::from_str::<StarknetRsSierraContractClass>(artifact).unwrap();
+        let expected_hash = class.class_hash().unwrap();
+
+        assert_eq!(actual_hash, expected_hash);
+    }
+
+    #[test]
+    #[cfg(feature = "serde")]
+    fn contract_class_from_str() {
+        use std::str::FromStr;
+
+        /////////////////////////////////////////////////////////////////////////
+        // Sierra contract class
+        /////////////////////////////////////////////////////////////////////////
+
+        let raw =
+            include_str!("../../../contracts/build/katana_account_Account.contract_class.json");
+        let class = ContractClass::from_str(raw).unwrap();
+        assert!(class.as_sierra().is_some());
+        assert!(!class.is_legacy());
+
+        /////////////////////////////////////////////////////////////////////////
+        // Legacy contract class
+        /////////////////////////////////////////////////////////////////////////
+
+        let raw = include_str!("../../../contracts/build/legacy/erc20.json");
+        let class = ContractClass::from_str(raw).unwrap();
+        assert!(class.as_legacy().is_some());
+        assert!(class.is_legacy());
+
+        /////////////////////////////////////////////////////////////////////////
+        // Invalid JSON - should return an error
+        /////////////////////////////////////////////////////////////////////////
+
+        let raw = r#"{"random": "json", "not_a": "contract_class"}"#;
+        let result = ContractClass::from_str(raw);
+        assert!(result.is_err());
+    }
+}

@@ -12,7 +12,6 @@ cairo-lang-sierra.workspace = true
 cairo-lang-utils.workspace = true
 cairo-lang-starknet-classes.workspace = true
 
-serde_with.workspace = true
 anyhow.workspace = true
 arbitrary = { workspace = true, optional = true }
 blockifier = { workspace = true, features = [ "testing" ] } # some Clone derives are gated behind 'testing' feature
@@ -23,6 +22,7 @@ lazy_static.workspace = true
 num-traits.workspace = true
 serde.workspace = true
 serde_json.workspace = true
+serde_path_to_error.workspace = true
 starknet.workspace = true
 starknet-crypto.workspace = true
 starknet-types-core.workspace = true

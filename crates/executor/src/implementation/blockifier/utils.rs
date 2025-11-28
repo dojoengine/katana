@@ -667,8 +667,7 @@ pub fn to_class(class: class::CompiledClass) -> Result<RunnableCompiledClass, Pr
         }
         class::CompiledClass::Class(casm) => {
             let version = SierraVersion::from_str(&casm.compiler_version).unwrap();
-            let versioned_casm = (casm, version);
-            Ok(RunnableCompiledClass::V1(CompiledClassV1::try_from(versioned_casm)?))
+            Ok(RunnableCompiledClass::V1(CompiledClassV1::try_from((casm, version))?))
         }
     }
 }
