@@ -105,7 +105,7 @@ impl<P> Classes<P> {
                         });
                     }
 
-                    Ok(ContractClass::try_from(gateway_class).map_err(Error::Conversion)?)
+                    ContractClass::try_from(gateway_class).map_err(Error::Conversion)
                 })
                 .collect::<Result<Vec<_>, Error>>();
 

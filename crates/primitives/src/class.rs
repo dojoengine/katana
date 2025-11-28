@@ -329,7 +329,9 @@ pub fn compute_sierra_class_hash(
 /// This function delegates the computation to the `starknet-rs` library. Don't really care about
 /// performance here because it's only for legacy classes, but we should definitely find to improve
 /// this without introducing too much complexity.
-fn compute_legacy_class_hash(class: &LegacyContractClass) -> Result<Felt, ComputeClassHashError> {
+pub fn compute_legacy_class_hash(
+    class: &LegacyContractClass,
+) -> Result<Felt, ComputeClassHashError> {
     pub use starknet::core::types::contract::legacy::LegacyContractClass as StarknetRsLegacyContractClass;
 
     let value = serde_json::to_value(class).unwrap();
