@@ -1,12 +1,21 @@
 use core::future::Future;
+use core::marker::PhantomData;
+use core::pin::Pin;
 use std::panic::{self, AssertUnwindSafe};
 use std::sync::Arc;
 
-use futures::FutureExt;
+use futures::stream::FuturesUnordered;
+use futures::{FutureExt, StreamExt};
+use tokio::sync::mpsc::{UnboundedReceiver, UnboundedSender};
+use tokio::sync::oneshot;
+use tokio::task::block_in_place;
 use tokio_util::sync::CancellationToken;
 use tracing::{debug, error};
 
 use crate::{CpuBlockingJoinHandle, Inner, JoinError, JoinHandle};
+
+type BoxScopedFuture<'scope> = Pin<Box<dyn Future<Output = ()> + Send + 'scope>>;
+type BoxScopeFuture<'scope, T> = Pin<Box<dyn Future<Output = T> + Send + 'scope>>;
 
 /// A spawner for spawning tasks on the [`TaskManager`] that it was derived from.
 ///
@@ -53,8 +62,178 @@ impl TaskSpawner {
         JoinHandle(handle)
     }
 
+    /// Runs a scoped block in which tasks may borrow non-`'static` data but are guaranteed to be
+    /// completed before this method returns.
+    pub async fn scope<'scope, R>(
+        &'scope self,
+        f: impl FnOnce(ScopedTaskSpawner<'scope>) -> BoxScopeFuture<'scope, R>,
+    ) -> R
+    where
+        R: Send + 'scope,
+    {
+        let (sender, receiver) = tokio::sync::mpsc::unbounded_channel();
+        let scoped_spawner: ScopedTaskSpawner<'scope> =
+            ScopedTaskSpawner { inner: self.inner.clone(), sender, _marker: PhantomData };
+
+        let user_future = f(scoped_spawner.clone());
+
+        TaskScope::new(scoped_spawner, receiver, user_future).run().await
+    }
+
     pub(crate) fn cancellation_token(&self) -> &CancellationToken {
         &self.inner.on_cancel
+    }
+}
+
+/// Spawner used inside [`TaskSpawner::scope`] to spawn scoped tasks.
+#[derive(Debug, Clone)]
+pub struct ScopedTaskSpawner<'scope> {
+    inner: Arc<Inner>,
+    sender: UnboundedSender<BoxScopedFuture<'scope>>,
+    _marker: PhantomData<&'scope ()>,
+}
+
+impl<'scope> ScopedTaskSpawner<'scope> {
+    /// Spawn an async task that can borrow data with lifetime `'scope`.
+    pub fn spawn<F>(&self, fut: F) -> ScopedJoinHandle<'scope, F::Output>
+    where
+        F: Future + Send + 'scope,
+        F::Output: Send + 'scope,
+    {
+        let (tx, rx) = oneshot::channel();
+        let mut receiver = rx;
+        let cancellation_token = self.inner.on_cancel.clone();
+
+        let task = Box::pin(async move {
+            let result = cancellable(cancellation_token, fut).await;
+            let _ = tx.send(result);
+        });
+
+        if self.sender.send(task).is_err() {
+            receiver.close();
+        }
+
+        ScopedJoinHandle { receiver, _marker: PhantomData }
+    }
+
+    /// Spawn a blocking task that can borrow data with lifetime `'scope`.
+    pub fn spawn_blocking<F, R>(&self, func: F) -> ScopedJoinHandle<'scope, R>
+    where
+        F: FnOnce() -> R + Send + 'scope,
+        R: Send + 'scope,
+    {
+        let (tx, rx) = oneshot::channel();
+        let mut receiver = rx;
+        let cancellation_token = self.inner.on_cancel.clone();
+
+        let task = Box::pin(async move {
+            let result = block_in_place(|| {
+                if cancellation_token.is_cancelled() {
+                    return Err(JoinError::Cancelled);
+                }
+
+                panic::catch_unwind(AssertUnwindSafe(func)).map_err(JoinError::Panic)
+            });
+
+            let _ = tx.send(result);
+        });
+
+        if self.sender.send(task).is_err() {
+            receiver.close();
+        }
+
+        ScopedJoinHandle { receiver, _marker: PhantomData }
+    }
+}
+
+struct TaskScope<'scope, R>
+where
+    R: Send + 'scope,
+{
+    tasks: FuturesUnordered<BoxScopedFuture<'scope>>,
+    receiver: UnboundedReceiver<BoxScopedFuture<'scope>>,
+    user_future: BoxScopeFuture<'scope, R>,
+    spawner: Option<ScopedTaskSpawner<'scope>>,
+    receiver_closed: bool,
+}
+
+impl<'scope, R> TaskScope<'scope, R>
+where
+    R: Send + 'scope,
+{
+    fn new(
+        spawner: ScopedTaskSpawner<'scope>,
+        receiver: UnboundedReceiver<BoxScopedFuture<'scope>>,
+        user_future: BoxScopeFuture<'scope, R>,
+    ) -> Self {
+        Self {
+            tasks: FuturesUnordered::new(),
+            receiver,
+            user_future,
+            spawner: Some(spawner),
+            receiver_closed: false,
+        }
+    }
+
+    async fn run(mut self) -> R {
+        let mut user_output = None;
+        let mut user_done = false;
+
+        loop {
+            tokio::select! {
+                result = self.receiver.recv(), if !self.receiver_closed => {
+                    match result {
+                        Some(task) => self.tasks.push(task),
+                        None => self.receiver_closed = true,
+                    }
+                }
+
+                Some(_) = self.tasks.next(), if !self.tasks.is_empty() => {}
+
+                output = self.user_future.as_mut(), if !user_done => {
+                    user_output = Some(output);
+                    user_done = true;
+                    // Drop the spawner to close the sender side of the channel.
+                    self.spawner.take();
+                }
+
+                else => {
+                    if user_output.is_some() && self.receiver_closed && self.tasks.is_empty() {
+                        break;
+                    }
+                }
+            }
+        }
+
+        user_output.expect("user future completed")
+    }
+}
+
+/// Join handle for scoped tasks spawned via [`TaskSpawner::scope`].
+pub struct ScopedJoinHandle<'scope, T> {
+    receiver: oneshot::Receiver<crate::Result<T>>,
+    _marker: PhantomData<&'scope ()>,
+}
+
+impl<T> core::fmt::Debug for ScopedJoinHandle<'_, T> {
+    fn fmt(&self, f: &mut core::fmt::Formatter<'_>) -> core::fmt::Result {
+        f.debug_struct("ScopedJoinHandle").finish()
+    }
+}
+
+impl<T> Future for ScopedJoinHandle<'_, T> {
+    type Output = crate::Result<T>;
+
+    fn poll(
+        self: Pin<&mut Self>,
+        cx: &mut core::task::Context<'_>,
+    ) -> core::task::Poll<Self::Output> {
+        let this = self.get_mut();
+        match Pin::new(&mut this.receiver).poll(cx) {
+            core::task::Poll::Ready(Ok(value)) => core::task::Poll::Ready(value),
+            core::task::Poll::Ready(Err(..)) => core::task::Poll::Ready(Err(JoinError::Cancelled)),
+            core::task::Poll::Pending => core::task::Poll::Pending,
+        }
     }
 }
 
@@ -215,6 +394,7 @@ async fn cancellable<F: Future>(
 mod tests {
 
     use std::future::pending;
+    use std::sync::atomic::{AtomicUsize, Ordering};
 
     use crate::TaskManager;
 
@@ -274,5 +454,51 @@ mod tests {
         let result = spawner.spawn(|| panic!("test")).await;
         let error = result.expect_err("should be panic error");
         assert!(error.is_panic());
+    }
+
+    #[tokio::test]
+    async fn scoped_spawn_allows_borrowed_data() {
+        let manager = TaskManager::current();
+        let spawner = manager.task_spawner();
+
+        let text = String::from("scoped");
+        let expected_len = text.len();
+
+        spawner
+            .scope(|scope| {
+                let text_ref: &String = &text;
+                Box::pin(async move {
+                    let handle = scope.spawn(async move { text_ref.len() });
+                    assert_eq!(handle.await.unwrap(), expected_len);
+                })
+            })
+            .await;
+
+        // original value is still valid after scope returns
+        assert_eq!(text.len(), expected_len);
+    }
+
+    #[tokio::test]
+    async fn scoped_spawn_blocking_allows_borrowed_data() {
+        let manager = TaskManager::current();
+        let spawner = manager.task_spawner();
+
+        let counter = AtomicUsize::new(0);
+
+        spawner
+            .scope(|scope| {
+                let counter_ref = &counter;
+                Box::pin(async move {
+                    let handle = scope.spawn_blocking(move || {
+                        counter_ref.fetch_add(1, Ordering::SeqCst);
+                        counter_ref.load(Ordering::SeqCst)
+                    });
+
+                    assert_eq!(handle.await.unwrap(), 1);
+                })
+            })
+            .await;
+
+        assert_eq!(counter.load(Ordering::SeqCst), 1);
     }
 }

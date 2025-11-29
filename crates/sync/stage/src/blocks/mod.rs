@@ -13,6 +13,7 @@ use katana_primitives::transaction::{Tx, TxWithHash};
 use katana_primitives::Felt;
 use katana_provider::api::block::{BlockHashProvider, BlockWriter};
 use katana_provider::{MutableProvider, ProviderError, ProviderFactory};
+use katana_tasks::TaskSpawner;
 use num_traits::ToPrimitive;
 use starknet::core::types::ResourcePrice;
 use tracing::{error, info_span, Instrument};
@@ -28,12 +29,13 @@ pub use downloader::{BatchBlockDownloader, BlockDownloader};
 pub struct Blocks<PF, B> {
     provider: PF,
     downloader: B,
+    task_spawner: TaskSpawner,
 }
 
 impl<PF, B> Blocks<PF, B> {
     /// Create a new [`Blocks`] stage.
-    pub fn new(provider: PF, downloader: B) -> Self {
-        Self { provider, downloader }
+    pub fn new(provider: PF, downloader: B, task_spawner: TaskSpawner) -> Self {
+        Self { provider, downloader, task_spawner }
     }
 
     /// Validates that the downloaded blocks form a valid chain.
@@ -112,11 +114,13 @@ where
                 .await
                 .map_err(Error::Gateway)?;
 
+            self.task_spawner
+                .scope(|s| Box::pin(s.spawn_blocking(|| self.validate_chain_invariant(&blocks))))
+                .await
+                .map_err(Error::BlockValidationTaskJoinError)??;
+
             let span = info_span!(target: "stage", "blocks.insert", from = %input.from(), to = %input.to());
             let _enter = span.enter();
-
-            // TODO: spawn onto a blocking thread pool
-            self.validate_chain_invariant(&blocks)?;
 
             let provider_mut = self.provider.provider_mut();
 
@@ -151,6 +155,9 @@ pub enum Error {
 
     #[error(transparent)]
     Provider(#[from] ProviderError),
+
+    #[error("block validation task error: {0}")]
+    BlockValidationTaskJoinError(katana_tasks::JoinError),
 
     #[error(
         "chain invariant violation: block {block_num} parent hash {parent_hash:#x} does not match \
