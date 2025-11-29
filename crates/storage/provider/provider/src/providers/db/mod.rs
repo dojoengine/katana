@@ -5,6 +5,7 @@ use std::collections::{BTreeMap, BTreeSet};
 use std::fmt::Debug;
 use std::ops::{Deref, Range, RangeInclusive};
 
+use crate::{MutableProvider, ProviderResult};
 use katana_db::abstraction::{DbCursor, DbCursorMut, DbDupSortCursor, DbTx, DbTxMut};
 use katana_db::error::DatabaseError;
 use katana_db::models::block::StoredBlockBodyIndices;
@@ -42,8 +43,7 @@ use katana_provider_api::transaction::{
     TransactionsProviderExt,
 };
 use katana_provider_api::ProviderError;
-
-use crate::{MutableProvider, ProviderResult};
+use katana_rpc_types::{TxTrace, TxTraceWithHash};
 
 /// A provider implementation that uses a persistent database as the backend.
 // TODO: remove the default generic type
@@ -544,9 +544,19 @@ impl<Tx: DbTx> TransactionTraceProvider for DbProvider<Tx> {
     fn transaction_executions_by_block(
         &self,
         block_id: BlockHashOrNumber,
-    ) -> ProviderResult<Option<Vec<TypedTransactionExecutionInfo>>> {
+    ) -> ProviderResult<Option<Vec<TxTraceWithHash>>> {
         if let Some(index) = self.block_body_indices(block_id)? {
-            let traces = self.transaction_executions_in_range(index.into())?;
+            let traces = self.transaction_executions_in_range(index.clone().into())?;
+            let traces = traces.into_iter().map(TxTrace::from);
+
+            let tx_hashes = self.transaction_hashes_in_range(index.into())?;
+
+            let traces = tx_hashes
+                .into_iter()
+                .zip(traces)
+                .map(|(h, r)| TxTraceWithHash { transaction_hash: h, trace_root: r })
+                .collect::<Vec<_>>();
+
             Ok(Some(traces))
         } else {
             Ok(None)

@@ -425,6 +425,7 @@ where
         // unless its address 0x1 which is special system contract and does not
         // have a class. See https://docs.starknet.io/architecture-and-concepts/network-architecture/starknet-state/#address_0x1.
         if contract_address.0 != Felt::ONE
+            && contract_address.0 != Felt::TWO
             && state.class_hash_of_contract(contract_address)?.is_none()
         {
             return Err(StarknetApiError::ContractNotFound);

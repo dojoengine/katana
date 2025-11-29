@@ -27,7 +27,9 @@ use katana_provider_api::transaction::{
     TransactionsProviderExt,
 };
 use katana_provider_api::ProviderError;
-use katana_rpc_types::{GetBlockWithReceiptsResponse, RpcTxWithReceipt, StateUpdate};
+use katana_rpc_types::{
+    GetBlockWithReceiptsResponse, RpcTxWithReceipt, StateUpdate, TxTraceWithHash,
+};
 use tracing::trace;
 
 use super::db::{self, DbProvider};
@@ -579,14 +581,16 @@ impl<Tx1: DbTx> TransactionTraceProvider for ForkedProvider<Tx1> {
     fn transaction_executions_by_block(
         &self,
         block_id: BlockHashOrNumber,
-    ) -> ProviderResult<Option<Vec<TypedTransactionExecutionInfo>>> {
+    ) -> ProviderResult<Option<Vec<TxTraceWithHash>>> {
         if let Some(result) = self.local_db.transaction_executions_by_block(block_id)? {
             return Ok(Some(result));
         }
-
-        // TODO: fetch from remote
-
-        Ok(None)
+        if let Some(value) = self.fork_db.backend.get_block_transactions_traces(block_id)? {
+            let traces = value.traces;
+            return Ok(Some(traces));
+        } else {
+            Ok(None)
+        }
     }
 
     fn transaction_executions_in_range(

@@ -1,13 +1,13 @@
 use std::collections::{BTreeMap, HashMap, HashSet};
 
-use katana_db::abstraction::Database;
+use katana_db::abstraction::DbTxMut;
 use katana_db::tables;
 use katana_db::trie::TrieDbMut;
 use katana_primitives::block::BlockNumber;
 use katana_primitives::class::{ClassHash, CompiledClassHash};
 use katana_primitives::state::StateUpdates;
 use katana_primitives::{ContractAddress, Felt};
-use katana_provider_api::state::{StateProvider, StateRootProvider};
+use katana_provider_api::state::{StateFactoryProvider, StateProvider, StateRootProvider};
 use katana_provider_api::trie::TrieWriter;
 use katana_provider_api::ProviderError;
 use katana_rpc_types::ContractStorageKeys;
@@ -16,7 +16,6 @@ use katana_trie::{
     PartialContractsTrie, PartialStoragesTrie,
 };
 use starknet::macros::short_string;
-use tracing::{debug, warn};
 
 use super::ForkedProvider;
 use crate::ProviderResult;
@@ -45,17 +44,16 @@ impl<Tx1: DbTxMut> TrieWriter for ForkedProvider<Tx1> {
         proof: MultiProof,
         original_root: Felt,
     ) -> ProviderResult<Felt> {
-        self.local_db.db().update(|tx| {
-            let mut trie =
-                PartialClassesTrie::new_partial(TrieDbMut::<tables::ClassesTrie, _>::new(tx));
+        let mut trie = PartialClassesTrie::new_partial(TrieDbMut::<tables::ClassesTrie, _>::new(
+            &*self.local_db,
+        ));
 
-            for (class_hash, compiled_hash) in updates {
-                trie.insert(*class_hash, *compiled_hash, proof.clone(), original_root);
-            }
+        for (class_hash, compiled_hash) in updates {
+            trie.insert(*class_hash, *compiled_hash, proof.clone(), original_root);
+        }
 
-            trie.commit(block_number);
-            Ok(trie.root())
-        })?
+        trie.commit(block_number);
+        Ok(trie.root())
     }
 
     fn trie_insert_contract_updates_with_proof(
@@ -67,121 +65,121 @@ impl<Tx1: DbTxMut> TrieWriter for ForkedProvider<Tx1> {
         contract_leaves_data: HashMap<ContractAddress, ContractLeaf>,
         contracts_storage_proofs: Vec<MultiProof>,
     ) -> ProviderResult<Felt> {
-        self.local_db.db().update(|tx| {
-            let mut contract_trie_db =
-                PartialContractsTrie::new_partial(TrieDbMut::<tables::ContractsTrie, _>::new(tx));
+        let mut contract_trie_db =
+            PartialContractsTrie::new_partial(TrieDbMut::<tables::ContractsTrie, _>::new(
+                &*self.local_db,
+            ));
 
-            let mut contract_leafs: HashMap<ContractAddress, ContractLeaf> = HashMap::new();
+        let mut contract_leafs: HashMap<ContractAddress, ContractLeaf> = HashMap::new();
 
-            // Verify that storage updates and storage proofs have matching lengths
-            if state_updates.storage_updates.len() != contracts_storage_proofs.len() {
-                return Err(ProviderError::ParsingError(
-                    "storage updates/proofs count mismatch".to_string(),
-                ));
+        // Verify that storage updates and storage proofs have matching lengths
+        if state_updates.storage_updates.len() != contracts_storage_proofs.len() {
+            return Err(ProviderError::ParsingError(
+                "storage updates/proofs count mismatch".to_string(),
+            ));
+        }
+
+        let latest_state = self.latest()?;
+
+        let leaf_hashes: Vec<_> = {
+            // First handle storage updates with proofs
+            for ((address, storage_entries), storage_proof) in
+                state_updates.storage_updates.iter().zip(contracts_storage_proofs.iter())
+            {
+                let mut storage_trie_db = PartialStoragesTrie::new_partial(
+                    TrieDbMut::<tables::StoragesTrie, _>::new(&*self.local_db),
+                    *address,
+                );
+
+                // Get the original root from the contract leaf's storage_root
+                let original_storage_root = contract_leaves_data
+                    .get(address)
+                    .and_then(|leaf| leaf.storage_root)
+                    .unwrap_or(Felt::ZERO);
+
+                for (key, value) in storage_entries {
+                    storage_trie_db.insert(
+                        *key,
+                        *value,
+                        storage_proof.clone(),
+                        original_storage_root,
+                    );
+                }
+
+                contract_leafs.insert(*address, Default::default());
+                storage_trie_db.commit(block_number);
             }
 
-            let latest_state = self.latest_with_tx(tx)?;
+            // Handle other contract updates
+            for (address, nonce) in &state_updates.nonce_updates {
+                contract_leafs.entry(*address).or_default().nonce = Some(*nonce);
+            }
 
-            let leaf_hashes: Vec<_> = {
-                // First handle storage updates with proofs
-                for ((address, storage_entries), storage_proof) in
-                    state_updates.storage_updates.iter().zip(contracts_storage_proofs.iter())
-                {
-                    let mut storage_trie_db = PartialStoragesTrie::new_partial(
-                        TrieDbMut::<tables::StoragesTrie, _>::new(tx),
-                        *address,
-                    );
+            for (address, class_hash) in &state_updates.deployed_contracts {
+                contract_leafs.entry(*address).or_default().class_hash = Some(*class_hash);
+            }
 
-                    // Get the original root from the contract leaf's storage_root
-                    let original_storage_root = contract_leaves_data
-                        .get(address)
-                        .and_then(|leaf| leaf.storage_root)
-                        .unwrap_or(Felt::ZERO);
+            for (address, class_hash) in &state_updates.replaced_classes {
+                contract_leafs.entry(*address).or_default().class_hash = Some(*class_hash);
+            }
 
-                    for (key, value) in storage_entries {
-                        storage_trie_db.insert(
-                            *key,
-                            *value,
-                            storage_proof.clone(),
-                            original_storage_root,
+            contract_leafs
+                .into_iter()
+                .map(|(address, mut leaf)| {
+                    // Use storage root from contract_leaves_data if available, otherwise get from trie
+                    if leaf.storage_root.is_none() {
+                        let storage_trie = PartialStoragesTrie::new_partial(
+                            TrieDbMut::<tables::StoragesTrie, _>::new(&*self.local_db),
+                            address,
                         );
+                        let storage_root = storage_trie.root();
+                        // Only update storage root if we have local changes (non-zero root)
+                        if storage_root != Felt::ZERO {
+                            leaf.storage_root = Some(storage_root);
+                        } else if let Some(leaf_data) = contract_leaves_data.get(&address) {
+                            leaf.storage_root = leaf_data.storage_root;
+                        }
                     }
 
-                    contract_leafs.insert(*address, Default::default());
-                    storage_trie_db.commit(block_number);
-                }
-
-                // Handle other contract updates
-                for (address, nonce) in &state_updates.nonce_updates {
-                    contract_leafs.entry(*address).or_default().nonce = Some(*nonce);
-                }
-
-                for (address, class_hash) in &state_updates.deployed_contracts {
-                    contract_leafs.entry(*address).or_default().class_hash = Some(*class_hash);
-                }
-
-                for (address, class_hash) in &state_updates.replaced_classes {
-                    contract_leafs.entry(*address).or_default().class_hash = Some(*class_hash);
-                }
-
-                contract_leafs
-                    .into_iter()
-                    .map(|(address, mut leaf)| {
-                        // Use storage root from contract_leaves_data if available, otherwise get from trie
+                    // Merge with contract_leaves_data to get nonce/class_hash if not in updates
+                    if let Some(leaf_data) = contract_leaves_data.get(&address) {
+                        if leaf.nonce.is_none() {
+                            leaf.nonce = leaf_data.nonce;
+                        }
+                        if leaf.class_hash.is_none() {
+                            leaf.class_hash = leaf_data.class_hash;
+                        }
                         if leaf.storage_root.is_none() {
-                            let storage_trie = PartialStoragesTrie::new_partial(
-                                TrieDbMut::<tables::StoragesTrie, _>::new(tx),
-                                address,
-                            );
-                            let storage_root = storage_trie.root();
-                            // Only update storage root if we have local changes (non-zero root)
-                            if storage_root != Felt::ZERO {
-                                leaf.storage_root = Some(storage_root);
-                            } else if let Some(leaf_data) = contract_leaves_data.get(&address) {
-                                leaf.storage_root = leaf_data.storage_root;
-                            }
+                            leaf.storage_root = leaf_data.storage_root;
                         }
+                    }
 
-                        // Merge with contract_leaves_data to get nonce/class_hash if not in updates
-                        if let Some(leaf_data) = contract_leaves_data.get(&address) {
-                            if leaf.nonce.is_none() {
-                                leaf.nonce = leaf_data.nonce;
-                            }
-                            if leaf.class_hash.is_none() {
-                                leaf.class_hash = leaf_data.class_hash;
-                            }
-                            if leaf.storage_root.is_none() {
-                                leaf.storage_root = leaf_data.storage_root;
-                            }
+                    // If storage_root is still None, get it from the previous state
+                    // This handles cases where contract has nonce/class changes but no storage updates
+                    // and the contract wasn't in the remote proof response
+                    if leaf.storage_root.is_none() {
+                        if let Ok(Some(prev_storage_root)) = latest_state.storage_root(address) {
+                            leaf.storage_root = Some(prev_storage_root);
+                        } else {
+                            // If no previous storage root exists, use ZERO (empty storage)
+                            leaf.storage_root = Some(Felt::ZERO);
                         }
+                    }
 
-                        // If storage_root is still None, get it from the previous state
-                        // This handles cases where contract has nonce/class changes but no storage updates
-                        // and the contract wasn't in the remote proof response
-                        if leaf.storage_root.is_none() {
-                            if let Ok(Some(prev_storage_root)) = latest_state.storage_root(address)
-                            {
-                                leaf.storage_root = Some(prev_storage_root);
-                            } else {
-                                // If no previous storage root exists, use ZERO (empty storage)
-                                leaf.storage_root = Some(Felt::ZERO);
-                            }
-                        }
+                    let leaf_hash =
+                        contract_state_leaf_hash(latest_state.as_ref(), &address, &leaf);
 
-                        let leaf_hash = contract_state_leaf_hash(&latest_state, &address, &leaf);
+                    Ok((address, leaf_hash))
+                })
+                .collect::<Result<Vec<_>, ProviderError>>()?
+        };
 
-                        Ok((address, leaf_hash))
-                    })
-                    .collect::<Result<Vec<_>, ProviderError>>()?
-            };
+        for (k, v) in leaf_hashes {
+            contract_trie_db.insert(k, v, proof.clone(), original_root);
+        }
 
-            for (k, v) in leaf_hashes {
-                contract_trie_db.insert(k, v, proof.clone(), original_root);
-            }
-
-            contract_trie_db.commit(block_number);
-            Ok(contract_trie_db.root())
-        })?
+        contract_trie_db.commit(block_number);
+        Ok(contract_trie_db.root())
     }
 
     fn compute_state_root(
@@ -381,20 +379,12 @@ fn contract_state_leaf_hash(
     address: &ContractAddress,
     contract_leaf: &ContractLeaf,
 ) -> Felt {
-    let nonce = contract_leaf.nonce.unwrap_or_else(|| {
-        provider
-            .nonce(*address)
-            .ok()
-            .flatten()
-            .unwrap_or_default()
-    });
+    let nonce = contract_leaf
+        .nonce
+        .unwrap_or_else(|| provider.nonce(*address).ok().flatten().unwrap_or_default());
 
     let class_hash = contract_leaf.class_hash.unwrap_or_else(|| {
-        provider
-            .class_hash_of_contract(*address)
-            .ok()
-            .flatten()
-            .unwrap_or_default()
+        provider.class_hash_of_contract(*address).ok().flatten().unwrap_or_default()
     });
 
     let storage_root = contract_leaf.storage_root.expect("root need to set");

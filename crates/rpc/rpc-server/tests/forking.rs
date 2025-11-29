@@ -671,9 +671,12 @@ mod tests {
     use katana_primitives::state::StateUpdates;
     use katana_primitives::ContractAddress;
     use katana_primitives::Felt;
+    use katana_provider::api::block::BlockHashProvider;
     use katana_provider::api::block::BlockNumberProvider;
+    use katana_provider::api::block::BlockWriter;
     use katana_provider::api::trie::TrieWriter;
-    use katana_provider::providers::fork::ForkedProvider;
+    use katana_provider::MutableProvider;
+    use katana_provider::{ForkProviderFactory, ProviderFactory};
     use katana_utils::TestNode;
     use proptest::arbitrary::any;
     use proptest::prelude::{Just, ProptestConfig, Strategy};
@@ -692,29 +695,36 @@ mod tests {
 
         let sequencer = TestNode::new().await;
         let backend = sequencer.backend();
-        let provider = backend.blockchain.provider();
+        let provider = backend.storage.provider();
+        let provider_mut = backend.storage.provider_mut();
 
         let block_number = provider.latest_number().unwrap();
 
         // Generate random state updates
         let state_updates = setup_mainnet_updates_randomized(5);
 
-        let mainnet_provider = provider;
         //init first state for mainnet
-        mainnet_provider.compute_state_root(block_number, &state_updates).unwrap();
+        provider_mut.compute_state_root(block_number, &state_updates).unwrap();
+        provider_mut.commit().unwrap();
 
         let fork_minimal_updates = setup_mainnet_updates_randomized(5);
 
         let db = Db::in_memory().unwrap();
         let starknet_rpc_client = sequencer.starknet_rpc_client();
-        let forked_provider =
-            ForkedProvider::new(db.clone(), block_number.into(), starknet_rpc_client);
+        let fork_factory = ForkProviderFactory::new(db, block_number, starknet_rpc_client);
 
-        let state_root =
-            forked_provider.compute_state_root(block_number, &fork_minimal_updates).unwrap();
+        let state_root = {
+            let forked_provider = fork_factory.provider_mut();
+            let root =
+                forked_provider.compute_state_root(block_number, &fork_minimal_updates).unwrap();
+            forked_provider.commit().unwrap();
+            root
+        };
 
+        let provider_mut = backend.storage.provider_mut();
         let mainnet_state_root_same_updates =
-            mainnet_provider.compute_state_root(block_number, &fork_minimal_updates).unwrap();
+            provider_mut.compute_state_root(block_number, &fork_minimal_updates).unwrap();
+        provider_mut.commit().unwrap();
 
         assert_eq!(
             state_root, mainnet_state_root_same_updates,
@@ -726,10 +736,16 @@ mod tests {
         let state_updates = setup_mainnet_updates_randomized(5);
         //IT's important here to compute state root for forked network first, then for mainnet
         //otherwise it will be different roots because it's like double computation of same changes
-        let fork_state_root =
-            forked_provider.compute_state_root(block_number, &state_updates).unwrap();
+        let fork_state_root = {
+            let forked_provider = fork_factory.provider_mut();
+            let root = forked_provider.compute_state_root(block_number, &state_updates).unwrap();
+            forked_provider.commit().unwrap();
+            root
+        };
+        let provider_mut = backend.storage.provider_mut();
         let mainnet_state_root =
-            mainnet_provider.compute_state_root(block_number, &state_updates).unwrap();
+            provider_mut.compute_state_root(block_number, &state_updates).unwrap();
+        provider_mut.commit().unwrap();
 
         assert_eq!(
             mainnet_state_root, fork_state_root,
@@ -789,14 +805,17 @@ mod tests {
     #[tokio::test(flavor = "multi_thread", worker_threads = 1)]
     async fn test_commit_new_state_root_two_katana_instances() {
         let sequencer = TestNode::new().await;
-        let provider = sequencer.backend().blockchain.provider().clone();
+        let backend = sequencer.backend();
+        let provider = backend.storage.provider();
         let url = format!("http://{}", sequencer.rpc_addr());
 
         // initialize state and mine at least one block before starting the fork
-        let mut producer = IntervalBlockProducer::new(sequencer.backend().clone(), None);
+        let mut producer = IntervalBlockProducer::new(backend.clone(), None);
         let block_number = provider.latest_number().unwrap();
         let state_updates = setup_mainnet_updates_randomized(5);
-        provider.compute_state_root(block_number, &state_updates).unwrap();
+        let provider_mut = backend.storage.provider_mut();
+        provider_mut.compute_state_root(block_number, &state_updates).unwrap();
+        provider_mut.commit().unwrap();
         producer.force_mine();
 
         let fork_from_block = provider.latest_number().unwrap();
@@ -815,17 +834,22 @@ mod tests {
         fork_config.forking = Some(ForkingConfig { url: fork_url, block: Some(fork_block) });
 
         let fork_sequencer = TestNode::new_with_config(fork_config).await;
-        let fork_provider = fork_sequencer.backend().blockchain.provider().clone();
-        let mut fork_producer = IntervalBlockProducer::new(fork_sequencer.backend().clone(), None);
+        let fork_backend = fork_sequencer.backend();
+        let fork_provider = fork_backend.storage.provider();
+        let mut fork_producer = IntervalBlockProducer::new(fork_backend.clone(), None);
 
         let block_number = provider.latest_number().unwrap();
         let fork_block_number = fork_provider.latest_number().unwrap();
 
         let fork_minimal_updates = setup_mainnet_updates_randomized(5);
+        let fork_provider_mut = fork_backend.storage.provider_mut();
         let state_root =
-            fork_provider.compute_state_root(fork_block_number, &fork_minimal_updates).unwrap();
+            fork_provider_mut.compute_state_root(fork_block_number, &fork_minimal_updates).unwrap();
+        fork_provider_mut.commit().unwrap();
+        let provider_mut = backend.storage.provider_mut();
         let mainnet_state_root_same_updates =
-            provider.compute_state_root(block_number, &fork_minimal_updates).unwrap();
+            provider_mut.compute_state_root(block_number, &fork_minimal_updates).unwrap();
+        provider_mut.commit().unwrap();
 
         producer.force_mine();
         fork_producer.force_mine();
@@ -839,9 +863,14 @@ mod tests {
         let block_number = provider.latest_number().unwrap();
         let fork_block_number = fork_provider.latest_number().unwrap();
         let state_updates = setup_mainnet_updates_randomized(5);
+        let fork_provider_mut = fork_backend.storage.provider_mut();
         let fork_state_root =
-            fork_provider.compute_state_root(fork_block_number, &state_updates).unwrap();
-        let mainnet_state_root = provider.compute_state_root(block_number, &state_updates).unwrap();
+            fork_provider_mut.compute_state_root(fork_block_number, &state_updates).unwrap();
+        fork_provider_mut.commit().unwrap();
+        let provider_mut = backend.storage.provider_mut();
+        let mainnet_state_root =
+            provider_mut.compute_state_root(block_number, &state_updates).unwrap();
+        provider_mut.commit().unwrap();
 
         producer.force_mine();
         fork_producer.force_mine();
@@ -856,9 +885,14 @@ mod tests {
         let fork_block_number = fork_provider.latest_number().unwrap();
 
         let state_updates = setup_mainnet_updates_randomized(5);
+        let fork_provider_mut = fork_backend.storage.provider_mut();
         let fork_state_root =
-            fork_provider.compute_state_root(fork_block_number, &state_updates).unwrap();
-        let mainnet_state_root = provider.compute_state_root(block_number, &state_updates).unwrap();
+            fork_provider_mut.compute_state_root(fork_block_number, &state_updates).unwrap();
+        fork_provider_mut.commit().unwrap();
+        let provider_mut = backend.storage.provider_mut();
+        let mainnet_state_root =
+            provider_mut.compute_state_root(block_number, &state_updates).unwrap();
+        provider_mut.commit().unwrap();
 
         assert_eq!(
             fork_state_root, mainnet_state_root,
@@ -939,28 +973,33 @@ mod tests {
 
                 let sequencer = TestNode::new().await;
                 let backend = sequencer.backend();
-                let provider = backend.blockchain.provider();
+                let provider = backend.storage.provider();
                 let mut block_number = provider.latest_number().unwrap();
                 let mut producer = IntervalBlockProducer::new(backend.clone(), None);
 
                 let initial_state = &state_updates_vec[0];
-                provider.compute_state_root(block_number, initial_state).unwrap();
+                let provider_mut = backend.storage.provider_mut();
+                provider_mut.compute_state_root(block_number, initial_state).unwrap();
+                provider_mut.commit().unwrap();
                 producer.force_mine();
                 block_number = provider.latest_number().unwrap();
 
                 let db = Db::in_memory().unwrap();
                 let starknet_rpc_client = sequencer.starknet_rpc_client();
-                let forked_provider = ForkedProvider::new(
-                    db.clone(),
-                    block_number.into(),
-                    starknet_rpc_client,
-                );
+                let fork_factory = ForkProviderFactory::new(db, block_number, starknet_rpc_client);
 
                 for i in 0..num_iters {
                     let fork_minimal_updates = &fork_minimal_updates_vec[i % fork_minimal_updates_vec.len()];
 
-                    let fork_root = forked_provider.compute_state_root(block_number, fork_minimal_updates).unwrap();
-                    let mainnet_root = provider.compute_state_root(block_number, fork_minimal_updates).unwrap();
+                    let fork_root = {
+                        let forked_provider = fork_factory.provider_mut();
+                        let root = forked_provider.compute_state_root(block_number, fork_minimal_updates).unwrap();
+                        forked_provider.commit().unwrap();
+                        root
+                    };
+                    let provider_mut = backend.storage.provider_mut();
+                    let mainnet_root = provider_mut.compute_state_root(block_number, fork_minimal_updates).unwrap();
+                    provider_mut.commit().unwrap();
 
                     prop_assert_eq!(fork_root, mainnet_root, "State roots do not match at iteration {}", i);
 

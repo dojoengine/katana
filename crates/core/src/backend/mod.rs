@@ -29,7 +29,6 @@ use katana_trie::{
 };
 use parking_lot::RwLock;
 use rayon::prelude::*;
-use starknet::macros::short_string;
 use starknet_types_core::hash::{self, StarkHash};
 use tracing::info;
 
