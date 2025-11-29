@@ -28,6 +28,7 @@ use katana_provider_api::transaction::{
 };
 use katana_provider_api::ProviderError;
 use katana_rpc_types::{GetBlockWithReceiptsResponse, RpcTxWithReceipt, StateUpdate};
+use tracing::trace;
 
 use super::db::{self, DbProvider};
 use crate::{DbProviderFactory, MutableProvider, ProviderFactory, ProviderResult};
@@ -68,6 +69,8 @@ impl ForkedDb {
 
     /// Fetches historical blocks before the fork point.
     fn fetch_historical_blocks(&self, block_id: BlockHashOrNumber) -> ProviderResult<bool> {
+        trace!(%block_id, "Fetching historical block from the forked network");
+
         let block = match block_id {
             BlockHashOrNumber::Num(number) => {
                 if !self.should_fetch_externally(number) {
@@ -353,8 +356,18 @@ impl<Tx1: DbTx> BlockStatusProvider for ForkedProvider<Tx1> {
 
 impl<Tx1: DbTx> StateUpdateProvider for ForkedProvider<Tx1> {
     fn state_update(&self, block_id: BlockHashOrNumber) -> ProviderResult<Option<StateUpdates>> {
-        if let Some(value) = self.local_db.state_update(block_id)? {
-            return Ok(Some(value));
+        // hotfix: because of how `self.local_db.state_update` is implemented (ie the tables may or
+        // may not have the values):
+        //
+        // `if let Some(value) = self.local_db.state_update(block_id)?` will always return Some even
+        // for fork block.
+        //
+        // it's because of the call to `let block_num = self.block_number_by_id(block_id)?;` inside
+        // of it.
+        if self.local_db.header(block_id)?.is_some() {
+            if let Some(value) = self.local_db.state_update(block_id)? {
+                return Ok(Some(value));
+            }
         }
 
         if let Some(value) = self.fork_db.db.provider().state_update(block_id)? {
