@@ -13,7 +13,6 @@ use katana_primitives::transaction::{Tx, TxWithHash};
 use katana_primitives::Felt;
 use katana_provider::api::block::{BlockHashProvider, BlockWriter};
 use katana_provider::{MutableProvider, ProviderError, ProviderFactory};
-use katana_tasks::TaskSpawner;
 use num_traits::ToPrimitive;
 use starknet::core::types::ResourcePrice;
 use tracing::{error, info_span, Instrument};
@@ -29,13 +28,12 @@ pub use downloader::{BatchBlockDownloader, BlockDownloader};
 pub struct Blocks<PF, B> {
     provider: PF,
     downloader: B,
-    task_spawner: TaskSpawner,
 }
 
 impl<PF, B> Blocks<PF, B> {
     /// Create a new [`Blocks`] stage.
-    pub fn new(provider: PF, downloader: B, task_spawner: TaskSpawner) -> Self {
-        Self { provider, downloader, task_spawner }
+    pub fn new(provider: PF, downloader: B) -> Self {
+        Self { provider, downloader }
     }
 
     /// Validates that the downloaded blocks form a valid chain.
@@ -114,10 +112,7 @@ where
                 .await
                 .map_err(Error::Gateway)?;
 
-            self.task_spawner
-                .scope(|s| s.spawn_blocking(|| self.validate_chain_invariant(&blocks)))
-                .await
-                .map_err(Error::BlockValidationTaskJoinError)??;
+            self.validate_chain_invariant(&blocks)?;
 
             let span = info_span!(target: "stage", "blocks.insert", from = %input.from(), to = %input.to());
             let _enter = span.enter();

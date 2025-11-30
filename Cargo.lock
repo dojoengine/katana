@@ -6628,6 +6628,7 @@ name = "katana-tasks"
 version = "1.7.0"
 dependencies = [
  "futures",
+ "pin-project 1.1.10",
  "rayon",
  "thiserror 1.0.69",
  "tokio",

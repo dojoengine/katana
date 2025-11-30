@@ -3,6 +3,7 @@ use std::future::Future;
 use std::pin::Pin;
 use std::task::{Context, Poll};
 
+use tokio_util::sync::CancellationToken;
 use tracing::error;
 
 pub type Result<T> = std::result::Result<T, JoinError>;
@@ -89,6 +90,41 @@ impl From<tokio::task::JoinError> for JoinError {
         match value.try_into_panic() {
             Ok(panic) => Self::Panic(panic),
             Err(..) => Self::Cancelled,
+        }
+    }
+}
+
+/// A future that can be cancelled via a [`CancellationToken`].
+///
+/// This future will resolve to the output of the wrapped future if it completes first,
+/// or return a [`JoinError::Cancelled`] if the cancellation token is triggered.
+#[pin_project::pin_project]
+pub(crate) struct Cancellable<F> {
+    #[pin]
+    fut: F,
+    #[pin]
+    cancel: tokio_util::sync::WaitForCancellationFutureOwned,
+}
+
+impl<F> Cancellable<F> {
+    pub(crate) fn new(cancellation_token: CancellationToken, fut: F) -> Self {
+        Self { fut, cancel: cancellation_token.cancelled_owned() }
+    }
+}
+
+impl<F: Future> Future for Cancellable<F> {
+    type Output = crate::Result<F::Output>;
+
+    fn poll(self: Pin<&mut Self>, cx: &mut std::task::Context<'_>) -> Poll<Self::Output> {
+        let this = self.project();
+
+        if this.cancel.poll(cx).is_ready() {
+            return Poll::Ready(Err(JoinError::Cancelled));
+        }
+
+        match this.fut.poll(cx) {
+            Poll::Ready(output) => Poll::Ready(Ok(output)),
+            Poll::Pending => Poll::Pending,
         }
     }
 }

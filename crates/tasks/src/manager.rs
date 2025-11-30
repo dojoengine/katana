@@ -35,11 +35,11 @@ use crate::{CpuBlockingTaskPool, TaskSpawner};
 /// [blog post]: https://ryhl.io/blog/async-what-is-blocking/
 #[derive(Debug, Clone)]
 pub struct TaskManager {
-    inner: Arc<Inner>,
+    inner: Arc<TaskManagerInner>,
 }
 
 #[derive(Debug)]
-pub(crate) struct Inner {
+pub(crate) struct TaskManagerInner {
     /// A handle to the Tokio runtime.
     pub(crate) handle: Handle,
     /// Keep track of currently running tasks.
@@ -62,7 +62,7 @@ impl TaskManager {
             .expect("failed to build blocking task thread pool");
 
         Self {
-            inner: Arc::new(Inner {
+            inner: Arc::new(TaskManagerInner {
                 handle,
                 blocking_pool,
                 tracker: TaskTracker::new(),
