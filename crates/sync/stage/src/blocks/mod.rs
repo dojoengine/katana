@@ -115,7 +115,7 @@ where
                 .map_err(Error::Gateway)?;
 
             self.task_spawner
-                .scope(|s| Box::pin(s.spawn_blocking(|| self.validate_chain_invariant(&blocks))))
+                .scope(|s| s.spawn_blocking(|| self.validate_chain_invariant(&blocks)))
                 .await
                 .map_err(Error::BlockValidationTaskJoinError)??;
 

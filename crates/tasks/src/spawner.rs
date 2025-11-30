@@ -64,18 +64,19 @@ impl TaskSpawner {
 
     /// Runs a scoped block in which tasks may borrow non-`'static` data but are guaranteed to be
     /// completed before this method returns.
-    pub async fn scope<'scope, R>(
+    pub async fn scope<'scope, F, R>(
         &'scope self,
-        f: impl FnOnce(ScopedTaskSpawner<'scope>) -> BoxScopeFuture<'scope, R>,
+        f: impl FnOnce(ScopedTaskSpawner<'scope>) -> F,
     ) -> R
     where
+        F: Future<Output = R> + Send + 'scope,
         R: Send + 'scope,
     {
         let (sender, receiver) = tokio::sync::mpsc::unbounded_channel();
         let scoped_spawner: ScopedTaskSpawner<'scope> =
             ScopedTaskSpawner { inner: self.inner.clone(), sender, _marker: PhantomData };
 
-        let user_future = f(scoped_spawner.clone());
+        let user_future = Box::pin(f(scoped_spawner.clone()));
 
         TaskScope::new(scoped_spawner, receiver, user_future).run().await
     }
@@ -467,10 +468,11 @@ mod tests {
         spawner
             .scope(|scope| {
                 let text_ref: &String = &text;
-                Box::pin(async move {
+
+                async move {
                     let handle = scope.spawn(async move { text_ref.len() });
                     assert_eq!(handle.await.unwrap(), expected_len);
-                })
+                }
             })
             .await;
 
@@ -488,14 +490,15 @@ mod tests {
         spawner
             .scope(|scope| {
                 let counter_ref = &counter;
-                Box::pin(async move {
+
+                async move {
                     let handle = scope.spawn_blocking(move || {
                         counter_ref.fetch_add(1, Ordering::SeqCst);
                         counter_ref.load(Ordering::SeqCst)
                     });
 
                     assert_eq!(handle.await.unwrap(), 1);
-                })
+                }
             })
             .await;
 
