@@ -35,10 +35,13 @@ impl<'scope> ScopedTaskSpawner<'scope> {
         let mut receiver = rx;
         let cancellation_token = self.inner.on_cancel.clone();
 
-        let task = Box::pin(async move {
+        let task = async move {
             let result = Cancellable::new(cancellation_token, fut).await;
             let _ = tx.send(result);
-        });
+        };
+
+        let task = self.inner.tracker.track_future(task);
+        let task = Box::pin(task);
 
         if self.sender.send(task).is_err() {
             receiver.close();
@@ -57,7 +60,7 @@ impl<'scope> ScopedTaskSpawner<'scope> {
         let mut receiver = rx;
         let cancellation_token = self.inner.on_cancel.clone();
 
-        let task = Box::pin(async move {
+        let task = async move {
             let result = block_in_place(|| {
                 if cancellation_token.is_cancelled() {
                     return Err(JoinError::Cancelled);
@@ -67,7 +70,10 @@ impl<'scope> ScopedTaskSpawner<'scope> {
             });
 
             let _ = tx.send(result);
-        });
+        };
+
+        let task = self.inner.tracker.track_future(task);
+        let task = Box::pin(task);
 
         if self.sender.send(task).is_err() {
             receiver.close();

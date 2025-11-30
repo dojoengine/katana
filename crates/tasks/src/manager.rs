@@ -119,6 +119,12 @@ impl TaskManager {
         self.inner.tracker.wait().await;
         let _ = self.inner.tracker.reopen();
     }
+
+    /// Number of tasks currently tracked (tests only).
+    #[cfg(test)]
+    pub(crate) fn tracked_tasks(&self) -> usize {
+        self.inner.tracker.len()
+    }
 }
 
 /// A futures that resolves when the [`TaskManager`] is shutdown.

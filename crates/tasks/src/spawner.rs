@@ -57,6 +57,97 @@ impl TaskSpawner {
 
     /// Runs a scoped block in which tasks may borrow non-`'static` data but are guaranteed to be
     /// completed before this method returns.
+    ///
+    /// # Examples
+    ///
+    /// What happens if you try to capture non-`'static` data without a scope?
+    /// ```compile_fail
+    /// # use katana_tasks::TaskManager;
+    /// # #[tokio::main] async fn main() {
+    /// let manager = TaskManager::current();
+    /// let spawner = manager.task_spawner();
+    /// let mut prefix = String::from("hi ");
+    ///
+    /// // ERROR: `spawn` requires futures to be `'static`.
+    /// spawner.spawn(async { prefix.push_str("there") });
+    /// # }
+    /// ```
+    ///
+    /// Borrow stack data in an async task:
+    /// ```
+    /// # use katana_tasks::TaskManager;
+    /// # #[tokio::main]
+    /// async fn main() {
+    /// let manager = TaskManager::current();
+    /// let spawner = manager.task_spawner();
+    ///
+    /// let prefix = String::from("hi ");
+    /// let msg = spawner.scope(|scope| async move {
+    ///     scope.spawn(async move { format!("{prefix}there") }).await.unwrap()
+    /// }).await;
+    ///
+    /// assert_eq!(msg, "hi there");
+    /// # }
+    /// ```
+    ///
+    /// Spawn multiple scoped tasks and join them:
+    /// ```
+    /// # use katana_tasks::TaskManager;
+    /// # #[tokio::main]
+    /// async fn main() {
+    /// let manager = TaskManager::current();
+    /// let spawner = manager.task_spawner();
+    ///
+    /// let numbers = vec![1, 2, 3];
+    /// let sum = spawner.scope(|scope| {
+    ///     let numbers = numbers.clone();
+    ///     async move {
+    ///         let handles: Vec<_> = numbers
+    ///             .into_iter()
+    ///             .map(|n| scope.spawn(async move { n * 2 }))
+    ///             .collect();
+    ///
+    ///         let mut total = 0;
+    ///         for h in handles {
+    ///             total += h.await.unwrap();
+    ///         }
+    ///         total
+    ///     }
+    /// }).await;
+    ///
+    /// assert_eq!(sum, 12);
+    /// # }
+    /// ```
+    ///
+    /// Use scoped blocking work with borrowed data:
+    /// ```
+    /// # use katana_tasks::TaskManager;
+    /// # use std::sync::{Arc, Mutex};
+    /// # #[tokio::main] async fn main() {
+    /// let manager = TaskManager::current();
+    /// let spawner = manager.task_spawner();
+    ///
+    /// let items = Arc::new(Mutex::new(vec![1, 2]));
+    /// let handle_items = items.clone();
+    ///
+    /// spawner
+    ///     .scope(|scope| {
+    ///         let handle_items = handle_items.clone();
+    ///         async move {
+    ///             scope
+    ///                 .spawn_blocking(move || {
+    ///                     let mut guard = handle_items.lock().unwrap();
+    ///                     guard.push(3);
+    ///                 })
+    ///                 .await
+    ///                 .unwrap();
+    ///         }
+    ///     })
+    ///     .await;
+    ///
+    /// assert_eq!(*items.lock().unwrap(), vec![1, 2, 3]);
+    /// # }
+    /// ```
     pub async fn scope<'scope, F, R>(
         &'scope self,
         f: impl FnOnce(ScopedTaskSpawner<'scope>) -> F,
@@ -71,7 +162,9 @@ impl TaskSpawner {
 
         let user_future = Box::pin(f(scoped_spawner.clone()));
 
-        TaskScope::new(scoped_spawner, receiver, user_future).run().await
+        let scoped = TaskScope::new(scoped_spawner, receiver, user_future).run();
+        // Track the scoped execution so it participates in shutdown/wait semantics.
+        self.inner.tracker.track_future(scoped).await
     }
 
     pub(crate) fn cancellation_token(&self) -> &CancellationToken {
@@ -228,6 +321,9 @@ mod tests {
     use std::future::pending;
     use std::sync::atomic::{AtomicUsize, Ordering};
 
+    use tokio::sync::oneshot;
+    use tokio::task::yield_now;
+
     use crate::TaskManager;
 
     #[tokio::test]
@@ -286,6 +382,38 @@ mod tests {
         let result = spawner.spawn(|| panic!("test")).await;
         let error = result.expect_err("should be panic error");
         assert!(error.is_panic());
+    }
+
+    #[tokio::test]
+    async fn scoped_tasks_are_tracked() {
+        let manager = TaskManager::current();
+        let spawner = manager.task_spawner();
+
+        assert_eq!(manager.tracked_tasks(), 0);
+
+        // channel for manual trigger on the scoped task's completion
+        let (tx, rx) = oneshot::channel::<()>();
+        let spawner_clone = spawner.clone();
+
+        let scoped = tokio::spawn(async move {
+            let _ = spawner_clone
+                .scope(|scope| {
+                    scope.spawn(async {
+                        let _ = rx.await;
+                    })
+                })
+                .await;
+        });
+
+        yield_now().await; // allow the scoped task and its inner task to register with the tracker
+
+        // 1 for the inner task (scope.spawn), 1 for the scoped task (spawner_clone.scope)
+        assert_eq!(manager.tracked_tasks(), 2);
+
+        let _ = tx.send(()); // signal the scoped task to complete
+        scoped.await.unwrap();
+
+        assert_eq!(manager.tracked_tasks(), 0);
     }
 
     #[tokio::test]
