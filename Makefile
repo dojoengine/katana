@@ -26,11 +26,12 @@ SCARB_VERSION := 2.8.4
 
 .DEFAULT_GOAL := usage
 .SILENT: clean
-.PHONY: usage help check-llvm native-deps native-deps-macos native-deps-linux native-deps-windows build-explorer contracts clean deps install-scarb test-artifacts snos-artifacts db-compat-artifacts
+.PHONY: usage help check-llvm native-deps native-deps-macos native-deps-linux native-deps-windows build-explorer contracts clean deps install-scarb test-artifacts snos-artifacts db-compat-artifacts install-pyenv
 
 usage help:
 	@echo "Usage:"
-	@echo "    deps:                      Install all required dependencies for building Katana with all features."
+	@echo "    deps:                      Install all required dependencies for building Katana with all features (incl. tests)."
+	@echo "    snos-deps:                 Install SNOS test dependencies (pyenv, Python 3.9.15)."
 	@echo "    build-explorer:            Build the explorer."
 	@echo "    contracts:                 Build the contracts."
 	@echo "    test-artifacts:            Prepare tests artifacts (including test database)."
@@ -43,7 +44,7 @@ usage help:
 	@echo "    clean:                     Clean up generated files and artifacts."
 	@echo "    help:                      Show this help message."
 
-deps: install-scarb native-deps
+deps: install-scarb native-deps snos-deps
 	@echo "All dependencies installed successfully."
 
 install-scarb:
@@ -143,6 +144,39 @@ native-deps-windows:
 	@where choco >nul 2>&1 || { echo "Error: Chocolatey is required but not installed. Please install Chocolatey first: https://chocolatey.org/install"; exit 1; }
 	choco install llvm --version 19.1.7 -y
 	@echo "Windows dependencies installed successfully."
+
+install-pyenv:
+	@if command -v pyenv >/dev/null 2>&1; then \
+		echo "pyenv is already installed."; \
+	else \
+		echo "Installing pyenv..."; \
+		curl https://pyenv.run | bash || { echo "Failed to install pyenv!"; exit 1; }; \
+		echo "pyenv installed successfully."; \
+		echo "NOTE: Add the following to your shell profile (~/.bashrc or ~/.zshrc):"; \
+		echo '  export PYENV_ROOT="$$HOME/.pyenv"'; \
+		echo '  command -v pyenv >/dev/null || export PATH="$$PYENV_ROOT/bin:$$PATH"'; \
+		echo '  eval "$$(pyenv init -)"'; \
+	fi
+
+snos-deps:
+ifeq ($(UNAME), Darwin)
+snos-deps: snos-deps-macos
+else ifeq ($(UNAME), Linux)
+snos-deps: snos-deps-linux
+endif
+
+snos-deps-linux: install-pyenv
+	@echo "Installing Python build dependencies for Linux..."
+	sudo apt-get update
+	sudo apt-get install -y make build-essential libssl-dev libgmp-dev libbz2-dev libreadline-dev libsqlite3-dev liblzma-dev
+	@echo "Linux SNOS dependencies installed successfully."
+	@echo "NOTE: You may need to restart your shell or run 'source ~/.bashrc' before using pyenv."
+
+snos-deps-macos: install-pyenv
+	@echo "Installing Python build dependencies for macOS..."
+	-brew install openssl readline sqlite3 zlib --quiet
+	@echo "macOS SNOS dependencies installed successfully."
+	@echo "NOTE: You may need to restart your shell or run 'source ~/.zshrc' before using pyenv."
 
 clean:
 	echo "Cleaning up generated files..."
