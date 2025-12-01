@@ -2,7 +2,7 @@ use core::future::Future;
 use core::marker::PhantomData;
 use core::pin::Pin;
 use std::panic::{self, AssertUnwindSafe};
-use std::sync::Arc;
+use std::sync::{mpsc, Arc};
 use std::task::Poll;
 
 use futures::stream::FuturesUnordered;
@@ -50,7 +50,29 @@ impl<'scope> ScopedTaskSpawner<'scope> {
         ScopedJoinHandle { receiver, _marker: PhantomData }
     }
 
+    /// Returns a scoped spawner for CPU-bound work.
+    pub fn cpu_bound(&self) -> ScopedCpuTaskSpawner<'scope> {
+        ScopedCpuTaskSpawner {
+            inner: self.inner.clone(),
+            sender: self.sender.clone(),
+            _marker: PhantomData,
+        }
+    }
+
     /// Spawn a blocking task that can borrow data with lifetime `'scope`.
+    ///
+    /// # Runtime requirement
+    ///
+    /// This uses [`tokio::task::block_in_place`] under the hood, which only works on
+    /// Tokio's multi-threaded runtime. On a current-thread runtime this will panic. If
+    /// you need to support a current-thread runtime, prefer:
+    ///
+    /// 1. Moving/cloning the data so the closure can be `'static` and using the non-scoped
+    ///    `TaskSpawner::spawn_blocking`, or
+    /// 2. Running the work inline (accepting that it will block the current thread).
+    ///
+    /// The scoped variant exists to let you borrow non-`'static` data; that capability
+    /// currently depends on `block_in_place`.
     pub fn spawn_blocking<F, R>(&self, func: F) -> ScopedJoinHandle<'scope, R>
     where
         F: FnOnce() -> R + Send + 'scope,
@@ -67,6 +89,67 @@ impl<'scope> ScopedTaskSpawner<'scope> {
                 }
 
                 panic::catch_unwind(AssertUnwindSafe(func)).map_err(JoinError::Panic)
+            });
+
+            let _ = tx.send(result);
+        };
+
+        let task = self.inner.tracker.track_future(task);
+        let task = Box::pin(task);
+
+        if self.sender.send(task).is_err() {
+            receiver.close();
+        }
+
+        ScopedJoinHandle { receiver, _marker: PhantomData }
+    }
+}
+
+/// Spawner for CPU-bound scoped tasks executed on the dedicated blocking pool.
+#[derive(Debug, Clone)]
+pub struct ScopedCpuTaskSpawner<'scope> {
+    pub(crate) inner: Arc<TaskManagerInner>,
+    pub(crate) sender: UnboundedSender<BoxScopedFuture<'scope>>,
+    pub(crate) _marker: PhantomData<&'scope ()>,
+}
+
+impl<'scope> ScopedCpuTaskSpawner<'scope> {
+    /// Spawn a CPU-bound task that can borrow data with lifetime `'scope`.
+    ///
+    /// # Runtime requirement
+    ///
+    /// Uses [`tokio::task::block_in_place`] to enter the blocking pool. This only works on
+    /// Tokio's multithreaded runtime. On a current-thread runtime this will panic. If you
+    /// must support a current-thread runtime, either move/clone data into a `'static` closure
+    /// and use the non-scoped `CPUBoundTaskSpawner`, or run the work inline knowing it will
+    /// block the thread.
+    pub fn spawn<F, R>(&self, func: F) -> ScopedJoinHandle<'scope, R>
+    where
+        F: FnOnce() -> R + Send + 'scope,
+        R: Send + 'scope,
+    {
+        let (tx, rx) = oneshot::channel();
+        let mut receiver = rx;
+        let inner = self.inner.clone();
+
+        let task = async move {
+            let result = block_in_place(|| {
+                if inner.on_cancel.is_cancelled() {
+                    return Err(JoinError::Cancelled);
+                }
+
+                let (res_tx, res_rx) = mpsc::channel();
+                inner.blocking_pool.scope(|scope| {
+                    scope.spawn(|_| {
+                        let _ = res_tx.send(panic::catch_unwind(AssertUnwindSafe(func)));
+                    });
+                });
+
+                match res_rx.recv() {
+                    Ok(Ok(value)) => Ok(value),
+                    Ok(Err(panic)) => Err(JoinError::Panic(panic)),
+                    Err(..) => Err(JoinError::Cancelled),
+                }
             });
 
             let _ = tx.send(result);

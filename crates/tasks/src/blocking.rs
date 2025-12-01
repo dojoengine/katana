@@ -86,6 +86,14 @@ impl CpuBlockingTaskPool {
         });
         CpuBlockingJoinHandle { inner: rx }
     }
+
+    pub(crate) fn scope<'scope, F, R>(&self, func: F) -> R
+    where
+        F: for<'s> FnOnce(&'s rayon::Scope<'scope>) -> R + Send + 'scope,
+        R: Send + 'scope,
+    {
+        self.pool.scope(func)
+    }
 }
 
 #[derive(Debug)]

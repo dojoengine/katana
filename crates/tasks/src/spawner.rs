@@ -58,20 +58,25 @@ impl TaskSpawner {
     /// Runs a scoped block in which tasks may borrow non-`'static` data but are guaranteed to be
     /// completed before this method returns.
     ///
-    /// # Examples
+    /// Unlike [`TaskSpawner::spawn`], scoped tasks don't need to be `'static`. Without a scope, the
+    /// compiler prevents you from capturing stack data because the task could outlive the
+    /// borrow:
     ///
-    /// What happens if you try to capture non-`'static` data without a scope?
     /// ```compile_fail
     /// # use katana_tasks::TaskManager;
     /// # #[tokio::main] async fn main() {
     /// let manager = TaskManager::current();
     /// let spawner = manager.task_spawner();
-    /// let mut prefix = String::from("hi ");
+    /// let prefix = String::from("Hello world!");
     ///
     /// // ERROR: `spawn` requires futures to be `'static`.
-    /// spawner.spawn(async { prefix.push_str("there") });
+    /// spawner.spawn(async { println!("{prefix}") });
     /// # }
     /// ```
+    ///
+    /// A scope keeps everything within the lifetime of the call, so you can borrow safely.
+    ///
+    /// # Examples
     ///
     /// Borrow stack data in an async task:
     /// ```
@@ -119,7 +124,7 @@ impl TaskSpawner {
     /// # }
     /// ```
     ///
-    /// Use scoped blocking work with borrowed data:
+    /// Use scoped blocking work with borrowed data (requires a multithreaded Tokio runtime):
     /// ```
     /// # use katana_tasks::TaskManager;
     /// # use std::sync::{Arc, Mutex};
@@ -422,24 +427,20 @@ mod tests {
         let spawner = manager.task_spawner();
 
         let text = String::from("scoped");
-        let expected_len = text.len();
 
-        spawner
+        let returned_ref = spawner
             .scope(|scope| {
                 let text_ref: &String = &text;
-
-                async move {
-                    let handle = scope.spawn(async move { text_ref.len() });
-                    assert_eq!(handle.await.unwrap(), expected_len);
-                }
+                scope.spawn(async move { text_ref })
             })
-            .await;
+            .await
+            .unwrap();
 
         // original value is still valid after scope returns
-        assert_eq!(text.len(), expected_len);
+        assert_eq!(text, *returned_ref);
     }
 
-    #[tokio::test]
+    #[tokio::test(flavor = "multi_thread")]
     async fn scoped_spawn_blocking_allows_borrowed_data() {
         let manager = TaskManager::current();
         let spawner = manager.task_spawner();
@@ -452,6 +453,44 @@ mod tests {
 
                 async move {
                     let handle = scope.spawn_blocking(move || {
+                        counter_ref.fetch_add(1, Ordering::SeqCst);
+                        counter_ref.load(Ordering::SeqCst)
+                    });
+
+                    assert_eq!(handle.await.unwrap(), 1);
+                }
+            })
+            .await;
+
+        assert_eq!(counter.load(Ordering::SeqCst), 1);
+
+        let mut prefix = String::from("hello ");
+        spawner
+            .scope(|scope| {
+                scope.spawn(async {
+                    prefix.push_str("world!");
+                })
+            })
+            .await
+            .unwrap();
+
+        assert_eq!(prefix.as_str(), "hello world!")
+    }
+
+    #[tokio::test(flavor = "multi_thread")]
+    async fn scoped_cpu_bound_allows_borrowed_data() {
+        let manager = TaskManager::current();
+        let spawner = manager.task_spawner();
+
+        let counter = AtomicUsize::new(0);
+
+        spawner
+            .scope(|scope| {
+                let cpu = scope.cpu_bound();
+                let counter_ref = &counter;
+
+                async move {
+                    let handle = cpu.spawn(move || {
                         counter_ref.fetch_add(1, Ordering::SeqCst);
                         counter_ref.load(Ordering::SeqCst)
                     });

@@ -13,6 +13,7 @@ use katana_primitives::transaction::{Tx, TxWithHash};
 use katana_primitives::Felt;
 use katana_provider::api::block::{BlockHashProvider, BlockWriter};
 use katana_provider::{MutableProvider, ProviderError, ProviderFactory};
+use katana_tasks::TaskSpawner;
 use num_traits::ToPrimitive;
 use starknet::core::types::ResourcePrice;
 use tracing::{error, info_span, Instrument};
@@ -28,19 +29,20 @@ pub use downloader::{BatchBlockDownloader, BlockDownloader};
 pub struct Blocks<PF, B> {
     provider: PF,
     downloader: B,
+    task_spawner: TaskSpawner,
 }
 
 impl<PF, B> Blocks<PF, B> {
     /// Create a new [`Blocks`] stage.
-    pub fn new(provider: PF, downloader: B) -> Self {
-        Self { provider, downloader }
+    pub fn new(provider: PF, downloader: B, task_spawner: TaskSpawner) -> Self {
+        Self { provider, downloader, task_spawner }
     }
 
     /// Validates that the downloaded blocks form a valid chain.
     ///
     /// This method checks the chain invariant: block N's parent hash must be block N-1's hash.
     /// For the first block in the list (if not block 0), it fetches the parent hash from storage.
-    fn validate_chain_invariant(&self, blocks: &[StateUpdateWithBlock]) -> Result<(), Error>
+    async fn validate_chain_invariant(&self, blocks: &[StateUpdateWithBlock]) -> Result<(), Error>
     where
         PF: ProviderFactory,
         <PF as ProviderFactory>::Provider: BlockHashProvider,
@@ -71,7 +73,27 @@ impl<PF, B> Blocks<PF, B> {
             }
         }
 
-        // Validate the rest of the blocks in the list
+        // self.task_spawner.cpu_bound().spawn(|| {
+        //     // Validate the rest of the blocks in the list
+        //     for window in blocks.windows(2) {
+        //         let prev_block = &window[0].block;
+        //         let curr_block = &window[1].block;
+
+        //         let prev_hash = prev_block.block_hash.unwrap_or_default();
+        //         let curr_block_num = curr_block.block_number.unwrap_or_default();
+
+        //         if curr_block.parent_block_hash != prev_hash {
+        //             return Err(Error::ChainInvariantViolation {
+        //                 block_num: curr_block_num,
+        //                 parent_hash: curr_block.parent_block_hash,
+        //                 expected_hash: prev_hash,
+        //             });
+        //         }
+        //     }
+
+        //     Ok(())
+        // });
+
         for window in blocks.windows(2) {
             let prev_block = &window[0].block;
             let curr_block = &window[1].block;
@@ -112,7 +134,10 @@ where
                 .await
                 .map_err(Error::Gateway)?;
 
-            self.validate_chain_invariant(&blocks)?;
+            self.task_spawner
+                .scope(|s| s.spawn(self.validate_chain_invariant(&blocks)))
+                .await
+                .unwrap()?;
 
             let span = info_span!(target: "stage", "blocks.insert", from = %input.from(), to = %input.to());
             let _enter = span.enter();
