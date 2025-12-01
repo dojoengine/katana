@@ -29,6 +29,12 @@ pub enum Error {
     #[error("could not bind to address: {addr}")]
     FailedToBindAddress { addr: SocketAddr },
 
+    #[error("metrics server has already been stopped")]
+    AlreadyStopped,
+
+    #[error("failed to join server task: {0}")]
+    JoinError(String),
+
     #[error(transparent)]
     Server(#[from] hyper::Error),
 }

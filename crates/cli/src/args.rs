@@ -142,23 +142,45 @@ impl SequencerNodeArgs {
     async fn start_node(&self) -> Result<()> {
         // Build the node
         let config = self.config()?;
-        let node = Node::build(config).await.context("failed to build node")?;
 
-        if !self.silent {
-            utils::print_intro(self, &node.backend().chain_spec);
-        }
+        if config.forking.is_some() {
+            let node = Node::build_forked(config).await.context("failed to build forked node")?;
 
-        // Launch the node
-        let handle = node.launch().await.context("failed to launch node")?;
+            if !self.silent {
+                utils::print_intro(self, &node.backend().chain_spec);
+            }
 
-        // Wait until an OS signal (ie SIGINT, SIGTERM) is received or the node is shutdown.
-        tokio::select! {
-            _ = katana_utils::wait_shutdown_signals() => {
-                // Gracefully shutdown the node before exiting
-                handle.stop().await?;
-            },
+            // Launch the node
+            let handle = node.launch().await.context("failed to launch forked node")?;
 
-            _ = handle.stopped() => { }
+            // Wait until an OS signal (ie SIGINT, SIGTERM) is received or the node is shutdown.
+            tokio::select! {
+                _ = katana_utils::wait_shutdown_signals() => {
+                    // Gracefully shutdown the node before exiting
+                    handle.stop().await?;
+                },
+
+                _ = handle.stopped() => { }
+            }
+        } else {
+            let node = Node::build(config).context("failed to build node")?;
+
+            if !self.silent {
+                utils::print_intro(self, &node.backend().chain_spec);
+            }
+
+            // Launch the node
+            let handle = node.launch().await.context("failed to launch node")?;
+
+            // Wait until an OS signal (ie SIGINT, SIGTERM) is received or the node is shutdown.
+            tokio::select! {
+                _ = katana_utils::wait_shutdown_signals() => {
+                    // Gracefully shutdown the node before exiting
+                    handle.stop().await?;
+                },
+
+                _ = handle.stopped() => { }
+            }
         }
 
         info!("Shutting down.");

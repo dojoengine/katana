@@ -4,19 +4,18 @@ use anyhow::{anyhow, Context, Result};
 use clap::Parser;
 use fixtures::{db, TempDb};
 use katana::cli::Cli;
-use katana_db::abstraction::Database;
 use katana_primitives::Felt;
 use katana_provider::api::block::BlockNumberProvider;
 use katana_provider::api::state::{StateFactoryProvider, StateRootProvider};
-use katana_provider::providers::db::DbProvider;
+use katana_provider::ProviderFactory;
 use rstest::*;
 
 mod fixtures;
 
 /// Verify that historical state roots can be retrieved for specific blocks
 /// Returns Ok(()) if the state root can be retrieved, Err if it cannot
-fn historical_roots<Db: Database>(
-    provider: &DbProvider<Db>,
+fn historical_roots(
+    provider: impl StateFactoryProvider,
     block_number: u64,
 ) -> Result<(Felt, Felt)> {
     let historical = provider
@@ -33,7 +32,7 @@ fn historical_roots<Db: Database>(
 }
 
 /// Get the current state roots (classes and contracts)
-fn latest_roots<Db: Database>(provider: &DbProvider<Db>) -> Result<(Felt, Felt)> {
+fn latest_roots(provider: impl StateFactoryProvider) -> Result<(Felt, Felt)> {
     let state_provider = provider.latest().context("failed to get latest state provider")?;
     let classes_root = state_provider.classes_root().context("failed to get classes root")?;
     let contracts_root = state_provider.contracts_root().context("failed to get contracts root")?;
@@ -42,7 +41,9 @@ fn latest_roots<Db: Database>(provider: &DbProvider<Db>) -> Result<(Felt, Felt)>
 
 #[rstest]
 fn prune_latest_removes_all_history(db: TempDb) {
-    let provider = db.provider_ro();
+    let provider_factory = db.provider_factory();
+    let provider = provider_factory.provider();
+
     let latest_block = provider.latest_number().unwrap();
 
     for num in 1..=latest_block {
@@ -52,13 +53,16 @@ fn prune_latest_removes_all_history(db: TempDb) {
     }
 
     let (initial_classes_root, initial_contracts_root) = latest_roots(&provider).unwrap();
+
     drop(provider);
+    drop(provider_factory);
 
     // Will prune all historical tries (blocks < 15)
     let path = db.path_str();
     Cli::parse_from(["katana", "db", "prune", "--path", path, "--latest", "-y"]).run().unwrap();
 
-    let provider = db.provider_ro();
+    let provider_factory = db.provider_factory();
+    let provider = provider_factory.provider();
 
     // Verify historical states (0 -> 14) are no longer accessible (ie zero)
     for num in 0..=14u64 {
@@ -85,7 +89,9 @@ fn prune_latest_removes_all_history(db: TempDb) {
 
 #[rstest]
 fn prune_keep_last_n_blocks(db: TempDb) {
-    let provider = db.provider_ro();
+    let provider_factory = db.provider_factory();
+    let provider = provider_factory.provider();
+
     let latest_block = provider.latest_number().unwrap();
 
     // block -> (classes root, contracts root)
@@ -99,7 +105,9 @@ fn prune_keep_last_n_blocks(db: TempDb) {
     }
 
     let (initial_classes_root, initial_contracts_root) = latest_roots(&provider).unwrap();
+
     drop(provider);
+    drop(provider_factory);
 
     let keep_last_n = 3;
     let path = db.path_str();
@@ -107,7 +115,9 @@ fn prune_keep_last_n_blocks(db: TempDb) {
         .run()
         .unwrap();
 
-    let provider = db.provider_ro();
+    let provider_factory = db.provider_factory();
+    let provider = provider_factory.provider();
+
     let (final_classes_root, final_contracts_root) = latest_roots(&provider).unwrap();
 
     // pruned blocks (ie blocks before the cuttoff point) should be zero
@@ -141,7 +151,9 @@ fn prune_keep_last_n_blocks(db: TempDb) {
 
 #[rstest]
 fn prune_keep_last_n_blocks_exceeds_available(db: TempDb) {
-    let provider = db.provider_ro();
+    let provider_factory = db.provider_factory();
+    let provider = provider_factory.provider();
+
     let latest_block = provider.latest_number().unwrap();
 
     // block -> (classes root, contracts root)
@@ -156,7 +168,9 @@ fn prune_keep_last_n_blocks_exceeds_available(db: TempDb) {
     }
 
     let (initial_classes_root, initial_contracts_root) = latest_roots(&provider).unwrap();
+
     drop(provider);
+    drop(provider_factory);
 
     // Request to keep more blocks than are available
     let keep_last_n = latest_block + 10;
@@ -176,7 +190,9 @@ fn prune_keep_last_n_blocks_exceeds_available(db: TempDb) {
     .run()
     .unwrap();
 
-    let provider = db.provider_ro();
+    let provider_factory = db.provider_factory();
+    let provider = provider_factory.provider();
+
     let (final_classes_root, final_contracts_root) = latest_roots(&provider).unwrap();
 
     // Verify that NO pruning occurred - all historical states should still be accessible

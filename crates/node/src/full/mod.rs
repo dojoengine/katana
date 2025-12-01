@@ -11,12 +11,12 @@ use katana_chain_spec::ChainSpec;
 use katana_executor::ExecutionFlags;
 use katana_gas_price_oracle::GasPriceOracle;
 use katana_gateway_client::Client as SequencerGateway;
-use katana_metrics::exporters::prometheus::PrometheusRecorder;
-use katana_metrics::{Report, Server as MetricsServer};
+use katana_metrics::exporters::prometheus::{Prometheus, PrometheusRecorder};
+use katana_metrics::sys::DiskReporter;
+use katana_metrics::{MetricsServer, MetricsServerHandle, Report};
 use katana_pipeline::{Pipeline, PipelineHandle};
 use katana_pool::ordering::TipOrdering;
-use katana_provider::providers::db::DbProvider;
-use katana_provider::BlockchainProvider;
+use katana_provider::DbProviderFactory;
 use katana_rpc_api::starknet::{StarknetApiServer, StarknetTraceApiServer, StarknetWriteApiServer};
 use katana_rpc_server::cors::Cors;
 use katana_rpc_server::starknet::{StarknetApi, StarknetApiConfig};
@@ -72,13 +72,15 @@ pub struct Config {
 
 #[derive(Debug)]
 pub struct Node {
+    pub provider: DbProviderFactory,
     pub db: katana_db::Db,
     pub pool: FullNodePool,
     pub config: Arc<Config>,
     pub task_manager: TaskManager,
-    pub pipeline: Pipeline<DbProvider>,
+    pub pipeline: Pipeline<DbProviderFactory>,
     pub rpc_server: RpcServer,
     pub gateway_client: SequencerGateway,
+    pub metrics_server: Option<MetricsServer<Prometheus>>,
     pub chain_tip_watcher: ChainTipWatcher<SequencerGateway>,
 }
 
@@ -100,9 +102,9 @@ impl Node {
         let path = config.db.dir.clone().expect("database path must exist");
 
         info!(target: "node", path = %path.display(), "Initializing database.");
-        let db = katana_db::Db::new(path)?;
 
-        let provider = DbProvider::new(db.clone());
+        let db = katana_db::Db::new(path)?;
+        let storage_provider = DbProviderFactory::new(db.clone());
 
         // --- build gateway client
 
@@ -124,24 +126,24 @@ impl Node {
 
         // --- build pipeline
 
-        let (mut pipeline, pipeline_handle) = Pipeline::new(provider.clone(), 50);
+        let (mut pipeline, pipeline_handle) = Pipeline::new(storage_provider.clone(), 256);
 
         // Configure pruning if specified
         if let Some(pruning_config) = config.pruning {
             pipeline.set_pruning_config(pruning_config);
         }
 
-        let block_downloader = BatchBlockDownloader::new_gateway(gateway_client.clone(), 8);
-        pipeline.add_stage(Blocks::new(provider.clone(), block_downloader));
-        pipeline.add_stage(Classes::new(provider.clone(), gateway_client.clone(), 8));
-        pipeline.add_stage(StateTrie::new(provider.clone()));
+        let block_downloader = BatchBlockDownloader::new_gateway(gateway_client.clone(), 20);
+        pipeline.add_stage(Blocks::new(storage_provider.clone(), block_downloader));
+        pipeline.add_stage(Classes::new(storage_provider.clone(), gateway_client.clone(), 20));
+        pipeline.add_stage(StateTrie::new(storage_provider.clone()));
 
         // -- build chain tip watcher using gateway client
 
         let chain_tip_watcher = ChainTipWatcher::new(gateway_client.clone());
 
         let preconf_factory = PreconfStateFactory::new(
-            provider.clone(),
+            storage_provider.clone(),
             gateway_client.clone(),
             pipeline_handle.subscribe_blocks(),
             chain_tip_watcher.subscribe(),
@@ -177,12 +179,12 @@ impl Node {
 
         let starknet_api = StarknetApi::new(
             Arc::new(chain_spec),
-            BlockchainProvider::new(Box::new(provider.clone())),
             pool.clone(),
             task_spawner.clone(),
             preconf_factory,
             GasPriceOracle::create_for_testing(),
             starknet_api_cfg,
+            storage_provider.clone(),
         );
 
         if config.rpc.apis.contains(&RpcModuleKind::Starknet) {
@@ -222,29 +224,47 @@ impl Node {
             rpc_server = rpc_server.max_response_body_size(max_response_body_size);
         }
 
+        // --- build metrics server (optional)
+
+        let metrics_server = if config.metrics.is_some() {
+            let db_metrics = Box::new(db.clone()) as Box<dyn Report>;
+            let disk_metrics = Box::new(DiskReporter::new(db.path())?) as Box<dyn Report>;
+            let reports: Vec<Box<dyn Report>> = vec![db_metrics, disk_metrics];
+
+            let exporter = PrometheusRecorder::current().expect("qed; should exist at this point");
+            let server = MetricsServer::new(exporter).with_process_metrics().reports(reports);
+
+            Some(server)
+        } else {
+            None
+        };
+
         Ok(Node {
             db,
+            provider: storage_provider,
             pool,
             pipeline,
             rpc_server,
             task_manager,
             gateway_client,
+            metrics_server,
             chain_tip_watcher,
             config: Arc::new(config),
         })
     }
 
     pub async fn launch(self) -> Result<LaunchedNode> {
-        if let Some(ref cfg) = self.config.metrics {
-            let reports: Vec<Box<dyn Report>> = vec![Box::new(self.db.clone()) as Box<dyn Report>];
-            let exporter = PrometheusRecorder::current().expect("qed; should exist at this point");
+        // --- start the metrics server (if configured)
 
+        let metrics_handle = if let Some(ref server) = self.metrics_server {
+            // safe to unwrap here because metrics_server can only be Some if the metrics config
+            // exists
+            let cfg = self.config.metrics.as_ref().expect("qed; must exist");
             let addr = cfg.socket_addr();
-            let server = MetricsServer::new(exporter).with_process_metrics().with_reports(reports);
-            self.task_manager.task_spawner().build_task().spawn(server.start(addr));
-
-            info!(%addr, "Metrics server started.");
-        }
+            Some(server.start(addr)?)
+        } else {
+            None
+        };
 
         let pipeline_handle = self.pipeline.handle();
 
@@ -254,6 +274,7 @@ impl Node {
         self.task_manager
             .task_spawner()
             .build_task()
+            .graceful_shutdown()
             .name("Pipeline")
             .spawn(self.pipeline.into_future());
 
@@ -286,6 +307,7 @@ impl Node {
             config: self.config,
             task_manager: self.task_manager,
             pipeline: pipeline_handle,
+            metrics: metrics_handle,
             rpc,
         })
     }
@@ -298,6 +320,8 @@ pub struct LaunchedNode {
     pub config: Arc<Config>,
     pub rpc: RpcServerHandle,
     pub pipeline: PipelineHandle,
+    /// Handle to the metrics server (if enabled).
+    pub metrics: Option<MetricsServerHandle>,
 }
 
 impl LaunchedNode {

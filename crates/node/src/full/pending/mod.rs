@@ -7,6 +7,7 @@ use katana_pipeline::PipelineBlockSubscription;
 use katana_primitives::block::BlockNumber;
 use katana_primitives::state::StateUpdates;
 use katana_provider::api::state::StateFactoryProvider;
+use katana_provider::{DbProviderFactory, ProviderFactory};
 use parking_lot::Mutex;
 use tracing::error;
 
@@ -17,19 +18,19 @@ mod provider;
 pub mod state;
 
 #[derive(Debug)]
-pub struct PreconfStateFactory<P: StateFactoryProvider> {
+pub struct PreconfStateFactory {
     // from pipeline
     latest_synced_block: PipelineBlockSubscription,
     gateway_client: Client,
-    provider: P,
+    storage_provider: DbProviderFactory,
 
     // shared state
     shared_preconf_block: SharedPreconfBlockData,
 }
 
-impl<P: StateFactoryProvider> PreconfStateFactory<P> {
+impl PreconfStateFactory {
     pub fn new(
-        state_factory_provider: P,
+        storage_provider: DbProviderFactory,
         gateway_client: Client,
         latest_synced_block: PipelineBlockSubscription,
         tip_subscription: TipSubscription,
@@ -46,17 +47,13 @@ impl<P: StateFactoryProvider> PreconfStateFactory<P> {
 
         tokio::spawn(async move { worker.run().await });
 
-        Self {
-            gateway_client,
-            latest_synced_block,
-            shared_preconf_block,
-            provider: state_factory_provider,
-        }
+        Self { gateway_client, latest_synced_block, shared_preconf_block, storage_provider }
     }
 
     pub fn state(&self) -> PreconfStateProvider {
         let latest_block_num = self.latest_synced_block.block().unwrap();
-        let base = self.provider.historical(latest_block_num.into()).unwrap().unwrap();
+        let base =
+            self.storage_provider.provider().historical(latest_block_num.into()).unwrap().unwrap();
 
         let preconf_block = self.shared_preconf_block.inner.lock();
         let preconf_block_id = preconf_block.as_ref().map(|b| b.preconf_block_id);

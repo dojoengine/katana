@@ -12,7 +12,7 @@ use katana_primitives::state::{StateUpdates, StateUpdatesWithClasses};
 use katana_primitives::transaction::{Tx, TxWithHash};
 use katana_primitives::Felt;
 use katana_provider::api::block::{BlockHashProvider, BlockWriter};
-use katana_provider::ProviderError;
+use katana_provider::{MutableProvider, ProviderError, ProviderFactory};
 use num_traits::ToPrimitive;
 use starknet::core::types::ResourcePrice;
 use tracing::{error, info_span, Instrument};
@@ -28,14 +28,14 @@ pub use downloader::{BatchBlockDownloader, BlockDownloader};
 
 /// A stage for syncing blocks.
 #[derive(Debug)]
-pub struct Blocks<P, B> {
-    provider: P,
+pub struct Blocks<PF, B> {
+    provider: PF,
     downloader: B,
 }
 
-impl<P, B> Blocks<P, B> {
+impl<PF, B> Blocks<PF, B> {
     /// Create a new [`Blocks`] stage.
-    pub fn new(provider: P, downloader: B) -> Self {
+    pub fn new(provider: PF, downloader: B) -> Self {
         Self { provider, downloader }
     }
 
@@ -45,7 +45,8 @@ impl<P, B> Blocks<P, B> {
     /// For the first block in the list (if not block 0), it fetches the parent hash from storage.
     fn validate_chain_invariant(&self, blocks: &[StateUpdateWithBlock]) -> Result<(), Error>
     where
-        P: BlockHashProvider,
+        PF: ProviderFactory,
+        <PF as ProviderFactory>::Provider: BlockHashProvider,
     {
         if blocks.is_empty() {
             return Ok(());
@@ -60,6 +61,7 @@ impl<P, B> Blocks<P, B> {
             let parent_block_num = first_block_num - 1;
             let expected_parent_hash = self
                 .provider
+                .provider()
                 .block_hash_by_num(parent_block_num)?
                 .ok_or(ProviderError::MissingBlockHash(parent_block_num))?;
 
@@ -93,9 +95,11 @@ impl<P, B> Blocks<P, B> {
     }
 }
 
-impl<P, D> Stage for Blocks<P, D>
+impl<PF, D> Stage for Blocks<PF, D>
 where
-    P: BlockWriter + BlockHashProvider,
+    PF: ProviderFactory,
+    <PF as ProviderFactory>::Provider: BlockHashProvider,
+    <PF as ProviderFactory>::ProviderMut: BlockWriter,
     D: BlockDownloader,
 {
     fn id(&self) -> &'static str {
@@ -117,11 +121,13 @@ where
             // TODO: spawn onto a blocking thread pool
             self.validate_chain_invariant(&blocks)?;
 
+            let provider_mut = self.provider.provider_mut();
+
             for block in blocks {
                 let (block, receipts, state_updates) = extract_block_data(block)?;
                 let block_number = block.block.header.number;
 
-                self.provider
+                provider_mut
                     .insert_block_with_states_and_receipts(
                         block,
                         state_updates,
@@ -132,6 +138,8 @@ where
                         |e| error!(error = %e, block = %block_number, "Error storing block."),
                     )?;
             }
+
+            provider_mut.commit()?;
 
             Ok(StageExecutionOutput { last_block_processed: input.to() })
         })

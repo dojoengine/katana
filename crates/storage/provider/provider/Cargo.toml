@@ -17,6 +17,7 @@ katana-rpc-client.workspace = true
 katana-trie.workspace = true
 
 anyhow.workspace = true
+assert_matches.workspace = true
 auto_impl.workspace = true
 bitvec.workspace = true
 lazy_static.workspace = true
@@ -27,15 +28,14 @@ thiserror.workspace = true
 tracing.workspace = true
 
 # fork provider deps
-futures = { workspace = true, optional = true }
-tokio = { workspace = true, optional = true }
+futures.workspace = true
+tokio.workspace = true
+katana-rpc-types.workspace = true
 
 alloy-primitives = { workspace = true, optional = true }
 serde_json.workspace = true
 
 [features]
-fork = [ "dep:futures", "dep:tokio" ]
-in-memory = [  ]
 test-utils = [ "dep:alloy-primitives", "dep:katana-chain-spec" ]
 
 [dev-dependencies]
@@ -43,6 +43,7 @@ katana-chain-spec.workspace = true
 katana-contracts.workspace = true
 katana-runner.workspace = true
 
+similar-asserts.workspace = true
 alloy-primitives.workspace = true
 lazy_static.workspace = true
 rand.workspace = true
@@ -51,4 +52,5 @@ rstest_reuse.workspace = true
 serde_json.workspace = true
 starknet.workspace = true
 tempfile.workspace = true
+tokio.workspace = true
 url.workspace = true

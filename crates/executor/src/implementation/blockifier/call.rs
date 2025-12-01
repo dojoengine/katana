@@ -159,7 +159,7 @@ mod tests {
     use katana_primitives::{address, felt, ContractAddress};
     use katana_provider::api::contract::ContractClassWriter;
     use katana_provider::api::state::{StateFactoryProvider, StateWriter};
-    use katana_provider::test_utils;
+    use katana_provider::{test_utils, ProviderFactory};
     use starknet::macros::selector;
 
     use super::{execute_call_inner, get_call_sierra_gas_consumed};
@@ -177,7 +177,9 @@ mod tests {
         let casm_hash = class.clone().compile().unwrap().class_hash().unwrap();
 
         // Initialize provider with the test contract
-        let provider = test_utils::test_provider();
+        let storage = test_utils::test_provider();
+        let provider = storage.provider_mut();
+
         // Declare test contract
         provider.set_class(class_hash, class).unwrap();
         provider.set_compiled_class_hash_of_class_hash(class_hash, casm_hash).unwrap();
@@ -261,7 +263,9 @@ mod tests {
         let casm_hash = class.clone().compile().unwrap().class_hash().unwrap();
 
         // Initialize provider with the test contract
-        let provider = test_utils::test_provider();
+        let storage = test_utils::test_provider();
+        let provider = storage.provider_mut();
+
         // Declare test contract
         provider.set_class(class_hash, class).unwrap();
         provider.set_compiled_class_hash_of_class_hash(class_hash, casm_hash).unwrap();

@@ -10,8 +10,7 @@ use katana_primitives::contract::ContractAddress;
 use katana_primitives::state::{StateUpdates, StateUpdatesWithClasses};
 use katana_provider::api::block::BlockWriter;
 use katana_provider::api::state::StateFactoryProvider;
-use katana_provider::providers::db::DbProvider;
-use katana_provider::BlockchainProvider;
+use katana_provider::{DbProviderFactory, MutableProvider, ProviderFactory};
 use lazy_static::lazy_static;
 use starknet::macros::felt;
 
@@ -20,47 +19,59 @@ lazy_static! {
         serde_json::from_str(include_str!("./fixtures/dojo_world_240.json")).unwrap();
 }
 
-#[cfg(feature = "fork")]
 pub mod fork {
 
-    use katana_provider::providers::fork::ForkedProvider;
+    use katana_provider::ForkProviderFactory;
     use katana_rpc_client::starknet::Client as StarknetClient;
-    use katana_rpc_client::HttpClientBuilder;
     use katana_runner::KatanaRunner;
     use lazy_static::lazy_static;
-
-    use super::*;
 
     lazy_static! {
         pub static ref FORKED_PROVIDER: (KatanaRunner, StarknetClient) = {
             let runner = katana_runner::KatanaRunner::new().unwrap();
             let url = runner.url();
-            (runner, StarknetClient::new(HttpClientBuilder::new().build(url).unwrap()))
+            (runner, StarknetClient::new(url))
         };
     }
 
     #[rstest::fixture]
     pub fn fork_provider(
-        #[default("http://127.0.0.1:5050")] rpc: &str,
-        #[default(0)] block_num: u64,
-    ) -> BlockchainProvider<ForkedProvider> {
-        let provider = StarknetClient::new(HttpClientBuilder::new().build(rpc).unwrap());
-        let provider = ForkedProvider::new_ephemeral(block_num.into(), provider);
-        BlockchainProvider::new(provider)
+        #[default("https://api.cartridge.gg/x/starknet/sepolia")] rpc: &str,
+        #[default(2888618)] block_num: u64,
+    ) -> ForkProviderFactory {
+        let provider = StarknetClient::new(rpc.try_into().unwrap());
+        ForkProviderFactory::new(katana_db::Db::in_memory().unwrap(), block_num.into(), provider)
     }
 
     #[rstest::fixture]
     pub fn fork_provider_with_spawned_fork_network(
         #[default(0)] block_num: u64,
-    ) -> BlockchainProvider<ForkedProvider> {
-        let provider = ForkedProvider::new_ephemeral(block_num.into(), FORKED_PROVIDER.1.clone());
-        BlockchainProvider::new(provider)
+    ) -> ForkProviderFactory {
+        ForkProviderFactory::new(
+            katana_db::Db::in_memory().unwrap(),
+            block_num.into(),
+            FORKED_PROVIDER.1.clone(),
+        )
+    }
+
+    #[rstest::fixture]
+    pub fn fork_provider_with_spawned_fork_network_and_states(
+        #[with(0)] fork_provider_with_spawned_fork_network: ForkProviderFactory,
+    ) -> ForkProviderFactory {
+        super::provider_with_states(fork_provider_with_spawned_fork_network)
     }
 }
 
 #[rstest::fixture]
-pub fn db_provider() -> BlockchainProvider<DbProvider> {
-    BlockchainProvider::new(DbProvider::new_in_memory())
+pub fn db_provider() -> DbProviderFactory {
+    DbProviderFactory::new_in_memory()
+}
+
+#[rstest::fixture]
+pub fn db_provider_with_states(
+    #[from(db_provider)] provider_factory: DbProviderFactory,
+) -> DbProviderFactory {
+    provider_with_states(provider_factory)
 }
 
 #[rstest::fixture]
@@ -140,15 +151,15 @@ pub fn mock_state_updates() -> [StateUpdatesWithClasses; 3] {
     [state_update_1, state_update_2, state_update_3]
 }
 
-#[rstest::fixture]
-#[default(BlockchainProvider<DbProvider>)]
-pub fn provider_with_states<Db>(
-    #[default(db_provider())] provider: BlockchainProvider<Db>,
-    #[from(mock_state_updates)] state_updates: [StateUpdatesWithClasses; 3],
-) -> BlockchainProvider<Db>
+pub fn provider_with_states<PF>(provider_factory: PF) -> PF
 where
-    Db: BlockWriter + StateFactoryProvider,
+    PF: ProviderFactory,
+    <PF as ProviderFactory>::Provider: StateFactoryProvider,
+    <PF as ProviderFactory>::ProviderMut: BlockWriter,
 {
+    let state_updates = mock_state_updates::get();
+    let provider_mut = provider_factory.provider_mut();
+
     for i in 0..=5 {
         let block_id = BlockHashOrNumber::from(i);
 
@@ -159,7 +170,7 @@ where
             _ => StateUpdatesWithClasses::default(),
         };
 
-        provider
+        provider_mut
             .insert_block_with_states_and_receipts(
                 SealedBlockWithStatus {
                     status: FinalityStatus::AcceptedOnL2,
@@ -176,5 +187,7 @@ where
             .unwrap();
     }
 
-    provider
+    provider_mut.commit().expect("failed to commit");
+
+    provider_factory
 }

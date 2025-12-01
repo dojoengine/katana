@@ -29,6 +29,7 @@ use katana_rpc_types::{
     CallResponse, EstimateFeeSimulationFlag, EventFilter, FeeEstimate, FunctionCall,
     ResultPageRequest, SimulationFlag, SyncingResponse, TxStatus,
 };
+use url::Url;
 
 type Result<T> = std::result::Result<T, Error>;
 
@@ -38,11 +39,17 @@ pub struct Client {
 }
 
 impl Client {
-    pub fn new(client: HttpClient) -> Self {
+    pub fn new(url: Url) -> Self {
+        Client::new_with_client(HttpClient::builder().build(url).unwrap())
+    }
+
+    pub fn new_with_client(client: HttpClient) -> Self {
         Client { client }
     }
 
+    ////////////////////////////////////////////////////////////////////////////
     // Read API methods
+    ////////////////////////////////////////////////////////////////////////////
 
     /// Returns the version of the Starknet JSON-RPC specification being used.
     pub async fn spec_version(&self) -> Result<String> {
@@ -230,13 +237,22 @@ impl Client {
         contract_addresses: Option<Vec<ContractAddress>>,
         contracts_storage_keys: Option<Vec<ContractStorageKeys>>,
     ) -> Result<GetStorageProofResponse> {
+        // temp: pathfinder expects an empty vector instead of an explicit null even
+        // though the spec allows it
         self.client
-            .get_storage_proof(block_id, class_hashes, contract_addresses, contracts_storage_keys)
+            .get_storage_proof(
+                block_id,
+                Some(class_hashes.unwrap_or_default()),
+                Some(contract_addresses.unwrap_or_default()),
+                Some(contracts_storage_keys.unwrap_or_default()),
+            )
             .await
             .map_err(Into::into)
     }
 
+    ////////////////////////////////////////////////////////////////////////////
     // Write API methods
+    ////////////////////////////////////////////////////////////////////////////
 
     /// Submit a new transaction to be added to the chain.
     pub async fn add_invoke_transaction(
@@ -265,7 +281,9 @@ impl Client {
             .map_err(Into::into)
     }
 
+    ////////////////////////////////////////////////////////////////////////////
     // Trace API methods
+    ////////////////////////////////////////////////////////////////////////////
 
     /// Returns the execution trace of the transaction designated by the input hash.
     pub async fn trace_transaction(&self, transaction_hash: TxHash) -> Result<TxTrace> {
@@ -308,7 +326,13 @@ pub enum Error {
 impl From<jsonrpsee::core::client::Error> for Error {
     fn from(err: jsonrpsee::core::client::Error) -> Self {
         match err {
-            jsonrpsee::core::client::Error::Call(err_obj) => Error::Starknet(err_obj.into()),
+            jsonrpsee::core::client::Error::Call(ref err_obj) => {
+                if let Some(sn_err) = StarknetApiError::from_error_object(err_obj) {
+                    Error::Starknet(sn_err)
+                } else {
+                    Error::Client(err)
+                }
+            }
             _ => Error::Client(err),
         }
     }

@@ -10,18 +10,18 @@ use katana_primitives::transaction::TxHash;
 use katana_primitives::{felt, Felt};
 use katana_rpc_api::error::starknet::StarknetApiError;
 use katana_rpc_client::starknet::Client as StarknetClient;
-use katana_rpc_server::HttpClient;
 use katana_rpc_types::{
     BlockNumberResponse, EventFilter, GetBlockWithReceiptsResponse, GetBlockWithTxHashesResponse,
     MaybePreConfirmedBlock,
 };
+use katana_utils::node::ForkTestNode;
 use katana_utils::TestNode;
 use url::Url;
 
 mod common;
 
 const SEPOLIA_CHAIN_ID: Felt = NamedChainId::SN_SEPOLIA;
-const SEPOLIA_URL: &str = "https://api.cartridge.gg/x/starknet/sepolia/rpc/v0_8";
+const SEPOLIA_URL: &str = "https://api.cartridge.gg/x/starknet/sepolia";
 const FORK_BLOCK_NUMBER: BlockNumber = 268_471;
 const FORK_BLOCK_HASH: BlockHash =
     felt!("0x208950cfcbba73ecbda1c14e4d58d66a8d60655ea1b9dcf07c16014ae8a93cd");
@@ -37,12 +37,12 @@ type LocalTestVector = Vec<((BlockNumber, BlockHash), TxHash)>;
 /// a single transaction.
 ///
 /// The returned [`TestVector`] is a list of all the locally created blocks and transactions.
-async fn setup_test_inner(no_mining: bool) -> (TestNode, StarknetClient, LocalTestVector) {
+async fn setup_test_inner(no_mining: bool) -> (ForkTestNode, StarknetClient, LocalTestVector) {
     let mut config = katana_utils::node::test_config();
     config.sequencing.no_mining = no_mining;
     config.forking = Some(forking_cfg());
 
-    let sequencer = TestNode::new_with_config(config).await;
+    let sequencer = TestNode::new_forked_with_config(config).await;
     let provider = sequencer.starknet_rpc_client();
 
     let mut txs_vector: LocalTestVector = Vec::new();
@@ -70,31 +70,35 @@ async fn setup_test_inner(no_mining: bool) -> (TestNode, StarknetClient, LocalTe
             let res = contract.transfer(&Felt::ONE, &amount).send().await.unwrap();
             let _ = katana_utils::TxWaiter::new(res.transaction_hash, &provider).await.unwrap();
 
-            let block_num = FORK_BLOCK_NUMBER + i;
+            let block_num = (FORK_BLOCK_NUMBER + 1) + i; // plus 1 because fork genesis is FORK_BLOCK_NUMBER + 1
 
             let block_id = BlockIdOrTag::Number(block_num);
             let block = provider.get_block_with_tx_hashes(block_id).await.unwrap();
             let block_hash = match block {
-                GetBlockWithTxHashesResponse::Block(b) => b.block_hash,
+                GetBlockWithTxHashesResponse::Block(b) => {
+                    assert_eq!(b.transactions.len(), 1);
+                    b.block_hash
+                }
+
                 _ => panic!("Expected a block"),
             };
 
-            txs_vector.push(((FORK_BLOCK_NUMBER + i, block_hash), res.transaction_hash));
+            txs_vector.push((((FORK_BLOCK_NUMBER + 1) + i, block_hash), res.transaction_hash));
         }
     }
 
     (sequencer, provider, txs_vector)
 }
 
-async fn setup_test() -> (TestNode, StarknetClient, LocalTestVector) {
+async fn setup_test() -> (ForkTestNode, StarknetClient, LocalTestVector) {
     setup_test_inner(false).await
 }
 
-async fn setup_test_pending() -> (TestNode, StarknetClient, LocalTestVector) {
+async fn setup_test_pending() -> (ForkTestNode, StarknetClient, LocalTestVector) {
     setup_test_inner(true).await
 }
 
-#[tokio::test]
+#[tokio::test(flavor = "multi_thread")]
 async fn can_fork() -> Result<()> {
     let (_sequencer, provider, _) = setup_test().await;
 
@@ -102,12 +106,12 @@ async fn can_fork() -> Result<()> {
     let chain = provider.chain_id().await?;
 
     assert_eq!(chain, SEPOLIA_CHAIN_ID);
-    assert_eq!(block_number, FORK_BLOCK_NUMBER + 10);
+    assert_eq!(block_number, FORK_BLOCK_NUMBER + 11); // fork block + genesis + 10 blocks
 
     Ok(())
 }
 
-#[tokio::test]
+#[tokio::test(flavor = "multi_thread")]
 async fn get_blocks_from_num() -> Result<()> {
     let (_sequencer, provider, local_only_block) = setup_test().await;
 
@@ -223,7 +227,7 @@ async fn get_blocks_from_num() -> Result<()> {
     Ok(())
 }
 
-#[tokio::test]
+#[tokio::test(flavor = "multi_thread")]
 async fn get_blocks_from_hash() {
     let (_sequencer, provider, local_only_block) = setup_test().await;
 
@@ -337,7 +341,7 @@ async fn get_blocks_from_hash() {
     assert_provider_starknet_err!(result, StarknetApiError::BlockNotFound);
 }
 
-#[tokio::test]
+#[tokio::test(flavor = "multi_thread")]
 async fn get_transactions() -> Result<()> {
     let (_sequencer, provider, local_only_data) = setup_test().await;
 
@@ -402,13 +406,13 @@ async fn get_transactions() -> Result<()> {
     Ok(())
 }
 
-#[tokio::test]
+#[tokio::test(flavor = "multi_thread")]
 #[rstest::rstest]
 #[case(BlockIdOrTag::Number(FORK_BLOCK_NUMBER))]
 #[case(BlockIdOrTag::Hash(felt!("0x208950cfcbba73ecbda1c14e4d58d66a8d60655ea1b9dcf07c16014ae8a93cd")))]
 async fn get_events_partially_from_forked(#[case] block_id: BlockIdOrTag) -> Result<()> {
     let (_sequencer, provider, _) = setup_test().await;
-    let forked_provider = StarknetClient::new(HttpClient::builder().build(SEPOLIA_URL).unwrap());
+    let forked_provider = StarknetClient::new(SEPOLIA_URL.try_into().unwrap());
 
     // -----------------------------------------------------------------------
     // Fetch events partially from forked block.
@@ -431,7 +435,7 @@ async fn get_events_partially_from_forked(#[case] block_id: BlockIdOrTag) -> Res
     let forked_events = result.events;
 
     let token = MaybeForkedContinuationToken::parse(&result.continuation_token.unwrap())?;
-    assert_matches!(token, MaybeForkedContinuationToken::Forked(_));
+    assert_matches!(token, MaybeForkedContinuationToken::Token(_));
 
     for (a, b) in events.iter().zip(forked_events) {
         assert_eq!(a.block_number, Some(FORK_BLOCK_NUMBER));
@@ -447,13 +451,13 @@ async fn get_events_partially_from_forked(#[case] block_id: BlockIdOrTag) -> Res
     Ok(())
 }
 
-#[tokio::test]
+#[tokio::test(flavor = "multi_thread")]
 #[rstest::rstest]
 #[case(BlockIdOrTag::Number(FORK_BLOCK_NUMBER))]
 #[case(BlockIdOrTag::Hash(felt!("0x208950cfcbba73ecbda1c14e4d58d66a8d60655ea1b9dcf07c16014ae8a93cd")))]
 async fn get_events_all_from_forked(#[case] block_id: BlockIdOrTag) {
     let (_sequencer, provider, _) = setup_test().await;
-    let forked_provider = StarknetClient::new(HttpClient::builder().build(SEPOLIA_URL).unwrap());
+    let forked_provider = StarknetClient::new(SEPOLIA_URL.try_into().unwrap());
 
     // -----------------------------------------------------------------------
     // Fetch events from the forked block (ie `FORK_BLOCK_NUMBER`) only.
@@ -490,7 +494,7 @@ async fn get_events_all_from_forked(#[case] block_id: BlockIdOrTag) {
     }
 }
 
-#[tokio::test]
+#[tokio::test(flavor = "multi_thread")]
 async fn get_events_local() {
     let (_sequencer, provider, local_only_data) = setup_test().await;
 
@@ -518,7 +522,7 @@ async fn get_events_local() {
     }
 }
 
-#[tokio::test]
+#[tokio::test(flavor = "multi_thread")]
 async fn get_events_pending_exhaustive() {
     let (_sequencer, provider, local_only_data) = setup_test_pending().await;
 
@@ -547,13 +551,13 @@ async fn get_events_pending_exhaustive() {
     }
 }
 
-#[tokio::test]
+#[tokio::test(flavor = "multi_thread")]
 #[rstest::rstest]
 #[case(BlockIdOrTag::Number(FORK_BLOCK_NUMBER))]
 #[case(BlockIdOrTag::Hash(felt!("0x208950cfcbba73ecbda1c14e4d58d66a8d60655ea1b9dcf07c16014ae8a93cd")))] // FORK_BLOCK_NUMBER hash
 async fn get_events_forked_and_local_boundary_exhaustive(#[case] block_id: BlockIdOrTag) {
     let (_sequencer, provider, local_only_data) = setup_test().await;
-    let forked_provider = StarknetClient::new(HttpClient::builder().build(SEPOLIA_URL).unwrap());
+    let forked_provider = StarknetClient::new(SEPOLIA_URL.try_into().unwrap());
 
     // -----------------------------------------------------------------------
     // Get events from that cross the boundaries between forked and local chain block.
@@ -594,18 +598,18 @@ async fn get_events_forked_and_local_boundary_exhaustive(#[case] block_id: Block
         let (block_number, block_hash) = block;
 
         assert_eq!(event.transaction_hash, *tx);
-        assert_eq!(event.block_hash, Some(*block_hash));
         assert_eq!(event.block_number, Some(*block_number));
+        assert_eq!(event.block_hash, Some(*block_hash));
     }
 }
 
-#[tokio::test]
+#[tokio::test(flavor = "multi_thread")]
 #[rstest::rstest]
 #[case(BlockIdOrTag::Number(FORK_BLOCK_NUMBER - 1))]
 #[case(BlockIdOrTag::Hash(felt!("0x4a6a79bfefceb03af4f78758785b0c40ddf9f757e9a8f72f01ecb0aad11e298")))] // FORK_BLOCK_NUMBER - 1 hash
 async fn get_events_forked_and_local_boundary_non_exhaustive(#[case] block_id: BlockIdOrTag) {
     let (_sequencer, provider, _) = setup_test().await;
-    let forked_provider = StarknetClient::new(HttpClient::builder().build(SEPOLIA_URL).unwrap());
+    let forked_provider = StarknetClient::new(SEPOLIA_URL.try_into().unwrap());
 
     // -----------------------------------------------------------------------
     // Get events that cross the boundaries between forked and local chain block, but
@@ -633,11 +637,11 @@ async fn get_events_forked_and_local_boundary_non_exhaustive(#[case] block_id: B
     let katana_events = result.events;
 
     let token = MaybeForkedContinuationToken::parse(&result.continuation_token.unwrap()).unwrap();
-    assert_matches!(token, MaybeForkedContinuationToken::Forked(_));
+    assert_matches!(token, MaybeForkedContinuationToken::Token(_));
     similar_asserts::assert_eq!(katana_events, forked_events);
 }
 
-#[tokio::test]
+#[tokio::test(flavor = "multi_thread")]
 #[rstest::rstest]
 #[case::doesnt_exist_at_all(felt!("0x123"))]
 #[case::after_forked_block_but_on_the_forked_chain(felt!("0x21f4c20f9cc721dbaee2eaf44c79342b37c60f55ac37c13a4bdd6785ac2a5e5"))]

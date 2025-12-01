@@ -10,6 +10,7 @@ use katana_primitives::class::{ClassHash, ContractClass};
 use katana_provider::api::contract::ContractClassWriter;
 use katana_provider::api::state_update::StateUpdateProvider;
 use katana_provider::api::ProviderError;
+use katana_provider::{MutableProvider, ProviderFactory};
 use katana_rpc_types::class::ConversionError;
 use rayon::prelude::*;
 use tracing::{debug, error, info_span, Instrument};
@@ -59,7 +60,8 @@ impl<P> Classes<P> {
         to_block: BlockNumber,
     ) -> Result<Vec<ClassDownloadKey>, Error>
     where
-        P: StateUpdateProvider,
+        P: ProviderFactory,
+        <P as ProviderFactory>::Provider: StateUpdateProvider,
     {
         let mut classes_keys: Vec<ClassDownloadKey> = Vec::new();
 
@@ -67,6 +69,7 @@ impl<P> Classes<P> {
             // get the classes declared at block `i`
             let class_hashes = self
                 .provider
+                .provider()
                 .declared_classes(block.into())?
                 .ok_or(Error::MissingBlockDeclaredClasses { block })?;
 
@@ -93,14 +96,9 @@ impl<P> Classes<P> {
                 .zip(class_artifacts.into_par_iter())
                 .map(|(key, gateway_class)| {
                     let block = key.block;
+
                     let expected_hash = key.class_hash;
-
-                    let class: ContractClass =
-                        gateway_class.try_into().map_err(Error::Conversion)?;
-
-                    let computed_hash = class.class_hash().map_err(|source| {
-                        Error::ClassHashComputation { class_hash: expected_hash, source, block }
-                    })?;
+                    let computed_hash = gateway_class.hash();
 
                     if computed_hash != expected_hash {
                         return Err(Error::ClassHashMismatch {
@@ -110,7 +108,7 @@ impl<P> Classes<P> {
                         });
                     }
 
-                    Ok(class)
+                    ContractClass::try_from(gateway_class).map_err(Error::Conversion)
                 })
                 .collect::<Result<Vec<_>, Error>>();
 
@@ -123,7 +121,9 @@ impl<P> Classes<P> {
 
 impl<P> Stage for Classes<P>
 where
-    P: StateUpdateProvider + ContractClassWriter,
+    P: ProviderFactory,
+    <P as ProviderFactory>::Provider: StateUpdateProvider,
+    <P as ProviderFactory>::ProviderMut: ContractClassWriter,
 {
     fn id(&self) -> &'static str {
         "Classes"
@@ -151,11 +151,14 @@ where
 
                 debug!(target: "stage", id = self.id(), total = %verified_classes.len(), "Storing class artifacts.");
 
+                let provider_mut = self.provider.provider_mut();
                 // Second pass: insert the verified classes into storage
                 // This must be done sequentially as database only supports single write transaction
                 for (key, class) in declared_class_hashes.iter().zip(verified_classes.into_iter()) {
-                    self.provider.set_class(key.class_hash, class)?;
+                    provider_mut.set_class(key.class_hash, class)?;
                 }
+
+                provider_mut.commit()?;
             }
 
             Ok(StageExecutionOutput { last_block_processed: input.to() })

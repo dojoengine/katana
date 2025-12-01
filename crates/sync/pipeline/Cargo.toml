@@ -6,11 +6,14 @@ repository.workspace = true
 version.workspace = true
 
 [dependencies]
+katana-metrics.workspace = true
 katana-primitives.workspace = true
+katana-provider.workspace = true
 katana-provider-api.workspace = true
 katana-stage.workspace = true
 
 futures.workspace = true
+parking_lot.workspace = true
 thiserror.workspace = true
 tokio.workspace = true
 tracing.workspace = true

@@ -9,7 +9,7 @@ use katana_executor::ExecutionFlags;
 use katana_primitives::env::BlockEnv;
 use katana_primitives::transaction::ExecutableTxWithHash;
 use katana_provider::api::state::StateFactoryProvider;
-use katana_provider::test_utils;
+use katana_provider::{test_utils, ProviderFactory};
 use pprof::criterion::{Output, PProfProfiler};
 
 use crate::utils::{envs, tx};
@@ -20,7 +20,8 @@ fn executor_transact(c: &mut Criterion) {
     let mut group = c.benchmark_group("Invoke.ERC20.transfer");
     group.warm_up_time(Duration::from_millis(200));
 
-    let provider = test_utils::test_provider();
+    let provider_factory = test_utils::test_provider();
+    let provider = provider_factory.provider();
     let flags = ExecutionFlags::new();
 
     let tx = tx();
