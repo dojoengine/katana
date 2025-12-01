@@ -762,11 +762,11 @@ fn parse_pruning_mode(s: &str) -> Result<PruningMode, String> {
         "archive" => Ok(PruningMode::Archive),
         "minimal" => Ok(PruningMode::Minimal),
         s if s.starts_with("full:") => {
-            let n = s
-                .strip_prefix("full:")
-                .and_then(|n| n.parse::<u64>().ok())
-                .ok_or_else(|| {
-                    format!("Invalid full format. Use 'full:N' where N is the number of blocks to keep")
+            let n =
+                s.strip_prefix("full:").and_then(|n| n.parse::<u64>().ok()).ok_or_else(|| {
+                    format!(
+                        "Invalid full format. Use 'full:N' where N is the number of blocks to keep"
+                    )
                 })?;
             Ok(PruningMode::Full(n))
         }

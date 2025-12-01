@@ -64,8 +64,8 @@ pub use katana_pipeline::PruningConfig;
 pub struct Config {
     pub db: DbConfig,
     pub rpc: RpcConfig,
+    pub pruning: PruningConfig,
     pub metrics: Option<MetricsConfig>,
-    pub pruning: Option<PruningConfig>,
     pub gateway_api_key: Option<String>,
     pub network: Network,
 }

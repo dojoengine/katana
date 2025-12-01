@@ -488,7 +488,9 @@ where
             let span = info_span!(target: "pipeline", "stage.prune", stage = %id);
             let enter = span.entered();
 
-            if let Some(checkpoint) = self.provider.checkpoint(id)? {
+            let checkpoint = self.storage_provider.provider_mut().checkpoint(id)?;
+
+            if let Some(checkpoint) = checkpoint {
                 let prune_input = PruneInput::new(checkpoint, self.pruning_config.mode);
                 info!(target: "pipeline", mode = ?self.pruning_config.mode, "Pruning stage.");
 
@@ -508,7 +510,6 @@ where
 
         Ok(())
     }
-
 
     /// Run the pipeline loop.
     async fn run_loop(&mut self) -> PipelineResult<()> {
