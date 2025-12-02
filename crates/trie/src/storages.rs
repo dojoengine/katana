@@ -25,6 +25,10 @@ impl<DB: BonsaiDatabase> StoragesTrie<DB> {
     pub fn multiproof(&mut self, storage_keys: Vec<StorageKey>) -> MultiProof {
         self.trie.multiproof(&self.address.to_bytes_be(), storage_keys)
     }
+
+    pub fn revert_to(&mut self, block: BlockNumber, latest_block: BlockNumber) {
+        self.trie.revert_to(block, latest_block);
+    }
 }
 
 impl<DB> StoragesTrie<DB>
