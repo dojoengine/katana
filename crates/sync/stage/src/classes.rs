@@ -3,11 +3,14 @@ use std::future::Future;
 use anyhow::Result;
 use futures::channel::oneshot;
 use futures::future::BoxFuture;
+use katana_db::abstraction::{DbCursor, DbTxMut};
+use katana_db::tables;
 use katana_gateway_client::Client as SequencerGateway;
 use katana_gateway_types::ContractClass as GatewayContractClass;
 use katana_primitives::block::BlockNumber;
 use katana_primitives::class::{ClassHash, ContractClass};
 use katana_provider::api::contract::ContractClassWriter;
+use katana_provider::api::stage::StageCheckpointProvider;
 use katana_provider::api::state_update::StateUpdateProvider;
 use katana_provider::api::ProviderError;
 use katana_provider::{MutableProvider, ProviderFactory};
@@ -48,6 +51,43 @@ impl<P> Classes<P> {
             .expect("Failed to create verification thread pool");
 
         Self { provider, downloader, verification_pool }
+    }
+
+    /// Unwinds class data by removing all classes declared after the specified block number.
+    ///
+    /// This removes entries from the following tables:
+    /// - CompiledClassHashes, Classes, ClassDeclarationBlock, ClassDeclarations
+    fn unwind_classes(tx: impl DbTxMut, unwind_to: BlockNumber) -> Result<(), crate::Error> {
+        // Find all classes declared after unwind_to
+        let mut classes_to_remove = Vec::new();
+        let mut cursor = tx.cursor_dup_mut::<tables::ClassDeclarations>()?;
+
+        // Find all blocks after unwind_to that have class declarations
+        if let Some((block_num, class_hash)) = cursor.seek(unwind_to + 1)? {
+            classes_to_remove.push((block_num, class_hash));
+
+            while let Some((block_num, class_hash)) = cursor.next()? {
+                classes_to_remove.push((block_num, class_hash));
+            }
+        }
+        drop(cursor);
+
+        // Remove class declarations for blocks after unwind_to
+        for (block_num, class_hash) in &classes_to_remove {
+            // Delete from ClassDeclarations (dupsort table)
+            tx.delete::<tables::ClassDeclarations>(*block_num, Some(*class_hash))?;
+
+            // Delete from ClassDeclarationBlock
+            tx.delete::<tables::ClassDeclarationBlock>(*class_hash, None)?;
+
+            // Delete the class itself from Classes
+            tx.delete::<tables::Classes>(*class_hash, None)?;
+
+            // Delete compiled class hash
+            tx.delete::<tables::CompiledClassHashes>(*class_hash, None)?;
+        }
+
+        Ok(())
     }
 
     /// Returns the hashes of the classes declared in the given range of blocks.
@@ -120,7 +160,7 @@ impl<P> Stage for Classes<P>
 where
     P: ProviderFactory,
     <P as ProviderFactory>::Provider: StateUpdateProvider,
-    <P as ProviderFactory>::ProviderMut: ContractClassWriter,
+    <P as ProviderFactory>::ProviderMut: ContractClassWriter + StageCheckpointProvider,
 {
     fn id(&self) -> &'static str {
         "Classes"
@@ -159,6 +199,23 @@ where
             }
 
             Ok(StageExecutionOutput { last_block_processed: input.to() })
+        })
+    }
+
+    fn unwind(&mut self, unwind_to: BlockNumber) -> BoxFuture<'_, StageResult> {
+        Box::pin(async move {
+            debug!(target: "stage", id = %self.id(), unwind_to = %unwind_to, "Unwinding classes.");
+
+            let provider_mut = self.provider.provider_mut();
+
+            // Unwind classes
+            Self::unwind_classes(provider_mut.db(), unwind_to)?;
+
+            // Update checkpoint
+            provider_mut.set_checkpoint(self.id(), unwind_to)?;
+            provider_mut.commit()?;
+
+            Ok(StageExecutionOutput { last_block_processed: unwind_to })
         })
     }
 }

@@ -2,6 +2,7 @@ use futures::future::BoxFuture;
 use katana_primitives::block::BlockNumber;
 use katana_primitives::Felt;
 use katana_provider::api::block::HeaderProvider;
+use katana_provider::api::state::StateFactoryProvider;
 use katana_provider::api::state_update::StateUpdateProvider;
 use katana_provider::api::trie::TrieWriter;
 use katana_provider::{MutableProvider, ProviderFactory};
@@ -36,7 +37,8 @@ impl<P> StateTrie<P> {
 impl<P> Stage for StateTrie<P>
 where
     P: ProviderFactory,
-    <P as ProviderFactory>::ProviderMut: StateUpdateProvider + HeaderProvider + TrieWriter + Clone,
+    <P as ProviderFactory>::ProviderMut:
+        StateUpdateProvider + HeaderProvider + TrieWriter + StateFactoryProvider + Clone,
 {
     fn id(&self) -> &'static str {
         "StateTrie"
@@ -127,6 +129,16 @@ where
             provider_mut.commit()?;
 
             Ok(StageExecutionOutput { last_block_processed: input.to() })
+        })
+    }
+
+    fn unwind(&mut self, unwind_to: BlockNumber) -> BoxFuture<'_, StageResult> {
+        Box::pin(async move {
+            let provider_mut = self.storage_provider.provider_mut();
+            provider_mut.unwind_classes_trie(unwind_to)?;
+            provider_mut.unwind_contracts_trie(unwind_to)?;
+            provider_mut.commit()?;
+            Ok(StageExecutionOutput { last_block_processed: unwind_to })
         })
     }
 }

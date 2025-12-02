@@ -687,4 +687,17 @@ impl TrieWriter for GenesisTrieWriter {
         trie.commit(block_number);
         Ok(trie.root())
     }
+
+    fn unwind_classes_trie(&self, unwind_to: BlockNumber) -> katana_provider::ProviderResult<Felt> {
+        let _ = unwind_to;
+        unimplemented!("unwinding not supported for genesis trie")
+    }
+
+    fn unwind_contracts_trie(
+        &self,
+        unwind_to: BlockNumber,
+    ) -> katana_provider::ProviderResult<Felt> {
+        let _ = unwind_to;
+        unimplemented!("unwinding not supported for genesis trie")
+    }
 }
