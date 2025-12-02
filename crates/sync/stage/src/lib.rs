@@ -166,6 +166,9 @@ pub enum Error {
     StateTrie(#[from] trie::Error),
 
     #[error(transparent)]
+    Database(#[from] katana_db::error::DatabaseError),
+
+    #[error(transparent)]
     Other(#[from] anyhow::Error),
 }
 
