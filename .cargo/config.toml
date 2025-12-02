@@ -1,9 +1,0 @@
-[env]
-CC = "gcc-14"
-BINDGEN_EXTRA_CLANG_ARGS = "--target=x86_64-unknown-linux-gnu"
-CFLAGS = "-U__regparm__"
-CXXFLAGS = "-U__regparm__"
-
-[build]
-rustflags = []
-
