@@ -101,6 +101,11 @@ where
     pub fn new_partial(db: DB) -> Self {
         Self { storage: BonsaiStorage::new_partial(db, Self::bonsai_config(), 251) }
     }
+
+    pub fn multiproof(&mut self, id: &[u8], keys: Vec<Felt>) -> MultiProof {
+        let keys = keys.into_iter().map(|key| key.to_bytes_be().as_bits()[5..].to_owned());
+        self.storage.get_multi_proof(id, keys, None, None).expect("failed to get multiproof")
+    }
 }
 
 impl<DB, Hash> BonsaiTrie<DB, Hash, FullMerkleTrees<Hash, DB, CommitId>>

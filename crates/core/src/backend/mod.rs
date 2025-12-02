@@ -252,9 +252,8 @@ where
             }
 
             info!(genesis_hash = %local_hash, "Genesis has already been initialized");
-        } else {
-            // Initialize the dev genesis block
-
+        } else if !is_forking {
+            // Initialize the dev genesis block (only for non-forked instances)
             let block = chain_spec.block();
             let states = chain_spec.state_updates();
 
@@ -273,6 +272,7 @@ where
 
             info!(genesis_hash = %outcome.block_hash, "Genesis initialized");
         }
+        // For forked instances, genesis is not created (fork already has its state)
 
         Ok(())
     }

@@ -422,7 +422,9 @@ where
         let provider = backend.storage.provider();
 
         let latest_num = provider.latest_number()?;
+        eprintln!("🔍 Creating executor for next block, latest_num: {}", latest_num);
         let updated_state = provider.latest()?;
+        eprintln!("✅ Got updated_state for block {}", latest_num + 1);
 
         let mut block_env = provider.block_env_at(latest_num.into())?.unwrap();
         backend.update_block_env(&mut block_env);

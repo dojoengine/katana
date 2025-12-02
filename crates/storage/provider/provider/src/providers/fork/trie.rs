@@ -193,9 +193,7 @@ impl<Tx1: DbTxMut> TrieWriter for ForkedProvider<Tx1> {
         let mut contracts_storage_keys = Vec::new();
 
         // Collect class hashes
-        for class_hash in state_updates.declared_classes.keys() {
-            class_hashes.push(*class_hash);
-        }
+        class_hashes.extend(state_updates.declared_classes.keys().copied());
 
         // Collect all unique contract addresses that need proofs
         for address in state_updates.deployed_contracts.keys() {
@@ -219,7 +217,7 @@ impl<Tx1: DbTxMut> TrieWriter for ForkedProvider<Tx1> {
         let mut contract_addresses: Vec<_> = contract_addresses.into_iter().collect();
         contract_addresses.sort();
 
-        // Fetch proofs from remote RPC
+        // Fetch proofs from remote RPC (only if we have changes)
         let fork_point = self.fork_db.block_id;
 
         // Fetch classes proof
@@ -243,28 +241,22 @@ impl<Tx1: DbTxMut> TrieWriter for ForkedProvider<Tx1> {
             None
         };
 
-        // Fetch global roots
-        let global_roots_result = self.fork_db.backend.get_global_roots(fork_point)?;
+        // Fetch global roots (always needed as fallback when no changes)
+        let global_roots = self
+            .fork_db
+            .backend
+            .get_global_roots(fork_point)?
+            .expect("global roots should exist for fork point");
+        let final_classes_root = global_roots.global_roots.classes_tree_root;
+        let final_contracts_root = global_roots.global_roots.contracts_tree_root;
 
-        // Extract proofs and roots
-        let (classes_proof, classes_tree_root) = if let Some(proof_response) = classes_proof_result
-        {
-            let proof: MultiProof = proof_response.classes_proof.nodes.into();
-            let root = proof_response.global_roots.classes_tree_root;
-            (Some(proof), root)
-        } else {
-            // No classes to update, get root from global_roots
-            let root = global_roots_result
-                .as_ref()
-                .map(|r| r.global_roots.classes_tree_root)
-                .unwrap_or(Felt::ZERO);
-            (None, root)
-        };
+        // Extract proofs (only if we have changes)
+        let classes_proof =
+            classes_proof_result.map(|response| response.classes_proof.nodes.into());
 
-        let (contracts_proof, contracts_tree_root, contract_leaves_data) =
+        let (contracts_proof, contract_leaves_data) =
             if let Some(proof_response) = contracts_proof_result {
                 let proof: MultiProof = proof_response.contracts_proof.nodes.into();
-                let root = proof_response.global_roots.contracts_tree_root;
 
                 // Convert contract_leaves_data to HashMap<ContractAddress, ContractLeaf>
                 let leaves_map: HashMap<ContractAddress, ContractLeaf> = proof_response
@@ -282,85 +274,48 @@ impl<Tx1: DbTxMut> TrieWriter for ForkedProvider<Tx1> {
                     })
                     .collect();
 
-                (Some(proof), root, leaves_map)
+                (Some(proof), leaves_map)
             } else {
-                // No contracts to update, get root from global_roots
-                let root = global_roots_result
-                    .as_ref()
-                    .map(|r| r.global_roots.contracts_tree_root)
-                    .unwrap_or(Felt::ZERO);
-                (None, root, HashMap::new())
+                (None, HashMap::new())
             };
 
         // Convert storage proofs
-        let contracts_storage_proofs: Vec<MultiProof> =
-            if let Some(proof_response) = storages_proof_result {
-                proof_response
+        let contracts_storage_proofs: Vec<MultiProof> = storages_proof_result
+            .map(|response| {
+                response
                     .contracts_storage_proofs
                     .nodes
                     .into_iter()
                     .map(|nodes| nodes.into())
                     .collect()
-            } else {
-                Vec::new()
-            };
+            })
+            .unwrap_or_default();
 
-        // Get global roots if not already fetched
-        let (final_classes_root, final_contracts_root) = if let Some(roots) = global_roots_result {
-            (roots.global_roots.classes_tree_root, roots.global_roots.contracts_tree_root)
+        // Use proof-based methods if we have proofs (which means we have changes)
+        // If no proofs, use the fork point root (matches logic in state.rs: if trie is empty, use fork root)
+        let class_trie_root = if let Some(proof) = classes_proof {
+            self.trie_insert_declared_classes_with_proof(
+                block_number,
+                &state_updates.declared_classes,
+                proof,
+                final_classes_root,
+            )?
         } else {
-            (classes_tree_root, contracts_tree_root)
-        };
-
-        // Check if we have any local changes
-        let has_class_changes = !state_updates.declared_classes.is_empty();
-        //TODO: add check for deprecated classes
-
-        let has_contract_changes = !state_updates.deployed_contracts.is_empty()
-            || !state_updates.replaced_classes.is_empty()
-            || !state_updates.nonce_updates.is_empty()
-            || !state_updates.storage_updates.is_empty();
-
-        // Use proof-based methods if we have changes and proofs
-        let class_trie_root = if has_class_changes {
-            if let Some(proof) = classes_proof {
-                self.trie_insert_declared_classes_with_proof(
-                    block_number,
-                    &state_updates.declared_classes,
-                    proof,
-                    final_classes_root,
-                )?
-            } else {
-                // Fallback to regular method if no proof
-                // This will create a full trie and possibly cause problems with the state root
-                // There is no conversion method for full tries to partial tries yet
-                self.trie_insert_declared_classes(block_number, &state_updates.declared_classes)?
-            }
-        } else {
-            // When no changes nothing will be fetched from mainnet and no partial trie can be constructed
-            // Use the class trie root from forked network
+            // No class changes - use the fork point root (same as state.rs logic)
             final_classes_root
         };
 
-        let contract_trie_root = if has_contract_changes {
-            if let Some(proof) = contracts_proof {
-                self.trie_insert_contract_updates_with_proof(
-                    block_number,
-                    state_updates,
-                    proof,
-                    final_contracts_root,
-                    contract_leaves_data,
-                    contracts_storage_proofs,
-                )?
-            } else {
-                // Fallback to regular method if no proof
-                // This will create a full trie and possibly cause problems with the state root
-                // There is no conversion method for full tries to partial tries yet
-                self.trie_insert_contract_updates(block_number, state_updates)?
-            }
+        let contract_trie_root = if let Some(proof) = contracts_proof {
+            self.trie_insert_contract_updates_with_proof(
+                block_number,
+                state_updates,
+                proof,
+                final_contracts_root,
+                contract_leaves_data,
+                contracts_storage_proofs,
+            )?
         } else {
-            // When no changes nothing will be fetched from mainnet and no partial trie can be constructed
-            // Use the contract trie root from forked network
+            // No contract changes - use the fork point root (same as state.rs logic)
             final_contracts_root
         };
 

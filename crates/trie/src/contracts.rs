@@ -56,6 +56,11 @@ impl<DB: BonsaiDatabase> PartialContractsTrie<DB> {
     pub fn root(&self) -> Felt {
         self.trie.root(CONTRACTS_IDENTIFIER)
     }
+
+    pub fn multiproof(&mut self, addresses: Vec<ContractAddress>) -> MultiProof {
+        let keys = addresses.into_iter().map(Felt::from).collect::<Vec<Felt>>();
+        self.trie.multiproof(CONTRACTS_IDENTIFIER, keys)
+    }
 }
 
 impl<DB> PartialContractsTrie<DB>

@@ -61,6 +61,10 @@ impl<DB: BonsaiDatabase> PartialStoragesTrie<DB> {
     pub fn root(&self) -> Felt {
         self.trie.root(&self.address.to_bytes_be())
     }
+
+    pub fn multiproof(&mut self, storage_keys: Vec<StorageKey>) -> MultiProof {
+        self.trie.multiproof(&self.address.to_bytes_be(), storage_keys)
+    }
 }
 
 impl<DB> PartialStoragesTrie<DB>

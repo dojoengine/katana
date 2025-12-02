@@ -422,9 +422,13 @@ where
         let state = self.state(&block_id)?;
 
         // Check that contract exist by checking the class hash of the contract,
-        // unless its address 0x1 which is special system contract and does not
-        // have a class. See https://docs.starknet.io/architecture-and-concepts/network-architecture/starknet-state/#address_0x1.
+        // unless its address 0x1 or 0x2 which are special system contracts and does not
+        // have a class.
+        // See:
+        //  https://docs.starknet.io/learn/protocol/state#address-0x1.
+        //  https://docs.starknet.io/learn/protocol/data-availability#v0-13-4
         if contract_address.0 != Felt::ONE
+            && contract_address.0 != Felt::TWO
             && contract_address.0 != Felt::TWO
             && state.class_hash_of_contract(contract_address)?.is_none()
         {
