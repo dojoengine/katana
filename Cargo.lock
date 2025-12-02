@@ -2000,7 +2000,7 @@ dependencies = [
 [[package]]
 name = "bonsai-trie"
 version = "0.1.0"
-source = "git+https://github.com/dojoengine/bonsai-trie/?rev=8b509fd#8b509fdf2c22fb7386acc6c00f179ac1cd099243"
+source = "git+https://github.com/dojoengine/bonsai-trie/?rev=95de4c6#95de4c600f20cec326650364dea841d23cf93718"
 dependencies = [
  "bitvec",
  "derive_more 0.99.20",
