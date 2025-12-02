@@ -3,7 +3,7 @@ use std::future::Future;
 use anyhow::Result;
 use futures::channel::oneshot;
 use futures::future::BoxFuture;
-use katana_db::abstraction::{Database, DbCursor, DbTxMut};
+use katana_db::abstraction::{DbCursor, DbTxMut};
 use katana_db::tables;
 use katana_gateway_client::Client as SequencerGateway;
 use katana_gateway_types::ContractClass as GatewayContractClass;
@@ -19,7 +19,6 @@ use rayon::prelude::*;
 use tracing::{debug, error, info_span, Instrument};
 
 use super::{Stage, StageExecutionInput, StageExecutionOutput, StageResult};
-use crate::blocks::DatabaseProvider;
 use crate::downloader::{BatchDownloader, Downloader, DownloaderResult};
 
 /// A stage for downloading and storing contract classes.
@@ -58,40 +57,35 @@ impl<P> Classes<P> {
     ///
     /// This removes entries from the following tables:
     /// - CompiledClassHashes, Classes, ClassDeclarationBlock, ClassDeclarations
-    fn unwind_classes<Db: Database>(db: &Db, unwind_to: BlockNumber) -> Result<(), crate::Error> {
-        db.update(|db_tx| -> Result<(), katana_provider::api::ProviderError> {
-            // Find all classes declared after unwind_to
-            let mut classes_to_remove = Vec::new();
-            let mut cursor = db_tx.cursor_dup_mut::<tables::ClassDeclarations>()?;
+    fn unwind_classes(tx: impl DbTxMut, unwind_to: BlockNumber) -> Result<(), crate::Error> {
+        // Find all classes declared after unwind_to
+        let mut classes_to_remove = Vec::new();
+        let mut cursor = tx.cursor_dup_mut::<tables::ClassDeclarations>()?;
 
-            // Find all blocks after unwind_to that have class declarations
-            if let Some((block_num, class_hash)) = cursor.seek(unwind_to + 1)? {
+        // Find all blocks after unwind_to that have class declarations
+        if let Some((block_num, class_hash)) = cursor.seek(unwind_to + 1)? {
+            classes_to_remove.push((block_num, class_hash));
+
+            while let Some((block_num, class_hash)) = cursor.next()? {
                 classes_to_remove.push((block_num, class_hash));
-
-                while let Some((block_num, class_hash)) = cursor.next()? {
-                    classes_to_remove.push((block_num, class_hash));
-                }
             }
-            drop(cursor);
+        }
+        drop(cursor);
 
-            // Remove class declarations for blocks after unwind_to
-            for (block_num, class_hash) in &classes_to_remove {
-                // Delete from ClassDeclarations (dupsort table)
-                db_tx.delete::<tables::ClassDeclarations>(*block_num, Some(*class_hash))?;
+        // Remove class declarations for blocks after unwind_to
+        for (block_num, class_hash) in &classes_to_remove {
+            // Delete from ClassDeclarations (dupsort table)
+            tx.delete::<tables::ClassDeclarations>(*block_num, Some(*class_hash))?;
 
-                // Delete from ClassDeclarationBlock
-                db_tx.delete::<tables::ClassDeclarationBlock>(*class_hash, None)?;
+            // Delete from ClassDeclarationBlock
+            tx.delete::<tables::ClassDeclarationBlock>(*class_hash, None)?;
 
-                // Delete the class itself from Classes
-                db_tx.delete::<tables::Classes>(*class_hash, None)?;
+            // Delete the class itself from Classes
+            tx.delete::<tables::Classes>(*class_hash, None)?;
 
-                // Delete compiled class hash
-                db_tx.delete::<tables::CompiledClassHashes>(*class_hash, None)?;
-            }
-
-            Ok(())
-        })
-        .map_err(katana_provider::api::ProviderError::from)??;
+            // Delete compiled class hash
+            tx.delete::<tables::CompiledClassHashes>(*class_hash, None)?;
+        }
 
         Ok(())
     }
@@ -166,8 +160,7 @@ impl<P> Stage for Classes<P>
 where
     P: ProviderFactory,
     <P as ProviderFactory>::Provider: StateUpdateProvider,
-    <P as ProviderFactory>::ProviderMut:
-        ContractClassWriter + DatabaseProvider + StageCheckpointProvider,
+    <P as ProviderFactory>::ProviderMut: ContractClassWriter + StageCheckpointProvider,
 {
     fn id(&self) -> &'static str {
         "Classes"

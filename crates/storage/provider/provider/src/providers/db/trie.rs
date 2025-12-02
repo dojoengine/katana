@@ -1,6 +1,6 @@
 use std::collections::{BTreeMap, BTreeSet, HashMap};
 
-use katana_db::abstraction::{Database, DbCursor, DbTx, DbTxMut};
+use katana_db::abstraction::{DbCursor, DbTxMut};
 use katana_db::tables;
 use katana_db::trie::TrieDbMut;
 use katana_primitives::block::BlockNumber;
@@ -107,45 +107,40 @@ impl<Tx: DbTxMut> TrieWriter for DbProvider<Tx> {
 
     fn unwind_classes_trie(&self, unwind_to: BlockNumber) -> ProviderResult<Felt> {
         let latest_block_number = self.latest_number()?;
-
-        self.0.update(|tx| {
-            let mut trie = ClassesTrie::new(TrieDbMut::<tables::ClassesTrie, _>::new(tx));
-            trie.revert_to(unwind_to, latest_block_number);
-            Ok(trie.root())
-        })?
+        let mut trie = ClassesTrie::new(TrieDbMut::<tables::ClassesTrie, _>::new(&self.0));
+        trie.revert_to(unwind_to, latest_block_number);
+        Ok(trie.root())
     }
 
     fn unwind_contracts_trie(&self, unwind_to: BlockNumber) -> ProviderResult<Felt> {
         let latest_block_number = self.latest_number()?;
 
-        self.0.update(|tx| {
-            let mut cursor = tx.cursor_dup::<tables::StorageChangeHistory>()?;
-            let iterator = cursor.walk(Some(unwind_to))?;
+        let mut cursor = self.cursor_dup::<tables::StorageChangeHistory>()?;
+        let iterator = cursor.walk(Some(unwind_to))?;
 
-            let mut addresses = BTreeSet::new();
+        let mut addresses = BTreeSet::new();
 
-            for entry in iterator {
-                let (block, change_entry) = entry?;
+        for entry in iterator {
+            let (block, change_entry) = entry?;
 
-                if block > unwind_to {
-                    addresses.insert(change_entry.key.contract_address);
-                }
+            if block > unwind_to {
+                addresses.insert(change_entry.key.contract_address);
             }
+        }
 
-            dbg!(addresses.len());
+        dbg!(addresses.len());
 
-            for addr in addresses {
-                let trie_db = TrieDbMut::<tables::StoragesTrie, _>::new(tx);
-                let mut storage_trie = StoragesTrie::new(trie_db, addr);
-                storage_trie.revert_to(unwind_to, latest_block_number);
-            }
+        for addr in addresses {
+            let trie_db = TrieDbMut::<tables::StoragesTrie, _>::new(&self.0);
+            let mut storage_trie = StoragesTrie::new(trie_db, addr);
+            storage_trie.revert_to(unwind_to, latest_block_number);
+        }
 
-            let mut contract_trie_db =
-                ContractsTrie::new(TrieDbMut::<tables::ContractsTrie, _>::new(tx));
-            contract_trie_db.revert_to(unwind_to, latest_block_number);
+        let mut contract_trie_db =
+            ContractsTrie::new(TrieDbMut::<tables::ContractsTrie, _>::new(&self.0));
+        contract_trie_db.revert_to(unwind_to, latest_block_number);
 
-            Ok(contract_trie_db.root())
-        })?
+        Ok(contract_trie_db.root())
     }
 }
 

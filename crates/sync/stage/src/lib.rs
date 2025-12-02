@@ -10,7 +10,7 @@ pub mod downloader;
 mod sequencing;
 pub mod trie;
 
-pub use blocks::{Blocks, DatabaseProvider};
+pub use blocks::Blocks;
 pub use classes::Classes;
 pub use sequencing::Sequencing;
 pub use trie::StateTrie;
