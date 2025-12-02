@@ -54,6 +54,9 @@ pub struct FullNodeArgs {
     #[cfg(feature = "explorer")]
     #[command(flatten)]
     pub explorer: ExplorerOptions,
+
+    #[command(flatten)]
+    pub pruning: PruningOptions,
 }
 
 impl FullNodeArgs {
@@ -95,14 +98,28 @@ impl FullNodeArgs {
         let db = self.db_config();
         let rpc = self.rpc_config()?;
         let metrics = self.metrics_config();
+        let pruning = self.pruning_config();
 
         Ok(full::Config {
             db,
             rpc,
             metrics,
+            pruning,
             network: self.network,
             gateway_api_key: self.gateway_api_key.clone(),
         })
+    }
+
+    fn pruning_config(&self) -> Option<full::PruningConfig> {
+        use crate::options::PruningMode as CliPruningMode;
+
+        let mode = match self.pruning.mode.as_ref()? {
+            CliPruningMode::Archive => katana_stage::PruningMode::Archive,
+            CliPruningMode::Minimal => katana_stage::PruningMode::Minimal,
+            CliPruningMode::Full(n) => katana_stage::PruningMode::Full(*n),
+        };
+
+        Some(full::PruningConfig { mode, interval: self.pruning.interval })
     }
 
     fn db_config(&self) -> DbConfig {
