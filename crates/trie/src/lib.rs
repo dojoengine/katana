@@ -106,6 +106,19 @@ where
         let keys = keys.into_iter().map(|key| key.to_bytes_be().as_bits()[5..].to_owned());
         self.storage.get_multi_proof(id, keys, None, None).expect("failed to get multiproof")
     }
+
+    pub fn partial_multiproof(
+        &mut self,
+        id: &[u8],
+        keys: Vec<Felt>,
+        rpc_proof: Option<MultiProof>,
+        rpc_root: Option<Felt>,
+    ) -> MultiProof {
+        let keys = keys.into_iter().map(|key| key.to_bytes_be().as_bits()[5..].to_owned());
+        self.storage
+            .get_multi_proof(id, keys, rpc_proof, rpc_root)
+            .expect("failed to get multiproof")
+    }
 }
 
 impl<DB, Hash> BonsaiTrie<DB, Hash, FullMerkleTrees<Hash, DB, CommitId>>

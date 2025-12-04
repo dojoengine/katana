@@ -219,8 +219,21 @@ impl<Tx1: DbTx> StateProofProvider for LatestStateProvider<Tx1> {
 
             Ok(proofs.classes_proof.nodes.into())
         } else {
-            let mut trie = TrieDbFactory::new(self.local_provider.0.tx()).latest().classes_trie();
-            let proofs = trie.multiproof(classes);
+            // Use partial trie with proof and root from fork_point
+            let mut trie =
+                TrieDbFactory::new(self.local_provider.0.tx()).latest().partial_classes_trie();
+
+            // Fetch proof and root from fork_point
+            let rpc_proof =
+                self.fork_provider.backend.get_classes_proofs(classes.clone(), fork_point)?;
+            let rpc_root = self.fork_provider.backend.get_global_roots(fork_point)?;
+
+            let proof = rpc_proof
+                .map(|p| p.classes_proof.nodes.into())
+                .unwrap_or_else(|| katana_trie::MultiProof(Default::default()));
+            let root = rpc_root.map(|r| r.global_roots.classes_tree_root).unwrap_or(Felt::ZERO);
+
+            let proofs = trie.partial_multiproof(classes, Some(proof), Some(root));
             Ok(proofs)
         }
     }
@@ -238,8 +251,21 @@ impl<Tx1: DbTx> StateProofProvider for LatestStateProvider<Tx1> {
 
             Ok(proofs.contracts_proof.nodes.into())
         } else {
-            let mut trie = TrieDbFactory::new(self.local_provider.0.tx()).latest().contracts_trie();
-            let proofs = trie.multiproof(addresses);
+            // Use partial trie with proof and root from fork_point
+            let mut trie =
+                TrieDbFactory::new(self.local_provider.0.tx()).latest().partial_contracts_trie();
+
+            // Fetch proof and root from fork_point
+            let rpc_proof =
+                self.fork_provider.backend.get_contracts_proofs(addresses.clone(), fork_point)?;
+            let rpc_root = self.fork_provider.backend.get_global_roots(fork_point)?;
+
+            let proof = rpc_proof
+                .map(|p| p.contracts_proof.nodes.into())
+                .unwrap_or_else(|| katana_trie::MultiProof(Default::default()));
+            let root = rpc_root.map(|r| r.global_roots.contracts_tree_root).unwrap_or(Felt::ZERO);
+
+            let proofs = trie.partial_multiproof(addresses, Some(proof), Some(root));
             Ok(proofs)
         }
     }
@@ -261,23 +287,29 @@ impl<Tx1: DbTx> StateProofProvider for LatestStateProvider<Tx1> {
 
             Ok(proofs.into())
         } else {
-            let mut trie =
-                TrieDbFactory::new(self.local_provider.0.tx()).latest().storages_trie(address);
-            let proofs = trie.multiproof(storage_keys.clone());
+            let mut trie = TrieDbFactory::new(self.local_provider.0.tx())
+                .latest()
+                .partial_storages_trie(address);
 
-            // If trie is empty (root is zero) OR if multiproof returned empty proof,
-            // use backend to get proofs from fork point
-            if trie.root() == Felt::ZERO || proofs.0.is_empty() {
-                let key = vec![ContractStorageKeys { address, keys: storage_keys }];
-                if let Some(result) =
-                    self.fork_provider.backend.get_storages_proofs(key, fork_point)?
-                {
-                    let mut backend_proofs = result;
-                    let storage_proof =
-                        backend_proofs.contracts_storage_proofs.nodes.pop().unwrap_or_default();
-                    return Ok(storage_proof.into());
-                }
-            }
+            // Fetch proof and root from fork_point
+            let key = vec![ContractStorageKeys { address, keys: storage_keys.clone() }];
+            let rpc_proof = self.fork_provider.backend.get_storages_proofs(key, fork_point)?;
+            let rpc_root = self.fork_provider.backend.get_storage_root(address, fork_point)?;
+
+            // Get proof for this contract (should be exactly one element in nodes)
+            let proof = rpc_proof
+                .and_then(|p| {
+                    // Should have exactly one element - proof for all storage_keys of this contract
+                    if p.contracts_storage_proofs.nodes.len() == 1 {
+                        Some(p.contracts_storage_proofs.nodes[0].clone().into())
+                    } else {
+                        None
+                    }
+                })
+                .unwrap_or_else(|| katana_trie::MultiProof(Default::default()));
+            let root = rpc_root.unwrap_or(Felt::ZERO);
+
+            let proofs = trie.partial_multiproof(storage_keys, Some(proof), Some(root));
             Ok(proofs)
         }
     }
@@ -500,8 +532,22 @@ impl<Tx1: DbTx> StateProofProvider for HistoricalStateProvider<Tx1> {
             let mut trie = TrieDbFactory::new(self.local_provider.tx())
                 .historical(self.local_provider.block())
                 .ok_or(ProviderError::StateProofNotSupported)?
-                .classes_trie();
-            let proofs = trie.multiproof(classes);
+                .partial_classes_trie();
+
+            // Fetch proof and root from fork_point
+            let rpc_proof = self
+                .fork_provider
+                .backend
+                .get_classes_proofs(classes.clone(), self.fork_provider.block_id)?;
+            let rpc_root =
+                self.fork_provider.backend.get_global_roots(self.fork_provider.block_id)?;
+
+            let proof = rpc_proof
+                .map(|p| p.classes_proof.nodes.into())
+                .unwrap_or_else(|| katana_trie::MultiProof(Default::default()));
+            let root = rpc_root.map(|r| r.global_roots.classes_tree_root).unwrap_or(Felt::ZERO);
+
+            let proofs = trie.partial_multiproof(classes, Some(proof), Some(root));
             Ok(proofs)
         } else {
             let result = self
@@ -522,8 +568,22 @@ impl<Tx1: DbTx> StateProofProvider for HistoricalStateProvider<Tx1> {
             let mut trie = TrieDbFactory::new(self.local_provider.tx())
                 .historical(self.local_provider.block())
                 .ok_or(ProviderError::StateProofNotSupported)?
-                .contracts_trie();
-            let proofs = trie.multiproof(addresses);
+                .partial_contracts_trie();
+
+            // Fetch proof and root from fork_point
+            let rpc_proof = self
+                .fork_provider
+                .backend
+                .get_contracts_proofs(addresses.clone(), self.fork_provider.block_id)?;
+            let rpc_root =
+                self.fork_provider.backend.get_global_roots(self.fork_provider.block_id)?;
+
+            let proof = rpc_proof
+                .map(|p| p.contracts_proof.nodes.into())
+                .unwrap_or_else(|| katana_trie::MultiProof(Default::default()));
+            let root = rpc_root.map(|r| r.global_roots.contracts_tree_root).unwrap_or(Felt::ZERO);
+
+            let proofs = trie.partial_multiproof(addresses, Some(proof), Some(root));
             Ok(proofs)
         } else {
             let result = self
@@ -545,23 +605,24 @@ impl<Tx1: DbTx> StateProofProvider for HistoricalStateProvider<Tx1> {
             let mut trie = TrieDbFactory::new(self.local_provider.tx())
                 .historical(self.local_provider.block())
                 .ok_or(ProviderError::StateProofNotSupported)?
-                .storages_trie(address);
-            let proofs = trie.multiproof(storage_keys.clone());
+                .partial_storages_trie(address);
 
-            if trie.root() == Felt::ZERO || proofs.0.is_empty() {
-                let key = vec![ContractStorageKeys { address, keys: storage_keys }];
-                if let Some(result) = self
-                    .fork_provider
-                    .backend
-                    .get_storages_proofs(key, self.fork_provider.block_id)?
-                {
-                    let mut backend_proofs = result;
-                    let storage_proof =
-                        backend_proofs.contracts_storage_proofs.nodes.pop().unwrap_or_default();
-                    return Ok(storage_proof.into());
-                }
-            }
+            // Fetch proof and root from fork_point
+            let key = vec![ContractStorageKeys { address, keys: storage_keys.clone() }];
+            let rpc_proof =
+                self.fork_provider.backend.get_storages_proofs(key, self.fork_provider.block_id)?;
+            let rpc_root = self
+                .fork_provider
+                .backend
+                .get_storage_root(address, self.fork_provider.block_id)?;
 
+            let proof = rpc_proof
+                .and_then(|mut p| p.contracts_storage_proofs.nodes.pop())
+                .map(|p| p.into())
+                .unwrap_or_else(|| katana_trie::MultiProof(Default::default()));
+            let root = rpc_root.unwrap_or(Felt::ZERO);
+
+            let proofs = trie.partial_multiproof(storage_keys, Some(proof), Some(root));
             Ok(proofs)
         } else {
             let key = vec![ContractStorageKeys { address, keys: storage_keys }];

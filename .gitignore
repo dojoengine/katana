@@ -37,6 +37,7 @@ tests/fixtures/db/*
 
 crates/contracts/build/
 !crates/contracts/build/legacy/
+CONTEXT.md
 
 **/.claude/settings.local.json
 .cargo/

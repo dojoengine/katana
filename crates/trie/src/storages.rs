@@ -65,6 +65,15 @@ impl<DB: BonsaiDatabase> PartialStoragesTrie<DB> {
     pub fn multiproof(&mut self, storage_keys: Vec<StorageKey>) -> MultiProof {
         self.trie.multiproof(&self.address.to_bytes_be(), storage_keys)
     }
+
+    pub fn partial_multiproof(
+        &mut self,
+        storage_keys: Vec<StorageKey>,
+        rpc_proof: Option<MultiProof>,
+        rpc_root: Option<Felt>,
+    ) -> MultiProof {
+        self.trie.partial_multiproof(&self.address.to_bytes_be(), storage_keys, rpc_proof, rpc_root)
+    }
 }
 
 impl<DB> PartialStoragesTrie<DB>

@@ -429,7 +429,6 @@ where
         //  https://docs.starknet.io/learn/protocol/data-availability#v0-13-4
         if contract_address.0 != Felt::ONE
             && contract_address.0 != Felt::TWO
-            && contract_address.0 != Felt::TWO
             && state.class_hash_of_contract(contract_address)?.is_none()
         {
             return Err(StarknetApiError::ContractNotFound);
