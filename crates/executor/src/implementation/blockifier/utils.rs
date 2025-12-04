@@ -11,6 +11,7 @@ use blockifier::execution::contract_class::{
 use blockifier::fee::fee_utils::get_fee_by_gas_vector;
 use blockifier::state::cached_state::{self, TransactionalState};
 use blockifier::state::state_api::{StateReader, UpdatableState};
+use blockifier::state::stateful_compression::{allocate_aliases_in_storage, compress};
 use blockifier::transaction::account_transaction::{
     AccountTransaction, ExecutionFlags as BlockifierExecutionFlags,
 };
@@ -34,6 +35,7 @@ use starknet_api::block::{
     BlockInfo, BlockNumber, BlockTimestamp, FeeType, GasPriceVector, GasPrices, NonzeroGasPrice,
     StarknetVersion,
 };
+use starknet_api::contract_address;
 use starknet_api::contract_class::{ClassInfo, SierraVersion};
 use starknet_api::core::{
     self, ChainId, ClassHash, CompiledClassHash, ContractAddress, EntryPointSelector, Nonce,
@@ -53,6 +55,8 @@ use starknet_api::transaction::{
     InvokeTransaction as ApiInvokeTransaction, InvokeTransactionV3, TransactionHash,
     TransactionVersion,
 };
+
+const ALIAS_CONTRACT_ADDRESS: &str = "0x2";
 
 use super::state::CachedState;
 use crate::abstraction::ExecutionFlags;
@@ -496,7 +500,17 @@ pub fn block_context_from_envs(
 }
 
 pub(super) fn state_update_from_cached_state(state: &CachedState<'_>) -> StateUpdatesWithClasses {
-    let state_diff = state.inner.lock().cached_state.to_state_diff().unwrap();
+    let alias_contract_address = contract_address!(ALIAS_CONTRACT_ADDRESS);
+    allocate_aliases_in_storage(&mut state.inner.lock().cached_state, alias_contract_address)
+        .unwrap();
+
+    let state_diff = state.inner.lock().cached_state.to_state_diff().unwrap().state_maps;
+    let state_diff =
+        compress(&state_diff, &state.inner.lock().cached_state, alias_contract_address);
+
+    assert!(state_diff.is_ok(), "failed to compress state diff");
+
+    let state_diff = state.inner.lock().cached_state.to_state_diff().unwrap().state_maps;
 
     let mut declared_contract_classes: BTreeMap<
         katana_primitives::class::ClassHash,
@@ -508,7 +522,7 @@ pub(super) fn state_update_from_cached_state(state: &CachedState<'_>) -> StateUp
 
     // TODO: Legacy class shouldn't have a compiled class hash. This is a hack we added
     // in our fork of `blockifier. Check if it's possible to remove it now.
-    for (class_hash, compiled_hash) in state_diff.state_maps.compiled_class_hashes {
+    for (class_hash, compiled_hash) in state_diff.compiled_class_hashes {
         let hash = class_hash.0;
         let class = state.class(hash).unwrap().expect("must exist if declared");
 
@@ -523,7 +537,6 @@ pub(super) fn state_update_from_cached_state(state: &CachedState<'_>) -> StateUp
 
     let nonce_updates =
         state_diff
-            .state_maps
             .nonces
             .into_iter()
             .map(|(key, value)| (to_address(key), value.0))
@@ -532,7 +545,7 @@ pub(super) fn state_update_from_cached_state(state: &CachedState<'_>) -> StateUp
                 katana_primitives::contract::Nonce,
             >>();
 
-    let storage_updates = state_diff.state_maps.storage.into_iter().fold(
+    let storage_updates = state_diff.storage.into_iter().fold(
         BTreeMap::new(),
         |mut storage, ((addr, key), value)| {
             let entry: &mut BTreeMap<
@@ -546,7 +559,6 @@ pub(super) fn state_update_from_cached_state(state: &CachedState<'_>) -> StateUp
 
     let deployed_contracts =
         state_diff
-            .state_maps
             .class_hashes
             .into_iter()
             .map(|(key, value)| (to_address(key), value.0))
