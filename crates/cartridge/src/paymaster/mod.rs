@@ -29,6 +29,7 @@ use std::collections::HashSet;
 use std::iter::once;
 
 use cainome_cairo_serde::CairoSerde;
+use katana_core::backend::storage::ProviderRO;
 use katana_genesis::constant::DEFAULT_UDC_ADDRESS;
 use katana_pool::{TransactionPool, TxPool};
 use katana_pool_api::PoolError;
@@ -38,6 +39,7 @@ use katana_primitives::execution::FunctionCall;
 use katana_primitives::fee::{AllResourceBoundsMapping, ResourceBoundsMapping};
 use katana_primitives::transaction::{ExecutableTx, ExecutableTxWithHash, InvokeTx, InvokeTxV3};
 use katana_primitives::{ContractAddress, Felt};
+use katana_provider::ProviderFactory;
 use katana_rpc_api::error::starknet::StarknetApiError;
 use katana_rpc_server::starknet::{PendingBlockProvider, StarknetApi};
 use katana_rpc_types::broadcasted::BroadcastedTx;
@@ -88,8 +90,11 @@ pub enum Error {
 }
 
 #[derive(Debug)]
-pub struct Paymaster<Pool: TransactionPool, PP: PendingBlockProvider> {
-    starknet_api: StarknetApi<Pool, PP>,
+pub struct Paymaster<Pool: TransactionPool, PP: PendingBlockProvider, PF: ProviderFactory>
+where
+    <PF as ProviderFactory>::Provider: ProviderRO,
+{
+    starknet_api: StarknetApi<Pool, PP, PF>,
     cartridge_api: Client,
     pool: TxPool,
     chain_id: ChainId,
@@ -98,9 +103,13 @@ pub struct Paymaster<Pool: TransactionPool, PP: PendingBlockProvider> {
     vrf_ctx: VrfContext,
 }
 
-impl<Pool: TransactionPool + 'static, PP: PendingBlockProvider> Paymaster<Pool, PP> {
+impl<Pool: TransactionPool + 'static, PP: PendingBlockProvider, PF: ProviderFactory>
+    Paymaster<Pool, PP, PF>
+where
+    <PF as ProviderFactory>::Provider: ProviderRO,
+{
     pub fn new(
-        starknet_api: StarknetApi<Pool, PP>,
+        starknet_api: StarknetApi<Pool, PP, PF>,
         cartridge_api: Client,
         pool: TxPool,
         chain_id: ChainId,
@@ -251,7 +260,7 @@ impl<Pool: TransactionPool + 'static, PP: PendingBlockProvider> Paymaster<Pool, 
     /// Returns a [`Layer`](tower::Layer) implementation of [`Paymaster`].
     ///
     /// This allows the paymaster to be used as a middleware in Katana RPC stack.
-    pub fn layer(self) -> PaymasterLayer<Pool, PP> {
+    pub fn layer(self) -> PaymasterLayer<Pool, PP, PF> {
         PaymasterLayer { paymaster: self }
     }
 
@@ -415,18 +424,26 @@ impl<Pool: TransactionPool + 'static, PP: PendingBlockProvider> Paymaster<Pool, 
                 self.starknet_api.state(&BlockIdOrTag::Latest).map_err(Error::StarknetApi)?;
 
             let key = pedersen_hash(&selector!("VrfProvider_nonces"), &contract_address);
-            state.storage(vrf_ctx.address(), key).unwrap_or_default().unwrap_or_default()
+            state
+                .storage(vrf_ctx.address(), key)
+                .expect("failed to get storage")
+                .expect("storage not found")
         } else if salt_or_nonce_selector == Felt::ONE {
             salt_or_nonce
         } else {
             return Err(Error::Vrf(format!(
-                "Invalid salt or nonce for VRF request, expecting 0 or 1, got {}",
-                salt_or_nonce_selector
+                "Invalid salt or nonce for VRF request, expecting 0 or 1, got \
+                 {salt_or_nonce_selector}"
             )));
         };
 
         let seed = starknet_crypto::poseidon_hash_many(vec![&source, &caller, &chain_id.id()]);
         let proof = vrf_ctx.stark_vrf(seed).map_err(|e| Error::Vrf(e.to_string()))?;
+
+        println!("source: {:?}", source);
+        println!("caller: {:?}", caller);
+        println!("chain_id: {:?}", chain_id.id());
+        println!("seed: {:?}", seed);
 
         let submit_random_call = Call {
             to: vrf_ctx.address().into(),
@@ -518,7 +535,11 @@ impl<Pool: TransactionPool + 'static, PP: PendingBlockProvider> Paymaster<Pool, 
     }
 }
 
-impl<Pool: TransactionPool, PP: PendingBlockProvider> Clone for Paymaster<Pool, PP> {
+impl<Pool: TransactionPool, PP: PendingBlockProvider, PF: ProviderFactory> Clone
+    for Paymaster<Pool, PP, PF>
+where
+    <PF as ProviderFactory>::Provider: ProviderRO,
+{
     fn clone(&self) -> Self {
         Self {
             pool: self.pool.clone(),

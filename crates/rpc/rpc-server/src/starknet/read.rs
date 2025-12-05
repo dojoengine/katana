@@ -1,16 +1,12 @@
 use jsonrpsee::core::{async_trait, RpcResult};
 use jsonrpsee::types::ErrorObjectOwned;
 use katana_core::backend::storage::ProviderRO;
-#[cfg(feature = "cartridge")]
-use katana_genesis::allocation::GenesisAccountAlloc;
 use katana_pool::TransactionPool;
 use katana_primitives::block::BlockIdOrTag;
 use katana_primitives::class::ClassHash;
 use katana_primitives::contract::{Nonce, StorageKey, StorageValue};
 use katana_primitives::transaction::{ExecutableTx, ExecutableTxWithHash, TxHash};
 use katana_primitives::{ContractAddress, Felt};
-#[cfg(feature = "cartridge")]
-use katana_provider::api::state::StateFactoryProvider;
 use katana_provider::ProviderFactory;
 use katana_rpc_api::error::starknet::{StarknetApiError, UnexpectedErrorData};
 use katana_rpc_api::starknet::StarknetApiServer;

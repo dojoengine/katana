@@ -4,6 +4,7 @@ use std::sync::Arc;
 use anyhow::anyhow;
 use cainome::cairo_serde::CairoSerde;
 use jsonrpsee::core::{async_trait, RpcResult};
+use katana_core::backend::storage::ProviderRO;
 use katana_core::backend::Backend;
 use katana_core::service::block_producer::{BlockProducer, BlockProducerMode};
 use katana_executor::ExecutorFactory;
@@ -14,6 +15,7 @@ use katana_primitives::fee::{AllResourceBoundsMapping, ResourceBoundsMapping};
 use katana_primitives::transaction::{ExecutableTx, ExecutableTxWithHash, InvokeTx, InvokeTxV3};
 use katana_primitives::{ContractAddress, Felt};
 use katana_provider::api::state::{StateFactoryProvider, StateProvider};
+use katana_provider::ProviderFactory;
 use katana_rpc_api::error::starknet::StarknetApiError;
 use katana_rpc_types::broadcasted::AddInvokeTransactionResponse;
 use katana_rpc_types::FunctionCall;
@@ -31,17 +33,20 @@ pub use api::*;
 use crate::utils::encode_calls;
 
 #[allow(missing_debug_implementations)]
-pub struct CartridgeApi<EF: ExecutorFactory> {
+pub struct CartridgeApi<EF: ExecutorFactory, PF: ProviderFactory> {
     task_spawner: TaskSpawner,
-    block_producer: BlockProducer<EF>,
-    backend: Arc<Backend<EF>>,
+    block_producer: BlockProducer<EF, PF>,
+    backend: Arc<Backend<EF, PF>>,
     pool: TxPool,
 }
 
-impl<EF: ExecutorFactory> CartridgeApi<EF> {
+impl<EF: ExecutorFactory, PF: ProviderFactory> CartridgeApi<EF, PF>
+where
+    <PF as ProviderFactory>::Provider: ProviderRO,
+{
     pub fn new(
-        backend: Arc<Backend<EF>>,
-        block_producer: BlockProducer<EF>,
+        backend: Arc<Backend<EF, PF>>,
+        block_producer: BlockProducer<EF, PF>,
         pool: TxPool,
         task_spawner: TaskSpawner,
     ) -> Self {
@@ -57,7 +62,7 @@ impl<EF: ExecutorFactory> CartridgeApi<EF> {
 
     fn state(&self) -> Result<Box<dyn StateProvider>, StarknetApiError> {
         match &*self.block_producer.producer.read() {
-            BlockProducerMode::Instant(_) => Ok(self.backend.blockchain.provider().latest()?),
+            BlockProducerMode::Instant(_) => Ok(self.backend.storage.provider().latest()?),
             BlockProducerMode::Interval(producer) => Ok(producer.executor().read().state()),
         }
     }
@@ -157,7 +162,7 @@ impl<EF: ExecutorFactory> CartridgeApi<EF> {
     }
 }
 
-impl<EF: ExecutorFactory> Clone for CartridgeApi<EF> {
+impl<EF: ExecutorFactory, PF: ProviderFactory> Clone for CartridgeApi<EF, PF> {
     fn clone(&self) -> Self {
         Self {
             pool: self.pool.clone(),
@@ -169,7 +174,10 @@ impl<EF: ExecutorFactory> Clone for CartridgeApi<EF> {
 }
 
 #[async_trait]
-impl<EF: ExecutorFactory> CartridgeApiServer for CartridgeApi<EF> {
+impl<EF: ExecutorFactory, PF: ProviderFactory> CartridgeApiServer for CartridgeApi<EF, PF>
+where
+    <PF as ProviderFactory>::Provider: ProviderRO,
+{
     async fn add_execute_outside_transaction(
         &self,
         address: ContractAddress,
