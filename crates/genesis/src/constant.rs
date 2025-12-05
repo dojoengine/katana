@@ -7,17 +7,17 @@ use starknet::macros::felt;
 
 /// The default universal deployer contract address.
 pub const DEFAULT_UDC_ADDRESS: ContractAddress =
-    ContractAddress(felt!("0x041a78e741e5af2fec34b695679bc6891742439f7afb8484ecd7766661ad02bf"));
+    ContractAddress(felt!("0x41a78e741e5af2fec34b695679bc6891742439f7afb8484ecd7766661ad02bf"));
 
 /// The default ETH fee token contract address.
 /// See https://github.com/starknet-io/starknet-addresses/blob/master/bridged_tokens/mainnet.json
 pub const DEFAULT_ETH_FEE_TOKEN_ADDRESS: ContractAddress =
-    ContractAddress(felt!("0x049d36570d4e46f48e99674bd3fcc84644ddd6b96f7c741b1562b82f9e004dc7"));
+    ContractAddress(felt!("0x2e7442625bab778683501c0eadbc1ea17b3535da040a12ac7d281066e915eea"));
 
 /// The default STRK fee token contract address.
 /// See https://github.com/starknet-io/starknet-addresses/blob/master/bridged_tokens/mainnet.json
 pub const DEFAULT_STRK_FEE_TOKEN_ADDRESS: ContractAddress =
-    ContractAddress(felt!("0x04718f5a0fc34cc1af16a1cdee98ffb20c31f5cd61d6ab07201858f4287c938d"));
+    ContractAddress(felt!("0x2e7442625bab778683501c0eadbc1ea17b3535da040a12ac7d281066e915eea"));
 
 /// The standard storage address for `public key` in the default account class.
 /// Corresponds to keccak("Account_public_key")
