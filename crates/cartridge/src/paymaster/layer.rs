@@ -5,9 +5,11 @@ use jsonrpsee::core::middleware::{Batch, Notification, RpcServiceT};
 use jsonrpsee::core::traits::ToRpcParams;
 use jsonrpsee::types::Request;
 use jsonrpsee::MethodResponse;
+use katana_core::backend::storage::ProviderRO;
 use katana_pool::TransactionPool;
 use katana_primitives::block::BlockIdOrTag;
 use katana_primitives::{ContractAddress, Felt};
+use katana_provider::ProviderFactory;
 use katana_rpc_server::starknet::PendingBlockProvider;
 use katana_rpc_types::broadcasted::BroadcastedTx;
 use serde::Deserialize;
@@ -17,20 +19,29 @@ use super::{Error, Paymaster};
 use crate::rpc::types::OutsideExecution;
 
 #[derive(Debug)]
-pub struct PaymasterLayer<Pool: TransactionPool, PP: PendingBlockProvider> {
-    pub(crate) paymaster: Paymaster<Pool, PP>,
+pub struct PaymasterLayer<Pool: TransactionPool, PP: PendingBlockProvider, PF: ProviderFactory>
+where
+    <PF as ProviderFactory>::Provider: ProviderRO,
+{
+    pub(crate) paymaster: Paymaster<Pool, PP, PF>,
 }
 
-impl<Pool: TransactionPool, PP: PendingBlockProvider> Clone for PaymasterLayer<Pool, PP> {
+impl<Pool: TransactionPool, PP: PendingBlockProvider, PF: ProviderFactory> Clone
+    for PaymasterLayer<Pool, PP, PF>
+where
+    <PF as ProviderFactory>::Provider: ProviderRO,
+{
     fn clone(&self) -> Self {
         Self { paymaster: self.paymaster.clone() }
     }
 }
 
-impl<S, Pool: TransactionPool, PP: PendingBlockProvider> tower::Layer<S>
-    for PaymasterLayer<Pool, PP>
+impl<S, Pool: TransactionPool, PP: PendingBlockProvider, PF: ProviderFactory> tower::Layer<S>
+    for PaymasterLayer<Pool, PP, PF>
+where
+    <PF as ProviderFactory>::Provider: ProviderRO,
 {
-    type Service = PaymasterService<S, Pool, PP>;
+    type Service = PaymasterService<S, Pool, PP, PF>;
 
     fn layer(&self, service: S) -> Self::Service {
         PaymasterService { service, paymaster: self.paymaster.clone() }
@@ -38,16 +49,21 @@ impl<S, Pool: TransactionPool, PP: PendingBlockProvider> tower::Layer<S>
 }
 
 #[derive(Debug)]
-pub struct PaymasterService<S, Pool: TransactionPool, PP: PendingBlockProvider> {
+pub struct PaymasterService<S, Pool: TransactionPool, PP: PendingBlockProvider, PF: ProviderFactory>
+where
+    <PF as ProviderFactory>::Provider: ProviderRO,
+{
     service: S,
-    paymaster: Paymaster<Pool, PP>,
+    paymaster: Paymaster<Pool, PP, PF>,
 }
 
-impl<S, Pool: TransactionPool + 'static, PP: PendingBlockProvider> PaymasterService<S, Pool, PP>
+impl<S, Pool: TransactionPool + 'static, PP: PendingBlockProvider, PF: ProviderFactory>
+    PaymasterService<S, Pool, PP, PF>
 where
     S: RpcServiceT + Send + Sync + Clone + 'static,
+    <PF as ProviderFactory>::Provider: ProviderRO,
 {
-    async fn intercept_estimate_fee(paymaster: Paymaster<Pool, PP>, request: &mut Request<'_>) {
+    async fn intercept_estimate_fee(paymaster: Paymaster<Pool, PP, PF>, request: &mut Request<'_>) {
         let params = request.params();
 
         let (txs, simulation_flags, block_id) = if params.is_object() {
@@ -95,7 +111,7 @@ where
     }
 
     async fn intercept_add_outside_execution(
-        paymaster: Paymaster<Pool, PP>,
+        paymaster: Paymaster<Pool, PP, PF>,
         request: &mut Request<'_>,
     ) {
         let params = request.params();
@@ -153,17 +169,19 @@ where
     }
 }
 
-impl<S, Pool: TransactionPool, PP: PendingBlockProvider> Clone for PaymasterService<S, Pool, PP>
+impl<S, Pool: TransactionPool, PP: PendingBlockProvider, PF: ProviderFactory> Clone
+    for PaymasterService<S, Pool, PP, PF>
 where
     S: Clone,
+    <PF as ProviderFactory>::Provider: ProviderRO,
 {
     fn clone(&self) -> Self {
         Self { service: self.service.clone(), paymaster: self.paymaster.clone() }
     }
 }
 
-impl<S, Pool: TransactionPool + 'static, PP: PendingBlockProvider> RpcServiceT
-    for PaymasterService<S, Pool, PP>
+impl<S, Pool: TransactionPool + 'static, PP: PendingBlockProvider, PF: ProviderFactory> RpcServiceT
+    for PaymasterService<S, Pool, PP, PF>
 where
     S: RpcServiceT<
             MethodResponse = MethodResponse,
@@ -173,6 +191,7 @@ where
         + Sync
         + Clone
         + 'static,
+    <PF as ProviderFactory>::Provider: ProviderRO,
 {
     type MethodResponse = S::MethodResponse;
     type BatchResponse = S::BatchResponse;
