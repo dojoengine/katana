@@ -674,9 +674,8 @@ mod tests {
     use katana_primitives::state::{StateUpdates, StateUpdatesWithClasses};
     use katana_primitives::ContractAddress;
     use katana_primitives::Felt;
+    use katana_provider::api::block::BlockNumberProvider;
     use katana_provider::api::block::BlockWriter;
-    use katana_provider::api::block::{BlockHashProvider, BlockNumberProvider};
-    use katana_provider::api::env::BlockEnvProvider;
     use katana_provider::api::trie::TrieWriter;
     use katana_provider::MutableProvider;
     use katana_provider::{ForkProviderFactory, ProviderFactory};
@@ -690,8 +689,6 @@ mod tests {
     use std::sync::Arc;
     use url::Url;
 
-    // const SEPOLIA_URL: &str = "https://api.cartridge.gg/x/starknet/sepolia";
-    const SEPOLIA_URL: &str = "https://rpc.starknet-testnet.lava.build:443";
     #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
     async fn test_commit_new_state_root_mainnet_blockchain_and_forked_provider() {
         use katana_utils::TestNode;
@@ -819,7 +816,7 @@ mod tests {
     }
 
     /// To run this test you need to comment out global cache part in Node::build() "let global_class_cache = class_cache.build_global()?";
-    #[tokio::test(flavor = "multi_thread", worker_threads = 1)]
+    #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
     async fn test_commit_new_state_root_two_katana_instances() {
         let sequencer = TestNode::new().await;
         let backend = sequencer.backend();

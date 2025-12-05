@@ -535,7 +535,6 @@ pub(super) fn state_update_from_cached_state(state: &CachedState<'_>) -> StateUp
 
     let nonce_updates =
         state_diff
-            
             .nonces
             .into_iter()
             .map(|(key, value)| (to_address(key), value.0))

@@ -161,12 +161,11 @@ impl<Tx1: DbTx> StateProvider for LatestStateProvider<Tx1> {
         &self,
         address: ContractAddress,
     ) -> ProviderResult<Option<ClassHash>> {
-        if let res @ Some(_) = self.local_provider.class_hash_of_contract(address)? {
+        if let res @ Some(..) = self.local_provider.class_hash_of_contract(address)? {
             Ok(res)
         } else if let Some(class_hash) =
             self.fork_provider.backend.get_class_hash_at(address, self.fork_provider.block_id)?
         {
-            // Use default nonce (0) if nonce is not available - contracts can exist without nonce
             let nonce = self
                 .fork_provider
                 .backend
@@ -320,23 +319,21 @@ impl<Tx1: DbTx> StateRootProvider for LatestStateProvider<Tx1> {
         let fork_point = self.fork_provider.block_id;
         let latest_block_number = self.latest_block_number()?;
 
-        // Get fork point root (used when latest_block_number == fork_point or when trie is empty)
-        let fork_root = || -> ProviderResult<Felt> {
-            let result = self.fork_provider.backend.get_global_roots(fork_point)?;
-            Ok(result.expect("proofs should exist for block").global_roots.classes_tree_root)
-        };
-
         if latest_block_number == fork_point {
-            return fork_root();
+            let result = self.fork_provider.backend.get_global_roots(fork_point)?;
+            return Ok(result
+                .expect("proofs should exist for block")
+                .global_roots
+                .classes_tree_root);
         }
 
         // Try to get root from local trie
         let trie = TrieDbFactory::new(self.local_provider.0.tx()).latest().classes_trie();
         let root = trie.root();
 
-        // If trie is empty (no local class changes), use the fork point root
         if root == Felt::ZERO {
-            fork_root()
+            let result = self.fork_provider.backend.get_global_roots(fork_point)?;
+            Ok(result.expect("proofs should exist for block").global_roots.classes_tree_root)
         } else {
             Ok(root)
         }
@@ -346,14 +343,12 @@ impl<Tx1: DbTx> StateRootProvider for LatestStateProvider<Tx1> {
         let fork_point = self.fork_provider.block_id;
         let latest_block_number = self.latest_block_number()?;
 
-        // Get fork point root (used when latest_block_number == fork_point or when trie is empty)
-        let fork_root = || -> ProviderResult<Felt> {
-            let result = self.fork_provider.backend.get_global_roots(fork_point)?;
-            Ok(result.expect("proofs should exist for block").global_roots.contracts_tree_root)
-        };
-
         if latest_block_number == fork_point {
-            return fork_root();
+            let result = self.fork_provider.backend.get_global_roots(fork_point)?;
+            return Ok(result
+                .expect("proofs should exist for block")
+                .global_roots
+                .contracts_tree_root);
         }
 
         // Try to get root from local trie
@@ -362,7 +357,8 @@ impl<Tx1: DbTx> StateRootProvider for LatestStateProvider<Tx1> {
 
         // If trie is empty (no local contract changes), use the fork point root
         if root == Felt::ZERO {
-            fork_root()
+            let result = self.fork_provider.backend.get_global_roots(fork_point)?;
+            Ok(result.expect("proofs should exist for block").global_roots.contracts_tree_root)
         } else {
             Ok(root)
         }
@@ -377,18 +373,17 @@ impl<Tx1: DbTx> StateRootProvider for LatestStateProvider<Tx1> {
             let root = result.expect("proofs should exist for block");
             Ok(Some(root))
         } else {
-            let trie =
-                TrieDbFactory::new(self.local_provider.0.tx()).latest().storages_trie(contract);
-            let root = trie.root();
+            let root = TrieDbFactory::new(self.local_provider.0.tx())
+                .latest()
+                .storages_trie(contract)
+                .root();
             // If trie is empty (no local storage changes), use the fork point root as base
             if root == Felt::ZERO {
-                if let Some(fork_root) =
-                    self.fork_provider.backend.get_storage_root(contract, fork_point)?
-                {
-                    Ok(Some(fork_root))
-                } else {
-                    Ok(Some(Felt::ZERO))
-                }
+                Ok(self
+                    .fork_provider
+                    .backend
+                    .get_storage_root(contract, fork_point)?
+                    .or(Some(Felt::ZERO)))
             } else {
                 Ok(Some(root))
             }
@@ -457,7 +452,7 @@ impl<Tx1: DbTx> StateProvider for HistoricalStateProvider<Tx1> {
             return Ok(None);
         }
 
-        if let res @ Some(_) =
+        if let res @ Some(..) =
             self.fork_provider.backend.get_nonce(address, self.local_provider.block())?
         {
             // Don't modify NonceChangeHistory during read - it should only be modified
@@ -483,7 +478,7 @@ impl<Tx1: DbTx> StateProvider for HistoricalStateProvider<Tx1> {
             return Ok(None);
         }
 
-        if let res @ Some(_) =
+        if let res @ Some(..) =
             self.fork_provider.backend.get_class_hash_at(address, self.local_provider.block())?
         {
             // Don't modify ClassChangeHistory during read - it should only be modified
@@ -510,7 +505,7 @@ impl<Tx1: DbTx> StateProvider for HistoricalStateProvider<Tx1> {
             return Ok(None);
         }
 
-        if let res @ Some(_) =
+        if let res @ Some(..) =
             self.fork_provider.backend.get_storage(address, key, self.local_provider.block())?
         {
             // Don't cache storage values during read - HistoricalStateProvider uses
