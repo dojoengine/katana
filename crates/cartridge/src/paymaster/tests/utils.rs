@@ -15,7 +15,7 @@ use katana_primitives::fee::{
     AllResourceBoundsMapping, ResourceBounds, ResourceBoundsMapping, Tip,
 };
 use katana_primitives::transaction::{ExecutableTx, InvokeTx};
-use katana_provider::BlockchainProvider;
+use katana_provider::DbProviderFactory;
 use katana_rpc_client::starknet::Client as StarknetClient;
 use katana_rpc_server::starknet::{StarknetApi, StarknetApiConfig};
 use katana_rpc_types::broadcasted::{BroadcastedInvokeTx, BroadcastedTx};
@@ -193,7 +193,11 @@ pub async fn setup(
     cartridge_url: &str,
     paymaster_address: Option<ContractAddress>,
     paymaster_private_key: Option<SigningKey>,
-) -> (TestNode, Paymaster<TxPool, BlockProducer<BlockifierFactory>>, ContractAddress) {
+) -> (
+    TestNode,
+    Paymaster<TxPool, BlockProducer<BlockifierFactory, DbProviderFactory>, DbProviderFactory>,
+    ContractAddress,
+) {
     let config = test_config();
     let sequencer = TestNode::new_with_config(config.clone()).await;
     let block_producer = BlockProducer::instant(Arc::clone(&sequencer.backend()));
@@ -203,7 +207,6 @@ pub async fn setup(
 
     let starknet_api = StarknetApi::new(
         sequencer.backend().chain_spec.clone(),
-        BlockchainProvider::new(Box::new(sequencer.backend().blockchain.provider().clone())),
         TxPool::new(validator.clone(), FiFo::new()),
         task_spawner,
         block_producer.clone(),
@@ -216,6 +219,7 @@ pub async fn setup(
             simulation_flags: ExecutionFlags::default(),
             versioned_constant_overrides: None,
         },
+        sequencer.backend().storage.clone(),
     );
 
     let client = Client::new(Url::parse(cartridge_url).unwrap());
@@ -225,19 +229,18 @@ pub async fn setup(
         .backend()
         .chain_spec
         .genesis()
-        .accounts()
-        .nth(0)
+        .paymaster_account()
         .expect("must have at least one account");
 
-    let private_key = pm_account.private_key().expect("must exist");
+    let private_key = pm_account.private_key;
 
-    let vrf_ctx = VrfContext::new(VRF_PRIVATE_KEY_FOR_TESTS, *pm_address);
+    let vrf_ctx = VrfContext::new(VRF_PRIVATE_KEY_FOR_TESTS, pm_address);
     let paymaster = Paymaster::new(
         starknet_api,
         client,
         TxPool::new(validator.clone(), FiFo::new()),
         ChainId::Id(Felt::ONE),
-        paymaster_address.unwrap_or(*pm_address),
+        paymaster_address.unwrap_or(pm_address),
         paymaster_private_key.unwrap_or(SigningKey::from_secret_scalar(private_key)),
         vrf_ctx.clone(),
     );

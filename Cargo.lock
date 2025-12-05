@@ -3432,6 +3432,7 @@ dependencies = [
  "katana-chain-spec",
  "katana-contracts",
  "katana-core",
+ "katana-db",
  "katana-executor",
  "katana-gas-price-oracle",
  "katana-genesis",

@@ -43,6 +43,7 @@ tower.workspace = true
 
 [dev-dependencies]
 assert_matches.workspace = true
+katana-db.workspace = true
 katana-node.workspace = true
 katana-test-utils.workspace = true
 katana-utils.workspace = true

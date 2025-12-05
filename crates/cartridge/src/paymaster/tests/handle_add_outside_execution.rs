@@ -2,7 +2,8 @@ use assert_matches::assert_matches;
 use futures::StreamExt;
 use katana_pool::TransactionPool;
 use katana_primitives::contract::ContractAddress;
-use katana_provider::api::state::StateWriter;
+use katana_provider::api::state::{StateFactoryProvider, StateWriter};
+use katana_provider::{MutableProvider, ProviderFactory};
 use starknet::macros::{felt, selector};
 use starknet::signers::SigningKey;
 use starknet_crypto::{pedersen_hash, Felt};
@@ -171,7 +172,7 @@ async fn test_cartridge_outside_execution_when_vrf_is_already_deployed() {
         .chain_spec
         .genesis()
         .accounts()
-        .nth(0)
+        .nth(2)
         .expect("must have at least one account");
 
     // deploy the VRF provider
@@ -184,13 +185,11 @@ async fn test_cartridge_outside_execution_when_vrf_is_already_deployed() {
 
     // Set a non-zero nonce for the controller which calls the VRF provider
     let controller_nonce = Felt::TWO;
-    node.blockchain()
-        .set_storage(
-            vrf_address,
-            pedersen_hash(&selector!("VrfProvider_nonces"), &controller_address),
-            controller_nonce,
-        )
-        .expect("failed to set caller nonce");
+    let key = pedersen_hash(&selector!("VrfProvider_nonces"), &controller_address);
+
+    let provider = paymaster.starknet_api.storage().provider_mut();
+    provider.set_storage(vrf_address, key, controller_nonce).expect("failed to set storage");
+    provider.commit().expect("failed to commit");
 
     // use a nonce source
     let outside_execution = craft_valid_outside_execution_v3(
@@ -206,6 +205,12 @@ async fn test_cartridge_outside_execution_when_vrf_is_already_deployed() {
         &controller_address,
         &paymaster.chain_id.id(),
     ]);
+
+    println!("controller_nonce: {:?}", controller_nonce);
+    println!("controller_address: {:?}", controller_address);
+    println!("chain_id: {:?}", paymaster.chain_id.id());
+    println!("expected_seed: {:?}", expected_seed);
+
     let expected_proof = paymaster.vrf_ctx.stark_vrf(expected_seed).unwrap();
 
     let res = paymaster
@@ -359,8 +364,7 @@ async fn test_cartridge_outside_execution_when_vrf_request_random_call_only() {
 }
 
 #[tokio::test(flavor = "multi_thread")]
-async fn test_cartridge_outside_execution_when_caller_is_a_not_yet_deployed_but_wrong_paymaster_pkey(
-) {
+async fn test_cartridge_outside_execution_when_wrong_paymaster_pkey() {
     let mut server = setup_cartridge_server().await;
     let (_, paymaster, _) =
         setup(&server.url(), None, Some(SigningKey::from_secret_scalar(Felt::THREE))).await;

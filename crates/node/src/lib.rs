@@ -8,7 +8,13 @@ pub mod exit;
 use std::future::IntoFuture;
 use std::sync::Arc;
 
-use anyhow::{bail, Context, Result};
+use anyhow::{anyhow, bail, Context, Result};
+#[cfg(feature = "cartridge")]
+use cartridge::paymaster::{layer::PaymasterLayer, Paymaster};
+#[cfg(feature = "cartridge")]
+use cartridge::rpc::{CartridgeApi, CartridgeApiServer};
+#[cfg(feature = "cartridge")]
+use cartridge::vrf::VrfContext;
 use config::rpc::RpcModuleKind;
 use config::Config;
 use http::header::CONTENT_TYPE;
@@ -46,7 +52,6 @@ use katana_rpc_api::starknet_ext::StarknetApiExtServer;
 #[cfg(feature = "tee")]
 use katana_rpc_api::tee::TeeApiServer;
 use katana_rpc_client::starknet::Client as StarknetClient;
-#[cfg(feature = "cartridge")]
 use katana_rpc_server::cors::Cors;
 use katana_rpc_server::dev::DevApi;
 use katana_rpc_server::logger::RpcLoggerLayer;
@@ -66,12 +71,12 @@ use tracing::info;
 use crate::exit::NodeStoppedFuture;
 
 /// The concrete type of of the RPC middleware stack used by the node.
-type NodeRpcMiddleware = Stack<
-    Either<PaymasterLayer<TxPool, BlockProducer<BlockifierFactory>>, Identity>,
+type NodeRpcMiddleware<P> = Stack<
+    Either<PaymasterLayer<TxPool, BlockProducer<BlockifierFactory, P>, P>, Identity>,
     Stack<RpcLoggerLayer, Stack<RpcServerMetricsLayer, Identity>>,
 >;
 
-pub type NodeRpcServer = RpcServer<NodeRpcMiddleware>;
+pub type NodeRpcServer<P> = RpcServer<NodeRpcMiddleware<P>>;
 
 /// A node instance.
 ///
@@ -232,7 +237,12 @@ where
                 "Cartridge API should be enabled when paymaster is set"
             );
 
-            let api = CartridgeApi::new(backend.clone(), pool.clone());
+            let api = CartridgeApi::new(
+                backend.clone(),
+                block_producer.clone(),
+                pool.clone(),
+                task_spawner.clone(),
+            );
 
             rpc_modules.merge(CartridgeApiServer::into_rpc(api))?;
 
@@ -663,7 +673,7 @@ where
     }
 
     /// Returns a reference to the node's JSON-RPC server.
-    pub fn rpc(&self) -> &NodeRpcServer {
+    pub fn rpc(&self) -> &NodeRpcServer<P> {
         &self.rpc_server
     }
 
