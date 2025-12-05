@@ -1,7 +1,9 @@
 use std::cmp::Ordering;
 
 use katana_db::abstraction::{DbTx, DbTxMut};
-use katana_db::models::storage::StorageEntry;
+use katana_db::models::contract::ContractClassChange;
+use katana_db::models::contract::ContractNonceChange;
+use katana_db::models::storage::{ContractStorageEntry, ContractStorageKey, StorageEntry};
 use katana_db::tables;
 use katana_db::trie::TrieDbFactory;
 use katana_primitives::block::BlockHashOrNumber;
@@ -319,6 +321,7 @@ impl<Tx1: DbTx> StateRootProvider for LatestStateProvider<Tx1> {
         let fork_point = self.fork_provider.block_id;
         let latest_block_number = self.latest_block_number()?;
 
+        //That's not necessary
         if latest_block_number == fork_point {
             let result = self.fork_provider.backend.get_global_roots(fork_point)?;
             return Ok(result
@@ -403,12 +406,8 @@ impl<Tx1: DbTx> ContractClassProvider for HistoricalStateProvider<Tx1> {
             return Ok(res);
         }
 
-        if self.local_provider.block() > self.fork_provider.block_id {
-            return Ok(None);
-        }
-
         if let class @ Some(..) =
-            self.fork_provider.backend.get_class_at(hash, self.local_provider.block())?
+            self.fork_provider.backend.get_class_at(hash, self.fork_provider.block_id)?
         {
             Ok(class)
         } else {
@@ -424,12 +423,8 @@ impl<Tx1: DbTx> ContractClassProvider for HistoricalStateProvider<Tx1> {
             return Ok(res);
         }
 
-        if self.local_provider.block() > self.fork_provider.block_id {
-            return Ok(None);
-        }
-
         if let Some(compiled_hash) =
-            self.fork_provider.backend.get_compiled_class_hash(hash, self.local_provider.block())?
+            self.fork_provider.backend.get_compiled_class_hash(hash, self.fork_provider.block_id)?
         {
             let provider_mut = self.fork_provider.db.provider_mut();
             provider_mut.tx().put::<tables::CompiledClassHashes>(hash, compiled_hash)?;
@@ -448,18 +443,9 @@ impl<Tx1: DbTx> StateProvider for HistoricalStateProvider<Tx1> {
             return Ok(res);
         }
 
-        if self.local_provider.block() > self.fork_provider.block_id {
-            return Ok(None);
-        }
-
-        if let res @ Some(..) =
-            self.fork_provider.backend.get_nonce(address, self.local_provider.block())?
+        if let res @ Some(nonce) =
+            self.fork_provider.backend.get_nonce(address, self.fork_provider.block_id)?
         {
-            // Don't modify NonceChangeHistory during read - it should only be modified
-            // when writing state updates. This prevents state_update from returning
-            // different results on subsequent reads for the same historical block.
-            // The NonceChangeHistory entry should be inserted at the state update level
-            // when the block is actually written, not during read operations.
             Ok(res)
         } else {
             Ok(None)
@@ -474,18 +460,9 @@ impl<Tx1: DbTx> StateProvider for HistoricalStateProvider<Tx1> {
             return Ok(res);
         }
 
-        if self.local_provider.block() > self.fork_provider.block_id {
-            return Ok(None);
-        }
-
-        if let res @ Some(..) =
-            self.fork_provider.backend.get_class_hash_at(address, self.local_provider.block())?
+        if let res @ Some(hash) =
+            self.fork_provider.backend.get_class_hash_at(address, self.fork_provider.block_id)?
         {
-            // Don't modify ClassChangeHistory during read - it should only be modified
-            // when writing state updates. This prevents state_update from returning
-            // different results on subsequent reads for the same historical block.
-            // The ClassChangeHistory entry should be inserted at the state update level
-            // when the block is actually written, not during read operations.
             Ok(res)
         } else {
             Ok(None)
@@ -501,19 +478,9 @@ impl<Tx1: DbTx> StateProvider for HistoricalStateProvider<Tx1> {
             return Ok(res);
         }
 
-        if self.local_provider.block() > self.fork_provider.block_id {
-            return Ok(None);
-        }
-
-        if let res @ Some(..) =
-            self.fork_provider.backend.get_storage(address, key, self.local_provider.block())?
+        if let res @ Some(value) =
+            self.fork_provider.backend.get_storage(address, key, self.fork_provider.block_id)?
         {
-            // Don't cache storage values during read - HistoricalStateProvider uses
-            // StorageChangeHistory for historical blocks, not ContractStorage.
-            // Also, we have a fallback to backend in storage_multiproof() if trie is empty,
-            // so caching is not necessary for proof generation.
-            // The StorageChangeHistory entry should be inserted at the state update level
-            // when the block is actually written, not during read operations.
             Ok(res)
         } else {
             Ok(None)
@@ -548,7 +515,7 @@ impl<Tx1: DbTx> StateProofProvider for HistoricalStateProvider<Tx1> {
             let result = self
                 .fork_provider
                 .backend
-                .get_classes_proofs(classes, self.local_provider.block())?;
+                .get_classes_proofs(classes, self.fork_provider.block_id)?;
             let proofs = result.expect("block should exist");
 
             Ok(proofs.classes_proof.nodes.into())
@@ -584,7 +551,7 @@ impl<Tx1: DbTx> StateProofProvider for HistoricalStateProvider<Tx1> {
             let result = self
                 .fork_provider
                 .backend
-                .get_contracts_proofs(addresses, self.local_provider.block())?;
+                .get_contracts_proofs(addresses, self.fork_provider.block_id)?;
             let proofs = result.expect("block should exist");
 
             Ok(proofs.contracts_proof.nodes.into())
@@ -622,12 +589,9 @@ impl<Tx1: DbTx> StateProofProvider for HistoricalStateProvider<Tx1> {
         } else {
             let key = vec![ContractStorageKeys { address, keys: storage_keys }];
             let result =
-                self.fork_provider.backend.get_storages_proofs(key, self.local_provider.block())?;
+                self.fork_provider.backend.get_storages_proofs(key, self.fork_provider.block_id)?;
 
             let mut proofs = result.expect("block should exist");
-            // If nodes is empty, pop() returns None, which means no storage proofs were returned
-            // This can happen if the storage keys don't exist or have default values
-            // Return an empty MultiProof in this case
             let storage_proof = proofs.contracts_storage_proofs.nodes.pop().unwrap_or_default();
 
             Ok(storage_proof.into())
@@ -666,7 +630,18 @@ impl<Tx1: DbTx> StateRootProvider for HistoricalStateProvider<Tx1> {
                 .ok_or(ProviderError::StateProofNotSupported)?
                 .classes_trie()
                 .root();
-            Ok(root)
+
+            // It trie is empty, use the fork point root, because nothing has changed locally
+            if root == Felt::ZERO {
+                let result =
+                    self.fork_provider.backend.get_global_roots(self.fork_provider.block_id)?;
+                return Ok(result
+                    .expect("proofs should exist for block")
+                    .global_roots
+                    .classes_tree_root);
+            } else {
+                return Ok(root);
+            }
         } else {
             let result =
                 self.fork_provider.backend.get_global_roots(self.local_provider.block())?;
@@ -682,10 +657,21 @@ impl<Tx1: DbTx> StateRootProvider for HistoricalStateProvider<Tx1> {
                 .ok_or(ProviderError::StateProofNotSupported)?
                 .contracts_trie()
                 .root();
-            Ok(root)
+
+            // It trie is empty, use the fork point root, because nothing has changed locally
+            if root == Felt::ZERO {
+                let result =
+                    self.fork_provider.backend.get_global_roots(self.fork_provider.block_id)?;
+                return Ok(result
+                    .expect("proofs should exist for block")
+                    .global_roots
+                    .contracts_tree_root);
+            } else {
+                return Ok(root);
+            }
         } else {
             let result =
-                self.fork_provider.backend.get_global_roots(self.local_provider.block())?;
+                self.fork_provider.backend.get_global_roots(self.fork_provider.block_id)?;
             let roots = result.expect("block should exist");
             Ok(roots.global_roots.contracts_tree_root)
         }
@@ -698,12 +684,21 @@ impl<Tx1: DbTx> StateRootProvider for HistoricalStateProvider<Tx1> {
                 .ok_or(ProviderError::StateProofNotSupported)?
                 .storages_trie(contract)
                 .root();
-            Ok(Some(root))
+
+            if root == Felt::ZERO {
+                Ok(self
+                    .fork_provider
+                    .backend
+                    .get_storage_root(contract, self.fork_provider.block_id)?
+                    .or(Some(Felt::ZERO)))
+            } else {
+                Ok(Some(root))
+            }
         } else {
             let result = self
                 .fork_provider
                 .backend
-                .get_storage_root(contract, self.local_provider.block())?;
+                .get_storage_root(contract, self.fork_provider.block_id)?;
             Ok(result)
         }
     }
