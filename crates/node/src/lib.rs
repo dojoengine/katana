@@ -8,7 +8,13 @@ pub mod exit;
 use std::future::IntoFuture;
 use std::sync::Arc;
 
-use anyhow::{bail, Context, Result};
+use anyhow::{anyhow, bail, Context, Result};
+#[cfg(feature = "cartridge")]
+use cartridge::paymaster::{layer::PaymasterLayer, Paymaster};
+#[cfg(feature = "cartridge")]
+use cartridge::rpc::{CartridgeApi, CartridgeApiServer};
+#[cfg(feature = "cartridge")]
+use cartridge::vrf::VrfContext;
 use config::rpc::RpcModuleKind;
 use config::Config;
 use http::header::CONTENT_TYPE;
@@ -32,32 +38,19 @@ use katana_pool::ordering::FiFo;
 use katana_pool::TxPool;
 use katana_primitives::block::{BlockHashOrNumber, GasPrices};
 use katana_primitives::cairo::ShortString;
-use katana_primitives::env::{
-    CfgEnv, FeeTokenAddressses, VersionedConstantsOverrides, VersionedConstantsOverrides,
-};
-use katana_primitives::genesis::allocation::GenesisAccountAlloc;
+use katana_primitives::env::VersionedConstantsOverrides;
 use katana_provider::{DbProviderFactory, ForkProviderFactory, ProviderFactory};
-use katana_rpc::cors::Cors;
-use katana_rpc::dev::DevApi;
-use katana_rpc::logger::RpcLoggerLayer;
-use katana_rpc::metrics::RpcServerMetricsLayer;
-use katana_rpc::starknet::forking::ForkedClient;
-use katana_rpc::starknet::{StarknetApi, StarknetApiConfig};
-use katana_rpc::{RpcServer, RpcServerHandle, RpcServiceBuilder};
-#[cfg(feature = "cartridge")]
-use katana_rpc_api::cartridge::CartridgeApiServer;
 use katana_rpc_api::dev::DevApiServer;
 use katana_rpc_api::starknet::{StarknetApiServer, StarknetTraceApiServer, StarknetWriteApiServer};
 #[cfg(feature = "explorer")]
 use katana_rpc_api::starknet_ext::StarknetApiExtServer;
 use katana_rpc_client::starknet::Client as StarknetClient;
-#[cfg(feature = "cartridge")]
 use katana_rpc_server::cors::Cors;
 use katana_rpc_server::dev::DevApi;
 use katana_rpc_server::logger::RpcLoggerLayer;
 use katana_rpc_server::metrics::RpcServerMetricsLayer;
 use katana_rpc_server::starknet::{StarknetApi, StarknetApiConfig};
-use katana_rpc_server::{RpcServer, RpcServerHandle, RpcServerHandle, RpcServiceBuilder};
+use katana_rpc_server::{RpcServer, RpcServerHandle, RpcServiceBuilder};
 use katana_rpc_types::GetBlockWithTxHashesResponse;
 use katana_stage::Sequencing;
 use katana_tasks::TaskManager;
@@ -69,12 +62,12 @@ use tracing::info;
 use crate::exit::NodeStoppedFuture;
 
 /// The concrete type of of the RPC middleware stack used by the node.
-type NodeRpcMiddleware = Stack<
-    Either<PaymasterLayer<TxPool, BlockProducer<BlockifierFactory>>, Identity>,
+type NodeRpcMiddleware<P> = Stack<
+    Either<PaymasterLayer<TxPool, BlockProducer<BlockifierFactory, P>, P>, Identity>,
     Stack<RpcLoggerLayer, Stack<RpcServerMetricsLayer, Identity>>,
 >;
 
-pub type NodeRpcServer = RpcServer<NodeRpcMiddleware>;
+pub type NodeRpcServer<P> = RpcServer<NodeRpcMiddleware<P>>;
 
 /// A node instance.
 ///
@@ -91,7 +84,7 @@ where
     provider: P,
     config: Arc<Config>,
     pool: TxPool,
-    rpc_server: NodeRpcServer,
+    rpc_server: NodeRpcServer<P>,
     task_manager: TaskManager,
     backend: Arc<Backend<BlockifierFactory, P>>,
     block_producer: BlockProducer<BlockifierFactory, P>,
@@ -282,7 +275,6 @@ where
             rpc_modules.merge(CartridgeApiServer::into_rpc(api))?;
 
             // build cartridge client
-
             let cartridge_api_client = cartridge::Client::new(paymaster.cartridge_api_url.clone());
 
             let (pm_address, pm_account) = config
@@ -291,7 +283,7 @@ where
                 .paymaster_account()
                 .ok_or(anyhow!("Cartridge paymaster account doesn't exist"))?;
 
-            let vrf_ctx = VrfContext::new(CARTRIDGE_VRF_DEFAULT_PRIVATE_KEY, pm_address);
+            let vrf_ctx = VrfContext::new_with_default_private_key(pm_address);
 
             // Info to ensure this is visible to the user without changing the default logging
             // level. The use can still use `rpc::cartridge` in debug to see the random
@@ -595,7 +587,7 @@ where
     }
 
     /// Returns a reference to the node's JSON-RPC server.
-    pub fn rpc(&self) -> &NodeRpcServer {
+    pub fn rpc(&self) -> &NodeRpcServer<P> {
         &self.rpc_server
     }
 
