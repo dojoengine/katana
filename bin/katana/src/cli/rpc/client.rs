@@ -47,7 +47,7 @@ impl Client {
     /// ```
     pub async fn send_request<R, Params>(&self, method: &str, params: Params) -> Result<R>
     where
-        R: serde::de::DeserializeOwned,
+        R: serde::de::DeserializeOwned + Send ,
         Params: ToRpcParams + Send,
     {
         match self.client.request(method, params).await {

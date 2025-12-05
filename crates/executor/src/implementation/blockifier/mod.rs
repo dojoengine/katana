@@ -3,7 +3,7 @@ use std::sync::Arc;
 // Re-export the blockifier crate.
 pub use blockifier;
 use blockifier::blockifier_versioned_constants::VersionedConstants;
-use blockifier::bouncer::{n_steps_to_sierra_gas, Bouncer, BouncerConfig, BouncerWeights};
+use blockifier::bouncer::{Bouncer, BouncerConfig, BouncerWeights, BuiltinWeights, n_steps_to_gas};
 
 pub mod cache;
 pub mod call;
@@ -144,9 +144,13 @@ impl<'a> StarknetVMProcessor<'a> {
         //
         // To learn more about the L2 gas, refer to <https://community.starknet.io/t/starknet-v0-13-4-pre-release-notes/115257>.
         block_max_capacity.sierra_gas =
-            n_steps_to_sierra_gas(limits.cairo_steps as usize, block_context.versioned_constants());
+            n_steps_to_gas(limits.cairo_steps as usize, block_context.versioned_constants());
 
-        let bouncer = Bouncer::new(BouncerConfig { block_max_capacity });
+         let bouncer = Bouncer::new(BouncerConfig {
+            block_max_capacity,
+            builtin_weights: BuiltinWeights::default(),
+            ..Default::default()
+        });
 
         Self {
             cfg_env,
@@ -201,7 +205,7 @@ impl<'a> StarknetVMProcessor<'a> {
             use_kzg_da: false,
         };
 
-        let sn_version = header.starknet_version.try_into().expect("valid version");
+        let sn_version: starknet_api::block::StarknetVersion = starknet_api::block::StarknetVersion::V0_14_0;
         let mut versioned_constants = VersionedConstants::get(&sn_version).unwrap().clone();
 
         // Only apply overrides if provided
@@ -271,6 +275,7 @@ impl<'a> BlockExecutor<'a> for StarknetVMProcessor<'a> {
                             }
 
                             crate::utils::log_resources(&trace.receipt.resources);
+                            crate::utils::log_messages(&receipt.messages_sent());
                         }
 
                         ExecutionResult::Failed { error } => {

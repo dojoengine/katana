@@ -286,9 +286,9 @@ fn map_executor_err(
 ) -> Result<InvalidTransactionError, Box<dyn std::error::Error + Send>> {
     match err {
         TransactionExecutorError::TransactionExecutionError(e) => match e {
-            TransactionExecutionError::TransactionFeeError(e) => map_fee_err(e),
+            TransactionExecutionError::TransactionFeeError(e) => map_fee_err(*e),
             TransactionExecutionError::TransactionPreValidationError(e) => {
-                map_pre_validation_err(e)
+                map_pre_validation_err(*e)
             }
 
             _ => Err(Box::new(e)),
@@ -330,7 +330,7 @@ fn map_pre_validation_err(
     err: TransactionPreValidationError,
 ) -> Result<InvalidTransactionError, Box<dyn std::error::Error + Send>> {
     match err {
-        TransactionPreValidationError::TransactionFeeError(err) => map_fee_err(err),
+        TransactionPreValidationError::TransactionFeeError(err) => map_fee_err(*err),
         TransactionPreValidationError::StateError(err) => Err(Box::new(err)),
         TransactionPreValidationError::InvalidNonce {
             address,

@@ -20,4 +20,4 @@ thiserror.workspace = true
 branch = "feature/provable-forking"
 default-features = false
 features = [ "std" ]
-git = "https://github.com/michalpalkowski/bonsai-trie-katana.git"
+git = "https://github.com/chudkowsky/bonsai-trie-katana.git"
