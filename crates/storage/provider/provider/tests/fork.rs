@@ -2,6 +2,7 @@ use assert_matches::assert_matches;
 use katana_primitives::block::{
     Block, BlockHashOrNumber, FinalityStatus, Header, SealedBlockWithStatus,
 };
+use katana_primitives::state::StateUpdatesWithClasses;
 use katana_primitives::transaction::TxType;
 use katana_primitives::{address, felt, ContractAddress};
 use katana_provider::api::block::{
@@ -543,4 +544,355 @@ async fn pre_fork_state_root() {
     assert_eq!(actual_contract1_root, expected_contract1_root);
     assert_eq!(actual_contract2_root, expected_contract2_root);
     assert_eq!(actual_contract3_root, expected_contract3_root);
+}
+
+/// This test validates that:
+/// 1. State changes made after the fork point are correctly stored and retrievable
+/// 2. The latest state reflects the post-fork state changes
+/// 3. Historical state access works for both pre-fork and post-fork blocks
+#[tokio::test]
+async fn post_fork_state() {
+    let fork_block_number = 2906771;
+
+    let starknet_client = StarknetClient::new(SEPOLIA_RPC_URL.try_into().unwrap());
+    let provider_factory = ForkProviderFactory::new_in_memory(fork_block_number, starknet_client);
+
+    // First verify we can access state at the fork point
+    let provider = provider_factory.provider();
+    let fork_state = provider.latest().unwrap();
+
+    // Class that exists at the fork point (declared at block 2892448)
+    let existing_class_hash =
+        felt!("0x00e022115a73679d4e215da00f53d8f681f5c52b488bf18c71fea115e92181b1");
+    let result = fork_state.class(existing_class_hash).unwrap();
+    assert!(result.is_some(), "Class should exist at fork point");
+
+    // Contract that exists at the fork point (deployed at block 2906741)
+    let existing_contract =
+        address!("0x0164b86b8fC5C0c84d3c53Bc95760F290420Ea2a32ed49A44fd046683a1CaAc2");
+    let result = fork_state.class_hash_of_contract(existing_contract).unwrap();
+    assert!(result.is_some(), "Contract should exist at fork point");
+
+    // Now add a new block after the fork point with state changes
+    let provider_mut = provider_factory.provider_mut();
+
+    let new_block_number = fork_block_number + 1;
+    let new_contract_address = address!("0x1234567890abcdef");
+    let new_contract_class_hash = felt!("0xdeadbeef");
+    let new_contract_nonce = felt!("0x1");
+    let storage_key = felt!("0x1");
+    let storage_value = felt!("0x42");
+
+    // Create state updates for the new block
+    let mut state_updates = StateUpdatesWithClasses::default();
+    state_updates
+        .state_updates
+        .deployed_contracts
+        .insert(new_contract_address, new_contract_class_hash);
+    state_updates.state_updates.nonce_updates.insert(new_contract_address, new_contract_nonce);
+    state_updates
+        .state_updates
+        .storage_updates
+        .insert(new_contract_address, [(storage_key, storage_value)].into_iter().collect());
+
+    provider_mut
+        .insert_block_with_states_and_receipts(
+            SealedBlockWithStatus {
+                block: Block {
+                    header: Header { number: new_block_number, ..Default::default() },
+                    body: Vec::new(),
+                }
+                .seal(),
+                status: FinalityStatus::AcceptedOnL2,
+            },
+            state_updates,
+            Default::default(),
+            Default::default(),
+        )
+        .unwrap();
+
+    provider_mut.commit().unwrap();
+
+    // Now verify the post-fork state
+    let provider = provider_factory.provider();
+    let latest_state = provider.latest().unwrap();
+
+    // The new contract should exist in the latest state
+    let result = latest_state.class_hash_of_contract(new_contract_address).unwrap();
+    assert_eq!(result, Some(new_contract_class_hash), "New contract should exist in latest state");
+
+    let result = latest_state.nonce(new_contract_address).unwrap();
+    assert_eq!(result, Some(new_contract_nonce), "New contract nonce should be set");
+
+    let result = latest_state.storage(new_contract_address, storage_key).unwrap();
+    assert_eq!(result, Some(storage_value), "New contract storage should be set");
+
+    // Pre-fork state should still be accessible
+    let result = latest_state.class(existing_class_hash).unwrap();
+    assert!(result.is_some(), "Pre-fork class should still exist in latest state");
+
+    let result = latest_state.class_hash_of_contract(existing_contract).unwrap();
+    assert!(result.is_some(), "Pre-fork contract should still exist in latest state");
+
+    // Historical state at fork point should NOT have the new contract
+    let fork_block_id = BlockHashOrNumber::Num(fork_block_number);
+    let historical_state =
+        provider.historical(fork_block_id).unwrap().expect("historical state must exist");
+
+    let result = historical_state.class_hash_of_contract(new_contract_address).unwrap();
+    assert!(result.is_none(), "New contract should NOT exist at fork block");
+
+    // But pre-fork data should still be accessible from historical state
+    let result = historical_state.class(existing_class_hash).unwrap();
+    assert!(result.is_some(), "Pre-fork class should exist in historical state");
+
+    let result = historical_state.class_hash_of_contract(existing_contract).unwrap();
+    assert!(result.is_some(), "Pre-fork contract should exist in historical state");
+
+    // Historical state at the new block should have the new contract
+    let new_block_id = BlockHashOrNumber::Num(new_block_number);
+    let post_fork_historical =
+        provider.historical(new_block_id).unwrap().expect("post-fork historical state must exist");
+
+    let result = post_fork_historical.class_hash_of_contract(new_contract_address).unwrap();
+    assert_eq!(
+        result,
+        Some(new_contract_class_hash),
+        "New contract should exist in post-fork historical state"
+    );
+
+    let result = post_fork_historical.nonce(new_contract_address).unwrap();
+    assert_eq!(result, Some(new_contract_nonce), "New contract nonce should be in historical");
+
+    let result = post_fork_historical.storage(new_contract_address, storage_key).unwrap();
+    assert_eq!(result, Some(storage_value), "New contract storage should be in historical");
+}
+
+/// Test updating only the nonce of a pre-fork contract (contract that has already been deployed
+/// before the fork point).
+///
+/// Verifies that:
+/// - Nonce is updated in latest state
+/// - Class hash remains unchanged
+/// - Historical state at fork point preserves original values
+#[tokio::test]
+async fn post_fork_state_update_nonce_only() {
+    let fork_block_number = 3631794;
+
+    let starknet_client = StarknetClient::new(SEPOLIA_RPC_URL.try_into().unwrap());
+    let provider_factory = ForkProviderFactory::new_in_memory(fork_block_number, starknet_client);
+
+    // Contract that exists at the fork point (deployed at block 2906741)
+    let contract = address!("0x4f4e29add19afa12c868ba1f4439099f225403ff9a71fe667eebb50e13518d3");
+    let og_class_hash = felt!("0x4d9d2b2e26f94fad32e7b7a7e710286636322d5905f1cd64dc58a144294e6");
+    let og_nonce = felt!("0x1d6cb2");
+
+    // verify original state at fork point
+
+    let provider = provider_factory.provider();
+    let fork_state = provider.latest().unwrap();
+
+    assert_eq!(fork_state.class_hash_of_contract(contract).unwrap(), Some(og_class_hash));
+    assert_eq!(fork_state.nonce(contract).unwrap(), Some(og_nonce));
+
+    let new_block = fork_block_number + 1;
+    let new_nonce = felt!("0xdeadbeef");
+
+    // update only nonce
+
+    {
+        let mut state_updates = StateUpdatesWithClasses::default();
+        state_updates.state_updates.nonce_updates.insert(contract, new_nonce);
+
+        let provider_mut = provider_factory.provider_mut();
+
+        provider_mut
+            .insert_block_with_states_and_receipts(
+                SealedBlockWithStatus {
+                    block: Block {
+                        header: Header { number: new_block, ..Default::default() },
+                        body: Vec::new(),
+                    }
+                    .seal(),
+                    status: FinalityStatus::AcceptedOnL2,
+                },
+                state_updates,
+                Default::default(),
+                Default::default(),
+            )
+            .unwrap();
+
+        provider_mut.commit().unwrap();
+    }
+
+    // verify latest state: nonce updated, class hash unchanged
+    let provider = provider_factory.provider();
+    let latest_state = provider.latest().unwrap();
+
+    assert_eq!(latest_state.nonce(contract).unwrap(), Some(new_nonce));
+    assert_eq!(latest_state.class_hash_of_contract(contract).unwrap(), Some(og_class_hash));
+
+    // verify historical state at new block
+    let new_block_state = provider.historical(new_block.into()).unwrap().unwrap();
+
+    assert_eq!(new_block_state.nonce(contract).unwrap(), Some(new_nonce));
+    assert_eq!(new_block_state.class_hash_of_contract(contract).unwrap(), Some(og_class_hash));
+
+    // verify historical state at fork point still has original values
+    let fork_state = provider.historical(fork_block_number.into()).unwrap().unwrap();
+
+    assert_eq!(fork_state.class_hash_of_contract(contract).unwrap(), Some(og_class_hash));
+    assert_eq!(fork_state.nonce(contract).unwrap(), Some(og_nonce));
+}
+
+/// Test updating only the class hash of a pre-fork contract (contract that has already been
+/// deployed before the fork point) via replace_class.
+///
+/// Verifies that:
+/// - Class hash is updated in latest state
+/// - Nonce remains unchanged
+/// - Historical state at fork point preserves original values
+#[tokio::test]
+async fn post_fork_state_update_class_hash_only() {
+    let fork_block_number = 3631794;
+
+    let starknet_client = StarknetClient::new(SEPOLIA_RPC_URL.try_into().unwrap());
+    let provider_factory = ForkProviderFactory::new_in_memory(fork_block_number, starknet_client);
+
+    // Contract that exists at the fork point
+    let contract = address!("0x4f4e29add19afa12c868ba1f4439099f225403ff9a71fe667eebb50e13518d3");
+    let og_class_hash = felt!("0x4d9d2b2e26f94fad32e7b7a7e710286636322d5905f1cd64dc58a144294e6");
+    let og_nonce = felt!("0x1d6cb2");
+
+    // verify original state at fork point
+
+    let provider = provider_factory.provider();
+    let fork_state = provider.latest().unwrap();
+
+    assert_eq!(fork_state.class_hash_of_contract(contract).unwrap(), Some(og_class_hash));
+    assert_eq!(fork_state.nonce(contract).unwrap(), Some(og_nonce));
+
+    let new_block = fork_block_number + 1;
+    let new_class_hash = felt!("0xdeadbeef");
+
+    // update only class hash via replace_class
+
+    {
+        let mut state_updates = StateUpdatesWithClasses::default();
+        state_updates.state_updates.replaced_classes.insert(contract, new_class_hash);
+
+        let provider_mut = provider_factory.provider_mut();
+
+        provider_mut
+            .insert_block_with_states_and_receipts(
+                SealedBlockWithStatus {
+                    block: Block {
+                        header: Header { number: new_block, ..Default::default() },
+                        body: Vec::new(),
+                    }
+                    .seal(),
+                    status: FinalityStatus::AcceptedOnL2,
+                },
+                state_updates,
+                Default::default(),
+                Default::default(),
+            )
+            .unwrap();
+
+        provider_mut.commit().unwrap();
+    }
+
+    // verify latest state: class hash updated, nonce unchanged
+
+    let provider = provider_factory.provider();
+
+    let latest_state = provider.latest().unwrap();
+    assert_eq!(latest_state.class_hash_of_contract(contract).unwrap(), Some(new_class_hash));
+    assert_eq!(latest_state.nonce(contract).unwrap(), Some(og_nonce));
+
+    // verify historical state at new block
+    let new_block_state = provider.historical(new_block.into()).unwrap().unwrap();
+    assert_eq!(new_block_state.class_hash_of_contract(contract).unwrap(), Some(new_class_hash));
+    assert_eq!(new_block_state.nonce(contract).unwrap(), Some(og_nonce));
+
+    // verify historical state at fork point still has original values
+    let fork_state = provider.historical(fork_block_number.into()).unwrap().unwrap();
+    assert_eq!(fork_state.class_hash_of_contract(contract).unwrap(), Some(og_class_hash));
+    assert_eq!(fork_state.nonce(contract).unwrap(), Some(og_nonce));
+}
+
+/// Test updating both nonce and class hash of a pre-fork contract (contract that has already been
+/// deployed before the fork point).
+///
+/// Verifies that:
+/// - Both nonce and class hash are updated in latest state
+/// - Historical state at fork point preserves original values
+#[tokio::test]
+async fn post_fork_state_update_nonce_and_class_hash() {
+    let fork_block_number = 2906771;
+
+    let starknet_client = StarknetClient::new(SEPOLIA_RPC_URL.try_into().unwrap());
+    let provider_factory = ForkProviderFactory::new_in_memory(fork_block_number, starknet_client);
+
+    // Contract that exists at the fork point (deployed at block 2906741)
+    let contract = address!("0x0164b86b8fC5C0c84d3c53Bc95760F290420Ea2a32ed49A44fd046683a1CaAc2");
+    let og_class_hash = felt!("0xe824b9f2aa225812cf230d276784b99f182ec95066d84be90cd1682e4ad069");
+    let og_nonce = felt!("0x0");
+
+    // verify original state at fork point
+    let provider = provider_factory.provider();
+    let fork_state = provider.latest().unwrap();
+
+    assert_eq!(fork_state.class_hash_of_contract(contract).unwrap(), Some(og_class_hash));
+    assert_eq!(fork_state.nonce(contract).unwrap(), Some(og_nonce));
+
+    // update both nonce and class hash
+
+    let new_block = fork_block_number + 1;
+    let new_nonce = felt!("0x10");
+    let new_class_hash = felt!("0xcafebabe");
+
+    {
+        let mut state_updates = StateUpdatesWithClasses::default();
+        state_updates.state_updates.nonce_updates.insert(contract, new_nonce);
+        state_updates.state_updates.replaced_classes.insert(contract, new_class_hash);
+
+        let provider_mut = provider_factory.provider_mut();
+        provider_mut
+            .insert_block_with_states_and_receipts(
+                SealedBlockWithStatus {
+                    block: Block {
+                        header: Header { number: new_block, ..Default::default() },
+                        body: Vec::new(),
+                    }
+                    .seal(),
+                    status: FinalityStatus::AcceptedOnL2,
+                },
+                state_updates,
+                Default::default(),
+                Default::default(),
+            )
+            .unwrap();
+
+        provider_mut.commit().unwrap();
+    }
+
+    // verify latest state: both updated
+    let provider = provider_factory.provider();
+    let latest_state = provider.latest().unwrap();
+
+    assert_eq!(latest_state.nonce(contract).unwrap(), Some(new_nonce));
+    assert_eq!(latest_state.class_hash_of_contract(contract).unwrap(), Some(new_class_hash));
+
+    // verify historical state at new block
+    let new_block_state = provider.historical(new_block.into()).unwrap().unwrap();
+
+    assert_eq!(new_block_state.nonce(contract).unwrap(), Some(new_nonce));
+    assert_eq!(new_block_state.class_hash_of_contract(contract).unwrap(), Some(new_class_hash));
+
+    // verify historical state at fork point still has original values
+    let fork_state = provider.historical(fork_block_number.into()).unwrap().unwrap();
+
+    assert_eq!(fork_state.class_hash_of_contract(contract).unwrap(), Some(og_class_hash));
+    assert_eq!(fork_state.nonce(contract).unwrap(), Some(og_nonce));
 }

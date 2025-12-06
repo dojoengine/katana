@@ -120,8 +120,30 @@ impl<Tx1: DbTx> ContractClassProvider for LatestStateProvider<Tx1> {
 
 impl<Tx1: DbTx> StateProvider for LatestStateProvider<Tx1> {
     fn nonce(&self, address: ContractAddress) -> ProviderResult<Option<Nonce>> {
-        if let res @ Some(..) = self.local_provider.nonce(address)? {
-            Ok(res)
+        if let Some(nonce) = self.local_provider.nonce(address)? {
+            // TEMPFIX:
+            //
+            // This check is required due to the limitation on how we're storing updates for
+            // contracts that were deployed before the fork point. For those contracts,
+            // their corresponding entries for the `ContractInfo` table might not exist.
+            // In which case, `BlockWriter::insert_block_with_states_and_receipts`
+            // implementation of `ForkedProvider` would simply defaulted the fields to zero
+            // (depending which field is being updated). Thus, this check is to
+            // determine if the this contract's info is split across the local and fork dbs, where
+            // the value zero means the data is stored in the forked db.
+            //
+            // False positive:
+            //
+            // Nonce can be zero
+            if nonce == Nonce::ZERO {
+                if let Some(nonce) = self.fork_provider.db.provider().latest()?.nonce(address)? {
+                    if nonce != Nonce::ZERO {
+                        return Ok(Some(nonce));
+                    }
+                }
+            }
+
+            Ok(Some(nonce))
         } else if let Some(nonce) =
             self.fork_provider.backend.get_nonce(address, self.fork_provider.block_id)?
         {
@@ -147,8 +169,32 @@ impl<Tx1: DbTx> StateProvider for LatestStateProvider<Tx1> {
         &self,
         address: ContractAddress,
     ) -> ProviderResult<Option<ClassHash>> {
-        if let res @ Some(..) = self.local_provider.class_hash_of_contract(address)? {
-            Ok(res)
+        if let Some(hash) = self.local_provider.class_hash_of_contract(address)? {
+            // TEMPFIX:
+            //
+            // This check is required due to the limitation on how we're storing updates for
+            // contracts that were deployed before the fork point. For those contracts,
+            // their corresponding entries for the `ContractInfo` table might not exist.
+            // In which case, `BlockWriter::insert_block_with_states_and_receipts`
+            // implementation of `ForkedProvider` would simply defaulted the fields to zero
+            // (depending which field is being updated). Thus, this check is to
+            // determine if the this contract's info is split across the local and fork dbs, where
+            // the value zero means the data is stored in the forked db.
+            //
+            // False positive:
+            //
+            // Some contracts can have class hash of zero (ie special contracts like 0x1, 0x2) hence
+            // why we simply return the value if it can't be found in the forked db.
+            // This is very hacky but it works for now.
+            if hash == ClassHash::ZERO {
+                if let Some(hash) =
+                    self.fork_provider.db.provider().latest()?.class_hash_of_contract(address)?
+                {
+                    return Ok(Some(hash));
+                }
+            }
+
+            Ok(Some(hash))
         } else if let Some(class_hash) =
             self.fork_provider.backend.get_class_hash_at(address, self.fork_provider.block_id)?
         {
