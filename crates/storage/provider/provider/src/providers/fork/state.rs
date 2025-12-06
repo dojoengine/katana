@@ -121,8 +121,14 @@ impl<Tx1: DbTx> ContractClassProvider for LatestStateProvider<Tx1> {
 impl<Tx1: DbTx> StateProvider for LatestStateProvider<Tx1> {
     fn nonce(&self, address: ContractAddress) -> ProviderResult<Option<Nonce>> {
         if let res @ Some(..) = self.local_provider.nonce(address)? {
-            Ok(res)
-        } else if let Some(nonce) =
+            return Ok(res);
+        }
+
+        if let res @ Some(..) = self.fork_provider.db().provider().latest()?.nonce(address)? {
+            return Ok(res);
+        }
+
+        if let Some(nonce) =
             self.fork_provider.backend.get_nonce(address, self.fork_provider.block_id)?
         {
             let class_hash = self
@@ -137,10 +143,10 @@ impl<Tx1: DbTx> StateProvider for LatestStateProvider<Tx1> {
             provider_mut.tx().put::<tables::ContractInfo>(address, entry)?;
             provider_mut.commit()?;
 
-            Ok(Some(nonce))
-        } else {
-            Ok(None)
+            return Ok(Some(nonce));
         }
+
+        Ok(None)
     }
 
     fn class_hash_of_contract(
@@ -148,8 +154,16 @@ impl<Tx1: DbTx> StateProvider for LatestStateProvider<Tx1> {
         address: ContractAddress,
     ) -> ProviderResult<Option<ClassHash>> {
         if let res @ Some(..) = self.local_provider.class_hash_of_contract(address)? {
-            Ok(res)
-        } else if let Some(class_hash) =
+            return Ok(res);
+        }
+
+        if let res @ Some(..) =
+            self.fork_provider.db().provider().latest()?.class_hash_of_contract(address)?
+        {
+            return Ok(res);
+        }
+
+        if let Some(class_hash) =
             self.fork_provider.backend.get_class_hash_at(address, self.fork_provider.block_id)?
         {
             let nonce = self
@@ -164,10 +178,10 @@ impl<Tx1: DbTx> StateProvider for LatestStateProvider<Tx1> {
             provider_mut.tx().put::<tables::ContractInfo>(address, entry)?;
             provider_mut.commit()?;
 
-            Ok(Some(class_hash))
-        } else {
-            Ok(None)
+            return Ok(Some(class_hash));
         }
+
+        Ok(None)
     }
 
     fn storage(
@@ -176,8 +190,16 @@ impl<Tx1: DbTx> StateProvider for LatestStateProvider<Tx1> {
         key: StorageKey,
     ) -> ProviderResult<Option<StorageValue>> {
         if let res @ Some(..) = self.local_provider.storage(address, key)? {
-            Ok(res)
-        } else if let Some(value) =
+            return Ok(res);
+        }
+
+        if let res @ Some(..) =
+            self.fork_provider.db().provider().latest()?.storage(address, key)?
+        {
+            return Ok(res);
+        }
+
+        if let Some(value) =
             self.fork_provider.backend.get_storage(address, key, self.fork_provider.block_id)?
         {
             let entry = StorageEntry { key, value };
@@ -186,10 +208,10 @@ impl<Tx1: DbTx> StateProvider for LatestStateProvider<Tx1> {
             provider_mut.tx().put::<tables::ContractStorage>(address, entry)?;
             provider_mut.commit()?;
 
-            Ok(Some(value))
-        } else {
-            Ok(None)
+            return Ok(Some(value));
         }
+
+        Ok(None)
     }
 }
 
