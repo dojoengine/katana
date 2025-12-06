@@ -763,24 +763,28 @@ impl<Tx: DbTxMut> BlockWriter for DbProvider<Tx> {
         }
 
         for (addr, new_class_hash) in states.state_updates.replaced_classes {
-            let mut info = self
-                .0
-                .get::<tables::ContractInfo>(addr)?
-                .ok_or(ProviderError::MissingContractInfo { address: addr })?;
+            let info = if let Some(info) = self.0.get::<tables::ContractInfo>(addr)? {
+                GenericContractInfo { class_hash: new_class_hash, ..info }
+            } else {
+                GenericContractInfo { class_hash: new_class_hash, ..Default::default() }
+            };
 
-            info.class_hash = new_class_hash;
+            let new_change_set =
+                if let Some(mut change_set) = self.0.get::<tables::ContractInfoChangeSet>(addr)? {
+                    change_set.class_change_list.insert(block_number);
+                    change_set
+                } else {
+                    ContractInfoChangeList {
+                        class_change_list: BlockList::from([block_number]),
+                        ..Default::default()
+                    }
+                };
+
             self.0.put::<tables::ContractInfo>(addr, info)?;
-
-            let mut change_set = self
-                .0
-                .get::<tables::ContractInfoChangeSet>(addr)?
-                .ok_or(ProviderError::MissingContractInfoChangeSet { address: addr })?;
-
-            change_set.class_change_list.insert(block_number);
-            self.0.put::<tables::ContractInfoChangeSet>(addr, change_set)?;
 
             let class_change_key = ContractClassChange::replaced(addr, new_class_hash);
             self.0.put::<tables::ClassChangeHistory>(block_number, class_change_key)?;
+            self.0.put::<tables::ContractInfoChangeSet>(addr, new_change_set)?;
         }
 
         for (addr, nonce) in states.state_updates.nonce_updates {
