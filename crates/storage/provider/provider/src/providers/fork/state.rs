@@ -443,9 +443,13 @@ impl<Tx1: DbTx> StateProvider for HistoricalStateProvider<Tx1> {
             return Ok(res);
         }
 
-        if let res @ Some(nonce) =
-            self.fork_provider.backend.get_nonce(address, self.fork_provider.block_id)?
-        {
+        let block_id = if self.local_provider.block() <= self.fork_provider.block_id {
+            self.local_provider.block()
+        } else {
+            self.fork_provider.block_id
+        };
+
+        if let res @ Some(..) = self.fork_provider.backend.get_nonce(address, block_id)? {
             Ok(res)
         } else {
             Ok(None)
@@ -460,9 +464,13 @@ impl<Tx1: DbTx> StateProvider for HistoricalStateProvider<Tx1> {
             return Ok(res);
         }
 
-        if let res @ Some(hash) =
-            self.fork_provider.backend.get_class_hash_at(address, self.fork_provider.block_id)?
-        {
+        let block_id = if self.local_provider.block() <= self.fork_provider.block_id {
+            self.local_provider.block()
+        } else {
+            self.fork_provider.block_id
+        };
+
+        if let res @ Some(..) = self.fork_provider.backend.get_class_hash_at(address, block_id)? {
             Ok(res)
         } else {
             Ok(None)
@@ -478,9 +486,13 @@ impl<Tx1: DbTx> StateProvider for HistoricalStateProvider<Tx1> {
             return Ok(res);
         }
 
-        if let res @ Some(value) =
-            self.fork_provider.backend.get_storage(address, key, self.fork_provider.block_id)?
-        {
+        let block_id = if self.local_provider.block() <= self.fork_provider.block_id {
+            self.local_provider.block()
+        } else {
+            self.fork_provider.block_id
+        };
+
+        if let res @ Some(..) = self.fork_provider.backend.get_storage(address, key, block_id)? {
             Ok(res)
         } else {
             Ok(None)
@@ -515,7 +527,7 @@ impl<Tx1: DbTx> StateProofProvider for HistoricalStateProvider<Tx1> {
             let result = self
                 .fork_provider
                 .backend
-                .get_classes_proofs(classes, self.fork_provider.block_id)?;
+                .get_classes_proofs(classes, self.local_provider.block())?;
             let proofs = result.expect("block should exist");
 
             Ok(proofs.classes_proof.nodes.into())
@@ -551,7 +563,7 @@ impl<Tx1: DbTx> StateProofProvider for HistoricalStateProvider<Tx1> {
             let result = self
                 .fork_provider
                 .backend
-                .get_contracts_proofs(addresses, self.fork_provider.block_id)?;
+                .get_contracts_proofs(addresses, self.local_provider.block())?;
             let proofs = result.expect("block should exist");
 
             Ok(proofs.contracts_proof.nodes.into())
@@ -589,7 +601,7 @@ impl<Tx1: DbTx> StateProofProvider for HistoricalStateProvider<Tx1> {
         } else {
             let key = vec![ContractStorageKeys { address, keys: storage_keys }];
             let result =
-                self.fork_provider.backend.get_storages_proofs(key, self.fork_provider.block_id)?;
+                self.fork_provider.backend.get_storages_proofs(key, self.local_provider.block())?;
 
             let mut proofs = result.expect("block should exist");
             let storage_proof = proofs.contracts_storage_proofs.nodes.pop().unwrap_or_default();
@@ -671,7 +683,7 @@ impl<Tx1: DbTx> StateRootProvider for HistoricalStateProvider<Tx1> {
             }
         } else {
             let result =
-                self.fork_provider.backend.get_global_roots(self.fork_provider.block_id)?;
+                self.fork_provider.backend.get_global_roots(self.local_provider.block())?;
             let roots = result.expect("block should exist");
             Ok(roots.global_roots.contracts_tree_root)
         }
@@ -698,7 +710,7 @@ impl<Tx1: DbTx> StateRootProvider for HistoricalStateProvider<Tx1> {
             let result = self
                 .fork_provider
                 .backend
-                .get_storage_root(contract, self.fork_provider.block_id)?;
+                .get_storage_root(contract, self.local_provider.block())?;
             Ok(result)
         }
     }
