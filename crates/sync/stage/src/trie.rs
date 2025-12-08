@@ -5,6 +5,7 @@ use katana_provider::api::block::HeaderProvider;
 use katana_provider::api::state_update::StateUpdateProvider;
 use katana_provider::api::trie::TrieWriter;
 use katana_provider::{MutableProvider, ProviderFactory};
+use katana_tasks::TaskSpawner;
 use starknet::macros::short_string;
 use starknet_types_core::hash::{Poseidon, StarkHash};
 use tracing::{debug, debug_span, error};
@@ -25,19 +26,20 @@ use crate::{
 #[derive(Debug)]
 pub struct StateTrie<P> {
     storage_provider: P,
+    task_spawner: TaskSpawner,
 }
 
 impl<P> StateTrie<P> {
     /// Create a new [`StateTrie`] stage.
-    pub fn new(storage_provider: P) -> Self {
-        Self { storage_provider }
+    pub fn new(storage_provider: P, task_spawner: TaskSpawner) -> Self {
+        Self { storage_provider, task_spawner }
     }
 }
 
 impl<P> Stage for StateTrie<P>
 where
     P: ProviderFactory,
-    <P as ProviderFactory>::ProviderMut: StateUpdateProvider + HeaderProvider + TrieWriter,
+    <P as ProviderFactory>::ProviderMut: StateUpdateProvider + HeaderProvider + TrieWriter + Clone,
 {
     fn id(&self) -> &'static str {
         "StateTrie"
@@ -61,21 +63,37 @@ where
                     .state_update(block_number.into())?
                     .ok_or(Error::MissingStateUpdate(block_number))?;
 
-                let computed_contract_trie_root =
-                    provider_mut.trie_insert_contract_updates(block_number, &state_update)?;
+                let provider_mut_clone = provider_mut.clone();
+                let (computed_contract_trie_root, computed_class_trie_root) = self
+                    .task_spawner
+                    .cpu_bound()
+                    .spawn(move || {
+                        let computed_contract_trie_root = provider_mut_clone
+                            .trie_insert_contract_updates(block_number, &state_update)?;
 
-                debug!(
-                    contract_trie_root = format!("{computed_contract_trie_root:#x}"),
-                    "Computed contract trie root."
-                );
+                        debug!(
+                            contract_trie_root = format!("{computed_contract_trie_root:#x}"),
+                            "Computed contract trie root."
+                        );
 
-                let computed_class_trie_root = provider_mut
-                    .trie_insert_declared_classes(block_number, &state_update.declared_classes)?;
+                        let computed_class_trie_root = provider_mut_clone
+                            .trie_insert_declared_classes(
+                                block_number,
+                                &state_update.declared_classes,
+                            )?;
 
-                debug!(
-                    classes_tri_root = format!("{computed_class_trie_root:#x}"),
-                    "Computed classes trie root."
-                );
+                        debug!(
+                            classes_tri_root = format!("{computed_class_trie_root:#x}"),
+                            "Computed classes trie root."
+                        );
+
+                        Result::<(Felt, Felt), crate::Error>::Ok((
+                            computed_contract_trie_root,
+                            computed_class_trie_root,
+                        ))
+                    })
+                    .await
+                    .map_err(Error::StateComputationTaskJoinError)??;
 
                 let computed_state_root = if computed_class_trie_root == Felt::ZERO {
                     computed_contract_trie_root
@@ -134,6 +152,9 @@ pub enum Error {
 
     #[error("Missing state update for block {0}")]
     MissingStateUpdate(BlockNumber),
+
+    #[error("State computation task join error: {0}")]
+    StateComputationTaskJoinError(katana_tasks::JoinError),
 
     #[error(
         "State root mismatch at block {block_number}: expected (from header) {expected:#x}, \

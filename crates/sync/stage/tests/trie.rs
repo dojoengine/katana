@@ -12,6 +12,7 @@ use katana_provider::api::trie::TrieWriter;
 use katana_provider::{ProviderFactory, ProviderResult};
 use katana_stage::trie::StateTrie;
 use katana_stage::{Stage, StageExecutionInput};
+use katana_tasks::TaskManager;
 use rstest::rstest;
 use starknet::macros::short_string;
 use starknet_types_core::hash::{Poseidon, StarkHash};
@@ -220,6 +221,7 @@ async fn verify_state_roots_success(
     #[case] to_block: BlockNumber,
     #[case] expected_blocks: Vec<BlockNumber>,
 ) {
+    let task_manager = TaskManager::current();
     let mut provider = MockProvider::new();
 
     // Configure blocks with correct state roots
@@ -230,8 +232,10 @@ async fn verify_state_roots_success(
         provider = provider.with_header(num, header).with_state_update(num, state_update);
     }
 
+    let mut stage = StateTrie::new(provider.clone(), task_manager.task_spawner());
+
     let input = StageExecutionInput::new(from_block, to_block);
-    let result = StateTrie::new(provider.clone()).execute(&input).await;
+    let result = stage.execute(&input).await;
     assert!(result.is_ok(), "Stage execution should succeed");
 
     // Verify that trie inserts were called for each block (twice per block: classes + contracts)
@@ -251,7 +255,8 @@ async fn state_root_mismatch_returns_error() {
         .with_header(block_number, header)
         .with_state_update(block_number, state_update);
 
-    let mut stage = StateTrie::new(provider);
+    let task_manager = TaskManager::current();
+    let mut stage = StateTrie::new(provider, task_manager.task_spawner());
     let input = StageExecutionInput::new(block_number, block_number);
 
     let result = stage.execute(&input).await;
