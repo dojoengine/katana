@@ -17,6 +17,7 @@ pub struct StoragesTrie<DB: BonsaiDatabase, TreeType = FullMerkleTrees<Pedersen,
 
 pub type PartialStoragesTrie<DB> = StoragesTrie<DB, PartialMerkleTrees<Pedersen, DB, CommitId>>;
 
+// Full tree implementation
 impl<DB: BonsaiDatabase> StoragesTrie<DB> {
     pub fn new(db: DB, address: ContractAddress) -> Self {
         Self { address, trie: crate::BonsaiTrie::new(db) }
@@ -44,15 +45,7 @@ where
     }
 }
 
-impl<DB: BonsaiDatabase, TreeType> std::fmt::Debug for StoragesTrie<DB, TreeType> {
-    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        f.debug_struct("StoragesTrie")
-            .field("address", &self.address)
-            .field("trie", &"<BonsaiTrie>")
-            .finish()
-    }
-}
-
+// Partial tree implementation
 impl<DB: BonsaiDatabase> PartialStoragesTrie<DB> {
     pub fn new_partial(db: DB, address: ContractAddress) -> Self {
         Self { address, trie: crate::PartialBonsaiTrie::new_partial(db) }
@@ -87,7 +80,7 @@ where
         proof: MultiProof,
         original_root: Felt,
     ) {
-        self.trie.insert(
+        self.trie.insert_with_proof(
             &self.address.to_bytes_be(),
             storage_key,
             storage_value,
@@ -98,5 +91,14 @@ where
 
     pub fn commit(&mut self, block: BlockNumber) {
         self.trie.commit(block.into())
+    }
+}
+
+impl<DB: BonsaiDatabase, TreeType> std::fmt::Debug for StoragesTrie<DB, TreeType> {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.debug_struct("StoragesTrie")
+            .field("address", &self.address)
+            .field("trie", &"<BonsaiTrie>")
+            .finish()
     }
 }

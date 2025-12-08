@@ -141,7 +141,7 @@ where
     DB: BonsaiDatabase + BonsaiPersistentDatabase<CommitId>,
     Hash: StarkHash + Send + Sync,
 {
-    pub fn insert(
+    pub fn insert_with_proof(
         &mut self,
         id: &[u8],
         key: Felt,

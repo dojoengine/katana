@@ -103,7 +103,7 @@ where
         original_root: Felt,
     ) {
         let value = compute_classes_trie_value(compiled_hash);
-        self.trie.insert(CLASSES_IDENTIFIER, hash, value, proof, original_root)
+        self.trie.insert_with_proof(CLASSES_IDENTIFIER, hash, value, proof, original_root)
     }
 
     pub fn commit(&mut self, block: BlockNumber) {

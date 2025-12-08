@@ -290,7 +290,7 @@ impl<Tx1: DbTxMut> TrieWriter for ForkedProvider<Tx1> {
             .unwrap_or_default();
 
         // Use proof-based methods if we have proofs (which means we have changes)
-        // If no proofs, use the fork point root (matches logic in state.rs: if trie is empty, use fork root)
+        // If no proofs, use the fork point root
         let class_trie_root = if let Some(proof) = classes_proof {
             self.trie_insert_declared_classes_with_proof(
                 block_number,

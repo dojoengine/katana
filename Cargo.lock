@@ -2000,7 +2000,7 @@ dependencies = [
 [[package]]
 name = "bonsai-trie"
 version = "0.1.0"
-source = "git+https://github.com/michalpalkowski/bonsai-trie-katana.git?branch=feature%2Fprovable-forking#228ee8ef3b0463b7616a028dae687c7ad5e0247f"
+source = "git+https://github.com/michalpalkowski/bonsai-trie-katana.git?branch=feature%2Fprovable-forking#f04967478af4aa425e8646cf09e5720afae57170"
 dependencies = [
  "bitvec",
  "derive_more 0.99.20",

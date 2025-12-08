@@ -84,7 +84,13 @@ where
         proof: MultiProof,
         original_root: Felt,
     ) {
-        self.trie.insert(CONTRACTS_IDENTIFIER, *address, state_hash, proof, original_root)
+        self.trie.insert_with_proof(
+            CONTRACTS_IDENTIFIER,
+            *address,
+            state_hash,
+            proof,
+            original_root,
+        )
     }
 
     pub fn commit(&mut self, block: BlockNumber) {
