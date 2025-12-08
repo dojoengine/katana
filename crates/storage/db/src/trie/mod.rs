@@ -64,7 +64,6 @@ where
         katana_trie::ContractsTrie::new(TrieDb::new(self.tx.clone()))
     }
 
-    /// Returns the partial contracts trie (for forked instances that use insert_with_proof).
     pub fn partial_contracts_trie(
         &self,
     ) -> katana_trie::PartialContractsTrie<TrieDb<'a, tables::ContractsTrie, Tx>> {
@@ -76,7 +75,6 @@ where
         katana_trie::ClassesTrie::new(TrieDb::new(self.tx.clone()))
     }
 
-    /// Returns the partial classes trie (for forked instances that use insert_with_proof).
     pub fn partial_classes_trie(
         &self,
     ) -> katana_trie::PartialClassesTrie<TrieDb<'a, tables::ClassesTrie, Tx>> {
@@ -92,7 +90,6 @@ where
         katana_trie::StoragesTrie::new(TrieDb::new(self.tx.clone()), address)
     }
 
-    /// Returns the partial storages trie (for forked instances that use insert_with_proof).
     pub fn partial_storages_trie(
         &self,
         address: ContractAddress,
@@ -123,7 +120,6 @@ where
         katana_trie::ContractsTrie::new(SnapshotTrieDb::new(self.tx.clone(), commit))
     }
 
-    /// Returns the partial historical contracts trie (for forked instances that use insert_with_proof).
     pub fn partial_contracts_trie(
         &self,
     ) -> katana_trie::PartialContractsTrie<SnapshotTrieDb<'a, tables::ContractsTrie, Tx>> {
@@ -139,7 +135,6 @@ where
         katana_trie::ClassesTrie::new(SnapshotTrieDb::new(self.tx.clone(), commit))
     }
 
-    /// Returns the partial historical classes trie (for forked instances that use insert_with_proof).
     pub fn partial_classes_trie(
         &self,
     ) -> katana_trie::PartialClassesTrie<SnapshotTrieDb<'a, tables::ClassesTrie, Tx>> {
@@ -157,7 +152,6 @@ where
         katana_trie::StoragesTrie::new(SnapshotTrieDb::new(self.tx.clone(), commit), address)
     }
 
-    /// Returns the partial historical storages trie (for forked instances that use insert_with_proof).
     pub fn partial_storages_trie(
         &self,
         address: ContractAddress,

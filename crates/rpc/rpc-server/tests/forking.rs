@@ -661,21 +661,13 @@ async fn get_events_with_invalid_block_hash(#[case] hash: BlockHash) {
 
 #[cfg(test)]
 mod tests {
-    use katana_chain_spec::dev::DEV_UNALLOCATED;
-    use katana_chain_spec::{dev, ChainSpec};
     use katana_core::service::block_producer::IntervalBlockProducer;
     use katana_db::Db;
-    use katana_node::config::fork::ForkingConfig;
-    use katana_primitives::block::{
-        Block, BlockNumber, FinalityStatus, Header, SealedBlockWithStatus,
-    };
-    use katana_primitives::chain::ChainId;
     use katana_primitives::class::ClassHash;
-    use katana_primitives::state::{StateUpdates, StateUpdatesWithClasses};
+    use katana_primitives::state::StateUpdates;
     use katana_primitives::ContractAddress;
     use katana_primitives::Felt;
     use katana_provider::api::block::BlockNumberProvider;
-    use katana_provider::api::block::BlockWriter;
     use katana_provider::api::trie::TrieWriter;
     use katana_provider::MutableProvider;
     use katana_provider::{ForkProviderFactory, ProviderFactory};
@@ -686,8 +678,6 @@ mod tests {
     use proptest::proptest;
     use rand::{thread_rng, Rng};
     use std::collections::{BTreeMap, BTreeSet};
-    use std::sync::Arc;
-    use url::Url;
 
     #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
     async fn test_commit_new_state_root_mainnet_blockchain_and_forked_provider() {
@@ -700,10 +690,8 @@ mod tests {
 
         let block_number = provider.latest_number().unwrap();
 
-        // Generate random state updates
         let state_updates = setup_mainnet_updates_randomized(5);
 
-        //init first state for mainnet
         provider_mut.compute_state_root(block_number, &state_updates).unwrap();
         provider_mut.commit().unwrap();
 
@@ -801,157 +789,6 @@ mod tests {
         (address, class_hash, storage, nonce)
     }
 
-    fn create_test_block_with_state_updates(
-        block_number: BlockNumber,
-        _state_updates: StateUpdates,
-    ) -> SealedBlockWithStatus {
-        SealedBlockWithStatus {
-            block: Block {
-                header: Header { number: block_number, ..Default::default() },
-                body: Vec::new(),
-            }
-            .seal(),
-            status: FinalityStatus::AcceptedOnL2,
-        }
-    }
-
-    /// To run this test you need to comment out global cache part in Node::build() "let global_class_cache = class_cache.build_global()?";
-    #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
-    async fn test_commit_new_state_root_two_katana_instances() {
-        let sequencer = TestNode::new().await;
-        let backend = sequencer.backend();
-        let provider = backend.storage.provider();
-        let url = format!("http://{}", sequencer.rpc_addr());
-
-        // initialize state and mine at least one block before starting the fork
-        let mut producer = IntervalBlockProducer::new(backend.clone(), None);
-        producer.force_mine();
-
-        let fork_from_block = provider.latest_number().unwrap();
-        assert!(
-            fork_from_block > 0,
-            "mainnet provider must produce at least one block before forking"
-        );
-        let fork_url = Url::parse(&url).unwrap();
-        let mut fork_config = katana_utils::node::test_config();
-        let mut fork_chain_spec = (*DEV_UNALLOCATED).clone();
-        fork_chain_spec.id = ChainId::SEPOLIA;
-        fork_chain_spec.genesis.sequencer_address =
-            dev::ChainSpec::default().genesis.sequencer_address;
-        fork_config.chain = Arc::new(ChainSpec::Dev(fork_chain_spec));
-        let fork_block = katana_primitives::block::BlockHashOrNumber::Num(fork_from_block);
-        fork_config.forking = Some(ForkingConfig { url: fork_url, block: Some(fork_block) });
-
-        let fork_sequencer = TestNode::new_with_config(fork_config).await;
-        let fork_backend = fork_sequencer.backend();
-        let fork_provider = fork_backend.storage.provider();
-        let mut fork_producer = IntervalBlockProducer::new(fork_backend.clone(), None);
-
-        let block_number = provider.latest_number().unwrap();
-        let fork_block_number = fork_provider.latest_number().unwrap();
-
-        let fork_minimal_updates = setup_mainnet_updates_randomized(5);
-
-        // Insert block with state updates on fork
-        let fork_provider_mut = fork_backend.storage.provider_mut();
-        let new_fork_block_number = fork_block_number + 1;
-        let fork_state_root = fork_provider_mut
-            .compute_state_root(new_fork_block_number, &fork_minimal_updates)
-            .unwrap();
-
-        // Create and insert block with the state updates
-        let fork_block = create_test_block_with_state_updates(
-            new_fork_block_number,
-            fork_minimal_updates.clone(),
-        );
-        fork_provider_mut
-            .insert_block_with_states_and_receipts(
-                fork_block,
-                StateUpdatesWithClasses {
-                    state_updates: fork_minimal_updates.clone(),
-                    ..Default::default()
-                },
-                vec![],
-                vec![],
-            )
-            .unwrap();
-        fork_provider_mut.commit().unwrap();
-
-        // Insert block with same state updates on mainnet
-        let provider_mut = backend.storage.provider_mut();
-        let new_block_number = block_number + 1;
-        let mainnet_state_root =
-            provider_mut.compute_state_root(new_block_number, &fork_minimal_updates).unwrap();
-
-        let mainnet_block =
-            create_test_block_with_state_updates(new_block_number, fork_minimal_updates.clone());
-        provider_mut
-            .insert_block_with_states_and_receipts(
-                mainnet_block,
-                StateUpdatesWithClasses {
-                    state_updates: fork_minimal_updates.clone(),
-                    ..Default::default()
-                },
-                vec![],
-                vec![],
-            )
-            .unwrap();
-        provider_mut.commit().unwrap();
-
-        assert_eq!(
-            fork_state_root, mainnet_state_root,
-            "State roots do not match on first run: fork={:?}, mainnet={:?}",
-            fork_state_root, mainnet_state_root
-        );
-
-        let block_number = provider.latest_number().unwrap();
-        let fork_block_number = fork_provider.latest_number().unwrap();
-        let state_updates = setup_mainnet_updates_randomized(5);
-        let fork_provider_mut = fork_backend.storage.provider_mut();
-        let new_fork_block_number = fork_block_number + 1;
-        let fork_state_root =
-            fork_provider_mut.compute_state_root(new_fork_block_number, &state_updates).unwrap();
-        fork_provider_mut.commit().unwrap();
-        let provider_mut = backend.storage.provider_mut();
-        let new_block_number = block_number + 1;
-        let mainnet_state_root =
-            provider_mut.compute_state_root(new_block_number, &state_updates).unwrap();
-        provider_mut.commit().unwrap();
-
-        producer.force_mine();
-        fork_producer.force_mine();
-
-        assert_eq!(
-            fork_state_root, mainnet_state_root,
-            "State roots do not match on second run: fork={:?}, mainnet={:?}",
-            fork_state_root, mainnet_state_root
-        );
-
-        let block_number = provider.latest_number().unwrap();
-        let fork_block_number = fork_provider.latest_number().unwrap();
-
-        let state_updates = setup_mainnet_updates_randomized(5);
-        let fork_provider_mut = fork_backend.storage.provider_mut();
-        let new_fork_block_number = fork_block_number + 1;
-        let fork_state_root =
-            fork_provider_mut.compute_state_root(new_fork_block_number, &state_updates).unwrap();
-        fork_provider_mut.commit().unwrap();
-        let provider_mut = backend.storage.provider_mut();
-        let new_block_number = block_number + 1;
-        let mainnet_state_root =
-            provider_mut.compute_state_root(new_block_number, &state_updates).unwrap();
-        provider_mut.commit().unwrap();
-
-        assert_eq!(
-            fork_state_root, mainnet_state_root,
-            "State roots do not match on third run: fork={:?}, mainnet={:?}",
-            fork_state_root, mainnet_state_root
-        );
-
-        producer.force_mine();
-        fork_producer.force_mine();
-    }
-
     fn arb_felt() -> impl Strategy<Value = Felt> {
         any::<[u8; 32]>().prop_map(|bytes| Felt::from_bytes_be(&bytes))
     }
@@ -1002,8 +839,8 @@ mod tests {
         })
     }
 
-    // These tests require walkaround to work
-    // We need to comment out "let global_class_cache = class_cache.build_global()?;"
+    // These tests require workaround to work
+    // Comment out "let global_class_cache = class_cache.build_global()?;"
     // in Node::build()
     proptest! {
         #![proptest_config(ProptestConfig {

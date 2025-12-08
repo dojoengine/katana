@@ -392,13 +392,11 @@ async fn post_fork_state_proof_should_not_be_supported() {
 
     let class_hash = felt!("0x00e022115a73679d4e215da00f53d8f681f5c52b488bf18c71fea115e92181b1");
     let result = state.class_multiproof(vec![class_hash]);
-    // assert_matches!(result, Err(ProviderError::StateProofNotSupported));
-    println!("class_hash result: {:?}", result);
+    assert_matches!(result, Err(ProviderError::StateProofNotSupported));
 
     let address = address!("0x0164b86b8fC5C0c84d3c53Bc95760F290420Ea2a32ed49A44fd046683a1CaAc2");
     let result = state.contract_multiproof(vec![address]);
-    println!("contract_multiproof result: {:?}", result);
-    // assert_matches!(result, Err(ProviderError::StateProofNotSupported));
+    assert_matches!(result, Err(ProviderError::StateProofNotSupported));
 }
 
 #[tokio::test(flavor = "multi_thread")]

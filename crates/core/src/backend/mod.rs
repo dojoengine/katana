@@ -272,7 +272,6 @@ where
 
             info!(genesis_hash = %outcome.block_hash, "Genesis initialized");
         }
-        // For forked instances, genesis is not created (fork already has its state)
 
         Ok(())
     }

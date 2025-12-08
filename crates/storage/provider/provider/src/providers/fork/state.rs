@@ -36,14 +36,12 @@ impl<Tx1: DbTx> StateFactoryProvider for ForkedProvider<Tx1> {
     ) -> ProviderResult<Option<Box<dyn StateProvider>>> {
         let block_number = match block_id {
             BlockHashOrNumber::Num(num) => {
-                // Use the same logic as latest_number() - max of local_latest and fork_point
-                let fork_point = self.block_id();
                 let local_latest = match self.local_db.latest_number() {
                     Ok(num) => num,
-                    Err(ProviderError::MissingLatestBlockNumber) => fork_point,
+                    Err(ProviderError::MissingLatestBlockNumber) => self.block_id(),
                     Err(err) => return Err(err),
                 };
-                let latest_num = local_latest.max(fork_point);
+                let latest_num = local_latest.max(self.block_id());
 
                 match num.cmp(&latest_num) {
                     Ordering::Less => Some(num),
@@ -224,7 +222,6 @@ impl<Tx1: DbTx> StateProofProvider for LatestStateProvider<Tx1> {
             let mut trie =
                 TrieDbFactory::new(self.local_provider.0.tx()).latest().partial_classes_trie();
 
-            // Fetch proof and root from fork_point
             let rpc_proof =
                 self.fork_provider.backend.get_classes_proofs(classes.clone(), fork_point)?;
             let rpc_root = self.fork_provider.backend.get_global_roots(fork_point)?;
@@ -256,7 +253,6 @@ impl<Tx1: DbTx> StateProofProvider for LatestStateProvider<Tx1> {
             let mut trie =
                 TrieDbFactory::new(self.local_provider.0.tx()).latest().partial_contracts_trie();
 
-            // Fetch proof and root from fork_point
             let rpc_proof =
                 self.fork_provider.backend.get_contracts_proofs(addresses.clone(), fork_point)?;
             let rpc_root = self.fork_provider.backend.get_global_roots(fork_point)?;
@@ -292,7 +288,6 @@ impl<Tx1: DbTx> StateProofProvider for LatestStateProvider<Tx1> {
                 .latest()
                 .partial_storages_trie(address);
 
-            // Fetch proof and root from fork_point
             let key = vec![ContractStorageKeys { address, keys: storage_keys.clone() }];
             let rpc_proof = self.fork_provider.backend.get_storages_proofs(key, fork_point)?;
             let rpc_root = self.fork_provider.backend.get_storage_root(address, fork_point)?;
@@ -321,7 +316,6 @@ impl<Tx1: DbTx> StateRootProvider for LatestStateProvider<Tx1> {
         let fork_point = self.fork_provider.block_id;
         let latest_block_number = self.latest_block_number()?;
 
-        //That's not necessary
         if latest_block_number == fork_point {
             let result = self.fork_provider.backend.get_global_roots(fork_point)?;
             return Ok(result
@@ -508,7 +502,6 @@ impl<Tx1: DbTx> StateProofProvider for HistoricalStateProvider<Tx1> {
                 .ok_or(ProviderError::StateProofNotSupported)?
                 .partial_classes_trie();
 
-            // Fetch proof and root from fork_point
             let rpc_proof = self
                 .fork_provider
                 .backend
@@ -544,7 +537,6 @@ impl<Tx1: DbTx> StateProofProvider for HistoricalStateProvider<Tx1> {
                 .ok_or(ProviderError::StateProofNotSupported)?
                 .partial_contracts_trie();
 
-            // Fetch proof and root from fork_point
             let rpc_proof = self
                 .fork_provider
                 .backend
@@ -581,7 +573,6 @@ impl<Tx1: DbTx> StateProofProvider for HistoricalStateProvider<Tx1> {
                 .ok_or(ProviderError::StateProofNotSupported)?
                 .partial_storages_trie(address);
 
-            // Fetch proof and root from fork_point
             let key = vec![ContractStorageKeys { address, keys: storage_keys.clone() }];
             let rpc_proof =
                 self.fork_provider.backend.get_storages_proofs(key, self.fork_provider.block_id)?;

@@ -208,13 +208,12 @@ impl<Tx1: DbTx> BlockNumberProvider for ForkedProvider<Tx1> {
     }
 
     fn latest_number(&self) -> ProviderResult<BlockNumber> {
-        let fork_point = self.block_id();
         let local_latest = match self.local_db.latest_number() {
             Ok(num) => num,
-            Err(ProviderError::MissingLatestBlockNumber) => fork_point,
+            Err(ProviderError::MissingLatestBlockNumber) => self.block_id(),
             Err(err) => return Err(err),
         };
-        Ok(local_latest.max(fork_point))
+        Ok(local_latest.max(self.block_id()))
     }
 }
 
@@ -222,39 +221,14 @@ impl<Tx1: DbTx> BlockIdReader for ForkedProvider<Tx1> {}
 
 impl<Tx1: DbTx> BlockHashProvider for ForkedProvider<Tx1> {
     fn latest_hash(&self) -> ProviderResult<BlockHash> {
-        // Use the same logic as latest_number() - if local_db has blocks, use local hash
         let fork_point = self.block_id();
-        let local_latest = match self.local_db.latest_number() {
-            Ok(num) => num,
-            Err(ProviderError::MissingLatestBlockNumber) => fork_point,
-            Err(err) => return Err(err),
-        };
+        let latest_num = self.latest_number()?;
 
-        // If we have local blocks after fork point, use local hash
-        if local_latest > fork_point {
+        if latest_num > fork_point {
             return self.local_db.latest_hash();
         }
 
-        // Otherwise, use fork point hash (either local_latest == fork_point or local_db is empty)
-        if let Ok(hash) = self.local_db.latest_hash() {
-            Ok(hash)
-        } else {
-            // If local_db is empty, return the hash of the fork point block
-            if let Some(hash) = self.fork_db.db.provider().block_hash_by_num(fork_point)? {
-                Ok(hash)
-            } else {
-                // Fetch the fork point block if not cached
-                if self.fork_db.fetch_historical_blocks(fork_point.into())? {
-                    self.fork_db
-                        .db
-                        .provider()
-                        .block_hash_by_num(fork_point)?
-                        .ok_or(ProviderError::MissingLatestBlockHash)
-                } else {
-                    Err(ProviderError::MissingLatestBlockHash)
-                }
-            }
-        }
+        self.block_hash_by_num(latest_num)?.ok_or(ProviderError::MissingLatestBlockHash)
     }
 
     fn block_hash_by_num(&self, num: BlockNumber) -> ProviderResult<Option<BlockHash>> {
