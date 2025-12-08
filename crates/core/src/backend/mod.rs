@@ -29,7 +29,6 @@ use katana_trie::{
 };
 use parking_lot::RwLock;
 use rayon::prelude::*;
-use starknet::macros::short_string;
 use starknet_types_core::hash::{self, StarkHash};
 use tracing::info;
 
@@ -253,9 +252,8 @@ where
             }
 
             info!(genesis_hash = %local_hash, "Genesis has already been initialized");
-        } else {
-            // Initialize the dev genesis block
-
+        } else if !is_forking {
+            // Initialize the dev genesis block (only for non-forked instances)
             let block = chain_spec.block();
             let states = chain_spec.state_updates();
 
@@ -523,21 +521,9 @@ impl<'a, P: TrieWriter> UncommittedBlock<'a, P> {
 
     // state_commitment = hPos("STARKNET_STATE_V0", contract_trie_root, class_trie_root)
     fn compute_new_state_root(&self) -> Felt {
-        let class_trie_root = self
-            .provider
-            .trie_insert_declared_classes(self.header.number, &self.state_updates.declared_classes)
-            .expect("failed to update class trie");
-
-        let contract_trie_root = self
-            .provider
-            .trie_insert_contract_updates(self.header.number, self.state_updates)
-            .expect("failed to update contract trie");
-
-        hash::Poseidon::hash_array(&[
-            short_string!("STARKNET_STATE_V0"),
-            contract_trie_root,
-            class_trie_root,
-        ])
+        self.provider
+            .compute_state_root(self.header.number, self.state_updates)
+            .expect("failed to compute state root")
     }
 }
 
