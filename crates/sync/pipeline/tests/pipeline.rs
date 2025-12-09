@@ -817,6 +817,7 @@ async fn prune_skips_when_no_execution_checkpoint() {
     // Verify we don't have an execution checkpoint for the stage yet
     let execution_checkpoint = provider.execution_checkpoint(stage_clone.id()).unwrap();
     assert_eq!(execution_checkpoint, None);
+    provider.commit().unwrap();
 
     // No checkpoint set - stage has no data to prune
     pipeline.prune().await.unwrap();
