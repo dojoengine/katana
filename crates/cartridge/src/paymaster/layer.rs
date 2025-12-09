@@ -95,10 +95,10 @@ where
             }
         };
 
-        if let Ok(new_txs) = paymaster.handle_estimate_fees(block_id, txs).await {
+        if let Ok(Some(updated_txs)) = paymaster.handle_estimate_fees(block_id, txs).await {
             let new_params = {
                 let mut params = jsonrpsee::core::params::ArrayParams::new();
-                params.insert(new_txs).unwrap();
+                params.insert(updated_txs).unwrap();
                 params.insert(simulation_flags).unwrap();
                 params.insert(block_id).unwrap();
                 params
