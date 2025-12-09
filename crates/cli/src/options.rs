@@ -761,9 +761,8 @@ fn parse_pruning_mode(s: &str) -> Result<PruningMode, String> {
         s if s.starts_with("full:") => {
             let n =
                 s.strip_prefix("full:").and_then(|n| n.parse::<u64>().ok()).ok_or_else(|| {
-                    format!(
-                        "Invalid full format. Use 'full:N' where N is the number of blocks to keep"
-                    )
+                    "Invalid full format. Use 'full:N' where N is the number of blocks to keep"
+                        .to_string()
                 })?;
             Ok(PruningMode::Full(n))
         }
