@@ -174,7 +174,7 @@ async fn run_to_executes_stage_to_target() {
 
     let provider = provider_factory.provider_mut();
     assert_eq!(result, 5);
-    assert_eq!(provider.checkpoint(stage_clone.id()).unwrap(), Some(5));
+    assert_eq!(provider.execution_checkpoint(stage_clone.id()).unwrap(), Some(5));
 
     let execs = stage_clone.executions();
     assert_eq!(execs.len(), 1);
@@ -192,7 +192,7 @@ async fn run_to_skips_stage_when_checkpoint_equals_target() {
 
     // Set initial checkpoint
     let provider = provider_factory.provider_mut();
-    provider.set_checkpoint(stage.id(), 5).unwrap();
+    provider.set_execution_checkpoint(stage.id(), 5).unwrap();
     provider.commit().unwrap();
 
     pipeline.add_stage(stage);
@@ -214,7 +214,7 @@ async fn run_to_skips_stage_when_checkpoint_exceeds_target() {
 
     // Set checkpoint beyond target
     let provider = provider_factory.provider_mut();
-    provider.set_checkpoint("Stage1", 10).unwrap();
+    provider.set_execution_checkpoint("Stage1", 10).unwrap();
     provider.commit().unwrap();
 
     pipeline.add_stage(stage);
@@ -236,7 +236,7 @@ async fn run_to_uses_checkpoint_plus_one_as_from() {
 
     // Set checkpoint to 3
     let provider = provider_factory.provider_mut();
-    provider.set_checkpoint(stage.id(), 3).unwrap();
+    provider.set_execution_checkpoint(stage.id(), 3).unwrap();
     provider.commit().unwrap();
 
     pipeline.add_stage(stage);
@@ -284,9 +284,9 @@ async fn run_to_executes_all_stages_in_order() {
 
     // All checkpoints should be set
     let provider = provider_factory.provider_mut();
-    assert_eq!(provider.checkpoint(stage1_clone.id()).unwrap(), Some(5));
-    assert_eq!(provider.checkpoint(stage2_clone.id()).unwrap(), Some(5));
-    assert_eq!(provider.checkpoint(stage3_clone.id()).unwrap(), Some(5));
+    assert_eq!(provider.execution_checkpoint(stage1_clone.id()).unwrap(), Some(5));
+    assert_eq!(provider.execution_checkpoint(stage2_clone.id()).unwrap(), Some(5));
+    assert_eq!(provider.execution_checkpoint(stage3_clone.id()).unwrap(), Some(5));
 }
 
 #[tokio::test]
@@ -310,9 +310,9 @@ async fn run_to_with_mixed_checkpoints() {
 
     let provider = provider_factory.provider_mut();
     // Stage1 already at checkpoint 10 (should skip)
-    provider.set_checkpoint(stage1_clone.id(), 10).unwrap();
+    provider.set_execution_checkpoint(stage1_clone.id(), 10).unwrap();
     // Stage2 at checkpoint 3 (should execute)
-    provider.set_checkpoint(stage2_clone.id(), 3).unwrap();
+    provider.set_execution_checkpoint(stage2_clone.id(), 3).unwrap();
     provider.commit().unwrap();
 
     handle.set_tip(10);
@@ -363,9 +363,9 @@ async fn run_to_returns_minimum_last_block_processed() {
 
     let provider = provider_factory.provider_mut();
     assert_eq!(result, 5);
-    assert_eq!(provider.checkpoint(stage1_clone.id()).unwrap(), Some(10));
-    assert_eq!(provider.checkpoint(stage2_clone.id()).unwrap(), Some(5));
-    assert_eq!(provider.checkpoint(stage3_clone.id()).unwrap(), Some(20));
+    assert_eq!(provider.execution_checkpoint(stage1_clone.id()).unwrap(), Some(10));
+    assert_eq!(provider.execution_checkpoint(stage2_clone.id()).unwrap(), Some(5));
+    assert_eq!(provider.execution_checkpoint(stage3_clone.id()).unwrap(), Some(20));
 }
 
 #[tokio::test]
@@ -389,7 +389,7 @@ async fn run_to_middle_stage_skip_continues() {
 
     // stage in the middle of the sequence already complete
     let provider = provider_factory.provider_mut();
-    provider.set_checkpoint(stage2_clone.id(), 10).unwrap();
+    provider.set_execution_checkpoint(stage2_clone.id(), 10).unwrap();
     provider.commit().unwrap();
 
     handle.set_tip(10);
@@ -433,12 +433,12 @@ async fn run_processes_single_chunk_to_tip() {
     assert_eq!(execs[0].from, 0);
     assert_eq!(execs[0].to, 50);
 
-    assert_eq!(provider_factory.provider_mut().checkpoint("Stage1").unwrap(), Some(50));
+    assert_eq!(provider_factory.provider_mut().execution_checkpoint("Stage1").unwrap(), Some(50));
 }
 
 #[tokio::test]
 async fn run_processes_multiple_chunks_to_tip() {
-    let provider_factory = Arc::new(test_provider());
+    let provider_factory = test_provider();
     let (mut pipeline, handle) = Pipeline::new(provider_factory.clone(), 10); // Small chunk size
 
     let stage = TrackingStage::new("Stage1");
@@ -506,7 +506,7 @@ async fn run_processes_new_tip_after_completing_previous() {
     let execs = executions.lock().unwrap();
     assert!(execs.len() >= 3); // 1-10, 11-20, 21-25
     let provider = provider_factory.provider_mut();
-    assert_eq!(provider.checkpoint("Stage1").unwrap(), Some(25));
+    assert_eq!(provider.execution_checkpoint("Stage1").unwrap(), Some(25));
 }
 
 /// This test ensures that the pipeline will immediately stop its execution if the stop signal
@@ -538,7 +538,7 @@ async fn run_should_be_cancelled_if_stop_requested() {
         }
     }
 
-    let provider = Arc::new(test_provider());
+    let provider = test_provider();
     let (mut pipeline, handle) = Pipeline::new(provider.clone(), 100);
 
     let stage = PendingStage::default();
@@ -578,7 +578,7 @@ async fn stage_execution_error_stops_pipeline() {
 
     // Checkpoint should not be set after failure
     let provider = provider_factory.provider_mut();
-    assert_eq!(provider.checkpoint(stage_clone.id()).unwrap(), None);
+    assert_eq!(provider.execution_checkpoint(stage_clone.id()).unwrap(), None);
 }
 
 /// If a stage fails, all subsequent stages should not execute and the pipeline should stop.
@@ -636,7 +636,7 @@ async fn tip_equals_checkpoint_no_execution() {
 
     // set checkpoint for Stage1 stage
     let provider = provider_factory.provider_mut();
-    provider.set_checkpoint(stage.id(), 10).unwrap();
+    provider.set_execution_checkpoint(stage.id(), 10).unwrap();
     provider.commit().unwrap();
 
     pipeline.add_stage(stage);
@@ -660,7 +660,7 @@ async fn tip_less_than_checkpoint_skip_all() {
     // set checkpoint for Stage1 stage
     let provider = provider_factory.provider_mut();
     let checkpoint = 20;
-    provider.set_checkpoint(stage.id(), checkpoint).unwrap();
+    provider.set_execution_checkpoint(stage.id(), checkpoint).unwrap();
     provider.commit().unwrap();
 
     pipeline.add_stage(stage);
@@ -710,26 +710,452 @@ async fn stage_checkpoint() {
     pipeline.add_stage(MockStage);
 
     // check that the checkpoint was set
-    let initial_checkpoint = provider_factory.provider_mut().checkpoint("Mock").unwrap();
+    let initial_checkpoint = provider_factory.provider_mut().execution_checkpoint("Mock").unwrap();
     assert_eq!(initial_checkpoint, None);
 
     handle.set_tip(5);
     pipeline.execute(5).await.expect("failed to run the pipeline once");
 
     // check that the checkpoint was set
-    let actual_checkpoint = provider_factory.provider_mut().checkpoint("Mock").unwrap();
+    let actual_checkpoint = provider_factory.provider_mut().execution_checkpoint("Mock").unwrap();
     assert_eq!(actual_checkpoint, Some(5));
 
     handle.set_tip(10);
     pipeline.execute(10).await.expect("failed to run the pipeline once");
 
     // check that the checkpoint was set
-    let actual_checkpoint = provider_factory.provider_mut().checkpoint("Mock").unwrap();
+    let actual_checkpoint = provider_factory.provider_mut().execution_checkpoint("Mock").unwrap();
     assert_eq!(actual_checkpoint, Some(10));
 
     pipeline.execute(10).await.expect("failed to run the pipeline once");
 
     // check that the checkpoint doesn't change
-    let actual_checkpoint = provider_factory.provider_mut().checkpoint("Mock").unwrap();
+    let actual_checkpoint = provider_factory.provider_mut().execution_checkpoint("Mock").unwrap();
     assert_eq!(actual_checkpoint, Some(10));
+}
+
+// ============================================================================
+// Pruning Tests
+// ============================================================================
+
+use katana_pipeline::PruningConfig;
+use katana_stage::PruningMode;
+
+/// Pruning record to track what blocks were pruned
+#[derive(Debug, Clone)]
+struct PruneRecord {
+    from: BlockNumber,
+    to: BlockNumber,
+}
+
+/// Mock stage that tracks pruning calls
+#[derive(Debug, Clone)]
+struct PruningTrackingStage {
+    id: &'static str,
+    executions: Arc<Mutex<Vec<ExecutionRecord>>>,
+    prunes: Arc<Mutex<Vec<PruneRecord>>>,
+}
+
+impl PruningTrackingStage {
+    fn new(id: &'static str) -> Self {
+        Self {
+            id,
+            executions: Arc::new(Mutex::new(Vec::new())),
+            prunes: Arc::new(Mutex::new(Vec::new())),
+        }
+    }
+
+    fn prune_records(&self) -> Vec<PruneRecord> {
+        self.prunes.lock().unwrap().clone()
+    }
+
+    fn prune_count(&self) -> usize {
+        self.prunes.lock().unwrap().len()
+    }
+}
+
+impl Stage for PruningTrackingStage {
+    fn id(&self) -> &'static str {
+        self.id
+    }
+
+    fn execute<'a>(&'a mut self, input: &'a StageExecutionInput) -> BoxFuture<'a, StageResult> {
+        Box::pin(async move {
+            self.executions
+                .lock()
+                .unwrap()
+                .push(ExecutionRecord { from: input.from(), to: input.to() });
+            Ok(StageExecutionOutput { last_block_processed: input.to() })
+        })
+    }
+
+    fn prune<'a>(&'a mut self, input: &'a PruneInput) -> BoxFuture<'a, PruneResult> {
+        Box::pin(async move {
+            if let Some(range) = input.prune_range() {
+                self.prunes.lock().unwrap().push(PruneRecord { from: range.start, to: range.end });
+                Ok(PruneOutput { pruned_count: range.end - range.start })
+            } else {
+                Ok(PruneOutput::default())
+            }
+        })
+    }
+}
+
+#[tokio::test]
+async fn prune_skips_when_no_execution_checkpoint() {
+    let provider_factory = test_provider();
+    let (mut pipeline, _handle) = Pipeline::new(provider_factory.clone(), 10);
+
+    pipeline.set_pruning_config(PruningConfig::new(PruningMode::Full(10), Some(10)));
+
+    let stage = PruningTrackingStage::new("Stage1");
+    let stage_clone = stage.clone();
+    pipeline.add_stage(stage);
+
+    let provider = provider_factory.provider_mut();
+
+    // Verify we don't have an execution checkpoint for the stage yet
+    let execution_checkpoint = provider.execution_checkpoint(stage_clone.id()).unwrap();
+    assert_eq!(execution_checkpoint, None);
+
+    // No checkpoint set - stage has no data to prune
+    pipeline.prune().await.unwrap();
+
+    // Should not prune when there's no execution checkpoint
+    assert_eq!(stage_clone.prune_count(), 0);
+}
+
+#[tokio::test]
+async fn prune_skips_when_archive_mode() {
+    let provider_factory = test_provider();
+    let (mut pipeline, handle) = Pipeline::new(provider_factory.clone(), 10);
+
+    // Archive mode is the default, but let's be explicit
+    pipeline.set_pruning_config(PruningConfig::new(PruningMode::Archive, Some(10)));
+
+    let stage = PruningTrackingStage::new("Stage1");
+    let stage_clone = stage.clone();
+    pipeline.add_stage(stage);
+
+    // Set checkpoint to simulate execution having completed
+    let provider = provider_factory.provider_mut();
+    provider.set_execution_checkpoint(stage_clone.id(), 100).unwrap();
+    provider.commit().unwrap();
+
+    handle.set_tip(100);
+    pipeline.prune().await.unwrap();
+
+    // Archive mode should not prune anything
+    assert_eq!(stage_clone.prune_count(), 0);
+}
+
+/// Tests different pruning modes and verifies the correct prune range is calculated:
+/// - Full mode: keeps last N blocks, prunes everything before tip - N
+/// - Minimal mode: keeps only latest state, prunes everything before tip - 1
+/// - Full mode with insufficient blocks: skips pruning when tip < keep_blocks
+#[tokio::test]
+async fn prune_mode_behavior() {
+    // Test case: Full mode keeps last N blocks
+    // tip=100, keep=50 -> prune 0..50
+    {
+        let provider_factory = test_provider();
+        let (mut pipeline, handle) = Pipeline::new(provider_factory.clone(), 10);
+        pipeline.set_pruning_config(PruningConfig::new(PruningMode::Full(50), Some(10)));
+
+        let stage = PruningTrackingStage::new("Stage1");
+        let stage_clone = stage.clone();
+        pipeline.add_stage(stage);
+
+        let provider = provider_factory.provider_mut();
+        provider.set_execution_checkpoint(stage_clone.id(), 100).unwrap();
+        provider.commit().unwrap();
+
+        handle.set_tip(100);
+        pipeline.prune().await.unwrap();
+
+        let records = stage_clone.prune_records();
+        assert_eq!(records.len(), 1, "Full mode: expected one prune operation");
+        assert_eq!(records[0].from, 0, "Full mode: prune range start mismatch");
+        assert_eq!(records[0].to, 50, "Full mode: prune range end mismatch");
+    }
+
+    // Test case: Minimal mode keeps only latest
+    // tip=100 -> prune 0..99
+    {
+        let provider_factory = test_provider();
+        let (mut pipeline, handle) = Pipeline::new(provider_factory.clone(), 10);
+        pipeline.set_pruning_config(PruningConfig::new(PruningMode::Minimal, Some(10)));
+
+        let stage = PruningTrackingStage::new("Stage1");
+        let stage_clone = stage.clone();
+        pipeline.add_stage(stage);
+
+        let provider = provider_factory.provider_mut();
+        provider.set_execution_checkpoint(stage_clone.id(), 100).unwrap();
+        provider.commit().unwrap();
+
+        handle.set_tip(100);
+        pipeline.prune().await.unwrap();
+
+        let records = stage_clone.prune_records();
+        assert_eq!(records.len(), 1, "Minimal mode: expected one prune operation");
+        assert_eq!(records[0].from, 0, "Minimal mode: prune range start mismatch");
+        assert_eq!(records[0].to, 99, "Minimal mode: prune range end mismatch");
+    }
+
+    // Test case: Full mode skips when not enough blocks
+    // tip=50, keep=100 -> no pruning
+    {
+        let provider_factory = test_provider();
+        let (mut pipeline, handle) = Pipeline::new(provider_factory.clone(), 10);
+        pipeline.set_pruning_config(PruningConfig::new(PruningMode::Full(100), Some(10)));
+
+        let stage = PruningTrackingStage::new("Stage1");
+        let stage_clone = stage.clone();
+        pipeline.add_stage(stage);
+
+        let provider = provider_factory.provider_mut();
+        provider.set_execution_checkpoint(stage_clone.id(), 50).unwrap();
+        provider.commit().unwrap();
+
+        handle.set_tip(50);
+        pipeline.prune().await.unwrap();
+
+        assert_eq!(
+            stage_clone.prune_count(),
+            0,
+            "Full mode insufficient blocks: expected no pruning"
+        );
+    }
+}
+
+#[tokio::test]
+async fn prune_uses_checkpoint_to_avoid_re_pruning() {
+    let provider_factory = test_provider();
+    let (mut pipeline, handle) = Pipeline::new(provider_factory.clone(), 10);
+
+    pipeline.set_pruning_config(PruningConfig::new(PruningMode::Full(50), Some(10)));
+
+    let stage = PruningTrackingStage::new("Stage1");
+    let stage_clone = stage.clone();
+    pipeline.add_stage(stage);
+
+    let provider = provider_factory.provider_mut();
+    // Set execution checkpoint to 200
+    provider.set_execution_checkpoint(stage_clone.id(), 200).unwrap();
+    // Set prune checkpoint - already pruned up to block 100
+    provider.set_prune_checkpoint(stage_clone.id(), 100).unwrap();
+    provider.commit().unwrap();
+
+    handle.set_tip(200);
+    pipeline.prune().await.unwrap();
+
+    // Should only prune blocks 101-149 (from last_pruned+1 to tip-keep_blocks)
+    let records = stage_clone.prune_records();
+    assert_eq!(records.len(), 1);
+    assert_eq!(records[0].from, 101); // last_pruned + 1
+    assert_eq!(records[0].to, 150); // tip (200) - keep_blocks (50) = 150
+}
+
+#[tokio::test]
+async fn prune_skips_when_already_caught_up() {
+    let provider_factory = test_provider();
+    let (mut pipeline, handle) = Pipeline::new(provider_factory.clone(), 10);
+
+    pipeline.set_pruning_config(PruningConfig::new(PruningMode::Full(50), Some(10)));
+
+    let stage = PruningTrackingStage::new("Stage1");
+    let stage_clone = stage.clone();
+    pipeline.add_stage(stage);
+
+    let provider = provider_factory.provider_mut();
+    // Set execution checkpoint to 100
+    provider.set_execution_checkpoint(stage_clone.id(), 100).unwrap();
+    // Already pruned up to block 49 (which is tip - keep_blocks - 1)
+    provider.set_prune_checkpoint(stage_clone.id(), 49).unwrap();
+    provider.commit().unwrap();
+
+    handle.set_tip(100);
+    pipeline.prune().await.unwrap();
+
+    // Should not prune - already caught up
+    assert_eq!(stage_clone.prune_count(), 0);
+}
+
+#[tokio::test]
+async fn prune_multiple_stages_independently() {
+    let provider_factory = test_provider();
+    let (mut pipeline, handle) = Pipeline::new(provider_factory.clone(), 10);
+
+    pipeline.set_pruning_config(PruningConfig::new(PruningMode::Full(50), Some(10)));
+
+    let stage1 = PruningTrackingStage::new("Stage1");
+    let stage2 = PruningTrackingStage::new("Stage2");
+    let stage1_clone = stage1.clone();
+    let stage2_clone = stage2.clone();
+
+    pipeline.add_stage(stage1);
+    pipeline.add_stage(stage2);
+
+    let provider = provider_factory.provider_mut();
+    // Stage1 at checkpoint 100
+    provider.set_execution_checkpoint(stage1_clone.id(), 100).unwrap();
+    // Stage2 at checkpoint 200
+    provider.set_execution_checkpoint(stage2_clone.id(), 200).unwrap();
+    provider.commit().unwrap();
+
+    handle.set_tip(200);
+    pipeline.prune().await.unwrap();
+
+    // Stage1: prune 0-49 (tip=100, keep=50)
+    let records1 = stage1_clone.prune_records();
+    assert_eq!(records1.len(), 1);
+    assert_eq!(records1[0].from, 0);
+    assert_eq!(records1[0].to, 50);
+
+    // Stage2: prune 0-149 (tip=200, keep=50)
+    let records2 = stage2_clone.prune_records();
+    assert_eq!(records2.len(), 1);
+    assert_eq!(records2[0].from, 0);
+    assert_eq!(records2[0].to, 150);
+
+    // Verify prune checkpoints were set independently
+    let provider = provider_factory.provider_mut();
+    assert_eq!(provider.prune_checkpoint(stage1_clone.id()).unwrap(), Some(49));
+    assert_eq!(provider.prune_checkpoint(stage2_clone.id()).unwrap(), Some(149));
+}
+
+/// Tests incremental pruning across multiple runs and verifies checkpoint persistence.
+///
+/// This test covers:
+/// 1. Initial pruning sets the checkpoint correctly
+/// 2. Subsequent pruning uses the checkpoint to avoid re-pruning
+/// 3. Checkpoint is updated after each prune operation
+#[tokio::test]
+async fn prune_incremental_with_checkpoint_persistence() {
+    let provider_factory = test_provider();
+    let (mut pipeline, handle) = Pipeline::new(provider_factory.clone(), 10);
+
+    pipeline.set_pruning_config(PruningConfig::new(PruningMode::Full(50), Some(10)));
+
+    let stage = PruningTrackingStage::new("Stage1");
+    let stage_clone = stage.clone();
+    pipeline.add_stage(stage);
+
+    // Verify no prune checkpoint initially
+    let initial_prune_checkpoint =
+        provider_factory.provider_mut().prune_checkpoint(stage_clone.id()).unwrap();
+    assert_eq!(initial_prune_checkpoint, None);
+
+    // First run: execution at 100
+    let provider = provider_factory.provider_mut();
+    provider.set_execution_checkpoint(stage_clone.id(), 100).unwrap();
+    provider.commit().unwrap();
+
+    handle.set_tip(100);
+    pipeline.prune().await.unwrap();
+
+    // Verify first prune operation
+    let records = stage_clone.prune_records();
+    assert_eq!(records.len(), 1);
+    assert_eq!(records[0].from, 0);
+    assert_eq!(records[0].to, 50);
+
+    // Verify prune checkpoint was set after first prune
+    let prune_checkpoint =
+        provider_factory.provider_mut().prune_checkpoint(stage_clone.id()).unwrap();
+    assert_eq!(prune_checkpoint, Some(49)); // 50 - 1 = 49
+
+    // Second run: execution advanced to 200
+    let provider = provider_factory.provider_mut();
+    provider.set_execution_checkpoint(stage_clone.id(), 200).unwrap();
+    provider.commit().unwrap();
+
+    handle.set_tip(200);
+    pipeline.prune().await.unwrap();
+
+    // Should have two prune records now
+    let records = stage_clone.prune_records();
+    assert_eq!(records.len(), 2);
+    // Second prune should start from 50 (previous prune checkpoint + 1)
+    assert_eq!(records[1].from, 50);
+    assert_eq!(records[1].to, 150);
+
+    // Verify final prune checkpoint
+    let provider = provider_factory.provider_mut();
+    assert_eq!(provider.prune_checkpoint(stage_clone.id()).unwrap(), Some(149));
+}
+
+/// Mock stage that fails during pruning
+#[derive(Debug, Clone)]
+struct FailingPruneStage {
+    id: &'static str,
+}
+
+impl FailingPruneStage {
+    fn new(id: &'static str) -> Self {
+        Self { id }
+    }
+}
+
+impl Stage for FailingPruneStage {
+    fn id(&self) -> &'static str {
+        self.id
+    }
+
+    fn execute<'a>(&'a mut self, input: &'a StageExecutionInput) -> BoxFuture<'a, StageResult> {
+        Box::pin(async move { Ok(StageExecutionOutput { last_block_processed: input.to() }) })
+    }
+
+    fn prune<'a>(&'a mut self, _: &'a PruneInput) -> BoxFuture<'a, PruneResult> {
+        Box::pin(async { Err(katana_stage::Error::Other(anyhow!("Pruning failed"))) })
+    }
+}
+
+#[tokio::test]
+async fn prune_error_stops_pipeline() {
+    let provider_factory = test_provider();
+    let (mut pipeline, handle) = Pipeline::new(provider_factory.clone(), 10);
+
+    pipeline.set_pruning_config(PruningConfig::new(PruningMode::Full(50), Some(10)));
+
+    let failing_stage = FailingPruneStage::new("FailingStage");
+    let stage2 = PruningTrackingStage::new("Stage2");
+    let stage2_clone = stage2.clone();
+
+    pipeline.add_stage(failing_stage);
+    pipeline.add_stage(stage2);
+
+    let provider = provider_factory.provider_mut();
+    provider.set_execution_checkpoint("FailingStage", 100).unwrap();
+    provider.set_execution_checkpoint(stage2_clone.id(), 100).unwrap();
+    provider.commit().unwrap();
+
+    handle.set_tip(100);
+    let result = pipeline.prune().await;
+
+    // Should return an error
+    assert!(result.is_err());
+
+    let katana_pipeline::Error::StagePruning { id, error } = result.unwrap_err() else {
+        panic!("Unexpected error type");
+    };
+
+    assert_eq!(id, "FailingStage");
+    assert!(error.to_string().contains("Pruning failed"));
+
+    // Stage2 should not have been pruned since Stage1 failed
+    assert_eq!(stage2_clone.prune_count(), 0);
+}
+
+#[tokio::test]
+async fn prune_empty_pipeline_succeeds() {
+    let provider_factory = test_provider();
+    let (mut pipeline, _handle) = Pipeline::new(provider_factory, 10);
+
+    pipeline.set_pruning_config(PruningConfig::new(PruningMode::Full(50), Some(10)));
+
+    // No stages added
+    let result = pipeline.prune().await;
+    assert!(result.is_ok());
 }

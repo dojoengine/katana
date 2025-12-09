@@ -10,7 +10,7 @@ use katana_primitives::class::{ClassHash, ContractClass};
 use katana_provider::api::contract::ContractClassWriter;
 use katana_provider::api::state_update::StateUpdateProvider;
 use katana_provider::api::ProviderError;
-use katana_provider::{MutableProvider, ProviderFactory};
+use katana_provider::{DbProviderFactory, MutableProvider, ProviderFactory};
 use katana_rpc_types::class::ConversionError;
 use rayon::prelude::*;
 use tracing::{debug, error, info_span, Instrument};
@@ -22,26 +22,26 @@ use super::{
 use crate::downloader::{BatchDownloader, Downloader, DownloaderResult};
 
 /// A stage for downloading and storing contract classes.
-pub struct Classes<P> {
-    provider: P,
+pub struct Classes {
+    provider: DbProviderFactory,
     downloader: BatchDownloader<ClassDownloader>,
     /// Thread pool for parallel class hash verification
     verification_pool: rayon::ThreadPool,
 }
 
-impl<P> std::fmt::Debug for Classes<P> {
+impl std::fmt::Debug for Classes {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         f.debug_struct("Classes")
-            .field("provider", &std::any::type_name::<P>())
+            .field("provider", &self.provider)
             .field("downloader", &self.downloader)
             .field("verification_pool", &"<ThreadPool>")
             .finish()
     }
 }
 
-impl<P> Classes<P> {
+impl Classes {
     /// Create a new Classes stage using the Feeder Gateway downloader.
-    pub fn new(provider: P, gateway: SequencerGateway, batch_size: usize) -> Self {
+    pub fn new(provider: DbProviderFactory, gateway: SequencerGateway, batch_size: usize) -> Self {
         let downloader = ClassDownloader { gateway };
         let downloader = BatchDownloader::new(downloader, batch_size);
 
@@ -58,11 +58,7 @@ impl<P> Classes<P> {
         &self,
         from_block: BlockNumber,
         to_block: BlockNumber,
-    ) -> Result<Vec<ClassDownloadKey>, Error>
-    where
-        P: ProviderFactory,
-        <P as ProviderFactory>::Provider: StateUpdateProvider,
-    {
+    ) -> Result<Vec<ClassDownloadKey>, Error> {
         let mut classes_keys: Vec<ClassDownloadKey> = Vec::new();
 
         for block in from_block..=to_block {
@@ -119,12 +115,7 @@ impl<P> Classes<P> {
     }
 }
 
-impl<P> Stage for Classes<P>
-where
-    P: ProviderFactory,
-    <P as ProviderFactory>::Provider: StateUpdateProvider,
-    <P as ProviderFactory>::ProviderMut: ContractClassWriter,
-{
+impl Stage for Classes {
     fn id(&self) -> &'static str {
         "Classes"
     }

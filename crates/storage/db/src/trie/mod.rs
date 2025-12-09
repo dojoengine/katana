@@ -10,7 +10,7 @@ use katana_trie::bonsai::{BonsaiDatabase, BonsaiPersistentDatabase, ByteVec, Dat
 use katana_trie::CommitId;
 use smallvec::ToSmallVec;
 
-use crate::abstraction::{DbCursor, DbTxMutRef, DbTxRef};
+use crate::abstraction::{DbCursor, DbDupSortCursor, DbTx, DbTxMut};
 use crate::models::trie::{TrieDatabaseKey, TrieDatabaseKeyType, TrieHistoryEntry};
 use crate::models::{self};
 use crate::tables::{self, Trie};
@@ -25,47 +25,47 @@ pub struct Error(#[from] crate::error::DatabaseError);
 
 impl katana_trie::bonsai::DBError for Error {}
 
-#[derive(Debug)]
-pub struct TrieDbFactory<'a, Tx: DbTxRef<'a>> {
-    tx: Tx,
-    _phantom: &'a PhantomData<()>,
+impl Error {
+    /// Returns the inner database error.
+    pub fn into_inner(self) -> crate::error::DatabaseError {
+        self.0
+    }
 }
 
-impl<'a, Tx: DbTxRef<'a>> TrieDbFactory<'a, Tx> {
+#[derive(Debug)]
+pub struct TrieDbFactory<Tx: DbTx> {
+    tx: Tx,
+}
+
+impl<Tx: DbTx> TrieDbFactory<Tx> {
     pub fn new(tx: Tx) -> Self {
-        Self { tx, _phantom: &PhantomData }
+        Self { tx }
     }
 
-    pub fn latest(&self) -> GlobalTrie<'a, Tx> {
-        GlobalTrie { tx: self.tx.clone(), _phantom: &PhantomData }
+    pub fn latest(&self) -> GlobalTrie<Tx> {
+        GlobalTrie { tx: self.tx.clone() }
     }
 
     // TODO: check that the snapshot for the block number is available
-    pub fn historical(&self, block: BlockNumber) -> Option<HistoricalGlobalTrie<'a, Tx>> {
-        Some(HistoricalGlobalTrie { tx: self.tx.clone(), block, _phantom: &PhantomData })
+    pub fn historical(&self, block: BlockNumber) -> Option<HistoricalGlobalTrie<Tx>> {
+        Some(HistoricalGlobalTrie { tx: self.tx.clone(), block })
     }
 }
 
 /// Provides access to the latest tries.
 #[derive(Debug)]
-pub struct GlobalTrie<'a, Tx: DbTxRef<'a>> {
+pub struct GlobalTrie<Tx: DbTx> {
     tx: Tx,
-    _phantom: &'a PhantomData<()>,
 }
 
-impl<'a, Tx> GlobalTrie<'a, Tx>
-where
-    Tx: DbTxRef<'a>,
-{
+impl<Tx: DbTx> GlobalTrie<Tx> {
     /// Returns the contracts trie.
-    pub fn contracts_trie(
-        &self,
-    ) -> katana_trie::ContractsTrie<TrieDb<'a, tables::ContractsTrie, Tx>> {
+    pub fn contracts_trie(&self) -> katana_trie::ContractsTrie<TrieDb<tables::ContractsTrie, Tx>> {
         katana_trie::ContractsTrie::new(TrieDb::new(self.tx.clone()))
     }
 
     /// Returns the classes trie.
-    pub fn classes_trie(&self) -> katana_trie::ClassesTrie<TrieDb<'a, tables::ClassesTrie, Tx>> {
+    pub fn classes_trie(&self) -> katana_trie::ClassesTrie<TrieDb<tables::ClassesTrie, Tx>> {
         katana_trie::ClassesTrie::new(TrieDb::new(self.tx.clone()))
     }
 
@@ -74,29 +74,25 @@ where
     pub fn storages_trie(
         &self,
         address: ContractAddress,
-    ) -> katana_trie::StoragesTrie<TrieDb<'a, tables::StoragesTrie, Tx>> {
+    ) -> katana_trie::StoragesTrie<TrieDb<tables::StoragesTrie, Tx>> {
         katana_trie::StoragesTrie::new(TrieDb::new(self.tx.clone()), address)
     }
 }
 
 /// Historical tries, allowing access to the state tries at each block.
 #[derive(Debug)]
-pub struct HistoricalGlobalTrie<'a, Tx: DbTxRef<'a>> {
+pub struct HistoricalGlobalTrie<Tx: DbTx> {
     /// The database transaction.
     tx: Tx,
     /// The block number at which the trie was constructed.
     block: BlockNumber,
-    _phantom: &'a PhantomData<()>,
 }
 
-impl<'a, Tx> HistoricalGlobalTrie<'a, Tx>
-where
-    Tx: DbTxRef<'a>,
-{
+impl<Tx: DbTx> HistoricalGlobalTrie<Tx> {
     /// Returns the historical contracts trie.
     pub fn contracts_trie(
         &self,
-    ) -> katana_trie::ContractsTrie<SnapshotTrieDb<'a, tables::ContractsTrie, Tx>> {
+    ) -> katana_trie::ContractsTrie<SnapshotTrieDb<tables::ContractsTrie, Tx>> {
         let commit = CommitId::new(self.block);
         katana_trie::ContractsTrie::new(SnapshotTrieDb::new(self.tx.clone(), commit))
     }
@@ -104,7 +100,7 @@ where
     /// Returns the historical classes trie.
     pub fn classes_trie(
         &self,
-    ) -> katana_trie::ClassesTrie<SnapshotTrieDb<'a, tables::ClassesTrie, Tx>> {
+    ) -> katana_trie::ClassesTrie<SnapshotTrieDb<tables::ClassesTrie, Tx>> {
         let commit = CommitId::new(self.block);
         katana_trie::ClassesTrie::new(SnapshotTrieDb::new(self.tx.clone(), commit))
     }
@@ -114,7 +110,7 @@ where
     pub fn storages_trie(
         &self,
         address: ContractAddress,
-    ) -> katana_trie::StoragesTrie<SnapshotTrieDb<'a, tables::StoragesTrie, Tx>> {
+    ) -> katana_trie::StoragesTrie<SnapshotTrieDb<tables::StoragesTrie, Tx>> {
         let commit = CommitId::new(self.block);
         katana_trie::StoragesTrie::new(SnapshotTrieDb::new(self.tx.clone(), commit), address)
     }
@@ -123,39 +119,39 @@ where
 // --- Trie's database implementations. These are implemented based on the Bonsai Trie
 // functionalities and abstractions.
 
-pub struct TrieDb<'a, Tb, Tx>
+pub struct TrieDb<Tb, Tx>
 where
     Tb: Trie,
-    Tx: DbTxRef<'a>,
+    Tx: DbTx,
 {
     tx: Tx,
-    _phantom: &'a PhantomData<Tb>,
+    _phantom: PhantomData<Tb>,
 }
 
-impl<'a, Tb, Tx> fmt::Debug for TrieDb<'a, Tb, Tx>
+impl<Tb, Tx> fmt::Debug for TrieDb<Tb, Tx>
 where
     Tb: Trie,
-    Tx: DbTxRef<'a>,
+    Tx: DbTx,
 {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         f.debug_struct("TrieDbMut").field("tx", &"..").finish()
     }
 }
 
-impl<'a, Tb, Tx> TrieDb<'a, Tb, Tx>
+impl<Tb, Tx> TrieDb<Tb, Tx>
 where
     Tb: Trie,
-    Tx: DbTxRef<'a>,
+    Tx: DbTx,
 {
     pub(crate) fn new(tx: Tx) -> Self {
-        Self { tx, _phantom: &PhantomData }
+        Self { tx, _phantom: PhantomData }
     }
 }
 
-impl<'a, Tb, Tx> BonsaiDatabase for TrieDb<'a, Tb, Tx>
+impl<Tb, Tx> BonsaiDatabase for TrieDb<Tb, Tx>
 where
     Tb: Trie,
-    Tx: DbTxRef<'a>,
+    Tx: DbTx,
 {
     type Batch = ();
     type DatabaseError = Error;
@@ -219,10 +215,10 @@ where
     }
 }
 
-pub struct TrieDbMut<'tx, Tb, Tx>
+pub struct TrieDbMut<Tb, Tx>
 where
     Tb: Trie,
-    Tx: DbTxMutRef<'tx>,
+    Tx: DbTxMut,
 {
     tx: Tx,
     /// List of key-value pairs that has been added throughout the duration of the trie
@@ -230,33 +226,84 @@ where
     ///
     /// This will be used to create the trie snapshot.
     write_cache: HashMap<TrieDatabaseKey, ByteVec>,
-    _phantom: &'tx PhantomData<Tb>,
+    _phantom: PhantomData<Tb>,
 }
 
-impl<'tx, Tb, Tx> fmt::Debug for TrieDbMut<'tx, Tb, Tx>
+impl<Tb, Tx> fmt::Debug for TrieDbMut<Tb, Tx>
 where
     Tb: Trie,
-    Tx: DbTxMutRef<'tx>,
+    Tx: DbTxMut,
 {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         f.debug_struct("TrieDbMut").field("tx", &"..").finish()
     }
 }
 
-impl<'tx, Tb, Tx> TrieDbMut<'tx, Tb, Tx>
+impl<Tb, Tx> TrieDbMut<Tb, Tx>
 where
     Tb: Trie,
-    Tx: DbTxMutRef<'tx>,
+    Tx: DbTxMut,
 {
     pub fn new(tx: Tx) -> Self {
-        Self { tx, write_cache: HashMap::new(), _phantom: &PhantomData }
+        Self { tx, write_cache: HashMap::new(), _phantom: PhantomData }
+    }
+
+    /// Removes the snapshot data for the given block number.
+    ///
+    /// This is the inverse of [`BonsaiPersistentDatabase::snapshot`] - it removes all history
+    /// entries for the given block and updates the corresponding changesets.
+    ///
+    /// Note: There is currently no efficient way to check if a snapshot exists for a given block
+    /// without querying the `Tb::History` table. As a result, calling this method on a
+    /// non-existent snapshot is a no-op.
+    pub fn remove_snapshot(&mut self, block: BlockNumber) -> Result<(), Error> {
+        // Get all history entries for this block using dupsort cursor
+        let mut cursor = self.tx.cursor_dup::<Tb::History>()?;
+
+        // walk_dup iterates only over entries with the same key (block number)
+        let Some(walker) = cursor.walk_dup(Some(block), None)? else {
+            // No entries for this block
+            return Ok(());
+        };
+
+        let mut keys_to_update = Vec::new();
+        for entry in walker {
+            let (_, entry) = entry?;
+            keys_to_update.push(entry.key);
+        }
+
+        // For each key, update its changeset by removing this block number
+        for key in &keys_to_update {
+            if let Some(mut set) = self.tx.get::<Tb::Changeset>(key.clone())? {
+                set.remove(block);
+                if set.is_empty() {
+                    self.tx.delete::<Tb::Changeset>(key.clone(), None)?;
+                } else {
+                    self.tx.put::<Tb::Changeset>(key.clone(), set)?;
+                }
+            }
+        }
+
+        // Delete all history entries for this block using dupsort cursor
+        let mut cursor = self.tx.cursor_dup_mut::<Tb::History>()?;
+
+        let Some(mut walker) = cursor.walk_dup(Some(block), None)? else {
+            return Ok(());
+        };
+
+        // Use delete_current to delete each entry as we iterate
+        while walker.next().is_some() {
+            walker.delete_current()?;
+        }
+
+        Ok(())
     }
 }
 
-impl<'tx, Tb, Tx> BonsaiDatabase for TrieDbMut<'tx, Tb, Tx>
+impl<Tb, Tx> BonsaiDatabase for TrieDbMut<Tb, Tx>
 where
     Tb: Trie,
-    Tx: DbTxMutRef<'tx>,
+    Tx: DbTxMut,
 {
     type Batch = ();
     type DatabaseError = Error;
@@ -358,14 +405,14 @@ where
     }
 }
 
-impl<'tx, Tb, Tx> BonsaiPersistentDatabase<CommitId> for TrieDbMut<'tx, Tb, Tx>
+impl<Tb, Tx> BonsaiPersistentDatabase<CommitId> for TrieDbMut<Tb, Tx>
 where
     Tb: Trie,
-    Tx: DbTxMutRef<'tx> + 'tx,
+    Tx: DbTxMut,
 {
     type DatabaseError = Error;
     type Transaction<'a>
-        = SnapshotTrieDb<'tx, Tb, Tx>
+        = SnapshotTrieDb<Tb, Tx>
     where
         Self: 'a;
 
@@ -438,9 +485,9 @@ mod tests {
     #[test]
     fn snapshot() {
         let db = test_utils::create_test_db();
-        let db_tx = db.tx_mut().expect("failed to get tx");
+        let tx = db.tx_mut().expect("failed to get tx");
 
-        let mut trie = ClassesTrie::new(TrieDbMut::<tables::ClassesTrie, _>::new(&db_tx));
+        let mut trie = ClassesTrie::new(TrieDbMut::<tables::ClassesTrie, _>::new(tx.clone()));
 
         let root0 = {
             let entries = [
@@ -475,7 +522,7 @@ mod tests {
         assert_ne!(root0, root1);
 
         {
-            let db = SnapshotTrieDb::<tables::ClassesTrie, _>::new(&db_tx, CommitId::new(0));
+            let db = SnapshotTrieDb::<tables::ClassesTrie, _>::new(tx.clone(), CommitId::new(0));
             let mut snapshot0 = ClassesTrie::new(db);
 
             let snapshot_root0 = snapshot0.root();
@@ -493,7 +540,7 @@ mod tests {
         {
             let commit = CommitId::new(1);
             let mut snapshot1 =
-                ClassesTrie::new(SnapshotTrieDb::<tables::ClassesTrie, _>::new(&db_tx, commit));
+                ClassesTrie::new(SnapshotTrieDb::<tables::ClassesTrie, _>::new(tx.clone(), commit));
 
             let snapshot_root1 = snapshot1.root();
             assert_eq!(snapshot_root1, root1);
@@ -525,9 +572,9 @@ mod tests {
     #[test]
     fn revert_to() {
         let db = test_utils::create_test_db();
-        let db_tx = db.tx_mut().expect("failed to get tx");
+        let tx = db.tx_mut().expect("failed to get tx");
 
-        let mut trie = ClassesTrie::new(TrieDbMut::<tables::ClassesTrie, _>::new(&db_tx));
+        let mut trie = ClassesTrie::new(TrieDbMut::<tables::ClassesTrie, _>::new(tx.clone()));
 
         // Insert values at block 0
         trie.insert(felt!("0x1"), felt!("0x100"));
@@ -583,5 +630,172 @@ mod tests {
 
         // After insertion, root should match block 2
         assert_eq!(root_at_block_2_after_insert, root_at_block_2);
+    }
+
+    /// Tests the `remove_snapshot` method by creating multiple snapshots and removing them.
+    ///
+    /// Note: This test verifies that remaining snapshots still work correctly after removal,
+    /// but does not explicitly verify that removed snapshots no longer exist. This is because
+    /// there is currently no efficient way to check snapshot existence at the `SnapshotTrieDb`
+    /// level without querying the underlying `Tb::History` table directly.
+    #[test]
+    fn remove_snapshot() {
+        use katana_primitives::Felt;
+
+        let db = test_utils::create_test_db();
+        let tx = db.tx_mut().expect("failed to get tx");
+
+        let mut trie = ClassesTrie::new(TrieDbMut::<tables::ClassesTrie, _>::new(tx.clone()));
+
+        ////////////////////////////////////////////////////////////////////////////////////
+        // Setup: Create snapshots at blocks 0-4 with various insertions and updates
+        ////////////////////////////////////////////////////////////////////////////////////
+
+        // Block 0: Insert 50 new values
+        for i in 0u64..50 {
+            trie.insert(Felt::from(i), Felt::from(i * 100));
+        }
+        trie.commit(0);
+        let root_at_block_0 = trie.root();
+
+        // Block 1: Insert 50 new values + update 10 existing keys from block 0
+        for i in 50u64..100 {
+            trie.insert(Felt::from(i), Felt::from(i * 100));
+        }
+        for i in 10u64..20 {
+            trie.insert(Felt::from(i), Felt::from(i * 200));
+        }
+        trie.commit(1);
+        let root_at_block_1 = trie.root();
+        assert_ne!(root_at_block_0, root_at_block_1);
+
+        // Block 2: Insert 50 new values + update 10 existing keys from block 1
+        for i in 100u64..150 {
+            trie.insert(Felt::from(i), Felt::from(i * 100));
+        }
+        for i in 60u64..70 {
+            trie.insert(Felt::from(i), Felt::from(i * 300));
+        }
+        trie.commit(2);
+        let root_at_block_2 = trie.root();
+        assert_ne!(root_at_block_1, root_at_block_2);
+
+        // Block 3: Insert 50 new values
+        for i in 150u64..200 {
+            trie.insert(Felt::from(i), Felt::from(i * 100));
+        }
+        trie.commit(3);
+        let root_at_block_3 = trie.root();
+        assert_ne!(root_at_block_2, root_at_block_3);
+
+        // Block 4: Insert 50 new values
+        for i in 200u64..250 {
+            trie.insert(Felt::from(i), Felt::from(i * 100));
+        }
+        trie.commit(4);
+        let root_at_block_4 = trie.root();
+        assert_ne!(root_at_block_3, root_at_block_4);
+
+        ////////////////////////////////////////////////////////////////////////////////////
+        // Verify: All snapshots (blocks 0-4) exist and have correct roots
+        ////////////////////////////////////////////////////////////////////////////////////
+
+        let snapshot =
+            ClassesTrie::new(SnapshotTrieDb::<tables::ClassesTrie, _>::new(tx.clone(), 0.into()));
+        assert_eq!(snapshot.root(), root_at_block_0);
+
+        let snapshot =
+            ClassesTrie::new(SnapshotTrieDb::<tables::ClassesTrie, _>::new(tx.clone(), 1.into()));
+        assert_eq!(snapshot.root(), root_at_block_1);
+
+        let snapshot =
+            ClassesTrie::new(SnapshotTrieDb::<tables::ClassesTrie, _>::new(tx.clone(), 2.into()));
+        assert_eq!(snapshot.root(), root_at_block_2);
+
+        let snapshot =
+            ClassesTrie::new(SnapshotTrieDb::<tables::ClassesTrie, _>::new(tx.clone(), 3.into()));
+        assert_eq!(snapshot.root(), root_at_block_3);
+
+        let snapshot =
+            ClassesTrie::new(SnapshotTrieDb::<tables::ClassesTrie, _>::new(tx.clone(), 4.into()));
+        assert_eq!(snapshot.root(), root_at_block_4);
+
+        ////////////////////////////////////////////////////////////////////////////////////
+        // Remove snapshot at block 1
+        ////////////////////////////////////////////////////////////////////////////////////
+
+        let mut trie_db = TrieDbMut::<tables::ClassesTrie, _>::new(tx.clone());
+        trie_db.remove_snapshot(1).expect("failed to remove snapshot");
+
+        // snapshots at blocks 0, 2, 3, 4 should still exist
+
+        let snapshot =
+            ClassesTrie::new(SnapshotTrieDb::<tables::ClassesTrie, _>::new(tx.clone(), 0.into()));
+        assert_eq!(snapshot.root(), root_at_block_0);
+
+        let snapshot =
+            ClassesTrie::new(SnapshotTrieDb::<tables::ClassesTrie, _>::new(tx.clone(), 2.into()));
+        assert_eq!(snapshot.root(), root_at_block_2);
+
+        let snapshot =
+            ClassesTrie::new(SnapshotTrieDb::<tables::ClassesTrie, _>::new(tx.clone(), 3.into()));
+        assert_eq!(snapshot.root(), root_at_block_3);
+
+        let snapshot =
+            ClassesTrie::new(SnapshotTrieDb::<tables::ClassesTrie, _>::new(tx.clone(), 4.into()));
+        assert_eq!(snapshot.root(), root_at_block_4);
+
+        ////////////////////////////////////////////////////////////////////////////////////
+        // Remove snapshots at blocks 0 and 2
+        ////////////////////////////////////////////////////////////////////////////////////
+
+        let mut trie_db = TrieDbMut::<tables::ClassesTrie, _>::new(tx.clone());
+        trie_db.remove_snapshot(0).expect("failed to remove snapshot");
+        trie_db.remove_snapshot(2).expect("failed to remove snapshot");
+
+        // snapshots at blocks 3 and 4 should still exist
+
+        let snapshot =
+            ClassesTrie::new(SnapshotTrieDb::<tables::ClassesTrie, _>::new(tx.clone(), 3.into()));
+        assert_eq!(snapshot.root(), root_at_block_3);
+
+        let snapshot =
+            ClassesTrie::new(SnapshotTrieDb::<tables::ClassesTrie, _>::new(tx.clone(), 4.into()));
+        assert_eq!(snapshot.root(), root_at_block_4);
+
+        ////////////////////////////////////////////////////////////////////////////////////
+        // Remove snapshot at block 3
+        ////////////////////////////////////////////////////////////////////////////////////
+
+        let mut trie_db = TrieDbMut::<tables::ClassesTrie, _>::new(tx.clone());
+        trie_db.remove_snapshot(3).expect("failed to remove snapshot");
+
+        // snapshot at block 4 should still exist
+
+        let snapshot =
+            ClassesTrie::new(SnapshotTrieDb::<tables::ClassesTrie, _>::new(tx.clone(), 4.into()));
+        assert_eq!(snapshot.root(), root_at_block_4);
+
+        ////////////////////////////////////////////////////////////////////////////////////
+        // Verify: Trie still works after pruning - insert new values at block 5
+        ////////////////////////////////////////////////////////////////////////////////////
+
+        let mut trie = ClassesTrie::new(TrieDbMut::<tables::ClassesTrie, _>::new(tx.clone()));
+        for i in 250u64..300 {
+            trie.insert(Felt::from(i), Felt::from(i * 100));
+        }
+        trie.commit(5);
+        let root_at_block_5 = trie.root();
+        assert_ne!(root_at_block_4, root_at_block_5);
+
+        // both remaining snapshots (blocks 4 and 5) should exist
+
+        let snapshot =
+            ClassesTrie::new(SnapshotTrieDb::<tables::ClassesTrie, _>::new(tx.clone(), 4.into()));
+        assert_eq!(snapshot.root(), root_at_block_4);
+
+        let snapshot =
+            ClassesTrie::new(SnapshotTrieDb::<tables::ClassesTrie, _>::new(tx.clone(), 5.into()));
+        assert_eq!(snapshot.root(), root_at_block_5);
     }
 }

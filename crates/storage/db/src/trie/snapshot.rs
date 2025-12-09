@@ -7,25 +7,25 @@ use katana_trie::bonsai::{BonsaiDatabase, ByteVec, DatabaseKey};
 use katana_trie::CommitId;
 
 use super::Error;
-use crate::abstraction::{DbDupSortCursor, DbTxRef};
+use crate::abstraction::{DbDupSortCursor, DbTx};
 use crate::models::list::BlockList;
 use crate::tables::Trie;
 use crate::trie::to_db_key;
 
-pub struct SnapshotTrieDb<'tx, Tb, Tx>
+pub struct SnapshotTrieDb<Tb, Tx>
 where
     Tb: Trie,
-    Tx: DbTxRef<'tx>,
+    Tx: DbTx,
 {
     tx: Tx,
     snapshot_id: CommitId,
-    _table: &'tx PhantomData<Tb>,
+    _table: PhantomData<Tb>,
 }
 
-impl<'a, Tb, Tx> fmt::Debug for SnapshotTrieDb<'a, Tb, Tx>
+impl<Tb, Tx> fmt::Debug for SnapshotTrieDb<Tb, Tx>
 where
     Tb: Trie,
-    Tx: DbTxRef<'a>,
+    Tx: DbTx,
 {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         f.debug_struct("SnapshotTrieDb").field("tx", &"..").finish()
@@ -50,20 +50,20 @@ fn recent_change_from_block(target: BlockNumber, block_list: &BlockList) -> Opti
     }
 }
 
-impl<'tx, Tb, Tx> SnapshotTrieDb<'tx, Tb, Tx>
+impl<Tb, Tx> SnapshotTrieDb<Tb, Tx>
 where
     Tb: Trie,
-    Tx: DbTxRef<'tx>,
+    Tx: DbTx,
 {
     pub(crate) fn new(tx: Tx, id: CommitId) -> Self {
-        Self { tx, snapshot_id: id, _table: &PhantomData }
+        Self { tx, snapshot_id: id, _table: PhantomData }
     }
 }
 
-impl<'tx, Tb, Tx> BonsaiDatabase for SnapshotTrieDb<'tx, Tb, Tx>
+impl<Tb, Tx> BonsaiDatabase for SnapshotTrieDb<Tb, Tx>
 where
     Tb: Trie,
-    Tx: DbTxRef<'tx>,
+    Tx: DbTx,
 {
     type Batch = ();
     type DatabaseError = Error;
@@ -207,7 +207,7 @@ mod tests {
             let tx = db.tx_mut().expect("failed to create rw tx");
 
             for block in &blocks {
-                let mut trie = TrieDbMut::<tables::ClassesTrie, _>::new(&tx);
+                let mut trie = TrieDbMut::<tables::ClassesTrie, _>::new(tx.clone());
 
                 // Insert key/value pairs
                 for ((r#type, key), value) in &block.keyvalues {
@@ -229,7 +229,7 @@ mod tests {
 
             for block in &blocks {
                 let snapshot_id = CommitId::from(block.number);
-                let snapshot_db = SnapshotTrieDb::<tables::ClassesTrie, _>::new(&tx, snapshot_id);
+                let snapshot_db = SnapshotTrieDb::<tables::ClassesTrie, _>::new(tx.clone(), snapshot_id);
 
                 // Verify snapshots
                 for ((r#type, key), value) in &block.keyvalues {

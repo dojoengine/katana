@@ -110,16 +110,16 @@ impl FullNodeArgs {
         })
     }
 
-    fn pruning_config(&self) -> Option<full::PruningConfig> {
+    fn pruning_config(&self) -> full::PruningConfig {
         use crate::options::PruningMode as CliPruningMode;
 
-        let mode = match self.pruning.mode.as_ref()? {
+        let mode = match self.pruning.mode {
             CliPruningMode::Archive => katana_stage::PruningMode::Archive,
-            CliPruningMode::Minimal => katana_stage::PruningMode::Minimal,
-            CliPruningMode::Full(n) => katana_stage::PruningMode::Full(*n),
+            // CliPruningMode::Minimal => katana_stage::PruningMode::Minimal,
+            CliPruningMode::Full(n) => katana_stage::PruningMode::Full(n),
         };
 
-        Some(full::PruningConfig { mode, interval: self.pruning.interval })
+        full::PruningConfig { mode, interval: self.pruning.interval }
     }
 
     fn db_config(&self) -> DbConfig {

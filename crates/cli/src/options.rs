@@ -723,16 +723,15 @@ impl TracerOptions {
 #[derive(Debug, Args, Clone, Serialize, Deserialize, PartialEq)]
 #[command(next_help_heading = "Pruning options")]
 pub struct PruningOptions {
-    /// State pruning mode (follows Erigon conventions).
+    /// State pruning mode
     ///
     /// Determines how much historical state to retain:
     /// - 'archive': Keep all historical state (no pruning, default)
     /// - 'full:N': Keep last N blocks of historical state
     /// - 'minimal': Keep only the latest state
-    #[arg(long = "prune.mode", value_name = "MODE")]
+    #[arg(long = "prune.mode", value_name = "MODE", default_value = "archive")]
     #[arg(value_parser = parse_pruning_mode)]
-    #[serde(default)]
-    pub mode: Option<PruningMode>,
+    pub mode: PruningMode,
 
     /// Number of blocks to process between pruning runs.
     ///
@@ -745,7 +744,7 @@ pub struct PruningOptions {
 
 impl Default for PruningOptions {
     fn default() -> Self {
-        Self { mode: None, interval: None }
+        Self { mode: PruningMode::Archive, interval: None }
     }
 }
 
@@ -754,13 +753,11 @@ impl Default for PruningOptions {
 pub enum PruningMode {
     Archive,
     Full(u64),
-    Minimal,
 }
 
 fn parse_pruning_mode(s: &str) -> Result<PruningMode, String> {
     match s.to_lowercase().as_str() {
         "archive" => Ok(PruningMode::Archive),
-        "minimal" => Ok(PruningMode::Minimal),
         s if s.starts_with("full:") => {
             let n =
                 s.strip_prefix("full:").and_then(|n| n.parse::<u64>().ok()).ok_or_else(|| {
@@ -770,9 +767,6 @@ fn parse_pruning_mode(s: &str) -> Result<PruningMode, String> {
                 })?;
             Ok(PruningMode::Full(n))
         }
-        _ => Err(format!(
-            "Invalid pruning mode '{}'. Valid modes are: 'archive', 'minimal', 'full:N'",
-            s
-        )),
+        _ => Err(format!("Invalid pruning mode '{}'. Valid modes are: 'archive', 'full:N'", s)),
     }
 }
