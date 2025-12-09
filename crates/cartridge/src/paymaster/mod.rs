@@ -222,11 +222,11 @@ where
         &self,
         block_id: BlockIdOrTag,
         transactions: Vec<BroadcastedTx>,
-    ) -> PaymasterResult<Vec<BroadcastedTx>> {
+    ) -> PaymasterResult<Option<Vec<BroadcastedTx>>> {
         let mut new_transactions = Vec::with_capacity(transactions.len());
         let mut deployed_controllers: HashSet<ContractAddress> = HashSet::new();
 
-        for tx in transactions {
+        for tx in &transactions {
             let address = match &tx {
                 BroadcastedTx::Invoke(tx) => tx.sender_address,
                 BroadcastedTx::Declare(tx) => tx.sender_address,
@@ -254,7 +254,11 @@ where
             }
         }
 
-        Ok(new_transactions)
+        if new_transactions.is_empty() {
+            return Ok(None);
+        }
+
+        Ok(Some(new_transactions.into_iter().chain(transactions).collect()))
     }
 
     /// Returns a [`Layer`](tower::Layer) implementation of [`Paymaster`].
