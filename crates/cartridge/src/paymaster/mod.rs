@@ -164,49 +164,50 @@ where
             paymaster_nonce += Nonce::ONE;
         }
 
+        // deploy VRF provider if not deployed yet
+        match self
+            .starknet_api
+            .class_hash_at_address(BlockIdOrTag::Latest, self.vrf_ctx.address())
+            .await
+        {
+            Err(StarknetApiError::ContractNotFound) => {
+                let (public_key_x, public_key_y) = self.vrf_ctx.get_public_key_xy_felts();
+                let tx = self
+                    .craft_vrf_provider_deploy_tx(
+                        self.paymaster_address,
+                        self.paymaster_key.secret_scalar(),
+                        self.chain_id,
+                        paymaster_nonce,
+                        public_key_x,
+                        public_key_y,
+                    )
+                    .await?;
+                let tx_hash =
+                    self.pool.add_transaction(tx).await.map_err(Error::FailedToAddTransaction)?;
+
+                trace!(
+                    target: "cartridge",
+                    vrf_provider = %self.vrf_ctx.address(),
+                    tx_hash = format!("{tx_hash:#x}"),
+                    "VRF Provider deploy transaction submitted",
+                );
+
+                paymaster_nonce += Nonce::ONE;
+            }
+            Err(err) => return Err(Error::StarknetApi(err)),
+            Ok(_) => {}
+        }
+
         // get VRF calls
         let vrf_calls =
             self.get_vrf_calls(&outside_execution, self.chain_id, &self.vrf_ctx).await?;
 
+        trace!(
+            target: "cartridge",
+            vrf_calls = ?vrf_calls,
+            "VRF calls",
+        );
         if let Some(vrf_calls) = vrf_calls {
-            // deploy VRF provider if not deployed yet
-            let class_hash_result = self
-                .starknet_api
-                .class_hash_at_address(BlockIdOrTag::Latest, self.vrf_ctx.address())
-                .await;
-
-            match class_hash_result {
-                Err(StarknetApiError::ContractNotFound) => {
-                    let (public_key_x, public_key_y) = self.vrf_ctx.get_public_key_xy_felts();
-                    let tx = self
-                        .craft_vrf_provider_deploy_tx(
-                            self.paymaster_address,
-                            self.paymaster_key.secret_scalar(),
-                            self.chain_id,
-                            paymaster_nonce,
-                            public_key_x,
-                            public_key_y,
-                        )
-                        .await?;
-                    let tx_hash = self
-                        .pool
-                        .add_transaction(tx)
-                        .await
-                        .map_err(Error::FailedToAddTransaction)?;
-
-                    trace!(
-                        target: "cartridge",
-                        vrf_provider = %self.vrf_ctx.address(),
-                        tx_hash = format!("{tx_hash:#x}"),
-                        "VRF Provider deploy transaction submitted",
-                    );
-
-                    paymaster_nonce += Nonce::ONE;
-                }
-                Err(err) => return Err(Error::StarknetApi(err)),
-                Ok(_) => {}
-            }
-
             let (new_outside_execution, new_signature) = self
                 .craft_new_outside_execution(paymaster_nonce, outside_execution, &vrf_calls)
                 .await?;
@@ -443,11 +444,6 @@ where
 
         let seed = starknet_crypto::poseidon_hash_many(vec![&source, &caller, &chain_id.id()]);
         let proof = vrf_ctx.stark_vrf(seed).map_err(|e| Error::Vrf(e.to_string()))?;
-
-        println!("source: {:?}", source);
-        println!("caller: {:?}", caller);
-        println!("chain_id: {:?}", chain_id.id());
-        println!("seed: {:?}", seed);
 
         let submit_random_call = Call {
             to: vrf_ctx.address().into(),
