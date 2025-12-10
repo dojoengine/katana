@@ -55,7 +55,7 @@ where
     Tb: Trie,
     Tx: DbTx,
 {
-    pub(crate) fn new(tx: Tx, id: CommitId) -> Self {
+    pub fn new(tx: Tx, id: CommitId) -> Self {
         Self { tx, snapshot_id: id, _table: PhantomData }
     }
 }

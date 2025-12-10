@@ -8,9 +8,9 @@
 
 use katana_db::abstraction::{Database, DbDupSortCursor, DbTx};
 use katana_db::tables;
-use katana_db::trie::TrieDbMut;
+use katana_db::trie::{SnapshotTrieDb, TrieDbMut};
 use katana_primitives::block::BlockNumber;
-use katana_primitives::Felt;
+use katana_primitives::{ContractAddress, Felt};
 use katana_provider::DbProviderFactory;
 use katana_stage::trie::StateTrie;
 use katana_stage::{PruneInput, PruningMode, Stage};
@@ -26,7 +26,7 @@ async fn can_construct_state_trie_stage() {
 }
 
 // ============================================================================
-// StateTrie::prune Integration Tests
+// StateTrie::prune Tests
 // ============================================================================
 
 /// Helper to create trie snapshots for testing.
@@ -37,6 +37,7 @@ fn create_trie_snapshots(provider: &DbProviderFactory, blocks: &[BlockNumber]) {
     // Create ClassesTrie snapshots
     {
         let mut trie = ClassesTrie::new(TrieDbMut::<tables::ClassesTrie, _>::new(tx.clone()));
+
         for &block in blocks {
             // Insert unique values for each block
             for i in 0u64..10 {
@@ -51,10 +52,10 @@ fn create_trie_snapshots(provider: &DbProviderFactory, blocks: &[BlockNumber]) {
     // Create ContractsTrie snapshots
     {
         let mut trie = ContractsTrie::new(TrieDbMut::<tables::ContractsTrie, _>::new(tx.clone()));
+
         for &block in blocks {
             for i in 0u64..10 {
-                let address =
-                    katana_primitives::ContractAddress::from(Felt::from(block * 1000 + i));
+                let address = ContractAddress::from(Felt::from(block * 1000 + i));
                 let state_hash = Felt::from(block * 10000 + i);
                 trie.insert(address, state_hash);
             }
@@ -64,9 +65,10 @@ fn create_trie_snapshots(provider: &DbProviderFactory, blocks: &[BlockNumber]) {
 
     // Create StoragesTrie snapshots
     {
-        let address = katana_primitives::ContractAddress::from(Felt::from(0x1234u64));
+        let address = ContractAddress::from(Felt::from(0x1234u64));
         let mut trie =
             StoragesTrie::new(TrieDbMut::<tables::StoragesTrie, _>::new(tx.clone()), address);
+
         for &block in blocks {
             for i in 0u64..10 {
                 let key = Felt::from(block * 1000 + i);
@@ -80,28 +82,98 @@ fn create_trie_snapshots(provider: &DbProviderFactory, blocks: &[BlockNumber]) {
     tx.commit().expect("failed to commit tx");
 }
 
-/// Helper to check if a snapshot exists by verifying it has entries in the History table.
+/// Helper to check if a snapshot exists by querying the `Tb::History` table.
+///
+/// Note: There is currently no efficient way to check snapshot existence at the `SnapshotTrieDb`
+/// level. We query the underlying `Tb::History` table directly to verify if entries exist for
+/// a given block number. This is consistent with the approach documented in
+/// [`TrieDbMut::remove_snapshot`](katana_db::trie::TrieDbMut::remove_snapshot).
 fn snapshot_exists<Tb: tables::Trie>(provider: &DbProviderFactory, block: BlockNumber) -> bool {
     let tx = provider.db().tx().expect("failed to create tx");
     let mut cursor = tx.cursor_dup::<Tb::History>().expect("failed to create cursor");
-    // Use walk_dup to check if entries exist for this block
     cursor.walk_dup(Some(block), None).expect("failed to walk_dup").is_some()
 }
 
-/// Helper to count the number of history entries for a specific block.
-fn count_history_entries<Tb: tables::Trie>(
-    provider: &DbProviderFactory,
-    block: BlockNumber,
-) -> usize {
+#[tokio::test]
+async fn prune_does_not_affect_remaining_snapshot_roots() {
+    let provider = DbProviderFactory::new_in_memory();
+    let task_manager = TaskManager::current();
+    let mut stage = StateTrie::new(provider.clone(), task_manager.task_spawner());
+    let storage_address = ContractAddress::from(Felt::from(0x1234u64));
+
+    // Create snapshots for blocks 0-9
+    create_trie_snapshots(&provider, &(0..=9).collect::<Vec<_>>());
+
+    // Get state roots for all tries at blocks that will remain after pruning (blocks 5-9)
+    //
+    // [(block_number, classes_root, contracts_root, storages_root), ...]
+    let roots_before: Vec<_> = {
+        let tx = provider.db().tx().expect("failed to create tx");
+
+        (5..=9)
+            .map(|block| {
+                let classes_root = ClassesTrie::new(SnapshotTrieDb::<tables::ClassesTrie, _>::new(
+                    tx.clone(),
+                    block.into(),
+                ))
+                .root();
+
+                let contracts_root = ContractsTrie::new(
+                    SnapshotTrieDb::<tables::ContractsTrie, _>::new(tx.clone(), block.into()),
+                )
+                .root();
+
+                let storages_root = StoragesTrie::new(
+                    SnapshotTrieDb::<tables::StoragesTrie, _>::new(tx.clone(), block.into()),
+                    storage_address,
+                )
+                .root();
+
+                (block, classes_root, contracts_root, storages_root)
+            })
+            .collect()
+    };
+
+    // Prune blocks 0-4 (Full mode with keep=5, tip=9)
+    let input = PruneInput::new(9, PruningMode::Full(5), None);
+    let result = stage.prune(&input).await;
+
+    assert!(result.is_ok());
+    assert_eq!(result.unwrap().pruned_count, 4); // blocks 0, 1, 2, 3
+
+    // Verify state roots for remaining snapshots (blocks 5-9) are unchanged
     let tx = provider.db().tx().expect("failed to create tx");
-    let mut cursor = tx.cursor_dup::<Tb::History>().expect("failed to create cursor");
-    let mut count = 0;
-    if let Some(walker) = cursor.walk_dup(Some(block), None).expect("failed to walk_dup") {
-        for _ in walker {
-            count += 1;
-        }
+    for (block, classes_root_before, contracts_root_before, storages_root_before) in roots_before {
+        let classes_root_after = ClassesTrie::new(SnapshotTrieDb::<tables::ClassesTrie, _>::new(
+            tx.clone(),
+            block.into(),
+        ))
+        .root();
+
+        let contracts_root_after = ContractsTrie::new(
+            SnapshotTrieDb::<tables::ContractsTrie, _>::new(tx.clone(), block.into()),
+        )
+        .root();
+
+        let storages_root_after = StoragesTrie::new(
+            SnapshotTrieDb::<tables::StoragesTrie, _>::new(tx.clone(), block.into()),
+            storage_address,
+        )
+        .root();
+
+        assert_eq!(
+            classes_root_before, classes_root_after,
+            "ClassesTrie root at block {block} should be unchanged after pruning"
+        );
+        assert_eq!(
+            contracts_root_before, contracts_root_after,
+            "ContractsTrie root at block {block} should be unchanged after pruning"
+        );
+        assert_eq!(
+            storages_root_before, storages_root_after,
+            "StoragesTrie root at block {block} should be unchanged after pruning"
+        );
     }
-    count
 }
 
 #[tokio::test]
@@ -239,9 +311,20 @@ async fn prune_uses_checkpoint_for_incremental_pruning() {
     assert!(result.is_ok());
     assert_eq!(result.unwrap().pruned_count, 4);
 
-    // Verify blocks 0-3 are pruned
+    // Verify blocks 0-3 are pruned for all trie types
     for block in 0..=3 {
-        assert!(!snapshot_exists::<tables::ClassesTrie>(&provider, block));
+        assert!(
+            !snapshot_exists::<tables::ClassesTrie>(&provider, block),
+            "ClassesTrie snapshot for block {block} should be pruned"
+        );
+        assert!(
+            !snapshot_exists::<tables::ContractsTrie>(&provider, block),
+            "ContractsTrie snapshot for block {block} should be pruned"
+        );
+        assert!(
+            !snapshot_exists::<tables::StoragesTrie>(&provider, block),
+            "StoragesTrie snapshot for block {block} should be pruned"
+        );
     }
 
     // Second prune: tip=14, keep=5, last_pruned=3
@@ -251,16 +334,35 @@ async fn prune_uses_checkpoint_for_incremental_pruning() {
     assert!(result.is_ok());
     assert_eq!(result.unwrap().pruned_count, 5);
 
-    // Verify blocks 4-8 are pruned
+    // Verify blocks 4-8 are pruned for all trie types
     for block in 4..=8 {
-        assert!(!snapshot_exists::<tables::ClassesTrie>(&provider, block));
+        assert!(
+            !snapshot_exists::<tables::ClassesTrie>(&provider, block),
+            "ClassesTrie snapshot for block {block} should be pruned"
+        );
+        assert!(
+            !snapshot_exists::<tables::ContractsTrie>(&provider, block),
+            "ContractsTrie snapshot for block {block} should be pruned"
+        );
+        assert!(
+            !snapshot_exists::<tables::StoragesTrie>(&provider, block),
+            "StoragesTrie snapshot for block {block} should be pruned"
+        );
     }
 
-    // Verify blocks 9-14 still exist
+    // Verify blocks 9-14 still exist for all trie types
     for block in 9..=14 {
         assert!(
             snapshot_exists::<tables::ClassesTrie>(&provider, block),
             "ClassesTrie snapshot for block {block} should still exist"
+        );
+        assert!(
+            snapshot_exists::<tables::ContractsTrie>(&provider, block),
+            "ContractsTrie snapshot for block {block} should still exist"
+        );
+        assert!(
+            snapshot_exists::<tables::StoragesTrie>(&provider, block),
+            "StoragesTrie snapshot for block {block} should still exist"
         );
     }
 }
@@ -286,7 +388,15 @@ async fn prune_minimal_mode_keeps_only_latest() {
     for block in 0..=7 {
         assert!(
             !snapshot_exists::<tables::ClassesTrie>(&provider, block),
-            "ClassesTrie snapshot for block {block} should be removed"
+            "ClassesTrie snapshot for block {block} should be pruned"
+        );
+        assert!(
+            !snapshot_exists::<tables::ContractsTrie>(&provider, block),
+            "ContractsTrie snapshot for block {block} should be pruned"
+        );
+        assert!(
+            !snapshot_exists::<tables::StoragesTrie>(&provider, block),
+            "StoragesTrie snapshot for block {block} should be pruned"
         );
     }
 
@@ -296,35 +406,15 @@ async fn prune_minimal_mode_keeps_only_latest() {
             snapshot_exists::<tables::ClassesTrie>(&provider, block),
             "ClassesTrie snapshot for block {block} should still exist"
         );
+        assert!(
+            snapshot_exists::<tables::ContractsTrie>(&provider, block),
+            "ContractsTrie snapshot for block {block} should still exist"
+        );
+        assert!(
+            snapshot_exists::<tables::StoragesTrie>(&provider, block),
+            "StoragesTrie snapshot for block {block} should still exist"
+        );
     }
-}
-
-#[tokio::test]
-async fn prune_does_not_affect_remaining_snapshot_data() {
-    let provider = DbProviderFactory::new_in_memory();
-    let task_manager = TaskManager::current();
-    let mut stage = StateTrie::new(provider.clone(), task_manager.task_spawner());
-
-    // Create snapshots for blocks 0-4
-    create_trie_snapshots(&provider, &[0, 1, 2, 3, 4]);
-
-    // Count entries in remaining snapshots before pruning
-    let entries_at_3_before = count_history_entries::<tables::ClassesTrie>(&provider, 3);
-    let entries_at_4_before = count_history_entries::<tables::ClassesTrie>(&provider, 4);
-
-    // Prune blocks 0-1 (Full mode with keep=3, tip=4)
-    let input = PruneInput::new(4, PruningMode::Full(3), None);
-    let result = stage.prune(&input).await;
-
-    assert!(result.is_ok());
-    assert_eq!(result.unwrap().pruned_count, 1); // only block 0
-
-    // Verify remaining snapshots have the same number of entries (data integrity)
-    let entries_at_3_after = count_history_entries::<tables::ClassesTrie>(&provider, 3);
-    let entries_at_4_after = count_history_entries::<tables::ClassesTrie>(&provider, 4);
-
-    assert_eq!(entries_at_3_before, entries_at_3_after, "Entries at block 3 should be unchanged");
-    assert_eq!(entries_at_4_before, entries_at_4_after, "Entries at block 4 should be unchanged");
 }
 
 #[tokio::test]
