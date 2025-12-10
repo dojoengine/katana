@@ -156,7 +156,7 @@ impl Stage for Classes {
         })
     }
 
-    fn prune<'a>(&'a mut self, _input: &'a PruneInput) -> BoxFuture<'a, PruneResult> {
+    fn prune<'a>(&'a mut self, _: &'a PruneInput) -> BoxFuture<'a, PruneResult> {
         Box::pin(async move {
             // Classes are immutable once declared and don't need pruning.
             // A class declared at block N can still be used to deploy contracts at block N+1000.

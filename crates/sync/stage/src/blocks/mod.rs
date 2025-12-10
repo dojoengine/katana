@@ -138,16 +138,10 @@ where
         })
     }
 
+    // TODO: implement block pruning
     fn prune<'a>(&'a mut self, input: &'a PruneInput) -> BoxFuture<'a, PruneResult> {
         let _ = input;
-        Box::pin(async move {
-            // TODO: Implement block pruning once the BlockWriter provider API supports it.
-            // For now, this is a no-op. Block pruning would involve:
-            // 1. Determining which blocks to prune based on input.prune_before()
-            // 2. Removing block headers, bodies, receipts, and state updates for those blocks
-            // 3. Ensuring the chain tip and recent blocks remain intact
-            Ok(PruneOutput::default())
-        })
+        Box::pin(async move { Ok(PruneOutput::default()) })
     }
 }
 
