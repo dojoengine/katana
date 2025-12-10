@@ -728,23 +728,14 @@ pub struct PruningOptions {
     /// Determines how much historical state to retain:
     /// - 'archive': Keep all historical state (no pruning, default)
     /// - 'full:N': Keep last N blocks of historical state
-    /// - 'minimal': Keep only the latest state
     #[arg(long = "prune.mode", value_name = "MODE", default_value = "archive")]
     #[arg(value_parser = parse_pruning_mode)]
     pub mode: PruningMode,
-
-    /// Number of blocks to process between pruning runs.
-    ///
-    /// Pruning will be triggered after every N blocks are synced.
-    /// If not specified, pruning is disabled even if a pruning mode is set.
-    #[arg(long = "prune.interval", value_name = "BLOCKS")]
-    #[serde(default)]
-    pub interval: Option<u64>,
 }
 
 impl Default for PruningOptions {
     fn default() -> Self {
-        Self { mode: PruningMode::Archive, interval: None }
+        Self { mode: PruningMode::Archive }
     }
 }
 

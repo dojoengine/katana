@@ -215,21 +215,17 @@ pub struct PruningConfig {
     /// Distance from tip. Blocks older than `tip - distance` will be pruned.
     /// `None` means no pruning (archive mode).
     pub distance: Option<u64>,
-    /// How many blocks to process between pruning runs.
-    /// Pruning will be triggered after every `interval` blocks are synced.
-    /// If `None`, pruning is disabled.
-    pub interval: Option<u64>,
 }
 
 impl PruningConfig {
-    /// Creates a new pruning configuration with the specified distance and interval.
-    pub fn new(distance: Option<u64>, interval: Option<u64>) -> Self {
-        Self { distance, interval }
+    /// Creates a new pruning configuration with the specified distance.
+    pub fn new(distance: Option<u64>) -> Self {
+        Self { distance }
     }
 
     /// Returns whether pruning is enabled.
     pub fn is_enabled(&self) -> bool {
-        self.distance.is_some() && self.interval.is_some()
+        self.distance.is_some()
     }
 }
 
@@ -257,8 +253,6 @@ pub struct Pipeline {
     tip: Option<BlockNumber>,
     metrics: PipelineMetrics,
     pruning_config: PruningConfig,
-    /// The block at which the pipeline was last pruned.
-    last_pruned_block: Option<BlockNumber>,
 }
 
 impl Pipeline {
@@ -286,7 +280,6 @@ impl Pipeline {
             tip: None,
             metrics: PipelineMetrics::new(),
             pruning_config: PruningConfig::default(),
-            last_pruned_block: None,
         };
         (pipeline, handle)
     }
@@ -537,11 +530,9 @@ impl Pipeline {
                 // Notify subscribers about the newly processed block
                 let _ = self.block_tx.send(Some(last_block_processed));
 
-                // Check if we should run pruning
-                if self.should_prune(last_block_processed) {
-                    info!(target: "pipeline", block = %last_block_processed, "Starting pruning.");
+                // Run pruning if enabled
+                if self.pruning_config.is_enabled() {
                     self.prune().await?;
-                    self.last_pruned_block = Some(last_block_processed);
                 }
 
                 if last_block_processed >= tip {
@@ -569,23 +560,6 @@ impl Pipeline {
             yield_now().await;
         }
     }
-
-    /// Determines if pruning should be performed based on the current block and configuration.
-    fn should_prune(&self, current_block: BlockNumber) -> bool {
-        if !self.pruning_config.is_enabled() {
-            return false;
-        }
-
-        let interval = match self.pruning_config.interval {
-            Some(i) => i,
-            None => return false,
-        };
-
-        match self.last_pruned_block {
-            Some(last_pruned) => current_block.saturating_sub(last_pruned) >= interval,
-            None => current_block >= interval,
-        }
-    }
 }
 
 impl IntoFuture for Pipeline {
@@ -608,7 +582,6 @@ impl core::fmt::Debug for Pipeline {
             .field("provider", &self.storage_provider)
             .field("chunk_size", &self.chunk_size)
             .field("pruning_config", &self.pruning_config)
-            .field("last_pruned_block", &self.last_pruned_block)
             .field("stages", &self.stages.iter().map(|s| s.id()).collect::<Vec<_>>())
             .finish_non_exhaustive()
     }

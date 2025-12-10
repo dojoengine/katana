@@ -39,17 +39,30 @@ struct ExecutionRecord {
     to: BlockNumber,
 }
 
-/// Mock stage that tracks execution
+/// Tracks pruning calls with their inputs
+#[derive(Debug, Clone)]
+struct PruneRecord {
+    from: BlockNumber,
+    to: BlockNumber,
+}
+
+/// Mock stage that tracks execution and pruning
 #[derive(Debug, Clone)]
 struct TrackingStage {
     id: &'static str,
     /// Used to tracks how many times the stage has been executed
     executions: Arc<Mutex<Vec<ExecutionRecord>>>,
+    /// Used to track how many times the stage has been pruned
+    prunes: Arc<Mutex<Vec<PruneRecord>>>,
 }
 
 impl TrackingStage {
     fn new(id: &'static str) -> Self {
-        Self { id, executions: Arc::new(Mutex::new(Vec::new())) }
+        Self {
+            id,
+            executions: Arc::new(Mutex::new(Vec::new())),
+            prunes: Arc::new(Mutex::new(Vec::new())),
+        }
     }
 
     fn executions(&self) -> Vec<ExecutionRecord> {
@@ -58,6 +71,14 @@ impl TrackingStage {
 
     fn execution_count(&self) -> usize {
         self.executions.lock().unwrap().len()
+    }
+
+    fn prune_records(&self) -> Vec<PruneRecord> {
+        self.prunes.lock().unwrap().clone()
+    }
+
+    fn prune_count(&self) -> usize {
+        self.prunes.lock().unwrap().len()
     }
 }
 
@@ -78,8 +99,14 @@ impl Stage for TrackingStage {
     }
 
     fn prune<'a>(&'a mut self, input: &'a PruneInput) -> BoxFuture<'a, PruneResult> {
-        let _ = input;
-        Box::pin(async move { Ok(PruneOutput::default()) })
+        Box::pin(async move {
+            if let Some(range) = input.prune_range() {
+                self.prunes.lock().unwrap().push(PruneRecord { from: range.start, to: range.end });
+                Ok(PruneOutput { pruned_count: range.end - range.start })
+            } else {
+                Ok(PruneOutput::default())
+            }
+        })
     }
 }
 
@@ -157,11 +184,11 @@ impl Stage for FixedOutputStage {
 }
 
 // ============================================================================
-// run_to() - Single Stage Tests
+// execute() - Single Stage Tests
 // ============================================================================
 
 #[tokio::test]
-async fn run_to_executes_stage_to_target() {
+async fn execute_executes_stage_to_target() {
     let provider_factory = test_provider();
     let (mut pipeline, handle) = Pipeline::new(provider_factory.clone(), 10);
 
@@ -183,7 +210,7 @@ async fn run_to_executes_stage_to_target() {
 }
 
 #[tokio::test]
-async fn run_to_skips_stage_when_checkpoint_equals_target() {
+async fn execute_skips_stage_when_checkpoint_equals_target() {
     let provider_factory = test_provider();
     let (mut pipeline, handle) = Pipeline::new(provider_factory.clone(), 10);
 
@@ -205,7 +232,7 @@ async fn run_to_skips_stage_when_checkpoint_equals_target() {
 }
 
 #[tokio::test]
-async fn run_to_skips_stage_when_checkpoint_exceeds_target() {
+async fn execute_skips_stage_when_checkpoint_exceeds_target() {
     let provider_factory = test_provider();
     let (mut pipeline, handle) = Pipeline::new(provider_factory.clone(), 10);
 
@@ -227,7 +254,7 @@ async fn run_to_skips_stage_when_checkpoint_exceeds_target() {
 }
 
 #[tokio::test]
-async fn run_to_uses_checkpoint_plus_one_as_from() {
+async fn execute_uses_checkpoint_plus_one_as_from() {
     let provider_factory = test_provider();
     let (mut pipeline, handle) = Pipeline::new(provider_factory.clone(), 10);
 
@@ -252,11 +279,11 @@ async fn run_to_uses_checkpoint_plus_one_as_from() {
 }
 
 // ============================================================================
-// run_to() - Multiple Stages Tests
+// execute() - Multiple Stages Tests
 // ============================================================================
 
 #[tokio::test]
-async fn run_to_executes_all_stages_in_order() {
+async fn execute_executes_all_stages_in_order() {
     let provider_factory = test_provider();
     let (mut pipeline, handle) = Pipeline::new(provider_factory.clone(), 10);
 
@@ -290,7 +317,7 @@ async fn run_to_executes_all_stages_in_order() {
 }
 
 #[tokio::test]
-async fn run_to_with_mixed_checkpoints() {
+async fn execute_with_mixed_checkpoints() {
     let provider_factory = test_provider();
     let (mut pipeline, handle) = Pipeline::new(provider_factory.clone(), 10);
 
@@ -335,7 +362,7 @@ async fn run_to_with_mixed_checkpoints() {
 }
 
 #[tokio::test]
-async fn run_to_returns_minimum_last_block_processed() {
+async fn execute_returns_minimum_last_block_processed() {
     let provider_factory = test_provider();
     let (mut pipeline, handle) = Pipeline::new(provider_factory.clone(), 10);
 
@@ -369,7 +396,7 @@ async fn run_to_returns_minimum_last_block_processed() {
 }
 
 #[tokio::test]
-async fn run_to_middle_stage_skip_continues() {
+async fn execute_middle_stage_skip_continues() {
     let provider_factory = test_provider();
     let (mut pipeline, handle) = Pipeline::new(provider_factory.clone(), 10);
 
@@ -507,6 +534,88 @@ async fn run_processes_new_tip_after_completing_previous() {
     assert!(execs.len() >= 3); // 1-10, 11-20, 21-25
     let provider = provider_factory.provider_mut();
     assert_eq!(provider.execution_checkpoint("Stage1").unwrap(), Some(25));
+}
+
+#[tokio::test]
+async fn run_should_prune() {
+    let provider_factory = test_provider();
+
+    let (mut pipeline, handle) = Pipeline::new(provider_factory.clone(), 10);
+    pipeline.set_pruning_config(PruningConfig::new(Some(5)));
+
+    let stage = TrackingStage::new("Stage1");
+    let executions = stage.executions.clone();
+    let prunings = stage.prunes.clone();
+
+    pipeline.add_stage(stage);
+    handle.set_tip(10); // Set initial tip
+
+    let task_handle = tokio::spawn(async move { pipeline.run().await });
+
+    // Wait for first tip to process
+    tokio::time::sleep(Duration::from_millis(100)).await;
+
+    // Set new tip
+    handle.set_tip(25);
+
+    // Wait for second tip to process
+    tokio::time::sleep(Duration::from_millis(100)).await;
+
+    handle.stop();
+    let result = task_handle.await.unwrap();
+    assert!(result.is_ok());
+
+    // Should have processed both tips
+    let execs = executions.lock().unwrap();
+    assert!(execs.len() >= 3); // 1-10, 11-20, 21-25
+    let prunes = prunings.lock().unwrap();
+    assert!(prunes.len() >= 3); // 0-4, 5-14, 15-19
+
+    let provider = provider_factory.provider_mut();
+    assert_eq!(provider.execution_checkpoint("Stage1").unwrap(), Some(25));
+    assert_eq!(provider.prune_checkpoint("Stage1").unwrap(), Some(19));
+}
+
+#[tokio::test]
+async fn run_should_not_prune_if_pruning_disabled() {
+    let provider_factory = test_provider();
+
+    let (mut pipeline, handle) = Pipeline::new(provider_factory.clone(), 10);
+
+    // disable pruning by not setting the pruning config
+    // pipeline.set_pruning_config(PruningConfig::new(Some(5)));
+
+    let stage = TrackingStage::new("Stage1");
+    let executions = stage.executions.clone();
+    let prunings = stage.prunes.clone();
+
+    pipeline.add_stage(stage);
+    handle.set_tip(10); // Set initial tip
+
+    let task_handle = tokio::spawn(async move { pipeline.run().await });
+
+    // Wait for first tip to process
+    tokio::time::sleep(Duration::from_millis(100)).await;
+
+    // Set new tip
+    handle.set_tip(25);
+
+    // Wait for second tip to process
+    tokio::time::sleep(Duration::from_millis(100)).await;
+
+    handle.stop();
+    let result = task_handle.await.unwrap();
+    assert!(result.is_ok());
+
+    // Should have processed both tips
+    let execs = executions.lock().unwrap();
+    assert!(execs.len() >= 3); // 1-10, 11-20, 21-25
+    let prunes = prunings.lock().unwrap();
+    assert!(prunes.is_empty());
+
+    let provider = provider_factory.provider_mut();
+    assert_eq!(provider.execution_checkpoint("Stage1").unwrap(), Some(25));
+    assert_eq!(provider.prune_checkpoint("Stage1").unwrap(), None);
 }
 
 /// This test ensures that the pipeline will immediately stop its execution if the stop signal
@@ -740,74 +849,14 @@ async fn stage_checkpoint() {
 
 use katana_pipeline::PruningConfig;
 
-/// Pruning record to track what blocks were pruned
-#[derive(Debug, Clone)]
-struct PruneRecord {
-    from: BlockNumber,
-    to: BlockNumber,
-}
-
-/// Mock stage that tracks pruning calls
-#[derive(Debug, Clone)]
-struct PruningTrackingStage {
-    id: &'static str,
-    executions: Arc<Mutex<Vec<ExecutionRecord>>>,
-    prunes: Arc<Mutex<Vec<PruneRecord>>>,
-}
-
-impl PruningTrackingStage {
-    fn new(id: &'static str) -> Self {
-        Self {
-            id,
-            executions: Arc::new(Mutex::new(Vec::new())),
-            prunes: Arc::new(Mutex::new(Vec::new())),
-        }
-    }
-
-    fn prune_records(&self) -> Vec<PruneRecord> {
-        self.prunes.lock().unwrap().clone()
-    }
-
-    fn prune_count(&self) -> usize {
-        self.prunes.lock().unwrap().len()
-    }
-}
-
-impl Stage for PruningTrackingStage {
-    fn id(&self) -> &'static str {
-        self.id
-    }
-
-    fn execute<'a>(&'a mut self, input: &'a StageExecutionInput) -> BoxFuture<'a, StageResult> {
-        Box::pin(async move {
-            self.executions
-                .lock()
-                .unwrap()
-                .push(ExecutionRecord { from: input.from(), to: input.to() });
-            Ok(StageExecutionOutput { last_block_processed: input.to() })
-        })
-    }
-
-    fn prune<'a>(&'a mut self, input: &'a PruneInput) -> BoxFuture<'a, PruneResult> {
-        Box::pin(async move {
-            if let Some(range) = input.prune_range() {
-                self.prunes.lock().unwrap().push(PruneRecord { from: range.start, to: range.end });
-                Ok(PruneOutput { pruned_count: range.end - range.start })
-            } else {
-                Ok(PruneOutput::default())
-            }
-        })
-    }
-}
-
 #[tokio::test]
 async fn prune_skips_when_no_execution_checkpoint() {
     let provider_factory = test_provider();
     let (mut pipeline, _handle) = Pipeline::new(provider_factory.clone(), 10);
 
-    pipeline.set_pruning_config(PruningConfig::new(Some(10), Some(10)));
+    pipeline.set_pruning_config(PruningConfig::new(Some(10)));
 
-    let stage = PruningTrackingStage::new("Stage1");
+    let stage = TrackingStage::new("Stage1");
     let stage_clone = stage.clone();
     pipeline.add_stage(stage);
 
@@ -831,9 +880,9 @@ async fn prune_skips_when_archive_mode() {
     let (mut pipeline, handle) = Pipeline::new(provider_factory.clone(), 10);
 
     // None distance means no pruning (archive mode)
-    pipeline.set_pruning_config(PruningConfig::new(None, Some(10)));
+    pipeline.set_pruning_config(PruningConfig::new(None));
 
-    let stage = PruningTrackingStage::new("Stage1");
+    let stage = TrackingStage::new("Stage1");
     let stage_clone = stage.clone();
     pipeline.add_stage(stage);
 
@@ -860,9 +909,9 @@ async fn prune_distance_behavior() {
     {
         let provider_factory = test_provider();
         let (mut pipeline, handle) = Pipeline::new(provider_factory.clone(), 10);
-        pipeline.set_pruning_config(PruningConfig::new(Some(50), Some(10)));
+        pipeline.set_pruning_config(PruningConfig::new(Some(50)));
 
-        let stage = PruningTrackingStage::new("Stage1");
+        let stage = TrackingStage::new("Stage1");
         let stage_clone = stage.clone();
         pipeline.add_stage(stage);
 
@@ -884,9 +933,9 @@ async fn prune_distance_behavior() {
     {
         let provider_factory = test_provider();
         let (mut pipeline, handle) = Pipeline::new(provider_factory.clone(), 10);
-        pipeline.set_pruning_config(PruningConfig::new(Some(1), Some(10)));
+        pipeline.set_pruning_config(PruningConfig::new(Some(1)));
 
-        let stage = PruningTrackingStage::new("Stage1");
+        let stage = TrackingStage::new("Stage1");
         let stage_clone = stage.clone();
         pipeline.add_stage(stage);
 
@@ -908,9 +957,9 @@ async fn prune_distance_behavior() {
     {
         let provider_factory = test_provider();
         let (mut pipeline, handle) = Pipeline::new(provider_factory.clone(), 10);
-        pipeline.set_pruning_config(PruningConfig::new(Some(100), Some(10)));
+        pipeline.set_pruning_config(PruningConfig::new(Some(100)));
 
-        let stage = PruningTrackingStage::new("Stage1");
+        let stage = TrackingStage::new("Stage1");
         let stage_clone = stage.clone();
         pipeline.add_stage(stage);
 
@@ -930,9 +979,9 @@ async fn prune_uses_checkpoint_to_avoid_re_pruning() {
     let provider_factory = test_provider();
     let (mut pipeline, handle) = Pipeline::new(provider_factory.clone(), 10);
 
-    pipeline.set_pruning_config(PruningConfig::new(Some(50), Some(10)));
+    pipeline.set_pruning_config(PruningConfig::new(Some(50)));
 
-    let stage = PruningTrackingStage::new("Stage1");
+    let stage = TrackingStage::new("Stage1");
     let stage_clone = stage.clone();
     pipeline.add_stage(stage);
 
@@ -958,9 +1007,9 @@ async fn prune_skips_when_already_caught_up() {
     let provider_factory = test_provider();
     let (mut pipeline, handle) = Pipeline::new(provider_factory.clone(), 10);
 
-    pipeline.set_pruning_config(PruningConfig::new(Some(50), Some(10)));
+    pipeline.set_pruning_config(PruningConfig::new(Some(50)));
 
-    let stage = PruningTrackingStage::new("Stage1");
+    let stage = TrackingStage::new("Stage1");
     let stage_clone = stage.clone();
     pipeline.add_stage(stage);
 
@@ -983,10 +1032,10 @@ async fn prune_multiple_stages_independently() {
     let provider_factory = test_provider();
     let (mut pipeline, handle) = Pipeline::new(provider_factory.clone(), 10);
 
-    pipeline.set_pruning_config(PruningConfig::new(Some(50), Some(10)));
+    pipeline.set_pruning_config(PruningConfig::new(Some(50)));
 
-    let stage1 = PruningTrackingStage::new("Stage1");
-    let stage2 = PruningTrackingStage::new("Stage2");
+    let stage1 = TrackingStage::new("Stage1");
+    let stage2 = TrackingStage::new("Stage2");
     let stage1_clone = stage1.clone();
     let stage2_clone = stage2.clone();
 
@@ -1032,9 +1081,9 @@ async fn prune_incremental_with_checkpoint_persistence() {
     let provider_factory = test_provider();
     let (mut pipeline, handle) = Pipeline::new(provider_factory.clone(), 10);
 
-    pipeline.set_pruning_config(PruningConfig::new(Some(50), Some(10)));
+    pipeline.set_pruning_config(PruningConfig::new(Some(50)));
 
-    let stage = PruningTrackingStage::new("Stage1");
+    let stage = TrackingStage::new("Stage1");
     let stage_clone = stage.clone();
     pipeline.add_stage(stage);
 
@@ -1113,10 +1162,10 @@ async fn prune_error_stops_pipeline() {
     let provider_factory = test_provider();
     let (mut pipeline, handle) = Pipeline::new(provider_factory.clone(), 10);
 
-    pipeline.set_pruning_config(PruningConfig::new(Some(50), Some(10)));
+    pipeline.set_pruning_config(PruningConfig::new(Some(50)));
 
     let failing_stage = FailingPruneStage::new("FailingStage");
-    let stage2 = PruningTrackingStage::new("Stage2");
+    let stage2 = TrackingStage::new("Stage2");
     let stage2_clone = stage2.clone();
 
     pipeline.add_stage(failing_stage);
@@ -1149,7 +1198,7 @@ async fn prune_empty_pipeline_succeeds() {
     let provider_factory = test_provider();
     let (mut pipeline, _handle) = Pipeline::new(provider_factory, 10);
 
-    pipeline.set_pruning_config(PruningConfig::new(Some(50), Some(10)));
+    pipeline.set_pruning_config(PruningConfig::new(Some(50)));
 
     // No stages added
     let result = pipeline.prune().await;

@@ -119,7 +119,7 @@ impl FullNodeArgs {
             PruningMode::Full(n) => Some(n),
         };
 
-        full::PruningConfig { distance, interval: self.pruning.interval }
+        full::PruningConfig { distance }
     }
 
     fn db_config(&self) -> DbConfig {
