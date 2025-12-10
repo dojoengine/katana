@@ -238,7 +238,6 @@ impl<Tx1: DbTxMut> TrieWriter for ForkedProvider<Tx1> {
         } else {
             None
         };
-
         // Fetch global roots (always needed as fallback when no changes)
         let global_roots = self
             .fork_db
@@ -332,9 +331,8 @@ fn contract_state_leaf_hash(
     address: &ContractAddress,
     contract_leaf: &ContractLeaf,
 ) -> Felt {
-    let nonce = contract_leaf
-        .nonce
-        .unwrap_or_else(|| provider.nonce(*address).ok().flatten().unwrap_or_default());
+    let nonce =
+        contract_leaf.nonce.unwrap_or(provider.nonce(*address).unwrap().unwrap_or_default());
 
     let class_hash = contract_leaf.class_hash.unwrap_or_else(|| {
         provider.class_hash_of_contract(*address).ok().flatten().unwrap_or_default()
