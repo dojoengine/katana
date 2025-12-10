@@ -65,43 +65,29 @@ pub struct StageExecutionOutput {
     pub last_block_processed: BlockNumber,
 }
 
-/// Pruning mode configuration that determines how much historical state to retain.
-///
-/// Naming follows the Erigon Ethereum client conventions:
-/// - `Archive`: Keep complete historical state (like Erigon's archive mode)
-/// - `Full`: Keep last N blocks of state (like Erigon's full mode with configurable distance)
-/// - `Minimal`: Keep only latest state (like Erigon's minimal mode for validators)
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
-pub enum PruningMode {
-    /// Keep all historical state since genesis (no pruning).
-    Archive,
-    /// Keep only the last N blocks of historical state.
-    Full(u64),
-    /// Keep only the latest state, pruning all historical data.
-    Minimal,
-}
-
-impl Default for PruningMode {
-    fn default() -> Self {
-        Self::Archive
-    }
-}
-
 /// Input parameters for stage pruning.
 #[derive(Debug, Clone)]
 pub struct PruneInput {
     /// The current tip of the chain (highest synced block).
     tip: BlockNumber,
-    /// The pruning mode to apply.
-    mode: PruningMode,
+    /// Distance from tip. Blocks older than `tip - distance` will be pruned.
+    /// `None` means no pruning.
+    distance: Option<u64>,
     /// The last block number that was successfully pruned (if any).
     last_pruned: Option<BlockNumber>,
 }
 
 impl PruneInput {
-    /// Creates a new [`PruneInput`] with the given tip, pruning mode, and last pruned block.
-    pub fn new(tip: BlockNumber, mode: PruningMode, last_pruned: Option<BlockNumber>) -> Self {
-        Self { tip, mode, last_pruned }
+    /// Creates a new [`PruneInput`] with the given tip, distance, and last pruned block.
+    ///
+    /// # Arguments
+    ///
+    /// * `tip` - The current tip of the chain (highest synced block)
+    /// * `distance` - Distance from tip. Blocks older than `tip - distance` will be pruned. `None`
+    ///   means no pruning.
+    /// * `last_pruned` - The last block number that was successfully pruned (if any)
+    pub fn new(tip: BlockNumber, distance: Option<u64>, last_pruned: Option<BlockNumber>) -> Self {
+        Self { tip, distance, last_pruned }
     }
 
     /// Returns the current chain tip.
@@ -110,10 +96,10 @@ impl PruneInput {
         self.tip
     }
 
-    /// Returns the pruning mode.
+    /// Returns the distance from tip for pruning.
     #[inline]
-    pub fn mode(&self) -> PruningMode {
-        self.mode
+    pub fn distance(&self) -> Option<u64> {
+        self.distance
     }
 
     /// Returns the last block that was successfully pruned.
@@ -126,9 +112,9 @@ impl PruneInput {
     ///
     /// The range is `[start, end)` where:
     /// - `start` is `last_pruned + 1` (or 0 if no previous pruning)
-    /// - `end` is the calculated prune target based on tip and mode
+    /// - `end` is the calculated prune target based on tip and distance
     ///
-    /// Returns `None` if no pruning should occur (e.g., in `Archive` mode or already caught up).
+    /// Returns `None` if no pruning should occur (e.g., distance is `None` or already caught up).
     pub fn prune_range(&self) -> Option<std::ops::Range<BlockNumber>> {
         let prune_target = self.calculate_prune_target()?;
         let start = self.last_pruned.map(|b| b + 1).unwrap_or(0);
@@ -142,19 +128,14 @@ impl PruneInput {
 
     /// Calculates the block number before which all state should be pruned.
     ///
-    /// Returns `None` if no pruning should occur (e.g., in `Archive` mode).
+    /// Returns `None` if no pruning should occur (e.g., distance is `None` or tip < distance).
     /// Returns `Some(block_number)` indicating that all state before this block can be pruned.
     fn calculate_prune_target(&self) -> Option<BlockNumber> {
-        match self.mode {
-            PruningMode::Archive => None,
-            PruningMode::Minimal => Some(self.tip.saturating_sub(1)),
-            PruningMode::Full(n) => {
-                if self.tip >= n {
-                    Some(self.tip - n)
-                } else {
-                    None
-                }
-            }
+        let distance = self.distance?;
+        if self.tip >= distance {
+            Some(self.tip - distance)
+        } else {
+            None
         }
     }
 }
@@ -260,7 +241,7 @@ pub trait Stage: Send + Sync {
 
 #[cfg(test)]
 mod tests {
-    use crate::{PruneInput, PruningMode, StageExecutionInput};
+    use crate::{PruneInput, StageExecutionInput};
 
     #[tokio::test]
     #[should_panic(expected = "Invalid block range")]
@@ -270,50 +251,52 @@ mod tests {
     }
 
     #[test]
-    fn prune_range_archive_mode() {
-        let input = PruneInput::new(1000, PruningMode::Archive, None);
+    fn prune_range_no_pruning() {
+        // distance = None means no pruning (archive mode)
+        let input = PruneInput::new(1000, None, None);
         assert_eq!(input.prune_range(), None);
     }
 
     #[test]
-    fn prune_range_minimal_mode() {
-        // First prune: from 0 to tip-1
-        let input = PruneInput::new(1000, PruningMode::Minimal, None);
-        assert_eq!(input.prune_range(), Some(0..999));
-
-        // Subsequent prune with checkpoint
-        let input = PruneInput::new(1005, PruningMode::Minimal, Some(998));
-        assert_eq!(input.prune_range(), Some(999..1004));
-
-        // Already caught up
-        let input = PruneInput::new(1000, PruningMode::Minimal, Some(998));
-        assert_eq!(input.prune_range(), None);
-
-        // Edge case: tip at block 0
-        let input = PruneInput::new(0, PruningMode::Minimal, None);
-        assert_eq!(input.prune_range(), None); // 0..0 is empty
-    }
-
-    #[test]
-    fn prune_range_full_mode() {
-        // Keep last 100 blocks, tip at 1000, no previous pruning
-        let input = PruneInput::new(1000, PruningMode::Full(100), None);
+    fn prune_range_with_distance() {
+        // Keep last 100 blocks (distance=100), tip at 1000, no previous pruning
+        let input = PruneInput::new(1000, Some(100), None);
         assert_eq!(input.prune_range(), Some(0..900));
 
         // Keep last 100 blocks, tip at 1000, previously pruned up to 800
-        let input = PruneInput::new(1000, PruningMode::Full(100), Some(800));
+        let input = PruneInput::new(1000, Some(100), Some(800));
         assert_eq!(input.prune_range(), Some(801..900));
 
         // Keep last 100 blocks, tip at 50 (not enough blocks yet)
-        let input = PruneInput::new(50, PruningMode::Full(100), None);
+        let input = PruneInput::new(50, Some(100), None);
         assert_eq!(input.prune_range(), None);
 
         // Keep last 100 blocks, tip at exactly 100 (prune target is 0, start is 0, so empty range)
-        let input = PruneInput::new(100, PruningMode::Full(100), None);
+        let input = PruneInput::new(100, Some(100), None);
         assert_eq!(input.prune_range(), None); // 0..0 is empty, returns None
 
         // Already caught up
-        let input = PruneInput::new(1000, PruningMode::Full(100), Some(899));
+        let input = PruneInput::new(1000, Some(100), Some(899));
         assert_eq!(input.prune_range(), None);
+    }
+
+    #[test]
+    fn prune_range_minimal_distance() {
+        // distance=1 means keep only the latest block (minimal mode equivalent)
+        // First prune: from 0 to tip-1
+        let input = PruneInput::new(1000, Some(1), None);
+        assert_eq!(input.prune_range(), Some(0..999));
+
+        // Subsequent prune with checkpoint
+        let input = PruneInput::new(1005, Some(1), Some(998));
+        assert_eq!(input.prune_range(), Some(999..1004));
+
+        // Already caught up
+        let input = PruneInput::new(1000, Some(1), Some(998));
+        assert_eq!(input.prune_range(), None);
+
+        // Edge case: tip at block 0
+        let input = PruneInput::new(0, Some(1), None);
+        assert_eq!(input.prune_range(), None); // tip < distance, no pruning
     }
 }

@@ -81,9 +81,7 @@ use katana_primitives::block::BlockNumber;
 use katana_provider::{DbProviderFactory, MutableProvider, ProviderFactory};
 use katana_provider_api::stage::StageCheckpointProvider;
 use katana_provider_api::ProviderError;
-use katana_stage::{
-    PruneInput, PruneOutput, PruningMode, Stage, StageExecutionInput, StageExecutionOutput,
-};
+use katana_stage::{PruneInput, PruneOutput, Stage, StageExecutionInput, StageExecutionOutput};
 use tokio::sync::watch::{self};
 use tokio::task::yield_now;
 use tracing::{debug, error, info, info_span, Instrument};
@@ -212,31 +210,26 @@ impl PipelineHandle {
 }
 
 /// Configuration for pruning behavior in the pipeline.
-#[derive(Debug, Clone)]
+#[derive(Debug, Clone, Default)]
 pub struct PruningConfig {
-    /// The pruning mode to use.
-    pub mode: PruningMode,
+    /// Distance from tip. Blocks older than `tip - distance` will be pruned.
+    /// `None` means no pruning (archive mode).
+    pub distance: Option<u64>,
     /// How many blocks to process between pruning runs.
     /// Pruning will be triggered after every `interval` blocks are synced.
     /// If `None`, pruning is disabled.
     pub interval: Option<u64>,
 }
 
-impl Default for PruningConfig {
-    fn default() -> Self {
-        Self { mode: PruningMode::Archive, interval: None }
-    }
-}
-
 impl PruningConfig {
-    /// Creates a new pruning configuration with the specified mode and interval.
-    pub fn new(mode: PruningMode, interval: Option<u64>) -> Self {
-        Self { mode, interval }
+    /// Creates a new pruning configuration with the specified distance and interval.
+    pub fn new(distance: Option<u64>, interval: Option<u64>) -> Self {
+        Self { distance, interval }
     }
 
     /// Returns whether pruning is enabled.
     pub fn is_enabled(&self) -> bool {
-        !matches!(self.mode, PruningMode::Archive) && self.interval.is_some()
+        self.distance.is_some() && self.interval.is_some()
     }
 }
 
@@ -495,14 +488,14 @@ impl Pipeline {
                 continue;
             };
 
-            let prune_input = PruneInput::new(tip, self.pruning_config.mode, prune_checkpoint);
+            let prune_input = PruneInput::new(tip, self.pruning_config.distance, prune_checkpoint);
 
             let Some(range) = prune_input.prune_range() else {
                 info!(target: "pipeline", "Skipping stage - nothing to prune (already caught up).");
                 continue;
             };
 
-            info!(target: "pipeline", mode = ?self.pruning_config.mode, from = range.start, to = range.end, "Pruning stage.");
+            info!(target: "pipeline", distance = ?self.pruning_config.distance, from = range.start, to = range.end, "Pruning stage.");
 
             let span_inner = enter.exit();
             let PruneOutput { pruned_count } = stage

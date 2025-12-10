@@ -111,15 +111,15 @@ impl FullNodeArgs {
     }
 
     fn pruning_config(&self) -> full::PruningConfig {
-        use crate::options::PruningMode as CliPruningMode;
+        use crate::options::PruningMode;
 
-        let mode = match self.pruning.mode {
-            CliPruningMode::Archive => katana_stage::PruningMode::Archive,
-            // CliPruningMode::Minimal => katana_stage::PruningMode::Minimal,
-            CliPruningMode::Full(n) => katana_stage::PruningMode::Full(n),
+        // Translate CLI pruning mode to distance from tip
+        let distance = match self.pruning.mode {
+            PruningMode::Archive => None,
+            PruningMode::Full(n) => Some(n),
         };
 
-        full::PruningConfig { mode, interval: self.pruning.interval }
+        full::PruningConfig { distance, interval: self.pruning.interval }
     }
 
     fn db_config(&self) -> DbConfig {

@@ -13,7 +13,7 @@ use katana_primitives::block::BlockNumber;
 use katana_primitives::{ContractAddress, Felt};
 use katana_provider::DbProviderFactory;
 use katana_stage::trie::StateTrie;
-use katana_stage::{PruneInput, PruningMode, Stage};
+use katana_stage::{PruneInput, Stage};
 use katana_tasks::TaskManager;
 use katana_trie::{ClassesTrie, ContractsTrie, StoragesTrie};
 
@@ -135,7 +135,7 @@ async fn prune_does_not_affect_remaining_snapshot_roots() {
     };
 
     // Prune blocks 0-4 (Full mode with keep=5, tip=9)
-    let input = PruneInput::new(9, PruningMode::Full(5), None);
+    let input = PruneInput::new(9, Some(5), None);
     let result = stage.prune(&input).await;
 
     assert!(result.is_ok());
@@ -202,7 +202,7 @@ async fn prune_removes_snapshots_in_range() {
     }
 
     // Prune blocks 0-4 (Full mode with keep=5, tip=9)
-    let input = PruneInput::new(9, PruningMode::Full(5), None);
+    let input = PruneInput::new(9, Some(5), None);
     let result = stage.prune(&input).await;
 
     assert!(result.is_ok());
@@ -252,7 +252,7 @@ async fn prune_skips_when_archive_mode() {
     create_trie_snapshots(&provider, &[0, 1, 2, 3, 4]);
 
     // Archive mode should not prune anything
-    let input = PruneInput::new(4, PruningMode::Archive, None);
+    let input = PruneInput::new(4, None, None);
     let result = stage.prune(&input).await;
 
     assert!(result.is_ok());
@@ -279,7 +279,7 @@ async fn prune_skips_when_already_caught_up() {
 
     // Full mode with keep=5, tip=9, last_pruned=4
     // Prune target is 9-5=4, start is 4+1=5, so range 5..4 is empty
-    let input = PruneInput::new(9, PruningMode::Full(5), Some(4));
+    let input = PruneInput::new(9, Some(5), Some(4));
     let result = stage.prune(&input).await;
 
     assert!(result.is_ok());
@@ -306,7 +306,7 @@ async fn prune_uses_checkpoint_for_incremental_pruning() {
 
     // First prune: tip=9, keep=5, no previous prune
     // Should prune blocks 0-3 (range 0..4)
-    let input = PruneInput::new(9, PruningMode::Full(5), None);
+    let input = PruneInput::new(9, Some(5), None);
     let result = stage.prune(&input).await;
     assert!(result.is_ok());
     assert_eq!(result.unwrap().pruned_count, 4);
@@ -329,7 +329,7 @@ async fn prune_uses_checkpoint_for_incremental_pruning() {
 
     // Second prune: tip=14, keep=5, last_pruned=3
     // Should prune blocks 4-8 (range 4..9)
-    let input = PruneInput::new(14, PruningMode::Full(5), Some(3));
+    let input = PruneInput::new(14, Some(5), Some(3));
     let result = stage.prune(&input).await;
     assert!(result.is_ok());
     assert_eq!(result.unwrap().pruned_count, 5);
@@ -378,7 +378,7 @@ async fn prune_minimal_mode_keeps_only_latest() {
 
     // Minimal mode: prune everything except tip-1
     // tip=9 -> prune 0..8
-    let input = PruneInput::new(9, PruningMode::Minimal, None);
+    let input = PruneInput::new(9, Some(1), None);
     let result = stage.prune(&input).await;
 
     assert!(result.is_ok());
@@ -426,8 +426,8 @@ async fn prune_handles_empty_range_gracefully() {
     // Create snapshots for blocks 0-4
     create_trie_snapshots(&provider, &[0, 1, 2, 3, 4]);
 
-    // Full mode with keep=10, tip=4 - nothing to prune
-    let input = PruneInput::new(4, PruningMode::Full(10), None);
+    // Distance=10, tip=4 - nothing to prune (tip < distance)
+    let input = PruneInput::new(4, Some(10), None);
     let result = stage.prune(&input).await;
 
     assert!(result.is_ok());
@@ -449,7 +449,7 @@ async fn prune_handles_nonexistent_snapshots_gracefully() {
     create_trie_snapshots(&provider, &[5, 6, 7, 8, 9]);
 
     // Try to prune blocks 0-4 which don't have snapshots
-    let input = PruneInput::new(9, PruningMode::Full(5), None);
+    let input = PruneInput::new(9, Some(5), None);
     let result = stage.prune(&input).await;
 
     // Should succeed even though blocks 0-3 don't have snapshots

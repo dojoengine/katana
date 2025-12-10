@@ -5866,7 +5866,6 @@ dependencies = [
  "katana-primitives",
  "katana-rpc-server",
  "katana-slot-controller",
- "katana-stage",
  "katana-tracing",
  "katana-utils",
  "serde",

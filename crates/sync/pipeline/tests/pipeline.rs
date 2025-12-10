@@ -739,7 +739,6 @@ async fn stage_checkpoint() {
 // ============================================================================
 
 use katana_pipeline::PruningConfig;
-use katana_stage::PruningMode;
 
 /// Pruning record to track what blocks were pruned
 #[derive(Debug, Clone)]
@@ -806,7 +805,7 @@ async fn prune_skips_when_no_execution_checkpoint() {
     let provider_factory = test_provider();
     let (mut pipeline, _handle) = Pipeline::new(provider_factory.clone(), 10);
 
-    pipeline.set_pruning_config(PruningConfig::new(PruningMode::Full(10), Some(10)));
+    pipeline.set_pruning_config(PruningConfig::new(Some(10), Some(10)));
 
     let stage = PruningTrackingStage::new("Stage1");
     let stage_clone = stage.clone();
@@ -831,8 +830,8 @@ async fn prune_skips_when_archive_mode() {
     let provider_factory = test_provider();
     let (mut pipeline, handle) = Pipeline::new(provider_factory.clone(), 10);
 
-    // Archive mode is the default, but let's be explicit
-    pipeline.set_pruning_config(PruningConfig::new(PruningMode::Archive, Some(10)));
+    // None distance means no pruning (archive mode)
+    pipeline.set_pruning_config(PruningConfig::new(None, Some(10)));
 
     let stage = PruningTrackingStage::new("Stage1");
     let stage_clone = stage.clone();
@@ -850,18 +849,18 @@ async fn prune_skips_when_archive_mode() {
     assert_eq!(stage_clone.prune_count(), 0);
 }
 
-/// Tests different pruning modes and verifies the correct prune range is calculated:
-/// - Full mode: keeps last N blocks, prunes everything before tip - N
-/// - Minimal mode: keeps only latest state, prunes everything before tip - 1
-/// - Full mode with insufficient blocks: skips pruning when tip < keep_blocks
+/// Tests different pruning distances and verifies the correct prune range is calculated:
+/// - distance=50: keeps last 50 blocks, prunes everything before tip - 50
+/// - distance=1: keeps only latest state, prunes everything before tip - 1
+/// - distance=100 with tip=50: skips pruning when tip < distance
 #[tokio::test]
-async fn prune_mode_behavior() {
-    // Test case: Full mode keeps last N blocks
-    // tip=100, keep=50 -> prune 0..50
+async fn prune_distance_behavior() {
+    // Test case: distance=50 keeps last 50 blocks
+    // tip=100, distance=50 -> prune 0..50
     {
         let provider_factory = test_provider();
         let (mut pipeline, handle) = Pipeline::new(provider_factory.clone(), 10);
-        pipeline.set_pruning_config(PruningConfig::new(PruningMode::Full(50), Some(10)));
+        pipeline.set_pruning_config(PruningConfig::new(Some(50), Some(10)));
 
         let stage = PruningTrackingStage::new("Stage1");
         let stage_clone = stage.clone();
@@ -875,17 +874,17 @@ async fn prune_mode_behavior() {
         pipeline.prune().await.unwrap();
 
         let records = stage_clone.prune_records();
-        assert_eq!(records.len(), 1, "Full mode: expected one prune operation");
-        assert_eq!(records[0].from, 0, "Full mode: prune range start mismatch");
-        assert_eq!(records[0].to, 50, "Full mode: prune range end mismatch");
+        assert_eq!(records.len(), 1, "distance=50: expected one prune operation");
+        assert_eq!(records[0].from, 0, "distance=50: prune range start mismatch");
+        assert_eq!(records[0].to, 50, "distance=50: prune range end mismatch");
     }
 
-    // Test case: Minimal mode keeps only latest
+    // Test case: distance=1 keeps only latest (minimal equivalent)
     // tip=100 -> prune 0..99
     {
         let provider_factory = test_provider();
         let (mut pipeline, handle) = Pipeline::new(provider_factory.clone(), 10);
-        pipeline.set_pruning_config(PruningConfig::new(PruningMode::Minimal, Some(10)));
+        pipeline.set_pruning_config(PruningConfig::new(Some(1), Some(10)));
 
         let stage = PruningTrackingStage::new("Stage1");
         let stage_clone = stage.clone();
@@ -899,17 +898,17 @@ async fn prune_mode_behavior() {
         pipeline.prune().await.unwrap();
 
         let records = stage_clone.prune_records();
-        assert_eq!(records.len(), 1, "Minimal mode: expected one prune operation");
-        assert_eq!(records[0].from, 0, "Minimal mode: prune range start mismatch");
-        assert_eq!(records[0].to, 99, "Minimal mode: prune range end mismatch");
+        assert_eq!(records.len(), 1, "distance=1: expected one prune operation");
+        assert_eq!(records[0].from, 0, "distance=1: prune range start mismatch");
+        assert_eq!(records[0].to, 99, "distance=1: prune range end mismatch");
     }
 
-    // Test case: Full mode skips when not enough blocks
-    // tip=50, keep=100 -> no pruning
+    // Test case: distance=100 skips when not enough blocks
+    // tip=50, distance=100 -> no pruning
     {
         let provider_factory = test_provider();
         let (mut pipeline, handle) = Pipeline::new(provider_factory.clone(), 10);
-        pipeline.set_pruning_config(PruningConfig::new(PruningMode::Full(100), Some(10)));
+        pipeline.set_pruning_config(PruningConfig::new(Some(100), Some(10)));
 
         let stage = PruningTrackingStage::new("Stage1");
         let stage_clone = stage.clone();
@@ -922,11 +921,7 @@ async fn prune_mode_behavior() {
         handle.set_tip(50);
         pipeline.prune().await.unwrap();
 
-        assert_eq!(
-            stage_clone.prune_count(),
-            0,
-            "Full mode insufficient blocks: expected no pruning"
-        );
+        assert_eq!(stage_clone.prune_count(), 0, "distance=100 with tip=50: expected no pruning");
     }
 }
 
@@ -935,7 +930,7 @@ async fn prune_uses_checkpoint_to_avoid_re_pruning() {
     let provider_factory = test_provider();
     let (mut pipeline, handle) = Pipeline::new(provider_factory.clone(), 10);
 
-    pipeline.set_pruning_config(PruningConfig::new(PruningMode::Full(50), Some(10)));
+    pipeline.set_pruning_config(PruningConfig::new(Some(50), Some(10)));
 
     let stage = PruningTrackingStage::new("Stage1");
     let stage_clone = stage.clone();
@@ -963,7 +958,7 @@ async fn prune_skips_when_already_caught_up() {
     let provider_factory = test_provider();
     let (mut pipeline, handle) = Pipeline::new(provider_factory.clone(), 10);
 
-    pipeline.set_pruning_config(PruningConfig::new(PruningMode::Full(50), Some(10)));
+    pipeline.set_pruning_config(PruningConfig::new(Some(50), Some(10)));
 
     let stage = PruningTrackingStage::new("Stage1");
     let stage_clone = stage.clone();
@@ -988,7 +983,7 @@ async fn prune_multiple_stages_independently() {
     let provider_factory = test_provider();
     let (mut pipeline, handle) = Pipeline::new(provider_factory.clone(), 10);
 
-    pipeline.set_pruning_config(PruningConfig::new(PruningMode::Full(50), Some(10)));
+    pipeline.set_pruning_config(PruningConfig::new(Some(50), Some(10)));
 
     let stage1 = PruningTrackingStage::new("Stage1");
     let stage2 = PruningTrackingStage::new("Stage2");
@@ -1037,7 +1032,7 @@ async fn prune_incremental_with_checkpoint_persistence() {
     let provider_factory = test_provider();
     let (mut pipeline, handle) = Pipeline::new(provider_factory.clone(), 10);
 
-    pipeline.set_pruning_config(PruningConfig::new(PruningMode::Full(50), Some(10)));
+    pipeline.set_pruning_config(PruningConfig::new(Some(50), Some(10)));
 
     let stage = PruningTrackingStage::new("Stage1");
     let stage_clone = stage.clone();
@@ -1118,7 +1113,7 @@ async fn prune_error_stops_pipeline() {
     let provider_factory = test_provider();
     let (mut pipeline, handle) = Pipeline::new(provider_factory.clone(), 10);
 
-    pipeline.set_pruning_config(PruningConfig::new(PruningMode::Full(50), Some(10)));
+    pipeline.set_pruning_config(PruningConfig::new(Some(50), Some(10)));
 
     let failing_stage = FailingPruneStage::new("FailingStage");
     let stage2 = PruningTrackingStage::new("Stage2");
@@ -1154,7 +1149,7 @@ async fn prune_empty_pipeline_succeeds() {
     let provider_factory = test_provider();
     let (mut pipeline, _handle) = Pipeline::new(provider_factory, 10);
 
-    pipeline.set_pruning_config(PruningConfig::new(PruningMode::Full(50), Some(10)));
+    pipeline.set_pruning_config(PruningConfig::new(Some(50), Some(10)));
 
     // No stages added
     let result = pipeline.prune().await;

@@ -9,7 +9,6 @@ version.workspace = true
 katana-chain-spec.workspace = true
 katana-core.workspace = true
 katana-messaging.workspace = true
-katana-stage.workspace = true
 katana-node.workspace = true
 katana-genesis.workspace = true
 katana-primitives.workspace = true
