@@ -140,32 +140,53 @@ impl Stage for StateTrie {
             };
 
             let tx = self.storage_provider.db().tx_mut().map_err(Error::Database)?;
-            let mut pruned_count = 0u64;
 
-            // Remove trie snapshots for blocks in the prune range
-            for block_number in range {
-                // Remove snapshot from classes trie
-                let mut classes_trie_db = TrieDbMut::<tables::ClassesTrie, _>::new(tx.clone());
-                classes_trie_db
-                    .remove_snapshot(block_number)
-                    .map_err(|e| Error::Database(e.into_inner()))?;
+            let pruned_count = self
+                .task_spawner
+                .spawn_blocking(move || {
+                    let mut pruned_count = 0u64;
 
-                // Remove snapshot from contracts trie
-                let mut contracts_trie_db = TrieDbMut::<tables::ContractsTrie, _>::new(tx.clone());
-                contracts_trie_db
-                    .remove_snapshot(block_number)
-                    .map_err(|e| Error::Database(e.into_inner()))?;
+                    // Remove trie snapshots for blocks in the prune range
+                    for block_number in range {
+                        let span = debug_span!("state_trie.prune", %block_number);
+                        let _enter = span.enter();
 
-                // Remove snapshot from storages trie
-                let mut storages_trie_db = TrieDbMut::<tables::StoragesTrie, _>::new(tx.clone());
-                storages_trie_db
-                    .remove_snapshot(block_number)
-                    .map_err(|e| Error::Database(e.into_inner()))?;
+                        // Remove snapshot from classes trie
+                        let mut classes_trie_db =
+                            TrieDbMut::<tables::ClassesTrie, _>::new(tx.clone());
+                        classes_trie_db
+                            .remove_snapshot(block_number)
+                            .map_err(|e| Error::Database(e.into_inner()))?;
 
-                pruned_count += 1;
-            }
+                        debug!(target: "stage", "Classes trie snapshot removed.");
 
-            tx.commit().map_err(Error::Database)?;
+                        // Remove snapshot from contracts trie
+                        let mut contracts_trie_db =
+                            TrieDbMut::<tables::ContractsTrie, _>::new(tx.clone());
+                        contracts_trie_db
+                            .remove_snapshot(block_number)
+                            .map_err(|e| Error::Database(e.into_inner()))?;
+
+                        debug!(target: "stage", "Contracts trie snapshot removed.");
+
+                        // Remove snapshot from storages trie
+                        let mut storages_trie_db =
+                            TrieDbMut::<tables::StoragesTrie, _>::new(tx.clone());
+                        storages_trie_db
+                            .remove_snapshot(block_number)
+                            .map_err(|e| Error::Database(e.into_inner()))?;
+
+                        debug!(target: "stage", "Storage trie snapshot removed.");
+
+                        pruned_count += 1;
+                    }
+
+                    tx.commit().map_err(Error::Database)?;
+
+                    Result::<u64, Error>::Ok(pruned_count)
+                })
+                .await
+                .map_err(Error::StateComputationTaskJoinError)??;
 
             debug!(target: "stage", %pruned_count, "Pruned trie snapshots");
 
