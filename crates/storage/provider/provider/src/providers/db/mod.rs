@@ -12,7 +12,7 @@ use katana_db::models::contract::{
     ContractClassChange, ContractClassChangeType, ContractInfoChangeList, ContractNonceChange,
 };
 use katana_db::models::list::BlockList;
-use katana_db::models::stage::StageCheckpoint;
+use katana_db::models::stage::{PruneCheckpoint, StageCheckpoint};
 use katana_db::models::storage::{ContractStorageEntry, ContractStorageKey, StorageEntry};
 use katana_db::models::{VersionedHeader, VersionedTx};
 use katana_db::tables::{self, DupSort, Table};
@@ -817,15 +817,27 @@ impl<Tx: DbTxMut> BlockWriter for DbProvider<Tx> {
 }
 
 impl<Tx: DbTxMut> StageCheckpointProvider for DbProvider<Tx> {
-    fn checkpoint(&self, id: &str) -> ProviderResult<Option<BlockNumber>> {
+    fn execution_checkpoint(&self, id: &str) -> ProviderResult<Option<BlockNumber>> {
         let result = self.0.get::<tables::StageCheckpoints>(id.to_string())?;
         Ok(result.map(|x| x.block))
     }
 
-    fn set_checkpoint(&self, id: &str, block_number: BlockNumber) -> ProviderResult<()> {
+    fn set_execution_checkpoint(&self, id: &str, block_number: BlockNumber) -> ProviderResult<()> {
         let key = id.to_string();
         let value = StageCheckpoint { block: block_number };
         self.0.put::<tables::StageCheckpoints>(key, value)?;
+        Ok(())
+    }
+
+    fn prune_checkpoint(&self, id: &str) -> ProviderResult<Option<BlockNumber>> {
+        let result = self.0.get::<tables::PruneCheckpoints>(id.to_string())?;
+        Ok(result.map(|x| x.block))
+    }
+
+    fn set_prune_checkpoint(&self, id: &str, block_number: BlockNumber) -> ProviderResult<()> {
+        let key = id.to_string();
+        let value = PruneCheckpoint { block: block_number };
+        self.0.put::<tables::PruneCheckpoints>(key, value)?;
         Ok(())
     }
 }

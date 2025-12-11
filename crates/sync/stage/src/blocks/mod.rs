@@ -12,12 +12,15 @@ use katana_primitives::state::{StateUpdates, StateUpdatesWithClasses};
 use katana_primitives::transaction::{Tx, TxWithHash};
 use katana_primitives::Felt;
 use katana_provider::api::block::{BlockHashProvider, BlockWriter};
-use katana_provider::{MutableProvider, ProviderError, ProviderFactory};
+use katana_provider::{DbProviderFactory, MutableProvider, ProviderError, ProviderFactory};
 use num_traits::ToPrimitive;
 use starknet::core::types::ResourcePrice;
 use tracing::{error, info_span, Instrument};
 
-use crate::{Stage, StageExecutionInput, StageExecutionOutput, StageResult};
+use crate::{
+    PruneInput, PruneOutput, PruneResult, Stage, StageExecutionInput, StageExecutionOutput,
+    StageResult,
+};
 
 mod downloader;
 
@@ -25,14 +28,14 @@ pub use downloader::{BatchBlockDownloader, BlockDownloader};
 
 /// A stage for syncing blocks.
 #[derive(Debug)]
-pub struct Blocks<PF, B> {
-    provider: PF,
+pub struct Blocks<B> {
+    provider: DbProviderFactory,
     downloader: B,
 }
 
-impl<PF, B> Blocks<PF, B> {
+impl<B> Blocks<B> {
     /// Create a new [`Blocks`] stage.
-    pub fn new(provider: PF, downloader: B) -> Self {
+    pub fn new(provider: DbProviderFactory, downloader: B) -> Self {
         Self { provider, downloader }
     }
 
@@ -40,11 +43,7 @@ impl<PF, B> Blocks<PF, B> {
     ///
     /// This method checks the chain invariant: block N's parent hash must be block N-1's hash.
     /// For the first block in the list (if not block 0), it fetches the parent hash from storage.
-    fn validate_chain_invariant(&self, blocks: &[StateUpdateWithBlock]) -> Result<(), Error>
-    where
-        PF: ProviderFactory,
-        <PF as ProviderFactory>::Provider: BlockHashProvider,
-    {
+    fn validate_chain_invariant(&self, blocks: &[StateUpdateWithBlock]) -> Result<(), Error> {
         if blocks.is_empty() {
             return Ok(());
         }
@@ -92,11 +91,8 @@ impl<PF, B> Blocks<PF, B> {
     }
 }
 
-impl<PF, D> Stage for Blocks<PF, D>
+impl<D> Stage for Blocks<D>
 where
-    PF: ProviderFactory,
-    <PF as ProviderFactory>::Provider: BlockHashProvider,
-    <PF as ProviderFactory>::ProviderMut: BlockWriter,
     D: BlockDownloader,
 {
     fn id(&self) -> &'static str {
@@ -140,6 +136,12 @@ where
 
             Ok(StageExecutionOutput { last_block_processed: input.to() })
         })
+    }
+
+    // TODO: implement block pruning
+    fn prune<'a>(&'a mut self, input: &'a PruneInput) -> BoxFuture<'a, PruneResult> {
+        let _ = input;
+        Box::pin(async move { Ok(PruneOutput::default()) })
     }
 }
 

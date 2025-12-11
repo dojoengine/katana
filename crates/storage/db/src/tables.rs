@@ -9,7 +9,7 @@ use crate::codecs::{Compress, Decode, Decompress, Encode};
 use crate::models::block::StoredBlockBodyIndices;
 use crate::models::contract::{ContractClassChange, ContractInfoChangeList, ContractNonceChange};
 use crate::models::list::BlockList;
-use crate::models::stage::{StageCheckpoint, StageId};
+use crate::models::stage::{PruneCheckpoint, StageCheckpoint, StageId};
 use crate::models::storage::{ContractStorageEntry, ContractStorageKey, StorageEntry};
 use crate::models::trie::{TrieDatabaseKey, TrieDatabaseValue, TrieHistoryEntry};
 use crate::models::{VersionedContractClass, VersionedHeader, VersionedTx};
@@ -54,7 +54,7 @@ pub enum TableType {
     DupSort,
 }
 
-pub const NUM_TABLES: usize = 32;
+pub const NUM_TABLES: usize = 33;
 
 /// Macro to declare `libmdbx` tables.
 #[macro_export]
@@ -178,6 +178,7 @@ define_tables_enum! {[
     (StorageChangeHistory, TableType::DupSort),
     (StorageChangeSet, TableType::Table),
     (StageCheckpoints, TableType::Table),
+    (PruneCheckpoints, TableType::Table),
     (ClassesTrie, TableType::Table),
     (ContractsTrie, TableType::Table),
     (StoragesTrie, TableType::Table),
@@ -192,6 +193,8 @@ define_tables_enum! {[
 tables! {
     /// Pipeline stages checkpoint
     StageCheckpoints: (StageId) => StageCheckpoint,
+    /// Pipeline stages prune checkpoint
+    PruneCheckpoints: (StageId) => PruneCheckpoint,
 
     /// Store canonical block headers
     Headers: (BlockNumber) => VersionedHeader,
@@ -312,15 +315,16 @@ mod tests {
         assert_eq!(Tables::ALL[20].name(), StorageChangeHistory::NAME);
         assert_eq!(Tables::ALL[21].name(), StorageChangeSet::NAME);
         assert_eq!(Tables::ALL[22].name(), StageCheckpoints::NAME);
-        assert_eq!(Tables::ALL[23].name(), ClassesTrie::NAME);
-        assert_eq!(Tables::ALL[24].name(), ContractsTrie::NAME);
-        assert_eq!(Tables::ALL[25].name(), StoragesTrie::NAME);
-        assert_eq!(Tables::ALL[26].name(), ClassesTrieHistory::NAME);
-        assert_eq!(Tables::ALL[27].name(), ContractsTrieHistory::NAME);
-        assert_eq!(Tables::ALL[28].name(), StoragesTrieHistory::NAME);
-        assert_eq!(Tables::ALL[29].name(), ClassesTrieChangeSet::NAME);
-        assert_eq!(Tables::ALL[30].name(), ContractsTrieChangeSet::NAME);
-        assert_eq!(Tables::ALL[31].name(), StoragesTrieChangeSet::NAME);
+        assert_eq!(Tables::ALL[23].name(), PruneCheckpoints::NAME);
+        assert_eq!(Tables::ALL[24].name(), ClassesTrie::NAME);
+        assert_eq!(Tables::ALL[25].name(), ContractsTrie::NAME);
+        assert_eq!(Tables::ALL[26].name(), StoragesTrie::NAME);
+        assert_eq!(Tables::ALL[27].name(), ClassesTrieHistory::NAME);
+        assert_eq!(Tables::ALL[28].name(), ContractsTrieHistory::NAME);
+        assert_eq!(Tables::ALL[29].name(), StoragesTrieHistory::NAME);
+        assert_eq!(Tables::ALL[30].name(), ClassesTrieChangeSet::NAME);
+        assert_eq!(Tables::ALL[31].name(), ContractsTrieChangeSet::NAME);
+        assert_eq!(Tables::ALL[32].name(), StoragesTrieChangeSet::NAME);
 
         assert_eq!(Tables::Headers.table_type(), TableType::Table);
         assert_eq!(Tables::BlockHashes.table_type(), TableType::Table);
@@ -345,6 +349,7 @@ mod tests {
         assert_eq!(Tables::StorageChangeHistory.table_type(), TableType::DupSort);
         assert_eq!(Tables::StorageChangeSet.table_type(), TableType::Table);
         assert_eq!(Tables::StageCheckpoints.table_type(), TableType::Table);
+        assert_eq!(Tables::PruneCheckpoints.table_type(), TableType::Table);
         assert_eq!(Tables::ClassesTrie.table_type(), TableType::Table);
         assert_eq!(Tables::ContractsTrie.table_type(), TableType::Table);
         assert_eq!(Tables::StoragesTrie.table_type(), TableType::Table);

@@ -58,10 +58,13 @@ pub enum Network {
     Sepolia,
 }
 
+pub use katana_pipeline::PruningConfig;
+
 #[derive(Debug)]
 pub struct Config {
     pub db: DbConfig,
     pub rpc: RpcConfig,
+    pub pruning: PruningConfig,
     pub metrics: Option<MetricsConfig>,
     pub gateway_api_key: Option<String>,
     pub network: Network,
@@ -74,7 +77,7 @@ pub struct Node {
     pub pool: FullNodePool,
     pub config: Arc<Config>,
     pub task_manager: TaskManager,
-    pub pipeline: Pipeline<DbProviderFactory>,
+    pub pipeline: Pipeline,
     pub rpc_server: RpcServer,
     pub gateway_client: SequencerGateway,
     pub metrics_server: Option<MetricsServer<Prometheus>>,
@@ -124,6 +127,10 @@ impl Node {
         // --- build pipeline
 
         let (mut pipeline, pipeline_handle) = Pipeline::new(storage_provider.clone(), 256);
+
+        // Configure pruning
+        pipeline.set_pruning_config(config.pruning.clone());
+
         let block_downloader = BatchBlockDownloader::new_gateway(gateway_client.clone(), 20);
         pipeline.add_stage(Blocks::new(storage_provider.clone(), block_downloader));
         pipeline.add_stage(Classes::new(storage_provider.clone(), gateway_client.clone(), 20));

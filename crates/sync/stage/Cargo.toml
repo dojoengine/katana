@@ -7,6 +7,7 @@ version.workspace = true
 
 [dependencies]
 katana-core.workspace = true
+katana-db.workspace = true
 katana-executor.workspace = true
 katana-gateway-client.workspace = true
 katana-gateway-types.workspace = true
@@ -30,5 +31,6 @@ tracing.workspace = true
 
 [dev-dependencies]
 katana-provider = { workspace = true, features = [ "test-utils" ] }
+katana-trie.workspace = true
 rstest.workspace = true
 url.workspace = true

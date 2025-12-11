@@ -16,8 +16,7 @@ use katana_primitives::receipt::Receipt;
 use katana_primitives::state::StateUpdatesWithClasses;
 use katana_primitives::{felt, ContractAddress, Felt};
 use katana_provider::api::block::{BlockHashProvider, BlockNumberProvider, BlockWriter};
-use katana_provider::test_utils::test_provider;
-use katana_provider::{ProviderError, ProviderFactory, ProviderResult};
+use katana_provider::{DbProviderFactory, MutableProvider, ProviderFactory};
 use katana_stage::blocks::{BatchBlockDownloader, BlockDownloader, Blocks};
 use katana_stage::{Stage, StageExecutionInput};
 use rstest::rstest;
@@ -119,146 +118,24 @@ impl BlockDownloader for MockBlockDownloader {
     }
 }
 
-/// Mock provider implementation for testing.
-///
-/// Tracks all insert operations and can be configured to return errors.
-#[derive(Clone, Debug)]
-struct MockInnerProvider {
-    /// Stored blocks with their receipts and state updates.
-    blocks: Arc<Mutex<Vec<(SealedBlockWithStatus, StateUpdatesWithClasses, Vec<Receipt>)>>>,
-    /// Whether to return an error on insert.
-    should_fail: Arc<Mutex<bool>>,
-    /// Error message to return when should_fail is true.
-    error_message: Arc<Mutex<String>>,
+/// Creates a new in-memory provider with an initial block stored.
+fn create_provider_with_block(block: SealedBlockWithStatus) -> DbProviderFactory {
+    let provider_factory = DbProviderFactory::new_in_memory();
+    let provider_mut = provider_factory.provider_mut();
+    provider_mut
+        .insert_block_with_states_and_receipts(block, Default::default(), Vec::new(), Vec::new())
+        .expect("failed to insert initial block");
+    provider_mut.commit().expect("failed to commit");
+    provider_factory
 }
 
-impl MockInnerProvider {
-    fn new(
-        blocks: Arc<Mutex<Vec<(SealedBlockWithStatus, StateUpdatesWithClasses, Vec<Receipt>)>>>,
-        should_fail: Arc<Mutex<bool>>,
-        error_message: Arc<Mutex<String>>,
-    ) -> Self {
-        Self { blocks, should_fail, error_message }
-    }
-}
-
-impl BlockWriter for MockInnerProvider {
-    fn insert_block_with_states_and_receipts(
-        &self,
-        block: SealedBlockWithStatus,
-        states: StateUpdatesWithClasses,
-        receipts: Vec<Receipt>,
-        _executions: Vec<TypedTransactionExecutionInfo>,
-    ) -> ProviderResult<()> {
-        if *self.should_fail.lock().unwrap() {
-            return Err(katana_provider::ProviderError::Other(
-                self.error_message.lock().unwrap().clone(),
-            ));
-        }
-
-        self.blocks.lock().unwrap().push((block, states, receipts));
-        Ok(())
-    }
-}
-
-impl BlockHashProvider for MockInnerProvider {
-    fn latest_hash(&self) -> ProviderResult<BlockHash> {
-        self.blocks
-            .lock()
-            .unwrap()
-            .last()
-            .map(|(block, _, _)| block.block.hash)
-            .ok_or(ProviderError::MissingLatestBlockHash)
-    }
-
-    fn block_hash_by_num(&self, num: BlockNumber) -> ProviderResult<Option<BlockHash>> {
-        Ok(self
-            .blocks
-            .lock()
-            .unwrap()
-            .iter()
-            .find(|(block, _, _)| block.block.header.number == num)
-            .map(|(block, _, _)| block.block.hash))
-    }
-}
-
-impl katana_provider::MutableProvider for MockInnerProvider {
-    fn commit(self) -> ProviderResult<()> {
-        Ok(())
-    }
-}
-
-/// Mock ProviderFactory implementation for testing.
-///
-/// Tracks all insert operations and can be configured to return errors.
-#[derive(Clone)]
-struct MockProvider {
-    /// Stored blocks with their receipts and state updates.
-    blocks: Arc<Mutex<Vec<(SealedBlockWithStatus, StateUpdatesWithClasses, Vec<Receipt>)>>>,
-    /// Whether to return an error on insert.
-    should_fail: Arc<Mutex<bool>>,
-    /// Error message to return when should_fail is true.
-    error_message: Arc<Mutex<String>>,
-}
-
-impl std::fmt::Debug for MockProvider {
-    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        f.debug_struct("MockProvider").finish_non_exhaustive()
-    }
-}
-
-impl MockProvider {
-    fn new() -> Self {
-        Self {
-            blocks: Arc::new(Mutex::new(Vec::new())),
-            should_fail: Arc::new(Mutex::new(false)),
-            error_message: Arc::new(Mutex::new(String::new())),
-        }
-    }
-
-    /// Add a block directly to the provider's storage.
-    fn with_block(self, block: SealedBlockWithStatus) -> Self {
-        self.blocks.lock().unwrap().push((block, Default::default(), Default::default()));
-        self
-    }
-
-    /// Configure the mock to fail on insert operations.
-    fn with_insert_error(self, error: String) -> Self {
-        *self.should_fail.lock().unwrap() = true;
-        *self.error_message.lock().unwrap() = error;
-        self
-    }
-
-    /// Get the number of blocks stored.
-    fn stored_block_count(&self) -> usize {
-        self.blocks.lock().unwrap().len()
-    }
-
-    /// Get all stored block numbers.
-    fn stored_block_numbers(&self) -> Vec<BlockNumber> {
-        self.blocks.lock().unwrap().iter().map(|(block, _, _)| block.block.header.number).collect()
-    }
-}
-
-impl katana_provider::ProviderFactory for MockProvider {
-    type Provider = MockInnerProvider;
-    type ProviderMut = MockInnerProvider;
-
-    fn provider(&self) -> Self::Provider {
-        MockInnerProvider::new(
-            Arc::clone(&self.blocks),
-            Arc::clone(&self.should_fail),
-            Arc::clone(&self.error_message),
-        )
-    }
-
-    fn provider_mut(&self) -> Self::ProviderMut {
-        MockInnerProvider::new(
-            Arc::clone(&self.blocks),
-            Arc::clone(&self.should_fail),
-            Arc::clone(&self.error_message),
-        )
-    }
+/// Gets all stored block numbers from the provider by checking which blocks actually exist.
+fn get_stored_block_numbers(
+    provider: &DbProviderFactory,
+    expected_range: std::ops::RangeInclusive<BlockNumber>,
+) -> Vec<BlockNumber> {
+    let p = provider.provider();
+    expected_range.filter(|&num| p.block_hash_by_num(num).ok().flatten().is_some()).collect()
 }
 
 /// Helper function to create a minimal test `SealedBlockWithStatus`.
@@ -342,7 +219,7 @@ async fn download_and_store_blocks(
     #[case] to_block: BlockNumber,
     #[case] expected_blocks: Vec<BlockNumber>,
 ) {
-    let provider = MockProvider::new().with_block(create_stored_block(from_block - 1));
+    let provider = create_provider_with_block(create_stored_block(from_block - 1));
     let mut downloader = MockBlockDownloader::new();
 
     for block_num in from_block..=to_block {
@@ -357,9 +234,10 @@ async fn download_and_store_blocks(
 
     // Verify download_blocks was called with the correct block numbers in the correct sequence
     assert_eq!(downloader.requested_blocks(), expected_blocks);
-    // Verify insert_block_with_states_and_receipts was called with the correct block numbers in the
-    // correct sequence. Ignore the first stored block.
-    assert_eq!(provider.stored_block_numbers()[1..], expected_blocks);
+    // Verify blocks were stored correctly - should have initial block + downloaded blocks
+    let stored = get_stored_block_numbers(&provider, (from_block - 1)..=to_block);
+    assert_eq!(stored.len(), expected_blocks.len() + 1); // +1 for initial block
+    assert_eq!(&stored[1..], expected_blocks.as_slice());
 }
 
 #[tokio::test]
@@ -368,7 +246,8 @@ async fn download_failure_returns_error() {
     let error_msg = "Network error".to_string();
 
     let downloader = MockBlockDownloader::new().with_error(block_number, error_msg.clone());
-    let provider = MockProvider::new();
+    // Create provider with initial block at block_number - 1
+    let provider = create_provider_with_block(create_stored_block(block_number - 1));
 
     let mut stage = Blocks::new(provider.clone(), downloader.clone());
     let input = StageExecutionInput::new(block_number, block_number);
@@ -387,40 +266,9 @@ async fn download_failure_returns_error() {
 
     // Verify download was attempted
     assert_eq!(downloader.requested_blocks(), vec![100]);
-    // Verify no blocks were stored
-    assert_eq!(provider.stored_block_count(), 0);
-}
-
-#[tokio::test]
-async fn storage_failure_returns_error() {
-    let block_number = 100;
-    let test_block = create_downloaded_block(block_number);
-    let error_msg = "Storage full".to_string();
-
-    let downloader = MockBlockDownloader::new().with_block(block_number, test_block);
-    let provider = MockProvider::new()
-        .with_insert_error(error_msg.clone())
-        .with_block(create_stored_block(block_number - 1));
-
-    let mut stage = Blocks::new(provider.clone(), downloader.clone());
-    let input = StageExecutionInput::new(block_number, block_number);
-
-    let result = stage.execute(&input).await;
-
-    // Verify it's a Blocks error
-    if let Err(err) = result {
-        match err {
-            katana_stage::Error::Provider(e) => {
-                assert!(e.to_string().contains(&error_msg))
-            }
-            _ => panic!("Expected Error::Provider variant, got: {err:#?}"),
-        }
-    }
-
-    // Verify download was attempted
-    assert_eq!(downloader.requested_blocks(), vec![100]);
-    // Verify no blocks were stored (except block `block_number - 1`)
-    assert_eq!(provider.stored_block_count(), 1);
+    // Verify only initial block was stored (no new blocks)
+    let stored = get_stored_block_numbers(&provider, (block_number - 1)..=block_number);
+    assert_eq!(stored.len(), 1); // Only the initial block
 }
 
 #[tokio::test]
@@ -435,7 +283,7 @@ async fn partial_download_failure_stops_execution() {
     }
     downloader = downloader.with_error(103, "Block not found".to_string());
 
-    let provider = MockProvider::new();
+    let provider = create_provider_with_block(create_stored_block(from_block - 1));
     let mut stage = Blocks::new(provider.clone(), downloader.clone());
 
     let input = StageExecutionInput::new(from_block, to_block);
@@ -455,7 +303,9 @@ async fn fetch_blocks_from_gateway() {
     let from_block = 308919;
     let to_block = from_block + 2;
 
-    let provider = test_provider();
+    // Create provider with initial block before the test range
+    // The parent hash must match what the network returns for block from_block
+    let provider = create_provider_with_block(create_stored_block(from_block - 1));
     let feeder_gateway = SequencerGateway::sepolia();
     let downloader = BatchBlockDownloader::new_gateway(feeder_gateway, 10);
 
@@ -474,7 +324,7 @@ async fn fetch_blocks_from_gateway() {
 async fn downloaded_blocks_do_not_form_valid_chain_with_stored_blocks() {
     use katana_stage::blocks;
 
-    let provider = MockProvider::new().with_block(create_stored_block(99));
+    let provider = create_provider_with_block(create_stored_block(99));
     let downloader = MockBlockDownloader::new()
         .with_block(100, create_downloaded_block_with_parent(100, felt!("0x1337")));
 
@@ -501,14 +351,15 @@ async fn downloaded_blocks_do_not_form_valid_chain_with_stored_blocks() {
     }
 
     // Verify no blocks were stored due to validation failure (except for block 99)
-    assert_eq!(provider.stored_block_count(), 1);
+    let stored = get_stored_block_numbers(&provider, 99..=100);
+    assert_eq!(stored.len(), 1);
 }
 
 #[tokio::test]
 async fn downloaded_blocks_do_not_form_valid_chain() {
     use katana_stage::blocks;
 
-    let provider = MockProvider::new().with_block(create_stored_block(99));
+    let provider = create_provider_with_block(create_stored_block(99));
     let downloader = MockBlockDownloader::new()
         .with_block(100, create_downloaded_block(100))
         .with_block(101, create_downloaded_block(101))
@@ -539,5 +390,6 @@ async fn downloaded_blocks_do_not_form_valid_chain() {
     }
 
     // Verify no blocks were stored due to validation failure (except for block 99)
-    assert_eq!(provider.stored_block_count(), 1);
+    let stored = get_stored_block_numbers(&provider, 99..=102);
+    assert_eq!(stored.len(), 1);
 }
