@@ -194,7 +194,7 @@ impl<Tx1: DbTxMut> TrieWriter for ForkedProvider<Tx1> {
 
         // Collect class hashes
         class_hashes.extend(state_updates.declared_classes.keys().copied());
-        // class_hashes.extend(state_updates.deprecated_declared_classes.iter().copied());
+        class_hashes.extend(state_updates.deprecated_declared_classes.iter().copied());
 
         // Collect all unique contract addresses that need proofs
         for address in state_updates.deployed_contracts.keys() {
