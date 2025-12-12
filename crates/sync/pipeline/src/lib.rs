@@ -520,10 +520,11 @@ impl Pipeline {
             if let Some(tip) = self.tip {
                 let to = current_chunk_tip.min(tip);
                 let iteration_start = std::time::Instant::now();
-                let last_block_processed = self.execute(to).await?;
-                let iteration_duration = iteration_start.elapsed().as_secs_f64();
 
-                // Record pipeline metrics for this iteration
+                let last_block_processed = self.execute(to).await?;
+                self.metrics.set_sync_position(last_block_processed);
+
+                let iteration_duration = iteration_start.elapsed().as_secs_f64();
                 self.metrics.record_iteration_duration(iteration_duration);
 
                 // Notify subscribers about the newly processed block
