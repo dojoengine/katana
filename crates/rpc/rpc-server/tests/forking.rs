@@ -1156,11 +1156,20 @@ mod tests {
         let main_contract =
             Erc20Contract::new(DEFAULT_STRK_FEE_TOKEN_ADDRESS.into(), &main_account);
 
-        let recipient = Felt::from_hex("0x123").unwrap();
-        let amount = Uint256 { low: Felt::from_hex("0x1000").unwrap(), high: Felt::ZERO };
+        // Setup: Create initial state with different transactions to different recipients
+        let setup_recipients = vec![
+            Felt::from_hex("0x111").unwrap(),
+            Felt::from_hex("0x222").unwrap(),
+            Felt::from_hex("0x333").unwrap(),
+        ];
+        let setup_amounts = vec![
+            Uint256 { low: Felt::from_hex("0x1000").unwrap(), high: Felt::ZERO },
+            Uint256 { low: Felt::from_hex("0x2000").unwrap(), high: Felt::ZERO },
+            Uint256 { low: Felt::from_hex("0x3000").unwrap(), high: Felt::ZERO },
+        ];
 
-        for _ in 0..3 {
-            let res = main_contract.transfer(&recipient, &amount).send().await.unwrap();
+        for (recipient, amount) in setup_recipients.iter().zip(setup_amounts.iter()) {
+            let res = main_contract.transfer(recipient, amount).send().await.unwrap();
             katana_utils::TxWaiter::new(res.transaction_hash, &main_provider).await.unwrap();
         }
 
