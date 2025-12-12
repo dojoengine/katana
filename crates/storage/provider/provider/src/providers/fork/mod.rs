@@ -674,28 +674,6 @@ impl<Tx1: DbTxMut> BlockWriter for ForkedProvider<Tx1> {
         receipts: Vec<Receipt>,
         executions: Vec<TypedTransactionExecutionInfo>,
     ) -> ProviderResult<()> {
-        // BUGFIX: Before inserting state updates, ensure all contracts referenced in nonce_updates
-        // have their ContractInfo in local_db. For forked contracts, the class_hash may only exist
-        // in fork_cache (in-memory) or on the remote fork. We need to copy it to local_db first.
-        use katana_db::tables;
-        use katana_provider_api::state::StateProvider;
-
-        for addr in states.state_updates.nonce_updates.keys() {
-            // Check if ContractInfo exists in local_db
-            if self.local_db.tx().get::<tables::ContractInfo>(*addr)?.is_none() {
-                // Contract info not in local_db, check if it exists in fork cache or remote
-                // Create a state provider to search in fork
-                let state = self.latest()?;
-                if let Some(class_hash) = state.class_hash_of_contract(*addr)? {
-                    // Found in fork - copy to local_db before processing state updates
-                    let nonce = state.nonce(*addr)?.unwrap_or_default();
-                    let contract_info =
-                        katana_primitives::contract::GenericContractInfo { class_hash, nonce };
-                    self.local_db.tx().put::<tables::ContractInfo>(*addr, contract_info)?;
-                }
-            }
-        }
-
         self.local_db.insert_block_with_states_and_receipts(block, states, receipts, executions)
     }
 }
