@@ -10,6 +10,7 @@
 #[cfg(feature = "server")]
 use std::net::IpAddr;
 use std::num::NonZeroU128;
+use std::path::PathBuf;
 
 use clap::Args;
 use katana_genesis::Genesis;
@@ -437,7 +438,12 @@ pub struct LoggingOptions {
     #[arg(long = "log.format", value_name = "FORMAT")]
     #[arg(default_value_t = LogFormat::Full)]
     pub log_format: LogFormat,
+
+    /// Write logs to the given file instead of stdout/stderr.
+    #[arg(long = "log.file", value_name = "PATH")]
+    pub log_file: Option<PathBuf>,
 }
+
 #[derive(Debug, Args, Default, Clone, Serialize, Deserialize, PartialEq)]
 #[command(next_help_heading = "Gas Price Oracle Options")]
 pub struct GasPriceOracleOptions {

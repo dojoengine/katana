@@ -133,9 +133,13 @@ pub struct SequencerNodeArgs {
 
 impl SequencerNodeArgs {
     pub async fn execute(&self) -> Result<()> {
-        // Initialize logging with tracer
-        let tracer_config = self.tracer_config();
-        katana_tracing::init(self.logging.log_format, tracer_config).await?;
+        katana_tracing::init(
+            self.logging.log_format,
+            self.logging.log_file.as_deref(),
+            self.tracer_config(),
+        )
+        .await?;
+
         self.start_node().await
     }
 
