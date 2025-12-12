@@ -470,11 +470,10 @@ impl Pipeline {
             let span = info_span!(target: "pipeline", "stage.prune", stage = %id);
             let enter = span.entered();
 
-            let provider_mut = self.storage_provider.provider_mut();
-
             // Get execution checkpoint (tip for this stage) and prune checkpoint
-            let execution_checkpoint = provider_mut.execution_checkpoint(id)?;
-            let prune_checkpoint = provider_mut.prune_checkpoint(id)?;
+            let execution_checkpoint =
+                self.storage_provider.provider_mut().execution_checkpoint(id)?;
+            let prune_checkpoint = self.storage_provider.provider_mut().prune_checkpoint(id)?;
 
             let Some(tip) = execution_checkpoint else {
                 info!(target: "pipeline", "Skipping stage - no data to prune (no execution checkpoint).");
@@ -500,10 +499,10 @@ impl Pipeline {
             // Update prune checkpoint to the last pruned block (range.end - 1 since range is
             // exclusive)
             if range.end > 0 {
+                let provider_mut = self.storage_provider.provider_mut();
                 provider_mut.set_prune_checkpoint(id, range.end - 1)?;
+                provider_mut.commit()?;
             }
-
-            provider_mut.commit()?;
 
             let _enter = span_inner.enter();
             info!(target: "pipeline", %pruned_count, "Stage pruning completed.");
