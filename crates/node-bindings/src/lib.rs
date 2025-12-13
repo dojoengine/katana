@@ -510,7 +510,7 @@ impl Katana {
         }
 
         if self.json_log {
-            cmd.args(["--log.format", "json"]);
+            cmd.args(["--log.stdout.format", "json"]);
         }
 
         if let Some(fork_block_number) = self.fork_block_number {
