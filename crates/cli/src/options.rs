@@ -31,7 +31,7 @@ use katana_primitives::block::{BlockHashOrNumber, GasPrice};
 use katana_primitives::chain::ChainId;
 #[cfg(feature = "server")]
 use katana_rpc_server::cors::HeaderValue;
-use katana_tracing::{gcloud, otlp, LogFormat, TracerConfig};
+use katana_tracing::{default_log_file_directory, gcloud, otlp, LogColor, LogFormat, TracerConfig};
 use serde::{Deserialize, Serialize};
 use serde_utils::serialize_opt_as_hex;
 use url::Url;
@@ -42,6 +42,7 @@ use crate::utils::{parse_block_hash_or_number, parse_genesis};
 
 const DEFAULT_DEV_SEED: &str = "0";
 const DEFAULT_DEV_ACCOUNTS: u16 = 10;
+const DEFAULT_LOG_FILE_MAX_FILES: usize = 7;
 
 #[cfg(feature = "server")]
 #[derive(Debug, Args, Clone, Serialize, Deserialize, PartialEq)]
@@ -434,14 +435,57 @@ pub struct ForkingOptions {
 #[derive(Debug, Args, Clone, Serialize, Deserialize, Default, PartialEq)]
 #[command(next_help_heading = "Logging options")]
 pub struct LoggingOptions {
-    /// Log format to use
-    #[arg(long = "log.format", value_name = "FORMAT")]
-    #[arg(default_value_t = LogFormat::Full)]
-    pub log_format: LogFormat,
+    #[command(flatten)]
+    pub stdout: StdoutLoggingOptions,
 
-    /// Write logs to the given file instead of stdout/stderr.
-    #[arg(long = "log.file", value_name = "PATH")]
-    pub log_file: Option<PathBuf>,
+    #[command(flatten)]
+    pub file: FileLoggingOptions,
+}
+
+#[derive(Debug, Args, Clone, Serialize, Deserialize, Default, PartialEq)]
+pub struct StdoutLoggingOptions {
+    #[arg(long = "log.stdout.format", value_name = "FORMAT")]
+    #[arg(default_value_t = LogFormat::Full)]
+    pub stdout_format: LogFormat,
+
+    /// Sets whether or not the formatter emits ANSI terminal escape codes for colors and other
+    /// text formatting
+    ///
+    /// Possible values:
+    /// - always: Colors on
+    /// - auto:   Auto-detect
+    /// - never:  Colors off
+    #[arg(long = "color", value_name = "COLOR")]
+    #[arg(default_value_t = LogColor::Always)]
+    pub color: LogColor,
+}
+
+#[derive(Debug, Args, Clone, Serialize, Deserialize, Default, PartialEq)]
+pub struct FileLoggingOptions {
+    /// Enable writing logs to files.
+    #[arg(long = "log.file")]
+    #[serde(default)]
+    pub enabled: bool,
+
+    #[arg(requires = "enabled")]
+    #[arg(long = "log.file.format", value_name = "FORMAT")]
+    #[arg(default_value_t = LogFormat::Full)]
+    pub file_format: LogFormat,
+
+    /// The path to put log files in
+    #[arg(requires = "enabled")]
+    #[arg(long = "log.file.directory", value_name = "PATH")]
+    #[arg(default_value_os_t = default_log_file_directory())]
+    #[serde(default = "default_log_file_directory")]
+    pub directory: PathBuf,
+
+    /// Maximum number of daily log files to keep.
+    ///
+    /// If `0` is supplied, no files are deleted (unlimited retention).
+    #[arg(requires = "enabled")]
+    #[arg(long = "log.file.max-files", value_name = "COUNT")]
+    #[arg(default_value_t = DEFAULT_LOG_FILE_MAX_FILES)]
+    pub max_files: usize,
 }
 
 #[derive(Debug, Args, Default, Clone, Serialize, Deserialize, PartialEq)]

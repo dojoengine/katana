@@ -133,12 +133,16 @@ pub struct SequencerNodeArgs {
 
 impl SequencerNodeArgs {
     pub async fn execute(&self) -> Result<()> {
-        katana_tracing::init(
-            self.logging.log_format,
-            self.logging.log_file.as_deref(),
-            self.tracer_config(),
-        )
-        .await?;
+        let logging = katana_tracing::LoggingConfig {
+            stdout_format: self.logging.stdout.stdout_format,
+            stdout_color: self.logging.stdout.color,
+            file_enabled: self.logging.file.enabled,
+            file_format: self.logging.file.file_format,
+            file_directory: self.logging.file.directory.clone(),
+            file_max_files: self.logging.file.max_files,
+        };
+
+        katana_tracing::init(logging, self.tracer_config()).await?;
 
         self.start_node().await
     }
