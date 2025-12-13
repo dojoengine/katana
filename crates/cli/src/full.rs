@@ -61,9 +61,17 @@ pub struct FullNodeArgs {
 
 impl FullNodeArgs {
     pub async fn execute(&self) -> Result<()> {
-        // Initialize logging with tracer
-        let tracer_config = self.tracer_config();
-        katana_tracing::init(self.logging.log_format, tracer_config).await?;
+        let logging = katana_tracing::LoggingConfig {
+            stdout_format: self.logging.stdout.stdout_format,
+            stdout_color: self.logging.stdout.color,
+            file_enabled: self.logging.file.enabled,
+            file_format: self.logging.file.file_format,
+            file_directory: self.logging.file.directory.clone(),
+            file_max_files: self.logging.file.max_files,
+        };
+
+        katana_tracing::init(logging, self.tracer_config()).await?;
+
         self.start_node().await
     }
 

@@ -56,7 +56,7 @@ pub fn print_intro(args: &SequencerNodeArgs, chain: &ChainSpec) {
     let account_class_hash = accounts.peek().map(|e| e.1.class_hash());
     let seed = &args.development.seed;
 
-    if args.logging.log_format == LogFormat::Json {
+    if args.logging.stdout.stdout_format == LogFormat::Json {
         info!(
             target: LOG_TARGET,
             "{}",
