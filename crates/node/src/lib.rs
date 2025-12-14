@@ -46,11 +46,11 @@ use katana_rpc_client::starknet::Client as StarknetClient;
 use katana_rpc_server::cartridge::CartridgeApi;
 use katana_rpc_server::cors::Cors;
 use katana_rpc_server::dev::DevApi;
-#[cfg(feature = "tee")]
-use katana_rpc_server::tee::TeeApi;
 #[cfg(feature = "cartridge")]
 use katana_rpc_server::starknet::PaymasterConfig;
 use katana_rpc_server::starknet::{StarknetApi, StarknetApiConfig};
+#[cfg(feature = "tee")]
+use katana_rpc_server::tee::TeeApi;
 use katana_rpc_server::{RpcServer, RpcServerHandle};
 use katana_rpc_types::GetBlockWithTxHashesResponse;
 use katana_stage::Sequencing;

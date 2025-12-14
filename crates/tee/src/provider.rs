@@ -11,8 +11,8 @@ pub trait TeeProvider: Send + Sync + Debug {
     /// Generate an attestation quote with the given user data.
     ///
     /// # Arguments
-    /// * `user_data` - A 64-byte slice of user-provided data to include in the quote.
-    ///                 This is typically a hash commitment to application state.
+    /// * `user_data` - A 64-byte slice of user-provided data to include in the quote. This is
+    ///   typically a hash commitment to application state.
     ///
     /// # Returns
     /// * `Ok(Vec<u8>)` - The raw attestation quote bytes.

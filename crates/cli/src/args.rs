@@ -23,12 +23,12 @@ use katana_node::config::gateway::GatewayConfig;
 use katana_node::config::metrics::MetricsConfig;
 #[cfg(feature = "cartridge")]
 use katana_node::config::paymaster::PaymasterConfig;
-#[cfg(feature = "tee")]
-use katana_node::config::tee::TeeConfig;
 use katana_node::config::rpc::RpcConfig;
 #[cfg(feature = "server")]
 use katana_node::config::rpc::{RpcModuleKind, RpcModulesList};
 use katana_node::config::sequencing::SequencingConfig;
+#[cfg(feature = "tee")]
+use katana_node::config::tee::TeeConfig;
 use katana_node::config::Config;
 use katana_node::Node;
 use serde::{Deserialize, Serialize};
@@ -451,8 +451,9 @@ impl SequencerNodeArgs {
 
     #[cfg(feature = "tee")]
     fn tee_config(&self) -> Option<TeeConfig> {
-        use crate::options::TeeProviderType as CliTeeProviderType;
         use katana_tee::TeeProviderType;
+
+        use crate::options::TeeProviderType as CliTeeProviderType;
 
         self.tee.tee_provider.map(|provider| {
             let provider_type = match provider {

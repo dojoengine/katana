@@ -28,11 +28,10 @@ mod tdx;
 mod mock;
 
 pub use error::TeeError;
-pub use provider::TeeProvider;
-pub use tdx::TdxProvider;
-
 #[cfg(any(test, feature = "mock"))]
 pub use mock::MockProvider;
+pub use provider::TeeProvider;
+pub use tdx::TdxProvider;
 
 /// TEE provider type enumeration for CLI parsing.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]

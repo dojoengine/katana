@@ -36,8 +36,8 @@ impl TdxProvider {
         // Verify the TSM interface is available
         if !base_path.exists() {
             return Err(TeeError::NotSupported(format!(
-                "TDX ConfigFS-TSM interface not found at {}. \
-                 Ensure you are running in a TDX VM with kernel support.",
+                "TDX ConfigFS-TSM interface not found at {}. Ensure you are running in a TDX VM \
+                 with kernel support.",
                 base_path.display()
             )));
         }
