@@ -42,6 +42,7 @@ members = [
 	"crates/sync/pipeline",
 	"crates/sync/stage",
 	"crates/tasks",
+	"crates/tee",
 	"crates/tracing",
 	"crates/trie",
 	"crates/utils",
@@ -106,6 +107,7 @@ katana-slot-controller = { path = "crates/controller" }
 katana-stage = { path = "crates/sync/stage" }
 katana-starknet = { path = "crates/starknet" }
 katana-tasks = { path = "crates/tasks" }
+katana-tee = { path = "crates/tee" }
 katana-tracing = { path = "crates/tracing" }
 katana-trie = { path = "crates/trie" }
 katana-utils = { path = "crates/utils" }
@@ -166,6 +168,7 @@ tokio = { version = "1.39.2", features = [ "full" ] }
 tokio-util = "0.7.12"
 toml = "0.8"
 url = { version = "2.4.0", features = [ "serde" ] }
+uuid = { version = "1.0", features = [ "v4" ] }
 
 # serde
 serde = { version = "1.0", features = [ "derive" ] }

@@ -760,3 +760,66 @@ fn parse_pruning_mode(s: &str) -> Result<PruningMode, String> {
         _ => Err(format!("Invalid pruning mode '{}'. Valid modes are: 'archive', 'full:N'", s)),
     }
 }
+
+/// TEE provider types available for attestation.
+#[cfg(feature = "tee")]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "lowercase")]
+pub enum TeeProviderType {
+    /// Intel TDX (Trust Domain Extensions).
+    Tdx,
+    /// Mock provider for testing (requires mock feature in katana-tee).
+    Mock,
+}
+
+#[cfg(feature = "tee")]
+impl std::fmt::Display for TeeProviderType {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        match self {
+            Self::Tdx => write!(f, "tdx"),
+            Self::Mock => write!(f, "mock"),
+        }
+    }
+}
+
+#[cfg(feature = "tee")]
+impl std::str::FromStr for TeeProviderType {
+    type Err = String;
+
+    fn from_str(s: &str) -> Result<Self, Self::Err> {
+        match s.to_lowercase().as_str() {
+            "tdx" => Ok(Self::Tdx),
+            "mock" => Ok(Self::Mock),
+            other => Err(format!("Unknown TEE provider: {}. Valid options are: tdx, mock", other)),
+        }
+    }
+}
+
+#[cfg(feature = "tee")]
+#[derive(Debug, Args, Clone, Serialize, Deserialize, Default, PartialEq)]
+#[command(next_help_heading = "TEE options")]
+pub struct TeeOptions {
+    /// Enable TEE attestation support with the specified provider.
+    ///
+    /// When enabled, the TEE RPC API becomes available for generating
+    /// hardware-backed attestation quotes. The provider type determines
+    /// which TEE backend to use for quote generation.
+    ///
+    /// Available providers:
+    /// - tdx: Intel TDX (Trust Domain Extensions) - requires running in a TDX VM
+    /// - mock: Mock provider for testing (does not require TEE hardware)
+    #[arg(long = "tee.provider", value_name = "PROVIDER")]
+    #[serde(default)]
+    pub tee_provider: Option<TeeProviderType>,
+}
+
+#[cfg(feature = "tee")]
+impl TeeOptions {
+    pub fn merge(&mut self, other: Option<&Self>) {
+        if let Some(other) = other {
+            if self.tee_provider.is_none() {
+                self.tee_provider = other.tee_provider;
+            }
+        }
+    }
+}

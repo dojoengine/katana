@@ -5866,6 +5866,7 @@ dependencies = [
  "katana-primitives",
  "katana-rpc-server",
  "katana-slot-controller",
+ "katana-tee",
  "katana-tracing",
  "katana-utils",
  "serde",
@@ -6264,6 +6265,7 @@ dependencies = [
  "katana-rpc-types",
  "katana-stage",
  "katana-tasks",
+ "katana-tee",
  "num-traits",
  "parking_lot",
  "serde",
@@ -6472,6 +6474,7 @@ dependencies = [
  "cairo-lang-starknet-classes",
  "cartridge",
  "futures",
+ "hex",
  "http 1.3.1",
  "indexmap 2.10.0",
  "jsonrpsee",
@@ -6493,6 +6496,7 @@ dependencies = [
  "katana-rpc-types",
  "katana-rpc-types-builder",
  "katana-tasks",
+ "katana-tee",
  "katana-tracing",
  "katana-trie",
  "katana-utils",
@@ -6505,6 +6509,7 @@ dependencies = [
  "similar-asserts",
  "starknet",
  "starknet-crypto 0.7.4 (registry+https://github.com/rust-lang/crates.io-index)",
+ "starknet-types-core",
  "tempfile",
  "thiserror 1.0.69",
  "tokio",
@@ -6635,6 +6640,17 @@ dependencies = [
  "tokio",
  "tokio-util",
  "tracing",
+]
+
+[[package]]
+name = "katana-tee"
+version = "1.7.0"
+dependencies = [
+ "rstest 0.18.2",
+ "tempfile",
+ "thiserror 1.0.69",
+ "tracing",
+ "uuid 1.17.0",
 ]
 
 [[package]]

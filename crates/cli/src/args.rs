@@ -23,6 +23,8 @@ use katana_node::config::gateway::GatewayConfig;
 use katana_node::config::metrics::MetricsConfig;
 #[cfg(feature = "cartridge")]
 use katana_node::config::paymaster::PaymasterConfig;
+#[cfg(feature = "tee")]
+use katana_node::config::tee::TeeConfig;
 use katana_node::config::rpc::RpcConfig;
 #[cfg(feature = "server")]
 use katana_node::config::rpc::{RpcModuleKind, RpcModulesList};
@@ -129,6 +131,10 @@ pub struct SequencerNodeArgs {
     #[cfg(feature = "cartridge")]
     #[command(flatten)]
     pub cartridge: CartridgeOptions,
+
+    #[cfg(feature = "tee")]
+    #[command(flatten)]
+    pub tee: TeeOptions,
 }
 
 impl SequencerNodeArgs {
@@ -204,37 +210,21 @@ impl SequencerNodeArgs {
         // the messagign config will eventually be removed slowly.
         let messaging = if cs_messaging.is_some() { cs_messaging } else { self.messaging.clone() };
 
-        #[cfg(feature = "cartridge")]
-        {
-            let paymaster = self.cartridge_config();
-
-            Ok(Config {
-                db,
-                dev,
-                rpc,
-                chain,
-                metrics,
-                gateway,
-                forking,
-                execution,
-                messaging,
-                paymaster,
-                sequencing,
-            })
-        }
-
-        #[cfg(not(feature = "cartridge"))]
         Ok(Config {
-            metrics,
             db,
             dev,
             rpc,
             chain,
-            feeder_gateway,
-            execution,
-            sequencing,
-            messaging,
+            metrics,
+            gateway,
             forking,
+            execution,
+            messaging,
+            sequencing,
+            #[cfg(feature = "cartridge")]
+            paymaster: self.cartridge_config(),
+            #[cfg(feature = "tee")]
+            tee: self.tee_config(),
         })
     }
 
@@ -281,6 +271,14 @@ impl SequencerNodeArgs {
             #[cfg(feature = "cartridge")]
             if self.cartridge.paymaster {
                 modules.add(RpcModuleKind::Cartridge);
+            }
+
+            // The TEE rpc must be enabled if a TEE provider is specified.
+            // We put it here so that even when the individual api are explicitly specified
+            // (ie `--rpc.api`) we guarantee that the tee rpc is enabled.
+            #[cfg(feature = "tee")]
+            if self.tee.tee_provider.is_some() {
+                modules.add(RpcModuleKind::Tee);
             }
 
             let cors_origins = self.server.http_cors_origins.clone();
@@ -449,6 +447,25 @@ impl SequencerNodeArgs {
         } else {
             None
         }
+    }
+
+    #[cfg(feature = "tee")]
+    fn tee_config(&self) -> Option<TeeConfig> {
+        use crate::options::TeeProviderType as CliTeeProviderType;
+        use katana_tee::TeeProviderType;
+
+        self.tee.tee_provider.map(|provider| {
+            let provider_type = match provider {
+                CliTeeProviderType::Tdx => TeeProviderType::Tdx,
+                #[cfg(feature = "tee-mock")]
+                CliTeeProviderType::Mock => TeeProviderType::Mock,
+                #[cfg(not(feature = "tee-mock"))]
+                CliTeeProviderType::Mock => {
+                    panic!("Mock TEE provider requires the 'tee-mock' feature to be enabled")
+                }
+            };
+            TeeConfig { provider_type }
+        })
     }
 
     /// Parse the node config from the command line arguments and the config file,
