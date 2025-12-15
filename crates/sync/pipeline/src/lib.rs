@@ -353,8 +353,7 @@ impl Pipeline {
 
                 result = self.run_loop() => {
                     if let Err(error) = result {
-                        error!(target: "pipeline", %error, "Pipeline finished due to error.");
-                        break;
+                        error!(target: "pipeline", %error, "Pipeline returned an error.");
                     }
                 }
             }
@@ -544,17 +543,13 @@ impl Pipeline {
                 }
             } else {
                 info!(target: "pipeline", "Waiting to receive new tip.");
-            }
+                self.cmd_rx.changed().await.map_err(|_| Error::CommandChannelClosed)?;
 
-            if let Some(PipelineCommand::SetTip(new_tip)) = *self
-                .cmd_rx
-                .wait_for(|c| matches!(c, &Some(PipelineCommand::SetTip(_))))
-                .await
-                .map_err(|_| Error::CommandChannelClosed)?
-            {
-                info!(target: "pipeline", tip = %new_tip, "A new tip has been set.");
-                self.tip = Some(new_tip);
-                self.metrics.set_sync_target(new_tip);
+                if let Some(PipelineCommand::SetTip(new_tip)) = *self.cmd_rx.borrow_and_update() {
+                    info!(target: "pipeline", tip = %new_tip, "A new tip has been set.");
+                    self.tip = Some(new_tip);
+                    self.metrics.set_sync_target(new_tip);
+                }
             }
 
             yield_now().await;
