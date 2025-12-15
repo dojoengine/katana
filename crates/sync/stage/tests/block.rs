@@ -27,7 +27,7 @@ use starknet::core::types::ResourcePrice;
 /// Allows precise control over download behavior by pre-configuring responses
 /// for specific block number ranges or individual blocks.
 #[derive(Clone)]
-struct MockBlockDownloader {
+pub struct MockBlockDownloader {
     /// Map of block number to result (Ok or Err).
     responses: Arc<Mutex<HashMap<BlockNumber, Result<StateUpdateWithBlock, String>>>>,
     /// Track download calls for verification.
@@ -37,7 +37,7 @@ struct MockBlockDownloader {
 }
 
 impl MockBlockDownloader {
-    fn new() -> Self {
+    pub fn new() -> Self {
         Self {
             responses: Arc::new(Mutex::new(HashMap::new())),
             download_calls: Arc::new(Mutex::new(Vec::new())),
@@ -48,7 +48,7 @@ impl MockBlockDownloader {
     ///
     /// When a block is downloaded via [`BlockDownloader::download_blocks`], the corresponding
     /// `block_data` is returned.
-    fn with_block(self, block_number: BlockNumber, block_data: StateUpdateWithBlock) -> Self {
+    pub fn with_block(self, block_number: BlockNumber, block_data: StateUpdateWithBlock) -> Self {
         self.responses.lock().unwrap().insert(block_number, Ok(block_data));
         self
     }
@@ -171,7 +171,7 @@ fn create_stored_block(block_number: BlockNumber) -> SealedBlockWithStatus {
 
 /// Helper function to create a minimal test block. The created block has a parent hash == block
 /// number - 1 for simplicity sake
-fn create_downloaded_block(block_number: BlockNumber) -> StateUpdateWithBlock {
+pub fn create_downloaded_block(block_number: BlockNumber) -> StateUpdateWithBlock {
     create_downloaded_block_with_parent(block_number, Felt::from(block_number.saturating_sub(1)))
 }
 

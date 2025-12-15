@@ -41,10 +41,8 @@ where
     pub fn new(db: DB) -> Self {
         let config = BonsaiStorageConfig {
             // This field controls what's the oldest block we can revert to.
-            //
-            // The value 5 is chosen arbitrarily as a placeholder. This value should be
-            // configurable.
-            max_saved_trie_logs: Some(5),
+            // Value of 64 is needed for unwind/revert support.
+            max_saved_trie_logs: Some(64),
 
             // in the bonsai-trie crate, this field seems to be only used in rocksdb impl.
             // i dont understand why would they add a config thats implementation specific ????

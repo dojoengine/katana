@@ -1,8 +1,10 @@
 use anyhow::Result;
 use futures::future::BoxFuture;
+use katana_db::abstraction::{Database, DbCursor, DbTxMut};
+use katana_db::tables;
 use katana_gateway_types::{BlockStatus, StateUpdate as GatewayStateUpdate, StateUpdateWithBlock};
 use katana_primitives::block::{
-    FinalityStatus, GasPrices, Header, SealedBlock, SealedBlockWithStatus,
+    BlockNumber, FinalityStatus, GasPrices, Header, SealedBlock, SealedBlockWithStatus,
 };
 use katana_primitives::fee::{FeeInfo, PriceUnit};
 use katana_primitives::receipt::{
@@ -12,10 +14,11 @@ use katana_primitives::state::{StateUpdates, StateUpdatesWithClasses};
 use katana_primitives::transaction::{Tx, TxWithHash};
 use katana_primitives::Felt;
 use katana_provider::api::block::{BlockHashProvider, BlockWriter};
+use katana_provider::api::stage::StageCheckpointProvider;
 use katana_provider::{DbProviderFactory, MutableProvider, ProviderError, ProviderFactory};
 use num_traits::ToPrimitive;
 use starknet::core::types::ResourcePrice;
-use tracing::{error, info_span, Instrument};
+use tracing::{debug, error, info_span, Instrument};
 
 use crate::{
     PruneInput, PruneOutput, PruneResult, Stage, StageExecutionInput, StageExecutionOutput,
@@ -89,6 +92,78 @@ impl<B> Blocks<B> {
 
         Ok(())
     }
+
+    /// Unwinds block data by removing all blocks after the specified block number.
+    ///
+    /// This removes entries from the following tables:
+    /// - Headers, BlockHashes, BlockNumbers, BlockBodyIndices, BlockStatusses
+    /// - TxNumbers, TxBlocks, TxHashes, TxTraces, Transactions, Receipts
+    fn unwind_blocks(tx: &impl DbTxMut, unwind_to: BlockNumber) -> Result<(), crate::Error> {
+        // Get the tx_offset for the unwind_to block to know where to start deleting txs
+        let mut last_tx_num = None;
+        if let Some(indices) = tx.get::<tables::BlockBodyIndices>(unwind_to)? {
+            last_tx_num = Some(indices.tx_offset + indices.tx_count);
+        }
+
+        // Remove all blocks after unwind_to
+        let mut blocks_to_remove = Vec::new();
+        let mut cursor = tx.cursor_mut::<tables::Headers>()?;
+
+        // Find all blocks after unwind_to
+        if let Some((block_num, _)) = cursor.seek(unwind_to + 1)? {
+            blocks_to_remove.push(block_num);
+            while let Some((block_num, _)) = cursor.next()? {
+                blocks_to_remove.push(block_num);
+            }
+        }
+        drop(cursor);
+
+        // Remove block data
+        for block_num in blocks_to_remove {
+            // Get block hash before deleting
+            let block_hash = tx.get::<tables::BlockHashes>(block_num)?;
+
+            tx.delete::<tables::Headers>(block_num, None)?;
+            tx.delete::<tables::BlockHashes>(block_num, None)?;
+            tx.delete::<tables::BlockBodyIndices>(block_num, None)?;
+            tx.delete::<tables::BlockStatusses>(block_num, None)?;
+
+            if let Some(hash) = block_hash {
+                tx.delete::<tables::BlockNumbers>(hash, None)?;
+            }
+        }
+
+        // Remove transaction data if we have a last_tx_num
+        if let Some(start_tx_num) = last_tx_num {
+            let mut txs_to_remove = Vec::new();
+            let mut cursor = tx.cursor_mut::<tables::Transactions>()?;
+
+            if let Some((tx_num, _)) = cursor.seek(start_tx_num)? {
+                txs_to_remove.push(tx_num);
+                while let Some((tx_num, _)) = cursor.next()? {
+                    txs_to_remove.push(tx_num);
+                }
+            }
+            drop(cursor);
+
+            for tx_num in txs_to_remove {
+                // Get tx hash before deleting
+                let tx_hash = tx.get::<tables::TxHashes>(tx_num)?;
+
+                tx.delete::<tables::Transactions>(tx_num, None)?;
+                tx.delete::<tables::TxHashes>(tx_num, None)?;
+                tx.delete::<tables::TxBlocks>(tx_num, None)?;
+                tx.delete::<tables::Receipts>(tx_num, None)?;
+                tx.delete::<tables::TxTraces>(tx_num, None)?;
+
+                if let Some(hash) = tx_hash {
+                    tx.delete::<tables::TxNumbers>(hash, None)?;
+                }
+            }
+        }
+
+        Ok(())
+    }
 }
 
 impl<D> Stage for Blocks<D>
@@ -143,6 +218,22 @@ where
         let _ = input;
         Box::pin(async move { Ok(PruneOutput::default()) })
     }
+
+    fn unwind(&mut self, unwind_to: BlockNumber) -> BoxFuture<'_, StageResult> {
+        Box::pin(async move {
+            debug!(target: "stage", id = %self.id(), unwind_to = %unwind_to, "Unwinding blocks.");
+
+            // Unwind blocks using the database directly
+            self.provider.db().update(|tx| Self::unwind_blocks(tx, unwind_to))??;
+
+            // Update checkpoint
+            let provider_mut = self.provider.provider_mut();
+            provider_mut.set_execution_checkpoint(self.id(), unwind_to)?;
+            provider_mut.commit()?;
+
+            Ok(StageExecutionOutput { last_block_processed: unwind_to })
+        })
+    }
 }
 
 #[derive(Debug, thiserror::Error)]
@@ -153,6 +244,9 @@ pub enum Error {
 
     #[error(transparent)]
     Provider(#[from] ProviderError),
+
+    #[error(transparent)]
+    Database(#[from] katana_db::error::DatabaseError),
 
     #[error(
         "chain invariant violation: block {block_num} parent hash {parent_hash:#x} does not match \
