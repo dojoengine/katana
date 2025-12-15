@@ -48,7 +48,7 @@ pub struct StateDiff {
     pub declared_classes: BTreeMap<ClassHash, CompiledClassHash>,
     pub deprecated_declared_classes: BTreeSet<ClassHash>,
     pub replaced_classes: BTreeMap<ContractAddress, ClassHash>,
-    pub migrated_compiled_classes: BTreeMap<ClassHash, CompiledClassHash>,
+    pub migrated_compiled_classes: Option<BTreeMap<ClassHash, CompiledClassHash>>,
 }
 
 impl Serialize for StateDiff {
@@ -291,16 +291,23 @@ impl Serialize for StateDiff {
         let declared_classes = DeclaredClassesSer(&self.declared_classes);
         let deployed_contracts = DeployedContractsSer(&self.deployed_contracts);
         let deprecated_declared_classes = DepDeclaredClassesSer(&self.deprecated_declared_classes);
-        let migrated_compiled_classes = MigratedCompiledClassesSer(&self.migrated_compiled_classes);
 
-        let mut map = serializer.serialize_map(Some(7))?;
+        let len = 6 + self.migrated_compiled_classes.is_some() as usize;
+        let mut map = serializer.serialize_map(Some(len))?;
+
         map.serialize_entry("nonces", &nonces)?;
         map.serialize_entry("storage_diffs", &storage_diffs)?;
         map.serialize_entry("declared_classes", &declared_classes)?;
         map.serialize_entry("replaced_classes", &replaced_classes)?;
         map.serialize_entry("deployed_contracts", &deployed_contracts)?;
         map.serialize_entry("deprecated_declared_classes", &deprecated_declared_classes)?;
-        map.serialize_entry("migrated_compiled_classes", &migrated_compiled_classes)?;
+        if let Some(ref migrated) = self.migrated_compiled_classes {
+            map.serialize_entry(
+                "migrated_compiled_classes",
+                &MigratedCompiledClassesSer(migrated),
+            )?;
+        }
+
         map.end()
     }
 }
@@ -371,9 +378,7 @@ impl<'de> Deserialize<'de> for StateDiff {
                     })?,
                     replaced_classes: replaced_classes
                         .ok_or_else(|| serde::de::Error::missing_field("replaced_classes"))?,
-                    migrated_compiled_classes: migrated_compiled_classes.ok_or_else(|| {
-                        serde::de::Error::missing_field("migrated_compiled_classes")
-                    })?,
+                    migrated_compiled_classes,
                 })
             }
         }
@@ -690,6 +695,12 @@ impl<'de> Deserialize<'de> for StateDiff {
 
 impl From<katana_primitives::state::StateUpdates> for StateDiff {
     fn from(value: katana_primitives::state::StateUpdates) -> Self {
+        let migrated_compiled_classes = if value.migrated_compiled_classes.is_empty() {
+            None
+        } else {
+            Some(value.migrated_compiled_classes)
+        };
+
         Self {
             nonces: value.nonce_updates,
             storage_diffs: value.storage_updates,
@@ -697,7 +708,7 @@ impl From<katana_primitives::state::StateUpdates> for StateDiff {
             declared_classes: value.declared_classes,
             deployed_contracts: value.deployed_contracts,
             deprecated_declared_classes: value.deprecated_declared_classes,
-            migrated_compiled_classes: value.migrated_compiled_classes,
+            migrated_compiled_classes,
         }
     }
 }
@@ -711,7 +722,7 @@ impl From<StateDiff> for katana_primitives::state::StateUpdates {
             declared_classes: value.declared_classes,
             deployed_contracts: value.deployed_contracts,
             deprecated_declared_classes: value.deprecated_declared_classes,
-            migrated_compiled_classes: value.migrated_compiled_classes,
+            migrated_compiled_classes: value.migrated_compiled_classes.unwrap_or_default(),
         }
     }
 }

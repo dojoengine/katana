@@ -531,7 +531,7 @@ fn tx_trace_with_state_diff() {
         replaced_classes,
         declared_classes,
         deprecated_declared_classes: BTreeSet::new(),
-        migrated_compiled_classes: BTreeMap::new(),
+        migrated_compiled_classes: None,
     };
 
     let trace = InvokeTxTrace {
