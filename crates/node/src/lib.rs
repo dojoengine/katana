@@ -277,12 +277,14 @@ where
         #[cfg(feature = "tee")]
         if config.rpc.apis.contains(&RpcModuleKind::Tee) {
             if let Some(ref tee_config) = config.tee {
-                use katana_tee::{TdxProvider, TeeProvider, TeeProviderType};
+                use katana_tee::{TeeProvider, TeeProviderType};
 
                 let tee_provider: Arc<dyn TeeProvider> = match tee_config.provider_type {
-                    TeeProviderType::Tdx => {
-                        Arc::new(TdxProvider::new().context("Failed to initialize TDX provider")?)
-                    }
+                    #[cfg(feature = "tee-snp")]
+                    TeeProviderType::SevSnp => Arc::new(
+                        katana_tee::SevSnpProvider::new()
+                            .context("Failed to initialize SEV-SNP provider")?,
+                    ),
                     #[cfg(feature = "tee-mock")]
                     TeeProviderType::Mock => Arc::new(katana_tee::MockProvider::new()),
                 };

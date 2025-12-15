@@ -457,7 +457,16 @@ impl SequencerNodeArgs {
 
         self.tee.tee_provider.map(|provider| {
             let provider_type = match provider {
-                CliTeeProviderType::Tdx => TeeProviderType::Tdx,
+                CliTeeProviderType::SevSnp => {
+                    #[cfg(feature = "tee-snp")]
+                    {
+                        TeeProviderType::SevSnp
+                    }
+                    #[cfg(not(feature = "tee-snp"))]
+                    {
+                        panic!("SEV-SNP TEE provider requires the 'tee-snp' feature to be enabled")
+                    }
+                }
                 #[cfg(feature = "tee-mock")]
                 CliTeeProviderType::Mock => TeeProviderType::Mock,
                 #[cfg(not(feature = "tee-mock"))]

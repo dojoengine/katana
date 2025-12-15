@@ -7,7 +7,8 @@ version.workspace = true
 [dependencies]
 thiserror.workspace = true
 tracing.workspace = true
-uuid.workspace = true
+bincode = { workspace = true, optional = true }
+sev-snp = { workspace = true, optional = true }
 
 [dev-dependencies]
 rstest.workspace = true
@@ -16,3 +17,4 @@ tempfile.workspace = true
 [features]
 default = []
 mock = []
+snp = ["dep:sev-snp", "dep:bincode"]

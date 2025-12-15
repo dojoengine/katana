@@ -766,8 +766,8 @@ fn parse_pruning_mode(s: &str) -> Result<PruningMode, String> {
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(rename_all = "lowercase")]
 pub enum TeeProviderType {
-    /// Intel TDX (Trust Domain Extensions).
-    Tdx,
+    /// AMD SEV-SNP (Secure Encrypted Virtualization - Secure Nested Paging).
+    SevSnp,
     /// Mock provider for testing (requires mock feature in katana-tee).
     Mock,
 }
@@ -776,7 +776,7 @@ pub enum TeeProviderType {
 impl std::fmt::Display for TeeProviderType {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         match self {
-            Self::Tdx => write!(f, "tdx"),
+            Self::SevSnp => write!(f, "sev-snp"),
             Self::Mock => write!(f, "mock"),
         }
     }
@@ -788,9 +788,11 @@ impl std::str::FromStr for TeeProviderType {
 
     fn from_str(s: &str) -> Result<Self, Self::Err> {
         match s.to_lowercase().as_str() {
-            "tdx" => Ok(Self::Tdx),
+            "sev-snp" | "snp" => Ok(Self::SevSnp),
             "mock" => Ok(Self::Mock),
-            other => Err(format!("Unknown TEE provider: {}. Valid options are: tdx, mock", other)),
+            other => {
+                Err(format!("Unknown TEE provider: {}. Valid options are: sev-snp, mock", other))
+            }
         }
     }
 }
@@ -806,7 +808,7 @@ pub struct TeeOptions {
     /// which TEE backend to use for quote generation.
     ///
     /// Available providers:
-    /// - tdx: Intel TDX (Trust Domain Extensions) - requires running in a TDX VM
+    /// - sev-snp: AMD SEV-SNP (Secure Encrypted Virtualization) - requires SEV-SNP VM
     /// - mock: Mock provider for testing (does not require TEE hardware)
     #[arg(long = "tee.provider", value_name = "PROVIDER")]
     #[serde(default)]
