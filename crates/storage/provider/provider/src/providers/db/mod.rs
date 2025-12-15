@@ -700,6 +700,7 @@ impl<Tx: DbTxMut> BlockWriter for DbProvider<Tx> {
             self.0.put::<tables::ClassDeclarations>(block_number, class_hash)?;
         }
 
+        // insert migrated class hashes
         for (class_hash, compiled_class_hash) in states.state_updates.migrated_compiled_classes {
             let entry = MigratedCompiledClassHash { class_hash, compiled_class_hash };
             self.0.put::<tables::MigratedCompiledClassHashes>(block_number, entry)?;
