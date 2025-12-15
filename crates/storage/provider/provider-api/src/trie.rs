@@ -1,5 +1,3 @@
-use std::collections::BTreeMap;
-
 use katana_primitives::block::BlockNumber;
 use katana_primitives::class::{ClassHash, CompiledClassHash};
 use katana_primitives::state::StateUpdates;
@@ -12,7 +10,7 @@ pub trait TrieWriter: Send + Sync {
     fn trie_insert_declared_classes(
         &self,
         block_number: BlockNumber,
-        updates: &BTreeMap<ClassHash, CompiledClassHash>,
+        updates: impl Iterator<Item = (ClassHash, CompiledClassHash)>,
     ) -> ProviderResult<Felt>;
 
     fn trie_insert_contract_updates(

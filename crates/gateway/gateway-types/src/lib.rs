@@ -211,6 +211,7 @@ pub struct StateDiff {
     pub declared_classes: Vec<DeclaredContract>,
     pub nonces: BTreeMap<ContractAddress, Nonce>,
     pub replaced_classes: Vec<DeployedContract>,
+    pub migrated_compiled_classes: Vec<DeclaredContract>,
 }
 
 impl StateDiff {
@@ -224,12 +225,17 @@ impl StateDiff {
             declared_classes,
             nonces,
             replaced_classes,
+            migrated_compiled_classes,
         } = other;
 
         Self::merge_storage_diffs(&mut self.storage_diffs, storage_diffs);
         Self::merge_deployed_contracts(&mut self.deployed_contracts, deployed_contracts);
         Self::merge_deployed_contracts(&mut self.replaced_classes, replaced_classes);
         Self::merge_declared_classes(&mut self.declared_classes, declared_classes);
+        Self::merge_declared_classes(
+            &mut self.migrated_compiled_classes,
+            migrated_compiled_classes,
+        );
         Self::merge_old_declared_contracts(
             &mut self.old_declared_contracts,
             old_declared_contracts,

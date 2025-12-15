@@ -39,6 +39,11 @@ fn state_diff_to_state_updates_conversion() {
     let replaced_classes =
         vec![DeployedContract { address: address!("0x320"), class_hash: felt!("0x384") }];
 
+    let migrated_compiled_classes = vec![
+        DeclaredContract { class_hash: felt!("0xaa1"), compiled_class_hash: felt!("0xbb1") },
+        DeclaredContract { class_hash: felt!("0xaa2"), compiled_class_hash: felt!("0xbb2") },
+    ];
+
     let state_diff = StateDiff {
         storage_diffs,
         deployed_contracts,
@@ -46,6 +51,7 @@ fn state_diff_to_state_updates_conversion() {
         declared_classes,
         nonces,
         replaced_classes,
+        migrated_compiled_classes,
     };
 
     let state_updates: katana_primitives::state::StateUpdates = state_diff.into();
@@ -80,6 +86,17 @@ fn state_diff_to_state_updates_conversion() {
     // replaced classes
     assert_eq!(state_updates.replaced_classes.len(), 1);
     assert_eq!(state_updates.replaced_classes.get(&address!("0x320")).unwrap(), &felt!("0x384"));
+
+    // migrated class hashes
+    assert_eq!(state_updates.migrated_compiled_classes.len(), 2);
+    assert_eq!(
+        state_updates.migrated_compiled_classes.get(&felt!("0xaa1")).unwrap(),
+        &felt!("0xbb1")
+    );
+    assert_eq!(
+        state_updates.migrated_compiled_classes.get(&felt!("0xaa2")).unwrap(),
+        &felt!("0xbb2")
+    );
 }
 
 #[test]
@@ -123,6 +140,10 @@ fn state_diff_merge_merges_entries() {
             address: address!("0x350"),
             class_hash: felt!("0x900"),
         }],
+        migrated_compiled_classes: vec![DeclaredContract {
+            class_hash: felt!("0x666"),
+            compiled_class_hash: felt!("0x999"),
+        }],
     };
 
     let mut other_storage = BTreeMap::new();
@@ -152,6 +173,10 @@ fn state_diff_merge_merges_entries() {
             DeployedContract { address: address!("0x350"), class_hash: felt!("0x901") },
             DeployedContract { address: address!("0x351"), class_hash: felt!("0x902") },
         ],
+        migrated_compiled_classes: vec![DeclaredContract {
+            class_hash: felt!("0x777"),
+            compiled_class_hash: felt!("0x888"),
+        }],
     };
 
     let merged = base.merge(other);
@@ -192,6 +217,16 @@ fn state_diff_merge_merges_entries() {
     // nonces override and extend
     assert_eq!(merged.nonces.get(&contract_a), Some(&felt!("0x5")));
     assert_eq!(merged.nonces.get(&contract_b), Some(&felt!("0x6")));
+
+    // migrated class hashes merged
+    let migrated_compiled_classes_by_hash: BTreeMap<_, _> = merged
+        .migrated_compiled_classes
+        .iter()
+        .map(|c| (c.class_hash, c.compiled_class_hash))
+        .collect();
+
+    assert_eq!(migrated_compiled_classes_by_hash.get(&felt!("0x666")), Some(&felt!("0x999")));
+    assert_eq!(migrated_compiled_classes_by_hash.get(&felt!("0x777")), Some(&felt!("0x888")));
 }
 
 #[test]

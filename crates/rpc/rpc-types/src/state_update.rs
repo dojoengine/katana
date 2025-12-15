@@ -48,6 +48,7 @@ pub struct StateDiff {
     pub declared_classes: BTreeMap<ClassHash, CompiledClassHash>,
     pub deprecated_declared_classes: BTreeSet<ClassHash>,
     pub replaced_classes: BTreeMap<ContractAddress, ClassHash>,
+    pub migrated_compiled_classes: BTreeMap<ClassHash, CompiledClassHash>,
 }
 
 impl Serialize for StateDiff {
@@ -251,20 +252,55 @@ impl Serialize for StateDiff {
             }
         }
 
+        /// Serializes `migrated_compiled_classes` as an array of objects with the following
+        /// structure:
+        ///
+        /// ```json
+        /// [
+        ///   {
+        ///     "class_hash": "0x123",
+        ///     "compiled_hash": "0x456"
+        ///   },
+        ///   ...
+        /// ]
+        /// ```
+        struct MigratedCompiledClassesSer<'a>(&'a BTreeMap<ClassHash, CompiledClassHash>);
+
+        impl Serialize for MigratedCompiledClassesSer<'_> {
+            fn serialize<S: serde::Serializer>(&self, serializer: S) -> Result<S::Ok, S::Error> {
+                #[derive(Debug, Serialize)]
+                struct MigratedCompiledClass {
+                    class_hash: ClassHash,
+                    compiled_hash: CompiledClassHash,
+                }
+
+                let mut seq = serializer.serialize_seq(Some(self.0.len()))?;
+                for (class_hash, compiled_hash) in self.0 {
+                    seq.serialize_element(&MigratedCompiledClass {
+                        class_hash: *class_hash,
+                        compiled_hash: *compiled_hash,
+                    })?;
+                }
+                seq.end()
+            }
+        }
+
         let nonces = NoncesSer(&self.nonces);
         let storage_diffs = StorageDiffsSer(&self.storage_diffs);
         let replaced_classes = ReplacedClassesSer(&self.replaced_classes);
         let declared_classes = DeclaredClassesSer(&self.declared_classes);
         let deployed_contracts = DeployedContractsSer(&self.deployed_contracts);
         let deprecated_declared_classes = DepDeclaredClassesSer(&self.deprecated_declared_classes);
+        let migrated_compiled_classes = MigratedCompiledClassesSer(&self.migrated_compiled_classes);
 
-        let mut map = serializer.serialize_map(Some(6))?;
+        let mut map = serializer.serialize_map(Some(7))?;
         map.serialize_entry("nonces", &nonces)?;
         map.serialize_entry("storage_diffs", &storage_diffs)?;
         map.serialize_entry("declared_classes", &declared_classes)?;
         map.serialize_entry("replaced_classes", &replaced_classes)?;
         map.serialize_entry("deployed_contracts", &deployed_contracts)?;
         map.serialize_entry("deprecated_declared_classes", &deprecated_declared_classes)?;
+        map.serialize_entry("migrated_compiled_classes", &migrated_compiled_classes)?;
         map.end()
     }
 }
@@ -289,6 +325,7 @@ impl<'de> Deserialize<'de> for StateDiff {
                 let mut declared_classes = None;
                 let mut deprecated_declared_classes = None;
                 let mut replaced_classes = None;
+                let mut migrated_compiled_classes = None;
 
                 while let Some(key) = map.next_key::<String>()? {
                     match key.as_str() {
@@ -311,6 +348,10 @@ impl<'de> Deserialize<'de> for StateDiff {
                         "replaced_classes" => {
                             replaced_classes = Some(map.next_value_seed(ReplacedClassesDe)?);
                         }
+                        "migrated_compiled_classes" => {
+                            migrated_compiled_classes =
+                                Some(map.next_value_seed(MigratedCompiledClassesDe)?);
+                        }
                         _ => {
                             let _ = map.next_value::<serde::de::IgnoredAny>()?;
                         }
@@ -330,6 +371,9 @@ impl<'de> Deserialize<'de> for StateDiff {
                     })?,
                     replaced_classes: replaced_classes
                         .ok_or_else(|| serde::de::Error::missing_field("replaced_classes"))?,
+                    migrated_compiled_classes: migrated_compiled_classes.ok_or_else(|| {
+                        serde::de::Error::missing_field("migrated_compiled_classes")
+                    })?,
                 })
             }
         }
@@ -596,6 +640,50 @@ impl<'de> Deserialize<'de> for StateDiff {
             }
         }
 
+        struct MigratedCompiledClassesDe;
+
+        impl<'de> DeserializeSeed<'de> for MigratedCompiledClassesDe {
+            type Value = BTreeMap<ClassHash, CompiledClassHash>;
+
+            fn deserialize<D: serde::Deserializer<'de>>(
+                self,
+                deserializer: D,
+            ) -> Result<Self::Value, D::Error> {
+                struct MigratedCompiledClassesVisitor;
+
+                impl<'de> Visitor<'de> for MigratedCompiledClassesVisitor {
+                    type Value = BTreeMap<ClassHash, CompiledClassHash>;
+
+                    fn expecting(
+                        &self,
+                        formatter: &mut std::fmt::Formatter<'_>,
+                    ) -> std::fmt::Result {
+                        formatter.write_str("an array of migrated compiled classes")
+                    }
+
+                    fn visit_seq<A: SeqAccess<'de>>(
+                        self,
+                        mut seq: A,
+                    ) -> Result<Self::Value, A::Error> {
+                        #[derive(Debug, Deserialize)]
+                        struct MigratedCompiledClass {
+                            class_hash: ClassHash,
+                            compiled_hash: CompiledClassHash,
+                        }
+
+                        let mut migrated_compiled_classes = BTreeMap::new();
+                        while let Some(migrated) = seq.next_element::<MigratedCompiledClass>()? {
+                            migrated_compiled_classes
+                                .insert(migrated.class_hash, migrated.compiled_hash);
+                        }
+                        Ok(migrated_compiled_classes)
+                    }
+                }
+
+                deserializer.deserialize_seq(MigratedCompiledClassesVisitor)
+            }
+        }
+
         deserializer.deserialize_map(StateDiffVisitor)
     }
 }
@@ -609,6 +697,7 @@ impl From<katana_primitives::state::StateUpdates> for StateDiff {
             declared_classes: value.declared_classes,
             deployed_contracts: value.deployed_contracts,
             deprecated_declared_classes: value.deprecated_declared_classes,
+            migrated_compiled_classes: value.migrated_compiled_classes,
         }
     }
 }
@@ -622,6 +711,7 @@ impl From<StateDiff> for katana_primitives::state::StateUpdates {
             declared_classes: value.declared_classes,
             deployed_contracts: value.deployed_contracts,
             deprecated_declared_classes: value.deprecated_declared_classes,
+            migrated_compiled_classes: value.migrated_compiled_classes,
         }
     }
 }

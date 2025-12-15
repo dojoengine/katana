@@ -8,6 +8,7 @@ use std::ops::{Deref, Range, RangeInclusive};
 use katana_db::abstraction::{DbCursor, DbCursorMut, DbDupSortCursor, DbTx, DbTxMut};
 use katana_db::error::DatabaseError;
 use katana_db::models::block::StoredBlockBodyIndices;
+use katana_db::models::class::MigratedCompiledClassHash;
 use katana_db::models::contract::{
     ContractClassChange, ContractClassChangeType, ContractInfoChangeList, ContractNonceChange,
 };
@@ -309,6 +310,16 @@ impl<Tx: DbTx> StateUpdateProvider for DbProvider<Tx> {
                 }
             }
 
+            let migrated_compiled_classes = dup_entries::<
+                Tx,
+                tables::MigratedCompiledClassHashes,
+                BTreeMap<ClassHash, CompiledClassHash>,
+                _,
+            >(&self.0, block_num, |entry| {
+                let (_, MigratedCompiledClassHash { class_hash, compiled_class_hash }) = entry?;
+                Ok(Some((class_hash, compiled_class_hash)))
+            })?;
+
             let storage_updates = {
                 let entries = dup_entries::<
                     Tx,
@@ -336,6 +347,7 @@ impl<Tx: DbTx> StateUpdateProvider for DbProvider<Tx> {
                 declared_classes,
                 replaced_classes,
                 deprecated_declared_classes,
+                migrated_compiled_classes,
             }))
         } else {
             Ok(None)
@@ -686,6 +698,11 @@ impl<Tx: DbTxMut> BlockWriter for DbProvider<Tx> {
         for class_hash in states.state_updates.deprecated_declared_classes {
             self.0.put::<tables::ClassDeclarationBlock>(class_hash, block_number)?;
             self.0.put::<tables::ClassDeclarations>(block_number, class_hash)?;
+        }
+
+        for (class_hash, compiled_class_hash) in states.state_updates.migrated_compiled_classes {
+            let entry = MigratedCompiledClassHash { class_hash, compiled_class_hash };
+            self.0.put::<tables::MigratedCompiledClassHashes>(block_number, entry)?;
         }
 
         // insert storage changes
