@@ -7,7 +7,6 @@
 //!
 //! - **SEV-SNP (AMD Secure Encrypted Virtualization)**: Via Automata Network SDK (requires `snp`
 //!   feature)
-//! - **Mock**: For testing on non-TEE hardware (requires `mock` feature)
 //!
 //! # Example
 //!
@@ -24,50 +23,32 @@
 mod error;
 mod provider;
 
-#[cfg(any(test, feature = "mock"))]
+#[cfg(test)]
 mod mock;
 
 #[cfg(feature = "snp")]
 mod snp;
 
 pub use error::TeeError;
-#[cfg(any(test, feature = "mock"))]
+#[cfg(test)]
 pub use mock::MockProvider;
 pub use provider::TeeProvider;
 #[cfg(feature = "snp")]
 pub use snp::SevSnpProvider;
 
-/// TEE provider type enumeration for CLI parsing.
+/// TEE provider type enumeration.
+///
+/// Currently only SEV-SNP is supported for production use.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum TeeProviderType {
-    /// AMD SEV-SNP provider (only available with snp feature).
-    #[cfg(feature = "snp")]
+    /// AMD SEV-SNP provider.
     SevSnp,
-    /// Mock provider for testing (only available with mock feature).
-    #[cfg(any(test, feature = "mock"))]
-    Mock,
-}
-
-impl Default for TeeProviderType {
-    fn default() -> Self {
-        #[cfg(feature = "snp")]
-        {
-            Self::SevSnp
-        }
-        #[cfg(not(feature = "snp"))]
-        {
-            Self::Mock
-        }
-    }
 }
 
 impl std::fmt::Display for TeeProviderType {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         match self {
-            #[cfg(feature = "snp")]
             Self::SevSnp => write!(f, "sev-snp"),
-            #[cfg(any(test, feature = "mock"))]
-            Self::Mock => write!(f, "mock"),
         }
     }
 }
@@ -77,11 +58,10 @@ impl std::str::FromStr for TeeProviderType {
 
     fn from_str(s: &str) -> Result<Self, Self::Err> {
         match s.to_lowercase().as_str() {
-            #[cfg(feature = "snp")]
             "sev-snp" | "snp" => Ok(Self::SevSnp),
-            #[cfg(any(test, feature = "mock"))]
-            "mock" => Ok(Self::Mock),
-            other => Err(format!("Unknown TEE provider type: {}", other)),
+            other => {
+                Err(format!("Unknown TEE provider: '{}'. Available providers: sev-snp", other))
+            }
         }
     }
 }

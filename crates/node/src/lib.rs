@@ -280,13 +280,21 @@ where
                 use katana_tee::{TeeProvider, TeeProviderType};
 
                 let tee_provider: Arc<dyn TeeProvider> = match tee_config.provider_type {
-                    #[cfg(feature = "tee-snp")]
-                    TeeProviderType::SevSnp => Arc::new(
-                        katana_tee::SevSnpProvider::new()
-                            .context("Failed to initialize SEV-SNP provider")?,
-                    ),
-                    #[cfg(feature = "tee-mock")]
-                    TeeProviderType::Mock => Arc::new(katana_tee::MockProvider::new()),
+                    TeeProviderType::SevSnp => {
+                        #[cfg(feature = "tee-snp")]
+                        {
+                            Arc::new(
+                                katana_tee::SevSnpProvider::new()
+                                    .context("Failed to initialize SEV-SNP provider")?,
+                            )
+                        }
+                        #[cfg(not(feature = "tee-snp"))]
+                        {
+                            anyhow::bail!(
+                                "SEV-SNP TEE provider requires the 'tee-snp' feature to be enabled"
+                            );
+                        }
+                    }
                 };
 
                 let api = TeeApi::new(provider.clone(), tee_provider);

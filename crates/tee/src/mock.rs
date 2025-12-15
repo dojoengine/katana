@@ -1,5 +1,3 @@
-use tracing::debug;
-
 use crate::error::TeeError;
 use crate::provider::TeeProvider;
 
@@ -27,8 +25,6 @@ impl MockProvider {
 
 impl TeeProvider for MockProvider {
     fn generate_quote(&self, user_data: &[u8; 64]) -> Result<Vec<u8>, TeeError> {
-        debug!(target: "tee::mock", "Generating mock attestation quote");
-
         // Mock quote format:
         // [4 bytes: magic] [prefix] [64 bytes: user_data] [4 bytes: checksum]
         let magic = b"MOCK";

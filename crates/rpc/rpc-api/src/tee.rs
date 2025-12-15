@@ -5,7 +5,7 @@ use katana_primitives::Felt;
 use serde::{Deserialize, Serialize};
 
 /// Response type for TEE quote generation.
-#[derive(Debug, Clone, Serialize, Deserialize)]
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
 pub struct TeeQuoteResponse {
     /// The raw attestation quote bytes (hex-encoded).

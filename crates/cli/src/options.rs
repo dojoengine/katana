@@ -761,58 +761,24 @@ fn parse_pruning_mode(s: &str) -> Result<PruningMode, String> {
     }
 }
 
-/// TEE provider types available for attestation.
-#[cfg(feature = "tee")]
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
-#[serde(rename_all = "lowercase")]
-pub enum TeeProviderType {
-    /// AMD SEV-SNP (Secure Encrypted Virtualization - Secure Nested Paging).
-    SevSnp,
-    /// Mock provider for testing (requires mock feature in katana-tee).
-    Mock,
-}
-
-#[cfg(feature = "tee")]
-impl std::fmt::Display for TeeProviderType {
-    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        match self {
-            Self::SevSnp => write!(f, "sev-snp"),
-            Self::Mock => write!(f, "mock"),
-        }
-    }
-}
-
-#[cfg(feature = "tee")]
-impl std::str::FromStr for TeeProviderType {
-    type Err = String;
-
-    fn from_str(s: &str) -> Result<Self, Self::Err> {
-        match s.to_lowercase().as_str() {
-            "sev-snp" | "snp" => Ok(Self::SevSnp),
-            "mock" => Ok(Self::Mock),
-            other => {
-                Err(format!("Unknown TEE provider: {}. Valid options are: sev-snp, mock", other))
-            }
-        }
-    }
-}
-
 #[cfg(feature = "tee")]
 #[derive(Debug, Args, Clone, Serialize, Deserialize, Default, PartialEq)]
 #[command(next_help_heading = "TEE options")]
 pub struct TeeOptions {
-    /// Enable TEE attestation support with the specified provider.
+    /// Enable TEE attestation support with AMD SEV-SNP.
     ///
     /// When enabled, the TEE RPC API becomes available for generating
-    /// hardware-backed attestation quotes. The provider type determines
-    /// which TEE backend to use for quote generation.
-    ///
-    /// Available providers:
-    /// - sev-snp: AMD SEV-SNP (Secure Encrypted Virtualization) - requires SEV-SNP VM
-    /// - mock: Mock provider for testing (does not require TEE hardware)
+    /// hardware-backed attestation quotes. Requires running in an SEV-SNP VM
+    /// with /dev/sev-guest available.
     #[arg(long = "tee.provider", value_name = "PROVIDER")]
+    #[arg(value_parser = parse_tee_provider)]
     #[serde(default)]
-    pub tee_provider: Option<TeeProviderType>,
+    pub tee_provider: Option<katana_tee::TeeProviderType>,
+}
+
+#[cfg(feature = "tee")]
+fn parse_tee_provider(s: &str) -> Result<katana_tee::TeeProviderType, String> {
+    s.parse()
 }
 
 #[cfg(feature = "tee")]

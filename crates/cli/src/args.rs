@@ -451,31 +451,7 @@ impl SequencerNodeArgs {
 
     #[cfg(feature = "tee")]
     fn tee_config(&self) -> Option<TeeConfig> {
-        use katana_tee::TeeProviderType;
-
-        use crate::options::TeeProviderType as CliTeeProviderType;
-
-        self.tee.tee_provider.map(|provider| {
-            let provider_type = match provider {
-                CliTeeProviderType::SevSnp => {
-                    #[cfg(feature = "tee-snp")]
-                    {
-                        TeeProviderType::SevSnp
-                    }
-                    #[cfg(not(feature = "tee-snp"))]
-                    {
-                        panic!("SEV-SNP TEE provider requires the 'tee-snp' feature to be enabled")
-                    }
-                }
-                #[cfg(feature = "tee-mock")]
-                CliTeeProviderType::Mock => TeeProviderType::Mock,
-                #[cfg(not(feature = "tee-mock"))]
-                CliTeeProviderType::Mock => {
-                    panic!("Mock TEE provider requires the 'tee-mock' feature to be enabled")
-                }
-            };
-            TeeConfig { provider_type }
-        })
+        self.tee.tee_provider.map(|provider_type| TeeConfig { provider_type })
     }
 
     /// Parse the node config from the command line arguments and the config file,
