@@ -7,6 +7,7 @@ use katana_primitives::transaction::{TxHash, TxNumber};
 
 use crate::codecs::{Compress, Decode, Decompress, Encode};
 use crate::models::block::StoredBlockBodyIndices;
+use crate::models::class::MigratedCompiledClassHash;
 use crate::models::contract::{ContractClassChange, ContractInfoChangeList, ContractNonceChange};
 use crate::models::list::BlockList;
 use crate::models::stage::{ExecutionCheckpoint, PruningCheckpoint, StageId};
@@ -54,7 +55,7 @@ pub enum TableType {
     DupSort,
 }
 
-pub const NUM_TABLES: usize = 33;
+pub const NUM_TABLES: usize = 34;
 
 /// Macro to declare `libmdbx` tables.
 #[macro_export]
@@ -172,6 +173,7 @@ define_tables_enum! {[
     (ContractStorage, TableType::DupSort),
     (ClassDeclarationBlock, TableType::Table),
     (ClassDeclarations, TableType::DupSort),
+    (MigratedCompiledClassHashes, TableType::DupSort),
     (ContractInfoChangeSet, TableType::Table),
     (NonceChangeHistory, TableType::DupSort),
     (ClassChangeHistory, TableType::DupSort),
@@ -233,6 +235,8 @@ tables! {
     ClassDeclarationBlock: (ClassHash) => BlockNumber,
     /// Stores the list of class hashes according to the block number it was declared in.
     ClassDeclarations: (BlockNumber, ClassHash) => ClassHash,
+    /// Stores the list of class hashes according to the block number it was declared in.
+    MigratedCompiledClassHashes: (BlockNumber, ClassHash) => MigratedCompiledClassHash,
 
     /// Generic contract info change set.
     ///
@@ -309,22 +313,23 @@ mod tests {
         assert_eq!(Tables::ALL[14].name(), ContractStorage::NAME);
         assert_eq!(Tables::ALL[15].name(), ClassDeclarationBlock::NAME);
         assert_eq!(Tables::ALL[16].name(), ClassDeclarations::NAME);
-        assert_eq!(Tables::ALL[17].name(), ContractInfoChangeSet::NAME);
-        assert_eq!(Tables::ALL[18].name(), NonceChangeHistory::NAME);
-        assert_eq!(Tables::ALL[19].name(), ClassChangeHistory::NAME);
-        assert_eq!(Tables::ALL[20].name(), StorageChangeHistory::NAME);
-        assert_eq!(Tables::ALL[21].name(), StorageChangeSet::NAME);
-        assert_eq!(Tables::ALL[22].name(), StageExecutionCheckpoints::NAME);
-        assert_eq!(Tables::ALL[23].name(), StagePruningCheckpoints::NAME);
-        assert_eq!(Tables::ALL[24].name(), ClassesTrie::NAME);
-        assert_eq!(Tables::ALL[25].name(), ContractsTrie::NAME);
-        assert_eq!(Tables::ALL[26].name(), StoragesTrie::NAME);
-        assert_eq!(Tables::ALL[27].name(), ClassesTrieHistory::NAME);
-        assert_eq!(Tables::ALL[28].name(), ContractsTrieHistory::NAME);
-        assert_eq!(Tables::ALL[29].name(), StoragesTrieHistory::NAME);
-        assert_eq!(Tables::ALL[30].name(), ClassesTrieChangeSet::NAME);
-        assert_eq!(Tables::ALL[31].name(), ContractsTrieChangeSet::NAME);
-        assert_eq!(Tables::ALL[32].name(), StoragesTrieChangeSet::NAME);
+        assert_eq!(Tables::ALL[17].name(), MigratedCompiledClassHashes::NAME);
+        assert_eq!(Tables::ALL[18].name(), ContractInfoChangeSet::NAME);
+        assert_eq!(Tables::ALL[19].name(), NonceChangeHistory::NAME);
+        assert_eq!(Tables::ALL[20].name(), ClassChangeHistory::NAME);
+        assert_eq!(Tables::ALL[21].name(), StorageChangeHistory::NAME);
+        assert_eq!(Tables::ALL[22].name(), StorageChangeSet::NAME);
+        assert_eq!(Tables::ALL[23].name(), StageExecutionCheckpoints::NAME);
+        assert_eq!(Tables::ALL[24].name(), StagePruningCheckpoints::NAME);
+        assert_eq!(Tables::ALL[25].name(), ClassesTrie::NAME);
+        assert_eq!(Tables::ALL[26].name(), ContractsTrie::NAME);
+        assert_eq!(Tables::ALL[27].name(), StoragesTrie::NAME);
+        assert_eq!(Tables::ALL[28].name(), ClassesTrieHistory::NAME);
+        assert_eq!(Tables::ALL[29].name(), ContractsTrieHistory::NAME);
+        assert_eq!(Tables::ALL[30].name(), StoragesTrieHistory::NAME);
+        assert_eq!(Tables::ALL[31].name(), ClassesTrieChangeSet::NAME);
+        assert_eq!(Tables::ALL[32].name(), ContractsTrieChangeSet::NAME);
+        assert_eq!(Tables::ALL[33].name(), StoragesTrieChangeSet::NAME);
 
         assert_eq!(Tables::Headers.table_type(), TableType::Table);
         assert_eq!(Tables::BlockHashes.table_type(), TableType::Table);
@@ -343,6 +348,7 @@ mod tests {
         assert_eq!(Tables::ContractStorage.table_type(), TableType::DupSort);
         assert_eq!(Tables::ClassDeclarationBlock.table_type(), TableType::Table);
         assert_eq!(Tables::ClassDeclarations.table_type(), TableType::DupSort);
+        assert_eq!(Tables::MigratedCompiledClassHashes.table_type(), TableType::DupSort);
         assert_eq!(Tables::ContractInfoChangeSet.table_type(), TableType::Table);
         assert_eq!(Tables::NonceChangeHistory.table_type(), TableType::DupSort);
         assert_eq!(Tables::ClassChangeHistory.table_type(), TableType::DupSort);
@@ -372,6 +378,7 @@ mod tests {
 
     use crate::codecs::{Compress, Decode, Decompress, Encode};
     use crate::models::block::StoredBlockBodyIndices;
+    use crate::models::class::MigratedCompiledClassHash;
     use crate::models::contract::{
         ContractClassChange, ContractInfoChangeList, ContractNonceChange,
     };
@@ -441,6 +448,7 @@ mod tests {
             (CompiledClassHash, felt!("211")),
             (CompiledClass, CompiledClass::Legacy(Default::default())),
             (GenericContractInfo, GenericContractInfo::default()),
+            (MigratedCompiledClassHash, MigratedCompiledClassHash::default()),
             (StorageEntry, StorageEntry::default()),
             (ContractInfoChangeList, ContractInfoChangeList::default()),
             (ContractNonceChange, ContractNonceChange::default()),

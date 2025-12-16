@@ -1,4 +1,4 @@
-use std::collections::{BTreeMap, HashMap};
+use std::collections::HashMap;
 
 use katana_db::abstraction::DbTxMut;
 use katana_db::tables;
@@ -21,12 +21,12 @@ impl<Tx: DbTxMut> TrieWriter for DbProvider<Tx> {
     fn trie_insert_declared_classes(
         &self,
         block_number: BlockNumber,
-        updates: &BTreeMap<ClassHash, CompiledClassHash>,
+        updates: impl Iterator<Item = (ClassHash, CompiledClassHash)>,
     ) -> ProviderResult<Felt> {
         let mut trie = ClassesTrie::new(TrieDbMut::<tables::ClassesTrie, _>::new(self.0.clone()));
 
         for (class_hash, compiled_hash) in updates {
-            trie.insert(*class_hash, *compiled_hash);
+            trie.insert(class_hash, compiled_hash);
         }
 
         trie.commit(block_number);

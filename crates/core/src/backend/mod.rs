@@ -1,4 +1,4 @@
-use std::collections::{BTreeMap, HashMap};
+use std::collections::HashMap;
 use std::sync::Arc;
 
 use anyhow::{anyhow, Context};
@@ -525,7 +525,10 @@ impl<'a, P: TrieWriter> UncommittedBlock<'a, P> {
     fn compute_new_state_root(&self) -> Felt {
         let class_trie_root = self
             .provider
-            .trie_insert_declared_classes(self.header.number, &self.state_updates.declared_classes)
+            .trie_insert_declared_classes(
+                self.header.number,
+                self.state_updates.declared_classes.clone().into_iter(),
+            )
             .expect("failed to update class trie");
 
         let contract_trie_root = self
@@ -676,12 +679,12 @@ impl TrieWriter for GenesisTrieWriter {
     fn trie_insert_declared_classes(
         &self,
         block_number: BlockNumber,
-        updates: &BTreeMap<ClassHash, CompiledClassHash>,
+        updates: impl Iterator<Item = (ClassHash, CompiledClassHash)>,
     ) -> katana_provider::ProviderResult<Felt> {
         let mut trie = ClassesTrie::new(HashMapDb::default());
 
         for (class_hash, compiled_hash) in updates {
-            trie.insert(*class_hash, *compiled_hash);
+            trie.insert(class_hash, compiled_hash);
         }
 
         trie.commit(block_number);

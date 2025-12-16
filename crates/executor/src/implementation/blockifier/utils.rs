@@ -564,6 +564,7 @@ pub(super) fn state_update_from_cached_state(state: &CachedState<'_>) -> StateUp
             deployed_contracts,
             deprecated_declared_classes,
             replaced_classes: BTreeMap::default(),
+            migrated_compiled_classes: BTreeMap::default(),
         },
     }
 }

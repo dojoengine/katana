@@ -28,6 +28,8 @@ pub struct StateUpdates {
     /// A mapping of replaced contract addresses to their new class hashes ie using `replace_class`
     /// syscall.
     pub replaced_classes: BTreeMap<ContractAddress, ClassHash>,
+    /// A list of classes whose compiled class hashes have been migrated.
+    pub migrated_compiled_classes: BTreeMap<ClassHash, CompiledClassHash>,
 }
 
 impl StateUpdates {
@@ -40,6 +42,7 @@ impl StateUpdates {
         len += self.declared_classes.len();
         len += self.deprecated_declared_classes.len();
         len += self.nonce_updates.len();
+        len += self.migrated_compiled_classes.len();
 
         for updates in self.storage_updates.values() {
             len += updates.len();
