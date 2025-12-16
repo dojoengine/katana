@@ -259,7 +259,7 @@ impl Serialize for StateDiff {
         /// [
         ///   {
         ///     "class_hash": "0x123",
-        ///     "compiled_hash": "0x456"
+        ///     "compiled_class_hash": "0x456"
         ///   },
         ///   ...
         /// ]
@@ -271,14 +271,14 @@ impl Serialize for StateDiff {
                 #[derive(Debug, Serialize)]
                 struct MigratedCompiledClass {
                     class_hash: ClassHash,
-                    compiled_hash: CompiledClassHash,
+                    compiled_class_hash: CompiledClassHash,
                 }
 
                 let mut seq = serializer.serialize_seq(Some(self.0.len()))?;
-                for (class_hash, compiled_hash) in self.0 {
+                for (class_hash, compiled_class_hash) in self.0 {
                     seq.serialize_element(&MigratedCompiledClass {
                         class_hash: *class_hash,
-                        compiled_hash: *compiled_hash,
+                        compiled_class_hash: *compiled_class_hash,
                     })?;
                 }
                 seq.end()
@@ -383,6 +383,17 @@ impl<'de> Deserialize<'de> for StateDiff {
             }
         }
 
+        /// Deserializes nonces from an array of objects with the following structure:
+        ///
+        /// ```json
+        /// [
+        ///   {
+        ///     "contract_address": "0x123",
+        ///     "nonce": "0x123"
+        ///   },
+        ///   ...
+        /// ]
+        /// ```
         struct NoncesDe;
 
         impl<'de> DeserializeSeed<'de> for NoncesDe {
@@ -426,6 +437,23 @@ impl<'de> Deserialize<'de> for StateDiff {
             }
         }
 
+        /// Deserializes storage diffs from an array of objects with the following structure:
+        ///
+        /// ```json
+        /// [
+        ///   {
+        ///     "address": "0x123",
+        ///     "storage_entries": [
+        ///       {
+        ///         "key": "0x123",
+        ///         "value": "0x456"
+        ///       },
+        ///       ...
+        ///     ]
+        ///   },
+        ///   ...
+        /// ]
+        /// ```
         struct StorageDiffsDe;
 
         impl<'de> DeserializeSeed<'de> for StorageDiffsDe {
@@ -479,6 +507,17 @@ impl<'de> Deserialize<'de> for StateDiff {
             }
         }
 
+        /// Deserializes deployed contracts from an array of objects with the following structure:
+        ///
+        /// ```json
+        /// [
+        ///   {
+        ///     "address": "0x123",
+        ///     "class_hash": "0x456"
+        ///   },
+        ///   ...
+        /// ]
+        /// ```
         struct DeployedContractsDe;
 
         impl<'de> DeserializeSeed<'de> for DeployedContractsDe {
@@ -522,6 +561,17 @@ impl<'de> Deserialize<'de> for StateDiff {
             }
         }
 
+        /// Deserializes declared classes from an array of objects with the following structure:
+        ///
+        /// ```json
+        /// [
+        ///   {
+        ///     "class_hash": "0x123",
+        ///     "compiled_class_hash": "0x456"
+        ///   },
+        ///   ...
+        /// ]
+        /// ```
         struct DeclaredClassesDe;
 
         impl<'de> DeserializeSeed<'de> for DeclaredClassesDe {
@@ -565,6 +615,11 @@ impl<'de> Deserialize<'de> for StateDiff {
             }
         }
 
+        /// Deserializes deprecated declared classes from an array of class hashes:
+        ///
+        /// ```json
+        /// ["0x123", "0x456", ...]
+        /// ```
         struct DepDeclaredClassesDe;
 
         impl<'de> DeserializeSeed<'de> for DepDeclaredClassesDe {
@@ -602,6 +657,17 @@ impl<'de> Deserialize<'de> for StateDiff {
             }
         }
 
+        /// Deserializes `replaced_classes` from an array of objects with the following structure:
+        ///
+        /// ```json
+        /// [
+        ///   {
+        ///     "contract_address": "0x123",
+        ///     "class_hash": "0x123"
+        ///   },
+        ///   ...
+        /// ]
+        /// ```
         struct ReplacedClassesDe;
 
         impl<'de> DeserializeSeed<'de> for ReplacedClassesDe {
@@ -645,6 +711,18 @@ impl<'de> Deserialize<'de> for StateDiff {
             }
         }
 
+        /// Deserializes `migrated_compiled_classes` from an array of objects with the following
+        /// structure:
+        ///
+        /// ```json
+        /// [
+        ///   {
+        ///     "class_hash": "0x123",
+        ///     "compiled_class_hash": "0x456"
+        ///   },
+        ///   ...
+        /// ]
+        /// ```
         struct MigratedCompiledClassesDe;
 
         impl<'de> DeserializeSeed<'de> for MigratedCompiledClassesDe {
@@ -673,13 +751,13 @@ impl<'de> Deserialize<'de> for StateDiff {
                         #[derive(Debug, Deserialize)]
                         struct MigratedCompiledClass {
                             class_hash: ClassHash,
-                            compiled_hash: CompiledClassHash,
+                            compiled_class_hash: CompiledClassHash,
                         }
 
                         let mut migrated_compiled_classes = BTreeMap::new();
                         while let Some(migrated) = seq.next_element::<MigratedCompiledClass>()? {
                             migrated_compiled_classes
-                                .insert(migrated.class_hash, migrated.compiled_hash);
+                                .insert(migrated.class_hash, migrated.compiled_class_hash);
                         }
                         Ok(migrated_compiled_classes)
                     }
