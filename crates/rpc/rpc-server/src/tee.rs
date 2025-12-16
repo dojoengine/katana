@@ -76,10 +76,7 @@ where
         debug!(target: "rpc::tee", "Generating TEE attestation quote");
 
         // Get the latest blockchain state
-        let provider = self
-            .provider_factory
-            .provider()
-            .map_err(|e| TeeApiError::ProviderError(e.to_string()))?;
+        let provider = self.provider_factory.provider();
 
         // Get latest block information
         let block_number =
