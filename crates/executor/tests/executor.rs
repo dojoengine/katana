@@ -273,10 +273,10 @@ fn test_executor_with_valid_blocks_impl(
         .map(|(tx, res)| {
             if let Some(receipt) = res.receipt() {
                 let resources = receipt.resources_used();
-                actual_total_gas += resources.gas.l1_gas as u128;
+                actual_total_gas += resources.total_gas_consumed.l1_gas as u128;
             }
             if let Some(rec) = res.receipt() {
-                actual_total_steps += rec.resources_used().computation_resources.n_steps as u128;
+                actual_total_steps += rec.resources_used().vm_resources.n_steps as u128;
             }
             tx.clone()
         })

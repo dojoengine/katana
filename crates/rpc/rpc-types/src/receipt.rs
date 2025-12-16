@@ -360,9 +360,9 @@ pub struct ExecutionResources {
 impl From<receipt::ExecutionResources> for ExecutionResources {
     fn from(resources: receipt::ExecutionResources) -> Self {
         ExecutionResources {
-            l2_gas: resources.gas.l2_gas,
-            l1_gas: resources.gas.l1_gas,
-            l1_data_gas: resources.gas.l1_data_gas,
+            l2_gas: resources.total_gas_consumed.l2_gas,
+            l1_gas: resources.total_gas_consumed.l1_gas,
+            l1_data_gas: resources.total_gas_consumed.l1_data_gas,
         }
     }
 }
@@ -398,18 +398,18 @@ impl From<ExecutionResources> for receipt::ExecutionResources {
         use std::collections::HashMap;
 
         receipt::ExecutionResources {
-            gas: receipt::GasUsed {
+            total_gas_consumed: receipt::GasUsed {
                 l2_gas: resources.l2_gas,
                 l1_gas: resources.l1_gas,
                 l1_data_gas: resources.l1_data_gas,
             },
             // VM resources are not available in RPC types, use defaults
-            computation_resources: VmResources {
+            vm_resources: VmResources {
                 n_steps: 0,
                 n_memory_holes: 0,
                 builtin_instance_counter: HashMap::new(),
             },
-            da_resources: receipt::DataAvailabilityResources {
+            data_availability: receipt::DataAvailabilityResources {
                 l1_gas: resources.l1_gas,
                 l1_data_gas: resources.l1_data_gas,
             },

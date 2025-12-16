@@ -90,10 +90,10 @@ pub fn estimate_fees(
                             overall_fee: fee.overall_fee,
                             l2_gas_price: fee.l2_gas_price,
                             l1_gas_price: fee.l1_gas_price,
-                            l2_gas_consumed: resources.gas.l2_gas,
-                            l1_gas_consumed: resources.gas.l1_gas,
+                            l2_gas_consumed: resources.total_gas_consumed.l2_gas,
+                            l1_gas_consumed: resources.total_gas_consumed.l1_gas,
                             l1_data_gas_price: fee.l1_data_gas_price,
-                            l1_data_gas_consumed: resources.gas.l1_data_gas,
+                            l1_data_gas_consumed: resources.total_gas_consumed.l1_data_gas,
                         });
                     }
                 }
