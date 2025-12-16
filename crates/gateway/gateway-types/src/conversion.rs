@@ -264,21 +264,54 @@ impl From<katana_primitives::receipt::Receipt> for ReceiptBody {
             Some(ExecutionStatus::Succeeded)
         };
 
-        let execution_resources = Some(ExecutionResources {
-            vm_resources: receipt.resources_used().computation_resources.clone(),
-            data_availability: Some(receipt.resources_used().da_resources.clone()),
-            total_gas_consumed: Some(receipt.resources_used().gas.clone()),
-        });
+        match receipt {
+            katana_primitives::receipt::Receipt::Invoke(receipt) => {
+                Self {
+                    execution_resources: Some(receipt.execution_resources.into()),
+                    // This would need to be populated from transaction context
+                    l1_to_l2_consumed_message: None,
+                    l2_to_l1_messages: receipt.messages_sent,
+                    events: receipt.events,
+                    actual_fee: receipt.fee.overall_fee.into(),
+                    execution_status,
+                    revert_error: receipt.revert_error,
+                }
+            }
 
-        Self {
-            execution_resources,
-            l1_to_l2_consumed_message: None, /* This would need to be populated from transaction
-                                              * context */
-            l2_to_l1_messages: receipt.messages_sent().to_vec(),
-            events: receipt.events().to_vec(),
-            actual_fee: receipt.fee().overall_fee.into(),
-            execution_status,
-            revert_error: receipt.revert_reason().map(|s| s.to_string()),
+            katana_primitives::receipt::Receipt::Declare(receipt) => Self {
+                execution_resources: Some(receipt.execution_resources.into()),
+                // This would need to be populated from transaction context
+                l1_to_l2_consumed_message: None,
+                l2_to_l1_messages: receipt.messages_sent,
+                events: receipt.events,
+                actual_fee: receipt.fee.overall_fee.into(),
+                execution_status,
+                revert_error: receipt.revert_error,
+            },
+
+            katana_primitives::receipt::Receipt::DeployAccount(receipt) => {
+                Self {
+                    execution_resources: Some(receipt.execution_resources.into()),
+                    // This would need to be populated from transaction context
+                    l1_to_l2_consumed_message: None,
+                    l2_to_l1_messages: receipt.messages_sent,
+                    events: receipt.events,
+                    actual_fee: receipt.fee.overall_fee.into(),
+                    execution_status,
+                    revert_error: receipt.revert_error,
+                }
+            }
+
+            katana_primitives::receipt::Receipt::L1Handler(receipt) => Self {
+                execution_resources: Some(receipt.execution_resources.into()),
+                // This would need to be populated from transaction context
+                l1_to_l2_consumed_message: None,
+                l2_to_l1_messages: receipt.messages_sent,
+                events: receipt.events,
+                actual_fee: receipt.fee.overall_fee.into(),
+                execution_status,
+                revert_error: receipt.revert_error,
+            },
         }
     }
 }
@@ -336,6 +369,26 @@ impl From<StateDiff> for katana_primitives::state::StateUpdates {
             nonce_updates: value.nonces,
             deprecated_declared_classes: BTreeSet::from_iter(value.old_declared_contracts),
             migrated_compiled_classes,
+        }
+    }
+}
+
+impl From<katana_primitives::receipt::ExecutionResources> for ExecutionResources {
+    fn from(value: katana_primitives::receipt::ExecutionResources) -> Self {
+        Self {
+            vm_resources: value.vm_resources,
+            data_availability: Some(value.data_availability),
+            total_gas_consumed: Some(value.total_gas_consumed),
+        }
+    }
+}
+
+impl From<ExecutionResources> for katana_primitives::receipt::ExecutionResources {
+    fn from(value: ExecutionResources) -> Self {
+        Self {
+            vm_resources: value.vm_resources,
+            data_availability: value.data_availability.unwrap_or_default(),
+            total_gas_consumed: value.total_gas_consumed.unwrap_or_default(),
         }
     }
 }

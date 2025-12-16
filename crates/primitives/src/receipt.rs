@@ -224,9 +224,9 @@ impl ReceiptWithTxHash {
     pub fn compute_hash(&self) -> Felt {
         let resources_used = self.resources_used();
         let gas_uasge = hash::Poseidon::hash_array(&[
-            resources_used.gas.l2_gas.into(),
-            resources_used.gas.l1_gas.into(),
-            resources_used.gas.l1_data_gas.into(),
+            resources_used.total_gas_consumed.l2_gas.into(),
+            resources_used.total_gas_consumed.l1_gas.into(),
+            resources_used.total_gas_consumed.l1_data_gas.into(),
         ]);
 
         let messages_hash = self.compute_messages_to_l1_hash();
@@ -277,10 +277,10 @@ impl ReceiptWithTxHash {
 #[cfg_attr(feature = "serde", derive(serde::Serialize, serde::Deserialize))]
 pub struct ExecutionResources {
     /// The total gas used by the transaction execution.
-    pub gas: GasUsed,
+    pub total_gas_consumed: GasUsed,
     /// Computation resources if the transaction is executed on the CairoVM.
-    pub computation_resources: VmResources,
-    pub da_resources: DataAvailabilityResources,
+    pub vm_resources: VmResources,
+    pub data_availability: DataAvailabilityResources,
 }
 
 #[derive(Debug, Default, Clone, PartialEq, Eq)]
@@ -325,6 +325,10 @@ impl<'a> arbitrary::Arbitrary<'a> for ExecutionResources {
         let gas = u.arbitrary::<GasUsed>()?;
         let da_resources = u.arbitrary::<DataAvailabilityResources>()?;
 
-        Ok(Self { da_resources, computation_resources, gas })
+        Ok(Self {
+            data_availability: da_resources,
+            vm_resources: computation_resources,
+            total_gas_consumed: gas,
+        })
     }
 }
