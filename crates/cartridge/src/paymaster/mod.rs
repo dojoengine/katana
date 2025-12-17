@@ -1,5 +1,8 @@
-//! Handles management of Cartridge controller accounts.
+//! Handles management of Cartridge controller accounts and VRF.
 //!
+//!  Cartridge controller
+//!  ---------------------
+//!  
 //! When a Controller account is created, the username is used as a salt,
 //! and the latest controller class hash is used.
 //! This ensures that the controller account address is deterministic.
@@ -24,6 +27,15 @@
 //!    the associated transaction to be executed in order to deploy the controller account. See the
 //!    fee estimate RPC method of [StarknetApi](crate::starknet::StarknetApi) to see how the
 //!    Controller deployment is handled during fee estimation.
+//!
+//!   VRF
+//!   ---
+//!
+//!   As VRF calls must target the VRF provider contract, it has to be deployed first.
+//!   As it is done for a controller account, the VRF provider contract is deployed in the
+//!   first outside execution or estimate fee request if not deployed yet.
+//!
+//!   
 
 use std::collections::HashSet;
 use std::iter::once;
@@ -67,9 +79,6 @@ pub type PaymasterResult<T> = Result<T, Error>;
 
 #[derive(Debug, thiserror::Error)]
 pub enum Error {
-    #[error("no controller found for address {0}")]
-    ControllerNotFound(ContractAddress),
-
     #[error("cartridge client error: {0}")]
     Client(#[from] crate::client::Error),
 
@@ -129,11 +138,10 @@ where
     }
 
     /// Handle the intercept of the 'cartridge_addExecuteOutsideTransaction' end point.
-    ///
-    /// Modify the provided `outside_execution` and `signature` to include the VRF calls if needed.
-    ///
-    /// This might submit new transactions to the pool for deploying the Controller account contract
-    /// and/or the VRF provider contract.
+    /// * submit new transactions to the pool for deploying the Controller account contract
+    /// and/or the VRF provider contract,
+    /// * modify the provided `outside_execution` and `signature` to include the VRF calls if
+    ///   needed.
     pub async fn handle_add_outside_execution(
         &self,
         address: ContractAddress,
@@ -144,15 +152,13 @@ where
         let mut paymaster_nonce = self.get_paymaster_nonce(block_id).await?;
 
         // craft a controller deploy tx if needed
-        let tx_option = match self.craft_controller_deploy_tx(address, block_id).await {
-            Ok(opt) => opt,
-            Err(err) => return Err(err),
-        };
-
-        if let Some(tx) = tx_option {
-            let tx = ExecutableTxWithHash::new(tx);
-            let tx_hash =
-                self.pool.add_transaction(tx).await.map_err(Error::FailedToAddTransaction)?;
+        let tx_opt = self.craft_controller_deploy_tx(address, block_id, paymaster_nonce).await?;
+        if let Some(tx) = tx_opt {
+            let tx_hash = self
+                .pool
+                .add_transaction(ExecutableTxWithHash::new(tx))
+                .await
+                .map_err(Error::FailedToAddTransaction)?;
 
             trace!(
                 target: "cartridge",
@@ -165,37 +171,22 @@ where
         }
 
         // deploy VRF provider if not deployed yet
-        match self
-            .starknet_api
-            .class_hash_at_address(BlockIdOrTag::Latest, self.vrf_ctx.address())
-            .await
-        {
-            Err(StarknetApiError::ContractNotFound) => {
-                let (public_key_x, public_key_y) = self.vrf_ctx.get_public_key_xy_felts();
-                let tx = self
-                    .craft_vrf_provider_deploy_tx(
-                        self.paymaster_address,
-                        self.paymaster_key.secret_scalar(),
-                        self.chain_id,
-                        paymaster_nonce,
-                        public_key_x,
-                        public_key_y,
-                    )
-                    .await?;
-                let tx_hash =
-                    self.pool.add_transaction(tx).await.map_err(Error::FailedToAddTransaction)?;
+        let tx_opt = self.craft_vrf_provider_deploy_tx(paymaster_nonce).await?;
+        if let Some(tx) = tx_opt {
+            let tx_hash = self
+                .pool
+                .add_transaction(ExecutableTxWithHash::new(tx))
+                .await
+                .map_err(Error::FailedToAddTransaction)?;
 
-                trace!(
-                    target: "cartridge",
-                    vrf_provider = %self.vrf_ctx.address(),
-                    tx_hash = format!("{tx_hash:#x}"),
-                    "VRF Provider deploy transaction submitted",
-                );
+            trace!(
+                target: "cartridge",
+                vrf_provider = %self.vrf_ctx.address(),
+                tx_hash = format!("{tx_hash:#x}"),
+                "VRF Provider deploy transaction submitted",
+            );
 
-                paymaster_nonce += Nonce::ONE;
-            }
-            Err(err) => return Err(Error::StarknetApi(err)),
-            Ok(_) => {}
+            paymaster_nonce += Nonce::ONE;
         }
 
         // get VRF calls
@@ -224,9 +215,31 @@ where
         block_id: BlockIdOrTag,
         transactions: Vec<BroadcastedTx>,
     ) -> PaymasterResult<Option<Vec<BroadcastedTx>>> {
-        let mut new_transactions = Vec::with_capacity(transactions.len());
         let mut deployed_controllers: HashSet<ContractAddress> = HashSet::new();
 
+        let mut paymaster_nonce = self.get_paymaster_nonce(block_id).await?;
+
+        // deploy VRF provider if not deployed yet
+        let tx_opt = self.craft_vrf_provider_deploy_tx(paymaster_nonce).await?;
+        if let Some(tx) = tx_opt {
+            let tx_hash = self
+                .pool
+                .add_transaction(ExecutableTxWithHash::new(tx))
+                .await
+                .map_err(Error::FailedToAddTransaction)?;
+
+            trace!(
+                target: "cartridge",
+                vrf_provider = %self.vrf_ctx.address(),
+                tx_hash = format!("{tx_hash:#x}"),
+                "VRF Provider deploy transaction submitted",
+            );
+
+            paymaster_nonce += Nonce::ONE;
+        }
+
+        // process the transactions to check if some controller needs to be deployed and
+        // if some VRF calls have to be inserted between the original calls.
         for tx in &transactions {
             let address = match &tx {
                 BroadcastedTx::Invoke(tx) => tx.sender_address,
@@ -234,32 +247,28 @@ where
                 _ => continue,
             };
 
+            // TODO: update Nonce if sender_address is the paymaster when we insert
+            // a deploy tx for controller and/or VRF provider
+
+            // TODO: inject VRF calls in case of outside exec + request_random call
+
             // if the address has already been processed in this txs batch, just ignore the tx
             if deployed_controllers.contains(&address) {
                 continue;
             }
 
-            match self.craft_controller_deploy_tx(address, block_id).await {
-                Ok(Some(tx)) => {
-                    deployed_controllers.insert(address);
-                    new_transactions.push(BroadcastedTx::from(tx));
-
-                    trace!(
-                        target: "cartridge",
-                        controller = %address,
-                        "Controller deploy transaction submitted",
-                    );
-                }
-                Ok(None) | Err(Error::ControllerNotFound(..)) => continue,
-                Err(err) => return Err(err),
+            let tx_opt =
+                self.craft_controller_deploy_tx(address, block_id, paymaster_nonce).await?;
+            if let Some(tx) = tx_opt {
+                let tx_hash = self
+                    .pool
+                    .add_transaction(ExecutableTxWithHash::new(tx))
+                    .await
+                    .map_err(Error::FailedToAddTransaction)?;
             }
         }
 
-        if new_transactions.is_empty() {
-            return Ok(None);
-        }
-
-        Ok(Some(new_transactions.into_iter().chain(transactions).collect()))
+        Ok(None)
     }
 
     /// Returns a [`Layer`](tower::Layer) implementation of [`Paymaster`].
@@ -277,6 +286,7 @@ where
         &self,
         address: ContractAddress,
         block_id: BlockIdOrTag,
+        paymaster_nonce: Felt,
     ) -> PaymasterResult<Option<ExecutableTx>> {
         // if the address is not a controller, just ignore the tx
         let controller_calldata = match self.get_controller_ctor_calldata(address).await? {
@@ -290,20 +300,104 @@ where
         }
 
         // Create a Controller deploy transaction against the latest state of the network.
-        let paymaster_nonce = self.get_paymaster_nonce(block_id).await?;
-
         debug!(target: "cartridge", controller = %address, "Crafting controller deploy transaction");
 
-        let tx = create_deploy_tx(
-            self.paymaster_address,
-            self.paymaster_key.clone(),
-            paymaster_nonce,
-            controller_calldata,
-            self.chain_id,
-        )
-        .await?;
+        let call = FunctionCall {
+            contract_address: DEFAULT_UDC_ADDRESS,
+            entry_point_selector: selector!("deployContract"),
+            calldata: controller_calldata,
+        };
+
+        let mut tx = InvokeTxV3 {
+            nonce: paymaster_nonce,
+            chain_id: self.chain_id,
+            tip: 0_u64,
+            signature: Vec::new(),
+            sender_address: self.paymaster_address,
+            paymaster_data: Vec::new(),
+            calldata: encode_calls(vec![call]),
+            account_deployment_data: Vec::new(),
+            nonce_data_availability_mode: katana_primitives::da::DataAvailabilityMode::L1,
+            fee_data_availability_mode: katana_primitives::da::DataAvailabilityMode::L1,
+            resource_bounds: ResourceBoundsMapping::All(AllResourceBoundsMapping::default()),
+        };
+
+        let tx_hash = InvokeTx::V3(tx.clone()).calculate_hash(false);
+
+        let signer = LocalWallet::from(self.paymaster_key.clone());
+        let signature = signer.sign_hash(&tx_hash).await.unwrap();
+        tx.signature = vec![signature.r, signature.s];
+
+        let tx = ExecutableTx::Invoke(InvokeTx::V3(tx));
 
         Ok(Some(tx))
+    }
+
+    /// Crafts a deploy VRF provider transaction.
+    ///
+    /// Returns None if the VRF provider has already been deployed.
+    async fn craft_vrf_provider_deploy_tx(
+        &self,
+        paymaster_nonce: Felt,
+    ) -> PaymasterResult<Option<ExecutableTx>> {
+        match self
+            .starknet_api
+            .class_hash_at_address(BlockIdOrTag::Latest, self.vrf_ctx.address())
+            .await
+        {
+            Err(StarknetApiError::ContractNotFound) => {
+                let (public_key_x, public_key_y) = self.vrf_ctx.get_public_key_xy_felts();
+
+                let calldata = vec![
+                    CARTRIDGE_VRF_CLASS_HASH,
+                    CARTRIDGE_VRF_SALT,
+                    // from zero
+                    Felt::ZERO,
+                    // Calldata len
+                    Felt::THREE,
+                    // owner
+                    self.paymaster_address.into(),
+                    // public key
+                    public_key_x,
+                    public_key_y,
+                ];
+
+                let call = FunctionCall {
+                    contract_address: DEFAULT_UDC_ADDRESS,
+                    entry_point_selector: selector!("deployContract"),
+                    calldata,
+                };
+
+                let mut tx = InvokeTxV3 {
+                    chain_id: self.chain_id,
+                    tip: 0_u64,
+                    signature: vec![],
+                    paymaster_data: vec![],
+                    account_deployment_data: vec![],
+                    sender_address: self.paymaster_address,
+                    calldata: encode_calls(vec![call]),
+                    nonce: paymaster_nonce,
+                    nonce_data_availability_mode: katana_primitives::da::DataAvailabilityMode::L1,
+                    fee_data_availability_mode: katana_primitives::da::DataAvailabilityMode::L1,
+                    resource_bounds: ResourceBoundsMapping::All(AllResourceBoundsMapping::default()),
+                };
+
+                let tx_hash = InvokeTx::V3(tx.clone()).calculate_hash(false);
+
+                let signer = LocalWallet::from(SigningKey::from_secret_scalar(
+                    self.paymaster_key.secret_scalar(),
+                ));
+                let signature = signer
+                    .sign_hash(&tx_hash)
+                    .await
+                    .map_err(|e| Error::SigningError(e.to_string()))?;
+                tx.signature = vec![signature.r, signature.s];
+
+                Ok(Some(ExecutableTx::Invoke(InvokeTx::V3(tx))))
+            }
+            Ok(_) => Ok(None),
+            Err(err) => return Err(Error::StarknetApi(err)),
+        }
     }
 
     /// Get the constructor calldata for a controller account or None if the address is not a
@@ -314,64 +408,6 @@ where
     ) -> PaymasterResult<Option<Vec<Felt>>> {
         let result = self.cartridge_api.get_account_calldata(address).await?;
         Ok(result.map(|r| r.constructor_calldata))
-    }
-
-    /// Crafts a deploy VRF provider transaction.
-    ///
-    /// Returns None if the VRF provider has already been deployed.
-    async fn craft_vrf_provider_deploy_tx(
-        &self,
-        paymaster_address: ContractAddress,
-        paymaster_private_key: Felt,
-        chain_id: ChainId,
-        paymaster_nonce: Felt,
-        public_key_x: Felt,
-        public_key_y: Felt,
-    ) -> PaymasterResult<ExecutableTxWithHash> {
-        let calldata = vec![
-            CARTRIDGE_VRF_CLASS_HASH,
-            CARTRIDGE_VRF_SALT,
-            // from zero
-            Felt::ZERO,
-            // Calldata len
-            Felt::THREE,
-            // owner
-            paymaster_address.into(),
-            // public key
-            public_key_x,
-            public_key_y,
-        ];
-
-        let call = FunctionCall {
-            contract_address: DEFAULT_UDC_ADDRESS,
-            entry_point_selector: selector!("deployContract"),
-            calldata,
-        };
-
-        let mut tx = InvokeTxV3 {
-            chain_id,
-            tip: 0_u64,
-            signature: vec![],
-            paymaster_data: vec![],
-            account_deployment_data: vec![],
-            sender_address: paymaster_address,
-            calldata: encode_calls(vec![call]),
-            nonce: paymaster_nonce,
-            nonce_data_availability_mode: katana_primitives::da::DataAvailabilityMode::L1,
-            fee_data_availability_mode: katana_primitives::da::DataAvailabilityMode::L1,
-            resource_bounds: ResourceBoundsMapping::All(AllResourceBoundsMapping::default()),
-        };
-
-        let tx_hash = InvokeTx::V3(tx.clone()).calculate_hash(false);
-
-        let signer = LocalWallet::from(SigningKey::from_secret_scalar(paymaster_private_key));
-        let signature =
-            signer.sign_hash(&tx_hash).await.map_err(|e| Error::SigningError(e.to_string()))?;
-        tx.signature = vec![signature.r, signature.s];
-
-        let tx = ExecutableTxWithHash::new(ExecutableTx::Invoke(InvokeTx::V3(tx)));
-
-        Ok(tx)
     }
 
     /// Get the VRF calls for a given outside execution.
@@ -551,43 +587,4 @@ where
             vrf_ctx: self.vrf_ctx.clone(),
         }
     }
-}
-
-/// Crafts a deploy controller transaction.
-///
-/// Returns the deploy controller transaction.
-async fn create_deploy_tx(
-    deployer: ContractAddress,
-    deployer_pk: SigningKey,
-    nonce: Nonce,
-    constructor_calldata: Vec<Felt>,
-    chain_id: ChainId,
-) -> PaymasterResult<ExecutableTx> {
-    let call = FunctionCall {
-        contract_address: DEFAULT_UDC_ADDRESS,
-        entry_point_selector: selector!("deployContract"),
-        calldata: constructor_calldata,
-    };
-
-    let mut tx = InvokeTxV3 {
-        nonce,
-        chain_id,
-        tip: 0_u64,
-        signature: Vec::new(),
-        sender_address: deployer,
-        paymaster_data: Vec::new(),
-        calldata: encode_calls(vec![call]),
-        account_deployment_data: Vec::new(),
-        nonce_data_availability_mode: katana_primitives::da::DataAvailabilityMode::L1,
-        fee_data_availability_mode: katana_primitives::da::DataAvailabilityMode::L1,
-        resource_bounds: ResourceBoundsMapping::All(AllResourceBoundsMapping::default()),
-    };
-
-    let tx_hash = InvokeTx::V3(tx.clone()).calculate_hash(false);
-
-    let signer = LocalWallet::from(deployer_pk);
-    let signature = signer.sign_hash(&tx_hash).await.unwrap();
-    tx.signature = vec![signature.r, signature.s];
-
-    Ok(ExecutableTx::Invoke(InvokeTx::V3(tx)))
 }
