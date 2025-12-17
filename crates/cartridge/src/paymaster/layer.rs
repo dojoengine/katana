@@ -15,7 +15,7 @@ use katana_rpc_types::broadcasted::BroadcastedTx;
 use serde::Deserialize;
 use starknet::core::types::SimulationFlagForEstimateFee;
 
-use super::{Error, Paymaster};
+use super::Paymaster;
 use crate::rpc::types::OutsideExecution;
 
 #[derive(Debug)]
@@ -98,7 +98,7 @@ where
         if let Ok(Some(updated_txs)) = paymaster.handle_estimate_fees(block_id, txs).await {
             let new_params = {
                 let mut params = jsonrpsee::core::params::ArrayParams::new();
-                params.insert(updated_txs).unwrap();
+                params.insert(&updated_txs).unwrap();
                 params.insert(simulation_flags).unwrap();
                 params.insert(block_id).unwrap();
                 params
@@ -163,7 +163,7 @@ where
                 let params = params.map(Cow::Owned);
                 request.params = params;
             }
-            Ok(None) | Err(Error::ControllerNotFound(..)) => {}
+            Ok(None) => {}
             Err(error) => panic!("{error}"),
         }
     }
@@ -206,7 +206,7 @@ where
 
         async move {
             if request.method_name() == "starknet_estimateFee" {
-                Self::intercept_estimate_fee(paymaster.clone(), &mut request).await;
+                Self::intercept_estimate_fee(paymaster, &mut request).await;
             } else if request.method_name() == "cartridge_addExecuteOutsideTransaction" {
                 Self::intercept_add_outside_execution(paymaster, &mut request).await;
             }
