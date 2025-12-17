@@ -175,6 +175,25 @@ pub struct RpcDeployAccountTxReceipt {
 impl RpcTxReceipt {
     fn new(receipt: Receipt, finality_status: FinalityStatus) -> Self {
         match receipt {
+            Receipt::Deploy(rct) => {
+                let messages_sent = rct.messages_sent;
+                let events = rct.events;
+
+                RpcTxReceipt::Deploy(RpcDeployTxReceipt {
+                    events,
+                    messages_sent,
+                    finality_status,
+                    actual_fee: rct.fee.into(),
+                    contract_address: rct.contract_address,
+                    execution_resources: rct.execution_resources.into(),
+                    execution_result: if let Some(reason) = rct.revert_error {
+                        ExecutionResult::Reverted { reason }
+                    } else {
+                        ExecutionResult::Succeeded
+                    },
+                })
+            }
+
             Receipt::Invoke(rct) => {
                 let messages_sent = rct.messages_sent;
                 let events = rct.events;

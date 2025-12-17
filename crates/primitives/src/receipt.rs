@@ -107,6 +107,25 @@ pub struct DeployAccountTxReceipt {
     pub contract_address: ContractAddress,
 }
 
+/// Receipt for a `Deploy` transaction.
+#[derive(Debug, Clone, PartialEq, Eq)]
+#[cfg_attr(feature = "arbitrary", derive(arbitrary::Arbitrary))]
+#[cfg_attr(feature = "serde", derive(serde::Serialize, serde::Deserialize))]
+pub struct DeployTxReceipt {
+    /// Information about the transaction fee.
+    pub fee: FeeInfo,
+    /// Events emitted by contracts.
+    pub events: Vec<Event>,
+    /// Messages sent to L1.
+    pub messages_sent: Vec<MessageToL1>,
+    /// Revert error message if the transaction execution failed.
+    pub revert_error: Option<String>,
+    /// The execution resources used by the transaction.
+    pub execution_resources: ExecutionResources,
+    /// Contract address of the deployed contract.
+    pub contract_address: ContractAddress,
+}
+
 /// The receipt of a transaction containing the outputs of its execution.
 #[derive(Debug, Clone, PartialEq, Eq)]
 #[cfg_attr(feature = "arbitrary", derive(arbitrary::Arbitrary))]
@@ -116,6 +135,7 @@ pub enum Receipt {
     Declare(DeclareTxReceipt),
     L1Handler(L1HandlerTxReceipt),
     DeployAccount(DeployAccountTxReceipt),
+    Deploy(DeployTxReceipt),
 }
 
 impl Receipt {
@@ -129,6 +149,7 @@ impl Receipt {
     /// Returns the revert reason if the transaction is reverted.
     pub fn revert_reason(&self) -> Option<&str> {
         match self {
+            Receipt::Deploy(rct) => rct.revert_error.as_deref(),
             Receipt::Invoke(rct) => rct.revert_error.as_deref(),
             Receipt::Declare(rct) => rct.revert_error.as_deref(),
             Receipt::L1Handler(rct) => rct.revert_error.as_deref(),
@@ -139,6 +160,7 @@ impl Receipt {
     /// Returns the L1 messages sent.
     pub fn messages_sent(&self) -> &[MessageToL1] {
         match self {
+            Receipt::Deploy(rct) => &rct.messages_sent,
             Receipt::Invoke(rct) => &rct.messages_sent,
             Receipt::Declare(rct) => &rct.messages_sent,
             Receipt::L1Handler(rct) => &rct.messages_sent,
@@ -149,6 +171,7 @@ impl Receipt {
     /// Returns the events emitted.
     pub fn events(&self) -> &[Event] {
         match self {
+            Receipt::Deploy(rct) => &rct.events,
             Receipt::Invoke(rct) => &rct.events,
             Receipt::Declare(rct) => &rct.events,
             Receipt::L1Handler(rct) => &rct.events,
@@ -159,6 +182,7 @@ impl Receipt {
     /// Returns the execution resources used.
     pub fn resources_used(&self) -> &ExecutionResources {
         match self {
+            Receipt::Deploy(rct) => &rct.execution_resources,
             Receipt::Invoke(rct) => &rct.execution_resources,
             Receipt::Declare(rct) => &rct.execution_resources,
             Receipt::L1Handler(rct) => &rct.execution_resources,
@@ -168,6 +192,7 @@ impl Receipt {
 
     pub fn fee(&self) -> &FeeInfo {
         match self {
+            Receipt::Deploy(rct) => &rct.fee,
             Receipt::Invoke(rct) => &rct.fee,
             Receipt::Declare(rct) => &rct.fee,
             Receipt::L1Handler(rct) => &rct.fee,
@@ -178,6 +203,7 @@ impl Receipt {
     /// Returns the transaction tyoe of the receipt.
     pub fn r#type(&self) -> TxType {
         match self {
+            Receipt::Deploy(_) => TxType::Deploy,
             Receipt::Invoke(_) => TxType::Invoke,
             Receipt::Declare(_) => TxType::Declare,
             Receipt::L1Handler(_) => TxType::L1Handler,
