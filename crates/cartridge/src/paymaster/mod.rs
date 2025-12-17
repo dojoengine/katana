@@ -47,7 +47,6 @@ use katana_pool::{TransactionPool, TxPool};
 use katana_pool_api::PoolError;
 use katana_primitives::chain::ChainId;
 use katana_primitives::contract::Nonce;
-use katana_primitives::execution::FunctionCall;
 use katana_primitives::fee::{AllResourceBoundsMapping, ResourceBoundsMapping};
 use katana_primitives::transaction::{ExecutableTx, ExecutableTxWithHash, InvokeTx, InvokeTxV3};
 use katana_primitives::{ContractAddress, Felt};
@@ -55,9 +54,8 @@ use katana_provider::ProviderFactory;
 use katana_rpc_api::error::starknet::StarknetApiError;
 use katana_rpc_server::starknet::{PendingBlockProvider, StarknetApi};
 use katana_rpc_types::broadcasted::BroadcastedTx;
-use katana_rpc_types::BlockIdOrTag;
+use katana_rpc_types::{BlockIdOrTag, BroadcastedInvokeTx};
 use layer::PaymasterLayer;
-use starknet::core::types::Call;
 use starknet::macros::selector;
 use starknet::signers::{LocalWallet, Signer, SigningKey};
 use starknet_crypto::pedersen_hash;
@@ -69,7 +67,8 @@ pub mod layer;
 mod tests;
 
 use crate::rpc::types::{
-    Call as OutsideExecutionCall, OutsideExecution, OutsideExecutionV2, OutsideExecutionV3,
+    Call as OutsideExecutionCall, NonceChannel, OutsideExecution, OutsideExecutionV2,
+    OutsideExecutionV3,
 };
 use crate::utils::encode_calls;
 use crate::vrf::{VrfContext, CARTRIDGE_VRF_CLASS_HASH, CARTRIDGE_VRF_SALT};
@@ -146,7 +145,7 @@ where
         &self,
         address: ContractAddress,
         outside_execution: OutsideExecution,
-        _signature: Vec<Felt>,
+        signature: Vec<Felt>,
     ) -> PaymasterResult<Option<(OutsideExecution, Vec<Felt>)>> {
         let block_id = BlockIdOrTag::PreConfirmed;
         let mut paymaster_nonce = self.get_paymaster_nonce(block_id).await?;
@@ -164,7 +163,7 @@ where
                 target: "cartridge",
                 controller = %address,
                 tx_hash = format!("{tx_hash:#x}"),
-                "Controller deploy transaction submitted",
+                "Outside Execution: Controller deploy transaction submitted",
             );
 
             paymaster_nonce += Nonce::ONE;
@@ -183,15 +182,15 @@ where
                 target: "cartridge",
                 vrf_provider = %self.vrf_ctx.address(),
                 tx_hash = format!("{tx_hash:#x}"),
-                "VRF Provider deploy transaction submitted",
+                "Outside Execution: VRF Provider deploy transaction submitted",
             );
 
             paymaster_nonce += Nonce::ONE;
         }
 
         // get VRF calls
-        let vrf_calls =
-            self.get_vrf_calls(&outside_execution, self.chain_id, &self.vrf_ctx).await?;
+        let calls = self.get_calls_from_outside_execution(&outside_execution);
+        let vrf_calls = self.get_vrf_calls(&calls, self.chain_id, &self.vrf_ctx).await?;
 
         trace!(
             target: "cartridge",
@@ -200,7 +199,7 @@ where
         );
         if let Some(vrf_calls) = vrf_calls {
             let (new_outside_execution, new_signature) = self
-                .craft_new_outside_execution(paymaster_nonce, outside_execution, &vrf_calls)
+                .craft_new_outside_execution(address, outside_execution, signature, &vrf_calls)
                 .await?;
 
             return Ok(Some((new_outside_execution, new_signature)));
@@ -213,26 +212,32 @@ where
     pub async fn handle_estimate_fees(
         &self,
         block_id: BlockIdOrTag,
-        transactions: Vec<BroadcastedTx>,
+        transactions: &Vec<BroadcastedTx>,
     ) -> PaymasterResult<Option<Vec<BroadcastedTx>>> {
         let mut deployed_controllers: HashSet<ContractAddress> = HashSet::new();
+        let mut new_transactions = Vec::new();
+        let mut updated_transactions = Vec::new();
+        let mut has_updated_transactions = false;
 
         let mut paymaster_nonce = self.get_paymaster_nonce(block_id).await?;
+        println!("paymaster_nonce: {:?}", paymaster_nonce);
 
         // deploy VRF provider if not deployed yet
         let tx_opt = self.craft_vrf_provider_deploy_tx(paymaster_nonce).await?;
         if let Some(tx) = tx_opt {
             let tx_hash = self
                 .pool
-                .add_transaction(ExecutableTxWithHash::new(tx))
+                .add_transaction(ExecutableTxWithHash::new(tx.clone()))
                 .await
                 .map_err(Error::FailedToAddTransaction)?;
+
+            new_transactions.push(tx.into());
 
             trace!(
                 target: "cartridge",
                 vrf_provider = %self.vrf_ctx.address(),
                 tx_hash = format!("{tx_hash:#x}"),
-                "VRF Provider deploy transaction submitted",
+                "Estimate fee: VRF Provider deploy transaction submitted",
             );
 
             paymaster_nonce += Nonce::ONE;
@@ -240,17 +245,68 @@ where
 
         // process the transactions to check if some controller needs to be deployed and
         // if some VRF calls have to be inserted between the original calls.
-        for tx in &transactions {
+        for tx in transactions {
             let address = match &tx {
-                BroadcastedTx::Invoke(tx) => tx.sender_address,
-                BroadcastedTx::Declare(tx) => tx.sender_address,
-                _ => continue,
+                BroadcastedTx::Invoke(invoke_tx) => {
+                    println!("tx: {:?}", invoke_tx.sender_address);
+                    println!("tx.calldata: {:?}", invoke_tx.calldata);
+
+                    // inject VRF calls
+                    let updated_tx = match self.decode_calls(&invoke_tx.calldata) {
+                        Some(calls) => {
+                            match self.get_vrf_calls(&calls, self.chain_id, &self.vrf_ctx).await? {
+                                Some(vrf_calls) => {
+                                    println!("Inject VRF calls");
+                                    has_updated_transactions = true;
+
+                                    let [submit_call, assert_call] = vrf_calls;
+                                    let calls = once(submit_call.into())
+                                        .chain(calls.iter().cloned())
+                                        .chain(once(assert_call.into()))
+                                        .collect::<Vec<_>>();
+
+                                    BroadcastedTx::Invoke(BroadcastedInvokeTx {
+                                        sender_address: invoke_tx.sender_address,
+                                        calldata: self.encode_calls(&calls),
+                                        signature: invoke_tx.signature.clone(), /* the signature
+                                                                                 * is wrong
+                                                                                 * but is
+                                                                                 * it important
+                                                                                 * for
+                                                                                 * estimate fee
+                                                                                 * ? */
+                                        nonce: invoke_tx.nonce,
+                                        tip: invoke_tx.tip,
+                                        paymaster_data: invoke_tx.paymaster_data.clone(),
+                                        resource_bounds: invoke_tx.resource_bounds.clone(),
+                                        nonce_data_availability_mode: invoke_tx
+                                            .nonce_data_availability_mode,
+                                        fee_data_availability_mode: invoke_tx
+                                            .fee_data_availability_mode,
+                                        account_deployment_data: invoke_tx
+                                            .account_deployment_data
+                                            .clone(),
+                                        is_query: invoke_tx.is_query,
+                                    })
+                                }
+                                None => tx.clone(),
+                            }
+                        }
+                        None => tx.clone(),
+                    };
+
+                    updated_transactions.push(updated_tx);
+                    invoke_tx.sender_address
+                }
+                BroadcastedTx::Declare(declare_tx) => {
+                    updated_transactions.push(tx.clone());
+                    declare_tx.sender_address
+                }
+                _ => {
+                    updated_transactions.push(tx.clone());
+                    continue;
+                }
             };
-
-            // TODO: update Nonce if sender_address is the paymaster when we insert
-            // a deploy tx for controller and/or VRF provider
-
-            // TODO: inject VRF calls in case of outside exec + request_random call
 
             // if the address has already been processed in this txs batch, just ignore the tx
             if deployed_controllers.contains(&address) {
@@ -260,12 +316,30 @@ where
             let tx_opt =
                 self.craft_controller_deploy_tx(address, block_id, paymaster_nonce).await?;
             if let Some(tx) = tx_opt {
+                deployed_controllers.insert(address);
+
                 let tx_hash = self
                     .pool
-                    .add_transaction(ExecutableTxWithHash::new(tx))
+                    .add_transaction(ExecutableTxWithHash::new(tx.clone()))
                     .await
                     .map_err(Error::FailedToAddTransaction)?;
+
+                new_transactions.push(tx.into());
+
+                trace!(
+                    target: "cartridge",
+                    controller = %address,
+                    tx_hash = format!("{tx_hash:#x}"),
+                    "Estimate fee: Controller deploy transaction submitted");
+
+                paymaster_nonce += Nonce::ONE;
             }
+        }
+
+        // TODO: integrate updated_transactions
+        if !new_transactions.is_empty() || has_updated_transactions {
+            new_transactions.extend(updated_transactions.iter().cloned());
+            return Ok(Some(new_transactions));
         }
 
         Ok(None)
@@ -302,9 +376,9 @@ where
         // Create a Controller deploy transaction against the latest state of the network.
         debug!(target: "cartridge", controller = %address, "Crafting controller deploy transaction");
 
-        let call = FunctionCall {
-            contract_address: DEFAULT_UDC_ADDRESS,
-            entry_point_selector: selector!("deployContract"),
+        let call = OutsideExecutionCall {
+            to: DEFAULT_UDC_ADDRESS,
+            selector: selector!("deployContract"),
             calldata: controller_calldata,
         };
 
@@ -362,9 +436,9 @@ where
                     public_key_y,
                 ];
 
-                let call = FunctionCall {
-                    contract_address: DEFAULT_UDC_ADDRESS,
-                    entry_point_selector: selector!("deployContract"),
+                let call = OutsideExecutionCall {
+                    to: DEFAULT_UDC_ADDRESS,
+                    selector: selector!("deployContract"),
                     calldata,
                 };
 
@@ -410,21 +484,35 @@ where
         Ok(result.map(|r| r.constructor_calldata))
     }
 
+    fn decode_calls(&self, calldata: &Vec<Felt>) -> Option<Vec<OutsideExecutionCall>> {
+        Vec::<OutsideExecutionCall>::cairo_deserialize(calldata, 0).ok()
+    }
+
+    fn encode_calls(&self, calls: &Vec<OutsideExecutionCall>) -> Vec<Felt> {
+        Vec::<OutsideExecutionCall>::cairo_serialize(calls)
+    }
+
+    fn get_calls_from_outside_execution(
+        &self,
+        outside_execution: &OutsideExecution,
+    ) -> Vec<OutsideExecutionCall> {
+        match outside_execution {
+            OutsideExecution::V2(v2) => v2.calls.clone(),
+            OutsideExecution::V3(v3) => v3.calls.clone(),
+        }
+    }
+
     /// Get the VRF calls for a given outside execution.
     ///
     /// Returns None if the outside execution does not contain any 'request_random' VRF call
     /// targeting the VRF provider contract.
     async fn get_vrf_calls(
         &self,
-        outside_execution: &OutsideExecution,
+        calls: &Vec<OutsideExecutionCall>,
         chain_id: ChainId,
         vrf_ctx: &VrfContext,
-    ) -> PaymasterResult<Option<[Call; 2]>> {
-        let calls = match outside_execution {
-            OutsideExecution::V2(v2) => &v2.calls,
-            OutsideExecution::V3(v3) => &v3.calls,
-        };
-
+    ) -> PaymasterResult<Option<[OutsideExecutionCall; 2]>> {
+        println!("calls: {:?}", calls);
         if calls.is_empty() {
             return Ok(None);
         }
@@ -465,10 +553,7 @@ where
                 self.starknet_api.state(&BlockIdOrTag::Latest).map_err(Error::StarknetApi)?;
 
             let key = pedersen_hash(&selector!("VrfProvider_nonces"), &contract_address);
-            state
-                .storage(vrf_ctx.address(), key)
-                .expect("failed to get storage")
-                .expect("storage not found")
+            state.storage(vrf_ctx.address(), key).unwrap_or_default().unwrap_or_default()
         } else if salt_or_nonce_selector == Felt::ONE {
             salt_or_nonce
         } else {
@@ -481,7 +566,7 @@ where
         let seed = starknet_crypto::poseidon_hash_many(vec![&source, &caller, &chain_id.id()]);
         let proof = vrf_ctx.stark_vrf(seed).map_err(|e| Error::Vrf(e.to_string()))?;
 
-        let submit_random_call = Call {
+        let submit_random_call = OutsideExecutionCall {
             to: vrf_ctx.address().into(),
             selector: selector!("submit_random"),
             calldata: vec![
@@ -494,7 +579,7 @@ where
             ],
         };
 
-        let assert_consumed_call = Call {
+        let assert_consumed_call = OutsideExecutionCall {
             selector: selector!("assert_consumed"),
             to: vrf_ctx.address().into(),
             calldata: vec![seed],
@@ -508,52 +593,27 @@ where
     /// Returns the new outside execution and the signature for the new outside execution.
     async fn craft_new_outside_execution(
         &self,
-        paymaster_nonce: Nonce,
+        address: ContractAddress,
         outside_execution: OutsideExecution,
-        vrf_calls: &[Call; 2],
+        signature: Vec<Felt>,
+        vrf_calls: &[OutsideExecutionCall; 2],
     ) -> PaymasterResult<(OutsideExecution, Vec<Felt>)> {
-        fn pack_calls(
-            calls: &[OutsideExecutionCall],
-            vrf_calls: &[Call; 2],
-        ) -> Vec<OutsideExecutionCall> {
-            let [submit_call, assert_call] = vrf_calls;
-            once(submit_call.into())
-                .chain(calls.iter().cloned())
-                .chain(once(assert_call.into()))
-                .collect::<Vec<_>>()
-        }
+        let execute_from_outside_call =
+            get_execute_from_outside_call(address, outside_execution, signature);
 
-        let new_outside_execution = match &outside_execution {
-            OutsideExecution::V2(v2) => OutsideExecution::V2(OutsideExecutionV2 {
-                caller: self.paymaster_address,
-                nonce: paymaster_nonce,
-                execute_after: v2.execute_after,
-                execute_before: v2.execute_before,
-                calls: pack_calls(&v2.calls, vrf_calls),
+        // This new outside_execution is just a way to provide the calls to execute to the
+        // `add_execute_outside_transaction` entrypoint, so only the `calls` field is relevant.
+        // The provided outside execution is embedded inside the calls to execute.
+        Ok((
+            OutsideExecution::V3(OutsideExecutionV3 {
+                caller: ContractAddress::ZERO,
+                nonce: NonceChannel::new(Felt::ZERO, 0),
+                execute_after: 0,
+                execute_before: 0,
+                calls: vec![vrf_calls[0].clone(), execute_from_outside_call, vrf_calls[1].clone()],
             }),
-            OutsideExecution::V3(v3) => OutsideExecution::V3(OutsideExecutionV3 {
-                caller: self.paymaster_address,
-                nonce: v3.nonce.copy_with_other_nonce(paymaster_nonce),
-                execute_after: v3.execute_after,
-                execute_before: v3.execute_before,
-                calls: pack_calls(&v3.calls, vrf_calls),
-            }),
-        };
-
-        let serialized_outside_execution =
-            OutsideExecution::cairo_serialize(&new_outside_execution);
-        let outside_execution_hash =
-            starknet_crypto::poseidon_hash_many(&serialized_outside_execution);
-
-        let signer = LocalWallet::from(self.paymaster_key.clone());
-        let new_signature = signer
-            .sign_hash(&outside_execution_hash)
-            .await
-            .map_err(|e| Error::SigningError(e.to_string()))?;
-
-        let new_signature = vec![new_signature.r, new_signature.s];
-
-        Ok((new_outside_execution, new_signature))
+            vec![],
+        ))
     }
 
     /// Get the nonce of the paymaster account.

@@ -12,11 +12,33 @@ use katana_primitives::{ContractAddress, Felt};
 use katana_provider::ProviderFactory;
 use katana_rpc_server::starknet::PendingBlockProvider;
 use katana_rpc_types::broadcasted::BroadcastedTx;
+use katana_rpc_types::FeeEstimate;
 use serde::Deserialize;
 use starknet::core::types::SimulationFlagForEstimateFee;
+use starknet::providers::jsonrpc::JsonRpcResponse;
+use tracing::{debug, trace};
 
 use super::Paymaster;
 use crate::rpc::types::OutsideExecution;
+
+#[derive(Deserialize)]
+struct EstimateFeeParams {
+    #[serde(alias = "request")]
+    txs: Vec<BroadcastedTx>,
+    #[serde(alias = "simulationFlags")]
+    simulation_flags: Vec<SimulationFlagForEstimateFee>,
+    #[serde(alias = "blockId")]
+    block_id: BlockIdOrTag,
+}
+
+#[derive(Deserialize)]
+struct OutsideExecutionParams {
+    #[serde(alias = "address")]
+    controller_address: ContractAddress,
+    #[serde(alias = "outsideExecution")]
+    outside_execution: OutsideExecution,
+    signature: Vec<Felt>,
+}
 
 #[derive(Debug)]
 pub struct PaymasterLayer<Pool: TransactionPool, PP: PendingBlockProvider, PF: ProviderFactory>
@@ -60,28 +82,21 @@ where
 impl<S, Pool: TransactionPool + 'static, PP: PendingBlockProvider, PF: ProviderFactory>
     PaymasterService<S, Pool, PP, PF>
 where
-    S: RpcServiceT + Send + Sync + Clone + 'static,
+    S: RpcServiceT<MethodResponse = MethodResponse> + Send + Sync + Clone + 'static,
     <PF as ProviderFactory>::Provider: ProviderRO,
 {
-    async fn intercept_estimate_fee(paymaster: Paymaster<Pool, PP, PF>, request: &mut Request<'_>) {
+    /// Extract estimate_fee parameters from the request.
+    fn parse_estimate_fee_params(request: &Request<'_>) -> Option<EstimateFeeParams> {
         let params = request.params();
 
-        let (txs, simulation_flags, block_id) = if params.is_object() {
-            #[derive(Deserialize)]
-            struct ParamsObject {
-                request: Vec<BroadcastedTx>,
-                #[serde(alias = "simulationFlags")]
-                simulation_flags: Vec<SimulationFlagForEstimateFee>,
-                #[serde(alias = "blockId")]
-                block_id: BlockIdOrTag,
+        if params.is_object() {
+            match params.parse() {
+                Ok(p) => Some(p),
+                Err(..) => {
+                    debug!(target: "cartridge", "Failed to parse estimate fee params.");
+                    None
+                }
             }
-
-            let parsed: ParamsObject = match params.parse() {
-                Ok(p) => p,
-                Err(..) => return,
-            };
-
-            (parsed.request, parsed.simulation_flags, parsed.block_id)
         } else {
             let mut seq = params.sequence();
 
@@ -90,48 +105,32 @@ where
             let block_id_result: Result<BlockIdOrTag, _> = seq.next();
 
             match (txs_result, simulation_flags_result, block_id_result) {
-                (Ok(txs), Ok(simulation_flags), Ok(block_id)) => (txs, simulation_flags, block_id),
-                _ => return,
+                (Ok(txs), Ok(simulation_flags), Ok(block_id)) => {
+                    Some(EstimateFeeParams { txs, simulation_flags, block_id })
+                }
+                _ => {
+                    debug!(target: "cartridge", "Failed to parse estimate fee params.");
+                    None
+                }
             }
-        };
-
-        if let Ok(Some(updated_txs)) = paymaster.handle_estimate_fees(block_id, txs).await {
-            let new_params = {
-                let mut params = jsonrpsee::core::params::ArrayParams::new();
-                params.insert(&updated_txs).unwrap();
-                params.insert(simulation_flags).unwrap();
-                params.insert(block_id).unwrap();
-                params
-            };
-
-            let params = new_params.to_rpc_params().unwrap();
-            let params = params.map(Cow::Owned);
-            request.params = params;
         }
     }
 
-    async fn intercept_add_outside_execution(
-        paymaster: Paymaster<Pool, PP, PF>,
-        request: &mut Request<'_>,
-    ) {
+    /// Extract add_outside_execution parameters from the request.
+    fn parse_add_outside_execution_params(request: &Request<'_>) -> Option<OutsideExecutionParams> {
         let params = request.params();
 
-        let (controller_address, outside_execution, signature) = if params.is_object() {
-            #[derive(Deserialize)]
-            struct ParamsObject {
-                address: ContractAddress,
-                #[serde(alias = "outsideExecution")]
-                outside_execution: OutsideExecution,
-                signature: Vec<Felt>,
+        if params.is_object() {
+            println!("params is object: {:?}", params);
+            match params.parse() {
+                Ok(p) => Some(p),
+                Err(..) => {
+                    debug!(target: "cartridge", "Failed to parse outside execution params.");
+                    None
+                }
             }
-
-            let parsed: ParamsObject = match params.parse() {
-                Ok(p) => p,
-                Err(..) => return,
-            };
-
-            (parsed.address, parsed.outside_execution, parsed.signature)
         } else {
+            println!("params is sequence: {:?}", params);
             let mut seq = params.sequence();
 
             let address_result: Result<ContractAddress, _> = seq.next();
@@ -139,32 +138,168 @@ where
             let signature_result: Result<Vec<Felt>, _> = seq.next();
 
             match (address_result, outside_execution_result, signature_result) {
-                (Ok(address), Ok(outside_execution), Ok(signature)) => {
-                    (address, outside_execution, signature)
+                (Ok(controller_address), Ok(outside_execution), Ok(signature)) => {
+                    Some(OutsideExecutionParams {
+                        controller_address,
+                        outside_execution,
+                        signature,
+                    })
                 }
-                _ => return,
+                _ => {
+                    debug!(target: "cartridge", "Failed to parse outside execution params.");
+                    None
+                }
             }
-        };
+        }
+    }
 
-        match paymaster
-            .handle_add_outside_execution(controller_address, outside_execution, signature)
-            .await
-        {
-            Ok(Some((outside_execution, signature))) => {
-                let new_params = {
-                    let mut params = jsonrpsee::core::params::ArrayParams::new();
-                    params.insert(controller_address).unwrap();
-                    params.insert(outside_execution).unwrap();
-                    params.insert(signature).unwrap();
-                    params
+    /// Build a new estimate fee request with the updated transactions.
+    fn build_new_estimate_fee_request<'a>(
+        request: &Request<'a>,
+        params: &EstimateFeeParams,
+        updated_txs: &Vec<BroadcastedTx>,
+    ) -> Request<'a> {
+        let mut new_request = request.clone();
+
+        let mut new_params = jsonrpsee::core::params::ArrayParams::new();
+        new_params.insert(updated_txs).unwrap();
+        new_params.insert(params.simulation_flags.clone()).unwrap();
+        new_params.insert(params.block_id).unwrap();
+
+        let new_params = new_params.to_rpc_params().unwrap();
+        new_request.params = new_params.map(Cow::Owned);
+        new_request
+    }
+
+    /// <----
+    fn build_no_fee_response(request: &Request<'_>, count: usize) -> MethodResponse {
+        let estimate_fees = vec![
+            FeeEstimate {
+                l1_gas_consumed: 0,
+                l1_gas_price: 0,
+                l2_gas_consumed: 0,
+                l2_gas_price: 0,
+                l1_data_gas_consumed: 0,
+                l1_data_gas_price: 0,
+                overall_fee: 0
+            };
+            count
+        ];
+
+        MethodResponse::response(
+            request.id().clone(),
+            jsonrpsee::ResponsePayload::success(estimate_fees),
+            usize::MAX,
+        )
+    }
+    /// ---->
+
+    fn intercept_estimate_fee<'a>(
+        service: S,
+        paymaster: Paymaster<Pool, PP, PF>,
+        request: Request<'a>,
+    ) -> impl Future<Output = S::MethodResponse> + Send + 'a {
+        async move {
+            if let Some(params) = Self::parse_estimate_fee_params(&request) {
+                let updated_txs = paymaster
+                    .handle_estimate_fees(params.block_id, &params.txs)
+                    .await
+                    .unwrap_or_default();
+
+                if let Some(updated_txs) = updated_txs {
+                    let new_request =
+                        Self::build_new_estimate_fee_request(&request, &params, &updated_txs);
+
+                    let response = service.call(new_request).await;
+
+                    // if `handle_estimate_fees` has added some new transactions at the
+                    // beginning of updated_txs, we have to remove
+                    // extras results from estimate_fees to be
+                    // sure to return the same number of result than the number
+                    // of transactions in the request.
+                    let nb_of_txs = params.txs.len();
+                    let nb_of_extra_txs = updated_txs.len() - nb_of_txs;
+
+                    if response.is_success() && nb_of_extra_txs > 0 {
+                        if let Ok(JsonRpcResponse::Success { result: mut estimate_fees, .. }) =
+                            serde_json::from_str::<JsonRpcResponse<Vec<FeeEstimate>>>(
+                                response.to_json().get(),
+                            )
+                        {
+                            if estimate_fees.len() >= nb_of_extra_txs {
+                                estimate_fees.drain(0..nb_of_extra_txs);
+                            }
+
+                            trace!(
+                                target: "cartridge",
+                                nb_of_extra_txs = nb_of_extra_txs,
+                                nb_of_estimate_fees = estimate_fees.len(),
+                                "Removing extra transactions from estimate fees response",
+                            );
+
+                            // TODO: restore the real response
+
+                            return Self::build_no_fee_response(&request, nb_of_txs);
+                            // return MethodResponse::response(
+                            // request.id().clone(),
+                            // jsonrpsee::ResponsePayload::success(estimate_fees),
+                            // usize::MAX,
+                            // );
+                        }
+                    }
+
+                    trace!(target: "cartridge", "Estimate fee endpoint original response returned");
+                    return Self::build_no_fee_response(&request, nb_of_txs);
+                    //                        return response;
+                }
+            }
+
+            trace!(target: "cartridge", "Estimate fee endpoint called with the original transaction");
+            service.call(request).await
+        }
+    }
+
+    fn intercept_add_outside_execution<'a>(
+        service: S,
+        paymaster: Paymaster<Pool, PP, PF>,
+        request: Request<'a>,
+    ) -> impl Future<Output = S::MethodResponse> + Send + 'a {
+        async move {
+            if let Some(OutsideExecutionParams {
+                controller_address,
+                outside_execution,
+                signature,
+            }) = Self::parse_add_outside_execution_params(&request)
+            {
+                let updated_tx = match paymaster
+                    .handle_add_outside_execution(controller_address, outside_execution, signature)
+                    .await
+                {
+                    Ok(Some(tx)) => Some(tx),
+                    Ok(None) => None,
+                    Err(error) => panic!("{error}"),
                 };
 
-                let params = new_params.to_rpc_params().unwrap();
-                let params = params.map(Cow::Owned);
-                request.params = params;
+                if let Some((outside_execution, signature)) = updated_tx {
+                    let mut new_request = request.clone();
+                    let new_params = {
+                        let mut params = jsonrpsee::core::params::ArrayParams::new();
+                        params.insert(controller_address).unwrap();
+                        params.insert(outside_execution).unwrap();
+                        params.insert(signature).unwrap();
+                        params
+                    };
+
+                    let params = new_params.to_rpc_params().unwrap();
+                    new_request.params = params.map(Cow::Owned);
+
+                    trace!(target: "cartridge", "Call outside_execution endpoint with the updated transaction");
+                    return service.call(new_request).await;
+                }
             }
-            Ok(None) => {}
-            Err(error) => panic!("{error}"),
+
+            trace!(target: "cartridge", "Call outside_execution endpoint with the original transaction");
+            service.call(request).await
         }
     }
 }
@@ -199,19 +334,19 @@ where
 
     fn call<'a>(
         &self,
-        mut request: Request<'a>,
+        request: Request<'a>,
     ) -> impl Future<Output = Self::MethodResponse> + Send + 'a {
         let service = self.service.clone();
         let paymaster = self.paymaster.clone();
 
         async move {
             if request.method_name() == "starknet_estimateFee" {
-                Self::intercept_estimate_fee(paymaster, &mut request).await;
+                Self::intercept_estimate_fee(service, paymaster, request).await
             } else if request.method_name() == "cartridge_addExecuteOutsideTransaction" {
-                Self::intercept_add_outside_execution(paymaster, &mut request).await;
+                Self::intercept_add_outside_execution(service, paymaster, request).await
+            } else {
+                service.call(request).await
             }
-
-            service.call(request).await
         }
     }
 

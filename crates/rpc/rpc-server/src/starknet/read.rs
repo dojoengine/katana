@@ -188,6 +188,7 @@ where
             self.inner.estimate_fee_permit.acquire().await.map_err(|e| {
                 StarknetApiError::unexpected(format!("Failed to acquire permit: {e}"))
             })?;
+
         let res = self
             .on_cpu_blocking_task(move |this| async move {
                 let _permit = permit;

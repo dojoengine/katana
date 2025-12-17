@@ -6878,6 +6878,7 @@ version = "1.7.0"
 dependencies = [
  "anyhow",
  "backon",
+ "cartridge",
  "futures",
  "http 1.3.1",
  "jsonrpsee",

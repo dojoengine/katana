@@ -29,6 +29,7 @@ katana-tee = { workspace = true, optional = true }
 
 anyhow.workspace = true
 backon.workspace = true
+cartridge.workspace = true
 futures.workspace = true
 http.workspace = true
 jsonrpsee.workspace = true
