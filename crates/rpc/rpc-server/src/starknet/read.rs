@@ -184,18 +184,19 @@ where
             .with_account_validation(should_validate)
             .with_nonce_check(false);
 
-        let permit = self.inner.estimate_fee_permit.acquire().await.map_err(|e| {
-            StarknetApiError::UnexpectedError(UnexpectedErrorData {
-                reason: format!("Failed to acquire permit: {e}"),
+        let permit =
+            self.inner.estimate_fee_permit.acquire().await.map_err(|e| {
+                StarknetApiError::unexpected(format!("Failed to acquire permit: {e}"))
+            })?;
+        let res = self
+            .on_cpu_blocking_task(move |this| async move {
+                let _permit = permit;
+                let results = this.estimate_fee_with(transactions, block_id, flags)?;
+                Ok(results)
             })
-        })?;
+            .await?;
 
-        self.on_cpu_blocking_task(move |this| async move {
-            let _permit = permit;
-            let results = this.estimate_fee_with(transactions, block_id, flags)?;
-            Ok(results)
-        })
-        .await?
+        res
     }
 
     async fn estimate_message_fee(
