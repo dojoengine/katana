@@ -18,7 +18,6 @@ use katana_provider::api::state::{StateFactoryProvider, StateProvider};
 use katana_provider::ProviderFactory;
 use katana_rpc_api::error::starknet::StarknetApiError;
 use katana_rpc_types::broadcasted::AddInvokeTransactionResponse;
-use katana_rpc_types::FunctionCall;
 use katana_tasks::{Result as TaskResult, TaskSpawner};
 use starknet::macros::selector;
 use starknet::signers::{LocalWallet, Signer, SigningKey};
@@ -30,6 +29,7 @@ pub mod types;
 
 pub use api::*;
 
+use crate::rpc::types::Call;
 use crate::utils::encode_calls;
 
 #[allow(missing_debug_implementations)]
@@ -74,6 +74,7 @@ where
         signature: Vec<Felt>,
     ) -> Result<AddInvokeTransactionResponse, StarknetApiError> {
         debug!(%address, ?outside_execution, "Adding execute outside transaction.");
+
         self.on_cpu_blocking_task(move |this| async move {
             let (pm_address, pm_account) = this
                 .backend
@@ -82,22 +83,22 @@ where
                 .paymaster_account()
                 .ok_or(anyhow!("Cartridge paymaster account doesn't exist"))?;
 
-            // Contract function selector for
-            let entrypoint = match outside_execution {
-                OutsideExecution::V2(_) => selector!("execute_from_outside_v2"),
-                OutsideExecution::V3(_) => selector!("execute_from_outside_v3"),
-            };
-
             // Get the current nonce of the paymaster account.
             let nonce = this.nonce(pm_address)?.unwrap_or_default();
 
-            let mut inner_calldata = OutsideExecution::cairo_serialize(&outside_execution);
-            inner_calldata.extend(Vec::<Felt>::cairo_serialize(&signature));
+            // If the signature is empty, it means that the provided outside execution has been
+            // modified by a middleware meaning that `outside_execution` is just a way to provide
+            // the calls to execute.
+            let calls = if signature.is_empty() {
+                match outside_execution {
+                    OutsideExecution::V2(v2) => v2.calls.clone(),
+                    OutsideExecution::V3(v3) => v3.calls.clone(),
+                }
+            } else {
+                let execute_from_outside_call =
+                    get_execute_from_outside_call(address, outside_execution, signature);
 
-            let execute_from_outside_call = FunctionCall {
-                contract_address: address,
-                entry_point_selector: entrypoint,
-                calldata: inner_calldata,
+                vec![execute_from_outside_call]
             };
 
             let chain_id = this.backend.chain_spec.id();
@@ -105,7 +106,7 @@ where
             let mut tx = InvokeTxV3 {
                 nonce,
                 chain_id,
-                calldata: encode_calls(vec![execute_from_outside_call]),
+                calldata: encode_calls(calls),
                 signature: vec![],
                 sender_address: pm_address,
                 tip: 0_u64,

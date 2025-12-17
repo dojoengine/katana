@@ -32,6 +32,7 @@ tower.workspace = true
 
 anyhow.workspace = true
 backon.workspace = true
+cartridge.workspace = true
 futures.workspace = true
 http.workspace = true
 jsonrpsee.workspace = true

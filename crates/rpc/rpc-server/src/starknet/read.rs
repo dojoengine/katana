@@ -8,7 +8,7 @@ use katana_primitives::contract::{Nonce, StorageKey, StorageValue};
 use katana_primitives::transaction::{ExecutableTx, ExecutableTxWithHash, TxHash};
 use katana_primitives::{ContractAddress, Felt};
 use katana_provider::ProviderFactory;
-use katana_rpc_api::error::starknet::{StarknetApiError, UnexpectedErrorData};
+use katana_rpc_api::error::starknet::StarknetApiError;
 use katana_rpc_api::starknet::StarknetApiServer;
 use katana_rpc_types::block::{
     BlockHashAndNumberResponse, BlockNumberResponse, GetBlockWithReceiptsResponse,
@@ -206,6 +206,7 @@ where
             self.inner.estimate_fee_permit.acquire().await.map_err(|e| {
                 StarknetApiError::unexpected(format!("Failed to acquire permit: {e}"))
             })?;
+
         let res = self
             .on_cpu_blocking_task(move |this| async move {
                 let _permit = permit;
