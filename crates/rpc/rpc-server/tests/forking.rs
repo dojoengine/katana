@@ -14,11 +14,10 @@ use katana_rpc_types::{
     BlockNumberResponse, EventFilter, GetBlockWithReceiptsResponse, GetBlockWithTxHashesResponse,
     MaybePreConfirmedBlock,
 };
+use katana_test_utils::assert_provider_starknet_err;
 use katana_utils::node::ForkTestNode;
 use katana_utils::TestNode;
 use url::Url;
-
-mod common;
 
 const SEPOLIA_CHAIN_ID: Felt = NamedChainId::SN_SEPOLIA;
 const SEPOLIA_URL: &str = "https://api.cartridge.gg/x/starknet/sepolia";

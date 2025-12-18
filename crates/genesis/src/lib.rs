@@ -14,6 +14,7 @@ use katana_primitives::Felt;
 use serde::{Deserialize, Serialize};
 
 use self::allocation::{GenesisAccountAlloc, GenesisAllocation, GenesisContractAlloc};
+use crate::allocation::DevGenesisAccount;
 
 /// Genesis block configuration.
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
@@ -66,6 +67,20 @@ impl Genesis {
                 None
             }
         })
+    }
+
+    pub fn paymaster_account(&self) -> Option<(ContractAddress, &DevGenesisAccount)> {
+        // TODO: deploy a dedicated account for the paymaster instead of using the first dev account
+        match self.accounts().nth(0) {
+            Some((addr, account)) => {
+                if let GenesisAccountAlloc::DevAccount(account) = account {
+                    Some((*addr, account))
+                } else {
+                    None
+                }
+            }
+            None => None,
+        }
     }
 }
 
