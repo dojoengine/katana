@@ -265,6 +265,19 @@ impl From<katana_primitives::receipt::Receipt> for ReceiptBody {
         };
 
         match receipt {
+            katana_primitives::receipt::Receipt::Deploy(receipt) => {
+                Self {
+                    execution_resources: Some(receipt.execution_resources.into()),
+                    // This would need to be populated from transaction context
+                    l1_to_l2_consumed_message: None,
+                    l2_to_l1_messages: receipt.messages_sent,
+                    events: receipt.events,
+                    actual_fee: receipt.fee.overall_fee.into(),
+                    execution_status,
+                    revert_error: receipt.revert_error,
+                }
+            }
+
             katana_primitives::receipt::Receipt::Invoke(receipt) => {
                 Self {
                     execution_resources: Some(receipt.execution_resources.into()),

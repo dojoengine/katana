@@ -6,7 +6,8 @@ use katana_primitives::block::{
 };
 use katana_primitives::fee::{FeeInfo, PriceUnit};
 use katana_primitives::receipt::{
-    DeclareTxReceipt, DeployAccountTxReceipt, InvokeTxReceipt, L1HandlerTxReceipt, Receipt,
+    DeclareTxReceipt, DeployAccountTxReceipt, DeployTxReceipt, InvokeTxReceipt, L1HandlerTxReceipt,
+    Receipt,
 };
 use katana_primitives::state::{StateUpdates, StateUpdatesWithClasses};
 use katana_primitives::transaction::{Tx, TxWithHash};
@@ -208,7 +209,7 @@ fn extract_block_data(
 
             let fee = FeeInfo { unit, overall_fee, ..Default::default() };
 
-            match tx.transaction {
+            match &tx.transaction {
                 Tx::Invoke(_) => Receipt::Invoke(InvokeTxReceipt {
                     fee,
                     events,
@@ -231,15 +232,22 @@ fn extract_block_data(
                     message_hash: Default::default(),
                     execution_resources: execution_resources.into(),
                 }),
-                Tx::DeployAccount(_) => Receipt::DeployAccount(DeployAccountTxReceipt {
+                Tx::DeployAccount(tx) => Receipt::DeployAccount(DeployAccountTxReceipt {
                     fee,
                     events,
                     revert_error,
                     messages_sent,
-                    contract_address: Default::default(),
+                    contract_address: tx.contract_address(),
                     execution_resources: execution_resources.into(),
                 }),
-                Tx::Deploy(_) => unreachable!("Deploy transactions are not supported"),
+                Tx::Deploy(tx) => Receipt::Deploy(DeployTxReceipt {
+                    fee,
+                    events,
+                    revert_error,
+                    messages_sent,
+                    contract_address: tx.contract_address.into(),
+                    execution_resources: execution_resources.into(),
+                }),
             }
         })
         .collect::<Vec<Receipt>>();
