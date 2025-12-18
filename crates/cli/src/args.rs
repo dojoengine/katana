@@ -525,6 +525,15 @@ impl SequencerNodeArgs {
             self.cartridge.merge(config.cartridge.as_ref());
         }
 
+        #[cfg(feature = "explorer")]
+        {
+            if !self.explorer.explorer {
+                if let Some(explorer) = &config.explorer {
+                    self.explorer.explorer = explorer.explorer;
+                }
+            }
+        }
+
         Ok(self)
     }
 
@@ -729,6 +738,9 @@ total_accounts = 20
 validate_max_steps = 500
 invoke_max_steps = 9988
 chain_id.Named = "Mainnet"
+
+[explorer]
+explorer = true
         "#;
         let path = std::env::temp_dir().join("katana-config.json");
         std::fs::write(&path, content).unwrap();
@@ -772,6 +784,9 @@ chain_id.Named = "Mainnet"
         assert_eq!(config.chain.genesis().gas_prices.eth.get(), 9999);
         assert_eq!(config.chain.genesis().gas_prices.strk.get(), 8888);
         assert_eq!(config.chain.id(), ChainId::Id(Felt::from_str("0x123").unwrap()));
+
+        #[cfg(feature = "explorer")]
+        assert!(config.rpc.explorer);
     }
 
     #[test]
