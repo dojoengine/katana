@@ -28,7 +28,7 @@ pub enum StateUpdate {
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub struct PreConfirmedStateUpdate {
     /// The previous global state root
-    pub old_root: Felt,
+    pub old_root: Option<Felt>,
     /// State diff
     pub state_diff: StateDiff,
 }
@@ -272,20 +272,21 @@ impl<'de> Deserialize<'de> for StateUpdate {
                     }
                 }
 
-                let old_root =
-                    old_root.ok_or_else(|| serde::de::Error::missing_field("old_root"))?;
                 let state_diff =
                     state_diff.ok_or_else(|| serde::de::Error::missing_field("state_diff"))?;
 
                 // If block_hash and new_root are not present, deserialize as
                 // PreConfirmedStateUpdate
                 match (block_hash, new_root) {
-                    (None, None) => Ok(StateUpdate::PreConfirmed(PreConfirmedStateUpdate {
+                    (None, None, ..) => Ok(StateUpdate::PreConfirmed(PreConfirmedStateUpdate {
                         old_root,
                         state_diff,
                     })),
 
                     (Some(block_hash), Some(new_root)) => {
+                        let old_root =
+                            old_root.ok_or_else(|| serde::de::Error::missing_field("old_root"))?;
+
                         Ok(StateUpdate::Confirmed(ConfirmedStateUpdate {
                             block_hash,
                             new_root,
