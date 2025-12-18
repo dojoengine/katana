@@ -11,7 +11,7 @@ use blockifier::execution::contract_class::{
 use blockifier::fee::fee_utils::get_fee_by_gas_vector;
 use blockifier::state::cached_state::{self, TransactionalState};
 use blockifier::state::state_api::{StateReader, UpdatableState};
-use blockifier::state::stateful_compression::{allocate_aliases_in_storage, compress};
+use blockifier::state::stateful_compression::allocate_aliases_in_storage;
 use blockifier::transaction::account_transaction::{
     AccountTransaction, ExecutionFlags as BlockifierExecutionFlags,
 };
@@ -499,18 +499,32 @@ pub fn block_context_from_envs(
     BlockContext::new(block_info, chain_info, versioned_constants, BouncerConfig::max())
 }
 
-pub(super) fn state_update_from_cached_state(state: &CachedState<'_>) -> StateUpdatesWithClasses {
-    let alias_contract_address = contract_address!(ALIAS_CONTRACT_ADDRESS);
-    allocate_aliases_in_storage(&mut state.inner.lock().cached_state, alias_contract_address)
-        .unwrap();
+pub(super) fn state_update_from_cached_state(
+    state: &CachedState<'_>,
+    stateful_compression: bool,
+) -> StateUpdatesWithClasses {
+    let state_diff = if stateful_compression {
+        let mut state_lock = state.inner.lock();
 
-    let state_diff = state.inner.lock().cached_state.to_state_diff().unwrap().state_maps;
-    let state_diff =
-        compress(&state_diff, &state.inner.lock().cached_state, alias_contract_address);
+        let alias_contract_address = contract_address!(ALIAS_CONTRACT_ADDRESS);
+        allocate_aliases_in_storage(&mut state_lock.cached_state, alias_contract_address)
+            .expect("failed to allocated aliases");
 
-    assert!(state_diff.is_ok(), "failed to compress state diff");
+        #[cfg(debug_assertions)]
+        {
+            use blockifier::state::stateful_compression::compress;
 
-    let state_diff = state.inner.lock().cached_state.to_state_diff().unwrap().state_maps;
+            let state_diff = state_lock.cached_state.to_state_diff().unwrap().state_maps;
+            let compressed_state_diff =
+                compress(&state_diff, &state_lock.cached_state, alias_contract_address);
+
+            debug_assert!(compressed_state_diff.is_ok(), "failed to compress state diff");
+        }
+
+        state_lock.cached_state.to_state_diff().unwrap().state_maps
+    } else {
+        state.inner.lock().cached_state.to_state_diff().unwrap().state_maps
+    };
 
     let mut declared_contract_classes: BTreeMap<
         katana_primitives::class::ClassHash,
