@@ -308,7 +308,12 @@ fn test_executor_with_valid_blocks_impl(
 
     // TODO: asserts the storage updates
     let actual_storage_updates = states.state_updates.storage_updates;
-    assert_eq!(actual_storage_updates.len(), 3, "only 3 contracts whose storage should be updated");
+    assert_eq!(
+        actual_storage_updates.len(),
+        4,
+        "only 4 ( 3 normal contract + 1 for special alias contract '0x2') contracts whose storage \
+         should be updated"
+    );
     assert!(
         actual_storage_updates.contains_key(&DEFAULT_ETH_FEE_TOKEN_ADDRESS),
         "fee token storage must get updated"
@@ -320,6 +325,10 @@ fn test_executor_with_valid_blocks_impl(
     assert!(
         actual_storage_updates.contains_key(&new_acc),
         "newly deployed account storage must get updated"
+    );
+    assert!(
+        actual_storage_updates.contains_key(&address!("0x2")),
+        "alias contract must be allocated"
     );
 }
 
