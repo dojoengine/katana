@@ -659,7 +659,18 @@ impl TrieWriter for GenesisTrieWriter {
             contract_leafs
                 .into_iter()
                 .map(|(address, leaf)| {
-                    let class_hash = leaf.class_hash.unwrap();
+                    let class_hash = if let Some(class_hash) = leaf.class_hash {
+                        class_hash
+                    } else {
+                        // TODO: there's must be a better way to handle this
+                        assert!(
+                            address == address!("0x1") || address == address!("0x2"),
+                            "Only special contracts may have unspecified class hash."
+                        );
+
+                        ClassHash::ZERO
+                    };
+
                     let nonce = leaf.nonce.unwrap_or_default();
                     let storage_root = leaf.storage_root.unwrap_or_default();
                     let leaf_hash = compute_contract_state_hash(&class_hash, &storage_root, &nonce);
