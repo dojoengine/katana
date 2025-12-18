@@ -63,12 +63,18 @@ pub struct GetEventsResponse {
 /// of transaction execution.
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub struct EmittedEvent {
-    pub from_address: ContractAddress,
-    pub keys: Vec<Felt>,
-    pub data: Vec<Felt>,
+    /// The hash of the block in which the event was emitted.
     #[serde(skip_serializing_if = "Option::is_none")]
     pub block_hash: Option<BlockHash>,
+    /// The number of the block in which the event was emitted.
     #[serde(skip_serializing_if = "Option::is_none")]
     pub block_number: Option<BlockNumber>,
     pub transaction_hash: TxHash,
+    /// The index of the transaction in the block.
+    pub transaction_index: u64,
+    /// The index of the event within the transaction.
+    pub event_index: u64,
+    pub from_address: ContractAddress,
+    pub keys: Vec<Felt>,
+    pub data: Vec<Felt>,
 }
