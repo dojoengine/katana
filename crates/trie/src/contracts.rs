@@ -1,7 +1,5 @@
-use bonsai_trie::{
-    trie::trees::{FullMerkleTrees, PartialMerkleTrees},
-    BonsaiDatabase, BonsaiPersistentDatabase, MultiProof,
-};
+use bonsai_trie::trie::trees::{FullMerkleTrees, PartialMerkleTrees};
+use bonsai_trie::{BonsaiDatabase, BonsaiPersistentDatabase, MultiProof};
 use katana_primitives::block::BlockNumber;
 use katana_primitives::hash::Pedersen;
 use katana_primitives::{ContractAddress, Felt};

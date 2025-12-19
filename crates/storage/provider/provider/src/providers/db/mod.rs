@@ -5,7 +5,6 @@ use std::collections::{BTreeMap, BTreeSet};
 use std::fmt::Debug;
 use std::ops::{Deref, Range, RangeInclusive};
 
-use crate::{MutableProvider, ProviderResult};
 use katana_db::abstraction::{DbCursor, DbCursorMut, DbDupSortCursor, DbTx, DbTxMut};
 use katana_db::error::DatabaseError;
 use katana_db::models::block::StoredBlockBodyIndices;
@@ -45,6 +44,8 @@ use katana_provider_api::transaction::{
 };
 use katana_provider_api::ProviderError;
 use katana_rpc_types::{TxTrace, TxTraceWithHash};
+
+use crate::{MutableProvider, ProviderResult};
 
 /// A provider implementation that uses a persistent database as the backend.
 // TODO: remove the default generic type

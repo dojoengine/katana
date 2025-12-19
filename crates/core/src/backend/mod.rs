@@ -673,11 +673,11 @@ impl TrieWriter for GenesisTrieWriter {
     fn trie_insert_declared_classes(
         &self,
         block_number: BlockNumber,
-        updates: impl Iterator<Item = (ClassHash, CompiledClassHash)>,
+        classes: Vec<(ClassHash, CompiledClassHash)>,
     ) -> katana_provider::ProviderResult<Felt> {
         let mut trie = ClassesTrie::new(HashMapDb::default());
 
-        for (class_hash, compiled_hash) in updates {
+        for (class_hash, compiled_hash) in classes {
             trie.insert(class_hash, compiled_hash);
         }
 

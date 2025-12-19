@@ -115,8 +115,8 @@ where
             .with_fee(config.dev.fee);
 
         let executor_factory = {
-            // Try to use existing global cache if already initialized (useful for tests with multiple nodes)
-            // Otherwise, build and initialize a new global cache
+            // Try to use existing global cache if already initialized (useful for tests with
+            // multiple nodes) Otherwise, build and initialize a new global cache
             let global_class_cache = match ClassCache::try_global() {
                 Ok(cache) => {
                     info!("Using existing global class cache");

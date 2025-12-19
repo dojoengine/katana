@@ -1,8 +1,5 @@
-use super::db::{self};
-use super::ForkedProvider;
-use crate::providers::fork::ForkedDb;
-use crate::BlockNumber;
-use crate::{MutableProvider, ProviderFactory, ProviderResult};
+use std::cmp::Ordering;
+
 use katana_db::abstraction::{DbTx, DbTxMut};
 use katana_db::models::storage::StorageEntry;
 use katana_db::tables;
@@ -18,7 +15,11 @@ use katana_provider_api::state::{
 };
 use katana_provider_api::ProviderError;
 use katana_rpc_types::ContractStorageKeys;
-use std::cmp::Ordering;
+
+use super::db::{self};
+use super::ForkedProvider;
+use crate::providers::fork::ForkedDb;
+use crate::{BlockNumber, MutableProvider, ProviderFactory, ProviderResult};
 
 impl<Tx1: DbTx> StateFactoryProvider for ForkedProvider<Tx1> {
     fn latest(&self) -> ProviderResult<Box<dyn StateProvider>> {
@@ -116,8 +117,9 @@ impl<Tx1: DbTx> ContractClassProvider for LatestStateProvider<Tx1> {
 }
 
 impl<Tx1: DbTx> LatestStateProvider<Tx1> {
-    /// Returns the latest block number, which is the maximum of local_db.latest_number() and fork_point.
-    /// This ensures that even if local_db is empty, we return the fork point as the latest block.
+    /// Returns the latest block number, which is the maximum of local_db.latest_number() and
+    /// fork_point. This ensures that even if local_db is empty, we return the fork point as the
+    /// latest block.
     fn latest_block_number(&self) -> ProviderResult<katana_primitives::block::BlockNumber> {
         let fork_point = self.fork_provider.block_id;
         let local_latest = match self.local_provider.0.latest_number() {
@@ -261,8 +263,9 @@ impl<Tx1: DbTx> StateProofProvider for LatestStateProvider<Tx1> {
 
             Ok(proofs.classes_proof.nodes.into())
         } else {
-            let mut trie =
-                TrieDbFactory::new(self.local_provider.0.tx().clone()).latest().partial_classes_trie();
+            let mut trie = TrieDbFactory::new(self.local_provider.0.tx().clone())
+                .latest()
+                .partial_classes_trie();
 
             let rpc_proof =
                 self.fork_provider.backend.get_classes_proofs(classes.clone(), fork_point)?;
@@ -291,8 +294,9 @@ impl<Tx1: DbTx> StateProofProvider for LatestStateProvider<Tx1> {
 
             Ok(proofs.contracts_proof.nodes.into())
         } else {
-            let mut trie =
-                TrieDbFactory::new(self.local_provider.0.tx().clone()).latest().partial_contracts_trie();
+            let mut trie = TrieDbFactory::new(self.local_provider.0.tx().clone())
+                .latest()
+                .partial_contracts_trie();
 
             let rpc_proof =
                 self.fork_provider.backend.get_contracts_proofs(addresses.clone(), fork_point)?;

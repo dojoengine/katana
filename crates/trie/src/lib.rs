@@ -1,11 +1,9 @@
 use bitvec::view::AsBits;
 pub use bonsai::{BitVec, MultiProof, Path, ProofNode};
 pub use bonsai_trie::databases::HashMapDb;
+pub use bonsai_trie::trie::trees::{FullMerkleTrees, PartialMerkleTrees};
 use bonsai_trie::BonsaiStorage;
-pub use bonsai_trie::{
-    trie::trees::{FullMerkleTrees, PartialMerkleTrees},
-    BonsaiDatabase, BonsaiPersistentDatabase, BonsaiStorageConfig,
-};
+pub use bonsai_trie::{BonsaiDatabase, BonsaiPersistentDatabase, BonsaiStorageConfig};
 use katana_primitives::block::BlockNumber;
 use katana_primitives::class::ClassHash;
 use katana_primitives::Felt;

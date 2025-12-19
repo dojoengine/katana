@@ -661,7 +661,9 @@ async fn get_events_with_invalid_block_hash(#[case] hash: BlockHash) {
 
 #[cfg(test)]
 mod tests {
-    use crate::Url;
+    use std::collections::{BTreeMap, BTreeSet};
+    use std::sync::Arc;
+
     use katana_chain_spec::dev::DEV_UNALLOCATED;
     use katana_chain_spec::{dev, ChainSpec};
     use katana_core::service::block_producer::IntervalBlockProducer;
@@ -673,21 +675,18 @@ mod tests {
     use katana_primitives::chain::ChainId;
     use katana_primitives::class::ClassHash;
     use katana_primitives::state::{StateUpdates, StateUpdatesWithClasses};
-    use katana_primitives::ContractAddress;
-    use katana_primitives::Felt;
+    use katana_primitives::{ContractAddress, Felt};
     use katana_provider::api::block::{BlockNumberProvider, BlockWriter};
     use katana_provider::api::trie::TrieWriter;
-    use katana_provider::MutableProvider;
-    use katana_provider::{ForkProviderFactory, ProviderFactory};
+    use katana_provider::{ForkProviderFactory, MutableProvider, ProviderFactory};
     use katana_utils::node::ForkTestNode;
     use katana_utils::TestNode;
     use proptest::arbitrary::any;
     use proptest::prelude::{Just, ProptestConfig, Strategy};
-    use proptest::prop_assert_eq;
-    use proptest::proptest;
+    use proptest::{prop_assert_eq, proptest};
     use rand::{thread_rng, Rng};
-    use std::collections::{BTreeMap, BTreeSet};
-    use std::sync::Arc;
+
+    use crate::Url;
 
     #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
     async fn test_commit_new_state_root_mainnet_blockchain_and_forked_provider() {
@@ -732,8 +731,8 @@ mod tests {
 
         // Second iteration with new random updates
         let state_updates = setup_mainnet_updates_randomized(5);
-        //IT's important here to compute state root for forked network first, then for mainnet
-        //otherwise it will be different roots because it's like double computation of same changes
+        // IT's important here to compute state root for forked network first, then for mainnet
+        // otherwise it will be different roots because it's like double computation of same changes
         let fork_state_root = {
             let forked_provider = fork_factory.provider_mut();
             let root = forked_provider.compute_state_root(block_number, &state_updates).unwrap();
@@ -1138,11 +1137,10 @@ mod tests {
 
     #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
     async fn test_e2e_state_roots_with_real_transactions() {
-        use crate::abigen_legacy;
-        use crate::DEFAULT_STRK_FEE_TOKEN_ADDRESS;
         use katana_primitives::block::BlockHashOrNumber;
-        use katana_provider::api::block::BlockNumberProvider;
-        use katana_provider::api::block::HeaderProvider;
+        use katana_provider::api::block::{BlockNumberProvider, HeaderProvider};
+
+        use crate::{abigen_legacy, DEFAULT_STRK_FEE_TOKEN_ADDRESS};
 
         // Setup: Create main instance and fork instance
 
