@@ -1,3 +1,4 @@
+use bonsai_trie::trie::trees::{FullMerkleTrees, PartialMerkleTrees};
 use bonsai_trie::{BonsaiDatabase, BonsaiPersistentDatabase, MultiProof};
 use katana_primitives::block::BlockNumber;
 use katana_primitives::contract::{StorageKey, StorageValue};
@@ -6,13 +7,15 @@ use katana_primitives::{ContractAddress, Felt};
 
 use crate::id::CommitId;
 
-#[derive(Debug)]
-pub struct StoragesTrie<DB: BonsaiDatabase> {
+pub struct StoragesTrie<DB: BonsaiDatabase, TreeType = FullMerkleTrees<Pedersen, DB, CommitId>> {
     /// The contract address the storage trie belongs to.
     address: ContractAddress,
-    trie: crate::BonsaiTrie<DB, Pedersen>,
+    trie: crate::BonsaiTrie<DB, Pedersen, TreeType>,
 }
 
+pub type PartialStoragesTrie<DB> = StoragesTrie<DB, PartialMerkleTrees<Pedersen, DB, CommitId>>;
+
+// Full tree implementation
 impl<DB: BonsaiDatabase> StoragesTrie<DB> {
     pub fn new(db: DB, address: ContractAddress) -> Self {
         Self { address, trie: crate::BonsaiTrie::new(db) }
@@ -41,5 +44,63 @@ where
 
     pub fn commit(&mut self, block: BlockNumber) {
         self.trie.commit(block.into())
+    }
+}
+
+// Partial tree implementation
+impl<DB: BonsaiDatabase> PartialStoragesTrie<DB> {
+    pub fn new_partial(db: DB, address: ContractAddress) -> Self {
+        Self { address, trie: crate::PartialBonsaiTrie::new_partial(db) }
+    }
+
+    pub fn root(&self) -> Felt {
+        self.trie.root(&self.address.to_bytes_be())
+    }
+
+    pub fn multiproof(&mut self, storage_keys: Vec<StorageKey>) -> MultiProof {
+        self.trie.multiproof(&self.address.to_bytes_be(), storage_keys)
+    }
+
+    pub fn partial_multiproof(
+        &mut self,
+        storage_keys: Vec<StorageKey>,
+        rpc_proof: Option<MultiProof>,
+        rpc_root: Option<Felt>,
+    ) -> MultiProof {
+        self.trie.partial_multiproof(&self.address.to_bytes_be(), storage_keys, rpc_proof, rpc_root)
+    }
+}
+
+impl<DB> PartialStoragesTrie<DB>
+where
+    DB: BonsaiDatabase + BonsaiPersistentDatabase<CommitId>,
+{
+    pub fn insert(
+        &mut self,
+        storage_key: StorageKey,
+        storage_value: StorageValue,
+        proof: MultiProof,
+        original_root: Felt,
+    ) {
+        self.trie.insert_with_proof(
+            &self.address.to_bytes_be(),
+            storage_key,
+            storage_value,
+            proof,
+            original_root,
+        )
+    }
+
+    pub fn commit(&mut self, block: BlockNumber) {
+        self.trie.commit(block.into())
+    }
+}
+
+impl<DB: BonsaiDatabase, TreeType> std::fmt::Debug for StoragesTrie<DB, TreeType> {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.debug_struct("StoragesTrie")
+            .field("address", &self.address)
+            .field("trie", &"<BonsaiTrie>")
+            .finish()
     }
 }

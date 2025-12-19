@@ -17,7 +17,7 @@ starknet-types-core.workspace = true
 thiserror.workspace = true
 
 [dependencies.bonsai-trie]
-rev = "95de4c6"
+branch = "feature/provable-forking"
 default-features = false
 features = [ "std" ]
-git = "https://github.com/dojoengine/bonsai-trie/"
+git = "https://github.com/michalpalkowski/bonsai-trie-katana.git"

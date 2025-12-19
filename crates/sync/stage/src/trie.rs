@@ -63,38 +63,40 @@ impl Stage for StateTrie {
                     .ok_or(Error::MissingStateUpdate(block_number))?;
 
                 let provider_mut_clone = provider_mut.clone();
-                let (computed_contract_trie_root, computed_class_trie_root) =
-                    self.task_spawner
-                        .cpu_bound()
-                        .spawn(move || {
-                            let computed_contract_trie_root = provider_mut_clone
-                                .trie_insert_contract_updates(block_number, &state_update)?;
+                let (computed_contract_trie_root, computed_class_trie_root) = self
+                    .task_spawner
+                    .cpu_bound()
+                    .spawn(move || {
+                        let computed_contract_trie_root = provider_mut_clone
+                            .trie_insert_contract_updates(block_number, &state_update)?;
 
-                            debug!(
-                                contract_trie_root = format!("{computed_contract_trie_root:#x}"),
-                                "Computed contract trie root."
-                            );
+                        debug!(
+                            contract_trie_root = format!("{computed_contract_trie_root:#x}"),
+                            "Computed contract trie root."
+                        );
 
-                            let class_updates =
-                                state_update.declared_classes.clone().into_iter().chain(
-                                    state_update.migrated_compiled_classes.clone().into_iter(),
-                                );
+                        let class_updates: Vec<_> = state_update
+                            .declared_classes
+                            .clone()
+                            .into_iter()
+                            .chain(state_update.migrated_compiled_classes.clone().into_iter())
+                            .collect();
 
-                            let computed_class_trie_root = provider_mut_clone
-                                .trie_insert_declared_classes(block_number, class_updates)?;
+                        let computed_class_trie_root = provider_mut_clone
+                            .trie_insert_declared_classes(block_number, class_updates)?;
 
-                            debug!(
-                                classes_tri_root = format!("{computed_class_trie_root:#x}"),
-                                "Computed classes trie root."
-                            );
+                        debug!(
+                            classes_tri_root = format!("{computed_class_trie_root:#x}"),
+                            "Computed classes trie root."
+                        );
 
-                            Result::<(Felt, Felt), crate::Error>::Ok((
-                                computed_contract_trie_root,
-                                computed_class_trie_root,
-                            ))
-                        })
-                        .await
-                        .map_err(Error::StateComputationTaskJoinError)??;
+                        Result::<(Felt, Felt), crate::Error>::Ok((
+                            computed_contract_trie_root,
+                            computed_class_trie_root,
+                        ))
+                    })
+                    .await
+                    .map_err(Error::StateComputationTaskJoinError)??;
 
                 let computed_state_root = if computed_class_trie_root == Felt::ZERO {
                     computed_contract_trie_root

@@ -5,8 +5,8 @@ use katana_pool::TransactionPool;
 use katana_primitives::block::{BlockHashOrNumber, BlockIdOrTag, ConfirmedBlockIdOrTag};
 use katana_primitives::execution::TypedTransactionExecutionInfo;
 use katana_primitives::transaction::{ExecutableTx, ExecutableTxWithHash, TxHash};
-use katana_provider::api::block::{BlockNumberProvider, BlockProvider};
-use katana_provider::api::transaction::{TransactionTraceProvider, TransactionsProviderExt};
+use katana_provider::api::block::BlockNumberProvider;
+use katana_provider::api::transaction::TransactionTraceProvider;
 use katana_provider::ProviderFactory;
 use katana_rpc_api::error::starknet::StarknetApiError;
 use katana_rpc_api::starknet::StarknetTraceApiServer;
@@ -113,19 +113,13 @@ where
             ConfirmedBlockIdOrTag::Hash(hash) => hash.into(),
         };
 
-        let indices = provider.block_body_indices(block_id)?.ok_or(BlockNotFound)?;
-        let tx_hashes = provider.transaction_hashes_in_range(indices.into())?;
+        let traces = self
+            .storage()
+            .provider()
+            .transaction_executions_by_block(block_id)?
+            .ok_or(BlockNotFound)?;
 
-        let traces = provider.transaction_executions_by_block(block_id)?.ok_or(BlockNotFound)?;
-        let traces = traces.into_iter().map(TxTrace::from);
-
-        let result = tx_hashes
-            .into_iter()
-            .zip(traces)
-            .map(|(h, r)| TxTraceWithHash { transaction_hash: h, trace_root: r })
-            .collect::<Vec<_>>();
-
-        Ok(result)
+        Ok(traces)
     }
 
     fn trace(&self, tx_hash: TxHash) -> Result<TxTrace, StarknetApiError> {

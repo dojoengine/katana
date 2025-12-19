@@ -1,3 +1,4 @@
+use bonsai_trie::trie::trees::{FullMerkleTrees, PartialMerkleTrees};
 use bonsai_trie::{BonsaiDatabase, BonsaiPersistentDatabase, MultiProof};
 use katana_primitives::block::BlockNumber;
 use katana_primitives::hash::Pedersen;
@@ -5,31 +6,30 @@ use katana_primitives::{ContractAddress, Felt};
 
 use crate::id::CommitId;
 
-#[derive(Debug)]
-pub struct ContractsTrie<DB: BonsaiDatabase> {
-    trie: crate::BonsaiTrie<DB, Pedersen>,
+const CONTRACTS_IDENTIFIER: &[u8] = b"contracts";
+
+pub struct ContractsTrie<DB: BonsaiDatabase, TreeType = FullMerkleTrees<Pedersen, DB, CommitId>> {
+    trie: crate::BonsaiTrie<DB, Pedersen, TreeType>,
 }
+
+pub type PartialContractsTrie<DB> = ContractsTrie<DB, PartialMerkleTrees<Pedersen, DB, CommitId>>;
 
 //////////////////////////////////////////////////////////////
 // 	ContractsTrie implementations
 //////////////////////////////////////////////////////////////
 
 impl<DB: BonsaiDatabase> ContractsTrie<DB> {
-    /// NOTE: The identifier value is only relevant if the underlying [`BonsaiDatabase`]
-    /// implementation is shared across other tries.
-    const BONSAI_IDENTIFIER: &'static [u8] = b"contracts";
-
     pub fn new(db: DB) -> Self {
         Self { trie: crate::BonsaiTrie::new(db) }
     }
 
     pub fn root(&self) -> Felt {
-        self.trie.root(Self::BONSAI_IDENTIFIER)
+        self.trie.root(CONTRACTS_IDENTIFIER)
     }
 
     pub fn multiproof(&mut self, addresses: Vec<ContractAddress>) -> MultiProof {
         let keys = addresses.into_iter().map(Felt::from).collect::<Vec<Felt>>();
-        self.trie.multiproof(Self::BONSAI_IDENTIFIER, keys)
+        self.trie.multiproof(CONTRACTS_IDENTIFIER, keys)
     }
 
     pub fn revert_to(&mut self, block: BlockNumber, latest_block: BlockNumber) {
@@ -42,11 +42,67 @@ where
     DB: BonsaiDatabase + BonsaiPersistentDatabase<CommitId>,
 {
     pub fn insert(&mut self, address: ContractAddress, state_hash: Felt) {
-        self.trie.insert(Self::BONSAI_IDENTIFIER, *address, state_hash)
+        self.trie.insert(CONTRACTS_IDENTIFIER, *address, state_hash)
     }
 
     pub fn commit(&mut self, block: BlockNumber) {
         self.trie.commit(block.into())
+    }
+}
+
+impl<DB: BonsaiDatabase> PartialContractsTrie<DB> {
+    pub fn new_partial(db: DB) -> Self {
+        Self { trie: crate::PartialBonsaiTrie::new_partial(db) }
+    }
+
+    pub fn root(&self) -> Felt {
+        self.trie.root(CONTRACTS_IDENTIFIER)
+    }
+
+    pub fn multiproof(&mut self, addresses: Vec<ContractAddress>) -> MultiProof {
+        let keys = addresses.into_iter().map(Felt::from).collect::<Vec<Felt>>();
+        self.trie.multiproof(CONTRACTS_IDENTIFIER, keys)
+    }
+
+    pub fn partial_multiproof(
+        &mut self,
+        addresses: Vec<ContractAddress>,
+        rpc_proof: Option<MultiProof>,
+        rpc_root: Option<Felt>,
+    ) -> MultiProof {
+        let keys = addresses.into_iter().map(Felt::from).collect::<Vec<Felt>>();
+        self.trie.partial_multiproof(CONTRACTS_IDENTIFIER, keys, rpc_proof, rpc_root)
+    }
+}
+
+impl<DB> PartialContractsTrie<DB>
+where
+    DB: BonsaiDatabase + BonsaiPersistentDatabase<CommitId>,
+{
+    pub fn insert(
+        &mut self,
+        address: ContractAddress,
+        state_hash: Felt,
+        proof: MultiProof,
+        original_root: Felt,
+    ) {
+        self.trie.insert_with_proof(
+            CONTRACTS_IDENTIFIER,
+            *address,
+            state_hash,
+            proof,
+            original_root,
+        )
+    }
+
+    pub fn commit(&mut self, block: BlockNumber) {
+        self.trie.commit(block.into())
+    }
+}
+
+impl<DB: BonsaiDatabase, TreeType> std::fmt::Debug for ContractsTrie<DB, TreeType> {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.debug_struct("ContractsTrie").field("trie", &"<BonsaiTrie>").finish()
     }
 }
 
