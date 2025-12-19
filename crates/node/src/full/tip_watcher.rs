@@ -1,12 +1,12 @@
-use std::future::IntoFuture;
 use std::time::Duration;
 
 use anyhow::Result;
+use backon::{ExponentialBuilder, Retryable};
 use futures::future::BoxFuture;
 use katana_gateway_types::BlockId;
 use katana_primitives::block::BlockNumber;
 use tokio::sync::watch;
-use tracing::{error, info};
+use tracing::{info, warn};
 
 pub type TipWatcherFut = BoxFuture<'static, Result<()>>;
 
@@ -78,19 +78,6 @@ impl<P: ChainTipProvider> ChainTipWatcher<P> {
     }
 }
 
-impl<P: ChainTipProvider + 'static> IntoFuture for ChainTipWatcher<P> {
-    type Output = Result<()>;
-    type IntoFuture = TipWatcherFut;
-
-    fn into_future(self) -> Self::IntoFuture {
-        Box::pin(async move {
-            self.run().await.inspect_err(|error| {
-                error!(target: "node", %error, "Tip watcher failed.");
-            })
-        })
-    }
-}
-
 impl<P> std::fmt::Debug for ChainTipWatcher<P> {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         f.debug_struct("ChainTipWatcher")
@@ -131,7 +118,13 @@ impl std::fmt::Debug for TipSubscription {
 impl ChainTipProvider for katana_gateway_client::Client {
     fn latest_number(&self) -> BoxFuture<'_, Result<BlockNumber>> {
         Box::pin(async move {
-            let block = self.get_block(BlockId::Latest).await?;
+            let block = (|| async { self.get_block(BlockId::Latest).await })
+                .retry(ExponentialBuilder::default())
+                .notify(|error, dur| {
+                    warn!(%error, "Failed to fetch latest block, retrying in {}s...", dur.as_secs());
+                })
+                .await?;
+
             block.block_number.ok_or_else(|| anyhow::anyhow!("Block number not available"))
         })
     }

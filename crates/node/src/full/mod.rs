@@ -264,10 +264,13 @@ impl Node {
             None
         };
 
-        let pipeline_handle = self.pipeline.handle();
+        let chain_tip_watcher = self.chain_tip_watcher;
+        let mut tip_subscription = chain_tip_watcher.subscribe();
 
-        let mut tip_subscription = self.chain_tip_watcher.subscribe();
+        let pipeline_handle = self.pipeline.handle();
         let pipeline_handle_clone = pipeline_handle.clone();
+
+        // -- start syncing pipeline task
 
         self.task_manager
             .task_spawner()
@@ -276,20 +279,29 @@ impl Node {
             .name("Pipeline")
             .spawn(self.pipeline.into_future());
 
+        // -- start chain tip watcher task
+
         self.task_manager
             .task_spawner()
             .build_task()
             .graceful_shutdown()
             .name("Chain tip watcher")
-            .spawn(self.chain_tip_watcher.into_future());
+            .spawn(async move {
+                loop {
+                    if let Err(error) = chain_tip_watcher.run().await {
+                        error!(%error, "Tip watcher failed. Restarting task.");
+                    }
+                }
+            });
 
-        // spawn a task for updating the pipeline's tip based on chain tip changes
+        // -- start a task for updating the pipeline's tip based on chain tip changes
+
         self.task_manager.task_spawner().spawn(async move {
             loop {
                 match tip_subscription.changed().await {
                     Ok(new_tip) => pipeline_handle_clone.set_tip(new_tip),
-                    Err(err) => {
-                        error!(error = ?err, "Error updating pipeline tip.");
+                    Err(error) => {
+                        error!(?error, "Error updating pipeline tip.");
                         break;
                     }
                 }
