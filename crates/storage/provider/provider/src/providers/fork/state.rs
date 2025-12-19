@@ -262,7 +262,7 @@ impl<Tx1: DbTx> StateProofProvider for LatestStateProvider<Tx1> {
             Ok(proofs.classes_proof.nodes.into())
         } else {
             let mut trie =
-                TrieDbFactory::new(self.local_provider.0.tx()).latest().partial_classes_trie();
+                TrieDbFactory::new(self.local_provider.0.tx().clone()).latest().partial_classes_trie();
 
             let rpc_proof =
                 self.fork_provider.backend.get_classes_proofs(classes.clone(), fork_point)?;
@@ -292,7 +292,7 @@ impl<Tx1: DbTx> StateProofProvider for LatestStateProvider<Tx1> {
             Ok(proofs.contracts_proof.nodes.into())
         } else {
             let mut trie =
-                TrieDbFactory::new(self.local_provider.0.tx()).latest().partial_contracts_trie();
+                TrieDbFactory::new(self.local_provider.0.tx().clone()).latest().partial_contracts_trie();
 
             let rpc_proof =
                 self.fork_provider.backend.get_contracts_proofs(addresses.clone(), fork_point)?;
@@ -327,7 +327,7 @@ impl<Tx1: DbTx> StateProofProvider for LatestStateProvider<Tx1> {
 
             Ok(proof)
         } else {
-            let mut trie = TrieDbFactory::new(self.local_provider.0.tx())
+            let mut trie = TrieDbFactory::new(self.local_provider.0.tx().clone())
                 .latest()
                 .partial_storages_trie(address);
 
@@ -361,7 +361,7 @@ impl<Tx1: DbTx> StateRootProvider for LatestStateProvider<Tx1> {
                 .classes_tree_root);
         }
 
-        let trie = TrieDbFactory::new(self.local_provider.0.tx()).latest().classes_trie();
+        let trie = TrieDbFactory::new(self.local_provider.0.tx().clone()).latest().classes_trie();
         let root = trie.root();
 
         if root == Felt::ZERO {
@@ -384,7 +384,7 @@ impl<Tx1: DbTx> StateRootProvider for LatestStateProvider<Tx1> {
                 .contracts_tree_root);
         }
 
-        let trie = TrieDbFactory::new(self.local_provider.0.tx()).latest().contracts_trie();
+        let trie = TrieDbFactory::new(self.local_provider.0.tx().clone()).latest().contracts_trie();
         let root = trie.root();
 
         if root == Felt::ZERO {
@@ -404,7 +404,7 @@ impl<Tx1: DbTx> StateRootProvider for LatestStateProvider<Tx1> {
             let root = result.expect("proofs should exist for block");
             Ok(Some(root))
         } else {
-            let root = TrieDbFactory::new(self.local_provider.0.tx())
+            let root = TrieDbFactory::new(self.local_provider.0.tx().clone())
                 .latest()
                 .storages_trie(contract)
                 .root();
@@ -513,7 +513,7 @@ impl<Tx1: DbTx> StateProvider for HistoricalStateProvider<Tx1> {
 impl<Tx1: DbTx> StateProofProvider for HistoricalStateProvider<Tx1> {
     fn class_multiproof(&self, classes: Vec<ClassHash>) -> ProviderResult<katana_trie::MultiProof> {
         if self.local_provider.block() > self.fork_provider.block_id {
-            let mut trie = TrieDbFactory::new(self.local_provider.tx())
+            let mut trie = TrieDbFactory::new(self.local_provider.tx().clone())
                 .historical(self.local_provider.block())
                 .ok_or(ProviderError::StateProofNotSupported)?
                 .partial_classes_trie();
@@ -548,7 +548,7 @@ impl<Tx1: DbTx> StateProofProvider for HistoricalStateProvider<Tx1> {
         addresses: Vec<ContractAddress>,
     ) -> ProviderResult<katana_trie::MultiProof> {
         if self.local_provider.block() > self.fork_provider.block_id {
-            let mut trie = TrieDbFactory::new(self.local_provider.tx())
+            let mut trie = TrieDbFactory::new(self.local_provider.tx().clone())
                 .historical(self.local_provider.block())
                 .ok_or(ProviderError::StateProofNotSupported)?
                 .partial_contracts_trie();
@@ -584,7 +584,7 @@ impl<Tx1: DbTx> StateProofProvider for HistoricalStateProvider<Tx1> {
         storage_keys: Vec<StorageKey>,
     ) -> ProviderResult<katana_trie::MultiProof> {
         if self.local_provider.block() > self.fork_provider.block_id {
-            let mut trie = TrieDbFactory::new(self.local_provider.tx())
+            let mut trie = TrieDbFactory::new(self.local_provider.tx().clone())
                 .historical(self.local_provider.block())
                 .ok_or(ProviderError::StateProofNotSupported)?
                 .partial_storages_trie(address);
@@ -645,7 +645,7 @@ impl<Tx1: DbTx> StateRootProvider for HistoricalStateProvider<Tx1> {
 
     fn classes_root(&self) -> ProviderResult<Felt> {
         if self.local_provider.block() > self.fork_provider.block_id {
-            let root = TrieDbFactory::new(self.local_provider.tx())
+            let root = TrieDbFactory::new(self.local_provider.tx().clone())
                 .historical(self.local_provider.block())
                 .ok_or(ProviderError::StateProofNotSupported)?
                 .classes_trie()
@@ -671,7 +671,7 @@ impl<Tx1: DbTx> StateRootProvider for HistoricalStateProvider<Tx1> {
 
     fn contracts_root(&self) -> ProviderResult<Felt> {
         if self.local_provider.block() > self.fork_provider.block_id {
-            let root = TrieDbFactory::new(self.local_provider.tx())
+            let root = TrieDbFactory::new(self.local_provider.tx().clone())
                 .historical(self.local_provider.block())
                 .ok_or(ProviderError::StateProofNotSupported)?
                 .contracts_trie()
@@ -697,7 +697,7 @@ impl<Tx1: DbTx> StateRootProvider for HistoricalStateProvider<Tx1> {
 
     fn storage_root(&self, contract: ContractAddress) -> ProviderResult<Option<Felt>> {
         if self.local_provider.block() > self.fork_provider.block_id {
-            let root = TrieDbFactory::new(self.local_provider.tx())
+            let root = TrieDbFactory::new(self.local_provider.tx().clone())
                 .historical(self.local_provider.block())
                 .ok_or(ProviderError::StateProofNotSupported)?
                 .storages_trie(contract)

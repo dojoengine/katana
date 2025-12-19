@@ -32,7 +32,7 @@ impl<Tx1: DbTxMut> TrieWriter for ForkedProvider<Tx1> {
     fn trie_insert_declared_classes(
         &self,
         block_number: BlockNumber,
-        updates: &BTreeMap<ClassHash, CompiledClassHash>,
+        updates: impl Iterator<Item = (ClassHash, CompiledClassHash)>,
     ) -> ProviderResult<Felt> {
         self.local_db.trie_insert_declared_classes(block_number, updates)
     }
@@ -45,7 +45,7 @@ impl<Tx1: DbTxMut> TrieWriter for ForkedProvider<Tx1> {
         original_root: Felt,
     ) -> ProviderResult<Felt> {
         let mut trie = PartialClassesTrie::new_partial(TrieDbMut::<tables::ClassesTrie, _>::new(
-            &*self.local_db,
+            self.local_db.tx().clone(),
         ));
 
         for (class_hash, compiled_hash) in updates {
@@ -67,7 +67,7 @@ impl<Tx1: DbTxMut> TrieWriter for ForkedProvider<Tx1> {
     ) -> ProviderResult<Felt> {
         let mut contract_trie_db =
             PartialContractsTrie::new_partial(TrieDbMut::<tables::ContractsTrie, _>::new(
-                &*self.local_db,
+                self.local_db.tx().clone(),
             ));
 
         let mut contract_leafs: HashMap<ContractAddress, ContractLeaf> = HashMap::new();
@@ -87,7 +87,7 @@ impl<Tx1: DbTxMut> TrieWriter for ForkedProvider<Tx1> {
                 state_updates.storage_updates.iter().zip(contracts_storage_proofs.iter())
             {
                 let mut storage_trie_db = PartialStoragesTrie::new_partial(
-                    TrieDbMut::<tables::StoragesTrie, _>::new(&*self.local_db),
+                    TrieDbMut::<tables::StoragesTrie, _>::new(self.local_db.tx().clone()),
                     *address,
                 );
 
@@ -129,7 +129,7 @@ impl<Tx1: DbTxMut> TrieWriter for ForkedProvider<Tx1> {
                     // Use storage root from contract_leaves_data if available, otherwise get from trie
                     if leaf.storage_root.is_none() {
                         let storage_trie = PartialStoragesTrie::new_partial(
-                            TrieDbMut::<tables::StoragesTrie, _>::new(&*self.local_db),
+                            TrieDbMut::<tables::StoragesTrie, _>::new(self.local_db.tx().clone()),
                             address,
                         );
                         let storage_root = storage_trie.root();

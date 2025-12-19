@@ -667,7 +667,6 @@ mod tests {
     use katana_core::service::block_producer::IntervalBlockProducer;
     use katana_db::Db;
     use katana_node::config::fork::ForkingConfig;
-    use katana_primitives::address;
     use katana_primitives::block::{
         BlockHash, BlockNumber, FinalityStatus, Header, SealedBlock, SealedBlockWithStatus,
     };
@@ -890,6 +889,7 @@ mod tests {
                 declared_classes: BTreeMap::from([]),
                 deprecated_declared_classes: BTreeSet::new(),
                 replaced_classes: BTreeMap::new(),
+                migrated_compiled_classes: BTreeMap::new(),
             };
 
             let fork_minimal_updates_vec = vec![
@@ -907,6 +907,7 @@ mod tests {
                     declared_classes: BTreeMap::from([]),
                     deprecated_declared_classes: BTreeSet::new(),
                     replaced_classes: BTreeMap::new(),
+                    migrated_compiled_classes: BTreeMap::new(),
                 },
                 StateUpdates {
                     nonce_updates: BTreeMap::from([(
@@ -922,6 +923,7 @@ mod tests {
                     declared_classes: BTreeMap::from([]),
                     deprecated_declared_classes: BTreeSet::new(),
                     replaced_classes: BTreeMap::new(),
+                    migrated_compiled_classes: BTreeMap::new(),
                 },
             ];
             let num_iters = 2;

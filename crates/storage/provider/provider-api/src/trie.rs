@@ -15,7 +15,7 @@ pub trait TrieWriter: Send + Sync {
     fn trie_insert_declared_classes(
         &self,
         block_number: BlockNumber,
-        updates: &BTreeMap<ClassHash, CompiledClassHash>,
+        updates: impl Iterator<Item = (ClassHash, CompiledClassHash)>,
     ) -> ProviderResult<Felt>;
 
     fn trie_insert_contract_updates(
@@ -34,7 +34,7 @@ pub trait TrieWriter: Send + Sync {
         _original_root: Felt,
     ) -> ProviderResult<Felt> {
         // Default implementation falls back to regular method (ignoring proof)
-        self.trie_insert_declared_classes(block_number, updates)
+        self.trie_insert_declared_classes(block_number, updates.iter().map(|(k, v)| (*k, *v)))
     }
 
     /// Insert contract updates into trie using proofs for verification.
@@ -60,8 +60,10 @@ pub trait TrieWriter: Send + Sync {
         state_updates: &StateUpdates,
     ) -> ProviderResult<Felt> {
         // Default implementation for regular providers
-        let class_trie_root =
-            self.trie_insert_declared_classes(block_number, &state_updates.declared_classes)?;
+        let class_trie_root = self.trie_insert_declared_classes(
+            block_number,
+            state_updates.declared_classes.iter().map(|(k, v)| (*k, *v)),
+        )?;
 
         let contract_trie_root = self.trie_insert_contract_updates(block_number, state_updates)?;
 

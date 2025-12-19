@@ -9,11 +9,12 @@ use crate::{MutableProvider, ProviderResult};
 use katana_db::abstraction::{DbCursor, DbCursorMut, DbDupSortCursor, DbTx, DbTxMut};
 use katana_db::error::DatabaseError;
 use katana_db::models::block::StoredBlockBodyIndices;
+use katana_db::models::class::MigratedCompiledClassHash;
 use katana_db::models::contract::{
     ContractClassChange, ContractClassChangeType, ContractInfoChangeList, ContractNonceChange,
 };
 use katana_db::models::list::BlockList;
-use katana_db::models::stage::StageCheckpoint;
+use katana_db::models::stage::{ExecutionCheckpoint, PruningCheckpoint};
 use katana_db::models::storage::{ContractStorageEntry, ContractStorageKey, StorageEntry};
 use katana_db::models::{VersionedHeader, VersionedTx};
 use katana_db::tables::{self, DupSort, Table};
@@ -309,6 +310,16 @@ impl<Tx: DbTx> StateUpdateProvider for DbProvider<Tx> {
                 }
             }
 
+            let migrated_compiled_classes = dup_entries::<
+                Tx,
+                tables::MigratedCompiledClassHashes,
+                BTreeMap<ClassHash, CompiledClassHash>,
+                _,
+            >(&self.0, block_num, |entry| {
+                let (_, MigratedCompiledClassHash { class_hash, compiled_class_hash }) = entry?;
+                Ok(Some((class_hash, compiled_class_hash)))
+            })?;
+
             let storage_updates = {
                 let entries = dup_entries::<
                     Tx,
@@ -336,6 +347,7 @@ impl<Tx: DbTx> StateUpdateProvider for DbProvider<Tx> {
                 declared_classes,
                 replaced_classes,
                 deprecated_declared_classes,
+                migrated_compiled_classes,
             }))
         } else {
             Ok(None)
@@ -698,6 +710,12 @@ impl<Tx: DbTxMut> BlockWriter for DbProvider<Tx> {
             self.0.put::<tables::ClassDeclarations>(block_number, class_hash)?;
         }
 
+        // insert migrated class hashes
+        for (class_hash, compiled_class_hash) in states.state_updates.migrated_compiled_classes {
+            let entry = MigratedCompiledClassHash { class_hash, compiled_class_hash };
+            self.0.put::<tables::MigratedCompiledClassHashes>(block_number, entry)?;
+        }
+
         // insert storage changes
         {
             let mut storage_cursor = self.0.cursor_dup_mut::<tables::ContractStorage>()?;
@@ -827,15 +845,27 @@ impl<Tx: DbTxMut> BlockWriter for DbProvider<Tx> {
 }
 
 impl<Tx: DbTxMut> StageCheckpointProvider for DbProvider<Tx> {
-    fn checkpoint(&self, id: &str) -> ProviderResult<Option<BlockNumber>> {
-        let result = self.0.get::<tables::StageCheckpoints>(id.to_string())?;
+    fn execution_checkpoint(&self, id: &str) -> ProviderResult<Option<BlockNumber>> {
+        let result = self.0.get::<tables::StageExecutionCheckpoints>(id.to_string())?;
         Ok(result.map(|x| x.block))
     }
 
-    fn set_checkpoint(&self, id: &str, block_number: BlockNumber) -> ProviderResult<()> {
+    fn set_execution_checkpoint(&self, id: &str, block_number: BlockNumber) -> ProviderResult<()> {
         let key = id.to_string();
-        let value = StageCheckpoint { block: block_number };
-        self.0.put::<tables::StageCheckpoints>(key, value)?;
+        let value = ExecutionCheckpoint { block: block_number };
+        self.0.put::<tables::StageExecutionCheckpoints>(key, value)?;
+        Ok(())
+    }
+
+    fn prune_checkpoint(&self, id: &str) -> ProviderResult<Option<BlockNumber>> {
+        let result = self.0.get::<tables::StagePruningCheckpoints>(id.to_string())?;
+        Ok(result.map(|x| x.block))
+    }
+
+    fn set_prune_checkpoint(&self, id: &str, block_number: BlockNumber) -> ProviderResult<()> {
+        let key = id.to_string();
+        let value = PruningCheckpoint { block: block_number };
+        self.0.put::<tables::StagePruningCheckpoints>(key, value)?;
         Ok(())
     }
 }

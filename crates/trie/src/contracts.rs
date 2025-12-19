@@ -33,6 +33,10 @@ impl<DB: BonsaiDatabase> ContractsTrie<DB> {
         let keys = addresses.into_iter().map(Felt::from).collect::<Vec<Felt>>();
         self.trie.multiproof(CONTRACTS_IDENTIFIER, keys)
     }
+
+    pub fn revert_to(&mut self, block: BlockNumber, latest_block: BlockNumber) {
+        self.trie.revert_to(block, latest_block);
+    }
 }
 
 impl<DB> ContractsTrie<DB>

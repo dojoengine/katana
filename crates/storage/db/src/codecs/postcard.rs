@@ -9,7 +9,7 @@ use crate::error::CodecError;
 use crate::models::block::StoredBlockBodyIndices;
 use crate::models::contract::ContractInfoChangeList;
 use crate::models::list::BlockList;
-use crate::models::stage::StageCheckpoint;
+use crate::models::stage::{ExecutionCheckpoint, PruningCheckpoint};
 use crate::models::trie::TrieDatabaseValue;
 
 macro_rules! impl_compress_and_decompress_for_table_values {
@@ -56,7 +56,8 @@ impl_compress_and_decompress_for_table_values!(
     TrieDatabaseValue,
     ContractAddress,
     BlockList,
-    StageCheckpoint,
+    ExecutionCheckpoint,
+    PruningCheckpoint,
     GenericContractInfo,
     StoredBlockBodyIndices,
     ContractInfoChangeList

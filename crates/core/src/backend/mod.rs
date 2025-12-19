@@ -1,4 +1,4 @@
-use std::collections::{BTreeMap, HashMap};
+use std::collections::HashMap;
 use std::sync::Arc;
 
 use anyhow::{anyhow, Context};
@@ -642,7 +642,18 @@ impl TrieWriter for GenesisTrieWriter {
             contract_leafs
                 .into_iter()
                 .map(|(address, leaf)| {
-                    let class_hash = leaf.class_hash.unwrap();
+                    let class_hash = if let Some(class_hash) = leaf.class_hash {
+                        class_hash
+                    } else {
+                        // TODO: there's must be a better way to handle this
+                        assert!(
+                            address == address!("0x1") || address == address!("0x2"),
+                            "Only special contracts may have unspecified class hash."
+                        );
+
+                        ClassHash::ZERO
+                    };
+
                     let nonce = leaf.nonce.unwrap_or_default();
                     let storage_root = leaf.storage_root.unwrap_or_default();
                     let leaf_hash = compute_contract_state_hash(&class_hash, &storage_root, &nonce);
@@ -662,12 +673,12 @@ impl TrieWriter for GenesisTrieWriter {
     fn trie_insert_declared_classes(
         &self,
         block_number: BlockNumber,
-        updates: &BTreeMap<ClassHash, CompiledClassHash>,
+        updates: impl Iterator<Item = (ClassHash, CompiledClassHash)>,
     ) -> katana_provider::ProviderResult<Felt> {
         let mut trie = ClassesTrie::new(HashMapDb::default());
 
         for (class_hash, compiled_hash) in updates {
-            trie.insert(*class_hash, *compiled_hash);
+            trie.insert(class_hash, compiled_hash);
         }
 
         trie.commit(block_number);

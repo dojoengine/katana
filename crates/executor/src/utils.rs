@@ -87,7 +87,11 @@ fn get_receipt_resources(receipt: &TransactionReceipt) -> receipt::ExecutionReso
         l1_data_gas: receipt.da_gas.l1_data_gas.0,
     };
 
-    receipt::ExecutionResources { da_resources, computation_resources, gas }
+    receipt::ExecutionResources {
+        data_availability: da_resources,
+        vm_resources: computation_resources,
+        total_gas_consumed: gas,
+    }
 }
 
 fn events_from_exec_info(info: &TransactionExecutionInfo) -> Vec<Event> {

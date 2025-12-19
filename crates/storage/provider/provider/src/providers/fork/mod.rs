@@ -21,7 +21,6 @@ use katana_provider_api::block::{
 };
 use katana_provider_api::env::BlockEnvProvider;
 use katana_provider_api::stage::StageCheckpointProvider;
-use katana_provider_api::state::StateFactoryProvider;
 use katana_provider_api::state_update::StateUpdateProvider;
 use katana_provider_api::transaction::{
     ReceiptProvider, TransactionProvider, TransactionStatusProvider, TransactionTraceProvider,
@@ -679,11 +678,19 @@ impl<Tx1: DbTxMut> BlockWriter for ForkedProvider<Tx1> {
 }
 
 impl<Tx1: DbTxMut> StageCheckpointProvider for ForkedProvider<Tx1> {
-    fn checkpoint(&self, id: &str) -> ProviderResult<Option<BlockNumber>> {
-        self.local_db.checkpoint(id)
+    fn execution_checkpoint(&self, id: &str) -> ProviderResult<Option<BlockNumber>> {
+        self.local_db.execution_checkpoint(id)
     }
 
-    fn set_checkpoint(&self, id: &str, block_number: BlockNumber) -> ProviderResult<()> {
-        self.local_db.set_checkpoint(id, block_number)
+    fn set_execution_checkpoint(&self, id: &str, block_number: BlockNumber) -> ProviderResult<()> {
+        self.local_db.set_execution_checkpoint(id, block_number)
+    }
+
+    fn prune_checkpoint(&self, id: &str) -> ProviderResult<Option<BlockNumber>> {
+        self.local_db.prune_checkpoint(id)
+    }
+
+    fn set_prune_checkpoint(&self, id: &str, block_number: BlockNumber) -> ProviderResult<()> {
+        self.local_db.set_prune_checkpoint(id, block_number)
     }
 }
