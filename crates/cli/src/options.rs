@@ -771,14 +771,8 @@ pub struct TeeOptions {
     /// hardware-backed attestation quotes. Requires running in an SEV-SNP VM
     /// with /dev/sev-guest available.
     #[arg(long = "tee.provider", value_name = "PROVIDER")]
-    #[arg(value_parser = parse_tee_provider)]
     #[serde(default)]
     pub tee_provider: Option<katana_tee::TeeProviderType>,
-}
-
-#[cfg(feature = "tee")]
-fn parse_tee_provider(s: &str) -> Result<katana_tee::TeeProviderType, String> {
-    s.parse()
 }
 
 #[cfg(feature = "tee")]

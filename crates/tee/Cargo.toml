@@ -6,6 +6,7 @@ version.workspace = true
 
 [dependencies]
 thiserror.workspace = true
+clap = { workspace = true, default-features = false, features = [ "derive" ] }
 serde.workspace = true
 tracing = { workspace = true, optional = true }
 bincode = { workspace = true, optional = true }

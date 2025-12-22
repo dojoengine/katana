@@ -39,9 +39,12 @@ pub use snp::SevSnpProvider;
 /// TEE provider type enumeration.
 ///
 /// Currently only SEV-SNP is supported for production use.
-#[derive(Debug, Clone, Copy, PartialEq, Eq, serde::Serialize, serde::Deserialize)]
+#[derive(
+    Debug, Clone, Copy, PartialEq, Eq, serde::Serialize, serde::Deserialize, clap::ValueEnum,
+)]
 pub enum TeeProviderType {
     /// AMD SEV-SNP provider.
+    #[value(name = "sev-snp", alias = "snp")]
     SevSnp,
 }
 

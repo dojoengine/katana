@@ -23,18 +23,10 @@ impl SevSnpProvider {
     ///
     /// # Errors
     ///
-    /// Returns `TeeError::NotSupported` if:
-    /// - The system is not running in an SEV-SNP VM
-    /// - The `/dev/sev-guest` device is not available
-    /// - The SEV-SNP SDK initialization fails
+    /// Returns `TeeError::NotSupported` if the SEV-SNP SDK initialization fails.
     pub fn new() -> Result<Self, TeeError> {
-        let sev_snp = sev_snp::SevSnp::new().map_err(|e| {
-            TeeError::NotSupported(format!(
-                "Failed to initialize SEV-SNP: {}. Ensure you are running in an SEV-SNP VM with \
-                 /dev/sev-guest available.",
-                e
-            ))
-        })?;
+        let sev_snp = sev_snp::SevSnp::new()
+            .map_err(|e| TeeError::NotSupported(format!("Failed to initialize SEV-SNP: {}", e)))?;
 
         info!(target: "tee::snp", "SEV-SNP provider initialized");
 
@@ -80,13 +72,21 @@ mod tests {
     use super::*;
 
     #[test]
-    fn test_snp_not_available() {
-        // On most systems, SEV-SNP will not be available
-        let result = SevSnpProvider::new();
-        // We expect this to fail on non-SNP systems
-        assert!(result.is_err());
-        if let Err(TeeError::NotSupported(msg)) = result {
+    fn generate_quote_fails_on_unsupported_machine() {
+        // SevSnp::new() succeeds because it only initializes the KDS client,
+        // not the actual SEV-SNP device.
+        let provider = SevSnpProvider::new().expect("SevSnpProvider::new should succeed");
+
+        let user_data = [0u8; 64];
+
+        // generate_quote should fail on non-SEV-SNP machines because it attempts
+        // to access /dev/sev-guest via Device::new() internally.
+        let result = provider.generate_quote(&user_data);
+
+        if let Err(TeeError::GenerationFailed(msg)) = result {
             assert!(msg.contains("SEV-SNP"));
+        } else {
+            panic!("Expected TeeError::GenerationFailed, got {:?}", result);
         }
     }
 }
