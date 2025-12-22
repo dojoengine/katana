@@ -158,7 +158,7 @@ regex = "1.10.3"
 reqwest = { version = "0.12.15", features = [ "json", "rustls-tls" ], default-features = false }
 rstest = "0.18.2"
 rstest_reuse = "0.6.0"
-sev-snp = { git = "https://github.com/automata-network/amd-sev-snp-attestation-sdk", branch = "main" }
+sev-snp = { git = "https://github.com/automata-network/amd-sev-snp-attestation-sdk", branch = "main", default-features = false, features = ["legacy", "configfs"] }
 similar-asserts = "1.5.0"
 slot = { git = "https://github.com/cartridge-gg/slot", rev = "1298a30" }
 spinoff = "0.8.0"
