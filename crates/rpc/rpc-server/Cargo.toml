@@ -42,6 +42,10 @@ cartridge = { workspace = true, optional = true }
 starknet-crypto = { workspace = true, optional = true }
 url = { workspace = true, optional = true }
 
+katana-tee = { workspace = true, optional = true }
+hex = { workspace = true, optional = true }
+starknet-types-core = { workspace = true, optional = true }
+
 [dev-dependencies]
 katana-chain-spec.workspace = true
 katana-contracts.workspace = true
@@ -86,4 +90,10 @@ cartridge = [
 	"dep:url",
 	"katana-rpc-api/cartridge",
 ]
-explorer = [ "dep:katana-explorer" ]
+explorer = ["dep:katana-explorer"]
+tee = [
+	"dep:katana-tee",
+	"dep:hex",
+	"dep:starknet-types-core",
+	"katana-rpc-api/tee",
+]
