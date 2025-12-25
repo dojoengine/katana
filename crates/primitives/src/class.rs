@@ -8,7 +8,7 @@ use cairo_lang_utils::bigint::BigUintAsHex;
 use serde_json_pythonic::to_string_pythonic;
 use starknet::macros::short_string;
 use starknet_api::contract_class::SierraVersion;
-use starknet_types_core::hash::{Poseidon, StarkHash};
+use starknet_types_core::hash::{self, Poseidon, StarkHash};
 
 use crate::utils::{normalize_address, starknet_keccak};
 use crate::Felt;
@@ -309,19 +309,19 @@ pub fn compute_sierra_class_hash(
     entry_points_by_type: &ContractEntryPoints,
     sierra_program: &[Felt],
 ) -> Felt {
-    let mut hasher = starknet_crypto::PoseidonHasher::new();
-    hasher.update(short_string!("CONTRACT_CLASS_V0.1.0"));
+    let hash = hash::Poseidon::hash_array(&[
+        short_string!("CONTRACT_CLASS_V0.1.0"),
+        // Hashes entry points
+        entrypoints_hash(&entry_points_by_type.external),
+        entrypoints_hash(&entry_points_by_type.l1_handler),
+        entrypoints_hash(&entry_points_by_type.constructor),
+        // Hashes ABI
+        starknet_keccak(abi.as_bytes()),
+        // Hashes Sierra program
+        Poseidon::hash_array(sierra_program),
+    ]);
 
-    // Hashes entry points
-    hasher.update(entrypoints_hash(&entry_points_by_type.external));
-    hasher.update(entrypoints_hash(&entry_points_by_type.l1_handler));
-    hasher.update(entrypoints_hash(&entry_points_by_type.constructor));
-    // Hashes ABI
-    hasher.update(starknet_keccak(abi.as_bytes()));
-    // Hashes Sierra program
-    hasher.update(Poseidon::hash_array(sierra_program));
-
-    normalize_address(hasher.finalize())
+    normalize_address(hash)
 }
 
 /// Computes the hash of a legacy contract class.
@@ -342,14 +342,14 @@ pub fn compute_legacy_class_hash(
 }
 
 fn entrypoints_hash(entrypoints: &[ContractEntryPoint]) -> Felt {
-    let mut hasher = starknet_crypto::PoseidonHasher::new();
+    let initial = Vec::with_capacity(entrypoints.len() * 2);
+    let felts = entrypoints.iter().fold(initial, |mut acc, entry| {
+        acc.push(entry.selector.clone().into());
+        acc.push(entry.function_idx.into());
+        acc
+    });
 
-    for entry in entrypoints {
-        hasher.update(entry.selector.clone().into());
-        hasher.update(entry.function_idx.into());
-    }
-
-    hasher.finalize()
+    hash::Poseidon::hash_array(&felts)
 }
 
 #[cfg(test)]

@@ -227,7 +227,6 @@ opentelemetry-stackdriver = { version = "0.27.0", features = [ "propagator" ] }
 
 # starknet
 starknet = "0.17.0-rc.2"
-starknet-crypto = "0.7.4"
 starknet-types-core = { version = "0.1.8", features = [ "arbitrary", "hash" ] }
 # Some types that we used from cairo-vm implements the `Arbitrary` trait,
 # only under the `test_utils` feature.

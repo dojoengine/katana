@@ -2,8 +2,9 @@ use alloy_primitives::B256;
 use anyhow::Result;
 use async_trait::async_trait;
 use katana_primitives::chain::ChainId;
+use katana_primitives::hash::StarkHash;
 use katana_primitives::transaction::L1HandlerTx;
-use katana_primitives::Felt;
+use katana_primitives::{hash, Felt};
 use starknet::core::types::{BlockId, EmittedEvent, EventFilter};
 use starknet::macros::selector;
 use starknet::providers::jsonrpc::HttpTransport;
@@ -197,11 +198,12 @@ fn compute_starknet_to_appchain_message_hash(
 ) -> Felt {
     let mut buf: Vec<Felt> =
         vec![from_address, to_address, nonce, entry_point_selector, Felt::from(payload.len())];
+
     for p in payload {
         buf.push(*p);
     }
 
-    starknet_crypto::poseidon_hash_many(&buf)
+    hash::Poseidon::hash_array(&buf)
 }
 
 #[cfg(test)]
