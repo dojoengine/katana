@@ -11,11 +11,11 @@ use katana_primitives::transaction::{
     DeclareTx, DeclareTxV0, DeclareTxV2, DeclareTxWithClass, DeployAccountTx, DeployAccountTxV1,
     ExecutableTx, ExecutableTxWithHash, InvokeTx, InvokeTxV1,
 };
-use katana_primitives::utils::split_u256;
 use katana_primitives::utils::transaction::compute_deploy_account_v1_tx_hash;
+use katana_primitives::utils::{get_contract_address, split_u256};
 use katana_primitives::{felt, Felt};
 use num_traits::FromPrimitive;
-use starknet::core::utils::{get_contract_address, get_selector_from_name};
+use starknet::core::utils::get_selector_from_name;
 use starknet::macros::short_string;
 use starknet::signers::SigningKey;
 
