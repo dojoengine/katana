@@ -1,7 +1,7 @@
 use alloy_primitives::{Keccak256, B256};
 use starknet::core::crypto::compute_hash_on_elements;
 use starknet::core::types::MsgToL1;
-use starknet_crypto::poseidon_hash_many;
+use starknet_types_core::hash::{Poseidon, StarkHash};
 
 use crate::da::DataAvailabilityMode;
 use crate::eth::Address as EthAddress;
@@ -88,16 +88,16 @@ pub fn compute_deploy_account_v3_tx_hash(
     fee_da_mode: &DataAvailabilityMode,
     is_query: bool,
 ) -> Felt {
-    poseidon_hash_many(&[
+    Poseidon::hash_array(&[
         PREFIX_DEPLOY_ACCOUNT,
         if is_query { QUERY_VERSION_OFFSET + Felt::THREE } else { Felt::THREE }, // version
         contract_address,
         hash_fee_fields(tip, l1_gas_bounds, l2_gas_bounds, l1_data_gas_bounds),
-        poseidon_hash_many(paymaster_data),
+        Poseidon::hash_array(paymaster_data),
         chain_id,
         nonce,
         encode_da_mode(nonce_da_mode, fee_da_mode),
-        poseidon_hash_many(constructor_calldata),
+        Poseidon::hash_array(constructor_calldata),
         class_hash,
         contract_address_salt,
     ])
@@ -187,16 +187,16 @@ pub fn compute_declare_v3_tx_hash(
     account_deployment_data: &[Felt],
     is_query: bool,
 ) -> Felt {
-    poseidon_hash_many(&[
+    Poseidon::hash_array(&[
         PREFIX_DECLARE,
         if is_query { QUERY_VERSION_OFFSET + Felt::THREE } else { Felt::THREE }, // version
         sender_address,
         hash_fee_fields(tip, l1_gas_bounds, l2_gas_bounds, l1_data_gas_bounds),
-        poseidon_hash_many(paymaster_data),
+        Poseidon::hash_array(paymaster_data),
         chain_id,
         nonce,
         encode_da_mode(nonce_da_mode, fee_da_mode),
-        poseidon_hash_many(account_deployment_data),
+        Poseidon::hash_array(account_deployment_data),
         class_hash,
         compiled_class_hash,
     ])
@@ -240,17 +240,17 @@ pub fn compute_invoke_v3_tx_hash(
     account_deployment_data: &[Felt],
     is_query: bool,
 ) -> Felt {
-    poseidon_hash_many(&[
+    Poseidon::hash_array(&[
         PREFIX_INVOKE,
         if is_query { QUERY_VERSION_OFFSET + Felt::THREE } else { Felt::THREE }, // version
         sender_address,
         hash_fee_fields(tip, l1_gas_bounds, l2_gas_bounds, l1_data_gas_bounds),
-        poseidon_hash_many(paymaster_data),
+        Poseidon::hash_array(paymaster_data),
         chain_id,
         nonce,
         encode_da_mode(nonce_da_mode, fee_da_mode),
-        poseidon_hash_many(account_deployment_data),
-        poseidon_hash_many(calldata),
+        Poseidon::hash_array(account_deployment_data),
+        Poseidon::hash_array(calldata),
     ])
 }
 
@@ -392,14 +392,14 @@ fn hash_fee_fields(
     l1_data_gas_bounds: Option<&ResourceBounds>,
 ) -> Felt {
     if let Some(data_gas_bounds) = l1_data_gas_bounds {
-        poseidon_hash_many(&[
+        Poseidon::hash_array(&[
             tip.into(),
             encode_gas_bound(b"L1_GAS", l1_gas_bounds),
             encode_gas_bound(b"L2_GAS", l2_gas_bounds),
             encode_gas_bound(b"L1_DATA", data_gas_bounds),
         ])
     } else {
-        poseidon_hash_many(&[
+        Poseidon::hash_array(&[
             tip.into(),
             encode_gas_bound(b"L1_GAS", l1_gas_bounds),
             encode_gas_bound(b"L2_GAS", l2_gas_bounds),
