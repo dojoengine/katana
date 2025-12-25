@@ -59,11 +59,11 @@ use std::path::PathBuf;
 use std::str::FromStr;
 
 use anyhow::Context;
-use clap::builder::NonEmptyStringValueParser;
 use clap::{Args, Subcommand};
 use deployment::DeploymentOutcome;
 use katana_chain_spec::rollup::{ChainConfigDir, DEFAULT_APPCHAIN_FEE_TOKEN_ADDRESS};
 use katana_chain_spec::{rollup, FeeContracts, SettlementLayer};
+use katana_cli::utils::ShortStringValueParser;
 use katana_genesis::allocation::DevAllocationsGenerator;
 use katana_genesis::constant::DEFAULT_PREFUNDED_ACCOUNT_BALANCE;
 use katana_genesis::Genesis;
@@ -118,7 +118,7 @@ pub struct RollupArgs {
     /// An empty `Id` is not a allowed, since the chain id must be
     /// a valid ASCII string.
     #[arg(long)]
-    #[arg(value_parser = NonEmptyStringValueParser::new())]
+    #[arg(value_parser = ShortStringValueParser)]
     #[arg(requires_all = ["settlement_chain", "settlement_account", "settlement_account_private_key"])]
     id: Option<ShortString>,
 
@@ -193,7 +193,7 @@ pub struct SovereignArgs {
     /// An empty `Id` is not a allowed, since the chain id must be
     /// a valid ASCII string.
     #[arg(long)]
-    #[arg(value_parser = NonEmptyStringValueParser::new())]
+    #[arg(value_parser = ShortStringValueParser)]
     id: Option<ShortString>,
 
     /// Specify the path of the directory where the configuration files will be stored at.
