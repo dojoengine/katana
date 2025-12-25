@@ -419,7 +419,7 @@ fn encode_da_mode(
 #[cfg(test)]
 mod tests {
     use num_traits::ToPrimitive;
-    use starknet::macros::{felt, short_string};
+    use starknet::macros::felt;
 
     use super::*;
     use crate::address;

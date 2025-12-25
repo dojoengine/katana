@@ -68,11 +68,11 @@ use katana_genesis::allocation::DevAllocationsGenerator;
 use katana_genesis::constant::DEFAULT_PREFUNDED_ACCOUNT_BALANCE;
 use katana_genesis::Genesis;
 use katana_primitives::block::BlockNumber;
+use katana_primitives::cairo::ShortString;
 use katana_primitives::chain::ChainId;
 use katana_primitives::{ContractAddress, Felt, U256};
 use settlement::SettlementChainProvider;
 use starknet::accounts::{ExecutionEncoding, SingleOwnerAccount};
-use starknet::core::utils::{cairo_short_string_to_felt, parse_cairo_short_string};
 use starknet::providers::Provider;
 use starknet::signers::SigningKey;
 use url::Url;
@@ -120,7 +120,7 @@ pub struct RollupArgs {
     #[arg(long)]
     #[arg(value_parser = NonEmptyStringValueParser::new())]
     #[arg(requires_all = ["settlement_chain", "settlement_account", "settlement_account_private_key"])]
-    id: Option<String>,
+    id: Option<ShortString>,
 
     #[arg(
         long = "settlement-chain",
@@ -194,7 +194,7 @@ pub struct SovereignArgs {
     /// a valid ASCII string.
     #[arg(long)]
     #[arg(value_parser = NonEmptyStringValueParser::new())]
-    id: Option<String>,
+    id: Option<ShortString>,
 
     /// Specify the path of the directory where the configuration files will be stored at.
     #[arg(long)]
@@ -266,7 +266,7 @@ impl RollupArgs {
     }
 
     async fn configure_from_args(&self) -> Option<anyhow::Result<PersistentOutcome>> {
-        if let Some(id) = self.id.clone() {
+        if let Some(id) = self.id {
             // Check if all required settlement args are provided
             let Some(settlement_chain) = self.settlement_chain.clone() else {
                 return None; // Fall back to prompting
@@ -313,12 +313,7 @@ impl RollupArgs {
                 Err(err) => return Some(Err(err)),
             };
 
-            let chain_id = match cairo_short_string_to_felt(&id)
-                .with_context(|| format!("invalid chain id: {id}"))
-            {
-                Ok(id) => id,
-                Err(err) => return Some(Err(err)),
-            };
+            let chain_id = Felt::from(id);
 
             let deployment_outcome = if let Some(contract) = self.settlement_contract {
                 match deployment::check_program_info(chain_id, contract, &settlement_provider)
@@ -360,7 +355,7 @@ impl RollupArgs {
                 deployment_outcome,
                 rpc_url: settlement_provider.url().clone(),
                 account: settlement_account_address,
-                settlement_id: parse_cairo_short_string(&l1_chain_id).unwrap(),
+                settlement_id: ShortString::try_from(l1_chain_id).unwrap(),
                 #[cfg(feature = "init-slot")]
                 slot_paymasters: self.slot.paymaster_accounts.clone(),
             }))
@@ -409,7 +404,7 @@ impl SovereignArgs {
     }
 
     fn configure_from_args(&self) -> Option<SovereignOutcome> {
-        self.id.clone().map(|id| SovereignOutcome {
+        self.id.map(|id| SovereignOutcome {
             id,
             #[cfg(feature = "init-slot")]
             slot_paymasters: self.slot.paymaster_accounts.clone(),
@@ -420,7 +415,7 @@ impl SovereignArgs {
 #[derive(Debug)]
 struct SovereignOutcome {
     /// The id of the new chain to be initialized.
-    pub id: String,
+    pub id: ShortString,
 
     #[cfg(feature = "init-slot")]
     pub slot_paymasters: Option<Vec<slot::PaymasterAccountArgs>>,
@@ -433,10 +428,10 @@ struct PersistentOutcome {
     pub account: ContractAddress,
 
     // the id of the new chain to be initialized.
-    pub id: String,
+    pub id: ShortString,
 
     // the chain id of the settlement layer.
-    pub settlement_id: String,
+    pub settlement_id: ShortString,
 
     // the rpc url for the settlement layer.
     pub rpc_url: Url,
@@ -586,7 +581,7 @@ mod tests {
         let result = Cli::parse_from(["init", "sovereign", "--id", "bruh"]);
 
         assert_matches!(result.args.mode, InitMode::Sovereign(config) => {
-            assert_eq!(config.id, Some("bruh".to_string()));
+            assert_eq!(config.id, Some(ShortString::from_ascii("bruh")));
         });
     }
 

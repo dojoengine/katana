@@ -502,8 +502,8 @@ mod tests {
         let (total_supply_low, total_supply_high) =
             split_u256(U256::from_str("0x1a784379d99db42000000").unwrap());
 
-        let name = cairo_short_string_to_felt("Ether").unwrap();
-        let symbol = cairo_short_string_to_felt("ETH").unwrap();
+        let name = ShortString::from_ascii("Ether");
+        let symbol = ShortString::from_ascii("ETH");
         let decimals = Felt::from(18);
 
         let eth_fee_token_storage = actual_state_updates
@@ -512,8 +512,8 @@ mod tests {
             .get(&DEFAULT_ETH_FEE_TOKEN_ADDRESS)
             .unwrap();
 
-        assert_eq!(eth_fee_token_storage.get(&ERC20_NAME_STORAGE_SLOT), Some(&name));
-        assert_eq!(eth_fee_token_storage.get(&ERC20_SYMBOL_STORAGE_SLOT), Some(&symbol));
+        assert_eq!(eth_fee_token_storage.get(&ERC20_NAME_STORAGE_SLOT), Some(&name.into()));
+        assert_eq!(eth_fee_token_storage.get(&ERC20_SYMBOL_STORAGE_SLOT), Some(&symbol.into()));
         assert_eq!(eth_fee_token_storage.get(&ERC20_DECIMAL_STORAGE_SLOT), Some(&decimals));
         assert_eq!(
             eth_fee_token_storage.get(&ERC20_TOTAL_SUPPLY_STORAGE_SLOT),
@@ -526,8 +526,8 @@ mod tests {
 
         // check STRK fee token contract storage
 
-        let strk_name = cairo_short_string_to_felt("Starknet Token").unwrap();
-        let strk_symbol = cairo_short_string_to_felt("STRK").unwrap();
+        let strk_name = ShortString::from_ascii("Starknet Token");
+        let strk_symbol = ShortString::from_ascii("STRK");
         let strk_decimals = Felt::from(18);
 
         let strk_fee_token_storage = actual_state_updates
@@ -536,8 +536,11 @@ mod tests {
             .get(&DEFAULT_STRK_FEE_TOKEN_ADDRESS)
             .unwrap();
 
-        assert_eq!(strk_fee_token_storage.get(&ERC20_NAME_STORAGE_SLOT), Some(&strk_name));
-        assert_eq!(strk_fee_token_storage.get(&ERC20_SYMBOL_STORAGE_SLOT), Some(&strk_symbol));
+        assert_eq!(strk_fee_token_storage.get(&ERC20_NAME_STORAGE_SLOT), Some(&strk_name.into()));
+        assert_eq!(
+            strk_fee_token_storage.get(&ERC20_SYMBOL_STORAGE_SLOT),
+            Some(&strk_symbol.into())
+        );
         assert_eq!(strk_fee_token_storage.get(&ERC20_DECIMAL_STORAGE_SLOT), Some(&strk_decimals));
         assert_eq!(
             strk_fee_token_storage.get(&ERC20_TOTAL_SUPPLY_STORAGE_SLOT),
