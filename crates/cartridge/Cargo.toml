@@ -12,10 +12,8 @@ katana-primitives.workspace = true
 
 anyhow.workspace = true
 ark-ec = "0.4"
-cainome.workspace = true
 lazy_static.workspace = true
 num-bigint.workspace = true
-parking_lot.workspace = true
 reqwest.workspace = true
 serde.workspace = true
 serde_json.workspace = true

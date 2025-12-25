@@ -3013,12 +3013,10 @@ version = "1.7.0"
 dependencies = [
  "anyhow",
  "ark-ec 0.4.2",
- "cainome",
  "katana-contracts",
  "katana-primitives",
  "lazy_static",
  "num-bigint",
- "parking_lot",
  "reqwest 0.12.22",
  "serde",
  "serde_json",
