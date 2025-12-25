@@ -9,6 +9,7 @@ use katana_primitives::block::{
     BlockHash, BlockNumber, FinalityStatus, Header, PartialHeader, SealedBlock,
     SealedBlockWithStatus,
 };
+use katana_primitives::cairo::ShortString;
 use katana_primitives::class::{ClassHash, CompiledClassHash};
 use katana_primitives::da::L1DataAvailabilityMode;
 use katana_primitives::env::BlockEnv;
@@ -537,7 +538,7 @@ impl<'a, P: TrieWriter> UncommittedBlock<'a, P> {
             .expect("failed to update contract trie");
 
         hash::Poseidon::hash_array(&[
-            short_string!("STARKNET_STATE_V0"),
+            ShortString::from_ascii("STARKNET_STATE_V0").into(),
             contract_trie_root,
             class_trie_root,
         ])

@@ -134,6 +134,12 @@ impl AsRef<str> for ShortString {
     }
 }
 
+impl PartialEq<Felt> for ShortString {
+    fn eq(&self, other: &Felt) -> bool {
+        Felt::from(self) == *other
+    }
+}
+
 impl core::fmt::Debug for ShortString {
     fn fmt(&self, f: &mut core::fmt::Formatter<'_>) -> core::fmt::Result {
         f.debug_tuple("ShortString").field(&self.as_str()).finish()
@@ -258,9 +264,9 @@ impl<'a> arbitrary::Arbitrary<'a> for ShortString {
         let length: u8 = u.int_in_range(0..=31)?;
         let mut data = [0u8; 31];
 
-        for i in 0..length as usize {
+        for item in data.iter_mut().take(length as usize) {
             // ASCII printable range (32-126) to avoid control characters
-            data[i] = u.int_in_range(32..=126)?;
+            *item = u.int_in_range(32..=126)?;
         }
 
         Ok(Self { data, len: length })
@@ -318,6 +324,15 @@ mod tests {
         let felt = Felt::from(original.clone());
         let converted = ShortString::try_from(felt).unwrap();
         assert_eq!(original, converted);
+    }
+
+    #[test]
+    fn eq_felt() {
+        let s = ShortString::from_str("hello").unwrap();
+        let felt = Felt::from(&s);
+
+        assert!(s == felt);
+        assert!(s != Felt::from(123u64));
     }
 
     #[test]

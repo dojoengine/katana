@@ -5,6 +5,7 @@ use std::sync::Arc;
 use alloy_primitives::U256;
 use katana_contracts::contracts;
 use katana_genesis::allocation::{DevGenesisAccount, GenesisAccountAlloc};
+use katana_primitives::cairo::ShortString;
 use katana_primitives::class::{ClassHash, ContractClass};
 use katana_primitives::contract::{ContractAddress, Nonce};
 use katana_primitives::transaction::{
@@ -16,7 +17,6 @@ use katana_primitives::utils::{get_contract_address, split_u256};
 use katana_primitives::{felt, Felt};
 use num_traits::FromPrimitive;
 use starknet::core::utils::get_selector_from_name;
-use starknet::macros::short_string;
 use starknet::signers::SigningKey;
 
 use crate::rollup::ChainSpec;
@@ -270,9 +270,9 @@ impl<'c> GenesisTransactionsBuilder<'c> {
 
         let master_address = *self.master_address.get().expect("must be initialized first");
 
-        let ctor_args = vec![
-            short_string!("Starknet Token"),
-            short_string!("STRK"),
+        let ctor_args: Vec<Felt> = vec![
+            ShortString::from_ascii("Starknet Token").into(),
+            ShortString::from_ascii("STRK").into(),
             felt!("0x12"),
             Felt::from_u128(u128::MAX).unwrap(),
             Felt::from_u128(u128::MAX).unwrap(),

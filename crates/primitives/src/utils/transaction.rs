@@ -423,6 +423,7 @@ mod tests {
 
     use super::*;
     use crate::address;
+    use crate::cairo::ShortString;
     use crate::chain::ChainId;
 
     #[test]
@@ -433,10 +434,10 @@ mod tests {
 
     #[test]
     fn test_prefix_constants() {
-        assert_eq!(PREFIX_INVOKE, short_string!("invoke"));
-        assert_eq!(PREFIX_DECLARE, short_string!("declare"));
-        assert_eq!(PREFIX_DEPLOY_ACCOUNT, short_string!("deploy_account"));
-        assert_eq!(PREFIX_L1_HANDLER, short_string!("l1_handler"));
+        assert_eq!(PREFIX_INVOKE, ShortString::from_ascii("invoke").into());
+        assert_eq!(PREFIX_DECLARE, ShortString::from_ascii("declare").into());
+        assert_eq!(PREFIX_DEPLOY_ACCOUNT, ShortString::from_ascii("deploy_account").into());
+        assert_eq!(PREFIX_L1_HANDLER, ShortString::from_ascii("l1_handler").into());
     }
 
     #[test]
