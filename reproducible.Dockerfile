@@ -22,23 +22,28 @@ RUN rustup target add x86_64-unknown-linux-musl
 WORKDIR /build
 
 # Reproducibility environment variables
+# Added -C link-arg=-s to strip symbols for bit-for-bit identity
 ENV SOURCE_DATE_EPOCH=1735689600 \
-	RUSTFLAGS="--remap-path-prefix=/build=/build --remap-path-prefix=/root/.cargo=/cargo -C target-feature=+crt-static" \
+	RUSTFLAGS="--remap-path-prefix=/build=/build --remap-path-prefix=/cargo=/cargo -C target-feature=+crt-static -C link-arg=-s" \
 	CARGO_HOME=/cargo \
-	LANG=C.UTF-8
+	LANG=C.UTF-8 \
+	LC_ALL=C.UTF-8 \
+	TZ=UTC
 
-# Copy source (respects .dockerignore)
+# Copy everything (including the 'vendor' folder and '.cargo/config.toml')
 COPY . .
 
-# Build static binary
+# Build using the vendored dependencies (--offline)
+# and your custom performance profile
 RUN cargo build \
+	--offline \
 	--locked \
 	--target x86_64-unknown-linux-musl \
-	--bin katana \
-	--profile performance
+	--profile performance \
+	--bin katana
 
 RUN cp /build/target/x86_64-unknown-linux-musl/performance/katana /katana
 
-# Minimal final stage
 FROM scratch AS final
 COPY --from=builder /katana /katana
+ENTRYPOINT ["/katana"]
