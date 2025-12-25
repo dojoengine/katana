@@ -271,7 +271,7 @@ pub mod test_utils {
 #[cfg(test)]
 mod tests {
 
-    use katana_primitives::contract::{ContractAddress, GenericContractInfo};
+    use katana_primitives::contract::GenericContractInfo;
     use katana_primitives::{address, Felt};
     use starknet::macros::felt;
 

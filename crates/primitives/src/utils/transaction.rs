@@ -817,7 +817,7 @@ mod tests {
 
         let version = felt!("0x0");
         let contract_address =
-            address!("0x73314940630fd6dcda0d772d4c972c4e0a9946bef9dabf4ef84eda8ef542b82");
+            address!("0x73314940630fd6dcda0d772d4c972c4e0a9946bef9dabf4ef84eda8ef542b82", crate);
         let entry_point_selector =
             felt!("0x1b64b1b3b690b43b9b514fb81377518f4039cd3e4f4914d8a6bdf01d679fb19");
         let calldata = vec![
@@ -859,7 +859,7 @@ mod tests {
             EthAddress::from_slice(&hex!("f6080d9fbeebcd44d89affbfd42f098cbff92816"));
 
         let to_address =
-            address!("0x5cd48fccbfd8aa2773fe22c217e808319ffcc1c5a6a463f7d8fa2da48218196");
+            address!("0x5cd48fccbfd8aa2773fe22c217e808319ffcc1c5a6a463f7d8fa2da48218196", crate);
 
         let entry_point_selector =
             felt!("0x1b64b1b3b690b43b9b514fb81377518f4039cd3e4f4914d8a6bdf01d679fb19");

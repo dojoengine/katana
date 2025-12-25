@@ -5,7 +5,7 @@ use katana_gateway_types::{
     StateDiff, StorageDiff,
 };
 use katana_primitives::execution::BuiltinName;
-use katana_primitives::{address, eth_address, felt, ContractAddress};
+use katana_primitives::{address, eth_address, felt};
 use serde_json::json;
 
 #[test]

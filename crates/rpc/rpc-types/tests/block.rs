@@ -1,6 +1,6 @@
 use assert_matches::assert_matches;
 use katana_primitives::da::L1DataAvailabilityMode;
-use katana_primitives::{address, felt, ContractAddress};
+use katana_primitives::{address, felt};
 use katana_rpc_types::block::{
     GetBlockWithReceiptsResponse, GetBlockWithTxHashesResponse, MaybePreConfirmedBlock,
 };

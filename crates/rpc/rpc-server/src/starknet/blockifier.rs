@@ -151,8 +151,8 @@ fn to_api_error(error: ExecutionError) -> StarknetApiError {
 mod tests {
 
     use katana_chain_spec::ChainSpec;
+    use katana_primitives::address;
     use katana_primitives::env::BlockEnv;
-    use katana_primitives::{address, ContractAddress};
     use katana_provider::api::state::StateFactoryProvider;
     use katana_provider::test_utils::test_provider;
     use katana_provider::ProviderFactory;

@@ -869,7 +869,6 @@ mod tests {
         Block, BlockHashOrNumber, FinalityStatus, Header, SealedBlockWithStatus,
     };
     use katana_primitives::class::ContractClass;
-    use katana_primitives::contract::ContractAddress;
     use katana_primitives::execution::TypedTransactionExecutionInfo;
     use katana_primitives::fee::FeeInfo;
     use katana_primitives::receipt::{InvokeTxReceipt, Receipt};

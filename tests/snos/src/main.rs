@@ -9,7 +9,7 @@ use katana_node::config::db::DbConfig;
 use katana_node::config::Config;
 use katana_node::{LaunchedNode, Node};
 use katana_primitives::block::BlockNumber;
-use katana_primitives::{address, ContractAddress, Felt};
+use katana_primitives::{address, Felt};
 use katana_provider::api::block::BlockNumberProvider;
 use katana_provider::{DbProviderFactory, ProviderFactory};
 

@@ -9,7 +9,6 @@ use katana_genesis::constant::{
     DEFAULT_ETH_FEE_TOKEN_ADDRESS, DEFAULT_PREFUNDED_ACCOUNT_BALANCE, DEFAULT_UDC_ADDRESS,
 };
 use katana_primitives::block::ExecutableBlock;
-use katana_primitives::contract::ContractAddress;
 use katana_primitives::transaction::TxWithHash;
 use katana_primitives::{address, Felt};
 use katana_provider::api::contract::ContractClassProviderExt;

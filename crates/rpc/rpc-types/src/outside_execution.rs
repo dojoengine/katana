@@ -91,7 +91,7 @@ impl OutsideExecution {
 #[cfg(test)]
 mod tests {
 
-    use katana_primitives::{address, felt, ContractAddress, Felt};
+    use katana_primitives::{address, felt, Felt};
     use serde_json::json;
     use starknet::macros::selector;
 

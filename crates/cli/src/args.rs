@@ -556,7 +556,7 @@ mod test {
     };
     use katana_node::config::rpc::RpcModuleKind;
     use katana_primitives::chain::ChainId;
-    use katana_primitives::{address, felt, ContractAddress, Felt};
+    use katana_primitives::{address, felt, Felt};
 
     use super::*;
 

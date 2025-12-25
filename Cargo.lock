@@ -6368,6 +6368,7 @@ dependencies = [
  "criterion",
  "derive_more 0.99.20",
  "heapless",
+ "katana-primitives-macro",
  "lazy_static",
  "num-bigint",
  "num-traits",
@@ -6385,6 +6386,16 @@ dependencies = [
  "strum 0.25.0",
  "strum_macros 0.25.3",
  "thiserror 1.0.69",
+]
+
+[[package]]
+name = "katana-primitives-macro"
+version = "1.7.0"
+dependencies = [
+ "proc-macro2",
+ "quote",
+ "starknet-types-core",
+ "syn 2.0.104",
 ]
 
 [[package]]

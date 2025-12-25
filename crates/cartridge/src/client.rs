@@ -74,7 +74,7 @@ pub struct GetAccountCalldataResponse {
 
 #[cfg(test)]
 mod tests {
-    use katana_primitives::{address, ContractAddress};
+    use katana_primitives::address;
 
     use super::*;
 
