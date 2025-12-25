@@ -354,7 +354,8 @@ mod tests {
         assert_eq!(state_updates.deployed_contracts.len(), 0);
 
         let address = address!(
-            "2019172390095051323869047481075102003731246132997057518965927979101413600827"
+            "2019172390095051323869047481075102003731246132997057518965927979101413600827",
+            crate
         );
 
         assert_eq!(state_updates.nonce_updates.get(&address), Some(&Felt::ONE));

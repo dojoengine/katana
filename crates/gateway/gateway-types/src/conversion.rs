@@ -409,7 +409,7 @@ impl From<ExecutionResources> for katana_primitives::receipt::ExecutionResources
 #[cfg(test)]
 mod from_primitives_test {
     use katana_primitives::transaction::TxWithHash;
-    use katana_primitives::{address, felt, ContractAddress};
+    use katana_primitives::{address, felt};
     use katana_utils::arbitrary;
 
     use super::*;
@@ -735,7 +735,6 @@ mod from_primitives_test {
 mod from_rpc_test {
     use std::collections::{BTreeMap, BTreeSet};
 
-    use katana_primitives::contract::ContractAddress;
     use katana_primitives::{address, felt};
 
     use crate::{DeclaredContract, StateDiff};

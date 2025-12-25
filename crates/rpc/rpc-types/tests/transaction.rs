@@ -4,7 +4,7 @@ use katana_primitives::fee::{
     AllResourceBoundsMapping, L1GasResourceBoundsMapping, ResourceBounds, ResourceBoundsMapping,
     Tip,
 };
-use katana_primitives::{address, felt, transaction as primitives, ContractAddress};
+use katana_primitives::{address, felt, transaction as primitives};
 use katana_rpc_types::transaction::{
     RpcDeclareTx, RpcDeployAccountTx, RpcInvokeTx, RpcTx, RpcTxWithHash,
 };
