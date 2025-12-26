@@ -20,6 +20,7 @@ use blockifier::transaction::transaction_execution::Transaction;
 use blockifier::transaction::transactions::ExecutableTransaction;
 use cairo_vm::types::errors::program_errors::ProgramError;
 use katana_chain_spec::ChainSpec;
+use katana_primitives::cairo::ShortString;
 use katana_primitives::chain::NamedChainId;
 use katana_primitives::env::{BlockEnv, VersionedConstantsOverrides};
 use katana_primitives::fee::{FeeInfo, PriceUnit, ResourceBoundsMapping};
@@ -30,7 +31,6 @@ use katana_primitives::transaction::{
 use katana_primitives::{class, fee};
 use katana_provider::api::contract::ContractClassProvider;
 use num_traits::Zero;
-use starknet::core::utils::parse_cairo_short_string;
 use starknet_api::block::{
     BlockInfo, BlockNumber, BlockTimestamp, FeeType, GasPriceVector, GasPrices, NonzeroGasPrice,
     StarknetVersion,
@@ -653,8 +653,8 @@ pub fn to_blk_chain_id(chain_id: katana_primitives::chain::ChainId) -> ChainId {
         katana_primitives::chain::ChainId::Named(NamedChainId::Sepolia) => ChainId::Sepolia,
         katana_primitives::chain::ChainId::Named(named) => ChainId::Other(named.to_string()),
         katana_primitives::chain::ChainId::Id(id) => {
-            let id = parse_cairo_short_string(&id).expect("valid cairo string");
-            ChainId::Other(id)
+            let id = ShortString::try_from(id).expect("valid cairo string");
+            ChainId::Other(id.to_string())
         }
     }
 }

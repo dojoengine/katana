@@ -1,8 +1,8 @@
 use anyhow::Result;
 use clap::Args;
 use katana_chain_spec::rollup::LocalChainConfigDir;
+use katana_primitives::cairo::ShortString;
 use katana_primitives::chain::ChainId;
-use starknet::core::utils::parse_cairo_short_string;
 
 #[derive(Debug, Args)]
 #[cfg_attr(test, derive(PartialEq, Eq))]
@@ -30,7 +30,7 @@ impl ConfigArgs {
                     // returned by `list` will be of the `ChainId::Id` variant and thus
                     // will display in hex form. But for now, it's fine to assume that because we
                     // only limit valid ASCII string in the `katana init` flow.
-                    let name = parse_cairo_short_string(&chain.id())?;
+                    let name = ShortString::try_from(chain.id())?;
                     println!("{name}");
                 }
             }

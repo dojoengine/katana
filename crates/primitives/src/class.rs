@@ -6,10 +6,10 @@ use cairo_lang_starknet_classes::contract_class::{
 };
 use cairo_lang_utils::bigint::BigUintAsHex;
 use serde_json_pythonic::to_string_pythonic;
-use starknet::macros::short_string;
 use starknet_api::contract_class::SierraVersion;
 use starknet_types_core::hash::{self, Poseidon, StarkHash};
 
+use crate::cairo::ShortString;
 use crate::utils::{normalize_address, starknet_keccak};
 use crate::Felt;
 
@@ -309,8 +309,10 @@ pub fn compute_sierra_class_hash(
     entry_points_by_type: &ContractEntryPoints,
     sierra_program: &[Felt],
 ) -> Felt {
+    const CONTRACT_CLASS_VERSION: ShortString = ShortString::from_ascii("CONTRACT_CLASS_V0.1.0");
+
     let hash = hash::Poseidon::hash_array(&[
-        short_string!("CONTRACT_CLASS_V0.1.0"),
+        CONTRACT_CLASS_VERSION.into(),
         // Hashes entry points
         entrypoints_hash(&entry_points_by_type.external),
         entrypoints_hash(&entry_points_by_type.l1_handler),

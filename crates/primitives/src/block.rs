@@ -5,8 +5,8 @@ use std::str::FromStr;
 use num_traits::ToPrimitive;
 use starknet::core::types::ResourcePrice;
 use starknet::core::utils::cairo_short_string_to_felt;
-use starknet::macros::short_string;
 
+use crate::cairo::ShortString;
 use crate::contract::ContractAddress;
 use crate::da::L1DataAvailabilityMode;
 use crate::transaction::{ExecutableTxWithHash, TxHash, TxWithHash};
@@ -327,6 +327,8 @@ impl Header {
     pub fn compute_hash(&self) -> Felt {
         use starknet_types_core::hash::{Poseidon, StarkHash};
 
+        const BLOCK_HASH_VERSION: ShortString = ShortString::from_ascii("STARKNET_BLOCK_HASH0");
+
         let concant = Self::concat_counts(
             self.transaction_count,
             self.events_count,
@@ -335,7 +337,7 @@ impl Header {
         );
 
         Poseidon::hash_array(&[
-            short_string!("STARKNET_BLOCK_HASH0"),
+            BLOCK_HASH_VERSION.into(),
             self.number.into(),
             self.state_root,
             self.sequencer_address.into(),

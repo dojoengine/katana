@@ -4,9 +4,8 @@ use std::time::Instant;
 use anyhow::Result;
 use cainome::rs::abigen_legacy;
 use katana_genesis::constant::DEFAULT_ETH_FEE_TOKEN_ADDRESS;
+use katana_primitives::{felt, Felt};
 use katana_utils::TestNode;
-use starknet::core::types::Felt;
-use starknet::macros::felt;
 use tokio::sync::Mutex;
 
 mod common;
