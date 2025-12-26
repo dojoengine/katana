@@ -12,7 +12,9 @@ use crate::{
 impl From<katana_rpc_types::StateUpdate> for StateUpdate {
     fn from(value: katana_rpc_types::StateUpdate) -> Self {
         match value {
-            katana_rpc_types::StateUpdate::Update(update) => StateUpdate::Confirmed(update.into()),
+            katana_rpc_types::StateUpdate::Confirmed(update) => {
+                StateUpdate::Confirmed(update.into())
+            }
             katana_rpc_types::StateUpdate::PreConfirmed(pre_confirmed) => {
                 StateUpdate::PreConfirmed(pre_confirmed.into())
             }

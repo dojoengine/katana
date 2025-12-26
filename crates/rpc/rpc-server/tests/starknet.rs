@@ -62,7 +62,7 @@ async fn declare_and_deploy_contract() {
     // check state update includes class in declared_classes
     let state_update = provider.get_state_update(BlockIdOrTag::Latest).await.unwrap();
     match state_update {
-        StateUpdate::Update(update) => {
+        StateUpdate::Confirmed(update) => {
             similar_asserts::assert_eq!(
                 update.state_diff.declared_classes,
                 BTreeMap::from_iter([(class_hash, compiled_class_hash)])

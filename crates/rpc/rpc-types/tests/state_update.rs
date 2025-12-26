@@ -35,7 +35,7 @@ fn preconfirmed_state_update() {
     let PreConfirmedStateUpdate { old_root, ref state_diff } = state_update;
     assert_eq!(
         old_root,
-        felt!("0x6a59de5353d4050a800fd240020d014653d950df357ffa14319ee809a65427a")
+        Some(felt!("0x6a59de5353d4050a800fd240020d014653d950df357ffa14319ee809a65427a"))
     );
     assert_eq!(state_diff.deprecated_declared_classes, BTreeSet::new());
     assert_eq!(state_diff.replaced_classes, map!());
@@ -75,7 +75,7 @@ fn confirmed_state_update() {
 
     let state_update: ConfirmedStateUpdate = serde_json::from_value(json.clone()).unwrap();
     let as_enum: StateUpdate = serde_json::from_value(json.clone()).unwrap();
-    assert_matches!(as_enum, StateUpdate::Update(as_enum_update) => {
+    assert_matches!(as_enum, StateUpdate::Confirmed(as_enum_update) => {
         similar_asserts::assert_eq!(as_enum_update, state_update);
     });
 
@@ -143,7 +143,7 @@ fn v0_10_0_confirmed_state_update() {
 
     let state_update: ConfirmedStateUpdate = serde_json::from_value(json.clone()).unwrap();
     let as_enum: StateUpdate = serde_json::from_value(json.clone()).unwrap();
-    assert_matches!(as_enum, StateUpdate::Update(as_enum_update) => {
+    assert_matches!(as_enum, StateUpdate::Confirmed(as_enum_update) => {
         similar_asserts::assert_eq!(as_enum_update, state_update);
     });
 

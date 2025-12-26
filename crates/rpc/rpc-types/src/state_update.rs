@@ -9,7 +9,7 @@ use serde::{Deserialize, Deserializer, Serialize, Serializer};
 #[derive(Debug, Clone, Serialize, Deserialize)]
 #[serde(untagged)]
 pub enum StateUpdate {
-    Update(ConfirmedStateUpdate),
+    Confirmed(ConfirmedStateUpdate),
     PreConfirmed(PreConfirmedStateUpdate),
 }
 
@@ -17,7 +17,7 @@ pub enum StateUpdate {
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub struct PreConfirmedStateUpdate {
     /// The previous global state root
-    pub old_root: Felt,
+    pub old_root: Option<Felt>,
     /// State diff
     pub state_diff: StateDiff,
 }
