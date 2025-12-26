@@ -23,10 +23,9 @@ use std::str::FromStr;
 use ark_ec::short_weierstrass::Affine;
 use katana_primitives::cairo::ShortString;
 use katana_primitives::utils::get_contract_address;
-use katana_primitives::{ContractAddress, Felt};
+use katana_primitives::{felt, ContractAddress, Felt};
 use num_bigint::BigInt;
 use stark_vrf::{generate_public_key, BaseField, StarkCurve, StarkVRF};
-use starknet::macros::felt;
 use tracing::trace;
 
 // Class hash of the VRF provider contract (fee estimation code commented, since currently Katana

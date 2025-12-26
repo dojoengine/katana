@@ -3021,7 +3021,6 @@ dependencies = [
  "serde",
  "serde_json",
  "stark-vrf",
- "starknet",
  "thiserror 1.0.69",
  "tracing",
  "url",

@@ -406,6 +406,63 @@ mod tests {
         assert_matches!(ShortString::from_str("café"), Err(ShortStringError::InvalidAscii));
     }
 
+    #[test]
+    fn push_non_ascii_char() {
+        let mut s = ShortString::new();
+        assert_matches!(s.push('é'), Err(ShortStringError::InvalidAscii));
+        // String should remain unchanged
+        assert!(s.is_empty());
+    }
+
+    #[test]
+    fn push_exceeds_capacity() {
+        // Create a string with 31 characters (max capacity)
+        let mut s = ShortString::from_str(&"a".repeat(31)).unwrap();
+        assert_eq!(s.len(), 31);
+
+        // Pushing another character should fail
+        assert_matches!(s.push('b'), Err(ShortStringError::ExceedsCapacity));
+        // String should remain unchanged
+        assert_eq!(s.len(), 31);
+    }
+
+    #[test]
+    fn push_str_non_ascii() {
+        let mut s = ShortString::new();
+        assert_matches!(s.push_str("café"), Err(ShortStringError::InvalidAscii));
+        // Note: push_str doesn't rollback on error, so "caf" is added before encountering "é"
+        assert_eq!(s.as_str(), "caf");
+
+        // Test with non-ASCII at the start - string should remain empty
+        let mut s = ShortString::new();
+        assert_matches!(s.push_str("éfoo"), Err(ShortStringError::InvalidAscii));
+        assert!(s.is_empty());
+    }
+
+    #[test]
+    fn push_str_exceeds_capacity() {
+        // Create a string with 30 characters
+        let mut s = ShortString::from_str(&"a".repeat(30)).unwrap();
+        assert_eq!(s.len(), 30);
+
+        // Pushing a 2-character string should fail (30 + 2 > 31)
+        assert_matches!(s.push_str("bb"), Err(ShortStringError::ExceedsCapacity));
+        // String should remain unchanged
+        assert_eq!(s.len(), 30);
+    }
+
+    #[test]
+    fn push_str_exactly_fills_capacity() {
+        // Create a string with 30 characters
+        let mut s = ShortString::from_str(&"a".repeat(30)).unwrap();
+        assert_eq!(s.len(), 30);
+
+        // Pushing a 1-character string should succeed (30 + 1 = 31)
+        assert!(s.push_str("b").is_ok());
+        assert_eq!(s.len(), 31);
+        assert!(s.as_str().ends_with('b'));
+    }
+
     #[cfg(feature = "arbitrary")]
     #[test]
     fn test_arbitrary_short_string() {
