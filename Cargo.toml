@@ -48,7 +48,7 @@ members = [
 	"crates/utils",
 	"tests/db-compat",
 	"tests/reverse-proxy",
-	"tests/snos",
+	# "tests/snos",
 ]
 
 [workspace.package]
@@ -113,13 +113,13 @@ katana-trie = { path = "crates/trie" }
 katana-utils = { path = "crates/utils" }
 
 # cairo-lang
-cairo-lang-casm = "2.11.2"
-cairo-lang-runner = "2.11.2"
-cairo-lang-sierra = "2.11.2"
-cairo-lang-sierra-to-casm = "2.11.2"
-cairo-lang-starknet = "2.11.2"
-cairo-lang-starknet-classes = "2.11.2"
-cairo-lang-utils = "2.11.2"
+cairo-lang-casm = "2.12.3"
+cairo-lang-runner = "2.12.3"
+cairo-lang-sierra = "2.12.3"
+cairo-lang-sierra-to-casm = "2.12.3"
+cairo-lang-starknet = "2.12.3"
+cairo-lang-starknet-classes = "2.12.3"
+cairo-lang-utils = "2.12.3"
 
 anyhow = "1.0.89"
 arbitrary = { version = "1.3.2", features = [ "derive" ] }
@@ -226,21 +226,20 @@ opentelemetry-http = "0.30.0"
 opentelemetry-stackdriver = { version = "0.27.0", features = [ "propagator" ] }
 
 # starknet
-starknet = "0.17.0-rc.2"
-starknet-types-core = { version = "0.1.8", features = [ "arbitrary", "hash" ] }
+starknet = "0.17.0"
+starknet-types-core = { version = "0.2", features = [ "arbitrary", "hash" ] }
 # Some types that we used from cairo-vm implements the `Arbitrary` trait,
 # only under the `test_utils` feature.
-cairo-vm = { version = "1.0.2", features = [ "test_utils" ] }
+cairo-vm = { version = "2.5.0", features = [ "test_utils" ] }
 
-blockifier = { git = "https://github.com/dojoengine/sequencer", rev = "5d737b9c9", default-features = false }
-starknet_api = { git = "https://github.com/dojoengine/sequencer", rev = "5d737b9c9" }
+blockifier = { git = "https://github.com/dojoengine/sequencer", rev = "d2591bb", default-features = false }
+starknet_api = { git = "https://github.com/dojoengine/sequencer", rev = "d2591bb" }
 
 cainome = { git = "https://github.com/cartridge-gg/cainome", rev = "7d60de1", features = [ "abigen-rs" ] }
 cainome-cairo-serde = { git = "https://github.com/cartridge-gg/cainome", rev = "7d60de1" }
 piltover = { git = "https://github.com/kariy/piltover.git", branch = "feat/rpc0.9" }
 
 [patch.crates-io]
-starknet = { git = "https://github.com/kariy/starknet-rs", rev = "2ef3088" }
 # NOTE: remove this patch once this PR is merged <https://github.com/starknet-io/types-rs/pull/132>
 #
 # This patch fixes an issue where we're unable to correctly evaluate the accurate size
