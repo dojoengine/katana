@@ -13,7 +13,7 @@ use katana_genesis::constant::{
 };
 use katana_primitives::block::{BlockIdOrTag, ConfirmedBlockIdOrTag};
 use katana_primitives::event::ContinuationToken;
-use katana_primitives::Felt;
+use katana_primitives::{felt, Felt};
 use katana_rpc_api::dev::DevApiClient;
 use katana_rpc_types::state_update::StateUpdate;
 use katana_rpc_types::trace::TxTrace;
@@ -31,7 +31,7 @@ use starknet::accounts::{
 };
 use starknet::core::types::Call;
 use starknet::core::utils::get_contract_address;
-use starknet::macros::{felt, selector};
+use starknet::macros::selector;
 use starknet::providers::{Provider, ProviderError};
 use starknet::signers::{LocalWallet, SigningKey};
 use tokio::sync::Mutex;

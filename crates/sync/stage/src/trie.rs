@@ -3,13 +3,13 @@ use katana_db::abstraction::{Database, DbTx};
 use katana_db::tables;
 use katana_db::trie::TrieDbMut;
 use katana_primitives::block::BlockNumber;
+use katana_primitives::cairo::ShortString;
 use katana_primitives::Felt;
 use katana_provider::api::block::HeaderProvider;
 use katana_provider::api::state_update::StateUpdateProvider;
 use katana_provider::api::trie::TrieWriter;
 use katana_provider::{DbProviderFactory, MutableProvider, ProviderFactory};
 use katana_tasks::TaskSpawner;
-use starknet::macros::short_string;
 use starknet_types_core::hash::{Poseidon, StarkHash};
 use tracing::{debug, debug_span, error};
 
@@ -100,7 +100,7 @@ impl Stage for StateTrie {
                     computed_contract_trie_root
                 } else {
                     Poseidon::hash_array(&[
-                        short_string!("STARKNET_STATE_V0"),
+                        ShortString::from_ascii("STARKNET_STATE_V0").into(),
                         computed_contract_trie_root,
                         computed_class_trie_root,
                     ])

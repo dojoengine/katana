@@ -21,11 +21,11 @@
 use std::str::FromStr;
 
 use ark_ec::short_weierstrass::Affine;
+use katana_primitives::cairo::ShortString;
 use katana_primitives::utils::get_contract_address;
-use katana_primitives::{ContractAddress, Felt};
+use katana_primitives::{felt, ContractAddress, Felt};
 use num_bigint::BigInt;
 use stark_vrf::{generate_public_key, BaseField, StarkCurve, StarkVRF};
-use starknet::macros::{felt, short_string};
 use tracing::trace;
 
 // Class hash of the VRF provider contract (fee estimation code commented, since currently Katana
@@ -34,7 +34,7 @@ use tracing::trace;
 // `crates/controller/artifacts/cartridge_vrf_VrfProvider.contract_class.json`
 pub const CARTRIDGE_VRF_CLASS_HASH: Felt =
     felt!("0x07007ea60938ff539f1c0772a9e0f39b4314cfea276d2c22c29a8b64f2a87a58");
-pub const CARTRIDGE_VRF_SALT: Felt = short_string!("cartridge_vrf");
+pub const CARTRIDGE_VRF_SALT: ShortString = ShortString::from_ascii("cartridge_vrf");
 pub const CARTRIDGE_VRF_DEFAULT_PRIVATE_KEY: Felt = felt!("0x1");
 
 #[derive(Debug, Default, Clone)]
@@ -125,7 +125,7 @@ fn compute_vrf_address(
     public_key_y: Felt,
 ) -> ContractAddress {
     get_contract_address(
-        CARTRIDGE_VRF_SALT,
+        CARTRIDGE_VRF_SALT.into(),
         CARTRIDGE_VRF_CLASS_HASH,
         &[*provider_addrss, public_key_x, public_key_y],
         Felt::ZERO,

@@ -8,8 +8,9 @@ use cainome::rs::abigen_legacy;
 use cairo_lang_starknet_classes::casm_contract_class::CasmContractClass;
 use cairo_lang_starknet_classes::contract_class::ContractClass;
 use katana_primitives::class::CompiledClass;
+use katana_primitives::Felt;
 use starknet::core::types::contract::SierraClass;
-use starknet::core::types::{Call, Felt, FlattenedSierraClass};
+use starknet::core::types::{Call, FlattenedSierraClass};
 use starknet::core::utils::get_selector_from_name;
 
 abigen_legacy!(Erc20Contract, "crates/contracts/build/legacy/erc20.json", derives(Clone));

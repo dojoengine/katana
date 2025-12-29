@@ -536,7 +536,7 @@ pub async fn craft_deploy_cartridge_vrf_tx(
 ) -> anyhow::Result<ExecutableTxWithHash> {
     let calldata = vec![
         CARTRIDGE_VRF_CLASS_HASH,
-        CARTRIDGE_VRF_SALT,
+        CARTRIDGE_VRF_SALT.into(),
         // from zero
         Felt::ZERO,
         // Calldata len
