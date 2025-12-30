@@ -2,8 +2,8 @@ use std::sync::Arc;
 
 use alloy_primitives::U256;
 use katana_chain_spec::rollup::{self};
-use katana_chain_spec::{dev, ChainSpec, FeeContracts, SettlementLayer};
-use katana_core::backend::Backend;
+use katana_chain_spec::{dev, ChainSpecT, FeeContracts, SettlementLayer};
+use katana_core::backend::{Backend, GenesisInitializer};
 use katana_executor::implementation::blockifier::cache::ClassCache;
 use katana_executor::implementation::blockifier::BlockifierFactory;
 use katana_executor::BlockLimits;
@@ -15,10 +15,9 @@ use katana_primitives::chain::ChainId;
 use katana_primitives::env::VersionedConstantsOverrides;
 use katana_primitives::felt;
 use katana_provider::DbProviderFactory;
-use rstest::rstest;
 use url::Url;
 
-fn executor(chain_spec: Arc<ChainSpec>) -> BlockifierFactory {
+fn executor<C: ChainSpecT>(chain_spec: Arc<C>) -> BlockifierFactory<C> {
     BlockifierFactory::new(
         Some(VersionedConstantsOverrides {
             validate_max_n_steps: Some(u32::MAX),
@@ -32,14 +31,16 @@ fn executor(chain_spec: Arc<ChainSpec>) -> BlockifierFactory {
     )
 }
 
-fn backend(chain_spec: Arc<ChainSpec>) -> Backend<BlockifierFactory, DbProviderFactory> {
+fn backend<C: ChainSpecT>(
+    chain_spec: Arc<C>,
+) -> Backend<BlockifierFactory<C>, DbProviderFactory, C> {
     backend_with_db(chain_spec, DbProviderFactory::new_in_memory())
 }
 
-fn backend_with_db(
-    chain_spec: Arc<ChainSpec>,
+fn backend_with_db<C: ChainSpecT>(
+    chain_spec: Arc<C>,
     provider: DbProviderFactory,
-) -> Backend<BlockifierFactory, DbProviderFactory> {
+) -> Backend<BlockifierFactory<C>, DbProviderFactory, C> {
     Backend::new(
         chain_spec.clone(),
         provider,
@@ -63,35 +64,52 @@ fn rollup_chain_spec() -> rollup::ChainSpec {
     let id = ChainId::parse("KATANA").unwrap();
     let fee_contracts = FeeContracts::default();
 
-    let settlement = SettlementLayer::Starknet {
+    let settlement = Some(SettlementLayer::Starknet {
         block: 0,
         id: ChainId::default(),
         account: Default::default(),
         core_contract: Default::default(),
         rpc_url: Url::parse("http://localhost:5050").unwrap(),
-    };
+    });
 
     rollup::ChainSpec { id, genesis, settlement, fee_contracts }
 }
 
-#[rstest]
-#[case::dev(ChainSpec::Dev(dev_chain_spec()))]
-#[case::rollup(ChainSpec::Rollup(rollup_chain_spec()))]
-fn can_initialize_genesis(#[case] chain: ChainSpec) {
-    let backend = backend(chain.into());
-    backend.init_genesis(false).expect("failed to initialize genesis");
+#[test]
+fn can_initialize_genesis() {
+    // dev chain spec
+
+    let chain_spec = Arc::new(dev_chain_spec());
+    backend(chain_spec).init_genesis(false).expect("failed to initialize genesis");
+
+    // rollup chain spec
+
+    let chain_spec = Arc::new(rollup_chain_spec());
+    backend(chain_spec).init_genesis(false).expect("failed to initialize genesis");
 }
 
-#[rstest]
-#[case::dev(ChainSpec::Dev(dev_chain_spec()))]
-#[case::rollup(ChainSpec::Rollup(rollup_chain_spec()))]
-fn can_reinitialize_genesis(#[case] chain: ChainSpec) {
+#[test]
+fn can_reinitialize_genesis() {
     let db = DbProviderFactory::new_in_memory();
 
-    let backend = backend_with_db(chain.clone().into(), db.clone());
+    // dev chain spec
+
+    let chain_spec = Arc::new(dev_chain_spec());
+
+    let backend = backend_with_db(chain_spec.clone(), db.clone());
     backend.init_genesis(false).expect("failed to initialize genesis");
 
-    let backend = backend_with_db(chain.into(), db);
+    let backend = backend_with_db(chain_spec.clone(), db.clone());
+    backend.init_genesis(false).unwrap();
+
+    // rollup chain spec
+
+    let chain_spec = Arc::new(rollup_chain_spec());
+
+    let backend = backend_with_db(chain_spec.clone(), db.clone());
+    backend.init_genesis(false).expect("failed to initialize genesis");
+
+    let backend = backend_with_db(chain_spec.clone(), db);
     backend.init_genesis(false).unwrap();
 }
 
@@ -99,16 +117,13 @@ fn can_reinitialize_genesis(#[case] chain: ChainSpec) {
 fn reinitialize_with_different_rollup_chain_spec() {
     let db = DbProviderFactory::new_in_memory();
 
-    let chain1 = ChainSpec::Rollup(rollup_chain_spec());
+    let chain1 = rollup_chain_spec();
     let backend1 = backend_with_db(chain1.into(), db.clone());
     backend1.init_genesis(false).expect("failed to initialize genesis");
 
     // Modify the chain spec so that the resultant genesis block hash will be different.
-    let chain2 = ChainSpec::Rollup({
-        let mut chain = rollup_chain_spec();
-        chain.genesis.parent_hash = felt!("0x1337");
-        chain
-    });
+    let mut chain2 = rollup_chain_spec();
+    chain2.genesis.parent_hash = felt!("0x1337");
 
     let backend2 = backend_with_db(chain2.into(), db);
     let err = backend2.init_genesis(false).unwrap_err().to_string();

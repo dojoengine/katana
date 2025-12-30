@@ -23,7 +23,7 @@ use katana_primitives::version::StarknetVersion;
 use katana_primitives::Felt;
 use lazy_static::lazy_static;
 
-use crate::{FeeContracts, SettlementLayer};
+use crate::{ChainSpecT, FeeContracts, SettlementLayer};
 
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct ChainSpec {
@@ -109,6 +109,36 @@ impl ChainSpec {
 impl Default for ChainSpec {
     fn default() -> Self {
         DEV.clone()
+    }
+}
+
+impl ChainSpecT for ChainSpec {
+    fn id(&self) -> ChainId {
+        self.id
+    }
+
+    fn genesis(&self) -> &katana_genesis::Genesis {
+        &self.genesis
+    }
+
+    fn fee_contracts(&self) -> &FeeContracts {
+        &self.fee_contracts
+    }
+
+    fn settlement(&self) -> Option<&SettlementLayer> {
+        self.settlement.as_ref()
+    }
+
+    fn block(&self) -> ExecutableBlock {
+        self.block()
+    }
+
+    fn state_updates(&self) -> StateUpdatesWithClasses {
+        self.state_updates()
+    }
+
+    fn is_dev(&self) -> bool {
+        true
     }
 }
 

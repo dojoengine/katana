@@ -43,7 +43,15 @@ impl Cli {
             };
         }
 
-        execute_async(self.node.with_config_file()?.execute())?
+        let mut node = self.node.with_config_file()?;
+
+        // Running bare `katana` (without subcommand) defaults to dev mode
+        // if `--chain` is not provided.
+        if node.chain.is_none() {
+            node.development.dev = true;
+        }
+
+        execute_async(node.execute())?
     }
 }
 
@@ -100,26 +108,34 @@ fn build_tokio_runtime() -> std::io::Result<Runtime> {
 #[cfg(test)]
 mod tests {
     use katana_cli::NodeSubcommand;
+    use katana_node::config::sequencing::MiningMode;
 
     use super::*;
 
     #[test]
     fn default_command_is_sequencer() {
-        let cli_no_subcommand = Cli::parse_from(["katana"]);
-        let cli_explicit_sequencer = Cli::parse_from(["katana", "node", "sequencer"]);
+        // Note: --dev is required here because the auto-enable logic is in run(),
+        // not at parse time. In practice, bare `katana` auto-enables dev mode.
+        let cli_no_subcommand = Cli::parse_from(["katana", "--dev"]);
+        let cli_explicit_sequencer = Cli::parse_from(["katana", "node", "sequencer", "--dev"]);
 
         assert!(cli_no_subcommand.commands.is_none());
         assert!(matches!(cli_explicit_sequencer.commands, Some(Commands::Node(_))));
 
         let config_default = cli_no_subcommand.node.config().unwrap();
-        let config_explicit =
-            cli_explicit_sequencer.node.with_config_file().unwrap().config().unwrap();
+
+        // Extract the node args from the subcommand
+        let Commands::Node(NodeCli { command: NodeSubcommand::Sequencer(explicit_node_args) }) =
+            cli_explicit_sequencer.commands.unwrap()
+        else {
+            panic!("Expected Node command");
+        };
+        let config_explicit = explicit_node_args.with_config_file().unwrap().config().unwrap();
 
         assert_eq!(config_default.chain.id(), config_explicit.chain.id());
         assert_eq!(config_default.dev.fee, config_explicit.dev.fee);
         assert_eq!(config_default.dev.account_validation, config_explicit.dev.account_validation);
-        assert_eq!(config_default.sequencing.block_time, config_explicit.sequencing.block_time);
-        assert_eq!(config_default.sequencing.no_mining, config_explicit.sequencing.no_mining);
+        assert_eq!(config_default.sequencing.mining, config_explicit.sequencing.mining);
     }
 
     #[test]
@@ -147,8 +163,8 @@ mod tests {
 
         assert!(!config_default.dev.fee);
         assert!(!config_explicit.dev.fee);
-        assert_eq!(config_default.sequencing.block_time, Some(1000));
-        assert_eq!(config_explicit.sequencing.block_time, Some(1000));
+        assert_eq!(config_default.sequencing.mining, MiningMode::Interval(1000));
+        assert_eq!(config_explicit.sequencing.mining, MiningMode::Interval(1000));
 
         // assert that the rest of the configurations is equal
         similar_asserts::assert_eq!(config_default, config_explicit);

@@ -1,4 +1,5 @@
 use jsonrpsee::core::{async_trait, RpcResult};
+use katana_chain_spec::ChainSpecT;
 use katana_core::backend::storage::ProviderRO;
 use katana_executor::{ExecutionResult, ResultAndStates};
 use katana_pool::TransactionPool;
@@ -20,8 +21,9 @@ use katana_rpc_types::{BroadcastedTxWithChainId, SimulationFlag};
 use super::StarknetApi;
 use crate::starknet::pending::PendingBlockProvider;
 
-impl<Pool, PoolTx, Pending, PF> StarknetApi<Pool, Pending, PF>
+impl<CS, Pool, PoolTx, Pending, PF> StarknetApi<CS, Pool, Pending, PF>
 where
+    CS: ChainSpecT,
     Pool: TransactionPool<Transaction = PoolTx> + Send + Sync + 'static,
     PoolTx: From<BroadcastedTxWithChainId>,
     Pending: PendingBlockProvider,
@@ -138,8 +140,9 @@ where
 }
 
 #[async_trait]
-impl<Pool, PoolTx, Pending, PF> StarknetTraceApiServer for StarknetApi<Pool, Pending, PF>
+impl<CS, Pool, PoolTx, Pending, PF> StarknetTraceApiServer for StarknetApi<CS, Pool, Pending, PF>
 where
+    CS: ChainSpecT,
     Pool: TransactionPool<Transaction = PoolTx> + Send + Sync + 'static,
     PoolTx: From<BroadcastedTxWithChainId>,
     Pending: PendingBlockProvider,

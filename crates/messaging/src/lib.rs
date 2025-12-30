@@ -116,29 +116,27 @@ impl MessagingConfig {
         Self::load(path).map_err(|e| e.to_string())
     }
 
-    pub fn from_chain_spec(spec: &katana_chain_spec::rollup::ChainSpec) -> Self {
-        match &spec.settlement {
+    pub fn from_chain_spec(spec: &katana_chain_spec::rollup::ChainSpec) -> Option<Self> {
+        match spec.settlement.as_ref()? {
             katana_chain_spec::SettlementLayer::Ethereum {
                 rpc_url, core_contract, block, ..
-            } => Self {
+            } => Some(Self {
                 chain: CONFIG_CHAIN_ETHEREUM.to_string(),
                 rpc_url: rpc_url.to_string(),
                 contract_address: core_contract.to_string(),
                 from_block: *block,
                 interval: 2,
-            },
+            }),
             katana_chain_spec::SettlementLayer::Starknet {
                 rpc_url, core_contract, block, ..
-            } => Self {
+            } => Some(Self {
                 chain: CONFIG_CHAIN_STARKNET.to_string(),
                 rpc_url: rpc_url.to_string(),
                 contract_address: core_contract.to_string(),
                 from_block: *block,
                 interval: 2,
-            },
-            katana_chain_spec::SettlementLayer::Sovereign { .. } => {
-                panic!("Sovereign chains are not supported for messaging.")
-            }
+            }),
+            katana_chain_spec::SettlementLayer::Sovereign { .. } => None,
         }
     }
 }
@@ -211,17 +209,17 @@ impl MessengerMode {
 
 #[allow(missing_debug_implementations)]
 #[must_use = "MessagingTask does nothing unless polled"]
-pub struct MessagingTask {
-    messaging: MessagingService,
+pub struct MessagingTask<C: katana_chain_spec::ChainSpecT> {
+    messaging: MessagingService<C>,
 }
 
-impl MessagingTask {
-    pub fn new(messaging: MessagingService) -> Self {
+impl<C: katana_chain_spec::ChainSpecT> MessagingTask<C> {
+    pub fn new(messaging: MessagingService<C>) -> Self {
         Self { messaging }
     }
 }
 
-impl Future for MessagingTask {
+impl<C: katana_chain_spec::ChainSpecT> Future for MessagingTask<C> {
     type Output = ();
 
     fn poll(self: Pin<&mut Self>, cx: &mut Context<'_>) -> Poll<Self::Output> {

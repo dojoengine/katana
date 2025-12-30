@@ -61,3 +61,43 @@ pub struct Config {
     #[cfg(feature = "cartridge")]
     pub paymaster: Option<paymaster::PaymasterConfig>,
 }
+
+/// Node configurations.
+///
+/// List of all possible options that can be used to configure a node.
+#[derive(Debug, Clone, Default, PartialEq, Eq)]
+pub struct NodeConfig<ChainSpec, Extension = ()> {
+    /// The chain specification.
+    pub chain: Arc<ChainSpec>,
+
+    /// Database options.
+    pub db: DbConfig,
+
+    /// Rpc options.
+    pub rpc: RpcConfig,
+
+    /// Feeder gateway options.
+    pub gateway: Option<GatewayConfig>,
+
+    /// Metrics options.
+    pub metrics: Option<MetricsConfig>,
+
+    /// Execution options.
+    pub execution: ExecutionConfig,
+
+    /// Messaging options.
+    pub messaging: Option<MessagingConfig>,
+
+    /// Sequencing options.
+    pub sequencing: SequencingConfig,
+
+    /// Development options.
+    pub dev: DevConfig,
+
+    /// Cartridge paymaster options.
+    #[cfg(feature = "cartridge")]
+    pub paymaster: Option<paymaster::PaymasterConfig>,
+
+    /// Extended options.
+    pub extension: Extension,
+}

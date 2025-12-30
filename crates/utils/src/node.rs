@@ -7,7 +7,7 @@ use katana_core::backend::Backend;
 use katana_executor::implementation::blockifier::BlockifierFactory;
 use katana_node::config::dev::DevConfig;
 use katana_node::config::rpc::{RpcConfig, RpcModulesList, DEFAULT_RPC_ADDR};
-use katana_node::config::sequencing::SequencingConfig;
+use katana_node::config::sequencing::{MiningMode, SequencingConfig};
 use katana_node::config::Config;
 use katana_node::{LaunchedNode, Node};
 use katana_primitives::address;
@@ -41,7 +41,7 @@ impl TestNode {
 
     pub async fn new_with_block_time(block_time: u64) -> Self {
         let mut config = test_config();
-        config.sequencing.block_time = Some(block_time);
+        config.sequencing.mining = MiningMode::Interval(block_time);
         Self::new_with_config(config).await
     }
 
@@ -80,7 +80,7 @@ where
         self.node.rpc().addr()
     }
 
-    pub fn backend(&self) -> &Arc<Backend<BlockifierFactory, P>> {
+    pub fn backend(&self) -> &Arc<Backend<BlockifierFactory, P, ChainSpec>> {
         self.node.node().backend()
     }
 
@@ -127,7 +127,13 @@ where
 
 pub fn test_config() -> Config {
     let sequencing = SequencingConfig::default();
-    let dev = DevConfig { fee: false, account_validation: true, fixed_gas_prices: None };
+    let dev = DevConfig {
+        total_accounts: 10,
+        account_seed: String::new(),
+        fee: false,
+        account_validation: true,
+        fixed_gas_prices: None,
+    };
 
     let mut chain = dev::ChainSpec { id: ChainId::SEPOLIA, ..Default::default() };
     chain.genesis.sequencer_address = address!("0x1");

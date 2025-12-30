@@ -1,6 +1,7 @@
 use axum::extract::{Query, State};
 use axum::http::StatusCode;
 use axum::response::{IntoResponse, Json, Response};
+use katana_chain_spec::ChainSpecT;
 use katana_core::backend::storage::{ProviderRO, ProviderRW};
 use katana_core::service::block_producer::BlockProducer;
 use katana_executor::implementation::blockifier::BlockifierFactory;
@@ -21,34 +22,37 @@ use serde_json::{json, Value};
 use starknet::core::types::ResourcePrice;
 
 /// Shared application state containing the backend
-pub struct AppState<Pool, PF>
+pub struct AppState<Pool, PF, C>
 where
+    C: ChainSpecT,
     Pool: TransactionPool,
     PF: ProviderFactory,
     <PF as ProviderFactory>::Provider: ProviderRO,
     <PF as ProviderFactory>::ProviderMut: ProviderRW,
 {
-    pub api: StarknetApi<Pool, BlockProducer<BlockifierFactory, PF>, PF>,
+    pub api: StarknetApi<C, Pool, BlockProducer<BlockifierFactory<C>, PF, C>, PF>,
 }
 
-impl<Pool, PF> Clone for AppState<Pool, PF>
+impl<Pool, PF, C> Clone for AppState<Pool, PF, C>
 where
     Pool: TransactionPool,
     PF: ProviderFactory,
     <PF as ProviderFactory>::Provider: ProviderRO,
     <PF as ProviderFactory>::ProviderMut: ProviderRW,
+    C: ChainSpecT,
 {
     fn clone(&self) -> Self {
         Self { api: self.api.clone() }
     }
 }
 
-impl<P, PF> AppState<P, PF>
+impl<P, PF, C> AppState<P, PF, C>
 where
     P: TransactionPool + Send + Sync + 'static,
     PF: ProviderFactory,
     <PF as ProviderFactory>::Provider: ProviderRO,
     <PF as ProviderFactory>::ProviderMut: ProviderRW,
+    C: ChainSpecT,
 {
     // TODO(kariy): support preconfirmed blocks
     async fn get_block(&self, id: BlockIdOrTag) -> Result<Option<Block>, ApiError> {
@@ -179,8 +183,8 @@ pub async fn health() -> Json<serde_json::Value> {
 /// Handler for `/feeder_gateway/get_block` endpoint
 ///
 /// Returns block information for the specified block.
-pub async fn get_block<P, PF>(
-    State(state): State<AppState<P, PF>>,
+pub async fn get_block<P, PF, C>(
+    State(state): State<AppState<P, PF, C>>,
     Query(params): Query<BlockIdQuery>,
 ) -> Result<Json<Block>, ApiError>
 where
@@ -188,6 +192,7 @@ where
     PF: ProviderFactory,
     <PF as ProviderFactory>::Provider: ProviderRO,
     <PF as ProviderFactory>::ProviderMut: ProviderRW,
+    C: ChainSpecT,
 {
     let block_id = params.block_id()?;
     let block = state.get_block(block_id).await?.unwrap();
@@ -206,8 +211,8 @@ pub enum GetStateUpdateResponse {
 /// Handler for `/feeder_gateway/get_state_update` endpoint
 ///
 /// Returns state update information for the specified block.
-pub async fn get_state_update<P, PF>(
-    State(state): State<AppState<P, PF>>,
+pub async fn get_state_update<P, PF, C>(
+    State(state): State<AppState<P, PF, C>>,
     Query(params): Query<StateUpdateQuery>,
 ) -> Result<Json<GetStateUpdateResponse>, ApiError>
 where
@@ -215,6 +220,7 @@ where
     PF: ProviderFactory,
     <PF as ProviderFactory>::Provider: ProviderRO,
     <PF as ProviderFactory>::ProviderMut: ProviderRW,
+    C: ChainSpecT,
 {
     let include_block = params.include_block;
     let block_id = params.block_query.block_id()?;
@@ -234,8 +240,8 @@ where
 /// Handler for `/feeder_gateway/get_class_by_hash` endpoint
 ///
 /// Returns the contract class definition for a given class hash.
-pub async fn get_class_by_hash<P, PF>(
-    State(state): State<AppState<P, PF>>,
+pub async fn get_class_by_hash<P, PF, C>(
+    State(state): State<AppState<P, PF, C>>,
     Query(params): Query<ClassQuery>,
 ) -> Result<Json<ContractClass>, ApiError>
 where
@@ -243,6 +249,7 @@ where
     PF: ProviderFactory,
     <PF as ProviderFactory>::Provider: ProviderRO,
     <PF as ProviderFactory>::ProviderMut: ProviderRW,
+    C: ChainSpecT,
 {
     let class_hash = params.class_hash;
     let block_id = params.block_query.block_id()?;
@@ -253,8 +260,8 @@ where
 /// Handler for `/feeder_gateway/get_compiled_class_by_class_hash` endpoint
 ///
 /// Returns the compiled (CASM) contract class for a given class hash.
-pub async fn get_compiled_class_by_class_hash<P, PF>(
-    State(state): State<AppState<P, PF>>,
+pub async fn get_compiled_class_by_class_hash<P, PF, C>(
+    State(state): State<AppState<P, PF, C>>,
     Query(params): Query<ClassQuery>,
 ) -> Result<Json<CompiledClass>, ApiError>
 where
@@ -262,6 +269,7 @@ where
     PF: ProviderFactory,
     <PF as ProviderFactory>::Provider: ProviderRO,
     <PF as ProviderFactory>::ProviderMut: ProviderRW,
+    C: ChainSpecT,
 {
     let class_hash = params.class_hash;
     let block_id = params.block_query.block_id()?;

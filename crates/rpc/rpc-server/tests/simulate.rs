@@ -1,5 +1,6 @@
 use cainome::rs::abigen_legacy;
 use katana_genesis::constant::DEFAULT_ETH_FEE_TOKEN_ADDRESS;
+use katana_node::config::sequencing::MiningMode;
 use katana_primitives::block::BlockIdOrTag;
 use katana_primitives::{felt, Felt};
 use katana_utils::TestNode;
@@ -30,7 +31,7 @@ async fn simulate() {
 async fn simulate_nonce_validation(#[values(None, Some(1000))] block_time: Option<u64>) {
     // setup test sequencer with the given configuration
     let mut config = katana_utils::node::test_config();
-    config.sequencing.block_time = block_time;
+    config.sequencing.mining = block_time.map_or(MiningMode::Instant, MiningMode::Interval);
     let sequencer = TestNode::new_with_config(config).await;
     let provider = sequencer.starknet_rpc_client();
     let account = sequencer.account();
@@ -74,7 +75,7 @@ async fn simulate_with_insufficient_fee(
     // setup test sequencer with the given configuration
     let mut config = katana_utils::node::test_config();
     config.dev.fee = !disable_node_fee;
-    config.sequencing.block_time = block_time;
+    config.sequencing.mining = block_time.map_or(MiningMode::Instant, MiningMode::Interval);
     let sequencer = TestNode::new_with_config(config).await;
 
     let contract = Erc20Contract::new(DEFAULT_ETH_FEE_TOKEN_ADDRESS.into(), sequencer.account());
@@ -150,7 +151,7 @@ async fn simulate_with_invalid_signature(
     // setup test sequencer with the given configuration
     let mut config = katana_utils::node::test_config();
     config.dev.account_validation = !disable_node_validate;
-    config.sequencing.block_time = block_time;
+    config.sequencing.mining = block_time.map_or(MiningMode::Instant, MiningMode::Interval);
     let sequencer = TestNode::new_with_config(config).await;
 
     // starknet-rs doesn't provide a way to manually set the signatures so instead we create an

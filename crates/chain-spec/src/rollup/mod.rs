@@ -2,6 +2,7 @@ use katana_genesis::Genesis;
 use katana_primitives::block::{ExecutableBlock, GasPrices, PartialHeader};
 use katana_primitives::chain::ChainId;
 use katana_primitives::da::L1DataAvailabilityMode;
+use katana_primitives::state::StateUpdatesWithClasses;
 use katana_primitives::version::CURRENT_STARKNET_VERSION;
 
 pub mod file;
@@ -10,7 +11,7 @@ pub mod utils;
 pub use file::*;
 pub use utils::DEFAULT_APPCHAIN_FEE_TOKEN_ADDRESS;
 
-use crate::{FeeContracts, SettlementLayer};
+use crate::{ChainSpecT, FeeContracts, SettlementLayer};
 
 /// The rollup chain specification.
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -25,7 +26,9 @@ pub struct ChainSpec {
     pub fee_contracts: FeeContracts,
 
     /// The chain's settlement layer configurations.
-    pub settlement: SettlementLayer,
+    ///
+    /// This is optional to support development mode where no settlement layer is configured.
+    pub settlement: Option<SettlementLayer>,
 }
 
 //////////////////////////////////////////////////////////////
@@ -49,5 +52,37 @@ impl ChainSpec {
         let transactions = utils::GenesisTransactionsBuilder::new(self).build();
 
         ExecutableBlock { header, body: transactions }
+    }
+
+    pub fn state_updates(&self) -> StateUpdatesWithClasses {
+        // Rollup chain spec state updates are derived from transaction execution,
+        // so we return an empty state updates here.
+        StateUpdatesWithClasses::default()
+    }
+}
+
+impl ChainSpecT for ChainSpec {
+    fn id(&self) -> ChainId {
+        self.id
+    }
+
+    fn genesis(&self) -> &Genesis {
+        &self.genesis
+    }
+
+    fn fee_contracts(&self) -> &FeeContracts {
+        &self.fee_contracts
+    }
+
+    fn settlement(&self) -> Option<&SettlementLayer> {
+        self.settlement.as_ref()
+    }
+
+    fn block(&self) -> ExecutableBlock {
+        self.block()
+    }
+
+    fn state_updates(&self) -> StateUpdatesWithClasses {
+        self.state_updates()
     }
 }

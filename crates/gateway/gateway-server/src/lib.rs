@@ -4,6 +4,7 @@ use std::time::Duration;
 
 use axum::routing::get;
 use axum::Router;
+use katana_chain_spec::ChainSpecT;
 use katana_core::backend::storage::{ProviderRO, ProviderRW};
 use katana_core::service::block_producer::BlockProducer;
 use katana_executor::implementation::blockifier::BlockifierFactory;
@@ -72,30 +73,34 @@ impl GatewayServerHandle {
 
 /// The feeder gateway server.
 #[derive(Debug)]
-pub struct GatewayServer<Pool, PF>
+pub struct GatewayServer<Pool, PF, C>
 where
     Pool: TransactionPool,
     PF: ProviderFactory,
     <PF as ProviderFactory>::Provider: ProviderRO,
     <PF as ProviderFactory>::ProviderMut: ProviderRW,
+    C: ChainSpecT,
 {
     timeout: Duration,
     cors: Option<Cors>,
     health_check: bool,
     metered: bool,
 
-    starknet_api: StarknetApi<Pool, BlockProducer<BlockifierFactory, PF>, PF>,
+    starknet_api: StarknetApi<C, Pool, BlockProducer<BlockifierFactory<C>, PF, C>, PF>,
 }
 
-impl<Pool, PF> GatewayServer<Pool, PF>
+impl<Pool, PF, C> GatewayServer<Pool, PF, C>
 where
     Pool: TransactionPool + Send + Sync + 'static,
     PF: ProviderFactory,
     <PF as ProviderFactory>::Provider: ProviderRO,
     <PF as ProviderFactory>::ProviderMut: ProviderRW,
+    C: ChainSpecT,
 {
     /// Create a new feeder gateway server.
-    pub fn new(starknet_api: StarknetApi<Pool, BlockProducer<BlockifierFactory, PF>, PF>) -> Self {
+    pub fn new(
+        starknet_api: StarknetApi<C, Pool, BlockProducer<BlockifierFactory<C>, PF, C>, PF>,
+    ) -> Self {
         Self {
             timeout: DEFAULT_GATEWAY_TIMEOUT,
             cors: None,

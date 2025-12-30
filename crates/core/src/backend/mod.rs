@@ -2,7 +2,10 @@ use std::collections::HashMap;
 use std::sync::Arc;
 
 use anyhow::{anyhow, Context};
-use katana_chain_spec::ChainSpec;
+use katana_chain_spec::{
+    dev::ChainSpec as DevChainSpec, full_node::ChainSpec as FullNodeChainSpec,
+    rollup::ChainSpec as RollupChainSpec, ChainSpec, ChainSpecT,
+};
 use katana_executor::{ExecutionOutput, ExecutionResult, ExecutorFactory};
 use katana_gas_price_oracle::GasPriceOracle;
 use katana_primitives::block::{
@@ -42,29 +45,43 @@ use crate::utils::get_current_timestamp;
 
 pub(crate) const LOG_TARGET: &str = "katana::core::backend";
 
-pub struct Backend<EF, PF> {
-    pub chain_spec: Arc<ChainSpec>,
+/// Trait for initializing the genesis block.
+pub trait GenesisInitializer {
+    type Spec: ChainSpecT;
+
+    fn init_genesis<EF, PF>(
+        &self,
+        backend: &Backend<EF, PF, Self::Spec>,
+        is_forking: bool,
+    ) -> anyhow::Result<()>
+    where
+        EF: ExecutorFactory,
+        PF: ProviderFactory,
+        <PF as ProviderFactory>::Provider: ProviderRO,
+        <PF as ProviderFactory>::ProviderMut: ProviderRW;
+}
+
+pub struct Backend<EF, PF, C> {
+    pub chain_spec: Arc<C>,
     pub storage: PF,
     pub block_context_generator: RwLock<BlockContextGenerator>,
     pub executor_factory: Arc<EF>,
     pub gas_oracle: GasPriceOracle,
 }
 
-impl<EF, PF> std::fmt::Debug for Backend<EF, PF> {
+impl<EF, PF, C> std::fmt::Debug for Backend<EF, PF, C> {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         f.debug_struct("Backend")
-            .field("chain_spec", &self.chain_spec)
             .field("storage", &"..")
-            .field("block_context_generator", &self.block_context_generator)
-            .field("executor_factory", &"Arc<EF>")
             .field("gas_oracle", &self.gas_oracle)
-            .finish()
+            .field("block_context_generator", &self.block_context_generator)
+            .finish_non_exhaustive()
     }
 }
 
-impl<EF, PF> Backend<EF, PF> {
+impl<EF, PF, C> Backend<EF, PF, C> {
     pub fn new(
-        chain_spec: Arc<ChainSpec>,
+        chain_spec: Arc<C>,
         storage: PF,
         gas_oracle: GasPriceOracle,
         executor_factory: EF,
@@ -79,11 +96,12 @@ impl<EF, PF> Backend<EF, PF> {
     }
 }
 
-impl<EF, PF> Backend<EF, PF>
+impl<EF, PF, C> Backend<EF, PF, C>
 where
     EF: ExecutorFactory,
     PF: ProviderFactory,
     <PF as ProviderFactory>::Provider: ProviderRO,
+    C: ChainSpecT,
 {
     pub fn update_block_env(&self, block_env: &mut BlockEnv) {
         let mut context_gen = self.block_context_generator.write();
@@ -114,25 +132,193 @@ where
     }
 }
 
-impl<EF, PF> Backend<EF, PF>
+impl GenesisInitializer for DevChainSpec {
+    type Spec = Self;
+
+    fn init_genesis<EF, PF>(
+        &self,
+        backend: &Backend<EF, PF, Self::Spec>,
+        is_forking: bool,
+    ) -> anyhow::Result<()>
+    where
+        EF: ExecutorFactory,
+        PF: ProviderFactory,
+        <PF as ProviderFactory>::Provider: ProviderRO,
+        <PF as ProviderFactory>::ProviderMut: ProviderRW,
+    {
+        let provider = backend.storage.provider();
+
+        // check whether the genesis block has been initialized
+        let local_hash = provider.block_hash_by_num(backend.chain_spec.genesis.number)?;
+
+        // NOTE: right now forking mode is not persistent, both `local_hash.is_some()` and
+        // `is_forking` can never be true at the same time.
+        if local_hash.is_some() && !is_forking {
+            let local_hash = local_hash.unwrap();
+
+            let genesis_block = backend.chain_spec.block();
+            let mut genesis_state_updates = backend.chain_spec.state_updates();
+
+            // commit the block but compute the trie using volatile storage so that it won't
+            // overwrite the existing trie this is very hacky and we should find for a
+            // much elegant solution.
+            let committed_block = commit_genesis_block(
+                GenesisTrieWriter,
+                genesis_block.header.clone(),
+                Vec::new(),
+                &[],
+                &mut genesis_state_updates.state_updates,
+            )?;
+
+            // check genesis should be the same
+            if local_hash != committed_block.hash {
+                return Err(anyhow!(
+                    "Genesis block hash mismatch: expected {:#x}, got {local_hash:#x}",
+                    committed_block.hash
+                ));
+            }
+
+            info!(genesis_hash = %local_hash, "Genesis has already been initialized");
+        } else {
+            // Initialize the dev genesis block
+
+            let block = backend.chain_spec.block();
+            let states = backend.chain_spec.state_updates();
+
+            let outcome = backend.do_mine_block(
+                &BlockEnv {
+                    number: block.header.number,
+                    timestamp: block.header.timestamp,
+                    l2_gas_prices: block.header.l2_gas_prices,
+                    l1_gas_prices: block.header.l1_gas_prices,
+                    l1_data_gas_prices: block.header.l1_data_gas_prices,
+                    sequencer_address: block.header.sequencer_address,
+                    starknet_version: block.header.starknet_version,
+                },
+                ExecutionOutput { states, ..Default::default() },
+            )?;
+
+            info!(genesis_hash = %outcome.block_hash, "Genesis initialized");
+        }
+
+        Ok(())
+    }
+}
+
+impl GenesisInitializer for RollupChainSpec {
+    type Spec = Self;
+
+    fn init_genesis<EF, PF>(
+        &self,
+        backend: &Backend<EF, PF, Self::Spec>,
+        is_forking: bool,
+    ) -> anyhow::Result<()>
+    where
+        EF: ExecutorFactory,
+        PF: ProviderFactory,
+        <PF as ProviderFactory>::Provider: ProviderRO,
+        <PF as ProviderFactory>::ProviderMut: ProviderRW,
+    {
+        let provider = backend.storage.provider();
+
+        let block = backend.chain_spec.block();
+        let header = block.header.clone();
+
+        let mut executor = backend.executor_factory.with_state(EmptyStateProvider);
+        executor.execute_block(block).context("failed to execute genesis block")?;
+
+        let mut output =
+            executor.take_execution_output().context("failed to get execution output")?;
+
+        let mut traces = Vec::with_capacity(output.transactions.len());
+        let mut receipts = Vec::with_capacity(output.transactions.len());
+        let mut transactions = Vec::with_capacity(output.transactions.len());
+
+        // only include successful transactions in the block
+        for (tx, res) in output.transactions {
+            if let ExecutionResult::Success { receipt, trace } = res {
+                traces.push(TypedTransactionExecutionInfo::new(receipt.r#type(), trace));
+                receipts.push(ReceiptWithTxHash::new(tx.hash, receipt));
+                transactions.push(tx);
+            }
+        }
+
+        // Check whether the genesis block has been initialized or not.
+        if let Some(local_hash) = provider.block_hash_by_num(header.number)? {
+            // commit the block but compute the trie using volatile storage so that it won't
+            // overwrite the existing trie this is very hacky and we should find for a
+            // much elegant solution.
+            let block = commit_genesis_block(
+                GenesisTrieWriter,
+                header.clone(),
+                transactions.clone(),
+                &receipts,
+                &mut output.states.state_updates,
+            )?;
+
+            let provided_genesis_hash = block.hash;
+            if provided_genesis_hash != local_hash {
+                return Err(anyhow!(
+                    "Genesis block hash mismatch: local hash {local_hash:#x} is different than \
+                 the provided genesis hash {provided_genesis_hash:#x}",
+                ));
+            }
+
+            info!("Genesis has already been initialized");
+        } else {
+            let provider_mut = backend.storage.provider_mut();
+
+            let block = commit_genesis_block(
+                &provider_mut,
+                header,
+                transactions,
+                &receipts,
+                &mut output.states.state_updates,
+            )?;
+
+            let block = SealedBlockWithStatus { block, status: FinalityStatus::AcceptedOnL2 };
+
+            // TODO: maybe should change the arguments for insert_block_with_states_and_receipts to
+            // accept ReceiptWithTxHash instead to avoid this conversion.
+            let receipts = receipts.into_iter().map(|r| r.receipt).collect::<Vec<_>>();
+            store_block(&provider_mut, block, output.states, receipts, traces)?;
+
+            provider_mut.commit()?;
+            info!("Genesis initialized");
+        }
+
+        Ok(())
+    }
+}
+
+impl GenesisInitializer for FullNodeChainSpec {
+    type Spec = Self;
+
+    fn init_genesis<EF, PF>(
+        &self,
+        backend: &Backend<EF, PF, Self::Spec>,
+        is_forking: bool,
+    ) -> anyhow::Result<()>
+    where
+        EF: ExecutorFactory,
+        PF: ProviderFactory,
+        <PF as ProviderFactory>::Provider: ProviderRO,
+        <PF as ProviderFactory>::ProviderMut: ProviderRW,
+    {
+        let _ = backend;
+        let _ = is_forking;
+        Ok(())
+    }
+}
+
+impl<EF, PF, C> Backend<EF, PF, C>
 where
     EF: ExecutorFactory,
     PF: ProviderFactory,
     <PF as ProviderFactory>::Provider: ProviderRO,
     <PF as ProviderFactory>::ProviderMut: ProviderRW,
+    C: ChainSpecT,
 {
-    pub fn init_genesis(&self, is_forking: bool) -> anyhow::Result<()> {
-        match self.chain_spec.as_ref() {
-            ChainSpec::Dev(cs) => self.init_dev_genesis(cs, is_forking),
-            ChainSpec::Rollup(cs) => self.init_rollup_genesis(cs),
-            ChainSpec::FullNode(_) => {
-                // Full nodes sync from the network, so we skip genesis initialization
-                info!("Full node mode: genesis initialization skipped, will sync from network");
-                Ok(())
-            }
-        }
-    }
-
     // TODO: add test for this function
     pub fn do_mine_block(
         &self,
@@ -213,143 +399,6 @@ where
         block_env: &BlockEnv,
     ) -> Result<MinedBlockOutcome, BlockProductionError> {
         self.do_mine_block(block_env, Default::default())
-    }
-
-    fn init_dev_genesis(
-        &self,
-        chain_spec: &katana_chain_spec::dev::ChainSpec,
-        is_forking: bool,
-    ) -> anyhow::Result<()> {
-        let provider = self.storage.provider();
-
-        // check whether the genesis block has been initialized
-        let local_hash = provider.block_hash_by_num(chain_spec.genesis.number)?;
-
-        // NOTE: right now forking mode is not persistent, both `local_hash.is_some()` and
-        // `is_forking` can never be true at the same time.
-        if local_hash.is_some() && !is_forking {
-            let local_hash = local_hash.unwrap();
-
-            let genesis_block = chain_spec.block();
-            let mut genesis_state_updates = chain_spec.state_updates();
-
-            // commit the block but compute the trie using volatile storage so that it won't
-            // overwrite the existing trie this is very hacky and we should find for a
-            // much elegant solution.
-            let committed_block = commit_genesis_block(
-                GenesisTrieWriter,
-                genesis_block.header.clone(),
-                Vec::new(),
-                &[],
-                &mut genesis_state_updates.state_updates,
-            )?;
-
-            // check genesis should be the same
-            if local_hash != committed_block.hash {
-                return Err(anyhow!(
-                    "Genesis block hash mismatch: expected {:#x}, got {local_hash:#x}",
-                    committed_block.hash
-                ));
-            }
-
-            info!(genesis_hash = %local_hash, "Genesis has already been initialized");
-        } else if !is_forking {
-            // Initialize the dev genesis block (only for non-forked instances)
-            let block = chain_spec.block();
-            let states = chain_spec.state_updates();
-
-            let outcome = self.do_mine_block(
-                &BlockEnv {
-                    number: block.header.number,
-                    timestamp: block.header.timestamp,
-                    l2_gas_prices: block.header.l2_gas_prices,
-                    l1_gas_prices: block.header.l1_gas_prices,
-                    l1_data_gas_prices: block.header.l1_data_gas_prices,
-                    sequencer_address: block.header.sequencer_address,
-                    starknet_version: block.header.starknet_version,
-                },
-                ExecutionOutput { states, ..Default::default() },
-            )?;
-
-            info!(genesis_hash = %outcome.block_hash, "Genesis initialized");
-        }
-
-        Ok(())
-    }
-
-    fn init_rollup_genesis(
-        &self,
-        chain_spec: &katana_chain_spec::rollup::ChainSpec,
-    ) -> anyhow::Result<()> {
-        let provider = self.storage.provider();
-
-        let block = chain_spec.block();
-        let header = block.header.clone();
-
-        let mut executor = self.executor_factory.with_state(EmptyStateProvider);
-        executor.execute_block(block).context("failed to execute genesis block")?;
-
-        let mut output =
-            executor.take_execution_output().context("failed to get execution output")?;
-
-        let mut traces = Vec::with_capacity(output.transactions.len());
-        let mut receipts = Vec::with_capacity(output.transactions.len());
-        let mut transactions = Vec::with_capacity(output.transactions.len());
-
-        // only include successful transactions in the block
-        for (tx, res) in output.transactions {
-            if let ExecutionResult::Success { receipt, trace } = res {
-                traces.push(TypedTransactionExecutionInfo::new(receipt.r#type(), trace));
-                receipts.push(ReceiptWithTxHash::new(tx.hash, receipt));
-                transactions.push(tx);
-            }
-        }
-
-        // Check whether the genesis block has been initialized or not.
-        if let Some(local_hash) = provider.block_hash_by_num(header.number)? {
-            // commit the block but compute the trie using volatile storage so that it won't
-            // overwrite the existing trie this is very hacky and we should find for a
-            // much elegant solution.
-            let block = commit_genesis_block(
-                GenesisTrieWriter,
-                header.clone(),
-                transactions.clone(),
-                &receipts,
-                &mut output.states.state_updates,
-            )?;
-
-            let provided_genesis_hash = block.hash;
-            if provided_genesis_hash != local_hash {
-                return Err(anyhow!(
-                    "Genesis block hash mismatch: local hash {local_hash:#x} is different than \
-                     the provided genesis hash {provided_genesis_hash:#x}",
-                ));
-            }
-
-            info!("Genesis has already been initialized");
-        } else {
-            let provider_mut = self.storage.provider_mut();
-
-            let block = commit_genesis_block(
-                &provider_mut,
-                header,
-                transactions,
-                &receipts,
-                &mut output.states.state_updates,
-            )?;
-
-            let block = SealedBlockWithStatus { block, status: FinalityStatus::AcceptedOnL2 };
-
-            // TODO: maybe should change the arguments for insert_block_with_states_and_receipts to
-            // accept ReceiptWithTxHash instead to avoid this conversion.
-            let receipts = receipts.into_iter().map(|r| r.receipt).collect::<Vec<_>>();
-            store_block(&provider_mut, block, output.states, receipts, traces)?;
-
-            provider_mut.commit()?;
-            info!("Genesis initialized");
-        }
-
-        Ok(())
     }
 }
 
@@ -526,7 +575,7 @@ impl<'a, P: TrieWriter> UncommittedBlock<'a, P> {
             .provider
             .trie_insert_declared_classes(
                 self.header.number,
-                self.state_updates.declared_classes.clone().into_iter(),
+                self.state_updates.declared_classes.clone().into_iter().collect(),
             )
             .expect("failed to update class trie");
 

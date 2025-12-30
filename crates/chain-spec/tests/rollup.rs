@@ -3,7 +3,7 @@ use std::sync::Arc;
 use alloy_primitives::U256;
 use katana_chain_spec::rollup::utils::GenesisTransactionsBuilder;
 use katana_chain_spec::rollup::{ChainSpec, DEFAULT_APPCHAIN_FEE_TOKEN_ADDRESS};
-use katana_chain_spec::{FeeContracts, SettlementLayer};
+use katana_chain_spec::{ChainSpecT, FeeContracts, SettlementLayer};
 use katana_contracts::contracts;
 use katana_executor::implementation::blockifier::cache::ClassCache;
 use katana_executor::implementation::blockifier::BlockifierFactory;
@@ -40,24 +40,24 @@ fn chain_spec(n_dev_accounts: u16, with_balance: bool) -> ChainSpec {
         strk: DEFAULT_APPCHAIN_FEE_TOKEN_ADDRESS,
     };
 
-    let settlement = SettlementLayer::Starknet {
+    let settlement = Some(SettlementLayer::Starknet {
         block: 0,
         id: ChainId::default(),
         account: Default::default(),
         core_contract: Default::default(),
         rpc_url: Url::parse("http://localhost:5050").unwrap(),
-    };
+    });
 
     ChainSpec { id, genesis, settlement, fee_contracts }
 }
 
-fn executor(chain_spec: ChainSpec) -> BlockifierFactory {
+fn executor<C: ChainSpecT>(chain_spec: C) -> BlockifierFactory<C> {
     BlockifierFactory::new(
         None,
         Default::default(),
         BlockLimits::default(),
         ClassCache::new().unwrap(),
-        Arc::new(katana_chain_spec::ChainSpec::Rollup(chain_spec)),
+        Arc::new(chain_spec),
     )
 }
 

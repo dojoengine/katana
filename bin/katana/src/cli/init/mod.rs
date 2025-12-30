@@ -251,7 +251,8 @@ impl RollupArgs {
             strk: DEFAULT_APPCHAIN_FEE_TOKEN_ADDRESS,
         };
 
-        let chain_spec = rollup::ChainSpec { id, genesis, settlement, fee_contracts };
+        let chain_spec =
+            rollup::ChainSpec { id, genesis, settlement: Some(settlement), fee_contracts };
 
         if let Some(path) = self.output_path {
             let dir = ChainConfigDir::create(path)?;
@@ -389,7 +390,8 @@ impl SovereignArgs {
             strk: DEFAULT_APPCHAIN_FEE_TOKEN_ADDRESS,
         };
 
-        let chain_spec = rollup::ChainSpec { id, genesis, settlement, fee_contracts };
+        let chain_spec =
+            rollup::ChainSpec { id, genesis, settlement: Some(settlement), fee_contracts };
 
         if let Some(path) = self.output_path {
             let dir = ChainConfigDir::create(path)?;

@@ -1,3 +1,4 @@
+use std::fmt::Debug;
 use std::sync::Arc;
 
 // Re-export the blockifier crate.
@@ -13,7 +14,7 @@ pub mod utils;
 
 use blockifier::context::BlockContext;
 use cache::ClassCache;
-use katana_chain_spec::ChainSpec;
+use katana_chain_spec::ChainSpecT;
 use katana_primitives::block::{ExecutableBlock, GasPrices as KatanaGasPrices, PartialHeader};
 use katana_primitives::env::{BlockEnv, VersionedConstantsOverrides};
 use katana_primitives::transaction::{ExecutableTx, ExecutableTxWithHash, TxWithHash};
@@ -34,32 +35,32 @@ use crate::{
 pub(crate) const LOG_TARGET: &str = "katana::executor::blockifier";
 
 #[derive(Debug)]
-pub struct BlockifierFactory {
+pub struct BlockifierFactory<C: ChainSpecT> {
     flags: ExecutionFlags,
     limits: BlockLimits,
     class_cache: ClassCache,
-    chain_spec: Arc<ChainSpec>,
+    chain_spec: Arc<C>,
     overrides: Option<VersionedConstantsOverrides>,
 }
 
-impl BlockifierFactory {
+impl<C: ChainSpecT> BlockifierFactory<C> {
     /// Create a new factory with the given configuration and simulation flags.
     pub fn new(
         cfg: Option<VersionedConstantsOverrides>,
         flags: ExecutionFlags,
         limits: BlockLimits,
         class_cache: ClassCache,
-        chain_spec: Arc<ChainSpec>,
+        chain_spec: Arc<C>,
     ) -> Self {
         Self { overrides: cfg, flags, limits, class_cache, chain_spec }
     }
 
-    pub fn chain(&self) -> &Arc<ChainSpec> {
+    pub fn chain(&self) -> &Arc<C> {
         &self.chain_spec
     }
 }
 
-impl ExecutorFactory for BlockifierFactory {
+impl<C: ChainSpecT> ExecutorFactory for BlockifierFactory<C> {
     fn with_state<'a, P>(&self, state: P) -> Box<dyn BlockExecutor<'a> + 'a>
     where
         P: StateProvider + 'a,
@@ -112,14 +113,14 @@ pub struct StarknetVMProcessor<'a> {
 }
 
 impl<'a> StarknetVMProcessor<'a> {
-    pub fn new(
+    pub fn new<C: ChainSpecT>(
         state: impl StateProvider + 'a,
         block_env: BlockEnv,
         cfg_env: Option<VersionedConstantsOverrides>,
         simulation_flags: ExecutionFlags,
         limits: BlockLimits,
         class_cache: ClassCache,
-        chain_spec: Arc<ChainSpec>,
+        chain_spec: Arc<C>,
     ) -> Self {
         let transactions = Vec::new();
         let block_context = Arc::new(utils::block_context_from_envs(

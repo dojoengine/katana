@@ -7,6 +7,11 @@ use katana_primitives::block::GasPrices;
 /// Development configuration.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct DevConfig {
+    pub account_seed: String,
+
+    /// Number of pre-funded accounts to generate.
+    pub total_accounts: u16,
+
     /// Whether to enable paying fees for transactions.
     ///
     /// If disabled, the transaction's sender will not be charged for the transaction. Any fee
@@ -57,6 +62,12 @@ impl std::default::Default for FixedL1GasPriceConfig {
 
 impl std::default::Default for DevConfig {
     fn default() -> Self {
-        Self { fee: true, account_validation: true, fixed_gas_prices: None }
+        Self {
+            account_seed: String::new(),
+            total_accounts: 10,
+            fee: true,
+            account_validation: true,
+            fixed_gas_prices: None,
+        }
     }
 }

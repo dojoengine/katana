@@ -34,6 +34,7 @@ use cartridge::vrf::{
     VrfContext, CARTRIDGE_VRF_CLASS_HASH, CARTRIDGE_VRF_DEFAULT_PRIVATE_KEY, CARTRIDGE_VRF_SALT,
 };
 use jsonrpsee::core::{async_trait, RpcResult};
+use katana_chain_spec::ChainSpecT;
 use katana_core::backend::storage::{ProviderRO, ProviderRW};
 use katana_core::backend::Backend;
 use katana_core::service::block_producer::{BlockProducer, BlockProducerMode};
@@ -64,20 +65,21 @@ use tracing::{debug, info};
 use url::Url;
 
 #[allow(missing_debug_implementations)]
-pub struct CartridgeApi<EF: ExecutorFactory, PF: ProviderFactory> {
+pub struct CartridgeApi<EF: ExecutorFactory, PF: ProviderFactory, C: ChainSpecT> {
     task_spawner: TaskSpawner,
-    backend: Arc<Backend<EF, PF>>,
-    block_producer: BlockProducer<EF, PF>,
+    backend: Arc<Backend<EF, PF, C>>,
+    block_producer: BlockProducer<EF, PF, C>,
     pool: TxPool,
     vrf_ctx: VrfContext,
     /// The Cartridge API client for paymaster related operations.
     api_client: cartridge::Client,
 }
 
-impl<EF, PF> Clone for CartridgeApi<EF, PF>
+impl<EF, PF, C> Clone for CartridgeApi<EF, PF, C>
 where
     EF: ExecutorFactory,
     PF: ProviderFactory,
+    C: ChainSpecT,
 {
     fn clone(&self) -> Self {
         Self {
@@ -91,16 +93,17 @@ where
     }
 }
 
-impl<EF, PF> CartridgeApi<EF, PF>
+impl<EF, PF, C> CartridgeApi<EF, PF, C>
 where
     EF: ExecutorFactory,
     PF: ProviderFactory,
     <PF as ProviderFactory>::Provider: ProviderRO,
     <PF as ProviderFactory>::ProviderMut: ProviderRW,
+    C: ChainSpecT,
 {
     pub fn new(
-        backend: Arc<Backend<EF, PF>>,
-        block_producer: BlockProducer<EF, PF>,
+        backend: Arc<Backend<EF, PF, C>>,
+        block_producer: BlockProducer<EF, PF, C>,
         pool: TxPool,
         task_spawner: TaskSpawner,
         api_url: Url,
@@ -310,12 +313,13 @@ where
 }
 
 #[async_trait]
-impl<EF, PF> CartridgeApiServer for CartridgeApi<EF, PF>
+impl<EF, PF, C> CartridgeApiServer for CartridgeApi<EF, PF, C>
 where
     EF: ExecutorFactory,
     PF: ProviderFactory,
     <PF as ProviderFactory>::Provider: ProviderRO,
     <PF as ProviderFactory>::ProviderMut: ProviderRW,
+    C: ChainSpecT,
 {
     async fn add_execute_outside_transaction(
         &self,

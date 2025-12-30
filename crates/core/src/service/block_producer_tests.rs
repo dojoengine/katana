@@ -1,5 +1,6 @@
 use arbitrary::{Arbitrary, Unstructured};
 use futures::pin_mut;
+use katana_chain_spec::dev::ChainSpec as DevChainSpec;
 use katana_chain_spec::ChainSpec;
 use katana_executor::implementation::noop::NoopExecutorFactory;
 use katana_gas_price_oracle::GasPriceOracle;
@@ -9,8 +10,8 @@ use katana_provider::DbProviderFactory;
 
 use super::*;
 
-fn test_backend() -> Arc<Backend<NoopExecutorFactory, DbProviderFactory>> {
-    let chain_spec = Arc::new(ChainSpec::dev());
+fn test_backend() -> Arc<Backend<NoopExecutorFactory, DbProviderFactory, DevChainSpec>> {
+    let chain_spec = Arc::new(katana_chain_spec::dev::DEV.clone());
     let executor_factory = NoopExecutorFactory::new();
     let storage = DbProviderFactory::new_in_memory();
     let gas_oracle = GasPriceOracle::create_for_testing();

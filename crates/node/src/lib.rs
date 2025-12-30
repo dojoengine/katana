@@ -1,6 +1,7 @@
 #![cfg_attr(not(test), warn(unused_crate_dependencies))]
 
 pub mod full;
+pub mod sequencer;
 
 pub mod config;
 pub mod exit;
@@ -14,7 +15,7 @@ use config::Config;
 use http::header::CONTENT_TYPE;
 use http::Method;
 use jsonrpsee::RpcModule;
-use katana_chain_spec::{ChainSpec, SettlementLayer};
+use katana_chain_spec::{ChainSpec, ChainSpecT, SettlementLayer};
 use katana_core::backend::storage::{ProviderRO, ProviderRW};
 use katana_core::backend::Backend;
 use katana_core::env::BlockContextGenerator;
@@ -54,6 +55,7 @@ use katana_tasks::TaskManager;
 use num_traits::ToPrimitive;
 use tracing::info;
 
+use crate::config::sequencing::MiningMode;
 use crate::exit::NodeStoppedFuture;
 
 /// A node instance.
@@ -61,26 +63,28 @@ use crate::exit::NodeStoppedFuture;
 /// The struct contains the handle to all the components of the node.
 #[must_use = "Node does nothing unless launched."]
 #[derive(Debug)]
-pub struct Node<P>
+pub struct Node<C, P>
 where
+    C: ChainSpecT,
     P: ProviderFactory,
     <P as ProviderFactory>::Provider: ProviderRO,
     <P as ProviderFactory>::ProviderMut: ProviderRW,
 {
+    config: Arc<Config>,
     db: katana_db::Db,
     provider: P,
-    config: Arc<Config>,
     pool: TxPool,
     rpc_server: RpcServer,
     task_manager: TaskManager,
-    backend: Arc<Backend<BlockifierFactory, P>>,
-    block_producer: BlockProducer<BlockifierFactory, P>,
-    gateway_server: Option<GatewayServer<TxPool, P>>,
+    backend: Arc<Backend<BlockifierFactory<C>, P, ChainSpec>>,
+    block_producer: BlockProducer<BlockifierFactory<C>, P, ChainSpec>,
+    gateway_server: Option<GatewayServer<TxPool, P, ChainSpec>>,
     metrics_server: Option<MetricsServer<Prometheus>>,
 }
 
-impl<P> Node<P>
+impl<C, P> Node<C, P>
 where
+    C: ChainSpecT,
     P: ProviderFactory + Clone,
     <P as ProviderFactory>::Provider: ProviderRO,
     <P as ProviderFactory>::ProviderMut: ProviderRW,
@@ -89,7 +93,11 @@ where
     ///
     /// This returns a [`Node`] instance which can be launched with the all the necessary components
     /// configured.
-    pub fn build_with_provider(db: katana_db::Db, provider: P, config: Config) -> Result<Node<P>> {
+    pub fn build_with_provider(
+        db: katana_db::Db,
+        provider: P,
+        config: Config,
+    ) -> Result<Node<C, P>> {
         if config.metrics.is_some() {
             // Metrics recorder must be initialized before calling any of the metrics macros, in
             // order for it to be registered.
@@ -193,16 +201,13 @@ where
 
         // --- build block producer
 
-        let block_producer =
-            if config.sequencing.block_time.is_some() || config.sequencing.no_mining {
-                if let Some(interval) = config.sequencing.block_time {
-                    BlockProducer::interval(Arc::clone(&backend), interval)
-                } else {
-                    BlockProducer::on_demand(Arc::clone(&backend))
-                }
-            } else {
-                BlockProducer::instant(Arc::clone(&backend))
-            };
+        let block_producer = match config.sequencing.mining {
+            MiningMode::Instant => BlockProducer::instant(Arc::clone(&backend)),
+            MiningMode::Interval(interval) => {
+                BlockProducer::interval(Arc::clone(&backend), interval)
+            }
+            MiningMode::Manual => BlockProducer::on_demand(Arc::clone(&backend)),
+        };
 
         // --- build transaction pool
 
@@ -547,7 +552,7 @@ where
         &self.provider
     }
 
-    pub fn backend(&self) -> &Arc<Backend<BlockifierFactory, P>> {
+    pub fn backend(&self) -> &Arc<Backend<BlockifierFactory, P, ChainSpec>> {
         &self.backend
     }
 

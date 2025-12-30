@@ -4,7 +4,7 @@ use std::task::{Context, Poll};
 use std::time::Duration;
 
 use futures::{Future, FutureExt, Stream};
-use katana_chain_spec::ChainSpec;
+use katana_chain_spec::ChainSpecT;
 use katana_pool::{TransactionPool, TxPool};
 use katana_primitives::chain::ChainId;
 use katana_primitives::transaction::{ExecutableTxWithHash, L1HandlerTx, TxHash};
@@ -17,10 +17,10 @@ type MessagingFuture<T> = Pin<Box<dyn Future<Output = T> + Send>>;
 type MessageGatheringFuture = MessagingFuture<MessengerResult<(u64, usize)>>;
 
 #[allow(missing_debug_implementations)]
-pub struct MessagingService {
+pub struct MessagingService<C: ChainSpecT> {
     /// The interval at which the service will perform the messaging operations.
     interval: Interval,
-    chain_spec: Arc<ChainSpec>,
+    chain_spec: Arc<C>,
     pool: TxPool,
     /// The messenger mode the service is running in.
     messenger: Arc<MessengerMode>,
@@ -30,12 +30,12 @@ pub struct MessagingService {
     msg_gather_fut: Option<MessageGatheringFuture>,
 }
 
-impl MessagingService {
+impl<C: ChainSpecT> MessagingService<C> {
     /// Initializes a new instance from a configuration file's path.
     /// Will panic on failure to avoid continuing with invalid configuration.
     pub async fn new(
         config: MessagingConfig,
-        chain_spec: Arc<ChainSpec>,
+        chain_spec: Arc<C>,
         pool: TxPool,
     ) -> anyhow::Result<Self> {
         let gather_from_block = config.from_block;
@@ -110,7 +110,7 @@ pub struct MessagingOutcome {
     pub msg_count: usize,
 }
 
-impl Stream for MessagingService {
+impl<C: ChainSpecT> Stream for MessagingService<C> {
     type Item = MessagingOutcome;
 
     fn poll_next(self: Pin<&mut Self>, cx: &mut Context<'_>) -> Poll<Option<Self::Item>> {

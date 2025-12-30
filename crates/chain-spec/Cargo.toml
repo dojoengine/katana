@@ -8,8 +8,11 @@ version.workspace = true
 [dependencies]
 katana-contracts.workspace = true
 katana-genesis.workspace = true
+katana-rpc-client.workspace = true
+katana-rpc-types.workspace = true
 katana-primitives.workspace = true
 
+auto_impl.workspace = true
 alloy-primitives.workspace = true
 anyhow.workspace = true
 dirs = "6.0.0"

@@ -1,6 +1,7 @@
 //! Implementation of list endpoints for the Starknet API.
 
 use jsonrpsee::core::{async_trait, RpcResult};
+use katana_chain_spec::ChainSpecT;
 use katana_core::backend::storage::ProviderRO;
 use katana_pool::TransactionPool;
 use katana_primitives::transaction::TxNumber;
@@ -14,8 +15,9 @@ use super::StarknetApi;
 use crate::starknet::pending::PendingBlockProvider;
 
 #[async_trait]
-impl<Pool, PP, PF> StarknetApiExtServer for StarknetApi<Pool, PP, PF>
+impl<CS, Pool, PP, PF> StarknetApiExtServer for StarknetApi<CS, Pool, PP, PF>
 where
+    CS: ChainSpecT,
     Pool: TransactionPool + 'static,
     PP: PendingBlockProvider,
     PF: ProviderFactory,

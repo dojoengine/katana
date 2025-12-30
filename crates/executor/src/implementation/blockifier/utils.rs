@@ -19,7 +19,7 @@ use blockifier::transaction::objects::{HasRelatedFeeType, TransactionExecutionIn
 use blockifier::transaction::transaction_execution::Transaction;
 use blockifier::transaction::transactions::ExecutableTransaction;
 use cairo_vm::types::errors::program_errors::ProgramError;
-use katana_chain_spec::ChainSpec;
+use katana_chain_spec::ChainSpecT;
 use katana_primitives::cairo::ShortString;
 use katana_primitives::chain::NamedChainId;
 use katana_primitives::env::{BlockEnv, VersionedConstantsOverrides};
@@ -435,7 +435,7 @@ fn set_max_initial_sierra_gas(tx: &mut ExecutableTxWithHash) {
 
 /// Create a block context from the chain environment values.
 pub fn block_context_from_envs(
-    chain_spec: &ChainSpec,
+    chain_spec: &impl ChainSpecT,
     block_env: &BlockEnv,
     overrides: Option<&VersionedConstantsOverrides>,
 ) -> BlockContext {

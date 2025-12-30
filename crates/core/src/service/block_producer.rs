@@ -10,6 +10,7 @@
 //! **********************************************************************************************
 
 use std::collections::VecDeque;
+use std::fmt::Debug;
 use std::future::Future;
 use std::pin::Pin;
 use std::sync::Arc;
@@ -37,6 +38,7 @@ use tracing::{error, info, trace};
 
 use crate::backend::storage::{ProviderRO, ProviderRW};
 use crate::backend::Backend;
+use katana_chain_spec::ChainSpecT;
 
 #[cfg(test)]
 #[path = "block_producer_tests.rs"]
@@ -98,24 +100,26 @@ type BlockProductionWithTxnsFuture =
 
 /// The type which responsible for block production.
 #[must_use = "BlockProducer does nothing unless polled"]
-pub struct BlockProducer<EF, PF>
+pub struct BlockProducer<EF, PF, C>
 where
     EF: ExecutorFactory,
     PF: ProviderFactory,
+    C: ChainSpecT,
 {
     /// The inner mode of mining.
-    pub producer: Arc<RwLock<BlockProducerMode<EF, PF>>>,
+    pub producer: Arc<RwLock<BlockProducerMode<EF, PF, C>>>,
 }
 
-impl<EF, PF> BlockProducer<EF, PF>
+impl<EF, PF, C> BlockProducer<EF, PF, C>
 where
     EF: ExecutorFactory,
     PF: ProviderFactory,
     <PF as ProviderFactory>::Provider: ProviderRO,
     <PF as ProviderFactory>::ProviderMut: ProviderRW,
+    C: ChainSpecT,
 {
     /// Creates a block producer that mines a new block every `interval` milliseconds.
-    pub fn interval(backend: Arc<Backend<EF, PF>>, interval: u64) -> Self {
+    pub fn interval(backend: Arc<Backend<EF, PF, C>>, interval: u64) -> Self {
         let producer = IntervalBlockProducer::new(backend, Some(interval));
         let producer = Arc::new(RwLock::new(BlockProducerMode::Interval(producer)));
         Self { producer }
@@ -123,7 +127,7 @@ where
 
     /// Creates a new block producer that will only be possible to mine by calling the
     /// `katana_generateBlock` RPC method.
-    pub fn on_demand(backend: Arc<Backend<EF, PF>>) -> Self {
+    pub fn on_demand(backend: Arc<Backend<EF, PF, C>>) -> Self {
         let producer = IntervalBlockProducer::new(backend, None);
         let producer = Arc::new(RwLock::new(BlockProducerMode::Interval(producer)));
         Self { producer }
@@ -131,7 +135,7 @@ where
 
     /// Creates a block producer that mines a new block as soon as there are ready transactions in
     /// the transactions pool.
-    pub fn instant(backend: Arc<Backend<EF, PF>>) -> Self {
+    pub fn instant(backend: Arc<Backend<EF, PF, C>>) -> Self {
         let producer = InstantBlockProducer::new(backend);
         let producer = Arc::new(RwLock::new(BlockProducerMode::Instant(producer)));
         Self { producer }
@@ -145,7 +149,7 @@ where
         }
     }
 
-    pub fn validator(&self) -> TxValidator {
+    pub fn validator(&self) -> TxValidator<C> {
         let mode = self.producer.read();
         match &*mode {
             BlockProducerMode::Instant(pd) => pd.validator.clone(),
@@ -182,20 +186,22 @@ where
     }
 }
 
-impl<EF, PF> Clone for BlockProducer<EF, PF>
+impl<EF, PF, C> Clone for BlockProducer<EF, PF, C>
 where
     EF: ExecutorFactory,
     PF: ProviderFactory,
+    C: ChainSpecT,
 {
     fn clone(&self) -> Self {
         BlockProducer { producer: self.producer.clone() }
     }
 }
 
-impl<EF, PF> std::fmt::Debug for BlockProducer<EF, PF>
+impl<EF, PF, C> std::fmt::Debug for BlockProducer<EF, PF, C>
 where
     EF: ExecutorFactory,
     PF: ProviderFactory,
+    C: ChainSpecT,
 {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         f.debug_struct("BlockProducer").field("producer", &"..").finish()
@@ -216,17 +222,24 @@ where
 /// resulting state. The block context is only updated every time a new block is mined as opposed to
 /// updating it when the block is opened (in _interval_ mode).
 #[allow(missing_debug_implementations)]
-pub enum BlockProducerMode<EF, PF>
+pub enum BlockProducerMode<EF, PF, C>
 where
     EF: ExecutorFactory,
     PF: ProviderFactory,
+    C: ChainSpecT,
 {
-    Interval(IntervalBlockProducer<EF, PF>),
-    Instant(InstantBlockProducer<EF, PF>),
+    Interval(IntervalBlockProducer<EF, PF, C>),
+    Instant(InstantBlockProducer<EF, PF, C>),
 }
 
-#[derive(Debug, Clone, derive_more::Deref)]
+#[derive(Clone, derive_more::Deref)]
 pub struct PendingExecutor(#[deref] Arc<RwLock<Box<dyn BlockExecutor<'static>>>>);
+
+impl Debug for PendingExecutor {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.debug_struct("PendingExecutor").finish_non_exhaustive()
+    }
+}
 
 impl PendingExecutor {
     fn new(executor: Box<dyn BlockExecutor<'static>>) -> Self {
@@ -235,10 +248,11 @@ impl PendingExecutor {
 }
 
 #[allow(missing_debug_implementations)]
-pub struct IntervalBlockProducer<EF, PF>
+pub struct IntervalBlockProducer<EF, PF, C>
 where
     EF: ExecutorFactory,
     PF: ProviderFactory,
+    C: ChainSpecT,
 {
     /// How long until the block is closed.
     ///
@@ -246,7 +260,7 @@ where
     /// is closed after the interval is over. The interval is reset after every block.
     block_time: Option<u64>,
 
-    backend: Arc<Backend<EF, PF>>,
+    backend: Arc<Backend<EF, PF, C>>,
     /// Single active future that mines a new block
     ongoing_mining: Option<BlockProductionFuture>,
     /// Backlog of sets of transactions ready to be mined
@@ -260,7 +274,7 @@ where
     /// validator used in the tx pool
     // the validator needs to always be built against the state of the block producer, so
     // im putting here for now until we find a better way to handle this.
-    validator: TxValidator,
+    validator: TxValidator<C>,
 
     /// The timer should only be `Some` if:
     /// - `block_time` is `Some`,
@@ -270,13 +284,14 @@ where
     is_block_full: bool,
 }
 
-impl<EF, PF> IntervalBlockProducer<EF, PF>
+impl<EF, PF, C> IntervalBlockProducer<EF, PF, C>
 where
     EF: ExecutorFactory,
     PF: ProviderFactory,
     <PF as ProviderFactory>::Provider: ProviderRO,
+    C: ChainSpecT,
 {
-    pub fn new(backend: Arc<Backend<EF, PF>>, block_time: Option<u64>) -> Self {
+    pub fn new(backend: Arc<Backend<EF, PF, C>>, block_time: Option<u64>) -> Self {
         let provider = backend.storage.provider();
 
         let latest_num = provider.latest_number().unwrap();
@@ -324,7 +339,7 @@ where
     /// Creates a new [IntervalBlockProducer] with no `interval`. This mode will not produce blocks
     /// for every fixed interval, although it will still execute all queued transactions and
     /// keep hold of the pending state.
-    pub fn new_no_mining(backend: Arc<Backend<EF, PF>>) -> Self {
+    pub fn new_no_mining(backend: Arc<Backend<EF, PF, C>>) -> Self {
         Self::new(backend, None)
     }
 
@@ -333,12 +348,13 @@ where
     }
 }
 
-impl<EF, PF> IntervalBlockProducer<EF, PF>
+impl<EF, PF, C> IntervalBlockProducer<EF, PF, C>
 where
     EF: ExecutorFactory,
     PF: ProviderFactory,
     <PF as ProviderFactory>::Provider: ProviderRO,
     <PF as ProviderFactory>::ProviderMut: ProviderRW,
+    C: ChainSpecT,
 {
     /// Force mine a new block. It will only able to mine if there is no ongoing mining process.
     pub fn force_mine(&mut self) {
@@ -370,7 +386,7 @@ where
     fn do_mine(
         permit: Arc<Mutex<()>>,
         executor: PendingExecutor,
-        backend: Arc<Backend<EF, PF>>,
+        backend: Arc<Backend<EF, PF, C>>,
     ) -> Result<MinedBlockOutcome, BlockProductionError> {
         unsafe { permit.raw() }.lock();
         let executor = &mut executor.write();
@@ -432,12 +448,13 @@ where
     }
 }
 
-impl<EF, PF> Stream for IntervalBlockProducer<EF, PF>
+impl<EF, PF, C> Stream for IntervalBlockProducer<EF, PF, C>
 where
     EF: ExecutorFactory,
     PF: ProviderFactory,
     <PF as ProviderFactory>::Provider: ProviderRO,
     <PF as ProviderFactory>::ProviderMut: ProviderRW,
+    C: ChainSpecT,
 {
     // mined block outcome and the new state
     type Item = Result<MinedBlockOutcome, BlockProductionError>;
@@ -601,9 +618,14 @@ where
 }
 
 #[allow(missing_debug_implementations)]
-pub struct InstantBlockProducer<EF, PF> {
+pub struct InstantBlockProducer<EF, PF, C>
+where
+    EF: ExecutorFactory,
+    PF: ProviderFactory,
+    C: ChainSpecT,
+{
     /// Holds the backend if no block is being mined
-    backend: Arc<Backend<EF, PF>>,
+    backend: Arc<Backend<EF, PF, C>>,
     /// Single active future that mines a new block
     block_mining: Option<BlockProductionWithTxnsFuture>,
     /// Backlog of sets of transactions ready to be mined
@@ -615,17 +637,18 @@ pub struct InstantBlockProducer<EF, PF> {
     /// validator used in the tx pool
     // the validator needs to always be built against the state of the block producer, so
     // im putting here for now until we find a better way to handle this.
-    validator: TxValidator,
+    validator: TxValidator<C>,
 }
 
-impl<EF, PF> InstantBlockProducer<EF, PF>
+impl<EF, PF, C> InstantBlockProducer<EF, PF, C>
 where
     EF: ExecutorFactory,
     PF: ProviderFactory,
     <PF as ProviderFactory>::Provider: ProviderRO,
     <PF as ProviderFactory>::ProviderMut: ProviderRW,
+    C: ChainSpecT,
 {
-    pub fn new(backend: Arc<Backend<EF, PF>>) -> Self {
+    pub fn new(backend: Arc<Backend<EF, PF, C>>) -> Self {
         let provider = backend.storage.provider();
 
         let permit = Arc::new(Mutex::new(()));
@@ -679,9 +702,9 @@ where
     }
 
     fn do_mine(
-        validator: TxValidator,
+        validator: TxValidator<C>,
         permit: Arc<Mutex<()>>,
-        backend: Arc<Backend<EF, PF>>,
+        backend: Arc<Backend<EF, PF, C>>,
         transactions: VecDeque<Vec<ExecutableTxWithHash>>,
     ) -> Result<(MinedBlockOutcome, Vec<TxWithOutcome>), BlockProductionError> {
         let _permit = permit.lock();
@@ -751,12 +774,13 @@ where
     }
 }
 
-impl<EF, PF> Stream for InstantBlockProducer<EF, PF>
+impl<EF, PF, C> Stream for InstantBlockProducer<EF, PF, C>
 where
     EF: ExecutorFactory,
     PF: ProviderFactory,
     <PF as ProviderFactory>::Provider: ProviderRO,
     <PF as ProviderFactory>::ProviderMut: ProviderRW,
+    C: ChainSpecT,
 {
     // mined block outcome and the new state
     type Item = Result<MinedBlockOutcome, BlockProductionError>;

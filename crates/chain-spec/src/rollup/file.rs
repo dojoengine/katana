@@ -162,7 +162,8 @@ impl From<FeeContracts> for FileFeeContract {
 struct ChainSpecFile {
     id: ChainId,
     fee_contract: FileFeeContract,
-    settlement: SettlementLayer,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    settlement: Option<SettlementLayer>,
 }
 
 /// The local directory name where the chain configuration files are stored.
@@ -354,13 +355,13 @@ mod tests {
                 eth: ContractAddress::default(),
                 strk: ContractAddress::default(),
             },
-            settlement: SettlementLayer::Starknet {
+            settlement: Some(SettlementLayer::Starknet {
                 block: 0,
                 id: ChainId::default(),
                 account: ContractAddress::default(),
                 core_contract: ContractAddress::default(),
                 rpc_url: Url::parse("http://localhost:5050").expect("valid url"),
-            },
+            }),
         }
     }
 

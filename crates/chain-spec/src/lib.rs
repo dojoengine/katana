@@ -1,13 +1,34 @@
 use katana_genesis::Genesis;
-use katana_primitives::block::BlockNumber;
+use katana_primitives::block::{BlockHashOrNumber, BlockNumber, ExecutableBlock};
 use katana_primitives::chain::ChainId;
+use katana_primitives::state::StateUpdatesWithClasses;
 use katana_primitives::{eth, ContractAddress};
+use katana_rpc_types::GetBlockWithTxHashesResponse;
 use serde::{Deserialize, Serialize};
 use url::Url;
 
 pub mod dev;
 pub mod full_node;
 pub mod rollup;
+
+#[auto_impl::auto_impl(Arc, Box, &)]
+pub trait ChainSpecT: Send + Sync + Clone + 'static {
+    fn id(&self) -> ChainId;
+
+    fn genesis(&self) -> &Genesis;
+
+    fn fee_contracts(&self) -> &FeeContracts;
+
+    fn settlement(&self) -> Option<&SettlementLayer>;
+
+    fn block(&self) -> ExecutableBlock;
+
+    fn state_updates(&self) -> StateUpdatesWithClasses;
+
+    fn is_dev(&self) -> bool {
+        false
+    }
+}
 
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub enum ChainSpec {
@@ -55,7 +76,7 @@ impl ChainSpec {
     pub fn settlement(&self) -> Option<&SettlementLayer> {
         match self {
             Self::Dev(spec) => spec.settlement.as_ref(),
-            Self::Rollup(spec) => Some(&spec.settlement),
+            Self::Rollup(spec) => spec.settlement.as_ref(),
             Self::FullNode(spec) => spec.settlement.as_ref(),
         }
     }
@@ -90,6 +111,60 @@ impl From<full_node::ChainSpec> for ChainSpec {
 impl Default for ChainSpec {
     fn default() -> Self {
         Self::dev()
+    }
+}
+
+impl ChainSpecT for ChainSpec {
+    fn id(&self) -> ChainId {
+        match self {
+            Self::Dev(spec) => spec.id,
+            Self::Rollup(spec) => spec.id,
+            Self::FullNode(spec) => spec.id,
+        }
+    }
+
+    fn genesis(&self) -> &Genesis {
+        match self {
+            Self::Dev(spec) => &spec.genesis,
+            Self::Rollup(spec) => &spec.genesis,
+            Self::FullNode(spec) => &spec.genesis,
+        }
+    }
+
+    fn fee_contracts(&self) -> &FeeContracts {
+        match self {
+            Self::Dev(spec) => &spec.fee_contracts,
+            Self::Rollup(spec) => &spec.fee_contracts,
+            Self::FullNode(spec) => &spec.fee_contracts,
+        }
+    }
+
+    fn settlement(&self) -> Option<&SettlementLayer> {
+        match self {
+            Self::Dev(spec) => spec.settlement.as_ref(),
+            Self::Rollup(spec) => spec.settlement.as_ref(),
+            Self::FullNode(spec) => spec.settlement.as_ref(),
+        }
+    }
+
+    fn block(&self) -> ExecutableBlock {
+        match self {
+            Self::Dev(spec) => spec.block(),
+            Self::Rollup(spec) => spec.block(),
+            Self::FullNode(spec) => spec.block(),
+        }
+    }
+
+    fn state_updates(&self) -> StateUpdatesWithClasses {
+        match self {
+            Self::Dev(spec) => spec.state_updates(),
+            Self::Rollup(spec) => spec.state_updates(),
+            Self::FullNode(spec) => spec.state_updates(),
+        }
+    }
+
+    fn is_dev(&self) -> bool {
+        matches!(self, Self::Dev(_))
     }
 }
 
@@ -145,4 +220,32 @@ pub struct FeeContracts {
     pub eth: ContractAddress,
     /// L2 STRK fee token address. Used for paying V3 transactions.
     pub strk: ContractAddress,
+}
+
+pub struct ForkedChainSpec {}
+
+impl ForkedChainSpec {
+    pub async fn new(
+        client: katana_rpc_client::starknet::Client,
+        block: Option<BlockHashOrNumber>,
+    ) -> Self {
+        let chain_id = client.chain_id().await.unwrap();
+
+        // If the fork block number is not specified, we use the latest accepted block on the forked
+        // network.
+        let block_id = if let Some(id) = block {
+            id
+        } else {
+            let res = client.block_number().await.unwrap();
+            BlockHashOrNumber::Num(res.block_number)
+        };
+
+        let block = client.get_block_with_tx_hashes(block_id.into()).await.unwrap();
+
+        let GetBlockWithTxHashesResponse::Block(forked_block) = block else {
+            panic!("forking a pending block is not allowed")
+        };
+
+        Self {}
+    }
 }

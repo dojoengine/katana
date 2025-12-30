@@ -420,14 +420,17 @@ impl DevOptions {
 pub struct ForkingOptions {
     /// The RPC URL of the network to fork from.
     ///
-    /// This will operate Katana in forked mode. Continuing from the tip of the forked network, or
-    /// at a specific block if `fork.block` is provided.
-    #[arg(long = "fork.provider", value_name = "URL", conflicts_with = "genesis")]
-    pub fork_provider: Option<Url>,
+    /// This will operate Katana in forked mode. Continuing from the latest block of the forked
+    /// network, or at a specific block if `--fork.block` is provided.
+    ///
+    /// Note: The `--fork.provider` flag is deprecated. Use `--fork.url` instead.
+    #[arg(long = "fork.url", alias = "fork.provider")]
+    #[arg(value_name = "URL", conflicts_with = "genesis")]
+    pub fork_url: Option<Url>,
 
     /// Fork the network at a specific block id, can either be a hash (0x-prefixed) or a block
     /// number.
-    #[arg(long = "fork.block", value_name = "BLOCK", requires = "fork_provider")]
+    #[arg(long = "fork.block", value_name = "BLOCK", requires = "fork_url")]
     #[arg(value_parser = parse_block_hash_or_number)]
     pub fork_block: Option<BlockHashOrNumber>,
 }

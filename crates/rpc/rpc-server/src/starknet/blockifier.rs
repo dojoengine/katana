@@ -1,6 +1,6 @@
 use std::sync::Arc;
 
-use katana_chain_spec::ChainSpec;
+use katana_chain_spec::{ChainSpec, ChainSpecT};
 use katana_executor::implementation::blockifier::cache::ClassCache;
 use katana_executor::implementation::blockifier::call::execute_call;
 use katana_executor::implementation::blockifier::state::CachedState;
@@ -17,7 +17,7 @@ use crate::starknet::StarknetApiResult;
 
 #[tracing::instrument(level = "trace", target = "rpc", skip_all, fields(total_txs = transactions.len()))]
 pub fn simulate(
-    chain_spec: &ChainSpec,
+    chain_spec: &impl ChainSpecT,
     state: impl StateProvider,
     block_env: BlockEnv,
     overrides: Option<&VersionedConstantsOverrides>,
@@ -56,7 +56,7 @@ pub fn simulate(
 /// [specification]: https://github.com/starkware-libs/starknet-specs/blob/c2e93098b9c2ca0423b7f4d15b201f52f22d8c36/api/starknet_api_openrpc.json#L623
 #[tracing::instrument(level = "trace", target = "rpc", skip_all, fields(total_txs = transactions.len()))]
 pub fn estimate_fees(
-    chain_spec: &ChainSpec,
+    chain_spec: &impl ChainSpecT,
     state: impl StateProvider,
     block_env: BlockEnv,
     overrides: Option<&VersionedConstantsOverrides>,
@@ -113,7 +113,7 @@ pub fn estimate_fees(
 
 #[tracing::instrument(level = "trace", target = "rpc", skip_all)]
 pub fn call<P: StateProvider>(
-    chain_spec: &ChainSpec,
+    chain_spec: &impl ChainSpecT,
     state: P,
     block_env: BlockEnv,
     overrides: Option<&VersionedConstantsOverrides>,

@@ -4,7 +4,7 @@ use std::fmt::Debug;
 use std::future::Future;
 use std::sync::Arc;
 
-use katana_chain_spec::ChainSpec;
+use katana_chain_spec::ChainSpecT;
 use katana_core::backend::storage::ProviderRO;
 use katana_core::utils::get_current_timestamp;
 use katana_gas_price_oracle::GasPriceOracle;
@@ -75,24 +75,26 @@ pub type StarknetApiResult<T> = Result<T, StarknetApiError>;
 /// [write](katana_rpc_api::starknet::StarknetWriteApi), and
 /// [trace](katana_rpc_api::starknet::StarknetTraceApi) APIs.
 #[derive(Debug)]
-pub struct StarknetApi<Pool, PP, PF>
+pub struct StarknetApi<CS, Pool, PP, PF>
 where
+    CS: ChainSpecT,
     Pool: TransactionPool,
     PP: PendingBlockProvider,
     PF: ProviderFactory,
 {
-    inner: Arc<StarknetApiInner<Pool, PP, PF>>,
+    inner: Arc<StarknetApiInner<CS, Pool, PP, PF>>,
 }
 
 #[derive(Debug)]
-struct StarknetApiInner<Pool, PP, PF>
+struct StarknetApiInner<CS, Pool, PP, PF>
 where
+    CS: ChainSpecT,
     Pool: TransactionPool,
     PP: PendingBlockProvider,
     PF: ProviderFactory,
 {
     pool: Pool,
-    chain_spec: Arc<ChainSpec>,
+    chain_spec: Arc<CS>,
     gas_oracle: GasPriceOracle,
     storage: PF,
     task_spawner: TaskSpawner,
@@ -101,15 +103,16 @@ where
     config: StarknetApiConfig,
 }
 
-impl<Pool, PP, PF> StarknetApi<Pool, PP, PF>
+impl<CS, Pool, PP, PF> StarknetApi<CS, Pool, PP, PF>
 where
+    CS: ChainSpecT,
     Pool: TransactionPool,
     PP: PendingBlockProvider,
     PF: ProviderFactory,
 {
     #[allow(clippy::too_many_arguments)]
     pub fn new(
-        chain_spec: Arc<ChainSpec>,
+        chain_spec: Arc<CS>,
         pool: Pool,
         task_spawner: TaskSpawner,
         pending_block_provider: PP,
@@ -130,7 +133,7 @@ where
 
     #[allow(clippy::too_many_arguments)]
     fn new_inner(
-        chain_spec: Arc<ChainSpec>,
+        chain_spec: Arc<CS>,
         pool: Pool,
         task_spawner: TaskSpawner,
         config: StarknetApiConfig,
@@ -174,8 +177,9 @@ where
     }
 }
 
-impl<Pool, PP, PF> StarknetApi<Pool, PP, PF>
+impl<CS, Pool, PP, PF> StarknetApi<CS, Pool, PP, PF>
 where
+    CS: ChainSpecT,
     Pool: TransactionPool + 'static,
     PP: PendingBlockProvider,
     PF: ProviderFactory,
@@ -235,8 +239,9 @@ where
     }
 }
 
-impl<Pool, PP, PF> StarknetApi<Pool, PP, PF>
+impl<CS, Pool, PP, PF> StarknetApi<CS, Pool, PP, PF>
 where
+    CS: ChainSpecT,
     Pool: TransactionPool + 'static,
     PP: PendingBlockProvider,
     PF: ProviderFactory,
@@ -1071,8 +1076,9 @@ where
 // `StarknetApiExt` Implementations
 /////////////////////////////////////////////////////
 
-impl<Pool, PP, PF> StarknetApi<Pool, PP, PF>
+impl<CS, Pool, PP, PF> StarknetApi<CS, Pool, PP, PF>
 where
+    CS: ChainSpecT,
     Pool: TransactionPool + 'static,
     PP: PendingBlockProvider,
     PF: ProviderFactory,
@@ -1234,8 +1240,9 @@ where
     }
 }
 
-impl<Pool, PP, PF> Clone for StarknetApi<Pool, PP, PF>
+impl<CS, Pool, PP, PF> Clone for StarknetApi<CS, Pool, PP, PF>
 where
+    CS: ChainSpecT,
     Pool: TransactionPool,
     PP: PendingBlockProvider,
     PF: ProviderFactory,

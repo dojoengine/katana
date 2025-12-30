@@ -2,7 +2,7 @@ use std::collections::HashMap;
 use std::fmt::Debug;
 use std::sync::Arc;
 
-use katana_chain_spec::ChainSpec;
+use katana_chain_spec::ChainSpecT;
 use katana_executor::implementation::blockifier::blockifier::blockifier::stateful_validator::{
     StatefulValidator, StatefulValidatorError,
 };
@@ -33,29 +33,29 @@ use parking_lot::Mutex;
 use super::ValidationResult;
 
 #[derive(Debug, Clone)]
-pub struct TxValidator {
-    inner: Arc<Mutex<Inner>>,
+pub struct TxValidator<C: ChainSpecT> {
+    inner: Arc<Mutex<Inner<C>>>,
     permit: Arc<Mutex<()>>,
 }
 
-struct Inner {
+struct Inner<C: ChainSpecT> {
     // execution context
     cfg_env: Option<VersionedConstantsOverrides>,
     block_env: BlockEnv,
     execution_flags: ExecutionFlags,
     state: Arc<Box<dyn StateProvider>>,
     pool_nonces: HashMap<ContractAddress, Nonce>,
-    chain_spec: Arc<ChainSpec>,
+    chain_spec: Arc<C>,
 }
 
-impl TxValidator {
+impl<C: ChainSpecT> TxValidator<C> {
     pub fn new(
         state: Box<dyn StateProvider>,
         execution_flags: ExecutionFlags,
         cfg_env: Option<VersionedConstantsOverrides>,
         block_env: BlockEnv,
         permit: Arc<Mutex<()>>,
-        chain_spec: Arc<ChainSpec>,
+        chain_spec: Arc<C>,
     ) -> Self {
         let inner = Arc::new(Mutex::new(Inner {
             cfg_env,
@@ -77,7 +77,7 @@ impl TxValidator {
     }
 }
 
-impl Debug for Inner {
+impl<C: ChainSpecT> Debug for Inner<C> {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         f.debug_struct("Inner")
             .field("cfg_env", &self.cfg_env)
@@ -89,7 +89,7 @@ impl Debug for Inner {
     }
 }
 
-impl Inner {
+impl<C: ChainSpecT> Inner<C> {
     // Prepare the stateful validator with the current state and block env to be used
     // for transaction validation.
     fn prepare(&self) -> StatefulValidator<StateProviderDb<'static>> {
@@ -98,14 +98,17 @@ impl Inner {
         let state_provider = StateProviderDb::new_with_class_cache(state, class_cache);
 
         let cached_state = CachedState::new(state_provider);
-        let context =
-            block_context_from_envs(&self.chain_spec, &self.block_env, self.cfg_env.as_ref());
+        let context = block_context_from_envs(
+            self.chain_spec.as_ref(),
+            &self.block_env,
+            self.cfg_env.as_ref(),
+        );
 
         StatefulValidator::create(cached_state, context)
     }
 }
 
-impl Validator for TxValidator {
+impl<C: ChainSpecT> Validator for TxValidator<C> {
     type Transaction = ExecutableTxWithHash;
 
     fn validate(

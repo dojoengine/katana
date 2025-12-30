@@ -3,6 +3,7 @@ use assert_matches::assert_matches;
 use cainome::rs::abigen_legacy;
 use katana_genesis::constant::DEFAULT_STRK_FEE_TOKEN_ADDRESS;
 use katana_node::config::fork::ForkingConfig;
+use katana_node::config::sequencing::MiningMode;
 use katana_primitives::block::{BlockHash, BlockIdOrTag, BlockNumber};
 use katana_primitives::chain::NamedChainId;
 use katana_primitives::event::MaybeForkedContinuationToken;
@@ -38,7 +39,9 @@ type LocalTestVector = Vec<((BlockNumber, BlockHash), TxHash)>;
 /// The returned [`TestVector`] is a list of all the locally created blocks and transactions.
 async fn setup_test_inner(no_mining: bool) -> (ForkTestNode, StarknetClient, LocalTestVector) {
     let mut config = katana_utils::node::test_config();
-    config.sequencing.no_mining = no_mining;
+    if no_mining {
+        config.sequencing.mining = MiningMode::Manual;
+    }
     config.forking = Some(forking_cfg());
 
     let sequencer = TestNode::new_forked_with_config(config).await;

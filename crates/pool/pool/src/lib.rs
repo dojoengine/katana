@@ -4,6 +4,7 @@ pub mod ordering;
 pub mod pool;
 pub mod validation;
 
+use katana_chain_spec::ChainSpec;
 pub use katana_pool_api::{PendingTransactions, PoolOrd, PoolTransaction, TransactionPool};
 use katana_primitives::transaction::ExecutableTxWithHash;
 use ordering::FiFo;
@@ -11,7 +12,7 @@ use pool::Pool;
 use validation::stateful::TxValidator;
 
 /// Katana default transacstion pool type.
-pub type TxPool = Pool<ExecutableTxWithHash, TxValidator, FiFo<ExecutableTxWithHash>>;
+pub type TxPool = Pool<ExecutableTxWithHash, TxValidator<ChainSpec>, FiFo<ExecutableTxWithHash>>;
 
 #[cfg(test)]
 mod tests {

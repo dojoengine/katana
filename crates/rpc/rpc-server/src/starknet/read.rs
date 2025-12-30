@@ -5,6 +5,7 @@ use std::sync::Arc;
 use anyhow::anyhow;
 use jsonrpsee::core::{async_trait, RpcResult};
 use jsonrpsee::types::ErrorObjectOwned;
+use katana_chain_spec::ChainSpecT;
 use katana_core::backend::storage::ProviderRO;
 #[cfg(feature = "cartridge")]
 use katana_genesis::allocation::GenesisAccountAlloc;
@@ -41,8 +42,9 @@ use crate::cartridge;
 use crate::starknet::pending::PendingBlockProvider;
 
 #[async_trait]
-impl<Pool, PoolTx, Pending, PF> StarknetApiServer for StarknetApi<Pool, Pending, PF>
+impl<CS, Pool, PoolTx, Pending, PF> StarknetApiServer for StarknetApi<CS, Pool, Pending, PF>
 where
+    CS: ChainSpecT,
     Pool: TransactionPool<Transaction = PoolTx> + Send + Sync + 'static,
     PoolTx: From<BroadcastedTxWithChainId>,
     Pending: PendingBlockProvider,

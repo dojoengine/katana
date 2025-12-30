@@ -64,7 +64,7 @@ async fn node() -> LaunchedNode<DbProviderFactory> {
 
     let config = Config {
         chain: chain.into(),
-        messaging: Some(messaging),
+        messaging,
         db: DbConfig { dir: Some(PathBuf::from(TEST_DB_DIR)) },
         ..Default::default()
     };

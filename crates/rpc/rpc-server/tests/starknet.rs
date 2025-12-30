@@ -11,6 +11,7 @@ use katana_genesis::constant::{
     DEFAULT_ETH_FEE_TOKEN_ADDRESS, DEFAULT_PREFUNDED_ACCOUNT_BALANCE,
     DEFAULT_STRK_FEE_TOKEN_ADDRESS, DEFAULT_UDC_ADDRESS,
 };
+use katana_node::config::sequencing::MiningMode;
 use katana_primitives::block::{BlockIdOrTag, ConfirmedBlockIdOrTag};
 use katana_primitives::event::ContinuationToken;
 use katana_primitives::{felt, Felt};
@@ -187,7 +188,7 @@ async fn deploy_account(
     // setup test sequencer with the given configuration
     let mut config = katana_utils::node::test_config();
     config.dev.fee = !disable_fee;
-    config.sequencing.block_time = block_time;
+    config.sequencing.mining = block_time.map_or(MiningMode::Instant, MiningMode::Interval);
 
     let sequencer = TestNode::new_with_config(config).await;
 
@@ -378,7 +379,7 @@ async fn estimate_fee_on_reverted_transaction() {
 async fn concurrent_transactions_submissions(#[values(None, Some(1000))] block_time: Option<u64>) {
     // setup test sequencer with the given configuration
     let mut config = katana_utils::node::test_config();
-    config.sequencing.block_time = block_time;
+    config.sequencing.mining = block_time.map_or(MiningMode::Instant, MiningMode::Interval);
     let sequencer = TestNode::new_with_config(config).await;
 
     let provider = sequencer.starknet_rpc_client();
@@ -447,7 +448,7 @@ async fn concurrent_transactions_submissions(#[values(None, Some(1000))] block_t
 async fn ensure_validator_have_valid_state(#[values(None, Some(1000))] block_time: Option<u64>) {
     let mut config = katana_utils::node::test_config();
     config.dev.fee = true;
-    config.sequencing.block_time = block_time;
+    config.sequencing.mining = block_time.map_or(MiningMode::Instant, MiningMode::Interval);
 
     let sequencer = TestNode::new_with_config(config).await;
     let account = sequencer.account();
@@ -486,7 +487,7 @@ async fn send_txs_with_insufficient_fee(
     // setup test sequencer with the given configuration
     let mut config = katana_utils::node::test_config();
     config.dev.fee = !disable_fee;
-    config.sequencing.block_time = block_time;
+    config.sequencing.mining = block_time.map_or(MiningMode::Instant, MiningMode::Interval);
     let sequencer = TestNode::new_with_config(config).await;
     let rpc_client = sequencer.starknet_rpc_client();
 
@@ -562,7 +563,7 @@ async fn send_txs_with_invalid_signature(
     // setup test sequencer with the given configuration
     let mut config = katana_utils::node::test_config();
     config.dev.account_validation = !disable_validate;
-    config.sequencing.block_time = block_time;
+    config.sequencing.mining = block_time.map_or(MiningMode::Instant, MiningMode::Interval);
     let sequencer = TestNode::new_with_config(config).await;
     let rpc_client = sequencer.starknet_rpc_client();
 
@@ -629,7 +630,7 @@ async fn send_txs_with_invalid_signature(
 async fn send_txs_with_invalid_nonces(#[values(None, Some(1000))] block_time: Option<u64>) {
     // setup test sequencer with the given configuration
     let mut config = katana_utils::node::test_config();
-    config.sequencing.block_time = block_time;
+    config.sequencing.mining = block_time.map_or(MiningMode::Instant, MiningMode::Interval);
     let sequencer = TestNode::new_with_config(config).await;
 
     let provider = sequencer.starknet_rpc_client();
@@ -729,7 +730,7 @@ async fn send_txs_with_invalid_nonces(#[values(None, Some(1000))] block_time: Op
 async fn get_events_no_pending() {
     // setup test sequencer with the given configuration
     let mut config = katana_utils::node::test_config();
-    config.sequencing.no_mining = true;
+    config.sequencing.mining = MiningMode::Manual;
     let sequencer = TestNode::new_with_config(config).await;
 
     // create a json rpc client to interact with the dev api.
@@ -813,7 +814,7 @@ async fn get_events_no_pending() {
 async fn get_events_with_pending() {
     // setup test sequencer with the given configuration
     let mut config = katana_utils::node::test_config();
-    config.sequencing.no_mining = true;
+    config.sequencing.mining = MiningMode::Manual;
     let sequencer = TestNode::new_with_config(config).await;
 
     // create a json rpc client to interact with the dev api.
@@ -901,7 +902,7 @@ async fn get_events_with_pending() {
 #[tokio::test]
 async fn trace() {
     let mut config = katana_utils::node::test_config();
-    config.sequencing.no_mining = true;
+    config.sequencing.mining = MiningMode::Manual;
     let sequencer = TestNode::new_with_config(config).await;
 
     let provider = sequencer.starknet_rpc_client();
@@ -949,7 +950,7 @@ async fn trace() {
 #[tokio::test]
 async fn block_traces() {
     let mut config = katana_utils::node::test_config();
-    config.sequencing.no_mining = true;
+    config.sequencing.mining = MiningMode::Manual;
     let sequencer = TestNode::new_with_config(config).await;
 
     let provider = sequencer.starknet_rpc_client();
@@ -1048,7 +1049,7 @@ async fn block_traces() {
 #[tokio::test]
 async fn v3_transactions() {
     let mut config = katana_utils::node::test_config();
-    config.sequencing.no_mining = true;
+    config.sequencing.mining = MiningMode::Manual;
     let sequencer = TestNode::new_with_config(config).await;
 
     let provider = sequencer.starknet_rpc_client();
@@ -1074,7 +1075,7 @@ async fn v3_transactions() {
 #[tokio::test]
 async fn fetch_pending_blocks() {
     let mut config = katana_utils::node::test_config();
-    config.sequencing.no_mining = true;
+    config.sequencing.mining = MiningMode::Manual;
     let sequencer = TestNode::new_with_config(config).await;
 
     // create a json rpc client to interact with the dev api.

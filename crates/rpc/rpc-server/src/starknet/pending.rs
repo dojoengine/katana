@@ -1,5 +1,6 @@
 use std::fmt::Debug;
 
+use katana_chain_spec::ChainSpecT;
 use katana_core::backend::storage::ProviderRO;
 use katana_core::service::block_producer::{BlockProducer, BlockProducerMode};
 use katana_executor::ExecutorFactory;
@@ -49,11 +50,12 @@ pub trait PendingBlockProvider: Debug + Send + Sync + 'static {
     ) -> StarknetApiResult<Option<RpcTxWithHash>>;
 }
 
-impl<EF, PF> PendingBlockProvider for BlockProducer<EF, PF>
+impl<EF, PF, C> PendingBlockProvider for BlockProducer<EF, PF, C>
 where
     EF: ExecutorFactory,
     PF: ProviderFactory,
     <PF as ProviderFactory>::Provider: ProviderRO,
+    C: ChainSpecT,
 {
     fn pending_state(&self) -> StarknetApiResult<Option<Box<dyn StateProvider>>> {
         match &*self.producer.read() {

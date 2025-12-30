@@ -3,13 +3,8 @@ use katana_executor::BlockLimits;
 /// Configurations related to block production.
 #[derive(Debug, Clone, Default, PartialEq, Eq)]
 pub struct SequencingConfig {
-    /// The time in milliseconds for a block to be produced.
-    pub block_time: Option<u64>,
-
-    /// Disable automatic block production.
-    ///
-    /// Allowing block to only be produced manually.
-    pub no_mining: bool,
+    /// The block production mode.
+    pub mining: MiningMode,
 
     /// The maximum number of Cairo steps in a block.
     //
@@ -26,4 +21,20 @@ impl SequencingConfig {
     pub fn block_limits(&self) -> BlockLimits {
         BlockLimits { cairo_steps: self.block_cairo_steps_limit.unwrap_or(50_000_000) }
     }
+}
+
+/// The mode of block production.
+#[derive(Debug, Clone, Default, PartialEq, Eq)]
+pub enum MiningMode {
+    /// Blocks are produced instantly when a transaction is received.
+    #[default]
+    Instant,
+
+    /// Blocks are produced at fixed intervals (in milliseconds).
+    Interval(u64),
+
+    /// No automatic block production.
+    ///
+    /// Blocks are only produced manually.
+    Manual,
 }
