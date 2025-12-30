@@ -196,15 +196,15 @@ criterion = "0.5.1"
 pprof = { version = "0.13.0", features = [ "criterion", "flamegraph" ] }
 
 # alloys
-alloy-contract = { version = "1.0", default-features = false }
-alloy-network = { version = "1.0", default-features = false }
-alloy-primitives = { version = "1.0", default-features = false }
-alloy-provider = { version = "1.0", default-features = false }
-alloy-rpc-types-eth = { version = "1.0", default-features = false }
-alloy-signer = { version = "1.0", default-features = false }
-alloy-sol-types = { version = "1.0", default-features = false }
-alloy-transport = { version = "1.0", default-features = false }
-alloy-transport-http = { version = "1.0", default-features = false }
+alloy-contract = { version = "1.2", default-features = false }
+alloy-network = { version = "1.2", default-features = false }
+alloy-primitives = { version = "1.2", default-features = false }
+alloy-provider = { version = "1.2", default-features = false }
+alloy-rpc-types-eth = { version = "1.2", default-features = false }
+alloy-signer = { version = "1.2", default-features = false }
+alloy-sol-types = { version = "1.2", default-features = false }
+alloy-transport = { version = "1.2", default-features = false }
+alloy-transport-http = { version = "1.2", default-features = false }
 
 # macro
 proc-macro2 = "1.0"
