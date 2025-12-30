@@ -4,7 +4,7 @@ use katana_primitives::block::{
 };
 use katana_primitives::state::StateUpdatesWithClasses;
 use katana_primitives::transaction::TxType;
-use katana_primitives::{address, felt, ContractAddress};
+use katana_primitives::{address, felt};
 use katana_provider::api::block::{
     BlockHashProvider, BlockNumberProvider, BlockProvider, BlockWriter,
 };

@@ -20,7 +20,6 @@ use url::Url;
 
 mod common;
 
-const SEPOLIA_CHAIN_ID: Felt = NamedChainId::SN_SEPOLIA;
 const SEPOLIA_URL: &str = "https://api.cartridge.gg/x/starknet/sepolia";
 const FORK_BLOCK_NUMBER: BlockNumber = 268_471;
 const FORK_BLOCK_HASH: BlockHash =
@@ -105,7 +104,7 @@ async fn can_fork() -> Result<()> {
     let BlockNumberResponse { block_number } = provider.block_number().await?;
     let chain = provider.chain_id().await?;
 
-    assert_eq!(chain, SEPOLIA_CHAIN_ID);
+    assert_eq!(NamedChainId::SN_SEPOLIA, chain);
     assert_eq!(block_number, FORK_BLOCK_NUMBER + 11); // fork block + genesis + 10 blocks
 
     Ok(())

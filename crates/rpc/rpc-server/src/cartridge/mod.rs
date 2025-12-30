@@ -45,6 +45,7 @@ use katana_primitives::chain::ChainId;
 use katana_primitives::contract::Nonce;
 use katana_primitives::da::DataAvailabilityMode;
 use katana_primitives::fee::{AllResourceBoundsMapping, ResourceBoundsMapping};
+use katana_primitives::hash::{Pedersen, Poseidon, StarkHash};
 use katana_primitives::transaction::{ExecutableTx, ExecutableTxWithHash, InvokeTx, InvokeTxV3};
 use katana_primitives::{ContractAddress, Felt};
 use katana_provider::api::state::{StateFactoryProvider, StateProvider};
@@ -59,7 +60,6 @@ use katana_rpc_types::FunctionCall;
 use katana_tasks::{Result as TaskResult, TaskSpawner};
 use starknet::macros::selector;
 use starknet::signers::{LocalWallet, Signer, SigningKey};
-use starknet_crypto::pedersen_hash;
 use tracing::{debug, info};
 use url::Url;
 
@@ -487,12 +487,13 @@ async fn handle_vrf_calls(
         // compute storage key of the VRF contract storage member VrfProvider_nonces:
         // Map<ContractAddress, felt252>
         let address = salt_or_nonce;
-        let key = pedersen_hash(&selector!("VrfProvider_nonces"), &address);
+        let key = Pedersen::hash(&selector!("VrfProvider_nonces"), &address);
+
         let nonce = state.storage(vrf_ctx.address(), key).unwrap_or_default().unwrap_or_default();
-        starknet_crypto::poseidon_hash_many(vec![&nonce, &caller, &chain_id.id()])
+        Poseidon::hash_array(&[nonce, caller, chain_id.id()])
     } else if salt_or_nonce_selector == Felt::ONE {
         let salt = salt_or_nonce;
-        starknet_crypto::poseidon_hash_many(vec![&salt, &caller, &chain_id.id()])
+        Poseidon::hash_array(&[salt, caller, chain_id.id()])
     } else {
         anyhow::bail!(
             "Invalid salt or nonce for VRF request, expecting 0 or 1, got {}",
@@ -535,7 +536,7 @@ pub async fn craft_deploy_cartridge_vrf_tx(
 ) -> anyhow::Result<ExecutableTxWithHash> {
     let calldata = vec![
         CARTRIDGE_VRF_CLASS_HASH,
-        CARTRIDGE_VRF_SALT,
+        CARTRIDGE_VRF_SALT.into(),
         // from zero
         Felt::ZERO,
         // Calldata len

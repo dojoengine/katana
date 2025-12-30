@@ -13,7 +13,7 @@ use katana_genesis::constant::{
 };
 use katana_primitives::block::{BlockIdOrTag, ConfirmedBlockIdOrTag};
 use katana_primitives::event::ContinuationToken;
-use katana_primitives::Felt;
+use katana_primitives::{felt, Felt};
 use katana_rpc_api::dev::DevApiClient;
 use katana_rpc_types::state_update::StateUpdate;
 use katana_rpc_types::trace::TxTrace;
@@ -31,7 +31,7 @@ use starknet::accounts::{
 };
 use starknet::core::types::Call;
 use starknet::core::utils::get_contract_address;
-use starknet::macros::{felt, selector};
+use starknet::macros::selector;
 use starknet::providers::{Provider, ProviderError};
 use starknet::signers::{LocalWallet, SigningKey};
 use tokio::sync::Mutex;
@@ -1339,4 +1339,46 @@ async fn simulate_should_skip_strict_nonce_check(#[case] nonce: Felt, #[case] sh
     // nonce later)
     let res = contract.transfer(&recipient, &amount).nonce(nonce).simulate(false, false).await;
     assert_eq!(res.is_ok(), should_ok)
+}
+
+/// Test that special system contract addresses (0x1 and 0x2) return ClassHash::ZERO
+/// for `get_class_hash_at` calls, as they don't have an associated class.
+///
+/// See https://docs.starknet.io/architecture-and-concepts/network-architecture/starknet-state/#address_0x1
+#[tokio::test]
+async fn special_system_contract_class_hash() {
+    let sequencer = TestNode::new().await;
+    let provider = sequencer.starknet_rpc_client();
+
+    // Address 0x1 should return ClassHash::ZERO
+    let class_hash =
+        provider.get_class_hash_at(BlockIdOrTag::PreConfirmed, felt!("0x1").into()).await.unwrap();
+    assert_eq!(class_hash, Felt::ZERO, "Address 0x1 should return ClassHash::ZERO");
+
+    // Address 0x2 should return ClassHash::ZERO
+    let class_hash =
+        provider.get_class_hash_at(BlockIdOrTag::PreConfirmed, felt!("0x2").into()).await.unwrap();
+    assert_eq!(class_hash, Felt::ZERO, "Address 0x2 should return ClassHash::ZERO");
+}
+
+/// Test that `get_storage_at` works for special system contract addresses (0x1 and 0x2)
+/// without returning ContractNotFound error.
+///
+/// See https://docs.starknet.io/architecture-and-concepts/network-architecture/starknet-state/#address_0x1
+#[tokio::test]
+async fn special_system_contract_storage() {
+    let sequencer = TestNode::new().await;
+    let provider = sequencer.starknet_rpc_client();
+
+    let storage_key = felt!("0x0");
+
+    // Address 0x1 should not return ContractNotFound
+    let result =
+        provider.get_storage_at(felt!("0x1").into(), storage_key, BlockIdOrTag::PreConfirmed).await;
+    assert!(result.is_ok(), "get_storage_at for address 0x1 should not fail");
+
+    // Address 0x2 should not return ContractNotFound
+    let result =
+        provider.get_storage_at(felt!("0x2").into(), storage_key, BlockIdOrTag::PreConfirmed).await;
+    assert!(result.is_ok(), "get_storage_at for address 0x2 should not fail");
 }

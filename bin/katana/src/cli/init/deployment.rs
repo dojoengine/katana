@@ -3,6 +3,7 @@ use std::str::FromStr;
 use anyhow::{anyhow, Result};
 use cainome::cairo_serde;
 use katana_primitives::block::{BlockHash, BlockNumber};
+use katana_primitives::cairo::ShortString;
 use katana_primitives::class::{
     CompiledClassHash, ComputeClassHashError, ContractClass, ContractClassCompilationError,
     ContractClassFromStrError,
@@ -17,7 +18,6 @@ use starknet::accounts::{Account, AccountError, ConnectedAccount, SingleOwnerAcc
 use starknet::contract::ContractFactory;
 use starknet::core::crypto::compute_hash_on_elements;
 use starknet::core::types::{BlockId, BlockTag, FlattenedSierraClass, StarknetError};
-use starknet::macros::short_string;
 use starknet::providers::{Provider, ProviderError};
 use starknet::signers::LocalWallet;
 use thiserror::Error;
@@ -410,10 +410,10 @@ fn compute_starknet_os_config_hash(
     fee_token: Felt,
 ) -> Felt {
     // A constant representing the StarkNet OS config version.
-    const STARKNET_OS_CONFIG_VERSION: Felt = short_string!("StarknetOsConfig2");
+    const STARKNET_OS_CONFIG_VERSION: ShortString = ShortString::from_ascii("StarknetOsConfig2");
 
     compute_hash_on_elements(&[
-        STARKNET_OS_CONFIG_VERSION,
+        STARKNET_OS_CONFIG_VERSION.into(),
         chain_id,
         deprecated_fee_token,
         fee_token,

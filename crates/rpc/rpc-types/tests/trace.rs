@@ -1,6 +1,6 @@
 use assert_matches::assert_matches;
 use katana_primitives::execution::EntryPointType;
-use katana_primitives::{address, felt, ContractAddress};
+use katana_primitives::{address, felt};
 use katana_rpc_types::trace::{
     CallType, ExecuteInvocation, FunctionInvocation, InnerCallExecutionResources, InvokeTxTrace,
     OrderedEvent, OrderedL2ToL1Message, RevertedInvocation, TxTrace,

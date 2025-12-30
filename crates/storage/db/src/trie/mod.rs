@@ -515,10 +515,10 @@ fn to_db_key(key: &DatabaseKey<'_>) -> models::trie::TrieDatabaseKey {
 
 #[cfg(test)]
 mod tests {
+    use katana_primitives::cairo::ShortString;
     use katana_primitives::hash::{Poseidon, StarkHash};
     use katana_primitives::{felt, hash};
     use katana_trie::{verify_proof, ClassesTrie, CommitId};
-    use starknet::macros::short_string;
 
     use super::TrieDbMut;
     use crate::abstraction::Database;
@@ -576,8 +576,10 @@ mod tests {
             let verify_result0 =
                 verify_proof::<Poseidon>(&proofs0, snapshot_root0, vec![felt!("0x9999")]);
 
-            let value =
-                hash::Poseidon::hash(&short_string!("CONTRACT_CLASS_LEAF_V0"), &felt!("0xdead"));
+            let value = hash::Poseidon::hash(
+                &ShortString::from_ascii("CONTRACT_CLASS_LEAF_V0").into(),
+                &felt!("0xdead"),
+            );
             assert_eq!(vec![value], verify_result0);
         }
 
@@ -593,8 +595,10 @@ mod tests {
             let verify_result1 =
                 verify_proof::<Poseidon>(&proofs1, snapshot_root1, vec![felt!("0x6969")]);
 
-            let value =
-                hash::Poseidon::hash(&short_string!("CONTRACT_CLASS_LEAF_V0"), &felt!("0x80085"));
+            let value = hash::Poseidon::hash(
+                &ShortString::from_ascii("CONTRACT_CLASS_LEAF_V0").into(),
+                &felt!("0x80085"),
+            );
             assert_eq!(vec![value], verify_result1);
         }
 
@@ -604,10 +608,14 @@ mod tests {
             let result =
                 verify_proof::<Poseidon>(&proofs, root, vec![felt!("0x6969"), felt!("0x9999")]);
 
-            let value0 =
-                hash::Poseidon::hash(&short_string!("CONTRACT_CLASS_LEAF_V0"), &felt!("0x80085"));
-            let value1 =
-                hash::Poseidon::hash(&short_string!("CONTRACT_CLASS_LEAF_V0"), &felt!("0xdead"));
+            let value0 = hash::Poseidon::hash(
+                &ShortString::from_ascii("CONTRACT_CLASS_LEAF_V0").into(),
+                &felt!("0x80085"),
+            );
+            let value1 = hash::Poseidon::hash(
+                &ShortString::from_ascii("CONTRACT_CLASS_LEAF_V0").into(),
+                &felt!("0xdead"),
+            );
 
             assert_eq!(vec![value0, value1], result);
         }

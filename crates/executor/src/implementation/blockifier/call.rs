@@ -156,7 +156,7 @@ mod tests {
     use blockifier::state::cached_state::{self};
     use katana_primitives::class::ContractClass;
     use katana_primitives::execution::FunctionCall;
-    use katana_primitives::{address, felt, ContractAddress};
+    use katana_primitives::{address, felt};
     use katana_provider::api::contract::ContractClassWriter;
     use katana_provider::api::state::{StateFactoryProvider, StateWriter};
     use katana_provider::{test_utils, ProviderFactory};

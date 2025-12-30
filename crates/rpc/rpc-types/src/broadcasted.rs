@@ -735,7 +735,7 @@ mod tests {
     use assert_matches::assert_matches;
     use katana_primitives::fee::ResourceBoundsMapping;
     use katana_primitives::transaction::TxType;
-    use katana_primitives::{address, felt, ContractAddress, Felt};
+    use katana_primitives::{address, felt, Felt};
     use serde_json::json;
 
     use super::*;

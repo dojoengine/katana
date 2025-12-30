@@ -369,9 +369,12 @@ where
         contract_address: ContractAddress,
     ) -> StarknetApiResult<ClassHash> {
         self.on_io_blocking_task(move |this| {
-            // Contract address 0x1 is special system contract and does not
-            // have a class. See https://docs.starknet.io/architecture-and-concepts/network-architecture/starknet-state/#address_0x1.
-            if contract_address.0 == Felt::ONE {
+            // Contract address 0x1 and 0x2 are special system contracts and does not
+            // have a class.
+            //
+            // See https://docs.starknet.io/architecture-and-concepts/network-architecture/starknet-state/#address_0x1.
+            if contract_address == ContractAddress::ONE || contract_address == ContractAddress::TWO
+            {
                 return Ok(ClassHash::ZERO);
             }
 
@@ -424,11 +427,10 @@ where
         // Check that contract exist by checking the class hash of the contract,
         // unless its address 0x1 or 0x2 which are special system contracts and does not
         // have a class.
-        // See:
-        //  https://docs.starknet.io/learn/protocol/state#address-0x1.
-        //  https://docs.starknet.io/learn/protocol/data-availability#v0-13-4
-        if contract_address.0 != Felt::ONE
-            && contract_address.0 != Felt::TWO
+        //
+        // See https://docs.starknet.io/architecture-and-concepts/network-architecture/starknet-state/#address_0x1.
+        if contract_address != ContractAddress::ONE
+            && contract_address != ContractAddress::TWO
             && state.class_hash_of_contract(contract_address)?.is_none()
         {
             return Err(StarknetApiError::ContractNotFound);

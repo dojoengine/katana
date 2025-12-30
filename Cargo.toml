@@ -24,6 +24,7 @@ members = [
 	"crates/pool/pool",
 	"crates/pool/pool-api",
 	"crates/primitives",
+	"crates/primitives/macro",
 	"crates/rpc/rpc-server",
 	"crates/rpc/rpc-api",
 	"crates/rpc/rpc-client",
@@ -94,6 +95,7 @@ katana-pipeline = { path = "crates/sync/pipeline" }
 katana-pool = { path = "crates/pool/pool" }
 katana-pool-api = { path = "crates/pool/pool-api" }
 katana-primitives = { path = "crates/primitives" }
+katana-primitives-macro = { path = "crates/primitives/macro" }
 katana-provider = { path = "crates/storage/provider/provider" }
 katana-provider-api = { path = "crates/storage/provider/provider-api" }
 katana-rpc-server = { path = "crates/rpc/rpc-server" }
@@ -226,7 +228,6 @@ opentelemetry-stackdriver = { version = "0.27.0", features = [ "propagator" ] }
 
 # starknet
 starknet = "0.17.0-rc.2"
-starknet-crypto = "0.7.4"
 starknet-types-core = { version = "0.1.8", features = [ "arbitrary", "hash" ] }
 # Some types that we used from cairo-vm implements the `Arbitrary` trait,
 # only under the `test_utils` feature.

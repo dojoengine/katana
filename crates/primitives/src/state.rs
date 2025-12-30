@@ -1,9 +1,9 @@
 use std::collections::{BTreeMap, BTreeSet};
 use std::iter;
 
-use starknet::macros::short_string;
 use starknet_types_core::hash::{self, StarkHash};
 
+use crate::cairo::ShortString;
 use crate::class::{ClassHash, CompiledClassHash, ContractClass};
 use crate::contract::{ContractAddress, Nonce, StorageKey, StorageValue};
 use crate::Felt;
@@ -125,8 +125,8 @@ pub fn compute_state_diff_hash(states: StateUpdates) -> Felt {
     let nonces_len = Felt::from(nonce_updates.len());
     let nonce_updates = nonce_updates.into_iter().flat_map(|nonce| vec![nonce.0.into(), nonce.1]);
 
-    let magic = short_string!("STARKNET_STATE_DIFF0");
-    let elements: Vec<Felt> = iter::once(magic)
+    let magic = ShortString::from_ascii("STARKNET_STATE_DIFF0");
+    let elements: Vec<Felt> = iter::once(Felt::from(magic))
         .chain(iter::once(updated_contracts_len))
         .chain(updated_contracts)
         .chain(iter::once(declared_classes_len))
