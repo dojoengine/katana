@@ -478,7 +478,7 @@ impl StarknetCommands {
                             .enumerate()
                             .map(|(i, s)| {
                                 s.trim().parse::<ClassHash>().with_context(|| {
-                                    format!("Invalid class hash at position {}: '{}'", i, s)
+                                    format!("Invalid class hash at position {i}: '{s}'")
                                 })
                             })
                             .collect::<Result<Vec<_>>>()?,
@@ -498,7 +498,7 @@ impl StarknetCommands {
                             .enumerate()
                             .map(|(i, s)| {
                                 s.trim().parse::<ContractAddress>().with_context(|| {
-                                    format!("Invalid contract address at position {}: '{}'", i, s)
+                                    format!("Invalid contract address at position {i}: '{s}'")
                                 })
                             })
                             .collect::<Result<Vec<_>>>()?,
@@ -613,7 +613,7 @@ fn parse_event_keys(keys: &[String]) -> Result<Vec<Vec<Felt>>> {
                 .map(|s| {
                     s.trim()
                         .parse::<Felt>()
-                        .with_context(|| format!("invalid felt in key group {}: '{}'", i, s))
+                        .with_context(|| format!("invalid felt in key group {i}: '{s}'"))
                 })
                 .collect::<Result<Vec<Felt>>>()
         })

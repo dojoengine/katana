@@ -170,6 +170,7 @@ pub trait Messenger {
     ) -> MessengerResult<(u64, Vec<Self::MessageTransaction>)>;
 }
 
+#[allow(clippy::large_enum_variant)]
 #[derive(Debug)]
 pub enum MessengerMode {
     Ethereum(EthereumMessaging),

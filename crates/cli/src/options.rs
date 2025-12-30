@@ -807,6 +807,6 @@ fn parse_pruning_mode(s: &str) -> Result<PruningMode, String> {
                 })?;
             Ok(PruningMode::Full(n))
         }
-        _ => Err(format!("Invalid pruning mode '{}'. Valid modes are: 'archive', 'full:N'", s)),
+        _ => Err(format!("Invalid pruning mode '{s}'. Valid modes are: 'archive', 'full:N'")),
     }
 }

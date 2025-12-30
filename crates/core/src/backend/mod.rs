@@ -225,54 +225,54 @@ where
         // check whether the genesis block has been initialized
         let local_hash = provider.block_hash_by_num(chain_spec.genesis.number)?;
 
-        // NOTE: right now forking mode is not persistent, both `local_hash.is_some()` and
-        // `is_forking` can never be true at the same time.
-        if local_hash.is_some() && !is_forking {
-            let local_hash = local_hash.unwrap();
+        match (local_hash, is_forking) {
+            (Some(local_hash), false) => {
+                let genesis_block = chain_spec.block();
+                let mut genesis_state_updates = chain_spec.state_updates();
 
-            let genesis_block = chain_spec.block();
-            let mut genesis_state_updates = chain_spec.state_updates();
+                // commit the block but compute the trie using volatile storage so that it won't
+                // overwrite the existing trie this is very hacky and we should find for a
+                // much elegant solution.
+                let committed_block = commit_genesis_block(
+                    GenesisTrieWriter,
+                    genesis_block.header.clone(),
+                    Vec::new(),
+                    &[],
+                    &mut genesis_state_updates.state_updates,
+                )?;
 
-            // commit the block but compute the trie using volatile storage so that it won't
-            // overwrite the existing trie this is very hacky and we should find for a
-            // much elegant solution.
-            let committed_block = commit_genesis_block(
-                GenesisTrieWriter,
-                genesis_block.header.clone(),
-                Vec::new(),
-                &[],
-                &mut genesis_state_updates.state_updates,
-            )?;
+                // check genesis should be the same
+                if local_hash != committed_block.hash {
+                    return Err(anyhow!(
+                        "Genesis block hash mismatch: expected {:#x}, got {local_hash:#x}",
+                        committed_block.hash
+                    ));
+                }
 
-            // check genesis should be the same
-            if local_hash != committed_block.hash {
-                return Err(anyhow!(
-                    "Genesis block hash mismatch: expected {:#x}, got {local_hash:#x}",
-                    committed_block.hash
-                ));
+                info!(genesis_hash = %local_hash, "Genesis has already been initialized");
             }
 
-            info!(genesis_hash = %local_hash, "Genesis has already been initialized");
-        } else {
-            // Initialize the dev genesis block
+            _ => {
+                // Initialize the dev genesis block
 
-            let block = chain_spec.block();
-            let states = chain_spec.state_updates();
+                let block = chain_spec.block();
+                let states = chain_spec.state_updates();
 
-            let outcome = self.do_mine_block(
-                &BlockEnv {
-                    number: block.header.number,
-                    timestamp: block.header.timestamp,
-                    l2_gas_prices: block.header.l2_gas_prices,
-                    l1_gas_prices: block.header.l1_gas_prices,
-                    l1_data_gas_prices: block.header.l1_data_gas_prices,
-                    sequencer_address: block.header.sequencer_address,
-                    starknet_version: block.header.starknet_version,
-                },
-                ExecutionOutput { states, ..Default::default() },
-            )?;
+                let outcome = self.do_mine_block(
+                    &BlockEnv {
+                        number: block.header.number,
+                        timestamp: block.header.timestamp,
+                        l2_gas_prices: block.header.l2_gas_prices,
+                        l1_gas_prices: block.header.l1_gas_prices,
+                        l1_data_gas_prices: block.header.l1_data_gas_prices,
+                        sequencer_address: block.header.sequencer_address,
+                        starknet_version: block.header.starknet_version,
+                    },
+                    ExecutionOutput { states, ..Default::default() },
+                )?;
 
-            info!(genesis_hash = %outcome.block_hash, "Genesis initialized");
+                info!(genesis_hash = %outcome.block_hash, "Genesis initialized");
+            }
         }
 
         Ok(())
@@ -554,8 +554,7 @@ fn store_block(
     // Validate that all declared classes have their corresponding class artifacts
     if let Err(missing) = states.validate_classes() {
         return Err(BlockProductionError::InconsistentState(format!(
-            "missing class artifacts for declared classes: {:#?}",
-            missing,
+            "missing class artifacts for declared classes: {missing:#?}"
         )));
     }
 

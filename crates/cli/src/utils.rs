@@ -138,9 +138,8 @@ PREDEPLOYED CONTRACTS
     println!(
         r"
 | Contract        | Universal Deployer
-| Address         | {}
-| Class Hash      | {:#064x}",
-        DEFAULT_UDC_ADDRESS, DEFAULT_LEGACY_UDC_CLASS_HASH
+| Address         | {DEFAULT_UDC_ADDRESS}
+| Class Hash      | {DEFAULT_LEGACY_UDC_CLASS_HASH:#064x}"
     );
 
     if let Some(hash) = account_class_hash {
