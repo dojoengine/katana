@@ -8,6 +8,7 @@ version.workspace = true
 katana-db = { workspace = true, features = [ "test-utils" ] }
 katana-primitives.workspace = true
 katana-trie.workspace = true
+katana-rpc-types.workspace = true
 
 auto_impl.workspace = true
 starknet.workspace = true

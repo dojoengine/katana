@@ -657,3 +657,701 @@ async fn get_events_with_invalid_block_hash(#[case] hash: BlockHash) {
     let result = provider.get_events(filter.clone(), None, 5).await.unwrap_err();
     assert_provider_starknet_err!(result, StarknetApiError::BlockNotFound);
 }
+
+#[cfg(test)]
+mod tests {
+    use std::collections::{BTreeMap, BTreeSet};
+    use std::sync::Arc;
+
+    use katana_chain_spec::dev::DEV_UNALLOCATED;
+    use katana_chain_spec::{dev, ChainSpec};
+    use katana_core::service::block_producer::IntervalBlockProducer;
+    use katana_db::Db;
+    use katana_node::config::fork::ForkingConfig;
+    use katana_primitives::block::{
+        BlockHash, BlockNumber, FinalityStatus, Header, SealedBlock, SealedBlockWithStatus,
+    };
+    use katana_primitives::chain::ChainId;
+    use katana_primitives::class::ClassHash;
+    use katana_primitives::state::{StateUpdates, StateUpdatesWithClasses};
+    use katana_primitives::{ContractAddress, Felt};
+    use katana_provider::api::block::{BlockNumberProvider, BlockWriter};
+    use katana_provider::api::trie::TrieWriter;
+    use katana_provider::{ForkProviderFactory, MutableProvider, ProviderFactory};
+    use katana_utils::node::ForkTestNode;
+    use katana_utils::TestNode;
+    use proptest::arbitrary::any;
+    use proptest::prelude::{Just, ProptestConfig, Strategy};
+    use proptest::{prop_assert_eq, proptest};
+    use rand::{thread_rng, Rng};
+
+    use crate::Url;
+
+    #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+    async fn test_commit_new_state_root_mainnet_blockchain_and_forked_provider() {
+        use katana_utils::TestNode;
+
+        let sequencer = TestNode::new().await;
+        let backend = sequencer.backend();
+        let provider = backend.storage.provider();
+        let provider_mut = backend.storage.provider_mut();
+
+        let block_number = provider.latest_number().unwrap();
+
+        let state_updates = setup_mainnet_updates_randomized(5);
+
+        provider_mut.compute_state_root(block_number, &state_updates).unwrap();
+        provider_mut.commit().unwrap();
+
+        let fork_minimal_updates = setup_mainnet_updates_randomized(5);
+
+        let db = Db::in_memory().unwrap();
+        let starknet_rpc_client = sequencer.starknet_rpc_client();
+        let fork_factory = ForkProviderFactory::new(db, block_number, starknet_rpc_client);
+
+        let state_root = {
+            let forked_provider = fork_factory.provider_mut();
+            let root =
+                forked_provider.compute_state_root(block_number, &fork_minimal_updates).unwrap();
+            forked_provider.commit().unwrap();
+            root
+        };
+
+        let provider_mut = backend.storage.provider_mut();
+        let mainnet_state_root_same_updates =
+            provider_mut.compute_state_root(block_number, &fork_minimal_updates).unwrap();
+        provider_mut.commit().unwrap();
+
+        assert_eq!(
+            state_root, mainnet_state_root_same_updates,
+            "State roots do not match on first run: fork={:?}, mainnet={:?}",
+            state_root, mainnet_state_root_same_updates
+        );
+
+        // Second iteration with new random updates
+        let state_updates = setup_mainnet_updates_randomized(5);
+        // IT's important here to compute state root for forked network first, then for mainnet
+        // otherwise it will be different roots because it's like double computation of same changes
+        let fork_state_root = {
+            let forked_provider = fork_factory.provider_mut();
+            let root = forked_provider.compute_state_root(block_number, &state_updates).unwrap();
+            forked_provider.commit().unwrap();
+            root
+        };
+        let provider_mut = backend.storage.provider_mut();
+        let mainnet_state_root =
+            provider_mut.compute_state_root(block_number, &state_updates).unwrap();
+        provider_mut.commit().unwrap();
+
+        assert_eq!(
+            mainnet_state_root, fork_state_root,
+            "State roots do not match on second run: fork={:?}, mainnet={:?}",
+            fork_state_root, mainnet_state_root
+        );
+    }
+
+    fn setup_mainnet_updates_randomized(num_contracts: usize) -> StateUpdates {
+        let mut state_updates = StateUpdates::default();
+
+        for _ in 0..num_contracts {
+            let (address, class_hash, storage, nonce) = random_contract();
+            state_updates.deployed_contracts.insert(address, class_hash);
+            state_updates.storage_updates.insert(address, storage);
+            state_updates.declared_classes.insert(class_hash, random_felt());
+            state_updates.nonce_updates.insert(address, nonce);
+            if thread_rng().gen_bool(0.2) {
+                let new_class_hash = random_class_hash();
+                state_updates.replaced_classes.insert(address, new_class_hash);
+                state_updates.declared_classes.insert(new_class_hash, random_felt());
+            }
+            if thread_rng().gen_bool(0.2) {
+                state_updates.deprecated_declared_classes.insert(random_class_hash());
+            }
+        }
+
+        state_updates
+    }
+
+    fn random_felt() -> Felt {
+        let mut bytes = [0u8; 32];
+        rand::thread_rng().fill(&mut bytes);
+        Felt::from_bytes_be(&bytes)
+    }
+
+    fn random_class_hash() -> ClassHash {
+        ClassHash::from(random_felt())
+    }
+
+    fn random_contract_address() -> ContractAddress {
+        ContractAddress::from(random_felt())
+    }
+
+    fn random_contract() -> (ContractAddress, ClassHash, BTreeMap<Felt, Felt>, Felt) {
+        let address = random_contract_address();
+        let class_hash = random_class_hash();
+        let mut storage = BTreeMap::new();
+        for _ in 0..thread_rng().gen_range(1..=3) {
+            storage.insert(random_felt(), random_felt());
+        }
+        let nonce = random_felt();
+        (address, class_hash, storage, nonce)
+    }
+
+    fn create_test_block_with_state_updates(
+        block_number: BlockNumber,
+        _state_updates: StateUpdates,
+    ) -> SealedBlockWithStatus {
+        SealedBlockWithStatus {
+            status: FinalityStatus::AcceptedOnL2,
+            block: SealedBlock {
+                hash: BlockHash::from(block_number),
+                header: Header { number: block_number, ..Default::default() },
+                body: Default::default(),
+            },
+        }
+    }
+
+    fn arb_felt() -> impl Strategy<Value = Felt> {
+        any::<[u8; 32]>().prop_map(|bytes| Felt::from_bytes_be(&bytes))
+    }
+
+    fn arb_class_hash() -> impl Strategy<Value = ClassHash> {
+        arb_felt().prop_map(ClassHash::from)
+    }
+
+    fn arb_contract_address() -> impl Strategy<Value = ContractAddress> {
+        arb_felt().prop_map(ContractAddress::from)
+    }
+
+    fn arb_storage() -> impl Strategy<Value = BTreeMap<Felt, Felt>> {
+        proptest::collection::btree_map(arb_felt(), arb_felt(), 0..3)
+    }
+
+    fn arb_state_updates() -> impl Strategy<Value = StateUpdates> {
+        proptest::collection::btree_map(
+            arb_contract_address(),
+            (arb_class_hash(), arb_storage(), arb_felt()),
+            1..6,
+        )
+        .prop_flat_map(|contracts| {
+            let mut deployed_contracts = BTreeMap::new();
+            let mut storage_updates = BTreeMap::new();
+            let mut nonce_updates = BTreeMap::new();
+            let mut declared_classes = BTreeMap::new();
+            let replaced_classes = BTreeMap::new();
+            let deprecated_declared_classes = BTreeSet::new();
+
+            for (address, (class_hash, storage, nonce)) in &contracts {
+                deployed_contracts.insert(*address, *class_hash);
+                storage_updates.insert(*address, storage.clone());
+                nonce_updates.insert(*address, *nonce);
+                declared_classes.insert(*class_hash, Felt::from(1u8));
+            }
+
+            Just(StateUpdates {
+                deployed_contracts,
+                storage_updates,
+                nonce_updates,
+                declared_classes,
+                replaced_classes,
+                deprecated_declared_classes,
+                ..Default::default()
+            })
+        })
+    }
+
+    // Deterministic test - no workaround required
+    #[test]
+    fn test_minimal_failing_input_regression() {
+        let rt = tokio::runtime::Runtime::new().unwrap();
+
+        rt.block_on(async {
+            let sequencer = TestNode::new().await;
+            let backend = sequencer.backend();
+            let provider = backend.storage.provider();
+            let mut block_number = provider.latest_number().unwrap();
+            let mut producer = IntervalBlockProducer::new(backend.clone(), None);
+
+            // state_updates_vec[0] - the initial state from minimal failing input
+            let initial_state = StateUpdates {
+                nonce_updates: BTreeMap::from([(
+                    ContractAddress::from(Felt::from_hex_unchecked(
+                        "0x475cedf016783eb3d5d0a8ae58102641303e400ac71dee1107990c4144a0aa4",
+                    )),
+                    Felt::from_hex_unchecked(
+                        "0x1629f837c6a0d07ade7a8925a6843adb39e48dc808c67bae82961f6bef896e1",
+                    ),
+                )]),
+                storage_updates: BTreeMap::from([]),
+                deployed_contracts: BTreeMap::from([]),
+                declared_classes: BTreeMap::from([]),
+                deprecated_declared_classes: BTreeSet::new(),
+                replaced_classes: BTreeMap::new(),
+                migrated_compiled_classes: BTreeMap::new(),
+            };
+
+            let fork_minimal_updates_vec = vec![
+                StateUpdates {
+                    nonce_updates: BTreeMap::from([(
+                        ContractAddress::from(Felt::from_hex_unchecked(
+                            "0x5e6f1fa63556682aaee138df20080a70a803cc2d6711f271dc910635b9d66d7",
+                        )),
+                        Felt::from_hex_unchecked(
+                            "0x20755f5ad5fcdfe23fc74d6fb617d82a107a994b0653a6952ec3ef1fc0b2de5",
+                        ),
+                    )]),
+                    storage_updates: BTreeMap::from([]),
+                    deployed_contracts: BTreeMap::from([]),
+                    declared_classes: BTreeMap::from([]),
+                    deprecated_declared_classes: BTreeSet::new(),
+                    replaced_classes: BTreeMap::new(),
+                    migrated_compiled_classes: BTreeMap::new(),
+                },
+                StateUpdates {
+                    nonce_updates: BTreeMap::from([(
+                        ContractAddress::from(Felt::from_hex_unchecked(
+                            "0x44a7b4f76c2fe9cb6367d7a7f0c4a5188b3c02c6038706546b516f527470d51",
+                        )),
+                        Felt::from_hex_unchecked(
+                            "0x4c2cb13bd093da7cbead27adef8b2ab02d36f2b8c47eeeee4759709b96847ee",
+                        ),
+                    )]),
+                    storage_updates: BTreeMap::from([]),
+                    deployed_contracts: BTreeMap::from([]),
+                    declared_classes: BTreeMap::from([]),
+                    deprecated_declared_classes: BTreeSet::new(),
+                    replaced_classes: BTreeMap::new(),
+                    migrated_compiled_classes: BTreeMap::new(),
+                },
+            ];
+            let num_iters = 2;
+
+            let provider_mut = backend.storage.provider_mut();
+            provider_mut.compute_state_root(block_number + 1, &initial_state).unwrap();
+            provider_mut.commit().unwrap();
+            producer.force_mine();
+            let provider = backend.storage.provider();
+            block_number = provider.latest_number().unwrap();
+
+            let db = Db::in_memory().unwrap();
+            let starknet_rpc_client = sequencer.starknet_rpc_client();
+            let fork_factory = ForkProviderFactory::new(db, block_number, starknet_rpc_client);
+
+            for i in 0..num_iters {
+                let fork_minimal_updates = &fork_minimal_updates_vec[i];
+
+                let fork_root = {
+                    let forked_provider = fork_factory.provider_mut();
+                    let root = forked_provider
+                        .compute_state_root(block_number, fork_minimal_updates)
+                        .unwrap();
+                    forked_provider.commit().unwrap();
+                    root
+                };
+
+                let provider_mut = backend.storage.provider_mut();
+                let mainnet_root =
+                    provider_mut.compute_state_root(block_number, fork_minimal_updates).unwrap();
+                provider_mut.commit().unwrap();
+
+                assert_eq!(
+                    fork_root, mainnet_root,
+                    "State roots do not match at iteration {}: fork={:?}, mainnet={:?}",
+                    i, fork_root, mainnet_root
+                );
+
+                producer.force_mine();
+                // Create fresh provider to see the new block after force_mine
+                let provider = backend.storage.provider();
+                block_number = provider.latest_number().unwrap();
+            }
+        });
+    }
+
+    #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+    async fn test_commit_new_state_root_two_katana_instances() {
+        // Setup: Create main instance and fork instance
+
+        let main_instance = TestNode::new().await;
+        let backend_main_instance = main_instance.backend();
+        let url = format!("http://{}", main_instance.rpc_addr());
+
+        // Initialize state with random updates and mine at least one block before starting the fork
+        let initial_state_updates = setup_mainnet_updates_randomized(5);
+        let main_provider_mut = backend_main_instance.storage.provider_mut();
+        let initial_block_number = main_provider_mut.latest_number().unwrap_or(0);
+        main_provider_mut
+            .compute_state_root(initial_block_number + 1, &initial_state_updates)
+            .unwrap();
+        let initial_block = create_test_block_with_state_updates(
+            initial_block_number + 1,
+            initial_state_updates.clone(),
+        );
+        main_provider_mut
+            .insert_block_with_states_and_receipts(
+                initial_block,
+                StateUpdatesWithClasses {
+                    state_updates: initial_state_updates,
+                    ..Default::default()
+                },
+                vec![],
+                vec![],
+            )
+            .unwrap();
+        main_provider_mut.commit().unwrap();
+
+        let main_provider = backend_main_instance.storage.provider();
+        let fork_block_number = main_provider.latest_number().unwrap();
+
+        assert!(
+            fork_block_number > 0,
+            "mainnet provider must produce at least one block before forking"
+        );
+
+        // --- Fork Instance Setup ---
+        let fork_url = Url::parse(&url).unwrap();
+        let mut fork_config = katana_utils::node::test_config();
+
+        let mut fork_chain_spec = DEV_UNALLOCATED.clone();
+        fork_chain_spec.id = ChainId::SEPOLIA;
+        fork_chain_spec.genesis.sequencer_address =
+            dev::ChainSpec::default().genesis.sequencer_address;
+
+        fork_config.chain = Arc::new(ChainSpec::Dev(fork_chain_spec));
+        let fork_block = katana_primitives::block::BlockHashOrNumber::Num(fork_block_number);
+        fork_config.forking = Some(ForkingConfig { url: fork_url, block: Some(fork_block) });
+
+        let fork_node = ForkTestNode::new_forked_with_config(fork_config).await;
+        let fork_backend = fork_node.backend();
+
+        // Iteration 1: Insert block with state updates
+
+        let state_updates = setup_mainnet_updates_randomized(5);
+        let main_block_number = main_provider.latest_number().unwrap();
+        let fork_provider = fork_backend.storage.provider();
+        let fork_block_number = fork_provider.latest_number().unwrap();
+
+        // Fork Instance: Insert block
+        let fork_provider_mut = fork_backend.storage.provider_mut();
+        let new_fork_block_number = fork_block_number + 1;
+        let fork_state_root =
+            fork_provider_mut.compute_state_root(new_fork_block_number, &state_updates).unwrap();
+        let fork_block =
+            create_test_block_with_state_updates(new_fork_block_number, state_updates.clone());
+        fork_provider_mut
+            .insert_block_with_states_and_receipts(
+                fork_block,
+                StateUpdatesWithClasses {
+                    state_updates: state_updates.clone(),
+                    ..Default::default()
+                },
+                vec![],
+                vec![],
+            )
+            .unwrap();
+        fork_provider_mut.commit().unwrap();
+
+        // Main Instance: Insert block with same state updates
+        let main_provider_mut = backend_main_instance.storage.provider_mut();
+        let new_main_block_number = main_block_number + 1;
+        let mainnet_state_root =
+            main_provider_mut.compute_state_root(new_main_block_number, &state_updates).unwrap();
+        let mainnet_block =
+            create_test_block_with_state_updates(new_main_block_number, state_updates.clone());
+        main_provider_mut
+            .insert_block_with_states_and_receipts(
+                mainnet_block,
+                StateUpdatesWithClasses {
+                    state_updates: state_updates.clone(),
+                    ..Default::default()
+                },
+                vec![],
+                vec![],
+            )
+            .unwrap();
+        main_provider_mut.commit().unwrap();
+
+        assert_eq!(
+            fork_state_root, mainnet_state_root,
+            "State roots do not match on first run: fork={:?}, mainnet={:?}",
+            fork_state_root, mainnet_state_root
+        );
+
+        // Iteration 2: Insert another block with new state updates
+
+        let state_updates = setup_mainnet_updates_randomized(5);
+        let main_block_number = main_provider.latest_number().unwrap();
+        let fork_block_number = fork_provider.latest_number().unwrap();
+
+        // Fork Instance: Insert block
+        let fork_provider_mut = fork_backend.storage.provider_mut();
+        let new_fork_block_number = fork_block_number + 1;
+        let fork_state_root =
+            fork_provider_mut.compute_state_root(new_fork_block_number, &state_updates).unwrap();
+        fork_provider_mut.commit().unwrap();
+
+        // Main Instance: Insert block
+        let main_provider_mut = backend_main_instance.storage.provider_mut();
+        let new_main_block_number = main_block_number + 1;
+        let mainnet_state_root =
+            main_provider_mut.compute_state_root(new_main_block_number, &state_updates).unwrap();
+        main_provider_mut.commit().unwrap();
+
+        assert_eq!(
+            fork_state_root, mainnet_state_root,
+            "State roots do not match on second run: fork={:?}, mainnet={:?}",
+            fork_state_root, mainnet_state_root
+        );
+
+        // Iteration 3: Insert block after force_mine
+
+        // Create fresh providers to see new blocks after force_mine
+        let main_provider = backend_main_instance.storage.provider();
+        let fork_provider = fork_backend.storage.provider();
+        let main_block_number = main_provider.latest_number().unwrap();
+        let fork_block_number = fork_provider.latest_number().unwrap();
+
+        let state_updates = setup_mainnet_updates_randomized(5);
+
+        // Fork Instance: Insert block
+        let fork_provider_mut = fork_backend.storage.provider_mut();
+        let new_fork_block_number = fork_block_number + 1;
+        let fork_state_root =
+            fork_provider_mut.compute_state_root(new_fork_block_number, &state_updates).unwrap();
+        fork_provider_mut.commit().unwrap();
+
+        // Main Instance: Insert block
+        let main_provider_mut = backend_main_instance.storage.provider_mut();
+        let new_main_block_number = main_block_number + 1;
+        let mainnet_state_root =
+            main_provider_mut.compute_state_root(new_main_block_number, &state_updates).unwrap();
+        main_provider_mut.commit().unwrap();
+
+        assert_eq!(
+            fork_state_root, mainnet_state_root,
+            "State roots do not match on third run: fork={:?}, mainnet={:?}",
+            fork_state_root, mainnet_state_root
+        );
+    }
+
+    #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+    async fn test_e2e_state_roots_with_real_transactions() {
+        use katana_primitives::block::BlockHashOrNumber;
+        use katana_provider::api::block::{BlockNumberProvider, HeaderProvider};
+
+        use crate::{abigen_legacy, DEFAULT_STRK_FEE_TOKEN_ADDRESS};
+
+        // Setup: Create main instance and fork instance
+
+        // Main Instance Setup
+        let main_instance = TestNode::new().await;
+        let backend_main_instance = main_instance.backend();
+        let url = format!("http://{}", main_instance.rpc_addr());
+
+        // Initialize state with real transactions - mine a block with ERC20 transfers
+        abigen_legacy!(Erc20Contract, "crates/contracts/build/legacy/erc20.json", derives(Clone));
+        let main_provider = main_instance.starknet_rpc_client();
+        let main_account = main_instance.account();
+        let main_contract =
+            Erc20Contract::new(DEFAULT_STRK_FEE_TOKEN_ADDRESS.into(), &main_account);
+
+        // Setup: Create initial state with different transactions to different recipients
+        let setup_recipients = vec![
+            Felt::from_hex("0x111").unwrap(),
+            Felt::from_hex("0x222").unwrap(),
+            Felt::from_hex("0x333").unwrap(),
+        ];
+        let setup_amounts = vec![
+            Uint256 { low: Felt::from_hex("0x1000").unwrap(), high: Felt::ZERO },
+            Uint256 { low: Felt::from_hex("0x2000").unwrap(), high: Felt::ZERO },
+            Uint256 { low: Felt::from_hex("0x3000").unwrap(), high: Felt::ZERO },
+        ];
+
+        for (recipient, amount) in setup_recipients.iter().zip(setup_amounts.iter()) {
+            let res = main_contract.transfer(recipient, amount).send().await.unwrap();
+            katana_utils::TxWaiter::new(res.transaction_hash, &main_provider).await.unwrap();
+        }
+
+        let main_provider_db = backend_main_instance.storage.provider();
+        let fork_block_number = main_provider_db.latest_number().unwrap();
+
+        assert!(fork_block_number == 3, "mainnet should have 3 blocks at this point");
+
+        // Fork Instance Setup
+        let fork_url: Url = Url::parse(&url).unwrap();
+        let mut fork_config = katana_utils::node::test_config();
+        let fork_block = katana_primitives::block::BlockHashOrNumber::Num(fork_block_number);
+        fork_config.forking = Some(ForkingConfig { url: fork_url, block: Some(fork_block) });
+
+        let fork_node = ForkTestNode::new_forked_with_config(fork_config).await;
+        let fork_backend = fork_node.backend();
+        let fork_provider = fork_node.starknet_rpc_client();
+        let fork_account = fork_node.account();
+        let fork_contract =
+            Erc20Contract::new(DEFAULT_STRK_FEE_TOKEN_ADDRESS.into(), &fork_account);
+
+        // Iteration 1: Execute transactions on both instances and compare state roots
+
+        let recipient1 = Felt::from_hex("0x456").unwrap();
+        let amount1 = Uint256 { low: Felt::from_hex("0x2000").unwrap(), high: Felt::ZERO };
+
+        // Main Instance: Execute transaction
+        let main_tx1 = main_contract.transfer(&recipient1, &amount1).send().await.unwrap();
+        katana_utils::TxWaiter::new(main_tx1.transaction_hash, &main_provider).await.unwrap();
+
+        let main_provider_db = backend_main_instance.storage.provider();
+        let main_block_num = main_provider_db.latest_number().unwrap();
+        let main_state_root_1 = main_provider_db
+            .header(BlockHashOrNumber::Num(main_block_num))
+            .unwrap()
+            .unwrap()
+            .state_root;
+
+        // Fork Instance: Execute same transaction
+        let fork_tx1 = fork_contract.transfer(&recipient1, &amount1).send().await.unwrap();
+        katana_utils::TxWaiter::new(fork_tx1.transaction_hash, &fork_provider).await.unwrap();
+
+        let fork_provider_db = fork_backend.storage.provider();
+        let fork_block_num = fork_provider_db.latest_number().unwrap();
+        let fork_state_root_1 = fork_provider_db
+            .header(BlockHashOrNumber::Num(fork_block_num))
+            .unwrap()
+            .unwrap()
+            .state_root;
+
+        assert_eq!(
+            fork_state_root_1, main_state_root_1,
+            "State roots do not match after first transaction: fork={:?}, mainnet={:?}",
+            fork_state_root_1, main_state_root_1
+        );
+
+        // Iteration 2: Execute another transaction and compare
+
+        let recipient2 = Felt::from_hex("0x789").unwrap();
+        let amount2 = Uint256 { low: Felt::from_hex("0x3000").unwrap(), high: Felt::ZERO };
+
+        // Main Instance: Execute transaction
+        let main_tx2 = main_contract.transfer(&recipient2, &amount2).send().await.unwrap();
+        katana_utils::TxWaiter::new(main_tx2.transaction_hash, &main_provider).await.unwrap();
+
+        let main_provider_db = backend_main_instance.storage.provider();
+        let main_block_num = main_provider_db.latest_number().unwrap();
+        let main_state_root_2 = main_provider_db
+            .header(BlockHashOrNumber::Num(main_block_num))
+            .unwrap()
+            .unwrap()
+            .state_root;
+
+        // Fork Instance: Execute same transaction
+        let fork_tx2 = fork_contract.transfer(&recipient2, &amount2).send().await.unwrap();
+        katana_utils::TxWaiter::new(fork_tx2.transaction_hash, &fork_provider).await.unwrap();
+
+        let fork_provider_db = fork_backend.storage.provider();
+        let fork_block_num = fork_provider_db.latest_number().unwrap();
+        let fork_state_root_2 = fork_provider_db
+            .header(BlockHashOrNumber::Num(fork_block_num))
+            .unwrap()
+            .unwrap()
+            .state_root;
+
+        assert_eq!(
+            fork_state_root_2, main_state_root_2,
+            "State roots do not match after second transaction: fork={:?}, mainnet={:?}",
+            fork_state_root_2, main_state_root_2
+        );
+
+        // Iteration 3: Execute one more transaction and compare
+
+        let recipient3 = Felt::from_hex("0xabc").unwrap();
+        let amount3 = Uint256 { low: Felt::from_hex("0x4000").unwrap(), high: Felt::ZERO };
+
+        // Main Instance: Execute transaction
+        let main_tx3 = main_contract.transfer(&recipient3, &amount3).send().await.unwrap();
+        katana_utils::TxWaiter::new(main_tx3.transaction_hash, &main_provider).await.unwrap();
+
+        let main_provider_db = backend_main_instance.storage.provider();
+        let main_block_num = main_provider_db.latest_number().unwrap();
+        let main_state_root_3 = main_provider_db
+            .header(BlockHashOrNumber::Num(main_block_num))
+            .unwrap()
+            .unwrap()
+            .state_root;
+
+        // Fork Instance: Execute same transaction
+        let fork_tx3 = fork_contract.transfer(&recipient3, &amount3).send().await.unwrap();
+        katana_utils::TxWaiter::new(fork_tx3.transaction_hash, &fork_provider).await.unwrap();
+
+        let fork_provider_db = fork_backend.storage.provider();
+        let fork_block_num = fork_provider_db.latest_number().unwrap();
+        let fork_state_root_3 = fork_provider_db
+            .header(BlockHashOrNumber::Num(fork_block_num))
+            .unwrap()
+            .unwrap()
+            .state_root;
+
+        assert_eq!(
+            fork_state_root_3, main_state_root_3,
+            "State roots do not match after third transaction: fork={:?}, mainnet={:?}",
+            fork_state_root_3, main_state_root_3
+        );
+    }
+
+    proptest! {
+        #![proptest_config(ProptestConfig {
+            cases: 50,
+            .. ProptestConfig::default()
+        })]
+        #[test]
+        fn prop_state_roots_match_for_mainnet_and_forked(
+            num_iters in 1usize..=5,
+            state_updates_vec in proptest::collection::vec(arb_state_updates(), 1..=5),
+            fork_minimal_updates_vec in proptest::collection::vec(arb_state_updates(), 1..=5)
+        ) {
+            let rt = tokio::runtime::Runtime::new().unwrap();
+            let _ = rt.block_on(async {
+
+                let sequencer = TestNode::new().await;
+                let backend = sequencer.backend();
+                let provider = backend.storage.provider();
+                let mut block_number = provider.latest_number().unwrap();
+                let mut producer = IntervalBlockProducer::new(backend.clone(), None);
+
+                let initial_state = &state_updates_vec[0];
+                let provider_mut = backend.storage.provider_mut();
+                // IT's really important here to compute state root for the next block
+                provider_mut.compute_state_root(block_number +1, initial_state).unwrap();
+                provider_mut.commit().unwrap();
+                producer.force_mine();
+                // Create fresh provider to see the new block after force_mine
+                let provider = backend.storage.provider();
+                block_number = provider.latest_number().unwrap();
+
+                let db = Db::in_memory().unwrap();
+                let starknet_rpc_client = sequencer.starknet_rpc_client();
+                let fork_factory = ForkProviderFactory::new(db, block_number, starknet_rpc_client);
+
+                for i in 0..num_iters {
+                    let fork_minimal_updates = &fork_minimal_updates_vec[i % fork_minimal_updates_vec.len()];
+
+                    let fork_root = {
+                        let forked_provider = fork_factory.provider_mut();
+                        let root = forked_provider.compute_state_root(block_number + 1, fork_minimal_updates).unwrap();
+                        forked_provider.commit().unwrap();
+                        root
+                    };
+                    let provider_mut = backend.storage.provider_mut();
+                    let mainnet_root = provider_mut.compute_state_root(block_number + 1, fork_minimal_updates).unwrap();
+                    provider_mut.commit().unwrap();
+
+                    prop_assert_eq!(fork_root, mainnet_root, "State roots do not match at iteration {}", i);
+
+                    producer.force_mine();
+                    // Create fresh provider to see the new block after force_mine
+                    let provider = backend.storage.provider();
+                    block_number = provider.latest_number().unwrap();
+                }
+                Ok(())
+            });
+        }
+    }
+}

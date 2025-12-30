@@ -2000,7 +2000,7 @@ dependencies = [
 [[package]]
 name = "bonsai-trie"
 version = "0.1.0"
-source = "git+https://github.com/dojoengine/bonsai-trie/?rev=95de4c6#95de4c600f20cec326650364dea841d23cf93718"
+source = "git+https://github.com/michalpalkowski/bonsai-trie-katana.git?branch=feature%2Fprovable-forking#46e0b666239f0143ad3c1cf3e45934148eb72842"
 dependencies = [
  "bitvec",
  "derive_more 0.99.20",
@@ -6415,6 +6415,7 @@ dependencies = [
  "auto_impl",
  "katana-db",
  "katana-primitives",
+ "katana-rpc-types",
  "katana-trie",
  "starknet",
  "starknet-types-core",
@@ -6472,6 +6473,7 @@ dependencies = [
  "katana-chain-spec",
  "katana-contracts",
  "katana-core",
+ "katana-db",
  "katana-executor",
  "katana-explorer",
  "katana-gas-price-oracle",
@@ -6492,6 +6494,7 @@ dependencies = [
  "katana-utils",
  "metrics 0.23.1",
  "num-traits",
+ "proptest",
  "rand 0.8.5",
  "rstest 0.18.2",
  "serde",
@@ -6504,6 +6507,7 @@ dependencies = [
  "tower 0.5.2",
  "tower-http",
  "tracing",
+ "tracing-subscriber",
  "url",
 ]
 

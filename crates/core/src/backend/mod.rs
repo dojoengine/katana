@@ -253,9 +253,8 @@ where
             }
 
             info!(genesis_hash = %local_hash, "Genesis has already been initialized");
-        } else {
-            // Initialize the dev genesis block
-
+        } else if !is_forking {
+            // Initialize the dev genesis block (only for non-forked instances)
             let block = chain_spec.block();
             let states = chain_spec.state_updates();
 
@@ -690,11 +689,11 @@ impl TrieWriter for GenesisTrieWriter {
     fn trie_insert_declared_classes(
         &self,
         block_number: BlockNumber,
-        updates: impl Iterator<Item = (ClassHash, CompiledClassHash)>,
+        classes: Vec<(ClassHash, CompiledClassHash)>,
     ) -> katana_provider::ProviderResult<Felt> {
         let mut trie = ClassesTrie::new(HashMapDb::default());
 
-        for (class_hash, compiled_hash) in updates {
+        for (class_hash, compiled_hash) in classes {
             trie.insert(class_hash, compiled_hash);
         }
 

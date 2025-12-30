@@ -115,16 +115,29 @@ where
             .with_fee(config.dev.fee);
 
         let executor_factory = {
-            #[allow(unused_mut)]
-            let mut class_cache = ClassCache::builder();
+            // Try to use existing global cache if already initialized (useful for tests with
+            // multiple nodes) Otherwise, build and initialize a new global cache
+            let global_class_cache = match ClassCache::try_global() {
+                Ok(cache) => {
+                    info!("Using existing global class cache");
+                    cache
+                }
+                Err(_) => {
+                    #[allow(unused_mut)]
+                    let mut class_cache = ClassCache::builder();
 
-            #[cfg(feature = "native")]
-            {
-                info!(enabled = config.execution.compile_native, "Cairo native compilation");
-                class_cache = class_cache.compile_native(config.execution.compile_native);
-            }
+                    #[cfg(feature = "native")]
+                    {
+                        info!(
+                            enabled = config.execution.compile_native,
+                            "Cairo native compilation"
+                        );
+                        class_cache = class_cache.compile_native(config.execution.compile_native);
+                    }
 
-            let global_class_cache = class_cache.build_global()?;
+                    class_cache.build_global()?
+                }
+            };
 
             let factory = BlockifierFactory::new(
                 overrides,
