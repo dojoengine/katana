@@ -325,8 +325,8 @@ fn fetch_tx_events(
                     data: e.data.clone(),
                     transaction_hash: tx_hash,
                     from_address: e.from_address,
-                    transaction_index: tx_idx as u64,
-                    event_index: event_idx as u64,
+                    transaction_index: Some(tx_idx as u64),
+                    event_index: Some(event_idx as u64),
                 },
             )
         })
