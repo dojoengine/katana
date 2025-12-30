@@ -141,26 +141,36 @@ impl Serialize for SyncingResponse {
 
 impl<'de> Deserialize<'de> for SyncingResponse {
     fn deserialize<D: serde::Deserializer<'de>>(deserializer: D) -> Result<Self, D::Error> {
-        use serde::Deserialize;
-        use serde::__private::de::{Content, ContentRefDeserializer};
+        use serde::de::{self, MapAccess, Visitor};
 
-        let content = <Content<'_> as Deserialize>::deserialize(deserializer)?;
-        let deserializer = ContentRefDeserializer::<D::Error>::new(&content);
+        struct SyncingResponseVisitor;
 
-        if let Ok(bool) = <bool as Deserialize>::deserialize(deserializer) {
-            // The only valid boolean value is `false` which indicates that the node is not syncing.
-            if !bool {
-                return Ok(Self::NotSyncing);
-            };
-        } else if let Ok(value) = <SyncStatus as Deserialize>::deserialize(deserializer) {
-            return Ok(Self::Syncing(value));
+        impl<'de> Visitor<'de> for SyncingResponseVisitor {
+            type Value = SyncingResponse;
+
+            fn expecting(&self, formatter: &mut std::fmt::Formatter) -> std::fmt::Result {
+                formatter.write_str(
+                    "either `false` or an object with fields: starting_block_hash, \
+                     starting_block_num, current_block_hash, current_block_num, \
+                     highest_block_hash, highest_block_num",
+                )
+            }
+
+            fn visit_bool<E: de::Error>(self, value: bool) -> Result<Self::Value, E> {
+                if !value {
+                    Ok(SyncingResponse::NotSyncing)
+                } else {
+                    Err(E::custom("expected `false` for not syncing state"))
+                }
+            }
+
+            fn visit_map<A: MapAccess<'de>>(self, map: A) -> Result<Self::Value, A::Error> {
+                let status = SyncStatus::deserialize(de::value::MapAccessDeserializer::new(map))?;
+                Ok(SyncingResponse::Syncing(status))
+            }
         }
 
-        Err(serde::de::Error::custom(
-            "expected either `false` or an object with fields: starting_block_hash, \
-             starting_block_num, current_block_hash, current_block_num, highest_block_hash, \
-             highest_block_num",
-        ))
+        deserializer.deserialize_any(SyncingResponseVisitor)
     }
 }
 
