@@ -148,7 +148,7 @@ impl<'de> Deserialize<'de> for SyncingResponse {
         impl<'de> Visitor<'de> for SyncingResponseVisitor {
             type Value = SyncingResponse;
 
-            fn expecting(&self, formatter: &mut std::fmt::Formatter) -> std::fmt::Result {
+            fn expecting(&self, formatter: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
                 formatter.write_str(
                     "either `false` or an object with fields: starting_block_hash, \
                      starting_block_num, current_block_hash, current_block_num, \

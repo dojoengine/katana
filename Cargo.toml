@@ -232,6 +232,7 @@ starknet-types-core = { version = "0.2", features = [ "arbitrary", "hash" ] }
 # only under the `test_utils` feature.
 cairo-vm = { version = "2.5.0", features = [ "test_utils" ] }
 
+# branch: blockifier/v0.16.0-rc.0
 blockifier = { git = "https://github.com/dojoengine/sequencer", rev = "d2591bb", default-features = false }
 starknet_api = { git = "https://github.com/dojoengine/sequencer", rev = "d2591bb" }
 
