@@ -271,7 +271,7 @@ fn map_fee_err(
         }
 
         TransactionFeeError::InsufficientResourceBounds { errors } => {
-            let error = errors.iter().map(|e| format!("{}", e)).collect::<Vec<_>>().join("\n");
+            let error = errors.iter().map(|e| format!("{e}")).collect::<Vec<_>>().join("\n");
             Ok(InvalidTransactionError::InsufficientIntrinsicFee(
                 InsufficientIntrinsicFeeError::InsufficientResourceBounds { error },
             ))
