@@ -10,6 +10,13 @@ FROM rust:${RUST_VERSION}-slim as system-deps
 ARG RUST_VERSION
 ARG CLIPPY_VERSION
 
+# LLVM 19 packages are not available in the default Debian repositories,
+# so we need to add the official LLVM apt repository first.
+RUN apt-get update && apt-get install -y --no-install-recommends wget ca-certificates && \
+    wget -qO- https://apt.llvm.org/llvm-snapshot.gpg.key | tee /etc/apt/trusted.gpg.d/apt.llvm.org.asc && \
+    echo "deb http://apt.llvm.org/bookworm/ llvm-toolchain-bookworm-19 main" >> /etc/apt/sources.list.d/llvm.list && \
+    rm -rf /var/lib/apt/lists/*
+
 # Install system packages in a single layer
 RUN apt-get update && export DEBIAN_FRONTEND=noninteractive && \
 	apt-get -y install --no-install-recommends \
