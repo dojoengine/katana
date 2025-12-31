@@ -1,10 +1,51 @@
 use katana_primitives::contract::GenericContractInfo;
 use katana_primitives::execution::TypedTransactionExecutionInfo;
 use katana_primitives::receipt::Receipt;
+use katana_primitives::Felt;
+use serde::{Deserialize, Deserializer, Serialize, Serializer};
 use {postcard, zstd};
 
 use super::{Compress, Decompress};
 use crate::error::CodecError;
+
+/// A wrapper type for `Felt` that serializes/deserializes as a 32-byte big-endian array.
+///
+/// This exists for backward compatibility - older versions of `Felt` used to serialize as
+/// a 32-byte array, but newer versions have changed this behavior. This wrapper ensures
+/// consistent serialization format for database storage.
+///
+/// See <https://github.com/starknet-io/types-rs/pull/155> for the breaking change.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+struct Felt32(Felt);
+
+impl Serialize for Felt32 {
+    fn serialize<S: Serializer>(&self, serializer: S) -> Result<S::Ok, S::Error> {
+        self.0.to_bytes_be().serialize(serializer)
+    }
+}
+
+impl<'de> Deserialize<'de> for Felt32 {
+    fn deserialize<D: Deserializer<'de>>(deserializer: D) -> Result<Self, D::Error> {
+        let bytes = <[u8; 32]>::deserialize(deserializer)?;
+        Ok(Felt32(Felt::from_bytes_be(&bytes)))
+    }
+}
+
+impl Compress for Felt {
+    type Compressed = Vec<u8>;
+    fn compress(self) -> Result<Self::Compressed, CodecError> {
+        postcard::to_stdvec(&Felt32(self)).map_err(|e| CodecError::Compress(e.to_string()))
+    }
+}
+
+impl Decompress for Felt {
+    fn decompress<B: AsRef<[u8]>>(bytes: B) -> Result<Self, CodecError> {
+        let wrapper: Felt32 = postcard::from_bytes(bytes.as_ref())
+            .map_err(|e| CodecError::Decompress(e.to_string()))?;
+        Ok(wrapper.0)
+    }
+}
+
 use crate::models::block::StoredBlockBodyIndices;
 use crate::models::contract::ContractInfoChangeList;
 use crate::models::list::BlockList;
