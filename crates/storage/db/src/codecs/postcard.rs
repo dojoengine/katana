@@ -20,7 +20,7 @@ struct Felt32(Felt);
 
 impl Serialize for Felt32 {
     fn serialize<S: Serializer>(&self, serializer: S) -> Result<S::Ok, S::Error> {
-        self.0.to_bytes_be().serialize(serializer)
+        serializer.serialize_bytes(&self.0.to_bytes_be())
     }
 }
 
