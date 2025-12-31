@@ -68,8 +68,28 @@ macro_rules! impl_encode_and_decode_for_felts {
     }
 }
 
+macro_rules! impl_compress_and_decompress_for_felts {
+    ($($ty:ty),*) => {
+        $(
+            impl Compress for $ty {
+	            type Compressed = <$ty as Encode>::Encoded;
+                fn compress(self) -> Result<Self::Compressed, CodecError> {
+                	Ok(Encode::encode(self))
+                }
+            }
+
+            impl Decompress for $ty {
+                fn decompress<B: AsRef<[u8]>>(bytes: B) -> Result<Self, crate::error::CodecError> {
+                	Decode::decode(bytes)
+                }
+            }
+        )*
+    }
+}
+
 impl_encode_and_decode_for_uints!(u64);
 impl_encode_and_decode_for_felts!(Felt, ContractAddress);
+impl_compress_and_decompress_for_felts!(Felt, ContractAddress);
 
 impl Encode for String {
     type Encoded = Vec<u8>;
