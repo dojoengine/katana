@@ -12,12 +12,6 @@ pub struct SevSnpProvider {
     sev_snp: sev_snp::SevSnp,
 }
 
-impl std::fmt::Debug for SevSnpProvider {
-    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        f.debug_struct("SevSnpProvider").finish_non_exhaustive()
-    }
-}
-
 impl SevSnpProvider {
     /// Create a new SEV-SNP provider.
     ///
@@ -31,6 +25,12 @@ impl SevSnpProvider {
         info!(target: "tee::snp", "SEV-SNP provider initialized");
 
         Ok(Self { sev_snp })
+    }
+}
+
+impl std::fmt::Debug for SevSnpProvider {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.debug_struct("SevSnpProvider").finish_non_exhaustive()
     }
 }
 
