@@ -90,7 +90,7 @@ where
             .header_by_number(block_number)
             .map_err(|e| TeeApiError::ProviderError(e.to_string()))?
             .ok_or_else(|| {
-                TeeApiError::ProviderError(format!("Header not found for block {}", block_number))
+                TeeApiError::ProviderError(format!("Header not found for block {block_number}"))
             })?;
 
         let state_root = header.state_root;

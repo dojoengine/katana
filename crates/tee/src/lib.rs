@@ -62,9 +62,7 @@ impl std::str::FromStr for TeeProviderType {
     fn from_str(s: &str) -> Result<Self, Self::Err> {
         match s.to_lowercase().as_str() {
             "sev-snp" | "snp" => Ok(Self::SevSnp),
-            other => {
-                Err(format!("Unknown TEE provider: '{}'. Available providers: sev-snp", other))
-            }
+            other => Err(format!("Unknown TEE provider: '{other}'. Available providers: sev-snp")),
         }
     }
 }

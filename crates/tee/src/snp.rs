@@ -26,7 +26,7 @@ impl SevSnpProvider {
     /// Returns `TeeError::NotSupported` if the SEV-SNP SDK initialization fails.
     pub fn new() -> Result<Self, TeeError> {
         let sev_snp = sev_snp::SevSnp::new()
-            .map_err(|e| TeeError::NotSupported(format!("Failed to initialize SEV-SNP: {}", e)))?;
+            .map_err(|e| TeeError::NotSupported(format!("Failed to initialize SEV-SNP: {e}")))?;
 
         info!(target: "tee::snp", "SEV-SNP provider initialized");
 
@@ -43,14 +43,14 @@ impl TeeProvider for SevSnpProvider {
             sev_snp::device::ReportOptions { report_data: Some(*user_data), vmpl: Some(1) };
 
         // Generate the attestation report using the SEV-SNP SDK
-        let (report, _) =
-            self.sev_snp.get_attestation_report_with_options(&options).map_err(|e| {
-                TeeError::GenerationFailed(format!("SEV-SNP attestation failed: {}", e))
-            })?;
+        let (report, _) = self
+            .sev_snp
+            .get_attestation_report_with_options(&options)
+            .map_err(|e| TeeError::GenerationFailed(format!("SEV-SNP attestation failed: {e}")))?;
 
         // Serialize the report structure to bytes
         let report_bytes = bincode::serialize(&report).map_err(|e| {
-            TeeError::GenerationFailed(format!("Failed to serialize SEV-SNP report: {}", e))
+            TeeError::GenerationFailed(format!("Failed to serialize SEV-SNP report: {e}"))
         })?;
 
         info!(
