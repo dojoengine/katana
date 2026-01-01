@@ -1,0 +1,40 @@
+[source.crates-io]
+replace-with = "vendored-sources"
+
+[source."git+https://github.com/cartridge-gg/cainome?rev=7d60de1"]
+git = "https://github.com/cartridge-gg/cainome"
+rev = "7d60de1"
+replace-with = "vendored-sources"
+
+[source."git+https://github.com/dojoengine/bonsai-trie/?rev=351d5be"]
+git = "https://github.com/dojoengine/bonsai-trie/"
+rev = "351d5be"
+replace-with = "vendored-sources"
+
+[source."git+https://github.com/dojoengine/sequencer?rev=d2591bb"]
+git = "https://github.com/dojoengine/sequencer"
+rev = "d2591bb"
+replace-with = "vendored-sources"
+
+[source."git+https://github.com/dojoengine/stark-vrf.git?rev=96d6d2a"]
+git = "https://github.com/dojoengine/stark-vrf.git"
+rev = "96d6d2a"
+replace-with = "vendored-sources"
+
+[source."git+https://github.com/kariy/piltover.git?branch=feat/rpc0.9"]
+git = "https://github.com/kariy/piltover.git"
+branch = "feat/rpc0.9"
+replace-with = "vendored-sources"
+
+[source."git+https://github.com/kariy/types-rs?rev=0f6ae31"]
+git = "https://github.com/kariy/types-rs"
+rev = "0f6ae31"
+replace-with = "vendored-sources"
+
+[source."git+https://github.com/paradigmxyz/reth.git?rev=b34b0d3"]
+git = "https://github.com/paradigmxyz/reth.git"
+rev = "b34b0d3"
+replace-with = "vendored-sources"
+
+[source.vendored-sources]
+directory = "vendor"
