@@ -39,7 +39,6 @@ tracing.workspace = true
 
 cainome = { workspace = true, optional = true }
 cartridge = { workspace = true, optional = true }
-starknet-crypto = { workspace = true, optional = true }
 url = { workspace = true, optional = true }
 
 katana-tee = { workspace = true, optional = true }
@@ -86,7 +85,6 @@ cartridge = [
 	"dep:cartridge",
 	"dep:katana-genesis",
 	"dep:starknet",
-	"dep:starknet-crypto",
 	"dep:url",
 	"katana-rpc-api/cartridge",
 ]

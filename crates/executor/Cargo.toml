@@ -14,13 +14,12 @@ katana-provider.workspace = true
 blockifier = { workspace = true, features = [ "testing" ] }
 num-traits.workspace = true
 quick_cache = "0.6.10"
-starknet.workspace = true
 thiserror.workspace = true
 tracing.workspace = true
 
 # cairo-native
 cairo-lang-starknet-classes = { workspace = true, optional = true }
-cairo-native = { version = "0.4.1", optional = true }
+cairo-native = { version = "0.6.2", optional = true }
 cairo-vm.workspace = true
 parking_lot.workspace = true
 rayon = { workspace = true, optional = true }
@@ -34,6 +33,7 @@ katana-provider = { workspace = true, features = [ "test-utils" ] }
 katana-rpc-types.workspace = true
 katana-utils.workspace = true
 
+starknet.workspace = true
 alloy-primitives.workspace = true
 anyhow.workspace = true
 assert_matches.workspace = true

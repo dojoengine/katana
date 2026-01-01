@@ -78,6 +78,13 @@ fn populate_db(db: &TempDb) {
             classes.insert(hash, ContractClass::Legacy(Default::default()));
         }
 
+        let mut migrated_compiled_classes = BTreeMap::new();
+        for _ in 0..10 {
+            let hash = arbitrary!(ClassHash);
+            let compiled_class_hash = arbitrary!(ClassHash);
+            migrated_compiled_classes.insert(hash, compiled_class_hash);
+        }
+
         let mut nonce_updates = BTreeMap::new();
         for _ in 0..10 {
             nonce_updates.insert(arbitrary!(ContractAddress), arbitrary!(Nonce));
@@ -110,9 +117,12 @@ fn populate_db(db: &TempDb) {
             replaced_classes,
             deployed_contracts,
             deprecated_declared_classes,
+            migrated_compiled_classes,
         };
 
-        provider.trie_insert_declared_classes(num, &state_updates.declared_classes).unwrap();
+        provider
+            .trie_insert_declared_classes(num, state_updates.declared_classes.clone().into_iter())
+            .unwrap();
         provider.trie_insert_contract_updates(num, &state_updates).unwrap();
 
         let mut block = Block::default();

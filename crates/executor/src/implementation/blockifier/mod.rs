@@ -3,7 +3,7 @@ use std::sync::Arc;
 // Re-export the blockifier crate.
 pub use blockifier;
 use blockifier::blockifier_versioned_constants::VersionedConstants;
-use blockifier::bouncer::{n_steps_to_sierra_gas, Bouncer, BouncerConfig, BouncerWeights};
+use blockifier::bouncer::{n_steps_to_gas, Bouncer, BouncerConfig, BouncerWeights};
 
 pub mod cache;
 pub mod call;
@@ -144,9 +144,9 @@ impl<'a> StarknetVMProcessor<'a> {
         //
         // To learn more about the L2 gas, refer to <https://community.starknet.io/t/starknet-v0-13-4-pre-release-notes/115257>.
         block_max_capacity.sierra_gas =
-            n_steps_to_sierra_gas(limits.cairo_steps as usize, block_context.versioned_constants());
+            n_steps_to_gas(limits.cairo_steps as usize, block_context.versioned_constants());
 
-        let bouncer = Bouncer::new(BouncerConfig { block_max_capacity });
+        let bouncer = Bouncer::new(BouncerConfig { block_max_capacity, ..Default::default() });
 
         Self {
             cfg_env,
@@ -258,9 +258,10 @@ impl<'a> BlockExecutor<'a> for StarknetVMProcessor<'a> {
                 Ok(exec_result) => {
                     match &exec_result {
                         ExecutionResult::Success { receipt, trace } => {
-                            self.stats.l1_gas_used += receipt.resources_used().gas.l1_gas as u128;
+                            self.stats.l1_gas_used +=
+                                receipt.resources_used().total_gas_consumed.l1_gas as u128;
                             self.stats.cairo_steps_used +=
-                                receipt.resources_used().computation_resources.n_steps as u128;
+                                receipt.resources_used().vm_resources.n_steps as u128;
 
                             if let Some(reason) = receipt.revert_reason() {
                                 info!(target: LOG_TARGET, hash = format!("{hash:#x}"), %reason, "Transaction reverted.");
@@ -291,7 +292,7 @@ impl<'a> BlockExecutor<'a> for StarknetVMProcessor<'a> {
     }
 
     fn take_execution_output(&mut self) -> ExecutorResult<ExecutionOutput> {
-        let states = utils::state_update_from_cached_state(&self.state);
+        let states = utils::state_update_from_cached_state(&self.state, true);
         let transactions = std::mem::take(&mut self.transactions);
         let stats = std::mem::take(&mut self.stats);
         Ok(ExecutionOutput { stats, states, transactions })

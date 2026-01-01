@@ -39,6 +39,7 @@ pub struct TxTraceWithHash {
 }
 
 /// Execution trace of a Starknet transaction.
+#[allow(clippy::large_enum_variant)]
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(tag = "type")]
 pub enum TxTrace {
@@ -330,9 +331,9 @@ pub fn to_rpc_fee_estimate(resources: &receipt::ExecutionResources, fee: &FeeInf
         l2_gas_price: fee.l2_gas_price,
         l1_gas_price: fee.l1_gas_price,
         l1_data_gas_price: fee.l1_data_gas_price,
-        l1_gas_consumed: resources.gas.l1_gas,
-        l2_gas_consumed: resources.gas.l2_gas,
-        l1_data_gas_consumed: resources.gas.l1_data_gas,
+        l1_gas_consumed: resources.total_gas_consumed.l1_gas,
+        l2_gas_consumed: resources.total_gas_consumed.l2_gas,
+        l1_data_gas_consumed: resources.total_gas_consumed.l1_data_gas,
     }
 }
 

@@ -1,6 +1,6 @@
-use starknet::core::utils::{cairo_short_string_to_felt, CairoShortStringToFeltError};
-use starknet::macros::short_string;
+use std::str::FromStr;
 
+use crate::cairo::{ShortString, ShortStringError};
 use crate::{Felt, FromStrError};
 
 /// Known chain ids that has been assigned a name.
@@ -15,22 +15,22 @@ pub enum NamedChainId {
 
 impl NamedChainId {
     /// `SN_MAIN` in ASCII
-    pub const SN_MAIN: Felt = short_string!("SN_MAIN");
+    pub const SN_MAIN: ShortString = ShortString::from_ascii("SN_MAIN");
 
     /// `SN_GOERLI` in ASCII
-    pub const SN_GOERLI: Felt = short_string!("SN_GOERLI");
+    pub const SN_GOERLI: ShortString = ShortString::from_ascii("SN_GOERLI");
 
     /// `SN_SEPOLIA` in ASCII
-    pub const SN_SEPOLIA: Felt = short_string!("SN_SEPOLIA");
+    pub const SN_SEPOLIA: ShortString = ShortString::from_ascii("SN_SEPOLIA");
 
     /// Returns the id of the chain. It is the ASCII representation of a predefined string
     /// constants.
     #[inline]
-    pub const fn id(&self) -> Felt {
+    pub fn id(&self) -> Felt {
         match self {
-            NamedChainId::Mainnet => Self::SN_MAIN,
-            NamedChainId::Goerli => Self::SN_GOERLI,
-            NamedChainId::Sepolia => Self::SN_SEPOLIA,
+            NamedChainId::Mainnet => Self::SN_MAIN.into(),
+            NamedChainId::Goerli => Self::SN_GOERLI.into(),
+            NamedChainId::Sepolia => Self::SN_SEPOLIA.into(),
         }
     }
 
@@ -58,12 +58,13 @@ pub struct NamedChainTryFromError(Felt);
 
 impl TryFrom<Felt> for NamedChainId {
     type Error = NamedChainTryFromError;
+
     fn try_from(value: Felt) -> Result<Self, Self::Error> {
-        if value == Self::SN_MAIN {
+        if Self::SN_MAIN == value {
             Ok(Self::Mainnet)
-        } else if value == Self::SN_GOERLI {
+        } else if Self::SN_GOERLI == value {
             Ok(Self::Goerli)
-        } else if value == Self::SN_SEPOLIA {
+        } else if Self::SN_SEPOLIA == value {
             Ok(Self::Sepolia)
         } else {
             Err(NamedChainTryFromError(value))
@@ -85,8 +86,9 @@ pub enum ChainId {
 pub enum ParseChainIdError {
     #[error(transparent)]
     FromStr(#[from] FromStrError),
-    #[error(transparent)]
-    CairoShortStringToFelt(#[from] CairoShortStringToFeltError),
+
+    #[error("invalid short string: {0}")]
+    InvalidShortString(#[from] ShortStringError),
 }
 
 impl ChainId {
@@ -102,13 +104,17 @@ impl ChainId {
     /// If the `str` starts with `0x` it is parsed as a hex string, otherwise it is parsed as a
     /// Cairo short string.
     pub fn parse(s: &str) -> Result<Self, ParseChainIdError> {
-        let id =
-            if s.starts_with("0x") { Felt::from_hex(s)? } else { cairo_short_string_to_felt(s)? };
+        let id = if s.starts_with("0x") {
+            Felt::from_hex(s)?
+        } else {
+            Felt::from(ShortString::from_str(s)?)
+        };
+
         Ok(ChainId::from(id))
     }
 
     /// Returns the chain id value.
-    pub const fn id(&self) -> Felt {
+    pub fn id(&self) -> Felt {
         match self {
             ChainId::Named(name) => name.id(),
             ChainId::Id(id) => *id,
@@ -156,17 +162,16 @@ impl From<ChainId> for Felt {
 mod tests {
     use std::convert::TryFrom;
 
-    use starknet::core::utils::cairo_short_string_to_felt;
-    use starknet::macros::felt;
-
     use super::ChainId;
+    use crate::cairo::ShortString;
     use crate::chain::NamedChainId;
+    use crate::{felt, Felt};
 
     #[test]
     fn named_chain_id() {
-        let mainnet_id = cairo_short_string_to_felt("SN_MAIN").unwrap();
-        let goerli_id = cairo_short_string_to_felt("SN_GOERLI").unwrap();
-        let sepolia_id = cairo_short_string_to_felt("SN_SEPOLIA").unwrap();
+        let mainnet_id = Felt::from(ShortString::from_ascii("SN_MAIN"));
+        let goerli_id = Felt::from(ShortString::from_ascii("SN_GOERLI"));
+        let sepolia_id = Felt::from(ShortString::from_ascii("SN_SEPOLIA"));
 
         assert_eq!(NamedChainId::Mainnet.id(), mainnet_id);
         assert_eq!(NamedChainId::Goerli.id(), goerli_id);
@@ -175,14 +180,14 @@ mod tests {
         assert_eq!(NamedChainId::try_from(mainnet_id).unwrap(), NamedChainId::Mainnet);
         assert_eq!(NamedChainId::try_from(goerli_id).unwrap(), NamedChainId::Goerli);
         assert_eq!(NamedChainId::try_from(sepolia_id).unwrap(), NamedChainId::Sepolia);
-        assert!(NamedChainId::try_from(felt!("0x1337")).is_err());
+        assert!(NamedChainId::try_from(felt!("0x1337", crate)).is_err());
     }
 
     #[test]
     fn chain_id() {
-        let mainnet_id = cairo_short_string_to_felt("SN_MAIN").unwrap();
-        let goerli_id = cairo_short_string_to_felt("SN_GOERLI").unwrap();
-        let sepolia_id = cairo_short_string_to_felt("SN_SEPOLIA").unwrap();
+        let mainnet_id = Felt::from(ShortString::from_ascii("SN_MAIN"));
+        let goerli_id = Felt::from(ShortString::from_ascii("SN_GOERLI"));
+        let sepolia_id = Felt::from(ShortString::from_ascii("SN_SEPOLIA"));
 
         assert_eq!(ChainId::MAINNET.id(), NamedChainId::Mainnet.id());
         assert_eq!(ChainId::GOERLI.id(), NamedChainId::Goerli.id());
@@ -191,18 +196,18 @@ mod tests {
         assert_eq!(ChainId::from(mainnet_id), ChainId::MAINNET);
         assert_eq!(ChainId::from(goerli_id), ChainId::GOERLI);
         assert_eq!(ChainId::from(sepolia_id), ChainId::SEPOLIA);
-        assert_eq!(ChainId::from(felt!("0x1337")), ChainId::Id(felt!("0x1337")));
+        assert_eq!(ChainId::from(felt!("0x1337", crate)), ChainId::Id(felt!("0x1337", crate)));
 
         assert_eq!(ChainId::MAINNET.to_string(), "SN_MAIN");
         assert_eq!(ChainId::GOERLI.to_string(), "SN_GOERLI");
         assert_eq!(ChainId::SEPOLIA.to_string(), "SN_SEPOLIA");
-        assert_eq!(ChainId::Id(felt!("0x1337")).to_string(), "0x1337");
+        assert_eq!(ChainId::Id(felt!("0x1337", crate)).to_string(), "0x1337");
     }
 
     #[test]
     fn parse_chain_id() {
-        let mainnet_id = cairo_short_string_to_felt("SN_MAIN").unwrap();
-        let custom_id = cairo_short_string_to_felt("KATANA").unwrap();
+        let mainnet_id = Felt::from(ShortString::from_ascii("SN_MAIN"));
+        let custom_id = Felt::from(ShortString::from_ascii("KATANA"));
 
         assert_eq!(ChainId::parse("SN_MAIN").unwrap(), ChainId::MAINNET);
         assert_eq!(ChainId::parse("KATANA").unwrap(), ChainId::Id(custom_id));

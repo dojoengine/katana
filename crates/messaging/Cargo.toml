@@ -24,7 +24,6 @@ url.workspace = true
 
 alloy-primitives = { workspace = true, features = [ "serde" ] }
 alloy-sol-types = { workspace = true, default-features = false, features = [ "json" ] }
-starknet-crypto.workspace = true
 
 alloy-contract = { workspace = true, default-features = false }
 alloy-network = { workspace = true, default-features = false }

@@ -3,13 +3,13 @@ use katana_db::abstraction::{Database, DbTx};
 use katana_db::tables;
 use katana_db::trie::TrieDbMut;
 use katana_primitives::block::BlockNumber;
+use katana_primitives::cairo::ShortString;
 use katana_primitives::Felt;
 use katana_provider::api::block::HeaderProvider;
 use katana_provider::api::state_update::StateUpdateProvider;
 use katana_provider::api::trie::TrieWriter;
 use katana_provider::{DbProviderFactory, MutableProvider, ProviderFactory};
 use katana_tasks::TaskSpawner;
-use starknet::macros::short_string;
 use starknet_types_core::hash::{Poseidon, StarkHash};
 use tracing::{debug, debug_span, error};
 
@@ -63,42 +63,44 @@ impl Stage for StateTrie {
                     .ok_or(Error::MissingStateUpdate(block_number))?;
 
                 let provider_mut_clone = provider_mut.clone();
-                let (computed_contract_trie_root, computed_class_trie_root) = self
-                    .task_spawner
-                    .cpu_bound()
-                    .spawn(move || {
-                        let computed_contract_trie_root = provider_mut_clone
-                            .trie_insert_contract_updates(block_number, &state_update)?;
+                let (computed_contract_trie_root, computed_class_trie_root) =
+                    self.task_spawner
+                        .cpu_bound()
+                        .spawn(move || {
+                            let computed_contract_trie_root = provider_mut_clone
+                                .trie_insert_contract_updates(block_number, &state_update)?;
 
-                        debug!(
-                            contract_trie_root = format!("{computed_contract_trie_root:#x}"),
-                            "Computed contract trie root."
-                        );
+                            debug!(
+                                contract_trie_root = format!("{computed_contract_trie_root:#x}"),
+                                "Computed contract trie root."
+                            );
 
-                        let computed_class_trie_root = provider_mut_clone
-                            .trie_insert_declared_classes(
-                                block_number,
-                                &state_update.declared_classes,
-                            )?;
+                            let class_updates =
+                                state_update.declared_classes.clone().into_iter().chain(
+                                    state_update.migrated_compiled_classes.clone().into_iter(),
+                                );
 
-                        debug!(
-                            classes_tri_root = format!("{computed_class_trie_root:#x}"),
-                            "Computed classes trie root."
-                        );
+                            let computed_class_trie_root = provider_mut_clone
+                                .trie_insert_declared_classes(block_number, class_updates)?;
 
-                        Result::<(Felt, Felt), crate::Error>::Ok((
-                            computed_contract_trie_root,
-                            computed_class_trie_root,
-                        ))
-                    })
-                    .await
-                    .map_err(Error::StateComputationTaskJoinError)??;
+                            debug!(
+                                classes_tri_root = format!("{computed_class_trie_root:#x}"),
+                                "Computed classes trie root."
+                            );
+
+                            Result::<(Felt, Felt), crate::Error>::Ok((
+                                computed_contract_trie_root,
+                                computed_class_trie_root,
+                            ))
+                        })
+                        .await
+                        .map_err(Error::StateComputationTaskJoinError)??;
 
                 let computed_state_root = if computed_class_trie_root == Felt::ZERO {
                     computed_contract_trie_root
                 } else {
                     Poseidon::hash_array(&[
-                        short_string!("STARKNET_STATE_V0"),
+                        ShortString::from_ascii("STARKNET_STATE_V0").into(),
                         computed_contract_trie_root,
                         computed_class_trie_root,
                     ])
@@ -148,17 +150,12 @@ impl Stage for StateTrie {
 
                     // Remove trie snapshots for blocks in the prune range
                     for block_number in range {
-                        let span = debug_span!("state_trie.prune", %block_number);
-                        let _enter = span.enter();
-
                         // Remove snapshot from classes trie
                         let mut classes_trie_db =
                             TrieDbMut::<tables::ClassesTrie, _>::new(tx.clone());
                         classes_trie_db
                             .remove_snapshot(block_number)
                             .map_err(|e| Error::Database(e.into_inner()))?;
-
-                        debug!(target: "stage", "Classes trie snapshot removed.");
 
                         // Remove snapshot from contracts trie
                         let mut contracts_trie_db =
@@ -167,16 +164,12 @@ impl Stage for StateTrie {
                             .remove_snapshot(block_number)
                             .map_err(|e| Error::Database(e.into_inner()))?;
 
-                        debug!(target: "stage", "Contracts trie snapshot removed.");
-
                         // Remove snapshot from storages trie
                         let mut storages_trie_db =
                             TrieDbMut::<tables::StoragesTrie, _>::new(tx.clone());
                         storages_trie_db
                             .remove_snapshot(block_number)
                             .map_err(|e| Error::Database(e.into_inner()))?;
-
-                        debug!(target: "stage", "Storage trie snapshot removed.");
 
                         pruned_count += 1;
                     }

@@ -8,12 +8,9 @@ use katana_gateway_types::{
     StateUpdateWithBlock,
 };
 use katana_primitives::block::{
-    BlockHash, BlockNumber, FinalityStatus, Header, SealedBlock, SealedBlockWithStatus,
+    BlockNumber, FinalityStatus, Header, SealedBlock, SealedBlockWithStatus,
 };
 use katana_primitives::da::L1DataAvailabilityMode;
-use katana_primitives::execution::TypedTransactionExecutionInfo;
-use katana_primitives::receipt::Receipt;
-use katana_primitives::state::StateUpdatesWithClasses;
 use katana_primitives::{felt, ContractAddress, Felt};
 use katana_provider::api::block::{BlockHashProvider, BlockNumberProvider, BlockWriter};
 use katana_provider::{DbProviderFactory, MutableProvider, ProviderFactory};
