@@ -74,6 +74,7 @@ jobs:
           docker build \
             -f reproducible.Dockerfile \
             -t katana-reproducible:${{ needs.prepare.outputs.tag_name }} \
+            --build-arg SOURCE_DATE_EPOCH=$(git log -1 --format=%ct) \
             --no-cache \
             .
 

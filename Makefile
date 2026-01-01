@@ -26,13 +26,14 @@ SCARB_VERSION := 2.8.4
 
 .DEFAULT_GOAL := usage
 .SILENT: clean
-.PHONY: usage help check-llvm native-deps native-deps-macos native-deps-linux native-deps-windows build-explorer contracts clean deps install-scarb test-artifacts snos-artifacts db-compat-artifacts install-pyenv
+.PHONY: usage help check-llvm native-deps native-deps-macos native-deps-linux native-deps-windows build-explorer contracts clean deps install-scarb test-artifacts snos-artifacts db-compat-artifacts install-pyenv build-tee
 
 usage help:
 	@echo "Usage:"
 	@echo "    deps:                      Install all required dependencies for building Katana with all features (incl. tests)."
 	@echo "    snos-deps:                 Install SNOS test dependencies (pyenv, Python 3.9.15)."
 	@echo "    build-explorer:            Build the explorer."
+	@echo "    build-tee:                 Build reproducible TEE binary (requires Docker)."
 	@echo "    contracts:                 Build the contracts."
 	@echo "    test-artifacts:            Prepare tests artifacts (including test database)."
 	@echo "    snos-artifacts:            Prepare SNOS tests artifacts."
@@ -70,6 +71,21 @@ build-explorer:
 	@$(MAKE) $(EXPLORER_UI_DIST)
 
 contracts: $(CONTRACTS_BUILD_DIR)
+
+build-tee: contracts
+	@which docker >/dev/null 2>&1 || { echo "Error: docker is required but not installed."; exit 1; }
+	@echo "Building reproducible TEE binary..."
+	@docker build \
+		-f reproducible.Dockerfile \
+		--build-arg SOURCE_DATE_EPOCH=$$(git log -1 --format=%ct) \
+		-t katana-reproducible \
+		.
+	@echo "Extracting binary..."
+	@docker create --name katana-tee-extract katana-reproducible >/dev/null
+	@docker cp katana-tee-extract:/katana ./katana-tee
+	@docker rm katana-tee-extract >/dev/null
+	@echo "Reproducible TEE binary built: ./katana-tee"
+	@echo "SHA-384: $$(sha384sum ./katana-tee | cut -d ' ' -f 1)"
 
 # Generate the list of sources dynamically to make sure Make can track all files in all nested subdirs
 $(CONTRACTS_BUILD_DIR): $(shell find $(CONTRACTS_DIR) -type f)
@@ -180,5 +196,5 @@ snos-deps-macos: install-pyenv
 
 clean:
 	echo "Cleaning up generated files..."
-	-rm -rf $(SNOS_DB_DIR) $(COMPATIBILITY_DB_DIR) $(SNOS_OUTPUT) $(EXPLORER_UI_DIST) $(CONTRACTS_BUILD_DIR)
+	-rm -rf $(SNOS_DB_DIR) $(COMPATIBILITY_DB_DIR) $(SNOS_OUTPUT) $(EXPLORER_UI_DIST) $(CONTRACTS_BUILD_DIR) katana-tee
 	echo "Clean complete."

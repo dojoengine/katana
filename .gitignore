@@ -41,3 +41,4 @@ crates/contracts/build/
 **/.claude/settings.local.json
 
 vendor
+katana-tee
