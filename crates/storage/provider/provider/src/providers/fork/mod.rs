@@ -100,7 +100,7 @@ impl ForkedDb {
         };
 
         let state_update = self.backend.get_state_update(block_id)?.unwrap(); // should exist if block exist
-        let StateUpdate::Update(state_update) = state_update else { unreachable!() };
+        let StateUpdate::Confirmed(state_update) = state_update else { unreachable!() };
 
         let header = Header {
             parent_hash: block.parent_hash,

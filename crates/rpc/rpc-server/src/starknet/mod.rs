@@ -771,7 +771,7 @@ where
                 let state_update =
                     katana_rpc_types_builder::StateUpdateBuilder::new(block_id, provider)
                         .build()?
-                        .map(StateUpdate::Update);
+                        .map(StateUpdate::Confirmed);
 
                 StarknetApiResult::Ok(state_update)
             })
