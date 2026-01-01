@@ -6,7 +6,7 @@ use std::fmt::Debug;
 use std::ops::{Deref, Range, RangeInclusive};
 
 use katana_db::abstraction::{DbCursor, DbCursorMut, DbDupSortCursor, DbTx, DbTxMut};
-use katana_db::error::DatabaseError;
+use katana_db::error::{CodecError, DatabaseError};
 use katana_db::models::block::StoredBlockBodyIndices;
 use katana_db::models::class::MigratedCompiledClassHash;
 use katana_db::models::contract::{
@@ -43,6 +43,7 @@ use katana_provider_api::transaction::{
     TransactionsProviderExt,
 };
 use katana_provider_api::ProviderError;
+use tracing::warn;
 
 use crate::{MutableProvider, ProviderResult};
 
@@ -536,18 +537,31 @@ impl<Tx: DbTx> TransactionStatusProvider for DbProvider<Tx> {
     }
 }
 
+/// NOTE:
+///
+/// The `TransactionExecutionInfo` type (from the `blockifier` crate) has had breaking
+/// serialization changes between versions. Entries stored with older versions may fail to
+/// deserialize.
+///
+/// Though this may change in the future, this behavior is currently necessary to maintain
+/// backward compatibility. As a compromise, traces that cannot be deserialized
+/// are treated as non-existent rather than causing errors.
 impl<Tx: DbTx> TransactionTraceProvider for DbProvider<Tx> {
     fn transaction_execution(
         &self,
         hash: TxHash,
     ) -> ProviderResult<Option<TypedTransactionExecutionInfo>> {
         if let Some(num) = self.0.get::<tables::TxNumbers>(hash)? {
-            let execution = self
-                .0
-                .get::<tables::TxTraces>(num)?
-                .ok_or(ProviderError::MissingTxExecution(num))?;
-
-            Ok(Some(execution))
+            match self.0.get::<tables::TxTraces>(num) {
+                Ok(Some(execution)) => Ok(Some(execution)),
+                Ok(None) => Ok(None),
+                // Treat decompress errors as non-existent for backward compatibility
+                Err(DatabaseError::Codec(CodecError::Decompress(err))) => {
+                    warn!(tx_num = %num, %err, "Failed to deserialize transaction trace");
+                    Ok(None)
+                }
+                Err(e) => Err(e.into()),
+            }
         } else {
             Ok(None)
         }
@@ -573,8 +587,14 @@ impl<Tx: DbTx> TransactionTraceProvider for DbProvider<Tx> {
         let mut traces = Vec::with_capacity(total as usize);
 
         for i in range {
-            if let Some(trace) = self.0.get::<tables::TxTraces>(i)? {
-                traces.push(trace);
+            match self.0.get::<tables::TxTraces>(i) {
+                Ok(Some(trace)) => traces.push(trace),
+                Ok(None) => {}
+                // Skip entries that fail to decompress for backward compatibility
+                Err(DatabaseError::Codec(CodecError::Decompress(err))) => {
+                    warn!(tx_num = %i, %err, "Failed to deserialize transaction trace");
+                }
+                Err(e) => return Err(e.into()),
             }
         }
 
