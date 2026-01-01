@@ -141,6 +141,7 @@ pub fn transact<S: StateReader>(
                     &tx_state,
                     &tx_state_changes_keys,
                     &info.summarize(versioned_constants),
+                    &info.summarize_builtins(),
                     &info.receipt.resources,
                     versioned_constants,
                 )?;
@@ -205,7 +206,7 @@ pub fn to_executor_tx(mut tx: ExecutableTxWithHash, mut flags: ExecutionFlags) -
                     tx: ApiInvokeTransaction::V0(starknet_api::transaction::InvokeTransactionV0 {
                         entry_point_selector: EntryPointSelector(tx.entry_point_selector),
                         contract_address: to_blk_address(tx.contract_address),
-                        signature: TransactionSignature(signature),
+                        signature: TransactionSignature(signature.into()),
                         calldata: Calldata(Arc::new(calldata)),
                         max_fee: Fee(tx.max_fee),
                     }),
@@ -227,7 +228,7 @@ pub fn to_executor_tx(mut tx: ExecutableTxWithHash, mut flags: ExecutionFlags) -
                         max_fee: Fee(tx.max_fee),
                         nonce: Nonce(tx.nonce),
                         sender_address: to_blk_address(tx.sender_address),
-                        signature: TransactionSignature(signature),
+                        signature: TransactionSignature(signature.into()),
                         calldata: Calldata(Arc::new(calldata)),
                     }),
                     tx_hash: TransactionHash(hash),
@@ -253,7 +254,7 @@ pub fn to_executor_tx(mut tx: ExecutableTxWithHash, mut flags: ExecutionFlags) -
                         tip: Tip(tx.tip),
                         nonce: Nonce(tx.nonce),
                         sender_address: to_blk_address(tx.sender_address),
-                        signature: TransactionSignature(signature),
+                        signature: TransactionSignature(signature.into()),
                         calldata: Calldata(Arc::new(calldata)),
                         paymaster_data: PaymasterData(paymaster_data),
                         account_deployment_data: AccountDeploymentData(account_deploy_data),
@@ -283,7 +284,7 @@ pub fn to_executor_tx(mut tx: ExecutableTxWithHash, mut flags: ExecutionFlags) -
                     tx: ApiDeployAccountTransaction::V1(DeployAccountTransactionV1 {
                         max_fee: Fee(tx.max_fee),
                         nonce: Nonce(tx.nonce),
-                        signature: TransactionSignature(signature),
+                        signature: TransactionSignature(signature.into()),
                         class_hash: ClassHash(tx.class_hash),
                         constructor_calldata: Calldata(Arc::new(calldata)),
                         contract_address_salt: salt,
@@ -311,7 +312,7 @@ pub fn to_executor_tx(mut tx: ExecutableTxWithHash, mut flags: ExecutionFlags) -
                     tx: ApiDeployAccountTransaction::V3(DeployAccountTransactionV3 {
                         tip: Tip(tx.tip),
                         nonce: Nonce(tx.nonce),
-                        signature: TransactionSignature(signature),
+                        signature: TransactionSignature(signature.into()),
                         class_hash: ClassHash(tx.class_hash),
                         constructor_calldata: Calldata(Arc::new(calldata)),
                         contract_address_salt: salt,
@@ -338,7 +339,7 @@ pub fn to_executor_tx(mut tx: ExecutableTxWithHash, mut flags: ExecutionFlags) -
                     max_fee: Fee(tx.max_fee),
                     nonce: Nonce::default(),
                     sender_address: to_blk_address(tx.sender_address),
-                    signature: TransactionSignature(tx.signature),
+                    signature: TransactionSignature(tx.signature.into()),
                     class_hash: ClassHash(tx.class_hash),
                 }),
 
@@ -346,7 +347,7 @@ pub fn to_executor_tx(mut tx: ExecutableTxWithHash, mut flags: ExecutionFlags) -
                     max_fee: Fee(tx.max_fee),
                     nonce: Nonce(tx.nonce),
                     sender_address: to_blk_address(tx.sender_address),
-                    signature: TransactionSignature(tx.signature),
+                    signature: TransactionSignature(tx.signature.into()),
                     class_hash: ClassHash(tx.class_hash),
                 }),
 
@@ -357,7 +358,7 @@ pub fn to_executor_tx(mut tx: ExecutableTxWithHash, mut flags: ExecutionFlags) -
                         max_fee: Fee(tx.max_fee),
                         nonce: Nonce(tx.nonce),
                         sender_address: to_blk_address(tx.sender_address),
-                        signature: TransactionSignature(signature),
+                        signature: TransactionSignature(signature.into()),
                         class_hash: ClassHash(tx.class_hash),
                         compiled_class_hash: CompiledClassHash(tx.compiled_class_hash),
                     })
@@ -376,7 +377,7 @@ pub fn to_executor_tx(mut tx: ExecutableTxWithHash, mut flags: ExecutionFlags) -
                         tip: Tip(tx.tip),
                         nonce: Nonce(tx.nonce),
                         sender_address: to_blk_address(tx.sender_address),
-                        signature: TransactionSignature(signature),
+                        signature: TransactionSignature(signature.into()),
                         class_hash: ClassHash(tx.class_hash),
                         account_deployment_data: AccountDeploymentData(account_deploy_data),
                         compiled_class_hash: CompiledClassHash(tx.compiled_class_hash),
@@ -481,7 +482,8 @@ pub fn block_context_from_envs(
         use_kzg_da: false,
     };
 
-    let chain_info = ChainInfo { fee_token_addresses, chain_id: to_blk_chain_id(chain_spec.id()) };
+    let chain_info =
+        ChainInfo { fee_token_addresses, chain_id: to_blk_chain_id(chain_spec.id()), is_l3: false };
 
     // IMPORTANT:
     //

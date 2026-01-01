@@ -199,7 +199,7 @@ fn prompt_slot_paymasters() -> Result<Option<Vec<slot::PaymasterAccountArgs>>> {
 
     // Prompt for slot paymaster accounts
     while Confirm::new("Add Slot paymaster account?").with_default(true).prompt()? {
-        let pubkey_prompt_text = format!("Paymaster #{} public key", paymaster_count);
+        let pubkey_prompt_text = format!("Paymaster #{paymaster_count} public key");
         let public_key = CustomType::<Felt>::new(&pubkey_prompt_text)
             .with_formatter(&|input: Felt| format!("{input:#x}"))
             .prompt()?;
@@ -223,7 +223,7 @@ fn prompt_slot_paymasters() -> Result<Option<Vec<slot::PaymasterAccountArgs>>> {
             }
         };
 
-        let salt_prompt_text = format!("Paymaster #{} salt", paymaster_count);
+        let salt_prompt_text = format!("Paymaster #{paymaster_count} salt");
         let salt = CustomType::<Felt>::new(&salt_prompt_text)
             .with_formatter(&|input: Felt| format!("{input:#x}"))
             .with_validator(unique_salt_validator)
