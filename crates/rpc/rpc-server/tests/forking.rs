@@ -20,7 +20,7 @@ use url::Url;
 
 mod common;
 
-const SEPOLIA_URL: &str = "https://api.cartridge.gg/x/starknet/sepolia";
+const SEPOLIA_URL: &str = "https://api.cartridge.gg/x/starknet/sepolia/rpc/v0_10";
 const FORK_BLOCK_NUMBER: BlockNumber = 268_471;
 const FORK_BLOCK_HASH: BlockHash =
     felt!("0x208950cfcbba73ecbda1c14e4d58d66a8d60655ea1b9dcf07c16014ae8a93cd");
