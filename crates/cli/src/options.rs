@@ -810,3 +810,28 @@ fn parse_pruning_mode(s: &str) -> Result<PruningMode, String> {
         _ => Err(format!("Invalid pruning mode '{s}'. Valid modes are: 'archive', 'full:N'")),
     }
 }
+
+#[cfg(feature = "tee")]
+#[derive(Debug, Args, Clone, Serialize, Deserialize, Default, PartialEq)]
+#[command(next_help_heading = "TEE options")]
+pub struct TeeOptions {
+    /// Enable TEE attestation support with AMD SEV-SNP.
+    ///
+    /// When enabled, the TEE RPC API becomes available for generating
+    /// hardware-backed attestation quotes. Requires running in an SEV-SNP VM
+    /// with /dev/sev-guest available.
+    #[arg(long = "tee.provider", value_name = "PROVIDER")]
+    #[serde(default)]
+    pub tee_provider: Option<katana_tee::TeeProviderType>,
+}
+
+#[cfg(feature = "tee")]
+impl TeeOptions {
+    pub fn merge(&mut self, other: Option<&Self>) {
+        if let Some(other) = other {
+            if self.tee_provider.is_none() {
+                self.tee_provider = other.tee_provider;
+            }
+        }
+    }
+}

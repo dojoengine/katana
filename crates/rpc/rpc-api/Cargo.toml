@@ -22,5 +22,6 @@ thiserror.workspace = true
 rstest.workspace = true
 
 [features]
-cartridge = [  ]
-client = [ "jsonrpsee/client" ]
+cartridge = []
+client = ["jsonrpsee/client"]
+tee = []
