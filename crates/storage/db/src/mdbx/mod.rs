@@ -272,8 +272,7 @@ pub mod test_utils {
 mod tests {
 
     use katana_primitives::contract::GenericContractInfo;
-    use katana_primitives::{address, Felt};
-    use starknet::macros::felt;
+    use katana_primitives::{address, felt, Felt};
 
     use super::*;
     use crate::abstraction::{DbCursor, DbCursorMut, DbDupSortCursor, DbTx, DbTxMut, Walker};

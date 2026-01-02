@@ -1,6 +1,6 @@
 use katana_primitives::contract::ContractAddress;
+use katana_primitives::felt;
 use lazy_static::lazy_static;
-use starknet::macros::felt;
 
 lazy_static! {
 
