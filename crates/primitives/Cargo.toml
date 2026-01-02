@@ -14,7 +14,6 @@ cairo-lang-sierra.workspace = true
 cairo-lang-utils.workspace = true
 cairo-lang-starknet-classes.workspace = true
 
-
 anyhow.workspace = true
 arbitrary = { workspace = true, optional = true }
 blockifier = { workspace = true, features = [ "testing" ] } # some Clone derives are gated behind 'testing' feature

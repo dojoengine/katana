@@ -1,7 +1,6 @@
 use alloy_primitives::{Keccak256, B256};
-use starknet::core::crypto::compute_hash_on_elements;
 use starknet::core::types::MsgToL1;
-use starknet_types_core::hash::{Poseidon, StarkHash};
+use starknet_types_core::hash::{Pedersen, Poseidon, StarkHash};
 
 use crate::da::DataAvailabilityMode;
 use crate::eth::Address as EthAddress;
@@ -58,12 +57,12 @@ pub fn compute_deploy_account_v1_tx_hash(
 ) -> Felt {
     let calldata_to_hash = [&[class_hash, contract_address_salt], constructor_calldata].concat();
 
-    compute_hash_on_elements(&[
+    Pedersen::hash_array(&[
         PREFIX_DEPLOY_ACCOUNT,
         if is_query { QUERY_VERSION_OFFSET + Felt::ONE } else { Felt::ONE }, // version
         sender_address,
         Felt::ZERO, // entry_point_selector
-        compute_hash_on_elements(&calldata_to_hash),
+        Pedersen::hash_array(&calldata_to_hash),
         max_fee.into(),
         chain_id,
         nonce,
@@ -113,12 +112,12 @@ pub fn compute_declare_v0_tx_hash(
     chain_id: Felt,
     is_query: bool,
 ) -> Felt {
-    compute_hash_on_elements(&[
+    Pedersen::hash_array(&[
         PREFIX_DECLARE,
         if is_query { QUERY_VERSION_OFFSET + Felt::ZERO } else { Felt::ZERO }, // version
         sender_address,
         Felt::ZERO, // entry_point_selector
-        compute_hash_on_elements(&[]),
+        Pedersen::hash_array(&[]),
         max_fee.into(),
         chain_id,
         class_hash,
@@ -134,12 +133,12 @@ pub fn compute_declare_v1_tx_hash(
     nonce: Felt,
     is_query: bool,
 ) -> Felt {
-    compute_hash_on_elements(&[
+    Pedersen::hash_array(&[
         PREFIX_DECLARE,
         if is_query { QUERY_VERSION_OFFSET + Felt::ONE } else { Felt::ONE }, // version
         sender_address,
         Felt::ZERO, // entry_point_selector
-        compute_hash_on_elements(&[class_hash]),
+        Pedersen::hash_array(&[class_hash]),
         max_fee.into(),
         chain_id,
         nonce,
@@ -156,12 +155,12 @@ pub fn compute_declare_v2_tx_hash(
     compiled_class_hash: Felt,
     is_query: bool,
 ) -> Felt {
-    compute_hash_on_elements(&[
+    Pedersen::hash_array(&[
         PREFIX_DECLARE,
         if is_query { QUERY_VERSION_OFFSET + Felt::TWO } else { Felt::TWO }, // version
         sender_address,
         Felt::ZERO, // entry_point_selector
-        compute_hash_on_elements(&[class_hash]),
+        Pedersen::hash_array(&[class_hash]),
         max_fee.into(),
         chain_id,
         nonce,
@@ -211,12 +210,12 @@ pub fn compute_invoke_v1_tx_hash(
     nonce: Felt,
     is_query: bool,
 ) -> Felt {
-    compute_hash_on_elements(&[
+    Pedersen::hash_array(&[
         PREFIX_INVOKE,
         if is_query { QUERY_VERSION_OFFSET + Felt::ONE } else { Felt::ONE }, // version
         sender_address,
         Felt::ZERO, // entry_point_selector
-        compute_hash_on_elements(calldata),
+        Pedersen::hash_array(calldata),
         max_fee.into(),
         chain_id,
         nonce,
@@ -274,12 +273,12 @@ pub fn compute_l1_handler_tx_hash(
     chain_id: Felt,
     nonce: Felt,
 ) -> Felt {
-    compute_hash_on_elements(&[
+    Pedersen::hash_array(&[
         PREFIX_L1_HANDLER,
         version,
         contract_address.into(),
         entry_point_selector,
-        compute_hash_on_elements(calldata),
+        Pedersen::hash_array(calldata),
         Felt::ZERO, // No fee on L2 for L1 handler tx
         chain_id,
         nonce,

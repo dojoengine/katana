@@ -5839,7 +5839,6 @@ dependencies = [
  "rand 0.8.5",
  "rayon",
  "rstest 0.18.2",
- "starknet",
  "starknet-types-core 0.2.3",
  "tempfile",
  "thiserror 1.0.69",

@@ -1140,7 +1140,7 @@ mod tests {
     use std::sync::Mutex;
     use std::time::Duration;
 
-    use starknet::macros::felt;
+    use katana_primitives::felt;
 
     use super::test_utils::*;
     use super::*;
