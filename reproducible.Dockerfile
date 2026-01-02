@@ -36,6 +36,9 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
 
 RUN rustup target add x86_64-unknown-linux-musl
 
+# Use musl-gcc wrapper for proper static linking with musl
+ENV CC_x86_64_unknown_linux_musl=musl-gcc
+
 WORKDIR /build
 
 # SOURCE_DATE_EPOCH should be passed as build arg (e.g., git commit timestamp)
