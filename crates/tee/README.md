@@ -58,6 +58,37 @@ The quote contains:
 - Quote generation requires hardware access; quote generation will return errors on unsupported platforms
 - The 64-byte report data is a Poseidon hash of `H_poseidon(state_root, block_hash)`, padded with zeros
 
+## Reproducible Builds
+
+For TEE deployments, verifiable builds are essential. The release pipeline produces a reproducible TEE binary with signed attestation.
+
+### Verify Build Attestation
+
+```bash
+# Download artifacts from workflow run
+gh run download <run-id> --name tee-release-artifacts --repo dojoengine/katana
+tar -xzf katana_v1.7.0_linux_amd64_tee.tar.gz
+gh attestation verify ./katana-reproducible --repo dojoengine/katana
+```
+
+### Reproduce Locally
+
+```bash
+git clone https://github.com/dojoengine/katana.git && cd katana
+git checkout v1.7.0
+docker build -f reproducible.Dockerfile -t katana-verify .
+docker create --name verify katana-verify
+docker cp verify:/katana ./katana-local && docker rm verify
+sha384sum ./katana-local  # Should match published hash
+```
+
+### Build Details
+
+- **Base**: `rust:1.86.0-slim-bookworm` (pinned by digest)
+- **Target**: `x86_64-unknown-linux-musl` (static linking)
+- **Profile**: `performance` (fat LTO, single codegen unit)
+- **SOURCE_DATE_EPOCH**: `1735689600` (2025-01-01 00:00:00 UTC)
+
 ## References
 
 ### AMD SEV-SNP
