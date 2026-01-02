@@ -26,10 +26,12 @@ RUN mkdir -p .cargo && cargo vendor vendor/ > .cargo/config.toml
 # Stage 2: Build
 FROM rust@sha256:a31942999645514ff53f470d395a9b3f06e05149faa845732d0cdf132767dcbd AS builder
 
-# Install musl toolchain for static linking
+# Install musl toolchain and clang (needed for bindgen)
 RUN apt-get update && apt-get install -y --no-install-recommends \
 	musl-tools \
 	musl-dev \
+	clang \
+	libclang-dev \
 	&& rm -rf /var/lib/apt/lists/*
 
 RUN rustup target add x86_64-unknown-linux-musl
