@@ -56,12 +56,14 @@ ENV SOURCE_DATE_EPOCH=${SOURCE_DATE_EPOCH} \
 COPY --from=vendorer /src .
 
 # Build using the vendored dependencies (--offline)
-# and your custom performance profile
+# Exclude explorer feature (requires bun to build UI assets)
 RUN cargo build \
 	--offline \
 	--locked \
 	--target x86_64-unknown-linux-musl \
 	--profile performance \
+	--no-default-features \
+	--features "cartridge,client,init-slot,jemalloc" \
 	--bin katana
 
 RUN cp /build/target/x86_64-unknown-linux-musl/performance/katana /katana
