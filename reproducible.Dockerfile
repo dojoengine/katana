@@ -26,18 +26,20 @@ RUN mkdir -p .cargo && cargo vendor vendor/ > .cargo/config.toml
 # Stage 2: Build
 FROM rust@sha256:a31942999645514ff53f470d395a9b3f06e05149faa845732d0cdf132767dcbd AS builder
 
-# Install musl toolchain and clang (needed for bindgen)
+# Install musl toolchain, clang (for bindgen), and gcc (for libgcc)
 RUN apt-get update && apt-get install -y --no-install-recommends \
 	musl-tools \
 	musl-dev \
 	clang \
 	libclang-dev \
+	gcc \
 	&& rm -rf /var/lib/apt/lists/*
 
 RUN rustup target add x86_64-unknown-linux-musl
 
 # Use musl-gcc wrapper for proper static linking with musl
-ENV CC_x86_64_unknown_linux_musl=musl-gcc
+ENV CC_x86_64_unknown_linux_musl=musl-gcc \
+	CFLAGS_x86_64_unknown_linux_musl="-lgcc"
 
 WORKDIR /build
 
@@ -47,9 +49,10 @@ ARG SOURCE_DATE_EPOCH
 RUN test -n "$SOURCE_DATE_EPOCH" || (echo "ERROR: SOURCE_DATE_EPOCH build arg is required" && exit 1)
 
 # Reproducibility environment variables
-# Added -C link-arg=-s to strip symbols for bit-for-bit identity
+# -C link-arg=-lgcc: link libgcc for CPU intrinsics used by reth-mdbx-sys
+# -C link-arg=-s: strip symbols for bit-for-bit identity
 ENV SOURCE_DATE_EPOCH=${SOURCE_DATE_EPOCH} \
-	RUSTFLAGS="--remap-path-prefix=/build=/build --remap-path-prefix=/cargo=/cargo -C target-feature=+crt-static -C link-arg=-s" \
+	RUSTFLAGS="--remap-path-prefix=/build=/build --remap-path-prefix=/cargo=/cargo -C target-feature=+crt-static -C link-arg=-lgcc -C link-arg=-s" \
 	CARGO_HOME=/cargo \
 	LANG=C.UTF-8 \
 	LC_ALL=C.UTF-8 \
