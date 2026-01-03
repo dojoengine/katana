@@ -9,14 +9,15 @@ use katana_node::config::db::DbConfig;
 use katana_node::config::Config;
 use katana_node::{LaunchedNode, Node};
 use katana_primitives::block::BlockNumber;
-use katana_primitives::{address, ContractAddress, Felt};
+use katana_primitives::{address, Felt};
 use katana_provider::api::block::BlockNumberProvider;
+use katana_provider::{DbProviderFactory, ProviderFactory};
 
 #[tokio::main]
 async fn main() {
     let node = node().await;
 
-    let provider = node.node().backend().blockchain.provider();
+    let provider = node.node().backend().storage.provider();
     let url = format!("http://{}", node.rpc().addr());
 
     let latest_block = provider.latest_number().expect("failed to get latest block number");
@@ -47,7 +48,7 @@ async fn run_snos(block: BlockNumber, rpc_url: &str) -> Result<()> {
     Ok(())
 }
 
-async fn node() -> LaunchedNode {
+async fn node() -> LaunchedNode<DbProviderFactory> {
     // These paths only work if you run from the root of the repository:
     //
     // cargo run -p snos-integration-tests
@@ -69,7 +70,6 @@ async fn node() -> LaunchedNode {
     };
 
     Node::build(config)
-        .await
         .expect("failed to build node")
         .launch()
         .await

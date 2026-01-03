@@ -11,6 +11,7 @@ use katana_genesis::constant::{
 use katana_genesis::json::GenesisJson;
 use katana_genesis::Genesis;
 use katana_primitives::block::{BlockHash, BlockHashOrNumber, BlockIdOrTag, BlockNumber};
+use katana_primitives::cairo::ShortString;
 use katana_primitives::chain::ChainId;
 use katana_primitives::class::ClassHash;
 use katana_primitives::contract::ContractAddress;
@@ -77,7 +78,7 @@ pub fn print_intro(args: &SequencerNodeArgs, chain: &ChainSpec) {
     let account_class_hash = accounts.peek().map(|e| e.1.class_hash());
     let seed = &args.development.seed;
 
-    if args.logging.log_format == LogFormat::Json {
+    if args.logging.stdout.stdout_format == LogFormat::Json {
         info!(
             target: LOG_TARGET,
             "{}",
@@ -148,17 +149,18 @@ PREDEPLOYED CONTRACTS
 | Contract        | STRK Fee Token
 | Address         | {}
 | Class Hash      | {:#064x}",
-                cs.fee_contract.strk, DEFAULT_LEGACY_ERC20_CLASS_HASH,
+                cs.fee_contracts.strk, DEFAULT_LEGACY_ERC20_CLASS_HASH,
             );
         }
+
+        ChainSpec::FullNode(..) => {}
     }
 
     println!(
         r"
 | Contract        | Universal Deployer
-| Address         | {}
-| Class Hash      | {:#064x}",
-        DEFAULT_UDC_ADDRESS, DEFAULT_LEGACY_UDC_CLASS_HASH
+| Address         | {DEFAULT_UDC_ADDRESS}
+| Class Hash      | {DEFAULT_LEGACY_UDC_CLASS_HASH:#064x}"
     );
 
     if let Some(hash) = account_class_hash {
@@ -245,6 +247,49 @@ pub fn parse_chain_config_dir(value: &str) -> Result<ChainConfigDir> {
     } else {
         let path = PathBuf::from(shellexpand::tilde(value).as_ref());
         Ok(ChainConfigDir::open(path)?)
+    }
+}
+
+/// A clap value parser for [`ShortString`] that ensures the string is non-empty.
+///
+/// This is the `ShortString` equivalent of clap's `NonEmptyStringValueParser`.
+#[derive(Clone, Debug)]
+pub struct ShortStringValueParser;
+
+impl clap::builder::TypedValueParser for ShortStringValueParser {
+    type Value = ShortString;
+
+    fn parse_ref(
+        &self,
+        cmd: &clap::Command,
+        arg: Option<&clap::Arg>,
+        value: &std::ffi::OsStr,
+    ) -> Result<Self::Value, clap::Error> {
+        use core::str::FromStr;
+
+        use clap::error::{ContextKind, ContextValue, ErrorKind};
+
+        let value =
+            value.to_str().ok_or_else(|| clap::Error::new(ErrorKind::InvalidUtf8).with_cmd(cmd))?;
+
+        if value.is_empty() {
+            let mut err = clap::Error::new(ErrorKind::InvalidValue).with_cmd(cmd);
+            if let Some(arg) = arg {
+                err.insert(ContextKind::InvalidArg, ContextValue::String(arg.to_string()));
+            }
+            err.insert(ContextKind::InvalidValue, ContextValue::String(value.to_string()));
+            return Err(err);
+        }
+
+        ShortString::from_str(value).map_err(|e| {
+            let mut err = clap::Error::new(ErrorKind::InvalidValue).with_cmd(cmd);
+            if let Some(arg) = arg {
+                err.insert(ContextKind::InvalidArg, ContextValue::String(arg.to_string()));
+            }
+            err.insert(ContextKind::InvalidValue, ContextValue::String(value.to_string()));
+            err.insert(ContextKind::Custom, ContextValue::String(e.to_string()));
+            err
+        })
     }
 }
 

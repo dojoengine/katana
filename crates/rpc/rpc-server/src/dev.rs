@@ -1,22 +1,34 @@
 use std::sync::Arc;
 
 use jsonrpsee::core::{async_trait, RpcResult};
+use katana_core::backend::storage::{ProviderRO, ProviderRW};
 use katana_core::backend::Backend;
 use katana_core::service::block_producer::{BlockProducer, BlockProducerMode, PendingExecutor};
 use katana_executor::ExecutorFactory;
 use katana_primitives::Felt;
+use katana_provider::ProviderFactory;
 use katana_rpc_api::dev::DevApiServer;
 use katana_rpc_api::error::dev::DevApiError;
 use katana_rpc_types::account::Account;
 
 #[allow(missing_debug_implementations)]
-pub struct DevApi<EF: ExecutorFactory> {
-    backend: Arc<Backend<EF>>,
-    block_producer: BlockProducer<EF>,
+pub struct DevApi<EF, PF>
+where
+    EF: ExecutorFactory,
+    PF: ProviderFactory,
+{
+    backend: Arc<Backend<EF, PF>>,
+    block_producer: BlockProducer<EF, PF>,
 }
 
-impl<EF: ExecutorFactory> DevApi<EF> {
-    pub fn new(backend: Arc<Backend<EF>>, block_producer: BlockProducer<EF>) -> Self {
+impl<EF, PF> DevApi<EF, PF>
+where
+    EF: ExecutorFactory,
+    PF: ProviderFactory,
+    <PF as ProviderFactory>::Provider: ProviderRO,
+    <PF as ProviderFactory>::ProviderMut: ProviderRW,
+{
+    pub fn new(backend: Arc<Backend<EF, PF>>, block_producer: BlockProducer<EF, PF>) -> Self {
         Self { backend, block_producer }
     }
 
@@ -60,7 +72,13 @@ impl<EF: ExecutorFactory> DevApi<EF> {
 }
 
 #[async_trait]
-impl<EF: ExecutorFactory> DevApiServer for DevApi<EF> {
+impl<EF, PF> DevApiServer for DevApi<EF, PF>
+where
+    EF: ExecutorFactory,
+    PF: ProviderFactory,
+    <PF as ProviderFactory>::Provider: ProviderRO,
+    <PF as ProviderFactory>::ProviderMut: ProviderRW,
+{
     async fn generate_block(&self) -> RpcResult<()> {
         self.block_producer.force_mine();
         Ok(())

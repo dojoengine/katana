@@ -6,7 +6,7 @@ use katana_primitives::contract::{ContractAddress, Nonce, StorageKey, StorageVal
 use katana_primitives::state::{StateUpdates, StateUpdatesWithClasses};
 use katana_provider::api::block::BlockWriter;
 use katana_provider::api::trie::TrieWriter;
-use katana_provider::providers::db::DbProvider;
+use katana_provider::{DbProviderFactory, MutableProvider, ProviderFactory};
 use katana_utils::arbitrary;
 use rstest::*;
 use tempfile::TempDir;
@@ -23,24 +23,16 @@ impl TempDb {
         Self { temp_dir }
     }
 
-    pub fn provider_ro(&self) -> DbProvider {
-        DbProvider::new(self.open_ro())
-    }
-
-    pub fn provider_rw(&self) -> DbProvider {
-        DbProvider::new(self.open_rw())
-    }
-
-    fn open_ro(&self) -> katana_db::Db {
-        katana::cli::db::open_db_ro(self.path_str()).unwrap()
-    }
-
-    fn open_rw(&self) -> katana_db::Db {
-        katana::cli::db::open_db_rw(self.path_str()).unwrap()
+    pub fn provider_factory(&self) -> DbProviderFactory {
+        DbProviderFactory::new(self.open_rw())
     }
 
     pub fn path_str(&self) -> &str {
         self.temp_dir.path().to_str().unwrap()
+    }
+
+    fn open_rw(&self) -> katana_db::Db {
+        katana::cli::db::open_db_rw(self.path_str()).unwrap()
     }
 }
 
@@ -66,7 +58,8 @@ pub fn db() -> TempDb {
 
 /// Populate database with test data using the TrieWriter trait
 fn populate_db(db: &TempDb) {
-    let provider = db.provider_rw();
+    let provider_factory = db.provider_factory();
+    let provider = provider_factory.provider_mut();
 
     for num in 0..=15u64 {
         let mut classes = BTreeMap::new();
@@ -83,6 +76,13 @@ fn populate_db(db: &TempDb) {
             let hash = arbitrary!(ClassHash);
             deprecated_declared_classes.insert(hash);
             classes.insert(hash, ContractClass::Legacy(Default::default()));
+        }
+
+        let mut migrated_compiled_classes = BTreeMap::new();
+        for _ in 0..10 {
+            let hash = arbitrary!(ClassHash);
+            let compiled_class_hash = arbitrary!(ClassHash);
+            migrated_compiled_classes.insert(hash, compiled_class_hash);
         }
 
         let mut nonce_updates = BTreeMap::new();
@@ -117,9 +117,12 @@ fn populate_db(db: &TempDb) {
             replaced_classes,
             deployed_contracts,
             deprecated_declared_classes,
+            migrated_compiled_classes,
         };
 
-        provider.trie_insert_declared_classes(num, &state_updates.declared_classes).unwrap();
+        provider
+            .trie_insert_declared_classes(num, state_updates.declared_classes.clone().into_iter())
+            .unwrap();
         provider.trie_insert_contract_updates(num, &state_updates).unwrap();
 
         let mut block = Block::default();
@@ -137,4 +140,6 @@ fn populate_db(db: &TempDb) {
             )
             .unwrap();
     }
+
+    provider.commit().expect("failed to commit");
 }

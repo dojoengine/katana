@@ -57,20 +57,19 @@ fn main() {
 
         panic!(
             "Contract compilation build script failed. Below are the last 50 lines of `scarb \
-             build` output:\n\n{}",
-            last_n_lines
+             build` output:\n\n{last_n_lines}"
         );
     }
 
     // Create build directory if it doesn't exist
     if let Err(e) = fs::create_dir_all(build_dir) {
-        panic!("Failed to create build directory: {}", e);
+        panic!("Failed to create build directory: {e}");
     }
 
     // Copy artifacts from target/dev to build directory
     if target_dir.exists() {
         if let Err(e) = copy_dir_contents(&target_dir, build_dir) {
-            panic!("Failed to copy contract artifacts: {}", e);
+            panic!("Failed to copy contract artifacts: {e}");
         }
         println!("cargo:warning=Contract artifacts copied to build directory");
     } else {

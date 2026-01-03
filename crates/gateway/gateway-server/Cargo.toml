@@ -7,13 +7,15 @@ version.workspace = true
 
 [dependencies]
 katana-gateway-types.workspace = true
+katana-primitives.workspace = true
 katana-executor.workspace = true
 katana-core.workspace = true
-katana-primitives.workspace = true
 katana-metrics.workspace = true
 katana-pool.workspace = true
 katana-rpc-server.workspace = true
+katana-pool-api.workspace = true
 katana-rpc-api.workspace = true
+katana-provider.workspace = true
 katana-provider-api.workspace = true
 serde-utils.workspace = true
 

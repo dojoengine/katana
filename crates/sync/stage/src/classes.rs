@@ -10,34 +10,38 @@ use katana_primitives::class::{ClassHash, ContractClass};
 use katana_provider::api::contract::ContractClassWriter;
 use katana_provider::api::state_update::StateUpdateProvider;
 use katana_provider::api::ProviderError;
+use katana_provider::{DbProviderFactory, MutableProvider, ProviderFactory};
 use katana_rpc_types::class::ConversionError;
 use rayon::prelude::*;
-use tracing::{debug, error};
+use tracing::{debug, error, info_span, Instrument};
 
-use super::{Stage, StageExecutionInput, StageExecutionOutput, StageResult};
+use super::{
+    PruneInput, PruneOutput, PruneResult, Stage, StageExecutionInput, StageExecutionOutput,
+    StageResult,
+};
 use crate::downloader::{BatchDownloader, Downloader, DownloaderResult};
 
 /// A stage for downloading and storing contract classes.
-pub struct Classes<P> {
-    provider: P,
+pub struct Classes {
+    provider: DbProviderFactory,
     downloader: BatchDownloader<ClassDownloader>,
     /// Thread pool for parallel class hash verification
     verification_pool: rayon::ThreadPool,
 }
 
-impl<P> std::fmt::Debug for Classes<P> {
+impl std::fmt::Debug for Classes {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         f.debug_struct("Classes")
-            .field("provider", &std::any::type_name::<P>())
+            .field("provider", &self.provider)
             .field("downloader", &self.downloader)
             .field("verification_pool", &"<ThreadPool>")
             .finish()
     }
 }
 
-impl<P> Classes<P> {
+impl Classes {
     /// Create a new Classes stage using the Feeder Gateway downloader.
-    pub fn new(provider: P, gateway: SequencerGateway, batch_size: usize) -> Self {
+    pub fn new(provider: DbProviderFactory, gateway: SequencerGateway, batch_size: usize) -> Self {
         let downloader = ClassDownloader { gateway };
         let downloader = BatchDownloader::new(downloader, batch_size);
 
@@ -54,16 +58,14 @@ impl<P> Classes<P> {
         &self,
         from_block: BlockNumber,
         to_block: BlockNumber,
-    ) -> Result<Vec<ClassDownloadKey>, Error>
-    where
-        P: StateUpdateProvider,
-    {
+    ) -> Result<Vec<ClassDownloadKey>, Error> {
         let mut classes_keys: Vec<ClassDownloadKey> = Vec::new();
 
         for block in from_block..=to_block {
             // get the classes declared at block `i`
             let class_hashes = self
                 .provider
+                .provider()
                 .declared_classes(block.into())?
                 .ok_or(Error::MissingBlockDeclaredClasses { block })?;
 
@@ -90,14 +92,9 @@ impl<P> Classes<P> {
                 .zip(class_artifacts.into_par_iter())
                 .map(|(key, gateway_class)| {
                     let block = key.block;
+
                     let expected_hash = key.class_hash;
-
-                    let class: ContractClass =
-                        gateway_class.try_into().map_err(Error::Conversion)?;
-
-                    let computed_hash = class.class_hash().map_err(|source| {
-                        Error::ClassHashComputation { class_hash: expected_hash, source, block }
-                    })?;
+                    let computed_hash = gateway_class.hash();
 
                     if computed_hash != expected_hash {
                         return Err(Error::ClassHashMismatch {
@@ -107,7 +104,7 @@ impl<P> Classes<P> {
                         });
                     }
 
-                    Ok(class)
+                    ContractClass::try_from(gateway_class).map_err(Error::Conversion)
                 })
                 .collect::<Result<Vec<_>, Error>>();
 
@@ -118,10 +115,7 @@ impl<P> Classes<P> {
     }
 }
 
-impl<P> Stage for Classes<P>
-where
-    P: StateUpdateProvider + ContractClassWriter,
-{
+impl Stage for Classes {
     fn id(&self) -> &'static str {
         "Classes"
     }
@@ -130,11 +124,16 @@ where
         Box::pin(async move {
             let declared_class_hashes = self.get_declared_classes(input.from(), input.to())?;
 
-            if !declared_class_hashes.is_empty() {
+            if declared_class_hashes.is_empty() {
+                debug!(from = %input.from(), to = %input.to(), "No classes declared within the block range");
+            } else {
+                let total_classes = declared_class_hashes.len();
+
                 // fetch the classes artifacts
                 let class_artifacts = self
                     .downloader
                     .download(declared_class_hashes.clone())
+                    .instrument(info_span!(target: "stage", "classes.download", %total_classes))
                     .await
                     .map_err(Error::Gateway)?;
 
@@ -143,14 +142,26 @@ where
 
                 debug!(target: "stage", id = self.id(), total = %verified_classes.len(), "Storing class artifacts.");
 
+                let provider_mut = self.provider.provider_mut();
                 // Second pass: insert the verified classes into storage
                 // This must be done sequentially as database only supports single write transaction
                 for (key, class) in declared_class_hashes.iter().zip(verified_classes.into_iter()) {
-                    self.provider.set_class(key.class_hash, class)?;
+                    provider_mut.set_class(key.class_hash, class)?;
                 }
+
+                provider_mut.commit()?;
             }
 
             Ok(StageExecutionOutput { last_block_processed: input.to() })
+        })
+    }
+
+    fn prune<'a>(&'a mut self, _: &'a PruneInput) -> BoxFuture<'a, PruneResult> {
+        Box::pin(async move {
+            // Classes are immutable once declared and don't need pruning.
+            // A class declared at block N can still be used to deploy contracts at block N+1000.
+            // Therefore, we cannot safely prune classes based on block age alone.
+            Ok(PruneOutput::default())
         })
     }
 }

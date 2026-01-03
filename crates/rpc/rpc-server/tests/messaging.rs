@@ -11,13 +11,13 @@ use katana_primitives::block::BlockIdOrTag;
 use katana_primitives::utils::transaction::{
     compute_l1_handler_tx_hash, compute_l1_to_l2_message_hash,
 };
-use katana_primitives::{eth_address, felt, ContractAddress};
+use katana_primitives::{eth_address, felt, ContractAddress, Felt};
 use katana_rpc_types::{Class, MsgFromL1};
 use katana_utils::{TestNode, TxWaiter};
 use rand::Rng;
 use starknet::accounts::{Account, ConnectedAccount};
 use starknet::contract::ContractFactory;
-use starknet::core::types::{Felt, Hash256, ReceiptBlock, Transaction, TransactionReceipt};
+use starknet::core::types::{Hash256, ReceiptBlock, Transaction, TransactionReceipt};
 use starknet::core::utils::get_contract_address;
 use starknet::macros::selector;
 use starknet::providers::Provider;
@@ -95,6 +95,7 @@ async fn test_messaging() {
         let address = get_contract_address(Felt::ZERO, class_hash, &[], Felt::ZERO);
 
         // Deploy the contract using UDC
+        #[allow(deprecated)]
         let res = ContractFactory::new(class_hash, &katana_account)
             .deploy_v3(Vec::new(), Felt::ZERO, false)
             .send()
@@ -239,6 +240,7 @@ async fn estimate_message_fee() -> Result<()> {
     TxWaiter::new(res.transaction_hash, &rpc_client).await?;
 
     // Deploy the contract using UDC
+    #[allow(deprecated)]
     let res = ContractFactory::new(class_hash, &account)
         .deploy_v3(Vec::new(), Felt::ZERO, false)
         .send()

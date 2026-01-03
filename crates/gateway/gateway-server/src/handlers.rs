@@ -1,15 +1,17 @@
 use axum::extract::{Query, State};
 use axum::http::StatusCode;
 use axum::response::{IntoResponse, Json, Response};
+use katana_core::backend::storage::{ProviderRO, ProviderRW};
 use katana_core::service::block_producer::BlockProducer;
 use katana_executor::implementation::blockifier::BlockifierFactory;
 use katana_gateway_types::{
     Block, ConfirmedReceipt, ConfirmedTransaction, ContractClass, ErrorCode, GatewayError,
     ReceiptBody, StateUpdate, StateUpdateWithBlock,
 };
-use katana_pool::TxPool;
+use katana_pool_api::TransactionPool;
 use katana_primitives::block::{BlockHash, BlockIdOrTag, BlockNumber};
 use katana_primitives::class::{ClassHash, CompiledClass, ContractClassCompilationError};
+use katana_provider::ProviderFactory;
 use katana_provider_api::block::{BlockIdReader, BlockProvider, BlockStatusProvider};
 use katana_provider_api::transaction::ReceiptProvider;
 use katana_rpc_api::error::starknet::StarknetApiError;
@@ -19,17 +21,40 @@ use serde_json::{json, Value};
 use starknet::core::types::ResourcePrice;
 
 /// Shared application state containing the backend
-#[derive(Clone)]
-pub struct AppState {
-    pub api: StarknetApi<BlockifierFactory, TxPool, BlockProducer<BlockifierFactory>>,
+pub struct AppState<Pool, PF>
+where
+    Pool: TransactionPool,
+    PF: ProviderFactory,
+    <PF as ProviderFactory>::Provider: ProviderRO,
+    <PF as ProviderFactory>::ProviderMut: ProviderRW,
+{
+    pub api: StarknetApi<Pool, BlockProducer<BlockifierFactory, PF>, PF>,
 }
 
-impl AppState {
+impl<Pool, PF> Clone for AppState<Pool, PF>
+where
+    Pool: TransactionPool,
+    PF: ProviderFactory,
+    <PF as ProviderFactory>::Provider: ProviderRO,
+    <PF as ProviderFactory>::ProviderMut: ProviderRW,
+{
+    fn clone(&self) -> Self {
+        Self { api: self.api.clone() }
+    }
+}
+
+impl<P, PF> AppState<P, PF>
+where
+    P: TransactionPool + Send + Sync + 'static,
+    PF: ProviderFactory,
+    <PF as ProviderFactory>::Provider: ProviderRO,
+    <PF as ProviderFactory>::ProviderMut: ProviderRW,
+{
     // TODO(kariy): support preconfirmed blocks
     async fn get_block(&self, id: BlockIdOrTag) -> Result<Option<Block>, ApiError> {
         self.api
             .on_io_blocking_task(move |this| {
-                let provider = this.backend().blockchain.provider();
+                let provider = this.storage().provider();
 
                 if let Some(num) = provider.convert_block_id(id)? {
                     let block = provider.block(num.into())?.unwrap();
@@ -154,17 +179,23 @@ pub async fn health() -> Json<serde_json::Value> {
 /// Handler for `/feeder_gateway/get_block` endpoint
 ///
 /// Returns block information for the specified block.
-pub async fn get_block(
-    State(state): State<AppState>,
+pub async fn get_block<P, PF>(
+    State(state): State<AppState<P, PF>>,
     Query(params): Query<BlockIdQuery>,
-) -> Result<Json<Block>, ApiError> {
+) -> Result<Json<Block>, ApiError>
+where
+    P: TransactionPool + Send + Sync + 'static,
+    PF: ProviderFactory,
+    <PF as ProviderFactory>::Provider: ProviderRO,
+    <PF as ProviderFactory>::ProviderMut: ProviderRW,
+{
     let block_id = params.block_id()?;
     let block = state.get_block(block_id).await?.unwrap();
     Ok(Json(block))
 }
 
 /// The state update type returns by `/get_state_update` endpoint.
-#[allow(clippy::enum_variant_names)]
+#[allow(clippy::enum_variant_names, clippy::large_enum_variant)]
 #[derive(Debug, PartialEq, Eq, Serialize)]
 #[serde(untagged)]
 pub enum GetStateUpdateResponse {
@@ -175,10 +206,16 @@ pub enum GetStateUpdateResponse {
 /// Handler for `/feeder_gateway/get_state_update` endpoint
 ///
 /// Returns state update information for the specified block.
-pub async fn get_state_update(
-    State(state): State<AppState>,
+pub async fn get_state_update<P, PF>(
+    State(state): State<AppState<P, PF>>,
     Query(params): Query<StateUpdateQuery>,
-) -> Result<Json<GetStateUpdateResponse>, ApiError> {
+) -> Result<Json<GetStateUpdateResponse>, ApiError>
+where
+    P: TransactionPool + Send + Sync + 'static,
+    PF: ProviderFactory,
+    <PF as ProviderFactory>::Provider: ProviderRO,
+    <PF as ProviderFactory>::ProviderMut: ProviderRW,
+{
     let include_block = params.include_block;
     let block_id = params.block_query.block_id()?;
 
@@ -197,10 +234,16 @@ pub async fn get_state_update(
 /// Handler for `/feeder_gateway/get_class_by_hash` endpoint
 ///
 /// Returns the contract class definition for a given class hash.
-pub async fn get_class_by_hash(
-    State(state): State<AppState>,
+pub async fn get_class_by_hash<P, PF>(
+    State(state): State<AppState<P, PF>>,
     Query(params): Query<ClassQuery>,
-) -> Result<Json<ContractClass>, ApiError> {
+) -> Result<Json<ContractClass>, ApiError>
+where
+    P: TransactionPool + Send + Sync + 'static,
+    PF: ProviderFactory,
+    <PF as ProviderFactory>::Provider: ProviderRO,
+    <PF as ProviderFactory>::ProviderMut: ProviderRW,
+{
     let class_hash = params.class_hash;
     let block_id = params.block_query.block_id()?;
     let class = state.api.class_at_hash(block_id, class_hash).await?;
@@ -210,10 +253,16 @@ pub async fn get_class_by_hash(
 /// Handler for `/feeder_gateway/get_compiled_class_by_class_hash` endpoint
 ///
 /// Returns the compiled (CASM) contract class for a given class hash.
-pub async fn get_compiled_class_by_class_hash(
-    State(state): State<AppState>,
+pub async fn get_compiled_class_by_class_hash<P, PF>(
+    State(state): State<AppState<P, PF>>,
     Query(params): Query<ClassQuery>,
-) -> Result<Json<CompiledClass>, ApiError> {
+) -> Result<Json<CompiledClass>, ApiError>
+where
+    P: TransactionPool + Send + Sync + 'static,
+    PF: ProviderFactory,
+    <PF as ProviderFactory>::Provider: ProviderRO,
+    <PF as ProviderFactory>::ProviderMut: ProviderRW,
+{
     let class_hash = params.class_hash;
     let block_id = params.block_query.block_id()?;
 

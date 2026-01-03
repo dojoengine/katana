@@ -6,10 +6,7 @@ use katana_contracts::contracts;
 use katana_executor::implementation::noop::NoopExecutorFactory;
 use katana_executor::{ExecutionFlags, ExecutorFactory};
 use katana_genesis::allocation::DevAllocationsGenerator;
-use katana_genesis::constant::{
-    DEFAULT_ETH_FEE_TOKEN_ADDRESS, DEFAULT_PREFUNDED_ACCOUNT_BALANCE,
-    DEFAULT_STRK_FEE_TOKEN_ADDRESS,
-};
+use katana_genesis::constant::DEFAULT_PREFUNDED_ACCOUNT_BALANCE;
 use katana_primitives::block::{
     Block, ExecutableBlock, FinalityStatus, GasPrices, PartialHeader, SealedBlockWithStatus,
 };
@@ -17,7 +14,7 @@ use katana_primitives::chain::ChainId;
 use katana_primitives::class::{CompiledClass, ContractClass};
 use katana_primitives::contract::ContractAddress;
 use katana_primitives::da::L1DataAvailabilityMode;
-use katana_primitives::env::{CfgEnv, FeeTokenAddressses};
+use katana_primitives::env::VersionedConstantsOverrides;
 use katana_primitives::transaction::{
     DeclareTx, DeclareTxV2, DeclareTxWithClass, DeployAccountTx, DeployAccountTxV1, ExecutableTx,
     ExecutableTxWithHash, InvokeTx, InvokeTxV1,
@@ -27,7 +24,7 @@ use katana_primitives::version::CURRENT_STARKNET_VERSION;
 use katana_primitives::{address, Felt};
 use katana_provider::api::block::BlockWriter;
 use katana_provider::api::state::{StateFactoryProvider, StateProvider};
-use katana_provider::providers::db::DbProvider;
+use katana_provider::{DbProviderFactory, MutableProvider, ProviderFactory};
 use starknet::macros::felt;
 
 // TODO: remove support for legacy contract declaration
@@ -74,18 +71,20 @@ pub fn state_provider(chain: &ChainSpec) -> Box<dyn StateProvider> {
     let ChainSpec::Dev(chain) = chain else { panic!("should be dev chain spec") };
 
     let states = chain.state_updates();
-    let provider = DbProvider::new_in_memory();
+    let provider_factory = DbProviderFactory::new_in_memory();
+    let provider_mut = provider_factory.provider_mut();
 
     let block = SealedBlockWithStatus {
         status: FinalityStatus::AcceptedOnL2,
         block: Block::default().seal_with_hash(123u64.into()),
     };
 
-    provider
+    provider_mut
         .insert_block_with_states_and_receipts(block, states, vec![], vec![])
         .expect("able to insert block");
+    provider_mut.commit().unwrap();
 
-    provider.latest().unwrap()
+    provider_factory.provider().latest().unwrap()
 }
 
 // TODO: update the txs to include valid signatures
@@ -237,18 +236,11 @@ pub fn valid_blocks() -> [ExecutableBlock; 3] {
 }
 
 #[rstest::fixture]
-pub fn cfg() -> CfgEnv {
-    let fee_token_addresses = FeeTokenAddressses {
-        eth: DEFAULT_ETH_FEE_TOKEN_ADDRESS,
-        strk: DEFAULT_STRK_FEE_TOKEN_ADDRESS,
-    };
-
-    CfgEnv {
-        fee_token_addresses,
-        max_recursion_depth: usize::MAX,
-        validate_max_n_steps: u32::MAX,
-        invoke_tx_max_n_steps: u32::MAX,
-        chain_id: ChainId::parse("KATANA").unwrap(),
+pub fn overrides() -> VersionedConstantsOverrides {
+    VersionedConstantsOverrides {
+        max_recursion_depth: Some(usize::MAX),
+        validate_max_n_steps: Some(u32::MAX),
+        invoke_tx_max_n_steps: Some(u32::MAX),
     }
 }
 
@@ -275,6 +267,15 @@ use katana_executor::implementation::blockifier::BlockifierFactory;
 use katana_executor::BlockLimits;
 
 #[rstest::fixture]
-pub fn factory(cfg: CfgEnv, #[with(true)] flags: ExecutionFlags) -> BlockifierFactory {
-    BlockifierFactory::new(cfg, flags, BlockLimits::default(), ClassCache::new().unwrap())
+pub fn factory(
+    overrides: VersionedConstantsOverrides,
+    #[with(true)] flags: ExecutionFlags,
+) -> BlockifierFactory {
+    BlockifierFactory::new(
+        Some(overrides),
+        flags,
+        BlockLimits::default(),
+        ClassCache::new().unwrap(),
+        ChainSpec::dev().into(),
+    )
 }

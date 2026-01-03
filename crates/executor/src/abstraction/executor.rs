@@ -1,5 +1,5 @@
 use katana_primitives::block::ExecutableBlock;
-use katana_primitives::env::{BlockEnv, CfgEnv};
+use katana_primitives::env::{BlockEnv, VersionedConstantsOverrides};
 use katana_primitives::transaction::{ExecutableTxWithHash, TxWithHash};
 use katana_provider::api::state::StateProvider;
 
@@ -22,8 +22,7 @@ pub trait ExecutorFactory: Send + Sync + 'static + core::fmt::Debug {
     where
         P: StateProvider + 'a;
 
-    /// Returns the configuration environment of the factory.
-    fn cfg(&self) -> &CfgEnv;
+    fn overrides(&self) -> Option<&VersionedConstantsOverrides>;
 
     /// Returns the execution flags set by the factory.
     fn execution_flags(&self) -> &ExecutionFlags;

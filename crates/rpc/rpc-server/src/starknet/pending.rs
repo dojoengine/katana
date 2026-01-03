@@ -2,6 +2,7 @@
 
 use std::fmt::Debug;
 
+use katana_core::backend::storage::ProviderRO;
 use katana_core::service::block_producer::{BlockProducer, BlockProducerMode};
 use katana_executor::ExecutorFactory;
 use katana_primitives::block::{BlockIdOrTag, FinalityStatus, PartialHeader};
@@ -12,6 +13,7 @@ use katana_primitives::version::CURRENT_STARKNET_VERSION;
 use katana_provider::api::block::BlockNumberProvider;
 use katana_provider::api::state::{StateFactoryProvider, StateProvider};
 use katana_provider::providers::db::cached::CachedStateProvider;
+use katana_provider::ProviderFactory;
 use katana_rpc_client::starknet::Client;
 use katana_rpc_types::{
     PreConfirmedBlockWithReceipts, PreConfirmedBlockWithTxHashes, PreConfirmedBlockWithTxs,
@@ -52,7 +54,12 @@ pub trait PendingBlockProvider: Debug + Send + Sync + 'static {
     ) -> StarknetApiResult<Option<RpcTxWithHash>>;
 }
 
-impl<EF: ExecutorFactory> PendingBlockProvider for BlockProducer<EF> {
+impl<EF, PF> PendingBlockProvider for BlockProducer<EF, PF>
+where
+    EF: ExecutorFactory,
+    PF: ProviderFactory,
+    <PF as ProviderFactory>::Provider: ProviderRO,
+{
     fn pending_state(&self) -> StarknetApiResult<Option<Box<dyn StateProvider>>> {
         match &*self.producer.read() {
             BlockProducerMode::Instant(_) => Ok(None),

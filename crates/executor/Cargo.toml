@@ -8,17 +8,18 @@ version.workspace = true
 
 [dependencies]
 katana-primitives.workspace = true
+katana-chain-spec.workspace = true
 katana-provider.workspace = true
 
 blockifier = { workspace = true, features = [ "testing" ] }
 num-traits.workspace = true
 quick_cache = "0.6.10"
-starknet.workspace = true
 thiserror.workspace = true
 tracing.workspace = true
 
 # cairo-native
-cairo-native = { version = "0.4.1", optional = true }
+cairo-lang-starknet-classes = { workspace = true, optional = true }
+cairo-native = { version = "0.6.2", optional = true }
 cairo-vm.workspace = true
 parking_lot.workspace = true
 rayon = { workspace = true, optional = true }
@@ -32,6 +33,7 @@ katana-provider = { workspace = true, features = [ "test-utils" ] }
 katana-rpc-types.workspace = true
 katana-utils.workspace = true
 
+starknet.workspace = true
 alloy-primitives.workspace = true
 anyhow.workspace = true
 assert_matches.workspace = true
@@ -48,7 +50,7 @@ pprof.workspace = true
 rayon.workspace = true
 
 [features]
-native = [ "blockifier/cairo_native", "dep:cairo-native", "dep:rayon" ]
+native = [ "blockifier/cairo_native", "dep:cairo-native", "dep:rayon", "dep:cairo-lang-starknet-classes" ]
 
 [[bench]]
 harness = false

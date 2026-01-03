@@ -1,3 +1,5 @@
+use std::collections::HashMap;
+
 use anyhow::{Context, Result};
 use clap::{Args, Subcommand};
 use katana_primitives::block::{BlockHash, BlockIdOrTag, BlockNumber, ConfirmedBlockIdOrTag};
@@ -7,6 +9,7 @@ use katana_primitives::execution::{EntryPointSelector, FunctionCall};
 use katana_primitives::transaction::TxHash;
 use katana_primitives::{ContractAddress, Felt};
 use katana_rpc_types::event::{EventFilter, EventFilterWithPage, ResultPageRequest};
+use katana_rpc_types::trie::ContractStorageKeys;
 
 use super::client::Client;
 
@@ -91,6 +94,10 @@ pub enum StarknetCommands {
     /// Get execution traces for all transactions in a block
     #[command(name = "block-traces")]
     TraceBlockTransactions(TraceBlockTransactionsArg),
+
+    /// Get storage proofs for classes, contracts, and storage keys
+    #[command(name = "proof")]
+    GetStorageProof(GetStorageProofArgs),
 }
 
 #[derive(Debug, Args)]
@@ -267,17 +274,21 @@ pub struct GetNonceArgs {
 #[derive(Debug, Args)]
 #[cfg_attr(test, derive(PartialEq, Eq))]
 pub struct GetStorageProofArgs {
-    /// Class hashes JSON array
-    #[arg(long)]
-    class_hashes: Option<String>,
+    /// Class hashes to get storage proofs for
+    /// Example: --classes 0x1 0x2 0x3
+    #[arg(long, num_args = 0..)]
+    classes: Vec<String>,
 
-    /// Contract addresses JSON array
-    #[arg(long)]
-    contract_addresses: Option<String>,
+    /// Contract addresses to get storage proofs for
+    /// Example: --contracts 0x1 0x2 0x3
+    #[arg(long, num_args = 0..)]
+    contracts: Vec<String>,
 
-    /// Contract storage keys JSON
-    #[arg(long)]
-    contracts_storage_keys: Option<String>,
+    /// Contract storage keys in format: address,key address,key
+    /// Multiple keys for same address are supported: 0x123,0x1 0x123,0x2
+    /// Example: --storages 0x1234,0xabc 0x5678,0xdef
+    #[arg(long, num_args = 0..)]
+    storages: Vec<String>,
 
     /// Block ID (number, hash, 'latest', or 'pending'). Defaults to 'latest'
     #[arg(long)]
@@ -455,6 +466,70 @@ impl StarknetCommands {
                 let result = client.trace_block_transactions(block_id.0).await?;
                 println!("{}", colored_json::to_colored_json_auto(&result)?);
             }
+
+            StarknetCommands::GetStorageProof(args) => {
+                let block_id = args.block.0;
+
+                // Parse class_hashes if provided
+                let class_hashes: Option<Vec<ClassHash>> = if !args.classes.is_empty() {
+                    Some(
+                        args.classes
+                            .iter()
+                            .enumerate()
+                            .map(|(i, s)| {
+                                s.trim().parse::<ClassHash>().with_context(|| {
+                                    format!("Invalid class hash at position {i}: '{s}'")
+                                })
+                            })
+                            .collect::<Result<Vec<_>>>()?,
+                    )
+                } else {
+                    // temp: pathfinder expects an empty vector instead of an explicit null even
+                    // though the spec allows it
+                    Some(Vec::new())
+                };
+
+                // Parse contract_addresses if provided
+                let contract_addresses: Option<Vec<ContractAddress>> = if !args.contracts.is_empty()
+                {
+                    Some(
+                        args.contracts
+                            .iter()
+                            .enumerate()
+                            .map(|(i, s)| {
+                                s.trim().parse::<ContractAddress>().with_context(|| {
+                                    format!("Invalid contract address at position {i}: '{s}'")
+                                })
+                            })
+                            .collect::<Result<Vec<_>>>()?,
+                    )
+                } else {
+                    // temp: pathfinder expects an empty vector instead of an explicit null even
+                    // though the spec allows it
+                    Some(Vec::new())
+                };
+
+                // Parse contracts_storage_keys if provided
+                let contracts_storage_keys: Option<Vec<ContractStorageKeys>> =
+                    if !args.storages.is_empty() {
+                        Some(parse_contract_storage_keys(&args.storages)?)
+                    } else {
+                        // temp: pathfinder expects an empty vector instead of an explicit null even
+                        // though the spec allows it
+                        Some(Vec::new())
+                    };
+
+                let result = client
+                    .get_storage_proof(
+                        block_id,
+                        class_hashes,
+                        contract_addresses,
+                        contracts_storage_keys,
+                    )
+                    .await?;
+
+                println!("{}", colored_json::to_colored_json_auto(&result)?);
+            }
         }
         Ok(())
     }
@@ -538,11 +613,47 @@ fn parse_event_keys(keys: &[String]) -> Result<Vec<Vec<Felt>>> {
                 .map(|s| {
                     s.trim()
                         .parse::<Felt>()
-                        .with_context(|| format!("invalid felt in key group {}: '{}'", i, s))
+                        .with_context(|| format!("invalid felt in key group {i}: '{s}'"))
                 })
                 .collect::<Result<Vec<Felt>>>()
         })
         .collect()
+}
+
+/// Parses contract storage keys from CLI arguments.
+///
+/// Format: Each argument is "address,key" where address is a contract address and key is a storage
+/// key. Multiple entries with the same address will be grouped together.
+/// Example: ["0x123,0x1", "0x123,0x2", "0x456,0x3"] =>
+///   [ContractStorageKeys { address: 0x123, keys: [0x1, 0x2] },
+///    ContractStorageKeys { address: 0x456, keys: [0x3] }]
+fn parse_contract_storage_keys(storages: &[String]) -> Result<Vec<ContractStorageKeys>> {
+    let mut map: HashMap<ContractAddress, Vec<StorageKey>> = HashMap::new();
+
+    for (i, pair) in storages.iter().enumerate() {
+        let parts: Vec<&str> = pair.split(',').collect();
+
+        if parts.len() != 2 {
+            anyhow::bail!(
+                "invalid storage format at position {}: '{}'. Expected 'address,key'",
+                i,
+                pair
+            );
+        }
+
+        let address = parts[0].trim().parse::<ContractAddress>().with_context(|| {
+            format!("invalid contract address at position {}: '{}'", i, parts[0])
+        })?;
+
+        let key = parts[1]
+            .trim()
+            .parse::<StorageKey>()
+            .with_context(|| format!("invalid storage key at position {}: '{}'", i, parts[1]))?;
+
+        map.entry(address).or_default().push(key);
+    }
+
+    Ok(map.into_iter().map(|(address, keys)| ContractStorageKeys { address, keys }).collect())
 }
 
 #[cfg(test)]
@@ -554,6 +665,7 @@ mod tests {
     use katana_primitives::felt;
 
     use super::{BlockIdArg, ConfirmedBlockIdArg};
+    use crate::cli::rpc::starknet::GetStorageProofArgs;
 
     #[test]
     fn block_id_arg_from_str() {
@@ -623,18 +735,20 @@ mod tests {
     }
 
     use clap::Parser;
+    use katana_primitives::contract::StorageKey;
+    use katana_primitives::ContractAddress;
 
-    use super::{parse_event_keys, GetEventsArgs};
+    use super::{parse_contract_storage_keys, parse_event_keys, GetEventsArgs};
 
     #[derive(Debug, Parser)]
-    struct TestCli {
+    struct TestEventCli {
         #[command(flatten)]
         args: GetEventsArgs,
     }
 
     #[test]
     fn get_events_args_single_keys() {
-        let args = TestCli::try_parse_from(["test", "--keys", "0x1", "0x2", "0x3"]).unwrap();
+        let args = TestEventCli::try_parse_from(["test", "--keys", "0x1", "0x2", "0x3"]).unwrap();
 
         let keys = parse_event_keys(&args.args.keys).unwrap();
         assert_eq!(keys.len(), 3);
@@ -646,7 +760,8 @@ mod tests {
     #[test]
     fn get_events_args_multiple_keys() {
         let args =
-            TestCli::try_parse_from(["test", "--keys", "0x9", "0x1,0x2,0x3", "0x4,0x5"]).unwrap();
+            TestEventCli::try_parse_from(["test", "--keys", "0x9", "0x1,0x2,0x3", "0x4,0x5"])
+                .unwrap();
 
         let keys = parse_event_keys(&args.args.keys).unwrap();
         assert_eq!(keys.len(), 3);
@@ -657,7 +772,7 @@ mod tests {
 
     #[test]
     fn get_events_args_keys_with_whitespace() {
-        let args = TestCli::try_parse_from(["test", "--keys", "0x1, 0x2 , 0x3"]).unwrap();
+        let args = TestEventCli::try_parse_from(["test", "--keys", "0x1, 0x2 , 0x3"]).unwrap();
 
         let keys = parse_event_keys(&args.args.keys).unwrap();
         assert_eq!(keys.len(), 1);
@@ -666,7 +781,7 @@ mod tests {
 
     #[test]
     fn get_events_args_invalid_felt() {
-        let args = TestCli::try_parse_from(["test", "--keys", "0x1", "invalid"]).unwrap();
+        let args = TestEventCli::try_parse_from(["test", "--keys", "0x1", "invalid"]).unwrap();
 
         let result = parse_event_keys(&args.args.keys);
         assert!(result.is_err());
@@ -675,10 +790,111 @@ mod tests {
 
     #[test]
     fn get_events_args_invalid_hex() {
-        let args = TestCli::try_parse_from(["test", "--keys", "0x1,0xGGG"]).unwrap();
+        let args = TestEventCli::try_parse_from(["test", "--keys", "0x1,0xGGG"]).unwrap();
 
         let result = parse_event_keys(&args.args.keys);
         assert!(result.is_err());
         assert!(result.unwrap_err().to_string().contains("invalid felt in key group 0"));
+    }
+
+    #[derive(Debug, Parser)]
+    struct TestProofCli {
+        #[command(flatten)]
+        args: GetStorageProofArgs,
+    }
+
+    #[test]
+    fn get_contract_storage_proof_keys_single_pair() {
+        let args = TestProofCli::try_parse_from(["test", "--storages", "0x123,0xabc"]).unwrap();
+        let result = parse_contract_storage_keys(&args.args.storages).unwrap();
+
+        assert_eq!(result.len(), 1);
+        assert_eq!(result[0].address, ContractAddress::from(felt!("0x123")));
+        assert_eq!(result[0].keys.len(), 1);
+        assert_eq!(result[0].keys[0], StorageKey::from(felt!("0xabc")));
+    }
+
+    #[test]
+    fn get_contract_storage_proof_keys_multiple_pairs_same_address() {
+        let args = TestProofCli::try_parse_from([
+            "test",
+            "--storages",
+            "0x123,0x1",
+            "0x123,0x2",
+            "0x123,0x3",
+        ])
+        .unwrap();
+        let result = parse_contract_storage_keys(&args.args.storages).unwrap();
+
+        assert_eq!(result.len(), 1);
+        assert_eq!(result[0].address, ContractAddress::from(felt!("0x123")));
+        assert_eq!(result[0].keys.len(), 3);
+        assert!(result[0].keys.contains(&StorageKey::from(felt!("0x1"))));
+        assert!(result[0].keys.contains(&StorageKey::from(felt!("0x2"))));
+        assert!(result[0].keys.contains(&StorageKey::from(felt!("0x3"))));
+    }
+
+    #[test]
+    fn get_contract_storage_proof_keys_multiple_addresses() {
+        let args = TestProofCli::try_parse_from([
+            "test",
+            "--storages",
+            "0x123,0xabc",
+            "0x456,0xdef",
+            "0x789,0x111",
+        ])
+        .unwrap();
+        let result = parse_contract_storage_keys(&args.args.storages).unwrap();
+
+        assert_eq!(result.len(), 3);
+
+        let addr_123 =
+            result.iter().find(|r| r.address == ContractAddress::from(felt!("0x123"))).unwrap();
+        assert_eq!(addr_123.keys.len(), 1);
+        assert_eq!(addr_123.keys[0], StorageKey::from(felt!("0xabc")));
+
+        let addr_456 =
+            result.iter().find(|r| r.address == ContractAddress::from(felt!("0x456"))).unwrap();
+        assert_eq!(addr_456.keys.len(), 1);
+        assert_eq!(addr_456.keys[0], StorageKey::from(felt!("0xdef")));
+
+        let addr_789 =
+            result.iter().find(|r| r.address == ContractAddress::from(felt!("0x789"))).unwrap();
+        assert_eq!(addr_789.keys.len(), 1);
+        assert_eq!(addr_789.keys[0], StorageKey::from(felt!("0x111")));
+    }
+
+    #[test]
+    fn parse_contract_storage_keys_with_whitespace() {
+        let args = TestProofCli::try_parse_from(["test", "--storages", " 0x123 , 0xabc "]).unwrap();
+        let result = parse_contract_storage_keys(&args.args.storages).unwrap();
+
+        assert_eq!(result.len(), 1);
+        assert_eq!(result[0].address, ContractAddress::from(felt!("0x123")));
+        assert_eq!(result[0].keys[0], StorageKey::from(felt!("0xabc")));
+    }
+
+    #[test]
+    fn parse_contract_storage_keys_invalid_format() {
+        let input = vec!["0x123".to_string()];
+        let result = parse_contract_storage_keys(&input);
+        assert!(result.is_err());
+        assert!(result.unwrap_err().to_string().contains("invalid storage format"));
+    }
+
+    #[test]
+    fn parse_contract_storage_keys_invalid_address() {
+        let input = vec!["invalid,0xabc".to_string()];
+        let result = parse_contract_storage_keys(&input);
+        assert!(result.is_err());
+        assert!(result.unwrap_err().to_string().contains("invalid contract address"));
+    }
+
+    #[test]
+    fn parse_contract_storage_keys_invalid_key() {
+        let input = vec!["0x123,invalid".to_string()];
+        let result = parse_contract_storage_keys(&input);
+        assert!(result.is_err());
+        assert!(result.unwrap_err().to_string().contains("invalid storage key"));
     }
 }

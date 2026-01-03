@@ -12,6 +12,7 @@ katana-trie.workspace = true
 katana-metrics.workspace = true
 
 anyhow.workspace = true
+cairo-lang-starknet-classes.workspace = true
 arbitrary = { workspace = true, optional = true }
 metrics.workspace = true
 page_size = "0.6.0"

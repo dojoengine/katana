@@ -141,47 +141,47 @@ where
 
         async move {
             match pool.inner.validator.validate(tx).await {
-            Ok(outcome) => {
-                match outcome {
-                    ValidationOutcome::Valid(tx) => {
-                        // get the priority of the validated tx
-                        let priority = pool.inner.ordering.priority(&tx);
-                        let tx = PendingTx::new(id, tx, priority);
+	            Ok(outcome) => {
+	                match outcome {
+	                    ValidationOutcome::Valid(tx) => {
+	                        // get the priority of the validated tx
+	                        let priority = pool.inner.ordering.priority(&tx);
+	                        let tx = PendingTx::new(id, tx, priority);
 
-                        // insert the tx in the pool
-                        pool.inner.transactions.write().insert(tx.clone());
-                        trace!(target: "pool", "Transaction added to the pool");
+	                        // insert the tx in the pool
+	                        pool.inner.transactions.write().insert(tx.clone());
+	                        trace!(target: "pool", "Transaction added to the pool");
 
-                        pool.notify(tx);
+	                        pool.notify(tx);
 
-                        Ok(hash)
-                    }
+	                        Ok(hash)
+	                    }
 
-                    // TODO: create a small cache for rejected transactions to respect the rpc spec
-                    // `getTransactionStatus`
-                    ValidationOutcome::Invalid { error, .. } => {
-                        warn!(target: "pool", ?error, "Invalid transaction.");
-                        Err(PoolError::InvalidTransaction(Box::new(error)))
-                    }
+	                    // TODO: create a small cache for rejected transactions to respect the rpc spec
+	                    // `getTransactionStatus`
+	                    ValidationOutcome::Invalid { error, .. } => {
+	                        warn!(target: "pool", ?error, "Invalid transaction.");
+	                        Err(PoolError::InvalidTransaction(Box::new(error)))
+	                    }
 
-                    // return as error for now but ideally we should kept the tx in a separate
-                    // queue and revalidate it when the parent tx is added to the pool
-                    ValidationOutcome::Dependent { tx, tx_nonce, current_nonce } => {
-                        trace!(target: "pool", %tx_nonce, %current_nonce, "Dependent transaction.");
-                        let err = InvalidTransactionError::InvalidNonce {
-                            address: tx.sender(),
-                            current_nonce,
-                            tx_nonce,
-                        };
-                        Err(PoolError::InvalidTransaction(Box::new(err)))
-                    }
-                }
-            }
+	                    // return as error for now but ideally we should kept the tx in a separate
+	                    // queue and revalidate it when the parent tx is added to the pool
+	                    ValidationOutcome::Dependent { tx, tx_nonce, current_nonce } => {
+	                        trace!(target: "pool", %tx_nonce, %current_nonce, "Dependent transaction.");
+	                        let err = InvalidTransactionError::InvalidNonce {
+	                            address: tx.sender(),
+	                            current_nonce,
+	                            tx_nonce,
+	                        };
+	                        Err(PoolError::InvalidTransaction(Box::new(err)))
+	                    }
+	                }
+	            }
 
-            Err(error) => {
-                error!(target: "pool", %error, "Failed to validate transaction.");
-                Err(PoolError::Internal(error.error))
-            }
+	            Err(error) => {
+	                error!(target: "pool", %error, "Failed to validate transaction.");
+	                Err(PoolError::Internal(error.error))
+	            }
             }
         }
         .instrument(tracing::trace_span!(target: "pool", "pool_add", tx_hash = format!("{hash:#x}")))

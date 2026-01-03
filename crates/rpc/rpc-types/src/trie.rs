@@ -7,7 +7,7 @@ use katana_trie::bitvec::view::BitView;
 use katana_trie::{BitVec, MultiProof, Path, ProofNode};
 use serde::{Deserialize, Serialize};
 
-#[derive(Debug, Clone, Default, Serialize, Deserialize)]
+#[derive(Debug, Clone, Default, Serialize, Deserialize, Eq, PartialEq, Hash)]
 pub struct ContractStorageKeys {
     #[serde(rename = "contract_address")]
     pub address: ContractAddress,
@@ -25,7 +25,7 @@ pub struct GlobalRoots {
 }
 
 /// Node in the Merkle-Patricia trie.
-#[derive(Debug, Clone, Serialize, Deserialize)]
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
 #[serde(untagged)]
 pub enum MerkleNode {
     /// Represents a path to the highest non-zero descendant node.
@@ -107,13 +107,13 @@ pub struct ContractStorageProofs {
     pub nodes: Vec<Nodes>,
 }
 
-#[derive(Debug, Clone, Serialize, Deserialize)]
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
 pub struct NodeWithHash {
     pub node_hash: Felt,
     pub node: MerkleNode,
 }
 
-#[derive(Debug, Clone, Default, Serialize, Deserialize)]
+#[derive(Debug, Clone, Default, Serialize, Deserialize, PartialEq, Eq)]
 #[serde(transparent)]
 pub struct Nodes(pub Vec<NodeWithHash>);
 

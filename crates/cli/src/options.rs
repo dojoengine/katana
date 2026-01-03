@@ -10,6 +10,7 @@
 #[cfg(feature = "server")]
 use std::net::IpAddr;
 use std::num::NonZeroU128;
+use std::path::PathBuf;
 
 use clap::Args;
 use katana_genesis::Genesis;
@@ -30,7 +31,7 @@ use katana_primitives::block::{BlockIdOrTag, GasPrice};
 use katana_primitives::chain::ChainId;
 #[cfg(feature = "server")]
 use katana_rpc_server::cors::HeaderValue;
-use katana_tracing::{gcloud, otlp, LogFormat, TracerConfig};
+use katana_tracing::{default_log_file_directory, gcloud, otlp, LogColor, LogFormat, TracerConfig};
 use serde::{Deserialize, Serialize};
 use serde_utils::serialize_opt_as_hex;
 use url::Url;
@@ -41,6 +42,7 @@ use crate::utils::{parse_block_id_or_tag, parse_genesis};
 
 const DEFAULT_DEV_SEED: &str = "0";
 const DEFAULT_DEV_ACCOUNTS: u16 = 10;
+const DEFAULT_LOG_FILE_MAX_FILES: usize = 7;
 
 #[cfg(feature = "server")]
 #[derive(Debug, Args, Clone, Serialize, Deserialize, PartialEq)]
@@ -433,11 +435,59 @@ pub struct ForkingOptions {
 #[derive(Debug, Args, Clone, Serialize, Deserialize, Default, PartialEq)]
 #[command(next_help_heading = "Logging options")]
 pub struct LoggingOptions {
-    /// Log format to use
-    #[arg(long = "log.format", value_name = "FORMAT")]
-    #[arg(default_value_t = LogFormat::Full)]
-    pub log_format: LogFormat,
+    #[command(flatten)]
+    pub stdout: StdoutLoggingOptions,
+
+    #[command(flatten)]
+    pub file: FileLoggingOptions,
 }
+
+#[derive(Debug, Args, Clone, Serialize, Deserialize, Default, PartialEq)]
+pub struct StdoutLoggingOptions {
+    #[arg(long = "log.stdout.format", value_name = "FORMAT")]
+    #[arg(default_value_t = LogFormat::Full)]
+    pub stdout_format: LogFormat,
+
+    /// Sets whether or not the formatter emits ANSI terminal escape codes for colors and other
+    /// text formatting
+    ///
+    /// Possible values:
+    /// - always: Colors on
+    /// - auto:   Auto-detect
+    /// - never:  Colors off
+    #[arg(long = "color", value_name = "COLOR")]
+    #[arg(default_value_t = LogColor::Always)]
+    pub color: LogColor,
+}
+
+#[derive(Debug, Args, Clone, Serialize, Deserialize, Default, PartialEq)]
+pub struct FileLoggingOptions {
+    /// Enable writing logs to files.
+    #[arg(long = "log.file")]
+    #[serde(default)]
+    pub enabled: bool,
+
+    #[arg(requires = "enabled")]
+    #[arg(long = "log.file.format", value_name = "FORMAT")]
+    #[arg(default_value_t = LogFormat::Full)]
+    pub file_format: LogFormat,
+
+    /// The path to put log files in
+    #[arg(requires = "enabled")]
+    #[arg(long = "log.file.directory", value_name = "PATH")]
+    #[arg(default_value_os_t = default_log_file_directory())]
+    #[serde(default = "default_log_file_directory")]
+    pub directory: PathBuf,
+
+    /// Maximum number of daily log files to keep.
+    ///
+    /// If `0` is supplied, no files are deleted (unlimited retention).
+    #[arg(requires = "enabled")]
+    #[arg(long = "log.file.max-files", value_name = "COUNT")]
+    #[arg(default_value_t = DEFAULT_LOG_FILE_MAX_FILES)]
+    pub max_files: usize,
+}
+
 #[derive(Debug, Args, Default, Clone, Serialize, Deserialize, PartialEq)]
 #[command(next_help_heading = "Gas Price Oracle Options")]
 pub struct GasPriceOracleOptions {
@@ -717,5 +767,71 @@ impl TracerOptions {
             self.otlp_endpoint = other.otlp_endpoint;
         }
         self
+    }
+}
+
+#[derive(Debug, Args, Clone, Serialize, Deserialize, PartialEq)]
+#[command(next_help_heading = "Pruning options")]
+pub struct PruningOptions {
+    /// State pruning mode
+    ///
+    /// Determines how much historical state to retain:
+    /// - 'archive': Keep all historical state (no pruning, default)
+    /// - 'full:N': Keep last N blocks of historical state
+    #[arg(long = "prune.mode", value_name = "MODE", default_value = "archive")]
+    #[arg(value_parser = parse_pruning_mode)]
+    pub mode: PruningMode,
+}
+
+impl Default for PruningOptions {
+    fn default() -> Self {
+        Self { mode: PruningMode::Archive }
+    }
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
+#[serde(rename_all = "lowercase")]
+pub enum PruningMode {
+    Archive,
+    Full(u64),
+}
+
+fn parse_pruning_mode(s: &str) -> Result<PruningMode, String> {
+    match s.to_lowercase().as_str() {
+        "archive" => Ok(PruningMode::Archive),
+        s if s.starts_with("full:") => {
+            let n =
+                s.strip_prefix("full:").and_then(|n| n.parse::<u64>().ok()).ok_or_else(|| {
+                    "Invalid full format. Use 'full:N' where N is the number of blocks to keep"
+                        .to_string()
+                })?;
+            Ok(PruningMode::Full(n))
+        }
+        _ => Err(format!("Invalid pruning mode '{s}'. Valid modes are: 'archive', 'full:N'")),
+    }
+}
+
+#[cfg(feature = "tee")]
+#[derive(Debug, Args, Clone, Serialize, Deserialize, Default, PartialEq)]
+#[command(next_help_heading = "TEE options")]
+pub struct TeeOptions {
+    /// Enable TEE attestation support with AMD SEV-SNP.
+    ///
+    /// When enabled, the TEE RPC API becomes available for generating
+    /// hardware-backed attestation quotes. Requires running in an SEV-SNP VM
+    /// with /dev/sev-guest available.
+    #[arg(long = "tee.provider", value_name = "PROVIDER")]
+    #[serde(default)]
+    pub tee_provider: Option<katana_tee::TeeProviderType>,
+}
+
+#[cfg(feature = "tee")]
+impl TeeOptions {
+    pub fn merge(&mut self, other: Option<&Self>) {
+        if let Some(other) = other {
+            if self.tee_provider.is_none() {
+                self.tee_provider = other.tee_provider;
+            }
+        }
     }
 }

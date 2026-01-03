@@ -6,7 +6,6 @@ use std::time::Duration;
 
 use futures::stream::StreamExt;
 use futures::FutureExt;
-use katana_core::backend::storage::Blockchain;
 use katana_executor::implementation::blockifier::BlockifierFactory;
 use katana_executor::{ExecutionResult, ExecutorFactory};
 use katana_pool::ordering::FiFo;
@@ -17,6 +16,7 @@ use katana_primitives::transaction::TxWithHash;
 use katana_primitives::version::StarknetVersion;
 use katana_provider::api::state::{StateFactoryProvider, StateProvider};
 use katana_provider::providers::db::cached::{CachedStateProvider, SharedStateCache};
+use katana_provider::ProviderFactory;
 use katana_rpc_client::starknet::Client;
 use katana_rpc_types::block::GetBlockWithTxHashesResponse;
 use katana_rpc_types::BroadcastedTxWithChainId;

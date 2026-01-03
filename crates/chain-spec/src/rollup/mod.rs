@@ -1,18 +1,16 @@
 use katana_genesis::Genesis;
 use katana_primitives::block::{ExecutableBlock, GasPrices, PartialHeader};
 use katana_primitives::chain::ChainId;
-use katana_primitives::contract::ContractAddress;
 use katana_primitives::da::L1DataAvailabilityMode;
 use katana_primitives::version::CURRENT_STARKNET_VERSION;
-use serde::{Deserialize, Serialize};
 
-mod file;
-mod utils;
+pub mod file;
+pub mod utils;
 
 pub use file::*;
 pub use utils::DEFAULT_APPCHAIN_FEE_TOKEN_ADDRESS;
 
-use crate::SettlementLayer;
+use crate::{FeeContracts, SettlementLayer};
 
 /// The rollup chain specification.
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -24,7 +22,7 @@ pub struct ChainSpec {
     pub genesis: Genesis,
 
     /// The chain fee token contract.
-    pub fee_contract: FeeContract,
+    pub fee_contracts: FeeContracts,
 
     /// The chain's settlement layer configurations.
     pub settlement: SettlementLayer,
@@ -51,17 +49,5 @@ impl ChainSpec {
         let transactions = utils::GenesisTransactionsBuilder::new(self).build();
 
         ExecutableBlock { header, body: transactions }
-    }
-}
-
-/// Token that can be used for transaction fee payments on the chain.
-#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
-pub struct FeeContract {
-    pub strk: ContractAddress,
-}
-
-impl Default for FeeContract {
-    fn default() -> Self {
-        Self { strk: DEFAULT_APPCHAIN_FEE_TOKEN_ADDRESS }
     }
 }

@@ -1,35 +1,367 @@
 use std::collections::hash_map::Entry;
 use std::collections::{HashMap, VecDeque};
 use std::fmt::Debug;
+use std::io;
 use std::pin::Pin;
+#[cfg(test)]
+use std::sync::atomic::Ordering;
 use std::sync::mpsc::{
     channel as oneshot, Receiver as OneshotReceiver, RecvError, Sender as OneshotSender,
 };
 use std::sync::Arc;
 use std::task::{Context, Poll};
-use std::{io, thread};
 
 use anyhow::anyhow;
 use futures::channel::mpsc::{channel as async_channel, Receiver, SendError, Sender};
 use futures::future::BoxFuture;
 use futures::stream::Stream;
 use futures::{Future, FutureExt};
-use katana_primitives::block::BlockIdOrTag;
+use katana_metrics::metrics::Gauge;
+use katana_metrics::{metrics, Metrics};
+use katana_primitives::block::{BlockHashOrNumber, BlockIdOrTag, BlockNumber};
 use katana_primitives::class::{
     ClassHash, CompiledClassHash, ComputeClassHashError, ContractClass,
     ContractClassCompilationError,
 };
 use katana_primitives::contract::{ContractAddress, Nonce, StorageKey, StorageValue};
+use katana_primitives::transaction::TxHash;
+use katana_primitives::Felt;
 use katana_rpc_client::starknet::{
     Client as StarknetClient, Error as StarknetClientError, StarknetApiError,
 };
 use katana_rpc_types::class::Class;
+use katana_rpc_types::{
+    ContractStorageKeys, GetBlockWithReceiptsResponse, GetStorageProofResponse, StateUpdate,
+    TxReceiptWithBlockInfo,
+};
 use parking_lot::Mutex;
 use tracing::{error, trace};
 
-const LOG_TARGET: &str = "forking::backend";
+/// Default maximum number of concurrent requests that can be processed.
+/// This is a reasonable default to prevent overwhelming the remote RPC provider.
+const DEFAULT_WORKER_MAX_CONCURRENT_REQUESTS: usize = 50;
 
 type BackendResult<T> = Result<T, BackendError>;
+
+pub struct Backend {
+    sender: Mutex<Sender<BackendRequest>>,
+    metrics: BackendMetrics,
+    #[cfg(test)]
+    stats: BackendStats,
+}
+
+impl std::fmt::Debug for Backend {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        #[cfg(not(test))]
+        {
+            f.debug_struct("BackendClient")
+                .field("sender", &self.sender)
+                .field("metrics", &"<metrics>")
+                .finish()
+        }
+
+        #[cfg(test)]
+        {
+            f.debug_struct("BackendClient")
+                .field("sender", &self.sender)
+                .field("metrics", &"<metrics>")
+                .field("stats", &self.stats)
+                .finish()
+        }
+    }
+}
+
+impl Clone for Backend {
+    fn clone(&self) -> Self {
+        Self {
+            sender: Mutex::new(self.sender.lock().clone()),
+            metrics: self.metrics.clone(),
+            #[cfg(test)]
+            stats: self.stats.clone(),
+        }
+    }
+}
+
+/////////////////////////////////////////////////////////////////
+// Backend implementation
+/////////////////////////////////////////////////////////////////
+
+impl Backend {
+    pub fn new(provider: StarknetClient) -> Result<Self, BackendError> {
+        Self::new_with_config(provider, DEFAULT_WORKER_MAX_CONCURRENT_REQUESTS)
+    }
+
+    pub fn new_with_config(
+        provider: StarknetClient,
+        max_concurrent_requests: usize,
+    ) -> Result<Self, BackendError> {
+        let (request_tx, request_rx) = async_channel(100);
+        let metrics = BackendMetrics::default();
+
+        #[cfg(test)]
+        let stats = BackendStats::default();
+
+        let worker = BackendWorker {
+            incoming: request_rx,
+            metrics: metrics.clone(),
+            starknet_client: Arc::new(provider),
+            pending_requests: Vec::new(),
+            request_dedup_map: HashMap::new(),
+            queued_requests: VecDeque::new(),
+            max_concurrent_requests,
+            #[cfg(test)]
+            stats: stats.clone(),
+        };
+
+        std::thread::Builder::new()
+            .name("forking-backend-worker".into())
+            .spawn(move || {
+                tokio::runtime::Builder::new_current_thread()
+                    .enable_all()
+                    .build()
+                    .expect("failed to create tokio runtime")
+                    .block_on(worker);
+            })
+            .map_err(|e| BackendError::BackendThreadInit(Arc::new(e)))?;
+
+        trace!("Forking backend worker started.");
+
+        Ok(Backend {
+            metrics,
+            sender: Mutex::new(request_tx),
+            #[cfg(test)]
+            stats,
+        })
+    }
+
+    pub fn get_block(
+        &self,
+        block_id: BlockHashOrNumber,
+    ) -> Result<Option<GetBlockWithReceiptsResponse>, BackendClientError> {
+        trace!(%block_id, "Requesting block.");
+        let (req, rx) = BackendRequest::block(block_id);
+        self.request(req)?;
+        match rx.recv()? {
+            BackendResponse::Block(res) => handle_not_found_err(res),
+            response => Err(BackendClientError::UnexpectedResponse(anyhow!("{response:?}"))),
+        }
+    }
+
+    pub fn get_state_update(
+        &self,
+        block_id: BlockHashOrNumber,
+    ) -> Result<Option<StateUpdate>, BackendClientError> {
+        trace!(%block_id, "Requesting state update.");
+        let (req, rx) = BackendRequest::state_update(block_id);
+        self.request(req)?;
+        match rx.recv()? {
+            BackendResponse::StateUpdate(res) => handle_not_found_err(res),
+            response => Err(BackendClientError::UnexpectedResponse(anyhow!("{response:?}"))),
+        }
+    }
+
+    pub fn get_receipt(
+        &self,
+        tx_hash: TxHash,
+    ) -> Result<Option<TxReceiptWithBlockInfo>, BackendClientError> {
+        trace!(%tx_hash, "Requesting block.");
+        let (req, rx) = BackendRequest::receipt(tx_hash);
+        self.request(req)?;
+        match rx.recv()? {
+            BackendResponse::Receipt(res) => handle_not_found_err(res),
+            response => Err(BackendClientError::UnexpectedResponse(anyhow!("{response:?}"))),
+        }
+    }
+
+    pub fn get_nonce(
+        &self,
+        address: ContractAddress,
+        block_id: BlockNumber,
+    ) -> Result<Option<Nonce>, BackendClientError> {
+        trace!(%address, "Requesting contract nonce.");
+        let (req, rx) = BackendRequest::nonce(address, block_id);
+        self.request(req)?;
+        match rx.recv()? {
+            BackendResponse::Nonce(res) => handle_not_found_err(res),
+            response => Err(BackendClientError::UnexpectedResponse(anyhow!("{response:?}"))),
+        }
+    }
+
+    pub fn get_storage(
+        &self,
+        address: ContractAddress,
+        key: StorageKey,
+        block_id: BlockNumber,
+    ) -> Result<Option<StorageValue>, BackendClientError> {
+        trace!(%address, key = %format!("{key:#x}"), "Requesting contract storage.");
+        let (req, rx) = BackendRequest::storage(address, key, block_id);
+        self.request(req)?;
+        match rx.recv()? {
+            BackendResponse::Storage(res) => handle_not_found_err(res),
+            response => Err(BackendClientError::UnexpectedResponse(anyhow!("{response:?}"))),
+        }
+    }
+
+    pub fn get_class_hash_at(
+        &self,
+        address: ContractAddress,
+        block_id: BlockNumber,
+    ) -> Result<Option<ClassHash>, BackendClientError> {
+        trace!(%address, "Requesting contract class hash.");
+        let (req, rx) = BackendRequest::class_hash(address, block_id);
+        self.request(req)?;
+        match rx.recv()? {
+            BackendResponse::ClassHashAt(res) => handle_not_found_err(res),
+            response => Err(BackendClientError::UnexpectedResponse(anyhow!("{response:?}"))),
+        }
+    }
+
+    pub fn get_class_at(
+        &self,
+        class_hash: ClassHash,
+        block_id: BlockNumber,
+    ) -> Result<Option<ContractClass>, BackendClientError> {
+        trace!(class_hash = %format!("{class_hash:#x}"), "Requesting class.");
+        let (req, rx) = BackendRequest::class(class_hash, block_id);
+        self.request(req)?;
+        match rx.recv()? {
+            BackendResponse::ClassAt(res) => {
+                if let Some(class) = handle_not_found_err(res)? {
+                    Ok(Some(ContractClass::try_from(class)?))
+                } else {
+                    Ok(None)
+                }
+            }
+            response => Err(BackendClientError::UnexpectedResponse(anyhow!("{response:?}"))),
+        }
+    }
+
+    pub fn get_compiled_class_hash(
+        &self,
+        class_hash: ClassHash,
+        block_id: BlockNumber,
+    ) -> Result<Option<CompiledClassHash>, BackendClientError> {
+        trace!(class_hash = %format!("{class_hash:#x}"), "Requesting compiled class hash.");
+        if let Some(class) = self.get_class_at(class_hash, block_id)? {
+            let class = class.compile()?;
+            Ok(Some(class.class_hash()?))
+        } else {
+            Ok(None)
+        }
+    }
+
+    pub fn get_classes_proofs(
+        &self,
+        classes: Vec<ClassHash>,
+        block_id: BlockNumber,
+    ) -> Result<Option<GetStorageProofResponse>, BackendClientError> {
+        trace!(classes = %classes.len(), block = %block_id, "Requesting classes proofs.");
+        let (req, rx) = BackendRequest::classes_proof(classes, block_id);
+        self.request(req)?;
+        match rx.recv()? {
+            BackendResponse::Proofs(res) => {
+                if let Some(proofs) = handle_not_found_err(res)? {
+                    Ok(Some(proofs))
+                } else {
+                    Ok(None)
+                }
+            }
+            response => Err(BackendClientError::UnexpectedResponse(anyhow!("{response:?}"))),
+        }
+    }
+
+    pub fn get_contracts_proofs(
+        &self,
+        contracts: Vec<ContractAddress>,
+        block_id: BlockNumber,
+    ) -> Result<Option<GetStorageProofResponse>, BackendClientError> {
+        trace!(contracts = %contracts.len(), block = %block_id, "Requesting contracts proofs.");
+        let (req, rx) = BackendRequest::contracts_proof(contracts, block_id);
+        self.request(req)?;
+        match rx.recv()? {
+            BackendResponse::Proofs(res) => {
+                if let Some(proofs) = handle_not_found_err(res)? {
+                    Ok(Some(proofs))
+                } else {
+                    Ok(None)
+                }
+            }
+            response => Err(BackendClientError::UnexpectedResponse(anyhow!("{response:?}"))),
+        }
+    }
+
+    pub fn get_storages_proofs(
+        &self,
+        storages: Vec<ContractStorageKeys>,
+        block_id: BlockNumber,
+    ) -> Result<Option<GetStorageProofResponse>, BackendClientError> {
+        trace!(contracts = %storages.len(), block = %block_id, "Requesting storages proofs.");
+        let (req, rx) = BackendRequest::storages_proof(storages, block_id);
+        self.request(req)?;
+        match rx.recv()? {
+            BackendResponse::Proofs(res) => {
+                if let Some(proofs) = handle_not_found_err(res)? {
+                    Ok(Some(proofs))
+                } else {
+                    Ok(None)
+                }
+            }
+            response => Err(BackendClientError::UnexpectedResponse(anyhow!("{response:?}"))),
+        }
+    }
+
+    pub fn get_global_roots(
+        &self,
+        block_id: BlockNumber,
+    ) -> Result<Option<GetStorageProofResponse>, BackendClientError> {
+        trace!(block = %block_id, "Requesting state roots.");
+        let (req, rx) = BackendRequest::global_roots(block_id);
+        self.request(req)?;
+        match rx.recv()? {
+            BackendResponse::GlobalRoots(res) => {
+                if let Some(roots) = handle_not_found_err(res)? {
+                    Ok(Some(roots))
+                } else {
+                    Ok(None)
+                }
+            }
+            response => Err(BackendClientError::UnexpectedResponse(anyhow!("{response:?}"))),
+        }
+    }
+
+    pub fn get_storage_root(
+        &self,
+        contract: ContractAddress,
+        block_id: BlockNumber,
+    ) -> Result<Option<Felt>, BackendClientError> {
+        trace!(%contract, block = %block_id, "Requesting storage root.");
+        let (req, rx) = BackendRequest::storage_root(contract, block_id);
+        self.request(req)?;
+        match rx.recv()? {
+            BackendResponse::StorageRoot(res) => {
+                if let Some(root) = handle_not_found_err(res)? {
+                    Ok(Some(root))
+                } else {
+                    Ok(None)
+                }
+            }
+            response => Err(BackendClientError::UnexpectedResponse(anyhow!("{response:?}"))),
+        }
+    }
+
+    /// Send a request to the backend thread.
+    fn request(&self, req: BackendRequest) -> Result<(), BackendClientError> {
+        self.sender.lock().try_send(req).map_err(|e| e.into_send_error())?;
+        Ok(())
+    }
+
+    /// Get the current number of pending requests.
+    /// This is a test-only method that reads the atomic counter.
+    #[cfg(test)]
+    fn stats(&self) -> &BackendStats {
+        &self.stats
+    }
+}
 
 /// The types of response from [`Backend`].
 ///
@@ -41,10 +373,16 @@ type BackendResult<T> = Result<T, BackendError>;
 /// sender in the deduplication vector.
 #[derive(Debug, Clone)]
 enum BackendResponse {
+    Receipt(BackendResult<TxReceiptWithBlockInfo>),
+    Block(BackendResult<GetBlockWithReceiptsResponse>),
+    StateUpdate(BackendResult<StateUpdate>),
     Nonce(BackendResult<Nonce>),
     Storage(BackendResult<StorageValue>),
     ClassHashAt(BackendResult<ClassHash>),
     ClassAt(BackendResult<Class>),
+    StorageRoot(BackendResult<Felt>),
+    GlobalRoots(BackendResult<GetStorageProofResponse>),
+    Proofs(BackendResult<GetStorageProofResponse>),
 }
 
 /// Errors that can occur when interacting with the backend.
@@ -63,52 +401,124 @@ struct Request<P> {
     sender: OneshotSender<BackendResponse>,
 }
 
+#[derive(Eq, Hash, PartialEq, Clone, Debug)]
+enum ProofsType {
+    Classes(Vec<ClassHash>),
+    Contracts(Vec<ContractAddress>),
+    Storages(Vec<ContractStorageKeys>),
+}
+
 /// The types of request that can be sent to [`Backend`].
 ///
 /// Each request consists of a payload and the sender half of a oneshot channel that will be used
 /// to send the result back to the backend handle.
 enum BackendRequest {
-    Nonce(Request<ContractAddress>),
-    Class(Request<ClassHash>),
-    ClassHash(Request<ContractAddress>),
-    Storage(Request<(ContractAddress, StorageKey)>),
-    // Test-only request kind for requesting the backend stats
-    #[cfg(test)]
-    Stats(OneshotSender<usize>),
+    Receipt(Request<TxHash>),
+    GlobalRoots(Request<BlockNumber>),
+    StorageRoot(Request<(ContractAddress, BlockNumber)>),
+    Block(Request<BlockHashOrNumber>),
+    StateUpdate(Request<BlockHashOrNumber>),
+    Class(Request<(ClassHash, BlockNumber)>),
+    Proofs(Request<(ProofsType, BlockNumber)>),
+    Nonce(Request<(ContractAddress, BlockNumber)>),
+    ClassHash(Request<(ContractAddress, BlockNumber)>),
+    Storage(Request<((ContractAddress, StorageKey), BlockNumber)>),
 }
 
 impl BackendRequest {
-    /// Create a new request for fetching the nonce of a contract.
-    fn nonce(address: ContractAddress) -> (BackendRequest, OneshotReceiver<BackendResponse>) {
+    fn receipt(tx_hash: TxHash) -> (BackendRequest, OneshotReceiver<BackendResponse>) {
         let (sender, receiver) = oneshot();
-        (BackendRequest::Nonce(Request { payload: address, sender }), receiver)
+        (BackendRequest::Receipt(Request { payload: tx_hash, sender }), receiver)
+    }
+
+    /// Create a new request for fetching the nonce of a contract.
+    fn block(block_id: BlockHashOrNumber) -> (BackendRequest, OneshotReceiver<BackendResponse>) {
+        let (sender, receiver) = oneshot();
+        (BackendRequest::Block(Request { payload: block_id, sender }), receiver)
+    }
+
+    fn state_update(
+        block_id: BlockHashOrNumber,
+    ) -> (BackendRequest, OneshotReceiver<BackendResponse>) {
+        let (sender, receiver) = oneshot();
+        (BackendRequest::StateUpdate(Request { payload: block_id, sender }), receiver)
+    }
+
+    /// Create a new request for fetching the nonce of a contract.
+    fn nonce(
+        address: ContractAddress,
+        block_id: BlockNumber,
+    ) -> (BackendRequest, OneshotReceiver<BackendResponse>) {
+        let (sender, receiver) = oneshot();
+        (BackendRequest::Nonce(Request { payload: (address, block_id), sender }), receiver)
     }
 
     /// Create a new request for fetching the class definitions of a contract.
-    fn class(hash: ClassHash) -> (BackendRequest, OneshotReceiver<BackendResponse>) {
+    fn class(
+        hash: ClassHash,
+        block_id: BlockNumber,
+    ) -> (BackendRequest, OneshotReceiver<BackendResponse>) {
         let (sender, receiver) = oneshot();
-        (BackendRequest::Class(Request { payload: hash, sender }), receiver)
+        (BackendRequest::Class(Request { payload: (hash, block_id), sender }), receiver)
     }
 
     /// Create a new request for fetching the class hash of a contract.
-    fn class_hash(address: ContractAddress) -> (BackendRequest, OneshotReceiver<BackendResponse>) {
+    fn class_hash(
+        address: ContractAddress,
+        block_id: BlockNumber,
+    ) -> (BackendRequest, OneshotReceiver<BackendResponse>) {
         let (sender, receiver) = oneshot();
-        (BackendRequest::ClassHash(Request { payload: address, sender }), receiver)
+        (BackendRequest::ClassHash(Request { payload: (address, block_id), sender }), receiver)
     }
 
     /// Create a new request for fetching the storage value of a contract.
     fn storage(
         address: ContractAddress,
         key: StorageKey,
+        block_id: BlockNumber,
     ) -> (BackendRequest, OneshotReceiver<BackendResponse>) {
         let (sender, receiver) = oneshot();
-        (BackendRequest::Storage(Request { payload: (address, key), sender }), receiver)
+        (BackendRequest::Storage(Request { payload: ((address, key), block_id), sender }), receiver)
     }
 
-    #[cfg(test)]
-    fn stats() -> (BackendRequest, OneshotReceiver<usize>) {
+    fn classes_proof(
+        classes: Vec<ClassHash>,
+        block_id: BlockNumber,
+    ) -> (BackendRequest, OneshotReceiver<BackendResponse>) {
         let (sender, receiver) = oneshot();
-        (BackendRequest::Stats(sender), receiver)
+        let payload = (ProofsType::Classes(classes), block_id);
+        (BackendRequest::Proofs(Request { payload, sender }), receiver)
+    }
+
+    fn contracts_proof(
+        contracts: Vec<ContractAddress>,
+        block_id: BlockNumber,
+    ) -> (BackendRequest, OneshotReceiver<BackendResponse>) {
+        let (sender, receiver) = oneshot();
+        let payload = (ProofsType::Contracts(contracts), block_id);
+        (BackendRequest::Proofs(Request { payload, sender }), receiver)
+    }
+
+    fn storages_proof(
+        storages: Vec<ContractStorageKeys>,
+        block_id: BlockNumber,
+    ) -> (BackendRequest, OneshotReceiver<BackendResponse>) {
+        let (sender, receiver) = oneshot();
+        let payload = (ProofsType::Storages(storages), block_id);
+        (BackendRequest::Proofs(Request { payload, sender }), receiver)
+    }
+
+    fn global_roots(block_id: BlockNumber) -> (BackendRequest, OneshotReceiver<BackendResponse>) {
+        let (sender, receiver) = oneshot();
+        (BackendRequest::GlobalRoots(Request { payload: block_id, sender }), receiver)
+    }
+
+    fn storage_root(
+        contract: ContractAddress,
+        block_id: BlockNumber,
+    ) -> (BackendRequest, OneshotReceiver<BackendResponse>) {
+        let (sender, receiver) = oneshot();
+        (BackendRequest::StorageRoot(Request { payload: (contract, block_id), sender }), receiver)
     }
 }
 
@@ -116,97 +526,132 @@ type BackendRequestFuture = BoxFuture<'static, BackendResponse>;
 
 // Identifier for pending requests.
 // This is used for request deduplication.
-#[derive(Eq, Hash, PartialEq, Clone, Copy, Debug)]
+#[derive(Eq, Hash, PartialEq, Clone, Debug)]
 enum BackendRequestIdentifier {
-    Nonce(ContractAddress),
-    Class(ClassHash),
-    ClassHash(ContractAddress),
-    Storage((ContractAddress, StorageKey)),
+    Receipt(TxHash),
+    GlobalRoots(BlockNumber),
+    StorageRoot(ContractAddress, BlockNumber),
+    Block(BlockHashOrNumber),
+    Proofs(ProofsType, BlockNumber),
+    StateUpdate(BlockHashOrNumber),
+    Nonce(ContractAddress, BlockNumber),
+    Class(ClassHash, BlockNumber),
+    ClassHash(ContractAddress, BlockNumber),
+    Storage((ContractAddress, StorageKey), BlockNumber),
 }
+
+/// Metrics for the forking backend.
+#[derive(Metrics, Clone)]
+#[metrics(scope = "forking.backend")]
+pub struct BackendMetrics {
+    /// Number of requests currently being processed (pending)
+    pub pending_requests: Gauge,
+    /// Number of requests queued and waiting to be processed
+    pub queued_requests: Gauge,
+}
+
+/////////////////////////////////////////////////////////////////
+// BackendWorker
+/////////////////////////////////////////////////////////////////
 
 /// The backend for the forked provider.
 ///
 /// It is responsible for processing [requests](BackendRequest) to fetch data from the remote
 /// provider.
-pub struct Backend {
+struct BackendWorker {
     /// The Starknet RPC provider that will be used to fetch data from.
-    provider: Arc<StarknetClient>,
+    starknet_client: Arc<StarknetClient>,
     // HashMap that keep track of current requests, for dedup purposes.
     request_dedup_map: HashMap<BackendRequestIdentifier, Vec<OneshotSender<BackendResponse>>>,
     /// Requests that are currently being poll.
     pending_requests: Vec<(BackendRequestIdentifier, BackendRequestFuture)>,
     /// Requests that are queued to be polled.
     queued_requests: VecDeque<BackendRequest>,
-    /// A channel for receiving requests from the [BackendHandle]s.
+    /// A channel for receiving requests from the [Backend]s.
     incoming: Receiver<BackendRequest>,
-    /// Pinned block id for all requests.
-    block_id: BlockIdOrTag,
+    /// Maximum number of concurrent requests that can be processed.
+    max_concurrent_requests: usize,
+    /// Metrics for the backend.
+    metrics: BackendMetrics,
+    #[cfg(test)]
+    stats: BackendStats,
 }
 
 /////////////////////////////////////////////////////////////////
-// Backend implementation
+// BackendWorker implementation
 /////////////////////////////////////////////////////////////////
 
-impl Backend {
-    // TODO(kariy): create a `.start()` method start running the backend logic and let the users
-    // choose which thread to running it on instead of spawning the thread ourselves.
-    /// Create a new [Backend] with the given provider and block id, and returns a handle to it. The
-    /// backend will start processing requests immediately upon creation.
-    #[allow(clippy::new_ret_no_self)]
-    pub fn new(
-        provider: StarknetClient,
-        block_id: BlockIdOrTag,
-    ) -> Result<BackendClient, BackendError> {
-        let (handle, backend) = Self::new_inner(provider, block_id);
-
-        thread::Builder::new()
-            .name("forking-backend".into())
-            .spawn(move || {
-                tokio::runtime::Builder::new_current_thread()
-                    .enable_all()
-                    .build()
-                    .expect("failed to create tokio runtime")
-                    .block_on(backend);
-            })
-            .map_err(|e| BackendError::BackendThreadInit(Arc::new(e)))?;
-
-        trace!(target: LOG_TARGET, "Forking backend started.");
-
-        Ok(handle)
-    }
-
-    fn new_inner(provider: StarknetClient, block_id: BlockIdOrTag) -> (BackendClient, Backend) {
-        // Create async channel to receive requests from the handle.
-        let (tx, rx) = async_channel(100);
-        let backend = Backend {
-            block_id,
-            incoming: rx,
-            provider: Arc::new(provider),
-            request_dedup_map: HashMap::new(),
-            pending_requests: Vec::new(),
-            queued_requests: VecDeque::new(),
-        };
-
-        (BackendClient(Mutex::new(tx)), backend)
-    }
-
+impl BackendWorker {
     /// This method is responsible for transforming the incoming request
-    /// sent from a [BackendHandle] into a RPC request to the remote network.
+    /// sent from a [Backend] into a RPC request to the remote network.
     fn handle_requests(&mut self, request: BackendRequest) {
-        let block_id = self.block_id;
-        let provider = self.provider.clone();
+        let provider = self.starknet_client.clone();
 
         // Check if there are similar requests in the queue before sending the request
         match request {
-            BackendRequest::Nonce(Request { payload, sender }) => {
-                let req_key = BackendRequestIdentifier::Nonce(payload);
+            BackendRequest::Receipt(Request { payload: tx_hash, sender }) => {
+                let req_key = BackendRequestIdentifier::Receipt(tx_hash);
 
                 self.dedup_request(
                     req_key,
                     sender,
                     Box::pin(async move {
                         let res = provider
-                            .get_nonce(block_id, payload)
+                            .get_transaction_receipt(tx_hash)
+                            .await
+                            .map_err(|e| BackendError::StarknetProvider(Arc::new(e)));
+
+                        BackendResponse::Receipt(res)
+                    }),
+                );
+            }
+
+            BackendRequest::Block(Request { payload: block_id, sender }) => {
+                let req_key = BackendRequestIdentifier::Block(block_id);
+                let block_id = BlockIdOrTag::from(block_id);
+
+                self.dedup_request(
+                    req_key,
+                    sender,
+                    Box::pin(async move {
+                        let res = provider
+                            .get_block_with_receipts(block_id)
+                            .await
+                            .map_err(|e| BackendError::StarknetProvider(Arc::new(e)));
+
+                        BackendResponse::Block(res)
+                    }),
+                );
+            }
+
+            BackendRequest::StateUpdate(Request { payload: block_id, sender }) => {
+                let req_key = BackendRequestIdentifier::StateUpdate(block_id);
+                let block_id = BlockIdOrTag::from(block_id);
+
+                self.dedup_request(
+                    req_key,
+                    sender,
+                    Box::pin(async move {
+                        let res = provider
+                            .get_state_update(block_id)
+                            .await
+                            .map_err(|e| BackendError::StarknetProvider(Arc::new(e)));
+
+                        BackendResponse::StateUpdate(res)
+                    }),
+                );
+            }
+
+            BackendRequest::Nonce(Request { payload: (address, block_id), sender }) => {
+                let req_key = BackendRequestIdentifier::Nonce(address, block_id);
+                let block_id = BlockIdOrTag::from(block_id);
+
+                self.dedup_request(
+                    req_key,
+                    sender,
+                    Box::pin(async move {
+                        let res = provider
+                            .get_nonce(block_id, address)
                             .await
                             .map_err(|e| BackendError::StarknetProvider(Arc::new(e)));
 
@@ -215,8 +660,9 @@ impl Backend {
                 );
             }
 
-            BackendRequest::Storage(Request { payload: (addr, key), sender }) => {
-                let req_key = BackendRequestIdentifier::Storage((addr, key));
+            BackendRequest::Storage(Request { payload: ((addr, key), block_id), sender }) => {
+                let req_key = BackendRequestIdentifier::Storage((addr, key), block_id);
+                let block_id = BlockIdOrTag::from(block_id);
 
                 self.dedup_request(
                     req_key,
@@ -232,15 +678,16 @@ impl Backend {
                 );
             }
 
-            BackendRequest::ClassHash(Request { payload, sender }) => {
-                let req_key = BackendRequestIdentifier::ClassHash(payload);
+            BackendRequest::ClassHash(Request { payload: (address, block_id), sender }) => {
+                let req_key = BackendRequestIdentifier::ClassHash(address, block_id);
+                let block_id = BlockIdOrTag::from(block_id);
 
                 self.dedup_request(
                     req_key,
                     sender,
                     Box::pin(async move {
                         let res = provider
-                            .get_class_hash_at(block_id, payload)
+                            .get_class_hash_at(block_id, address)
                             .await
                             .map_err(|e| BackendError::StarknetProvider(Arc::new(e)));
 
@@ -249,15 +696,16 @@ impl Backend {
                 );
             }
 
-            BackendRequest::Class(Request { payload, sender }) => {
-                let req_key = BackendRequestIdentifier::Class(payload);
+            BackendRequest::Class(Request { payload: (hash, block_id), sender }) => {
+                let req_key = BackendRequestIdentifier::Class(hash, block_id);
+                let block_id = BlockIdOrTag::from(block_id);
 
                 self.dedup_request(
                     req_key,
                     sender,
                     Box::pin(async move {
                         let res = provider
-                            .get_class(block_id, payload)
+                            .get_class(block_id, hash)
                             .await
                             .map_err(|e| BackendError::StarknetProvider(Arc::new(e)));
 
@@ -266,10 +714,84 @@ impl Backend {
                 );
             }
 
-            #[cfg(test)]
-            BackendRequest::Stats(sender) => {
-                let total_ongoing_request = self.pending_requests.len();
-                sender.send(total_ongoing_request).expect("failed to send backend stats");
+            BackendRequest::Proofs(Request { payload: (r#type, block_id), sender }) => {
+                let req_key = BackendRequestIdentifier::Proofs(r#type.clone(), block_id);
+                let block_id = BlockIdOrTag::from(block_id);
+
+                let request: BoxFuture<'static, BackendResponse> = match r#type {
+                    ProofsType::Classes(classes) => Box::pin(async move {
+                        let res = provider
+                            .get_storage_proof(block_id, Some(classes), None, None)
+                            .await
+                            .map_err(|e| BackendError::StarknetProvider(Arc::new(e)));
+
+                        BackendResponse::Proofs(res)
+                    }),
+
+                    ProofsType::Contracts(contracts) => Box::pin(async move {
+                        let res = provider
+                            .get_storage_proof(block_id, None, Some(contracts), None)
+                            .await
+                            .map_err(|e| BackendError::StarknetProvider(Arc::new(e)));
+
+                        BackendResponse::Proofs(res)
+                    }),
+
+                    ProofsType::Storages(storage_keys) => Box::pin(async move {
+                        let res = provider
+                            .get_storage_proof(block_id, None, None, Some(storage_keys))
+                            .await
+                            .map_err(|e| BackendError::StarknetProvider(Arc::new(e)));
+
+                        BackendResponse::Proofs(res)
+                    }),
+                };
+
+                self.dedup_request(req_key, sender, request);
+            }
+
+            BackendRequest::GlobalRoots(Request { payload: block_id, sender }) => {
+                let req_key = BackendRequestIdentifier::GlobalRoots(block_id);
+                let block_id = BlockIdOrTag::from(block_id);
+
+                self.dedup_request(
+                    req_key,
+                    sender,
+                    Box::pin(async move {
+                        let res = provider
+                            .get_storage_proof(block_id, None, None, None)
+                            .await
+                            .map_err(|e| BackendError::StarknetProvider(Arc::new(e)));
+
+                        BackendResponse::GlobalRoots(res)
+                    }),
+                );
+            }
+
+            BackendRequest::StorageRoot(Request { payload: (contract, block_id), sender }) => {
+                let req_key = BackendRequestIdentifier::StorageRoot(contract, block_id);
+                let block_id = BlockIdOrTag::from(block_id);
+
+                self.dedup_request(
+                    req_key,
+                    sender,
+                    Box::pin(async move {
+                        let res = provider
+                            .get_storage_proof(block_id, None, Some(vec![contract]), None)
+                            .await
+                            .map(|mut proof| {
+                                proof
+                                    .contracts_proof
+                                    .contract_leaves_data
+                                    .pop()
+                                    .expect("must exist")
+                                    .storage_root
+                            })
+                            .map_err(|e| BackendError::StarknetProvider(Arc::new(e)));
+
+                        BackendResponse::StorageRoot(res)
+                    }),
+                );
             }
         }
     }
@@ -280,7 +802,7 @@ impl Backend {
         sender: OneshotSender<BackendResponse>,
         rpc_call_future: BoxFuture<'static, BackendResponse>,
     ) {
-        if let Entry::Vacant(e) = self.request_dedup_map.entry(req_key) {
+        if let Entry::Vacant(e) = self.request_dedup_map.entry(req_key.clone()) {
             self.pending_requests.push((req_key, rpc_call_future));
             e.insert(vec![sender]);
         } else {
@@ -291,22 +813,38 @@ impl Backend {
                 None => {
                     // Log this and do nothing here, as this should never happen.
                     // If this does happen it is an unexpected bug.
-                    error!(target: LOG_TARGET, "failed to get current request dedup vector");
+                    error!("failed to get current request dedup vector");
                 }
             }
         }
     }
 }
 
-impl Future for Backend {
+impl Future for BackendWorker {
     type Output = ();
 
     fn poll(self: Pin<&mut Self>, cx: &mut Context<'_>) -> Poll<Self::Output> {
         let pin = self.get_mut();
         loop {
-            // convert all queued requests into futures to be polled
-            while let Some(req) = pin.queued_requests.pop_front() {
-                pin.handle_requests(req);
+            // convert queued requests into futures to be polled, respecting the concurrent limit
+            while !pin.queued_requests.is_empty()
+                && pin.pending_requests.len() < pin.max_concurrent_requests
+            {
+                if let Some(req) = pin.queued_requests.pop_front() {
+                    pin.handle_requests(req);
+                }
+            }
+
+            // Update metrics and atomic counters
+            let pending_count = pin.pending_requests.len();
+            let queued_count = pin.queued_requests.len();
+            pin.metrics.pending_requests.set(pending_count as f64);
+            pin.metrics.queued_requests.set(queued_count as f64);
+
+            #[cfg(test)]
+            {
+                pin.stats.pending_requests_count.store(pending_count, Ordering::Relaxed);
+                pin.stats.queued_requests_count.store(queued_count, Ordering::Relaxed);
             }
 
             loop {
@@ -341,14 +879,26 @@ impl Future for Backend {
 
                         // Send the response to all the senders waiting on the same request
                         sender_vec.iter().for_each(|sender| {
-                            sender.send(res.clone()).unwrap_or_else(|error| {
-                            	error!(target: LOG_TARGET, key = ?fut_key, %error, "Failed to send result.")
-                            });
+                            sender.send(res.clone()).unwrap_or_else(
+                                |error| error!(key = ?fut_key, %error, "Failed to send result."),
+                            );
                         });
 
                         pin.request_dedup_map.remove(&fut_key);
                     }
                 }
+            }
+
+            // Update metrics and atomic counters after processing
+            let pending_count = pin.pending_requests.len();
+            let queued_count = pin.queued_requests.len();
+            pin.metrics.pending_requests.set(pending_count as f64);
+            pin.metrics.queued_requests.set(queued_count as f64);
+
+            #[cfg(test)]
+            {
+                pin.stats.pending_requests_count.store(pending_count, Ordering::Relaxed);
+                pin.stats.queued_requests_count.store(queued_count, Ordering::Relaxed);
             }
 
             // if no queued requests, then yield
@@ -359,16 +909,34 @@ impl Future for Backend {
     }
 }
 
-impl Debug for Backend {
+impl std::fmt::Debug for BackendWorker {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         f.debug_struct("Backend")
-            .field("provider", &self.provider)
+            .field("provider", &self.starknet_client)
             .field("request_dedup_map", &self.request_dedup_map)
             .field("pending_requests", &self.pending_requests.len())
             .field("queued_requests", &self.queued_requests.len())
             .field("incoming", &self.incoming)
-            .field("block", &self.block_id)
+            .field("max_concurrent_requests", &self.max_concurrent_requests)
             .finish()
+    }
+}
+
+#[cfg(test)]
+#[derive(Debug, Clone, Default)]
+struct BackendStats {
+    pending_requests_count: Arc<std::sync::atomic::AtomicUsize>,
+    queued_requests_count: Arc<std::sync::atomic::AtomicUsize>,
+}
+
+#[cfg(test)]
+impl BackendStats {
+    fn pending_requests_count(&self) -> usize {
+        self.pending_requests_count.load(Ordering::Relaxed)
+    }
+
+    fn queued_requests_count(&self) -> usize {
+        self.queued_requests_count.load(Ordering::Relaxed)
     }
 }
 
@@ -396,107 +964,6 @@ pub enum BackendClientError {
     UnexpectedResponse(anyhow::Error),
 }
 
-/// A thread safe handler to [`Backend`].
-///
-/// This is the primary interface for sending request to the backend to fetch data from the remote
-/// network.
-#[derive(Debug)]
-pub struct BackendClient(Mutex<Sender<BackendRequest>>);
-
-impl Clone for BackendClient {
-    fn clone(&self) -> Self {
-        Self(Mutex::new(self.0.lock().clone()))
-    }
-}
-
-/////////////////////////////////////////////////////////////////
-// BackendHandle implementation
-/////////////////////////////////////////////////////////////////
-
-impl BackendClient {
-    pub fn get_nonce(&self, address: ContractAddress) -> Result<Option<Nonce>, BackendClientError> {
-        trace!(target: LOG_TARGET, %address, "Requesting contract nonce.");
-        let (req, rx) = BackendRequest::nonce(address);
-        self.request(req)?;
-        match rx.recv()? {
-            BackendResponse::Nonce(res) => handle_not_found_err(res),
-            response => Err(BackendClientError::UnexpectedResponse(anyhow!("{response:?}"))),
-        }
-    }
-
-    pub fn get_storage(
-        &self,
-        address: ContractAddress,
-        key: StorageKey,
-    ) -> Result<Option<StorageValue>, BackendClientError> {
-        trace!(target: LOG_TARGET, %address, key = %format!("{key:#x}"), "Requesting contract storage.");
-        let (req, rx) = BackendRequest::storage(address, key);
-        self.request(req)?;
-        match rx.recv()? {
-            BackendResponse::Storage(res) => handle_not_found_err(res),
-            response => Err(BackendClientError::UnexpectedResponse(anyhow!("{response:?}"))),
-        }
-    }
-
-    pub fn get_class_hash_at(
-        &self,
-        address: ContractAddress,
-    ) -> Result<Option<ClassHash>, BackendClientError> {
-        trace!(target: LOG_TARGET, %address, "Requesting contract class hash.");
-        let (req, rx) = BackendRequest::class_hash(address);
-        self.request(req)?;
-        match rx.recv()? {
-            BackendResponse::ClassHashAt(res) => handle_not_found_err(res),
-            response => Err(BackendClientError::UnexpectedResponse(anyhow!("{response:?}"))),
-        }
-    }
-
-    pub fn get_class_at(
-        &self,
-        class_hash: ClassHash,
-    ) -> Result<Option<ContractClass>, BackendClientError> {
-        trace!(target: LOG_TARGET, class_hash = %format!("{class_hash:#x}"), "Requesting class.");
-        let (req, rx) = BackendRequest::class(class_hash);
-        self.request(req)?;
-        match rx.recv()? {
-            BackendResponse::ClassAt(res) => {
-                if let Some(class) = handle_not_found_err(res)? {
-                    Ok(Some(ContractClass::try_from(class)?))
-                } else {
-                    Ok(None)
-                }
-            }
-            response => Err(BackendClientError::UnexpectedResponse(anyhow!("{response:?}"))),
-        }
-    }
-
-    pub fn get_compiled_class_hash(
-        &self,
-        class_hash: ClassHash,
-    ) -> Result<Option<CompiledClassHash>, BackendClientError> {
-        trace!(target: LOG_TARGET, class_hash = %format!("{class_hash:#x}"), "Requesting compiled class hash.");
-        if let Some(class) = self.get_class_at(class_hash)? {
-            let class = class.compile()?;
-            Ok(Some(class.class_hash()?))
-        } else {
-            Ok(None)
-        }
-    }
-
-    /// Send a request to the backend thread.
-    fn request(&self, req: BackendRequest) -> Result<(), BackendClientError> {
-        self.0.lock().try_send(req).map_err(|e| e.into_send_error())?;
-        Ok(())
-    }
-
-    #[cfg(test)]
-    fn stats(&self) -> Result<usize, BackendClientError> {
-        let (req, rx) = BackendRequest::stats();
-        self.request(req)?;
-        Ok(rx.recv()?)
-    }
-}
-
 /// A helper function to convert a contract/class not found error returned by the RPC provider into
 /// a `Option::None`.
 ///
@@ -509,6 +976,8 @@ fn handle_not_found_err<T>(
         Ok(value) => Ok(Some(value)),
 
         Err(BackendError::StarknetProvider(err)) => match err.as_ref() {
+            StarknetClientError::Starknet(StarknetApiError::BlockNotFound) => Ok(None),
+            StarknetClientError::Starknet(StarknetApiError::TxnHashNotFound) => Ok(None),
             StarknetClientError::Starknet(StarknetApiError::ContractNotFound) => Ok(None),
             StarknetClientError::Starknet(StarknetApiError::ClassHashNotFound) => Ok(None),
             _ => Err(BackendClientError::BackendError(BackendError::StarknetProvider(err))),
@@ -522,9 +991,8 @@ fn handle_not_found_err<T>(
 pub(crate) mod test_utils {
 
     use std::sync::mpsc::{sync_channel, SyncSender};
+    use std::time::Duration;
 
-    use katana_primitives::block::BlockNumber;
-    use katana_rpc_client::HttpClientBuilder;
     use serde_json::{json, Value};
     use tokio::io::{AsyncReadExt, AsyncWriteExt};
     use tokio::net::TcpListener;
@@ -532,10 +1000,19 @@ pub(crate) mod test_utils {
 
     use super::*;
 
-    pub fn create_forked_backend(rpc_url: &str, block_num: BlockNumber) -> BackendClient {
+    pub fn create_forked_backend(rpc_url: &str) -> Backend {
         let url = Url::parse(rpc_url).expect("valid url");
-        let provider = StarknetClient::new(HttpClientBuilder::new().build(url).unwrap());
-        Backend::new(provider, block_num.into()).unwrap()
+        let provider = StarknetClient::new(url);
+        Backend::new(provider).unwrap()
+    }
+
+    pub fn create_forked_backend_with_config(
+        rpc_url: &str,
+        max_concurrent_requests: usize,
+    ) -> Backend {
+        let url = Url::parse(rpc_url).expect("valid url");
+        let provider = StarknetClient::new(url);
+        Backend::new_with_config(provider, max_concurrent_requests).unwrap()
     }
 
     // Starts a TCP server that never close the connection.
@@ -543,7 +1020,7 @@ pub(crate) mod test_utils {
         use tokio::runtime::Builder;
 
         let (tx, rx) = sync_channel::<()>(1);
-        thread::spawn(move || {
+        std::thread::spawn(move || {
             Builder::new_current_thread().enable_all().build().unwrap().block_on(async move {
                 let listener = TcpListener::bind(addr).await.unwrap();
                 let mut connections = Vec::new();
@@ -566,45 +1043,69 @@ pub(crate) mod test_utils {
     pub fn start_mock_rpc_server(addr: String, result: String) -> SyncSender<()> {
         use tokio::runtime::Builder;
 
-        let (tx, rx) = sync_channel::<()>(1);
+        let (resp_signal_tx, resp_signal_rx) = sync_channel::<()>(100);
+        let (server_ready_tx, server_ready_rx) = sync_channel::<()>(1);
 
-        thread::spawn(move || {
+        std::thread::spawn(move || {
             Builder::new_current_thread().enable_all().build().unwrap().block_on(async move {
                 let listener = TcpListener::bind(addr).await.unwrap();
+                let pending_requests = Arc::new(Mutex::new(VecDeque::new()));
 
+                server_ready_tx.send(()).unwrap();
+
+                // Spawn a task to accept incoming connections
+                let pending_requests_accept = pending_requests.clone();
+                let accept_task_handle = tokio::spawn(async move {
+                    loop {
+                        let (mut socket, _) = listener.accept().await.unwrap();
+
+                        // Read the request
+                        let mut buffer = [0; 1024];
+                        let n = socket.read(&mut buffer).await.unwrap();
+
+                        // Parse the HTTP request to extract the JSON-RPC body
+                        let request_str = String::from_utf8_lossy(&buffer[..n]);
+                        let id = if let Some(body_start) = request_str.rfind("\r\n\r\n") {
+                            let body = &request_str[body_start + 4..];
+                            let request = serde_json::from_str::<Value>(body).unwrap();
+                            request.get("id").unwrap().clone()
+                        } else {
+                            json!(1)
+                        };
+
+                        // Store the socket and ID for later processing (the ID needs to be equal in
+                        // both request and response as per JSON-RPC spec)
+                        pending_requests_accept.lock().push_back((socket, id));
+                    }
+                });
+
+                // Process requests in FIFO order based on signals
                 loop {
-                    let (mut socket, _) = listener.accept().await.unwrap();
+                    // Wait for a signal to process the next request triggered by consumer
+                    if resp_signal_rx.recv().is_err() {
+                        break;
+                    }
 
-                    // Read the request, so hyper would not close the connection
-                    let mut buffer = [0; 1024];
-                    let n = socket.read(&mut buffer).await.unwrap();
+                    // Get the next pending request
+                    let (mut socket, id) = {
+                        let mut queue = pending_requests.lock();
+                        // Wait until there's a request to process
+                        while queue.is_empty() {
+                            drop(queue);
+                            tokio::time::sleep(Duration::from_millis(10)).await;
+                            queue = pending_requests.lock();
+                        }
 
-                    // Parse the HTTP request to extract the JSON-RPC body
-                    //
-                    // The response ID must match the request ID
-                    let request_str = String::from_utf8_lossy(&buffer[..n]);
-                    let id = if let Some(body_start) = request_str.rfind("\r\n\r\n") {
-                        let body = &request_str[body_start + 4..];
-                        // Extract the ID from the parsed JSON
-                        let request = serde_json::from_str::<Value>(body).unwrap();
-                        request.get("id").unwrap().clone()
-                    } else {
-                        json!(1)
+                        queue.pop_front().unwrap()
                     };
 
-                    // Wait for a signal to return the response.
-                    rx.recv().unwrap();
-
-                    // Build the JSON-RPC response with the provided result and extracted ID
-                    let response_obj = serde_json::json!({
+                    let json_response = serde_json::to_string(&json!({
                         "id": id,
                         "jsonrpc": "2.0",
                         "result": result
-                    });
+                    }))
+                    .unwrap();
 
-                    let json_response = serde_json::to_string(&response_obj).unwrap();
-
-                    // After reading, we send the response with correct ID
                     let http_response = format!(
                         "HTTP/1.1 200 OK\r\ncontent-length: {}\r\ncontent-type: \
                          application/json\r\n\r\n{}",
@@ -615,11 +1116,16 @@ pub(crate) mod test_utils {
                     socket.write_all(http_response.as_bytes()).await.unwrap();
                     socket.flush().await.unwrap();
                 }
+
+                accept_task_handle.abort();
             });
         });
 
+        // Wait for the server to be ready
+        server_ready_rx.recv().unwrap();
+
         // Returning the sender to allow controlling the response timing.
-        tx
+        resp_signal_tx
     }
 }
 
@@ -640,47 +1146,47 @@ mod tests {
     use super::*;
 
     const ERROR_SEND_REQUEST: &str = "Failed to send request to backend";
-    const ERROR_STATS: &str = "Failed to get stats";
 
     #[test]
     fn handle_incoming_requests() {
         // start a mock remote network
         start_tcp_server("127.0.0.1:8080".to_string());
 
-        let handle = create_forked_backend("http://127.0.0.1:8080", 1);
+        let handle = create_forked_backend("http://127.0.0.1:8080");
+        let block_id = 1;
 
         // check no pending requests
-        let stats = handle.stats().expect(ERROR_STATS);
-        assert_eq!(stats, 0, "Backend should not have any ongoing requests.");
+        let pending_requests_count = handle.stats().pending_requests_count();
+        assert_eq!(pending_requests_count, 0, "Backend should not have any ongoing requests.");
 
         // send requests to the backend
         let h1 = handle.clone();
-        thread::spawn(move || {
-            h1.get_nonce(felt!("0x1").into()).expect(ERROR_SEND_REQUEST);
+        std::thread::spawn(move || {
+            h1.get_nonce(felt!("0x1").into(), block_id).expect(ERROR_SEND_REQUEST);
         });
         let h2 = handle.clone();
-        thread::spawn(move || {
-            h2.get_class_at(felt!("0x1")).expect(ERROR_SEND_REQUEST);
+        std::thread::spawn(move || {
+            h2.get_class_at(felt!("0x1"), block_id).expect(ERROR_SEND_REQUEST);
         });
         let h3 = handle.clone();
-        thread::spawn(move || {
-            h3.get_compiled_class_hash(felt!("0x2")).expect(ERROR_SEND_REQUEST);
+        std::thread::spawn(move || {
+            h3.get_compiled_class_hash(felt!("0x2"), block_id).expect(ERROR_SEND_REQUEST);
         });
         let h4 = handle.clone();
-        thread::spawn(move || {
-            h4.get_class_hash_at(felt!("0x1").into()).expect(ERROR_SEND_REQUEST);
+        std::thread::spawn(move || {
+            h4.get_class_hash_at(felt!("0x1").into(), block_id).expect(ERROR_SEND_REQUEST);
         });
         let h5 = handle.clone();
-        thread::spawn(move || {
-            h5.get_storage(felt!("0x1").into(), felt!("0x1")).expect(ERROR_SEND_REQUEST);
+        std::thread::spawn(move || {
+            h5.get_storage(felt!("0x1").into(), felt!("0x1"), block_id).expect(ERROR_SEND_REQUEST);
         });
 
         // wait for the requests to be handled
-        thread::sleep(Duration::from_secs(1));
+        std::thread::sleep(Duration::from_secs(1));
 
         // check request are handled
-        let stats = handle.stats().expect(ERROR_STATS);
-        assert_eq!(stats, 5, "Backend should have 5 ongoing requests.")
+        let pending_requests_count = handle.stats().pending_requests_count();
+        assert_eq!(pending_requests_count, 5, "Backend should have 5 ongoing requests.")
     }
 
     #[test]
@@ -688,41 +1194,42 @@ mod tests {
         // start a mock remote network
         start_tcp_server("127.0.0.1:8081".to_string());
 
-        let handle = create_forked_backend("http://127.0.0.1:8081", 1);
+        let handle = create_forked_backend("http://127.0.0.1:8081");
+        let block_id = 1;
 
         // check no pending requests
-        let stats = handle.stats().expect(ERROR_STATS);
-        assert_eq!(stats, 0, "Backend should not have any ongoing requests.");
+        let pending_requests_count = handle.stats().pending_requests_count();
+        assert_eq!(pending_requests_count, 0, "Backend should not have any ongoing requests.");
 
         // send requests to the backend
         let h1 = handle.clone();
-        thread::spawn(move || {
-            h1.get_nonce(felt!("0x1").into()).expect(ERROR_SEND_REQUEST);
+        std::thread::spawn(move || {
+            h1.get_nonce(felt!("0x1").into(), block_id).expect(ERROR_SEND_REQUEST);
         });
         let h2 = handle.clone();
-        thread::spawn(move || {
-            h2.get_nonce(felt!("0x1").into()).expect(ERROR_SEND_REQUEST);
+        std::thread::spawn(move || {
+            h2.get_nonce(felt!("0x1").into(), block_id).expect(ERROR_SEND_REQUEST);
         });
 
         // wait for the requests to be handled
-        thread::sleep(Duration::from_secs(1));
+        std::thread::sleep(Duration::from_secs(1));
 
         // check current request count
-        let stats = handle.stats().expect(ERROR_STATS);
-        assert_eq!(stats, 1, "Backend should have 1 ongoing requests.");
+        let pending_requests_count = handle.stats().pending_requests_count();
+        assert_eq!(pending_requests_count, 1, "Backend should have 1 ongoing requests.");
 
         // Different request, should be counted
         let h3 = handle.clone();
-        thread::spawn(move || {
-            h3.get_nonce(felt!("0x2").into()).expect(ERROR_SEND_REQUEST);
+        std::thread::spawn(move || {
+            h3.get_nonce(felt!("0x2").into(), block_id).expect(ERROR_SEND_REQUEST);
         });
 
         // wait for the requests to be handled
-        thread::sleep(Duration::from_secs(1));
+        std::thread::sleep(Duration::from_secs(1));
 
         // check request are handled
-        let stats = handle.stats().expect(ERROR_STATS);
-        assert_eq!(stats, 2, "Backend should only have 2 ongoing requests.")
+        let pending_requests_count = handle.stats().pending_requests_count();
+        assert_eq!(pending_requests_count, 2, "Backend should only have 2 ongoing requests.")
     }
 
     #[test]
@@ -730,41 +1237,42 @@ mod tests {
         // start a mock remote network
         start_tcp_server("127.0.0.1:8082".to_string());
 
-        let handle = create_forked_backend("http://127.0.0.1:8082", 1);
+        let handle = create_forked_backend("http://127.0.0.1:8082");
+        let block_id = 1;
 
         // check no pending requests
-        let stats = handle.stats().expect(ERROR_STATS);
-        assert_eq!(stats, 0, "Backend should not have any ongoing requests.");
+        let pending_requests_count = handle.stats().pending_requests_count();
+        assert_eq!(pending_requests_count, 0, "Backend should not have any ongoing requests.");
 
         // send requests to the backend
         let h1 = handle.clone();
-        thread::spawn(move || {
-            h1.get_class_at(felt!("0x1")).expect(ERROR_SEND_REQUEST);
+        std::thread::spawn(move || {
+            h1.get_class_at(felt!("0x1"), block_id).expect(ERROR_SEND_REQUEST);
         });
         let h2 = handle.clone();
-        thread::spawn(move || {
-            h2.get_class_at(felt!("0x1")).expect(ERROR_SEND_REQUEST);
+        std::thread::spawn(move || {
+            h2.get_class_at(felt!("0x1"), block_id).expect(ERROR_SEND_REQUEST);
         });
 
         // wait for the requests to be handled
-        thread::sleep(Duration::from_secs(1));
+        std::thread::sleep(Duration::from_secs(1));
 
         // check current request count
-        let stats = handle.stats().expect(ERROR_STATS);
-        assert_eq!(stats, 1, "Backend should have 1 ongoing requests.");
+        let pending_requests_count = handle.stats().pending_requests_count();
+        assert_eq!(pending_requests_count, 1, "Backend should have 1 ongoing requests.");
 
         // Different request, should be counted
         let h3 = handle.clone();
-        thread::spawn(move || {
-            h3.get_class_at(felt!("0x2")).expect(ERROR_SEND_REQUEST);
+        std::thread::spawn(move || {
+            h3.get_class_at(felt!("0x2"), block_id).expect(ERROR_SEND_REQUEST);
         });
 
         // wait for the requests to be handled
-        thread::sleep(Duration::from_secs(1));
+        std::thread::sleep(Duration::from_secs(1));
 
         // check request are handled
-        let stats = handle.stats().expect(ERROR_STATS);
-        assert_eq!(stats, 2, "Backend should only have 2 ongoing requests.")
+        let pending_requests_count = handle.stats().pending_requests_count();
+        assert_eq!(pending_requests_count, 2, "Backend should only have 2 ongoing requests.")
     }
 
     #[test]
@@ -772,41 +1280,42 @@ mod tests {
         // start a mock remote network
         start_tcp_server("127.0.0.1:8083".to_string());
 
-        let handle = create_forked_backend("http://127.0.0.1:8083", 1);
+        let handle = create_forked_backend("http://127.0.0.1:8083");
+        let block_id = 1;
 
         // check no pending requests
-        let stats = handle.stats().expect(ERROR_STATS);
-        assert_eq!(stats, 0, "Backend should not have any ongoing requests.");
+        let pending_requests_count = handle.stats().pending_requests_count();
+        assert_eq!(pending_requests_count, 0, "Backend should not have any ongoing requests.");
 
         // send requests to the backend
         let h1 = handle.clone();
-        thread::spawn(move || {
-            h1.get_compiled_class_hash(felt!("0x1")).expect(ERROR_SEND_REQUEST);
+        std::thread::spawn(move || {
+            h1.get_compiled_class_hash(felt!("0x1"), block_id).expect(ERROR_SEND_REQUEST);
         });
         let h2 = handle.clone();
-        thread::spawn(move || {
-            h2.get_compiled_class_hash(felt!("0x1")).expect(ERROR_SEND_REQUEST);
+        std::thread::spawn(move || {
+            h2.get_compiled_class_hash(felt!("0x1"), block_id).expect(ERROR_SEND_REQUEST);
         });
 
         // wait for the requests to be handled
-        thread::sleep(Duration::from_secs(1));
+        std::thread::sleep(Duration::from_secs(1));
 
         // check current request count
-        let stats = handle.stats().expect(ERROR_STATS);
-        assert_eq!(stats, 1, "Backend should have 1 ongoing requests.");
+        let pending_requests_count = handle.stats().pending_requests_count();
+        assert_eq!(pending_requests_count, 1, "Backend should have 1 ongoing requests.");
 
         // Different request, should be counted
         let h3 = handle.clone();
-        thread::spawn(move || {
-            h3.get_compiled_class_hash(felt!("0x2")).expect(ERROR_SEND_REQUEST);
+        std::thread::spawn(move || {
+            h3.get_compiled_class_hash(felt!("0x2"), block_id).expect(ERROR_SEND_REQUEST);
         });
 
         // wait for the requests to be handled
-        thread::sleep(Duration::from_secs(1));
+        std::thread::sleep(Duration::from_secs(1));
 
         // check request are handled
-        let stats = handle.stats().expect(ERROR_STATS);
-        assert_eq!(stats, 2, "Backend should only have 2 ongoing requests.")
+        let pending_requests_count = handle.stats().pending_requests_count();
+        assert_eq!(pending_requests_count, 2, "Backend should only have 2 ongoing requests.")
     }
 
     #[test]
@@ -814,42 +1323,43 @@ mod tests {
         // start a mock remote network
         start_tcp_server("127.0.0.1:8084".to_string());
 
-        let handle = create_forked_backend("http://127.0.0.1:8084", 1);
+        let handle = create_forked_backend("http://127.0.0.1:8084");
+        let block_id = 1;
 
         // check no pending requests
-        let stats = handle.stats().expect(ERROR_STATS);
-        assert_eq!(stats, 0, "Backend should not have any ongoing requests.");
+        let pending_requests_count = handle.stats().pending_requests_count();
+        assert_eq!(pending_requests_count, 0, "Backend should not have any ongoing requests.");
 
         // send requests to the backend
         let h1 = handle.clone();
-        thread::spawn(move || {
-            h1.get_class_at(felt!("0x1")).expect(ERROR_SEND_REQUEST);
+        std::thread::spawn(move || {
+            h1.get_class_at(felt!("0x1"), block_id).expect(ERROR_SEND_REQUEST);
         });
         // Since this also calls to the same request as the previous one, it should be deduped
         let h2 = handle.clone();
-        thread::spawn(move || {
-            h2.get_compiled_class_hash(felt!("0x1")).expect(ERROR_SEND_REQUEST);
+        std::thread::spawn(move || {
+            h2.get_compiled_class_hash(felt!("0x1"), block_id).expect(ERROR_SEND_REQUEST);
         });
 
         // wait for the requests to be handled
-        thread::sleep(Duration::from_secs(1));
+        std::thread::sleep(Duration::from_secs(1));
 
         // check current request count
-        let stats = handle.stats().expect(ERROR_STATS);
-        assert_eq!(stats, 1, "Backend should have 1 ongoing requests.");
+        let pending_requests_count = handle.stats().pending_requests_count();
+        assert_eq!(pending_requests_count, 1, "Backend should have 1 ongoing requests.");
 
         // Different request, should be counted
         let h3 = handle.clone();
-        thread::spawn(move || {
-            h3.get_class_at(felt!("0x2")).expect(ERROR_SEND_REQUEST);
+        std::thread::spawn(move || {
+            h3.get_class_at(felt!("0x2"), block_id).expect(ERROR_SEND_REQUEST);
         });
 
         // wait for the requests to be handled
-        thread::sleep(Duration::from_secs(1));
+        std::thread::sleep(Duration::from_secs(1));
 
         // check request are handled
-        let stats = handle.stats().expect(ERROR_STATS);
-        assert_eq!(stats, 2, "Backend should only have 2 ongoing requests.")
+        let pending_requests_count = handle.stats().pending_requests_count();
+        assert_eq!(pending_requests_count, 2, "Backend should only have 2 ongoing requests.")
     }
 
     #[test]
@@ -857,41 +1367,42 @@ mod tests {
         // start a mock remote network
         start_tcp_server("127.0.0.1:8085".to_string());
 
-        let handle = create_forked_backend("http://127.0.0.1:8085", 1);
+        let handle = create_forked_backend("http://127.0.0.1:8085");
+        let block_id = 1;
 
         // check no pending requests
-        let stats = handle.stats().expect(ERROR_STATS);
-        assert_eq!(stats, 0, "Backend should not have any ongoing requests.");
+        let pending_requests_count = handle.stats().pending_requests_count();
+        assert_eq!(pending_requests_count, 0, "Backend should not have any ongoing requests.");
 
         // send requests to the backend
         let h1 = handle.clone();
-        thread::spawn(move || {
-            h1.get_class_hash_at(felt!("0x1").into()).expect(ERROR_SEND_REQUEST);
+        std::thread::spawn(move || {
+            h1.get_class_hash_at(felt!("0x1").into(), block_id).expect(ERROR_SEND_REQUEST);
         });
         let h2 = handle.clone();
-        thread::spawn(move || {
-            h2.get_class_hash_at(felt!("0x1").into()).expect(ERROR_SEND_REQUEST);
+        std::thread::spawn(move || {
+            h2.get_class_hash_at(felt!("0x1").into(), block_id).expect(ERROR_SEND_REQUEST);
         });
 
         // wait for the requests to be handled
-        thread::sleep(Duration::from_secs(1));
+        std::thread::sleep(Duration::from_secs(1));
 
         // check current request count
-        let stats = handle.stats().expect(ERROR_STATS);
-        assert_eq!(stats, 1, "Backend should have 1 ongoing requests.");
+        let pending_requests_count = handle.stats().pending_requests_count();
+        assert_eq!(pending_requests_count, 1, "Backend should have 1 ongoing requests.");
 
         // Different request, should be counted
         let h3 = handle.clone();
-        thread::spawn(move || {
-            h3.get_class_hash_at(felt!("0x2").into()).expect(ERROR_SEND_REQUEST);
+        std::thread::spawn(move || {
+            h3.get_class_hash_at(felt!("0x2").into(), block_id).expect(ERROR_SEND_REQUEST);
         });
 
         // wait for the requests to be handled
-        thread::sleep(Duration::from_secs(1));
+        std::thread::sleep(Duration::from_secs(1));
 
         // check request are handled
-        let stats = handle.stats().expect(ERROR_STATS);
-        assert_eq!(stats, 2, "Backend should only have 2 ongoing requests.")
+        let pending_requests_count = handle.stats().pending_requests_count();
+        assert_eq!(pending_requests_count, 2, "Backend should only have 2 ongoing requests.")
     }
 
     #[test]
@@ -899,41 +1410,42 @@ mod tests {
         // start a mock remote network
         start_tcp_server("127.0.0.1:8086".to_string());
 
-        let handle = create_forked_backend("http://127.0.0.1:8086", 1);
+        let handle = create_forked_backend("http://127.0.0.1:8086");
+        let block_id = 1;
 
         // check no pending requests
-        let stats = handle.stats().expect(ERROR_STATS);
-        assert_eq!(stats, 0, "Backend should not have any ongoing requests.");
+        let pending_requests_count = handle.stats().pending_requests_count();
+        assert_eq!(pending_requests_count, 0, "Backend should not have any ongoing requests.");
 
         // send requests to the backend
         let h1 = handle.clone();
-        thread::spawn(move || {
-            h1.get_storage(felt!("0x1").into(), felt!("0x1")).expect(ERROR_SEND_REQUEST);
+        std::thread::spawn(move || {
+            h1.get_storage(felt!("0x1").into(), felt!("0x1"), block_id).expect(ERROR_SEND_REQUEST);
         });
         let h2 = handle.clone();
-        thread::spawn(move || {
-            h2.get_storage(felt!("0x1").into(), felt!("0x1")).expect(ERROR_SEND_REQUEST);
+        std::thread::spawn(move || {
+            h2.get_storage(felt!("0x1").into(), felt!("0x1"), block_id).expect(ERROR_SEND_REQUEST);
         });
 
         // wait for the requests to be handled
-        thread::sleep(Duration::from_secs(1));
+        std::thread::sleep(Duration::from_secs(1));
 
         // check current request count
-        let stats = handle.stats().expect(ERROR_STATS);
-        assert_eq!(stats, 1, "Backend should have 1 ongoing requests.");
+        let pending_requests_count = handle.stats().pending_requests_count();
+        assert_eq!(pending_requests_count, 1, "Backend should have 1 ongoing requests.");
 
         // Different request, should be counted
         let h3 = handle.clone();
-        thread::spawn(move || {
-            h3.get_storage(felt!("0x2").into(), felt!("0x3")).expect(ERROR_SEND_REQUEST);
+        std::thread::spawn(move || {
+            h3.get_storage(felt!("0x2").into(), felt!("0x3"), block_id).expect(ERROR_SEND_REQUEST);
         });
 
         // wait for the requests to be handled
-        thread::sleep(Duration::from_secs(1));
+        std::thread::sleep(Duration::from_secs(1));
 
         // check request are handled
-        let stats = handle.stats().expect(ERROR_STATS);
-        assert_eq!(stats, 2, "Backend should only have 2 ongoing requests.")
+        let pending_requests_count = handle.stats().pending_requests_count();
+        assert_eq!(pending_requests_count, 2, "Backend should only have 2 ongoing requests.")
     }
 
     #[test]
@@ -941,59 +1453,60 @@ mod tests {
         // start a mock remote network
         start_tcp_server("127.0.0.1:8087".to_string());
 
-        let handle = create_forked_backend("http://127.0.0.1:8087", 1);
+        let handle = create_forked_backend("http://127.0.0.1:8087");
+        let block_id = 1;
 
         // check no pending requests
-        let stats = handle.stats().expect(ERROR_STATS);
-        assert_eq!(stats, 0, "Backend should not have any ongoing requests.");
+        let pending_requests_count = handle.stats().pending_requests_count();
+        assert_eq!(pending_requests_count, 0, "Backend should not have any ongoing requests.");
 
         // send requests to the backend
         let h1 = handle.clone();
-        thread::spawn(move || {
-            h1.get_storage(felt!("0x1").into(), felt!("0x1")).expect(ERROR_SEND_REQUEST);
+        std::thread::spawn(move || {
+            h1.get_storage(felt!("0x1").into(), felt!("0x1"), block_id).expect(ERROR_SEND_REQUEST);
         });
         let h2 = handle.clone();
-        thread::spawn(move || {
-            h2.get_storage(felt!("0x1").into(), felt!("0x1")).expect(ERROR_SEND_REQUEST);
+        std::thread::spawn(move || {
+            h2.get_storage(felt!("0x1").into(), felt!("0x1"), block_id).expect(ERROR_SEND_REQUEST);
         });
 
         // wait for the requests to be handled
-        thread::sleep(Duration::from_secs(1));
+        std::thread::sleep(Duration::from_secs(1));
 
         // check current request count
-        let stats = handle.stats().expect(ERROR_STATS);
-        assert_eq!(stats, 1, "Backend should have 1 ongoing requests.");
+        let pending_requests_count = handle.stats().pending_requests_count();
+        assert_eq!(pending_requests_count, 1, "Backend should have 1 ongoing requests.");
 
         // Different request, should be counted
         let h3 = handle.clone();
-        thread::spawn(move || {
-            h3.get_storage(felt!("0x1").into(), felt!("0x3")).expect(ERROR_SEND_REQUEST);
+        std::thread::spawn(move || {
+            h3.get_storage(felt!("0x1").into(), felt!("0x3"), block_id).expect(ERROR_SEND_REQUEST);
         });
         // Different request, should be counted
         let h4 = handle.clone();
-        thread::spawn(move || {
-            h4.get_storage(felt!("0x1").into(), felt!("0x6")).expect(ERROR_SEND_REQUEST);
+        std::thread::spawn(move || {
+            h4.get_storage(felt!("0x1").into(), felt!("0x6"), block_id).expect(ERROR_SEND_REQUEST);
         });
 
         // wait for the requests to be handled
-        thread::sleep(Duration::from_secs(1));
+        std::thread::sleep(Duration::from_secs(1));
 
         // check current request count
-        let stats = handle.stats().expect(ERROR_STATS);
-        assert_eq!(stats, 3, "Backend should have 3 ongoing requests.");
+        let pending_requests_count = handle.stats().pending_requests_count();
+        assert_eq!(pending_requests_count, 3, "Backend should have 3 ongoing requests.");
 
         // Same request as the last one, shouldn't be counted
         let h5 = handle.clone();
-        thread::spawn(move || {
-            h5.get_storage(felt!("0x1").into(), felt!("0x6")).expect(ERROR_SEND_REQUEST);
+        std::thread::spawn(move || {
+            h5.get_storage(felt!("0x1").into(), felt!("0x6"), block_id).expect(ERROR_SEND_REQUEST);
         });
 
         // wait for the requests to be handled
-        thread::sleep(Duration::from_secs(1));
+        std::thread::sleep(Duration::from_secs(1));
 
         // check request are handled
-        let stats = handle.stats().expect(ERROR_STATS);
-        assert_eq!(stats, 3, "Backend should only have 3 ongoing requests.")
+        let pending_requests_count = handle.stats().pending_requests_count();
+        assert_eq!(pending_requests_count, 3, "Backend should only have 3 ongoing requests.")
     }
 
     #[test]
@@ -1002,7 +1515,8 @@ mod tests {
         let result = "0x123";
         let sender = start_mock_rpc_server("127.0.0.1:8090".to_string(), result.to_string());
 
-        let handle = create_forked_backend("http://127.0.0.1:8090", 1);
+        let handle = create_forked_backend("http://127.0.0.1:8090");
+        let block_id = 1;
         let addr = ContractAddress(felt!("0x1"));
 
         // Collect results from multiple identical nonce requests
@@ -1012,19 +1526,19 @@ mod tests {
             .map(|_| {
                 let h = handle.clone();
                 let results = results.clone();
-                thread::spawn(move || {
-                    let res = h.get_nonce(addr);
+                std::thread::spawn(move || {
+                    let res = h.get_nonce(addr, block_id);
                     results.lock().unwrap().push(res);
                 })
             })
             .collect();
 
         // wait for the requests to be sent to the rpc server
-        thread::sleep(Duration::from_secs(1));
+        std::thread::sleep(Duration::from_secs(1));
 
         // Check that there's only one request, meaning it is deduplicated.
-        let stats = handle.stats().expect(ERROR_STATS);
-        assert_eq!(stats, 1, "Backend should only have 1 ongoing requests.");
+        let pending_requests_count = handle.stats().pending_requests_count();
+        assert_eq!(pending_requests_count, 1, "Backend should only have 1 ongoing requests.");
 
         // Send the signal to tell the mock rpc server to return the response
         sender.send(()).unwrap();
@@ -1041,5 +1555,103 @@ mod tests {
                 "All deduplicated nonce requests should return the same result"
             );
         }
+    }
+
+    #[test]
+    fn test_concurrent_request_limit() {
+        // Start a mock remote network that never responds
+        start_tcp_server("127.0.0.1:8091".to_string());
+
+        // Create a backend with a low concurrent request limit
+        let max_concurrent = 3;
+        let handle = create_forked_backend_with_config("http://127.0.0.1:8091", max_concurrent);
+        let block_id = 1;
+
+        // Check no pending requests initially
+        let pending_requests_count = handle.stats().pending_requests_count();
+        assert_eq!(pending_requests_count, 0, "Backend should not have any ongoing requests.");
+
+        // Send more requests than the limit (each with different parameters to avoid deduplication)
+        let addresses = [
+            felt!("0x1"),
+            felt!("0x2"),
+            felt!("0x3"),
+            felt!("0x4"),
+            felt!("0x5"),
+            felt!("0x6"),
+            felt!("0x7"),
+            felt!("0x8"),
+            felt!("0x9"),
+            felt!("0xa"),
+        ];
+
+        for address in addresses {
+            let h = handle.clone();
+            std::thread::spawn(move || {
+                let _ = h.get_nonce(address.into(), block_id);
+            });
+        }
+
+        // Wait for requests to be processed
+        std::thread::sleep(Duration::from_secs(1));
+
+        // Verify that the number of pending requests does not exceed the limit
+        let pending_requests_count = handle.stats().pending_requests_count();
+        assert_eq!(
+            pending_requests_count, max_concurrent,
+            "Backend should respect the max concurrent requests limit"
+        );
+
+        let ongoing_requests_count = handle.stats().queued_requests_count();
+        assert_eq!(ongoing_requests_count, addresses.len() - max_concurrent,);
+    }
+
+    #[test]
+    fn test_requests_are_processed_after_limit_freed() {
+        // Start mock server with a predefined result
+        let result = "0x456";
+        let sender = start_mock_rpc_server("127.0.0.1:8092".to_string(), result.to_string());
+
+        // Create a backend with a limit of 2 concurrent requests
+        let max_concurrent = 2;
+        let handle = create_forked_backend_with_config("http://127.0.0.1:8092", max_concurrent);
+        let block_id = 1;
+
+        // Send 4 different requests (more than the limit)
+        let addresses = [felt!("0x1"), felt!("0x2"), felt!("0x3"), felt!("0x4")];
+        for address in addresses {
+            let h = handle.clone();
+            std::thread::spawn(move || {
+                let _ = h.get_nonce(address.into(), block_id);
+            });
+        }
+
+        // Wait for requests to be queued
+        std::thread::sleep(Duration::from_secs(1));
+
+        // Initially should only have max_concurrent pending
+        let pending_requests_count = handle.stats().pending_requests_count();
+        assert_eq!(
+            pending_requests_count, max_concurrent,
+            "Backend should have max_concurrent ongoing requests"
+        );
+
+        // Send signals to complete the first batch of requests
+        sender.send(()).unwrap();
+        sender.send(()).unwrap();
+
+        // Wait for the first batch to complete and next batch to start
+        std::thread::sleep(Duration::from_secs(1));
+
+        // Now the remaining requests should be processing
+        let pending_requests_count = handle.stats().pending_requests_count();
+        assert_eq!(
+            pending_requests_count, max_concurrent,
+            "Backend should process remaining queued requests up to the limit"
+        );
+
+        // Complete the remaining requests
+        sender.send(()).unwrap();
+        sender.send(()).unwrap();
     }
 }

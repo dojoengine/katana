@@ -5,18 +5,17 @@ use katana_executor::implementation::noop::NoopExecutorFactory;
 use katana_gas_price_oracle::GasPriceOracle;
 use katana_primitives::transaction::{ExecutableTx, InvokeTx};
 use katana_primitives::Felt;
-use katana_provider::providers::db::DbProvider;
+use katana_provider::DbProviderFactory;
 
 use super::*;
-use crate::backend::storage::Blockchain;
 
-fn test_backend() -> Arc<Backend<NoopExecutorFactory>> {
+fn test_backend() -> Arc<Backend<NoopExecutorFactory, DbProviderFactory>> {
     let chain_spec = Arc::new(ChainSpec::dev());
     let executor_factory = NoopExecutorFactory::new();
-    let blockchain = Blockchain::new(DbProvider::new_in_memory());
+    let storage = DbProviderFactory::new_in_memory();
     let gas_oracle = GasPriceOracle::create_for_testing();
-    let backend = Arc::new(Backend::new(chain_spec, blockchain, gas_oracle, executor_factory));
-    backend.init_genesis().expect("failed to initialize genesis");
+    let backend = Arc::new(Backend::new(chain_spec, storage, gas_oracle, executor_factory));
+    backend.init_genesis(false).expect("failed to initialize genesis");
     backend
 }
 
@@ -38,7 +37,7 @@ async fn interval_force_mine_without_transactions() {
     let mut producer = IntervalBlockProducer::new(backend.clone(), None);
     producer.force_mine();
 
-    let latest_num = backend.blockchain.provider().latest_number().unwrap();
+    let latest_num = backend.storage.provider().latest_number().unwrap();
     assert_eq!(latest_num, 1);
 }
 
@@ -70,7 +69,7 @@ async fn interval_mine_after_timer() {
 
     let outcome = stream.next().await.expect("should mine block").unwrap();
     assert_eq!(outcome.block_number, 1);
-    assert_eq!(backend.blockchain.provider().latest_number().unwrap(), 1);
+    assert_eq!(backend.storage.provider().latest_number().unwrap(), 1);
 }
 
 // Helper functions to create test transactions

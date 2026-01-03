@@ -3,7 +3,7 @@ use katana_primitives::alloy::FromHex;
 use katana_primitives::block::FinalityStatus;
 use katana_primitives::fee::PriceUnit;
 use katana_primitives::receipt::Event;
-use katana_primitives::{address, felt, ContractAddress, B256};
+use katana_primitives::{address, felt, B256};
 use katana_rpc_types::receipt::{
     ExecutionResult, ReceiptBlockInfo, RpcTxReceipt, TxReceiptWithBlockInfo,
 };

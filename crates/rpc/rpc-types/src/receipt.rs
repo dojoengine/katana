@@ -1,4 +1,5 @@
 use katana_primitives::block::{BlockHash, BlockNumber, FinalityStatus};
+use katana_primitives::execution::VmResources;
 use katana_primitives::fee::{FeeInfo, PriceUnit};
 use katana_primitives::receipt::{self, Event, MessageToL1, Receipt};
 use katana_primitives::transaction::TxHash;
@@ -174,6 +175,25 @@ pub struct RpcDeployAccountTxReceipt {
 impl RpcTxReceipt {
     fn new(receipt: Receipt, finality_status: FinalityStatus) -> Self {
         match receipt {
+            Receipt::Deploy(rct) => {
+                let messages_sent = rct.messages_sent;
+                let events = rct.events;
+
+                RpcTxReceipt::Deploy(RpcDeployTxReceipt {
+                    events,
+                    messages_sent,
+                    finality_status,
+                    actual_fee: rct.fee.into(),
+                    contract_address: rct.contract_address,
+                    execution_resources: rct.execution_resources.into(),
+                    execution_result: if let Some(reason) = rct.revert_error {
+                        ExecutionResult::Reverted { reason }
+                    } else {
+                        ExecutionResult::Succeeded
+                    },
+                })
+            }
+
             Receipt::Invoke(rct) => {
                 let messages_sent = rct.messages_sent;
                 let events = rct.events;
@@ -359,9 +379,9 @@ pub struct ExecutionResources {
 impl From<receipt::ExecutionResources> for ExecutionResources {
     fn from(resources: receipt::ExecutionResources) -> Self {
         ExecutionResources {
-            l2_gas: resources.gas.l2_gas,
-            l1_gas: resources.gas.l1_gas,
-            l1_data_gas: resources.gas.l1_data_gas,
+            l2_gas: resources.total_gas_consumed.l2_gas,
+            l1_gas: resources.total_gas_consumed.l1_gas,
+            l1_data_gas: resources.total_gas_consumed.l1_data_gas,
         }
     }
 }
@@ -369,5 +389,105 @@ impl From<receipt::ExecutionResources> for ExecutionResources {
 impl From<FeeInfo> for FeePayment {
     fn from(fee: FeeInfo) -> Self {
         FeePayment { amount: fee.overall_fee.into(), unit: fee.unit }
+    }
+}
+
+impl From<FeePayment> for FeeInfo {
+    fn from(payment: FeePayment) -> Self {
+        // When converting from FeePayment to FeeInfo, we only have the overall fee amount.
+        // The gas prices are not available in the RPC type, so we set them to 0.
+        // Convert Felt to u128, using 0 if the conversion fails (value too large)
+        let overall_fee = payment.amount.to_biguint().try_into().unwrap_or_else(|_| {
+            eprintln!("Warning: Fee amount too large to fit in u128, using 0");
+            0
+        });
+
+        FeeInfo {
+            l1_gas_price: 0,
+            l2_gas_price: 0,
+            l1_data_gas_price: 0,
+            overall_fee,
+            unit: payment.unit,
+        }
+    }
+}
+
+impl From<ExecutionResources> for receipt::ExecutionResources {
+    fn from(resources: ExecutionResources) -> Self {
+        use std::collections::HashMap;
+
+        receipt::ExecutionResources {
+            total_gas_consumed: receipt::GasUsed {
+                l2_gas: resources.l2_gas,
+                l1_gas: resources.l1_gas,
+                l1_data_gas: resources.l1_data_gas,
+            },
+            // VM resources are not available in RPC types, use defaults
+            vm_resources: VmResources {
+                n_steps: 0,
+                n_memory_holes: 0,
+                builtin_instance_counter: HashMap::new(),
+            },
+            data_availability: receipt::DataAvailabilityResources {
+                l1_gas: resources.l1_gas,
+                l1_data_gas: resources.l1_data_gas,
+            },
+        }
+    }
+}
+
+impl From<RpcTxReceipt> for Receipt {
+    fn from(rpc_receipt: RpcTxReceipt) -> Self {
+        match rpc_receipt {
+            RpcTxReceipt::Invoke(rct) => Receipt::Invoke(receipt::InvokeTxReceipt {
+                fee: rct.actual_fee.into(),
+                events: rct.events,
+                messages_sent: rct.messages_sent,
+                revert_error: match rct.execution_result {
+                    ExecutionResult::Succeeded => None,
+                    ExecutionResult::Reverted { reason } => Some(reason),
+                },
+                execution_resources: rct.execution_resources.into(),
+            }),
+
+            RpcTxReceipt::Declare(rct) => Receipt::Declare(receipt::DeclareTxReceipt {
+                fee: rct.actual_fee.into(),
+                events: rct.events,
+                messages_sent: rct.messages_sent,
+                revert_error: match rct.execution_result {
+                    ExecutionResult::Succeeded => None,
+                    ExecutionResult::Reverted { reason } => Some(reason),
+                },
+                execution_resources: rct.execution_resources.into(),
+            }),
+
+            RpcTxReceipt::L1Handler(rct) => Receipt::L1Handler(receipt::L1HandlerTxReceipt {
+                fee: rct.actual_fee.into(),
+                events: rct.events,
+                message_hash: rct.message_hash,
+                messages_sent: rct.messages_sent,
+                revert_error: match rct.execution_result {
+                    ExecutionResult::Succeeded => None,
+                    ExecutionResult::Reverted { reason } => Some(reason),
+                },
+                execution_resources: rct.execution_resources.into(),
+            }),
+
+            RpcTxReceipt::DeployAccount(rct) => {
+                Receipt::DeployAccount(receipt::DeployAccountTxReceipt {
+                    fee: rct.actual_fee.into(),
+                    events: rct.events,
+                    messages_sent: rct.messages_sent,
+                    revert_error: match rct.execution_result {
+                        ExecutionResult::Succeeded => None,
+                        ExecutionResult::Reverted { reason } => Some(reason),
+                    },
+                    execution_resources: rct.execution_resources.into(),
+                    contract_address: rct.contract_address,
+                })
+            }
+
+            RpcTxReceipt::Deploy(_) => unimplemented!(),
+        }
     }
 }

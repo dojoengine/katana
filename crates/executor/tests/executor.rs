@@ -9,7 +9,6 @@ use katana_genesis::constant::{
     DEFAULT_ETH_FEE_TOKEN_ADDRESS, DEFAULT_PREFUNDED_ACCOUNT_BALANCE, DEFAULT_UDC_ADDRESS,
 };
 use katana_primitives::block::ExecutableBlock;
-use katana_primitives::contract::ContractAddress;
 use katana_primitives::transaction::TxWithHash;
 use katana_primitives::{address, Felt};
 use katana_provider::api::contract::ContractClassProviderExt;
@@ -19,13 +18,11 @@ use starknet::core::utils::{
 };
 use starknet::macros::felt;
 
-fn test_executor_with_valid_blocks_impl<EF: ExecutorFactory>(
-    factory: EF,
+fn test_executor_with_valid_blocks_impl(
+    factory: BlockifierFactory,
     state: Box<dyn StateProvider>,
     blocks: [ExecutableBlock; 3],
 ) {
-    let cfg_env = factory.cfg();
-
     // the contract address of the main account used to send most of the transactions (see the
     // `valid_blocks` fixture)
     let main_account =
@@ -78,7 +75,7 @@ fn test_executor_with_valid_blocks_impl<EF: ExecutorFactory>(
 
     let updated_main_acc_balance = state_provider
         .storage(
-            cfg_env.fee_token_addresses.eth,
+            factory.chain().fee_contracts().eth,
             // the storage slot of the lower half of the fee balance
             get_storage_var_address("ERC20_balances", &[main_account.into()]).unwrap(), // felt!("0x6e78596cd9cb5c7ef89ba020ffb848c0926c43c652ac5f9e219d0c8267caefe"),
         )
@@ -87,7 +84,7 @@ fn test_executor_with_valid_blocks_impl<EF: ExecutorFactory>(
 
     let actual_new_acc_balance = state_provider
         .storage(
-            cfg_env.fee_token_addresses.eth,
+            factory.chain().fee_contracts().eth,
             // the storage slot of the lower half of the fee balance
             get_storage_var_address("ERC20_balances", &[new_acc.into()]).unwrap(),
         )
@@ -155,7 +152,7 @@ fn test_executor_with_valid_blocks_impl<EF: ExecutorFactory>(
 
     let updated_new_acc_balance = state_provider
         .storage(
-            cfg_env.fee_token_addresses.eth,
+            factory.chain().fee_contracts().eth,
             // the storage slot of the lower half of the fee balance
             felt!("0x7c8bacc8c8a7db5e5d4e22ab58750239183ae3e08b17a07a486f85fe8aee391"),
         )
@@ -275,10 +272,10 @@ fn test_executor_with_valid_blocks_impl<EF: ExecutorFactory>(
         .map(|(tx, res)| {
             if let Some(receipt) = res.receipt() {
                 let resources = receipt.resources_used();
-                actual_total_gas += resources.gas.l1_gas as u128;
+                actual_total_gas += resources.total_gas_consumed.l1_gas as u128;
             }
             if let Some(rec) = res.receipt() {
-                actual_total_steps += rec.resources_used().computation_resources.n_steps as u128;
+                actual_total_steps += rec.resources_used().vm_resources.n_steps as u128;
             }
             tx.clone()
         })
@@ -310,7 +307,12 @@ fn test_executor_with_valid_blocks_impl<EF: ExecutorFactory>(
 
     // TODO: asserts the storage updates
     let actual_storage_updates = states.state_updates.storage_updates;
-    assert_eq!(actual_storage_updates.len(), 3, "only 3 contracts whose storage should be updated");
+    assert_eq!(
+        actual_storage_updates.len(),
+        4,
+        "only 4 ( 3 normal contract + 1 for special alias contract '0x2') contracts whose storage \
+         should be updated"
+    );
     assert!(
         actual_storage_updates.contains_key(&DEFAULT_ETH_FEE_TOKEN_ADDRESS),
         "fee token storage must get updated"
@@ -322,6 +324,10 @@ fn test_executor_with_valid_blocks_impl<EF: ExecutorFactory>(
     assert!(
         actual_storage_updates.contains_key(&new_acc),
         "newly deployed account storage must get updated"
+    );
+    assert!(
+        actual_storage_updates.contains_key(&address!("0x2")),
+        "alias contract must be allocated"
     );
 }
 

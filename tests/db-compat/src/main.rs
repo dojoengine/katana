@@ -2,9 +2,8 @@ use anyhow::Result;
 use katana_db::version::CURRENT_DB_VERSION;
 use katana_node_bindings::Katana;
 use katana_primitives::block::{BlockIdOrTag, ConfirmedBlockIdOrTag};
-use katana_primitives::{address, felt, ContractAddress};
+use katana_primitives::{address, felt};
 use katana_rpc_client::starknet::Client as StarknetClient;
-use katana_rpc_client::HttpClientBuilder;
 
 #[tokio::main]
 async fn main() -> Result<()> {
@@ -30,8 +29,7 @@ async fn main() -> Result<()> {
     // Give the node some time to fully initialize
     tokio::time::sleep(tokio::time::Duration::from_secs(2)).await;
 
-    let http_client = HttpClientBuilder::default().build(&url)?;
-    let client = StarknetClient::new(http_client);
+    let client = StarknetClient::new(url.as_str().try_into().unwrap());
 
     // Run all RPC tests
     test_rpc_queries(&client).await;

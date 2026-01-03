@@ -6,12 +6,12 @@ services:
     image: ghcr.io/dojoengine/dojo:v1.0.12
     ports:
       - "5050:5050" # rpc
-      - "9001:9001" # metrics
+      - "9100:9100" # metrics
     command: >
       katana
       --db-dir .katana/data-dir
       --http.addr 0.0.0.0 --http.port 5050
-      --metrics --metrics.addr 0.0.0.0 --metrics.port 9001
+      --metrics --metrics.addr 0.0.0.0 --metrics.port 9100
 
   prometheus:
     restart: unless-stopped

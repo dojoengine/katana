@@ -1,9 +1,10 @@
 //! Implementation of list endpoints for the Starknet API.
 
 use jsonrpsee::core::{async_trait, RpcResult};
-use katana_executor::ExecutorFactory;
+use katana_core::backend::storage::ProviderRO;
 use katana_pool::TransactionPool;
 use katana_primitives::transaction::TxNumber;
+use katana_provider::ProviderFactory;
 use katana_rpc_api::starknet_ext::StarknetApiExtServer;
 use katana_rpc_types::list::{
     GetBlocksRequest, GetBlocksResponse, GetTransactionsRequest, GetTransactionsResponse,
@@ -14,12 +15,13 @@ use super::StarknetApi;
 use crate::starknet::pending::PendingBlockProvider;
 
 #[async_trait]
-impl<EF, Pool, PP> StarknetApiExtServer for StarknetApi<EF, Pool, PP>
+impl<Pool, PP, PF> StarknetApiExtServer for StarknetApi<Pool, PP, PF>
 where
-    EF: ExecutorFactory,
     Pool: TransactionPool + 'static,
-    <Pool as TransactionPool>::Transaction: Into<RpcTxWithHash>,
     PP: PendingBlockProvider,
+    PF: ProviderFactory,
+    <PF as ProviderFactory>::Provider: ProviderRO,
+    <Pool as TransactionPool>::Transaction: Into<RpcTxWithHash>,
 {
     async fn get_blocks(&self, request: GetBlocksRequest) -> RpcResult<GetBlocksResponse> {
         Ok(self.blocks(request).await?)

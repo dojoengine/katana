@@ -1,15 +1,15 @@
 use std::str::FromStr;
 
-use cairo_lang_starknet_classes::abi;
 use cairo_lang_starknet_classes::casm_contract_class::StarknetSierraCompilationError;
 use cairo_lang_starknet_classes::contract_class::{
     version_id_from_serialized_sierra_program, ContractEntryPoint, ContractEntryPoints,
 };
+use cairo_lang_utils::bigint::BigUintAsHex;
 use serde_json_pythonic::to_string_pythonic;
-use starknet::macros::short_string;
 use starknet_api::contract_class::SierraVersion;
-use starknet_types_core::hash::{Poseidon, StarkHash};
+use starknet_types_core::hash::{self, Poseidon, StarkHash};
 
+use crate::cairo::ShortString;
 use crate::utils::{normalize_address, starknet_keccak};
 use crate::Felt;
 
@@ -18,8 +18,6 @@ pub type ClassHash = Felt;
 /// The hash of a compiled contract class.
 pub type CompiledClassHash = Felt;
 
-/// The canonical contract class (Sierra) type.
-pub type SierraContractClass = cairo_lang_starknet_classes::contract_class::ContractClass;
 /// The canonical legacy class (Cairo 0) type.
 pub type LegacyContractClass = starknet_api::deprecated_contract_class::ContractClass;
 
@@ -28,6 +26,97 @@ pub type CasmContractClass = cairo_lang_starknet_classes::casm_contract_class::C
 
 /// ABI for Sierra-based classes.
 pub type ContractAbi = cairo_lang_starknet_classes::abi::Contract;
+
+#[derive(Debug, Clone, Eq, PartialEq)]
+#[cfg_attr(feature = "serde", derive(::serde::Serialize, ::serde::Deserialize), serde(untagged))]
+pub enum MaybeInvalidSierraContractAbi {
+    Valid(ContractAbi),
+    Invalid(String),
+}
+
+impl std::fmt::Display for MaybeInvalidSierraContractAbi {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        match self {
+            MaybeInvalidSierraContractAbi::Valid(abi) => {
+                let s = to_string_pythonic(abi).expect("failed to serialize abi");
+                write!(f, "{s}")
+            }
+            MaybeInvalidSierraContractAbi::Invalid(abi) => write!(f, "{abi}"),
+        }
+    }
+}
+
+impl From<String> for MaybeInvalidSierraContractAbi {
+    fn from(value: String) -> Self {
+        match serde_json::from_str::<ContractAbi>(&value) {
+            Ok(abi) => MaybeInvalidSierraContractAbi::Valid(abi),
+            Err(..) => MaybeInvalidSierraContractAbi::Invalid(value),
+        }
+    }
+}
+
+impl From<&str> for MaybeInvalidSierraContractAbi {
+    fn from(value: &str) -> Self {
+        match serde_json::from_str::<ContractAbi>(value) {
+            Ok(abi) => MaybeInvalidSierraContractAbi::Valid(abi),
+            Err(..) => MaybeInvalidSierraContractAbi::Invalid(value.to_string()),
+        }
+    }
+}
+
+/// Represents a contract in the Starknet network.
+///
+/// The canonical contract class (Sierra) type.
+#[derive(Clone, Debug, PartialEq, Eq)]
+#[cfg_attr(feature = "serde", derive(::serde::Serialize, ::serde::Deserialize))]
+pub struct SierraContractClass {
+    pub sierra_program: Vec<BigUintAsHex>,
+    pub sierra_program_debug_info: Option<cairo_lang_sierra::debug_info::DebugInfo>,
+    pub contract_class_version: String,
+    pub entry_points_by_type: ContractEntryPoints,
+    pub abi: Option<MaybeInvalidSierraContractAbi>,
+}
+
+impl SierraContractClass {
+    /// Computes the hash of the Sierra contract class.
+    pub fn hash(&self) -> ClassHash {
+        let Self { sierra_program, abi, entry_points_by_type, .. } = self;
+
+        let program: Vec<Felt> = sierra_program.iter().map(|f| f.value.clone().into()).collect();
+        let abi: String = abi.as_ref().map(|abi| abi.to_string()).unwrap_or_default();
+
+        compute_sierra_class_hash(&abi, entry_points_by_type, &program)
+    }
+}
+
+impl From<SierraContractClass> for cairo_lang_starknet_classes::contract_class::ContractClass {
+    fn from(value: SierraContractClass) -> Self {
+        let abi = value.abi.and_then(|abi| match abi {
+            MaybeInvalidSierraContractAbi::Invalid(..) => None,
+            MaybeInvalidSierraContractAbi::Valid(abi) => Some(abi),
+        });
+
+        cairo_lang_starknet_classes::contract_class::ContractClass {
+            abi,
+            sierra_program: value.sierra_program,
+            entry_points_by_type: value.entry_points_by_type,
+            contract_class_version: value.contract_class_version,
+            sierra_program_debug_info: value.sierra_program_debug_info,
+        }
+    }
+}
+
+impl From<cairo_lang_starknet_classes::contract_class::ContractClass> for SierraContractClass {
+    fn from(value: cairo_lang_starknet_classes::contract_class::ContractClass) -> Self {
+        SierraContractClass {
+            abi: value.abi.map(MaybeInvalidSierraContractAbi::Valid),
+            sierra_program: value.sierra_program,
+            entry_points_by_type: value.entry_points_by_type,
+            contract_class_version: value.contract_class_version,
+            sierra_program_debug_info: value.sierra_program_debug_info,
+        }
+    }
+}
 
 #[derive(Debug, thiserror::Error)]
 pub enum ContractClassCompilationError {
@@ -51,23 +140,7 @@ impl ContractClass {
     /// Computes the hash of the class.
     pub fn class_hash(&self) -> Result<ClassHash, ComputeClassHashError> {
         match self {
-            Self::Class(class) => {
-                // Technically we don't have to use the Pythonic JSON style here. Doing this just to
-                // align with the official `cairo-lang` CLI.
-                //
-                // TODO: add an `AbiFormatter` trait and let users choose which one to use.
-                let abi = class.abi.as_ref();
-                let abi_str = to_string_pythonic(abi.unwrap_or(&abi::Contract::default())).unwrap();
-
-                let sierra_program = &class
-                    .sierra_program
-                    .iter()
-                    .map(|f| f.value.clone().into())
-                    .collect::<Vec<Felt>>();
-
-                Ok(compute_sierra_class_hash(&abi_str, &class.entry_points_by_type, sierra_program))
-            }
-
+            Self::Class(class) => Ok(class.hash()),
             Self::Legacy(class) => compute_legacy_class_hash(class),
         }
     }
@@ -77,7 +150,7 @@ impl ContractClass {
         match self {
             Self::Legacy(class) => Ok(CompiledClass::Legacy(class)),
             Self::Class(class) => {
-                let casm = CasmContractClass::from_contract_class(class, true, usize::MAX)?;
+                let casm = CasmContractClass::from_contract_class(class.into(), true, usize::MAX)?;
                 let casm = CompiledClass::Class(casm);
                 Ok(casm)
             }
@@ -236,19 +309,21 @@ pub fn compute_sierra_class_hash(
     entry_points_by_type: &ContractEntryPoints,
     sierra_program: &[Felt],
 ) -> Felt {
-    let mut hasher = starknet_crypto::PoseidonHasher::new();
-    hasher.update(short_string!("CONTRACT_CLASS_V0.1.0"));
+    const CONTRACT_CLASS_VERSION: ShortString = ShortString::from_ascii("CONTRACT_CLASS_V0.1.0");
 
-    // Hashes entry points
-    hasher.update(entrypoints_hash(&entry_points_by_type.external));
-    hasher.update(entrypoints_hash(&entry_points_by_type.l1_handler));
-    hasher.update(entrypoints_hash(&entry_points_by_type.constructor));
-    // Hashes ABI
-    hasher.update(starknet_keccak(abi.as_bytes()));
-    // Hashes Sierra program
-    hasher.update(Poseidon::hash_array(sierra_program));
+    let hash = hash::Poseidon::hash_array(&[
+        CONTRACT_CLASS_VERSION.into(),
+        // Hashes entry points
+        entrypoints_hash(&entry_points_by_type.external),
+        entrypoints_hash(&entry_points_by_type.l1_handler),
+        entrypoints_hash(&entry_points_by_type.constructor),
+        // Hashes ABI
+        starknet_keccak(abi.as_bytes()),
+        // Hashes Sierra program
+        Poseidon::hash_array(sierra_program),
+    ]);
 
-    normalize_address(hasher.finalize())
+    normalize_address(hash)
 }
 
 /// Computes the hash of a legacy contract class.
@@ -256,7 +331,9 @@ pub fn compute_sierra_class_hash(
 /// This function delegates the computation to the `starknet-rs` library. Don't really care about
 /// performance here because it's only for legacy classes, but we should definitely find to improve
 /// this without introducing too much complexity.
-fn compute_legacy_class_hash(class: &LegacyContractClass) -> Result<Felt, ComputeClassHashError> {
+pub fn compute_legacy_class_hash(
+    class: &LegacyContractClass,
+) -> Result<Felt, ComputeClassHashError> {
     pub use starknet::core::types::contract::legacy::LegacyContractClass as StarknetRsLegacyContractClass;
 
     let value = serde_json::to_value(class).unwrap();
@@ -267,14 +344,14 @@ fn compute_legacy_class_hash(class: &LegacyContractClass) -> Result<Felt, Comput
 }
 
 fn entrypoints_hash(entrypoints: &[ContractEntryPoint]) -> Felt {
-    let mut hasher = starknet_crypto::PoseidonHasher::new();
+    let initial = Vec::with_capacity(entrypoints.len() * 2);
+    let felts = entrypoints.iter().fold(initial, |mut acc, entry| {
+        acc.push(entry.selector.clone().into());
+        acc.push(entry.function_idx.into());
+        acc
+    });
 
-    for entry in entrypoints {
-        hasher.update(entry.selector.clone().into());
-        hasher.update(entry.function_idx.into());
-    }
-
-    hasher.finalize()
+    hash::Poseidon::hash_array(&felts)
 }
 
 #[cfg(test)]

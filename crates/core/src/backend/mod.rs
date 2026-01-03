@@ -1,4 +1,4 @@
-use std::collections::{BTreeMap, HashMap};
+use std::collections::HashMap;
 use std::sync::Arc;
 
 use anyhow::{anyhow, Context};
@@ -9,6 +9,7 @@ use katana_primitives::block::{
     BlockHash, BlockNumber, FinalityStatus, Header, PartialHeader, SealedBlock,
     SealedBlockWithStatus,
 };
+use katana_primitives::cairo::ShortString;
 use katana_primitives::class::{ClassHash, CompiledClassHash};
 use katana_primitives::da::L1DataAvailabilityMode;
 use katana_primitives::env::BlockEnv;
@@ -21,6 +22,7 @@ use katana_primitives::{address, ContractAddress, Felt};
 use katana_provider::api::block::{BlockHashProvider, BlockWriter};
 use katana_provider::api::trie::TrieWriter;
 use katana_provider::providers::EmptyStateProvider;
+use katana_provider::{MutableProvider, ProviderFactory};
 use katana_trie::bonsai::databases::HashMapDb;
 use katana_trie::{
     compute_contract_state_hash, compute_merkle_root, ClassesTrie, CommitId, ContractLeaf,
@@ -28,41 +30,47 @@ use katana_trie::{
 };
 use parking_lot::RwLock;
 use rayon::prelude::*;
-use starknet::macros::short_string;
 use starknet_types_core::hash::{self, StarkHash};
 use tracing::info;
 
 pub mod storage;
 
-use self::storage::Blockchain;
+use crate::backend::storage::{ProviderRO, ProviderRW};
 use crate::env::BlockContextGenerator;
 use crate::service::block_producer::{BlockProductionError, MinedBlockOutcome};
 use crate::utils::get_current_timestamp;
 
 pub(crate) const LOG_TARGET: &str = "katana::core::backend";
 
-#[derive(Debug)]
-pub struct Backend<EF> {
+pub struct Backend<EF, PF> {
     pub chain_spec: Arc<ChainSpec>,
-    /// stores all block related data in memory
-    pub blockchain: Blockchain,
-    /// The block context generator.
+    pub storage: PF,
     pub block_context_generator: RwLock<BlockContextGenerator>,
-
     pub executor_factory: Arc<EF>,
-
     pub gas_oracle: GasPriceOracle,
 }
 
-impl<EF> Backend<EF> {
+impl<EF, PF> std::fmt::Debug for Backend<EF, PF> {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.debug_struct("Backend")
+            .field("chain_spec", &self.chain_spec)
+            .field("storage", &"..")
+            .field("block_context_generator", &self.block_context_generator)
+            .field("executor_factory", &"Arc<EF>")
+            .field("gas_oracle", &self.gas_oracle)
+            .finish()
+    }
+}
+
+impl<EF, PF> Backend<EF, PF> {
     pub fn new(
         chain_spec: Arc<ChainSpec>,
-        blockchain: Blockchain,
+        storage: PF,
         gas_oracle: GasPriceOracle,
         executor_factory: EF,
     ) -> Self {
         Self {
-            blockchain,
+            storage,
             chain_spec,
             gas_oracle,
             executor_factory: Arc::new(executor_factory),
@@ -71,11 +79,57 @@ impl<EF> Backend<EF> {
     }
 }
 
-impl<EF: ExecutorFactory> Backend<EF> {
-    pub fn init_genesis(&self) -> anyhow::Result<()> {
+impl<EF, PF> Backend<EF, PF>
+where
+    EF: ExecutorFactory,
+    PF: ProviderFactory,
+    <PF as ProviderFactory>::Provider: ProviderRO,
+{
+    pub fn update_block_env(&self, block_env: &mut BlockEnv) {
+        let mut context_gen = self.block_context_generator.write();
+        let current_timestamp_secs = get_current_timestamp().as_secs() as i64;
+
+        let timestamp = if context_gen.next_block_start_time == 0 {
+            (current_timestamp_secs + context_gen.block_timestamp_offset) as u64
+        } else {
+            let timestamp = context_gen.next_block_start_time;
+            context_gen.block_timestamp_offset = timestamp as i64 - current_timestamp_secs;
+            context_gen.next_block_start_time = 0;
+            timestamp
+        };
+
+        block_env.number += 1;
+        block_env.timestamp = timestamp;
+        block_env.starknet_version = CURRENT_STARKNET_VERSION;
+
+        // update the gas prices
+        self.update_block_gas_prices(block_env);
+    }
+
+    /// Updates the gas prices in the block environment.
+    pub fn update_block_gas_prices(&self, block_env: &mut BlockEnv) {
+        block_env.l2_gas_prices = self.gas_oracle.l2_gas_prices();
+        block_env.l1_gas_prices = self.gas_oracle.l1_gas_prices();
+        block_env.l1_data_gas_prices = self.gas_oracle.l1_data_gas_prices();
+    }
+}
+
+impl<EF, PF> Backend<EF, PF>
+where
+    EF: ExecutorFactory,
+    PF: ProviderFactory,
+    <PF as ProviderFactory>::Provider: ProviderRO,
+    <PF as ProviderFactory>::ProviderMut: ProviderRW,
+{
+    pub fn init_genesis(&self, is_forking: bool) -> anyhow::Result<()> {
         match self.chain_spec.as_ref() {
-            ChainSpec::Dev(cs) => self.init_dev_genesis(cs),
+            ChainSpec::Dev(cs) => self.init_dev_genesis(cs, is_forking),
             ChainSpec::Rollup(cs) => self.init_rollup_genesis(cs),
+            ChainSpec::FullNode(_) => {
+                // Full nodes sync from the network, so we skip genesis initialization
+                info!("Full node mode: genesis initialization skipped, will sync from network");
+                Ok(())
+            }
         }
     }
 
@@ -105,7 +159,7 @@ impl<EF: ExecutorFactory> Backend<EF> {
             BlockHash::ZERO
         } else {
             let parent_block_num = block_env.number - 1;
-            self.blockchain
+            self.storage
                 .provider()
                 .block_hash_by_num(parent_block_num)?
                 .expect("qed; missing block hash for parent block")
@@ -124,9 +178,9 @@ impl<EF: ExecutorFactory> Backend<EF> {
             l1_data_gas_prices: block_env.l1_data_gas_prices.clone(),
         };
 
-        let provider = self.blockchain.provider();
+        let provider_mut = self.storage.provider_mut();
         let block = commit_block(
-            provider,
+            &provider_mut,
             partial_header,
             transactions,
             &receipts,
@@ -140,9 +194,11 @@ impl<EF: ExecutorFactory> Backend<EF> {
         // TODO: maybe should change the arguments for insert_block_with_states_and_receipts to
         // accept ReceiptWithTxHash instead to avoid this conversion.
         let receipts = receipts.into_iter().map(|r| r.receipt).collect::<Vec<_>>();
-        self.store_block(block, execution_output.states, receipts, traces)?;
+        store_block(&provider_mut, block, execution_output.states, receipts, traces)?;
 
         info!(target: LOG_TARGET, %block_number, %tx_count, "Block mined.");
+
+        provider_mut.commit()?;
 
         Ok(MinedBlockOutcome {
             block_hash,
@@ -150,55 +206,6 @@ impl<EF: ExecutorFactory> Backend<EF> {
             txs: tx_hashes,
             stats: execution_output.stats,
         })
-    }
-
-    fn store_block(
-        &self,
-        block: SealedBlockWithStatus,
-        states: StateUpdatesWithClasses,
-        receipts: Vec<Receipt>,
-        traces: Vec<TypedTransactionExecutionInfo>,
-    ) -> Result<(), BlockProductionError> {
-        // Validate that all declared classes have their corresponding class artifacts
-        if let Err(missing) = states.validate_classes() {
-            return Err(BlockProductionError::InconsistentState(format!(
-                "missing class artifacts for declared classes: {:#?}",
-                missing,
-            )));
-        }
-
-        self.blockchain
-            .provider()
-            .insert_block_with_states_and_receipts(block, states, receipts, traces)?;
-        Ok(())
-    }
-
-    pub fn update_block_env(&self, block_env: &mut BlockEnv) {
-        let mut context_gen = self.block_context_generator.write();
-        let current_timestamp_secs = get_current_timestamp().as_secs() as i64;
-
-        let timestamp = if context_gen.next_block_start_time == 0 {
-            (current_timestamp_secs + context_gen.block_timestamp_offset) as u64
-        } else {
-            let timestamp = context_gen.next_block_start_time;
-            context_gen.block_timestamp_offset = timestamp as i64 - current_timestamp_secs;
-            context_gen.next_block_start_time = 0;
-            timestamp
-        };
-
-        block_env.number += 1;
-        block_env.timestamp = timestamp;
-        block_env.starknet_version = CURRENT_STARKNET_VERSION;
-
-        // update the gas prices
-        self.update_block_gas_prices(block_env);
-    }
-
-    /// Updates the gas prices in the block environment.
-    pub fn update_block_gas_prices(&self, block_env: &mut BlockEnv) {
-        block_env.l2_gas_prices = self.gas_oracle.l2_gas_prices();
-        block_env.l1_gas_prices = self.gas_oracle.l1_gas_prices();
-        block_env.l1_data_gas_prices = self.gas_oracle.l1_data_gas_prices();
     }
 
     pub fn mine_empty_block(
@@ -211,56 +218,61 @@ impl<EF: ExecutorFactory> Backend<EF> {
     fn init_dev_genesis(
         &self,
         chain_spec: &katana_chain_spec::dev::ChainSpec,
+        is_forking: bool,
     ) -> anyhow::Result<()> {
-        let provider = self.blockchain.provider();
+        let provider = self.storage.provider();
 
         // check whether the genesis block has been initialized
         let local_hash = provider.block_hash_by_num(chain_spec.genesis.number)?;
 
-        if let Some(local_hash) = local_hash {
-            let genesis_block = chain_spec.block();
-            let mut genesis_state_updates = chain_spec.state_updates();
+        match (local_hash, is_forking) {
+            (Some(local_hash), false) => {
+                let genesis_block = chain_spec.block();
+                let mut genesis_state_updates = chain_spec.state_updates();
 
-            // commit the block but compute the trie using volatile storage so that it won't
-            // overwrite the existing trie this is very hacky and we should find for a
-            // much elegant solution.
-            let committed_block = commit_genesis_block(
-                GenesisTrieWriter,
-                genesis_block.header.clone(),
-                Vec::new(),
-                &[],
-                &mut genesis_state_updates.state_updates,
-            )?;
+                // commit the block but compute the trie using volatile storage so that it won't
+                // overwrite the existing trie this is very hacky and we should find for a
+                // much elegant solution.
+                let committed_block = commit_genesis_block(
+                    GenesisTrieWriter,
+                    genesis_block.header.clone(),
+                    Vec::new(),
+                    &[],
+                    &mut genesis_state_updates.state_updates,
+                )?;
 
-            // check genesis should be the same
-            if local_hash != committed_block.hash {
-                return Err(anyhow!(
-                    "Genesis block hash mismatch: expected {:#x}, got {local_hash:#x}",
-                    committed_block.hash
-                ));
+                // check genesis should be the same
+                if local_hash != committed_block.hash {
+                    return Err(anyhow!(
+                        "Genesis block hash mismatch: expected {:#x}, got {local_hash:#x}",
+                        committed_block.hash
+                    ));
+                }
+
+                info!(genesis_hash = %local_hash, "Genesis has already been initialized");
             }
 
-            info!(genesis_hash = %local_hash, "Genesis has already been initialized");
-        } else {
-            // Initialize the dev genesis block
+            _ => {
+                // Initialize the dev genesis block
 
-            let block = chain_spec.block();
-            let states = chain_spec.state_updates();
+                let block = chain_spec.block();
+                let states = chain_spec.state_updates();
 
-            let outcome = self.do_mine_block(
-                &BlockEnv {
-                    number: block.header.number,
-                    timestamp: block.header.timestamp,
-                    l2_gas_prices: block.header.l2_gas_prices,
-                    l1_gas_prices: block.header.l1_gas_prices,
-                    l1_data_gas_prices: block.header.l1_data_gas_prices,
-                    sequencer_address: block.header.sequencer_address,
-                    starknet_version: block.header.starknet_version,
-                },
-                ExecutionOutput { states, ..Default::default() },
-            )?;
+                let outcome = self.do_mine_block(
+                    &BlockEnv {
+                        number: block.header.number,
+                        timestamp: block.header.timestamp,
+                        l2_gas_prices: block.header.l2_gas_prices,
+                        l1_gas_prices: block.header.l1_gas_prices,
+                        l1_data_gas_prices: block.header.l1_data_gas_prices,
+                        sequencer_address: block.header.sequencer_address,
+                        starknet_version: block.header.starknet_version,
+                    },
+                    ExecutionOutput { states, ..Default::default() },
+                )?;
 
-            info!(genesis_hash = %outcome.block_hash, "Genesis initialized");
+                info!(genesis_hash = %outcome.block_hash, "Genesis initialized");
+            }
         }
 
         Ok(())
@@ -270,7 +282,7 @@ impl<EF: ExecutorFactory> Backend<EF> {
         &self,
         chain_spec: &katana_chain_spec::rollup::ChainSpec,
     ) -> anyhow::Result<()> {
-        let provider = self.blockchain.provider();
+        let provider = self.storage.provider();
 
         let block = chain_spec.block();
         let header = block.header.clone();
@@ -317,8 +329,10 @@ impl<EF: ExecutorFactory> Backend<EF> {
 
             info!("Genesis has already been initialized");
         } else {
+            let provider_mut = self.storage.provider_mut();
+
             let block = commit_genesis_block(
-                self.blockchain.provider(),
+                &provider_mut,
                 header,
                 transactions,
                 &receipts,
@@ -330,8 +344,9 @@ impl<EF: ExecutorFactory> Backend<EF> {
             // TODO: maybe should change the arguments for insert_block_with_states_and_receipts to
             // accept ReceiptWithTxHash instead to avoid this conversion.
             let receipts = receipts.into_iter().map(|r| r.receipt).collect::<Vec<_>>();
-            self.store_block(block, output.states, receipts, traces)?;
+            store_block(&provider_mut, block, output.states, receipts, traces)?;
 
+            provider_mut.commit()?;
             info!("Genesis initialized");
         }
 
@@ -510,7 +525,10 @@ impl<'a, P: TrieWriter> UncommittedBlock<'a, P> {
     fn compute_new_state_root(&self) -> Felt {
         let class_trie_root = self
             .provider
-            .trie_insert_declared_classes(self.header.number, &self.state_updates.declared_classes)
+            .trie_insert_declared_classes(
+                self.header.number,
+                self.state_updates.declared_classes.clone().into_iter(),
+            )
             .expect("failed to update class trie");
 
         let contract_trie_root = self
@@ -519,11 +537,29 @@ impl<'a, P: TrieWriter> UncommittedBlock<'a, P> {
             .expect("failed to update contract trie");
 
         hash::Poseidon::hash_array(&[
-            short_string!("STARKNET_STATE_V0"),
+            ShortString::from_ascii("STARKNET_STATE_V0").into(),
             contract_trie_root,
             class_trie_root,
         ])
     }
+}
+
+fn store_block(
+    provider_mut: &impl BlockWriter,
+    block: SealedBlockWithStatus,
+    states: StateUpdatesWithClasses,
+    receipts: Vec<Receipt>,
+    traces: Vec<TypedTransactionExecutionInfo>,
+) -> Result<(), BlockProductionError> {
+    // Validate that all declared classes have their corresponding class artifacts
+    if let Err(missing) = states.validate_classes() {
+        return Err(BlockProductionError::InconsistentState(format!(
+            "missing class artifacts for declared classes: {missing:#?}"
+        )));
+    }
+
+    provider_mut.insert_block_with_states_and_receipts(block, states, receipts, traces)?;
+    Ok(())
 }
 
 // TODO: create a dedicated struct for this contract.
@@ -555,19 +591,16 @@ fn update_block_hash_registry_contract(
     Ok(())
 }
 
-fn commit_block<P>(
+fn commit_block<P: BlockHashProvider + TrieWriter>(
     provider: P,
     header: PartialHeader,
     transactions: Vec<TxWithHash>,
     receipts: &[ReceiptWithTxHash],
     state_updates: &mut StateUpdates,
-) -> Result<SealedBlock, BlockProductionError>
-where
-    P: BlockHashProvider + TrieWriter,
-{
+) -> Result<SealedBlock, BlockProductionError> {
     // Update special contract address 0x1
     update_block_hash_registry_contract(&provider, state_updates, header.number)?;
-    Ok(UncommittedBlock::new(header, transactions, receipts, state_updates, &provider).commit())
+    Ok(UncommittedBlock::new(header, transactions, receipts, state_updates, provider).commit())
 }
 
 fn commit_genesis_block(
@@ -577,7 +610,7 @@ fn commit_genesis_block(
     receipts: &[ReceiptWithTxHash],
     state_updates: &mut StateUpdates,
 ) -> Result<SealedBlock, BlockProductionError> {
-    Ok(UncommittedBlock::new(header, transactions, receipts, state_updates, &provider).commit())
+    Ok(UncommittedBlock::new(header, transactions, receipts, state_updates, provider).commit())
 }
 
 #[derive(Debug)]
@@ -625,7 +658,18 @@ impl TrieWriter for GenesisTrieWriter {
             contract_leafs
                 .into_iter()
                 .map(|(address, leaf)| {
-                    let class_hash = leaf.class_hash.unwrap();
+                    let class_hash = if let Some(class_hash) = leaf.class_hash {
+                        class_hash
+                    } else {
+                        // TODO: there's must be a better way to handle this
+                        assert!(
+                            address == address!("0x1") || address == address!("0x2"),
+                            "Only special contracts may have unspecified class hash."
+                        );
+
+                        ClassHash::ZERO
+                    };
+
                     let nonce = leaf.nonce.unwrap_or_default();
                     let storage_root = leaf.storage_root.unwrap_or_default();
                     let leaf_hash = compute_contract_state_hash(&class_hash, &storage_root, &nonce);
@@ -645,12 +689,12 @@ impl TrieWriter for GenesisTrieWriter {
     fn trie_insert_declared_classes(
         &self,
         block_number: BlockNumber,
-        updates: &BTreeMap<ClassHash, CompiledClassHash>,
+        updates: impl Iterator<Item = (ClassHash, CompiledClassHash)>,
     ) -> katana_provider::ProviderResult<Felt> {
         let mut trie = ClassesTrie::new(HashMapDb::default());
 
         for (class_hash, compiled_hash) in updates {
-            trie.insert(*class_hash, *compiled_hash);
+            trie.insert(class_hash, compiled_hash);
         }
 
         trie.commit(block_number);

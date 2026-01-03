@@ -4,54 +4,84 @@ use std::future::IntoFuture;
 use std::sync::Arc;
 
 use anyhow::Result;
+use http::header::CONTENT_TYPE;
+use http::Method;
+use jsonrpsee::RpcModule;
+use katana_chain_spec::ChainSpec;
+use katana_executor::ExecutionFlags;
+use katana_gas_price_oracle::GasPriceOracle;
 use katana_gateway_client::Client as SequencerGateway;
-use katana_metrics::exporters::prometheus::PrometheusRecorder;
-use katana_metrics::{Report, Server as MetricsServer};
+use katana_metrics::exporters::prometheus::{Prometheus, PrometheusRecorder};
+use katana_metrics::sys::DiskReporter;
+use katana_metrics::{MetricsServer, MetricsServerHandle, Report};
 use katana_pipeline::{Pipeline, PipelineHandle};
-use katana_pool::ordering::FiFo;
-use katana_pool::pool::Pool;
-use katana_pool::validation::NoopValidator;
-use katana_primitives::transaction::ExecutableTxWithHash;
-use katana_provider::providers::db::DbProvider;
+use katana_pool::ordering::TipOrdering;
+use katana_provider::DbProviderFactory;
+use katana_rpc_api::starknet::{StarknetApiServer, StarknetTraceApiServer, StarknetWriteApiServer};
+use katana_rpc_server::cors::Cors;
+use katana_rpc_server::starknet::{StarknetApi, StarknetApiConfig};
+use katana_rpc_server::{RpcServer, RpcServerHandle};
 use katana_stage::blocks::BatchBlockDownloader;
-use katana_stage::{Blocks, Classes};
+use katana_stage::{Blocks, Classes, StateTrie};
 use katana_tasks::TaskManager;
 use tracing::{error, info};
 
 use crate::config::db::DbConfig;
 use crate::config::metrics::MetricsConfig;
+use crate::full::pending::PreconfStateFactory;
 
 mod exit;
+mod pending;
+mod pool;
 pub mod tip_watcher;
 
 use exit::NodeStoppedFuture;
 use tip_watcher::ChainTipWatcher;
 
-type TxPool =
-    Pool<ExecutableTxWithHash, NoopValidator<ExecutableTxWithHash>, FiFo<ExecutableTxWithHash>>;
+use crate::config::rpc::{RpcConfig, RpcModuleKind};
+use crate::full::pool::{FullNodePool, GatewayProxyValidator};
 
-#[derive(Debug, Clone)]
+#[derive(
+    Debug,
+    Copy,
+    Clone,
+    serde::Serialize,
+    serde::Deserialize,
+    PartialEq,
+    Default,
+    strum::Display,
+    strum::EnumString,
+)]
 pub enum Network {
+    #[default]
     Mainnet,
     Sepolia,
 }
 
+pub use katana_pipeline::PruningConfig;
+
 #[derive(Debug)]
 pub struct Config {
     pub db: DbConfig,
+    pub rpc: RpcConfig,
+    pub pruning: PruningConfig,
     pub metrics: Option<MetricsConfig>,
     pub gateway_api_key: Option<String>,
-    pub eth_rpc_url: String,
     pub network: Network,
 }
 
 #[derive(Debug)]
 pub struct Node {
+    pub provider: DbProviderFactory,
     pub db: katana_db::Db,
-    pub pool: TxPool,
+    pub pool: FullNodePool,
     pub config: Arc<Config>,
     pub task_manager: TaskManager,
-    pub pipeline: Pipeline<DbProvider>,
+    pub pipeline: Pipeline,
+    pub rpc_server: RpcServer,
+    pub gateway_client: SequencerGateway,
+    pub metrics_server: Option<MetricsServer<Prometheus>>,
+    pub chain_tip_watcher: ChainTipWatcher<SequencerGateway>,
 }
 
 impl Node {
@@ -65,98 +95,230 @@ impl Node {
         // -- build task manager
 
         let task_manager = TaskManager::current();
+        let task_spawner = task_manager.task_spawner();
 
         // -- build db and storage provider
 
         let path = config.db.dir.clone().expect("database path must exist");
 
         info!(target: "node", path = %path.display(), "Initializing database.");
-        let db = katana_db::Db::new(path)?;
 
-        let provider = DbProvider::new(db.clone());
+        let db = katana_db::Db::new(path)?;
+        let storage_provider = DbProviderFactory::new(db.clone());
+
+        // --- build gateway client
+
+        let gateway_client = match config.network {
+            Network::Mainnet => SequencerGateway::mainnet(),
+            Network::Sepolia => SequencerGateway::sepolia(),
+        };
+
+        let gateway_client = if let Some(ref key) = config.gateway_api_key {
+            gateway_client.with_api_key(key.clone())
+        } else {
+            gateway_client
+        };
 
         // --- build transaction pool
 
-        let pool = TxPool::new(NoopValidator::new(), FiFo::new());
+        let validator = GatewayProxyValidator::new(gateway_client.clone());
+        let pool = FullNodePool::new(validator, TipOrdering::new());
 
         // --- build pipeline
 
-        let fgw = if let Some(ref key) = config.gateway_api_key {
-            SequencerGateway::sepolia().with_api_key(key.clone())
-        } else {
-            SequencerGateway::sepolia()
+        let (mut pipeline, pipeline_handle) = Pipeline::new(storage_provider.clone(), 256);
+
+        // Configure pruning
+        pipeline.set_pruning_config(config.pruning.clone());
+
+        let block_downloader = BatchBlockDownloader::new_gateway(gateway_client.clone(), 20);
+        pipeline.add_stage(Blocks::new(storage_provider.clone(), block_downloader));
+        pipeline.add_stage(Classes::new(storage_provider.clone(), gateway_client.clone(), 20));
+        pipeline.add_stage(StateTrie::new(storage_provider.clone(), task_spawner.clone()));
+
+        // -- build chain tip watcher using gateway client
+
+        let chain_tip_watcher = ChainTipWatcher::new(gateway_client.clone());
+
+        let preconf_factory = PreconfStateFactory::new(
+            storage_provider.clone(),
+            gateway_client.clone(),
+            pipeline_handle.subscribe_blocks(),
+            chain_tip_watcher.subscribe(),
+        );
+
+        // --- build rpc server
+
+        let mut rpc_modules = RpcModule::new(());
+
+        let cors = Cors::new()
+	       	.allow_origins(config.rpc.cors_origins.clone())
+	       	// Allow `POST` when accessing the resource
+	       	.allow_methods([Method::POST, Method::GET])
+	       	.allow_headers([CONTENT_TYPE, "argent-client".parse().unwrap(), "argent-version".parse().unwrap()]);
+
+        // // --- build starknet api
+
+        let starknet_api_cfg = StarknetApiConfig {
+            max_event_page_size: config.rpc.max_event_page_size,
+            max_proof_keys: config.rpc.max_proof_keys,
+            max_call_gas: config.rpc.max_call_gas,
+            max_concurrent_estimate_fee_requests: config.rpc.max_concurrent_estimate_fee_requests,
+            simulation_flags: ExecutionFlags::default(),
+            versioned_constant_overrides: None,
+            #[cfg(feature = "cartridge")]
+            paymaster: None,
         };
 
-        let (mut pipeline, _) = Pipeline::new(provider.clone(), 64);
-        let block_downloader = BatchBlockDownloader::new_gateway(fgw.clone(), 3);
-        pipeline.add_stage(Blocks::new(provider.clone(), block_downloader));
-        pipeline.add_stage(Classes::new(provider, fgw.clone(), 3));
+        let chain_spec = match config.network {
+            Network::Mainnet => ChainSpec::mainnet(),
+            Network::Sepolia => ChainSpec::sepolia(),
+        };
 
-        let node = Node { pool, config: Arc::new(config), task_manager, pipeline, db };
+        let starknet_api = StarknetApi::new(
+            Arc::new(chain_spec),
+            pool.clone(),
+            task_spawner.clone(),
+            preconf_factory,
+            GasPriceOracle::create_for_testing(),
+            starknet_api_cfg,
+            storage_provider.clone(),
+        );
 
-        Ok(node)
+        if config.rpc.apis.contains(&RpcModuleKind::Starknet) {
+            #[cfg(feature = "explorer")]
+            if config.rpc.explorer {
+                use katana_rpc_api::starknet_ext::StarknetApiExtServer;
+                rpc_modules.merge(StarknetApiExtServer::into_rpc(starknet_api.clone()))?;
+            }
+
+            rpc_modules.merge(StarknetApiServer::into_rpc(starknet_api.clone()))?;
+            rpc_modules.merge(StarknetWriteApiServer::into_rpc(starknet_api.clone()))?;
+            rpc_modules.merge(StarknetTraceApiServer::into_rpc(starknet_api.clone()))?;
+        }
+
+        #[allow(unused_mut)]
+        let mut rpc_server =
+            RpcServer::new().metrics(true).health_check(true).cors(cors).module(rpc_modules)?;
+
+        #[cfg(feature = "explorer")]
+        {
+            rpc_server = rpc_server.explorer(config.rpc.explorer);
+        }
+
+        if let Some(timeout) = config.rpc.timeout {
+            rpc_server = rpc_server.timeout(timeout);
+        };
+
+        if let Some(max_connections) = config.rpc.max_connections {
+            rpc_server = rpc_server.max_connections(max_connections);
+        }
+
+        if let Some(max_request_body_size) = config.rpc.max_request_body_size {
+            rpc_server = rpc_server.max_request_body_size(max_request_body_size);
+        }
+
+        if let Some(max_response_body_size) = config.rpc.max_response_body_size {
+            rpc_server = rpc_server.max_response_body_size(max_response_body_size);
+        }
+
+        // --- build metrics server (optional)
+
+        let metrics_server = if config.metrics.is_some() {
+            let db_metrics = Box::new(db.clone()) as Box<dyn Report>;
+            let disk_metrics = Box::new(DiskReporter::new(db.path())?) as Box<dyn Report>;
+            let reports: Vec<Box<dyn Report>> = vec![db_metrics, disk_metrics];
+
+            let exporter = PrometheusRecorder::current().expect("qed; should exist at this point");
+            let server = MetricsServer::new(exporter).with_process_metrics().reports(reports);
+
+            Some(server)
+        } else {
+            None
+        };
+
+        Ok(Node {
+            db,
+            provider: storage_provider,
+            pool,
+            pipeline,
+            rpc_server,
+            task_manager,
+            gateway_client,
+            metrics_server,
+            chain_tip_watcher,
+            config: Arc::new(config),
+        })
     }
 
     pub async fn launch(self) -> Result<LaunchedNode> {
-        if let Some(ref cfg) = self.config.metrics {
-            let reports: Vec<Box<dyn Report>> = vec![Box::new(self.db.clone()) as Box<dyn Report>];
-            let exporter = PrometheusRecorder::current().expect("qed; should exist at this point");
+        // --- start the metrics server (if configured)
 
+        let metrics_handle = if let Some(ref server) = self.metrics_server {
+            // safe to unwrap here because metrics_server can only be Some if the metrics config
+            // exists
+            let cfg = self.config.metrics.as_ref().expect("qed; must exist");
             let addr = cfg.socket_addr();
-            let server = MetricsServer::new(exporter).with_process_metrics().with_reports(reports);
-            self.task_manager.task_spawner().build_task().spawn(server.start(addr));
-
-            info!(%addr, "Metrics server started.");
-        }
-
-        let pipeline_handle = self.pipeline.handle();
-
-        let core_contract = match self.config.network {
-            Network::Mainnet => {
-                katana_starknet::StarknetCore::new_http_mainnet(&self.config.eth_rpc_url).await?
-            }
-            Network::Sepolia => {
-                katana_starknet::StarknetCore::new_http_sepolia(&self.config.eth_rpc_url).await?
-            }
+            Some(server.start(addr)?)
+        } else {
+            None
         };
 
-        let tip_watcher = ChainTipWatcher::new(core_contract);
+        let chain_tip_watcher = self.chain_tip_watcher;
+        let mut tip_subscription = chain_tip_watcher.subscribe();
 
-        let mut tip_subscription = tip_watcher.subscribe();
+        let pipeline_handle = self.pipeline.handle();
         let pipeline_handle_clone = pipeline_handle.clone();
+
+        // -- start syncing pipeline task
 
         self.task_manager
             .task_spawner()
             .build_task()
+            .graceful_shutdown()
             .name("Pipeline")
             .spawn(self.pipeline.into_future());
+
+        // -- start chain tip watcher task
 
         self.task_manager
             .task_spawner()
             .build_task()
             .graceful_shutdown()
             .name("Chain tip watcher")
-            .spawn(tip_watcher.into_future());
+            .spawn(async move {
+                loop {
+                    if let Err(error) = chain_tip_watcher.run().await {
+                        error!(%error, "Tip watcher failed. Restarting task.");
+                    }
+                }
+            });
 
-        // spawn a task for updating the pipeline's tip based on chain tip changes
+        // -- start a task for updating the pipeline's tip based on chain tip changes
+
         self.task_manager.task_spawner().spawn(async move {
             loop {
                 match tip_subscription.changed().await {
                     Ok(new_tip) => pipeline_handle_clone.set_tip(new_tip),
-                    Err(err) => {
-                        error!(error = ?err, "Error updating pipeline tip.");
+                    Err(error) => {
+                        error!(?error, "Error updating pipeline tip.");
                         break;
                     }
                 }
             }
         });
 
+        // --- start the rpc server
+
+        let rpc = self.rpc_server.start(self.config.rpc.socket_addr()).await?;
+
         Ok(LaunchedNode {
             db: self.db,
-            pipeline_handle,
-            pool: self.pool,
             config: self.config,
             task_manager: self.task_manager,
+            pipeline: pipeline_handle,
+            metrics: metrics_handle,
+            rpc,
         })
     }
 }
@@ -164,15 +326,22 @@ impl Node {
 #[derive(Debug)]
 pub struct LaunchedNode {
     pub db: katana_db::Db,
-    pub pool: TxPool,
     pub task_manager: TaskManager,
     pub config: Arc<Config>,
-    pub pipeline_handle: PipelineHandle,
+    pub rpc: RpcServerHandle,
+    pub pipeline: PipelineHandle,
+    /// Handle to the metrics server (if enabled).
+    pub metrics: Option<MetricsServerHandle>,
 }
 
 impl LaunchedNode {
     pub async fn stop(&self) -> Result<()> {
+        self.rpc.stop()?;
+        self.pipeline.stop();
+
+        self.pipeline.stopped().await;
         self.task_manager.shutdown().await;
+
         Ok(())
     }
 

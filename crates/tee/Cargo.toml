@@ -1,0 +1,21 @@
+[package]
+name = "katana-tee"
+description = "TEE (Trusted Execution Environment) support for Katana"
+edition.workspace = true
+version.workspace = true
+
+[dependencies]
+thiserror.workspace = true
+clap = { workspace = true, default-features = false, features = [ "derive" ] }
+serde.workspace = true
+tracing = { workspace = true, optional = true }
+bincode = { workspace = true, optional = true }
+sev-snp = { workspace = true, optional = true }
+
+[dev-dependencies]
+rstest.workspace = true
+tempfile.workspace = true
+
+[features]
+default = []
+snp = ["dep:sev-snp", "dep:bincode", "dep:tracing"]

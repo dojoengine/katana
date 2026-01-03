@@ -218,7 +218,7 @@ impl Future for TxWaiter<'_> {
                         Err(StarknetClientError::Starknet(StarknetApiError::TxnHashNotFound)) => {}
 
                         Err(e) => {
-                            return Poll::Ready(Err(TxWaitingError::Client(dbg!(e))));
+                            return Poll::Ready(Err(TxWaitingError::Client(e)));
                         }
                     },
 
@@ -239,7 +239,7 @@ impl Future for TxWaiter<'_> {
                     Poll::Ready(res) => match res {
                         Err(StarknetClientError::Starknet(StarknetApiError::TxnHashNotFound)) => {}
                         Err(e) => {
-                            return Poll::Ready(Err(TxWaitingError::Client(dbg!(e))));
+                            return Poll::Ready(Err(TxWaitingError::Client(e)));
                         }
 
                         Ok(res) => {
@@ -369,7 +369,7 @@ mod tests {
     async fn should_timeout_on_nonexistant_transaction() {
         let sequencer = create_test_sequencer().await;
 
-        let client = katana_rpc_client::starknet::Client::new(sequencer.rpc_http_client());
+        let client = sequencer.starknet_rpc_client();
 
         let hash = felt!("0x1234");
         let result =

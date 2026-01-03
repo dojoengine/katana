@@ -1,4 +1,4 @@
-// #![cfg_attr(not(test), warn(unused_crate_dependencies))]
+#![cfg_attr(not(test), warn(unused_crate_dependencies))]
 
 pub mod full;
 pub mod optimistic;
@@ -9,48 +9,54 @@ pub mod exit;
 use std::future::IntoFuture;
 use std::sync::Arc;
 
-use anyhow::{Context, Result};
+use anyhow::{bail, Context, Result};
 use config::rpc::RpcModuleKind;
 use config::Config;
 use http::header::CONTENT_TYPE;
 use http::Method;
-use jsonrpsee::http_client::HttpClientBuilder;
 use jsonrpsee::RpcModule;
 use katana_chain_spec::{ChainSpec, SettlementLayer};
-use katana_core::backend::storage::Blockchain;
+use katana_core::backend::storage::{ProviderRO, ProviderRW};
 use katana_core::backend::Backend;
 use katana_core::env::BlockContextGenerator;
 use katana_core::service::block_producer::BlockProducer;
-use katana_db::Db;
 use katana_executor::implementation::blockifier::cache::ClassCache;
 use katana_executor::implementation::blockifier::BlockifierFactory;
-use katana_executor::ExecutionFlags;
+use katana_executor::{ExecutionFlags, ExecutorFactory};
 use katana_gas_price_oracle::{FixedPriceOracle, GasPriceOracle};
 use katana_gateway_server::{GatewayServer, GatewayServerHandle};
-use katana_metrics::exporters::prometheus::PrometheusRecorder;
+use katana_metrics::exporters::prometheus::{Prometheus, PrometheusRecorder};
 use katana_metrics::sys::DiskReporter;
-use katana_metrics::{Report, Server as MetricsServer};
+use katana_metrics::{MetricsServer, MetricsServerHandle, Report};
 use katana_pool::ordering::FiFo;
 use katana_pool::TxPool;
-use katana_primitives::env::{CfgEnv, FeeTokenAddressses};
+use katana_primitives::block::{BlockHashOrNumber, GasPrices};
+use katana_primitives::cairo::ShortString;
+use katana_primitives::env::VersionedConstantsOverrides;
+use katana_provider::{DbProviderFactory, ForkProviderFactory, ProviderFactory};
 #[cfg(feature = "cartridge")]
 use katana_rpc_api::cartridge::CartridgeApiServer;
 use katana_rpc_api::dev::DevApiServer;
 use katana_rpc_api::starknet::{StarknetApiServer, StarknetTraceApiServer, StarknetWriteApiServer};
 #[cfg(feature = "explorer")]
 use katana_rpc_api::starknet_ext::StarknetApiExtServer;
+#[cfg(feature = "tee")]
+use katana_rpc_api::tee::TeeApiServer;
 use katana_rpc_client::starknet::Client as StarknetClient;
 #[cfg(feature = "cartridge")]
 use katana_rpc_server::cartridge::CartridgeApi;
 use katana_rpc_server::cors::Cors;
 use katana_rpc_server::dev::DevApi;
-use katana_rpc_server::starknet::forking::ForkedClient;
 #[cfg(feature = "cartridge")]
 use katana_rpc_server::starknet::PaymasterConfig;
 use katana_rpc_server::starknet::{StarknetApi, StarknetApiConfig};
+#[cfg(feature = "tee")]
+use katana_rpc_server::tee::TeeApi;
 use katana_rpc_server::{RpcServer, RpcServerHandle};
+use katana_rpc_types::GetBlockWithTxHashesResponse;
 use katana_stage::Sequencing;
 use katana_tasks::TaskManager;
+use num_traits::ToPrimitive;
 use tracing::info;
 
 use crate::exit::NodeStoppedFuture;
@@ -60,25 +66,35 @@ use crate::exit::NodeStoppedFuture;
 /// The struct contains the handle to all the components of the node.
 #[must_use = "Node does nothing unless launched."]
 #[derive(Debug)]
-pub struct Node {
+pub struct Node<P>
+where
+    P: ProviderFactory,
+    <P as ProviderFactory>::Provider: ProviderRO,
+    <P as ProviderFactory>::ProviderMut: ProviderRW,
+{
+    db: katana_db::Db,
+    provider: P,
     config: Arc<Config>,
     pool: TxPool,
-    db: katana_db::Db,
     rpc_server: RpcServer,
     task_manager: TaskManager,
-    backend: Arc<Backend<BlockifierFactory>>,
-    block_producer: BlockProducer<BlockifierFactory>,
-    gateway_server: Option<GatewayServer>,
+    backend: Arc<Backend<BlockifierFactory, P>>,
+    block_producer: BlockProducer<BlockifierFactory, P>,
+    gateway_server: Option<GatewayServer<TxPool, P>>,
+    metrics_server: Option<MetricsServer<Prometheus>>,
 }
 
-impl Node {
+impl<P> Node<P>
+where
+    P: ProviderFactory + Clone,
+    <P as ProviderFactory>::Provider: ProviderRO,
+    <P as ProviderFactory>::ProviderMut: ProviderRW,
+{
     /// Build the node components from the given [`Config`].
     ///
     /// This returns a [`Node`] instance which can be launched with the all the necessary components
     /// configured.
-    pub async fn build(config: Config) -> Result<Node> {
-        let mut config = config;
-
+    pub fn build_with_provider(db: katana_db::Db, provider: P, config: Config) -> Result<Node<P>> {
         if config.metrics.is_some() {
             // Metrics recorder must be initialized before calling any of the metrics macros, in
             // order for it to be registered.
@@ -92,22 +108,12 @@ impl Node {
 
         // --- build executor factory
 
-        let fee_token_addresses = match config.chain.as_ref() {
-            ChainSpec::Dev(cs) => {
-                FeeTokenAddressses { eth: cs.fee_contracts.eth, strk: cs.fee_contracts.strk }
-            }
-            ChainSpec::Rollup(cs) => {
-                FeeTokenAddressses { eth: cs.fee_contract.strk, strk: cs.fee_contract.strk }
-            }
-        };
-
-        let cfg_env = CfgEnv {
-            fee_token_addresses,
-            chain_id: config.chain.id(),
-            invoke_tx_max_n_steps: config.execution.invocation_max_steps,
-            validate_max_n_steps: config.execution.validation_max_steps,
-            max_recursion_depth: config.execution.max_recursion_depth,
-        };
+        // Create versioned constants overrides from config
+        let overrides = Some(VersionedConstantsOverrides {
+            invoke_tx_max_n_steps: Some(config.execution.invocation_max_steps),
+            validate_max_n_steps: Some(config.execution.validation_max_steps),
+            max_recursion_depth: Some(config.execution.max_recursion_depth),
+        });
 
         let execution_flags = ExecutionFlags::new()
             .with_account_validation(config.dev.account_validation)
@@ -126,42 +132,14 @@ impl Node {
             let global_class_cache = class_cache.build_global()?;
 
             let factory = BlockifierFactory::new(
-                cfg_env,
-                execution_flags,
+                overrides,
+                execution_flags.clone(),
                 config.sequencing.block_limits(),
                 global_class_cache,
+                config.chain.clone(),
             );
 
             Arc::new(factory)
-        };
-
-        // --- build backend
-
-        let (blockchain, db, forked_client) = if let Some(cfg) = &config.forking {
-            let chain_spec = Arc::get_mut(&mut config.chain).expect("get mut Arc");
-
-            let ChainSpec::Dev(chain_spec) = chain_spec else {
-                return Err(anyhow::anyhow!("Forking is only supported in dev mode for now"));
-            };
-
-            let db = katana_db::Db::in_memory()?;
-            let (bc, block_num) =
-                Blockchain::new_from_forked(db.clone(), cfg.url.clone(), cfg.block, chain_spec)
-                    .await?;
-
-            // TODO: it'd bee nice if the client can be shared on both the rpc and forked backend
-            // side
-            let http_client = HttpClientBuilder::new().build(cfg.url.as_ref())?;
-            let rpc_client = StarknetClient::new(http_client);
-            let forked_client = ForkedClient::new(rpc_client, block_num.into());
-
-            (bc, db, Some(forked_client))
-        } else if let Some(db_path) = &config.db.dir {
-            let db = katana_db::Db::new(db_path)?;
-            (Blockchain::new_with_db(db.clone()), db, None)
-        } else {
-            let db = katana_db::Db::in_memory()?;
-            (Blockchain::new_with_db(db.clone()), db, None)
         };
 
         // --- build l1 gas oracle
@@ -189,16 +167,21 @@ impl Node {
             GasPriceOracle::Fixed(FixedPriceOracle::default())
         };
 
+        // Get cfg_env before moving executor_factory into Backend
+        let versioned_constant_overrides = executor_factory.overrides().cloned();
+
+        // --- build backend
+
         let block_context_generator = BlockContextGenerator::default().into();
         let backend = Arc::new(Backend {
-            gas_oracle,
-            blockchain: blockchain.clone(),
+            gas_oracle: gas_oracle.clone(),
+            storage: provider.clone(),
             executor_factory,
             block_context_generator,
             chain_spec: config.chain.clone(),
         });
 
-        backend.init_genesis().context("failed to initialize genesis")?;
+        backend.init_genesis(config.forking.is_some()).context("failed to initialize genesis")?;
 
         // --- build block producer
 
@@ -257,32 +240,23 @@ impl Node {
             max_proof_keys: config.rpc.max_proof_keys,
             max_call_gas: config.rpc.max_call_gas,
             max_concurrent_estimate_fee_requests: config.rpc.max_concurrent_estimate_fee_requests,
+            simulation_flags: execution_flags,
+            versioned_constant_overrides,
             #[cfg(feature = "cartridge")]
             paymaster,
         };
 
-        let starknet_api = if let Some(client) = forked_client {
-            StarknetApi::new_forked(
-                backend.clone(),
-                pool.clone(),
-                client,
-                task_spawner.clone(),
-                starknet_api_cfg,
-                block_producer.clone(),
-                blockchain,
-                None,
-            )
-        } else {
-            StarknetApi::new(
-                backend.clone(),
-                pool.clone(),
-                task_spawner.clone(),
-                starknet_api_cfg,
-                block_producer.clone(),
-                blockchain,
-                None,
-            )
-        };
+        let chain_spec = backend.chain_spec.clone();
+
+        let starknet_api = StarknetApi::new(
+            chain_spec.clone(),
+            pool.clone(),
+            task_spawner.clone(),
+            block_producer.clone(),
+            gas_oracle.clone(),
+            starknet_api_cfg,
+            provider.clone(),
+        );
 
         if config.rpc.apis.contains(&RpcModuleKind::Starknet) {
             #[cfg(feature = "explorer")]
@@ -298,6 +272,37 @@ impl Node {
         if config.rpc.apis.contains(&RpcModuleKind::Dev) {
             let api = DevApi::new(backend.clone(), block_producer.clone());
             rpc_modules.merge(DevApiServer::into_rpc(api))?;
+        }
+
+        // --- build tee api (if configured)
+        #[cfg(feature = "tee")]
+        if config.rpc.apis.contains(&RpcModuleKind::Tee) {
+            if let Some(ref tee_config) = config.tee {
+                use katana_tee::{TeeProvider, TeeProviderType};
+
+                let tee_provider: Arc<dyn TeeProvider> = match tee_config.provider_type {
+                    TeeProviderType::SevSnp => {
+                        #[cfg(feature = "tee-snp")]
+                        {
+                            Arc::new(
+                                katana_tee::SevSnpProvider::new()
+                                    .context("Failed to initialize SEV-SNP provider")?,
+                            )
+                        }
+                        #[cfg(not(feature = "tee-snp"))]
+                        {
+                            anyhow::bail!(
+                                "SEV-SNP TEE provider requires the 'tee-snp' feature to be enabled"
+                            );
+                        }
+                    }
+                };
+
+                let api = TeeApi::new(provider.clone(), tee_provider);
+                rpc_modules.merge(TeeApiServer::into_rpc(api))?;
+
+                info!(target: "node", provider = ?tee_config.provider_type, "TEE API enabled");
+            }
         }
 
         #[allow(unused_mut)]
@@ -341,38 +346,168 @@ impl Node {
             None
         };
 
+        // --- build metrics server (optional)
+
+        let metrics_server = if config.metrics.is_some() {
+            let db_metrics = Box::new(db.clone()) as Box<dyn Report>;
+            let disk_metrics = Box::new(DiskReporter::new(db.path())?) as Box<dyn Report>;
+            let reports: Vec<Box<dyn Report>> = vec![db_metrics, disk_metrics];
+
+            let exporter = PrometheusRecorder::current().expect("qed; should exist at this point");
+            let server = MetricsServer::new(exporter).with_process_metrics().reports(reports);
+
+            Some(server)
+        } else {
+            None
+        };
+
         Ok(Node {
             db,
+            provider,
             pool,
             backend,
             rpc_server,
             gateway_server,
             block_producer,
+            metrics_server,
             config: Arc::new(config),
             task_manager,
         })
     }
+}
 
+impl Node<DbProviderFactory> {
+    pub fn build(config: Config) -> Result<Self> {
+        let (provider, db) = if let Some(path) = &config.db.dir {
+            let db = katana_db::Db::new(path)?;
+            let factory = DbProviderFactory::new(db.clone());
+            (factory, db)
+        } else {
+            let factory = DbProviderFactory::new_in_memory();
+            let db = factory.db().clone();
+            (factory, db)
+        };
+
+        Self::build_with_provider(db, provider, config)
+    }
+}
+
+impl Node<ForkProviderFactory> {
+    pub async fn build_forked(mut config: Config) -> Result<Self> {
+        // NOTE: because the chain spec will be cloned for the BlockifierFactory (see below),
+        // this mutation must be performed before the chain spec is cloned. Otherwise
+        // this will panic.
+        let chain_spec = Arc::get_mut(&mut config.chain).expect("get mut Arc");
+
+        let cfg = config.forking.as_ref().unwrap();
+
+        let ChainSpec::Dev(chain_spec) = chain_spec else {
+            return Err(anyhow::anyhow!("Forking is only supported in dev mode for now"));
+        };
+
+        let db = katana_db::Db::in_memory()?;
+
+        let client = StarknetClient::new(cfg.url.clone());
+        let chain_id = client.chain_id().await.context("failed to fetch forked network id")?;
+
+        // If the fork block number is not specified, we use the latest accepted block on the forked
+        // network.
+        let block_id = if let Some(id) = cfg.block {
+            id
+        } else {
+            let res = client.block_number().await?;
+            BlockHashOrNumber::Num(res.block_number)
+        };
+
+        // if the id is not in ASCII encoding, we display the chain id as is in hex.
+        match ShortString::try_from(chain_id) {
+            Ok(id) => {
+                info!(chain = %id, block = %block_id, "Forking chain.");
+            }
+
+            Err(_) => {
+                let id = format!("{chain_id:#x}");
+                info!(chain = %id, block = %block_id, "Forking chain.");
+            }
+        };
+
+        let block = client
+            .get_block_with_tx_hashes(block_id.into())
+            .await
+            .context("failed to fetch forked block")?;
+
+        let GetBlockWithTxHashesResponse::Block(forked_block) = block else {
+            bail!("forking a pending block is not allowed")
+        };
+
+        let block_num = forked_block.block_number;
+        let genesis_block_num = block_num + 1;
+
+        chain_spec.id = chain_id.into();
+
+        // adjust the genesis to match the forked block
+        chain_spec.genesis.timestamp = forked_block.timestamp;
+        chain_spec.genesis.number = genesis_block_num;
+        chain_spec.genesis.state_root = Default::default();
+        chain_spec.genesis.parent_hash = forked_block.parent_hash;
+        chain_spec.genesis.sequencer_address = forked_block.sequencer_address;
+
+        // TODO: remove gas price from genesis
+        let eth_l1_gas_price =
+            forked_block.l1_gas_price.price_in_wei.to_u128().expect("should fit in u128");
+        let strk_l1_gas_price =
+            forked_block.l1_gas_price.price_in_fri.to_u128().expect("should fit in u128");
+        chain_spec.genesis.gas_prices =
+            unsafe { GasPrices::new_unchecked(eth_l1_gas_price, strk_l1_gas_price) };
+
+        // TODO: convert this to block number instead of BlockHashOrNumber so that it is easier to
+        // check if the requested block is within the supported range or not.
+        let provider_factory = ForkProviderFactory::new(db.clone(), block_num, client.clone());
+
+        // update the genesis block with the forked block's data
+        // we dont update the `l1_gas_price` bcs its already done when we set the `gas_prices` in
+        // genesis. this flow is kinda flawed, we should probably refactor it out of the
+        // genesis.
+        let mut block = chain_spec.block();
+
+        let eth_l1_data_gas_price =
+            forked_block.l1_data_gas_price.price_in_wei.to_u128().expect("should fit in u128");
+        let strk_l1_data_gas_price =
+            forked_block.l1_data_gas_price.price_in_fri.to_u128().expect("should fit in u128");
+
+        block.header.l1_data_gas_prices =
+            unsafe { GasPrices::new_unchecked(eth_l1_data_gas_price, strk_l1_data_gas_price) };
+
+        block.header.l1_da_mode = forked_block.l1_da_mode;
+
+        Self::build_with_provider(db, provider_factory, config)
+    }
+}
+
+impl<P> Node<P>
+where
+    P: ProviderFactory,
+    <P as ProviderFactory>::Provider: ProviderRO,
+    <P as ProviderFactory>::ProviderMut: ProviderRW,
+{
     /// Start the node.
     ///
     /// This method will start all the node process, running them until the node is stopped.
-    pub async fn launch(self) -> Result<LaunchedNode> {
+    pub async fn launch(self) -> Result<LaunchedNode<P>> {
         let chain = self.backend.chain_spec.id();
         info!(%chain, "Starting node.");
 
-        // TODO: maybe move this to the build stage
-        if let Some(ref cfg) = self.config.metrics {
-            let db_metrics = Box::new(self.db.clone()) as Box<dyn Report>;
-            let disk_metrics = Box::new(DiskReporter::new(self.db.path())?) as Box<dyn Report>;
-            let reports: Vec<Box<dyn Report>> = vec![db_metrics, disk_metrics];
+        // --- start the metrics server (if configured)
 
-            let exporter = PrometheusRecorder::current().expect("qed; should exist at this point");
-            let server = MetricsServer::new(exporter).with_process_metrics().with_reports(reports);
-
+        let metrics_handle = if let Some(ref server) = self.metrics_server {
+            // safe to unwrap here because metrics_server can only be Some if the metrics config
+            // exists
+            let cfg = self.config.metrics.as_ref().expect("qed; must exist");
             let addr = cfg.socket_addr();
-            self.task_manager.task_spawner().build_task().spawn(server.start(addr));
-            info!(%addr, "Metrics server started.");
-        }
+            Some(server.start(addr)?)
+        } else {
+            None
+        };
 
         let pool = self.pool.clone();
         let backend = self.backend.clone();
@@ -422,15 +557,20 @@ impl Node {
 
         info!(target: "node", "Gas price oracle worker started.");
 
-        Ok(LaunchedNode { node: self, rpc: rpc_handle, gateway: gateway_handle })
+        Ok(LaunchedNode {
+            node: self,
+            rpc: rpc_handle,
+            gateway: gateway_handle,
+            metrics: metrics_handle,
+        })
     }
 
     /// Returns a reference to the node's database environment (if any).
-    pub fn db(&self) -> &Db {
-        &self.db
+    pub fn provider(&self) -> &P {
+        &self.provider
     }
 
-    pub fn backend(&self) -> &Arc<Backend<BlockifierFactory>> {
+    pub fn backend(&self) -> &Arc<Backend<BlockifierFactory, P>> {
         &self.backend
     }
 
@@ -444,6 +584,11 @@ impl Node {
         &self.rpc_server
     }
 
+    /// Returns a reference to the node's database.
+    pub fn db(&self) -> &katana_db::Db {
+        &self.db
+    }
+
     /// Returns a reference to the node's configuration.
     pub fn config(&self) -> &Config {
         &self.config
@@ -452,17 +597,29 @@ impl Node {
 
 /// A handle to the launched node.
 #[derive(Debug)]
-pub struct LaunchedNode {
-    node: Node,
+pub struct LaunchedNode<P>
+where
+    P: ProviderFactory,
+    <P as ProviderFactory>::Provider: ProviderRO,
+    <P as ProviderFactory>::ProviderMut: ProviderRW,
+{
+    node: Node<P>,
     /// Handle to the rpc server.
     rpc: RpcServerHandle,
     /// Handle to the gateway server (if enabled).
     gateway: Option<GatewayServerHandle>,
+    /// Handle to the metrics server (if enabled).
+    metrics: Option<MetricsServerHandle>,
 }
 
-impl LaunchedNode {
+impl<P> LaunchedNode<P>
+where
+    P: ProviderFactory,
+    <P as ProviderFactory>::Provider: ProviderRO,
+    <P as ProviderFactory>::ProviderMut: ProviderRW,
+{
     /// Returns a reference to the [`Node`] handle.
-    pub fn node(&self) -> &Node {
+    pub fn node(&self) -> &Node<P> {
         &self.node
     }
 
@@ -474,6 +631,11 @@ impl LaunchedNode {
     /// Returns a reference to the gateway server handle (if enabled).
     pub fn gateway(&self) -> Option<&GatewayServerHandle> {
         self.gateway.as_ref()
+    }
+
+    /// Returns a reference to the metrics server handle (if enabled).
+    pub fn metrics(&self) -> Option<&MetricsServerHandle> {
+        self.metrics.as_ref()
     }
 
     /// Stops the node.
@@ -488,12 +650,17 @@ impl LaunchedNode {
             handle.stop()?;
         }
 
+        // Stop metrics server if it's running
+        if let Some(mut handle) = self.metrics {
+            handle.stop()?;
+        }
+
         self.node.task_manager.shutdown().await;
         Ok(())
     }
 
     /// Returns a future which resolves only when the node has stopped.
-    pub fn stopped(&self) -> NodeStoppedFuture<'_> {
+    pub fn stopped(&self) -> NodeStoppedFuture<'_, P> {
         NodeStoppedFuture::new(self)
     }
 }

@@ -4,6 +4,42 @@ use serde::{Deserialize, Serialize};
 use tracing_subscriber::fmt::format::Writer;
 use tracing_subscriber::fmt::time::{self};
 
+/// Controls when ANSI escape codes are emitted in log output.
+#[derive(Debug, Copy, Clone, PartialEq, Deserialize, Serialize, Default, Eq)]
+pub enum LogColor {
+    /// Colors on.
+    #[default]
+    Always,
+    /// Auto-detect.
+    Auto,
+    /// Colors off.
+    Never,
+}
+
+impl Display for LogColor {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        match self {
+            Self::Always => write!(f, "always"),
+            Self::Auto => write!(f, "auto"),
+            Self::Never => write!(f, "never"),
+        }
+    }
+}
+
+impl clap::ValueEnum for LogColor {
+    fn value_variants<'a>() -> &'a [Self] {
+        &[Self::Always, Self::Auto, Self::Never]
+    }
+
+    fn to_possible_value(&self) -> Option<clap::builder::PossibleValue> {
+        match self {
+            Self::Always => Some(clap::builder::PossibleValue::new("always")),
+            Self::Auto => Some(clap::builder::PossibleValue::new("auto")),
+            Self::Never => Some(clap::builder::PossibleValue::new("never")),
+        }
+    }
+}
+
 /// Format for logging output.
 #[derive(Debug, Copy, Clone, PartialEq, Deserialize, Serialize, Default, Eq)]
 pub enum LogFormat {

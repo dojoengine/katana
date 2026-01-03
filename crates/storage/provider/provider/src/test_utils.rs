@@ -3,18 +3,21 @@ use std::sync::Arc;
 use katana_genesis::allocation::{DevGenesisAccount, GenesisAccountAlloc, GenesisAllocation};
 use katana_genesis::Genesis;
 use katana_primitives::block::{Block, BlockHash, FinalityStatus};
-use katana_primitives::contract::ContractAddress;
 use katana_primitives::utils::class::parse_sierra_class;
 use katana_primitives::{address, felt, U256};
 use katana_provider_api::block::BlockWriter;
 
-use crate::providers::db::DbProvider;
+use crate::{DbProviderFactory, MutableProvider, ProviderFactory};
 
 /// Creates a persistent storage provider with initial states loaded for testin.
-pub fn test_provider() -> DbProvider {
-    let provider = DbProvider::new_in_memory();
-    initialize_test_provider(&provider);
-    provider
+pub fn test_provider() -> DbProviderFactory {
+    let provider_factory = DbProviderFactory::new_in_memory();
+
+    let provider_mut = provider_factory.provider_mut();
+    initialize_test_provider(&provider_mut);
+    provider_mut.commit().expect("failed to commit test provider");
+
+    provider_factory
 }
 
 /// Initializes the provider with a genesis block and states.

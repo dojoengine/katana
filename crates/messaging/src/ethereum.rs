@@ -207,7 +207,7 @@ fn parse_messages(messages: &[MessageToL1]) -> Vec<U256> {
 }
 
 fn felt_from_u256(v: U256) -> Felt {
-    Felt::from_str(format!("{:#064x}", v).as_str()).unwrap()
+    Felt::from_str(format!("{v:#064x}").as_str()).unwrap()
 }
 
 #[cfg(test)]

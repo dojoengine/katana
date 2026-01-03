@@ -6,8 +6,6 @@ use katana_primitives::contract::{ContractAddress, Nonce};
 use katana_primitives::transaction::{
     DeclareTx, DeployAccountTx, ExecutableTx, ExecutableTxWithHash, InvokeTx, TxHash,
 };
-use katana_rpc_types::broadcasted::BroadcastedTx;
-use katana_rpc_types::BroadcastedTxWithChainId;
 
 use crate::ordering::PoolOrd;
 use crate::PoolTransaction;
@@ -182,44 +180,6 @@ impl PoolTransaction for ExecutableTxWithHash {
                 DeployAccountTx::V3(v3) => v3.tip,
                 _ => 0,
             },
-        }
-    }
-}
-
-impl PoolTransaction for BroadcastedTxWithChainId {
-    fn hash(&self) -> TxHash {
-        self.calculate_hash()
-    }
-
-    fn nonce(&self) -> Nonce {
-        match &self.tx {
-            BroadcastedTx::Invoke(tx) => tx.nonce,
-            BroadcastedTx::Declare(tx) => tx.nonce,
-            BroadcastedTx::DeployAccount(tx) => tx.nonce,
-        }
-    }
-
-    fn sender(&self) -> ContractAddress {
-        match &self.tx {
-            BroadcastedTx::Invoke(tx) => tx.sender_address,
-            BroadcastedTx::Declare(tx) => tx.sender_address,
-            BroadcastedTx::DeployAccount(tx) => tx.contract_address(),
-        }
-    }
-
-    fn max_fee(&self) -> u128 {
-        // BroadcastedTx only supports V3 transactions which use resource bounds instead of max_fee.
-        // For V3 transactions, we can derive an equivalent max fee from resource bounds,
-        // but for simplicity in the pool, we return 0.
-        // The actual fee validation happens on the remote node.
-        0
-    }
-
-    fn tip(&self) -> u64 {
-        match &self.tx {
-            BroadcastedTx::Invoke(tx) => tx.tip.into(),
-            BroadcastedTx::Declare(tx) => tx.tip.into(),
-            BroadcastedTx::DeployAccount(tx) => tx.tip.into(),
         }
     }
 }

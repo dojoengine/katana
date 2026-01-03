@@ -46,6 +46,12 @@ impl From<EntryPointExecutionError> for ExecutionError {
     }
 }
 
+impl From<Box<EntryPointExecutionError>> for ExecutionError {
+    fn from(error: Box<EntryPointExecutionError>) -> Self {
+        Self::from(*error)
+    }
+}
+
 impl From<PreExecutionError> for ExecutionError {
     fn from(error: PreExecutionError) -> Self {
         match error {
@@ -77,6 +83,12 @@ impl From<TransactionPreValidationError> for ExecutionError {
     }
 }
 
+impl From<Box<TransactionPreValidationError>> for ExecutionError {
+    fn from(error: Box<TransactionPreValidationError>) -> Self {
+        Self::from(*error)
+    }
+}
+
 impl From<TransactionFeeError> for ExecutionError {
     fn from(error: TransactionFeeError) -> Self {
         match error {
@@ -89,6 +101,12 @@ impl From<TransactionFeeError> for ExecutionError {
             TransactionFeeError::StateError(e) => Self::from(e),
             e => Self::Other(e.to_string()),
         }
+    }
+}
+
+impl From<Box<TransactionFeeError>> for ExecutionError {
+    fn from(error: Box<TransactionFeeError>) -> Self {
+        Self::from(*error)
     }
 }
 

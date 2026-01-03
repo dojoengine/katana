@@ -34,6 +34,7 @@ use cartridge::vrf::{
     VrfContext, CARTRIDGE_VRF_CLASS_HASH, CARTRIDGE_VRF_DEFAULT_PRIVATE_KEY, CARTRIDGE_VRF_SALT,
 };
 use jsonrpsee::core::{async_trait, RpcResult};
+use katana_core::backend::storage::{ProviderRO, ProviderRW};
 use katana_core::backend::Backend;
 use katana_core::service::block_producer::{BlockProducer, BlockProducerMode};
 use katana_executor::ExecutorFactory;
@@ -44,9 +45,11 @@ use katana_primitives::chain::ChainId;
 use katana_primitives::contract::Nonce;
 use katana_primitives::da::DataAvailabilityMode;
 use katana_primitives::fee::{AllResourceBoundsMapping, ResourceBoundsMapping};
+use katana_primitives::hash::{Pedersen, Poseidon, StarkHash};
 use katana_primitives::transaction::{ExecutableTx, ExecutableTxWithHash, InvokeTx, InvokeTxV3};
 use katana_primitives::{ContractAddress, Felt};
 use katana_provider::api::state::{StateFactoryProvider, StateProvider};
+use katana_provider::ProviderFactory;
 use katana_rpc_api::cartridge::CartridgeApiServer;
 use katana_rpc_api::error::starknet::StarknetApiError;
 use katana_rpc_types::broadcasted::AddInvokeTransactionResponse;
@@ -57,24 +60,24 @@ use katana_rpc_types::FunctionCall;
 use katana_tasks::{Result as TaskResult, TaskSpawner};
 use starknet::macros::selector;
 use starknet::signers::{LocalWallet, Signer, SigningKey};
-use starknet_crypto::pedersen_hash;
 use tracing::{debug, info};
 use url::Url;
 
 #[allow(missing_debug_implementations)]
-pub struct CartridgeApi<EF: ExecutorFactory> {
+pub struct CartridgeApi<EF: ExecutorFactory, PF: ProviderFactory> {
     task_spawner: TaskSpawner,
-    backend: Arc<Backend<EF>>,
-    block_producer: BlockProducer<EF>,
+    backend: Arc<Backend<EF, PF>>,
+    block_producer: BlockProducer<EF, PF>,
     pool: TxPool,
     vrf_ctx: VrfContext,
     /// The Cartridge API client for paymaster related operations.
     api_client: cartridge::Client,
 }
 
-impl<EF> Clone for CartridgeApi<EF>
+impl<EF, PF> Clone for CartridgeApi<EF, PF>
 where
     EF: ExecutorFactory,
+    PF: ProviderFactory,
 {
     fn clone(&self) -> Self {
         Self {
@@ -88,10 +91,16 @@ where
     }
 }
 
-impl<EF: ExecutorFactory> CartridgeApi<EF> {
+impl<EF, PF> CartridgeApi<EF, PF>
+where
+    EF: ExecutorFactory,
+    PF: ProviderFactory,
+    <PF as ProviderFactory>::Provider: ProviderRO,
+    <PF as ProviderFactory>::ProviderMut: ProviderRW,
+{
     pub fn new(
-        backend: Arc<Backend<EF>>,
-        block_producer: BlockProducer<EF>,
+        backend: Arc<Backend<EF, PF>>,
+        block_producer: BlockProducer<EF, PF>,
         pool: TxPool,
         task_spawner: TaskSpawner,
         api_url: Url,
@@ -122,7 +131,7 @@ impl<EF: ExecutorFactory> CartridgeApi<EF> {
 
     fn state(&self) -> Result<Box<dyn StateProvider>, StarknetApiError> {
         match &*self.block_producer.producer.read() {
-            BlockProducerMode::Instant(_) => Ok(self.backend.blockchain.provider().latest()?),
+            BlockProducerMode::Instant(_) => Ok(self.backend.storage.provider().latest()?),
             BlockProducerMode::Interval(producer) => Ok(producer.executor().read().state()),
         }
     }
@@ -301,7 +310,13 @@ impl<EF: ExecutorFactory> CartridgeApi<EF> {
 }
 
 #[async_trait]
-impl<EF: ExecutorFactory> CartridgeApiServer for CartridgeApi<EF> {
+impl<EF, PF> CartridgeApiServer for CartridgeApi<EF, PF>
+where
+    EF: ExecutorFactory,
+    PF: ProviderFactory,
+    <PF as ProviderFactory>::Provider: ProviderRO,
+    <PF as ProviderFactory>::ProviderMut: ProviderRW,
+{
     async fn add_execute_outside_transaction(
         &self,
         address: ContractAddress,
@@ -472,12 +487,13 @@ async fn handle_vrf_calls(
         // compute storage key of the VRF contract storage member VrfProvider_nonces:
         // Map<ContractAddress, felt252>
         let address = salt_or_nonce;
-        let key = pedersen_hash(&selector!("VrfProvider_nonces"), &address);
+        let key = Pedersen::hash(&selector!("VrfProvider_nonces"), &address);
+
         let nonce = state.storage(vrf_ctx.address(), key).unwrap_or_default().unwrap_or_default();
-        starknet_crypto::poseidon_hash_many(vec![&nonce, &caller, &chain_id.id()])
+        Poseidon::hash_array(&[nonce, caller, chain_id.id()])
     } else if salt_or_nonce_selector == Felt::ONE {
         let salt = salt_or_nonce;
-        starknet_crypto::poseidon_hash_many(vec![&salt, &caller, &chain_id.id()])
+        Poseidon::hash_array(&[salt, caller, chain_id.id()])
     } else {
         anyhow::bail!(
             "Invalid salt or nonce for VRF request, expecting 0 or 1, got {}",
@@ -520,7 +536,7 @@ pub async fn craft_deploy_cartridge_vrf_tx(
 ) -> anyhow::Result<ExecutableTxWithHash> {
     let calldata = vec![
         CARTRIDGE_VRF_CLASS_HASH,
-        CARTRIDGE_VRF_SALT,
+        CARTRIDGE_VRF_SALT.into(),
         // from zero
         Felt::ZERO,
         // Calldata len

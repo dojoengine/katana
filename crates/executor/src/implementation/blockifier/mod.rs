@@ -3,7 +3,7 @@ use std::sync::Arc;
 // Re-export the blockifier crate.
 pub use blockifier;
 use blockifier::blockifier_versioned_constants::VersionedConstants;
-use blockifier::bouncer::{n_steps_to_sierra_gas, Bouncer, BouncerConfig, BouncerWeights};
+use blockifier::bouncer::{n_steps_to_gas, Bouncer, BouncerConfig, BouncerWeights};
 
 pub mod cache;
 pub mod call;
@@ -13,8 +13,9 @@ pub mod utils;
 
 use blockifier::context::BlockContext;
 use cache::ClassCache;
+use katana_chain_spec::ChainSpec;
 use katana_primitives::block::{ExecutableBlock, GasPrices as KatanaGasPrices, PartialHeader};
-use katana_primitives::env::{BlockEnv, CfgEnv};
+use katana_primitives::env::{BlockEnv, VersionedConstantsOverrides};
 use katana_primitives::transaction::{ExecutableTx, ExecutableTxWithHash, TxWithHash};
 use katana_primitives::version::StarknetVersion;
 use katana_provider::api::state::StateProvider;
@@ -34,22 +35,27 @@ pub(crate) const LOG_TARGET: &str = "katana::executor::blockifier";
 
 #[derive(Debug)]
 pub struct BlockifierFactory {
-    cfg: CfgEnv,
     flags: ExecutionFlags,
     limits: BlockLimits,
-
     class_cache: ClassCache,
+    chain_spec: Arc<ChainSpec>,
+    overrides: Option<VersionedConstantsOverrides>,
 }
 
 impl BlockifierFactory {
     /// Create a new factory with the given configuration and simulation flags.
     pub fn new(
-        cfg: CfgEnv,
+        cfg: Option<VersionedConstantsOverrides>,
         flags: ExecutionFlags,
         limits: BlockLimits,
         class_cache: ClassCache,
+        chain_spec: Arc<ChainSpec>,
     ) -> Self {
-        Self { cfg, flags, limits, class_cache }
+        Self { overrides: cfg, flags, limits, class_cache, chain_spec }
+    }
+
+    pub fn chain(&self) -> &Arc<ChainSpec> {
+        &self.chain_spec
     }
 }
 
@@ -69,7 +75,7 @@ impl ExecutorFactory for BlockifierFactory {
     where
         P: StateProvider + 'a,
     {
-        let cfg_env = self.cfg.clone();
+        let cfg_env = self.overrides.clone();
         let flags = self.flags.clone();
         let limits = self.limits.clone();
         Box::new(StarknetVMProcessor::new(
@@ -79,11 +85,12 @@ impl ExecutorFactory for BlockifierFactory {
             flags,
             limits,
             self.class_cache.clone(),
+            self.chain_spec.clone(),
         ))
     }
 
-    fn cfg(&self) -> &CfgEnv {
-        &self.cfg
+    fn overrides(&self) -> Option<&VersionedConstantsOverrides> {
+        self.overrides.as_ref()
     }
 
     /// Returns the execution flags set by the factory.
@@ -101,20 +108,25 @@ pub struct StarknetVMProcessor<'a> {
     stats: ExecutionStats,
     bouncer: Bouncer,
     starknet_version: StarknetVersion,
-    cfg_env: CfgEnv,
+    cfg_env: Option<VersionedConstantsOverrides>,
 }
 
 impl<'a> StarknetVMProcessor<'a> {
     pub fn new(
         state: impl StateProvider + 'a,
         block_env: BlockEnv,
-        cfg_env: CfgEnv,
+        cfg_env: Option<VersionedConstantsOverrides>,
         simulation_flags: ExecutionFlags,
         limits: BlockLimits,
         class_cache: ClassCache,
+        chain_spec: Arc<ChainSpec>,
     ) -> Self {
         let transactions = Vec::new();
-        let block_context = Arc::new(utils::block_context_from_envs(&block_env, &cfg_env));
+        let block_context = Arc::new(utils::block_context_from_envs(
+            chain_spec.as_ref(),
+            &block_env,
+            cfg_env.as_ref(),
+        ));
 
         let state = state::CachedState::new(state, class_cache);
 
@@ -132,9 +144,9 @@ impl<'a> StarknetVMProcessor<'a> {
         //
         // To learn more about the L2 gas, refer to <https://community.starknet.io/t/starknet-v0-13-4-pre-release-notes/115257>.
         block_max_capacity.sierra_gas =
-            n_steps_to_sierra_gas(limits.cairo_steps as usize, block_context.versioned_constants());
+            n_steps_to_gas(limits.cairo_steps as usize, block_context.versioned_constants());
 
-        let bouncer = Bouncer::new(BouncerConfig { block_max_capacity });
+        let bouncer = Bouncer::new(BouncerConfig { block_max_capacity, ..Default::default() });
 
         Self {
             cfg_env,
@@ -191,7 +203,11 @@ impl<'a> StarknetVMProcessor<'a> {
 
         let sn_version = header.starknet_version.try_into().expect("valid version");
         let mut versioned_constants = VersionedConstants::get(&sn_version).unwrap().clone();
-        apply_versioned_constant_overrides(&self.cfg_env, &mut versioned_constants);
+
+        // Only apply overrides if provided
+        if let Some(ref cfg) = self.cfg_env {
+            apply_versioned_constant_overrides(cfg, &mut versioned_constants);
+        }
 
         self.starknet_version = header.starknet_version;
         self.block_context = Arc::new(BlockContext::new(
@@ -242,9 +258,10 @@ impl<'a> BlockExecutor<'a> for StarknetVMProcessor<'a> {
                 Ok(exec_result) => {
                     match &exec_result {
                         ExecutionResult::Success { receipt, trace } => {
-                            self.stats.l1_gas_used += receipt.resources_used().gas.l1_gas as u128;
+                            self.stats.l1_gas_used +=
+                                receipt.resources_used().total_gas_consumed.l1_gas as u128;
                             self.stats.cairo_steps_used +=
-                                receipt.resources_used().computation_resources.n_steps as u128;
+                                receipt.resources_used().vm_resources.n_steps as u128;
 
                             if let Some(reason) = receipt.revert_reason() {
                                 info!(target: LOG_TARGET, hash = format!("{hash:#x}"), %reason, "Transaction reverted.");
@@ -275,7 +292,7 @@ impl<'a> BlockExecutor<'a> for StarknetVMProcessor<'a> {
     }
 
     fn take_execution_output(&mut self) -> ExecutorResult<ExecutionOutput> {
-        let states = utils::state_update_from_cached_state(&self.state);
+        let states = utils::state_update_from_cached_state(&self.state, true);
         let transactions = std::mem::take(&mut self.transactions);
         let stats = std::mem::take(&mut self.stats);
         Ok(ExecutionOutput { stats, states, transactions })

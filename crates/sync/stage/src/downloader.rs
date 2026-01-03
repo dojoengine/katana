@@ -184,49 +184,46 @@ where
         Ok(items)
     }
 
-    async fn download_batch(&self, keys: &[D::Key]) -> Vec<DownloaderResult<D::Value, D::Error>> {
-        join_all(keys.iter().map(|key| self.downloader.download(key))).await
-    }
-
     async fn download_batch_with_retry(
         &self,
         keys: Vec<D::Key>,
     ) -> Result<Vec<D::Value>, D::Error> {
         let mut results: Vec<Option<D::Value>> = (0..keys.len()).map(|_| None).collect();
 
-        let mut remaining_keys = keys.clone();
+        // Track indices of keys that still need to be downloaded.
+        // This avoids O(n) lookups to find the original index for each result.
+        let mut pending_indices: Vec<usize> = (0..keys.len()).collect();
         let mut backoff = self.backoff.clone().build();
         let mut retry_attempt = 0;
 
         loop {
-            let batch_result = self.download_batch(&remaining_keys).await;
+            // Download all pending keys concurrently
+            let batch_result =
+                join_all(pending_indices.iter().map(|&i| self.downloader.download(&keys[i]))).await;
 
-            let mut failed_keys = Vec::with_capacity(remaining_keys.len());
+            let mut failed_indices = Vec::with_capacity(pending_indices.len());
             let mut last_error = None;
 
-            for (key, result) in remaining_keys.iter().zip(batch_result.into_iter()) {
-                let (key_idx, _) =
-                    keys.iter().enumerate().find(|(_, k)| *k == key).expect("qed; must exist");
-
+            for (&idx, result) in pending_indices.iter().zip(batch_result) {
                 match result {
-                    // cache the result for successful requests
+                    // Cache the result for successful requests
                     DownloaderResult::Ok(value) => {
-                        results[key_idx] = Some(value);
+                        results[idx] = Some(value);
                     }
-                    // flag the failed request for retry, if the error is retryable
+                    // Flag the failed request for retry, if the error is retryable
                     DownloaderResult::Retry(error) => {
-                        failed_keys.push(key.clone());
+                        failed_indices.push(idx);
                         last_error = Some(error);
                     }
+                    // Non-retryable error, fail immediately
                     DownloaderResult::Err(error) => {
-                        // Non-retryable error, fail immediately
                         return Err(error);
                     }
                 }
             }
 
-            // if not failed keys, all requests succeeded
-            if failed_keys.is_empty() {
+            // If no failed key indices, all requests succeeded
+            if failed_indices.is_empty() {
                 break;
             }
 
@@ -236,7 +233,7 @@ where
                 if let Some(ref error) = last_error {
                     warn!(
                         %error,
-                        failed_keys = %failed_keys.len(),
+                        failed_count = %failed_indices.len(),
                         retry_attempt = %retry_attempt,
                         delay_secs = %delay.as_secs(),
                         "Retrying downloads."
@@ -244,7 +241,7 @@ where
                 }
 
                 tokio::time::sleep(delay).await;
-                remaining_keys = failed_keys;
+                pending_indices = failed_indices;
             } else {
                 // No more retries allowed
                 if let Some(error) = last_error {
