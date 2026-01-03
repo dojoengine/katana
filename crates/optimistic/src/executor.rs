@@ -6,6 +6,7 @@ use std::time::Duration;
 
 use futures::stream::StreamExt;
 use futures::FutureExt;
+use katana_core::backend::storage::ProviderRO;
 use katana_executor::implementation::blockifier::BlockifierFactory;
 use katana_executor::{ExecutionResult, ExecutorFactory};
 use katana_pool::ordering::FiFo;
@@ -52,29 +53,39 @@ impl Default for OptimisticState {
 }
 
 #[derive(Debug)]
-pub struct OptimisticExecutor {
+pub struct OptimisticExecutor<P>
+where
+    P: ProviderFactory,
+    P::Provider: ProviderRO,
+{
     pool: TxPool,
     optimistic_state: OptimisticState,
     executor_factory: Arc<BlockifierFactory>,
-    storage: Blockchain,
+    storage: P,
     task_spawner: TaskSpawner,
     client: Client,
     block_env: Arc<RwLock<BlockEnv>>,
 }
 
-impl OptimisticExecutor {
+impl<P> OptimisticExecutor<P>
+where
+    P: ProviderFactory + Clone + Unpin,
+    P::Provider: ProviderRO,
+{
     /// Creates a new `OptimisticExecutor` instance.
     ///
     /// # Arguments
     ///
     /// * `pool` - The transaction pool to monitor for new transactions
-    /// * `backend` - The backend containing the executor factory and blockchain state
+    /// * `storage` - The storage provider factory
+    /// * `optimistic_state` - The optimistic state to track executed transactions
+    /// * `executor_factory` - The executor factory for transaction execution
     /// * `task_spawner` - The task spawner used to run the executor actor
     /// * `client` - The RPC client used to poll for confirmed blocks
     /// * `block_env` - The initial block environment
     pub fn new(
         pool: TxPool,
-        storage: Blockchain,
+        storage: P,
         optimistic_state: OptimisticState,
         executor_factory: Arc<BlockifierFactory>,
         task_spawner: TaskSpawner,
@@ -235,23 +246,40 @@ impl OptimisticExecutor {
     }
 }
 
-#[derive(Debug)]
-struct OptimisticExecutorActor {
+struct OptimisticExecutorActor<P>
+where
+    P: ProviderFactory,
+    P::Provider: ProviderRO,
+{
     pool: TxPool,
     optimistic_state: OptimisticState,
     pending_txs: PendingTransactions<BroadcastedTxWithChainId, FiFo<BroadcastedTxWithChainId>>,
-    storage: Blockchain,
+    storage: P,
     executor_factory: Arc<BlockifierFactory>,
     task_spawner: TaskSpawner,
     ongoing_execution: Option<CpuBlockingJoinHandle<anyhow::Result<()>>>,
     block_env: Arc<RwLock<BlockEnv>>,
 }
 
-impl OptimisticExecutorActor {
+impl<P> std::fmt::Debug for OptimisticExecutorActor<P>
+where
+    P: ProviderFactory,
+    P::Provider: ProviderRO,
+{
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.debug_struct("OptimisticExecutorActor").finish_non_exhaustive()
+    }
+}
+
+impl<P> OptimisticExecutorActor<P>
+where
+    P: ProviderFactory + Clone,
+    P::Provider: ProviderRO,
+{
     /// Creates a new executor actor with the given pending transactions stream.
     fn new(
         pool: TxPool,
-        storage: Blockchain,
+        storage: P,
         optimistic_state: OptimisticState,
         executor_factory: Arc<BlockifierFactory>,
         task_spawner: TaskSpawner,
@@ -272,12 +300,12 @@ impl OptimisticExecutorActor {
 
     /// Execute a single transaction optimistically against the latest state.
     fn execute_transaction(
-        pool: TxPool,
-        storage: Blockchain,
+        storage: P,
         optimistic_state: OptimisticState,
         executor_factory: Arc<BlockifierFactory>,
         block_env: Arc<RwLock<BlockEnv>>,
         tx: BroadcastedTxWithChainId,
+        pool: TxPool,
     ) -> anyhow::Result<()> {
         let latest_state = storage.provider().latest()?;
         let state = optimistic_state.get_optimistic_state(latest_state);
@@ -306,7 +334,11 @@ impl OptimisticExecutorActor {
     }
 }
 
-impl Future for OptimisticExecutorActor {
+impl<P> Future for OptimisticExecutorActor<P>
+where
+    P: ProviderFactory + Clone + Unpin,
+    P::Provider: ProviderRO,
+{
     type Output = ();
 
     fn poll(self: Pin<&mut Self>, cx: &mut Context<'_>) -> Poll<Self::Output> {
@@ -373,12 +405,12 @@ impl Future for OptimisticExecutorActor {
 
                     let execution_future = this.task_spawner.cpu_bound().spawn(move || {
                         Self::execute_transaction(
-                            pool,
                             storage,
                             optimistic_state,
                             executor_factory,
                             block_env,
                             tx,
+                            pool,
                         )
                     });
 

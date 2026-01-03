@@ -288,23 +288,35 @@ where
 /// A pending block provider that checks the optimistic state for transactions/receipts,
 /// then falls back to the client for all queries.
 #[derive(Debug, Clone)]
-pub struct OptimisticPendingBlockProvider {
+pub struct OptimisticPendingBlockProvider<P>
+where
+    P: ProviderFactory,
+    P::Provider: ProviderRO,
+{
     optimistic_state: katana_optimistic::executor::OptimisticState,
     client: Client,
-    storage: katana_core::backend::storage::Blockchain,
+    storage: P,
 }
 
-impl OptimisticPendingBlockProvider {
+impl<P> OptimisticPendingBlockProvider<P>
+where
+    P: ProviderFactory,
+    P::Provider: ProviderRO,
+{
     pub fn new(
         optimistic_state: katana_optimistic::executor::OptimisticState,
         client: Client,
-        provider: katana_core::backend::storage::Blockchain,
+        storage: P,
     ) -> Self {
-        Self { optimistic_state, client, storage: provider }
+        Self { optimistic_state, client, storage }
     }
 }
 
-impl PendingBlockProvider for OptimisticPendingBlockProvider {
+impl<P> PendingBlockProvider for OptimisticPendingBlockProvider<P>
+where
+    P: ProviderFactory + Clone,
+    P::Provider: ProviderRO,
+{
     fn pending_state(&self) -> StarknetApiResult<Option<Box<dyn StateProvider>>> {
         let latest_state = self.storage.provider().latest()?;
         Ok(Some(self.optimistic_state.get_optimistic_state(latest_state)))
