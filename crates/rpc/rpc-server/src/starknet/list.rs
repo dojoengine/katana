@@ -9,6 +9,7 @@ use katana_rpc_api::starknet_ext::StarknetApiExtServer;
 use katana_rpc_types::list::{
     GetBlocksRequest, GetBlocksResponse, GetTransactionsRequest, GetTransactionsResponse,
 };
+use katana_rpc_types::RpcTxWithHash;
 
 use super::StarknetApi;
 use crate::starknet::pending::PendingBlockProvider;
@@ -20,6 +21,7 @@ where
     PP: PendingBlockProvider,
     PF: ProviderFactory,
     <PF as ProviderFactory>::Provider: ProviderRO,
+    <Pool as TransactionPool>::Transaction: Into<RpcTxWithHash>,
 {
     async fn get_blocks(&self, request: GetBlocksRequest) -> RpcResult<GetBlocksResponse> {
         Ok(self.blocks(request).await?)

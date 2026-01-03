@@ -15,15 +15,15 @@ use katana_rpc_types::trace::{
     to_rpc_fee_estimate, SimulatedTransactions, SimulatedTransactionsResponse,
     TraceBlockTransactionsResponse, TxTrace, TxTraceWithHash,
 };
-use katana_rpc_types::{BroadcastedTxWithChainId, SimulationFlag};
+use katana_rpc_types::{BroadcastedTxWithChainId, RpcTxWithHash, SimulationFlag};
 
 use super::StarknetApi;
 use crate::starknet::pending::PendingBlockProvider;
 
-impl<Pool, PoolTx, Pending, PF> StarknetApi<Pool, Pending, PF>
+impl<Pool, Pending, PF> StarknetApi<Pool, Pending, PF>
 where
-    Pool: TransactionPool<Transaction = PoolTx> + Send + Sync + 'static,
-    PoolTx: From<BroadcastedTxWithChainId>,
+    Pool: TransactionPool + Send + Sync + 'static,
+    <Pool as TransactionPool>::Transaction: Into<RpcTxWithHash>,
     Pending: PendingBlockProvider,
     PF: ProviderFactory,
     <PF as ProviderFactory>::Provider: ProviderRO,
@@ -144,10 +144,10 @@ where
 }
 
 #[async_trait]
-impl<Pool, PoolTx, Pending, PF> StarknetTraceApiServer for StarknetApi<Pool, Pending, PF>
+impl<Pool, Pending, PF> StarknetTraceApiServer for StarknetApi<Pool, Pending, PF>
 where
-    Pool: TransactionPool<Transaction = PoolTx> + Send + Sync + 'static,
-    PoolTx: From<BroadcastedTxWithChainId>,
+    Pool: TransactionPool + Send + Sync + 'static,
+    <Pool as TransactionPool>::Transaction: Into<RpcTxWithHash>,
     Pending: PendingBlockProvider,
     PF: ProviderFactory,
     <PF as ProviderFactory>::Provider: ProviderRO,

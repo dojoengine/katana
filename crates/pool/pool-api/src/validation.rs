@@ -165,7 +165,7 @@ impl Error {
 pub type ValidationResult<T> = Result<ValidationOutcome<T>, Error>;
 
 /// A trait for validating transactions before they are added to the transaction pool.
-pub trait Validator {
+pub trait Validator: Send + Sync {
     type Transaction: PoolTransaction;
 
     /// Validate a transaction.

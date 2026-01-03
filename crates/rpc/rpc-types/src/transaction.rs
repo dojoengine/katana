@@ -589,3 +589,9 @@ impl From<RpcTx> for primitives::Tx {
         }
     }
 }
+
+impl From<primitives::ExecutableTxWithHash> for RpcTxWithHash {
+    fn from(_tx: primitives::ExecutableTxWithHash) -> Self {
+        todo!()
+    }
+}

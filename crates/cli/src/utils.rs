@@ -10,7 +10,7 @@ use katana_genesis::constant::{
 };
 use katana_genesis::json::GenesisJson;
 use katana_genesis::Genesis;
-use katana_primitives::block::{BlockHash, BlockHashOrNumber, BlockNumber};
+use katana_primitives::block::{BlockHash, BlockHashOrNumber, BlockIdOrTag, BlockNumber};
 use katana_primitives::cairo::ShortString;
 use katana_primitives::chain::ChainId;
 use katana_primitives::class::ClassHash;
@@ -49,6 +49,27 @@ pub fn parse_block_hash_or_number(value: &str) -> Result<BlockHashOrNumber> {
     } else {
         let num = value.parse::<BlockNumber>().context("could not parse block number")?;
         Ok(BlockHashOrNumber::Num(num))
+    }
+}
+
+/// Parse a block id or tag from a string. Accepts:
+/// - Block hashes (0x-prefixed)
+/// - Block numbers (numeric)
+/// - Block tags: "latest", "l1accepted", "preconfirmed" (case-insensitive)
+pub fn parse_block_id_or_tag(value: &str) -> Result<BlockIdOrTag> {
+    if value.starts_with("0x") {
+        Ok(BlockIdOrTag::Hash(BlockHash::from_hex(value)?))
+    } else {
+        match value.to_lowercase().as_str() {
+            "latest" => Ok(BlockIdOrTag::Latest),
+            "l1accepted" => Ok(BlockIdOrTag::L1Accepted),
+            "preconfirmed" => Ok(BlockIdOrTag::PreConfirmed),
+            _ => {
+                let num =
+                    value.parse::<BlockNumber>().context("could not parse block number or tag")?;
+                Ok(BlockIdOrTag::Number(num))
+            }
+        }
     }
 }
 

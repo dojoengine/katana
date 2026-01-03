@@ -27,7 +27,7 @@ use katana_node::config::rpc::{RpcModulesList, DEFAULT_RPC_MAX_PROOF_KEYS};
 use katana_node::config::rpc::{
     DEFAULT_RPC_ADDR, DEFAULT_RPC_MAX_CALL_GAS, DEFAULT_RPC_MAX_EVENT_PAGE_SIZE, DEFAULT_RPC_PORT,
 };
-use katana_primitives::block::{BlockHashOrNumber, GasPrice};
+use katana_primitives::block::{BlockIdOrTag, GasPrice};
 use katana_primitives::chain::ChainId;
 #[cfg(feature = "server")]
 use katana_rpc_server::cors::HeaderValue;
@@ -38,7 +38,7 @@ use url::Url;
 
 #[cfg(feature = "server")]
 use crate::utils::{deserialize_cors_origins, serialize_cors_origins};
-use crate::utils::{parse_block_hash_or_number, parse_genesis};
+use crate::utils::{parse_block_id_or_tag, parse_genesis};
 
 const DEFAULT_DEV_SEED: &str = "0";
 const DEFAULT_DEV_ACCOUNTS: u16 = 10;
@@ -425,11 +425,11 @@ pub struct ForkingOptions {
     #[arg(long = "fork.provider", value_name = "URL", conflicts_with = "genesis")]
     pub fork_provider: Option<Url>,
 
-    /// Fork the network at a specific block id, can either be a hash (0x-prefixed) or a block
-    /// number.
+    /// Fork the network at a specific block id, can either be a hash (0x-prefixed), a block
+    /// number, or a tag (latest, l1accepted, preconfirmed).
     #[arg(long = "fork.block", value_name = "BLOCK", requires = "fork_provider")]
-    #[arg(value_parser = parse_block_hash_or_number)]
-    pub fork_block: Option<BlockHashOrNumber>,
+    #[arg(value_parser = parse_block_id_or_tag)]
+    pub fork_block: Option<BlockIdOrTag>,
 }
 
 #[derive(Debug, Args, Clone, Serialize, Deserialize, Default, PartialEq)]
