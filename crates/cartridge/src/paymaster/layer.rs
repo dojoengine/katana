@@ -121,7 +121,6 @@ where
         let params = request.params();
 
         if params.is_object() {
-            println!("params is object: {:?}", params);
             match params.parse() {
                 Ok(p) => Some(p),
                 Err(..) => {
@@ -130,7 +129,6 @@ where
                 }
             }
         } else {
-            println!("params is sequence: {:?}", params);
             let mut seq = params.sequence();
 
             let address_result: Result<ContractAddress, _> = seq.next();
@@ -151,6 +149,24 @@ where
                 }
             }
         }
+    }
+
+    fn build_new_outside_execution_request<'a>(
+        request: &Request<'a>,
+        address: ContractAddress,
+        outside_execution: OutsideExecution,
+        signature: Vec<Felt>,
+    ) -> Request<'a> {
+        let mut new_request = request.clone();
+
+        let mut new_params = jsonrpsee::core::params::ArrayParams::new();
+        new_params.insert(address).unwrap();
+        new_params.insert(outside_execution).unwrap();
+        new_params.insert(signature).unwrap();
+
+        let new_params = new_params.to_rpc_params().unwrap();
+        new_request.params = new_params.map(Cow::Owned);
+        new_request
     }
 
     /// Build a new estimate fee request with the updated transactions.
@@ -233,7 +249,7 @@ where
                             trace!(
                                 target: "cartridge",
                                 nb_of_extra_txs = nb_of_extra_txs,
-                                nb_of_estimate_fees = estimate_fees.len(),
+                                    nb_of_estimate_fees = estimate_fees.len(),
                                 "Removing extra transactions from estimate fees response",
                             );
 
@@ -281,17 +297,12 @@ where
                 };
 
                 if let Some((outside_execution, signature)) = updated_tx {
-                    let mut new_request = request.clone();
-                    let new_params = {
-                        let mut params = jsonrpsee::core::params::ArrayParams::new();
-                        params.insert(controller_address).unwrap();
-                        params.insert(outside_execution).unwrap();
-                        params.insert(signature).unwrap();
-                        params
-                    };
-
-                    let params = new_params.to_rpc_params().unwrap();
-                    new_request.params = params.map(Cow::Owned);
+                    let new_request = Self::build_new_outside_execution_request(
+                        &request,
+                        controller_address,
+                        outside_execution,
+                        signature,
+                    );
 
                     trace!(target: "cartridge", "Call outside_execution endpoint with the updated transaction");
                     return service.call(new_request).await;

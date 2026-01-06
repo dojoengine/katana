@@ -2,7 +2,6 @@ use std::future::Future;
 use std::sync::Arc;
 
 use anyhow::anyhow;
-use cainome::cairo_serde::CairoSerde;
 use jsonrpsee::core::{async_trait, RpcResult};
 use katana_core::backend::storage::ProviderRO;
 use katana_core::backend::Backend;
@@ -19,7 +18,6 @@ use katana_provider::ProviderFactory;
 use katana_rpc_api::error::starknet::StarknetApiError;
 use katana_rpc_types::broadcasted::AddInvokeTransactionResponse;
 use katana_tasks::{Result as TaskResult, TaskSpawner};
-use starknet::macros::selector;
 use starknet::signers::{LocalWallet, Signer, SigningKey};
 use tracing::debug;
 use types::OutsideExecution;
@@ -29,8 +27,7 @@ pub mod types;
 
 pub use api::*;
 
-use crate::rpc::types::Call;
-use crate::utils::encode_calls;
+use crate::utils::{encode_calls, get_execute_from_outside_call};
 
 #[allow(missing_debug_implementations)]
 pub struct CartridgeApi<EF: ExecutorFactory, PF: ProviderFactory> {

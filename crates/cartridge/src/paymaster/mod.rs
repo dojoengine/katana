@@ -61,14 +61,15 @@ use starknet::signers::{LocalWallet, Signer, SigningKey};
 use starknet_crypto::pedersen_hash;
 use tracing::{debug, trace};
 
+use crate::utils::get_execute_from_outside_call;
+
 pub mod layer;
 
 #[cfg(test)]
 mod tests;
 
 use crate::rpc::types::{
-    Call as OutsideExecutionCall, NonceChannel, OutsideExecution, OutsideExecutionV2,
-    OutsideExecutionV3,
+    Call as OutsideExecutionCall, NonceChannel, OutsideExecution, OutsideExecutionV3,
 };
 use crate::utils::encode_calls;
 use crate::vrf::{VrfContext, CARTRIDGE_VRF_CLASS_HASH, CARTRIDGE_VRF_SALT};

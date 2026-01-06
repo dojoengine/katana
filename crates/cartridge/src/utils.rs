@@ -1,6 +1,8 @@
-use katana_primitives::Felt;
+use cainome::cairo_serde::CairoSerde;
+use katana_primitives::{ContractAddress, Felt};
+use starknet::macros::selector;
 
-use crate::rpc::types::Call;
+use crate::rpc::types::{Call, OutsideExecution};
 
 /// Encodes the given calls into a vector of Felt values (New encoding, cairo 1),
 /// since controller accounts are Cairo 1 contracts.
