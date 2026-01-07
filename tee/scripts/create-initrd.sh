@@ -62,7 +62,7 @@ echo ""
 
 # Create busybox symlinks
 echo "Creating busybox symlinks..."
-for cmd in sh mount umount mkdir mknod switch_root; do
+for cmd in sh mount umount mkdir mknod switch_root ip; do
     ln -s busybox bin/$cmd
     echo "  - bin/$cmd -> busybox"
 done
@@ -80,53 +80,76 @@ echo ""
 # Create init script with debug output
 cat > init <<'EOF'
 #!/bin/busybox sh
+set -eu
+export PATH=/bin
 
-# Debug: Show we're starting
-echo "=========================================="
-echo "Katana TEE Init - Starting"
-echo "=========================================="
+log() { echo "[init] $*"; }
+dbg() { if [ "${DEBUG:-0}" -eq 1 ]; then echo "[init][debug] $*"; fi; }
 
-# Mount virtual filesystems
-echo "[init] Mounting proc..."
-/bin/mount -t proc proc /proc || echo "[init] WARNING: Failed to mount proc"
+# Mount /proc first so we can read cmdline
+/bin/mount -t proc proc /proc || log "WARNING: failed to mount /proc"
 
-echo "[init] Mounting sysfs..."
-/bin/mount -t sysfs sysfs /sys || echo "[init] WARNING: Failed to mount sysfs"
+# Now read cmdline
+CMDLINE="$(cat /proc/cmdline 2>/dev/null || true)"
 
-echo "[init] Mounting devtmpfs..."
-/bin/mount -t devtmpfs devtmpfs /dev || echo "[init] WARNING: Failed to mount devtmpfs"
+DEBUG=0
+for tok in $CMDLINE; do
+  case "$tok" in
+    katana.debug=1|debug=1) DEBUG=1 ;;
+  esac
+done
 
-# Create essential device nodes if they don't exist
-echo "[init] Creating essential device nodes..."
-[ -c /dev/null ] || /bin/mknod /dev/null c 1 3
-[ -c /dev/console ] || /bin/mknod /dev/console c 5 1
+log "Katana TEE Init - starting (debug=$DEBUG)"
 
-# Setup networking
-echo "[init] Setting up loopback interface..."
-ip link set lo up 2>/dev/null || echo "[init] WARNING: Failed to setup loopback"
+# Mount other virtual filesystems
+/bin/mount -t sysfs sysfs /sys || log "WARNING: failed to mount /sys"
 
-# Show mounted filesystems
-echo "[init] Mounted filesystems:"
-/bin/mount
+# /dev: prefer devtmpfs, fallback to tmpfs (rare, but safer)
+if ! /bin/mount -t devtmpfs devtmpfs /dev 2>/dev/null; then
+  log "devtmpfs mount failed; falling back to tmpfs"
+  /bin/mount -t tmpfs tmpfs /dev || log "WARNING: failed to mount /dev"
+fi
 
-# Show available binaries
-echo "[init] Available binaries in /bin:"
-ls -la /bin/
+# /tmp hygiene
+/bin/mount -t tmpfs tmpfs /tmp 2>/dev/null || true
 
-# Show environment
-echo "[init] Environment variables:"
-env
+# Essential device nodes
+[ -c /dev/null ]    || /bin/mknod /dev/null c 1 3 || true
+[ -c /dev/console ] || /bin/mknod /dev/console c 5 1 || true
+[ -c /dev/tty ]     || /bin/mknod /dev/tty c 5 0 || true
+[ -c /dev/urandom ] || /bin/mknod /dev/urandom c 1 9 || true
 
-# Show kernel command line
-echo "[init] Kernel command line:"
-cat /proc/cmdline
+dbg "Mounted filesystems:"
+[ "$DEBUG" -eq 1 ] && /bin/mount || true
 
-echo "=========================================="
-echo "[init] Launching Katana..."
-echo "=========================================="
+dbg "Kernel cmdline: $CMDLINE"
 
-# Launch Katana with verbose output
-exec /bin/katana "$@"
+# Configure networking
+log "Configuring network interfaces..."
+# Bring up loopback
+ip link set lo up 2>/dev/null || log "WARNING: loopback setup failed"
+# Bring up eth0 with DHCP (for QEMU user networking)
+ip link set eth0 up 2>/dev/null || log "WARNING: eth0 setup failed"
+# Simple static IP (QEMU user networking default)
+ip addr add 10.0.2.15/24 dev eth0 2>/dev/null || log "WARNING: eth0 IP setup failed"
+ip route add default via 10.0.2.2 2>/dev/null || log "WARNING: default route failed"
+dbg "Network configured"
+
+# Parse args for Katana from cmdline (simple convention, no spaces)
+KATANA_ARGS=""
+for tok in $CMDLINE; do
+  case "$tok" in
+    katana.args=*)
+      KATANA_ARGS="${tok#katana.args=}"
+      ;;
+  esac
+done
+
+dbg "Katana args: $KATANA_ARGS"
+log "Launching Katana..."
+
+# shellcheck disable=SC2086
+exec /bin/katana $KATANA_ARGS
 EOF
 
 chmod +x init
