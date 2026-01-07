@@ -367,14 +367,13 @@ mod tests {
         assert_eq!(Tables::StoragesTrieChangeSet.table_type(), TableType::Table);
     }
 
-    use katana_primitives::address;
     use katana_primitives::block::{BlockHash, BlockNumber, FinalityStatus};
     use katana_primitives::class::{ClassHash, CompiledClass, CompiledClassHash};
     use katana_primitives::contract::{ContractAddress, GenericContractInfo};
     use katana_primitives::execution::TypedTransactionExecutionInfo;
     use katana_primitives::receipt::{InvokeTxReceipt, Receipt};
     use katana_primitives::transaction::{InvokeTx, Tx, TxHash, TxNumber};
-    use starknet::macros::felt;
+    use katana_primitives::{address, felt};
 
     use crate::codecs::{Compress, Decode, Decompress, Encode};
     use crate::models::block::StoredBlockBodyIndices;

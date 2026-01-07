@@ -589,8 +589,7 @@ fn class_artifact_at_path(
 #[cfg(test)]
 mod tests {
     use katana_contracts::contracts::{Account, LegacyERC20, UniversalDeployer};
-    use katana_primitives::address;
-    use starknet::macros::felt;
+    use katana_primitives::{address, felt};
 
     use super::*;
     use crate::constant::{DEFAULT_LEGACY_ERC20_CLASS_HASH, DEFAULT_LEGACY_UDC_CLASS_HASH};
