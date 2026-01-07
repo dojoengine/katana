@@ -7,6 +7,7 @@ AGENT.md
 # Build artifacts and caches
 target/
 build/
+!crates/contracts/build/
 monitoring/
 
 # CI/CD files (except the Dockerfile being built)
