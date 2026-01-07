@@ -33,10 +33,10 @@ use tracing::trace;
 use super::db::{self, DbProvider};
 use crate::{DbProviderFactory, MutableProvider, ProviderFactory, ProviderResult};
 
-mod state;
-mod trie;
+pub mod state;
+pub mod trie;
 
-#[derive(Debug)]
+#[derive(Debug, Clone)]
 pub struct ForkedProvider<Tx: DbTx> {
     local_db: DbProvider<Tx>,
     fork_db: ForkedDb,
@@ -45,7 +45,7 @@ pub struct ForkedProvider<Tx: DbTx> {
 #[derive(Debug, Clone)]
 pub struct ForkedDb {
     backend: Backend,
-    block_id: BlockNumber,
+    pub(crate) block_id: BlockNumber,
     db: DbProviderFactory,
 }
 

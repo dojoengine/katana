@@ -1,0 +1,73 @@
+use std::sync::Arc;
+
+use katana_pool::ordering::FiFo;
+use katana_pool::pool::Pool;
+use katana_pool_api::validation::{
+    Error as ValidationError, InvalidTransactionError, ValidationOutcome, Validator,
+};
+use katana_rpc_client::starknet::Client;
+use katana_rpc_types::{BroadcastedTx, BroadcastedTxWithChainId};
+use tracing::info;
+
+pub type TxPool = Pool<BroadcastedTxWithChainId, PoolValidator, FiFo<BroadcastedTxWithChainId>>;
+
+/// A validator that forwards transactions to a remote Starknet RPC endpoint.
+#[allow(dead_code)]
+#[derive(Debug, Clone)]
+pub struct PoolValidator {
+    client: Arc<Client>,
+    gateway_client: katana_gateway_client::Client,
+}
+
+impl PoolValidator {
+    pub fn new(client: Client) -> Self {
+        Self { client: Arc::new(client), gateway_client: katana_gateway_client::Client::sepolia() }
+    }
+
+    pub fn new_shared(client: Arc<Client>) -> Self {
+        Self { client, gateway_client: katana_gateway_client::Client::sepolia() }
+    }
+}
+
+impl Validator for PoolValidator {
+    type Transaction = BroadcastedTxWithChainId;
+
+    async fn validate(
+        &self,
+        tx: Self::Transaction,
+    ) -> Result<ValidationOutcome<Self::Transaction>, ValidationError> {
+        // Forward the transaction to the remote node
+        let result = match &tx.tx {
+            BroadcastedTx::Invoke(invoke_tx) => {
+                let gateway_tx = invoke_tx.clone().into();
+                self.gateway_client.add_invoke_transaction(gateway_tx).await.map(|_| ())
+            }
+            BroadcastedTx::Declare(declare_tx) => {
+                let gateway_tx = declare_tx.clone().into();
+                self.gateway_client.add_declare_transaction(gateway_tx).await.map(|_| ())
+            }
+            BroadcastedTx::DeployAccount(deploy_account_tx) => {
+                let gateway_tx = deploy_account_tx.clone().into();
+                self.gateway_client.add_deploy_account_transaction(gateway_tx).await.map(|_| ())
+            }
+        };
+
+        match result {
+            Ok(_) => Ok(ValidationOutcome::Valid(tx)),
+            Err(err) => {
+                info!(error = ?err, "Gateway validation failure.");
+                let error = InvalidTransactionError::ValidationFailure {
+                    address: match &tx.tx {
+                        BroadcastedTx::Invoke(tx) => tx.sender_address,
+                        BroadcastedTx::Declare(tx) => tx.sender_address,
+                        BroadcastedTx::DeployAccount(tx) => tx.contract_address(),
+                    },
+                    class_hash: Default::default(),
+                    error: err.to_string(),
+                };
+
+                Ok(ValidationOutcome::Invalid { tx, error })
+            }
+        }
+    }
+}

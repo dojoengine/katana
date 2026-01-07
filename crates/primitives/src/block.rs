@@ -18,7 +18,7 @@ pub type BlockNumber = u64;
 /// Block hash type.
 pub type BlockHash = Felt;
 
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
 pub enum BlockIdOrTag {
     Hash(BlockHash),
     Number(BlockNumber),
@@ -36,6 +36,18 @@ impl From<BlockHash> for BlockIdOrTag {
 impl From<BlockNumber> for BlockIdOrTag {
     fn from(number: BlockNumber) -> Self {
         BlockIdOrTag::Number(number)
+    }
+}
+
+impl std::fmt::Display for BlockIdOrTag {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        match self {
+            BlockIdOrTag::Number(num) => write!(f, "{num}"),
+            BlockIdOrTag::Hash(hash) => write!(f, "{hash:#x}"),
+            BlockIdOrTag::L1Accepted => write!(f, "L1Accepted"),
+            BlockIdOrTag::Latest => write!(f, "Latest"),
+            BlockIdOrTag::PreConfirmed => write!(f, "PreConfirmed"),
+        }
     }
 }
 

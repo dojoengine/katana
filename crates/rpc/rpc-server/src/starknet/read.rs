@@ -44,7 +44,7 @@ use crate::starknet::pending::PendingBlockProvider;
 impl<Pool, PoolTx, Pending, PF> StarknetApiServer for StarknetApi<Pool, Pending, PF>
 where
     Pool: TransactionPool<Transaction = PoolTx> + Send + Sync + 'static,
-    PoolTx: From<BroadcastedTxWithChainId>,
+    <Pool as TransactionPool>::Transaction: Into<RpcTxWithHash>,
     Pending: PendingBlockProvider,
     PF: ProviderFactory,
     <PF as ProviderFactory>::Provider: ProviderRO,
@@ -82,7 +82,7 @@ where
     }
 
     async fn block_hash_and_number(&self) -> RpcResult<BlockHashAndNumberResponse> {
-        self.on_io_blocking_task(move |this| Ok(this.block_hash_and_number()?)).await?
+        Ok(self.block_hash_and_number()?)
     }
 
     async fn get_block_with_tx_hashes(
@@ -143,7 +143,31 @@ where
     }
 
     async fn get_events(&self, filter: EventFilterWithPage) -> RpcResult<GetEventsResponse> {
-        Ok(self.events(filter).await?)
+        use std::collections::HashMap;
+        use std::sync::{LazyLock, Mutex};
+
+        // Function-local static cache for events
+        static EVENTS_CACHE: LazyLock<Mutex<HashMap<EventFilterWithPage, GetEventsResponse>>> =
+            LazyLock::new(|| Mutex::new(HashMap::new()));
+
+        // Check cache first
+        {
+            let cache = EVENTS_CACHE.lock().unwrap();
+            if let Some(cached_result) = cache.get(&filter) {
+                return Ok(cached_result.clone());
+            }
+        }
+
+        // If not in cache, fetch the events
+        let result = self.events(filter.clone()).await?;
+
+        // Store in cache
+        {
+            let mut cache = EVENTS_CACHE.lock().unwrap();
+            cache.insert(filter, result.clone());
+        }
+
+        Ok(result)
     }
 
     async fn call(&self, request: FunctionCall, block_id: BlockIdOrTag) -> RpcResult<CallResponse> {

@@ -1,3 +1,6 @@
+#![allow(unused_imports)]
+#![allow(clippy::too_many_arguments)]
+#![allow(clippy::unnecessary_map_or)]
 //! Server implementation for the Starknet JSON-RPC API.
 
 use std::fmt::Debug;
@@ -8,6 +11,7 @@ use katana_chain_spec::ChainSpec;
 use katana_core::backend::storage::ProviderRO;
 use katana_core::utils::get_current_timestamp;
 use katana_gas_price_oracle::GasPriceOracle;
+use katana_optimistic::executor::OptimisticState;
 use katana_pool::TransactionPool;
 use katana_primitives::block::{BlockHashOrNumber, BlockIdOrTag, FinalityStatus, GasPrices};
 use katana_primitives::class::{ClassHash, CompiledClass};
@@ -33,7 +37,9 @@ use katana_rpc_types::block::{
     GetBlockWithTxHashesResponse, MaybePreConfirmedBlock,
 };
 use katana_rpc_types::class::Class;
-use katana_rpc_types::event::{EventFilterWithPage, GetEventsResponse, ResultPageRequest};
+use katana_rpc_types::event::{
+    EmittedEvent, EventFilterWithPage, GetEventsResponse, ResultPageRequest,
+};
 use katana_rpc_types::list::{
     ContinuationToken as ListContinuationToken, GetBlocksRequest, GetBlocksResponse,
     GetTransactionsRequest, GetTransactionsResponse, TransactionListItem,
@@ -48,9 +54,10 @@ use katana_rpc_types::trie::{
 use katana_rpc_types::{FeeEstimate, TxStatus};
 use katana_rpc_types_builder::{BlockBuilder, ReceiptBuilder};
 use katana_tasks::{Result as TaskResult, TaskSpawner};
+use tracing::trace;
 
 use crate::permit::Permits;
-use crate::utils::events::{Cursor, EventBlockId};
+use crate::utils::events::{fetch_events_at_blocks, fetch_tx_events, Cursor, EventBlockId, Filter};
 use crate::{utils, DEFAULT_ESTIMATE_FEE_MAX_CONCURRENT_REQUESTS};
 
 mod blockifier;
@@ -64,7 +71,7 @@ mod write;
 #[cfg(feature = "cartridge")]
 pub use config::PaymasterConfig;
 pub use config::StarknetApiConfig;
-pub use pending::PendingBlockProvider;
+pub use pending::{OptimisticPendingBlockProvider, PendingBlockProvider};
 
 pub type StarknetApiResult<T> = Result<T, StarknetApiError>;
 
@@ -98,6 +105,7 @@ where
     task_spawner: TaskSpawner,
     estimate_fee_permit: Permits,
     pending_block_provider: PP,
+    optimistic_state: Option<OptimisticState>,
     config: StarknetApiConfig,
 }
 
@@ -114,6 +122,7 @@ where
         task_spawner: TaskSpawner,
         pending_block_provider: PP,
         gas_oracle: GasPriceOracle,
+        optimistic_state: Option<OptimisticState>,
         config: StarknetApiConfig,
         storage2: PF,
     ) -> Self {
@@ -125,6 +134,7 @@ where
             pending_block_provider,
             gas_oracle,
             storage2,
+            optimistic_state,
         )
     }
 
@@ -137,6 +147,7 @@ where
         pending_block_provider: PP,
         gas_oracle: GasPriceOracle,
         storage2: PF,
+        optimistic_state: Option<OptimisticState>,
     ) -> Self {
         let total_permits = config
             .max_concurrent_estimate_fee_requests
@@ -152,6 +163,7 @@ where
             pending_block_provider,
             gas_oracle,
             storage: storage2,
+            optimistic_state,
         };
 
         Self { inner: Arc::new(inner) }
@@ -539,35 +551,11 @@ where
         }
     }
 
-    async fn transaction(&self, hash: TxHash) -> StarknetApiResult<RpcTxWithHash> {
-        let tx = self
-            .on_io_blocking_task(move |this| {
-                if let pending_tx @ Some(..) =
-                    this.inner.pending_block_provider.get_pending_transaction(hash)?
-                {
-                    Result::<_, StarknetApiError>::Ok(pending_tx)
-                } else {
-                    let tx = this
-                        .storage()
-                        .provider()
-                        .transaction_by_hash(hash)?
-                        .map(RpcTxWithHash::from);
-
-                    Result::<_, StarknetApiError>::Ok(tx)
-                }
-            })
-            .await??;
-
-        if let Some(tx) = tx {
-            Ok(tx)
-        } else {
-            Err(StarknetApiError::TxnHashNotFound)
-        }
-    }
-
     async fn receipt(&self, hash: Felt) -> StarknetApiResult<TxReceiptWithBlockInfo> {
+        println!("requesting receipt for tx {hash:#x}");
         let receipt = self
             .on_io_blocking_task(move |this| {
+                // Check pending block provider
                 if let pending_receipt @ Some(..) =
                     this.inner.pending_block_provider.get_pending_receipt(hash)?
                 {
@@ -589,41 +577,43 @@ where
     async fn transaction_status(&self, hash: TxHash) -> StarknetApiResult<TxStatus> {
         let status = self
             .on_io_blocking_task(move |this| {
-                let provider = this.storage().provider();
-                let status = provider.transaction_status(hash)?;
-
-                if let Some(status) = status {
-                    // TODO: this might not work once we allow querying for 'failed' transactions
-                    // from the provider
-                    let Some(receipt) = provider.receipt_by_hash(hash)? else {
-                        let error = StarknetApiError::unexpected(
-                            "Transaction hash exist, but the receipt is missing",
-                        );
-                        return Err(error);
-                    };
-
-                    let exec_status = if let Some(reason) = receipt.revert_reason() {
-                        katana_rpc_types::ExecutionResult::Reverted { reason: reason.to_string() }
-                    } else {
-                        katana_rpc_types::ExecutionResult::Succeeded
-                    };
-
-                    let status = match status {
-                        FinalityStatus::AcceptedOnL1 => TxStatus::AcceptedOnL1(exec_status),
-                        FinalityStatus::AcceptedOnL2 => TxStatus::AcceptedOnL2(exec_status),
-                        FinalityStatus::PreConfirmed => TxStatus::PreConfirmed(exec_status),
-                    };
-
-                    return Ok(Some(status));
-                }
-
                 // seach in the pending block if the transaction is not found
                 if let Some(receipt) =
                     this.inner.pending_block_provider.get_pending_receipt(hash)?
                 {
                     Ok(Some(TxStatus::PreConfirmed(receipt.receipt.execution_result().clone())))
                 } else {
-                    Ok(None)
+                    let provider = this.storage().provider();
+                    let status = provider.transaction_status(hash)?;
+
+                    if let Some(status) = status {
+                        // TODO: this might not work once we allow querying for 'failed'
+                        // transactions from the provider
+                        let Some(receipt) = provider.receipt_by_hash(hash)? else {
+                            let error = StarknetApiError::unexpected(
+                                "Transaction hash exist, but the receipt is missing",
+                            );
+                            return Err(error);
+                        };
+
+                        let exec_status = if let Some(reason) = receipt.revert_reason() {
+                            katana_rpc_types::ExecutionResult::Reverted {
+                                reason: reason.to_string(),
+                            }
+                        } else {
+                            katana_rpc_types::ExecutionResult::Succeeded
+                        };
+
+                        let status = match status {
+                            FinalityStatus::AcceptedOnL1 => TxStatus::AcceptedOnL1(exec_status),
+                            FinalityStatus::AcceptedOnL2 => TxStatus::AcceptedOnL2(exec_status),
+                            FinalityStatus::PreConfirmed => TxStatus::PreConfirmed(exec_status),
+                        };
+
+                        Ok(Some(status))
+                    } else {
+                        Ok(None)
+                    }
                 }
             })
             .await??;
@@ -683,18 +673,21 @@ where
                     if let Some(block) =
                         this.inner.pending_block_provider.get_pending_block_with_receipts()?
                     {
-                        return Ok(Some(GetBlockWithReceiptsResponse::PreConfirmed(block)));
+                        Ok(Some(GetBlockWithReceiptsResponse::PreConfirmed(block)))
+                    } else {
+                        Ok(None)
                     }
-                }
-
-                if let Some(num) = provider.convert_block_id(block_id)? {
-                    let block = katana_rpc_types_builder::BlockBuilder::new(num.into(), provider)
-                        .build_with_receipts()?
-                        .map(GetBlockWithReceiptsResponse::Block);
-
-                    StarknetApiResult::Ok(block)
                 } else {
+                    // if let Some(num) = provider.convert_block_id(block_id)? {
+                    //     let block =
+                    //         katana_rpc_types_builder::BlockBuilder::new(num.into(), provider)
+                    //             .build_with_receipts()?
+                    //             .map(GetBlockWithReceiptsResponse::Block);
+
+                    //     StarknetApiResult::Ok(block)
+                    // } else {
                     StarknetApiResult::Ok(None)
+                    // }
                 }
             })
             .await??;
@@ -722,15 +715,17 @@ where
                     }
                 }
 
-                if let Some(num) = provider.convert_block_id(block_id)? {
-                    let block = katana_rpc_types_builder::BlockBuilder::new(num.into(), provider)
-                        .build_with_tx_hash()?
-                        .map(GetBlockWithTxHashesResponse::Block);
+                // if let Some(num) = provider.convert_block_id(block_id)? {
+                //     let block = katana_rpc_types_builder::BlockBuilder::new(num.into(), provider)
+                //         .build_with_tx_hash()?
+                //         .map(GetBlockWithTxHashesResponse::Block);
 
-                    StarknetApiResult::Ok(block)
-                } else {
-                    StarknetApiResult::Ok(None)
-                }
+                //     StarknetApiResult::Ok(block)
+                // } else {
+                // StarknetApiResult::Ok(None)
+                // }
+
+                StarknetApiResult::Ok(None)
             })
             .await??;
 
@@ -829,6 +824,139 @@ where
         .await?
     }
 
+    /// Extracts and filters events from the optimistic state transactions.
+    /// Returns a continuation token if there are more events to fetch.
+    fn fetch_optimistic_events(
+        &self,
+        address: Option<ContractAddress>,
+        keys: &Option<Vec<Vec<Felt>>>,
+        events_buffer: &mut Vec<EmittedEvent>,
+        chunk_size: u64,
+        continuation_token: Option<&katana_primitives::event::ContinuationToken>,
+    ) -> StarknetApiResult<Option<katana_primitives::event::ContinuationToken>> {
+        if let Some(optimistic_state) = &self.inner.optimistic_state {
+            let transactions = optimistic_state.transactions.read();
+
+            // Determine starting position from continuation token
+            let (start_txn_idx, start_event_idx) = if let Some(token) = continuation_token {
+                // If transaction hash is present, use it to find the transaction
+                if let Some(tx_hash) = &token.transaction_hash {
+                    // Find the transaction by hash
+                    if let Some(idx) = transactions.iter().position(|(tx, _)| &tx.hash == tx_hash) {
+                        (idx, token.event_n as usize)
+                    } else {
+                        // Transaction not found (likely removed by poll_confirmed_blocks)
+                        // Start from the beginning
+                        trace!(
+                            target: "rpc::starknet",
+                            tx_hash = format!("{:#x}", tx_hash),
+                            "Transaction from continuation token not found in optimistic state, starting from beginning"
+                        );
+                        (0, 0)
+                    }
+                } else {
+                    // // Use txn_n index if no hash is provided (backward compatibility)
+                    // (token.txn_n as usize, token.event_n as usize)
+                    unimplemented!()
+                }
+            } else {
+                (0, 0)
+            };
+
+            dbg!(transactions.len());
+            for (tx_idx, (tx, result)) in transactions.iter().enumerate() {
+                // Skip transactions before the continuation token
+                if tx_idx < start_txn_idx {
+                    continue;
+                }
+
+                // Stop if we've reached the chunk size limit
+                if events_buffer.len() >= chunk_size as usize {
+                    break;
+                }
+                // Only process successful executions
+                if let katana_executor::ExecutionResult::Success { receipt, .. } = result {
+                    for (event_idx, event) in receipt.events().iter().enumerate() {
+                        // Skip events before the continuation token in the current transaction
+                        if tx_idx == start_txn_idx && event_idx < start_event_idx {
+                            continue;
+                        }
+                        // Apply address filter
+                        if let Some(filter_address) = address {
+                            if event.from_address != filter_address {
+                                continue;
+                            }
+                        }
+
+                        // Apply keys filter
+                        if let Some(filter_keys) = keys {
+                            let mut matches = true;
+                            for (i, key_set) in filter_keys.iter().enumerate() {
+                                if !key_set.is_empty() {
+                                    if let Some(event_key) = event.keys.get(i) {
+                                        if !key_set.contains(event_key) {
+                                            matches = false;
+                                            break;
+                                        }
+                                    } else {
+                                        matches = false;
+                                        break;
+                                    }
+                                }
+                            }
+
+                            if !matches {
+                                continue;
+                            }
+                        }
+
+                        // Event matches the filter, add it to the buffer
+                        events_buffer.push(EmittedEvent {
+                            from_address: event.from_address,
+                            keys: event.keys.clone(),
+                            data: event.data.clone(),
+                            block_hash: None, // Optimistic transactions don't have a block hash yet
+                            block_number: None, /* Optimistic transactions don't have a block
+                                               * number yet */
+                            transaction_hash: tx.hash,
+                            transaction_index: None, // Optimistic transactions don't have a tx index yet
+                            event_index: Some(event_idx as u64),
+                        });
+
+                        // Stop if we've reached the chunk size limit
+                        if events_buffer.len() >= chunk_size as usize {
+                            // Return a continuation token with the current position
+                            let next_event_idx = event_idx + 1;
+                            let token = katana_primitives::event::ContinuationToken {
+                                block_n: 0, // Not used for optimistic transactions
+                                txn_n: tx_idx as u64,
+                                event_n: next_event_idx as u64,
+                                transaction_hash: Some(tx.hash),
+                            };
+                            return Ok(Some(token));
+                        }
+                    }
+                }
+            }
+
+            // if we already exhaust all the optimistic transactions then we return a continuation
+            // token pointing to the next optimistic transaction
+            return Ok(Some(katana_primitives::event::ContinuationToken {
+                block_n: 0, // Not used for optimistic transactions
+                txn_n: transactions.len() as u64,
+                event_n: transactions
+                    .last()
+                    .and_then(|(.., result)| {
+                        result.receipt().map(|receipt| receipt.events().len() as u64)
+                    })
+                    .unwrap_or(0),
+                transaction_hash: transactions.last().map(|(tx, ..)| tx.hash),
+            }));
+        }
+
+        Ok(None)
+    }
+
     // TODO: should document more and possible find a simpler solution(?)
     fn events_inner(
         &self,
@@ -846,95 +974,54 @@ where
 
         // reserved buffer to fill up with events to avoid reallocations
         let mut events = Vec::with_capacity(chunk_size as usize);
-        let filter = utils::events::Filter { address, keys: keys.clone() };
 
         match (from, to) {
-            (EventBlockId::Num(from), EventBlockId::Num(to)) => {
-                let from_after_forked_if_any = from;
-
-                let cursor = continuation_token.and_then(|t| t.to_token().map(|t| t.into()));
-                let block_range = from_after_forked_if_any..=to;
-
-                let cursor = utils::events::fetch_events_at_blocks(
-                    provider,
-                    block_range,
-                    &filter,
-                    chunk_size,
-                    cursor,
-                    &mut events,
-                )?;
-
-                let continuation_token = cursor.map(|c| c.into_rpc_cursor().to_string());
-                let events_page = GetEventsResponse { events, continuation_token };
-
-                Ok(events_page)
+            (EventBlockId::Num(_from), EventBlockId::Num(_to)) => {
+                // TODO: implement fetching events from storage for non-pending block ranges
+                Ok(GetEventsResponse { events, continuation_token: None })
             }
 
-            (EventBlockId::Num(from), EventBlockId::Pending) => {
-                let from_after_forked_if_any = from;
+            (EventBlockId::Num(_from), EventBlockId::Pending) => {
+                // Fetch events from optimistic state transactions (which serve as "pending"
+                // transactions)
+                // Extract native token if present
+                let native_token = continuation_token.as_ref().and_then(|t| match t {
+                    MaybeForkedContinuationToken::Token(token) => Some(token),
+                    _ => None,
+                });
 
-                let cursor = continuation_token.and_then(|t| t.to_token().map(|t| t.into()));
-                let latest = provider.latest_number()?;
-                let block_range = from_after_forked_if_any..=latest;
-
-                let int_cursor = utils::events::fetch_events_at_blocks(
-                    provider,
-                    block_range,
-                    &filter,
-                    chunk_size,
-                    cursor.clone(),
+                let opt_token = self.fetch_optimistic_events(
+                    address,
+                    &keys,
                     &mut events,
+                    chunk_size,
+                    native_token,
                 )?;
 
-                // if the internal cursor is Some, meaning the buffer is full and we havent
-                // reached the latest block.
-                if let Some(c) = int_cursor {
-                    let continuation_token = Some(c.into_rpc_cursor().to_string());
-                    return Ok(GetEventsResponse { events, continuation_token });
-                }
-
-                if let Some(block) =
-                    self.inner.pending_block_provider.get_pending_block_with_receipts()?
-                {
-                    let cursor = utils::events::fetch_pending_events(
-                        &block,
-                        &filter,
-                        chunk_size,
-                        cursor,
-                        &mut events,
-                    )?;
-
-                    let continuation_token = Some(cursor.into_rpc_cursor().to_string());
-                    Ok(GetEventsResponse { events, continuation_token })
-                } else {
-                    let cursor = Cursor::new_block(latest + 1);
-                    let continuation_token = Some(cursor.into_rpc_cursor().to_string());
-                    Ok(GetEventsResponse { events, continuation_token })
-                }
+                let continuation_token =
+                    opt_token.map(|t| MaybeForkedContinuationToken::Token(t).to_string());
+                Ok(GetEventsResponse { events, continuation_token })
             }
 
             (EventBlockId::Pending, EventBlockId::Pending) => {
-                if let Some(block) =
-                    self.inner.pending_block_provider.get_pending_block_with_receipts()?
-                {
-                    let cursor = continuation_token.and_then(|t| t.to_token().map(|t| t.into()));
-                    let new_cursor = utils::events::fetch_pending_events(
-                        &block,
-                        &filter,
-                        chunk_size,
-                        cursor,
-                        &mut events,
-                    )?;
+                // Fetch events from optimistic state transactions (which represent pending
+                // transactions)
+                // Extract native token if present
+                let native_token = continuation_token.as_ref().and_then(|t| match t {
+                    MaybeForkedContinuationToken::Token(token) => Some(token),
+                    _ => None,
+                });
+                let opt_token = self.fetch_optimistic_events(
+                    address,
+                    &keys,
+                    &mut events,
+                    chunk_size,
+                    native_token,
+                )?;
 
-                    let continuation_token = Some(new_cursor.into_rpc_cursor().to_string());
-                    Ok(GetEventsResponse { events, continuation_token })
-                } else {
-                    let latest = provider.latest_number()?;
-                    let new_cursor = Cursor::new_block(latest);
-
-                    let continuation_token = Some(new_cursor.into_rpc_cursor().to_string());
-                    Ok(GetEventsResponse { events, continuation_token })
-                }
+                let continuation_token =
+                    opt_token.map(|t| MaybeForkedContinuationToken::Token(t).to_string());
+                Ok(GetEventsResponse { events, continuation_token })
             }
 
             (EventBlockId::Pending, EventBlockId::Num(_)) => Err(StarknetApiError::unexpected(
@@ -958,8 +1045,8 @@ where
             BlockIdOrTag::Number(num) => EventBlockId::Num(num),
 
             BlockIdOrTag::Latest => {
-                let num = provider.convert_block_id(id)?;
-                EventBlockId::Num(num.ok_or(StarknetApiError::BlockNotFound)?)
+                let num = provider.latest_number()?;
+                EventBlockId::Num(num)
             }
 
             BlockIdOrTag::Hash(..) => {
@@ -1231,6 +1318,55 @@ where
             Ok(total)
         })
         .await?
+    }
+}
+
+// Separate impl block for methods that require the pool transaction to be convertible to RpcTxWithHash
+impl<Pool, PP, PF> StarknetApi<Pool, PP, PF>
+where
+    Pool: TransactionPool + 'static,
+    <Pool as TransactionPool>::Transaction: Into<RpcTxWithHash>,
+    PP: PendingBlockProvider,
+    PF: ProviderFactory,
+    <PF as ProviderFactory>::Provider: ProviderRO,
+{
+    async fn transaction(&self, hash: TxHash) -> StarknetApiResult<RpcTxWithHash> {
+        let tx = self
+            .on_io_blocking_task(move |this| {
+                // First, check optimistic state for the transaction
+                if let Some(optimistic_state) = &this.inner.optimistic_state {
+                    let transactions = optimistic_state.transactions.read();
+                    if let Some((tx, _result)) = transactions.iter().find(|(tx, _)| tx.hash == hash)
+                    {
+                        return Result::<_, StarknetApiError>::Ok(Some(RpcTxWithHash::from(
+                            tx.clone(),
+                        )));
+                    }
+                }
+
+                // Check pending block provider
+                if let pending_tx @ Some(..) =
+                    this.inner.pending_block_provider.get_pending_transaction(hash)?
+                {
+                    Result::<_, StarknetApiError>::Ok(pending_tx)
+                } else {
+                    let tx = this
+                        .storage()
+                        .provider()
+                        .transaction_by_hash(hash)?
+                        .map(RpcTxWithHash::from);
+
+                    Result::<_, StarknetApiError>::Ok(tx)
+                }
+            })
+            .await??;
+
+        if let Some(tx) = tx {
+            Ok(tx)
+        } else {
+            let pool_tx = self.inner.pool.get(hash).ok_or(StarknetApiError::TxnHashNotFound)?;
+            Ok(Into::into(pool_tx.as_ref().clone()))
+        }
     }
 }
 

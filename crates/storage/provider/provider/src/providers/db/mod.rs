@@ -1,3 +1,4 @@
+pub mod cached;
 pub mod state;
 pub mod trie;
 

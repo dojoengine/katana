@@ -181,6 +181,7 @@ impl Node {
             task_spawner.clone(),
             preconf_factory,
             GasPriceOracle::create_for_testing(),
+            None, // optimistic_state
             starknet_api_cfg,
             storage_provider.clone(),
         );

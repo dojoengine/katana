@@ -1,3 +1,5 @@
+#![allow(dead_code)]
+
 use std::cmp::Ordering;
 use std::ops::RangeInclusive;
 
@@ -66,21 +68,22 @@ impl Cursor {
             block_n: self.block,
             txn_n: self.txn.idx as u64,
             event_n: self.txn.event as u64,
+            transaction_hash: None,
         }
     }
 }
 
 /// A partial cursor that points to a specific event WITHIN a transaction.
 #[derive(Debug, Clone, PartialEq, Default)]
-struct PartialCursor {
+pub struct PartialCursor {
     /// The transaction index within a block.
-    idx: usize,
+    pub idx: usize,
     /// The event index within a transaction.
-    event: usize,
+    pub event: usize,
 }
 
 impl PartialCursor {
-    fn into_full(self, block: BlockNumber) -> Cursor {
+    pub fn into_full(self, block: BlockNumber) -> Cursor {
         Cursor { block, txn: self }
     }
 }
@@ -297,7 +300,7 @@ impl<'a, I: Iterator<Item = (usize, &'a Event)>> Iterator for FilteredEvents<'a,
 /// * `chunk_size` - Maximum number of events that can be taken, based on user-specified chunk size
 /// * `buffer` - Buffer to store the matched events
 #[allow(clippy::too_many_arguments)]
-fn fetch_tx_events(
+pub fn fetch_tx_events(
     next_event_idx: usize,
     block_number: Option<BlockNumber>,
     block_hash: Option<BlockHash>,

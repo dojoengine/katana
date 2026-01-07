@@ -1,4 +1,4 @@
-use katana_primitives::block::BlockHashOrNumber;
+use katana_primitives::block::BlockIdOrTag;
 use url::Url;
 
 /// Node forking configurations.
@@ -6,6 +6,6 @@ use url::Url;
 pub struct ForkingConfig {
     /// The JSON-RPC URL of the network to fork from.
     pub url: Url,
-    /// The block number to fork from. If `None`, the latest block will be used.
-    pub block: Option<BlockHashOrNumber>,
+    /// The block id or tag to fork from. If `None`, the latest block will be used.
+    pub block: Option<BlockIdOrTag>,
 }

@@ -7,6 +7,7 @@ repository.workspace = true
 version.workspace = true
 
 [dependencies]
+katana-optimistic.workspace = true
 katana-core.workspace = true
 katana-chain-spec.workspace = true
 katana-executor.workspace = true
@@ -17,6 +18,7 @@ katana-primitives.workspace = true
 katana-genesis = { workspace = true, optional = true }
 katana-provider = { workspace = true, features = [ "test-utils" ] }
 katana-rpc-api = { workspace = true, features = [ "client" ] }
+katana-rpc-client.workspace = true
 katana-rpc-types.workspace = true
 katana-rpc-types-builder.workspace = true
 katana-tasks.workspace = true
@@ -25,12 +27,12 @@ katana-tracing.workspace = true
 
 anyhow.workspace = true
 auto_impl.workspace = true
+futures.workspace = true
 http.workspace = true
 jsonrpsee = { workspace = true, features = [ "client", "server" ] }
 metrics.workspace = true
 serde_json.workspace = true
 starknet = { workspace = true, optional = true }
-futures = { workspace = true, optional = true }
 thiserror.workspace = true
 tokio.workspace = true
 tower.workspace = true
@@ -81,7 +83,6 @@ url.workspace = true
 [features]
 cartridge = [
 	"dep:cainome",
-	"dep:futures",
 	"dep:cartridge",
 	"dep:katana-genesis",
 	"dep:starknet",

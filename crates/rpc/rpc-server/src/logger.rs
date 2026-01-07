@@ -3,7 +3,7 @@ use std::future::Future;
 use jsonrpsee::core::middleware;
 use jsonrpsee::core::middleware::{Batch, Notification};
 use jsonrpsee::types::Request;
-use tracing::Instrument;
+use tracing::{info, Instrument};
 
 /// RPC logger layer.
 #[derive(Copy, Clone, Debug)]
@@ -41,12 +41,14 @@ where
     #[inline]
     #[tracing::instrument(target = "rpc", level = "trace", name = "rpc_call", skip_all, fields(method = req.method_name()))]
     fn call<'a>(&self, req: Request<'a>) -> impl Future<Output = Self::MethodResponse> + Send + 'a {
+        info!(method = %req.method, "Rpc called.");
         self.service.call(req).in_current_span()
     }
 
     #[inline]
     #[tracing::instrument(target = "rpc", level = "trace", name = "rpc_batch", skip_all, fields(batch_size = batch.len()) )]
     fn batch<'a>(&self, batch: Batch<'a>) -> impl Future<Output = Self::BatchResponse> + Send + 'a {
+        info!(batch_size = batch.len(), "Batch rpc called.");
         self.service.batch(batch).in_current_span()
     }
 
