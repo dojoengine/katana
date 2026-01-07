@@ -82,7 +82,7 @@ where
     }
 
     async fn block_hash_and_number(&self) -> RpcResult<BlockHashAndNumberResponse> {
-        Ok(self.get_block_hash_and_number().await?)
+        Ok(self.block_hash_and_number()?)
     }
 
     async fn get_block_with_tx_hashes(

@@ -30,7 +30,7 @@ use katana_metrics::sys::DiskReporter;
 use katana_metrics::{MetricsServer, MetricsServerHandle, Report};
 use katana_pool::ordering::FiFo;
 use katana_pool::TxPool;
-use katana_primitives::block::{BlockHashOrNumber, GasPrices};
+use katana_primitives::block::{BlockIdOrTag, GasPrices};
 use katana_primitives::cairo::ShortString;
 use katana_primitives::env::VersionedConstantsOverrides;
 use katana_provider::{DbProviderFactory, ForkProviderFactory, ProviderFactory};
@@ -254,6 +254,7 @@ where
             task_spawner.clone(),
             block_producer.clone(),
             gas_oracle.clone(),
+            None, // optimistic_state
             starknet_api_cfg,
             provider.clone(),
         );
@@ -416,7 +417,7 @@ impl Node<ForkProviderFactory> {
             id
         } else {
             let res = client.block_number().await?;
-            BlockHashOrNumber::Num(res.block_number)
+            BlockIdOrTag::Number(res.block_number)
         };
 
         // if the id is not in ASCII encoding, we display the chain id as is in hex.

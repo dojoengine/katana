@@ -3,9 +3,7 @@ use std::sync::Arc;
 use anyhow::Result;
 use http::header::CONTENT_TYPE;
 use http::Method;
-use jsonrpsee::http_client::HttpClientBuilder;
 use jsonrpsee::RpcModule;
-use katana_chain_spec::ChainSpec;
 use katana_core::backend::storage::ProviderRO;
 use katana_core::backend::Backend;
 use katana_core::env::BlockContextGenerator;
@@ -15,17 +13,14 @@ use katana_executor::{BlockLimits, ExecutionFlags};
 use katana_gas_price_oracle::GasPriceOracle;
 use katana_metrics::exporters::prometheus::PrometheusRecorder;
 use katana_metrics::sys::DiskReporter;
-use katana_metrics::{Report, Server as MetricsServer};
+use katana_metrics::{MetricsServer, Report};
 use katana_optimistic::executor::{OptimisticExecutor, OptimisticState};
 use katana_optimistic::pool::{PoolValidator, TxPool};
 use katana_pool::ordering::FiFo;
-use katana_primitives::block::BlockIdOrTag;
-use katana_primitives::env::{CfgEnv, FeeTokenAddressses};
 use katana_provider::ProviderFactory;
 use katana_rpc_api::starknet::{StarknetApiServer, StarknetTraceApiServer, StarknetWriteApiServer};
 use katana_rpc_client::starknet::Client as StarknetClient;
 use katana_rpc_server::cors::Cors;
-use katana_rpc_server::starknet::forking::ForkedClient;
 use katana_rpc_server::starknet::{OptimisticPendingBlockProvider, StarknetApi, StarknetApiConfig};
 use katana_rpc_server::{RpcServer, RpcServerHandle};
 use katana_tasks::{JoinHandle, TaskManager};
@@ -69,10 +64,10 @@ where
             let reports: Vec<Box<dyn Report>> = vec![db_metrics, disk_metrics];
 
             let exporter = PrometheusRecorder::current().expect("qed; should exist at this point");
-            let server = MetricsServer::new(exporter).with_process_metrics().with_reports(reports);
+            let server = MetricsServer::new(exporter).with_process_metrics().reports(reports);
 
             let addr = cfg.socket_addr();
-            self.task_manager.task_spawner().build_task().spawn(server.start(addr));
+            let _metrics_handle = server.start(addr)?;
             info!(%addr, "Metrics server started.");
         }
 
@@ -155,15 +150,12 @@ impl Node<katana_provider::ForkProviderFactory> {
 
         // Get the latest block number from the forked network
         let forked_block_num = starknet_client.block_number().await?.block_number;
-        let forked_block_id = BlockIdOrTag::Number(forked_block_num);
 
         let provider = katana_provider::ForkProviderFactory::new(
             db.clone(),
             forked_block_num,
             starknet_client.clone(),
         );
-
-        let forked_client = ForkedClient::new(starknet_client.clone(), forked_block_id);
 
         let gpo = GasPriceOracle::sampled_starknet(config.forking.url.clone());
         let block_context_generator = BlockContextGenerator::default().into();
@@ -213,6 +205,8 @@ impl Node<katana_provider::ForkProviderFactory> {
             max_proof_keys: config.rpc.max_proof_keys,
             max_call_gas: config.rpc.max_call_gas,
             max_concurrent_estimate_fee_requests: config.rpc.max_concurrent_estimate_fee_requests,
+            simulation_flags: ExecutionFlags::new(),
+            versioned_constant_overrides: None,
             #[cfg(feature = "cartridge")]
             paymaster: None,
         };
@@ -224,15 +218,15 @@ impl Node<katana_provider::ForkProviderFactory> {
             provider.clone(),
         );
 
-        let starknet_api = StarknetApi::new_forked(
-            backend.clone(),
+        let starknet_api = StarknetApi::new(
+            config.chain.clone(),
             pool.clone(),
-            forked_client,
             task_spawner.clone(),
-            starknet_api_cfg,
             pending_block_provider,
-            provider.clone(),
+            gpo.clone(),
             Some(optimistic_state.clone()),
+            starknet_api_cfg,
+            provider.clone(),
         );
 
         if config.rpc.apis.contains(&RpcModuleKind::Starknet) {

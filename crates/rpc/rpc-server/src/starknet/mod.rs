@@ -132,9 +132,9 @@ where
             task_spawner,
             config,
             pending_block_provider,
-            optimistic_state,
             gas_oracle,
             storage2,
+            optimistic_state,
         )
     }
 
@@ -551,45 +551,6 @@ where
         }
     }
 
-    async fn transaction(&self, hash: TxHash) -> StarknetApiResult<RpcTxWithHash> {
-        let tx = self
-            .on_io_blocking_task(move |this| {
-                // First, check optimistic state for the transaction
-                if let Some(optimistic_state) = &this.inner.optimistic_state {
-                    let transactions = optimistic_state.transactions.read();
-                    if let Some((tx, _result)) = transactions.iter().find(|(tx, _)| tx.hash == hash)
-                    {
-                        return Result::<_, StarknetApiError>::Ok(Some(RpcTxWithHash::from(
-                            tx.clone(),
-                        )));
-                    }
-                }
-
-                // Check pending block provider
-                if let pending_tx @ Some(..) =
-                    this.inner.pending_block_provider.get_pending_transaction(hash)?
-                {
-                    Result::<_, StarknetApiError>::Ok(pending_tx)
-                } else {
-                    let tx = this
-                        .storage()
-                        .provider()
-                        .transaction_by_hash(hash)?
-                        .map(RpcTxWithHash::from);
-
-                    Result::<_, StarknetApiError>::Ok(tx)
-                }
-            })
-            .await??;
-
-        if let Some(tx) = tx {
-            Ok(tx)
-        } else {
-            let pool_tx = self.inner.pool.get(hash).ok_or(StarknetApiError::TxnHashNotFound)?;
-            Ok(Into::into(pool_tx.as_ref().clone()))
-        }
-    }
-
     async fn receipt(&self, hash: Felt) -> StarknetApiResult<TxReceiptWithBlockInfo> {
         println!("requesting receipt for tx {hash:#x}");
         let receipt = self
@@ -958,6 +919,8 @@ where
                             block_number: None, /* Optimistic transactions don't have a block
                                                * number yet */
                             transaction_hash: tx.hash,
+                            transaction_index: None, // Optimistic transactions don't have a tx index yet
+                            event_index: Some(event_idx as u64),
                         });
 
                         // Stop if we've reached the chunk size limit
@@ -1013,84 +976,12 @@ where
         let mut events = Vec::with_capacity(chunk_size as usize);
 
         match (from, to) {
-            (EventBlockId::Num(from), EventBlockId::Num(to)) => {
-                // Check if continuation token is a native (non-forked) token
-                let is_native_token = continuation_token
-                    .as_ref()
-                    .map_or(false, |t| matches!(t, MaybeForkedContinuationToken::Token(_)));
-
-                // Only fetch from forked client if we don't have a native continuation token
-                if !is_native_token {
-                    let client = &self.inner.forked_client.as_ref().unwrap();
-                    // Extract forked token if present
-                    let forked_token = continuation_token.as_ref().and_then(|t| match t {
-                        MaybeForkedContinuationToken::Forked(token) => Some(token.clone()),
-                        _ => None,
-                    });
-
-                    let forked_result = futures::executor::block_on(client.get_events(
-                        BlockIdOrTag::Number(from),
-                        BlockIdOrTag::Number(to),
-                        address,
-                        keys.clone(),
-                        forked_token,
-                        chunk_size,
-                    ))?;
-
-                    events.extend(forked_result.events);
-
-                    // Return early if there's a continuation token from forked network
-                    if let Some(token) = forked_result.continuation_token {
-                        let token = Some(MaybeForkedContinuationToken::Forked(token).to_string());
-                        return Ok(GetEventsResponse { events, continuation_token: token });
-                    }
-                }
-
+            (EventBlockId::Num(_from), EventBlockId::Num(_to)) => {
+                // TODO: implement fetching events from storage for non-pending block ranges
                 Ok(GetEventsResponse { events, continuation_token: None })
             }
 
-            (EventBlockId::Num(from), EventBlockId::Pending) => {
-                // Check if continuation token is a native (non-forked) token
-                let fetch_from_fork = continuation_token
-                    .as_ref()
-                    // if not token is supplied then we need to fetch from forked client, or
-                    // if token is a forked token
-                    .map_or(true, |t| matches!(t, MaybeForkedContinuationToken::Forked(_)));
-
-                // Only fetch from forked client if we don't have a native continuation token
-                if dbg!(fetch_from_fork) {
-                    let client = &self.inner.forked_client.as_ref().unwrap();
-
-                    // Extract forked token if present
-                    let forked_token = continuation_token.as_ref().and_then(|t| match t {
-                        MaybeForkedContinuationToken::Forked(token) => Some(token.clone()),
-                        _ => None,
-                    });
-
-                    let forked_result = futures::executor::block_on(client.get_events(
-                        BlockIdOrTag::Number(from),
-                        BlockIdOrTag::Latest,
-                        address,
-                        keys.clone(),
-                        forked_token,
-                        chunk_size,
-                    ))?;
-
-                    events.extend(forked_result.events);
-
-                    // Return early if there's a continuation token from forked network
-
-                    if let Some(token) = forked_result.continuation_token {
-                        if dbg!(events.len() as u64 >= chunk_size) {
-                            let token = MaybeForkedContinuationToken::Forked(token);
-                            return Ok(GetEventsResponse {
-                                events,
-                                continuation_token: Some(token.to_string()),
-                            });
-                        }
-                    }
-                }
-
+            (EventBlockId::Num(_from), EventBlockId::Pending) => {
                 // Fetch events from optimistic state transactions (which serve as "pending"
                 // transactions)
                 // Extract native token if present
@@ -1099,7 +990,6 @@ where
                     _ => None,
                 });
 
-                println!("fetching optimistic events");
                 let opt_token = self.fetch_optimistic_events(
                     address,
                     &keys,
@@ -1108,16 +998,12 @@ where
                     native_token,
                 )?;
 
-                dbg!(&opt_token);
-
                 let continuation_token =
                     opt_token.map(|t| MaybeForkedContinuationToken::Token(t).to_string());
                 Ok(GetEventsResponse { events, continuation_token })
             }
 
             (EventBlockId::Pending, EventBlockId::Pending) => {
-                println!("fetching optimistic events - pending - pending");
-
                 // Fetch events from optimistic state transactions (which represent pending
                 // transactions)
                 // Extract native token if present
@@ -1159,16 +1045,8 @@ where
             BlockIdOrTag::Number(num) => EventBlockId::Num(num),
 
             BlockIdOrTag::Latest => {
-                // let num = provider.convert_block_id(id)?;
-                // EventBlockId::Num(num.ok_or(StarknetApiError::BlockNotFound)?)
-                if let Some(client) = self.forked_client() {
-                    let num = futures::executor::block_on(client.block_number())?;
-                    EventBlockId::Num(num)
-                }
-                // Otherwise the block hash is not found.
-                else {
-                    return Err(StarknetApiError::BlockNotFound);
-                }
+                let num = provider.latest_number()?;
+                EventBlockId::Num(num)
             }
 
             BlockIdOrTag::Hash(..) => {
@@ -1440,6 +1318,55 @@ where
             Ok(total)
         })
         .await?
+    }
+}
+
+// Separate impl block for methods that require the pool transaction to be convertible to RpcTxWithHash
+impl<Pool, PP, PF> StarknetApi<Pool, PP, PF>
+where
+    Pool: TransactionPool + 'static,
+    <Pool as TransactionPool>::Transaction: Into<RpcTxWithHash>,
+    PP: PendingBlockProvider,
+    PF: ProviderFactory,
+    <PF as ProviderFactory>::Provider: ProviderRO,
+{
+    async fn transaction(&self, hash: TxHash) -> StarknetApiResult<RpcTxWithHash> {
+        let tx = self
+            .on_io_blocking_task(move |this| {
+                // First, check optimistic state for the transaction
+                if let Some(optimistic_state) = &this.inner.optimistic_state {
+                    let transactions = optimistic_state.transactions.read();
+                    if let Some((tx, _result)) = transactions.iter().find(|(tx, _)| tx.hash == hash)
+                    {
+                        return Result::<_, StarknetApiError>::Ok(Some(RpcTxWithHash::from(
+                            tx.clone(),
+                        )));
+                    }
+                }
+
+                // Check pending block provider
+                if let pending_tx @ Some(..) =
+                    this.inner.pending_block_provider.get_pending_transaction(hash)?
+                {
+                    Result::<_, StarknetApiError>::Ok(pending_tx)
+                } else {
+                    let tx = this
+                        .storage()
+                        .provider()
+                        .transaction_by_hash(hash)?
+                        .map(RpcTxWithHash::from);
+
+                    Result::<_, StarknetApiError>::Ok(tx)
+                }
+            })
+            .await??;
+
+        if let Some(tx) = tx {
+            Ok(tx)
+        } else {
+            let pool_tx = self.inner.pool.get(hash).ok_or(StarknetApiError::TxnHashNotFound)?;
+            Ok(Into::into(pool_tx.as_ref().clone()))
+        }
     }
 }
 
