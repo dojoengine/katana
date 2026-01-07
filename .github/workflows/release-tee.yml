@@ -123,3 +123,132 @@ jobs:
           echo "\`\`\`bash" >> $GITHUB_STEP_SUMMARY
           echo "gh attestation verify ./katana-reproducible --repo ${{ github.repository }}" >> $GITHUB_STEP_SUMMARY
           echo "\`\`\`" >> $GITHUB_STEP_SUMMARY
+
+  vm-image-build:
+    name: Build VM Image
+    needs: [prepare, reproducible-build]
+    runs-on: ubuntu-latest-8-cores
+    outputs:
+      image-hash: ${{ steps.hash.outputs.sha256 }}
+      measurement: ${{ steps.measurement.outputs.value }}
+
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Download reproducible binary
+        uses: actions/download-artifact@v4
+        with:
+          name: tee-release-artifacts
+
+      - name: Extract Katana binary
+        run: |
+          tar -xzf katana_${{ needs.prepare.outputs.tag_name }}_linux_amd64_tee.tar.gz
+          cp katana-reproducible katana
+
+      - name: Set up Docker Buildx
+        uses: docker/setup-buildx-action@v3
+
+      - name: Build VM image
+        run: |
+          export SOURCE_DATE_EPOCH=$(git log -1 --format=%ct)
+          docker build \
+            -f vm-image.Dockerfile \
+            -t katana-vm-image:${{ needs.prepare.outputs.tag_name }} \
+            --build-arg SOURCE_DATE_EPOCH=${SOURCE_DATE_EPOCH} \
+            --build-arg KATANA_BINARY=./katana \
+            --no-cache \
+            .
+
+      - name: Extract VM image components
+        run: |
+          docker create --name vm-extract katana-vm-image:${{ needs.prepare.outputs.tag_name }}
+          docker cp vm-extract:/output/disk.raw ./disk.raw
+          docker cp vm-extract:/output/ovmf.fd ./ovmf.fd
+          docker cp vm-extract:/output/vmlinuz ./vmlinuz
+          docker cp vm-extract:/output/initrd.img ./initrd.img
+          docker rm vm-extract
+
+      - name: Install sev-snp-measure tool
+        run: |
+          pipx install sev-snp-measure
+
+      - name: Calculate SEV-SNP measurement
+        id: measurement
+        run: |
+          chmod +x ./tee/scripts/calculate-measurement.sh
+          ./tee/scripts/calculate-measurement.sh \
+            ovmf.fd \
+            vmlinuz \
+            initrd.img \
+            "console=ttyS0 katana.args=--http.addr=0.0.0.0" \
+            4 \
+            EPYC-v4
+          MEASUREMENT=$(cat expected-measurement.txt)
+          echo "value=${MEASUREMENT}" >> $GITHUB_OUTPUT
+
+      - name: Generate manifest
+        run: |
+          cat > manifest.json <<EOF
+          {
+            "version": "1.0",
+            "katana_version": "${{ needs.prepare.outputs.tag_name }}",
+            "source_date_epoch": $(git log -1 --format=%ct),
+            "git_commit": "$(git rev-parse HEAD)",
+            "components": {
+              "katana_binary_sha384": "${{ needs.reproducible-build.outputs.binary-hash }}",
+              "disk_image_sha256": "$(sha256sum disk.raw | cut -d' ' -f1)",
+              "kernel_sha256": "$(sha256sum vmlinuz | cut -d' ' -f1)",
+              "initrd_sha256": "$(sha256sum initrd.img | cut -d' ' -f1)",
+              "ovmf_sha256": "$(sha256sum ovmf.fd | cut -d' ' -f1)"
+            },
+            "measurement": {
+              "sev_snp_hex": "${{ steps.measurement.outputs.value }}",
+              "vcpus": 4,
+              "vcpu_type": "EPYC-v4"
+            }
+          }
+          EOF
+
+      - name: Calculate disk image hash
+        id: hash
+        run: |
+          SHA256=$(sha256sum disk.raw | cut -d' ' -f1)
+          echo "sha256=${SHA256}" >> $GITHUB_OUTPUT
+
+      - name: Compress disk image
+        run: |
+          gzip -9 disk.raw
+          mv disk.raw.gz katana-vm-${{ needs.prepare.outputs.tag_name }}.raw.gz
+
+      - name: Upload VM image artifacts
+        uses: actions/upload-artifact@v4
+        with:
+          name: vm-image-artifacts
+          path: |
+            katana-vm-${{ needs.prepare.outputs.tag_name }}.raw.gz
+            expected-measurement.json
+            expected-measurement.txt
+            manifest.json
+            ovmf.fd
+            vmlinuz
+            initrd.img
+
+      - name: Generate attestation for disk image
+        uses: actions/attest-build-provenance@v2
+        with:
+          subject-path: katana-vm-${{ needs.prepare.outputs.tag_name }}.raw.gz
+
+      - name: Summary
+        run: |
+          echo "## VM Image Build Complete" >> $GITHUB_STEP_SUMMARY
+          echo "" >> $GITHUB_STEP_SUMMARY
+          echo "**Version:** ${{ needs.prepare.outputs.tag_name }}" >> $GITHUB_STEP_SUMMARY
+          echo "**Disk Image SHA-256:** \`${{ steps.hash.outputs.sha256 }}\`" >> $GITHUB_STEP_SUMMARY
+          echo "**SEV-SNP Measurement:** \`${{ steps.measurement.outputs.value }}\`" >> $GITHUB_STEP_SUMMARY
+          echo "" >> $GITHUB_STEP_SUMMARY
+          echo "### Components" >> $GITHUB_STEP_SUMMARY
+          echo "- Katana Binary: ${{ needs.reproducible-build.outputs.binary-hash }}" >> $GITHUB_STEP_SUMMARY
+          echo "- Kernel: $(sha256sum vmlinuz | cut -d' ' -f1)" >> $GITHUB_STEP_SUMMARY
+          echo "- Initrd: $(sha256sum initrd.img | cut -d' ' -f1)" >> $GITHUB_STEP_SUMMARY
+          echo "- OVMF: $(sha256sum ovmf.fd | cut -d' ' -f1)" >> $GITHUB_STEP_SUMMARY
