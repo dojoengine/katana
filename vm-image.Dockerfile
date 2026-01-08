@@ -1,21 +1,33 @@
 # VM Image Dockerfile for Katana TEE
 #
-# Creates a reproducible, bootable VM image containing the Katana binary for SEV-SNP TEEs.
-# Produces: disk.raw, vmlinuz, ovmf.fd, initrd.img
+# Creates reproducible boot components for Katana in AMD SEV-SNP TEEs using direct kernel boot.
+# Direct kernel boot ensures the kernel, initrd (containing Katana), and cmdline are included
+# in the SEV-SNP launch measurement, preventing binary replacement attacks.
+#
+# Produces: vmlinuz, initrd.img, ovmf.fd
 #
 # Usage:
 #   docker build -f vm-image.Dockerfile \
 #     --build-arg SOURCE_DATE_EPOCH=$(git log -1 --format=%ct) \
-#     --build-context katana-binary=path/to/katana \
+#     --build-arg KATANA_BINARY=./katana \
 #     -t katana-vm-image .
 #
 # Extract artifacts:
 #   docker create --name vm katana-vm-image
-#   docker cp vm:/disk.raw ./disk.raw
-#   docker cp vm:/vmlinuz ./vmlinuz
-#   docker cp vm:/ovmf.fd ./ovmf.fd
-#   docker cp vm:/initrd.img ./initrd.img
+#   docker cp vm:/output/vmlinuz ./vmlinuz
+#   docker cp vm:/output/initrd.img ./initrd.img
+#   docker cp vm:/output/ovmf.fd ./ovmf.fd
 #   docker rm vm
+#
+# Boot with QEMU (direct kernel boot):
+#   qemu-system-x86_64 -m 4G -smp 4 \
+#     -bios ovmf.fd \
+#     -kernel vmlinuz \
+#     -initrd initrd.img \
+#     -append "console=ttyS0 katana.args=--http.addr=0.0.0.0" \
+#     -cpu EPYC-v4 \
+#     -machine q35,confidential-guest-support=sev0 \
+#     -object sev-snp-guest,id=sev0,cbitpos=51,reduced-phys-bits=1
 
 # Stage 1: Download pinned Ubuntu packages
 FROM ubuntu:24.04@sha256:c35e29c9450151419d9448b0fd75374fec4fff364a27f176fb458d472dfc9e54 AS package-fetcher
@@ -110,54 +122,17 @@ RUN chmod +x /scripts/create-initrd.sh
 
 # Build initrd with Katana embedded
 WORKDIR /build
-RUN /scripts/create-initrd.sh /components/katana /components/initrd.img
+RUN /scripts/create-initrd.sh /components/katana /build/initrd.img && \
+    cp /build/initrd.img /components/initrd.img
 
-# Stage 4: Create VM disk image
-FROM ubuntu:24.04@sha256:c35e29c9450151419d9448b0fd75374fec4fff364a27f176fb458d472dfc9e54 AS image-builder
-
-ARG SOURCE_DATE_EPOCH
-ENV SOURCE_DATE_EPOCH=${SOURCE_DATE_EPOCH} \
-    DEBIAN_FRONTEND=noninteractive \
-    TZ=UTC \
-    LANG=C.UTF-8
-
-# Install tools for disk image creation
-RUN apt-get update && apt-get install -y --no-install-recommends \
-    gdisk \
-    dosfstools \
-    e2fsprogs \
-    util-linux \
-    findutils \
-    coreutils \
-    parted \
-    kpartx \
-    && rm -rf /var/lib/apt/lists/*
-
-# Copy components from previous stages
-COPY --from=initrd-builder /components /components
-
-# Copy build script and config
-COPY tee/scripts/build-vm-image.sh /scripts/build-vm-image.sh
-COPY tee/configs/cmdline.txt /configs/cmdline.txt
-RUN chmod +x /scripts/build-vm-image.sh
-
-# Build VM disk image
-# NOTE: This requires loop device access, so must be run with docker run --privileged
-# During build, we skip this and just prepare the components
-WORKDIR /output
-
-# Copy all components to output
-RUN cp /components/vmlinuz /output/vmlinuz && \
-    cp /components/ovmf.fd /output/ovmf.fd && \
-    cp /components/initrd.img /output/initrd.img
-
-# Entry point for creating disk image (run with --privileged)
-# Example: docker run --privileged -v $(pwd)/output:/mnt katana-vm-image
-CMD ["/scripts/build-vm-image.sh", "--output", "/mnt/disk.raw", "--kernel", "/output/vmlinuz", "--initrd", "/output/initrd.img", "--cmdline-file", "/configs/cmdline.txt", "--size", "2G"]
-
-# Stage 5: Final image with artifacts (for extraction)
+# Stage 4: Final output stage
 FROM scratch AS final
-# Note: disk.raw is created separately with docker run --privileged
-COPY --from=image-builder /output/vmlinuz /vmlinuz
-COPY --from=image-builder /output/ovmf.fd /ovmf.fd
-COPY --from=image-builder /output/initrd.img /initrd.img
+
+# Export boot components for direct kernel boot
+# These three files contain everything needed for measured boot:
+# - ovmf.fd: UEFI firmware (measured)
+# - vmlinuz: Linux kernel (measured)
+# - initrd.img: Contains Katana binary + minimal init (measured)
+COPY --from=initrd-builder /components/vmlinuz /output/vmlinuz
+COPY --from=initrd-builder /components/ovmf.fd /output/ovmf.fd
+COPY --from=initrd-builder /components/initrd.img /output/initrd.img

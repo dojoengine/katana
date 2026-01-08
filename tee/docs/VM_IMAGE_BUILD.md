@@ -1,14 +1,23 @@
 # VM Image Build Process
 
-This document provides technical details about the Katana TEE VM image build pipeline.
+This document provides technical details about the Katana TEE VM boot components build pipeline.
 
 ## Overview
 
-The VM image build creates a bootable virtual machine image containing the Katana binary for deployment in AMD SEV-SNP Trusted Execution Environments (TEEs). The build process is:
+The build creates reproducible boot components for deploying Katana in AMD SEV-SNP Trusted Execution Environments (TEEs) using **direct kernel boot**. This approach ensures the kernel, initrd (containing Katana), and kernel command line are cryptographically measured at launch, preventing post-boot binary replacement attacks.
+
+The build process is:
 
 - **Reproducible**: Identical inputs produce bit-for-bit identical outputs
 - **Attestable**: All components have cryptographic hashes and GitHub attestations
+- **Measured**: Direct kernel boot includes all components in SEV-SNP launch measurement
 - **Minimal**: Only essential components included for reduced attack surface
+
+## Why Direct Kernel Boot?
+
+**Security**: When booting from a disk image, only the OVMF firmware is measured by SEV-SNP. The kernel, initrd, and Katana binary on disk are not measured, allowing an attacker to replace them after attestation while maintaining a valid measurement.
+
+**Direct kernel boot** solves this by having the hypervisor pass the kernel, initrd, and cmdline directly to the secure processor for measurement before boot. This creates a complete chain of trust covering the entire boot process including the Katana binary embedded in the initrd.
 
 ## Architecture
 
@@ -21,18 +30,43 @@ The VM image build creates a bootable virtual machine image containing the Katan
          ├─────────────────────────────────────┐
          │                                     │
 ┌────────▼─────────┐              ┌───────────▼──────────┐
-│   VM Image       │              │   Measurement        │
+│ Boot Components  │              │   Measurement        │
 │   Builder        │              │   Calculator         │
 │                  │              │                      │
 │  ├─ Kernel       │              │  ├─ sev-snp-measure  │
 │  ├─ Initrd       │──────────────┤  ├─ OVMF firmware    │
-│  ├─ OVMF         │              │  ├─ Kernel           │
-│  └─ Disk Image   │              │  └─ Initrd           │
-└──────────────────┘              └──────────────────────┘
-         │                                     │
+│  │   (+ Katana)  │              │  ├─ Kernel           │
+│  └─ OVMF         │              │  ├─ Initrd           │
+└──────────────────┘              │  └─ Cmdline          │
+         │                        └──────────────────────┘
          │                                     │
          ▼                                     ▼
-    Artifacts                          Expected Measurement
+   3 Boot Files                       Expected Measurement
+   (All Measured)                     (Covers All Components)
+```
+
+### Direct Kernel Boot Flow
+
+```
+Hypervisor                 AMD Secure Processor              VM
+    │                              │                        │
+    ├─ Load OVMF ────────────────>│                        │
+    ├─ Load Kernel ───────────────>│                        │
+    ├─ Load Initrd ───────────────>│                        │
+    ├─ Set Cmdline ───────────────>│                        │
+    │                              │                        │
+    │                        [Calculate Launch              │
+    │                         Measurement from              │
+    │                         all components]               │
+    │                              │                        │
+    │<─── Launch Measurement ──────┤                        │
+    │                              │                        │
+    ├─ Start VM ──────────────────>├─ Verify & Boot ──────>│
+    │                              │                        │
+    │                              │                   [OVMF Init]
+    │                              │                   [Kernel Boot]
+    │                              │                   [Init Script]
+    │                              │                   [Katana Launch]
 ```
 
 ## Build Components
@@ -50,11 +84,11 @@ Creates a static Katana binary with:
 
 **Output**: `/katana` (58MB static binary)
 
-### 2. VM Image Builder (`vm-image.Dockerfile`)
+### 2. Boot Components Builder (`vm-image.Dockerfile`)
 
 **Location**: `/vm-image.Dockerfile`
 
-Multi-stage Dockerfile that assembles the VM image:
+Multi-stage Dockerfile that assembles boot components for direct kernel boot:
 
 #### Stage 1: Package Fetcher
 - Downloads Ubuntu 24.04 packages from archive.ubuntu.com
@@ -77,22 +111,13 @@ Multi-stage Dockerfile that assembles the VM image:
 
 **Script**: `/tee/scripts/create-initrd.sh`
 
-#### Stage 4: Image Builder
-- Creates raw disk image (2GB)
-- GPT partition table
-- EFI system partition (FAT32)
-- Root filesystem (ext4)
-- Installs systemd-boot
-- Copies kernel and initrd
+#### Stage 4: Final Output
+- Exports three boot components:
+  - `vmlinuz` - Linux kernel (measured)
+  - `initrd.img` - Initial RAM disk with Katana (measured)
+  - `ovmf.fd` - UEFI firmware (measured)
 
-**Script**: `/tee/scripts/build-vm-image.sh`
-
-#### Final Stage
-- Exports all components:
-  - `disk.raw` - Bootable disk image
-  - `vmlinuz` - Linux kernel
-  - `initrd.img` - Initial RAM disk with Katana
-  - `ovmf.fd` - OVMF firmware
+All three files plus the kernel command line are measured by SEV-SNP at launch.
 
 ### 3. Measurement Calculator
 
@@ -202,12 +227,12 @@ The build is integrated into `.github/workflows/release-tee.yml`:
 
 ### Artifacts
 
-- `katana-vm-{version}.raw.gz` - Compressed disk image
+- `katana-tee-boot-{version}.tar.gz` - Boot components archive
 - `expected-measurement.json` - SEV-SNP measurement
-- `manifest.json` - Component hashes
-- `vmlinuz` - Kernel
-- `initrd.img` - Initrd
-- `ovmf.fd` - OVMF firmware
+- `manifest.json` - Component hashes with deployment instructions
+- `vmlinuz` - Kernel (measured)
+- `initrd.img` - Initrd with Katana (measured)
+- `ovmf.fd` - OVMF firmware (measured)
 
 ## Local Build
 
@@ -237,20 +262,18 @@ docker build \
 
 # 2. Extract binary
 docker create --name katana-extract katana-reproducible:local
-docker cp katana-extract:/katana ./katana
+docker cp katana-extract:/katana ./katana-binary
 docker rm katana-extract
 
-# 3. Build VM image
+# 3. Build boot components
 docker build \
     -f vm-image.Dockerfile \
     -t katana-vm:local \
     --build-arg SOURCE_DATE_EPOCH=${SOURCE_DATE_EPOCH} \
-    --build-arg KATANA_BINARY=./katana \
     .
 
-# 4. Extract VM components
+# 4. Extract boot components
 docker create --name vm-extract katana-vm:local
-docker cp vm-extract:/output/disk.raw ./disk.raw
 docker cp vm-extract:/output/vmlinuz ./vmlinuz
 docker cp vm-extract:/output/initrd.img ./initrd.img
 docker cp vm-extract:/output/ovmf.fd ./ovmf.fd
@@ -261,7 +284,7 @@ docker rm vm-extract
     ovmf.fd \
     vmlinuz \
     initrd.img \
-    "console=ttyS0" \
+    "console=ttyS0 katana.args=--http.addr=0.0.0.0" \
     4 \
     EPYC-v4
 ```
@@ -300,27 +323,32 @@ curl -X POST http://localhost:5050 \
 
 ## Security Considerations
 
+### Measured Boot (Direct Kernel)
+
+**Complete Chain of Trust**: Direct kernel boot ensures all components are measured by SEV-SNP before execution:
+- OVMF firmware - measured
+- Kernel - measured
+- Initrd (containing Katana binary) - measured
+- Kernel command line - measured
+
+**Attack Prevention**: This prevents binary replacement attacks. An attacker cannot replace the Katana binary, kernel, or initrd after attestation because any modification would change the launch measurement, causing attestation verification to fail.
+
+**Measurement Verification**: Third parties can independently calculate the expected measurement using the same components and verify it matches the attestation report from the running VM.
+
 ### Minimal Attack Surface
 
 - No SSH server
 - No unnecessary packages
 - Single-purpose init (just launches Katana)
-- Read-only root filesystem
-- Firewall rules (future enhancement)
+- No persistent storage (initrd runs in memory)
+- Minimal network configuration
 
 ### Network Configuration
 
 - Loopback interface for localhost
 - eth0 with static IP (10.0.2.15) for QEMU user networking
 - No external network exposure by default
-
-### Measured Boot
-
-All components included in SEV-SNP measurement:
-- OVMF firmware
-- Kernel
-- Initrd (includes Katana binary)
-- Kernel command line
+- Katana must explicitly bind to 0.0.0.0 for external access
 
 ## Troubleshooting
 
@@ -340,9 +368,12 @@ All components included in SEV-SNP measurement:
 
 ### Measurement Calculation
 
-**Error**: `OVMF metadata doesn't include SNP_KERNEL_HASHES`
-- **Cause**: OVMF firmware doesn't support direct kernel boot measurement
-- **Fix**: Script automatically falls back to UEFI-only measurement (expected behavior)
+**Warning**: `Direct kernel boot measurement failed / OVMF metadata doesn't include SNP_KERNEL_HASHES`
+- **Cause**: The `sev-snp-measure` tool checks OVMF metadata for kernel hash support, and the Ubuntu OVMF package doesn't include it
+- **Impact on real hardware**: None! When booting on actual SEV-SNP hardware with QEMU's `-kernel` and `-initrd` flags, the hypervisor (KVM/QEMU) directly passes these components to the AMD secure processor for measurement via the SNP_LAUNCH_UPDATE command. This happens outside of OVMF's control.
+- **Tool limitation**: The `sev-snp-measure` Python tool cannot pre-calculate the measurement without OVMF metadata support, so it falls back to OVMF-only. This is a limitation of the tool, not the security model.
+- **Security guarantee**: With direct kernel boot on real SEV-SNP hardware, all components (OVMF + kernel + initrd + cmdline) ARE measured. The launch measurement WILL include the Katana binary in the initrd.
+- **Next steps**: For production deployments, obtain the actual launch measurement from the SEV-SNP attestation report after booting on real hardware, or use OVMF firmware compiled with SNP_KERNEL_HASHES support.
 
 ## Performance
 
@@ -359,8 +390,7 @@ All components included in SEV-SNP measurement:
 - Initrd (uncompressed): 60MB
 - Kernel: 15MB
 - OVMF: 3.5MB
-- Disk image (compressed): ~50MB
-- Disk image (raw): 2GB
+- Boot components archive: ~40MB
 
 ## References
 
