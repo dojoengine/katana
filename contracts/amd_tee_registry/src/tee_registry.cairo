@@ -7,16 +7,56 @@ pub trait IAMDTeeRegistry<TContractState> {
 #[starknet::contract]
 pub mod AMDTEERegistry {
     use starknet::SyscallResultTrait;
-    use starknet::storage::{StoragePointerReadAccess, StoragePointerWriteAccess};
     use starknet::syscalls::library_call_syscall;
+    use crate::cert_cache::CertCacheComponent;
+    use crate::tee_types::ProcessorType;
+
+    // Embed the certificate cache component
+    component!(path: CertCacheComponent, storage: cert_cache, event: CertCacheEvent);
+
+    // Expose CertCache external functions
+    #[abi(embed_v0)]
+    impl CertCacheImpl = CertCacheComponent::CertCacheImpl<ContractState>;
+    
+    // Access to internal functions
+    impl CertCacheInternalImpl = CertCacheComponent::InternalImpl<ContractState>;
+
     #[storage]
     struct Storage {
         balance: felt252,
+        #[substorage(v0)]
+        cert_cache: CertCacheComponent::Storage,
+    }
+
+    #[event]
+    #[derive(Drop, starknet::Event)]
+    enum Event {
+        #[flat]
+        CertCacheEvent: CertCacheComponent::Event,
     }
 
     const SP1_VERIFIER_CLASS_HASH: felt252 =
         0x1234567890123456789012345678901234567890123456789012345678934;
     const SP1_PROGRAM: u256 = 0x1234567890123456789012345678901234567890123456789012345678901234;
+
+    #[constructor]
+    fn constructor(
+        ref self: ContractState,
+        trusted_certs: Array<u256>,
+        processor_models: Array<ProcessorType>,
+        root_certs: Array<u256>
+    ) {
+        // Initialize trusted intermediate certificates
+        self.cert_cache.initialize_trusted_certs(trusted_certs);
+        
+        // Initialize root certificates for each processor model
+        assert!(processor_models.len() == root_certs.len(), "Array length mismatch");
+        let mut i: u32 = 0;
+        while i < processor_models.len() {
+            self.cert_cache.set_root_cert(*processor_models.at(i), *root_certs.at(i));
+            i += 1;
+        };
+    }
 
     #[abi(embed_v0)]
     impl AMDTEERegistryImpl of super::IAMDTeeRegistry<ContractState> {

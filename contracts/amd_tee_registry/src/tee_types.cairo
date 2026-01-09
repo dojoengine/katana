@@ -25,9 +25,10 @@ pub enum CertType {
 }
 
 /// AMD EPYC Processor types
-#[derive(Drop, Copy, PartialEq, Debug)]
+#[derive(Drop, Copy, PartialEq, Debug, Serde, starknet::Store, Hash)]
 pub enum ProcessorType {
     /// 7003 series AMD EPYC Processor
+    #[default]
     Milan,
     /// 9004 series AMD EPYC Processor
     Genoa,
