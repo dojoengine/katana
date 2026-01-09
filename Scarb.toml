@@ -1,0 +1,2 @@
+[workspace]
+members = ["crates/amd_tee_registry", "crates/katana_tee"]
