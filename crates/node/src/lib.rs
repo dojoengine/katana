@@ -378,10 +378,12 @@ where
 impl Node<DbProviderFactory> {
     pub fn build(config: Config) -> Result<Self> {
         let (provider, db) = if let Some(path) = &config.db.dir {
+            info!(target: "node", path = %path.display(), "Initializing database.");
             let db = katana_db::Db::new(path)?;
             let factory = DbProviderFactory::new(db.clone());
             (factory, db)
         } else {
+            info!(target: "node", "Initializing in-memory database.");
             let factory = DbProviderFactory::new_in_memory();
             let db = factory.db().clone();
             (factory, db)
@@ -404,6 +406,7 @@ impl Node<ForkProviderFactory> {
             return Err(anyhow::anyhow!("Forking is only supported in dev mode for now"));
         };
 
+        info!(target: "node", "Initializing in-memory database.");
         let db = katana_db::Db::in_memory()?;
 
         let client = StarknetClient::new(cfg.url.clone());
