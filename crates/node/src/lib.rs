@@ -406,6 +406,7 @@ impl Node<ForkProviderFactory> {
             return Err(anyhow::anyhow!("Forking is only supported in dev mode for now"));
         };
 
+        info!(target: "node", "Initializing in-memory database.");
         let db = katana_db::Db::in_memory()?;
 
         let client = StarknetClient::new(cfg.url.clone());
