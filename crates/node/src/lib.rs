@@ -378,6 +378,7 @@ where
 impl Node<DbProviderFactory> {
     pub fn build(config: Config) -> Result<Self> {
         let (provider, db) = if let Some(path) = &config.db.dir {
+            info!(target: "node", path = %path.display(), "Initializing database.");
             let db = katana_db::Db::new(path)?;
             let factory = DbProviderFactory::new(db.clone());
             (factory, db)
