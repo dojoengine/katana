@@ -383,6 +383,7 @@ impl Node<DbProviderFactory> {
             let factory = DbProviderFactory::new(db.clone());
             (factory, db)
         } else {
+            info!(target: "node", "Initializing in-memory database.");
             let factory = DbProviderFactory::new_in_memory();
             let db = factory.db().clone();
             (factory, db)
