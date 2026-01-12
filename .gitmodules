@@ -4,3 +4,6 @@
 [submodule "crates/amd-sev-snp-attestation-sdk"]
 	path = crates/amd-sev-snp-attestation-sdk
 	url = https://github.com/automata-network/amd-sev-snp-attestation-sdk.git
+[submodule "crates/starknet-rust"]
+	path = crates/starknet-rust
+	url = https://github.com/software-mansion/starknet-rust.git

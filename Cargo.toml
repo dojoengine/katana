@@ -9,6 +9,7 @@ members = [
 exclude = [
     "crates/katana",
     "crates/amd-sev-snp-attestation-sdk",
+    "crates/starknet-rust",
 ]
 
 [workspace.package]
