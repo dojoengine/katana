@@ -1,0 +1,37 @@
+[workspace]
+resolver = "2"
+members = [
+    "clients/amd_tee_registry_client",
+    "clients/katana_tee_client",
+]
+
+# Exclude submodule workspaces - they manage their own builds
+exclude = [
+    "crates/katana",
+    "crates/amd-sev-snp-attestation-sdk",
+]
+
+[workspace.package]
+edition = "2021"
+version = "0.1.0"
+license = "Apache-2.0"
+
+# =============================================================================
+# Workspace dependencies
+# =============================================================================
+[workspace.dependencies]
+# Our own crates
+amd_tee_registry_client = { path = "clients/amd_tee_registry_client" }
+katana_tee_client = { path = "clients/katana_tee_client" }
+
+# -----------------------------------------------------------------------------
+# Common dependencies
+# -----------------------------------------------------------------------------
+tokio = { version = "1", features = ["full"] }
+serde = { version = "1", features = ["derive"] }
+serde_json = "1"
+thiserror = "2"
+tracing = "0.1"
+hex = "0.4"
+reqwest = { version = "0.12", features = ["rustls-tls"] }
+anyhow = "1"
