@@ -1,0 +1,25 @@
+[package]
+name = "amd_tee_registry_client"
+version.workspace = true
+edition.workspace = true
+description = "Client for AMD TEE registry - interfaces with AMD public APIs to retrieve necessary certificates"
+
+[dependencies]
+# HTTP client for AMD API calls
+reqwest = { workspace = true }
+# Async runtime
+tokio = { workspace = true }
+# Serialization
+serde = { workspace = true }
+serde_json = { workspace = true }
+# Error handling
+thiserror = { workspace = true }
+# Logging
+tracing = { workspace = true }
+# Hex encoding for chip_id
+hex = { workspace = true }
+# X.509 certificate parsing
+x509-cert = "0.2"
+# DER/PEM parsing
+der = "0.7"
+pem = "3"

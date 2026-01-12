@@ -1,0 +1,14 @@
+[package]
+name = "katana_tee_client"
+version.workspace = true
+edition.workspace = true
+description = "Katana TEE client"
+
+[dependencies]
+amd_tee_registry_client = { workspace = true }
+# Async runtime
+tokio = { workspace = true }
+# Error handling
+thiserror = { workspace = true }
+# Logging
+tracing = { workspace = true }
