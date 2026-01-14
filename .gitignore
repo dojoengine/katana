@@ -4,3 +4,5 @@ snfoundry_trace/
 coverage/
 profile/
 .env
+# Local garaga clone for garaga_rs
+crates/garaga/

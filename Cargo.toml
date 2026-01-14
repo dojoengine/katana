@@ -10,6 +10,7 @@ exclude = [
     "crates/katana",
     "crates/amd-sev-snp-attestation-sdk",
     "crates/starknet-rust",
+    "crates/garaga",  # Only using tools/garaga_rs from here
 ]
 
 [workspace.package]
@@ -51,3 +52,7 @@ bincode = "1.3.3"
 lazy_static = "1.5.0"
 dotenvy = "0.15"
 tracing-subscriber = { version = "0.3", features = ["env-filter"] }
+
+# CLI support
+clap = { version = "4", features = ["derive"] }
+

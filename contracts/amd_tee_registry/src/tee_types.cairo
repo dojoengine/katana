@@ -4,8 +4,8 @@
 
 use core::integer::u512;
 use super::byte_utils::{
-    get_u32_at, get_u64_at, get_u128_at, get_u256_at, get_u8_from_word, slice_u32_span,
-    Bytes24, Bytes48, get_bytes24_at, get_bytes48_at, get_u512_at
+    Bytes24, Bytes48, get_bytes24_at, get_bytes48_at, get_u128_at, get_u256_at, get_u32_at,
+    get_u512_at, get_u64_at, get_u8_from_word, slice_u32_span,
 };
 
 // ============================================================================
@@ -191,39 +191,40 @@ pub struct AttestationReport {
 pub const ATTESTATION_REPORT_SIZE_U32: u32 = 296;
 
 // Field offsets in u32 words
-pub const OFF_VERSION: u32 = 0;           // 0x00 / 4
-pub const OFF_GUEST_SVN: u32 = 1;         // 0x04 / 4
-pub const OFF_GUEST_POLICY: u32 = 2;      // 0x08 / 4
-pub const OFF_FAMILY_ID: u32 = 4;         // 0x10 / 4
-pub const OFF_IMAGE_ID: u32 = 8;          // 0x20 / 4
-pub const OFF_VMPL: u32 = 12;             // 0x30 / 4
-pub const OFF_SIG_ALGO: u32 = 13;         // 0x34 / 4
-pub const OFF_CURRENT_TCB: u32 = 14;      // 0x38 / 4
-pub const OFF_PLAT_INFO: u32 = 16;        // 0x40 / 4
-pub const OFF_AUTHOR_KEY_EN: u32 = 18;    // 0x48 / 4
-pub const OFF_RESERVED0: u32 = 19;        // 0x4C / 4
-pub const OFF_REPORT_DATA: u32 = 20;      // 0x50 / 4
-pub const OFF_MEASUREMENT: u32 = 36;      // 0x90 / 4
-pub const OFF_HOST_DATA: u32 = 48;        // 0xC0 / 4
-pub const OFF_ID_KEY_DIGEST: u32 = 56;    // 0xE0 / 4
-pub const OFF_AUTHOR_KEY_DIGEST: u32 = 68;  // 0x110 / 4
-pub const OFF_REPORT_ID: u32 = 80;        // 0x140 / 4
-pub const OFF_REPORT_ID_MA: u32 = 88;     // 0x160 / 4
-pub const OFF_REPORTED_TCB: u32 = 96;     // 0x180 / 4
-pub const OFF_RESERVED1: u32 = 98;        // 0x188 / 4
-pub const OFF_CHIP_ID: u32 = 104;         // 0x1A0 / 4
-pub const OFF_COMMITTED_TCB: u32 = 120;   // 0x1E0 / 4
-pub const OFF_VERSION_INFO: u32 = 122;    // 0x1E8 / 4 (current/committed build/minor/major)
-pub const OFF_LAUNCH_TCB: u32 = 124;      // 0x1F0 / 4
-pub const OFF_RESERVED4: u32 = 126;       // 0x1F8 / 4
-pub const OFF_SIGNATURE: u32 = 168;       // 0x2A0 / 4
+pub const OFF_VERSION: u32 = 0; // 0x00 / 4
+pub const OFF_GUEST_SVN: u32 = 1; // 0x04 / 4
+pub const OFF_GUEST_POLICY: u32 = 2; // 0x08 / 4
+pub const OFF_FAMILY_ID: u32 = 4; // 0x10 / 4
+pub const OFF_IMAGE_ID: u32 = 8; // 0x20 / 4
+pub const OFF_VMPL: u32 = 12; // 0x30 / 4
+pub const OFF_SIG_ALGO: u32 = 13; // 0x34 / 4
+pub const OFF_CURRENT_TCB: u32 = 14; // 0x38 / 4
+pub const OFF_PLAT_INFO: u32 = 16; // 0x40 / 4
+pub const OFF_AUTHOR_KEY_EN: u32 = 18; // 0x48 / 4
+pub const OFF_RESERVED0: u32 = 19; // 0x4C / 4
+pub const OFF_REPORT_DATA: u32 = 20; // 0x50 / 4
+pub const OFF_MEASUREMENT: u32 = 36; // 0x90 / 4
+pub const OFF_HOST_DATA: u32 = 48; // 0xC0 / 4
+pub const OFF_ID_KEY_DIGEST: u32 = 56; // 0xE0 / 4
+pub const OFF_AUTHOR_KEY_DIGEST: u32 = 68; // 0x110 / 4
+pub const OFF_REPORT_ID: u32 = 80; // 0x140 / 4
+pub const OFF_REPORT_ID_MA: u32 = 88; // 0x160 / 4
+pub const OFF_REPORTED_TCB: u32 = 96; // 0x180 / 4
+pub const OFF_RESERVED1: u32 = 98; // 0x188 / 4
+pub const OFF_CHIP_ID: u32 = 104; // 0x1A0 / 4
+pub const OFF_COMMITTED_TCB: u32 = 120; // 0x1E0 / 4
+pub const OFF_VERSION_INFO: u32 = 122; // 0x1E8 / 4 (current/committed build/minor/major)
+pub const OFF_LAUNCH_TCB: u32 = 124; // 0x1F0 / 4
+pub const OFF_RESERVED4: u32 = 126; // 0x1F8 / 4
+pub const OFF_SIGNATURE: u32 = 168; // 0x2A0 / 4
 
 // ============================================================================
 // Helper functions for TCB parsing
 // ============================================================================
 
 /// Read TcbVersion from 2 consecutive u32 words
-/// TCB layout: [bootloader, tee, reserved[0], reserved[1]] [reserved[2], reserved[3], snp, microcode]
+/// TCB layout: [bootloader, tee, reserved[0], reserved[1]] [reserved[2], reserved[3], snp,
+/// microcode]
 pub fn get_tcb_version_at(data: Span<u32>, index: u32) -> TcbVersion {
     let word0 = *data.at(index);
     let word1 = *data.at(index + 1);

@@ -2,7 +2,7 @@
 name = "amd_tee_registry_client"
 version.workspace = true
 edition.workspace = true
-description = "AMD TEE attestation prover - generate SP1 Groth16 proofs from AMD SEV-SNP attestation reports"
+description = "AMD TEE attestation prover - generate SP1 Groth16 proofs and Starknet calldata"
 
 [dependencies]
 # AMD SEV-SNP SDK for attestation proving
@@ -10,6 +10,12 @@ amd-sev-snp-attestation-prover = { workspace = true }
 
 # Alloy types (for Bytes)
 alloy-primitives = { workspace = true }
+
+# Garaga for Starknet calldata generation (local copy to fix starknet-types-core version)
+garaga_rs = { path = "../../crates/garaga/tools/garaga_rs" }
+
+# BigInt for calldata values
+num-bigint = "0.4"
 
 # Async runtime
 tokio = { workspace = true }

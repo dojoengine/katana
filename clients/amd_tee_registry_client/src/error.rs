@@ -12,4 +12,8 @@ pub enum Error {
     /// Prover error
     #[error("Prover error: {0}")]
     Prover(String),
+
+    /// Calldata generation error
+    #[error("Calldata error: {0}")]
+    Calldata(String),
 }

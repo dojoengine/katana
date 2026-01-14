@@ -1,5 +1,6 @@
 // Certificate Cache Component for AMD SEV-SNP Attestation
-// Based on: https://github.com/automata-network/amd-sev-snp-attestation-sdk/blob/main/contracts/src/bases/CertCacheBase.sol
+// Based on:
+// https://github.com/automata-network/amd-sev-snp-attestation-sdk/blob/main/contracts/src/bases/CertCacheBase.sol
 
 #[starknet::component]
 pub mod CertCacheComponent {
@@ -51,22 +52,24 @@ pub mod CertCacheComponent {
         fn check_trusted_intermediate_certs(
             self: @TContractState,
             processor_models: Array<ProcessorType>,
-            report_certs: Array<Array<u256>>
+            report_certs: Array<Array<u256>>,
         ) -> Array<u8>;
     }
 
     #[embeddable_as(CertCacheImpl)]
     impl CertCache<
-        TContractState, +HasComponent<TContractState>
+        TContractState, +HasComponent<TContractState>,
     > of ICertCache<ComponentState<TContractState>> {
         /// Check if a certificate hash is trusted
-        fn is_trusted_intermediate_cert(self: @ComponentState<TContractState>, cert_hash: u256) -> bool {
+        fn is_trusted_intermediate_cert(
+            self: @ComponentState<TContractState>, cert_hash: u256,
+        ) -> bool {
             self.trusted_intermediate_certs.read(cert_hash)
         }
 
         /// Get the root certificate hash for a processor model
         fn get_root_cert(
-            self: @ComponentState<TContractState>, processor_model: ProcessorType
+            self: @ComponentState<TContractState>, processor_model: ProcessorType,
         ) -> u256 {
             self.root_certs.read(processor_model)
         }
@@ -79,16 +82,13 @@ pub mod CertCacheComponent {
         fn check_trusted_intermediate_certs(
             self: @ComponentState<TContractState>,
             processor_models: Array<ProcessorType>,
-            report_certs: Array<Array<u256>>
+            report_certs: Array<Array<u256>>,
         ) -> Array<u8> {
-            assert!(
-                report_certs.len() == processor_models.len(),
-                "Array length mismatch"
-            );
-            
+            assert!(report_certs.len() == processor_models.len(), "Array length mismatch");
+
             let mut results: Array<u8> = array![];
             let mut i: u32 = 0;
-            
+
             while i < report_certs.len() {
                 let certs = report_certs.at(i);
                 let processor_model = *processor_models.at(i);
@@ -97,36 +97,35 @@ pub mod CertCacheComponent {
                 assert!(expected_root_cert != 0, "Root certificate not set for processor");
                 assert!(
                     *certs.at(0) == expected_root_cert,
-                    "First certificate must be root certificate"
+                    "First certificate must be root certificate",
                 );
 
                 let mut trusted_cert_prefix_len: u8 = 1;
                 let mut j: u32 = 1;
-                
+
                 while j < certs.len() {
                     if !self.trusted_intermediate_certs.read(*certs.at(j)) {
                         break;
                     }
                     trusted_cert_prefix_len += 1;
                     j += 1;
-                };
-                
+                }
+
                 results.append(trusted_cert_prefix_len);
                 i += 1;
-            };
-            
+            }
+
             results
         }
     }
 
     #[generate_trait]
     pub impl InternalImpl<
-        TContractState, +HasComponent<TContractState>
+        TContractState, +HasComponent<TContractState>,
     > of InternalTrait<TContractState> {
         /// Initialize trusted certificates during contract deployment
         fn initialize_trusted_certs(
-            ref self: ComponentState<TContractState>,
-            initialize_trusted_certs: Array<u256>
+            ref self: ComponentState<TContractState>, initialize_trusted_certs: Array<u256>,
         ) {
             let mut i: u32 = 0;
             while i < initialize_trusted_certs.len() {
@@ -139,11 +138,12 @@ pub mod CertCacheComponent {
 
         /// Set the trusted root certificate hash for a specific processor model
         /// The root certificate serves as the trust anchor for all certificate chain validations.
-        /// Different AMD SEV-SNP processors use certificates issued from different root certificates.
+        /// Different AMD SEV-SNP processors use certificates issued from different root
+        /// certificates.
         fn set_root_cert(
             ref self: ComponentState<TContractState>,
             processor_model: ProcessorType,
-            root_cert: u256
+            root_cert: u256,
         ) {
             self.root_certs.write(processor_model, root_cert);
             self.emit(RootCertSet { processor_model, root_cert });
@@ -152,13 +152,10 @@ pub mod CertCacheComponent {
         /// Revoke a trusted intermediate certificate
         /// This allows revoking compromised intermediate certificates
         /// without affecting the root certificate or other trusted certificates.
-        fn revoke_cert_cache(
-            ref self: ComponentState<TContractState>,
-            cert_hash: u256
-        ) {
+        fn revoke_cert_cache(ref self: ComponentState<TContractState>, cert_hash: u256) {
             assert!(
                 self.trusted_intermediate_certs.read(cert_hash),
-                "Certificate not found in trusted certs"
+                "Certificate not found in trusted certs",
             );
             self.trusted_intermediate_certs.write(cert_hash, false);
             self.emit(CertRevoked { cert_hash });
@@ -171,7 +168,7 @@ pub mod CertCacheComponent {
         fn cache_new_cert(
             ref self: ComponentState<TContractState>,
             certs: Array<u256>,
-            trusted_certs_prefix_len: u32
+            trusted_certs_prefix_len: u32,
         ) {
             let mut i: u32 = trusted_certs_prefix_len;
             while i < certs.len() {

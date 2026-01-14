@@ -116,6 +116,6 @@ pub fn slice_u32_span(data: Span<u32>, start: u32, len: u32) -> Span<u32> {
     while i < len {
         result.append(*data.at(start + i));
         i += 1;
-    };
+    }
     result.span()
 }

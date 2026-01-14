@@ -1,3 +1,4 @@
+mod katana_report_utils;
 use starknet::ContractAddress;
 
 /// Interface for the Katana TEE contract.
@@ -6,7 +7,7 @@ pub trait IKatanaTee<TContractState> {
     /// Verify an SP1 proof by calling the AMD TEE Registry contract.
     /// Returns the public inputs if verification succeeds.
     fn verify_sp1_proof(self: @TContractState, sp1_proof: Array<felt252>) -> Option<Span<u256>>;
-    
+
     /// Get the AMD TEE Registry contract address.
     fn get_registry_address(self: @TContractState) -> ContractAddress;
 }
@@ -14,9 +15,9 @@ pub trait IKatanaTee<TContractState> {
 /// Katana TEE contract that delegates SP1 proof verification to the AMD TEE Registry.
 #[starknet::contract]
 pub mod KatanaTee {
+    use amd_tee_registry::tee_registry::{IAMDTeeRegistryDispatcher, IAMDTeeRegistryDispatcherTrait};
     use starknet::ContractAddress;
     use starknet::storage::{StoragePointerReadAccess, StoragePointerWriteAccess};
-    use amd_tee_registry::tee_registry::{IAMDTeeRegistryDispatcher, IAMDTeeRegistryDispatcherTrait};
 
     #[storage]
     struct Storage {
@@ -32,11 +33,9 @@ pub mod KatanaTee {
     #[abi(embed_v0)]
     impl KatanaTeeImpl of super::IKatanaTee<ContractState> {
         /// Verify an SP1 proof by forwarding to the AMD TEE Registry.
-        fn verify_sp1_proof(
-            self: @ContractState, sp1_proof: Array<felt252>
-        ) -> Option<Span<u256>> {
+        fn verify_sp1_proof(self: @ContractState, sp1_proof: Array<felt252>) -> Option<Span<u256>> {
             let registry = IAMDTeeRegistryDispatcher {
-                contract_address: self.registry_address.read()
+                contract_address: self.registry_address.read(),
             };
             registry.verify_sp1_proof(sp1_proof)
         }

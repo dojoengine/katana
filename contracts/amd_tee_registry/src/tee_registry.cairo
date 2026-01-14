@@ -17,7 +17,7 @@ pub mod AMDTEERegistry {
     // Expose CertCache external functions
     #[abi(embed_v0)]
     impl CertCacheImpl = CertCacheComponent::CertCacheImpl<ContractState>;
-    
+
     // Access to internal functions
     impl CertCacheInternalImpl = CertCacheComponent::InternalImpl<ContractState>;
 
@@ -44,11 +44,11 @@ pub mod AMDTEERegistry {
         ref self: ContractState,
         trusted_certs: Array<u256>,
         processor_models: Array<ProcessorType>,
-        root_certs: Array<u256>
+        root_certs: Array<u256>,
     ) {
         // Initialize trusted intermediate certificates
         self.cert_cache.initialize_trusted_certs(trusted_certs);
-        
+
         // Initialize root certificates for each processor model
         assert!(processor_models.len() == root_certs.len(), "Array length mismatch");
         let mut i: u32 = 0;
