@@ -2,20 +2,17 @@
 name = "katana_tee_client"
 version.workspace = true
 edition.workspace = true
-description = "Katana TEE client for generating SP1 proofs from TEE attestation quotes"
+description = "Katana TEE client - fetch attestations from Katana RPC and generate proofs"
 
 [dependencies]
-# AMD SEV-SNP SDK crates
+# AMD TEE registry client for attestation proving
+amd_tee_registry_client = { workspace = true }
+
+# Re-export types from AMD SDK for proof handling
 amd-sev-snp-attestation-prover = { workspace = true }
-amd-sev-snp-attestation-verifier = { workspace = true }
-sp1-methods = { workspace = true }
 
-# SP1 SDK
-sp1-sdk = { workspace = true }
-
-# Alloy types (for proof encoding)
-alloy-primitives = { workspace = true }
-alloy-sol-types = { workspace = true }
+# HTTP client for Katana RPC
+reqwest = { workspace = true }
 
 # Async runtime
 tokio = { workspace = true }
@@ -23,7 +20,6 @@ tokio = { workspace = true }
 # Serialization
 serde = { workspace = true }
 serde_json = { workspace = true }
-bincode = { workspace = true }
 
 # Error handling
 thiserror = { workspace = true }
@@ -38,9 +34,24 @@ hex = { workspace = true }
 # Environment variables
 dotenvy = { workspace = true }
 
-[dev-dependencies]
+# CLI dependencies
+clap = { version = "4", features = ["derive"] }
 tracing-subscriber = { workspace = true }
+
+[dev-dependencies]
 
 [[example]]
 name = "generate_proof"
 path = "examples/generate_proof.rs"
+
+[[example]]
+name = "fetch_attestation"
+path = "examples/fetch_attestation.rs"
+
+[[example]]
+name = "execute_proof"
+path = "examples/execute_proof.rs"
+
+[[bin]]
+name = "katana-tee"
+path = "src/bin/cli.rs"

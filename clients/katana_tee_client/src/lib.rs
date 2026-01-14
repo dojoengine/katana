@@ -2,14 +2,44 @@
 //!
 //! This crate provides client functionality for interacting with Katana TEE
 //! and generating SP1 proofs from attestation quotes.
+//!
+//! # Features
+//!
+//! - Fetch TEE attestation quotes from Katana RPC
+//! - Generate SP1 Groth16 proofs from attestation quotes
+//! - Verify proof structure
+//!
+//! # Architecture
+//!
+//! This crate is Katana-specific and uses `amd_tee_registry_client` for
+//! the generic AMD TEE attestation proving functionality.
+//!
+//! # Example
+//!
+//! ```no_run
+//! use katana_tee_client::{KatanaRpcClient, generate_sp1_proof};
+//!
+//! # async fn example() -> Result<(), Box<dyn std::error::Error>> {
+//! // Fetch attestation from Katana RPC
+//! let client = KatanaRpcClient::new("http://localhost:5050");
+//! let attestation = client.generate_quote().await?;
+//!
+//! // Generate SP1 proof (uses amd_tee_registry_client internally)
+//! let proof = generate_sp1_proof(attestation).await?;
+//! println!("Proof generated: {:?}", proof.program_id.verifier_id);
+//! # Ok(())
+//! # }
+//! ```
 
 use serde::{Deserialize, Serialize};
 
 pub mod error;
 pub mod prover;
+pub mod rpc;
 
 pub use error::Error;
-pub use prover::generate_sp1_proof;
+pub use prover::{generate_sp1_proof, verify_proof_structure, OnchainProof, ProverConfig};
+pub use rpc::KatanaRpcClient;
 
 /// Response from Katana TEE RPC `tee_generateQuote` endpoint.
 ///

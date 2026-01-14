@@ -1,30 +1,34 @@
-//! AMD TEE Registry Client
+//! AMD TEE Attestation Prover
 //!
-//! This crate interfaces with AMD public APIs to retrieve the necessary
-//! certificates for TEE attestation and verification.
+//! Generate SP1 Groth16 proofs from AMD SEV-SNP attestation reports
+//! for on-chain verification.
 //!
-//! ## AMD Key Distribution Service (KDS)
+//! ## Quick Start
 //!
-//! Base URL: `https://kdsintf.amd.com`
+//! ```no_run
+//! use amd_tee_registry_client::{AmdAttestationProver, ProverConfig};
 //!
-//! ### Endpoints:
-//! - `GET /vcek/v1/{processor}/cert_chain` - Returns ARK + ASK in PEM format
-//! - `GET /vcek/v1/{processor}/{chip_id}?blSPL=X&teeSPL=X&snpSPL=X&ucodeSPL=X` - Returns VCEK in DER format
+//! # async fn example() -> Result<(), Box<dyn std::error::Error>> {
+//! // Create prover (reads NETWORK_PRIVATE_KEY from environment)
+//! let prover = AmdAttestationProver::from_env();
 //!
-//! ⚠️ VLEK is NOT available on KDS - only from the device!
+//! // Generate proof from attestation report bytes (1184 bytes)
+//! let report_bytes: Vec<u8> = vec![/* ... */];
+//! let proof = prover.prove(&report_bytes).await?;
 //!
-//! ## Related Resources
-//! - [virtee/sev](https://github.com/virtee/sev) - Rust SEV/SNP implementation
-//! - [google/go-sev-guest](https://github.com/google/go-sev-guest) - Go SEV-SNP library with test data
-//! - [AMD KDS Specification](https://docs.amd.com) - Official AMD documentation
+//! println!("Verifier ID: {}", proof.program_id.verifier_id);
+//! # Ok(())
+//! # }
+//! ```
+//!
+//! ## Environment Variables
+//!
+//! - `SP1_PROVER`: Prover mode - "mock", "cpu", or "network"
+//! - `NETWORK_PRIVATE_KEY`: Private key for SP1 Prover Network
+//! - `SKIP_TIME_VALIDITY_CHECK`: Skip certificate time validation
 
-pub mod attestation;
 pub mod error;
-pub mod kds;
-pub mod testdata;
-pub mod types;
+pub mod prover;
 
-pub use attestation::AttestationReport;
 pub use error::Error;
-pub use kds::KdsClient;
-pub use types::*;
+pub use prover::{AmdAttestationProver, OnchainProof, ProverConfig, ATTESTATION_REPORT_SIZE};

@@ -28,4 +28,8 @@ pub enum Error {
     /// Certificate error
     #[error("Certificate error: {0}")]
     Certificate(String),
+
+    /// RPC error
+    #[error("RPC error: {0}")]
+    Rpc(String),
 }

@@ -22,7 +22,9 @@
 //! - `NETWORK_PRIVATE_KEY`: Required for network proving (SP1 Prover Network)
 //! - `SKIP_TIME_VALIDITY_CHECK`: Set to "true" to skip time checks (for old attestations)
 
-use katana_tee_client::{generate_sp1_proof, prover::verify_proof_structure, TeeQuoteResponse};
+use katana_tee_client::{
+    generate_sp1_proof, prover::verify_proof_structure, KatanaRpcClient, TeeQuoteResponse,
+};
 use std::path::PathBuf;
 
 #[tokio::main]
@@ -57,9 +59,8 @@ async fn main() -> anyhow::Result<()> {
         }
         "rpc" => {
             println!("🌐 Fetching attestation from RPC: {}", path_or_url);
-            // TODO: Implement RPC fetching
-            // For now, return an error
-            anyhow::bail!("RPC mode not yet implemented. Use --json instead.");
+            let client = KatanaRpcClient::new(&path_or_url);
+            client.fetch_attestation().await?
         }
         _ => unreachable!(),
     };
