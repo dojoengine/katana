@@ -2,13 +2,45 @@
 name = "katana_tee_client"
 version.workspace = true
 edition.workspace = true
-description = "Katana TEE client"
+description = "Katana TEE client for generating SP1 proofs from TEE attestation quotes"
 
 [dependencies]
-amd_tee_registry_client = { workspace = true }
+# AMD SEV-SNP SDK crates
+amd-sev-snp-attestation-prover = { workspace = true }
+amd-sev-snp-attestation-verifier = { workspace = true }
+sp1-methods = { workspace = true }
+
+# SP1 SDK
+sp1-sdk = { workspace = true }
+
+# Alloy types (for proof encoding)
+alloy-primitives = { workspace = true }
+alloy-sol-types = { workspace = true }
+
 # Async runtime
 tokio = { workspace = true }
+
+# Serialization
+serde = { workspace = true }
+serde_json = { workspace = true }
+bincode = { workspace = true }
+
 # Error handling
 thiserror = { workspace = true }
+anyhow = { workspace = true }
+
 # Logging
 tracing = { workspace = true }
+
+# Hex encoding
+hex = { workspace = true }
+
+# Environment variables
+dotenvy = { workspace = true }
+
+[dev-dependencies]
+tracing-subscriber = { workspace = true }
+
+[[example]]
+name = "generate_proof"
+path = "examples/generate_proof.rs"
