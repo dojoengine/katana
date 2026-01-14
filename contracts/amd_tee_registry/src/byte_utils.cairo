@@ -1,5 +1,5 @@
 // Byte manipulation utilities for working with Span<u32>
-// No external imports - pure utility functions
+use core::integer::u512;
 
 // ============================================================================
 // Fixed-size byte array structures
@@ -27,19 +27,9 @@ pub struct Bytes48 {
     pub high_bits: u128,
 }
 
-/// Fixed-size byte array for 64 bytes (16 u32 words)
-/// Layout: [low_bits: 0-15] [mid_low_bits: 16-31] [mid_high_bits: 32-47] [high_bits: 48-63]
-#[derive(Drop, Copy, Default, PartialEq, Debug)]
-pub struct Bytes64 {
-    /// Low 128 bits (bytes 0-15, u32 words 0-3)
-    pub low_bits: u128,
-    /// Mid-low 128 bits (bytes 16-31, u32 words 4-7)
-    pub mid_low_bits: u128,
-    /// Mid-high 128 bits (bytes 32-47, u32 words 8-11)
-    pub mid_high_bits: u128,
-    /// High 128 bits (bytes 48-63, u32 words 12-15)
-    pub high_bits: u128,
-}
+// Note: For 64-byte values, use core::integer::u512 from corelib:
+// u512 { limb0, limb1, limb2, limb3 } where val = limb0 + 2^128 * limb1 + ...
+// limb0 = bytes 0-15, limb1 = bytes 16-31, limb2 = bytes 32-47, limb3 = bytes 48-63
 
 // ============================================================================
 // Helper functions for reading BytesXX from Span<u32>
@@ -59,13 +49,14 @@ pub fn get_bytes48_at(data: Span<u32>, index: u32) -> Bytes48 {
     }
 }
 
-/// Read Bytes64 from 16 consecutive u32 words
-pub fn get_bytes64_at(data: Span<u32>, index: u32) -> Bytes64 {
-    Bytes64 {
-        low_bits: get_u128_at(data, index),
-        mid_low_bits: get_u128_at(data, index + 4),
-        mid_high_bits: get_u128_at(data, index + 8),
-        high_bits: get_u128_at(data, index + 12),
+/// Read u512 (64 bytes) from 16 consecutive u32 words
+/// Returns u512 where limb0 = bytes 0-15, limb1 = bytes 16-31, etc.
+pub fn get_u512_at(data: Span<u32>, index: u32) -> u512 {
+    u512 {
+        limb0: get_u128_at(data, index),
+        limb1: get_u128_at(data, index + 4),
+        limb2: get_u128_at(data, index + 8),
+        limb3: get_u128_at(data, index + 12),
     }
 }
 

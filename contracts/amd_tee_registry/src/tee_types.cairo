@@ -2,9 +2,10 @@
 // Based on AMD SEV-SNP ABI Specification (Table 3 and Table 23)
 // Uses Span<u32> as input (296 words = 1184 bytes)
 
+use core::integer::u512;
 use super::byte_utils::{
     get_u32_at, get_u64_at, get_u128_at, get_u256_at, get_u8_from_word, slice_u32_span,
-    Bytes24, Bytes48, Bytes64, get_bytes24_at, get_bytes48_at, get_bytes64_at
+    Bytes24, Bytes48, get_bytes24_at, get_bytes48_at, get_u512_at
 };
 
 // ============================================================================
@@ -114,7 +115,7 @@ pub struct TcbVersion {
 
 /// Attestation Report structure
 /// See Table 23 of AMD SEV-SNP specification (total size is 1184 bytes = 296 u32 words)
-#[derive(Drop, Debug)]
+#[derive(Drop)]
 pub struct AttestationReport {
     /// Version of the attestation report (4 bytes)
     pub version: u32,
@@ -139,7 +140,7 @@ pub struct AttestationReport {
     /// Reserved (4 bytes)
     pub reserved0: u32,
     /// Report data (64 bytes)
-    pub report_data: Bytes64,
+    pub report_data: u512,
     /// Measurement (48 bytes)
     pub measurement: Bytes48,
     /// Host data (32 bytes)
@@ -157,7 +158,7 @@ pub struct AttestationReport {
     /// Reserved (24 bytes)
     pub reserved1: Bytes24,
     /// Chip ID (64 bytes)
-    pub chip_id: Bytes64,
+    pub chip_id: u512,
     /// Committed TCB (8 bytes)
     pub committed_tcb: TcbVersion,
     /// Current build number (1 byte)
@@ -367,8 +368,8 @@ pub impl RawAttestationReportImpl of RawAttestationReportTrait {
     }
 
     /// Report data at offset 20 (16 u32 = 64 bytes)
-    fn report_data(self: @RawAttestationReport) -> Bytes64 {
-        get_bytes64_at(*self.raw, OFF_REPORT_DATA)
+    fn report_data(self: @RawAttestationReport) -> u512 {
+        get_u512_at(*self.raw, OFF_REPORT_DATA)
     }
 
     /// Measurement at offset 36 (12 u32 = 48 bytes)
@@ -412,8 +413,8 @@ pub impl RawAttestationReportImpl of RawAttestationReportTrait {
     }
 
     /// Chip ID at offset 104 (16 u32 = 64 bytes)
-    fn chip_id(self: @RawAttestationReport) -> Bytes64 {
-        get_bytes64_at(*self.raw, OFF_CHIP_ID)
+    fn chip_id(self: @RawAttestationReport) -> u512 {
+        get_u512_at(*self.raw, OFF_CHIP_ID)
     }
 
     /// Committed TCB at offset 120 (2 u32 = 8 bytes)
