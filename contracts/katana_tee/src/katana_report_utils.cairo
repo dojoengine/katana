@@ -12,6 +12,7 @@
 //     // Second half remains zeros (or could include additional metadata)
 
 use core::poseidon::hades_permutation;
+use core::integer::u512;
 
 
 pub fn verify_katana_report_data(
@@ -23,7 +24,7 @@ pub fn verify_katana_report_data(
 
     let expected_commitment = u256 {low:report_data.limb2, high:report_data.limb3};
 
-    let commitment = hades_permutation(state_root, block_hash, 2);
+    let (commitment, _, _) = hades_permutation(state_root, block_hash, 2);
 
     assert(commitment.into() == expected_commitment, 'Commitment mismatch');
 
