@@ -7,3 +7,6 @@
 [submodule "crates/starknet-rust"]
 	path = crates/starknet-rust
 	url = https://github.com/software-mansion/starknet-rust.git
+[submodule "crates/garaga"]
+	path = crates/garaga
+	url = https://github.com/keep-starknet-strange/garaga.git
