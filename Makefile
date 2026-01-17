@@ -5,32 +5,13 @@
 # Default RPC URL (can be overridden)
 RPC_URL ?= http://185.26.9.157:5050
 
-# =============================================================================
-# Setup
-# =============================================================================
-
-# Clone garaga repository for Starknet calldata generation
-setup-garaga:
-	@if [ ! -d "crates/garaga" ]; then \
-		echo "Cloning garaga repository..."; \
-		git clone --depth 1 https://github.com/keep-starknet-strange/garaga.git crates/garaga; \
-		echo "Updating starknet-types-core to v1.0..."; \
-		sed -i 's/starknet-types-core = { version = "0.1.7"/starknet-types-core = { version = "1.0"/' crates/garaga/tools/garaga_rs/Cargo.toml; \
-		echo "Garaga setup complete!"; \
-	else \
-		echo "Garaga already cloned at crates/garaga"; \
-	fi
-
-# Full setup (all dependencies)
-setup: setup-garaga
-	@echo "Setup complete!"
 
 # =============================================================================
 # CLI Commands (using the katana-tee binary)
 # =============================================================================
 
 # Build the CLI
-build: setup-garaga
+build: 
 	cargo build -p katana_tee_client --release
 
 # Fetch attestation from RPC and print to stdout
