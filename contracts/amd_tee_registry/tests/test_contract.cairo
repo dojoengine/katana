@@ -1,45 +1,65 @@
-use amd_tee_registry::{
-    IHelloStarknetDispatcher, IHelloStarknetDispatcherTrait, IHelloStarknetSafeDispatcher,
-    IHelloStarknetSafeDispatcherTrait,
+use amd_tee_registry::cert_cache::CertCacheComponent::{
+    ICertCacheDispatcher, ICertCacheDispatcherTrait,
 };
+use amd_tee_registry::tee_types::ProcessorType;
 use snforge_std::{ContractClassTrait, DeclareResultTrait, declare};
 use starknet::ContractAddress;
 
-fn deploy_contract(name: ByteArray) -> ContractAddress {
-    let contract = declare(name).unwrap().contract_class();
-    let (contract_address, _) = contract.deploy(@ArrayTrait::new()).unwrap();
+fn deploy_contract() -> ContractAddress {
+    let contract = declare("AMDTEERegistry").unwrap().contract_class();
+
+    // Prepare constructor arguments
+    let trusted_cert: u256 = 0x1234567890abcdef1234567890abcdef1234567890abcdef1234567890abcdef;
+    let root_cert: u256 = 0xabcdef1234567890abcdef1234567890abcdef1234567890abcdef1234567890;
+
+    let mut calldata: Array<felt252> = array![];
+
+    // trusted_certs array (1 element)
+    calldata.append(1); // array length
+    calldata.append(trusted_cert.low.into());
+    calldata.append(trusted_cert.high.into());
+
+    // processor_models array (1 element)
+    calldata.append(1); // array length
+    calldata.append(0); // ProcessorType::Milan
+
+    // root_certs array (1 element)
+    calldata.append(1); // array length
+    calldata.append(root_cert.low.into());
+    calldata.append(root_cert.high.into());
+
+    let (contract_address, _) = contract.deploy(@calldata).unwrap();
     contract_address
 }
 
 #[test]
-fn test_increase_balance() {
-    let contract_address = deploy_contract("HelloStarknet");
+fn test_is_trusted_intermediate_cert() {
+    let contract_address = deploy_contract();
+    let dispatcher = ICertCacheDispatcher { contract_address };
 
-    let dispatcher = IHelloStarknetDispatcher { contract_address };
+    let trusted_cert: u256 = 0x1234567890abcdef1234567890abcdef1234567890abcdef1234567890abcdef;
+    let untrusted_cert: u256 = 0xdeadbeefdeadbeefdeadbeefdeadbeefdeadbeefdeadbeefdeadbeefdeadbeef;
 
-    let balance_before = dispatcher.get_balance();
-    assert(balance_before == 0, 'Invalid balance');
+    // The trusted cert should be marked as trusted
+    assert(dispatcher.is_trusted_intermediate_cert(trusted_cert), 'Cert should be trusted');
 
-    dispatcher.increase_balance(42);
-
-    let balance_after = dispatcher.get_balance();
-    assert(balance_after == 42, 'Invalid balance');
+    // An unknown cert should not be trusted
+    assert(!dispatcher.is_trusted_intermediate_cert(untrusted_cert), 'Cert should not be trusted');
 }
 
 #[test]
-#[feature("safe_dispatcher")]
-fn test_cannot_increase_balance_with_zero_value() {
-    let contract_address = deploy_contract("HelloStarknet");
+fn test_get_root_cert() {
+    let contract_address = deploy_contract();
+    let dispatcher = ICertCacheDispatcher { contract_address };
 
-    let safe_dispatcher = IHelloStarknetSafeDispatcher { contract_address };
+    let expected_root_cert: u256 =
+        0xabcdef1234567890abcdef1234567890abcdef1234567890abcdef1234567890;
 
-    let balance_before = safe_dispatcher.get_balance().unwrap();
-    assert(balance_before == 0, 'Invalid balance');
+    // Check that the root cert was set correctly for Milan processor
+    let root_cert = dispatcher.get_root_cert(ProcessorType::Milan);
+    assert(root_cert == expected_root_cert, 'Wrong root cert for Milan');
 
-    match safe_dispatcher.increase_balance(0) {
-        Result::Ok(_) => core::panic_with_felt252('Should have panicked'),
-        Result::Err(panic_data) => {
-            assert(*panic_data.at(0) == 'Amount cannot be 0', *panic_data.at(0));
-        },
-    };
+    // Check that other processor types have no root cert set (should be 0)
+    let genoa_root = dispatcher.get_root_cert(ProcessorType::Genoa);
+    assert(genoa_root == 0, 'Genoa should have no root cert');
 }
