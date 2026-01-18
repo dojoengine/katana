@@ -12,7 +12,21 @@ fn deploy_contract() -> ContractAddress {
     let trusted_cert: u256 = 0x1234567890abcdef1234567890abcdef1234567890abcdef1234567890abcdef;
     let root_cert: u256 = 0xabcdef1234567890abcdef1234567890abcdef1234567890abcdef1234567890;
 
+    let verifier_class_hash: felt252 = 0x1;
+    let sp1_program_id: u256 = 0x2;
+    let max_time_diff: u64 = 3600;
+
     let mut calldata: Array<felt252> = array![];
+
+    // verifier_class_hash
+    calldata.append(verifier_class_hash);
+
+    // sp1_program_id
+    calldata.append(sp1_program_id.low.into());
+    calldata.append(sp1_program_id.high.into());
+
+    // max_time_diff
+    calldata.append(max_time_diff.into());
 
     // trusted_certs array (1 element)
     calldata.append(1); // array length

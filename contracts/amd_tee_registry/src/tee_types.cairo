@@ -53,8 +53,12 @@ pub enum ProcessorType {
 pub enum VerificationResult {
     /// Verification succeeded
     Success,
-    /// Verification failed
-    Failure,
+    /// Root certificate is not trusted
+    RootCertNotTrusted,
+    /// One or more intermediate certificates are not trusted
+    IntermediateCertsNotTrusted,
+    /// Attestation timestamp is outside acceptable range
+    InvalidTimestamp,
 }
 
 // ============================================================================
