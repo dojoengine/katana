@@ -11,6 +11,13 @@ amd_tee_registry_client = { workspace = true }
 # Re-export types from AMD SDK for proof handling
 amd-sev-snp-attestation-prover = { workspace = true }
 
+# Starknet (local submodule)
+starknet-rust-core = { path = "../../crates/starknet-rust/starknet-rust-core" }
+starknet-rust-providers = { path = "../../crates/starknet-rust/starknet-rust-providers" }
+starknet-rust-accounts = { path = "../../crates/starknet-rust/starknet-rust-accounts" }
+starknet-rust-signers = { path = "../../crates/starknet-rust/starknet-rust-signers" }
+url = "2"
+
 # HTTP client for Katana RPC
 reqwest = { workspace = true }
 

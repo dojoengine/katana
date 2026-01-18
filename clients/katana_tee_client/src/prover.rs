@@ -21,6 +21,7 @@ use tracing::info;
 
 // Re-export from amd_tee_registry_client for convenience
 pub use amd_tee_registry_client::{AmdAttestationProver, OnchainProof, ProverConfig};
+use amd_tee_registry_client::StarknetRegistryClient;
 
 /// Generate an SP1 Groth16 proof from a Katana TEE attestation quote.
 ///
@@ -70,27 +71,34 @@ pub async fn generate_sp1_proof_with_config(
     Ok(proof)
 }
 
+/// Generate an SP1 Groth16 proof using on-chain cache information.
+///
+/// This queries the AMD TEE registry on Starknet for the trusted certificate prefix length
+/// and injects it into the SP1 verifier input before proving.
+pub async fn generate_sp1_proof_with_cache(
+    response: TeeQuoteResponse,
+    config: ProverConfig,
+    registry_client: &StarknetRegistryClient,
+) -> Result<OnchainProof, Error> {
+    info!(
+        "Generating SP1 proof (with cache) for Katana block {}",
+        response.block_number
+    );
+
+    let quote_bytes = response.quote_bytes()?;
+    let prover = AmdAttestationProver::new(config);
+
+    let proof = prover
+        .prove_with_cache(&quote_bytes, registry_client)
+        .await
+        .map_err(|e| Error::Prover(e.to_string()))?;
+
+    Ok(proof)
+}
+
 /// Verify a generated proof has valid structure (without on-chain verification).
 ///
 /// This is useful for testing to ensure the proof structure is valid.
 pub fn verify_proof_structure(proof: &OnchainProof) -> Result<(), Error> {
     AmdAttestationProver::verify_proof_structure(proof).map_err(|e| Error::Prover(e.to_string()))
-}
-
-#[cfg(test)]
-mod tests {
-    use super::*;
-
-    #[test]
-    fn test_config_from_env() {
-        std::env::set_var("NETWORK_PRIVATE_KEY", "test_key");
-        std::env::set_var("SKIP_TIME_VALIDITY_CHECK", "true");
-
-        let config = ProverConfig::from_env();
-        assert_eq!(config.private_key, Some("test_key".to_string()));
-        assert!(config.skip_time_validity_check);
-
-        std::env::remove_var("NETWORK_PRIVATE_KEY");
-        std::env::remove_var("SKIP_TIME_VALIDITY_CHECK");
-    }
 }

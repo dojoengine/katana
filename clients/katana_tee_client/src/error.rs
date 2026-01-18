@@ -32,4 +32,8 @@ pub enum Error {
     /// RPC error
     #[error("RPC error: {0}")]
     Rpc(String),
+
+    /// Starknet error
+    #[error("Starknet error: {0}")]
+    Starknet(String),
 }
