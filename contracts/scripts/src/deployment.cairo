@@ -17,9 +17,15 @@ fn main() {
     // processor_models: Array<ProcessorType>,
     // root_certs: Array<u256>,
     let mut amd_tee_calldata: Array<felt252> = array![];
+    let verifier_class_hash: ClassHash = 0.try_into().unwrap();
+    let sp1_program_id: u256 = 0;
+    let max_time_diff: u64 = 3600;
     let trusted_certs: Array<u256> = array![];
     let processor_models: Array<ProcessorType> = array![];
     let root_certs: Array<u256> = array![];
+    Serde::serialize(@verifier_class_hash, ref amd_tee_calldata);
+    Serde::serialize(@sp1_program_id, ref amd_tee_calldata);
+    Serde::serialize(@max_time_diff, ref amd_tee_calldata);
     Serde::serialize(@trusted_certs, ref amd_tee_calldata);
     Serde::serialize(@processor_models, ref amd_tee_calldata);
     Serde::serialize(@root_certs, ref amd_tee_calldata);
