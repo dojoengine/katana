@@ -1,7 +1,11 @@
 [workspace]
-members = ["contracts/amd_tee_registry", "contracts/katana_tee"]
+members = ["contracts/amd_tee_registry", "contracts/katana_tee", "contracts/scripts"]
 
 [[tool.snforge.fork]]
 name = "SEPOLIA_LATEST"
-url = "https://api.zan.top/public/starknet-sepolia/rpc/v0_10"
+url = "$STARKNET_RPC_URL_SEPOLIA"
 block_id.tag = "latest"
+
+[lib]
+sierra = true
+casm = true

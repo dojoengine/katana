@@ -1,0 +1,33 @@
+[sncast.devnet]
+network = "devnet"
+account = "$STARKNET_ACCOUNT"
+wait-params = { timeout = 60, retry-interval = 2 }
+show-explorer-links = false
+
+[sncast.devnet.networks]
+devnet = "$STARKNET_RPC_URL_DEVNET"
+
+[sncast.sepolia]
+network = "sepolia"
+account = "$STARKNET_ACCOUNT"
+accounts-file = "$STARKNET_ACCOUNTS_FILE"
+wait-params = { timeout = 300, retry-interval = 10 }
+block-explorer = "StarkScan"
+show-explorer-links = true
+
+[sncast.sepolia.networks]
+sepolia = "$STARKNET_RPC_URL_SEPOLIA"
+
+[sncast.mainnet]
+network = "mainnet"
+account = "$STARKNET_ACCOUNT"
+accounts-file = "$STARKNET_ACCOUNTS_FILE"
+wait-params = { timeout = 600, retry-interval = 15 }
+block-explorer = "StarkScan"
+show-explorer-links = true
+
+[sncast.mainnet.networks]
+mainnet = "$STARKNET_RPC_URL_MAINNET"
+
+[sncast.default]
+account = "devnet_seed_0"

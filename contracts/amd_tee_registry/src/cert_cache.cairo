@@ -51,8 +51,8 @@ pub mod CertCacheComponent {
         fn get_root_cert(self: @TContractState, processor_model: ProcessorType) -> u256;
         fn check_trusted_intermediate_certs(
             self: @TContractState,
-            processor_models: Array<ProcessorType>,
-            report_certs: Array<Array<u256>>,
+            processor_models: Span<ProcessorType>,
+            report_certs: Span<Span<u256>>,
         ) -> Array<u8>;
     }
 
@@ -81,8 +81,8 @@ pub mod CertCacheComponent {
         /// 3. Stops counting when an untrusted certificate is encountered
         fn check_trusted_intermediate_certs(
             self: @ComponentState<TContractState>,
-            processor_models: Array<ProcessorType>,
-            report_certs: Array<Array<u256>>,
+            processor_models: Span<ProcessorType>,
+            report_certs: Span<Span<u256>>,
         ) -> Array<u8> {
             assert!(report_certs.len() == processor_models.len(), "Array length mismatch");
 
@@ -90,7 +90,7 @@ pub mod CertCacheComponent {
             let mut i: u32 = 0;
 
             while i < report_certs.len() {
-                let certs = report_certs.at(i);
+                let certs = *report_certs.at(i);
                 let processor_model = *processor_models.at(i);
                 let expected_root_cert = self.root_certs.read(processor_model);
 
@@ -125,7 +125,7 @@ pub mod CertCacheComponent {
     > of InternalTrait<TContractState> {
         /// Initialize trusted certificates during contract deployment
         fn initialize_trusted_certs(
-            ref self: ComponentState<TContractState>, initialize_trusted_certs: Array<u256>,
+            ref self: ComponentState<TContractState>, initialize_trusted_certs: Span<u256>,
         ) {
             let mut i: u32 = 0;
             while i < initialize_trusted_certs.len() {

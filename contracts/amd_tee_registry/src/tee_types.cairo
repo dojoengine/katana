@@ -39,14 +39,14 @@ pub enum ProcessorType {
     Siena,
 }
 
-/// ZK Co-Processor types for proof verification
-#[derive(Drop, Copy, PartialEq, Debug)]
-pub enum ZkCoProcessorType {
-    None,
-    RiscZero,
-    Succinct,
-    Pico,
-}
+// /// ZK Co-Processor types for proof verification
+// #[derive(Drop, Copy, PartialEq, Debug)]
+// pub enum ZkCoProcessorType {
+//     None,
+//     RiscZero,
+//     Succinct,
+//     Pico,
+// }
 
 /// Verification result status
 #[derive(Drop, Copy, PartialEq, Debug)]
@@ -60,7 +60,12 @@ pub enum VerificationResult {
 // ============================================================================
 // Verifier Structs
 // ============================================================================
-
+// struct VerifierInput {
+//     uint64 timestamp;
+//     uint8 trustedCertsPrefixLen;
+//     bytes rawReport;
+//     bytes[] vekDerChain;
+// }
 /// Input for the verifier
 #[derive(Drop, Debug)]
 pub struct VerifierInput {

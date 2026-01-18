@@ -42,20 +42,19 @@ pub mod AMDTEERegistry {
     #[constructor]
     fn constructor(
         ref self: ContractState,
-        trusted_certs: Array<u256>,
-        processor_models: Array<ProcessorType>,
-        root_certs: Array<u256>,
+        trusted_certs: Span<u256>,
+        processor_models: Span<ProcessorType>,
+        root_certs: Span<u256>,
     ) {
         // Initialize trusted intermediate certificates
         self.cert_cache.initialize_trusted_certs(trusted_certs);
 
         // Initialize root certificates for each processor model
         assert!(processor_models.len() == root_certs.len(), "Array length mismatch");
-        let mut i: u32 = 0;
-        while i < processor_models.len() {
-            self.cert_cache.set_root_cert(*processor_models.at(i), *root_certs.at(i));
-            i += 1;
-        };
+
+        for (root_cert, processor_model) in core::iter::zip(root_certs, processor_models) {
+            self.cert_cache.set_root_cert(*processor_model, *root_cert);
+        }
     }
 
     #[abi(embed_v0)]
