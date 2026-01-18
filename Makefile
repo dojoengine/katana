@@ -164,4 +164,9 @@ help:
         example-fetch example-execute example-prove-network example-prove-json \
         generate_proof generate_proof_network generate_proof_mock \
         tee-start tee-stop tee-status tee-test \
-        pipeline-test pipeline-prove help
+        pipeline-test pipeline-prove e2e help
+
+
+# Source env and start devnet:
+e2e:
+	@set -a && . ./.env && set +a && starknet-devnet --fork-network $$STARKNET_RPC_URL_SEPOLIA --seed $$DEVNET_SEED --port $$DEVNET_PORT
