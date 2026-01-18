@@ -16,4 +16,8 @@ pub enum Error {
     /// Calldata generation error
     #[error("Calldata error: {0}")]
     Calldata(String),
+
+    /// Starknet RPC error
+    #[error("Starknet error: {0}")]
+    Starknet(String),
 }

@@ -48,69 +48,20 @@
 //! - For network proving, the actual proof is generated on secure GPU clusters
 //! - The final Groth16 proof is cryptographically secure
 
-use crate::Error;
+use crate::{
+    config::ProverConfig, report::AttestationReportBytes, starknet::StarknetRegistryClient, Error,
+};
 use alloy_primitives::Bytes;
-use amd_sev_snp_attestation_prover::{AmdSevSnpProver, ProverConfig as SdkProverConfig};
+use amd_sev_snp_attestation_prover::{
+    AmdSevSnpProver, ProverConfig as SdkProverConfig, RawProofType, SP1ProverConfig, KDS,
+};
+use amd_sev_snp_attestation_verifier::{stub::ProcessorType, AttestationReport};
 use std::time::{SystemTime, UNIX_EPOCH};
 use tracing::{debug, info};
+use x509_verifier_rust_crypto::CertChain;
 
 // Re-export OnchainProof for convenience
 pub use amd_sev_snp_attestation_prover::OnchainProof;
-
-/// Expected size of AMD SEV-SNP attestation report in bytes
-pub const ATTESTATION_REPORT_SIZE: usize = 1184;
-
-/// Configuration for the AMD attestation prover.
-#[derive(Debug, Clone, Default)]
-pub struct ProverConfig {
-    /// Private key for SP1 network proving (optional for mock mode)
-    pub private_key: Option<String>,
-    /// SP1 RPC URL (optional, uses default if not specified)
-    pub rpc_url: Option<String>,
-    /// Skip time validity check (useful for testing with old attestations)
-    pub skip_time_validity_check: bool,
-}
-
-impl ProverConfig {
-    /// Create a new prover config with explicit values.
-    pub fn new(
-        private_key: Option<String>,
-        rpc_url: Option<String>,
-        skip_time_validity_check: bool,
-    ) -> Self {
-        Self {
-            private_key,
-            rpc_url,
-            skip_time_validity_check,
-        }
-    }
-
-    /// Create config from environment variables.
-    ///
-    /// Reads:
-    /// - `NETWORK_PRIVATE_KEY` - Private key for SP1 network proving (preferred)
-    /// - `SP1_PRIVATE_KEY` - Private key for network proving (fallback)
-    /// - `SP1_RPC_URL` - RPC URL for SP1 network
-    /// - `SKIP_TIME_VALIDITY_CHECK` - Skip time validity (true/false)
-    pub fn from_env() -> Self {
-        Self {
-            // NETWORK_PRIVATE_KEY is the standard env var used by SP1 SDK
-            private_key: std::env::var("NETWORK_PRIVATE_KEY")
-                .ok()
-                .or_else(|| std::env::var("SP1_PRIVATE_KEY").ok()),
-            rpc_url: std::env::var("SP1_RPC_URL").ok(),
-            skip_time_validity_check: std::env::var("SKIP_TIME_VALIDITY_CHECK")
-                .ok()
-                .and_then(|s| s.parse().ok())
-                .unwrap_or(false),
-        }
-    }
-
-    /// Check if network proving is configured.
-    pub fn has_network_key(&self) -> bool {
-        self.private_key.is_some()
-    }
-}
 
 /// AMD SEV-SNP Attestation Prover
 ///
@@ -166,33 +117,23 @@ impl AmdAttestationProver {
         report_bytes: &[u8],
         timestamp: u64,
     ) -> Result<OnchainProof, Error> {
-        // Validate report size
-        if report_bytes.len() != ATTESTATION_REPORT_SIZE {
-            return Err(Error::InvalidReportSize {
-                expected: ATTESTATION_REPORT_SIZE,
-                actual: report_bytes.len(),
-            });
-        }
+        let report = AttestationReportBytes::new(report_bytes)?;
 
         info!("Starting SP1 proof generation for attestation report");
         debug!(
             "Report size: {} bytes, timestamp: {}",
-            report_bytes.len(),
+            report.as_bytes().len(),
             timestamp
         );
 
-        // Apply configuration
-        self.apply_config();
-
         // Clone data for the blocking task
-        let report_bytes = report_bytes.to_vec();
+        let report_bytes = report.as_bytes().to_vec();
+        let sdk_config = self.sdk_prover_config();
 
         // Run the blocking prover in a separate thread
-        // The AMD SDK prover uses its own internal tokio runtime via block_on
         let proof = tokio::task::spawn_blocking(move || {
             // Create prover with SP1 configuration
-            let prover_config = SdkProverConfig::sp1();
-            let prover = AmdSevSnpProver::new(prover_config, None);
+            let prover = AmdSevSnpProver::new(sdk_config, None);
 
             info!("SP1 prover initialized, generating proof...");
 
@@ -208,6 +149,69 @@ impl AmdAttestationProver {
             "Proof generated successfully. Verifier ID: {}",
             proof.program_id.verifier_id
         );
+
+        Ok(proof)
+    }
+
+    /// Generate an SP1 Groth16 proof using Starknet cache information.
+    ///
+    /// This queries the on-chain cache for the trusted certificate prefix length
+    /// and injects it into the verifier input before proving.
+    pub async fn prove_with_cache(
+        &self,
+        report_bytes: &[u8],
+        registry_client: &StarknetRegistryClient,
+    ) -> Result<OnchainProof, Error> {
+        self.prove_with_cache_and_timestamp(report_bytes, current_timestamp()?, registry_client)
+            .await
+    }
+
+    /// Generate an SP1 Groth16 proof using Starknet cache information and a fixed timestamp.
+    pub async fn prove_with_cache_and_timestamp(
+        &self,
+        report_bytes: &[u8],
+        timestamp: u64,
+        registry_client: &StarknetRegistryClient,
+    ) -> Result<OnchainProof, Error> {
+        let report = AttestationReportBytes::new(report_bytes)?;
+        let report_struct = AttestationReport::from_bytes(report.as_bytes())
+            .map_err(|e| Error::Prover(format!("Report parse failed: {e}")))?;
+
+        let processor_model = report_struct
+            .get_cpu_codename()
+            .map_err(|e| Error::Prover(format!("Processor model error: {e}")))?;
+        let processor_model_u8 = processor_type_to_u8(processor_model)?;
+
+        let kds_chain = KDS::new()
+            .fetch_report_cert_chain(&report_struct)
+            .map_err(|e| Error::Prover(format!("KDS fetch failed: {e}")))?;
+        let cert_chain = CertChain::parse_rev(&kds_chain)
+            .map_err(|e| Error::Prover(format!("Cert chain parse failed: {e}")))?;
+
+        let trusted_prefix_len = registry_client
+            .fetch_trusted_prefix_len(processor_model_u8, cert_chain.digest())
+            .await?;
+
+        let report_bytes = report.as_bytes().to_vec();
+        let sdk_config = self.sdk_prover_config();
+
+        let proof = tokio::task::spawn_blocking(move || {
+            let prover = AmdSevSnpProver::new(sdk_config, None);
+            let mut input = prover
+                .prepare_verifier_input(timestamp, Bytes::from(report_bytes), Some(kds_chain))
+                .map_err(|e| Error::Prover(format!("Verifier input error: {e}")))?;
+            input.trustedCertsPrefixLen = trusted_prefix_len;
+
+            let raw_proof = prover
+                .verifier
+                .gen_proof(&input, RawProofType::Groth16, None)
+                .map_err(|e| Error::Prover(format!("Proof generation failed: {e}")))?;
+            prover
+                .create_onchain_proof(raw_proof)
+                .map_err(|e| Error::Prover(format!("Onchain proof error: {e}")))
+        })
+        .await
+        .map_err(|e| Error::Prover(format!("Task join error: {}", e)))??;
 
         Ok(proof)
     }
@@ -233,18 +237,31 @@ impl AmdAttestationProver {
         Ok(())
     }
 
-    /// Apply configuration to environment variables.
-    fn apply_config(&self) {
-        if let Some(ref key) = self.config.private_key {
-            std::env::set_var("NETWORK_PRIVATE_KEY", key);
-        }
-        if let Some(ref url) = self.config.rpc_url {
-            std::env::set_var("SP1_RPC_URL", url);
-        }
-        if self.config.skip_time_validity_check {
-            std::env::set_var("SKIP_TIME_VALIDITY_CHECK", "true");
-        }
+    /// Build the SDK prover configuration from the explicit config.
+    fn sdk_prover_config(&self) -> SdkProverConfig {
+        let sp1_config = SP1ProverConfig {
+            private_key: self.config.private_key.clone(),
+            rpc_url: self.config.rpc_url.clone(),
+        };
+        let mut config = SdkProverConfig::sp1_with(sp1_config);
+        config.skip_time_validity_check = self.config.skip_time_validity_check;
+        config
     }
+}
+
+fn processor_type_to_u8(value: ProcessorType) -> Result<u8, Error> {
+    let result = match value {
+        ProcessorType::Milan => 0,
+        ProcessorType::Genoa => 1,
+        ProcessorType::Bergamo => 2,
+        ProcessorType::Siena => 3,
+        _ => {
+            return Err(Error::Prover(format!(
+                "Unsupported processor model: {value:?}"
+            )))
+        }
+    };
+    Ok(result)
 }
 
 /// Get the current Unix timestamp.
@@ -253,60 +270,4 @@ fn current_timestamp() -> Result<u64, Error> {
         .duration_since(UNIX_EPOCH)
         .map(|d| d.as_secs())
         .map_err(|e| Error::Prover(format!("Failed to get timestamp: {}", e)))
-}
-
-#[cfg(test)]
-mod tests {
-    use super::*;
-
-    #[test]
-    fn test_config_from_env() {
-        // Set test environment
-        std::env::set_var("NETWORK_PRIVATE_KEY", "test_key");
-        std::env::set_var("SKIP_TIME_VALIDITY_CHECK", "true");
-
-        let config = ProverConfig::from_env();
-        assert_eq!(config.private_key, Some("test_key".to_string()));
-        assert!(config.skip_time_validity_check);
-        assert!(config.has_network_key());
-
-        // Clean up
-        std::env::remove_var("NETWORK_PRIVATE_KEY");
-        std::env::remove_var("SKIP_TIME_VALIDITY_CHECK");
-    }
-
-    #[test]
-    fn test_config_fallback_to_sp1_private_key() {
-        std::env::remove_var("NETWORK_PRIVATE_KEY");
-        std::env::set_var("SP1_PRIVATE_KEY", "fallback_key");
-
-        let config = ProverConfig::from_env();
-        assert_eq!(config.private_key, Some("fallback_key".to_string()));
-
-        std::env::remove_var("SP1_PRIVATE_KEY");
-    }
-
-    #[test]
-    fn test_prover_creation() {
-        let config = ProverConfig::new(Some("key".to_string()), None, false);
-        let prover = AmdAttestationProver::new(config);
-        assert!(prover.config().has_network_key());
-    }
-
-    #[tokio::test]
-    async fn test_invalid_report_size() {
-        let prover = AmdAttestationProver::from_env();
-        let invalid_report = vec![0u8; 100]; // Wrong size
-
-        let result = prover.prove(&invalid_report).await;
-        assert!(result.is_err());
-
-        match result {
-            Err(Error::InvalidReportSize { expected, actual }) => {
-                assert_eq!(expected, ATTESTATION_REPORT_SIZE);
-                assert_eq!(actual, 100);
-            }
-            _ => panic!("Expected InvalidReportSize error"),
-        }
-    }
 }

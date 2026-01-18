@@ -35,12 +35,18 @@
 //! - `SKIP_TIME_VALIDITY_CHECK`: Skip certificate time validation
 
 pub mod calldata;
+pub mod config;
 pub mod error;
 pub mod prover;
+pub mod report;
+pub mod starknet;
 
 pub use calldata::StarknetCalldata;
+pub use config::ProverConfig;
 pub use error::Error;
-pub use prover::{AmdAttestationProver, OnchainProof, ProverConfig, ATTESTATION_REPORT_SIZE};
+pub use prover::{AmdAttestationProver, OnchainProof};
+pub use report::ATTESTATION_REPORT_SIZE;
+pub use starknet::StarknetRegistryClient;
 
 // Re-export BigUint for users who need raw calldata values
 pub use num_bigint::BigUint;

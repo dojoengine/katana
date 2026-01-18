@@ -7,15 +7,22 @@ description = "AMD TEE attestation prover - generate SP1 Groth16 proofs and Star
 [dependencies]
 # AMD SEV-SNP SDK for attestation proving
 amd-sev-snp-attestation-prover = { workspace = true }
+amd-sev-snp-attestation-verifier = { workspace = true }
+x509-verifier-rust-crypto = { workspace = true }
 
 # Alloy types (for Bytes)
 alloy-primitives = { workspace = true }
 
-# Garaga for Starknet calldata generation (local copy to fix starknet-types-core version)
+# Garaga for Starknet calldata generation
 garaga_rs = { path = "../../crates/garaga/tools/garaga_rs" }
 
 # BigInt for calldata values
 num-bigint = "0.4"
+
+# Starknet RPC client (local submodule)
+starknet-rust-core = { path = "../../crates/starknet-rust/starknet-rust-core" }
+starknet-rust-providers = { path = "../../crates/starknet-rust/starknet-rust-providers" }
+url = "2"
 
 # Async runtime
 tokio = { workspace = true }
@@ -25,3 +32,9 @@ thiserror = { workspace = true }
 
 # Logging
 tracing = { workspace = true }
+
+[dev-dependencies]
+serde = { workspace = true }
+serde_json = { workspace = true }
+hex = { workspace = true }
+anyhow = { workspace = true }

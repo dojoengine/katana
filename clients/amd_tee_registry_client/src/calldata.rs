@@ -32,6 +32,7 @@ use garaga_rs::calldata::full_proof_with_hints::groth16::{
 };
 use garaga_rs::definitions::CurveID;
 use num_bigint::BigUint;
+use starknet_rust_core::types::Felt;
 use tracing::info;
 
 use crate::prover::OnchainProof;
@@ -108,6 +109,12 @@ impl StarknetCalldata {
         Ok(Self { values })
     }
 
+    /// Create calldata from raw values (for testing).
+    #[doc(hidden)]
+    pub fn from_values(values: Vec<BigUint>) -> Self {
+        Self { values }
+    }
+
     /// Get the raw calldata values.
     pub fn values(&self) -> &[BigUint] {
         &self.values
@@ -135,6 +142,13 @@ impl StarknetCalldata {
         self.values.iter().map(|v| format!("0x{:x}", v)).collect()
     }
 
+    /// Convert calldata values into Starknet `Felt`s.
+    ///
+    /// This is the form needed for Starknet JSON-RPC `call`s and transaction invocation calldata.
+    pub fn to_felts(&self) -> Result<Vec<Felt>, Error> {
+        self.values.iter().map(biguint_to_felt).collect()
+    }
+
     /// Convert calldata to a single newline-separated hex string.
     ///
     /// This format is compatible with Starknet Foundry's `read_txt` function.
@@ -158,44 +172,16 @@ impl StarknetCalldata {
     }
 }
 
-#[cfg(test)]
-mod tests {
-    use super::*;
-
-    #[test]
-    fn test_hex_string_conversion() {
-        let calldata = StarknetCalldata {
-            values: vec![
-                BigUint::from(255u32),
-                BigUint::from(4095u32),
-                BigUint::from(0u32),
-            ],
-        };
-
-        let hex_strings = calldata.to_hex_strings();
-        assert_eq!(hex_strings[0], "0xff");
-        assert_eq!(hex_strings[1], "0xfff");
-        assert_eq!(hex_strings[2], "0x0");
+fn biguint_to_felt(value: &BigUint) -> Result<Felt, Error> {
+    let value_bytes = value.to_bytes_be();
+    if value_bytes.len() > 32 {
+        return Err(Error::Calldata(format!(
+            "Calldata element does not fit in 32 bytes (got {} bytes)",
+            value_bytes.len()
+        )));
     }
-
-    #[test]
-    fn test_hex_file_content() {
-        let calldata = StarknetCalldata {
-            values: vec![BigUint::from(1u32), BigUint::from(2u32)],
-        };
-
-        let content = calldata.to_hex_file_content();
-        assert_eq!(content, "0x1\n0x2\n");
-    }
-
-    #[test]
-    fn test_decimal_strings() {
-        let calldata = StarknetCalldata {
-            values: vec![BigUint::from(255u32), BigUint::from(1000u32)],
-        };
-
-        let decimal_strings = calldata.to_decimal_strings();
-        assert_eq!(decimal_strings[0], "255");
-        assert_eq!(decimal_strings[1], "1000");
-    }
+    let mut bytes = [0u8; 32];
+    let start = 32 - value_bytes.len();
+    bytes[start..].copy_from_slice(&value_bytes);
+    Ok(Felt::from_bytes_be(&bytes))
 }
