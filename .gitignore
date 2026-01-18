@@ -4,3 +4,7 @@ snfoundry_trace/
 coverage/
 profile/
 .env
+
+# Claude agent local config / generated artifacts
+.claude/settings.local.json
+.claude/**/target/
