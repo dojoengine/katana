@@ -1,0 +1,13 @@
+{
+  "network": "devnet",
+  "contracts": {
+    "amd_tee_registry": {
+      "class_hash": "0x...",
+      "address": "0x..."
+    },
+    "katana_tee": {
+      "class_hash": "0x...",
+      "address": "0x..."
+    }
+  }
+}
