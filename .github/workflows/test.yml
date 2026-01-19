@@ -196,12 +196,14 @@ jobs:
           key: ci-${{ github.job }}-${{ matrix.os }}
           shared-key: katana-ci-cache
 
+      # macOS runners do not include nextest/llvm-cov by default.
       - name: Install test tooling (macOS)
         if: matrix.os == 'macos'
         uses: taiki-e/install-action@v2
         with:
           tool: cargo-nextest,cargo-llvm-cov
 
+      # llvm-cov requires the llvm-tools component on macOS.
       - name: Enable llvm-tools (macOS)
         if: matrix.os == 'macos'
         run: rustup component add llvm-tools-preview
