@@ -127,7 +127,10 @@ jobs:
 
       - name: Install zstd (macOS)
         if: matrix.os == 'macos'
-        run: brew install zstd
+        run: |
+          brew install zstd pkg-config
+          echo "PKG_CONFIG_PATH=$(brew --prefix zstd)/lib/pkgconfig:$PKG_CONFIG_PATH" >> $GITHUB_ENV
+          echo "LIBRARY_PATH=$(brew --prefix zstd)/lib:$LIBRARY_PATH" >> $GITHUB_ENV
 
       - name: Download contract artifacts
         uses: actions/download-artifact@v5
@@ -218,7 +221,10 @@ jobs:
 
       - name: Install zstd (macOS)
         if: matrix.os == 'macos'
-        run: brew install zstd
+        run: |
+          brew install zstd pkg-config
+          echo "PKG_CONFIG_PATH=$(brew --prefix zstd)/lib/pkgconfig:$PKG_CONFIG_PATH" >> $GITHUB_ENV
+          echo "LIBRARY_PATH=$(brew --prefix zstd)/lib:$LIBRARY_PATH" >> $GITHUB_ENV
 
       # macOS runners do not include nextest/llvm-cov by default; Ubuntu uses the dev container.
       - name: Install test tooling (macOS)
