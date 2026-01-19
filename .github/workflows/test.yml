@@ -196,7 +196,7 @@ jobs:
           key: ci-${{ github.job }}-${{ matrix.os }}
           shared-key: katana-ci-cache
 
-      # macOS runners do not include nextest/llvm-cov by default.
+      # macOS runners do not include nextest/llvm-cov by default; Ubuntu uses the dev container.
       - name: Install test tooling (macOS)
         if: matrix.os == 'macos'
         uses: taiki-e/install-action@v2
