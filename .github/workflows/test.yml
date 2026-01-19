@@ -117,6 +117,14 @@ jobs:
           key: ci-${{ github.job }}-${{ matrix.os }}
           shared-key: katana-ci-cache
 
+      - name: Install LLVM 19 (macOS)
+        if: matrix.os == 'macos'
+        run: |
+          brew install llvm@19
+          echo "MLIR_SYS_190_PREFIX=$(brew --prefix llvm@19)" >> $GITHUB_ENV
+          echo "LLVM_SYS_191_PREFIX=$(brew --prefix llvm@19)" >> $GITHUB_ENV
+          echo "TABLEGEN_190_PREFIX=$(brew --prefix llvm@19)" >> $GITHUB_ENV
+
       - name: Download contract artifacts
         uses: actions/download-artifact@v5
         with:
@@ -195,6 +203,14 @@ jobs:
         with:
           key: ci-${{ github.job }}-${{ matrix.os }}
           shared-key: katana-ci-cache
+
+      - name: Install LLVM 19 (macOS)
+        if: matrix.os == 'macos'
+        run: |
+          brew install llvm@19
+          echo "MLIR_SYS_190_PREFIX=$(brew --prefix llvm@19)" >> $GITHUB_ENV
+          echo "LLVM_SYS_191_PREFIX=$(brew --prefix llvm@19)" >> $GITHUB_ENV
+          echo "TABLEGEN_190_PREFIX=$(brew --prefix llvm@19)" >> $GITHUB_ENV
 
       # macOS runners do not include nextest/llvm-cov by default; Ubuntu uses the dev container.
       - name: Install test tooling (macOS)
