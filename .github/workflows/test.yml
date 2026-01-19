@@ -125,6 +125,10 @@ jobs:
           echo "LLVM_SYS_191_PREFIX=$(brew --prefix llvm@19)" >> $GITHUB_ENV
           echo "TABLEGEN_190_PREFIX=$(brew --prefix llvm@19)" >> $GITHUB_ENV
 
+      - name: Install zstd (macOS)
+        if: matrix.os == 'macos'
+        run: brew install zstd
+
       - name: Download contract artifacts
         uses: actions/download-artifact@v5
         with:
@@ -211,6 +215,10 @@ jobs:
           echo "MLIR_SYS_190_PREFIX=$(brew --prefix llvm@19)" >> $GITHUB_ENV
           echo "LLVM_SYS_191_PREFIX=$(brew --prefix llvm@19)" >> $GITHUB_ENV
           echo "TABLEGEN_190_PREFIX=$(brew --prefix llvm@19)" >> $GITHUB_ENV
+
+      - name: Install zstd (macOS)
+        if: matrix.os == 'macos'
+        run: brew install zstd
 
       # macOS runners do not include nextest/llvm-cov by default; Ubuntu uses the dev container.
       - name: Install test tooling (macOS)
