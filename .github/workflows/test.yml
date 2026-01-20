@@ -255,12 +255,12 @@ jobs:
         uses: actions/download-artifact@v5
         with:
           name: binary-${{ matrix.os }}
+          path: target/debug
 
       - name: Add binary to PATH
         run: |
           chmod +x target/debug/katana
-          export PATH="$(pwd)/target/debug:$GITHUB_PATH"
-          echo $PATH > $GITHUB_PATH
+          echo "$(pwd)/target/debug" >> $GITHUB_PATH
 
       - name: Run tests
         if: github.event_name != 'pull_request'
@@ -339,6 +339,7 @@ jobs:
         uses: actions/download-artifact@v5
         with:
           name: binary-ubuntu
+          path: target/debug
 
       - name: Setup Katana binary
         run: chmod +x ./target/debug/katana
@@ -377,6 +378,7 @@ jobs:
         uses: actions/download-artifact@v5
         with:
           name: binary-ubuntu
+          path: target/debug
 
       - name: Setup Katana binary
         run: chmod +x ./target/debug/katana
@@ -430,6 +432,7 @@ jobs:
         uses: actions/download-artifact@v5
         with:
           name: binary-ubuntu
+          path: target/debug
 
       - name: Download test artifacts
         uses: actions/download-artifact@v5
