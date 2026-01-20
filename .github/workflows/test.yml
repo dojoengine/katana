@@ -227,10 +227,10 @@ jobs:
           echo "LLVM_SYS_191_PREFIX=$(brew --prefix llvm@19)" >> $GITHUB_ENV
           echo "TABLEGEN_190_PREFIX=$(brew --prefix llvm@19)" >> $GITHUB_ENV
 
-      - name: Install zstd (macOS)
+      - name: Install zstd and protobuf (macOS)
         if: matrix.os == 'macos'
         run: |
-          brew install zstd pkg-config
+          brew install zstd pkg-config protobuf
           echo "PKG_CONFIG_PATH=$(brew --prefix zstd)/lib/pkgconfig:$PKG_CONFIG_PATH" >> $GITHUB_ENV
           echo "LIBRARY_PATH=$(brew --prefix zstd)/lib:$LIBRARY_PATH" >> $GITHUB_ENV
 
