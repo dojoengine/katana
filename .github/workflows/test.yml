@@ -132,6 +132,14 @@ jobs:
           echo "PKG_CONFIG_PATH=$(brew --prefix zstd)/lib/pkgconfig:$PKG_CONFIG_PATH" >> $GITHUB_ENV
           echo "LIBRARY_PATH=$(brew --prefix zstd)/lib:$LIBRARY_PATH" >> $GITHUB_ENV
 
+      - name: Build Explorer UI (macOS)
+        if: matrix.os == 'macos'
+        run: |
+          curl -fsSL https://bun.sh/install | bash
+          export BUN_INSTALL="$HOME/.bun"
+          export PATH="$BUN_INSTALL/bin:$PATH"
+          make build-explorer
+
       - name: Download contract artifacts
         uses: actions/download-artifact@v5
         with:
