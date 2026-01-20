@@ -246,6 +246,15 @@ jobs:
         if: matrix.os == 'macos'
         run: rustup component add llvm-tools-preview
 
+      # Build explorer UI on macOS for tests that compile with --all-features
+      - name: Build Explorer UI (macOS)
+        if: matrix.os == 'macos'
+        run: |
+          curl -fsSL https://bun.sh/install | bash
+          export BUN_INSTALL="$HOME/.bun"
+          export PATH="$BUN_INSTALL/bin:$PATH"
+          make build-explorer
+
       - name: Download test artifacts
         uses: actions/download-artifact@v5
         with:
