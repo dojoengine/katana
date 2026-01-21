@@ -37,3 +37,21 @@ jobs:
       - uses: dtolnay/rust-toolchain@stable
       - uses: Swatinem/rust-cache@v2
       - run: cargo test --all-targets
+
+  cairo-test:
+    name: Cairo Tests
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: software-mansion/setup-scarb@v1
+        with:
+          scarb-version: "2.9.2"
+      - uses: foundry-rs/setup-snfoundry@v3
+        with:
+          starknet-foundry-version: "0.35.1"
+      - name: Run amd_tee_registry tests
+        working-directory: contracts/amd_tee_registry
+        run: snforge test --filter test_journal_decode_from_fixtures
+      - name: Build katana_tee
+        working-directory: contracts/katana_tee
+        run: scarb build
