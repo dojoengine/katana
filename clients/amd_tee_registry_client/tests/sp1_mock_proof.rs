@@ -12,6 +12,7 @@ use common::{
 use x509_verifier_rust_crypto::CertChain;
 
 #[test]
+#[ignore] // Requires network access to AMD KDS and valid cert chains
 fn sp1_mock_execution_only_proof() -> anyhow::Result<()> {
     std::env::set_var("SP1_PROVER", "mock");
 
