@@ -41,6 +41,7 @@ pub mod kds;
 pub mod prover;
 pub mod report;
 pub mod starknet;
+pub mod cairo_fixtures;
 
 pub use calldata::StarknetCalldata;
 pub use config::ProverConfig;
@@ -49,6 +50,7 @@ pub use kds::{KdsClient, RootCertInfo, parse_processor_type};
 pub use prover::{AmdAttestationProver, OnchainProof};
 pub use report::ATTESTATION_REPORT_SIZE;
 pub use starknet::StarknetRegistryClient;
+pub use cairo_fixtures::generate_cairo_fixtures;
 
 // Re-export BigUint for users who need raw calldata values
 pub use num_bigint::BigUint;
