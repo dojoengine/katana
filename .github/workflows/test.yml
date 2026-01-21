@@ -199,7 +199,7 @@ jobs:
           - os: macos
             runner: macos-latest
             container: null
-    timeout-minutes: 60
+    timeout-minutes: 90
     if: github.event_name == 'push' || (github.event_name == 'pull_request' && github.event.pull_request.draft == false)
     container: ${{ matrix.container }}
     env:
