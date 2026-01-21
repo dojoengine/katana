@@ -305,6 +305,62 @@ generate_proof_live() {
     log "Proof and calldata generated and saved to fixtures"
 }
 
+# Advance Katana by mining an empty block
+advance_katana_block() {
+    log "Advancing Katana to next block..."
+    local result
+    result=$(curl -s "$KATANA_RPC_URL" -X POST -H "Content-Type: application/json" \
+        -d '{"jsonrpc":"2.0","method":"dev_generateBlock","params":[],"id":1}')
+
+    if echo "$result" | grep -q "error"; then
+        warn "Failed to advance block: $result"
+        return 1
+    fi
+    log "Block advanced successfully"
+}
+
+# Generate proofs for multiple blocks (0, 1, 2)
+generate_multi_block_proofs() {
+    log "=== MULTI-BLOCK MODE: Generating proofs for blocks 0, 1, 2 ==="
+
+    local katana_address=$(jq -r '.katana_tee.address' "$FIXTURES_DIR/deployment.json")
+
+    for block_num in 0 1 2; do
+        local block_dir="$PROJECT_ROOT/tests/fixtures/block_${block_num}"
+        mkdir -p "$block_dir"
+
+        log "--- Block $block_num ---"
+
+        # Fetch attestation
+        log "Fetching attestation for block $block_num..."
+        cargo run -p katana_tee_client --release --bin katana-tee -- \
+            fetch --rpc "$KATANA_RPC_URL" --output "$block_dir/attestation.json"
+
+        # Generate proof
+        log "Generating SP1 proof for block $block_num (this may take 1-2 minutes)..."
+        cargo run -p katana_tee_client --release --bin katana-tee -- \
+            pipeline \
+            --json "$block_dir/attestation.json" \
+            --starknet-rpc "$DEVNET_URL" \
+            --katana-tee "$katana_address" \
+            --prover network \
+            --proof-output "$block_dir/proof.json" \
+            --calldata-output "$block_dir/calldata.txt" \
+            --skip-cache \
+            --dry-run
+
+        log "Block $block_num artifacts saved to $block_dir"
+
+        # Advance to next block (except after last iteration)
+        if [[ $block_num -lt 2 ]]; then
+            advance_katana_block
+            sleep 2  # Brief pause for block propagation
+        fi
+    done
+
+    log "=== Multi-block proof generation complete ==="
+}
+
 submit_proof() {
     log "Submitting proof to katana_tee..."
 
@@ -429,6 +485,20 @@ case "$MODE" in
         log "  Fixtures saved for future --fixture runs"
         ;;
 
+    --multi-block)
+        log "=========================================="
+        log "  E2E TEST - MULTI-BLOCK MODE"
+        log "=========================================="
+        log ""
+        start_devnet
+        fetch_root_certs
+        deploy_contracts
+        generate_multi_block_proofs
+        log ""
+        log "MULTI-BLOCK FIXTURE GENERATION COMPLETE"
+        log "  Fixtures saved to tests/fixtures/block_N/"
+        ;;
+
     --fixture)
         log "=========================================="
         log "  E2E TEST - FIXTURE MODE"
@@ -451,10 +521,11 @@ case "$MODE" in
         ;;
 
     *)
-        echo "Usage: $0 [--live|--fixture]"
+        echo "Usage: $0 [--live|--fixture|--multi-block]"
         echo ""
-        echo "  --live     Fetch from TEE, generate real proof, save fixtures"
-        echo "  --fixture  Use saved fixtures (default)"
+        echo "  --live         Fetch from TEE, generate real proof, save fixtures"
+        echo "  --fixture      Use saved fixtures (default)"
+        echo "  --multi-block  Generate fixtures for blocks 0, 1, 2"
         exit 1
         ;;
 esac
