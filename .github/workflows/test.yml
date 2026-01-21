@@ -272,12 +272,13 @@ jobs:
           echo "$(pwd)/target/debug" >> $GITHUB_PATH
 
       - name: Run tests
-        if: github.event_name != 'pull_request'
+        if: github.event_name != 'pull_request' || matrix.os == 'macos'
         run: |
           cargo nextest run --all-features --workspace --exclude snos-integration-test --exclude db-compat-test --build-jobs 20
 
+      # Only run code coverage on Ubuntu (32 cores) - macOS is too slow for instrumented builds
       - name: Run tests w/ code coverage
-        if: github.event_name == 'pull_request'
+        if: github.event_name == 'pull_request' && matrix.os == 'ubuntu'
         run: |
           cargo llvm-cov nextest --no-report --all-features --workspace --exclude snos-integration-test --exclude db-compat-test --build-jobs 20
           cargo llvm-cov report --lcov --output-path lcov.info
