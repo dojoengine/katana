@@ -192,7 +192,7 @@ enum Commands {
         fixture_dir: PathBuf,
 
         /// Output Cairo file path
-        #[arg(short, long, default_value = "contracts/amd_tee_registry/tests/test_journal_decode_fixtures.cairo")]
+        #[arg(short, long, default_value = "contracts/amd_tee_registry/tests/test_journal_decode_from_fixtures/test_journal_decode_fixtures.cairo")]
         output: PathBuf,
     },
 }
