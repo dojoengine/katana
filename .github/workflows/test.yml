@@ -89,10 +89,18 @@ jobs:
 
   build-katana-binary:
     needs: [fmt, clippy, generate-test-artifacts]
-    runs-on: ubuntu-latest-32-cores
+    runs-on: ${{ matrix.runner }}
+    strategy:
+      matrix:
+        include:
+          - os: ubuntu
+            runner: ubuntu-latest-32-cores
+            container: ghcr.io/dojoengine/katana-dev:latest
+          - os: macos
+            runner: macos-latest
+            container: null
     if: github.event_name == 'push' || (github.event_name == 'pull_request' && github.event.pull_request.draft == false)
-    container:
-      image: ghcr.io/dojoengine/katana-dev:latest
+    container: ${{ matrix.container }}
     env:
       MLIR_SYS_190_PREFIX: /usr/lib/llvm-19/
       LLVM_SYS_191_PREFIX: /usr/lib/llvm-19/
@@ -106,8 +114,31 @@ jobs:
 
       - uses: Swatinem/rust-cache@v2
         with:
-          key: ci-${{ github.job }}
+          key: ci-${{ github.job }}-${{ matrix.os }}
           shared-key: katana-ci-cache
+
+      - name: Install LLVM 19 (macOS)
+        if: matrix.os == 'macos'
+        run: |
+          brew install llvm@19
+          echo "MLIR_SYS_190_PREFIX=$(brew --prefix llvm@19)" >> $GITHUB_ENV
+          echo "LLVM_SYS_191_PREFIX=$(brew --prefix llvm@19)" >> $GITHUB_ENV
+          echo "TABLEGEN_190_PREFIX=$(brew --prefix llvm@19)" >> $GITHUB_ENV
+
+      - name: Install zstd (macOS)
+        if: matrix.os == 'macos'
+        run: |
+          brew install zstd pkg-config
+          echo "PKG_CONFIG_PATH=$(brew --prefix zstd)/lib/pkgconfig:$PKG_CONFIG_PATH" >> $GITHUB_ENV
+          echo "LIBRARY_PATH=$(brew --prefix zstd)/lib:$LIBRARY_PATH" >> $GITHUB_ENV
+
+      - name: Build Explorer UI (macOS)
+        if: matrix.os == 'macos'
+        run: |
+          curl -fsSL https://bun.sh/install | bash
+          export BUN_INSTALL="$HOME/.bun"
+          export PATH="$BUN_INSTALL/bin:$PATH"
+          make build-explorer
 
       - name: Download contract artifacts
         uses: actions/download-artifact@v5
@@ -120,7 +151,7 @@ jobs:
       - name: Upload binary
         uses: actions/upload-artifact@v4
         with:
-          name: binary
+          name: binary-${{ matrix.os }}
           overwrite: true
           retention-days: 1
           if-no-files-found: error
@@ -158,11 +189,19 @@ jobs:
 
   test:
     needs: [fmt, clippy, generate-test-artifacts, build-katana-binary]
-    runs-on: ubuntu-latest-32-cores
-    timeout-minutes: 30
+    runs-on: ${{ matrix.runner }}
+    strategy:
+      matrix:
+        include:
+          - os: ubuntu
+            runner: ubuntu-latest-32-cores
+            container: ghcr.io/dojoengine/katana-dev:latest
+          - os: macos
+            runner: macos-latest
+            container: null
+    timeout-minutes: 90
     if: github.event_name == 'push' || (github.event_name == 'pull_request' && github.event.pull_request.draft == false)
-    container:
-      image: ghcr.io/dojoengine/katana-dev:latest
+    container: ${{ matrix.container }}
     env:
       MLIR_SYS_190_PREFIX: /usr/lib/llvm-19/
       LLVM_SYS_191_PREFIX: /usr/lib/llvm-19/
@@ -177,8 +216,44 @@ jobs:
 
       - uses: Swatinem/rust-cache@v2
         with:
-          key: ci-${{ github.job }}
+          key: ci-${{ github.job }}-${{ matrix.os }}
           shared-key: katana-ci-cache
+
+      - name: Install LLVM 19 (macOS)
+        if: matrix.os == 'macos'
+        run: |
+          brew install llvm@19
+          echo "MLIR_SYS_190_PREFIX=$(brew --prefix llvm@19)" >> $GITHUB_ENV
+          echo "LLVM_SYS_191_PREFIX=$(brew --prefix llvm@19)" >> $GITHUB_ENV
+          echo "TABLEGEN_190_PREFIX=$(brew --prefix llvm@19)" >> $GITHUB_ENV
+
+      - name: Install zstd and protobuf (macOS)
+        if: matrix.os == 'macos'
+        run: |
+          brew install zstd pkg-config protobuf
+          echo "PKG_CONFIG_PATH=$(brew --prefix zstd)/lib/pkgconfig:$PKG_CONFIG_PATH" >> $GITHUB_ENV
+          echo "LIBRARY_PATH=$(brew --prefix zstd)/lib:$LIBRARY_PATH" >> $GITHUB_ENV
+
+      # macOS runners do not include nextest/llvm-cov by default; Ubuntu uses the dev container.
+      - name: Install test tooling (macOS)
+        if: matrix.os == 'macos'
+        uses: taiki-e/install-action@v2
+        with:
+          tool: cargo-nextest,cargo-llvm-cov
+
+      # llvm-cov requires the llvm-tools component on macOS.
+      - name: Enable llvm-tools (macOS)
+        if: matrix.os == 'macos'
+        run: rustup component add llvm-tools-preview
+
+      # Build explorer UI on macOS for tests that compile with --all-features
+      - name: Build Explorer UI (macOS)
+        if: matrix.os == 'macos'
+        run: |
+          curl -fsSL https://bun.sh/install | bash
+          export BUN_INSTALL="$HOME/.bun"
+          export PATH="$BUN_INSTALL/bin:$PATH"
+          make build-explorer
 
       - name: Download test artifacts
         uses: actions/download-artifact@v5
@@ -188,21 +263,22 @@ jobs:
       - name: Download Katana binary
         uses: actions/download-artifact@v5
         with:
-          name: binary
+          name: binary-${{ matrix.os }}
+          path: target/debug
 
       - name: Add binary to PATH
         run: |
-          chmod +x katana
-          export PATH="$(pwd):$GITHUB_PATH"
-          echo $PATH > $GITHUB_PATH
+          chmod +x target/debug/katana
+          echo "$(pwd)/target/debug" >> $GITHUB_PATH
 
       - name: Run tests
-        if: github.event_name != 'pull_request'
+        if: github.event_name != 'pull_request' || matrix.os == 'macos'
         run: |
           cargo nextest run --all-features --workspace --exclude snos-integration-test --exclude db-compat-test --build-jobs 20
 
+      # Only run code coverage on Ubuntu (32 cores) - macOS is too slow for instrumented builds
       - name: Run tests w/ code coverage
-        if: github.event_name == 'pull_request'
+        if: github.event_name == 'pull_request' && matrix.os == 'ubuntu'
         run: |
           cargo llvm-cov nextest --no-report --all-features --workspace --exclude snos-integration-test --exclude db-compat-test --build-jobs 20
           cargo llvm-cov report --lcov --output-path lcov.info
@@ -272,17 +348,18 @@ jobs:
       - name: Download Katana binary
         uses: actions/download-artifact@v5
         with:
-          name: binary
+          name: binary-ubuntu
+          path: target/debug
 
       - name: Setup Katana binary
-        run: chmod +x ./katana
+        run: chmod +x ./target/debug/katana
 
       # chrome executable required by puppeteer
       - uses: browser-actions/setup-chrome@v1
 
       - name: Run reverse proxy test
         run: |
-          KATANA_BIN=./katana ./scripts/reverse-proxy-test.sh
+          KATANA_BIN=./target/debug/katana ./scripts/reverse-proxy-test.sh
 
   dojo-integration-test:
     needs: [fmt, clippy, build-katana-binary]
@@ -310,13 +387,14 @@ jobs:
       - name: Download Katana binary
         uses: actions/download-artifact@v5
         with:
-          name: binary
+          name: binary-ubuntu
+          path: target/debug
 
       - name: Setup Katana binary
-        run: chmod +x ./katana
+        run: chmod +x ./target/debug/katana
 
       - name: Start Katana
-        run: ./katana > katana.log 2>&1 &
+        run: ./target/debug/katana > katana.log 2>&1 &
 
       - name: Checkout Dojo repository
         uses: actions/checkout@v3
@@ -363,7 +441,8 @@ jobs:
       - name: Download Katana binary
         uses: actions/download-artifact@v5
         with:
-          name: binary
+          name: binary-ubuntu
+          path: target/debug
 
       - name: Download test artifacts
         uses: actions/download-artifact@v5
@@ -371,10 +450,10 @@ jobs:
           name: test-artifacts
 
       - name: Setup Katana binary
-        run: chmod +x ./katana
+        run: chmod +x ./target/debug/katana
 
       - name: Generate test artifacts
         run: make db-compat-artifacts
 
       - name: Run database compatibility check
-        run: KATANA_BIN=./katana cargo run -p db-compat-test
+        run: KATANA_BIN=./target/debug/katana cargo run -p db-compat-test
