@@ -184,6 +184,17 @@ enum Commands {
         #[arg(long)]
         validate: Option<PathBuf>,
     },
+
+    /// Generate Cairo test fixtures from proof files
+    GenerateCairoFixtures {
+        /// Directory containing block_N subdirectories with proof.json files
+        #[arg(long, default_value = "tests/fixtures")]
+        fixture_dir: PathBuf,
+
+        /// Output Cairo file path
+        #[arg(short, long, default_value = "contracts/amd_tee_registry/tests/test_journal_decode_fixtures.cairo")]
+        output: PathBuf,
+    },
 }
 
 #[tokio::main]
@@ -266,6 +277,9 @@ async fn main() -> anyhow::Result<()> {
         Commands::Info { file } => cmd_info(&file),
         Commands::FetchRootCerts { processors, output, validate } => {
             cmd_fetch_root_certs(&processors, output, validate)
+        }
+        Commands::GenerateCairoFixtures { fixture_dir, output } => {
+            cmd_generate_cairo_fixtures(&fixture_dir, &output)
         }
     }
 }
@@ -655,6 +669,19 @@ fn cmd_fetch_root_certs(
         println!("\n{}", json_output);
     }
 
+    Ok(())
+}
+
+fn cmd_generate_cairo_fixtures(fixture_dir: &PathBuf, output: &PathBuf) -> anyhow::Result<()> {
+    use amd_tee_registry_client::generate_cairo_fixtures;
+
+    println!("Generating Cairo test fixtures...");
+    println!("  Fixture dir: {}", fixture_dir.display());
+    println!("  Output: {}", output.display());
+
+    generate_cairo_fixtures(fixture_dir, output)?;
+
+    println!("Cairo fixtures generated successfully!");
     Ok(())
 }
 
