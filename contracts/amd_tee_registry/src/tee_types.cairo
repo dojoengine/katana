@@ -84,7 +84,7 @@ pub struct VerifierInput {
 }
 
 /// Journal output from the verifier
-#[derive(Drop, Debug)]
+#[derive(Drop, Debug, PartialEq)]
 pub struct VerifierJournal {
     /// Verification result
     pub result: VerificationResult,
