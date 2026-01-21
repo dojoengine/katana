@@ -5,6 +5,9 @@ coverage/
 profile/
 .env
 
-# Claude agent local config / generated artifacts
-.claude/settings.local.json
-.claude/**/target/
+# Claude agent (internal tooling, not for delivery)
+.claude/
+
+# Lock files (client generates their own)
+Cargo.lock
+Scarb.lock

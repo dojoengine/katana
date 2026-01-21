@@ -44,47 +44,6 @@ proof-info:
 	cargo run -p katana_tee_client --release --bin katana-tee -- info proof_output.json
 
 # =============================================================================
-# Example Commands (direct example execution)
-# =============================================================================
-
-# Fetch attestation example
-example-fetch:
-	@if [ -f .env ]; then set -a && . ./.env && set +a; fi && \
-	cargo run --example fetch_attestation -p katana_tee_client --release -- --rpc $(RPC_URL)
-
-# Execute proof example (mock mode)
-example-execute:
-	@if [ -f .env ]; then set -a && . ./.env && set +a; fi && \
-	cargo run --example execute_proof -p katana_tee_client --release -- --rpc $(RPC_URL)
-
-# Generate proof from RPC via network
-example-prove-network:
-	@if [ -f .env ]; then set -a && . ./.env && set +a; fi && \
-	SP1_PROVER=network RUST_LOG=info cargo run --example generate_proof -p katana_tee_client --release -- --rpc $(RPC_URL)
-
-# Generate proof from JSON file via network
-example-prove-json:
-	@if [ -f .env ]; then set -a && . ./.env && set +a; fi && \
-	SP1_PROVER=network RUST_LOG=info cargo run --example generate_proof -p katana_tee_client --release -- --json $(JSON_FILE)
-
-# =============================================================================
-# Legacy targets (for backward compatibility)
-# =============================================================================
-
-# Local CPU proving (slower, no network needed)
-generate_proof:
-	RUSTFLAGS="-C target-cpu=native" SP1_PROVER=cpu RUST_LOG=info cargo run --example generate_proof -p katana_tee_client --release
-
-# Network proving using SP1 Prover Network
-generate_proof_network:
-	@if [ -f .env ]; then set -a && . ./.env && set +a; fi && \
-	SP1_PROVER=network RUST_LOG=info cargo run --example generate_proof -p katana_tee_client --release
-
-# Mock proving for testing
-generate_proof_mock:
-	SP1_PROVER=mock RUST_LOG=info cargo run --example generate_proof -p katana_tee_client --release
-
-# =============================================================================
 # TEE VM Management
 # =============================================================================
 
@@ -155,18 +114,37 @@ help:
 	@echo ""
 	@echo "Variables:"
 	@echo "  RPC_URL=<url>       - Override RPC endpoint"
-	@echo "  JSON_FILE=<path>    - JSON file for example-prove-json"
 	@echo ""
 	@echo "Example:"
 	@echo "  make prove RPC_URL=http://localhost:5050"
 
 .PHONY: build fetch fetch-save execute prove prove-mock proof-info \
-        example-fetch example-execute example-prove-network example-prove-json \
-        generate_proof generate_proof_network generate_proof_mock \
         tee-start tee-stop tee-status tee-test \
-        pipeline-test pipeline-prove e2e help
+        pipeline-test pipeline-prove help \
+        devnet-mainnet e2e-test e2e-test-live fetch-root-certs
 
 
-# Source env and start devnet:
-e2e:
-	@set -a && . ./.env && set +a && starknet-devnet --fork-network $$STARKNET_RPC_URL_SEPOLIA --seed $$DEVNET_SEED --port $$DEVNET_PORT
+# =============================================================================
+# E2E Tests
+# =============================================================================
+
+# Start devnet forking mainnet (Garaga verifier available)
+devnet-mainnet:
+	@set -a && . ./.env && set +a && \
+	starknet-devnet --fork-network $$STARKNET_RPC_URL_MAINNET --seed $$DEVNET_SEED --port $$DEVNET_PORT
+
+# Run E2E tests with saved fixtures (fast, no TEE/prover needed)
+e2e-test:
+	./tests/e2e/run_e2e_tests.sh --fixture
+
+# Run E2E tests live (requires TEE access + SP1 prover network)
+e2e-test-live:
+	./tests/e2e/run_e2e_tests.sh --live
+
+# Fetch AMD root certificates from KDS
+fetch-root-certs:
+	cargo run -p katana_tee_client --release --bin katana-tee -- fetch-root-certs \
+		--processors milan,genoa \
+		--validate crates/amd-sev-snp-attestation-sdk/contracts/test/assets \
+		--output tests/e2e/fixtures/root_certs.json
+
