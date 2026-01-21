@@ -46,18 +46,13 @@ clap = { version = "4", features = ["derive"] }
 tracing-subscriber = { workspace = true }
 
 [dev-dependencies]
+amd-sev-snp-attestation-verifier = { workspace = true }
+x509-verifier-rust-crypto = { workspace = true }
+sha2 = "0.10"
 
 [[example]]
-name = "generate_proof"
-path = "examples/generate_proof.rs"
-
-[[example]]
-name = "fetch_attestation"
-path = "examples/fetch_attestation.rs"
-
-[[example]]
-name = "execute_proof"
-path = "examples/execute_proof.rs"
+name = "debug_attestation"
+path = "examples/debug_attestation.rs"
 
 [[bin]]
 name = "katana-tee"

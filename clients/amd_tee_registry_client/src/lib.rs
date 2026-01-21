@@ -37,6 +37,7 @@
 pub mod calldata;
 pub mod config;
 pub mod error;
+pub mod kds;
 pub mod prover;
 pub mod report;
 pub mod starknet;
@@ -44,6 +45,7 @@ pub mod starknet;
 pub use calldata::StarknetCalldata;
 pub use config::ProverConfig;
 pub use error::Error;
+pub use kds::{KdsClient, RootCertInfo, parse_processor_type};
 pub use prover::{AmdAttestationProver, OnchainProof};
 pub use report::ATTESTATION_REPORT_SIZE;
 pub use starknet::StarknetRegistryClient;

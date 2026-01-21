@@ -74,10 +74,11 @@ pub struct TeeQuoteResponse {
 
 impl TeeQuoteResponse {
     /// Load a TeeQuoteResponse from a JSON file.
+    ///
+    /// Accepts both raw TeeQuoteResponse JSON and JSON-RPC wrapped responses.
     pub fn from_json_file(path: &std::path::Path) -> Result<Self, Error> {
-        let file = std::fs::File::open(path).map_err(|e| Error::Io(e.to_string()))?;
-        let wrapper: JsonRpcResponse = serde_json::from_reader(file)?;
-        Ok(wrapper.result)
+        let content = std::fs::read_to_string(path).map_err(|e| Error::Io(e.to_string()))?;
+        Self::from_json_str(&content)
     }
 
     /// Load a TeeQuoteResponse from a JSON string.

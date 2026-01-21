@@ -33,8 +33,13 @@ thiserror = { workspace = true }
 # Logging
 tracing = { workspace = true }
 
-[dev-dependencies]
+# Cryptographic hashing
+sha2 = "0.10"
+
+# Serialization
 serde = { workspace = true }
 serde_json = { workspace = true }
 hex = { workspace = true }
+
+[dev-dependencies]
 anyhow = { workspace = true }

@@ -134,6 +134,10 @@ enum Commands {
         #[arg(long)]
         skip_time_validity_check: bool,
 
+        /// Skip on-chain cache lookup for trusted cert prefix length (use default value 2)
+        #[arg(long)]
+        skip_cache: bool,
+
         /// Output file for the proof JSON
         #[arg(long, default_value = "proof_output.json")]
         proof_output: PathBuf,
@@ -164,6 +168,21 @@ enum Commands {
         /// Path to the proof JSON file
         #[arg(default_value = "proof_output.json")]
         file: PathBuf,
+    },
+
+    /// Fetch AMD root certificates from KDS and output their hashes
+    FetchRootCerts {
+        /// Processor types to fetch (comma-separated: milan,genoa,bergamo,siena)
+        #[arg(long, default_value = "milan,genoa")]
+        processors: String,
+
+        /// Output JSON file path (prints to stdout if not specified)
+        #[arg(short, long)]
+        output: Option<PathBuf>,
+
+        /// Directory containing .der files to validate against
+        #[arg(long)]
+        validate: Option<PathBuf>,
     },
 }
 
@@ -216,6 +235,7 @@ async fn main() -> anyhow::Result<()> {
             sp1_private_key,
             sp1_rpc_url,
             skip_time_validity_check,
+            skip_cache,
             proof_output,
             calldata_output,
             account_address,
@@ -233,6 +253,7 @@ async fn main() -> anyhow::Result<()> {
                 sp1_private_key,
                 sp1_rpc_url,
                 skip_time_validity_check,
+                skip_cache,
                 &proof_output,
                 calldata_output,
                 account_address,
@@ -243,6 +264,9 @@ async fn main() -> anyhow::Result<()> {
             .await
         }
         Commands::Info { file } => cmd_info(&file),
+        Commands::FetchRootCerts { processors, output, validate } => {
+            cmd_fetch_root_certs(&processors, output, validate)
+        }
     }
 }
 
@@ -416,6 +440,7 @@ async fn cmd_pipeline(
     sp1_private_key: Option<String>,
     sp1_rpc_url: Option<String>,
     skip_time_validity_check: bool,
+    skip_cache: bool,
     proof_output: &PathBuf,
     calldata_output: Option<PathBuf>,
     account_address: Option<String>,
@@ -458,13 +483,22 @@ async fn cmd_pipeline(
     println!("🏛️  Registry: 0x{:x}", registry_addr);
     println!("🏛️  KatanaTee: 0x{:x}", katana_client.contract_address());
 
-    let registry_client = StarknetRegistryClient::new(&starknet_rpc, registry_addr);
-
-    println!("🔄 Proving (with on-chain cache)...");
-    let start = std::time::Instant::now();
-    let proof = generate_sp1_proof_with_cache(attestation, config, &registry_client).await?;
-    let elapsed = start.elapsed();
-    println!("✅ Proof generated in {:.2?}", elapsed);
+    let proof = if skip_cache {
+        println!("🔄 Proving (skipping on-chain cache)...");
+        let start = std::time::Instant::now();
+        let proof = generate_sp1_proof_with_config(attestation, config).await?;
+        let elapsed = start.elapsed();
+        println!("✅ Proof generated in {:.2?}", elapsed);
+        proof
+    } else {
+        let registry_client = StarknetRegistryClient::new(&starknet_rpc, registry_addr);
+        println!("🔄 Proving (with on-chain cache)...");
+        let start = std::time::Instant::now();
+        let proof = generate_sp1_proof_with_cache(attestation, config, &registry_client).await?;
+        let elapsed = start.elapsed();
+        println!("✅ Proof generated in {:.2?}", elapsed);
+        proof
+    };
 
     // Save proof JSON
     let proof_json = proof.encode_json()?;
@@ -559,6 +593,69 @@ fn resolve_prover_config(
     };
 
     ProverConfig::new(private_key, rpc_url, skip)
+}
+
+fn cmd_fetch_root_certs(
+    processors: &str,
+    output: Option<PathBuf>,
+    validate: Option<PathBuf>,
+) -> anyhow::Result<()> {
+    use amd_tee_registry_client::{KdsClient, parse_processor_type};
+
+    let kds = KdsClient::new();
+    let mut results = serde_json::Map::new();
+
+    for proc_str in processors.split(',') {
+        let proc_str = proc_str.trim();
+        let proc_type = match parse_processor_type(proc_str) {
+            Some(p) => p,
+            None => {
+                eprintln!("Unknown processor type: {}", proc_str);
+                continue;
+            }
+        };
+
+        println!("Fetching cert chain for {}...", proc_str);
+
+        match kds.fetch_root_cert_hash(proc_type) {
+            Ok(info) => {
+                println!("  ARK hash: {}", info.ark_hash);
+
+                // Validate against local .der file if provided
+                if let Some(validate_dir) = &validate {
+                    let der_path = validate_dir.join(format!("ark-{}.der", proc_str.to_lowercase()));
+                    if der_path.exists() {
+                        match kds.validate_against_file(proc_type, &der_path) {
+                            Ok(true) => println!("  Matches local {}", der_path.display()),
+                            Ok(false) => eprintln!("  MISMATCH with local {}!", der_path.display()),
+                            Err(e) => eprintln!("  Validation error: {}", e),
+                        }
+                    }
+                }
+
+                let mut entry = serde_json::Map::new();
+                entry.insert("ark_hash".to_string(), serde_json::Value::String(info.ark_hash));
+                entry.insert("source".to_string(), serde_json::Value::String(info.source));
+                results.insert(proc_str.to_lowercase(), serde_json::Value::Object(entry));
+            }
+            Err(e) => {
+                eprintln!("  Error fetching {}: {}", proc_str, e);
+            }
+        }
+    }
+
+    let json_output = serde_json::to_string_pretty(&results)
+        .expect("Failed to serialize JSON");
+
+    if let Some(output_path) = output {
+        std::fs::write(&output_path, &json_output)
+            .expect("Failed to write output file");
+        println!("\nSaved to {}", output_path.display());
+    } else {
+        println!("\n{}", json_output);
+    }
+
+    Ok(())
 }
 
 fn felt_from_hex(value: &str) -> anyhow::Result<Felt> {

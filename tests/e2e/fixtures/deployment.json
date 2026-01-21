@@ -1,0 +1,17 @@
+{
+  "network": "devnet-mainnet-fork",
+  "timestamp": "2026-01-21T03:19:21+01:00",
+  "amd_tee_registry": {
+    "class_hash": "0x03f1aec5fbfd017a8ad77b42c5c30dca287db37ef532dfa61dee36c409db4322",
+    "address": "0x035b54c33882336e2e7a330b001f489a552714b55984076f3918af832721d023"
+  },
+  "katana_tee": {
+    "class_hash": "0x0675f90d6c2aaa990142b102bb9c5ead627c1ff481b9e1b98ed3076025487352",
+    "address": "0x00f7dcc9d02910f153fbd16d1a43ed57095cde2b9f994ab704933e2a8ea32f52"
+  },
+  "config": {
+    "garaga_verifier_class_hash": "0x4b22453df42037dd61390736454e8390910adfbbc1fa9d85613e6f375f4de22",
+    "sp1_program_id": "0x00d2342d2400bed28302507269281dcb2c621bae91a0626796ce637f01c928d8",
+    "max_time_diff": 86400
+  }
+}

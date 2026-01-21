@@ -26,9 +26,15 @@ pub fn u256_span_to_u32_array(words: Span<u256>) -> Array<u32> {
 }
 
 /// Decode the Solidity-ABI `VerifierJournal` from SP1 public inputs.
+///
+/// Note: The journal is ABI-encoded as a struct with dynamic fields, which means
+/// it starts with a 32-byte offset pointer (0x20) before the actual data.
+/// We skip this offset and decode starting from the actual struct data.
 pub fn decode_verifier_journal(public_inputs: Span<u256>) -> VerifierJournal {
     let words_u32 = u256_span_to_u32_array(public_inputs);
-    decode_verifier_journal_from_u32(words_u32.span())
+    // Skip the first 8 u32 words (32 bytes) which is the ABI offset pointer
+    let data_start = 8_usize;
+    decode_verifier_journal_from_u32(words_u32.span().slice(data_start, words_u32.len() - data_start))
 }
 
 fn decode_verifier_journal_from_u32(words: Span<u32>) -> VerifierJournal {

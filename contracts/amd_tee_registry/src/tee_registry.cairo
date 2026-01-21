@@ -73,10 +73,17 @@ pub mod AMDTEERegistry {
         fn verify_sp1_proof(ref self: ContractState, sp1_proof: Array<felt252>) -> Option<Span<u256>> {
             // Step 1: Call the Garaga SP1 Verifier to validate the proof cryptographically
             // This verifies the Groth16 proof structure and cryptographic validity
+            //
+            // For library_call_syscall, the calldata must be the ABI-serialized parameters.
+            // The Garaga verifier expects `full_proof_with_hints: Span<felt252>`, which
+            // serializes as [length, elem0, elem1, ...]. We must serialize the array
+            // rather than just passing sp1_proof.span() which lacks the length prefix.
+            let mut calldata = ArrayTrait::new();
+            Serde::serialize(@sp1_proof, ref calldata);
             let mut result_serialized = library_call_syscall(
                 self.verifier_class_hash.read(),
                 selector!("verify_sp1_groth16_proof_bn254"),
-                sp1_proof.span(),
+                calldata.span(),
             )
                 .unwrap_syscall();
 
