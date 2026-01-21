@@ -8,6 +8,9 @@ profile/
 # Claude agent (internal tooling, not for delivery)
 .claude/
 
+# Git worktrees
+.worktrees/
+
 # Lock files (client generates their own)
 Cargo.lock
 Scarb.lock
