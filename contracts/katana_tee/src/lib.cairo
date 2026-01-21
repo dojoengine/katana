@@ -1,4 +1,4 @@
-mod katana_report_utils;
+pub mod katana_report_utils;
 use starknet::ContractAddress;
 
 /// Interface for the Katana TEE contract.
