@@ -15,6 +15,8 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
+        with:
+          submodules: recursive
       - uses: dtolnay/rust-toolchain@stable
         with:
           components: rustfmt
@@ -25,6 +27,8 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
+        with:
+          submodules: recursive
       - uses: dtolnay/rust-toolchain@stable
       - uses: Swatinem/rust-cache@v2
       - run: cargo check --all-targets
@@ -34,6 +38,8 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
+        with:
+          submodules: recursive
       - uses: dtolnay/rust-toolchain@stable
       - uses: Swatinem/rust-cache@v2
       - run: cargo test --all-targets
@@ -51,7 +57,7 @@ jobs:
           starknet-foundry-version: "0.35.1"
       - name: Run amd_tee_registry tests
         working-directory: contracts/amd_tee_registry
-        run: snforge test --filter test_journal_decode_from_fixtures
+        run: snforge test test_journal_decode_from_fixtures
       - name: Build katana_tee
         working-directory: contracts/katana_tee
         run: scarb build

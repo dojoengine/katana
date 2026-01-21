@@ -3,11 +3,13 @@
 //! A command-line interface for interacting with Katana TEE attestations
 //! and generating SP1 proofs.
 
+use amd_tee_registry_client::{StarknetCalldata, StarknetRegistryClient};
 use clap::{Parser, Subcommand};
 use katana_tee_client::prover::{generate_sp1_proof_with_cache, generate_sp1_proof_with_config};
 use katana_tee_client::starknet::{build_single_owner_account, KatanaTeeStarknetClient};
-use katana_tee_client::{prover::verify_proof_structure, KatanaRpcClient, ProverConfig, TeeQuoteResponse};
-use amd_tee_registry_client::{StarknetCalldata, StarknetRegistryClient};
+use katana_tee_client::{
+    prover::verify_proof_structure, KatanaRpcClient, ProverConfig, TeeQuoteResponse,
+};
 use starknet_rust_accounts::ExecutionEncoding;
 use starknet_rust_core::types::Felt;
 use std::path::PathBuf;
@@ -192,7 +194,11 @@ enum Commands {
         fixture_dir: PathBuf,
 
         /// Output Cairo file path
-        #[arg(short, long, default_value = "contracts/amd_tee_registry/tests/test_journal_decode_from_fixtures/test_journal_decode_fixtures.cairo")]
+        #[arg(
+            short,
+            long,
+            default_value = "contracts/amd_tee_registry/tests/test_journal_decode_from_fixtures/test_journal_decode_fixtures.cairo"
+        )]
         output: PathBuf,
     },
 }
@@ -275,12 +281,15 @@ async fn main() -> anyhow::Result<()> {
             .await
         }
         Commands::Info { file } => cmd_info(&file),
-        Commands::FetchRootCerts { processors, output, validate } => {
-            cmd_fetch_root_certs(&processors, output, validate)
-        }
-        Commands::GenerateCairoFixtures { fixture_dir, output } => {
-            cmd_generate_cairo_fixtures(&fixture_dir, &output)
-        }
+        Commands::FetchRootCerts {
+            processors,
+            output,
+            validate,
+        } => cmd_fetch_root_certs(&processors, output, validate),
+        Commands::GenerateCairoFixtures {
+            fixture_dir,
+            output,
+        } => cmd_generate_cairo_fixtures(&fixture_dir, &output),
     }
 }
 
@@ -539,7 +548,9 @@ async fn cmd_pipeline(
     }
 
     let account_address = account_address.ok_or_else(|| {
-        anyhow::anyhow!("--account-address (or STARKNET_ACCOUNT_ADDRESS) is required unless --dry-run")
+        anyhow::anyhow!(
+            "--account-address (or STARKNET_ACCOUNT_ADDRESS) is required unless --dry-run"
+        )
     })?;
     let account_private_key = account_private_key.ok_or_else(|| {
         anyhow::anyhow!(
@@ -614,7 +625,7 @@ fn cmd_fetch_root_certs(
     output: Option<PathBuf>,
     validate: Option<PathBuf>,
 ) -> anyhow::Result<()> {
-    use amd_tee_registry_client::{KdsClient, parse_processor_type};
+    use amd_tee_registry_client::{parse_processor_type, KdsClient};
 
     let kds = KdsClient::new();
     let mut results = serde_json::Map::new();
@@ -637,7 +648,8 @@ fn cmd_fetch_root_certs(
 
                 // Validate against local .der file if provided
                 if let Some(validate_dir) = &validate {
-                    let der_path = validate_dir.join(format!("ark-{}.der", proc_str.to_lowercase()));
+                    let der_path =
+                        validate_dir.join(format!("ark-{}.der", proc_str.to_lowercase()));
                     if der_path.exists() {
                         match kds.validate_against_file(proc_type, &der_path) {
                             Ok(true) => println!("  Matches local {}", der_path.display()),
@@ -648,7 +660,10 @@ fn cmd_fetch_root_certs(
                 }
 
                 let mut entry = serde_json::Map::new();
-                entry.insert("ark_hash".to_string(), serde_json::Value::String(info.ark_hash));
+                entry.insert(
+                    "ark_hash".to_string(),
+                    serde_json::Value::String(info.ark_hash),
+                );
                 entry.insert("source".to_string(), serde_json::Value::String(info.source));
                 results.insert(proc_str.to_lowercase(), serde_json::Value::Object(entry));
             }
@@ -658,12 +673,10 @@ fn cmd_fetch_root_certs(
         }
     }
 
-    let json_output = serde_json::to_string_pretty(&results)
-        .expect("Failed to serialize JSON");
+    let json_output = serde_json::to_string_pretty(&results).expect("Failed to serialize JSON");
 
     if let Some(output_path) = output {
-        std::fs::write(&output_path, &json_output)
-            .expect("Failed to write output file");
+        std::fs::write(&output_path, &json_output).expect("Failed to write output file");
         println!("\nSaved to {}", output_path.display());
     } else {
         println!("\n{}", json_output);

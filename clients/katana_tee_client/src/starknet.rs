@@ -134,4 +134,3 @@ impl KatanaTeeStarknetClient {
         Ok(res.transaction_hash)
     }
 }
-

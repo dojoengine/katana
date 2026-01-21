@@ -20,8 +20,8 @@ use crate::{Error, TeeQuoteResponse};
 use tracing::info;
 
 // Re-export from amd_tee_registry_client for convenience
-pub use amd_tee_registry_client::{AmdAttestationProver, OnchainProof, ProverConfig};
 use amd_tee_registry_client::StarknetRegistryClient;
+pub use amd_tee_registry_client::{AmdAttestationProver, OnchainProof, ProverConfig};
 
 /// Generate an SP1 Groth16 proof from a Katana TEE attestation quote.
 ///

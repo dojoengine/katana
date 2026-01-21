@@ -67,9 +67,7 @@ impl StarknetRegistryClient {
 
         let len = felt_to_u64(&result[0])?;
         if len != 1 {
-            return Err(Error::Starknet(format!(
-                "Unexpected result length: {len}"
-            )));
+            return Err(Error::Starknet(format!("Unexpected result length: {len}")));
         }
         if result.len() < 2 {
             return Err(Error::Starknet("Missing prefix length".to_string()));

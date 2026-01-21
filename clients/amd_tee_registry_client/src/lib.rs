@@ -34,6 +34,7 @@
 //! - `NETWORK_PRIVATE_KEY`: Private key for SP1 Prover Network
 //! - `SKIP_TIME_VALIDITY_CHECK`: Skip certificate time validation
 
+pub mod cairo_fixtures;
 pub mod calldata;
 pub mod config;
 pub mod error;
@@ -41,16 +42,15 @@ pub mod kds;
 pub mod prover;
 pub mod report;
 pub mod starknet;
-pub mod cairo_fixtures;
 
+pub use cairo_fixtures::generate_cairo_fixtures;
 pub use calldata::StarknetCalldata;
 pub use config::ProverConfig;
 pub use error::Error;
-pub use kds::{KdsClient, RootCertInfo, parse_processor_type};
+pub use kds::{parse_processor_type, KdsClient, RootCertInfo};
 pub use prover::{AmdAttestationProver, OnchainProof};
 pub use report::ATTESTATION_REPORT_SIZE;
 pub use starknet::StarknetRegistryClient;
-pub use cairo_fixtures::generate_cairo_fixtures;
 
 // Re-export BigUint for users who need raw calldata values
 pub use num_bigint::BigUint;

@@ -11,7 +11,9 @@ fn safe_slice(data: &[u8], start: usize, end: usize) -> Result<&[u8], Error> {
     if end > data.len() || start > end {
         return Err(Error::Calldata(format!(
             "Slice out of bounds: start={}, end={}, len={}",
-            start, end, data.len()
+            start,
+            end,
+            data.len()
         )));
     }
     Ok(&data[start..end])
@@ -59,7 +61,11 @@ pub fn decode_journal_from_proof(proof: &OnchainProof) -> Result<DecodedJournal,
     let raw_report_len_bytes =
         u64::from_be_bytes(raw_report_len_slice.try_into().unwrap()) as usize;
     let raw_report_start = raw_report_offset + 32;
-    let raw_report_bytes = safe_slice(data, raw_report_start, raw_report_start + raw_report_len_bytes)?;
+    let raw_report_bytes = safe_slice(
+        data,
+        raw_report_start,
+        raw_report_start + raw_report_len_bytes,
+    )?;
 
     // Convert to u32 array (little-endian as stored in attestation report)
     let mut raw_report = Vec::with_capacity(raw_report_len_bytes / 4);
@@ -80,7 +86,8 @@ pub fn decode_journal_from_proof(proof: &OnchainProof) -> Result<DecodedJournal,
     }
 
     // Parse cert_serials array (array of uint160, but stored as bytes32)
-    let cert_serials_len_slice = safe_slice(data, cert_serials_offset + 24, cert_serials_offset + 32)?;
+    let cert_serials_len_slice =
+        safe_slice(data, cert_serials_offset + 24, cert_serials_offset + 32)?;
     let cert_serials_len = u64::from_be_bytes(cert_serials_len_slice.try_into().unwrap()) as usize;
     let mut cert_serials = Vec::with_capacity(cert_serials_len);
     for i in 0..cert_serials_len {
@@ -152,11 +159,19 @@ fn generate_block_fixture(block_num: usize, proof: &OnchainProof) -> Result<Stri
         1 => "VerificationResult::RootCertNotTrusted",
         2 => "VerificationResult::IntermediateCertsNotTrusted",
         3 => "VerificationResult::InvalidTimestamp",
-        _ => return Err(Error::Calldata(format!("Unknown result: {}", journal.result))),
+        _ => {
+            return Err(Error::Calldata(format!(
+                "Unknown result: {}",
+                journal.result
+            )))
+        }
     };
 
     output.push_str(&format!("    let result = {};\n", result_variant));
-    output.push_str(&format!("    let timestamp: u64 = {};\n", journal.timestamp));
+    output.push_str(&format!(
+        "    let timestamp: u64 = {};\n",
+        journal.timestamp
+    ));
     output.push_str(&format!(
         "    let processor_model: u8 = {};\n",
         journal.processor_model
@@ -212,10 +227,7 @@ fn generate_block_fixture(block_num: usize, proof: &OnchainProof) -> Result<Stri
 }
 
 /// Generate complete Cairo test fixtures file from proof files.
-pub fn generate_cairo_fixtures(
-    fixture_dir: &Path,
-    output_path: &Path,
-) -> Result<(), Error> {
+pub fn generate_cairo_fixtures(fixture_dir: &Path, output_path: &Path) -> Result<(), Error> {
     let mut output = String::new();
 
     // File header
@@ -234,8 +246,9 @@ pub fn generate_cairo_fixtures(
             )));
         }
 
-        let proof_data = std::fs::read(&proof_path)
-            .map_err(|e| Error::Calldata(format!("Failed to read {}: {}", proof_path.display(), e)))?;
+        let proof_data = std::fs::read(&proof_path).map_err(|e| {
+            Error::Calldata(format!("Failed to read {}: {}", proof_path.display(), e))
+        })?;
 
         let proof = OnchainProof::decode_json(&proof_data)
             .map_err(|e| Error::Calldata(format!("Failed to parse proof: {}", e)))?;
