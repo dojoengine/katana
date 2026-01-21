@@ -13,7 +13,6 @@ profile/
 
 # Lock files (client generates their own)
 Cargo.lock
-Scarb.lock
 
 # Generated Cairo test fixtures (regenerate with: katana-tee generate-cairo-fixtures)
 # Uncomment to track fixtures in git:
