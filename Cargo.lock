@@ -6565,6 +6565,7 @@ name = "katana-paymaster"
 version = "1.7.0"
 dependencies = [
  "anyhow",
+ "async-trait",
  "clap",
  "paymaster-prices",
  "paymaster-relayer",
