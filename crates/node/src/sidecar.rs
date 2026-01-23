@@ -1,8 +1,7 @@
-use std::env;
-use std::fs;
 use std::path::{Path, PathBuf};
 use std::process::Stdio;
 use std::time::{Duration, Instant, SystemTime, UNIX_EPOCH};
+use std::{env, fs};
 
 use anyhow::{anyhow, Context, Result};
 use ark_ff::PrimeField;
