@@ -63,6 +63,17 @@ use x509_verifier_rust_crypto::CertChain;
 // Re-export OnchainProof for convenience
 pub use amd_sev_snp_attestation_prover::OnchainProof;
 
+/// Proof result with cache metadata for transparency
+#[derive(Debug)]
+pub struct ProofWithCacheInfo {
+    /// The generated SP1 proof
+    pub proof: OnchainProof,
+    /// How many certs were trusted on-chain at proof time
+    pub trusted_prefix_len: u8,
+    /// Certificate chain digests [root, ask, vcek]
+    pub cert_digests: Vec<[u8; 32]>,
+}
+
 /// Trait for SP1 proof generation.
 ///
 /// This trait enables mocking the SP1 prover in tests.
