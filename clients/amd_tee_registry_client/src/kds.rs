@@ -17,6 +17,14 @@ pub struct RootCertInfo {
     pub source: String,
 }
 
+/// Trait for fetching AMD root certificates.
+///
+/// This trait enables mocking the KDS client in tests.
+pub trait KdsFetcher: Send + Sync {
+    /// Fetch root certificate hash for a processor type.
+    fn fetch_root_cert_hash(&self, processor: ProcessorType) -> Result<RootCertInfo, crate::Error>;
+}
+
 /// AMD KDS client for fetching root certificates
 pub struct KdsClient {
     inner: SdkKDS,
@@ -105,6 +113,13 @@ impl KdsClient {
 impl Default for KdsClient {
     fn default() -> Self {
         Self::new()
+    }
+}
+
+impl KdsFetcher for KdsClient {
+    fn fetch_root_cert_hash(&self, processor: ProcessorType) -> Result<RootCertInfo, crate::Error> {
+        // Delegate to the existing method
+        KdsClient::fetch_root_cert_hash(self, processor)
     }
 }
 
