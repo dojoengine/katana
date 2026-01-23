@@ -224,11 +224,9 @@ fn paymaster_chain_id(chain_id: ChainId) -> Result<String> {
         ChainId::Named(other) => Err(anyhow!(
             "paymaster sidecar only supports SN_MAINNET or SN_SEPOLIA chain ids, got {other}"
         )),
-        ChainId::Id(id) => {
-            Err(anyhow!(
-                "paymaster sidecar requires SN_MAINNET or SN_SEPOLIA chain id, got {id:#x}"
-            ))
-        }
+        ChainId::Id(id) => Err(anyhow!(
+            "paymaster sidecar requires SN_MAINNET or SN_SEPOLIA chain id, got {id:#x}"
+        )),
     }
 }
 
