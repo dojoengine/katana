@@ -22,7 +22,10 @@ use katana_node::config::fork::ForkingConfig;
 use katana_node::config::gateway::GatewayConfig;
 use katana_node::config::metrics::MetricsConfig;
 #[cfg(feature = "cartridge")]
-use katana_node::config::paymaster::PaymasterConfig;
+use katana_node::config::paymaster::{
+    PaymasterConfig, ServiceMode as NodeServiceMode, VrfConfig,
+    VrfKeySource as NodeVrfKeySource,
+};
 use katana_node::config::rpc::RpcConfig;
 #[cfg(feature = "server")]
 use katana_node::config::rpc::{RpcModuleKind, RpcModulesList};
@@ -32,7 +35,7 @@ use katana_node::config::tee::TeeConfig;
 use katana_node::config::Config;
 use katana_node::Node;
 use serde::{Deserialize, Serialize};
-use tracing::info;
+use tracing::{info, warn};
 use url::Url;
 
 use crate::file::NodeArgsConfig;
@@ -40,6 +43,8 @@ use crate::options::*;
 use crate::utils::{self, parse_chain_config_dir, parse_seed};
 
 pub(crate) const LOG_TARGET: &str = "katana::cli";
+#[cfg(feature = "cartridge")]
+const DEFAULT_PAYMASTER_API_KEY: &str = "paymaster_katana";
 
 #[derive(Parser, Debug, Serialize, Deserialize, Default, Clone, PartialEq)]
 #[command(next_help_heading = "Sequencer node options")]
@@ -132,6 +137,14 @@ pub struct SequencerNodeArgs {
     #[command(flatten)]
     pub cartridge: CartridgeOptions,
 
+    #[cfg(feature = "cartridge")]
+    #[command(flatten)]
+    pub paymaster: PaymasterOptions,
+
+    #[cfg(feature = "cartridge")]
+    #[command(flatten)]
+    pub vrf: VrfOptions,
+
     #[cfg(feature = "tee")]
     #[command(flatten)]
     pub tee: TeeOptions,
@@ -212,6 +225,10 @@ impl SequencerNodeArgs {
         let forking = self.forking_config()?;
         let execution = self.execution_config();
         let sequencing = self.sequencer_config();
+        #[cfg(feature = "cartridge")]
+        let paymaster = self.paymaster_config()?;
+        #[cfg(feature = "cartridge")]
+        let vrf = self.vrf_config()?;
 
         // the `katana init` will automatically generate a messaging config. so if katana is run
         // with `--chain` then the `--messaging` flag is not required. this is temporary and
@@ -230,7 +247,9 @@ impl SequencerNodeArgs {
             messaging,
             sequencing,
             #[cfg(feature = "cartridge")]
-            paymaster: self.cartridge_config(),
+            paymaster,
+            #[cfg(feature = "cartridge")]
+            vrf,
             #[cfg(feature = "tee")]
             tee: self.tee_config(),
         })
@@ -277,8 +296,14 @@ impl SequencerNodeArgs {
             // We put it here so that even when the individual api are explicitly specified
             // (ie `--rpc.api`) we guarantee that the cartridge rpc is enabled.
             #[cfg(feature = "cartridge")]
-            if self.cartridge.paymaster {
+            {
+                let paymaster_enabled =
+                    self.cartridge.paymaster || self.paymaster.mode != ServiceMode::Disabled;
+                let vrf_enabled = self.vrf.mode != ServiceMode::Disabled;
+
+                if paymaster_enabled || vrf_enabled {
                 modules.add(RpcModuleKind::Cartridge);
+                }
             }
 
             // The TEE rpc must be enabled if a TEE provider is specified.
@@ -346,9 +371,27 @@ impl SequencerNodeArgs {
             chain_spec.genesis.extend_allocations(accounts.into_iter().map(|(k, v)| (k, v.into())));
 
             #[cfg(feature = "cartridge")]
-            if self.cartridge.controllers || self.cartridge.paymaster {
-                katana_slot_controller::add_controller_classes(&mut chain_spec.genesis);
-                katana_slot_controller::add_vrf_provider_class(&mut chain_spec.genesis);
+            {
+                let paymaster_enabled =
+                    self.cartridge.paymaster || self.paymaster.mode != ServiceMode::Disabled;
+                let vrf_enabled = self.vrf.mode != ServiceMode::Disabled;
+
+                if self.cartridge.controllers || paymaster_enabled || vrf_enabled {
+                    katana_slot_controller::add_controller_classes(&mut chain_spec.genesis);
+                }
+
+                if self.cartridge.controllers || self.cartridge.paymaster {
+                    katana_slot_controller::add_vrf_provider_class(&mut chain_spec.genesis);
+                }
+
+                if paymaster_enabled {
+                    katana_slot_controller::add_avnu_forwarder_class(&mut chain_spec.genesis);
+                }
+
+                if vrf_enabled {
+                    katana_slot_controller::add_vrf_account_class(&mut chain_spec.genesis);
+                    katana_slot_controller::add_vrf_consumer_class(&mut chain_spec.genesis);
+                }
             }
 
             Ok((Arc::new(ChainSpec::Dev(chain_spec)), None))
@@ -449,12 +492,110 @@ impl SequencerNodeArgs {
     }
 
     #[cfg(feature = "cartridge")]
-    fn cartridge_config(&self) -> Option<PaymasterConfig> {
-        if self.cartridge.paymaster {
-            Some(PaymasterConfig { cartridge_api_url: self.cartridge.api.clone() })
-        } else {
-            None
+    fn paymaster_config(&self) -> Result<Option<PaymasterConfig>> {
+        let mut mode = self.paymaster.mode;
+        if self.cartridge.paymaster && mode == ServiceMode::Disabled {
+            mode = ServiceMode::Sidecar;
         }
+
+        if mode == ServiceMode::Disabled {
+            return Ok(None);
+        }
+
+        let url = match mode {
+            ServiceMode::Sidecar => self
+                .paymaster
+                .url
+                .clone()
+                .unwrap_or_else(|| Url::parse(&format!("http://127.0.0.1:{}", self.paymaster.port)).expect("valid url")),
+            ServiceMode::External => self
+                .paymaster
+                .url
+                .clone()
+                .ok_or_else(|| anyhow::anyhow!("--paymaster.url is required when --paymaster.mode=external"))?,
+            ServiceMode::Disabled => unreachable!(),
+        };
+
+        let mode = match mode {
+            ServiceMode::Disabled => NodeServiceMode::Disabled,
+            ServiceMode::Sidecar => NodeServiceMode::Sidecar,
+            ServiceMode::External => NodeServiceMode::External,
+        };
+
+        let api_key = match mode {
+            ServiceMode::Sidecar => {
+                let key = self
+                    .paymaster
+                    .api_key
+                    .clone()
+                    .unwrap_or_else(|| DEFAULT_PAYMASTER_API_KEY.to_string());
+                if !key.starts_with("paymaster_") {
+                    warn!(
+                        target: LOG_TARGET,
+                        %key,
+                        "paymaster api key must start with 'paymaster_'; using default"
+                    );
+                    Some(DEFAULT_PAYMASTER_API_KEY.to_string())
+                } else {
+                    Some(key)
+                }
+            }
+            ServiceMode::External => self.paymaster.api_key.clone(),
+            ServiceMode::Disabled => None,
+        };
+
+        Ok(Some(PaymasterConfig {
+            mode,
+            url,
+            api_key,
+            prefunded_index: self.paymaster.prefunded_index,
+            sidecar_port: self.paymaster.port,
+            sidecar_bin: self.paymaster.bin.clone(),
+            cartridge_api_url: Some(self.cartridge.api.clone()),
+        }))
+    }
+
+    #[cfg(feature = "cartridge")]
+    fn vrf_config(&self) -> Result<Option<VrfConfig>> {
+        let mode = self.vrf.mode;
+
+        if mode == ServiceMode::Disabled {
+            return Ok(None);
+        }
+
+        let url = match mode {
+            ServiceMode::Sidecar => self
+                .vrf
+                .url
+                .clone()
+                .unwrap_or_else(|| Url::parse(&format!("http://127.0.0.1:{}", self.vrf.port)).expect("valid url")),
+            ServiceMode::External => self
+                .vrf
+                .url
+                .clone()
+                .ok_or_else(|| anyhow::anyhow!("--vrf.url is required when --vrf.mode=external"))?,
+            ServiceMode::Disabled => unreachable!(),
+        };
+
+        let mode = match mode {
+            ServiceMode::Disabled => NodeServiceMode::Disabled,
+            ServiceMode::Sidecar => NodeServiceMode::Sidecar,
+            ServiceMode::External => NodeServiceMode::External,
+        };
+
+        let key_source = match self.vrf.key_source {
+            VrfKeySource::Prefunded => NodeVrfKeySource::Prefunded,
+            VrfKeySource::Sequencer => NodeVrfKeySource::Sequencer,
+        };
+
+        Ok(Some(VrfConfig {
+            mode,
+            url,
+            key_source,
+            prefunded_index: self.vrf.prefunded_index,
+            sidecar_port: self.vrf.port,
+            sidecar_bin: self.vrf.bin.clone(),
+        }))
     }
 
     #[cfg(feature = "tee")]
@@ -526,6 +667,8 @@ impl SequencerNodeArgs {
         #[cfg(feature = "cartridge")]
         {
             self.cartridge.merge(config.cartridge.as_ref());
+            self.paymaster.merge(config.paymaster.as_ref());
+            self.vrf.merge(config.vrf.as_ref());
         }
 
         #[cfg(feature = "explorer")]
@@ -872,6 +1015,14 @@ explorer = true
             ControllerLatest, ControllerV104, ControllerV105, ControllerV106, ControllerV107,
             ControllerV108, ControllerV109,
         };
+        use katana_primitives::utils::class::parse_sierra_class;
+
+        let forwarder_class = parse_sierra_class(include_str!(concat!(
+            env!("CARGO_MANIFEST_DIR"),
+            "/../controller/classes/avnu_Forwarder.contract_class.json"
+        )))
+        .unwrap();
+        let forwarder_hash = forwarder_class.class_hash().unwrap();
 
         assert!(config.chain.genesis().classes.get(&ControllerV104::HASH).is_some());
         assert!(config.chain.genesis().classes.get(&ControllerV105::HASH).is_some());
@@ -880,6 +1031,7 @@ explorer = true
         assert!(config.chain.genesis().classes.get(&ControllerV108::HASH).is_some());
         assert!(config.chain.genesis().classes.get(&ControllerV109::HASH).is_some());
         assert!(config.chain.genesis().classes.get(&ControllerLatest::HASH).is_some());
+        assert!(config.chain.genesis().classes.get(&forwarder_hash).is_some());
 
         // Test without paymaster enabled
         let args = SequencerNodeArgs::parse_from(["katana"]);
@@ -895,5 +1047,31 @@ explorer = true
         assert!(config.chain.genesis().classes.get(&ControllerV108::HASH).is_none());
         assert!(config.chain.genesis().classes.get(&ControllerV109::HASH).is_none());
         assert!(config.chain.genesis().classes.get(&ControllerLatest::HASH).is_none());
+    }
+
+    #[cfg(feature = "cartridge")]
+    #[test]
+    fn vrf_mode_adds_classes() {
+        use katana_primitives::utils::class::parse_sierra_class;
+
+        let args = SequencerNodeArgs::parse_from(["katana", "--vrf.mode", "sidecar"]);
+        let config = args.config().unwrap();
+
+        let vrf_account_class = parse_sierra_class(include_str!(concat!(
+            env!("CARGO_MANIFEST_DIR"),
+            "/../controller/classes/cartridge_vrf_VrfAccount.contract_class.json"
+        )))
+        .unwrap();
+        let vrf_account_hash = vrf_account_class.class_hash().unwrap();
+
+        let vrf_consumer_class = parse_sierra_class(include_str!(concat!(
+            env!("CARGO_MANIFEST_DIR"),
+            "/../controller/classes/cartridge_vrf_VrfConsumer.contract_class.json"
+        )))
+        .unwrap();
+        let vrf_consumer_hash = vrf_consumer_class.class_hash().unwrap();
+
+        assert!(config.chain.genesis().classes.get(&vrf_account_hash).is_some());
+        assert!(config.chain.genesis().classes.get(&vrf_consumer_hash).is_some());
     }
 }
