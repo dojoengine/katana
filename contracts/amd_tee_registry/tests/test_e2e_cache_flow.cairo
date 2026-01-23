@@ -15,10 +15,7 @@ use amd_tee_registry::tee_registry::{IAMDTeeRegistryDispatcher, IAMDTeeRegistryD
 use amd_tee_registry::tee_types::ProcessorType;
 use snforge_std::{ContractClassTrait, DeclareResultTrait, declare, start_cheat_block_timestamp};
 use starknet::ContractAddress;
-
-// Real AMD Milan root cert hash (from tests/e2e/fixtures/root_certs.json)
-const MILAN_ROOT_CERT: u256 = 0x69d063b45344d26a2e94e1f4210de49ef555308287d4c174445c95639a540bcd;
-const GENOA_ROOT_CERT: u256 = 0x4c6598d19c18719c5dfd4a7d335f674e5bfe1d8f800cea2cf270c10d103db2f1;
+use super::root_certs_helper::{get_milan_root, get_genoa_root};
 
 // Simulated path digests (these would come from actual cert chain)
 const MILAN_ASK_PATH_DIGEST: u256 = 0x1111111111111111111111111111111111111111111111111111111111111111;
@@ -32,6 +29,9 @@ fn deploy_live_mode() -> ContractAddress {
     let verifier_class_hash: felt252 = 0x1;
     let sp1_program_id: u256 = 0x00d2342d2400bed28302507269281dcb2c621bae91a0626796ce637f01c928d8;
     let max_time_diff: u64 = 86400; // 1 day
+
+    let milan_root = get_milan_root();
+    let genoa_root = get_genoa_root();
 
     let mut calldata: Array<felt252> = array![];
 
@@ -55,10 +55,10 @@ fn deploy_live_mode() -> ContractAddress {
 
     // root_certs array (2 elements)
     calldata.append(2);
-    calldata.append(MILAN_ROOT_CERT.low.into());
-    calldata.append(MILAN_ROOT_CERT.high.into());
-    calldata.append(GENOA_ROOT_CERT.low.into());
-    calldata.append(GENOA_ROOT_CERT.high.into());
+    calldata.append(milan_root.low.into());
+    calldata.append(milan_root.high.into());
+    calldata.append(genoa_root.low.into());
+    calldata.append(genoa_root.high.into());
 
     let (contract_address, _) = contract.deploy(@calldata).unwrap();
     contract_address
@@ -71,6 +71,8 @@ fn deploy_fixture_mode() -> ContractAddress {
     let verifier_class_hash: felt252 = 0x1;
     let sp1_program_id: u256 = 0x00d2342d2400bed28302507269281dcb2c621bae91a0626796ce637f01c928d8;
     let max_time_diff: u64 = 86400;
+
+    let milan_root = get_milan_root();
 
     let mut calldata: Array<felt252> = array![];
     calldata.append(verifier_class_hash);
@@ -89,8 +91,8 @@ fn deploy_fixture_mode() -> ContractAddress {
 
     // root_certs
     calldata.append(1);
-    calldata.append(MILAN_ROOT_CERT.low.into());
-    calldata.append(MILAN_ROOT_CERT.high.into());
+    calldata.append(milan_root.low.into());
+    calldata.append(milan_root.high.into());
 
     let (contract_address, _) = contract.deploy(@calldata).unwrap();
     contract_address
@@ -104,7 +106,7 @@ fn test_live_mode_initial_query_returns_prefix_1() {
     let dispatcher = ICertCacheDispatcher { contract_address };
 
     // Simulate prover's cert chain query: [root, ASK_digest, VCEK_digest]
-    let certs: Array<u256> = array![MILAN_ROOT_CERT, MILAN_ASK_PATH_DIGEST, MILAN_VCEK_PATH_DIGEST];
+    let certs: Array<u256> = array![get_milan_root(), MILAN_ASK_PATH_DIGEST, MILAN_VCEK_PATH_DIGEST];
 
     let processor_models: Array<ProcessorType> = array![ProcessorType::Milan];
     let report_certs: Array<Span<u256>> = array![certs.span()];
@@ -125,7 +127,7 @@ fn test_live_mode_genoa_query_also_works() {
 
     // Genoa cert chain
     let genoa_ask: u256 = 0x3333333333333333333333333333333333333333333333333333333333333333;
-    let certs: Array<u256> = array![GENOA_ROOT_CERT, genoa_ask];
+    let certs: Array<u256> = array![get_genoa_root(), genoa_ask];
 
     let processor_models: Array<ProcessorType> = array![ProcessorType::Genoa];
     let report_certs: Array<Span<u256>> = array![certs.span()];
@@ -146,7 +148,7 @@ fn test_fixture_mode_returns_prefix_2() {
     let dispatcher = ICertCacheDispatcher { contract_address };
 
     // Same cert chain as live mode
-    let certs: Array<u256> = array![MILAN_ROOT_CERT, MILAN_ASK_PATH_DIGEST, MILAN_VCEK_PATH_DIGEST];
+    let certs: Array<u256> = array![get_milan_root(), MILAN_ASK_PATH_DIGEST, MILAN_VCEK_PATH_DIGEST];
 
     let processor_models: Array<ProcessorType> = array![ProcessorType::Milan];
     let report_certs: Array<Span<u256>> = array![certs.span()];
@@ -168,7 +170,7 @@ fn test_after_caching_query_returns_higher_prefix() {
     let dispatcher = ICertCacheDispatcher { contract_address };
 
     // Initial query returns 1
-    let certs: Array<u256> = array![MILAN_ROOT_CERT, MILAN_ASK_PATH_DIGEST, MILAN_VCEK_PATH_DIGEST];
+    let certs: Array<u256> = array![get_milan_root(), MILAN_ASK_PATH_DIGEST, MILAN_VCEK_PATH_DIGEST];
     let processor_models: Array<ProcessorType> = array![ProcessorType::Milan];
     let report_certs: Array<Span<u256>> = array![certs.span()];
 
@@ -186,7 +188,7 @@ fn test_after_caching_query_returns_higher_prefix() {
     let contract_after_cache = deploy_fixture_mode();
     let dispatcher_after = ICertCacheDispatcher { contract_address: contract_after_cache };
 
-    let certs2: Array<u256> = array![MILAN_ROOT_CERT, MILAN_ASK_PATH_DIGEST, MILAN_VCEK_PATH_DIGEST];
+    let certs2: Array<u256> = array![get_milan_root(), MILAN_ASK_PATH_DIGEST, MILAN_VCEK_PATH_DIGEST];
     let processor_models2: Array<ProcessorType> = array![ProcessorType::Milan];
     let report_certs2: Array<Span<u256>> = array![certs2.span()];
 
@@ -243,8 +245,8 @@ fn test_mismatched_array_lengths_fails() {
     let contract_address = deploy_live_mode();
     let dispatcher = ICertCacheDispatcher { contract_address };
 
-    let certs1: Array<u256> = array![MILAN_ROOT_CERT];
-    let certs2: Array<u256> = array![GENOA_ROOT_CERT];
+    let certs1: Array<u256> = array![get_milan_root()];
+    let certs2: Array<u256> = array![get_genoa_root()];
 
     // 2 cert chains but only 1 processor model
     let processor_models: Array<ProcessorType> = array![ProcessorType::Milan];
@@ -262,8 +264,8 @@ fn test_batch_query_multiple_reports() {
     let dispatcher = ICertCacheDispatcher { contract_address };
 
     // Query 2 reports at once
-    let certs1: Array<u256> = array![MILAN_ROOT_CERT, MILAN_ASK_PATH_DIGEST, MILAN_VCEK_PATH_DIGEST];
-    let certs2: Array<u256> = array![MILAN_ROOT_CERT, MILAN_ASK_PATH_DIGEST]; // Shorter chain
+    let certs1: Array<u256> = array![get_milan_root(), MILAN_ASK_PATH_DIGEST, MILAN_VCEK_PATH_DIGEST];
+    let certs2: Array<u256> = array![get_milan_root(), MILAN_ASK_PATH_DIGEST]; // Shorter chain
 
     let processor_models: Array<ProcessorType> = array![ProcessorType::Milan, ProcessorType::Milan];
     let report_certs: Array<Span<u256>> = array![certs1.span(), certs2.span()];
@@ -284,7 +286,7 @@ fn test_single_cert_chain_returns_1() {
     let dispatcher = ICertCacheDispatcher { contract_address };
 
     // Only root cert in chain
-    let certs: Array<u256> = array![MILAN_ROOT_CERT];
+    let certs: Array<u256> = array![get_milan_root()];
 
     let processor_models: Array<ProcessorType> = array![ProcessorType::Milan];
     let report_certs: Array<Span<u256>> = array![certs.span()];
