@@ -40,7 +40,7 @@ struct Args {
     #[arg(long, value_name = "URL")]
     rpc_url: String,
 
-    /// Chain id identifier (SN_SEPOLIA or SN_MAIN).
+    /// Chain id identifier (SN_SEPOLIA or SN_MAINNET).
     #[arg(long, value_name = "CHAIN_ID")]
     chain_id: String,
 
