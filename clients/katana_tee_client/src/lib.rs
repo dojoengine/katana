@@ -77,18 +77,22 @@ impl TeeQuoteResponse {
     ///
     /// Accepts both raw TeeQuoteResponse JSON and JSON-RPC wrapped responses.
     pub fn from_json_file(path: &std::path::Path) -> Result<Self, Error> {
-        let content = std::fs::read_to_string(path).map_err(|e| Error::Io(e.to_string()))?;
+        let content = std::fs::read_to_string(path).map_err(amd_tee_registry_client::Error::from)?;
         Self::from_json_str(&content)
     }
 
     /// Load a TeeQuoteResponse from a JSON string.
     pub fn from_json_str(json: &str) -> Result<Self, Error> {
-        // Try to parse as a JSON-RPC response first
-        if let Ok(wrapper) = serde_json::from_str::<JsonRpcResponse>(json) {
+        // Try to parse as a JSON-RPC response first (has "result" field)
+        #[derive(Deserialize)]
+        struct Wrapper {
+            result: TeeQuoteResponse,
+        }
+        if let Ok(wrapper) = serde_json::from_str::<Wrapper>(json) {
             return Ok(wrapper.result);
         }
         // Otherwise try to parse directly
-        Ok(serde_json::from_str(json)?)
+        serde_json::from_str(json).map_err(|e| amd_tee_registry_client::Error::from(e).into())
     }
 
     /// Decode the quote hex string to raw bytes.
@@ -96,16 +100,7 @@ impl TeeQuoteResponse {
     /// Strips the `0x` prefix if present.
     pub fn quote_bytes(&self) -> Result<Vec<u8>, Error> {
         let hex_str = self.quote.strip_prefix("0x").unwrap_or(&self.quote);
-        hex::decode(hex_str).map_err(|e| Error::HexDecode(e.to_string()))
+        hex::decode(hex_str).map_err(|e| amd_tee_registry_client::Error::HexDecode(e.to_string()).into())
     }
 }
 
-/// JSON-RPC response wrapper for Katana RPC responses.
-#[derive(Debug, Deserialize)]
-struct JsonRpcResponse {
-    #[allow(dead_code)]
-    jsonrpc: String,
-    #[allow(dead_code)]
-    id: u64,
-    result: TeeQuoteResponse,
-}
