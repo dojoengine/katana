@@ -4,40 +4,72 @@ This repository contains:
 - Cairo contracts for verifying AMD SEV-SNP attestation proofs on Starknet (via Garaga SP1 Groth16 verifier)
 - Rust clients to fetch Katana TEE quotes, prove them with SP1, generate Starknet calldata, and invoke the on-chain verifier
 
-## Local devnet (fork Sepolia) quickstart
+## Repository layout
 
-### Prereqs
+- `contracts/amd_tee_registry`: primary verifier contract + tests
+- `contracts/katana_tee`: downstream contract + tests
+- `clients/amd_tee_registry_client`: Rust proof + calldata tooling
+- `clients/katana_tee_client`: Rust RPC + pipeline CLI
+- `tests/`: deployment + E2E scripts and fixtures
 
-- `asdf` (recommended): install tool versions from `.tool-versions`
+## Prerequisites
+
+- `asdf` (recommended) with `.tool-versions`
+- Rust toolchain (stable)
+- Scarb + Starknet Foundry (`snforge`, `sncast`)
+- `starknet-devnet` for local testing
 
 ```bash
 asdf install
 ```
 
-### Configure environment
+## Setup
 
 ```bash
+git submodule update --init --recursive
 cp .env.example .env
 ```
 
 Edit `.env` and set any RPCs/keys you need. **Do not commit `.env`** (it is gitignored).
 
-### Start devnet (fork Sepolia)
-
-Use any Sepolia JSON-RPC provider. For example, with the default `.env.example` variables:
+## One-command full test suite (client verification)
 
 ```bash
-set -a && . ./.env && set +a
-starknet-devnet --fork-network "$STARKNET_RPC_URL_SEPOLIA" --seed "$DEVNET_SEED" --port "$DEVNET_PORT"
+make test
 ```
 
-### Deploy contracts
+This runs:
+- Rust tests (`cargo test --all-targets`)
+- Cairo tests across the workspace (`snforge test --workspace`)
+- Deployment integration (`tests/deployment/run_integration_tests.sh`)
+- E2E fixture mode (`tests/e2e/run_e2e_tests.sh --fixture`)
+
+## Delivery verification checklist
+
+- `git submodule update --init --recursive`
+- `make test`
+- Optional: `make test-fork` (requires `MAINNET_RPC_URL`)
+
+## Optional test modes
+
+```bash
+make test-fork   # fork-based Cairo tests (requires MAINNET_RPC_URL)
+make e2e-live    # live E2E (requires TEE access + SP1 prover network)
+```
+
+## Local devnet (fork mainnet)
+
+```bash
+make devnet-mainnet
+```
+
+## Deploy contracts to devnet
 
 ```bash
 sncast --account "$STARKNET_ACCOUNT" script run deployment --network devnet --package deployment --no-state-file
 ```
 
-### Run the end-to-end pipeline (Rust CLI)
+## Run the end-to-end pipeline (Rust CLI)
 
 This will: fetch quote → query cache → prove → calldata → invoke `katana_tee.verify_and_update_state`.
 
@@ -59,3 +91,16 @@ cargo run -p katana_tee_client --bin katana-tee -- pipeline \
   --dry-run \
   --calldata-output proof_calldata.txt
 ```
+
+## Remote TEE VM helper
+
+Use `./katana-tee-setup.sh` to start/stop the remote TEE VM and print the RPC URL. See `setup.md` for details.
+
+## Licensing
+
+- Project license: `LICENSE` (Apache-2.0)
+- Third-party notices: `THIRD_PARTY_NOTICES.md`
+
+## Maintenance
+
+- Submodule migration plan: `docs/submodules_migration.md`

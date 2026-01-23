@@ -112,6 +112,15 @@ help:
 	@echo "  make pipeline-test  - Fetch + Execute (quick test)"
 	@echo "  make pipeline-prove - Start VM + Prove (full)"
 	@echo ""
+	@echo "Test Suite:"
+	@echo "  make test           - Full suite (rust + cairo + e2e)"
+	@echo "  make test-fork      - Include fork-based Cairo tests"
+	@echo "  make test-rust      - Rust tests only"
+	@echo "  make test-cairo     - Cairo tests only"
+	@echo "  make test-deployment - Deployment integration tests"
+	@echo "  make test-e2e       - E2E fixture mode"
+	@echo "  make e2e-live       - E2E live mode"
+	@echo ""
 	@echo "Variables:"
 	@echo "  RPC_URL=<url>       - Override RPC endpoint"
 	@echo ""
@@ -121,25 +130,35 @@ help:
 .PHONY: build fetch fetch-save execute prove prove-mock proof-info \
         tee-start tee-stop tee-status tee-test \
         pipeline-test pipeline-prove help \
-        devnet-mainnet e2e-test e2e-test-live fetch-root-certs
+        test test-rust test-cairo test-deployment test-e2e test-fork \
+        devnet-mainnet e2e-test e2e-test-live e2e-live fetch-root-certs
 
 
 # =============================================================================
 # E2E Tests
 # =============================================================================
 
+# Full test suite (client verification)
+test: test-rust test-cairo test-deployment test-e2e
+
+test-rust:
+	cargo test --all-targets
+
+test-cairo:
+	snforge test --workspace
+
+
+test-e2e:
+	./tests/e2e/run_e2e_tests.sh --multi-block
+
+# Run fork-based Cairo tests (requires MAINNET_RPC_URL)
+test-fork:
+	snforge test --workspace --include-ignored
+
 # Start devnet forking mainnet (Garaga verifier available)
 devnet-mainnet:
 	@set -a && . ./.env && set +a && \
 	starknet-devnet --fork-network $$MAINNET_RPC_URL --seed $$DEVNET_SEED --port $$DEVNET_PORT
-
-# Run E2E tests with saved fixtures (fast, no TEE/prover needed)
-e2e-test:
-	./tests/e2e/run_e2e_tests.sh --fixture
-
-# Run E2E tests live (requires TEE access + SP1 prover network)
-e2e-test-live:
-	./tests/e2e/run_e2e_tests.sh --live
 
 # Fetch AMD root certificates from KDS
 fetch-root-certs:

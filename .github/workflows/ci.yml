@@ -22,19 +22,8 @@ jobs:
           components: rustfmt
       - run: cargo fmt --all --check
 
-  check:
-    name: Check
-    runs-on: ubuntu-latest
-    steps:
-      - uses: actions/checkout@v4
-        with:
-          submodules: recursive
-      - uses: dtolnay/rust-toolchain@stable
-      - uses: Swatinem/rust-cache@v2
-      - run: cargo check --all-targets
-
   test:
-    name: Test
+    name: Full Test Suite
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
@@ -42,20 +31,15 @@ jobs:
           submodules: recursive
       - uses: dtolnay/rust-toolchain@stable
       - uses: Swatinem/rust-cache@v2
-      - run: cargo test --all-targets
-
-  cairo-test:
-    name: Cairo Tests
-    runs-on: ubuntu-latest
-    steps:
-      - uses: actions/checkout@v4
       - uses: software-mansion/setup-scarb@v1
         with:
           scarb-version: "2.15.0"
       - uses: foundry-rs/setup-snfoundry@v4
-      - name: Run amd_tee_registry tests
-        working-directory: contracts/amd_tee_registry
-        run: snforge test
-      - name: Run katana_tee tests
-        working-directory: contracts/katana_tee
-        run: snforge test
+      - name: Install system deps
+        run: sudo apt-get update && sudo apt-get install -y jq
+      - name: Install starknet-devnet
+        run: pip install "starknet-devnet==0.7.1"
+      - name: Prepare env
+        run: cp .env.example .env
+      - name: Run full test suite
+        run: make test

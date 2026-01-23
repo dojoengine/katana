@@ -6,6 +6,11 @@ name = "SEPOLIA_LATEST"
 url = "$STARKNET_RPC_URL_SEPOLIA"
 block_id.tag = "latest"
 
+[[tool.snforge.fork]]
+name = "MAINNET"
+url = "$MAINNET_RPC_URL"
+block_id.tag = "latest"
+
 [lib]
 sierra = true
 casm = true

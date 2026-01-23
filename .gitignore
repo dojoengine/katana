@@ -4,6 +4,8 @@ snfoundry_trace/
 coverage/
 profile/
 .env
+docs/starknet-foundry-docs/
+docs/plans/
 
 # Claude agent (internal tooling, not for delivery)
 .claude/

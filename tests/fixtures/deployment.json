@@ -1,13 +1,13 @@
 {
   "network": "devnet-mainnet-fork",
-  "timestamp": "2026-01-23T09:54:42+01:00",
+  "timestamp": "2026-01-23T11:22:45+01:00",
   "amd_tee_registry": {
     "class_hash": "0x03f1aec5fbfd017a8ad77b42c5c30dca287db37ef532dfa61dee36c409db4322",
-    "address": "0x05bad7fc7047ce2f517c77dc409714b4379a5758fa140a2d380417b4981744e8"
+    "address": "0x02bf4037c9a89c938205f6cf06ce6cc0a7f4ddc5e8e37520227a82417a63d488"
   },
   "katana_tee": {
-    "class_hash": "0x0675f90d6c2aaa990142b102bb9c5ead627c1ff481b9e1b98ed3076025487352",
-    "address": "0x02e880b399b933b9ef1b1642da9650fa870c863a6811a04e67100db3c2d5c87d"
+    "class_hash": "0x009583a90f103d81ee528204427db890e0e6e27765d5fd9b9311cf0776a60185",
+    "address": "0x011447cb1a09d8da38be4dd5b9fc87c3eb52753ce68a0358ed5573dd4fcfac97"
   },
   "config": {
     "garaga_verifier_class_hash": "0x4b22453df42037dd61390736454e8390910adfbbc1fa9d85613e6f375f4de22",

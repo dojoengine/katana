@@ -4,7 +4,7 @@
 
 ### Single Block Mode (default)
 
-Generate or use a single proof fixture:
+Generate or use a single proof fixture (stored in `tests/fixtures/block_0/`):
 
 ```bash
 # Generate new fixtures from live TEE
@@ -63,10 +63,9 @@ snforge test
 ```
 tests/
 ├── e2e/
-│   ├── run_e2e_tests.sh    # E2E test script
-│   └── fixtures/           # Single-block fixtures (legacy)
+│   └── run_e2e_tests.sh    # E2E test script
 └── fixtures/
-    ├── block_0/            # Multi-block fixtures
+    ├── block_0/            # Single-block fixtures
     ├── block_1/
     └── block_2/
 

@@ -59,7 +59,7 @@ fn load_calldata_from_fixture(path: ByteArray) -> Array<felt252> {
 
 /// Test verification of block 0 proof
 #[test]
-#[ignore] // TODO: Enable after fixtures are generated and RPC access is configured
+#[ignore] // Run with: make test-fork (requires MAINNET_RPC_URL + fixtures)
 #[fork("MAINNET")]
 fn test_verify_block_0() {
     // Deploy contracts
@@ -77,7 +77,7 @@ fn test_verify_block_0() {
 
 /// Test verification of block 1 proof
 #[test]
-#[ignore] // TODO: Enable after fixtures are generated and RPC access is configured
+#[ignore] // Run with: make test-fork (requires MAINNET_RPC_URL + fixtures)
 #[fork("MAINNET")]
 fn test_verify_block_1() {
     let registry_address = deploy_amd_registry();
@@ -92,7 +92,7 @@ fn test_verify_block_1() {
 
 /// Test verification of block 2 proof
 #[test]
-#[ignore] // TODO: Enable after fixtures are generated and RPC access is configured
+#[ignore] // Run with: make test-fork (requires MAINNET_RPC_URL + fixtures)
 #[fork("MAINNET")]
 fn test_verify_block_2() {
     let registry_address = deploy_amd_registry();
