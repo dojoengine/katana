@@ -49,10 +49,10 @@ use katana_rpc_api::tee::TeeApiServer;
 use katana_rpc_client::starknet::Client as StarknetClient;
 #[cfg(feature = "cartridge")]
 use katana_rpc_server::cartridge::{CartridgeApi, CartridgeConfig};
-#[cfg(feature = "cartridge")]
-use katana_rpc_server::paymaster::PaymasterProxy;
 use katana_rpc_server::cors::Cors;
 use katana_rpc_server::dev::DevApi;
+#[cfg(feature = "cartridge")]
+use katana_rpc_server::paymaster::PaymasterProxy;
 #[cfg(feature = "cartridge")]
 use katana_rpc_server::starknet::PaymasterConfig;
 use katana_rpc_server::starknet::{StarknetApi, StarknetApiConfig};
@@ -230,10 +230,9 @@ where
                 "Cartridge API should be enabled when paymaster is set"
             );
 
-            let cartridge_api_url = paymaster
-                .cartridge_api_url
-                .clone()
-                .ok_or_else(|| anyhow::anyhow!("cartridge api url is required when paymaster is set"))?;
+            let cartridge_api_url = paymaster.cartridge_api_url.clone().ok_or_else(|| {
+                anyhow::anyhow!("cartridge api url is required when paymaster is set")
+            })?;
 
             let rpc_addr = config.rpc.socket_addr();
             let rpc_host = match rpc_addr.ip() {
@@ -265,10 +264,8 @@ where
 
             rpc_modules.merge(CartridgeApiServer::into_rpc(api))?;
 
-            let paymaster_proxy = PaymasterProxy::new(
-                paymaster.url.clone(),
-                paymaster.api_key.clone(),
-            );
+            let paymaster_proxy =
+                PaymasterProxy::new(paymaster.url.clone(), paymaster.api_key.clone());
             rpc_modules.merge(paymaster_proxy.module()?)?;
 
             Some(PaymasterConfig { cartridge_api_url, prefunded_index: paymaster.prefunded_index })
@@ -655,8 +652,7 @@ where
         info!(target: "node", "Gas price oracle worker started.");
 
         #[cfg(feature = "cartridge")]
-        let sidecars = if sidecar_bootstrap.paymaster.is_some() || sidecar_bootstrap.vrf.is_some()
-        {
+        let sidecars = if sidecar_bootstrap.paymaster.is_some() || sidecar_bootstrap.vrf.is_some() {
             Some(start_sidecars(self.config(), &sidecar_bootstrap, rpc_handle.addr()).await?)
         } else {
             None

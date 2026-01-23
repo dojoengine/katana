@@ -1,14 +1,16 @@
-use crate::oracle::{StarkVrfProof, StarkVrfRequest};
-use crate::state::SharedState;
-use crate::utils::{felt_to_scalar, format};
+use std::str::FromStr;
+
 use axum::extract::State;
 use axum::Json;
 use num_bigint::BigInt;
 use num_traits::Num;
 use serde::{Deserialize, Serialize};
 use stark_vrf::{BaseField, StarkVRF};
-use std::str::FromStr;
 use tracing::debug;
+
+use crate::oracle::{StarkVrfProof, StarkVrfRequest};
+use crate::state::SharedState;
+use crate::utils::{felt_to_scalar, format};
 
 #[derive(Debug, Serialize, Deserialize)]
 pub struct JsonResult {
@@ -37,9 +39,7 @@ pub async fn vrf_proof(
         .collect();
 
     let ecvrf = StarkVRF::new(public_key).unwrap();
-    let proof = ecvrf
-        .prove(&felt_to_scalar(secret_key), seed.as_slice())
-        .unwrap();
+    let proof = ecvrf.prove(&felt_to_scalar(secret_key), seed.as_slice()).unwrap();
     let sqrt_ratio_hint = ecvrf.hash_to_sqrt_ratio_hint(seed.as_slice());
     let rnd = ecvrf.proof_to_hash(&proof).unwrap();
 

@@ -3,13 +3,6 @@ pub mod signature;
 pub mod types;
 pub mod vrf_types;
 
-use crate::routes::outside_execution::context::{RequestContext, VrfContext};
-use crate::routes::outside_execution::signature::sign_outside_execution;
-use crate::routes::outside_execution::types::{
-    Call, OutsideExecution, OutsideExecutionV2, SignedOutsideExecution,
-};
-use crate::routes::outside_execution::vrf_types::{build_submit_random_call, RequestRandom};
-use crate::state::SharedState;
 use axum::extract::State;
 use axum::http::StatusCode;
 use axum::response::IntoResponse;
@@ -23,6 +16,14 @@ use starknet::macros::felt;
 use starknet::providers::ProviderError;
 use starknet::signers::{LocalWallet, SigningKey};
 use tracing::debug;
+
+use crate::routes::outside_execution::context::{RequestContext, VrfContext};
+use crate::routes::outside_execution::signature::sign_outside_execution;
+use crate::routes::outside_execution::types::{
+    Call, OutsideExecution, OutsideExecutionV2, SignedOutsideExecution,
+};
+use crate::routes::outside_execution::vrf_types::{build_submit_random_call, RequestRandom};
+use crate::state::SharedState;
 
 pub const ANY_CALLER: Felt = felt!("0x414e595f43414c4c4552"); // ANY_CALLER
 
@@ -85,9 +86,7 @@ pub async fn vrf_outside_execution(
     )
     .await;
 
-    Ok(Json(OutsideExecutionResult {
-        result: signed_outside_execution,
-    }))
+    Ok(Json(OutsideExecutionResult { result: signed_outside_execution }))
 }
 
 pub async fn build_signed_outside_execution_v2(
@@ -101,11 +100,7 @@ pub async fn build_signed_outside_execution_v2(
     let signature =
         sign_outside_execution(&outside_execution, chain_id, account_address, signer).await;
 
-    SignedOutsideExecution {
-        address: account_address,
-        outside_execution,
-        signature,
-    }
+    SignedOutsideExecution { address: account_address, outside_execution, signature }
 }
 pub fn build_outside_execution_v2(calls: Vec<Call>) -> OutsideExecution {
     let now = Utc::now().timestamp() as u64;
@@ -132,41 +127,33 @@ pub enum Errors {
 impl IntoResponse for Errors {
     fn into_response(self) -> axum::response::Response {
         match self {
-            Errors::NoRequestRandom => (
-                StatusCode::NOT_FOUND,
-                Json("No request_random call".to_string()),
-            )
-                .into_response(),
-            Errors::NoCallAfterRequestRandom => (
-                StatusCode::NOT_FOUND,
-                Json("No call after request_random".to_string()),
-            )
-                .into_response(),
-            Errors::ProviderError(msg) => (
-                StatusCode::NOT_FOUND,
-                Json(format!("Provider error: {msg}").to_string()),
-            )
-                .into_response(),
-            Errors::CairoSerdeError(msg) => (
-                StatusCode::NOT_FOUND,
-                Json(format!("Cairo serde error: {msg}").to_string()),
-            )
-                .into_response(),
-            Errors::RequestContextError(msg) => (
-                StatusCode::NOT_FOUND,
-                Json(format!("Request context error: {msg}").to_string()),
-            )
-                .into_response(),
-            Errors::CairoShortStringToFeltError(msg) => (
-                StatusCode::NOT_FOUND,
-                Json(format!("Shortstring error: {msg}").to_string()),
-            )
-                .into_response(),
-            Errors::UrlParserError(msg) => (
-                StatusCode::NOT_FOUND,
-                Json(format!("Url parser error: {msg}").to_string()),
-            )
-                .into_response(),
+            Errors::NoRequestRandom => {
+                (StatusCode::NOT_FOUND, Json("No request_random call".to_string())).into_response()
+            }
+            Errors::NoCallAfterRequestRandom => {
+                (StatusCode::NOT_FOUND, Json("No call after request_random".to_string()))
+                    .into_response()
+            }
+            Errors::ProviderError(msg) => {
+                (StatusCode::NOT_FOUND, Json(format!("Provider error: {msg}").to_string()))
+                    .into_response()
+            }
+            Errors::CairoSerdeError(msg) => {
+                (StatusCode::NOT_FOUND, Json(format!("Cairo serde error: {msg}").to_string()))
+                    .into_response()
+            }
+            Errors::RequestContextError(msg) => {
+                (StatusCode::NOT_FOUND, Json(format!("Request context error: {msg}").to_string()))
+                    .into_response()
+            }
+            Errors::CairoShortStringToFeltError(msg) => {
+                (StatusCode::NOT_FOUND, Json(format!("Shortstring error: {msg}").to_string()))
+                    .into_response()
+            }
+            Errors::UrlParserError(msg) => {
+                (StatusCode::NOT_FOUND, Json(format!("Url parser error: {msg}").to_string()))
+                    .into_response()
+            }
         }
     }
 }
@@ -197,13 +184,8 @@ impl From<url::ParseError> for Errors {
 
 #[cfg(test)]
 mod tests {
-    use super::*;
-    use crate::routes::outside_execution::types::{
-        Call, OutsideExecution, OutsideExecutionV2, SignedOutsideExecution,
-    };
-    use crate::routes::outside_execution::vrf_types::{RequestRandom, Source};
-    use crate::state::{AppState, SharedState};
-    use crate::utils::felt_to_scalar;
+    use std::sync::{Arc, RwLock};
+
     use axum::extract::State;
     use axum::Json;
     use cainome_cairo_serde::{CairoSerde, ContractAddress};
@@ -211,7 +193,14 @@ mod tests {
     use starknet::core::types::Felt;
     use starknet::macros::{felt, selector};
     use starknet::signers::{LocalWallet, SigningKey};
-    use std::sync::{Arc, RwLock};
+
+    use super::*;
+    use crate::routes::outside_execution::types::{
+        Call, OutsideExecution, OutsideExecutionV2, SignedOutsideExecution,
+    };
+    use crate::routes::outside_execution::vrf_types::{RequestRandom, Source};
+    use crate::state::{AppState, SharedState};
+    use crate::utils::felt_to_scalar;
 
     #[tokio::test]
     async fn wraps_request_random_call() {
@@ -220,12 +209,7 @@ mod tests {
         let vrf_account_address = ContractAddress::from(felt!("0x777"));
         let vrf_signer = LocalWallet::from(SigningKey::from_secret_scalar(felt!("0x2")));
 
-        let app_state = AppState {
-            secret_key,
-            public_key,
-            vrf_account_address,
-            vrf_signer,
-        };
+        let app_state = AppState { secret_key, public_key, vrf_account_address, vrf_signer };
         let shared_state = SharedState(Arc::new(RwLock::new(app_state)));
 
         let request_random = RequestRandom {
@@ -267,9 +251,8 @@ mod tests {
             },
         };
 
-        let response = vrf_outside_execution(State(shared_state), Json(payload))
-            .await
-            .expect("vrf wrapping");
+        let response =
+            vrf_outside_execution(State(shared_state), Json(payload)).await.expect("vrf wrapping");
         let wrapped = response.0.result;
 
         let OutsideExecution::V2(v2) = wrapped.outside_execution else {

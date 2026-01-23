@@ -1,8 +1,9 @@
+use std::str::FromStr;
+
 use ark_ff::PrimeField;
 use num_bigint::BigInt;
 use stark_vrf::ScalarField;
 use starknet::core::types::Felt;
-use std::str::FromStr;
 
 pub fn format<T: std::fmt::Display>(v: T) -> String {
     let int = BigInt::from_str(&format!("{v}")).unwrap();

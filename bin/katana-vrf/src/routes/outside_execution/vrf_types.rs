@@ -1,28 +1,22 @@
 // VRF
 
+use std::str::FromStr;
+
 use cainome::cairo_serde_derive::CairoSerde;
 use cainome_cairo_serde::ContractAddress;
 use num_bigint::BigInt;
 use num_traits::Num;
 use serde::{Deserialize, Serialize};
 use stark_vrf::{BaseField, StarkVRF};
-use starknet::{
-    core::types::{BlockId, BlockTag, Felt},
-    macros::selector,
-    providers::Provider,
-};
+use starknet::core::types::{BlockId, BlockTag, Felt};
+use starknet::macros::selector;
+use starknet::providers::Provider;
 use starknet_crypto::{pedersen_hash, poseidon_hash_many};
-use std::str::FromStr;
 
-use crate::{
-    routes::outside_execution::{
-        context::VrfContext,
-        types::{Call, OutsideExecution},
-        Errors,
-    },
-    utils::format_felt,
-    utils::felt_to_scalar,
-};
+use crate::routes::outside_execution::context::VrfContext;
+use crate::routes::outside_execution::types::{Call, OutsideExecution};
+use crate::routes::outside_execution::Errors;
+use crate::utils::{felt_to_scalar, format_felt};
 
 #[derive(Clone, CairoSerde, Serialize, Deserialize, Debug)]
 pub enum Source {
@@ -40,9 +34,7 @@ impl RequestRandom {
     pub fn get_request_random_call(outside_execution: &OutsideExecution) -> (Option<Call>, usize) {
         let calls = outside_execution.calls();
 
-        let position = calls
-            .iter()
-            .position(|call| call.selector == selector!("request_random"));
+        let position = calls.iter().position(|call| call.selector == selector!("request_random"));
 
         match position {
             Some(position) => (Option::Some(calls.get(position).unwrap().clone()), position),
@@ -90,9 +82,7 @@ pub fn build_submit_random_call(vrf_context: &VrfContext, seed: Felt) -> Call {
         .collect();
 
     let ecvrf = StarkVRF::new(vrf_context.public_key).unwrap();
-    let proof = ecvrf
-        .prove(&felt_to_scalar(vrf_context.secret_key), seed_vec.as_slice())
-        .unwrap();
+    let proof = ecvrf.prove(&felt_to_scalar(vrf_context.secret_key), seed_vec.as_slice()).unwrap();
     let sqrt_ratio_hint = ecvrf.hash_to_sqrt_ratio_hint(seed_vec.as_slice());
 
     Call {
@@ -111,16 +101,16 @@ pub fn build_submit_random_call(vrf_context: &VrfContext, seed: Felt) -> Call {
 
 #[cfg(test)]
 mod tests {
+    use cainome_cairo_serde::ContractAddress;
+    use stark_vrf::{generate_public_key, StarkVRF};
+    use starknet::core::types::Felt;
+    use starknet::providers::jsonrpc::HttpTransport;
+    use starknet::providers::{JsonRpcClient, Url};
+    use starknet::signers::{LocalWallet, SigningKey};
+
     use super::*;
     use crate::routes::outside_execution::context::VrfContext;
     use crate::utils::felt_to_scalar;
-    use cainome_cairo_serde::ContractAddress;
-    use stark_vrf::{generate_public_key, StarkVRF};
-    use starknet::{
-        core::types::Felt,
-        providers::{jsonrpc::HttpTransport, JsonRpcClient, Url},
-        signers::{LocalWallet, SigningKey},
-    };
 
     fn felt_from_display<T: std::fmt::Display>(value: T) -> Felt {
         Felt::from_dec_str(&value.to_string()).expect("valid felt")
@@ -134,8 +124,7 @@ mod tests {
 
         let provider =
             JsonRpcClient::new(HttpTransport::new(Url::parse("http://localhost:0").unwrap()));
-        let vrf_signer =
-            LocalWallet::from(SigningKey::from_secret_scalar(Felt::from(0x789_u128)));
+        let vrf_signer = LocalWallet::from(SigningKey::from_secret_scalar(Felt::from(0x789_u128)));
 
         let vrf_context = VrfContext {
             chain_id: Felt::from(1_u8),
@@ -151,9 +140,7 @@ mod tests {
 
         let seed_vec = vec![BaseField::from_str(&seed.to_biguint().to_str_radix(10)).unwrap()];
         let ecvrf = StarkVRF::new(public_key).unwrap();
-        let proof = ecvrf
-            .prove(&felt_to_scalar(secret_key), seed_vec.as_slice())
-            .unwrap();
+        let proof = ecvrf.prove(&felt_to_scalar(secret_key), seed_vec.as_slice()).unwrap();
         let sqrt_ratio_hint = ecvrf.hash_to_sqrt_ratio_hint(seed_vec.as_slice());
 
         let expected = vec![

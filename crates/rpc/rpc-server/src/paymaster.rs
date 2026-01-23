@@ -74,13 +74,16 @@ impl PaymasterProxy {
 
         {
             let proxy = Arc::clone(&proxy);
-            module.register_async_method("paymaster_executeRawTransaction", move |params, _, _| {
-                let proxy = Arc::clone(&proxy);
-                async move {
-                    let request: ExecuteRawRequest = params.parse()?;
-                    proxy.execute_raw_transaction(request).await
-                }
-            })?;
+            module.register_async_method(
+                "paymaster_executeRawTransaction",
+                move |params, _, _| {
+                    let proxy = Arc::clone(&proxy);
+                    async move {
+                        let request: ExecuteRawRequest = params.parse()?;
+                        proxy.execute_raw_transaction(request).await
+                    }
+                },
+            )?;
         }
 
         {
@@ -97,19 +100,13 @@ impl PaymasterProxy {
     async fn health(&self) -> RpcResult<bool> {
         let client = self.client()?;
         let params = PaymasterObjectParams::new();
-        client
-            .request("paymaster_health", params)
-            .await
-            .map_err(map_client_error)
+        client.request("paymaster_health", params).await.map_err(map_client_error)
     }
 
     async fn is_available(&self) -> RpcResult<bool> {
         let client = self.client()?;
         let params = PaymasterObjectParams::new();
-        client
-            .request("paymaster_isAvailable", params)
-            .await
-            .map_err(map_client_error)
+        client.request("paymaster_isAvailable", params).await.map_err(map_client_error)
     }
 
     async fn build_transaction(
@@ -118,19 +115,13 @@ impl PaymasterProxy {
     ) -> RpcResult<BuildTransactionResponse> {
         let client = self.client()?;
         let params = build_request_params(request.transaction, request.parameters)?;
-        client
-            .request("paymaster_buildTransaction", params)
-            .await
-            .map_err(map_client_error)
+        client.request("paymaster_buildTransaction", params).await.map_err(map_client_error)
     }
 
     async fn execute_transaction(&self, request: ExecuteRequest) -> RpcResult<ExecuteResponse> {
         let client = self.client()?;
         let params = build_request_params(request.transaction, request.parameters)?;
-        client
-            .request("paymaster_executeTransaction", params)
-            .await
-            .map_err(map_client_error)
+        client.request("paymaster_executeTransaction", params).await.map_err(map_client_error)
     }
 
     async fn execute_raw_transaction(
@@ -139,19 +130,13 @@ impl PaymasterProxy {
     ) -> RpcResult<ExecuteRawResponse> {
         let client = self.client()?;
         let params = build_request_params(request.transaction, request.parameters)?;
-        client
-            .request("paymaster_executeRawTransaction", params)
-            .await
-            .map_err(map_client_error)
+        client.request("paymaster_executeRawTransaction", params).await.map_err(map_client_error)
     }
 
     async fn get_supported_tokens(&self) -> RpcResult<Vec<TokenPrice>> {
         let client = self.client()?;
         let params = PaymasterObjectParams::new();
-        client
-            .request("paymaster_getSupportedTokens", params)
-            .await
-            .map_err(map_client_error)
+        client.request("paymaster_getSupportedTokens", params).await.map_err(map_client_error)
     }
 
     fn client(&self) -> RpcResult<PaymasterHttpClient> {
@@ -202,12 +187,8 @@ where
     P: Serialize,
 {
     let mut params = PaymasterObjectParams::new();
-    params
-        .insert("transaction", transaction)
-        .map_err(map_param_error)?;
-    params
-        .insert("parameters", parameters)
-        .map_err(map_param_error)?;
+    params.insert("transaction", transaction).map_err(map_param_error)?;
+    params.insert("parameters", parameters).map_err(map_param_error)?;
     Ok(params)
 }
 
@@ -220,8 +201,6 @@ fn map_param_error(err: serde_json::Error) -> ErrorObjectOwned {
 }
 
 fn convert_error(err: jsonrpsee_024::types::ErrorObjectOwned) -> ErrorObjectOwned {
-    let data = err
-        .data()
-        .and_then(|raw| serde_json::from_str::<JsonValue>(raw.get()).ok());
+    let data = err.data().and_then(|raw| serde_json::from_str::<JsonValue>(raw.get()).ok());
     ErrorObjectOwned::owned(err.code(), err.message(), data)
 }

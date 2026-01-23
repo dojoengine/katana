@@ -29,9 +29,7 @@ fn sample_execute_raw_request() -> ExecuteRawRequest {
             },
         },
         parameters: ExecutionParameters::V1 {
-            fee_mode: FeeMode::Sponsored {
-                tip: Default::default(),
-            },
+            fee_mode: FeeMode::Sponsored { tip: Default::default() },
             time_bounds: None,
         },
     }
@@ -40,22 +38,15 @@ fn sample_execute_raw_request() -> ExecuteRawRequest {
 fn execute_raw_params() -> ObjectParams {
     let request = sample_execute_raw_request();
     let mut params = ObjectParams::new();
-    params
-        .insert("transaction", request.transaction)
-        .expect("transaction params");
-    params
-        .insert("parameters", request.parameters)
-        .expect("parameters params");
+    params.insert("transaction", request.transaction).expect("transaction params");
+    params.insert("parameters", request.parameters).expect("parameters params");
     params
 }
 
 async fn spawn_server(
     module: RpcModule<()>,
 ) -> (std::net::SocketAddr, jsonrpsee::server::ServerHandle) {
-    let server = ServerBuilder::default()
-        .build("127.0.0.1:0")
-        .await
-        .expect("server to bind");
+    let server = ServerBuilder::default().build("127.0.0.1:0").await.expect("server to bind");
     let addr = server.local_addr().expect("server addr");
     let handle = server.start(module);
     (addr, handle)
@@ -97,9 +88,8 @@ async fn paymaster_proxy_forwards_execute_raw() {
     let proxy_module = proxy.module().expect("proxy module");
     let (proxy_addr, _proxy_handle) = spawn_server(proxy_module).await;
 
-    let client = HttpClientBuilder::default()
-        .build(&format!("http://{proxy_addr}"))
-        .expect("proxy client");
+    let client =
+        HttpClientBuilder::default().build(&format!("http://{proxy_addr}")).expect("proxy client");
 
     let response: ExecuteRawResponse = client
         .request("paymaster_executeRawTransaction", execute_raw_params())
@@ -132,9 +122,8 @@ async fn paymaster_proxy_passes_through_errors() {
     let proxy_module = proxy.module().expect("proxy module");
     let (proxy_addr, _proxy_handle) = spawn_server(proxy_module).await;
 
-    let client = HttpClientBuilder::default()
-        .build(&format!("http://{proxy_addr}"))
-        .expect("proxy client");
+    let client =
+        HttpClientBuilder::default().build(&format!("http://{proxy_addr}")).expect("proxy client");
 
     let err = client
         .request::<ExecuteRawResponse, _>("paymaster_executeRawTransaction", execute_raw_params())

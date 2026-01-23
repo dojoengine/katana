@@ -29,9 +29,7 @@ use std::future::Future;
 use std::sync::Arc;
 
 use anyhow::anyhow;
-use cainome::cairo_serde::CairoSerde;
-use cainome::cairo_serde::deserialize_from_hex;
-use cainome::cairo_serde::serialize_as_hex;
+use cainome::cairo_serde::{deserialize_from_hex, serialize_as_hex, CairoSerde};
 use cainome::cairo_serde_derive::CairoSerde as CairoSerdeDerive;
 use http::{HeaderMap, HeaderValue};
 use jsonrpsee::core::{async_trait, RpcResult};
@@ -56,7 +54,9 @@ use katana_rpc_api::cartridge::CartridgeApiServer;
 use katana_rpc_api::error::starknet::StarknetApiError;
 use katana_rpc_types::broadcasted::AddInvokeTransactionResponse;
 use katana_rpc_types::cartridge::FeeSource;
-use katana_rpc_types::outside_execution::{OutsideExecution, OutsideExecutionV2, OutsideExecutionV3};
+use katana_rpc_types::outside_execution::{
+    OutsideExecution, OutsideExecutionV2, OutsideExecutionV3,
+};
 use katana_rpc_types::FunctionCall;
 use katana_tasks::{Result as TaskResult, TaskSpawner};
 use paymaster_rpc::{
@@ -65,9 +65,9 @@ use paymaster_rpc::{
 };
 use reqwest::Client as ReqwestClient;
 use serde::{Deserialize, Serialize};
-use starknet_paymaster::core::types::Call as PaymasterCall;
 use starknet::macros::selector;
 use starknet::signers::{LocalWallet, Signer, SigningKey};
+use starknet_paymaster::core::types::Call as PaymasterCall;
 use tracing::{debug, info};
 use url::Url;
 
@@ -102,10 +102,9 @@ impl PaymasterClient {
         &self,
         request: ExecuteRawRequest,
     ) -> Result<ExecuteRawResponse, StarknetApiError> {
-        self.client
-            .execute_raw_transaction(request)
-            .await
-            .map_err(|err| StarknetApiError::unexpected(format!("paymaster execute_raw error: {err}")))
+        self.client.execute_raw_transaction(request).await.map_err(|err| {
+            StarknetApiError::unexpected(format!("paymaster execute_raw error: {err}"))
+        })
     }
 }
 
@@ -126,32 +125,22 @@ impl VrfClient {
         request: VrfSignedOutsideExecution,
         chain_id: String,
     ) -> Result<VrfSignedOutsideExecution, StarknetApiError> {
-        let endpoint = format!(
-            "{}/outside_execution",
-            self.url.as_str().trim_end_matches('/')
-        );
+        let endpoint = format!("{}/outside_execution", self.url.as_str().trim_end_matches('/'));
 
         let payload = VrfOutsideExecutionRequest {
             request,
-            context: VrfRequestContext {
-                chain_id,
-                rpc_url: Some(self.rpc_url.to_string()),
-            },
+            context: VrfRequestContext { chain_id, rpc_url: Some(self.rpc_url.to_string()) },
         };
 
-        let response = self
-            .client
-            .post(endpoint)
-            .json(&payload)
-            .send()
-            .await
-            .map_err(|err| StarknetApiError::unexpected(format!("vrf request failed: {err}")))?;
+        let response =
+            self.client.post(endpoint).json(&payload).send().await.map_err(|err| {
+                StarknetApiError::unexpected(format!("vrf request failed: {err}"))
+            })?;
 
         let status = response.status();
-        let body = response
-            .text()
-            .await
-            .map_err(|err| StarknetApiError::unexpected(format!("vrf response read failed: {err}")))?;
+        let body = response.text().await.map_err(|err| {
+            StarknetApiError::unexpected(format!("vrf response read failed: {err}"))
+        })?;
 
         if !status.is_success() {
             return Err(StarknetApiError::unexpected(format!(
@@ -159,8 +148,9 @@ impl VrfClient {
             )));
         }
 
-        let result: VrfOutsideExecutionResult = serde_json::from_str(&body)
-            .map_err(|err| StarknetApiError::unexpected(format!("vrf response parse failed: {err}")))?;
+        let result: VrfOutsideExecutionResult = serde_json::from_str(&body).map_err(|err| {
+            StarknetApiError::unexpected(format!("vrf response parse failed: {err}"))
+        })?;
         Ok(result.result)
     }
 }
@@ -176,7 +166,7 @@ struct VrfCall {
 struct VrfNonceChannel(
     pub Felt,
     #[serde(serialize_with = "serialize_as_hex", deserialize_with = "deserialize_from_hex")]
-    pub u128,
+    pub  u128,
 );
 
 #[derive(Clone, CairoSerdeDerive, Serialize, Deserialize, PartialEq, Debug)]
@@ -232,11 +222,7 @@ impl VrfSignedOutsideExecution {
 
         calldata.extend(Vec::<Felt>::cairo_serialize(&self.signature));
 
-        PaymasterCall {
-            to: self.address,
-            selector: self.outside_execution.selector(),
-            calldata,
-        }
+        PaymasterCall { to: self.address, selector: self.outside_execution.selector(), calldata }
     }
 }
 
@@ -303,7 +289,8 @@ where
         config: CartridgeConfig,
     ) -> anyhow::Result<Self> {
         let api_client = cartridge::Client::new(config.cartridge_api_url);
-        let paymaster_client = PaymasterClient::new(config.paymaster_url, config.paymaster_api_key)?;
+        let paymaster_client =
+            PaymasterClient::new(config.paymaster_url, config.paymaster_api_key)?;
         let vrf_client = config.vrf_url.map(|url| VrfClient::new(url, config.rpc_url));
 
         info!(target: "rpc::cartridge", vrf_enabled = vrf_client.is_some(), "Cartridge API initialized.");
@@ -432,11 +419,7 @@ where
 
         let private_key = match allocation {
             GenesisAccountAlloc::DevAccount(account) => account.private_key,
-            _ => {
-                return Err(StarknetApiError::unexpected(
-                    "paymaster account has no private key",
-                ))
-            }
+            _ => return Err(StarknetApiError::unexpected("paymaster account has no private key")),
         };
 
         Ok((*address, private_key))
@@ -635,11 +618,7 @@ fn build_execute_from_outside_call(
 
     calldata.extend(Vec::<Felt>::cairo_serialize(signature));
 
-    PaymasterCall {
-        to: address.into(),
-        selector: entrypoint,
-        calldata,
-    }
+    PaymasterCall { to: address.into(), selector: entrypoint, calldata }
 }
 
 fn request_random_position(outside_execution: &OutsideExecution) -> Option<usize> {
@@ -648,9 +627,7 @@ fn request_random_position(outside_execution: &OutsideExecution) -> Option<usize
         OutsideExecution::V3(v3) => &v3.calls,
     };
 
-    calls
-        .iter()
-        .position(|call| call.selector == selector!("request_random"))
+    calls.iter().position(|call| call.selector == selector!("request_random"))
 }
 
 fn outside_execution_calls_len(outside_execution: &OutsideExecution) -> usize {
@@ -663,9 +640,7 @@ fn outside_execution_calls_len(outside_execution: &OutsideExecution) -> usize {
 fn vrf_chain_id_string(chain_id: ChainId) -> Result<String, StarknetApiError> {
     let felt = chain_id.id();
     let short = ShortString::try_from(felt).map_err(|_| {
-        StarknetApiError::unexpected(format!(
-            "vrf requires a short-string chain id, got {felt:#x}"
-        ))
+        StarknetApiError::unexpected(format!("vrf requires a short-string chain id, got {felt:#x}"))
     })?;
     Ok(short.to_string())
 }
@@ -701,9 +676,5 @@ fn to_vrf_outside_execution(
 }
 
 fn vrf_call_from(call: &katana_rpc_types::outside_execution::Call) -> VrfCall {
-    VrfCall {
-        to: call.to.into(),
-        selector: call.selector,
-        calldata: call.calldata.clone(),
-    }
+    VrfCall { to: call.to.into(), selector: call.selector, calldata: call.calldata.clone() }
 }

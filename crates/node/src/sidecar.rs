@@ -125,18 +125,12 @@ pub async fn start_sidecars(
         (config.paymaster.as_ref(), bootstrap.paymaster.as_ref())
     {
         if paymaster_cfg.mode == ServiceMode::Sidecar {
-            paymaster_child = Some(start_paymaster_sidecar(
-                paymaster_cfg,
-                paymaster_bootstrap,
-                rpc_addr,
-            )
-            .await?);
+            paymaster_child =
+                Some(start_paymaster_sidecar(paymaster_cfg, paymaster_bootstrap, rpc_addr).await?);
         }
     }
 
-    if let (Some(vrf_cfg), Some(vrf_bootstrap)) =
-        (config.vrf.as_ref(), bootstrap.vrf.as_ref())
-    {
+    if let (Some(vrf_cfg), Some(vrf_bootstrap)) = (config.vrf.as_ref(), bootstrap.vrf.as_ref()) {
         if vrf_cfg.mode == ServiceMode::Sidecar {
             vrf_child = Some(start_vrf_sidecar(vrf_cfg, vrf_bootstrap).await?);
         }
@@ -150,10 +144,7 @@ async fn start_paymaster_sidecar(
     bootstrap: &PaymasterBootstrap,
     rpc_addr: &std::net::SocketAddr,
 ) -> Result<Child> {
-    let bin = config
-        .sidecar_bin
-        .clone()
-        .unwrap_or_else(|| "katana-paymaster".into());
+    let bin = config.sidecar_bin.clone().unwrap_or_else(|| "katana-paymaster".into());
     let rpc_url = local_rpc_url(rpc_addr);
 
     let mut command = Command::new(bin);
@@ -184,21 +175,14 @@ async fn start_paymaster_sidecar(
 
     let child = command.spawn().context("failed to spawn paymaster sidecar")?;
 
-    wait_for_http_ok(
-        &format!("{}/health", config.url),
-        "paymaster health",
-        BOOTSTRAP_TIMEOUT,
-    )
-    .await?;
+    wait_for_http_ok(&format!("{}/health", config.url), "paymaster health", BOOTSTRAP_TIMEOUT)
+        .await?;
 
     Ok(child)
 }
 
 async fn start_vrf_sidecar(config: &VrfConfig, bootstrap: &VrfBootstrap) -> Result<Child> {
-    let bin = config
-        .sidecar_bin
-        .clone()
-        .unwrap_or_else(|| "katana-vrf".into());
+    let bin = config.sidecar_bin.clone().unwrap_or_else(|| "katana-vrf".into());
 
     let mut command = Command::new(bin);
     command
@@ -223,8 +207,12 @@ async fn start_vrf_sidecar(config: &VrfConfig, bootstrap: &VrfBootstrap) -> Resu
 
 fn local_rpc_url(addr: &std::net::SocketAddr) -> Url {
     let host = match addr.ip() {
-        std::net::IpAddr::V4(ip) if ip.is_unspecified() => std::net::IpAddr::V4([127, 0, 0, 1].into()),
-        std::net::IpAddr::V6(ip) if ip.is_unspecified() => std::net::IpAddr::V4([127, 0, 0, 1].into()),
+        std::net::IpAddr::V4(ip) if ip.is_unspecified() => {
+            std::net::IpAddr::V4([127, 0, 0, 1].into())
+        }
+        std::net::IpAddr::V6(ip) if ip.is_unspecified() => {
+            std::net::IpAddr::V4([127, 0, 0, 1].into())
+        }
         ip => ip,
     };
 
@@ -238,9 +226,9 @@ fn paymaster_chain_id(chain_id: ChainId) -> Result<String> {
         ChainId::Named(other) => Err(anyhow!(
             "paymaster sidecar only supports SN_MAIN or SN_SEPOLIA chain ids, got {other}"
         )),
-        ChainId::Id(id) => Err(anyhow!(
-            "paymaster sidecar requires SN_MAIN or SN_SEPOLIA chain id, got {id:#x}"
-        )),
+        ChainId::Id(id) => {
+            Err(anyhow!("paymaster sidecar requires SN_MAIN or SN_SEPOLIA chain id, got {id:#x}"))
+        }
     }
 }
 
@@ -336,12 +324,7 @@ where
 
     let chain_id = paymaster_chain_id(backend.chain_spec.id())?;
 
-    Ok(PaymasterBootstrap {
-        forwarder_address,
-        relayer_address,
-        relayer_private_key,
-        chain_id,
-    })
+    Ok(PaymasterBootstrap { forwarder_address, relayer_address, relayer_private_key, chain_id })
 }
 
 async fn bootstrap_vrf<EF, PF>(
@@ -367,7 +350,8 @@ where
     let public_key_x = felt_from_field(public_key.x)?;
     let public_key_y = felt_from_field(public_key.y)?;
 
-    let account_public_key = SigningKey::from_secret_scalar(account_private_key).verifying_key().scalar();
+    let account_public_key =
+        SigningKey::from_secret_scalar(account_private_key).verifying_key().scalar();
 
     let vrf_account_class_hash = vrf_account_class_hash()?;
     let vrf_account_address = get_contract_address(
@@ -441,11 +425,7 @@ where
     )
     .await?;
 
-    Ok(VrfBootstrap {
-        account_address: vrf_account_address,
-        account_private_key,
-        secret_key,
-    })
+    Ok(VrfBootstrap { account_address: vrf_account_address, account_private_key, secret_key })
 }
 
 fn prefunded_account<EF, PF>(
@@ -496,9 +476,7 @@ where
         }
     }
 
-    Err(anyhow!(
-        "sequencer key source requested but sequencer is not a prefunded account"
-    ))
+    Err(anyhow!("sequencer key source requested but sequencer is not a prefunded account"))
 }
 
 async fn ensure_deployed<EF, PF>(
@@ -593,13 +571,8 @@ where
     let state = backend.storage.provider().latest()?;
     let nonce = account_nonce(pool, state.as_ref(), sender_address)?;
 
-    let tx = sign_invoke_tx(
-        backend.chain_spec.id(),
-        sender_address,
-        sender_private_key,
-        nonce,
-        calls,
-    )?;
+    let tx =
+        sign_invoke_tx(backend.chain_spec.id(), sender_address, sender_private_key, nonce, calls)?;
 
     pool.add_transaction(tx)
         .await
@@ -713,31 +686,25 @@ where
 }
 
 fn avnu_forwarder_class_hash() -> Result<Felt> {
-    let class = katana_primitives::utils::class::parse_sierra_class(
-        include_str!(concat!(
-            env!("CARGO_MANIFEST_DIR"),
-            "/../controller/classes/avnu_Forwarder.contract_class.json"
-        )),
-    )?;
+    let class = katana_primitives::utils::class::parse_sierra_class(include_str!(concat!(
+        env!("CARGO_MANIFEST_DIR"),
+        "/../controller/classes/avnu_Forwarder.contract_class.json"
+    )))?;
     class.class_hash().context("failed to compute forwarder class hash")
 }
 
 fn vrf_account_class_hash() -> Result<Felt> {
-    let class = katana_primitives::utils::class::parse_sierra_class(
-        include_str!(concat!(
-            env!("CARGO_MANIFEST_DIR"),
-            "/../controller/classes/cartridge_vrf_VrfAccount.contract_class.json"
-        )),
-    )?;
+    let class = katana_primitives::utils::class::parse_sierra_class(include_str!(concat!(
+        env!("CARGO_MANIFEST_DIR"),
+        "/../controller/classes/cartridge_vrf_VrfAccount.contract_class.json"
+    )))?;
     class.class_hash().context("failed to compute vrf account class hash")
 }
 
 fn vrf_consumer_class_hash() -> Result<Felt> {
-    let class = katana_primitives::utils::class::parse_sierra_class(
-        include_str!(concat!(
-            env!("CARGO_MANIFEST_DIR"),
-            "/../controller/classes/cartridge_vrf_VrfConsumer.contract_class.json"
-        )),
-    )?;
+    let class = katana_primitives::utils::class::parse_sierra_class(include_str!(concat!(
+        env!("CARGO_MANIFEST_DIR"),
+        "/../controller/classes/cartridge_vrf_VrfConsumer.contract_class.json"
+    )))?;
     class.class_hash().context("failed to compute vrf consumer class hash")
 }

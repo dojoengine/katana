@@ -100,11 +100,7 @@ impl TryFrom<SequencerNodeArgs> for NodeArgsConfig {
             } else {
                 Some(args.paymaster)
             };
-            node_config.vrf = if args.vrf == VrfOptions::default() {
-                None
-            } else {
-                Some(args.vrf)
-            };
+            node_config.vrf = if args.vrf == VrfOptions::default() { None } else { Some(args.vrf) };
         }
 
         #[cfg(feature = "explorer")]

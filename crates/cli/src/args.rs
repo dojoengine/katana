@@ -25,8 +25,7 @@ use katana_node::config::grpc::GrpcConfig;
 use katana_node::config::metrics::MetricsConfig;
 #[cfg(feature = "cartridge")]
 use katana_node::config::paymaster::{
-    PaymasterConfig, ServiceMode as NodeServiceMode, VrfConfig,
-    VrfKeySource as NodeVrfKeySource,
+    PaymasterConfig, ServiceMode as NodeServiceMode, VrfConfig, VrfKeySource as NodeVrfKeySource,
 };
 use katana_node::config::rpc::RpcConfig;
 #[cfg(feature = "server")]
@@ -312,7 +311,7 @@ impl SequencerNodeArgs {
                 let vrf_enabled = self.vrf.mode != ServiceMode::Disabled;
 
                 if paymaster_enabled || vrf_enabled {
-                modules.add(RpcModuleKind::Cartridge);
+                    modules.add(RpcModuleKind::Cartridge);
                 }
             }
 
@@ -528,16 +527,12 @@ impl SequencerNodeArgs {
         }
 
         let url = match mode {
-            ServiceMode::Sidecar => self
-                .paymaster
-                .url
-                .clone()
-                .unwrap_or_else(|| Url::parse(&format!("http://127.0.0.1:{}", self.paymaster.port)).expect("valid url")),
-            ServiceMode::External => self
-                .paymaster
-                .url
-                .clone()
-                .ok_or_else(|| anyhow::anyhow!("--paymaster.url is required when --paymaster.mode=external"))?,
+            ServiceMode::Sidecar => self.paymaster.url.clone().unwrap_or_else(|| {
+                Url::parse(&format!("http://127.0.0.1:{}", self.paymaster.port)).expect("valid url")
+            }),
+            ServiceMode::External => self.paymaster.url.clone().ok_or_else(|| {
+                anyhow::anyhow!("--paymaster.url is required when --paymaster.mode=external")
+            })?,
             ServiceMode::Disabled => unreachable!(),
         };
 
@@ -588,19 +583,16 @@ impl SequencerNodeArgs {
             return Ok(None);
         }
 
-        let url = match mode {
-            ServiceMode::Sidecar => self
-                .vrf
-                .url
-                .clone()
-                .unwrap_or_else(|| Url::parse(&format!("http://127.0.0.1:{}", self.vrf.port)).expect("valid url")),
-            ServiceMode::External => self
-                .vrf
-                .url
-                .clone()
-                .ok_or_else(|| anyhow::anyhow!("--vrf.url is required when --vrf.mode=external"))?,
-            ServiceMode::Disabled => unreachable!(),
-        };
+        let url =
+            match mode {
+                ServiceMode::Sidecar => self.vrf.url.clone().unwrap_or_else(|| {
+                    Url::parse(&format!("http://127.0.0.1:{}", self.vrf.port)).expect("valid url")
+                }),
+                ServiceMode::External => self.vrf.url.clone().ok_or_else(|| {
+                    anyhow::anyhow!("--vrf.url is required when --vrf.mode=external")
+                })?,
+                ServiceMode::Disabled => unreachable!(),
+            };
 
         let mode = match mode {
             ServiceMode::Disabled => NodeServiceMode::Disabled,
@@ -1049,11 +1041,11 @@ explorer = true
         assert!(config.rpc.apis.contains(&RpcModuleKind::Starknet));
 
         // Verify that all the Controller classes are added to the genesis
+        use katana_primitives::utils::class::parse_sierra_class;
         use katana_slot_controller::{
             ControllerLatest, ControllerV104, ControllerV105, ControllerV106, ControllerV107,
             ControllerV108, ControllerV109,
         };
-        use katana_primitives::utils::class::parse_sierra_class;
 
         let forwarder_class = parse_sierra_class(include_str!(concat!(
             env!("CARGO_MANIFEST_DIR"),

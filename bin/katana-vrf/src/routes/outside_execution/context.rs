@@ -2,14 +2,14 @@ use ark_ec::short_weierstrass::Affine;
 use cainome_cairo_serde::ContractAddress;
 use serde::{Deserialize, Serialize};
 use stark_vrf::StarkCurve;
-use starknet::{
-    core::utils::cairo_short_string_to_felt,
-    providers::{jsonrpc::HttpTransport, JsonRpcClient, Url},
-    signers::LocalWallet,
-};
 use starknet::core::types::Felt;
+use starknet::core::utils::cairo_short_string_to_felt;
+use starknet::providers::jsonrpc::HttpTransport;
+use starknet::providers::{JsonRpcClient, Url};
+use starknet::signers::LocalWallet;
 
-use crate::{routes::outside_execution::Errors, state::AppState};
+use crate::routes::outside_execution::Errors;
+use crate::state::AppState;
 
 #[derive(Debug, Serialize, Deserialize)]
 pub struct RequestContext {
@@ -42,9 +42,7 @@ impl VrfContext {
                 } else if request_context.chain_id.as_str() == "SN_SEPOLIA" {
                     "https://api.cartridge.gg/x/starknet/sepolia".into()
                 } else {
-                    return Err(Errors::RequestContextError(
-                        "no rpc_url provided".to_owned(),
-                    ));
+                    return Err(Errors::RequestContextError("no rpc_url provided".to_owned()));
                 }
             }
         };

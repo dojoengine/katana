@@ -2,8 +2,8 @@ use cainome::cairo_serde::{deserialize_from_hex, serialize_as_hex};
 use cainome::cairo_serde_derive::CairoSerde;
 use cainome_cairo_serde::CairoSerde;
 use serde::{Deserialize, Serialize};
-use starknet::macros::selector;
 use starknet::core::types::Felt;
+use starknet::macros::selector;
 
 /// A single call to be executed as part of an outside execution.
 #[derive(Clone, CairoSerde, Serialize, Deserialize, PartialEq, Debug)]
@@ -18,20 +18,12 @@ pub struct Call {
 
 impl From<Call> for starknet::core::types::Call {
     fn from(val: Call) -> Self {
-        starknet::core::types::Call {
-            to: val.to,
-            selector: val.selector,
-            calldata: val.calldata,
-        }
+        starknet::core::types::Call { to: val.to, selector: val.selector, calldata: val.calldata }
     }
 }
 impl From<starknet::core::types::Call> for Call {
     fn from(val: starknet::core::types::Call) -> Self {
-        Call {
-            to: val.to,
-            selector: val.selector,
-            calldata: val.calldata,
-        }
+        Call { to: val.to, selector: val.selector, calldata: val.calldata }
     }
 }
 
@@ -39,11 +31,8 @@ impl From<starknet::core::types::Call> for Call {
 #[derive(Clone, CairoSerde, PartialEq, Debug, Serialize, Deserialize)]
 pub struct NonceChannel(
     pub Felt,
-    #[serde(
-        serialize_with = "serialize_as_hex",
-        deserialize_with = "deserialize_from_hex"
-    )]
-    pub u128,
+    #[serde(serialize_with = "serialize_as_hex", deserialize_with = "deserialize_from_hex")]
+    pub  u128,
 );
 
 /// Outside execution version 2 (SNIP-9 standard).
@@ -54,16 +43,10 @@ pub struct OutsideExecutionV2 {
     /// Unique nonce to prevent signature reuse.
     pub nonce: Felt,
     /// Timestamp after which execution is valid.
-    #[serde(
-        serialize_with = "serialize_as_hex",
-        deserialize_with = "deserialize_from_hex"
-    )]
+    #[serde(serialize_with = "serialize_as_hex", deserialize_with = "deserialize_from_hex")]
     pub execute_after: u64,
     /// Timestamp before which execution is valid.
-    #[serde(
-        serialize_with = "serialize_as_hex",
-        deserialize_with = "deserialize_from_hex"
-    )]
+    #[serde(serialize_with = "serialize_as_hex", deserialize_with = "deserialize_from_hex")]
     pub execute_before: u64,
     /// Calls to execute in order.
     pub calls: Vec<Call>,
@@ -77,16 +60,10 @@ pub struct OutsideExecutionV3 {
     /// Nonce.
     pub nonce: NonceChannel,
     /// Timestamp after which execution is valid.
-    #[serde(
-        serialize_with = "serialize_as_hex",
-        deserialize_with = "deserialize_from_hex"
-    )]
+    #[serde(serialize_with = "serialize_as_hex", deserialize_with = "deserialize_from_hex")]
     pub execute_after: u64,
     /// Timestamp before which execution is valid.
-    #[serde(
-        serialize_with = "serialize_as_hex",
-        deserialize_with = "deserialize_from_hex"
-    )]
+    #[serde(serialize_with = "serialize_as_hex", deserialize_with = "deserialize_from_hex")]
     pub execute_before: u64,
     /// Calls to execute in order.
     pub calls: Vec<Call>,
@@ -164,10 +141,6 @@ impl SignedOutsideExecution {
         calldata.push(self.signature.len().into());
         calldata.extend(self.signature.clone());
 
-        Call {
-            to: self.address,
-            selector: outside_execution.selector(),
-            calldata,
-        }
+        Call { to: self.address, selector: outside_execution.selector(), calldata }
     }
 }
