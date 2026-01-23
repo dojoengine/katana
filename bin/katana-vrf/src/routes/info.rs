@@ -1,8 +1,11 @@
-use crate::{state::SharedState, utils::format};
 use ark_ec::short_weierstrass::Affine;
-use axum::{extract::State, Json};
+use axum::extract::State;
+use axum::Json;
 use serde::{Deserialize, Serialize};
 use stark_vrf::StarkCurve;
+
+use crate::state::SharedState;
+use crate::utils::format;
 
 #[derive(Debug, Serialize, Deserialize)]
 pub struct InfoResult {
@@ -12,10 +15,7 @@ pub struct InfoResult {
 
 impl InfoResult {
     pub fn from_public_key(public_key: Affine<StarkCurve>) -> InfoResult {
-        InfoResult {
-            public_key_x: format(public_key.x),
-            public_key_y: format(public_key.y),
-        }
+        InfoResult { public_key_x: format(public_key.x), public_key_y: format(public_key.y) }
     }
 }
 

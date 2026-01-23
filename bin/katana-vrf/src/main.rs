@@ -3,12 +3,11 @@ pub mod routes;
 pub mod state;
 pub mod utils;
 
-use axum::{
-    routing::{get, post},
-    Router,
-};
-use clap::Parser;
 use std::sync::{Arc, RwLock};
+
+use axum::routing::{get, post};
+use axum::Router;
+use clap::Parser;
 use tokio::signal;
 use tower_http::trace::TraceLayer;
 use tracing::debug;
@@ -42,9 +41,7 @@ pub struct Args {
 async fn main() {
     let args = Args::parse();
 
-    tracing_subscriber::fmt()
-        .with_max_level(tracing::Level::DEBUG)
-        .init();
+    tracing_subscriber::fmt().with_max_level(tracing::Level::DEBUG).init();
 
     let app_state = AppState::from_args(&args).await;
     let shared_state = SharedState(Arc::new(RwLock::new(app_state)));
@@ -57,23 +54,19 @@ async fn main() {
         .layer(TraceLayer::new_for_http())
         .with_state(shared_state);
 
-    let listener = tokio::net::TcpListener::bind(format!("0.0.0.0:{}", args.port))
-        .await
-        .expect("Failed to bind to port 3000, port already in use by another process. Change the port or terminate the other process.");
+    let listener = tokio::net::TcpListener::bind(format!("0.0.0.0:{}", args.port)).await.expect(
+        "Failed to bind to port 3000, port already in use by another process. Change the port or \
+         terminate the other process.",
+    );
 
     debug!("Server started on http://0.0.0.0:{}", args.port);
 
-    axum::serve(listener, app)
-        .with_graceful_shutdown(shutdown_signal())
-        .await
-        .unwrap();
+    axum::serve(listener, app).with_graceful_shutdown(shutdown_signal()).await.unwrap();
 }
 
 async fn shutdown_signal() {
     let ctrl_c = async {
-        signal::ctrl_c()
-            .await
-            .expect("failed to install Ctrl+C handler");
+        signal::ctrl_c().await.expect("failed to install Ctrl+C handler");
     };
 
     #[cfg(unix)]

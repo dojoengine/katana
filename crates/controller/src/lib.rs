@@ -32,8 +32,7 @@ pub fn add_avnu_forwarder_class(genesis: &mut Genesis) {
 }
 
 pub fn add_vrf_account_class(genesis: &mut Genesis) {
-    let vrf_account_class =
-        include_str!("../classes/cartridge_vrf_VrfAccount.contract_class.json");
+    let vrf_account_class = include_str!("../classes/cartridge_vrf_VrfAccount.contract_class.json");
     let class = parse_sierra_class(vrf_account_class).unwrap();
     genesis.classes.insert(
         class.class_hash().expect("Failed to compute class hash for VRF account class"),
