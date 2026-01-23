@@ -54,6 +54,14 @@ enum Commands {
         /// Load attestation from JSON file instead of RPC
         #[arg(short, long)]
         json: Option<PathBuf>,
+
+        /// Starknet JSON-RPC URL for cache lookup (defaults to --rpc)
+        #[arg(long, env = "STARKNET_RPC_URL")]
+        starknet_rpc: Option<String>,
+
+        /// AMD TEE registry contract address (hex felt)
+        #[arg(long, required = true)]
+        registry: String,
     },
 
     /// Generate an SP1 Groth16 proof
@@ -70,6 +78,14 @@ enum Commands {
         /// Load attestation from JSON file instead of RPC
         #[arg(short, long)]
         json: Option<PathBuf>,
+
+        /// Starknet JSON-RPC URL for cache lookup (defaults to --rpc)
+        #[arg(long, env = "STARKNET_RPC_URL")]
+        starknet_rpc: Option<String>,
+
+        /// AMD TEE registry contract address (hex felt)
+        #[arg(long, required = true)]
+        registry: String,
 
         /// Prover mode: mock, cpu, or network
         #[arg(short, long, env = "SP1_PROVER", default_value = "network")]
@@ -115,9 +131,9 @@ enum Commands {
         #[arg(long)]
         katana_tee: String,
 
-        /// AMD TEE registry contract address (hex felt). If omitted, fetched from `katana_tee`.
-        #[arg(long)]
-        registry: Option<String>,
+        /// AMD TEE registry contract address (hex felt)
+        #[arg(long, required = true)]
+        registry: String,
 
         /// Prover mode: mock, cpu, or network
         #[arg(short, long, env = "SP1_PROVER", default_value = "network")]
@@ -134,10 +150,6 @@ enum Commands {
         /// Skip certificate time validity check (defaults to env `SKIP_TIME_VALIDITY_CHECK`)
         #[arg(long)]
         skip_time_validity_check: bool,
-
-        /// Skip on-chain cache lookup for trusted cert prefix length (use default value 2)
-        #[arg(long)]
-        skip_cache: bool,
 
         /// Output file for the proof JSON
         #[arg(long, default_value = "proof_output.json")]
@@ -231,10 +243,14 @@ async fn main() -> anyhow::Result<()> {
 
     match cli.command {
         Commands::Fetch { rpc, output } => cmd_fetch(&rpc, output).await,
-        Commands::Execute { rpc, json } => cmd_execute(&rpc, json).await,
+        Commands::Execute { rpc, json, starknet_rpc, registry } => {
+            cmd_execute(&rpc, json, starknet_rpc, &registry).await
+        }
         Commands::Prove {
             rpc,
             json,
+            starknet_rpc,
+            registry,
             prover,
             sp1_private_key,
             sp1_rpc_url,
@@ -244,6 +260,8 @@ async fn main() -> anyhow::Result<()> {
             cmd_prove(
                 &rpc,
                 json,
+                starknet_rpc,
+                &registry,
                 &prover,
                 sp1_private_key,
                 sp1_rpc_url,
@@ -262,7 +280,6 @@ async fn main() -> anyhow::Result<()> {
             sp1_private_key,
             sp1_rpc_url,
             skip_time_validity_check,
-            skip_cache,
             proof_output,
             calldata_output,
             account_address,
@@ -275,12 +292,11 @@ async fn main() -> anyhow::Result<()> {
                 json,
                 starknet_rpc,
                 &katana_tee,
-                registry.as_deref(),
+                &registry,
                 &prover,
                 sp1_private_key,
                 sp1_rpc_url,
                 skip_time_validity_check,
-                skip_cache,
                 &proof_output,
                 calldata_output,
                 account_address,
@@ -335,7 +351,14 @@ async fn cmd_fetch(rpc: &str, output: Option<PathBuf>) -> anyhow::Result<()> {
     Ok(())
 }
 
-async fn cmd_execute(rpc: &str, json: Option<PathBuf>) -> anyhow::Result<()> {
+async fn cmd_execute(
+    rpc: &str,
+    json: Option<PathBuf>,
+    starknet_rpc: Option<String>,
+    registry: &str,
+) -> anyhow::Result<()> {
+    let starknet_rpc = starknet_rpc.unwrap_or_else(|| rpc.to_string());
+
     // Force mock mode
     std::env::set_var("SP1_PROVER", "mock");
 
@@ -350,16 +373,21 @@ async fn cmd_execute(rpc: &str, json: Option<PathBuf>) -> anyhow::Result<()> {
     );
     println!();
 
+    let registry_addr = felt_from_hex(registry)?;
+    let registry_client = StarknetRegistryClient::new(&starknet_rpc, registry_addr);
+
+    println!("🏛️  Registry: 0x{:x}", registry_addr);
     println!("🔄 Executing SP1 program (mock mode)...");
     let start = std::time::Instant::now();
     let prover = AmdAttestationProver::new(ProverConfig::default());
-    let proof = prover.prove(&attestation.quote_bytes()?).await?;
+    let proof_info = prover.prove(&attestation.quote_bytes()?, &registry_client).await?;
     let elapsed = start.elapsed();
 
     println!("✅ Execution completed in {:.2?}", elapsed);
+    println!("   Trusted prefix len: {}", proof_info.trusted_prefix_len);
     println!();
     println!("📊 Result:");
-    println!("   Verifier ID: {}", proof.program_id.verifier_id);
+    println!("   Verifier ID: {}", proof_info.proof.program_id.verifier_id);
     println!();
     println!("ℹ️  Mock mode - no real proof generated");
 
@@ -369,12 +397,16 @@ async fn cmd_execute(rpc: &str, json: Option<PathBuf>) -> anyhow::Result<()> {
 async fn cmd_prove(
     rpc: &str,
     json: Option<PathBuf>,
+    starknet_rpc: Option<String>,
+    registry: &str,
     prover: &str,
     sp1_private_key: Option<String>,
     sp1_rpc_url: Option<String>,
     skip_time_validity_check: bool,
     output: &PathBuf,
 ) -> anyhow::Result<()> {
+    let starknet_rpc = starknet_rpc.unwrap_or_else(|| rpc.to_string());
+
     std::env::set_var("SP1_PROVER", prover);
 
     let config = resolve_prover_config(sp1_private_key, sp1_rpc_url, skip_time_validity_check);
@@ -403,19 +435,27 @@ async fn cmd_prove(
     );
     println!();
 
+    let registry_addr = felt_from_hex(registry)?;
+    let registry_client = StarknetRegistryClient::new(&starknet_rpc, registry_addr);
+
+    println!("🏛️  Registry: 0x{:x}", registry_addr);
     println!("⚙️  Prover: {}", prover);
     if prover == "network" {
         println!("   This may take 1-2 minutes for Groth16 proving...");
     }
     println!();
 
-    println!("🔄 Generating SP1 proof...");
+    println!("🔄 Generating SP1 proof (querying on-chain cache)...");
     let start = std::time::Instant::now();
     let amd_prover = AmdAttestationProver::new(config);
-    let proof = amd_prover.prove(&attestation.quote_bytes()?).await?;
+    let proof_info = amd_prover.prove(&attestation.quote_bytes()?, &registry_client).await?;
     let elapsed = start.elapsed();
 
+    let proof = &proof_info.proof;
+
     println!("✅ Proof generated in {:.2?}", elapsed);
+    println!("   Trusted prefix len: {}", proof_info.trusted_prefix_len);
+    println!("   Cert chain length: {}", proof_info.cert_digests.len());
     println!();
     println!("📊 Proof Details:");
     println!("   ZK Type:      {:?}", proof.zktype);
@@ -425,7 +465,7 @@ async fn cmd_prove(
 
     // Verify structure
     if prover != "mock" {
-        AmdAttestationProver::<katana_tee_client::Sp1NetworkBackend>::verify_proof_structure(&proof)?;
+        AmdAttestationProver::<katana_tee_client::Sp1NetworkBackend>::verify_proof_structure(proof)?;
         println!("   Verified:     ✓");
     }
 
@@ -468,12 +508,11 @@ async fn cmd_pipeline(
     json: Option<PathBuf>,
     starknet_rpc: Option<String>,
     katana_tee: &str,
-    registry: Option<&str>,
+    registry: &str,
     prover: &str,
     sp1_private_key: Option<String>,
     sp1_rpc_url: Option<String>,
     skip_time_validity_check: bool,
-    skip_cache: bool,
     proof_output: &PathBuf,
     calldata_output: Option<PathBuf>,
     account_address: Option<String>,
@@ -505,35 +544,25 @@ async fn cmd_pipeline(
     let katana_tee_addr = felt_from_hex(katana_tee)?;
     let katana_client = KatanaTeeStarknetClient::new(&starknet_rpc, katana_tee_addr)?;
 
-    let registry_addr = match registry {
-        Some(addr) => felt_from_hex(addr)?,
-        None => {
-            println!("🔎 Fetching registry address from katana_tee...");
-            katana_client.get_registry_address().await?
-        }
-    };
+    let registry_addr = felt_from_hex(registry)?;
 
     println!("🏛️  Registry: 0x{:x}", registry_addr);
     println!("🏛️  KatanaTee: 0x{:x}", katana_client.contract_address());
 
     let amd_prover = AmdAttestationProver::new(config);
     let quote_bytes = attestation.quote_bytes()?;
-    let proof = if skip_cache {
-        println!("🔄 Proving (skipping on-chain cache)...");
-        let start = std::time::Instant::now();
-        let proof = amd_prover.prove(&quote_bytes).await?;
-        let elapsed = start.elapsed();
-        println!("✅ Proof generated in {:.2?}", elapsed);
-        proof
-    } else {
-        let registry_client = StarknetRegistryClient::new(&starknet_rpc, registry_addr);
-        println!("🔄 Proving (with on-chain cache)...");
-        let start = std::time::Instant::now();
-        let proof = amd_prover.prove_with_cache(&quote_bytes, &registry_client).await?;
-        let elapsed = start.elapsed();
-        println!("✅ Proof generated in {:.2?}", elapsed);
-        proof
-    };
+
+    let registry_client = StarknetRegistryClient::new(&starknet_rpc, registry_addr);
+    println!("🔄 Proving (querying on-chain cache)...");
+    let start = std::time::Instant::now();
+    let proof_info = amd_prover.prove(&quote_bytes, &registry_client).await?;
+    let elapsed = start.elapsed();
+
+    println!("✅ Proof generated in {:.2?}", elapsed);
+    println!("   Trusted prefix len: {}", proof_info.trusted_prefix_len);
+    println!("   Cert chain length: {}", proof_info.cert_digests.len());
+
+    let proof = proof_info.proof;
 
     // Save proof JSON
     let proof_json = proof.encode_json()?;
