@@ -50,4 +50,6 @@ pub struct StarknetApiConfig {
 pub struct PaymasterConfig {
     /// The root URL for the Cartridge API.
     pub cartridge_api_url: url::Url,
+    /// Prefunded account index used for controller deployments.
+    pub prefunded_index: u16,
 }

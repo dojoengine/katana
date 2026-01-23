@@ -197,13 +197,12 @@ where
         // for more details.
         #[cfg(feature = "cartridge")]
         let transactions = if let Some(paymaster) = &self.inner.config.paymaster {
-            // Paymaster is the first dev account in the genesis.
             let (paymaster_address, paymaster_alloc) = self
                 .inner
                 .chain_spec
                 .genesis()
                 .accounts()
-                .nth(0)
+                .nth(paymaster.prefunded_index as usize)
                 .ok_or(anyhow!("Cartridge paymaster account doesn't exist"))
                 .map_err(StarknetApiError::from)?;
 

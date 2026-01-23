@@ -4,6 +4,8 @@ pub mod full;
 
 pub mod config;
 pub mod exit;
+#[cfg(feature = "cartridge")]
+mod sidecar;
 
 use std::future::IntoFuture;
 use std::sync::Arc;
@@ -46,7 +48,9 @@ use katana_rpc_api::starknet_ext::StarknetApiExtServer;
 use katana_rpc_api::tee::TeeApiServer;
 use katana_rpc_client::starknet::Client as StarknetClient;
 #[cfg(feature = "cartridge")]
-use katana_rpc_server::cartridge::CartridgeApi;
+use katana_rpc_server::cartridge::{CartridgeApi, CartridgeConfig};
+#[cfg(feature = "cartridge")]
+use katana_rpc_server::paymaster::PaymasterProxy;
 use katana_rpc_server::cors::Cors;
 use katana_rpc_server::dev::DevApi;
 #[cfg(feature = "cartridge")]
@@ -60,8 +64,12 @@ use katana_stage::Sequencing;
 use katana_tasks::TaskManager;
 use num_traits::ToPrimitive;
 use tracing::info;
+#[cfg(feature = "cartridge")]
+use url::Url;
 
 use crate::exit::NodeStoppedFuture;
+#[cfg(feature = "cartridge")]
+use crate::sidecar::{bootstrap_sidecars, start_sidecars, BootstrapResult, SidecarProcesses};
 
 /// A node instance.
 ///
@@ -222,17 +230,48 @@ where
                 "Cartridge API should be enabled when paymaster is set"
             );
 
+            let cartridge_api_url = paymaster
+                .cartridge_api_url
+                .clone()
+                .ok_or_else(|| anyhow::anyhow!("cartridge api url is required when paymaster is set"))?;
+
+            let rpc_addr = config.rpc.socket_addr();
+            let rpc_host = match rpc_addr.ip() {
+                std::net::IpAddr::V4(ip) if ip.is_unspecified() => {
+                    std::net::IpAddr::V4(std::net::Ipv4Addr::LOCALHOST)
+                }
+                std::net::IpAddr::V6(ip) if ip.is_unspecified() => {
+                    std::net::IpAddr::V4(std::net::Ipv4Addr::LOCALHOST)
+                }
+                ip => ip,
+            };
+            let rpc_url = Url::parse(&format!("http://{}:{}", rpc_host, rpc_addr.port()))
+                .context("failed to build rpc url")?;
+
             let api = CartridgeApi::new(
                 backend.clone(),
                 block_producer.clone(),
                 pool.clone(),
                 task_spawner.clone(),
-                paymaster.cartridge_api_url.clone(),
-            );
+                CartridgeConfig {
+                    cartridge_api_url: cartridge_api_url.clone(),
+                    paymaster_url: paymaster.url.clone(),
+                    paymaster_api_key: paymaster.api_key.clone(),
+                    paymaster_prefunded_index: paymaster.prefunded_index,
+                    vrf_url: config.vrf.as_ref().map(|vrf| vrf.url.clone()),
+                    rpc_url,
+                },
+            )?;
 
             rpc_modules.merge(CartridgeApiServer::into_rpc(api))?;
 
-            Some(PaymasterConfig { cartridge_api_url: paymaster.cartridge_api_url.clone() })
+            let paymaster_proxy = PaymasterProxy::new(
+                paymaster.url.clone(),
+                paymaster.api_key.clone(),
+            );
+            rpc_modules.merge(paymaster_proxy.module()?)?;
+
+            Some(PaymasterConfig { cartridge_api_url, prefunded_index: paymaster.prefunded_index })
         } else {
             None
         };
@@ -565,6 +604,14 @@ where
             .name("Sequencing")
             .spawn(sequencing.into_future());
 
+        #[cfg(feature = "cartridge")]
+        let sidecar_bootstrap: BootstrapResult =
+            if self.config.paymaster.is_some() || self.config.vrf.is_some() {
+                bootstrap_sidecars(self.config(), &backend, &block_producer, &pool).await?
+            } else {
+                BootstrapResult::default()
+            };
+
         // --- start the rpc server
 
         let rpc_handle = self.rpc_server.start(self.config.rpc.socket_addr()).await?;
@@ -607,6 +654,14 @@ where
 
         info!(target: "node", "Gas price oracle worker started.");
 
+        #[cfg(feature = "cartridge")]
+        let sidecars = if sidecar_bootstrap.paymaster.is_some() || sidecar_bootstrap.vrf.is_some()
+        {
+            Some(start_sidecars(self.config(), &sidecar_bootstrap, rpc_handle.addr()).await?)
+        } else {
+            None
+        };
+
         Ok(LaunchedNode {
             node: self,
             rpc: rpc_handle,
@@ -614,6 +669,8 @@ where
             #[cfg(feature = "grpc")]
             grpc: grpc_handle,
             metrics: metrics_handle,
+            #[cfg(feature = "cartridge")]
+            sidecars,
         })
     }
 
@@ -665,6 +722,9 @@ where
     grpc: Option<GrpcServerHandle>,
     /// Handle to the metrics server (if enabled).
     metrics: Option<MetricsServerHandle>,
+    /// Handles for sidecar processes (if enabled).
+    #[cfg(feature = "cartridge")]
+    sidecars: Option<SidecarProcesses>,
 }
 
 impl<P> LaunchedNode<P>

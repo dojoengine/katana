@@ -30,6 +30,10 @@ pub struct NodeArgsConfig {
     pub grpc: Option<GrpcOptions>,
     #[cfg(feature = "cartridge")]
     pub cartridge: Option<CartridgeOptions>,
+    #[cfg(feature = "cartridge")]
+    pub paymaster: Option<PaymasterOptions>,
+    #[cfg(feature = "cartridge")]
+    pub vrf: Option<VrfOptions>,
     #[cfg(feature = "explorer")]
     pub explorer: Option<ExplorerOptions>,
 }
@@ -90,6 +94,16 @@ impl TryFrom<SequencerNodeArgs> for NodeArgsConfig {
                 None
             } else {
                 Some(args.cartridge)
+            };
+            node_config.paymaster = if args.paymaster == PaymasterOptions::default() {
+                None
+            } else {
+                Some(args.paymaster)
+            };
+            node_config.vrf = if args.vrf == VrfOptions::default() {
+                None
+            } else {
+                Some(args.vrf)
             };
         }
 

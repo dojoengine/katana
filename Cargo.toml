@@ -3,6 +3,8 @@ resolver = "2"
 
 members = [
 	"bin/katana",
+	"bin/katana-paymaster",
+	"bin/katana-vrf",
 	"crates/cartridge",
 	"crates/chain-spec",
 	"crates/cli",
@@ -233,7 +235,10 @@ opentelemetry-stackdriver = { version = "0.27.0", features = [ "propagator" ] }
 
 # starknet
 starknet = "0.17.0"
+starknet-crypto = "0.8.1"
 starknet-types-core = { version = "=0.2.3", features = [ "arbitrary", "hash" ] }
+stark-vrf = { git = "https://github.com/dojoengine/stark-vrf.git", rev = "96d6d2a" }
+paymaster-rpc = { git = "https://github.com/cartridge-gg/paymaster", branch = "copenhagen-4cb4" }
 # Some types that we used from cairo-vm implements the `Arbitrary` trait,
 # only under the `test_utils` feature.
 cairo-vm = { version = "2.5.0", features = [ "test_utils" ] }

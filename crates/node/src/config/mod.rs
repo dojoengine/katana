@@ -66,9 +66,13 @@ pub struct Config {
     /// Development options.
     pub dev: DevConfig,
 
-    /// Cartridge paymaster options.
+    /// Paymaster options.
     #[cfg(feature = "cartridge")]
     pub paymaster: Option<paymaster::PaymasterConfig>,
+
+    /// VRF options.
+    #[cfg(feature = "cartridge")]
+    pub vrf: Option<paymaster::VrfConfig>,
 
     /// TEE attestation options.
     #[cfg(feature = "tee")]

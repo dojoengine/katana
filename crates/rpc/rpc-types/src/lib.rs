@@ -10,6 +10,7 @@ use serde_utils::{deserialize_u128, deserialize_u64, serialize_as_hex};
 pub mod account;
 pub mod block;
 pub mod broadcasted;
+pub mod cartridge;
 pub mod class;
 pub mod event;
 pub mod list;
@@ -23,6 +24,7 @@ pub mod trie;
 
 pub use block::*;
 pub use broadcasted::*;
+pub use cartridge::*;
 pub use class::*;
 pub use event::*;
 pub use list::*;
