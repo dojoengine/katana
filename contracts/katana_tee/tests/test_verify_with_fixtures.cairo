@@ -6,6 +6,7 @@
 use snforge_std::fs::{FileTrait, read_txt};
 use snforge_std::{ContractClassTrait, DeclareResultTrait, declare};
 use starknet::ContractAddress;
+use amd_tee_registry::tee_registry::AMDTEERegistry;
 use katana_tee::{IKatanaTeeDispatcher, IKatanaTeeDispatcherTrait};
 
 /// Garaga SP1 Groth16 Verifier class hash (deployed on mainnet and sepolia)
@@ -15,8 +16,16 @@ const GARAGA_CLASS_HASH: felt252 = 0x4b22453df42037dd61390736454e8390910adfbbc1f
 const SP1_PROGRAM_ID_LOW: felt252 = 0x2c621bae91a0626796ce637f01c928d8;
 const SP1_PROGRAM_ID_HIGH: felt252 = 0x00d2342d2400bed28302507269281dcb;
 
-/// Max time difference for attestation validation (1 day)
-const MAX_TIME_DIFF: u64 = 86400;
+/// Max time difference for attestation validation (1 year for testing with old fixtures)
+const MAX_TIME_DIFF: u64 = 31536000;
+
+/// Genoa ARK root cert hash (from tests/fixtures/root_certs.json)
+const GENOA_ROOT_CERT_LOW: felt252 = 0x5bfe1d8f800cea2cf270c10d103db2f1;
+const GENOA_ROOT_CERT_HIGH: felt252 = 0x4c6598d19c18719c5dfd4a7d335f674e;
+
+/// ASK intermediate cert hash (from proof fixtures, certs[1])
+const ASK_CERT_LOW: felt252 = 0xc4bb797cd2c97a63be3ec075136b6a5f;
+const ASK_CERT_HIGH: felt252 = 0xd105403760701f8fee86fee3215a27d9;
 
 /// Deploy the AMDTEERegistry contract for testing
 fn deploy_amd_registry() -> ContractAddress {
@@ -24,16 +33,23 @@ fn deploy_amd_registry() -> ContractAddress {
 
     // Constructor: verifier_class_hash, sp1_program_id (u256), max_time_diff,
     //              trusted_certs (array), processor_models (array), root_certs (array)
+    // Note: processor_models and root_certs must have the same length
     let mut calldata: Array<felt252> = array![
         GARAGA_CLASS_HASH,
         SP1_PROGRAM_ID_LOW,
         SP1_PROGRAM_ID_HIGH,
         MAX_TIME_DIFF.into(),
-        0,  // trusted_certs array length = 0
-        2,  // processor_models array length = 2
-        0,  // Milan = 0
-        1,  // Genoa = 1
-        0,  // root_certs array length = 0 (would need real hashes for full verification)
+        // trusted_certs array (ASK intermediate cert)
+        1,  // length = 1
+        ASK_CERT_LOW,
+        ASK_CERT_HIGH,
+        // processor_models array (Genoa = 1)
+        1,  // length = 1
+        1,  // ProcessorType::Genoa
+        // root_certs array (Genoa root cert hash)
+        1,  // length = 1
+        GENOA_ROOT_CERT_LOW,
+        GENOA_ROOT_CERT_HIGH,
     ];
 
     let (contract_address, _) = contract.deploy(@calldata).unwrap();
@@ -63,10 +79,13 @@ fn load_calldata_from_fixture(path: ByteArray) -> Array<felt252> {
 #[fork("MAINNET")]
 fn test_verify_block_0() {
     // Deploy contracts
+    println!("Deploying AMDTEERegistry contract");
     let registry_address = deploy_amd_registry();
+    println!("Deploying KatanaTee contract");
     let katana_address = deploy_katana_tee(registry_address);
     let dispatcher = IKatanaTeeDispatcher { contract_address: katana_address };
 
+    println!("Loading calldata");
     // Load calldata from fixture
     let calldata = load_calldata_from_fixture("../../tests/fixtures/block_0/calldata.txt");
 

@@ -152,8 +152,16 @@ impl StarknetCalldata {
     /// Convert calldata to a single newline-separated hex string.
     ///
     /// This format is compatible with Starknet Foundry's `read_txt` function.
+    /// Note: Skips the first element (length prefix)
     pub fn to_hex_file_content(&self) -> String {
-        self.to_hex_strings().join("\n") + "\n"
+        // Skip the first element (length prefix)
+        self.values
+            .iter()
+            .skip(1)
+            .map(|v| format!("0x{:x}", v))
+            .collect::<Vec<_>>()
+            .join("\n")
+            + "\n"
     }
 
     /// Convert calldata to decimal strings.

@@ -52,3 +52,13 @@ allow-prebuilt-plugins = ["snforge_std"]
 
 # [features]                                                 # Used for conditional compilation
 # enable_for_tests = []                                      # Feature name and list of other features that should be enabled with it
+
+[[tool.snforge.fork]]
+name = "MAINNET"
+url = "$MAINNET_RPC_URL"
+block_id.tag = "latest"
+
+[[tool.snforge.fork]]
+name = "SEPOLIA"
+url = "$SEPOLIA_RPC_URL"
+block_id.tag = "latest"

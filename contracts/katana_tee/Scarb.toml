@@ -17,6 +17,7 @@ assert_macros = "2.15.0"
 
 [[target.starknet-contract]]
 sierra = true
+build-external-contracts = ["amd_tee_registry::tee_registry::AMDTEERegistry"]
 
 [scripts]
 test = "snforge test"
@@ -54,14 +55,12 @@ allow-prebuilt-plugins = ["snforge_std"]
 # [features]                                                 # Used for conditional compilation
 # enable_for_tests = []                                      # Feature name and list of other features that should be enabled with it
 
-# Fork configurations commented out - tests using #[fork("...")] require RPC URLs
-# Set MAINNET_RPC_URL and STARKNET_RPC_URL_SEPOLIA to enable fork tests
-# [[tool.snforge.fork]]
-# name = "MAINNET"
-# url = "${MAINNET_RPC_URL}"
-# block_id.tag = "latest"
+[[tool.snforge.fork]]
+name = "MAINNET"
+url = "$MAINNET_RPC_URL"
+block_id.tag = "latest"
 
-# [[tool.snforge.fork]]
-# name = "SEPOLIA"
-# url = "${STARKNET_RPC_URL_SEPOLIA}"
-# block_id.tag = "latest"
+[[tool.snforge.fork]]
+name = "SEPOLIA"
+url = "$SEPOLIA_RPC_URL"
+block_id.tag = "latest"

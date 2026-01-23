@@ -3,7 +3,7 @@ members = ["contracts/amd_tee_registry", "contracts/katana_tee", "contracts/scri
 
 [[tool.snforge.fork]]
 name = "SEPOLIA_LATEST"
-url = "$STARKNET_RPC_URL_SEPOLIA"
+url = "$SEPOLIA_RPC_URL"
 block_id.tag = "latest"
 
 [[tool.snforge.fork]]

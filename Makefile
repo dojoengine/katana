@@ -121,6 +121,9 @@ help:
 	@echo "  make test-e2e       - E2E fixture mode"
 	@echo "  make e2e-live       - E2E live mode"
 	@echo ""
+	@echo "Fixtures:"
+	@echo "  make generate-cairo-fixtures - Regenerate Cairo fixtures from block proofs"
+	@echo ""
 	@echo "Variables:"
 	@echo "  RPC_URL=<url>       - Override RPC endpoint"
 	@echo ""
@@ -131,7 +134,8 @@ help:
         tee-start tee-stop tee-status tee-test \
         pipeline-test pipeline-prove help \
         test test-rust test-cairo test-deployment test-e2e test-fork \
-        devnet-mainnet e2e-test e2e-test-live e2e-live fetch-root-certs
+        devnet-mainnet fetch-root-certs \
+        generate-cairo-fixtures
 
 
 # =============================================================================
@@ -153,6 +157,7 @@ test-e2e:
 
 # Run fork-based Cairo tests (requires MAINNET_RPC_URL)
 test-fork:
+	@set -a && . ./.env && set +a && \
 	snforge test --workspace --include-ignored
 
 # Start devnet forking mainnet (Garaga verifier available)
@@ -166,4 +171,10 @@ fetch-root-certs:
 		--processors milan,genoa \
 		--validate crates/amd-sev-snp-attestation-sdk/contracts/test/assets \
 		--output tests/e2e/fixtures/root_certs.json
+
+# Generate Cairo test fixtures from block_0, block_1, block_2 proof files
+generate-cairo-fixtures:
+	cargo run -p katana_tee_client --release --bin katana-tee -- generate-cairo-fixtures \
+		--fixture-dir tests/fixtures \
+		--output contracts/amd_tee_registry/tests/test_journal_decode_from_fixtures/test_journal_decode_fixtures.cairo
 
