@@ -16,6 +16,7 @@ dependencies = [
  "katana_tee",
  "shell",
  "sncast_std",
+ "snforge_std",
 ]
 
 [[package]]
