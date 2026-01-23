@@ -47,7 +47,7 @@ pub use cairo_fixtures::generate_cairo_fixtures;
 pub use calldata::StarknetCalldata;
 pub use config::ProverConfig;
 pub use error::Error;
-pub use kds::{parse_processor_type, KdsClient, RootCertInfo};
+pub use kds::{parse_processor_type, KdsClient, KdsFetcher, RootCertInfo};
 pub use prover::{AmdAttestationProver, OnchainProof, Sp1Backend, Sp1NetworkBackend};
 pub use report::ATTESTATION_REPORT_SIZE;
 pub use starknet::StarknetRegistryClient;
