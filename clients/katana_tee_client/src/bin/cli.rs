@@ -643,8 +643,8 @@ fn cmd_fetch_root_certs(
     let mut results = serde_json::Map::new();
 
     for proc_str in processors.split(',') {
-        let proc_str = proc_str.trim();
-        let proc_type = match parse_processor_type(proc_str) {
+        let proc_str = proc_str.trim().to_lowercase();
+        let proc_type = match parse_processor_type(&proc_str) {
             Some(p) => p,
             None => {
                 eprintln!("Unknown processor type: {}", proc_str);
@@ -660,8 +660,7 @@ fn cmd_fetch_root_certs(
 
                 // Validate against local .der file if provided
                 if let Some(validate_dir) = &validate {
-                    let der_path =
-                        validate_dir.join(format!("ark-{}.der", proc_str.to_lowercase()));
+                    let der_path = validate_dir.join(format!("ark-{}.der", proc_str));
                     if der_path.exists() {
                         match kds.validate_against_file(proc_type, &der_path) {
                             Ok(true) => println!("  Matches local {}", der_path.display()),
@@ -671,13 +670,27 @@ fn cmd_fetch_root_certs(
                     }
                 }
 
-                let mut entry = serde_json::Map::new();
-                entry.insert(
-                    "ark_hash".to_string(),
-                    serde_json::Value::String(info.ark_hash),
+                // Split u256 hash into low/high felt252 values
+                let hash = info.ark_hash.trim_start_matches("0x");
+                let hash_padded = format!("{:0>64}", hash);
+                let high = &hash_padded[0..32];
+                let low = &hash_padded[32..64];
+
+                // Output in snforge-compatible format (keys alphabetically sorted)
+                results.insert(
+                    format!("{}_ark_hash_high", proc_str),
+                    serde_json::Value::String(format!(
+                        "'0x{}'",
+                        high.trim_start_matches('0').max("0")
+                    )),
                 );
-                entry.insert("source".to_string(), serde_json::Value::String(info.source));
-                results.insert(proc_str.to_lowercase(), serde_json::Value::Object(entry));
+                results.insert(
+                    format!("{}_ark_hash_low", proc_str),
+                    serde_json::Value::String(format!(
+                        "'0x{}'",
+                        low.trim_start_matches('0').max("0")
+                    )),
+                );
             }
             Err(e) => {
                 eprintln!("  Error fetching {}: {}", proc_str, e);
@@ -685,10 +698,17 @@ fn cmd_fetch_root_certs(
         }
     }
 
-    let json_output = serde_json::to_string_pretty(&results).expect("Failed to serialize JSON");
+    // Sort keys alphabetically for snforge compatibility
+    let sorted: serde_json::Map<String, serde_json::Value> = results.into_iter().collect();
+    let json_output = serde_json::to_string_pretty(&sorted)?;
+
+    // snforge requires single quotes for felt252, but JSON uses double quotes
+    // We store as strings with embedded single quotes: "'0x...'"
+    // The output file needs the raw single quotes, not JSON-escaped
+    let json_output = json_output.replace("\"'", "'").replace("'\"", "'");
 
     if let Some(output_path) = output {
-        std::fs::write(&output_path, &json_output).expect("Failed to write output file");
+        std::fs::write(&output_path, &json_output)?;
         println!("\nSaved to {}", output_path.display());
     } else {
         println!("\n{}", json_output);
