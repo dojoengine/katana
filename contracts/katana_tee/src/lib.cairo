@@ -6,7 +6,7 @@ use starknet::ContractAddress;
 pub trait IKatanaTee<TContractState> {
     /// Verify an SP1 proof by calling the AMD TEE Registry contract.
     /// Returns the public inputs if verification succeeds.
-    fn verify_sp1_proof(self: @TContractState, sp1_proof: Array<felt252>) -> Option<Span<u256>>;
+    fn verify_sp1_proof(self: @TContractState, sp1_proof: Array<felt252>) -> Result<Span<u256>, felt252>;
 
     /// Verify proof and update the latest verified sequencer state.
     fn verify_and_update_state(
@@ -15,7 +15,7 @@ pub trait IKatanaTee<TContractState> {
         state_root: felt252,
         block_hash: felt252,
         block_number: u64,
-    ) -> bool;
+    ) -> Result<bool, felt252>;
 
     /// Get the AMD TEE Registry contract address.
     fn get_registry_address(self: @TContractState) -> ContractAddress;
@@ -30,9 +30,9 @@ pub mod KatanaTee {
     use amd_tee_registry::journal_decode::decode_verifier_journal;
     use amd_tee_registry::tee_registry::{IAMDTeeRegistryDispatcher, IAMDTeeRegistryDispatcherTrait};
     use amd_tee_registry::tee_types::{RawAttestationReport, RawAttestationReportTrait};
-    use crate::katana_report_utils::verify_katana_report_data;
     use starknet::ContractAddress;
     use starknet::storage::{StoragePointerReadAccess, StoragePointerWriteAccess};
+    use crate::katana_report_utils::verify_katana_report_data;
 
     #[storage]
     struct Storage {
@@ -54,7 +54,9 @@ pub mod KatanaTee {
     #[abi(embed_v0)]
     impl KatanaTeeImpl of super::IKatanaTee<ContractState> {
         /// Verify an SP1 proof by forwarding to the AMD TEE Registry.
-        fn verify_sp1_proof(self: @ContractState, sp1_proof: Array<felt252>) -> Option<Span<u256>> {
+        fn verify_sp1_proof(
+            self: @ContractState, sp1_proof: Array<felt252>,
+        ) -> Result<Span<u256>, felt252> {
             let registry = IAMDTeeRegistryDispatcher {
                 contract_address: self.registry_address.read(),
             };
@@ -68,12 +70,12 @@ pub mod KatanaTee {
             state_root: felt252,
             block_hash: felt252,
             block_number: u64,
-        ) -> bool {
+        ) -> Result<bool, felt252> {
             let registry = IAMDTeeRegistryDispatcher {
                 contract_address: self.registry_address.read(),
             };
             match registry.verify_sp1_proof(sp1_proof) {
-                Option::Some(public_inputs) => {
+                Result::Ok(public_inputs) => {
                     let journal = decode_verifier_journal(public_inputs);
                     let raw_report = RawAttestationReport { raw: journal.raw_report };
                     let report_data = raw_report.report_data();
@@ -82,9 +84,9 @@ pub mod KatanaTee {
                     self.latest_state_root.write(state_root);
                     self.latest_block_hash.write(block_hash);
                     self.latest_block_number.write(block_number);
-                    true
+                    Result::Ok(true)
                 },
-                Option::None => false,
+                Result::Err(error) => Result::Err(error),
             }
         }
 

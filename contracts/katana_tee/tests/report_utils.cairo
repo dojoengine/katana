@@ -1,6 +1,6 @@
-use katana_tee::katana_report_utils::verify_katana_report_data;
-use core::poseidon::hades_permutation;
 use core::integer::u512;
+use core::poseidon::hades_permutation;
+use katana_tee::katana_report_utils::verify_katana_report_data;
 
 const POW_32_U128: u128 = 0x100000000;
 const POW_64_U128: u128 = 0x10000000000000000;

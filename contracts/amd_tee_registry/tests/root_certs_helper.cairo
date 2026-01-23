@@ -1,4 +1,4 @@
-use snforge_std::fs::{FileTrait, FileParser};
+use snforge_std::fs::{FileParser, FileTrait};
 
 #[derive(Drop, Serde)]
 pub struct RootCerts {

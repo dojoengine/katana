@@ -1,4 +1,4 @@
-use crate::tee_types::{VerifierJournal, VerificationResult, ATTESTATION_REPORT_SIZE_U32};
+use crate::tee_types::{ATTESTATION_REPORT_SIZE_U32, VerificationResult, VerifierJournal};
 
 const POW_32_U128: u128 = 0x100000000;
 const POW_64_U128: u128 = 0x10000000000000000;
@@ -34,7 +34,9 @@ pub fn decode_verifier_journal(public_inputs: Span<u256>) -> VerifierJournal {
     let words_u32 = u256_span_to_u32_array(public_inputs);
     // Skip the first 8 u32 words (32 bytes) which is the ABI offset pointer
     let data_start = 8_usize;
-    decode_verifier_journal_from_u32(words_u32.span().slice(data_start, words_u32.len() - data_start))
+    decode_verifier_journal_from_u32(
+        words_u32.span().slice(data_start, words_u32.len() - data_start),
+    )
 }
 
 fn decode_verifier_journal_from_u32(words: Span<u32>) -> VerifierJournal {
@@ -64,9 +66,7 @@ fn decode_verifier_journal_from_u32(words: Span<u32>) -> VerifierJournal {
     let raw_report_len_bytes = word_to_u64(read_word_u32(words, raw_report_offset_words));
     assert(raw_report_len_bytes % 4 == 0, 'Raw report length misaligned');
     let raw_report_len_u32: usize = (raw_report_len_bytes / 4).try_into().unwrap();
-    assert(
-        raw_report_len_u32 == ATTESTATION_REPORT_SIZE_U32.into(), 'Unexpected report size',
-    );
+    assert(raw_report_len_u32 == ATTESTATION_REPORT_SIZE_U32.into(), 'Unexpected report size');
 
     let raw_report_start_u32 = (raw_report_offset_words + 1) * 8;
     let mut raw_report_words: Array<u32> = array![];
@@ -119,12 +119,7 @@ fn split_u128_to_u32_be(value: u128) -> (u32, u32, u32, u32) {
     let w1: u128 = (value / POW_32_U128) % POW_32_U128;
     let w2: u128 = (value / POW_64_U128) % POW_32_U128;
     let w3: u128 = value / POW_96_U128;
-    (
-        w3.try_into().unwrap(),
-        w2.try_into().unwrap(),
-        w1.try_into().unwrap(),
-        w0.try_into().unwrap(),
-    )
+    (w3.try_into().unwrap(), w2.try_into().unwrap(), w1.try_into().unwrap(), w0.try_into().unwrap())
 }
 
 fn u128_from_u32_be(w3: u32, w2: u32, w1: u32, w0: u32) -> u128 {

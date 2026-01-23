@@ -43,10 +43,7 @@ fn test_decode_verifier_journal_minimal() {
     assert(journal.timestamp == 42, 'Wrong timestamp');
     assert(journal.processor_model == 1, 'Wrong processor model');
     assert(journal.trusted_certs_prefix_len == 2, 'Wrong trusted prefix length');
-    assert(
-        journal.raw_report.len() == ATTESTATION_REPORT_SIZE_U32.into(),
-        'Wrong raw report size',
-    );
+    assert(journal.raw_report.len() == ATTESTATION_REPORT_SIZE_U32.into(), 'Wrong raw report size');
     assert(journal.certs.len() == 1, 'Wrong cert count');
     assert(*journal.certs.at(0) == u256_from_u128(0x1234), 'Wrong cert value');
     assert(journal.cert_serials.len() == 1, 'Wrong serial count');

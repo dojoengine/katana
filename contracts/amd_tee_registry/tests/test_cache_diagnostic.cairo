@@ -67,10 +67,8 @@ fn test_cache_query_with_empty_trusted_certs() {
     let processor_models: Array<ProcessorType> = array![ProcessorType::Milan];
     let report_certs: Array<Span<u256>> = array![certs.span()];
 
-    let results = dispatcher.check_trusted_intermediate_certs(
-        processor_models.span(),
-        report_certs.span(),
-    );
+    let results = dispatcher
+        .check_trusted_intermediate_certs(processor_models.span(), report_certs.span());
 
     // Should return 1 (only root cert is trusted)
     assert(*results.at(0) == 1, 'Expected prefix len 1');
@@ -118,10 +116,8 @@ fn test_cache_query_with_initialized_ask() {
     let processor_models: Array<ProcessorType> = array![ProcessorType::Milan];
     let report_certs: Array<Span<u256>> = array![certs.span()];
 
-    let results = dispatcher.check_trusted_intermediate_certs(
-        processor_models.span(),
-        report_certs.span(),
-    );
+    let results = dispatcher
+        .check_trusted_intermediate_certs(processor_models.span(), report_certs.span());
 
     // Should return 2 (root + ASK are trusted)
     assert(*results.at(0) == 2, 'Expected prefix len 2');
@@ -142,10 +138,8 @@ fn test_root_cert_mismatch_panics() {
     let report_certs: Array<Span<u256>> = array![certs.span()];
 
     // This should panic with "First certificate must be root certificate"
-    let _results = dispatcher.check_trusted_intermediate_certs(
-        processor_models.span(),
-        report_certs.span(),
-    );
+    let _results = dispatcher
+        .check_trusted_intermediate_certs(processor_models.span(), report_certs.span());
 }
 
 #[test]

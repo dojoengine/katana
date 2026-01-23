@@ -11,9 +11,8 @@
 //     report_data[..32].copy_from_slice(&commitment_bytes);
 //     // Second half remains zeros (or could include additional metadata)
 
+use core::integer::{u128_byte_reverse, u512};
 use core::poseidon::hades_permutation;
-use core::integer::{u512, u128_byte_reverse};
-
 
 
 pub fn verify_katana_report_data(

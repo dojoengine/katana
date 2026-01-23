@@ -2,13 +2,14 @@ use amd_tee_registry::tee_registry::AMDTEERegistry;
 use amd_tee_registry::tee_types::ProcessorType;
 use katana_tee::KatanaTee;
 use sncast_std::{DeclareResultTrait, FeeSettingsTrait, declare, deploy, get_nonce};
-use snforge_std::fs::{FileTrait, FileParser};
+use snforge_std::fs::{FileParser, FileTrait};
 use starknet::{ClassHash, ContractAddress};
 
 const SALT: felt252 = 0x1;
 
 // Garaga SP1 Groth16 Verifier class hash (deployed on mainnet)
-const GARAGA_CLASS_HASH: felt252 = 0x4b22453df42037dd61390736454e8390910adfbbc1fa9d85613e6f375f4de22;
+const GARAGA_CLASS_HASH: felt252 =
+    0x4b22453df42037dd61390736454e8390910adfbbc1fa9d85613e6f375f4de22;
 
 // SP1 program ID
 const SP1_PROGRAM_ID_LOW: felt252 = 0x2c621bae91a0626796ce637f01c928d8;
@@ -45,15 +46,11 @@ fn main() {
     // Build calldata - LIVE MODE (empty trusted_certs)
     let verifier_class_hash: ClassHash = GARAGA_CLASS_HASH.try_into().unwrap();
     let sp1_program_id: u256 = u256 {
-        low: SP1_PROGRAM_ID_LOW.try_into().unwrap(),
-        high: SP1_PROGRAM_ID_HIGH.try_into().unwrap(),
+        low: SP1_PROGRAM_ID_LOW.try_into().unwrap(), high: SP1_PROGRAM_ID_HIGH.try_into().unwrap(),
     };
     let max_time_diff: u64 = 3600;
     let trusted_certs: Array<u256> = array![]; // Live mode - empty
-    let processor_models: Array<ProcessorType> = array![
-        ProcessorType::Milan,
-        ProcessorType::Genoa,
-    ];
+    let processor_models: Array<ProcessorType> = array![ProcessorType::Milan, ProcessorType::Genoa];
     let root_certs: Array<u256> = array![milan_root, genoa_root];
 
     let mut amd_tee_calldata: Array<felt252> = array![];
@@ -87,7 +84,9 @@ pub fn declare_contract(contract_name: ByteArray) -> ClassHash {
 }
 
 
-pub fn deploy_contract(class_hash: ClassHash, constructor_calldata: Array::<felt252>) -> ContractAddress {
+pub fn deploy_contract(
+    class_hash: ClassHash, constructor_calldata: Array<felt252>,
+) -> ContractAddress {
     let deploy_result = deploy(
         class_hash,
         constructor_calldata,
@@ -105,7 +104,9 @@ pub fn deploy_contract(class_hash: ClassHash, constructor_calldata: Array::<felt
 }
 
 
-pub fn declare_and_deploy_contract(contract_name: ByteArray, constructor_calldata: Array::<felt252>) -> ContractAddress {
+pub fn declare_and_deploy_contract(
+    contract_name: ByteArray, constructor_calldata: Array<felt252>,
+) -> ContractAddress {
     let class_hash = declare_contract(contract_name);
     let contract_address = deploy_contract(class_hash, constructor_calldata);
     contract_address
