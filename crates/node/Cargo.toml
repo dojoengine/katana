@@ -39,6 +39,7 @@ http.workspace = true
 jsonrpsee.workspace = true
 reqwest = { workspace = true, optional = true }
 serde.workspace = true
+serde_json.workspace = true
 parking_lot.workspace = true
 thiserror.workspace = true
 tracing.workspace = true

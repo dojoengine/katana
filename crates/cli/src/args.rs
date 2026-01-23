@@ -568,6 +568,7 @@ impl SequencerNodeArgs {
             mode: node_mode,
             url,
             api_key,
+            price_api_key: self.paymaster.price_api_key.clone(),
             prefunded_index: self.paymaster.prefunded_index,
             sidecar_port: self.paymaster.port,
             sidecar_bin: self.paymaster.bin.clone(),

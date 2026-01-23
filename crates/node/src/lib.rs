@@ -64,8 +64,6 @@ use katana_stage::Sequencing;
 use katana_tasks::TaskManager;
 use num_traits::ToPrimitive;
 use tracing::info;
-#[cfg(feature = "cartridge")]
-use url::Url;
 
 use crate::exit::NodeStoppedFuture;
 #[cfg(feature = "cartridge")]
@@ -234,18 +232,16 @@ where
                 anyhow::anyhow!("cartridge api url is required when paymaster is set")
             })?;
 
-            let rpc_addr = config.rpc.socket_addr();
-            let rpc_host = match rpc_addr.ip() {
-                std::net::IpAddr::V4(ip) if ip.is_unspecified() => {
-                    std::net::IpAddr::V4(std::net::Ipv4Addr::LOCALHOST)
-                }
-                std::net::IpAddr::V6(ip) if ip.is_unspecified() => {
-                    std::net::IpAddr::V4(std::net::Ipv4Addr::LOCALHOST)
-                }
-                ip => ip,
+            let vrf = if let Some(vrf) = &config.vrf {
+                let derived = crate::sidecar::derive_vrf_accounts(vrf, &config, &backend)?;
+                Some(katana_rpc_server::cartridge::CartridgeVrfConfig {
+                    url: vrf.url.clone(),
+                    account_address: derived.vrf_account_address,
+                    account_private_key: derived.source_private_key,
+                })
+            } else {
+                None
             };
-            let rpc_url = Url::parse(&format!("http://{}:{}", rpc_host, rpc_addr.port()))
-                .context("failed to build rpc url")?;
 
             let api = CartridgeApi::new(
                 backend.clone(),
@@ -257,8 +253,7 @@ where
                     paymaster_url: paymaster.url.clone(),
                     paymaster_api_key: paymaster.api_key.clone(),
                     paymaster_prefunded_index: paymaster.prefunded_index,
-                    vrf_url: config.vrf.as_ref().map(|vrf| vrf.url.clone()),
-                    rpc_url,
+                    vrf,
                 },
             )?;
 

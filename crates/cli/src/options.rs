@@ -599,7 +599,13 @@ pub struct PaymasterOptions {
     #[serde(default)]
     pub api_key: Option<String>,
 
-    /// Prefunded account index used by the paymaster for gas tank and relayer.
+    /// API key for the Avnu price provider (used by the sidecar).
+    #[arg(long = "paymaster.price-api-key", value_name = "KEY")]
+    #[serde(default)]
+    pub price_api_key: Option<String>,
+
+    /// Prefunded account index used by the paymaster (relayer at INDEX, gas tank at INDEX+1,
+    /// estimate account at INDEX+2).
     #[arg(long = "paymaster.prefunded-index", value_name = "INDEX")]
     #[serde(default = "default_paymaster_prefunded_index")]
     pub prefunded_index: u16,
@@ -609,7 +615,7 @@ pub struct PaymasterOptions {
     #[serde(default = "default_paymaster_port")]
     pub port: u16,
 
-    /// Optional path to the paymaster sidecar binary.
+    /// Optional path to the paymaster sidecar binary (defaults to `paymaster-service` in PATH).
     #[arg(long = "paymaster.bin", value_name = "PATH")]
     #[serde(default)]
     pub bin: Option<PathBuf>,
@@ -622,6 +628,7 @@ impl Default for PaymasterOptions {
             mode: default_paymaster_mode(),
             url: None,
             api_key: None,
+            price_api_key: None,
             prefunded_index: default_paymaster_prefunded_index(),
             port: default_paymaster_port(),
             bin: None,
@@ -643,6 +650,10 @@ impl PaymasterOptions {
 
             if self.api_key.is_none() {
                 self.api_key = other.api_key.clone();
+            }
+
+            if self.price_api_key.is_none() {
+                self.price_api_key = other.price_api_key.clone();
             }
 
             if self.prefunded_index == default_paymaster_prefunded_index() {
@@ -684,12 +695,12 @@ pub struct VrfOptions {
     #[serde(default = "default_vrf_prefunded_index")]
     pub prefunded_index: u16,
 
-    /// Port to bind the sidecar VRF service on.
+    /// Port to bind the sidecar VRF service on (vrf-server uses 3000).
     #[arg(long = "vrf.port", value_name = "PORT")]
     #[serde(default = "default_vrf_port")]
     pub port: u16,
 
-    /// Optional path to the VRF sidecar binary.
+    /// Optional path to the VRF sidecar binary (defaults to `vrf-server` in PATH).
     #[arg(long = "vrf.bin", value_name = "PATH")]
     #[serde(default)]
     pub bin: Option<PathBuf>,
