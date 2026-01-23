@@ -78,6 +78,61 @@ split_u256() {
     echo "0x$low 0x$high"
 }
 
+# Build a contract with scarb
+build_contract() {
+    local contract_path=$1
+    local contract_name=$2
+    log "Building $contract_name..."
+    cd "$contract_path"
+    scarb build
+}
+
+# Declare a contract and return its class hash
+declare_contract() {
+    local contract_name=$1
+    local package=$2
+    local class_hash
+
+    log "Declaring $contract_name..."
+    class_hash=$(sncast --account devnet_mainnet_0 declare \
+        --url "$DEVNET_URL" \
+        --contract-name "$contract_name" \
+        --package "$package" 2>&1 | grep -oP 'class_hash:\s*\K0x[a-fA-F0-9]+' || \
+        sncast utils class-hash --contract-name "$contract_name" --package "$package" 2>&1 | grep -oP '0x[a-fA-F0-9]+' | head -1)
+
+    if [[ -z "$class_hash" ]]; then
+        die "Failed to declare $contract_name"
+    fi
+    log "  $contract_name class_hash: $class_hash"
+    echo "$class_hash"
+}
+
+# Deploy a contract and return its address
+deploy_contract() {
+    local contract_name=$1
+    local class_hash=$2
+    shift 2
+    local constructor_calldata="$*"
+
+    log "Deploying $contract_name..."
+    local deploy_output
+    deploy_output=$(sncast --account devnet_mainnet_0 deploy \
+        --url "$DEVNET_URL" \
+        --class-hash "$class_hash" \
+        --constructor-calldata $constructor_calldata 2>&1)
+
+    local address
+    address=$(echo "$deploy_output" | grep -oiP '(contract_address|contract address):\s*\K0x[a-fA-F0-9]+')
+
+    if [[ -z "$address" ]]; then
+        error "Failed to deploy $contract_name"
+        echo "$deploy_output"
+        exit 1
+    fi
+    log "  $contract_name deployed: $address"
+    echo "$address"
+}
+
 start_devnet() {
     log "Starting devnet (forking mainnet, seed $DEVNET_SEED)..."
     starknet-devnet \
@@ -123,137 +178,39 @@ extract_ask_cert_from_proof() {
     echo "$ask_hash"
 }
 
-deploy_contracts() {
-    log "Deploying contracts..."
-
-    # Load root cert hashes
-    local milan_root=$(jq -r '.milan.ark_hash' "$FIXTURES_DIR/root_certs.json")
-    local genoa_root=$(jq -r '.genoa.ark_hash' "$FIXTURES_DIR/root_certs.json")
-
-    log "  Milan root: $milan_root"
-    log "  Genoa root: $genoa_root"
-
-    # Extract ASK intermediate cert from proof if available (for fixture mode)
-    local ask_cert=""
-    if [[ -f "$FIXTURES_DIR/proof.json" ]]; then
-        ask_cert=$(extract_ask_cert_from_proof "$FIXTURES_DIR/proof.json")
-        if [[ -n "$ask_cert" ]]; then
-            log "  ASK cert (from proof): $ask_cert"
-        fi
-    fi
-
-    # Build contracts
-    log "Building amd_tee_registry..."
-    cd "$PROJECT_ROOT/contracts/amd_tee_registry"
-    scarb build
-
-    log "Building katana_tee..."
-    cd "$PROJECT_ROOT/contracts/katana_tee"
-    scarb build
-
-    # Declare amd_tee_registry
-    log "Declaring AMDTEERegistry..."
-    cd "$PROJECT_ROOT/contracts/amd_tee_registry"
-
-    local amd_class_hash
-    amd_class_hash=$(sncast --account devnet_mainnet_0 declare \
-        --url "$DEVNET_URL" \
-        --contract-name AMDTEERegistry \
-        --package amd_tee_registry 2>&1 | grep -oP 'class_hash:\s*\K0x[a-fA-F0-9]+' || \
-        sncast utils class-hash --contract-name AMDTEERegistry --package amd_tee_registry 2>&1 | grep -oP '0x[a-fA-F0-9]+' | head -1)
-
-    log "  AMDTEERegistry class_hash: $amd_class_hash"
+# Build AMDTEERegistry constructor calldata
+build_amd_registry_calldata() {
+    local milan_root=$1
+    local genoa_root=$2
+    local ask_cert=$3
 
     # Split SP1 program ID into low/high (u256 = low, high)
-    local sp1_split=$(split_u256 "$SP1_PROGRAM_ID")
-    local sp1_low=$(echo $sp1_split | cut -d' ' -f1)
-    local sp1_high=$(echo $sp1_split | cut -d' ' -f2)
+    read -r sp1_low sp1_high <<< "$(split_u256 "$SP1_PROGRAM_ID")"
 
-    # Split root cert hashes into low/high (they are u256 in the contract)
-    local milan_split=$(split_u256 "$milan_root")
-    local milan_low=$(echo $milan_split | cut -d' ' -f1)
-    local milan_high=$(echo $milan_split | cut -d' ' -f2)
-
-    local genoa_split=$(split_u256 "$genoa_root")
-    local genoa_low=$(echo $genoa_split | cut -d' ' -f1)
-    local genoa_high=$(echo $genoa_split | cut -d' ' -f2)
+    # Split root cert hashes into low/high
+    read -r milan_low milan_high <<< "$(split_u256 "$milan_root")"
+    read -r genoa_low genoa_high <<< "$(split_u256 "$genoa_root")"
 
     # Build trusted_certs array for constructor
-    # If we have an ASK cert from the proof, include it so the proof validates
     local trusted_certs_calldata="0"  # Default: empty array (length 0)
     if [[ -n "$ask_cert" ]]; then
-        local ask_split=$(split_u256 "$ask_cert")
-        local ask_low=$(echo $ask_split | cut -d' ' -f1)
-        local ask_high=$(echo $ask_split | cut -d' ' -f2)
+        read -r ask_low ask_high <<< "$(split_u256 "$ask_cert")"
         trusted_certs_calldata="1 $ask_low $ask_high"  # Array with 1 element
         log "  Trusting ASK intermediate cert"
     fi
 
-    # Constructor calldata:
-    # verifier_class_hash, sp1_program_id (u256 = low, high), max_time_diff,
-    # trusted_certs (array len + u256 items), processor_models (array len + items), root_certs (array len + u256 items)
-    local constructor_calldata="$GARAGA_CLASS_HASH $sp1_low $sp1_high $MAX_TIME_DIFF $trusted_certs_calldata 2 0 1 2 $milan_low $milan_high $genoa_low $genoa_high"
+    # Constructor: verifier_class_hash, sp1_program_id (u256), max_time_diff,
+    # trusted_certs (array), processor_models (array), root_certs (array)
+    echo "$GARAGA_CLASS_HASH $sp1_low $sp1_high $MAX_TIME_DIFF $trusted_certs_calldata 2 0 1 2 $milan_low $milan_high $genoa_low $genoa_high"
+}
 
-    log "Deploying AMDTEERegistry..."
-    local amd_deploy_output
-    amd_deploy_output=$(sncast --account devnet_mainnet_0 deploy \
-        --url "$DEVNET_URL" \
-        --class-hash "$amd_class_hash" \
-        --constructor-calldata $constructor_calldata 2>&1)
+# Save deployment info to JSON
+save_deployment() {
+    local amd_class_hash=$1
+    local amd_address=$2
+    local katana_class_hash=$3
+    local katana_address=$4
 
-    local amd_address
-    amd_address=$(echo "$amd_deploy_output" | grep -oiP '(contract_address|contract address):\s*\K0x[a-fA-F0-9]+')
-
-    if [[ -z "$amd_address" ]]; then
-        error "Failed to deploy AMDTEERegistry"
-        echo "$amd_deploy_output"
-        exit 1
-    fi
-
-    log "  AMDTEERegistry deployed: $amd_address"
-
-    # Declare katana_tee
-    log "Declaring KatanaTee..."
-    cd "$PROJECT_ROOT/contracts/katana_tee"
-
-    local katana_class_hash
-    katana_class_hash=$(sncast --account devnet_mainnet_0 declare \
-        --url "$DEVNET_URL" \
-        --contract-name KatanaTee \
-        --package katana_tee 2>&1 | grep -oP 'class_hash:\s*\K0x[a-fA-F0-9]+' || \
-        sncast utils class-hash --contract-name KatanaTee --package katana_tee 2>&1 | grep -oP '0x[a-fA-F0-9]+' | head -1)
-
-    log "  KatanaTee class_hash: $katana_class_hash"
-
-    log "Deploying KatanaTee..."
-    local katana_deploy_output
-    katana_deploy_output=$(sncast --account devnet_mainnet_0 deploy \
-        --url "$DEVNET_URL" \
-        --class-hash "$katana_class_hash" \
-        --constructor-calldata "$amd_address" 2>&1)
-
-    local katana_address
-    katana_address=$(echo "$katana_deploy_output" | grep -oiP '(contract_address|contract address):\s*\K0x[a-fA-F0-9]+')
-
-    if [[ -z "$katana_address" ]]; then
-        error "Failed to deploy KatanaTee"
-        echo "$katana_deploy_output"
-        exit 1
-    fi
-
-    log "  KatanaTee deployed: $katana_address"
-
-    # Verify registry linkage
-    log "Verifying registry address linkage..."
-    local registry_result
-    registry_result=$(sncast call \
-        --url "$DEVNET_URL" \
-        --contract-address "$katana_address" \
-        --function get_registry_address 2>&1)
-
-    log "  get_registry_address: $registry_result"
-
-    # Save deployment
     cat > "$FIXTURES_DIR/deployment.json" << EOF
 {
   "network": "devnet-mainnet-fork",
@@ -273,8 +230,51 @@ deploy_contracts() {
   }
 }
 EOF
-
     log "Deployment saved to $FIXTURES_DIR/deployment.json"
+}
+
+deploy_contracts() {
+    log "Deploying contracts..."
+
+    # Load root cert hashes
+    local milan_root=$(jq -r '.milan.ark_hash' "$FIXTURES_DIR/root_certs.json")
+    local genoa_root=$(jq -r '.genoa.ark_hash' "$FIXTURES_DIR/root_certs.json")
+    log "  Milan root: $milan_root"
+    log "  Genoa root: $genoa_root"
+
+    # Extract ASK intermediate cert from proof if available (for fixture mode)
+    local ask_cert=""
+    if [[ -f "$FIXTURES_DIR/proof.json" ]]; then
+        ask_cert=$(extract_ask_cert_from_proof "$FIXTURES_DIR/proof.json")
+        [[ -n "$ask_cert" ]] && log "  ASK cert (from proof): $ask_cert"
+    fi
+
+    # Build contracts
+    build_contract "$PROJECT_ROOT/contracts/amd_tee_registry" "amd_tee_registry"
+    build_contract "$PROJECT_ROOT/contracts/katana_tee" "katana_tee"
+
+    # Declare and deploy AMDTEERegistry
+    cd "$PROJECT_ROOT/contracts/amd_tee_registry"
+    local amd_class_hash=$(declare_contract "AMDTEERegistry" "amd_tee_registry")
+    local amd_calldata=$(build_amd_registry_calldata "$milan_root" "$genoa_root" "$ask_cert")
+    local amd_address=$(deploy_contract "AMDTEERegistry" "$amd_class_hash" $amd_calldata)
+
+    # Declare and deploy KatanaTee
+    cd "$PROJECT_ROOT/contracts/katana_tee"
+    local katana_class_hash=$(declare_contract "KatanaTee" "katana_tee")
+    local katana_address=$(deploy_contract "KatanaTee" "$katana_class_hash" "$amd_address")
+
+    # Verify registry linkage
+    log "Verifying registry address linkage..."
+    local registry_result
+    registry_result=$(sncast call \
+        --url "$DEVNET_URL" \
+        --contract-address "$katana_address" \
+        --function get_registry_address 2>&1)
+    log "  get_registry_address: $registry_result"
+
+    # Save deployment
+    save_deployment "$amd_class_hash" "$amd_address" "$katana_class_hash" "$katana_address"
 }
 
 generate_proof_live() {
