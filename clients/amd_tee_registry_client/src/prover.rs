@@ -63,24 +63,77 @@ use x509_verifier_rust_crypto::CertChain;
 // Re-export OnchainProof for convenience
 pub use amd_sev_snp_attestation_prover::OnchainProof;
 
+/// Trait for SP1 proof generation.
+///
+/// This trait enables mocking the SP1 prover in tests.
+pub trait Sp1Backend: Send + Sync {
+    /// Generate an SP1 Groth16 proof from attestation report bytes.
+    fn prove(
+        &self,
+        report_bytes: &[u8],
+        timestamp: u64,
+        config: &ProverConfig,
+    ) -> Result<OnchainProof, Error>;
+}
+
+/// Default SP1 backend using the real SP1 SDK.
+#[derive(Debug, Clone, Default)]
+pub struct Sp1NetworkBackend;
+
+impl Sp1Backend for Sp1NetworkBackend {
+    fn prove(
+        &self,
+        report_bytes: &[u8],
+        timestamp: u64,
+        config: &ProverConfig,
+    ) -> Result<OnchainProof, Error> {
+        use amd_sev_snp_attestation_prover::{
+            AmdSevSnpProver, ProverConfig as SdkProverConfig, SP1ProverConfig,
+        };
+
+        let sp1_config = SP1ProverConfig {
+            private_key: config.private_key.clone(),
+            rpc_url: config.rpc_url.clone(),
+        };
+        let mut sdk_config = SdkProverConfig::sp1_with(sp1_config);
+        sdk_config.skip_time_validity_check = config.skip_time_validity_check;
+
+        let prover = AmdSevSnpProver::new(sdk_config, None);
+        prover
+            .prove_attestation_report(timestamp, Bytes::from(report_bytes.to_vec()), None)
+            .map_err(|e| Error::Prover(format!("Proof generation failed: {}", e)))
+    }
+}
+
 /// AMD SEV-SNP Attestation Prover
 ///
 /// Generates SP1 Groth16 proofs from AMD SEV-SNP attestation reports.
 /// These proofs can be verified on-chain to prove TEE attestation.
 #[derive(Debug, Clone)]
-pub struct AmdAttestationProver {
+pub struct AmdAttestationProver<B: Sp1Backend = Sp1NetworkBackend> {
     config: ProverConfig,
+    backend: B,
 }
 
-impl AmdAttestationProver {
+impl AmdAttestationProver<Sp1NetworkBackend> {
     /// Create a new prover with the given configuration.
     pub fn new(config: ProverConfig) -> Self {
-        Self { config }
+        Self {
+            config,
+            backend: Sp1NetworkBackend,
+        }
     }
 
     /// Create a prover with configuration from environment variables.
     pub fn from_env() -> Self {
         Self::new(ProverConfig::from_env())
+    }
+}
+
+impl<B: Sp1Backend> AmdAttestationProver<B> {
+    /// Create a prover with a custom backend (for testing).
+    pub fn with_backend(config: ProverConfig, backend: B) -> Self {
+        Self { config, backend }
     }
 
     /// Get the prover configuration.
