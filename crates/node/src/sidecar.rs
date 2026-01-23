@@ -1,5 +1,3 @@
-#![cfg(feature = "cartridge")]
-
 use std::process::Stdio;
 use std::time::{Duration, Instant};
 
@@ -297,12 +295,14 @@ where
         backend,
         block_producer,
         pool,
-        relayer_address,
-        relayer_private_key,
-        forwarder_address,
-        forwarder_class_hash,
-        vec![relayer_address.into(), relayer_address.into()],
-        Felt::from(FORWARDER_SALT),
+        DeploymentRequest {
+            sender_address: relayer_address,
+            sender_private_key: relayer_private_key,
+            target_address: forwarder_address,
+            class_hash: forwarder_class_hash,
+            constructor_calldata: vec![relayer_address.into(), relayer_address.into()],
+            salt: Felt::from(FORWARDER_SALT),
+        },
     )
     .await?;
 
@@ -366,12 +366,14 @@ where
         backend,
         block_producer,
         pool,
-        account_address,
-        account_private_key,
-        vrf_account_address,
-        vrf_account_class_hash,
-        vec![account_public_key],
-        Felt::from(VRF_ACCOUNT_SALT),
+        DeploymentRequest {
+            sender_address: account_address,
+            sender_private_key: account_private_key,
+            target_address: vrf_account_address,
+            class_hash: vrf_account_class_hash,
+            constructor_calldata: vec![account_public_key],
+            salt: Felt::from(VRF_ACCOUNT_SALT),
+        },
     )
     .await?;
 
@@ -416,12 +418,14 @@ where
         backend,
         block_producer,
         pool,
-        account_address,
-        account_private_key,
-        vrf_consumer_address,
-        vrf_consumer_class_hash,
-        vec![vrf_account_address.into()],
-        Felt::from(VRF_CONSUMER_SALT),
+        DeploymentRequest {
+            sender_address: account_address,
+            sender_private_key: account_private_key,
+            target_address: vrf_consumer_address,
+            class_hash: vrf_consumer_class_hash,
+            constructor_calldata: vec![vrf_account_address.into()],
+            salt: Felt::from(VRF_CONSUMER_SALT),
+        },
     )
     .await?;
 
@@ -464,9 +468,8 @@ where
     <PF as ProviderFactory>::ProviderMut: katana_core::backend::storage::ProviderRW,
 {
     let sequencer = config.chain.genesis().sequencer_address;
-    let mut accounts = backend.chain_spec.genesis().accounts();
 
-    while let Some((address, allocation)) = accounts.next() {
+    for (address, allocation) in backend.chain_spec.genesis().accounts() {
         if *address == sequencer {
             let private_key = match allocation {
                 GenesisAccountAlloc::DevAccount(account) => account.private_key,
@@ -479,16 +482,20 @@ where
     Err(anyhow!("sequencer key source requested but sequencer is not a prefunded account"))
 }
 
-async fn ensure_deployed<EF, PF>(
-    backend: &Backend<EF, PF>,
-    block_producer: &BlockProducer<EF, PF>,
-    pool: &TxPool,
+struct DeploymentRequest {
     sender_address: ContractAddress,
     sender_private_key: Felt,
     target_address: ContractAddress,
     class_hash: Felt,
     constructor_calldata: Vec<Felt>,
     salt: Felt,
+}
+
+async fn ensure_deployed<EF, PF>(
+    backend: &Backend<EF, PF>,
+    block_producer: &BlockProducer<EF, PF>,
+    pool: &TxPool,
+    request: DeploymentRequest,
 ) -> Result<()>
 where
     EF: ExecutorFactory,
@@ -496,6 +503,15 @@ where
     <PF as ProviderFactory>::Provider: katana_core::backend::storage::ProviderRO,
     <PF as ProviderFactory>::ProviderMut: katana_core::backend::storage::ProviderRW,
 {
+    let DeploymentRequest {
+        sender_address,
+        sender_private_key,
+        target_address,
+        class_hash,
+        constructor_calldata,
+        salt,
+    } = request;
+
     if is_deployed(backend, target_address)? {
         return Ok(());
     }

@@ -667,6 +667,7 @@ where
     metrics: Option<MetricsServerHandle>,
     /// Handles for sidecar processes (if enabled).
     #[cfg(feature = "cartridge")]
+    #[allow(dead_code)]
     sidecars: Option<SidecarProcesses>,
 }
 
