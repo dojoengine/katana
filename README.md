@@ -96,6 +96,36 @@ cargo run -p katana_tee_client --bin katana-tee -- pipeline \
 
 Use `./katana-tee-setup.sh` to start/stop the remote TEE VM and print the RPC URL. See `setup.md` for details.
 
+## AMD Processor Root Certificates
+
+AMD SEV-SNP attestation uses different root certificates (ARK - AMD Root Key)
+for different processor families. However, not all processor types have unique
+root certificates.
+
+### Root Certificate Families
+
+| Processor Type | Series | KDS Endpoint | Root Cert |
+|----------------|--------|--------------|-----------|
+| Milan          | 7003   | Milan        | Unique    |
+| Genoa          | 9004   | Genoa        | Unique    |
+| Bergamo        | 97x4   | Genoa        | Shares with Genoa |
+| Siena          | 8004   | Genoa        | Shares with Genoa |
+
+**Source:** [`crates/amd-sev-snp-attestation-sdk/crates/sev-snp/src/cpu.rs:16-22`](crates/amd-sev-snp-attestation-sdk/crates/sev-snp/src/cpu.rs#L16-L22)
+
+This means only **two unique root certificates** need to be fetched and stored:
+- **Milan** - for Milan processors
+- **Genoa** - for Genoa, Bergamo, and Siena processors
+
+The `tests/fixtures/root_certs.json` file contains only these two root certificate
+hashes, which is correct and complete for all supported processor types.
+
+### Certificate Cache Flow
+
+1. **Live Mode (Initial Deployment):** Contract deployed with only root certs
+2. **First Proof (Block 0):** `prefix_len=1`, ASK gets cached after verification
+3. **Subsequent Proofs:** `prefix_len=2`, uses cached ASK for reduced verification cost
+
 ## Licensing
 
 - Project license: `LICENSE` (Apache-2.0)
