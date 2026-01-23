@@ -117,9 +117,7 @@ help:
 	@echo "  make test-fork      - Include fork-based Cairo tests"
 	@echo "  make test-rust      - Rust tests only"
 	@echo "  make test-cairo     - Cairo tests only"
-	@echo "  make test-deployment - Deployment integration tests"
 	@echo "  make test-e2e       - E2E fixture mode"
-	@echo "  make e2e-live       - E2E live mode"
 	@echo ""
 	@echo "Fixtures:"
 	@echo "  make generate-cairo-fixtures - Regenerate Cairo fixtures from block proofs"
@@ -133,7 +131,7 @@ help:
 .PHONY: build fetch fetch-save execute prove prove-mock proof-info \
         tee-start tee-stop tee-status tee-test \
         pipeline-test pipeline-prove help \
-        test test-rust test-cairo test-deployment test-e2e test-fork \
+        test test-rust test-cairo test-e2e test-fork \
         devnet-mainnet fetch-root-certs \
         generate-cairo-fixtures
 
@@ -143,7 +141,7 @@ help:
 # =============================================================================
 
 # Full test suite (client verification)
-test: test-rust test-cairo test-deployment test-e2e
+test: test-rust test-cairo test-e2e
 
 test-rust:
 	cargo test --all-targets
@@ -170,7 +168,7 @@ fetch-root-certs:
 	cargo run -p katana_tee_client --release --bin katana-tee -- fetch-root-certs \
 		--processors milan,genoa \
 		--validate crates/amd-sev-snp-attestation-sdk/contracts/test/assets \
-		--output tests/e2e/fixtures/root_certs.json
+		--output tests/fixtures/root_certs.json
 
 # Generate Cairo test fixtures from block_0, block_1, block_2 proof files
 generate-cairo-fixtures:
