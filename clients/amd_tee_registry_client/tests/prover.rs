@@ -1,4 +1,7 @@
-use amd_tee_registry_client::{AmdAttestationProver, Error, ProverConfig, ATTESTATION_REPORT_SIZE};
+use amd_tee_registry_client::{
+    AmdAttestationProver, Error, ProverConfig, StarknetRegistryClient, ATTESTATION_REPORT_SIZE,
+};
+use starknet_rust_core::types::Felt;
 
 #[test]
 fn test_prover_creation() {
@@ -12,7 +15,10 @@ async fn test_invalid_report_size() {
     let prover = AmdAttestationProver::from_env();
     let invalid_report = vec![0u8; 100]; // Wrong size
 
-    let result = prover.prove(&invalid_report).await;
+    // Create a dummy registry client (won't be used - error happens before registry query)
+    let dummy_registry = StarknetRegistryClient::new("http://localhost:5050", Felt::ZERO);
+
+    let result = prover.prove(&invalid_report, &dummy_registry).await;
     assert!(result.is_err());
 
     match result {
