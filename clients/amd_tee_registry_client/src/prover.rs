@@ -1,34 +1,36 @@
 //! AMD SEV-SNP Attestation SP1 Prover
 //!
 //! This module provides functionality to generate SP1 Groth16 proofs
-//! from AMD SEV-SNP attestation reports.
+//! from AMD SEV-SNP attestation reports with on-chain cache lookup.
 //!
 //! # Overview
 //!
-//! The prover takes a raw AMD SEV-SNP attestation report (1184 bytes)
-//! and generates a zero-knowledge proof that can be verified on-chain.
+//! The prover takes a raw AMD SEV-SNP attestation report (1184 bytes),
+//! queries the Starknet registry for cached certificate state, and
+//! generates a zero-knowledge proof that can be verified on-chain.
 //!
 //! # Proof Types
 //!
 //! - **Groth16**: Compact proofs (~260 bytes) for on-chain verification
-//! - **Compressed**: Larger proofs for off-chain use
 //!
 //! # Usage
 //!
 //! ```no_run
-//! use amd_tee_registry_client::{AmdAttestationProver, ProverConfig};
+//! use amd_tee_registry_client::{AmdAttestationProver, ProverConfig, StarknetRegistryClient};
 //!
 //! # async fn example() -> Result<(), Box<dyn std::error::Error>> {
-//! // Create prover with default config (reads from environment)
+//! // Create prover and registry client
 //! let prover = AmdAttestationProver::new(ProverConfig::from_env());
+//! let registry = StarknetRegistryClient::new("https://rpc.url", 0x123.into());
 //!
 //! // Raw attestation report bytes (1184 bytes)
 //! let report_bytes: Vec<u8> = vec![/* ... */];
 //!
-//! // Generate Groth16 proof
-//! let proof = prover.prove(&report_bytes).await?;
+//! // Generate Groth16 proof with cache lookup
+//! let proof_info = prover.prove(&report_bytes, &registry).await?;
 //!
-//! println!("Proof generated: {} bytes", proof.onchain_proof.len());
+//! println!("Proof generated: {} bytes", proof_info.proof.onchain_proof.len());
+//! println!("Trusted prefix len: {}", proof_info.trusted_prefix_len);
 //! # Ok(())
 //! # }
 //! ```
@@ -57,7 +59,7 @@ use amd_sev_snp_attestation_prover::{
 };
 use amd_sev_snp_attestation_verifier::{stub::ProcessorType, AttestationReport};
 use std::time::{SystemTime, UNIX_EPOCH};
-use tracing::{debug, info};
+use tracing::info;
 use x509_verifier_rust_crypto::CertChain;
 
 // Re-export OnchainProof for convenience
@@ -153,91 +155,34 @@ impl<B: Sp1Backend> AmdAttestationProver<B> {
         &self.config
     }
 
-    /// Generate an SP1 Groth16 proof from a raw attestation report.
+    /// Generate an SP1 Groth16 proof with on-chain cache lookup.
+    ///
+    /// # Flow
+    /// 1. Parse report to get processor model
+    /// 2. Fetch cert chain from AMD KDS
+    /// 3. Query Starknet registry for trusted prefix length
+    /// 4. Build verifier input with correct prefix_len
+    /// 5. Generate SP1 Groth16 proof
     ///
     /// # Arguments
-    /// * `report_bytes` - Raw AMD SEV-SNP attestation report (1184 bytes)
-    ///
-    /// # Returns
-    /// * `OnchainProof` - The generated proof with metadata
-    ///
-    /// # Errors
-    /// * Returns error if report size is invalid
-    /// * Returns error if proof generation fails
-    pub async fn prove(&self, report_bytes: &[u8]) -> Result<OnchainProof, Error> {
-        self.prove_with_timestamp(report_bytes, current_timestamp()?)
+    /// * `report_bytes` - Raw 1184-byte attestation report
+    /// * `registry_client` - Starknet AMDTeeRegistry client (required)
+    pub async fn prove(
+        &self,
+        report_bytes: &[u8],
+        registry_client: &StarknetRegistryClient,
+    ) -> Result<ProofWithCacheInfo, Error> {
+        self.prove_with_timestamp(report_bytes, current_timestamp()?, registry_client)
             .await
     }
 
-    /// Generate an SP1 Groth16 proof with a specific timestamp.
-    ///
-    /// This is useful for testing with specific timestamps or for
-    /// reproducibility.
-    ///
-    /// # Arguments
-    /// * `report_bytes` - Raw AMD SEV-SNP attestation report (1184 bytes)
-    /// * `timestamp` - Unix timestamp for certificate validation
+    /// Generate an SP1 Groth16 proof with a specific timestamp and cache lookup.
     pub async fn prove_with_timestamp(
         &self,
         report_bytes: &[u8],
         timestamp: u64,
-    ) -> Result<OnchainProof, Error> {
-        let report = AttestationReportBytes::new(report_bytes)?;
-
-        info!("Starting SP1 proof generation for attestation report");
-        debug!(
-            "Report size: {} bytes, timestamp: {}",
-            report.as_bytes().len(),
-            timestamp
-        );
-
-        // Clone data for the blocking task
-        let report_bytes = report.as_bytes().to_vec();
-        let sdk_config = self.sdk_prover_config();
-
-        // Run the blocking prover in a separate thread
-        let proof = tokio::task::spawn_blocking(move || {
-            // Create prover with SP1 configuration
-            let prover = AmdSevSnpProver::new(sdk_config, None);
-
-            info!("SP1 prover initialized, generating proof...");
-
-            // Generate the proof
-            // vek_certs=None means the prover will fetch them from AMD KDS
-            prover.prove_attestation_report(timestamp, Bytes::from(report_bytes), None)
-        })
-        .await
-        .map_err(|e| Error::Prover(format!("Task join error: {}", e)))?
-        .map_err(|e| Error::Prover(format!("Proof generation failed: {}", e)))?;
-
-        info!(
-            "Proof generated successfully. Verifier ID: {}",
-            proof.program_id.verifier_id
-        );
-
-        Ok(proof)
-    }
-
-    /// Generate an SP1 Groth16 proof using Starknet cache information.
-    ///
-    /// This queries the on-chain cache for the trusted certificate prefix length
-    /// and injects it into the verifier input before proving.
-    pub async fn prove_with_cache(
-        &self,
-        report_bytes: &[u8],
         registry_client: &StarknetRegistryClient,
-    ) -> Result<OnchainProof, Error> {
-        self.prove_with_cache_and_timestamp(report_bytes, current_timestamp()?, registry_client)
-            .await
-    }
-
-    /// Generate an SP1 Groth16 proof using Starknet cache information and a fixed timestamp.
-    pub async fn prove_with_cache_and_timestamp(
-        &self,
-        report_bytes: &[u8],
-        timestamp: u64,
-        registry_client: &StarknetRegistryClient,
-    ) -> Result<OnchainProof, Error> {
+    ) -> Result<ProofWithCacheInfo, Error> {
         let report = AttestationReportBytes::new(report_bytes)?;
         let report_struct = AttestationReport::from_bytes(report.as_bytes())
             .map_err(|e| Error::Prover(format!("Report parse failed: {e}")))?;
@@ -253,9 +198,17 @@ impl<B: Sp1Backend> AmdAttestationProver<B> {
         let cert_chain = CertChain::parse_rev(&kds_chain)
             .map_err(|e| Error::Prover(format!("Cert chain parse failed: {e}")))?;
 
+        let cert_digests: Vec<[u8; 32]> = cert_chain.digest().iter().map(|d| d.0).collect();
+
         let trusted_prefix_len = registry_client
             .fetch_trusted_prefix_len(processor_model_u8, cert_chain.digest())
             .await?;
+
+        info!(
+            "Cache state: {} of {} certs trusted on-chain",
+            trusted_prefix_len,
+            cert_digests.len()
+        );
 
         let report_bytes = report.as_bytes().to_vec();
         let sdk_config = self.sdk_prover_config();
@@ -278,7 +231,11 @@ impl<B: Sp1Backend> AmdAttestationProver<B> {
         .await
         .map_err(|e| Error::Prover(format!("Task join error: {}", e)))??;
 
-        Ok(proof)
+        Ok(ProofWithCacheInfo {
+            proof,
+            trusted_prefix_len,
+            cert_digests,
+        })
     }
 
     /// Verify that a proof has valid structure.
