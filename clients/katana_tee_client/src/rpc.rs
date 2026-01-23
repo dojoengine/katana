@@ -16,45 +16,8 @@ pub struct KatanaRpcClient {
     client: reqwest::Client,
 }
 
-/// JSON-RPC request structure
-#[derive(Debug, Serialize)]
-struct JsonRpcRequest<'a> {
-    jsonrpc: &'a str,
-    method: &'a str,
-    params: Vec<()>,
-    id: u64,
-}
-
-/// JSON-RPC response structure
-#[derive(Debug, Deserialize)]
-struct JsonRpcResponse<T> {
-    #[allow(dead_code)]
-    jsonrpc: String,
-    #[allow(dead_code)]
-    id: u64,
-    result: Option<T>,
-    error: Option<JsonRpcError>,
-}
-
-/// JSON-RPC error structure
-#[derive(Debug, Deserialize)]
-struct JsonRpcError {
-    code: i64,
-    message: String,
-}
-
 impl KatanaRpcClient {
     /// Create a new RPC client with the given endpoint URL.
-    ///
-    /// # Arguments
-    /// * `url` - The Katana RPC endpoint URL (e.g., "http://localhost:5050")
-    ///
-    /// # Example
-    /// ```no_run
-    /// use katana_tee_client::rpc::KatanaRpcClient;
-    ///
-    /// let client = KatanaRpcClient::new("http://localhost:5050");
-    /// ```
     pub fn new(url: impl Into<String>) -> Self {
         Self {
             url: url.into(),
@@ -78,35 +41,37 @@ impl KatanaRpcClient {
     }
 
     /// Fetch a TEE attestation quote from the Katana node.
-    ///
-    /// This calls the `tee_generateQuote` RPC method which returns:
-    /// - The SEV-SNP attestation report (1184 bytes)
-    /// - The current state root
-    /// - The current block hash
-    /// - The current block number
-    ///
-    /// # Example
-    /// ```no_run
-    /// use katana_tee_client::rpc::KatanaRpcClient;
-    ///
-    /// # async fn example() -> Result<(), Box<dyn std::error::Error>> {
-    /// let client = KatanaRpcClient::new("http://185.26.9.157:5050");
-    /// let quote = client.fetch_attestation().await?;
-    /// println!("Block: {}", quote.block_number);
-    /// # Ok(())
-    /// # }
-    /// ```
     pub async fn fetch_attestation(&self) -> Result<TeeQuoteResponse, Error> {
         info!("Fetching TEE attestation from {}", self.url);
 
-        let request = JsonRpcRequest {
+        #[derive(Serialize)]
+        struct Request<'a> {
+            jsonrpc: &'a str,
+            method: &'a str,
+            params: [(); 0],
+            id: u64,
+        }
+
+        #[derive(Deserialize)]
+        struct Response {
+            result: Option<TeeQuoteResponse>,
+            error: Option<RpcError>,
+        }
+
+        #[derive(Deserialize)]
+        struct RpcError {
+            code: i64,
+            message: String,
+        }
+
+        let request = Request {
             jsonrpc: "2.0",
             method: "tee_generateQuote",
-            params: vec![],
+            params: [],
             id: 1,
         };
 
-        debug!("Sending RPC request: {:?}", request);
+        debug!("Sending RPC request to {}", self.url);
 
         let response = self
             .client
@@ -120,23 +85,16 @@ impl KatanaRpcClient {
         let status = response.status();
         if !status.is_success() {
             let body = response.text().await.unwrap_or_default();
-            return Err(Error::Rpc(format!(
-                "HTTP error {}: {}",
-                status.as_u16(),
-                body
-            )));
+            return Err(Error::Rpc(format!("HTTP error {}: {}", status.as_u16(), body)));
         }
 
-        let json_response: JsonRpcResponse<TeeQuoteResponse> = response
+        let json_response: Response = response
             .json()
             .await
             .map_err(|e| Error::Rpc(format!("Failed to parse response: {}", e)))?;
 
         if let Some(error) = json_response.error {
-            return Err(Error::Rpc(format!(
-                "RPC error {}: {}",
-                error.code, error.message
-            )));
+            return Err(Error::Rpc(format!("RPC error {}: {}", error.code, error.message)));
         }
 
         let result = json_response
@@ -146,15 +104,13 @@ impl KatanaRpcClient {
         info!(
             "Received attestation for block {} ({} bytes)",
             result.block_number,
-            result.quote.len() / 2 - 1 // Approximate byte count from hex
+            result.quote.len() / 2 - 1
         );
 
         Ok(result)
     }
 
     /// Fetch attestation (blocking version for non-async contexts).
-    ///
-    /// This is useful when you need to call from a synchronous context.
     pub fn fetch_attestation_blocking(&self) -> Result<TeeQuoteResponse, Error> {
         let rt = tokio::runtime::Runtime::new()
             .map_err(|e| Error::Rpc(format!("Failed to create runtime: {}", e)))?;
