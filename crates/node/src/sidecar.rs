@@ -303,10 +303,7 @@ fn build_paymaster_profile(
     rpc_url: &Url,
 ) -> Result<PaymasterProfile> {
     let chain_id = paymaster_chain_id(bootstrap.chain_id)?;
-    let api_key = config
-        .api_key
-        .clone()
-        .unwrap_or_else(|| "paymaster_katana".to_string());
+    let api_key = config.api_key.clone().unwrap_or_else(|| "paymaster_katana".to_string());
     let price_endpoint = paymaster_price_endpoint(bootstrap.chain_id)?;
     let price_api_key = config.price_api_key.clone().unwrap_or_default();
 
@@ -386,9 +383,9 @@ fn paymaster_chain_id(chain_id: ChainId) -> Result<String> {
         ChainId::Named(other) => Err(anyhow!(
             "paymaster sidecar only supports SN_MAIN or SN_SEPOLIA chain ids, got {other}"
         )),
-        ChainId::Id(id) => Err(anyhow!(
-            "paymaster sidecar requires SN_MAIN or SN_SEPOLIA chain id, got {id:#x}"
-        )),
+        ChainId::Id(id) => {
+            Err(anyhow!("paymaster sidecar requires SN_MAIN or SN_SEPOLIA chain id, got {id:#x}"))
+        }
     }
 }
 
@@ -399,9 +396,9 @@ fn paymaster_price_endpoint(chain_id: ChainId) -> Result<&'static str> {
         ChainId::Named(other) => Err(anyhow!(
             "paymaster sidecar only supports SN_MAIN or SN_SEPOLIA chain ids, got {other}"
         )),
-        ChainId::Id(id) => Err(anyhow!(
-            "paymaster sidecar requires SN_MAIN or SN_SEPOLIA chain id, got {id:#x}"
-        )),
+        ChainId::Id(id) => {
+            Err(anyhow!("paymaster sidecar requires SN_MAIN or SN_SEPOLIA chain id, got {id:#x}"))
+        }
     }
 }
 
