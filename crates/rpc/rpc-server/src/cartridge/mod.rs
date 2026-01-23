@@ -750,8 +750,7 @@ fn starknet_domain_hash(chain_id: Felt) -> Felt {
 }
 
 fn outside_execution_hash(outside_execution: &OutsideExecutionV2) -> Felt {
-    let hashed_calls: Vec<Felt> =
-        outside_execution.calls.iter().map(|call| call_hash(call)).collect();
+    let hashed_calls: Vec<Felt> = outside_execution.calls.iter().map(call_hash).collect();
 
     let mut hasher = PoseidonHasher::new();
     hasher.update(OUTSIDE_EXECUTION_TYPE_HASH);
