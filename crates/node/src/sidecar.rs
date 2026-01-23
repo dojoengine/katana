@@ -402,7 +402,7 @@ fn paymaster_price_endpoint(chain_id: ChainId) -> Result<&'static str> {
 }
 
 fn format_felt(value: Felt) -> String {
-    format!("{:#x}", value)
+    format!("{value:#x}")
 }
 
 fn scalar_from_felt(value: Felt) -> ScalarField {
