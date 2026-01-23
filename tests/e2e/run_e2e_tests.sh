@@ -10,7 +10,10 @@ set -euo pipefail
 
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 PROJECT_ROOT="$(cd "$SCRIPT_DIR/../.." && pwd)"
-FIXTURES_DIR="$SCRIPT_DIR/fixtures"
+FIXTURES_ROOT="$PROJECT_ROOT/tests/fixtures"
+SINGLE_BLOCK_DIR="$FIXTURES_ROOT/block_0"
+ROOT_CERTS_FILE="$FIXTURES_ROOT/root_certs.json"
+DEPLOYMENT_FILE="$FIXTURES_ROOT/deployment.json"
 
 # Colors
 RED='\033[0;31m'
@@ -18,9 +21,9 @@ GREEN='\033[0;32m'
 YELLOW='\033[0;33m'
 NC='\033[0m'
 
-log() { echo -e "${GREEN}[E2E]${NC} $1"; }
-warn() { echo -e "${YELLOW}[WARN]${NC} $1"; }
-error() { echo -e "${RED}[ERROR]${NC} $1"; }
+log() { echo -e "${GREEN}[E2E]${NC} $1" >&2; }
+warn() { echo -e "${YELLOW}[WARN]${NC} $1" >&2; }
+error() { echo -e "${RED}[ERROR]${NC} $1" >&2; }
 die() { error "$1"; exit 1; }
 
 # Load environment
@@ -30,6 +33,7 @@ set +a
 
 # Configuration
 DEVNET_URL="http://127.0.0.1:${DEVNET_PORT:-5050}"
+SNCAST_ACCOUNT="${SNCAST_ACCOUNT:-devnet_mainnet_0}"
 GARAGA_CLASS_HASH="0x4b22453df42037dd61390736454e8390910adfbbc1fa9d85613e6f375f4de22"
 SP1_PROGRAM_ID="0x00d2342d2400bed28302507269281dcb2c621bae91a0626796ce637f01c928d8"
 MAX_TIME_DIFF=86400
@@ -94,7 +98,7 @@ declare_contract() {
     local class_hash
 
     log "Declaring $contract_name..."
-    class_hash=$(sncast --account devnet_mainnet_0 declare \
+    class_hash=$(sncast --account "$SNCAST_ACCOUNT" declare \
         --url "$DEVNET_URL" \
         --contract-name "$contract_name" \
         --package "$package" 2>&1 | grep -oP 'class_hash:\s*\K0x[a-fA-F0-9]+' || \
@@ -116,7 +120,7 @@ deploy_contract() {
 
     log "Deploying $contract_name..."
     local deploy_output
-    deploy_output=$(sncast --account devnet_mainnet_0 deploy \
+    deploy_output=$(sncast --account "$SNCAST_ACCOUNT" deploy \
         --url "$DEVNET_URL" \
         --class-hash "$class_hash" \
         --constructor-calldata $constructor_calldata 2>&1)
@@ -150,7 +154,7 @@ fetch_root_certs() {
         fetch-root-certs \
         --processors milan,genoa \
         --validate "$PROJECT_ROOT/crates/amd-sev-snp-attestation-sdk/contracts/test/assets" \
-        --output "$FIXTURES_DIR/root_certs.json"
+        --output "$ROOT_CERTS_FILE"
 }
 
 extract_ask_cert_from_proof() {
@@ -211,7 +215,7 @@ save_deployment() {
     local katana_class_hash=$3
     local katana_address=$4
 
-    cat > "$FIXTURES_DIR/deployment.json" << EOF
+    cat > "$DEPLOYMENT_FILE" << EOF
 {
   "network": "devnet-mainnet-fork",
   "timestamp": "$(date -Iseconds)",
@@ -230,22 +234,22 @@ save_deployment() {
   }
 }
 EOF
-    log "Deployment saved to $FIXTURES_DIR/deployment.json"
+    log "Deployment saved to $DEPLOYMENT_FILE"
 }
 
 deploy_contracts() {
     log "Deploying contracts..."
 
     # Load root cert hashes
-    local milan_root=$(jq -r '.milan.ark_hash' "$FIXTURES_DIR/root_certs.json")
-    local genoa_root=$(jq -r '.genoa.ark_hash' "$FIXTURES_DIR/root_certs.json")
+    local milan_root=$(jq -r '.milan.ark_hash' "$ROOT_CERTS_FILE")
+    local genoa_root=$(jq -r '.genoa.ark_hash' "$ROOT_CERTS_FILE")
     log "  Milan root: $milan_root"
     log "  Genoa root: $genoa_root"
 
     # Extract ASK intermediate cert from proof if available (for fixture mode)
     local ask_cert=""
-    if [[ -f "$FIXTURES_DIR/proof.json" ]]; then
-        ask_cert=$(extract_ask_cert_from_proof "$FIXTURES_DIR/proof.json")
+    if [[ -f "$SINGLE_BLOCK_DIR/proof.json" ]]; then
+        ask_cert=$(extract_ask_cert_from_proof "$SINGLE_BLOCK_DIR/proof.json")
         [[ -n "$ask_cert" ]] && log "  ASK cert (from proof): $ask_cert"
     fi
 
@@ -282,23 +286,23 @@ generate_proof_live() {
 
     log "Fetching attestation from Katana TEE at $KATANA_RPC_URL..."
     cargo run -p katana_tee_client --release --bin katana-tee -- \
-        fetch --rpc "$KATANA_RPC_URL" --output "$FIXTURES_DIR/attestation.json"
+        fetch --rpc "$KATANA_RPC_URL" --output "$SINGLE_BLOCK_DIR/attestation.json"
 
     log "Attestation saved. Generating SP1 proof via network prover..."
     log "This may take several minutes..."
 
-    local katana_address=$(jq -r '.katana_tee.address' "$FIXTURES_DIR/deployment.json")
+    local katana_address=$(jq -r '.katana_tee.address' "$DEPLOYMENT_FILE")
 
     # Use pipeline command with --dry-run to generate proof and calldata
     # --skip-cache bypasses on-chain cache lookup (uses default trusted_prefix_len=2)
     cargo run -p katana_tee_client --release --bin katana-tee -- \
         pipeline \
-        --json "$FIXTURES_DIR/attestation.json" \
+        --json "$SINGLE_BLOCK_DIR/attestation.json" \
         --starknet-rpc "$DEVNET_URL" \
         --katana-tee "$katana_address" \
         --prover network \
-        --proof-output "$FIXTURES_DIR/proof.json" \
-        --calldata-output "$FIXTURES_DIR/calldata.txt" \
+        --proof-output "$SINGLE_BLOCK_DIR/proof.json" \
+        --calldata-output "$SINGLE_BLOCK_DIR/calldata.txt" \
         --skip-cache \
         --dry-run
 
@@ -323,7 +327,7 @@ advance_katana_block() {
 generate_multi_block_proofs() {
     log "=== MULTI-BLOCK MODE: Generating proofs for blocks 0, 1, 2 ==="
 
-    local katana_address=$(jq -r '.katana_tee.address' "$FIXTURES_DIR/deployment.json")
+    local katana_address=$(jq -r '.katana_tee.address' "$DEPLOYMENT_FILE")
 
     for block_num in 0 1 2; do
         local block_dir="$PROJECT_ROOT/tests/fixtures/block_${block_num}"
@@ -364,14 +368,14 @@ generate_multi_block_proofs() {
 submit_proof() {
     log "Submitting proof to katana_tee..."
 
-    local katana_address=$(jq -r '.katana_tee.address' "$FIXTURES_DIR/deployment.json")
-    local calldata=$(cat "$FIXTURES_DIR/calldata.txt")
+    local katana_address=$(jq -r '.katana_tee.address' "$DEPLOYMENT_FILE")
+    local calldata=$(cat "$SINGLE_BLOCK_DIR/calldata.txt")
 
     # Extract attestation data for verify_and_update_state
     # Note: attestation.json is raw TeeQuoteResponse (no .result wrapper)
-    local state_root=$(jq -r '.stateRoot' "$FIXTURES_DIR/attestation.json")
-    local block_hash=$(jq -r '.blockHash' "$FIXTURES_DIR/attestation.json")
-    local block_number=$(jq -r '.blockNumber' "$FIXTURES_DIR/attestation.json")
+    local state_root=$(jq -r '.stateRoot' "$SINGLE_BLOCK_DIR/attestation.json")
+    local block_hash=$(jq -r '.blockHash' "$SINGLE_BLOCK_DIR/attestation.json")
+    local block_number=$(jq -r '.blockNumber' "$SINGLE_BLOCK_DIR/attestation.json")
 
     log "  Contract: $katana_address"
     log "  State root: $state_root"
@@ -384,7 +388,7 @@ submit_proof() {
 
     log "Invoking verify_and_update_state..."
     local invoke_result
-    invoke_result=$(sncast --account devnet_mainnet_0 invoke \
+    invoke_result=$(sncast --account "$SNCAST_ACCOUNT" invoke \
         --url "$DEVNET_URL" \
         --contract-address "$katana_address" \
         --function verify_and_update_state \
@@ -409,7 +413,7 @@ submit_proof() {
 verify_state() {
     log "Verifying on-chain state..."
 
-    local katana_address=$(jq -r '.katana_tee.address' "$FIXTURES_DIR/deployment.json")
+    local katana_address=$(jq -r '.katana_tee.address' "$DEPLOYMENT_FILE")
 
     # Get latest state
     local result
@@ -422,9 +426,9 @@ verify_state() {
     echo "$result"
 
     # Expected values from attestation (raw TeeQuoteResponse, no .result wrapper)
-    local expected_block=$(jq -r '.blockNumber' "$FIXTURES_DIR/attestation.json")
-    local expected_root=$(jq -r '.stateRoot' "$FIXTURES_DIR/attestation.json")
-    local expected_hash=$(jq -r '.blockHash' "$FIXTURES_DIR/attestation.json")
+    local expected_block=$(jq -r '.blockNumber' "$SINGLE_BLOCK_DIR/attestation.json")
+    local expected_root=$(jq -r '.stateRoot' "$SINGLE_BLOCK_DIR/attestation.json")
+    local expected_hash=$(jq -r '.blockHash' "$SINGLE_BLOCK_DIR/attestation.json")
 
     log "Expected values:"
     log "  block_number: $expected_block"
@@ -456,10 +460,10 @@ print_summary() {
     log "=========================================="
     log ""
     log "Deployment:"
-    jq '.' "$FIXTURES_DIR/deployment.json"
+    jq '.' "$DEPLOYMENT_FILE"
     log ""
     log "Attestation:"
-    jq '{stateRoot, blockHash, blockNumber}' "$FIXTURES_DIR/attestation.json"
+    jq '{stateRoot, blockHash, blockNumber}' "$SINGLE_BLOCK_DIR/attestation.json"
     log ""
 }
 
@@ -506,9 +510,9 @@ case "$MODE" in
         log ""
 
         # Verify fixtures exist
-        [[ -f "$FIXTURES_DIR/attestation.json" ]] || die "Missing attestation.json. Run with --live first"
-        [[ -f "$FIXTURES_DIR/proof.json" ]] || die "Missing proof.json. Run with --live first"
-        [[ -f "$FIXTURES_DIR/calldata.txt" ]] || die "Missing calldata.txt. Run with --live first"
+        [[ -f "$SINGLE_BLOCK_DIR/attestation.json" ]] || die "Missing block_0/attestation.json. Run with --live first"
+        [[ -f "$SINGLE_BLOCK_DIR/proof.json" ]] || die "Missing block_0/proof.json. Run with --live first"
+        [[ -f "$SINGLE_BLOCK_DIR/calldata.txt" ]] || die "Missing block_0/calldata.txt. Run with --live first"
 
         start_devnet
         fetch_root_certs
