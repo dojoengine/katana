@@ -14,7 +14,9 @@ use paymaster_rpc::server::PaymasterServer;
 use paymaster_rpc::{Configuration, RPCConfiguration};
 use paymaster_sponsoring::{Configuration as SponsoringConfiguration, SelfConfiguration};
 use paymaster_starknet::constants::Token;
-use paymaster_starknet::{ChainID, Configuration as StarknetConfiguration, StarknetAccountConfiguration};
+use paymaster_starknet::{
+    ChainID, Configuration as StarknetConfiguration, StarknetAccountConfiguration,
+};
 use starknet::core::types::Felt;
 use tokio::signal;
 use tracing::{info, warn};
@@ -73,7 +75,11 @@ impl MockPriceOracle for MockPriceOracleImpl {
     }
 
     async fn fetch_token(&self, address: Felt) -> Result<TokenPrice, paymaster_prices::Error> {
-        Ok(TokenPrice { address, price_in_strk: Felt::from(1_000_000_000_000_000_000u128), decimals: 18 })
+        Ok(TokenPrice {
+            address,
+            price_in_strk: Felt::from(1_000_000_000_000_000_000u128),
+            decimals: 18,
+        })
     }
 }
 
@@ -114,9 +120,7 @@ impl MockLockLayer for MockLockingLayer {
 
 #[tokio::main(flavor = "current_thread")]
 async fn main() -> Result<()> {
-    tracing_subscriber::fmt()
-        .with_max_level(tracing::Level::INFO)
-        .init();
+    tracing_subscriber::fmt().with_max_level(tracing::Level::INFO).init();
 
     let args = Args::parse();
     let chain_id = ChainID::from_string(&args.chain_id)
