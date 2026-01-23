@@ -585,12 +585,17 @@ pub enum VrfKeySource {
 #[command(next_help_heading = "Paymaster options")]
 pub struct PaymasterOptions {
     /// Paymaster mode: disabled, sidecar, or external.
-    #[arg(long = "paymaster.mode", value_enum, id = "paymaster_mode")]
+    #[arg(
+        long = "paymaster.mode",
+        value_enum,
+        id = "paymaster_mode",
+        default_value_t = default_paymaster_mode()
+    )]
     #[serde(default = "default_paymaster_mode")]
     pub mode: ServiceMode,
 
     /// Paymaster JSON-RPC endpoint.
-    #[arg(long = "paymaster.url", value_name = "URL")]
+    #[arg(long = "paymaster.url", value_name = "URL", id = "paymaster_url")]
     #[serde(default)]
     pub url: Option<Url>,
 
@@ -606,17 +611,27 @@ pub struct PaymasterOptions {
 
     /// Prefunded account index used by the paymaster (relayer at INDEX, gas tank at INDEX+1,
     /// estimate account at INDEX+2).
-    #[arg(long = "paymaster.prefunded-index", value_name = "INDEX")]
+    #[arg(
+        long = "paymaster.prefunded-index",
+        value_name = "INDEX",
+        id = "paymaster_prefunded_index",
+        default_value_t = default_paymaster_prefunded_index()
+    )]
     #[serde(default = "default_paymaster_prefunded_index")]
     pub prefunded_index: u16,
 
     /// Port to bind the sidecar paymaster on.
-    #[arg(long = "paymaster.port", value_name = "PORT")]
+    #[arg(
+        long = "paymaster.port",
+        value_name = "PORT",
+        id = "paymaster_port",
+        default_value_t = default_paymaster_port()
+    )]
     #[serde(default = "default_paymaster_port")]
     pub port: u16,
 
     /// Optional path to the paymaster sidecar binary (defaults to `paymaster-service` in PATH).
-    #[arg(long = "paymaster.bin", value_name = "PATH")]
+    #[arg(long = "paymaster.bin", value_name = "PATH", id = "paymaster_bin")]
     #[serde(default)]
     pub bin: Option<PathBuf>,
 }
@@ -676,32 +691,47 @@ impl PaymasterOptions {
 #[command(next_help_heading = "VRF options")]
 pub struct VrfOptions {
     /// VRF mode: disabled, sidecar, or external.
-    #[arg(long = "vrf.mode", value_enum, id = "vrf_mode")]
+    #[arg(
+        long = "vrf.mode",
+        value_enum,
+        id = "vrf_mode",
+        default_value_t = default_vrf_mode()
+    )]
     #[serde(default = "default_vrf_mode")]
     pub mode: ServiceMode,
 
     /// VRF service endpoint.
-    #[arg(long = "vrf.url", value_name = "URL")]
+    #[arg(long = "vrf.url", value_name = "URL", id = "vrf_url")]
     #[serde(default)]
     pub url: Option<Url>,
 
     /// Source for the VRF secret key.
-    #[arg(long = "vrf.key-source", value_enum)]
+    #[arg(long = "vrf.key-source", value_enum, default_value_t = default_vrf_key_source())]
     #[serde(default = "default_vrf_key_source")]
     pub key_source: VrfKeySource,
 
     /// Prefunded account index used to sign VRF outside executions.
-    #[arg(long = "vrf.prefunded-index", value_name = "INDEX")]
+    #[arg(
+        long = "vrf.prefunded-index",
+        value_name = "INDEX",
+        id = "vrf_prefunded_index",
+        default_value_t = default_vrf_prefunded_index()
+    )]
     #[serde(default = "default_vrf_prefunded_index")]
     pub prefunded_index: u16,
 
     /// Port to bind the sidecar VRF service on (vrf-server uses 3000).
-    #[arg(long = "vrf.port", value_name = "PORT")]
+    #[arg(
+        long = "vrf.port",
+        value_name = "PORT",
+        id = "vrf_port",
+        default_value_t = default_vrf_port()
+    )]
     #[serde(default = "default_vrf_port")]
     pub port: u16,
 
     /// Optional path to the VRF sidecar binary (defaults to `vrf-server` in PATH).
-    #[arg(long = "vrf.bin", value_name = "PATH")]
+    #[arg(long = "vrf.bin", value_name = "PATH", id = "vrf_bin")]
     #[serde(default)]
     pub bin: Option<PathBuf>,
 }
