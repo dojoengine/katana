@@ -17,7 +17,13 @@ fn test_hex_string_conversion() {
 
 #[test]
 fn test_hex_file_content() {
-    let calldata = StarknetCalldata::from_values(vec![BigUint::from(1u32), BigUint::from(2u32)]);
+    // to_hex_file_content skips the first element (length prefix)
+    // So we include a length prefix (2) followed by the actual values
+    let calldata = StarknetCalldata::from_values(vec![
+        BigUint::from(2u32), // length prefix
+        BigUint::from(1u32),
+        BigUint::from(2u32),
+    ]);
 
     let content = calldata.to_hex_file_content();
     assert_eq!(content, "0x1\n0x2\n");
