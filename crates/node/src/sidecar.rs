@@ -23,7 +23,6 @@ use katana_primitives::{ContractAddress, Felt, U256};
 use katana_provider::api::state::{StateFactoryProvider, StateProvider};
 use katana_provider::ProviderFactory;
 use katana_rpc_types::FunctionCall;
-use num_traits::ToPrimitive;
 use serde::Serialize;
 use stark_vrf::{generate_public_key, ScalarField};
 use starknet::macros::selector;
@@ -81,7 +80,7 @@ pub struct PaymasterBootstrap {
 
 #[derive(Debug, Clone)]
 pub struct VrfBootstrap {
-    pub secret_key: Felt,
+    pub secret_key: u64,
 }
 
 #[derive(Debug, Serialize)]
@@ -255,16 +254,11 @@ async fn start_vrf_sidecar(config: &VrfConfig, bootstrap: &VrfBootstrap) -> Resu
 
     let bin = config.sidecar_bin.clone().unwrap_or_else(|| "vrf-server".into());
     let bin = resolve_executable(Path::new(&bin))?;
-    let secret_key = bootstrap
-        .secret_key
-        .to_biguint()
-        .to_u64()
-        .ok_or_else(|| anyhow!("vrf-server requires a secret key that fits in u64"))?;
 
     let mut command = Command::new(bin);
     command
         .arg("--secret-key")
-        .arg(secret_key.to_string())
+        .arg(bootstrap.secret_key.to_string())
         .stdout(Stdio::inherit())
         .stderr(Stdio::inherit())
         .kill_on_drop(true);
@@ -408,6 +402,13 @@ fn format_felt(value: Felt) -> String {
 fn scalar_from_felt(value: Felt) -> ScalarField {
     let bytes = value.to_bytes_be();
     ScalarField::from_be_bytes_mod_order(&bytes)
+}
+
+fn vrf_secret_key_from_account_key(value: Felt) -> u64 {
+    let bytes = value.to_bytes_be();
+    let mut tail = [0_u8; 8];
+    tail.copy_from_slice(&bytes[24..]);
+    u64::from_be_bytes(tail)
 }
 
 fn felt_from_field<T: std::fmt::Display>(value: T) -> Result<Felt> {
@@ -583,7 +584,7 @@ pub(crate) struct VrfDerivedAccounts {
     pub(crate) vrf_account_address: ContractAddress,
     pub(crate) vrf_public_key_x: Felt,
     pub(crate) vrf_public_key_y: Felt,
-    pub(crate) secret_key: Felt,
+    pub(crate) secret_key: u64,
 }
 
 pub(crate) fn derive_vrf_accounts<EF, PF>(
@@ -602,8 +603,9 @@ where
         VrfKeySource::Sequencer => sequencer_account(node_config, backend)?,
     };
 
-    let secret_key = source_private_key;
-    let public_key = generate_public_key(scalar_from_felt(secret_key));
+    // vrf-server expects a u64 secret, so derive one from the account key.
+    let secret_key = vrf_secret_key_from_account_key(source_private_key);
+    let public_key = generate_public_key(scalar_from_felt(Felt::from(secret_key)));
     let vrf_public_key_x = felt_from_field(public_key.x)?;
     let vrf_public_key_y = felt_from_field(public_key.y)?;
 
