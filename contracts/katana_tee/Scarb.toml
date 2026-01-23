@@ -53,3 +53,15 @@ allow-prebuilt-plugins = ["snforge_std"]
 
 # [features]                                                 # Used for conditional compilation
 # enable_for_tests = []                                      # Feature name and list of other features that should be enabled with it
+
+# Fork configurations commented out - tests using #[fork("...")] require RPC URLs
+# Set STARKNET_RPC_URL_MAINNET and STARKNET_RPC_URL_SEPOLIA to enable fork tests
+# [[tool.snforge.fork]]
+# name = "MAINNET"
+# url = "${STARKNET_RPC_URL_MAINNET}"
+# block_id.tag = "latest"
+
+# [[tool.snforge.fork]]
+# name = "SEPOLIA"
+# url = "${STARKNET_RPC_URL_SEPOLIA}"
+# block_id.tag = "latest"

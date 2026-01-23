@@ -9,13 +9,16 @@ fn u256_from_u128(value: u128) -> u256 {
 fn test_decode_verifier_journal_minimal() {
     let mut words: Array<u256> = array![];
 
+    // ABI offset pointer (required by decode_verifier_journal)
+    words.append(u256_from_u128(0x20)); // offset = 32 bytes
+
     // Head (7 words)
     words.append(u256_from_u128(0)); // result = Success
     words.append(u256_from_u128(42)); // timestamp
     words.append(u256_from_u128(1)); // processorModel
-    words.append(u256_from_u128(224)); // rawReport offset
-    words.append(u256_from_u128(1440)); // certs offset
-    words.append(u256_from_u128(1504)); // certSerials offset
+    words.append(u256_from_u128(224)); // rawReport offset (relative to struct start)
+    words.append(u256_from_u128(1440)); // certs offset (relative to struct start)
+    words.append(u256_from_u128(1504)); // certSerials offset (relative to struct start)
     words.append(u256_from_u128(2)); // trustedCertsPrefixLen
 
     // rawReport block

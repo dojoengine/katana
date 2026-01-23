@@ -30,13 +30,19 @@ impl KdsClient {
     }
 
     /// Fetch root certificate (ARK) hash for a processor type
-    pub fn fetch_root_cert_hash(&self, processor: ProcessorType) -> Result<RootCertInfo, crate::Error> {
-        let proc_str = processor.to_str()
+    pub fn fetch_root_cert_hash(
+        &self,
+        processor: ProcessorType,
+    ) -> Result<RootCertInfo, crate::Error> {
+        let proc_str = processor
+            .to_str()
             .map_err(|e| crate::Error::Prover(format!("Invalid processor type: {}", e)))?;
 
         tracing::info!("Fetching cert chain for {}...", proc_str);
 
-        let cert_chain = self.inner.fetch_model_cert_chain(processor)
+        let cert_chain = self
+            .inner
+            .fetch_model_cert_chain(processor)
             .map_err(|e| crate::Error::Prover(format!("Failed to fetch cert chain: {}", e)))?;
 
         // cert_chain is [ASK, ARK] - ARK is index 1
@@ -58,11 +64,15 @@ impl KdsClient {
     }
 
     /// Fetch root certificate hashes for multiple processor types
-    pub fn fetch_root_certs(&self, processors: &[ProcessorType]) -> Result<HashMap<String, RootCertInfo>, crate::Error> {
+    pub fn fetch_root_certs(
+        &self,
+        processors: &[ProcessorType],
+    ) -> Result<HashMap<String, RootCertInfo>, crate::Error> {
         let mut results = HashMap::new();
 
         for processor in processors {
-            let proc_str = processor.to_str()
+            let proc_str = processor
+                .to_str()
                 .map_err(|e| crate::Error::Prover(format!("Invalid processor type: {}", e)))?
                 .to_lowercase();
 
@@ -74,11 +84,16 @@ impl KdsClient {
     }
 
     /// Validate fetched root cert against a local .der file
-    pub fn validate_against_file(&self, processor: ProcessorType, der_path: &Path) -> Result<bool, crate::Error> {
+    pub fn validate_against_file(
+        &self,
+        processor: ProcessorType,
+        der_path: &Path,
+    ) -> Result<bool, crate::Error> {
         let fetched = self.fetch_root_cert_hash(processor)?;
 
-        let local_der = std::fs::read(der_path)
-            .map_err(|e| crate::Error::Prover(format!("Failed to read {}: {}", der_path.display(), e)))?;
+        let local_der = std::fs::read(der_path).map_err(|e| {
+            crate::Error::Prover(format!("Failed to read {}: {}", der_path.display(), e))
+        })?;
 
         let local_hash = Sha256::digest(&local_der);
         let local_hash_hex = format!("0x{}", hex::encode(local_hash));
