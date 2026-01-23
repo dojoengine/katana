@@ -21,3 +21,32 @@ pub fn add_vrf_provider_class(genesis: &mut Genesis) {
         class.into(),
     );
 }
+
+pub fn add_avnu_forwarder_class(genesis: &mut Genesis) {
+    let forwarder_class = include_str!("../classes/avnu_Forwarder.contract_class.json");
+    let class = parse_sierra_class(forwarder_class).unwrap();
+    genesis.classes.insert(
+        class.class_hash().expect("Failed to compute class hash for Avnu forwarder class"),
+        class.into(),
+    );
+}
+
+pub fn add_vrf_account_class(genesis: &mut Genesis) {
+    let vrf_account_class =
+        include_str!("../classes/cartridge_vrf_VrfAccount.contract_class.json");
+    let class = parse_sierra_class(vrf_account_class).unwrap();
+    genesis.classes.insert(
+        class.class_hash().expect("Failed to compute class hash for VRF account class"),
+        class.into(),
+    );
+}
+
+pub fn add_vrf_consumer_class(genesis: &mut Genesis) {
+    let vrf_consumer_class =
+        include_str!("../classes/cartridge_vrf_VrfConsumer.contract_class.json");
+    let class = parse_sierra_class(vrf_consumer_class).unwrap();
+    genesis.classes.insert(
+        class.class_hash().expect("Failed to compute class hash for VRF consumer class"),
+        class.into(),
+    );
+}

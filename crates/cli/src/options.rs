@@ -12,7 +12,7 @@ use std::net::IpAddr;
 use std::num::NonZeroU128;
 use std::path::PathBuf;
 
-use clap::Args;
+use clap::{Args, ValueEnum};
 use katana_genesis::Genesis;
 use katana_node::config::execution::{DEFAULT_INVOCATION_MAX_STEPS, DEFAULT_VALIDATION_MAX_STEPS};
 #[cfg(feature = "server")]
@@ -543,12 +543,10 @@ pub struct CartridgeOptions {
     #[arg(long = "cartridge.controllers")]
     pub controllers: bool,
 
-    /// Whether to use the Cartridge paymaster.
-    /// This has the cost to call the Cartridge API to check
-    /// if a controller account exists on each estimate fee call.
+    /// Legacy alias for enabling the local paymaster flow.
     ///
-    /// Mostly used for local development using controller, and must be
-    /// disabled for slot deployments.
+    /// This maps to `--paymaster.mode=sidecar` when set, and also enables
+    /// controller deployment helpers that rely on the Cartridge API.
     #[arg(long = "cartridge.paymaster")]
     #[arg(default_value_t = false)]
     #[serde(default)]
@@ -563,6 +561,183 @@ pub struct CartridgeOptions {
     #[arg(default_value = "https://api.cartridge.gg")]
     #[serde(default = "default_api_url")]
     pub api: Url,
+}
+
+#[cfg(feature = "cartridge")]
+#[derive(Debug, Copy, Clone, Serialize, Deserialize, PartialEq, Eq, ValueEnum)]
+#[serde(rename_all = "lowercase")]
+pub enum ServiceMode {
+    Disabled,
+    Sidecar,
+    External,
+}
+
+#[cfg(feature = "cartridge")]
+#[derive(Debug, Copy, Clone, Serialize, Deserialize, PartialEq, Eq, ValueEnum)]
+#[serde(rename_all = "lowercase")]
+pub enum VrfKeySource {
+    Prefunded,
+    Sequencer,
+}
+
+#[cfg(feature = "cartridge")]
+#[derive(Debug, Args, Clone, Serialize, Deserialize, PartialEq)]
+#[command(next_help_heading = "Paymaster options")]
+pub struct PaymasterOptions {
+    /// Paymaster mode: disabled, sidecar, or external.
+    #[arg(long = "paymaster.mode", value_enum)]
+    #[serde(default = "default_paymaster_mode")]
+    pub mode: ServiceMode,
+
+    /// Paymaster JSON-RPC endpoint.
+    #[arg(long = "paymaster.url", value_name = "URL")]
+    #[serde(default)]
+    pub url: Option<Url>,
+
+    /// API key to send via `x-paymaster-api-key` when proxying requests.
+    #[arg(long = "paymaster.api-key", value_name = "KEY")]
+    #[serde(default)]
+    pub api_key: Option<String>,
+
+    /// Prefunded account index used by the paymaster for gas tank and relayer.
+    #[arg(long = "paymaster.prefunded-index", value_name = "INDEX")]
+    #[serde(default = "default_paymaster_prefunded_index")]
+    pub prefunded_index: u16,
+
+    /// Port to bind the sidecar paymaster on.
+    #[arg(long = "paymaster.port", value_name = "PORT")]
+    #[serde(default = "default_paymaster_port")]
+    pub port: u16,
+
+    /// Optional path to the paymaster sidecar binary.
+    #[arg(long = "paymaster.bin", value_name = "PATH")]
+    #[serde(default)]
+    pub bin: Option<PathBuf>,
+}
+
+#[cfg(feature = "cartridge")]
+impl Default for PaymasterOptions {
+    fn default() -> Self {
+        PaymasterOptions {
+            mode: default_paymaster_mode(),
+            url: None,
+            api_key: None,
+            prefunded_index: default_paymaster_prefunded_index(),
+            port: default_paymaster_port(),
+            bin: None,
+        }
+    }
+}
+
+#[cfg(feature = "cartridge")]
+impl PaymasterOptions {
+    pub fn merge(&mut self, other: Option<&Self>) {
+        if let Some(other) = other {
+            if self.mode == default_paymaster_mode() {
+                self.mode = other.mode;
+            }
+
+            if self.url.is_none() {
+                self.url = other.url.clone();
+            }
+
+            if self.api_key.is_none() {
+                self.api_key = other.api_key.clone();
+            }
+
+            if self.prefunded_index == default_paymaster_prefunded_index() {
+                self.prefunded_index = other.prefunded_index;
+            }
+
+            if self.port == default_paymaster_port() {
+                self.port = other.port;
+            }
+
+            if self.bin.is_none() {
+                self.bin = other.bin.clone();
+            }
+        }
+    }
+}
+
+#[cfg(feature = "cartridge")]
+#[derive(Debug, Args, Clone, Serialize, Deserialize, PartialEq)]
+#[command(next_help_heading = "VRF options")]
+pub struct VrfOptions {
+    /// VRF mode: disabled, sidecar, or external.
+    #[arg(long = "vrf.mode", value_enum)]
+    #[serde(default = "default_vrf_mode")]
+    pub mode: ServiceMode,
+
+    /// VRF service endpoint.
+    #[arg(long = "vrf.url", value_name = "URL")]
+    #[serde(default)]
+    pub url: Option<Url>,
+
+    /// Source for the VRF secret key.
+    #[arg(long = "vrf.key-source", value_enum)]
+    #[serde(default = "default_vrf_key_source")]
+    pub key_source: VrfKeySource,
+
+    /// Prefunded account index used to sign VRF outside executions.
+    #[arg(long = "vrf.prefunded-index", value_name = "INDEX")]
+    #[serde(default = "default_vrf_prefunded_index")]
+    pub prefunded_index: u16,
+
+    /// Port to bind the sidecar VRF service on.
+    #[arg(long = "vrf.port", value_name = "PORT")]
+    #[serde(default = "default_vrf_port")]
+    pub port: u16,
+
+    /// Optional path to the VRF sidecar binary.
+    #[arg(long = "vrf.bin", value_name = "PATH")]
+    #[serde(default)]
+    pub bin: Option<PathBuf>,
+}
+
+#[cfg(feature = "cartridge")]
+impl Default for VrfOptions {
+    fn default() -> Self {
+        VrfOptions {
+            mode: default_vrf_mode(),
+            url: None,
+            key_source: default_vrf_key_source(),
+            prefunded_index: default_vrf_prefunded_index(),
+            port: default_vrf_port(),
+            bin: None,
+        }
+    }
+}
+
+#[cfg(feature = "cartridge")]
+impl VrfOptions {
+    pub fn merge(&mut self, other: Option<&Self>) {
+        if let Some(other) = other {
+            if self.mode == default_vrf_mode() {
+                self.mode = other.mode;
+            }
+
+            if self.url.is_none() {
+                self.url = other.url.clone();
+            }
+
+            if self.key_source == default_vrf_key_source() {
+                self.key_source = other.key_source;
+            }
+
+            if self.prefunded_index == default_vrf_prefunded_index() {
+                self.prefunded_index = other.prefunded_index;
+            }
+
+            if self.port == default_vrf_port() {
+                self.port = other.port;
+            }
+
+            if self.bin.is_none() {
+                self.bin = other.bin.clone();
+            }
+        }
+    }
 }
 
 #[cfg(feature = "cartridge")]
@@ -706,6 +881,41 @@ fn default_paymaster() -> bool {
 #[cfg(feature = "cartridge")]
 fn default_api_url() -> Url {
     Url::parse("https://api.cartridge.gg").expect("qed; invalid url")
+}
+
+#[cfg(feature = "cartridge")]
+fn default_paymaster_mode() -> ServiceMode {
+    ServiceMode::Disabled
+}
+
+#[cfg(feature = "cartridge")]
+fn default_vrf_mode() -> ServiceMode {
+    ServiceMode::Disabled
+}
+
+#[cfg(feature = "cartridge")]
+fn default_vrf_key_source() -> VrfKeySource {
+    VrfKeySource::Prefunded
+}
+
+#[cfg(feature = "cartridge")]
+fn default_paymaster_prefunded_index() -> u16 {
+    0
+}
+
+#[cfg(feature = "cartridge")]
+fn default_vrf_prefunded_index() -> u16 {
+    0
+}
+
+#[cfg(feature = "cartridge")]
+fn default_paymaster_port() -> u16 {
+    8081
+}
+
+#[cfg(feature = "cartridge")]
+fn default_vrf_port() -> u16 {
+    3000
 }
 
 #[derive(Debug, Default, Args, Clone, Serialize, Deserialize, PartialEq)]
