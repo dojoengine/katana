@@ -94,7 +94,7 @@ $(SNOS_OUTPUT): $(SNOS_DB_DIR)
 	@git submodule update --init --recursive
 	@echo "Setting up SNOS tests..."
 	@cd tests/snos/snos && \
-		. ./setup-scripts/setup-cairo.sh && \
+		PIP_DEFAULT_TIMEOUT=120 PIP_RETRIES=5 . ./setup-scripts/setup-cairo.sh && \
 		. ./setup-scripts/setup-tests.sh || { echo "SNOS setup failed\!"; exit 1; }
 
 $(SNOS_DB_DIR): $(SNOS_DB_TAR)
