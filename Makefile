@@ -117,7 +117,8 @@ help:
 	@echo "  make test-fork      - Include fork-based Cairo tests"
 	@echo "  make test-rust      - Rust tests only"
 	@echo "  make test-cairo     - Cairo tests only"
-	@echo "  make test-e2e       - E2E fixture mode"
+	@echo "  make test-e2e       - E2E fixture mode (fresh proofs)"
+	@echo "  make test-e2e-reuse - E2E with existing proofs (skip SP1 network)"
 	@echo ""
 	@echo "Fixtures:"
 	@echo "  make generate-cairo-fixtures - Regenerate Cairo fixtures from block proofs"
@@ -131,7 +132,7 @@ help:
 .PHONY: build fetch fetch-save execute prove prove-mock proof-info \
         tee-start tee-stop tee-status tee-test \
         pipeline-test pipeline-prove help \
-        test test-rust test-cairo test-e2e test-fork \
+        test test-rust test-cairo test-e2e test-e2e-reuse test-fork \
         devnet-mainnet fetch-root-certs \
         generate-cairo-fixtures
 
@@ -151,7 +152,10 @@ test-cairo:
 
 
 test-e2e:
-	./tests/e2e/run_e2e_tests.sh --multi-block
+	./tests/e2e/run_e2e_tests.sh
+
+test-e2e-reuse:
+	./tests/e2e/run_e2e_tests.sh --reuse-proofs
 
 # Run fork-based Cairo tests (requires MAINNET_RPC_URL)
 test-fork:

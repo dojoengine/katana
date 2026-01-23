@@ -3,9 +3,21 @@
 # E2E Test Script for katana-tee
 #
 # Usage:
-#   ./run_e2e_tests.sh  # Generate proofs for multiple blocks (0, 1, 2)
+#   ./run_e2e_tests.sh                 # Generate fresh proofs for blocks (0, 1, 2)
+#   ./run_e2e_tests.sh --reuse-proofs  # Reuse existing proof.json if available
 #
 set -euo pipefail
+
+# Parse command line arguments
+REUSE_PROOFS=false
+for arg in "$@"; do
+    case $arg in
+        --reuse-proofs)
+            REUSE_PROOFS=true
+            shift
+            ;;
+    esac
+done
 
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 PROJECT_ROOT="$(cd "$SCRIPT_DIR/../.." && pwd)"
@@ -271,7 +283,10 @@ advance_katana_block() {
 
 # Generate proofs for multiple blocks (0, 1, 2), submit and verify each
 generate_multi_block_proofs() {
-    log "=== MULTI-BLOCK MODE: Generating proofs for blocks 0, 1, 2 ==="
+    log "=== MULTI-BLOCK MODE: Processing blocks 0, 1, 2 ==="
+    if [[ "$REUSE_PROOFS" == "true" ]]; then
+        log "  (--reuse-proofs enabled: will skip proof generation if proof.json exists)"
+    fi
 
     local amd_address=$(jq -r '.amd_tee_registry.address' "$DEPLOYMENT_FILE")
     local katana_address=$(jq -r '.katana_tee.address' "$DEPLOYMENT_FILE")
@@ -289,18 +304,29 @@ generate_multi_block_proofs() {
         cargo run -p katana_tee_client --release --bin katana-tee -- \
             fetch --rpc "$KATANA_RPC_URL" --output "$block_dir/attestation.json"
 
-        # Generate proof - registry is required, no --skip-cache
-        log "Generating SP1 proof for block $block_num..."
-        cargo run -p katana_tee_client --release --bin katana-tee -- \
-            pipeline \
-            --json "$block_dir/attestation.json" \
-            --starknet-rpc "$DEVNET_URL" \
-            --registry "$amd_address" \
-            --katana-tee "$katana_address" \
-            --prover network \
-            --proof-output "$block_dir/proof.json" \
-            --calldata-output "$block_dir/calldata.txt" \
-            --dry-run
+        # Build pipeline command
+        local pipeline_args=(
+            pipeline
+            --json "$block_dir/attestation.json"
+            --starknet-rpc "$DEVNET_URL"
+            --registry "$amd_address"
+            --katana-tee "$katana_address"
+            --prover network
+            --proof-output "$block_dir/proof.json"
+            --calldata-output "$block_dir/calldata.txt"
+            --account-address "$DEVNET_ACCOUNT_ADDRESS"
+            --account-private-key "$DEVNET_ACCOUNT_PRIVATE_KEY"
+        )
+
+        # Reuse existing proof if flag is set and proof exists
+        if [[ "$REUSE_PROOFS" == "true" ]] && [[ -f "$block_dir/proof.json" ]]; then
+            log "  Reusing existing proof (skipping SP1 network)"
+            pipeline_args+=(--proof-input "$block_dir/proof.json")
+        else
+            log "Generating SP1 proof for block $block_num..."
+        fi
+
+        cargo run -p katana_tee_client --release --bin katana-tee -- "${pipeline_args[@]}"
 
         # Log actual cache info from proof
         if command -v jq &> /dev/null && [ -f "$block_dir/proof.json" ]; then
@@ -310,8 +336,7 @@ generate_multi_block_proofs() {
 
         log "Block $block_num artifacts saved to $block_dir"
 
-        # Submit proof and verify state
-        submit_proof "$block_dir"
+        # Verify state was updated
         verify_state "$block_dir"
 
         # Advance to next block (except after last iteration)
@@ -424,6 +449,9 @@ verify_state() {
 
 log "=========================================="
 log "  E2E TEST - MULTI-BLOCK MODE"
+if [[ "$REUSE_PROOFS" == "true" ]]; then
+    log "  (Reusing existing proofs)"
+fi
 log "=========================================="
 log ""
 start_devnet

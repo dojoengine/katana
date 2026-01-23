@@ -76,6 +76,7 @@ pub mod KatanaTee {
             };
             match registry.verify_sp1_proof(sp1_proof) {
                 Result::Ok(public_inputs) => {
+                    println!("[KatanaTee] SP1 proof ok");
                     let journal = decode_verifier_journal(public_inputs);
                     let raw_report = RawAttestationReport { raw: journal.raw_report };
                     let report_data = raw_report.report_data();

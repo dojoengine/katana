@@ -57,7 +57,7 @@ use alloy_primitives::Bytes;
 use amd_sev_snp_attestation_prover::{
     AmdSevSnpProver, ProverConfig as SdkProverConfig, RawProofType, SP1ProverConfig, KDS,
 };
-use amd_sev_snp_attestation_verifier::{stub::ProcessorType, AttestationReport};
+use amd_sev_snp_attestation_verifier::{stub::{ProcessorType, VerifierInput}, AttestationReport};
 use std::time::{SystemTime, UNIX_EPOCH};
 use tracing::info;
 use x509_verifier_rust_crypto::CertChain;
@@ -210,15 +210,28 @@ impl<B: Sp1Backend> AmdAttestationProver<B> {
             cert_digests.len()
         );
 
+        // Validate cert chain time if not skipped
+        if !self.config.skip_time_validity_check {
+            cert_chain
+                .check_valid(timestamp)
+                .map_err(|e| Error::Prover(format!("Cert chain time validation failed: {e}")))?;
+        }
+
         let report_bytes = report.as_bytes().to_vec();
         let sdk_config = self.sdk_prover_config();
+        let vek_der_chain = cert_chain.to_ders();
 
         let proof = tokio::task::spawn_blocking(move || {
             let prover = AmdSevSnpProver::new(sdk_config, None);
-            let mut input = prover
-                .prepare_verifier_input(timestamp, Bytes::from(report_bytes), Some(kds_chain))
-                .map_err(|e| Error::Prover(format!("Verifier input error: {e}")))?;
-            input.trustedCertsPrefixLen = trusted_prefix_len;
+
+            // Construct VerifierInput directly, bypassing prepare_verifier_input
+            // which logs a warning when no contract is provided
+            let input = VerifierInput {
+                timestamp,
+                trustedCertsPrefixLen: trusted_prefix_len,
+                rawReport: Bytes::from(report_bytes),
+                vekDerChain: vek_der_chain,
+            };
 
             let raw_proof = prover
                 .verifier

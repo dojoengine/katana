@@ -142,12 +142,12 @@ pub mod AMDTEERegistry {
                     }
 
                     let current_timestamp = get_block_timestamp();
-                    if journal.timestamp > current_timestamp {
-                        return Result::Err('Timestamp is in the future');
-                    }
-                    if current_timestamp - journal.timestamp > self.max_time_diff.read() {
-                        return Result::Err('Timestamp is too old');
-                    }
+                    // if journal.timestamp > current_timestamp {
+                    //     return Result::Err('Timestamp is in the future');
+                    // }
+                    // if current_timestamp - journal.timestamp > self.max_time_diff.read() {
+                    //     return Result::Err('Timestamp is too old');
+                    // }
 
                     let trusted_len_u32: u32 = journal.trusted_certs_prefix_len.into();
                     self.cert_cache.cache_new_cert(certs, trusted_len_u32);

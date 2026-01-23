@@ -155,6 +155,10 @@ enum Commands {
         #[arg(long, default_value = "proof_output.json")]
         proof_output: PathBuf,
 
+        /// Use existing proof file instead of generating (skips SP1 proving)
+        #[arg(long)]
+        proof_input: Option<PathBuf>,
+
         /// Output file for the Starknet calldata (hex, newline-separated)
         #[arg(long)]
         calldata_output: Option<PathBuf>,
@@ -281,6 +285,7 @@ async fn main() -> anyhow::Result<()> {
             sp1_rpc_url,
             skip_time_validity_check,
             proof_output,
+            proof_input,
             calldata_output,
             account_address,
             account_private_key,
@@ -298,6 +303,7 @@ async fn main() -> anyhow::Result<()> {
                 sp1_rpc_url,
                 skip_time_validity_check,
                 &proof_output,
+                proof_input,
                 calldata_output,
                 account_address,
                 account_private_key,
@@ -514,6 +520,7 @@ async fn cmd_pipeline(
     sp1_rpc_url: Option<String>,
     skip_time_validity_check: bool,
     proof_output: &PathBuf,
+    proof_input: Option<PathBuf>,
     calldata_output: Option<PathBuf>,
     account_address: Option<String>,
     account_private_key: Option<String>,
@@ -521,16 +528,6 @@ async fn cmd_pipeline(
     dry_run: bool,
 ) -> anyhow::Result<()> {
     let starknet_rpc = starknet_rpc.unwrap_or_else(|| rpc.to_string());
-
-    std::env::set_var("SP1_PROVER", prover);
-    let config = resolve_prover_config(sp1_private_key, sp1_rpc_url, skip_time_validity_check);
-
-    if prover == "network" && !config.has_network_key() {
-        anyhow::bail!(
-            "NETWORK_PRIVATE_KEY required for network proving.\n\
-             Set it in .env or environment, or pass --sp1-private-key."
-        );
-    }
 
     let attestation = get_attestation(rpc, json).await?;
 
@@ -549,25 +546,46 @@ async fn cmd_pipeline(
     println!("🏛️  Registry: 0x{:x}", registry_addr);
     println!("🏛️  KatanaTee: 0x{:x}", katana_client.contract_address());
 
-    let amd_prover = AmdAttestationProver::new(config);
-    let quote_bytes = attestation.quote_bytes()?;
+    // Either load existing proof or generate new one
+    let proof = if let Some(proof_path) = proof_input {
+        println!("📄 Loading existing proof from: {}", proof_path.display());
+        let data = std::fs::read(&proof_path)?;
+        let proof = amd_sev_snp_attestation_prover::OnchainProof::decode_json(&data)?;
+        println!("✅ Proof loaded (skipping SP1 proving)");
+        proof
+    } else {
+        std::env::set_var("SP1_PROVER", prover);
+        let config = resolve_prover_config(sp1_private_key, sp1_rpc_url, skip_time_validity_check);
 
-    let registry_client = StarknetRegistryClient::new(&starknet_rpc, registry_addr);
-    println!("🔄 Proving (querying on-chain cache)...");
-    let start = std::time::Instant::now();
-    let proof_info = amd_prover.prove(&quote_bytes, &registry_client).await?;
-    let elapsed = start.elapsed();
+        if prover == "network" && !config.has_network_key() {
+            anyhow::bail!(
+                "NETWORK_PRIVATE_KEY required for network proving.\n\
+                 Set it in .env or environment, or pass --sp1-private-key."
+            );
+        }
 
-    println!("✅ Proof generated in {:.2?}", elapsed);
-    println!("   Trusted prefix len: {}", proof_info.trusted_prefix_len);
-    println!("   Cert chain length: {}", proof_info.cert_digests.len());
+        let amd_prover = AmdAttestationProver::new(config);
+        let quote_bytes = attestation.quote_bytes()?;
 
-    let proof = proof_info.proof;
+        let registry_client = StarknetRegistryClient::new(&starknet_rpc, registry_addr);
+        println!("🔄 Proving (querying on-chain cache)...");
+        let start = std::time::Instant::now();
+        let proof_info = amd_prover.prove(&quote_bytes, &registry_client).await?;
+        let elapsed = start.elapsed();
 
-    // Save proof JSON
-    let proof_json = proof.encode_json()?;
-    std::fs::write(proof_output, &proof_json)?;
-    println!("💾 Proof saved to: {}", proof_output.display());
+        println!("✅ Proof generated in {:.2?}", elapsed);
+        println!("   Trusted prefix len: {}", proof_info.trusted_prefix_len);
+        println!("   Cert chain length: {}", proof_info.cert_digests.len());
+
+        let proof = proof_info.proof;
+
+        // Save proof JSON
+        let proof_json = proof.encode_json()?;
+        std::fs::write(proof_output, &proof_json)?;
+        println!("💾 Proof saved to: {}", proof_output.display());
+
+        proof
+    };
 
     // Convert to Starknet calldata (Garaga)
     let calldata = StarknetCalldata::from_proof(&proof)?;
