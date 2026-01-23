@@ -27,10 +27,12 @@
 
 use std::future::Future;
 use std::sync::Arc;
+use std::time::{SystemTime, UNIX_EPOCH};
 
 use anyhow::anyhow;
-use cainome::cairo_serde::{deserialize_from_hex, serialize_as_hex, CairoSerde};
+use cainome::cairo_serde::CairoSerde;
 use cainome::cairo_serde_derive::CairoSerde as CairoSerdeDerive;
+use cainome_cairo_serde::ContractAddress as CairoContractAddress;
 use http::{HeaderMap, HeaderValue};
 use jsonrpsee::core::{async_trait, RpcResult};
 use jsonrpsee_024::http_client::{
@@ -40,14 +42,14 @@ use katana_core::backend::Backend;
 use katana_core::service::block_producer::{BlockProducer, BlockProducerMode};
 use katana_executor::ExecutorFactory;
 use katana_genesis::allocation::GenesisAccountAlloc;
+use katana_genesis::constant::DEFAULT_STRK_FEE_TOKEN_ADDRESS;
 use katana_genesis::constant::DEFAULT_UDC_ADDRESS;
 use katana_pool::{TransactionPool, TxPool};
-use katana_primitives::cairo::ShortString;
 use katana_primitives::chain::ChainId;
 use katana_primitives::contract::Nonce;
 use katana_primitives::fee::{AllResourceBoundsMapping, ResourceBoundsMapping};
 use katana_primitives::transaction::{ExecutableTx, ExecutableTxWithHash, InvokeTx, InvokeTxV3};
-use katana_primitives::{ContractAddress, Felt};
+use katana_primitives::{felt, ContractAddress, Felt};
 use katana_provider::api::state::{StateFactoryProvider, StateProvider};
 use katana_provider::{ProviderFactory, ProviderRO, ProviderRW};
 use katana_rpc_api::cartridge::CartridgeApiServer;
@@ -68,6 +70,7 @@ use serde::{Deserialize, Serialize};
 use starknet::macros::selector;
 use starknet::signers::{LocalWallet, Signer, SigningKey};
 use starknet_paymaster::core::types::Call as PaymasterCall;
+use starknet_crypto::{pedersen_hash, poseidon_hash_many, PoseidonHasher};
 use tracing::{debug, info};
 use url::Url;
 
@@ -77,8 +80,14 @@ pub struct CartridgeConfig {
     pub paymaster_url: Url,
     pub paymaster_api_key: Option<String>,
     pub paymaster_prefunded_index: u16,
-    pub vrf_url: Option<Url>,
-    pub rpc_url: Url,
+    pub vrf: Option<CartridgeVrfConfig>,
+}
+
+#[derive(Debug, Clone)]
+pub struct CartridgeVrfConfig {
+    pub url: Url,
+    pub account_address: ContractAddress,
+    pub account_private_key: Felt,
 }
 
 #[derive(Clone)]
@@ -109,28 +118,26 @@ impl PaymasterClient {
 }
 
 #[derive(Clone)]
-struct VrfClient {
+struct VrfService {
     client: ReqwestClient,
     url: Url,
-    rpc_url: Url,
+    account_address: ContractAddress,
+    account_private_key: Felt,
 }
 
-impl VrfClient {
-    fn new(url: Url, rpc_url: Url) -> Self {
-        Self { client: ReqwestClient::new(), url, rpc_url }
+impl VrfService {
+    fn new(config: CartridgeVrfConfig) -> Self {
+        Self {
+            client: ReqwestClient::new(),
+            url: config.url,
+            account_address: config.account_address,
+            account_private_key: config.account_private_key,
+        }
     }
 
-    async fn wrap_outside_execution(
-        &self,
-        request: VrfSignedOutsideExecution,
-        chain_id: String,
-    ) -> Result<VrfSignedOutsideExecution, StarknetApiError> {
-        let endpoint = format!("{}/outside_execution", self.url.as_str().trim_end_matches('/'));
-
-        let payload = VrfOutsideExecutionRequest {
-            request,
-            context: VrfRequestContext { chain_id, rpc_url: Some(self.rpc_url.to_string()) },
-        };
+    async fn prove(&self, seed: Felt) -> Result<VrfProof, StarknetApiError> {
+        let endpoint = format!("{}/stark_vrf", self.url.as_str().trim_end_matches('/'));
+        let payload = VrfServerRequest { seed: vec![seed.to_hex_string()] };
 
         let response =
             self.client.post(endpoint).json(&payload).send().await.map_err(|err| {
@@ -148,99 +155,58 @@ impl VrfClient {
             )));
         }
 
-        let result: VrfOutsideExecutionResult = serde_json::from_str(&body).map_err(|err| {
+        let result: VrfServerResponse = serde_json::from_str(&body).map_err(|err| {
             StarknetApiError::unexpected(format!("vrf response parse failed: {err}"))
         })?;
-        Ok(result.result)
+
+        Ok(VrfProof {
+            gamma_x: parse_felt(&result.result.gamma_x)?,
+            gamma_y: parse_felt(&result.result.gamma_y)?,
+            c: parse_felt(&result.result.c)?,
+            s: parse_felt(&result.result.s)?,
+            sqrt_ratio: parse_felt(&result.result.sqrt_ratio)?,
+        })
     }
 }
 
-#[derive(Clone, CairoSerdeDerive, Serialize, Deserialize, PartialEq, Debug)]
-struct VrfCall {
-    pub to: Felt,
-    pub selector: Felt,
-    pub calldata: Vec<Felt>,
+#[derive(Debug, Serialize)]
+struct VrfServerRequest {
+    seed: Vec<String>,
 }
 
-#[derive(Clone, CairoSerdeDerive, PartialEq, Debug, Serialize, Deserialize)]
-struct VrfNonceChannel(
-    pub Felt,
-    #[serde(serialize_with = "serialize_as_hex", deserialize_with = "deserialize_from_hex")]
-    pub  u128,
-);
-
-#[derive(Clone, CairoSerdeDerive, Serialize, Deserialize, PartialEq, Debug)]
-struct VrfOutsideExecutionV2 {
-    pub caller: Felt,
-    pub nonce: Felt,
-    #[serde(serialize_with = "serialize_as_hex", deserialize_with = "deserialize_from_hex")]
-    pub execute_after: u64,
-    #[serde(serialize_with = "serialize_as_hex", deserialize_with = "deserialize_from_hex")]
-    pub execute_before: u64,
-    pub calls: Vec<VrfCall>,
+#[derive(Debug, Deserialize)]
+struct VrfServerResponse {
+    result: VrfServerResult,
 }
 
-#[derive(Clone, CairoSerdeDerive, Serialize, Deserialize, PartialEq, Debug)]
-struct VrfOutsideExecutionV3 {
-    pub caller: Felt,
-    pub nonce: VrfNonceChannel,
-    #[serde(serialize_with = "serialize_as_hex", deserialize_with = "deserialize_from_hex")]
-    pub execute_after: u64,
-    #[serde(serialize_with = "serialize_as_hex", deserialize_with = "deserialize_from_hex")]
-    pub execute_before: u64,
-    pub calls: Vec<VrfCall>,
+#[derive(Debug, Deserialize)]
+struct VrfServerResult {
+    gamma_x: String,
+    gamma_y: String,
+    c: String,
+    s: String,
+    sqrt_ratio: String,
 }
 
-#[derive(Clone, Serialize, Deserialize, Debug)]
-enum VrfOutsideExecution {
-    V2(VrfOutsideExecutionV2),
-    V3(VrfOutsideExecutionV3),
+#[derive(Debug, Clone)]
+struct VrfProof {
+    gamma_x: Felt,
+    gamma_y: Felt,
+    c: Felt,
+    s: Felt,
+    sqrt_ratio: Felt,
 }
 
-impl VrfOutsideExecution {
-    fn selector(&self) -> Felt {
-        match self {
-            VrfOutsideExecution::V2(_) => selector!("execute_from_outside_v2"),
-            VrfOutsideExecution::V3(_) => selector!("execute_from_outside_v3"),
-        }
-    }
+#[derive(Clone, CairoSerdeDerive, Serialize, Deserialize, Debug)]
+enum VrfSource {
+    Nonce(CairoContractAddress),
+    Salt(Felt),
 }
 
-#[derive(Clone, Serialize, Deserialize, Debug)]
-struct VrfSignedOutsideExecution {
-    pub address: Felt,
-    pub outside_execution: VrfOutsideExecution,
-    pub signature: Vec<Felt>,
-}
-
-impl VrfSignedOutsideExecution {
-    pub fn build_execute_from_outside_call(&self) -> PaymasterCall {
-        let mut calldata = match &self.outside_execution {
-            VrfOutsideExecution::V2(v2) => VrfOutsideExecutionV2::cairo_serialize(v2),
-            VrfOutsideExecution::V3(v3) => VrfOutsideExecutionV3::cairo_serialize(v3),
-        };
-
-        calldata.extend(Vec::<Felt>::cairo_serialize(&self.signature));
-
-        PaymasterCall { to: self.address, selector: self.outside_execution.selector(), calldata }
-    }
-}
-
-#[derive(Debug, Serialize, Deserialize)]
-struct VrfOutsideExecutionRequest {
-    pub request: VrfSignedOutsideExecution,
-    pub context: VrfRequestContext,
-}
-
-#[derive(Debug, Serialize, Deserialize)]
-struct VrfOutsideExecutionResult {
-    pub result: VrfSignedOutsideExecution,
-}
-
-#[derive(Debug, Serialize, Deserialize)]
-struct VrfRequestContext {
-    pub chain_id: String,
-    pub rpc_url: Option<String>,
+#[derive(Clone, CairoSerdeDerive, Serialize, Deserialize, Debug)]
+struct VrfRequestRandom {
+    caller: CairoContractAddress,
+    source: VrfSource,
 }
 
 #[allow(missing_debug_implementations)]
@@ -252,7 +218,7 @@ pub struct CartridgeApi<EF: ExecutorFactory, PF: ProviderFactory> {
     api_client: cartridge::Client,
     paymaster_client: PaymasterClient,
     paymaster_prefunded_index: u16,
-    vrf_client: Option<VrfClient>,
+    vrf_service: Option<VrfService>,
 }
 
 impl<EF, PF> Clone for CartridgeApi<EF, PF>
@@ -269,7 +235,7 @@ where
             api_client: self.api_client.clone(),
             paymaster_client: self.paymaster_client.clone(),
             paymaster_prefunded_index: self.paymaster_prefunded_index,
-            vrf_client: self.vrf_client.clone(),
+            vrf_service: self.vrf_service.clone(),
         }
     }
 }
@@ -291,9 +257,9 @@ where
         let api_client = cartridge::Client::new(config.cartridge_api_url);
         let paymaster_client =
             PaymasterClient::new(config.paymaster_url, config.paymaster_api_key)?;
-        let vrf_client = config.vrf_url.map(|url| VrfClient::new(url, config.rpc_url));
+        let vrf_service = config.vrf.map(VrfService::new);
 
-        info!(target: "rpc::cartridge", vrf_enabled = vrf_client.is_some(), "Cartridge API initialized.");
+        info!(target: "rpc::cartridge", vrf_enabled = vrf_service.is_some(), "Cartridge API initialized.");
 
         Ok(Self {
             task_spawner,
@@ -303,7 +269,7 @@ where
             api_client,
             paymaster_client,
             paymaster_prefunded_index: config.paymaster_prefunded_index,
-            vrf_client,
+            vrf_service,
         })
     }
 
@@ -326,7 +292,7 @@ where
         address: ContractAddress,
         outside_execution: OutsideExecution,
         signature: Vec<Felt>,
-        _fee_source: Option<FeeSource>,
+        fee_source: Option<FeeSource>,
     ) -> Result<AddInvokeTransactionResponse, StarknetApiError> {
         debug!(%address, ?outside_execution, "Adding execute outside transaction.");
         self.on_cpu_blocking_task(move |this| async move {
@@ -357,28 +323,70 @@ where
                 build_execute_from_outside_call(address, &outside_execution, &signature);
             let mut user_address: Felt = address.into();
 
-            if let Some(vrf_client) = &this.vrf_client {
-                if let Some(position) = request_random_position(&outside_execution) {
+            if let Some(vrf_service) = &this.vrf_service {
+                if let Some((request_random_call, position)) =
+                    request_random_call(&outside_execution)
+                {
                     let calls_len = outside_execution_calls_len(&outside_execution);
                     if position + 1 >= calls_len {
                         return Err(StarknetApiError::unexpected(
                             "request_random call must be followed by another call",
                         ));
                     }
+                    if request_random_call.to != vrf_service.account_address {
+                        return Err(StarknetApiError::unexpected(
+                            "request_random call must target the vrf account",
+                        ));
+                    }
 
-                    let vrf_signed = VrfSignedOutsideExecution {
-                        address: address.into(),
-                        outside_execution: to_vrf_outside_execution(&outside_execution)?,
-                        signature: signature.clone(),
-                    };
+                    let request_random =
+                        VrfRequestRandom::cairo_deserialize(&request_random_call.calldata, 0)
+                            .map_err(|err| {
+                                StarknetApiError::unexpected(format!(
+                                    "vrf request_random decode failed: {err}"
+                                ))
+                            })?;
 
-                    let chain_id = vrf_chain_id_string(this.backend.chain_spec.id())?;
-                    let wrapped = vrf_client.wrap_outside_execution(vrf_signed, chain_id).await?;
+                    let chain_id = this.backend.chain_spec.id();
+                    let seed = compute_vrf_seed(
+                        state.as_ref(),
+                        vrf_service.account_address,
+                        &request_random,
+                        chain_id.id(),
+                    )?;
+                    let proof = vrf_service.prove(seed).await?;
 
-                    user_address = wrapped.address;
-                    execute_from_outside_call = wrapped.build_execute_from_outside_call();
+                    let submit_random_call =
+                        build_submit_random_call(vrf_service.account_address, seed, &proof);
+                    let execute_from_outside_call_data =
+                        build_execute_from_outside_call_data(address, &outside_execution, &signature);
+
+                    let (wrapped_execution, wrapped_signature) = build_vrf_outside_execution(
+                        vrf_service.account_address,
+                        vrf_service.account_private_key,
+                        chain_id,
+                        vec![submit_random_call, execute_from_outside_call_data],
+                    )
+                    .await?;
+
+                    user_address = vrf_service.account_address.into();
+                    execute_from_outside_call = build_execute_from_outside_call(
+                        vrf_service.account_address,
+                        &OutsideExecution::V2(wrapped_execution),
+                        &wrapped_signature,
+                    );
                 }
             }
+
+            let fee_mode = match fee_source {
+                Some(FeeSource::Credits) => FeeMode::Default {
+                    gas_token: DEFAULT_STRK_FEE_TOKEN_ADDRESS.into(),
+                    tip: Default::default(),
+                },
+                _ => FeeMode::Sponsored {
+                    tip: Default::default(),
+                },
+            };
 
             let request = ExecuteRawRequest {
                 transaction: ExecuteRawTransactionParameters::RawInvoke {
@@ -389,12 +397,7 @@ where
                         max_gas_token_amount: None,
                     },
                 },
-                parameters: ExecutionParameters::V1 {
-                    fee_mode: FeeMode::Sponsored {
-                        tip: Default::default(),
-                    },
-                    time_bounds: None,
-                },
+                parameters: ExecutionParameters::V1 { fee_mode, time_bounds: None },
             };
 
             let response = this.paymaster_client.execute_raw(request).await?;
@@ -601,11 +604,11 @@ pub async fn craft_deploy_cartridge_controller_tx(
     }
 }
 
-fn build_execute_from_outside_call(
+fn build_execute_from_outside_call_data(
     address: ContractAddress,
     outside_execution: &OutsideExecution,
     signature: &Vec<Felt>,
-) -> PaymasterCall {
+) -> katana_rpc_types::outside_execution::Call {
     let entrypoint = match outside_execution {
         OutsideExecution::V2(_) => selector!("execute_from_outside_v2"),
         OutsideExecution::V3(_) => selector!("execute_from_outside_v3"),
@@ -618,16 +621,39 @@ fn build_execute_from_outside_call(
 
     calldata.extend(Vec::<Felt>::cairo_serialize(signature));
 
-    PaymasterCall { to: address.into(), selector: entrypoint, calldata }
+    katana_rpc_types::outside_execution::Call { to: address, selector: entrypoint, calldata }
 }
 
-fn request_random_position(outside_execution: &OutsideExecution) -> Option<usize> {
+fn build_execute_from_outside_call(
+    address: ContractAddress,
+    outside_execution: &OutsideExecution,
+    signature: &Vec<Felt>,
+) -> PaymasterCall {
+    let call = build_execute_from_outside_call_data(address, outside_execution, signature);
+    PaymasterCall { to: call.to.into(), selector: call.selector, calldata: call.calldata }
+}
+
+const STARKNET_DOMAIN_TYPE_HASH: Felt = Felt::from_hex_unchecked(
+    "0x1ff2f602e42168014d405a94f75e8a93d640751d71d16311266e140d8b0a210",
+);
+const CALL_TYPE_HASH: Felt =
+    Felt::from_hex_unchecked("0x3635c7f2a7ba93844c0d064e18e487f35ab90f7c39d00f186a781fc3f0c2ca9");
+const OUTSIDE_EXECUTION_TYPE_HASH: Felt =
+    Felt::from_hex_unchecked("0x312b56c05a7965066ddbda31c016d8d05afc305071c0ca3cdc2192c3c2f1f0f");
+const ANY_CALLER: Felt = felt!("0x414e595f43414c4c4552");
+
+fn request_random_call(
+    outside_execution: &OutsideExecution,
+) -> Option<(katana_rpc_types::outside_execution::Call, usize)> {
     let calls = match outside_execution {
         OutsideExecution::V2(v2) => &v2.calls,
         OutsideExecution::V3(v3) => &v3.calls,
     };
 
-    calls.iter().position(|call| call.selector == selector!("request_random"))
+    calls
+        .iter()
+        .position(|call| call.selector == selector!("request_random"))
+        .map(|position| (calls[position].clone(), position))
 }
 
 fn outside_execution_calls_len(outside_execution: &OutsideExecution) -> usize {
@@ -637,44 +663,209 @@ fn outside_execution_calls_len(outside_execution: &OutsideExecution) -> usize {
     }
 }
 
-fn vrf_chain_id_string(chain_id: ChainId) -> Result<String, StarknetApiError> {
-    let felt = chain_id.id();
-    let short = ShortString::try_from(felt).map_err(|_| {
-        StarknetApiError::unexpected(format!("vrf requires a short-string chain id, got {felt:#x}"))
-    })?;
-    Ok(short.to_string())
-}
+fn compute_vrf_seed(
+    state: &dyn StateProvider,
+    vrf_account_address: ContractAddress,
+    request_random: &VrfRequestRandom,
+    chain_id: Felt,
+) -> Result<Felt, StarknetApiError> {
+    let caller = request_random.caller.0;
 
-fn to_vrf_outside_execution(
-    outside_execution: &OutsideExecution,
-) -> Result<VrfOutsideExecution, StarknetApiError> {
-    match outside_execution {
-        OutsideExecution::V2(v2) => Ok(VrfOutsideExecution::V2(VrfOutsideExecutionV2 {
-            caller: v2.caller.into(),
-            nonce: v2.nonce,
-            execute_after: v2.execute_after,
-            execute_before: v2.execute_before,
-            calls: v2.calls.iter().map(vrf_call_from).collect(),
-        })),
-        OutsideExecution::V3(v3) => {
-            let nonce_value = serde_json::to_value(&v3.nonce).map_err(|err| {
-                StarknetApiError::unexpected(format!("vrf nonce serialize failed: {err}"))
-            })?;
-            let nonce: VrfNonceChannel = serde_json::from_value(nonce_value).map_err(|err| {
-                StarknetApiError::unexpected(format!("vrf nonce parse failed: {err}"))
-            })?;
-
-            Ok(VrfOutsideExecution::V3(VrfOutsideExecutionV3 {
-                caller: v3.caller.into(),
-                nonce,
-                execute_after: v3.execute_after,
-                execute_before: v3.execute_before,
-                calls: v3.calls.iter().map(vrf_call_from).collect(),
-            }))
+    match &request_random.source {
+        VrfSource::Nonce(contract_address) => {
+            let storage_key = pedersen_hash(&selector!("VrfProvider_nonces"), &contract_address.0);
+            let nonce = state.storage(vrf_account_address, storage_key)?.unwrap_or_default();
+            Ok(poseidon_hash_many(&[nonce, contract_address.0, caller, chain_id]))
         }
+        VrfSource::Salt(salt) => Ok(poseidon_hash_many(&[*salt, caller, chain_id])),
     }
 }
 
-fn vrf_call_from(call: &katana_rpc_types::outside_execution::Call) -> VrfCall {
-    VrfCall { to: call.to.into(), selector: call.selector, calldata: call.calldata.clone() }
+fn build_submit_random_call(
+    vrf_account_address: ContractAddress,
+    seed: Felt,
+    proof: &VrfProof,
+) -> katana_rpc_types::outside_execution::Call {
+    katana_rpc_types::outside_execution::Call {
+        to: vrf_account_address,
+        selector: selector!("submit_random"),
+        calldata: vec![seed, proof.gamma_x, proof.gamma_y, proof.c, proof.s, proof.sqrt_ratio],
+    }
+}
+
+async fn build_vrf_outside_execution(
+    account_address: ContractAddress,
+    account_private_key: Felt,
+    chain_id: ChainId,
+    calls: Vec<katana_rpc_types::outside_execution::Call>,
+) -> Result<(OutsideExecutionV2, Vec<Felt>), StarknetApiError> {
+    let now = SystemTime::now()
+        .duration_since(UNIX_EPOCH)
+        .map_err(|err| StarknetApiError::unexpected(format!("clock error: {err}")))?
+        .as_secs();
+    let outside_execution = OutsideExecutionV2 {
+        caller: ContractAddress::from(ANY_CALLER),
+        execute_after: 0,
+        execute_before: now + 600,
+        calls,
+        nonce: SigningKey::from_random().secret_scalar(),
+    };
+
+    let signer = LocalWallet::from(SigningKey::from_secret_scalar(account_private_key));
+    let signature =
+        sign_outside_execution_v2(&outside_execution, chain_id.id(), account_address, signer)
+            .await?;
+
+    Ok((outside_execution, signature))
+}
+
+async fn sign_outside_execution_v2(
+    outside_execution: &OutsideExecutionV2,
+    chain_id: Felt,
+    signer_address: ContractAddress,
+    signer: LocalWallet,
+) -> Result<Vec<Felt>, StarknetApiError> {
+    let mut final_hasher = PoseidonHasher::new();
+    final_hasher.update(Felt::from_bytes_be_slice(b"StarkNet Message"));
+    final_hasher.update(starknet_domain_hash(chain_id));
+    final_hasher.update(signer_address.into());
+    final_hasher.update(outside_execution_hash(outside_execution));
+
+    let hash = final_hasher.finalize();
+    let signature = signer
+        .sign_hash(&hash)
+        .await
+        .map_err(|e| StarknetApiError::unexpected(format!("failed to sign vrf execution: {e}")))?;
+
+    Ok(vec![signature.r, signature.s])
+}
+
+fn starknet_domain_hash(chain_id: Felt) -> Felt {
+    let domain = [
+        STARKNET_DOMAIN_TYPE_HASH,
+        Felt::from_bytes_be_slice(b"Account.execute_from_outside"),
+        Felt::TWO,
+        chain_id,
+        Felt::ONE,
+    ];
+    poseidon_hash_many(&domain)
+}
+
+fn outside_execution_hash(outside_execution: &OutsideExecutionV2) -> Felt {
+    let hashed_calls: Vec<Felt> = outside_execution
+        .calls
+        .iter()
+        .map(|call| call_hash(call))
+        .collect();
+
+    let mut hasher = PoseidonHasher::new();
+    hasher.update(OUTSIDE_EXECUTION_TYPE_HASH);
+    hasher.update(outside_execution.caller.into());
+    hasher.update(outside_execution.nonce);
+    hasher.update(Felt::from(outside_execution.execute_after));
+    hasher.update(Felt::from(outside_execution.execute_before));
+    hasher.update(poseidon_hash_many(&hashed_calls));
+    hasher.finalize()
+}
+
+fn call_hash(call: &katana_rpc_types::outside_execution::Call) -> Felt {
+    let mut hasher = PoseidonHasher::new();
+    hasher.update(CALL_TYPE_HASH);
+    hasher.update(call.to.into());
+    hasher.update(call.selector);
+    hasher.update(poseidon_hash_many(&call.calldata));
+    hasher.finalize()
+}
+
+fn parse_felt(value: &str) -> Result<Felt, StarknetApiError> {
+    if value.starts_with("0x") || value.starts_with("0X") {
+        Felt::from_hex(value).map_err(|err| {
+            StarknetApiError::unexpected(format!("invalid felt hex '{value}': {err}"))
+        })
+    } else {
+        Felt::from_dec_str(value).map_err(|err| {
+            StarknetApiError::unexpected(format!("invalid felt decimal '{value}': {err}"))
+        })
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use std::str::FromStr;
+
+    use stark_vrf::{generate_public_key, BaseField, ScalarField, StarkVRF};
+    use starknet::macros::selector;
+
+    use super::*;
+
+    fn felt_from_display<T: std::fmt::Display>(value: T) -> Felt {
+        Felt::from_dec_str(&value.to_string()).expect("valid felt")
+    }
+
+    #[test]
+    fn request_random_call_finds_position() {
+        let vrf_address = ContractAddress::from(felt!("0x123"));
+        let other_call = katana_rpc_types::outside_execution::Call {
+            to: vrf_address,
+            selector: selector!("transfer"),
+            calldata: vec![Felt::ONE],
+        };
+        let vrf_call = katana_rpc_types::outside_execution::Call {
+            to: vrf_address,
+            selector: selector!("request_random"),
+            calldata: vec![Felt::TWO],
+        };
+
+        let outside_execution = OutsideExecution::V2(OutsideExecutionV2 {
+            caller: ContractAddress::from(ANY_CALLER),
+            execute_after: 0,
+            execute_before: 100,
+            calls: vec![other_call.clone(), vrf_call.clone()],
+            nonce: Felt::THREE,
+        });
+
+        let (call, position) =
+            request_random_call(&outside_execution).expect("request_random found");
+        assert_eq!(position, 1);
+        assert_eq!(call.selector, vrf_call.selector);
+        assert_eq!(call.calldata, vrf_call.calldata);
+    }
+
+    #[test]
+    fn submit_random_call_matches_proof() {
+        let secret_key = Felt::from(0x123_u128);
+        let secret_key_scalar =
+            ScalarField::from_str(&secret_key.to_biguint().to_str_radix(10)).unwrap();
+        let public_key = generate_public_key(secret_key_scalar);
+        let vrf_account_address = ContractAddress::from(Felt::from(0x456_u128));
+
+        let seed = Felt::from(0xabc_u128);
+        let seed_vec = vec![BaseField::from_str(&seed.to_biguint().to_str_radix(10)).unwrap()];
+        let ecvrf = StarkVRF::new(public_key).unwrap();
+        let proof = ecvrf.prove(&secret_key_scalar, seed_vec.as_slice()).unwrap();
+        let sqrt_ratio_hint = ecvrf.hash_to_sqrt_ratio_hint(seed_vec.as_slice());
+
+        let vrf_proof = VrfProof {
+            gamma_x: felt_from_display(proof.0.x),
+            gamma_y: felt_from_display(proof.0.y),
+            c: felt_from_display(proof.1),
+            s: felt_from_display(proof.2),
+            sqrt_ratio: felt_from_display(sqrt_ratio_hint),
+        };
+
+        let call = build_submit_random_call(vrf_account_address, seed, &vrf_proof);
+
+        let expected = vec![
+            seed,
+            felt_from_display(proof.0.x),
+            felt_from_display(proof.0.y),
+            felt_from_display(proof.1),
+            felt_from_display(proof.2),
+            felt_from_display(sqrt_ratio_hint),
+        ];
+
+        assert_eq!(call.selector, selector!("submit_random"));
+        assert_eq!(call.to, vrf_account_address);
+        assert_eq!(call.calldata, expected);
+    }
 }

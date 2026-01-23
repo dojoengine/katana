@@ -26,6 +26,7 @@ pub struct PaymasterConfig {
     pub mode: ServiceMode,
     pub url: Url,
     pub api_key: Option<String>,
+    pub price_api_key: Option<String>,
     pub prefunded_index: u16,
     pub sidecar_port: u16,
     pub sidecar_bin: Option<PathBuf>,
