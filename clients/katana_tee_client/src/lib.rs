@@ -17,15 +17,17 @@
 //! # Example
 //!
 //! ```no_run
-//! use katana_tee_client::{KatanaRpcClient, generate_sp1_proof};
+//! use katana_tee_client::{KatanaRpcClient, AmdAttestationProver, ProverConfig};
 //!
 //! # async fn example() -> Result<(), Box<dyn std::error::Error>> {
 //! // Fetch attestation from Katana RPC
 //! let client = KatanaRpcClient::new("http://localhost:5050");
 //! let attestation = client.generate_quote().await?;
 //!
-//! // Generate SP1 proof (uses amd_tee_registry_client internally)
-//! let proof = generate_sp1_proof(attestation).await?;
+//! // Generate SP1 proof
+//! let prover = AmdAttestationProver::new(ProverConfig::from_env());
+//! let quote_bytes = attestation.quote_bytes()?;
+//! let proof = prover.prove(&quote_bytes).await?;
 //! println!("Proof generated: {:?}", proof.program_id.verifier_id);
 //! # Ok(())
 //! # }
@@ -34,12 +36,13 @@
 use serde::{Deserialize, Serialize};
 
 pub mod error;
-pub mod prover;
 pub mod rpc;
 pub mod starknet;
 
 pub use error::Error;
-pub use prover::{generate_sp1_proof, verify_proof_structure, OnchainProof, ProverConfig};
+pub use amd_tee_registry_client::{
+    AmdAttestationProver, OnchainProof, ProverConfig, StarknetCalldata, StarknetRegistryClient,
+};
 pub use rpc::KatanaRpcClient;
 
 /// Response from Katana TEE RPC `tee_generateQuote` endpoint.
