@@ -112,6 +112,7 @@ impl Sp1Backend for Sp1NetworkBackend {
 #[derive(Debug, Clone)]
 pub struct AmdAttestationProver<B: Sp1Backend = Sp1NetworkBackend> {
     config: ProverConfig,
+    #[allow(dead_code)] // Backend trait is for future testability
     backend: B,
 }
 

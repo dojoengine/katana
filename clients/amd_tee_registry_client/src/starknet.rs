@@ -80,15 +80,14 @@ fn encode_check_trusted_intermediate_certs(
     processor_model: u8,
     cert_digests: &[B256],
 ) -> Result<Vec<Felt>, Error> {
-    let mut calldata: Vec<Felt> = Vec::new();
-
-    // processor_models: Span<ProcessorType>
-    calldata.push(Felt::from(1u64));
-    calldata.push(Felt::from(processor_model as u64));
-
-    // report_certs: Span<Span<u256>>
-    calldata.push(Felt::from(1u64));
-    calldata.push(Felt::from(cert_digests.len() as u64));
+    let mut calldata: Vec<Felt> = vec![
+        // processor_models: Span<ProcessorType>
+        Felt::from(1u64),
+        Felt::from(processor_model as u64),
+        // report_certs: Span<Span<u256>>
+        Felt::from(1u64),
+        Felt::from(cert_digests.len() as u64),
+    ];
 
     for digest in cert_digests {
         let (low, high) = b256_to_u256_felts(digest)?;

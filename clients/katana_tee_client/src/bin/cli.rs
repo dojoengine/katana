@@ -3,16 +3,15 @@
 //! A command-line interface for interacting with Katana TEE attestations
 //! and generating SP1 proofs.
 
-use amd_tee_registry_client::{StarknetCalldata, StarknetRegistryClient};
 use clap::{Parser, Subcommand};
-use katana_tee_client::prover::{generate_sp1_proof_with_cache, generate_sp1_proof_with_config};
 use katana_tee_client::starknet::{build_single_owner_account, KatanaTeeStarknetClient};
 use katana_tee_client::{
-    prover::verify_proof_structure, KatanaRpcClient, ProverConfig, TeeQuoteResponse,
+    AmdAttestationProver, KatanaRpcClient, ProverConfig, StarknetCalldata, StarknetRegistryClient,
+    TeeQuoteResponse,
 };
 use starknet_rust_accounts::ExecutionEncoding;
 use starknet_rust_core::types::Felt;
-use std::path::PathBuf;
+use std::path::{Path, PathBuf};
 
 #[derive(Parser)]
 #[command(name = "katana-tee")]
@@ -201,6 +200,17 @@ enum Commands {
         )]
         output: PathBuf,
     },
+
+    /// Generate Starknet calldata from a proof file
+    Calldata {
+        /// Path to the proof JSON file
+        #[arg(short, long, default_value = "proof_output.json")]
+        proof: PathBuf,
+
+        /// Output file for calldata (prints to stdout if not specified)
+        #[arg(short, long)]
+        output: Option<PathBuf>,
+    },
 }
 
 #[tokio::main]
@@ -290,6 +300,7 @@ async fn main() -> anyhow::Result<()> {
             fixture_dir,
             output,
         } => cmd_generate_cairo_fixtures(&fixture_dir, &output),
+        Commands::Calldata { proof, output } => cmd_calldata(&proof, output),
     }
 }
 
@@ -341,7 +352,8 @@ async fn cmd_execute(rpc: &str, json: Option<PathBuf>) -> anyhow::Result<()> {
 
     println!("🔄 Executing SP1 program (mock mode)...");
     let start = std::time::Instant::now();
-    let proof = generate_sp1_proof_with_config(attestation, ProverConfig::default()).await?;
+    let prover = AmdAttestationProver::new(ProverConfig::default());
+    let proof = prover.prove(&attestation.quote_bytes()?).await?;
     let elapsed = start.elapsed();
 
     println!("✅ Execution completed in {:.2?}", elapsed);
@@ -368,17 +380,14 @@ async fn cmd_prove(
     let config = resolve_prover_config(sp1_private_key, sp1_rpc_url, skip_time_validity_check);
 
     // Validate network mode has key
-    if prover == "network" {
-        if !config.has_network_key() {
-            anyhow::bail!(
-                "NETWORK_PRIVATE_KEY required for network proving.\n\
-                 Set it in .env or environment."
-            );
-        }
-
-        // Note: The "insecure random number generator" warning during local execution
-        // does NOT affect security. Local execution only determines cycle counts.
-        // The actual proof is generated on the SP1 Network with secure randomness.
+    // Note: The "insecure random number generator" warning during local execution
+    // does NOT affect security. Local execution only determines cycle counts.
+    // The actual proof is generated on the SP1 Network with secure randomness.
+    if prover == "network" && !config.has_network_key() {
+        anyhow::bail!(
+            "NETWORK_PRIVATE_KEY required for network proving.\n\
+             Set it in .env or environment."
+        );
     }
 
     let attestation = get_attestation(rpc, json).await?;
@@ -402,7 +411,8 @@ async fn cmd_prove(
 
     println!("🔄 Generating SP1 proof...");
     let start = std::time::Instant::now();
-    let proof = generate_sp1_proof_with_config(attestation, config).await?;
+    let amd_prover = AmdAttestationProver::new(config);
+    let proof = amd_prover.prove(&attestation.quote_bytes()?).await?;
     let elapsed = start.elapsed();
 
     println!("✅ Proof generated in {:.2?}", elapsed);
@@ -415,7 +425,7 @@ async fn cmd_prove(
 
     // Verify structure
     if prover != "mock" {
-        verify_proof_structure(&proof)?;
+        AmdAttestationProver::<katana_tee_client::Sp1NetworkBackend>::verify_proof_structure(&proof)?;
         println!("   Verified:     ✓");
     }
 
@@ -506,10 +516,12 @@ async fn cmd_pipeline(
     println!("🏛️  Registry: 0x{:x}", registry_addr);
     println!("🏛️  KatanaTee: 0x{:x}", katana_client.contract_address());
 
+    let amd_prover = AmdAttestationProver::new(config);
+    let quote_bytes = attestation.quote_bytes()?;
     let proof = if skip_cache {
         println!("🔄 Proving (skipping on-chain cache)...");
         let start = std::time::Instant::now();
-        let proof = generate_sp1_proof_with_config(attestation, config).await?;
+        let proof = amd_prover.prove(&quote_bytes).await?;
         let elapsed = start.elapsed();
         println!("✅ Proof generated in {:.2?}", elapsed);
         proof
@@ -517,7 +529,7 @@ async fn cmd_pipeline(
         let registry_client = StarknetRegistryClient::new(&starknet_rpc, registry_addr);
         println!("🔄 Proving (with on-chain cache)...");
         let start = std::time::Instant::now();
-        let proof = generate_sp1_proof_with_cache(attestation, config, &registry_client).await?;
+        let proof = amd_prover.prove_with_cache(&quote_bytes, &registry_client).await?;
         let elapsed = start.elapsed();
         println!("✅ Proof generated in {:.2?}", elapsed);
         proof
@@ -539,7 +551,7 @@ async fn cmd_pipeline(
 
     // Verify structure (skip when mock produced empty proof bytes)
     if prover != "mock" {
-        verify_proof_structure(&proof)?;
+        AmdAttestationProver::<katana_tee_client::Sp1NetworkBackend>::verify_proof_structure(&proof)?;
     }
 
     if dry_run {
@@ -685,7 +697,7 @@ fn cmd_fetch_root_certs(
     Ok(())
 }
 
-fn cmd_generate_cairo_fixtures(fixture_dir: &PathBuf, output: &PathBuf) -> anyhow::Result<()> {
+fn cmd_generate_cairo_fixtures(fixture_dir: &Path, output: &Path) -> anyhow::Result<()> {
     use amd_tee_registry_client::generate_cairo_fixtures;
 
     println!("Generating Cairo test fixtures...");
@@ -695,6 +707,28 @@ fn cmd_generate_cairo_fixtures(fixture_dir: &PathBuf, output: &PathBuf) -> anyho
     generate_cairo_fixtures(fixture_dir, output)?;
 
     println!("Cairo fixtures generated successfully!");
+    Ok(())
+}
+
+fn cmd_calldata(proof_path: &PathBuf, output: Option<PathBuf>) -> anyhow::Result<()> {
+    println!("📄 Loading proof from: {}", proof_path.display());
+
+    let data = std::fs::read(proof_path)?;
+    let proof = amd_sev_snp_attestation_prover::OnchainProof::decode_json(&data)?;
+
+    println!("🔄 Generating Starknet calldata...");
+    let calldata = StarknetCalldata::from_proof(&proof)?;
+    println!("📦 Generated {} calldata elements", calldata.len());
+
+    if let Some(path) = output {
+        calldata.save_to_file(&path)?;
+        println!("💾 Calldata saved to: {}", path.display());
+    } else {
+        for hex in calldata.to_hex_strings() {
+            println!("{}", hex);
+        }
+    }
+
     Ok(())
 }
 

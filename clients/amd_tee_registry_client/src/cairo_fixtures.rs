@@ -131,18 +131,14 @@ fn generate_block_fixture(block_num: usize, proof: &OnchainProof) -> Result<Stri
         block_num
     ));
     output.push_str("    array![\n");
-    for (i, bytes) in u256_inputs.iter().enumerate() {
+    for bytes in u256_inputs.iter() {
         let high = u128::from_be_bytes(bytes[0..16].try_into().unwrap());
         let low = u128::from_be_bytes(bytes[16..32].try_into().unwrap());
         output.push_str(&format!(
             "        u256 {{ low: 0x{:032x}, high: 0x{:032x} }},",
             low, high
         ));
-        if i < u256_inputs.len() - 1 {
-            output.push('\n');
-        } else {
-            output.push_str("\n");
-        }
+        output.push('\n');
     }
     output.push_str("    ]\n");
     output.push_str("}\n\n");
@@ -185,7 +181,7 @@ fn generate_block_fixture(block_num: usize, proof: &OnchainProof) -> Result<Stri
     output.push_str("    let mut raw_report: Array<u32> = array![\n");
     for (i, word) in journal.raw_report.iter().enumerate() {
         if i > 0 && i % 8 == 0 {
-            output.push_str("\n");
+            output.push('\n');
         }
         output.push_str(&format!("        0x{:08x},", word));
     }

@@ -41,7 +41,8 @@ pub mod starknet;
 
 pub use error::Error;
 pub use amd_tee_registry_client::{
-    AmdAttestationProver, OnchainProof, ProverConfig, StarknetCalldata, StarknetRegistryClient,
+    AmdAttestationProver, OnchainProof, ProverConfig, Sp1NetworkBackend, StarknetCalldata,
+    StarknetRegistryClient,
 };
 pub use rpc::KatanaRpcClient;
 
