@@ -511,7 +511,7 @@ impl SequencerNodeArgs {
             ServiceMode::Disabled => unreachable!(),
         };
 
-        let mode = match mode {
+        let node_mode = match mode {
             ServiceMode::Disabled => NodeServiceMode::Disabled,
             ServiceMode::Sidecar => NodeServiceMode::Sidecar,
             ServiceMode::External => NodeServiceMode::External,
@@ -540,7 +540,7 @@ impl SequencerNodeArgs {
         };
 
         Ok(Some(PaymasterConfig {
-            mode,
+            mode: node_mode,
             url,
             api_key,
             prefunded_index: self.paymaster.prefunded_index,
