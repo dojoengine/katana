@@ -699,26 +699,26 @@ fn cmd_fetch_root_certs(
                     }
                 }
 
-                // Split u256 hash into low/high felt252 values
+                // Split u256 hash into low/high felt252 values as decimal numbers
+                // snforge's FileParser parses JSON integers as felt252 values
                 let hash = info.ark_hash.trim_start_matches("0x");
                 let hash_padded = format!("{:0>64}", hash);
                 let high = &hash_padded[0..32];
                 let low = &hash_padded[32..64];
 
-                // Output in snforge-compatible format (keys alphabetically sorted)
+                // Parse hex to u128 - these will be written as decimal integers
+                let high_val = u128::from_str_radix(high, 16).unwrap_or(0);
+                let low_val = u128::from_str_radix(low, 16).unwrap_or(0);
+
+                // Store as strings containing decimal numbers
+                // We'll do a post-process to remove quotes for raw integers
                 results.insert(
                     format!("{}_ark_hash_high", proc_str),
-                    serde_json::Value::String(format!(
-                        "'0x{}'",
-                        high.trim_start_matches('0').max("0")
-                    )),
+                    serde_json::Value::String(format!("__RAW__{}", high_val)),
                 );
                 results.insert(
                     format!("{}_ark_hash_low", proc_str),
-                    serde_json::Value::String(format!(
-                        "'0x{}'",
-                        low.trim_start_matches('0').max("0")
-                    )),
+                    serde_json::Value::String(format!("__RAW__{}", low_val)),
                 );
             }
             Err(e) => {
@@ -731,10 +731,20 @@ fn cmd_fetch_root_certs(
     let sorted: serde_json::Map<String, serde_json::Value> = results.into_iter().collect();
     let json_output = serde_json::to_string_pretty(&sorted)?;
 
-    // snforge requires single quotes for felt252, but JSON uses double quotes
-    // We store as strings with embedded single quotes: "'0x...'"
-    // The output file needs the raw single quotes, not JSON-escaped
-    let json_output = json_output.replace("\"'", "'").replace("'\"", "'");
+    // Convert __RAW__ prefixed strings to raw JSON integers
+    // This preserves u128 precision which serde_json otherwise loses
+    // Simple approach: find "__RAW__<digits>" and replace with just <digits>
+    let mut json_output = json_output;
+    while let Some(start) = json_output.find("\"__RAW__") {
+        // Find the closing quote
+        if let Some(end) = json_output[start + 8..].find('"') {
+            let end = start + 8 + end + 1;
+            let number = &json_output[start + 8..end - 1];
+            json_output = format!("{}{}{}", &json_output[..start], number, &json_output[end..]);
+        } else {
+            break;
+        }
+    }
 
     if let Some(output_path) = output {
         std::fs::write(&output_path, &json_output)?;
