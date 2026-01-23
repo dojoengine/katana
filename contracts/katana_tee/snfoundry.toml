@@ -39,4 +39,4 @@ block-explorer = "StarkScan"
 show-explorer-links = true
 
 [sncast.mainnet.networks]
-mainnet = "$STARKNET_RPC_URL_MAINNET"
+mainnet = "$MAINNET_RPC_URL"

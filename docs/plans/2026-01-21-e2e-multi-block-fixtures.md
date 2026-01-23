@@ -768,7 +768,7 @@ Add to `contracts/katana_tee/Scarb.toml` at the end:
 ```toml
 [[tool.snforge.fork]]
 name = "MAINNET"
-url = "${STARKNET_RPC_URL_MAINNET}"
+url = "${MAINNET_RPC_URL}"
 block_id.tag = "latest"
 
 [[tool.snforge.fork]]
@@ -993,7 +993,7 @@ Integration tests use fork testing against Starknet mainnet/sepolia:
 
 ```bash
 # Set RPC URL
-export STARKNET_RPC_URL_MAINNET="https://your-rpc-url"
+export MAINNET_RPC_URL="https://your-rpc-url"
 
 cd contracts/katana_tee
 snforge test

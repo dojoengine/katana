@@ -136,7 +136,7 @@ deploy_contract() {
 start_devnet() {
     log "Starting devnet (forking mainnet, seed $DEVNET_SEED)..."
     starknet-devnet \
-        --fork-network "$STARKNET_RPC_URL_MAINNET" \
+        --fork-network "$MAINNET_RPC_URL" \
         --seed "$DEVNET_SEED" \
         --port "$DEVNET_PORT" \
         --timeout 300 &

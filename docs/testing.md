@@ -52,7 +52,7 @@ Integration tests use fork testing against Starknet mainnet/sepolia:
 
 ```bash
 # Set RPC URL
-export STARKNET_RPC_URL_MAINNET="https://your-rpc-url"
+export MAINNET_RPC_URL="https://your-rpc-url"
 
 cd contracts/katana_tee
 snforge test

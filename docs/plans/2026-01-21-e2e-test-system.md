@@ -427,7 +427,7 @@ split_u256() {
 start_devnet() {
     log "Starting devnet (forking mainnet, seed $DEVNET_SEED)..."
     starknet-devnet \
-        --fork-network "$STARKNET_RPC_URL_MAINNET" \
+        --fork-network "$MAINNET_RPC_URL" \
         --seed "$DEVNET_SEED" \
         --port "$DEVNET_PORT" \
         --timeout 300 &
@@ -763,7 +763,7 @@ Add after the existing targets (before `.PHONY`):
 # Start devnet forking mainnet (Garaga verifier available)
 devnet-mainnet:
 	@set -a && . ./.env && set +a && \
-	starknet-devnet --fork-network $$STARKNET_RPC_URL_MAINNET --seed $$DEVNET_SEED --port $$DEVNET_PORT
+	starknet-devnet --fork-network $$MAINNET_RPC_URL --seed $$DEVNET_SEED --port $$DEVNET_PORT
 
 # Run E2E tests with saved fixtures (fast, no TEE/prover needed)
 e2e-test:
@@ -818,7 +818,7 @@ DEVNET_SEED=0
 DEVNET_PORT=5050
 
 # Mainnet RPC for forking (Garaga verifier is deployed here)
-STARKNET_RPC_URL_MAINNET=https://starknet-mainnet.public.blastapi.io/rpc/v0_7
+MAINNET_RPC_URL=https://starknet-mainnet.public.blastapi.io/rpc/v0_7
 
 # Katana TEE endpoint (for live E2E tests)
 KATANA_RPC_URL=http://185.26.9.157:5050

@@ -131,7 +131,7 @@ help:
 # Start devnet forking mainnet (Garaga verifier available)
 devnet-mainnet:
 	@set -a && . ./.env && set +a && \
-	starknet-devnet --fork-network $$STARKNET_RPC_URL_MAINNET --seed $$DEVNET_SEED --port $$DEVNET_PORT
+	starknet-devnet --fork-network $$MAINNET_RPC_URL --seed $$DEVNET_SEED --port $$DEVNET_PORT
 
 # Run E2E tests with saved fixtures (fast, no TEE/prover needed)
 e2e-test:
