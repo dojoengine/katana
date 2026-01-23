@@ -69,8 +69,8 @@ use reqwest::Client as ReqwestClient;
 use serde::{Deserialize, Serialize};
 use starknet::macros::selector;
 use starknet::signers::{LocalWallet, Signer, SigningKey};
-use starknet_paymaster::core::types::Call as PaymasterCall;
 use starknet_crypto::{pedersen_hash, poseidon_hash_many, PoseidonHasher};
+use starknet_paymaster::core::types::Call as PaymasterCall;
 use tracing::{debug, info};
 use url::Url;
 
@@ -633,9 +633,8 @@ fn build_execute_from_outside_call(
     PaymasterCall { to: call.to.into(), selector: call.selector, calldata: call.calldata }
 }
 
-const STARKNET_DOMAIN_TYPE_HASH: Felt = Felt::from_hex_unchecked(
-    "0x1ff2f602e42168014d405a94f75e8a93d640751d71d16311266e140d8b0a210",
-);
+const STARKNET_DOMAIN_TYPE_HASH: Felt =
+    Felt::from_hex_unchecked("0x1ff2f602e42168014d405a94f75e8a93d640751d71d16311266e140d8b0a210");
 const CALL_TYPE_HASH: Felt =
     Felt::from_hex_unchecked("0x3635c7f2a7ba93844c0d064e18e487f35ab90f7c39d00f186a781fc3f0c2ca9");
 const OUTSIDE_EXECUTION_TYPE_HASH: Felt =
@@ -752,11 +751,8 @@ fn starknet_domain_hash(chain_id: Felt) -> Felt {
 }
 
 fn outside_execution_hash(outside_execution: &OutsideExecutionV2) -> Felt {
-    let hashed_calls: Vec<Felt> = outside_execution
-        .calls
-        .iter()
-        .map(|call| call_hash(call))
-        .collect();
+    let hashed_calls: Vec<Felt> =
+        outside_execution.calls.iter().map(|call| call_hash(call)).collect();
 
     let mut hasher = PoseidonHasher::new();
     hasher.update(OUTSIDE_EXECUTION_TYPE_HASH);
