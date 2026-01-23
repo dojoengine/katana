@@ -1,12 +1,15 @@
 //! Integration tests for KatanaTee proof verification using fixture files.
 //!
-//! These tests use fork testing against Starknet mainnet/sepolia to access
-//! the Garaga SP1 verifier contract.
+//! This test demonstrates the full cache progression:
+//! 1. Deploy in live mode (only root certs)
+//! 2. Verify block 0 (prefix_len=1) - ASK gets cached
+//! 3. Verify blocks 1, 2 (prefix_len=2) - uses cached ASK
 
-use snforge_std::fs::{FileTrait, read_txt};
-use snforge_std::{ContractClassTrait, DeclareResultTrait, declare};
+use snforge_std::fs::{FileTrait, read_txt, FileParser};
+use snforge_std::{ContractClassTrait, DeclareResultTrait, declare, spy_events, EventSpyTrait, EventsFilterTrait};
 use starknet::ContractAddress;
 use amd_tee_registry::tee_registry::AMDTEERegistry;
+use amd_tee_registry::cert_cache::CertCacheComponent::{ICertCacheDispatcher, ICertCacheDispatcherTrait};
 use katana_tee::{IKatanaTeeDispatcher, IKatanaTeeDispatcherTrait};
 
 /// Garaga SP1 Groth16 Verifier class hash (deployed on mainnet and sepolia)
@@ -19,37 +22,40 @@ const SP1_PROGRAM_ID_HIGH: felt252 = 0x00d2342d2400bed28302507269281dcb;
 /// Max time difference for attestation validation (1 year for testing with old fixtures)
 const MAX_TIME_DIFF: u64 = 31536000;
 
-/// Genoa ARK root cert hash (from tests/fixtures/root_certs.json)
-const GENOA_ROOT_CERT_LOW: felt252 = 0x5bfe1d8f800cea2cf270c10d103db2f1;
-const GENOA_ROOT_CERT_HIGH: felt252 = 0x4c6598d19c18719c5dfd4a7d335f674e;
+#[derive(Drop, Serde)]
+struct RootCerts {
+    genoa_ark_hash_high: felt252,
+    genoa_ark_hash_low: felt252,
+    milan_ark_hash_high: felt252,
+    milan_ark_hash_low: felt252,
+}
 
-/// ASK intermediate cert hash (from proof fixtures, certs[1])
-const ASK_CERT_LOW: felt252 = 0xc4bb797cd2c97a63be3ec075136b6a5f;
-const ASK_CERT_HIGH: felt252 = 0xd105403760701f8fee86fee3215a27d9;
+fn load_root_certs() -> RootCerts {
+    let file = FileTrait::new("../../tests/fixtures/root_certs.json");
+    FileParser::<RootCerts>::parse_json(@file).expect('Failed to parse root_certs.json')
+}
 
-/// Deploy the AMDTEERegistry contract for testing
-fn deploy_amd_registry() -> ContractAddress {
+/// Deploy the AMDTEERegistry contract in LIVE MODE (no pre-cached intermediates)
+fn deploy_amd_registry_live_mode() -> ContractAddress {
     let contract = declare("AMDTEERegistry").unwrap().contract_class();
+    let certs = load_root_certs();
 
     // Constructor: verifier_class_hash, sp1_program_id (u256), max_time_diff,
     //              trusted_certs (array), processor_models (array), root_certs (array)
-    // Note: processor_models and root_certs must have the same length
     let mut calldata: Array<felt252> = array![
         GARAGA_CLASS_HASH,
         SP1_PROGRAM_ID_LOW,
         SP1_PROGRAM_ID_HIGH,
         MAX_TIME_DIFF.into(),
-        // trusted_certs array (ASK intermediate cert)
-        1,  // length = 1
-        ASK_CERT_LOW,
-        ASK_CERT_HIGH,
+        // trusted_certs array - EMPTY for live mode
+        0,
         // processor_models array (Genoa = 1)
-        1,  // length = 1
+        1,
         1,  // ProcessorType::Genoa
         // root_certs array (Genoa root cert hash)
-        1,  // length = 1
-        GENOA_ROOT_CERT_LOW,
-        GENOA_ROOT_CERT_HIGH,
+        1,
+        certs.genoa_ark_hash_low,
+        certs.genoa_ark_hash_high,
     ];
 
     let (contract_address, _) = contract.deploy(@calldata).unwrap();
@@ -73,53 +79,68 @@ fn load_calldata_from_fixture(path: ByteArray) -> Array<felt252> {
     read_txt(@file)
 }
 
-/// Test verification of block 0 proof
+/// Test verification of all blocks with cache progression
+///
+/// This single test verifies:
+/// 1. Block 0: First proof (prefix_len=1), ASK gets cached via CertCached event
+/// 2. Block 1: Uses cached ASK (prefix_len=2)
+/// 3. Block 2: Uses cached ASK (prefix_len=2)
 #[test]
 #[ignore] // Run with: make test-fork (requires MAINNET_RPC_URL + fixtures)
 #[fork("MAINNET")]
-fn test_verify_block_0() {
-    // Deploy contracts
-    println!("Deploying AMDTEERegistry contract");
-    let registry_address = deploy_amd_registry();
+fn test_verify_blocks_with_cache_progression() {
+    // Deploy in LIVE MODE - only root certs, no pre-cached intermediates
+    println!("Deploying AMDTEERegistry in live mode (no pre-cached certs)");
+    let registry_address = deploy_amd_registry_live_mode();
     println!("Deploying KatanaTee contract");
     let katana_address = deploy_katana_tee(registry_address);
+
     let dispatcher = IKatanaTeeDispatcher { contract_address: katana_address };
+    let cache_dispatcher = ICertCacheDispatcher { contract_address: registry_address };
 
-    println!("Loading calldata");
-    // Load calldata from fixture
-    let calldata = load_calldata_from_fixture("../../tests/fixtures/block_0/calldata.txt");
+    // === Block 0: First proof, nothing cached yet ===
+    println!("=== Block 0: First proof (live mode) ===");
 
-    // Verify proof returns public inputs
-    let result = dispatcher.verify_sp1_proof(calldata);
-    assert(result.is_some(), 'Block 0 verification failed');
-}
+    // Start spying on events before verification
+    let mut spy = spy_events();
 
-/// Test verification of block 1 proof
-#[test]
-#[ignore] // Run with: make test-fork (requires MAINNET_RPC_URL + fixtures)
-#[fork("MAINNET")]
-fn test_verify_block_1() {
-    let registry_address = deploy_amd_registry();
-    let katana_address = deploy_katana_tee(registry_address);
-    let dispatcher = IKatanaTeeDispatcher { contract_address: katana_address };
+    let calldata_0 = load_calldata_from_fixture("../../tests/fixtures/block_0/calldata.txt");
+    let result_0 = dispatcher.verify_sp1_proof(calldata_0);
+    assert(result_0.is_some(), 'Block 0 verification failed');
+    println!("Block 0 verified successfully");
 
-    let calldata = load_calldata_from_fixture("../../tests/fixtures/block_1/calldata.txt");
+    // Extract CertCached events to find what got cached
+    let events = spy.get_events().emitted_by(registry_address);
+    assert(events.events.len() > 0, 'No certs cached after block 0');
+    println!("CertCached events emitted: {}", events.events.len());
 
-    let result = dispatcher.verify_sp1_proof(calldata);
-    assert(result.is_some(), 'Block 1 verification failed');
-}
+    // Parse CertCached event to get the ASK hash
+    let (_, event) = events.events.at(0);
+    let cached_cert_low: felt252 = *event.data.at(0);
+    let cached_cert_high: felt252 = *event.data.at(1);
+    let cached_cert = u256 {
+        low: cached_cert_low.try_into().unwrap(),
+        high: cached_cert_high.try_into().unwrap(),
+    };
+    println!("Cached cert hash (from event): 0x{:x}", cached_cert);
 
-/// Test verification of block 2 proof
-#[test]
-#[ignore] // Run with: make test-fork (requires MAINNET_RPC_URL + fixtures)
-#[fork("MAINNET")]
-fn test_verify_block_2() {
-    let registry_address = deploy_amd_registry();
-    let katana_address = deploy_katana_tee(registry_address);
-    let dispatcher = IKatanaTeeDispatcher { contract_address: katana_address };
+    // Verify cert is now trusted in contract storage
+    assert(cache_dispatcher.is_trusted_intermediate_cert(cached_cert), 'ASK not in contract cache');
+    println!("Verified: ASK is now cached in contract");
 
-    let calldata = load_calldata_from_fixture("../../tests/fixtures/block_2/calldata.txt");
+    // === Block 1: Uses cached ASK (prefix_len=2) ===
+    println!("=== Block 1: Using cached ASK ===");
+    let calldata_1 = load_calldata_from_fixture("../../tests/fixtures/block_1/calldata.txt");
+    let result_1 = dispatcher.verify_sp1_proof(calldata_1);
+    assert(result_1.is_some(), 'Block 1 verification failed');
+    println!("Block 1 verified successfully");
 
-    let result = dispatcher.verify_sp1_proof(calldata);
-    assert(result.is_some(), 'Block 2 verification failed');
+    // === Block 2: Uses cached ASK (prefix_len=2) ===
+    println!("=== Block 2: Using cached ASK ===");
+    let calldata_2 = load_calldata_from_fixture("../../tests/fixtures/block_2/calldata.txt");
+    let result_2 = dispatcher.verify_sp1_proof(calldata_2);
+    assert(result_2.is_some(), 'Block 2 verification failed');
+    println!("Block 2 verified successfully");
+
+    println!("=== All blocks verified with cache progression ===");
 }
