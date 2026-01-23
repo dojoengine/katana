@@ -3,15 +3,13 @@
 # E2E Test Script for katana-tee
 #
 # Usage:
-#   ./run_e2e_tests.sh --live     # Fetch from TEE, generate proof, save fixtures
-#   ./run_e2e_tests.sh --fixture  # Use saved fixtures (default)
+#   ./run_e2e_tests.sh  # Generate proofs for multiple blocks (0, 1, 2)
 #
 set -euo pipefail
 
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 PROJECT_ROOT="$(cd "$SCRIPT_DIR/../.." && pwd)"
 FIXTURES_ROOT="$PROJECT_ROOT/tests/fixtures"
-SINGLE_BLOCK_DIR="$FIXTURES_ROOT/block_0"
 ROOT_CERTS_FILE="$FIXTURES_ROOT/root_certs.json"
 DEPLOYMENT_FILE="$FIXTURES_ROOT/deployment.json"
 
@@ -157,36 +155,10 @@ fetch_root_certs() {
         --output "$ROOT_CERTS_FILE"
 }
 
-extract_ask_cert_from_proof() {
-    # Extract the ASK intermediate cert hash from proof.json journal
-    # Journal structure: [offset, result, timestamp, processorModel, rawReportOffset, certsOffset, ...]
-    # certs array: [length, cert0(root), cert1(ASK), cert2(VCEK)]
-    local proof_file="$1"
-    if [[ ! -f "$proof_file" ]]; then
-        echo ""
-        return
-    fi
-
-    # The journal hex has certs at offset 0x5a0 (1440 bytes) after the 32-byte outer offset
-    # Each cert is 32 bytes (64 hex chars). We want cert[1] (ASK).
-    # Position: 0x (2) + outer offset (64) + certs_offset*2 (2880) + length (64) + cert0 (64) = 3074
-    # Read 64 chars for the ASK cert hash
-    local journal=$(jq -r '.raw_proof.journal' "$proof_file")
-    if [[ -z "$journal" ]] || [[ "$journal" == "null" ]]; then
-        echo ""
-        return
-    fi
-
-    # Extract ASK cert at position 3074 (chars 3074-3137) = bytes 1504-1535 in journal
-    local ask_hash="0x${journal:3074:64}"
-    echo "$ask_hash"
-}
-
 # Build AMDTEERegistry constructor calldata
 build_amd_registry_calldata() {
     local milan_root=$1
     local genoa_root=$2
-    local ask_cert=$3
 
     # Split SP1 program ID into low/high (u256 = low, high)
     read -r sp1_low sp1_high <<< "$(split_u256 "$SP1_PROGRAM_ID")"
@@ -195,17 +167,10 @@ build_amd_registry_calldata() {
     read -r milan_low milan_high <<< "$(split_u256 "$milan_root")"
     read -r genoa_low genoa_high <<< "$(split_u256 "$genoa_root")"
 
-    # Build trusted_certs array for constructor
-    local trusted_certs_calldata="0"  # Default: empty array (length 0)
-    if [[ -n "$ask_cert" ]]; then
-        read -r ask_low ask_high <<< "$(split_u256 "$ask_cert")"
-        trusted_certs_calldata="1 $ask_low $ask_high"  # Array with 1 element
-        log "  Trusting ASK intermediate cert"
-    fi
-
     # Constructor: verifier_class_hash, sp1_program_id (u256), max_time_diff,
     # trusted_certs (array), processor_models (array), root_certs (array)
-    echo "$GARAGA_CLASS_HASH $sp1_low $sp1_high $MAX_TIME_DIFF $trusted_certs_calldata 2 0 1 2 $milan_low $milan_high $genoa_low $genoa_high"
+    # trusted_certs is empty (length 0)
+    echo "$GARAGA_CLASS_HASH $sp1_low $sp1_high $MAX_TIME_DIFF 0 2 0 1 2 $milan_low $milan_high $genoa_low $genoa_high"
 }
 
 # Save deployment info to JSON
@@ -240,18 +205,18 @@ EOF
 deploy_contracts() {
     log "Deploying contracts..."
 
-    # Load root cert hashes
-    local milan_root=$(jq -r '.milan.ark_hash' "$ROOT_CERTS_FILE")
-    local genoa_root=$(jq -r '.genoa.ark_hash' "$ROOT_CERTS_FILE")
+    # Load root cert hashes (new format: split into low/high)
+    # The JSON now has milan_ark_hash_low/high with single-quoted hex values
+    local milan_low=$(grep 'milan_ark_hash_low' "$ROOT_CERTS_FILE" | grep -oP "'0x[a-fA-F0-9]+'" | tr -d "'")
+    local milan_high=$(grep 'milan_ark_hash_high' "$ROOT_CERTS_FILE" | grep -oP "'0x[a-fA-F0-9]+'" | tr -d "'")
+    local genoa_low=$(grep 'genoa_ark_hash_low' "$ROOT_CERTS_FILE" | grep -oP "'0x[a-fA-F0-9]+'" | tr -d "'")
+    local genoa_high=$(grep 'genoa_ark_hash_high' "$ROOT_CERTS_FILE" | grep -oP "'0x[a-fA-F0-9]+'" | tr -d "'")
+
+    # Reconstruct full u256 for logging (high || low, padded)
+    local milan_root="0x$(printf "%s%s" "${milan_high#0x}" "${milan_low#0x}")"
+    local genoa_root="0x$(printf "%s%s" "${genoa_high#0x}" "${genoa_low#0x}")"
     log "  Milan root: $milan_root"
     log "  Genoa root: $genoa_root"
-
-    # Extract ASK intermediate cert from proof if available (for fixture mode)
-    local ask_cert=""
-    if [[ -f "$SINGLE_BLOCK_DIR/proof.json" ]]; then
-        ask_cert=$(extract_ask_cert_from_proof "$SINGLE_BLOCK_DIR/proof.json")
-        [[ -n "$ask_cert" ]] && log "  ASK cert (from proof): $ask_cert"
-    fi
 
     # Build contracts
     build_contract "$PROJECT_ROOT/contracts/amd_tee_registry" "amd_tee_registry"
@@ -260,7 +225,7 @@ deploy_contracts() {
     # Declare and deploy AMDTEERegistry
     cd "$PROJECT_ROOT/contracts/amd_tee_registry"
     local amd_class_hash=$(declare_contract "AMDTEERegistry" "amd_tee_registry")
-    local amd_calldata=$(build_amd_registry_calldata "$milan_root" "$genoa_root" "$ask_cert")
+    local amd_calldata=$(build_amd_registry_calldata "$milan_root" "$genoa_root")
     local amd_address=$(deploy_contract "AMDTEERegistry" "$amd_class_hash" $amd_calldata)
 
     # Declare and deploy KatanaTee
@@ -281,34 +246,6 @@ deploy_contracts() {
     save_deployment "$amd_class_hash" "$amd_address" "$katana_class_hash" "$katana_address"
 }
 
-generate_proof_live() {
-    log "=== LIVE MODE: Generating real proof ==="
-
-    log "Fetching attestation from Katana TEE at $KATANA_RPC_URL..."
-    cargo run -p katana_tee_client --release --bin katana-tee -- \
-        fetch --rpc "$KATANA_RPC_URL" --output "$SINGLE_BLOCK_DIR/attestation.json"
-
-    log "Attestation saved. Generating SP1 proof via network prover..."
-    log "This may take several minutes..."
-
-    local katana_address=$(jq -r '.katana_tee.address' "$DEPLOYMENT_FILE")
-
-    # Use pipeline command with --dry-run to generate proof and calldata
-    # --skip-cache bypasses on-chain cache lookup (uses default trusted_prefix_len=2)
-    cargo run -p katana_tee_client --release --bin katana-tee -- \
-        pipeline \
-        --json "$SINGLE_BLOCK_DIR/attestation.json" \
-        --starknet-rpc "$DEVNET_URL" \
-        --katana-tee "$katana_address" \
-        --prover network \
-        --proof-output "$SINGLE_BLOCK_DIR/proof.json" \
-        --calldata-output "$SINGLE_BLOCK_DIR/calldata.txt" \
-        --skip-cache \
-        --dry-run
-
-    log "Proof and calldata generated and saved to fixtures"
-}
-
 # Advance Katana by mining an empty block
 advance_katana_block() {
     log "Advancing Katana to next block..."
@@ -323,10 +260,11 @@ advance_katana_block() {
     log "Block advanced successfully"
 }
 
-# Generate proofs for multiple blocks (0, 1, 2)
+# Generate proofs for multiple blocks (0, 1, 2), submit and verify each
 generate_multi_block_proofs() {
     log "=== MULTI-BLOCK MODE: Generating proofs for blocks 0, 1, 2 ==="
 
+    local amd_address=$(jq -r '.amd_tee_registry.address' "$DEPLOYMENT_FILE")
     local katana_address=$(jq -r '.katana_tee.address' "$DEPLOYMENT_FILE")
 
     for block_num in 0 1 2; do
@@ -334,26 +272,38 @@ generate_multi_block_proofs() {
         mkdir -p "$block_dir"
 
         log "--- Block $block_num ---"
+        local expected_prefix=$( [ $block_num -eq 0 ] && echo '1 (live mode)' || echo '2 (ASK cached)' )
+        log "  Expected prefix_len: $expected_prefix"
 
         # Fetch attestation
         log "Fetching attestation for block $block_num..."
         cargo run -p katana_tee_client --release --bin katana-tee -- \
             fetch --rpc "$KATANA_RPC_URL" --output "$block_dir/attestation.json"
 
-        # Generate proof
-        log "Generating SP1 proof for block $block_num (this may take 1-2 minutes)..."
+        # Generate proof - registry is required, no --skip-cache
+        log "Generating SP1 proof for block $block_num..."
         cargo run -p katana_tee_client --release --bin katana-tee -- \
             pipeline \
             --json "$block_dir/attestation.json" \
             --starknet-rpc "$DEVNET_URL" \
+            --registry "$amd_address" \
             --katana-tee "$katana_address" \
             --prover network \
             --proof-output "$block_dir/proof.json" \
             --calldata-output "$block_dir/calldata.txt" \
-            --skip-cache \
             --dry-run
 
+        # Log actual cache info from proof
+        if command -v jq &> /dev/null && [ -f "$block_dir/proof.json" ]; then
+            local prefix_len=$(jq -r '.trusted_prefix_len // "unknown"' "$block_dir/proof.json")
+            log "  Actual prefix_len: $prefix_len"
+        fi
+
         log "Block $block_num artifacts saved to $block_dir"
+
+        # Submit proof and verify state
+        submit_proof "$block_dir"
+        verify_state "$block_dir"
 
         # Advance to next block (except after last iteration)
         if [[ $block_num -lt 2 ]]; then
@@ -366,16 +316,16 @@ generate_multi_block_proofs() {
 }
 
 submit_proof() {
+    local block_dir=$1
     log "Submitting proof to katana_tee..."
 
     local katana_address=$(jq -r '.katana_tee.address' "$DEPLOYMENT_FILE")
-    local calldata=$(cat "$SINGLE_BLOCK_DIR/calldata.txt")
+    local calldata=$(cat "$block_dir/calldata.txt")
 
     # Extract attestation data for verify_and_update_state
-    # Note: attestation.json is raw TeeQuoteResponse (no .result wrapper)
-    local state_root=$(jq -r '.stateRoot' "$SINGLE_BLOCK_DIR/attestation.json")
-    local block_hash=$(jq -r '.blockHash' "$SINGLE_BLOCK_DIR/attestation.json")
-    local block_number=$(jq -r '.blockNumber' "$SINGLE_BLOCK_DIR/attestation.json")
+    local state_root=$(jq -r '.stateRoot' "$block_dir/attestation.json")
+    local block_hash=$(jq -r '.blockHash' "$block_dir/attestation.json")
+    local block_number=$(jq -r '.blockNumber' "$block_dir/attestation.json")
 
     log "  Contract: $katana_address"
     log "  State root: $state_root"
@@ -403,14 +353,16 @@ submit_proof() {
     if echo "$invoke_result" | grep -qi "error\|failed"; then
         warn "Transaction execution failed (proof verification may have on-chain issues)"
         warn "This is expected if Garaga verifier integration is not yet complete"
-        # Continue anyway to show state - don't exit 1
+        return 1
     elif [[ $invoke_exit -ne 0 ]]; then
         error "Invoke command failed"
-        exit 1
+        return 1
     fi
+    return 0
 }
 
 verify_state() {
+    local block_dir=$1
     log "Verifying on-chain state..."
 
     local katana_address=$(jq -r '.katana_tee.address' "$DEPLOYMENT_FILE")
@@ -425,10 +377,10 @@ verify_state() {
     log "get_latest_state result:"
     echo "$result"
 
-    # Expected values from attestation (raw TeeQuoteResponse, no .result wrapper)
-    local expected_block=$(jq -r '.blockNumber' "$SINGLE_BLOCK_DIR/attestation.json")
-    local expected_root=$(jq -r '.stateRoot' "$SINGLE_BLOCK_DIR/attestation.json")
-    local expected_hash=$(jq -r '.blockHash' "$SINGLE_BLOCK_DIR/attestation.json")
+    # Expected values from attestation
+    local expected_block=$(jq -r '.blockNumber' "$block_dir/attestation.json")
+    local expected_root=$(jq -r '.stateRoot' "$block_dir/attestation.json")
+    local expected_hash=$(jq -r '.blockHash' "$block_dir/attestation.json")
 
     log "Expected values:"
     log "  block_number: $expected_block"
@@ -438,98 +390,32 @@ verify_state() {
     # Basic validation (the result contains the expected values)
     if echo "$result" | grep -qi "error"; then
         error "State verification failed - call returned error"
-        exit 1
+        return 1
     fi
 
     # Check if state was actually updated (non-zero values)
     if echo "$result" | grep -q "0x0, 0x0"; then
         warn "State was NOT updated (values are 0)"
         warn "This indicates the proof verification transaction failed"
-        warn "See submit_proof output above for details"
+        return 1
     else
         log "State was updated successfully"
     fi
 
     log "State verification completed"
-}
-
-print_summary() {
-    log ""
-    log "=========================================="
-    log "  E2E TEST SUMMARY"
-    log "=========================================="
-    log ""
-    log "Deployment:"
-    jq '.' "$DEPLOYMENT_FILE"
-    log ""
-    log "Attestation:"
-    jq '{stateRoot, blockHash, blockNumber}' "$SINGLE_BLOCK_DIR/attestation.json"
-    log ""
+    return 0
 }
 
 # === MAIN ===
 
-MODE="${1:---fixture}"
-
-case "$MODE" in
-    --live)
-        log "=========================================="
-        log "  E2E TEST - LIVE MODE"
-        log "=========================================="
-        log ""
-        start_devnet
-        fetch_root_certs
-        deploy_contracts
-        generate_proof_live
-        submit_proof
-        verify_state
-        print_summary
-        log ""
-        log "LIVE E2E TEST PASSED"
-        log "  Fixtures saved for future --fixture runs"
-        ;;
-
-    --multi-block)
-        log "=========================================="
-        log "  E2E TEST - MULTI-BLOCK MODE"
-        log "=========================================="
-        log ""
-        start_devnet
-        fetch_root_certs
-        deploy_contracts
-        generate_multi_block_proofs
-        log ""
-        log "MULTI-BLOCK FIXTURE GENERATION COMPLETE"
-        log "  Fixtures saved to tests/fixtures/block_N/"
-        ;;
-
-    --fixture)
-        log "=========================================="
-        log "  E2E TEST - FIXTURE MODE"
-        log "=========================================="
-        log ""
-
-        # Verify fixtures exist
-        [[ -f "$SINGLE_BLOCK_DIR/attestation.json" ]] || die "Missing block_0/attestation.json. Run with --live first"
-        [[ -f "$SINGLE_BLOCK_DIR/proof.json" ]] || die "Missing block_0/proof.json. Run with --live first"
-        [[ -f "$SINGLE_BLOCK_DIR/calldata.txt" ]] || die "Missing block_0/calldata.txt. Run with --live first"
-
-        start_devnet
-        fetch_root_certs
-        deploy_contracts
-        submit_proof
-        verify_state
-        print_summary
-        log ""
-        log "FIXTURE E2E TEST PASSED"
-        ;;
-
-    *)
-        echo "Usage: $0 [--live|--fixture|--multi-block]"
-        echo ""
-        echo "  --live         Fetch from TEE, generate real proof, save fixtures"
-        echo "  --fixture      Use saved fixtures (default)"
-        echo "  --multi-block  Generate fixtures for blocks 0, 1, 2"
-        exit 1
-        ;;
-esac
+log "=========================================="
+log "  E2E TEST - MULTI-BLOCK MODE"
+log "=========================================="
+log ""
+start_devnet
+fetch_root_certs
+deploy_contracts
+generate_multi_block_proofs
+log ""
+log "MULTI-BLOCK FIXTURE GENERATION COMPLETE"
+log "  Fixtures saved to tests/fixtures/block_N/"
