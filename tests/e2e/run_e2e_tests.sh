@@ -205,14 +205,23 @@ EOF
 deploy_contracts() {
     log "Deploying contracts..."
 
-    # Load root cert hashes (new format: split into low/high)
-    # The JSON now has milan_ark_hash_low/high with single-quoted hex values
-    local milan_low=$(grep 'milan_ark_hash_low' "$ROOT_CERTS_FILE" | grep -oP "'0x[a-fA-F0-9]+'" | tr -d "'")
-    local milan_high=$(grep 'milan_ark_hash_high' "$ROOT_CERTS_FILE" | grep -oP "'0x[a-fA-F0-9]+'" | tr -d "'")
-    local genoa_low=$(grep 'genoa_ark_hash_low' "$ROOT_CERTS_FILE" | grep -oP "'0x[a-fA-F0-9]+'" | tr -d "'")
-    local genoa_high=$(grep 'genoa_ark_hash_high' "$ROOT_CERTS_FILE" | grep -oP "'0x[a-fA-F0-9]+'" | tr -d "'")
+    # Load root cert hashes (format: split into low/high as decimal integers)
+    # Use Python to handle large integers (jq converts to scientific notation)
+    local root_certs_hex=$(python3 -c "
+import json
+with open('$ROOT_CERTS_FILE') as f:
+    d = json.load(f)
+print(hex(int(d['milan_ark_hash_low'])))
+print(hex(int(d['milan_ark_hash_high'])))
+print(hex(int(d['genoa_ark_hash_low'])))
+print(hex(int(d['genoa_ark_hash_high'])))
+")
+    local milan_low=$(echo "$root_certs_hex" | sed -n '1p')
+    local milan_high=$(echo "$root_certs_hex" | sed -n '2p')
+    local genoa_low=$(echo "$root_certs_hex" | sed -n '3p')
+    local genoa_high=$(echo "$root_certs_hex" | sed -n '4p')
 
-    # Reconstruct full u256 for logging (high || low, padded)
+    # Reconstruct full u256 for logging (high || low)
     local milan_root="0x$(printf "%s%s" "${milan_high#0x}" "${milan_low#0x}")"
     local genoa_root="0x$(printf "%s%s" "${genoa_high#0x}" "${genoa_low#0x}")"
     log "  Milan root: $milan_root"
@@ -322,6 +331,9 @@ submit_proof() {
     local katana_address=$(jq -r '.katana_tee.address' "$DEPLOYMENT_FILE")
     local calldata=$(cat "$block_dir/calldata.txt")
 
+    # Count array elements (calldata.txt has one element per line)
+    local array_len=$(wc -l < "$block_dir/calldata.txt")
+
     # Extract attestation data for verify_and_update_state
     local state_root=$(jq -r '.stateRoot' "$block_dir/attestation.json")
     local block_hash=$(jq -r '.blockHash' "$block_dir/attestation.json")
@@ -331,10 +343,12 @@ submit_proof() {
     log "  State root: $state_root"
     log "  Block hash: $block_hash"
     log "  Block number: $block_number"
+    log "  Proof array length: $array_len"
 
     # The calldata format for verify_and_update_state:
-    # sp1_proof (array), state_root, block_hash, block_number
-    local full_calldata="$calldata $state_root $block_hash $block_number"
+    # sp1_proof (array with length prefix), state_root, block_hash, block_number
+    # Starknet array serialization: [length, elem1, elem2, ...]
+    local full_calldata="$array_len $calldata $state_root $block_hash $block_number"
 
     log "Invoking verify_and_update_state..."
     local invoke_result
