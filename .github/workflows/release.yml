@@ -209,16 +209,12 @@ jobs:
         shell: bash
         run: |
           cargo build -p katana --bin katana --profile performance --target ${{ matrix.job.target }}
-          cargo build -p katana-paymaster --bin katana-paymaster --profile performance --target ${{ matrix.job.target }}
-          cargo build -p katana-vrf --bin katana-vrf --profile performance --target ${{ matrix.job.target }}
 
       - name: Build binary ( w/ cairo-native )
         if: ${{ matrix.job.native_build == true }}
         shell: bash
         run: |
           cargo build -p katana --bin katana --profile performance --features native --target ${{ matrix.job.target }}
-          cargo build -p katana-paymaster --bin katana-paymaster --profile performance --target ${{ matrix.job.target }}
-          cargo build -p katana-vrf --bin katana-vrf --profile performance --target ${{ matrix.job.target }}
 
       - name: Archive binaries
         id: artifacts
@@ -255,8 +251,6 @@ jobs:
         run: |
           mkdir -p $PLATFORM_NAME/$ARCH
           mv target/${TARGET}/performance/katana $PLATFORM_NAME/$ARCH
-          mv target/${TARGET}/performance/katana-paymaster $PLATFORM_NAME/$ARCH
-          mv target/${TARGET}/performance/katana-vrf $PLATFORM_NAME/$ARCH
 
       - name: Upload Docker binaries
         if: ${{ env.PLATFORM_NAME == 'linux' && matrix.job.native_build == true }}
