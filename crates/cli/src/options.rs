@@ -585,7 +585,7 @@ pub enum VrfKeySource {
 #[command(next_help_heading = "Paymaster options")]
 pub struct PaymasterOptions {
     /// Paymaster mode: disabled, sidecar, or external.
-    #[arg(long = "paymaster.mode", value_enum)]
+    #[arg(long = "paymaster.mode", value_enum, id = "paymaster_mode")]
     #[serde(default = "default_paymaster_mode")]
     pub mode: ServiceMode,
 
@@ -665,7 +665,7 @@ impl PaymasterOptions {
 #[command(next_help_heading = "VRF options")]
 pub struct VrfOptions {
     /// VRF mode: disabled, sidecar, or external.
-    #[arg(long = "vrf.mode", value_enum)]
+    #[arg(long = "vrf.mode", value_enum, id = "vrf_mode")]
     #[serde(default = "default_vrf_mode")]
     pub mode: ServiceMode,
 

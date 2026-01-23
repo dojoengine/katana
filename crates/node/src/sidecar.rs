@@ -222,10 +222,12 @@ fn paymaster_chain_id(chain_id: ChainId) -> Result<String> {
         ChainId::Named(NamedChainId::Sepolia) => Ok(NamedChainId::Sepolia.name().to_string()),
         ChainId::Named(NamedChainId::Mainnet) => Ok("SN_MAINNET".to_string()),
         ChainId::Named(other) => Err(anyhow!(
-            "paymaster sidecar only supports SN_MAIN or SN_SEPOLIA chain ids, got {other}"
+            "paymaster sidecar only supports SN_MAINNET or SN_SEPOLIA chain ids, got {other}"
         )),
         ChainId::Id(id) => {
-            Err(anyhow!("paymaster sidecar requires SN_MAIN or SN_SEPOLIA chain id, got {id:#x}"))
+            Err(anyhow!(
+                "paymaster sidecar requires SN_MAINNET or SN_SEPOLIA chain id, got {id:#x}"
+            ))
         }
     }
 }
