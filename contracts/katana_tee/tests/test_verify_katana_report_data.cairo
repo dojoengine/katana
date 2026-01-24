@@ -91,7 +91,7 @@ fn test_verify_katana_report_data_mismatch() {
 #[test]
 #[should_panic(expected: 'Report data limb2 must be 0')]
 fn test_verify_katana_report_data_limb2_nonzero() {
-    let report_data = u512 { limb0: 0, limb1: 0, limb2: 1, limb3: 0, };
+    let report_data = u512 { limb0: 0, limb1: 0, limb2: 1, limb3: 0 };
 
     let state_root: felt252 = 0x123;
     let block_hash: felt252 = 0x456;
@@ -103,7 +103,7 @@ fn test_verify_katana_report_data_limb2_nonzero() {
 #[test]
 #[should_panic(expected: 'Report data limb3 must be 0')]
 fn test_verify_katana_report_data_limb3_nonzero() {
-    let report_data = u512 { limb0: 0, limb1: 0, limb2: 0, limb3: 1, };
+    let report_data = u512 { limb0: 0, limb1: 0, limb2: 0, limb3: 1 };
 
     let state_root: felt252 = 0x123;
     let block_hash: felt252 = 0x456;

@@ -247,9 +247,12 @@ async fn main() -> anyhow::Result<()> {
 
     match cli.command {
         Commands::Fetch { rpc, output } => cmd_fetch(&rpc, output).await,
-        Commands::Execute { rpc, json, starknet_rpc, registry } => {
-            cmd_execute(&rpc, json, starknet_rpc, &registry).await
-        }
+        Commands::Execute {
+            rpc,
+            json,
+            starknet_rpc,
+            registry,
+        } => cmd_execute(&rpc, json, starknet_rpc, &registry).await,
         Commands::Prove {
             rpc,
             json,
@@ -386,14 +389,19 @@ async fn cmd_execute(
     println!("🔄 Executing SP1 program (mock mode)...");
     let start = std::time::Instant::now();
     let prover = AmdAttestationProver::new(ProverConfig::default());
-    let proof_info = prover.prove(&attestation.quote_bytes()?, &registry_client).await?;
+    let proof_info = prover
+        .prove(&attestation.quote_bytes()?, &registry_client)
+        .await?;
     let elapsed = start.elapsed();
 
     println!("✅ Execution completed in {:.2?}", elapsed);
     println!("   Trusted prefix len: {}", proof_info.trusted_prefix_len);
     println!();
     println!("📊 Result:");
-    println!("   Verifier ID: {}", proof_info.proof.program_id.verifier_id);
+    println!(
+        "   Verifier ID: {}",
+        proof_info.proof.program_id.verifier_id
+    );
     println!();
     println!("ℹ️  Mock mode - no real proof generated");
 
@@ -454,7 +462,9 @@ async fn cmd_prove(
     println!("🔄 Generating SP1 proof (querying on-chain cache)...");
     let start = std::time::Instant::now();
     let amd_prover = AmdAttestationProver::new(config);
-    let proof_info = amd_prover.prove(&attestation.quote_bytes()?, &registry_client).await?;
+    let proof_info = amd_prover
+        .prove(&attestation.quote_bytes()?, &registry_client)
+        .await?;
     let elapsed = start.elapsed();
 
     let proof = &proof_info.proof;
@@ -471,7 +481,9 @@ async fn cmd_prove(
 
     // Verify structure
     if prover != "mock" {
-        AmdAttestationProver::<katana_tee_client::Sp1NetworkBackend>::verify_proof_structure(proof)?;
+        AmdAttestationProver::<katana_tee_client::Sp1NetworkBackend>::verify_proof_structure(
+            proof,
+        )?;
         println!("   Verified:     ✓");
     }
 
@@ -598,7 +610,9 @@ async fn cmd_pipeline(
 
     // Verify structure (skip when mock produced empty proof bytes)
     if prover != "mock" {
-        AmdAttestationProver::<katana_tee_client::Sp1NetworkBackend>::verify_proof_structure(&proof)?;
+        AmdAttestationProver::<katana_tee_client::Sp1NetworkBackend>::verify_proof_structure(
+            &proof,
+        )?;
     }
 
     if dry_run {

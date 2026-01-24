@@ -85,7 +85,11 @@ impl KatanaRpcClient {
         let status = response.status();
         if !status.is_success() {
             let body = response.text().await.unwrap_or_default();
-            return Err(Error::Rpc(format!("HTTP error {}: {}", status.as_u16(), body)));
+            return Err(Error::Rpc(format!(
+                "HTTP error {}: {}",
+                status.as_u16(),
+                body
+            )));
         }
 
         let json_response: Response = response
@@ -94,7 +98,10 @@ impl KatanaRpcClient {
             .map_err(|e| Error::Rpc(format!("Failed to parse response: {}", e)))?;
 
         if let Some(error) = json_response.error {
-            return Err(Error::Rpc(format!("RPC error {}: {}", error.code, error.message)));
+            return Err(Error::Rpc(format!(
+                "RPC error {}: {}",
+                error.code, error.message
+            )));
         }
 
         let result = json_response

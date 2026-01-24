@@ -1,4 +1,4 @@
-use core::integer::{u512, u128_byte_reverse};
+use core::integer::{u128_byte_reverse, u512};
 use core::poseidon::hades_permutation;
 use katana_tee::katana_report_utils::verify_katana_report_data;
 

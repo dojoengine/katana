@@ -6,7 +6,9 @@ use starknet::ContractAddress;
 pub trait IKatanaTee<TContractState> {
     /// Verify an SP1 proof by calling the AMD TEE Registry contract.
     /// Returns the public inputs if verification succeeds.
-    fn verify_sp1_proof(self: @TContractState, sp1_proof: Array<felt252>) -> Result<Span<u256>, felt252>;
+    fn verify_sp1_proof(
+        self: @TContractState, sp1_proof: Array<felt252>,
+    ) -> Result<Span<u256>, felt252>;
 
     /// Verify proof and update the latest verified sequencer state.
     fn verify_and_update_state(

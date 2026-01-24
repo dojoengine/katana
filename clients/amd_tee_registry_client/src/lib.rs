@@ -48,7 +48,9 @@ pub use calldata::StarknetCalldata;
 pub use config::ProverConfig;
 pub use error::Error;
 pub use kds::{parse_processor_type, KdsClient, KdsFetcher, RootCertInfo};
-pub use prover::{AmdAttestationProver, OnchainProof, ProofWithCacheInfo, Sp1Backend, Sp1NetworkBackend};
+pub use prover::{
+    AmdAttestationProver, OnchainProof, ProofWithCacheInfo, Sp1Backend, Sp1NetworkBackend,
+};
 pub use report::ATTESTATION_REPORT_SIZE;
 pub use starknet::StarknetRegistryClient;
 

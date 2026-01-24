@@ -26,15 +26,19 @@ pub async fn build_single_owner_account(
     private_key: Felt,
     encoding: ExecutionEncoding,
 ) -> Result<KatanaAccount, Error> {
-    let url = Url::parse(rpc_url)
-        .map_err(|e| Error::Registry(amd_tee_registry_client::Error::Starknet(format!("Invalid Starknet RPC URL: {e}"))))?;
+    let url = Url::parse(rpc_url).map_err(|e| {
+        Error::Registry(amd_tee_registry_client::Error::Starknet(format!(
+            "Invalid Starknet RPC URL: {e}"
+        )))
+    })?;
     let transport = HttpTransport::new(url);
     let provider = JsonRpcClient::new(transport);
 
-    let chain_id = provider
-        .chain_id()
-        .await
-        .map_err(|e| Error::Registry(amd_tee_registry_client::Error::Starknet(format!("Failed to fetch chain_id: {e}"))))?;
+    let chain_id = provider.chain_id().await.map_err(|e| {
+        Error::Registry(amd_tee_registry_client::Error::Starknet(format!(
+            "Failed to fetch chain_id: {e}"
+        )))
+    })?;
 
     let signer = LocalWallet::from(SigningKey::from_secret_scalar(private_key));
     Ok(SingleOwnerAccount::new(
@@ -56,8 +60,11 @@ pub struct KatanaTeeStarknetClient {
 impl KatanaTeeStarknetClient {
     /// Create a new client from RPC URL and contract address.
     pub fn new(rpc_url: &str, contract_address: Felt) -> Result<Self, Error> {
-        let url = Url::parse(rpc_url)
-            .map_err(|e| Error::Registry(amd_tee_registry_client::Error::Starknet(format!("Invalid Starknet RPC URL: {e}"))))?;
+        let url = Url::parse(rpc_url).map_err(|e| {
+            Error::Registry(amd_tee_registry_client::Error::Starknet(format!(
+                "Invalid Starknet RPC URL: {e}"
+            )))
+        })?;
         let transport = HttpTransport::new(url);
         let provider = JsonRpcClient::new(transport);
         Ok(Self {
@@ -73,8 +80,11 @@ impl KatanaTeeStarknetClient {
 
     /// Read the registry address configured in the `katana_tee` contract.
     pub async fn get_registry_address(&self) -> Result<Felt, Error> {
-        let selector = get_selector_from_name("get_registry_address")
-            .map_err(|e| Error::Registry(amd_tee_registry_client::Error::Starknet(format!("Selector error: {e}"))))?;
+        let selector = get_selector_from_name("get_registry_address").map_err(|e| {
+            Error::Registry(amd_tee_registry_client::Error::Starknet(format!(
+                "Selector error: {e}"
+            )))
+        })?;
 
         let call = FunctionCall {
             contract_address: self.contract_address,
@@ -86,13 +96,19 @@ impl KatanaTeeStarknetClient {
             .provider
             .call(&call, BlockId::Tag(BlockTag::Latest))
             .await
-            .map_err(|e| Error::Registry(amd_tee_registry_client::Error::Starknet(format!("RPC call failed: {e}"))))?;
+            .map_err(|e| {
+                Error::Registry(amd_tee_registry_client::Error::Starknet(format!(
+                    "RPC call failed: {e}"
+                )))
+            })?;
 
         if result.len() != 1 {
-            return Err(Error::Registry(amd_tee_registry_client::Error::Starknet(format!(
-                "Unexpected get_registry_address return length: {}",
-                result.len()
-            ))));
+            return Err(Error::Registry(amd_tee_registry_client::Error::Starknet(
+                format!(
+                    "Unexpected get_registry_address return length: {}",
+                    result.len()
+                ),
+            )));
         }
 
         Ok(result[0])
@@ -109,8 +125,11 @@ impl KatanaTeeStarknetClient {
         block_hash: Felt,
         block_number: u64,
     ) -> Result<Felt, Error> {
-        let selector = get_selector_from_name("verify_and_update_state")
-            .map_err(|e| Error::Registry(amd_tee_registry_client::Error::Starknet(format!("Selector error: {e}"))))?;
+        let selector = get_selector_from_name("verify_and_update_state").map_err(|e| {
+            Error::Registry(amd_tee_registry_client::Error::Starknet(format!(
+                "Selector error: {e}"
+            )))
+        })?;
 
         let mut calldata: Vec<Felt> = Vec::with_capacity(sp1_proof.len() + 4);
         calldata.push(Felt::from(sp1_proof.len() as u64));
@@ -125,11 +144,11 @@ impl KatanaTeeStarknetClient {
             calldata,
         };
 
-        let res = account
-            .execute_v3(vec![call])
-            .send()
-            .await
-            .map_err(|e| Error::Registry(amd_tee_registry_client::Error::Starknet(format!("Transaction send failed: {e}"))))?;
+        let res = account.execute_v3(vec![call]).send().await.map_err(|e| {
+            Error::Registry(amd_tee_registry_client::Error::Starknet(format!(
+                "Transaction send failed: {e}"
+            )))
+        })?;
 
         Ok(res.transaction_hash)
     }

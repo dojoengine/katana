@@ -90,7 +90,6 @@ pub mod AMDTEERegistry {
             )
                 .unwrap_syscall();
 
-
             // Step 2: Deserialize the verification result
             // The verifier returns Result<(verification_key, public_inputs), error>
             let result = Serde::<

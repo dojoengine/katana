@@ -57,7 +57,10 @@ use alloy_primitives::Bytes;
 use amd_sev_snp_attestation_prover::{
     AmdSevSnpProver, ProverConfig as SdkProverConfig, RawProofType, SP1ProverConfig, KDS,
 };
-use amd_sev_snp_attestation_verifier::{stub::{ProcessorType, VerifierInput}, AttestationReport};
+use amd_sev_snp_attestation_verifier::{
+    stub::{ProcessorType, VerifierInput},
+    AttestationReport,
+};
 use std::time::{SystemTime, UNIX_EPOCH};
 use tracing::info;
 use x509_verifier_rust_crypto::CertChain;

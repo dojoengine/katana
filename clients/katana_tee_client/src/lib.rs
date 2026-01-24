@@ -39,11 +39,11 @@ pub mod error;
 pub mod rpc;
 pub mod starknet;
 
-pub use error::Error;
 pub use amd_tee_registry_client::{
     AmdAttestationProver, OnchainProof, ProverConfig, Sp1NetworkBackend, StarknetCalldata,
     StarknetRegistryClient,
 };
+pub use error::Error;
 pub use rpc::KatanaRpcClient;
 
 /// Response from Katana TEE RPC `tee_generateQuote` endpoint.
@@ -81,7 +81,8 @@ impl TeeQuoteResponse {
     ///
     /// Accepts both raw TeeQuoteResponse JSON and JSON-RPC wrapped responses.
     pub fn from_json_file(path: &std::path::Path) -> Result<Self, Error> {
-        let content = std::fs::read_to_string(path).map_err(amd_tee_registry_client::Error::from)?;
+        let content =
+            std::fs::read_to_string(path).map_err(amd_tee_registry_client::Error::from)?;
         Self::from_json_str(&content)
     }
 
@@ -104,7 +105,7 @@ impl TeeQuoteResponse {
     /// Strips the `0x` prefix if present.
     pub fn quote_bytes(&self) -> Result<Vec<u8>, Error> {
         let hex_str = self.quote.strip_prefix("0x").unwrap_or(&self.quote);
-        hex::decode(hex_str).map_err(|e| amd_tee_registry_client::Error::HexDecode(e.to_string()).into())
+        hex::decode(hex_str)
+            .map_err(|e| amd_tee_registry_client::Error::HexDecode(e.to_string()).into())
     }
 }
-
