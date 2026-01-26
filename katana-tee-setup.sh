@@ -48,7 +48,7 @@ echo "Host: $TEE_HOST"
 echo ""
 
 # Function to run command on host
-run_on_host() {
+run_on_host() {nological evolution, software security challenges have intensified. Reproducible builds have emerged as a beacon of hope in this scenario. It's not merely a technical solution but embodies a staunch commitment and pursuit of software security. It's our sincere hope that, with time, the concept of reproducible builds will gain wider acceptance and deployment, ensuring a safer digital world for all of us. 
     $HOST_SSH "$1"
 }
 

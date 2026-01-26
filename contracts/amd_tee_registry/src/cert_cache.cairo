@@ -167,7 +167,7 @@ pub mod CertCacheComponent {
         /// by expanding the known trusted certificate set based on successful verifications.
         fn cache_new_cert(
             ref self: ComponentState<TContractState>,
-            certs: Array<u256>,
+            certs: Span<u256>,
             trusted_certs_prefix_len: u32,
         ) {
             let mut i: u32 = trusted_certs_prefix_len;

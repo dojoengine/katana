@@ -7,11 +7,20 @@ RPC_URL ?= http://185.26.9.157:5050
 
 
 # =============================================================================
+# Setup
+# =============================================================================
+
+# Install git hooks (run once after cloning)
+setup:
+	git config core.hooksPath .githooks
+	@echo "Git hooks installed from .githooks/"
+
+# =============================================================================
 # CLI Commands (using the katana-tee binary)
 # =============================================================================
 
 # Build the CLI
-build: 
+build:
 	cargo build -p katana_tee_client --release
 
 # Fetch attestation from RPC and print to stdout
@@ -93,6 +102,9 @@ pipeline-prove:
 help:
 	@echo "Katana TEE Client - Available Commands"
 	@echo ""
+	@echo "Setup:"
+	@echo "  make setup          - Install git hooks (run once after cloning)"
+	@echo ""
 	@echo "CLI Commands:"
 	@echo "  make build          - Build the CLI"
 	@echo "  make fetch          - Fetch attestation from RPC"
@@ -129,7 +141,7 @@ help:
 	@echo "Example:"
 	@echo "  make prove RPC_URL=http://localhost:5050"
 
-.PHONY: build fetch fetch-save execute prove prove-mock proof-info \
+.PHONY: setup build fetch fetch-save execute prove prove-mock proof-info \
         tee-start tee-stop tee-status tee-test \
         pipeline-test pipeline-prove help \
         test test-rust test-cairo test-e2e test-e2e-reuse test-fork \

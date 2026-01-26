@@ -49,7 +49,7 @@ pub enum ProcessorType {
 // }
 
 /// Verification result status
-#[derive(Drop, Copy, PartialEq, Debug)]
+#[derive(Drop, Copy, PartialEq, Debug, Serde)]
 pub enum VerificationResult {
     /// Verification succeeded
     Success,
@@ -84,7 +84,7 @@ pub struct VerifierInput {
 }
 
 /// Journal output from the verifier
-#[derive(Drop, Debug, PartialEq)]
+#[derive(Drop, Debug, PartialEq, Serde)]
 pub struct VerifierJournal {
     /// Verification result
     pub result: VerificationResult,

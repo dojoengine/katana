@@ -1,6 +1,6 @@
 pub mod katana_report_utils;
+use amd_tee_registry::tee_types::VerifierJournal;
 use starknet::ContractAddress;
-
 /// Interface for the Katana TEE contract.
 #[starknet::interface]
 pub trait IKatanaTee<TContractState> {
@@ -8,7 +8,7 @@ pub trait IKatanaTee<TContractState> {
     /// Returns the public inputs if verification succeeds.
     fn verify_sp1_proof(
         self: @TContractState, sp1_proof: Array<felt252>,
-    ) -> Result<Span<u256>, felt252>;
+    ) -> Result<VerifierJournal, felt252>;
 
     /// Verify proof and update the latest verified sequencer state.
     fn verify_and_update_state(
@@ -31,7 +31,9 @@ pub trait IKatanaTee<TContractState> {
 pub mod KatanaTee {
     use amd_tee_registry::journal_decode::decode_verifier_journal;
     use amd_tee_registry::tee_registry::{IAMDTeeRegistryDispatcher, IAMDTeeRegistryDispatcherTrait};
-    use amd_tee_registry::tee_types::{RawAttestationReport, RawAttestationReportTrait};
+    use amd_tee_registry::tee_types::{
+        RawAttestationReport, RawAttestationReportTrait, VerifierJournal,
+    };
     use starknet::ContractAddress;
     use starknet::storage::{StoragePointerReadAccess, StoragePointerWriteAccess};
     use crate::katana_report_utils::verify_katana_report_data;
@@ -58,7 +60,7 @@ pub mod KatanaTee {
         /// Verify an SP1 proof by forwarding to the AMD TEE Registry.
         fn verify_sp1_proof(
             self: @ContractState, sp1_proof: Array<felt252>,
-        ) -> Result<Span<u256>, felt252> {
+        ) -> Result<VerifierJournal, felt252> {
             let registry = IAMDTeeRegistryDispatcher {
                 contract_address: self.registry_address.read(),
             };
@@ -77,9 +79,8 @@ pub mod KatanaTee {
                 contract_address: self.registry_address.read(),
             };
             match registry.verify_sp1_proof(sp1_proof) {
-                Result::Ok(public_inputs) => {
+                Result::Ok(journal) => {
                     println!("[KatanaTee] SP1 proof ok");
-                    let journal = decode_verifier_journal(public_inputs);
                     let raw_report = RawAttestationReport { raw: journal.raw_report };
                     let report_data = raw_report.report_data();
                     verify_katana_report_data(report_data, state_root, block_hash);
