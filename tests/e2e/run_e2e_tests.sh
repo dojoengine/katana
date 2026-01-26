@@ -299,10 +299,14 @@ generate_multi_block_proofs() {
         local expected_prefix=$( [ $block_num -eq 0 ] && echo '1 (live mode)' || echo '2 (ASK cached)' )
         log "  Expected prefix_len: $expected_prefix"
 
-        # Fetch attestation
-        log "Fetching attestation for block $block_num..."
-        cargo run -p katana_tee_client --release --bin katana-tee -- \
-            fetch --rpc "$KATANA_RPC_URL" --output "$block_dir/attestation.json"
+        # Fetch attestation (skip if reusing proofs and file exists)
+        if [[ "$REUSE_PROOFS" == "true" ]] && [[ -f "$block_dir/attestation.json" ]]; then
+            log "  Reusing existing attestation.json"
+        else
+            log "Fetching attestation for block $block_num..."
+            cargo run -p katana_tee_client --release --bin katana-tee -- \
+                fetch --rpc "$KATANA_RPC_URL" --output "$block_dir/attestation.json"
+        fi
 
         # Build pipeline command
         local pipeline_args=(
