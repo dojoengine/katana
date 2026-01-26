@@ -928,8 +928,7 @@ mod tests {
         state.storage.insert((vrf_account_address, storage_key), nonce);
 
         let chain_id = Felt::from(0x534e5f4d41494e_u128);
-        let seed =
-            compute_vrf_seed(&state, vrf_account_address, &request, chain_id).expect("seed");
+        let seed = compute_vrf_seed(&state, vrf_account_address, &request, chain_id).expect("seed");
 
         let expected = poseidon_hash_many(&[nonce, source.0, caller.0, chain_id]);
         assert_eq!(seed, expected);
@@ -944,8 +943,7 @@ mod tests {
 
         let state = StubState::default();
         let chain_id = Felt::from(0x534e5f4d41494e_u128);
-        let seed =
-            compute_vrf_seed(&state, vrf_account_address, &request, chain_id).expect("seed");
+        let seed = compute_vrf_seed(&state, vrf_account_address, &request, chain_id).expect("seed");
 
         let expected = poseidon_hash_many(&[salt, caller.0, chain_id]);
         assert_eq!(seed, expected);

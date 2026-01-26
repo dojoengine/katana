@@ -1092,5 +1092,4 @@ mod tests {
             None => env::remove_var("PATH"),
         }
     }
-
 }
