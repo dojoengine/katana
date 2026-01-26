@@ -134,12 +134,10 @@ pub mod AMDTEERegistry {
                         return Result::Err('Root certificate mismatch');
                     }
 
-                    let mut i: usize = 1;
-                    while i < trusted_len {
-                        if !self.cert_cache.is_trusted_intermediate_cert(*certs.at(i)) {
+                    for cert_hash in certs.slice(1, trusted_len - 1) {
+                        if !self.cert_cache.is_trusted_intermediate_cert(*cert_hash) {
                             return Result::Err('Untrusted intermediate cert');
                         }
-                        i += 1;
                     }
 
                     let current_timestamp = get_block_timestamp();

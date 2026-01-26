@@ -87,13 +87,9 @@ pub mod CertCacheComponent {
             assert!(report_certs.len() == processor_models.len(), "Array length mismatch");
 
             let mut results: Array<u8> = array![];
-            let mut i: u32 = 0;
 
-            while i < report_certs.len() {
-                let certs = *report_certs.at(i);
-                let processor_model = *processor_models.at(i);
-                let expected_root_cert = self.root_certs.read(processor_model);
-
+            for (certs, processor_model) in core::iter::zip(report_certs, processor_models) {
+                let expected_root_cert = self.root_certs.read(*processor_model);
                 assert!(expected_root_cert != 0, "Root certificate not set for processor");
                 assert!(
                     *certs.at(0) == expected_root_cert,
@@ -112,7 +108,6 @@ pub mod CertCacheComponent {
                 }
 
                 results.append(trusted_cert_prefix_len);
-                i += 1;
             }
 
             results
@@ -127,13 +122,10 @@ pub mod CertCacheComponent {
         fn initialize_trusted_certs(
             ref self: ComponentState<TContractState>, initialize_trusted_certs: Span<u256>,
         ) {
-            let mut i: u32 = 0;
-            while i < initialize_trusted_certs.len() {
-                let cert_hash = *initialize_trusted_certs.at(i);
-                self.trusted_intermediate_certs.write(cert_hash, true);
-                self.emit(TrustedCertInitialized { cert_hash });
-                i += 1;
-            };
+            for cert_hash in initialize_trusted_certs {
+                self.trusted_intermediate_certs.write(*cert_hash, true);
+                self.emit(TrustedCertInitialized { cert_hash: *cert_hash });
+            }
         }
 
         /// Set the trusted root certificate hash for a specific processor model
@@ -170,13 +162,12 @@ pub mod CertCacheComponent {
             certs: Span<u256>,
             trusted_certs_prefix_len: u32,
         ) {
-            let mut i: u32 = trusted_certs_prefix_len;
-            while i < certs.len() {
-                let cert_hash = *certs.at(i);
-                self.trusted_intermediate_certs.write(cert_hash, true);
-                self.emit(CertCached { cert_hash });
-                i += 1;
-            };
+            let new_trusted_certs = certs
+                .slice(trusted_certs_prefix_len, certs.len() - trusted_certs_prefix_len);
+            for cert_hash in new_trusted_certs {
+                self.trusted_intermediate_certs.write(*cert_hash, true);
+                self.emit(CertCached { cert_hash: *cert_hash });
+            }
         }
     }
 }
