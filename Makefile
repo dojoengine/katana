@@ -160,6 +160,7 @@ test-rust:
 	cargo test --all-targets
 
 test-cairo:
+	@if [ -f .env ]; then set -a && . ./.env && set +a; fi && \
 	snforge test --workspace
 
 
