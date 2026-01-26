@@ -69,3 +69,6 @@ grpc = ["dep:katana-grpc"]
 native = ["katana-executor/native"]
 tee = ["dep:katana-tee", "katana-rpc-api/tee", "katana-rpc-server/tee"]
 tee-snp = ["tee", "katana-tee/snp"]
+
+[dev-dependencies]
+tempfile.workspace = true
