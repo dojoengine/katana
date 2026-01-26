@@ -88,8 +88,8 @@ RUN cd ovmf && \
     sed -i '/linuxefi/d' OvmfPkg/AmdSev/Grub/grub.sh && \
     sed -i '/sevsecret/d' OvmfPkg/AmdSev/Grub/grub.sh
 
-# Build BaseTools
-RUN cd ovmf && make -C BaseTools -j$(nproc)
+# Build BaseTools (skip tests - they require 'python' symlink)
+RUN cd ovmf && make -C BaseTools/Source/C -j$(nproc)
 
 # Build AMD SEV-specific OVMF (AmdSevX64.dsc)
 # This includes:

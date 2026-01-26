@@ -81,18 +81,19 @@ cp "$OUTPUT_DIR/katana-binary" "$REPO_ROOT/katana-binary"
 docker build \
     -f vm-image.Dockerfile \
     --build-arg SOURCE_DATE_EPOCH="$SOURCE_DATE_EPOCH" \
+    --target initrd-builder \
     -t katana-vm-image \
     .
 
 # Clean up temporary binary
 rm -f "$REPO_ROOT/katana-binary"
 
-# Extract VM image components
+# Extract from initrd-builder stage
 VM_CONTAINER=$(docker create katana-vm-image)
-docker cp "$VM_CONTAINER:/output/vmlinuz" "$OUTPUT_DIR/vmlinuz"
-docker cp "$VM_CONTAINER:/output/initrd.img" "$OUTPUT_DIR/initrd.img"
-docker cp "$VM_CONTAINER:/output/ovmf.fd" "$OUTPUT_DIR/ovmf.fd"
-docker cp "$VM_CONTAINER:/output/build-info.txt" "$OUTPUT_DIR/build-info.txt"
+docker cp "$VM_CONTAINER:/components/vmlinuz" "$OUTPUT_DIR/vmlinuz"
+docker cp "$VM_CONTAINER:/components/initrd.img" "$OUTPUT_DIR/initrd.img"
+docker cp "$VM_CONTAINER:/components/ovmf.fd" "$OUTPUT_DIR/ovmf.fd"
+docker cp "$VM_CONTAINER:/components/build-info.txt" "$OUTPUT_DIR/build-info.txt"
 docker rm "$VM_CONTAINER"
 
 # Add katana info to build-info.txt
