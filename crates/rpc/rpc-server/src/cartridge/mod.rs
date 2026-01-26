@@ -785,10 +785,16 @@ fn parse_felt(value: &str) -> Result<Felt, StarknetApiError> {
 
 #[cfg(test)]
 mod tests {
+    use std::collections::HashMap;
     use std::str::FromStr;
 
+    use katana_primitives::contract::{StorageKey, StorageValue};
+    use katana_provider::api::contract::ContractClassProvider;
+    use katana_provider::api::state::{StateProofProvider, StateProvider, StateRootProvider};
+    use katana_provider::ProviderResult;
     use stark_vrf::{generate_public_key, BaseField, ScalarField, StarkVRF};
     use starknet::macros::selector;
+    use starknet_crypto::{pedersen_hash, poseidon_hash_many};
 
     use super::*;
 
@@ -861,5 +867,104 @@ mod tests {
         assert_eq!(call.selector, selector!("submit_random"));
         assert_eq!(call.to, vrf_account_address);
         assert_eq!(call.calldata, expected);
+    }
+
+    #[derive(Default)]
+    struct StubState {
+        storage: HashMap<(ContractAddress, StorageKey), StorageValue>,
+    }
+
+    impl ContractClassProvider for StubState {
+        fn class(
+            &self,
+            _hash: katana_primitives::class::ClassHash,
+        ) -> ProviderResult<Option<katana_primitives::class::ContractClass>> {
+            Ok(None)
+        }
+
+        fn compiled_class_hash_of_class_hash(
+            &self,
+            _hash: katana_primitives::class::ClassHash,
+        ) -> ProviderResult<Option<katana_primitives::class::CompiledClassHash>> {
+            Ok(None)
+        }
+    }
+
+    impl StateRootProvider for StubState {}
+    impl StateProofProvider for StubState {}
+
+    impl StateProvider for StubState {
+        fn nonce(&self, _address: ContractAddress) -> ProviderResult<Option<Felt>> {
+            Ok(None)
+        }
+
+        fn storage(
+            &self,
+            address: ContractAddress,
+            storage_key: StorageKey,
+        ) -> ProviderResult<Option<StorageValue>> {
+            Ok(self.storage.get(&(address, storage_key)).copied())
+        }
+
+        fn class_hash_of_contract(
+            &self,
+            _address: ContractAddress,
+        ) -> ProviderResult<Option<katana_primitives::class::ClassHash>> {
+            Ok(None)
+        }
+    }
+
+    #[test]
+    fn compute_vrf_seed_uses_nonce_storage() {
+        let vrf_account_address = ContractAddress::from(Felt::from(0x100_u128));
+        let caller = CairoContractAddress(Felt::from(0x200_u128));
+        let source = CairoContractAddress(Felt::from(0x300_u128));
+        let request = VrfRequestRandom { caller, source: VrfSource::Nonce(source) };
+
+        let storage_key = pedersen_hash(&selector!("VrfProvider_nonces"), &source.0);
+        let nonce = Felt::from(0x1234_u128);
+
+        let mut state = StubState::default();
+        state.storage.insert((vrf_account_address, storage_key), nonce);
+
+        let chain_id = Felt::from(0x534e5f4d41494e_u128);
+        let seed =
+            compute_vrf_seed(&state, vrf_account_address, &request, chain_id).expect("seed");
+
+        let expected = poseidon_hash_many(&[nonce, source.0, caller.0, chain_id]);
+        assert_eq!(seed, expected);
+    }
+
+    #[test]
+    fn compute_vrf_seed_uses_salt() {
+        let vrf_account_address = ContractAddress::from(Felt::from(0x100_u128));
+        let caller = CairoContractAddress(Felt::from(0x200_u128));
+        let salt = Felt::from(0x999_u128);
+        let request = VrfRequestRandom { caller, source: VrfSource::Salt(salt) };
+
+        let state = StubState::default();
+        let chain_id = Felt::from(0x534e5f4d41494e_u128);
+        let seed =
+            compute_vrf_seed(&state, vrf_account_address, &request, chain_id).expect("seed");
+
+        let expected = poseidon_hash_many(&[salt, caller.0, chain_id]);
+        assert_eq!(seed, expected);
+    }
+
+    #[test]
+    fn parse_felt_accepts_hex_and_decimal() {
+        assert_eq!(parse_felt("0x10").expect("hex"), Felt::from(0x10_u128));
+        assert_eq!(parse_felt("42").expect("decimal"), Felt::from(42_u128));
+    }
+
+    #[test]
+    fn parse_felt_rejects_invalid_strings() {
+        let err = parse_felt("not-a-felt").unwrap_err();
+        match err {
+            StarknetApiError::UnexpectedError(data) => {
+                assert!(data.reason.contains("invalid felt"), "unexpected error: {data:?}");
+            }
+            other => panic!("unexpected error: {other}"),
+        }
     }
 }
