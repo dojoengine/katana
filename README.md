@@ -35,6 +35,23 @@ cp .env.example .env
 
 Edit `.env` and set any RPCs/keys you need. **Do not commit `.env`** (it is gitignored).
 
+### SP1 Prover Network Configuration
+
+To generate proofs via the SP1 network, you need to configure your requester account:
+
+```bash
+# In .env
+NETWORK_ADDRESS=0x...    # Your Secp256k1 requester account address
+NETWORK_PRIVATE_KEY=...  # Your requester account private key
+```
+
+**Setup steps:**
+1. Generate a Secp256k1 key pair (e.g., via `cast wallet new` or Metamask)
+2. Acquire PROVE tokens on Ethereum Mainnet
+3. Deposit PROVE into the Succinct Prover Network via the [Explorer](https://explorer.succinct.xyz)
+
+For detailed instructions, see the [Succinct Prover Network Quickstart](https://docs.succinct.xyz/docs/sp1/prover-network/quickstart).
+
 ## One-command full test suite
 
 ```bash
