@@ -94,6 +94,9 @@ docker cp "$VM_CONTAINER:/components/vmlinuz" "$OUTPUT_DIR/vmlinuz"
 docker cp "$VM_CONTAINER:/components/initrd.img" "$OUTPUT_DIR/initrd.img"
 docker cp "$VM_CONTAINER:/components/ovmf.fd" "$OUTPUT_DIR/ovmf.fd"
 docker cp "$VM_CONTAINER:/components/build-info.txt" "$OUTPUT_DIR/build-info.txt"
+# Copy OVMF CODE and VARS if they exist (for split pflash usage)
+docker cp "$VM_CONTAINER:/ovmf-output/ovmf_code.fd" "$OUTPUT_DIR/ovmf_code.fd" 2>/dev/null || true
+docker cp "$VM_CONTAINER:/ovmf-output/ovmf_vars.fd" "$OUTPUT_DIR/ovmf_vars.fd" 2>/dev/null || true
 docker rm "$VM_CONTAINER"
 
 # Add katana info to build-info.txt

@@ -1,13 +1,12 @@
-# VM Image Dockerfile for Katana TEE (AMD SEV-SNP Attestation Build)
+# VM Image Dockerfile for Katana TEE (AMD SEV-SNP)
 #
-# Creates reproducible boot components using AMD's OVMF fork with SEV-specific
-# attestation features for Katana in AMD SEV-SNP TEEs.
+# Creates reproducible boot components for Katana in AMD SEV-SNP TEEs.
+# Uses standard OVMF with SEV-SNP support for direct kernel boot.
 #
-# Key differences from standard OVMF:
-# - SecretPei/SecretDxe: SEV secret injection support
-# - BlobVerifierLibSevHashes: Hash-based blob verification
-# - Embedded GRUB with LUKS/cryptodisk support
-# - SNP-specific memory layout and work areas
+# Key features:
+# - Direct kernel boot (kernel, initrd, cmdline in SNP measurement)
+# - SEV/SEV-ES/SEV-SNP support via QemuKernelLoaderFsDxe
+# - No embedded GRUB (simpler boot path)
 #
 # Usage:
 #   docker build -f vm-image.Dockerfile \
@@ -55,7 +54,7 @@ ENV SOURCE_DATE_EPOCH=${SOURCE_DATE_EPOCH} \
     TZ=UTC \
     LANG=C.UTF-8
 
-# Install EDK2 build dependencies + GRUB tools for AmdSevX64 prebuild
+# Install EDK2 build dependencies
 RUN apt-get update && apt-get install -y --no-install-recommends \
     build-essential \
     git \
@@ -65,11 +64,6 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
     iasl \
     nasm \
     ca-certificates \
-    # Required for AmdSev GRUB prebuild (grub.sh)
-    grub-efi-amd64-bin \
-    grub2-common \
-    dosfstools \
-    mtools \
     && rm -rf /var/lib/apt/lists/*
 
 WORKDIR /build
@@ -81,44 +75,38 @@ RUN git clone --single-branch -b ${OVMF_BRANCH} --depth 100 \
     if [ -n "${OVMF_COMMIT}" ]; then git checkout ${OVMF_COMMIT}; fi && \
     git submodule update --init --recursive
 
-# Patch grub.sh to remove GRUB modules not available in Ubuntu 24.04:
-# - linuxefi: deprecated, merged into linux module in GRUB 2.12+
-# - sevsecret: not included in Ubuntu's grub-efi-amd64-bin package
-RUN cd ovmf && \
-    sed -i '/linuxefi/d' OvmfPkg/AmdSev/Grub/grub.sh && \
-    sed -i '/sevsecret/d' OvmfPkg/AmdSev/Grub/grub.sh
-
 # Build BaseTools (skip tests - they require 'python' symlink)
 RUN cd ovmf && make -C BaseTools/Source/C -j$(nproc)
 
-# Build AMD SEV-specific OVMF (AmdSevX64.dsc)
-# This includes:
-# - SecretPei/SecretDxe for SEV secret injection
-# - BlobVerifierLibSevHashes for attestation
-# - Embedded GRUB with LUKS/cryptodisk support
-# - SNP-specific memory regions (GHCB, secrets page, CPUID page)
+# Build standard OVMF with SEV-SNP support (OvmfPkgX64.dsc)
+# This build:
+# - Supports direct kernel boot via QemuKernelLoaderFsDxe
+# - Has SEV/SEV-ES/SEV-SNP support
+# - No embedded GRUB (unlike AmdSevX64.dsc)
+# - Kernel, initrd, and cmdline are included in SNP launch measurement
 RUN cd ovmf && \
     . ./edksetup.sh && \
     build -q --cmd-len=64436 \
     -n $(nproc) \
     -t GCC5 \
     -a X64 \
-    -p OvmfPkg/AmdSev/AmdSevX64.dsc \
+    -p OvmfPkg/OvmfPkgX64.dsc \
+    -D SMM_REQUIRE=FALSE \
+    -D TPM_ENABLE=FALSE \
     -b RELEASE
 
 # Copy built artifacts
-# AmdSev build outputs to Build/AmdSev/
 RUN mkdir -p /output && \
-    cp /build/ovmf/Build/AmdSev/RELEASE_GCC5/FV/OVMF.fd /output/ovmf.fd && \
-    cp /build/ovmf/Build/AmdSev/RELEASE_GCC5/FV/OVMF_CODE.fd /output/ovmf_code.fd 2>/dev/null || true && \
-    cp /build/ovmf/Build/AmdSev/RELEASE_GCC5/FV/OVMF_VARS.fd /output/ovmf_vars.fd 2>/dev/null || true
+    cp /build/ovmf/Build/OvmfX64/RELEASE_GCC5/FV/OVMF.fd /output/ovmf.fd && \
+    cp /build/ovmf/Build/OvmfX64/RELEASE_GCC5/FV/OVMF_CODE.fd /output/ovmf_code.fd && \
+    cp /build/ovmf/Build/OvmfX64/RELEASE_GCC5/FV/OVMF_VARS.fd /output/ovmf_vars.fd
 
 # Record build info for reproducibility
 RUN cd /build/ovmf && \
     echo "OVMF_COMMIT=$(git rev-parse HEAD)" > /output/build-info.txt && \
     echo "OVMF_BRANCH=${OVMF_BRANCH}" >> /output/build-info.txt && \
     echo "BUILD_DATE=$(date -u +%Y-%m-%dT%H:%M:%SZ)" >> /output/build-info.txt && \
-    echo "DSC=OvmfPkg/AmdSev/AmdSevX64.dsc" >> /output/build-info.txt
+    echo "DSC=OvmfPkg/OvmfPkgX64.dsc" >> /output/build-info.txt
 
 # =============================================================================
 # Stage 3: Extract packages and prepare components
