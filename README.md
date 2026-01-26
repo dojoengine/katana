@@ -6,11 +6,14 @@ This repository contains:
 
 ## Repository layout
 
-- `contracts/amd_tee_registry`: primary verifier contract + tests
-- `contracts/katana_tee`: downstream contract + tests
-- `clients/amd_tee_registry_client`: Rust proof + calldata tooling
-- `clients/katana_tee_client`: Rust RPC + pipeline CLI
-- `tests/`: deployment + E2E scripts and fixtures
+- `contracts/amd_tee_registry/` - AMD TEE registry verifier contract + tests
+- `contracts/katana_tee/` - Katana TEE contract (uses registry) + tests
+- `contracts/scripts/` - Deployment scripts (sncast)
+- `clients/amd_tee_registry_client/` - Core proving library (Rust)
+- `clients/katana_tee_client/` - CLI + Starknet integration (Rust)
+- `crates/` - Git submodules (AMD SDK, Katana, Starknet, Garaga)
+- `tests/e2e/` - End-to-end test scripts
+- `tests/fixtures/` - Test fixtures (attestations, proofs, root certs)
 
 ## Prerequisites
 
@@ -32,7 +35,7 @@ cp .env.example .env
 
 Edit `.env` and set any RPCs/keys you need. **Do not commit `.env`** (it is gitignored).
 
-## One-command full test suite (client verification)
+## One-command full test suite
 
 ```bash
 make test
@@ -40,9 +43,14 @@ make test
 
 This runs:
 - Rust tests (`cargo test --all-targets`)
-- Cairo tests across the workspace (`snforge test --workspace`)
-- Deployment integration (`tests/deployment/run_integration_tests.sh`)
-- E2E fixture mode (`tests/e2e/run_e2e_tests.sh --fixture`)
+- Cairo tests (`snforge test --workspace`)
+- E2E tests (`tests/e2e/run_e2e_tests.sh`)
+
+To reuse existing proofs (skip SP1 network, faster):
+
+```bash
+make test-e2e-reuse
+```
 
 ## Delivery verification checklist
 
@@ -55,6 +63,55 @@ This runs:
 ```bash
 make test-fork   # fork-based Cairo tests (requires MAINNET_RPC_URL)
 make e2e-live    # live E2E (requires TEE access + SP1 prover network)
+```
+
+## CLI Reference
+
+The `katana-tee` CLI provides all client functionality:
+
+| Command | Description |
+|---------|-------------|
+| `fetch` | Fetch TEE attestation from Katana RPC |
+| `execute` | Execute SP1 program in mock mode (fast) |
+| `prove` | Generate SP1 Groth16 proof |
+| `pipeline` | Full pipeline: fetch → prove → calldata → submit |
+| `calldata` | Generate Starknet calldata from proof file |
+| `info` | Display proof file details |
+| `fetch-root-certs` | Fetch AMD root certificates from KDS |
+| `generate-cairo-fixtures` | Generate Cairo test fixtures from proofs |
+
+```bash
+# Build the CLI
+cargo build -p katana_tee_client --release
+
+# Get help
+katana-tee --help
+katana-tee prove --help
+```
+
+## Makefile Targets
+
+For quick access to common operations:
+
+```bash
+# Full help
+make help
+
+# Common targets
+make test              # Full test suite (rust + cairo + e2e)
+make test-e2e-reuse    # E2E with existing proofs (fast)
+make test-fork         # Fork-based Cairo tests (needs MAINNET_RPC_URL)
+
+make fetch             # Fetch attestation from RPC
+make prove             # Generate Groth16 proof via SP1 network
+make prove-mock        # Generate mock proof (testing)
+
+make tee-start         # Start TEE VM
+make tee-stop          # Stop TEE VM
+make tee-status        # Check TEE VM status
+
+make generate-cairo-fixtures  # Regenerate Cairo fixtures from proofs
+make fetch-root-certs         # Fetch AMD root certs from KDS
 ```
 
 ## Local devnet (fork mainnet)
@@ -76,21 +133,24 @@ This will: fetch quote → query cache → prove → calldata → invoke `katana
 ```bash
 cargo run -p katana_tee_client --bin katana-tee -- pipeline \
   --rpc http://localhost:5050 \
-  --starknet-rpc http://localhost:5050 \
-  --katana-tee 0x<katana_tee_contract_address> \
+  --registry 0x<amd_tee_registry_address> \
+  --katana-tee 0x<katana_tee_address> \
   --account-address 0x<starknet_account_address> \
-  --account-private-key 0x<starknet_account_private_key>
+  --account-private-key 0x<starknet_private_key>
 ```
 
-To only generate proof + calldata (no tx):
+To only generate proof + calldata (no transaction):
 
 ```bash
 cargo run -p katana_tee_client --bin katana-tee -- pipeline \
   --rpc http://localhost:5050 \
-  --katana-tee 0x<katana_tee_contract_address> \
+  --registry 0x<amd_tee_registry_address> \
+  --katana-tee 0x<katana_tee_address> \
   --dry-run \
-  --calldata-output proof_calldata.txt
+  --calldata-output calldata.txt
 ```
+
+For all CLI options, run `katana-tee --help` or `katana-tee <subcommand> --help`.
 
 ## Remote TEE VM helper
 
