@@ -1013,3 +1013,84 @@ fn vrf_consumer_class_hash() -> Result<Felt> {
     )))?;
     class.class_hash().context("failed to compute vrf consumer class hash")
 }
+
+#[cfg(test)]
+mod tests {
+    use std::env;
+    use std::path::Path;
+    use std::sync::Mutex;
+
+    use katana_primitives::chain::{ChainId, NamedChainId};
+    use katana_primitives::Felt;
+    use tempfile::tempdir;
+
+    use super::{
+        local_rpc_url, paymaster_chain_id, resolve_executable, vrf_secret_key_from_account_key,
+    };
+
+    static ENV_MUTEX: Mutex<()> = Mutex::new(());
+
+    #[test]
+    fn vrf_secret_key_uses_low_64_bits() {
+        let mut bytes = [0_u8; 32];
+        for (i, byte) in bytes.iter_mut().enumerate() {
+            *byte = i as u8;
+        }
+
+        let felt = Felt::from_bytes_be(&bytes);
+        let secret = vrf_secret_key_from_account_key(felt);
+
+        assert_eq!(secret, 0x18191a1b1c1d1e1f);
+    }
+
+    #[test]
+    fn local_rpc_url_rewrites_unspecified_host() {
+        let addr: std::net::SocketAddr = "0.0.0.0:5050".parse().expect("socket addr");
+        let url = local_rpc_url(&addr);
+        assert_eq!(url.as_str(), "http://127.0.0.1:5050/");
+    }
+
+    #[test]
+    fn paymaster_chain_id_rejects_unknown_chain() {
+        let err = paymaster_chain_id(ChainId::Named(NamedChainId::Goerli)).unwrap_err();
+        assert!(
+            err.to_string().contains("only supports SN_MAIN or SN_SEPOLIA"),
+            "unexpected error: {err}"
+        );
+    }
+
+    #[test]
+    fn resolve_executable_with_explicit_path() {
+        let dir = tempdir().expect("tempdir");
+        let bin_path = dir.path().join("sidecar-bin");
+        std::fs::write(&bin_path, "binary").expect("write bin");
+
+        let resolved = resolve_executable(&bin_path).expect("resolve path");
+        assert_eq!(resolved, bin_path);
+    }
+
+    #[test]
+    fn resolve_executable_searches_path() {
+        let _guard = ENV_MUTEX.lock().expect("env mutex");
+        let dir = tempdir().expect("tempdir");
+        let bin_path = dir.path().join("sidecar-bin");
+        std::fs::write(&bin_path, "binary").expect("write bin");
+
+        let old_path = env::var_os("PATH");
+        let mut paths = vec![dir.path().to_path_buf()];
+        if let Some(old) = old_path.as_ref() {
+            paths.extend(env::split_paths(old));
+        }
+        let new_path = env::join_paths(paths).expect("join paths");
+        env::set_var("PATH", &new_path);
+
+        let resolved = resolve_executable(Path::new("sidecar-bin")).expect("resolve path search");
+        assert_eq!(resolved, bin_path);
+
+        match old_path {
+            Some(value) => env::set_var("PATH", value),
+            None => env::remove_var("PATH"),
+        }
+    }
+
+}
