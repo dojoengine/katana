@@ -1,35 +1,22 @@
-# VM Image Dockerfile for Katana TEE
+# VM Image Dockerfile for Katana TEE (AMD SEV-SNP Attestation Build)
 #
-# Creates reproducible boot components for Katana in AMD SEV-SNP TEEs using direct kernel boot.
-# Direct kernel boot ensures the kernel, initrd (containing Katana), and cmdline are included
-# in the SEV-SNP launch measurement, preventing binary replacement attacks.
+# Creates reproducible boot components using AMD's OVMF fork with SEV-specific
+# attestation features for Katana in AMD SEV-SNP TEEs.
 #
-# Produces: vmlinuz, initrd.img, ovmf.fd
+# Key differences from standard OVMF:
+# - SecretPei/SecretDxe: SEV secret injection support
+# - BlobVerifierLibSevHashes: Hash-based blob verification
+# - Embedded GRUB with LUKS/cryptodisk support
+# - SNP-specific memory layout and work areas
 #
 # Usage:
 #   docker build -f vm-image.Dockerfile \
 #     --build-arg SOURCE_DATE_EPOCH=$(git log -1 --format=%ct) \
-#     --build-arg KATANA_BINARY=./katana \
 #     -t katana-vm-image .
-#
-# Extract artifacts:
-#   docker create --name vm katana-vm-image
-#   docker cp vm:/output/vmlinuz ./vmlinuz
-#   docker cp vm:/output/initrd.img ./initrd.img
-#   docker cp vm:/output/ovmf.fd ./ovmf.fd
-#   docker rm vm
-#
-# Boot with QEMU (direct kernel boot):
-#   qemu-system-x86_64 -m 4G -smp 4 \
-#     -bios ovmf.fd \
-#     -kernel vmlinuz \
-#     -initrd initrd.img \
-#     -append "console=ttyS0 katana.args=--http.addr=0.0.0.0" \
-#     -cpu EPYC-v4 \
-#     -machine q35,confidential-guest-support=sev0 \
-#     -object sev-snp-guest,id=sev0,cbitpos=51,reduced-phys-bits=1
 
-# Stage 1: Download pinned Ubuntu packages
+# =============================================================================
+# Stage 1: Download pinned Ubuntu packages (kernel, busybox)
+# =============================================================================
 FROM ubuntu:24.04@sha256:c35e29c9450151419d9448b0fd75374fec4fff364a27f176fb458d472dfc9e54 AS package-fetcher
 
 ARG SOURCE_DATE_EPOCH
@@ -40,31 +27,102 @@ ENV SOURCE_DATE_EPOCH=${SOURCE_DATE_EPOCH} \
 
 RUN test -n "$SOURCE_DATE_EPOCH" || (echo "ERROR: SOURCE_DATE_EPOCH build arg is required" && exit 1)
 
-# Install minimal tools for downloading packages
 RUN apt-get update && apt-get install -y --no-install-recommends \
     ca-certificates \
     wget \
     && rm -rf /var/lib/apt/lists/*
 
-# Download current available package versions using apt-get
-# This ensures we get working versions; versions will be documented in build output
 WORKDIR /packages
-
-# Update package lists
 RUN apt-get update
 
-# Download packages (using apt-get download gets current versions)
-RUN apt-get download linux-image-generic ovmf busybox-static cpio && \
+# Download kernel and busybox (OVMF built from AMD source)
+RUN apt-get download linux-image-generic busybox-static cpio && \
     KERNEL_VER=$(ls linux-image-generic_*.deb | grep -oP '[0-9]+\.[0-9]+\.[0-9]+-[0-9]+' | head -1) && \
     apt-get download linux-image-unsigned-${KERNEL_VER}-generic
 
-# List downloaded packages for documentation
-RUN ls -lh *.deb
+RUN ls -lh *.deb && rm -rf /var/lib/apt/lists/*
 
-# Clean up
-RUN rm -rf /var/lib/apt/lists/*
+# =============================================================================
+# Stage 2: Build AMD SEV-specific OVMF from source
+# =============================================================================
+FROM ubuntu:24.04@sha256:c35e29c9450151419d9448b0fd75374fec4fff364a27f176fb458d472dfc9e54 AS ovmf-builder
 
-# Stage 2: Extract packages and prepare components
+ARG SOURCE_DATE_EPOCH
+ARG OVMF_BRANCH=snp-latest
+ARG OVMF_COMMIT=fbe0805b2091393406952e84724188f8c1941837
+ENV SOURCE_DATE_EPOCH=${SOURCE_DATE_EPOCH} \
+    DEBIAN_FRONTEND=noninteractive \
+    TZ=UTC \
+    LANG=C.UTF-8
+
+# Install EDK2 build dependencies + GRUB tools for AmdSevX64 prebuild
+RUN apt-get update && apt-get install -y --no-install-recommends \
+    build-essential \
+    git \
+    python3 \
+    python3-venv \
+    uuid-dev \
+    iasl \
+    nasm \
+    ca-certificates \
+    # Required for AmdSev GRUB prebuild (grub.sh)
+    grub-efi-amd64-bin \
+    grub2-common \
+    dosfstools \
+    mtools \
+    && rm -rf /var/lib/apt/lists/*
+
+WORKDIR /build
+
+# Clone AMD's OVMF fork with SEV-SNP support
+RUN git clone --single-branch -b ${OVMF_BRANCH} --depth 100 \
+    https://github.com/AMDESE/ovmf.git ovmf && \
+    cd ovmf && \
+    if [ -n "${OVMF_COMMIT}" ]; then git checkout ${OVMF_COMMIT}; fi && \
+    git submodule update --init --recursive
+
+# Patch grub.sh to remove GRUB modules not available in Ubuntu 24.04:
+# - linuxefi: deprecated, merged into linux module in GRUB 2.12+
+# - sevsecret: not included in Ubuntu's grub-efi-amd64-bin package
+RUN cd ovmf && \
+    sed -i '/linuxefi/d' OvmfPkg/AmdSev/Grub/grub.sh && \
+    sed -i '/sevsecret/d' OvmfPkg/AmdSev/Grub/grub.sh
+
+# Build BaseTools
+RUN cd ovmf && make -C BaseTools -j$(nproc)
+
+# Build AMD SEV-specific OVMF (AmdSevX64.dsc)
+# This includes:
+# - SecretPei/SecretDxe for SEV secret injection
+# - BlobVerifierLibSevHashes for attestation
+# - Embedded GRUB with LUKS/cryptodisk support
+# - SNP-specific memory regions (GHCB, secrets page, CPUID page)
+RUN cd ovmf && \
+    . ./edksetup.sh && \
+    build -q --cmd-len=64436 \
+    -n $(nproc) \
+    -t GCC5 \
+    -a X64 \
+    -p OvmfPkg/AmdSev/AmdSevX64.dsc \
+    -b RELEASE
+
+# Copy built artifacts
+# AmdSev build outputs to Build/AmdSev/
+RUN mkdir -p /output && \
+    cp /build/ovmf/Build/AmdSev/RELEASE_GCC5/FV/OVMF.fd /output/ovmf.fd && \
+    cp /build/ovmf/Build/AmdSev/RELEASE_GCC5/FV/OVMF_CODE.fd /output/ovmf_code.fd 2>/dev/null || true && \
+    cp /build/ovmf/Build/AmdSev/RELEASE_GCC5/FV/OVMF_VARS.fd /output/ovmf_vars.fd 2>/dev/null || true
+
+# Record build info for reproducibility
+RUN cd /build/ovmf && \
+    echo "OVMF_COMMIT=$(git rev-parse HEAD)" > /output/build-info.txt && \
+    echo "OVMF_BRANCH=${OVMF_BRANCH}" >> /output/build-info.txt && \
+    echo "BUILD_DATE=$(date -u +%Y-%m-%dT%H:%M:%SZ)" >> /output/build-info.txt && \
+    echo "DSC=OvmfPkg/AmdSev/AmdSevX64.dsc" >> /output/build-info.txt
+
+# =============================================================================
+# Stage 3: Extract packages and prepare components
+# =============================================================================
 FROM ubuntu:24.04@sha256:c35e29c9450151419d9448b0fd75374fec4fff364a27f176fb458d472dfc9e54 AS component-builder
 
 ARG SOURCE_DATE_EPOCH
@@ -73,7 +131,6 @@ ENV SOURCE_DATE_EPOCH=${SOURCE_DATE_EPOCH} \
     TZ=UTC \
     LANG=C.UTF-8
 
-# Install tools needed for extraction and image building
 RUN apt-get update && apt-get install -y --no-install-recommends \
     dpkg \
     cpio \
@@ -81,58 +138,48 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
     findutils \
     && rm -rf /var/lib/apt/lists/*
 
-# Copy downloaded packages
 COPY --from=package-fetcher /packages /packages
+COPY --from=ovmf-builder /output /ovmf-output
 
-# Extract packages
 WORKDIR /extracted
 
-# Extract OVMF
-RUN dpkg-deb -x /packages/ovmf_*.deb /extracted
+# Extract kernel
+RUN dpkg-deb -x /packages/linux-image-unsigned-*.deb /extracted && \
+    dpkg-deb -x /packages/linux-image-generic_*.deb /extracted
 
-# Extract kernel packages
-RUN dpkg-deb -x /packages/linux-image-unsigned-*.deb /extracted
-RUN dpkg-deb -x /packages/linux-image-generic_*.deb /extracted
-
-# Extract busybox-static
+# Extract busybox
 RUN dpkg-deb -x /packages/busybox-static_*.deb /extracted
 
-# Copy Katana binary from build context
-# For now using regular COPY (build-context requires BuildKit)
+# Copy Katana binary
 COPY katana-binary /katana-binary
 RUN chmod +x /katana-binary
 
-# Debug: Show what was extracted
-RUN echo "=== Extracted structure ===" && \
-    find /extracted -name "*.fd" -o -name "vmlinuz*" -o -name "busybox" | head -20
-
-# Organize extracted files
+# Organize components
 RUN mkdir -p /components && \
-    cp /extracted/usr/share/OVMF/OVMF_CODE_4M.fd /components/ovmf.fd && \
+    cp /ovmf-output/ovmf.fd /components/ovmf.fd && \
     cp /extracted/boot/vmlinuz-* /components/vmlinuz && \
     cp /extracted/usr/bin/busybox /components/busybox && \
-    cp /katana-binary /components/katana
+    cp /katana-binary /components/katana && \
+    cp /ovmf-output/build-info.txt /components/
 
-# Stage 3: Build initrd
+# =============================================================================
+# Stage 4: Build initrd
+# =============================================================================
 FROM component-builder AS initrd-builder
 
-# Copy initrd build script
 COPY tee/scripts/create-initrd.sh /scripts/create-initrd.sh
 RUN chmod +x /scripts/create-initrd.sh
 
-# Build initrd with Katana embedded
 WORKDIR /build
 RUN /scripts/create-initrd.sh /components/katana /build/initrd.img && \
     cp /build/initrd.img /components/initrd.img
 
-# Stage 4: Final output stage
+# =============================================================================
+# Stage 5: Final output
+# =============================================================================
 FROM scratch AS final
 
-# Export boot components for direct kernel boot
-# These three files contain everything needed for measured boot:
-# - ovmf.fd: UEFI firmware (measured)
-# - vmlinuz: Linux kernel (measured)
-# - initrd.img: Contains Katana binary + minimal init (measured)
 COPY --from=initrd-builder /components/vmlinuz /output/vmlinuz
 COPY --from=initrd-builder /components/ovmf.fd /output/ovmf.fd
 COPY --from=initrd-builder /components/initrd.img /output/initrd.img
+COPY --from=initrd-builder /components/build-info.txt /output/build-info.txt
