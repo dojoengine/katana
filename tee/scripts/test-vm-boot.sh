@@ -4,8 +4,7 @@ set -euo pipefail
 # Test VM Boot with QEMU
 # Boots the Katana VM image and validates it works correctly
 
-OVMF=${1:-output/ovmf.fd}
-DISK=${2:-output/disk.raw}
+OVMF=${1:-tee/output/ovmf.fd}
 TIMEOUT=${3:-60}
 MEMORY=${4:-4G}
 VCPUS=${5:-4}
@@ -17,7 +16,6 @@ echo "=========================================="
 echo "Katana VM Boot Test"
 echo "=========================================="
 echo "OVMF:    $OVMF"
-echo "Disk:    $DISK"
 echo "Memory:  $MEMORY"
 echo "VCPUs:   $VCPUS"
 echo "Timeout: ${TIMEOUT}s"
@@ -30,10 +28,6 @@ if [[ ! -f "$OVMF" ]]; then
     exit 1
 fi
 
-if [[ ! -f "$DISK" ]]; then
-    echo "ERROR: Disk image not found: $DISK"
-    exit 1
-fi
 
 # Check if QEMU is installed
 if ! command -v qemu-system-x86_64 &> /dev/null; then
@@ -47,8 +41,8 @@ echo ""
 
 # Create a working copy of the disk (QEMU will modify it)
 WORK_DIR=$(mktemp -d)
-WORK_DISK="$WORK_DIR/disk.raw"
-cp "$DISK" "$WORK_DISK"
+# WORK_DISK="$WORK_DIR/disk.raw"
+# cp "$DISK" "$WORK_DISK"
 
 # Cleanup function
 cleanup() {
@@ -80,8 +74,8 @@ echo ""
 /usr/bin/qemu-system-x86_64 \
     -m "$MEMORY" \
     -smp "$VCPUS" \
-    -kernel "$PROJECT_ROOT/output/vmlinuz" \
-    -initrd "$PROJECT_ROOT/output/initrd.img" \
+    -kernel "$PROJECT_ROOT/tee/output/vmlinuz" \
+    -initrd "$PROJECT_ROOT/tee/output/initrd.img" \
     -append "console=ttyS0" \
     -nographic \
     -serial file:"$SERIAL_LOG" \
@@ -96,7 +90,7 @@ sleep 2
 
 if ! kill -0 "$QEMU_PID" 2>/dev/null; then
     echo "ERROR: QEMU failed to start or exited immediately"
-    cat "$SERIAL_LOG" 2>/dev/null || echo "(no serial output)"
+    cat "$SERIAL_LOG"
     exit 1
 fi
 
