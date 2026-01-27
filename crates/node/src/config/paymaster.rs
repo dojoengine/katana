@@ -30,6 +30,7 @@ pub struct PaymasterConfig {
     pub prefunded_index: u16,
     pub sidecar_port: u16,
     pub sidecar_bin: Option<PathBuf>,
+    #[cfg(feature = "cartridge")]
     pub cartridge_api_url: Option<Url>,
 }
 
