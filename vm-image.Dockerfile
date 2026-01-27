@@ -1,12 +1,13 @@
 # VM Image Dockerfile for Katana TEE (AMD SEV-SNP)
 #
 # Creates reproducible boot components for Katana in AMD SEV-SNP TEEs.
-# Uses standard OVMF with SEV-SNP support for direct kernel boot.
+# Uses AMD's OVMF fork with SEV-SNP specific features.
 #
 # Key features:
-# - Direct kernel boot (kernel, initrd, cmdline in SNP measurement)
-# - SEV/SEV-ES/SEV-SNP support via QemuKernelLoaderFsDxe
-# - No embedded GRUB (simpler boot path)
+# - SNP_KERNEL_HASHES section for kernel/initrd attestation measurement
+# - BlobVerifierLibSevHashes for hash-based blob verification
+# - Direct kernel boot with hashes included in SNP launch measurement
+# - Patched GRUB config for non-encrypted boot
 #
 # Usage:
 #   docker build -f vm-image.Dockerfile \
@@ -34,10 +35,11 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
 WORKDIR /packages
 RUN apt-get update
 
-# Download kernel and busybox (OVMF built from AMD source)
-RUN apt-get download linux-image-generic busybox-static cpio && \
+# Download kernel, modules, and busybox (OVMF built from AMD source)
+# linux-modules-extra-* contains sev-guest.ko and tsm.ko for SEV-SNP attestation
+RUN apt-get download linux-image-generic busybox-static cpio zstd && \
     KERNEL_VER=$(ls linux-image-generic_*.deb | grep -oP '[0-9]+\.[0-9]+\.[0-9]+-[0-9]+' | head -1) && \
-    apt-get download linux-image-unsigned-${KERNEL_VER}-generic
+    apt-get download linux-image-unsigned-${KERNEL_VER}-generic linux-modules-extra-${KERNEL_VER}-generic
 
 RUN ls -lh *.deb && rm -rf /var/lib/apt/lists/*
 
@@ -54,7 +56,7 @@ ENV SOURCE_DATE_EPOCH=${SOURCE_DATE_EPOCH} \
     TZ=UTC \
     LANG=C.UTF-8
 
-# Install EDK2 build dependencies
+# Install EDK2 build dependencies + GRUB tools for AmdSevX64 prebuild
 RUN apt-get update && apt-get install -y --no-install-recommends \
     build-essential \
     git \
@@ -64,6 +66,10 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
     iasl \
     nasm \
     ca-certificates \
+    grub-efi-amd64-bin \
+    grub2-common \
+    dosfstools \
+    mtools \
     && rm -rf /var/lib/apt/lists/*
 
 WORKDIR /build
@@ -75,38 +81,50 @@ RUN git clone --single-branch -b ${OVMF_BRANCH} --depth 100 \
     if [ -n "${OVMF_COMMIT}" ]; then git checkout ${OVMF_COMMIT}; fi && \
     git submodule update --init --recursive
 
+# Patch grub.sh to remove GRUB modules not available in Ubuntu 24.04:
+# - linuxefi: deprecated, merged into linux module in GRUB 2.12+
+# - sevsecret: not included in Ubuntu's grub-efi-amd64-bin package
+RUN cd ovmf && \
+    sed -i '/linuxefi/d' OvmfPkg/AmdSev/Grub/grub.sh && \
+    sed -i '/sevsecret/d' OvmfPkg/AmdSev/Grub/grub.sh
+
+# Patch grub.cfg to support direct kernel boot (skip SEV secret/encrypted disk)
+# The original config expects sevsecret command and encrypted volumes.
+# This minimal config just echoes a message - without a boot entry, GRUB
+# returns control to OVMF which then uses QemuKernelLoaderFsDxe.
+RUN cd ovmf && \
+    printf 'echo "GRUB: No boot config - falling through to direct kernel boot"\n' > OvmfPkg/AmdSev/Grub/grub.cfg
+
 # Build BaseTools (skip tests - they require 'python' symlink)
 RUN cd ovmf && make -C BaseTools/Source/C -j$(nproc)
 
-# Build standard OVMF with SEV-SNP support (OvmfPkgX64.dsc)
-# This build:
-# - Supports direct kernel boot via QemuKernelLoaderFsDxe
-# - Has SEV/SEV-ES/SEV-SNP support
-# - No embedded GRUB (unlike AmdSevX64.dsc)
-# - Kernel, initrd, and cmdline are included in SNP launch measurement
+# Build AMD SEV-SNP OVMF (AmdSevX64.dsc)
+# This build includes:
+# - SNP_KERNEL_HASHES section for kernel/initrd attestation
+# - BlobVerifierLibSevHashes for hash verification
+# - SecretPei/SecretDxe for SEV secret injection
+# - SNP-specific memory regions (GHCB, secrets page, CPUID page)
 RUN cd ovmf && \
     . ./edksetup.sh && \
     build -q --cmd-len=64436 \
     -n $(nproc) \
     -t GCC5 \
     -a X64 \
-    -p OvmfPkg/OvmfPkgX64.dsc \
-    -D SMM_REQUIRE=FALSE \
-    -D TPM_ENABLE=FALSE \
+    -p OvmfPkg/AmdSev/AmdSevX64.dsc \
     -b RELEASE
 
 # Copy built artifacts
 RUN mkdir -p /output && \
-    cp /build/ovmf/Build/OvmfX64/RELEASE_GCC5/FV/OVMF.fd /output/ovmf.fd && \
-    cp /build/ovmf/Build/OvmfX64/RELEASE_GCC5/FV/OVMF_CODE.fd /output/ovmf_code.fd && \
-    cp /build/ovmf/Build/OvmfX64/RELEASE_GCC5/FV/OVMF_VARS.fd /output/ovmf_vars.fd
+    cp /build/ovmf/Build/AmdSev/RELEASE_GCC5/FV/OVMF.fd /output/ovmf.fd && \
+    cp /build/ovmf/Build/AmdSev/RELEASE_GCC5/FV/OVMF_CODE.fd /output/ovmf_code.fd 2>/dev/null || true && \
+    cp /build/ovmf/Build/AmdSev/RELEASE_GCC5/FV/OVMF_VARS.fd /output/ovmf_vars.fd 2>/dev/null || true
 
 # Record build info for reproducibility
 RUN cd /build/ovmf && \
     echo "OVMF_COMMIT=$(git rev-parse HEAD)" > /output/build-info.txt && \
     echo "OVMF_BRANCH=${OVMF_BRANCH}" >> /output/build-info.txt && \
     echo "BUILD_DATE=$(date -u +%Y-%m-%dT%H:%M:%SZ)" >> /output/build-info.txt && \
-    echo "DSC=OvmfPkg/OvmfPkgX64.dsc" >> /output/build-info.txt
+    echo "DSC=OvmfPkg/AmdSev/AmdSevX64.dsc" >> /output/build-info.txt
 
 # =============================================================================
 # Stage 3: Extract packages and prepare components
@@ -123,6 +141,7 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
     dpkg \
     cpio \
     gzip \
+    zstd \
     findutils \
     && rm -rf /var/lib/apt/lists/*
 
@@ -131,9 +150,10 @@ COPY --from=ovmf-builder /output /ovmf-output
 
 WORKDIR /extracted
 
-# Extract kernel
+# Extract kernel and modules
 RUN dpkg-deb -x /packages/linux-image-unsigned-*.deb /extracted && \
-    dpkg-deb -x /packages/linux-image-generic_*.deb /extracted
+    dpkg-deb -x /packages/linux-image-generic_*.deb /extracted && \
+    dpkg-deb -x /packages/linux-modules-extra-*.deb /extracted
 
 # Extract busybox
 RUN dpkg-deb -x /packages/busybox-static_*.deb /extracted

@@ -57,16 +57,22 @@ echo ""
 echo "=== Stage 1: Building Katana binary (reproducible) ==="
 echo ""
 
-docker build \
-    -f reproducible.Dockerfile \
-    --build-arg SOURCE_DATE_EPOCH="$SOURCE_DATE_EPOCH" \
-    -t katana-reproducible \
-    .
+# TEMP: Use local musl build instead of Docker
+export SOURCE_DATE_EPOCH
+"$SCRIPT_DIR/../../scripts/build-musl.sh"
+cp "$REPO_ROOT/target/x86_64-unknown-linux-musl/performance/katana" "$OUTPUT_DIR/katana-binary"
 
-# Extract the binary
-KATANA_CONTAINER=$(docker create katana-reproducible)
-docker cp "$KATANA_CONTAINER:/katana" "$OUTPUT_DIR/katana-binary"
-docker rm "$KATANA_CONTAINER"
+# # Docker-based reproducible build (commented out for local musl build)
+# docker build \
+#     -f reproducible.Dockerfile \
+#     --build-arg SOURCE_DATE_EPOCH="$SOURCE_DATE_EPOCH" \
+#     -t katana-reproducible \
+#     .
+#
+# # Extract the binary
+# KATANA_CONTAINER=$(docker create katana-reproducible)
+# docker cp "$KATANA_CONTAINER:/katana" "$OUTPUT_DIR/katana-binary"
+# docker rm "$KATANA_CONTAINER"
 
 echo "Katana binary built: $OUTPUT_DIR/katana-binary"
 echo "SHA256: $(sha256sum "$OUTPUT_DIR/katana-binary" | cut -d' ' -f1)"
