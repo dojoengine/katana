@@ -563,7 +563,7 @@ pub struct CartridgeOptions {
     pub api: Url,
 }
 
-#[cfg(feature = "cartridge")]
+#[cfg(feature = "paymaster")]
 #[derive(Debug, Copy, Clone, Serialize, Deserialize, PartialEq, Eq, ValueEnum)]
 #[serde(rename_all = "lowercase")]
 pub enum ServiceMode {
@@ -572,7 +572,7 @@ pub enum ServiceMode {
     External,
 }
 
-#[cfg(feature = "cartridge")]
+#[cfg(feature = "vrf")]
 #[derive(Debug, Copy, Clone, Serialize, Deserialize, PartialEq, Eq, ValueEnum)]
 #[serde(rename_all = "lowercase")]
 pub enum VrfKeySource {
@@ -580,7 +580,7 @@ pub enum VrfKeySource {
     Sequencer,
 }
 
-#[cfg(feature = "cartridge")]
+#[cfg(feature = "paymaster")]
 #[derive(Debug, Args, Clone, Serialize, Deserialize, PartialEq)]
 #[command(next_help_heading = "Paymaster options")]
 pub struct PaymasterOptions {
@@ -636,7 +636,7 @@ pub struct PaymasterOptions {
     pub bin: Option<PathBuf>,
 }
 
-#[cfg(feature = "cartridge")]
+#[cfg(feature = "paymaster")]
 impl Default for PaymasterOptions {
     fn default() -> Self {
         PaymasterOptions {
@@ -651,7 +651,7 @@ impl Default for PaymasterOptions {
     }
 }
 
-#[cfg(feature = "cartridge")]
+#[cfg(feature = "paymaster")]
 impl PaymasterOptions {
     pub fn merge(&mut self, other: Option<&Self>) {
         if let Some(other) = other {
@@ -686,7 +686,7 @@ impl PaymasterOptions {
     }
 }
 
-#[cfg(feature = "cartridge")]
+#[cfg(feature = "vrf")]
 #[derive(Debug, Args, Clone, Serialize, Deserialize, PartialEq)]
 #[command(next_help_heading = "VRF options")]
 pub struct VrfOptions {
@@ -736,7 +736,7 @@ pub struct VrfOptions {
     pub bin: Option<PathBuf>,
 }
 
-#[cfg(feature = "cartridge")]
+#[cfg(feature = "vrf")]
 impl Default for VrfOptions {
     fn default() -> Self {
         VrfOptions {
@@ -750,7 +750,7 @@ impl Default for VrfOptions {
     }
 }
 
-#[cfg(feature = "cartridge")]
+#[cfg(feature = "vrf")]
 impl VrfOptions {
     pub fn merge(&mut self, other: Option<&Self>) {
         if let Some(other) = other {
@@ -924,37 +924,37 @@ fn default_api_url() -> Url {
     Url::parse("https://api.cartridge.gg").expect("qed; invalid url")
 }
 
-#[cfg(feature = "cartridge")]
+#[cfg(feature = "paymaster")]
 fn default_paymaster_mode() -> ServiceMode {
     ServiceMode::Disabled
 }
 
-#[cfg(feature = "cartridge")]
+#[cfg(feature = "vrf")]
 fn default_vrf_mode() -> ServiceMode {
     ServiceMode::Disabled
 }
 
-#[cfg(feature = "cartridge")]
+#[cfg(feature = "vrf")]
 fn default_vrf_key_source() -> VrfKeySource {
     VrfKeySource::Prefunded
 }
 
-#[cfg(feature = "cartridge")]
+#[cfg(feature = "paymaster")]
 fn default_paymaster_prefunded_index() -> u16 {
     0
 }
 
-#[cfg(feature = "cartridge")]
+#[cfg(feature = "vrf")]
 fn default_vrf_prefunded_index() -> u16 {
     0
 }
 
-#[cfg(feature = "cartridge")]
+#[cfg(feature = "paymaster")]
 fn default_paymaster_port() -> u16 {
     8081
 }
 
-#[cfg(feature = "cartridge")]
+#[cfg(feature = "vrf")]
 fn default_vrf_port() -> u16 {
     3000
 }

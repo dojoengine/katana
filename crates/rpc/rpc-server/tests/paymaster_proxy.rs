@@ -1,4 +1,4 @@
-#![cfg(feature = "cartridge")]
+#![cfg(feature = "paymaster")]
 
 use jsonrpsee::core::client::ClientT;
 use jsonrpsee::core::params::ObjectParams;

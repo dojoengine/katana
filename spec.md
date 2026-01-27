@@ -50,6 +50,16 @@ Modes are explicit and independent for paymaster and VRF:
 - `sidecar`: Katana spawns local service(s) and uses local URLs.
 - `external`: Katana uses provided URLs and does not spawn services.
 
+VRF requires paymaster at runtime; if VRF is enabled without paymaster, Katana should error with a
+clear message.
+
+### Build features
+- `paymaster` enables paymaster config, sidecar bootstrap, and RPC proxying.
+- `vrf` depends on `paymaster` and enables VRF bootstrap + VRF wrapping.
+- `cartridge` enables Controller classes, `cartridge_*` RPCs, and `cartridge_addExecuteFromOutside`;
+  it should also enable `paymaster` and `vrf`.
+- `paymaster` and `vrf` must be usable without `cartridge` for non-controller workflows.
+
 Suggested CLI flags (names can map to existing `--cartridge.*` for compatibility):
 - `--paymaster.mode <disabled|sidecar|external>`
 - `--paymaster.url <URL>` (required for `external`)
