@@ -1060,7 +1060,6 @@ mod tests {
     use std::path::Path;
     use std::sync::Mutex;
 
-    use crate::config::paymaster::{PaymasterConfig, ServiceMode};
     use katana_primitives::chain::{ChainId, NamedChainId};
     use katana_primitives::Felt;
     use tempfile::tempdir;
@@ -1073,6 +1072,7 @@ mod tests {
         resolve_executable, PaymasterBootstrap, DEFAULT_AVNU_PRICE_MAINNET_ENDPOINT,
         DEFAULT_AVNU_PRICE_SEPOLIA_ENDPOINT,
     };
+    use crate::config::paymaster::{PaymasterConfig, ServiceMode};
 
     static ENV_MUTEX: Mutex<()> = Mutex::new(());
 
