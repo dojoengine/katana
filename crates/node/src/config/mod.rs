@@ -6,11 +6,10 @@ pub mod execution;
 pub mod fork;
 pub mod gateway;
 pub mod metrics;
+#[cfg(feature = "paymaster")]
+pub mod paymaster;
 pub mod rpc;
 pub mod sequencing;
-
-#[cfg(feature = "cartridge")]
-pub mod paymaster;
 
 #[cfg(feature = "tee")]
 pub mod tee;
@@ -67,11 +66,11 @@ pub struct Config {
     pub dev: DevConfig,
 
     /// Paymaster options.
-    #[cfg(feature = "cartridge")]
+    #[cfg(feature = "paymaster")]
     pub paymaster: Option<paymaster::PaymasterConfig>,
 
     /// VRF options.
-    #[cfg(feature = "cartridge")]
+    #[cfg(feature = "vrf")]
     pub vrf: Option<paymaster::VrfConfig>,
 
     /// TEE attestation options.

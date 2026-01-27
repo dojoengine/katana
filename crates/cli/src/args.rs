@@ -18,15 +18,14 @@ use katana_node::config::db::DbConfig;
 use katana_node::config::dev::{DevConfig, FixedL1GasPriceConfig};
 use katana_node::config::execution::ExecutionConfig;
 use katana_node::config::fork::ForkingConfig;
-#[cfg(feature = "server")]
 use katana_node::config::gateway::GatewayConfig;
 #[cfg(all(feature = "server", feature = "grpc"))]
 use katana_node::config::grpc::GrpcConfig;
 use katana_node::config::metrics::MetricsConfig;
-#[cfg(feature = "cartridge")]
-use katana_node::config::paymaster::{
-    PaymasterConfig, ServiceMode as NodeServiceMode, VrfConfig, VrfKeySource as NodeVrfKeySource,
-};
+#[cfg(feature = "paymaster")]
+use katana_node::config::paymaster::{PaymasterConfig, ServiceMode as NodeServiceMode};
+#[cfg(feature = "vrf")]
+use katana_node::config::paymaster::{VrfConfig, VrfKeySource as NodeVrfKeySource};
 use katana_node::config::rpc::RpcConfig;
 #[cfg(feature = "server")]
 use katana_node::config::rpc::{RpcModuleKind, RpcModulesList};
@@ -44,7 +43,7 @@ use crate::options::*;
 use crate::utils::{self, parse_chain_config_dir, parse_seed};
 
 pub(crate) const LOG_TARGET: &str = "katana::cli";
-#[cfg(feature = "cartridge")]
+#[cfg(feature = "paymaster")]
 const DEFAULT_PAYMASTER_API_KEY: &str = "paymaster_katana";
 
 #[derive(Parser, Debug, Serialize, Deserialize, Default, Clone, PartialEq)]
@@ -138,11 +137,11 @@ pub struct SequencerNodeArgs {
     #[command(flatten)]
     pub cartridge: CartridgeOptions,
 
-    #[cfg(feature = "cartridge")]
+    #[cfg(feature = "paymaster")]
     #[command(flatten)]
     pub paymaster: PaymasterOptions,
 
-    #[cfg(feature = "cartridge")]
+    #[cfg(feature = "vrf")]
     #[command(flatten)]
     pub vrf: VrfOptions,
 
@@ -232,10 +231,17 @@ impl SequencerNodeArgs {
         let forking = self.forking_config()?;
         let execution = self.execution_config();
         let sequencing = self.sequencer_config();
-        #[cfg(feature = "cartridge")]
+        #[cfg(feature = "paymaster")]
         let paymaster = self.paymaster_config()?;
-        #[cfg(feature = "cartridge")]
+        #[cfg(feature = "vrf")]
         let vrf = self.vrf_config()?;
+
+        #[cfg(feature = "vrf")]
+        if vrf.is_some() && paymaster.is_none() {
+            return Err(anyhow::anyhow!(
+                "--vrf requires paymaster; enable --paymaster.mode or --cartridge.paymaster"
+            ));
+        }
 
         // the `katana init` will automatically generate a messaging config. so if katana is run
         // with `--chain` then the `--messaging` flag is not required. this is temporary and
@@ -255,9 +261,9 @@ impl SequencerNodeArgs {
             execution,
             messaging,
             sequencing,
-            #[cfg(feature = "cartridge")]
+            #[cfg(feature = "paymaster")]
             paymaster,
-            #[cfg(feature = "cartridge")]
+            #[cfg(feature = "vrf")]
             vrf,
             #[cfg(feature = "tee")]
             tee: self.tee_config(),
@@ -306,9 +312,18 @@ impl SequencerNodeArgs {
             // (ie `--rpc.api`) we guarantee that the cartridge rpc is enabled.
             #[cfg(feature = "cartridge")]
             {
-                let paymaster_enabled =
-                    self.cartridge.paymaster || self.paymaster.mode != ServiceMode::Disabled;
+                let mut paymaster_enabled = self.cartridge.paymaster;
+
+                #[cfg(feature = "paymaster")]
+                {
+                    paymaster_enabled =
+                        paymaster_enabled || self.paymaster.mode != ServiceMode::Disabled;
+                }
+
+                #[cfg(feature = "vrf")]
                 let vrf_enabled = self.vrf.mode != ServiceMode::Disabled;
+                #[cfg(not(feature = "vrf"))]
+                let vrf_enabled = false;
 
                 if paymaster_enabled || vrf_enabled {
                     modules.add(RpcModuleKind::Cartridge);
@@ -371,7 +386,7 @@ impl SequencerNodeArgs {
             }
 
             // Generate dev accounts.
-            // If `cartridge` is enabled, the first account will be the paymaster.
+            // If paymaster is enabled, the first account is used by default.
             let accounts = DevAllocationsGenerator::new(self.development.total_accounts)
                 .with_seed(parse_seed(&self.development.seed))
                 .with_balance(U256::from(DEFAULT_PREFUNDED_ACCOUNT_BALANCE))
@@ -381,21 +396,30 @@ impl SequencerNodeArgs {
 
             #[cfg(feature = "cartridge")]
             {
-                let paymaster_enabled =
-                    self.cartridge.paymaster || self.paymaster.mode != ServiceMode::Disabled;
-                let vrf_enabled = self.vrf.mode != ServiceMode::Disabled;
+                let controllers_enabled = self.cartridge.controllers || self.cartridge.paymaster;
 
-                if self.cartridge.controllers || paymaster_enabled || vrf_enabled {
+                if controllers_enabled {
                     katana_slot_controller::add_controller_classes(&mut chain_spec.genesis);
-                }
-
-                if self.cartridge.controllers || self.cartridge.paymaster {
                     katana_slot_controller::add_vrf_provider_class(&mut chain_spec.genesis);
                 }
+            }
+
+            #[cfg(feature = "paymaster")]
+            {
+                #[cfg(feature = "cartridge")]
+                let paymaster_enabled =
+                    self.paymaster.mode != ServiceMode::Disabled || self.cartridge.paymaster;
+                #[cfg(not(feature = "cartridge"))]
+                let paymaster_enabled = self.paymaster.mode != ServiceMode::Disabled;
 
                 if paymaster_enabled {
                     katana_slot_controller::add_avnu_forwarder_class(&mut chain_spec.genesis);
                 }
+            }
+
+            #[cfg(feature = "vrf")]
+            {
+                let vrf_enabled = self.vrf.mode != ServiceMode::Disabled;
 
                 if vrf_enabled {
                     katana_slot_controller::add_vrf_account_class(&mut chain_spec.genesis);
@@ -515,12 +539,18 @@ impl SequencerNodeArgs {
         }
     }
 
-    #[cfg(feature = "cartridge")]
+    #[cfg(feature = "paymaster")]
     fn paymaster_config(&self) -> Result<Option<PaymasterConfig>> {
-        let mut mode = self.paymaster.mode;
-        if self.cartridge.paymaster && mode == ServiceMode::Disabled {
-            mode = ServiceMode::Sidecar;
-        }
+        #[cfg(feature = "cartridge")]
+        let mode = {
+            let mut mode = self.paymaster.mode;
+            if self.cartridge.paymaster && mode == ServiceMode::Disabled {
+                mode = ServiceMode::Sidecar;
+            }
+            mode
+        };
+        #[cfg(not(feature = "cartridge"))]
+        let mode = self.paymaster.mode;
 
         if mode == ServiceMode::Disabled {
             return Ok(None);
@@ -572,11 +602,12 @@ impl SequencerNodeArgs {
             prefunded_index: self.paymaster.prefunded_index,
             sidecar_port: self.paymaster.port,
             sidecar_bin: self.paymaster.bin.clone(),
+            #[cfg(feature = "cartridge")]
             cartridge_api_url: Some(self.cartridge.api.clone()),
         }))
     }
 
-    #[cfg(feature = "cartridge")]
+    #[cfg(feature = "vrf")]
     fn vrf_config(&self) -> Result<Option<VrfConfig>> {
         let mode = self.vrf.mode;
 
@@ -690,7 +721,15 @@ impl SequencerNodeArgs {
         #[cfg(feature = "cartridge")]
         {
             self.cartridge.merge(config.cartridge.as_ref());
+        }
+
+        #[cfg(feature = "paymaster")]
+        {
             self.paymaster.merge(config.paymaster.as_ref());
+        }
+
+        #[cfg(feature = "vrf")]
+        {
             self.vrf.merge(config.vrf.as_ref());
         }
 
@@ -723,6 +762,7 @@ mod test {
     use katana_node::config::execution::{
         DEFAULT_INVOCATION_MAX_STEPS, DEFAULT_VALIDATION_MAX_STEPS,
     };
+    #[cfg(feature = "server")]
     use katana_node::config::rpc::RpcModuleKind;
     use katana_primitives::chain::ChainId;
     use katana_primitives::{address, felt, Felt};
@@ -987,6 +1027,7 @@ explorer = true
         assert!(cors_origins.contains(&HeaderValue::from_static("https://example.com")));
     }
 
+    #[cfg(feature = "server")]
     #[test]
     fn http_modules() {
         // If the `--http.api` isn't specified, only starknet module will be exposed.
@@ -1011,6 +1052,7 @@ explorer = true
             .contains("The `dev` module can only be enabled in dev mode (ie `--dev` flag)"));
     }
 
+    #[cfg(feature = "server")]
     #[test]
     fn test_dev_api_enabled() {
         let args = SequencerNodeArgs::parse_from(["katana", "--dev"]);
@@ -1085,7 +1127,13 @@ explorer = true
     fn vrf_mode_adds_classes() {
         use katana_primitives::utils::class::parse_sierra_class;
 
-        let args = SequencerNodeArgs::parse_from(["katana", "--vrf.mode", "sidecar"]);
+        let args = SequencerNodeArgs::parse_from([
+            "katana",
+            "--paymaster.mode",
+            "sidecar",
+            "--vrf.mode",
+            "sidecar",
+        ]);
         let config = args.config().unwrap();
 
         let vrf_account_class = parse_sierra_class(include_str!(concat!(
@@ -1104,5 +1152,31 @@ explorer = true
 
         assert!(config.chain.genesis().classes.get(&vrf_account_hash).is_some());
         assert!(config.chain.genesis().classes.get(&vrf_consumer_hash).is_some());
+    }
+
+    #[cfg(feature = "paymaster")]
+    #[test]
+    fn paymaster_mode_adds_forwarder_class() {
+        use katana_primitives::utils::class::parse_sierra_class;
+
+        let args = SequencerNodeArgs::parse_from(["katana", "--paymaster.mode", "sidecar"]);
+        let config = args.config().unwrap();
+
+        let forwarder_class = parse_sierra_class(include_str!(concat!(
+            env!("CARGO_MANIFEST_DIR"),
+            "/../controller/classes/avnu_Forwarder.contract_class.json"
+        )))
+        .unwrap();
+        let forwarder_hash = forwarder_class.class_hash().unwrap();
+
+        assert!(config.chain.genesis().classes.get(&forwarder_hash).is_some());
+    }
+
+    #[cfg(feature = "vrf")]
+    #[test]
+    fn vrf_requires_paymaster() {
+        let args = SequencerNodeArgs::parse_from(["katana", "--vrf.mode", "sidecar"]);
+        let err = args.config().unwrap_err();
+        assert!(err.to_string().contains("--vrf requires paymaster"));
     }
 }

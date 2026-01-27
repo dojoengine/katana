@@ -87,20 +87,27 @@ tokio.workspace = true
 url.workspace = true
 
 [features]
+paymaster = [
+	"dep:paymaster-rpc",
+	"dep:jsonrpsee_024",
+	"dep:url",
+	"dep:serde",
+]
+vrf = [
+	"paymaster",
+]
 cartridge = [
 	"dep:cainome",
 	"dep:cainome-cairo-serde",
 	"dep:futures",
 	"dep:cartridge",
-	"dep:paymaster-rpc",
 	"dep:katana-genesis",
+	"dep:reqwest",
+	"dep:starknet-crypto",
 	"dep:starknet",
 	"dep:starknet-paymaster",
-	"dep:starknet-crypto",
-	"dep:url",
-	"dep:reqwest",
-	"dep:serde",
-	"dep:jsonrpsee_024",
+	"paymaster",
+	"vrf",
 	"katana-rpc-api/cartridge",
 ]
 explorer = ["dep:katana-explorer"]

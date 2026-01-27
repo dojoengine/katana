@@ -55,14 +55,22 @@ starknet = { workspace = true, optional = true }
 tokio = { workspace = true, features = [ "time" ] }
 
 [features]
+paymaster = [
+	"dep:katana-genesis",
+	"dep:reqwest",
+	"dep:starknet",
+	"katana-rpc-server/paymaster",
+]
+vrf = [
+	"paymaster",
+	"dep:stark-vrf",
+	"dep:ark-ff",
+]
 cartridge = [
 	"katana-rpc-api/cartridge",
 	"katana-rpc-server/cartridge",
-	"dep:katana-genesis",
-	"dep:reqwest",
-	"dep:stark-vrf",
-	"dep:starknet",
-	"dep:ark-ff",
+	"paymaster",
+	"vrf",
 ]
 explorer = ["katana-rpc-server/explorer"]
 grpc = ["dep:katana-grpc"]

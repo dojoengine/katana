@@ -37,10 +37,21 @@ katana-gas-price-oracle.workspace = true
 starknet.workspace = true
 
 [features]
-cartridge = [
+paymaster = [
 	"dep:katana-slot-controller",
+	"katana-node/paymaster",
+	"katana-rpc-server/paymaster",
+]
+vrf = [
+	"paymaster",
+	"katana-node/vrf",
+	"katana-rpc-server/vrf",
+]
+cartridge = [
 	"katana-node/cartridge",
 	"katana-rpc-server/cartridge",
+	"paymaster",
+	"vrf",
 ]
 grpc = [ "katana-node/grpc" ]
 default = ["cartridge", "server", "tee", "grpc"]

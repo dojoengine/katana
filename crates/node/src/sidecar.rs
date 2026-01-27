@@ -4,6 +4,7 @@ use std::time::{Duration, Instant, SystemTime, UNIX_EPOCH};
 use std::{env, fs};
 
 use anyhow::{anyhow, Context, Result};
+#[cfg(feature = "vrf")]
 use ark_ff::PrimeField;
 use katana_core::backend::Backend;
 use katana_core::service::block_producer::BlockProducer;
@@ -18,12 +19,17 @@ use katana_primitives::chain::{ChainId, NamedChainId};
 use katana_primitives::da::DataAvailabilityMode;
 use katana_primitives::fee::{AllResourceBoundsMapping, ResourceBoundsMapping};
 use katana_primitives::transaction::{ExecutableTx, ExecutableTxWithHash, InvokeTx, InvokeTxV3};
-use katana_primitives::utils::{get_contract_address, split_u256};
-use katana_primitives::{ContractAddress, Felt, U256};
+use katana_primitives::utils::get_contract_address;
+#[cfg(feature = "vrf")]
+use katana_primitives::utils::split_u256;
+#[cfg(feature = "vrf")]
+use katana_primitives::U256;
+use katana_primitives::{ContractAddress, Felt};
 use katana_provider::api::state::{StateFactoryProvider, StateProvider};
 use katana_provider::ProviderFactory;
 use katana_rpc_types::FunctionCall;
 use serde::Serialize;
+#[cfg(feature = "vrf")]
 use stark_vrf::{generate_public_key, ScalarField};
 use starknet::macros::selector;
 use starknet::signers::{LocalWallet, Signer, SigningKey};
@@ -32,13 +38,18 @@ use tokio::time::sleep;
 use tracing::{debug, info, warn};
 use url::Url;
 
-use crate::config::paymaster::{PaymasterConfig, ServiceMode, VrfConfig, VrfKeySource};
+use crate::config::paymaster::{PaymasterConfig, ServiceMode};
+#[cfg(feature = "vrf")]
+use crate::config::paymaster::{VrfConfig, VrfKeySource};
 use crate::config::Config;
 
 const FORWARDER_SALT: u64 = 0x12345;
+#[cfg(feature = "vrf")]
 const VRF_ACCOUNT_SALT: u64 = 0x54321;
+#[cfg(feature = "vrf")]
 const VRF_CONSUMER_SALT: u64 = 0x67890;
 const BOOTSTRAP_TIMEOUT: Duration = Duration::from_secs(10);
+#[cfg(feature = "vrf")]
 const VRF_SERVER_PORT: u16 = 3000;
 const DEFAULT_AVNU_PRICE_SEPOLIA_ENDPOINT: &str = "https://sepolia.api.avnu.fi";
 const DEFAULT_AVNU_PRICE_MAINNET_ENDPOINT: &str = "https://starknet.api.avnu.fi";
@@ -46,12 +57,19 @@ const DEFAULT_AVNU_PRICE_MAINNET_ENDPOINT: &str = "https://starknet.api.avnu.fi"
 #[derive(Debug)]
 pub struct SidecarProcesses {
     paymaster: Option<Child>,
+    #[cfg(feature = "vrf")]
     vrf: Option<Child>,
 }
 
 impl SidecarProcesses {
+    #[cfg(feature = "vrf")]
     pub fn new(paymaster: Option<Child>, vrf: Option<Child>) -> Self {
         Self { paymaster, vrf }
+    }
+
+    #[cfg(not(feature = "vrf"))]
+    pub fn new(paymaster: Option<Child>) -> Self {
+        Self { paymaster }
     }
 }
 
@@ -60,6 +78,7 @@ impl Drop for SidecarProcesses {
         if let Some(mut child) = self.paymaster.take() {
             let _ = child.start_kill();
         }
+        #[cfg(feature = "vrf")]
         if let Some(mut child) = self.vrf.take() {
             let _ = child.start_kill();
         }
@@ -78,6 +97,7 @@ pub struct PaymasterBootstrap {
     pub chain_id: ChainId,
 }
 
+#[cfg(feature = "vrf")]
 #[derive(Debug, Clone)]
 pub struct VrfBootstrap {
     pub secret_key: u64,
@@ -156,6 +176,7 @@ struct PaymasterSponsoringProfile {
 #[derive(Debug, Default)]
 pub struct BootstrapResult {
     pub paymaster: Option<PaymasterBootstrap>,
+    #[cfg(feature = "vrf")]
     pub vrf: Option<VrfBootstrap>,
 }
 
@@ -181,6 +202,7 @@ where
         }
     }
 
+    #[cfg(feature = "vrf")]
     if let Some(vrf_cfg) = config.vrf.as_ref() {
         if vrf_cfg.mode == ServiceMode::Sidecar {
             let bootstrap = bootstrap_vrf(vrf_cfg, config, backend, block_producer, pool).await?;
@@ -197,8 +219,8 @@ pub async fn start_sidecars(
     rpc_addr: &std::net::SocketAddr,
 ) -> Result<SidecarProcesses> {
     let mut paymaster_child = None;
+    #[cfg(feature = "vrf")]
     let mut vrf_child = None;
-
     if let (Some(paymaster_cfg), Some(paymaster_bootstrap)) =
         (config.paymaster.as_ref(), bootstrap.paymaster.as_ref())
     {
@@ -208,13 +230,19 @@ pub async fn start_sidecars(
         }
     }
 
+    #[cfg(feature = "vrf")]
     if let (Some(vrf_cfg), Some(vrf_bootstrap)) = (config.vrf.as_ref(), bootstrap.vrf.as_ref()) {
         if vrf_cfg.mode == ServiceMode::Sidecar {
             vrf_child = Some(start_vrf_sidecar(vrf_cfg, vrf_bootstrap).await?);
         }
     }
 
-    Ok(SidecarProcesses::new(paymaster_child, vrf_child))
+    #[cfg(feature = "vrf")]
+    let processes = SidecarProcesses::new(paymaster_child, vrf_child);
+    #[cfg(not(feature = "vrf"))]
+    let processes = SidecarProcesses::new(paymaster_child);
+
+    Ok(processes)
 }
 
 async fn start_paymaster_sidecar(
@@ -244,6 +272,7 @@ async fn start_paymaster_sidecar(
     Ok(child)
 }
 
+#[cfg(feature = "vrf")]
 async fn start_vrf_sidecar(config: &VrfConfig, bootstrap: &VrfBootstrap) -> Result<Child> {
     if config.sidecar_port != VRF_SERVER_PORT {
         return Err(anyhow!(
@@ -399,11 +428,13 @@ fn format_felt(value: Felt) -> String {
     format!("{value:#x}")
 }
 
+#[cfg(feature = "vrf")]
 fn scalar_from_felt(value: Felt) -> ScalarField {
     let bytes = value.to_bytes_be();
     ScalarField::from_be_bytes_mod_order(&bytes)
 }
 
+#[cfg(feature = "vrf")]
 fn vrf_secret_key_from_account_key(value: Felt) -> u64 {
     let bytes = value.to_bytes_be();
     let mut tail = [0_u8; 8];
@@ -411,11 +442,13 @@ fn vrf_secret_key_from_account_key(value: Felt) -> u64 {
     u64::from_be_bytes(tail)
 }
 
+#[cfg(feature = "vrf")]
 fn felt_from_field<T: std::fmt::Display>(value: T) -> Result<Felt> {
     let decimal = value.to_string();
     Felt::from_dec_str(&decimal).map_err(|err| anyhow!("invalid field value: {err}"))
 }
 
+#[cfg(feature = "vrf")]
 async fn wait_for_http_ok(url: &str, name: &str, timeout: Duration) -> Result<()> {
     let client = reqwest::Client::new();
     let start = Instant::now();
@@ -577,6 +610,7 @@ where
     })
 }
 
+#[cfg(feature = "vrf")]
 #[derive(Debug)]
 pub(crate) struct VrfDerivedAccounts {
     pub(crate) source_address: ContractAddress,
@@ -587,6 +621,7 @@ pub(crate) struct VrfDerivedAccounts {
     pub(crate) secret_key: u64,
 }
 
+#[cfg(feature = "vrf")]
 pub(crate) fn derive_vrf_accounts<EF, PF>(
     config: &VrfConfig,
     node_config: &Config,
@@ -630,6 +665,7 @@ where
     })
 }
 
+#[cfg(feature = "vrf")]
 async fn bootstrap_vrf<EF, PF>(
     config: &VrfConfig,
     node_config: &Config,
@@ -746,6 +782,7 @@ where
     Ok((*address, private_key))
 }
 
+#[cfg(feature = "vrf")]
 fn sequencer_account<EF, PF>(
     config: &Config,
     backend: &Backend<EF, PF>,
@@ -825,6 +862,7 @@ where
     Ok(())
 }
 
+#[cfg(feature = "vrf")]
 async fn fund_account<EF, PF>(
     backend: &Backend<EF, PF>,
     block_producer: &BlockProducer<EF, PF>,
@@ -998,6 +1036,7 @@ fn avnu_forwarder_class_hash() -> Result<Felt> {
     class.class_hash().context("failed to compute forwarder class hash")
 }
 
+#[cfg(feature = "vrf")]
 fn vrf_account_class_hash() -> Result<Felt> {
     let class = katana_primitives::utils::class::parse_sierra_class(include_str!(concat!(
         env!("CARGO_MANIFEST_DIR"),
@@ -1006,6 +1045,7 @@ fn vrf_account_class_hash() -> Result<Felt> {
     class.class_hash().context("failed to compute vrf account class hash")
 }
 
+#[cfg(feature = "vrf")]
 fn vrf_consumer_class_hash() -> Result<Felt> {
     let class = katana_primitives::utils::class::parse_sierra_class(include_str!(concat!(
         env!("CARGO_MANIFEST_DIR"),
@@ -1020,16 +1060,23 @@ mod tests {
     use std::path::Path;
     use std::sync::Mutex;
 
+    use crate::config::paymaster::{PaymasterConfig, ServiceMode};
     use katana_primitives::chain::{ChainId, NamedChainId};
     use katana_primitives::Felt;
     use tempfile::tempdir;
+    use url::Url;
 
+    #[cfg(feature = "vrf")]
+    use super::vrf_secret_key_from_account_key;
     use super::{
-        local_rpc_url, paymaster_chain_id, resolve_executable, vrf_secret_key_from_account_key,
+        build_paymaster_profile, local_rpc_url, paymaster_chain_id, paymaster_price_endpoint,
+        resolve_executable, PaymasterBootstrap, DEFAULT_AVNU_PRICE_MAINNET_ENDPOINT,
+        DEFAULT_AVNU_PRICE_SEPOLIA_ENDPOINT,
     };
 
     static ENV_MUTEX: Mutex<()> = Mutex::new(());
 
+    #[cfg(feature = "vrf")]
     #[test]
     fn vrf_secret_key_uses_low_64_bits() {
         let mut bytes = [0_u8; 32];
@@ -1057,6 +1104,51 @@ mod tests {
             err.to_string().contains("only supports SN_MAIN or SN_SEPOLIA"),
             "unexpected error: {err}"
         );
+    }
+
+    #[test]
+    fn paymaster_price_endpoint_defaults() {
+        let sepolia = paymaster_price_endpoint(ChainId::Named(NamedChainId::Sepolia)).unwrap();
+        assert_eq!(sepolia, DEFAULT_AVNU_PRICE_SEPOLIA_ENDPOINT);
+
+        let mainnet = paymaster_price_endpoint(ChainId::Named(NamedChainId::Mainnet)).unwrap();
+        assert_eq!(mainnet, DEFAULT_AVNU_PRICE_MAINNET_ENDPOINT);
+    }
+
+    #[test]
+    fn build_paymaster_profile_defaults() {
+        let config = PaymasterConfig {
+            mode: ServiceMode::Sidecar,
+            url: Url::parse("http://127.0.0.1:4337").unwrap(),
+            api_key: None,
+            price_api_key: Some("price_key".to_string()),
+            prefunded_index: 0,
+            sidecar_port: 4337,
+            sidecar_bin: None,
+            #[cfg(feature = "cartridge")]
+            cartridge_api_url: None,
+        };
+
+        let bootstrap = PaymasterBootstrap {
+            forwarder_address: Felt::from(0x11_u64).into(),
+            relayer_address: Felt::from(0x22_u64).into(),
+            relayer_private_key: Felt::from(0x33_u64),
+            gas_tank_address: Felt::from(0x44_u64).into(),
+            gas_tank_private_key: Felt::from(0x55_u64),
+            estimate_account_address: Felt::from(0x66_u64).into(),
+            estimate_account_private_key: Felt::from(0x77_u64),
+            chain_id: ChainId::Named(NamedChainId::Sepolia),
+        };
+
+        let rpc_url = Url::parse("http://127.0.0.1:5050").unwrap();
+        let profile = build_paymaster_profile(&config, &bootstrap, &rpc_url).unwrap();
+
+        assert_eq!(profile.rpc.port, 4337);
+        assert_eq!(profile.forwarder, format!("{:#x}", Felt::from(0x11_u64)));
+        assert_eq!(profile.sponsoring.api_key, "paymaster_katana");
+        assert_eq!(profile.price.endpoint, DEFAULT_AVNU_PRICE_SEPOLIA_ENDPOINT);
+        assert_eq!(profile.price.api_key, "price_key");
+        assert_eq!(profile.starknet.endpoint, rpc_url.to_string());
     }
 
     #[test]
