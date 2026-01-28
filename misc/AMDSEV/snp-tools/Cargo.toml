@@ -21,6 +21,7 @@ path = "src/bin/ovmf-metadata.rs"
 clap = { version = "4", features = ["derive"] }
 hex = "0.4"
 openssl = { version = "0.10", features = ["vendored"] }
+tabled = "0.17"
 
 # Use git dependency because crates.io v7.1.0 has rdrand as non-optional.
 # The git version has rdrand behind the "sev" feature flag, allowing builds on non-x86_64.
