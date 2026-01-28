@@ -91,6 +91,15 @@ impl<'a> BlockExecutor<'a> for NoopExecutor {
     fn block_env(&self) -> BlockEnv {
         self.block_env.clone()
     }
+
+    fn set_storage_at(
+        &self,
+        _address: ContractAddress,
+        _key: StorageKey,
+        _value: StorageValue,
+    ) -> ExecutorResult<()> {
+        Ok(())
+    }
 }
 
 #[derive(Debug)]

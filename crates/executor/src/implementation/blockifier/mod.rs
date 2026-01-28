@@ -327,4 +327,23 @@ impl<'a> BlockExecutor<'a> for StarknetVMProcessor<'a> {
             sequencer_address: utils::to_address(self.block_context.block_info().sequencer_address),
         }
     }
+
+    fn set_storage_at(
+        &self,
+        address: katana_primitives::contract::ContractAddress,
+        key: katana_primitives::contract::StorageKey,
+        value: katana_primitives::contract::StorageValue,
+    ) -> crate::ExecutorResult<()> {
+        use blockifier::state::state_api::State;
+
+        let blk_address = utils::to_blk_address(address);
+        let storage_key = starknet_api::state::StorageKey(key.try_into().unwrap());
+
+        self.state
+            .inner
+            .lock()
+            .cached_state
+            .set_storage_at(blk_address, storage_key, value)
+            .map_err(|e| crate::ExecutorError::Other(e.to_string().into()))
+    }
 }

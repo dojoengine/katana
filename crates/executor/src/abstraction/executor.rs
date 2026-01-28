@@ -1,4 +1,5 @@
 use katana_primitives::block::ExecutableBlock;
+use katana_primitives::contract::{ContractAddress, StorageKey, StorageValue};
 use katana_primitives::env::{BlockEnv, CfgEnv};
 use katana_primitives::transaction::{ExecutableTxWithHash, TxWithHash};
 use katana_provider::api::state::StateProvider;
@@ -51,4 +52,17 @@ pub trait BlockExecutor<'a>: Send + Sync + core::fmt::Debug {
 
     /// Returns the current block environment of the executor.
     fn block_env(&self) -> BlockEnv;
+
+    // TEMP: This is primarily for `dev_setStorageAt` dev endpoint. To make sure the updated storage
+    // value is reflected in the pending state. This functionality should prolly be moved to the
+    // pending state level instead of the executor.
+    //
+    /// Sets the storage value for the given contract address and key.
+    /// This is used for dev purposes to manipulate state directly.
+    fn set_storage_at(
+        &self,
+        address: ContractAddress,
+        key: StorageKey,
+        value: StorageValue,
+    ) -> ExecutorResult<()>;
 }

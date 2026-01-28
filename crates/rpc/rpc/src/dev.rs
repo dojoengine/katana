@@ -4,7 +4,8 @@ use jsonrpsee::core::{async_trait, RpcResult};
 use katana_core::backend::Backend;
 use katana_core::service::block_producer::{BlockProducer, BlockProducerMode, PendingExecutor};
 use katana_executor::ExecutorFactory;
-use katana_primitives::Felt;
+use katana_primitives::contract::{ContractAddress, StorageKey, StorageValue};
+use katana_provider::api::state::StateWriter;
 use katana_rpc_api::dev::DevApiServer;
 use katana_rpc_api::error::dev::DevApiError;
 use katana_rpc_types::account::Account;
@@ -57,6 +58,33 @@ impl<EF: ExecutorFactory> DevApi<EF> {
 
         Ok(())
     }
+
+    pub fn set_storage_at(
+        &self,
+        contract_address: ContractAddress,
+        key: StorageKey,
+        value: StorageValue,
+    ) -> Result<(), DevApiError> {
+        // If there's a pending executor (interval mining mode), update the pending state
+        // so that the change is visible to the pending block.
+        if let Some(pending_executor) = self.pending_executor() {
+            // Leaky-leaky abstraction:
+            // The logic here might seem counterintuitive because we're taking a non-mutable
+            // reference (ie read lock) but we're allowed to update the pending state.
+            pending_executor
+                .read()
+                .set_storage_at(contract_address, key, value)
+                .map_err(DevApiError::unexpected_error)?;
+        } else {
+            self.backend
+                .blockchain
+                .provider()
+                .set_storage(contract_address, key, value)
+                .map_err(DevApiError::unexpected_error)?;
+        }
+
+        Ok(())
+    }
 }
 
 #[async_trait]
@@ -81,15 +109,11 @@ impl<EF: ExecutorFactory> DevApiServer for DevApi<EF> {
 
     async fn set_storage_at(
         &self,
-        _contract_address: Felt,
-        _key: Felt,
-        _value: Felt,
+        contract_address: ContractAddress,
+        key: StorageKey,
+        value: StorageValue,
     ) -> RpcResult<()> {
-        // self.sequencer
-        //     .set_storage_at(contract_address.into(), key, value)
-        //     .await
-        //     .map_err(|_| Error::from(KatanaApiError::FailedToUpdateStorage))
-        Ok(())
+        Ok(self.set_storage_at(contract_address, key, value)?)
     }
 
     async fn predeployed_accounts(&self) -> RpcResult<Vec<Account>> {
