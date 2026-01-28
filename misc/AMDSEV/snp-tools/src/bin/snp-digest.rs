@@ -5,11 +5,9 @@
 use std::path::PathBuf;
 
 use clap::{Parser, ValueEnum};
-use sev::measurement::{
-    snp::{snp_calc_launch_digest, SnpMeasurementArgs},
-    vcpu_types::CpuType,
-    vmsa::{GuestFeatures, VMMType},
-};
+use sev::measurement::snp::{snp_calc_launch_digest, SnpMeasurementArgs};
+use sev::measurement::vcpu_types::CpuType;
+use sev::measurement::vmsa::{GuestFeatures, VMMType};
 
 #[derive(Debug, Clone, ValueEnum)]
 enum CpuTypeArg {

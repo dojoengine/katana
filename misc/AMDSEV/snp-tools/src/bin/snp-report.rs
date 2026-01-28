@@ -156,34 +156,13 @@ fn print_table_report(report: &AttestationReport) {
     let chip_id = bytes_to_hex(&report.chip_id);
 
     let rows = vec![
-        ReportRow {
-            field: "Version",
-            value: version_string(report.version),
-        },
-        ReportRow {
-            field: "Measurement",
-            value: measurement,
-        },
-        ReportRow {
-            field: "Guest SVN",
-            value: format!("{}", report.guest_svn),
-        },
-        ReportRow {
-            field: "VMPL",
-            value: format!("{}", report.vmpl),
-        },
-        ReportRow {
-            field: "Policy",
-            value: policy_string(report.policy.0),
-        },
-        ReportRow {
-            field: "Report Data",
-            value: truncate_hex(&report_data, 64),
-        },
-        ReportRow {
-            field: "Report ID",
-            value: report_id,
-        },
+        ReportRow { field: "Version", value: version_string(report.version) },
+        ReportRow { field: "Measurement", value: measurement },
+        ReportRow { field: "Guest SVN", value: format!("{}", report.guest_svn) },
+        ReportRow { field: "VMPL", value: format!("{}", report.vmpl) },
+        ReportRow { field: "Policy", value: policy_string(report.policy.0) },
+        ReportRow { field: "Report Data", value: truncate_hex(&report_data, 64) },
+        ReportRow { field: "Report ID", value: report_id },
         ReportRow {
             field: "Host Data",
             value: if host_data.chars().all(|c| c == '0') {
@@ -199,37 +178,20 @@ fn print_table_report(report: &AttestationReport) {
     ];
 
     println!("Attestation Report");
-    let table = Table::new(rows)
-        .with(Style::rounded())
-        .with(Padding::new(1, 1, 0, 0))
-        .to_string();
+    let table = Table::new(rows).with(Style::rounded()).with(Padding::new(1, 1, 0, 0)).to_string();
     println!("{}", table);
 
     // TCB Info
     println!();
     println!("TCB Version");
     let tcb_rows = vec![
-        ReportRow {
-            field: "Boot Loader",
-            value: format!("{}", report.reported_tcb.bootloader),
-        },
-        ReportRow {
-            field: "TEE",
-            value: format!("{}", report.reported_tcb.tee),
-        },
-        ReportRow {
-            field: "SNP",
-            value: format!("{}", report.reported_tcb.snp),
-        },
-        ReportRow {
-            field: "Microcode",
-            value: format!("{}", report.reported_tcb.microcode),
-        },
+        ReportRow { field: "Boot Loader", value: format!("{}", report.reported_tcb.bootloader) },
+        ReportRow { field: "TEE", value: format!("{}", report.reported_tcb.tee) },
+        ReportRow { field: "SNP", value: format!("{}", report.reported_tcb.snp) },
+        ReportRow { field: "Microcode", value: format!("{}", report.reported_tcb.microcode) },
     ];
-    let tcb_table = Table::new(tcb_rows)
-        .with(Style::rounded())
-        .with(Padding::new(1, 1, 0, 0))
-        .to_string();
+    let tcb_table =
+        Table::new(tcb_rows).with(Style::rounded()).with(Padding::new(1, 1, 0, 0)).to_string();
     println!("{}", tcb_table);
 
     // Platform Info
@@ -237,23 +199,12 @@ fn print_table_report(report: &AttestationReport) {
     println!("Platform Info");
     let plat_info = report.plat_info.0;
     let platform_rows = vec![
-        ReportRow {
-            field: "SMT Enabled",
-            value: format!("{}", plat_info & 1 == 1),
-        },
-        ReportRow {
-            field: "TSME Enabled",
-            value: format!("{}", (plat_info >> 1) & 1 == 1),
-        },
-        ReportRow {
-            field: "ECC Enabled",
-            value: format!("{}", (plat_info >> 2) & 1 == 1),
-        },
+        ReportRow { field: "SMT Enabled", value: format!("{}", plat_info & 1 == 1) },
+        ReportRow { field: "TSME Enabled", value: format!("{}", (plat_info >> 1) & 1 == 1) },
+        ReportRow { field: "ECC Enabled", value: format!("{}", (plat_info >> 2) & 1 == 1) },
     ];
-    let platform_table = Table::new(platform_rows)
-        .with(Style::rounded())
-        .with(Padding::new(1, 1, 0, 0))
-        .to_string();
+    let platform_table =
+        Table::new(platform_rows).with(Style::rounded()).with(Padding::new(1, 1, 0, 0)).to_string();
     println!("{}", platform_table);
 
     // Additional Info
@@ -270,24 +221,13 @@ fn print_table_report(report: &AttestationReport) {
         .map(|m| format!("{} (0x{:x})", m, m))
         .unwrap_or_else(|| "N/A".to_string());
 
-    let stepping_str = report
-        .cpuid_step
-        .map(|s| format!("{}", s))
-        .unwrap_or_else(|| "N/A".to_string());
+    let stepping_str =
+        report.cpuid_step.map(|s| format!("{}", s)).unwrap_or_else(|| "N/A".to_string());
 
     let additional_rows = vec![
-        ReportRow {
-            field: "CPUID Family",
-            value: family_str,
-        },
-        ReportRow {
-            field: "CPUID Model",
-            value: model_str,
-        },
-        ReportRow {
-            field: "CPUID Stepping",
-            value: stepping_str,
-        },
+        ReportRow { field: "CPUID Family", value: family_str },
+        ReportRow { field: "CPUID Model", value: model_str },
+        ReportRow { field: "CPUID Stepping", value: stepping_str },
         ReportRow {
             field: "ID Key Digest",
             value: if id_key_digest.chars().all(|c| c == '0') {
@@ -304,10 +244,7 @@ fn print_table_report(report: &AttestationReport) {
                 truncate_hex(&author_key_digest, 32)
             },
         },
-        ReportRow {
-            field: "Chip ID",
-            value: truncate_hex(&chip_id, 32),
-        },
+        ReportRow { field: "Chip ID", value: truncate_hex(&chip_id, 32) },
     ];
     let additional_table = Table::new(additional_rows)
         .with(Style::rounded())
@@ -328,10 +265,7 @@ fn main() {
     };
 
     if data.len() < 1184 {
-        eprintln!(
-            "Error: Input too short. Expected at least 1184 bytes, got {}",
-            data.len()
-        );
+        eprintln!("Error: Input too short. Expected at least 1184 bytes, got {}", data.len());
         std::process::exit(1);
     }
 
