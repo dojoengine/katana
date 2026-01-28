@@ -45,7 +45,7 @@ jobs:
     runs-on: ubuntu-latest
     needs: prepare
     container:
-      image: ghcr.io/dojoengine/katana-dev:latest
+      image: ghcr.io/dojoengine/katana-dev:13602bf
     steps:
       - uses: actions/checkout@v4
 
@@ -281,7 +281,7 @@ jobs:
     runs-on: ubuntu-latest
     needs: [prepare, release]
     container:
-      image: ghcr.io/dojoengine/katana-dev:latest
+      image: ghcr.io/dojoengine/katana-dev:13602bf
     env:
       GITHUB_USER: ${{ github.repository_owner }}
       GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}

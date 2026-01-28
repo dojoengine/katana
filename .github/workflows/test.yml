@@ -37,7 +37,7 @@ jobs:
     runs-on: ubuntu-latest
     if: github.event_name == 'push' || (github.event_name == 'pull_request' && github.event.pull_request.draft == false)
     container:
-      image: ghcr.io/dojoengine/katana-dev:latest
+      image: ghcr.io/dojoengine/katana-dev:13602bf
     steps:
       - uses: actions/checkout@v3
       - run: scripts/rust_fmt.sh --check
@@ -47,7 +47,7 @@ jobs:
     runs-on: ubuntu-latest
     if: github.event_name == 'push' || (github.event_name == 'pull_request' && github.event.pull_request.draft == false)
     container:
-      image: ghcr.io/dojoengine/katana-dev:latest
+      image: ghcr.io/dojoengine/katana-dev:13602bf
     steps:
       - uses: actions/checkout@v3
         with:
@@ -93,7 +93,7 @@ jobs:
     runs-on: ubuntu-latest-32-cores
     if: github.event_name == 'push' || (github.event_name == 'pull_request' && github.event.pull_request.draft == false)
     container:
-      image: ghcr.io/dojoengine/katana-dev:latest
+      image: ghcr.io/dojoengine/katana-dev:13602bf
     env:
       MLIR_SYS_190_PREFIX: /usr/lib/llvm-19/
       LLVM_SYS_191_PREFIX: /usr/lib/llvm-19/
@@ -132,7 +132,7 @@ jobs:
     runs-on: ubuntu-latest-4-cores
     if: github.event_name == 'push' || (github.event_name == 'pull_request' && github.event.pull_request.draft == false)
     container:
-      image: ghcr.io/dojoengine/katana-dev:latest
+      image: ghcr.io/dojoengine/katana-dev:13602bf
     env:
       MLIR_SYS_190_PREFIX: /usr/lib/llvm-19/
       LLVM_SYS_191_PREFIX: /usr/lib/llvm-19/
@@ -163,7 +163,7 @@ jobs:
     timeout-minutes: 30
     if: github.event_name == 'push' || (github.event_name == 'pull_request' && github.event.pull_request.draft == false)
     container:
-      image: ghcr.io/dojoengine/katana-dev:latest
+      image: ghcr.io/dojoengine/katana-dev:13602bf
     env:
       MLIR_SYS_190_PREFIX: /usr/lib/llvm-19/
       LLVM_SYS_191_PREFIX: /usr/lib/llvm-19/
@@ -221,7 +221,7 @@ jobs:
     timeout-minutes: 30
     if: github.event_name == 'push' || (github.event_name == 'pull_request' && github.event.pull_request.draft == false)
     container:
-      image: ghcr.io/dojoengine/katana-dev:latest
+      image: ghcr.io/dojoengine/katana-dev:13602bf
     env:
       MLIR_SYS_190_PREFIX: /usr/lib/llvm-19/
       LLVM_SYS_191_PREFIX: /usr/lib/llvm-19/
@@ -257,7 +257,7 @@ jobs:
     runs-on: ubuntu-latest
     if: github.event_name == 'push' || (github.event_name == 'pull_request' && github.event.pull_request.draft == false)
     container:
-      image: ghcr.io/dojoengine/katana-dev:latest
+      image: ghcr.io/dojoengine/katana-dev:13602bf
     steps:
       - uses: actions/checkout@v3
         with:
@@ -289,7 +289,7 @@ jobs:
     runs-on: ubuntu-latest-32-cores
     if: github.event_name == 'push' || (github.event_name == 'pull_request' && github.event.pull_request.draft == false)
     container:
-      image: ghcr.io/dojoengine/katana-dev:latest
+      image: ghcr.io/dojoengine/katana-dev:13602bf
     steps:
       - uses: actions/checkout@v3
         with:
@@ -347,7 +347,7 @@ jobs:
     needs: [fmt, clippy, build-katana-binary]
     runs-on: ubuntu-latest
     container:
-      image: ghcr.io/dojoengine/katana-dev:latest
+      image: ghcr.io/dojoengine/katana-dev:13602bf
     steps:
       - uses: actions/checkout@v3
         with:

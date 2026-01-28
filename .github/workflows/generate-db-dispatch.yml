@@ -7,7 +7,7 @@ jobs:
     runs-on: ubuntu-latest
 
     container:
-      image: ghcr.io/dojoengine/katana-dev:latest
+      image: ghcr.io/dojoengine/katana-dev:13602bf
 
     permissions:
       contents: write
