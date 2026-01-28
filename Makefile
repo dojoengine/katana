@@ -26,14 +26,13 @@ SCARB_VERSION := 2.8.4
 
 .DEFAULT_GOAL := usage
 .SILENT: clean
-.PHONY: usage help check-llvm native-deps native-deps-macos native-deps-linux native-deps-windows build-explorer contracts clean deps install-scarb test-artifacts snos-artifacts db-compat-artifacts install-pyenv build-tee
+.PHONY: usage help check-llvm native-deps native-deps-macos native-deps-linux native-deps-windows build-explorer contracts clean deps install-scarb test-artifacts snos-artifacts db-compat-artifacts install-pyenv
 
 usage help:
 	@echo "Usage:"
 	@echo "    deps:                      Install all required dependencies for building Katana with all features (incl. tests)."
 	@echo "    snos-deps:                 Install SNOS test dependencies (pyenv, Python 3.9.15)."
 	@echo "    build-explorer:            Build the explorer."
-	@echo "    build-tee:                 Build reproducible TEE binary (requires Docker)."
 	@echo "    contracts:                 Build the contracts."
 	@echo "    test-artifacts:            Prepare tests artifacts (including test database)."
 	@echo "    snos-artifacts:            Prepare SNOS tests artifacts."
