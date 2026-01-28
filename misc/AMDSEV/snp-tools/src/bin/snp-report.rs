@@ -161,7 +161,6 @@ fn print_table_report(report: &AttestationReport) {
         ReportRow { field: "Guest SVN", value: format!("{}", report.guest_svn) },
         ReportRow { field: "VMPL", value: format!("{}", report.vmpl) },
         ReportRow { field: "Policy", value: policy_string(report.policy.0) },
-        ReportRow { field: "Report Data", value: truncate_hex(&report_data, 64) },
         ReportRow { field: "Report ID", value: report_id },
         ReportRow {
             field: "Host Data",
@@ -175,6 +174,7 @@ fn print_table_report(report: &AttestationReport) {
             field: "Signing Key",
             value: signing_key_string(report.key_info.0).to_string(),
         },
+        ReportRow { field: "Report Data", value: report_data },
     ];
 
     println!("Attestation Report");
