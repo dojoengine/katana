@@ -15,6 +15,11 @@
 
 set -euo pipefail
 
+# Environment normalization for reproducibility
+export TZ=UTC
+export LANG=C.UTF-8
+export LC_ALL=C.UTF-8
+
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 
 function usage() {
@@ -83,19 +88,19 @@ pushd "$WORK_DIR" >/dev/null
     echo "Downloaded packages:"
     ls -lh *.deb
 
-    # Verify package checksum if provided
-    if [[ -n "${KERNEL_PKG_SHA256:-}" ]]; then
-        echo ""
-        echo "Verifying package checksum..."
-        ACTUAL_SHA256=$(sha256sum linux-image-unsigned-*.deb | awk '{print $1}')
-        if [[ "$ACTUAL_SHA256" != "$KERNEL_PKG_SHA256" ]]; then
-            echo "ERROR: Package checksum mismatch!"
-            echo "  Expected: $KERNEL_PKG_SHA256"
-            echo "  Actual:   $ACTUAL_SHA256"
-            exit 1
-        fi
-        echo "[OK] Package checksum verified: $ACTUAL_SHA256"
+    # Require checksum verification for reproducibility
+    : "${KERNEL_PKG_SHA256:?KERNEL_PKG_SHA256 not set - required for reproducible builds}"
+
+    echo ""
+    echo "Verifying package checksum..."
+    ACTUAL_SHA256=$(sha256sum linux-image-unsigned-*.deb | awk '{print $1}')
+    if [[ "$ACTUAL_SHA256" != "$KERNEL_PKG_SHA256" ]]; then
+        echo "ERROR: Package checksum mismatch!"
+        echo "  Expected: $KERNEL_PKG_SHA256"
+        echo "  Actual:   $ACTUAL_SHA256"
+        exit 1
     fi
+    echo "[OK] Package checksum verified: $ACTUAL_SHA256"
 
     # Extract kernel
     mkdir -p extracted

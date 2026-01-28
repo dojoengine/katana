@@ -14,7 +14,11 @@
 #   ./build-initrd-standalone.sh KATANA_BINARY OUTPUT_INITRD [KERNEL_VERSION]
 #
 # Environment:
-#   SOURCE_DATE_EPOCH  REQUIRED. Unix timestamp for reproducible builds.
+#   SOURCE_DATE_EPOCH               REQUIRED. Unix timestamp for reproducible builds.
+#   BUSYBOX_PKG_VERSION             REQUIRED. Exact apt package version (e.g., 1:1.36.1-6ubuntu3.1)
+#   BUSYBOX_PKG_SHA256              REQUIRED. SHA256 checksum of the .deb package
+#   KERNEL_MODULES_EXTRA_PKG_VERSION REQUIRED. Exact apt package version
+#   KERNEL_MODULES_EXTRA_PKG_SHA256  REQUIRED. SHA256 checksum of the .deb package
 #
 # ==============================================================================
 
@@ -34,12 +38,20 @@ function usage()
     echo "  OUTPUT_INITRD    Output path for the generated initrd.img"
     echo "  KERNEL_VERSION   Kernel version for module lookup (or set KERNEL_VERSION env var)"
     echo ""
-    echo "ENVIRONMENT VARIABLES:"
-    echo "  SOURCE_DATE_EPOCH  REQUIRED. Unix timestamp for reproducible builds."
+    echo "ENVIRONMENT VARIABLES (all required for reproducible builds):"
+    echo "  SOURCE_DATE_EPOCH                Unix timestamp for reproducible builds"
+    echo "  BUSYBOX_PKG_VERSION              Exact apt package version (e.g., 1:1.36.1-6ubuntu3.1)"
+    echo "  BUSYBOX_PKG_SHA256               SHA256 checksum of the busybox .deb package"
+    echo "  KERNEL_MODULES_EXTRA_PKG_VERSION Exact apt package version for linux-modules-extra"
+    echo "  KERNEL_MODULES_EXTRA_PKG_SHA256  SHA256 checksum of the linux-modules-extra .deb"
     echo ""
     echo "EXAMPLES:"
-    echo "  SOURCE_DATE_EPOCH=\$(date +%s) $0 ./katana ./initrd.img 6.8.0-90"
-    echo "  KERNEL_VERSION=6.8.0-90 SOURCE_DATE_EPOCH=\$(date +%s) $0 ./katana ./initrd.img"
+    echo "  export SOURCE_DATE_EPOCH=\$(date +%s)"
+    echo "  export BUSYBOX_PKG_VERSION='1:1.36.1-6ubuntu3.1'"
+    echo "  export BUSYBOX_PKG_SHA256='abc123...'"
+    echo "  export KERNEL_MODULES_EXTRA_PKG_VERSION='6.8.0-90.99'"
+    echo "  export KERNEL_MODULES_EXTRA_PKG_SHA256='def456...'"
+    echo "  $0 ./katana ./initrd.img 6.8.0-90"
     exit 1
 }
 
@@ -57,10 +69,14 @@ echo "=========================================="
 echo "Building Initrd"
 echo "=========================================="
 echo "Configuration:"
-echo "  Katana binary:       $KATANA_BINARY"
-echo "  Output initrd:       $OUTPUT_INITRD"
-echo "  Kernel version:      $KERNEL_VERSION"
-echo "  SOURCE_DATE_EPOCH:   ${SOURCE_DATE_EPOCH:-<not set>}"
+echo "  Katana binary:         $KATANA_BINARY"
+echo "  Output initrd:         $OUTPUT_INITRD"
+echo "  Kernel version:        $KERNEL_VERSION"
+echo "  SOURCE_DATE_EPOCH:     ${SOURCE_DATE_EPOCH:-<not set>}"
+echo ""
+echo "Package versions:"
+echo "  busybox-static:        ${BUSYBOX_PKG_VERSION:-<not set>}"
+echo "  linux-modules-extra:   ${KERNEL_MODULES_EXTRA_PKG_VERSION:-<not set>}"
 echo "=========================================="
 echo ""
 
@@ -107,43 +123,47 @@ mkdir -p "$PACKAGES_DIR"
 
 pushd "$PACKAGES_DIR" >/dev/null
 
-# Download busybox-static
-echo "  Downloading busybox-static..."
-apt-get download busybox-static 2>&1 | grep -v "^W:"
+# Require version pinning for reproducibility
+: "${BUSYBOX_PKG_VERSION:?BUSYBOX_PKG_VERSION not set - required for reproducible builds}"
+: "${KERNEL_MODULES_EXTRA_PKG_VERSION:?KERNEL_MODULES_EXTRA_PKG_VERSION not set - required for reproducible builds}"
 
-# Download kernel modules package
-echo "  Downloading linux-modules-extra-${KERNEL_VERSION}-generic..."
-apt-get download "linux-modules-extra-${KERNEL_VERSION}-generic" 2>&1 | grep -v "^W:"
+# Download busybox-static (pinned version)
+echo "  Downloading busybox-static=${BUSYBOX_PKG_VERSION}..."
+apt-get download "busybox-static=${BUSYBOX_PKG_VERSION}" 2>&1 | grep -v "^W:"
+
+# Download kernel modules package (pinned version)
+echo "  Downloading linux-modules-extra-${KERNEL_VERSION}-generic=${KERNEL_MODULES_EXTRA_PKG_VERSION}..."
+apt-get download "linux-modules-extra-${KERNEL_VERSION}-generic=${KERNEL_MODULES_EXTRA_PKG_VERSION}" 2>&1 | grep -v "^W:"
 
 echo ""
 echo "Downloaded packages:"
 ls -lh *.deb
 
-# Verify package checksums if provided
-if [[ -n "${BUSYBOX_PKG_SHA256:-}" ]]; then
-    echo ""
-    echo "Verifying busybox-static checksum..."
-    ACTUAL_SHA256=$(sha256sum busybox-static_*.deb | awk '{print $1}')
-    if [[ "$ACTUAL_SHA256" != "$BUSYBOX_PKG_SHA256" ]]; then
-        echo "ERROR: busybox-static checksum mismatch!"
-        echo "  Expected: $BUSYBOX_PKG_SHA256"
-        echo "  Actual:   $ACTUAL_SHA256"
-        exit 1
-    fi
-    echo "[OK] busybox-static checksum verified"
-fi
+# Require checksum verification for reproducibility
+: "${BUSYBOX_PKG_SHA256:?BUSYBOX_PKG_SHA256 not set - required for reproducible builds}"
 
-if [[ -n "${KERNEL_MODULES_EXTRA_PKG_SHA256:-}" ]]; then
-    echo "Verifying linux-modules-extra checksum..."
-    ACTUAL_SHA256=$(sha256sum linux-modules-extra-*.deb | awk '{print $1}')
-    if [[ "$ACTUAL_SHA256" != "$KERNEL_MODULES_EXTRA_PKG_SHA256" ]]; then
-        echo "ERROR: linux-modules-extra checksum mismatch!"
-        echo "  Expected: $KERNEL_MODULES_EXTRA_PKG_SHA256"
-        echo "  Actual:   $ACTUAL_SHA256"
-        exit 1
-    fi
-    echo "[OK] linux-modules-extra checksum verified"
+echo ""
+echo "Verifying busybox-static checksum..."
+ACTUAL_SHA256=$(sha256sum busybox-static_*.deb | awk '{print $1}')
+if [[ "$ACTUAL_SHA256" != "$BUSYBOX_PKG_SHA256" ]]; then
+    echo "ERROR: busybox-static checksum mismatch!"
+    echo "  Expected: $BUSYBOX_PKG_SHA256"
+    echo "  Actual:   $ACTUAL_SHA256"
+    exit 1
 fi
+echo "[OK] busybox-static checksum verified"
+
+: "${KERNEL_MODULES_EXTRA_PKG_SHA256:?KERNEL_MODULES_EXTRA_PKG_SHA256 not set - required for reproducible builds}"
+
+echo "Verifying linux-modules-extra checksum..."
+ACTUAL_SHA256=$(sha256sum linux-modules-extra-*.deb | awk '{print $1}')
+if [[ "$ACTUAL_SHA256" != "$KERNEL_MODULES_EXTRA_PKG_SHA256" ]]; then
+    echo "ERROR: linux-modules-extra checksum mismatch!"
+    echo "  Expected: $KERNEL_MODULES_EXTRA_PKG_SHA256"
+    echo "  Actual:   $ACTUAL_SHA256"
+    exit 1
+fi
+echo "[OK] linux-modules-extra checksum verified"
 echo ""
 
 popd >/dev/null

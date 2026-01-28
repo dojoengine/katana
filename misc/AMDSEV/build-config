@@ -6,13 +6,17 @@
 # snp-latest branch currently points to "edk2-stable202502"
 OVMF_GIT_URL="https://github.com/AMDESE/ovmf.git"
 OVMF_BRANCH="snp-latest"
+# Pin exact OVMF commit for reproducible builds
+OVMF_COMMIT="fbe0805b2091393406952e84724188f8c1941837"
 
 # Linux kernel (Ubuntu package)
 KERNEL_VERSION="6.8.0-90"
 KERNEL_PKG_SHA256="19efb319503d92ecfc92a5e8c9ec5546461d88273b375203c3d4ebbd7ae1d61f"
 
 # Busybox (Ubuntu package, for initrd)
+BUSYBOX_PKG_VERSION="1:1.36.1-6ubuntu3.1"
 BUSYBOX_PKG_SHA256="944b2728f53ceb3916cec2c962873c9951e612408099601751db2a0a5d81e0ed"
 
 # Kernel modules extra (Ubuntu package, for initrd SEV-SNP support)
+KERNEL_MODULES_EXTRA_PKG_VERSION="6.8.0-90.91"
 KERNEL_MODULES_EXTRA_PKG_SHA256="c17bd76779ce68a076dc1ef9b1669947f35f1868f6736dbd0a8a7ccacf7571f3"

@@ -13,11 +13,23 @@ SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 . ${SCRIPT_DIR}/build-config
 
 # Export variables for child scripts
-export OVMF_GIT_URL OVMF_BRANCH KERNEL_VERSION
+export OVMF_GIT_URL OVMF_BRANCH OVMF_COMMIT KERNEL_VERSION
 export KERNEL_PKG_SHA256 BUSYBOX_PKG_SHA256 KERNEL_MODULES_EXTRA_PKG_SHA256
+export BUSYBOX_PKG_VERSION KERNEL_MODULES_EXTRA_PKG_VERSION
 
 # Set SOURCE_DATE_EPOCH if not already set (for reproducible builds)
 export SOURCE_DATE_EPOCH="${SOURCE_DATE_EPOCH:-$(date +%s)}"
+
+# Reproducibility validation
+echo ""
+if [[ -z "${OVMF_COMMIT:-}" ]]; then
+    echo "WARNING: OVMF_COMMIT not set - OVMF build may not be reproducible"
+fi
+if [[ -z "${SOURCE_DATE_EPOCH:-}" ]] || [[ "$SOURCE_DATE_EPOCH" == "$(date +%s)" ]]; then
+    echo "NOTE: SOURCE_DATE_EPOCH defaulting to current time"
+    echo "      For reproducible builds: export SOURCE_DATE_EPOCH=\$(git log -1 --format=%ct)"
+fi
+echo ""
 
 function usage()
 {

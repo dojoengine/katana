@@ -16,6 +16,11 @@
 
 set -euo pipefail
 
+# Environment normalization for reproducibility
+export TZ=UTC
+export LANG=C.UTF-8
+export LC_ALL=C.UTF-8
+
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 
 function usage() {
@@ -60,6 +65,7 @@ echo "Configuration:"
 echo "  Output dir:    $DEST"
 echo "  Git URL:       $OVMF_GIT_URL"
 echo "  Branch:        $OVMF_BRANCH"
+echo "  Commit:        ${OVMF_COMMIT:-<not pinned>}"
 echo "=========================================="
 echo ""
 
@@ -95,7 +101,23 @@ fi
 # Build OVMF
 pushd "$OVMF_DIR" >/dev/null
     run_cmd git fetch current
-    run_cmd git checkout current/${OVMF_BRANCH}
+    if [[ -n "${OVMF_COMMIT:-}" ]]; then
+        # Checkout exact commit for reproducibility
+        run_cmd git checkout "${OVMF_COMMIT}"
+        echo "Checked out pinned commit: $OVMF_COMMIT"
+    else
+        echo "WARNING: OVMF_COMMIT not set - build may not be reproducible"
+        run_cmd git checkout current/${OVMF_BRANCH}
+    fi
+
+    # Verify commit after checkout
+    ACTUAL_COMMIT=$(git rev-parse HEAD)
+    if [[ -n "${OVMF_COMMIT:-}" ]] && [[ "$ACTUAL_COMMIT" != "$OVMF_COMMIT" ]]; then
+        echo "ERROR: Commit mismatch after checkout"
+        echo "  Expected: $OVMF_COMMIT"
+        echo "  Actual:   $ACTUAL_COMMIT"
+        exit 1
+    fi
     run_cmd git submodule update --init --recursive
     run_cmd touch OvmfPkg/AmdSev/Grub/grub.efi # https://github.com/AMDESE/ovmf/issues/6#issuecomment-2843109558
     run_cmd make -C BaseTools clean

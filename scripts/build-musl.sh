@@ -19,6 +19,31 @@ set -euo pipefail
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 PROJECT_ROOT="$(cd "$SCRIPT_DIR/.." && pwd)"
 
+# Parse command line arguments
+STRICT_MODE=0
+while [[ $# -gt 0 ]]; do
+    case "$1" in
+        --strict)
+            STRICT_MODE=1
+            shift
+            ;;
+        -h|--help)
+            echo "Usage: $0 [--strict]"
+            echo ""
+            echo "Build a statically linked Katana binary using musl C runtime."
+            echo ""
+            echo "OPTIONS:"
+            echo "  --strict  Require vendored dependencies for reproducible builds"
+            echo "  -h|--help Show this help message"
+            exit 0
+            ;;
+        *)
+            echo "Unknown option: $1"
+            exit 1
+            ;;
+    esac
+done
+
 cd "$PROJECT_ROOT"
 
 # Check for required tools and install if missing
@@ -88,12 +113,36 @@ export LANG=C.UTF-8
 export LC_ALL=C.UTF-8
 export TZ=UTC
 
+# Check for vendored dependencies
+OFFLINE_FLAG=""
+if [[ -d "$PROJECT_ROOT/vendor" ]] && [[ -f "$PROJECT_ROOT/.cargo/config.toml" ]]; then
+    if grep -q '\[source.vendored-sources\]' "$PROJECT_ROOT/.cargo/config.toml" 2>/dev/null; then
+        echo "Using vendored dependencies (reproducible mode)"
+        OFFLINE_FLAG="--offline"
+    fi
+fi
+
+if [[ -z "$OFFLINE_FLAG" ]]; then
+    if [[ $STRICT_MODE -eq 1 ]]; then
+        echo "ERROR: --strict mode requires vendored dependencies"
+        echo "       Run: cargo vendor vendor/"
+        echo "       Then add vendor config to .cargo/config.toml"
+        exit 1
+    else
+        echo "WARNING: Vendored dependencies not found - build may not be reproducible"
+        echo "         For reproducible builds, run: cargo vendor vendor/"
+    fi
+fi
+
+echo ""
 echo "Building Katana with musl (static linking)..."
 echo "  SOURCE_DATE_EPOCH: $SOURCE_DATE_EPOCH"
 echo "  RUSTFLAGS: $RUSTFLAGS"
+echo "  OFFLINE_FLAG: ${OFFLINE_FLAG:-<none>}"
 
 # Build the binary
 cargo build \
+    $OFFLINE_FLAG \
     --locked \
     --target x86_64-unknown-linux-musl \
     --profile performance \
