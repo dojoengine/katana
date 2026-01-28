@@ -21,6 +21,7 @@ katana-pool.workspace = true
 katana-pool-api.workspace = true
 katana-primitives.workspace = true
 katana-provider.workspace = true
+katana-genesis = { workspace = true, optional = true }
 katana-rpc-server.workspace = true
 katana-rpc-api.workspace = true
 katana-rpc-client.workspace = true
@@ -35,20 +36,45 @@ num-traits.workspace = true
 futures.workspace = true
 http.workspace = true
 jsonrpsee.workspace = true
+reqwest = { workspace = true, optional = true }
 serde.workspace = true
+serde_json.workspace = true
 parking_lot.workspace = true
 thiserror.workspace = true
 tracing.workspace = true
 url.workspace = true
+ark-ff = { version = "0.4.2", optional = true }
 
 strum.workspace = true
 strum_macros.workspace = true
 
+stark-vrf = { workspace = true, optional = true }
+starknet = { workspace = true, optional = true }
+
 tokio = { workspace = true, features = [ "time" ] }
 
 [features]
-cartridge = ["katana-rpc-api/cartridge", "katana-rpc-server/cartridge"]
+paymaster = [
+	"dep:katana-genesis",
+	"dep:reqwest",
+	"dep:starknet",
+	"katana-rpc-server/paymaster",
+]
+vrf = [
+	"paymaster",
+	"dep:stark-vrf",
+	"dep:ark-ff",
+]
+cartridge = [
+	"katana-rpc-api/cartridge",
+	"katana-rpc-server/cartridge",
+	"paymaster",
+	"vrf",
+]
 explorer = ["katana-rpc-server/explorer"]
 native = ["katana-executor/native"]
 tee = ["dep:katana-tee", "katana-rpc-api/tee", "katana-rpc-server/tee"]
 tee-snp = ["tee", "katana-tee/snp"]
+
+[dev-dependencies]
+tempfile.workspace = true

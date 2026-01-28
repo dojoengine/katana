@@ -4,6 +4,8 @@ pub mod full;
 
 pub mod config;
 pub mod exit;
+#[cfg(feature = "paymaster")]
+mod sidecar;
 
 use std::future::IntoFuture;
 use std::sync::Arc;
@@ -43,9 +45,11 @@ use katana_rpc_api::starknet_ext::StarknetApiExtServer;
 use katana_rpc_api::tee::TeeApiServer;
 use katana_rpc_client::starknet::Client as StarknetClient;
 #[cfg(feature = "cartridge")]
-use katana_rpc_server::cartridge::CartridgeApi;
+use katana_rpc_server::cartridge::{CartridgeApi, CartridgeConfig};
 use katana_rpc_server::cors::Cors;
 use katana_rpc_server::dev::DevApi;
+#[cfg(feature = "paymaster")]
+use katana_rpc_server::paymaster::PaymasterProxy;
 #[cfg(feature = "cartridge")]
 use katana_rpc_server::starknet::PaymasterConfig;
 use katana_rpc_server::starknet::{StarknetApi, StarknetApiConfig};
@@ -59,6 +63,8 @@ use num_traits::ToPrimitive;
 use tracing::info;
 
 use crate::exit::NodeStoppedFuture;
+#[cfg(feature = "paymaster")]
+use crate::sidecar::{bootstrap_sidecars, start_sidecars, BootstrapResult, SidecarProcesses};
 
 /// A node instance.
 ///
@@ -211,26 +217,58 @@ where
         .allow_headers([CONTENT_TYPE, "argent-client".parse().unwrap(), "argent-version".parse().unwrap()]);
 
         #[cfg(feature = "cartridge")]
-        let paymaster = if let Some(paymaster) = &config.paymaster {
+        let cartridge_paymaster = if let Some(paymaster) = &config.paymaster {
             anyhow::ensure!(
                 config.rpc.apis.contains(&RpcModuleKind::Cartridge),
                 "Cartridge API should be enabled when paymaster is set"
             );
+
+            let cartridge_api_url = paymaster.cartridge_api_url.clone().ok_or_else(|| {
+                anyhow::anyhow!("cartridge api url is required when paymaster is set")
+            })?;
+
+            #[cfg(feature = "vrf")]
+            let vrf = if let Some(vrf) = &config.vrf {
+                let derived = crate::sidecar::derive_vrf_accounts(vrf, &config, &backend)?;
+                Some(katana_rpc_server::cartridge::CartridgeVrfConfig {
+                    url: vrf.url.clone(),
+                    account_address: derived.vrf_account_address,
+                    account_private_key: derived.source_private_key,
+                })
+            } else {
+                None
+            };
+
+            #[cfg(not(feature = "vrf"))]
+            let vrf = None;
 
             let api = CartridgeApi::new(
                 backend.clone(),
                 block_producer.clone(),
                 pool.clone(),
                 task_spawner.clone(),
-                paymaster.cartridge_api_url.clone(),
-            );
+                CartridgeConfig {
+                    cartridge_api_url: cartridge_api_url.clone(),
+                    paymaster_url: paymaster.url.clone(),
+                    paymaster_api_key: paymaster.api_key.clone(),
+                    paymaster_prefunded_index: paymaster.prefunded_index,
+                    vrf,
+                },
+            )?;
 
             rpc_modules.merge(CartridgeApiServer::into_rpc(api))?;
 
-            Some(PaymasterConfig { cartridge_api_url: paymaster.cartridge_api_url.clone() })
+            Some(PaymasterConfig { cartridge_api_url, prefunded_index: paymaster.prefunded_index })
         } else {
             None
         };
+
+        #[cfg(feature = "paymaster")]
+        if let Some(paymaster) = &config.paymaster {
+            let paymaster_proxy =
+                PaymasterProxy::new(paymaster.url.clone(), paymaster.api_key.clone());
+            rpc_modules.merge(paymaster_proxy.module()?)?;
+        }
 
         // --- build starknet api
 
@@ -242,7 +280,7 @@ where
             simulation_flags: execution_flags,
             versioned_constant_overrides,
             #[cfg(feature = "cartridge")]
-            paymaster,
+            paymaster: cartridge_paymaster,
         };
 
         let chain_spec = backend.chain_spec.clone();
@@ -532,6 +570,21 @@ where
             .name("Sequencing")
             .spawn(sequencing.into_future());
 
+        #[cfg(feature = "paymaster")]
+        let sidecar_bootstrap: BootstrapResult = {
+            let paymaster_enabled = self.config.paymaster.is_some();
+            #[cfg(feature = "vrf")]
+            let vrf_enabled = self.config.vrf.is_some();
+            #[cfg(not(feature = "vrf"))]
+            let vrf_enabled = false;
+
+            if paymaster_enabled || vrf_enabled {
+                bootstrap_sidecars(self.config(), &backend, &block_producer, &pool).await?
+            } else {
+                BootstrapResult::default()
+            }
+        };
+
         // --- start the rpc server
 
         let rpc_handle = self.rpc_server.start(self.config.rpc.socket_addr()).await?;
@@ -559,11 +612,28 @@ where
 
         info!(target: "node", "Gas price oracle worker started.");
 
+        #[cfg(feature = "paymaster")]
+        let sidecars = {
+            let paymaster_enabled = sidecar_bootstrap.paymaster.is_some();
+            #[cfg(feature = "vrf")]
+            let vrf_enabled = sidecar_bootstrap.vrf.is_some();
+            #[cfg(not(feature = "vrf"))]
+            let vrf_enabled = false;
+
+            if paymaster_enabled || vrf_enabled {
+                Some(start_sidecars(self.config(), &sidecar_bootstrap, rpc_handle.addr()).await?)
+            } else {
+                None
+            }
+        };
+
         Ok(LaunchedNode {
             node: self,
             rpc: rpc_handle,
             gateway: gateway_handle,
             metrics: metrics_handle,
+            #[cfg(feature = "paymaster")]
+            sidecars,
         })
     }
 
@@ -612,6 +682,10 @@ where
     gateway: Option<GatewayServerHandle>,
     /// Handle to the metrics server (if enabled).
     metrics: Option<MetricsServerHandle>,
+    /// Handles for sidecar processes (if enabled).
+    #[cfg(feature = "paymaster")]
+    #[allow(dead_code)]
+    sidecars: Option<SidecarProcesses>,
 }
 
 impl<P> LaunchedNode<P>
