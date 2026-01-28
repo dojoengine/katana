@@ -29,9 +29,11 @@
 #   CBITPOS          - 51 (C-bit position for memory encryption)
 #   REDUCED_PHYS_BITS - 1
 #
-# To compute expected measurement, use sev-snp-measure tool:
-#   pip install sev-snp-measure
-#   sev-snp-measure --mode snp --vcpus=1 --ovmf=OVMF.fd --kernel=vmlinuz --initrd=initrd.img --append="console=ttyS0 katana.args=--http.addr,0.0.0.0,--http.port,5050,--tee.provider,sev-snp"
+# To compute expected measurement, use snp-digest from snp-tools:
+#   cargo build -p snp-tools
+#   ./target/debug/snp-digest --ovmf=OVMF.fd --kernel=vmlinuz --initrd=initrd.img \
+#       --append="console=ttyS0 katana.args=--http.addr,0.0.0.0,--http.port,5050,--tee.provider,sev-snp" \
+#       --vcpus=1 --cpu=epyc-v4 --vmm=qemu --guest-features=0x1
 #
 # ==============================================================================
 
@@ -133,9 +135,8 @@ echo "  Serial:  $SERIAL_LOG"
 echo "  RPC:     localhost:$HOST_RPC_PORT -> VM:$KATANA_RPC_PORT"
 echo ""
 echo "To compute expected launch measurement:"
-echo "  sev-snp-measure --mode snp --vcpus=$VCPU_COUNT --ovmf=$OVMF_FILE \\"
-echo "      --kernel=$KERNEL_FILE --initrd=$INITRD_FILE \\"
-echo "      --append='$KERNEL_CMDLINE'"
+echo "  snp-digest --ovmf=$OVMF_FILE --kernel=$KERNEL_FILE --initrd=$INITRD_FILE \\"
+echo "      --append='$KERNEL_CMDLINE' --vcpus=$VCPU_COUNT --cpu=epyc-v4 --vmm=qemu --guest-features=0x1"
 
 qemu-system-x86_64 \
     -enable-kvm \

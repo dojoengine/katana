@@ -1,0 +1,5 @@
+# snp-tools requires x86_64 due to sev crate's rdrand dependency
+# This forces cross-compilation when building on non-x86_64 hosts
+
+[build]
+target = "x86_64-unknown-linux-gnu"

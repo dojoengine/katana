@@ -1,0 +1,31 @@
+[package]
+name = "snp-tools"
+version = "0.1.0"
+edition = "2021"
+description = "SEV-SNP utility tools for development"
+license = "Apache-2.0"
+
+[[bin]]
+name = "snp-digest"
+path = "src/bin/snp-digest.rs"
+
+[[bin]]
+name = "snp-report"
+path = "src/bin/snp-report.rs"
+
+[[bin]]
+name = "ovmf-metadata"
+path = "src/bin/ovmf-metadata.rs"
+
+[dependencies]
+clap = { version = "4", features = ["derive"] }
+hex = "0.4"
+openssl = { version = "0.10", features = ["vendored"] }
+
+# Use git dependency because crates.io v7.1.0 has rdrand as non-optional.
+# The git version has rdrand behind the "sev" feature flag, allowing builds on non-x86_64.
+[dependencies.sev]
+git = "https://github.com/virtee/sev"
+branch = "main"
+default-features = false
+features = ["snp", "openssl"]
