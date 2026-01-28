@@ -1,1 +1,0 @@
-console=ttyS0 loglevel=8 debug earlyprintk=serial,ttyS0,115200
