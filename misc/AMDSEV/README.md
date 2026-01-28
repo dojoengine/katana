@@ -145,7 +145,7 @@ Katana running inside a TEE exposes an RPC endpoint to retrieve attestation repo
 ```sh
 curl -X POST http://localhost:15051 \
   -H "Content-Type: application/json" \
-  -d '{"jsonrpc":"2.0","id":1,"method":"katana_attestation","params":[]}'
+  -d '{"jsonrpc":"2.0","id":1,"method":"tee_generatQuote","params":[]}'
 ```
 
 Example response:
@@ -171,7 +171,7 @@ Use `snp-report` to decode the `quote` field:
 # Or pipe from jq
 curl -s -X POST http://localhost:15051 \
   -H "Content-Type: application/json" \
-  -d '{"jsonrpc":"2.0","id":1,"method":"katana_attestation","params":[]}' \
+  -d '{"jsonrpc":"2.0","id":1,"method":"tee_generatQuote","params":[]}' \
   | jq -r '.result.quote' \
   | ./target/debug/snp-report
 ```
