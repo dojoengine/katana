@@ -10,6 +10,7 @@ on:
     types: [closed]
     branches:
       - main
+      - "release/**"
 
 env:
   RUST_VERSION: 1.86.0
