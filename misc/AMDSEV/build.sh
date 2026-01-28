@@ -1,4 +1,13 @@
 #!/bin/bash
+#
+# Build TEE components (OVMF, kernel, initrd) for AMD SEV-SNP.
+# This script should be run from the repository root directory.
+#
+# Usage:
+#   ./misc/AMDSEV/build.sh
+#   ./misc/AMDSEV/build.sh --katana /path/to/katana
+#   ./misc/AMDSEV/build.sh ovmf kernel
+#
 
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 . ${SCRIPT_DIR}/build-config
@@ -16,15 +25,13 @@ function usage()
 	echo ""
 	echo "OPTIONS:"
 	echo "  --install PATH          Installation path (default: ${SCRIPT_DIR}/output/qemu)"
-	echo "  --katana PATH           Path to katana binary (required for initrd)"
+	echo "  --katana PATH           Path to katana binary (optional, will build if not provided)"
 	echo "  -h|--help               Usage information"
 	echo ""
 	echo "COMPONENTS (if none specified, builds all):"
 	echo "  ovmf                    Build OVMF firmware"
 	echo "  kernel                  Build kernel"
-	echo "  initrd                  Build initrd (requires --katana)"
-	echo ""
-	echo "NOTE: --katana is required when building initrd (either explicitly or by default)"
+	echo "  initrd                  Build initrd (builds katana if --katana not provided)"
 
 	exit 1
 }
@@ -80,10 +87,21 @@ if [ $BUILD_OVMF -eq 0 ] && [ $BUILD_KERNEL -eq 0 ] && [ $BUILD_INITRD -eq 0 ]; 
 	BUILD_INITRD=1
 fi
 
-# Validate initrd requirements
+# Build katana if needed for initrd and not provided
 if [ $BUILD_INITRD -eq 1 ] && [ -z "$KATANA_BINARY" ]; then
-	echo "ERROR: --katana PATH is required for initrd build"
-	exit 1
+	echo "No --katana provided, building katana with musl..."
+	PROJECT_ROOT="$(cd "${SCRIPT_DIR}/../.." && pwd)"
+	"${PROJECT_ROOT}/scripts/build-musl.sh"
+	if [ $? -ne 0 ]; then
+		echo "Katana build failed"
+		exit 1
+	fi
+	KATANA_BINARY="${PROJECT_ROOT}/target/x86_64-unknown-linux-musl/performance/katana"
+	if [ ! -f "$KATANA_BINARY" ]; then
+		echo "ERROR: Katana binary not found at $KATANA_BINARY"
+		exit 1
+	fi
+	echo "Using built katana: $KATANA_BINARY"
 fi
 
 mkdir -p $INSTALL_DIR
@@ -116,6 +134,9 @@ if [ $BUILD_INITRD -eq 1 ]; then
 		echo "Initrd build failed: $?"
 		exit 1
 	fi
+	# Copy katana binary to output directory
+	cp "$KATANA_BINARY" "$INSTALL_DIR/katana"
+	echo "Copied katana binary to $INSTALL_DIR/katana"
 fi
 
 # ==============================================================================

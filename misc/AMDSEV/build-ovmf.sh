@@ -73,8 +73,7 @@ else
     GCCVERS="GCC5"
 fi
 
-BUILD_CMD="nice build -q --cmd-len=64436 -DDEBUG_ON_SERIAL_PORT=TRUE -n $(getconf _NPROCESSORS_ONLN) ${GCCVERS:+-t $GCCVERS} -a X64 -p OvmfPkg/OvmfPkgX64.dsc"
-# BUILD_CMD="nice build -q --cmd-len=64436 -DDEBUG_ON_SERIAL_PORT=TRUE -n $(getconf _NPROCESSORS_ONLN) ${GCCVERS:+-t $GCCVERS} -a X64 -p OvmfPkg/AmdSev/AmdSevX64.dsc"
+BUILD_CMD="nice build -q --cmd-len=64436 -DDEBUG_ON_SERIAL_PORT=TRUE -n $(getconf _NPROCESSORS_ONLN) ${GCCVERS:+-t $GCCVERS} -a X64 -p OvmfPkg/AmdSev/AmdSevX64.dsc"
 
 # Clone or update OVMF repository
 OVMF_DIR="${SCRIPT_DIR}/ovmf"
@@ -98,7 +97,7 @@ pushd "$OVMF_DIR" >/dev/null
     run_cmd git fetch current
     run_cmd git checkout current/${OVMF_BRANCH}
     run_cmd git submodule update --init --recursive
-    # run_cmd touch OvmfPkg/AmdSev/Grub/grub.efi # https://github.com/AMDESE/ovmf/issues/6#issuecomment-2843109558
+    run_cmd touch OvmfPkg/AmdSev/Grub/grub.efi # https://github.com/AMDESE/ovmf/issues/6#issuecomment-2843109558
     run_cmd make -C BaseTools clean
     run_cmd make -C BaseTools -j $(getconf _NPROCESSORS_ONLN)
     # Temporarily disable strict mode for edksetup.sh (has unbound variables)
@@ -108,9 +107,7 @@ pushd "$OVMF_DIR" >/dev/null
     run_cmd $BUILD_CMD
 
     mkdir -p "$DEST"
-   	run_cmd cp -f Build/OvmfX64/DEBUG_$GCCVERS/FV/OVMF_CODE.fd $DEST
-	run_cmd cp -f Build/OvmfX64/DEBUG_$GCCVERS/FV/OVMF_VARS.fd $DEST
-	run_cmd cp -f Build/OvmfX64/DEBUG_$GCCVERS/FV/OVMF.fd $DEST
+    run_cmd cp -f Build/AmdSev/DEBUG_$GCCVERS/FV/OVMF.fd $DEST
 
     COMMIT=$(git log --format="%h" -1 HEAD)
     echo "$COMMIT" > "${SCRIPT_DIR}/source-commit.ovmf"
