@@ -21,13 +21,47 @@ PROJECT_ROOT="$(cd "$SCRIPT_DIR/.." && pwd)"
 
 cd "$PROJECT_ROOT"
 
-# Check for required tools
-for cmd in cargo rustup musl-gcc clang; do
-    if ! command -v "$cmd" &> /dev/null; then
-        echo "ERROR: $cmd is not installed"
+# Check for required tools and install if missing
+MISSING_PKGS=()
+
+if ! command -v cargo &> /dev/null; then
+    echo "ERROR: cargo is not installed. Install Rust via rustup: https://rustup.rs"
+    exit 1
+fi
+
+if ! command -v rustup &> /dev/null; then
+    echo "ERROR: rustup is not installed. Install via: https://rustup.rs"
+    exit 1
+fi
+
+if ! command -v musl-gcc &> /dev/null; then
+    MISSING_PKGS+=(musl-tools)
+fi
+
+if ! command -v clang &> /dev/null; then
+    MISSING_PKGS+=(clang)
+fi
+
+# Install missing packages if any
+if [[ ${#MISSING_PKGS[@]} -gt 0 ]]; then
+    echo "Installing missing packages: ${MISSING_PKGS[*]}"
+    if command -v apt-get &> /dev/null; then
+        sudo apt-get update && sudo apt-get install -y "${MISSING_PKGS[@]}"
+    elif command -v pacman &> /dev/null; then
+        # Map package names for Arch Linux
+        ARCH_PKGS=()
+        for pkg in "${MISSING_PKGS[@]}"; do
+            case "$pkg" in
+                musl-tools) ARCH_PKGS+=(musl) ;;
+                *) ARCH_PKGS+=("$pkg") ;;
+            esac
+        done
+        sudo pacman -S --noconfirm "${ARCH_PKGS[@]}"
+    else
+        echo "ERROR: Cannot auto-install packages. Please install manually: ${MISSING_PKGS[*]}"
         exit 1
     fi
-done
+fi
 
 # Add musl target if not already installed
 if ! rustup target list --installed | grep -q x86_64-unknown-linux-musl; then
