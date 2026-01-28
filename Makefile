@@ -72,21 +72,6 @@ build-explorer:
 
 contracts: $(CONTRACTS_BUILD_DIR)
 
-build-tee: contracts
-	@which docker >/dev/null 2>&1 || { echo "Error: docker is required but not installed."; exit 1; }
-	@echo "Building reproducible TEE binary..."
-	@docker build \
-		-f reproducible.Dockerfile \
-		--build-arg SOURCE_DATE_EPOCH=$$(git log -1 --format=%ct) \
-		-t katana-reproducible \
-		.
-	@echo "Extracting binary..."
-	@docker create --name katana-tee-extract katana-reproducible >/dev/null
-	@docker cp katana-tee-extract:/katana ./katana-tee
-	@docker rm katana-tee-extract >/dev/null
-	@echo "Reproducible TEE binary built: ./katana-tee"
-	@echo "SHA-384: $$(sha384sum ./katana-tee | cut -d ' ' -f 1)"
-
 # Generate the list of sources dynamically to make sure Make can track all files in all nested subdirs
 $(CONTRACTS_BUILD_DIR): $(shell find $(CONTRACTS_DIR) -type f)
 	@echo "Building contracts..."
@@ -196,5 +181,5 @@ snos-deps-macos: install-pyenv
 
 clean:
 	echo "Cleaning up generated files..."
-	-rm -rf $(SNOS_DB_DIR) $(COMPATIBILITY_DB_DIR) $(SNOS_OUTPUT) $(EXPLORER_UI_DIST) $(CONTRACTS_BUILD_DIR) katana-tee
+	-rm -rf $(SNOS_DB_DIR) $(COMPATIBILITY_DB_DIR) $(SNOS_OUTPUT) $(EXPLORER_UI_DIST) $(CONTRACTS_BUILD_DIR)
 	echo "Clean complete."
