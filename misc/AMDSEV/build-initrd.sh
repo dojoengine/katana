@@ -11,7 +11,7 @@
 #   - linux-modules-extra: Contains SEV-SNP kernel modules (tsm.ko, sev-guest.ko)
 #
 # Usage:
-#   ./build-initrd-standalone.sh KATANA_BINARY OUTPUT_INITRD [KERNEL_VERSION]
+#   ./build-initrd.sh KATANA_BINARY OUTPUT_INITRD [KERNEL_VERSION]
 #
 # Environment:
 #   SOURCE_DATE_EPOCH               REQUIRED. Unix timestamp for reproducible builds.
