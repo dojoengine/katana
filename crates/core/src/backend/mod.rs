@@ -33,8 +33,6 @@ use rayon::prelude::*;
 use starknet_types_core::hash::{self, StarkHash};
 use tracing::info;
 
-pub mod storage;
-
 use katana_provider::{ProviderRO, ProviderRW};
 
 use crate::env::BlockContextGenerator;
