@@ -498,7 +498,6 @@ pub(super) fn state_update_from_cached_state(state: &CachedState<'_>) -> StateUp
     // TODO: stateful compression should be applied conditionally
     //
     // The state diff here has been applied stateful compression
-    println!("Applying stateful compression");
     let alias_contract_address = contract_address!("0x2");
     allocate_aliases_in_storage(&mut state.inner.lock().cached_state, alias_contract_address)
         .unwrap();
