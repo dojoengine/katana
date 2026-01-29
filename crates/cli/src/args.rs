@@ -71,9 +71,9 @@ pub struct SequencerNodeArgs {
     ///
     /// The path must either be an empty directory or a directory which already contains a
     /// previously initialized Katana database.
-    #[arg(long)]
+    #[arg(long, alias = "db-dir")]
     #[arg(value_name = "PATH")]
-    pub db_dir: Option<PathBuf>,
+    pub data_dir: Option<PathBuf>,
 
     /// Configuration file
     #[arg(long)]
@@ -415,7 +415,7 @@ impl SequencerNodeArgs {
     }
 
     fn db_config(&self) -> DbConfig {
-        DbConfig { dir: self.db_dir.clone() }
+        DbConfig { dir: self.data_dir.clone() }
     }
 
     fn metrics_config(&self) -> Option<MetricsConfig> {
@@ -483,8 +483,8 @@ impl SequencerNodeArgs {
             self.block_time = config.block_time;
         }
 
-        if self.db_dir.is_none() {
-            self.db_dir = config.db_dir;
+        if self.data_dir.is_none() {
+            self.data_dir = config.data_dir;
         }
 
         if self.logging == LoggingOptions::default() {
@@ -591,7 +591,7 @@ mod test {
             "200",
             "--validate-max-steps",
             "100",
-            "--db-dir",
+            "--data-dir",
             "/path/to/db",
         ]);
         let config = args.config().unwrap();
@@ -603,6 +603,14 @@ mod test {
         assert_eq!(config.db.dir, Some(PathBuf::from("/path/to/db")));
         assert_eq!(config.chain.id(), ChainId::GOERLI);
         assert_eq!(config.chain.genesis().sequencer_address, *DEFAULT_SEQUENCER_ADDRESS);
+    }
+
+    #[test]
+    fn test_db_dir_alias() {
+        // --db-dir should work as an alias for --data-dir
+        let args = SequencerNodeArgs::parse_from(["katana", "--db-dir", "/path/to/db"]);
+        let config = args.config().unwrap();
+        assert_eq!(config.db.dir, Some(PathBuf::from("/path/to/db")));
     }
 
     #[test]
