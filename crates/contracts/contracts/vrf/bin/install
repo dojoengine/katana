@@ -1,0 +1,80 @@
+#!/usr/bin/env bash
+
+set -euo pipefail
+
+get_extension() {
+  local os
+  os=$(uname -s)
+
+  case "$os" in
+    MINGW*|MSYS*|CYGWIN*) echo "zip" ;;
+    *) echo "tar.gz" ;;
+  esac
+}
+
+extract_binary() {
+  local binary="$1"
+  local download_path="$2"
+  local install_path="$3"
+  local extension="$4"
+
+  local archive="${download_path}/${binary}.${extension}"
+
+  if [[ ! -f "$archive" ]]; then
+    echo "Archive not found: $archive" >&2
+    exit 1
+  fi
+
+  echo "Extracting ${binary}..."
+
+  case "$extension" in
+    tar.gz)
+      tar -xzf "$archive" -C "$install_path"
+      ;;
+    zip)
+      unzip -q "$archive" -d "$install_path"
+      ;;
+    *)
+      echo "Unsupported extension: $extension" >&2
+      exit 1
+      ;;
+  esac
+}
+
+main() {
+  local install_type="${ASDF_INSTALL_TYPE:-}"
+  local install_path="${ASDF_INSTALL_PATH:-}"
+  local download_path="${ASDF_DOWNLOAD_PATH:-}"
+
+  if [[ "$install_type" != "version" ]]; then
+    echo "Only version installs are supported" >&2
+    exit 1
+  fi
+
+  if [[ -z "$install_path" ]]; then
+    echo "ASDF_INSTALL_PATH is required" >&2
+    exit 1
+  fi
+
+  if [[ -z "$download_path" ]]; then
+    echo "ASDF_DOWNLOAD_PATH is required" >&2
+    exit 1
+  fi
+
+  local extension
+  extension=$(get_extension)
+
+  local bin_path="${install_path}/bin"
+  mkdir -p "$bin_path"
+
+  extract_binary "vrf-server" "$download_path" "$bin_path" "$extension"
+
+  # Set executable permissions
+  if compgen -G "${bin_path}/*" > /dev/null; then
+    chmod +x "${bin_path}"/*
+  fi
+
+  echo "Installation completed successfully"
+}
+
+main "$@"

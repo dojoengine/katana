@@ -1,0 +1,68 @@
+# deployer address : 0x3217fcf1499fa0b00ee0d756c9cd805939ea66a7956582261b125a595f52ef3
+
+# lauch vrf-server : cargo run -r -- -s 420
+# vrf public_key.x : 0x66da5d53168d591c55d4c05f3681663ac51bcdccd5ca09e366b71b0c40ccff4
+# vrf public_key.y : 0x6d3eb29920bf55195e5ec76f69e247c0942c7ef85f6640896c058ec75ca2232
+
+# starknetPublicKey1 0x111 0x14584bef56c98fbb91aba84c20724937d5b5d2d6e5a49b60e6c3a19696fad5f
+# starknetPublicKey2 0x222 0x5cba218680f68130296ac34ed343d6186a98744c6ef66c39345fdaefe06c4d5
+
+# selector initializer : 0x02dd76e7ad84dbed81c314ffe5e7a7cacfb8f4836f01af4e913f275f89a3de1a
+
+# STRK: 0x04718f5a0fc34cc1af16a1cdee98ffb20c31f5cd61d6ab07201858f4287c938d
+
+# declare VrfProvider
+sncast -p sepolia_deployer declare --contract-name VrfProvider
+
+Class Hash:       0x148ab1961b07a4488b81e025e5876623a197e7436811411a628da02aca3b9df
+Transaction Hash: 0x600ed9aee2fa21b8ca7efa35815c2b0114d3e11a5174a375eee425a990456d0
+
+
+# deploy VrfProvider
+sncast -p sepolia_deployer deploy --class-hash 0x148ab1961b07a4488b81e025e5876623a197e7436811411a628da02aca3b9df -c 0x3217fcf1499fa0b00ee0d756c9cd805939ea66a7956582261b125a595f52ef3 0x66da5d53168d591c55d4c05f3681663ac51bcdccd5ca09e366b71b0c40ccff4 0x6d3eb29920bf55195e5ec76f69e247c0942c7ef85f6640896c058ec75ca2232
+
+Contract Address: 0x0644f8c8f1038199c6f6e5ebc6a2d06cc99316604154028edf8a201eb2a93eb8
+Transaction Hash: 0x0081fb450909310c661ac44a33f84d2bc593ff89a7b52f82f8d8c16d522d7614
+
+
+# declare VrfProviderUpgrader
+sncast -p sepolia_deployer declare --contract-name VrfProviderUpgrader
+
+Class Hash:       0x156908ed7c7dddbf7dfdc1e29dde96522ea9113aa445e3cedbbfe027cf54e55
+Transaction Hash: 0x1566dc420445969df96bef87b9b0056036d022b76e2a3707ba1e85f1926b46c
+
+# declare VrfAccount
+sncast -p sepolia_deployer declare --contract-name VrfAccount
+
+Class Hash:       0x3baa36184fc43f8235608220b088b0524a39e2613a1ef82e7aa7448e7389c99
+Transaction Hash: 0x575285eb7bc374c4b52cafdba2ce0953f196797cdbf1697d6d4d9478ffa437
+
+
+# upgrade VrfProvider -> VrfProviderUpgrader
+sncast -p sepolia_deployer invoke --contract-address 0x0644f8c8f1038199c6f6e5ebc6a2d06cc99316604154028edf8a201eb2a93eb8 --function upgrade -c 0x156908ed7c7dddbf7dfdc1e29dde96522ea9113aa445e3cedbbfe027cf54e55
+
+
+Transaction Hash: 0x04e6b2c67e4e5e415d6e2fcf3e7894e1dee016b465e759813c609d990aab6a77
+
+
+# upgrade & initialize VrfProviderUpgrader -> VrfAccount
+sncast -p sepolia_deployer invoke --contract-address 0x0644f8c8f1038199c6f6e5ebc6a2d06cc99316604154028edf8a201eb2a93eb8 --function upgrade_and_call -c 0x3baa36184fc43f8235608220b088b0524a39e2613a1ef82e7aa7448e7389c99 0x02dd76e7ad84dbed81c314ffe5e7a7cacfb8f4836f01af4e913f275f89a3de1a 0x1 0x14584bef56c98fbb91aba84c20724937d5b5d2d6e5a49b60e6c3a19696fad5f 
+
+Transaction Hash: 0x008b973be12e50155d77714acad0145d78d34a2a60df5be3d6e273e23bcc1b7a
+
+# send 50 STRK from sepolia_deployer to vrf_account
+sncast -p sepolia_deployer invoke --contract-address 0x04718f5a0fc34cc1af16a1cdee98ffb20c31f5cd61d6ab07201858f4287c938d --function transfer -c 0x0644f8c8f1038199c6f6e5ebc6a2d06cc99316604154028edf8a201eb2a93eb8 50000000000000000000 0
+
+Transaction Hash: 0x0619046122dbb26255b05f6fbb2932b6c82ad481d7e1e401170092aadac634bb
+
+# send 10 STRK from vrf_account to sepolia_deployer
+sncast -p vrf_acc_111 invoke --contract-address 0x04718f5a0fc34cc1af16a1cdee98ffb20c31f5cd61d6ab07201858f4287c938d --function transfer -c 0x3217fcf1499fa0b00ee0d756c9cd805939ea66a7956582261b125a595f52ef3 10000000000000000000 0
+
+Transaction Hash: 0x0154a197a434711e47037a5ec7bfe5cd5f0025e6994a54978b34358f3748c282
+
+
+# deployer 
+https://sepolia.voyager.online/contract/0x03217fcf1499fa0b00ee0d756c9cd805939ea66a7956582261b125a595f52ef3
+
+# vrf_account
+https://sepolia.voyager.online/contract/0x0644f8c8f1038199c6f6e5ebc6a2d06cc99316604154028edf8a201eb2a93eb8

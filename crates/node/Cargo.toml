@@ -37,9 +37,7 @@ num-traits.workspace = true
 futures.workspace = true
 http.workspace = true
 jsonrpsee.workspace = true
-reqwest = { workspace = true, optional = true }
 serde.workspace = true
-serde_json.workspace = true
 parking_lot.workspace = true
 thiserror.workspace = true
 tracing.workspace = true
@@ -57,7 +55,6 @@ tokio = { workspace = true, features = [ "time" ] }
 [features]
 paymaster = [
 	"dep:katana-genesis",
-	"dep:reqwest",
 	"dep:starknet",
 	"katana-rpc-api/paymaster",
 	"katana-rpc-server/paymaster",

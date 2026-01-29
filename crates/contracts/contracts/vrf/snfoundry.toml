@@ -1,0 +1,11 @@
+[sncast.sepolia_deployer]
+account ="./accounts/deployer_acc"
+keystore = "./accounts/deployer_key"
+url = "https://api.cartridge.gg/x/starknet/sepolia"
+# url = "https://api.cartridge.gg/x/starknet/sepolia/rpc/v0_8"
+
+[sncast.vrf_acc_111]
+account ="./accounts/vrf_acc"
+keystore = "./accounts/vrf_key_111"
+url = "https://api.cartridge.gg/x/starknet/sepolia"
+

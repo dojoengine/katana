@@ -5,7 +5,7 @@ pub mod full;
 pub mod config;
 pub mod exit;
 #[cfg(feature = "paymaster")]
-mod sidecar;
+pub mod sidecar;
 
 use std::future::IntoFuture;
 use std::sync::Arc;
@@ -69,7 +69,7 @@ use tracing::info;
 
 use crate::exit::NodeStoppedFuture;
 #[cfg(feature = "paymaster")]
-use crate::sidecar::{bootstrap_sidecars, start_sidecars, BootstrapResult, SidecarProcesses};
+use crate::sidecar::{bootstrap_sidecars, BootstrapResult};
 
 /// A node instance.
 ///
@@ -604,6 +604,8 @@ where
             .name("Sequencing")
             .spawn(sequencing.into_future());
 
+        // --- bootstrap sidecars (deploy contracts, prepare configuration)
+        // The actual sidecar process management is handled by the CLI layer.
         #[cfg(feature = "paymaster")]
         let sidecar_bootstrap: BootstrapResult = {
             let paymaster_enabled = self.config.paymaster.is_some();
@@ -661,21 +663,6 @@ where
 
         info!(target: "node", "Gas price oracle worker started.");
 
-        #[cfg(feature = "paymaster")]
-        let sidecars = {
-            let paymaster_enabled = sidecar_bootstrap.paymaster.is_some();
-            #[cfg(feature = "vrf")]
-            let vrf_enabled = sidecar_bootstrap.vrf.is_some();
-            #[cfg(not(feature = "vrf"))]
-            let vrf_enabled = false;
-
-            if paymaster_enabled || vrf_enabled {
-                Some(start_sidecars(self.config(), &sidecar_bootstrap, rpc_handle.addr()).await?)
-            } else {
-                None
-            }
-        };
-
         Ok(LaunchedNode {
             node: self,
             rpc: rpc_handle,
@@ -684,7 +671,7 @@ where
             grpc: grpc_handle,
             metrics: metrics_handle,
             #[cfg(feature = "paymaster")]
-            sidecars,
+            sidecar_bootstrap,
         })
     }
 
@@ -736,10 +723,9 @@ where
     grpc: Option<GrpcServerHandle>,
     /// Handle to the metrics server (if enabled).
     metrics: Option<MetricsServerHandle>,
-    /// Handles for sidecar processes (if enabled).
+    /// Bootstrap data for sidecars. The CLI uses this to start sidecar processes.
     #[cfg(feature = "paymaster")]
-    #[allow(dead_code)]
-    sidecars: Option<SidecarProcesses>,
+    sidecar_bootstrap: BootstrapResult,
 }
 
 impl<P> LaunchedNode<P>
@@ -772,6 +758,14 @@ where
     #[cfg(feature = "grpc")]
     pub fn grpc(&self) -> Option<&GrpcServerHandle> {
         self.grpc.as_ref()
+    }
+
+    /// Returns the sidecar bootstrap data.
+    ///
+    /// This data is used by the CLI to start sidecar processes (paymaster, VRF).
+    #[cfg(feature = "paymaster")]
+    pub fn sidecar_bootstrap(&self) -> &BootstrapResult {
+        &self.sidecar_bootstrap
     }
 
     /// Stops the node.

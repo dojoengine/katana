@@ -1,0 +1,12 @@
+#!/usr/bin/env bash
+
+set -euo pipefail
+
+script_dir="$(dirname "$0")"
+
+if [[ ! -x "$script_dir/list-all" ]]; then
+  echo "Error: list-all script not found or not executable" >&2
+  exit 1
+fi
+
+"$script_dir/list-all" | awk 'END {print}'

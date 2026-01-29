@@ -22,10 +22,8 @@ use katana_node::config::gateway::GatewayConfig;
 #[cfg(all(feature = "server", feature = "grpc"))]
 use katana_node::config::grpc::GrpcConfig;
 use katana_node::config::metrics::MetricsConfig;
-#[cfg(all(feature = "vrf", not(feature = "paymaster")))]
-use katana_node::config::paymaster::ServiceMode as NodeServiceMode;
 #[cfg(feature = "paymaster")]
-use katana_node::config::paymaster::{PaymasterConfig, ServiceMode as NodeServiceMode};
+use katana_node::config::paymaster::PaymasterConfig;
 #[cfg(feature = "vrf")]
 use katana_node::config::paymaster::{VrfConfig, VrfKeySource as NodeVrfKeySource};
 use katana_node::config::rpc::RpcConfig;
@@ -47,6 +45,34 @@ use crate::utils::{self, parse_chain_config_dir, parse_seed};
 pub(crate) const LOG_TARGET: &str = "katana::cli";
 #[cfg(feature = "paymaster")]
 const DEFAULT_PAYMASTER_API_KEY: &str = "paymaster_katana";
+
+/// Sidecar-specific info for paymaster (used by CLI to start sidecar process).
+#[cfg(feature = "paymaster")]
+#[derive(Debug, Clone)]
+pub struct PaymasterSidecarInfo {
+    pub port: u16,
+    pub api_key: String,
+}
+
+/// Sidecar-specific info for VRF (used by CLI to start sidecar process).
+#[cfg(feature = "vrf")]
+#[derive(Debug, Clone)]
+pub struct VrfSidecarInfo {
+    pub port: u16,
+}
+
+/// Node configuration with optional sidecar info.
+///
+/// This struct holds the node configuration along with any sidecar-specific
+/// information needed by the CLI to start sidecar processes.
+#[derive(Debug)]
+pub struct NodeConfigWithSidecars {
+    pub config: Config,
+    #[cfg(feature = "paymaster")]
+    pub paymaster_sidecar: Option<PaymasterSidecarInfo>,
+    #[cfg(feature = "vrf")]
+    pub vrf_sidecar: Option<VrfSidecarInfo>,
+}
 
 #[derive(Parser, Debug, Serialize, Deserialize, Default, Clone, PartialEq)]
 #[command(next_help_heading = "Sequencer node options")]
@@ -173,8 +199,14 @@ impl SequencerNodeArgs {
     }
 
     async fn start_node(&self) -> Result<()> {
-        // Build the node
-        let config = self.config()?;
+        // Build the node configuration with sidecar info
+        let NodeConfigWithSidecars {
+            config,
+            #[cfg(feature = "paymaster")]
+            paymaster_sidecar,
+            #[cfg(feature = "vrf")]
+            vrf_sidecar,
+        } = self.config()?;
 
         if config.forking.is_some() {
             let node = Node::build_forked(config).await.context("failed to build forked node")?;
@@ -186,6 +218,18 @@ impl SequencerNodeArgs {
             // Launch the node
             let handle = node.launch().await.context("failed to launch forked node")?;
 
+            // Start sidecars if needed (sidecar processes are managed by CLI)
+            #[cfg(feature = "paymaster")]
+            let mut sidecars = start_sidecars_if_needed(
+                self,
+                handle.sidecar_bootstrap(),
+                handle.rpc().addr(),
+                paymaster_sidecar.as_ref(),
+                #[cfg(feature = "vrf")]
+                vrf_sidecar.as_ref(),
+            )
+            .await?;
+
             // Wait until an OS signal (ie SIGINT, SIGTERM) is received or the node is shutdown.
             tokio::select! {
                 _ = katana_utils::wait_shutdown_signals() => {
@@ -194,6 +238,12 @@ impl SequencerNodeArgs {
                 },
 
                 _ = handle.stopped() => { }
+            }
+
+            // Shutdown sidecar processes
+            #[cfg(feature = "paymaster")]
+            if let Some(ref mut s) = sidecars {
+                s.shutdown().await;
             }
         } else {
             let node = Node::build(config).context("failed to build node")?;
@@ -205,6 +255,18 @@ impl SequencerNodeArgs {
             // Launch the node
             let handle = node.launch().await.context("failed to launch node")?;
 
+            // Start sidecars if needed (sidecar processes are managed by CLI)
+            #[cfg(feature = "paymaster")]
+            let mut sidecars = start_sidecars_if_needed(
+                self,
+                handle.sidecar_bootstrap(),
+                handle.rpc().addr(),
+                paymaster_sidecar.as_ref(),
+                #[cfg(feature = "vrf")]
+                vrf_sidecar.as_ref(),
+            )
+            .await?;
+
             // Wait until an OS signal (ie SIGINT, SIGTERM) is received or the node is shutdown.
             tokio::select! {
                 _ = katana_utils::wait_shutdown_signals() => {
@@ -214,6 +276,12 @@ impl SequencerNodeArgs {
 
                 _ = handle.stopped() => { }
             }
+
+            // Shutdown sidecar processes
+            #[cfg(feature = "paymaster")]
+            if let Some(ref mut s) = sidecars {
+                s.shutdown().await;
+            }
         }
 
         info!("Shutting down.");
@@ -221,7 +289,7 @@ impl SequencerNodeArgs {
         Ok(())
     }
 
-    pub fn config(&self) -> Result<katana_node::config::Config> {
+    pub fn config(&self) -> Result<NodeConfigWithSidecars> {
         let db = self.db_config();
         let rpc = self.rpc_config()?;
         let dev = self.dev_config();
@@ -233,10 +301,18 @@ impl SequencerNodeArgs {
         let forking = self.forking_config()?;
         let execution = self.execution_config();
         let sequencing = self.sequencer_config();
+
         #[cfg(feature = "paymaster")]
-        let paymaster = self.paymaster_config()?;
+        let (paymaster, paymaster_sidecar) = match self.paymaster_config()? {
+            Some((config, sidecar)) => (Some(config), sidecar),
+            None => (None, None),
+        };
+
         #[cfg(feature = "vrf")]
-        let vrf = self.vrf_config()?;
+        let (vrf, vrf_sidecar) = match self.vrf_config()? {
+            Some((config, sidecar)) => (Some(config), sidecar),
+            None => (None, None),
+        };
 
         #[cfg(feature = "vrf")]
         if vrf.is_some() && paymaster.is_none() {
@@ -248,7 +324,7 @@ impl SequencerNodeArgs {
         // the messagign config will eventually be removed slowly.
         let messaging = if cs_messaging.is_some() { cs_messaging } else { self.messaging.clone() };
 
-        Ok(Config {
+        let config = Config {
             db,
             dev,
             rpc,
@@ -267,6 +343,14 @@ impl SequencerNodeArgs {
             vrf,
             #[cfg(feature = "tee")]
             tee: self.tee_config(),
+        };
+
+        Ok(NodeConfigWithSidecars {
+            config,
+            #[cfg(feature = "paymaster")]
+            paymaster_sidecar,
+            #[cfg(feature = "vrf")]
+            vrf_sidecar,
         })
     }
 
@@ -527,7 +611,7 @@ impl SequencerNodeArgs {
     }
 
     #[cfg(feature = "paymaster")]
-    fn paymaster_config(&self) -> Result<Option<PaymasterConfig>> {
+    fn paymaster_config(&self) -> Result<Option<(PaymasterConfig, Option<PaymasterSidecarInfo>)>> {
         if !self.paymaster.is_enabled() {
             return Ok(None);
         }
@@ -535,53 +619,60 @@ impl SequencerNodeArgs {
         // Determine mode based on whether URL is provided
         let is_external = self.paymaster.is_external();
 
-        let url = if is_external {
+        // For sidecar mode, allocate a free port and prepare sidecar info
+        let (url, sidecar_info) = if is_external {
             // External mode: use the provided URL
-            self.paymaster.url.clone().expect("URL must be set in external mode")
+            let url = self.paymaster.url.clone().expect("URL must be set in external mode");
+            (url, None)
         } else {
-            // Sidecar mode: use localhost with configured port
-            Url::parse(&format!("http://127.0.0.1:{}", self.paymaster.port)).expect("valid url")
-        };
+            // Sidecar mode: allocate a free port
+            let listener = std::net::TcpListener::bind("127.0.0.1:0")
+                .context("failed to find free port for paymaster sidecar")?;
+            let port = listener.local_addr()?.port();
+            let url = Url::parse(&format!("http://127.0.0.1:{port}")).expect("valid url");
 
-        let node_mode =
-            if is_external { NodeServiceMode::External } else { NodeServiceMode::Sidecar };
+            // Validate and prepare API key
+            let api_key = {
+                let key = self
+                    .paymaster
+                    .api_key
+                    .clone()
+                    .unwrap_or_else(|| DEFAULT_PAYMASTER_API_KEY.to_string());
+                if !key.starts_with("paymaster_") {
+                    warn!(
+                        target: LOG_TARGET,
+                        %key,
+                        "paymaster api key must start with 'paymaster_'; using default"
+                    );
+                    DEFAULT_PAYMASTER_API_KEY.to_string()
+                } else {
+                    key
+                }
+            };
+
+            let sidecar_info = PaymasterSidecarInfo { port, api_key };
+            (url, Some(sidecar_info))
+        };
 
         let api_key = if is_external {
             self.paymaster.api_key.clone()
         } else {
-            // Sidecar mode: validate and use API key
-            let key = self
-                .paymaster
-                .api_key
-                .clone()
-                .unwrap_or_else(|| DEFAULT_PAYMASTER_API_KEY.to_string());
-            if !key.starts_with("paymaster_") {
-                warn!(
-                    target: LOG_TARGET,
-                    %key,
-                    "paymaster api key must start with 'paymaster_'; using default"
-                );
-                Some(DEFAULT_PAYMASTER_API_KEY.to_string())
-            } else {
-                Some(key)
-            }
+            sidecar_info.as_ref().map(|s| s.api_key.clone())
         };
 
-        Ok(Some(PaymasterConfig {
-            mode: node_mode,
+        let config = PaymasterConfig {
             url,
             api_key,
-            price_api_key: self.paymaster.price_api_key.clone(),
             prefunded_index: self.paymaster.prefunded_index,
-            sidecar_port: self.paymaster.port,
-            sidecar_bin: self.paymaster.bin.clone(),
             #[cfg(feature = "cartridge")]
             cartridge_api_url: Some(self.cartridge.api.clone()),
-        }))
+        };
+
+        Ok(Some((config, sidecar_info)))
     }
 
     #[cfg(feature = "vrf")]
-    fn vrf_config(&self) -> Result<Option<VrfConfig>> {
+    fn vrf_config(&self) -> Result<Option<(VrfConfig, Option<VrfSidecarInfo>)>> {
         if !self.vrf.is_enabled() {
             return Ok(None);
         }
@@ -589,30 +680,26 @@ impl SequencerNodeArgs {
         // Determine mode based on whether URL is provided
         let is_external = self.vrf.is_external();
 
-        let url = if is_external {
+        let (url, sidecar_info) = if is_external {
             // External mode: use the provided URL
-            self.vrf.url.clone().expect("URL must be set in external mode")
+            let url = self.vrf.url.clone().expect("URL must be set in external mode");
+            (url, None)
         } else {
-            // Sidecar mode: use localhost with configured port
-            Url::parse(&format!("http://127.0.0.1:{}", self.vrf.port)).expect("valid url")
+            // Sidecar mode: use configured port (VRF server uses fixed port 3000)
+            let port = self.vrf.port;
+            let url = Url::parse(&format!("http://127.0.0.1:{port}")).expect("valid url");
+            let sidecar_info = VrfSidecarInfo { port };
+            (url, Some(sidecar_info))
         };
-
-        let node_mode =
-            if is_external { NodeServiceMode::External } else { NodeServiceMode::Sidecar };
 
         let key_source = match self.vrf.key_source {
             VrfKeySource::Prefunded => NodeVrfKeySource::Prefunded,
             VrfKeySource::Sequencer => NodeVrfKeySource::Sequencer,
         };
 
-        Ok(Some(VrfConfig {
-            mode: node_mode,
-            url,
-            key_source,
-            prefunded_index: self.vrf.prefunded_index,
-            sidecar_port: self.vrf.port,
-            sidecar_bin: self.vrf.bin.clone(),
-        }))
+        let config = VrfConfig { url, key_source, prefunded_index: self.vrf.prefunded_index };
+
+        Ok(Some((config, sidecar_info)))
     }
 
     #[cfg(feature = "tee")]
@@ -718,6 +805,54 @@ impl SequencerNodeArgs {
     }
 }
 
+/// Start sidecar processes if needed based on the configuration.
+///
+/// This function is called after the node is launched to start any sidecar processes
+/// that are configured in sidecar mode (not external mode).
+#[cfg(feature = "paymaster")]
+async fn start_sidecars_if_needed(
+    args: &SequencerNodeArgs,
+    bootstrap: &katana_node::sidecar::BootstrapResult,
+    rpc_addr: &std::net::SocketAddr,
+    paymaster_sidecar: Option<&PaymasterSidecarInfo>,
+    #[cfg(feature = "vrf")] vrf_sidecar: Option<&VrfSidecarInfo>,
+) -> Result<Option<crate::sidecar::SidecarProcesses>> {
+    #[cfg(feature = "vrf")]
+    use crate::sidecar::VrfSidecarConfig;
+    use crate::sidecar::{start_sidecars, PaymasterSidecarConfig, SidecarStartConfig};
+
+    // Build paymaster sidecar config if needed
+    let paymaster_config = paymaster_sidecar.map(|info| PaymasterSidecarConfig {
+        options: &args.paymaster,
+        port: info.port,
+        api_key: info.api_key.clone(),
+    });
+
+    // Build VRF sidecar config if needed
+    #[cfg(feature = "vrf")]
+    let vrf_config =
+        vrf_sidecar.map(|info| VrfSidecarConfig { options: &args.vrf, port: info.port });
+
+    // If no sidecars need to be started, return None
+    #[cfg(feature = "vrf")]
+    let has_sidecars = paymaster_config.is_some() || vrf_config.is_some();
+    #[cfg(not(feature = "vrf"))]
+    let has_sidecars = paymaster_config.is_some();
+
+    if !has_sidecars {
+        return Ok(None);
+    }
+
+    let config = SidecarStartConfig {
+        paymaster: paymaster_config,
+        #[cfg(feature = "vrf")]
+        vrf: vrf_config,
+    };
+
+    let processes = start_sidecars(&config, bootstrap, rpc_addr).await?;
+    Ok(Some(processes))
+}
+
 #[cfg(test)]
 mod test {
     use std::str::FromStr;
@@ -740,7 +875,8 @@ mod test {
     #[test]
     fn test_starknet_config_default() {
         let args = SequencerNodeArgs::parse_from(["katana"]);
-        let config = args.config().unwrap();
+        let result = args.config().unwrap();
+        let config = &result.config;
 
         assert!(config.dev.fee);
         assert!(config.dev.account_validation);
@@ -768,7 +904,8 @@ mod test {
             "--data-dir",
             "/path/to/db",
         ]);
-        let config = args.config().unwrap();
+        let result = args.config().unwrap();
+        let config = &result.config;
 
         assert!(!config.dev.fee);
         assert!(!config.dev.account_validation);
@@ -789,50 +926,50 @@ mod test {
 
     #[test]
     fn custom_fixed_gas_prices() {
-        let config = SequencerNodeArgs::parse_from(["katana"]).config().unwrap();
-        assert!(config.dev.fixed_gas_prices.is_none());
+        let result = SequencerNodeArgs::parse_from(["katana"]).config().unwrap();
+        assert!(result.config.dev.fixed_gas_prices.is_none());
 
-        let config = SequencerNodeArgs::parse_from(["katana", "--gpo.l1-eth-gas-price", "10"])
+        let result = SequencerNodeArgs::parse_from(["katana", "--gpo.l1-eth-gas-price", "10"])
             .config()
             .unwrap();
-        assert_matches!(config.dev.fixed_gas_prices, Some(prices) => {
+        assert_matches!(result.config.dev.fixed_gas_prices, Some(prices) => {
             assert_eq!(prices.l1_gas_prices.eth.get(), 10);
             assert_eq!(prices.l1_gas_prices.strk, DEFAULT_ETH_L2_GAS_PRICE);
             assert_eq!(prices.l1_data_gas_prices.eth, DEFAULT_ETH_L1_DATA_GAS_PRICE);
             assert_eq!(prices.l1_data_gas_prices.strk, DEFAULT_STRK_L1_DATA_GAS_PRICE);
         });
 
-        let config = SequencerNodeArgs::parse_from(["katana", "--gpo.l1-strk-gas-price", "20"])
+        let result = SequencerNodeArgs::parse_from(["katana", "--gpo.l1-strk-gas-price", "20"])
             .config()
             .unwrap();
-        assert_matches!(config.dev.fixed_gas_prices, Some(prices) => {
+        assert_matches!(result.config.dev.fixed_gas_prices, Some(prices) => {
             assert_eq!(prices.l1_gas_prices.eth, DEFAULT_ETH_L1_GAS_PRICE);
             assert_eq!(prices.l1_gas_prices.strk.get(), 20);
             assert_eq!(prices.l1_data_gas_prices.eth, DEFAULT_ETH_L1_DATA_GAS_PRICE);
             assert_eq!(prices.l1_data_gas_prices.strk, DEFAULT_STRK_L1_DATA_GAS_PRICE);
         });
 
-        let config = SequencerNodeArgs::parse_from(["katana", "--gpo.l1-eth-data-gas-price", "2"])
+        let result = SequencerNodeArgs::parse_from(["katana", "--gpo.l1-eth-data-gas-price", "2"])
             .config()
             .unwrap();
-        assert_matches!(config.dev.fixed_gas_prices, Some(prices) => {
+        assert_matches!(result.config.dev.fixed_gas_prices, Some(prices) => {
             assert_eq!(prices.l1_gas_prices.eth, DEFAULT_ETH_L1_GAS_PRICE);
             assert_eq!(prices.l1_gas_prices.strk, DEFAULT_STRK_L1_GAS_PRICE);
             assert_eq!(prices.l1_data_gas_prices.eth.get(), 2);
             assert_eq!(prices.l1_data_gas_prices.strk, DEFAULT_STRK_L1_DATA_GAS_PRICE);
         });
 
-        let config = SequencerNodeArgs::parse_from(["katana", "--gpo.l1-strk-data-gas-price", "2"])
+        let result = SequencerNodeArgs::parse_from(["katana", "--gpo.l1-strk-data-gas-price", "2"])
             .config()
             .unwrap();
-        assert_matches!(config.dev.fixed_gas_prices, Some(prices) => {
+        assert_matches!(result.config.dev.fixed_gas_prices, Some(prices) => {
             assert_eq!(prices.l1_gas_prices.eth, DEFAULT_ETH_L1_GAS_PRICE);
             assert_eq!(prices.l1_gas_prices.strk, DEFAULT_STRK_L1_GAS_PRICE);
             assert_eq!(prices.l1_data_gas_prices.eth, DEFAULT_ETH_L1_DATA_GAS_PRICE);
             assert_eq!(prices.l1_data_gas_prices.strk.get(), 2);
         });
 
-        let config = SequencerNodeArgs::parse_from([
+        let result = SequencerNodeArgs::parse_from([
             "katana",
             "--gpo.l1-eth-gas-price",
             "10",
@@ -842,7 +979,7 @@ mod test {
         .config()
         .unwrap();
 
-        assert_matches!(config.dev.fixed_gas_prices, Some(prices) => {
+        assert_matches!(result.config.dev.fixed_gas_prices, Some(prices) => {
             assert_eq!(prices.l1_gas_prices.eth.get(), 10);
             assert_eq!(prices.l1_gas_prices.strk, DEFAULT_STRK_L1_GAS_PRICE);
             assert_eq!(prices.l1_data_gas_prices.eth, DEFAULT_ETH_L1_DATA_GAS_PRICE);
@@ -851,7 +988,7 @@ mod test {
 
         // Set all the gas prices options
 
-        let config = SequencerNodeArgs::parse_from([
+        let result = SequencerNodeArgs::parse_from([
             "katana",
             "--gpo.l1-eth-gas-price",
             "10",
@@ -865,7 +1002,7 @@ mod test {
         .config()
         .unwrap();
 
-        assert_matches!(config.dev.fixed_gas_prices, Some(prices) => {
+        assert_matches!(result.config.dev.fixed_gas_prices, Some(prices) => {
             assert_eq!(prices.l1_gas_prices.eth.get(), 10);
             assert_eq!(prices.l1_gas_prices.strk.get(), 20);
             assert_eq!(prices.l1_data_gas_prices.eth.get(), 1);
@@ -875,7 +1012,7 @@ mod test {
 
     #[test]
     fn genesis_with_fixed_gas_prices() {
-        let config = SequencerNodeArgs::parse_from([
+        let result = SequencerNodeArgs::parse_from([
             "katana",
             "--genesis",
             "./test-data/genesis.json",
@@ -890,6 +1027,7 @@ mod test {
         ])
         .config()
         .unwrap();
+        let config = &result.config;
 
         assert_eq!(config.chain.genesis().number, 0);
         assert_eq!(config.chain.genesis().parent_hash, felt!("0x999"));
@@ -898,7 +1036,7 @@ mod test {
         assert_eq!(config.chain.genesis().sequencer_address, address!("0x100"));
         assert_eq!(config.chain.genesis().gas_prices.eth.get(), 9999);
         assert_eq!(config.chain.genesis().gas_prices.strk.get(), 8888);
-        assert_matches!(config.dev.fixed_gas_prices, Some(prices) => {
+        assert_matches!(&config.dev.fixed_gas_prices, Some(prices) => {
             assert_eq!(prices.l1_gas_prices.eth.get(), 100);
             assert_eq!(prices.l1_gas_prices.strk.get(), 200);
             assert_eq!(prices.l1_data_gas_prices.eth.get(), 111);
@@ -946,16 +1084,17 @@ explorer = true
             "0x123",
         ];
 
-        let config = SequencerNodeArgs::parse_from(args.clone())
+        let result = SequencerNodeArgs::parse_from(args.clone())
             .with_config_file()
             .unwrap()
             .config()
             .unwrap();
+        let config = &result.config;
 
         assert_eq!(config.execution.validation_max_steps, 1234);
         assert_eq!(config.execution.invocation_max_steps, 9988);
         assert!(!config.dev.fee);
-        assert_matches!(config.dev.fixed_gas_prices, Some(prices) => {
+        assert_matches!(&config.dev.fixed_gas_prices, Some(prices) => {
             assert_eq!(prices.l1_gas_prices.eth.get(), 254);
             assert_eq!(prices.l1_gas_prices.strk.get(), 200);
             assert_eq!(prices.l1_data_gas_prices.eth.get(), 111);
@@ -979,7 +1118,7 @@ explorer = true
     fn parse_cors_origins() {
         use katana_rpc_server::cors::HeaderValue;
 
-        let config = SequencerNodeArgs::parse_from([
+        let result = SequencerNodeArgs::parse_from([
             "katana",
             "--http.cors_origins",
             "*,http://localhost:3000,https://example.com",
@@ -987,7 +1126,7 @@ explorer = true
         .config()
         .unwrap();
 
-        let cors_origins = config.rpc.cors_origins;
+        let cors_origins = &result.config.rpc.cors_origins;
 
         assert_eq!(cors_origins.len(), 3);
         assert!(cors_origins.contains(&HeaderValue::from_static("*")));
@@ -999,15 +1138,15 @@ explorer = true
     #[test]
     fn http_modules() {
         // If the `--http.api` isn't specified, only starknet module will be exposed.
-        let config = SequencerNodeArgs::parse_from(["katana"]).config().unwrap();
-        let modules = config.rpc.apis;
+        let result = SequencerNodeArgs::parse_from(["katana"]).config().unwrap();
+        let modules = &result.config.rpc.apis;
         assert_eq!(modules.len(), 1);
         assert!(modules.contains(&RpcModuleKind::Starknet));
 
         // If the `--http.api` is specified, only the ones in the list will be exposed.
-        let config =
+        let result =
             SequencerNodeArgs::parse_from(["katana", "--http.api", "starknet"]).config().unwrap();
-        let modules = config.rpc.apis;
+        let modules = &result.config.rpc.apis;
         assert_eq!(modules.len(), 1);
         assert!(modules.contains(&RpcModuleKind::Starknet));
 
@@ -1024,9 +1163,9 @@ explorer = true
     #[test]
     fn test_dev_api_enabled() {
         let args = SequencerNodeArgs::parse_from(["katana", "--dev"]);
-        let config = args.config().unwrap();
+        let result = args.config().unwrap();
 
-        assert!(config.rpc.apis.contains(&RpcModuleKind::Dev));
+        assert!(result.config.rpc.apis.contains(&RpcModuleKind::Dev));
     }
 
     #[cfg(all(feature = "cartridge", feature = "paymaster"))]
@@ -1034,32 +1173,32 @@ explorer = true
     fn cartridge_paymaster() {
         // Test with --paymaster flag (sidecar mode)
         let args = SequencerNodeArgs::parse_from(["katana", "--paymaster"]);
-        let config = args.config().unwrap();
+        let result = args.config().unwrap();
 
         // Verify cartridge module is automatically enabled when paymaster is enabled
-        assert!(config.rpc.apis.contains(&RpcModuleKind::Cartridge));
+        assert!(result.config.rpc.apis.contains(&RpcModuleKind::Cartridge));
 
         // Test with paymaster explicitly specified in RPC modules
         let args =
             SequencerNodeArgs::parse_from(["katana", "--paymaster", "--http.api", "starknet"]);
-        let config = args.config().unwrap();
+        let result = args.config().unwrap();
 
         // Verify cartridge module is still enabled even when not in explicit RPC list
-        assert!(config.rpc.apis.contains(&RpcModuleKind::Cartridge));
-        assert!(config.rpc.apis.contains(&RpcModuleKind::Starknet));
+        assert!(result.config.rpc.apis.contains(&RpcModuleKind::Cartridge));
+        assert!(result.config.rpc.apis.contains(&RpcModuleKind::Starknet));
 
         // Test with --paymaster.url (external mode - also enables paymaster)
         let args =
             SequencerNodeArgs::parse_from(["katana", "--paymaster.url", "http://localhost:8080"]);
-        let config = args.config().unwrap();
-        assert!(config.rpc.apis.contains(&RpcModuleKind::Cartridge));
+        let result = args.config().unwrap();
+        assert!(result.config.rpc.apis.contains(&RpcModuleKind::Cartridge));
 
         // Test without paymaster enabled
         let args = SequencerNodeArgs::parse_from(["katana"]);
-        let config = args.config().unwrap();
+        let result = args.config().unwrap();
 
         // Verify cartridge module is not enabled by default
-        assert!(!config.rpc.apis.contains(&RpcModuleKind::Cartridge));
+        assert!(!result.config.rpc.apis.contains(&RpcModuleKind::Cartridge));
     }
 
     #[cfg(feature = "cartridge")]
@@ -1072,7 +1211,8 @@ explorer = true
 
         // Test with controllers enabled
         let args = SequencerNodeArgs::parse_from(["katana", "--cartridge.controllers"]);
-        let config = args.config().unwrap();
+        let result = args.config().unwrap();
+        let config = &result.config;
 
         // Verify that all the Controller classes are added to the genesis
         assert!(config.chain.genesis().classes.contains_key(&ControllerV104::HASH));
@@ -1085,7 +1225,8 @@ explorer = true
 
         // Test without controllers enabled
         let args = SequencerNodeArgs::parse_from(["katana"]);
-        let config = args.config().unwrap();
+        let result = args.config().unwrap();
+        let config = &result.config;
 
         assert!(!config.chain.genesis().classes.contains_key(&ControllerV104::HASH));
         assert!(!config.chain.genesis().classes.contains_key(&ControllerV105::HASH));
@@ -1102,7 +1243,8 @@ explorer = true
         use katana_primitives::utils::class::parse_sierra_class;
 
         let args = SequencerNodeArgs::parse_from(["katana", "--paymaster", "--vrf"]);
-        let config = args.config().unwrap();
+        let result = args.config().unwrap();
+        let config = &result.config;
 
         let vrf_account_class = parse_sierra_class(include_str!(concat!(
             env!("CARGO_MANIFEST_DIR"),
@@ -1128,7 +1270,8 @@ explorer = true
         use katana_primitives::utils::class::parse_sierra_class;
 
         let args = SequencerNodeArgs::parse_from(["katana", "--paymaster"]);
-        let config = args.config().unwrap();
+        let result = args.config().unwrap();
+        let config = &result.config;
 
         let forwarder_class = parse_sierra_class(include_str!(concat!(
             env!("CARGO_MANIFEST_DIR"),
