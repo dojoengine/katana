@@ -27,6 +27,9 @@ pub struct EventFilter {
     #[serde(skip_serializing_if = "Option::is_none")]
     pub address: Option<ContractAddress>,
     /// The keys to filter over
+    ///
+    /// Per key (by position), designate the possible values to be matched for events to be
+    /// returned. Empty array designates 'any' value
     #[serde(skip_serializing_if = "Option::is_none")]
     pub keys: Option<Vec<Vec<Felt>>>,
 }
@@ -63,12 +66,22 @@ pub struct GetEventsResponse {
 /// of transaction execution.
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub struct EmittedEvent {
+    /// The hash of the block in which the event was emitted.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub block_hash: Option<BlockHash>,
+    /// The number of the block in which the event was emitted.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub block_number: Option<BlockNumber>,
+    /// The hash of the transaction where the event was emitted.
+    pub transaction_hash: TxHash,
+    /// The index of the transaction in the block.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub transaction_index: Option<u64>,
+    /// The index of the event within the transaction.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub event_index: Option<u64>,
+    /// The address of the contract that emitted the event.
     pub from_address: ContractAddress,
     pub keys: Vec<Felt>,
     pub data: Vec<Felt>,
-    #[serde(skip_serializing_if = "Option::is_none")]
-    pub block_hash: Option<BlockHash>,
-    #[serde(skip_serializing_if = "Option::is_none")]
-    pub block_number: Option<BlockNumber>,
-    pub transaction_hash: TxHash,
 }

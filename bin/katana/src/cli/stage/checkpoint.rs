@@ -1,7 +1,7 @@
 use anyhow::Result;
 use clap::{Args, Subcommand};
 use katana_db::abstraction::{Database, DbTx, DbTxMut};
-use katana_db::models::stage::StageCheckpoint;
+use katana_db::models::stage::ExecutionCheckpoint;
 use katana_db::tables;
 use katana_primitives::block::BlockNumber;
 
@@ -64,7 +64,7 @@ impl CheckpointArgs {
 impl GetArgs {
     fn execute(self) -> Result<()> {
         let result = db::open_db_ro(&self.path)?
-            .view(|tx| tx.get::<tables::StageCheckpoints>(self.stage_id.clone()))??;
+            .view(|tx| tx.get::<tables::StageExecutionCheckpoints>(self.stage_id.clone()))??;
 
         match result {
             Some(checkpoint) => {
@@ -82,8 +82,8 @@ impl GetArgs {
 impl SetArgs {
     fn execute(self) -> Result<()> {
         db::open_db_rw(&self.path)?.update(|tx| {
-            let checkpoint = StageCheckpoint { block: self.block_number };
-            tx.put::<tables::StageCheckpoints>(self.stage_id.clone(), checkpoint)
+            let checkpoint = ExecutionCheckpoint { block: self.block_number };
+            tx.put::<tables::StageExecutionCheckpoints>(self.stage_id.clone(), checkpoint)
         })??;
 
         println!("set checkpoint for stage '{}' to block {}", self.stage_id, self.block_number);

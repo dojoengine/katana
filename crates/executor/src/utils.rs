@@ -13,15 +13,17 @@ pub(crate) const LOG_TARGET: &str = "executor";
 pub fn log_resources(resources: &TransactionResources) {
     let mut mapped_strings = Vec::new();
 
-    for (builtin, count) in &resources.computation.vm_resources.builtin_instance_counter {
+    for (builtin, count) in &resources.computation.tx_vm_resources.builtin_instance_counter {
         mapped_strings.push(format!("{builtin}: {count}"));
     }
 
     // Sort the strings alphabetically
     mapped_strings.sort();
-    mapped_strings.insert(0, format!("steps: {}", resources.computation.vm_resources.n_steps));
-    mapped_strings
-        .insert(1, format!("memory holes: {}", resources.computation.vm_resources.n_memory_holes));
+    mapped_strings.insert(0, format!("steps: {}", resources.computation.tx_vm_resources.n_steps));
+    mapped_strings.insert(
+        1,
+        format!("memory holes: {}", resources.computation.tx_vm_resources.n_memory_holes),
+    );
 
     trace!(target: LOG_TARGET, usage = mapped_strings.join(" | "), "Transaction resource usage.");
 }
@@ -74,7 +76,7 @@ pub(crate) fn build_receipt(
 }
 
 fn get_receipt_resources(receipt: &TransactionReceipt) -> receipt::ExecutionResources {
-    let computation_resources = receipt.resources.computation.vm_resources.clone();
+    let computation_resources = receipt.resources.computation.tx_vm_resources.clone();
 
     let gas = GasUsed {
         l2_gas: receipt.gas.l2_gas.0,
@@ -87,7 +89,11 @@ fn get_receipt_resources(receipt: &TransactionReceipt) -> receipt::ExecutionReso
         l1_data_gas: receipt.da_gas.l1_data_gas.0,
     };
 
-    receipt::ExecutionResources { da_resources, computation_resources, gas }
+    receipt::ExecutionResources {
+        data_availability: da_resources,
+        vm_resources: computation_resources,
+        total_gas_consumed: gas,
+    }
 }
 
 fn events_from_exec_info(info: &TransactionExecutionInfo) -> Vec<Event> {

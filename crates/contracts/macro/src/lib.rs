@@ -111,14 +111,14 @@ fn generate_contract_impl(input: &ContractInput) -> Result<proc_macro2::TokenStr
 
     // Compute class hash
     let class_hash =
-        contract_class.class_hash().map_err(|e| format!("failed to compute class hash: {}", e))?;
+        contract_class.class_hash().map_err(|e| format!("failed to compute class hash: {e}"))?;
 
     // Compile and compute compiled class hash
     let compiled_class =
-        contract_class.compile().map_err(|e| format!("failed to compile contract class: {}", e))?;
+        contract_class.compile().map_err(|e| format!("failed to compile contract class: {e}"))?;
 
     let compiled_class_hash =
-        compiled_class.class_hash().map_err(|e| format!("failed to compute casm hash: {}", e))?;
+        compiled_class.class_hash().map_err(|e| format!("failed to compute casm hash: {e}"))?;
 
     // Convert Felt values to string representation for const generation
     let class_hash_str = format!("{class_hash:#x}",);

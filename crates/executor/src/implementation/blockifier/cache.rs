@@ -277,7 +277,7 @@ impl ClassCache {
                         let _span = span.enter();
 
                         let executor =
-                            AotContractExecutor::new(&program, &entry_points, version.into(), OptLevel::Default)
+                            AotContractExecutor::new(&program, &entry_points, version.into(), OptLevel::Default, None)
                                 .inspect_err(|error| tracing::error!(target: "class_cache", %error, "Failed to compile native class"))
                                 .unwrap();
 

@@ -1,7 +1,5 @@
-use bonsai_trie::{
-    trie::trees::{FullMerkleTrees, PartialMerkleTrees},
-    BonsaiDatabase, BonsaiPersistentDatabase, MultiProof,
-};
+use bonsai_trie::trie::trees::{FullMerkleTrees, PartialMerkleTrees};
+use bonsai_trie::{BonsaiDatabase, BonsaiPersistentDatabase, MultiProof};
 use katana_primitives::block::BlockNumber;
 use katana_primitives::hash::Pedersen;
 use katana_primitives::{ContractAddress, Felt};
@@ -32,6 +30,10 @@ impl<DB: BonsaiDatabase> ContractsTrie<DB> {
     pub fn multiproof(&mut self, addresses: Vec<ContractAddress>) -> MultiProof {
         let keys = addresses.into_iter().map(Felt::from).collect::<Vec<Felt>>();
         self.trie.multiproof(CONTRACTS_IDENTIFIER, keys)
+    }
+
+    pub fn revert_to(&mut self, block: BlockNumber, latest_block: BlockNumber) {
+        self.trie.revert_to(block, latest_block);
     }
 }
 
@@ -84,7 +86,13 @@ where
         proof: MultiProof,
         original_root: Felt,
     ) {
-        self.trie.insert(CONTRACTS_IDENTIFIER, *address, state_hash, proof, original_root)
+        self.trie.insert_with_proof(
+            CONTRACTS_IDENTIFIER,
+            *address,
+            state_hash,
+            proof,
+            original_root,
+        )
     }
 
     pub fn commit(&mut self, block: BlockNumber) {

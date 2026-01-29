@@ -1,6 +1,7 @@
 use jsonrpsee::core::RpcResult;
 use jsonrpsee::proc_macros::rpc;
-use katana_primitives::Felt;
+use katana_primitives::contract::{StorageKey, StorageValue};
+use katana_primitives::ContractAddress;
 use katana_rpc_types::account::Account;
 
 #[cfg_attr(not(feature = "client"), rpc(server, namespace = "dev"))]
@@ -19,8 +20,12 @@ pub trait DevApi {
     async fn increase_next_block_timestamp(&self, timestamp: u64) -> RpcResult<()>;
 
     #[method(name = "setStorageAt")]
-    async fn set_storage_at(&self, contract_address: Felt, key: Felt, value: Felt)
-        -> RpcResult<()>;
+    async fn set_storage_at(
+        &self,
+        contract_address: ContractAddress,
+        key: StorageKey,
+        value: StorageValue,
+    ) -> RpcResult<()>;
 
     #[method(name = "predeployedAccounts")]
     async fn predeployed_accounts(&self) -> RpcResult<Vec<Account>>;

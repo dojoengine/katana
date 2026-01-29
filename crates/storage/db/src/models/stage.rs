@@ -7,7 +7,15 @@ pub type StageId = String;
 /// Pipeline stage checkpoint.
 #[derive(Debug, Clone, Serialize, Deserialize, Default, PartialEq, Eq)]
 #[cfg_attr(test, derive(::arbitrary::Arbitrary))]
-pub struct StageCheckpoint {
+pub struct ExecutionCheckpoint {
     /// The block number that the stage has processed up to.
+    pub block: BlockNumber,
+}
+
+/// Pipeline stage prune checkpoint.
+#[derive(Debug, Clone, Serialize, Deserialize, Default, PartialEq, Eq)]
+#[cfg_attr(test, derive(::arbitrary::Arbitrary))]
+pub struct PruningCheckpoint {
+    /// The block number up to which the stage has been pruned (inclusive).
     pub block: BlockNumber,
 }

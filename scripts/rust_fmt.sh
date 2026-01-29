@@ -8,4 +8,4 @@ if [ "$1" == "--fix" ]; then
     shift
 fi
 
-cargo +nightly-2025-02-20 fmt $option --all -- "$@"
+cargo +nightly-2025-06-20 fmt $option --all -- "$@"

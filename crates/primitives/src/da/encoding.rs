@@ -305,10 +305,8 @@ impl ContractUpdate {
 mod tests {
     use std::str::FromStr;
 
-    use starknet::macros::felt;
-
     use super::*;
-    use crate::address;
+    use crate::{address, felt};
 
     macro_rules! biguint {
         ($s:expr) => {
@@ -318,7 +316,7 @@ mod tests {
 
     #[test]
     fn rt_metadata_encoding() {
-        let metadata = felt!("0x10000000000000001").to_biguint();
+        let metadata = felt!("0x10000000000000001", crate).to_biguint();
 
         let encoded = Metadata::decode(&metadata).unwrap();
         assert!(!encoded.class_information_flag);
@@ -354,19 +352,26 @@ mod tests {
         assert_eq!(state_updates.deployed_contracts.len(), 0);
 
         let address = address!(
-            "2019172390095051323869047481075102003731246132997057518965927979101413600827"
+            "2019172390095051323869047481075102003731246132997057518965927979101413600827",
+            crate
         );
 
         assert_eq!(state_updates.nonce_updates.get(&address), Some(&Felt::ONE));
 
         let storage_updates = state_updates.storage_updates.get(&address).unwrap();
         assert_eq!(storage_updates.len(), 1);
-        assert_eq!(storage_updates.get(&felt!("0x64")), Some(&felt!("0xc8")));
+        assert_eq!(storage_updates.get(&felt!("0x64", crate)), Some(&felt!("0xc8", crate)));
 
-        let class_hash =
-            felt!("1351148242645005540004162531550805076995747746087542030095186557536641755046");
-        let compiled_class_hash =
-            felt!("558404273560404778508455254030458021013656352466216690688595011803280448032");
+        let class_hash = felt!(
+            "1351148242645005540004162531550805076995747746087542030095186557536641755046",
+            crate
+        );
+
+        let compiled_class_hash = felt!(
+            "558404273560404778508455254030458021013656352466216690688595011803280448032",
+            crate
+        );
+
         assert_eq!(state_updates.declared_classes.get(&class_hash), Some(&compiled_class_hash));
 
         let encoded = encode_state_updates(state_updates);

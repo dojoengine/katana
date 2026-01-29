@@ -1,6 +1,7 @@
 use std::sync::Arc;
 use std::time::Duration;
 
+use anyhow::{anyhow, Result};
 use katana_gateway_client::Client;
 use katana_gateway_types::{ConfirmedTransaction, ErrorCode, PreConfirmedBlock, StateDiff};
 use katana_pipeline::PipelineBlockSubscription;
@@ -45,7 +46,13 @@ impl PreconfStateFactory {
             shared_preconf_block: shared_preconf_block.clone(),
         };
 
-        tokio::spawn(async move { worker.run().await });
+        tokio::spawn(async move {
+            loop {
+                if let Err(error) = worker.run().await {
+                    error!(%error, "PreconfBlockWatcher returned with an error.");
+                }
+            }
+        });
 
         Self { gateway_client, latest_synced_block, shared_preconf_block, storage_provider }
     }
@@ -75,12 +82,12 @@ impl PreconfStateFactory {
             .map(|preconf_data| preconf_data.preconf_state_updates.clone())
     }
 
-    pub fn block(&self) -> Option<PreConfirmedBlock> {
+    pub fn block(&self) -> Option<(BlockNumber, PreConfirmedBlock)> {
         self.shared_preconf_block
             .inner
             .lock()
             .as_ref()
-            .map(|preconf_data| preconf_data.preconf_block.clone())
+            .map(|preconf_data| (preconf_data.preconf_block_id, preconf_data.preconf_block.clone()))
     }
 
     pub fn transactions(&self) -> Option<Vec<ConfirmedTransaction>> {
@@ -104,8 +111,9 @@ struct PreconfBlockData {
     preconf_state_updates: StateUpdates,
 }
 
-const DEFAULT_INTERVAL: Duration = Duration::from_millis(500);
+const DEFAULT_INTERVAL: Duration = Duration::from_millis(1000);
 
+#[derive(Debug)]
 struct PreconfBlockWatcher {
     interval: Duration,
     gateway_client: Client,
@@ -120,7 +128,7 @@ struct PreconfBlockWatcher {
 }
 
 impl PreconfBlockWatcher {
-    async fn run(&mut self) {
+    async fn run(&mut self) -> Result<()> {
         let mut current_preconf_block_num =
             self.latest_synced_block.block().map(|b| b + 1).unwrap_or(0);
 
@@ -160,32 +168,28 @@ impl PreconfBlockWatcher {
                     // chain's tip, in which case we just skip to the next
                     // iteration.
                     Err(katana_gateway_client::Error::Sequencer(error))
-                        if error.code == ErrorCode::BlockNotFound =>
-                    {
-                        continue
-                    }
+                        if error.code == ErrorCode::BlockNotFound => {}
 
-                    Err(err) => panic!("{err}"),
+                    Err(err) => return Err(anyhow!(err)),
                 }
+            } else {
+                if let Err(err) = self.latest_synced_block.changed().await {
+                    error!(error = ?err, "Error receiving latest block number.");
+                    break;
+                }
+
+                // reset preconf state
+                *self.shared_preconf_block.inner.lock() = None;
+
+                let latest_synced_block_num = self.latest_synced_block.block().unwrap_or(0);
+                current_preconf_block_num = latest_synced_block_num + 1;
+
+                continue;
             }
 
-            tokio::select! {
-                biased;
-
-                res = self.latest_synced_block.changed() => {
-                    if let Err(err) = res {
-                        error!(error = ?err, "Error receiving latest block number.");
-                        break;
-                    }
-
-                    let latest_synced_block_num = self.latest_synced_block.block().unwrap();
-                    current_preconf_block_num = latest_synced_block_num + 1;
-                }
-
-                _ = tokio::time::sleep(self.interval) => {
-                    current_preconf_block_num += 1;
-                }
-            }
+            tokio::time::sleep(self.interval).await
         }
+
+        Ok(())
     }
 }

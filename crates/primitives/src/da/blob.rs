@@ -19,7 +19,7 @@ use super::math::{fft, ifft};
 pub fn recover(data: Vec<BigUint>) -> Vec<BigUint> {
     let xs: Vec<BigUint> = (0..BLOB_LEN)
         .map(|i| {
-            let bin = format!("{:012b}", i);
+            let bin = format!("{i:012b}");
             let bin_rev = bin.chars().rev().collect::<String>();
             GENERATOR.modpow(&BigUint::from_str_radix(&bin_rev, 2).unwrap(), &BLS_MODULUS)
         })
@@ -31,7 +31,7 @@ pub fn recover(data: Vec<BigUint>) -> Vec<BigUint> {
 pub fn transform(data: Vec<BigUint>) -> Vec<BigUint> {
     let xs: Vec<BigUint> = (0..BLOB_LEN)
         .map(|i| {
-            let bin = format!("{:012b}", i);
+            let bin = format!("{i:012b}");
             let bin_rev = bin.chars().rev().collect::<String>();
             GENERATOR.modpow(&BigUint::from_str_radix(&bin_rev, 2).unwrap(), &BLS_MODULUS)
         })

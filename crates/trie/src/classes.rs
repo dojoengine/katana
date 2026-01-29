@@ -1,12 +1,10 @@
-use bonsai_trie::{
-    trie::trees::{FullMerkleTrees, PartialMerkleTrees},
-    BonsaiDatabase, BonsaiPersistentDatabase, MultiProof,
-};
+use bonsai_trie::trie::trees::{FullMerkleTrees, PartialMerkleTrees};
+use bonsai_trie::{BonsaiDatabase, BonsaiPersistentDatabase, MultiProof};
 use katana_primitives::block::BlockNumber;
+use katana_primitives::cairo::ShortString;
 use katana_primitives::class::{ClassHash, CompiledClassHash};
 use katana_primitives::hash::{Poseidon, StarkHash};
 use katana_primitives::Felt;
-use starknet::macros::short_string;
 
 use crate::id::CommitId;
 
@@ -50,6 +48,10 @@ impl<DB: BonsaiDatabase> ClassesTrie<DB> {
 
     pub fn multiproof(&mut self, class_hashes: Vec<ClassHash>) -> MultiProof {
         self.trie.multiproof(CLASSES_IDENTIFIER, class_hashes)
+    }
+
+    pub fn revert_to(&mut self, block: BlockNumber, latest_block: BlockNumber) {
+        self.trie.revert_to(block, latest_block);
     }
 }
 
@@ -103,7 +105,7 @@ where
         original_root: Felt,
     ) {
         let value = compute_classes_trie_value(compiled_hash);
-        self.trie.insert(CLASSES_IDENTIFIER, hash, value, proof, original_root)
+        self.trie.insert_with_proof(CLASSES_IDENTIFIER, hash, value, proof, original_root)
     }
 
     pub fn commit(&mut self, block: BlockNumber) {
@@ -119,6 +121,6 @@ impl<DB: BonsaiDatabase, TreeType> std::fmt::Debug for ClassesTrie<DB, TreeType>
 
 pub fn compute_classes_trie_value(compiled_class_hash: CompiledClassHash) -> Felt {
     // https://docs.starknet.io/architecture-and-concepts/network-architecture/starknet-state/#classes_trie
-    const CONTRACT_CLASS_LEAF_V0: Felt = short_string!("CONTRACT_CLASS_LEAF_V0");
-    Poseidon::hash(&CONTRACT_CLASS_LEAF_V0, &compiled_class_hash)
+    const CONTRACT_CLASS_LEAF_V0: ShortString = ShortString::from_ascii("CONTRACT_CLASS_LEAF_V0");
+    Poseidon::hash(&CONTRACT_CLASS_LEAF_V0.into(), &compiled_class_hash)
 }

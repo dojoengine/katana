@@ -564,7 +564,7 @@ impl<S> ExplorerService<S> {
         };
 
         if let Some(asset) = EmbeddedAssets::get(asset_path) {
-            let content_type = Self::get_content_type(&format!("/{}", asset_path));
+            let content_type = Self::get_content_type(&format!("/{asset_path}"));
             let content = if content_type == "text/html" {
                 let html = String::from_utf8_lossy(&asset.data);
                 let injected = Self::inject_environment(config, &html);
@@ -640,9 +640,9 @@ impl<S> ExplorerService<S> {
 
         if let Some(head_pos) = html.find("<head>") {
             let (start, end) = html.split_at(head_pos + 6);
-            format!("{}{}{}", start, script, end)
+            format!("{start}{script}{end}")
         } else {
-            format!("{}\n{}", script, html)
+            format!("{script}\n{html}")
         }
     }
 

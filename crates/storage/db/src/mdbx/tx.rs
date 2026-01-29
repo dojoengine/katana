@@ -43,7 +43,7 @@ impl<K: TransactionKind> std::fmt::Debug for Tx<K> {
 impl<K: TransactionKind> Tx<K> {
     /// Creates new `Tx` object with a `RO` or `RW` transaction.
     pub fn new(inner: libmdbx::Transaction<K>, metrics: DbMetrics) -> Self {
-        Self { inner, db_handles: Default::default(), metrics }
+        Self { inner, db_handles: Arc::new(RwLock::new([None; NUM_TABLES])), metrics }
     }
 
     pub fn get_dbi<T: Table>(&self) -> Result<DBI, DatabaseError> {

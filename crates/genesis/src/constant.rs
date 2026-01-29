@@ -2,8 +2,7 @@ use katana_contracts::contracts::{Account, LegacyERC20, UniversalDeployer};
 use katana_primitives::class::ClassHash;
 use katana_primitives::contract::{ContractAddress, StorageKey};
 use katana_primitives::utils::get_storage_var_address;
-use katana_primitives::Felt;
-use starknet::macros::felt;
+use katana_primitives::{felt, Felt};
 
 /// The default universal deployer contract address.
 pub const DEFAULT_UDC_ADDRESS: ContractAddress =

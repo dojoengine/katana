@@ -9,7 +9,9 @@ version.workspace = true
 clap.workspace = true
 serde.workspace = true
 thiserror.workspace = true
+dirs = "6.0.0"
 tracing.workspace = true
+tracing-appender.workspace = true
 tracing-log.workspace = true
 tracing-subscriber = { workspace = true, features = [ "chrono", "env-filter", "json", "time", "tracing-log" ] }
 

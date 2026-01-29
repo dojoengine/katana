@@ -168,7 +168,7 @@ endif
 snos-deps-linux: install-pyenv
 	@echo "Installing Python build dependencies for Linux..."
 	sudo apt-get update
-	sudo apt-get install -y make build-essential libssl-dev libgmp-dev libbz2-dev libreadline-dev libsqlite3-dev liblzma-dev
+	sudo apt-get install -y make build-essential libssl-dev libgmp-dev libbz2-dev libreadline-dev libsqlite3-dev liblzma-dev zlib1g-dev
 	@echo "Linux SNOS dependencies installed successfully."
 	@echo "NOTE: You may need to restart your shell or run 'source ~/.bashrc' before using pyenv."
 

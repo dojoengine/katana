@@ -6,7 +6,6 @@ use katana_primitives::block::{
     BlockHashOrNumber, FinalityStatus, Header, SealedBlock, SealedBlockWithStatus,
 };
 use katana_primitives::class::{ContractClass, SierraContractClass};
-use katana_primitives::contract::ContractAddress;
 use katana_primitives::state::{StateUpdates, StateUpdatesWithClasses};
 use katana_provider::api::block::BlockWriter;
 use katana_provider::api::state::StateFactoryProvider;

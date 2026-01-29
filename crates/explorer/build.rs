@@ -84,7 +84,7 @@ fn build_ui_assets(ui_dir: &Path) {
             return;
         }
         Err(e) => {
-            eprintln!("Warning: Failed to run bun install: {}", e);
+            eprintln!("Warning: Failed to run bun install: {e}");
             return;
         }
     }
@@ -105,7 +105,7 @@ fn build_ui_assets(ui_dir: &Path) {
             eprintln!("Warning: Failed to build UI in {}", ui_dir.display());
         }
         Err(e) => {
-            eprintln!("Warning: Failed to run bun build: {}", e);
+            eprintln!("Warning: Failed to run bun build: {e}");
         }
     }
 }

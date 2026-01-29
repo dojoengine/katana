@@ -30,6 +30,13 @@ impl ContractAddress {
     pub fn new(address: Felt) -> Self {
         ContractAddress(normalize_address(address))
     }
+
+    /// Creates a new [`ContractAddress`] from its raw internal representation.
+    ///
+    /// See [`Felt::from_raw`] to understand how it works under the hood.
+    pub const fn from_raw(value: [u64; 4]) -> Self {
+        ContractAddress(Felt::from_raw(value))
+    }
 }
 
 impl core::ops::Deref for ContractAddress {
@@ -115,13 +122,6 @@ impl cainome_cairo_serde::CairoSerde for ContractAddress {
     ) -> cainome_cairo_serde::Result<Self::RustType> {
         Ok(Self::from(<Felt as cainome_cairo_serde::CairoSerde>::cairo_deserialize(felts, offset)?))
     }
-}
-
-#[macro_export]
-macro_rules! address {
-    ($value:expr) => {
-        ContractAddress::new($crate::felt!($value))
-    };
 }
 
 /// Represents a generic contract instance information.

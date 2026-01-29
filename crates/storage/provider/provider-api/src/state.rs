@@ -1,9 +1,9 @@
 use katana_primitives::block::BlockHashOrNumber;
+use katana_primitives::cairo::ShortString;
 use katana_primitives::class::ClassHash;
 use katana_primitives::contract::{ContractAddress, Nonce, StorageKey, StorageValue};
 use katana_primitives::Felt;
 use katana_trie::MultiProof;
-use starknet::macros::short_string;
 use starknet_types_core::hash::StarkHash;
 
 use super::contract::ContractClassProvider;
@@ -16,7 +16,7 @@ pub trait StateRootProvider: Send + Sync {
     fn state_root(&self) -> ProviderResult<Felt> {
         // https://docs.starknet.io/architecture-and-concepts/network-architecture/starknet-state/#state_commitment
         Ok(starknet_types_core::hash::Poseidon::hash_array(&[
-            short_string!("STARKNET_STATE_V0"),
+            ShortString::from_ascii("STARKNET_STATE_V0").into(),
             self.contracts_root()?,
             self.classes_root()?,
         ]))

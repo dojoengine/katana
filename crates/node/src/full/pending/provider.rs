@@ -2,7 +2,6 @@ use katana_gateway_types::TxTryFromError;
 use katana_primitives::block::FinalityStatus;
 use katana_primitives::fee::PriceUnit;
 use katana_primitives::transaction::{TxHash, TxNumber, TxType, TxWithHash};
-use katana_primitives::Felt;
 use katana_provider::api::state::StateProvider;
 use katana_rpc_server::starknet::{PendingBlockProvider, StarknetApiResult};
 use katana_rpc_types::{
@@ -15,7 +14,7 @@ impl PendingBlockProvider for PreconfStateFactory {
     fn get_pending_block_with_txs(
         &self,
     ) -> StarknetApiResult<Option<katana_rpc_types::PreConfirmedBlockWithTxs>> {
-        if let Some(block) = self.block() {
+        if let Some((block_number, block)) = self.block() {
             let transactions = block
                 .transactions
                 .clone()
@@ -26,7 +25,7 @@ impl PendingBlockProvider for PreconfStateFactory {
 
             Ok(Some(katana_rpc_types::PreConfirmedBlockWithTxs {
                 transactions,
-                block_number: 0,
+                block_number,
                 l1_da_mode: block.l1_da_mode,
                 l1_gas_price: block.l1_gas_price,
                 l2_gas_price: block.l2_gas_price,
@@ -43,10 +42,10 @@ impl PendingBlockProvider for PreconfStateFactory {
     fn get_pending_block_with_receipts(
         &self,
     ) -> StarknetApiResult<Option<katana_rpc_types::PreConfirmedBlockWithReceipts>> {
-        if let Some(block) = self.block() {
+        if let Some((block_number, block)) = self.block() {
             Ok(Some(katana_rpc_types::PreConfirmedBlockWithReceipts {
                 transactions: Vec::new(),
-                block_number: 0,
+                block_number,
                 l1_da_mode: block.l1_da_mode,
                 l1_gas_price: block.l1_gas_price,
                 l2_gas_price: block.l2_gas_price,
@@ -63,7 +62,7 @@ impl PendingBlockProvider for PreconfStateFactory {
     fn get_pending_block_with_tx_hashes(
         &self,
     ) -> StarknetApiResult<Option<katana_rpc_types::PreConfirmedBlockWithTxHashes>> {
-        if let Some(block) = self.block() {
+        if let Some((block_number, block)) = self.block() {
             let transactions = block
                 .transactions
                 .clone()
@@ -73,7 +72,7 @@ impl PendingBlockProvider for PreconfStateFactory {
 
             Ok(Some(katana_rpc_types::PreConfirmedBlockWithTxHashes {
                 transactions,
-                block_number: 0,
+                block_number,
                 l1_da_mode: block.l1_da_mode,
                 l1_gas_price: block.l1_gas_price,
                 l2_gas_price: block.l2_gas_price,
@@ -91,7 +90,7 @@ impl PendingBlockProvider for PreconfStateFactory {
         &self,
         hash: TxHash,
     ) -> StarknetApiResult<Option<katana_rpc_types::TxReceiptWithBlockInfo>> {
-        if let Some(preconf_block) = self.block() {
+        if let Some((block_number, preconf_block)) = self.block() {
             let receipt = preconf_block
                 .transaction_receipts
                 .iter()
@@ -109,7 +108,7 @@ impl PendingBlockProvider for PreconfStateFactory {
 
             let status = FinalityStatus::PreConfirmed;
             let transaction_hash = receipt.transaction_hash;
-            let block = ReceiptBlockInfo::PreConfirmed { block_number: 0 };
+            let block = ReceiptBlockInfo::PreConfirmed { block_number };
 
             let receipt = match r#type {
                 TxType::Invoke => {
@@ -151,10 +150,7 @@ impl PendingBlockProvider for PreconfStateFactory {
         &self,
     ) -> StarknetApiResult<Option<katana_rpc_types::PreConfirmedStateUpdate>> {
         if let Some(state_diff) = self.state_updates() {
-            Ok(Some(PreConfirmedStateUpdate {
-                old_root: Felt::ZERO,
-                state_diff: state_diff.into(),
-            }))
+            Ok(Some(PreConfirmedStateUpdate { old_root: None, state_diff: state_diff.into() }))
         } else {
             Ok(None)
         }

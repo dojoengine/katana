@@ -5,15 +5,15 @@ use std::collections::{BTreeMap, BTreeSet};
 use std::fmt::Debug;
 use std::ops::{Deref, Range, RangeInclusive};
 
-use crate::{MutableProvider, ProviderResult};
 use katana_db::abstraction::{DbCursor, DbCursorMut, DbDupSortCursor, DbTx, DbTxMut};
-use katana_db::error::DatabaseError;
+use katana_db::error::{CodecError, DatabaseError};
 use katana_db::models::block::StoredBlockBodyIndices;
+use katana_db::models::class::MigratedCompiledClassHash;
 use katana_db::models::contract::{
     ContractClassChange, ContractClassChangeType, ContractInfoChangeList, ContractNonceChange,
 };
 use katana_db::models::list::BlockList;
-use katana_db::models::stage::StageCheckpoint;
+use katana_db::models::stage::{ExecutionCheckpoint, PruningCheckpoint};
 use katana_db::models::storage::{ContractStorageEntry, ContractStorageKey, StorageEntry};
 use katana_db::models::{VersionedHeader, VersionedTx};
 use katana_db::tables::{self, DupSort, Table};
@@ -44,6 +44,9 @@ use katana_provider_api::transaction::{
 };
 use katana_provider_api::ProviderError;
 use katana_rpc_types::{TxTrace, TxTraceWithHash};
+use tracing::warn;
+
+use crate::{MutableProvider, ProviderResult};
 
 /// A provider implementation that uses a persistent database as the backend.
 // TODO: remove the default generic type
@@ -309,6 +312,16 @@ impl<Tx: DbTx> StateUpdateProvider for DbProvider<Tx> {
                 }
             }
 
+            let migrated_compiled_classes = dup_entries::<
+                Tx,
+                tables::MigratedCompiledClassHashes,
+                BTreeMap<ClassHash, CompiledClassHash>,
+                _,
+            >(&self.0, block_num, |entry| {
+                let (_, MigratedCompiledClassHash { class_hash, compiled_class_hash }) = entry?;
+                Ok(Some((class_hash, compiled_class_hash)))
+            })?;
+
             let storage_updates = {
                 let entries = dup_entries::<
                     Tx,
@@ -336,6 +349,7 @@ impl<Tx: DbTx> StateUpdateProvider for DbProvider<Tx> {
                 declared_classes,
                 replaced_classes,
                 deprecated_declared_classes,
+                migrated_compiled_classes,
             }))
         } else {
             Ok(None)
@@ -524,18 +538,31 @@ impl<Tx: DbTx> TransactionStatusProvider for DbProvider<Tx> {
     }
 }
 
+/// NOTE:
+///
+/// The `TransactionExecutionInfo` type (from the `blockifier` crate) has had breaking
+/// serialization changes between versions. Entries stored with older versions may fail to
+/// deserialize.
+///
+/// Though this may change in the future, this behavior is currently necessary to maintain
+/// backward compatibility. As a compromise, traces that cannot be deserialized
+/// are treated as non-existent rather than causing errors.
 impl<Tx: DbTx> TransactionTraceProvider for DbProvider<Tx> {
     fn transaction_execution(
         &self,
         hash: TxHash,
     ) -> ProviderResult<Option<TypedTransactionExecutionInfo>> {
         if let Some(num) = self.0.get::<tables::TxNumbers>(hash)? {
-            let execution = self
-                .0
-                .get::<tables::TxTraces>(num)?
-                .ok_or(ProviderError::MissingTxExecution(num))?;
-
-            Ok(Some(execution))
+            match self.0.get::<tables::TxTraces>(num) {
+                Ok(Some(execution)) => Ok(Some(execution)),
+                Ok(None) => Ok(None),
+                // Treat decompress errors as non-existent for backward compatibility
+                Err(DatabaseError::Codec(CodecError::Decompress(err))) => {
+                    warn!(tx_num = %num, %err, "Failed to deserialize transaction trace");
+                    Ok(None)
+                }
+                Err(e) => Err(e.into()),
+            }
         } else {
             Ok(None)
         }
@@ -571,8 +598,14 @@ impl<Tx: DbTx> TransactionTraceProvider for DbProvider<Tx> {
         let mut traces = Vec::with_capacity(total as usize);
 
         for i in range {
-            if let Some(trace) = self.0.get::<tables::TxTraces>(i)? {
-                traces.push(trace);
+            match self.0.get::<tables::TxTraces>(i) {
+                Ok(Some(trace)) => traces.push(trace),
+                Ok(None) => {}
+                // Skip entries that fail to decompress for backward compatibility
+                Err(DatabaseError::Codec(CodecError::Decompress(err))) => {
+                    warn!(tx_num = %i, %err, "Failed to deserialize transaction trace");
+                }
+                Err(e) => return Err(e.into()),
             }
         }
 
@@ -698,6 +731,12 @@ impl<Tx: DbTxMut> BlockWriter for DbProvider<Tx> {
             self.0.put::<tables::ClassDeclarations>(block_number, class_hash)?;
         }
 
+        // insert migrated class hashes
+        for (class_hash, compiled_class_hash) in states.state_updates.migrated_compiled_classes {
+            let entry = MigratedCompiledClassHash { class_hash, compiled_class_hash };
+            self.0.put::<tables::MigratedCompiledClassHashes>(block_number, entry)?;
+        }
+
         // insert storage changes
         {
             let mut storage_cursor = self.0.cursor_dup_mut::<tables::ContractStorage>()?;
@@ -773,24 +812,28 @@ impl<Tx: DbTxMut> BlockWriter for DbProvider<Tx> {
         }
 
         for (addr, new_class_hash) in states.state_updates.replaced_classes {
-            let mut info = self
-                .0
-                .get::<tables::ContractInfo>(addr)?
-                .ok_or(ProviderError::MissingContractInfo { address: addr })?;
+            let info = if let Some(info) = self.0.get::<tables::ContractInfo>(addr)? {
+                GenericContractInfo { class_hash: new_class_hash, ..info }
+            } else {
+                GenericContractInfo { class_hash: new_class_hash, ..Default::default() }
+            };
 
-            info.class_hash = new_class_hash;
+            let new_change_set =
+                if let Some(mut change_set) = self.0.get::<tables::ContractInfoChangeSet>(addr)? {
+                    change_set.class_change_list.insert(block_number);
+                    change_set
+                } else {
+                    ContractInfoChangeList {
+                        class_change_list: BlockList::from([block_number]),
+                        ..Default::default()
+                    }
+                };
+
             self.0.put::<tables::ContractInfo>(addr, info)?;
-
-            let mut change_set = self
-                .0
-                .get::<tables::ContractInfoChangeSet>(addr)?
-                .ok_or(ProviderError::MissingContractInfoChangeSet { address: addr })?;
-
-            change_set.class_change_list.insert(block_number);
-            self.0.put::<tables::ContractInfoChangeSet>(addr, change_set)?;
 
             let class_change_key = ContractClassChange::replaced(addr, new_class_hash);
             self.0.put::<tables::ClassChangeHistory>(block_number, class_change_key)?;
+            self.0.put::<tables::ContractInfoChangeSet>(addr, new_change_set)?;
         }
 
         for (addr, nonce) in states.state_updates.nonce_updates {
@@ -823,15 +866,27 @@ impl<Tx: DbTxMut> BlockWriter for DbProvider<Tx> {
 }
 
 impl<Tx: DbTxMut> StageCheckpointProvider for DbProvider<Tx> {
-    fn checkpoint(&self, id: &str) -> ProviderResult<Option<BlockNumber>> {
-        let result = self.0.get::<tables::StageCheckpoints>(id.to_string())?;
+    fn execution_checkpoint(&self, id: &str) -> ProviderResult<Option<BlockNumber>> {
+        let result = self.0.get::<tables::StageExecutionCheckpoints>(id.to_string())?;
         Ok(result.map(|x| x.block))
     }
 
-    fn set_checkpoint(&self, id: &str, block_number: BlockNumber) -> ProviderResult<()> {
+    fn set_execution_checkpoint(&self, id: &str, block_number: BlockNumber) -> ProviderResult<()> {
         let key = id.to_string();
-        let value = StageCheckpoint { block: block_number };
-        self.0.put::<tables::StageCheckpoints>(key, value)?;
+        let value = ExecutionCheckpoint { block: block_number };
+        self.0.put::<tables::StageExecutionCheckpoints>(key, value)?;
+        Ok(())
+    }
+
+    fn prune_checkpoint(&self, id: &str) -> ProviderResult<Option<BlockNumber>> {
+        let result = self.0.get::<tables::StagePruningCheckpoints>(id.to_string())?;
+        Ok(result.map(|x| x.block))
+    }
+
+    fn set_prune_checkpoint(&self, id: &str, block_number: BlockNumber) -> ProviderResult<()> {
+        let key = id.to_string();
+        let value = PruningCheckpoint { block: block_number };
+        self.0.put::<tables::StagePruningCheckpoints>(key, value)?;
         Ok(())
     }
 }
@@ -840,23 +895,21 @@ impl<Tx: DbTxMut> StageCheckpointProvider for DbProvider<Tx> {
 mod tests {
     use std::collections::BTreeMap;
 
-    use katana_primitives::address;
     use katana_primitives::block::{
         Block, BlockHashOrNumber, FinalityStatus, Header, SealedBlockWithStatus,
     };
     use katana_primitives::class::ContractClass;
-    use katana_primitives::contract::ContractAddress;
     use katana_primitives::execution::TypedTransactionExecutionInfo;
     use katana_primitives::fee::FeeInfo;
     use katana_primitives::receipt::{InvokeTxReceipt, Receipt};
     use katana_primitives::state::{StateUpdates, StateUpdatesWithClasses};
     use katana_primitives::transaction::{InvokeTx, Tx, TxHash, TxWithHash};
+    use katana_primitives::{address, felt};
     use katana_provider_api::block::{
         BlockHashProvider, BlockNumberProvider, BlockProvider, BlockStatusProvider, BlockWriter,
     };
     use katana_provider_api::state::StateFactoryProvider;
     use katana_provider_api::transaction::TransactionProvider;
-    use starknet::macros::felt;
 
     use crate::{DbProviderFactory, ProviderFactory};
 

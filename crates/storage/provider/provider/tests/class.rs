@@ -3,10 +3,10 @@ mod fixtures;
 use anyhow::Result;
 use katana_primitives::block::{BlockHashOrNumber, BlockNumber};
 use katana_primitives::class::{ClassHash, CompiledClassHash, ContractClass};
+use katana_primitives::felt;
 use katana_provider::api::contract::ContractClassProviderExt;
 use katana_provider::api::state::{StateFactoryProvider, StateProvider};
 use rstest_reuse::{self, *};
-use starknet::macros::felt;
 
 use crate::fixtures::{db_provider_with_states, DOJO_WORLD_SIERRA_CLASS};
 

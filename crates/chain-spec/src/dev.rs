@@ -1,4 +1,5 @@
 use std::collections::BTreeMap;
+use std::str::FromStr;
 
 use alloy_primitives::U256;
 use katana_contracts::contracts;
@@ -11,6 +12,7 @@ use katana_genesis::constant::{
 };
 use katana_genesis::Genesis;
 use katana_primitives::block::{ExecutableBlock, GasPrices, PartialHeader};
+use katana_primitives::cairo::ShortString;
 use katana_primitives::chain::ChainId;
 use katana_primitives::class::ClassHash;
 use katana_primitives::contract::ContractAddress;
@@ -20,7 +22,6 @@ use katana_primitives::utils::split_u256;
 use katana_primitives::version::StarknetVersion;
 use katana_primitives::Felt;
 use lazy_static::lazy_static;
-use starknet::core::utils::cairo_short_string_to_felt;
 
 use crate::{FeeContracts, SettlementLayer};
 
@@ -206,13 +207,13 @@ fn add_fee_token(
 
     // --- ERC20 metadata
 
-    let name = cairo_short_string_to_felt(name).unwrap();
-    let symbol = cairo_short_string_to_felt(symbol).unwrap();
+    let name = ShortString::from_str(name).expect("valid ERC20 name");
+    let symbol = ShortString::from_str(symbol).expect("valid ERC20 symbol");
     let decimals = decimals.into();
     let (total_supply_low, total_supply_high) = split_u256(total_supply);
 
-    storage.insert(ERC20_NAME_STORAGE_SLOT, name);
-    storage.insert(ERC20_SYMBOL_STORAGE_SLOT, symbol);
+    storage.insert(ERC20_NAME_STORAGE_SLOT, name.into());
+    storage.insert(ERC20_SYMBOL_STORAGE_SLOT, symbol.into());
     storage.insert(ERC20_DECIMAL_STORAGE_SLOT, decimals);
     storage.insert(ERC20_TOTAL_SUPPLY_STORAGE_SLOT, total_supply_low);
     storage.insert(ERC20_TOTAL_SUPPLY_STORAGE_SLOT + Felt::ONE, total_supply_high);
@@ -501,8 +502,8 @@ mod tests {
         let (total_supply_low, total_supply_high) =
             split_u256(U256::from_str("0x1a784379d99db42000000").unwrap());
 
-        let name = cairo_short_string_to_felt("Ether").unwrap();
-        let symbol = cairo_short_string_to_felt("ETH").unwrap();
+        let name = ShortString::from_ascii("Ether");
+        let symbol = ShortString::from_ascii("ETH");
         let decimals = Felt::from(18);
 
         let eth_fee_token_storage = actual_state_updates
@@ -511,8 +512,8 @@ mod tests {
             .get(&DEFAULT_ETH_FEE_TOKEN_ADDRESS)
             .unwrap();
 
-        assert_eq!(eth_fee_token_storage.get(&ERC20_NAME_STORAGE_SLOT), Some(&name));
-        assert_eq!(eth_fee_token_storage.get(&ERC20_SYMBOL_STORAGE_SLOT), Some(&symbol));
+        assert_eq!(eth_fee_token_storage.get(&ERC20_NAME_STORAGE_SLOT), Some(&name.into()));
+        assert_eq!(eth_fee_token_storage.get(&ERC20_SYMBOL_STORAGE_SLOT), Some(&symbol.into()));
         assert_eq!(eth_fee_token_storage.get(&ERC20_DECIMAL_STORAGE_SLOT), Some(&decimals));
         assert_eq!(
             eth_fee_token_storage.get(&ERC20_TOTAL_SUPPLY_STORAGE_SLOT),
@@ -525,8 +526,8 @@ mod tests {
 
         // check STRK fee token contract storage
 
-        let strk_name = cairo_short_string_to_felt("Starknet Token").unwrap();
-        let strk_symbol = cairo_short_string_to_felt("STRK").unwrap();
+        let strk_name = ShortString::from_ascii("Starknet Token");
+        let strk_symbol = ShortString::from_ascii("STRK");
         let strk_decimals = Felt::from(18);
 
         let strk_fee_token_storage = actual_state_updates
@@ -535,8 +536,11 @@ mod tests {
             .get(&DEFAULT_STRK_FEE_TOKEN_ADDRESS)
             .unwrap();
 
-        assert_eq!(strk_fee_token_storage.get(&ERC20_NAME_STORAGE_SLOT), Some(&strk_name));
-        assert_eq!(strk_fee_token_storage.get(&ERC20_SYMBOL_STORAGE_SLOT), Some(&strk_symbol));
+        assert_eq!(strk_fee_token_storage.get(&ERC20_NAME_STORAGE_SLOT), Some(&strk_name.into()));
+        assert_eq!(
+            strk_fee_token_storage.get(&ERC20_SYMBOL_STORAGE_SLOT),
+            Some(&strk_symbol.into())
+        );
         assert_eq!(strk_fee_token_storage.get(&ERC20_DECIMAL_STORAGE_SLOT), Some(&strk_decimals));
         assert_eq!(
             strk_fee_token_storage.get(&ERC20_TOTAL_SUPPLY_STORAGE_SLOT),

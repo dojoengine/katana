@@ -94,7 +94,7 @@ impl AllowOrigins {
         I: IntoIterator<Item = HeaderValue>,
     {
         let origins = origins.into_iter().collect::<Vec<_>>();
-        if origins.iter().any(|o| o == WILDCARD) {
+        if origins.contains(&WILDCARD) {
             Self(cors::AllowOrigin::any())
         } else {
             Self(cors::AllowOrigin::list(origins))

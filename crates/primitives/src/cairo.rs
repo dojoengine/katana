@@ -1,81 +1,193 @@
 use crate::Felt;
 
 /// A Cairo short string.
-#[derive(Debug, Clone, PartialEq, Eq, Hash)]
-#[cfg_attr(feature = "serde", derive(serde::Serialize, serde::Deserialize))]
-pub struct ShortString(heapless::String<31>);
+///
+/// This is a stack-allocated string type that can hold up to 31 ASCII bytes,
+/// which is the maximum length for a Cairo short string.
+///
+/// It supports const construction via [`ShortString::from_ascii`].
+#[derive(Clone, PartialEq, Eq, Hash, Default, Copy)]
+pub struct ShortString {
+    data: [u8; 31],
+    len: u8,
+}
 
 impl ShortString {
     /// Creates a new empty short string.
     pub const fn new() -> Self {
-        Self(heapless::String::new())
+        Self { data: [0; 31], len: 0 }
     }
 
-    pub fn as_str(&self) -> &str {
-        self.0.as_str()
+    /// Creates a new short string from an ASCII string literal at compile time.
+    ///
+    /// # Panics
+    ///
+    /// Panics at compile time if the string is longer than 31 bytes or contains
+    /// non-ASCII characters.
+    ///
+    /// # Examples
+    ///
+    /// ```
+    /// use katana_primitives::cairo::ShortString;
+    ///
+    /// const HELLO: ShortString = ShortString::from_ascii("hello");
+    /// assert_eq!(HELLO.as_str(), "hello");
+    /// ```
+    pub const fn from_ascii(s: &str) -> Self {
+        let bytes = s.as_bytes();
+        let len = bytes.len();
+
+        assert!(len <= 31, "string is too long to be a Cairo short string");
+
+        let mut data = [0u8; 31];
+        let mut i = 0;
+        while i < len {
+            let b = bytes[i];
+            assert!(b.is_ascii(), "invalid ASCII character in string");
+            data[i] = b;
+            i += 1;
+        }
+
+        Self { data, len: len as u8 }
     }
 
-    pub fn len(&self) -> usize {
-        self.0.len()
+    pub const fn as_str(&self) -> &str {
+        // SAFETY: We only store valid ASCII bytes, which are valid UTF-8
+        unsafe { core::str::from_utf8_unchecked(self.as_bytes()) }
     }
 
-    pub fn is_empty(&self) -> bool {
-        self.0.is_empty()
+    /// Returns the bytes of the short string as a slice.
+    pub const fn as_bytes(&self) -> &[u8] {
+        // Use a manual slice since `&self.data[..self.len as usize]` is not const-stable
+        unsafe { core::slice::from_raw_parts(self.data.as_ptr(), self.len as usize) }
+    }
+
+    pub const fn len(&self) -> usize {
+        self.len as usize
+    }
+
+    pub const fn is_empty(&self) -> bool {
+        self.len == 0
     }
 
     #[inline]
-    fn push(&mut self, c: char) -> Result<(), ()> {
-        self.0.push(c)
+    fn push(&mut self, c: char) -> Result<(), ShortStringError> {
+        if !c.is_ascii() {
+            return Err(ShortStringError::InvalidAscii);
+        }
+
+        if self.len >= 31 {
+            return Err(ShortStringError::ExceedsCapacity);
+        }
+
+        self.data[self.len as usize] = c as u8;
+        self.len += 1;
+
+        Ok(())
     }
 
     #[inline]
-    fn push_str(&mut self, string: &str) -> Result<(), ()> {
-        self.0.push_str(string)
+    fn push_str(&mut self, string: &str) -> Result<(), ShortStringError> {
+        let bytes = string.as_bytes();
+
+        if bytes.len() + self.len as usize > 31 {
+            return Err(ShortStringError::ExceedsCapacity);
+        }
+
+        for &b in bytes {
+            if !b.is_ascii() {
+                return Err(ShortStringError::InvalidAscii);
+            }
+
+            self.data[self.len as usize] = b;
+            self.len += 1;
+        }
+
+        Ok(())
     }
 }
 
-impl Default for ShortString {
-    fn default() -> Self {
-        Self::new()
-    }
+/// Error returned when constructing or modifying a [`ShortString`] fails.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, thiserror::Error)]
+pub enum ShortStringError {
+    #[error("string is longer than 31 bytes")]
+    ExceedsCapacity,
+
+    #[error("invalid ASCII character")]
+    InvalidAscii,
+
+    #[error("unexpected null terminator")]
+    UnexpectedNullTerminator,
 }
 
 impl core::ops::Deref for ShortString {
     type Target = str;
 
     fn deref(&self) -> &Self::Target {
-        self.0.as_str()
+        self.as_str()
     }
 }
 
 impl AsRef<str> for ShortString {
     fn as_ref(&self) -> &str {
-        self.0.as_str()
+        self.as_str()
     }
 }
 
-#[derive(Debug, thiserror::Error)]
-pub enum ShortStringTryFromStrError {
-    #[error("String is too long to be a Cairo short string")]
-    StringTooLong,
-    #[error("Invalid ASCII character in string")]
-    InvalidAsciiString,
+impl PartialEq<Felt> for ShortString {
+    fn eq(&self, other: &Felt) -> bool {
+        Felt::from(self) == *other
+    }
+}
+
+impl core::fmt::Debug for ShortString {
+    fn fmt(&self, f: &mut core::fmt::Formatter<'_>) -> core::fmt::Result {
+        f.debug_tuple("ShortString").field(&self.as_str()).finish()
+    }
+}
+
+#[cfg(feature = "serde")]
+impl serde::Serialize for ShortString {
+    fn serialize<S: serde::Serializer>(&self, serializer: S) -> Result<S::Ok, S::Error> {
+        serializer.serialize_str(self.as_str())
+    }
+}
+
+#[cfg(feature = "serde")]
+impl<'de> serde::Deserialize<'de> for ShortString {
+    fn deserialize<D: serde::Deserializer<'de>>(deserializer: D) -> Result<Self, D::Error> {
+        struct ShortStringVisitor;
+
+        impl serde::de::Visitor<'_> for ShortStringVisitor {
+            type Value = ShortString;
+
+            fn expecting(&self, formatter: &mut core::fmt::Formatter<'_>) -> core::fmt::Result {
+                formatter.write_str("a string up to 31 ASCII characters")
+            }
+
+            fn visit_str<E: serde::de::Error>(self, v: &str) -> Result<Self::Value, E> {
+                v.parse().map_err(serde::de::Error::custom)
+            }
+        }
+
+        deserializer.deserialize_str(ShortStringVisitor)
+    }
 }
 
 impl core::str::FromStr for ShortString {
-    type Err = ShortStringTryFromStrError;
+    type Err = ShortStringError;
 
     fn from_str(s: &str) -> Result<Self, Self::Err> {
         if !s.is_ascii() {
-            return Err(ShortStringTryFromStrError::InvalidAsciiString);
+            return Err(ShortStringError::InvalidAscii);
         }
 
         if s.len() > 31 {
-            return Err(ShortStringTryFromStrError::StringTooLong);
+            return Err(ShortStringError::ExceedsCapacity);
         }
 
         let mut string = Self::new();
-        string.push_str(s).expect("length already checked");
+        string.push_str(s).expect("qed; length already checked");
 
         Ok(string)
     }
@@ -83,7 +195,7 @@ impl core::str::FromStr for ShortString {
 
 impl From<ShortString> for String {
     fn from(string: ShortString) -> Self {
-        string.0.to_string()
+        string.as_str().to_string()
     }
 }
 
@@ -95,22 +207,12 @@ impl From<ShortString> for Felt {
 
 impl From<&ShortString> for Felt {
     fn from(string: &ShortString) -> Self {
-        Felt::from_bytes_be_slice(string.0.as_bytes())
+        Felt::from_bytes_be_slice(string.as_bytes())
     }
 }
 
-#[derive(Debug, thiserror::Error)]
-pub enum ShortStringFromFeltError {
-    #[error("Unexpected null terminator in string")]
-    UnexpectedNullTerminator,
-    #[error("String exceeds maximum length for Cairo short strings")]
-    StringTooLong,
-    #[error("Non-ASCII character found")]
-    NonAsciiCharacter,
-}
-
 impl TryFrom<Felt> for ShortString {
-    type Error = ShortStringFromFeltError;
+    type Error = ShortStringError;
 
     fn try_from(value: Felt) -> Result<Self, Self::Error> {
         if value == Felt::ZERO {
@@ -121,7 +223,7 @@ impl TryFrom<Felt> for ShortString {
 
         // First byte must be zero because the string must only be 31 bytes.
         if bytes[0] > 0 {
-            return Err(ShortStringFromFeltError::StringTooLong);
+            return Err(ShortStringError::ExceedsCapacity);
         }
 
         let mut string = ShortString::new();
@@ -129,12 +231,12 @@ impl TryFrom<Felt> for ShortString {
         for byte in bytes {
             if byte == 0u8 {
                 if !string.is_empty() {
-                    return Err(ShortStringFromFeltError::UnexpectedNullTerminator);
+                    return Err(ShortStringError::UnexpectedNullTerminator);
                 }
             } else if byte.is_ascii() {
                 string.push(byte as char).expect("qed; should fit");
             } else {
-                return Err(ShortStringFromFeltError::NonAsciiCharacter);
+                return Err(ShortStringError::InvalidAscii);
             }
         }
 
@@ -143,7 +245,7 @@ impl TryFrom<Felt> for ShortString {
 }
 
 impl TryFrom<&Felt> for ShortString {
-    type Error = ShortStringFromFeltError;
+    type Error = ShortStringError;
 
     fn try_from(value: &Felt) -> Result<Self, Self::Error> {
         Self::try_from(*value)
@@ -152,23 +254,22 @@ impl TryFrom<&Felt> for ShortString {
 
 impl core::fmt::Display for ShortString {
     fn fmt(&self, f: &mut core::fmt::Formatter<'_>) -> core::fmt::Result {
-        write!(f, "{}", self.0)
+        write!(f, "{}", self.as_str())
     }
 }
 
 #[cfg(feature = "arbitrary")]
 impl<'a> arbitrary::Arbitrary<'a> for ShortString {
     fn arbitrary(u: &mut arbitrary::Unstructured<'a>) -> arbitrary::Result<Self> {
-        let mut raw_bytes = heapless::Vec::<u8, 31>::new();
-        let length = u.int_in_range(0..=31)?;
+        let length: u8 = u.int_in_range(0..=31)?;
+        let mut data = [0u8; 31];
 
-        for _ in 0..length {
-            let char = u.int_in_range(0..=127)?; // ASCII range
-            raw_bytes.push(char).expect("shouldn't be full");
+        for item in data.iter_mut().take(length as usize) {
+            // ASCII printable range (32-126) to avoid control characters
+            *item = u.int_in_range(32..=126)?;
         }
 
-        let str = heapless::String::<31>::from_utf8(raw_bytes).expect("should be valid utf8");
-        Ok(Self(str))
+        Ok(Self { data, len: length })
     }
 }
 
@@ -179,7 +280,7 @@ mod tests {
     use assert_matches::assert_matches;
 
     use super::ShortString;
-    use crate::cairo::{ShortStringFromFeltError, ShortStringTryFromStrError};
+    use crate::cairo::ShortStringError;
     use crate::Felt;
 
     #[test]
@@ -188,6 +289,19 @@ mod tests {
         assert!(s.is_empty());
         assert_eq!(s.len(), 0);
         assert_eq!(s.as_str(), "");
+    }
+
+    #[test]
+    fn const_from_ascii() {
+        const HELLO: ShortString = ShortString::from_ascii("hello");
+        assert_eq!(HELLO.as_str(), "hello");
+        assert_eq!(HELLO.len(), 5);
+
+        const EMPTY: ShortString = ShortString::from_ascii("");
+        assert!(EMPTY.is_empty());
+
+        const MAX_LEN: ShortString = ShortString::from_ascii("aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa");
+        assert_eq!(MAX_LEN.len(), 31);
     }
 
     #[test]
@@ -213,12 +327,21 @@ mod tests {
     }
 
     #[test]
+    fn eq_felt() {
+        let s = ShortString::from_str("hello").unwrap();
+        let felt = Felt::from(&s);
+
+        assert!(s == felt);
+        assert!(s != Felt::from(123u64));
+    }
+
+    #[test]
     fn felt_with_non_zero_first_byte() {
         // Create felt with non-zero first byte
         let mut bytes = [0u8; 32];
         bytes[0] = 1;
         let felt = Felt::from_bytes_be(&bytes);
-        assert_matches!(ShortString::try_from(felt), Err(ShortStringFromFeltError::StringTooLong));
+        assert_matches!(ShortString::try_from(felt), Err(ShortStringError::ExceedsCapacity));
     }
 
     #[test]
@@ -274,16 +397,70 @@ mod tests {
         let felt = Felt::from_bytes_be(&bytes);
         assert!(matches!(
             ShortString::try_from(felt),
-            Err(ShortStringFromFeltError::UnexpectedNullTerminator)
+            Err(ShortStringError::UnexpectedNullTerminator)
         ));
     }
 
     #[test]
     fn try_from_non_ascii_str() {
-        assert_matches!(
-            ShortString::from_str("café"),
-            Err(ShortStringTryFromStrError::InvalidAsciiString)
-        );
+        assert_matches!(ShortString::from_str("café"), Err(ShortStringError::InvalidAscii));
+    }
+
+    #[test]
+    fn push_non_ascii_char() {
+        let mut s = ShortString::new();
+        assert_matches!(s.push('é'), Err(ShortStringError::InvalidAscii));
+        // String should remain unchanged
+        assert!(s.is_empty());
+    }
+
+    #[test]
+    fn push_exceeds_capacity() {
+        // Create a string with 31 characters (max capacity)
+        let mut s = ShortString::from_str(&"a".repeat(31)).unwrap();
+        assert_eq!(s.len(), 31);
+
+        // Pushing another character should fail
+        assert_matches!(s.push('b'), Err(ShortStringError::ExceedsCapacity));
+        // String should remain unchanged
+        assert_eq!(s.len(), 31);
+    }
+
+    #[test]
+    fn push_str_non_ascii() {
+        let mut s = ShortString::new();
+        assert_matches!(s.push_str("café"), Err(ShortStringError::InvalidAscii));
+        // Note: push_str doesn't rollback on error, so "caf" is added before encountering "é"
+        assert_eq!(s.as_str(), "caf");
+
+        // Test with non-ASCII at the start - string should remain empty
+        let mut s = ShortString::new();
+        assert_matches!(s.push_str("éfoo"), Err(ShortStringError::InvalidAscii));
+        assert!(s.is_empty());
+    }
+
+    #[test]
+    fn push_str_exceeds_capacity() {
+        // Create a string with 30 characters
+        let mut s = ShortString::from_str(&"a".repeat(30)).unwrap();
+        assert_eq!(s.len(), 30);
+
+        // Pushing a 2-character string should fail (30 + 2 > 31)
+        assert_matches!(s.push_str("bb"), Err(ShortStringError::ExceedsCapacity));
+        // String should remain unchanged
+        assert_eq!(s.len(), 30);
+    }
+
+    #[test]
+    fn push_str_exactly_fills_capacity() {
+        // Create a string with 30 characters
+        let mut s = ShortString::from_str(&"a".repeat(30)).unwrap();
+        assert_eq!(s.len(), 30);
+
+        // Pushing a 1-character string should succeed (30 + 1 = 31)
+        assert!(s.push_str("b").is_ok());
+        assert_eq!(s.len(), 31);
+        assert!(s.as_str().ends_with('b'));
     }
 
     #[cfg(feature = "arbitrary")]
@@ -297,7 +474,8 @@ mod tests {
         for _ in 0..100 {
             let s = ShortString::arbitrary(&mut u).unwrap();
             assert!(s.len() <= 31);
-            assert!(String::from(s).into_bytes().into_iter().all(|b| b <= 127));
+            // Verify all characters are ASCII printable (32-126)
+            assert!(s.as_bytes().iter().all(|&b| (32..=126).contains(&b)));
         }
     }
 }

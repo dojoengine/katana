@@ -195,7 +195,7 @@ where
 }
 
 /// The state update type returns by `/get_state_update` endpoint.
-#[allow(clippy::enum_variant_names)]
+#[allow(clippy::enum_variant_names, clippy::large_enum_variant)]
 #[derive(Debug, PartialEq, Eq, Serialize)]
 #[serde(untagged)]
 pub enum GetStateUpdateResponse {

@@ -97,7 +97,7 @@ pub fn fetch_pending_events(
 
     // process individual transactions in the block.
     // the iterator will start with txn index == cursor.txn.idx
-    for (tx_idx, (tx_hash, events)) in pending_block
+    for (tx_idx, (tx_hash, tx_events)) in pending_block
         .transactions
         .iter()
         .map(|receipt| (receipt.receipt.transaction_hash, receipt.receipt.receipt.events()))
@@ -105,7 +105,7 @@ pub fn fetch_pending_events(
         .skip(cursor.txn.idx)
     {
         if tx_idx == cursor.txn.idx {
-            match events.len().cmp(&cursor.txn.event) {
+            match tx_events.len().cmp(&cursor.txn.event) {
                 Ordering::Equal | Ordering::Greater => {}
                 Ordering::Less => continue,
             }
@@ -119,7 +119,7 @@ pub fn fetch_pending_events(
             None,
             tx_idx,
             tx_hash,
-            events,
+            tx_events,
             filter,
             chunk_size as usize,
             buffer,
@@ -222,24 +222,24 @@ pub fn fetch_events_at_blocks(
     Ok(None)
 }
 
-/// An iterator that yields events that match the given filters.
+/// An iterator that yields events (with their original indices) that match the given filters.
 #[derive(Debug)]
-struct FilteredEvents<'a, I: Iterator<Item = &'a Event>> {
+struct FilteredEvents<'a, I: Iterator<Item = (usize, &'a Event)>> {
     iter: I,
     filter: &'a Filter,
 }
 
-impl<'a, I: Iterator<Item = &'a Event>> FilteredEvents<'a, I> {
+impl<'a, I: Iterator<Item = (usize, &'a Event)>> FilteredEvents<'a, I> {
     fn new(iter: I, filter: &'a Filter) -> Self {
         Self { iter, filter }
     }
 }
 
-impl<'a, I: Iterator<Item = &'a Event>> Iterator for FilteredEvents<'a, I> {
-    type Item = &'a Event;
+impl<'a, I: Iterator<Item = (usize, &'a Event)>> Iterator for FilteredEvents<'a, I> {
+    type Item = (usize, &'a Event);
 
     fn next(&mut self) -> Option<Self::Item> {
-        for event in self.iter.by_ref() {
+        for (idx, event) in self.iter.by_ref() {
             // Skip this event if there is an address filter but doesn't match the address of the
             // event.
             if self.filter.address.is_some_and(|addr| addr != event.from_address) {
@@ -271,7 +271,7 @@ impl<'a, I: Iterator<Item = &'a Event>> Iterator for FilteredEvents<'a, I> {
             };
 
             if is_matched {
-                return Some(event);
+                return Some((idx, event));
             }
         }
 
@@ -303,7 +303,7 @@ fn fetch_tx_events(
     block_hash: Option<BlockHash>,
     tx_idx: usize,
     tx_hash: TxHash,
-    events: &[Event],
+    tx_events: &[Event],
     filter: &Filter,
     chunk_size: usize,
     buffer: &mut Vec<EmittedEvent>,
@@ -312,18 +312,24 @@ fn fetch_tx_events(
     // number of events we have taken.
     let total_can_take = chunk_size.saturating_sub(buffer.len());
 
+    // Enumerate events first to preserve original indices, then filter.
     // skip events according to the continuation token.
-    let filtered = FilteredEvents::new(events.iter(), filter)
-        .map(|e| EmittedEvent {
-            block_hash,
-            block_number,
-            keys: e.keys.clone(),
-            data: e.data.clone(),
-            transaction_hash: tx_hash,
-            from_address: e.from_address,
+    let filtered = FilteredEvents::new(tx_events.iter().enumerate(), filter)
+        .map(|(event_idx, e)| {
+            (
+                event_idx,
+                EmittedEvent {
+                    block_hash,
+                    block_number,
+                    keys: e.keys.clone(),
+                    data: e.data.clone(),
+                    transaction_hash: tx_hash,
+                    from_address: e.from_address,
+                    transaction_index: Some(tx_idx as u64),
+                    event_index: Some(event_idx as u64),
+                },
+            )
         })
-        // enumerate so that we can keep track of the event's index in the transaction
-        .enumerate()
         .skip(next_event_idx)
         .take(total_can_take)
         .collect::<Vec<_>>();
@@ -349,7 +355,7 @@ fn fetch_tx_events(
         };
 
         // if there are still more events that we haven't fetched yet for this tx.
-        if new_last_event < events.len() {
+        if new_last_event < tx_events.len() {
             return Ok(Some(PartialCursor { idx: tx_idx, event: new_last_event }));
         }
     }

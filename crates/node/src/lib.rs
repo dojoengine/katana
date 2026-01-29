@@ -39,6 +39,8 @@ use katana_rpc_api::dev::DevApiServer;
 use katana_rpc_api::starknet::{StarknetApiServer, StarknetTraceApiServer, StarknetWriteApiServer};
 #[cfg(feature = "explorer")]
 use katana_rpc_api::starknet_ext::StarknetApiExtServer;
+#[cfg(feature = "tee")]
+use katana_rpc_api::tee::TeeApiServer;
 use katana_rpc_client::starknet::Client as StarknetClient;
 #[cfg(feature = "cartridge")]
 use katana_rpc_server::cartridge::CartridgeApi;
@@ -47,6 +49,8 @@ use katana_rpc_server::dev::DevApi;
 #[cfg(feature = "cartridge")]
 use katana_rpc_server::starknet::PaymasterConfig;
 use katana_rpc_server::starknet::{StarknetApi, StarknetApiConfig};
+#[cfg(feature = "tee")]
+use katana_rpc_server::tee::TeeApi;
 use katana_rpc_server::{RpcServer, RpcServerHandle};
 use katana_rpc_types::GetBlockWithTxHashesResponse;
 use katana_stage::Sequencing;
@@ -115,17 +119,29 @@ where
             .with_fee(config.dev.fee);
 
         let executor_factory = {
-            #[allow(unused_mut)]
-            let mut class_cache = ClassCache::builder();
+            // Try to use existing global cache if already initialized (useful for tests with
+            // multiple nodes) Otherwise, build and initialize a new global cache
+            let global_class_cache = match ClassCache::try_global() {
+                Ok(cache) => {
+                    info!("Using existing global class cache");
+                    cache
+                }
+                Err(_) => {
+                    #[allow(unused_mut)]
+                    let mut class_cache = ClassCache::builder();
 
-            #[cfg(feature = "native")]
-            {
-                info!(enabled = config.execution.compile_native, "Cairo native compilation");
-                class_cache = class_cache.compile_native(config.execution.compile_native);
-            }
+                    #[cfg(feature = "native")]
+                    {
+                        info!(
+                            enabled = config.execution.compile_native,
+                            "Cairo native compilation"
+                        );
+                        class_cache = class_cache.compile_native(config.execution.compile_native);
+                    }
 
-            let global_class_cache = class_cache.build_global()?;
-            // let global_class_cache = ClassCache::new()?;
+                    class_cache.build_global()?
+                }
+            };
 
             let factory = BlockifierFactory::new(
                 overrides,
@@ -270,6 +286,37 @@ where
             rpc_modules.merge(DevApiServer::into_rpc(api))?;
         }
 
+        // --- build tee api (if configured)
+        #[cfg(feature = "tee")]
+        if config.rpc.apis.contains(&RpcModuleKind::Tee) {
+            if let Some(ref tee_config) = config.tee {
+                use katana_tee::{TeeProvider, TeeProviderType};
+
+                let tee_provider: Arc<dyn TeeProvider> = match tee_config.provider_type {
+                    TeeProviderType::SevSnp => {
+                        #[cfg(feature = "tee-snp")]
+                        {
+                            Arc::new(
+                                katana_tee::SevSnpProvider::new()
+                                    .context("Failed to initialize SEV-SNP provider")?,
+                            )
+                        }
+                        #[cfg(not(feature = "tee-snp"))]
+                        {
+                            anyhow::bail!(
+                                "SEV-SNP TEE provider requires the 'tee-snp' feature to be enabled"
+                            );
+                        }
+                    }
+                };
+
+                let api = TeeApi::new(provider.clone(), tee_provider);
+                rpc_modules.merge(TeeApiServer::into_rpc(api))?;
+
+                info!(target: "node", provider = ?tee_config.provider_type, "TEE API enabled");
+            }
+        }
+
         #[allow(unused_mut)]
         let mut rpc_server =
             RpcServer::new().metrics(true).health_check(true).cors(cors).module(rpc_modules)?;
@@ -344,10 +391,12 @@ where
 impl Node<DbProviderFactory> {
     pub fn build(config: Config) -> Result<Self> {
         let (provider, db) = if let Some(path) = &config.db.dir {
+            info!(target: "node", path = %path.display(), "Initializing database.");
             let db = katana_db::Db::new(path)?;
             let factory = DbProviderFactory::new(db.clone());
             (factory, db)
         } else {
+            info!(target: "node", "Initializing in-memory database.");
             let factory = DbProviderFactory::new_in_memory();
             let db = factory.db().clone();
             (factory, db)
@@ -370,6 +419,7 @@ impl Node<ForkProviderFactory> {
             return Err(anyhow::anyhow!("Forking is only supported in dev mode for now"));
         };
 
+        info!(target: "node", "Initializing in-memory database.");
         let db = katana_db::Db::in_memory()?;
 
         let client = StarknetClient::new(cfg.url.clone());

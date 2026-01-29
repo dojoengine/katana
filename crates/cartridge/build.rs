@@ -56,9 +56,9 @@ fn main() {
             let struct_name = filename_to_struct_name(&file_name);
 
             generated_code.push_str(&format!(
-                "::katana_contracts::contract!(\n    {},\n    \
-                 \"{{CARGO_MANIFEST_DIR}}/controller/account_sdk/artifacts/classes/{}.json\"\n);\n",
-                struct_name, file_name
+                "::katana_contracts::contract!(\n    {struct_name},\n    \
+                 \"{{CARGO_MANIFEST_DIR}}/controller/account_sdk/artifacts/classes/{file_name}.\
+                 json\"\n);\n"
             ));
         }
     }

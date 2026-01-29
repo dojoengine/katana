@@ -15,6 +15,7 @@ use katana_provider::api::transaction::{
     ReceiptProvider, TransactionProvider, TransactionStatusProvider, TransactionTraceProvider,
 };
 use katana_provider::{DbProviderFactory, MutableProvider, ProviderFactory};
+use katana_rpc_types::{TxTrace, TxTraceWithHash};
 use rstest_reuse::{self, *};
 
 mod fixtures;
@@ -140,11 +141,20 @@ where
             assert_eq!(actual_tx, Some(tx.clone()));
         }
 
-        assert_eq!(actual_block_env, Some(expected_block_env));
+        let expected_executions: Vec<TxTraceWithHash> = expected_block
+            .body
+            .iter()
+            .zip(executions.iter())
+            .map(|(tx, exec)| TxTraceWithHash {
+                transaction_hash: tx.hash,
+                trace_root: TxTrace::from(exec.clone()),
+            })
+            .collect();
 
+        assert_eq!(actual_block_env, Some(expected_block_env));
         assert_eq!(actual_receipts.as_ref().map(|r| r.len()), Some(expected_block.body.len()));
         assert_eq!(actual_receipts, Some(receipts));
-        assert_eq!(actual_executions, Some(executions));
+        assert_eq!(actual_executions, Some(expected_executions));
 
         assert_eq!(actual_block_tx_count, Some(expected_block.body.len() as u64));
         assert_eq!(actual_state_root, Some(expected_block.header.state_root));

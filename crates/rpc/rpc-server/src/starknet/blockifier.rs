@@ -90,10 +90,10 @@ pub fn estimate_fees(
                             overall_fee: fee.overall_fee,
                             l2_gas_price: fee.l2_gas_price,
                             l1_gas_price: fee.l1_gas_price,
-                            l2_gas_consumed: resources.gas.l2_gas,
-                            l1_gas_consumed: resources.gas.l1_gas,
+                            l2_gas_consumed: resources.total_gas_consumed.l2_gas,
+                            l1_gas_consumed: resources.total_gas_consumed.l1_gas,
                             l1_data_gas_price: fee.l1_data_gas_price,
-                            l1_data_gas_consumed: resources.gas.l1_data_gas,
+                            l1_data_gas_consumed: resources.total_gas_consumed.l1_data_gas,
                         });
                     }
                 }
@@ -151,8 +151,8 @@ fn to_api_error(error: ExecutionError) -> StarknetApiError {
 mod tests {
 
     use katana_chain_spec::ChainSpec;
+    use katana_primitives::address;
     use katana_primitives::env::BlockEnv;
-    use katana_primitives::{address, ContractAddress};
     use katana_provider::api::state::StateFactoryProvider;
     use katana_provider::test_utils::test_provider;
     use katana_provider::ProviderFactory;

@@ -24,7 +24,6 @@ lazy_static.workspace = true
 metrics.workspace = true
 parking_lot.workspace = true
 rayon.workspace = true
-starknet.workspace = true
 starknet-types-core.workspace = true
 thiserror.workspace = true
 tokio.workspace = true

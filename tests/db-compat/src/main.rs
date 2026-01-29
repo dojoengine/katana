@@ -2,7 +2,7 @@ use anyhow::Result;
 use katana_db::version::CURRENT_DB_VERSION;
 use katana_node_bindings::Katana;
 use katana_primitives::block::{BlockIdOrTag, ConfirmedBlockIdOrTag};
-use katana_primitives::{address, felt, ContractAddress};
+use katana_primitives::{address, felt};
 use katana_rpc_client::starknet::Client as StarknetClient;
 
 #[tokio::main]

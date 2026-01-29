@@ -29,12 +29,12 @@
 //!
 //! ```no_run
 //! use katana_pipeline::Pipeline;
-//! use katana_provider::providers::in_memory::InMemoryProvider;
+//! use katana_provider::DbProviderFactory;
 //! use katana_stage::Stage;
 //!
 //! # async fn example() -> Result<(), Box<dyn std::error::Error>> {
-//! // Create a provider for stage checkpoint management
-//! let provider = InMemoryProvider::new();
+//! // Create a provider factory for stage checkpoint management
+//! let provider = DbProviderFactory::new_in_memory();
 //!
 //! // Create a pipeline with a chunk size of 100 blocks
 //! let (mut pipeline, handle) = Pipeline::new(provider, 100);
@@ -78,10 +78,10 @@ use core::future::IntoFuture;
 
 use futures::future::BoxFuture;
 use katana_primitives::block::BlockNumber;
-use katana_provider::{MutableProvider, ProviderFactory};
+use katana_provider::{DbProviderFactory, MutableProvider, ProviderFactory};
 use katana_provider_api::stage::StageCheckpointProvider;
 use katana_provider_api::ProviderError;
-use katana_stage::{Stage, StageExecutionInput, StageExecutionOutput};
+use katana_stage::{PruneInput, PruneOutput, Stage, StageExecutionInput, StageExecutionOutput};
 use tokio::sync::watch::{self};
 use tokio::task::yield_now;
 use tracing::{debug, error, info, info_span, Instrument};
@@ -102,6 +102,9 @@ pub enum Error {
 
     #[error("stage {id} execution failed: {error}")]
     StageExecution { id: &'static str, error: katana_stage::Error },
+
+    #[error("stage {id} pruning failed: {error}")]
+    StagePruning { id: &'static str, error: katana_stage::Error },
 
     #[error(transparent)]
     Provider(#[from] ProviderError),
@@ -206,6 +209,26 @@ impl PipelineHandle {
     }
 }
 
+/// Configuration for pruning behavior in the pipeline.
+#[derive(Debug, Clone, Default)]
+pub struct PruningConfig {
+    /// Distance from tip. Blocks older than `tip - distance` will be pruned.
+    /// `None` means no pruning (archive mode).
+    pub distance: Option<u64>,
+}
+
+impl PruningConfig {
+    /// Creates a new pruning configuration with the specified distance.
+    pub fn new(distance: Option<u64>) -> Self {
+        Self { distance }
+    }
+
+    /// Returns whether pruning is enabled.
+    pub fn is_enabled(&self) -> bool {
+        self.distance.is_some()
+    }
+}
+
 /// Syncing pipeline.
 ///
 /// The pipeline drives the execution of stages, running each stage to completion in the order they
@@ -220,18 +243,19 @@ impl PipelineHandle {
 /// Proper unwinding support would require each stage to implement rollback logic to revert their
 /// state to an earlier block. This is a significant feature that would need to be designed and
 /// implemented across all stages.
-pub struct Pipeline<P> {
+pub struct Pipeline {
     chunk_size: u64,
-    storage_provider: P,
+    storage_provider: DbProviderFactory,
     stages: Vec<Box<dyn Stage>>,
     cmd_rx: watch::Receiver<Option<PipelineCommand>>,
     cmd_tx: watch::Sender<Option<PipelineCommand>>,
     block_tx: watch::Sender<Option<BlockNumber>>,
     tip: Option<BlockNumber>,
     metrics: PipelineMetrics,
+    pruning_config: PruningConfig,
 }
 
-impl<P> Pipeline<P> {
+impl Pipeline {
     /// Creates a new empty pipeline.
     ///
     /// # Arguments
@@ -242,7 +266,7 @@ impl<P> Pipeline<P> {
     /// # Returns
     ///
     /// A tuple containing the pipeline instance and a handle for controlling it.
-    pub fn new(provider: P, chunk_size: u64) -> (Self, PipelineHandle) {
+    pub fn new(provider: DbProviderFactory, chunk_size: u64) -> (Self, PipelineHandle) {
         let (tx, rx) = watch::channel(None);
         let (block_tx, _block_rx) = watch::channel(None);
         let handle = PipelineHandle { tx: tx.clone(), block_tx: block_tx.clone() };
@@ -255,8 +279,21 @@ impl<P> Pipeline<P> {
             chunk_size,
             tip: None,
             metrics: PipelineMetrics::new(),
+            pruning_config: PruningConfig::default(),
         };
         (pipeline, handle)
+    }
+
+    /// Sets the pruning configuration for the pipeline.
+    ///
+    /// This controls how and when historical state is pruned during synchronization.
+    pub fn set_pruning_config(&mut self, config: PruningConfig) {
+        self.pruning_config = config;
+    }
+
+    /// Returns the current pruning configuration.
+    pub fn pruning_config(&self) -> &PruningConfig {
+        &self.pruning_config
     }
 
     /// Adds a new stage to the end of the pipeline.
@@ -287,11 +324,7 @@ impl<P> Pipeline<P> {
     }
 }
 
-impl<P> Pipeline<P>
-where
-    P: ProviderFactory,
-    <P as ProviderFactory>::ProviderMut: StageCheckpointProvider,
-{
+impl Pipeline {
     /// Runs the pipeline continuously until signaled to stop.
     ///
     /// The pipeline processes each stage in chunks up until it reaches the current tip, then waits
@@ -321,7 +354,6 @@ where
                 result = self.run_loop() => {
                     if let Err(error) = result {
                         error!(target: "pipeline", %error, "Pipeline finished due to error.");
-                        break;
                     }
                 }
             }
@@ -351,7 +383,7 @@ where
     ///
     /// Returns an error if any stage execution fails or if the pipeline fails to read the
     /// checkpoint.
-    pub async fn run_once(&mut self, to: BlockNumber) -> PipelineResult<BlockNumber> {
+    pub async fn execute(&mut self, to: BlockNumber) -> PipelineResult<BlockNumber> {
         if self.stages.is_empty() {
             return Ok(to);
         }
@@ -370,7 +402,7 @@ where
             let stage_metrics = self.metrics.stage(id);
 
             // Get the checkpoint for the stage, otherwise default to block number 0
-            let checkpoint = self.storage_provider.provider_mut().checkpoint(id)?;
+            let checkpoint = self.storage_provider.provider_mut().execution_checkpoint(id)?;
 
             let span = info_span!(target: "pipeline", "stage.execute", stage = %id, %to);
             let enter = span.entered();
@@ -414,7 +446,7 @@ where
             stage_metrics.record_blocks_processed(blocks_processed);
 
             let provider_mut = self.storage_provider.provider_mut();
-            provider_mut.set_checkpoint(id, last_block_processed)?;
+            provider_mut.set_execution_checkpoint(id, last_block_processed)?;
             provider_mut.commit()?;
 
             stage_metrics.set_checkpoint(last_block_processed);
@@ -422,14 +454,60 @@ where
             info!(target: "pipeline", checkpoint = %last_block_processed, "New checkpoint set.");
         }
 
-        let min_last_block_processed = last_block_processed_list.into_iter().min();
+        Ok(last_block_processed_list.into_iter().min().unwrap_or(to))
+    }
 
-        // Update overall pipeline sync position (minimum checkpoint across all stages)
-        if let Some(min_checkpoint) = min_last_block_processed {
-            self.metrics.set_sync_position(min_checkpoint);
+    /// Runs pruning on all stages.
+    pub async fn prune(&mut self) -> PipelineResult<()> {
+        if self.stages.is_empty() {
+            return Ok(());
         }
 
-        Ok(min_last_block_processed.unwrap_or(to))
+        for stage in self.stages.iter_mut() {
+            let id = stage.id();
+
+            let span = info_span!(target: "pipeline", "stage.prune", stage = %id);
+            let enter = span.entered();
+
+            // Get execution checkpoint (tip for this stage) and prune checkpoint
+            let execution_checkpoint =
+                self.storage_provider.provider_mut().execution_checkpoint(id)?;
+            let prune_checkpoint = self.storage_provider.provider_mut().prune_checkpoint(id)?;
+
+            let Some(tip) = execution_checkpoint else {
+                info!(target: "pipeline", "Skipping stage - no data to prune (no execution checkpoint).");
+                continue;
+            };
+
+            let prune_input = PruneInput::new(tip, self.pruning_config.distance, prune_checkpoint);
+
+            let Some(range) = prune_input.prune_range() else {
+                info!(target: "pipeline", "Skipping stage - nothing to prune (already caught up).");
+                continue;
+            };
+
+            info!(target: "pipeline", distance = ?self.pruning_config.distance, from = range.start, to = range.end, "Pruning stage.");
+
+            let span_inner = enter.exit();
+            let PruneOutput { pruned_count } = stage
+                .prune(&prune_input)
+                .instrument(span_inner.clone())
+                .await
+                .map_err(|error| Error::StagePruning { id, error })?;
+
+            // Update prune checkpoint to the last pruned block (range.end - 1 since range is
+            // exclusive)
+            if range.end > 0 {
+                let provider_mut = self.storage_provider.provider_mut();
+                provider_mut.set_prune_checkpoint(id, range.end - 1)?;
+                provider_mut.commit()?;
+            }
+
+            let _enter = span_inner.enter();
+            info!(target: "pipeline", %pruned_count, "Stage pruning completed.");
+        }
+
+        Ok(())
     }
 
     /// Run the pipeline loop.
@@ -441,14 +519,20 @@ where
             if let Some(tip) = self.tip {
                 let to = current_chunk_tip.min(tip);
                 let iteration_start = std::time::Instant::now();
-                let last_block_processed = self.run_once(to).await?;
-                let iteration_duration = iteration_start.elapsed().as_secs_f64();
 
-                // Record pipeline metrics for this iteration
+                let last_block_processed = self.execute(to).await?;
+                self.metrics.set_sync_position(last_block_processed);
+
+                let iteration_duration = iteration_start.elapsed().as_secs_f64();
                 self.metrics.record_iteration_duration(iteration_duration);
 
                 // Notify subscribers about the newly processed block
                 let _ = self.block_tx.send(Some(last_block_processed));
+
+                // Run pruning if enabled
+                if self.pruning_config.is_enabled() {
+                    self.prune().await?;
+                }
 
                 if last_block_processed >= tip {
                     info!(target: "pipeline", %tip, "Finished syncing until tip.");
@@ -459,29 +543,29 @@ where
                 }
             } else {
                 info!(target: "pipeline", "Waiting to receive new tip.");
-            }
+                self.cmd_rx.changed().await.map_err(|_| Error::CommandChannelClosed)?;
 
-            if let Some(PipelineCommand::SetTip(new_tip)) = *self
-                .cmd_rx
-                .wait_for(|c| matches!(c, &Some(PipelineCommand::SetTip(_))))
-                .await
-                .map_err(|_| Error::CommandChannelClosed)?
-            {
-                info!(target: "pipeline", tip = %new_tip, "A new tip has been set.");
-                self.tip = Some(new_tip);
-                self.metrics.set_sync_target(new_tip);
+                match *self.cmd_rx.borrow_and_update() {
+                    Some(PipelineCommand::SetTip(new_tip)) => {
+                        info!(target: "pipeline", tip = %new_tip, "A new tip has been set.");
+                        self.tip = Some(new_tip);
+                        self.metrics.set_sync_target(new_tip);
+                    }
+
+                    Some(PipelineCommand::Stop) => break,
+
+                    _ => {}
+                }
             }
 
             yield_now().await;
         }
+
+        Ok(())
     }
 }
 
-impl<P> IntoFuture for Pipeline<P>
-where
-    P: ProviderFactory + 'static,
-    <P as ProviderFactory>::ProviderMut: StageCheckpointProvider,
-{
+impl IntoFuture for Pipeline {
     type Output = PipelineResult<()>;
     type IntoFuture = PipelineFut;
 
@@ -494,13 +578,14 @@ where
     }
 }
 
-impl<P: core::fmt::Debug> core::fmt::Debug for Pipeline<P> {
+impl core::fmt::Debug for Pipeline {
     fn fmt(&self, f: &mut core::fmt::Formatter<'_>) -> core::fmt::Result {
         f.debug_struct("Pipeline")
             .field("command", &self.cmd_rx)
             .field("provider", &self.storage_provider)
             .field("chunk_size", &self.chunk_size)
+            .field("pruning_config", &self.pruning_config)
             .field("stages", &self.stages.iter().map(|s| s.id()).collect::<Vec<_>>())
-            .finish()
+            .finish_non_exhaustive()
     }
 }

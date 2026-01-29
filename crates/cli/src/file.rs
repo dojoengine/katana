@@ -27,6 +27,8 @@ pub struct NodeArgsConfig {
     pub metrics: Option<MetricsOptions>,
     #[cfg(feature = "cartridge")]
     pub cartridge: Option<CartridgeOptions>,
+    #[cfg(feature = "explorer")]
+    pub explorer: Option<ExplorerOptions>,
 }
 
 impl NodeArgsConfig {
@@ -79,6 +81,15 @@ impl TryFrom<SequencerNodeArgs> for NodeArgsConfig {
                 None
             } else {
                 Some(args.cartridge)
+            };
+        }
+
+        #[cfg(feature = "explorer")]
+        {
+            node_config.explorer = if args.explorer == ExplorerOptions::default() {
+                None
+            } else {
+                Some(args.explorer)
             };
         }
 

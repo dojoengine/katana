@@ -2,7 +2,7 @@ use std::str::FromStr;
 use std::sync::Arc;
 
 use blockifier::blockifier_versioned_constants::VersionedConstants;
-use blockifier::bouncer::n_steps_to_sierra_gas;
+use blockifier::bouncer::n_steps_to_gas;
 use blockifier::context::{BlockContext, TransactionContext};
 use blockifier::execution::call_info::CallInfo;
 use blockifier::execution::entry_point::{
@@ -138,9 +138,7 @@ pub fn get_call_sierra_gas_consumed(
         // steps to sierra gas.
         //
         // https://github.com/dojoengine/sequencer/blob/5d737b9c90a14bdf4483d759d1a1d4ce64aa9fd2/crates/blockifier/src/execution/entry_point_execution.rs#L475-L479
-        TrackedResource::CairoSteps => {
-            n_steps_to_sierra_gas(info.resources.n_steps, versioned_constant).0
-        }
+        TrackedResource::CairoSteps => n_steps_to_gas(info.resources.n_steps, versioned_constant).0,
 
         TrackedResource::SierraGas => info.execution.gas_consumed,
     }
@@ -156,7 +154,7 @@ mod tests {
     use blockifier::state::cached_state::{self};
     use katana_primitives::class::ContractClass;
     use katana_primitives::execution::FunctionCall;
-    use katana_primitives::{address, felt, ContractAddress};
+    use katana_primitives::{address, felt};
     use katana_provider::api::contract::ContractClassWriter;
     use katana_provider::api::state::{StateFactoryProvider, StateWriter};
     use katana_provider::{test_utils, ProviderFactory};

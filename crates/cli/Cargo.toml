@@ -14,6 +14,7 @@ katana-genesis.workspace = true
 katana-primitives.workspace = true
 katana-rpc-server.workspace = true
 katana-slot-controller = { workspace = true, optional = true }
+katana-tee = { workspace = true, optional = true }
 katana-tracing.workspace = true
 katana-utils.workspace = true
 serde-utils.workspace = true
@@ -41,7 +42,8 @@ cartridge = [
 	"katana-node/cartridge",
 	"katana-rpc-server/cartridge",
 ]
-default = [ "cartridge", "server" ]
-explorer = [ "katana-node/explorer", "katana-utils/explorer" ]
-native = [ "katana-node/native" ]
-server = [  ]
+default = ["cartridge", "server", "tee"]
+explorer = ["katana-node/explorer", "katana-utils/explorer"]
+native = ["katana-node/native"]
+server = []
+tee = ["dep:katana-tee", "katana-node/tee", "katana-node/tee-snp", "katana-tee/snp"]

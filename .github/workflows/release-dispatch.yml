@@ -71,5 +71,5 @@ jobs:
           title: "release(prepare): v${{ steps.version_info.outputs.version }}"
           commit-message: "release(prepare): v${{ steps.version_info.outputs.version }}"
           branch: prepare-release
-          base: main
+          base: ${{ github.ref_name }}
           delete-branch: true
