@@ -285,14 +285,14 @@ where
 
             if !is_controller_deployed {
                 debug!(target: "rpc::cartridge", controller = %address, "Controller not yet deployed");
-                if let Some(tx) = futures::executor::block_on(craft_deploy_cartridge_controller_tx(
+                if let Some(tx) = craft_deploy_cartridge_controller_tx(
                     &this.api_client,
                     address,
                     pm_address,
                     pm_private_key,
                     this.backend.chain_spec.id(),
                     this.nonce(pm_address)?.unwrap_or_default(),
-                ))? {
+                ).await? {
                     debug!(target: "rpc::cartridge", controller = %address, tx = format!("{:#x}", tx.hash), "Inserting Controller deployment transaction");
                     this.pool.add_transaction(tx).await?;
                     this.block_producer.force_mine();
