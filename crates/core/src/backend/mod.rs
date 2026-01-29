@@ -35,7 +35,8 @@ use tracing::info;
 
 pub mod storage;
 
-use crate::backend::storage::{ProviderRO, ProviderRW};
+use katana_provider::{ProviderRO, ProviderRW};
+
 use crate::env::BlockContextGenerator;
 use crate::service::block_producer::{BlockProductionError, MinedBlockOutcome};
 use crate::utils::get_current_timestamp;

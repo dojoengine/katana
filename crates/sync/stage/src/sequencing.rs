@@ -4,14 +4,13 @@ use std::sync::Arc;
 
 use anyhow::Result;
 use futures::future::{self, BoxFuture};
-use katana_core::backend::storage::{ProviderRO, ProviderRW};
 use katana_core::backend::Backend;
 use katana_core::service::block_producer::{BlockProducer, BlockProductionError};
 use katana_core::service::{BlockProductionTask, TransactionMiner};
 use katana_executor::ExecutorFactory;
 use katana_messaging::{MessagingConfig, MessagingService, MessagingTask};
 use katana_pool::{TransactionPool, TxPool};
-use katana_provider::ProviderFactory;
+use katana_provider::{ProviderFactory, ProviderRO, ProviderRW};
 use katana_tasks::{JoinHandle, TaskSpawner};
 use tracing::error;
 

@@ -5,7 +5,6 @@ use std::future::Future;
 use std::sync::Arc;
 
 use katana_chain_spec::ChainSpec;
-use katana_core::backend::storage::ProviderRO;
 use katana_core::utils::get_current_timestamp;
 use katana_gas_price_oracle::GasPriceOracle;
 use katana_pool::TransactionPool;
@@ -24,7 +23,7 @@ use katana_provider::api::transaction::{
     ReceiptProvider, TransactionProvider, TransactionStatusProvider, TransactionsProviderExt,
 };
 use katana_provider::api::ProviderError;
-use katana_provider::ProviderFactory;
+use katana_provider::{ProviderFactory, ProviderRO};
 use katana_rpc_api::error::starknet::{
     CompilationErrorData, PageSizeTooBigData, ProofLimitExceededData, StarknetApiError,
 };

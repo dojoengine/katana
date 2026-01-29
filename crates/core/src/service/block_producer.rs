@@ -28,14 +28,13 @@ use katana_primitives::transaction::{ExecutableTxWithHash, TxHash, TxWithHash};
 use katana_provider::api::block::{BlockHashProvider, BlockNumberProvider};
 use katana_provider::api::env::BlockEnvProvider;
 use katana_provider::api::state::StateFactoryProvider;
-use katana_provider::{ProviderError, ProviderFactory};
+use katana_provider::{ProviderError, ProviderFactory, ProviderRO, ProviderRW};
 use katana_tasks::{CpuBlockingTaskPool, Result as TaskResult};
 use parking_lot::lock_api::RawMutex;
 use parking_lot::{Mutex, RwLock};
 use tokio::time::{interval_at, Instant, Interval};
 use tracing::{error, info, trace};
 
-use crate::backend::storage::{ProviderRO, ProviderRW};
 use crate::backend::Backend;
 
 #[cfg(test)]

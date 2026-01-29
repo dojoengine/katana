@@ -4,11 +4,10 @@ use std::time::Duration;
 
 use axum::routing::get;
 use axum::Router;
-use katana_core::backend::storage::{ProviderRO, ProviderRW};
 use katana_core::service::block_producer::BlockProducer;
 use katana_executor::implementation::blockifier::BlockifierFactory;
 use katana_pool_api::TransactionPool;
-use katana_provider::ProviderFactory;
+use katana_provider::{ProviderFactory, ProviderRO, ProviderRW};
 use katana_rpc_server::cors::Cors;
 use katana_rpc_server::starknet::StarknetApi;
 use tokio::net::TcpListener;

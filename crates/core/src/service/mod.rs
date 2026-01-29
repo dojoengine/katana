@@ -7,12 +7,11 @@ use futures::stream::StreamExt;
 use katana_executor::ExecutorFactory;
 use katana_pool::{PendingTransactions, PoolOrd, TransactionPool, TxPool};
 use katana_primitives::transaction::ExecutableTxWithHash;
-use katana_provider::ProviderFactory;
+use katana_provider::{ProviderFactory, ProviderRO, ProviderRW};
 use tracing::{error, info};
 
 use self::block_producer::BlockProducer;
 use self::metrics::BlockProducerMetrics;
-use crate::backend::storage::{ProviderRO, ProviderRW};
 
 pub mod block_producer;
 mod metrics;

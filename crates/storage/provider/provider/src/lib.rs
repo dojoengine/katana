@@ -11,6 +11,76 @@ pub mod api {
     pub use katana_provider_api::*;
 }
 
+use crate::api::block::{BlockIdReader, BlockProvider, BlockWriter};
+use crate::api::contract::ContractClassWriter;
+use crate::api::env::BlockEnvProvider;
+use crate::api::stage::StageCheckpointProvider;
+use crate::api::state::{StateFactoryProvider, StateWriter};
+use crate::api::state_update::StateUpdateProvider;
+use crate::api::transaction::{
+    ReceiptProvider, TransactionProvider, TransactionStatusProvider, TransactionTraceProvider,
+    TransactionsProviderExt,
+};
+use crate::api::trie::TrieWriter;
+
+pub trait ProviderRO:
+    BlockIdReader
+    + BlockProvider
+    + TransactionProvider
+    + TransactionStatusProvider
+    + TransactionTraceProvider
+    + TransactionsProviderExt
+    + ReceiptProvider
+    + StateUpdateProvider
+    + StateFactoryProvider
+    + BlockEnvProvider
+    + 'static
+    + Send
+    + Sync
+    + core::fmt::Debug
+{
+}
+
+pub trait ProviderRW:
+    MutableProvider
+    + ProviderRO
+    + BlockWriter
+    + StateWriter
+    + ContractClassWriter
+    + TrieWriter
+    + StageCheckpointProvider
+{
+}
+
+impl<T> ProviderRO for T where
+    T: BlockProvider
+        + BlockIdReader
+        + TransactionProvider
+        + TransactionStatusProvider
+        + TransactionTraceProvider
+        + TransactionsProviderExt
+        + ReceiptProvider
+        + StateUpdateProvider
+        + StateFactoryProvider
+        + BlockEnvProvider
+        + 'static
+        + Send
+        + Sync
+        + core::fmt::Debug
+{
+}
+
+impl<T> ProviderRW for T where
+    T: ProviderRO
+        + MutableProvider
+        + BlockWriter
+        + StateWriter
+        + ContractClassWriter
+        + TrieWriter
+        + StageCheckpointProvider
+{
+}
+
 pub mod providers;
 #[cfg(any(test, feature = "test-utils"))]
 pub mod test_utils;

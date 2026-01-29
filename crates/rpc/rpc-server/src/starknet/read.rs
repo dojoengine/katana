@@ -5,7 +5,6 @@ use std::sync::Arc;
 use anyhow::anyhow;
 use jsonrpsee::core::{async_trait, RpcResult};
 use jsonrpsee::types::ErrorObjectOwned;
-use katana_core::backend::storage::ProviderRO;
 #[cfg(feature = "cartridge")]
 use katana_genesis::allocation::GenesisAccountAlloc;
 use katana_pool::TransactionPool;
@@ -16,7 +15,7 @@ use katana_primitives::transaction::{ExecutableTx, ExecutableTxWithHash, TxHash}
 use katana_primitives::{ContractAddress, Felt};
 #[cfg(feature = "cartridge")]
 use katana_provider::api::state::StateFactoryProvider;
-use katana_provider::ProviderFactory;
+use katana_provider::{ProviderFactory, ProviderRO};
 use katana_rpc_api::error::starknet::StarknetApiError;
 use katana_rpc_api::starknet::StarknetApiServer;
 use katana_rpc_types::block::{
