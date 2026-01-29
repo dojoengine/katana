@@ -34,10 +34,10 @@ use cainome::cairo_serde::CairoSerde;
 use cainome::cairo_serde_derive::CairoSerde as CairoSerdeDerive;
 use cainome_cairo_serde::ContractAddress as CairoContractAddress;
 use http::{HeaderMap, HeaderValue};
+use jsonrpsee::core::client::ClientT;
+use jsonrpsee::core::params::ObjectParams;
 use jsonrpsee::core::{async_trait, RpcResult};
-use jsonrpsee_024::http_client::{
-    HttpClient as PaymasterHttpClient, HttpClientBuilder as PaymasterHttpClientBuilder,
-};
+use jsonrpsee::http_client::{HttpClient, HttpClientBuilder};
 use katana_core::backend::Backend;
 use katana_core::service::block_producer::{BlockProducer, BlockProducerMode};
 use katana_executor::ExecutorFactory;
@@ -62,7 +62,7 @@ use katana_rpc_types::FunctionCall;
 use katana_tasks::{Result as TaskResult, TaskSpawner};
 use paymaster_rpc::{
     ExecuteRawRequest, ExecuteRawResponse, ExecuteRawTransactionParameters, ExecutionParameters,
-    FeeMode, PaymasterAPIClient, RawInvokeParameters,
+    FeeMode, RawInvokeParameters,
 };
 use reqwest::Client as ReqwestClient;
 use serde::{Deserialize, Serialize};
@@ -91,7 +91,7 @@ pub struct CartridgeVrfConfig {
 
 #[derive(Clone)]
 struct PaymasterClient {
-    client: PaymasterHttpClient,
+    client: HttpClient,
 }
 
 impl PaymasterClient {
@@ -101,8 +101,7 @@ impl PaymasterClient {
             headers.insert("x-paymaster-api-key", HeaderValue::from_str(&key)?);
         }
 
-        let client =
-            PaymasterHttpClientBuilder::default().set_headers(headers).build(url.as_str())?;
+        let client = HttpClientBuilder::default().set_headers(headers).build(url.as_str())?;
         Ok(Self { client })
     }
 
@@ -110,7 +109,15 @@ impl PaymasterClient {
         &self,
         request: ExecuteRawRequest,
     ) -> Result<ExecuteRawResponse, StarknetApiError> {
-        self.client.execute_raw_transaction(request).await.map_err(|err| {
+        let mut params = ObjectParams::new();
+        params.insert("transaction", &request.transaction).map_err(|e| {
+            StarknetApiError::unexpected(format!("failed to serialize transaction: {e}"))
+        })?;
+        params.insert("parameters", &request.parameters).map_err(|e| {
+            StarknetApiError::unexpected(format!("failed to serialize parameters: {e}"))
+        })?;
+
+        self.client.request("paymaster_executeRawTransaction", params).await.map_err(|err| {
             StarknetApiError::unexpected(format!("paymaster execute_raw error: {err}"))
         })
     }

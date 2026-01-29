@@ -1,206 +1,90 @@
-use std::sync::Arc;
+//! Paymaster proxy implementation.
 
-use http::{HeaderMap, HeaderValue};
-use jsonrpsee::core::RpcResult;
+use http::{HeaderMap, HeaderName, HeaderValue};
+use jsonrpsee::core::{async_trait, ClientError, RpcResult};
+use jsonrpsee::http_client::{HttpClient, HttpClientBuilder};
 use jsonrpsee::types::error::INTERNAL_ERROR_CODE;
 use jsonrpsee::types::ErrorObjectOwned;
-use jsonrpsee::RpcModule;
-use jsonrpsee_024::core::client::ClientT as PaymasterClientT;
-use jsonrpsee_024::core::params::ObjectParams as PaymasterObjectParams;
-use jsonrpsee_024::core::ClientError as PaymasterClientError;
-use jsonrpsee_024::http_client::{
-    HttpClient as PaymasterHttpClient, HttpClientBuilder as PaymasterHttpClientBuilder,
-};
+use katana_rpc_api::paymaster::{PaymasterApiClient, PaymasterApiServer};
 use paymaster_rpc::{
     BuildTransactionRequest, BuildTransactionResponse, ExecuteRawRequest, ExecuteRawResponse,
     ExecuteRequest, ExecuteResponse, TokenPrice,
 };
-use serde::Serialize;
-use serde_json::Value as JsonValue;
 use url::Url;
 
+#[derive(Debug, thiserror::Error)]
+pub enum PaymasterProxyError {
+    #[error("invalid API key")]
+    InvalidApiKey(#[from] http::header::InvalidHeaderValue),
+
+    #[error("client error")]
+    Client(#[from] jsonrpsee::core::ClientError),
+}
+
+/// Paymaster proxy that forwards requests to an external paymaster service.
 #[derive(Clone, Debug)]
 pub struct PaymasterProxy {
-    url: Url,
-    api_key: Option<String>,
+    upstream_client: HttpClient,
 }
 
 impl PaymasterProxy {
-    pub fn new(url: Url, api_key: Option<String>) -> Self {
-        Self { url, api_key }
+    pub fn new(url: Url, api_key: Option<String>) -> Result<Self, PaymasterProxyError> {
+        let headers = if let Some(api_key) = &api_key {
+            let header_name = HeaderName::from_static("x-paymaster-api-key");
+            let header_value = HeaderValue::from_str(api_key)?;
+            HeaderMap::from_iter([(header_name, header_value)])
+        } else {
+            HeaderMap::default()
+        };
+
+        let client = HttpClientBuilder::default().set_headers(headers).build(url.as_str())?;
+
+        Ok(Self { upstream_client: client })
     }
+}
 
-    pub fn module(self) -> Result<RpcModule<()>, jsonrpsee::core::RegisterMethodError> {
-        let mut module = RpcModule::new(());
-        let proxy = Arc::new(self);
-
-        {
-            let proxy = Arc::clone(&proxy);
-            module.register_async_method("paymaster_health", move |_, _, _| {
-                let proxy = Arc::clone(&proxy);
-                async move { proxy.health().await }
-            })?;
-        }
-
-        {
-            let proxy = Arc::clone(&proxy);
-            module.register_async_method("paymaster_isAvailable", move |_, _, _| {
-                let proxy = Arc::clone(&proxy);
-                async move { proxy.is_available().await }
-            })?;
-        }
-
-        {
-            let proxy = Arc::clone(&proxy);
-            module.register_async_method("paymaster_buildTransaction", move |params, _, _| {
-                let proxy = Arc::clone(&proxy);
-                async move {
-                    let request: BuildTransactionRequest = params.parse()?;
-                    proxy.build_transaction(request).await
-                }
-            })?;
-        }
-
-        {
-            let proxy = Arc::clone(&proxy);
-            module.register_async_method("paymaster_executeTransaction", move |params, _, _| {
-                let proxy = Arc::clone(&proxy);
-                async move {
-                    let request: ExecuteRequest = params.parse()?;
-                    proxy.execute_transaction(request).await
-                }
-            })?;
-        }
-
-        {
-            let proxy = Arc::clone(&proxy);
-            module.register_async_method(
-                "paymaster_executeRawTransaction",
-                move |params, _, _| {
-                    let proxy = Arc::clone(&proxy);
-                    async move {
-                        let request: ExecuteRawRequest = params.parse()?;
-                        proxy.execute_raw_transaction(request).await
-                    }
-                },
-            )?;
-        }
-
-        {
-            let proxy = Arc::clone(&proxy);
-            module.register_async_method("paymaster_getSupportedTokens", move |_, _, _| {
-                let proxy = Arc::clone(&proxy);
-                async move { proxy.get_supported_tokens().await }
-            })?;
-        }
-
-        Ok(module)
-    }
-
+#[async_trait]
+impl PaymasterApiServer for PaymasterProxy {
     async fn health(&self) -> RpcResult<bool> {
-        let client = self.client()?;
-        let params = PaymasterObjectParams::new();
-        client.request("paymaster_health", params).await.map_err(map_client_error)
+        PaymasterApiClient::health(&self.upstream_client).await.map_err(map_error)
     }
 
     async fn is_available(&self) -> RpcResult<bool> {
-        let client = self.client()?;
-        let params = PaymasterObjectParams::new();
-        client.request("paymaster_isAvailable", params).await.map_err(map_client_error)
+        PaymasterApiClient::is_available(&self.upstream_client).await.map_err(map_error)
     }
 
     async fn build_transaction(
         &self,
-        request: BuildTransactionRequest,
+        req: BuildTransactionRequest,
     ) -> RpcResult<BuildTransactionResponse> {
-        let client = self.client()?;
-        let params = build_request_params(request.transaction, request.parameters)?;
-        client.request("paymaster_buildTransaction", params).await.map_err(map_client_error)
+        PaymasterApiClient::build_transaction(&self.upstream_client, req).await.map_err(map_error)
     }
 
-    async fn execute_transaction(&self, request: ExecuteRequest) -> RpcResult<ExecuteResponse> {
-        let client = self.client()?;
-        let params = build_request_params(request.transaction, request.parameters)?;
-        client.request("paymaster_executeTransaction", params).await.map_err(map_client_error)
+    async fn execute_transaction(&self, req: ExecuteRequest) -> RpcResult<ExecuteResponse> {
+        PaymasterApiClient::execute_transaction(&self.upstream_client, req).await.map_err(map_error)
     }
 
     async fn execute_raw_transaction(
         &self,
-        request: ExecuteRawRequest,
+        req: ExecuteRawRequest,
     ) -> RpcResult<ExecuteRawResponse> {
-        let client = self.client()?;
-        let params = build_request_params(request.transaction, request.parameters)?;
-        client.request("paymaster_executeRawTransaction", params).await.map_err(map_client_error)
+        PaymasterApiClient::execute_raw_transaction(&self.upstream_client, req)
+            .await
+            .map_err(map_error)
     }
 
     async fn get_supported_tokens(&self) -> RpcResult<Vec<TokenPrice>> {
-        let client = self.client()?;
-        let params = PaymasterObjectParams::new();
-        client.request("paymaster_getSupportedTokens", params).await.map_err(map_client_error)
-    }
-
-    fn client(&self) -> RpcResult<PaymasterHttpClient> {
-        let mut headers = HeaderMap::new();
-        if let Some(key) = &self.api_key {
-            let header_value = HeaderValue::from_str(key).map_err(|err| {
-                ErrorObjectOwned::owned(
-                    INTERNAL_ERROR_CODE,
-                    "Invalid paymaster api key",
-                    Some(err.to_string()),
-                )
-            })?;
-            headers.insert("x-paymaster-api-key", header_value);
-        }
-
-        PaymasterHttpClientBuilder::default()
-            .set_headers(headers)
-            .build(self.url.as_str())
-            .map_err(map_build_error)
+        PaymasterApiClient::get_supported_tokens(&self.upstream_client).await.map_err(map_error)
     }
 }
 
-fn map_client_error(err: PaymasterClientError) -> ErrorObjectOwned {
+fn map_error(err: ClientError) -> ErrorObjectOwned {
     match err {
-        PaymasterClientError::Call(err) => convert_error(err),
+        ClientError::Call(err) => err,
         other => ErrorObjectOwned::owned(
             INTERNAL_ERROR_CODE,
             "Paymaster proxy error",
             Some(other.to_string()),
         ),
     }
-}
-
-fn map_build_error(err: PaymasterClientError) -> ErrorObjectOwned {
-    ErrorObjectOwned::owned(
-        INTERNAL_ERROR_CODE,
-        "Failed to create paymaster client",
-        Some(err.to_string()),
-    )
-}
-
-fn build_request_params<T, P>(
-    transaction: T,
-    parameters: P,
-) -> Result<PaymasterObjectParams, ErrorObjectOwned>
-where
-    T: Serialize,
-    P: Serialize,
-{
-    let mut params = PaymasterObjectParams::new();
-    params.insert("transaction", transaction).map_err(map_param_error)?;
-    params.insert("parameters", parameters).map_err(map_param_error)?;
-    Ok(params)
-}
-
-fn map_param_error(err: serde_json::Error) -> ErrorObjectOwned {
-    ErrorObjectOwned::owned(
-        INTERNAL_ERROR_CODE,
-        "Failed to serialize paymaster params",
-        Some(err.to_string()),
-    )
-}
-
-fn convert_error(err: jsonrpsee_024::types::ErrorObjectOwned) -> ErrorObjectOwned {
-    let data = err.data().and_then(|raw| serde_json::from_str::<JsonValue>(raw.get()).ok());
-    ErrorObjectOwned::owned(err.code(), err.message(), data)
 }

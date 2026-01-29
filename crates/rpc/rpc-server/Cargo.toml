@@ -27,7 +27,6 @@ anyhow.workspace = true
 auto_impl.workspace = true
 http.workspace = true
 jsonrpsee = { workspace = true, features = [ "client", "server" ] }
-jsonrpsee_024 = { package = "jsonrpsee", version = "0.24.10", features = [ "client" ], optional = true }
 metrics.workspace = true
 reqwest = { workspace = true, optional = true }
 serde_json.workspace = true
@@ -89,9 +88,9 @@ url.workspace = true
 [features]
 paymaster = [
 	"dep:paymaster-rpc",
-	"dep:jsonrpsee_024",
 	"dep:url",
 	"dep:serde",
+	"katana-rpc-api/paymaster",
 ]
 vrf = [
 	"paymaster",

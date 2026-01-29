@@ -312,13 +312,10 @@ impl SequencerNodeArgs {
             // (ie `--rpc.api`) we guarantee that the cartridge rpc is enabled.
             #[cfg(feature = "cartridge")]
             {
-                let mut paymaster_enabled = self.cartridge.paymaster;
-
                 #[cfg(feature = "paymaster")]
-                {
-                    paymaster_enabled =
-                        paymaster_enabled || self.paymaster.mode != ServiceMode::Disabled;
-                }
+                let paymaster_enabled = self.paymaster.mode != ServiceMode::Disabled;
+                #[cfg(not(feature = "paymaster"))]
+                let paymaster_enabled = false;
 
                 #[cfg(feature = "vrf")]
                 let vrf_enabled = self.vrf.mode != ServiceMode::Disabled;
@@ -396,9 +393,7 @@ impl SequencerNodeArgs {
 
             #[cfg(feature = "cartridge")]
             {
-                let controllers_enabled = self.cartridge.controllers || self.cartridge.paymaster;
-
-                if controllers_enabled {
+                if self.cartridge.controllers {
                     katana_slot_controller::add_controller_classes(&mut chain_spec.genesis);
                     katana_slot_controller::add_vrf_provider_class(&mut chain_spec.genesis);
                 }
@@ -406,10 +401,6 @@ impl SequencerNodeArgs {
 
             #[cfg(feature = "paymaster")]
             {
-                #[cfg(feature = "cartridge")]
-                let paymaster_enabled =
-                    self.paymaster.mode != ServiceMode::Disabled || self.cartridge.paymaster;
-                #[cfg(not(feature = "cartridge"))]
                 let paymaster_enabled = self.paymaster.mode != ServiceMode::Disabled;
 
                 if paymaster_enabled {
@@ -541,15 +532,6 @@ impl SequencerNodeArgs {
 
     #[cfg(feature = "paymaster")]
     fn paymaster_config(&self) -> Result<Option<PaymasterConfig>> {
-        #[cfg(feature = "cartridge")]
-        let mode = {
-            let mut mode = self.paymaster.mode;
-            if self.cartridge.paymaster && mode == ServiceMode::Disabled {
-                mode = ServiceMode::Sidecar;
-            }
-            mode
-        };
-        #[cfg(not(feature = "cartridge"))]
         let mode = self.paymaster.mode;
 
         if mode == ServiceMode::Disabled {
@@ -1061,19 +1043,20 @@ explorer = true
         assert!(config.rpc.apis.contains(&RpcModuleKind::Dev));
     }
 
-    #[cfg(feature = "cartridge")]
+    #[cfg(all(feature = "cartridge", feature = "paymaster"))]
     #[test]
     fn cartridge_paymaster() {
-        let args = SequencerNodeArgs::parse_from(["katana", "--cartridge.paymaster"]);
+        let args = SequencerNodeArgs::parse_from(["katana", "--paymaster.mode", "sidecar"]);
         let config = args.config().unwrap();
 
-        // Verify cartridge module is automatically enabled
+        // Verify cartridge module is automatically enabled when paymaster is enabled
         assert!(config.rpc.apis.contains(&RpcModuleKind::Cartridge));
 
         // Test with paymaster explicitly specified in RPC modules
         let args = SequencerNodeArgs::parse_from([
             "katana",
-            "--cartridge.paymaster",
+            "--paymaster.mode",
+            "sidecar",
             "--http.api",
             "starknet",
         ]);
@@ -1083,20 +1066,27 @@ explorer = true
         assert!(config.rpc.apis.contains(&RpcModuleKind::Cartridge));
         assert!(config.rpc.apis.contains(&RpcModuleKind::Starknet));
 
-        // Verify that all the Controller classes are added to the genesis
-        use katana_primitives::utils::class::parse_sierra_class;
+        // Test without paymaster enabled
+        let args = SequencerNodeArgs::parse_from(["katana"]);
+        let config = args.config().unwrap();
+
+        // Verify cartridge module is not enabled by default
+        assert!(!config.rpc.apis.contains(&RpcModuleKind::Cartridge));
+    }
+
+    #[cfg(feature = "cartridge")]
+    #[test]
+    fn cartridge_controllers() {
         use katana_slot_controller::{
             ControllerLatest, ControllerV104, ControllerV105, ControllerV106, ControllerV107,
             ControllerV108, ControllerV109,
         };
 
-        let forwarder_class = parse_sierra_class(include_str!(concat!(
-            env!("CARGO_MANIFEST_DIR"),
-            "/../controller/classes/avnu_Forwarder.contract_class.json"
-        )))
-        .unwrap();
-        let forwarder_hash = forwarder_class.class_hash().unwrap();
+        // Test with controllers enabled
+        let args = SequencerNodeArgs::parse_from(["katana", "--cartridge.controllers"]);
+        let config = args.config().unwrap();
 
+        // Verify that all the Controller classes are added to the genesis
         assert!(config.chain.genesis().classes.contains_key(&ControllerV104::HASH));
         assert!(config.chain.genesis().classes.contains_key(&ControllerV105::HASH));
         assert!(config.chain.genesis().classes.contains_key(&ControllerV106::HASH));
@@ -1104,14 +1094,10 @@ explorer = true
         assert!(config.chain.genesis().classes.contains_key(&ControllerV108::HASH));
         assert!(config.chain.genesis().classes.contains_key(&ControllerV109::HASH));
         assert!(config.chain.genesis().classes.contains_key(&ControllerLatest::HASH));
-        assert!(config.chain.genesis().classes.contains_key(&forwarder_hash));
 
-        // Test without paymaster enabled
+        // Test without controllers enabled
         let args = SequencerNodeArgs::parse_from(["katana"]);
         let config = args.config().unwrap();
-
-        // Verify cartridge module is not enabled by default
-        assert!(!config.rpc.apis.contains(&RpcModuleKind::Cartridge));
 
         assert!(!config.chain.genesis().classes.contains_key(&ControllerV104::HASH));
         assert!(!config.chain.genesis().classes.contains_key(&ControllerV105::HASH));

@@ -538,26 +538,16 @@ pub struct GasPriceOracleOptions {
 #[derive(Debug, Args, Clone, Serialize, Deserialize, PartialEq)]
 #[command(next_help_heading = "Cartridge options")]
 pub struct CartridgeOptions {
-    /// Declare all versions of the Controller class at genesis. This is implictly enabled if
-    /// `--cartridge.paymaster` is provided.
+    /// Declare all versions of the Controller class at genesis.
     #[arg(long = "cartridge.controllers")]
     pub controllers: bool,
-
-    /// Legacy alias for enabling the local paymaster flow.
-    ///
-    /// This maps to `--paymaster.mode=sidecar` when set, and also enables
-    /// controller deployment helpers that rely on the Cartridge API.
-    #[arg(long = "cartridge.paymaster")]
-    #[arg(default_value_t = false)]
-    #[serde(default)]
-    pub paymaster: bool,
 
     /// The root URL for the Cartridge API.
     ///
     /// This is used to fetch the calldata for the constructor of the given controller
     /// address (at the moment). Must be configurable for local development
     /// with local cartridge API.
-    #[arg(long = "cartridge.api", requires = "paymaster")]
+    #[arg(long = "cartridge.api")]
     #[arg(default_value = "https://api.cartridge.gg")]
     #[serde(default = "default_api_url")]
     pub api: Url,
@@ -586,9 +576,9 @@ pub enum VrfKeySource {
 pub struct PaymasterOptions {
     /// Paymaster mode: disabled, sidecar, or external.
     #[arg(
-        long = "paymaster.mode",
         value_enum,
         id = "paymaster_mode",
+        long = "paymaster.mode",
         default_value_t = default_paymaster_mode()
     )]
     #[serde(default = "default_paymaster_mode")]
@@ -612,9 +602,9 @@ pub struct PaymasterOptions {
     /// Prefunded account index used by the paymaster (relayer at INDEX, gas tank at INDEX+1,
     /// estimate account at INDEX+2).
     #[arg(
-        long = "paymaster.prefunded-index",
         value_name = "INDEX",
         id = "paymaster_prefunded_index",
+        long = "paymaster.prefunded-index",
         default_value_t = default_paymaster_prefunded_index()
     )]
     #[serde(default = "default_paymaster_prefunded_index")]
@@ -785,8 +775,8 @@ impl VrfOptions {
 impl CartridgeOptions {
     pub fn merge(&mut self, other: Option<&Self>) {
         if let Some(other) = other {
-            if self.paymaster == default_paymaster() {
-                self.paymaster = other.paymaster;
+            if !self.controllers {
+                self.controllers = other.controllers;
             }
 
             if self.api == default_api_url() {
@@ -799,11 +789,7 @@ impl CartridgeOptions {
 #[cfg(feature = "cartridge")]
 impl Default for CartridgeOptions {
     fn default() -> Self {
-        CartridgeOptions {
-            controllers: false,
-            paymaster: default_paymaster(),
-            api: default_api_url(),
-        }
+        CartridgeOptions { controllers: false, api: default_api_url() }
     }
 }
 
@@ -912,11 +898,6 @@ where
         .map(GasPrice::new)
         .map(Some)
         .ok_or_else(|| D::Error::custom("value cannot be zero"))
-}
-
-#[cfg(feature = "cartridge")]
-fn default_paymaster() -> bool {
-    false
 }
 
 #[cfg(feature = "cartridge")]

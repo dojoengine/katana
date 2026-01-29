@@ -236,7 +236,6 @@ starknet = "0.17.0"
 starknet-crypto = "0.8.1"
 starknet-types-core = { version = "=0.2.3", features = [ "arbitrary", "hash" ] }
 stark-vrf = { git = "https://github.com/dojoengine/stark-vrf.git", rev = "96d6d2a" }
-paymaster-rpc = { git = "https://github.com/cartridge-gg/paymaster", branch = "copenhagen-4cb4" }
 # Some types that we used from cairo-vm implements the `Arbitrary` trait,
 # only under the `test_utils` feature.
 cairo-vm = { version = "2.5.0", features = [ "test_utils" ] }
@@ -248,6 +247,9 @@ starknet_api = { git = "https://github.com/dojoengine/sequencer", rev = "d2591bb
 cainome = { git = "https://github.com/cartridge-gg/cainome", rev = "7d60de1", features = [ "abigen-rs" ] }
 cainome-cairo-serde = { git = "https://github.com/cartridge-gg/cainome", rev = "7d60de1" }
 piltover = { git = "https://github.com/kariy/piltover.git", branch = "feat/rpc0.9" }
+
+# paymaster
+paymaster-rpc = { git = "https://github.com/cartridge-gg/paymaster", branch = "copenhagen-4cb4" }
 
 [patch.crates-io]
 # NOTE: remove this patch once this PR is merged <https://github.com/starknet-io/types-rs/pull/132>

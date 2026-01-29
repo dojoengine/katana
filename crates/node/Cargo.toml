@@ -59,6 +59,7 @@ paymaster = [
 	"dep:katana-genesis",
 	"dep:reqwest",
 	"dep:starknet",
+	"katana-rpc-api/paymaster",
 	"katana-rpc-server/paymaster",
 ]
 vrf = [

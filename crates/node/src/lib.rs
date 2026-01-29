@@ -41,6 +41,8 @@ use katana_provider::{
 #[cfg(feature = "cartridge")]
 use katana_rpc_api::cartridge::CartridgeApiServer;
 use katana_rpc_api::dev::DevApiServer;
+#[cfg(feature = "paymaster")]
+use katana_rpc_api::paymaster::PaymasterApiServer;
 use katana_rpc_api::starknet::{StarknetApiServer, StarknetTraceApiServer, StarknetWriteApiServer};
 #[cfg(feature = "explorer")]
 use katana_rpc_api::starknet_ext::StarknetApiExtServer;
@@ -269,10 +271,9 @@ where
         };
 
         #[cfg(feature = "paymaster")]
-        if let Some(paymaster) = &config.paymaster {
-            let paymaster_proxy =
-                PaymasterProxy::new(paymaster.url.clone(), paymaster.api_key.clone());
-            rpc_modules.merge(paymaster_proxy.module()?)?;
+        if let Some(pm) = &config.paymaster {
+            let proxy = PaymasterProxy::new(pm.url.clone(), pm.api_key.clone())?;
+            rpc_modules.merge(proxy.into_rpc())?;
         }
 
         // --- build starknet api
