@@ -23,6 +23,7 @@ alloy-primitives.workspace = true
 anyhow.workspace = true
 clap.workspace = true
 console.workspace = true
+reqwest = { workspace = true, optional = true }
 serde.workspace = true
 serde_json.workspace = true
 shellexpand = "3.1.0"
@@ -39,6 +40,7 @@ starknet.workspace = true
 [features]
 paymaster = [
 	"dep:katana-slot-controller",
+	"dep:reqwest",
 	"katana-node/paymaster",
 	"katana-rpc-server/paymaster",
 ]

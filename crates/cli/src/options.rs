@@ -602,16 +602,6 @@ pub struct PaymasterOptions {
     #[serde(default = "default_paymaster_prefunded_index")]
     pub prefunded_index: u16,
 
-    /// Port to bind the sidecar paymaster on.
-    #[arg(
-        long = "paymaster.port",
-        value_name = "PORT",
-        id = "paymaster_port",
-        default_value_t = default_paymaster_port()
-    )]
-    #[serde(default = "default_paymaster_port")]
-    pub port: u16,
-
     /// Optional path to the paymaster sidecar binary (defaults to `paymaster-service` in PATH).
     #[arg(long = "paymaster.bin", value_name = "PATH", id = "paymaster_bin")]
     #[serde(default)]
@@ -627,7 +617,6 @@ impl Default for PaymasterOptions {
             api_key: None,
             price_api_key: None,
             prefunded_index: default_paymaster_prefunded_index(),
-            port: default_paymaster_port(),
             bin: None,
         }
     }
@@ -665,10 +654,6 @@ impl PaymasterOptions {
 
             if self.prefunded_index == default_paymaster_prefunded_index() {
                 self.prefunded_index = other.prefunded_index;
-            }
-
-            if self.port == default_paymaster_port() {
-                self.port = other.port;
             }
 
             if self.bin.is_none() {
@@ -931,11 +916,6 @@ fn default_paymaster_prefunded_index() -> u16 {
 #[cfg(feature = "vrf")]
 fn default_vrf_prefunded_index() -> u16 {
     0
-}
-
-#[cfg(feature = "paymaster")]
-fn default_paymaster_port() -> u16 {
-    8081
 }
 
 #[cfg(feature = "vrf")]
