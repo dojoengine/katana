@@ -33,9 +33,7 @@ use anyhow::anyhow;
 use cainome::cairo_serde::CairoSerde;
 use cainome::cairo_serde_derive::CairoSerde as CairoSerdeDerive;
 use cainome_cairo_serde::ContractAddress as CairoContractAddress;
-use http::{HeaderMap, HeaderValue};
-use jsonrpsee::core::client::ClientT;
-use jsonrpsee::core::params::ObjectParams;
+use http::{HeaderMap, HeaderName, HeaderValue};
 use jsonrpsee::core::{async_trait, RpcResult};
 use jsonrpsee::http_client::{HttpClient, HttpClientBuilder};
 use katana_core::backend::Backend;
@@ -53,6 +51,7 @@ use katana_provider::api::state::{StateFactoryProvider, StateProvider};
 use katana_provider::{ProviderFactory, ProviderRO, ProviderRW};
 use katana_rpc_api::cartridge::CartridgeApiServer;
 use katana_rpc_api::error::starknet::StarknetApiError;
+use katana_rpc_api::paymaster::PaymasterApiClient;
 use katana_rpc_types::broadcasted::AddInvokeTransactionResponse;
 use katana_rpc_types::cartridge::FeeSource;
 use katana_rpc_types::outside_execution::{
@@ -61,8 +60,8 @@ use katana_rpc_types::outside_execution::{
 use katana_rpc_types::FunctionCall;
 use katana_tasks::{Result as TaskResult, TaskSpawner};
 use paymaster_rpc::{
-    ExecuteRawRequest, ExecuteRawResponse, ExecuteRawTransactionParameters, ExecutionParameters,
-    FeeMode, RawInvokeParameters,
+    ExecuteRawRequest, ExecuteRawTransactionParameters, ExecutionParameters, FeeMode,
+    RawInvokeParameters,
 };
 use reqwest::Client as ReqwestClient;
 use serde::{Deserialize, Serialize};
@@ -87,40 +86,6 @@ pub struct CartridgeVrfConfig {
     pub url: Url,
     pub account_address: ContractAddress,
     pub account_private_key: Felt,
-}
-
-#[derive(Clone)]
-struct PaymasterClient {
-    client: HttpClient,
-}
-
-impl PaymasterClient {
-    fn new(url: Url, api_key: Option<String>) -> anyhow::Result<Self> {
-        let mut headers = HeaderMap::new();
-        if let Some(key) = api_key {
-            headers.insert("x-paymaster-api-key", HeaderValue::from_str(&key)?);
-        }
-
-        let client = HttpClientBuilder::default().set_headers(headers).build(url.as_str())?;
-        Ok(Self { client })
-    }
-
-    async fn execute_raw(
-        &self,
-        request: ExecuteRawRequest,
-    ) -> Result<ExecuteRawResponse, StarknetApiError> {
-        let mut params = ObjectParams::new();
-        params.insert("transaction", &request.transaction).map_err(|e| {
-            StarknetApiError::unexpected(format!("failed to serialize transaction: {e}"))
-        })?;
-        params.insert("parameters", &request.parameters).map_err(|e| {
-            StarknetApiError::unexpected(format!("failed to serialize parameters: {e}"))
-        })?;
-
-        self.client.request("paymaster_executeRawTransaction", params).await.map_err(|err| {
-            StarknetApiError::unexpected(format!("paymaster execute_raw error: {err}"))
-        })
-    }
 }
 
 #[derive(Clone)]
@@ -222,7 +187,7 @@ pub struct CartridgeApi<EF: ExecutorFactory, PF: ProviderFactory> {
     block_producer: BlockProducer<EF, PF>,
     pool: TxPool,
     api_client: cartridge::Client,
-    paymaster_client: PaymasterClient,
+    paymaster_client: HttpClient,
     paymaster_prefunded_index: u16,
     vrf_service: Option<VrfService>,
 }
@@ -261,11 +226,21 @@ where
         config: CartridgeConfig,
     ) -> anyhow::Result<Self> {
         let api_client = cartridge::Client::new(config.cartridge_api_url);
-        let paymaster_client =
-            PaymasterClient::new(config.paymaster_url, config.paymaster_api_key)?;
         let vrf_service = config.vrf.map(VrfService::new);
 
         info!(target: "rpc::cartridge", vrf_enabled = vrf_service.is_some(), "Cartridge API initialized.");
+
+        let paymaster_client = {
+            let headers = if let Some(api_key) = &config.paymaster_api_key {
+                let name = HeaderName::from_static("x-paymaster-api-key");
+                let value = HeaderValue::from_str(api_key)?;
+                HeaderMap::from_iter([(name, value)])
+            } else {
+                HeaderMap::default()
+            };
+
+            HttpClientBuilder::default().set_headers(headers).build(config.paymaster_url)?
+        };
 
         Ok(Self {
             task_spawner,
@@ -406,7 +381,7 @@ where
                 parameters: ExecutionParameters::V1 { fee_mode, time_bounds: None },
             };
 
-            let response = this.paymaster_client.execute_raw(request).await?;
+            let response = this.paymaster_client.execute_raw_transaction(request).await.map_err(StarknetApiError::unexpected)?;
             Ok(AddInvokeTransactionResponse { transaction_hash: response.transaction_hash })
         })
         .await?
