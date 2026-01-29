@@ -218,11 +218,11 @@ impl SequencerNodeArgs {
             // Launch the node
             let handle = node.launch().await.context("failed to launch forked node")?;
 
-            // Start sidecars if needed (sidecar processes are managed by CLI)
+            // Bootstrap and start sidecars if needed
             #[cfg(feature = "paymaster")]
-            let mut sidecars = start_sidecars_if_needed(
+            let mut sidecars = bootstrap_and_start_sidecars(
                 self,
-                handle.sidecar_bootstrap(),
+                handle.node(),
                 handle.rpc().addr(),
                 paymaster_sidecar.as_ref(),
                 #[cfg(feature = "vrf")]
@@ -255,11 +255,11 @@ impl SequencerNodeArgs {
             // Launch the node
             let handle = node.launch().await.context("failed to launch node")?;
 
-            // Start sidecars if needed (sidecar processes are managed by CLI)
+            // Bootstrap and start sidecars if needed
             #[cfg(feature = "paymaster")]
-            let mut sidecars = start_sidecars_if_needed(
+            let mut sidecars = bootstrap_and_start_sidecars(
                 self,
-                handle.sidecar_bootstrap(),
+                handle.node(),
                 handle.rpc().addr(),
                 paymaster_sidecar.as_ref(),
                 #[cfg(feature = "vrf")]
@@ -805,51 +805,89 @@ impl SequencerNodeArgs {
     }
 }
 
-/// Start sidecar processes if needed based on the configuration.
+/// Bootstrap contracts and start sidecar processes if needed.
 ///
-/// This function is called after the node is launched to start any sidecar processes
-/// that are configured in sidecar mode (not external mode).
+/// This function is called after the node is launched to:
+/// 1. Bootstrap necessary contracts (forwarder, VRF accounts)
+/// 2. Start sidecar processes in sidecar mode
 #[cfg(feature = "paymaster")]
-async fn start_sidecars_if_needed(
+async fn bootstrap_and_start_sidecars<P>(
     args: &SequencerNodeArgs,
-    bootstrap: &katana_node::sidecar::BootstrapResult,
+    node: &katana_node::Node<P>,
     rpc_addr: &std::net::SocketAddr,
     paymaster_sidecar: Option<&PaymasterSidecarInfo>,
     #[cfg(feature = "vrf")] vrf_sidecar: Option<&VrfSidecarInfo>,
-) -> Result<Option<crate::sidecar::SidecarProcesses>> {
+) -> Result<Option<crate::sidecar::SidecarProcesses>>
+where
+    P: katana_provider::ProviderFactory + Clone,
+    <P as katana_provider::ProviderFactory>::Provider:
+        katana_core::backend::storage::ProviderRO,
+    <P as katana_provider::ProviderFactory>::ProviderMut:
+        katana_core::backend::storage::ProviderRW,
+{
     #[cfg(feature = "vrf")]
-    use crate::sidecar::VrfSidecarConfig;
-    use crate::sidecar::{start_sidecars, PaymasterSidecarConfig, SidecarStartConfig};
+    use crate::sidecar::{VrfBootstrapConfig, VrfKeySource, VrfSidecarConfig};
+    use crate::sidecar::{
+        bootstrap_sidecars, start_sidecars, BootstrapConfig, PaymasterSidecarConfig,
+        SidecarStartConfig,
+    };
 
-    // Build paymaster sidecar config if needed
+    // If no sidecars need to be started, return None
+    #[cfg(feature = "vrf")]
+    let has_sidecars = paymaster_sidecar.is_some() || vrf_sidecar.is_some();
+    #[cfg(not(feature = "vrf"))]
+    let has_sidecars = paymaster_sidecar.is_some();
+
+    if !has_sidecars {
+        return Ok(None);
+    }
+
+    // Build bootstrap config
+    let bootstrap_config = BootstrapConfig {
+        paymaster_prefunded_index: paymaster_sidecar.map(|_| args.paymaster.prefunded_index),
+        #[cfg(feature = "vrf")]
+        vrf: vrf_sidecar.map(|_| {
+            let key_source = match args.vrf.key_source {
+                crate::options::VrfKeySource::Prefunded => VrfKeySource::Prefunded,
+                crate::options::VrfKeySource::Sequencer => VrfKeySource::Sequencer,
+            };
+            VrfBootstrapConfig {
+                key_source,
+                prefunded_index: args.vrf.prefunded_index,
+                sequencer_address: node.config().chain.genesis().sequencer_address,
+            }
+        }),
+        fee_enabled: node.config().dev.fee,
+    };
+
+    // Bootstrap contracts
+    let bootstrap = bootstrap_sidecars(
+        &bootstrap_config,
+        node.backend(),
+        node.block_producer(),
+        node.pool(),
+    )
+    .await?;
+
+    // Build sidecar start config
     let paymaster_config = paymaster_sidecar.map(|info| PaymasterSidecarConfig {
         options: &args.paymaster,
         port: info.port,
         api_key: info.api_key.clone(),
     });
 
-    // Build VRF sidecar config if needed
     #[cfg(feature = "vrf")]
     let vrf_config =
         vrf_sidecar.map(|info| VrfSidecarConfig { options: &args.vrf, port: info.port });
 
-    // If no sidecars need to be started, return None
-    #[cfg(feature = "vrf")]
-    let has_sidecars = paymaster_config.is_some() || vrf_config.is_some();
-    #[cfg(not(feature = "vrf"))]
-    let has_sidecars = paymaster_config.is_some();
-
-    if !has_sidecars {
-        return Ok(None);
-    }
-
-    let config = SidecarStartConfig {
+    let start_config = SidecarStartConfig {
         paymaster: paymaster_config,
         #[cfg(feature = "vrf")]
         vrf: vrf_config,
     };
 
-    let processes = start_sidecars(&config, bootstrap, rpc_addr).await?;
+    // Start sidecar processes
+    let processes = start_sidecars(&start_config, &bootstrap, rpc_addr).await?;
     Ok(Some(processes))
 }
 
