@@ -22,7 +22,7 @@ use katana_primitives::{address, ContractAddress, Felt};
 use katana_provider::api::block::{BlockHashProvider, BlockWriter};
 use katana_provider::api::trie::TrieWriter;
 use katana_provider::providers::EmptyStateProvider;
-use katana_provider::{MutableProvider, ProviderFactory};
+use katana_provider::{MutableProvider, ProviderFactory, ProviderRO, ProviderRW};
 use katana_trie::bonsai::databases::HashMapDb;
 use katana_trie::{
     compute_contract_state_hash, compute_merkle_root, ClassesTrie, CommitId, ContractLeaf,
@@ -33,9 +33,6 @@ use rayon::prelude::*;
 use starknet_types_core::hash::{self, StarkHash};
 use tracing::info;
 
-pub mod storage;
-
-use crate::backend::storage::{ProviderRO, ProviderRW};
 use crate::env::BlockContextGenerator;
 use crate::service::block_producer::{BlockProductionError, MinedBlockOutcome};
 use crate::utils::get_current_timestamp;

@@ -15,7 +15,6 @@ use http::header::CONTENT_TYPE;
 use http::Method;
 use jsonrpsee::RpcModule;
 use katana_chain_spec::{ChainSpec, SettlementLayer};
-use katana_core::backend::storage::{ProviderRO, ProviderRW};
 use katana_core::backend::Backend;
 use katana_core::env::BlockContextGenerator;
 use katana_core::service::block_producer::BlockProducer;
@@ -32,7 +31,9 @@ use katana_pool::TxPool;
 use katana_primitives::block::{BlockHashOrNumber, GasPrices};
 use katana_primitives::cairo::ShortString;
 use katana_primitives::env::VersionedConstantsOverrides;
-use katana_provider::{DbProviderFactory, ForkProviderFactory, ProviderFactory};
+use katana_provider::{
+    DbProviderFactory, ForkProviderFactory, ProviderFactory, ProviderRO, ProviderRW,
+};
 #[cfg(feature = "cartridge")]
 use katana_rpc_api::cartridge::CartridgeApiServer;
 use katana_rpc_api::dev::DevApiServer;

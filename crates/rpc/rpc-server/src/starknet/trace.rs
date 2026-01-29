@@ -1,5 +1,4 @@
 use jsonrpsee::core::{async_trait, RpcResult};
-use katana_core::backend::storage::ProviderRO;
 use katana_executor::{ExecutionResult, ResultAndStates};
 use katana_pool::TransactionPool;
 use katana_primitives::block::{BlockHashOrNumber, BlockIdOrTag, ConfirmedBlockIdOrTag};
@@ -7,7 +6,7 @@ use katana_primitives::execution::TypedTransactionExecutionInfo;
 use katana_primitives::transaction::{ExecutableTx, ExecutableTxWithHash, TxHash};
 use katana_provider::api::block::{BlockNumberProvider, BlockProvider};
 use katana_provider::api::transaction::{TransactionTraceProvider, TransactionsProviderExt};
-use katana_provider::ProviderFactory;
+use katana_provider::{ProviderFactory, ProviderRO};
 use katana_rpc_api::error::starknet::StarknetApiError;
 use katana_rpc_api::starknet::StarknetTraceApiServer;
 use katana_rpc_types::broadcasted::BroadcastedTx;

@@ -1,13 +1,12 @@
 use std::sync::Arc;
 
 use jsonrpsee::core::{async_trait, RpcResult};
-use katana_core::backend::storage::{ProviderRO, ProviderRW};
 use katana_core::backend::Backend;
 use katana_core::service::block_producer::{BlockProducer, BlockProducerMode, PendingExecutor};
 use katana_executor::ExecutorFactory;
 use katana_primitives::contract::{ContractAddress, StorageKey, StorageValue};
 use katana_provider::api::state::StateWriter;
-use katana_provider::{MutableProvider, ProviderFactory};
+use katana_provider::{MutableProvider, ProviderFactory, ProviderRO, ProviderRW};
 use katana_rpc_api::dev::DevApiServer;
 use katana_rpc_api::error::dev::DevApiError;
 use katana_rpc_types::account::Account;

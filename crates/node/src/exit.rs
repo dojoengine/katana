@@ -5,8 +5,7 @@ use std::task::{Context, Poll};
 use anyhow::Result;
 use futures::future::BoxFuture;
 use futures::FutureExt;
-use katana_core::backend::storage::{ProviderRO, ProviderRW};
-use katana_provider::ProviderFactory;
+use katana_provider::{ProviderFactory, ProviderRO, ProviderRW};
 
 use crate::LaunchedNode;
 
