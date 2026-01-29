@@ -3,7 +3,7 @@ use std::sync::Arc;
 // Re-export the blockifier crate.
 pub use blockifier;
 use blockifier::blockifier_versioned_constants::VersionedConstants;
-use blockifier::bouncer::{n_steps_to_sierra_gas, Bouncer, BouncerConfig, BouncerWeights};
+use blockifier::bouncer::{n_steps_to_gas, Bouncer, BouncerConfig, BouncerWeights};
 
 pub mod cache;
 pub mod call;
@@ -144,9 +144,9 @@ impl<'a> StarknetVMProcessor<'a> {
         //
         // To learn more about the L2 gas, refer to <https://community.starknet.io/t/starknet-v0-13-4-pre-release-notes/115257>.
         block_max_capacity.sierra_gas =
-            n_steps_to_sierra_gas(limits.cairo_steps as usize, block_context.versioned_constants());
+            n_steps_to_gas(limits.cairo_steps as usize, block_context.versioned_constants());
 
-        let bouncer = Bouncer::new(BouncerConfig { block_max_capacity });
+        let bouncer = Bouncer::new(BouncerConfig { block_max_capacity, ..Default::default() });
 
         Self {
             cfg_env,
@@ -343,5 +343,24 @@ impl<'a> BlockExecutor<'a> for StarknetVMProcessor<'a> {
             timestamp: self.block_context.block_info().block_timestamp.0,
             sequencer_address: utils::to_address(self.block_context.block_info().sequencer_address),
         }
+    }
+
+    fn set_storage_at(
+        &self,
+        address: katana_primitives::contract::ContractAddress,
+        key: katana_primitives::contract::StorageKey,
+        value: katana_primitives::contract::StorageValue,
+    ) -> crate::ExecutorResult<()> {
+        use blockifier::state::state_api::State;
+
+        let blk_address = utils::to_blk_address(address);
+        let storage_key = starknet_api::state::StorageKey(key.try_into().unwrap());
+
+        self.state
+            .inner
+            .lock()
+            .cached_state
+            .set_storage_at(blk_address, storage_key, value)
+            .map_err(|e| crate::ExecutorError::Other(e.to_string().into()))
     }
 }

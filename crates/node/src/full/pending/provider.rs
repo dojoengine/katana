@@ -2,7 +2,6 @@ use katana_gateway_types::TxTryFromError;
 use katana_primitives::block::FinalityStatus;
 use katana_primitives::fee::PriceUnit;
 use katana_primitives::transaction::{TxHash, TxNumber, TxType, TxWithHash};
-use katana_primitives::Felt;
 use katana_provider::api::state::StateProvider;
 use katana_rpc_server::starknet::{PendingBlockProvider, StarknetApiResult};
 use katana_rpc_types::{
@@ -151,10 +150,7 @@ impl PendingBlockProvider for PreconfStateFactory {
         &self,
     ) -> StarknetApiResult<Option<katana_rpc_types::PreConfirmedStateUpdate>> {
         if let Some(state_diff) = self.state_updates() {
-            Ok(Some(PreConfirmedStateUpdate {
-                old_root: Felt::ZERO,
-                state_diff: state_diff.into(),
-            }))
+            Ok(Some(PreConfirmedStateUpdate { old_root: None, state_diff: state_diff.into() }))
         } else {
             Ok(None)
         }

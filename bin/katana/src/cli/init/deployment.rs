@@ -126,6 +126,8 @@ pub async fn deploy_settlement_contract(
         sp.update_text("Deploying contract...");
 
         let salt = Felt::from(rand::random::<u64>());
+
+        #[allow(deprecated)]
         let factory = ContractFactory::new(class_hash, &account);
 
         const INITIAL_STATE_ROOT: Felt = Felt::ZERO;

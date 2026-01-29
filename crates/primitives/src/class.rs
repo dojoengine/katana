@@ -39,9 +39,9 @@ impl std::fmt::Display for MaybeInvalidSierraContractAbi {
         match self {
             MaybeInvalidSierraContractAbi::Valid(abi) => {
                 let s = to_string_pythonic(abi).expect("failed to serialize abi");
-                write!(f, "{}", s)
+                write!(f, "{s}")
             }
-            MaybeInvalidSierraContractAbi::Invalid(abi) => write!(f, "{}", abi),
+            MaybeInvalidSierraContractAbi::Invalid(abi) => write!(f, "{abi}"),
         }
     }
 }

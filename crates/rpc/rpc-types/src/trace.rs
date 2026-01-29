@@ -39,6 +39,7 @@ pub struct TxTraceWithHash {
 }
 
 /// Execution trace of a Starknet transaction.
+#[allow(clippy::large_enum_variant)]
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(tag = "type")]
 pub enum TxTrace {

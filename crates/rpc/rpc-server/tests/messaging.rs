@@ -95,6 +95,7 @@ async fn test_messaging() {
         let address = get_contract_address(Felt::ZERO, class_hash, &[], Felt::ZERO);
 
         // Deploy the contract using UDC
+        #[allow(deprecated)]
         let res = ContractFactory::new(class_hash, &katana_account)
             .deploy_v3(Vec::new(), Felt::ZERO, false)
             .send()
@@ -239,6 +240,7 @@ async fn estimate_message_fee() -> Result<()> {
     TxWaiter::new(res.transaction_hash, &rpc_client).await?;
 
     // Deploy the contract using UDC
+    #[allow(deprecated)]
     let res = ContractFactory::new(class_hash, &account)
         .deploy_v3(Vec::new(), Felt::ZERO, false)
         .send()
