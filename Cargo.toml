@@ -220,6 +220,7 @@ starknet-types-core = { version = "=0.2.2", features = [ "arbitrary", "hash" ] }
 blockifier = { git = "https://github.com/dojoengine/sequencer", branch = "blockifier/v0.16.0-rc.0", default-features = false }
 cairo-native = "0.6.2"
 starknet_api = { git = "https://github.com/dojoengine/sequencer", branch = "blockifier/v0.16.0-rc.0" }
+universal-sierra-compiler = "2.4.0"
 # Some types that we used from cairo-vm implements the `Arbitrary` trait,
 # only under the `test_utils` feature.
 cairo-vm = { version = "2.5.0", features = [ "test_utils" ] }

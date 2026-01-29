@@ -4,8 +4,8 @@ use anyhow::{anyhow, Result};
 use cainome::cairo_serde;
 use katana_primitives::block::{BlockHash, BlockNumber};
 use katana_primitives::class::{
-    CompiledClassHash, ComputeClassHashError, ContractClass, ContractClassCompilationError,
-    ContractClassFromStrError,
+    CasmContractClass, CompiledClassHash, ComputeClassHashError, ContractClass,
+    ContractClassCompilationError, ContractClassFromStrError,
 };
 use katana_primitives::{felt, ContractAddress, Felt};
 use katana_rpc_client::starknet::Client as StarknetClient;
@@ -392,7 +392,15 @@ impl From<cairo_serde::Error> for ContractInitError {
 fn prepare_contract_declaration_params(
     class: ContractClass,
 ) -> Result<(FlattenedSierraClass, CompiledClassHash)> {
-    let casm_hash = class.clone().compile()?.class_hash()?;
+    // Use Universal Sierra Compiler (USC) to compile Sierra to CASM.
+    // USC bundles all Sierra compiler versions and selects the appropriate one
+    // based on the Sierra version in the contract, ensuring compatibility with
+    // whatever compiler version the Starknet network validators use.
+    let sierra_json = serde_json::to_value(class.as_sierra().expect("must be sierra class"))?;
+    let casm_json = universal_sierra_compiler::compile_contract(sierra_json)
+        .map_err(|e| anyhow!("USC compilation failed: {e}"))?;
+    let casm: CasmContractClass = serde_json::from_value(casm_json)?;
+    let casm_hash = casm.compiled_class_hash();
 
     let rpc_class = Class::try_from(class).expect("should be valid");
     let Class::Sierra(class) = rpc_class else { unreachable!("unexpected legacy class") };
