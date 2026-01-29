@@ -553,15 +553,6 @@ pub struct CartridgeOptions {
     pub api: Url,
 }
 
-#[cfg(feature = "paymaster")]
-#[derive(Debug, Copy, Clone, Serialize, Deserialize, PartialEq, Eq, ValueEnum)]
-#[serde(rename_all = "lowercase")]
-pub enum ServiceMode {
-    Disabled,
-    Sidecar,
-    External,
-}
-
 #[cfg(feature = "vrf")]
 #[derive(Debug, Copy, Clone, Serialize, Deserialize, PartialEq, Eq, ValueEnum)]
 #[serde(rename_all = "lowercase")]
@@ -574,17 +565,18 @@ pub enum VrfKeySource {
 #[derive(Debug, Args, Clone, Serialize, Deserialize, PartialEq)]
 #[command(next_help_heading = "Paymaster options")]
 pub struct PaymasterOptions {
-    /// Paymaster mode: disabled, sidecar, or external.
-    #[arg(
-        value_enum,
-        id = "paymaster_mode",
-        long = "paymaster.mode",
-        default_value_t = default_paymaster_mode()
-    )]
-    #[serde(default = "default_paymaster_mode")]
-    pub mode: ServiceMode,
+    /// Enable the paymaster service.
+    ///
+    /// By default, the paymaster runs as a sidecar process. If `--paymaster.url` is provided,
+    /// it will connect to an external paymaster service instead.
+    #[arg(long = "paymaster", id = "paymaster_enabled")]
+    #[serde(default)]
+    pub enabled: bool,
 
-    /// Paymaster JSON-RPC endpoint.
+    /// Paymaster JSON-RPC endpoint for external paymaster service.
+    ///
+    /// When provided, the paymaster will run in external mode, connecting to this URL
+    /// instead of spawning a sidecar process.
     #[arg(long = "paymaster.url", value_name = "URL", id = "paymaster_url")]
     #[serde(default)]
     pub url: Option<Url>,
@@ -630,7 +622,7 @@ pub struct PaymasterOptions {
 impl Default for PaymasterOptions {
     fn default() -> Self {
         PaymasterOptions {
-            mode: default_paymaster_mode(),
+            enabled: false,
             url: None,
             api_key: None,
             price_api_key: None,
@@ -643,10 +635,20 @@ impl Default for PaymasterOptions {
 
 #[cfg(feature = "paymaster")]
 impl PaymasterOptions {
+    /// Returns true if the paymaster is enabled (either explicitly or via URL).
+    pub fn is_enabled(&self) -> bool {
+        self.enabled || self.url.is_some()
+    }
+
+    /// Returns true if the paymaster should run in external mode (URL provided).
+    pub fn is_external(&self) -> bool {
+        self.url.is_some()
+    }
+
     pub fn merge(&mut self, other: Option<&Self>) {
         if let Some(other) = other {
-            if self.mode == default_paymaster_mode() {
-                self.mode = other.mode;
+            if !self.enabled {
+                self.enabled = other.enabled;
             }
 
             if self.url.is_none() {
@@ -680,17 +682,18 @@ impl PaymasterOptions {
 #[derive(Debug, Args, Clone, Serialize, Deserialize, PartialEq)]
 #[command(next_help_heading = "VRF options")]
 pub struct VrfOptions {
-    /// VRF mode: disabled, sidecar, or external.
-    #[arg(
-        long = "vrf.mode",
-        value_enum,
-        id = "vrf_mode",
-        default_value_t = default_vrf_mode()
-    )]
-    #[serde(default = "default_vrf_mode")]
-    pub mode: ServiceMode,
+    /// Enable the VRF service.
+    ///
+    /// By default, the VRF runs as a sidecar process. If `--vrf.url` is provided,
+    /// it will connect to an external VRF service instead.
+    #[arg(long = "vrf", id = "vrf_enabled")]
+    #[serde(default)]
+    pub enabled: bool,
 
-    /// VRF service endpoint.
+    /// VRF service endpoint for external VRF service.
+    ///
+    /// When provided, the VRF will run in external mode, connecting to this URL
+    /// instead of spawning a sidecar process.
     #[arg(long = "vrf.url", value_name = "URL", id = "vrf_url")]
     #[serde(default)]
     pub url: Option<Url>,
@@ -730,7 +733,7 @@ pub struct VrfOptions {
 impl Default for VrfOptions {
     fn default() -> Self {
         VrfOptions {
-            mode: default_vrf_mode(),
+            enabled: false,
             url: None,
             key_source: default_vrf_key_source(),
             prefunded_index: default_vrf_prefunded_index(),
@@ -742,10 +745,20 @@ impl Default for VrfOptions {
 
 #[cfg(feature = "vrf")]
 impl VrfOptions {
+    /// Returns true if the VRF is enabled (either explicitly or via URL).
+    pub fn is_enabled(&self) -> bool {
+        self.enabled || self.url.is_some()
+    }
+
+    /// Returns true if the VRF should run in external mode (URL provided).
+    pub fn is_external(&self) -> bool {
+        self.url.is_some()
+    }
+
     pub fn merge(&mut self, other: Option<&Self>) {
         if let Some(other) = other {
-            if self.mode == default_vrf_mode() {
-                self.mode = other.mode;
+            if !self.enabled {
+                self.enabled = other.enabled;
             }
 
             if self.url.is_none() {
@@ -903,16 +916,6 @@ where
 #[cfg(feature = "cartridge")]
 fn default_api_url() -> Url {
     Url::parse("https://api.cartridge.gg").expect("qed; invalid url")
-}
-
-#[cfg(feature = "paymaster")]
-fn default_paymaster_mode() -> ServiceMode {
-    ServiceMode::Disabled
-}
-
-#[cfg(feature = "vrf")]
-fn default_vrf_mode() -> ServiceMode {
-    ServiceMode::Disabled
 }
 
 #[cfg(feature = "vrf")]
