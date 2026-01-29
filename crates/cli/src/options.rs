@@ -587,22 +587,26 @@ pub struct PaymasterOptions {
     pub api_key: Option<String>,
 
     /// API key for the Avnu price provider (used by the sidecar).
+    ///
+    /// Only required when running in sidecar mode. Not needed if `--paymaster.url` is provided.
+    #[arg(conflicts_with = "paymaster_url")]
     #[arg(long = "paymaster.price-api-key", value_name = "KEY")]
     #[serde(default)]
     pub price_api_key: Option<String>,
 
     /// Prefunded account index used by the paymaster (relayer at INDEX, gas tank at INDEX+1,
     /// estimate account at INDEX+2).
-    #[arg(
-        value_name = "INDEX",
-        id = "paymaster_prefunded_index",
-        long = "paymaster.prefunded-index",
-        default_value_t = default_paymaster_prefunded_index()
-    )]
+    #[arg(id = "paymaster_prefunded_index")]
+    #[arg(conflicts_with = "paymaster_url")]
+    #[arg(default_value_t = default_paymaster_prefunded_index())]
+    #[arg(value_name = "INDEX", long = "paymaster.prefunded-index")]
     #[serde(default = "default_paymaster_prefunded_index")]
     pub prefunded_index: u16,
 
     /// Optional path to the paymaster sidecar binary (defaults to `paymaster-service` in PATH).
+    ///
+    /// Only used when running in sidecar mode. Not applicable if `--paymaster.url` is provided.
+    #[arg(conflicts_with = "paymaster_url")]
     #[arg(long = "paymaster.bin", value_name = "PATH", id = "paymaster_bin")]
     #[serde(default)]
     pub bin: Option<PathBuf>,
@@ -684,11 +688,17 @@ pub struct VrfOptions {
     pub url: Option<Url>,
 
     /// Source for the VRF secret key.
+    ///
+    /// Only used when running in sidecar mode. Not applicable if `--vrf.url` is provided.
+    #[arg(conflicts_with = "vrf_url")]
     #[arg(long = "vrf.key-source", value_enum, default_value_t = default_vrf_key_source())]
     #[serde(default = "default_vrf_key_source")]
     pub key_source: VrfKeySource,
 
     /// Prefunded account index used to sign VRF outside executions.
+    ///
+    /// Only used when running in sidecar mode. Not applicable if `--vrf.url` is provided.
+    #[arg(conflicts_with = "vrf_url")]
     #[arg(
         long = "vrf.prefunded-index",
         value_name = "INDEX",
@@ -699,6 +709,9 @@ pub struct VrfOptions {
     pub prefunded_index: u16,
 
     /// Port to bind the sidecar VRF service on (vrf-server uses 3000).
+    ///
+    /// Only used when running in sidecar mode. Not applicable if `--vrf.url` is provided.
+    #[arg(conflicts_with = "vrf_url")]
     #[arg(
         long = "vrf.port",
         value_name = "PORT",
@@ -709,6 +722,9 @@ pub struct VrfOptions {
     pub port: u16,
 
     /// Optional path to the VRF sidecar binary (defaults to `vrf-server` in PATH).
+    ///
+    /// Only used when running in sidecar mode. Not applicable if `--vrf.url` is provided.
+    #[arg(conflicts_with = "vrf_url")]
     #[arg(long = "vrf.bin", value_name = "PATH", id = "vrf_bin")]
     #[serde(default)]
     pub bin: Option<PathBuf>,
