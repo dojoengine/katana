@@ -30,9 +30,9 @@ pub struct PaymasterProxy {
 impl PaymasterProxy {
     pub fn new(url: Url, api_key: Option<String>) -> Result<Self, PaymasterProxyError> {
         let headers = if let Some(api_key) = &api_key {
-            let header_name = HeaderName::from_static("x-paymaster-api-key");
-            let header_value = HeaderValue::from_str(api_key)?;
-            HeaderMap::from_iter([(header_name, header_value)])
+            let name = HeaderName::from_static("x-paymaster-api-key");
+            let value = HeaderValue::from_str(api_key)?;
+            HeaderMap::from_iter([(name, value)])
         } else {
             HeaderMap::default()
         };
