@@ -4,7 +4,7 @@ pub mod full;
 
 pub mod config;
 pub mod exit;
-#[cfg(feature = "paymaster")]
+#[cfg(feature = "vrf")]
 pub mod sidecar;
 
 use std::future::IntoFuture;
@@ -66,8 +66,6 @@ use num_traits::ToPrimitive;
 use tracing::info;
 
 use crate::exit::NodeStoppedFuture;
-#[cfg(feature = "paymaster")]
-use crate::sidecar::{bootstrap_sidecars, BootstrapResult};
 
 /// A node instance.
 ///
@@ -572,23 +570,6 @@ where
             .name("Sequencing")
             .spawn(sequencing.into_future());
 
-        // --- bootstrap sidecars (deploy contracts, prepare configuration)
-        // The actual sidecar process management is handled by the CLI layer.
-        #[cfg(feature = "paymaster")]
-        let sidecar_bootstrap: BootstrapResult = {
-            let paymaster_enabled = self.config.paymaster.is_some();
-            #[cfg(feature = "vrf")]
-            let vrf_enabled = self.config.vrf.is_some();
-            #[cfg(not(feature = "vrf"))]
-            let vrf_enabled = false;
-
-            if paymaster_enabled || vrf_enabled {
-                bootstrap_sidecars(self.config(), &backend, &block_producer, &pool).await?
-            } else {
-                BootstrapResult::default()
-            }
-        };
-
         // --- start the rpc server
 
         let rpc_handle = self.rpc_server.start(self.config.rpc.socket_addr()).await?;
@@ -621,8 +602,6 @@ where
             rpc: rpc_handle,
             gateway: gateway_handle,
             metrics: metrics_handle,
-            #[cfg(feature = "paymaster")]
-            sidecar_bootstrap,
         })
     }
 
@@ -654,6 +633,11 @@ where
     pub fn config(&self) -> &Config {
         &self.config
     }
+
+    /// Returns a reference to the node's block producer.
+    pub fn block_producer(&self) -> &BlockProducer<BlockifierFactory, P> {
+        &self.block_producer
+    }
 }
 
 /// A handle to the launched node.
@@ -671,9 +655,6 @@ where
     gateway: Option<GatewayServerHandle>,
     /// Handle to the metrics server (if enabled).
     metrics: Option<MetricsServerHandle>,
-    /// Bootstrap data for sidecars. The CLI uses this to start sidecar processes.
-    #[cfg(feature = "paymaster")]
-    sidecar_bootstrap: BootstrapResult,
 }
 
 impl<P> LaunchedNode<P>
@@ -700,14 +681,6 @@ where
     /// Returns a reference to the metrics server handle (if enabled).
     pub fn metrics(&self) -> Option<&MetricsServerHandle> {
         self.metrics.as_ref()
-    }
-
-    /// Returns the sidecar bootstrap data.
-    ///
-    /// This data is used by the CLI to start sidecar processes (paymaster, VRF).
-    #[cfg(feature = "paymaster")]
-    pub fn sidecar_bootstrap(&self) -> &BootstrapResult {
-        &self.sidecar_bootstrap
     }
 
     /// Stops the node.
