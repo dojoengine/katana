@@ -22,6 +22,8 @@ use katana_node::config::gateway::GatewayConfig;
 #[cfg(all(feature = "server", feature = "grpc"))]
 use katana_node::config::grpc::GrpcConfig;
 use katana_node::config::metrics::MetricsConfig;
+#[cfg(all(feature = "vrf", not(feature = "paymaster")))]
+use katana_node::config::paymaster::ServiceMode as NodeServiceMode;
 #[cfg(feature = "paymaster")]
 use katana_node::config::paymaster::{PaymasterConfig, ServiceMode as NodeServiceMode};
 #[cfg(feature = "vrf")]
@@ -238,9 +240,7 @@ impl SequencerNodeArgs {
 
         #[cfg(feature = "vrf")]
         if vrf.is_some() && paymaster.is_none() {
-            return Err(anyhow::anyhow!(
-                "--vrf requires paymaster; enable --paymaster.mode or --cartridge.paymaster"
-            ));
+            return Err(anyhow::anyhow!("--vrf requires paymaster; enable --paymaster"));
         }
 
         // the `katana init` will automatically generate a messaging config. so if katana is run
@@ -313,12 +313,12 @@ impl SequencerNodeArgs {
             #[cfg(feature = "cartridge")]
             {
                 #[cfg(feature = "paymaster")]
-                let paymaster_enabled = self.paymaster.mode != ServiceMode::Disabled;
+                let paymaster_enabled = self.paymaster.is_enabled();
                 #[cfg(not(feature = "paymaster"))]
                 let paymaster_enabled = false;
 
                 #[cfg(feature = "vrf")]
-                let vrf_enabled = self.vrf.mode != ServiceMode::Disabled;
+                let vrf_enabled = self.vrf.is_enabled();
                 #[cfg(not(feature = "vrf"))]
                 let vrf_enabled = false;
 
@@ -401,18 +401,14 @@ impl SequencerNodeArgs {
 
             #[cfg(feature = "paymaster")]
             {
-                let paymaster_enabled = self.paymaster.mode != ServiceMode::Disabled;
-
-                if paymaster_enabled {
+                if self.paymaster.is_enabled() {
                     katana_slot_controller::add_avnu_forwarder_class(&mut chain_spec.genesis);
                 }
             }
 
             #[cfg(feature = "vrf")]
             {
-                let vrf_enabled = self.vrf.mode != ServiceMode::Disabled;
-
-                if vrf_enabled {
+                if self.vrf.is_enabled() {
                     katana_slot_controller::add_vrf_account_class(&mut chain_spec.genesis);
                     katana_slot_controller::add_vrf_consumer_class(&mut chain_spec.genesis);
                 }
@@ -532,48 +528,43 @@ impl SequencerNodeArgs {
 
     #[cfg(feature = "paymaster")]
     fn paymaster_config(&self) -> Result<Option<PaymasterConfig>> {
-        let mode = self.paymaster.mode;
-
-        if mode == ServiceMode::Disabled {
+        if !self.paymaster.is_enabled() {
             return Ok(None);
         }
 
-        let url = match mode {
-            ServiceMode::Sidecar => self.paymaster.url.clone().unwrap_or_else(|| {
-                Url::parse(&format!("http://127.0.0.1:{}", self.paymaster.port)).expect("valid url")
-            }),
-            ServiceMode::External => self.paymaster.url.clone().ok_or_else(|| {
-                anyhow::anyhow!("--paymaster.url is required when --paymaster.mode=external")
-            })?,
-            ServiceMode::Disabled => unreachable!(),
+        // Determine mode based on whether URL is provided
+        let is_external = self.paymaster.is_external();
+
+        let url = if is_external {
+            // External mode: use the provided URL
+            self.paymaster.url.clone().expect("URL must be set in external mode")
+        } else {
+            // Sidecar mode: use localhost with configured port
+            Url::parse(&format!("http://127.0.0.1:{}", self.paymaster.port)).expect("valid url")
         };
 
-        let node_mode = match mode {
-            ServiceMode::Disabled => NodeServiceMode::Disabled,
-            ServiceMode::Sidecar => NodeServiceMode::Sidecar,
-            ServiceMode::External => NodeServiceMode::External,
-        };
+        let node_mode =
+            if is_external { NodeServiceMode::External } else { NodeServiceMode::Sidecar };
 
-        let api_key = match mode {
-            ServiceMode::Sidecar => {
-                let key = self
-                    .paymaster
-                    .api_key
-                    .clone()
-                    .unwrap_or_else(|| DEFAULT_PAYMASTER_API_KEY.to_string());
-                if !key.starts_with("paymaster_") {
-                    warn!(
-                        target: LOG_TARGET,
-                        %key,
-                        "paymaster api key must start with 'paymaster_'; using default"
-                    );
-                    Some(DEFAULT_PAYMASTER_API_KEY.to_string())
-                } else {
-                    Some(key)
-                }
+        let api_key = if is_external {
+            self.paymaster.api_key.clone()
+        } else {
+            // Sidecar mode: validate and use API key
+            let key = self
+                .paymaster
+                .api_key
+                .clone()
+                .unwrap_or_else(|| DEFAULT_PAYMASTER_API_KEY.to_string());
+            if !key.starts_with("paymaster_") {
+                warn!(
+                    target: LOG_TARGET,
+                    %key,
+                    "paymaster api key must start with 'paymaster_'; using default"
+                );
+                Some(DEFAULT_PAYMASTER_API_KEY.to_string())
+            } else {
+                Some(key)
             }
-            ServiceMode::External => self.paymaster.api_key.clone(),
-            ServiceMode::Disabled => None,
         };
 
         Ok(Some(PaymasterConfig {
@@ -591,28 +582,23 @@ impl SequencerNodeArgs {
 
     #[cfg(feature = "vrf")]
     fn vrf_config(&self) -> Result<Option<VrfConfig>> {
-        let mode = self.vrf.mode;
-
-        if mode == ServiceMode::Disabled {
+        if !self.vrf.is_enabled() {
             return Ok(None);
         }
 
-        let url =
-            match mode {
-                ServiceMode::Sidecar => self.vrf.url.clone().unwrap_or_else(|| {
-                    Url::parse(&format!("http://127.0.0.1:{}", self.vrf.port)).expect("valid url")
-                }),
-                ServiceMode::External => self.vrf.url.clone().ok_or_else(|| {
-                    anyhow::anyhow!("--vrf.url is required when --vrf.mode=external")
-                })?,
-                ServiceMode::Disabled => unreachable!(),
-            };
+        // Determine mode based on whether URL is provided
+        let is_external = self.vrf.is_external();
 
-        let mode = match mode {
-            ServiceMode::Disabled => NodeServiceMode::Disabled,
-            ServiceMode::Sidecar => NodeServiceMode::Sidecar,
-            ServiceMode::External => NodeServiceMode::External,
+        let url = if is_external {
+            // External mode: use the provided URL
+            self.vrf.url.clone().expect("URL must be set in external mode")
+        } else {
+            // Sidecar mode: use localhost with configured port
+            Url::parse(&format!("http://127.0.0.1:{}", self.vrf.port)).expect("valid url")
         };
+
+        let node_mode =
+            if is_external { NodeServiceMode::External } else { NodeServiceMode::Sidecar };
 
         let key_source = match self.vrf.key_source {
             VrfKeySource::Prefunded => NodeVrfKeySource::Prefunded,
@@ -620,7 +606,7 @@ impl SequencerNodeArgs {
         };
 
         Ok(Some(VrfConfig {
-            mode,
+            mode: node_mode,
             url,
             key_source,
             prefunded_index: self.vrf.prefunded_index,
@@ -1046,25 +1032,27 @@ explorer = true
     #[cfg(all(feature = "cartridge", feature = "paymaster"))]
     #[test]
     fn cartridge_paymaster() {
-        let args = SequencerNodeArgs::parse_from(["katana", "--paymaster.mode", "sidecar"]);
+        // Test with --paymaster flag (sidecar mode)
+        let args = SequencerNodeArgs::parse_from(["katana", "--paymaster"]);
         let config = args.config().unwrap();
 
         // Verify cartridge module is automatically enabled when paymaster is enabled
         assert!(config.rpc.apis.contains(&RpcModuleKind::Cartridge));
 
         // Test with paymaster explicitly specified in RPC modules
-        let args = SequencerNodeArgs::parse_from([
-            "katana",
-            "--paymaster.mode",
-            "sidecar",
-            "--http.api",
-            "starknet",
-        ]);
+        let args =
+            SequencerNodeArgs::parse_from(["katana", "--paymaster", "--http.api", "starknet"]);
         let config = args.config().unwrap();
 
         // Verify cartridge module is still enabled even when not in explicit RPC list
         assert!(config.rpc.apis.contains(&RpcModuleKind::Cartridge));
         assert!(config.rpc.apis.contains(&RpcModuleKind::Starknet));
+
+        // Test with --paymaster.url (external mode - also enables paymaster)
+        let args =
+            SequencerNodeArgs::parse_from(["katana", "--paymaster.url", "http://localhost:8080"]);
+        let config = args.config().unwrap();
+        assert!(config.rpc.apis.contains(&RpcModuleKind::Cartridge));
 
         // Test without paymaster enabled
         let args = SequencerNodeArgs::parse_from(["katana"]);
@@ -1113,13 +1101,7 @@ explorer = true
     fn vrf_mode_adds_classes() {
         use katana_primitives::utils::class::parse_sierra_class;
 
-        let args = SequencerNodeArgs::parse_from([
-            "katana",
-            "--paymaster.mode",
-            "sidecar",
-            "--vrf.mode",
-            "sidecar",
-        ]);
+        let args = SequencerNodeArgs::parse_from(["katana", "--paymaster", "--vrf"]);
         let config = args.config().unwrap();
 
         let vrf_account_class = parse_sierra_class(include_str!(concat!(
@@ -1142,10 +1124,10 @@ explorer = true
 
     #[cfg(feature = "paymaster")]
     #[test]
-    fn paymaster_mode_adds_forwarder_class() {
+    fn paymaster_adds_forwarder_class() {
         use katana_primitives::utils::class::parse_sierra_class;
 
-        let args = SequencerNodeArgs::parse_from(["katana", "--paymaster.mode", "sidecar"]);
+        let args = SequencerNodeArgs::parse_from(["katana", "--paymaster"]);
         let config = args.config().unwrap();
 
         let forwarder_class = parse_sierra_class(include_str!(concat!(
@@ -1161,7 +1143,7 @@ explorer = true
     #[cfg(feature = "vrf")]
     #[test]
     fn vrf_requires_paymaster() {
-        let args = SequencerNodeArgs::parse_from(["katana", "--vrf.mode", "sidecar"]);
+        let args = SequencerNodeArgs::parse_from(["katana", "--vrf"]);
         let err = args.config().unwrap_err();
         assert!(err.to_string().contains("--vrf requires paymaster"));
     }
