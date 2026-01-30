@@ -41,7 +41,8 @@ url.workspace = true
 
 colored_json = { version = "5.0", optional = true }
 serde = { workspace = true, optional = true }
-serde_json = { workspace = true, optional = true }
+serde_json.workspace = true
+universal-sierra-compiler.workspace = true
 
 [build-dependencies]
 vergen = { version = "9.0.0", features = [ "build", "cargo", "emit_and_set" ] }
@@ -65,7 +66,7 @@ default = [
 ]
 
 cartridge = [ "katana-cli/cartridge" ]
-client = [ "dep:colored_json", "dep:serde", "dep:serde_json" ]
+client = [ "dep:colored_json", "dep:serde" ]
 init-custom-settlement-chain = [  ]
 init-slot = [  ]
 jemalloc = [  ]

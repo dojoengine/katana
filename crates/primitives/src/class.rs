@@ -1,13 +1,16 @@
 use std::str::FromStr;
 
-use cairo_lang_starknet_classes::casm_contract_class::StarknetSierraCompilationError;
+use cairo_lang_starknet_classes::casm_contract_class::{
+    CasmContractEntryPoint, StarknetSierraCompilationError,
+};
 use cairo_lang_starknet_classes::contract_class::{
     version_id_from_serialized_sierra_program, ContractEntryPoint, ContractEntryPoints,
 };
+use cairo_lang_starknet_classes::NestedIntList;
 use cairo_lang_utils::bigint::BigUintAsHex;
 use serde_json_pythonic::to_string_pythonic;
 use starknet_api::contract_class::SierraVersion;
-use starknet_types_core::hash::{self, Poseidon, StarkHash};
+use starknet_types_core::hash::{self, Blake2Felt252, Poseidon, StarkHash};
 
 use crate::cairo::ShortString;
 use crate::utils::{normalize_address, starknet_keccak};
@@ -282,7 +285,7 @@ impl CompiledClass {
     /// Computes the hash of the compiled class.
     pub fn class_hash(&self) -> Result<CompiledClassHash, ComputeClassHashError> {
         match self {
-            Self::Class(class) => Ok(class.compiled_class_hash()),
+            Self::Class(class) => Ok(compute_compiled_class_hash::<Poseidon>(class)),
             Self::Legacy(class) => Ok(compute_legacy_class_hash(class)?),
         }
     }
@@ -314,9 +317,9 @@ pub fn compute_sierra_class_hash(
     let hash = hash::Poseidon::hash_array(&[
         CONTRACT_CLASS_VERSION.into(),
         // Hashes entry points
-        entrypoints_hash(&entry_points_by_type.external),
-        entrypoints_hash(&entry_points_by_type.l1_handler),
-        entrypoints_hash(&entry_points_by_type.constructor),
+        sierra_entrypoints_hash(&entry_points_by_type.external),
+        sierra_entrypoints_hash(&entry_points_by_type.l1_handler),
+        sierra_entrypoints_hash(&entry_points_by_type.constructor),
         // Hashes ABI
         starknet_keccak(abi.as_bytes()),
         // Hashes Sierra program
@@ -324,6 +327,23 @@ pub fn compute_sierra_class_hash(
     ]);
 
     normalize_address(hash)
+}
+
+pub fn compute_compiled_class_hash<H: StarkHash>(casm: &CasmContractClass) -> Felt {
+    const COMPILED_CLASS_VERSION: ShortString = ShortString::from_ascii("COMPILED_CLASS_V1");
+
+    let external_funcs_hash = casm_entry_points_hash::<H>(&casm.entry_points_by_type.external);
+    let l1_handlers_hash = casm_entry_points_hash::<H>(&casm.entry_points_by_type.l1_handler);
+    let constructors_hash = casm_entry_points_hash::<H>(&casm.entry_points_by_type.constructor);
+    let bytecode_hash = compute_bytecode_hash::<H>(casm);
+
+    H::hash_array(&[
+        COMPILED_CLASS_VERSION.into(),
+        external_funcs_hash,
+        l1_handlers_hash,
+        constructors_hash,
+        bytecode_hash,
+    ])
 }
 
 /// Computes the hash of a legacy contract class.
@@ -343,7 +363,7 @@ pub fn compute_legacy_class_hash(
     Ok(hash)
 }
 
-fn entrypoints_hash(entrypoints: &[ContractEntryPoint]) -> Felt {
+fn sierra_entrypoints_hash(entrypoints: &[ContractEntryPoint]) -> Felt {
     let initial = Vec::with_capacity(entrypoints.len() * 2);
     let felts = entrypoints.iter().fold(initial, |mut acc, entry| {
         acc.push(entry.selector.clone().into());
@@ -352,6 +372,65 @@ fn entrypoints_hash(entrypoints: &[ContractEntryPoint]) -> Felt {
     });
 
     hash::Poseidon::hash_array(&felts)
+}
+
+fn casm_entry_points_hash<H: StarkHash>(entry_points: &[CasmContractEntryPoint]) -> Felt {
+    let mut entry_point_hash_elements = Vec::new();
+
+    for entry_point in entry_points {
+        entry_point_hash_elements.push(Felt::from(&entry_point.selector));
+        entry_point_hash_elements.push(Felt::from(entry_point.offset));
+        entry_point_hash_elements.push(H::hash_array(
+            &entry_point
+                .builtins
+                .iter()
+                .map(|builtin| Felt::from_bytes_be_slice(builtin.as_bytes()))
+                .collect::<Vec<Felt>>(),
+        ));
+    }
+
+    H::hash_array(&entry_point_hash_elements)
+}
+
+fn compute_bytecode_hash<H: StarkHash>(casm: &CasmContractClass) -> Felt {
+    let mut bytecode_iter = casm.bytecode.iter().map(|big_uint| Felt::from(&big_uint.value));
+
+    let (len, bytecode_hash) =
+        bytecode_hash_node::<H>(&mut bytecode_iter, &casm.get_bytecode_segment_lengths());
+    assert_eq!(len, casm.bytecode.len());
+
+    bytecode_hash
+}
+
+/// Computes the hash of a bytecode segment. See the documentation of `bytecode_hash_node` in
+/// the Starknet OS.
+///
+/// Returns the length of the processed segment and its hash.
+fn bytecode_hash_node<H: StarkHash>(
+    iter: &mut impl Iterator<Item = Felt>,
+    node: &NestedIntList,
+) -> (usize, Felt) {
+    match node {
+        NestedIntList::Leaf(len) => {
+            let data = &iter.take(*len).collect::<Vec<Felt>>();
+            assert_eq!(data.len(), *len);
+            (*len, H::hash_array(data))
+        }
+        NestedIntList::Node(nodes) => {
+            // Compute `1 + poseidon(len0, hash0, len1, hash1, ...)`.
+            let inner_nodes =
+                nodes.iter().map(|node| bytecode_hash_node::<H>(iter, node)).collect::<Vec<_>>();
+
+            let hash = H::hash_array(
+                &inner_nodes
+                    .iter()
+                    .flat_map(|(len, hash)| [(*len).into(), *hash])
+                    .collect::<Vec<_>>(),
+            ) + 1;
+
+            (inner_nodes.iter().map(|(len, _)| len).sum(), hash)
+        }
+    }
 }
 
 #[cfg(test)]

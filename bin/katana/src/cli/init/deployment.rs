@@ -5,9 +5,10 @@ use cainome::cairo_serde;
 use katana_primitives::block::{BlockHash, BlockNumber};
 use katana_primitives::cairo::ShortString;
 use katana_primitives::class::{
-    CompiledClassHash, ComputeClassHashError, ContractClass, ContractClassCompilationError,
-    ContractClassFromStrError,
+    compute_compiled_class_hash, CasmContractClass, CompiledClassHash, ComputeClassHashError,
+    ContractClass, ContractClassCompilationError, ContractClassFromStrError,
 };
+use katana_primitives::hash::Blake2Felt252;
 use katana_primitives::{felt, ContractAddress, Felt};
 use katana_rpc_client::starknet::Client as StarknetClient;
 use katana_rpc_types::class::Class;
@@ -17,7 +18,9 @@ use spinoff::{spinners, Color, Spinner};
 use starknet::accounts::{Account, AccountError, ConnectedAccount, SingleOwnerAccount};
 use starknet::contract::ContractFactory;
 use starknet::core::crypto::compute_hash_on_elements;
-use starknet::core::types::{BlockId, BlockTag, FlattenedSierraClass, StarknetError};
+use starknet::core::types::{
+    BlockId, BlockTag, FlattenedSierraClass, MaybePreConfirmedBlockWithTxHashes, StarknetError,
+};
 use starknet::providers::{Provider, ProviderError};
 use starknet::signers::LocalWallet;
 use thiserror::Error;
@@ -390,7 +393,15 @@ impl From<cairo_serde::Error> for ContractInitError {
 fn prepare_contract_declaration_params(
     class: ContractClass,
 ) -> Result<(FlattenedSierraClass, CompiledClassHash)> {
-    let casm_hash = class.clone().compile()?.class_hash()?;
+    // Use Universal Sierra Compiler (USC) to compile Sierra to CASM.
+    // USC bundles all Sierra compiler versions and selects the appropriate one
+    // based on the Sierra version in the contract, ensuring compatibility with
+    // whatever compiler version the Starknet network validators use.
+    let sierra_json = serde_json::to_value(class.as_sierra().expect("must be sierra class"))?;
+    let casm_json = universal_sierra_compiler::compile_contract(sierra_json)
+        .map_err(|e| anyhow!("USC compilation failed: {e}"))?;
+    let casm: CasmContractClass = serde_json::from_value(casm_json)?;
+    let casm_hash = compute_compiled_class_hash::<Blake2Felt252>(&casm);
 
     let rpc_class = Class::try_from(class).expect("should be valid");
     let Class::Sierra(class) = rpc_class else { unreachable!("unexpected legacy class") };
