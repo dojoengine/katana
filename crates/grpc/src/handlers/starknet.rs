@@ -3,7 +3,7 @@
 use katana_primitives::Felt;
 use tonic::{Request, Response, Status};
 
-use crate::convert::{block_id_from_proto, FeltVecExt, ProtoFeltVecExt};
+use crate::conversion::{block_id_from_proto, FeltVecExt, ProtoFeltVecExt};
 use crate::error::IntoGrpcResult;
 use crate::protos::starknet::starknet_server::Starknet;
 use crate::protos::starknet::{
