@@ -26,12 +26,8 @@ pub fn to_status(err: StarknetApiError) -> Status {
         StarknetApiError::InvalidTxnIndex => {
             Status::new(Code::InvalidArgument, "Invalid transaction index")
         }
-        StarknetApiError::InvalidBlockId => {
-            Status::new(Code::InvalidArgument, "Invalid block id")
-        }
-        StarknetApiError::InvalidCallData => {
-            Status::new(Code::InvalidArgument, "Invalid calldata")
-        }
+        StarknetApiError::InvalidBlockId => Status::new(Code::InvalidArgument, "Invalid block id"),
+        StarknetApiError::InvalidCallData => Status::new(Code::InvalidArgument, "Invalid calldata"),
         StarknetApiError::InvalidMessageSelector => {
             Status::new(Code::InvalidArgument, "Invalid message selector")
         }

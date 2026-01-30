@@ -2,13 +2,12 @@
 
 use tonic::{Request, Response, Status};
 
-use crate::convert::to_proto_felt;
 use crate::handlers::StarknetHandler;
+use crate::protos::starknet::starknet_write_server::StarknetWrite;
 use crate::protos::starknet::{
-    starknet_write_server::StarknetWrite, AddDeclareTransactionRequest,
-    AddDeclareTransactionResponse, AddDeployAccountTransactionRequest,
-    AddDeployAccountTransactionResponse, AddInvokeTransactionRequest,
-    AddInvokeTransactionResponse,
+    AddDeclareTransactionRequest, AddDeclareTransactionResponse,
+    AddDeployAccountTransactionRequest, AddDeployAccountTransactionResponse,
+    AddInvokeTransactionRequest, AddInvokeTransactionResponse,
 };
 
 /// Trait for the inner handler that provides Starknet Write API functionality.

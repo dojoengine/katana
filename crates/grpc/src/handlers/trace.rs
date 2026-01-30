@@ -1,17 +1,15 @@
 //! Starknet trace service handler implementation.
 
+use katana_primitives::Felt;
 use tonic::{Request, Response, Status};
 
-use crate::convert::{
-    from_proto_block_id, from_proto_felt, to_proto_simulate_transactions_response,
-    to_proto_trace_block_transactions_response, to_proto_trace_transaction_response,
-};
+use crate::convert::block_id_from_proto;
 use crate::error::IntoGrpcResult;
 use crate::handlers::StarknetHandler;
+use crate::protos::starknet::starknet_trace_server::StarknetTrace;
 use crate::protos::starknet::{
-    starknet_trace_server::StarknetTrace, SimulateTransactionsRequest,
-    SimulateTransactionsResponse, TraceBlockTransactionsRequest, TraceBlockTransactionsResponse,
-    TraceTransactionRequest, TraceTransactionResponse,
+    SimulateTransactionsRequest, SimulateTransactionsResponse, TraceBlockTransactionsRequest,
+    TraceBlockTransactionsResponse, TraceTransactionRequest, TraceTransactionResponse,
 };
 
 /// Trait for the inner handler that provides Starknet Trace API functionality.
@@ -50,13 +48,17 @@ impl<T: StarknetTraceApiProvider> StarknetTrace for StarknetHandler<T> {
         &self,
         request: Request<TraceTransactionRequest>,
     ) -> Result<Response<TraceTransactionResponse>, Status> {
-        let tx_hash = from_proto_felt(request.into_inner().transaction_hash.as_ref().ok_or_else(
-            || Status::invalid_argument("Missing transaction_hash"),
-        )?)?;
+        let tx_hash = Felt::try_from(
+            request
+                .into_inner()
+                .transaction_hash
+                .as_ref()
+                .ok_or_else(|| Status::invalid_argument("Missing transaction_hash"))?,
+        )?;
 
         let trace = self.inner.trace_transaction(tx_hash).await.into_grpc_result()?;
 
-        Ok(Response::new(to_proto_trace_transaction_response(trace)))
+        Ok(Response::new(trace.into()))
     }
 
     async fn simulate_transactions(
@@ -73,7 +75,7 @@ impl<T: StarknetTraceApiProvider> StarknetTrace for StarknetHandler<T> {
         &self,
         request: Request<TraceBlockTransactionsRequest>,
     ) -> Result<Response<TraceBlockTransactionsResponse>, Status> {
-        let block_id = from_proto_block_id(request.into_inner().block_id.as_ref())?;
+        let block_id = block_id_from_proto(request.into_inner().block_id.as_ref())?;
 
         // Convert BlockIdOrTag to ConfirmedBlockIdOrTag
         let confirmed_block_id = match block_id {
@@ -87,9 +89,7 @@ impl<T: StarknetTraceApiProvider> StarknetTrace for StarknetHandler<T> {
                 katana_primitives::block::ConfirmedBlockIdOrTag::Latest
             }
             katana_primitives::block::BlockIdOrTag::PreConfirmed => {
-                return Err(Status::invalid_argument(
-                    "Pending block does not have traces",
-                ));
+                return Err(Status::invalid_argument("Pending block does not have traces"));
             }
             katana_primitives::block::BlockIdOrTag::L1Accepted => {
                 katana_primitives::block::ConfirmedBlockIdOrTag::L1Accepted
@@ -99,6 +99,6 @@ impl<T: StarknetTraceApiProvider> StarknetTrace for StarknetHandler<T> {
         let response =
             self.inner.trace_block_transactions(confirmed_block_id).await.into_grpc_result()?;
 
-        Ok(Response::new(to_proto_trace_block_transactions_response(response)))
+        Ok(Response::new(response.into()))
     }
 }

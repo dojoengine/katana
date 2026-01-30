@@ -3,6 +3,8 @@
 //! This module provides bidirectional conversion between:
 //! - Proto types generated from .proto files
 //! - Internal Katana types from katana-primitives and katana-rpc-types
+//!
+//! Conversions are implemented using `From` and `TryFrom` traits for idiomatic Rust.
 
 mod block;
 mod felt;
@@ -12,7 +14,7 @@ mod trace;
 mod transaction;
 
 pub use block::*;
-pub use felt::*;
+pub use felt::{FeltVecExt, ProtoFeltVecExt};
 pub use receipt::*;
 pub use state::*;
 pub use trace::*;

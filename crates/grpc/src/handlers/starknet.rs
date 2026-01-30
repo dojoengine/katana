@@ -1,28 +1,27 @@
 //! Starknet read service handler implementation.
 
+use katana_primitives::Felt;
 use tonic::{Request, Response, Status};
 
-use crate::convert::{
-    from_proto_block_id, from_proto_felt, to_proto_block_with_receipts, to_proto_block_with_txs,
-    to_proto_block_with_tx_hashes, to_proto_felt, to_proto_felts, to_proto_receipt,
-    to_proto_state_update, to_proto_transaction,
-};
+use crate::convert::{block_id_from_proto, FeltVecExt, ProtoFeltVecExt};
 use crate::error::IntoGrpcResult;
+use crate::protos::starknet::starknet_server::Starknet;
 use crate::protos::starknet::{
-    starknet_server::Starknet, BlockHashAndNumberRequest, BlockHashAndNumberResponse,
-    BlockNumberRequest, BlockNumberResponse, CallRequest, CallResponse, ChainIdRequest,
-    ChainIdResponse, EstimateFeeRequest, EstimateFeeResponse, EstimateMessageFeeRequest,
-    GetBlockRequest, GetBlockTransactionCountResponse, GetBlockWithReceiptsResponse,
-    GetBlockWithTxHashesResponse, GetBlockWithTxsResponse, GetClassAtRequest, GetClassAtResponse,
-    GetClassHashAtRequest, GetClassHashAtResponse, GetClassRequest, GetClassResponse,
-    GetCompiledCasmRequest, GetCompiledCasmResponse, GetEventsRequest, GetEventsResponse,
-    GetNonceRequest, GetNonceResponse, GetStateUpdateResponse, GetStorageAtRequest,
-    GetStorageAtResponse, GetStorageProofRequest, GetStorageProofResponse,
-    GetTransactionByBlockIdAndIndexRequest, GetTransactionByBlockIdAndIndexResponse,
-    GetTransactionByHashRequest, GetTransactionByHashResponse, GetTransactionReceiptRequest,
-    GetTransactionReceiptResponse, GetTransactionStatusRequest, GetTransactionStatusResponse,
-    SpecVersionRequest, SpecVersionResponse, SyncingRequest, SyncingResponse,
+    BlockHashAndNumberRequest, BlockHashAndNumberResponse, BlockNumberRequest, BlockNumberResponse,
+    CallRequest, CallResponse, ChainIdRequest, ChainIdResponse, EstimateFeeRequest,
+    EstimateFeeResponse, EstimateMessageFeeRequest, GetBlockRequest,
+    GetBlockTransactionCountResponse, GetBlockWithReceiptsResponse, GetBlockWithTxHashesResponse,
+    GetBlockWithTxsResponse, GetClassAtRequest, GetClassAtResponse, GetClassHashAtRequest,
+    GetClassHashAtResponse, GetClassRequest, GetClassResponse, GetCompiledCasmRequest,
+    GetCompiledCasmResponse, GetEventsRequest, GetEventsResponse, GetNonceRequest,
+    GetNonceResponse, GetStateUpdateResponse, GetStorageAtRequest, GetStorageAtResponse,
+    GetStorageProofRequest, GetStorageProofResponse, GetTransactionByBlockIdAndIndexRequest,
+    GetTransactionByBlockIdAndIndexResponse, GetTransactionByHashRequest,
+    GetTransactionByHashResponse, GetTransactionReceiptRequest, GetTransactionReceiptResponse,
+    GetTransactionStatusRequest, GetTransactionStatusResponse, SpecVersionRequest,
+    SpecVersionResponse, SyncingRequest, SyncingResponse,
 };
+use crate::protos::types::{Transaction as ProtoTx, TransactionReceipt as ProtoTransactionReceipt};
 
 /// The main handler for Starknet gRPC services.
 ///
@@ -60,36 +59,54 @@ pub trait StarknetApiProvider: Clone + Send + Sync + 'static {
     /// Returns the latest block number.
     async fn block_number(
         &self,
-    ) -> Result<katana_rpc_types::block::BlockNumberResponse, katana_rpc_api::error::starknet::StarknetApiError>;
+    ) -> Result<
+        katana_rpc_types::block::BlockNumberResponse,
+        katana_rpc_api::error::starknet::StarknetApiError,
+    >;
 
     /// Returns the latest block hash and number.
     async fn block_hash_and_number(
         &self,
-    ) -> Result<katana_rpc_types::block::BlockHashAndNumberResponse, katana_rpc_api::error::starknet::StarknetApiError>;
+    ) -> Result<
+        katana_rpc_types::block::BlockHashAndNumberResponse,
+        katana_rpc_api::error::starknet::StarknetApiError,
+    >;
 
     /// Returns a block with transaction hashes.
     async fn get_block_with_tx_hashes(
         &self,
         block_id: katana_primitives::block::BlockIdOrTag,
-    ) -> Result<katana_rpc_types::block::GetBlockWithTxHashesResponse, katana_rpc_api::error::starknet::StarknetApiError>;
+    ) -> Result<
+        katana_rpc_types::block::GetBlockWithTxHashesResponse,
+        katana_rpc_api::error::starknet::StarknetApiError,
+    >;
 
     /// Returns a block with full transactions.
     async fn get_block_with_txs(
         &self,
         block_id: katana_primitives::block::BlockIdOrTag,
-    ) -> Result<katana_rpc_types::block::MaybePreConfirmedBlock, katana_rpc_api::error::starknet::StarknetApiError>;
+    ) -> Result<
+        katana_rpc_types::block::MaybePreConfirmedBlock,
+        katana_rpc_api::error::starknet::StarknetApiError,
+    >;
 
     /// Returns a block with transactions and receipts.
     async fn get_block_with_receipts(
         &self,
         block_id: katana_primitives::block::BlockIdOrTag,
-    ) -> Result<katana_rpc_types::block::GetBlockWithReceiptsResponse, katana_rpc_api::error::starknet::StarknetApiError>;
+    ) -> Result<
+        katana_rpc_types::block::GetBlockWithReceiptsResponse,
+        katana_rpc_api::error::starknet::StarknetApiError,
+    >;
 
     /// Returns the state update for a block.
     async fn get_state_update(
         &self,
         block_id: katana_primitives::block::BlockIdOrTag,
-    ) -> Result<katana_rpc_types::state_update::StateUpdate, katana_rpc_api::error::starknet::StarknetApiError>;
+    ) -> Result<
+        katana_rpc_types::state_update::StateUpdate,
+        katana_rpc_api::error::starknet::StarknetApiError,
+    >;
 
     /// Returns the storage value at a given address and key.
     async fn get_storage_at(
@@ -109,20 +126,29 @@ pub trait StarknetApiProvider: Clone + Send + Sync + 'static {
     async fn get_transaction_by_hash(
         &self,
         transaction_hash: katana_primitives::Felt,
-    ) -> Result<katana_rpc_types::transaction::RpcTxWithHash, katana_rpc_api::error::starknet::StarknetApiError>;
+    ) -> Result<
+        katana_rpc_types::transaction::RpcTxWithHash,
+        katana_rpc_api::error::starknet::StarknetApiError,
+    >;
 
     /// Returns a transaction by block ID and index.
     async fn get_transaction_by_block_id_and_index(
         &self,
         block_id: katana_primitives::block::BlockIdOrTag,
         index: u64,
-    ) -> Result<katana_rpc_types::transaction::RpcTxWithHash, katana_rpc_api::error::starknet::StarknetApiError>;
+    ) -> Result<
+        katana_rpc_types::transaction::RpcTxWithHash,
+        katana_rpc_api::error::starknet::StarknetApiError,
+    >;
 
     /// Returns a transaction receipt.
     async fn get_transaction_receipt(
         &self,
         transaction_hash: katana_primitives::Felt,
-    ) -> Result<katana_rpc_types::receipt::TxReceiptWithBlockInfo, katana_rpc_api::error::starknet::StarknetApiError>;
+    ) -> Result<
+        katana_rpc_types::receipt::TxReceiptWithBlockInfo,
+        katana_rpc_api::error::starknet::StarknetApiError,
+    >;
 
     /// Returns a contract class by hash.
     async fn get_class(
@@ -177,7 +203,10 @@ pub trait StarknetApiProvider: Clone + Send + Sync + 'static {
     async fn get_events(
         &self,
         filter: katana_rpc_types::event::EventFilterWithPage,
-    ) -> Result<katana_rpc_types::event::GetEventsResponse, katana_rpc_api::error::starknet::StarknetApiError>;
+    ) -> Result<
+        katana_rpc_types::event::GetEventsResponse,
+        katana_rpc_api::error::starknet::StarknetApiError,
+    >;
 
     /// Returns the nonce at a given address.
     async fn get_nonce(
@@ -203,36 +232,36 @@ impl<T: StarknetApiProvider> Starknet for StarknetHandler<T> {
         &self,
         request: Request<GetBlockRequest>,
     ) -> Result<Response<GetBlockWithTxHashesResponse>, Status> {
-        let block_id = from_proto_block_id(request.into_inner().block_id.as_ref())?;
+        let block_id = block_id_from_proto(request.into_inner().block_id.as_ref())?;
         let result = self.inner.get_block_with_tx_hashes(block_id).await.into_grpc_result()?;
-        Ok(Response::new(to_proto_block_with_tx_hashes(result)))
+        Ok(Response::new(result.into()))
     }
 
     async fn get_block_with_txs(
         &self,
         request: Request<GetBlockRequest>,
     ) -> Result<Response<GetBlockWithTxsResponse>, Status> {
-        let block_id = from_proto_block_id(request.into_inner().block_id.as_ref())?;
+        let block_id = block_id_from_proto(request.into_inner().block_id.as_ref())?;
         let result = self.inner.get_block_with_txs(block_id).await.into_grpc_result()?;
-        Ok(Response::new(to_proto_block_with_txs(result)))
+        Ok(Response::new(result.into()))
     }
 
     async fn get_block_with_receipts(
         &self,
         request: Request<GetBlockRequest>,
     ) -> Result<Response<GetBlockWithReceiptsResponse>, Status> {
-        let block_id = from_proto_block_id(request.into_inner().block_id.as_ref())?;
+        let block_id = block_id_from_proto(request.into_inner().block_id.as_ref())?;
         let result = self.inner.get_block_with_receipts(block_id).await.into_grpc_result()?;
-        Ok(Response::new(to_proto_block_with_receipts(result)))
+        Ok(Response::new(result.into()))
     }
 
     async fn get_state_update(
         &self,
         request: Request<GetBlockRequest>,
     ) -> Result<Response<GetStateUpdateResponse>, Status> {
-        let block_id = from_proto_block_id(request.into_inner().block_id.as_ref())?;
+        let block_id = block_id_from_proto(request.into_inner().block_id.as_ref())?;
         let result = self.inner.get_state_update(block_id).await.into_grpc_result()?;
-        Ok(Response::new(to_proto_state_update(result)))
+        Ok(Response::new(result.into()))
     }
 
     async fn get_storage_at(
@@ -240,13 +269,13 @@ impl<T: StarknetApiProvider> Starknet for StarknetHandler<T> {
         request: Request<GetStorageAtRequest>,
     ) -> Result<Response<GetStorageAtResponse>, Status> {
         let req = request.into_inner();
-        let block_id = from_proto_block_id(req.block_id.as_ref())?;
-        let contract_address = from_proto_felt(
-            req.contract_address.as_ref().ok_or_else(|| {
-                Status::invalid_argument("Missing contract_address")
-            })?,
+        let block_id = block_id_from_proto(req.block_id.as_ref())?;
+        let contract_address = Felt::try_from(
+            req.contract_address
+                .as_ref()
+                .ok_or_else(|| Status::invalid_argument("Missing contract_address"))?,
         )?;
-        let key = from_proto_felt(
+        let key = Felt::try_from(
             req.key.as_ref().ok_or_else(|| Status::invalid_argument("Missing key"))?,
         )?;
 
@@ -256,16 +285,20 @@ impl<T: StarknetApiProvider> Starknet for StarknetHandler<T> {
             .await
             .into_grpc_result()?;
 
-        Ok(Response::new(GetStorageAtResponse { value: Some(to_proto_felt(result)) }))
+        Ok(Response::new(GetStorageAtResponse { value: Some(result.into()) }))
     }
 
     async fn get_transaction_status(
         &self,
         request: Request<GetTransactionStatusRequest>,
     ) -> Result<Response<GetTransactionStatusResponse>, Status> {
-        let tx_hash = from_proto_felt(request.into_inner().transaction_hash.as_ref().ok_or_else(
-            || Status::invalid_argument("Missing transaction_hash"),
-        )?)?;
+        let tx_hash = Felt::try_from(
+            request
+                .into_inner()
+                .transaction_hash
+                .as_ref()
+                .ok_or_else(|| Status::invalid_argument("Missing transaction_hash"))?,
+        )?;
 
         let status = self.inner.get_transaction_status(tx_hash).await.into_grpc_result()?;
 
@@ -290,13 +323,17 @@ impl<T: StarknetApiProvider> Starknet for StarknetHandler<T> {
         &self,
         request: Request<GetTransactionByHashRequest>,
     ) -> Result<Response<GetTransactionByHashResponse>, Status> {
-        let tx_hash = from_proto_felt(request.into_inner().transaction_hash.as_ref().ok_or_else(
-            || Status::invalid_argument("Missing transaction_hash"),
-        )?)?;
+        let tx_hash = Felt::try_from(
+            request
+                .into_inner()
+                .transaction_hash
+                .as_ref()
+                .ok_or_else(|| Status::invalid_argument("Missing transaction_hash"))?,
+        )?;
 
         let tx = self.inner.get_transaction_by_hash(tx_hash).await.into_grpc_result()?;
 
-        Ok(Response::new(GetTransactionByHashResponse { transaction: Some(to_proto_transaction(tx)) }))
+        Ok(Response::new(GetTransactionByHashResponse { transaction: Some(ProtoTx::from(tx)) }))
     }
 
     async fn get_transaction_by_block_id_and_index(
@@ -304,27 +341,35 @@ impl<T: StarknetApiProvider> Starknet for StarknetHandler<T> {
         request: Request<GetTransactionByBlockIdAndIndexRequest>,
     ) -> Result<Response<GetTransactionByBlockIdAndIndexResponse>, Status> {
         let req = request.into_inner();
-        let block_id = from_proto_block_id(req.block_id.as_ref())?;
+        let block_id = block_id_from_proto(req.block_id.as_ref())?;
         let index = req.index;
 
-        let tx = self.inner.get_transaction_by_block_id_and_index(block_id, index).await.into_grpc_result()?;
+        let tx = self
+            .inner
+            .get_transaction_by_block_id_and_index(block_id, index)
+            .await
+            .into_grpc_result()?;
 
-        Ok(Response::new(GetTransactionByBlockIdAndIndexResponse {
-            transaction: Some(to_proto_transaction(tx)),
-        }))
+        Ok(Response::new(GetTransactionByBlockIdAndIndexResponse { transaction: Some(tx.into()) }))
     }
 
     async fn get_transaction_receipt(
         &self,
         request: Request<GetTransactionReceiptRequest>,
     ) -> Result<Response<GetTransactionReceiptResponse>, Status> {
-        let tx_hash = from_proto_felt(request.into_inner().transaction_hash.as_ref().ok_or_else(
-            || Status::invalid_argument("Missing transaction_hash"),
-        )?)?;
+        let tx_hash = Felt::try_from(
+            request
+                .into_inner()
+                .transaction_hash
+                .as_ref()
+                .ok_or_else(|| Status::invalid_argument("Missing transaction_hash"))?,
+        )?;
 
         let receipt = self.inner.get_transaction_receipt(tx_hash).await.into_grpc_result()?;
 
-        Ok(Response::new(GetTransactionReceiptResponse { receipt: Some(to_proto_receipt(&receipt)) }))
+        Ok(Response::new(GetTransactionReceiptResponse {
+            receipt: Some(ProtoTransactionReceipt::from(&receipt)),
+        }))
     }
 
     async fn get_class(
@@ -332,9 +377,11 @@ impl<T: StarknetApiProvider> Starknet for StarknetHandler<T> {
         request: Request<GetClassRequest>,
     ) -> Result<Response<GetClassResponse>, Status> {
         let req = request.into_inner();
-        let block_id = from_proto_block_id(req.block_id.as_ref())?;
-        let class_hash = from_proto_felt(
-            req.class_hash.as_ref().ok_or_else(|| Status::invalid_argument("Missing class_hash"))?,
+        let block_id = block_id_from_proto(req.block_id.as_ref())?;
+        let class_hash = Felt::try_from(
+            req.class_hash
+                .as_ref()
+                .ok_or_else(|| Status::invalid_argument("Missing class_hash"))?,
         )?;
 
         let class = self.inner.get_class(block_id, class_hash).await.into_grpc_result()?;
@@ -357,10 +404,12 @@ impl<T: StarknetApiProvider> Starknet for StarknetHandler<T> {
         request: Request<GetClassHashAtRequest>,
     ) -> Result<Response<GetClassHashAtResponse>, Status> {
         let req = request.into_inner();
-        let block_id = from_proto_block_id(req.block_id.as_ref())?;
-        let contract_address = from_proto_felt(req.contract_address.as_ref().ok_or_else(|| {
-            Status::invalid_argument("Missing contract_address")
-        })?)?;
+        let block_id = block_id_from_proto(req.block_id.as_ref())?;
+        let contract_address = Felt::try_from(
+            req.contract_address
+                .as_ref()
+                .ok_or_else(|| Status::invalid_argument("Missing contract_address"))?,
+        )?;
 
         let class_hash = self
             .inner
@@ -368,7 +417,7 @@ impl<T: StarknetApiProvider> Starknet for StarknetHandler<T> {
             .await
             .into_grpc_result()?;
 
-        Ok(Response::new(GetClassHashAtResponse { class_hash: Some(to_proto_felt(class_hash)) }))
+        Ok(Response::new(GetClassHashAtResponse { class_hash: Some(class_hash.into()) }))
     }
 
     async fn get_class_at(
@@ -376,10 +425,12 @@ impl<T: StarknetApiProvider> Starknet for StarknetHandler<T> {
         request: Request<GetClassAtRequest>,
     ) -> Result<Response<GetClassAtResponse>, Status> {
         let req = request.into_inner();
-        let block_id = from_proto_block_id(req.block_id.as_ref())?;
-        let contract_address = from_proto_felt(req.contract_address.as_ref().ok_or_else(|| {
-            Status::invalid_argument("Missing contract_address")
-        })?)?;
+        let block_id = block_id_from_proto(req.block_id.as_ref())?;
+        let contract_address = Felt::try_from(
+            req.contract_address
+                .as_ref()
+                .ok_or_else(|| Status::invalid_argument("Missing contract_address"))?,
+        )?;
 
         let class =
             self.inner.get_class_at(block_id, contract_address.into()).await.into_grpc_result()?;
@@ -401,33 +452,33 @@ impl<T: StarknetApiProvider> Starknet for StarknetHandler<T> {
         &self,
         request: Request<GetBlockRequest>,
     ) -> Result<Response<GetBlockTransactionCountResponse>, Status> {
-        let block_id = from_proto_block_id(request.into_inner().block_id.as_ref())?;
+        let block_id = block_id_from_proto(request.into_inner().block_id.as_ref())?;
         let count = self.inner.get_block_transaction_count(block_id).await.into_grpc_result()?;
         Ok(Response::new(GetBlockTransactionCountResponse { count }))
     }
 
-    async fn call(
-        &self,
-        request: Request<CallRequest>,
-    ) -> Result<Response<CallResponse>, Status> {
+    async fn call(&self, request: Request<CallRequest>) -> Result<Response<CallResponse>, Status> {
         let req = request.into_inner();
-        let block_id = from_proto_block_id(req.block_id.as_ref())?;
+        let block_id = block_id_from_proto(req.block_id.as_ref())?;
 
-        let function_call = req
-            .request
-            .ok_or_else(|| Status::invalid_argument("Missing request"))?;
+        let function_call =
+            req.request.ok_or_else(|| Status::invalid_argument("Missing request"))?;
 
-        let contract_address = from_proto_felt(function_call.contract_address.as_ref().ok_or_else(
-            || Status::invalid_argument("Missing contract_address"),
-        )?)?;
-
-        let entry_point_selector = from_proto_felt(
-            function_call.entry_point_selector.as_ref().ok_or_else(|| {
-                Status::invalid_argument("Missing entry_point_selector")
-            })?,
+        let contract_address = Felt::try_from(
+            function_call
+                .contract_address
+                .as_ref()
+                .ok_or_else(|| Status::invalid_argument("Missing contract_address"))?,
         )?;
 
-        let calldata = crate::convert::from_proto_felts(&function_call.calldata)?;
+        let entry_point_selector = Felt::try_from(
+            function_call
+                .entry_point_selector
+                .as_ref()
+                .ok_or_else(|| Status::invalid_argument("Missing entry_point_selector"))?,
+        )?;
+
+        let calldata = function_call.calldata.to_felts()?;
 
         let call_request = katana_rpc_types::FunctionCall {
             contract_address: contract_address.into(),
@@ -437,7 +488,7 @@ impl<T: StarknetApiProvider> Starknet for StarknetHandler<T> {
 
         let result = self.inner.call(call_request, block_id).await.into_grpc_result()?;
 
-        Ok(Response::new(CallResponse { result: to_proto_felts(&result.result) }))
+        Ok(Response::new(CallResponse { result: result.result.to_proto_felts() }))
     }
 
     async fn estimate_fee(
@@ -472,7 +523,7 @@ impl<T: StarknetApiProvider> Starknet for StarknetHandler<T> {
     ) -> Result<Response<BlockHashAndNumberResponse>, Status> {
         let result = self.inner.block_hash_and_number().await.into_grpc_result()?;
         Ok(Response::new(BlockHashAndNumberResponse {
-            block_hash: Some(to_proto_felt(result.block_hash)),
+            block_hash: Some(result.block_hash.into()),
             block_number: result.block_number,
         }))
     }
@@ -491,7 +542,9 @@ impl<T: StarknetApiProvider> Starknet for StarknetHandler<T> {
     ) -> Result<Response<SyncingResponse>, Status> {
         let is_syncing = self.inner.syncing();
         Ok(Response::new(SyncingResponse {
-            result: Some(crate::protos::starknet::syncing_response::Result::NotSyncing(!is_syncing)),
+            result: Some(crate::protos::starknet::syncing_response::Result::NotSyncing(
+                !is_syncing,
+            )),
         }))
     }
 
@@ -509,15 +562,17 @@ impl<T: StarknetApiProvider> Starknet for StarknetHandler<T> {
         request: Request<GetNonceRequest>,
     ) -> Result<Response<GetNonceResponse>, Status> {
         let req = request.into_inner();
-        let block_id = from_proto_block_id(req.block_id.as_ref())?;
-        let contract_address = from_proto_felt(req.contract_address.as_ref().ok_or_else(|| {
-            Status::invalid_argument("Missing contract_address")
-        })?)?;
+        let block_id = block_id_from_proto(req.block_id.as_ref())?;
+        let contract_address = Felt::try_from(
+            req.contract_address
+                .as_ref()
+                .ok_or_else(|| Status::invalid_argument("Missing contract_address"))?,
+        )?;
 
         let nonce =
             self.inner.get_nonce(block_id, contract_address.into()).await.into_grpc_result()?;
 
-        Ok(Response::new(GetNonceResponse { nonce: Some(to_proto_felt(nonce)) }))
+        Ok(Response::new(GetNonceResponse { nonce: Some(nonce.into()) }))
     }
 
     async fn get_compiled_casm(

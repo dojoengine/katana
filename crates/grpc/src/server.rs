@@ -74,10 +74,9 @@ impl GrpcServer {
     pub async fn start<H>(self, handler: H) -> Result<GrpcServerHandle, Error>
     where
         H: Clone + Send + Sync + 'static,
-        StarknetHandler<H>:
-            crate::protos::starknet::starknet_server::Starknet
-                + crate::protos::starknet::starknet_write_server::StarknetWrite
-                + crate::protos::starknet::starknet_trace_server::StarknetTrace,
+        StarknetHandler<H>: crate::protos::starknet::starknet_server::Starknet
+            + crate::protos::starknet::starknet_write_server::StarknetWrite
+            + crate::protos::starknet::starknet_trace_server::StarknetTrace,
     {
         let addr = self.config.socket_addr();
 

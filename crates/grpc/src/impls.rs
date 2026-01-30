@@ -165,7 +165,8 @@ where
             } else {
                 // Check if it's in the pool
                 use katana_pool::TransactionPool;
-                let _ = this.pool().get(transaction_hash).ok_or(StarknetApiError::TxnHashNotFound)?;
+                let _ =
+                    this.pool().get(transaction_hash).ok_or(StarknetApiError::TxnHashNotFound)?;
                 Ok(katana_rpc_types::TxStatus::Received)
             }
         })
@@ -247,8 +248,8 @@ where
             }
 
             let provider = this.storage().provider();
-            let receipt =
-                katana_rpc_types_builder::ReceiptBuilder::new(transaction_hash, provider).build()?;
+            let receipt = katana_rpc_types_builder::ReceiptBuilder::new(transaction_hash, provider)
+                .build()?;
 
             receipt.ok_or(StarknetApiError::TxnHashNotFound)
         })
@@ -279,7 +280,10 @@ where
         self.class_at_address(block_id, contract_address).await
     }
 
-    async fn get_block_transaction_count(&self, block_id: BlockIdOrTag) -> Result<u64, StarknetApiError> {
+    async fn get_block_transaction_count(
+        &self,
+        block_id: BlockIdOrTag,
+    ) -> Result<u64, StarknetApiError> {
         self.block_tx_count(block_id).await
     }
 
