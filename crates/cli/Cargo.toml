@@ -21,6 +21,7 @@ katana-rpc-types.workspace = true
 katana-slot-controller = { workspace = true, optional = true }
 katana-tee = { workspace = true, optional = true }
 katana-tracing.workspace = true
+katana-paymaster = { workspace = true, optional = true }
 katana-utils.workspace = true
 serde-utils.workspace = true
 
@@ -48,8 +49,8 @@ starknet.workspace = true
 
 [features]
 paymaster = [
+	"dep:katana-paymaster",
 	"dep:katana-slot-controller",
-	"dep:reqwest",
 	"dep:starknet",
 	"katana-node/paymaster",
 	"katana-rpc-server/paymaster",
@@ -57,6 +58,7 @@ paymaster = [
 vrf = [
 	"paymaster",
 	"dep:ark-ff",
+	"dep:reqwest",
 	"dep:stark-vrf",
 	"katana-node/vrf",
 	"katana-rpc-server/vrf",

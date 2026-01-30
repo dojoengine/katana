@@ -824,7 +824,7 @@ where
     <P as katana_provider::ProviderFactory>::ProviderMut: katana_provider::ProviderRW,
 {
     use crate::sidecar::{
-        bootstrap_sidecars, start_sidecars, BootstrapConfig, PaymasterSidecarConfig,
+        bootstrap_sidecars, start_sidecars, BootstrapConfig, PaymasterStartConfig,
         SidecarStartConfig,
     };
     #[cfg(feature = "vrf")]
@@ -864,7 +864,7 @@ where
             .await?;
 
     // Build sidecar start config
-    let paymaster_config = paymaster_sidecar.map(|info| PaymasterSidecarConfig {
+    let paymaster_config = paymaster_sidecar.map(|info| PaymasterStartConfig {
         options: &args.paymaster,
         port: info.port,
         api_key: info.api_key.clone(),
@@ -952,8 +952,8 @@ mod test {
     fn test_db_dir_alias() {
         // --db-dir should work as an alias for --data-dir
         let args = SequencerNodeArgs::parse_from(["katana", "--db-dir", "/path/to/db"]);
-        let config = args.config().unwrap();
-        assert_eq!(config.db.dir, Some(PathBuf::from("/path/to/db")));
+        let result = args.config().unwrap();
+        assert_eq!(result.config.db.dir, Some(PathBuf::from("/path/to/db")));
     }
 
     #[test]

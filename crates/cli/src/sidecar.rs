@@ -7,11 +7,13 @@
 //! The node treats all paymaster/VRF services as external - this module bridges
 //! the gap by deploying necessary contracts and spawning sidecar processes.
 
+#[cfg(feature = "vrf")]
+use std::env;
 use std::net::SocketAddr;
+#[cfg(feature = "vrf")]
 use std::path::{Path, PathBuf};
 use std::process::Stdio;
-use std::time::{Duration, Instant, SystemTime, UNIX_EPOCH};
-use std::{env, fs};
+use std::time::{Duration, Instant};
 
 use anyhow::{anyhow, Context, Result};
 #[cfg(feature = "vrf")]
@@ -19,15 +21,22 @@ use ark_ff::PrimeField;
 use katana_core::backend::Backend;
 use katana_core::service::block_producer::BlockProducer;
 use katana_executor::ExecutorFactory;
+#[cfg(feature = "vrf")]
 use katana_genesis::allocation::GenesisAccountAlloc;
-use katana_genesis::constant::{
-    DEFAULT_ETH_FEE_TOKEN_ADDRESS, DEFAULT_STRK_FEE_TOKEN_ADDRESS, DEFAULT_UDC_ADDRESS,
+use katana_genesis::constant::{DEFAULT_STRK_FEE_TOKEN_ADDRESS, DEFAULT_UDC_ADDRESS};
+pub use katana_paymaster::{
+    bootstrap_paymaster, format_felt, start_paymaster_sidecar, PaymasterBootstrap,
+    PaymasterSidecarConfig,
 };
 use katana_pool::TxPool;
+#[cfg(feature = "vrf")]
 use katana_pool_api::TransactionPool;
-use katana_primitives::chain::{ChainId, NamedChainId};
+use katana_primitives::chain::ChainId;
+#[cfg(feature = "vrf")]
 use katana_primitives::da::DataAvailabilityMode;
+#[cfg(feature = "vrf")]
 use katana_primitives::fee::{AllResourceBoundsMapping, ResourceBoundsMapping};
+#[cfg(feature = "vrf")]
 use katana_primitives::transaction::{ExecutableTx, ExecutableTxWithHash, InvokeTx, InvokeTxV3};
 use katana_primitives::utils::get_contract_address;
 #[cfg(feature = "vrf")]
@@ -35,24 +44,27 @@ use katana_primitives::utils::split_u256;
 #[cfg(feature = "vrf")]
 use katana_primitives::U256;
 use katana_primitives::{ContractAddress, Felt};
+#[cfg(feature = "vrf")]
 use katana_provider::api::state::{StateFactoryProvider, StateProvider};
 use katana_provider::ProviderFactory;
+#[cfg(feature = "vrf")]
 use katana_rpc_types::FunctionCall;
-use serde::Serialize;
 #[cfg(feature = "vrf")]
 use stark_vrf::{generate_public_key, ScalarField};
+#[cfg(feature = "vrf")]
 use starknet::macros::selector;
+#[cfg(feature = "vrf")]
 use starknet::signers::{LocalWallet, Signer, SigningKey};
-use tokio::process::{Child, Command};
+use tokio::process::Child;
+#[cfg(feature = "vrf")]
+use tokio::process::Command;
 use tokio::time::sleep;
 use tracing::{debug, info, warn};
-use url::Url;
 
 use crate::options::PaymasterOptions;
 #[cfg(feature = "vrf")]
 use crate::options::VrfOptions;
 
-const FORWARDER_SALT: u64 = 0x12345;
 #[cfg(feature = "vrf")]
 const VRF_ACCOUNT_SALT: u64 = 0x54321;
 #[cfg(feature = "vrf")]
@@ -60,25 +72,10 @@ const VRF_CONSUMER_SALT: u64 = 0x67890;
 const BOOTSTRAP_TIMEOUT: Duration = Duration::from_secs(10);
 #[cfg(feature = "vrf")]
 const VRF_SERVER_PORT: u16 = 3000;
-const DEFAULT_AVNU_PRICE_SEPOLIA_ENDPOINT: &str = "https://sepolia.api.avnu.fi";
-const DEFAULT_AVNU_PRICE_MAINNET_ENDPOINT: &str = "https://starknet.api.avnu.fi";
 
 // ============================================================================
 // Bootstrap Types
 // ============================================================================
-
-/// Bootstrap data for the paymaster service.
-#[derive(Debug, Clone)]
-pub struct PaymasterBootstrap {
-    pub forwarder_address: ContractAddress,
-    pub relayer_address: ContractAddress,
-    pub relayer_private_key: Felt,
-    pub gas_tank_address: ContractAddress,
-    pub gas_tank_private_key: Felt,
-    pub estimate_account_address: ContractAddress,
-    pub estimate_account_private_key: Felt,
-    pub chain_id: ChainId,
-}
 
 /// Bootstrap data for the VRF service.
 #[cfg(feature = "vrf")]
@@ -153,84 +150,6 @@ where
     }
 
     Ok(result)
-}
-
-async fn bootstrap_paymaster<EF, PF>(
-    prefunded_index: u16,
-    backend: &Backend<EF, PF>,
-    block_producer: &BlockProducer<EF, PF>,
-    pool: &TxPool,
-) -> Result<PaymasterBootstrap>
-where
-    EF: ExecutorFactory,
-    PF: ProviderFactory,
-    <PF as ProviderFactory>::Provider: katana_provider::ProviderRO,
-    <PF as ProviderFactory>::ProviderMut: katana_provider::ProviderRW,
-{
-    let (relayer_address, relayer_private_key) = prefunded_account(backend, prefunded_index)?;
-    let gas_tank_index = prefunded_index
-        .checked_add(1)
-        .ok_or_else(|| anyhow!("paymaster gas tank index overflow"))?;
-    let estimate_index = prefunded_index
-        .checked_add(2)
-        .ok_or_else(|| anyhow!("paymaster estimate index overflow"))?;
-
-    let (gas_tank_address, gas_tank_private_key) = prefunded_account(backend, gas_tank_index)?;
-    let (estimate_account_address, estimate_account_private_key) =
-        prefunded_account(backend, estimate_index)?;
-
-    let forwarder_class_hash = avnu_forwarder_class_hash()?;
-    let forwarder_address = get_contract_address(
-        Felt::from(FORWARDER_SALT),
-        forwarder_class_hash,
-        &[relayer_address.into(), gas_tank_address.into()],
-        DEFAULT_UDC_ADDRESS.into(),
-    )
-    .into();
-
-    ensure_deployed(
-        backend,
-        block_producer,
-        pool,
-        DeploymentRequest {
-            sender_address: relayer_address,
-            sender_private_key: relayer_private_key,
-            target_address: forwarder_address,
-            class_hash: forwarder_class_hash,
-            constructor_calldata: vec![relayer_address.into(), gas_tank_address.into()],
-            salt: Felt::from(FORWARDER_SALT),
-        },
-    )
-    .await?;
-
-    let whitelist_call = FunctionCall {
-        contract_address: forwarder_address,
-        entry_point_selector: selector!("set_whitelisted_address"),
-        calldata: vec![relayer_address.into(), Felt::ONE],
-    };
-
-    submit_invoke(
-        backend,
-        block_producer,
-        pool,
-        relayer_address,
-        relayer_private_key,
-        vec![whitelist_call],
-    )
-    .await?;
-
-    let chain_id = backend.chain_spec.id();
-
-    Ok(PaymasterBootstrap {
-        forwarder_address,
-        relayer_address,
-        relayer_private_key,
-        gas_tank_address,
-        gas_tank_private_key,
-        estimate_account_address,
-        estimate_account_private_key,
-        chain_id,
-    })
 }
 
 #[cfg(feature = "vrf")]
@@ -379,6 +298,7 @@ where
     Ok(VrfBootstrap { secret_key: derived.secret_key })
 }
 
+#[cfg(feature = "vrf")]
 fn prefunded_account<EF, PF>(
     backend: &Backend<EF, PF>,
     index: u16,
@@ -428,6 +348,7 @@ where
     Err(anyhow!("sequencer key source requested but sequencer is not a prefunded account"))
 }
 
+#[cfg(feature = "vrf")]
 struct DeploymentRequest {
     sender_address: ContractAddress,
     sender_private_key: Felt,
@@ -437,6 +358,7 @@ struct DeploymentRequest {
     salt: Felt,
 }
 
+#[cfg(feature = "vrf")]
 async fn ensure_deployed<EF, PF>(
     backend: &Backend<EF, PF>,
     block_producer: &BlockProducer<EF, PF>,
@@ -517,6 +439,7 @@ where
     .await
 }
 
+#[cfg(feature = "vrf")]
 async fn submit_invoke<EF, PF>(
     backend: &Backend<EF, PF>,
     block_producer: &BlockProducer<EF, PF>,
@@ -545,6 +468,7 @@ where
     Ok(())
 }
 
+#[cfg(feature = "vrf")]
 fn account_nonce(
     pool: &TxPool,
     state: &dyn StateProvider,
@@ -556,8 +480,9 @@ fn account_nonce(
     Ok(state.nonce(address)?.unwrap_or_default())
 }
 
+#[cfg(feature = "vrf")]
 fn sign_invoke_tx(
-    chain_id: katana_primitives::chain::ChainId,
+    chain_id: ChainId,
     sender_address: ContractAddress,
     sender_private_key: Felt,
     nonce: Felt,
@@ -589,6 +514,7 @@ fn sign_invoke_tx(
     Ok(tx)
 }
 
+#[cfg(feature = "vrf")]
 fn encode_calls(calls: Vec<FunctionCall>) -> Vec<Felt> {
     let mut execute_calldata: Vec<Felt> = vec![calls.len().into()];
     for call in calls {
@@ -602,6 +528,7 @@ fn encode_calls(calls: Vec<FunctionCall>) -> Vec<Felt> {
     execute_calldata
 }
 
+#[cfg(feature = "vrf")]
 fn udc_calldata(class_hash: Felt, salt: Felt, constructor_calldata: Vec<Felt>) -> Vec<Felt> {
     let mut calldata = Vec::with_capacity(4 + constructor_calldata.len());
     calldata.push(class_hash);
@@ -612,6 +539,7 @@ fn udc_calldata(class_hash: Felt, salt: Felt, constructor_calldata: Vec<Felt>) -
     calldata
 }
 
+#[cfg(feature = "vrf")]
 fn is_deployed<EF, PF>(backend: &Backend<EF, PF>, address: ContractAddress) -> Result<bool>
 where
     EF: ExecutorFactory,
@@ -623,6 +551,7 @@ where
     Ok(state.class_hash_of_contract(address)?.is_some())
 }
 
+#[cfg(feature = "vrf")]
 async fn wait_for_contract<EF, PF>(
     backend: &Backend<EF, PF>,
     address: ContractAddress,
@@ -646,14 +575,6 @@ where
 
         sleep(Duration::from_millis(200)).await;
     }
-}
-
-fn avnu_forwarder_class_hash() -> Result<Felt> {
-    let class = katana_primitives::utils::class::parse_sierra_class(include_str!(concat!(
-        env!("CARGO_MANIFEST_DIR"),
-        "/../controller/classes/avnu_Forwarder.contract_class.json"
-    )))?;
-    class.class_hash().context("failed to compute forwarder class hash")
 }
 
 #[cfg(feature = "vrf")]
@@ -692,11 +613,6 @@ fn vrf_secret_key_from_account_key(value: Felt) -> u64 {
 fn felt_from_field<T: std::fmt::Display>(value: T) -> Result<Felt> {
     let decimal = value.to_string();
     Felt::from_dec_str(&decimal).map_err(|err| anyhow!("invalid field value: {err}"))
-}
-
-/// Format a Felt as a hex string with 0x prefix.
-pub fn format_felt(value: Felt) -> String {
-    format!("{value:#x}")
 }
 
 // ============================================================================
@@ -754,13 +670,13 @@ impl Drop for SidecarProcesses {
 
 /// Configuration for starting sidecars.
 pub struct SidecarStartConfig<'a> {
-    pub paymaster: Option<PaymasterSidecarConfig<'a>>,
+    pub paymaster: Option<PaymasterStartConfig<'a>>,
     #[cfg(feature = "vrf")]
     pub vrf: Option<VrfSidecarConfig<'a>>,
 }
 
-/// Configuration for the paymaster sidecar.
-pub struct PaymasterSidecarConfig<'a> {
+/// Configuration for starting the paymaster sidecar.
+pub struct PaymasterStartConfig<'a> {
     pub options: &'a PaymasterOptions,
     pub port: u16,
     pub api_key: String,
@@ -786,8 +702,14 @@ pub async fn start_sidecars(
     if let (Some(paymaster_cfg), Some(paymaster_bootstrap)) =
         (&config.paymaster, bootstrap.paymaster.as_ref())
     {
+        let sidecar_config = PaymasterSidecarConfig {
+            bin: paymaster_cfg.options.bin.clone(),
+            port: paymaster_cfg.port,
+            api_key: paymaster_cfg.api_key.clone(),
+            price_api_key: paymaster_cfg.options.price_api_key.clone(),
+        };
         paymaster_child =
-            Some(start_paymaster_sidecar(paymaster_cfg, paymaster_bootstrap, rpc_addr).await?);
+            Some(start_paymaster_sidecar(&sidecar_config, paymaster_bootstrap, rpc_addr).await?);
     }
 
     #[cfg(feature = "vrf")]
@@ -801,34 +723,6 @@ pub async fn start_sidecars(
     let processes = SidecarProcesses::new(paymaster_child);
 
     Ok(processes)
-}
-
-async fn start_paymaster_sidecar(
-    config: &PaymasterSidecarConfig<'_>,
-    bootstrap: &PaymasterBootstrap,
-    rpc_addr: &SocketAddr,
-) -> Result<Child> {
-    let bin = config.options.bin.clone().unwrap_or_else(|| "paymaster-service".into());
-    let bin = resolve_executable(Path::new(&bin))?;
-    let rpc_url = local_rpc_url(rpc_addr);
-    let profile = build_paymaster_profile(config, bootstrap, &rpc_url)?;
-    let profile_path = write_paymaster_profile(&profile)?;
-
-    let mut command = Command::new(bin);
-    command
-        .env("PAYMASTER_PROFILE", &profile_path)
-        .stdout(Stdio::inherit())
-        .stderr(Stdio::inherit())
-        .kill_on_drop(true);
-
-    info!(target: "sidecar", profile = %profile_path.display(), "paymaster profile generated");
-
-    let child = command.spawn().context("failed to spawn paymaster sidecar")?;
-
-    let url = Url::parse(&format!("http://127.0.0.1:{}", config.port)).expect("valid url");
-    wait_for_paymaster_ready(&url, Some(&config.api_key), BOOTSTRAP_TIMEOUT).await?;
-
-    Ok(child)
 }
 
 #[cfg(feature = "vrf")]
@@ -861,6 +755,7 @@ async fn start_vrf_sidecar(
     Ok(child)
 }
 
+#[cfg(feature = "vrf")]
 fn resolve_executable(path: &Path) -> Result<PathBuf> {
     if path.components().count() > 1 {
         return if path.is_file() {
@@ -879,180 +774,6 @@ fn resolve_executable(path: &Path) -> Result<PathBuf> {
     }
 
     Err(anyhow!("sidecar binary '{}' not found in PATH", path.display()))
-}
-
-#[derive(Debug, Serialize)]
-struct PaymasterProfile {
-    verbosity: String,
-    #[serde(skip_serializing_if = "Option::is_none")]
-    prometheus: Option<PaymasterPrometheusProfile>,
-    rpc: PaymasterRpcProfile,
-    forwarder: String,
-    supported_tokens: Vec<String>,
-    max_fee_multiplier: f32,
-    provider_fee_overhead: f32,
-    estimate_account: PaymasterAccountProfile,
-    gas_tank: PaymasterAccountProfile,
-    relayers: PaymasterRelayersProfile,
-    starknet: PaymasterStarknetProfile,
-    price: PaymasterPriceProfile,
-    sponsoring: PaymasterSponsoringProfile,
-}
-
-#[derive(Debug, Serialize)]
-struct PaymasterPrometheusProfile {
-    endpoint: String,
-}
-
-#[derive(Debug, Serialize)]
-struct PaymasterRpcProfile {
-    port: u64,
-}
-
-#[derive(Debug, Serialize)]
-struct PaymasterAccountProfile {
-    address: String,
-    private_key: String,
-}
-
-#[derive(Debug, Serialize)]
-struct PaymasterRelayersProfile {
-    private_key: String,
-    addresses: Vec<String>,
-    min_relayer_balance: String,
-    lock: PaymasterLockProfile,
-}
-
-#[derive(Debug, Serialize)]
-struct PaymasterLockProfile {
-    mode: String,
-    retry_timeout: u64,
-}
-
-#[derive(Debug, Serialize)]
-struct PaymasterStarknetProfile {
-    chain_id: String,
-    endpoint: String,
-    timeout: u64,
-    fallbacks: Vec<String>,
-}
-
-#[derive(Debug, Serialize)]
-struct PaymasterPriceProfile {
-    provider: String,
-    endpoint: String,
-    api_key: String,
-}
-
-#[derive(Debug, Serialize)]
-struct PaymasterSponsoringProfile {
-    mode: String,
-    api_key: String,
-    sponsor_metadata: Vec<Felt>,
-}
-
-fn build_paymaster_profile(
-    config: &PaymasterSidecarConfig<'_>,
-    bootstrap: &PaymasterBootstrap,
-    rpc_url: &Url,
-) -> Result<PaymasterProfile> {
-    let chain_id = paymaster_chain_id(bootstrap.chain_id)?;
-    let price_endpoint = paymaster_price_endpoint(bootstrap.chain_id)?;
-    let price_api_key = config.options.price_api_key.clone().unwrap_or_default();
-
-    let eth_token = format_felt(DEFAULT_ETH_FEE_TOKEN_ADDRESS.into());
-    let strk_token = format_felt(DEFAULT_STRK_FEE_TOKEN_ADDRESS.into());
-
-    Ok(PaymasterProfile {
-        verbosity: "info".to_string(),
-        prometheus: None,
-        rpc: PaymasterRpcProfile { port: config.port as u64 },
-        forwarder: format_felt(bootstrap.forwarder_address.into()),
-        supported_tokens: vec![eth_token, strk_token],
-        max_fee_multiplier: 3.0,
-        provider_fee_overhead: 0.1,
-        estimate_account: PaymasterAccountProfile {
-            address: format_felt(bootstrap.estimate_account_address.into()),
-            private_key: format_felt(bootstrap.estimate_account_private_key),
-        },
-        gas_tank: PaymasterAccountProfile {
-            address: format_felt(bootstrap.gas_tank_address.into()),
-            private_key: format_felt(bootstrap.gas_tank_private_key),
-        },
-        relayers: PaymasterRelayersProfile {
-            private_key: format_felt(bootstrap.relayer_private_key),
-            addresses: vec![format_felt(bootstrap.relayer_address.into())],
-            min_relayer_balance: format_felt(Felt::ZERO),
-            lock: PaymasterLockProfile { mode: "seggregated".to_string(), retry_timeout: 5 },
-        },
-        starknet: PaymasterStarknetProfile {
-            chain_id,
-            endpoint: rpc_url.to_string(),
-            timeout: 30,
-            fallbacks: Vec::new(),
-        },
-        price: PaymasterPriceProfile {
-            provider: "avnu".to_string(),
-            endpoint: price_endpoint.to_string(),
-            api_key: price_api_key,
-        },
-        sponsoring: PaymasterSponsoringProfile {
-            mode: "self".to_string(),
-            api_key: config.api_key.clone(),
-            sponsor_metadata: Vec::new(),
-        },
-    })
-}
-
-fn write_paymaster_profile(profile: &PaymasterProfile) -> Result<PathBuf> {
-    let payload = serde_json::to_string_pretty(profile).context("serialize paymaster profile")?;
-    let timestamp = SystemTime::now().duration_since(UNIX_EPOCH)?.as_millis();
-    let pid = std::process::id();
-
-    let mut path = env::temp_dir();
-    path.push(format!("katana-paymaster-profile-{timestamp}-{pid}.json"));
-    fs::write(&path, payload).context("write paymaster profile")?;
-    Ok(path)
-}
-
-fn local_rpc_url(addr: &SocketAddr) -> Url {
-    let host = match addr.ip() {
-        std::net::IpAddr::V4(ip) if ip.is_unspecified() => {
-            std::net::IpAddr::V4([127, 0, 0, 1].into())
-        }
-        std::net::IpAddr::V6(ip) if ip.is_unspecified() => {
-            std::net::IpAddr::V4([127, 0, 0, 1].into())
-        }
-        ip => ip,
-    };
-
-    Url::parse(&format!("http://{}:{}", host, addr.port())).expect("valid rpc url")
-}
-
-fn paymaster_chain_id(chain_id: ChainId) -> Result<String> {
-    match chain_id {
-        ChainId::Named(NamedChainId::Sepolia) => Ok("sepolia".to_string()),
-        ChainId::Named(NamedChainId::Mainnet) => Ok("mainnet".to_string()),
-        ChainId::Named(other) => Err(anyhow!(
-            "paymaster sidecar only supports SN_MAIN or SN_SEPOLIA chain ids, got {other}"
-        )),
-        ChainId::Id(id) => {
-            Err(anyhow!("paymaster sidecar requires SN_MAIN or SN_SEPOLIA chain id, got {id:#x}"))
-        }
-    }
-}
-
-fn paymaster_price_endpoint(chain_id: ChainId) -> Result<&'static str> {
-    match chain_id {
-        ChainId::Named(NamedChainId::Sepolia) => Ok(DEFAULT_AVNU_PRICE_SEPOLIA_ENDPOINT),
-        ChainId::Named(NamedChainId::Mainnet) => Ok(DEFAULT_AVNU_PRICE_MAINNET_ENDPOINT),
-        ChainId::Named(other) => Err(anyhow!(
-            "paymaster sidecar only supports SN_MAIN or SN_SEPOLIA chain ids, got {other}"
-        )),
-        ChainId::Id(id) => {
-            Err(anyhow!("paymaster sidecar requires SN_MAIN or SN_SEPOLIA chain id, got {id:#x}"))
-        }
-    }
 }
 
 #[cfg(feature = "vrf")]
@@ -1077,59 +798,6 @@ async fn wait_for_http_ok(url: &str, name: &str, timeout: Duration) -> Result<()
         if start.elapsed() > timeout {
             warn!(target: "sidecar", %name, "sidecar did not become ready in time");
             return Err(anyhow!("{} did not become ready before timeout", name));
-        }
-
-        sleep(Duration::from_millis(200)).await;
-    }
-}
-
-async fn wait_for_paymaster_ready(
-    url: &Url,
-    api_key: Option<&str>,
-    timeout: Duration,
-) -> Result<()> {
-    let client = reqwest::Client::new();
-    let start = Instant::now();
-
-    let payload = serde_json::json!({
-        "jsonrpc": "2.0",
-        "id": 1,
-        "method": "paymaster_health",
-        "params": [],
-    });
-
-    loop {
-        let mut request = client.post(url.as_str()).json(&payload);
-        if let Some(key) = api_key {
-            request = request.header("x-paymaster-api-key", key);
-        }
-
-        match request.send().await {
-            Ok(resp) if resp.status().is_success() => {
-                match resp.json::<serde_json::Value>().await {
-                    Ok(body) => {
-                        if body.get("error").is_none() {
-                            info!(target: "sidecar", name = "paymaster health", "sidecar ready");
-                            return Ok(());
-                        }
-                        debug!(target: "sidecar", name = "paymaster health", "paymaster not ready yet");
-                    }
-                    Err(err) => {
-                        debug!(target: "sidecar", name = "paymaster health", error = %err, "waiting for sidecar");
-                    }
-                }
-            }
-            Ok(resp) => {
-                debug!(target: "sidecar", name = "paymaster health", status = %resp.status(), "waiting for sidecar");
-            }
-            Err(err) => {
-                debug!(target: "sidecar", name = "paymaster health", error = %err, "waiting for sidecar");
-            }
-        }
-
-        if start.elapsed() > timeout {
-            warn!(target: "sidecar", name = "paymaster health", "sidecar did not become ready in time");
-            return Err(anyhow!("paymaster did not become ready before timeout"));
         }
 
         sleep(Duration::from_millis(200)).await;
