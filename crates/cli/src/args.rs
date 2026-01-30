@@ -23,6 +23,7 @@ use katana_node::config::gateway::GatewayConfig;
 use katana_node::config::metrics::MetricsConfig;
 #[cfg(feature = "cartridge")]
 use katana_node::config::paymaster::PaymasterConfig;
+use katana_node::config::grpc::GrpcConfig;
 use katana_node::config::rpc::RpcConfig;
 #[cfg(feature = "server")]
 use katana_node::config::rpc::{RpcModuleKind, RpcModulesList};
@@ -135,6 +136,10 @@ pub struct SequencerNodeArgs {
     #[cfg(feature = "tee")]
     #[command(flatten)]
     pub tee: TeeOptions,
+
+    #[cfg(feature = "server")]
+    #[command(flatten)]
+    pub grpc: GrpcOptions,
 }
 
 impl SequencerNodeArgs {
@@ -209,6 +214,7 @@ impl SequencerNodeArgs {
         let (chain, cs_messaging) = self.chain_spec()?;
         let metrics = self.metrics_config();
         let gateway = self.gateway_config();
+        let grpc = self.grpc_config();
         let forking = self.forking_config()?;
         let execution = self.execution_config();
         let sequencing = self.sequencer_config();
@@ -222,6 +228,7 @@ impl SequencerNodeArgs {
             db,
             dev,
             rpc,
+            grpc,
             chain,
             metrics,
             gateway,
@@ -448,6 +455,25 @@ impl SequencerNodeArgs {
         None
     }
 
+    fn grpc_config(&self) -> Option<GrpcConfig> {
+        #[cfg(feature = "server")]
+        if self.grpc.grpc_enable {
+            use std::time::Duration;
+
+            Some(GrpcConfig {
+                addr: self.grpc.grpc_addr,
+                port: self.grpc.grpc_port,
+                timeout: self.grpc.grpc_timeout.map(Duration::from_secs),
+                max_connections: self.grpc.grpc_max_connections,
+            })
+        } else {
+            None
+        }
+
+        #[cfg(not(feature = "server"))]
+        None
+    }
+
     #[cfg(feature = "cartridge")]
     fn cartridge_config(&self) -> Option<PaymasterConfig> {
         if self.cartridge.paymaster {
@@ -506,6 +532,8 @@ impl SequencerNodeArgs {
                     self.metrics = metrics;
                 }
             }
+
+            self.grpc.merge(config.grpc.as_ref());
         }
 
         self.starknet.merge(config.starknet.as_ref());

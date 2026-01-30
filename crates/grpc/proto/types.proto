@@ -364,3 +364,268 @@ message DeprecatedCairoEntryPoint {
     string offset = 1;
     Felt selector = 2;
 }
+
+// ============================================================
+// Broadcasted Transaction Types (for write operations)
+// ============================================================
+
+message BroadcastedInvokeTransaction {
+    oneof transaction {
+        BroadcastedInvokeTxnV1 invoke_v1 = 1;
+        BroadcastedInvokeTxnV3 invoke_v3 = 2;
+    }
+}
+
+message BroadcastedInvokeTxnV1 {
+    Felt max_fee = 1;
+    string version = 2;
+    repeated Felt signature = 3;
+    Felt nonce = 4;
+    Felt sender_address = 5;
+    repeated Felt calldata = 6;
+}
+
+message BroadcastedInvokeTxnV3 {
+    Felt sender_address = 1;
+    repeated Felt calldata = 2;
+    string version = 3;
+    repeated Felt signature = 4;
+    Felt nonce = 5;
+    ResourceBoundsMapping resource_bounds = 6;
+    Felt tip = 7;
+    repeated Felt paymaster_data = 8;
+    repeated Felt account_deployment_data = 9;
+    string nonce_data_availability_mode = 10;
+    string fee_data_availability_mode = 11;
+}
+
+message BroadcastedDeclareTransaction {
+    oneof transaction {
+        BroadcastedDeclareTxnV2 declare_v2 = 1;
+        BroadcastedDeclareTxnV3 declare_v3 = 2;
+    }
+}
+
+message BroadcastedDeclareTxnV2 {
+    Felt sender_address = 1;
+    Felt compiled_class_hash = 2;
+    Felt max_fee = 3;
+    string version = 4;
+    repeated Felt signature = 5;
+    Felt nonce = 6;
+    ContractClass contract_class = 7;
+}
+
+message BroadcastedDeclareTxnV3 {
+    Felt sender_address = 1;
+    Felt compiled_class_hash = 2;
+    string version = 3;
+    repeated Felt signature = 4;
+    Felt nonce = 5;
+    ContractClass contract_class = 6;
+    ResourceBoundsMapping resource_bounds = 7;
+    Felt tip = 8;
+    repeated Felt paymaster_data = 9;
+    repeated Felt account_deployment_data = 10;
+    string nonce_data_availability_mode = 11;
+    string fee_data_availability_mode = 12;
+}
+
+message BroadcastedDeployAccountTransaction {
+    oneof transaction {
+        BroadcastedDeployAccountTxnV1 deploy_account_v1 = 1;
+        BroadcastedDeployAccountTxnV3 deploy_account_v3 = 2;
+    }
+}
+
+message BroadcastedDeployAccountTxnV1 {
+    Felt max_fee = 1;
+    string version = 2;
+    repeated Felt signature = 3;
+    Felt nonce = 4;
+    Felt class_hash = 5;
+    Felt contract_address_salt = 6;
+    repeated Felt constructor_calldata = 7;
+}
+
+message BroadcastedDeployAccountTxnV3 {
+    string version = 1;
+    repeated Felt signature = 2;
+    Felt nonce = 3;
+    Felt contract_address_salt = 4;
+    repeated Felt constructor_calldata = 5;
+    Felt class_hash = 6;
+    ResourceBoundsMapping resource_bounds = 7;
+    Felt tip = 8;
+    repeated Felt paymaster_data = 9;
+    string nonce_data_availability_mode = 10;
+    string fee_data_availability_mode = 11;
+}
+
+// ============================================================
+// Transaction Trace Types (for trace operations)
+// ============================================================
+
+message TransactionTrace {
+    oneof trace {
+        InvokeTransactionTrace invoke_trace = 1;
+        DeclareTransactionTrace declare_trace = 2;
+        DeployAccountTransactionTrace deploy_account_trace = 3;
+        L1HandlerTransactionTrace l1_handler_trace = 4;
+    }
+}
+
+message InvokeTransactionTrace {
+    FunctionInvocation execute_invocation = 1;
+    FunctionInvocation validate_invocation = 2;
+    FunctionInvocation fee_transfer_invocation = 3;
+    string state_diff = 4;
+    ExecutionResources execution_resources = 5;
+}
+
+message DeclareTransactionTrace {
+    FunctionInvocation validate_invocation = 1;
+    FunctionInvocation fee_transfer_invocation = 2;
+    string state_diff = 3;
+    ExecutionResources execution_resources = 4;
+}
+
+message DeployAccountTransactionTrace {
+    FunctionInvocation constructor_invocation = 1;
+    FunctionInvocation validate_invocation = 2;
+    FunctionInvocation fee_transfer_invocation = 3;
+    string state_diff = 4;
+    ExecutionResources execution_resources = 5;
+}
+
+message L1HandlerTransactionTrace {
+    FunctionInvocation function_invocation = 1;
+    string state_diff = 2;
+    ExecutionResources execution_resources = 3;
+}
+
+message FunctionInvocation {
+    Felt contract_address = 1;
+    Felt entry_point_selector = 2;
+    repeated Felt calldata = 3;
+    Felt caller_address = 4;
+    Felt class_hash = 5;
+    string entry_point_type = 6;
+    string call_type = 7;
+    repeated Felt result = 8;
+    repeated FunctionInvocation calls = 9;
+    repeated Event events = 10;
+    repeated MessageToL1 messages = 11;
+    ComputationResources computation_resources = 12;
+}
+
+message ComputationResources {
+    uint64 steps = 1;
+    uint64 memory_holes = 2;
+    uint64 range_check_builtin_applications = 3;
+    uint64 pedersen_builtin_applications = 4;
+    uint64 poseidon_builtin_applications = 5;
+    uint64 ec_op_builtin_applications = 6;
+    uint64 ecdsa_builtin_applications = 7;
+    uint64 bitwise_builtin_applications = 8;
+    uint64 keccak_builtin_applications = 9;
+    uint64 segment_arena_builtin = 10;
+}
+
+message SimulatedTransaction {
+    TransactionTrace transaction_trace = 1;
+    FeeEstimate fee_estimation = 2;
+}
+
+// ============================================================
+// Storage Proof Types
+// ============================================================
+
+message StorageProof {
+    GlobalRoots global_roots = 1;
+    ClassesProof classes_proof = 2;
+    ContractsProof contracts_proof = 3;
+    ContractStorageProofs contracts_storage_proofs = 4;
+}
+
+message GlobalRoots {
+    Felt block_hash = 1;
+    Felt classes_tree_root = 2;
+    Felt contracts_tree_root = 3;
+}
+
+message ClassesProof {
+    repeated MerkleProofNode nodes = 1;
+}
+
+message ContractsProof {
+    repeated MerkleProofNode nodes = 1;
+    repeated ContractLeafData contract_leaves_data = 2;
+}
+
+message ContractLeafData {
+    Felt storage_root = 1;
+    Felt class_hash = 2;
+    Felt nonce = 3;
+}
+
+message ContractStorageProofs {
+    repeated ContractStorageProof proofs = 1;
+}
+
+message ContractStorageProof {
+    repeated MerkleProofNode nodes = 1;
+}
+
+message MerkleProofNode {
+    oneof node {
+        BinaryNode binary = 1;
+        EdgeNode edge = 2;
+    }
+}
+
+message BinaryNode {
+    Felt left = 1;
+    Felt right = 2;
+}
+
+message EdgeNode {
+    Felt path = 1;
+    uint32 length = 2;
+    Felt child = 3;
+}
+
+message ContractStorageKeysRequest {
+    Felt contract_address = 1;
+    repeated Felt keys = 2;
+}
+
+// ============================================================
+// Compiled CASM Class Type
+// ============================================================
+
+message CasmContractClass {
+    string prime = 1;
+    string compiler_version = 2;
+    repeated CasmContractEntryPoint entry_points_by_type_external = 3;
+    repeated CasmContractEntryPoint entry_points_by_type_l1_handler = 4;
+    repeated CasmContractEntryPoint entry_points_by_type_constructor = 5;
+    repeated bytes bytecode = 6;
+    repeated BytecodeSegmentLength bytecode_segment_lengths = 7;
+    repeated Hint hints = 8;
+}
+
+message CasmContractEntryPoint {
+    Felt selector = 1;
+    uint64 offset = 2;
+    repeated Felt builtins = 3;
+}
+
+message BytecodeSegmentLength {
+    uint64 length = 1;
+}
+
+message Hint {
+    uint64 id = 1;
+    string code = 2;
+}

@@ -6072,8 +6072,25 @@ dependencies = [
 name = "katana-grpc"
 version = "1.7.0"
 dependencies = [
+ "katana-chain-spec",
+ "katana-core",
+ "katana-executor",
+ "katana-gas-price-oracle",
+ "katana-pool",
+ "katana-primitives",
+ "katana-provider",
+ "katana-rpc-api",
+ "katana-rpc-server",
+ "katana-rpc-types",
+ "katana-rpc-types-builder",
+ "katana-tasks",
+ "prost 0.12.6",
+ "thiserror 1.0.69",
+ "tokio",
  "tonic 0.11.0",
  "tonic-build",
+ "tonic-reflection",
+ "tracing",
 ]
 
 [[package]]
@@ -6138,6 +6155,7 @@ dependencies = [
  "katana-gateway-client",
  "katana-gateway-server",
  "katana-gateway-types",
+ "katana-grpc",
  "katana-messaging",
  "katana-metrics",
  "katana-pipeline",
@@ -11036,6 +11054,19 @@ dependencies = [
  "prost-build",
  "quote",
  "syn 2.0.104",
+]
+
+[[package]]
+name = "tonic-reflection"
+version = "0.11.0"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "548c227bd5c0fae5925812c4ec6c66ffcfced23ea370cb823f4d18f0fc1cb6a7"
+dependencies = [
+ "prost 0.12.6",
+ "prost-types 0.12.6",
+ "tokio",
+ "tokio-stream",
+ "tonic 0.11.0",
 ]
 
 [[package]]

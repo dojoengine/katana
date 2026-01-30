@@ -88,6 +88,7 @@ katana-gateway-server = { path = "crates/gateway/gateway-server" }
 katana-fork = { path = "crates/storage/fork" }
 katana-gas-price-oracle = { path = "crates/oracle/gas" }
 katana-genesis = { path = "crates/genesis" }
+katana-grpc = { path = "crates/grpc" }
 katana-messaging = { path = "crates/messaging" }
 katana-metrics = { path = "crates/metrics" }
 katana-node = { path = "crates/node" }
@@ -194,6 +195,7 @@ tower-service = "0.3"
 prost = "0.12"
 tonic = { version = "0.11", features = [ "gzip", "tls", "tls-roots", "tls-webpki-roots" ] }
 tonic-build = "0.11"
+tonic-reflection = "0.11"
 
 # benchmark
 criterion = "0.5.1"

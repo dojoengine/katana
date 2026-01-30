@@ -53,6 +53,8 @@ use katana_rpc_server::starknet::{StarknetApi, StarknetApiConfig};
 #[cfg(feature = "tee")]
 use katana_rpc_server::tee::TeeApi;
 use katana_rpc_server::{RpcServer, RpcServerHandle};
+#[cfg(feature = "grpc")]
+use katana_grpc::{GrpcServer, GrpcServerHandle};
 use katana_rpc_types::GetBlockWithTxHashesResponse;
 use katana_stage::Sequencing;
 use katana_tasks::TaskManager;
@@ -77,6 +79,10 @@ where
     config: Arc<Config>,
     pool: TxPool,
     rpc_server: RpcServer,
+    #[cfg(feature = "grpc")]
+    grpc_server: Option<GrpcServer>,
+    #[cfg(feature = "grpc")]
+    starknet_api: Option<StarknetApi<TxPool, BlockProducer<BlockifierFactory, P>, P>>,
     task_manager: TaskManager,
     backend: Arc<Backend<BlockifierFactory, P>>,
     block_producer: BlockProducer<BlockifierFactory, P>,
@@ -330,6 +336,15 @@ where
             rpc_server = rpc_server.max_response_body_size(max_response_body_size);
         }
 
+        // --- build gRPC server (optional)
+
+        #[cfg(feature = "grpc")]
+        let (grpc_server, starknet_api_for_grpc) = if let Some(grpc_config) = &config.grpc {
+            (Some(GrpcServer::new(grpc_config.clone().into())), Some(starknet_api.clone()))
+        } else {
+            (None, None)
+        };
+
         // --- build feeder gateway server (optional)
 
         let gateway_server = if let Some(gw_config) = &config.gateway {
@@ -343,6 +358,10 @@ where
 
             Some(server)
         } else {
+            #[cfg(feature = "grpc")]
+            drop(starknet_api); // Avoid unused variable warning when gateway is disabled but grpc is enabled
+            #[cfg(not(feature = "grpc"))]
+            drop(starknet_api);
             None
         };
 
@@ -367,6 +386,10 @@ where
             pool,
             backend,
             rpc_server,
+            #[cfg(feature = "grpc")]
+            grpc_server,
+            #[cfg(feature = "grpc")]
+            starknet_api: starknet_api_for_grpc,
             gateway_server,
             block_producer,
             metrics_server,
@@ -547,6 +570,19 @@ where
             None => None,
         };
 
+        // --- start the gRPC server (if configured)
+
+        #[cfg(feature = "grpc")]
+        let grpc_handle = match (&self.grpc_server, &self.starknet_api) {
+            (Some(server), Some(starknet_api)) => {
+                let config = self.config().grpc.as_ref().expect("qed; must exist");
+                let handle = server.clone().start(starknet_api.clone()).await?;
+                info!(target: "grpc", addr = %config.socket_addr(), "gRPC server started.");
+                Some(handle)
+            }
+            _ => None,
+        };
+
         // --- start the gas oracle worker task
 
         if let Some(worker) = self.backend.gas_oracle.run_worker() {
@@ -564,6 +600,8 @@ where
             node: self,
             rpc: rpc_handle,
             gateway: gateway_handle,
+            #[cfg(feature = "grpc")]
+            grpc: grpc_handle,
             metrics: metrics_handle,
         })
     }
@@ -611,6 +649,9 @@ where
     rpc: RpcServerHandle,
     /// Handle to the gateway server (if enabled).
     gateway: Option<GatewayServerHandle>,
+    /// Handle to the gRPC server (if enabled).
+    #[cfg(feature = "grpc")]
+    grpc: Option<GrpcServerHandle>,
     /// Handle to the metrics server (if enabled).
     metrics: Option<MetricsServerHandle>,
 }
@@ -641,6 +682,12 @@ where
         self.metrics.as_ref()
     }
 
+    /// Returns a reference to the gRPC server handle (if enabled).
+    #[cfg(feature = "grpc")]
+    pub fn grpc(&self) -> Option<&GrpcServerHandle> {
+        self.grpc.as_ref()
+    }
+
     /// Stops the node.
     ///
     /// This will instruct the node to stop and wait until it has actually stop.
@@ -650,6 +697,12 @@ where
 
         // Stop feeder gateway server if it's running
         if let Some(handle) = self.gateway {
+            handle.stop()?;
+        }
+
+        // Stop gRPC server if it's running
+        #[cfg(feature = "grpc")]
+        if let Some(mut handle) = self.grpc {
             handle.stop()?;
         }
 
