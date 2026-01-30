@@ -5,7 +5,7 @@ use katana_provider::{ProviderFactory, ProviderRO};
 use katana_rpc_server::starknet::PendingBlockProvider;
 use tonic::{Request, Response, Status};
 
-use crate::handlers::StarknetHandler;
+use crate::handlers::StarknetService;
 use crate::protos::starknet::starknet_write_server::StarknetWrite;
 use crate::protos::starknet::{
     AddDeclareTransactionRequest, AddDeclareTransactionResponse,
@@ -14,7 +14,7 @@ use crate::protos::starknet::{
 };
 
 #[tonic::async_trait]
-impl<Pool, PP, PF> StarknetWrite for StarknetHandler<Pool, PP, PF>
+impl<Pool, PP, PF> StarknetWrite for StarknetService<Pool, PP, PF>
 where
     Pool: TransactionPool + 'static,
     PP: PendingBlockProvider,

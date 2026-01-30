@@ -26,8 +26,8 @@ impl TryFrom<&ProtoFelt> for Felt {
         let offset = 32 - proto.value.len();
         bytes[offset..].copy_from_slice(&proto.value);
 
-        Felt::from_bytes_be(&bytes)
-            .map_err(|e| Status::invalid_argument(format!("Invalid Felt value: {e}")))
+        // from_bytes_be returns Felt directly (doesn't fail for valid 32-byte input)
+        Ok(Felt::from_bytes_be(&bytes))
     }
 }
 

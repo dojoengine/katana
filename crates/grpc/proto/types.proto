@@ -29,6 +29,8 @@ message Transaction {
     DeclareTxnV3 declare_v3 = 5;
     DeployAccountTxn deploy_account = 6;
     DeployAccountTxnV3 deploy_account_v3 = 7;
+    L1HandlerTxn l1_handler = 8;
+    DeployTxn deploy = 9;
   }
 }
 
@@ -120,9 +122,29 @@ message DeployAccountTxnV3 {
   string fee_data_availability_mode = 12 [json_name = "fee_data_availability_mode"];
 }
 
+// L1 Handler transaction (from L1 to L2 messages)
+message L1HandlerTxn {
+  string type = 1 [json_name = "type"];
+  string version = 2 [json_name = "version"];
+  Felt nonce = 3 [json_name = "nonce"];
+  Felt contract_address = 4 [json_name = "contract_address"];
+  Felt entry_point_selector = 5 [json_name = "entry_point_selector"];
+  repeated Felt calldata = 6 [json_name = "calldata"];
+}
+
+// Legacy deploy transaction
+message DeployTxn {
+  string type = 1 [json_name = "type"];
+  string version = 2 [json_name = "version"];
+  Felt class_hash = 3 [json_name = "class_hash"];
+  Felt contract_address_salt = 4 [json_name = "contract_address_salt"];
+  repeated Felt constructor_calldata = 5 [json_name = "constructor_calldata"];
+}
+
 message ResourceBoundsMapping {
-  ResourceBounds l1_gas = 1 [json_name = "L1_GAS"];
-  ResourceBounds l2_gas = 2 [json_name = "L2_GAS"];
+  ResourceBounds l1_gas = 1 [json_name = "l1_gas"];
+  ResourceBounds l2_gas = 2 [json_name = "l2_gas"];
+  ResourceBounds l1_data_gas = 3 [json_name = "l1_data_gas"];  // For v0.14.0+
 }
 
 message ResourceBounds {
@@ -130,13 +152,15 @@ message ResourceBounds {
   Felt max_price_per_unit = 2 [json_name = "max_price_per_unit"];
 }
 
+// Fee estimate matching JSON-RPC FeeEstimate
 message FeeEstimate {
-  Felt gas_consumed = 1 [json_name = "gas_consumed"];
-  Felt gas_price = 2 [json_name = "gas_price"];
-  Felt data_gas_consumed = 3 [json_name = "data_gas_consumed"];
-  Felt data_gas_price = 4 [json_name = "data_gas_price"];
-  Felt overall_fee = 5 [json_name = "overall_fee"];
-  string unit = 6 [json_name = "unit"];
+  Felt l1_gas_consumed = 1 [json_name = "l1_gas_consumed"];
+  Felt l1_gas_price = 2 [json_name = "l1_gas_price"];
+  Felt l2_gas_consumed = 3 [json_name = "l2_gas_consumed"];
+  Felt l2_gas_price = 4 [json_name = "l2_gas_price"];
+  Felt l1_data_gas_consumed = 5 [json_name = "l1_data_gas_consumed"];
+  Felt l1_data_gas_price = 6 [json_name = "l1_data_gas_price"];
+  Felt overall_fee = 7 [json_name = "overall_fee"];
 }
 
 message BlockWithTxHashes {
@@ -232,8 +256,9 @@ message BlockHeader {
     Felt sequencer_address = 6;
     ResourcePrice l1_gas_price = 7;
     ResourcePrice l1_data_gas_price = 8;
-    string l1_da_mode = 9;
-    string starknet_version = 10;
+    ResourcePrice l2_gas_price = 9;
+    string l1_da_mode = 10;
+    string starknet_version = 11;
 }
 
 message ResourcePrice {
@@ -246,6 +271,7 @@ message TransactionWithReceipt {
     TransactionReceipt receipt = 2;
 }
 
+// Transaction receipt matching JSON-RPC structure
 message TransactionReceipt {
     string type = 1;
     Felt transaction_hash = 2;
@@ -256,6 +282,11 @@ message TransactionReceipt {
     ExecutionResources execution_resources = 7;
     string execution_status = 8;
     string revert_reason = 9;
+    // Type-specific fields
+    Felt contract_address = 10;  // For Deploy and DeployAccount receipts
+    Felt message_hash = 11;      // For L1Handler receipts
+    uint64 block_number = 12;
+    Felt block_hash = 13;
 }
 
 message FeePayment {
@@ -275,23 +306,11 @@ message Event {
     repeated Felt data = 3;
 }
 
+// Execution resources matching JSON-RPC ExecutionResources (simple gas fields only)
 message ExecutionResources {
-    uint64 steps = 1;
-    uint64 memory_holes = 2;
-    uint64 range_check_builtin_applications = 3;
-    uint64 pedersen_builtin_applications = 4;
-    uint64 poseidon_builtin_applications = 5;
-    uint64 ec_op_builtin_applications = 6;
-    uint64 ecdsa_builtin_applications = 7;
-    uint64 bitwise_builtin_applications = 8;
-    uint64 keccak_builtin_applications = 9;
-    uint64 segment_arena_builtin = 10;
-    DataAvailability data_availability = 11;
-}
-
-message DataAvailability {
     uint64 l1_gas = 1;
     uint64 l1_data_gas = 2;
+    uint64 l2_gas = 3;
 }
 
 message FunctionCall {
@@ -307,11 +326,14 @@ message MessageFromL1 {
     repeated Felt payload = 4;
 }
 
+// Emitted event with index fields
 message EmittedEvent {
-    Event event = 1;
-    Felt block_hash = 2;
-    uint64 block_number = 3;
-    Felt transaction_hash = 4;
+    Felt from_address = 1;
+    repeated Felt keys = 2;
+    repeated Felt data = 3;
+    Felt block_hash = 4;
+    uint64 block_number = 5;
+    Felt transaction_hash = 6;
 }
 
 message EventFilter {
@@ -479,14 +501,14 @@ message InvokeTransactionTrace {
     FunctionInvocation execute_invocation = 1;
     FunctionInvocation validate_invocation = 2;
     FunctionInvocation fee_transfer_invocation = 3;
-    string state_diff = 4;
+    StateDiff state_diff = 4;
     ExecutionResources execution_resources = 5;
 }
 
 message DeclareTransactionTrace {
     FunctionInvocation validate_invocation = 1;
     FunctionInvocation fee_transfer_invocation = 2;
-    string state_diff = 3;
+    StateDiff state_diff = 3;
     ExecutionResources execution_resources = 4;
 }
 
@@ -494,16 +516,17 @@ message DeployAccountTransactionTrace {
     FunctionInvocation constructor_invocation = 1;
     FunctionInvocation validate_invocation = 2;
     FunctionInvocation fee_transfer_invocation = 3;
-    string state_diff = 4;
+    StateDiff state_diff = 4;
     ExecutionResources execution_resources = 5;
 }
 
 message L1HandlerTransactionTrace {
     FunctionInvocation function_invocation = 1;
-    string state_diff = 2;
+    StateDiff state_diff = 2;
     ExecutionResources execution_resources = 3;
 }
 
+// Function invocation matching JSON-RPC FunctionInvocation
 message FunctionInvocation {
     Felt contract_address = 1;
     Felt entry_point_selector = 2;
@@ -514,22 +537,25 @@ message FunctionInvocation {
     string call_type = 7;
     repeated Felt result = 8;
     repeated FunctionInvocation calls = 9;
-    repeated Event events = 10;
-    repeated MessageToL1 messages = 11;
-    ComputationResources computation_resources = 12;
+    repeated OrderedEvent events = 10;
+    repeated OrderedL2ToL1Message messages = 11;
+    ExecutionResources execution_resources = 12;
+    bool is_reverted = 13;
 }
 
-message ComputationResources {
-    uint64 steps = 1;
-    uint64 memory_holes = 2;
-    uint64 range_check_builtin_applications = 3;
-    uint64 pedersen_builtin_applications = 4;
-    uint64 poseidon_builtin_applications = 5;
-    uint64 ec_op_builtin_applications = 6;
-    uint64 ecdsa_builtin_applications = 7;
-    uint64 bitwise_builtin_applications = 8;
-    uint64 keccak_builtin_applications = 9;
-    uint64 segment_arena_builtin = 10;
+// Ordered event (events in traces have order)
+message OrderedEvent {
+    uint64 order = 1;
+    repeated Felt keys = 2;
+    repeated Felt data = 3;
+}
+
+// Ordered L2 to L1 message (messages in traces have order)
+message OrderedL2ToL1Message {
+    uint64 order = 1;
+    Felt from_address = 2;
+    Felt to_address = 3;
+    repeated Felt payload = 4;
 }
 
 message SimulatedTransaction {

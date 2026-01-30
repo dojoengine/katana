@@ -20,10 +20,10 @@ use katana_node::config::execution::ExecutionConfig;
 use katana_node::config::fork::ForkingConfig;
 #[cfg(feature = "server")]
 use katana_node::config::gateway::GatewayConfig;
+use katana_node::config::grpc::GrpcConfig;
 use katana_node::config::metrics::MetricsConfig;
 #[cfg(feature = "cartridge")]
 use katana_node::config::paymaster::PaymasterConfig;
-use katana_node::config::grpc::GrpcConfig;
 use katana_node::config::rpc::RpcConfig;
 #[cfg(feature = "server")]
 use katana_node::config::rpc::{RpcModuleKind, RpcModulesList};
@@ -464,7 +464,6 @@ impl SequencerNodeArgs {
                 addr: self.grpc.grpc_addr,
                 port: self.grpc.grpc_port,
                 timeout: self.grpc.grpc_timeout.map(Duration::from_secs),
-                max_connections: self.grpc.grpc_max_connections,
             })
         } else {
             None

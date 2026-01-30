@@ -9,10 +9,9 @@ use crate::protos::starknet::{
 };
 use crate::protos::types::transaction_trace::Trace as ProtoTraceVariant;
 use crate::protos::types::{
-    ComputationResources, DataAvailability, DeclareTransactionTrace, DeployAccountTransactionTrace,
-    Event as ProtoEvent, ExecutionResources, FeeEstimate as ProtoFeeEstimate, Felt as ProtoFelt,
-    FunctionInvocation, InvokeTransactionTrace, L1HandlerTransactionTrace,
-    MessageToL1 as ProtoMessageToL1, SimulatedTransaction,
+    DeclareTransactionTrace, DeployAccountTransactionTrace, ExecutionResources,
+    FeeEstimate as ProtoFeeEstimate, Felt as ProtoFelt, FunctionInvocation, InvokeTransactionTrace,
+    L1HandlerTransactionTrace, OrderedEvent, OrderedL2ToL1Message, SimulatedTransaction,
     TransactionTrace as ProtoTransactionTrace,
 };
 
@@ -22,36 +21,39 @@ impl From<&katana_rpc_types::trace::TxTrace> for ProtoTransactionTrace {
         use katana_rpc_types::trace::TxTrace;
 
         let trace_variant = match trace {
-            TxTrace::Invoke(invoke) => ProtoTraceVariant::InvokeTrace(InvokeTransactionTrace {
-                execute_invocation: invoke.execute_invocation.as_ref().map(|inv| match inv {
+            TxTrace::Invoke(invoke) => {
+                let execute_invocation = match &invoke.execute_invocation {
                     katana_rpc_types::trace::ExecuteInvocation::Success(inv) => {
-                        FunctionInvocation::from(inv)
+                        Some(FunctionInvocation::from(inv.as_ref()))
                     }
                     katana_rpc_types::trace::ExecuteInvocation::Reverted(r) => {
-                        // For reverted executions, we create an empty invocation with the revert
-                        // reason
-                        FunctionInvocation {
+                        // For reverted executions, create invocation with revert info
+                        Some(FunctionInvocation {
+                            is_reverted: true,
                             result: vec![ProtoFelt::from(Felt::from_bytes_be_slice(
                                 r.revert_reason.as_bytes(),
                             ))],
                             ..Default::default()
-                        }
+                        })
                     }
-                }),
-                validate_invocation: invoke
-                    .validate_invocation
-                    .as_ref()
-                    .map(FunctionInvocation::from),
-                fee_transfer_invocation: invoke
-                    .fee_transfer_invocation
-                    .as_ref()
-                    .map(FunctionInvocation::from),
-                state_diff: String::new(), // State diff is complex, simplified for now
-                execution_resources: invoke
-                    .execution_resources
-                    .as_ref()
-                    .map(ExecutionResources::from),
-            }),
+                };
+
+                ProtoTraceVariant::InvokeTrace(InvokeTransactionTrace {
+                    execute_invocation,
+                    validate_invocation: invoke
+                        .validate_invocation
+                        .as_ref()
+                        .map(FunctionInvocation::from),
+                    fee_transfer_invocation: invoke
+                        .fee_transfer_invocation
+                        .as_ref()
+                        .map(FunctionInvocation::from),
+                    state_diff: None, // State diff conversion would require more complex mapping
+                    execution_resources: Some(ExecutionResources::from(
+                        &invoke.execution_resources,
+                    )),
+                })
+            }
             TxTrace::Declare(declare) => ProtoTraceVariant::DeclareTrace(DeclareTransactionTrace {
                 validate_invocation: declare
                     .validate_invocation
@@ -61,18 +63,14 @@ impl From<&katana_rpc_types::trace::TxTrace> for ProtoTransactionTrace {
                     .fee_transfer_invocation
                     .as_ref()
                     .map(FunctionInvocation::from),
-                state_diff: String::new(),
-                execution_resources: declare
-                    .execution_resources
-                    .as_ref()
-                    .map(ExecutionResources::from),
+                state_diff: None,
+                execution_resources: Some(ExecutionResources::from(&declare.execution_resources)),
             }),
             TxTrace::DeployAccount(deploy) => {
                 ProtoTraceVariant::DeployAccountTrace(DeployAccountTransactionTrace {
-                    constructor_invocation: deploy
-                        .constructor_invocation
-                        .as_ref()
-                        .map(FunctionInvocation::from),
+                    constructor_invocation: Some(FunctionInvocation::from(
+                        &deploy.constructor_invocation,
+                    )),
                     validate_invocation: deploy
                         .validate_invocation
                         .as_ref()
@@ -81,24 +79,32 @@ impl From<&katana_rpc_types::trace::TxTrace> for ProtoTransactionTrace {
                         .fee_transfer_invocation
                         .as_ref()
                         .map(FunctionInvocation::from),
-                    state_diff: String::new(),
-                    execution_resources: deploy
-                        .execution_resources
-                        .as_ref()
-                        .map(ExecutionResources::from),
+                    state_diff: None,
+                    execution_resources: Some(ExecutionResources::from(
+                        &deploy.execution_resources,
+                    )),
                 })
             }
             TxTrace::L1Handler(l1) => {
+                let function_invocation = match &l1.function_invocation {
+                    katana_rpc_types::trace::ExecuteInvocation::Success(inv) => {
+                        Some(FunctionInvocation::from(inv.as_ref()))
+                    }
+                    katana_rpc_types::trace::ExecuteInvocation::Reverted(r) => {
+                        Some(FunctionInvocation {
+                            is_reverted: true,
+                            result: vec![ProtoFelt::from(Felt::from_bytes_be_slice(
+                                r.revert_reason.as_bytes(),
+                            ))],
+                            ..Default::default()
+                        })
+                    }
+                };
+
                 ProtoTraceVariant::L1HandlerTrace(L1HandlerTransactionTrace {
-                    function_invocation: l1
-                        .function_invocation
-                        .as_ref()
-                        .map(FunctionInvocation::from),
-                    state_diff: String::new(),
-                    execution_resources: l1
-                        .execution_resources
-                        .as_ref()
-                        .map(ExecutionResources::from),
+                    function_invocation,
+                    state_diff: None,
+                    execution_resources: Some(ExecutionResources::from(&l1.execution_resources)),
                 })
             }
         };
@@ -156,15 +162,15 @@ impl From<&katana_rpc_types::trace::FunctionInvocation> for FunctionInvocation {
             calldata: inv.calldata.to_proto_felts(),
             caller_address: Some(ProtoFelt::from(Felt::from(inv.caller_address))),
             class_hash: Some(inv.class_hash.into()),
-            entry_point_type: inv.entry_point_type.to_string(),
-            call_type: inv.call_type.to_string(),
+            entry_point_type: format!("{:?}", inv.entry_point_type),
+            call_type: format!("{:?}", inv.call_type),
             result: inv.result.to_proto_felts(),
             calls: inv.calls.iter().map(FunctionInvocation::from).collect(),
             events: inv
                 .events
                 .iter()
-                .map(|e| ProtoEvent {
-                    from_address: None, // Events in traces don't have from_address
+                .map(|e| OrderedEvent {
+                    order: e.order,
                     keys: e.keys.to_proto_felts(),
                     data: e.data.to_proto_felts(),
                 })
@@ -172,90 +178,30 @@ impl From<&katana_rpc_types::trace::FunctionInvocation> for FunctionInvocation {
             messages: inv
                 .messages
                 .iter()
-                .map(|m| ProtoMessageToL1 {
-                    from_address: None,
+                .map(|m| OrderedL2ToL1Message {
+                    order: m.order,
+                    from_address: Some(ProtoFelt::from(Felt::from(m.from_address))),
                     to_address: Some(m.to_address.into()),
                     payload: m.payload.to_proto_felts(),
                 })
                 .collect(),
-            computation_resources: Some(ComputationResources {
-                steps: inv.computation_resources.steps,
-                memory_holes: inv.computation_resources.memory_holes.unwrap_or(0),
-                range_check_builtin_applications: inv
-                    .computation_resources
-                    .range_check_builtin_applications
-                    .unwrap_or(0),
-                pedersen_builtin_applications: inv
-                    .computation_resources
-                    .pedersen_builtin_applications
-                    .unwrap_or(0),
-                poseidon_builtin_applications: inv
-                    .computation_resources
-                    .poseidon_builtin_applications
-                    .unwrap_or(0),
-                ec_op_builtin_applications: inv
-                    .computation_resources
-                    .ec_op_builtin_applications
-                    .unwrap_or(0),
-                ecdsa_builtin_applications: inv
-                    .computation_resources
-                    .ecdsa_builtin_applications
-                    .unwrap_or(0),
-                bitwise_builtin_applications: inv
-                    .computation_resources
-                    .bitwise_builtin_applications
-                    .unwrap_or(0),
-                keccak_builtin_applications: inv
-                    .computation_resources
-                    .keccak_builtin_applications
-                    .unwrap_or(0),
-                segment_arena_builtin: inv.computation_resources.segment_arena_builtin.unwrap_or(0),
+            execution_resources: Some(ExecutionResources {
+                l1_gas: inv.execution_resources.l1_gas,
+                l1_data_gas: 0, // InnerCallExecutionResources doesn't have this
+                l2_gas: inv.execution_resources.l2_gas,
             }),
+            is_reverted: inv.is_reverted,
         }
     }
 }
 
-impl From<&katana_rpc_types::trace::ExecutionResources> for ExecutionResources {
-    fn from(resources: &katana_rpc_types::trace::ExecutionResources) -> Self {
+/// Convert ExecutionResources (from receipt/trace) to proto ExecutionResources.
+impl From<&katana_rpc_types::receipt::ExecutionResources> for ExecutionResources {
+    fn from(resources: &katana_rpc_types::receipt::ExecutionResources) -> Self {
         ExecutionResources {
-            steps: resources.computation_resources.steps,
-            memory_holes: resources.computation_resources.memory_holes.unwrap_or(0),
-            range_check_builtin_applications: resources
-                .computation_resources
-                .range_check_builtin_applications
-                .unwrap_or(0),
-            pedersen_builtin_applications: resources
-                .computation_resources
-                .pedersen_builtin_applications
-                .unwrap_or(0),
-            poseidon_builtin_applications: resources
-                .computation_resources
-                .poseidon_builtin_applications
-                .unwrap_or(0),
-            ec_op_builtin_applications: resources
-                .computation_resources
-                .ec_op_builtin_applications
-                .unwrap_or(0),
-            ecdsa_builtin_applications: resources
-                .computation_resources
-                .ecdsa_builtin_applications
-                .unwrap_or(0),
-            bitwise_builtin_applications: resources
-                .computation_resources
-                .bitwise_builtin_applications
-                .unwrap_or(0),
-            keccak_builtin_applications: resources
-                .computation_resources
-                .keccak_builtin_applications
-                .unwrap_or(0),
-            segment_arena_builtin: resources
-                .computation_resources
-                .segment_arena_builtin
-                .unwrap_or(0),
-            data_availability: Some(DataAvailability {
-                l1_gas: resources.data_availability.l1_gas,
-                l1_data_gas: resources.data_availability.l1_data_gas,
-            }),
+            l1_gas: resources.l1_gas,
+            l1_data_gas: resources.l1_data_gas,
+            l2_gas: resources.l2_gas,
         }
     }
 }
@@ -263,12 +209,13 @@ impl From<&katana_rpc_types::trace::ExecutionResources> for ExecutionResources {
 impl From<&katana_rpc_types::FeeEstimate> for ProtoFeeEstimate {
     fn from(estimate: &katana_rpc_types::FeeEstimate) -> Self {
         ProtoFeeEstimate {
-            gas_consumed: Some(estimate.l1_gas_consumed.into()),
-            gas_price: Some(estimate.l1_gas_price.into()),
-            data_gas_consumed: Some(estimate.l1_data_gas_consumed.into()),
-            data_gas_price: Some(estimate.l1_data_gas_price.into()),
-            overall_fee: Some(estimate.overall_fee.into()),
-            unit: estimate.unit.to_string(),
+            l1_gas_consumed: Some(ProtoFelt::from(Felt::from(estimate.l1_gas_consumed))),
+            l1_gas_price: Some(ProtoFelt::from(Felt::from(estimate.l1_gas_price))),
+            l2_gas_consumed: Some(ProtoFelt::from(Felt::from(estimate.l2_gas_consumed))),
+            l2_gas_price: Some(ProtoFelt::from(Felt::from(estimate.l2_gas_price))),
+            l1_data_gas_consumed: Some(ProtoFelt::from(Felt::from(estimate.l1_data_gas_consumed))),
+            l1_data_gas_price: Some(ProtoFelt::from(Felt::from(estimate.l1_data_gas_price))),
+            overall_fee: Some(ProtoFelt::from(Felt::from(estimate.overall_fee))),
         }
     }
 }

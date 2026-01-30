@@ -1,20 +1,17 @@
 //! gRPC server implementation.
 
 use std::net::SocketAddr;
+use std::time::Duration;
 
-use katana_pool::TransactionPool;
-use katana_provider::{ProviderFactory, ProviderRO};
-use katana_rpc_server::starknet::{PendingBlockProvider, StarknetApi};
 use tokio::sync::oneshot;
+use tonic::transport::server::Routes;
 use tonic::transport::Server;
-use tracing::info;
+use tracing::{error, info};
 
-use crate::config::GrpcConfig;
-use crate::handlers::StarknetHandler;
-use crate::protos::starknet::starknet_server::StarknetServer;
-use crate::protos::starknet::starknet_trace_server::StarknetTraceServer;
-use crate::protos::starknet::starknet_write_server::StarknetWriteServer;
 use crate::protos::starknet::FILE_DESCRIPTOR_SET;
+
+/// The default timeout for an request.
+pub const DEFAULT_TIMEOUT: Duration = Duration::from_secs(20);
 
 /// Error type for gRPC server operations.
 #[derive(Debug, thiserror::Error)]
@@ -61,71 +58,65 @@ impl GrpcServerHandle {
 /// Builder for the gRPC server.
 #[derive(Debug, Clone)]
 pub struct GrpcServer {
-    config: GrpcConfig,
+    routes: Routes,
+    /// Request timeout.
+    timeout: Duration,
 }
 
 impl GrpcServer {
     /// Creates a new gRPC server builder with the given configuration.
-    pub fn new(config: GrpcConfig) -> Self {
-        Self { config }
+    pub fn new() -> Self {
+        Self { routes: Routes::default(), timeout: DEFAULT_TIMEOUT }
+    }
+
+    /// Set the timeout for the server. Default is 20 seconds.
+    pub fn timeout(mut self, timeout: Duration) -> Self {
+        self.timeout = timeout;
+        self
+    }
+
+    pub fn service<S>(mut self, service: S) -> Self
+    where
+        S: tower_service::Service<
+                http::Request<tonic::transport::Body>,
+                Response = http::Response<tonic::body::BoxBody>,
+                Error = std::convert::Infallible,
+            > + tonic::server::NamedService
+            + Clone
+            + Send
+            + 'static,
+        S::Future: Send + 'static,
+        S::Error: Into<Box<dyn std::error::Error + Send + Sync>> + Send,
+    {
+        self.routes = self.routes.add_service(service);
+        self
     }
 
     /// Starts the gRPC server.
     ///
     /// This method spawns the server on a new Tokio task and returns a handle
     /// that can be used to manage the server.
-    pub async fn start<Pool, PP, PF>(
-        self,
-        starknet_api: StarknetApi<Pool, PP, PF>,
-    ) -> Result<GrpcServerHandle, Error>
-    where
-        Pool: TransactionPool + 'static,
-        PP: PendingBlockProvider,
-        PF: ProviderFactory,
-        <PF as ProviderFactory>::Provider: ProviderRO,
-    {
-        let addr = self.config.socket_addr();
-
+    pub async fn start(&self, addr: SocketAddr) -> Result<GrpcServerHandle, Error> {
         // Build reflection service for tooling support (grpcurl, Postman, etc.)
         let reflection_service = tonic_reflection::server::Builder::configure()
             .register_encoded_file_descriptor_set(FILE_DESCRIPTOR_SET)
-            .build_v1()
+            .build()
             .map_err(|e| Error::ReflectionBuild(e.to_string()))?;
-
-        // Create the service handler
-        let starknet_handler = StarknetHandler::new(starknet_api);
 
         // Create shutdown channel
         let (shutdown_tx, shutdown_rx) = oneshot::channel();
 
-        // Build the server
-        let mut builder = Server::builder();
-
-        // Configure timeout if specified
-        if let Some(timeout) = self.config.timeout {
-            builder = builder.timeout(timeout);
-        }
-
-        // Configure max concurrent connections if specified
-        if let Some(max_connections) = self.config.max_connections {
-            builder = builder.concurrency_limit_per_connection(max_connections as usize);
-        }
-
-        let server = builder
-            .add_service(reflection_service)
-            .add_service(StarknetServer::new(starknet_handler.clone()))
-            .add_service(StarknetWriteServer::new(starknet_handler.clone()))
-            .add_service(StarknetTraceServer::new(starknet_handler));
+        let mut builder = Server::builder().timeout(self.timeout);
+        let server = builder.add_routes(self.routes.clone()).add_service(reflection_service);
 
         // Start the server with graceful shutdown
         let server_future = server.serve_with_shutdown(addr, async {
             let _ = shutdown_rx.await;
         });
 
-        // Spawn the server task
         tokio::spawn(async move {
-            if let Err(e) = server_future.await {
-                tracing::error!(error = %e, "gRPC server error");
+            if let Err(error) = server_future.await {
+                error!(target: "grpc", %error, "gRPC server error");
             }
         });
 
@@ -137,6 +128,6 @@ impl GrpcServer {
 
 impl Default for GrpcServer {
     fn default() -> Self {
-        Self::new(GrpcConfig::default())
+        Self::new()
     }
 }

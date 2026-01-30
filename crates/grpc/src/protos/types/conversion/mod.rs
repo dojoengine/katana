@@ -15,7 +15,13 @@ mod transaction;
 
 pub use block::*;
 pub use felt::{FeltVecExt, ProtoFeltVecExt};
+// These modules implement From/TryFrom traits for type conversions
+// The types are used via .into() or TryFrom::try_from() calls
+#[allow(unused_imports)]
 pub use receipt::*;
+#[allow(unused_imports)]
 pub use state::*;
+#[allow(unused_imports)]
 pub use trace::*;
+#[allow(unused_imports)]
 pub use transaction::*;

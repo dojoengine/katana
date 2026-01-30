@@ -12,7 +12,10 @@ mod protos;
 mod server;
 
 // Re-export conversion module for internal use
-pub(crate) use protos::types::conversion;
-
 pub use config::GrpcConfig;
+pub use handlers::StarknetService;
+pub use protos::starknet::starknet_server::StarknetServer;
+pub use protos::starknet::starknet_trace_server::StarknetTraceServer;
+pub use protos::starknet::starknet_write_server::StarknetWriteServer;
+pub(crate) use protos::types::conversion;
 pub use server::{GrpcServer, GrpcServerHandle};

@@ -866,11 +866,6 @@ pub struct GrpcOptions {
     #[arg(requires = "grpc_enable")]
     #[arg(long = "grpc.timeout", value_name = "TIMEOUT")]
     pub grpc_timeout: Option<u64>,
-
-    /// Maximum number of concurrent gRPC connections.
-    #[arg(requires = "grpc_enable")]
-    #[arg(long = "grpc.max-connections", value_name = "MAX")]
-    pub grpc_max_connections: Option<u32>,
 }
 
 #[cfg(feature = "server")]
@@ -881,7 +876,6 @@ impl Default for GrpcOptions {
             grpc_addr: default_grpc_addr(),
             grpc_port: default_grpc_port(),
             grpc_timeout: None,
-            grpc_max_connections: None,
         }
     }
 }
@@ -901,9 +895,6 @@ impl GrpcOptions {
             }
             if self.grpc_timeout.is_none() {
                 self.grpc_timeout = other.grpc_timeout;
-            }
-            if self.grpc_max_connections.is_none() {
-                self.grpc_max_connections = other.grpc_max_connections;
             }
         }
     }

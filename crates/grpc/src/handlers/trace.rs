@@ -7,8 +7,7 @@ use katana_rpc_server::starknet::PendingBlockProvider;
 use tonic::{Request, Response, Status};
 
 use crate::conversion::block_id_from_proto;
-use crate::error::IntoGrpcResult;
-use crate::handlers::StarknetHandler;
+use crate::handlers::StarknetService;
 use crate::protos::starknet::starknet_trace_server::StarknetTrace;
 use crate::protos::starknet::{
     SimulateTransactionsRequest, SimulateTransactionsResponse, TraceBlockTransactionsRequest,
@@ -16,7 +15,7 @@ use crate::protos::starknet::{
 };
 
 #[tonic::async_trait]
-impl<Pool, PP, PF> StarknetTrace for StarknetHandler<Pool, PP, PF>
+impl<Pool, PP, PF> StarknetTrace for StarknetService<Pool, PP, PF>
 where
     Pool: TransactionPool + 'static,
     PP: PendingBlockProvider,

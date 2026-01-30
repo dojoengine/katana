@@ -5,20 +5,25 @@ pub mod dev;
 pub mod execution;
 pub mod fork;
 pub mod gateway;
-pub mod grpc;
 pub mod metrics;
-#[cfg(feature = "cartridge")]
-pub mod paymaster;
 pub mod rpc;
 pub mod sequencing;
+
+#[cfg(feature = "cartridge")]
+pub mod paymaster;
+
 #[cfg(feature = "tee")]
 pub mod tee;
+
+#[cfg(feature = "grpc")]
+pub mod grpc;
 
 use db::DbConfig;
 use dev::DevConfig;
 use execution::ExecutionConfig;
 use fork::ForkingConfig;
 use gateway::GatewayConfig;
+#[cfg(feature = "grpc")]
 use grpc::GrpcConfig;
 use katana_chain_spec::ChainSpec;
 use katana_messaging::MessagingConfig;
@@ -42,9 +47,6 @@ pub struct Config {
 
     /// Rpc options.
     pub rpc: RpcConfig,
-
-    /// gRPC options.
-    pub grpc: Option<GrpcConfig>,
 
     /// Feeder gateway options.
     pub gateway: Option<GatewayConfig>,
@@ -71,4 +73,8 @@ pub struct Config {
     /// TEE attestation options.
     #[cfg(feature = "tee")]
     pub tee: Option<tee::TeeConfig>,
+
+    /// gRPC options.
+    #[cfg(feature = "grpc")]
+    pub grpc: Option<GrpcConfig>,
 }

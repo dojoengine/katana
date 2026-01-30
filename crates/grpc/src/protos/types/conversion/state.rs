@@ -14,14 +14,13 @@ impl From<&katana_rpc_types::state_update::StateDiff> for ProtoStateDiff {
             storage_diffs: diff
                 .storage_diffs
                 .iter()
-                .map(|sd| StorageDiff {
-                    address: Some(ProtoFelt::from(Felt::from(sd.address))),
-                    storage_entries: sd
-                        .storage_entries
+                .map(|(address, entries)| StorageDiff {
+                    address: Some(ProtoFelt::from(Felt::from(*address))),
+                    storage_entries: entries
                         .iter()
-                        .map(|se| StorageEntry {
-                            key: Some(se.key.into()),
-                            value: Some(se.value.into()),
+                        .map(|(key, value)| StorageEntry {
+                            key: Some((*key).into()),
+                            value: Some((*value).into()),
                         })
                         .collect(),
                 })
@@ -34,33 +33,33 @@ impl From<&katana_rpc_types::state_update::StateDiff> for ProtoStateDiff {
             declared_classes: diff
                 .declared_classes
                 .iter()
-                .map(|dc| DeclaredClass {
-                    class_hash: Some(dc.class_hash.into()),
-                    compiled_class_hash: Some(dc.compiled_class_hash.into()),
+                .map(|(class_hash, compiled_class_hash)| DeclaredClass {
+                    class_hash: Some((*class_hash).into()),
+                    compiled_class_hash: Some((*compiled_class_hash).into()),
                 })
                 .collect(),
             deployed_contracts: diff
                 .deployed_contracts
                 .iter()
-                .map(|dc| DeployedContract {
-                    address: Some(ProtoFelt::from(Felt::from(dc.address))),
-                    class_hash: Some(dc.class_hash.into()),
+                .map(|(address, class_hash)| DeployedContract {
+                    address: Some(ProtoFelt::from(Felt::from(*address))),
+                    class_hash: Some((*class_hash).into()),
                 })
                 .collect(),
             replaced_classes: diff
                 .replaced_classes
                 .iter()
-                .map(|rc| ReplacedClass {
-                    contract_address: Some(ProtoFelt::from(Felt::from(rc.contract_address))),
-                    class_hash: Some(rc.class_hash.into()),
+                .map(|(contract_address, class_hash)| ReplacedClass {
+                    contract_address: Some(ProtoFelt::from(Felt::from(*contract_address))),
+                    class_hash: Some((*class_hash).into()),
                 })
                 .collect(),
             nonces: diff
                 .nonces
                 .iter()
-                .map(|n| ProtoNonce {
-                    contract_address: Some(ProtoFelt::from(Felt::from(n.contract_address))),
-                    nonce: Some(n.nonce.into()),
+                .map(|(contract_address, nonce)| ProtoNonce {
+                    contract_address: Some(ProtoFelt::from(Felt::from(*contract_address))),
+                    nonce: Some((*nonce).into()),
                 })
                 .collect(),
         }

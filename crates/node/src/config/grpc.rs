@@ -19,8 +19,6 @@ pub struct GrpcConfig {
     pub addr: IpAddr,
     /// The port to listen on.
     pub port: u16,
-    /// Maximum number of concurrent connections.
-    pub max_connections: Option<u32>,
     /// Request timeout in seconds.
     pub timeout: Option<Duration>,
 }
@@ -37,22 +35,7 @@ impl Default for GrpcConfig {
         Self {
             addr: DEFAULT_GRPC_ADDR,
             port: DEFAULT_GRPC_PORT,
-            max_connections: None,
             timeout: Some(Duration::from_secs(DEFAULT_GRPC_TIMEOUT_SECS)),
         }
-    }
-}
-
-#[cfg(feature = "grpc")]
-impl From<GrpcConfig> for katana_grpc::GrpcConfig {
-    fn from(config: GrpcConfig) -> Self {
-        let mut grpc_config = katana_grpc::GrpcConfig::new(config.addr, config.port);
-        if let Some(max_connections) = config.max_connections {
-            grpc_config = grpc_config.with_max_connections(max_connections);
-        }
-        if let Some(timeout) = config.timeout {
-            grpc_config = grpc_config.with_timeout(timeout);
-        }
-        grpc_config
     }
 }

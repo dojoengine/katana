@@ -23,6 +23,8 @@ use katana_executor::implementation::blockifier::BlockifierFactory;
 use katana_executor::{ExecutionFlags, ExecutorFactory};
 use katana_gas_price_oracle::{FixedPriceOracle, GasPriceOracle};
 use katana_gateway_server::{GatewayServer, GatewayServerHandle};
+#[cfg(feature = "grpc")]
+use katana_grpc::{GrpcServer, GrpcServerHandle};
 use katana_metrics::exporters::prometheus::{Prometheus, PrometheusRecorder};
 use katana_metrics::sys::DiskReporter;
 use katana_metrics::{MetricsServer, MetricsServerHandle, Report};
@@ -53,8 +55,6 @@ use katana_rpc_server::starknet::{StarknetApi, StarknetApiConfig};
 #[cfg(feature = "tee")]
 use katana_rpc_server::tee::TeeApi;
 use katana_rpc_server::{RpcServer, RpcServerHandle};
-#[cfg(feature = "grpc")]
-use katana_grpc::{GrpcServer, GrpcServerHandle};
 use katana_rpc_types::GetBlockWithTxHashesResponse;
 use katana_stage::Sequencing;
 use katana_tasks::TaskManager;
@@ -81,8 +81,6 @@ where
     rpc_server: RpcServer,
     #[cfg(feature = "grpc")]
     grpc_server: Option<GrpcServer>,
-    #[cfg(feature = "grpc")]
-    starknet_api: Option<StarknetApi<TxPool, BlockProducer<BlockifierFactory, P>, P>>,
     task_manager: TaskManager,
     backend: Arc<Backend<BlockifierFactory, P>>,
     block_producer: BlockProducer<BlockifierFactory, P>,
@@ -339,10 +337,27 @@ where
         // --- build gRPC server (optional)
 
         #[cfg(feature = "grpc")]
-        let (grpc_server, starknet_api_for_grpc) = if let Some(grpc_config) = &config.grpc {
-            (Some(GrpcServer::new(grpc_config.clone().into())), Some(starknet_api.clone()))
+        let grpc_server = if let Some(grpc_config) = &config.grpc {
+            use katana_grpc::{
+                StarknetServer, StarknetService, StarknetTraceServer, StarknetWriteServer,
+            };
+
+            let mut server = GrpcServer::new();
+
+            if let Some(timeout) = grpc_config.timeout {
+                server = server.timeout(timeout);
+            }
+
+            let svc = StarknetService::new(starknet_api.clone());
+
+            server = server
+                .service(StarknetServer::new(svc.clone()))
+                .service(StarknetTraceServer::new(svc.clone()))
+                .service(StarknetWriteServer::new(svc.clone()));
+
+            Some(server)
         } else {
-            (None, None)
+            None
         };
 
         // --- build feeder gateway server (optional)
@@ -358,10 +373,6 @@ where
 
             Some(server)
         } else {
-            #[cfg(feature = "grpc")]
-            drop(starknet_api); // Avoid unused variable warning when gateway is disabled but grpc is enabled
-            #[cfg(not(feature = "grpc"))]
-            drop(starknet_api);
             None
         };
 
@@ -388,8 +399,6 @@ where
             rpc_server,
             #[cfg(feature = "grpc")]
             grpc_server,
-            #[cfg(feature = "grpc")]
-            starknet_api: starknet_api_for_grpc,
             gateway_server,
             block_producer,
             metrics_server,
@@ -573,14 +582,16 @@ where
         // --- start the gRPC server (if configured)
 
         #[cfg(feature = "grpc")]
-        let grpc_handle = match (&self.grpc_server, &self.starknet_api) {
-            (Some(server), Some(starknet_api)) => {
-                let config = self.config().grpc.as_ref().expect("qed; must exist");
-                let handle = server.clone().start(starknet_api.clone()).await?;
-                info!(target: "grpc", addr = %config.socket_addr(), "gRPC server started.");
-                Some(handle)
-            }
-            _ => None,
+        let grpc_handle = if let Some(server) = &self.grpc_server {
+            let config = self
+                .config()
+                .grpc
+                .as_ref()
+                .expect("qed; config must exist if grpc server is configured");
+
+            Some(server.start(config.socket_addr()).await?)
+        } else {
+            None
         };
 
         // --- start the gas oracle worker task

@@ -6072,10 +6072,7 @@ dependencies = [
 name = "katana-grpc"
 version = "1.7.0"
 dependencies = [
- "katana-chain-spec",
- "katana-core",
- "katana-executor",
- "katana-gas-price-oracle",
+ "http 0.2.12",
  "katana-pool",
  "katana-primitives",
  "katana-provider",
@@ -6083,13 +6080,15 @@ dependencies = [
  "katana-rpc-server",
  "katana-rpc-types",
  "katana-rpc-types-builder",
- "katana-tasks",
  "prost 0.12.6",
+ "serde_json",
+ "starknet",
  "thiserror 1.0.69",
  "tokio",
  "tonic 0.11.0",
  "tonic-build",
  "tonic-reflection",
+ "tower-service",
  "tracing",
 ]
 

@@ -21,16 +21,14 @@ pub fn to_status(err: StarknetApiError) -> Status {
         StarknetApiError::TxnHashNotFound => Status::new(Code::NotFound, "Transaction not found"),
         StarknetApiError::ContractNotFound => Status::new(Code::NotFound, "Contract not found"),
         StarknetApiError::ClassHashNotFound => Status::new(Code::NotFound, "Class hash not found"),
+        StarknetApiError::NoBlocks => Status::new(Code::NotFound, "No blocks"),
+        StarknetApiError::EntrypointNotFound => Status::new(Code::NotFound, "Entrypoint not found"),
 
         // Invalid argument errors -> INVALID_ARGUMENT
         StarknetApiError::InvalidTxnIndex => {
             Status::new(Code::InvalidArgument, "Invalid transaction index")
         }
-        StarknetApiError::InvalidBlockId => Status::new(Code::InvalidArgument, "Invalid block id"),
         StarknetApiError::InvalidCallData => Status::new(Code::InvalidArgument, "Invalid calldata"),
-        StarknetApiError::InvalidMessageSelector => {
-            Status::new(Code::InvalidArgument, "Invalid message selector")
-        }
         StarknetApiError::InvalidContractClass => {
             Status::new(Code::InvalidArgument, "Invalid contract class")
         }
@@ -43,6 +41,12 @@ pub fn to_status(err: StarknetApiError) -> Status {
         StarknetApiError::TooManyAddressesInFilter => {
             Status::new(Code::InvalidArgument, "Too many addresses in filter")
         }
+        StarknetApiError::TooManyBlocksBack => {
+            Status::new(Code::InvalidArgument, "Too many blocks back")
+        }
+        StarknetApiError::InvalidSubscriptionId => {
+            Status::new(Code::InvalidArgument, "Invalid subscription id")
+        }
 
         // Resource exhausted errors -> RESOURCE_EXHAUSTED
         StarknetApiError::PageSizeTooBig(data) => Status::new(
@@ -53,25 +57,44 @@ pub fn to_status(err: StarknetApiError) -> Status {
             Code::ResourceExhausted,
             format!("Proof limit exceeded: {} keys requested, limit is {}", data.total, data.limit),
         ),
+        StarknetApiError::ContractClassSizeIsTooLarge => {
+            Status::new(Code::ResourceExhausted, "Contract class size is too large")
+        }
 
         // Transaction validation errors -> FAILED_PRECONDITION
         StarknetApiError::InsufficientAccountBalance => {
             Status::new(Code::FailedPrecondition, "Insufficient account balance")
         }
-        StarknetApiError::InsufficientMaxFee => {
-            Status::new(Code::FailedPrecondition, "Insufficient max fee")
+        StarknetApiError::InsufficientResourcesForValidate => {
+            Status::new(Code::FailedPrecondition, "Insufficient resources for validation")
         }
-        StarknetApiError::InvalidNonce => {
-            Status::new(Code::FailedPrecondition, "Invalid transaction nonce")
-        }
+        StarknetApiError::InvalidTransactionNonce(data) => Status::new(
+            Code::FailedPrecondition,
+            format!("Invalid transaction nonce: {}", data.reason),
+        ),
         StarknetApiError::ValidationFailure(data) => {
-            Status::new(Code::FailedPrecondition, format!("Validation failure: {}", data.message))
+            Status::new(Code::FailedPrecondition, format!("Validation failure: {}", data.reason))
         }
         StarknetApiError::NonAccount => {
             Status::new(Code::FailedPrecondition, "Sender address is not an account contract")
         }
-        StarknetApiError::DuplicateTx => {
+        StarknetApiError::DuplicateTransaction => {
             Status::new(Code::FailedPrecondition, "Transaction already exists in pool")
+        }
+        StarknetApiError::CompiledClassHashMismatch => {
+            Status::new(Code::FailedPrecondition, "Compiled class hash mismatch")
+        }
+        StarknetApiError::FailedToReceiveTxn => {
+            Status::new(Code::FailedPrecondition, "Failed to receive transaction")
+        }
+        StarknetApiError::FailedToFetchPendingTransactions => {
+            Status::new(Code::FailedPrecondition, "Failed to fetch pending transactions")
+        }
+        StarknetApiError::ReplacementTransactionUnderpriced => {
+            Status::new(Code::FailedPrecondition, "Replacement transaction underpriced")
+        }
+        StarknetApiError::FeeBelowMinimum => {
+            Status::new(Code::FailedPrecondition, "Fee below minimum")
         }
 
         // Unsupported errors -> UNIMPLEMENTED
@@ -81,6 +104,13 @@ pub fn to_status(err: StarknetApiError) -> Status {
         StarknetApiError::UnsupportedTransactionVersion => {
             Status::new(Code::Unimplemented, "Unsupported transaction version")
         }
+        StarknetApiError::StorageProofNotSupported(data) => Status::new(
+            Code::Unimplemented,
+            format!(
+                "Storage proof not supported: oldest block {}, requested {}",
+                data.oldest_block, data.requested_block
+            ),
+        ),
 
         // Execution errors -> FAILED_PRECONDITION with details
         StarknetApiError::ContractError(data) => {
